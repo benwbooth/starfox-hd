@@ -1,0 +1,6 @@
+reference/
+data/
+build/
+*.sfc
+*.zip
+.direnv/
