@@ -298,6 +298,13 @@ pub struct Shell {
     bg2_xscroll: i16,
     /// C `g_nomaxbg2Yscroll` (game_vars.c:195). TODO(sf-strat/render).
     nomax_bg2_yscroll: u8,
+
+    /// Strategy-registration hook (C `Strat_RegisterAll`, boot.c). Injected
+    /// by the app layer because `sf-strat` depends on `sf-game`, so this
+    /// crate can't call `sf_strat::table::register_all` directly. Invoked
+    /// after every `World::init()` reset (game_init/title_tick/gameplay
+    /// start), mirroring how C re-runs Strat_RegisterAll on each level load.
+    register_strats: Option<Box<dyn Fn(&mut Game)>>,
 }
 
 impl Shell {
@@ -326,6 +333,24 @@ impl Shell {
             doingwipe: 0,
             bg2_xscroll: 0,
             nomax_bg2_yscroll: 0,
+            register_strats: None,
+        }
+    }
+
+    /// Install the strategy-registration hook (app layer passes
+    /// `sf_strat::table::register_all`). Runs it once now for the current
+    /// world, then re-runs it after every `World::init()` reset.
+    pub fn set_register_strats(&mut self, hook: Box<dyn Fn(&mut Game)>) {
+        hook(&mut self.game);
+        self.register_strats = Some(hook);
+    }
+
+    /// Re-run the registration hook after a `World::init()` reset (C re-runs
+    /// Strat_RegisterAll on each level load).
+    fn reregister_strats(&mut self) {
+        if let Some(hook) = self.register_strats.take() {
+            hook(&mut self.game);
+            self.register_strats = Some(hook);
         }
     }
 
@@ -491,6 +516,7 @@ impl Shell {
         self.camera = GameCamera::new();
         self.camera.init(&mut self.game.vars);
         self.game.world = World::init();
+        self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:123-127): the sf-path literal
         // catalog is a static singleton consumed via
         // Hooks::resolve_path_start — no per-run state to reset.
@@ -554,6 +580,7 @@ impl Shell {
             self.game.objs = Objects::init();
             self.camera.init(&mut self.game.vars);
             self.game.world = World::init();
+            self.reregister_strats();
             // TODO(wave3): sf_strat::table::register_all(&mut self.game)
             //   (C Strat_RegisterAll, boot.c:146).
             self.load_map(sf_map::catalog::map_id::TITLE);
@@ -611,6 +638,7 @@ impl Shell {
         self.game.objs = Objects::init();
         self.camera.init(&mut self.game.vars);
         self.game.world = World::init();
+        self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:79-83): static catalog via
         // Hooks::resolve_path_start.
         // MapExec_Init (boot.c:84): covered by World::init + load_map.

@@ -218,7 +218,10 @@ fn main() {
     // C boot.c: Strat_RegisterAll() after World_Init — populate g_istrats[]
     // and the strategy address map so map objects get their per-frame AI and
     // the player alien exists.
-    sf_strat::table::register_all(&mut shell.game);
+    // Install the strategy registration hook: runs now and re-runs after
+    // every World::init() reset in the shell (C re-runs Strat_RegisterAll on
+    // each level load; a startup-only call gets wiped by the first reset).
+    shell.set_register_strats(Box::new(sf_strat::table::register_all));
     let mut dump = StateDump::from_env();
     let max_ticks: Option<u64> = std::env::var("SF_MAX_TICKS")
         .ok()
