@@ -552,33 +552,36 @@ impl PathLiteralBuilder {
     }
 
     /// C `pb_emit_spawn` — shared payload for P_SPAWN/P_SPAWNLINK/P_SPAWNCHILD.
+    /// Public because the C catalog calls it directly with an explicit opcode
+    /// in a few places (e_ufo etc.), not only via the spawn_link/child wrappers.
     #[allow(clippy::too_many_arguments)]
-    fn emit_spawn(
+    pub fn emit_spawn(
         &mut self,
-        opcode: u8,
-        x: i8,
-        y: i8,
-        z: i8,
-        rotx: i8,
-        roty: i8,
-        rotz: i8,
-        shape: u16,
-        path_id: u16,
-        hp: u8,
-        ap: u8,
-        child_num: u8,
+        opcode: impl Into<i32>,
+        x: impl Into<i32>,
+        y: impl Into<i32>,
+        z: impl Into<i32>,
+        rotx: impl Into<i32>,
+        roty: impl Into<i32>,
+        rotz: impl Into<i32>,
+        shape: impl Into<i32>,
+        path_id: impl Into<i32>,
+        hp: impl Into<i32>,
+        ap: impl Into<i32>,
+        child_num: impl Into<i32>,
     ) {
+        let opcode = opcode.into() as u8;
         self.emit8(opcode);
-        self.emit16(shape as i32);
-        self.emit16(path_id as i32);
-        self.emit8(rotx as u8);
-        self.emit8(roty as u8);
-        self.emit8(rotz as u8);
+        self.emit16(shape);
+        self.emit16(path_id);
+        self.emit8(rotx);
+        self.emit8(roty);
+        self.emit8(rotz);
         self.emit8(hp);
         self.emit8(ap);
-        self.emit8(x as u8);
-        self.emit8(y as u8);
-        self.emit8(z as u8);
+        self.emit8(x);
+        self.emit8(y);
+        self.emit8(z);
         if opcode == P_SPAWNCHILD {
             self.emit8(child_num);
         }
