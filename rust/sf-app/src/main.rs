@@ -215,9 +215,10 @@ fn main() {
     }
 
     let mut shell = Shell::new();
-    // TODO(wave3): sf_strat::table::register_all(&mut shell.game) once the
-    // strat lane fills rust/sf-strat/src/table.rs (empty as of this port);
-    // until then map objects spawn inert and no player alien exists.
+    // C boot.c: Strat_RegisterAll() after World_Init — populate g_istrats[]
+    // and the strategy address map so map objects get their per-frame AI and
+    // the player alien exists.
+    sf_strat::table::register_all(&mut shell.game);
     let mut dump = StateDump::from_env();
     let max_ticks: Option<u64> = std::env::var("SF_MAX_TICKS")
         .ok()
