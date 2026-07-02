@@ -13,5 +13,10 @@ sf-core.workspace = true
 sf-path.workspace = true
 sf-map.workspace = true
 sf-strat.workspace = true
+sf-game.workspace = true
 sf-render.workspace = true
 sf-audio.workspace = true
+# SDL3 3.4 from the nix devshell (same pkg-config discovery as the
+# sf-render dev-dependency).
+sdl3 = { version = "0.18", features = ["use-pkg-config"] }
+glow = "0.17"

@@ -35,4 +35,14 @@ pub mod obj;
 pub mod vars;
 pub mod world;
 
+// Shell/glue layer (C oracle: boot.c state machine, draw.c Draw_BuildList,
+// game.c camera, bgs.c/windows.c/strings.c/planets.c frame-input producers).
+pub mod bgs;
+pub mod camera;
+pub mod draw;
+pub mod planets;
+pub mod shell;
+pub mod strings;
+pub mod windows;
+
 pub use game::{Game, Hooks, NullHooks};

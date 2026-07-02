@@ -140,8 +140,11 @@ dependencies = [
 name = "sf-app"
 version = "0.1.0"
 dependencies = [
+ "glow",
+ "sdl3",
  "sf-audio",
  "sf-core",
+ "sf-game",
  "sf-map",
  "sf-path",
  "sf-render",
