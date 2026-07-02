@@ -108,6 +108,21 @@ const ASF2_SFLAG1: u8 = 0x10;
 const SHAPE_MYSHIP_4: u16 = 2;
 const SHAPE_ARWING: u16 = 2;
 
+/// Visible mesh for the player's fired laser/beam bolts.
+///
+/// The faithful ROM shape is `elaser2` (USHAPES.ASM:278, an animated needle
+/// bolt spawned by `fire_Elaser`, GSTRATS.ASM:2346), but `elaser2` has no
+/// `def_shape` entry in ISTRATS.ASM so `tools/shape_compiler.py` never assigns
+/// it a runtime id and sf-render has no mesh for it. `strat_spawn_projectile`
+/// therefore stubbed every projectile as `shape = 0` + `ASF_INVISIBLE`, which
+/// `Draw_BuildList` skips on BOTH filters (shape==0 and invisible) — the reason
+/// player lasers were invisible in both the C and Rust builds.
+///
+/// Until sf-render registers the real `elaser2` mesh (see this crate's fix
+/// report), we point player bolts at `largeplasma` (shape id 11, a registered
+/// plasma-bolt quad) so shots are actually drawn.
+const SHAPE_PLAYER_LASER: u16 = 11;
+
 // --- Rotation speeds (PSTRATS.ASM) ---
 const XROT_SPEED: i16 = 0x200;
 const ZROT_SPEED: i16 = 0x200;
@@ -550,8 +565,18 @@ fn setcurrpshape(g: &mut Game, idx: u16) {
 // ============================================================
 
 /// C `barrel_roll_update` (playermove_srou .nroll/.zroll blocks).
+///
+/// The barrel roll triggers on the L/R SHOULDER buttons only, matching the
+/// ASM `s_jmp_anyLRkeyup`/`s_jmp_anyLRkeydown` macros (STRATMAC.INC:1389-1403),
+/// which test `contl0 & (key_leftl|key_rightl)`. Those bits are `$20|$10` in
+/// the pad low byte = bits 5,4 = `pad_TLEFT`/`pad_TRIGHT` (VARS.INC:55-56,72-73)
+/// — the "LR" is Left/Right *shoulder*, NOT the dpad. The frozen C port's
+/// `barrel_roll_update` wrongly OR-ed in `PAD_LEFT|PAD_RIGHT` (dpad steering),
+/// so on a gamepad, steering left/right spuriously triggered rolls. Steering
+/// is handled separately by the `PAD_LEFT`/`PAD_RIGHT` blocks in
+/// `playermove_srou`.
 fn barrel_roll_update(g: &mut Game, allow_start: bool) {
-    let lr_mask = pad::LEFT | pad::RIGHT | pad::TLEFT | pad::TRIGHT;
+    let lr_mask = pad::TLEFT | pad::TRIGHT;
     let lr_down = pad1(g) & lr_mask != 0;
     let lr_prev = pad1_prev(g) & lr_mask != 0;
 
@@ -564,7 +589,7 @@ fn barrel_roll_update(g: &mut Game, allow_start: bool) {
         }
 
         if allow_start && delay == 0 && lr_down && !lr_prev {
-            if pad1(g) & (pad::RIGHT | pad::TRIGHT) != 0 {
+            if pad1(g) & pad::TRIGHT != 0 {
                 g.vars.set_sv_u8(sv::PLAYER_ROLLZVEL, 32);
             } else {
                 g.vars.set_sv_u8(sv::PLAYER_ROLLZVEL, (-32i8) as u8);
@@ -855,7 +880,15 @@ fn spawn_player_projectile(
     )?;
 
     if track_in_numplasers {
-        g.objs.aliens[shot as usize].sbyte6 |= 1;
+        // Laser/beam bolts (Y-fire): make them visible. `strat_spawn_projectile`
+        // stubs every projectile as shape 0 + ASF_INVISIBLE, which the draw
+        // list skips; give player bolts a real shape and clear the flag so they
+        // render (the nuke, track=false, keeps the stub — its faithful shape is
+        // likewise unregistered).
+        let laser = &mut g.objs.aliens[shot as usize];
+        laser.shape = SHAPE_PLAYER_LASER;
+        laser.sflags &= !ASF_INVISIBLE;
+        laser.sbyte6 |= 1;
         let n = g.vars.sv_u8(sv::NUMPLASERS);
         if n < 0xFF {
             g.vars.set_sv_u8(sv::NUMPLASERS, n + 1);
