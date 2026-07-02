@@ -220,6 +220,12 @@ pub fn register_all(g: &mut Game) {
     g.world
         .register_strategy_address(STRAT_ADDR_TOW0EXPLODE, ea.tow0_explode);
     g.world.register_strategy_address(STRAT_ADDR_GATE3, ea.gate3);
+    // C `world_cb_set_player_exitbase_l` (world.c:595) calls Strat_PlayerExitBase
+    // directly; the Rust map-VM builtin routes through this registered address.
+    g.world.register_strategy_address(
+        sf_game::world::STRAT_ADDR_PLAYER_EXITBASE,
+        p.exit_base_init,
+    );
 }
 
 #[cfg(test)]

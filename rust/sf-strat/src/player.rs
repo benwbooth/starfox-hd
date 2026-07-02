@@ -10,9 +10,13 @@
 //!
 //! C `self->stratptr = fn` chaining is mirrored through the sf-game
 //! strategy registry: [`install`] registers the block in a fixed order and
-//! stores the base id in WRAM ([`sv::SID_PLAYER_BASE`]); chaining then
-//! assigns `StratId(base + K_*)`. Registration is lazy (first use installs)
-//! so no wiring order is imposed on other lanes.
+//! chaining then assigns `StratId(base + K_*)`. The base is derived from the
+//! LIVE registry each time ([`ids_base`] finds the already-registered block by
+//! its head function's pointer identity, else registers it) rather than cached
+//! in WRAM — the registry is rebuilt on every `World::init` (each level load,
+//! C `Strat_RegisterAll`), so a cached base would go stale and alias another
+//! lane's strategies. Registration is lazy (first use installs) so no wiring
+//! order is imposed on other lanes.
 
 use crate::common::{
     sf_random, strat_apply_velocity, strat_chase, strat_chase_proportional, strat_gen_vecs_3d,
@@ -190,8 +194,12 @@ const K_OPENING_INIT: u16 = 16;
 const K_PLAYERPENING_STRAT: u16 = 17;
 const K_OPENINGBOOST_STRAT: u16 = 18;
 const K_VIEWOPENING_STRAT: u16 = 19;
+// C `Strat_PlayerExitBase` (set_playerExitBase_l): the hangar-launch init that
+// re-parks the player at worldz=-200 and hides it. Invoked from the map VM's
+// SET_PLAYER_EXITBASE_L callback (registered at STRAT_ADDR_PLAYER_EXITBASE).
+const K_EXITBASE_INIT: u16 = 20;
 
-const FNS: [StrategyFn; 20] = [
+const FNS: [StrategyFn; 21] = [
     strat_player,
     playercoll_istrat,
     playerdead_istrat,
@@ -212,18 +220,31 @@ const FNS: [StrategyFn; 20] = [
     playerpening_strat,
     playeropeningboost_strat,
     viewopening_strat,
+    strat_player_exit_base,
 ];
 
 fn ids_base(g: &mut Game) -> u16 {
-    let stored = g.vars.sv_u16(sv::SID_PLAYER_BASE);
-    if stored != 0 {
-        return stored - 1;
+    // The strat registry (`g.world.strat_registry`) is rebuilt on every
+    // `World::init` — i.e. every level load (C `Strat_RegisterAll` runs each
+    // load, boot.c:85). A base cached in WRAM survives that reset and goes
+    // stale: after begin_gameplay's `World::init` the fresh registry no longer
+    // holds the player block, so a cached base would alias whatever lane
+    // (enemy_a) registered at that index — the player would run e.g.
+    // strat_boss1_init. Derive the base from the LIVE registry instead,
+    // finding the already-registered FNS block by its head function's pointer
+    // identity (matching `enemy_a::sid`), and register the block on first use.
+    if let Some(pos) = g
+        .world
+        .strat_registry
+        .iter()
+        .position(|&r| r as usize == FNS[0] as usize)
+    {
+        return pos as u16;
     }
     let base = g.world.strat_registry.len() as u16;
     for f in FNS {
         g.world.register_strategy(f);
     }
-    g.vars.set_sv_u16(sv::SID_PLAYER_BASE, base + 1);
     base
 }
 
@@ -247,6 +268,8 @@ pub struct PlayerStratIds {
     pub escape_nucleus_init: StratId,
     /// `playeropening_Istrat`.
     pub opening_init: StratId,
+    /// `Strat_PlayerExitBase` (set_playerExitBase_l hangar-launch init).
+    pub exit_base_init: StratId,
 }
 
 /// Register the player strategy block (idempotent) and return the public
@@ -261,6 +284,7 @@ pub fn install(g: &mut Game) -> PlayerStratIds {
         clear_bridge_init: StratId(base + K_CLEARBRIDGE_INIT),
         escape_nucleus_init: StratId(base + K_ESCNUCLEUS_INIT),
         opening_init: StratId(base + K_OPENING_INIT),
+        exit_base_init: StratId(base + K_EXITBASE_INIT),
     }
 }
 

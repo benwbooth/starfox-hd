@@ -571,6 +571,18 @@ impl Game {
                 self.world.lastplayz = 0;
                 // jsl clearmap_l.
                 self.clear_map_objects(false);
+                // Strat_PlayerExitBase(Obj_GetPlayer()) — routed through the
+                // strat registry (registered by sf_strat::table::register_all at
+                // STRAT_ADDR_PLAYER_EXITBASE) so sf-game needn't depend on
+                // sf-strat. Obj_GetPlayer() is slot 0 when active (obj.c:125).
+                if self.objs.aliens[0].active {
+                    if let Some(sid) = self
+                        .world
+                        .find_strategy_address(crate::world::STRAT_ADDR_PLAYER_EXITBASE)
+                    {
+                        self.call_strat(sid, 0);
+                    }
+                }
                 self.hooks.player_exit_base();
                 true
             }

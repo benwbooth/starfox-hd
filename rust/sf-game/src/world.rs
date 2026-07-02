@@ -10,6 +10,14 @@ use crate::game::{Game, StrategyFn};
 use crate::vars::{COLLTYPE_ENEMY1, HARD_AP, HARD_HP};
 use sf_map::levels::{BuiltLevel, InlineCallback, NativeCallback};
 
+/// Synthetic strategy-address key for `Strat_PlayerExitBase`, registered by
+/// the strat lane (`sf_strat::table::register_all`) and looked up by the map
+/// VM's SET_PLAYER_EXITBASE_L builtin callback (C `world_cb_set_player_exitbase_l`
+/// calls `Strat_PlayerExitBase` directly; the Rust port routes through the
+/// strat registry to avoid an sf-game -> sf-strat dependency). Value chosen to
+/// not collide with the other 0x03xxxx synthetic addresses (table.rs).
+pub const STRAT_ADDR_PLAYER_EXITBASE: u32 = 0x03_0003;
+
 /// Map opcode constants (C `src/game/world.h` MAP_OP_*, from MAPMACS.INC).
 pub mod op {
     pub const MAPOBJ: u8 = 0;
