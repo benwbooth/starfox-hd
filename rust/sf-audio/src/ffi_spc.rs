@@ -88,6 +88,17 @@ impl Spc {
 
     /// Generate interleaved stereo samples and run the SNES output filter,
     /// like the C `SpcPlayer_Generate` inner loop.
+    /// Generate interleaved stereo samples WITHOUT the output filter (raw
+    /// oracle DSP/CPU output) — used by pre-filter parity cross-checks.
+    pub fn play_raw(&mut self, out: &mut [i16]) -> Result<(), &'static str> {
+        assert!(out.len() % 2 == 0, "stereo pair count");
+        let err = unsafe { ffi::spc_play(self.spc, out.len() as i32, out.as_mut_ptr()) };
+        if !err.is_null() {
+            return Err("spc_play failed");
+        }
+        Ok(())
+    }
+
     pub fn play_filtered(&mut self, out: &mut [i16]) -> Result<(), &'static str> {
         assert!(out.len() % 2 == 0, "stereo pair count");
         let err = unsafe { ffi::spc_play(self.spc, out.len() as i32, out.as_mut_ptr()) };
@@ -100,6 +111,18 @@ impl Spc {
 
     pub fn filter_clear(&mut self) {
         unsafe { ffi::spc_filter_clear(self.filter) }
+    }
+
+    /// Load an SPC file image (CPU cross-check micro-tests only).
+    pub fn debug_load_spc(&mut self, data: &[u8]) -> Result<(), &'static str> {
+        let err = unsafe {
+            ffi::spc_load_spc(self.spc, data.as_ptr() as *const std::ffi::c_void, data.len() as i64)
+        };
+        if err.is_null() {
+            Ok(())
+        } else {
+            Err("spc_load_spc failed")
+        }
     }
 }
 
@@ -115,6 +138,33 @@ impl Drop for Spc {
             ffi::spc_filter_delete(self.filter);
             ffi::spc_delete(self.spc);
         }
+    }
+}
+
+impl crate::backend::SpcEngine for Spc {
+    fn init_rom(&mut self, rom: &[u8; 0x40]) {
+        Spc::init_rom(self, rom)
+    }
+    fn reset(&mut self) {
+        Spc::reset(self)
+    }
+    unsafe fn set_output(&mut self, out: *mut i16, size: i32) {
+        Spc::set_output(self, out, size)
+    }
+    fn detach_output(&mut self) {
+        Spc::detach_output(self)
+    }
+    fn end_frame(&mut self, end_time: i32) {
+        Spc::end_frame(self, end_time)
+    }
+    fn sample_count(&self) -> i32 {
+        Spc::sample_count(self)
+    }
+    fn read_port(&mut self, time: i32, port: i32) -> i32 {
+        Spc::read_port(self, time, port)
+    }
+    fn write_port(&mut self, time: i32, port: i32, data: i32) {
+        Spc::write_port(self, time, port, data)
     }
 }
 

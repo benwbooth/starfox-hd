@@ -8,7 +8,8 @@
 //! a track are uploaded, execution is transferred to the driver entry point
 //! ($0400), exactly like sbootapu does.
 
-use crate::spc::{Spc, IPL_ROM};
+use crate::backend::SpcEngine;
+use crate::spc::IPL_ROM;
 use std::fmt;
 use std::path::Path;
 
@@ -234,13 +235,13 @@ impl std::error::Error for BootError {}
 // Boot context: SPC + rotating dummy output buffer.  Boxed so the pointer
 // handed to spc_set_output stays stable for the whole upload.
 // ---------------------------------------------------------------------------
-struct Booter<'a> {
-    spc: &'a mut Spc,
+struct Booter<'a, S: SpcEngine> {
+    spc: &'a mut S,
     buf: Box<[i16; BOOT_BUF_SIZE]>,
 }
 
-impl<'a> Booter<'a> {
-    fn new(spc: &'a mut Spc) -> Self {
+impl<'a, S: SpcEngine> Booter<'a, S> {
+    fn new(spc: &'a mut S) -> Self {
         let mut b = Booter {
             spc,
             buf: Box::new([0i16; BOOT_BUF_SIZE]),
@@ -389,7 +390,11 @@ fn load_bin_file(asset_dir: &Path, filename: &str) -> std::io::Result<Vec<u8>> {
 ///
 /// `asset_dir` is the game data directory; sound data lives at
 /// `<asset_dir>/snd/`.
-pub fn load_track(spc: &mut Spc, track_id: u8, asset_dir: &Path) -> Result<(), BootError> {
+pub fn load_track<S: SpcEngine>(
+    spc: &mut S,
+    track_id: u8,
+    asset_dir: &Path,
+) -> Result<(), BootError> {
     if track_id >= SND_TRACK_COUNT {
         return Err(BootError::InvalidTrack(track_id));
     }

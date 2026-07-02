@@ -156,6 +156,7 @@ name = "sf-audio"
 version = "0.1.0"
 dependencies = [
  "sf-core",
+ "sf-spc",
 ]
 
 [[package]]
@@ -202,12 +203,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sf-spc"
+version = "0.1.0"
+
+[[package]]
 name = "sf-strat"
 version = "0.1.0"
 dependencies = [
  "sf-core",
  "sf-game",
  "sf-path",
+]
+
+[[package]]
+name = "sf2-data"
+version = "0.1.0"
+dependencies = [
+ "sf-core",
 ]
 
 [[package]]

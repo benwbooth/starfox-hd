@@ -6,5 +6,13 @@ license.workspace = true
 build = "build.rs"
 links = "snes_spc_rs"
 
+[features]
+# Default: pure-Rust `sf-spc` backend (no C++ dependency).
+default = []
+# Cross-check backend: bundled snes_spc C++ emulator behind FFI (bit-exact
+# oracle). Enabled by the A/B parity tests.
+ffi-oracle = []
+
 [dependencies]
 sf-core.workspace = true
+sf-spc.workspace = true

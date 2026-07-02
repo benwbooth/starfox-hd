@@ -17,6 +17,13 @@ const SOURCES: &[&str] = &[
 ];
 
 fn main() {
+    // The C++ snes_spc oracle is only needed for the opt-in `ffi-oracle`
+    // feature (cross-check parity tests). The default native build has no C++
+    // dependency, so skip compilation entirely.
+    if env::var_os("CARGO_FEATURE_FFI_ORACLE").is_none() {
+        return;
+    }
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let spc_dir = manifest.join("../../src/snes_spc");
