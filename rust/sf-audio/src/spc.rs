@@ -53,6 +53,39 @@ impl Spc {
         unsafe { ffi::spc_end_frame(self.spc, end_time) }
     }
 
+    /// Samples generated since the output buffer was last armed
+    /// (C `spc_sample_count`, used by `spc_advance` in spc_boot.c).
+    pub fn sample_count(&self) -> i32 {
+        unsafe { ffi::spc_sample_count(self.spc) }
+    }
+
+    /// Arm the emulator's output buffer (C `spc_set_output`).
+    ///
+    /// # Safety
+    /// `out` must stay valid (not moved or freed) until the buffer is
+    /// re-armed, detached with [`detach_output`](Self::detach_output), or
+    /// replaced by a `play_filtered`/`skip` call (spc_play/spc_skip re-arm
+    /// the output internally).
+    pub unsafe fn set_output(&mut self, out: *mut i16, out_size: i32) {
+        ffi::spc_set_output(self.spc, out, out_size)
+    }
+
+    /// Point the emulator at its internal dummy buffer so no external
+    /// pointer is retained (spc_set_output(NULL, 0)).
+    pub fn detach_output(&mut self) {
+        unsafe { ffi::spc_set_output(self.spc, std::ptr::null_mut(), 0) }
+    }
+
+    /// Emulate without keeping samples (C `spc_skip`).
+    pub fn skip(&mut self, count: i32) -> Result<(), &'static str> {
+        let err = unsafe { ffi::spc_skip(self.spc, count) };
+        if err.is_null() {
+            Ok(())
+        } else {
+            Err("spc_skip failed")
+        }
+    }
+
     /// Generate interleaved stereo samples and run the SNES output filter,
     /// like the C `SpcPlayer_Generate` inner loop.
     pub fn play_filtered(&mut self, out: &mut [i16]) -> Result<(), &'static str> {

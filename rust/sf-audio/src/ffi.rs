@@ -29,6 +29,7 @@ extern "C" {
     pub fn spc_delete(spc: *mut SnesSpc);
     pub fn spc_init_rom(spc: *mut SnesSpc, rom: *const c_uchar);
     pub fn spc_set_output(spc: *mut SnesSpc, out: *mut SpcSample, out_size: c_int);
+    pub fn spc_sample_count(spc: *const SnesSpc) -> c_int;
     pub fn spc_reset(spc: *mut SnesSpc);
     pub fn spc_get_ram(spc: *mut SnesSpc) -> *mut c_uchar;
     pub fn spc_read_port(spc: *mut SnesSpc, time: SpcTime, port: c_int) -> c_int;
