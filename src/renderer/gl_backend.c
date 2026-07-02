@@ -6,6 +6,11 @@
 GLuint g_flat_shader = 0;
 GLuint g_hud_shader = 0;
 
+// Streaming VAO/VBO for GlBackend_DrawLines (wireframe Face2 geometry).
+static GLuint s_line_vao = 0;
+static GLuint s_line_vbo = 0;
+static GLsizeiptr s_line_vbo_capacity = 0;
+
 // Embedded flat shader — no external files needed for basic rendering
 static const char *flat_vert_src =
     "#version 330 core\n"
@@ -31,19 +36,34 @@ static const char *hud_vert_src =
     "layout(location = 0) in vec2 aPos;\n"
     "layout(location = 1) in vec2 aTexCoord;\n"
     "uniform mat4 uProj;\n"
+    "uniform mat4 uModel;\n"
     "out vec2 vTexCoord;\n"
     "void main() {\n"
-    "    gl_Position = uProj * vec4(aPos, 0.0, 1.0);\n"
+    "    gl_Position = uProj * uModel * vec4(aPos, 0.0, 1.0);\n"
     "    vTexCoord = aTexCoord;\n"
     "}\n";
 
 static const char *hud_frag_src =
     "#version 330 core\n"
     "uniform vec4 uColor;\n"
+    "uniform sampler2D uTexture;\n"
+    "uniform int uUseTexture;\n"
+    "uniform vec4 uPalette[16];\n"
     "in vec2 vTexCoord;\n"
     "out vec4 FragColor;\n"
     "void main() {\n"
-    "    FragColor = uColor;\n"
+    "    if (uUseTexture == 2) {\n"
+    "        float idx_f = texture(uTexture, vTexCoord).r;\n"
+    "        int idx = int(idx_f * 255.0 + 0.5);\n"
+    "        if (idx == 0) discard;\n"
+    "        FragColor = uPalette[idx];\n"
+    "    } else if (uUseTexture == 1) {\n"
+    "        vec4 texel = texture(uTexture, vTexCoord);\n"
+    "        if (texel.a < 0.5) discard;\n"
+    "        FragColor = texel * uColor;\n"
+    "    } else {\n"
+    "        FragColor = uColor;\n"
+    "    }\n"
     "}\n";
 
 static char *LoadFile(const char *path) {
@@ -54,7 +74,8 @@ static char *LoadFile(const char *path) {
     fseek(f, 0, SEEK_SET);
     char *buf = malloc(len + 1);
     if (buf) {
-        fread(buf, 1, len, f);
+        size_t read = fread(buf, 1, len, f);
+        (void)read;
         buf[len] = '\0';
     }
     fclose(f);
@@ -150,6 +171,45 @@ void GlBackend_Shutdown(void) {
     if (g_hud_shader) glDeleteProgram(g_hud_shader);
     g_flat_shader = 0;
     g_hud_shader = 0;
+    if (s_line_vao) glDeleteVertexArrays(1, &s_line_vao);
+    if (s_line_vbo) glDeleteBuffers(1, &s_line_vbo);
+    s_line_vao = 0;
+    s_line_vbo = 0;
+    s_line_vbo_capacity = 0;
+}
+
+void GlBackend_DrawLines(const float *positions, int vertex_count) {
+    GLsizeiptr size;
+
+    if (!positions || vertex_count < 2) return;
+    vertex_count &= ~1;  // GL_LINES consumes pairs
+
+    if (!s_line_vao) {
+        glGenVertexArrays(1, &s_line_vao);
+        glGenBuffers(1, &s_line_vbo);
+        glBindVertexArray(s_line_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, s_line_vbo);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float),
+                              (void *)0);
+        glEnableVertexAttribArray(0);
+    } else {
+        glBindVertexArray(s_line_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, s_line_vbo);
+    }
+
+    size = (GLsizeiptr)(sizeof(float) * 3) * vertex_count;
+    if (size > s_line_vbo_capacity) {
+        glBufferData(GL_ARRAY_BUFFER, size, positions, GL_STREAM_DRAW);
+        s_line_vbo_capacity = size;
+    } else {
+        // Orphan-then-fill keeps the driver from stalling on reuse.
+        glBufferData(GL_ARRAY_BUFFER, s_line_vbo_capacity, NULL,
+                     GL_STREAM_DRAW);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, size, positions);
+    }
+
+    glDrawArrays(GL_LINES, 0, vertex_count);
+    glBindVertexArray(0);
 }
 
 void GlBackend_SetMat4(GLuint program, const char *name, const float *mat) {

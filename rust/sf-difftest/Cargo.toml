@@ -1,0 +1,12 @@
+[package]
+name = "sf-difftest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sf-difftest"
+path = "src/main.rs"
+
+[dependencies]
+sf-core.workspace = true

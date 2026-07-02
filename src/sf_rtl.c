@@ -33,6 +33,7 @@ static const struct {
     { SDL_SCANCODE_Q,      PAD_TLEFT },   // L shoulder
     { SDL_SCANCODE_W,      PAD_TRIGHT },  // R shoulder
     { SDL_SCANCODE_RETURN, PAD_START },   // Start
+    { SDL_SCANCODE_SPACE,  PAD_START },   // Start (alternate)
     { SDL_SCANCODE_RSHIFT, PAD_SELECT },  // Select
     { SDL_SCANCODE_UP,     PAD_UP },
     { SDL_SCANCODE_DOWN,   PAD_DOWN },
@@ -116,9 +117,31 @@ static uint16 ReadGamepad(void) {
     return pad;
 }
 
+// SF_AUTOPLAY=1: scripted pad input for unattended smoke tests (and, later,
+// deterministic differential runs against the Rust port). Presses Start at
+// the title and planet select, then flies straight holding fire.
+static uint16 AutoplayPad(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char *env = SDL_getenv("SF_AUTOPLAY");
+        enabled = (env && env[0] == '1') ? 1 : 0;
+    }
+    if (!enabled) return 0;
+
+    uint32 t = g_frame_count;
+    // Tap (don't hold) so g_pad1_new edges fire. The title ignores input for
+    // its first seconds, so keep tapping Start through the menus, then fly
+    // and fire (20 ticks/s logic rate).
+    if (t <= 400u) {
+        return (t % 60u) == 0u ? PAD_START : 0;
+    }
+    if ((t % 8u) < 4u) return PAD_Y;  // fire lasers while flying
+    return 0;
+}
+
 void SfRtl_BeginFrame(void) {
     g_pad1_prev = g_pad1;
-    g_pad1 = ReadKeyboard() | ReadGamepad();
+    g_pad1 = ReadKeyboard() | ReadGamepad() | AutoplayPad();
     g_pad1_new = g_pad1 & ~g_pad1_prev;
     g_frame_count++;
 }

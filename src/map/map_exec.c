@@ -1,23 +1,27 @@
-// Map script executor
-// Level scripts define when and where objects spawn
-// Uses a macro-based DSL (mapobj, mapwait, maploop, etc.)
+// Map execution facade.
+// Keeps the old map module boundary while delegating to world.c VM runtime.
 
-#include "../types.h"
-#include "../game/obj.h"
+#include "map_exec.h"
+#include "levels.h"
+#include "../game/world.h"
 
-// Map opcodes from MAPMACS.INC
-// TODO: Define all map macro opcodes
+static uint32 s_loaded_map_id;
 
 void MapExec_Init(void) {
-    // TODO: Initialize map executor state
+    s_loaded_map_id = MAP_ID_NONE;
 }
 
-void MapExec_LoadLevel(int level_id) {
-    // TODO: Load level script data
-    (void)level_id;
+void MapExec_LoadLevel(uint32 map_id) {
+    const MapLevelData *level = Levels_GetMapData(map_id);
+    if (!level || !level->data || level->length == 0) {
+        level = Levels_GetMapData(MAP_ID_NONE);
+    }
+
+    World_LoadLevel(level->data, level->length);
+    s_loaded_map_id = map_id;
 }
 
 void MapExec_Tick(void) {
-    // TODO: Execute map script for current Z position
-    // Spawn objects as the level scrolls
+    (void)s_loaded_map_id;
+    World_UpdateObjects();
 }

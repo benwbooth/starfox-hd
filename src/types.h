@@ -12,6 +12,8 @@ typedef uint32_t uint32;
 typedef int8_t   int8;
 typedef int16_t  int16;
 typedef int32_t  int32;
+typedef uint64_t uint64;
+typedef int64_t  int64;
 
 // SNES-style aliases
 typedef uint8  BYTE;
@@ -71,15 +73,27 @@ typedef uint16 angle16;
 #define ARRAY_SIZE(a)    (sizeof(a) / sizeof((a)[0]))
 
 // Draw list entry — the bridge between game logic and renderer
-// This replaces the Super FX shared SRAM communication
+// Decompiled from STRUCTS.INC dl_ structure (30 bytes on SNES).
+// On SNES this lived in shared SRAM at $700000 for the Super FX to read.
+// We use wider types (int32 for positions) since the OpenGL renderer needs them.
 typedef struct {
-    int32  x, y, z;          // World position (fixed-point 16.16)
-    int16  rx, ry, rz;       // Rotation angles (SNES angle units)
-    uint16 shape_id;          // Shape/model index
-    uint16 color_table;       // Color palette index
-    uint16 lod_depth;         // LOD selection depth
-    uint8  flags;             // Visibility, effects flags
-    uint8  explosion_state;   // 0=normal, >0=exploding frame
+    int32  x, y, z;           // World position (fixed-point 16.16)
+    int16  rx, ry, rz;        // Rotation angles (SNES 0-255 units, stored as int16)
+    uint16 shape_id;           // Shape index (dl_shape)
+    uint16 color_table;        // Color table pointer (dl_coltab)
+    int16  sort_z;             // Sort depth — ground objects get 15000 (dl_sortz)
+    uint8  sflags;             // Strategy flags copied from alien (dl_sflags)
+    uint8  explosion_cnt;      // Explosion frame count, 0=normal (dl_expcnt)
+    uint8  anim_frame;         // Animation frame 0-127 (dl_animframe)
+    uint8  col_frame;          // Color animation frame 0-127 (dl_colframe)
+    uint8  depth_offset;       // Depth layering offset (dl_depth)
+    uint8  flags;              // Visibility/effect flags
+    // Shadow/particle data (dl_shadx/y/z — used for particle objects)
+    int16  shad_x, shad_y, shad_z;
+    uint8  tscroll_x, tscroll_y; // Texture scroll coordinates (dl_tscrollx/y)
+    uint16 obj_id;               // Stable source-object id (alien index + 1);
+                                 // used to pair entries across frames for
+                                 // render interpolation. 0 = no identity.
 } DrawListEntry;
 
 // Draw list flags

@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PortTaskResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "completed",
+    "summary",
+    "files_touched",
+    "validation"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "completed": {
+      "type": "boolean"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "files_touched": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validation": {
+      "type": "string"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <SDL2/SDL.h>
 #include <glad/glad.h>
 
@@ -117,12 +118,36 @@ static void Shutdown(void) {
     SDL_Quit();
 }
 
+// SF_STATE_DUMP=<path>: per-tick state dump consumed by rust/sf-difftest.
+// Format: "T <tick> <pad> <state> <ndraw>" then one "E ..." line per entry.
+static FILE *g_state_dump;
+static uint64 g_state_dump_tick;
+
+static void StateDump_Tick(const DrawListEntry *list, int count) {
+    if (!g_state_dump) return;
+    fprintf(g_state_dump, "T %llu %u %u %d\n",
+            (unsigned long long)g_state_dump_tick++,
+            (unsigned)g_pad1, (unsigned)g_game_state, count);
+    for (int i = 0; i < count; i++) {
+        const DrawListEntry *e = &list[i];
+        fprintf(g_state_dump, "E %u %d %d %d %d %d %d %u\n",
+                (unsigned)e->shape_id, e->x, e->y, e->z,
+                (int)e->rx, (int)e->ry, (int)e->rz, (unsigned)e->flags);
+    }
+}
+
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
 
     if (!Init()) {
         Shutdown();
         return 1;
+    }
+
+    const char *dump_path = SDL_getenv("SF_STATE_DUMP");
+    if (dump_path && dump_path[0]) {
+        g_state_dump = fopen(dump_path, "w");
+        if (!g_state_dump) fprintf(stderr, "SF_STATE_DUMP: cannot open %s\n", dump_path);
     }
 
     // Fixed timestep game loop with interpolation
@@ -158,6 +183,7 @@ int main(int argc, char *argv[]) {
             SfRtl_BeginFrame();
             Game_Tick();
             curr_draw_count = Game_GetDrawList(curr_draw_list, MAX_DRAW_LIST);
+            StateDump_Tick(curr_draw_list, curr_draw_count);
 
             accumulator -= tick_duration;
         }
@@ -174,6 +200,7 @@ int main(int argc, char *argv[]) {
         SDL_GL_SwapWindow(g_window);
     }
 
+    if (g_state_dump) fclose(g_state_dump);
     Shutdown();
     return 0;
 }

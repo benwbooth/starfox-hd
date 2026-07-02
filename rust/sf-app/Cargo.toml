@@ -1,0 +1,17 @@
+[package]
+name = "sf-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "starfox-hd-rs"
+path = "src/main.rs"
+
+[dependencies]
+sf-core.workspace = true
+sf-path.workspace = true
+sf-map.workspace = true
+sf-strat.workspace = true
+sf-render.workspace = true
+sf-audio.workspace = true

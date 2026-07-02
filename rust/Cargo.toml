@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "sf-core",
+    "sf-path",
+    "sf-map",
+    "sf-strat",
+    "sf-render",
+    "sf-audio",
+    "sf-app",
+    "sf-difftest",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+sf-core = { path = "sf-core" }
+sf-path = { path = "sf-path" }
+sf-map = { path = "sf-map" }
+sf-strat = { path = "sf-strat" }
+sf-render = { path = "sf-render" }
+sf-audio = { path = "sf-audio" }
+
+[profile.release]
+debug = true

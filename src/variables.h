@@ -2,202 +2,22 @@
 #define STARFOX_VARIABLES_H
 
 // Star Fox RAM variable definitions
-// Extracted from UltraStarFox INC/ALCS.INC, DALCS.INC, EALCS.INC, KALCS.INC
+// Extracted from UltraStarFox INC/VARS.INC, GILESALC.INC, STRUCTS.INC
 //
-// The original game allocates variables sequentially using macros:
-//   zalc = zero page ($0000-$00FF)
-//   alc  = work RAM  ($0300-$1FFF)
-//   xalc = extended  ($7E2000+)
-//   malc = MARIO RAM ($700200+)
-//
-// We use the g_ram[] array and offset macros (snesrev pattern).
-// These offsets are computed from the assembly allocation order.
+// The original game allocates variables sequentially in SNES RAM.
+// We use proper C globals (in game_vars.h) instead of g_ram[] offsets.
+// g_ram[] is retained only for SNES hardware emulation in sf_rtl.c.
 
 #include "sf_rtl.h"
 
-// --- Helper macros for accessing g_ram as typed values ---
+// --- Helper macros for raw g_ram access (used sparingly) ---
 #define RAM8(off)    (g_ram[(off)])
 #define RAM16(off)   (*(uint16 *)&g_ram[(off)])
 #define RAM16S(off)  (*(int16 *)&g_ram[(off)])
 
 // ============================================================
-// Zero Page Variables (zalc, base = $00)
-// ============================================================
-
-// Rendering pipeline
-#define ZP_TRANS_FLAG    0x00
-#define ZP_X1_FRACT      0x01
-#define ZP_X1             0x02   // 2 bytes
-#define ZP_X2             0x04   // 2 bytes
-#define ZP_FRAMECNT       0x06
-#define ZP_Y1_FRACT       0x07
-#define ZP_Y1             0x08   // 2 bytes
-#define ZP_Y2             0x0A   // 2 bytes
-#define ZP_DX             0x0C   // 2 bytes
-#define ZP_DY             0x0E   // 2 bytes
-
-// Clipping
-#define ZP_CLX1           0x30   // 2 bytes
-#define ZP_CLY1           0x32   // 2 bytes
-#define ZP_CLX2           0x34   // 2 bytes
-#define ZP_CLY2           0x36   // 2 bytes
-
-// Text/print
-#define ZP_PRINTPT        0x44   // 2 bytes
-#define ZP_DRAWMAP        0x46   // 2 bytes
-#define ZP_SHOWMAP        0x48   // 2 bytes
-
-// Rotation angles (used by 3D engine)
-#define ZP_ROTX           0x80
-#define ZP_ROTY           0x81
-#define ZP_ROTZ           0x82
-
-// View position
-#define ZP_VIEWPOSX       0x90   // 2 bytes
-#define ZP_VIEWPOSY       0x92   // 2 bytes
-#define ZP_VIEWPOSZ       0x94   // 2 bytes
-#define ZP_VANISHX        0x96   // 2 bytes
-#define ZP_VANISHY        0x98   // 2 bytes
-
-// Object counts
-#define ZP_NUMPNTS        0xA0
-#define ZP_NUMFACES       0xA1
-#define ZP_NUMALS         0xA2
-#define ZP_NUMDRAWN       0xA3
-
-// Transform temporaries
-#define ZP_BIGX           0xB0   // 2 bytes
-#define ZP_BIGY           0xB2   // 2 bytes
-#define ZP_BIGZ           0xB4   // 2 bytes
-
-// PRNG (kept between levels)
-#define ZP_RAND           0xC0   // 2 or 4 bytes depending on rngmode
-
-// Input
-#define ZP_KEYBYTE        0xD0
-#define ZP_KEYBYTEL       0xD1
-
-// ============================================================
-// Work RAM Variables (alc, base = $300)
-// ============================================================
-#define WK_BASE           0x300
-
-// Controller state
-#define WK_CONT0L        (WK_BASE + 0x00)
-#define WK_CONT0         (WK_BASE + 0x01)
-#define WK_CONTL0L       (WK_BASE + 0x02)
-#define WK_CONTL0        (WK_BASE + 0x03)
-
-// World position
-#define WK_WORLDX        (WK_BASE + 0x20)  // 2 bytes
-#define WK_WORLDY        (WK_BASE + 0x22)  // 2 bytes
-#define WK_WORLDZ        (WK_BASE + 0x24)  // 2 bytes
-
-// Alien management
-#define WK_ALLST          (WK_BASE + 0x26)  // 2 bytes - active alien list
-#define WK_ALFREELST      (WK_BASE + 0x28)  // 2 bytes - free alien blocks
-#define WK_SCENNUM        (WK_BASE + 0x2A)  // 2 bytes
-
-// Player rotation
-#define WK_PLROTX        (WK_BASE + 0x40)  // 2 bytes
-#define WK_PLROTY        (WK_BASE + 0x42)  // 2 bytes
-#define WK_PLROTZ        (WK_BASE + 0x44)  // 2 bytes
-
-// Game status
-#define WK_FLAGS          (WK_BASE + 0x50)
-#define WK_TYPE           (WK_BASE + 0x51)
-#define WK_ALDEAD         (WK_BASE + 0x52)
-#define WK_ENEMYS         (WK_BASE + 0x53)
-#define WK_ATTACKERS      (WK_BASE + 0x54)
-
-// Mario chip interface
-#define WK_MARIOCODE      (WK_BASE + 0x100)
-#define WK_MARIO_DRAW_MODE (WK_BASE + 0x101)
-
-// Rotation matrix (3x3, each element is 2 bytes: high.low)
-#define WK_MAT11W        (WK_BASE + 0x120)
-#define WK_MAT11         (WK_BASE + 0x121)
-#define WK_MAT12W        (WK_BASE + 0x122)
-#define WK_MAT12         (WK_BASE + 0x123)
-#define WK_MAT13W        (WK_BASE + 0x124)
-#define WK_MAT13         (WK_BASE + 0x125)
-#define WK_MAT21W        (WK_BASE + 0x126)
-#define WK_MAT21         (WK_BASE + 0x127)
-#define WK_MAT22W        (WK_BASE + 0x128)
-#define WK_MAT22         (WK_BASE + 0x129)
-#define WK_MAT23W        (WK_BASE + 0x12A)
-#define WK_MAT23         (WK_BASE + 0x12B)
-
-// World matrix
-#define WK_WMAT11W       (WK_BASE + 0x140)
-#define WK_WMAT11        (WK_BASE + 0x141)
-// ... (18 bytes total for 3x3 matrix with hi/lo pairs)
-
-// View rotation
-#define WK_VIEWROTXW     (WK_BASE + 0x170)
-#define WK_VIEWROTX      (WK_BASE + 0x171)
-#define WK_VIEWROTYW     (WK_BASE + 0x172)
-#define WK_VIEWROTY      (WK_BASE + 0x173)
-#define WK_VIEWROTZW     (WK_BASE + 0x174)
-#define WK_VIEWROTZ      (WK_BASE + 0x175)
-
-// Frame counters
-#define WK_GAMEFRAME     (WK_BASE + 0x180)  // 2 bytes
-#define WK_COLFRAME      (WK_BASE + 0x182)
-#define WK_ANIMFRAME     (WK_BASE + 0x183)
-
-// Scroll/background
-#define WK_BG2YSCROLL    (WK_BASE + 0x200)  // 2 bytes
-#define WK_BG2XSCROLL   (WK_BASE + 0x202)  // 2 bytes
-
-// Window/fade state
-#define WK_WINDOWPTR     (WK_BASE + 0x210)  // 2 bytes
-#define WK_WINDOWMODE    (WK_BASE + 0x212)
-
-// Planet/route
-#define WK_ROUTES        (WK_BASE + 0x300)  // 2*4 bytes
-#define WK_STAGE         (WK_BASE + 0x308)  // 2 bytes
-#define WK_WHICHROUTE    (WK_BASE + 0x30A)
-#define WK_LIVES         (WK_BASE + 0x30B)
-
-// Draw list
-#define WK_DLPTR         (WK_BASE + 0x400)  // 2 bytes
-#define WK_NUMSHAPES     (WK_BASE + 0x402)  // 2 bytes
-
-// Sound
-#define WK_LSND          (WK_BASE + 0x500)
-#define WK_CSND          (WK_BASE + 0x501)
-#define WK_RSND          (WK_BASE + 0x502)
-#define WK_MSND          (WK_BASE + 0x503)
-#define WK_FSND          (WK_BASE + 0x504)
-
-// Map/level
-#define WK_MAPCNT        (WK_BASE + 0x600)  // 2 bytes
-#define WK_MAPPTR        (WK_BASE + 0x602)  // 2 bytes
-#define WK_MAPVAR1       (WK_BASE + 0x604)  // 2 bytes
-#define WK_MAPVAR2       (WK_BASE + 0x606)  // 2 bytes
-#define WK_MAPVAR3       (WK_BASE + 0x608)  // 2 bytes
-#define WK_MAPVAR4       (WK_BASE + 0x60A)  // 2 bytes
-
-// HP values (from MAIN.ASM)
-#define WK_FOX_HP        (WK_BASE + 0x700)
-#define WK_BUNNY_HP      (WK_BASE + 0x701)
-#define WK_COCK_HP       (WK_BASE + 0x702)  // Falco
-#define WK_FROG_HP       (WK_BASE + 0x703)
-#define WK_PEPPER_HP     (WK_BASE + 0x704)
-
-// Game mode
-#define WK_GAMEMODE      (WK_BASE + 0x710)  // 2 bytes
-
-// Credits/continue
-#define WK_CREDITS       (WK_BASE + 0x720)  // 2 bytes
-#define WK_WHICHFRIEND   (WK_BASE + 0x722)
-
-// Score
-#define WK_CURRENTLEVEL  (WK_BASE + 0x730)
-
-// ============================================================
 // Angle Constants (from VARS.INC)
+// SNES uses 0-255 = 0-360 degrees
 // ============================================================
 #define DEG360   256
 #define DEG180   128
@@ -231,8 +51,20 @@
 #define SPACE_MODE         1
 #define WATER_MODE         2
 
+// Screen dimensions
+#define NUM_COL            28
+#define NUM_ROW            24
+
+// Depth/LOD
+#define MAXDEPTHDIST       0x0E00
+
+// Explosion sizes
+#define EXPSIZE_SMALL      64
+#define EXPSIZE_MEDIUM     128
+#define EXPSIZE_LARGE      256
+
 // ============================================================
-// Alien Flags (from VARS.INC)
+// Alien Flags — al_flags field (from VARS.INC)
 // ============================================================
 #define AFEXP             1    // Exploding
 #define AF_INRNG_PL       2    // In range of player
@@ -243,13 +75,174 @@
 #define AFONFIRE         64    // On fire
 
 // ============================================================
-// Alien Type Flags (from VARS.INC)
+// Alien Type Flags — al_type field (from VARS.INC)
 // ============================================================
 #define ATGND             1    // Ground object
 #define ATMISSILE         2    // Is missile
 #define ATLASER           4    // Is laser bolt
 #define ATZREMOVE         8    // Remove when behind
 #define ATNUKED          16    // Hit by nuke explosion
+
+// ============================================================
+// Game Flags — gameflags (from GILESALC.INC)
+// ============================================================
+#define GF_NOZREMOVE      1
+#define GF_PLAYERDYING    2
+#define GF_BOSSDEAD       4
+#define GF_STRATDONE1     8
+#define GF_STRATDONE2    16
+#define GF_VIEWROT       32
+#define GF_PLAYERDEAD    64
+#define GF_STAGEDONE    128
+
+// ============================================================
+// Game Flags 2 — gameflags2 (from GILESALC.INC)
+// ============================================================
+#define GF2_STRATFLAG1    1
+#define GF2_STRATFLAG2    2
+#define GF2_VIEWCLOSE     4
+#define GF2_INGAME        8
+
+// ============================================================
+// Strategy Flags — stratflags (from GILESALC.INC)
+// ============================================================
+#define SF_NOFIRING       1
+
+// ============================================================
+// Boss Flags — bossflags (from GILESALC.INC)
+// ============================================================
+#define BF_FLAG1          1
+#define BF_FLAG2          2
+#define BF_FLAG3          4
+#define BF_EASYMODE       8
+#define BF_DYING         16
+
+// ============================================================
+// Player Ship Flags — pshipflags (from GILESALC.INC)
+// ============================================================
+#define PSF_BODYCOLL      1
+#define PSF_LWINGCOLL     2
+#define PSF_RWINGCOLL     4
+#define PSF_BRKLWING      8
+#define PSF_BRKRWING     16
+#define PSF_NOCTRL       32
+#define PSF_NOFIRE       64
+#define PSF_NOYCTRL     128
+
+// ============================================================
+// Player Ship Flags 2 — pshipflags2 (from GILESALC.INC)
+// ============================================================
+#define PSF2_DOUBLASER    1
+#define PSF2_WIRESHIP     2
+#define PSF2_NOSPARK      4
+#define PSF2_TURN180      8
+#define PSF2_FORCEBOOST  16
+#define PSF2_BOOSTING    32
+#define PSF2_BRAKING     64
+#define PSF2_PLAYERHP0  128
+
+// ============================================================
+// Player Ship Flags 3 — pshipflags3 (from GILESALC.INC)
+// ============================================================
+#define PSF3_INTUNNEL     1
+#define PSF3_ENGINESND    2
+#define PSF3_FORCEBRAKE   4
+#define PSF3_NOCOLLISIONS 8
+#define PSF3_BEAMBALL    16
+#define PSF3_NOVIEWCHANGE 32
+#define PSF3_KEEPPSTRAT  64
+
+// ============================================================
+// Player Fly Mode — playerflymode (from GILESALC.INC)
+// ============================================================
+#define PFM_DIEFALL       1
+#define PFM_DIEYROT       2
+#define PFM_WATER         4
+#define PFM_SHADOWS       8
+#define PFM_WOBBLE       16
+
+// ============================================================
+// Space Player Fly Mode — splayerflymode (from GILESALC.INC)
+// ============================================================
+#define SPFM_NORM         0
+#define SPFM_CLOSE        1
+#define SPFM_TOINSIDE     2
+#define SPFM_INSIDE       3
+#define SPFM_TONORM       4
+#define SPFM_MAXMODE      5
+
+// ============================================================
+// Player Strategy Flags — pstratflags (from GILESALC.INC)
+// ============================================================
+#define PSTF_NOVDISTC     1
+#define PSTF_FLAG1        2
+#define PSTF_NOVIEWMOVE   4
+#define PSTF_INSEQ        8
+#define PSTF_FIRSTFRAMELCOL 16
+#define PSTF_NOTDIE      32
+
+// ============================================================
+// Player Move Limits — pmovelimit (from GILESALC.INC)
+// ============================================================
+#define PML_LWLEFT        1
+#define PML_RWRIGHT       2
+#define PML_LWTOP         4
+#define PML_LWBOTTOM      8
+#define PML_RWTOP        16
+#define PML_RWBOTTOM     32
+#define PML_BTOP         64
+#define PML_BBOTTOM     128
+#define PML_ALL          (PML_LWTOP|PML_RWTOP|PML_LWBOTTOM|PML_RWBOTTOM|PML_LWLEFT|PML_RWRIGHT|PML_BTOP|PML_BBOTTOM)
+
+// ============================================================
+// Missile Boundary Flags — missboundflags (from GILESALC.INC)
+// ============================================================
+#define MB_LEFT           1
+#define MB_RIGHT          2
+#define MB_TOP            4
+#define MB_BOTTOM         8
+#define MB_LBOTTOM       16
+#define MB_LTOP          32
+#define MB_RTOP          64
+
+// ============================================================
+// Key Flags — keyflags (from GILESALC.INC)
+// ============================================================
+#define KF_LKEYDOWN       1
+#define KF_LRKEYDOWN      2
+
+// ============================================================
+// Screen Arrow Flags — arrows (from KALCS.INC)
+// ============================================================
+#define SPRAR_UP          1
+#define SPRAR_DOWN        2
+#define SPRAR_LEFT        4
+#define SPRAR_RIGHT       8
+
+// ============================================================
+// View Type (from STRATEQU.INC)
+// ============================================================
+#define VIEWTYPE_NORM     0
+#define VIEWTYPE_TOOBJ    1
+#define VIEWTYPE_FPOS     2
+
+// ============================================================
+// Weapon Flags (from STRATEQU.INC)
+// ============================================================
+#define WP_FIRE           1
+#define WP_FIXPOS         2
+#define WP_SPEEDCHG       4
+
+// ============================================================
+// Player Ship Numbers (from STRATEQU.INC)
+// ============================================================
+#define PSHIPNUM_NORM     0
+#define PSHIPNUM_WIRE     1
+#define PSHIPNUM_NULL     2
+#define PSHIPNUM_COCKSHIP 3
+#define PSHIPNUM_TUNNEL   4
+#define PSHIPNUM_BLACK    5
+#define PSHIPNUM_ZOOM     6
 
 // ============================================================
 // Character IDs (from VARS.INC)
@@ -261,6 +254,12 @@
 #define FRIEND_PEPPER     4
 #define FRIEND_ANDROSS    5
 #define FRIEND_ANYONE     6
+
+// ============================================================
+// Machine Flags (from VARS.INC)
+// ============================================================
+#define MACFEXISTS        1
+#define MACFRELAXIS       2
 
 // ============================================================
 // Draw List Structure Offsets (from STRUCTS.INC)
@@ -287,5 +286,30 @@
 #define DL_DEPTH_OFF     27    // 1 byte
 #define DL_TSCROLLX_OFF  28    // 1 byte
 #define DL_TSCROLLY_OFF  29    // 1 byte
+
+// ============================================================
+// Collision List Structure (from STRUCTS.INC)
+// ============================================================
+#define CL_SIZEOF         12   // cl_size - collisttemp
+#define CL_ALIEN_OFF      0    // 2 bytes
+#define CL_COLBOX_OFF     2    // 2 bytes
+#define CL_XMAX_OFF       4    // 2 bytes
+#define CL_YMAX_OFF       6    // 2 bytes
+#define CL_ZMAX_OFF       8    // 2 bytes
+
+// ============================================================
+// Game Configuration Defaults (from CONFIG/GAME.INC)
+// ============================================================
+#define DEFAULT_LIVES     3
+#define BARREL_ROLL_DELAY 3
+
+// Gameplay constants from STRATEQU.INC
+#define CROSSHAIRDIST     500
+#define INVIEWDIST        60
+#define OUTVIEWDIST       120
+#define FRAMESPERAP       10
+#define DEFAULT_NUKE_COUNT 3
+#define SPECIAL_DELAY_FRMS 50
+#define PLAYER_FIRESPEED   2
 
 #endif // STARFOX_VARIABLES_H

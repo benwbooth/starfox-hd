@@ -24,4 +24,10 @@ void GlBackend_SetVec3(GLuint program, const char *name, float x, float y, float
 void GlBackend_SetVec4(GLuint program, const char *name, float x, float y, float z, float w);
 void GlBackend_SetFloat(GLuint program, const char *name, float val);
 
+// Draw GL_LINES from a client-side position array (3 floats per vertex,
+// 2 vertices per segment) with whatever shader/uniforms are currently bound.
+// Streams through an internal dynamic VBO; used for wireframe (Face2) shape
+// geometry that has no resident triangle data.
+void GlBackend_DrawLines(const float *positions, int vertex_count);
+
 #endif // STARFOX_GL_BACKEND_H
