@@ -21,6 +21,7 @@
 
             # Runtime deps
             SDL2
+            sdl3      # Rust app shell (sf-app) + Steam Controller 2 support
             libGL
             libGLU
 
