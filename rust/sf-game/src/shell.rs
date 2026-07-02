@@ -305,6 +305,12 @@ pub struct Shell {
     /// after every `World::init()` reset (game_init/title_tick/gameplay
     /// start), mirroring how C re-runs Strat_RegisterAll on each level load.
     register_strats: Option<Box<dyn Fn(&mut Game)>>,
+
+    /// Player-spawn hook (C `Strat_SpawnPlayer` + `Strat_PlayerOpening_Init`,
+    /// boot.c:89-102). Injected by the app layer (same circular-dep reason as
+    /// `register_strats`). Called with the newmap id at gameplay start so it
+    /// can run the opening strategy for LEVEL1_1/2_1/3_1.
+    spawn_player: Option<Box<dyn Fn(&mut Game, u32)>>,
 }
 
 impl Shell {
@@ -334,6 +340,7 @@ impl Shell {
             bg2_xscroll: 0,
             nomax_bg2_yscroll: 0,
             register_strats: None,
+            spawn_player: None,
         }
     }
 
@@ -343,6 +350,13 @@ impl Shell {
     pub fn set_register_strats(&mut self, hook: Box<dyn Fn(&mut Game)>) {
         hook(&mut self.game);
         self.register_strats = Some(hook);
+    }
+
+    /// Install the player-spawn hook (app layer passes a closure that calls
+    /// `sf_strat::player::strat_spawn_player` + `strat_player_opening_init`).
+    /// Called at gameplay start with the newmap id.
+    pub fn set_spawn_player(&mut self, hook: Box<dyn Fn(&mut Game, u32)>) {
+        self.spawn_player = Some(hook);
     }
 
     /// Re-run the registration hook after a `World::init()` reset (C re-runs
@@ -646,11 +660,15 @@ impl Shell {
         //   (C Strat_RegisterAll, boot.c:85).
         self.load_map(self.planets.newmap);
 
-        // TODO(wave3): player spawn is strat-lane (Strat_SpawnPlayer,
-        // boot.c:89-102, plus Strat_PlayerOpening_Init for MAP_ID_1_1 /
-        // 2_1 / 3_1). With no player alien the map VM still advances
-        // (world_update_objects uses fixed lastzchange=65) — the intended
-        // inert-objects mode.
+        // Spawn the player alien (C Strat_SpawnPlayer, boot.c:89-102). The
+        // spawn hook is injected from the app layer alongside register_strats
+        // (sf-strat depends on sf-game; a direct call would be circular).
+        // LEVEL1_1/2_1/3_1 open with `pstrat playeropening`, so pass the
+        // newmap so the hook can run Strat_PlayerOpening_Init for those.
+        if let Some(hook) = self.spawn_player.take() {
+            hook(&mut self.game, self.planets.newmap);
+            self.spawn_player = Some(hook);
+        }
 
         self.game_state = GameState::Playing; // boot.c:104
     }

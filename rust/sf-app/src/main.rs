@@ -222,6 +222,18 @@ fn main() {
     // every World::init() reset in the shell (C re-runs Strat_RegisterAll on
     // each level load; a startup-only call gets wiped by the first reset).
     shell.set_register_strats(Box::new(sf_strat::table::register_all));
+    // Player spawn at gameplay start (C Strat_SpawnPlayer +
+    // Strat_PlayerOpening_Init for the scramble levels, boot.c:89-102).
+    shell.set_spawn_player(Box::new(|game, newmap| {
+        if let Some(idx) = sf_strat::player::strat_spawn_player(game) {
+            if newmap == sf_map::catalog::map_id::M1_1
+                || newmap == sf_map::catalog::map_id::M2_1
+                || newmap == sf_map::catalog::map_id::M3_1
+            {
+                sf_strat::player::strat_player_opening_init(game, idx);
+            }
+        }
+    }));
     let mut dump = StateDump::from_env();
     let max_ticks: Option<u64> = std::env::var("SF_MAX_TICKS")
         .ok()
