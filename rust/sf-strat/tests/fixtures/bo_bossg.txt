@@ -1,0 +1,450 @@
+T1 G gf=1 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T1 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=65 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T1 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3000 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T2 G gf=2 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T2 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=130 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T2 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2960 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T3 G gf=3 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T3 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=195 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T3 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2920 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T4 G gf=4 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T4 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=260 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T4 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2880 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T5 G gf=5 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T5 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=325 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T5 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2840 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T6 G gf=6 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T6 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=390 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T6 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2800 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T7 G gf=7 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T7 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=455 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T7 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2760 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T8 G gf=8 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T8 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=520 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T8 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2720 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T9 G gf=9 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T9 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=585 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T9 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2680 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T10 G gf=10 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T10 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=650 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T10 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2640 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T11 G gf=11 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T11 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=715 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T11 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2600 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T12 G gf=12 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T12 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=780 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T12 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2560 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T13 G gf=13 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T13 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=845 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T13 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2520 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T14 G gf=14 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T14 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=910 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T14 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2480 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T15 G gf=15 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T15 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=975 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T15 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2440 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T16 G gf=16 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T16 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1040 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T16 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2400 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T17 G gf=17 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T17 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1105 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T17 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2360 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T18 G gf=18 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T18 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1170 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T18 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T19 G gf=19 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T19 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1235 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T19 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2280 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T20 G gf=20 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T20 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1300 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T20 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2240 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T21 G gf=21 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T21 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1365 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T21 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2200 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T22 G gf=22 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T22 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1430 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T22 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2160 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T23 G gf=23 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T23 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1495 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T23 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2120 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T24 G gf=24 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T24 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1560 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T24 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2080 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T25 G gf=25 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T25 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1625 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T25 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2040 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T26 G gf=26 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T26 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1690 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T26 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2000 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T27 G gf=27 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T27 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1755 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T27 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=1960 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=0
+T28 G gf=28 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T28 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1820 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T28 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=1960 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T29 G gf=29 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T29 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1885 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T29 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2000 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T30 G gf=30 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T30 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=1950 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T30 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2040 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T31 G gf=31 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T31 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2015 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T31 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2080 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T32 G gf=32 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T32 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2080 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T32 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2120 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T33 G gf=33 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T33 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2145 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T33 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2160 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T34 G gf=34 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T34 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2210 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T34 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2200 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T35 G gf=35 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T35 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2275 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T35 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2240 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T36 G gf=36 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T36 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2340 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T36 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2280 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T37 G gf=37 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T37 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2405 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T37 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T38 G gf=38 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T38 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2470 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T38 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T39 G gf=39 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T39 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2535 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T39 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T40 G gf=40 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T40 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2600 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T40 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T41 G gf=41 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T41 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2665 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T41 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T42 G gf=42 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T42 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2730 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T42 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T43 G gf=43 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T43 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2795 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T43 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T44 G gf=44 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T44 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2860 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T44 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T45 G gf=45 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T45 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2925 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T45 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T46 G gf=46 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T46 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=2990 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T46 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T47 G gf=47 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T47 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3055 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T47 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T48 G gf=48 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T48 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3120 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T48 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T49 G gf=49 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T49 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3185 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T49 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T50 G gf=50 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T50 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3250 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T50 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T51 G gf=51 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T51 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3315 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T51 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T52 G gf=52 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T52 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3380 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T52 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T53 G gf=53 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T53 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3445 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T53 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T54 G gf=54 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T54 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3510 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T54 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T55 G gf=55 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T55 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3575 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T55 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T56 G gf=56 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T56 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3640 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T56 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T57 G gf=57 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T57 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3705 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T57 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T58 G gf=58 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T58 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3770 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T58 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2320 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=1
+T59 G gf=59 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T59 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3835 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T59 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2390 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T60 G gf=60 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T60 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3900 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T60 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2460 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T61 G gf=61 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T61 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=3965 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T61 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2530 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T62 G gf=62 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T62 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4030 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T62 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2600 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T63 G gf=63 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T63 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4095 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T63 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2670 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T64 G gf=64 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T64 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4160 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T64 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2740 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T65 G gf=65 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T65 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4225 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T65 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2810 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T66 G gf=66 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T66 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4290 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T66 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2880 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T67 G gf=67 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T67 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4355 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T67 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=2950 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T68 G gf=68 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T68 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4420 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T68 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3020 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T69 G gf=69 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T69 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4485 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T69 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3090 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T70 G gf=70 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T70 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4550 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T70 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3160 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T71 G gf=71 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T71 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4615 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T71 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3230 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T72 G gf=72 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T72 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4680 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T72 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3300 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T73 G gf=73 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T73 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4745 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T73 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3370 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T74 G gf=74 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T74 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4810 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T74 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3440 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T75 G gf=75 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T75 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4875 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T75 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3510 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T76 G gf=76 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T76 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=4940 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T76 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3580 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T77 G gf=77 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T77 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5005 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T77 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3650 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T78 G gf=78 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T78 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5070 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T78 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3720 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T79 G gf=79 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T79 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5135 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T79 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3790 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T80 G gf=80 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T80 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5200 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T80 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3860 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T81 G gf=81 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T81 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5265 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T81 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=3930 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T82 G gf=82 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T82 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5330 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T82 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4000 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T83 G gf=83 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T83 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5395 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T83 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4070 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T84 G gf=84 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T84 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5460 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T84 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4140 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T85 G gf=85 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T85 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5525 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T85 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4210 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T86 G gf=86 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T86 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5590 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T86 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4280 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T87 G gf=87 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T87 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5655 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T87 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4350 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T88 G gf=88 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T88 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5720 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T88 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4420 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T89 G gf=89 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T89 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5785 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T89 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4490 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T90 G gf=90 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T90 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5850 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T90 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4560 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T91 G gf=91 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T91 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5915 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T91 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4630 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T92 G gf=92 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T92 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=5980 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T92 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4700 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T93 G gf=93 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T93 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6045 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T93 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4770 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T94 G gf=94 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T94 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6110 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T94 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4840 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T95 G gf=95 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T95 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6175 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T95 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4910 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T96 G gf=96 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T96 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6240 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T96 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=4980 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T97 G gf=97 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T97 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6305 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T97 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5050 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T98 G gf=98 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T98 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6370 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T98 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5120 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T99 G gf=99 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T99 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6435 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T99 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5190 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T100 G gf=100 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T100 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6500 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T100 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5260 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T101 G gf=101 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T101 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6565 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T101 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5330 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T102 G gf=102 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T102 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6630 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T102 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5400 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T103 G gf=103 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T103 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6695 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T103 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5470 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T104 G gf=104 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T104 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6760 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T104 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5540 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T105 G gf=105 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T105 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6825 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T105 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5610 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T106 G gf=106 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T106 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6890 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T106 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5680 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T107 G gf=107 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T107 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=6955 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T107 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5750 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T108 G gf=108 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T108 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7020 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T108 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5820 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T109 G gf=109 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T109 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7085 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T109 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5890 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T110 G gf=110 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T110 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7150 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T110 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=5960 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T111 G gf=111 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T111 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7215 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T111 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6030 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T112 G gf=112 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T112 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7280 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T112 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6100 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T113 G gf=113 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T113 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7345 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T113 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6170 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T114 G gf=114 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T114 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7410 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T114 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6240 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T115 G gf=115 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T115 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7475 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T115 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6310 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T116 G gf=116 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T116 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7540 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T116 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6380 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T117 G gf=117 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T117 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7605 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T117 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6450 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T118 G gf=118 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T118 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7670 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T118 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6520 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T119 G gf=119 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T119 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7735 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T119 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6590 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T120 G gf=120 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T120 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7800 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T120 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6660 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T121 G gf=121 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T121 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7865 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T121 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6730 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T122 G gf=122 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T122 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7930 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T122 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6800 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T123 G gf=123 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T123 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=7995 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T123 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6870 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T124 G gf=124 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T124 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8060 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T124 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=6940 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T125 G gf=125 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T125 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8125 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T125 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7010 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T126 G gf=126 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T126 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8190 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T126 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7080 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T127 G gf=127 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T127 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8255 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T127 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7150 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T128 G gf=128 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T128 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8320 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T128 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7220 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T129 G gf=129 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T129 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8385 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T129 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7290 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T130 G gf=130 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T130 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8450 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T130 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7360 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T131 G gf=131 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T131 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8515 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T131 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7430 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T132 G gf=132 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T132 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8580 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T132 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7500 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T133 G gf=133 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T133 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8645 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T133 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7570 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T134 G gf=134 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T134 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8710 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T134 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7640 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T135 G gf=135 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T135 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8775 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T135 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7710 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T136 G gf=136 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T136 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8840 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T136 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7780 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T137 G gf=137 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T137 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8905 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T137 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7850 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T138 G gf=138 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T138 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=8970 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T138 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7920 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T139 G gf=139 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T139 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9035 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T139 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=7990 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T140 G gf=140 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T140 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9100 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T140 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8060 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T141 G gf=141 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T141 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9165 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T141 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8130 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T142 G gf=142 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T142 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9230 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T142 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8200 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T143 G gf=143 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T143 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9295 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T143 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8270 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T144 G gf=144 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T144 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9360 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T144 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8340 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T145 G gf=145 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T145 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9425 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T145 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8410 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T146 G gf=146 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T146 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9490 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T146 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8480 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T147 G gf=147 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T147 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9555 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T147 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8550 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T148 G gf=148 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T148 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9620 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T148 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8620 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T149 G gf=149 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T149 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9685 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T149 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8690 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
+T150 G gf=150 gfl=0 bf=0 sf=0 bmax=0 met=0 gsv=0 mtr=0 psf=0 psf2=0 pst=0
+T150 A00 sh=2 f=0 t=0 c=0 c1=0 x=0 y=0 z=9750 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=0 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=255 af=255 snd2=0 im=0 fo=0 ptr=0 sm=0
+T150 A01 sh=121 f=0 t=0 c=0 c1=0 x=0 y=-96 z=8760 rx=0 ry=0 rz=0 v=0 sf=4 s2=0 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=1 vx=0 vy=0 vz=0 hf=0 ss=0 colf=255 af=128 snd2=0 im=0 fo=0 ptr=0 sm=3
