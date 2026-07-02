@@ -37,8 +37,10 @@
           shellHook = ''
             export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
               pkgs.SDL2
+              pkgs.sdl3
               pkgs.libGL
               pkgs.libGLU
+              pkgs.stdenv.cc.cc.lib  # libstdc++ for the Rust snes_spc FFI
             ]}:$LD_LIBRARY_PATH"
             echo "Star Fox HD dev shell ready"
             echo "  cmake -B build && cmake --build build"
