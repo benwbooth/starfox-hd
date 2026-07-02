@@ -165,10 +165,11 @@ impl<'a> Default for FrameInputs<'a> {
 /// Renderer configuration: where to find shader files and game assets.
 #[derive(Debug, Clone, Default)]
 pub struct RendererConfig {
-    /// Directory containing `flat.vert.glsl` / `flat.frag.glsl` (the C
-    /// tree's `src/renderer/shaders/`). Falls back to embedded sources.
+    /// Directory containing `flat.vert.glsl` / `flat.frag.glsl` (the
+    /// canonical GLSL lives in `rust/sf-render/shaders/`). Falls back to
+    /// embedded sources (byte-equal) when `None` or missing.
     pub shader_dir: Option<PathBuf>,
-    /// Root containing the `data/` asset tree (repo root in the C build).
+    /// Root containing the `data/` asset tree (repo root).
     pub asset_root: PathBuf,
 }
 
@@ -374,7 +375,7 @@ impl Renderer {
 /// Convenience: shader dir + asset root from a repo checkout root.
 pub fn config_from_repo_root(root: &Path) -> RendererConfig {
     RendererConfig {
-        shader_dir: Some(root.join("src/renderer/shaders")),
+        shader_dir: Some(root.join("rust/sf-render/shaders")),
         asset_root: root.to_path_buf(),
     }
 }

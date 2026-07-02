@@ -1,17 +1,15 @@
 //! GL program management + streaming line VBO.
 //!
-//! Port (C oracle): `src/renderer/gl_backend.c`. The flat shader can be
-//! loaded from a caller-supplied shader directory (`flat.vert.glsl` /
-//! `flat.frag.glsl`, same files the C tree ships in
-//! `src/renderer/shaders/`); when absent the embedded sources — byte-equal
-//! to the C fallback strings — are used. The HUD shader is embedded only,
-//! like the C.
+//! Ported from the original C reference (`renderer/gl_backend.c`). The flat
+//! shader can be loaded from a caller-supplied shader directory
+//! (`flat.vert.glsl` / `flat.frag.glsl`, the canonical GLSL shipped in
+//! `rust/sf-render/shaders/`); when absent the embedded sources — byte-equal
+//! to those files — are used. The HUD shader is embedded only.
 
 use glow::HasContext;
 use std::path::Path;
 
-/// Embedded flat shader — identical to `flat_vert_src` in gl_backend.c and
-/// to `src/renderer/shaders/flat.vert.glsl`.
+/// Embedded flat shader — byte-equal to `rust/sf-render/shaders/flat.vert.glsl`.
 pub const FLAT_VERT_SRC: &str = "#version 330 core\n\
 layout(location = 0) in vec3 aPos;\n\
 uniform mat4 uModel;\n\
@@ -182,7 +180,7 @@ pub struct GlBackend {
 
 impl GlBackend {
     /// `shader_dir`: optional directory containing `flat.vert.glsl` /
-    /// `flat.frag.glsl` (loaded at runtime like the C `shaders/` dir);
+    /// `flat.frag.glsl` (canonical copies live in `rust/sf-render/shaders/`);
     /// falls back to the embedded sources when missing.
     pub fn new(gl: &glow::Context, shader_dir: Option<&Path>) -> Result<Self, String> {
         let (flat_vert, flat_frag) = match shader_dir {

@@ -1,10 +1,6 @@
 reference/
 data/
-build/
-build-*/
 rust/target/
-automation/logs/
-automation/port_queue.lock
 *.sfc
 *.zip
 .direnv/

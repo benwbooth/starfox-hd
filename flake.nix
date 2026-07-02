@@ -1,5 +1,5 @@
 {
-  description = "Star Fox SNES HD Remaster";
+  description = "Star Fox SNES HD Remaster (Rust)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -10,22 +10,31 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        # Shared runtime libraries. The engine (incl. the SPC-700 core) is
+        # pure Rust now; SDL3 is still C, and GL/libstdc++ are needed at
+        # runtime for the windowed binary.
+        runtimeLibs = with pkgs; [
+          SDL2      # legacy audio device fallback
+          sdl3      # Rust app shell (sf-app) window + input + audio
+          libGL
+          libGLU
+          stdenv.cc.cc.lib  # libstdc++ (SDL3 / GL drivers)
+        ];
       in
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             # Build tools
-            cmake
             pkg-config
-            gcc
+            gcc          # cc: Rust's default linker driver
 
             # Runtime deps
             SDL2
-            sdl3      # Rust app shell (sf-app) + Steam Controller 2 support
+            sdl3
             libGL
             libGLU
 
-            # Asset extraction
+            # Asset extraction / codegen (tools/*.py)
             python3
             python3Packages.pillow
 
@@ -35,31 +44,29 @@
           ];
 
           shellHook = ''
-            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
-              pkgs.SDL2
-              pkgs.sdl3
-              pkgs.libGL
-              pkgs.libGLU
-              pkgs.stdenv.cc.cc.lib  # libstdc++ for the Rust snes_spc FFI
-            ]}:$LD_LIBRARY_PATH"
-            echo "Star Fox HD dev shell ready"
-            echo "  cmake -B build && cmake --build build"
-            echo "  ./build/starfox-hd"
+            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath runtimeLibs}:$LD_LIBRARY_PATH"
+            echo "Star Fox HD dev shell ready (Rust)"
+            echo "  cd rust && cargo build"
+            echo "  ./scripts/run.sh        # launch from the repo root"
           '';
         };
 
-        packages.default = pkgs.stdenv.mkDerivation {
-          pname = "starfox-hd";
+        packages.default = pkgs.rustPlatform.buildRustPackage {
+          pname = "starfox-hd-rs";
           version = "0.1.0";
-          src = ./.;
+          src = ./rust;
+          cargoLock.lockFile = ./rust/Cargo.lock;
 
-          nativeBuildInputs = with pkgs; [ cmake pkg-config ];
-          buildInputs = with pkgs; [ SDL2 libGL ];
+          nativeBuildInputs = with pkgs; [ pkg-config ];
+          buildInputs = runtimeLibs;
 
-          installPhase = ''
-            mkdir -p $out/bin $out/share/starfox-hd/shaders
-            cp starfox-hd $out/bin/
-            cp -r shaders/* $out/share/starfox-hd/shaders/ 2>/dev/null || true
+          # Only the integration binary crate is a product.
+          cargoBuildFlags = [ "-p" "sf-app" ];
+          doCheck = false;
+
+          postInstall = ''
+            mkdir -p $out/share/starfox-hd/shaders
+            cp sf-render/shaders/*.glsl $out/share/starfox-hd/shaders/ 2>/dev/null || true
           '';
         };
       });

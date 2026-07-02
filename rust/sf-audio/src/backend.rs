@@ -1,7 +1,5 @@
 //! Backend-selection glue. `Booter`/`load_track` in `boot.rs` are generic over
-//! this trait so the identical boot code drives either the native `sf-spc`
-//! engine (default) or the snes_spc C++ FFI oracle (feature `ffi-oracle`),
-//! which is what the A/B parity tests exercise.
+//! this trait so the boot code drives the native pure-Rust `sf-spc` engine.
 
 pub trait SpcEngine {
     fn init_rom(&mut self, rom: &[u8; 0x40]);
