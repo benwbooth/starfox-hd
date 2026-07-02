@@ -85,6 +85,16 @@ pub struct Game {
     pub world: World,
     pub coldet: Coldet,
     pub hooks: Box<dyn Hooks>,
+    /// Path interpreter world (C `src/path/paths.c` translation-unit state:
+    /// the path VM stacks/triggers + the globals paths.c touches). The C
+    /// engine keeps ONE `g_aliens` pool shared by every strategy; the Rust
+    /// port split the pool between `Objects` (game core) and `sf-path`'s
+    /// `PathWorld`, so path-following strategies (IS_PATH/IS_PATHT/IS_PATHDHA)
+    /// run through `sf_strat::path_adapter`, which mirrors `objs` into this
+    /// world for the duration of each path strat call. `None` until the strat
+    /// lane installs it in `Strat_RegisterAll` (`register_all`); objects stay
+    /// inert while it is `None` (matching the pre-adapter behavior).
+    pub path: Option<sf_path::interp::PathWorld>,
 }
 
 impl Game {
@@ -101,6 +111,7 @@ impl Game {
             world: World::init(),
             coldet: Coldet::init(),
             hooks,
+            path: None,
         }
     }
 

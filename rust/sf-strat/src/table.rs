@@ -120,6 +120,10 @@ pub fn register_all(g: &mut Game) {
     let p = player::install(g);
     let gr = ground::install(g);
     let ea = enemy_a::install(g);
+    // Path-following adapter: registers the path-lane strategies, installs the
+    // PathWorld on `Game`, and hands back the three IS_PATH init handles.
+    // Done before the `is` borrow below (it needs `&mut g`).
+    let path = crate::path_adapter::register(g);
 
     // ---- IS_XXX index placement (C Strat_RegisterAll body) ----
     let is = &mut g.world.istrats;
@@ -193,10 +197,12 @@ pub fn register_all(g: &mut Game) {
     is[IS_ITEM5] = Some(ea.item5);
     is[IS_ITEM7] = Some(ea.item7);
 
-    // Path-following enemies/wingmen — GAP (see module header):
-    // C sets IS_PATH/IS_PATHT/IS_PATHDHA to sf-path's path istrats. No
-    // Game<->PathWorld adapter exists, so they stay unwired here.
-    let _ = (IS_PATH, IS_PATHT, IS_PATHDHA);
+    // Path-following enemies/wingmen (C sets IS_PATH/IS_PATHT/IS_PATHDHA to
+    // sf-path's path istrats), driven through the Game<->PathWorld adapter
+    // registered above.
+    is[IS_PATH] = Some(path.path_init);
+    is[IS_PATHT] = Some(path.patht_init);
+    is[IS_PATHDHA] = Some(path.pathdha_init);
 
     // ---- Self-registering lanes (enemy_b bosses + stage bosses) ----
     // (C: bossA/boss7/bossF rows + StratBoss2/Sea/8_Register.) These place
@@ -260,10 +266,12 @@ mod tests {
         assert!(g.world.istrats[108].is_some(), "bosses boss2 (IS_BOSS2=108)");
         assert!(g.world.istrats[84].is_some(), "bosses boss8 (IS_BOSS8=84)");
 
-        // Path rows remain unwired (documented gap).
-        assert!(g.world.istrats[IS_PATH].is_none(), "IS_PATH gap");
-        assert!(g.world.istrats[IS_PATHT].is_none(), "IS_PATHT gap");
-        assert!(g.world.istrats[IS_PATHDHA].is_none(), "IS_PATHDHA gap");
+        // Path rows are now wired through the Game<->PathWorld adapter.
+        assert!(g.world.istrats[IS_PATH].is_some(), "IS_PATH wired");
+        assert!(g.world.istrats[IS_PATHT].is_some(), "IS_PATHT wired");
+        assert!(g.world.istrats[IS_PATHDHA].is_some(), "IS_PATHDHA wired");
+        // The adapter installs a PathWorld on the game.
+        assert!(g.path.is_some(), "PathWorld installed");
 
         // Address map: flat + synthetic for a known istrat, plus explicit
         // symbols. IS_PLAYER=0 -> flat 0x000000 and synth 0x020000.

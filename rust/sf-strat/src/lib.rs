@@ -19,5 +19,6 @@ pub mod common;
 pub mod enemy_a;
 pub mod enemy_b;
 pub mod ground;
+pub mod path_adapter;
 pub mod player;
 pub mod table;
