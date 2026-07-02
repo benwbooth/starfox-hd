@@ -156,17 +156,22 @@ UI/enemy **name text**. These confirm shared authorship/lineage with SF1 but giv
 code-level symbols. Transcription therefore needs an external reference, exactly as
 `ultrastarfox` provided for SF1.
 
-**Known community references to acquire** (names only — not fetched here). Any of these
-would enable the same ASM→C→Rust transcription workflow:
-- **The Star Fox 2 prototype-source leak / "Nintendo Gigaleak" (2020)** — reportedly included
-  SF2 build trees with Super FX (GSU) source and assets; the highest-value target because it
-  is the actual sources (the SF1 analogue of what `ultrastarfox` reconstructs).
+**Reference-acquisition options** (names only — not fetched here). This project is a
+**clean-room reverse-engineering effort** (ROMs the user owns + independently reconstructed
+ASM). To preserve that legal footing for the whole codebase, the SF2 reference MUST be of
+legitimate provenance — reverse-engineered from the retail ROM, NOT the leaked Nintendo
+source. Do NOT use the 2020 "Gigaleak" SF2 source tree: it is stolen proprietary Nintendo
+code, and incorporating it would contaminate the clean-room status of the entire port
+(SF1 included), on top of the copyright issue. Legitimate options:
+- **The ROM itself is the ground truth.** A GSU-2 + 65816 disassembly produced *from the
+  retail ROM*, using the SF1 opcode grammars in §5 as a Rosetta Stone, is the honest route —
+  exactly how the SF1 coverage was built. Slower than transcribing a ready-made source tree,
+  but clean.
 - **`ultrastarfox` upstream project** — the SF1 reconstruction already in `reference/`;
-  its authors and the wider **StarGraphics / Star Fox disassembly community** are the natural
-  home for an SF2 counterpart.
-- **Community SF2 disassemblies / decompilation efforts** hosted on GitHub and the
-  SNESdev / romhacking communities (search "Star Fox 2 disassembly", "Super FX GSU
-  disassembler").
+  its authors and the wider **Star Fox disassembly community** are the natural home for an
+  independently reverse-engineered SF2 counterpart.
+- **Community SF2 disassemblies** — usable ONLY if independently RE'd from the ROM (verify
+  provenance before pulling anything in; reject any that derive from the Gigaleak).
 - **General Super FX / GSU tooling**: a GSU-aware disassembler and the published GSU opcode
   documentation (SNESdev wiki) — required because ~half of SF2's logic is GSU microcode that
   a 65816-only disassembler cannot read.
