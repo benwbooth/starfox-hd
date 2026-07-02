@@ -1,0 +1,108 @@
+//! Byte-equality of the ported level builders against the C oracle.
+//!
+//! Fixtures were dumped from the C MapBuilder (`src/map/levels.c`) by a
+//! standalone harness: `<name>.bin` is the emitted bytecode blob, and
+//! `<name>.regs.txt` records `length`, the `native` MAP_CB_* addr24s and
+//! the `inline` CODE65816 script ptrs in C registration-call order.
+
+use sf_map::catalog::{self, map_id};
+
+fn fixture(name: &str, ext: &str) -> Vec<u8> {
+    let path = format!("{}/tests/fixtures/{name}.{ext}", env!("CARGO_MANIFEST_DIR"));
+    std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
+}
+
+struct Regs {
+    length: usize,
+    native: Vec<u32>,
+    inline: Vec<u16>,
+}
+
+fn parse_regs(name: &str) -> Regs {
+    let text = String::from_utf8(fixture(name, "regs.txt")).unwrap();
+    let mut regs = Regs { length: 0, native: Vec::new(), inline: Vec::new() };
+    for line in text.lines() {
+        let mut it = line.split_ascii_whitespace();
+        match (it.next(), it.next()) {
+            (Some("length"), Some(v)) => regs.length = v.parse().unwrap(),
+            (Some("native"), Some(v)) => {
+                let v = v.trim_start_matches("0x");
+                regs.native.push(u32::from_str_radix(v, 16).unwrap());
+            }
+            (Some("inline"), Some(v)) => regs.inline.push(v.parse().unwrap()),
+            _ => {}
+        }
+    }
+    regs
+}
+
+fn assert_level_matches(name: &str, id: u32) {
+    let level = catalog::get_map_data(id)
+        .unwrap_or_else(|| panic!("{name}: map id {id} not ported"));
+    let blob = fixture(name, "bin");
+    let regs = parse_regs(name);
+
+    assert_eq!(regs.length, blob.len(), "{name}: fixture self-consistency");
+    assert_eq!(
+        level.data.len(),
+        blob.len(),
+        "{name}: bytecode length (rust {} vs C {})",
+        level.data.len(),
+        blob.len()
+    );
+    if level.data != blob {
+        let first = level
+            .data
+            .iter()
+            .zip(blob.iter())
+            .position(|(a, b)| a != b)
+            .unwrap();
+        panic!(
+            "{name}: bytecode diverges at offset {first}: rust {:#04x} vs C {:#04x}",
+            level.data[first], blob[first]
+        );
+    }
+
+    let native: Vec<u32> = level.native_callbacks.iter().map(|&(a, _)| a).collect();
+    assert_eq!(native, regs.native, "{name}: native callback addr24 order");
+
+    let inline: Vec<u16> = level.inline_callbacks.iter().map(|&(p, _)| p).collect();
+    assert_eq!(inline, regs.inline, "{name}: inline script ptr order");
+}
+
+#[test]
+fn none_matches_c() {
+    assert_level_matches("none", map_id::NONE);
+}
+
+#[test]
+fn level1_1_matches_c() {
+    assert_level_matches("level1_1", map_id::M1_1);
+}
+
+#[test]
+fn title_matches_c() {
+    assert_level_matches("title", map_id::TITLE);
+}
+
+#[test]
+fn continue_matches_c() {
+    assert_level_matches("continue", map_id::CONTINUE);
+}
+
+#[test]
+fn wait_matches_c() {
+    // MAP_ID_WAIT shares the title blob. The C build registers NO callbacks
+    // for it, while the Rust BuiltLevel carries the title's registration
+    // lists (documented in catalog.rs: the wait entry point never reaches
+    // the CODE65816 hook, so this is behavior-identical). Compare the
+    // bytecode only.
+    let level = catalog::get_map_data(map_id::WAIT).expect("wait ported");
+    let blob = fixture("wait", "bin");
+    assert_eq!(level.data, blob, "wait: bytecode must match the title blob");
+}
+
+#[test]
+fn planet_matches_c() {
+    assert_level_matches("planet", map_id::PLANET);
+}
