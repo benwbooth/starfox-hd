@@ -108,8 +108,10 @@ fn check_title_golden(renderer: &mut Renderer) {
     println!("title golden: max region delta {max_delta}");
 }
 
-// (b) bg_1_1c: playing state on map 1_1 with a level camera at rx=0 keeps
-// the base bg2Yscroll (232), whose composed row is uniform sky blue.
+// (b) bg_1_1c: playing state on map 1_1 with a level camera at rx=0. The
+// base bg2Yscroll (232) plus the SNES-vs-port horizon offset (+18, so the
+// painted horizon locks to the port's y=0 vanishing line — see
+// bg2d::sky_uv_window) windows a uniform sky-blue row at the screen top.
 fn check_bg_1_1c_sky(renderer: &mut Renderer) {
     renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
     let inputs = FrameInputs {
@@ -127,8 +129,8 @@ fn check_bg_1_1c_sky(renderer: &mut Renderer) {
     for x in [10usize, W as usize / 2, W as usize - 10] {
         let p = &px[x * 3..x * 3 + 3];
         assert!(
-            color_near(p, [49, 90, 148], 2),
-            "bg_1_1c top row at x={x}: got ({}, {}, {}), want sky blue (49, 90, 148)",
+            color_near(p, [49, 98, 156], 2),
+            "bg_1_1c top row at x={x}: got ({}, {}, {}), want sky blue (49, 98, 156)",
             p[0],
             p[1],
             p[2]

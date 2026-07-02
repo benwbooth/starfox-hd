@@ -31,6 +31,12 @@ pub struct Transform {
     /// (render-frame interpolated values, SNES conventions). Read-only
     /// mirror for the 2D background layer (SNES calcbgscroll_l coupling).
     cam_render: CameraState,
+    /// Fractional (sub-angle-unit) signed render-camera pitch/yaw in SNES
+    /// units, kept alongside `cam_render` so the 2D background horizon
+    /// scroll glides with the interpolated 3D view instead of stepping once
+    /// per 20 Hz tick (see `set_view_lerp`).
+    cam_render_pitch_f: f32,
+    cam_render_yaw_f: f32,
 }
 
 pub fn identity(m: &mut [f32; 16]) {
@@ -67,8 +73,16 @@ fn fp16_to_float(val: i32) -> f32 {
     val as f32 / 65536.0
 }
 
-// Shortest-path interpolation in the SNES 0-255 angle system.
-fn lerp_cam_angle(from: i16, to: i16, t: f32, big_jump: &mut bool) -> i16 {
+// Shortest-path interpolation in the SNES 0-255 angle system, at
+// FRACTIONAL precision. The original returned an int16 (`a8 + (int)(diff*t)`,
+// transform.c:197), so for the common small per-tick delta (|diff| <= 1 unit
+// = 1.4 deg during steady banking/turning) the integer truncation collapsed
+// every intra-tick sample back to `a8`: the camera rotation snapped once per
+// 20 Hz tick while position glided at the render rate — the residual flight
+// "stutter". Returning the un-truncated fractional angle (fed to a
+// table-interpolated sin/cos in `sincos_frac`) lets rotation glide too.
+// Returns the wrapped angle in [0, 256).
+fn lerp_cam_angle_f(from: i16, to: i16, t: f32, big_jump: &mut bool) -> f32 {
     let a8 = (from & 0xFF) as i32;
     let b8 = (to & 0xFF) as i32;
     let mut diff = b8 - a8;
@@ -81,8 +95,18 @@ fn lerp_cam_angle(from: i16, to: i16, t: f32, big_jump: &mut bool) -> i16 {
     if diff > 48 || diff < -48 {
         *big_jump = true; // > ~67 deg in one tick: cut
     }
-    let out = a8 + (diff as f32 * t) as i32;
-    (out & 0xFF) as i16
+    (a8 as f32 + diff as f32 * t).rem_euclid(256.0)
+}
+
+// SNES 0-255 angle -> signed [-128, 128) in the same units (float-safe).
+#[inline]
+fn signed_angle_f(a: f32) -> f32 {
+    let m = a.rem_euclid(256.0);
+    if m >= 128.0 {
+        m - 256.0
+    } else {
+        m
+    }
 }
 
 impl Default for Transform {
@@ -116,7 +140,23 @@ impl Transform {
             cam_curr: CameraState::default(),
             cam_valid: false,
             cam_render: CameraState::default(),
+            cam_render_pitch_f: 0.0,
+            cam_render_yaw_f: 0.0,
         }
+    }
+
+    /// Interpolate sin/cos from the integer SNES tables at a fractional angle
+    /// (units in [0, 256)). Linear blend between adjacent 1.4-deg entries —
+    /// smooth, and identical to the raw table for whole-unit angles.
+    #[inline]
+    fn sincos_frac(&self, a: f32) -> (f32, f32) {
+        let a = a.rem_euclid(256.0);
+        let i0 = a.floor() as usize % 256;
+        let i1 = (i0 + 1) % 256;
+        let f = a - a.floor();
+        let s = self.sin_table[i0] + (self.sin_table[i1] - self.sin_table[i0]) * f;
+        let c = self.cos_table[i0] + (self.cos_table[i1] - self.cos_table[i0]) * f;
+        (s, c)
     }
 
     /// Mirror of `Transform_SetProjection` (60 deg FOV, near 1, far 10000).
@@ -144,26 +184,30 @@ impl Transform {
     }
 
     fn build_view_matrix(&mut self, cx: i32, cy: i32, cz: i32, crx: i16, cry: i16, crz: i16) {
+        // Whole-unit angles resolve to exact table entries in the fractional
+        // path, so this stays bit-identical to the pre-fractional build.
+        self.build_view_matrix_f(cx, cy, cz, crx as f32, cry as f32, crz as f32);
+    }
+
+    /// Fractional-angle view build (see `sincos_frac`). `crx/cry/crz` are the
+    /// raw SNES camera angles (any range; wrapped internally), pre-negation.
+    fn build_view_matrix_f(&mut self, cx: i32, cy: i32, cz: i32, crx: f32, cry: f32, crz: f32) {
         self.cam_render = CameraState {
             x: cx,
             y: cy,
             z: cz,
-            rx: crx,
-            ry: cry,
-            rz: crz,
+            rx: crx.round() as i16,
+            ry: cry.round() as i16,
+            rz: crz.round() as i16,
         };
+        self.cam_render_pitch_f = signed_angle_f(crx);
+        self.cam_render_yaw_f = signed_angle_f(cry);
         // Build view matrix from camera position and SNES rotation angles.
         // SNES -> GL world: negate Y translation, negate X/Z rotation angles.
         let cy = -cy;
-        let crx = crx.wrapping_neg();
-        let crz = crz.wrapping_neg();
-        let ax = (crx & 0xFF) as usize;
-        let ay = (cry & 0xFF) as usize;
-        let az = (crz & 0xFF) as usize;
-
-        let (sx, cx_) = (self.sin_table[ax], self.cos_table[ax]);
-        let (sy, cy_) = (self.sin_table[ay], self.cos_table[ay]);
-        let (sz, cz_) = (self.sin_table[az], self.cos_table[az]);
+        let (sx, cx_) = self.sincos_frac(-crx);
+        let (sy, cy_) = self.sincos_frac(cry);
+        let (sz, cz_) = self.sincos_frac(-crz);
 
         // ZYX rotation order (matching SNES)
         let mut rotation = [0.0f32; 16];
@@ -239,9 +283,9 @@ impl Transform {
         let alpha = alpha.clamp(0.0, 1.0);
 
         let mut big_jump = false;
-        let rx = lerp_cam_angle(self.cam_prev.rx, self.cam_curr.rx, alpha, &mut big_jump);
-        let ry = lerp_cam_angle(self.cam_prev.ry, self.cam_curr.ry, alpha, &mut big_jump);
-        let rz = lerp_cam_angle(self.cam_prev.rz, self.cam_curr.rz, alpha, &mut big_jump);
+        let rx = lerp_cam_angle_f(self.cam_prev.rx, self.cam_curr.rx, alpha, &mut big_jump);
+        let ry = lerp_cam_angle_f(self.cam_prev.ry, self.cam_curr.ry, alpha, &mut big_jump);
+        let rz = lerp_cam_angle_f(self.cam_prev.rz, self.cam_curr.rz, alpha, &mut big_jump);
 
         let dx = fp16_to_float(self.cam_curr.x.wrapping_sub(self.cam_prev.x));
         let dy = fp16_to_float(self.cam_curr.y.wrapping_sub(self.cam_prev.y));
@@ -264,12 +308,20 @@ impl Transform {
             + ((self.cam_curr.y.wrapping_sub(self.cam_prev.y)) as f32 * alpha) as i32;
         let z = self.cam_prev.z
             + ((self.cam_curr.z.wrapping_sub(self.cam_prev.z)) as f32 * alpha) as i32;
-        self.build_view_matrix(x, y, z, rx, ry, rz);
+        self.build_view_matrix_f(x, y, z, rx, ry, rz);
     }
 
     /// Mirror of `Transform_GetRenderCamera`.
     pub fn render_camera(&self) -> CameraState {
         self.cam_render
+    }
+
+    /// Fractional signed render-camera pitch/yaw (SNES units) for the 2D
+    /// background horizon coupling — the interpolated angle before it is
+    /// rounded into `cam_render`, so the painted horizon glides per render
+    /// frame instead of stepping once per tick.
+    pub fn render_camera_angles_f(&self) -> (f32, f32) {
+        (self.cam_render_pitch_f, self.cam_render_yaw_f)
     }
 
     /// Mirror of `Transform_BuildModelMatrix`: SNES-convention world
@@ -284,16 +336,30 @@ impl Transform {
         ry: i16,
         rz: i16,
     ) {
-        let y = -y;
-        let rx = rx.wrapping_neg();
-        let rz = rz.wrapping_neg();
-        let ax = (rx & 0xFF) as usize;
-        let ay = (ry & 0xFF) as usize;
-        let az = (rz & 0xFF) as usize;
+        // Whole-unit angles resolve to exact table entries, so this is
+        // bit-identical to the pre-fractional build.
+        self.build_model_matrix_f(out, x, y, z, rx as f32, ry as f32, rz as f32);
+    }
 
-        let (sx, cx_) = (self.sin_table[ax], self.cos_table[ax]);
-        let (sy, cy_) = (self.sin_table[ay], self.cos_table[ay]);
-        let (sz, cz_) = (self.sin_table[az], self.cos_table[az]);
+    /// Fractional-angle model build (see `sincos_frac`): lets an object's
+    /// interpolated rotation (e.g. a banking ship) glide per render frame
+    /// instead of stepping in whole 1.4-deg SNES units once per tick.
+    /// `rx/ry/rz` are raw SNES angles (any range), pre-negation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_model_matrix_f(
+        &self,
+        out: &mut [f32; 16],
+        x: i32,
+        y: i32,
+        z: i32,
+        rx: f32,
+        ry: f32,
+        rz: f32,
+    ) {
+        let y = -y;
+        let (sx, cx_) = self.sincos_frac(-rx);
+        let (sy, cy_) = self.sincos_frac(ry);
+        let (sz, cz_) = self.sincos_frac(-rz);
 
         identity(out);
 
@@ -312,5 +378,61 @@ impl Transform {
         out[12] = fp16_to_float(x);
         out[13] = fp16_to_float(y);
         out[14] = fp16_to_float(z);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression: a 1-SNES-unit-per-tick camera yaw (the common steady-turn
+    // rate) must interpolate at fractional precision across a render frame.
+    // The pre-fix integer path (`a8 + (int)(diff*t)`) truncated `1*t` to 0 for
+    // all alpha < 1, so the camera rotation froze between ticks and snapped at
+    // 20 Hz — the residual flight stutter.
+    #[test]
+    fn view_lerp_glides_small_camera_yaw() {
+        let mut t = Transform::new();
+        t.set_projection(1280, 720);
+        t.set_camera(0, 0, 0, 0, 20, 0); // tick N-1: yaw 20
+        t.set_camera(0, 0, 0, 0, 21, 0); // tick N:   yaw 21 (delta 1)
+
+        t.set_view_lerp(0.0);
+        let (_, y0) = t.render_camera_angles_f();
+        let view_start = *t.view();
+        t.set_view_lerp(0.5);
+        let (_, ymid) = t.render_camera_angles_f();
+        let view_mid = *t.view();
+        t.set_view_lerp(1.0);
+        let (_, y1) = t.render_camera_angles_f();
+
+        assert!((y0 - 20.0).abs() < 1e-3, "alpha 0 yaw {y0}");
+        assert!((y1 - 21.0).abs() < 1e-3, "alpha 1 yaw {y1}");
+        // The key assertion: the mid-frame yaw is ~20.5, NOT stepped to 20/21.
+        assert!(
+            (ymid - 20.5).abs() < 1e-3,
+            "mid yaw {ymid} should glide to ~20.5, not snap"
+        );
+        // And the mid view matrix must differ from the tick-start view (proves
+        // the rendered rotation actually moves between ticks).
+        let drift: f32 = view_mid
+            .iter()
+            .zip(view_start.iter())
+            .map(|(m, s)| (m - s).abs())
+            .sum();
+        assert!(drift > 1e-4, "mid view identical to tick start -> stepping");
+    }
+
+    // Whole-unit angles must stay bit-identical through the fractional path
+    // (the frac blend collapses to an exact table entry), so non-interpolated
+    // objects and the per-tick camera build are unchanged.
+    #[test]
+    fn integer_angle_build_is_exact() {
+        let t = Transform::new();
+        for a in [0i16, 1, 45, 64, 127, 200, 255] {
+            let (s, c) = t.sincos_frac(a as f32);
+            assert_eq!(s, t.sin_table[(a & 0xFF) as usize]);
+            assert_eq!(c, t.cos_table[(a & 0xFF) as usize]);
+        }
     }
 }

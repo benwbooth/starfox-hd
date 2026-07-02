@@ -64,6 +64,24 @@ fn lerp_angle8(from: i16, to: i16, t: f32) -> i16 {
     out8 & 0xFF
 }
 
+/// Fractional-precision counterpart of `lerp_angle8`: the integer version
+/// truncates `diff*t` to 0 for the common |diff| <= 1-unit per-tick rotation
+/// (so a banking ship's roll snaps once per 20 Hz tick even though its
+/// position glides). Returns the un-truncated wrapped angle in [0, 256) for
+/// feeding `Transform::build_model_matrix_f`.
+fn lerp_angle8_f(from: i16, to: i16, t: f32) -> f32 {
+    let a8 = (from & 0xFF) as i32;
+    let b8 = (to & 0xFF) as i32;
+    let mut diff = b8 - a8;
+    if diff > 127 {
+        diff -= 256;
+    }
+    if diff < -128 {
+        diff += 256;
+    }
+    (a8 as f32 + diff as f32 * t).rem_euclid(256.0)
+}
+
 /// Mirror of `InterpolateEntry`.
 fn interpolate_entry(a: &DrawListEntry, b: &DrawListEntry, alpha: f32) -> DrawListEntry {
     let mut out = *b;
@@ -228,18 +246,30 @@ impl DrawListRenderer {
             } else {
                 -1
             };
-            let interp = if prev_idx >= 0 && prev[prev_idx as usize].shape_id == entry.shape_id
-            {
+            let interpolating = prev_idx >= 0 && prev[prev_idx as usize].shape_id == entry.shape_id;
+            let interp = if interpolating {
                 interpolate_entry(&prev[prev_idx as usize], entry, alpha)
             } else {
                 *entry
             };
 
+            // Fractional interpolated rotation for a jitter-free model build
+            // (interp.rx/ry/rz are truncated to whole SNES units and are still
+            // used for the flat shadow pass, where the error is invisible).
+            let (frx, fry, frz) = if interpolating {
+                let p = &prev[prev_idx as usize];
+                (
+                    lerp_angle8_f(p.rx, entry.rx, alpha),
+                    lerp_angle8_f(p.ry, entry.ry, alpha),
+                    lerp_angle8_f(p.rz, entry.rz, alpha),
+                )
+            } else {
+                (entry.rx as f32, entry.ry as f32, entry.rz as f32)
+            };
+
             // Build model matrix.
             let mut model = [0.0f32; 16];
-            transform.build_model_matrix(
-                &mut model, interp.x, interp.y, interp.z, interp.rx, interp.ry, interp.rz,
-            );
+            transform.build_model_matrix_f(&mut model, interp.x, interp.y, interp.z, frx, fry, frz);
 
             // Render the shape. Wireframe-flagged entries draw as edge lines
             // instead of filled triangles.

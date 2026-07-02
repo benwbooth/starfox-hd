@@ -731,30 +731,43 @@ impl Bg2d {
 
         if with_camera {
             let cam = transform.render_camera();
-            // SNES 0-255 angle units, signed (render camera quantizes to
-            // whole units, so BG and 3D view move in lockstep).
-            let mut rx = (cam.rx & 0xFF) as i32;
-            if rx >= 128 {
-                rx -= 256; // pitch, + = up
-            }
-            let mut ry = (cam.ry & 0xFF) as i32;
-            if ry >= 128 {
-                ry -= 256; // yaw, + = right
-            }
+            // Fractional signed SNES angle units (render-frame interpolated, so
+            // the painted horizon glides with the 3D view instead of stepping
+            // once per 20 Hz tick — see Transform::render_camera_angles_f).
+            let (rx, ry) = transform.render_camera_angles_f(); // pitch +up, yaw +right
 
             // Vertical: use the port projection's real focal length so the
             // painted horizon sits exactly on the 3D ground plane's
             // vanishing line (focal*tan(pitch)).
             let focal = transform.projection()[5] * (BG2D_H as f32 * 0.5);
-            let mut vdelta = -focal * ((rx as f32) * (std::f32::consts::PI / 128.0)).tan();
+            let mut vdelta = -focal * (rx * (std::f32::consts::PI / 128.0)).tan();
             if !inputs.nomax_bg2_yscroll {
                 vdelta = vdelta.clamp(-56.0, 232.0);
             }
             vofs += vdelta;
 
+            // SNES-vs-port horizon alignment (the missing half of the
+            // horizon lock). The BGS.ASM bg2Yscroll bases (def.vofs) were
+            // tuned so the painted horizon fell on the SNES 3D engine's
+            // horizon, which sat at scanline ~130 of the 224-line frame
+            // (every von/hon bg shares that one engine horizon: measured
+            // green-ground row - vofs = 132 for ST-P/bg_1_1c, 128 for
+            // 3-3/bg_3_3a). The port's symmetric 60-deg frustum instead
+            // vanishes the y=0 ground plane at screen centre (row 112) at
+            // pitch 0 — geometrically exact but 18 lines above the SNES
+            // horizon the texture was painted for. Without correcting that,
+            // ground objects (worldy 0, drawn on the y=0 plane) converge on
+            // the mountain-haze band while the painted green ground sits ~18
+            // lines lower, so they read as floating above the terrain.
+            // Shift the window up by the difference so the painted horizon
+            // locks to the port's y=0 vanishing line (bg2d.c calcbgscroll_l
+            // locked only the per-pitch slope, never this base offset).
+            const SNES_HORIZON_ROW: f32 = 130.0;
+            vofs += SNES_HORIZON_ROW - BG2D_H as f32 * 0.5;
+
             // Horizontal: m_scrollxoff = bg2Xscroll + yaw*8 px, plus the
             // `hofmode rotate` HDMA base of worldx>>3.
-            hofs += ry as f32 * 8.0 + (cam.x >> 16) as f32 / 8.0;
+            hofs += ry * 8.0 + (cam.x >> 16) as f32 / 8.0;
         }
 
         // Texture rows were flipped at compose time (GL row 0 = map bottom),
