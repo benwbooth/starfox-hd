@@ -1,0 +1,702 @@
+//! In-game 2D overlay (flight HUD + radio messages).
+//!
+//! Port (C oracle): `src/renderer/hud.c` — OAM sprites from
+//! `do_sprites_l` (SPRITES.ASM) and Super FX bitmap draws from
+//! MDRAWLIS.MC/MTXTPRT.MC (meters, boss HP, radio text, portrait).
+//!
+//! Deviations from the C (documented):
+//!  - `Sound_PlaySE(0x8A)` on arrow-flash wrap becomes a pending sound-effect
+//!    queue the caller drains ([`Hud::take_pending_sounds`]).
+//!  - The C clears `g_boostcnt` when the boost gauge drains; inputs here are
+//!    read-only, so an internal latch treats the unchanged input value as
+//!    cleared until the game writes a new one.
+//!  - The C forces `g_meters = 1` on entering gameplay / stage advance
+//!    (MAIN.ASM:105 stand-in); mirrored with an internal flag.
+
+use glow::HasContext;
+
+use crate::font::Font;
+use crate::gl_backend::{self, GlBackend};
+use crate::renderer::{FrameInputs, GameState};
+use crate::sprites::{Sprites, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_VFLIP};
+
+/// Vertical offset of the 256x192 Super FX bitmap within the 256x224 screen.
+const BITMAP_Y_OFS: i32 = 16;
+
+/// CONTINUE.ASM openingframes
+const MSG_OPENING_FRAMES: u8 = 5;
+
+// variables.h flags used by the HUD (mirrors of the C defines).
+pub const GF_PLAYERDYING: u8 = 2;
+pub const GF_PLAYERDEAD: u8 = 64;
+pub const SPFM_INSIDE: u8 = 3;
+pub const SPRAR_UP: u8 = 1;
+pub const SPRAR_DOWN: u8 = 2;
+pub const SPRAR_LEFT: u8 = 4;
+pub const SPRAR_RIGHT: u8 = 8;
+pub const FRIEND_ANDROSS: u8 = 5;
+
+// Radio message text layout (mfprintstr / friendmsgrighttextclip).
+const MSG_TEXT_X: i32 = 82;
+const MSG_TEXT_Y: i32 = 169 + BITMAP_Y_OFS;
+const MSG_LINE_H: i32 = 16;
+const MSG_CHARS_LINE: usize = 11; // (174 - 82) / 8px cells
+const MSG_MAX_LINES: usize = 3;
+
+// Radar arrow frame layouts — port of artab (SPRITES.ASM:943-1027).
+#[derive(Clone, Copy)]
+struct ArrowSpr {
+    x: u8,
+    y: u8,
+    tile: u8,
+    flags: u8,
+}
+
+const AR_END: u8 = 0xFF;
+
+const fn a(x: u8, y: u8, tile: u8, flags: u8) -> ArrowSpr {
+    ArrowSpr { x, y, tile, flags }
+}
+const AZ: ArrowSpr = a(AR_END, 0, 0, 0);
+
+static ARROW_UP: [[ArrowSpr; 4]; 4] = [
+    [a(119, 24, 0x3E, 0), a(127, 24, 0x3E, SPR_HFLIP), AZ, AZ],
+    [
+        a(119, 24, 0x3E, 0),
+        a(127, 24, 0x3E, SPR_HFLIP),
+        a(119, 33, 0x3E, 0),
+        a(127, 33, 0x3E, SPR_HFLIP),
+    ],
+    [a(119, 33, 0x3E, 0), a(127, 33, 0x3E, SPR_HFLIP), AZ, AZ],
+    [AZ, AZ, AZ, AZ],
+];
+static ARROW_DOWN: [[ArrowSpr; 4]; 4] = [
+    [
+        a(119, 193, 0x3E, SPR_VFLIP),
+        a(127, 193, 0x3E, SPR_VFLIP | SPR_HFLIP),
+        AZ,
+        AZ,
+    ],
+    [
+        a(119, 193, 0x3E, SPR_VFLIP),
+        a(127, 193, 0x3E, SPR_VFLIP | SPR_HFLIP),
+        a(119, 184, 0x3E, SPR_VFLIP),
+        a(127, 184, 0x3E, SPR_VFLIP | SPR_HFLIP),
+    ],
+    [
+        a(119, 184, 0x3E, SPR_VFLIP),
+        a(127, 184, 0x3E, SPR_VFLIP | SPR_HFLIP),
+        AZ,
+        AZ,
+    ],
+    [AZ, AZ, AZ, AZ],
+];
+static ARROW_RIGHT: [[ArrowSpr; 4]; 4] = [
+    [a(225, 104, 0x70, 0), a(225, 112, 0x70, SPR_VFLIP), AZ, AZ],
+    [
+        a(225, 104, 0x70, 0),
+        a(225, 112, 0x70, SPR_VFLIP),
+        a(216, 104, 0x70, 0),
+        a(216, 112, 0x70, SPR_VFLIP),
+    ],
+    [a(216, 104, 0x70, 0), a(216, 112, 0x70, SPR_VFLIP), AZ, AZ],
+    [AZ, AZ, AZ, AZ],
+];
+static ARROW_LEFT: [[ArrowSpr; 4]; 4] = [
+    [
+        a(24, 104, 0x70, SPR_HFLIP),
+        a(24, 112, 0x70, SPR_HFLIP | SPR_VFLIP),
+        AZ,
+        AZ,
+    ],
+    [
+        a(24, 104, 0x70, SPR_HFLIP),
+        a(24, 112, 0x70, SPR_HFLIP | SPR_VFLIP),
+        a(33, 104, 0x70, SPR_HFLIP),
+        a(33, 112, 0x70, SPR_HFLIP | SPR_VFLIP),
+    ],
+    [
+        a(33, 104, 0x70, SPR_HFLIP),
+        a(33, 112, 0x70, SPR_HFLIP | SPR_VFLIP),
+        AZ,
+        AZ,
+    ],
+    [AZ, AZ, AZ, AZ],
+];
+
+/// Word-wrap like mfprintstr (right clip at x=174), lines 16px apart.
+/// Mirror of `WrapMessage`.
+pub fn wrap_message(msg: &str) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let bytes = msg.as_bytes();
+    let mut p = 0usize;
+    while p < bytes.len() && lines.len() < MSG_MAX_LINES {
+        // Measure next word
+        let mut wlen = 0usize;
+        while p + wlen < bytes.len() && bytes[p + wlen] != b' ' {
+            wlen += 1;
+        }
+        if wlen == 0 {
+            p += 1;
+            continue; // skip spaces
+        }
+
+        let col = cur.len();
+        let mut need = wlen + if col > 0 { 1 } else { 0 };
+        if col + need > MSG_CHARS_LINE && col > 0 {
+            lines.push(std::mem::take(&mut cur));
+            if lines.len() >= MSG_MAX_LINES {
+                break;
+            }
+            need = wlen;
+        }
+        let _ = need;
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        for i in 0..wlen {
+            if cur.len() >= MSG_CHARS_LINE {
+                break;
+            }
+            cur.push(bytes[p + i] as char);
+        }
+        p += wlen;
+    }
+    if !cur.is_empty() && lines.len() < MSG_MAX_LINES {
+        lines.push(cur);
+    }
+    lines
+}
+
+pub struct Hud {
+    quad_vao: Option<glow::VertexArray>,
+    quad_vbo: Option<glow::Buffer>,
+
+    // calcmeters/do_sprites per-game-frame animation state
+    boostanim: i32,      // m_boostanim (TRANS.ASM:613)
+    sprframe: usize,     // arrow flash frame 0-3 (SPRITES.ASM:862)
+    face_talk: i32,      // current talk-frame (5..17 or 4)
+    last_gameframe: u32, // 0xFFFF_FFFF = unset
+    rng: u32,            // local RNG — do not perturb game RNG
+
+    screen_w: f32,
+    screen_h: f32,
+
+    // Read-only-input workarounds (see module docs).
+    was_playing: bool,
+    last_stage: u32,
+    force_meters: bool,
+    boostcnt_zeroed: bool,
+    boostcnt_seen: u8,
+
+    /// SNES sound-effect codes queued by HUD animations (SE $8A arrow beep).
+    pub pending_sounds: Vec<u8>,
+}
+
+impl Hud {
+    pub fn new(gl: &glow::Context) -> Self {
+        // Unit quad for drawing bars
+        let quad: [f32; 16] = [
+            0.0, 0.0, 0.0, 0.0,
+            1.0, 0.0, 1.0, 0.0,
+            1.0, 1.0, 1.0, 1.0,
+            0.0, 1.0, 0.0, 1.0,
+        ];
+        let (vao, vbo) = unsafe {
+            let vao = gl.create_vertex_array().ok();
+            let vbo = gl.create_buffer().ok();
+            gl.bind_vertex_array(vao);
+            gl.bind_buffer(glow::ARRAY_BUFFER, vbo);
+            let bytes: &[u8] =
+                core::slice::from_raw_parts(quad.as_ptr() as *const u8, quad.len() * 4);
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STATIC_DRAW);
+            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 4 * 4, 0);
+            gl.enable_vertex_attrib_array(0);
+            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 4 * 4, 2 * 4);
+            gl.enable_vertex_attrib_array(1);
+            gl.bind_vertex_array(None);
+            (vao, vbo)
+        };
+        Hud {
+            quad_vao: vao,
+            quad_vbo: vbo,
+            boostanim: 40,
+            sprframe: 0,
+            face_talk: 0,
+            last_gameframe: 0xFFFF_FFFF,
+            rng: 0x1234_5678,
+            screen_w: 0.0,
+            screen_h: 0.0,
+            was_playing: false,
+            last_stage: 0xFFFF_FFFF,
+            force_meters: false,
+            boostcnt_zeroed: false,
+            boostcnt_seen: 0,
+            pending_sounds: Vec::new(),
+        }
+    }
+
+    pub fn take_pending_sounds(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.pending_sounds)
+    }
+
+    fn random(&mut self) -> u32 {
+        self.rng = self.rng.wrapping_mul(1664525).wrapping_add(1013904223);
+        self.rng >> 16
+    }
+
+    /// Solid rectangle in SNES screen space (256x224, y down), bitmap
+    /// palette color. Mirror of `SnesSolidRect`.
+    #[allow(clippy::too_many_arguments)]
+    fn snes_solid_rect(
+        &self,
+        gl: &glow::Context,
+        backend: &GlBackend,
+        sprites: &Sprites,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color_idx: usize,
+    ) {
+        let sx = self.screen_w / 256.0;
+        let sy = self.screen_h / 224.0;
+        let rgba = sprites.bitmap_color(color_idx);
+
+        let mut model = [0.0f32; 16];
+        model[0] = w * sx;
+        model[5] = h * sy;
+        model[10] = 1.0;
+        model[12] = x * sx;
+        model[13] = self.screen_h - (y + h) * sy;
+        model[15] = 1.0;
+
+        gl_backend::set_mat4(gl, backend.hud, "uModel", &model);
+        gl_backend::set_vec4(gl, backend.hud, "uColor", rgba[0], rgba[1], rgba[2], 1.0);
+        unsafe {
+            gl.bind_vertex_array(self.quad_vao);
+            gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
+            gl.bind_vertex_array(None);
+        }
+    }
+
+    /// 1px outline box (Super FX mdrawbox equivalent).
+    #[allow(clippy::too_many_arguments)]
+    fn snes_outline_box(
+        &self,
+        gl: &glow::Context,
+        backend: &GlBackend,
+        sprites: &Sprites,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        color_idx: usize,
+    ) {
+        self.snes_solid_rect(gl, backend, sprites, x, y, w, 1.0, color_idx);
+        self.snes_solid_rect(gl, backend, sprites, x, y + h - 1.0, w, 1.0, color_idx);
+        self.snes_solid_rect(gl, backend, sprites, x, y, 1.0, h, color_idx);
+        self.snes_solid_rect(gl, backend, sprites, x + w - 1.0, y, 1.0, h, color_idx);
+    }
+
+    /// Per-game-frame animation updates (mirror of `Hud_TickAnimations`).
+    fn tick_animations(&mut self, inputs: &FrameInputs) {
+        if inputs.gameframe as u32 == self.last_gameframe {
+            return;
+        }
+        let prev = self.last_gameframe;
+        self.last_gameframe = inputs.gameframe as u32;
+        if prev == 0xFFFF_FFFF {
+            return;
+        }
+
+        // Effective boostcnt: the C zeroes g_boostcnt when the gauge fully
+        // drains; treat the unchanged input value as cleared.
+        if inputs.boostcnt != self.boostcnt_seen {
+            self.boostcnt_seen = inputs.boostcnt;
+            self.boostcnt_zeroed = false;
+        }
+        let boostcnt = if self.boostcnt_zeroed { 0 } else { inputs.boostcnt };
+
+        // mboostmeter drive (TRANS.ASM calcmeters:613-632).
+        if boostcnt != 0 {
+            self.boostanim -= 2;
+            if self.boostanim < 0 {
+                self.boostanim = 0;
+                self.boostcnt_zeroed = true; // C: g_boostcnt = 0
+            }
+        } else if self.boostanim < 40 {
+            self.boostanim += 1;
+        }
+
+        // Arrow flash frame (SPRITES.ASM do_arrows:861-876): advance every
+        // other game frame through 4 frames; SE $8A on wrap while visible.
+        if inputs.gameframe & 1 != 0 {
+            self.sprframe += 1;
+            if self.sprframe >= 4 {
+                self.sprframe = 0;
+                if inputs.arrows != 0 {
+                    self.pending_sounds.push(0x8A);
+                }
+            }
+        }
+
+        // Radio talk-frame reroll (CONTINUE.ASM friends_messages_l "normal").
+        if inputs.msg_count1 > 0 && inputs.msg_count2 >= MSG_OPENING_FRAMES {
+            let rnd = self.random() & 31;
+            if rnd == 0 {
+                self.face_talk = 4; // face_frame4
+            } else {
+                let mut mouth = (rnd & 1) as i32;
+                if inputs.msg_count1 < 30 {
+                    mouth = 0;
+                }
+                self.face_talk = MSG_OPENING_FRAMES as i32
+                    + (((inputs.whichfriend & 0x7F) as i32) << 1)
+                    + mouth;
+            }
+        }
+    }
+
+    fn draw_arrow_set(&self, sprites: &mut Sprites, set: &[[ArrowSpr; 4]; 4]) {
+        let frame = &set[self.sprframe];
+        for spr in frame.iter() {
+            if spr.x == AR_END && spr.tile == 0 {
+                break;
+            }
+            sprites.draw8(
+                spr.tile as i32,
+                spr.x as i32,
+                spr.y as i32,
+                SPR_PAL_DEFAULT,
+                spr.flags,
+            );
+        }
+    }
+
+    /// Font wrapper compensating x so text lines up with the portrait in
+    /// 256-wide space (mirror of `DrawMsgLine`).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_msg_line(
+        &self,
+        gl: &glow::Context,
+        backend: &GlBackend,
+        font: &Font,
+        x: i32,
+        y_top: i32,
+        text: &str,
+        r: f32,
+        g: f32,
+        b: f32,
+    ) {
+        let fx = x as f32 * (self.screen_w / 256.0) / (self.screen_h / 224.0);
+        font.draw_string(
+            gl,
+            backend,
+            (fx + 0.5) as i32,
+            224 - y_top - 8,
+            text,
+            r,
+            g,
+            b,
+        );
+    }
+
+    /// Radio message block: portrait + text (CONTINUE.ASM
+    /// friends_messages_l). Mirror of `DrawRadioMessage`.
+    fn draw_radio_message(
+        &self,
+        gl: &glow::Context,
+        backend: &GlBackend,
+        sprites: &Sprites,
+        font: &Font,
+        inputs: &FrameInputs,
+    ) {
+        // friends_messages_l bails while the player is dying/dead.
+        if inputs.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
+            return;
+        }
+        if inputs.msg_count1 == 0 && inputs.msg_count2 == 0 {
+            return;
+        }
+
+        // --- Portrait (mcopyface at friendmugshotx=6 cols -> x=48, y=152) --
+        let frame = if inputs.msg_count1 == 0 || inputs.msg_count2 < MSG_OPENING_FRAMES {
+            // Opening/closing window iris: frames 0-4
+            (inputs.msg_count2 as i32).min(4)
+        } else {
+            self.face_talk
+        };
+        sprites.draw_face(gl, backend, frame, 48, 152 + BITMAP_Y_OFS);
+
+        // Text only once the window is open and the message is live.
+        if inputs.msg_count1 == 0 || inputs.msg_count2 < MSG_OPENING_FRAMES {
+            return;
+        }
+
+        if let Some(msg) = inputs.message_text {
+            // chkmeter (CONTINUE.ASM): long-message variants (bit 7),
+            // Andross, or a visible teammate meter push the text up a line.
+            let mut ty = MSG_TEXT_Y;
+            if inputs.whichfriend & 0x80 != 0
+                || inputs.whichfriend & 0x7F == FRIEND_ANDROSS
+                || inputs.friends_meter != 0
+            {
+                ty -= MSG_LINE_H;
+            }
+
+            let lines = wrap_message(msg);
+            let shadow = sprites.bitmap_color(9); // msprintstr shadow colour 9
+            for (i, line) in lines.iter().enumerate() {
+                self.draw_msg_line(
+                    gl,
+                    backend,
+                    font,
+                    MSG_TEXT_X + 1,
+                    ty + i as i32 * MSG_LINE_H + 1,
+                    line,
+                    shadow[0],
+                    shadow[1],
+                    shadow[2],
+                );
+                self.draw_msg_line(
+                    gl,
+                    backend,
+                    font,
+                    MSG_TEXT_X,
+                    ty + i as i32 * MSG_LINE_H,
+                    line,
+                    1.0,
+                    1.0,
+                    1.0,
+                );
+            }
+        }
+    }
+
+    /// Teammate HP meter (mshowteammate2, MTXTPRT.MC:568).
+    fn draw_teammate_meter(
+        &self,
+        gl: &glow::Context,
+        backend: &GlBackend,
+        sprites: &Sprites,
+        inputs: &FrameInputs,
+    ) {
+        if inputs.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
+            return;
+        }
+        if inputs.msg_count1 == 0 || inputs.msg_count2 < MSG_OPENING_FRAMES {
+            return;
+        }
+        if inputs.friends_meter == 0 {
+            return;
+        }
+
+        let mut hp = (inputs.friends_meter & 0x7F) as i32;
+        self.snes_outline_box(
+            gl, backend, sprites, 82.0, (177 + BITMAP_Y_OFS) as f32, 44.0, 12.0, 14,
+        );
+        if hp > 0 {
+            hp = hp.min(40);
+            self.snes_solid_rect(
+                gl, backend, sprites, 84.0, (179 + BITMAP_Y_OFS) as f32, hp as f32, 8.0, 2,
+            );
+        }
+    }
+
+    /// Mirror of `Hud_Render` (state-gated: gameplay only).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(
+        &mut self,
+        gl: &glow::Context,
+        backend: &GlBackend,
+        sprites: &mut Sprites,
+        font: &mut Font,
+        inputs: &FrameInputs,
+        screen_width: i32,
+        screen_height: i32,
+    ) {
+        // Gameplay HUD only applies while actually playing.
+        if inputs.game_state != GameState::Playing {
+            self.was_playing = false;
+            return;
+        }
+
+        self.screen_w = screen_width as f32;
+        self.screen_h = screen_height as f32;
+
+        // MAIN.ASM:105 m_meters=1 stand-in (see module docs).
+        if !self.was_playing || inputs.stage as u32 != self.last_stage {
+            self.was_playing = true;
+            self.last_stage = inputs.stage as u32;
+            self.force_meters = true;
+        }
+
+        self.tick_animations(inputs);
+
+        unsafe {
+            gl.disable(glow::DEPTH_TEST);
+            gl.enable(glow::BLEND);
+            gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
+            gl.use_program(Some(backend.hud));
+        }
+
+        let mut ortho = [0.0f32; 16];
+        ortho[0] = 2.0 / self.screen_w;
+        ortho[5] = 2.0 / self.screen_h;
+        ortho[10] = -1.0;
+        ortho[12] = -1.0;
+        ortho[13] = -1.0;
+        ortho[15] = 1.0;
+        gl_backend::set_mat4(gl, backend.hud, "uProj", &ortho);
+        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
+
+        sprites.set_screen_size(screen_width, screen_height);
+        font.set_screen_size(screen_width, screen_height);
+
+        // do_sprites_l gate: m_meters set, screen not blacked out.
+        let hud_on = (inputs.meters != 0 || self.force_meters) && inputs.stayblack == -1;
+
+        if hud_on {
+            // --- Super FX bitmap meters (MDRAWLIS.MC), bitmap y + 16 ---
+
+            // Shield meter (mdamagemeter): 40x8 box colour 13 at (8,176),
+            // fill = player HP clamped to 36, 4px tall, colour 2.
+            {
+                let fill = inputs.shield_cur.clamp(0, 36);
+                self.snes_outline_box(
+                    gl, backend, sprites, 8.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
+                );
+                if fill > 0 {
+                    self.snes_solid_rect(
+                        gl, backend, sprites, 10.0, (178 + BITMAP_Y_OFS) as f32,
+                        fill as f32, 4.0, 2,
+                    );
+                }
+            }
+
+            // Boost/brake gauge (mboostmeter): mirror box at (176,176),
+            // fill = m_boostanim clamped to 36, colour 6.
+            {
+                let fill = self.boostanim.min(36);
+                self.snes_outline_box(
+                    gl, backend, sprites, 176.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
+                );
+                if fill > 0 {
+                    self.snes_solid_rect(
+                        gl, backend, sprites, 178.0, (178 + BITMAP_Y_OFS) as f32,
+                        fill as f32, 4.0, 6,
+                    );
+                }
+            }
+
+            // Boss HP bar (mdrawbossHP): right-aligned at x=222, bitmap y=2.
+            if inputs.boss_hp_max > 0 {
+                let mut maxv = inputs.boss_hp_max & 0xFF;
+                let mut curv = inputs.boss_hp_cur;
+                if maxv & 0x80 != 0 {
+                    maxv >>= 1;
+                    curv >>= 1;
+                }
+                let w = maxv + 4;
+                let bx = (222 - w) as f32;
+                self.snes_outline_box(
+                    gl, backend, sprites, bx, (2 + BITMAP_Y_OFS) as f32, w as f32, 6.0, 14,
+                );
+                if curv > 0 {
+                    let curv = curv.min(maxv);
+                    self.snes_solid_rect(
+                        gl, backend, sprites, bx + 2.0, (4 + BITMAP_Y_OFS) as f32,
+                        curv as f32, 2.0, 2,
+                    );
+                }
+            }
+
+            self.draw_teammate_meter(gl, backend, sprites, inputs);
+
+            // --- Portrait sits on the bitmap layer, under the OAM sprites --
+            self.draw_radio_message(gl, backend, sprites, font, inputs);
+
+            // --- OAM sprites (SPRITES.ASM do_sprites_l order) ---
+
+            // Nova bomb icons (do_spec_weap): tile $3C from (225,182)
+            // stepping x -= 9 per bomb.
+            for i in 0..inputs.bombs.clamp(0, 9) {
+                sprites.draw8(0x3C, 225 - i * 9, 182, SPR_PAL_DEFAULT, 0);
+            }
+
+            // Crosshair (do_crosshair): four tile-$61 corners around
+            // (124,100), palette 4, cockpit view only.
+            if inputs.splayerflymode == SPFM_INSIDE {
+                sprites.draw8(0x61, 124 - 8, 100 - 8, SPR_PAL_CROSS, 0);
+                sprites.draw8(0x61, 124 + 8, 100 - 8, SPR_PAL_CROSS, SPR_HFLIP);
+                sprites.draw8(0x61, 124 - 8, 100 + 8, SPR_PAL_CROSS, SPR_VFLIP);
+                sprites.draw8(0x61, 124 + 8, 100 + 8, SPR_PAL_CROSS, SPR_HFLIP | SPR_VFLIP);
+            }
+
+            // Lives (do_lives): ship icon, "x", digit at (16/24/32, 17).
+            {
+                let mut lc = if inputs.lives > 0 { inputs.lives } else { 1 };
+                lc -= 1;
+                lc = lc.min(9);
+                sprites.draw8(0x3D, 16, 17, SPR_PAL_DEFAULT, 0);
+                sprites.draw8(0x62, 24, 17, SPR_PAL_DEFAULT, 0);
+                sprites.draw8(0x63 + lc, 32, 17, SPR_PAL_DEFAULT, 0);
+            }
+
+            // "SHIELD" label (do_shield): tiles $4B-$4E at (24..48, 183).
+            sprites.draw8(0x4B, 24, 183, SPR_PAL_DEFAULT, 0);
+            sprites.draw8(0x4C, 32, 183, SPR_PAL_DEFAULT, 0);
+            sprites.draw8(0x4D, 40, 183, SPR_PAL_DEFAULT, 0);
+            sprites.draw8(0x4E, 48, 183, SPR_PAL_DEFAULT, 0);
+
+            // Boss "ENEMY" tiles (do_enemy): $71-$74 at (200-hp, 16).
+            if inputs.boss_hp_max > 0 {
+                let mut v = inputs.boss_hp_max & 0xFF;
+                if v & 0x80 != 0 {
+                    v >>= 1;
+                }
+                for i in 0..4 {
+                    sprites.draw8(0x71 + i, 200 - v + i * 8, 16, SPR_PAL_DEFAULT, 0);
+                }
+            }
+
+            // Radar arrows (do_arrows), flashing via sprframe.
+            if inputs.arrows & SPRAR_UP != 0 {
+                self.draw_arrow_set(sprites, &ARROW_UP);
+            }
+            if inputs.arrows & SPRAR_DOWN != 0 {
+                self.draw_arrow_set(sprites, &ARROW_DOWN);
+            }
+            if inputs.arrows & SPRAR_LEFT != 0 {
+                self.draw_arrow_set(sprites, &ARROW_LEFT);
+            }
+            if inputs.arrows & SPRAR_RIGHT != 0 {
+                self.draw_arrow_set(sprites, &ARROW_RIGHT);
+            }
+        } else {
+            // Radio traffic still runs with the meters hidden.
+            self.draw_teammate_meter(gl, backend, sprites, inputs);
+            self.draw_radio_message(gl, backend, sprites, font, inputs);
+        }
+
+        sprites.render_hud(gl, backend);
+
+        unsafe {
+            gl.disable(glow::BLEND);
+            gl.enable(glow::DEPTH_TEST);
+        }
+    }
+
+    pub fn destroy(&mut self, gl: &glow::Context) {
+        unsafe {
+            if let Some(v) = self.quad_vao.take() {
+                gl.delete_vertex_array(v);
+            }
+            if let Some(b) = self.quad_vbo.take() {
+                gl.delete_buffer(b);
+            }
+        }
+    }
+}

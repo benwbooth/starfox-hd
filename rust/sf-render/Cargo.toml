@@ -6,3 +6,9 @@ license.workspace = true
 
 [dependencies]
 sf-core.workspace = true
+glow = "0.17"
+
+[dev-dependencies]
+# Offscreen GL context creation for the runtime tests only; sf-app owns the
+# real window and passes a glow::Context into Renderer::new.
+sdl3 = { version = "0.18", features = ["use-pkg-config"] }
