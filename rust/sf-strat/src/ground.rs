@@ -69,3 +69,33 @@ pub fn strat_staydist_init(g: &mut Game, idx: u16) {
     al.sflags |= ASF_COLLDISABLE;
     al.stratptr = None;
 }
+
+// ============================================================
+// Table-lane registration (mirrors player.rs `install`).
+// ============================================================
+
+use sf_game::alien::StratId;
+
+/// Registry handles for the ground istrat entry points (C GSTRATS.ASM /
+/// GASTRATS.ASM rows of `Strat_RegisterAll`).
+pub struct GroundStratIds {
+    /// `stayrel_Istrat` (`Strat_StayRel_Init`).
+    pub stayrel: StratId,
+    /// `gnd_Istrat` (`Strat_Gnd_Init`).
+    pub gnd: StratId,
+    /// `stayrelhard180yr_Istrat` (`Strat_StayRelHard180yr_Init`).
+    pub stayrelhard180yr: StratId,
+    /// `staydist_Istrat` (`Strat_StayDist_Init`).
+    pub staydist: StratId,
+}
+
+/// Register the ground strategy block (idempotent — `sid` memoizes on
+/// function identity) and return the public handles.
+pub fn install(g: &mut Game) -> GroundStratIds {
+    GroundStratIds {
+        stayrel: sid(g, strat_stayrel_init),
+        gnd: sid(g, strat_gnd_init),
+        stayrelhard180yr: sid(g, strat_stayrelhard180yr_init),
+        staydist: sid(g, strat_staydist_init),
+    }
+}

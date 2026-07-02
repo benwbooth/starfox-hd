@@ -294,3 +294,53 @@ fn smoke_zaco34_with_targets() {
         }
     }
 }
+
+// ============================================================
+// install() registration surface (table-lane contract)
+// ============================================================
+
+#[test]
+fn install_registers_distinct_idempotent_ids() {
+    let mut g = Game::new();
+    let ea = enemy_a::install(&mut g);
+    let gr = ground::install(&mut g);
+
+    // All handles distinct (each entry point is its own registry slot).
+    let ids = [
+        ea.hard.0, ea.hard180yr.0, ea.hard90yr.0, ea.hard180yr_nzr.0,
+        ea.hardrot.0, ea.nocoll.0, ea.rader0.0, ea.rader1.0, ea.pillar3.0,
+        ea.skillfly.0, ea.gate3.0, ea.gate.0, ea.gate2.0, ea.boss1.0,
+        ea.tow0_explode.0, ea.wormhead.0, ea.worm.0, ea.worm2.0, ea.item5.0,
+        ea.item7.0, ea.bomwing.0, ea.tadpole.0, ea.spacebarwalker.0,
+        ea.spacebarshoot.0, ea.up1man.0, ea.zacos.0, ea.tower0.0,
+        ea.houdai_ns.0, ea.houdai.0, ea.zaco3.0, ea.zaco4.0, ea.zaco0.0,
+        ea.para.0, ea.carrier.0, ea.base1.0, ea.cameleon.0, ea.szaco2.0,
+        ea.zaco1l.0, ea.zaco1r.0, ea.friendexitbase.0, ea.clship_warpa.0,
+        ea.clship_warpb.0, ea.clship_warpc.0, ea.clship_gnda.0,
+        ea.clship_gndb.0, ea.clship_gndc.0, ea.clship_eartha.0,
+        ea.clship_earthb.0, ea.clship_earthc.0, ea.clship_chasea.0,
+        ea.clship_chaseb.0, ea.clship_chasec.0, ea.boss_delay_explode.0,
+        ea.qboss_explode.0, ea.boss_explode.0, ea.hit_flash.0, ea.explode.0,
+        gr.stayrel.0, gr.gnd.0, gr.stayrelhard180yr.0, gr.staydist.0,
+    ];
+    let mut sorted = ids.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), ids.len(), "duplicate StratId in install()");
+
+    // Idempotent: a second install returns the same handles (sid memoizes
+    // on function identity, like C function addresses).
+    let ea2 = enemy_a::install(&mut g);
+    let gr2 = ground::install(&mut g);
+    assert_eq!(ea2.hard.0, ea.hard.0);
+    assert_eq!(ea2.boss1.0, ea.boss1.0);
+    assert_eq!(ea2.explode.0, ea.explode.0);
+    assert_eq!(gr2.staydist.0, gr.staydist.0);
+
+    // Handles are callable through the registry (spot check: gnd init
+    // makes an inert ATGND object via its registered id).
+    let idx = g.objs.alloc().unwrap();
+    strat_init_obj_vars(&mut g.objs.aliens[idx as usize]);
+    g.call_strat(gr.gnd, idx);
+    assert_ne!(g.objs.aliens[idx as usize].type_ & ATGND, 0);
+}

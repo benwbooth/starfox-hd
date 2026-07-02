@@ -141,8 +141,9 @@ pub mod wm {
     pub const PVIEWPOSZ: u16 = 0x1F24;
     /// C `g_pcboxobj_B` (i16 alien index).
     pub const PCBOXOBJ_B: u16 = 0x1F26;
-    /// C `g_numplasers` (u8).
-    pub const NUMPLASERS: u16 = 0x1F28;
+    // g_numplasers: consolidated onto `crate::common::sv::NUMPLASERS`
+    // (0x0313, the real WM address) — shared with the player-lane laser
+    // counter exactly like the single C global.
 }
 
 #[inline]
@@ -181,244 +182,44 @@ pub fn ea_random(g: &mut Game) -> u16 {
 }
 
 // ============================================================
-// ea_compat — DUPLICATES of strat_common.c helpers.
+// strat_common.c helpers — CONSOLIDATED onto `crate::common`.
 //
-// The common/player lane is porting strat_common.c concurrently; the
-// canonical Rust homes are `crate::common::*` with the same C-derived
-// behavior. Each function below is a documented DUPLICATE kept private to
-// this lane so it compiles standalone; consolidation replaces these with
-// `use crate::common::...` after both lanes land.
+// The former `ea_compat` duplicate module is gone; every call site now
+// goes through the canonical common-lane ports (signatures and byte
+// behavior verified against src/strat/strat_common.c). Two deliberate
+// notes from the verification:
+// - `speed_to`: the old duplicate used `saturating_add`; C (and
+//   `crate::common::strat_speed_to`) wrap `vel += rate` at u8 — the
+//   canonical version is the C-faithful one.
+// - `angle_xz`: stays LOCAL below. C `Strat_AngleXZ` computes
+//   `(float)(dst->worldx - src->worldx)` with int promotion (no 16-bit
+//   wrap); `crate::common::strat_angle_xz` uses `i16::wrapping_sub`,
+//   which diverges once |diff| > 32767. This lane keeps the
+//   C-int-promotion form for oracle fidelity.
 // ============================================================
-mod ea_compat {
-    use super::*;
 
-    /// DUPLICATE of `crate::common::chase` (C `Strat_Chase`,
-    /// src/strat/strat_common.c:36, Fchase_A).
-    pub fn chase(current: i16, target: i16, rate: i16) -> i16 {
-        let mut c = current;
-        if c < target {
-            c = c.wrapping_add(rate);
-            if c > target {
-                c = target;
-            }
-        } else if c > target {
-            c = c.wrapping_sub(rate);
-            if c < target {
-                c = target;
-            }
-        }
-        c
-    }
+pub(crate) use crate::common::{
+    apply_velocity, chase, chase_proportional, count_down, dist_xz, gen_vecs_2d, gen_vecs_3d,
+    make_obj, spawn_projectile, speed_to,
+};
+/// Registry-shaped projectile collide strategy (C takes the address of
+/// `Strat_ProjectileOnCollide`); same slot ids as the common lane's.
+pub(crate) use crate::common::strat_projectile_on_collide as projectile_on_collide_strat;
 
-    /// DUPLICATE of `crate::common::chase_proportional`
-    /// (C `Strat_ChaseProportional`, strat_common.c:59, Achase).
-    pub fn chase_proportional(current: i16, target: i16, shift: u32) -> i16 {
-        if current == target {
-            return current;
-        }
-        let diff = current.wrapping_sub(target);
-        let mut step = diff >> shift;
-        if step == 0 {
-            step = if diff > 0 { 1 } else { -1 };
-        }
-        current.wrapping_sub(step)
+/// C `Strat_AngleXZ` (strat_common.c:189, anglexy_l): 0-255 yaw from src
+/// toward dst. Local (not `crate::common::angle_xz`) — see header note:
+/// the C build promotes the int16 difference to int before the float
+/// cast, so no 16-bit wrap.
+fn angle_xz(src: &Alien, dst: &Alien) -> u8 {
+    let dx = (dst.worldx as i32 - src.worldx as i32) as f32;
+    let dz = (dst.worldz as i32 - src.worldz as i32) as f32;
+    let mut a = dx.atan2(dz);
+    if a < 0.0 {
+        a += 2.0 * 3.141_592_65_f32;
     }
-
-    /// DUPLICATE of `crate::common::speed_to` (C `Strat_SpeedTo`,
-    /// strat_common.c:69, sr_speedto). Returns true at target.
-    pub fn speed_to(al: &mut Alien, target_speed: u8, rate: u8) -> bool {
-        if al.vel == target_speed {
-            return true;
-        }
-        if al.vel < target_speed {
-            al.vel = al.vel.saturating_add(rate);
-            if al.vel > target_speed {
-                al.vel = target_speed;
-            }
-        } else if al.vel - target_speed < rate {
-            al.vel = target_speed;
-        } else {
-            al.vel -= rate;
-        }
-        al.vel == target_speed
-    }
-
-    /// DUPLICATE of `crate::common::gen_vecs_2d` (C `Strat_GenVecs2D`,
-    /// strat_common.c:111, alvelvecs_l).
-    pub fn gen_vecs_2d(al: &mut Alien) {
-        let speed = al.vel as i16 as f32;
-        al.vx = (speed * strat_sin(al.roty)) as i16;
-        al.vy = 0;
-        al.vz = (speed * strat_cos(al.roty)) as i16;
-    }
-
-    /// DUPLICATE of `crate::common::gen_vecs_3d` (C `Strat_GenVecs3D`,
-    /// strat_common.c:123, alvel3vecs_l).
-    pub fn gen_vecs_3d(al: &mut Alien) {
-        let yaw = al.roty;
-        let pitch = (al.rotx as i8).wrapping_neg() as u8;
-        let speed = al.vel as i16 as f32;
-        let cy = strat_cos(pitch);
-        let sy = strat_sin(pitch);
-        al.vx = (speed * strat_sin(yaw) * cy) as i16;
-        al.vy = (speed * sy) as i16;
-        al.vz = (speed * strat_cos(yaw) * cy) as i16;
-    }
-
-    /// DUPLICATE of `crate::common::apply_velocity`
-    /// (C `Strat_ApplyVelocity`, strat_common.c:165, addalvecs_l).
-    pub fn apply_velocity(al: &mut Alien) {
-        al.worldx = al.worldx.wrapping_add(al.vx);
-        al.worldy = al.worldy.wrapping_add(al.vy);
-        al.worldz = al.worldz.wrapping_add(al.vz);
-    }
-
-    /// DUPLICATE of `crate::common::dist_xz` (C `Strat_DistXZ`,
-    /// strat_common.c:181): |dx| + |dz| Manhattan distance (int16-truncated
-    /// exactly like the C `int16 dx = abs(...)` locals).
-    pub fn dist_xz(a: &Alien, b: &Alien) -> i16 {
-        let dx = (b.worldx as i32 - a.worldx as i32).abs() as i16;
-        let dz = (b.worldz as i32 - a.worldz as i32).abs() as i16;
-        dx.wrapping_add(dz)
-    }
-
-    /// DUPLICATE of `crate::common::angle_xz` (C `Strat_AngleXZ`,
-    /// strat_common.c:189, anglexy_l): 0-255 yaw from src toward dst.
-    pub fn angle_xz(src: &Alien, dst: &Alien) -> u8 {
-        let dx = (dst.worldx as i32 - src.worldx as i32) as f32;
-        let dz = (dst.worldz as i32 - src.worldz as i32) as f32;
-        let mut a = dx.atan2(dz);
-        if a < 0.0 {
-            a += 2.0 * 3.141_592_65_f32;
-        }
-        (a * (256.0 / (2.0 * 3.141_592_65_f32))) as u8
-    }
-
-    /// DUPLICATE of `crate::common::make_obj` (C `Strat_MakeObj`,
-    /// strat_common.c:208): alloc + init vars + shape. None if exhausted.
-    pub fn make_obj(g: &mut Game, shape_id: u16) -> Option<u16> {
-        let idx = g.objs.alloc()?;
-        sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[idx as usize]);
-        g.objs.aliens[idx as usize].shape = shape_id;
-        Some(idx)
-    }
-
-    /// DUPLICATE of `crate::common::count_down` (C `Strat_CountDown`,
-    /// strat_common.c:236): true once the counter is exhausted.
-    pub fn count_down(al: &mut Alien) -> bool {
-        if al.count > 0 {
-            al.count -= 1;
-            return false;
-        }
-        true
-    }
-
-    /// C `projectile_mark_dead` (strat_common.c:244).
-    fn projectile_mark_dead(g: &mut Game, idx: u16) {
-        let sbyte6 = g.objs.aliens[idx as usize].sbyte6;
-        if sbyte6 & 1 != 0 {
-            g.objs.aliens[idx as usize].sbyte6 &= !1u8;
-            let n = g.vars.read_ext8(wm::NUMPLASERS);
-            if n > 0 {
-                g.vars.write_ext8(wm::NUMPLASERS, n - 1);
-            }
-        }
-        g.objs.aldead = 1;
-    }
-
-    /// DUPLICATE of `crate::common::projectile_on_collide`
-    /// (C `Strat_ProjectileOnCollide`, strat_common.c:254).
-    pub fn projectile_on_collide(g: &mut Game, idx: u16) {
-        projectile_mark_dead(g, idx);
-    }
-
-    /// DUPLICATE of `crate::common::projectile_tick`
-    /// (C `Strat_ProjectileTick`, strat_common.c:258).
-    pub fn projectile_tick(g: &mut Game, idx: u16) {
-        apply_velocity(&mut g.objs.aliens[idx as usize]);
-        {
-            let al = &mut g.objs.aliens[idx as usize];
-            if al.count > 0 {
-                al.count -= 1;
-            }
-        }
-        if g.objs.aliens[idx as usize].count == 0 {
-            projectile_mark_dead(g, idx);
-            return;
-        }
-        if let Some(player) = super::player(g) {
-            let dz = g.objs.aliens[idx as usize]
-                .worldz
-                .wrapping_sub(player.worldz);
-            if dz < -12000 || dz > 12000 {
-                projectile_mark_dead(g, idx);
-            }
-        }
-    }
-
-    /// DUPLICATE of `crate::common::spawn_projectile`
-    /// (C `Strat_SpawnProjectile`, strat_common.c:278).
-    #[allow(clippy::too_many_arguments)]
-    pub fn spawn_projectile(
-        g: &mut Game,
-        owner: Option<u16>,
-        off_x: i16,
-        off_y: i16,
-        off_z: i16,
-        rot_x: u8,
-        rot_y: u8,
-        speed: u8,
-        lifetime: u8,
-        ap: u8,
-        coll_type_bit: u8,
-    ) -> Option<u16> {
-        let idx = g.objs.alloc()?;
-        sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[idx as usize]);
-        let s_tick = sid(g, projectile_tick_strat);
-        let s_coll = sid(g, projectile_on_collide_strat);
-        let owner_al = owner.map(|o| g.objs.aliens[o as usize]);
-        let al = &mut g.objs.aliens[idx as usize];
-        al.shape = 0; // visual weapon meshes not wired yet (C comment)
-        al.sflags |= ASF_INVISIBLE;
-        al.type_ |= ATLASER | ATZREMOVE;
-        al.stratptr = Some(s_tick);
-        al.collstratptr = Some(s_coll);
-        al.expstratptr = Some(s_coll);
-        al.count = if lifetime != 0 { lifetime } else { 40 };
-        al.hp = 1;
-        al.ap = ap;
-        al.vel = speed;
-        al.rotx = rot_x;
-        al.roty = rot_y;
-        al.collflags = ACF_FIRSTFRAME | ACF_WEAPON | coll_type_bit;
-        if let Some(o) = owner_al {
-            al.worldx = o.worldx.wrapping_add(off_x);
-            al.worldy = o.worldy.wrapping_add(off_y);
-            al.worldz = o.worldz.wrapping_add(off_z);
-            al.immuneptr = owner.unwrap();
-        } else {
-            al.worldx = off_x;
-            al.worldy = off_y;
-            al.worldz = off_z;
-        }
-        gen_vecs_3d(al);
-        Some(idx)
-    }
-
-    // Registry-shaped wrappers so projectile strat slots have stable fns.
-    pub fn projectile_tick_strat(g: &mut Game, idx: u16) {
-        projectile_tick(g, idx);
-    }
-    pub fn projectile_on_collide_strat(g: &mut Game, idx: u16) {
-        projectile_on_collide(g, idx);
-    }
+    ((a * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8
 }
 
-pub(crate) use ea_compat::{
-    apply_velocity, chase, chase_proportional, count_down, dist_xz, gen_vecs_2d, gen_vecs_3d,
-    make_obj, projectile_on_collide_strat, spawn_projectile, speed_to,
-};
-use ea_compat::angle_xz;
 
 // ============================================================
 // Registry helper — replaces taking a C function's address.
@@ -4945,7 +4746,7 @@ fn zaco1_phase2(g: &mut Game, idx: u16) {
         al.sbyte1 = al.rotz;
         al.sbyte1 = al.sbyte1.wrapping_sub(DEG90);
         al.sword2 = ((strat_sin(al.sbyte1) * 127.0f32) as i16) >> 3;
-        al.ptr = ((((strat_cos(al.sbyte1) * 127.0f32) as i16) >> 2) as u16);
+        al.ptr = (((strat_cos(al.sbyte1) * 127.0f32) as i16) >> 2) as u16;
         al.rotz = al.rotz.wrapping_add(al.sbyte2);
     } else if (1400..=1800).contains(&zdist) {
         // Fire homing laser every 2 frames.
@@ -5863,3 +5664,192 @@ pub fn strat_boss_explode_init(g: &mut Game, idx: u16) {
     strat_boss_delay_explode_init(g, idx);
 }
 
+
+// ============================================================
+// Table-lane registration (mirrors player.rs `install`).
+// ============================================================
+
+/// Registry handles for every istrat entry point owned by this lane; the
+/// table lane wires them onto the literal ISTRATS.ASM def_Istrat indices
+/// (C `Strat_RegisterAll`, strat_table.c). Field order follows the C file.
+pub struct EnemyAStratIds {
+    /// `hard_Istrat` (`Strat_Hard_Init`).
+    pub hard: StratId,
+    /// `hard180yr_Istrat` (`Strat_Hard180yr_Init`).
+    pub hard180yr: StratId,
+    /// `hard90yr_Istrat` (`Strat_Hard90yr_Init`).
+    pub hard90yr: StratId,
+    /// `hard180yrNZR_Istrat` (`Strat_Hard180yrNZR_Init`).
+    pub hard180yr_nzr: StratId,
+    /// `hardrot_Istrat` (`Strat_HardRot_Init`).
+    pub hardrot: StratId,
+    /// `nocoll_Istrat` (`Strat_NoColl_Init`).
+    pub nocoll: StratId,
+    /// `rader0_Istrat` (`Strat_Rader0_Init`).
+    pub rader0: StratId,
+    /// `rader1_Istrat` (`Strat_Rader1_Init`).
+    pub rader1: StratId,
+    /// `pillar3_Istrat` (`Strat_Pillar3_Init`).
+    pub pillar3: StratId,
+    /// `skillfly_Istrat` (`Strat_Skillfly_Init`).
+    pub skillfly: StratId,
+    /// `gate3_Istrat` (`Strat_Gate3_Init`).
+    pub gate3: StratId,
+    /// `gate_Istrat` (`Strat_Gate_Init`).
+    pub gate: StratId,
+    /// `gate2_Istrat` (`Strat_Gate2_Init`).
+    pub gate2: StratId,
+    /// `boss1_Istrat` (`Strat_Boss1_Init`).
+    pub boss1: StratId,
+    /// `tow0explode` entry (`Strat_Tow0Explode`).
+    pub tow0_explode: StratId,
+    /// `wormhead_Istrat` (`Strat_Wormhead_Init`).
+    pub wormhead: StratId,
+    /// `worm_Istrat` (`Strat_Worm_Init`).
+    pub worm: StratId,
+    /// `worm2_Istrat` (`Strat_Worm2_Init`).
+    pub worm2: StratId,
+    /// `item5_Istrat` (`Strat_Item5_Init`).
+    pub item5: StratId,
+    /// `item7_Istrat` (`Strat_Item7_Init`).
+    pub item7: StratId,
+    /// `bomwing_Istrat` (`Strat_Bomwing_Init`).
+    pub bomwing: StratId,
+    /// `tadpole_Istrat` (`Strat_Tadpole_Init`).
+    pub tadpole: StratId,
+    /// `spacebarwalker_Istrat` (`Strat_Spacebarwalker_Init`).
+    pub spacebarwalker: StratId,
+    /// `spacebarshoot_Istrat` (`Strat_Spacebarshoot_Init`).
+    pub spacebarshoot: StratId,
+    /// `up1man_Istrat` (`Strat_Up1man_Init`).
+    pub up1man: StratId,
+    /// `zacos_Istrat` (`Strat_Zacos_Init`).
+    pub zacos: StratId,
+    /// `tower0_Istrat` (`Strat_Tower0_Init`).
+    pub tower0: StratId,
+    /// `houdaiNS_Istrat` (`Strat_HoudaiNS_Init`).
+    pub houdai_ns: StratId,
+    /// `houdai_Istrat` (`Strat_Houdai_Init`).
+    pub houdai: StratId,
+    /// `zaco3_Istrat` (`Strat_Zaco3_Init`).
+    pub zaco3: StratId,
+    /// `zaco4_Istrat` (`Strat_Zaco4_Init`).
+    pub zaco4: StratId,
+    /// `zaco0_Istrat` (`Strat_Zaco0_Init`).
+    pub zaco0: StratId,
+    /// `para_Istrat` (`Strat_Para_Init`).
+    pub para: StratId,
+    /// `carrier_Istrat` (`Strat_Carrier_Init`).
+    pub carrier: StratId,
+    /// `base1_Istrat` (`Strat_Base1_Init`).
+    pub base1: StratId,
+    /// `cameleon_Istrat` (`Strat_Cameleon_Init`).
+    pub cameleon: StratId,
+    /// `szaco2_Istrat` (`Strat_Szaco2_Init`).
+    pub szaco2: StratId,
+    /// `zaco1L_Istrat` (`Strat_Zaco1L_Init`).
+    pub zaco1l: StratId,
+    /// `zaco1R_Istrat` (`Strat_Zaco1R_Init`).
+    pub zaco1r: StratId,
+    /// `friendexitbase_Istrat` (`Strat_FriendExitBase_Init`).
+    pub friendexitbase: StratId,
+    /// `clshipWARPA_Istrat`.
+    pub clship_warpa: StratId,
+    /// `clshipWARPB_Istrat`.
+    pub clship_warpb: StratId,
+    /// `clshipWARPC_Istrat`.
+    pub clship_warpc: StratId,
+    /// `clshipGNDA_Istrat`.
+    pub clship_gnda: StratId,
+    /// `clshipGNDB_Istrat`.
+    pub clship_gndb: StratId,
+    /// `clshipGNDC_Istrat`.
+    pub clship_gndc: StratId,
+    /// `clshipEARTHA_Istrat`.
+    pub clship_eartha: StratId,
+    /// `clshipEARTHB_Istrat`.
+    pub clship_earthb: StratId,
+    /// `clshipEARTHC_Istrat`.
+    pub clship_earthc: StratId,
+    /// `clshipCHASEA_Istrat`.
+    pub clship_chasea: StratId,
+    /// `clshipCHASEB_Istrat`.
+    pub clship_chaseb: StratId,
+    /// `clshipCHASEC_Istrat`.
+    pub clship_chasec: StratId,
+    /// `bossdelayexplode_Istrat` (`Strat_BossDelayExplode_Init`).
+    pub boss_delay_explode: StratId,
+    /// `qbossexplode_Istrat` (`Strat_QBossExplode_Init`).
+    pub qboss_explode: StratId,
+    /// `bossexplode_Istrat` (`Strat_BossExplode_Init`).
+    pub boss_explode: StratId,
+    /// `hitflash` collision strategy (`Strat_HitFlash`) — istrat rows
+    /// install it as the default collstrat.
+    pub hit_flash: StratId,
+    /// `explode_Istrat` (`Strat_Explode`).
+    pub explode: StratId,
+}
+
+/// Register this lane's strategy entry points (idempotent — [`sid`]
+/// memoizes on function identity) and return the public handles.
+pub fn install(g: &mut Game) -> EnemyAStratIds {
+    EnemyAStratIds {
+        hard: sid(g, strat_hard_init),
+        hard180yr: sid(g, strat_hard180yr_init),
+        hard90yr: sid(g, strat_hard90yr_init),
+        hard180yr_nzr: sid(g, strat_hard180yr_nzr_init),
+        hardrot: sid(g, strat_hardrot_init),
+        nocoll: sid(g, strat_nocoll_init),
+        rader0: sid(g, strat_rader0_init),
+        rader1: sid(g, strat_rader1_init),
+        pillar3: sid(g, strat_pillar3_init),
+        skillfly: sid(g, strat_skillfly_init),
+        gate3: sid(g, strat_gate3_init),
+        gate: sid(g, strat_gate_init),
+        gate2: sid(g, strat_gate2_init),
+        boss1: sid(g, strat_boss1_init),
+        tow0_explode: sid(g, strat_tow0_explode),
+        wormhead: sid(g, strat_wormhead_init),
+        worm: sid(g, strat_worm_init),
+        worm2: sid(g, strat_worm2_init),
+        item5: sid(g, strat_item5_init),
+        item7: sid(g, strat_item7_init),
+        bomwing: sid(g, strat_bomwing_init),
+        tadpole: sid(g, strat_tadpole_init),
+        spacebarwalker: sid(g, strat_spacebarwalker_init),
+        spacebarshoot: sid(g, strat_spacebarshoot_init),
+        up1man: sid(g, strat_up1man_init),
+        zacos: sid(g, strat_zacos_init),
+        tower0: sid(g, strat_tower0_init),
+        houdai_ns: sid(g, strat_houdai_ns_init),
+        houdai: sid(g, strat_houdai_init),
+        zaco3: sid(g, strat_zaco3_init),
+        zaco4: sid(g, strat_zaco4_init),
+        zaco0: sid(g, strat_zaco0_init),
+        para: sid(g, strat_para_init),
+        carrier: sid(g, strat_carrier_init),
+        base1: sid(g, strat_base1_init),
+        cameleon: sid(g, strat_cameleon_init),
+        szaco2: sid(g, strat_szaco2_init),
+        zaco1l: sid(g, strat_zaco1l_init),
+        zaco1r: sid(g, strat_zaco1r_init),
+        friendexitbase: sid(g, strat_friendexitbase_init),
+        clship_warpa: sid(g, strat_clship_warpa_init),
+        clship_warpb: sid(g, strat_clship_warpb_init),
+        clship_warpc: sid(g, strat_clship_warpc_init),
+        clship_gnda: sid(g, strat_clship_gnda_init),
+        clship_gndb: sid(g, strat_clship_gndb_init),
+        clship_gndc: sid(g, strat_clship_gndc_init),
+        clship_eartha: sid(g, strat_clship_eartha_init),
+        clship_earthb: sid(g, strat_clship_earthb_init),
+        clship_earthc: sid(g, strat_clship_earthc_init),
+        clship_chasea: sid(g, strat_clship_chasea_init),
+        clship_chaseb: sid(g, strat_clship_chaseb_init),
+        clship_chasec: sid(g, strat_clship_chasec_init),
+        boss_delay_explode: sid(g, strat_boss_delay_explode_init),
+        qboss_explode: sid(g, strat_qboss_explode_init),
+        boss_explode: sid(g, strat_boss_explode_init),
+        hit_flash: sid(g, strat_hit_flash),
+        explode: sid(g, strat_explode),
+    }
+}

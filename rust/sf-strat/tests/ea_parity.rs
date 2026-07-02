@@ -11,6 +11,15 @@
 //! while scripting the player identically. Every tick emits one `T` line of
 //! globals and one `O` line per active alien in active-list order; the Rust
 //! replay must match the C dump byte-for-byte.
+//!
+//! Regenerate (from the repo root, harness source in the session
+//! scratchpad; strip the Obj_Init banner line):
+//!   gcc -O2 -Isrc -o ea_harness ea_harness.c \
+//!       src/strat/strat_enemy.c src/strat/strat_common.c \
+//!       src/strat/strat_ground.c src/game/obj.c src/game/game_vars.c -lm
+//!   for s in zaco1 houdai worm gate2 rader0 boss1; do \
+//!       ./ea_harness $s | grep -v '^Obj_Init' \
+//!           > rust/sf-strat/tests/fixtures/ea_$s.txt; done
 
 use sf_game::alien::{ACF_FIRSTFRAME, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_strat::enemy_a::{self, wm};
