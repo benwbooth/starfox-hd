@@ -5,3 +5,6 @@
 //! (port 1/2/3 protocol, SFX ring queue).
 //! The snes_spc C++ emulator stays behind FFI initially (same library as the
 //! oracle → bit-identical output); a pure-Rust SPC core can come later.
+
+pub mod ffi;
+pub mod spc;

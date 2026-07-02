@@ -1,10 +1,10 @@
 [package]
-name = "sf-audio"
+name = "sf-game"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-build = "build.rs"
-links = "snes_spc_rs"
 
 [dependencies]
 sf-core.workspace = true
+sf-map.workspace = true
+sf-path.workspace = true

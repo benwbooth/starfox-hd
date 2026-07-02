@@ -6,6 +6,9 @@
 
 pub mod level1_1;
 pub mod planet;
+pub mod route1;
+pub mod route2;
+pub mod route3;
 pub mod title;
 
 use crate::builder::Label;

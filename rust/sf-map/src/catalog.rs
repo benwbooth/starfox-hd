@@ -88,6 +88,10 @@ pub fn get_map_data(id: u32) -> Option<&'static BuiltLevel> {
         // see levels::title for the `title.contmap` / `title.waitmap` labels.
         map_id::TITLE | map_id::CONTINUE | map_id::WAIT => Some(title()),
         map_id::PLANET => Some(planet()),
-        _ => None,
+        // Route lanes register their levels in their own modules so the
+        // porting lanes never edit shared files concurrently.
+        _ => crate::levels::route1::get(id)
+            .or_else(|| crate::levels::route2::get(id))
+            .or_else(|| crate::levels::route3::get(id)),
     }
 }

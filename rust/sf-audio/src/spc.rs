@@ -1,0 +1,116 @@
+//! Safe wrapper over the snes_spc emulator (C oracle:
+//! `src/audio/spc_player.c` usage of the spc.h API).
+
+use crate::ffi;
+
+/// Owned SPC-700 emulator instance + output filter, mirroring the pairing
+/// the C oracle creates in `SpcPlayer_Init`.
+pub struct Spc {
+    spc: *mut ffi::SnesSpc,
+    filter: *mut ffi::SpcFilter,
+}
+
+// The raw pointers are uniquely owned; the emulator has no thread affinity.
+unsafe impl Send for Spc {}
+
+impl Spc {
+    pub fn new() -> Self {
+        let spc = unsafe { ffi::spc_new() };
+        let filter = unsafe { ffi::spc_filter_new() };
+        assert!(!spc.is_null() && !filter.is_null(), "snes_spc alloc");
+        unsafe {
+            ffi::spc_filter_set_gain(filter, ffi::SPC_FILTER_GAIN_UNIT);
+            ffi::spc_filter_set_bass(filter, ffi::SPC_FILTER_BASS_NORM);
+        }
+        Spc { spc, filter }
+    }
+
+    /// Install the 64-byte IPL boot ROM (C `SpcBoot_Init`).
+    pub fn init_rom(&mut self, rom: &[u8; ffi::SPC_ROM_SIZE]) {
+        unsafe { ffi::spc_init_rom(self.spc, rom.as_ptr()) }
+    }
+
+    pub fn reset(&mut self) {
+        unsafe { ffi::spc_reset(self.spc) }
+    }
+
+    /// Direct APU RAM access (C `spc_get_ram` uses in the boot path).
+    pub fn ram_mut(&mut self) -> &mut [u8] {
+        unsafe {
+            std::slice::from_raw_parts_mut(ffi::spc_get_ram(self.spc), ffi::SPC_RAM_SIZE)
+        }
+    }
+
+    pub fn read_port(&mut self, time: i32, port: i32) -> i32 {
+        unsafe { ffi::spc_read_port(self.spc, time, port) }
+    }
+
+    pub fn write_port(&mut self, time: i32, port: i32, data: i32) {
+        unsafe { ffi::spc_write_port(self.spc, time, port, data) }
+    }
+
+    pub fn end_frame(&mut self, end_time: i32) {
+        unsafe { ffi::spc_end_frame(self.spc, end_time) }
+    }
+
+    /// Generate interleaved stereo samples and run the SNES output filter,
+    /// like the C `SpcPlayer_Generate` inner loop.
+    pub fn play_filtered(&mut self, out: &mut [i16]) -> Result<(), &'static str> {
+        assert!(out.len() % 2 == 0, "stereo pair count");
+        let err = unsafe { ffi::spc_play(self.spc, out.len() as i32, out.as_mut_ptr()) };
+        if !err.is_null() {
+            return Err("spc_play failed");
+        }
+        unsafe { ffi::spc_filter_run(self.filter, out.as_mut_ptr(), out.len() as i32) };
+        Ok(())
+    }
+
+    pub fn filter_clear(&mut self) {
+        unsafe { ffi::spc_filter_clear(self.filter) }
+    }
+}
+
+impl Default for Spc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for Spc {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::spc_filter_delete(self.filter);
+            ffi::spc_delete(self.spc);
+        }
+    }
+}
+
+/// The SNES IPL boot ROM, byte-identical to `s_ipl_rom` in the C oracle
+/// (`src/audio/spc_boot.c`).
+pub const IPL_ROM: [u8; ffi::SPC_ROM_SIZE] = [
+    0xCD, 0xEF, 0xBD, 0xE8, 0x00, 0xC6, 0x1D, 0xD0, 0xFC, 0x8F, 0xAA, 0xF4,
+    0x8F, 0xBB, 0xF5, 0x78, 0xCC, 0xF4, 0xD0, 0xFB, 0x2F, 0x19, 0xEB, 0xF4,
+    0xD0, 0xFC, 0x7E, 0xF4, 0xD0, 0x0B, 0xE4, 0xF5, 0xCB, 0xF4, 0xD7, 0x00,
+    0xFC, 0xD0, 0xF3, 0xAB, 0x01, 0x10, 0xEF, 0x7E, 0xF4, 0x10, 0xEB, 0xBA,
+    0xF6, 0xDA, 0x00, 0xBA, 0xF4, 0xC4, 0xF4, 0xDD, 0x5D, 0xD0, 0xDB, 0x1F,
+    0x00, 0x00, 0xC0, 0xFF,
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emulator_boots_and_generates() {
+        let mut spc = Spc::new();
+        spc.init_rom(&IPL_ROM);
+        spc.reset();
+        // The IPL ROM idles waiting for the $CC handshake; port 0 must read
+        // back the $AA ready byte after some emulated time, like the C
+        // ipl_wait_ready loop observes.
+        let mut out = [0i16; 256];
+        spc.play_filtered(&mut out).expect("generate");
+        let p0 = spc.read_port(0, 0);
+        assert_eq!(p0, 0xAA, "IPL ready byte on port 0");
+    }
+}

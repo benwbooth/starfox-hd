@@ -5,6 +5,7 @@ members = [
     "sf-path",
     "sf-map",
     "sf-strat",
+    "sf-game",
     "sf-render",
     "sf-audio",
     "sf-app",
@@ -22,6 +23,7 @@ sf-path = { path = "sf-path" }
 sf-map = { path = "sf-map" }
 sf-strat = { path = "sf-strat" }
 sf-render = { path = "sf-render" }
+sf-game = { path = "sf-game" }
 sf-audio = { path = "sf-audio" }
 
 [profile.release]
