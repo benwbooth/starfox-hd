@@ -133,6 +133,32 @@ impl GameCamera {
     /// the C code hands to `Transform_SetCamera`, with `snap` mirroring the
     /// `Transform_SnapCamera` call site (game.c:146-153).
     pub fn update(&mut self, vars: &GameVars, objs: &Objects) -> CameraSnapshot {
+        // The player/view strategies (sf-strat) write the live camera-follow
+        // state into the GameVars WRAM mirror; the C build shared these as
+        // globals, but the parallel port split them so the camera read a
+        // stale local copy and never followed the ship. Sync the working
+        // copy from the live WRAM slots each tick.
+        //
+        // Addresses MUST match `sf_strat::common::sv`.
+        const SV_PLAYER_TURNROT: u16 = 0x0510;
+        const SV_PVIEWPOSX: u16 = 0x053C;
+        const SV_PVIEWPOSY: u16 = 0x053E;
+        const SV_PVIEWPOSZ: u16 = 0x0540;
+        const SV_VIEWTYPE: u16 = 0x054C;
+        const SV_VIEWTOOBJ: u16 = 0x054E;
+        const SV_VIEWPOSX: u16 = 0x0550;
+        const SV_VIEWPOSY: u16 = 0x0552;
+        const SV_VIEWPOSZ: u16 = 0x0554;
+        self.vars.pviewposx = vars.read_ext16(SV_PVIEWPOSX) as i16;
+        self.vars.pviewposy = vars.read_ext16(SV_PVIEWPOSY) as i16;
+        self.vars.pviewposz = vars.read_ext16(SV_PVIEWPOSZ) as i16;
+        self.vars.viewposx = vars.read_ext16(SV_VIEWPOSX) as i16;
+        self.vars.viewposy = vars.read_ext16(SV_VIEWPOSY) as i16;
+        self.vars.viewposz = vars.read_ext16(SV_VIEWPOSZ) as i16;
+        self.vars.viewtype = vars.read_ext16(SV_VIEWTYPE) as u8;
+        self.vars.viewtoobj = vars.read_ext16(SV_VIEWTOOBJ) as i16;
+        self.vars.player_turnrot = vars.read_ext16(SV_PLAYER_TURNROT) as i16;
+
         let player = match objs.player() {
             Some(p) if p.active => *p,
             _ => {
@@ -327,10 +353,13 @@ mod tests {
         let mut cam = GameCamera::new();
         cam.init(&mut vars);
 
-        cam.vars.viewtype = VIEWTYPE_FPOS;
-        cam.vars.viewposx = 10;
-        cam.vars.viewposy = 20;
-        cam.vars.viewposz = 30;
+        // The camera now reads its inputs from the live GameVars WRAM slots
+        // (written by the sf-strat view code), not from `cam.vars` directly.
+        // Inject through the same slots the strat lane uses.
+        vars.write_ext16(0x054C, VIEWTYPE_FPOS as u16); // sv::VIEWTYPE
+        vars.write_ext16(0x0550, 10); // sv::VIEWPOSX
+        vars.write_ext16(0x0552, 20); // sv::VIEWPOSY
+        vars.write_ext16(0x0554, 30); // sv::VIEWPOSZ
         let snap = cam.update(&vars, &objs);
         assert!(snap.snap);
         assert_eq!(snap.x, fp16_from_int(10));
