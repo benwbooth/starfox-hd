@@ -1244,6 +1244,12 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     v.set_sv_i16(sv::MAXPMOVEX, 500);
     v.minpmove_y = -210 - 45;
     v.set_sv_i16(sv::MAXPMOVEY, PLAYERB_YSTOP);
+
+    // C `g_stayblack` defaults to -1 (= "not in a screen-black sequence",
+    // normal control). The Rust WRAM slot defaults to 0, and the map VM sets
+    // a proxy byte (GSVAR_BYTE1) rather than this slot, so playermove_srou's
+    // `STAYBLACK != -1` gate read 0 and locked out ALL steering. Seed -1.
+    v.set_sv_i8(sv::STAYBLACK, -1);
     v.set_sv_u8(sv::FIRECNT, 3);
     v.set_sv_u8(sv::FIREDELAY, 1);
     v.set_sv_u8(sv::SPECIALDELAY, 1);
