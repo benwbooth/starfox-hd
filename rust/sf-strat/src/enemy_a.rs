@@ -74,11 +74,15 @@ pub const PSF_BRKRWING: u8 = 16;
 pub const PSF2_DOUBLASER: u8 = 1;
 pub const PSF3_BEAMBALL: u8 = 16;
 
-// Collision type helper bits (C src/strat/strat_enemy.h)
-pub const COLLTYPE_ENEMY1: u8 = 0x01;
-pub const COLLTYPE_ENEMY2: u8 = 0x02;
-pub const COLLTYPE_ENEMYWEAP: u8 = 0x04;
-pub const COLLTYPE_ZENEMY: u8 = 0x08;
+// Collision type helper bits (STRATEQU.INC:950-955). These are aliases of
+// the acf_colltype* bits, NOT 0x01/0x02/0x04/0x08 — the old values were
+// wrong and, critically, COLLTYPE_ZENEMY==0x08 collided with the player
+// laser's ACF_COLLTYPE1 bit, so laser-vs-Zenemy pairs shared a type bit and
+// were permanently skipped by the same-category filter.
+pub const COLLTYPE_ENEMY1: u8 = 0x10; // acf_colltype2
+pub const COLLTYPE_ENEMY2: u8 = 0x20; // acf_colltype3
+pub const COLLTYPE_ENEMYWEAP: u8 = 0x40; // acf_colltype4
+pub const COLLTYPE_ZENEMY: u8 = 0x01; // acf_colltype6
 
 // ============================================================
 // Compat WRAM slots for C globals not yet ported into GameVars.

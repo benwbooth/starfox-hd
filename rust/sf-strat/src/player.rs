@@ -710,12 +710,16 @@ fn playermove_srou(g: &mut Game, idx: u16) {
         let s7 = plrotz >> 7;
         let plrotz_term = if s7 >= 0 { s7 >> 1 } else { -((-s7) >> 1) };
         let shove = plrotz_term.wrapping_add(ztilt_term);
+        // ROM negates the shove (`nega`, PSTRATS.ASM:2306) then normal flight
+        // ADDs it (worldx -= shove) and turn180 SUBs it (worldx += shove).
+        // LEFT raises plrotz (+), so worldx must DECREASE (= screen-left). An
+        // earlier port of this dropped the nega, inverting left/right.
         let turn180 = g.vars.pshipflags2 & PSF2_TURN180 != 0;
         let al = &mut g.objs.aliens[i];
         if turn180 {
-            al.worldx = al.worldx.wrapping_sub(shove);
-        } else {
             al.worldx = al.worldx.wrapping_add(shove);
+        } else {
+            al.worldx = al.worldx.wrapping_sub(shove);
         }
     }
 

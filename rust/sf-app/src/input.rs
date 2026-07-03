@@ -114,21 +114,33 @@ impl Input {
     }
 
     /// C `ReadGamepad` (sf_rtl.c:91) over every open pad.
-    /// SDL3 positional names: South=A, East=B, West=X, North=Y.
+    ///
+    /// SDL positional buttons are Xbox-layout (South=bottom, East=right,
+    /// West=left, North=top). The SNES face layout is rotated — its A/B and
+    /// X/Y sit in swapped physical positions vs Xbox:
+    /// ```
+    ///     SNES            SDL position
+    ///      X               North(top)
+    ///    Y   A          West(l)  East(r)
+    ///      B               South(bottom)
+    /// ```
+    /// So we map by PHYSICAL position: bottom->B, right->A, left->Y, top->X.
+    /// In Star Fox that means: Y(left)=laser, A(right)=nova bomb, B(bottom)=
+    /// brake, X(top)=boost.
     fn read_gamepads(&self) -> u16 {
         let mut pad = 0u16;
         for gp in &self.gamepads {
             if gp.button(Button::South) {
-                pad |= pad::A;
+                pad |= pad::B; // bottom = SNES B (brake)
             }
             if gp.button(Button::East) {
-                pad |= pad::B;
+                pad |= pad::A; // right = SNES A (nova bomb)
             }
             if gp.button(Button::West) {
-                pad |= pad::X;
+                pad |= pad::Y; // left = SNES Y (fire laser)
             }
             if gp.button(Button::North) {
-                pad |= pad::Y;
+                pad |= pad::X; // top = SNES X (boost)
             }
             if gp.button(Button::LeftShoulder) {
                 pad |= pad::TLEFT;

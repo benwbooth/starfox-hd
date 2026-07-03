@@ -170,9 +170,13 @@ impl Transform {
         self.projection = [0.0; 16];
         self.projection[0] = f / aspect;
         self.projection[5] = f;
-        self.projection[10] = (far + near) / (near - far);
+        // wgpu clip space is Z in [0,1], not GL's [-1,1]. Using the GL form
+        // (far+near)/(near-far) & 2*far*near/(near-far) clipped the near half
+        // of the frustum (objects close to the camera vanished) and compressed
+        // depth precision. Use the D3D/wgpu-style depth mapping.
+        self.projection[10] = far / (near - far);
         self.projection[11] = -1.0;
-        self.projection[14] = (2.0 * far * near) / (near - far);
+        self.projection[14] = (far * near) / (near - far);
     }
 
     pub fn projection(&self) -> &[f32; 16] {

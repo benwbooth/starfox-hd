@@ -210,7 +210,7 @@ impl GameCamera {
             // tunnel modes leave it clear, so `viewfloat_y` stays 0 and the
             // camera does NOT bob. Running it unconditionally produced a
             // continuous ~2s vertical sway (the reported "wobble").
-            if self.vars.playerflymode & crate::vars::PFM_WOBBLE != 0
+            if vars.playerflymode & crate::vars::PFM_WOBBLE != 0
                 && self.vars.viewfloatptr >= 0
                 && (self.vars.viewfloatptr as usize) < VIEWFLOATTAB_LEN
             {

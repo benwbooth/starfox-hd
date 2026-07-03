@@ -237,10 +237,11 @@ pub(crate) mod eb_compat {
     pub const EXPSIZE_MEDIUM: i16 = 128;
     pub const EXPSIZE_LARGE: i16 = 256;
 
-    // Collision types (strat_enemy.h:24-27) + hard AP variant
-    pub const COLLTYPE_ENEMY2: u8 = 0x02;
-    pub const COLLTYPE_ENEMYWEAP: u8 = 0x04;
-    pub const COLLTYPE_ZENEMY: u8 = 0x08;
+    // Collision types (STRATEQU.INC:950-955): acf_colltype* aliases, not
+    // 0x02/0x04/0x08 (the old ZENEMY=0x08 aliased the player laser bit).
+    pub const COLLTYPE_ENEMY2: u8 = 0x20; // acf_colltype3
+    pub const COLLTYPE_ENEMYWEAP: u8 = 0x40; // acf_colltype4
+    pub const COLLTYPE_ZENEMY: u8 = 0x01; // acf_colltype6
     pub const ROCKHARD_AP: u8 = 20;
 
     // Game modes (variables.h:51-52)
