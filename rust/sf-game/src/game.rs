@@ -601,7 +601,9 @@ impl Game {
             _ if id == cb::SET_PLAYER_ONPLANET_L => {
                 self.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
                 self.vars.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
-                self.vars.game_mode = WATER_MODE;
+                // Corneria on-planet is normal ground flight (mode 0), NOT
+                // water — the WATER_MODE here was a copy/paste bug.
+                self.vars.game_mode = 0;
                 self.vars.playerflymode |= PFM_SHADOWS;
                 true
             }
