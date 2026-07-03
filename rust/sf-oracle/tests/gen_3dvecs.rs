@@ -66,27 +66,22 @@ fn gen_3dvecs_matches_rom() {
     for &(roty, rotx, vel) in &cases {
         let (x1, y1, z1) = rom_vecs(&rom, addr, roty, rotx, vel);
         let (vx, vy, vz) = rust_vecs(roty, rotx, vel);
-        // Steering direction: vx/vz signs MUST match the ROM exactly (this is
-        // the yaw math I repeatedly mis-fixed; the oracle confirms it now).
-        let sign_ok = sign(vx) == sign(x1) && sign(vz) == sign(z1);
-        // Magnitude: within the ROM's hardware fixed-point rounding (float vs
-        // /128 fixed-point differ by ~2%). Exact match needs porting mulslog.
-        let mag_ok = (vx - x1).abs() <= 3
-            && (vz - z1).abs() <= 3
-            && (vy.abs() - y1.abs()).abs() <= 3;
-        if !(sign_ok && mag_ok) {
+        let _ = sign;
+        // vx/vz are now BIT-EXACT to the ROM (fixed-point mulslog port). vy
+        // matches in magnitude; its sign is the renderer Y convention (the Rust
+        // negates pitch, the ROM does not), so |vy| == |y1|.
+        let exact = vx == x1 && vz == z1 && vy.abs() == y1.abs();
+        if !exact {
             bad += 1;
         }
         eprintln!(
-            "roty={roty:3} rotx={rotx:3} vel={vel:3}  ROM={:?}  RUST={:?}  sign={} mag={}",
+            "roty={roty:3} rotx={rotx:3} vel={vel:3}  ROM={:?}  RUST={:?}  {}",
             (x1, y1, z1),
             (vx, vy, vz),
-            if sign_ok { "ok" } else { "BAD" },
-            if mag_ok { "ok" } else { "BAD" },
+            if exact { "EXACT" } else { "DIFF" },
         );
     }
-    // NOTE: vy sign differs (ROM does not negate pitch; the Rust does, for the
-    // renderer Y convention) and magnitudes carry ~2% float-vs-fixed-point
-    // error. Both are recorded for the exact-mulslog precision follow-up.
-    assert_eq!(bad, 0, "{bad}/{} cases: steering sign or magnitude off", cases.len());
+    // vy sign follows the renderer Y convention (ROM does not negate pitch);
+    // vx/vz and |vy| are bit-exact to the SNES hardware fixed-point.
+    assert_eq!(bad, 0, "{bad}/{} cases differ from the ROM", cases.len());
 }

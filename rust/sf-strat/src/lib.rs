@@ -21,4 +21,5 @@ pub mod enemy_b;
 pub mod ground;
 pub mod path_adapter;
 pub mod player;
+pub mod snes_trig;
 pub mod table;

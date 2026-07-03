@@ -365,16 +365,20 @@ pub fn strat_gen_vecs_3d(al: &mut Alien) {
     // renderer's Y-flip, which is why only X looked wrong). snes_cos is even so
     // negating yaw flips ONLY vx; vy/vz are unchanged. Universal fix (the ROM
     // negates yaw for every object).
-    let yaw = (al.roty as i8).wrapping_neg() as u8;
-    let pitch = (al.rotx as i8).wrapping_neg() as u8;
-    let speed = al.vel as i16 as f32;
+    // Bit-exact port of the ROM's fixed-point math (sin/cos tables + mulslog),
+    // verified against the real ROM by sf-oracle (tests/gen_3dvecs.rs). The
+    // previous float `sin/cos`*multiply drifted ~2% per op and accumulated into
+    // visible wobble. Pitch stays negated for the renderer Y convention; cos is
+    // even so vx/vz are unaffected, only vy's sign follows the convention.
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let yaw = (al.roty as i8).wrapping_neg() as u8 as usize;
+    let pitch = (al.rotx as i8).wrapping_neg() as u8 as usize;
+    let vel = al.vel as i32;
+    let cosx = COSTAB[pitch] as i32;
 
-    let cy = snes_cos(pitch);
-    let sy = snes_sin(pitch);
-
-    al.vx = (speed * snes_sin(yaw) * cy) as i16;
-    al.vy = (speed * sy) as i16;
-    al.vz = (speed * snes_cos(yaw) * cy) as i16;
+    al.vx = mulslog(mulslog(vel, SINTAB[yaw] as i32), cosx) as i16;
+    al.vy = mulslog(vel, SINTAB[pitch] as i32) as i16;
+    al.vz = mulslog(mulslog(vel, COSTAB[yaw] as i32), cosx) as i16;
 }
 
 /// C `Strat_GenSideVecs` (sidevecs_l): sideways vector, angle rotated 90
