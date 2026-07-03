@@ -154,6 +154,47 @@ impl Input {
             if gp.button(Button::DPadRight) {
                 pad |= pad::RIGHT;
             }
+            // Guide button as an extra Start source (some pads route the
+            // menu/Start under Guide).
+            if gp.button(Button::Guide) {
+                pad |= pad::START;
+            }
+
+            // Diagnostic: SF_PADDBG=1 prints which buttons/axes the pad
+            // actually reports, so an unmapped controller (e.g. Steam
+            // Controller 2) can be identified. Throttled to changes.
+            if std::env::var("SF_PADDBG").is_ok() {
+                use std::fmt::Write as _;
+                let mut s = String::new();
+                for (b, name) in [
+                    (Button::South, "South"), (Button::East, "East"),
+                    (Button::West, "West"), (Button::North, "North"),
+                    (Button::Start, "Start"), (Button::Back, "Back"),
+                    (Button::Guide, "Guide"), (Button::LeftShoulder, "L"),
+                    (Button::RightShoulder, "R"), (Button::LeftStick, "LS"),
+                    (Button::RightStick, "RS"), (Button::DPadUp, "Up"),
+                    (Button::DPadDown, "Down"), (Button::DPadLeft, "Left"),
+                    (Button::DPadRight, "Right"),
+                ] {
+                    if gp.button(b) {
+                        let _ = write!(s, "{name} ");
+                    }
+                }
+                for (a, name) in [
+                    (Axis::LeftX, "LX"), (Axis::LeftY, "LY"),
+                    (Axis::RightX, "RX"), (Axis::RightY, "RY"),
+                    (Axis::TriggerLeft, "LT"), (Axis::TriggerRight, "RT"),
+                ] {
+                    let v = gp.axis(a);
+                    if v.abs() > 6000 {
+                        let _ = write!(s, "{name}={v} ");
+                    }
+                }
+                if !s.is_empty() {
+                    eprintln!("PADDBG: {s}");
+                }
+            }
+
             // Analog stick -> dpad with deadzone (sf_rtl.c:109-115).
             let lx = gp.axis(Axis::LeftX);
             let ly = gp.axis(Axis::LeftY);

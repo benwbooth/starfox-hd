@@ -302,12 +302,22 @@ impl Transform {
             return;
         }
 
-        let x = self.cam_prev.x
-            + ((self.cam_curr.x.wrapping_sub(self.cam_prev.x)) as f32 * alpha) as i32;
-        let y = self.cam_prev.y
-            + ((self.cam_curr.y.wrapping_sub(self.cam_prev.y)) as f32 * alpha) as i32;
-        let z = self.cam_prev.z
-            + ((self.cam_curr.z.wrapping_sub(self.cam_prev.z)) as f32 * alpha) as i32;
+        // Wrapping add: the camera position follows the player's i16 world
+        // coords scaled to FP16.16, which sit near i32::MAX and wrap at the
+        // 16-bit world boundary (SNES modular coords). A plain add overflows
+        // in debug when the camera advances near the wrap point.
+        let x = self
+            .cam_prev
+            .x
+            .wrapping_add(((self.cam_curr.x.wrapping_sub(self.cam_prev.x)) as f32 * alpha) as i32);
+        let y = self
+            .cam_prev
+            .y
+            .wrapping_add(((self.cam_curr.y.wrapping_sub(self.cam_prev.y)) as f32 * alpha) as i32);
+        let z = self
+            .cam_prev
+            .z
+            .wrapping_add(((self.cam_curr.z.wrapping_sub(self.cam_prev.z)) as f32 * alpha) as i32);
         self.build_view_matrix_f(x, y, z, rx, ry, rz);
     }
 
