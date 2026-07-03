@@ -17,11 +17,32 @@ pub struct SnesBus {
     wram: Vec<u8>,
     /// Reset line: pulsed true once to boot the CPU out of its power-on STP.
     res_line: bool,
+    /// PPU/CPU math registers (used by e.g. n3dvecs' `mulslog`).
+    mpy_a: u8,      // $4202 WRMPYA
+    rdmpy: u16,     // $4216/7 RDMPY (product, or divide remainder)
+    dividend: u16,  // $4204/5 WRDIV
+    quotient: u16,  // $4214/5 RDDIV
 }
 
 impl SnesBus {
     pub fn new(rom: Vec<u8>) -> Self {
-        SnesBus { rom, wram: vec![0u8; 0x2_0000], res_line: true }
+        SnesBus {
+            rom,
+            wram: vec![0u8; 0x2_0000],
+            res_line: true,
+            mpy_a: 0,
+            rdmpy: 0,
+            dividend: 0,
+            quotient: 0,
+        }
+    }
+
+    /// True for the CPU math registers ($4202-06 write, $4214-17 read), which
+    /// live in banks $00-$3F / $80-$BF.
+    fn is_math_reg(addr: u32) -> bool {
+        let bank = (addr >> 16) & 0xFF;
+        let off = addr & 0xFFFF;
+        (bank <= 0x3F || (0x80..=0xBF).contains(&bank)) && (0x4202..=0x4217).contains(&off)
     }
 
     /// Map a 24-bit CPU address to a ROM offset (LoROM) or WRAM index.
@@ -50,6 +71,15 @@ impl SnesBus {
     }
 
     pub fn read8(&self, addr: u32) -> u8 {
+        if Self::is_math_reg(addr) {
+            return match addr & 0xFFFF {
+                0x4214 => self.quotient as u8,
+                0x4215 => (self.quotient >> 8) as u8,
+                0x4216 => self.rdmpy as u8,
+                0x4217 => (self.rdmpy >> 8) as u8,
+                _ => 0,
+            };
+        }
         match self.classify(addr) {
             Some(Ok(o)) => self.rom.get(o).copied().unwrap_or(0),
             Some(Err(i)) => self.wram.get(i).copied().unwrap_or(0),
@@ -57,6 +87,25 @@ impl SnesBus {
         }
     }
     pub fn write8(&mut self, addr: u32, v: u8) {
+        if Self::is_math_reg(addr) {
+            match addr & 0xFFFF {
+                0x4202 => self.mpy_a = v,
+                0x4203 => self.rdmpy = self.mpy_a as u16 * v as u16,
+                0x4204 => self.dividend = (self.dividend & 0xFF00) | v as u16,
+                0x4205 => self.dividend = (self.dividend & 0x00FF) | ((v as u16) << 8),
+                0x4206 => {
+                    if v == 0 {
+                        self.quotient = 0xFFFF;
+                        self.rdmpy = self.dividend;
+                    } else {
+                        self.quotient = self.dividend / v as u16;
+                        self.rdmpy = self.dividend % v as u16;
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         if let Some(Err(i)) = self.classify(addr) {
             if let Some(b) = self.wram.get_mut(i) {
                 *b = v;
@@ -146,11 +195,15 @@ pub fn call(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
     bus.wram_write16(PX, entry.x);
     bus.wram_write16(PY, entry.y);
 
-    // Bootstrap stub at $00:0200.
-    let stub: [u8; 15] = [
+    // Bootstrap stub at $00:0200. Enter native mode, set the M/X width bits
+    // from entry.p (SEP #mx after REP #$30 makes 8-bit whichever of A/X the
+    // callee expects), load entry regs, JSL the target, STP.
+    let mx = entry.p & 0x30;
+    let stub: [u8; 17] = [
         0x18, // CLC
         0xFB, // XCE            -> native mode
         0xC2, 0x30, // REP #$30 -> 16-bit A/X/Y
+        0xE2, mx, // SEP #mx    -> 8-bit A and/or X per entry.p
         0xA5, PA as u8, // LDA $F0
         0xA6, PX as u8, // LDX $F2
         0xA4, PY as u8, // LDY $F4
