@@ -1233,6 +1233,17 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     v.set_sv_i16(sv::VIEWCY, 0);
 
     v.set_sv_u8(sv::NUMPLASERS, 0);
+
+    // Seed the onplanet movement box (planet_minX/maxX, STRATEQU.INC:559-564).
+    // The C map VM sets this via `mapplayermode onplanet` (LEVEL1_1.ASM:66),
+    // an opcode not yet ported, and the exit-base -> playeronplanet_init
+    // handoff that would otherwise set it isn't reliably reached. Without a
+    // valid box, playerlimit_x_srou clamps the ship to [0,0] every frame and
+    // steering does nothing.
+    v.set_sv_i16(sv::MINPMOVEX, -500);
+    v.set_sv_i16(sv::MAXPMOVEX, 500);
+    v.minpmove_y = -210 - 45;
+    v.set_sv_i16(sv::MAXPMOVEY, PLAYERB_YSTOP);
     v.set_sv_u8(sv::FIRECNT, 3);
     v.set_sv_u8(sv::FIREDELAY, 1);
     v.set_sv_u8(sv::SPECIALDELAY, 1);
