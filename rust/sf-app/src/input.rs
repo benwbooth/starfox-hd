@@ -198,17 +198,31 @@ impl Input {
             // Analog stick -> dpad with deadzone (sf_rtl.c:109-115).
             let lx = gp.axis(Axis::LeftX);
             let ly = gp.axis(Axis::LeftY);
-            if lx < -STICK_DEADZONE {
-                pad |= pad::LEFT;
-            }
-            if lx > STICK_DEADZONE {
-                pad |= pad::RIGHT;
-            }
-            if ly < -STICK_DEADZONE {
-                pad |= pad::UP;
-            }
-            if ly > STICK_DEADZONE {
-                pad |= pad::DOWN;
+            // Garbage-axis guard: a controller SDL hasn't correctly mapped
+            // (e.g. the Steam Controller 2) reports multiple axes pegged to
+            // opposite extremes at once, which real sticks physically can't
+            // do — that noise would spam the dpad and stomp real input.
+            // When detected, ignore stick input this frame (digital dpad +
+            // keyboard still work).
+            let rx = gp.axis(Axis::RightX);
+            let ry = gp.axis(Axis::RightY);
+            let saturated = |v: i16| v.abs() > 30000;
+            let axes_garbage = (saturated(lx) && saturated(rx))
+                || (saturated(ly) && saturated(ry))
+                || (saturated(lx) && saturated(ly) && saturated(rx) && saturated(ry));
+            if !axes_garbage {
+                if lx < -STICK_DEADZONE {
+                    pad |= pad::LEFT;
+                }
+                if lx > STICK_DEADZONE {
+                    pad |= pad::RIGHT;
+                }
+                if ly < -STICK_DEADZONE {
+                    pad |= pad::UP;
+                }
+                if ly > STICK_DEADZONE {
+                    pad |= pad::DOWN;
+                }
             }
         }
         pad
