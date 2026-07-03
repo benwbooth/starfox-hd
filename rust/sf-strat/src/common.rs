@@ -359,7 +359,13 @@ pub fn strat_gen_vecs_2d(al: &mut Alien) {
 /// C `Strat_GenVecs3D` (alvel3vecs_l, STRATROU.ASM:221-283): 3D velocity
 /// from pitch (negated rotx, ASM convention) and yaw.
 pub fn strat_gen_vecs_3d(al: &mut Alien) {
-    let yaw = al.roty;
+    // ROM `n3dvecs_l` (STRATROU.ASM:316-317) negates YAW (not pitch): vx =
+    // -vel*sin(roty)*cos(rotx). The port negated pitch and left yaw, flipping
+    // vx's sign -> LEFT/RIGHT steering was inverted (vy stayed correct via the
+    // renderer's Y-flip, which is why only X looked wrong). snes_cos is even so
+    // negating yaw flips ONLY vx; vy/vz are unchanged. Universal fix (the ROM
+    // negates yaw for every object).
+    let yaw = (al.roty as i8).wrapping_neg() as u8;
     let pitch = (al.rotx as i8).wrapping_neg() as u8;
     let speed = al.vel as i16 as f32;
 

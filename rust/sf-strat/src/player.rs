@@ -1051,8 +1051,8 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
             -PLAYER_W_X_SCALED,
             PLAYER_W_Y_SCALED,
             80,
-            80,
-            45,
+            66,
+            10,
             2,
             true,
             false,
@@ -1063,8 +1063,8 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
             PLAYER_W_X_SCALED,
             PLAYER_W_Y_SCALED,
             80,
-            80,
-            45,
+            66,
+            10,
             2,
             true,
             false,
@@ -1073,7 +1073,9 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
         return;
     }
 
-    spawn_player_projectile(g, idx, 0, 0, 80, 80, 45, 2, true, false);
+    // Lifetime 10 = ROM Pelaser `s_set_lifecnt #10` (GSTRATS.ASM:2351). Was
+    // 45, so bolts lingered ~2.25s and the 3-shot cap blocked re-firing.
+    spawn_player_projectile(g, idx, 0, 0, 80, 66, 10, 2, true, false);
     g.hooks.play_se(0x60);
 }
 
