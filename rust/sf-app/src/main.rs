@@ -242,6 +242,12 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(220);
     let mut ppm_pending = ppm_path.is_some();
+    // SF_NOINTERP=1: render the tick-exact game state (no render-frame
+    // interpolation). Every frame then shows a true 20 Hz game state that
+    // matches the ROM's per-tick output — authentic (choppier) and the
+    // correct basis for parity checking, since interpolation invents
+    // between-tick states the ROM never computes.
+    let no_interp = std::env::var("SF_NOINTERP").map(|v| v == "1").unwrap_or(false);
 
     // --- Fixed timestep game loop with interpolation (main.c:153-201) ---
     let tick_duration = GAME_TICK_MS as f64 / 1000.0;
@@ -356,8 +362,13 @@ fn main() {
             }
         }
 
-        // Interpolation alpha for smooth rendering (main.c:192).
-        let alpha = (accumulator / tick_duration) as f32;
+        // Interpolation alpha for smooth rendering (main.c:192). alpha=1
+        // shows the latest tick verbatim (tick-exact / ROM-accurate).
+        let alpha = if no_interp {
+            1.0
+        } else {
+            (accumulator / tick_duration) as f32
+        };
 
         // Assemble FrameInputs from the shell snapshot.
         let mut windows = [WindowState::default(); WINDOWARRAY_SIZE];

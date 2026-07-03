@@ -35,6 +35,9 @@ pub const SHAPE_ALIAS_MOTHER1: u16 = 278;
 pub const SHAPE_ALIAS_OP_0: u16 = 508;
 pub const SHAPE_ALIAS_OP_1: u16 = 509;
 pub const SHAPE_ALIAS_OP_2: u16 = 510;
+/// Player laser bolt (elaser2). Free runtime slot (< MAX_SHAPES=512); the
+/// ROM's elaser2 has no `def_shape` id so we assign one for the builtin.
+pub const SHAPE_ELASER2: u16 = 511;
 
 const RAW_SHAPE_BOSS_7_1: u16 = 241;
 const RAW_SHAPE_IMYSHIP_4: u16 = 554;

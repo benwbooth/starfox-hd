@@ -271,12 +271,23 @@ pub fn strat_chase8(mut current: u8, target: u8, rate: u8) -> u8 {
 
 /// C `Strat_ChaseProportional` (Achase macros): step = diff >> shift,
 /// minimum magnitude 1.
+///
+/// The ROM shifts via `adiv2` (STRATMAC.INC:712), a signed halve that rounds
+/// TOWARD ZERO, applied `shift` times. A plain arithmetic `>>` rounds toward
+/// -inf, which for a negative `diff` produces a larger-magnitude step than the
+/// ROM (off by 1), making every asymptotic chase — camera follow, rotation
+/// decay — converge asymmetrically. Round toward zero to match.
 pub fn strat_chase_proportional(current: i16, target: i16, shift: u32) -> i16 {
     if current == target {
         return current;
     }
     let diff = current.wrapping_sub(target);
-    let mut step = diff >> shift;
+    // adiv2^shift: arithmetic shift toward zero (not toward -inf).
+    let mut step = if diff >= 0 {
+        diff >> shift
+    } else {
+        -((-diff) >> shift)
+    };
     if step == 0 {
         step = if diff > 0 { 1 } else { -1 };
     }

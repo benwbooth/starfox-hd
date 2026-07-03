@@ -204,8 +204,15 @@ impl GameCamera {
                 .wrapping_add(self.vars.viewshake_z as i8 as i16)
                 .wrapping_add(self.vars.pviewposzoff);
 
-            // Update view float bob (game.c:70-73).
-            if self.vars.viewfloatptr >= 0 && (self.vars.viewfloatptr as usize) < VIEWFLOATTAB_LEN
+            // View-float bob. The ROM only advances/applies this when the
+            // player flymode has `pfm_wobble` set (GSTRATS.ASM:611 gates the
+            // advance on `playerflymode & pfm_wobble`); normal flight and all
+            // tunnel modes leave it clear, so `viewfloat_y` stays 0 and the
+            // camera does NOT bob. Running it unconditionally produced a
+            // continuous ~2s vertical sway (the reported "wobble").
+            if self.vars.playerflymode & crate::vars::PFM_WOBBLE != 0
+                && self.vars.viewfloatptr >= 0
+                && (self.vars.viewfloatptr as usize) < VIEWFLOATTAB_LEN
             {
                 self.vars.viewfloat_y = VIEWFLOATTAB[self.vars.viewfloatptr as usize];
                 self.vars.viewfloatptr = (self.vars.viewfloatptr + 1) % VIEWFLOATTAB_LEN as i16;

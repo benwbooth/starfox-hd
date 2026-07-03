@@ -118,14 +118,19 @@ const SHAPE_ARWING: u16 = 2;
 /// `Draw_BuildList` skips on BOTH filters (shape==0 and invisible) — the reason
 /// player lasers were invisible in both the C and Rust builds.
 ///
-/// Until sf-render registers the real `elaser2` mesh (see this crate's fix
-/// report), we point player bolts at `largeplasma` (shape id 11, a registered
-/// plasma-bolt quad) so shots are actually drawn.
-const SHAPE_PLAYER_LASER: u16 = 11;
+/// sf-render now registers the faithful `elaser2` needle-bolt mesh (the ROM
+/// shape `fire_Elaser` spawns) at `SHAPE_ELASER2` (511), replacing the
+/// `largeplasma` 128x128 grey quad that rendered as a giant block. The 9-frame
+/// growth animation + `bullet_a1` color flash are follow-ups (task #39).
+const SHAPE_PLAYER_LASER: u16 = 511;
 
 // --- Rotation speeds (PSTRATS.ASM) ---
 const XROT_SPEED: i16 = 0x200;
 const ZROT_SPEED: i16 = 0x200;
+
+/// `pshipflags2` bit for the 180-degree U-turn maneuver (flips the banking
+/// shove direction). Mirrors `enemy_b::PSF2_TURN180`.
+const PSF2_TURN180: u8 = 8;
 
 // --- Speed constants (STRATEQU.INC:345-348) ---
 const MIN_PSPEED: i16 = 20;
@@ -692,6 +697,28 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     let mut plrotz = g.vars.sv_i16(sv::PLROTZ);
     let mut ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT);
 
+    // Banking -> lateral worldx shove (PSTRATS.ASM:2278-2317). Each tick the
+    // ship's roll directly nudges its X position; this is what makes steering
+    // responsive and gives the sideways glide as `plrotz` decays after you let
+    // go. Missing from the C port (and thus the RIIR copy) — steering felt
+    // sluggish without it. Uses the pre-increment plrotz/ztilt (this frame's
+    // roll carried from last frame). `adiv2` is a signed /2 that rounds toward
+    // zero (STRATMAC.INC:712), so plrotz is `(plrotz>>7)` then toward-zero /2.
+    {
+        let lr_held = pad1(g) & (pad::LEFT | pad::RIGHT) != 0;
+        let ztilt_term = if lr_held { (ztilt as i8 as i16) >> 3 } else { 0 };
+        let s7 = plrotz >> 7;
+        let plrotz_term = if s7 >= 0 { s7 >> 1 } else { -((-s7) >> 1) };
+        let shove = plrotz_term.wrapping_add(ztilt_term);
+        let turn180 = g.vars.pshipflags2 & PSF2_TURN180 != 0;
+        let al = &mut g.objs.aliens[i];
+        if turn180 {
+            al.worldx = al.worldx.wrapping_sub(shove);
+        } else {
+            al.worldx = al.worldx.wrapping_add(shove);
+        }
+    }
+
     if !no_ctrl {
         if pad1(g) & pad::LEFT != 0 {
             plrotz = plrotz.wrapping_add(ZROT_SPEED);
@@ -885,10 +912,30 @@ fn spawn_player_projectile(
         // list skips; give player bolts a real shape and clear the flag so they
         // render (the nuke, track=false, keeps the stub — its faithful shape is
         // likewise unregistered).
+        let owner_vel = g.objs.aliens[i].vel;
         let laser = &mut g.objs.aliens[shot as usize];
         laser.shape = SHAPE_PLAYER_LASER;
         laser.sflags &= !ASF_INVISIBLE;
         laser.sbyte6 |= 1;
+        // ROM `Pelaser_Istrat` (GSTRATS.ASM:2023) builds the bolt velocity from
+        // two stacked vectors: `gen_3dvecs scale 2` (x4) at the bolt's al_vel
+        // PLUS `addgen_3dvecs` at the OWNER's speed (al_sbyte3 = player al_vel).
+        // strat_spawn_projectile only gives it one x1 vector (~ship speed), so
+        // the bolt crept along with the ship and hung at the muzzle as an
+        // end-on dot — "can barely see the lasers". Rebuild it faithfully.
+        laser.vel = 66; // ROM Pelaser al_vel (GSTRATS.ASM:2350)
+        strat_gen_vecs_3d(laser);
+        let (bx, by, bz) = (
+            laser.vx.wrapping_mul(4),
+            laser.vy.wrapping_mul(4),
+            laser.vz.wrapping_mul(4),
+        );
+        laser.vel = owner_vel;
+        strat_gen_vecs_3d(laser);
+        laser.vx = laser.vx.wrapping_add(bx);
+        laser.vy = laser.vy.wrapping_add(by);
+        laser.vz = laser.vz.wrapping_add(bz);
+        laser.vel = 66;
         let n = g.vars.sv_u8(sv::NUMPLASERS);
         if n < 0xFF {
             g.vars.set_sv_u8(sv::NUMPLASERS, n + 1);
@@ -1250,6 +1297,13 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     // a proxy byte (GSVAR_BYTE1) rather than this slot, so playermove_srou's
     // `STAYBLACK != -1` gate read 0 and locked out ALL steering. Seed -1.
     v.set_sv_i8(sv::STAYBLACK, -1);
+
+    // Same uninitialized-nonzero-default class (audit): the C seeds these in
+    // GameVars_Init but the Rust WRAM slots default to 0.
+    // g_outdist = OUTVIEWDIST = 120 (bridge-clear pull-out starts here).
+    if v.sv_i16(sv::OUTDIST) == 0 {
+        v.set_sv_i16(sv::OUTDIST, 120);
+    }
     v.set_sv_u8(sv::FIRECNT, 3);
     v.set_sv_u8(sv::FIREDELAY, 1);
     v.set_sv_u8(sv::SPECIALDELAY, 1);

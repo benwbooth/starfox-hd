@@ -101,6 +101,40 @@ pub static ARWING_FACES: [ShapeFace; 20] = [
 ];
 
 // ============================================================
+// elaser2 — the player's laser bolt (USHAPES.ASM:278 `fire_Elaser`
+// s_make_obj #elaser2). The ROM shape is a 9-frame animated `mlaser`
+// bipyramid (a needle bolt), color table `bullet_c` = COLANIM bullet_a1
+// (flashes NIGHT palette 14/8/7, predominantly 14 = white 0x7FFE).
+//
+// This is the "normal laser" frame (elaser2_P .a4a = `mlaser 0,-10,-80,4`):
+// a ~80-long, ±4-wide, ±2-tall needle pointing forward (-z). Faces use
+// color index 81 in COLTAB_ID0 = material_colnorm(0xE,0xE) = palette 14
+// (the bullet_c base white). `sv()` negates Y to GL convention.
+//
+// Follow-ups (see task #39): the 9-frame growth animation (elaser2_P .a0a
+// .. .a8a) and the bullet_a1 color flash are not yet wired.
+// ============================================================
+
+pub static ELASER2_VERTS: [ShapeVertex; 6] = [
+    sv(0.0, 0.0, -80.0), // 0: nose (forward)
+    sv(-4.0, 0.0, -10.0), // 1: left
+    sv(0.0, 0.0, 0.0),   // 2: tail
+    sv(4.0, 0.0, -10.0),  // 3: right
+    sv(0.0, -2.0, -10.0), // 4: top
+    sv(0.0, 2.0, -10.0),  // 5: bottom
+];
+
+// elaser2_F: 6 quad faces (Face4), vertex order from USHAPES.ASM:328.
+pub static ELASER2_FACES: [ShapeFace; 6] = [
+    f4(81, 2, 1, 0, 3),
+    f4(81, 0, 1, 2, 3),
+    f4(81, 2, 4, 0, 5),
+    f4(81, 5, 0, 4, 2),
+    f4(81, 1, 4, 3, 5),
+    f4(81, 5, 3, 4, 1),
+];
+
+// ============================================================
 // Boss7 (SHAPES.ASM boss_7_*) meshes + frame overlays
 // ============================================================
 

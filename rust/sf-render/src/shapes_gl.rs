@@ -348,6 +348,9 @@ impl ShapeStore {
         }
 
         self.register(SHAPE_MYSHIP_4, &bs::ARWING_VERTS, &bs::ARWING_FACES);
+        // Player laser bolt (elaser2, USHAPES.ASM); repointed from the
+        // largeplasma placeholder that rendered as a giant grey quad.
+        self.register(shapes::SHAPE_ELASER2, &bs::ELASER2_VERTS, &bs::ELASER2_FACES);
         self.register(SHAPE_BOSS7_1, &bs::BOSS7_1_VERTS, &bs::BOSS7_1_FACES);
         self.register(SHAPE_BOSS7_0, &bs::BOSS7_0_VERTS, &bs::BOSS7_0_FACES);
         self.register_frame_variants(
