@@ -12,6 +12,7 @@ members = [
     "sf-app",
     "sf-difftest",
     "sf2-data",
+    "sf-oracle",
 ]
 
 [workspace.package]

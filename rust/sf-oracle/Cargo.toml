@@ -1,0 +1,14 @@
+[package]
+name = "sf-oracle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# ROM-oracle differential harness: runs real SF1 65816 subroutines from the
+# retail ROM and diffs them against the Rust port's functions.
+[dependencies]
+w65c816 = "0.1"
+
+[dev-dependencies]
+sf-strat.workspace = true
+sf-game.workspace = true
