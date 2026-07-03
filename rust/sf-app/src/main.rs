@@ -227,6 +227,11 @@ fn main() {
             }
         }
     }));
+    // Wire real per-shape collision half-extents (C load_collision_extents)
+    // from the renderer's shape meshes into the collision system. The shape
+    // store is fully populated by Renderer::new (register_builtins).
+    shell.set_shape_extents(renderer.shapes.all_shape_half_extents());
+
     let mut dump = StateDump::from_env();
     let max_ticks: Option<u64> = std::env::var("SF_MAX_TICKS")
         .ok()

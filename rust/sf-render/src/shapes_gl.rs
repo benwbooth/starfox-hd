@@ -198,6 +198,49 @@ impl ShapeStore {
         self.shapes[id].as_ref()
     }
 
+    /// Per-axis collision half-extents for a shape's mesh, matching the C
+    /// `load_collision_extents` (bounding-box half-dimensions sh_maxx/maxy/maxz):
+    /// max(|x|), max(|y|), max(|z|) over the shape's vertices, clamped to i16.
+    /// Resolves raw shape words like [`ShapeStore::get`]. Returns `None` when
+    /// the shape is unregistered or has no vertices.
+    pub fn shape_half_extents(&self, shape_id: u16) -> Option<(i16, i16, i16)> {
+        let shape = self.get(shape_id)?;
+        if shape.vertices.is_empty() {
+            return None;
+        }
+        let (mut mx, mut my, mut mz) = (0.0f32, 0.0f32, 0.0f32);
+        for v in &shape.vertices {
+            mx = mx.max(v.x.abs());
+            my = my.max(v.y.abs());
+            mz = mz.max(v.z.abs());
+        }
+        let clamp = |f: f32| f.round().clamp(0.0, i16::MAX as f32) as i16;
+        Some((clamp(mx), clamp(my), clamp(mz)))
+    }
+
+    /// Build a table of collision half-extents for every registered shape,
+    /// keyed by internal shape id (0..MAX_SHAPES). Injected into the game's
+    /// collision system (C `load_collision_extents`); shapes absent from the
+    /// table keep the coldet 20/20/20 fallback.
+    pub fn all_shape_half_extents(&self) -> std::collections::HashMap<u16, (i16, i16, i16)> {
+        let mut table = std::collections::HashMap::new();
+        for (id, slot) in self.shapes.iter().enumerate() {
+            let Some(shape) = slot else { continue };
+            if shape.vertices.is_empty() {
+                continue;
+            }
+            let (mut mx, mut my, mut mz) = (0.0f32, 0.0f32, 0.0f32);
+            for v in &shape.vertices {
+                mx = mx.max(v.x.abs());
+                my = my.max(v.y.abs());
+                mz = mz.max(v.z.abs());
+            }
+            let clamp = |f: f32| f.round().clamp(0.0, i16::MAX as f32) as i16;
+            table.insert(id as u16, (clamp(mx), clamp(my), clamp(mz)));
+        }
+        table
+    }
+
     /// Mirror of `Shapes_Register` + `UploadShape`: fan-triangulate faces and
     /// collect Face2 line segments into CPU vertex buffers (`tri_verts` then
     /// `line_verts`) for the retained `Gpu` draw path.

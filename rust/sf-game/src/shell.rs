@@ -18,6 +18,7 @@
 //! direct calls from world.c/levels.c into windows.c/strings.c/sound.c.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use sf_core::{pad, DrawListEntry};
@@ -167,6 +168,11 @@ struct ShellState {
     /// C `s_missing_path_warned` (src/path/paths.c) — warn-once bitmap for
     /// `resolve_path_start`.
     path_warned: Vec<bool>,
+    /// Per-shape collision half-extents (C `load_collision_extents`, from the
+    /// shape meshes), keyed by shape id. Populated by [`Shell::set_shape_extents`]
+    /// from the renderer's shape store; missing shapes fall back to the coldet
+    /// DEFAULT_COLL_EXTENT.
+    shape_extents: HashMap<u16, (i16, i16, i16)>,
 }
 
 impl ShellState {
@@ -176,6 +182,7 @@ impl ShellState {
             strings: Strings::new(),
             sound: Vec::new(),
             path_warned: vec![false; 512],
+            shape_extents: HashMap::new(),
         }
     }
 }
@@ -246,8 +253,11 @@ impl Hooks for ShellHooks {
         0
     }
 
-    // shape_extents: default None kept. TODO(sf-render): wire to the shape
-    // catalog's collision extents (C load_collision_extents, coldet.c:43).
+    fn shape_extents(&self, shape: u16) -> Option<(i16, i16, i16)> {
+        // C load_collision_extents (coldet.c:43): real per-shape AABB
+        // half-extents from the shape meshes, injected via set_shape_extents.
+        self.state.borrow().shape_extents.get(&shape).copied()
+    }
 
     fn player_exit_base(&mut self) {
         // TODO(wave3): hangar launch chain is strat-lane
@@ -350,6 +360,14 @@ impl Shell {
     pub fn set_register_strats(&mut self, hook: Box<dyn Fn(&mut Game)>) {
         hook(&mut self.game);
         self.register_strats = Some(hook);
+    }
+
+    /// Install the per-shape collision half-extents table (app layer builds it
+    /// from the renderer's shape store). Mirrors the C `load_collision_extents`
+    /// data path: coldet reads real AABB half-extents for known shapes and
+    /// keeps DEFAULT_COLL_EXTENT for the rest.
+    pub fn set_shape_extents(&mut self, table: HashMap<u16, (i16, i16, i16)>) {
+        self.state.borrow_mut().shape_extents = table;
     }
 
     /// Install the player-spawn hook (app layer passes a closure that calls
