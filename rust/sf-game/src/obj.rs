@@ -11,7 +11,7 @@
 //! - `Obj_Alloc` pops the free head and pushes it on the active head.
 //! - `Obj_Free` unlinks and pushes on the free head (LIFO reuse).
 
-use crate::alien::{Alien, ACF_FIRSTFRAME, NUMBER_AL};
+use crate::alien::{Alien, ACF_FIRSTFRAME, ATZREMOVE, NUMBER_AL};
 
 /// The alien pool plus the two intrusive lists (C `g_aliens`,
 /// `g_active_list` (allst), `g_free_list` (alfreelst), `g_aldead`).
@@ -185,4 +185,8 @@ pub fn strat_init_obj_vars(al: &mut Alien) {
     al.animframe = 0xFF; // default: use gameframe
     al.colframe = 0xFF;
     al.collflags = ACF_FIRSTFRAME;
+    // init_objvars_l sets `s_setremove_behind` (atzremove) on every object by
+    // default (STRATROU.ASM:2311); showview frees it once it scrolls behind
+    // the camera. Objects that must persist off-screen clear this bit later.
+    al.type_ = ATZREMOVE;
 }

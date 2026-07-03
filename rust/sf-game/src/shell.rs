@@ -629,6 +629,8 @@ impl Shell {
             self.game.vars.playerflymode,
             self.game.vars.gameframe,
             self.camera.vars.pviewposx,
+            self.camera.vars.pviewposz,
+            self.game.vars.gameflags,
             &mut self.draw_list,
         );
 
@@ -720,6 +722,8 @@ impl Shell {
             self.game.vars.playerflymode,
             self.game.vars.gameframe,
             self.camera.vars.pviewposx,
+            self.camera.vars.pviewposz,
+            self.game.vars.gameflags,
             &mut self.draw_list,
         );
 

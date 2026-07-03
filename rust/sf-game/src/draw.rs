@@ -9,9 +9,11 @@
 //! DL_FLAG_SHADOW gate on `(sflags & ASF_SHADOW) && (playerflymode &
 //! PFM_SHADOWS)`, and the AF_* placement-flag clears/sets on the alien.
 
-use crate::alien::{AFEXP, ASF_HITFLASH, ASF_INVISIBLE, ASF_PARTOBJ, ASF_SHADOW, ATGND};
+use crate::alien::{
+    ACF_FIRSTFRAME, AFEXP, ASF_HITFLASH, ASF_INVISIBLE, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATZREMOVE,
+};
 use crate::obj::Objects;
-use crate::vars::PFM_SHADOWS;
+use crate::vars::{GF_NOZREMOVE, PFM_SHADOWS};
 use sf_core::{dl_flags, DrawListEntry, MAX_DRAW_LIST};
 
 // C al_flags placement bits (src/variables.h:70-73). Not in alien.rs yet;
@@ -38,11 +40,14 @@ fn fp16_from_int(i: i32) -> i32 {
 /// * `playerflymode` — C `g_playerflymode` (shadow gate, draw.c:145).
 /// * `gameframe` — C `g_gameframe` (anim/col frame source, draw.c:119/126).
 /// * `pviewposx` — C `g_pviewposx` (view-side flag, draw.c:157).
+#[allow(clippy::too_many_arguments)]
 pub fn build_list(
     objs: &mut Objects,
     playerflymode: u8,
     gameframe: u16,
     pviewposx: i16,
+    pviewposz: i16,
+    gameflags: u8,
     out: &mut Vec<DrawListEntry>,
 ) {
     let mut cur = objs.active_head;
@@ -50,6 +55,27 @@ pub fn build_list(
         let idx = i as usize;
         // Advance first; the walk body never mutates list links.
         cur = objs.aliens[idx].next;
+
+        // --- Behind-camera cull (MAIN.ASM:2044-2062 `chkkillal`) ---
+        // Free objects that have scrolled behind the view. init_objvars sets
+        // `atzremove` on every object by default (STRATROU.ASM:2311); showview
+        // frees them once behind so the 70-slot pool doesn't fill with passed
+        // scenery — the reason later Corneria enemies stopped spawning. Skip
+        // when gf_nozremove (all-range), still on the first frame, or the
+        // object cleared atzremove. "Behind" = world Z behind the camera Z
+        // (same i16 world-Z frame the camera follows).
+        {
+            let al = &objs.aliens[idx];
+            let rel_z = al.worldz.wrapping_sub(pviewposz);
+            if gameflags & GF_NOZREMOVE == 0
+                && al.collflags & ACF_FIRSTFRAME == 0
+                && al.type_ & ATZREMOVE != 0
+                && rel_z < 0
+            {
+                objs.free(i);
+                continue;
+            }
+        }
 
         // --- Clear view placement flags (draw.c:51-55, MAIN.ASM:2118-2121):
         // al_flags &= ~(afinrngpl | affrontpl | afinviewpl | afleftpl);
@@ -193,7 +219,7 @@ mod tests {
         let mut out = Vec::new();
         // playerflymode has PFM_SHADOWS; gameframe = 130 -> & 127 = 2;
         // camera pviewposx = 0 > worldx -10 -> AF_LEFT_PL set.
-        build_list(&mut objs, PFM_SHADOWS, 130, 0, &mut out);
+        build_list(&mut objs, PFM_SHADOWS, 130, 0, 0, GF_NOZREMOVE, &mut out);
 
         assert_eq!(out.len(), 1);
         let e = &out[0];
@@ -247,7 +273,7 @@ mod tests {
         objs.aliens[a as usize].shape = 0; // skipped: no shape
 
         let mut out = Vec::new();
-        build_list(&mut objs, 0, 0, 0, &mut out);
+        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &mut out);
         // Active list is newest-first: only slot 1 emitted.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].explosion_cnt, 12);
@@ -260,7 +286,7 @@ mod tests {
         objs.aliens[b as usize].sflags4 = ASF4_NOPOLYEXP;
         objs.aliens[b as usize].flags = AFEXP; // rebuild cleared placement bits
         out.clear();
-        build_list(&mut objs, 0, 0, 0, &mut out);
+        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &mut out);
         assert_eq!(out[0].explosion_cnt, 0);
     }
 }
