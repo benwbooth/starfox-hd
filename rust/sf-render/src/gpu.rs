@@ -1,0 +1,1161 @@
+//! wgpu rendering backend — replaces the glow GL backend.
+//!
+//! The whole renderer is two shader programs (see `gl_backend.rs` history):
+//! `flat` (3D: position + proj/view/model + solid color) and `overlay`
+//! (2D: position + uv, textured with solid / RGBA / palette-indexed modes).
+//! This module exposes a small *retained* draw API — passes push vertices
+//! and per-draw state into CPU buffers during a frame; `end_frame` uploads
+//! everything once and replays it in a single render pass, preserving the
+//! call order (3D first, 2D overlays after) that the immediate-mode GL code
+//! relied on.
+//!
+//! WGSL faithfully mirrors the GLSL in `gl_backend.rs`:
+//! - flat vs: `proj * view * model * vec4(pos, 1)`; fs: `uColor`.
+//! - overlay vs: `proj * model * vec4(pos, 0, 1)`; fs: mode 2 palette
+//!   (discard index 0), mode 1 RGBA (discard a<0.5), mode 0 solid color.
+
+use bytemuck::{Pod, Zeroable};
+use wgpu::util::DeviceExt;
+
+/// Depth buffer format (matches the old `set_depth_size(24)`).
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
+
+/// 3D vertex for the `flat` pipeline.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct Vertex3 {
+    pub pos: [f32; 3],
+}
+
+/// 2D vertex for the `overlay` pipeline (matches HUD `aPos`/`aTexCoord`).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct Vertex2 {
+    pub pos: [f32; 2],
+    pub uv: [f32; 2],
+}
+
+/// Per-draw uniform block, shared by both pipelines (dynamic-offset buffer).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct DrawUniform {
+    proj: [[f32; 4]; 4],
+    view: [[f32; 4]; 4],
+    model: [[f32; 4]; 4],
+    color: [f32; 4],
+    /// x = use_texture (0 solid, 1 rgba, 2 palette); rest padding.
+    mode: [u32; 4],
+    palette: [[f32; 4]; 16],
+}
+// size = 3*64 + 16 + 16 + 256 = 480 bytes; dynamic offsets need 256 alignment.
+const UNIFORM_STRIDE: u64 = 512;
+
+fn identity() -> [[f32; 4]; 4] {
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+}
+
+fn mat4(m: &[f32; 16]) -> [[f32; 4]; 4] {
+    [
+        [m[0], m[1], m[2], m[3]],
+        [m[4], m[5], m[6], m[7]],
+        [m[8], m[9], m[10], m[11]],
+        [m[12], m[13], m[14], m[15]],
+    ]
+}
+
+/// Opaque handle into the texture cache. `WHITE_TEX` (id 0) is a 1x1 white
+/// texture so solid-mode overlay draws always have a valid bind group.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TextureId(pub usize);
+pub const WHITE_TEX: TextureId = TextureId(0);
+
+#[derive(Clone, Copy, PartialEq)]
+enum Pipe {
+    FlatTri,
+    /// Alpha-blended, depth-tested but NOT depth-writing (ground shadows).
+    FlatTriAlpha,
+    /// Additive-blended, depth-tested but NOT depth-writing (particles).
+    FlatTriAdd,
+    FlatLine,
+    Overlay,
+}
+
+struct DrawCmd {
+    pipe: Pipe,
+    v_start: u32,
+    v_count: u32,
+    uniform_index: u32,
+    texture: TextureId,
+}
+
+struct CachedTexture {
+    texture: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+    width: u32,
+    height: u32,
+    /// bytes per pixel of the stored format (1 = R8, 4 = RGBA8).
+    bpp: u32,
+}
+
+/// Where a frame is rendered.
+enum Target {
+    Surface {
+        surface: wgpu::Surface<'static>,
+        config: wgpu::SurfaceConfiguration,
+    },
+    /// Headless render-to-texture (tests). RGBA8, COPY_SRC for readback.
+    Offscreen {
+        texture: wgpu::Texture,
+        width: u32,
+        height: u32,
+    },
+}
+
+/// In-flight surface frame, held between begin/end.
+struct SurfaceFrame {
+    surface_tex: wgpu::SurfaceTexture,
+}
+
+pub struct Gpu {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    target: Target,
+
+    depth_view: wgpu::TextureView,
+    depth_size: (u32, u32),
+
+    flat_tri: wgpu::RenderPipeline,
+    flat_tri_alpha: wgpu::RenderPipeline,
+    flat_tri_add: wgpu::RenderPipeline,
+    flat_line: wgpu::RenderPipeline,
+    overlay: wgpu::RenderPipeline,
+
+    uniform_bgl: wgpu::BindGroupLayout,
+    texture_bgl: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+
+    // Persistent GPU buffers (grown on demand).
+    vbuf3: wgpu::Buffer,
+    vbuf3_cap: u64,
+    vbuf2: wgpu::Buffer,
+    vbuf2_cap: u64,
+    ubuf: wgpu::Buffer,
+    ubuf_cap: u64,
+    uniform_bind: wgpu::BindGroup,
+
+    textures: Vec<CachedTexture>,
+
+    // Per-frame CPU-side accumulation.
+    v3: Vec<Vertex3>,
+    v2: Vec<Vertex2>,
+    uniforms: Vec<DrawUniform>,
+    cmds: Vec<DrawCmd>,
+    clear: [f64; 4],
+
+    pending_surface: Option<SurfaceFrame>,
+}
+
+impl Gpu {
+    /// Construct from a caller-created instance + surface (sf-app owns the
+    /// SDL3 window and builds the surface via raw-window-handle).
+    pub fn new_for_surface(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, String> {
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: Some(&surface),
+        }))
+        .map_err(|e| format!("no wgpu adapter: {e}"))?;
+
+        let (device, queue) = Self::request_device(&adapter)?;
+
+        let caps = surface.get_capabilities(&adapter);
+        // Prefer a non-sRGB 8-bit format so colors are written verbatim like
+        // the GL path (the shaders do no gamma conversion).
+        let color_format = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| {
+                matches!(
+                    f,
+                    wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
+                )
+            })
+            .unwrap_or(caps.formats[0]);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: color_format,
+            width: width.max(1),
+            height: height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        Ok(Self::finish_init(
+            device,
+            queue,
+            Target::Surface { surface, config },
+            color_format,
+            width.max(1),
+            height.max(1),
+        ))
+    }
+
+    /// Headless render-to-texture backend for offscreen tests.
+    pub fn new_headless(width: u32, height: u32) -> Result<Self, String> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        }))
+        .map_err(|e| format!("no wgpu adapter: {e}"))?;
+        let (device, queue) = Self::request_device(&adapter)?;
+
+        let color_format = wgpu::TextureFormat::Rgba8Unorm;
+        let (w, h) = (width.max(1), height.max(1));
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("offscreen-color"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: color_format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        Ok(Self::finish_init(
+            device,
+            queue,
+            Target::Offscreen {
+                texture,
+                width: w,
+                height: h,
+            },
+            color_format,
+            w,
+            h,
+        ))
+    }
+
+    fn request_device(adapter: &wgpu::Adapter) -> Result<(wgpu::Device, wgpu::Queue), String> {
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("sf-render device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            memory_hints: wgpu::MemoryHints::default(),
+            trace: wgpu::Trace::Off,
+        }))
+        .map_err(|e| format!("request_device failed: {e}"))
+    }
+
+    fn finish_init(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        target: Target,
+        color_format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sf-render wgsl"),
+            source: wgpu::ShaderSource::Wgsl(WGSL.into()),
+        });
+
+        let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("uniform-bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(
+                        std::mem::size_of::<DrawUniform>() as u64
+                    ),
+                },
+                count: None,
+            }],
+        });
+        let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("texture-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let flat_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("flat-layout"),
+            bind_group_layouts: &[&uniform_bgl],
+            push_constant_ranges: &[],
+        });
+        let overlay_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("overlay-layout"),
+            bind_group_layouts: &[&uniform_bgl, &texture_bgl],
+            push_constant_ranges: &[],
+        });
+
+        let depth_stencil = |write: bool, compare: wgpu::CompareFunction| {
+            Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: write,
+                depth_compare: compare,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            })
+        };
+
+        let v3_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex3>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 0,
+                shader_location: 0,
+            }],
+        };
+        let v2_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex2>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 8,
+                    shader_location: 1,
+                },
+            ],
+        };
+
+        // Additive blend for particles (SRC_ALPHA, ONE — matches the old
+        // glBlendFunc(GL_SRC_ALPHA, GL_ONE)).
+        let additive_blend = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent::OVER,
+        };
+
+        let make_flat = |topology: wgpu::PrimitiveTopology,
+                         blend: Option<wgpu::BlendState>,
+                         depth_write: bool,
+                         label: &str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&flat_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_flat"),
+                    compilation_options: Default::default(),
+                    buffers: &[v3_layout.clone()],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: depth_stencil(depth_write, wgpu::CompareFunction::Less),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_flat"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let flat_tri = make_flat(wgpu::PrimitiveTopology::TriangleList, None, true, "flat-tri");
+        let flat_line =
+            make_flat(wgpu::PrimitiveTopology::LineList, None, true, "flat-line");
+        // Shadows: alpha-blended, depth-tested, depth-write OFF.
+        let flat_tri_alpha = make_flat(
+            wgpu::PrimitiveTopology::TriangleList,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+            "flat-tri-alpha",
+        );
+        // Particles: additive, depth-tested, depth-write OFF.
+        let flat_tri_add = make_flat(
+            wgpu::PrimitiveTopology::TriangleList,
+            Some(additive_blend),
+            false,
+            "flat-tri-add",
+        );
+
+        let overlay = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("overlay"),
+            layout: Some(&overlay_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_overlay"),
+                compilation_options: Default::default(),
+                buffers: &[v2_layout],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            // 2D overlays draw back-to-front in call order; no depth testing.
+            depth_stencil: depth_stencil(false, wgpu::CompareFunction::Always),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_overlay"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("nearest"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let depth_view = make_depth(&device, width, height);
+
+        // Initial buffers (small; grown on demand).
+        let vbuf3 = make_vbuf(&device, 4096 * std::mem::size_of::<Vertex3>() as u64);
+        let vbuf2 = make_vbuf(&device, 4096 * std::mem::size_of::<Vertex2>() as u64);
+        let ubuf_cap = 256 * UNIFORM_STRIDE;
+        let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("uniforms"),
+            size: ubuf_cap,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let uniform_bind = make_uniform_bind(&device, &uniform_bgl, &ubuf);
+
+        let mut gpu = Self {
+            device,
+            queue,
+            target,
+            depth_view,
+            depth_size: (width, height),
+            flat_tri,
+            flat_tri_alpha,
+            flat_tri_add,
+            flat_line,
+            overlay,
+            uniform_bgl,
+            texture_bgl,
+            sampler,
+            vbuf3,
+            vbuf3_cap: 4096 * std::mem::size_of::<Vertex3>() as u64,
+            vbuf2,
+            vbuf2_cap: 4096 * std::mem::size_of::<Vertex2>() as u64,
+            ubuf,
+            ubuf_cap,
+            uniform_bind,
+            textures: Vec::new(),
+            v3: Vec::new(),
+            v2: Vec::new(),
+            uniforms: Vec::new(),
+            cmds: Vec::new(),
+            clear: [0.0, 0.0, 0.0, 1.0],
+            pending_surface: None,
+        };
+        // id 0 = 1x1 white for solid overlay draws.
+        gpu.create_texture_rgba(1, 1, &[255, 255, 255, 255]);
+        gpu
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        match &self.target {
+            Target::Surface { config, .. } => (config.width, config.height),
+            Target::Offscreen { width, height, .. } => (*width, *height),
+        }
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        let (w, h) = (width.max(1), height.max(1));
+        match &mut self.target {
+            Target::Surface { surface, config } => {
+                config.width = w;
+                config.height = h;
+                surface.configure(&self.device, config);
+            }
+            Target::Offscreen { .. } => {}
+        }
+        if self.depth_size != (w, h) {
+            self.depth_view = make_depth(&self.device, w, h);
+            self.depth_size = (w, h);
+        }
+    }
+
+    // ---- Texture cache ------------------------------------------------------
+
+    /// Upload an RGBA8 texture, returns its id.
+    pub fn create_texture_rgba(&mut self, width: u32, height: u32, data: &[u8]) -> TextureId {
+        self.create_texture(width, height, 4, wgpu::TextureFormat::Rgba8Unorm, data)
+    }
+
+    /// Upload a single-channel R8 texture (font atlas / palette indices).
+    pub fn create_texture_r8(&mut self, width: u32, height: u32, data: &[u8]) -> TextureId {
+        self.create_texture(width, height, 1, wgpu::TextureFormat::R8Unorm, data)
+    }
+
+    fn create_texture(
+        &mut self,
+        width: u32,
+        height: u32,
+        bpp: u32,
+        format: wgpu::TextureFormat,
+        data: &[u8],
+    ) -> TextureId {
+        let (w, h) = (width.max(1), height.max(1));
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("tex"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tex-bind"),
+            layout: &self.texture_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let id = TextureId(self.textures.len());
+        self.textures.push(CachedTexture {
+            texture,
+            bind_group,
+            width: w,
+            height: h,
+            bpp,
+        });
+        self.write_texture(id, data);
+        id
+    }
+
+    /// Re-upload pixel data to an existing texture (same dimensions/format).
+    pub fn update_texture(&mut self, id: TextureId, data: &[u8]) {
+        self.write_texture(id, data);
+    }
+
+    fn write_texture(&self, id: TextureId, data: &[u8]) {
+        let t = &self.textures[id.0];
+        let bytes_per_row = t.width * t.bpp;
+        let needed = (bytes_per_row * t.height) as usize;
+        if data.len() < needed {
+            return;
+        }
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &t.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &data[..needed],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(t.height),
+            },
+            wgpu::Extent3d {
+                width: t.width,
+                height: t.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
+    // ---- Frame API ----------------------------------------------------------
+
+    pub fn set_clear_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
+        self.clear = [r as f64, g as f64, b as f64, a as f64];
+    }
+
+    /// Begin a frame: reset accumulation and acquire the surface texture.
+    pub fn begin_frame(&mut self) {
+        self.v3.clear();
+        self.v2.clear();
+        self.uniforms.clear();
+        self.cmds.clear();
+        if let Target::Surface { surface, .. } = &self.target {
+            match surface.get_current_texture() {
+                Ok(surface_tex) => {
+                    self.pending_surface = Some(SurfaceFrame { surface_tex });
+                }
+                Err(_) => {
+                    // Surface lost/outdated: reconfigure and skip this frame.
+                    if let Target::Surface { surface, config } = &self.target {
+                        surface.configure(&self.device, config);
+                    }
+                    self.pending_surface = None;
+                }
+            }
+        }
+    }
+
+    fn push_uniform(&mut self, u: DrawUniform) -> u32 {
+        let idx = self.uniforms.len() as u32;
+        self.uniforms.push(u);
+        idx
+    }
+
+    /// Draw solid-color 3D triangles (flat pipeline).
+    pub fn push_flat_tris(
+        &mut self,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+    ) {
+        if verts.len() < 3 {
+            return;
+        }
+        let ui = self.push_uniform(DrawUniform {
+            proj: mat4(proj),
+            view: mat4(view),
+            model: mat4(model),
+            color,
+            mode: [0, 0, 0, 0],
+            palette: [[0.0; 4]; 16],
+        });
+        let start = self.v3.len() as u32;
+        self.v3.extend_from_slice(verts);
+        self.cmds.push(DrawCmd {
+            pipe: Pipe::FlatTri,
+            v_start: start,
+            v_count: verts.len() as u32,
+            uniform_index: ui,
+            texture: WHITE_TEX,
+        });
+    }
+
+    /// Alpha-blended, non-depth-writing 3D triangles (ground shadows).
+    pub fn push_flat_tris_alpha(
+        &mut self,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+    ) {
+        self.push_flat_variant(Pipe::FlatTriAlpha, verts, proj, view, model, color);
+    }
+
+    /// Additive-blended, non-depth-writing 3D triangles (particles).
+    pub fn push_flat_tris_add(
+        &mut self,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+    ) {
+        self.push_flat_variant(Pipe::FlatTriAdd, verts, proj, view, model, color);
+    }
+
+    fn push_flat_variant(
+        &mut self,
+        pipe: Pipe,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+    ) {
+        if verts.len() < 3 {
+            return;
+        }
+        let ui = self.push_uniform(DrawUniform {
+            proj: mat4(proj),
+            view: mat4(view),
+            model: mat4(model),
+            color,
+            mode: [0, 0, 0, 0],
+            palette: [[0.0; 4]; 16],
+        });
+        let start = self.v3.len() as u32;
+        self.v3.extend_from_slice(verts);
+        self.cmds.push(DrawCmd {
+            pipe,
+            v_start: start,
+            v_count: verts.len() as u32,
+            uniform_index: ui,
+            texture: WHITE_TEX,
+        });
+    }
+
+    /// Draw solid-color 3D lines (flat pipeline). `positions` is xyz triples.
+    pub fn push_flat_lines(
+        &mut self,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+    ) {
+        let n = verts.len() & !1;
+        if n < 2 {
+            return;
+        }
+        let ui = self.push_uniform(DrawUniform {
+            proj: mat4(proj),
+            view: mat4(view),
+            model: mat4(model),
+            color,
+            mode: [0, 0, 0, 0],
+            palette: [[0.0; 4]; 16],
+        });
+        let start = self.v3.len() as u32;
+        self.v3.extend_from_slice(&verts[..n]);
+        self.cmds.push(DrawCmd {
+            pipe: Pipe::FlatLine,
+            v_start: start,
+            v_count: n as u32,
+            uniform_index: ui,
+            texture: WHITE_TEX,
+        });
+    }
+
+    /// Draw 2D overlay triangles. `use_texture`: 0 solid, 1 rgba, 2 palette.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_overlay_tris(
+        &mut self,
+        verts: &[Vertex2],
+        proj: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+        use_texture: u32,
+        palette: Option<&[[f32; 4]; 16]>,
+        texture: TextureId,
+    ) {
+        if verts.len() < 3 {
+            return;
+        }
+        let ui = self.push_uniform(DrawUniform {
+            proj: mat4(proj),
+            view: identity(),
+            model: mat4(model),
+            color,
+            mode: [use_texture, 0, 0, 0],
+            palette: palette.copied().unwrap_or([[0.0; 4]; 16]),
+        });
+        let start = self.v2.len() as u32;
+        self.v2.extend_from_slice(verts);
+        self.cmds.push(DrawCmd {
+            pipe: Pipe::Overlay,
+            v_start: start,
+            v_count: verts.len() as u32,
+            uniform_index: ui,
+            texture,
+        });
+    }
+
+    /// Draw a 2D overlay triangle *fan* (v0,v1,v2, v0,v2,v3, ...). wgpu has
+    /// no fan topology, so it's expanded to a triangle list here.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_overlay_fan(
+        &mut self,
+        fan: &[Vertex2],
+        proj: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+        use_texture: u32,
+        palette: Option<&[[f32; 4]; 16]>,
+        texture: TextureId,
+    ) {
+        if fan.len() < 3 {
+            return;
+        }
+        let mut tris = Vec::with_capacity((fan.len() - 2) * 3);
+        for i in 1..fan.len() - 1 {
+            tris.push(fan[0]);
+            tris.push(fan[i]);
+            tris.push(fan[i + 1]);
+        }
+        self.push_overlay_tris(&tris, proj, model, color, use_texture, palette, texture);
+    }
+
+    /// Upload accumulated geometry and replay all draws in one render pass.
+    pub fn end_frame(&mut self) {
+        // Surface frames without an acquired texture are dropped.
+        let color_view: wgpu::TextureView = match &self.target {
+            Target::Surface { .. } => match self.pending_surface.as_ref() {
+                Some(f) => f
+                    .surface_tex
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+                None => return,
+            },
+            Target::Offscreen { texture, .. } => {
+                texture.create_view(&wgpu::TextureViewDescriptor::default())
+            }
+        };
+
+        self.upload_frame_buffers();
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame-encoder"),
+            });
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("main-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &color_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: self.clear[0],
+                            g: self.clear[1],
+                            b: self.clear[2],
+                            a: self.clear[3],
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            for cmd in &self.cmds {
+                let offset = (cmd.uniform_index as u64) * UNIFORM_STRIDE;
+                match cmd.pipe {
+                    Pipe::FlatTri
+                    | Pipe::FlatTriAlpha
+                    | Pipe::FlatTriAdd
+                    | Pipe::FlatLine => {
+                        rpass.set_pipeline(match cmd.pipe {
+                            Pipe::FlatTri => &self.flat_tri,
+                            Pipe::FlatTriAlpha => &self.flat_tri_alpha,
+                            Pipe::FlatTriAdd => &self.flat_tri_add,
+                            _ => &self.flat_line,
+                        });
+                        rpass.set_bind_group(0, &self.uniform_bind, &[offset as u32]);
+                        rpass.set_vertex_buffer(0, self.vbuf3.slice(..));
+                        rpass.draw(cmd.v_start..cmd.v_start + cmd.v_count, 0..1);
+                    }
+                    Pipe::Overlay => {
+                        rpass.set_pipeline(&self.overlay);
+                        rpass.set_bind_group(0, &self.uniform_bind, &[offset as u32]);
+                        rpass.set_bind_group(1, &self.textures[cmd.texture.0].bind_group, &[]);
+                        rpass.set_vertex_buffer(0, self.vbuf2.slice(..));
+                        rpass.draw(cmd.v_start..cmd.v_start + cmd.v_count, 0..1);
+                    }
+                }
+            }
+        }
+        self.queue.submit(Some(encoder.finish()));
+
+        if let Some(frame) = self.pending_surface.take() {
+            frame.surface_tex.present();
+        }
+    }
+
+    fn upload_frame_buffers(&mut self) {
+        // Grow vertex/uniform buffers if the frame exceeded capacity.
+        let need3 = (self.v3.len() * std::mem::size_of::<Vertex3>()) as u64;
+        if need3 > self.vbuf3_cap {
+            self.vbuf3_cap = (need3 * 2).max(self.vbuf3_cap * 2);
+            self.vbuf3 = make_vbuf(&self.device, self.vbuf3_cap);
+        }
+        let need2 = (self.v2.len() * std::mem::size_of::<Vertex2>()) as u64;
+        if need2 > self.vbuf2_cap {
+            self.vbuf2_cap = (need2 * 2).max(self.vbuf2_cap * 2);
+            self.vbuf2 = make_vbuf(&self.device, self.vbuf2_cap);
+        }
+        let needu = self.uniforms.len() as u64 * UNIFORM_STRIDE;
+        if needu > self.ubuf_cap {
+            self.ubuf_cap = (needu * 2).max(self.ubuf_cap * 2);
+            self.ubuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("uniforms"),
+                size: self.ubuf_cap,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.uniform_bind = make_uniform_bind(&self.device, &self.uniform_bgl, &self.ubuf);
+        }
+        if !self.v3.is_empty() {
+            self.queue
+                .write_buffer(&self.vbuf3, 0, bytemuck::cast_slice(&self.v3));
+        }
+        if !self.v2.is_empty() {
+            self.queue
+                .write_buffer(&self.vbuf2, 0, bytemuck::cast_slice(&self.v2));
+        }
+        // Uniforms are laid out at UNIFORM_STRIDE intervals for dynamic offset.
+        if !self.uniforms.is_empty() {
+            let mut bytes = vec![0u8; self.uniforms.len() * UNIFORM_STRIDE as usize];
+            let usize_of = std::mem::size_of::<DrawUniform>();
+            for (i, u) in self.uniforms.iter().enumerate() {
+                let off = i * UNIFORM_STRIDE as usize;
+                bytes[off..off + usize_of].copy_from_slice(bytemuck::bytes_of(u));
+            }
+            self.queue.write_buffer(&self.ubuf, 0, &bytes);
+        }
+    }
+
+    /// Read the offscreen color texture back as RGBA8 rows (tests only).
+    pub fn read_pixels(&self) -> Option<(u32, u32, Vec<u8>)> {
+        let (texture, width, height) = match &self.target {
+            Target::Offscreen {
+                texture,
+                width,
+                height,
+                ..
+            } => (texture, *width, *height),
+            _ => return None,
+        };
+        let unpadded = width * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded = unpadded.div_ceil(align) * align;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("readback"),
+            size: (padded * height) as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("readback-encoder"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(Some(encoder.finish()));
+
+        let slice = buffer.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |_| {});
+        let _ = self.device.poll(wgpu::PollType::Wait);
+        let data = slice.get_mapped_range();
+        let mut out = Vec::with_capacity((unpadded * height) as usize);
+        for row in 0..height {
+            let start = (row * padded) as usize;
+            out.extend_from_slice(&data[start..start + unpadded as usize]);
+        }
+        drop(data);
+        buffer.unmap();
+        Some((width, height, out))
+    }
+}
+
+fn make_depth(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("depth"),
+        size: wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    tex.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn make_vbuf(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("vbuf"),
+        size,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+fn make_uniform_bind(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    buffer: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("uniform-bind"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer,
+                offset: 0,
+                size: wgpu::BufferSize::new(std::mem::size_of::<DrawUniform>() as u64),
+            }),
+        }],
+    })
+}
+
+// Kept for buffer-init symmetry; not all builds use it.
+#[allow(dead_code)]
+fn init_buffer(device: &wgpu::Device, data: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: data,
+        usage,
+    })
+}
+
+const WGSL: &str = r#"
+struct Uniforms {
+    proj: mat4x4<f32>,
+    view: mat4x4<f32>,
+    model: mat4x4<f32>,
+    color: vec4<f32>,
+    mode: vec4<u32>,
+    palette: array<vec4<f32>, 16>,
+};
+@group(0) @binding(0) var<uniform> u: Uniforms;
+
+struct FlatOut { @builtin(position) clip: vec4<f32> };
+
+@vertex
+fn vs_flat(@location(0) pos: vec3<f32>) -> FlatOut {
+    var o: FlatOut;
+    o.clip = u.proj * u.view * u.model * vec4<f32>(pos, 1.0);
+    return o;
+}
+
+@fragment
+fn fs_flat(in: FlatOut) -> @location(0) vec4<f32> {
+    return u.color;
+}
+
+@group(1) @binding(0) var tex: texture_2d<f32>;
+@group(1) @binding(1) var samp: sampler;
+
+struct OvOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_overlay(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>) -> OvOut {
+    var o: OvOut;
+    o.clip = u.proj * u.model * vec4<f32>(pos, 0.0, 1.0);
+    o.uv = uv;
+    return o;
+}
+
+@fragment
+fn fs_overlay(in: OvOut) -> @location(0) vec4<f32> {
+    let m = u.mode.x;
+    if (m == 2u) {
+        let idx_f = textureSample(tex, samp, in.uv).r;
+        let idx = i32(idx_f * 255.0 + 0.5);
+        if (idx == 0) { discard; }
+        return u.palette[clamp(idx, 0, 15)];
+    } else if (m == 1u) {
+        let texel = textureSample(tex, samp, in.uv);
+        if (texel.a < 0.5) { discard; }
+        return texel * u.color;
+    }
+    return u.color;
+}
+"#;

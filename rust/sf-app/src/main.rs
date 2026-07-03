@@ -17,12 +17,11 @@ mod input;
 mod statedump;
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Instant;
 
 use sdl3::event::{Event, WindowEvent};
 use sdl3::keyboard::Keycode;
-use sdl3::video::{FullscreenType, SwapInterval};
+use sdl3::video::FullscreenType;
 
 use sf_core::{DrawListEntry as CoreEntry, GAME_TICK_MS, MAX_DRAW_LIST};
 use sf_game::shell::Shell;
@@ -130,25 +129,13 @@ fn main() {
     };
     let video = sdl.video().expect("SDL video subsystem");
 
-    // Request OpenGL 3.3 Core (main.c:31-40).
-    let gl_attr = video.gl_attr();
-    gl_attr.set_context_major_version(3);
-    gl_attr.set_context_minor_version(3);
-    gl_attr.set_context_profile(sdl3::video::GLProfile::Core);
-    gl_attr.set_double_buffer(true);
-    gl_attr.set_depth_size(24);
-    if cfg.msaa > 0 {
-        gl_attr.set_multisample_buffers(1);
-        gl_attr.set_multisample_samples(cfg.msaa as u8);
-    }
-
     let hidden = std::env::var("SF_HIDDEN").map(|v| v == "1").unwrap_or(false);
     let mut builder = video.window(
         "Star Fox HD",
         cfg.window_width as u32,
         cfg.window_height as u32,
     );
-    builder.opengl().resizable().position_centered();
+    builder.resizable().position_centered();
     if hidden {
         builder.hidden();
     }
@@ -165,28 +152,34 @@ fn main() {
         }
     };
 
-    let gl_ctx = match window.gl_create_context() {
-        Ok(c) => c,
+    // wgpu renders into the SDL3 window's surface via raw-window-handle.
+    // SAFETY: `window` outlives `gpu` (drop order is reverse of declaration),
+    // so the 'static surface never dangles.
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+    let surface = match unsafe {
+        instance.create_surface_unsafe(
+            wgpu::SurfaceTargetUnsafe::from_window(&window)
+                .expect("SDL3 window handle -> wgpu surface target"),
+        )
+    } {
+        Ok(s) => s,
         Err(e) => {
-            eprintln!("SDL_GL_CreateContext failed: {e}");
+            eprintln!("wgpu create_surface failed: {e}");
             std::process::exit(1);
         }
     };
-    window.gl_make_current(&gl_ctx).expect("gl_make_current");
-
-    let gl = unsafe {
-        glow::Context::from_loader_function(|s| match video.gl_get_proc_address(s) {
-            Some(f) => f as *const _,
-            None => std::ptr::null(),
-        })
+    let gpu = match sf_render::gpu::Gpu::new_for_surface(
+        instance,
+        surface,
+        cfg.window_width as u32,
+        cfg.window_height as u32,
+    ) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("wgpu init failed: {e}");
+            std::process::exit(1);
+        }
     };
-
-    // VSync (main.c:72-76).
-    let _ = video.gl_set_swap_interval(if cfg.target_fps == 0 {
-        SwapInterval::VSync
-    } else {
-        SwapInterval::Immediate
-    });
 
     // --- Renderer / audio / input / game shell ---
     let render_cfg = RendererConfig {
@@ -194,7 +187,7 @@ fn main() {
         asset_root: cli.asset_root.clone().unwrap_or_else(|| cfg.asset_root()),
     };
     let mut renderer = match Renderer::new(
-        Arc::new(gl),
+        gpu,
         cfg.window_width,
         cfg.window_height,
         &render_cfg,
@@ -407,8 +400,7 @@ fn main() {
         // Render interpolated frame (main.c:195-200).
         renderer.begin_frame();
         renderer.submit(&prev_list, &curr_list, alpha, &inputs);
-        renderer.end_frame();
-        window.gl_swap_window();
+        renderer.end_frame(); // uploads geometry + presents the wgpu surface
 
         if ppm_pending && total_ticks >= ppm_tick {
             if let Some(path) = &ppm_path {

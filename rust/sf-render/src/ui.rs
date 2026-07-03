@@ -4,17 +4,27 @@
 //! the caller-supplied `FrameInputs::route_path_ids` slice (this crate does
 //! not depend on sf-game). The `SF_UI_DEBUG` overlay is not ported.
 
-use glow::HasContext;
 use std::path::{Path, PathBuf};
 
 use crate::bg2d::Bg2d;
 use crate::font::Font;
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{
     FrameInputs, GameState, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE, WINDOW_MODE_WHITE2NORM,
     WINDOW_MODE_WHITEFADE,
 };
 use crate::sprites::decode_4bpp_tile;
+
+const IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
+
+#[inline]
+fn ortho(w: f32, h: f32) -> [f32; 16] {
+    [
+        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+    ]
+}
 
 // Planet-select graphics atlas
 const PS_AW: usize = 256;
@@ -382,10 +392,8 @@ pub fn compose_planet_select_atlas(
 
 pub struct Ui {
     base_dir: PathBuf,
-    vao: Option<glow::VertexArray>,
-    vbo: Option<glow::Buffer>,
     frame: u32, // render-frame counter for blink effects
-    ps_tex: Option<glow::Texture>,
+    ps_tex: Option<TextureId>,
     ps_tried: bool,
 
     // Screen mapping state for the current frame.
@@ -393,27 +401,13 @@ pub struct Ui {
     ox: i32, // centering offset in SNES units
     scr_w: i32,
     scr_h: i32,
+    proj: [f32; 16], // ortho for the current frame (set in begin_2d)
 }
 
 impl Ui {
-    pub fn new(gl: &glow::Context, base_dir: &Path) -> Self {
-        let (vao, vbo) = unsafe {
-            let vao = gl.create_vertex_array().ok();
-            let vbo = gl.create_buffer().ok();
-            gl.bind_vertex_array(vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, vbo);
-            gl.buffer_data_size(glow::ARRAY_BUFFER, 4 * 4 * 4, glow::DYNAMIC_DRAW);
-            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 4 * 4, 0);
-            gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 4 * 4, 2 * 4);
-            gl.enable_vertex_attrib_array(1);
-            gl.bind_vertex_array(None);
-            (vao, vbo)
-        };
+    pub fn new(_gpu: &mut Gpu, base_dir: &Path) -> Self {
         Ui {
             base_dir: base_dir.to_path_buf(),
-            vao,
-            vbo,
             frame: 0,
             ps_tex: None,
             ps_tried: false,
@@ -421,57 +415,24 @@ impl Ui {
             ox: 0,
             scr_w: 800,
             scr_h: 600,
+            proj: IDENTITY,
         }
     }
 
-    fn begin_2d(&mut self, gl: &glow::Context, backend: &GlBackend, w: i32, h: i32) {
+    fn begin_2d(&mut self, w: i32, h: i32) {
         self.scr_w = w;
         self.scr_h = h;
         self.scale = h as f32 / 224.0;
         self.ox = ((w as f32 / self.scale - 256.0) * 0.5) as i32;
-
-        unsafe {
-            gl.disable(glow::DEPTH_TEST);
-            gl.enable(glow::BLEND);
-            gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
-            gl.use_program(Some(backend.hud));
-        }
-
-        let mut ortho = [0.0f32; 16];
-        ortho[0] = 2.0 / w as f32;
-        ortho[5] = 2.0 / h as f32;
-        ortho[10] = -1.0;
-        ortho[12] = -1.0;
-        ortho[13] = -1.0;
-        ortho[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uProj", &ortho);
-
-        let mut model = [0.0f32; 16];
-        model[0] = 1.0;
-        model[5] = 1.0;
-        model[10] = 1.0;
-        model[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uModel", &model);
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
-
-        unsafe {
-            gl.bind_vertex_array(self.vao);
-        }
+        self.proj = ortho(w as f32, h as f32);
     }
 
-    fn end_2d(&self, gl: &glow::Context) {
-        unsafe {
-            gl.bind_vertex_array(None);
-            gl.disable(glow::BLEND);
-            gl.enable(glow::DEPTH_TEST);
-        }
-    }
-
-    /// Draw a quad given raw screen-pixel corners.
+    /// Draw a solid quad given raw screen-pixel corners.
     #[allow(clippy::too_many_arguments)]
     fn quad_px(
         &self,
-        gl: &glow::Context,
+        gpu: &mut Gpu,
+        color: [f32; 4],
         x0: f32,
         y0: f32,
         x1: f32,
@@ -481,27 +442,20 @@ impl Ui {
         x3: f32,
         y3: f32,
     ) {
-        let verts: [f32; 16] = [
-            x0, y0, 0.0, 0.0,
-            x1, y1, 1.0, 0.0,
-            x2, y2, 1.0, 1.0,
-            x3, y3, 0.0, 1.0,
+        let verts = [
+            Vertex2 { pos: [x0, y0], uv: [0.0, 0.0] },
+            Vertex2 { pos: [x1, y1], uv: [1.0, 0.0] },
+            Vertex2 { pos: [x2, y2], uv: [1.0, 1.0] },
+            Vertex2 { pos: [x3, y3], uv: [0.0, 1.0] },
         ];
-        unsafe {
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo);
-            let bytes: &[u8] =
-                core::slice::from_raw_parts(verts.as_ptr() as *const u8, verts.len() * 4);
-            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes);
-            gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-        }
+        gpu.push_overlay_fan(&verts, &self.proj, &IDENTITY, color, 0, None, WHITE_TEX);
     }
 
     /// Font wrapper that applies the same centering offset.
     #[allow(clippy::too_many_arguments)]
     fn text_snes(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         font: &mut Font,
         x: i32,
         y: i32,
@@ -511,19 +465,13 @@ impl Ui {
         b: f32,
     ) {
         font.set_screen_size(self.scr_w, self.scr_h);
-        font.draw_string(gl, backend, x + self.ox, y, s, r, g, b);
-        // Font draw rebinds program state; ensure our VAO is current again.
-        unsafe {
-            gl.use_program(Some(backend.hud));
-            gl.bind_vertex_array(self.vao);
-        }
+        font.draw_string(gpu, x + self.ox, y, s, r, g, b);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn text_centered(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         font: &mut Font,
         cx: i32,
         y: i32,
@@ -533,27 +481,21 @@ impl Ui {
         b: f32,
     ) {
         let len = s.len() as i32;
-        self.text_snes(gl, backend, font, cx - len * 4, y, s, r, g, b);
+        self.text_snes(gpu, font, cx - len * 4, y, s, r, g, b);
     }
 
     /// Title screen UI: blinking "PRESS START" prompt only on the fallback
     /// backdrop (the composed SNES title layer already has "PUSH START").
-    fn render_title(
-        &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
-        font: &mut Font,
-        bg2d: &Bg2d,
-    ) {
+    fn render_title(&self, gpu: &mut Gpu, font: &mut Font, bg2d: &Bg2d) {
         if !bg2d.has_title() {
-            self.text_centered(gl, backend, font, 128, 170, "STAR FOX", 1.0, 0.85, 0.3);
+            self.text_centered(gpu, font, 128, 170, "STAR FOX", 1.0, 0.85, 0.3);
             if (self.frame / 32) & 1 != 0 {
-                self.text_centered(gl, backend, font, 128, 96, "PRESS START", 1.0, 1.0, 1.0);
+                self.text_centered(gpu, font, 128, 96, "PRESS START", 1.0, 1.0, 1.0);
             }
         }
     }
 
-    fn ensure_atlas(&mut self, gl: &glow::Context) -> bool {
+    fn ensure_atlas(&mut self, gpu: &mut Gpu) -> bool {
         if self.ps_tex.is_some() {
             return true;
         }
@@ -582,27 +524,7 @@ impl Ui {
             return false;
         };
 
-        unsafe {
-            let tex = gl.create_texture().ok();
-            gl.bind_texture(glow::TEXTURE_2D, tex);
-            gl.tex_image_2d(
-                glow::TEXTURE_2D,
-                0,
-                glow::RGBA as i32,
-                PS_AW as i32,
-                PS_AH as i32,
-                0,
-                glow::RGBA,
-                glow::UNSIGNED_BYTE,
-                glow::PixelUnpackData::Slice(Some(&atlas)),
-            );
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-            gl.bind_texture(glow::TEXTURE_2D, None);
-            self.ps_tex = tex;
-        }
+        self.ps_tex = Some(gpu.create_texture_rgba(PS_AW as u32, PS_AH as u32, &atlas));
         true
     }
 
@@ -611,7 +533,7 @@ impl Ui {
     #[allow(clippy::too_many_arguments)]
     fn ps_draw(
         &self,
-        gl: &glow::Context,
+        gpu: &mut Gpu,
         x: i32,
         y: i32,
         w: i32,
@@ -621,6 +543,9 @@ impl Ui {
         hflip: bool,
         vflip: bool,
     ) {
+        let Some(ps_tex) = self.ps_tex else {
+            return;
+        };
         let sx = self.scr_w as f32 / 256.0;
         let sy = self.scr_h as f32 / 224.0;
 
@@ -641,41 +566,22 @@ impl Ui {
             std::mem::swap(&mut v0, &mut v1);
         }
 
-        let verts: [f32; 16] = [
-            x0, ybot, u0, v1,
-            x1, ybot, u1, v1,
-            x1, ytop, u1, v0,
-            x0, ytop, u0, v0,
+        let verts = [
+            Vertex2 { pos: [x0, ybot], uv: [u0, v1] },
+            Vertex2 { pos: [x1, ybot], uv: [u1, v1] },
+            Vertex2 { pos: [x1, ytop], uv: [u1, v0] },
+            Vertex2 { pos: [x0, ytop], uv: [u0, v0] },
         ];
-        unsafe {
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo);
-            let bytes: &[u8] =
-                core::slice::from_raw_parts(verts.as_ptr() as *const u8, verts.len() * 4);
-            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes);
-            gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-        }
+        gpu.push_overlay_fan(&verts, &self.proj, &IDENTITY, [1.0, 1.0, 1.0, 1.0], 1, None, ps_tex);
     }
 
     /// Planet select route map (PLANETS.ASM planetseq).
-    fn render_planet_select(
-        &mut self,
-        gl: &glow::Context,
-        backend: &GlBackend,
-        inputs: &FrameInputs,
-    ) {
-        if !self.ensure_atlas(gl) {
+    fn render_planet_select(&mut self, gpu: &mut Gpu, inputs: &FrameInputs) {
+        if !self.ensure_atlas(gpu) {
             return;
         }
-        let Some(ps_tex) = self.ps_tex else {
+        if self.ps_tex.is_none() {
             return;
-        };
-
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 1);
-        gl_backend::set_int(gl, backend.hud, "uTexture", 0);
-        gl_backend::set_vec4(gl, backend.hud, "uColor", 1.0, 1.0, 1.0, 1.0);
-        unsafe {
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, Some(ps_tex));
         }
 
         // Planet/sector bitmaps (drawplanetsprites): all 16 slots; slot 14
@@ -685,7 +591,7 @@ impl Ui {
                 continue;
             }
             self.ps_draw(
-                gl,
+                gpu,
                 PLANET_POS[p][0] as i32,
                 PLANET_POS[p][1] as i32,
                 32,
@@ -710,10 +616,10 @@ impl Ui {
                 let mut py = geo.sy as i32 * 8;
                 for st in geo.steps {
                     match st.seg {
-                        SEG_DIAG_UP => self.ps_draw(gl, px, py, 8, 8, 48, 64, false, false),
-                        SEG_DIAG_DN => self.ps_draw(gl, px, py, 8, 8, 48, 64, false, true),
-                        SEG_HORIZ => self.ps_draw(gl, px, py, 8, 8, 56, 64, false, false),
-                        SEG_VERT => self.ps_draw(gl, px, py, 8, 8, 64, 64, true, false),
+                        SEG_DIAG_UP => self.ps_draw(gpu, px, py, 8, 8, 48, 64, false, false),
+                        SEG_DIAG_DN => self.ps_draw(gpu, px, py, 8, 8, 48, 64, false, true),
+                        SEG_HORIZ => self.ps_draw(gpu, px, py, 8, 8, 56, 64, false, false),
+                        SEG_VERT => self.ps_draw(gpu, px, py, 8, 8, 64, 64, true, false),
                         _ => {} // hidden step: move only
                     }
                     px += st.dx as i32;
@@ -727,7 +633,7 @@ impl Ui {
         if inputs.currentplanet >= 0 && inputs.currentplanet < 16 {
             let p = inputs.currentplanet as usize;
             self.ps_draw(
-                gl,
+                gpu,
                 START_POS[p][0] as i32 + 8,
                 START_POS[p][1] as i32 + 8,
                 16,
@@ -746,24 +652,17 @@ impl Ui {
             } else {
                 0
             };
-            self.ps_draw(gl, 192, 200, 48, 8, n * 48, 80, false, false);
+            self.ps_draw(gpu, 192, 200, 48, 8, n * 48, 80, false, false);
             for d in 0..5 {
-                self.ps_draw(gl, 192 + d * 8, 192, 8, 8, 144, 80, false, false);
+                self.ps_draw(gpu, 192 + d * 8, 192, 8, 8, 144, 80, false, false);
             }
         }
-
-        unsafe {
-            gl.bind_texture(glow::TEXTURE_2D, None);
-        }
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
     }
 
     /// Mirror of `Ui_Render`.
-    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         font: &mut Font,
         bg2d: &Bg2d,
         inputs: &FrameInputs,
@@ -778,23 +677,20 @@ impl Ui {
             return;
         }
 
-        self.begin_2d(gl, backend, screen_width, screen_height);
+        self.begin_2d(screen_width, screen_height);
 
         match inputs.game_state {
-            GameState::Title => self.render_title(gl, backend, font, bg2d),
-            GameState::PlanetSelect => self.render_planet_select(gl, backend, inputs),
+            GameState::Title => self.render_title(gpu, font, bg2d),
+            GameState::PlanetSelect => self.render_planet_select(gpu, inputs),
             _ => {}
         }
-
-        self.end_2d(gl);
     }
 
     /// Fade overlay: wm_val 0..30 (black/mapfade) or 0..31 (white) maps to
     /// alpha. Mirror of `Ui_RenderFade`.
     pub fn render_fade(
         &mut self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         inputs: &FrameInputs,
         screen_width: i32,
         screen_height: i32,
@@ -827,12 +723,12 @@ impl Ui {
             return;
         }
 
-        self.begin_2d(gl, backend, screen_width, screen_height);
+        self.begin_2d(screen_width, screen_height);
 
         if black_a >= 0.004 {
-            gl_backend::set_vec4(gl, backend.hud, "uColor", 0.0, 0.0, 0.0, black_a);
             self.quad_px(
-                gl,
+                gpu,
+                [0.0, 0.0, 0.0, black_a],
                 0.0,
                 0.0,
                 screen_width as f32,
@@ -844,9 +740,9 @@ impl Ui {
             );
         }
         if white_a >= 0.004 {
-            gl_backend::set_vec4(gl, backend.hud, "uColor", 1.0, 1.0, 1.0, white_a);
             self.quad_px(
-                gl,
+                gpu,
+                [1.0, 1.0, 1.0, white_a],
                 0.0,
                 0.0,
                 screen_width as f32,
@@ -857,22 +753,5 @@ impl Ui {
                 screen_height as f32,
             );
         }
-
-        self.end_2d(gl);
-    }
-
-    pub fn destroy(&mut self, gl: &glow::Context) {
-        unsafe {
-            if let Some(v) = self.vao.take() {
-                gl.delete_vertex_array(v);
-            }
-            if let Some(b) = self.vbo.take() {
-                gl.delete_buffer(b);
-            }
-            if let Some(t) = self.ps_tex.take() {
-                gl.delete_texture(t);
-            }
-        }
-        self.ps_tried = false;
     }
 }

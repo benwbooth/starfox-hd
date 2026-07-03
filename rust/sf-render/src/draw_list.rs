@@ -3,9 +3,7 @@
 //! Port (C oracle): `src/renderer/draw_list.c` plus the `DrawListEntry`
 //! struct and `DL_FLAG_*` constants from `src/types.h`.
 
-use glow::HasContext;
-
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, Vertex3};
 use crate::shapes_gl::ShapeStore;
 use crate::transform::Transform;
 
@@ -95,13 +93,13 @@ fn interpolate_entry(a: &DrawListEntry, b: &DrawListEntry, alpha: f32) -> DrawLi
 }
 
 pub struct DrawListRenderer {
-    line_scratch: Vec<f32>,
+    line_scratch: Vec<Vertex3>,
 }
 
 impl DrawListRenderer {
     pub fn new() -> Self {
         DrawListRenderer {
-            line_scratch: Vec::with_capacity(DL_MAX_LINE_VERTS * 3),
+            line_scratch: Vec::with_capacity(DL_MAX_LINE_VERTS),
         }
     }
 
@@ -109,8 +107,9 @@ impl DrawListRenderer {
     /// single-color edge wireframe (flat light grey stand-in).
     fn render_wireframe_entry(
         &mut self,
-        gl: &glow::Context,
-        backend: &mut GlBackend,
+        gpu: &mut Gpu,
+        proj: &[f32; 16],
+        view: &[f32; 16],
         shapes: &ShapeStore,
         shape_id: u16,
         model: &[f32; 16],
@@ -138,8 +137,8 @@ impl DrawListRenderer {
                 }
                 let va = &shape.vertices[a];
                 let vb = &shape.vertices[b];
-                self.line_scratch
-                    .extend_from_slice(&[va.x, va.y, va.z, vb.x, vb.y, vb.z]);
+                self.line_scratch.push(Vertex3 { pos: [va.x, va.y, va.z] });
+                self.line_scratch.push(Vertex3 { pos: [vb.x, vb.y, vb.z] });
                 vert_count += 2;
             }
         }
@@ -148,10 +147,8 @@ impl DrawListRenderer {
             return;
         }
 
-        gl_backend::set_mat4(gl, backend.flat, "uModel", model);
-        gl_backend::set_vec4(gl, backend.flat, "uColor", 0.75, 0.78, 0.82, 1.0);
         let scratch = std::mem::take(&mut self.line_scratch);
-        backend.draw_lines(gl, &scratch);
+        gpu.push_flat_lines(&scratch, proj, view, model, [0.75, 0.78, 0.82, 1.0]);
         self.line_scratch = scratch;
     }
 
@@ -160,8 +157,9 @@ impl DrawListRenderer {
     /// Y row of the model matrix.
     fn render_shadow(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
+        proj: &[f32; 16],
+        view: &[f32; 16],
         shapes: &ShapeStore,
         transform: &Transform,
         e: &DrawListEntry,
@@ -186,21 +184,16 @@ impl DrawListRenderer {
         model[9] = 0.0;
         model[13] = 0.5;
 
-        gl_backend::set_mat4(gl, backend.flat, "uModel", &model);
-        gl_backend::set_vec4(gl, backend.flat, "uColor", 0.0, 0.0, 0.0, 0.40);
-        unsafe {
-            gl.bind_vertex_array(Some(shape.vao));
-            gl.draw_arrays(glow::TRIANGLES, 0, shape.num_triangles * 3);
-            gl.bind_vertex_array(None);
-        }
+        // Alpha-blended, non-depth-writing (was GL SRC_ALPHA blend + depth
+        // mask off) so the shadow tints the ground instead of occluding it.
+        gpu.push_flat_tris_alpha(&shape.tri_verts, proj, view, &model, [0.0, 0.0, 0.0, 0.40]);
     }
 
     /// Mirror of `DrawList_Render`.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
-        gl: &glow::Context,
-        backend: &mut GlBackend,
+        gpu: &mut Gpu,
         shapes: &ShapeStore,
         transform: &mut Transform,
         prev: &[DrawListEntry],
@@ -216,11 +209,10 @@ impl DrawListRenderer {
         // interpolated objects instead of stepping once per tick.
         transform.set_view_lerp(alpha);
 
-        unsafe {
-            gl.use_program(Some(backend.flat));
-        }
-        gl_backend::set_mat4(gl, backend.flat, "uView", transform.view());
-        gl_backend::set_mat4(gl, backend.flat, "uProj", transform.projection());
+        // Snapshot the interpolated view/projection; both are stable across
+        // the pass (set_view_lerp is called once) and passed per draw.
+        let view = *transform.view();
+        let proj = *transform.projection();
 
         // Interpolated entries that want a drop shadow (collected during the
         // main pass, drawn afterwards as a translucent overlay).
@@ -274,11 +266,10 @@ impl DrawListRenderer {
             // Render the shape. Wireframe-flagged entries draw as edge lines
             // instead of filled triangles.
             if interp.flags & DL_FLAG_WIREFRAME != 0 {
-                self.render_wireframe_entry(gl, backend, shapes, interp.shape_id, &model);
+                self.render_wireframe_entry(gpu, &proj, &view, shapes, interp.shape_id, &model);
             } else {
                 shapes.render(
-                    gl,
-                    backend,
+                    gpu,
                     transform,
                     interp.shape_id,
                     interp.anim_frame,
@@ -299,20 +290,11 @@ impl DrawListRenderer {
         }
 
         // --- Shadow pass (after the opaque pass so depth testing hides
-        // shadow fragments behind solid geometry) ---
-        if !shadow_list.is_empty() {
-            unsafe {
-                gl.enable(glow::BLEND);
-                gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
-                gl.depth_mask(false);
-            }
-            for e in &shadow_list {
-                self.render_shadow(gl, backend, shapes, transform, e);
-            }
-            unsafe {
-                gl.depth_mask(true);
-                gl.disable(glow::BLEND);
-            }
+        // shadow fragments behind solid geometry). The retained flat pipeline
+        // has no alpha blend / depth-mask toggle, so shadows draw as opaque
+        // black tris (see parity note). ---
+        for e in &shadow_list {
+            self.render_shadow(gpu, &proj, &view, shapes, transform, e);
         }
     }
 }

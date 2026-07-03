@@ -6,9 +6,11 @@ license.workspace = true
 
 [dependencies]
 sf-core.workspace = true
-glow = "0.17"
+wgpu = "26"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+raw-window-handle = "0.6"
 
 [dev-dependencies]
-# Offscreen GL context creation for the runtime tests only; sf-app owns the
-# real window and passes a glow::Context into Renderer::new.
-sdl3 = { version = "0.18", features = ["use-pkg-config"] }
+# Headless wgpu adapters are created straight from an Instance in tests
+# (no window/surface needed), so the offscreen tests no longer need SDL.

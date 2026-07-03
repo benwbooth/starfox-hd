@@ -6,10 +6,20 @@
 //! palette-lookup mode (uUseTexture == 2). Also owns the radio portrait
 //! atlas (FACE.CGX) and the in-game bitmap palette (NIGHT.COL row 0).
 
-use glow::HasContext;
 use std::path::Path;
 
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, TextureId, Vertex2};
+
+const IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
+
+#[inline]
+fn ortho(w: f32, h: f32) -> [f32; 16] {
+    [
+        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+    ]
+}
 
 // Sprite flip flags (match SNES OAM bits 14-15)
 pub const SPR_HFLIP: u8 = 0x01;
@@ -80,10 +90,8 @@ pub fn decode_bgr555_bytes(src: &[u8]) -> [f32; 4] {
 }
 
 pub struct Sprites {
-    atlas_tex: Option<glow::Texture>,
-    face_tex: Option<glow::Texture>,
-    quad_vao: Option<glow::VertexArray>,
-    quad_vbo: Option<glow::Buffer>,
+    atlas_tex: Option<TextureId>,
+    face_tex: Option<TextureId>,
     num_tiles: usize,
     screen_w: i32,
     screen_h: i32,
@@ -94,12 +102,10 @@ pub struct Sprites {
 }
 
 impl Sprites {
-    pub fn new(gl: &glow::Context, base_dir: &Path) -> Self {
+    pub fn new(gpu: &mut Gpu, base_dir: &Path) -> Self {
         let mut s = Sprites {
             atlas_tex: None,
             face_tex: None,
-            quad_vao: None,
-            quad_vbo: None,
             num_tiles: 0,
             screen_w: 1280,
             screen_h: 720,
@@ -135,28 +141,7 @@ impl Sprites {
                     }
                 }
 
-                unsafe {
-                    let tex = gl.create_texture().ok();
-                    gl.bind_texture(glow::TEXTURE_2D, tex);
-                    gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
-                    gl.tex_image_2d(
-                        glow::TEXTURE_2D,
-                        0,
-                        glow::R8 as i32,
-                        ATLAS_W as i32,
-                        ATLAS_H as i32,
-                        0,
-                        glow::RED,
-                        glow::UNSIGNED_BYTE,
-                        glow::PixelUnpackData::Slice(Some(&atlas)),
-                    );
-                    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32);
-                    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32);
-                    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-                    gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-                    gl.bind_texture(glow::TEXTURE_2D, None);
-                    s.atlas_tex = tex;
-                }
+                s.atlas_tex = Some(gpu.create_texture_r8(ATLAS_W as u32, ATLAS_H as u32, &atlas));
             }
         }
 
@@ -230,53 +215,10 @@ impl Sprites {
                             }
                         }
                     }
-                    unsafe {
-                        let tex = gl.create_texture().ok();
-                        gl.bind_texture(glow::TEXTURE_2D, tex);
-                        gl.tex_image_2d(
-                            glow::TEXTURE_2D,
-                            0,
-                            glow::RGBA as i32,
-                            FACE_ATLAS_W as i32,
-                            FACE_ATLAS_H as i32,
-                            0,
-                            glow::RGBA,
-                            glow::UNSIGNED_BYTE,
-                            glow::PixelUnpackData::Slice(Some(&face_atlas)),
-                        );
-                        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32);
-                        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32);
-                        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-                        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-                        gl.bind_texture(glow::TEXTURE_2D, None);
-                        s.face_tex = tex;
-                    }
+                    s.face_tex =
+                        Some(gpu.create_texture_rgba(FACE_ATLAS_W as u32, FACE_ATLAS_H as u32, &face_atlas));
                 }
             }
-        }
-
-        // ---- Create unit quad VAO (shared with HUD) ----
-        let quad: [f32; 16] = [
-            0.0, 0.0, 0.0, 0.0,
-            1.0, 0.0, 1.0, 0.0,
-            1.0, 1.0, 1.0, 1.0,
-            0.0, 1.0, 0.0, 1.0,
-        ];
-        unsafe {
-            let vao = gl.create_vertex_array().ok();
-            let vbo = gl.create_buffer().ok();
-            gl.bind_vertex_array(vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, vbo);
-            let bytes: &[u8] =
-                core::slice::from_raw_parts(quad.as_ptr() as *const u8, quad.len() * 4);
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::DYNAMIC_DRAW);
-            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 4 * 4, 0);
-            gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 4 * 4, 2 * 4);
-            gl.enable_vertex_attrib_array(1);
-            gl.bind_vertex_array(None);
-            s.quad_vao = vao;
-            s.quad_vbo = vbo;
         }
 
         s
@@ -305,68 +247,29 @@ impl Sprites {
     }
 
     /// Flush the sprite queue (mirror of `Sprites_RenderHUD`).
-    pub fn render_hud(&mut self, gl: &glow::Context, backend: &GlBackend) {
-        if self.queue.is_empty() || self.atlas_tex.is_none() {
+    pub fn render_hud(&mut self, gpu: &mut Gpu) {
+        let Some(atlas_tex) = self.atlas_tex else {
             self.queue.clear();
             return;
-        }
-
-        unsafe {
-            gl.use_program(Some(backend.hud));
+        };
+        if self.queue.is_empty() {
+            return;
         }
 
         let sw = self.screen_w as f32;
         let sh = self.screen_h as f32;
-        let mut ortho = [0.0f32; 16];
-        ortho[0] = 2.0 / sw;
-        ortho[5] = 2.0 / sh;
-        ortho[10] = -1.0;
-        ortho[12] = -1.0;
-        ortho[13] = -1.0;
-        ortho[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uProj", &ortho);
-
-        // Vertices are in screen space; uModel must be identity.
-        let mut model = [0.0f32; 16];
-        model[0] = 1.0;
-        model[5] = 1.0;
-        model[10] = 1.0;
-        model[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uModel", &model);
+        let proj = ortho(sw, sh);
 
         let sx = sw / 256.0;
         let sy = sh / 224.0;
 
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 2);
-        unsafe {
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, self.atlas_tex);
-        }
-        gl_backend::set_int(gl, backend.hud, "uTexture", 0);
-        unsafe {
-            gl.bind_vertex_array(self.quad_vao);
-        }
-
-        let mut cur_pal: i32 = -1;
         let queue = std::mem::take(&mut self.queue);
         for cmd in &queue {
-            if cmd.palette != cur_pal {
-                cur_pal = cmd.palette;
-                let pi = if cmd.palette < 0 || cmd.palette as usize >= NUM_PALETTES {
-                    0
-                } else {
-                    cmd.palette as usize
-                };
-                unsafe {
-                    if let Some(loc) = gl.get_uniform_location(backend.hud, "uPalette") {
-                        let flat: &[f32] = core::slice::from_raw_parts(
-                            self.palettes[pi].as_ptr() as *const f32,
-                            COLORS_PER_PAL * 4,
-                        );
-                        gl.uniform_4_f32_slice(Some(&loc), flat);
-                    }
-                }
-            }
+            let pi = if cmd.palette < 0 || cmd.palette as usize >= NUM_PALETTES {
+                0
+            } else {
+                cmd.palette as usize
+            };
 
             let acol = (cmd.tile as usize) % ATLAS_COLS;
             let arow = (cmd.tile as usize) / ATLAS_COLS;
@@ -388,24 +291,22 @@ impl Sprites {
             let pw = 8.0 * sx;
             let ph = 8.0 * sy;
 
-            let verts: [f32; 16] = [
-                px, py, u0, v1,
-                px + pw, py, u1, v1,
-                px + pw, py + ph, u1, v0,
-                px, py + ph, u0, v0,
+            let verts = [
+                Vertex2 { pos: [px, py], uv: [u0, v1] },
+                Vertex2 { pos: [px + pw, py], uv: [u1, v1] },
+                Vertex2 { pos: [px + pw, py + ph], uv: [u1, v0] },
+                Vertex2 { pos: [px, py + ph], uv: [u0, v0] },
             ];
-            unsafe {
-                gl.bind_buffer(glow::ARRAY_BUFFER, self.quad_vbo);
-                let bytes: &[u8] =
-                    core::slice::from_raw_parts(verts.as_ptr() as *const u8, verts.len() * 4);
-                gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes);
-                gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-            }
-        }
-
-        unsafe {
-            gl.bind_vertex_array(None);
-            gl.bind_texture(glow::TEXTURE_2D, None);
+            // uUseTexture == 2: palette-indexed R8; color is ignored by mode 2.
+            gpu.push_overlay_fan(
+                &verts,
+                &proj,
+                &IDENTITY,
+                [1.0, 1.0, 1.0, 1.0],
+                2,
+                Some(&self.palettes[pi]),
+                atlas_tex,
+            );
         }
 
         // Reset for next frame (keep the allocation).
@@ -421,7 +322,7 @@ impl Sprites {
     }
 
     /// Draw a radio portrait frame (0-17) at SNES screen coordinates.
-    pub fn draw_face(&self, gl: &glow::Context, backend: &GlBackend, frame: i32, x: i32, y: i32) {
+    pub fn draw_face(&self, gpu: &mut Gpu, frame: i32, x: i32, y: i32) {
         let Some(face_tex) = self.face_tex else {
             return;
         };
@@ -429,35 +330,9 @@ impl Sprites {
             return;
         }
 
-        unsafe {
-            gl.use_program(Some(backend.hud));
-        }
-
         let sw = self.screen_w as f32;
         let sh = self.screen_h as f32;
-        let mut ortho = [0.0f32; 16];
-        ortho[0] = 2.0 / sw;
-        ortho[5] = 2.0 / sh;
-        ortho[10] = -1.0;
-        ortho[12] = -1.0;
-        ortho[13] = -1.0;
-        ortho[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uProj", &ortho);
-
-        let mut model = [0.0f32; 16];
-        model[0] = 1.0;
-        model[5] = 1.0;
-        model[10] = 1.0;
-        model[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uModel", &model);
-
-        gl_backend::set_vec4(gl, backend.hud, "uColor", 1.0, 1.0, 1.0, 1.0);
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 1);
-        unsafe {
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, Some(face_tex));
-        }
-        gl_backend::set_int(gl, backend.hud, "uTexture", 0);
+        let proj = ortho(sw, sh);
 
         let sx = sw / 256.0;
         let sy = sh / 224.0;
@@ -469,39 +344,12 @@ impl Sprites {
         let u0 = (frame as usize * FACE_W) as f32 / FACE_ATLAS_W as f32;
         let u1 = ((frame as usize + 1) * FACE_W) as f32 / FACE_ATLAS_W as f32;
 
-        let verts: [f32; 16] = [
-            px, py, u0, 1.0,
-            px + pw, py, u1, 1.0,
-            px + pw, py + ph, u1, 0.0,
-            px, py + ph, u0, 0.0,
+        let verts = [
+            Vertex2 { pos: [px, py], uv: [u0, 1.0] },
+            Vertex2 { pos: [px + pw, py], uv: [u1, 1.0] },
+            Vertex2 { pos: [px + pw, py + ph], uv: [u1, 0.0] },
+            Vertex2 { pos: [px, py + ph], uv: [u0, 0.0] },
         ];
-        unsafe {
-            gl.bind_vertex_array(self.quad_vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.quad_vbo);
-            let bytes: &[u8] =
-                core::slice::from_raw_parts(verts.as_ptr() as *const u8, verts.len() * 4);
-            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes);
-            gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-            gl.bind_vertex_array(None);
-            gl.bind_texture(glow::TEXTURE_2D, None);
-        }
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
-    }
-
-    pub fn destroy(&mut self, gl: &glow::Context) {
-        unsafe {
-            if let Some(t) = self.atlas_tex.take() {
-                gl.delete_texture(t);
-            }
-            if let Some(t) = self.face_tex.take() {
-                gl.delete_texture(t);
-            }
-            if let Some(v) = self.quad_vao.take() {
-                gl.delete_vertex_array(v);
-            }
-            if let Some(b) = self.quad_vbo.take() {
-                gl.delete_buffer(b);
-            }
-        }
+        gpu.push_overlay_fan(&verts, &proj, &IDENTITY, [1.0, 1.0, 1.0, 1.0], 1, None, face_tex);
     }
 }

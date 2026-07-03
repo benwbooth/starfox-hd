@@ -11,12 +11,22 @@
 //!
 //! Deviations documented in bg2d.c apply here identically.
 
-use glow::HasContext;
 use std::path::{Path, PathBuf};
 
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{FrameInputs, GameState, BGF_BG};
 use crate::transform::Transform;
+
+const IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
+
+#[inline]
+fn ortho(w: f32, h: f32) -> [f32; 16] {
+    [
+        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+    ]
+}
 
 pub const BG2D_W: usize = 256;
 pub const BG2D_H: usize = 224;
@@ -445,41 +455,22 @@ fn load_file(base: &Path, rel: &str) -> Option<Vec<u8>> {
     }
 }
 
-fn upload_rgba(gl: &glow::Context, rgba: &[u8], w: usize, h: usize, wrap: i32) -> Option<glow::Texture> {
-    unsafe {
-        let tex = gl.create_texture().ok()?;
-        gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-        gl.tex_image_2d(
-            glow::TEXTURE_2D,
-            0,
-            glow::RGBA as i32,
-            w as i32,
-            h as i32,
-            0,
-            glow::RGBA,
-            glow::UNSIGNED_BYTE,
-            glow::PixelUnpackData::Slice(Some(rgba)),
-        );
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, wrap);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, wrap);
-        gl.bind_texture(glow::TEXTURE_2D, None);
-        Some(tex)
-    }
+fn upload_rgba(gpu: &mut Gpu, rgba: &[u8], w: usize, h: usize) -> Option<TextureId> {
+    // NOTE: the old GL path set GL_REPEAT for sky layers so the horizontal
+    // horizon scroll wrapped; the shared wgpu sampler is ClampToEdge only, so
+    // sky UV windows that run past [0,1] now clamp instead of wrapping.
+    Some(gpu.create_texture_rgba(w as u32, h as u32, rgba))
 }
 
 pub struct Bg2d {
     base_dir: PathBuf,
-    title_tex: Option<glow::Texture>,
-    def_tex: Vec<Option<glow::Texture>>,
+    title_tex: Option<TextureId>,
+    def_tex: Vec<Option<TextureId>>,
     def_tried: Vec<bool>,
     /// Tilemap pixel size for sky (camera-coupled) textures; 0 for static
     /// pre-baked 256x224 composites.
     def_map_w: Vec<i32>,
     def_map_h: Vec<i32>,
-    vao: Option<glow::VertexArray>,
-    vbo: Option<glow::Buffer>,
     warned_bgs: u64,
     // g_currentbg staleness workaround state (statics in Bg2d_Render).
     prev_map: u32,
@@ -487,7 +478,7 @@ pub struct Bg2d {
 }
 
 impl Bg2d {
-    pub fn new(gl: &glow::Context, base_dir: &Path) -> Self {
+    pub fn new(gpu: &mut Gpu, base_dir: &Path) -> Self {
         let n = BG_DEFS.len();
         let mut bg = Bg2d {
             base_dir: base_dir.to_path_buf(),
@@ -496,29 +487,11 @@ impl Bg2d {
             def_tried: vec![false; n],
             def_map_w: vec![0; n],
             def_map_h: vec![0; n],
-            vao: None,
-            vbo: None,
             warned_bgs: 0,
             prev_map: 0xFFFF_FFFF,
             bg_at_map_start: 0,
         };
-        bg.build_title_texture(gl);
-
-        unsafe {
-            // Dynamic quad (pos.xy + uv.xy)
-            let vao = gl.create_vertex_array().ok();
-            let vbo = gl.create_buffer().ok();
-            gl.bind_vertex_array(vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, vbo);
-            gl.buffer_data_size(glow::ARRAY_BUFFER, 4 * 4 * 4, glow::DYNAMIC_DRAW);
-            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 4 * 4, 0);
-            gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 4 * 4, 2 * 4);
-            gl.enable_vertex_attrib_array(1);
-            gl.bind_vertex_array(None);
-            bg.vao = vao;
-            bg.vbo = vbo;
-        }
+        bg.build_title_texture(gpu);
         bg
     }
 
@@ -526,7 +499,7 @@ impl Bg2d {
         self.title_tex.is_some()
     }
 
-    fn build_title_texture(&mut self, gl: &glow::Context) {
+    fn build_title_texture(&mut self, gpu: &mut Gpu) {
         let ti_cgx = load_file(&self.base_dir, "data/title/TI-3-US.CGX");
         let ti_scr = load_file(&self.base_dir, "data/title/TI-3-US.SCR");
         let cp_cgx = load_file(&self.base_dir, "data/title/CP.CGX");
@@ -540,14 +513,13 @@ impl Bg2d {
         };
         match compose_title(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col) {
             Some(rgba) => {
-                self.title_tex =
-                    upload_rgba(gl, &rgba, BG2D_W, BG2D_H, glow::CLAMP_TO_EDGE as i32);
+                self.title_tex = upload_rgba(gpu, &rgba, BG2D_W, BG2D_H);
             }
             None => eprintln!("Bg2d: title assets missing/short, using fallback backdrop"),
         }
     }
 
-    fn build_bg_texture(&mut self, gl: &glow::Context, idx: usize) {
+    fn build_bg_texture(&mut self, gpu: &mut Gpu, idx: usize) {
         let def = &BG_DEFS[idx];
         let cgx = load_file(&self.base_dir, def.cgx);
         let scr = load_file(&self.base_dir, def.scr);
@@ -571,12 +543,7 @@ impl Bg2d {
             def.sky,
         ) {
             Some((rgba, out_w, out_h)) => {
-                let wrap = if def.sky {
-                    glow::REPEAT as i32
-                } else {
-                    glow::CLAMP_TO_EDGE as i32
-                };
-                self.def_tex[idx] = upload_rgba(gl, &rgba, out_w, out_h, wrap);
+                self.def_tex[idx] = upload_rgba(gpu, &rgba, out_w, out_h);
                 if def.sky {
                     self.def_map_w[idx] = out_w as i32;
                     self.def_map_h[idx] = out_h as i32;
@@ -589,36 +556,20 @@ impl Bg2d {
     }
 
     /// Lazily build the texture for a bg id; returns the def index or None.
-    fn layer_index_for_id(&mut self, gl: &glow::Context, id: u8) -> Option<usize> {
+    fn layer_index_for_id(&mut self, gpu: &mut Gpu, id: u8) -> Option<usize> {
         let idx = BG_DEFS.iter().position(|d| d.id == id)?;
         if !self.def_tried[idx] {
             self.def_tried[idx] = true;
-            self.build_bg_texture(gl, idx);
+            self.build_bg_texture(gpu, idx);
         }
         Some(idx)
     }
 
-    fn set_ortho(&self, gl: &glow::Context, backend: &GlBackend, w: i32, h: i32) {
-        let mut ortho = [0.0f32; 16];
-        ortho[0] = 2.0 / w as f32;
-        ortho[5] = 2.0 / h as f32;
-        ortho[10] = -1.0;
-        ortho[12] = -1.0;
-        ortho[13] = -1.0;
-        ortho[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uProj", &ortho);
-
-        let mut model = [0.0f32; 16];
-        model[0] = 1.0;
-        model[5] = 1.0;
-        model[10] = 1.0;
-        model[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uModel", &model);
-    }
-
-    fn draw_quad_uv(
+    #[allow(clippy::too_many_arguments)]
+    fn push_quad(
         &self,
-        gl: &glow::Context,
+        gpu: &mut Gpu,
+        proj: &[f32; 16],
         x: f32,
         y: f32,
         w: f32,
@@ -627,49 +578,40 @@ impl Bg2d {
         v0: f32,
         u1: f32,
         v1: f32,
+        color: [f32; 4],
+        use_texture: u32,
+        tex: TextureId,
     ) {
-        let verts: [f32; 16] = [
-            x, y, u0, v0,
-            x + w, y, u1, v0,
-            x + w, y + h, u1, v1,
-            x, y + h, u0, v1,
+        let verts = [
+            Vertex2 { pos: [x, y], uv: [u0, v0] },
+            Vertex2 { pos: [x + w, y], uv: [u1, v0] },
+            Vertex2 { pos: [x + w, y + h], uv: [u1, v1] },
+            Vertex2 { pos: [x, y + h], uv: [u0, v1] },
         ];
-        unsafe {
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo);
-            let bytes: &[u8] =
-                core::slice::from_raw_parts(verts.as_ptr() as *const u8, verts.len() * 4);
-            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes);
-            gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-        }
-    }
-
-    fn draw_quad(&self, gl: &glow::Context, x: f32, y: f32, w: f32, h: f32) {
-        self.draw_quad_uv(gl, x, y, w, h, 0.0, 0.0, 1.0, 1.0);
+        gpu.push_overlay_fan(&verts, proj, &IDENTITY, color, use_texture, None, tex);
     }
 
     /// Starfield-ish dark gradient fallback (deterministic star placement).
-    fn draw_fallback_backdrop(&self, gl: &glow::Context, backend: &GlBackend, w: i32, h: i32) {
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
-
+    fn draw_fallback_backdrop(&self, gpu: &mut Gpu, proj: &[f32; 16], w: i32, h: i32) {
         // Vertical gradient: deep space black at top -> dark blue near bottom
         let bands = 8;
         for i in 0..bands {
             let t = i as f32 / (bands - 1) as f32;
-            gl_backend::set_vec4(
-                gl,
-                backend.hud,
-                "uColor",
+            let color = [
                 0.01 + 0.03 * (1.0 - t),
                 0.01 + 0.03 * (1.0 - t),
                 0.05 + 0.10 * (1.0 - t),
                 1.0,
-            );
+            ];
             let band_h = h as f32 / bands as f32;
-            self.draw_quad(gl, 0.0, band_h * i as f32, w as f32, band_h + 1.0);
+            self.push_quad(
+                gpu, proj, 0.0, band_h * i as f32, w as f32, band_h + 1.0, 0.0, 0.0, 1.0, 1.0,
+                color, 0, WHITE_TEX,
+            );
         }
 
         // Stars: deterministic pseudo-random spread
-        gl_backend::set_vec4(gl, backend.hud, "uColor", 0.85, 0.85, 0.95, 1.0);
+        let star = [0.85, 0.85, 0.95, 1.0];
         let mut seed: u32 = 0x123_4567;
         let sx = w as f32 / 256.0;
         let sy = h as f32 / 224.0;
@@ -679,16 +621,19 @@ impl Bg2d {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             let py = ((seed >> 8) % 224) as i32;
             let size = if i & 7 == 0 { 2.0 } else { 1.0 };
-            self.draw_quad(gl, px as f32 * sx, py as f32 * sy, size * sx, size * sy);
+            self.push_quad(
+                gpu, proj, px as f32 * sx, py as f32 * sy, size * sx, size * sy, 0.0, 0.0, 1.0,
+                1.0, star, 0, WHITE_TEX,
+            );
         }
     }
 
     #[allow(clippy::too_many_arguments)]
     fn draw_layer_texture(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
-        tex: Option<glow::Texture>,
+        gpu: &mut Gpu,
+        proj: &[f32; 16],
+        tex: Option<TextureId>,
         w: i32,
         h: i32,
         u0: f32,
@@ -697,21 +642,12 @@ impl Bg2d {
         v1: f32,
     ) {
         let Some(tex) = tex else {
-            self.draw_fallback_backdrop(gl, backend, w, h);
+            self.draw_fallback_backdrop(gpu, proj, w, h);
             return;
         };
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 1);
-        gl_backend::set_int(gl, backend.hud, "uTexture", 0);
-        gl_backend::set_vec4(gl, backend.hud, "uColor", 1.0, 1.0, 1.0, 1.0);
-        unsafe {
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, Some(tex));
-        }
-        self.draw_quad_uv(gl, 0.0, 0.0, w as f32, h as f32, u0, v0, u1, v1);
-        unsafe {
-            gl.bind_texture(glow::TEXTURE_2D, None);
-        }
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
+        self.push_quad(
+            gpu, proj, 0.0, 0.0, w as f32, h as f32, u0, v0, u1, v1, [1.0, 1.0, 1.0, 1.0], 1, tex,
+        );
     }
 
     /// SNES BG2 scroll coupling (GSTRATS.ASM calcbgscroll_l): compute the UV
@@ -783,8 +719,7 @@ impl Bg2d {
     /// Mirror of `Bg2d_Render` (per-frame background pass).
     pub fn render(
         &mut self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         transform: &Transform,
         inputs: &FrameInputs,
         screen_width: i32,
@@ -794,7 +729,7 @@ impl Bg2d {
         let mut draw = false;
         let mut couple = false; // apply the per-frame camera scroll coupling
         let mut idx: Option<usize> = None; // BG_DEFS index (None: title/fallback)
-        let mut tex: Option<glow::Texture> = None; // None -> fallback backdrop
+        let mut tex: Option<TextureId> = None; // None -> fallback backdrop
 
         match inputs.game_state {
             GameState::Title => {
@@ -806,16 +741,16 @@ impl Bg2d {
             GameState::PlanetSelect | GameState::Briefing => {
                 // PLANETS.ASM map screen backdrop.
                 draw = true;
-                idx = self.layer_index_for_id(gl, BG2D_ID_MAP);
+                idx = self.layer_index_for_id(gpu, BG2D_ID_MAP);
             }
             GameState::Continue => {
                 // bg_cont_1 controller screen backdrop.
                 draw = true;
-                idx = self.layer_index_for_id(gl, 42);
+                idx = self.layer_index_for_id(gpu, 42);
             }
             GameState::Ending => {
                 draw = true;
-                idx = self.layer_index_for_id(gl, (inputs.currentbg & 63) as u8);
+                idx = self.layer_index_for_id(gpu, (inputs.currentbg & 63) as u8);
             }
             _ if bg_active || inputs.game_state == GameState::Playing => {
                 // BGF_BG is transient, so also key off the playing state;
@@ -841,7 +776,7 @@ impl Bg2d {
                 if id == BG2D_ID_TITLE {
                     tex = self.title_tex;
                 } else {
-                    idx = self.layer_index_for_id(gl, id);
+                    idx = self.layer_index_for_id(gpu, id);
                     couple = true; // gameplay: slave sky layers to the camera
                     let missing = match idx {
                         None => true,
@@ -874,42 +809,7 @@ impl Bg2d {
             }
         }
 
-        unsafe {
-            gl.disable(glow::DEPTH_TEST);
-            gl.depth_mask(false);
-            gl.disable(glow::BLEND);
-            gl.use_program(Some(backend.hud));
-        }
-        self.set_ortho(gl, backend, screen_width, screen_height);
-        unsafe {
-            gl.bind_vertex_array(self.vao);
-        }
-
-        self.draw_layer_texture(gl, backend, tex, screen_width, screen_height, u0, v0, u1, v1);
-
-        unsafe {
-            gl.bind_vertex_array(None);
-            gl.depth_mask(true);
-            gl.enable(glow::DEPTH_TEST);
-        }
-    }
-
-    pub fn destroy(&mut self, gl: &glow::Context) {
-        unsafe {
-            if let Some(t) = self.title_tex.take() {
-                gl.delete_texture(t);
-            }
-            for t in self.def_tex.iter_mut() {
-                if let Some(t) = t.take() {
-                    gl.delete_texture(t);
-                }
-            }
-            if let Some(vao) = self.vao.take() {
-                gl.delete_vertex_array(vao);
-            }
-            if let Some(vbo) = self.vbo.take() {
-                gl.delete_buffer(vbo);
-            }
-        }
+        let proj = ortho(screen_width as f32, screen_height as f32);
+        self.draw_layer_texture(gpu, &proj, tex, screen_width, screen_height, u0, v0, u1, v1);
     }
 }

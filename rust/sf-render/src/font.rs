@@ -3,10 +3,9 @@
 //! Port (C oracle): `src/renderer/font.c`. 80 glyphs, 2 bytes per row
 //! little-endian with bit 15 = leftmost pixel; drawn in an 8x8 SNES cell.
 
-use glow::HasContext;
 use std::path::Path;
 
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, TextureId, Vertex2};
 
 const FONT_GLYPH_PX: usize = 16;
 const FONT_NUM_GLYPHS: usize = 80;
@@ -21,14 +20,23 @@ const FONT_CELL: f32 = 8.0;
 const GLYPH_SPACE: u8 = 39;
 
 pub struct Font {
-    texture: Option<glow::Texture>,
-    vao: Option<glow::VertexArray>,
-    vbo: Option<glow::Buffer>,
+    texture: Option<TextureId>,
     screen_w: i32,
     screen_h: i32,
     ascii_to_glyph: [u8; 256],
     initialized: bool,
 }
+
+#[inline]
+fn ortho(w: f32, h: f32) -> [f32; 16] {
+    [
+        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+    ]
+}
+
+const IDENTITY: [f32; 16] = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
 
 fn build_translation_table() -> [u8; 256] {
     let mut t = [GLYPH_SPACE; 256];
@@ -53,11 +61,9 @@ fn build_translation_table() -> [u8; 256] {
 }
 
 impl Font {
-    pub fn new(gl: &glow::Context, base_dir: &Path) -> Self {
+    pub fn new(gpu: &mut Gpu, base_dir: &Path) -> Self {
         let mut font = Font {
             texture: None,
-            vao: None,
-            vbo: None,
             screen_w: 800,
             screen_h: 600,
             ascii_to_glyph: build_translation_table(),
@@ -98,42 +104,7 @@ impl Font {
             }
         }
 
-        unsafe {
-            let tex = gl.create_texture().ok();
-            gl.bind_texture(glow::TEXTURE_2D, tex);
-            gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
-            gl.tex_image_2d(
-                glow::TEXTURE_2D,
-                0,
-                glow::RGBA as i32,
-                FONT_ATLAS_W as i32,
-                FONT_ATLAS_H as i32,
-                0,
-                glow::RGBA,
-                glow::UNSIGNED_BYTE,
-                glow::PixelUnpackData::Slice(Some(&atlas)),
-            );
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::NEAREST as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::NEAREST as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-            gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
-            gl.bind_texture(glow::TEXTURE_2D, None);
-            font.texture = tex;
-
-            // Single reusable quad (pos.xy + uv.xy), updated per glyph
-            let vao = gl.create_vertex_array().ok();
-            let vbo = gl.create_buffer().ok();
-            gl.bind_vertex_array(vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, vbo);
-            gl.buffer_data_size(glow::ARRAY_BUFFER, 4 * 4 * 4, glow::DYNAMIC_DRAW);
-            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 4 * 4, 0);
-            gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 4 * 4, 2 * 4);
-            gl.enable_vertex_attrib_array(1);
-            gl.bind_vertex_array(None);
-            font.vao = vao;
-            font.vbo = vbo;
-        }
+        font.texture = Some(gpu.create_texture_rgba(FONT_ATLAS_W as u32, FONT_ATLAS_H as u32, &atlas));
 
         font.initialized = true;
         font
@@ -147,8 +118,7 @@ impl Font {
     /// Mirror of `Font_DrawString` (bottom-left origin, height-scaled).
     pub fn draw_string(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         x: i32,
         y: i32,
         text: &str,
@@ -168,36 +138,8 @@ impl Font {
         let gw = FONT_CELL * scale;
         let gh = FONT_CELL * scale;
 
-        unsafe {
-            gl.use_program(Some(backend.hud));
-        }
-
-        let mut ortho = [0.0f32; 16];
-        ortho[0] = 2.0 / self.screen_w as f32;
-        ortho[5] = 2.0 / self.screen_h as f32;
-        ortho[10] = -1.0;
-        ortho[12] = -1.0;
-        ortho[13] = -1.0;
-        ortho[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uProj", &ortho);
-
-        let mut model = [0.0f32; 16];
-        model[0] = 1.0;
-        model[5] = 1.0;
-        model[10] = 1.0;
-        model[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uModel", &model);
-
-        gl_backend::set_vec4(gl, backend.hud, "uColor", r, g, b, 1.0);
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 1);
-        gl_backend::set_int(gl, backend.hud, "uTexture", 0);
-
-        unsafe {
-            gl.active_texture(glow::TEXTURE0);
-            gl.bind_texture(glow::TEXTURE_2D, Some(texture));
-            gl.bind_vertex_array(self.vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, self.vbo);
-        }
+        let proj = ortho(self.screen_w as f32, self.screen_h as f32);
+        let color = [r, g, b, 1.0];
 
         let mut cx = x as f32 * scale;
         let cy = y as f32 * scale;
@@ -218,45 +160,21 @@ impl Font {
 
                 // Atlas row 0 is the glyph top; it is uploaded at GL v=0
                 // (texture bottom), so the quad's TOP edge samples v0.
-                let verts: [f32; 16] = [
-                    cx, cy, u0, v1,           // bottom-left
-                    cx + gw, cy, u1, v1,      // bottom-right
-                    cx + gw, cy + gh, u1, v0, // top-right
-                    cx, cy + gh, u0, v0,      // top-left
+                let verts = [
+                    Vertex2 { pos: [cx, cy], uv: [u0, v1] }, // bottom-left
+                    Vertex2 { pos: [cx + gw, cy], uv: [u1, v1] }, // bottom-right
+                    Vertex2 { pos: [cx + gw, cy + gh], uv: [u1, v0] }, // top-right
+                    Vertex2 { pos: [cx, cy + gh], uv: [u0, v0] }, // top-left
                 ];
-                unsafe {
-                    let bytes: &[u8] = core::slice::from_raw_parts(
-                        verts.as_ptr() as *const u8,
-                        verts.len() * 4,
-                    );
-                    gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes);
-                    gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-                }
+                gpu.push_overlay_fan(&verts, &proj, &IDENTITY, color, 1, None, texture);
             }
 
             cx += gw; // fixed-width advance
         }
-
-        unsafe {
-            gl.bind_vertex_array(None);
-        }
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
-        unsafe {
-            gl.bind_texture(glow::TEXTURE_2D, None);
-        }
     }
 
     /// Mirror of `Font_DrawNumber` (right-aligned decimal).
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_number(
-        &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
-        x: i32,
-        y: i32,
-        value: i32,
-        digits: usize,
-    ) {
+    pub fn draw_number(&self, gpu: &mut Gpu, x: i32, y: i32, value: i32, digits: usize) {
         if !self.initialized {
             return;
         }
@@ -275,21 +193,6 @@ impl Font {
         }
         buf.reverse();
         let s = String::from_utf8(buf).unwrap_or_default();
-        self.draw_string(gl, backend, x, y, &s, 1.0, 1.0, 1.0);
-    }
-
-    pub fn destroy(&mut self, gl: &glow::Context) {
-        unsafe {
-            if let Some(t) = self.texture.take() {
-                gl.delete_texture(t);
-            }
-            if let Some(v) = self.vao.take() {
-                gl.delete_vertex_array(v);
-            }
-            if let Some(b) = self.vbo.take() {
-                gl.delete_buffer(b);
-            }
-        }
-        self.initialized = false;
+        self.draw_string(gpu, x, y, &s, 1.0, 1.0, 1.0);
     }
 }

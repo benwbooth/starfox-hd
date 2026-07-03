@@ -6,10 +6,8 @@
 //! shade index, depth banks) lives in [`crate::shapes`] and is wired in
 //! here exactly like the C `Shapes_Render` loop.
 
-use glow::HasContext;
-
 use crate::builtin_shapes as bs;
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, Vertex3};
 use crate::light_data::SHADE_TABLE_LEN;
 use crate::shape_data::{self, ShapeFace, ShapeVertex};
 use crate::shapes::{
@@ -56,19 +54,23 @@ pub fn resolve_boss7_frame(shape_id: u16, anim_frame: u8) -> u16 {
     }
 }
 
-/// A registered, GPU-uploaded shape (C `Shape` with `gpu_ready`).
+/// A registered shape with CPU-side vertex buffers (C `Shape` with
+/// `gpu_ready`). Instead of a VBO, triangle and line vertices are kept as
+/// plain `Vertex3` vectors and pushed to the retained `Gpu` per draw.
 pub struct GpuShape {
     pub vertices: Vec<ShapeVertex>,
     pub faces: Vec<ShapeFace>,
     /// Derived flat normals, one per face (zero for degenerate faces).
     pub face_normals: Vec<[f32; 3]>,
-    pub vao: glow::VertexArray,
-    pub vbo: glow::Buffer,
+    /// All fan-triangulated triangle vertices (3 per triangle), face order.
+    pub tri_verts: Vec<Vertex3>,
+    /// All Face2 line-segment vertices (2 per segment), face order.
+    pub line_verts: Vec<Vertex3>,
     pub num_triangles: i32,
     pub face_tri_start: Vec<i32>,
     pub face_tri_count: Vec<i32>,
     pub num_line_verts: i32,
-    /// Per-face first line vertex in the VBO, -1 = not a line face.
+    /// Per-face first line vertex within `line_verts`, -1 = not a line face.
     pub face_line_first: Vec<i32>,
 }
 
@@ -196,12 +198,11 @@ impl ShapeStore {
         self.shapes[id].as_ref()
     }
 
-    /// Mirror of `Shapes_Register` + `UploadShape`: fan-triangulate faces,
-    /// append Face2 line segments after the triangle region, upload to a
-    /// static VBO/VAO.
+    /// Mirror of `Shapes_Register` + `UploadShape`: fan-triangulate faces and
+    /// collect Face2 line segments into CPU vertex buffers (`tri_verts` then
+    /// `line_verts`) for the retained `Gpu` draw path.
     pub fn register(
         &mut self,
-        gl: &glow::Context,
         shape_id: u16,
         verts: &[ShapeVertex],
         faces: &[ShapeFace],
@@ -209,14 +210,6 @@ impl ShapeStore {
         let id = shape_id as usize;
         if id >= MAX_SHAPES {
             return false;
-        }
-
-        // Free any existing GPU data.
-        if let Some(old) = self.shapes[id].take() {
-            unsafe {
-                gl.delete_vertex_array(old.vao);
-                gl.delete_buffer(old.vbo);
-            }
         }
 
         let vertices: Vec<ShapeVertex> = verts.to_vec();
@@ -234,21 +227,20 @@ impl ShapeStore {
             total_tris += ntris;
         }
 
-        // Wireframe (Face2) segments appended after the triangle region.
+        // Wireframe (Face2) segments: index within `line_verts` (0-based).
         let mut face_line_first = Vec::with_capacity(faces.len());
-        let mut line_verts: i32 = 0;
+        let mut line_count: i32 = 0;
         for face in &faces {
             if face.num_verts == 2 {
-                face_line_first.push(total_tris * 3 + line_verts);
-                line_verts += 2;
+                face_line_first.push(line_count);
+                line_count += 2;
             } else {
                 face_line_first.push(-1);
             }
         }
 
-        // Expand into a position array (3 floats/vertex, 3 vertices/tri).
-        let mut positions: Vec<f32> =
-            Vec::with_capacity(((total_tris * 3 + line_verts) * 3) as usize);
+        // Expand fan triangles (3 verts/tri).
+        let mut tri_verts: Vec<Vertex3> = Vec::with_capacity((total_tris * 3) as usize);
         for (fi, face) in faces.iter().enumerate() {
             if face.num_verts < 3 {
                 continue;
@@ -259,16 +251,20 @@ impl ShapeStore {
                 let v2 = face.vertex_indices[t as usize + 2] as usize;
                 if v0 >= vertices.len() || v1 >= vertices.len() || v2 >= vertices.len() {
                     // Skip invalid face (keep triangle slot as degenerate).
-                    positions.extend_from_slice(&[0.0; 9]);
+                    tri_verts.push(Vertex3 { pos: [0.0, 0.0, 0.0] });
+                    tri_verts.push(Vertex3 { pos: [0.0, 0.0, 0.0] });
+                    tri_verts.push(Vertex3 { pos: [0.0, 0.0, 0.0] });
                     continue;
                 }
                 for &vi in &[v0, v1, v2] {
-                    positions.push(vertices[vi].x);
-                    positions.push(vertices[vi].y);
-                    positions.push(vertices[vi].z);
+                    let v = &vertices[vi];
+                    tri_verts.push(Vertex3 { pos: [v.x, v.y, v.z] });
                 }
             }
         }
+
+        // Line segments (2 verts/segment), same order as `face_line_first`.
+        let mut line_verts: Vec<Vertex3> = Vec::with_capacity(line_count as usize);
         for face in &faces {
             if face.num_verts != 2 {
                 continue;
@@ -280,44 +276,21 @@ impl ShapeStore {
                 lv1 = 0;
             }
             for &vi in &[lv0, lv1] {
-                positions.push(vertices[vi].x);
-                positions.push(vertices[vi].y);
-                positions.push(vertices[vi].z);
+                let v = &vertices[vi];
+                line_verts.push(Vertex3 { pos: [v.x, v.y, v.z] });
             }
         }
-
-        let (vao, vbo) = unsafe {
-            let vao = match gl.create_vertex_array() {
-                Ok(v) => v,
-                Err(_) => return false,
-            };
-            let vbo = match gl.create_buffer() {
-                Ok(v) => v,
-                Err(_) => return false,
-            };
-            gl.bind_vertex_array(Some(vao));
-            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-            let bytes: &[u8] = core::slice::from_raw_parts(
-                positions.as_ptr() as *const u8,
-                positions.len() * 4,
-            );
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STATIC_DRAW);
-            gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 3 * 4, 0);
-            gl.enable_vertex_attrib_array(0);
-            gl.bind_vertex_array(None);
-            (vao, vbo)
-        };
 
         self.shapes[id] = Some(GpuShape {
             vertices,
             faces,
             face_normals,
-            vao,
-            vbo,
+            tri_verts,
+            line_verts,
             num_triangles: total_tris,
             face_tri_start,
             face_tri_count,
-            num_line_verts: line_verts,
+            num_line_verts: line_count,
             face_line_first,
         });
         true
@@ -326,36 +299,33 @@ impl ShapeStore {
     /// Mirror of `Shapes_RegisterBuiltins`: load every compiled ASM shape
     /// from [`crate::shape_data`], then overwrite the hand-tuned builtins
     /// (Arwing at 2, Boss7 family incl. internal frame slots).
-    pub fn register_builtins(&mut self, gl: &glow::Context) {
+    pub fn register_builtins(&mut self, _gpu: &mut Gpu) {
         for entry in shape_data::SHAPE_DATA.iter() {
-            self.register(gl, entry.shape_id, entry.vertices, entry.faces);
+            self.register(entry.shape_id, entry.vertices, entry.faces);
         }
 
-        self.register(gl, SHAPE_MYSHIP_4, &bs::ARWING_VERTS, &bs::ARWING_FACES);
-        self.register(gl, SHAPE_BOSS7_1, &bs::BOSS7_1_VERTS, &bs::BOSS7_1_FACES);
-        self.register(gl, SHAPE_BOSS7_0, &bs::BOSS7_0_VERTS, &bs::BOSS7_0_FACES);
+        self.register(SHAPE_MYSHIP_4, &bs::ARWING_VERTS, &bs::ARWING_FACES);
+        self.register(SHAPE_BOSS7_1, &bs::BOSS7_1_VERTS, &bs::BOSS7_1_FACES);
+        self.register(SHAPE_BOSS7_0, &bs::BOSS7_0_VERTS, &bs::BOSS7_0_FACES);
         self.register_frame_variants(
-            gl,
             SHAPE_INTERNAL_BOSS7_0_FRAME1,
             &bs::BOSS7_0_VERTS,
             16,
             bs::BOSS7_0_FRAME_VERTS.iter().map(|f| &f[..]),
             &bs::BOSS7_0_FACES,
         );
-        self.register(gl, SHAPE_BOSS7_1O, &bs::BOSS7_1O_VERTS, &bs::BOSS7_1O_FACES);
-        self.register(gl, SHAPE_BOSS7_2, &bs::BOSS7_2_VERTS, &bs::BOSS7_2_FACES);
-        self.register(gl, SHAPE_BOSS7_3, &bs::BOSS7_3_VERTS, &bs::BOSS7_3_FACES);
+        self.register(SHAPE_BOSS7_1O, &bs::BOSS7_1O_VERTS, &bs::BOSS7_1O_FACES);
+        self.register(SHAPE_BOSS7_2, &bs::BOSS7_2_VERTS, &bs::BOSS7_2_FACES);
+        self.register(SHAPE_BOSS7_3, &bs::BOSS7_3_VERTS, &bs::BOSS7_3_FACES);
         self.register_frame_variants(
-            gl,
             SHAPE_INTERNAL_BOSS7_3_FRAME1,
             &bs::BOSS7_3_VERTS,
             8,
             bs::BOSS7_3_FRAME_VERTS.iter().map(|f| &f[..]),
             &bs::BOSS7_3_FACES,
         );
-        self.register(gl, SHAPE_BOSS7_4, &bs::BOSS7_4_VERTS, &bs::BOSS7_4_FACES);
+        self.register(SHAPE_BOSS7_4, &bs::BOSS7_4_VERTS, &bs::BOSS7_4_FACES);
         self.register_frame_variants(
-            gl,
             SHAPE_INTERNAL_BOSS7_4_FRAME1,
             &bs::BOSS7_4_VERTS,
             8,
@@ -367,7 +337,6 @@ impl ShapeStore {
     /// Mirror of `register_shape_frame_variants`.
     fn register_frame_variants<'a>(
         &mut self,
-        gl: &glow::Context,
         first_shape_id: u16,
         frame0_verts: &[ShapeVertex],
         static_verts: usize,
@@ -377,7 +346,7 @@ impl ShapeStore {
         for (i, frame) in frames.enumerate() {
             let mut verts = frame0_verts.to_vec();
             verts[static_verts..static_verts + frame.len()].copy_from_slice(frame);
-            self.register(gl, first_shape_id + i as u16, &verts, faces);
+            self.register(first_shape_id + i as u16, &verts, faces);
         }
     }
 
@@ -392,13 +361,12 @@ impl ShapeStore {
         shapes::select_depth_bank(depth, self.depthz_table)
     }
 
-    /// Mirror of `Shapes_Render`. Assumes the flat shader is bound with
-    /// uView/uProj set (DrawList_Render does this).
+    /// Mirror of `Shapes_Render`, pushing per-face flat triangles/lines to the
+    /// retained `Gpu` with `transform`'s current proj/view.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         transform: &Transform,
         shape_id: u16,
         anim_frame: u8,
@@ -416,16 +384,10 @@ impl ShapeStore {
             return;
         };
 
-        let depth_bank = self.select_depth_bank(transform.view(), model_matrix);
+        let proj = *transform.projection();
+        let view = *transform.view();
+        let depth_bank = self.select_depth_bank(&view, model_matrix);
         let light_obj = compute_object_light(model_matrix);
-
-        if explosion_state == 0 {
-            gl_backend::set_mat4(gl, backend.flat, "uModel", model_matrix);
-        }
-
-        unsafe {
-            gl.bind_vertex_array(Some(shape.vao));
-        }
 
         for (i, face) in shape.faces.iter().enumerate() {
             let tri_start = shape.face_tri_start[i];
@@ -435,14 +397,15 @@ impl ShapeStore {
                 // Wireframe (Face2) segment: draw as a line with the face's
                 // material color, full-bright (the SNES does not shade lines).
                 if face.num_verts == 2 && shape.face_line_first[i] >= 0 {
-                    if explosion_state != 0 {
-                        let exploded = build_exploded_model_matrix(
+                    let model = if explosion_state != 0 {
+                        build_exploded_model_matrix(
                             model_matrix,
                             &shape.face_normals[i],
                             explosion_state,
-                        );
-                        gl_backend::set_mat4(gl, backend.flat, "uModel", &exploded);
-                    }
+                        )
+                    } else {
+                        *model_matrix
+                    };
                     let color = shapes::resolve_face_color(
                         shape_id,
                         face.color_index,
@@ -451,26 +414,25 @@ impl ShapeStore {
                         SHADE_TABLE_LEN as i32 - 1,
                         depth_bank,
                     );
-                    gl_backend::set_vec4(
-                        gl, backend.flat, "uColor", color[0], color[1], color[2], color[3],
+                    let first = shape.face_line_first[i] as usize;
+                    gpu.push_flat_lines(
+                        &shape.line_verts[first..first + 2],
+                        &proj,
+                        &view,
+                        &model,
+                        color,
                     );
-                    unsafe {
-                        gl.draw_arrays(glow::LINES, shape.face_line_first[i], 2);
-                    }
                 }
                 continue;
             }
 
-            if explosion_state != 0 {
+            let model = if explosion_state != 0 {
                 // `mexpfacesinit` rotates each authored face normal, forces
                 // the Y component downward, then applies `(n * expcnt) >> 2`.
-                let exploded = build_exploded_model_matrix(
-                    model_matrix,
-                    &shape.face_normals[i],
-                    explosion_state,
-                );
-                gl_backend::set_mat4(gl, backend.flat, "uModel", &exploded);
-            }
+                build_exploded_model_matrix(model_matrix, &shape.face_normals[i], explosion_state)
+            } else {
+                *model_matrix
+            };
 
             let shade_index = shapes::compute_shade_index(shape.face_normals[i], light_obj);
 
@@ -482,27 +444,15 @@ impl ShapeStore {
                 shade_index,
                 depth_bank,
             );
-            gl_backend::set_vec4(
-                gl, backend.flat, "uColor", color[0], color[1], color[2], color[3],
+            let start = (tri_start * 3) as usize;
+            let count = (tri_count * 3) as usize;
+            gpu.push_flat_tris(
+                &shape.tri_verts[start..start + count],
+                &proj,
+                &view,
+                &model,
+                color,
             );
-            unsafe {
-                gl.draw_arrays(glow::TRIANGLES, tri_start * 3, tri_count * 3);
-            }
-        }
-
-        unsafe {
-            gl.bind_vertex_array(None);
-        }
-    }
-
-    pub fn destroy(&mut self, gl: &glow::Context) {
-        for slot in self.shapes.iter_mut() {
-            if let Some(shape) = slot.take() {
-                unsafe {
-                    gl.delete_vertex_array(shape.vao);
-                    gl.delete_buffer(shape.vbo);
-                }
-            }
         }
     }
 }

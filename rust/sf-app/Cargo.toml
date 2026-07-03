@@ -16,7 +16,8 @@ sf-strat.workspace = true
 sf-game.workspace = true
 sf-render.workspace = true
 sf-audio.workspace = true
-# SDL3 3.4 from the nix devshell (same pkg-config discovery as the
-# sf-render dev-dependency).
-sdl3 = { version = "0.18", features = ["use-pkg-config"] }
-glow = "0.17"
+# SDL3 owns the window + input + audio; wgpu renders into its surface via
+# raw-window-handle. use-pkg-config discovers SDL3 from the nix devshell.
+sdl3 = { version = "0.18", features = ["use-pkg-config", "raw-window-handle"] }
+wgpu = "26"
+raw-window-handle = "0.6"

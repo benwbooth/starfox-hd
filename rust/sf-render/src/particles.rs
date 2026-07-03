@@ -2,9 +2,7 @@
 //!
 //! Port (C oracle): `src/renderer/particles.c`.
 
-use glow::HasContext;
-
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, Vertex3};
 use crate::transform::Transform;
 
 pub const MAX_PARTICLES: usize = 256;
@@ -38,38 +36,22 @@ fn build_particle_model(x: f32, y: f32, z: f32, scale: f32) -> [f32; 16] {
 
 pub struct Particles {
     particles: [Particle; MAX_PARTICLES],
-    quad_vao: Option<glow::VertexArray>,
-    quad_vbo: Option<glow::Buffer>,
+    /// Unit quad centred at origin (XY plane), the GL_TRIANGLE_FAN expanded
+    /// into a 6-vertex triangle list for the retained flat pipeline.
+    quad_tris: [Vertex3; 6],
 }
 
 impl Particles {
-    pub fn new(gl: &glow::Context) -> Self {
-        // Unit quad centred at origin, in XY plane (GL_TRIANGLE_FAN order).
-        let quad_verts: [f32; 12] = [
-            -0.5, -0.5, 0.0,
-            0.5, -0.5, 0.0,
-            0.5, 0.5, 0.0,
-            -0.5, 0.5, 0.0,
-        ];
-        let (vao, vbo) = unsafe {
-            let vao = gl.create_vertex_array().ok();
-            let vbo = gl.create_buffer().ok();
-            gl.bind_vertex_array(vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, vbo);
-            let bytes: &[u8] = core::slice::from_raw_parts(
-                quad_verts.as_ptr() as *const u8,
-                quad_verts.len() * 4,
-            );
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STATIC_DRAW);
-            gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 3 * 4, 0);
-            gl.bind_vertex_array(None);
-            (vao, vbo)
-        };
+    pub fn new(_gpu: &mut Gpu) -> Self {
+        // Unit quad centred at origin, in XY plane. Fan order was
+        // (v0,v1,v2,v3); triangulate as (v0,v1,v2) + (v0,v2,v3).
+        let v0 = Vertex3 { pos: [-0.5, -0.5, 0.0] };
+        let v1 = Vertex3 { pos: [0.5, -0.5, 0.0] };
+        let v2 = Vertex3 { pos: [0.5, 0.5, 0.0] };
+        let v3 = Vertex3 { pos: [-0.5, 0.5, 0.0] };
         Particles {
             particles: [Particle::default(); MAX_PARTICLES],
-            quad_vao: vao,
-            quad_vbo: vbo,
+            quad_tris: [v0, v1, v2, v0, v2, v3],
         }
     }
 
@@ -113,25 +95,16 @@ impl Particles {
         }
     }
 
-    /// Mirror of `Particles_Render`.
-    pub fn render(&self, gl: &glow::Context, backend: &GlBackend, transform: &Transform) {
+    /// Mirror of `Particles_Render`. NOTE: the old pass was additive-blended
+    /// and depth-write-disabled; the retained flat pipeline offers neither, so
+    /// particles now draw as opaque depth-writing quads (see parity note).
+    pub fn render(&self, gpu: &mut Gpu, transform: &Transform) {
         if !self.particles.iter().any(|p| p.active) {
             return;
         }
 
-        unsafe {
-            gl.use_program(Some(backend.flat));
-        }
-        gl_backend::set_mat4(gl, backend.flat, "uView", transform.view());
-        gl_backend::set_mat4(gl, backend.flat, "uProj", transform.projection());
-
-        // Particles are additive-blended, depth-tested but not depth-written
-        unsafe {
-            gl.enable(glow::BLEND);
-            gl.blend_func(glow::SRC_ALPHA, glow::ONE);
-            gl.depth_mask(false);
-            gl.bind_vertex_array(self.quad_vao);
-        }
+        let proj = *transform.projection();
+        let view = *transform.view();
 
         for p in &self.particles {
             if !p.active {
@@ -151,29 +124,9 @@ impl Particles {
             };
 
             let model = build_particle_model(p.x, p.y, p.z, 2.0);
-            gl_backend::set_mat4(gl, backend.flat, "uModel", &model);
-            gl_backend::set_vec4(gl, backend.flat, "uColor", r, g, b, alpha);
-            unsafe {
-                gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-            }
+            // Additive, non-depth-writing (was GL SRC_ALPHA/ONE + depth mask
+            // off) so particles glow and layer instead of occluding.
+            gpu.push_flat_tris_add(&self.quad_tris, &proj, &view, &model, [r, g, b, alpha]);
         }
-
-        unsafe {
-            gl.bind_vertex_array(None);
-            gl.depth_mask(true);
-            gl.disable(glow::BLEND);
-        }
-    }
-
-    pub fn destroy(&mut self, gl: &glow::Context) {
-        unsafe {
-            if let Some(b) = self.quad_vbo.take() {
-                gl.delete_buffer(b);
-            }
-            if let Some(v) = self.quad_vao.take() {
-                gl.delete_vertex_array(v);
-            }
-        }
-        self.particles = [Particle::default(); MAX_PARTICLES];
     }
 }

@@ -13,12 +13,25 @@
 //!  - The C forces `g_meters = 1` on entering gameplay / stage advance
 //!    (MAIN.ASM:105 stand-in); mirrored with an internal flag.
 
-use glow::HasContext;
-
 use crate::font::Font;
-use crate::gl_backend::{self, GlBackend};
+use crate::gpu::{Gpu, Vertex2, WHITE_TEX};
 use crate::renderer::{FrameInputs, GameState};
 use crate::sprites::{Sprites, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_VFLIP};
+
+#[inline]
+fn ortho(w: f32, h: f32) -> [f32; 16] {
+    [
+        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+    ]
+}
+
+/// Unit quad (pos.xy = uv.xy), transformed per draw by the model matrix.
+const UNIT_QUAD: [Vertex2; 4] = [
+    Vertex2 { pos: [0.0, 0.0], uv: [0.0, 0.0] },
+    Vertex2 { pos: [1.0, 0.0], uv: [1.0, 0.0] },
+    Vertex2 { pos: [1.0, 1.0], uv: [1.0, 1.0] },
+    Vertex2 { pos: [0.0, 1.0], uv: [0.0, 1.0] },
+];
 
 /// Vertical offset of the 256x192 Super FX bitmap within the 256x224 screen.
 const BITMAP_Y_OFS: i32 = 16;
@@ -170,9 +183,6 @@ pub fn wrap_message(msg: &str) -> Vec<String> {
 }
 
 pub struct Hud {
-    quad_vao: Option<glow::VertexArray>,
-    quad_vbo: Option<glow::Buffer>,
-
     // calcmeters/do_sprites per-game-frame animation state
     boostanim: i32,      // m_boostanim (TRANS.ASM:613)
     sprframe: usize,     // arrow flash frame 0-3 (SPRITES.ASM:862)
@@ -195,32 +205,8 @@ pub struct Hud {
 }
 
 impl Hud {
-    pub fn new(gl: &glow::Context) -> Self {
-        // Unit quad for drawing bars
-        let quad: [f32; 16] = [
-            0.0, 0.0, 0.0, 0.0,
-            1.0, 0.0, 1.0, 0.0,
-            1.0, 1.0, 1.0, 1.0,
-            0.0, 1.0, 0.0, 1.0,
-        ];
-        let (vao, vbo) = unsafe {
-            let vao = gl.create_vertex_array().ok();
-            let vbo = gl.create_buffer().ok();
-            gl.bind_vertex_array(vao);
-            gl.bind_buffer(glow::ARRAY_BUFFER, vbo);
-            let bytes: &[u8] =
-                core::slice::from_raw_parts(quad.as_ptr() as *const u8, quad.len() * 4);
-            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STATIC_DRAW);
-            gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, 4 * 4, 0);
-            gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, 4 * 4, 2 * 4);
-            gl.enable_vertex_attrib_array(1);
-            gl.bind_vertex_array(None);
-            (vao, vbo)
-        };
+    pub fn new(_gpu: &mut Gpu) -> Self {
         Hud {
-            quad_vao: vao,
-            quad_vbo: vbo,
             boostanim: 40,
             sprframe: 0,
             face_talk: 0,
@@ -251,8 +237,7 @@ impl Hud {
     #[allow(clippy::too_many_arguments)]
     fn snes_solid_rect(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         sprites: &Sprites,
         x: f32,
         y: f32,
@@ -272,21 +257,23 @@ impl Hud {
         model[13] = self.screen_h - (y + h) * sy;
         model[15] = 1.0;
 
-        gl_backend::set_mat4(gl, backend.hud, "uModel", &model);
-        gl_backend::set_vec4(gl, backend.hud, "uColor", rgba[0], rgba[1], rgba[2], 1.0);
-        unsafe {
-            gl.bind_vertex_array(self.quad_vao);
-            gl.draw_arrays(glow::TRIANGLE_FAN, 0, 4);
-            gl.bind_vertex_array(None);
-        }
+        let proj = ortho(self.screen_w, self.screen_h);
+        gpu.push_overlay_fan(
+            &UNIT_QUAD,
+            &proj,
+            &model,
+            [rgba[0], rgba[1], rgba[2], 1.0],
+            0,
+            None,
+            WHITE_TEX,
+        );
     }
 
     /// 1px outline box (Super FX mdrawbox equivalent).
     #[allow(clippy::too_many_arguments)]
     fn snes_outline_box(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         sprites: &Sprites,
         x: f32,
         y: f32,
@@ -294,10 +281,10 @@ impl Hud {
         h: f32,
         color_idx: usize,
     ) {
-        self.snes_solid_rect(gl, backend, sprites, x, y, w, 1.0, color_idx);
-        self.snes_solid_rect(gl, backend, sprites, x, y + h - 1.0, w, 1.0, color_idx);
-        self.snes_solid_rect(gl, backend, sprites, x, y, 1.0, h, color_idx);
-        self.snes_solid_rect(gl, backend, sprites, x + w - 1.0, y, 1.0, h, color_idx);
+        self.snes_solid_rect(gpu, sprites, x, y, w, 1.0, color_idx);
+        self.snes_solid_rect(gpu, sprites, x, y + h - 1.0, w, 1.0, color_idx);
+        self.snes_solid_rect(gpu, sprites, x, y, 1.0, h, color_idx);
+        self.snes_solid_rect(gpu, sprites, x + w - 1.0, y, 1.0, h, color_idx);
     }
 
     /// Per-game-frame animation updates (mirror of `Hud_TickAnimations`).
@@ -380,8 +367,7 @@ impl Hud {
     #[allow(clippy::too_many_arguments)]
     fn draw_msg_line(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         font: &Font,
         x: i32,
         y_top: i32,
@@ -391,24 +377,14 @@ impl Hud {
         b: f32,
     ) {
         let fx = x as f32 * (self.screen_w / 256.0) / (self.screen_h / 224.0);
-        font.draw_string(
-            gl,
-            backend,
-            (fx + 0.5) as i32,
-            224 - y_top - 8,
-            text,
-            r,
-            g,
-            b,
-        );
+        font.draw_string(gpu, (fx + 0.5) as i32, 224 - y_top - 8, text, r, g, b);
     }
 
     /// Radio message block: portrait + text (CONTINUE.ASM
     /// friends_messages_l). Mirror of `DrawRadioMessage`.
     fn draw_radio_message(
         &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         sprites: &Sprites,
         font: &Font,
         inputs: &FrameInputs,
@@ -428,7 +404,7 @@ impl Hud {
         } else {
             self.face_talk
         };
-        sprites.draw_face(gl, backend, frame, 48, 152 + BITMAP_Y_OFS);
+        sprites.draw_face(gpu, frame, 48, 152 + BITMAP_Y_OFS);
 
         // Text only once the window is open and the message is live.
         if inputs.msg_count1 == 0 || inputs.msg_count2 < MSG_OPENING_FRAMES {
@@ -450,8 +426,7 @@ impl Hud {
             let shadow = sprites.bitmap_color(9); // msprintstr shadow colour 9
             for (i, line) in lines.iter().enumerate() {
                 self.draw_msg_line(
-                    gl,
-                    backend,
+                    gpu,
                     font,
                     MSG_TEXT_X + 1,
                     ty + i as i32 * MSG_LINE_H + 1,
@@ -461,8 +436,7 @@ impl Hud {
                     shadow[2],
                 );
                 self.draw_msg_line(
-                    gl,
-                    backend,
+                    gpu,
                     font,
                     MSG_TEXT_X,
                     ty + i as i32 * MSG_LINE_H,
@@ -476,13 +450,7 @@ impl Hud {
     }
 
     /// Teammate HP meter (mshowteammate2, MTXTPRT.MC:568).
-    fn draw_teammate_meter(
-        &self,
-        gl: &glow::Context,
-        backend: &GlBackend,
-        sprites: &Sprites,
-        inputs: &FrameInputs,
-    ) {
+    fn draw_teammate_meter(&self, gpu: &mut Gpu, sprites: &Sprites, inputs: &FrameInputs) {
         if inputs.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
             return;
         }
@@ -494,14 +462,10 @@ impl Hud {
         }
 
         let mut hp = (inputs.friends_meter & 0x7F) as i32;
-        self.snes_outline_box(
-            gl, backend, sprites, 82.0, (177 + BITMAP_Y_OFS) as f32, 44.0, 12.0, 14,
-        );
+        self.snes_outline_box(gpu, sprites, 82.0, (177 + BITMAP_Y_OFS) as f32, 44.0, 12.0, 14);
         if hp > 0 {
             hp = hp.min(40);
-            self.snes_solid_rect(
-                gl, backend, sprites, 84.0, (179 + BITMAP_Y_OFS) as f32, hp as f32, 8.0, 2,
-            );
+            self.snes_solid_rect(gpu, sprites, 84.0, (179 + BITMAP_Y_OFS) as f32, hp as f32, 8.0, 2);
         }
     }
 
@@ -509,8 +473,7 @@ impl Hud {
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
-        gl: &glow::Context,
-        backend: &GlBackend,
+        gpu: &mut Gpu,
         sprites: &mut Sprites,
         font: &mut Font,
         inputs: &FrameInputs,
@@ -535,23 +498,6 @@ impl Hud {
 
         self.tick_animations(inputs);
 
-        unsafe {
-            gl.disable(glow::DEPTH_TEST);
-            gl.enable(glow::BLEND);
-            gl.blend_func(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA);
-            gl.use_program(Some(backend.hud));
-        }
-
-        let mut ortho = [0.0f32; 16];
-        ortho[0] = 2.0 / self.screen_w;
-        ortho[5] = 2.0 / self.screen_h;
-        ortho[10] = -1.0;
-        ortho[12] = -1.0;
-        ortho[13] = -1.0;
-        ortho[15] = 1.0;
-        gl_backend::set_mat4(gl, backend.hud, "uProj", &ortho);
-        gl_backend::set_int(gl, backend.hud, "uUseTexture", 0);
-
         sprites.set_screen_size(screen_width, screen_height);
         font.set_screen_size(screen_width, screen_height);
 
@@ -566,11 +512,11 @@ impl Hud {
             {
                 let fill = inputs.shield_cur.clamp(0, 36);
                 self.snes_outline_box(
-                    gl, backend, sprites, 8.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
+                    gpu, sprites,8.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
                 );
                 if fill > 0 {
                     self.snes_solid_rect(
-                        gl, backend, sprites, 10.0, (178 + BITMAP_Y_OFS) as f32,
+                        gpu, sprites,10.0, (178 + BITMAP_Y_OFS) as f32,
                         fill as f32, 4.0, 2,
                     );
                 }
@@ -581,11 +527,11 @@ impl Hud {
             {
                 let fill = self.boostanim.min(36);
                 self.snes_outline_box(
-                    gl, backend, sprites, 176.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
+                    gpu, sprites,176.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
                 );
                 if fill > 0 {
                     self.snes_solid_rect(
-                        gl, backend, sprites, 178.0, (178 + BITMAP_Y_OFS) as f32,
+                        gpu, sprites,178.0, (178 + BITMAP_Y_OFS) as f32,
                         fill as f32, 4.0, 6,
                     );
                 }
@@ -602,21 +548,21 @@ impl Hud {
                 let w = maxv + 4;
                 let bx = (222 - w) as f32;
                 self.snes_outline_box(
-                    gl, backend, sprites, bx, (2 + BITMAP_Y_OFS) as f32, w as f32, 6.0, 14,
+                    gpu, sprites,bx, (2 + BITMAP_Y_OFS) as f32, w as f32, 6.0, 14,
                 );
                 if curv > 0 {
                     let curv = curv.min(maxv);
                     self.snes_solid_rect(
-                        gl, backend, sprites, bx + 2.0, (4 + BITMAP_Y_OFS) as f32,
+                        gpu, sprites,bx + 2.0, (4 + BITMAP_Y_OFS) as f32,
                         curv as f32, 2.0, 2,
                     );
                 }
             }
 
-            self.draw_teammate_meter(gl, backend, sprites, inputs);
+            self.draw_teammate_meter(gpu, sprites, inputs);
 
             // --- Portrait sits on the bitmap layer, under the OAM sprites --
-            self.draw_radio_message(gl, backend, sprites, font, inputs);
+            self.draw_radio_message(gpu, sprites, font, inputs);
 
             // --- OAM sprites (SPRITES.ASM do_sprites_l order) ---
 
@@ -677,26 +623,10 @@ impl Hud {
             }
         } else {
             // Radio traffic still runs with the meters hidden.
-            self.draw_teammate_meter(gl, backend, sprites, inputs);
-            self.draw_radio_message(gl, backend, sprites, font, inputs);
+            self.draw_teammate_meter(gpu, sprites, inputs);
+            self.draw_radio_message(gpu, sprites, font, inputs);
         }
 
-        sprites.render_hud(gl, backend);
-
-        unsafe {
-            gl.disable(glow::BLEND);
-            gl.enable(glow::DEPTH_TEST);
-        }
-    }
-
-    pub fn destroy(&mut self, gl: &glow::Context) {
-        unsafe {
-            if let Some(v) = self.quad_vao.take() {
-                gl.delete_vertex_array(v);
-            }
-            if let Some(b) = self.quad_vbo.take() {
-                gl.delete_buffer(b);
-            }
-        }
+        sprites.render_hud(gpu);
     }
 }

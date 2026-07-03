@@ -7,14 +7,12 @@
 //! Game-state inputs arrive via the plain [`FrameInputs`] struct so this
 //! crate does not depend on sf-game; sf-app bridges its globals in.
 
-use glow::HasContext;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use crate::bg2d::Bg2d;
 use crate::draw_list::{DrawListEntry, DrawListRenderer};
 use crate::font::Font;
-use crate::gl_backend::GlBackend;
+use crate::gpu::Gpu;
 use crate::hud::Hud;
 use crate::particles::Particles;
 use crate::shapes_gl::ShapeStore;
@@ -174,11 +172,10 @@ pub struct RendererConfig {
 }
 
 pub struct Renderer {
-    gl: Arc<glow::Context>,
+    pub gpu: Gpu,
     width: i32,
     height: i32,
 
-    pub backend: GlBackend,
     pub transform: Transform,
     pub shapes: ShapeStore,
     pub draw_list: DrawListRenderer,
@@ -194,46 +191,37 @@ impl Renderer {
     /// Mirror of `Renderer_Init`: build shaders, init every pass, set the
     /// projection, register all shapes, set global GL state.
     pub fn new(
-        gl: Arc<glow::Context>,
+        mut gpu: Gpu,
         width: i32,
         height: i32,
         config: &RendererConfig,
     ) -> Result<Self, String> {
-        let backend = GlBackend::new(&gl, config.shader_dir.as_deref())?;
         let mut transform = Transform::new();
         let draw_list = DrawListRenderer::new();
-        let hud = Hud::new(&gl);
-        let particles = Particles::new(&gl);
-        let font = Font::new(&gl, &config.asset_root);
-        let sprites = Sprites::new(&gl, &config.asset_root);
-        let bg2d = Bg2d::new(&gl, &config.asset_root);
-        let ui = Ui::new(&gl, &config.asset_root);
+        let hud = Hud::new(&mut gpu);
+        let particles = Particles::new(&mut gpu);
+        let font = Font::new(&mut gpu, &config.asset_root);
+        let sprites = Sprites::new(&mut gpu, &config.asset_root);
+        let bg2d = Bg2d::new(&mut gpu, &config.asset_root);
+        let ui = Ui::new(&mut gpu, &config.asset_root);
 
         // Set initial projection (also done in resize)
         transform.set_projection(width, height);
 
         // Register built-in shapes (Arwing, etc.)
         let mut shapes = ShapeStore::new();
-        shapes.register_builtins(&gl);
+        shapes.register_builtins(&mut gpu);
 
-        unsafe {
-            gl.enable(glow::DEPTH_TEST);
-            gl.depth_func(glow::LESS);
-            // Disable backface culling — Star Fox shape winding is not
-            // guaranteed CCW.
-            gl.disable(glow::CULL_FACE);
-
-            gl.viewport(0, 0, width, height);
-            gl.clear_color(0.0, 0.0, 0.05, 1.0); // Deep space blue-black
-        }
+        // Deep space blue-black (was gl.clear_color(0,0,0.05,1)). Depth test
+        // and no culling are baked into the wgpu pipelines.
+        gpu.set_clear_color(0.0, 0.0, 0.05, 1.0);
 
         println!("Renderer initialized ({width}x{height})");
 
         Ok(Renderer {
-            gl,
+            gpu,
             width,
             height,
-            backend,
             transform,
             shapes,
             draw_list,
@@ -246,27 +234,30 @@ impl Renderer {
         })
     }
 
-    pub fn gl(&self) -> &glow::Context {
-        &self.gl
+    /// Headless renderer for offscreen tests: renders into a texture that
+    /// `read_pixels_rgb` reads back. No window or surface required.
+    pub fn new_headless(
+        width: i32,
+        height: i32,
+        config: &RendererConfig,
+    ) -> Result<Self, String> {
+        let gpu = Gpu::new_headless(width.max(1) as u32, height.max(1) as u32)?;
+        Self::new(gpu, width, height, config)
     }
 
     /// Mirror of `Renderer_Resize`.
     pub fn resize(&mut self, width: i32, height: i32) {
         self.width = width;
         self.height = height;
-        unsafe {
-            self.gl.viewport(0, 0, width, height);
-        }
+        self.gpu.resize(width.max(0) as u32, height.max(0) as u32);
         self.transform.set_projection(width, height);
         self.font.set_screen_size(width, height);
     }
 
-    /// Mirror of `Renderer_BeginFrame`.
-    pub fn begin_frame(&self) {
-        unsafe {
-            self.gl
-                .clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
-        }
+    /// Mirror of `Renderer_BeginFrame`: acquire the frame + reset draw lists.
+    /// The actual color/depth clear happens in `Gpu::end_frame`'s render pass.
+    pub fn begin_frame(&mut self) {
+        self.gpu.begin_frame();
     }
 
     /// Mirror of `Renderer_SubmitDrawList`: pass order is BG layer -> 3D
@@ -279,35 +270,25 @@ impl Renderer {
         alpha: f32,
         inputs: &FrameInputs,
     ) {
-        let gl = Arc::clone(&self.gl);
-
         // Rebuild the interpolated view matrix first: the BG layer derives
         // the painted-horizon scroll from the render-frame camera, so it
         // must see the same camera the 3D pass uses (DrawList render's own
         // set_view_lerp with the same alpha is then a no-op).
         self.transform.set_view_lerp(alpha);
 
-        self.bg2d.render(
-            &gl,
-            &self.backend,
-            &self.transform,
-            inputs,
-            self.width,
-            self.height,
-        );
+        self.bg2d
+            .render(&mut self.gpu, &self.transform, inputs, self.width, self.height);
         self.draw_list.render(
-            &gl,
-            &mut self.backend,
+            &mut self.gpu,
             &self.shapes,
             &mut self.transform,
             prev,
             curr,
             alpha,
         );
-        self.particles.render(&gl, &self.backend, &self.transform);
+        self.particles.render(&mut self.gpu, &self.transform);
         self.hud.render(
-            &gl,
-            &self.backend,
+            &mut self.gpu,
             &mut self.sprites,
             &mut self.font,
             inputs,
@@ -315,8 +296,7 @@ impl Renderer {
             self.height,
         );
         self.ui.render(
-            &gl,
-            &self.backend,
+            &mut self.gpu,
             &mut self.font,
             &self.bg2d,
             inputs,
@@ -324,50 +304,35 @@ impl Renderer {
             self.height,
         );
         self.ui
-            .render_fade(&gl, &self.backend, inputs, self.width, self.height);
+            .render_fade(&mut self.gpu, inputs, self.width, self.height);
     }
 
-    /// Mirror of `Renderer_EndFrame` (post-processing hook; the C's
-    /// SF_DUMP_PPM debug dump is not ported — tests read pixels directly).
-    pub fn end_frame(&self) {}
+    /// Mirror of `Renderer_EndFrame`: upload the frame's geometry and present.
+    pub fn end_frame(&mut self) {
+        self.gpu.end_frame();
+    }
 
-    /// Read back the framebuffer as tightly-packed RGB rows, top-down
-    /// (equivalent to the C MaybeDumpFrame PPM layout). Test/debug helper.
+    /// Read back the framebuffer as tightly-packed RGB rows, top-down.
+    /// Only valid on a headless (offscreen) Gpu; returns black otherwise.
     pub fn read_pixels_rgb(&self) -> Vec<u8> {
         let (w, h) = (self.width as usize, self.height as usize);
-        let mut pixels = vec![0u8; w * h * 3];
-        unsafe {
-            self.gl.pixel_store_i32(glow::PACK_ALIGNMENT, 1);
-            self.gl.read_pixels(
-                0,
-                0,
-                self.width,
-                self.height,
-                glow::RGB,
-                glow::UNSIGNED_BYTE,
-                glow::PixelPackData::Slice(Some(&mut pixels)),
-            );
+        match self.gpu.read_pixels() {
+            Some((rw, rh, rgba)) => {
+                let (rw, rh) = (rw as usize, rh as usize);
+                let mut rgb = vec![0u8; rw * rh * 3];
+                for i in 0..rw * rh {
+                    rgb[i * 3] = rgba[i * 4];
+                    rgb[i * 3 + 1] = rgba[i * 4 + 1];
+                    rgb[i * 3 + 2] = rgba[i * 4 + 2];
+                }
+                rgb
+            }
+            None => vec![0u8; w * h * 3],
         }
-        // Flip vertically (GL rows are bottom-up)
-        let mut flipped = vec![0u8; w * h * 3];
-        for y in 0..h {
-            flipped[y * w * 3..(y + 1) * w * 3]
-                .copy_from_slice(&pixels[(h - 1 - y) * w * 3..(h - y) * w * 3]);
-        }
-        flipped
     }
 
-    /// Mirror of `Renderer_Shutdown`.
+    /// Mirror of `Renderer_Shutdown` (wgpu frees GPU resources on drop).
     pub fn shutdown(&mut self) {
-        let gl = Arc::clone(&self.gl);
-        self.ui.destroy(&gl);
-        self.bg2d.destroy(&gl);
-        self.sprites.destroy(&gl);
-        self.font.destroy(&gl);
-        self.particles.destroy(&gl);
-        self.hud.destroy(&gl);
-        self.shapes.destroy(&gl);
-        self.backend.destroy(&gl);
         println!("Renderer shut down");
     }
 }
