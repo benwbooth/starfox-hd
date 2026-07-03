@@ -191,6 +191,37 @@ pub fn load_retail_rom() -> Option<Vec<u8>> {
     std::fs::read(root.join("Star Fox (USA) (Rev 2).sfc")).ok()
 }
 
+fn data_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("data")
+}
+
+/// Load the ROM built from the reference disassembly (`sf-oracle/data/sf.sfc`).
+/// This is the ROM the symbol map (`SYMBOLS.TXT`) refers to; its gameplay logic
+/// is the same 65816 code the Rust port was written from. Regenerate with the
+/// dosbox build (see memory `rom-oracle-plan`). Not committed (ROM data).
+pub fn load_built_rom() -> Option<Vec<u8>> {
+    std::fs::read(data_dir().join("sf.sfc")).ok()
+}
+
+/// Parse `data/symbols.txt` (`LABEL\t$00xxxxxx` per line) into name -> SNES
+/// LoROM address. Emitted by the disassembly build (`MAPDEC SF.MAP`).
+pub fn load_symbols() -> std::collections::HashMap<String, u32> {
+    let mut map = std::collections::HashMap::new();
+    let Ok(txt) = std::fs::read_to_string(data_dir().join("symbols.txt")) else {
+        return map;
+    };
+    for line in txt.lines() {
+        let mut it = line.split('\t');
+        if let (Some(name), Some(addr)) = (it.next(), it.next()) {
+            let hex = addr.trim().trim_start_matches('$');
+            if let Ok(v) = u32::from_str_radix(hex, 16) {
+                map.insert(name.trim().to_string(), v);
+            }
+        }
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +263,28 @@ mod tests {
         let title: String = (0..8).map(|i| bus.read8(0x00_FFC0 + i) as char).collect();
         eprintln!("ORACLE ROM title @ $FFC0: {title:?}");
         assert_eq!(title, "STAR FOX", "LoROM header title mismatch");
+    }
+
+    /// End-to-end resolution: a symbol resolves to ROM bytes that match the
+    /// disassembly. `N3DVECS_L` opens `stz x1+1; stz y1+1; stz z1+1; stx tmpx;
+    /// sty tmpy; phb`. This pins the SYMBOLS.TXT -> built-ROM -> ASM chain that
+    /// the differential tests rely on.
+    #[test]
+    fn symbol_resolves_to_matching_rom_code() {
+        let syms = load_symbols();
+        let Some(&addr) = syms.get("N3DVECS_L") else {
+            eprintln!("skip: symbols.txt not present");
+            return;
+        };
+        let Some(rom) = load_built_rom() else {
+            eprintln!("skip: built ROM data/sf.sfc not present");
+            return;
+        };
+        let bus = SnesBus::new(rom);
+        let got: Vec<u8> = (0..11).map(|i| bus.read8(addr + i)).collect();
+        eprintln!("ORACLE N3DVECS_L @ ${addr:06X}: {got:02X?}");
+        // stz $03; stz $09; stz $8B; stx $70; sty $72; phb
+        let expect = [0x64, 0x03, 0x64, 0x09, 0x64, 0x8B, 0x86, 0x70, 0x84, 0x72, 0x8B];
+        assert_eq!(got, expect, "symbol -> ROM -> disassembly chain broke");
     }
 }
