@@ -208,8 +208,16 @@ impl Input {
             }
 
             // Analog stick -> dpad with deadzone (sf_rtl.c:109-115).
-            let lx = gp.axis(Axis::LeftX);
+            let mut lx = gp.axis(Axis::LeftX);
             let ly = gp.axis(Axis::LeftY);
+            // The Steam Controller has no proper SDL gamepad mapping, so SDL
+            // reports its LeftX axis inverted (stick-left -> positive -> RIGHT).
+            // The game logic itself is correct (proven by tests/steering.rs);
+            // this is purely the unmapped-axis direction. Flip it for that
+            // controller so stick-left steers left. LeftY reads correctly.
+            if gp.name().as_deref() == Some("Steam Controller") {
+                lx = lx.saturating_neg();
+            }
             // Garbage-axis guard: a controller SDL hasn't correctly mapped
             // (e.g. the Steam Controller 2) reports multiple axes pegged to
             // opposite extremes at once, which real sticks physically can't
