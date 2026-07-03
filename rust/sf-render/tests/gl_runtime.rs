@@ -206,3 +206,47 @@ fn check_arwing(renderer: &mut Renderer) {
     assert!(canopy_hits > 10, "canopy blue not found ({canopy_hits} hits)");
     assert!(hull_hits > 50, "hull greys not found ({hull_hits} hits)");
 }
+
+/// Render-direction guard: an object at +worldx must land on the RIGHT half
+/// of the screen. If it lands left, the 3D renderer is mirroring X (the
+/// "faces left but moves right" bug).
+#[test]
+fn positive_worldx_renders_on_right_half() {
+    let config = config_from_repo_root(&repo_root());
+    let mut renderer = match Renderer::new_headless(W as i32, H as i32, &config) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("skipping render-direction test: no wgpu adapter ({e})");
+            return;
+        }
+    };
+    renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+    let base = DrawListEntry {
+        shape_id: SHAPE_MYSHIP_4,
+        flags: DL_FLAG_VISIBLE,
+        ..Default::default()
+    };
+    // +x, ahead in +z, well within the FOV so it's clearly right-of-center.
+    let curr = [DrawListEntry { x: 150 << 16, y: 0, z: 600 << 16, obj_id: 1, ..base }];
+    let inputs = FrameInputs { game_state: GameState::Boot, ..Default::default() };
+    renderer.begin_frame();
+    renderer.submit(&curr, &curr, 1.0, &inputs);
+    renderer.end_frame();
+    let px = renderer.read_pixels_rgb();
+    let (w, h) = (W as usize, H as usize);
+    let (mut left, mut right) = (0u32, 0u32);
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 3;
+            let lum = px[i] as u32 + px[i + 1] as u32 + px[i + 2] as u32;
+            if lum > 80 {
+                if x < w / 2 { left += 1; } else { right += 1; }
+            }
+        }
+    }
+    eprintln!("RENDER-DIR: +worldx object  left_px={left}  right_px={right}");
+    assert!(
+        right > left,
+        "+worldx must render RIGHT (left={left} right={right}); left>right => X is mirrored"
+    );
+}
