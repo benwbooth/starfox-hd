@@ -183,14 +183,29 @@ impl Gsu {
                 return;
             }
             0x10..=0x1F => {
-                self.dreg = (op & 0xF) as usize;
-                return; // prefix: keep alt, don't reset
+                if self.b_flag {
+                    // MOVE Rn <- Sreg (TO with the WITH/B flag set).
+                    let v = self.r[self.sreg];
+                    self.r[(op & 0xF) as usize] = v;
+                } else {
+                    self.dreg = (op & 0xF) as usize;
+                    return; // TO prefix: keep alt, don't reset
+                }
             }
             0x20..=0x2F => {
                 self.sreg = (op & 0xF) as usize;
                 self.dreg = (op & 0xF) as usize;
                 self.b_flag = true;
                 return;
+            }
+            0x30..=0x3B => {
+                // STW/STB (Rn): store Sreg to GSU RAM at Rn; ALT2 => byte.
+                let a = self.r[(op & 0xF) as usize] as usize & 0xFFFF;
+                let s = self.src();
+                self.ram[a] = s as u8;
+                if !self.alt2 {
+                    self.ram[(a + 1) & 0xFFFF] = (s >> 8) as u8;
+                }
             }
             0x3C => {
                 // LOOP: DEC r12; if !=0 branch to r13
@@ -326,20 +341,46 @@ impl Gsu {
                 self.set_flag(sfr::Z, v == 0);
                 self.set_flag(sfr::S, v & 0x80 != 0);
             }
+            0x9F => {
+                // FMULT / LMULT: signed Sreg * R6; result = high 16 of the
+                // 32-bit product. LMULT (ALT1) also writes the low 16 to R4.
+                let p = (self.src() as i16 as i32) * (self.r[6] as i16 as i32);
+                let hi = (p >> 16) as u16;
+                if self.alt1 {
+                    self.r[4] = p as u16;
+                }
+                self.write_dst(hi);
+                self.set_zs(hi);
+                self.set_flag(sfr::CY, (p >> 15) & 1 != 0);
+            }
             0xA0..=0xAF => {
-                // IBT Rn,#pp (ALT0) / LMS / SMS (memory, TODO)
+                // IBT Rn,#pp (ALT0) / LMS Rn,(imm) (ALT1) / SMS (imm),Rn (ALT2).
+                // LMS/SMS use a short word-index (imm*2) into GSU RAM.
                 let n = (op & 0xF) as usize;
                 let imm = self.fetch();
-                if !self.alt1 && !self.alt2 {
+                if self.alt1 {
+                    let a = (imm as usize) << 1;
+                    self.r[n] = self.ram[a] as u16 | ((self.ram[(a + 1) & 0xFFFF] as u16) << 8);
+                } else if self.alt2 {
+                    let a = (imm as usize) << 1;
+                    self.ram[a] = self.r[n] as u8;
+                    self.ram[(a + 1) & 0xFFFF] = (self.r[n] >> 8) as u8;
+                } else {
                     self.r[n] = imm as i8 as i16 as u16; // IBT sign-extends
                 }
-                // LMS/SMS (short mem) left as TODO
                 self.reset_prefix();
                 return;
             }
             0xB0..=0xBF => {
-                self.sreg = (op & 0xF) as usize;
-                return;
+                if self.b_flag {
+                    // MOVES Rn <- Sreg (FROM with the WITH/B flag), sets flags.
+                    let v = self.r[self.sreg];
+                    self.r[(op & 0xF) as usize] = v;
+                    self.set_zs(v);
+                } else {
+                    self.sreg = (op & 0xF) as usize;
+                    return; // FROM prefix
+                }
             }
             0xC0 => {
                 // HIB: high byte -> low
@@ -398,12 +439,20 @@ impl Gsu {
                 self.write_dst(v);
             }
             0xF0..=0xFF => {
-                // IWT Rn,#pppp (ALT0); LM/SM (memory, TODO)
+                // IWT Rn,#word (ALT0) / LM Rn,(addr) (ALT1) / SM (addr),Rn (ALT2).
                 let n = (op & 0xF) as usize;
                 let lo = self.fetch() as u16;
                 let hi = self.fetch() as u16;
-                if !self.alt1 && !self.alt2 {
-                    self.r[n] = lo | (hi << 8); // IWT
+                let imm = lo | (hi << 8);
+                if self.alt1 {
+                    let a = imm as usize & 0xFFFF;
+                    self.r[n] = self.ram[a] as u16 | ((self.ram[(a + 1) & 0xFFFF] as u16) << 8);
+                } else if self.alt2 {
+                    let a = imm as usize & 0xFFFF;
+                    self.ram[a] = self.r[n] as u8;
+                    self.ram[(a + 1) & 0xFFFF] = (self.r[n] >> 8) as u8;
+                } else {
+                    self.r[n] = imm; // IWT
                 }
                 self.reset_prefix();
                 return;
@@ -443,5 +492,31 @@ mod tests {
         assert_eq!(gsu.r[3], 16, "(5+3)*2 should be 16");
         assert_eq!(gsu.r[1], 5);
         assert_eq!(gsu.r[2], 3);
+    }
+
+    /// Exercises the MOVE idiom, RAM store/load round-trip, and FMULT.
+    #[test]
+    fn gsu_memory_mult_move() {
+        let mut prog = vec![0u8; 0x8000];
+        let code = [
+            0xF1, 0xCD, 0xAB, // IWT r1,#$ABCD
+            0x21, //             WITH r1
+            0x12, //             TO r2   -> MOVE r2 = r1
+            0xF3, 0x34, 0x12, // IWT r3,#$1234
+            0x3E, 0xF3, 0x10, 0x00, // ALT2 ; SM ($0010),r3
+            0x3D, 0xF4, 0x10, 0x00, // ALT1 ; LM r4,($0010)
+            0xF6, 0x64, 0x00, // IWT r6,#100
+            0xF5, 0x00, 0x40, // IWT r5,#$4000 (16384)
+            0xB5, //             FROM r5
+            0x9F, //             FMULT -> r0 = high16(16384*100) = 25
+            0x00, //             STOP
+        ];
+        prog[..code.len()].copy_from_slice(&code);
+        let mut gsu = Gsu::new(prog);
+        gsu.run(0, 0);
+        eprintln!("GSU mem/mult/move: r2={:#06x} r4={:#06x} r0={}", gsu.r[2], gsu.r[4], gsu.r[0]);
+        assert_eq!(gsu.r[2], 0xABCD, "MOVE r2<-r1");
+        assert_eq!(gsu.r[4], 0x1234, "SM/LM RAM round-trip");
+        assert_eq!(gsu.r[0], 25, "FMULT high16(16384*100)");
     }
 }
