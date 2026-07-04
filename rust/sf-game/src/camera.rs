@@ -292,6 +292,14 @@ impl GameCamera {
         self.camera_ry = rot_y;
         self.camera_rz = rot_z;
 
+        // DEBUG measurement (SF_DEBUG_CAM): compare camera pitch vs ROM.
+        if std::env::var_os("SF_DEBUG_CAM").is_some() {
+            eprintln!(
+                "CAM rot_x={rot_x} rot_y={rot_y} rot_z={rot_z} player.rotx={} roty={} pos=({},{},{})",
+                player.rotx, player.roty, pos_x, pos_y, pos_z
+            );
+        }
+
         // Camera cut detection (game.c:146-153).
         let mut snap = false;
         if self.vars.viewtype != self.last_viewtype {
