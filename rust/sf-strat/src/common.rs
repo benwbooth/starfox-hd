@@ -337,9 +337,14 @@ pub fn strat_perc56(val: i16) -> i16 {
     (val >> 1).wrapping_add(val >> 4)
 }
 
-/// C `Strat_Perc93`: val * 15/16.
+/// C `Strat_Perc93`: val * 15/16. ROM `perc93a_l` sums the shifted halves
+/// (val>>1 + val>>2 + val>>3 + val>>4), NOT val - val>>4 — they differ by the
+/// truncation (perc93(100)=93 not 94; perc93(-1)=-4 not 0). Oracle-verified.
 pub fn strat_perc93(val: i16) -> i16 {
-    val.wrapping_sub(val >> 4)
+    (val >> 1)
+        .wrapping_add(val >> 2)
+        .wrapping_add(val >> 3)
+        .wrapping_add(val >> 4)
 }
 
 // ============================================================

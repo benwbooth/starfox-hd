@@ -176,6 +176,8 @@ impl Default for Entry {
 /// Result registers after a call.
 pub struct Exit {
     pub a: u8,
+    /// Full 16-bit accumulator (C = B:A).
+    pub c: u16,
     pub x: u16,
     pub y: u16,
 }
@@ -234,7 +236,7 @@ pub fn call(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
             break;
         }
     }
-    Exit { a: cpu.a(), x: cpu.x(), y: cpu.y() }
+    Exit { a: cpu.a(), c: cpu.c(), x: cpu.x(), y: cpu.y() }
 }
 
 /// Load the retail ROM from the repo root.
