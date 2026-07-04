@@ -56,7 +56,7 @@ use sf_game::world::World;
 use sf_path::alien::{Alien as PAlien, StratRef};
 use sf_path::interp::{dispatch_strat, PathHost, PathWorld};
 
-use crate::common::{self, sf_random, snes_cos, snes_sin, strat_chase, strat_chase8, sv, StratRam};
+use crate::common::{self, sf_random, strat_chase, strat_chase8, sv, StratRam};
 use crate::enemy_a;
 
 /// `al_sflags3` textobj bit (C `src/game/obj.h` ASF3_TEXTOBJ) — not yet a
@@ -515,23 +515,27 @@ impl PathHost for Adapter<'_> {
     }
 
     fn genvecs_2d(&mut self, al: &mut PAlien) {
-        // C Strat_GenVecs2D (real trig, matching sf_strat::common).
-        let speed = al.vel as i16 as f32;
-        al.vx = (speed * snes_sin(al.roty)) as i16;
+        // ROM-exact fixed-point (matches sf_strat::common::strat_gen_vecs_2d).
+        use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+        let angle = al.roty as usize;
+        let vel = al.vel as i32;
+        al.vx = mulslog(vel, SINTAB[angle] as i32) as i16;
         al.vy = 0;
-        al.vz = (speed * snes_cos(al.roty)) as i16;
+        al.vz = mulslog(vel, COSTAB[angle] as i32) as i16;
     }
 
     fn genvecs_3d(&mut self, al: &mut PAlien) {
-        // C Strat_GenVecs3D (pitch = -rotx, ASM convention).
-        let yaw = al.roty;
-        let pitch = (al.rotx as i8).wrapping_neg() as u8;
-        let speed = al.vel as i16 as f32;
-        let cy = snes_cos(pitch);
-        let sy = snes_sin(pitch);
-        al.vx = (speed * snes_sin(yaw) * cy) as i16;
-        al.vy = (speed * sy) as i16;
-        al.vz = (speed * snes_cos(yaw) * cy) as i16;
+        // ROM-exact, matching sf_strat::common::strat_gen_vecs_3d: YAW negated
+        // (this lane previously did not, i.e. the same inversion bug the oracle
+        // caught for the player) + mulslog fixed-point.
+        use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+        let yaw = (al.roty as i8).wrapping_neg() as u8 as usize;
+        let pitch = (al.rotx as i8).wrapping_neg() as u8 as usize;
+        let vel = al.vel as i32;
+        let cosx = COSTAB[pitch] as i32;
+        al.vx = mulslog(mulslog(vel, SINTAB[yaw] as i32), cosx) as i16;
+        al.vy = mulslog(vel, SINTAB[pitch] as i32) as i16;
+        al.vz = mulslog(mulslog(vel, COSTAB[yaw] as i32), cosx) as i16;
     }
 
     fn chase8(&mut self, current: u8, target: u8, rate: u8) -> u8 {

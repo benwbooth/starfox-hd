@@ -29,7 +29,7 @@ use sf_game::world::World;
 
 // Canonical strat_common.c ports.
 use crate::common::{
-    snes_sin, strat_angle_xz, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars,
+    strat_angle_xz, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars,
     strat_projectile_on_collide,
 };
 use crate::common::strat_chase as chase;
@@ -1786,7 +1786,7 @@ fn seamon_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].stratstate == 3 || g.objs.aliens[idx as usize].worldy == 0 {
         if g.objs.aliens[idx as usize].sbyte3 == 0 {
             let sb2 = g.objs.aliens[idx as usize].sbyte2;
-            let vx = ((snes_sin(sb2) * 127.0) as i16) >> 4;
+            let vx = (crate::snes_trig::SINTAB[sb2 as usize] as i16) >> 4;
             {
                 let al = &mut g.objs.aliens[idx as usize];
                 al.vx = vx;

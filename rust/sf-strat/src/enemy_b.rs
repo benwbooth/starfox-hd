@@ -77,7 +77,7 @@ pub(crate) mod eb_compat {
     // spawn_projectile, chase_proportional, speed_to, gen_vecs_3d, ...) match
     // the bosses lane's call sites.
     pub use crate::common::{
-        projectile_strat_ids, sf_random, snes_cos, snes_sin, strat_add_to_pos,
+        projectile_strat_ids, sf_random, strat_add_to_pos,
         strat_angle_xz, strat_apply_velocity, strat_chase, strat_chase8,
         strat_chase_proportional, strat_count_down, strat_dist_xz, strat_gen_front_vecs,
         strat_gen_side_vecs, strat_gen_vecs_2d, strat_gen_vecs_3d, strat_init_obj_vars,

@@ -349,11 +349,12 @@ pub fn strat_perc93(val: i16) -> i16 {
 /// C `Strat_GenVecs2D` (alvelvecs_l, STRATROU.ASM:100-148): XZ velocity
 /// from Y rotation + speed; vy = 0.
 pub fn strat_gen_vecs_2d(al: &mut Alien) {
-    let angle = al.roty;
-    let speed = al.vel as i16 as f32;
-    al.vx = (speed * snes_sin(angle)) as i16;
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let angle = al.roty as usize;
+    let vel = al.vel as i32;
+    al.vx = mulslog(vel, SINTAB[angle] as i32) as i16;
     al.vy = 0;
-    al.vz = (speed * snes_cos(angle)) as i16;
+    al.vz = mulslog(vel, COSTAB[angle] as i32) as i16;
 }
 
 /// C `Strat_GenVecs3D` (alvel3vecs_l, STRATROU.ASM:221-283): 3D velocity
@@ -384,16 +385,24 @@ pub fn strat_gen_vecs_3d(al: &mut Alien) {
 /// C `Strat_GenSideVecs` (sidevecs_l): sideways vector, angle rotated 90
 /// degrees (64 - roty).
 pub fn strat_gen_side_vecs(al: &Alien) -> (i16, i16) {
-    let angle = 64u8.wrapping_sub(al.roty);
-    let speed = al.vel as i16 as f32;
-    ((speed * snes_sin(angle)) as i16, (speed * snes_cos(angle)) as i16)
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let angle = 64u8.wrapping_sub(al.roty) as usize;
+    let vel = al.vel as i32;
+    (
+        mulslog(vel, SINTAB[angle] as i32) as i16,
+        mulslog(vel, COSTAB[angle] as i32) as i16,
+    )
 }
 
 /// C `Strat_GenFrontVecs` (frontvecs_l).
 pub fn strat_gen_front_vecs(al: &Alien) -> (i16, i16) {
-    let angle = al.roty;
-    let speed = al.vel as i16 as f32;
-    ((speed * snes_sin(angle)) as i16, (speed * snes_cos(angle)) as i16)
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let angle = al.roty as usize;
+    let vel = al.vel as i32;
+    (
+        mulslog(vel, SINTAB[angle] as i32) as i16,
+        mulslog(vel, COSTAB[angle] as i32) as i16,
+    )
 }
 
 // ============================================================
