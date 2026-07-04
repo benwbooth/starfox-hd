@@ -805,11 +805,15 @@ fn playerlimit_x_srou(g: &mut Game, idx: u16) {
 
     let minx = g.vars.sv_i16(sv::MINPMOVEX);
     let maxx = g.vars.sv_i16(sv::MAXPMOVEX);
-    if g.objs.aliens[i].worldx < minx {
+    // ROM playerlimitx_srou ($BDF1C): BEQ+BMI / BEQ+BPL -> clamp+arrow fire at
+    // the INCLUSIVE boundary (worldX <= min / >= max). The port used `<`/`>`
+    // (exclusive) and dropped the edge arrow when pinned exactly at the limit.
+    // Oracle-confirmed (sf-oracle tests/player_bounds.rs). Task #34.
+    if g.objs.aliens[i].worldx <= minx {
         g.objs.aliens[i].worldx = minx;
         arrows |= SPRAR_LEFT;
     }
-    if g.objs.aliens[i].worldx > maxx {
+    if g.objs.aliens[i].worldx >= maxx {
         g.objs.aliens[i].worldx = maxx;
         arrows |= SPRAR_RIGHT;
     }
