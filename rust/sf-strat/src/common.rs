@@ -120,6 +120,14 @@ pub mod sv {
     pub const OUTVX: u16 = 0x0546;
     pub const OUTVY: u16 = 0x0548;
     pub const OUTDIST: u16 = 0x054A;
+    /// C `outvz` — the view Z (roll) accumulator getview_l feeds the camera.
+    /// The relocated 0x05xx `sv` block has no free slot here: OUTDIST+2
+    /// (0x054C) is already [`VIEWTYPE`]. So OUTVZ keeps its real ROM WRAM
+    /// address ($1948, symbols.txt), which is unused by the port's compact
+    /// layout and by the map/dozrot flags at $1776 — the same "real ROM addr"
+    /// convention the camera already uses for dozrot. Strat writes it and
+    /// sf-game `GameCamera::update` reads it from this same WRAM mirror.
+    pub const OUTVZ: u16 = 0x1948;
     /// C `g_viewtype` (uint8, VIEWTYPE_*).
     pub const VIEWTYPE: u16 = 0x054C;
     /// C `g_fadedir` (int8).

@@ -771,6 +771,49 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     plrotz = clamp16(plrotz, -0x600, 0x600);
     g.vars.set_sv_i16(sv::PLROTZ, plrotz);
 
+    // gf_viewrot view-lean accumulators (PSTRATS.ASM:1928-1966). When the
+    // gf_viewrot flag is set (all-range / U-turn / boss arenas), directional
+    // input leans the *view* accumulators outvx/outvy, which getview_l feeds
+    // straight to the camera; both then decay toward 0 (achase rate 3) each
+    // frame. This is the source the camera should follow — NOT the ship's own
+    // rotation. (`centoutrots` is the same decay used elsewhere; not called
+    // here, so the achase is not double-applied.)
+    if g.vars.gameflags & GF_VIEWROT != 0 {
+        // psf_noctrl | psf_noYctrl gate: skip the input nudge, still decay.
+        if g.vars.pshipflags & (PSF_NOCTRL | PSF_NOYCTRL) == 0 {
+            let pad = pad1(g);
+            // up: outvx += -256 ; down: outvx -= -256 (= +256). (Signs per ROM
+            // s_add_var/s_sub_var W,outvx,#-256; jup/jdown are the held keys.)
+            if pad & pad::UP != 0 {
+                let v = g.vars.sv_i16(sv::OUTVX).wrapping_add(-256);
+                g.vars.set_sv_i16(sv::OUTVX, v);
+            }
+            if pad & pad::DOWN != 0 {
+                let v = g.vars.sv_i16(sv::OUTVX).wrapping_sub(-256);
+                g.vars.set_sv_i16(sv::OUTVX, v);
+            }
+            // left/right yaw lean only when the ship is within 300 of the X
+            // movement boundary (svar_word1 = minPmoveX+300, svar_word2 =
+            // maxPmoveX-300): s_jmp_alvarmore/less gate it to the screen edge.
+            let worldx = g.objs.aliens[i].worldx;
+            let lo = g.vars.sv_i16(sv::MINPMOVEX).wrapping_add(300);
+            let hi = g.vars.sv_i16(sv::MAXPMOVEX).wrapping_sub(300);
+            if worldx <= lo && pad & pad::LEFT != 0 {
+                let v = g.vars.sv_i16(sv::OUTVY).wrapping_sub(200);
+                g.vars.set_sv_i16(sv::OUTVY, v);
+            }
+            if worldx >= hi && pad & pad::RIGHT != 0 {
+                let v = g.vars.sv_i16(sv::OUTVY).wrapping_add(200);
+                g.vars.set_sv_i16(sv::OUTVY, v);
+            }
+        }
+        // .zerovrot: s_achase_var W,outvx,#0,3 / s_achase_var W,outvy,#0,3.
+        let vx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), 0, 3);
+        let vy = strat_chase_proportional(g.vars.sv_i16(sv::OUTVY), 0, 3);
+        g.vars.set_sv_i16(sv::OUTVX, vx);
+        g.vars.set_sv_i16(sv::OUTVY, vy);
+    }
+
     let turnrot = g.vars.sv_i16(sv::PLAYER_TURNROT);
     let zshake = g.vars.sv_i16(sv::PLAYER_ZSHAKE);
     let zstratadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD) as i8;
@@ -784,6 +827,16 @@ fn playermove_srou(g: &mut Game, idx: u16) {
         + (zshake >> 8) as i32
         + zstratadd as i32
         + rollzoff as i32) as u8;
+
+    // spfm_inside (PSTRATS.ASM:2749-2755): carry the ship's roll (sign-extended
+    // player_Ztilt byte + full 16-bit player_Zshake) into outvz so getview_l
+    // rolls the inside-tunnel camera with the ship. Runs after the al_rot* set
+    // (matching ROM order); outvz is not read again this tick.
+    if g.vars.splayerflymode == SPFM_INSIDE {
+        let ztilt_v = g.vars.sv_u8(sv::PLAYER_ZTILT) as i8 as i16;
+        let zshake_v = g.vars.sv_i16(sv::PLAYER_ZSHAKE);
+        g.vars.set_sv_i16(sv::OUTVZ, ztilt_v.wrapping_add(zshake_v));
+    }
 
     let hudrot = al.rotz as i8 as i16;
     let vel = al.vel;

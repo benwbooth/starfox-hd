@@ -265,21 +265,46 @@ impl GameCamera {
             rot_x = angle8_from_rad(unsafe { cmath::atan2f(-dy, hlen) });
             rot_z = 0;
         } else {
-            // --- Step 2: normal view rotation (ROM getview_l, GAME.ASM) ---
-            // viewrotyw = outvy - player_turnrot.
-            rot_x = player.rotx as i16;
-            rot_y = (player.roty as i32 - ((self.vars.player_turnrot >> 8) as u8) as i32) as i16;
-            // viewrotzw = outvz - plrotz, but the ROM GATES this on `dozrot`:
-            //   lda dozrot; bne .ok; stz viewrotzw   (GAME.ASM:52-56)
-            // dozrot is set from `levelinfo & if_zroton` + setzroton/off map
-            // bytecodes (WORLD.ASM). So the camera rolls ONLY in levels/sections
-            // flagged for it — NOT in normal flight (Corneria). $1776 = dozrot.
+            // --- Step 2: normal view rotation (ROM getview_l, GAME.ASM:6-58) --
+            // The camera follows the *view accumulators* outvx/outvy/outvz that
+            // the player strat writes (PSTRATS.ASM gf_viewrot / spfm_inside) —
+            // NOT the ship's own rotation. Using player.rotx/roty was wrong:
+            // player.roty already folds in turnrot, so `roty - turnrot` cancels
+            // and the camera never yawed during U-turns / all-range.
+            //   if noxrot != 0 { outvx = 0 }
+            //   viewrotxw = outvx
+            //   viewrotyw = outvy - player_turnrot            (16-bit)
+            //   viewrotzw = dozrot ? outvz - plrotz : 0       (16-bit)
+            // The matrix uses the HIGH BYTE (>>8, signed) as the 8-bit angle.
+            // outvx/outvy live in the relocated 0x05xx sv block; outvz + the
+            // dozrot/noxrot flags keep their real ROM WRAM addresses (the same
+            // convention game.rs already uses to write dozrot at $1776).
+            const SV_OUTVX: u16 = 0x0546;
+            const SV_OUTVY: u16 = 0x0548;
+            const OUTVZ: u16 = 0x1948; // sf_strat::common::sv::OUTVZ
+            const NOXROT: u16 = 0x1ACA;
             const DOZROT: u16 = 0x1776;
+            const SV_PLROTZ: u16 = 0x050A;
+
+            // noxrot gate. TODO: no map/strat code writes noxrot ($1ACA) yet, so
+            // this reads 0 today (outvx passes through). Kept as a live read so
+            // it takes effect once a noxrot writer is ported.
+            let outvx = if vars.read_ext8(NOXROT) != 0 {
+                0
+            } else {
+                vars.read_ext16(SV_OUTVX) as i16
+            };
+            let outvy = vars.read_ext16(SV_OUTVY) as i16;
+            rot_x = outvx >> 8;
+            rot_y = outvy.wrapping_sub(self.vars.player_turnrot) >> 8;
+
+            // viewrotzw is GATED on `dozrot` (GAME.ASM:52-56): the view rolls
+            // ONLY in levels/sections flagged for it (setzroton/off), never in
+            // normal flight (Corneria). $1776 = dozrot.
             if vars.read_ext8(DOZROT) != 0 {
-                // Onplanet outvz=0 (PSTRATS.ASM), so the roll = -plrotz ($050A).
-                const SV_PLROTZ: u16 = 0x050A;
+                let outvz = vars.read_ext16(OUTVZ) as i16;
                 let plrotz = vars.read_ext16(SV_PLROTZ) as i16;
-                rot_z = (0i16.wrapping_sub(plrotz)) >> 8;
+                rot_z = outvz.wrapping_sub(plrotz) >> 8;
             } else {
                 rot_z = 0;
             }
