@@ -183,7 +183,13 @@ pub fn strat_init_obj_vars(al: &mut Alien) {
     al.count = 0;
     al.count1 = 0;
     al.animframe = 0xFF; // default: use gameframe
-    al.colframe = 0xFF;
+    // ROM init_objvars_l (STRATROU.ASM:2311) zeroes the struct -> colframe=0 =
+    // bit7 CLEAR = "follow gameframe" (MAIN.ASM:2205-2216: bmi->fixed frame,
+    // else gameframe). The port had 0xFF = bit7 SET = FIXED frame 127, which
+    // froze animated colanims on one frame — e.g. the player laser stuck on
+    // bullet_a1[127&3=3]=blue instead of shimmering white/cyan/blue. Objects
+    // wanting a fixed frame set it explicitly (bit7 set), as in the ROM.
+    al.colframe = 0;
     al.collflags = ACF_FIRSTFRAME;
     // init_objvars_l sets `s_setremove_behind` (atzremove) on every object by
     // default (STRATROU.ASM:2311); showview frees it once it scrolls behind
