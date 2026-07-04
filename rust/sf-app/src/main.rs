@@ -155,29 +155,47 @@ fn main() {
     // wgpu renders into the SDL3 window's surface via raw-window-handle.
     // SAFETY: `window` outlives `gpu` (drop order is reverse of declaration),
     // so the 'static surface never dangles.
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-    let surface = match unsafe {
-        instance.create_surface_unsafe(
-            wgpu::SurfaceTargetUnsafe::from_window(&window)
-                .expect("SDL3 window handle -> wgpu surface target"),
-        )
-    } {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("wgpu create_surface failed: {e}");
-            std::process::exit(1);
+    // Frame dumping (SF_DUMP_PPM) needs read_pixels_rgb, which only works on a
+    // headless Gpu — so route the whole app through the offscreen target when
+    // dumping. The SDL window still exists for the event loop; it just isn't
+    // presented to. Normal runs use the windowed surface.
+    let offscreen = std::env::var_os("SF_DUMP_PPM").is_some();
+    let gpu = if offscreen {
+        match sf_render::gpu::Gpu::new_headless(
+            cfg.window_width as u32,
+            cfg.window_height as u32,
+        ) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("wgpu headless init failed: {e}");
+                std::process::exit(1);
+            }
         }
-    };
-    let gpu = match sf_render::gpu::Gpu::new_for_surface(
-        instance,
-        surface,
-        cfg.window_width as u32,
-        cfg.window_height as u32,
-    ) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("wgpu init failed: {e}");
-            std::process::exit(1);
+    } else {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let surface = match unsafe {
+            instance.create_surface_unsafe(
+                wgpu::SurfaceTargetUnsafe::from_window(&window)
+                    .expect("SDL3 window handle -> wgpu surface target"),
+            )
+        } {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("wgpu create_surface failed: {e}");
+                std::process::exit(1);
+            }
+        };
+        match sf_render::gpu::Gpu::new_for_surface(
+            instance,
+            surface,
+            cfg.window_width as u32,
+            cfg.window_height as u32,
+        ) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("wgpu init failed: {e}");
+                std::process::exit(1);
+            }
         }
     };
 
