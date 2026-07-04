@@ -4,3 +4,4 @@ rust/target/
 *.sfc
 *.zip
 .direnv/
+__pycache__/
