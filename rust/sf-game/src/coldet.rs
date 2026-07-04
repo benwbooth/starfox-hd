@@ -113,14 +113,12 @@ impl Game {
     fn do_coll(&mut self, victim: u16, attacker_ap: u8) {
         let in_tunnel = self.vars.pshipflags3 & PSF3_INTUNNEL != 0;
         let al = &mut self.objs.aliens[victim as usize];
-        // Cooldown timer: only apply damage every framesperAP frames.
-        if al.collcount > 0 {
-            al.collcount -= 1;
-            return;
-        }
-        // Indestructible objects (hardHP) don't take damage.
-        if al.hp == 0xFF {
-            al.collcount = FRAMESPERAP;
+        // ROM do_coll_l ($1FD252): `DEC collcount; BNE exit` — decrement THEN
+        // check zero. The port did check-then-decrement, which shifted damage
+        // by one frame on every hit and mishandled collcount==0. Oracle-proven
+        // (sf-oracle tests/do_coll.rs: 0 diffs after this fix).
+        al.collcount = al.collcount.wrapping_sub(1);
+        if al.collcount != 0 {
             return;
         }
         let mut damage = attacker_ap;
@@ -128,12 +126,13 @@ impl Game {
         if in_tunnel && damage == HARD_AP {
             damage >>= 1;
         }
-        if al.hp <= damage {
-            al.hp = 0;
-        } else {
-            al.hp -= damage;
+        // ROM: `LDA hp; BMI .o2c` — ANY hp with bit 7 set ($80-$FF) is
+        // indestructible (the port only treated $FF as such). Reset the
+        // cooldown regardless, matching the ROM's `.o2c` fall-through.
+        if (al.hp as i8) >= 0 {
+            al.hp = al.hp.saturating_sub(damage);
         }
-        al.collcount = FRAMESPERAP;
+        al.collcount = FRAMESPERAP; // tpa = framesperAP
     }
 
     /// C `Coldet_Run()` (src/game/coldet.c:179, chkcoll COLDET.ASM:225-861).
