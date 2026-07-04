@@ -203,19 +203,28 @@ impl StratRam for GameVars {
 /// (src/types.h:57): `rnd * 91 + 0x61D7`, 16-bit. State lives at
 /// [`sv::RNDVAL`] (boot value 0, like the C global).
 pub fn sf_random(vars: &mut GameVars) -> u16 {
-    // NOTE: this ×91+$61D7 LCG matches the C oracle (and its frozen boss parity
-    // fixtures), but the ROM's RUNTIME RNG is actually a different algorithm — a
-    // 4-byte subtract-with-borrow chain (RANDOM $2F7BF, proven in sf-oracle
-    // tests/random.rs). Swapping to the ROM algorithm is correct-vs-ROM but
-    // diverges every RNG-dependent boss from the C fixtures (which can't be
-    // regenerated — C code was removed). Left as the C-oracle LCG pending a
-    // decision on C-oracle vs ROM-oracle for RNG behavior. See rom-oracle-plan.
-    let v = vars
-        .sv_u16(sv::RNDVAL)
-        .wrapping_mul(91)
-        .wrapping_add(0x61D7);
-    vars.set_sv_u16(sv::RNDVAL, v);
-    v
+    // ROM RANDOM ($2F7BF) — the RUNTIME RNG (called 32x in strat code): a 4-byte
+    // subtract-with-borrow chain over `rand` ($DE-$E1):
+    //   A=DE; CLC; A=A-DF-!C -> DF; -E0 -> E0; -E1 -> E1; -DE(orig) -> DE; ret A
+    // (The ×91+$61D7 LCG the port used before is a BUILD-TIME assembler macro,
+    // MACROS.INC `rndval=`, for baking static data — not the runtime RNG.)
+    // Proven bit-exact in sf-oracle tests/random.rs. Returns the new low byte;
+    // callers mask low bits so widening u8->u16 is fine. NOTE: boss parity
+    // fixtures were captured against the old LCG and are now stale (ROM fidelity
+    // chosen; C oracle removed so they can't be regenerated).
+    let s = &mut vars.rng;
+    let de0 = s[0];
+    let subs = [s[1], s[2], s[3], de0];
+    let idxs = [1usize, 2, 3, 0];
+    let mut a = de0 as i32;
+    let mut carry = 0i32; // CLC
+    for k in 0..4 {
+        let raw = a - subs[k] as i32 - (1 - carry);
+        carry = (raw >= 0) as i32;
+        a = raw & 0xFF;
+        s[idxs[k]] = a as u8;
+    }
+    s[0] as u16
 }
 
 // ============================================================

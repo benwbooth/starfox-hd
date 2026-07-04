@@ -26,23 +26,9 @@ fn rom_seq(rom: &[u8], addr: u32, seed: [u8; 4], n: usize) -> Vec<u8> {
 /// algorithm. NOT yet wired into sf_random (which stays on the C-oracle LCG to
 /// preserve the frozen boss parity fixtures — see rom-oracle-plan.md for the
 /// C-oracle-vs-ROM-oracle decision this is pending).
-fn swb_random(s: &mut [u8; 4]) -> u8 {
-    let de0 = s[0];
-    let subs = [s[1], s[2], s[3], de0];
-    let idxs = [1usize, 2, 3, 0];
-    let mut a = de0 as i32;
-    let mut carry = 0i32; // CLC
-    for k in 0..4 {
-        let raw = a - subs[k] as i32 - (1 - carry);
-        carry = (raw >= 0) as i32;
-        a = raw & 0xFF;
-        s[idxs[k]] = a as u8;
-    }
-    s[0]
-}
-
 #[test]
-fn random_swb_matches_rom() {
+fn sf_random_matches_rom() {
+    use sf_game::vars::GameVars;
     let syms = load_symbols();
     let (Some(&addr), Some(rom)) = (syms.get("RANDOM_L"), load_built_rom()) else {
         eprintln!("skip: no symbol/ROM");
@@ -50,10 +36,15 @@ fn random_swb_matches_rom() {
     };
     for seed in [[1u8, 2, 3, 4], [0xAB, 0xCD, 0xEF, 0x12], [0, 0, 0, 0], [0xFF, 0xFF, 0xFF, 0xFF]] {
         let romv = rom_seq(&rom, addr, seed, 8);
-        let mut st = seed;
-        let rustv: Vec<u8> = (0..8).map(|_| swb_random(&mut st)).collect();
+        // The real, wired port: seed GameVars.rng, call sf_random (returns the
+        // new low byte widened to u16; callers mask, so the low byte is truth).
+        let mut vars = GameVars::default();
+        vars.rng = seed;
+        let rustv: Vec<u8> = (0..8)
+            .map(|_| sf_strat::common::sf_random(&mut vars) as u8)
+            .collect();
         eprintln!("seed {seed:02x?}\n  ROM  {romv:02x?}\n  RUST {rustv:02x?}  {}",
             if romv == rustv { "ok" } else { "DIFF" });
-        assert_eq!(romv, rustv, "SWB algorithm must match ROM RANDOM for seed {seed:02x?}");
+        assert_eq!(romv, rustv, "sf_random must match ROM RANDOM for seed {seed:02x?}");
     }
 }

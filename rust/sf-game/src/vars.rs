@@ -106,6 +106,10 @@ pub struct GameVars {
     // --- Counters ---
     /// C `g_gameframe`.
     pub gameframe: u16,
+    /// Runtime RNG state — the ROM's `rand` ($DE-$E1), a 4-byte
+    /// subtract-with-borrow chain (`RANDOM` $2F7BF). See `sf_random`. Boot
+    /// value 0 (matches the ROM's cleared `rand`).
+    pub rng: [u8; 4],
     /// C `g_freezestrats` (bit 0 freezes the strategy update).
     pub freezestrats: u8,
     /// C `g_internalPLAYPT` — authoritative player alien index.
@@ -187,6 +191,7 @@ impl Default for GameVars {
     fn default() -> Self {
         GameVars {
             gameflags: 0,
+            rng: [0, 0, 0, 0],
             pshipflags: 0,
             pshipflags2: 0,
             pshipflags3: 0,
