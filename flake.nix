@@ -18,6 +18,9 @@
           sdl3      # Rust app shell (sf-app) window + input + audio
           libGL
           libGLU
+          vulkan-loader     # wgpu Vulkan backend (surface via VK_KHR_wayland_surface)
+          wayland           # native Wayland windowing (no Xwayland needed)
+          libdecor          # SDL3 client-side window decorations on Wayland
           stdenv.cc.cc.lib  # libstdc++ (SDL3 / GL drivers)
         ];
       in
