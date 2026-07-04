@@ -11,7 +11,7 @@
 //! - `Obj_Alloc` pops the free head and pushes it on the active head.
 //! - `Obj_Free` unlinks and pushes on the free head (LIFO reuse).
 
-use crate::alien::{Alien, ACF_FIRSTFRAME, ATZREMOVE, NUMBER_AL};
+use crate::alien::{Alien, ACF_FIRSTFRAME, ASF3_REALOBJ, ATZREMOVE, NUMBER_AL};
 
 /// The alien pool plus the two intrusive lists (C `g_aliens`,
 /// `g_active_list` (allst), `g_free_list` (alfreelst), `g_aldead`).
@@ -44,12 +44,17 @@ impl Objects {
         o
     }
 
-    /// C `Obj_KillAll()` (src/game/obj.c:73): full wipe, rebuild free list
-    /// pushing 0..69 (free head ends at slot 69 — kept exactly like C).
+    /// C `Obj_KillAll()` (src/game/obj.c:73) / ROM `kill_list_l` (MAIN.ASM:1992
+    /// -> FmtFreeLst, MACROS.INC:3750): full wipe, rebuild the free list FORWARD
+    /// so the free head is slot 0 (chain 0->1->...->69). Push-front in reverse
+    /// (69..0) to land head=0, matching `init()` and the ROM (proven by
+    /// sf-oracle audit_coldet.rs `kill_list_free_order_is_forward`). The old
+    /// forward push left head=slot 69, so the first alloc broke the
+    /// player==slot 0 invariant.
     pub fn kill_all(&mut self) {
         self.active_head = None;
         self.free_head = None;
-        for i in 0..NUMBER_AL as u16 {
+        for i in (0..NUMBER_AL as u16).rev() {
             self.aliens[i as usize] = Alien::default();
             self.free_push_front(i);
         }
@@ -198,4 +203,12 @@ pub fn strat_init_obj_vars(al: &mut Alien) {
     // default (STRATROU.ASM:2311); showview frees it once it scrolls behind
     // the camera. Objects that must persist off-screen clear this bit later.
     al.type_ = ATZREMOVE;
+    // init_objvars_l (STRATROU.ASM:2311-2346) also sets `s_set_alsflag realobj`
+    // (al_sflags3 |= $08) and `s_set_alflag inviewpl` (al_flags |= $10) on every
+    // spawn. The port never set realobj anywhere, so the spatial-audio path
+    // (sf-audio sound.rs `if !al.realobj`) always took the wrong branch and the
+    // strat lines that clear realobj were dead no-ops. inviewpl is recomputed
+    // per-frame by draw, but the ROM seeds it here on frame 1.
+    al.sflags3 |= ASF3_REALOBJ;
+    al.flags |= 0x10; // inviewpl
 }

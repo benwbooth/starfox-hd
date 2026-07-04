@@ -461,12 +461,28 @@ pub fn strat_add_to_pos(al: &mut Alien, dx: i16, dy: i16, dz: i16) {
 // Distance / angle (C strat_common.c:181-198)
 // ============================================================
 
-/// C `Strat_DistXZ` (xzdiffs_l): approximate Manhattan distance in the XZ
-/// plane. Widths mirror the C int-promotion then int16 truncation.
+/// C `Strat_DistXZ` (xzdiffs_l, STRATROU.ASM:1796): a scaled Euclidean-ish
+/// magnitude, NOT Manhattan. `x1=|dx|>>1; y1=|dz|>>1; range=(x1+y1)<<1;
+/// m=max(x1,y1); T=m+range; result=((T>>1)+(T<<2))>>3`. All 16-bit wrapping to
+/// match the ROM. Proven bit-exact vs `xzdiffs_l` (sf-oracle audit_coldet.rs);
+/// the old Manhattan port over-reported distance ~15-40%, mis-timing every
+/// enemy proximity/targeting gate that compares against `strat_dist_xz`.
 pub fn strat_dist_xz(a: &Alien, b: &Alien) -> i16 {
-    let dx = ((b.worldx as i32 - a.worldx as i32).abs()) as i16;
-    let dz = ((b.worldz as i32 - a.worldz as i32).abs()) as i16;
-    dx.wrapping_add(dz)
+    let mut x1 = b.worldx.wrapping_sub(a.worldx);
+    if x1 < 0 {
+        x1 = x1.wrapping_neg();
+    }
+    let mut y1 = b.worldz.wrapping_sub(a.worldz);
+    if y1 < 0 {
+        y1 = y1.wrapping_neg();
+    }
+    x1 >>= 1;
+    y1 >>= 1;
+    let rangexz = (y1.wrapping_add(x1)).wrapping_shl(1);
+    let m = if y1 < x1 { x1 } else { y1 };
+    let t = m.wrapping_add(rangexz);
+    let acc = (t >> 1).wrapping_add(t.wrapping_shl(2));
+    ((acc >> 1) >> 1) >> 1
 }
 
 /// C `Strat_AngleXZ` (anglexy_l): 0-255 angle from src to dst in XZ.
