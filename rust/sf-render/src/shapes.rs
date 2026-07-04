@@ -106,7 +106,9 @@ pub const SHAPE_ANIM_CA_2: u16 = 2;
 pub const SHAPE_ANIM_CA_3: u16 = 3;
 pub const SHAPE_ANIM_CA_4: u16 = 4;
 pub const SHAPE_ANIM_CA_5: u16 = 5;
-pub const SHAPE_ANIM_COUNT: usize = 6;
+/// `bullet_a1` (COLTABS.ASM) — the player-laser color flash (white/cyan/blue).
+pub const SHAPE_ANIM_BULLET: u16 = 6;
+pub const SHAPE_ANIM_COUNT: usize = 7;
 
 pub static ANIM_CA_0: [u16; 4] = [
     material_colnorm1(0xE),
@@ -149,6 +151,14 @@ pub static ANIM_CA_5: [u16; 4] = [
     material_colnorm(0x0, 0x2),
     material_colnorm(0x0, 0xF),
 ];
+/// `bullet_a1` (COLTABS.ASM): COLNORM 14,14 / 8,8 / 14,14 / 7,7 — the player
+/// laser bolt flashing NIGHT palette 14(white)/8(cyan)/7(blue).
+pub static ANIM_BULLET: [u16; 4] = [
+    material_colnorm(0xE, 0xE),
+    material_colnorm(0x8, 0x8),
+    material_colnorm(0xE, 0xE),
+    material_colnorm(0x7, 0x7),
+];
 
 pub struct ShapeAnimTable {
     pub frames: &'static [u16],
@@ -162,6 +172,7 @@ pub static ANIM_TABLES: [ShapeAnimTable; SHAPE_ANIM_COUNT] = [
     ShapeAnimTable { frames: &ANIM_CA_3, name: "CA_3" },
     ShapeAnimTable { frames: &ANIM_CA_4, name: "CA_4" },
     ShapeAnimTable { frames: &ANIM_CA_5, name: "CA_5" },
+    ShapeAnimTable { frames: &ANIM_BULLET, name: "bullet" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -273,7 +284,7 @@ pub const SHAPE_COLTAB_ID_5: u8 = 5;
 pub const SHAPE_COLTAB_ID_INVALID: u8 = 0xFF;
 
 /// COLTABS.ASM `ID_0_C`, full 109 entries FX0-FX108.
-pub static COLTAB_ID0: [u16; 109] = [
+pub static COLTAB_ID0: [u16; 110] = [
     // FX0-FX9: COLLITE light-source rows.
     material_collite(0, 0), material_collite(1, 1),
     material_collite(2, 2), material_collite(3, 3),
@@ -358,6 +369,7 @@ pub static COLTAB_ID0: [u16; 109] = [
     material_coltext(29), // FX106 starwars1_spr
     material_coltext(30), // FX107 starwars2_spr
     material_coltext(31), // FX108 tunnelwall_spr
+    material_colanim(SHAPE_ANIM_BULLET), // FX109 bullet_c (player laser flash)
 ];
 
 /// COLTABS.ASM `ID_1_C`.
