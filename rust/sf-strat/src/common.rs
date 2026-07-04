@@ -386,7 +386,9 @@ pub fn strat_gen_vecs_3d(al: &mut Alien) {
 /// degrees (64 - roty).
 pub fn strat_gen_side_vecs(al: &Alien) -> (i16, i16) {
     use crate::snes_trig::{mulslog, COSTAB, SINTAB};
-    let angle = 64u8.wrapping_sub(al.roty) as usize;
+    // ROM sidevecs_l: angle = (64 - roty) + 1 (an `inx` before the table
+    // lookup; the port omitted the +1). Verified by sf-oracle.
+    let angle = 65u8.wrapping_sub(al.roty) as usize;
     let vel = al.vel as i32;
     (
         mulslog(vel, SINTAB[angle] as i32) as i16,
@@ -397,7 +399,9 @@ pub fn strat_gen_side_vecs(al: &Alien) -> (i16, i16) {
 /// C `Strat_GenFrontVecs` (frontvecs_l).
 pub fn strat_gen_front_vecs(al: &Alien) -> (i16, i16) {
     use crate::snes_trig::{mulslog, COSTAB, SINTAB};
-    let angle = al.roty as usize;
+    // ROM frontvecs_l: angle = roty + 1 (an `inx` before the table lookup; the
+    // port omitted the +1). Verified by sf-oracle.
+    let angle = al.roty.wrapping_add(1) as usize;
     let vel = al.vel as i32;
     (
         mulslog(vel, SINTAB[angle] as i32) as i16,
