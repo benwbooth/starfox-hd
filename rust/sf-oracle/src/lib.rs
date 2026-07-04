@@ -8,6 +8,8 @@
 //! pure 65816 and directly executable here; 3D/render math lives on the GSU and
 //! is out of scope for this harness.
 
+pub mod gsu;
+
 use w65c816::{AddressType, Signals, System, CPU};
 
 /// LoROM + WRAM bus over the retail ROM.
