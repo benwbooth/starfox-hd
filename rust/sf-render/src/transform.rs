@@ -92,8 +92,15 @@ fn lerp_cam_angle_f(from: i16, to: i16, t: f32, big_jump: &mut bool) -> f32 {
     if diff < -128 {
         diff += 256;
     }
-    if diff > 48 || diff < -48 {
-        *big_jump = true; // > ~67 deg in one tick: cut
+    // Genuine camera cuts are detected ROM-faithfully upstream (viewtype change
+    // -> CameraSnapshot.snap -> snap_camera); this heuristic is only a fallback
+    // for a within-viewtype discontinuity. At 48 (~67 deg/tick) it misfired on
+    // fast CONTINUOUS rotation (the intro tunnel 360-degree follow), snapping
+    // every tick -> the camera "wobbled" at 20 Hz. Only trip near the 180-degree
+    // shortest-path ambiguity, where interpolation direction is genuinely
+    // undefined; everything below that interpolates smoothly.
+    if diff > 120 || diff < -120 {
+        *big_jump = true; // ~169 deg in one tick: treat as a flip/cut
     }
     (a8 as f32 + diff as f32 * t).rem_euclid(256.0)
 }
@@ -295,7 +302,11 @@ impl Transform {
         let dy = fp16_to_float(self.cam_curr.y.wrapping_sub(self.cam_prev.y));
         let dz = fp16_to_float(self.cam_curr.z.wrapping_sub(self.cam_prev.z));
         // A displacement this large in one 20Hz tick is a teleport, not motion.
-        if dx * dx + dy * dy + dz * dz > 600.0 * 600.0 {
+        // Genuine teleports are viewtype-change cuts (cam.snap) handled upstream;
+        // this is only a fallback. 600 tripped on fast continuous camera moves
+        // (a wide orbital "follow" like the intro), snapping every tick. Raised
+        // so only an extreme within-viewtype jump trips it.
+        if dx * dx + dy * dy + dz * dz > 2400.0 * 2400.0 {
             big_jump = true;
         }
 
