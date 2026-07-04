@@ -3560,12 +3560,44 @@ fn zacos_phase1(g: &mut Game, idx: u16) {
     zacos_move(g, idx);
 }
 
-/// C `zacos_phase2` (strat_enemy.c:4962).
+/// C `zacos3_strat` (GASTRATS.ASM:981-996) — attack-dive laser barrage.
+/// Each frame `rotx -= 4` (full 256-step loop). Fires RELSLOWELASER on the
+/// frame rotx wraps to 0, otherwise every 4th frame while pitch is in the
+/// forward arc (rotx not minus and not below -deg90). Transitions to zacos4
+/// only after rotx wraps back to -4 (0xFC).
 fn zacos_phase2(g: &mut Game, idx: u16) {
-    let _ = speed_to(&mut g.objs.aliens[idx as usize], 60, 1);
-    if let Some(pl) = player(g) {
-        strat_aim_3d(g, idx, &pl, 3);
+    let rotx = {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = al.rotx.wrapping_sub(4); // s_add_alvar B,x,al_rotx,#-4
+        al.rotx
+    };
+    // Fire gate (GASTRATS.ASM:986-989).
+    let fire = if rotx == 0 {
+        true // s_beq .fire
+    } else if rotx & 0x80 != 0 {
+        false // s_jmp_alvarmi -> .nfire
+    } else if rotx.wrapping_sub(DEG90.wrapping_neg()) & 0x80 != 0 {
+        false // s_jmp_alvarless #-deg90 -> .nfire
+    } else {
+        g.vars.gameframe & 3 == 0 // s_jmp_notdelay 2 -> .nfire
+    };
+    if fire {
+        // s_weapon_rot #0,#0 -> fire forward relative to object orientation.
+        let me = g.objs.aliens[idx as usize];
+        strat_fire_relslowlaser(g, idx, me.rotx, me.roty);
     }
+    if rotx == 4u8.wrapping_neg() {
+        // s_jmp_alvarEQ B,x,al_rotx,#-4,zacos4_init
+        let s = sid(g, zacos_phase3);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+    }
+    zacos_move(g, idx);
+}
+
+/// C `zacos4_strat` (GASTRATS.ASM:1001-1007) — s_speedto #60,1 + s_banktoplayer.
+fn zacos_phase3(g: &mut Game, idx: u16) {
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 60, 1);
+    szaco2_bank_to_player(g, idx);
     zacos_move(g, idx);
 }
 
@@ -3630,13 +3662,19 @@ fn houdai_strat(g: &mut Game, idx: u16) {
     let target = houdai_target(g, idx).map(|t| g.objs.aliens[t as usize]);
     if let Some(t) = target.filter(|t| t.active) {
         let me = g.objs.aliens[idx as usize];
-        if ((me.worldz as i32 - t.worldz as i32).abs() as i16) >= HOUDAI_TRACK_MIN_Z {
-            g.objs.aliens[idx as usize].roty = angle_xz(&me, &t);
+        // s_jmp_Zdistless x,y,#200,.nfindobj: tracked target too close ->
+        // skip aim AND fire (jumps to end of strat).
+        if ((me.worldz as i32 - t.worldz as i32).abs() as i16) < HOUDAI_TRACK_MIN_Z {
+            return;
         }
+        // s_obj2obj_angle x,y,al_roty,1: achase yaw toward target (shift 1),
+        // not an instant angle snap.
+        strat_aim_yaw(g, idx, &t, 1);
     }
     let Some(pl) = player(g) else { return };
     let me = g.objs.aliens[idx as usize];
-    if ((me.worldz as i32 - pl.worldz as i32).abs() as i16) < HOUDAI_FIRE_GATE_Z {
+    // s_jmp_distless x,y,#800: XZ range (rangexz), not Z-only.
+    if dist_xz(&me, &pl) < HOUDAI_FIRE_GATE_Z {
         return;
     }
     if g.vars.gameframe & 3 != 0 {
@@ -3725,9 +3763,8 @@ fn zaco3_attack(g: &mut Game, idx: u16) {
     };
     strat_aim_3d(g, idx, &t, 4);
     let me = g.objs.aliens[idx as usize];
-    let dist = (me.worldx as i32 - t.worldx as i32).abs()
-        + (me.worldy as i32 - t.worldy as i32).abs()
-        + (me.worldz as i32 - t.worldz as i32).abs();
+    // s_jmp_distless y,x,#1300 (KSTRATS.ASM:115): XZ rangexz, not Manhattan-3D.
+    let dist = dist_xz(&me, &t) as i32;
     if dist < 1300 && g.vars.gameframe & 7 == 0 && me.sbyte1 > 0 {
         g.objs.aliens[idx as usize].sbyte1 -= 1;
         if g.objs.aliens[idx as usize].sbyte1 == 0 {
@@ -3908,9 +3945,8 @@ fn zaco4_attack(g: &mut Game, idx: u16) {
     };
     strat_aim_3d(g, idx, &t, 4);
     let me = g.objs.aliens[idx as usize];
-    let dist = (me.worldx as i32 - t.worldx as i32).abs()
-        + (me.worldy as i32 - t.worldy as i32).abs()
-        + (me.worldz as i32 - t.worldz as i32).abs();
+    // s_jmp_distless y,x,#1300 (KSTRATS.ASM:115): XZ rangexz, not Manhattan-3D.
+    let dist = dist_xz(&me, &t) as i32;
     if dist < 1300 && g.vars.gameframe & 7 == 0 && me.sbyte1 > 0 {
         g.objs.aliens[idx as usize].sbyte1 -= 1;
         if g.objs.aliens[idx as usize].sbyte1 == 0 {
@@ -4753,25 +4789,14 @@ fn zaco1_phase2(g: &mut Game, idx: u16) {
         al.ptr = (((strat_cos(al.sbyte1) * 127.0f32) as i16) >> 2) as u16;
         al.rotz = al.rotz.wrapping_add(al.sbyte2);
     } else if (1400..=1800).contains(&zdist) {
-        // Fire homing laser every 2 frames.
-        if g.vars.gameframe & 1 == 0 {
+        // Fire RELSLOWELASERHOME every 4th frame (s_jmp_notdelay 2 = mask 3),
+        // aimed at the player in full 3D (s_weapon_rots2obj y).
+        if g.vars.gameframe & 3 == 0 {
             if let Some(p) = pl {
                 let me = g.objs.aliens[idx as usize];
                 let fire_yaw = angle_xz(&me, &p);
-                let rotx = me.rotx;
-                let _ = spawn_projectile(
-                    g,
-                    Some(idx),
-                    0,
-                    0,
-                    0,
-                    rotx,
-                    fire_yaw,
-                    52,
-                    55,
-                    2,
-                    ACF_COLLTYPE4,
-                );
+                let fire_pitch = strat_pitch_toward(&me, &p);
+                strat_fire_relslowlaserhome(g, idx, fire_pitch, fire_yaw);
             }
         }
         let al = &mut g.objs.aliens[idx as usize];
