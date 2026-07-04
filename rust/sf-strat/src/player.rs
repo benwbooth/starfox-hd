@@ -1076,7 +1076,10 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
     // Lifetime 10 = ROM Pelaser `s_set_lifecnt #10` (GSTRATS.ASM:2351). Was
     // 45, so bolts lingered ~2.25s and the 3-shot cap blocked re-firing.
     spawn_player_projectile(g, idx, 0, 0, 80, 66, 10, 2, true, false);
-    g.hooks.play_se(0x60);
+    // ROM single-fire: `trigse se_laser` (= $35). Port had $60 (wrong SFX =
+    // the "wrong noise"). PSTRATS.ASM playerfire_srou. Double=$34, beam=$36,
+    // nova=$31 already correct.
+    g.hooks.play_se(0x35);
 }
 
 // ============================================================
