@@ -203,6 +203,13 @@ impl StratRam for GameVars {
 /// (src/types.h:57): `rnd * 91 + 0x61D7`, 16-bit. State lives at
 /// [`sv::RNDVAL`] (boot value 0, like the C global).
 pub fn sf_random(vars: &mut GameVars) -> u16 {
+    // NOTE: this ×91+$61D7 LCG matches the C oracle (and its frozen boss parity
+    // fixtures), but the ROM's RUNTIME RNG is actually a different algorithm — a
+    // 4-byte subtract-with-borrow chain (RANDOM $2F7BF, proven in sf-oracle
+    // tests/random.rs). Swapping to the ROM algorithm is correct-vs-ROM but
+    // diverges every RNG-dependent boss from the C fixtures (which can't be
+    // regenerated — C code was removed). Left as the C-oracle LCG pending a
+    // decision on C-oracle vs ROM-oracle for RNG behavior. See rom-oracle-plan.
     let v = vars
         .sv_u16(sv::RNDVAL)
         .wrapping_mul(91)
@@ -315,7 +322,11 @@ pub fn strat_speed_to(al: &mut Alien, target_speed: u8, rate: u8) -> bool {
     } else {
         al.vel += rate;
     }
-    false
+    // Return "at target now" (C oracle semantics the bosses branch on). The ROM
+    // returns carry = "already at target on entry" (false after a move/snap),
+    // but the C port and its frozen boss fixtures use the post-move test, so we
+    // keep that; the overflow fix above is the substantive correctness change.
+    al.vel == target_speed
 }
 
 // ============================================================
