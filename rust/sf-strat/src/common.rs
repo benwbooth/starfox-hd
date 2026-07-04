@@ -297,20 +297,25 @@ pub fn strat_chase_proportional(current: i16, target: i16, shift: u32) -> i16 {
 /// C `Strat_SpeedTo` (sr_speedto, STRATROU.ASM:2707-2733). Returns true
 /// when the target speed is reached.
 pub fn strat_speed_to(al: &mut Alien, target_speed: u8, rate: u8) -> bool {
+    // ROM SR_SPEEDTO ($1FD625): returns true (SEC) only when already at target
+    // on entry; else snap when |vel-target| < rate, otherwise step by rate.
+    // Because the snap handles the near case, the step never over/undershoots.
+    // The old port did `vel.wrapping_add(rate)` which wrapped past 255 for a
+    // large vel+rate (oracle: vel=200,target=255,rate=100 -> 44 not 255).
+    // tests/speedto.rs. All current callers use rate=1 (unaffected) and ignore
+    // the bool, but bosses/higher rates would have hit the wrap.
     if al.vel == target_speed {
         return true;
     }
-    if al.vel < target_speed {
-        al.vel = al.vel.wrapping_add(rate);
-        if al.vel > target_speed {
-            al.vel = target_speed;
-        }
-    } else if al.vel - target_speed < rate {
+    let abs_diff = (al.vel as i16 - target_speed as i16).unsigned_abs();
+    if abs_diff < rate as u16 {
         al.vel = target_speed;
-    } else {
+    } else if al.vel > target_speed {
         al.vel -= rate;
+    } else {
+        al.vel += rate;
     }
-    al.vel == target_speed
+    false
 }
 
 // ============================================================
