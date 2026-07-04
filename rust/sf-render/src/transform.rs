@@ -166,10 +166,15 @@ impl Transform {
         (s, c)
     }
 
-    /// Mirror of `Transform_SetProjection` (60 deg FOV, near 1, far 10000).
+    /// Mirror of `Transform_SetProjection`. The ROM (GSU `mdo_project`,
+    /// MOBJ.MC:5156) projects `screen = coord*256/z + center` with vertical
+    /// center `cscrc = 112` (RAMSTUFF.ASM), i.e. vertical FOV = 2·atan(112/256)
+    /// ≈ 47.2°. The port had a guessed 60° which over-widened the view and
+    /// floated objects too high; horizontal stays `f/aspect` so widescreen just
+    /// reveals more to the sides (the SNES vertical extent is preserved).
     pub fn set_projection(&mut self, width: i32, height: i32) {
         let aspect = width as f32 / height as f32;
-        let fov = 60.0f32 * (std::f32::consts::PI / 180.0);
+        let fov = 2.0 * (112.0f32 / 256.0).atan();
         let near = 1.0f32;
         let far = 10000.0f32;
         let f = 1.0 / (fov / 2.0).tan();
