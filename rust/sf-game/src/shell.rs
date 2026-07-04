@@ -578,6 +578,20 @@ impl Shell {
 
         self.game_state = GameState::Title; // boot.c:135
         self.title_loaded = false;
+
+        // DEBUG: SF_START_PLAYING skips title/briefing/planet-select and drops
+        // straight into gameplay (Corneria / LEVEL1_1 by default) — for
+        // headless frame capture (SF_DUMP_PPM) and accuracy testing. Optional
+        // SF_START_MAP=<id> overrides the starting map id.
+        if std::env::var_os("SF_START_PLAYING").is_some() {
+            self.planets_init();
+            if let Ok(m) = std::env::var("SF_START_MAP") {
+                if let Ok(id) = m.parse::<u32>() {
+                    self.planets.newmap = id;
+                }
+            }
+            self.begin_gameplay_from_planet_select();
+        }
     }
 
     /// C `MapExec_LoadLevel()` (src/map/map_exec.c:14): unported ids fall
