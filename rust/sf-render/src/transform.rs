@@ -216,22 +216,29 @@ impl Transform {
         // Build view matrix from camera position and SNES rotation angles.
         // SNES -> GL world: negate Y translation, negate X/Z rotation angles.
         let cy = -cy;
-        let (sx, cx_) = self.sincos_frac(-crx);
+        let (sx, cx_) = self.sincos_frac(crx);
         let (sy, cy_) = self.sincos_frac(cry);
-        let (sz, cz_) = self.sincos_frac(-crz);
+        let (sz, cz_) = self.sincos_frac(crz);
 
-        // ZYX rotation order (matching SNES)
+        // Camera rotation = ROM `mcrotmatzxy16` (MWCROT.MC), the GSU routine
+        // getview_l feeds the view angles to. ZXY order = Ry·Rx·Rz with per-axis
+        // signs Rx=[1,0,0;0,cx,-sx;0,sx,cx], Ry=[cy,0,+sy;0,1,0;-sy,0,cy],
+        // Rz=[cz,-sz,0;sz,cz,0;0,0,1]. This expansion reproduces the ROM matrix
+        // EXACTLY (Δ=0) — proven in sf-oracle tests/gsu_rotmat.rs. The previous
+        // ZYX + flipped-yaw formula matched only pitch/roll; yaw rotated the
+        // wrong way and combined rotations were badly off ("entities too high" /
+        // horizon disconnect / camera-opposite).
         let mut rotation = [0.0f32; 16];
         identity(&mut rotation);
-        rotation[0] = cy_ * cz_;
-        rotation[1] = cy_ * sz;
-        rotation[2] = -sy;
-        rotation[4] = sx * sy * cz_ - cx_ * sz;
-        rotation[5] = sx * sy * sz + cx_ * cz_;
-        rotation[6] = sx * cy_;
-        rotation[8] = cx_ * sy * cz_ + sx * sz;
-        rotation[9] = cx_ * sy * sz - sx * cz_;
-        rotation[10] = cx_ * cy_;
+        rotation[0] = cy_ * cz_ + sy * sx * sz;
+        rotation[1] = -cy_ * sz + sy * sx * cz_;
+        rotation[2] = sy * cx_;
+        rotation[4] = cx_ * sz;
+        rotation[5] = cx_ * cz_;
+        rotation[6] = -sx;
+        rotation[8] = -sy * cz_ + cy_ * sx * sz;
+        rotation[9] = sy * sz + cy_ * sx * cz_;
+        rotation[10] = cy_ * cx_;
 
         // Translation (negate for view matrix)
         let tx = -fp16_to_float(cx);
@@ -382,22 +389,24 @@ impl Transform {
         rz: f32,
     ) {
         let y = -y;
-        let (sx, cx_) = self.sincos_frac(-rx);
+        let (sx, cx_) = self.sincos_frac(rx);
         let (sy, cy_) = self.sincos_frac(ry);
-        let (sz, cz_) = self.sincos_frac(-rz);
+        let (sz, cz_) = self.sincos_frac(rz);
 
         identity(out);
 
-        // ZYX rotation (matching SNES rotation order)
-        out[0] = cy_ * cz_;
-        out[1] = cy_ * sz;
-        out[2] = -sy;
-        out[4] = sx * sy * cz_ - cx_ * sz;
-        out[5] = sx * sy * sz + cx_ * cz_;
-        out[6] = sx * cy_;
-        out[8] = cx_ * sy * cz_ + sx * sz;
-        out[9] = cx_ * sy * sz - sx * cz_;
-        out[10] = cx_ * cy_;
+        // ROM `mcrotmatzxy16` (MWCROT.MC) — objects use the same GSU matrix as
+        // the camera. ZXY order = Ry·Rx·Rz; reproduces the ROM matrix exactly
+        // (Δ=0, sf-oracle tests/gsu_rotmat.rs). Was ZYX + flipped yaw.
+        out[0] = cy_ * cz_ + sy * sx * sz;
+        out[1] = -cy_ * sz + sy * sx * cz_;
+        out[2] = sy * cx_;
+        out[4] = cx_ * sz;
+        out[5] = cx_ * cz_;
+        out[6] = -sx;
+        out[8] = -sy * cz_ + cy_ * sx * sz;
+        out[9] = sy * sz + cy_ * sx * cz_;
+        out[10] = cy_ * cx_;
 
         // Translation
         out[12] = fp16_to_float(x);

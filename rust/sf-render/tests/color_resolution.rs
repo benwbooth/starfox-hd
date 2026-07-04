@@ -42,7 +42,9 @@ fn resolve_fx(fx: u8, col_frame: u8, shade_index: i32, depth_bank: u8) -> [f32; 
 
 #[test]
 fn coltab_id0_layout() {
-    assert_eq!(COLTAB_ID0.len(), 109, "id_0_c must span FX0-FX108");
+    // FX0-FX108 from the ROM + FX109 = bullet_c colanim added for the player
+    // laser shimmer (obj colframe fix). See shapes.rs COLTAB_ID0.
+    assert_eq!(COLTAB_ID0.len(), 110, "id_0_c = FX0-FX108 + FX109 bullet_c");
     assert_eq!(COLTAB_ID0[0], material_collite(0, 0));
     assert_eq!(COLTAB_ID0[10], material_coldepth(0)); // FX10
     assert_eq!(COLTAB_ID0[20], material_coldepth(10)); // FX20
