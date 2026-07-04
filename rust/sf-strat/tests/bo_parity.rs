@@ -187,6 +187,18 @@ fn run(scenario: &str) -> String {
 
 fn check(scenario: &str, fixture: &str) {
     let got = run(scenario);
+    // Bless mode: the original C dump harness was deleted in the RIIR, so these
+    // fixtures can no longer be regenerated from C. Set SF_BLESS_FIXTURES=1 to
+    // rewrite them from the current (ROM-verified) Rust trace. The ROM ground
+    // truth for the spawn-time init these fixtures pinned is proven separately
+    // by sf-oracle tests/audit_boss.rs (init_objvars_l -> flags=0x10 type=0x08
+    // sflags3=0x08 collflags=0x04); the boss inits were diffed against
+    // GBSTRATS/D2STRATS/GB3STRAT. So this test is now a regression guard, not a
+    // C-parity proof.
+    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
+        std::fs::write(fixture, &got).unwrap_or_else(|e| panic!("write {fixture}: {e}"));
+        return;
+    }
     let want = std::fs::read_to_string(fixture)
         .unwrap_or_else(|e| panic!("read {fixture}: {e}"));
     if got != want {
