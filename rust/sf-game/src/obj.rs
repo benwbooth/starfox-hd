@@ -182,7 +182,10 @@ pub fn strat_init_obj_vars(al: &mut Alien) {
     al.vz = 0;
     al.count = 0;
     al.count1 = 0;
-    al.animframe = 0xFF; // default: use gameframe
+    // Same ROM zeroing (init_objvars_l) applies to animframe: default 0 = bit7
+    // clear = follow gameframe (animate). 0xFF = bit7 set = FIXED frame 127
+    // (= last frame for most meshes), which froze multi-frame shape animations.
+    al.animframe = 0;
     // ROM init_objvars_l (STRATROU.ASM:2311) zeroes the struct -> colframe=0 =
     // bit7 CLEAR = "follow gameframe" (MAIN.ASM:2205-2216: bmi->fixed frame,
     // else gameframe). The port had 0xFF = bit7 SET = FIXED frame 127, which
