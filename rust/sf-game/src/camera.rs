@@ -265,15 +265,23 @@ impl GameCamera {
             rot_z = 0;
         } else {
             // --- Step 2: normal view rotation (ROM getview_l, GAME.ASM) ---
-            // viewrotyw = outvy - player_turnrot ; viewrotzw = outvz - plrotz.
-            // The port had rot_z=0, so the camera never rolled with banking —
-            // the ROM rolls the view by (outvz - plrotz). Onplanet outvz=0
-            // (PSTRATS.ASM), so the camera roll = -plrotz. plrotz is sv $050A.
-            const SV_PLROTZ: u16 = 0x050A;
-            let plrotz = vars.read_ext16(SV_PLROTZ) as i16;
+            // viewrotyw = outvy - player_turnrot.
             rot_x = player.rotx as i16;
             rot_y = (player.roty as i32 - ((self.vars.player_turnrot >> 8) as u8) as i32) as i16;
-            rot_z = (0i16.wrapping_sub(plrotz)) >> 8;
+            // viewrotzw = outvz - plrotz, but the ROM GATES this on `dozrot`:
+            //   lda dozrot; bne .ok; stz viewrotzw   (GAME.ASM:52-56)
+            // dozrot is set from `levelinfo & if_zroton` + setzroton/off map
+            // bytecodes (WORLD.ASM). So the camera rolls ONLY in levels/sections
+            // flagged for it — NOT in normal flight (Corneria). $1776 = dozrot.
+            const DOZROT: u16 = 0x1776;
+            if vars.read_ext8(DOZROT) != 0 {
+                // Onplanet outvz=0 (PSTRATS.ASM), so the roll = -plrotz ($050A).
+                const SV_PLROTZ: u16 = 0x050A;
+                let plrotz = vars.read_ext16(SV_PLROTZ) as i16;
+                rot_z = (0i16.wrapping_sub(plrotz)) >> 8;
+            } else {
+                rot_z = 0;
+            }
         }
 
         // --- Step 5: final camera position (game.c:131-138) ---

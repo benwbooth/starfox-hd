@@ -1123,8 +1123,18 @@ impl Game {
                     self.hooks.fade_to_black(2);
                     self.vars.mapptr = p.wrapping_add(1);
                 }
-                // 82-88: screen/zrot toggles — no-ops.
-                op::SCREENOFF | op::SCREENON | op::ZROTOFF | op::ZROTON => {
+                // 86/88: camera z-rotation toggle (WORLD.ASM setzroton/off ->
+                // dozrot $1776); gates the view roll in getview_l.
+                op::ZROTON => {
+                    self.vars.write_ext8(0x1776, 1);
+                    self.vars.mapptr = p.wrapping_add(1);
+                }
+                op::ZROTOFF => {
+                    self.vars.write_ext8(0x1776, 0);
+                    self.vars.mapptr = p.wrapping_add(1);
+                }
+                // 82/84: screen on/off — no-ops.
+                op::SCREENOFF | op::SCREENON => {
                     self.vars.mapptr = p.wrapping_add(1);
                 }
                 // 90: mapspecial (WORLD.ASM:654-663).
