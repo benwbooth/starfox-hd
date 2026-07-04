@@ -99,9 +99,19 @@ fn assert_trace_matches(scenario: u32, fixture_name: &str) {
         "{}/tests/fixtures/{fixture_name}",
         env!("CARGO_MANIFEST_DIR")
     );
+    let produced = run_scenario(scenario);
+    // Bless mode: the C dump harness was deleted in the RIIR, so these fixtures
+    // can't be regenerated from C. SF_BLESS_FIXTURES=1 rewrites them from the
+    // current (ROM-verified) Rust trace. The spawn-time init fields these pin
+    // (type_/flags/sflags3/animframe/colframe) are proven ROM-correct by
+    // sf-oracle tests/audit_boss.rs + audit_coldet.rs; this is now a regression
+    // guard, not a C-parity proof.
+    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
+        std::fs::write(&path, &produced).unwrap_or_else(|e| panic!("write {path}: {e}"));
+        return;
+    }
     let fixture = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("read {path}: {e}"));
-    let produced = run_scenario(scenario);
 
     let expected: Vec<&str> = fixture
         .lines()
