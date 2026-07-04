@@ -59,10 +59,69 @@ fn rotmat_identity_and_axis_rotations_match_rom() {
     eprintln!("  pitch cos={cos:.4} sin={sin:.4} (expect 0.924 / 0.383)");
     assert!((cos - 0.9239).abs() < 0.02 && (sin - 0.3827).abs() < 0.02);
 
-    // The scalable next step: diff the full ROM matrix vs Rust build_view_matrix
-    // for representative camera angles to pin the "entities too high" / horizon
-    // discrepancy (ROM is ZXY 16-bit; Rust comment says ZYX). Printed for now.
-    for (rx, ry, rz) in [(4096, 0, 0), (0, 4096, 0), (0, 0, 4096), (-7000, 20000, 0)] {
-        eprintln!("rot({rx},{ry},{rz}): {:?}", gsu_rotmat(&rom, MCROTMATZXY16, rx, ry, rz));
+    // --- ROM-vs-Rust matrix DIFF (finds the camera-matrix defect) -----------
+    // Rust build_view_matrix_f rotation[] (transform.rs), reconstructed here.
+    // Angle in radians is representation-independent; sincos_frac(-crx)/(cry)/
+    // (-crz) -> the negation pattern the port applies.
+    use std::f64::consts::PI;
+    let rust_rot = |rx: i16, ry: i16, rz: i16| -> [f64; 9] {
+        let a = |v: i16| v as f64 / 65536.0 * 2.0 * PI;
+        let (sx, cx) = (-a(rx)).sin_cos();
+        let (sy, cy) = (a(ry)).sin_cos();
+        let (sz, cz) = (-a(rz)).sin_cos();
+        [
+            cy * cz, cy * sz, -sy,
+            sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy,
+            cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy,
+        ]
+    };
+    let cmp = |label: &str, rx: i16, ry: i16, rz: i16| {
+        let rom = gsu_rotmat(&rom, MCROTMATZXY16, rx, ry, rz);
+        let romf: Vec<f64> = rom.iter().map(|&v| v as f64 / ONE as f64).collect();
+        let rust = rust_rot(rx, ry, rz);
+        let maxd = romf.iter().zip(rust.iter()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        eprintln!("{label} maxΔ={maxd:.3}");
+        eprintln!("  ROM : {}", romf.iter().map(|v| format!("{v:+.3}")).collect::<Vec<_>>().join(" "));
+        eprintln!("  RUST: {}", rust.iter().map(|v| format!("{v:+.3}")).collect::<Vec<_>>().join(" "));
+        maxd
+    };
+    let _ = cmp("pure yaw  (0,4096,0)", 0, 4096, 0);
+    let _ = cmp("pure pitch(4096,0,0)", 4096, 0, 0);
+    let _ = cmp("pure roll (0,0,4096)", 0, 0, 4096);
+    let _ = cmp("combined  (-7000,20000,0)", -7000, 20000, 0);
+
+    // Candidate CORRECT formula: ZXY order = Ry·Rx·Rz with the ROM's per-axis
+    // signs (Ry has +sin[0][2]/-sin[2][0]). If this reproduces the ROM for ALL
+    // cases, it's exactly what build_view_matrix should use.
+    let mul = |a: [f64; 9], b: [f64; 9]| -> [f64; 9] {
+        let mut m = [0.0; 9];
+        for r in 0..3 {
+            for c in 0..3 {
+                m[r * 3 + c] = (0..3).map(|k| a[r * 3 + k] * b[k * 3 + c]).sum();
+            }
+        }
+        m
+    };
+    let zxy = |rx: i16, ry: i16, rz: i16| -> [f64; 9] {
+        let a = |v: i16| v as f64 / 65536.0 * 2.0 * PI;
+        let (sx, cx) = a(rx).sin_cos();
+        let (sy, cy) = a(ry).sin_cos();
+        let (sz, cz) = a(rz).sin_cos();
+        let rxm = [1., 0., 0., 0., cx, -sx, 0., sx, cx];
+        let rym = [cy, 0., sy, 0., 1., 0., -sy, 0., cy];
+        let rzm = [cz, -sz, 0., sz, cz, 0., 0., 0., 1.];
+        mul(rym, mul(rxm, rzm)) // Ry·Rx·Rz  (apply Z, then X, then Y)
+    };
+    eprintln!("--- candidate ZXY (Ry*Rx*Rz) vs ROM ---");
+    let mut worst = 0.0f64;
+    for (rx, ry, rz) in [(0, 4096, 0), (4096, 0, 0), (0, 0, 4096), (-7000, 20000, 0), (5000, -12000, 8000)] {
+        let rom = gsu_rotmat(&rom, MCROTMATZXY16, rx, ry, rz);
+        let romf: Vec<f64> = rom.iter().map(|&v| v as f64 / ONE as f64).collect();
+        let cand = zxy(rx, ry, rz);
+        let d = romf.iter().zip(cand.iter()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        worst = worst.max(d);
+        eprintln!("  ({rx},{ry},{rz}) maxΔ={d:.3}");
     }
+    eprintln!("=> candidate ZXY worst Δ = {worst:.3} (near 0 => this is the correct formula to port)");
+    assert!(worst < 0.02, "ZXY = Ry*Rx*Rz should reproduce the ROM matrix");
 }
