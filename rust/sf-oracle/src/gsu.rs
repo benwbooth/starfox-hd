@@ -40,6 +40,7 @@ pub struct Gsu {
     alt2: bool,
     b_flag: bool, // WITH set (in-place / MOVE modifier)
     romb_pending: bool,
+    last_ram: u16, // last RAM word address (for SBK)
 }
 
 impl Gsu {
@@ -57,8 +58,10 @@ impl Gsu {
             alt2: false,
             b_flag: false,
             romb_pending: false,
+            last_ram: 0,
         }
     }
+
 
     fn flag(&self, b: u16) -> bool {
         self.sfr & b != 0
@@ -302,6 +305,17 @@ impl Gsu {
                 self.write_dst(v);
                 self.set_zs(v);
             }
+            0x90 => {
+                // SBK: store Sreg to the last-accessed RAM word address.
+                let a = self.last_ram as usize & 0xFFFF;
+                let s = self.src();
+                self.ram[a] = s as u8;
+                self.ram[(a + 1) & 0xFFFF] = (s >> 8) as u8;
+            }
+            0x91..=0x94 => {
+                // LINK #n: R11 = R15 + n (return address for a GSU subroutine).
+                self.r[11] = self.r[15].wrapping_add((op & 0xF) as u16);
+            }
             0x95 => {
                 // SEX: sign-extend low byte
                 let v = self.src() as u8 as i8 as i16 as u16;
@@ -373,9 +387,11 @@ impl Gsu {
             }
             0xB0..=0xBF => {
                 if self.b_flag {
-                    // MOVES Rn <- Sreg (FROM with the WITH/B flag), sets flags.
-                    let v = self.r[self.sreg];
-                    self.r[(op & 0xF) as usize] = v;
+                    // MOVES Dreg <- Rn (FROM with the WITH/B flag): the operand
+                    // register is the SOURCE, Dreg (set by WITH) the dest; sets
+                    // flags. Used for the abs idiom `WITH r6; FROM r1` -> r6=r1.
+                    let v = self.r[(op & 0xF) as usize];
+                    self.r[self.dreg] = v;
                     self.set_zs(v);
                 } else {
                     self.sreg = (op & 0xF) as usize;
@@ -409,11 +425,11 @@ impl Gsu {
                 self.set_zs(v);
             }
             0xDF => {
-                // GETC/RAMB/ROMB
-                if self.alt2 {
-                    self.rombr = self.src() as u8; // ROMB
-                } else if self.alt1 {
-                    // RAMB
+                // GETC (alt0) / RAMB (ALT2) / ROMB (ALT3 = alt1&alt2).
+                if self.alt1 && self.alt2 {
+                    self.rombr = self.src() as u8; // ROMB: set ROM data bank
+                } else if self.alt2 {
+                    // RAMB: set RAM bank (single 64K RAM here — no-op)
                 } else {
                     self.romb_pending = true; // GETC (color, no-op for math)
                 }
