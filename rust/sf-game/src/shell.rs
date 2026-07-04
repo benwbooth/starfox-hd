@@ -779,7 +779,17 @@ impl Shell {
                 return;
             }
             self.planets.stage = self.planets.stage.wrapping_add(1);
-            if self.planets.drawplanetlines() {
+            // ROM: level-finish does `inc stage` (MAIN.ASM:229) then re-enters
+            // planetseq_l, which calls `convertroute` on entry (PLANETS.ASM:251)
+            // and again on `.continuewithgame` before gamestart
+            // (PLANETS.ASM:1090). The map walk therefore runs with the
+            // *converted* route (e.g. gameplay whichroute 0 -> 1 -> root P6 ->
+            // MAP_ID_1_2), then converts back for gameplay. Without this bracket
+            // the walk used the raw gameplay route (P1 -> MAP_ID_2_2).
+            self.planets.convertroute();
+            let advanced = self.planets.drawplanetlines();
+            self.planets.convertroute();
+            if advanced {
                 // Stage graph resolved the next map on this route.
                 self.begin_gameplay_from_planet_select();
             } else {
