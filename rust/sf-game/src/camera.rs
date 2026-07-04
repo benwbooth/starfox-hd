@@ -204,12 +204,13 @@ impl GameCamera {
                 .wrapping_add(self.vars.viewshake_z as i8 as i16)
                 .wrapping_add(self.vars.pviewposzoff);
 
-            // View-float bob. The ROM only advances/applies this when the
-            // player flymode has `pfm_wobble` set (GSTRATS.ASM:611 gates the
-            // advance on `playerflymode & pfm_wobble`); normal flight and all
-            // tunnel modes leave it clear, so `viewfloat_y` stays 0 and the
-            // camera does NOT bob. Running it unconditionally produced a
-            // continuous ~2s vertical sway (the reported "wobble").
+            // View-float bob. NOTE: the exact ROM gate is unconfirmed — the
+            // `viewfloat` write site is not in the disassembly (GAME.ASM only
+            // *consumes* viewfloatX/Y via `adc`), and there is no `pfm_wobble`
+            // flag in the ROM. Running the bob unconditionally produced a
+            // continuous ~2s vertical sway that the user reported as a bug, so
+            // it is gated to PFM_WOBBLE (off in normal flight) pending a proper
+            // oracle trace of where the ROM advances the float pointer.
             if vars.playerflymode & crate::vars::PFM_WOBBLE != 0
                 && self.vars.viewfloatptr >= 0
                 && (self.vars.viewfloatptr as usize) < VIEWFLOATTAB_LEN
@@ -361,17 +362,15 @@ mod tests {
             (cam.vars.viewposx, cam.vars.viewposy, cam.vars.viewposz),
             (0, 0, -120)
         );
-        // Bob pointer advanced.
-        assert_eq!(cam.vars.viewfloatptr, 1);
-
-        // The bob update runs AFTER the base position is computed
-        // (game.c:63-73): tick 2 still uses viewfloatY = tab[0] = 0; the
-        // raised tab[1] = 1 lands on tick 3.
+        // The view-float bob is gated to PFM_WOBBLE, which is clear in normal
+        // flight, so the float pointer does NOT advance and viewfloat_y stays 0
+        // (no camera bob). See the gate note in `update`.
+        assert_eq!(cam.vars.viewfloatptr, 0);
         let snap2 = cam.update(&vars, &objs);
         assert_eq!(snap2.y, 0);
-        assert_eq!(cam.vars.viewfloat_y, 1);
+        assert_eq!(cam.vars.viewfloat_y, 0);
         let snap3 = cam.update(&vars, &objs);
-        assert_eq!(snap3.y, fp16_from_int(1));
+        assert_eq!(snap3.y, 0);
     }
 
     #[test]
