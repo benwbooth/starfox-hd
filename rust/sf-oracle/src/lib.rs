@@ -239,6 +239,55 @@ pub fn call(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
     Exit { a: cpu.a(), c: cpu.c(), x: cpu.x(), y: cpu.y() }
 }
 
+/// Run a near (`JSR`/`RTS`) subroutine at `target` (24-bit). Same contract as
+/// [`call`] but for functions that return with `RTS` (2-byte, same bank). The
+/// bootstrap pre-pushes a 2-byte return and `JML`s to the target so its `RTS`
+/// lands on a STP trap in the target's bank.
+pub fn call_near(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
+    const PA: u32 = 0x00F0;
+    const PX: u32 = 0x00F2;
+    const PY: u32 = 0x00F4;
+    bus.wram_write16(PA, entry.a);
+    bus.wram_write16(PX, entry.x);
+    bus.wram_write16(PY, entry.y);
+    // RTS trap: STP at low-WRAM $0300 (reached in the target's bank via mirror).
+    bus.write8(0x00_0300, 0xDB);
+
+    let mx = entry.p & 0x30;
+    let stub: [u8; 19] = [
+        0x18, // CLC
+        0xFB, // XCE
+        0xC2, 0x30, // REP #$30
+        0xE2, mx, // SEP #mx
+        0xA5, PA as u8, // LDA $F0
+        0xA6, PX as u8, // LDX $F2
+        0xA4, PY as u8, // LDY $F4
+        0xF4, 0xFF, 0x02, // PEA $02FF (RTS -> $0300)
+        0x5C, target as u8, (target >> 8) as u8, (target >> 16) as u8, // JML target
+    ];
+    for (i, b) in stub.iter().enumerate() {
+        bus.write8(0x00_0000 + STUB_PC as u32 + i as u32, *b);
+    }
+
+    bus.res_line = true;
+    let mut cpu = CPU::new();
+    let mut started = false;
+    let mut guard = 0u64;
+    loop {
+        cpu.cycle(bus);
+        guard += 1;
+        if !cpu.stopped() {
+            started = true;
+        } else if started {
+            break;
+        }
+        if guard > 50_000_000 {
+            break;
+        }
+    }
+    Exit { a: cpu.a(), c: cpu.c(), x: cpu.x(), y: cpu.y() }
+}
+
 /// Load the retail ROM from the repo root.
 pub fn load_retail_rom() -> Option<Vec<u8>> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
