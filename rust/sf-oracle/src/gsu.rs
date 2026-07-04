@@ -41,6 +41,10 @@ pub struct Gsu {
     b_flag: bool, // WITH set (in-place / MOVE modifier)
     romb_pending: bool,
     last_ram: u16, // last RAM word address (for SBK)
+    /// Pending taken branch (pbr, pc). GSU branches have a delay slot: the next
+    /// instruction executes before the jump takes effect.
+    pending_branch: Option<(u8, u16)>,
+    pub trace_range: Option<(u16, u16)>,
 }
 
 impl Gsu {
@@ -59,6 +63,8 @@ impl Gsu {
             b_flag: false,
             romb_pending: false,
             last_ram: 0,
+            pending_branch: None,
+            trace_range: None,
         }
     }
 
@@ -94,7 +100,14 @@ impl Gsu {
         self.set_flag(sfr::G, true);
         let mut guard = 0u64;
         while self.flag(sfr::G) && guard < 5_000_000 {
+            // A branch taken on the previous step jumps AFTER this step's
+            // instruction (the delay slot) runs.
+            let apply = self.pending_branch.take();
             self.step();
+            if let Some((pbr, pc)) = apply {
+                self.pbr = pbr;
+                self.r[15] = pc;
+            }
             guard += 1;
         }
     }
@@ -136,6 +149,18 @@ impl Gsu {
     }
 
     fn step(&mut self) {
+        if let Some((lo, hi)) = self.trace_range {
+            let pc = self.r[15];
+            if pc >= lo && pc < hi {
+                eprintln!(
+                    "  pc={:04X} op={:02X} r0={:04X} r4={:04X} r6={:04X} r12={:X} r13={:04X} CY={} sreg={} dreg={} b={}",
+                    pc,
+                    self.rom[(((self.pbr as usize & 0x7F) << 15) | (pc as usize & 0x7FFF)) % self.rom.len().max(1)],
+                    self.r[0], self.r[4], self.r[6], self.r[12], self.r[13],
+                    self.flag(sfr::CY) as u8, self.sreg, self.dreg, self.b_flag as u8,
+                );
+            }
+        }
         let op = self.fetch();
         match op {
             0x00 => {
@@ -179,9 +204,9 @@ impl Gsu {
                     _ => unreachable!(),
                 };
                 if take {
-                    self.r[15] = (self.r[15] as i32 + rel) as u16;
+                    let target = (self.r[15] as i32 + rel) as u16;
+                    self.pending_branch = Some((self.pbr, target));
                 }
-                // branches don't reset alt via the shared path; fall through
                 self.reset_prefix();
                 return;
             }
@@ -216,7 +241,7 @@ impl Gsu {
                 self.r[12] = v;
                 self.set_zs(v);
                 if v != 0 {
-                    self.r[15] = self.r[13];
+                    self.pending_branch = Some((self.pbr, self.r[13]));
                 }
             }
             0x3D => {
@@ -341,12 +366,11 @@ impl Gsu {
                 self.set_zs(v);
             }
             0x98..=0x9D => {
-                // JMP/LJMP Rn
+                // JMP/LJMP Rn (delayed). LJMP (ALT1) also sets the program bank
+                // from the paired register.
                 let n = (op & 0xF) as usize;
-                if self.alt1 {
-                    self.pbr = self.r[n] as u8; // LJMP sets pbr from... simplified
-                }
-                self.r[15] = self.r[n];
+                let pbr = if self.alt1 { self.r[n + 1] as u8 } else { self.pbr };
+                self.pending_branch = Some((pbr, self.r[n]));
             }
             0x9E => {
                 // LOB: low byte, zero high

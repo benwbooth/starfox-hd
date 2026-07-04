@@ -79,3 +79,4 @@ fn arctan16_is_sane() {
     }
     assert_eq!(bad, 0, "{bad} cardinal/diagonal cases diverge from atan2");
 }
+
