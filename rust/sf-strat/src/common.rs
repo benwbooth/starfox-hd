@@ -306,11 +306,13 @@ pub fn strat_chase_proportional(current: i16, target: i16, shift: u32) -> i16 {
         return current;
     }
     let diff = current.wrapping_sub(target);
-    // adiv2^shift: arithmetic shift toward zero (not toward -inf).
+    // adiv2^shift: arithmetic shift toward zero (not toward -inf). Compute the
+    // negative branch in i32 like the C oracle's `int`: `-diff` overflows i16
+    // when diff == i16::MIN (-32768) and panicked in debug; C widened to int.
     let mut step = if diff >= 0 {
         diff >> shift
     } else {
-        -((-diff) >> shift)
+        -((-(diff as i32) >> shift) as i16)
     };
     if step == 0 {
         step = if diff > 0 { 1 } else { -1 };
