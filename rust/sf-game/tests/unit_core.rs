@@ -42,7 +42,7 @@ fn op_qobj_decompression() {
     assert_eq!(al.worldz, 0x0F00); // 0xF0 << 4, unsigned
     assert_eq!(al.shape, 10);
     assert_eq!(al.stratptr, None); // empty strategy table -> inert
-    assert_eq!(al.animframe, 0xFF); // Strat_InitObjVars defaults
+    assert_eq!(al.animframe, 0); // ROM init_objvars_l zeroes the block (bit7 clear = animate)
     assert_eq!(al.collflags, ACF_FIRSTFRAME);
 }
 
@@ -278,10 +278,20 @@ fn coldet_applies_ap_damage_with_cooldown() {
     g.objs.aliens[a as usize].hp = 10;
     g.objs.aliens[a as usize].ap = 4;
     g.objs.aliens[b as usize].ap = 8;
+    // Fresh objects have collcount == 0. On a *first-frame* collision the ROM
+    // seeds collcount via init_strats_ram_l (COLDET.ASM:172-182): any object
+    // not already colliding gets collcount = 1 at the top of coldet_run. do_coll
+    // (do_coll_l, DEC-then-BNE) then DECs 1 -> 0, the BNE falls through, and
+    // damage is applied. (An earlier stale version of this test seeded no
+    // collcount and expected damage at collcount == 0, which the ROM-correct
+    // do_coll never applies.)
+    assert_eq!(g.objs.aliens[a as usize].collcount, 0);
     g.coldet_generate_list();
     assert_eq!(g.coldet.list.len(), 2);
     g.coldet_run();
-    // A took B's AP (8), B took A's AP (4); cooldown latched.
+    // First-frame collision: coldet_run reset collcount 0 -> 1, do_coll DEC'd
+    // 1 -> 0 and applied damage. A took B's AP (10 - 8 = 2), B took A's AP
+    // (20 - 4 = 16); both cooldowns latched to FRAMESPERAP.
     assert_eq!(g.objs.aliens[a as usize].hp, 2);
     assert_eq!(g.objs.aliens[b as usize].hp, 16);
     assert_eq!(g.objs.aliens[a as usize].collcount, 10); // FRAMESPERAP
@@ -289,7 +299,9 @@ fn coldet_applies_ap_damage_with_cooldown() {
     assert_eq!(g.objs.aliens[a as usize].collobjptr, b);
     assert_eq!(g.objs.aliens[b as usize].collobjptr, a);
 
-    // Second frame: still overlapping, cooldown ticks down, no damage.
+    // Second frame: still overlapping and still colliding, so init_strats_ram_l
+    // does NOT reset collcount; do_coll DECs the latched 10 -> 9 and, being
+    // nonzero, applies no damage (the AP cooldown).
     g.coldet_generate_list();
     g.coldet_run();
     assert_eq!(g.objs.aliens[a as usize].hp, 2);
@@ -307,11 +319,16 @@ fn coldet_tunnel_halves_hard_ap_and_hardhp_is_immune() {
     g.objs.aliens[b as usize].hp = HARD_HP; // indestructible
     g.objs.aliens[b as usize].ap = HARD_AP;
     g.objs.aliens[a as usize].ap = 5;
+    // First-frame collision: coldet_run seeds collcount 0 -> 1 (init_strats_ram_l,
+    // COLDET.ASM:172-182) so the first do_coll (DEC 1 -> 0) applies damage.
+    assert_eq!(g.objs.aliens[a as usize].collcount, 0);
     g.coldet_generate_list();
     g.coldet_run();
-    // hardAP halved in tunnel: 20 - 4 = 16 (C coldet.c:137).
+    // In-tunnel hardAP is halved before do_coll (do_coll_l: 8 >> 1 = 4), so A
+    // takes 20 - 4 = 16.
     assert_eq!(g.objs.aliens[a as usize].hp, 16);
-    // hardHP victim keeps HP but latches cooldown (C coldet.c:128).
+    // B's hp has bit 7 set (hardHP): do_coll's `LDA hp; BMI` skips the subtract,
+    // so hp is unchanged but the AP cooldown still latches to FRAMESPERAP.
     assert_eq!(g.objs.aliens[b as usize].hp, HARD_HP);
     assert_eq!(g.objs.aliens[b as usize].collcount, 10);
 }
@@ -325,17 +342,27 @@ fn coldet_filters_same_type_immune_and_untyped() {
     g.coldet_run();
     assert_eq!(g.objs.aliens[a as usize].sflags & ASF_COLLIDE, 0);
 
-    // Both untyped: no collision (C coldet.c:222).
+    // Untyped objects DO collide. ROM chkcoll0 (COLDET.ASM:518-521) skips a
+    // pair only when it shares a collision-type bit (cf1 & cf2 & typemask != 0);
+    // it does NOT require either object to carry a type bit. The earlier port
+    // (from src/game/coldet.c) added a spurious `a_types == 0 && b_types == 0 ->
+    // skip`, which wrongly dropped objects that have collflags but no type bit.
+    // (immuneptr set to a non-slot sentinel so the immunity check can't confound
+    // this category-filter case — see the player-slot-0 note in coldet.rs.)
     g.objs.aliens[a as usize].collflags = ACF_WEAPON;
     g.objs.aliens[b as usize].collflags = ACF_WEAPON;
+    g.objs.aliens[a as usize].immuneptr = 0xFFFF;
+    g.objs.aliens[b as usize].immuneptr = 0xFFFF;
     g.coldet_generate_list();
     g.coldet_run();
-    assert_eq!(g.objs.aliens[a as usize].sflags & ASF_COLLIDE, 0);
+    assert_ne!(g.objs.aliens[a as usize].sflags & ASF_COLLIDE, 0);
+    assert_ne!(g.objs.aliens[b as usize].sflags & ASF_COLLIDE, 0);
 
-    // Immunity cross-reference: skip (C coldet.c:225).
+    // Immunity cross-reference: A immune to B -> skip (COLDET.ASM:523-529).
     g.objs.aliens[a as usize].collflags = ACF_COLLTYPE1;
     g.objs.aliens[b as usize].collflags = ACF_COLLTYPE2;
     g.objs.aliens[a as usize].immuneptr = b;
+    g.objs.aliens[b as usize].immuneptr = 0xFFFF;
     g.coldet_generate_list();
     g.coldet_run();
     assert_eq!(g.objs.aliens[a as usize].sflags & ASF_COLLIDE, 0);
@@ -386,9 +413,10 @@ fn obj_free_list_orders_match_c() {
     // Active list is push-front: head is the newest.
     assert_eq!(g.objs.active_indices(), vec![1, 2, 0]);
 
-    // Obj_KillAll pushes 0..69 -> first alloc afterwards is 69 (C quirk).
+    // Obj_KillAll builds the free list FORWARD like the ROM (kill_list_l/
+    // FmtFreeLst) -> head is slot 0, so the first alloc afterwards is 0.
     g.objs.kill_all();
-    assert_eq!(g.objs.alloc(), Some(69));
+    assert_eq!(g.objs.alloc(), Some(0));
 }
 
 #[test]

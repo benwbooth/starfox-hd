@@ -6,7 +6,8 @@
 
 use crate::alien::{
     ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    ACF_FIRSTFRAME, AFEXP, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_LCOLLIDE,
+    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+    ASF_LCOLLIDE,
 };
 use crate::game::Game;
 use crate::vars::{FRAMESPERAP, HARD_AP, PSF3_INTUNNEL};
@@ -135,7 +136,9 @@ impl Game {
         al.collcount = FRAMESPERAP; // tpa = framesperAP
     }
 
-    /// C `Coldet_Run()` (src/game/coldet.c:179, chkcoll COLDET.ASM:225-861).
+    /// C `Coldet_Run()` (src/game/coldet.c:179, chkcoll COLDET.ASM:225-861),
+    /// prefixed by the per-frame reset from `init_strats_ram_l`
+    /// (COLDET.ASM:165-218).
     pub fn coldet_run(&mut self) {
         // Step 1: clear per-frame collision state (init_strats_ram_l
         // mirrors collide -> Lcollide before clearing collide).
@@ -146,6 +149,15 @@ impl Game {
                 al.sflags |= ASF_LCOLLIDE;
             } else {
                 al.sflags &= !ASF_LCOLLIDE;
+                // ROM init_strats_ram_l (COLDET.ASM:172-182): an object that is
+                // NOT already colliding gets `al_collcount = 1` each frame
+                // (`s_set_alvar B,x,al_collcount,#1`). This is what makes the
+                // first do_coll on a fresh collision damage: do_coll DECs
+                // collcount (1 -> 0) and the `BNE exit` falls through. The port
+                // previously never seeded collcount, so with the ROM-correct
+                // do_coll (DEC-then-BNE) a fresh collision saw collcount 0 -> 255
+                // and never applied damage.
+                al.collcount = 1;
             }
             al.sflags &= !ASF_COLLIDE;
             al.sflags &= !ASF_HITFLASH;
@@ -167,20 +179,34 @@ impl Game {
                 }
                 let a = self.objs.aliens[ia as usize];
                 let b = self.objs.aliens[ib as usize];
-                // Same-category filter: shared type bits never collide.
+                // Same-category filter (COLDET.ASM:518-521): skip ONLY when the
+                // pair shares a collision-type bit
+                // (`cf1 & cf2 & typemask != 0`). The ROM does NOT require either
+                // object to carry a type bit — the earlier port added a spurious
+                // `a_types == 0 && b_types == 0 -> skip` (from src/game/coldet.c),
+                // which dropped every object that has collflags but no type bit.
                 let a_types = a.collflags & TYPE_MASK;
                 let b_types = b.collflags & TYPE_MASK;
                 if a_types & b_types != 0 {
                     continue;
                 }
-                if a_types == 0 && b_types == 0 {
+                // Immunity cross-checks. ROM chkcoll0 (COLDET.ASM:523-529)
+                // compares al_immuneptr against the other object's slot directly,
+                // with NO nonzero guard — in the ROM immuneptr is a real (nonzero)
+                // alien pointer and 0 means "none", so the compare is unambiguous.
+                // The port stores immuneptr as a raw 0-based slot and the player
+                // is slot 0, so a player-owned projectile stores immuneptr == 0,
+                // which is indistinguishable from the default "no owner" 0. The
+                // earlier `!= 0` guard therefore dropped a player projectile's
+                // immunity and let it hit its own ship. A spawned projectile
+                // always carries ACF_WEAPON (set beside immuneptr by its
+                // spawner), so treat a weapon's immuneptr as owned even when it
+                // is 0 (== the player), while a non-weapon's default 0 still
+                // means "no immunity".
+                if a.immuneptr == ib && (a.immuneptr != 0 || a.collflags & ACF_WEAPON != 0) {
                     continue;
                 }
-                // Immunity cross-checks (C compares against slot index).
-                if a.immuneptr != 0 && a.immuneptr == ib {
-                    continue;
-                }
-                if b.immuneptr != 0 && b.immuneptr == ia {
+                if b.immuneptr == ia && (b.immuneptr != 0 || b.collflags & ACF_WEAPON != 0) {
                     continue;
                 }
                 let ea = self.coldet.list[i];
@@ -206,13 +232,14 @@ impl Game {
                     self.do_coll(ib, a.ap);
                 }
 
-                // Collision strategy callbacks fire immediately.
-                if let Some(cs) = self.objs.aliens[ia as usize].collstratptr {
-                    self.call_strat(cs, ia);
-                }
-                if let Some(cs) = self.objs.aliens[ib as usize].collstratptr {
-                    self.call_strat(cs, ib);
-                }
+                // NOTE: the collide-strategy is NOT dispatched here. ROM chkcoll
+                // (COLDET.ASM:829-846 / :791-821) only SETS collide/collobjptr/
+                // hitflags; each object's own collide-strategy runs later from
+                // do_strat (game.rs, when ASF_COLLIDE is seen) — the s_docoll
+                // side of that split is folded into do_coll above. The earlier
+                // port dispatched collstratptr inline here AND again from
+                // do_strat on the next frame (ASF_COLLIDE persists), so every
+                // collision fired its collide-strategy twice.
 
                 break; // each alien collides at most once per frame
             }
