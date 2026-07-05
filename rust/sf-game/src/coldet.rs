@@ -6,8 +6,8 @@
 
 use crate::alien::{
     ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-    ASF_LCOLLIDE,
+    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE,
+    ASF_HITFLASH, ASF_LCOLLIDE,
 };
 use crate::game::Game;
 use crate::vars::{FRAMESPERAP, HARD_AP, PSF3_INTUNNEL};
@@ -188,6 +188,22 @@ impl Game {
                 let a_types = a.collflags & TYPE_MASK;
                 let b_types = b.collflags & TYPE_MASK;
                 if a_types & b_types != 0 {
+                    continue;
+                }
+                // Player <-> friend never collide. A friend path object carries
+                // a nonzero friend id in al_sbyte4 (set by the P_FRIEND path
+                // command, PATHS.ASM .friend). In the ROM the player object is
+                // colldisable and its collisions run through separate box objects
+                // (PSTRATS.ASM pcboxobj_B/LW/RW), and playercoll_Istrat applies
+                // NO body-collision HP damage — so bumping a wingman (e.g. the
+                // Corneria launch escort, level1_1 FROG/FALCO path ships) can't
+                // hurt the player. This port collides the player object directly
+                // for enemy hits, so exclude the player<->friend pair explicitly;
+                // otherwise the escort ship kills the player right after the
+                // exit-base launch and freezes the follow camera.
+                let a_player = a.sflags4 & ASF4_PLAYEROBJ != 0;
+                let b_player = b.sflags4 & ASF4_PLAYEROBJ != 0;
+                if (a_player && b.sbyte4 != 0) || (b_player && a.sbyte4 != 0) {
                     continue;
                 }
                 // Immunity cross-checks. ROM chkcoll0 (COLDET.ASM:523-529)
