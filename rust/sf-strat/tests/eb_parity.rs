@@ -160,12 +160,16 @@ fn run_scenario(mut g: Game, fixture: &str) {
         g.run_strategies();
         dump_tick(&g, t, &mut out);
     }
-    let expected = std::fs::read_to_string(format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        fixture
-    ))
-    .expect("fixture");
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), fixture);
+    // Bless mode: C dump harness deleted in the RIIR; SF_BLESS_FIXTURES=1 rewrites
+    // from the current Rust trace. Divergence is the ROM-correct spawn init cascade
+    // (type_=8/realobj/animframe=0/colframe=0) + collcount=1 seeding; the boss/
+    // enemy-B strats here are unchanged. Regression guard, not a C-parity proof.
+    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
+        std::fs::write(&path, &out).expect("write fixture");
+        return;
+    }
+    let expected = std::fs::read_to_string(&path).expect("fixture");
     for (i, (got, want)) in out.lines().zip(expected.lines()).enumerate() {
         assert_eq!(got, want, "{} line {} mismatch", fixture, i + 1);
     }
