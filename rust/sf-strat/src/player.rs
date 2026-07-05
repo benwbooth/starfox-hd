@@ -1364,12 +1364,12 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     // `STAYBLACK != -1` gate read 0 and locked out ALL steering. Seed -1.
     v.set_sv_i8(sv::STAYBLACK, -1);
 
-    // Same uninitialized-nonzero-default class (audit): the C seeds these in
-    // GameVars_Init but the Rust WRAM slots default to 0.
-    // g_outdist = OUTVIEWDIST = 120 (bridge-clear pull-out starts here).
-    if v.sv_i16(sv::OUTDIST) == 0 {
-        v.set_sv_i16(sv::OUTDIST, 120);
-    }
+    // NOTE: outdist must stay 0 at spawn. The ROM assigns OUTVIEWDIST(120) only
+    // to `viewdist` (mapplayeroutdist MAPMACS.INC:1033, changeviewmode_l
+    // GSTRATS.ASM:3090) — the parallel `outdist` writes are commented out. The
+    // only live outdist writers are the intro fly-in (+3/frame from 0), spfm
+    // inside (=60), boss cam, and the bridge-clear pull-out (chase 500), which
+    // ramps from 0. Seeding 120 here was a port bug (audit_player oracle).
     v.set_sv_u8(sv::FIRECNT, 3);
     v.set_sv_u8(sv::FIREDELAY, 1);
     v.set_sv_u8(sv::SPECIALDELAY, 1);
