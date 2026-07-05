@@ -162,12 +162,18 @@ fn run_scenario(mut g: Game, events: impl Fn(&mut Game, i32), fixture: &str) {
         g.run_strategies();
         dump_tick(&g, t, &mut out);
     }
-    let expected = std::fs::read_to_string(format!(
-        "{}/tests/fixtures/{}",
-        env!("CARGO_MANIFEST_DIR"),
-        fixture
-    ))
-    .expect("fixture");
+    let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), fixture);
+    // Bless mode: the scratchpad C dump harness was deleted in the RIIR, so these
+    // fixtures can't be regenerated from C. SF_BLESS_FIXTURES=1 rewrites them from
+    // the current Rust trace. The spawn-time init fields (type_/realobj/animframe/
+    // colframe) are proven ROM-correct (sf-oracle audit_boss/audit_coldet), and the
+    // changed enemy strats (zaco1 homing, houdai aim/gate) were diffed against
+    // GASTRATS/KSTRATS.ASM. Regression guard, not a C-parity proof.
+    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
+        std::fs::write(&path, &out).expect("write fixture");
+        return;
+    }
+    let expected = std::fs::read_to_string(&path).expect("fixture");
     for (i, (got, want)) in out.lines().zip(expected.lines()).enumerate() {
         assert_eq!(got, want, "{} line {} mismatch", fixture, i + 1);
     }
