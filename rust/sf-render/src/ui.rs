@@ -282,6 +282,22 @@ fn ps_blit_tile(
     }
 }
 
+/// Split a running-total score into the five glyphs of the map-screen score
+/// line: three decimal places of the total (capped at 999, matching the ROM's
+/// per-place count-down in `drawroutename`) followed by two fixed zeros — the
+/// score is displayed x100 (PLANETS.ASM:1583-1595). Each entry is a digit
+/// 0..=9 selecting atlas column `144 + digit*8` (glyphs '0'..'9').
+pub(crate) fn score_line_digits(score: u16) -> [u8; 5] {
+    let s = score.min(999);
+    [
+        (s / 100 % 10) as u8,
+        (s / 10 % 10) as u8,
+        (s % 10) as u8,
+        0,
+        0,
+    ]
+}
+
 /// CPU half of `ps_ensure_atlas`: compose the planet-select atlas from raw
 /// asset bytes. Public for tests.
 pub fn compose_planet_select_atlas(
@@ -378,9 +394,13 @@ pub fn compose_planet_select_atlas(
             ps_blit_tile(&mut atlas, n * 48 + c * 8, 80, &tg[tile * 64..], &pal_txt, true);
         }
     }
-    // Score digit '0' ($88)
-    if 0x88 < n_tg {
-        ps_blit_tile(&mut atlas, 144, 80, &tg[0x88 * 64..], &pal_txt, true);
+    // Score digits '0'..'9' (BG font CGX tiles $88..$91, consecutive — ROM
+    // drawroutename emits `digit + $88` per place, PLANETS.ASM:1620-1624).
+    // Laid out at atlas (144 + d*8, 80) so a score place samples column d.
+    for d in 0..10usize {
+        if 0x88 + d < n_tg {
+            ps_blit_tile(&mut atlas, 144 + d * 8, 80, &tg[(0x88 + d) * 64..], &pal_txt, true);
+        }
     }
 
     Some(atlas)
@@ -645,7 +665,9 @@ impl Ui {
             );
         }
 
-        // Route label (drawroutename) and score line "00000".
+        // Route label (drawroutename) and running-total score line. ROM prints
+        // the total's hundreds/tens/ones then two fixed '0's (score shown x100),
+        // PLANETS.ASM:1583-1595. `inputs.score` is calctotalscore/tpa.
         {
             let n = if inputs.whichroute < 3 {
                 inputs.whichroute as i32
@@ -653,9 +675,43 @@ impl Ui {
                 0
             };
             self.ps_draw(gpu, 192, 200, 48, 8, n * 48, 80, false, false);
-            for d in 0..5 {
-                self.ps_draw(gpu, 192 + d * 8, 192, 8, 8, 144, 80, false, false);
+            for (d, &dig) in score_line_digits(inputs.score).iter().enumerate() {
+                self.ps_draw(
+                    gpu,
+                    192 + d as i32 * 8,
+                    192,
+                    8,
+                    8,
+                    144 + dig as i32 * 8,
+                    80,
+                    false,
+                    false,
+                );
             }
+        }
+
+        // End-of-level tally overlay (ROM end_level_seq, MAIN.ASM:1077-1160):
+        // the stage hit % and the running total, drawn over the map screen
+        // until the tally state advances.
+        if inputs.tally_active {
+            self.render_tally(gpu, inputs);
+        }
+    }
+
+    /// End-of-level tally figures: stage percentage (top) and running total
+    /// (bottom), as digit rows. A lightweight stand-in for the ROM's animated
+    /// MARIO-chip percent graph (MAIN.ASM:1101-1210); the values are the
+    /// faithful `calcstageperc`/`calctotalscore` results.
+    fn render_tally(&self, gpu: &mut Gpu, inputs: &FrameInputs) {
+        // Stage % (0..100) as 3 digits, centred-ish near the top.
+        let p = inputs.tally_stage_perc.min(100) as i32;
+        let stage_digits = [(p / 100 % 10), (p / 10 % 10), (p % 10)];
+        for (d, &dig) in stage_digits.iter().enumerate() {
+            self.ps_draw(gpu, 108 + d as i32 * 8, 96, 8, 8, 144 + dig * 8, 80, false, false);
+        }
+        // Running total x100: 3 digits of the total + "00".
+        for (d, &dig) in score_line_digits(inputs.score).iter().enumerate() {
+            self.ps_draw(gpu, 100 + d as i32 * 8, 120, 8, 8, 144 + dig as i32 * 8, 80, false, false);
         }
     }
 
@@ -753,5 +809,34 @@ impl Ui {
                 screen_height as f32,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::score_line_digits;
+
+    #[test]
+    fn score_line_zero_is_all_zeros() {
+        // Fresh game: hardcoded "00000" behaviour preserved for total 0.
+        assert_eq!(score_line_digits(0), [0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn score_line_reflects_nonzero_total() {
+        // A running total of 123 renders "12300" (score shown x100): the
+        // first three glyphs are the total's digits, not all '0'.
+        assert_eq!(score_line_digits(123), [1, 2, 3, 0, 0]);
+        // Single/double-digit totals zero-pad the leading places.
+        assert_eq!(score_line_digits(80), [0, 8, 0, 0, 0]);
+        assert_eq!(score_line_digits(5), [0, 0, 5, 0, 0]);
+        // Any nonzero total selects a nonzero digit somewhere in the line.
+        assert_ne!(score_line_digits(240), [0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn score_line_caps_at_999() {
+        // ROM per-place count-down saturates each digit at 9.
+        assert_eq!(score_line_digits(2100), [9, 9, 9, 0, 0]);
     }
 }

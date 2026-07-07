@@ -1178,6 +1178,9 @@ impl Game {
                     if let Some(idx) = self.world.last_obj {
                         self.objs.aliens[idx as usize].sflags4 |= ASF4_SPECIAL;
                         self.world.specialobjtotal = self.world.specialobjtotal.wrapping_add(1);
+                        // Stable score denominator (never decremented, unlike
+                        // specialobjtotal). See World::total_specials.
+                        self.world.total_specials = self.world.total_specials.wrapping_add(1);
                     }
                     self.vars.mapptr = p.wrapping_add(1);
                 }
@@ -1415,6 +1418,8 @@ impl Game {
                     if let Some(idx) = self.world.last_obj {
                         self.objs.aliens[idx as usize].sflags4 |= ASF4_CSPECIAL;
                         self.world.specialobjtotal = self.world.specialobjtotal.wrapping_add(1);
+                        // Stable score denominator (see World::total_specials).
+                        self.world.total_specials = self.world.total_specials.wrapping_add(1);
                     }
                     self.vars.mapptr = p.wrapping_add(1);
                 }

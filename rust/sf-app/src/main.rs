@@ -432,6 +432,10 @@ fn main() {
             currentplanet: frame.currentplanet,
             nebula_on: frame.nebula_on,
             route_path_ids: &frame.route_path_ids,
+            score: frame.score_total,
+            credits: frame.credits,
+            tally_active: frame.tally_active,
+            tally_stage_perc: frame.tally_stage_perc,
         };
 
         // Render interpolated frame (main.c:195-200).

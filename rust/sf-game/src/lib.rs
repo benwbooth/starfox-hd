@@ -41,6 +41,7 @@ pub mod bgs;
 pub mod camera;
 pub mod draw;
 pub mod planets;
+pub mod score;
 pub mod shell;
 pub mod strings;
 pub mod windows;

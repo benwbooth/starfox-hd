@@ -27,6 +27,7 @@ use crate::camera::GameCamera;
 use crate::game::{Game, Hooks};
 use crate::obj::Objects;
 use crate::planets::{Planets, DEFAULT_LIVES};
+use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
     GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PALFADE_NUM_START, PFM_SHADOWS, PSF2_PLAYERHP0,
@@ -39,6 +40,10 @@ use crate::{bgs, draw};
 /// C `LEVEL_CLEAR_SETTLE_TICKS` (src/game/boot.c:39) — 3 s after mapend
 /// before the stage advance.
 pub const LEVEL_CLEAR_SETTLE_TICKS: i32 = 60;
+/// Minimum frames the end-of-level tally screen is shown before it can be
+/// dismissed (ROM `end_level_seq` animates the percent count-up over many
+/// frames, MAIN.ASM:1101-1210; no single ROM constant — a display hold).
+pub const TALLY_HOLD_TICKS: i32 = 120;
 /// C `DEATH_RESPAWN_TICKS` (src/game/boot.c:40) — 2.5 s after
 /// GF_PLAYERDEAD before reload.
 pub const DEATH_RESPAWN_TICKS: i32 = 50;
@@ -56,10 +61,18 @@ pub enum GameState {
     Playing,
     Continue,
     Ending,
+    /// End-of-level tally screen (ROM `end_level_seq`, MAIN.ASM:1077-1160):
+    /// shows the stage hit % + running total and awards bonus credits before
+    /// advancing to the next stage / route select.
+    Tally,
 }
 
 impl GameState {
     /// Numeric code in boot.h enum order (BOOT=0 .. ENDING=6).
+    ///
+    /// The tally screen has no distinct render state yet; it reports
+    /// `PlanetSelect` (3) so sf-app renders the map screen underneath and
+    /// ui.rs overlays the tally figures via `FrameInputs::tally_active`.
     pub fn code(self) -> u8 {
         match self {
             GameState::Boot => 0,
@@ -69,6 +82,7 @@ impl GameState {
             GameState::Playing => 4,
             GameState::Continue => 5,
             GameState::Ending => 6,
+            GameState::Tally => 3,
         }
     }
 }
@@ -163,6 +177,15 @@ pub struct FrameSnapshot {
     pub level_finished: u8,
     pub space_mode: bool,
     pub pviewposx: i16,
+    /// Running total hit-percentage score (ROM `calctotalscore`/tpa), drawn on
+    /// the map screen by `drawroutename` (PLANETS.ASM:1547).
+    pub score_total: u16,
+    /// Bonus continue credits (ROM `credits`).
+    pub credits: u8,
+    /// True while the end-of-level tally screen is showing (GameState::Tally).
+    pub tally_active: bool,
+    /// The just-finished stage's hit percentage, shown on the tally screen.
+    pub tally_stage_perc: u8,
 }
 
 /// State shared between the shell and the map-VM hooks (the C globals that
@@ -292,6 +315,11 @@ pub struct Shell {
     levelclear_ticks: i32,
     /// C `s_death_ticks` (boot.c:43).
     death_ticks: i32,
+    /// Frames spent on the tally screen (GameState::Tally hold timer).
+    tally_ticks: i32,
+    /// The just-finished stage's hit percentage, for the tally overlay
+    /// (ROM `cla2`, MAIN.ASM:1071).
+    tally_stage_perc: u8,
     /// C `g_rndval` (sf_rtl.c:16) — strings face animation PRNG.
     rndval: u16,
     /// Warn-once set for unported map ids (C levels.c warn-once END stub).
@@ -346,6 +374,8 @@ impl Shell {
             pad1_new: 0,
             levelclear_ticks: 0,
             death_ticks: 0,
+            tally_ticks: 0,
+            tally_stage_perc: 0,
             rndval: 0,
             warned_maps: Vec::new(),
             specwepcnt: 3,
@@ -454,6 +484,11 @@ impl Shell {
                     self.game_state = GameState::Title;
                 }
             }
+            GameState::Tally => {
+                // End-of-level tally screen (ROM end_level_seq).
+                self.draw_list.clear();
+                self.tally_tick();
+            }
         }
 
         // Every tick after the state switch (boot.c:278-284):
@@ -541,6 +576,10 @@ impl Shell {
             level_finished: self.game.world.levelfinished,
             space_mode: v.game_mode == SPACE_MODE,
             pviewposx: self.camera.vars.pviewposx,
+            score_total: self.planets.total_score(),
+            credits: self.planets.credits,
+            tally_active: self.game_state == GameState::Tally,
+            tally_stage_perc: self.tally_stage_perc,
         }
     }
 
@@ -822,27 +861,83 @@ impl Shell {
             if self.levelclear_ticks < LEVEL_CLEAR_SETTLE_TICKS {
                 return;
             }
-            self.planets.stage = self.planets.stage.wrapping_add(1);
-            // ROM: level-finish does `inc stage` (MAIN.ASM:229) then re-enters
-            // planetseq_l, which calls `convertroute` on entry (PLANETS.ASM:251)
-            // and again on `.continuewithgame` before gamestart
-            // (PLANETS.ASM:1090). The map walk therefore runs with the
-            // *converted* route (e.g. gameplay whichroute 0 -> 1 -> root P6 ->
-            // MAP_ID_1_2), then converts back for gameplay. Without this bracket
-            // the walk used the raw gameplay route (P1 -> MAP_ID_2_2).
-            self.planets.convertroute();
-            let advanced = self.planets.drawplanetlines();
-            self.planets.convertroute();
-            if advanced {
-                // Stage graph resolved the next map on this route.
-                self.begin_gameplay_from_planet_select();
-            } else {
-                self.levelclear_ticks = 0;
-                self.game_state = GameState::Ending;
-            }
+            // ROM end_level_seq runs the tally screen before advancing
+            // (MAIN.ASM:1077). Compute + record this stage's score, then hand
+            // off to GameState::Tally; the stage advance happens on tally exit.
+            self.enter_tally();
             return;
         }
         self.levelclear_ticks = 0;
+    }
+
+    /// ROM `end_level_seq` entry (MAIN.ASM:1077-1090): compute this stage's hit
+    /// percentage (`calcstageperc`), append it to `specbuf`, run `checkbonus`
+    /// (awarding a credit + bonus SFX on a `bonertab` crossing), and switch to
+    /// the tally screen state.
+    fn enter_tally(&mut self) {
+        // Numerator: per-stage special kills (WRAM 0x1F0B, written by the
+        // sf-strat explode strat). Denominator: the stable map-build count.
+        let specials_dead = self.game.vars.read_ext8(score::SPECIALS_DEAD);
+        let total_specials = self.game.world.total_specials;
+        let teammates = score::teammates_alive(
+            self.game.vars.bunny_hp,
+            self.game.vars.frog_hp,
+            self.game.vars.falcon_hp,
+        );
+        let perc = score::calc_stage_perc(specials_dead, total_specials, teammates);
+        self.tally_stage_perc = perc;
+
+        // Append to specbuf + checkbonus (MAIN.ASM:1213-1219).
+        if self.planets.record_stage_score(perc) {
+            // Bonus threshold crossed: credit awarded, play trigse $1a
+            // (MAIN.ASM:1149).
+            self.state
+                .borrow_mut()
+                .sound
+                .push(SoundCmd::PlaySe(score::SE_BONUS));
+        }
+
+        self.levelclear_ticks = 0;
+        self.tally_ticks = 0;
+        self.game_state = GameState::Tally;
+    }
+
+    /// GameState::Tally hold + exit. Holds the tally figures for
+    /// [`TALLY_HOLD_TICKS`] (or until START/A/B), then performs the ROM
+    /// stage-advance / route-resolve that used to follow mapend directly.
+    fn tally_tick(&mut self) {
+        self.tally_ticks += 1;
+        let held = self.tally_ticks >= TALLY_HOLD_TICKS;
+        let pressed = self.pad1_new & (pad::START | pad::A | pad::B) != 0;
+        // Dismiss on START/A/B once the figures have been shown, or auto-advance
+        // after twice the hold so headless/AI runs still progress without input.
+        if (held && pressed) || self.tally_ticks >= TALLY_HOLD_TICKS.saturating_mul(2) {
+            self.advance_stage_after_tally();
+        }
+    }
+
+    /// ROM post-tally stage advance (MAIN.ASM:229 `inc stage` + planetseq
+    /// re-entry). Extracted from the old level-clear path.
+    fn advance_stage_after_tally(&mut self) {
+        self.tally_ticks = 0;
+        self.planets.stage = self.planets.stage.wrapping_add(1);
+        // ROM: level-finish does `inc stage` (MAIN.ASM:229) then re-enters
+        // planetseq_l, which calls `convertroute` on entry (PLANETS.ASM:251)
+        // and again on `.continuewithgame` before gamestart
+        // (PLANETS.ASM:1090). The map walk therefore runs with the
+        // *converted* route (e.g. gameplay whichroute 0 -> 1 -> root P6 ->
+        // MAP_ID_1_2), then converts back for gameplay. Without this bracket
+        // the walk used the raw gameplay route (P1 -> MAP_ID_2_2).
+        self.planets.convertroute();
+        let advanced = self.planets.drawplanetlines();
+        self.planets.convertroute();
+        if advanced {
+            // Stage graph resolved the next map on this route.
+            self.begin_gameplay_from_planet_select();
+        } else {
+            self.levelclear_ticks = 0;
+            self.game_state = GameState::Ending;
+        }
     }
 }
 
@@ -921,6 +1016,7 @@ mod tests {
         assert_eq!(sh.frame().stage, 0);
 
         // Force the level-finished latch (mapend) and run the settle timer.
+        // After the settle the shell enters the tally screen (GameState::Tally).
         sh.game.world.levelfinished = 1;
         for _ in 0..LEVEL_CLEAR_SETTLE_TICKS {
             sh.tick(0);
@@ -929,6 +1025,13 @@ mod tests {
                 sh.game.world.levelfinished = 1;
             }
         }
+        assert_eq!(sh.state(), GameState::Tally);
+        assert_eq!(sh.frame().stage, 0); // stage advance deferred until tally exits
+        // Hold the tally, then dismiss with START to advance the stage.
+        for _ in 0..TALLY_HOLD_TICKS {
+            sh.tick(0);
+        }
+        sh.tick(pad::START);
         let f = sh.frame();
         assert_eq!(f.stage, 1);
         assert_eq!(sh.state().code(), 4);
@@ -965,5 +1068,80 @@ mod tests {
         assert_eq!(sh.frame().lives, DEFAULT_LIVES as i32);
         // Begin-gameplay cleared the dead flag (boot.c:55).
         assert!(!sh.frame().player_dead);
+    }
+
+    /// Drive a game into gameplay (BOOT -> PLAYING).
+    fn into_gameplay() -> Shell {
+        let mut sh = Shell::new();
+        sh.tick(0); // boot -> title
+        sh.tick(0); // title load
+        sh.tick(pad::START); // -> planet select
+        sh.tick(0);
+        sh.tick(pad::START); // -> playing
+        assert_eq!(sh.state().code(), 4);
+        let _ = sh.drain_sound(); // clear launch SFX
+        sh
+    }
+
+    /// End-of-level tally: computes calcstageperc from specials_dead /
+    /// total_specials + living teammates, records it, and awards a bonus
+    /// credit + SFX on a bonertab threshold crossing.
+    #[test]
+    fn tally_records_stage_score_and_awards_bonus_credit() {
+        let mut sh = into_gameplay();
+
+        // 10 specials, all destroyed, all three teammates alive -> 100 + 15
+        // capped to 100.
+        sh.game.world.total_specials = 10;
+        sh.game.vars.write_ext8(score::SPECIALS_DEAD, 10);
+        sh.game.vars.bunny_hp = 3;
+        sh.game.vars.frog_hp = 3;
+        sh.game.vars.falcon_hp = 3;
+
+        sh.enter_tally();
+        assert_eq!(sh.state(), GameState::Tally);
+        assert_eq!(sh.tally_stage_perc, 100);
+        let f = sh.frame();
+        assert_eq!(f.tally_stage_perc, 100);
+        assert_eq!(f.score_total, 100); // calctotalscore
+        assert_eq!(f.credits, 1); // crossed bonertab 100 -> +1 credit
+        assert!(f.tally_active);
+        assert!(sh.drain_sound().contains(&SoundCmd::PlaySe(score::SE_BONUS)));
+
+        // A second, weaker stage (50%, no teammates) accumulates into the
+        // running total but stays below the next threshold (300) -> no credit.
+        sh.game.world.total_specials = 10;
+        sh.game.vars.write_ext8(score::SPECIALS_DEAD, 5);
+        sh.game.vars.bunny_hp = 0;
+        sh.game.vars.frog_hp = 0;
+        sh.game.vars.falcon_hp = 0;
+        sh.enter_tally();
+        assert_eq!(sh.tally_stage_perc, 50);
+        assert_eq!(sh.frame().score_total, 150); // 100 + 50, calctotalscore
+        assert_eq!(sh.frame().credits, 1); // 150 < 300, no new credit
+        assert!(!sh.drain_sound().contains(&SoundCmd::PlaySe(score::SE_BONUS)));
+    }
+
+    /// Accumulating stages across a bonertab boundary awards a second credit.
+    #[test]
+    fn tally_credit_awarded_when_total_crosses_next_threshold() {
+        let mut sh = into_gameplay();
+        sh.game.world.total_specials = 1;
+        sh.game.vars.bunny_hp = 0;
+        sh.game.vars.frog_hp = 0;
+        sh.game.vars.falcon_hp = 0;
+
+        // Three 100% stages -> totals 100, 200, 300. Credits at 100 and 300.
+        let mut credited = 0;
+        for expect_total in [100u16, 200, 300] {
+            sh.game.vars.write_ext8(score::SPECIALS_DEAD, 1);
+            sh.enter_tally();
+            assert_eq!(sh.frame().score_total, expect_total);
+            if sh.drain_sound().contains(&SoundCmd::PlaySe(score::SE_BONUS)) {
+                credited += 1;
+            }
+        }
+        assert_eq!(credited, 2); // 100 and 300 thresholds
+        assert_eq!(sh.frame().credits, 2);
     }
 }

@@ -130,6 +130,17 @@ pub struct FrameInputs<'a> {
     pub nebula_on: u16,
     /// Planets_GetRoutePathIds(g_whichroute) — PATH_ID_* sequence.
     pub route_path_ids: &'a [u16],
+
+    // Score / tally (MAIN.ASM end_level_seq; PLANETS.ASM drawroutename)
+    /// Running total hit-percentage score (ROM calctotalscore/tpa). Drawn on
+    /// the map screen as 3 digits + "00" (PLANETS.ASM:1583-1595).
+    pub score: u16,
+    /// Bonus continue credits (ROM `credits`).
+    pub credits: u8,
+    /// End-of-level tally screen active — overlay the stage % + total.
+    pub tally_active: bool,
+    /// Just-finished stage hit percentage for the tally overlay (ROM cla2).
+    pub tally_stage_perc: u8,
 }
 
 impl<'a> Default for FrameInputs<'a> {
@@ -165,6 +176,10 @@ impl<'a> Default for FrameInputs<'a> {
             whichfriend: 0,
             friends_meter: 0,
             message_text: None,
+            score: 0,
+            credits: 0,
+            tally_active: false,
+            tally_stage_perc: 0,
             whichroute: 0,
             currentplanet: -1,
             nebula_on: 0,

@@ -8,6 +8,7 @@
 //! `g_bg_dmalist` stays in [`crate::vars::GameVars`]; the shell zeroes it at
 //! the `Planets_Init` call site (planets.c:306).
 
+use crate::score;
 use sf_core::pad;
 
 /// C `PLANET_ROUTE_CHOICES` (src/game/planets.c:9).
@@ -176,6 +177,17 @@ pub struct Planets {
     pub nebula_on: u16,
     /// C `s_route_converted` (planets.c:122).
     route_converted: bool,
+
+    /// C `credits` (CONFIG/GAME.INC:33) — bonus continue credits awarded by
+    /// the end-of-level tally (checkbonus). New game inits to 0
+    /// (PLANETS.ASM:211); the tally increments on `bonertab` threshold
+    /// crossings (MAIN.ASM:1138). Persists across stages.
+    pub credits: u8,
+    /// C `specbuf`/`specptr` (MAIN.ASM:1213-1217) — the recorded per-stage hit
+    /// percentages, one entry appended per completed stage (101 =
+    /// [`score::STAGE_SKIPPED`]). `calctotalscore` sums these; see
+    /// [`Planets::total_score`].
+    pub stage_scores: Vec<u8>,
 }
 
 impl Default for Planets {
@@ -193,6 +205,8 @@ impl Default for Planets {
             peppermsg: 0,
             nebula_on: 0,
             route_converted: false,
+            credits: 0,
+            stage_scores: Vec::new(),
         }
     }
 }
@@ -214,6 +228,36 @@ impl Planets {
         self.stage = 0;
         self.mapmode = 0;
         self.route_converted = false;
+        // New game: credits=0 (PLANETS.ASM:211), specptr=0 (MAIN.ASM:41 —
+        // done at game start; the tally screen appends per stage).
+        self.credits = 0;
+        self.stage_scores.clear();
+    }
+
+    /// ROM `calctotalscore` (MAIN.ASM:780-800): running total across all
+    /// recorded stages. Also the value drawn on the map screen by
+    /// `drawroutename` (PLANETS.ASM:1547) and compared by `checkbonus`.
+    pub fn total_score(&self) -> u16 {
+        score::calc_total_score(&self.stage_scores)
+    }
+
+    /// Append a completed stage's percentage to `specbuf` and run
+    /// `checkbonus` (MAIN.ASM:1213-1219): returns `true` if the new running
+    /// total crossed a fresh `bonertab` threshold, in which case a credit is
+    /// awarded (`inc credits`, MAIN.ASM:1138) and the caller should play the
+    /// bonus SFX ([`score::SE_BONUS`], `trigse $1a`, MAIN.ASM:1149).
+    pub fn record_stage_score(&mut self, stage_perc: u8) -> bool {
+        // checkbonus compares against clbm = total BEFORE this stage was added
+        // (MAIN.ASM:1082-1084).
+        let old_total = self.total_score();
+        self.stage_scores.push(stage_perc);
+        let new_total = self.total_score();
+        if score::crossed_bonus_threshold(new_total, old_total) {
+            self.credits = self.credits.saturating_add(1);
+            true
+        } else {
+            false
+        }
     }
 
     /// C `convertroute()` (src/game/planets.c:136).

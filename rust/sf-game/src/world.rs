@@ -183,6 +183,14 @@ pub struct World {
     pub lastmapobj: u16,
     /// C `g_specialobjtotal`.
     pub specialobjtotal: u8,
+    /// Stable per-stage special-object denominator for the end-of-stage hit
+    /// percentage (ROM `specialobjtotal` is set once at map build and never
+    /// decremented, MAIN.ASM:1057). The sf-strat explode strat currently
+    /// DEcrements the working [`Self::specialobjtotal`] (a known port bug —
+    /// AUDIT_HUD_SFX_FINDINGS.md #3), so the score system reads this
+    /// non-decremented copy instead. Incremented alongside `specialobjtotal`
+    /// at map SPECIAL/CSPECIAL ops; reset each stage in [`Self::load_level`].
+    pub total_specials: u8,
     /// C `g_levelfinished`.
     pub levelfinished: u8,
 
@@ -235,6 +243,7 @@ impl World {
             last_obj: None,
             lastmapobj: 0,
             specialobjtotal: 0,
+            total_specials: 0,
             levelfinished: 0,
             jsr_stack: [0; MAP_JSR_STACK_SIZE],
             jsr_top: 0,
@@ -365,6 +374,10 @@ impl World {
         self.lastzchange = 0;
         self.last_obj = None;
         self.lastmapobj = 0;
+        // ROM `initlevel` resets specialobjtotal/specials_dead per stage
+        // (MAPMACS.INC:876-877); mirror that for the stable denominator so a
+        // fresh stage's hit percentage starts from zero.
+        self.total_specials = 0;
         self.levelfinished = 0;
         self.jsr_top = 0;
         self.num_jsr = 0;
