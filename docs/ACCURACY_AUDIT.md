@@ -54,6 +54,11 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 ## Wave log
 - 2026-07-04 wave 1: trig/player/coldet/strats/boss/mapvm audits — ~18 fixes, all committed (see rom-oracle-plan memory).
 - 2026-07-07 wave 2 COMPLETE: path (8), map-VM (5), showview (6), bg2d. 229/0.
+- 2026-07-07 wave 5: boss1 (12 fixes) + boss8/seamon (15) + score/credits/tally
+  (hit-% + bonertab + real HUD score) + makesnd positional SE layer (infra) +
+  m_bossHP accumulator (boss bar now drains, 12 sites) + s_test_special count fix.
+  Workspace 267/0. Remaining: makesnd call-site wiring, pcbox routing, path
+  leftovers, mulslog/speedto >=128 latents, unported bosses (bossB/D3/DSTRATS).
 - 2026-07-07 wave 4 (user-report day): opening cinematic restored (view matrix
   direct world->camera + yaw-rotated cull; view_matrix_guard test); death crash
   sequence + lives unification (game-over reachable); explosion/hitflash ranged
