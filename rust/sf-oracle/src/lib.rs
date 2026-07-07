@@ -17,6 +17,8 @@ pub struct SnesBus {
     rom: Vec<u8>,
     /// 128 KB: banks $7E and $7F.
     wram: Vec<u8>,
+    /// 32 KB GSU cart RAM, bank $70:$0000-$7FFF (m_* vars, drawlist).
+    gsuram: Vec<u8>,
     /// Reset line: pulsed true once to boot the CPU out of its power-on STP.
     res_line: bool,
     /// PPU/CPU math registers (used by e.g. n3dvecs' `mulslog`).
@@ -31,6 +33,7 @@ impl SnesBus {
         SnesBus {
             rom,
             wram: vec![0u8; 0x2_0000],
+            gsuram: vec![0u8; 0x8000],
             res_line: true,
             mpy_a: 0,
             rdmpy: 0,
@@ -82,6 +85,10 @@ impl SnesBus {
                 _ => 0,
             };
         }
+        // GSU cart RAM: bank $70 (and $71 mirror), offsets < $8000.
+        if ((addr >> 16) & 0xFF) & 0xFE == 0x70 && (addr & 0xFFFF) < 0x8000 {
+            return self.gsuram[(addr & 0x7FFF) as usize];
+        }
         match self.classify(addr) {
             Some(Ok(o)) => self.rom.get(o).copied().unwrap_or(0),
             Some(Err(i)) => self.wram.get(i).copied().unwrap_or(0),
@@ -106,6 +113,11 @@ impl SnesBus {
                 }
                 _ => {}
             }
+            return;
+        }
+        // GSU cart RAM: bank $70 (and $71 mirror), offsets < $8000.
+        if ((addr >> 16) & 0xFF) & 0xFE == 0x70 && (addr & 0xFFFF) < 0x8000 {
+            self.gsuram[(addr & 0x7FFF) as usize] = v;
             return;
         }
         if let Some(Err(i)) = self.classify(addr) {
