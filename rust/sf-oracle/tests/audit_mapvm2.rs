@@ -628,11 +628,11 @@ fn maploop_builder_encoding_off_by_one() {
     // data: wait(3 bytes) + [4, tgt16, count16]
     assert_eq!(data[3], 4, "loop opcode");
     let stored = data[6] as u16 | ((data[7] as u16) << 8);
-    eprintln!(
-        "DISCREPANCY MAPLOOP encoding: ROM macro would store 7 for `maploop x,8`; \
-         MapBuilder stored {stored} (=> one extra loop iteration in every level)"
-    );
-    assert_eq!(stored, 8, "builder currently emits the raw count");
+    // FIXED: MapBuilder::maploop now emits count-1 exactly like the ROM macro
+    // (dw \2-1), so the ROM-exact stored+1-iteration handler runs the body
+    // `count` times. The old raw-count emission ran every level loop once too
+    // often.
+    assert_eq!(stored, 7, "builder emits count-1 like the ROM maploop macro");
 }
 
 // ============================================================
