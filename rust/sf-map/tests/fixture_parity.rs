@@ -39,6 +39,16 @@ fn parse_regs(name: &str) -> Regs {
 fn assert_level_matches(name: &str, id: u32) {
     let level = catalog::get_map_data(id)
         .unwrap_or_else(|| panic!("{name}: map id {id} not ported"));
+    // Bless mode: the C harness that dumped these fixtures is gone (RIIR), and
+    // it shared the maploop count-encoding bug (builder emitted raw count; ROM
+    // macro emits count-1 — see MapBuilder::maploop + sf-oracle audit_mapvm2).
+    // SF_BLESS_FIXTURES=1 rewrites the .bin from the current builder output
+    // (lengths unchanged, so .regs.txt stays valid). Regression guard.
+    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
+        let out = format!("{}/tests/fixtures/{name}.bin", env!("CARGO_MANIFEST_DIR"));
+        std::fs::write(&out, &level.data).unwrap();
+        return;
+    }
     let blob = fixture(name, "bin");
     let regs = parse_regs(name);
 

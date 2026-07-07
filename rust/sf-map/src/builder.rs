@@ -210,7 +210,13 @@ impl MapBuilder {
     pub fn maploop(&mut self, label: &str, count: i32) {
         self.emit8(op::LOOP);
         self.fixup16(label);
-        self.emit16(count as u16);
+        // ROM `maploop` macro emits `dw count-1` (MAPMACS.INC:264-268) and the
+        // handler runs the body stored+1 times (WORLD.ASM:1773, oracle-proven
+        // in audit_mapvm2.rs). Emitting the raw count made EVERY level loop run
+        // one extra iteration (e.g. 4 buzzer groups in 1-1 instead of 3). The C
+        // builder had the same bug; the .bin fixtures dumped from it encode the
+        // raw count too.
+        self.emit16((count - 1) as u16);
     }
 
     /// mb_mapif_builtin: IF with a 24-bit native callback id and an
