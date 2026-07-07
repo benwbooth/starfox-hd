@@ -1920,23 +1920,69 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             P_FRIEND => {
                 let friend_id = world.pread8(ip, 1);
                 if friend_id == FRIEND_ANYONE {
-                    let mut candidates = [0u8; 3];
-                    let mut n = 0usize;
-                    if world.falcon_hp > 0 {
-                        candidates[n] = FRIEND_FALCON;
-                        n += 1;
-                    }
-                    if world.bunny_hp > 0 {
-                        candidates[n] = FRIEND_RABBIT;
-                        n += 1;
-                    }
-                    if world.frog_hp > 0 {
-                        candidates[n] = FRIEND_FROG;
-                        n += 1;
-                    }
-                    if n > 0 {
-                        let r = host.random();
-                        world.aliens[si].sbyte4 = candidates[(r % n as u16) as usize];
+                    // ROM .friend friend_anyone, randomselectmode=0
+                    // (GAME.INC:67 selects the IFEQ block, PATHS.ASM:1262-1321).
+                    // This is a WEIGHTED pick over the living wingmen, not a
+                    // uniform choice — and the exact number of random_l draws
+                    // is load-bearing because the RNG is a shared stream.
+                    // cock=falcon, bunny=rabbit, frog=frog (VARS.INC:180-182).
+                    let cock = world.falcon_hp > 0;
+                    let bunny = world.bunny_hp > 0;
+                    let frog = world.frog_hp > 0;
+                    let pick: Option<u8> = if cock {
+                        if frog {
+                            if bunny {
+                                // .404020frogbunnycock: all three alive. One
+                                // random_l: <50 falcon (~20%), <150 rabbit
+                                // (~40%), else frog (~40%) (PATHS.ASM:1271-1277).
+                                let r = host.random() as u8;
+                                Some(if r < 50 {
+                                    FRIEND_FALCON
+                                } else if r < 150 {
+                                    FRIEND_RABBIT
+                                } else {
+                                    FRIEND_FROG
+                                })
+                            } else {
+                                // .4060cockfrog: falcon+frog, rabbit dead.
+                                // s_jmp_random .cock,40 -> 40*255/100 = 102:
+                                // r<102 falcon else frog (PATHS.ASM:1283-1285).
+                                let r = host.random() as u8;
+                                Some(if r < 102 { FRIEND_FALCON } else { FRIEND_FROG })
+                            }
+                        } else if bunny {
+                            // .4060cockbunny: falcon+rabbit, frog dead.
+                            // s_jmp_random .cock,40 -> 102: r<102 falcon else
+                            // rabbit (PATHS.ASM:1278-1282).
+                            let r = host.random() as u8;
+                            Some(if r < 102 { FRIEND_FALCON } else { FRIEND_RABBIT })
+                        } else {
+                            // Only falcon alive (.4060cockbunny: lda bunny;
+                            // beq .cock, PATHS.ASM:1279-1280) — no draw.
+                            Some(FRIEND_FALCON)
+                        }
+                    } else if frog {
+                        if bunny {
+                            // .5050bunnyfrog: falcon dead, frog+rabbit alive.
+                            // s_jmp_random .frog default 50 -> 50*255/100 = 127:
+                            // r<127 frog else rabbit (PATHS.ASM:1286-1292).
+                            let r = host.random() as u8;
+                            Some(if r < 127 { FRIEND_FROG } else { FRIEND_RABBIT })
+                        } else {
+                            // Only frog alive (.5050bunnyfrog: lda bunny;
+                            // beq .frog, PATHS.ASM:1289-1290) — no draw.
+                            Some(FRIEND_FROG)
+                        }
+                    } else if bunny {
+                        // .nooneleft: only rabbit alive (PATHS.ASM:1309-1312).
+                        Some(FRIEND_RABBIT)
+                    } else {
+                        // .nonealive: nobody left, sbyte4 unchanged
+                        // (PATHS.ASM:1320-1321).
+                        None
+                    };
+                    if let Some(f) = pick {
+                        world.aliens[si].sbyte4 = f;
                     }
                 } else if let Some(hp) = path_friend_hp(world, friend_id) {
                     if hp > 0 {
