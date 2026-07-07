@@ -101,19 +101,27 @@ fn op_dobj_takes_shape_from_istrat_table() {
 
 #[test]
 fn op_remove_frees_matching_shapes() {
-    // Two spawns then REMOVE(shape word 10) (C world.c:1149).
+    // ROM mapremove (WORLD.ASM:1973-1993, oracle audit_mapvm2): removes exactly
+    // ONE match per execution and never checks the player slot (0). Spawn
+    // three: slot 0 (player-slot stand-in, shape 10), slots 1+2 (shape 10),
+    // then REMOVE(10) — only the FIRST non-player match is freed.
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&[op::QOBJ, 0, 0, 0, 0, 10, 0]);
-    bytes.extend_from_slice(&[op::QOBJ, 0, 0, 0, 0, 11, 0]);
+    bytes.extend_from_slice(&[op::QOBJ, 0, 0, 0, 0, 10, 0]);
+    bytes.extend_from_slice(&[op::QOBJ, 0, 0, 0, 0, 10, 0]);
     bytes.push(op::REMOVE);
     bytes.extend_from_slice(&0u16.to_le_bytes()); // frame (ignored)
     bytes.extend_from_slice(&10u16.to_le_bytes()); // shape
     bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]); // pause
     let mut g = game_with(bytes);
     g.map_exec();
-    assert!(!g.objs.aliens[0].active, "shape 10 removed");
-    assert!(g.objs.aliens[1].active, "shape 11 kept");
-    assert_eq!(g.objs.aliens[1].shape, 11);
+    assert!(g.objs.aliens[0].active, "player slot exempt");
+    let live: Vec<bool> = (1..3).map(|i| g.objs.aliens[i].active).collect();
+    assert_eq!(
+        live.iter().filter(|&&a| a).count(),
+        1,
+        "exactly one of the two non-player matches removed: {live:?}"
+    );
 }
 
 #[test]
@@ -122,11 +130,17 @@ fn op_wait2_scales_by_16_and_pauses() {
     g.map_exec();
     assert_eq!(g.vars.mapcnt, 32);
     assert_eq!(g.vars.mapptr, 2);
-    // Zero raw continues immediately (C world.c:1953).
+    // ROM mapwait2 (WORLD.ASM:175-187) RTSes unconditionally — a zero raw still
+    // ends the frame (mapcnt=0), unlike mapwait (oracle audit_mapvm2).
     g.vars.mapcnt = 0;
     g.vars.mapptr = 2;
     g.map_exec();
-    assert_eq!(g.vars.stagecnt, 50); // fell through WAIT2 0 into SETSTAGE
+    assert_eq!(g.vars.mapptr, 4, "wait2 0 still ends the frame");
+    assert_eq!(g.vars.mapcnt, 0);
+    assert_eq!(g.vars.stagecnt, 0, "SETSTAGE not reached this frame");
+    // The next frame (mapcnt already 0) continues into SETSTAGE.
+    g.map_exec();
+    assert_eq!(g.vars.stagecnt, 50);
 }
 
 // ---- external-variable opcodes ----

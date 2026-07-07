@@ -176,7 +176,8 @@ fn wait2_scaling_matches_but_zero_diverges() {
         "DISCREPANCY WAIT2-zero: ROM mapptr=2 mapcnt=0; Rust mapptr={} mapcnt={:#x}",
         g.vars.mapptr, g.vars.mapcnt
     );
-    assert_eq!((g.vars.mapptr, g.vars.mapcnt), (6, 0x40), "rust runs on past wait2 0");
+    // FIXED: WAIT2 now ends the frame unconditionally like the ROM RTS.
+    assert_eq!((g.vars.mapptr, g.vars.mapcnt), (2, 0), "wait2 0 ends the frame like the ROM");
 }
 
 // ============================================================
@@ -490,7 +491,8 @@ fn setvarobj_valid_matches_invalid_diverges() {
         "DISCREPANCY SETVAROBJ-invalid: ROM keeps 0x1234, Rust wrote {:#06x}",
         g.vars.read_ext16(VAR)
     );
-    assert_eq!(g.vars.read_ext16(VAR), 0, "rust clobbers with 0");
+    // FIXED: SETVAROBJ skips the write when lastmapobj==0 like the ROM.
+    assert_eq!(g.vars.read_ext16(VAR), 0x1234, "sentinel survives an invalid-object setvarobj");
 }
 
 // ============================================================
@@ -530,8 +532,8 @@ fn setbgm_hp0_guard_diverges() {
     g.vars.mapptr = 0;
     g.vars.pshipflags2 = 0x80; // dead
     g.map_exec();
-    eprintln!("DISCREPANCY SETBGM-HP0: ROM skips, Rust played {:?}", played.borrow());
-    assert_eq!(*played.borrow(), vec![5u8], "rust ignores the HP0 guard");
+    // FIXED: game.rs SETBGM now guards on psf2_playerHP0 like the ROM.
+    assert_eq!(*played.borrow(), Vec::<u8>::new(), "no music change while player HP0");
 }
 
 #[test]
@@ -713,8 +715,8 @@ fn remove_takes_first_match_only_in_rom() {
         .iter()
         .filter(|&&i| g.objs.aliens[i as usize].shape == 7)
         .count();
-    eprintln!("DISCREPANCY REMOVE: ROM leaves 1 of 2 shape-7 aliens, Rust leaves {live}");
-    assert_eq!(live, 0, "rust removes all matches");
+    // FIXED: game.rs REMOVE now matches the ROM (one removal, player exempt).
+    assert_eq!(live, 1, "one shape-7 alien survives like the ROM");
     assert_eq!(g.vars.mapptr, 5);
 }
 

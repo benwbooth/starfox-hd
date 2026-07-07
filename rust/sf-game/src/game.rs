@@ -894,10 +894,28 @@ impl Game {
                 }
                 // 12: mapremove — frame(2),shape(2).
                 op::REMOVE => {
+                    // ROM mapremove (WORLD.ASM:1973-1993): scans allst skipping
+                    // the player and removes exactly ONE match (falls through to
+                    // .out after the first hit — oracle audit_mapvm2 head->A->B
+                    // removes only A). removedeadal also clears dangling refs to
+                    // the freed slot (l_rem, MACROS.INC:3684). Old port freed
+                    // EVERY match including the player.
                     let target_shape = resolve_shape_word(self.map_read16(p.wrapping_add(3)));
                     for idx in self.objs.active_indices() {
+                        if idx == 0 {
+                            continue; // player never checked
+                        }
                         if self.objs.aliens[idx as usize].shape == target_shape {
                             self.objs.free(idx);
+                            for al in self.objs.aliens.iter_mut() {
+                                if al.immuneptr == idx {
+                                    al.immuneptr = 0;
+                                }
+                                if al.collobjptr == idx {
+                                    al.collobjptr = 0;
+                                }
+                            }
+                            break; // one removal per opcode execution
                         }
                     }
                     self.vars.mapptr = p.wrapping_add(5);
@@ -924,10 +942,14 @@ impl Game {
                     self.vars.mapptr = p.wrapping_add(3);
                     return;
                 }
-                // 20: setbgm — music(1).
+                // 20: setbgm — music(1). ROM (WORLD.ASM:194-206) skips the
+                // change while the player is at HP 0 (psf2_playerHP0) so death
+                // music isn't stomped — oracle audit_mapvm2.
                 op::SETBGM => {
                     let music = self.map_read8(p.wrapping_add(1));
-                    self.hooks.play_music(music);
+                    if self.vars.pshipflags2 & crate::vars::PSF2_PLAYERHP0 == 0 {
+                        self.hooks.play_music(music);
+                    }
                     self.vars.mapptr = p.wrapping_add(2);
                 }
                 // 22/24/26: dot modes.
@@ -1099,11 +1121,16 @@ impl Game {
                     }
                     self.vars.mapptr = p.wrapping_add(6);
                 }
-                // 74: setvarobj — ptr(2),bank(1).
+                // 74: setvarobj — ptr(2),bank(1). ROM (WORLD.ASM:744-745)
+                // `ifobjinvalid` bails BEFORE the store: after a failed spawn
+                // (lastmapobj==0) the variable keeps its old value — oracle
+                // audit_mapvm2 (sentinel survives on the ROM).
                 op::SETVAROBJ => {
                     let extptr = self.map_read16(p.wrapping_add(1));
                     let v = self.world.lastmapobj;
-                    self.vars.write_ext16(extptr, v);
+                    if v != 0 {
+                        self.vars.write_ext16(extptr, v);
+                    }
                     self.vars.mapptr = p.wrapping_add(4);
                 }
                 // 76: mapwaitfade (WORLD.ASM:726-740).
@@ -1390,13 +1417,13 @@ impl Game {
                     self.vars.mapptr = p.wrapping_add(1);
                 }
                 // 138: mapwait2 — distance_raw(1) << 4 (WORLD.ASM:175-187).
+                // The ROM stores mapcnt and RTSes UNCONDITIONALLY — no zero
+                // check (unlike mapwait). Oracle audit_mapvm2: wait2 0 ends the
+                // frame at mapptr=2 on the ROM; the old `continue` ran on.
                 op::WAIT2 => {
                     let raw = self.map_read8(p.wrapping_add(1));
                     self.vars.mapcnt = (raw as u16) << 4;
                     self.vars.mapptr = p.wrapping_add(2);
-                    if self.vars.mapcnt == 0 {
-                        continue;
-                    }
                     return;
                 }
                 // 140: mapsetpath — path_ptr(2) (WORLD.ASM:162-170).
