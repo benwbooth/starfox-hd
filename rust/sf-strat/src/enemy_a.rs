@@ -682,7 +682,6 @@ const BOSS1_AP: u8 = 10;
 const BOSS1_TURRET_HP: u8 = 8;
 const BOSS1_TURRET_AP: u8 = 16;
 const BOSS1_COVER_AP: u8 = 16;
-const BOSS1_EXP_FRAMES: u8 = 38;
 const BOSS1_SPACE_VIEW_CY: i16 = -60;
 const BOSS1_CHILD_COVER: u8 = 1;
 const BOSS1_CHILD_TL0: u8 = 2;
@@ -700,11 +699,10 @@ const BOSS1_PARENT_FLAG_COVER_GONE: u8 = 0x80;
 const BOSS1_COVER_BLOCK_FRAMES: u8 = 32;
 const BOSS1_COVER_CLEAR_FRAMES_EASY: u8 = 50;
 const BOSS1_COVER_CLEAR_FRAMES_HARD: u8 = 30;
-const BOSS1_TURRET_HOME_DELAY: u16 = 4;
-const BOSS1_TURRET_FIRE_DELAY: u16 = 5;
-const BOSS1_CENTER_FIRE_DELAY: u16 = 15;
-const BOSS1_BACK_HPLASMA_DELAY: u16 = 6;
-const BOSS1_BACK_MISSILE_DELAY: u16 = 15;
+// boss1 fire cadences are bit-count delay masks applied inline at each site
+// (home (gf+idx)&15, normal (gf+idx)&31, center/back missiles (gf+15)&63, back
+// plasma gf&63) rather than modulus periods — see boss1turret_common_strat,
+// boss1_finish and boss1back_strat (finding #1).
 const BOSS1_CLOSE_ZDIST: i16 = 300;
 const BOSS1_MISSILE_ZDIST: i16 = 1500;
 const BOSS1_COVER_ZOFF: i16 = -300;
@@ -770,14 +768,26 @@ fn play_se_by_range(g: &mut Game, idx: u16, near: u8, mid: u8, far: u8) {
 pub fn strat_explode(g: &mut Game, idx: u16) {
     let sflags4 = g.objs.aliens[idx as usize].sflags4;
     if sflags4 & (ASF4_SPECIAL | ASF4_CSPECIAL) != 0 {
+        // ROM `s_test_special` (STRATMAC.INC:236-245, run from explode_Icont):
+        // increments specials_dead when the object is `special` OR `Cspecial`
+        // — the hit-% score numerator (sf-game score.rs). The port only counted
+        // CSPECIAL, undercounting the score on stages with plain-special
+        // enemies.
+        let sd = g.vars.read_ext8(wm::SPECIALS_DEAD);
+        if sd < 0xFF {
+            g.vars.write_ext8(wm::SPECIALS_DEAD, sd + 1);
+        }
+        // NOTE (ROM fidelity): the ROM NEVER decrements specialobjtotal (it is
+        // set once per stage, WORLD.ASM inc-only, and read by calcteamdamage_l
+        // for the score denominator), and GF_BOSSDEAD is set ONLY by the boss
+        // explode chains (EXPSTRAT.ASM:56/71/169) — never by a special count.
+        // The decrement + specialobjtotal==0 -> GF_BOSSDEAD below is a port
+        // invention kept as a legacy boss-death fallback; removing it needs
+        // per-boss death-path verification (some bosses may not yet route
+        // through strat_boss_explode_init). Score correctness no longer depends
+        // on it (sf-game owns a separate non-decremented total_specials).
         if g.world.specialobjtotal > 0 {
             g.world.specialobjtotal -= 1;
-        }
-        if sflags4 & ASF4_CSPECIAL != 0 {
-            let sd = g.vars.read_ext8(wm::SPECIALS_DEAD);
-            if sd < 0xFF {
-                g.vars.write_ext8(wm::SPECIALS_DEAD, sd + 1);
-            }
         }
         if g.world.specialobjtotal == 0 {
             g.vars.gameflags |= GF_BOSSDEAD;
@@ -1717,16 +1727,6 @@ fn boss1_cover_clear_frames(g: &Game) -> u8 {
     }
 }
 
-/// C `boss1_random_signed` (strat_enemy.c:1992).
-fn boss1_random_signed(g: &mut Game, range: i8) -> i8 {
-    if range <= 0 {
-        return 0;
-    }
-    let span = (range as i32 * 2 + 1) as u8;
-    let rnd = (ea_random(g) % span as u16) as u8;
-    (rnd as i8).wrapping_sub(range)
-}
-
 /// C `boss1_spawn_child` (strat_enemy.c:2005).
 fn boss1_spawn_child(g: &mut Game, mother: u16, child_num: u8, init_fn: StrategyFn) -> Option<u16> {
     let shape = if child_num == BOSS1_CHILD_COVER {
@@ -1791,19 +1791,52 @@ fn boss1_live_turret_count(g: &mut Game, self_idx: u16) -> u8 {
     count
 }
 
-/// C `boss1_get_turret_offset` (strat_enemy.c:2095).
+/// C `boss1_get_turret_offset` (strat_enemy.c:2095). The ring positions are
+/// the boss1rots `s_set_3vars` values (GBSTRATS.ASM:291-312) AFTER the
+/// dobossrot `s_add_roffs2pos ...,0,1,1,1,1,1` per-axis `<<1` scaling
+/// (STRATMAC.INC:4174-4180) — i.e. table halves doubled to world units.
 fn boss1_get_turret_offset(child_num: u8) -> Option<(i16, i16, i16)> {
     match child_num {
-        n if n == BOSS1_CHILD_TL0 => Some((55, 0, 45)),
-        n if n == BOSS1_CHILD_TL1 => Some((125, 0, 45)),
-        n if n == BOSS1_CHILD_TL2 => Some((90, -25, 45)),
-        n if n == BOSS1_CHILD_TL3 => Some((90, 25, 45)),
-        n if n == BOSS1_CHILD_TR0 => Some((-125, 0, 45)),
-        n if n == BOSS1_CHILD_TR1 => Some((-55, 0, 45)),
-        n if n == BOSS1_CHILD_TR2 => Some((-90, -25, 45)),
-        n if n == BOSS1_CHILD_TR3 => Some((-90, 25, 45)),
+        n if n == BOSS1_CHILD_TL0 => Some((110, 0, 90)),
+        n if n == BOSS1_CHILD_TL1 => Some((250, 0, 90)),
+        n if n == BOSS1_CHILD_TL2 => Some((180, -50, 90)),
+        n if n == BOSS1_CHILD_TL3 => Some((180, 50, 90)),
+        n if n == BOSS1_CHILD_TR0 => Some((-250, 0, 90)),
+        n if n == BOSS1_CHILD_TR1 => Some((-110, 0, 90)),
+        n if n == BOSS1_CHILD_TR2 => Some((-180, -50, 90)),
+        n if n == BOSS1_CHILD_TR3 => Some((-180, 50, 90)),
         _ => None,
     }
+}
+
+/// Position `self` at `base` + `off` rotated by the base's FULL rotation in ROM
+/// order rotz(rotate_8yx) -> rotx(rotate_8yz) -> roty(rotate_8xz). Mirrors
+/// `b2_full_offset_pos` (bosses.rs). Covers both boss1 muzzle placement
+/// (fire_weapon `s_add_Roffs2pos` flags 1,1,1, GSTRATS.ASM:2795) and the ring/
+/// cover placement (dobossrot/boss1rots flags 0,1,1 = rotz+roty; boss1's rotx is
+/// always 0 so the rotx stage is identity there). POSITION ONLY — callers assign
+/// the child/shot rotations separately.
+fn boss1_rot_offset_pos(g: &mut Game, self_idx: u16, base: &Alien, offx: i16, offy: i16, offz: i16) {
+    // rotz stage (rotate_8yx): x' = x*cos - y*sin, y' = x*sin + y*cos.
+    let s = strat_sin(base.rotz);
+    let c = strat_cos(base.rotz);
+    let x1 = ((offx as f32 * c) - (offy as f32 * s)).round();
+    let y1 = ((offx as f32 * s) + (offy as f32 * c)).round();
+    // rotx stage (rotate_8yz): y' = y*cos - z*sin, z' = y*sin + z*cos.
+    let s = strat_sin(base.rotx);
+    let c = strat_cos(base.rotx);
+    let y2 = ((y1 * c) - (offz as f32 * s)).round();
+    let z2 = ((y1 * s) + (offz as f32 * c)).round();
+    // roty stage (rotate_8xz, angle negated in ROM): x' = x*cos + z*sin,
+    // z' = z*cos - x*sin.
+    let s = strat_sin(base.roty);
+    let c = strat_cos(base.roty);
+    let rx = ((x1 * c) + (z2 * s)).round() as i16;
+    let rz = ((z2 * c) - (x1 * s)).round() as i16;
+    let al = &mut g.objs.aliens[self_idx as usize];
+    al.worldx = base.worldx.wrapping_add(rx);
+    al.worldy = base.worldy.wrapping_add(y2 as i16);
+    al.worldz = base.worldz.wrapping_add(rz);
 }
 
 /// C `boss1_update_child_positions` (strat_enemy.c:2147).
@@ -1811,8 +1844,11 @@ fn boss1_update_child_positions(g: &mut Game, self_idx: u16) {
     let cover = boss1_cover_obj(g, self_idx);
     let me = g.objs.aliens[self_idx as usize];
     if let Some(cover) = cover {
-        let sb4 = g.objs.aliens[cover as usize].sbyte4 as i8 as i16;
-        boss_apply_yaw_offset(g, cover, &me, sb4, 0, 0);
+        // boss1rots: cover offset (sbyte4<<1, 0, 0) rotated rotz+roty, then z-300
+        // (GBSTRATS.ASM:283-285; sbyte4 carries the ±(32*4/2) slide already, the
+        // `<<1` is the dobossrot per-axis scale). Rotations copied from mother.
+        let sb4 = (g.objs.aliens[cover as usize].sbyte4 as i8 as i16) << 1;
+        boss1_rot_offset_pos(g, cover, &me, sb4, 0, 0);
         let al = &mut g.objs.aliens[cover as usize];
         al.worldz = al.worldz.wrapping_add(BOSS1_COVER_ZOFF);
         al.rotx = me.rotx;
@@ -1829,7 +1865,9 @@ fn boss1_update_child_positions(g: &mut Game, self_idx: u16) {
             continue;
         };
         let me = g.objs.aliens[self_idx as usize];
-        boss_apply_yaw_offset(g, child, &me, offx, offy, offz);
+        // dobossrot: ring offset rotated rotz+roty (only rotz copied to the
+        // turret; roty stays deg180 from init — GBSTRATS.ASM:398 copies only rotz).
+        boss1_rot_offset_pos(g, child, &me, offx, offy, offz);
         g.objs.aliens[child as usize].rotz = me.rotz;
     }
 }
@@ -1851,7 +1889,8 @@ fn boss1_fire_hmissile1(
     }
     let shot = make_obj(g, 0)?;
     let me = g.objs.aliens[self_idx as usize];
-    boss_apply_yaw_offset(g, shot, &me, offx, offy, offz);
+    // fire_weapon muzzle: offset rotated by the firer's full rots (flags 1,1,1).
+    boss1_rot_offset_pos(g, shot, &me, offx, offy, offz);
     let s_tick = sid(g, hmissile1_strat);
     let s_coll = sid(g, projectile_on_collide_strat);
     let al = &mut g.objs.aliens[shot as usize];
@@ -1892,7 +1931,8 @@ fn boss1_fire_hplasma(
     }
     let shot = make_obj(g, 0)?;
     let me = g.objs.aliens[self_idx as usize];
-    boss_apply_yaw_offset(g, shot, &me, offx, offy, offz);
+    // fire_weapon muzzle: offset rotated by the firer's full rots (flags 1,1,1).
+    boss1_rot_offset_pos(g, shot, &me, offx, offy, offz);
     let s_tick = sid(g, homingflat_strat);
     let s_coll = sid(g, projectile_on_collide_strat);
     let s_exp = sid(g, hmissile1_remove_strat);
@@ -1948,7 +1988,9 @@ fn boss1_fire_relslowlaser(g: &mut Game, self_idx: u16, target: Option<u16>, hom
         return;
     };
     let me = g.objs.aliens[self_idx as usize];
-    boss_apply_yaw_offset(g, shot, &me, 0, 0, 10);
+    // Turret muzzle `#0,#0,#40>>weapon_scale` = z+40 world after fire_weapon's
+    // <<weapon_scale(2) (GBSTRATS.ASM:374), rotated by the firer's full rots.
+    boss1_rot_offset_pos(g, shot, &me, 0, 0, 40);
     {
         let al = &mut g.objs.aliens[shot as usize];
         al.rotx = pitch;
@@ -1974,17 +2016,25 @@ fn boss1_finish(g: &mut Game, self_idx: u16, allow_center_fire: bool) {
         let al = &mut g.objs.aliens[self_idx as usize];
         al.rotz = al.rotz.wrapping_add(DEG90 / 32);
     }
+    // boss1_end .fire: `s_jmp_NOTdelay 6,.nofire,#15` = fire when (gf+15)&63==0
+    // (GBSTRATS.ASM:248). Muzzles at `#(±96<<2)>>weapon_scale` = ±384 world
+    // (GBSTRATS.ASM:251/256), each shot given the extra enemy1 colltype
+    // (`s_set_colltype y,enemy1`, GBSTRATS.ASM:253/258 — shootable center pair).
     if allow_center_fire
         && currentlevel(g) != 1
         && (!left_alive || !right_alive)
-        && g.vars.gameframe % BOSS1_CENTER_FIRE_DELAY == 0
+        && (g.vars.gameframe.wrapping_add(15)) & 63 == 0
     {
         if let Some(pl) = player(g) {
             let me = g.objs.aliens[self_idx as usize];
             let yaw = angle_xz(&me, &pl);
             let pitch = strat_pitch_toward(&me, &pl);
-            let _ = boss1_fire_hmissile1(g, self_idx, 0, -96, 0, 0, pitch, yaw);
-            let _ = boss1_fire_hmissile1(g, self_idx, 0, 96, 0, 0, pitch, yaw);
+            if let Some(shot) = boss1_fire_hmissile1(g, self_idx, 0, -384, 0, 0, pitch, yaw) {
+                g.objs.aliens[shot as usize].collflags |= COLLTYPE_ENEMY1;
+            }
+            if let Some(shot) = boss1_fire_hmissile1(g, self_idx, 0, 384, 0, 0, pitch, yaw) {
+                g.objs.aliens[shot as usize].collflags |= COLLTYPE_ENEMY1;
+            }
         }
     }
     boss1_update_child_positions(g, self_idx);
@@ -2034,7 +2084,9 @@ fn boss1back_init(g: &mut Game, idx: u16) {
 
 /// C `boss1up_strat` (strat_enemy.c:2373).
 fn boss1up_strat(g: &mut Game, idx: u16) {
-    if g.objs.aliens[idx as usize].worldy <= BOSS1_SPACE_VIEW_CY {
+    // s_jmp_higher x,#space_viewCY (GBSTRATS.ASM:138) branches STRICTLY when
+    // worldy < space_viewCY (rlbmi, STRATMAC.INC:3081) — passes through ==CY.
+    if g.objs.aliens[idx as usize].worldy < BOSS1_SPACE_VIEW_CY {
         boss1normal_init(g, idx);
         boss1normal_strat(g, idx);
         return;
@@ -2068,9 +2120,11 @@ fn boss1in_strat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldz = al.worldz.wrapping_sub(15);
     }
+    // s_jmp_Zdistmore x,y,#1000,boss1_end (GBSTRATS.ASM:159) holds INCLUSIVELY:
+    // |dz| >= 1000 -> boss1_end (keep advancing in); advance to out only when < 1000.
     let me = g.objs.aliens[idx as usize];
     let close = player(g)
-        .map(|p| ((me.worldz as i32 - p.worldz as i32).abs() as i16) <= 1000)
+        .map(|p| ((me.worldz as i32 - p.worldz as i32).abs() as i16) < 1000)
         .unwrap_or(false);
     if !close {
         boss1_finish(g, idx, true);
@@ -2094,18 +2148,16 @@ fn boss1out_strat(g: &mut Game, idx: u16) {
         boss1_finish(g, idx, true);
         return;
     }
-    {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.sflags2 |= BOSS1_PARENT_FLAG_TURRETS_OPEN;
-        if al.sbyte3 > 0 {
-            al.sbyte3 -= 1;
-        }
-    }
+    g.objs.aliens[idx as usize].sflags2 |= BOSS1_PARENT_FLAG_TURRETS_OPEN;
+    // s_beqdec_alvar B,x,al_sbyte3,boss1inclose_init (GBSTRATS.ASM:170) tests
+    // BEFORE decrementing: sbyte3==0 -> inclose (no dec); else dec and go normal.
+    // Init sbyte3=1 so the first out-pass decs to 0 -> normal; inclose the NEXT pass.
     if g.objs.aliens[idx as usize].sbyte3 == 0 {
         boss1inclose_init(g, idx);
         boss1inclose_strat(g, idx);
         return;
     }
+    g.objs.aliens[idx as usize].sbyte3 -= 1;
     boss1normal_init(g, idx);
     boss1normal_strat(g, idx);
 }
@@ -2116,9 +2168,11 @@ fn boss1inclose_strat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldz = al.worldz.wrapping_sub(25);
     }
+    // s_jmp_Zdistmore x,y,#300,boss1_end.nofire (GBSTRATS.ASM:182) is inclusive:
+    // hold at |dz| >= 300, advance to out only when < 300.
     let me = g.objs.aliens[idx as usize];
     let close = player(g)
-        .map(|p| ((me.worldz as i32 - p.worldz as i32).abs() as i16) <= BOSS1_CLOSE_ZDIST)
+        .map(|p| ((me.worldz as i32 - p.worldz as i32).abs() as i16) < BOSS1_CLOSE_ZDIST)
         .unwrap_or(false);
     if !close {
         boss1_finish(g, idx, false);
@@ -2130,18 +2184,22 @@ fn boss1inclose_strat(g: &mut Game, idx: u16) {
 
 /// C `boss1back_strat` (strat_enemy.c:2472).
 fn boss1back_strat(g: &mut Game, idx: u16) {
+    // s_jmp_Zdistmore x,y,#1500,.nzi (GBSTRATS.ASM:192) is inclusive: |dz| >= 1500
+    // -> .nzi (release cover, spin, bombard); |dz| < 1500 -> retreat (worldz += 15)
+    // then the full boss1_end (finding #2 — the ROM branch was inverted in the port).
     let me = g.objs.aliens[idx as usize];
     let pl = player(g);
-    let near = pl
-        .map(|p| ((me.worldz as i32 - p.worldz as i32).abs() as i16) <= BOSS1_MISSILE_ZDIST)
+    let far = pl
+        .map(|p| ((me.worldz as i32 - p.worldz as i32).abs() as i16) >= BOSS1_MISSILE_ZDIST)
         .unwrap_or(false);
-    if !near {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.worldz = al.worldz.wrapping_add(15);
+    if !far {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldz = al.worldz.wrapping_add(15);
+        }
         boss1_finish(g, idx, true);
         return;
     }
-    let pl = pl.unwrap();
     if g.objs.aliens[idx as usize].sflags4 & BOSS1_PARENT_FLAG_COVER_GONE == 0 {
         if let Some(cover) = boss1_cover_obj(g, idx) {
             let s_die = sid(g, boss1covdie_strat);
@@ -2162,18 +2220,22 @@ fn boss1back_strat(g: &mut Game, idx: u16) {
         al.colframe = al.colframe.wrapping_add(1) & 3;
         al.rotz = al.rotz.wrapping_add(DEG90 / 32);
     }
-    if g.vars.gameframe % BOSS1_BACK_HPLASMA_DELAY == 0 {
+    // HPLASMA barrage: `s_jmp_notdelay 6,.nofire1` (GBSTRATS.ASM:210) = fire when
+    // gf&63==0 (finding #1). `s_weapon_rndrot 15,15` = per-axis (rnd&15)-7 spread on
+    // the FIRER's rots, PITCH drawn first (STRATMAC.INC:2099-2108, finding #6) — no
+    // aim at player; the shot homes via its al_ptr=player target afterward.
+    if g.vars.gameframe & 63 == 0 {
         let me = g.objs.aliens[idx as usize];
-        let r1 = boss1_random_signed(g, 15);
-        let yaw = angle_xz(&me, &pl).wrapping_add(r1 as u8);
-        let r2 = boss1_random_signed(g, 15);
-        let pitch = strat_pitch_toward(&me, &pl).wrapping_add(r2 as u8);
+        let pitch = me.rotx.wrapping_add(((ea_random(g) & 15) as i16 - 7) as u8);
+        let yaw = me.roty.wrapping_add(((ea_random(g) & 15) as i16 - 7) as u8);
         let _ = boss1_fire_hplasma(g, idx, 0, 0, 0, 0, pitch, yaw);
     }
-    if g.vars.gameframe % BOSS1_BACK_MISSILE_DELAY == 0 {
+    // HMISSILE1 pair: `s_jmp_NOTdelay 6,.nofire,#15` (GBSTRATS.ASM:217) = fire when
+    // (gf+15)&63==0 (finding #1). `s_weapon_rot #±(deg45-deg11),#0` = PITCH offset
+    // ±24 on the firer's rots, yaw stays the firer's deg180 (finding #7); homes at
+    // the player afterward.
+    if (g.vars.gameframe.wrapping_add(15)) & 63 == 0 {
         let me = g.objs.aliens[idx as usize];
-        let pitch = strat_pitch_toward(&me, &pl);
-        let yaw = angle_xz(&me, &pl);
         let _ = boss1_fire_hmissile1(
             g,
             idx,
@@ -2181,10 +2243,11 @@ fn boss1back_strat(g: &mut Game, idx: u16) {
             0,
             0,
             0,
-            pitch,
-            yaw.wrapping_add(DEG45 - DEG11),
+            me.rotx.wrapping_add(DEG45 - DEG11),
+            me.roty,
         );
         if currentlevel(g) != 1 {
+            let me = g.objs.aliens[idx as usize];
             let _ = boss1_fire_hmissile1(
                 g,
                 idx,
@@ -2192,12 +2255,14 @@ fn boss1back_strat(g: &mut Game, idx: u16) {
                 0,
                 0,
                 0,
-                pitch,
-                yaw.wrapping_sub(DEG45 - DEG11),
+                me.rotx.wrapping_sub(DEG45 - DEG11),
+                me.roty,
             );
         }
     }
-    boss1_finish(g, idx, false);
+    // .nofire -> boss1_fin (GBSTRATS.ASM:227): straight to s_add_playerZ. NO second
+    // rotz spin, no boss1rots child recount, no center-fire (finding #21).
+    add_player_z(g, idx);
 }
 
 /// C `boss1cov_coll` (strat_enemy.c:2523).
@@ -2284,9 +2349,11 @@ fn boss1cov_strat(g: &mut Game, idx: u16) {
 /// C `boss1covdie_strat` (strat_enemy.c:2598).
 fn boss1covdie_strat(g: &mut Game, idx: u16) {
     if let Some(pl) = player(g) {
+        // s_jmp_Zdistmore x,y,#1000,remove_Istrat (GBSTRATS.ASM:461) is inclusive:
+        // remove when behind the player AND |dz| >= 1000 (finding #19).
         let me = g.objs.aliens[idx as usize];
         if me.worldz < pl.worldz
-            && ((me.worldz as i32 - pl.worldz as i32).abs() as i16) > 1000
+            && ((me.worldz as i32 - pl.worldz as i32).abs() as i16) >= 1000
         {
             g.objs.aldead = 1;
             return;
@@ -2366,15 +2433,21 @@ fn boss1turret_common_strat(g: &mut Game, idx: u16, right_side: bool) {
             return;
         }
     }
+    // Fire gates are bit-count delays with a per-turret al1pt stagger (== object
+    // index): home `s_jmp_IFdelay 4,.home,al1pt` = (gf+idx)&15==0; normal
+    // `s_jmp_IFdelay 5,.norm,al1pt` = (gf+idx)&31==0 (GBSTRATS.ASM:376/378,
+    // finding #1). bf_flag1-set + home-frame consumes the flag and fires homing;
+    // otherwise it falls through to the normal gate exactly as the ASM does.
+    let phase = strat_phase_offset(idx) as u16;
     let pl_idx = if g.objs.aliens[0].active { Some(0u16) } else { None };
     if bossflags(g) & BF_FLAG1 != 0
         && pl_idx.is_some()
-        && g.vars.gameframe % BOSS1_TURRET_HOME_DELAY == 0
+        && (g.vars.gameframe.wrapping_add(phase)) & 15 == 0
     {
         let bf = bossflags(g);
         set_bossflags(g, bf & !BF_FLAG1);
         boss1_fire_relslowlaser(g, idx, pl_idx, true);
-    } else if g.vars.gameframe % BOSS1_TURRET_FIRE_DELAY == 0 {
+    } else if (g.vars.gameframe.wrapping_add(phase)) & 31 == 0 {
         boss1_fire_relslowlaser(g, idx, pl_idx, false);
     }
     boss1_update_child_positions(g, mother);
@@ -2390,39 +2463,26 @@ fn boss1turret_r_strat(g: &mut Game, idx: u16) {
     boss1turret_common_strat(g, idx, true);
 }
 
-/// C `boss1exp_init` (strat_enemy.c:2710).
+/// boss1's death entry point (ROM expstratptr = `bossexplode_Istrat`, wired at
+/// GBSTRATS.ASM:96). ROM plays `s_boss_dying` ($1e + boss-dying bgm + PSTF_NOTDIE
+/// + fire-off), scatters the staggered SML/MED/L explosion barrage + a
+/// circdelayexplode child, sets self lifecnt 38, then runs `bossdelayexplode`
+/// (finding #9). The rotz spin is carried by the pushed `boss1exp_Istrat`
+/// (s_push_stratptr, GBSTRATS.ASM:92-94); bossdelayexplode_strat runs it each
+/// countdown tick via the tempstrat slot (EXPSTRAT.ASM:60-64).
 fn boss1exp_init(g: &mut Game, idx: u16) {
     boss1_release_children(g, idx);
-    let s = sid(g, boss1exp_strat);
-    {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.stratptr = Some(s);
-        al.collstratptr = None;
-        al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
-        al.flags |= AFEXP;
-        al.count = BOSS1_EXP_FRAMES;
-    }
-    let bf = bossflags(g);
-    set_bossflags(g, bf | BF_DYING);
-    g.hooks.play_se(0x10);
+    let spin = sid(g, boss1exp_spin_strat);
+    g.objs.aliens[idx as usize].tempstratptr = Some(spin);
+    strat_boss_explode_init(g, idx);
 }
 
-/// C `boss1exp_strat` (strat_enemy.c:2726).
-fn boss1exp_strat(g: &mut Game, idx: u16) {
-    {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.rotz = al.rotz.wrapping_add(DEG90 / 32);
-    }
-    add_player_z(g, idx);
-    if !count_down(&mut g.objs.aliens[idx as usize]) {
-        return;
-    }
-    g.vars.gameflags |= GF_BOSSDEAD;
-    let bf = bossflags(g);
-    set_bossflags(g, bf & !(BF_DYING | BF_FLAG1 | BF_FLAG2 | BF_FLAG3));
-    g.vars.bossmaxhp = 0;
-    g.objs.aldead = 1;
+/// C `boss1exp_Istrat` (GBSTRATS.ASM:87-90): the pushed death-animation tick —
+/// just spins rotz at deg90/32. Driven by bossdelayexplode_strat's tempstrat
+/// call each frame (which already does the add_playerZ).
+fn boss1exp_spin_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotz = al.rotz.wrapping_add(DEG90 / 32);
 }
 
 /// C `Strat_Boss1_Init` (strat_enemy.c:2744).
