@@ -215,6 +215,9 @@ fn set_maptrigger(g: &mut Game, v: u8) {
 const WM_PVIEWPOSX: u16 = 0x053C;
 /// C `g_pviewposy` — 0x053E.
 const WM_PVIEWPOSY: u16 = 0x053E;
+/// C `g_viewposy` — the camera Y (ALCS.INC:265), distinct from pviewposy
+/// (GILESALC.INC:178) — sv block 0x0552.
+const WM_VIEWPOSY: u16 = 0x0552;
 /// C `g_bg2Yscroll` — 0x055A (player-lane sv block).
 const WM_BG2YSCROLL: u16 = 0x055A;
 
@@ -225,6 +228,10 @@ fn pviewposx(g: &Game) -> i16 {
 #[inline]
 fn pviewposy(g: &Game) -> i16 {
     wm16s(g, WM_PVIEWPOSY)
+}
+#[inline]
+fn viewposy(g: &Game) -> i16 {
+    wm16s(g, WM_VIEWPOSY)
 }
 
 // ============================================================
@@ -1479,7 +1486,8 @@ fn sea_gen_vecs_angle(g: &mut Game, idx: u16, angle: u8) {
     let al = &mut g.objs.aliens[idx as usize];
     let speed = (al.vel as i16) as f32;
     al.vx = (speed * rad.sin()) as i16;
-    al.vy = 0;
+    // s_gen_vecs writes al_vx/al_vz ONLY, never vy (STRATMAC.INC:3637) —
+    // finding #23. Leave vy untouched.
     al.vz = (speed * rad.cos()) as i16;
 }
 
@@ -1533,10 +1541,9 @@ fn sea_find_shape(g: &Game, shape: u16) -> Option<u16> {
 
 /// s_dec_var B,gsvar_byte1 (strat_boss_sea.c:285).
 fn sea_dec_gsvar_byte1(g: &mut Game) {
+    // s_dec_var B,gsvar_byte1 (GA2STRAT.ASM:3195) wraps 0->255 — finding #22.
     let v = gsvar_byte1(g);
-    if v > 0 {
-        set_gsvar_byte1(g, v - 1);
-    }
+    set_gsvar_byte1(g, v.wrapping_sub(1));
 }
 
 /// s_init_anim (bit 7 marker) (strat_boss_sea.c:294).
@@ -1617,6 +1624,9 @@ pub fn strat_bossseamon_init(g: &mut Game, idx: u16) {
     al.sbyte4 = 3;
     al.stratstate = 0;
     al.shape = SH_SEA_0_0;
+    // bossseamon_Istrat falls into bossseamon_strat in one pass (GA2STRAT.ASM:3056)
+    // — run the body on the spawn tick — finding #28.
+    bossseamon_strat(g, idx);
 }
 
 fn bossseamon_strat(g: &mut Game, idx: u16) {
@@ -1779,8 +1789,11 @@ fn bossseamon_strat(g: &mut Game, idx: u16) {
         if g.objs.aliens[idx as usize].stratstate == 8 {
             g.objs.aliens[idx as usize].vy = g.objs.aliens[idx as usize].vy.wrapping_add(2);
             if g.objs.aliens[idx as usize].worldy >= 0 {
-                let neg = sfrtl_random(g) & 1 != 0;
+                // ROM draws vx=(rnd&7)+5 FIRST (GA2STRAT.ASM:3178-3179), THEN the
+                // negate coin s_jmp_random (branch when random<127, so negate when
+                // random>=127) — finding #10. Keep this draw order and the <127 coin.
                 let vxr = (sfrtl_random(g) & 7) as i16 + 5;
+                let neg = (sfrtl_random(g) & 0xFF) >= 127;
                 let al = &mut g.objs.aliens[idx as usize];
                 al.sbyte4 = 2;
                 al.stratstate = 2;
@@ -1845,7 +1858,10 @@ fn seamon_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].stratstate == 3 || g.objs.aliens[idx as usize].worldy == 0 {
         if g.objs.aliens[idx as usize].sbyte3 == 0 {
             let sb2 = g.objs.aliens[idx as usize].sbyte2;
-            let vx = (crate::snes_trig::SINTAB[sb2 as usize] as i16) >> 4;
+            // s_set_alvar2alvartab ...,sintab,-4 (GASTRATS.ASM:2071): sign-extend
+            // then adiv2 x4 (toward ZERO). `/16` truncates toward zero; `>>4`
+            // floors negatives — finding #24.
+            let vx = (crate::snes_trig::SINTAB[sb2 as usize] as i16) / 16;
             {
                 let al = &mut g.objs.aliens[idx as usize];
                 al.vx = vx;
@@ -1857,7 +1873,17 @@ fn seamon_strat(g: &mut Game, idx: u16) {
                 al.sbyte1 = 10;
                 al.shape = SH_SEA_0_1_PROXY;
                 al.sflags2 ^= SEA_SFLAG2;
-                if al.sflags2 & SEA_SFLAG2 != 0 {
+                // ROM `s_not_alsflag x,sflag2` + `s_beq` tests the WHOLE sflags
+                // byte2 after the EOR, not just sflag2 (GASTRATS.ASM:2077-2079,
+                // macro fact #28) — finding #12. Byte2 holds colldisable, sflag1
+                // (the splash-down latch) and sflag2. Pre-landing only sflag2 is
+                // live so the frame alternates sea_0_1/sea_0_0; once the landing
+                // latch sets sflag1+colldisable the byte is never 0 and the frame
+                // is forced to sea_0_0 forever. colldisable lives in `sflags` in
+                // this port, so reproduce the observable rule from those bits.
+                let byte2_nonzero = al.sflags2 & (SEA_SFLAG2 | SEA_SFLAG1) != 0
+                    || al.sflags & ASF_COLLDISABLE != 0;
+                if byte2_nonzero {
                     al.shape = SH_SEA_0_0;
                 }
             }
@@ -1885,6 +1911,12 @@ fn seamon_strat(g: &mut Game, idx: u16) {
                     let al = &mut g.objs.aliens[idx as usize];
                     al.sbyte3 = 10;
                     al.sflags |= ASF_COLLDISABLE;
+                } else {
+                    // sflag1 ALREADY latched -> ROM jumps to .nds and snaps flush
+                    // to the surface (GASTRATS.ASM:2097->2105-2108) — finding #11.
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.worldy = 0;
+                    al.vy = 0;
                 }
             }
         } else {
@@ -2485,11 +2517,28 @@ fn b8_add_rnd_xy(g: &mut Game, idx: u16) {
     addrnd2pos_xy(g, idx);
 }
 
-fn b8_add_rnd_xyz(g: &mut Game, idx: u16) {
-    let rz = (sfrtl_random(g) & 0xFF) as u8 as i8;
-    b8_add_rnd_xy(g, idx);
+/// `s_add_rnd2pos y,127,127,0` (GB3STRAT.ASM:472): per axis `(rnd&mask)-mask/2`,
+/// one draw PER AXIS even for mask=0 (STRATMAC.INC:7336, macro fact #19). So x/y
+/// get `(rnd&127)-63` and z draws a random masked to 0 (net 0) — finding #17.
+fn b8_add_rnd2pos_folexp(g: &mut Game, idx: u16) {
+    let rx = (sfrtl_random(g) & 127) as i16 - 63;
+    let ry = (sfrtl_random(g) & 127) as i16 - 63;
+    let _rz = sfrtl_random(g) & 0; // masked to 0, but the draw still happens
     let al = &mut g.objs.aliens[idx as usize];
-    al.worldz = al.worldz.wrapping_add(rz as i16);
+    al.worldx = al.worldx.wrapping_add(rx);
+    al.worldy = al.worldy.wrapping_add(ry);
+}
+
+fn b8_add_rnd_xyz(g: &mut Game, idx: u16) {
+    // addrnd2posxyz2_srou (EXPSTRAT.ASM:359-382): draw x, y, z IN THAT ORDER,
+    // each a sign-extended byte then `asl a` (<<1, ±254 spread) — finding #17.
+    let rx = ((sfrtl_random(g) & 0xFF) as u8 as i8 as i16) << 1;
+    let ry = ((sfrtl_random(g) & 0xFF) as u8 as i8 as i16) << 1;
+    let rz = ((sfrtl_random(g) & 0xFF) as u8 as i8 as i16) << 1;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = al.worldx.wrapping_add(rx);
+    al.worldy = al.worldy.wrapping_add(ry);
+    al.worldz = al.worldz.wrapping_add(rz);
 }
 
 /// delayexplode_strat (strat_boss8.c:382).
@@ -2548,8 +2597,13 @@ fn b8_fire_hplasma(g: &mut Game, self_idx: u16, target: u16) -> Option<u16> {
     let s = sid(g, boss8_homing_shot_strat);
     let s_coll = strat_projectile_on_collide_sid(g);
     copy_pos(g, shot, self_idx);
-    let ang = strat_angle_xz(&g.objs.aliens[shot as usize], &g.objs.aliens[target as usize]);
-    let pit = strat_pitch_toward(&g.objs.aliens[shot as usize], &g.objs.aliens[target as usize]);
+    // ROM `s_weapon_rot #0,#deg180` (GB3STRAT.ASM:152) launches relative to the
+    // FIRER's rots (yaw = firer.roty + deg180, pitch = firer.rotx + 0); the shot
+    // then homes on the player — finding #27. Don't aim straight at the player at
+    // spawn.
+    let firer = g.objs.aliens[self_idx as usize];
+    let ang = firer.roty.wrapping_add(DEG180);
+    let pit = firer.rotx;
     let al = &mut g.objs.aliens[shot as usize];
     al.stratptr = Some(s);
     al.collstratptr = Some(s_coll);
@@ -2887,8 +2941,13 @@ fn boss8a_strat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sflags2 |= B8_SFLAG4;
 
     if g.objs.aliens[idx as usize].sflags2 & B8_SFLAG5 != 0 {
+        // s_add_anim x,#1,#15,.nanim is the 4-arg/label form: CAP at max-1 (14)
+        // and jump, NOT wrap (STRATLIB.INC:180-247, GB3STRAT.ASM:146) — finding
+        // #13. The fully-open pose holds instead of looping 14->0.
         let al = &mut g.objs.aliens[idx as usize];
-        al.animframe = al.animframe.wrapping_add(1) % 15;
+        if al.animframe < 14 {
+            al.animframe += 1;
+        }
     }
 
     let frame = (g.vars.gameframe & 31) as u8;
@@ -2967,7 +3026,9 @@ fn boss8die_istrat(g: &mut Game, idx: u16) {
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
     g.vars.gameflags |= GF_STAGEDONE;
     boss_dying(g);
-    set_bossmaxhp(g, 0);
+    // ROM boss8die_Istrat (GB3STRAT.ASM:208-220) never touches bossmaxHP, and
+    // s_boss_dying doesn't either — finding #15. Leave the bar's max alone
+    // (its drain is the finding-#4 accumulator lane, out of this scope).
     boss8die_strat(g, idx);
 }
 
@@ -3001,7 +3062,9 @@ fn boss8die_strat(g: &mut Game, idx: u16) {
 
         if let Some(e) = make_obj(g, SH_SHYPER) {
             let s = sid(g, boss8_straight_istrat);
-            let vy = pviewposy(g);
+            // ROM `s_set_alvar W,y,al_worldy,viewposy` (GB3STRAT.ASM:254) uses the
+            // camera viewposy, NOT pviewposy — finding #16.
+            let vy = viewposy(g);
             let rz = sfrtl_random(g) as u8;
             {
                 let al = &mut g.objs.aliens[e as usize];
@@ -3255,7 +3318,7 @@ fn boss8shrap_strat(g: &mut Game, idx: u16) {
         if let Some(e) = b8_make_exp_obj(g, idx, B8_EXPSHAPE_FOLARGE) {
             g.objs.aliens[e as usize].worldz = g.objs.aliens[e as usize].worldz.wrapping_sub(1000);
             g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
-            b8_add_rnd_xy(g, e);
+            b8_add_rnd2pos_folexp(g, e);
         }
     } else {
         g.objs.aliens[idx as usize].sbyte1 -= 1;
@@ -3263,7 +3326,13 @@ fn boss8shrap_strat(g: &mut Game, idx: u16) {
 
     if g.vars.gameframe & 7 == 0 {
         if let Some(e) = make_obj(g, SH_SHRAP1) {
-            boss8_shrapfall_istrat(g, e);
+            // ROM defers `s_set_strat y,shrapfall_Istrat` (GB3STRAT.ASM:486): the
+            // Istrat's 3 RNG draws (worldx, sword1, roty) run when the object is
+            // next dispatched, AFTER this frame's boss8shrap draws below — finding
+            // #17. Mirror the deferred-Istrat convention (like the Shyper handoff)
+            // rather than running the init inline this tick.
+            let s = sid(g, boss8_shrapfall_istrat);
+            g.objs.aliens[e as usize].stratptr = Some(s);
         }
     }
 
@@ -3329,6 +3398,10 @@ fn nucleuslauncher_istrat(g: &mut Game, idx: u16) {
         }
     }
     nucleuslauncher_init(g, idx);
+    // nucleuslauncher_Istrat falls through init INTO nucleuslauncher_strat in one
+    // pass (GASTRATS.ASM:39-51) — run the body on the spawn tick so the first
+    // wallrot placement isn't a frame late — finding #28.
+    nucleuslauncher_strat(g, idx);
 }
 
 fn nucleuslauncher_init(g: &mut Game, idx: u16) {
@@ -3346,9 +3419,14 @@ fn nucleuslauncher_strat(g: &mut Game, idx: u16) {
     let player = player(g);
     let fire = if let Some(p) = player.filter(|p| p.active) {
         let me = g.objs.aliens[idx as usize];
-        (me.worldx as i32).abs() >= 700
+        // ROM `s_jmp_objinfront y,x,nuclaunch_cont` (GASTRATS.ASM:60) branches out
+        // when player.z >= launcher.z, i.e. arm only while the player is still in
+        // front (player.z < launcher.z) — finding #14. And `s_jmp_Xdistmore
+        // x,y,#200` (GASTRATS.ASM:63) needs |dx| < 200 (strict) — finding #25.
+        p.worldz < me.worldz
+            && (me.worldx as i32).abs() >= 700
             && (me.worldx as i32).abs() <= 900
-            && (me.worldx as i32 - p.worldx as i32).abs() <= 200
+            && (me.worldx as i32 - p.worldx as i32).abs() < 200
     } else {
         false
     };
