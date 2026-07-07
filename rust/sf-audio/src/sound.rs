@@ -31,6 +31,115 @@ const SOUND_SE_DOPRIGHT: u8 = 0x6D;
 const SOUND_SE_DOPCENTRE: u8 = 0x6E;
 const SOUND_SE_DOPLEFT: u8 = 0x6F;
 
+// ---------------------------------------------------------------------------
+// makesnd positional one-shot layer (C oracle: SOUND.ASM makesnd, 899-945,
+// and the *sound_l family selectors 735-897).
+//
+// makesnd is the common tail of destbosssound_l / destenemysound_l /
+// damenemysound_l / hitwallsound_l / missilesound_l / movewallsound_l /
+// lasersound_l / enemybattrysound_l / ringlasersound_l / dooropensound_l /
+// doorclosesound_l / enemyupsea_l / enemydownsea_l / separatemissile_l.
+// Each loads L/C/R/mid/far SE ids into lsnd/csnd/rsnd/msnd/fsnd, then jmps
+// makesnd, which:
+//   * computes rangexz (xzdiffs_l XZ octagonal distance obj<->player);
+//   * `rangexz < 2000`  -> near: L/C/R by the signed x-offset
+//         dx = pviewposx - obj.worldx, split at +-170 (SOUND.ASM:920-937);
+//   * `rangexz < dist3snd` (1150) -> mid (msnd) — UNREACHABLE, dead in ROM
+//         because dist3snd < 2000 (the near threshold checked first);
+//   * `rangexz < cutoffsnd` (3150) -> far (fsnd);
+//   * else -> silence (no setport3 write).
+// The selected id is queued through setport3_l (== play_se: same nosetport3
+// / in-game-HP0 gate and 16-entry ring as one-shot trigse). This is a
+// distance-attenuated ONE-SHOT layer, distinct from the per-frame looping
+// nearobjs pass on port 2.
+// ---------------------------------------------------------------------------
+
+/// `rangexz` threshold below which makesnd uses the near L/C/R band
+/// (SOUND.ASM:907 `cmp #2000`).
+const SOUND_MAKESND_NEAR: u16 = 2000;
+/// Signed x-offset (pviewposx - obj.worldx) that splits centre from the
+/// left/right variants (SOUND.ASM:924/930 `cmp #170` / `cmp #-170`).
+const SOUND_MAKESND_XSPLIT: i16 = 170;
+
+/// One `*sound_l` family: the five SE ids loaded into lsnd/csnd/rsnd/msnd/fsnd
+/// before the `jmp makesnd` tail. For the "near"-only families (destboss,
+/// destenemy, damenemy, hitwall, missile, enemybattry, ringlaser) l==c==r.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PosSndFamily {
+    /// `lsnd` — object far to the left (dx >= +170).
+    pub l: u8,
+    /// `csnd` — object roughly centred (|dx| <= 170).
+    pub c: u8,
+    /// `rsnd` — object far to the right (dx < -170).
+    pub r: u8,
+    /// `msnd` — mid band. Dead in ROM makesnd (dist3snd < near threshold);
+    /// only reachable via the strats' own inline range checks.
+    pub m: u8,
+    /// `fsnd` — far band (2000..3150).
+    pub f: u8,
+}
+
+impl PosSndFamily {
+    /// Near-only family: l == c == r == `near`, plus `mid`/`far`
+    /// (destboss/destenemy/damenemy/hitwall/missile/enemybattry).
+    const fn near(near: u8, mid: u8, far: u8) -> Self {
+        PosSndFamily { l: near, c: near, r: near, m: mid, f: far }
+    }
+}
+
+/// `destbosssound_l` — SOUND.ASM:735 ($1e/$1f/$20).
+pub const POS_DESTBOSS: PosSndFamily = PosSndFamily::near(0x1e, 0x1f, 0x20);
+/// `destenemysound_l` — SOUND.ASM:746 ($21/$22/$23).
+pub const POS_DESTENEMY: PosSndFamily = PosSndFamily::near(0x21, 0x22, 0x23);
+/// `damenemysound_l` — SOUND.ASM:757 ($24/$25/$26).
+pub const POS_DAMENEMY: PosSndFamily = PosSndFamily::near(0x24, 0x25, 0x26);
+/// `hitwallsound_l` — SOUND.ASM:768 ($27/$28/$29).
+pub const POS_HITWALL: PosSndFamily = PosSndFamily::near(0x27, 0x28, 0x29);
+/// `missilesound_l` — SOUND.ASM:779 ($3c/$3d/$3e).
+pub const POS_MISSILE: PosSndFamily = PosSndFamily::near(0x3c, 0x3d, 0x3e);
+/// `movewallsound_l` — SOUND.ASM:790 ($3f/$40/$41/$42/$43), distinct L/C/R.
+pub const POS_MOVEWALL: PosSndFamily = PosSndFamily {
+    l: 0x3f,
+    c: 0x40,
+    r: 0x41,
+    m: 0x42,
+    f: 0x43,
+};
+/// `lasersound_l` — SOUND.ASM:803 ($44/$45/$46/$47/$48), distinct L/C/R.
+pub const POS_LASER: PosSndFamily = PosSndFamily {
+    l: 0x44,
+    c: 0x45,
+    r: 0x46,
+    m: 0x47,
+    f: 0x48,
+};
+/// `enemybattrysound_l` — SOUND.ASM:816 ($49/$4a/$4b).
+pub const POS_ENEMYBATTRY: PosSndFamily = PosSndFamily::near(0x49, 0x4a, 0x4b);
+/// `ringlasersound_l` — SOUND.ASM:827 ($5c/$5d/$5e).
+pub const POS_RINGLASER: PosSndFamily = PosSndFamily::near(0x5c, 0x5d, 0x5e);
+/// `dooropensound_l` — SOUND.ASM:839 (near $54, mid/far $55).
+pub const POS_DOOROPEN: PosSndFamily = PosSndFamily::near(0x54, 0x55, 0x55);
+/// `doorclosesound_l` — SOUND.ASM:850 (near $52, mid/far $53).
+pub const POS_DOORCLOSE: PosSndFamily = PosSndFamily::near(0x52, 0x53, 0x53);
+/// `enemyupsea_l` — SOUND.ASM:861 ($68/$69/$6a/$6b/$6c), distinct L/C/R.
+pub const POS_ENEMYUPSEA: PosSndFamily = PosSndFamily {
+    l: 0x68,
+    c: 0x69,
+    r: 0x6a,
+    m: 0x6b,
+    f: 0x6c,
+};
+/// `enemydownsea_l` — SOUND.ASM:874 ($74/$75/$76/$77/$78), distinct L/C/R.
+pub const POS_ENEMYDOWNSEA: PosSndFamily = PosSndFamily {
+    l: 0x74,
+    c: 0x75,
+    r: 0x76,
+    m: 0x77,
+    f: 0x78,
+};
+/// `separatemissile_l` — SOUND.ASM:887 ($49/$4a/$4b).
+pub const POS_SEPARATEMISSILE: PosSndFamily = PosSndFamily::near(0x49, 0x4a, 0x4b);
+
 /// ISTRATS def_shape indices used by SOUND.ASM's force-sound path
 /// (C SOUND_SHAPE_SHIP_*).
 pub const FORCESND_SHAPE_IDS: [u16; 5] = [21, 23, 107, 109, 110];
@@ -223,6 +332,39 @@ fn pan_from_angle(angle: u8) -> u8 {
     }
 }
 
+/// XZ-plane octagonal distance approximation between object and player,
+/// faithful 16-bit-wrapping port of `xzdiffs_l` + `xzdiffs_diffabs_l`
+/// (STRATROU.ASM:1796-1856).  This is `rangexz`, the magnitude makesnd bands
+/// against.  All arithmetic is i16-wrapping / arithmetic-shift to reproduce
+/// the ROM's overflow behaviour exactly (large separations wrap to a huge
+/// unsigned value => silence, matching the original).
+fn xzdiffs_rangexz(px: i16, pz: i16, ox: i16, oz: i16) -> i16 {
+    // xzdiffs_l: absolute per-axis differences (player - obj).
+    let mut x1 = px.wrapping_sub(ox);
+    if x1 < 0 {
+        x1 = x1.wrapping_neg();
+    }
+    let mut y1 = pz.wrapping_sub(oz);
+    if y1 < 0 {
+        y1 = y1.wrapping_neg();
+    }
+
+    // xzdiffs_diffabs_l.
+    x1 >>= 1; // asra
+    y1 >>= 1; // asra
+    let mut rangexz = y1.wrapping_add(x1).wrapping_shl(1);
+
+    // a = max(x1, y1)  (`lda y1 / cmp x1 / bmi .xmax` -> x1 when y1 < x1).
+    let maxv = if y1 < x1 { x1 } else { y1 };
+    let a = maxv.wrapping_add(rangexz);
+
+    x1 = a;
+    y1 = a.wrapping_shl(2);
+    let a = (x1 >> 1).wrapping_add(y1); // asra then + y1
+    rangexz = a >> 3; // asra asra asra
+    rangexz
+}
+
 /// 0-255 angle from src to dst in the XZ plane.  Local copy of
 /// `Strat_AngleXZ` (strat_common.c, decompiled from anglexy_l in
 /// STRATROU.ASM) so this crate stays independent of the strat lane.
@@ -317,6 +459,54 @@ impl Sound {
         }
         self.sdport3[(self.sdspt3 & 0x0F) as usize] = sound_id;
         self.sdspt3 = self.sdspt3.wrapping_add(1) & 0x0F;
+    }
+
+    /// C `makesnd` (SOUND.ASM:899-945): distance-attenuated positional
+    /// ONE-SHOT SE for an enemy weapon / door / wall / sea event, keyed to a
+    /// `*sound_l` family. Call it from a spawn/impact site (e.g. an enemy
+    /// laser fires `make_snd(.., &POS_LASER)`), passing the SOURCE object's
+    /// world XZ and the player. It selects near L/C/R, far, or silence by the
+    /// `xzdiffs` range and the signed x-offset, then queues the chosen id
+    /// through the setport3 ring (same gate/ring as one-shot `play_se`).
+    ///
+    /// Returns the queued SE id (None = silence, past `cutoffsnd`), mostly for
+    /// testing. The mid band (`family.m`) is unreachable here, matching ROM.
+    pub fn make_snd(
+        &mut self,
+        state: &SoundGameState,
+        player: &SoundPlayer,
+        obj_worldx: i16,
+        obj_worldz: i16,
+        family: &PosSndFamily,
+    ) -> Option<u8> {
+        let rangexz =
+            xzdiffs_rangexz(player.worldx, player.worldz, obj_worldx, obj_worldz) as u16;
+
+        let id = if rangexz < SOUND_MAKESND_NEAR {
+            // Near: pick L/C/R by dx = pviewposx - obj.worldx (split +-170).
+            let dx = state.pviewposx.wrapping_sub(obj_worldx);
+            if dx >= 0 {
+                if dx < SOUND_MAKESND_XSPLIT {
+                    family.c
+                } else {
+                    family.l
+                }
+            } else if dx >= -SOUND_MAKESND_XSPLIT {
+                family.c
+            } else {
+                family.r
+            }
+        } else if rangexz < SOUND_DIST3SND as u16 {
+            // Mid — dead in ROM (dist3snd < near threshold); kept for fidelity.
+            family.m
+        } else if rangexz < SOUND_CUTOFFSND as u16 {
+            family.f
+        } else {
+            return None; // .ret without setport3 -> silence
+        };
+
+        self.play_se(state, id);
+        Some(id)
     }
 
     /// C `Sound_Play`: immediate driver command (Audio_SendCommand ->
@@ -1007,6 +1197,113 @@ mod tests {
         }];
         snd.nearobjs(&st, Some(&player), &objs, &mut be);
         assert_eq!(last_write(&be, 2), Some(0));
+    }
+
+    #[test]
+    fn nearobjs_picks_nearest_of_several() {
+        // The per-frame looping pass drives port 2 from the single NEAREST
+        // sounding object (SOUND.ASM nearobjs ktpx/ktpy).
+        let mut snd = Sound::new();
+        let mut be = FakeBackend::default();
+        let st = SoundGameState::default();
+        let player = SoundPlayer::default();
+        let objs = [
+            SoundObj { id: 1, snd1: 0x11, worldz: 500, ..Default::default() },
+            SoundObj { id: 2, snd1: 0x22, worldz: 100, ..Default::default() }, // nearest
+            SoundObj { id: 3, snd1: 0x33, worldz: 800, ..Default::default() },
+        ];
+        // Pre-latch the nearest so its snd1 goes straight out (2nd-pass gate).
+        snd.lastblock = 2;
+        snd.nearobjs(&st, Some(&player), &objs, &mut be);
+        assert_eq!(last_write(&be, 2), Some(0x22));
+    }
+
+    #[test]
+    fn make_snd_near_lcr_selection() {
+        // Near band (small range): L/C/R chosen by dx = pviewposx - obj.worldx.
+        let mut snd = Sound::new();
+        let player = SoundPlayer { worldx: 0, worldz: 0, ..Default::default() };
+        // obj at (0,100): rangexz well under the 2000 near threshold.
+        let ox = 0;
+        let oz = 100;
+
+        // dx = +200 (>= +170) -> lsnd.
+        let st = SoundGameState { pviewposx: 200, ..Default::default() };
+        assert_eq!(snd.make_snd(&st, &player, ox, oz, &POS_LASER), Some(POS_LASER.l));
+        assert_eq!(snd.sdport3[0], POS_LASER.l);
+
+        // dx = +100 (< +170) -> csnd.
+        let st = SoundGameState { pviewposx: 100, ..Default::default() };
+        assert_eq!(snd.make_snd(&st, &player, ox, oz, &POS_LASER), Some(POS_LASER.c));
+
+        // dx = -200 (< -170) -> rsnd.
+        let st = SoundGameState { pviewposx: -200, ..Default::default() };
+        assert_eq!(snd.make_snd(&st, &player, ox, oz, &POS_LASER), Some(POS_LASER.r));
+    }
+
+    #[test]
+    fn make_snd_far_band_and_silence() {
+        let mut snd = Sound::new();
+        let st = SoundGameState::default();
+        let player = SoundPlayer::default();
+
+        // obj dead ahead at z=2500 -> rangexz ~2109, in [2000,3150): far.
+        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_LASER), Some(POS_LASER.f));
+
+        // obj at z=4000 -> rangexz ~3375 >= cutoffsnd: silence, nothing queued.
+        let spt = snd.sdspt3;
+        assert_eq!(snd.make_snd(&st, &player, 0, 4000, &POS_LASER), None);
+        assert_eq!(snd.sdspt3, spt, "silence queues no SE");
+    }
+
+    #[test]
+    fn make_snd_family_ids_match_oracle() {
+        // Spot-check a couple of families against SOUND.ASM/SOUNDEQU.INC.
+        let mut snd = Sound::new();
+        let st = SoundGameState::default();
+        let player = SoundPlayer::default();
+        // Near, centred.
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_MISSILE), Some(0x3c));
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_DAMENEMY), Some(0x24));
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_ENEMYUPSEA), Some(0x69));
+        // Far.
+        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_HITWALL), Some(0x29));
+    }
+
+    #[test]
+    fn make_snd_respects_hp0_gate() {
+        // makesnd routes through setport3_l: the in-game HP0 gate drops it,
+        // same as one-shot trigse.
+        let mut snd = Sound::new();
+        let st = SoundGameState { in_game: true, player_hp0: true, ..Default::default() };
+        let player = SoundPlayer::default();
+        // Selection still returns the id, but the ring stays empty.
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_LASER), Some(POS_LASER.c));
+        assert_eq!(snd.sdspt3, 0, "HP0 gate drops the positional SE");
+    }
+
+    #[test]
+    fn make_snd_and_oneshot_trigse_share_ring() {
+        // Regression: one-shot trigse (play_se) still fires alongside the new
+        // positional layer; both feed the same FIFO ring and drain in order.
+        let mut snd = Sound::new();
+        let mut be = FakeBackend::default();
+        let st = SoundGameState::default();
+        let player = SoundPlayer::default();
+
+        // Positional laser (near, centred) then a one-shot se_laser $35.
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_LASER), Some(POS_LASER.c));
+        snd.play_se(&st, 0x35);
+        assert_eq!(snd.sdport3[0], POS_LASER.c);
+        assert_eq!(snd.sdport3[1], 0x35);
+
+        // Drain sends the positional id first (FIFO).
+        snd.drain_port3_queue(&mut be);
+        assert_eq!(last_write(&be, 3), Some(POS_LASER.c));
+        // Ack, then the one-shot trigse goes out next.
+        be.port3_read = POS_LASER.c;
+        snd.drain_port3_queue(&mut be);
+        assert_eq!(last_write(&be, 3), Some(0x35));
     }
 
     #[test]
