@@ -32,16 +32,16 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 | 2D-bg scroll (horizon coupling) | sf-render bg2d | GSTRATS.ASM calcbgscroll_l:3190 | FIXED (ROM-exact: linear -6px/pitch + clamp + BGS base; dropped tan() + the +18 fudge; horizontal yaw·8 verified) | commit + gl_runtime golden; frame-verified |
 | Camera view source (getview_l) | sf-game camera | GAME.ASM:6-58 | AUDITED; outv* port reverted for feel (accumulators unpopulated in normal flight), follow-cam kept | audit_player.rs proves ROM formula |
 | Map-VM spawn opcodes (QOBJ/OBJ8/DOBJ/MAPOBJ/MOTHER/OBJZROT coords) | sf-game game.rs | WORLD.ASM | VERIFIED | audit_mapvm.rs 5 ROM-diff tests |
-| Map-VM non-spawn opcodes (71-op table) | sf-game game.rs/world.rs | WORLD.ASM | FIXED (maploop count-1, REMOVE one-match+ref-clears, SETBGM hp0 guard, WAIT2-zero, SETVAROBJ-invalid); wave-3: FADETOSEA/GROUND palette fades, MOTHER submap interpreter | audit_mapvm2.rs 17/17 |
+| Map-VM non-spawn opcodes (71-op table) | sf-game game.rs/world.rs | WORLD.ASM | FIXED (maploop count-1, REMOVE one-match+ref-clears, SETBGM hp0 guard, WAIT2-zero, SETVAROBJ-invalid); MOTHER submap PORTED (mother.rs + mothers.rs, bemother oracle bit-exact, asteroid waves restored, id collisions fixed); remaining: FADETOSEA/GROUND palette fades | audit_mapvm2.rs 17/17 + audit_mother.rs 2/2 |
 | Map scroll/advance (lastplayz/mapcnt) | sf-game game.rs:244 | WORLD.ASM:50-90 | VERIFIED (incl. exitbase lastplayz=0 reset) | freeze-fix agent trace |
 | Level bytecode data (30 maps) | sf-map levels/ | LEVEL*.ASM | VERIFIED (byte-identical port) | route1/2/3_parity tests |
 | Path system (opcodes, interp, catalog) | sf-path (98 fns) | PATHS.ASM + path data | FIXED (8 of 10: proportional chases, spawn /4*4 Z-X-Y, ADDW, accel count1, space coupling, ifbetween, childdead, sound2 + set0/ifzero collapses; 8 paths byte-clean vs ROM). Wave-3: gotopos triggers, explode children, linkchild, friend weights, spawnchild /4*8 | audit_path.rs 8/8 |
 | Enemy strats A (rader/zaco*/houdai/tower/para…) | sf-strat enemy_a | GASTRATS/KSTRATS | FIXED (4 bugs: zacos3, zaco1 homing, houdai aim/gate, zaco3/4 XZ) + inits verified | audit_strats.rs |
 | Enemy strats A — remaining tick logic | sf-strat enemy_a | GASTRATS/KSTRATS | PARTIAL (audited set only; houdai cadence mask-15+al1pt follow-up) | |
-| Enemy strats B | sf-strat enemy_b | GBSTRATS etc. | UNVERIFIED (eb_parity is Rust-regression only) | |
-| Ground strats | sf-strat ground | GSTRATS | UNVERIFIED | |
+| Enemy strats B (boss7/bossA/bossF families, spacepilon) | sf-strat enemy_b | GB2STRAT/GB3STRAT/DSTRATS | FIXED (all 26 audit findings: playerturn180 port, bossA husk/resurrect machine, inverted gates, 7 notdelay masks, achase toward-zero, live mines, death chains) | AUDIT_ENEMY_B_FINDINGS.md + audit_strats_b.rs |
+| Ground strats | sf-strat ground | GSTRATS | VERIFIED (stayrel/gnd/stayrelhard180yr exact; staydist fixed to per-tick tracking) | audit wave 3 |
 | Boss inits (boss2/bossg/boss8) | sf-strat bosses | GBSTRATS/D2STRATS/GB3STRAT | VERIFIED | audit_boss agent line-diff |
-| Boss tick state machines (all bosses) | sf-strat bosses | *STRATS | UNVERIFIED | |
+| Boss tick state machines | sf-strat bosses/enemy_b | *STRATS | PARTIAL (boss7/bossA/bossF ticks fixed in wave 3; boss2/bossg/boss8/seamon/wash ticks line-unaudited — inits verified) | |
 | Route/planet progression | sf-game planets/shell | PLANETS.ASM | FIXED (convertroute bracket) | level_clear test |
 | Draw/showview (culling, shadow, AF flags, depth) | sf-game draw.rs | MAIN.ASM alienflags_l:2009 + GSU mallrotzsort | FIXED (all 6: camera-anchored cull+zmax margin, frontpl clear, invisible skip, leftpl basis, zaco3 rightofview, per-level shadowheight) | audit_showview.rs 4/4 |
 | Shape colors/palettes | sf-render shapes | COLTAB/LIGHT.ASM | VERIFIED | color_resolution.rs 10 tests |
@@ -53,4 +53,5 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 
 ## Wave log
 - 2026-07-04 wave 1: trig/player/coldet/strats/boss/mapvm audits — ~18 fixes, all committed (see rom-oracle-plan memory).
-- 2026-07-07 wave 2 COMPLETE: path (8 fixes), map-VM (5 fixes incl. maploop off-by-one), showview (6 fixes), bg2d scroll (ROM-exact). Workspace 229/0. Wave 3 launched: enemy-B/ground ticks, MOTHER submap.
+- 2026-07-07 wave 2 COMPLETE: path (8), map-VM (5), showview (6), bg2d. 229/0.
+- 2026-07-07 wave 3 COMPLETE: enemy-B/ground all 26 findings + MOTHER submap ported (asteroid waves restored). Workspace 241/0. Remaining queue: HUD/score, SFX set_sound2 map, pcbox collision, palette fades, path leftovers, remaining boss ticks, >=128 latents.
