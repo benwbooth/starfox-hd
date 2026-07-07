@@ -12,3 +12,5 @@ w65c816 = "0.1"
 [dev-dependencies]
 sf-strat.workspace = true
 sf-game.workspace = true
+sf-map.workspace = true
+sf-path.workspace = true

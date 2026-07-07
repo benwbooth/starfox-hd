@@ -795,6 +795,8 @@ name = "sf-oracle"
 version = "0.1.0"
 dependencies = [
  "sf-game",
+ "sf-map",
+ "sf-path",
  "sf-strat",
  "w65c816",
 ]
