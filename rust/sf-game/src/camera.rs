@@ -303,10 +303,11 @@ impl GameCamera {
         // DEBUG measurement (SF_DEBUG_CAM): compare camera pitch vs ROM.
         if std::env::var_os("SF_DEBUG_CAM").is_some() {
             eprintln!(
-                "CAM vt={} toobj={} campos=({},{},{}) | plr pos=({},{},{}) vel={} hp={}",
+                "CAM vt={} toobj={} campos=({},{},{}) | plr pos=({},{},{}) vel={} hp={} sb1={} sf={:x} psf2={:x} gfl={:x}",
                 self.vars.viewtype, self.vars.viewtoobj,
                 pos_x, pos_y, pos_z,
                 player.worldx, player.worldy, player.worldz, player.vel, player.hp,
+                player.sbyte1, player.sflags, vars.pshipflags2, vars.gameflags,
             );
         }
 

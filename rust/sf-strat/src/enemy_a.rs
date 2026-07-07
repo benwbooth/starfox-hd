@@ -114,7 +114,11 @@ pub mod wm {
     /// C `g_specwepcnt` (u16).
     pub const SPECWEPCNT: u16 = 0x1F08;
     /// C `g_lives` (u8).
-    pub const LIVES: u16 = 0x1F0A;
+    /// Unified with the death path's sv::LIVES store (WRAM 0x0520) — the ROM
+    /// has ONE `lives` var (dec PSTRATS.ASM:3266, inc GASTRATS.ASM:2689,
+    /// check GSTRATS.ASM:477). The old 0x1F0A address was a third,
+    /// disconnected store: 1-UP pickups had no effect.
+    pub const LIVES: u16 = 0x0520;
     /// C `g_specials_dead` (u8).
     pub const SPECIALS_DEAD: u16 = 0x1F0B;
     /// C `g_maprestartbank` (u8).

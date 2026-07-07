@@ -25,7 +25,7 @@ use crate::common::{
 };
 use sf_core::pad;
 use sf_game::alien::{
-    StratId, ACF_COLLTYPE1, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+    StratId, ACF_COLLTYPE1, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
     ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATZREMOVE,
 };
 use sf_game::game::StrategyFn;
@@ -480,43 +480,123 @@ fn playercoll_istrat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
 }
 
-/// C `playerdead_strat` (strat_player.c:209).
+/// C `playerdead_strat` (PSTRATS.ASM:3287-3370) — the dying crash sequence:
+/// hitflash blink, nose-dive + roll spin while above the ground, ground slam
+/// at worldy 0, forward speed decay, ship keeps MOVING via gen_3dvecs +
+/// add_vecs2pos, camera z pinned to the ship. At 60 frames -> pexplode
+/// (ship becomes the explosion, GF_PLAYERDEAD for the shell respawn flow).
+/// The old port froze the ship motionless for 3s then hard-reloaded, which
+/// read as "collisions just stop the arwing completely".
 fn playerdead_strat(g: &mut Game, idx: u16) {
     let i = idx as usize;
     if g.vars.gameflags & GF_PLAYERDEAD != 0 {
         return;
     }
 
-    let mut speed = g.vars.sv_i16(sv::PLAYER_SPEED);
-    if g.vars.gameframe & 1 == 0 && speed > 0 {
-        speed = strat_chase(speed, 0, 1);
-        g.vars.set_sv_i16(sv::PLAYER_SPEED, speed);
-    }
-    g.objs.aliens[i].vel = clamp16(speed, 0, MAX_PSPEED) as u8;
+    // s_copy_var2var W,bgsscrollZ,viewposz
+    let vpz = g.vars.sv_i16(sv::PVIEWPOSZ);
+    g.vars.set_sv_i16(sv::BGSSCROLLZ, vpz);
 
-    let zadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD).wrapping_add(4);
-    g.vars.set_sv_u8(sv::PLAYER_ZSTRATADD, zadd);
     g.objs.aliens[i].sflags |= ASF_COLLDISABLE;
-    g.objs.aliens[i].sflags &= !ASF_SHADOW;
 
+    // s_add_alvar B,x,al_sbyte1,#1 ; == 10*6 -> pexplode_Istrat
     if g.objs.aliens[i].sbyte1 < 0xFF {
         g.objs.aliens[i].sbyte1 += 1;
     }
-    if g.objs.aliens[i].sbyte1 < PLAYER_DEAD_FRAMES {
+    if g.objs.aliens[i].sbyte1 >= PLAYER_DEAD_FRAMES {
+        // pexplode_Istrat (PSTRATS.ASM:3379): the ship becomes the explosion
+        // (AFEXP renders the explosion sprite chain), shadow off, se 3 boom;
+        // GF_PLAYERDEAD hands the respawn/game-over flow to the shell, which
+        // owns the canonical lives count.
+        {
+            let al = &mut g.objs.aliens[i];
+            al.flags |= AFEXP;
+            al.sflags &= !ASF_SHADOW;
+            al.vx = 0;
+            al.vy = 0;
+            al.vz = 0;
+        }
+        g.hooks.play_se(0x03);
+        g.vars.gameflags &= !GF_PLAYERDYING;
+        g.vars.gameflags |= GF_PLAYERDEAD;
+        let lives = g.vars.sv_u8(sv::LIVES);
+        if lives > 0 {
+            g.vars.set_sv_u8(sv::LIVES, lives - 1);
+        }
         return;
     }
 
-    g.vars.gameflags &= !GF_PLAYERDYING;
-    g.vars.gameflags |= GF_PLAYERDEAD;
-    let lives = g.vars.sv_u8(sv::LIVES);
-    if lives > 0 {
-        g.vars.set_sv_u8(sv::LIVES, lives - 1);
+    // sbyte1 < 15: blink hitflash every other frame (PSTRATS:3297-3301).
+    if g.objs.aliens[i].sbyte1 < 15 && g.vars.gameframe & 1 == 0 {
+        g.objs.aliens[i].sflags |= ASF_HITFLASH;
+    }
+
+    // Die-fall (pfm_diefall): nose over + roll spin while airborne; slam flat
+    // at the ground plane (PSTRATS:3321-3341). SNES +y is down; ground = 0.
+    if g.vars.playerflymode & PFM_DIEFALL != 0 {
+        if g.objs.aliens[i].worldy < 0 {
+            // s_jmp_NOTdelay 1 / s_Achase_var W,plrotx,#5000,4 — nose down.
+            if g.vars.gameframe & 1 == 0 {
+                let rx = strat_chase_proportional(g.vars.sv_i16(sv::PLROTX), 5000, 4);
+                g.vars.set_sv_i16(sv::PLROTX, rx);
+            }
+            // s_add_var B,player_Zstratadd,#4 — accelerating roll spin.
+            let zadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD).wrapping_add(4);
+            g.vars.set_sv_u8(sv::PLAYER_ZSTRATADD, zadd);
+        } else {
+            // Ground slam: plrotx=-2000, pin to the deck (sparks in ROM).
+            g.vars.set_sv_i16(sv::PLROTX, -2000);
+            g.objs.aliens[i].worldy = 0;
+        }
+    }
+
+    // Every 4th frame: forward speed decays toward 0 (s_Fchase_var rate 1).
+    let mut speed = g.vars.sv_i16(sv::PLAYER_SPEED);
+    if g.vars.gameframe & 3 == 0 && speed > 0 {
+        speed = strat_chase_proportional(speed, 0, 1);
+        g.vars.set_sv_i16(sv::PLAYER_SPEED, speed);
+    }
+
+    // Rots from the pl* accumulators + the spin; then move the ship.
+    {
+        let rotx = (g.vars.sv_i16(sv::PLROTX) >> 8) as u8;
+        let roty = (g.vars.sv_i16(sv::PLROTY) >> 8) as u8;
+        let rotz = (g.vars.sv_i16(sv::PLROTZ) >> 8) as u8;
+        let zadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD);
+        let al = &mut g.objs.aliens[i];
+        al.rotx = rotx;
+        al.roty = roty;
+        al.rotz = rotz.wrapping_add(zadd);
+        al.vel = clamp16(speed, 0, MAX_PSPEED) as u8;
+        strat_gen_vecs_3d(al);
+        al.vx = 0; // s_set_alvar W,x,al_vx,#0
+        strat_apply_velocity(al);
+    }
+
+    // Camera: pviewposz follows the crashing ship; Y eases after it in
+    // dieYrot mode (s_achase_var2alvar W,x,pviewposY,al_worldy,3).
+    let (wy, wz) = {
+        let al = &g.objs.aliens[i];
+        (al.worldy, al.worldz)
+    };
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, wz);
+    if g.vars.playerflymode & PFM_DIEYROT != 0 {
+        let py = strat_chase_proportional(g.vars.sv_i16(sv::PVIEWPOSY), wy, 3);
+        g.vars.set_sv_i16(sv::PVIEWPOSY, py);
     }
 }
 
 /// C `playerdead_istrat` (strat_player.c:237).
 fn playerdead_istrat(g: &mut Game, idx: u16) {
     if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        // Already dying. do_strat routes hp==0 objects to expstratptr (this
+        // fn) INSTEAD of stratptr, so if anything re-zeroed hp the crash
+        // sequence would freeze forever (the pre-fix "collisions just stop
+        // the arwing" symptom). Keep hp nonzero so the dead strat keeps
+        // dispatching.
+        if g.objs.aliens[idx as usize].hp == 0 {
+            g.objs.aliens[idx as usize].hp = 10;
+        }
         return;
     }
 
@@ -535,6 +615,11 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     al.ap = 0;
     al.sbyte1 = 0;
     al.sflags &= !ASF_COLLIDE;
+    // The dying ship takes no further body damage (ROM: player collisions go
+    // through the pcbox objects, which the death sequence detaches; in the
+    // port's direct model continued do_coll damage re-zeroed hp and froze the
+    // crash sequence via do_strat's expstrat routing).
+    al.sflags |= ASF_COLLDISABLE;
     al.stratptr = Some(dead);
     al.collstratptr = Some(coll);
     al.expstratptr = Some(exp);

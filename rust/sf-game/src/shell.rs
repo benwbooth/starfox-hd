@@ -666,6 +666,11 @@ impl Shell {
     fn begin_gameplay_from_planet_select(&mut self) {
         // Per-run player/game flag reset (boot.c:55-69).
         let v = &mut self.game.vars;
+        // Seed the unified WRAM lives store (sv::LIVES 0x0520 — the ROM's one
+        // `lives` var: death decs it in playerdead_strat, the 1-UP item incs
+        // it) from the shell-persistent copy; the shell mirrors it back every
+        // tick so respawn/game-over/HUD all see gameplay changes.
+        v.write_ext8(0x0520, self.planets.lives);
         v.gameflags &= !(GF_PLAYERDYING | GF_PLAYERDEAD);
         v.pshipflags = 0;
         v.pshipflags2 = 0;
@@ -777,6 +782,10 @@ impl Shell {
     /// completion and death/respawn/game-over bridge.
     fn gameplay_progress_tick(&mut self) {
         // --- Death / respawn / game over (boot.c:174-192) ---
+        // Mirror the unified WRAM lives store back to the shell-persistent
+        // copy (survives map reloads, feeds the HUD + respawn/game-over).
+        self.planets.lives = self.game.vars.read_ext8(0x0520);
+
         if self.game.vars.gameflags & GF_PLAYERDEAD != 0 {
             self.levelclear_ticks = 0;
             self.death_ticks += 1;
@@ -930,7 +939,10 @@ mod tests {
         sh.tick(pad::START);
         assert_eq!(sh.state().code(), 4);
 
+        // Lives are unified in WRAM 0x0520 during gameplay (the shell mirrors
+        // it back each tick), so exhaust the canonical store.
         sh.planets.lives = 0;
+        sh.game.vars.write_ext8(0x0520, 0);
         sh.game.vars.gameflags |= GF_PLAYERDEAD;
         for _ in 0..DEATH_RESPAWN_TICKS {
             sh.tick(0);
