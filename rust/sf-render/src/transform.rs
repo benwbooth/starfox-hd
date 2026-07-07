@@ -221,49 +221,54 @@ impl Transform {
         // Build view matrix from camera position and SNES rotation angles.
         // SNES -> GL world: negate Y translation, negate X/Z rotation angles.
         let cy = -cy;
-        let (sx, cx_) = self.sincos_frac(crx);
-        let (sy, cy_) = self.sincos_frac(cry);
-        let (sz, cz_) = self.sincos_frac(crz);
+        // --- World->camera view rotation, built DIRECTLY (no transpose) ---
+        // The ROM rotates world-relative points into view space with
+        // wmat = mcrotmatzxy16(viewrot) applied as-is (marioshowview ->
+        // mallrotzsort). The camera->world orientation is Ry(ry)*Rx(rx)*Rz(rz)
+        // (ZXY, gsu_rotmat.rs), so the view rotation is its inverse
+        //   V = Rz(-rz) * Rx(-rx) * Ry(-ry)
+        // — a REVERSED product order that cannot be expressed by sign-tweaking
+        // the Ry*Rx*Rz expansion (a transpose+yaw-negate hack renders pure yaw
+        // and pure pitch correctly but breaks their composition: the opening
+        // cinematic's look-back camera, yaw~108 + pitch~-27, projected the
+        // whole arwing formation off-frame -> solid green screen).
+        let (sx, cx_) = self.sincos_frac(-crx);
+        let (sy, cy_) = self.sincos_frac(-cry);
+        let (sz, cz_) = self.sincos_frac(-crz);
+        let ry_m = [[cy_, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy_]];
+        let rx_m = [[1.0, 0.0, 0.0], [0.0, cx_, -sx], [0.0, sx, cx_]];
+        let rz_m = [[cz_, -sz, 0.0], [sz, cz_, 0.0], [0.0, 0.0, 1.0]];
+        let mul3 = |a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]| -> [[f32; 3]; 3] {
+            let mut m = [[0.0f32; 3]; 3];
+            for i in 0..3 {
+                for j in 0..3 {
+                    m[i][j] = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+                }
+            }
+            m
+        };
+        let v_snes = mul3(&rz_m, &mul3(&rx_m, &ry_m));
 
-        // Camera rotation = ROM `mcrotmatzxy16` (MWCROT.MC), the GSU routine
-        // getview_l feeds the view angles to. ZXY order = Ry·Rx·Rz with per-axis
-        // signs Rx=[1,0,0;0,cx,-sx;0,sx,cx], Ry=[cy,0,+sy;0,1,0;-sy,0,cy],
-        // Rz=[cz,-sz,0;sz,cz,0;0,0,1]. This expansion reproduces the ROM matrix
-        // EXACTLY (Δ=0) — proven in sf-oracle tests/gsu_rotmat.rs. The previous
-        // ZYX + flipped-yaw formula matched only pitch/roll; yaw rotated the
-        // wrong way and combined rotations were badly off ("entities too high" /
-        // horizon disconnect / camera-opposite).
-        let mut rotation = [0.0f32; 16];
-        identity(&mut rotation);
-        rotation[0] = cy_ * cz_ + sy * sx * sz;
-        rotation[1] = -cy_ * sz + sy * sx * cz_;
-        rotation[2] = sy * cx_;
-        rotation[4] = cx_ * sz;
-        rotation[5] = cx_ * cz_;
-        rotation[6] = -sx;
-        rotation[8] = -sy * cz_ + cy_ * sx * sz;
-        rotation[9] = sy * sz + cy_ * sx * cz_;
-        rotation[10] = cy_ * cx_;
+        // SNES->GL basis change. The draw entries reach the renderer with y
+        // negated but z UNCHANGED (left-handed "GL world": x right, y up, z
+        // forward-in), and GL camera space wants forward -z. So the input
+        // scaling is H = diag(1,-1,1) (undo the entry y-flip into SNES space)
+        // and the output scaling is G = diag(1,-1,-1) (camera y up, forward
+        // -z): V_gl[i][j] = G[i] * H[j] * V[i][j].
+        const G: [f32; 3] = [1.0, -1.0, -1.0];
+        const H: [f32; 3] = [1.0, -1.0, 1.0];
 
         // Translation (negate for view matrix)
         let tx = -fp16_to_float(cx);
         let ty = -fp16_to_float(cy);
         let tz = -fp16_to_float(cz);
 
-        // View = Rotation^T * Translation
         identity(&mut self.view);
-        for i in 0..3 {
-            for j in 0..3 {
-                self.view[j * 4 + i] = rotation[i * 4 + j];
+        for row in 0..3 {
+            for col in 0..3 {
+                self.view[col * 4 + row] = G[row] * H[col] * v_snes[row][col];
             }
         }
-
-        // Facing conversion: the SNES camera looks down +Z, the OpenGL
-        // camera looks down -Z. Negate the view-space Z row so
-        // world-forward (+Z) maps to GL view-forward (-Z).
-        self.view[2] = -self.view[2];
-        self.view[6] = -self.view[6];
-        self.view[10] = -self.view[10];
 
         // Apply translation in rotated space
         self.view[12] = self.view[0] * tx + self.view[4] * ty + self.view[8] * tz;

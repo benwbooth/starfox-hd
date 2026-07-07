@@ -158,7 +158,7 @@ fn rust_pass(gameflags: u8, objs: &[Obj]) -> (Vec<u8>, Vec<bool>) {
     let mut out = Vec::new();
     // Extents provider mirrors the ROM fixture's shape header: sh_zmax = 100
     // (the same per-shape source coldet uses supplies the cull margin).
-    draw::build_list(&mut o, 0, 0, 0, 0, gameflags, &|_| Some((100, 100, 100)), &mut out);
+    draw::build_list(&mut o, 0, 0, 0, 0, 0, gameflags, &|_| Some((100, 100, 100)), &mut out);
     (
         ids.iter().map(|&i| o.aliens[i as usize].flags).collect(),
         ids.iter().map(|&i| o.aliens[i as usize].active).collect(),
@@ -330,7 +330,7 @@ fn invisible_objects_skip_cull_and_keep_flags() {
         al.worldz = -2000;
     }
     let mut out = Vec::new();
-    draw::build_list(&mut o, 0, 0, 0, 0, 0, &|_| Some((100, 100, 100)), &mut out);
+    draw::build_list(&mut o, 0, 0, 0, 0, 0, 0, &|_| Some((100, 100, 100)), &mut out);
     assert!(
         o.aliens[id as usize].active,
         "invisible objects skip the behind cull (ROM parity)"

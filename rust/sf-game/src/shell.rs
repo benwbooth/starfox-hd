@@ -647,6 +647,7 @@ impl Shell {
             self.game.vars.gameframe,
             self.camera.vars.viewposx,
             self.camera.vars.viewposz,
+            self.cam_snapshot.ry as u8,
             self.game.vars.gameflags,
             &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
@@ -742,10 +743,28 @@ impl Shell {
             self.game.vars.gameframe,
             self.camera.vars.viewposx,
             self.camera.vars.viewposz,
+            self.cam_snapshot.ry as u8,
             self.game.vars.gameflags,
             &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
         );
+        if std::env::var_os("SF_DEBUG_DRAW").is_some() && self.game.vars.gameframe % 10 == 0 {
+            let n = self.draw_list.len();
+            let ships: Vec<String> = self
+                .draw_list
+                .iter()
+                .take(6)
+                .map(|e| format!("sh={} f={:x} xyz=({},{},{})", e.shape_id, e.flags, e.x >> 16, e.y >> 16, e.z >> 16))
+                .collect();
+            eprintln!(
+                "DRAW gf={} n={} p0.shape={} p0.sflags={:x} {}",
+                self.game.vars.gameframe,
+                n,
+                self.game.objs.aliens[0].shape,
+                self.game.objs.aliens[0].sflags,
+                ships.join(" | ")
+            );
+        }
 
         // Particles_Update (nmi.c:99) is renderer-lane (sf-render).
 

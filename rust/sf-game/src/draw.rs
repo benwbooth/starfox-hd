@@ -53,10 +53,19 @@ pub fn build_list(
     gameframe: u16,
     viewposx: i16,
     viewposz: i16,
+    cam_yaw: u8,
     gameflags: u8,
     shape_extents: &dyn Fn(u16) -> Option<(i16, i16, i16)>,
     out: &mut Vec<DrawListEntry>,
 ) {
+    // Camera-space rotation for the behind test / leftpl (alienflags_l runs on
+    // the GSU-ROTATED dl_x/dl_z, MAIN.ASM:2024+). yaw 0 = +z forward; forward
+    // vector = (sin, cos) in (x, z), matching camera.rs angle8(atan2(dx, dz)).
+    // Without this, the opening cinematic (camera ahead of the ships looking
+    // BACK, yaw ~128) culled the whole arwing formation as "behind" -> a solid
+    // green screen for the first seconds of Corneria.
+    let yaw_rad = cam_yaw as f32 * (core::f32::consts::PI / 128.0);
+    let (yaw_sin, yaw_cos) = (yaw_rad.sin(), yaw_rad.cos());
     let mut cur = objs.active_head;
     while let Some(i) = cur {
         let idx = i as usize;
@@ -84,11 +93,12 @@ pub fn build_list(
         // --- Behind-camera cull (alienflags_l, MAIN.ASM:2024-2062) ---
         // ROM: behind iff sh_zmax(shape) + dl_z < 0, where dl_z is the
         // ROTATED camera-space z (world - viewpos through the view matrix).
-        // The on-rails camera flies with yaw ~= 0, so unrotated
-        // worldz - viewposz + zmax is equivalent; if a free-yaw camera ever
-        // lands here this needs the rotated z like the ROM. The shape's own
-        // z half-extent is the margin, so an object stays drawable until its
-        // far edge passes the camera plane instead of popping at its origin.
+        // dl_z here = dx*sin(yaw) + dz*cos(yaw) (yaw-only rotation — pitch is
+        // negligible for the near-plane test, and the ROM's GSU path rotates
+        // fully; yaw is what flips during the look-back cinematics). The
+        // shape's own z half-extent is the margin, so an object stays drawable
+        // until its far edge passes the camera plane instead of popping at its
+        // origin.
         //
         // Behind objects first lose affrontpl (MAIN.ASM:2039-2041), then are
         // freed iff !gf_nozremove && !acf_firstframe && atzremove
@@ -99,8 +109,10 @@ pub fn build_list(
         {
             let al = &objs.aliens[idx];
             let zmax = shape_extents(al.shape).map_or(0, |(_, _, z)| z);
-            let rel_z = al.worldz.wrapping_sub(viewposz);
-            if zmax.wrapping_add(rel_z) < 0 {
+            let dx = al.worldx.wrapping_sub(viewposx) as f32;
+            let dz = al.worldz.wrapping_sub(viewposz) as f32;
+            let rel_z = (dx * yaw_sin + dz * yaw_cos) as i32;
+            if (zmax as i32).saturating_add(rel_z) < 0 {
                 objs.aliens[idx].flags &= !AF_FRONT_PL;
                 let al = &objs.aliens[idx];
                 if gameflags & GF_NOZREMOVE == 0
@@ -118,12 +130,13 @@ pub fn build_list(
 
         // --- View-side flags (alienflags_l .dontkill, MAIN.ASM:2065-2077):
         // every non-invisible survivor (in-front OR behind) gets afinviewpl,
-        // plus afleftpl iff rotated view-space x < 0. Same yaw ~= 0 note as
-        // the cull: worldx - viewposx stands in for the rotated dl_x.
+        // plus afleftpl iff rotated view-space x < 0 (dl_x = dx*cos - dz*sin).
         {
             let al = &mut objs.aliens[idx];
             al.flags |= AF_INVIEW_PL;
-            if al.worldx.wrapping_sub(viewposx) < 0 {
+            let dx = al.worldx.wrapping_sub(viewposx) as f32;
+            let dz = al.worldz.wrapping_sub(viewposz) as f32;
+            if dx * yaw_cos - dz * yaw_sin < 0.0 {
                 al.flags |= AF_LEFT_PL;
             }
         }
@@ -248,7 +261,7 @@ mod tests {
         let mut out = Vec::new();
         // playerflymode has PFM_SHADOWS; gameframe = 130 -> & 127 = 2;
         // camera viewposx = 0 > worldx -10 -> AF_LEFT_PL set.
-        build_list(&mut objs, PFM_SHADOWS, 130, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
+        build_list(&mut objs, PFM_SHADOWS, 130, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
 
         assert_eq!(out.len(), 1);
         let e = &out[0];
@@ -302,7 +315,7 @@ mod tests {
         objs.aliens[a as usize].shape = 0; // skipped: no shape
 
         let mut out = Vec::new();
-        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
+        build_list(&mut objs, 0, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
         // Active list is newest-first: only slot 1 emitted.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].explosion_cnt, 12);
@@ -315,7 +328,7 @@ mod tests {
         objs.aliens[b as usize].sflags4 = ASF4_NOPOLYEXP;
         objs.aliens[b as usize].flags = AFEXP; // rebuild cleared placement bits
         out.clear();
-        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
+        build_list(&mut objs, 0, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
         assert_eq!(out[0].explosion_cnt, 0);
     }
 }
