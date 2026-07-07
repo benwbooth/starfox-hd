@@ -3923,21 +3923,37 @@ fn bossfb_strat(g: &mut Game, idx: u16) {
 
 // --- Title screen spinning Arwing (TITLE.ASM tit_istrat) ---
 
-/// C `strat_title_tick` (strat_enemy.c:9124).
+/// ROM `tit_strat` (ENDSEQ.ASM:1805-1809):
+/// `s_add_alvar B,x,al_rotz,#2` + `s_add_playerz x` — a constant-rate
+/// Z-axis ROLL. (An earlier port spun al_roty instead, from a zero pose;
+/// with the slot-0 player fallback the camera then yawed along with the
+/// ship until the behind-cull freed it.)
 fn strat_title_tick(g: &mut Game, idx: u16) {
-    let al = &mut g.objs.aliens[idx as usize];
-    al.roty = al.roty.wrapping_add(1);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(2);
+    }
+    add_player_z(g, idx);
 }
 
-/// C `Strat_Title_Init` (strat_enemy.c:9129).
+/// ROM `tit_istrat` (ENDSEQ.ASM:1799-1804): set the tilted display pose
+/// (rotx = -deg45+deg11+deg11+3-deg5 = -17, roty = deg45+deg90 = 96,
+/// rotz = 0; deg45=32/deg90=64/deg11=8/deg5=4, VARS.INC:13-17), then
+/// `s_set_strat x,tit_strat` and fall through into the first tick.
 pub fn strat_title_init(g: &mut Game, idx: u16) {
     let s = sid(g, strat_title_tick);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.hp = HARD_HP;
-    al.ap = 0;
-    al.collflags = 0;
-    al.roty = 0;
-    al.stratptr = Some(s);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = HARD_HP;
+        al.ap = 0;
+        al.collflags = 0;
+        al.rotx = (-32i8 + 8 + 8 + 3 - 4) as u8; // 0xEF
+        al.roty = 32 + 64;
+        al.rotz = 0;
+        al.stratptr = Some(s);
+    }
+    // ASM fall-through: tit_istrat runs straight into tit_strat.
+    strat_title_tick(g, idx);
 }
 // EB_PART_3_END
 

@@ -17,7 +17,7 @@
 //! calls (game.c:141-152), each update returns a
 //! [`crate::shell::CameraSnapshot`] with `snap` set on a viewtype change.
 
-use crate::alien::NUMBER_AL;
+use crate::alien::{ASF4_PLAYEROBJ, NUMBER_AL};
 use crate::obj::Objects;
 use crate::shell::CameraSnapshot;
 use crate::vars::{GameVars, OUTVIEWDIST};
@@ -144,6 +144,8 @@ impl GameCamera {
         const SV_PVIEWPOSX: u16 = 0x053C;
         const SV_PVIEWPOSY: u16 = 0x053E;
         const SV_PVIEWPOSZ: u16 = 0x0540;
+        const SV_OUTVX: u16 = 0x0546;
+        const SV_OUTVY: u16 = 0x0548;
         const SV_VIEWTYPE: u16 = 0x054C;
         const SV_VIEWTOOBJ: u16 = 0x054E;
         const SV_VIEWPOSX: u16 = 0x0550;
@@ -158,6 +160,9 @@ impl GameCamera {
         self.vars.viewtype = vars.read_ext16(SV_VIEWTYPE) as u8;
         self.vars.viewtoobj = vars.read_ext16(SV_VIEWTOOBJ) as i16;
         self.vars.player_turnrot = vars.read_ext16(SV_PLAYER_TURNROT) as i16;
+
+        let outvx = vars.read_ext16(SV_OUTVX) as i16;
+        let outvy = vars.read_ext16(SV_OUTVY) as i16;
 
         let player = match objs.player() {
             Some(p) if p.active => *p,
@@ -176,6 +181,19 @@ impl GameCamera {
                 };
             }
         };
+
+        // Is this alien the REAL player ship (Strat_SpawnPlayer sets
+        // asf4_playerobj), or just whatever landed in slot 0 via the
+        // Obj_GetPlayer fallback? The title map's demo Arwing (TITLE.ASM:23
+        // `mapobj 0,20,20,70,my_demo,tit_istrat`) is the latter: the ROM's
+        // getview_l never reads the player alien's own rot — its view
+        // rotation comes from the outvx/outvy accumulators (GAME.ASM:42-47)
+        // — so the ROM title camera stays fixed while the demo ship rolls.
+        // The port's chase-feel deviation below (camera tracks al_rot*)
+        // must therefore only engage for the real player object; tracking
+        // the title ship spun the camera with it until the behind-camera
+        // cull freed the ship (~5 s after spawn) and left a bare title.
+        let is_player_obj = player.sflags4 & ASF4_PLAYEROBJ != 0;
 
         let (pos_x, pos_y, pos_z): (i16, i16, i16);
         let (rot_x, rot_y, rot_z): (i16, i16, i16);
@@ -220,8 +238,16 @@ impl GameCamera {
             }
 
             // --- Step 3-4: -outdist offset along view pitch (game.c:75-92) ---
+            // ROM getview_l rotates (0,0,-outdist) by viewrotxw = outvx
+            // (GAME.ASM:64-80), not by the player alien's pitch; the alien
+            // pitch stands in for it on the real player only (chase feel).
             let dist = if vars.viewdist > 0 { vars.viewdist } else { OUTVIEWDIST };
-            let pitch_rad = player.rotx as f32 * (3.14159265f32 / 128.0f32);
+            let pitch_units = if is_player_obj {
+                player.rotx as i8 as i16
+            } else {
+                outvx >> 8
+            };
+            let pitch_rad = pitch_units as f32 * (3.14159265f32 / 128.0f32);
             let (offset_y, offset_z) = unsafe {
                 (
                     (cmath::sinf(pitch_rad) * dist as f32) as i16,
@@ -275,9 +301,19 @@ impl GameCamera {
             // stuck"). Tracking the ship directly restores the chase feel.
             // player.roty already folds in player_turnrot, so subtract it back
             // out to avoid double-counting the heading during turns.
-            rot_x = player.rotx as i16;
-            rot_y = (player.roty as i32
-                - ((self.vars.player_turnrot >> 8) as u8) as i32) as i16;
+            if is_player_obj {
+                rot_x = player.rotx as i16;
+                rot_y = (player.roty as i32
+                    - ((self.vars.player_turnrot >> 8) as u8) as i32) as i16;
+            } else {
+                // Not the real player (title/continue demo object): the ROM
+                // view rotation verbatim — viewrotxw = outvx, viewrotyw =
+                // outvy - player_turnrot (GAME.ASM:42-47), high byte in
+                // SNES angle units. All zero on the title screen: a static
+                // camera, exactly like the ROM.
+                rot_x = outvx >> 8;
+                rot_y = outvy.wrapping_sub(self.vars.player_turnrot) >> 8;
+            }
 
             // viewrotzw is GATED on `dozrot` (GAME.ASM:52-56): the view rolls
             // ONLY in levels/sections flagged for it (setzroton/off), never in

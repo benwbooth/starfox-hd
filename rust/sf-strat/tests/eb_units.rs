@@ -54,23 +54,31 @@ fn register_populates_istrats_and_address_map() {
 
 #[test]
 fn title_init_and_spin_are_exact() {
-    // C Strat_Title_Init: HP=hardHP(255), AP=0, collflags=0, roty=0; then
-    // strat_title_tick increments roty by 1 each frame.
+    // ROM tit_istrat (ENDSEQ.ASM:1799-1804): rotx = -deg45+deg11+deg11+3-deg5
+    // = -17 (0xEF), roty = deg45+deg90 = 96, rotz = 0, then falls through
+    // into tit_strat (ENDSEQ.ASM:1805-1809), which rolls al_rotz += 2 per
+    // frame (Z-axis roll, NOT the yaw spin an earlier port used).
     let mut g = Game::new();
     let e = spawn(&mut g, 2);
     let sid = g.world.register_strategy(enemy_b::strat_title_init);
     g.objs.aliens[e as usize].stratptr = Some(sid);
 
-    // First tick runs the init strat (which installs the tick strat).
+    // First tick runs the init strat (installs the tick strat and, per the
+    // ASM fall-through, already rolls the first +2).
     g.run_strategies();
     let al = g.objs.aliens[e as usize];
     assert_eq!(al.hp, 255);
     assert_eq!(al.ap, 0);
     assert_eq!(al.collflags, 0);
-    assert_eq!(al.roty, 0, "init leaves roty at 0 on the install frame");
+    assert_eq!(al.rotx, 0xEF, "tit_istrat pitch pose");
+    assert_eq!(al.roty, 96, "tit_istrat yaw pose");
+    assert_eq!(al.rotz, 2, "install frame falls through into tit_strat");
 
-    for expected in 1u8..=30 {
+    for i in 2u8..=30 {
         g.run_strategies();
-        assert_eq!(g.objs.aliens[e as usize].roty, expected);
+        let al = g.objs.aliens[e as usize];
+        assert_eq!(al.rotz, i.wrapping_mul(2), "constant +2/frame roll");
+        assert_eq!(al.roty, 96, "yaw never moves");
+        assert_eq!(al.rotx, 0xEF, "pitch never moves");
     }
 }
