@@ -691,24 +691,32 @@ impl Bg2d {
             // once per 20 Hz tick — see Transform::render_camera_angles_f).
             let (rx, ry) = transform.render_camera_angles_f(); // pitch +up, yaw +right
 
-            // Vertical: the ROM's exact formula (calcbgscroll_l,
-            // GSTRATS.ASM:3190): scroll = -(viewrotx16*3/128) = -(rotx>>6 +
-            // rotx>>7) — LINEAR, -6 px per 8-bit pitch unit — clamped
-            // [-56, 232] unless nomaxbg2Yscroll, added to the bg2Yscroll
-            // base (def.vofs from BGS.ASM). Two prior port-side fudges
-            // removed for ROM accuracy: a focal*tan(pitch) curve (diverges
-            // from the ROM's linear ramp as pitch grows — the "shadow creeps
-            // above the horizon" class) and a +18-row base shift that was
-            // tuned against the old wrong 60-deg FOV. With the projection
-            // now SNES-exact (256/112, transform.rs), the ROM math IS the
-            // authentic look: the painted horizon sits ~18 rows below the 3D
-            // vanishing line with the mountain-haze band between, exactly
-            // like the SNES.
+            // Vertical: the ROM's exact SLOPE (calcbgscroll_l,
+            // GSTRATS.ASM:3190): scroll = -(viewrotx16*3/128) — LINEAR,
+            // -6 px per 8-bit pitch unit — clamped [-56, 232] unless
+            // nomaxbg2Yscroll, added to the bg2Yscroll base (def.vofs from
+            // BGS.ASM). (The old focal*tan(pitch) curve diverged from the
+            // ROM ramp as pitch grew — the "shadow creeps above the horizon"
+            // class — and stays removed.)
             let mut vdelta = -(rx * 6.0);
             if !inputs.nomax_bg2_yscroll {
                 vdelta = vdelta.clamp(-56.0, 232.0);
             }
             vofs += vdelta;
+
+            // Horizon BASE alignment: the BGS.ASM vofs bases put the painted
+            // green-ground horizon at screen row ~130, while the 3D ground
+            // plane's vanishing line sits at the projection centre (row 112,
+            // cscrc=112). On the SNES the ~18-row gap is the mountain-haze
+            // band and distant ground objects visually sink into it at the
+            // 8:7-PAR 224-line CRT raster; on the port's clean widescreen
+            // output the same gap reads as ground objects FLOATING above the
+            // painted terrain (user-reported both with the old 60-deg FOV and
+            // again with the SNES-exact projection). Shift the window so the
+            // painted horizon lands on the y=0 vanishing line — slope stays
+            // ROM-exact, only the base is display-compensated.
+            const SNES_HORIZON_ROW: f32 = 130.0;
+            vofs += SNES_HORIZON_ROW - BG2D_H as f32 * 0.5;
 
             // Horizontal: m_scrollxoff = bg2Xscroll + yaw*8 px, plus the
             // `hofmode rotate` HDMA base of worldx>>3.

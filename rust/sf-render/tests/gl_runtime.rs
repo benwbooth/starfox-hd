@@ -93,10 +93,8 @@ fn check_title_golden(renderer: &mut Renderer) {
 }
 
 // (b) bg_1_1c: playing state on map 1_1 with a level camera at rx=0. The
-// ROM-exact scroll (calcbgscroll_l: bg2Yscroll base + linear -6px/pitch-unit,
-// no port-side +18 shift — see bg2d::sky_uv_window) windows a uniform
-// sky-blue row at the screen top (one gradient band darker than the old
-// shifted window: 49,90,148).
+// ROM-exact linear scroll plus the +18 horizon-base display compensation
+// (see bg2d::sky_uv_window) windows a uniform sky-blue row at the top.
 fn check_bg_1_1c_sky(renderer: &mut Renderer) {
     renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
     let inputs = FrameInputs {
@@ -114,8 +112,8 @@ fn check_bg_1_1c_sky(renderer: &mut Renderer) {
     for x in [10usize, W as usize / 2, W as usize - 10] {
         let p = &px[x * 3..x * 3 + 3];
         assert!(
-            color_near(p, [49, 90, 148], 2),
-            "bg_1_1c top row at x={x}: got ({}, {}, {}), want sky blue (49, 90, 148)",
+            color_near(p, [49, 98, 156], 2),
+            "bg_1_1c top row at x={x}: got ({}, {}, {}), want sky blue (49, 98, 156)",
             p[0],
             p[1],
             p[2]
