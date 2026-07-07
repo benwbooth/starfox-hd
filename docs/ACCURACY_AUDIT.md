@@ -32,7 +32,7 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 | 2D-bg scroll (horizon coupling) | sf-render bg2d | GSTRATS.ASM calcbgscroll_l:3190 | FIXED (ROM-exact: linear -6px/pitch + clamp + BGS base; dropped tan() + the +18 fudge; horizontal yaw·8 verified) | commit + gl_runtime golden; frame-verified |
 | Camera view source (getview_l) | sf-game camera | GAME.ASM:6-58 | AUDITED; outv* port reverted for feel (accumulators unpopulated in normal flight), follow-cam kept | audit_player.rs proves ROM formula |
 | Map-VM spawn opcodes (QOBJ/OBJ8/DOBJ/MAPOBJ/MOTHER/OBJZROT coords) | sf-game game.rs | WORLD.ASM | VERIFIED | audit_mapvm.rs 5 ROM-diff tests |
-| Map-VM non-spawn opcodes (71-op table) | sf-game game.rs/world.rs | WORLD.ASM | AUDITED (audit_mapvm2.rs, 17 tests): maploop count-1 FIXED; pending fixes: REMOVE one-match, SETBGM hp0 guard, WAIT2-zero, SETVAROBJ-invalid; bigger: FADETOSEA/GROUND palette fades, MOTHER submap interpreter (asteroid waves missing) | audit_mapvm2.rs |
+| Map-VM non-spawn opcodes (71-op table) | sf-game game.rs/world.rs | WORLD.ASM | FIXED (maploop count-1, REMOVE one-match+ref-clears, SETBGM hp0 guard, WAIT2-zero, SETVAROBJ-invalid); wave-3: FADETOSEA/GROUND palette fades, MOTHER submap interpreter | audit_mapvm2.rs 17/17 |
 | Map scroll/advance (lastplayz/mapcnt) | sf-game game.rs:244 | WORLD.ASM:50-90 | VERIFIED (incl. exitbase lastplayz=0 reset) | freeze-fix agent trace |
 | Level bytecode data (30 maps) | sf-map levels/ | LEVEL*.ASM | VERIFIED (byte-identical port) | route1/2/3_parity tests |
 | Path system (opcodes, interp, catalog) | sf-path (98 fns) | PATHS.ASM + path data | AUDITED (audit_path.rs, 8 tests): 10 confirmed divergences — proportional-chase curves, spawn /4*4 scale, emit_add truncation, accel count1, space coupling, ifbetween bound, childdead, sound2 sites, friend weights, gotopos triggers. Fix agent running | audit_path.rs |
@@ -43,7 +43,7 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 | Boss inits (boss2/bossg/boss8) | sf-strat bosses | GBSTRATS/D2STRATS/GB3STRAT | VERIFIED | audit_boss agent line-diff |
 | Boss tick state machines (all bosses) | sf-strat bosses | *STRATS | UNVERIFIED | |
 | Route/planet progression | sf-game planets/shell | PLANETS.ASM | FIXED (convertroute bracket) | level_clear test |
-| Draw/showview (culling, shadow, AF flags, depth) | sf-game draw.rs | MAIN.ASM alienflags_l:2009 + GSU mallrotzsort | AUDITED (audit_showview.rs, 4 tests): 6 confirmed — cull anchor+zmax margin, frontpl clear, invisible skip, leftpl basis, zaco3 rightofview, shadowheight. Fix agent running | audit_showview.rs |
+| Draw/showview (culling, shadow, AF flags, depth) | sf-game draw.rs | MAIN.ASM alienflags_l:2009 + GSU mallrotzsort | FIXED (all 6: camera-anchored cull+zmax margin, frontpl clear, invisible skip, leftpl basis, zaco3 rightofview, per-level shadowheight) | audit_showview.rs 4/4 |
 | Shape colors/palettes | sf-render shapes | COLTAB/LIGHT.ASM | VERIFIED | color_resolution.rs 10 tests |
 | Shape mesh data | sf-render shape data | USHAPES etc. | VERIFIED (compiler-generated; builtins hand-checked) | |
 | HUD/score/lives logic | sf-game/sf-render | MAIN/SPRITES.ASM | UNVERIFIED | |
