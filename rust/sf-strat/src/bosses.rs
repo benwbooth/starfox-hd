@@ -32,7 +32,6 @@ use crate::common::{
     strat_angle_xz, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars,
     strat_projectile_on_collide,
 };
-use crate::common::strat_chase as chase;
 use crate::common::strat_chase_proportional as chase_proportional;
 use crate::common::strat_count_down as count_down;
 use crate::common::strat_make_obj as make_obj;
@@ -380,6 +379,43 @@ fn b2_yaw_offset_pos(
     al.worldz = base.worldz.wrapping_add(rz);
 }
 
+/// Place `self` at base + local offset rotated by the base object's FULL
+/// rotation (s_add_Roffs2pos flags 1,1,1, STRATMAC.INC:4098). ROM order:
+/// rotate_8yx by rotz (STRATROU.ASM:1128), then rotate_8yz by rotx
+/// (STRATROU.ASM:1057), then rotate_8xz by roty (STRATROU.ASM:986, which
+/// negates its angle — the roty stage below is byte-identical in convention
+/// to the verified `b2_yaw_offset_pos`).
+fn b2_full_offset_pos(
+    g: &mut Game,
+    self_idx: u16,
+    base: &Alien,
+    offx: i16,
+    offy: i16,
+    offz: i16,
+) {
+    // rotz stage (rotate_8yx): x' = x*cos - y*sin, y' = x*sin + y*cos.
+    let s = strat_sin(base.rotz);
+    let c = strat_cos(base.rotz);
+    let x1 = ((offx as f32 * c) - (offy as f32 * s)).round();
+    let y1 = ((offx as f32 * s) + (offy as f32 * c)).round();
+    // rotx stage (rotate_8yz): y' = y*cos - z*sin, z' = y*sin + z*cos.
+    let s = strat_sin(base.rotx);
+    let c = strat_cos(base.rotx);
+    let y2 = ((y1 * c) - (offz as f32 * s)).round();
+    let z2 = ((y1 * s) + (offz as f32 * c)).round();
+    // roty stage (rotate_8xz, angle negated in ROM): x' = x*cos + z*sin,
+    // z' = z*cos - x*sin — same formula as b2_yaw_offset_pos.
+    let s = strat_sin(base.roty);
+    let c = strat_cos(base.roty);
+    let rx = ((x1 * c) + (z2 * s)).round() as i16;
+    let rz = ((z2 * c) - (x1 * s)).round() as i16;
+    let ry = y2 as i16;
+    let al = &mut g.objs.aliens[self_idx as usize];
+    al.worldx = base.worldx.wrapping_add(rx);
+    al.worldy = base.worldy.wrapping_add(ry);
+    al.worldz = base.worldz.wrapping_add(rz);
+}
+
 /// s_make_childobj shape,child_num,Istrat,enemy1 (strat_boss2.c:514).
 fn boss2_spawn_child(g: &mut Game, mother: u16, shape: u16, child_num: u8, init_fn: StrategyFn) -> Option<u16> {
     let child = g.objs.alloc()?;
@@ -537,7 +573,11 @@ fn b2_spawn_shot(
 ) -> Option<u16> {
     let shot = spawn_projectile(g, Some(self_idx), 0, 0, 0, pitch, yaw, speed, life, ap, ACF_COLLTYPE4)?;
     let me = g.objs.aliens[self_idx as usize];
-    b2_yaw_offset_pos(g, shot, &me, me.roty, offx, offy, offz);
+    // fire_weapon muzzle placement rotates by the FIRER's rotx, roty AND rotz
+    // (s_add_Roffs2pos.w B,y,x,x,...,1,1,1 — GSTRATS.ASM:2795). boss2 state 2
+    // sets rotz=deg180 and never clears it, so the state-4 / flipped-top
+    // muzzles fire from the ground-facing tip in ROM.
+    b2_full_offset_pos(g, shot, &me, offx, offy, offz);
     {
         let al = &mut g.objs.aliens[shot as usize];
         al.rotx = pitch;
@@ -549,14 +589,20 @@ fn b2_spawn_shot(
 }
 
 /// fire_relfastElaser (GSTRATS.ASM:2578) — strat_boss2.c:714.
-fn boss2_fire_relfastelaser(g: &mut Game, self_idx: u16, offy: i16, target: Option<u16>, rnd_pitch: i16, rnd_yaw: i16) {
+///
+/// Spread comes from s_weapon_rndrots2obj (STRATMAC.INC:2114 ->
+/// s_weapon_rndrot STRATMAC.INC:2099): per axis `(random_l() & mask) -
+/// mask/2`, X (pitch) drawn FIRST, then Y (yaw). Mask 7 -> [-3,+4].
+fn boss2_fire_relfastelaser(g: &mut Game, self_idx: u16, offy: i16, target: Option<u16>, rnd_pitch_mask: u8, rnd_yaw_mask: u8) {
+    let dp = ((sfrtl_random(g) as u8 & rnd_pitch_mask) as i16 - (rnd_pitch_mask / 2) as i16) as u8;
+    let dy = ((sfrtl_random(g) as u8 & rnd_yaw_mask) as i16 - (rnd_yaw_mask / 2) as i16) as u8;
     let me = g.objs.aliens[self_idx as usize];
     let mut pitch = me.rotx;
     let mut yaw = me.roty;
     if let Some(t) = target.filter(|&t| g.objs.aliens[t as usize].active) {
         let tt = g.objs.aliens[t as usize];
-        yaw = strat_angle_xz(&me, &tt).wrapping_add(b2_random_signed(g, rnd_yaw) as u8);
-        pitch = strat_pitch_toward(&me, &tt).wrapping_add(b2_random_signed(g, rnd_pitch) as u8);
+        yaw = strat_angle_xz(&me, &tt).wrapping_add(dy);
+        pitch = strat_pitch_toward(&me, &tt).wrapping_add(dp);
     }
     let _ = b2_spawn_shot(g, self_idx, 0, offy, 0, pitch, yaw, RELFASTELASER_SPEED, RELFASTELASER_LIFE, ENEMYLASER_AP);
 }
@@ -804,8 +850,10 @@ fn boss2top_strat(g: &mut Game, idx: u16) {
 
     // .npfly missile fire (sflag4 gate, every 32 frames).
     if g.objs.aliens[mother as usize].sflags2 & BOSS2_SFLAG4 != 0 && g.vars.gameframe & 31 == 0 {
+        // s_jmp_random (GBSTRATS.ASM:742, macro STRATMAC.INC:1407): keep
+        // -deg22 when random_l() < (50*255)/100 = 127; +deg22 when >= 127.
         let mut yaw = DEG22.wrapping_neg();
-        if sfrtl_random(g) & 1 != 0 {
+        if (sfrtl_random(g) & 0xFF) >= 127 {
             yaw = DEG22;
         }
         let p = player_idx(g);
@@ -911,9 +959,11 @@ fn boss2petal_strat(g: &mut Game, idx: u16) {
     };
     let m = g.objs.aliens[mother as usize];
 
-    // top destroyed: petals die.
+    // top destroyed: petals die. s_kill_obj (GBSTRATS.ASM:831, macro
+    // STRATMAC.INC:2643) sets colldisable AND hp=0.
     if m.sflags2 & BOSS2_SFLAG2 != 0 {
         let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
         al.sflags2 |= BOSS2_SFLAG2;
         al.hp = 0;
         return;
@@ -1081,9 +1131,11 @@ fn boss2_strat(g: &mut Game, idx: u16) {
         if nchildren == 5 {
             g.objs.aliens[idx as usize].stratstate += 1;
         } else {
+            // s_jmp_Zdistmore #1100 (GBSTRATS.ASM:550) branches to smoke on
+            // |dz| >= 1100 (rlbpl includes equal), so "near" is strictly <.
             let me_z = g.objs.aliens[idx as usize].worldz;
             let near = pl
-                .map(|p| p.active && (me_z as i32 - p.worldz as i32).abs() <= 1100)
+                .map(|p| p.active && (me_z as i32 - p.worldz as i32).abs() < 1100)
                 .unwrap_or(false);
             if near {
                 b2_keeprelto_player(g, idx);
@@ -1181,8 +1233,9 @@ fn boss2_strat(g: &mut Game, idx: u16) {
             al.worldz = al.worldz.wrapping_add(30);
             al.sbyte4 = 25;
         }
+        // s_jmp_Zdistmore #1100,nextstate (GBSTRATS.ASM:627): advance at >= 1100.
         let far = pl
-            .map(|p| p.active && (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() > 1100)
+            .map(|p| p.active && (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() >= 1100)
             .unwrap_or(false);
         if far {
             g.objs.aliens[idx as usize].stratstate += 1;
@@ -1207,8 +1260,10 @@ fn boss2_strat(g: &mut Game, idx: u16) {
             }
         } else {
             strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+            // s_jmp_Zdistmore #500,.nminz (GBSTRATS.ASM:649): skip the z-hold
+            // at >= 500, so hold only while strictly < 500.
             let hold = pl
-                .map(|p| p.active && (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() <= 500)
+                .map(|p| p.active && (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() < 500)
                 .unwrap_or(false);
             if hold {
                 let vz = g.objs.aliens[idx as usize].vz;
@@ -1232,9 +1287,13 @@ fn boss2_strat(g: &mut Game, idx: u16) {
             al.sflags &= !ASF_COLLDISABLE;
         }
         // circle-strafe velocity from sin/cos (amplitude 127).
+        // s_set_alvar2alvartab ...,sintab,-3 / costab,-1 (GBSTRATS.ASM:665-666)
+        // sign-extends the table byte then applies adiv2 x3 / x1, which
+        // truncates TOWARD ZERO — Rust `/` matches; `>>` would floor negatives
+        // (e.g. -100: ROM -12, `>>3` gives -13).
         let sb2 = g.objs.aliens[idx as usize].sbyte2;
-        let vx = ((strat_sin(sb2) * 127.0) as i16) >> 3;
-        let vz = ((strat_cos(sb2) * 127.0) as i16) >> 1;
+        let vx = ((strat_sin(sb2) * 127.0) as i16) / 8;
+        let vz = ((strat_cos(sb2) * 127.0) as i16) / 2;
         {
             let al = &mut g.objs.aliens[idx as usize];
             al.vx = vx;
@@ -1397,13 +1456,13 @@ fn sea_add_player_z(g: &mut Game, idx: u16) {
     add_player_z(g, idx);
 }
 
-/// al1pt phase staggering (strat_boss_sea.c:159/167).
-fn sea_not_delay(idx: u16, period: u8, gameframe: u16) -> bool {
-    if period <= 1 {
-        return false;
-    }
-    let phase = if (idx as usize) < NUMBER_AL { idx as u8 } else { 0 };
-    (((gameframe as u8).wrapping_add(phase)) % period) != 0
+/// s_jmp_notdelay N,label[,offset] (STRATMAC.INC:6456): "not yet" when
+/// `(gameframe + offset) & ((1<<N)-1) != 0`. `offset` is the ROM's optional
+/// al1pt stagger — callers whose ASM site passes al1pt use the object index
+/// as the stagger; sites without it (both bossg uses, D2STRATS.ASM:226/372)
+/// pass 0.
+fn sea_not_delay(offset: u16, n: u8, gameframe: u16) -> bool {
+    gameframe.wrapping_add(offset) & ((1u16 << n) - 1) != 0
 }
 
 /// dzdistless_l (DSTRATS.ASM:151-163).
@@ -1980,10 +2039,37 @@ fn bossgs_init(g: &mut Game, idx: u16) {
     al.type_ |= ATZREMOVE;
 }
 
+/// BLACK_C (ASM/COLTABS.ASM:31, 64x COLNORM 9,9). The port encodes coltabs
+/// as small IDs (sf-render ID_0_C..ID_5_C = 0..5); 6 is the next free slot.
+/// Until sf-render maps it, unknown IDs resolve to the debug material — the
+/// game-state flicker below is still the ROM-accurate part.
+const COLTAB_BLACK_C: u16 = 6;
+
 fn bossgs_strat(g: &mut Game, idx: u16) {
+    // Shadow-clone flicker (D2STRATS.ASM:481-486): coltab = BLACK_C on odd
+    // gameframes, cleared on even.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if g.vars.gameframe & 1 != 0 {
+            al.coltab = COLTAB_BLACK_C;
+        } else {
+            al.coltab = 0;
+        }
+    }
+
+    // s_fchase_alvar2alvar W,worldx,sword1,5 (D2STRATS.ASM:488) is Fchase_A
+    // (STRATMAC.INC:559): fixed +-5 step with NO overshoot clamp — only an
+    // exact-equal compare stops it, so the ROM oscillates within +-5 of
+    // sword1 once close. strat_chase would clamp to the target.
     let sword1 = g.objs.aliens[idx as usize].sword1;
-    let newx = chase(g.objs.aliens[idx as usize].worldx, sword1, 5);
-    g.objs.aliens[idx as usize].worldx = newx;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.worldx < sword1 {
+            al.worldx = al.worldx.wrapping_add(5);
+        } else if al.worldx > sword1 {
+            al.worldx = al.worldx.wrapping_sub(5);
+        }
+    }
 
     if g.objs.aliens[idx as usize].sbyte1 == 0 {
         g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(50);
@@ -2067,7 +2153,8 @@ fn bossg_generate_shadows(g: &mut Game, self_idx: u16) {
 /// .move2 (strat_boss_sea.c:948).
 fn bossg_move2(g: &mut Game, self_idx: u16) {
     sea_add_player_z(g, self_idx);
-    if !sea_not_delay(self_idx, 1, g.vars.gameframe) {
+    // s_jmp_notdelay 1,.nosplash (D2STRATS.ASM:372, no al1pt): gameframe&1==0.
+    if !sea_not_delay(0, 1, g.vars.gameframe) {
         sea_make_splash(g, self_idx);
     }
 }
@@ -2125,8 +2212,10 @@ fn bossg_strat(g: &mut Game, idx: u16) {
                 continue;
             }
             m if m == BOSSG_MODE_WAITSOMETIME => {
+                // s_jmp_notdelay 2,.notyet (D2STRATS.ASM:226, no al1pt):
+                // regen 1 HP only when gameframe&3==0 (every 4th frame).
                 if bossmaxhp(g) != 0
-                    && !sea_not_delay(idx, 2, g.vars.gameframe)
+                    && !sea_not_delay(0, 2, g.vars.gameframe)
                     && g.objs.aliens[idx as usize].hp != BOSSG_HP
                 {
                     g.objs.aliens[idx as usize].hp += 1;

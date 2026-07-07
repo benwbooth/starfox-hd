@@ -532,13 +532,20 @@ pub struct ShapeColorTable {
     pub name: &'static str,
 }
 
-pub static COLOR_TABLES: [ShapeColorTable; 6] = [
+/// COLTABS.ASM `BLACK_C`: 64x COLNORM(9,9) — the whole shape drawn in the
+/// darkest night palette pair. Used by the bossg shadow-clone flicker
+/// (D2STRATS.ASM:481-486: coltab BLACK_C on odd gameframes). Registered at
+/// table id 6 (`COLTAB_BLACK_C` in sf-strat bosses.rs).
+pub static COLTAB_ID6_BLACK: [u16; 64] = [material_colnorm(9, 9); 64];
+
+pub static COLOR_TABLES: [ShapeColorTable; 7] = [
     ShapeColorTable { entries: &COLTAB_ID0, name: "id_0_c" },
     ShapeColorTable { entries: &COLTAB_ID1, name: "id_1_c" },
     ShapeColorTable { entries: &COLTAB_ID2, name: "id_2_c" },
     ShapeColorTable { entries: &COLTAB_ID3, name: "id_3_c" },
     ShapeColorTable { entries: &COLTAB_ID4, name: "id_4_c" },
     ShapeColorTable { entries: &COLTAB_ID5, name: "id_5_c" },
+    ShapeColorTable { entries: &COLTAB_ID6_BLACK, name: "black_c" },
 ];
 
 // ---------------------------------------------------------------------------
