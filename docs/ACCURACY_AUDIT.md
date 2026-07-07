@@ -35,7 +35,7 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 | Map-VM non-spawn opcodes (71-op table) | sf-game game.rs/world.rs | WORLD.ASM | FIXED (maploop count-1, REMOVE one-match+ref-clears, SETBGM hp0 guard, WAIT2-zero, SETVAROBJ-invalid); wave-3: FADETOSEA/GROUND palette fades, MOTHER submap interpreter | audit_mapvm2.rs 17/17 |
 | Map scroll/advance (lastplayz/mapcnt) | sf-game game.rs:244 | WORLD.ASM:50-90 | VERIFIED (incl. exitbase lastplayz=0 reset) | freeze-fix agent trace |
 | Level bytecode data (30 maps) | sf-map levels/ | LEVEL*.ASM | VERIFIED (byte-identical port) | route1/2/3_parity tests |
-| Path system (opcodes, interp, catalog) | sf-path (98 fns) | PATHS.ASM + path data | AUDITED (audit_path.rs, 8 tests): 10 confirmed divergences — proportional-chase curves, spawn /4*4 scale, emit_add truncation, accel count1, space coupling, ifbetween bound, childdead, sound2 sites, friend weights, gotopos triggers. Fix agent running | audit_path.rs |
+| Path system (opcodes, interp, catalog) | sf-path (98 fns) | PATHS.ASM + path data | FIXED (8 of 10: proportional chases, spawn /4*4 Z-X-Y, ADDW, accel count1, space coupling, ifbetween, childdead, sound2 + set0/ifzero collapses; 8 paths byte-clean vs ROM). Wave-3: gotopos triggers, explode children, linkchild, friend weights, spawnchild /4*8 | audit_path.rs 8/8 |
 | Enemy strats A (rader/zaco*/houdai/tower/para…) | sf-strat enemy_a | GASTRATS/KSTRATS | FIXED (4 bugs: zacos3, zaco1 homing, houdai aim/gate, zaco3/4 XZ) + inits verified | audit_strats.rs |
 | Enemy strats A — remaining tick logic | sf-strat enemy_a | GASTRATS/KSTRATS | PARTIAL (audited set only; houdai cadence mask-15+al1pt follow-up) | |
 | Enemy strats B | sf-strat enemy_b | GBSTRATS etc. | UNVERIFIED (eb_parity is Rust-regression only) | |
@@ -53,4 +53,4 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 
 ## Wave log
 - 2026-07-04 wave 1: trig/player/coldet/strats/boss/mapvm audits — ~18 fixes, all committed (see rom-oracle-plan memory).
-- 2026-07-07 wave 2 (this): path system, map-VM non-spawn opcodes, draw/showview. Next: enemy-B/ground/boss ticks, HUD, SFX map.
+- 2026-07-07 wave 2 COMPLETE: path (8 fixes), map-VM (5 fixes incl. maploop off-by-one), showview (6 fixes), bg2d scroll (ROM-exact). Workspace 229/0. Wave 3 launched: enemy-B/ground ticks, MOTHER submap.
