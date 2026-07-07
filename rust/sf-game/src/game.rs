@@ -132,6 +132,15 @@ impl Game {
         // Store last frame's controller state (TRANS.ASM:158-161).
         self.vars.lastcont0 = (self.vars.pad1 >> 8) as u8;
         self.vars.lastcontl0 = (self.vars.pad1 & 0xFF) as u8;
+        // fadepalto_l (TRANS.ASM:167, MAIN.ASM:2762-2777) — runs every
+        // frame, even with strats frozen: while palnum != 0, copy one
+        // sea/groundpal color into shape-palette row 4 and step
+        // palnum/palfade down by 2 (15 frames, colors 15..1). The port
+        // keeps the counter; sf-render mixes the palettes from the bridged
+        // fraction.
+        if self.vars.palfade_num != 0 {
+            self.vars.palfade_num = self.vars.palfade_num.saturating_sub(2);
+        }
         // generate_collist_l + chkcoll.
         self.coldet_generate_list();
         self.coldet_run();
@@ -1230,8 +1239,25 @@ impl Game {
                     }
                     self.vars.mapptr = p.wrapping_add(6);
                 }
-                // 108/110: palette fades — no-ops.
+                // 108/110: fadetosea/fadetoground (WORLD.ASM:371-394):
+                // palfade = lastpalfade = 30 (seapal) / 62 (groundpal),
+                // palcnt = 2 (dead store — nothing reads palcnt), palnum =
+                // 30. fadepalto_l (MAIN.ASM:2762) then copies one
+                // sea/groundpal color per frame into shape-palette row 4;
+                // the port arms from/target and the palnum walk here and
+                // steps it in Game::tick.
                 op::FADETOSEA | op::FADETOGROUND => {
+                    // ROM restarts mid-fade from the current (mixed) CGRAM
+                    // contents; the port snaps `from` to the previous
+                    // target — only visible if retargeted inside the
+                    // 15-frame window.
+                    self.vars.palfade_from = self.vars.palfade_target;
+                    self.vars.palfade_target = if opcode == op::FADETOSEA {
+                        PALFADE_SEA
+                    } else {
+                        PALFADE_GROUND
+                    };
+                    self.vars.palfade_num = PALFADE_NUM_START;
                     self.vars.mapptr = p.wrapping_add(1);
                 }
                 // 112: mapqobj — frame(1)<<4, x(1)<<2, y(1)<<2, z(1)<<4,

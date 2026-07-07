@@ -58,6 +58,18 @@ pub const SPFM_TONORM: u8 = 4;
 pub const SPACE_MODE: u8 = 1;
 pub const WATER_MODE: u8 = 2;
 
+// Shape-palette fade targets (map-VM FADETOSEA/FADETOGROUND,
+// WORLD.ASM:371-394; consumer fadepalto_l MAIN.ASM:2762 copies
+// seapal/groundpal — DATA/COL/SEA.COL and GROUND.COL — into shape-palette
+// CGRAM row 4). Values are the numeric bridge contract with sf-render's
+// PAL_TARGET_* ids.
+pub const PALFADE_NIGHT: u8 = 0;
+pub const PALFADE_SEA: u8 = 1;
+pub const PALFADE_GROUND: u8 = 2;
+/// ROM `palnum` start value (WORLD.ASM:376-379): a 15-frame walk, one
+/// palette color per frame, stepping down by 2 to 0.
+pub const PALFADE_NUM_START: u16 = 30;
+
 // bgflags (C `src/game/bgs.h` BGF_*)
 pub const BGF_RESTART: u8 = 0x01;
 pub const BGF_BG: u8 = 0x04;
@@ -150,6 +162,20 @@ pub struct GameVars {
     /// C `g_bgtransspeed`.
     pub bgtransspeed: u16,
 
+    // --- Shape-palette fade (WORLD.ASM fadetoseado/fadetogrounddo) ---
+    /// ROM `palnum` — remaining fade-walk words. Armed to
+    /// [`PALFADE_NUM_START`] by FADETOSEA/FADETOGROUND, stepped -2 once per
+    /// frame by the fadepalto_l mirror in `Game::tick` (MAIN.ASM:2773-2776);
+    /// 0 = idle/finished.
+    pub palfade_num: u16,
+    /// Fade destination palette (PALFADE_*). ROM equivalent: whether
+    /// `palfade` indexes seapal or groundpal (WORLD.ASM:373/387).
+    pub palfade_target: u8,
+    /// Palette the walk started from. The ROM fades from whatever CGRAM
+    /// row 4 currently holds; the port approximates an interrupted fade by
+    /// starting from the previous target (night at level start).
+    pub palfade_from: u8,
+
     // --- Boss/HUD mirrors written by level inline callbacks ---
     /// C `g_bossmaxhp`.
     pub bossmaxhp: u16,
@@ -222,6 +248,9 @@ impl Default for GameVars {
             bgflags: 0,
             bg_dmalist: 0,
             bgtransspeed: 0,
+            palfade_num: 0,
+            palfade_target: PALFADE_NIGHT,
+            palfade_from: PALFADE_NIGHT,
             bossmaxhp: 0,
             meters: 0,
             circleanim: 0,

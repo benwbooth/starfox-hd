@@ -4,6 +4,8 @@
 //! `src/renderer/shapes.c`. All tables carry the same ASM citations as the
 //! C source:
 //! - [`NIGHT_PALETTE`]      -- NIGHT.COL, first 16 BGR555 entries
+//! - [`SEA_PALETTE`]/[`GROUND_PALETTE`] -- SEA.COL/GROUND.COL row 0, the
+//!   map-VM FADETOSEA/FADETOGROUND fade targets (MAIN.ASM:2924-2925)
 //! - [`NIGHT1_DEPTH_PAIRS`].. [`NIGHT4_DEPTH_PAIRS`] -- ASM/COLTAB.ASM
 //! - [`DEPTHZ_TABLES`]      -- ASM/COLTABS.ASM:1488-1491 `depthtables`
 //! - [`COLTAB_ID0`]..[`COLTAB_ID5`] -- COLTABS.ASM ID_0_C..ID_5_C
@@ -267,6 +269,94 @@ pub static NIGHT_PALETTE: [u16; 16] = [
     0x7FB6, 0x0CA3, 0x2588, 0x424E,
     0x56F5, 0x6B9A, 0x7FFE, 0x0300,
 ];
+
+// ---------------------------------------------------------------------------
+// SEA.COL / GROUND.COL fade palettes (map-VM FADETOSEA / FADETOGROUND)
+//
+// ROM: WORLD.ASM:371-394 fadetoseado/fadetogrounddo arm palfade/palnum;
+// MAIN.ASM:2762 fadepalto_l then copies one word per frame from
+// seapal/groundpal (MAIN.ASM:2924-2925, DATA/COL/SEA.COL and GROUND.COL
+// row 0) into shape-palette CGRAM row 4, colors 15 down to 1, over 15
+// frames. The HD port renders this as a smooth crossfade of the whole
+// shape palette by the bridged 0..1 fraction instead of the per-color
+// stepped copy.
+// ---------------------------------------------------------------------------
+
+/// Shape-palette ids for the FADETOSEA/FADETOGROUND bridge
+/// (`FrameInputs::pal_from` / `pal_target`). Values are the numeric
+/// contract with sf-game's `PALFADE_*` consts.
+pub const PAL_TARGET_NIGHT: u8 = 0;
+pub const PAL_TARGET_SEA: u8 = 1;
+pub const PAL_TARGET_GROUND: u8 = 2;
+
+/// First 16 palette entries from SEA.COL (ROM `seapal`, MAIN.ASM:2924) —
+/// the underwater blue ramp FADETOSEA walks the shape palette toward.
+#[rustfmt::skip]
+pub static SEA_PALETTE: [u16; 16] = [
+    0x0000, 0x34C0, 0x38E0, 0x3D00,
+    0x4120, 0x4540, 0x4960, 0x4D80,
+    0x51A0, 0x55C0, 0x59E0, 0x5E00,
+    0x6220, 0x6640, 0x6A60, 0x6E80,
+];
+
+/// First 16 palette entries from GROUND.COL (ROM `groundpal`,
+/// MAIN.ASM:2925) — the surface ramp FADETOGROUND restores.
+#[rustfmt::skip]
+pub static GROUND_PALETTE: [u16; 16] = [
+    0x0000, 0x0088, 0x00C9, 0x04EA,
+    0x090B, 0x0D2C, 0x114D, 0x156E,
+    0x198F, 0x1DB0, 0x21D1, 0x25F2,
+    0x2A13, 0x2E34, 0x3255, 0x3676,
+];
+
+/// Look up the BGR555 shape palette for a PAL_TARGET_* id (unknown ids
+/// fall back to night, the default shape palette).
+pub fn shape_palette_bgr(id: u8) -> &'static [u16; 16] {
+    match id {
+        PAL_TARGET_SEA => &SEA_PALETTE,
+        PAL_TARGET_GROUND => &GROUND_PALETTE,
+        _ => &NIGHT_PALETTE,
+    }
+}
+
+/// A decoded (linear RGB) 16-entry shape palette, the per-frame input of
+/// the `*_in` color resolvers.
+pub type ShapePaletteRgb = [[f32; 3]; 16];
+
+/// Decode a BGR555 shape palette to linear RGB.
+pub fn decode_shape_palette(palette: &[u16; 16]) -> ShapePaletteRgb {
+    let mut out = [[0.0f32; 3]; 16];
+    for (dst, &word) in out.iter_mut().zip(palette.iter()) {
+        *dst = decode_bgr555(word);
+    }
+    out
+}
+
+/// Build the effective shape palette for the current FADETOSEA/GROUND
+/// state: decode `from` and `target` (PAL_TARGET_*) and mix by `fade`
+/// (0..1, clamped). fade=0 is the `from` palette, fade=1 the `target`.
+/// HD rendition of the ROM's 15-frame fadepalto_l walk (MAIN.ASM:2762).
+pub fn mixed_shape_palette(from: u8, target: u8, fade: f32) -> ShapePaletteRgb {
+    let a = decode_shape_palette(shape_palette_bgr(from));
+    if from == target {
+        return a;
+    }
+    let b = decode_shape_palette(shape_palette_bgr(target));
+    let t = fade.clamp(0.0, 1.0);
+    let mut out = [[0.0f32; 3]; 16];
+    for i in 0..16 {
+        for c in 0..3 {
+            // Two-sided lerp so fade 0/1 reproduce the endpoints exactly.
+            out[i][c] = a[i][c] * (1.0 - t) + b[i][c] * t;
+        }
+    }
+    out
+}
+
+/// The default (no fade) decoded shape palette: NIGHT.COL.
+pub fn night_shape_palette() -> ShapePaletteRgb {
+    decode_shape_palette(&NIGHT_PALETTE)
+}
 
 /// Magenta placeholder emitted for unported/unknown materials.
 pub const DEBUG_MATERIAL_COLOR: [f32; 4] = [1.0, 0.0, 1.0, 1.0];
@@ -638,10 +728,11 @@ pub fn decode_bgr555(color: u16) -> [f32; 3] {
 /// Hardware checkerboard-dithers the two nibble colors of a pair; this port
 /// averages them instead. All nibble-pair consumers (COLNORM, COLDEPTH,
 /// COLLITE shades) funnel through here so a dithered decode can be swapped
-/// in later without touching the material paths.
-pub fn decode_palette_pair(pair: u8) -> [f32; 4] {
-    let lo = decode_bgr555(NIGHT_PALETTE[(pair & 0x0F) as usize]);
-    let hi = decode_bgr555(NIGHT_PALETTE[((pair >> 4) & 0x0F) as usize]);
+/// in later without touching the material paths. `palette` is the decoded
+/// (and possibly FADETOSEA/GROUND-mixed) shape palette for this frame.
+pub fn decode_palette_pair_in(pair: u8, palette: &ShapePaletteRgb) -> [f32; 4] {
+    let lo = palette[(pair & 0x0F) as usize];
+    let hi = palette[((pair >> 4) & 0x0F) as usize];
     [
         (lo[0] + hi[0]) * 0.5,
         (lo[1] + hi[1]) * 0.5,
@@ -650,16 +741,24 @@ pub fn decode_palette_pair(pair: u8) -> [f32; 4] {
     ]
 }
 
+/// [`decode_palette_pair_in`] against the unfaded night palette.
+pub fn decode_palette_pair(pair: u8) -> [f32; 4] {
+    decode_palette_pair_in(pair, &night_shape_palette())
+}
+
 /// Resolve a material word to RGBA. Pure mirror of
 /// `Shapes_ResolveMaterialColor`; `depth_bank` (0..=3) replaces the C
 /// `s_current_depth_bank` global and selects both the COLDEPTH night bank
 /// and the COLLITE shade group. Unsupported materials (COLTEXT, COLSMOOTH,
 /// COLLITE sources 12..62) resolve to [`DEBUG_MATERIAL_COLOR`].
-pub fn resolve_material_color(
+/// `palette` is the decoded (possibly FADETOSEA/GROUND-mixed) shape
+/// palette every nibble pair resolves against.
+pub fn resolve_material_color_in(
     material_word: u16,
     col_frame: u8,
     shade_index: i32,
     depth_bank: u8,
+    palette: &ShapePaletteRgb,
 ) -> [f32; 4] {
     let source = (material_word >> 8) as u8;
     let bank = (depth_bank as usize).min(3);
@@ -678,11 +777,12 @@ pub fn resolve_material_color(
         }
         // Super FX masks with `(frame_count - 1)` rather than clamping.
         let frame_index = (col_frame as usize) & (anim_table.frames.len() - 1);
-        return resolve_material_color(
+        return resolve_material_color_in(
             anim_table.frames[frame_index],
             col_frame,
             shade_index,
             depth_bank,
+            palette,
         );
     }
 
@@ -692,13 +792,13 @@ pub fn resolve_material_color(
     }
 
     if source as u16 == MATERIAL_SOURCE_COLNORM {
-        return decode_palette_pair((material_word & 0xFF) as u8);
+        return decode_palette_pair_in((material_word & 0xFF) as u8, palette);
     }
 
     if source as u16 == MATERIAL_SOURCE_COLDEPTH {
         let depth_index = (material_word & 0xFF) as usize;
         if depth_index < NIGHT1_DEPTH_PAIRS.len() {
-            return decode_palette_pair(NIGHT_DEPTH_BANKS[bank][depth_index]);
+            return decode_palette_pair_in(NIGHT_DEPTH_BANKS[bank][depth_index], palette);
         }
         return DEBUG_MATERIAL_COLOR;
     }
@@ -711,21 +811,39 @@ pub fn resolve_material_color(
         // The shade group is the object's depth band: MOBJ.MC:472-503 selects
         // m_shadestab (shadestab2_0..3) in the same branch that picks the
         // COLDEPTH bank, so distant objects wash out together.
-        return decode_palette_pair(SHADE_TABLES[bank][row][shade]);
+        return decode_palette_pair_in(SHADE_TABLES[bank][row][shade], palette);
     }
 
     DEBUG_MATERIAL_COLOR
 }
 
+/// [`resolve_material_color_in`] against the unfaded night palette.
+pub fn resolve_material_color(
+    material_word: u16,
+    col_frame: u8,
+    shade_index: i32,
+    depth_bank: u8,
+) -> [f32; 4] {
+    resolve_material_color_in(
+        material_word,
+        col_frame,
+        shade_index,
+        depth_bank,
+        &night_shape_palette(),
+    )
+}
+
 /// Resolve a face's color-table entry to RGBA. Pure mirror of
-/// `Shapes_ResolveFaceColor`.
-pub fn resolve_face_color(
+/// `Shapes_ResolveFaceColor`; `palette` as in
+/// [`resolve_material_color_in`].
+pub fn resolve_face_color_in(
     shape_id: u16,
     face_color_index: u8,
     col_frame: u8,
     color_table: u16,
     shade_index: i32,
     depth_bank: u8,
+    palette: &ShapePaletteRgb,
 ) -> [f32; 4] {
     let color_table_id = resolve_color_table_id(shape_id, color_table);
     let Some(table) = COLOR_TABLES.get(color_table_id as usize) else {
@@ -734,7 +852,27 @@ pub fn resolve_face_color(
     let Some(&material_word) = table.entries.get(face_color_index as usize) else {
         return DEBUG_MATERIAL_COLOR;
     };
-    resolve_material_color(material_word, col_frame, shade_index, depth_bank)
+    resolve_material_color_in(material_word, col_frame, shade_index, depth_bank, palette)
+}
+
+/// [`resolve_face_color_in`] against the unfaded night palette.
+pub fn resolve_face_color(
+    shape_id: u16,
+    face_color_index: u8,
+    col_frame: u8,
+    color_table: u16,
+    shade_index: i32,
+    depth_bank: u8,
+) -> [f32; 4] {
+    resolve_face_color_in(
+        shape_id,
+        face_color_index,
+        col_frame,
+        color_table,
+        shade_index,
+        depth_bank,
+        &night_shape_palette(),
+    )
 }
 
 /// Face-normal . rotated-light mapped onto the 10 shade levels with the GSU's

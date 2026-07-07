@@ -29,8 +29,9 @@
 //!    (WORLD.ASM:191-194) => it IS a 2-byte setbgm; Rust treats it as a
 //!    1-byte nop. (No level emits 136; documented, not load-bearing.)
 //!  - FADETOSEA/FADETOGROUND: ROM starts a palette fade
-//!    (palfade/palcnt/palnum, WORLD.ASM:371-394); Rust is a no-op (HD
-//!    palette lane gap — levels DO emit these, builder.rs:469/473).
+//!    (palfade/palcnt/palnum, WORLD.ASM:371-394); Rust arms the matching
+//!    palfade_* walk in GameVars (stepped by Game::tick, mixed in
+//!    sf-render). ROM `palcnt` is a dead store — nothing reads it.
 
 use sf_game::game::{Game, Hooks};
 use sf_oracle::{call_near, load_built_rom, load_symbols, Entry, SnesBus};
@@ -811,7 +812,7 @@ fn small_state_ops_match_rom() {
 }
 
 // ============================================================
-// FADETOSEA/FADETOGROUND (108/110) — ROM palette fade, Rust no-op
+// FADETOSEA/FADETOGROUND (108/110) — palette fade arm state
 // ============================================================
 
 #[test]
@@ -835,11 +836,16 @@ fn fadetosea_ground_write_palette_fade_in_rom_only() {
     assert_eq!(bus.read16(PALFADE), 62);
     assert_eq!(bus.read16(MAPPTR), 1);
 
-    // Rust: documented no-op (advance only). Levels DO emit these
-    // (sf-map builder.rs:469/473) — HD palette-fade gap, colors lane.
+    // Rust: arms the palette-fade walk (palfade_target/palfade_num); the
+    // fadepalto_l mirror in Game::tick steps it and sf-render mixes
+    // NIGHT/SEA/GROUND palettes from the bridged fraction.
+    let g = rust_exec(&[108u8, 2], |_| {});
+    assert_eq!(g.vars.mapptr, 1);
+    assert_eq!(g.vars.palfade_target, sf_game::vars::PALFADE_SEA);
+    assert_eq!(g.vars.palfade_num, 30, "rust arms the 15-frame palnum walk");
     let g = rust_exec(&m, |_| {});
-    assert_eq!(g.vars.mapptr, 1, "rust advances but performs no palette fade");
-    eprintln!("DISCREPANCY FADETOSEA/GROUND: ROM starts palette fade; Rust no-op");
+    assert_eq!(g.vars.mapptr, 1);
+    assert_eq!(g.vars.palfade_target, sf_game::vars::PALFADE_GROUND);
 }
 
 // ============================================================

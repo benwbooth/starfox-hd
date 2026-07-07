@@ -408,7 +408,9 @@ impl ShapeStore {
     }
 
     /// Mirror of `Shapes_Render`, pushing per-face flat triangles/lines to the
-    /// retained `Gpu` with `transform`'s current proj/view.
+    /// retained `Gpu` with `transform`'s current proj/view. `palette` is the
+    /// frame's decoded shape palette (night, or the FADETOSEA/FADETOGROUND
+    /// mix from [`shapes::mixed_shape_palette`]).
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
@@ -420,6 +422,7 @@ impl ShapeStore {
         color_table: u16,
         explosion_state: u8,
         model_matrix: &[f32; 16],
+        palette: &shapes::ShapePaletteRgb,
     ) {
         let shape_id = shapes::resolve_shape_word(shape_id);
         let shape_id = resolve_boss7_frame(shape_id, anim_frame);
@@ -452,13 +455,14 @@ impl ShapeStore {
                     } else {
                         *model_matrix
                     };
-                    let color = shapes::resolve_face_color(
+                    let color = shapes::resolve_face_color_in(
                         shape_id,
                         face.color_index,
                         col_frame,
                         color_table,
                         SHADE_TABLE_LEN as i32 - 1,
                         depth_bank,
+                        palette,
                     );
                     let first = shape.face_line_first[i] as usize;
                     gpu.push_flat_lines(
@@ -482,13 +486,14 @@ impl ShapeStore {
 
             let shade_index = shapes::compute_shade_index(shape.face_normals[i], light_obj);
 
-            let color = shapes::resolve_face_color(
+            let color = shapes::resolve_face_color_in(
                 shape_id,
                 face.color_index,
                 col_frame,
                 color_table,
                 shade_index,
                 depth_bank,
+                palette,
             );
             let start = (tri_start * 3) as usize;
             let count = (tri_count * 3) as usize;

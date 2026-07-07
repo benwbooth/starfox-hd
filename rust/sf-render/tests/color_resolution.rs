@@ -209,3 +209,73 @@ fn depth_bank_selection() {
     // Out-of-range table falls back to NORMAL like Shapes_SetDepthTable.
     assert_eq!(select_depth_bank(2560.0, 99), 1);
 }
+
+// ---------------------------------------------------------------------------
+// FADETOSEA / FADETOGROUND shape-palette fade (WORLD.ASM:371-394 +
+// MAIN.ASM:2762 fadepalto_l; SEA.COL / GROUND.COL row 0)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn palette_fade_endpoints_and_reversal() {
+    use sf_render::shapes::{
+        decode_shape_palette, mixed_shape_palette, GROUND_PALETTE,
+        PAL_TARGET_GROUND, PAL_TARGET_NIGHT, PAL_TARGET_SEA, SEA_PALETTE,
+    };
+    let night = decode_shape_palette(&NIGHT_PALETTE);
+    let sea = decode_shape_palette(&SEA_PALETTE);
+    let ground = decode_shape_palette(&GROUND_PALETTE);
+
+    // fade 0 = source palette, fade 1 = target palette (exact endpoints).
+    assert_eq!(mixed_shape_palette(PAL_TARGET_NIGHT, PAL_TARGET_SEA, 0.0), night);
+    assert_eq!(mixed_shape_palette(PAL_TARGET_NIGHT, PAL_TARGET_SEA, 1.0), sea);
+    // fadetoground reverses a completed sea fade toward groundpal.
+    assert_eq!(mixed_shape_palette(PAL_TARGET_SEA, PAL_TARGET_GROUND, 0.0), sea);
+    assert_eq!(mixed_shape_palette(PAL_TARGET_SEA, PAL_TARGET_GROUND, 1.0), ground);
+    // Mid-fade is strictly between the endpoints on a channel where the
+    // palettes differ (entry 9, red channel: night 0x0CA3 vs sea 0x55C0).
+    let mid = mixed_shape_palette(PAL_TARGET_NIGHT, PAL_TARGET_SEA, 0.5);
+    let (lo, hi) = if night[9][0] < sea[9][0] { (night[9][0], sea[9][0]) } else { (sea[9][0], night[9][0]) };
+    assert!(mid[9][0] > lo && mid[9][0] < hi);
+    // Out-of-range fades clamp.
+    assert_eq!(mixed_shape_palette(PAL_TARGET_NIGHT, PAL_TARGET_SEA, 2.0), sea);
+    // No-fade (from == target) is the identity regardless of fraction.
+    assert_eq!(mixed_shape_palette(PAL_TARGET_NIGHT, PAL_TARGET_NIGHT, 1.0), night);
+}
+
+#[test]
+fn palette_fade_changes_resolved_face_colors() {
+    use sf_render::shapes::{
+        mixed_shape_palette, resolve_face_color_in, SEA_PALETTE,
+        PAL_TARGET_NIGHT, PAL_TARGET_SEA,
+    };
+    // FX71 = COLNORM(9,9): resolves to palette entry 9 directly.
+    let base = resolve_face_color(ARWING_SHAPE, 71, 0, 0, 0, 0);
+    assert_eq!(base, expected_pair(0x99));
+
+    let sea_pal = mixed_shape_palette(PAL_TARGET_NIGHT, PAL_TARGET_SEA, 1.0);
+    let faded = resolve_face_color_in(ARWING_SHAPE, 71, 0, 0, 0, 0, &sea_pal);
+    assert_ne!(faded, base, "full sea fade must recolor COLNORM faces");
+    // Independent expectation: decoded SEA.COL entry 9.
+    let c = SEA_PALETTE[9];
+    let expected = [
+        (c & 0x1F) as f32 / 31.0,
+        ((c >> 5) & 0x1F) as f32 / 31.0,
+        ((c >> 10) & 0x1F) as f32 / 31.0,
+        1.0,
+    ];
+    assert_eq!(faded, expected);
+
+    // fade 0 reproduces the unfaded resolver output bit-exactly.
+    let idle = mixed_shape_palette(PAL_TARGET_NIGHT, PAL_TARGET_SEA, 0.0);
+    assert_eq!(resolve_face_color_in(ARWING_SHAPE, 71, 0, 0, 0, 0, &idle), base);
+    // COLDEPTH and COLLITE materials funnel through the same palette:
+    // they must shift under the fade too (FX10 = coldepth(0), FX0 = collite).
+    assert_ne!(
+        resolve_face_color_in(ARWING_SHAPE, 10, 0, 0, 0, 0, &sea_pal),
+        resolve_face_color(ARWING_SHAPE, 10, 0, 0, 0, 0)
+    );
+    assert_ne!(
+        resolve_face_color_in(ARWING_SHAPE, 0, 0, 0, 9, 0, &sea_pal),
+        resolve_face_color(ARWING_SHAPE, 0, 0, 0, 9, 0)
+    );
+}

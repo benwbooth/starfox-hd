@@ -29,8 +29,8 @@ use crate::obj::Objects;
 use crate::planets::{Planets, DEFAULT_LIVES};
 use crate::strings::Strings;
 use crate::vars::{
-    GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PFM_SHADOWS, PSF2_PLAYERHP0, PSF3_ENGINESND,
-    SPACE_MODE, SPFM_NORM,
+    GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PALFADE_NUM_START, PFM_SHADOWS, PSF2_PLAYERHP0,
+    PSF3_ENGINESND, SPACE_MODE, SPFM_NORM,
 };
 use crate::windows::Windows;
 use crate::world::World;
@@ -124,6 +124,12 @@ pub struct FrameSnapshot {
     pub bgflags: u8,
     pub bg2_xscroll: i32,
     pub nomax_bg2_yscroll: bool,
+    /// Shape-palette fade source (vars PALFADE_*, FADETOSEA/FADETOGROUND).
+    pub pal_from: u8,
+    /// Shape-palette fade target (vars PALFADE_*).
+    pub pal_target: u8,
+    /// Fade progress 0..1 (ROM palnum 15-frame walk as a fraction).
+    pub pal_fade: f32,
     pub windowmode: u8,
     pub windows: [WindowSlot; 8],
     pub meters: u16,
@@ -499,6 +505,10 @@ impl Shell {
             bgflags: v.bgflags,
             bg2_xscroll: self.bg2_xscroll as i32,
             nomax_bg2_yscroll: self.nomax_bg2_yscroll != 0,
+            pal_from: v.palfade_from,
+            pal_target: v.palfade_target,
+            pal_fade: (PALFADE_NUM_START.saturating_sub(v.palfade_num)) as f32
+                / PALFADE_NUM_START as f32,
             windowmode: st.windows.windowmode,
             windows: st.windows.slots,
             meters: v.meters,

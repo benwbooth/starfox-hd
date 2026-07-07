@@ -195,7 +195,8 @@ impl DrawListRenderer {
         gpu.push_flat_tris_alpha(&shape.tri_verts, proj, view, &model, [0.0, 0.0, 0.0, 0.40]);
     }
 
-    /// Mirror of `DrawList_Render`.
+    /// Mirror of `DrawList_Render`. `shape_palette` is the frame's decoded
+    /// shape palette (FADETOSEA/FADETOGROUND mix, night when idle).
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -206,6 +207,7 @@ impl DrawListRenderer {
         curr: &[DrawListEntry],
         alpha: f32,
         shadow_height: f32,
+        shape_palette: &crate::shapes::ShapePaletteRgb,
     ) {
         if curr.is_empty() {
             return;
@@ -284,6 +286,7 @@ impl DrawListRenderer {
                     interp.color_table,
                     interp.explosion_cnt,
                     &model,
+                    shape_palette,
                 );
             }
 

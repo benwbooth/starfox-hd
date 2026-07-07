@@ -69,6 +69,16 @@ pub struct FrameInputs<'a> {
     /// g_nomaxbg2Yscroll.
     pub nomax_bg2_yscroll: bool,
 
+    // Shape-palette fade (map-VM FADETOSEA/FADETOGROUND, WORLD.ASM:371-394;
+    // consumer fadepalto_l MAIN.ASM:2762). PAL_TARGET_* ids from
+    // crate::shapes; sf-game bridges its PALFADE_* values 1:1.
+    /// Palette the fade started from (PAL_TARGET_*).
+    pub pal_from: u8,
+    /// Palette the fade walks toward (PAL_TARGET_*).
+    pub pal_target: u8,
+    /// Fade progress 0..1 (the ROM's 15-frame palnum walk as a fraction).
+    pub pal_fade: f32,
+
     // Window / fade state (WINDOWS.ASM)
     /// g_windowmode bitmask of allocated slots.
     pub windowmode: u8,
@@ -131,6 +141,9 @@ impl<'a> Default for FrameInputs<'a> {
             bgflags: 0,
             bg2_xscroll: 0,
             nomax_bg2_yscroll: false,
+            pal_from: 0,
+            pal_target: 0,
+            pal_fade: 0.0,
             windowmode: 0,
             windows: [WindowState::default(); WINDOWARRAY_SIZE],
             meters: 0,
@@ -278,6 +291,14 @@ impl Renderer {
 
         self.bg2d
             .render(&mut self.gpu, &self.transform, inputs, self.width, self.height);
+        // Effective shape palette for this frame: the FADETOSEA/FADETOGROUND
+        // crossfade (fadepalto_l, MAIN.ASM:2762) mixed from the bridged
+        // map-VM fade state; plain night when no fade ever ran.
+        let shape_palette = crate::shapes::mixed_shape_palette(
+            inputs.pal_from,
+            inputs.pal_target,
+            inputs.pal_fade,
+        );
         self.draw_list.render(
             &mut self.gpu,
             &self.shapes,
@@ -288,6 +309,7 @@ impl Renderer {
             // Per-level BGS.ASM shadowheight (0 everywhere except the
             // Nucleus interiors), keyed off the current setbg id.
             crate::bg2d::shadow_height_for_bg(inputs.currentbg),
+            &shape_palette,
         );
         self.particles.render(&mut self.gpu, &self.transform);
         self.hud.render(

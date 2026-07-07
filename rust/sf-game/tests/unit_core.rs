@@ -5,7 +5,10 @@
 
 use sf_game::alien::*;
 use sf_game::alien_compat as compat;
-use sf_game::vars::{HARD_AP, HARD_HP, PSF3_INTUNNEL};
+use sf_game::vars::{
+    HARD_AP, HARD_HP, PALFADE_GROUND, PALFADE_NIGHT, PALFADE_NUM_START, PALFADE_SEA,
+    PSF3_INTUNNEL,
+};
 use sf_game::world::op;
 use sf_game::Game;
 use sf_map::levels::BuiltLevel;
@@ -23,6 +26,49 @@ fn game_with(bytes: Vec<u8>) -> Game {
     let mut g = Game::new();
     g.load_level(&level_from_bytes(bytes));
     g
+}
+
+// ---- palette fade opcodes ----
+
+#[test]
+fn op_fadetosea_arms_walk_and_ticks_to_full() {
+    // WORLD.ASM:371-380 fadetoseado: palfade=lastpalfade=30, palcnt=2,
+    // palnum=30; MAIN.ASM:2762 fadepalto_l then copies one seapal color
+    // per frame and steps palnum -2 until 0 (15 frames, colors 15..1).
+    let mut bytes = vec![op::FADETOSEA];
+    bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]); // park the VM
+    let mut g = game_with(bytes);
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 4); // fade op (+1) then the parked mapwait (+3)
+    assert_eq!(g.vars.palfade_from, PALFADE_NIGHT);
+    assert_eq!(g.vars.palfade_target, PALFADE_SEA);
+    assert_eq!(g.vars.palfade_num, PALFADE_NUM_START);
+    // fadepalto_l runs once per frame (TRANS.ASM:167): -2 per tick.
+    for i in 1..=15u16 {
+        g.tick();
+        assert_eq!(g.vars.palfade_num, PALFADE_NUM_START - 2 * i);
+    }
+    // Fade complete; further ticks hold it there (ROM: palnum==0 -> rtl).
+    g.tick();
+    assert_eq!(g.vars.palfade_num, 0);
+    assert_eq!(g.vars.palfade_target, PALFADE_SEA);
+}
+
+#[test]
+fn op_fadetoground_reverses_from_sea() {
+    // WORLD.ASM:384-394 fadetogrounddo: same walk toward groundpal
+    // (palfade = groundpal-seapal+30 = 62). The port records the previous
+    // target as the fade source, so sea -> ground reverses the sea fade.
+    let mut bytes = vec![op::FADETOSEA, op::FADETOGROUND];
+    bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
+    let mut g = game_with(bytes);
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 5); // both fade ops (+2) then the mapwait (+3)
+    assert_eq!(g.vars.palfade_from, PALFADE_SEA);
+    assert_eq!(g.vars.palfade_target, PALFADE_GROUND);
+    assert_eq!(g.vars.palfade_num, PALFADE_NUM_START);
+    g.tick();
+    assert_eq!(g.vars.palfade_num, PALFADE_NUM_START - 2);
 }
 
 // ---- spawn opcodes ----
