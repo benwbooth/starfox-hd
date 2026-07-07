@@ -59,15 +59,27 @@ pub fn strat_stayrelhard180yr_init(g: &mut Game, idx: u16) {
     al.stratptr = Some(s);
 }
 
-/// C `Strat_StayDist_Init` (src/strat/strat_ground.c:75,
-/// GSTRATS.ASM:706-711): init-only, `sword1` is the desired Z offset from
-/// `pviewposz`.
-pub fn strat_staydist_init(g: &mut Game, idx: u16) {
+/// C `staydist_Istrat` tick (GSTRATS.ASM:706-711). In ROM the Istrat IS
+/// the per-tick strategy (it never swaps `stratptr`), so `worldz =
+/// sword1 + pviewposz` re-runs EVERY frame and the object tracks the
+/// viewer; the old init-once + `stratptr = None` froze it in place.
+fn staydist_strat(g: &mut Game, idx: u16) {
     let pvz = pviewposz(g);
     let al = &mut g.objs.aliens[idx as usize];
+    // s_copy_alvar2alvar W,x,al_worldz,x,al_sword1
+    // s_add_alvar W,x,al_worldz,pviewposz
     al.worldz = al.sword1.wrapping_add(pvz);
+    // s_set_alsflag x,colldisable
     al.sflags |= ASF_COLLDISABLE;
-    al.stratptr = None;
+}
+
+/// C `Strat_StayDist_Init` (GSTRATS.ASM:706-711): `sword1` is the desired
+/// Z offset from `pviewposz`; the body re-runs every tick (see
+/// [`staydist_strat`]).
+pub fn strat_staydist_init(g: &mut Game, idx: u16) {
+    let s = sid(g, staydist_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    staydist_strat(g, idx);
 }
 
 // ============================================================

@@ -13,21 +13,30 @@ use sf_strat::ground;
 // ============================================================
 
 #[test]
-fn achase_angle_steps_match_c() {
-    // diff = (int8)(0-128) = -128, step = -128>>3 = -16 -> cur = 16.
+fn achase_angle_steps_match_rom() {
+    // ROM Achase (STRATMAC.INC:525 / SR8_ACHASE_ALVAR3, oracle-proven in
+    // sf-oracle tests/audit_strats_b.rs): adiv2 rounds toward zero and the
+    // reached-branch fires only when already at the target ON ENTRY.
+    // diff = (int8)(0-128) = -128, step = -16 -> cur = 16.
     let mut cur = 0u8;
     assert!(!achase_angle(&mut cur, 128, 3));
     assert_eq!(cur, 16);
     // diff = (int8)(16-128) = -112, step = -14 -> cur = 30.
     assert!(!achase_angle(&mut cur, 128, 3));
     assert_eq!(cur, 30);
-    // Small positive diff floors to zero -> forced step of 1.
+    // Toward-zero rounding: 0 -> 100 at rate 3 steps 100/8 = 12 (the old
+    // floor shift gave 13; ROM gives 12).
+    let mut cur = 0u8;
+    assert!(!achase_angle(&mut cur, 100, 3));
+    assert_eq!(cur, 12);
+    // Small positive diff truncates to zero -> forced step of 1.
     let mut cur = 5u8;
     assert!(!achase_angle(&mut cur, 2, 3));
     assert_eq!(cur, 4);
-    // Stepping onto the target returns true immediately.
+    // Stepping onto the target still reports false; "reached" is an
+    // entry-equality check, one tick later (ROM beq-before-step).
     let mut cur = 3u8;
-    assert!(achase_angle(&mut cur, 2, 3));
+    assert!(!achase_angle(&mut cur, 2, 3));
     assert_eq!(cur, 2);
     assert!(achase_angle(&mut cur, 2, 3)); // already there
     // Wrap-around chase picks the short way (8-bit signed diff).
@@ -136,10 +145,19 @@ fn ground_staydist_offsets_from_view_z() {
     g.vars.write_ext16(wm::PVIEWPOSZ, 1200u16);
     g.objs.aliens[idx as usize].sword1 = -200;
     ground::strat_staydist_init(&mut g, idx);
-    let al = &g.objs.aliens[idx as usize];
-    assert_eq!(al.worldz, 1000);
-    assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
-    assert!(al.stratptr.is_none());
+    {
+        let al = &g.objs.aliens[idx as usize];
+        assert_eq!(al.worldz, 1000);
+        assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+    }
+    // ROM staydist_Istrat (GSTRATS.ASM:706-711) re-runs every tick: the
+    // object TRACKS pviewposz instead of freezing at the init-time value.
+    let sid = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("staydist keeps a tick strat");
+    g.vars.write_ext16(wm::PVIEWPOSZ, 1300u16);
+    g.call_strat(sid, idx);
+    assert_eq!(g.objs.aliens[idx as usize].worldz, 1100);
 }
 
 // ============================================================

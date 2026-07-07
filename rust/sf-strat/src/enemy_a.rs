@@ -267,18 +267,32 @@ pub fn strat_cos(angle: u8) -> f32 {
 }
 
 /// C `achase_angle` (strat_enemy.c:41) — proportional 8-bit angle chase.
-/// Returns true when the target is reached.
+/// ROM `Achase_var2A` (STRATMAC.INC:525, `sr8_achase_alvarN`
+/// STRATROU.ASM:2760-2795): `diff = target - current`, `nolessrange`
+/// pre-clamp (min |step| = 1), then `adiv2` x shift — a signed halve that
+/// rounds TOWARD ZERO, not toward -infinity. Oracle-proven against
+/// SR8_ACHASE_ALVAR3/4 (sf-oracle tests/audit_strats_b.rs: 0->100 at rate
+/// 3 steps 12, not 13).
+///
+/// Returns true only when already at the target on entry — the ROM
+/// macro's reached-branch (`beq`) fires BEFORE stepping, so "reached"
+/// reads one tick after arrival, exactly like every `s_achase_alvar
+/// ...,label` site.
 pub fn achase_angle(current: &mut u8, target: u8, shift: u32) -> bool {
     if *current == target {
         return true;
     }
-    let diff = current.wrapping_sub(target) as i8;
-    let mut step = diff >> shift;
+    let diff = (current.wrapping_sub(target) as i8) as i32;
+    let mut step = if diff >= 0 {
+        diff >> shift
+    } else {
+        -((-diff) >> shift)
+    };
     if step == 0 {
         step = if diff > 0 { 1 } else { -1 };
     }
     *current = current.wrapping_sub(step as u8);
-    *current == target
+    false
 }
 
 /// C `add_player_z` (strat_enemy.c:55, s_add_playerZ): scroll with world.
@@ -1383,9 +1397,11 @@ pub(crate) fn boss_keeprel_to_player(g: &mut Game, idx: u16) {
     al.worldz = al.worldz.wrapping_add(d);
 }
 
-/// C `boss_apply_yaw_offset` (strat_enemy.c:1024): place `self` at
-/// mother + yaw-rotated local offset, copying the mother rotation.
-pub(crate) fn boss_apply_yaw_offset(
+/// Position half of ROM `s_add_roffs2pos ...,0,1,0` (yaw-rotate the local
+/// offset, write position only — NO rotation copy). The bossA turrets
+/// (GB3STRAT.ASM:1226) use exactly this: their `roty` is aim state driven
+/// by the Achase toward `sbyte3` and must never be stomped by the mother.
+pub(crate) fn boss_yaw_offset_pos(
     g: &mut Game,
     self_idx: u16,
     mother: &Alien,
@@ -1398,12 +1414,27 @@ pub(crate) fn boss_apply_yaw_offset(
     let rx = ((offx as f32 * c) + (offz as f32 * s)).round() as i16;
     let rz = ((offz as f32 * c) - (offx as f32 * s)).round() as i16;
     let al = &mut g.objs.aliens[self_idx as usize];
-    al.rotx = mother.rotx;
-    al.roty = mother.roty;
-    al.rotz = mother.rotz;
     al.worldx = mother.worldx.wrapping_add(rx);
     al.worldy = mother.worldy.wrapping_add(offy);
     al.worldz = mother.worldz.wrapping_add(rz);
+}
+
+/// C `boss_apply_yaw_offset` (strat_enemy.c:1024): place `self` at
+/// mother + yaw-rotated local offset, copying the mother rotation
+/// (ROM sites that pair `s_copy_rots` with the offset macro).
+pub(crate) fn boss_apply_yaw_offset(
+    g: &mut Game,
+    self_idx: u16,
+    mother: &Alien,
+    offx: i16,
+    offy: i16,
+    offz: i16,
+) {
+    boss_yaw_offset_pos(g, self_idx, mother, offx, offy, offz);
+    let al = &mut g.objs.aliens[self_idx as usize];
+    al.rotx = mother.rotx;
+    al.roty = mother.roty;
+    al.rotz = mother.rotz;
 }
 
 /// C `boss7hatchfire_srou` (strat_enemy.c:1048): spawn a zaco2 out of a

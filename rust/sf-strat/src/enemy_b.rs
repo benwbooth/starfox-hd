@@ -107,7 +107,8 @@ pub(crate) mod eb_compat {
         boss7launcher_fire_hmissile1, boss_apply_yaw_offset, boss_attach_child_to_mother,
         boss_child_from_index_raw, boss_clear_child_link, boss_count_children,
         boss_dying, boss_find_child_obj, boss_get_mother_obj, boss_keeprel_to_player,
-        boss_obj_index_or_null, boss_prune_family_links, bossdelayexplode_strat,
+        boss_obj_index_or_null, boss_prune_family_links, boss_yaw_offset_pos,
+        bossdelayexplode_strat,
         circdelayexplode_init, circdelayexplode_strat, copy_pos, delayexplode_strat,
         delayremove_strat, frame_tick_mod, hmissile1_remove, hmissile1_remove_strat,
         hmissile1_strat, homingflat_strat, make_exp_obj, make_fol_exp_obj,
@@ -423,11 +424,10 @@ const BOSS7_HP: u8 = 40;
 const BOSS7_HATCH_HP: u8 = 16;
 const BOSS7_LAUNCHER_HP: u8 = 8;
 const BOSS7_SCALE: u32 = 3;
-const BOSS7_EXP_FRAMES: u8 = 24;
 const BOSS7_SPAWN_SOUND: u8 = 0x5B;
 const BOSS7_OPEN_SOUND: u8 = 0x58;
-const BOSS7_HATCH_FIRE_DELAY: u16 = 5;
-const BOSS7_LAUNCH_FIRE_DELAY: u16 = 5;
+// (Hatch/launcher fire cadence is `s_jmp_notdelay 5` = every 32 frames; the
+// old %5 delay constants were an ASM misread — see the fire sites.)
 const SH_BOSS_7_1: u16 = 56;
 const SH_BOSS_7_0: u16 = 240;
 const SH_BOSS_7_1O: u16 = 242;
@@ -448,19 +448,23 @@ const BOSSA_AP: u8 = 16;
 const BOSSA_TURRET_HP: u8 = 12;
 const BOSSA_CUP_HP: u8 = 24;
 const BOSSA_SCALE: u32 = 2;
-const BOSSA_EXP_FRAMES: u8 = 30;
 const BOSSA_CHILD_TURRET_L: u8 = 1;
 const BOSSA_CHILD_TURRET_M: u8 = 2;
 const BOSSA_CHILD_TURRET_R: u8 = 3;
 const BOSSA_CHILD_CUP_L: u8 = 4;
 const BOSSA_CHILD_CUP_M: u8 = 5;
 const BOSSA_CHILD_CUP_R: u8 = 6;
+/// ROM parent `sflag2` ("cup strat finished", GB3STRAT.ASM:617) — port keeps
+/// the C lane's sflags4 bit.
 const BOSSA_PARENT_FLAG_ATTACK_DONE: u8 = 0x10;
-const BOSSA_CUP_FLAG_FIRED: u8 = 0x20;
-const BOSSA_TURRET_FIRE_DELAY: u16 = 15;
-const BOSSA_PARENT_MISSILE_PERIOD: u16 = 64;
-const BOSSA_CUP_GO_TIME: u8 = 45;
+/// ROM parent `sflag3` ("all cups dead", GB3STRAT.ASM:746-752): gates the
+/// bossAup/cover $73/$72 voice lines. Port maps it onto sflags3 bit 0.
+const BOSSA_PARENT_FLAG_CUPS_DEAD: u8 = ASF3_SFLAG5;
+/// GO -> RETURN sword2 timer (GB3STRAT.ASM:987 `s_set_alvar B,x,al_sword2,#30`).
 const BOSSA_CUP_RETURN_TIME: u8 = 30;
+/// `bossATY_tab` (GB3STRAT.ASM:762-765): turret roty targets, three rows of
+/// three (index = parent sword2, cycled +3 mod 9 by the retarget machine).
+const BOSSA_TY_TAB: [u8; 9] = [0, 0, DEG180, 0, DEG180, 0, DEG180, 0, 0];
 const BOSSA_CUP_STATE_COVER: u8 = 0;
 const BOSSA_CUP_STATE_UP: u8 = 1;
 const BOSSA_CUP_STATE_GO: u8 = 2;
@@ -610,11 +614,255 @@ fn boss1_fire_hplasma(
 // EB_PART_1_BEGIN (strat_enemy.c:1297-1974 — boss7 phase machine)
 // ============================================================
 
-/// C `boss7_part_explode` (strat_enemy.c:1297).
-fn boss7_part_explode(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].flags |= AFEXP;
-    play_se(g, 0x10);
-    g.objs.aldead = 1;
+/// ROM `s_gen_3dvecs x,<yaw>,<pitch>,al_vel` with explicit angle sources
+/// (boss7_cont drives yaw from `sbyte2`, GB3STRAT.ASM:3227; the bossA cups
+/// fly on `sbyte3`/`sbyte4`, GB3STRAT.ASM:1005). Same fixed-point core as
+/// `strat_gen_vecs_3d` (alvel3vecs_l).
+fn gen_vecs_3d_angles(al: &mut Alien, yaw: u8, pitch: u8) {
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let yawi = (yaw as i8).wrapping_neg() as u8 as usize;
+    let pitchi = (pitch as i8).wrapping_neg() as u8 as usize;
+    let vel = al.vel as i32;
+    let cosx = COSTAB[pitchi] as i32;
+    al.vx = mulslog(mulslog(vel, SINTAB[yawi] as i32), cosx) as i16;
+    al.vy = mulslog(vel, SINTAB[pitchi] as i32) as i16;
+    al.vz = mulslog(mulslog(vel, COSTAB[yawi] as i32), cosx) as i16;
+}
+
+/// `REPT n adiv2` (STRATMAC.INC:712): signed halve rounding toward zero.
+fn adiv2n(v: i16, n: u32) -> i16 {
+    if v >= 0 {
+        v >> n
+    } else {
+        -((-(v as i32) >> n) as i16)
+    }
+}
+
+/// C `bigexplode_Istrat` (EXPSTRAT.ASM:451-476): five staggered large
+/// explosions (two audible), then the object itself delay-explodes.
+/// Reached from the boss7fall bounce chain and the bossA L/R exp pieces
+/// while `hp == 0`; the `s_hardvars` in `delayexplode_Istrat` revives hp
+/// so the delayexplode tick runs on the normal strat path.
+fn bigexplode_istrat(g: &mut Game, idx: u16) {
+    for i in 1u8..=5 {
+        let Some(e) = make_large_exp_obj(g, idx) else {
+            continue;
+        };
+        addrnd2pos_xy(g, e);
+        let al = &mut g.objs.aliens[e as usize];
+        al.sflags4 |= ASF4_NOPOLYEXP;
+        al.count = i;
+        if i == 2 || i == 4 {
+            al.sflags2 &= !ASF2_NOEXPSND;
+        }
+    }
+    let s_tick = sid(g, delayexplode_strat);
+    let s_exp = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.count = 4;
+    al.sflags2 |= ASF2_RELEXPLODE;
+    // s_jmp delayexplode_Istrat: s_hardvars + alptrs delayexplode/0/explode.
+    al.hp = HARD_HP;
+    al.ap = HARD_AP;
+    al.stratptr = Some(s_tick);
+    al.collstratptr = None;
+    al.expstratptr = Some(s_exp);
+}
+
+/// `setoutexp_srou` (EXPSTRAT.ASM:218-228): random outward XY vector +
+/// random short lifetime + positional jitter for one explosion sprite.
+fn setoutexp_srou(g: &mut Game, e: u16) {
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let angle = (sfrtl_random(g) & 0xFF) as u8;
+    let dist = ((sfrtl_random(g) & 63) + 50) as i32;
+    let life = (sfrtl_random(g) & 15) as u8;
+    {
+        let al = &mut g.objs.aliens[e as usize];
+        // s_make_xyvec y,angle,dist (sr_make_xyvec).
+        al.vx = mulslog(dist, SINTAB[angle as usize] as i32) as i16;
+        al.vy = mulslog(dist, COSTAB[angle as usize] as i32) as i16;
+        al.sflags4 |= ASF4_NOPOLYEXP;
+        al.count = life;
+    }
+    addrnd2pos_xy(g, e);
+}
+
+/// C `bossbigoutexplode_Istrat` (EXPSTRAT.ASM:162-215): the shared "boss
+/// is really dead" finisher — circle flash + 40 outward explosion sprites,
+/// then the boss object delay-removes. (The BIGparticleexplode companion
+/// object is a renderer-side particle shower with no strat-lane port yet.)
+fn bossbigoutexplode_istrat(g: &mut Game, idx: u16) {
+    g.vars.gameflags |= GF_BOSSDEAD;
+
+    // Circle-flash object (nullshape + circdelayexplode, lifecnt 1).
+    let me_sflags = g.objs.aliens[idx as usize].sflags;
+    if let Some(c) = strat_make_obj(g, 0) {
+        copy_pos(g, c, idx);
+        {
+            let al = &mut g.objs.aliens[c as usize];
+            al.sflags = me_sflags | ASF_COLLDISABLE;
+            al.sflags3 &= !ASF3_REALOBJ;
+            al.sflags2 |= ASF2_NOEXPSND;
+            al.sflags2 &= !ASF2_SFLAG1; // s_clr_alsflag y,sflag1
+            al.count = 1;
+        }
+        circdelayexplode_init(g, c);
+    }
+
+    // 10 x (Lexp, FOLexp, Lexp(+8), FOLexp(+8)) outward sprites.
+    for _ in 0..10 {
+        if let Some(e) = make_large_exp_obj(g, idx) {
+            setoutexp_srou(g, e);
+        }
+        if let Some(e) = make_fol_exp_obj(g, idx) {
+            setoutexp_srou(g, e);
+            g.objs.aliens[e as usize].sflags2 |= ASF2_RELEXPLODE;
+        }
+        if let Some(e) = make_large_exp_obj(g, idx) {
+            setoutexp_srou(g, e);
+            let al = &mut g.objs.aliens[e as usize];
+            al.count = al.count.wrapping_add(8);
+        }
+        if let Some(e) = make_fol_exp_obj(g, idx) {
+            setoutexp_srou(g, e);
+            let al = &mut g.objs.aliens[e as usize];
+            al.count = al.count.wrapping_add(8);
+            al.sflags2 |= ASF2_RELEXPLODE;
+        }
+    }
+
+    // s_set_lifecnt x,#11 + s_jmp delayremoverel_Istrat (hardvars revive so
+    // the delayremove tick runs, then the boss disappears).
+    let s_tick = sid(g, delayremove_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.count = 11;
+    al.sflags2 |= ASF2_RELEXPLODE;
+    al.sflags |= ASF_COLLDISABLE;
+    al.hp = HARD_HP;
+    al.ap = HARD_AP;
+    al.stratptr = Some(s_tick);
+    al.collstratptr = None;
+    al.expstratptr = None;
+}
+
+/// C `boss7fall` (GB3STRAT.ASM:3789-3806): shot-off boss7 part detaches
+/// from the mother and tumbles away. Runs once as the part's exp strat
+/// (hp==0); per-part params were staged by the *exp_Istrat wrappers:
+/// `sword2` = bounce floor, `sbyte2` = fall yaw offset, `sbyte4` = rotz spin.
+fn boss7fall_init(g: &mut Game, idx: u16) {
+    let s_fall = sid(g, boss7fall_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
+        al.vel = 10;
+        al.sbyte2 = al.sbyte2.wrapping_add(al.roty);
+        al.sbyte3 = DEG11.wrapping_neg();
+        let (yaw, pitch) = (al.sbyte2, al.sbyte3);
+        gen_vecs_3d_angles(al, yaw, pitch);
+        al.expstratptr = Some(s_fall);
+        al.sflags2 &= !ASF2_SFLAG1;
+    }
+    let _ = make_large_exp_obj(g, idx);
+    g.objs.aliens[idx as usize].sbyte2 = 2; // bounce count
+    // s_set_objtobemother y,x + s_remove_child x,y
+    boss_clear_child_link(g, idx);
+    play_se(g, 0x21);
+}
+
+/// C `boss7fall_strat` (GB3STRAT.ASM:3809-3824): tumble + gravity, bounce
+/// twice on the `sword2` floor, then bigexplode.
+fn boss7fall_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(al.sbyte4);
+    }
+    let (worldy, floor) = {
+        let al = &g.objs.aliens[idx as usize];
+        (al.worldy, al.sword2)
+    };
+    // s_jmp_higher x,floor,.nbounce: skip while still above (worldy < floor).
+    if worldy >= floor {
+        play_se(g, 0x4C);
+        let sb2 = g.objs.aliens[idx as usize].sbyte2.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte2 = sb2;
+        if sb2 == 0 {
+            bigexplode_istrat(g, idx);
+            return;
+        }
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vy = al.vy.wrapping_neg();
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vy = al.vy.wrapping_add(1);
+    }
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_add(-30);
+}
+
+/// C `boss7hatchexp_Istrat` (GB3STRAT.ASM:3626-3631): hatch flies off to
+/// the right (yaw +deg90 rel), spinning rotz +1, floor -20<<scale.
+fn boss7hatchexp_istrat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sword2 = -(20i16 << BOSS7_SCALE);
+        al.sbyte2 = DEG90;
+        al.sbyte4 = 1;
+    }
+    boss7fall_init(g, idx);
+}
+
+/// C `boss7launcherTexp_Istrat` (GB3STRAT.ASM:3739-3743).
+fn boss7launcherTexp_istrat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sword2 = -(20i16 << BOSS7_SCALE);
+        al.sbyte4 = 1u8.wrapping_neg();
+        al.sbyte2 = DEG90.wrapping_neg(); // left
+    }
+    boss7fall_init(g, idx);
+}
+
+/// C `boss7launcherBexp_Istrat` (GB3STRAT.ASM:3745-3752).
+fn boss7launcherBexp_istrat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sword2 = -(20i16 << BOSS7_SCALE);
+        al.sbyte4 = 0;
+        al.sbyte2 = DEG90.wrapping_neg(); // left
+    }
+    boss7fall_init(g, idx);
+}
+
+/// C `boss7shieldexp_Istrat` (GB3STRAT.ASM:3774-3785): hold the shield in
+/// place for 10 more frames (`decbne` keeps running boss7shield_strat),
+/// then fall like a launcher.
+fn boss7shieldexp_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, boss7shieldexp_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte2 = 10;
+        al.expstratptr = Some(s);
+    }
+    boss7shieldexp_strat(g, idx);
+}
+
+fn boss7shieldexp_strat(g: &mut Game, idx: u16) {
+    let sb2 = g.objs.aliens[idx as usize].sbyte2.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte2 = sb2;
+    if sb2 != 0 {
+        boss7shield_strat(g, idx);
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sword2 = -(20i16 << BOSS7_SCALE);
+        al.sbyte2 = DEG90.wrapping_neg(); // left
+        al.sbyte4 = 1u8.wrapping_neg();
+    }
+    boss7fall_init(g, idx);
 }
 
 /// C `boss7_fire_hplasma` (strat_enemy.c:1113).
@@ -676,7 +924,9 @@ fn boss7hatch_strat(g: &mut Game, idx: u16) {
         } else {
             let al = &mut g.objs.aliens[idx as usize];
             al.colframe = al.colframe.wrapping_add(1) & 3;
-            if g.vars.gameframe % BOSS7_HATCH_FIRE_DELAY == 0 {
+            // ROM `s_jmp_NOTdelay 5,...` (GB3STRAT.ASM:3583, STRATMAC.INC:6456):
+            // gameframe & ((1<<5)-1) == 0 — one volley every 32 frames.
+            if g.vars.gameframe & 31 == 0 {
                 if let Some(child) = boss7hatchfire_srou(g, idx) {
                     let c = &mut g.objs.aliens[child as usize];
                     c.roty = c.roty.wrapping_sub(7);
@@ -725,7 +975,7 @@ fn boss7hatch_init(g: &mut Game, idx: u16) {
     }
     let s_strat = sid(g, boss7hatch_strat);
     let s_coll = sid(g, boss7hatch_coll);
-    let s_exp = sid(g, boss7_part_explode);
+    let s_exp = sid(g, boss7hatchexp_istrat);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s_strat);
@@ -767,7 +1017,10 @@ fn boss7launcher_common_strat(g: &mut Game, idx: u16, yoff: i16) {
                 play_se(g, 0x5A);
             }
             g.objs.aliens[idx as usize].animframe += 1;
-        } else if g.vars.gameframe % BOSS7_LAUNCH_FIRE_DELAY == 0 {
+        } else if (g.vars.gameframe.wrapping_add(strat_phase_offset(idx) as u16)) & 31 == 0 {
+            // ROM `s_jmp_NOTdelay 5,.nfire,al1pt` (GB3STRAT.ASM:3702): every
+            // 32 frames, phase-staggered per alien so the two launchers
+            // don't volley together.
             if let Some(p) = player_idx(g) {
                 let _ = boss7launcher_fire_hmissile1(g, idx, p);
             }
@@ -815,14 +1068,14 @@ fn boss7launcher_coll(g: &mut Game, idx: u16) {
 }
 
 /// C `boss7launcher_init_common` (strat_enemy.c:1453).
-fn boss7launcher_init_common(g: &mut Game, idx: u16, strat: StrategyFn) {
+fn boss7launcher_init_common(g: &mut Game, idx: u16, strat: StrategyFn, exp: StrategyFn) {
     let mut hp = BOSS7_LAUNCHER_HP;
     if currentlevel(g) == 2 {
         hp = BOSS7_LAUNCHER_HP.wrapping_mul(2);
     }
     let s_strat = sid(g, strat);
     let s_coll = sid(g, boss7launcher_coll);
-    let s_exp = sid(g, boss7_part_explode);
+    let s_exp = sid(g, exp);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s_strat);
@@ -841,12 +1094,12 @@ fn boss7launcher_init_common(g: &mut Game, idx: u16, strat: StrategyFn) {
 
 /// C `boss7launcherT_init` (strat_enemy.c:1476).
 fn boss7launcherT_init(g: &mut Game, idx: u16) {
-    boss7launcher_init_common(g, idx, boss7launcherT_strat);
+    boss7launcher_init_common(g, idx, boss7launcherT_strat, boss7launcherTexp_istrat);
 }
 
 /// C `boss7launcherB_init` (strat_enemy.c:1480).
 fn boss7launcherB_init(g: &mut Game, idx: u16) {
-    boss7launcher_init_common(g, idx, boss7launcherB_strat);
+    boss7launcher_init_common(g, idx, boss7launcherB_strat, boss7launcherBexp_istrat);
 }
 
 /// C `boss7shield_strat` (strat_enemy.c:1484).
@@ -863,7 +1116,7 @@ fn boss7shield_strat(g: &mut Game, idx: u16) {
 /// C `boss7shield_init` (strat_enemy.c:1501).
 fn boss7shield_init(g: &mut Game, idx: u16) {
     let s_strat = sid(g, boss7shield_strat);
-    let s_exp = sid(g, boss7_part_explode);
+    let s_exp = sid(g, boss7shieldexp_istrat);
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(s_strat);
     al.collstratptr = None;
@@ -909,17 +1162,30 @@ fn boss7_enter_alldead(g: &mut Game, idx: u16) {
     play_se(g, BOSS7_OPEN_SOUND);
 }
 
-/// C `boss7_parent_cont` (strat_enemy.c:1552).
+/// C `boss7_parent_cont` (strat_enemy.c:1552, ROM boss7_cont
+/// GB3STRAT.ASM:3222-3247).
 fn boss7_parent_cont(g: &mut Game, idx: u16) {
     boss_keeprel_to_player(g, idx);
-    let vel = g.objs.aliens[idx as usize].vel;
-    strat_move3d(g, idx, vel, 0);
+    // s_gen_3dvecs x,al_sbyte2,al_rotx,al_vel (GB3STRAT.ASM:3227): motion
+    // yaw comes from sbyte2 (constant 0 for boss7), NOT roty — roty is the
+    // hatch-facing animation angle.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let (yaw, pitch) = (al.sbyte2, al.rotx);
+        gen_vecs_3d_angles(al, yaw, pitch);
+    }
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
 
     if boss_find_child_obj(g, idx, BOSS7_CHILD_LAUNCHER_T).is_none()
         && boss_find_child_obj(g, idx, BOSS7_CHILD_LAUNCHER_B).is_none()
     {
         if let Some(shield) = boss_find_child_obj(g, idx, BOSS7_CHILD_SHIELD) {
-            obj_free(g, shield);
+            // ROM s_kill_obj y (GB3STRAT.ASM:3240): colldisable + hp=0 so
+            // the shield's exp strat (boss7shieldexp -> boss7fall) runs;
+            // the old port obj_free'd it and skipped the fall.
+            let al = &mut g.objs.aliens[shield as usize];
+            al.sflags |= ASF_COLLDISABLE;
+            al.hp = 0;
         }
     }
 
@@ -936,7 +1202,8 @@ fn boss7a_strat(g: &mut Game, idx: u16) {
     if let Some(pl) = player(g) {
         let me = g.objs.aliens[idx as usize];
         if (me.worldz as i32 - pl.worldz as i32).abs() >= (170i32 << BOSS7_SCALE) {
-            if g.vars.gameframe & 1 == 0 {
+            // s_jmp_notdelay 2 (GB3STRAT.ASM:3210): decelerate every 4 frames.
+            if g.vars.gameframe & 3 == 0 {
                 strat_speed_to(&mut g.objs.aliens[idx as usize], 0, 1);
             }
             {
@@ -950,8 +1217,11 @@ fn boss7a_strat(g: &mut Game, idx: u16) {
                 }
             }
             {
+                // s_jmp_lower x,#-40<<boss7_scale,boss7b_init
+                // (STRATMAC.INC:3098 branches when worldy >= value): advance
+                // once at/below -320, keep sinking (+2) while above it.
                 let al = &mut g.objs.aliens[idx as usize];
-                if al.worldy < -(40i16 << BOSS7_SCALE) {
+                if al.worldy >= -(40i16 << BOSS7_SCALE) {
                     boss7b_init(g, idx);
                     return;
                 }
@@ -1004,8 +1274,10 @@ fn boss7launch_cont(g: &mut Game, idx: u16) {
         return;
     }
     {
+        // s_jmp_lower x,#-30<<boss7_scale,boss7_cont (GB3STRAT.ASM:3484):
+        // skip the sink once worldy >= -240; sink (+2) while above it.
         let al = &mut g.objs.aliens[idx as usize];
-        if al.worldy >= -(30i16 << BOSS7_SCALE) {
+        if al.worldy < -(30i16 << BOSS7_SCALE) {
             al.worldy = al.worldy.wrapping_add(2);
         }
     }
@@ -1085,9 +1357,13 @@ fn boss7d_init(g: &mut Game, idx: u16) {
 /// C `boss7d_strat` (strat_enemy.c:1720).
 fn boss7d_strat(g: &mut Game, idx: u16) {
     {
+        // ROM (GB3STRAT.ASM:3497-3500): dy = sintab[sbyte3] scaled -3
+        // (adiv2 x3, +/-15), dz = costab[sbyte3] scaled -1 (+/-63) — the
+        // old sin*8/cos*2 had the axes' amplitudes swapped in spirit.
+        use crate::snes_trig::{COSTAB, SINTAB};
         let sb3 = g.objs.aliens[idx as usize].sbyte3;
-        let dy = (strat_sin(sb3) * 8.0).round() as i16;
-        let dz = (strat_cos(sb3) * 2.0).round() as i16;
+        let dy = adiv2n(SINTAB[sb3 as usize] as i16, 3);
+        let dz = adiv2n(COSTAB[sb3 as usize] as i16, 1);
         let al = &mut g.objs.aliens[idx as usize];
         al.worldy = al.worldy.wrapping_sub(dy);
         al.worldz = al.worldz.wrapping_sub(dz);
@@ -1120,9 +1396,11 @@ fn boss7e_init(g: &mut Game, idx: u16) {
 /// C `boss7e_strat` (strat_enemy.c:1748).
 fn boss7e_strat(g: &mut Game, idx: u16) {
     {
+        // Same sintab>>3 / costab>>1 loop as boss7d (GB3STRAT.ASM:3523-3526).
+        use crate::snes_trig::{COSTAB, SINTAB};
         let sb3 = g.objs.aliens[idx as usize].sbyte3;
-        let dy = (strat_sin(sb3) * 8.0).round() as i16;
-        let dz = (strat_cos(sb3) * 2.0).round() as i16;
+        let dy = adiv2n(SINTAB[sb3 as usize] as i16, 3);
+        let dz = adiv2n(COSTAB[sb3 as usize] as i16, 1);
         let al = &mut g.objs.aliens[idx as usize];
         al.worldy = al.worldy.wrapping_sub(dy);
         al.worldz = al.worldz.wrapping_sub(dz);
@@ -1170,8 +1448,12 @@ fn boss7alldead_strat(g: &mut Game, idx: u16) {
     }
     strat_speed_to(&mut g.objs.aliens[idx as usize], 30, 1);
     {
+        // ROM `s_jmp_lower x,#-40<<bossB_scale,.ndown` (GB3STRAT.ASM:3334):
+        // bossB_scale (=2!) threshold -160, and s_jmp_lower branches AWAY
+        // when worldy >= -160 — so rise (+10) only while above is false,
+        // i.e. while worldy < -160.
         let al = &mut g.objs.aliens[idx as usize];
-        if al.worldy >= -(40i16 << BOSS7_SCALE) {
+        if al.worldy < -160 {
             al.worldy = al.worldy.wrapping_add(10);
         }
     }
@@ -1266,48 +1548,59 @@ fn boss7alldeadb_strat(g: &mut Game, idx: u16) {
     boss7_alldead_cont(g, idx);
 }
 
-/// C `boss7exp_init` (strat_enemy.c:1895).
+/// C `boss7exp_Istrat` (GB3STRAT.ASM:3276-3281): runs as the parent's exp
+/// strat once hp hits 0. Stages the drift vector + spin state, then the
+/// per-tick half takes over via `expstratptr`.
 fn boss7exp_init(g: &mut Game, idx: u16) {
     let s = sid(g, boss7exp_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.stratptr = Some(s);
-        al.collstratptr = None;
-        al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
-        al.flags |= AFEXP;
-        al.count = BOSS7_EXP_FRAMES;
+        al.expstratptr = Some(s);
         al.vx = 0;
         al.vy = -30;
         al.vz = 20;
         al.sbyte2 = 2;
         al.sbyte3 = 0;
     }
-    set_bossflags(g, bossflags(g) | BF_DYING);
-    play_se(g, 0x10);
+    boss_dying(g); // s_boss_dying
 }
 
-/// C `boss7exp_strat` (strat_enemy.c:1915).
+/// C `boss7exp_strat` (GB3STRAT.ASM:3282-3307): every-2-frames large
+/// explosions, accelerating spin (sbyte3 up to 9, +1 every 8 frames),
+/// gravity drift; finishes with bossbigoutexplode once it hits the ground
+/// (worldy >= 0, `boss7reallydead`), NOT on a fixed 24-frame timer.
 fn boss7exp_strat(g: &mut Game, idx: u16) {
+    if g.vars.gameframe & 1 == 0 {
+        if let Some(e) = make_large_exp_obj(g, idx) {
+            g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+            addrnd2pos_xy(g, e);
+        }
+    }
+
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.roty = al.roty.wrapping_add(al.sbyte3);
-        if al.sbyte3 < 8 && g.vars.gameframe & 3 == 0 {
-            al.sbyte3 += 1;
+    }
+    {
+        // s_jmp_alvarMORE sbyte3,#8 skips when > 8; s_jmp_NOTdelay 3 =
+        // every 8 frames (mask 7, not 3).
+        let sb3 = g.objs.aliens[idx as usize].sbyte3;
+        if sb3 <= 8 && g.vars.gameframe & 7 == 0 {
+            g.objs.aliens[idx as usize].sbyte3 = sb3 + 1;
         }
+    }
+
+    // s_jmp_lower x,#0,boss7reallydead: done when worldy >= 0.
+    if g.objs.aliens[idx as usize].worldy >= 0 {
+        bossbigoutexplode_istrat(g, idx);
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
         al.vy = al.vy.wrapping_add(1);
     }
     strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
     add_player_z(g, idx);
-
-    if !strat_count_down(&mut g.objs.aliens[idx as usize]) {
-        return;
-    }
-
-    g.vars.gameflags |= GF_BOSSDEAD;
-    set_bossflags(g, bossflags(g) & !BF_DYING);
-    set_bossmaxhp(g, 0);
-    g.objs.aldead = 1;
 }
 
 /// C `Strat_Boss7_Init` (strat_enemy.c:1957).
@@ -1377,37 +1670,6 @@ fn bossa_spawn_child(g: &mut Game, mother: u16, child_num: u8, init_fn: Strategy
     Some(child)
 }
 
-/// C `bossA_release_children` (strat_enemy.c:2845).
-fn bossa_release_children(g: &mut Game, idx: u16) {
-    boss_prune_family_links(g, idx);
-    let mut cur = g.objs.aliens[idx as usize].sword1 as u16;
-    let mut guard = NUMBER_AL as i32 + 1;
-    while cur != 0 && guard > 0 {
-        guard -= 1;
-        let Some(child) = boss_child_from_index_raw(cur) else {
-            break;
-        };
-        let next = g.objs.aliens[child as usize].sword1 as u16;
-        boss_clear_child_link(g, child);
-        obj_free(g, child);
-        cur = next;
-    }
-    let al = &mut g.objs.aliens[idx as usize];
-    al.sword1 = 0;
-    al.sflags3 &= !ASF3_MOTHEROBJ;
-}
-
-/// C `bossA_live_turret_count` (strat_enemy.c:2874).
-fn bossa_live_turret_count(g: &mut Game, idx: u16) -> u8 {
-    let mut count = 0;
-    for child_num in BOSSA_CHILD_TURRET_L..=BOSSA_CHILD_TURRET_R {
-        if boss_find_child_obj(g, idx, child_num).is_some() {
-            count += 1;
-        }
-    }
-    count
-}
-
 /// C `bossA_live_cup_count` (strat_enemy.c:2891).
 fn bossa_live_cup_count(g: &mut Game, idx: u16) -> u8 {
     let mut count = 0;
@@ -1429,7 +1691,10 @@ fn bossa_linked_turret(g: &mut Game, cup: u16) -> Option<u16> {
     boss_find_child_obj(g, mother, sb2)
 }
 
-/// C `bossA_update_turret_position` (strat_enemy.c:2922).
+/// C `bossA_update_turret_position` (strat_enemy.c:2922). ROM
+/// `s_add_roffs2pos B,x,y,y,...,0,1,0` (GB3STRAT.ASM:1226) is POSITION
+/// ONLY — the turret's rotations (roty = Achase aim state toward sbyte3)
+/// are never written from the mother.
 fn bossa_update_turret_position(g: &mut Game, idx: u16) {
     let Some(mother_idx) = boss_get_mother_obj(g, idx) else {
         g.objs.aldead = 1;
@@ -1440,37 +1705,42 @@ fn bossa_update_turret_position(g: &mut Game, idx: u16) {
         return;
     };
     let mother = g.objs.aliens[mother_idx as usize];
-    boss_apply_yaw_offset(g, idx, &mother, offx, offy, 0);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.rotx = 0;
-    al.rotz = mother.rotz;
+    boss_yaw_offset_pos(g, idx, &mother, offx, offy, 0);
 }
 
-/// C `bossA_cup_set_home` (strat_enemy.c:2941).
-fn bossa_cup_set_home(g: &mut Game, idx: u16, lift: i16) {
+/// C `bossA_cup_set_home` — ROM `bossacupinitpos_srou`
+/// (GB3STRAT.ASM:1114-1122): cup.rotz = mother.roty, position = linked
+/// turret pos + (0, -15<<scale, -2<<scale). The turret always resolves
+/// while the mother lives (destroyed turrets persist as invisible husks).
+fn bossa_cup_set_home(g: &mut Game, idx: u16) {
     let Some(mother_idx) = boss_get_mother_obj(g, idx) else {
         g.objs.aldead = 1;
         return;
     };
+    let mroty = g.objs.aliens[mother_idx as usize].roty;
+    g.objs.aliens[idx as usize].rotz = mroty;
     let turret = bossa_linked_turret(g, idx);
     if let Some(t) = turret.filter(|&t| g.objs.aliens[t as usize].active) {
         let ta = g.objs.aliens[t as usize];
         let al = &mut g.objs.aliens[idx as usize];
         al.worldx = ta.worldx;
-        al.worldy = ta.worldy.wrapping_sub(lift);
-        al.worldz = ta.worldz;
+        al.worldy = ta.worldy.wrapping_sub(15i16 << BOSSA_SCALE);
+        al.worldz = ta.worldz.wrapping_sub(2i16 << BOSSA_SCALE);
     } else {
+        // Safety fallback (unreachable in ROM: turret husks persist).
         let sb2 = g.objs.aliens[idx as usize].sbyte2;
         if let Some((offx, offy)) = bossa_get_turret_offset(sb2) {
             let mother = g.objs.aliens[mother_idx as usize];
-            boss_apply_yaw_offset(g, idx, &mother, offx, offy.wrapping_sub(lift), 0);
+            boss_yaw_offset_pos(
+                g,
+                idx,
+                &mother,
+                offx,
+                offy.wrapping_sub(15i16 << BOSSA_SCALE),
+                -(2i16 << BOSSA_SCALE),
+            );
         }
     }
-    let mroty = g.objs.aliens[mother_idx as usize].roty;
-    let al = &mut g.objs.aliens[idx as usize];
-    al.rotx = DEG90.wrapping_neg();
-    al.roty = DEG180;
-    al.rotz = mroty;
 }
 
 /// C `bossA_cup_chase_home` (strat_enemy.c:2967).
@@ -1491,54 +1761,68 @@ fn bossa_cup_chase_home(g: &mut Game, idx: u16, lift: i16) {
     let sb2 = g.objs.aliens[idx as usize].sbyte2;
     if let Some((offx, offy)) = bossa_get_turret_offset(sb2) {
         let mother = g.objs.aliens[mother_idx as usize];
-        boss_apply_yaw_offset(g, idx, &mother, offx, offy.wrapping_sub(lift), 0);
+        boss_yaw_offset_pos(g, idx, &mother, offx, offy.wrapping_sub(lift), 0);
     }
 }
 
-/// C `bossA_pick_live_cup` (strat_enemy.c:2993).
+/// ROM `.bossAattack_strat` cup pick (GB3STRAT.ASM:625-651): a random cup
+/// child number 4..6 (rnd&3, reroll 3), then up to four wrap-scan probes
+/// for a live one.
 fn bossa_pick_live_cup(g: &mut Game, idx: u16) -> Option<u16> {
-    let mut cups: [u16; 3] = [0; 3];
-    let mut count = 0usize;
-    for child_num in BOSSA_CHILD_CUP_L..=BOSSA_CHILD_CUP_R {
-        if let Some(child) = boss_find_child_obj(g, idx, child_num) {
-            cups[count] = child;
-            count += 1;
+    let mut cand = loop {
+        let r = (sfrtl_random(g) & 3) as u8;
+        if r != 3 {
+            break r + 4;
+        }
+    };
+    let mut tries = 4u8;
+    loop {
+        if let Some(c) = boss_find_child_obj(g, idx, cand) {
+            return Some(c);
+        }
+        cand += 1;
+        if cand > BOSSA_CHILD_CUP_R {
+            cand = BOSSA_CHILD_CUP_L;
+        }
+        tries -= 1;
+        if tries == 0 {
+            return None;
         }
     }
-    if count == 0 {
-        return None;
-    }
-    let r = sfrtl_random(g) as usize % count;
-    Some(cups[r])
 }
 
-/// C `bossA_set_all_cup_state` (strat_enemy.c:3016).
+/// C `bossA_set_all_cup_state` (ROM s_set_childstate x3): state only —
+/// the ROM parent never seeds cup timers or flags here (the GO timer the
+/// old port invented does not exist, GB3STRAT.ASM:959-990).
 fn bossa_set_all_cup_state(g: &mut Game, idx: u16, state: u8) {
     for child_num in BOSSA_CHILD_CUP_L..=BOSSA_CHILD_CUP_R {
         let Some(child) = boss_find_child_obj(g, idx, child_num) else {
             continue;
         };
-        let al = &mut g.objs.aliens[child as usize];
-        al.stratstate = state;
-        if state == BOSSA_CUP_STATE_GO || state == BOSSA_CUP_STATE_IROTATE {
-            al.sflags2 &= !BOSSA_CUP_FLAG_FIRED;
-            al.count = BOSSA_CUP_GO_TIME;
-        } else if state == BOSSA_CUP_STATE_RETURN {
-            al.count = BOSSA_CUP_RETURN_TIME;
-        }
+        g.objs.aliens[child as usize].stratstate = state;
     }
 }
 
-/// C `bossA_update_turret_targets` (strat_enemy.c:3038).
-fn bossa_update_turret_targets(g: &mut Game, idx: u16) {
-    const TARGETS: [[u8; 3]; 3] = [[0, 0, DEG180], [0, DEG180, 0], [DEG180, 0, 0]];
-    let pattern = (g.objs.aliens[idx as usize].sbyte3 % 3) as usize;
+/// ROM `.tchg` retarget machine (GB3STRAT.ASM:717-742): every 32 frames
+/// hand each turret its roty target from `bossATY_tab[sword2 + n]`, then
+/// advance sword2 by 3 (mod 9). Uses the PRE-increment index, like the ROM
+/// `s_copy_alvar2var` before the add.
+fn bossa_retarget_turrets(g: &mut Game, idx: u16) {
+    let base = (g.objs.aliens[idx as usize].sword2 as u8) % 9;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let mut next = al.sword2 + 3;
+        if next == 9 {
+            next = 0;
+        }
+        al.sword2 = next;
+    }
     for child_num in BOSSA_CHILD_TURRET_L..=BOSSA_CHILD_TURRET_R {
         let Some(child) = boss_find_child_obj(g, idx, child_num) else {
             continue;
         };
         g.objs.aliens[child as usize].sbyte3 =
-            TARGETS[pattern][(child_num - BOSSA_CHILD_TURRET_L) as usize];
+            BOSSA_TY_TAB[(base + (child_num - BOSSA_CHILD_TURRET_L)) as usize];
     }
 }
 
@@ -1554,26 +1838,40 @@ fn bossa_part_coll(g: &mut Game, idx: u16) {
     strat_hit_flash(g, idx);
 }
 
-/// C `bossA_turret_exp_init` (strat_enemy.c:3072).
+/// C `bossAturretexp_Istrat` (GB3STRAT.ASM:1228-1240): a destroyed turret
+/// is NOT freed — it becomes an invisible hard-HP husk (so its cup can
+/// resurrect it in the DOWN state) and the mother's destroyed-turret count
+/// `sbyte3` increments.
 fn bossa_turret_exp_init(g: &mut Game, idx: u16) {
-    if let Some(mother) = boss_get_mother_obj(g, idx) {
-        g.objs.aliens[mother as usize].sflags4 |= BOSSA_PARENT_FLAG_ATTACK_DONE;
+    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    if let Some(e) = make_large_exp_obj(g, idx) {
+        // s_clr_alsflag y,noexpsnd: this one is audible.
+        g.objs.aliens[e as usize].sflags2 &= !ASF2_NOEXPSND;
     }
-    play_se(g, 0x10);
-    g.objs.aldead = 1;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = HARD_HP;
+        al.sflags |= ASF_COLLDISABLE;
+    }
+    if let Some(mother) = boss_get_mother_obj(g, idx) {
+        let m = &mut g.objs.aliens[mother as usize];
+        m.sbyte3 = m.sbyte3.wrapping_add(1);
+    }
 }
 
-/// C `bossA_cup_exp_init` (strat_enemy.c:3082).
+/// C `bossAcupexplode_Istrat` (GB3STRAT.ASM:1008-1013): flag the parent's
+/// "cup strat finished" and explode for real.
 fn bossa_cup_exp_init(g: &mut Game, idx: u16) {
     if let Some(mother) = boss_get_mother_obj(g, idx) {
         g.objs.aliens[mother as usize].sflags4 |= BOSSA_PARENT_FLAG_ATTACK_DONE;
     }
-    play_se(g, 0x10);
-    g.objs.aldead = 1;
+    strat_explode(g, idx);
 }
 
-/// C `bossA_turret_init_common` (strat_enemy.c:3092).
-fn bossa_turret_init_common(g: &mut Game, idx: u16, initial_target: u8) {
+/// C `bossAturret_Icont` (GB3STRAT.ASM:1164-1174). Note the ROM sets
+/// sbyte3=0 for EVERY turret here — turret M's `#deg180` from its Istrat
+/// is deliberately overwritten, so all three start aimed at 0.
+fn bossa_turret_init_common(g: &mut Game, idx: u16) {
     let s_coll = sid(g, bossa_part_coll);
     let s_exp = sid(g, bossa_turret_exp_init);
     {
@@ -1584,66 +1882,123 @@ fn bossa_turret_init_common(g: &mut Game, idx: u16, initial_target: u8) {
         al.hp = BOSSA_TURRET_HP;
         al.ap = BOSSA_AP;
         al.sbyte2 = 60;
-        al.sbyte3 = initial_target;
+        al.sbyte3 = 0;
         al.collflags |= COLLTYPE_ENEMY1 | COLLTYPE_ENEMYWEAP;
-        al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT;
+        // s_set_alsflag colldisable + nohitaffect (both, GB3STRAT:1170-1171).
+        al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT | ASF_COLLDISABLE;
         al.type_ &= !ATZREMOVE;
     }
     bossa_update_turret_position(g, idx);
 }
 
-/// C `bossA_turretL_strat` (strat_enemy.c:3110). Also M/R share this body.
-fn bossa_turretL_strat(g: &mut Game, idx: u16) {
-    bossa_update_turret_position(g, idx);
+/// C `bossAturret_cont` (GB3STRAT.ASM:1181-1226) — shared turret tick.
+fn bossa_turret_cont(g: &mut Game, idx: u16) {
+    let Some(mother_idx) = boss_get_mother_obj(g, idx) else {
+        g.objs.aldead = 1;
+        return;
+    };
     let me = g.objs.aliens[idx as usize];
-    if me.sflags & ASF_NOHITAFFECT == 0
-        && strat_points_positive_z(&me)
-        && g.vars.gameframe % BOSSA_TURRET_FIRE_DELAY == 0
-    {
-        if let Some(pl) = player(g) {
-            let pitch = strat_pitch_toward(&me, &pl);
-            let yaw = strat_angle_xz(&me, &pl);
-            let p = player_idx(g).unwrap();
-            let _ = boss1_fire_hplasma(g, idx, p, 0, -(10i16 << BOSSA_SCALE), 0, pitch, yaw);
+
+    // Fire block: skipped entirely for invisible husks and while
+    // nohitaffect (cup covering).
+    if me.sflags & ASF_INVISIBLE == 0 && me.sflags & ASF_NOHITAFFECT == 0 {
+        // s_jmpnot_objpointnegZ (STRATMAC.INC:6218-6221): the window is
+        // roty in [deg180-deg45, deg180+deg45] — facing the player.
+        if me.roty >= DEG180 - DEG45 && me.roty <= DEG180 + DEG45 {
+            g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+            // Frames 15 (yaw -deg11) and 30 (+deg11) of every 32
+            // (GB3STRAT.ASM:1195-1199).
+            let f = (g.vars.gameframe & 31) as u8;
+            let yaw_off = match f {
+                15 => Some(DEG11.wrapping_neg()),
+                30 => Some(DEG11),
+                _ => None,
+            };
+            if let (Some(off), Some(p)) = (yaw_off, player_idx(g)) {
+                // s_weapon_rot #0,svar_byte3 relative to the turret's rots;
+                // muzzle -10<<scale below (effective, <<weapon_scale in
+                // fire_weapon_l). HPLASMA homes via ptr=playpt.
+                let _ = boss1_fire_hplasma(
+                    g,
+                    idx,
+                    p,
+                    0,
+                    -(10i16 << BOSSA_SCALE),
+                    0,
+                    me.rotx,
+                    me.roty.wrapping_add(off),
+                );
+            }
+        } else {
+            g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
         }
     }
+
+    // .dfire: chase roty toward the sbyte3 target, rate 3.
     let sb3 = g.objs.aliens[idx as usize].sbyte3;
     achase_angle(&mut g.objs.aliens[idx as usize].roty, sb3, 3);
-    add_player_z(g, idx);
+
+    // Lone-turret sweep (GB3STRAT.ASM:1211-1222): with two turrets
+    // destroyed (mother.sbyte3 == 2) the survivor self-toggles its target
+    // between deg180 (60 frames) and 0 (20 frames).
+    if g.objs.aliens[mother_idx as usize].sbyte3 == 2 {
+        let sb2 = g.objs.aliens[idx as usize].sbyte2.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte2 = sb2;
+        if sb2 == 0 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sflags2 ^= ASF2_SFLAG1;
+            if al.sflags2 & ASF2_SFLAG1 != 0 {
+                al.sbyte3 = DEG180;
+                al.sbyte2 = 60;
+            } else {
+                al.sbyte3 = 0;
+                al.sbyte2 = 20;
+            }
+        }
+    }
+
+    // Position last (ROM s_add_roffs2pos at the tail, pos-only; no
+    // s_add_playerZ — the mother-relative offset is authoritative).
+    bossa_update_turret_position(g, idx);
 }
 
-/// C `bossA_turretM_strat` (strat_enemy.c:3132).
+/// C `bossA_turretL_strat` (GB3STRAT.ASM:1141).
+fn bossa_turretL_strat(g: &mut Game, idx: u16) {
+    bossa_turret_cont(g, idx);
+}
+
+/// C `bossA_turretM_strat` (GB3STRAT.ASM:1153).
 fn bossa_turretM_strat(g: &mut Game, idx: u16) {
-    bossa_turretL_strat(g, idx);
+    bossa_turret_cont(g, idx);
 }
 
-/// C `bossA_turretR_strat` (strat_enemy.c:3136).
+/// C `bossA_turretR_strat` (GB3STRAT.ASM:1175).
 fn bossa_turretR_strat(g: &mut Game, idx: u16) {
-    bossa_turretL_strat(g, idx);
+    bossa_turret_cont(g, idx);
 }
 
 /// C `bossA_turretL_init` (strat_enemy.c:3140).
 fn bossa_turretL_init(g: &mut Game, idx: u16) {
-    bossa_turret_init_common(g, idx, 0);
+    bossa_turret_init_common(g, idx);
     let s = sid(g, bossa_turretL_strat);
     g.objs.aliens[idx as usize].stratptr = Some(s);
 }
 
 /// C `bossA_turretM_init` (strat_enemy.c:3145).
 fn bossa_turretM_init(g: &mut Game, idx: u16) {
-    bossa_turret_init_common(g, idx, DEG180);
+    bossa_turret_init_common(g, idx);
     let s = sid(g, bossa_turretM_strat);
     g.objs.aliens[idx as usize].stratptr = Some(s);
 }
 
 /// C `bossA_turretR_init` (strat_enemy.c:3150).
 fn bossa_turretR_init(g: &mut Game, idx: u16) {
-    bossa_turret_init_common(g, idx, 0);
+    bossa_turret_init_common(g, idx);
     let s = sid(g, bossa_turretR_strat);
     g.objs.aliens[idx as usize].stratptr = Some(s);
 }
 
-/// C `bossA_cup_init_common` (strat_enemy.c:3155).
+/// C `bossA_cup_init_common` (ROM bossAcupper_Icont, GB3STRAT.ASM:895-911).
 fn bossa_cup_init_common(g: &mut Game, idx: u16, turret_child_num: u8) {
     let s_coll = sid(g, bossa_part_coll);
     let s_exp = sid(g, bossa_cup_exp_init);
@@ -1660,8 +2015,11 @@ fn bossa_cup_init_common(g: &mut Game, idx: u16, turret_child_num: u8) {
         al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT;
         al.type_ &= !ATZREMOVE;
         al.animframe = 0;
+        // s_set_alvar B,x,al_rotx,#-deg90 / al_roty,#deg180 (Icont).
+        al.rotx = DEG90.wrapping_neg();
+        al.roty = DEG180;
     }
-    bossa_cup_set_home(g, idx, 15i16 << BOSSA_SCALE);
+    bossa_cup_set_home(g, idx);
 }
 
 /// C `bossA_cup_strat` (strat_enemy.c:3174).
@@ -1683,19 +2041,17 @@ fn bossa_cup_strat(g: &mut Game, idx: u16) {
 
     match state {
         BOSSA_CUP_STATE_COVER => {
-            let al = &mut g.objs.aliens[idx as usize];
-            al.sflags |= ASF_NOHITAFFECT;
-            if al.animframe > 0 && g.vars.gameframe & 1 == 0 {
-                al.animframe -= 1;
-            }
-            bossa_cup_set_home(g, idx, 15i16 << BOSSA_SCALE);
+            // ROM COVER (GB3STRAT.ASM:918-920) only re-pins to home.
+            bossa_cup_set_home(g, idx);
         }
         BOSSA_CUP_STATE_UP => {
             let turret = bossa_linked_turret(g, idx);
             {
+                // s_set_speed x,#0; open anim caps at 6 (s_cmp_anim #6
+                // gate before add_anim, GB3STRAT.ASM:1093-1099).
                 let al = &mut g.objs.aliens[idx as usize];
-                al.sflags |= ASF_NOHITAFFECT;
-                if al.animframe < 7 && g.vars.gameframe & 1 == 0 {
+                al.vel = 0;
+                if al.animframe != 6 && g.vars.gameframe & 1 == 0 {
                     al.animframe += 1;
                 }
             }
@@ -1727,61 +2083,57 @@ fn bossa_cup_strat(g: &mut Game, idx: u16) {
             }
         }
         BOSSA_CUP_STATE_GO => {
-            {
-                let al = &mut g.objs.aliens[idx as usize];
-                if al.sflags2 & BOSSA_CUP_FLAG_FIRED == 0 {
-                    play_se(g, 0x66);
-                    let al = &mut g.objs.aliens[idx as usize];
-                    al.sflags2 |= BOSSA_CUP_FLAG_FIRED;
-                    al.sflags &= !ASF_NOHITAFFECT;
-                }
+            // ROM GO (GB3STRAT.ASM:959-990): drill run. Entry tick =
+            // nohitaffect still set -> $66 + clear. No fire, no timer.
+            if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT != 0 {
+                play_se(g, 0x66);
+                g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
             }
+            strat_speed_to(&mut g.objs.aliens[idx as usize], 45, 1);
             if let Some(pl) = player(g) {
-                strat_aim_3d(g, idx, &pl, 3);
                 let me = g.objs.aliens[idx as usize];
-                if me.worldz >= pl.worldz
-                    || (me.worldz as i32 - pl.worldz as i32).abs() < 200
+                // s_jmp_Zdistless #1000: stop homing inside 1000 units.
+                if (me.worldz as i32 - pl.worldz as i32).abs() >= 1000 {
+                    // s_obj2obj_3dangle x,y,al_sbyte3,al_sbyte4,3: chase
+                    // the FLIGHT heading (yaw sbyte3 / pitch sbyte4), not
+                    // the visual rotx/roty.
+                    let mut yaw = me.sbyte3;
+                    achase_angle(&mut yaw, strat_angle_xz(&me, &pl), 3);
+                    let mut pitch = me.sbyte4;
+                    achase_angle(&mut pitch, strat_pitch_toward(&me, &pl), 3);
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sbyte3 = yaw;
+                    al.sbyte4 = pitch;
+                }
+                achase_angle(&mut g.objs.aliens[idx as usize].rotx, 0, 2);
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.rotz = al.rotz.wrapping_add(28);
+                }
+                // s_jmp_objinfront x,y skips while me.z >= pl.z: return
+                // home once the cup overshoots the player (me.z < pl.z)
+                // and is at least 200 units past.
+                let me = g.objs.aliens[idx as usize];
+                if me.worldz < pl.worldz
+                    && (me.worldz as i32 - pl.worldz as i32).abs() >= 200
                 {
                     let al = &mut g.objs.aliens[idx as usize];
                     al.worldy = -(100i16 << BOSSA_SCALE);
-                    al.count = BOSSA_CUP_RETURN_TIME;
                     al.stratstate = BOSSA_CUP_STATE_RETURN;
-                    add_player_z(g, idx);
-                    return;
+                    al.count = BOSSA_CUP_RETURN_TIME;
                 }
-                if g.objs.aliens[idx as usize].sflags2 & BOSSA_CUP_FLAG_FIRED != 0
-                    && g.vars.gameframe % 12 == 0
-                {
-                    let pitch = strat_pitch_toward(&me, &pl);
-                    let yaw = strat_angle_xz(&me, &pl);
-                    let p = player_idx(g).unwrap();
-                    let _ = boss1_fire_hmissile1(g, idx, p, 0, 0, 0, pitch, yaw);
-                }
-            }
-            strat_speed_to(&mut g.objs.aliens[idx as usize], 45, 1);
-            {
+            } else {
+                achase_angle(&mut g.objs.aliens[idx as usize].rotx, 0, 2);
                 let al = &mut g.objs.aliens[idx as usize];
                 al.rotz = al.rotz.wrapping_add(28);
             }
-            achase_angle(&mut g.objs.aliens[idx as usize].rotx, 0, 2);
-            strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
-            strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
-            add_player_z(g, idx);
-            {
-                let al = &mut g.objs.aliens[idx as usize];
-                if al.count > 0 {
-                    al.count -= 1;
-                }
-            }
-            if g.objs.aliens[idx as usize].count == 0 {
-                let al = &mut g.objs.aliens[idx as usize];
-                al.count = BOSSA_CUP_RETURN_TIME;
-                al.stratstate = BOSSA_CUP_STATE_RETURN;
-            }
-            return;
         }
         BOSSA_CUP_STATE_RETURN => {
-            g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.sflags |= ASF_NOHITAFFECT;
+                al.vel = 0; // s_set_speed x,#0
+            }
             bossa_cup_chase_home(g, idx, 110i16 << BOSSA_SCALE);
             {
                 let al = &mut g.objs.aliens[idx as usize];
@@ -1802,6 +2154,7 @@ fn bossa_cup_strat(g: &mut Game, idx: u16) {
         BOSSA_CUP_STATE_DOWN => {
             let turret = bossa_linked_turret(g, idx);
             {
+                // bossacupclose_srou: close anim every 2 frames.
                 let al = &mut g.objs.aliens[idx as usize];
                 al.sflags |= ASF_NOHITAFFECT;
                 if al.animframe > 0 && g.vars.gameframe & 1 == 0 {
@@ -1809,20 +2162,45 @@ fn bossa_cup_strat(g: &mut Game, idx: u16) {
                 }
             }
             bossa_cup_chase_home(g, idx, 15i16 << BOSSA_SCALE);
+            // bossAcupDOWN_srou revive (GB3STRAT.ASM:1078-1089): only once
+            // the cup has settled within 20<<scale above the turret does
+            // the turret shield up / heal — and an invisible husk is
+            // resurrected (clear invisible, mother.sbyte3 -= 1).
+            if let Some(t) = turret.filter(|&t| g.objs.aliens[t as usize].active) {
+                let thresh = g.objs.aliens[t as usize]
+                    .worldy
+                    .wrapping_sub(20i16 << BOSSA_SCALE);
+                // s_jmp_higher x,thresh,.ndown skips while worldy < thresh.
+                if g.objs.aliens[idx as usize].worldy >= thresh {
+                    {
+                        let ta = &mut g.objs.aliens[t as usize];
+                        ta.sflags |= ASF_NOHITAFFECT;
+                        ta.hp = BOSSA_TURRET_HP;
+                    }
+                    if g.objs.aliens[t as usize].sflags & ASF_INVISIBLE != 0 {
+                        g.objs.aliens[t as usize].sflags &= !ASF_INVISIBLE;
+                        let m = &mut g.objs.aliens[mother_idx as usize];
+                        m.sbyte3 = m.sbyte3.wrapping_sub(1);
+                    }
+                }
+            }
             achase_angle(&mut g.objs.aliens[idx as usize].rotz, 0, 3);
             achase_angle(&mut g.objs.aliens[idx as usize].rotx, DEG90.wrapping_neg(), 3);
-            if let Some(t) = turret {
-                let al = &mut g.objs.aliens[t as usize];
-                al.sflags |= ASF_NOHITAFFECT;
-                al.hp = BOSSA_TURRET_HP;
-            }
         }
         _ => {
             g.objs.aliens[idx as usize].stratstate = BOSSA_CUP_STATE_COVER;
-            bossa_cup_set_home(g, idx, 15i16 << BOSSA_SCALE);
+            bossa_cup_set_home(g, idx);
         }
     }
 
+    // Shared tail (GB3STRAT.ASM:1005-1008): fly on the sbyte3/sbyte4
+    // heading (vel is 0 outside GO, so this only moves drilling cups).
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let (yaw, pitch) = (al.sbyte3, al.sbyte4);
+        gen_vecs_3d_angles(al, yaw, pitch);
+    }
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
     add_player_z(g, idx);
 }
 
@@ -1847,33 +2225,41 @@ fn bossa_cupR_init(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].stratptr = Some(s);
 }
 
-/// C `bossA_parent_continue` (strat_enemy.c:3319).
+/// C `bossA_parent_continue` (ROM `.bossAcont`, GB3STRAT.ASM:744-757):
+/// keep boss Z-relative to the player, maintain the all-cups-dead flag
+/// (ROM parent sflag3, gates the up/cover voice lines), and apply the
+/// velocity vector — the slide-in vx keeps moving the boss every tick in
+/// EVERY state; the decel lives in bossA_strat only.
 fn bossa_parent_continue(g: &mut Game, idx: u16) {
-    if bossa_live_turret_count(g, idx) == 0 && bossa_live_cup_count(g, idx) == 0 {
-        bossaexp_init(g, idx);
-        return;
-    }
+    boss_keeprel_to_player(g, idx);
+
+    let any_cup = (BOSSA_CHILD_CUP_L..=BOSSA_CHILD_CUP_R)
+        .any(|n| boss_find_child_obj(g, idx, n).is_some());
     {
         let al = &mut g.objs.aliens[idx as usize];
-        if al.worldx > 210 && al.vx < 0 {
-            al.worldx = al.worldx.wrapping_add(al.vx);
-            al.vx += 1;
-            if al.vx > 0 {
-                al.vx = 0;
-            }
+        if any_cup {
+            al.sflags3 &= !BOSSA_PARENT_FLAG_CUPS_DEAD;
+        } else {
+            al.sflags3 |= BOSSA_PARENT_FLAG_CUPS_DEAD;
         }
     }
-    boss_keeprel_to_player(g, idx);
+
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]); // s_add_vecs2pos
     add_player_z(g, idx);
 }
 
-/// C `bossAup_init` (strat_enemy.c:3341).
+/// C `bossAup_init` (strat_enemy.c:3341). Sound gated on ROM parent
+/// sflag3 (skip the fanfare when every cup is dead, GB3STRAT.ASM:575-577).
 fn bossaup_init(g: &mut Game, idx: u16) {
     let s = sid(g, bossaup_strat);
+    let cups_dead =
+        g.objs.aliens[idx as usize].sflags3 & BOSSA_PARENT_FLAG_CUPS_DEAD != 0;
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(s);
     al.sbyte2 = 30;
-    play_se(g, 0x73);
+    if !cups_dead {
+        play_se(g, 0x73);
+    }
 }
 
 /// C `bossAup_strat` (strat_enemy.c:3350).
@@ -1892,16 +2278,20 @@ fn bossaup_strat(g: &mut Game, idx: u16) {
     bossa_parent_continue(g, idx);
 }
 
-/// C `bossAcover_init` (strat_enemy.c:3365).
+/// C `bossAcover_init` (strat_enemy.c:3365). $72 gated on parent sflag3.
 fn bossacover_init(g: &mut Game, idx: u16) {
     let s = sid(g, bossacover_strat);
+    let cups_dead =
+        g.objs.aliens[idx as usize].sflags3 & BOSSA_PARENT_FLAG_CUPS_DEAD != 0;
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(s);
     al.sbyte2 = 50;
-    play_se(g, 0x72);
+    if !cups_dead {
+        play_se(g, 0x72);
+    }
 }
 
-/// C `bossAcover_strat` (strat_enemy.c:3374).
+/// C `bossAcover_strat` (ROM `.bossAcover_strat`, GB3STRAT.ASM:598-613).
 fn bossacover_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
@@ -1910,10 +2300,13 @@ fn bossacover_strat(g: &mut Game, idx: u16) {
         }
     }
     let sb2 = g.objs.aliens[idx as usize].sbyte2;
-    if sb2 > 20 {
+    // ROM `s_jmp_alvarLESS sbyte2,#20,.up`: DOWN while sbyte2 >= 20.
+    if sb2 >= 20 {
         bossa_set_all_cup_state(g, idx, BOSSA_CUP_STATE_DOWN);
     } else {
-        if sb2 == 19 {
+        if sb2 == 19
+            && g.objs.aliens[idx as usize].sflags3 & BOSSA_PARENT_FLAG_CUPS_DEAD == 0
+        {
             play_se(g, 0x73);
         }
         bossa_set_all_cup_state(g, idx, BOSSA_CUP_STATE_UP);
@@ -1925,129 +2318,252 @@ fn bossacover_strat(g: &mut Game, idx: u16) {
     bossa_parent_continue(g, idx);
 }
 
-/// C `bossAattack_init` (strat_enemy.c:3396).
+/// C `bossAattack_init` (ROM `.bossAattack_init`, GB3STRAT.ASM:616-619):
+/// arm the dispatcher (sflag2 "cup strat finished") + 3-wave loop count.
+/// The ROM does NOT touch cup states or sbyte3 here — sbyte3 is the
+/// persistent destroyed-turret count.
 fn bossaattack_init(g: &mut Game, idx: u16) {
     let s = sid(g, bossaattack_strat);
-    {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.stratptr = Some(s);
-        al.sbyte2 = 3;
-        al.sbyte3 = 0;
-        al.sflags4 |= BOSSA_PARENT_FLAG_ATTACK_DONE;
-    }
-    bossa_set_all_cup_state(g, idx, BOSSA_CUP_STATE_UP);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.sbyte2 = 3;
+    al.sflags4 |= BOSSA_PARENT_FLAG_ATTACK_DONE;
 }
 
-/// C `bossAattack_strat` (strat_enemy.c:3407).
+/// C `bossAattack_strat` (ROM `.bossAattack_strat`, GB3STRAT.ASM:621-742).
+///
+/// Two machines:
+/// - cup dispatcher: when the previous cup finished (sflag2), send a
+///   random live cup out — GO (drill run) only for the LAST cup (2 dead),
+///   IROTATE otherwise; after 3 waves go back to cover.
+/// - `sbyte3` destroyed-turret machine: ==3 with only the 3 husks left ->
+///   kill the parent; ==2 -> 3-missile barrage at frames 20/25/30 of &63;
+///   else retarget the turrets from bossATY_tab every 32 frames.
 fn bossaattack_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].sflags4 & BOSSA_PARENT_FLAG_ATTACK_DONE != 0 {
         g.objs.aliens[idx as usize].sflags4 &= !BOSSA_PARENT_FLAG_ATTACK_DONE;
-        let live_cups = bossa_live_cup_count(g, idx);
-        if live_cups == 0 {
-            bossacover_init(g, idx);
-            return;
-        }
+        // s_beqdec_alvar sbyte2,.bossAcover_init: check-then-decrement.
         if g.objs.aliens[idx as usize].sbyte2 == 0 {
             bossacover_init(g, idx);
             return;
         }
+        g.objs.aliens[idx as usize].sbyte2 -= 1;
+        bossa_set_all_cup_state(g, idx, BOSSA_CUP_STATE_UP);
         if let Some(cup) = bossa_pick_live_cup(g, idx) {
-            let al = &mut g.objs.aliens[cup as usize];
-            al.stratstate = if live_cups == 2 {
-                BOSSA_CUP_STATE_IROTATE
-            } else {
+            let dead_cups = (BOSSA_CHILD_CUP_L..=BOSSA_CHILD_CUP_R)
+                .filter(|&n| boss_find_child_obj(g, idx, n).is_none())
+                .count();
+            g.objs.aliens[cup as usize].stratstate = if dead_cups == 2 {
                 BOSSA_CUP_STATE_GO
+            } else {
+                BOSSA_CUP_STATE_IROTATE
             };
-            al.sflags2 &= !BOSSA_CUP_FLAG_FIRED;
-            al.count = BOSSA_CUP_GO_TIME;
-            g.objs.aliens[idx as usize].sbyte2 -= 1;
         }
     }
 
-    if g.vars.gameframe % 5 == 0 {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.sbyte3 = (al.sbyte3 + 1) % 3;
-    }
-    bossa_update_turret_targets(g, idx);
-
-    if let Some(pl) = player(g) {
-        if g.objs.aliens[idx as usize].sbyte3 == 2 {
-            let phase = (g.vars.gameframe % BOSSA_PARENT_MISSILE_PERIOD) as u8;
+    // .nfin: the sbyte3 destroyed-turret machine.
+    let sb3 = g.objs.aliens[idx as usize].sbyte3;
+    if sb3 == 3 {
+        // All three turrets are husks; once the cups are gone too (only
+        // the 3 husk children remain) the parent dies (s_kill_obj).
+        if boss_count_children(g, idx) == 3 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sflags |= ASF_COLLDISABLE;
+            al.hp = 0;
+        }
+    } else if sb3 == 2 {
+        // .firemissiles: 3-shot barrage, frames 20/25/30 of every 64.
+        let phase = (g.vars.gameframe & 63) as u8;
+        let yaw_off = match phase {
+            20 => Some(DEG22.wrapping_neg()),
+            25 => Some(0u8),
+            30 => Some(DEG22),
+            _ => None,
+        };
+        if let (Some(off), Some(p)) = (yaw_off, player_idx(g)) {
             let roty = g.objs.aliens[idx as usize].roty;
-            let p = player_idx(g).unwrap();
-            let _ = &pl;
-            if phase == 20 {
-                let _ = boss1_fire_hmissile1(
-                    g, idx, p, 0, -(25i16 << BOSSA_SCALE), 0, 0, roty.wrapping_sub(DEG22),
-                );
-            } else if phase == 25 {
-                let _ = boss1_fire_hmissile1(g, idx, p, 0, -(25i16 << BOSSA_SCALE), 0, 0, roty);
-            } else if phase == 30 {
-                let _ = boss1_fire_hmissile1(
-                    g, idx, p, 0, -(25i16 << BOSSA_SCALE), 0, 0, roty.wrapping_add(DEG22),
-                );
-            }
+            let _ = boss1_fire_hmissile1(
+                g,
+                idx,
+                p,
+                0,
+                -(25i16 << BOSSA_SCALE),
+                0,
+                0,
+                roty.wrapping_add(off),
+            );
+        }
+    } else {
+        // .tchg: s_jmp_notdelay 5 — retarget every 32 frames.
+        if g.vars.gameframe & 31 == 0 {
+            bossa_retarget_turrets(g, idx);
         }
     }
 
     bossa_parent_continue(g, idx);
 }
 
-/// C `bossA_strat` (strat_enemy.c:3462).
+/// C `bossA_strat` (ROM bossA_strat, GB3STRAT.ASM:551-568): slide-in
+/// decel (vx += 1 once worldx <= 210, until it reaches 0 — the vx itself
+/// is applied by `.bossAcont`'s add_vecs2pos every tick), and the roty
+/// intro ramp at +1 every SECOND frame (s_jmp_notdelay 1).
 fn bossa_strat(g: &mut Game, idx: u16) {
-    if g.objs.aliens[idx as usize].roty != DEG180 {
-        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(1);
-        bossa_parent_continue(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.worldx <= 210 && al.vx != 0 {
+            al.vx += 1;
+        }
+    }
+    if g.objs.aliens[idx as usize].roty == DEG180 {
+        bossaup_init(g, idx);
         return;
     }
-    bossaup_init(g, idx);
-}
-
-/// C `bossAexp_init` (strat_enemy.c:3476).
-fn bossaexp_init(g: &mut Game, idx: u16) {
-    bossa_release_children(g, idx);
-    let s = sid(g, bossaexp_strat);
-    {
+    if g.vars.gameframe & 1 == 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.stratptr = Some(s);
-        al.collstratptr = None;
-        al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
-        al.flags |= AFEXP;
-        al.count = BOSSA_EXP_FRAMES;
+        al.roty = al.roty.wrapping_add(1);
     }
-    set_bossflags(g, bossflags(g) | BF_DYING);
-    play_se(g, 0x10);
+    bossa_parent_continue(g, idx);
 }
 
-/// C `bossAexp_strat` (strat_enemy.c:3492).
+/// C `bossAexp_Istrat` (GB3STRAT.ASM:773-777): runs as the parent's exp
+/// strat once hp hits 0 (s_kill_obj from the attack machine). 30 frames
+/// of rumbling explosions, then the 3-piece tank breakup.
+fn bossaexp_init(g: &mut Game, idx: u16) {
+    boss_dying(g); // s_boss_dying
+    let s = sid(g, bossaexp_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sbyte2 = 30;
+    al.expstratptr = Some(s);
+}
+
+/// C `bossAexp_strat` (GB3STRAT.ASM:778-812): every-2-frames large
+/// explosion scattered +/-(rnd i8)<<scale in X and up to -(31<<scale) in Y.
 fn bossaexp_strat(g: &mut Game, idx: u16) {
-    {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.rotz = al.rotz.wrapping_add(DEG90 / 24);
+    // s_beqdec_alvar sbyte2,bossAexp2_init (check-then-decrement).
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        bossaexp2_init(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte2 -= 1;
+
+    if g.vars.gameframe & 1 == 0 {
+        if let Some(e) = make_large_exp_obj(g, idx) {
+            let xoff = (((sfrtl_random(g) & 0xFF) as u8 as i8) as i16) << BOSSA_SCALE;
+            let yoff = ((sfrtl_random(g) & 31) as i16) << BOSSA_SCALE;
+            let al = &mut g.objs.aliens[e as usize];
+            al.worldx = al.worldx.wrapping_add(xoff);
+            al.worldy = al.worldy.wrapping_sub(yoff);
+        }
     }
     add_player_z(g, idx);
-
-    if !strat_count_down(&mut g.objs.aliens[idx as usize]) {
-        return;
-    }
-
-    g.vars.gameflags |= GF_BOSSDEAD;
-    set_bossflags(g, bossflags(g) & !(BF_DYING | BF_FLAG1 | BF_FLAG2 | BF_FLAG3));
-    set_bossmaxhp(g, 0);
-    g.objs.aldead = 1;
 }
 
-/// C `Strat_BossA_Init` (strat_enemy.c:3510).
+/// C `bossAexp2_init` (GB3STRAT.ASM:814-830): the tank splits — the
+/// mother becomes the sinking mid piece, plus right/left pods fly off.
+/// TODO(shapes): boss_a_3/4/5 are not in the compiled HD shape set (the
+/// wireframe-only leftovers); the mother keeps boss_a_2 and the pods are
+/// nullshape carriers for the bigexplode timing/motion.
+fn bossaexp2_init(g: &mut Game, idx: u16) {
+    let s_m = sid(g, bossaexp_m_istrat);
+    g.objs.aliens[idx as usize].expstratptr = Some(s_m);
+
+    if let Some(r) = strat_make_obj(g, 0) {
+        copy_pos(g, r, idx);
+        bossaexp_r_istrat(g, r);
+    }
+    if let Some(l) = strat_make_obj(g, 0) {
+        copy_pos(g, l, idx);
+        bossaexp_l_istrat(g, l);
+    }
+    add_player_z(g, idx);
+}
+
+/// C `MbossAexp_Istrat` (GB3STRAT.ASM:876-880): mid piece pops up then
+/// gravity brings it down; finishes with the shared bossbigoutexplode.
+fn bossaexp_m_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, bossaexp_m_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vx = 0;
+        al.vy = -10;
+        al.vz = 0;
+        al.expstratptr = Some(s);
+    }
+    bossaexp_m_strat(g, idx);
+}
+
+fn bossaexp_m_strat(g: &mut Game, idx: u16) {
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+    // s_jmp_lower x,#15<<bossA_scale: done once worldy >= 60.
+    if g.objs.aliens[idx as usize].worldy >= (15i16 << BOSSA_SCALE) {
+        bossbigoutexplode_istrat(g, idx);
+        return;
+    }
+    let al = &mut g.objs.aliens[idx as usize];
+    al.vy = al.vy.wrapping_add(1);
+}
+
+/// C `LbossAexp_Istrat` (GB3STRAT.ASM:836-846): left pod, 60 frames.
+fn bossaexp_l_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, bossaexp_l_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.vx = -10;
+    al.vy = 0;
+    al.vz = 20;
+    al.stratptr = Some(s);
+    al.sbyte2 = 60;
+    al.roty = DEG180;
+}
+
+fn bossaexp_l_strat(g: &mut Game, idx: u16) {
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        bigexplode_istrat(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte2 -= 1;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.roty = al.roty.wrapping_add(1);
+}
+
+/// C `RbossAexp_Istrat` (GB3STRAT.ASM:861-871): right pod, 65 frames.
+fn bossaexp_r_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, bossaexp_r_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.vx = 10;
+    al.vy = 0;
+    al.vz = 20;
+    al.stratptr = Some(s);
+    al.sbyte2 = 65;
+    al.roty = DEG180;
+}
+
+fn bossaexp_r_strat(g: &mut Game, idx: u16) {
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        bigexplode_istrat(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte2 -= 1;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.roty = al.roty.wrapping_sub(1);
+}
+
+/// C `Strat_BossA_Init` (strat_enemy.c:3510, ROM bossA_Istrat
+/// GB3STRAT.ASM:521-548).
 pub fn strat_bossa_init(g: &mut Game, idx: u16) {
     let s_strat = sid(g, bossa_strat);
-    let s_coll = sid(g, strat_hit_flash);
     let s_exp = sid(g, bossaexp_init);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.shape = SH_BOSS_A_2;
         al.stratptr = Some(s_strat);
-        al.collstratptr = Some(s_coll);
+        // s_set_alptrs x,bossA_strat,0,bossAexp_Istrat: NO collstrat (the
+        // hard-HP hull doesn't hit-flash).
+        al.collstratptr = None;
         al.expstratptr = Some(s_exp);
     }
     set_hard_vars(&mut g.objs.aliens[idx as usize]);
@@ -2075,7 +2591,6 @@ pub fn strat_bossa_init(g: &mut Game, idx: u16) {
     let _ = bossa_spawn_child(g, idx, BOSSA_CHILD_CUP_L, bossa_cupL_init);
     let _ = bossa_spawn_child(g, idx, BOSSA_CHILD_CUP_M, bossa_cupM_init);
     let _ = bossa_spawn_child(g, idx, BOSSA_CHILD_CUP_R, bossa_cupR_init);
-    bossa_update_turret_targets(g, idx);
     play_se(g, 0x83);
 }
 // EB_PART_2_END
@@ -2126,21 +2641,12 @@ fn spacepilonP_strat(g: &mut Game, idx: u16) {
 
     match g.objs.aliens[idx as usize].stratstate {
         0 => {
-            let tgt = SPACEPILON_PILON_RELPOSY_TGT;
-            let diff = relposy.wrapping_sub(tgt);
-            let mut step = diff >> 3;
-            if step == 0 {
-                step = if diff > 0 {
-                    1
-                } else if diff < 0 {
-                    -1
-                } else {
-                    0
-                };
-            }
-            if diff != 0 {
-                g.objs.aliens[idx as usize].relposy = relposy.wrapping_sub(step) as u8;
-            }
+            // ROM `s_achase_alvar B,x,al_relposy,#-100/8,3` (GA3STRAT.ASM:
+            // 161): a real 8-bit Achase — adiv2 rounds toward zero, the
+            // old inline `>> 3` floored.
+            let mut cur = relposy as u8;
+            achase_angle(&mut cur, SPACEPILON_PILON_RELPOSY_TGT as u8, 3);
+            g.objs.aliens[idx as usize].relposy = cur;
         }
         1 => {
             g.objs.aliens[mother_idx as usize].sflags |= ASF_COLLDISABLE;
@@ -2314,12 +2820,17 @@ pub fn strat_spacepilon_init(g: &mut Game, idx: u16) {
     let s_exp = sid(g, spacepilonexp_init);
 
     {
+        // ROM `s_add_rnd2pos x,255,255,255,2,2,1` (GA3STRAT.ASM:48,
+        // STRATMAC.INC:7336): per axis ((rnd&255) - 127), X/Y scaled <<2,
+        // Z <<1 — a true RNG scatter, not the deterministic idx hash.
+        let rx = (((sfrtl_random(g) & 0xFF) as i16) - 127) << 2;
+        let ry = (((sfrtl_random(g) & 0xFF) as i16) - 127) << 2;
+        let rz = (((sfrtl_random(g) & 0xFF) as i16) - 127) << 1;
         let al = &mut g.objs.aliens[idx as usize];
         al.type_ &= !ATZREMOVE;
-        let phase = idx as u8;
-        al.worldx = al.worldx.wrapping_add((phase.wrapping_mul(37)) as i8 as i16);
-        al.worldy = al.worldy.wrapping_add((phase.wrapping_mul(53)) as i8 as i16);
-        al.worldz = al.worldz.wrapping_add((phase.wrapping_mul(17)) as i8 as i16);
+        al.worldx = al.worldx.wrapping_add(rx);
+        al.worldy = al.worldy.wrapping_add(ry);
+        al.worldz = al.worldz.wrapping_add(rz);
         al.vx = al.worldx;
         al.vy = al.worldy;
         al.vz = al.worldz;
@@ -2434,9 +2945,10 @@ fn bossf_rotated_offset(g: &mut Game, dst: u16, refa: &Alien, offx: i16, offy: i
     al.worldz = refa.worldz.wrapping_add(fz.round() as i16);
 }
 
-/// C `bossFCsmoke_srou` (strat_enemy.c:7919).
+/// C `bossFCsmoke_srou` (strat_enemy.c:7919, GB2STRAT.ASM:214-221).
 fn bossfcsmoke_srou(g: &mut Game, idx: u16) {
-    if g.vars.gameframe % 4 != 0 {
+    // ROM `s_jmp_notdelay 3`: every 8 frames (mask 7), not every 4.
+    if g.vars.gameframe & 7 != 0 {
         return;
     }
     play_se(g, 0x23);
@@ -2456,14 +2968,15 @@ fn bossfcsmoke_srou(g: &mut Game, idx: u16) {
     al.expstratptr = Some(s_exp);
 }
 
-/// C `bossF_fire_hplasma` (strat_enemy.c:7947).
+/// C `bossF_fire_hplasma` (strat_enemy.c:7947). ROM fires with
+/// `s_weapon_rot #0,#0` (GB2STRAT.ASM:198): the shot leaves STRAIGHT along
+/// the core's own rots — the homing `ptr = playpt` does the aiming — it is
+/// NOT pre-aimed at the player.
 fn bossf_fire_hplasma(g: &mut Game, idx: u16, wpx: i16, wpy: i16) {
-    let Some(pl) = player(g) else {
+    if player(g).is_none() {
         return;
-    };
+    }
     let me = g.objs.aliens[idx as usize];
-    let yaw = strat_angle_xz(&me, &pl);
-    let pitch = strat_pitch_toward(&me, &pl);
     let pptr = player_idx(g).map(|i| i + 1).unwrap_or(0);
     if let Some(shot) = strat_spawn_projectile(
         g,
@@ -2471,8 +2984,8 @@ fn bossf_fire_hplasma(g: &mut Game, idx: u16, wpx: i16, wpy: i16) {
         wpx,
         wpy,
         0,
-        pitch,
-        yaw,
+        me.rotx,
+        me.roty,
         HPLASMA_SPEED,
         HPLASMA_LIFE,
         HPLASMA_AP,
@@ -2489,6 +3002,81 @@ fn bossf_remove_child(g: &mut Game, mother: u16, child_num: u8) {
         obj_free(g, child);
         boss_prune_family_links(g, mother);
     }
+}
+
+// --- player turn-180 strats (PSTRATS.ASM:1316-1349 + GB2STRAT.ASM:351-359)
+// The King Joh fight flips the player around each time the boss warps
+// behind; bossF is the only caller, so the port lives in this lane. ---
+
+/// `medpspeed` (map scroll speed, = sf_map::consts::MEDPSPEED; sf-strat
+/// doesn't depend on sf-map).
+const MEDPSPEED: i16 = 65;
+
+/// Set the player's strategy to `playerturn180_Istrat` (the ROM
+/// `s_set_strat y,...` at GB2STRAT.ASM:178/256/286).
+fn bossf_set_player_turn180(g: &mut Game) {
+    if let Some(p) = player_idx(g) {
+        let s = sid(g, playerturn180_istrat);
+        g.objs.aliens[p as usize].stratptr = Some(s);
+    }
+}
+
+/// C `playerturn180_Istrat` (PSTRATS.ASM:1323-1327): arm the 74-frame
+/// (10 lead-in + 64 turning) sequence, then fall through to the tick.
+fn playerturn180_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, playerturn180_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 64 + 10);
+    playerturn180_strat(g, idx);
+}
+
+/// C `playerturn180_strat` (PSTRATS.ASM:1329-1349): each tick — mirror
+/// vz into pviewvelz, bank (Ztilt/plrotz ramp), and once the 10-frame
+/// lead-in ends add 2*256 to player_turnrot for 64 frames (= 180 deg).
+/// On completion restore playerinspace and toggle PSF2_TURN180. Always
+/// chains into the normal player strat (`s_jmp playerinspace_strat`).
+fn playerturn180_strat(g: &mut Game, idx: u16) {
+    // s_copy_alvar2var W,x,pviewvelz,al_vz
+    g.vars.pviewvelz = g.objs.aliens[idx as usize].vz;
+    // s_add_var B,player_Ztilt,#deg45/15 ; s_add_var W,plrotz,#Zrotspeed
+    let zt = g.vars.sv_u8(sv::PLAYER_ZTILT).wrapping_add(DEG45 / 15);
+    g.vars.set_sv_u8(sv::PLAYER_ZTILT, zt);
+    let rz = g.vars.sv_i16(sv::PLROTZ).wrapping_add(0x200); // Zrotspeed
+    g.vars.set_sv_i16(sv::PLROTZ, rz);
+
+    let cnt = g.vars.sv_u8(sv::PSVAR_BYTE1).wrapping_sub(1);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, cnt);
+    if cnt <= 63 {
+        let tr = g.vars.sv_i16(sv::PLAYER_TURNROT).wrapping_add(2 * 256);
+        g.vars.set_sv_i16(sv::PLAYER_TURNROT, tr);
+        if cnt == 0 {
+            let s = sid(g, crate::player::strat_player);
+            g.objs.aliens[idx as usize].stratptr = Some(s);
+            // s_not_var B,pshipflags2,#psf2_turn180 (toggle).
+            g.vars.pshipflags2 ^= PSF2_TURN180;
+        }
+    }
+    // playerturn180_cont: s_jmp playerinspace_strat.
+    crate::player::strat_player(g, idx);
+}
+
+/// C `playerbossFdie_strat` (GB2STRAT.ASM:351-359): one-shot un-reverse
+/// when King Joh dies while the player flies the mirrored leg — negate
+/// vz/pviewvelz/worldx, pull pviewposz back 2*medpspeed, zero turnrot,
+/// restore playerinspace and run it this tick (s_jmpto_strat).
+fn playerbossfdie_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vz = al.vz.wrapping_neg();
+        al.worldx = al.worldx.wrapping_neg();
+    }
+    g.vars.pviewvelz = g.vars.pviewvelz.wrapping_neg();
+    let pvz = pviewposz(g).wrapping_sub(MEDPSPEED * 2);
+    g.vars.write_ext16(ea_wm::PVIEWPOSZ, pvz as u16);
+    g.vars.set_sv_i16(sv::PLAYER_TURNROT, 0);
+    let s = sid(g, crate::player::strat_player);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    crate::player::strat_player(g, idx);
 }
 
 /// C `Strat_BossF_Init` (strat_enemy.c:7996).
@@ -2526,7 +3114,7 @@ pub fn strat_bossf_init(g: &mut Game, idx: u16) {
     }
 }
 
-/// C `bossFC_strat` (strat_enemy.c:8047).
+/// C `bossFC_strat` (GB2STRAT.ASM:70-114).
 fn bossfc_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].sbyte2 == 200 - 60 {
         if let Some(childb) = bossf_spawn_child(g, idx, SH_BOSS_F_2, BOSSF_CHILD_B, bossfb_istrat) {
@@ -2536,41 +3124,51 @@ fn bossfc_strat(g: &mut Game, idx: u16) {
         }
     }
 
-    {
+    // s_decbne_alvar sbyte2,.nturn (GB2STRAT.ASM:82): the 200-frame intro
+    // countdown GATES states 0/1 — the ship parts hover in place until it
+    // expires, then sbyte2 pegs at 1 and the states run every tick.
+    let run_states01 = {
         let al = &mut g.objs.aliens[idx as usize];
-        if al.sbyte2 > 0 {
-            al.sbyte2 -= 1;
-            if al.sbyte2 == 0 {
-                al.sbyte2 = 1;
-            }
-        } else {
+        al.sbyte2 = al.sbyte2.wrapping_sub(1);
+        if al.sbyte2 == 0 {
             al.sbyte2 = 1;
+            true
+        } else {
+            false
+        }
+    };
+
+    if run_states01 {
+        let state = g.objs.aliens[idx as usize].stratstate;
+        if state == 0 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.vy = -10;
+            if al.worldy < BOSSF_SPACE_VIEWCY + 300 {
+                al.stratstate = 1;
+                al.count = 4;
+            }
+        } else if state == 1 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.vy = al.vy.wrapping_add(1);
+            if al.vy == 0 {
+                al.stratstate = 2;
+                al.count = 4;
+                al.sbyte3 = 100;
+            }
         }
     }
 
-    // do_states
-    let state = g.objs.aliens[idx as usize].stratstate;
-    if state == 0 {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.vy = -10;
-        if al.worldy < BOSSF_SPACE_VIEWCY + 300 {
-            al.stratstate = 1;
-            al.count = 4;
-        }
-    } else if state == 1 {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.vy = al.vy.wrapping_add(1);
-        if al.vy == 0 {
-            al.stratstate = 2;
-            al.count = 4;
-            al.sbyte3 = 100;
-        }
-    } else if state == 2 {
+    // State 2 sits after .nturn — not gated by the countdown.
+    if g.objs.aliens[idx as usize].stratstate == 2 {
         let reached = achase_angle(&mut g.objs.aliens[idx as usize].roty, 0, 4);
-        if !reached && g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
-            g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+        // Sound $8E when roty REACHES 0 (Achase reached-branch), latched
+        // on ROM sflag2 (port: ASF4_SFLAG8) — the old code inverted the
+        // branch and burned the latch it gated on.
+        if reached && g.objs.aliens[idx as usize].sflags4 & ASF4_SFLAG8 == 0 {
+            g.objs.aliens[idx as usize].sflags4 |= ASF4_SFLAG8;
             play_se(g, 0x8E);
         }
+        // s_set_alsflag x,sflag1: combine signal for the A/B halves.
         g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
         {
             let al = &mut g.objs.aliens[idx as usize];
@@ -2582,9 +3180,12 @@ fn bossfc_strat(g: &mut Game, idx: u16) {
             bossfc2start_init(g, idx);
             return;
         }
+        // s_brl .cont: state 2 skips the movement block.
+        add_player_z(g, idx);
+        return;
     }
 
-    // movement
+    // .ncent movement (states 0/1)
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.roty = al.roty.wrapping_add(al.vy as u8);
@@ -2654,18 +3255,28 @@ fn bossfc2_strat(g: &mut Game, idx: u16) {
 
     if let Some(pl) = player(g) {
         let me = g.objs.aliens[idx as usize];
-        let player_in_front = pl.worldz > me.worldz;
-        if !player_in_front {
+        // s_jmp_objinfront x,y,.nturn (STRATMAC.INC:3445 = bpl on
+        // me.z - pl.z): the warp-behind block runs when me.z < pl.z —
+        // the boss has fallen BEHIND the player. The old port ran the
+        // complement.
+        if me.worldz < pl.worldz {
             let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
             if zdist > 4000 {
                 bossfc3_init(g, idx);
                 return;
             }
             if zdist >= 2000 && me.sflags2 & ASF2_SFLAG1 == 0 {
-                let al = &mut g.objs.aliens[idx as usize];
-                al.sflags2 |= ASF2_SFLAG1;
-                al.rotx = 0;
-                al.worldy = BOSSF_SPACE_VIEWCY - 500;
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sflags2 |= ASF2_SFLAG1;
+                    al.rotx = 0;
+                }
+                // GB2STRAT.ASM:177-178: turn the player around too,
+                // unless they are already dead (psf2_playerHP0).
+                if g.vars.pshipflags2 & PSF2_PLAYERHP0 == 0 {
+                    bossf_set_player_turn180(g);
+                }
+                g.objs.aliens[idx as usize].worldy = BOSSF_SPACE_VIEWCY - 500;
             }
         }
     }
@@ -2673,29 +3284,34 @@ fn bossfc2_strat(g: &mut Game, idx: u16) {
     bossfc2_cont(g, idx);
 }
 
-/// C `bossFC2_cont` (strat_enemy.c:8284).
+/// C `bossFC2_cont` (GB2STRAT.ASM:183-201).
 fn bossfc2_cont(g: &mut Game, idx: u16) {
     let sb2 = g.objs.aliens[idx as usize].sbyte2;
     if sb2 >= 6 {
         bossfcdie_init(g, idx);
         return;
     }
+    // `s_jmp_alvarLESS sbyte2,#3,.nshootb`: BOTH the smoke and the
+    // twin-Hplasma volley are held until 3 turrets are destroyed.
     if sb2 >= 3 {
         bossfcsmoke_srou(g, idx);
-    }
 
-    if let Some(pl) = player(g) {
-        let me = g.objs.aliens[idx as usize];
-        let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
-        if zdist >= 600 {
-            if g.vars.gameframe & 31 == 10 {
-                let wpx = ((-20i16) >> WEAPON_SCALE) << BOSSF_SCALE;
-                let wpy = ((-20i16) >> WEAPON_SCALE) << BOSSF_SCALE;
-                bossf_fire_hplasma(g, idx, wpx, wpy);
-            } else if g.vars.gameframe & 31 == 5 {
-                let wpx = (20i16 << BOSSF_SCALE) >> WEAPON_SCALE;
-                let wpy = ((-20i16) << BOSSF_SCALE) >> WEAPON_SCALE;
-                bossf_fire_hplasma(g, idx, wpx, wpy);
+        if let Some(pl) = player(g) {
+            let me = g.objs.aliens[idx as usize];
+            let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+            if zdist >= 600 {
+                // weapon_pos operands are <<weapon_scale'd by fire_weapon_l;
+                // effective muzzle = +/-20<<bossF_scale (the old >>2 values
+                // were 4x too small).
+                if g.vars.gameframe & 31 == 10 {
+                    let wpx = -(20i16 << BOSSF_SCALE);
+                    let wpy = -(20i16 << BOSSF_SCALE);
+                    bossf_fire_hplasma(g, idx, wpx, wpy);
+                } else if g.vars.gameframe & 31 == 5 {
+                    let wpx = 20i16 << BOSSF_SCALE;
+                    let wpy = -(20i16 << BOSSF_SCALE);
+                    bossf_fire_hplasma(g, idx, wpx, wpy);
+                }
             }
         }
     }
@@ -2747,18 +3363,24 @@ fn bossfc3_strat(g: &mut Game, idx: u16) {
 
     if let Some(pl) = player(g) {
         let me = g.objs.aliens[idx as usize];
-        let player_in_front = pl.worldz < me.worldz;
-        if !player_in_front {
+        // s_jmp_objinfront y,x,.nturn (GB2STRAT.ASM:250 — args SWAPPED vs
+        // FC2): the block runs when pl.z < me.z, i.e. the reversed player
+        // has now fallen behind the boss again.
+        if pl.worldz < me.worldz {
             let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
             if zdist > 4000 {
                 bossfc2_init(g, idx);
                 return;
             }
             if zdist >= 2000 && me.sflags2 & ASF2_SFLAG1 == 0 {
-                let al = &mut g.objs.aliens[idx as usize];
-                al.sflags2 |= ASF2_SFLAG1;
-                al.rotx = 0;
-                al.worldy = BOSSF_SPACE_VIEWCY - 500;
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sflags2 |= ASF2_SFLAG1;
+                    al.rotx = 0;
+                }
+                // GB2STRAT.ASM:256: ungated here (no playerHP0 check).
+                bossf_set_player_turn180(g);
+                g.objs.aliens[idx as usize].worldy = BOSSF_SPACE_VIEWCY - 500;
             }
         }
     }
@@ -2796,8 +3418,11 @@ fn bossfcdie_strat(g: &mut Game, idx: u16) {
     bossfc2_cont2(g, idx);
 }
 
-/// C `bossFCdie2_init` (strat_enemy.c:8476).
+/// C `bossFCdie2_init` (GB2STRAT.ASM:284-290).
 fn bossfcdie2_init(g: &mut Game, idx: u16) {
+    // GB2STRAT.ASM:286: the player is always turned around for the death
+    // flyby (unconditional here).
+    bossf_set_player_turn180(g);
     let s = sid(g, bossfcdie2_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
@@ -2816,14 +3441,16 @@ fn bossfcdie2_strat(g: &mut Game, idx: u16) {
     }
 
     if let Some(exp) = make_large_exp_obj(g, idx) {
-        let rx = (sfrtl_random(g) & 0xFF) as i8;
-        let ry = (sfrtl_random(g) & 0xFF) as i8;
-        let rz = (sfrtl_random(g) & 0xFF) as i8;
+        // s_add_rnd2pos y,255,255,255,1,0,0 (GB2STRAT.ASM:303): per axis
+        // (rnd&255)-127, and the X offset is scaled <<1.
+        let rx = (((sfrtl_random(g) & 0xFF) as i16) - 127) << 1;
+        let ry = ((sfrtl_random(g) & 0xFF) as i16) - 127;
+        let rz = ((sfrtl_random(g) & 0xFF) as i16) - 127;
         let al = &mut g.objs.aliens[exp as usize];
         al.sflags4 |= ASF4_NOPOLYEXP;
-        al.worldx = al.worldx.wrapping_add(rx as i16);
-        al.worldy = al.worldy.wrapping_add(ry as i16);
-        al.worldz = al.worldz.wrapping_add(rz as i16);
+        al.worldx = al.worldx.wrapping_add(rx);
+        al.worldy = al.worldy.wrapping_add(ry);
+        al.worldz = al.worldz.wrapping_add(rz);
     }
 
     if let Some(pl) = player(g) {
@@ -2850,15 +3477,16 @@ fn bossfcdie2_strat(g: &mut Game, idx: u16) {
                 g.world.lastzchange = 0;
                 g.vars.mapcnt = 0;
 
+                // GB2STRAT.ASM:330-333: if the player is still flying the
+                // mirrored leg, hand them playerbossFdie_strat (which does
+                // the un-reversal incl. pviewposz -= medpspeed*2, then
+                // swaps back to playerinspace).
                 if g.vars.pshipflags2 & PSF2_TURN180 != 0 {
                     g.vars.pshipflags2 &= !PSF2_TURN180;
                     if let Some(p) = player_idx(g) {
-                        let al = &mut g.objs.aliens[p as usize];
-                        al.vz = al.vz.wrapping_neg();
-                        al.worldx = al.worldx.wrapping_neg();
+                        let s = sid(g, playerbossfdie_strat);
+                        g.objs.aliens[p as usize].stratptr = Some(s);
                     }
-                    g.vars.pviewvelz = g.vars.pviewvelz.wrapping_neg();
-                    g.vars.set_sv_i16(sv::PLAYER_TURNROT, 0);
                 }
 
                 g.vars.gameflags |= GF_BOSSDEAD;
@@ -3040,7 +3668,10 @@ fn bossftur_cont(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].sbyte3 > 20 {
         return;
     }
-    if g.objs.aliens[idx as usize].sbyte2 <= 15 {
+    // `s_jmp_alvarMORE sbyte2,#15,.nfire` (GB2STRAT.ASM:477): fire only
+    // during the first part of the open window, sbyte2 <= 15 — the old
+    // port had the comparison inverted.
+    if g.objs.aliens[idx as usize].sbyte2 > 15 {
         return;
     }
 
@@ -3052,7 +3683,8 @@ fn bossftur_cont(g: &mut Game, idx: u16) {
     if zdist < 1500 {
         return;
     }
-    if g.vars.gameframe % 4 != 0 {
+    // s_jmp_notdelay 3 (GB2STRAT.ASM:480): every 8 frames, not 4.
+    if g.vars.gameframe & 7 != 0 {
         return;
     }
 
@@ -3127,10 +3759,12 @@ fn bossfa_strat(g: &mut Game, idx: u16) {
         let targ_z = mother.worldz.wrapping_add(10i16 << BOSSF_SCALE);
         let targ_y = mother.worldy.wrapping_add(-22i16 << BOSSF_SCALE);
         {
+            // s_achase_alvar W,...,4 (GB2STRAT.ASM:522-524): Achase rate 4
+            // — truncating /16 with min-step, not a flooring >>2.
             let al = &mut g.objs.aliens[idx as usize];
-            al.worldz = al.worldz.wrapping_add((targ_z - al.worldz) >> 2);
-            al.worldx = al.worldx.wrapping_add((mother.worldx - al.worldx) >> 2);
-            al.worldy = al.worldy.wrapping_add((targ_y - al.worldy) >> 2);
+            al.worldz = strat_chase_proportional(al.worldz, targ_z, 4);
+            al.worldx = strat_chase_proportional(al.worldx, mother.worldx, 4);
+            al.worldy = strat_chase_proportional(al.worldy, targ_y, 4);
         }
         achase_angle(&mut g.objs.aliens[idx as usize].roty, DEG180, 3);
         achase_angle(&mut g.objs.aliens[idx as usize].rotz, 0, 3);
@@ -3153,23 +3787,28 @@ fn bossfa_strat(g: &mut Game, idx: u16) {
         al.rotz = al.rotz.wrapping_add(2);
     }
 
-    if !strat_points_positive_z(&g.objs.aliens[idx as usize]) && g.vars.gameframe % 4 == 0 {
+    // s_jmpNOT_objpointnegz (STRATMAC.INC:6218): fire only while roty is
+    // in [deg180-deg45, deg180+deg45] (facing the player), every 4 frames.
+    let roty = g.objs.aliens[idx as usize].roty;
+    if roty >= DEG180 - DEG45 && roty <= DEG180 + DEG45 && g.vars.gameframe & 3 == 0 {
         if let Some(pl) = player(g) {
             let me = g.objs.aliens[idx as usize];
             let yaw = strat_angle_xz(&me, &pl);
             let pitch = strat_pitch_toward(&me, &pl);
+            // Effective muzzle offsets are +/-20<<bossF_scale (weapon_pos
+            // operands get <<weapon_scale in fire_weapon_l).
             let speed = strat_relslowelaser_speed(g);
             let _ = strat_spawn_projectile(
                 g, Some(idx),
-                (-20i16 << BOSSF_SCALE) >> WEAPON_SCALE,
-                (-20i16 << BOSSF_SCALE) >> WEAPON_SCALE,
+                -(20i16 << BOSSF_SCALE),
+                -(20i16 << BOSSF_SCALE),
                 0, pitch, yaw, speed, RELSLOWELASERHOME_LIFE, RELSLOWELASERHOME_AP, ACF_COLLTYPE4,
             );
             let speed = strat_relslowelaser_speed(g);
             let _ = strat_spawn_projectile(
                 g, Some(idx),
-                (20i16 << BOSSF_SCALE) >> WEAPON_SCALE,
-                (-20i16 << BOSSF_SCALE) >> WEAPON_SCALE,
+                20i16 << BOSSF_SCALE,
+                -(20i16 << BOSSF_SCALE),
                 0, pitch, yaw, speed, RELSLOWELASERHOME_LIFE, RELSLOWELASERHOME_AP, ACF_COLLTYPE4,
             );
         }
@@ -3177,8 +3816,10 @@ fn bossfa_strat(g: &mut Game, idx: u16) {
 
     strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
     {
+        // s_scale_alvar W,x,al_vz,1 (STRATMAC.INC:4604 = asl): x2, the old
+        // >>1 made the half-ship close 4x too slowly.
         let al = &mut g.objs.aliens[idx as usize];
-        al.vz >>= 1;
+        al.vz <<= 1;
     }
     strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
     add_player_z(g, idx);
@@ -3210,10 +3851,11 @@ fn bossfb_strat(g: &mut Game, idx: u16) {
     if mother.sflags2 & ASF2_SFLAG1 != 0 {
         let targ_z = mother.worldz.wrapping_add(-40i16 << BOSSF_SCALE);
         {
+            // s_achase_alvar W rate 4 (GB2STRAT.ASM:580-582), as in bossFA.
             let al = &mut g.objs.aliens[idx as usize];
-            al.worldz = al.worldz.wrapping_add((targ_z - al.worldz) >> 2);
-            al.worldx = al.worldx.wrapping_add((mother.worldx - al.worldx) >> 2);
-            al.worldy = al.worldy.wrapping_add((mother.worldy - al.worldy) >> 2);
+            al.worldz = strat_chase_proportional(al.worldz, targ_z, 4);
+            al.worldx = strat_chase_proportional(al.worldx, mother.worldx, 4);
+            al.worldy = strat_chase_proportional(al.worldy, mother.worldy, 4);
         }
         achase_angle(&mut g.objs.aliens[idx as usize].roty, DEG180, 3);
         achase_angle(&mut g.objs.aliens[idx as usize].rotz, 0, 3);
@@ -3249,23 +3891,31 @@ fn bossfb_strat(g: &mut Game, idx: u16) {
         }
 
         if zdist < 1400 && g.vars.gameframe % 4 == 0 {
+            // ROM mine0_istrat (DSTRATS.ASM:1571-1580): LIVE mines —
+            // colltype ENEMY1, hitflash/explode, random rotz, no lifetime.
+            // (TODO shape: mine_0 has no compiled HD shape id yet.)
             if let Some(mine) = strat_make_obj(g, 0) {
                 copy_pos(g, mine, idx);
+                let s_coll = sid(g, strat_hit_flash);
+                let s_exp = sid(g, strat_explode);
+                let rotz = (sfrtl_random(g) & 0xFF) as u8;
                 let al = &mut g.objs.aliens[mine as usize];
-                al.hp = 2;
-                al.ap = 10;
-                al.count = 60;
-                al.collflags = ACF_COLLTYPE4;
-                al.sflags |= ASF_COLLDISABLE;
-                al.stratptr = None;
+                al.hp = 2; // mine0HP
+                al.ap = 10; // mine0AP
+                al.collflags |= COLLTYPE_ENEMY1;
+                al.rotz = rotz;
+                al.stratptr = None; // mine0_strat is an empty tick
+                al.collstratptr = Some(s_coll);
+                al.expstratptr = Some(s_exp);
             }
         }
     }
 
     strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
     {
+        // s_scale_alvar W,x,al_vz,1 = asl (x2), as in bossFA.
         let al = &mut g.objs.aliens[idx as usize];
-        al.vz >>= 1;
+        al.vz <<= 1;
     }
     strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
     add_player_z(g, idx);

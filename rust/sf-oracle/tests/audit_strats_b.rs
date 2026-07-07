@@ -13,17 +13,16 @@
 //!   1. min-step: |step| >= 1 (via the nolessrange pre-clamp), and
 //!   2. rounding: `adiv2` rounds toward zero, NOT toward -infinity.
 //!
-//! `sf_strat::common::strat_chase_proportional` (common.rs:296) was fixed to
-//! this contract (16-bit W-size chases). But the 8-bit angle helper
-//! `sf_strat::enemy_a::achase_angle` (enemy_a.rs:271) still computes the step
-//! with a plain arithmetic shift `diff >> shift`, which rounds toward
-//! -infinity — one unit larger in magnitude whenever `current < target`
-//! (mod 256) and the diff is not a multiple of 1<<shift. Every enemy-B boss
-//! rotation (boss7 phase turns, bossA cup/turret aim, bossF turn-around) uses
-//! achase_angle, so all of them converge asymmetrically vs the ROM.
+//! `sf_strat::common::strat_chase_proportional` (common.rs:296) implements
+//! this contract for the 16-bit W-size chases, and the 8-bit angle helper
+//! `sf_strat::enemy_a::achase_angle` was fixed to it too (enemy-B audit
+//! finding #10: it used a plain floor shift `diff >> shift`, one unit
+//! larger in magnitude whenever `current < target` mod 256). Every enemy-B
+//! boss rotation (boss7 phase turns, bossA cup/turret aim, bossF
+//! turn-around) uses achase_angle, so they all now converge like the ROM.
 //!
 //! This test drives the ROM routine for a sweep of (current, target) pairs at
-//! rates 3 and 4 and diffs it against both Rust helpers.
+//! rates 3 and 4 and asserts both Rust helpers match it exactly.
 
 use sf_oracle::{call, load_built_rom, load_symbols, Entry, SnesBus};
 use sf_strat::common::strat_chase_proportional;
@@ -54,7 +53,7 @@ fn rom_achase16(rom: &[u8], addr: u32, current: i16, target: i16) -> i16 {
 }
 
 #[test]
-fn achase_angle_rounds_away_from_rom_for_positive_diffs() {
+fn achase_angle_matches_rom_sr8_achase() {
     let syms = load_symbols();
     let (Some(&a3), Some(&a4), Some(rom)) = (
         syms.get("SR8_ACHASE_ALVAR3"),
@@ -81,41 +80,21 @@ fn achase_angle_rounds_away_from_rom_for_positive_diffs() {
         (100, 200),
     ];
 
-    let mut mismatch3 = 0;
-    for &(cur, tgt) in &cases {
-        let (rom_new, _) = rom_achase8(&rom, a3, cur, tgt);
-        let mut rust_cur = cur;
-        achase_angle(&mut rust_cur, tgt, 3);
-        println!(
-            "rate3 cur={cur:>3} tgt={tgt:>3} -> ROM {rom_new:>3}  rust {rust_cur:>3}  {}",
-            if rom_new == rust_cur { "" } else { "<-- MISMATCH" }
-        );
-        if rom_new != rust_cur {
-            mismatch3 += 1;
+    for (addr, rate) in [(a3, 3u32), (a4, 4u32)] {
+        for &(cur, tgt) in &cases {
+            let (rom_new, _) = rom_achase8(&rom, addr, cur, tgt);
+            let mut rust_cur = cur;
+            achase_angle(&mut rust_cur, tgt, rate);
+            println!(
+                "rate{rate} cur={cur:>3} tgt={tgt:>3} -> ROM {rom_new:>3}  rust {rust_cur:>3}  {}",
+                if rom_new == rust_cur { "" } else { "<-- MISMATCH" }
+            );
+            assert_eq!(
+                rom_new, rust_cur,
+                "achase_angle(cur={cur}, tgt={tgt}, rate={rate}) diverged from ROM sr8_achase"
+            );
         }
     }
-
-    let mut mismatch4 = 0;
-    for &(cur, tgt) in &cases {
-        let (rom_new, _) = rom_achase8(&rom, a4, cur, tgt);
-        let mut rust_cur = cur;
-        achase_angle(&mut rust_cur, tgt, 4);
-        println!(
-            "rate4 cur={cur:>3} tgt={tgt:>3} -> ROM {rom_new:>3}  rust {rust_cur:>3}  {}",
-            if rom_new == rust_cur { "" } else { "<-- MISMATCH" }
-        );
-        if rom_new != rust_cur {
-            mismatch4 += 1;
-        }
-    }
-
-    // The floor-shift bug fires on positive-diff, non-multiple-of-2^rate
-    // cases; expect several mismatches at each rate.
-    assert!(
-        mismatch3 >= 2 && mismatch4 >= 2,
-        "expected achase_angle to diverge from ROM sr8_achase (got {mismatch3}/{mismatch4}) — \
-         if this now passes with 0 mismatches, achase_angle was fixed; flip this test to assert equality"
-    );
 }
 
 #[test]
