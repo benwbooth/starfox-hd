@@ -8,9 +8,11 @@
 //! into `.strat`, exactly one interpreter tick).
 //!
 //! The Rust side runs `sf_path::interp::strat_path_tick` over the identical
-//! bytes with a minimal host whose chase/etc. callbacks are the *same
-//! functions the shipping adapter uses* (`sf-game/src/path_adapter.rs` →
-//! `sf_strat::common::strat_chase8` / `strat_chase`).
+//! bytes with a minimal host. Path chases are implemented inside the interp
+//! itself (`path_achase8`/`path_achase16`, the ROM proportional chase); the
+//! host's chase8/chase16 callbacks (bound to the strat-lane
+//! `sf_strat::common::strat_chase8` / `strat_chase` like the shipping
+//! adapter) remain only to satisfy the `PathHost` trait.
 //!
 //! Also audits the chase primitive directly (SR8/SR16_ACHASE_ALVAR*,
 //! STRATROU.ASM:2740, the routines behind `s_achase_var` /
@@ -19,7 +21,7 @@
 
 use sf_oracle::{call, load_built_rom, load_symbols, Entry, SnesBus};
 use sf_path::alien::NUMBER_AL;
-use sf_path::interp::{strat_path_tick, PathHost, PathWorld};
+use sf_path::interp::{path_achase16, path_achase8, strat_path_tick, PathHost, PathWorld};
 use sf_path::opcodes::*;
 use sf_strat::common::{strat_chase, strat_chase8};
 use std::collections::HashMap;
@@ -218,9 +220,10 @@ fn prog(code: &[u8]) -> Vec<u8> {
 
 // ===========================================================================
 // 1. Chase primitive: ROM is a PROPORTIONAL chase (delta >> rate, min step 1,
-//    8-bit wrap = short way around the circle); the port uses a fixed ±rate
-//    linear step (strat_chase8), and the path interpreter also passes rate 1
-//    where PATHS.ASM uses 3.
+//    8-bit wrap = short way around the circle). The path interpreter now
+//    implements it locally (`path_achase8`/`path_achase16`, rates straight
+//    from PATHS.ASM); sf-strat's `strat_chase8` stays the fixed-step
+//    primitive for the strat lane and must keep diverging here.
 // ===========================================================================
 
 /// ROM sr8_achase_alvarN: tpx = current (8-bit), A = target; returns new
@@ -261,7 +264,7 @@ fn proportional8(cur: u8, target: u8, rate: u32) -> u8 {
 }
 
 #[test]
-fn achase_rom_is_proportional_port_is_fixed_step() {
+fn achase_rom_is_proportional_and_port_matches() {
     let Some((rom, syms)) = setup() else {
         eprintln!("skip: no built ROM/symbols");
         return;
@@ -270,41 +273,40 @@ fn achase_rom_is_proportional_port_is_fixed_step() {
     let a3 = syms.get("SR8_ACHASE_ALVAR3"); // p_achaseB / p_faceshape / waits
     let w3 = syms.get("SR16_ACHASE_ALVAR3"); // p_achaseW rate
 
-    // (cur, target) — port columns show what interp.rs currently computes:
-    // P_ACHASEB -> chase8(cur,t,1), P_FACEPLAYER -> chase8(cur,t,2),
-    // P_FACESHAPE/P_WAITFACEPLAYER -> chase8(cur,t,3).
+    // The port now implements the ROM proportional chase in the path interp
+    // (path_achase8/16) at the PATHS.ASM rates: P_ACHASEB/W + waits +
+    // P_FACESHAPE/P_WAITFACEPLAYER rate 3, P_FACEPLAYER/P_GOTOPOS rate 2.
     let cases: [(u8, u8); 6] = [(0, 96), (250, 10), (100, 90), (10, 5), (5, 5), (0, 128)];
-    let mut diverged = 0;
     for (cur, t) in cases {
         let rom3 = rom_achase8(&rom, a3, cur, t);
         let rom2 = rom_achase8(&rom, a2, cur, t);
-        let port_achaseb = strat_chase8(cur, t, 1);
-        let port_faceplayer = strat_chase8(cur, t, 2);
+        let port3 = path_achase8(cur, t, 3);
+        let port2 = path_achase8(cur, t, 2);
         println!(
-            "cur={cur:3} target={t:3} | ROM rate3 -> {rom3:3} (model {m3:3}) rate2 -> {rom2:3} (model {m2:3}) | port achaseB -> {port_achaseb:3}  faceplayer -> {port_faceplayer:3}",
+            "cur={cur:3} target={t:3} | ROM rate3 -> {rom3:3} (model {m3:3}) rate2 -> {rom2:3} (model {m2:3}) | port rate3 -> {port3:3}  rate2 -> {port2:3}",
             m3 = proportional8(cur, t, 3),
             m2 = proportional8(cur, t, 2),
         );
         assert_eq!(rom3, proportional8(cur, t, 3), "proportional model mismatch (rate3)");
         assert_eq!(rom2, proportional8(cur, t, 2), "proportional model mismatch (rate2)");
-        if rom3 != port_achaseb {
-            diverged += 1;
-        }
+        assert_eq!(rom3, port3, "port path_achase8 rate 3 vs ROM");
+        assert_eq!(rom2, port2, "port path_achase8 rate 2 vs ROM");
     }
-    // 16-bit: p_achaseW — ROM rate-3 proportional vs port strat_chase(...,1).
+    // 16-bit: p_achaseW — ROM rate-3 proportional; port path_achase16 matches.
     let rw = rom_achase16(&rom, w3, 0, 1000);
-    let pw = strat_chase(0, 1000, 1);
+    let pw = path_achase16(0, 1000, 3);
     println!("16-bit cur=0 target=1000 | ROM rate3 -> {rw} | port achaseW -> {pw}");
     assert_eq!(rw, 125, "ROM 16-bit proportional step (1000>>3)");
-    assert_ne!(rw, pw, "port fixed step diverges");
+    assert_eq!(rw, pw, "port path_achase16 matches ROM");
 
-    // The wrap case (250 -> 10): ROM goes UP through 255 (short way, +2);
-    // the port walks DOWN the long way (249).
+    // The wrap case (250 -> 10): both go UP through 255 (short way, +2).
     let wrap_rom = rom_achase8(&rom, a3, 250, 10);
     assert_eq!(wrap_rom, 252, "ROM chases angles the short way around");
-    assert_eq!(strat_chase8(250, 10, 1), 249, "port goes the long way");
-    // (small-delta cases coincide because both step ±1 there)
-    assert!(diverged >= 3, "port fixed-step should diverge on the large/wrap cases (got {diverged})");
+    assert_eq!(path_achase8(250, 10, 3), 252, "port takes the short way too");
+    // sf-strat's fixed-step primitive is a DIFFERENT routine (strat lane) and
+    // must not be confused with the path chase: it still walks the long way.
+    assert_eq!(strat_chase8(250, 10, 1), 249, "strat-lane fixed step unchanged");
+    assert_eq!(strat_chase(0, 1000, 1), 1, "strat-lane 16-bit fixed step unchanged");
 }
 
 // ===========================================================================
@@ -342,11 +344,12 @@ fn wait_goto_timing_parity() {
 // ===========================================================================
 // 3. P_ACCEL move-phase: when vel+rate lands EXACTLY on the target the ROM
 //    clamps and zeroes al_count1 (PATHS.ASM:2828-2834 .incit/.finish2); the
-//    port only zeroes count1 on overshoot, so it stays set forever.
+//    port mirrors the ROM branch structure (decel keeps its one-frame-late
+//    zeroing).
 // ===========================================================================
 
 #[test]
-fn accel_exact_hit_zeroes_count1_in_rom_not_in_port() {
+fn accel_exact_hit_zeroes_count1_in_rom_and_port() {
     let Some((rom, syms)) = setup() else {
         eprintln!("skip: no built ROM/symbols");
         return;
@@ -372,17 +375,13 @@ fn accel_exact_hit_zeroes_count1_in_rom_not_in_port() {
     }
     assert_eq!(rp.r8(AL_VEL), 40);
     assert_eq!(rp.r8(AL_COUNT1), 0, "ROM zeroes count1 once the target is hit exactly");
-    assert_eq!(
-        w.aliens[1].count1, 8,
-        "port bug: count1 sticks forever on an exact hit (keeps regenerating vectors)"
-    );
+    assert_eq!(w.aliens[1].count1, 0, "port zeroes count1 on the exact hit like the ROM");
 }
 
 // ===========================================================================
 // 4. Space-flight coupling (sflag4): ROM does roty += adiv2(adiv2(rotz)) —
 //    each halving rounds TOWARD ZERO, so rotz in -3..=3 contributes nothing
-//    and rotz=-5 contributes -1. The port does (rotz as i8) >> 2 (floor):
-//    rotz=-1 turns every frame.
+//    and rotz=-5 contributes -1. The port now divides toward zero too.
 // ===========================================================================
 
 #[test]
@@ -392,9 +391,9 @@ fn space_flight_negative_rotz_coupling() {
         return;
     };
     for (rotz, rom_expect, rust_expect) in [
-        (0xFFu8, 100u8, 96u8), // rotz=-1: ROM 0/frame, port -1/frame
-        (0xFB, 96, 92),        // rotz=-5: ROM -1/frame, port -2/frame
-        (0x05, 104, 104),      // rotz=+5: both +1/frame (parity check)
+        (0xFFu8, 100u8, 100u8), // rotz=-1: 0/frame (adiv2 toward zero)
+        (0xFB, 96, 96),         // rotz=-5: -1/frame
+        (0x05, 104, 104),       // rotz=+5: +1/frame
     ] {
         let program = prog(&[P_SPACESHIPON, P_WAIT, 200]);
         let mut rp = RomPath::new(&rom, &syms, &program);
@@ -416,14 +415,14 @@ fn space_flight_negative_rotz_coupling() {
             w.aliens[1].roty
         );
         assert_eq!(rp.r8(AL_ROTY), rom_expect, "ROM adiv2 (round-toward-zero) coupling");
-        assert_eq!(w.aliens[1].roty, rust_expect, "port >>2 (floor) coupling");
+        assert_eq!(w.aliens[1].roty, rust_expect, "port adiv2 (round-toward-zero) coupling");
     }
 }
 
 // ===========================================================================
 // 5. P_IFBETWEENB bounds: ROM branches only when val1 < var <= val2
 //    (PATHS.ASM:1606-1613 — `bpl .add6` on val1-var makes the LOWER bound
-//    exclusive). The port uses lo <= var <= hi (inclusive both ends).
+//    exclusive). The port now matches.
 // ===========================================================================
 
 #[test]
@@ -436,10 +435,10 @@ fn ifbetween_lower_bound_exclusive_in_rom() {
     let program = prog(&[P_IFBETWEENB, 0x23, 5, 10, 0x20, 0x00]);
 
     for (val, rom_expect, rust_expect) in [
-        (5u8, 6u16, 0x20u16), // == lower bound: ROM falls through, port jumps
-        (6, 0x20, 0x20),      // inside: parity
-        (10, 0x20, 0x20),     // == upper bound: both jump (inclusive)
-        (11, 6, 6),           // above: parity
+        (5u8, 6u16, 6u16), // == lower bound: exclusive, both fall through
+        (6, 0x20, 0x20),   // inside: jump
+        (10, 0x20, 0x20),  // == upper bound: inclusive, both jump
+        (11, 6, 6),        // above: fall through
     ] {
         let mut rp = RomPath::new(&rom, &syms, &program);
         rp.w8(AL_SBYTE2, val);
@@ -463,7 +462,7 @@ fn ifbetween_lower_bound_exclusive_in_rom() {
 // ===========================================================================
 // 6. P_CHILDDEAD on an object with NO mother: ROM falls through
 //    (PATHS.ASM:1813-1826 — objtobemother yields al_ptr==0 -> .cannaedojim2 ->
-//    .add4); the port treats "no mother" as "child dead" and JUMPS.
+//    .add4); the port now falls through too.
 // ===========================================================================
 
 #[test]
@@ -487,15 +486,15 @@ fn childdead_without_mother_falls_through_in_rom() {
         w.aliens[1].sword2 as u16
     );
     assert_eq!(rp.r16(AL_SWORD2), 4, "ROM: no mother -> fall through (no jump)");
-    assert_eq!(w.aliens[1].sword2 as u16, 0x20, "port: no mother -> jumps");
+    assert_eq!(w.aliens[1].sword2 as u16, 4, "port: no mother -> fall through");
 }
 
 // ===========================================================================
 // 7. P_SPAWN offsets: the ROM multiplies the x/y/z payload bytes by 4 after
 //    rotation (PATHS.ASM:1790 `s_add_Roffs2pos ...,2,2,2` — two ASLs;
-//    matching PATHMACS.ASM P_SPAWN which stores ({x})/4). The port adds the
-//    raw payload bytes, so every spawn offset is 4x too small — and catalog
-//    entries with |offset|>127 (tow_0's -200, e_aste_b's ±130) wrap the byte.
+//    matching PATHMACS.ASM P_SPAWN which stores ({x})/4). The port now stores
+//    coord/4 in the catalog and scales x4 after a Z,X,Y-order rotation; only
+//    the ROM's fixed-point trig wobble (a few units) remains.
 // ===========================================================================
 
 #[test]
@@ -541,12 +540,19 @@ fn spawn_offsets_scaled_by_4_in_rom() {
     println!("spawn offset y=-50: ROM child worldy={rom_y}  RUST child worldy={rust_y:?}");
     // rotate_8yx/yz/xz at angle 0 lose a little magnitude in fixed point
     // (observed -48 pre-scale), then the two ASLs (s_add_Roffs2pos ...,2,2,2)
-    // multiply by 4: observed -192 vs the port's raw -50.
+    // multiply by 4: observed -192. The port's float trig is exact at angle
+    // 0, so it lands on the full -200; the fixed-point wobble (<= ~2 units
+    // pre-scale, 8 post-scale) is the accepted tolerance.
     assert!(
         (-208..=-184).contains(&rom_y),
         "ROM spawns at ~payload*4 = -200 (fixed-point trig wobble), got {rom_y}"
     );
-    assert_eq!(rust_y, Some(-50), "port spawns at the raw payload offset");
+    assert_eq!(rust_y, Some(-200), "port spawns at payload*4 (exact float trig)");
+    let rust_y = rust_y.unwrap() as i32;
+    assert!(
+        (rom_y as i32 - rust_y).abs() <= 8,
+        "port within the fixed-point tolerance of the ROM ({rom_y} vs {rust_y})"
+    );
 }
 
 // ===========================================================================
@@ -716,38 +722,33 @@ fn path_data_matches_rom_blob() {
     }
 
     // Locked-in finding: tow_0's P_SPAWN(link) y-offset. ROM stores -200/4 =
-    // -50 (0xCE) and multiplies by 4 at runtime; the Rust catalog stores
-    // path_i8(-200) = 0x38 (+56) and the interpreter adds it raw.
+    // -50 (0xCE) and multiplies by 4 at runtime; the Rust catalog now stores
+    // the same coord/4 byte and the interpreter scales x4 after rotation.
+    // (tow_0 contains a P_START65816 blob — variable-length machine code on
+    // the ROM side — so locate the spawn op with a raw byte scan keyed on the
+    // hp/ap payload rather than an opcode walk.)
     let tow0 = syms.get("PATH_TOW_0") as usize;
     let rust_tow0 = catalog.offsets[PATH_ID_TOW_0 as usize] as usize;
-    if rust_tow0 != 0xFFFF {
-        // find the spawnlink op in each
-        let find_spawn = |blob: &[u8], mut p: usize| -> Option<usize> {
-            for _ in 0..64 {
-                let op = blob[p];
-                if op == P_SPAWNLINK || op == P_SPAWN {
-                    return Some(p);
-                }
-                let (len, _) = op_shape(op)?;
-                if is_terminal(op) {
-                    return None;
-                }
-                p += len;
-            }
-            None
-        };
-        let rs = find_spawn(rom_blob, tow0);
-        let us = find_spawn(&catalog.data, rust_tow0);
-        if let (Some(rs), Some(us)) = (rs, us) {
-            let rom_y = rom_blob[rs + 11] as i8;
-            let rust_y = catalog.data[us + 11] as i8;
-            println!(
-                "tow_0 spawnlink y payload: ROM {rom_y} (runtime {}), RUST {rust_y} (runtime {rust_y})",
-                rom_y as i32 * 4
-            );
-            assert_eq!(rom_y as i32 * 4, -200, "ROM: byte*4 = -200 (DPATHDAT.ASM:248)");
-            assert_eq!(rust_y, 0x38u8 as i8, "port: path_i8(-200) wrapped to +56");
-        }
-    }
+    assert_ne!(rust_tow0, 0xFFFF, "tow_0 must be in the Rust catalog");
+    let find_spawn = |blob: &[u8], start: usize| -> Option<usize> {
+        (start..start + 0x40).find(|&p| {
+            (blob[p] == P_SPAWNLINK || blob[p] == P_SPAWN)
+                && blob[p + 8] == 10
+                && blob[p + 9] == 10
+        })
+    };
+    let rs = find_spawn(rom_blob, tow0).expect("tow_0 spawnlink in ROM blob");
+    let us = find_spawn(&catalog.data, rust_tow0).expect("tow_0 spawnlink in Rust catalog");
+    let rom_y = rom_blob[rs + 11] as i8;
+    let rust_y = catalog.data[us + 11] as i8;
+    println!(
+        "tow_0 spawnlink y payload: ROM {rom_y} (runtime {}), RUST {rust_y} (runtime {})",
+        rom_y as i32 * 4,
+        rust_y as i32 * 4
+    );
+    assert_eq!(rom_y as i32 * 4, -200, "ROM: byte*4 = -200 (DPATHDAT.ASM:248)");
+    assert_eq!(rust_y, rom_y, "port stores the same coord/4 payload byte as the ROM");
+
     println!("total non-address operand mismatches: {total_mismatch}");
+    assert_eq!(total_mismatch, 0, "catalog bytes match the ROM blob on all walked paths");
 }

@@ -169,9 +169,11 @@ impl PathLiteralBuilder {
             return;
         }
         if offset == PAL_WORLDX as u8 || offset == PAL_WORLDY as u8 || offset == PAL_WORLDZ as u8 {
-            self.emit8(P_ADDWS);
-            self.emit8(offset);
-            self.emit8(value as i8 as u8);
+            // ROM P_ADD (PATHMACS.ASM:304): word alvars whose value does not
+            // fit `(num+128)&$ffffff00 == 0` (i.e. outside -128..=127) get
+            // p_addw + dw, never a truncated byte form. The in-range world
+            // cases were handled above, so this is the wide fallback.
+            self.emit_addw(offset as i32, value as i32);
             return;
         }
         self.emit8(P_ADDB);
@@ -207,9 +209,16 @@ impl PathLiteralBuilder {
     }
 
     /// C `pb_emit_set` — byte slots get P_SETB, word slots P_SETW.
+    /// ROM P_SET (PATHMACS.ASM:304 region) collapses a literal 0 to P_ZERO
+    /// (p_set0b/p_set0w), so value 0 routes through `emit_zero` for byte
+    /// parity with the assembled blob.
     pub fn emit_set(&mut self, offset: impl Into<i32>, value: impl Into<i32>) {
         let offset = offset.into() as u8;
         let value = value.into() as i16;
+        if value == 0 {
+            self.emit_zero(offset as i32);
+            return;
+        }
         if Self::is_byte_offset(offset) {
             self.emit8(P_SETB);
             self.emit8(value as u8);
@@ -229,28 +238,43 @@ impl PathLiteralBuilder {
     }
 
     /// C `pb_emit_ifsameb`.
+    /// ROM P_IFSAME (PATHMACS.ASM) collapses a literal 0 to P_IFZERO
+    /// (p_ifzerob) for byte parity with the assembled blob.
     pub fn emit_ifsameb(
         &mut self,
         offset: impl Into<i32>,
         value: impl Into<i32>,
         label: &'static str,
     ) {
+        let value = value.into();
+        if value as u8 == 0 {
+            self.emit_ifzerob(offset, label);
+            return;
+        }
         self.emit8(P_IFSAMEB);
         self.emit8(offset.into() as u8);
-        self.emit8(value.into() as u8);
+        self.emit8(value as u8);
         self.fixup16(label);
     }
 
     /// C `pb_emit_ifsamew`.
+    /// ROM P_IFSAME collapses a literal 0 to P_IFZERO (p_ifzerow).
     pub fn emit_ifsamew(
         &mut self,
         offset: impl Into<i32>,
         value: impl Into<i32>,
         label: &'static str,
     ) {
+        let value = value.into();
+        if value as u16 == 0 {
+            self.emit8(P_IFZEROW);
+            self.emit8(offset.into() as u8);
+            self.fixup16(label);
+            return;
+        }
         self.emit8(P_IFSAMEW);
         self.emit8(offset.into() as u8);
-        self.emit16(value.into() as u16 as i32);
+        self.emit16(value as u16 as i32);
         self.fixup16(label);
     }
 
@@ -579,11 +603,22 @@ impl PathLiteralBuilder {
         self.emit8(rotz);
         self.emit8(hp);
         self.emit8(ap);
-        self.emit8(x);
-        self.emit8(y);
-        self.emit8(z);
+        let (x, y, z) = (x.into(), y.into(), z.into());
         if opcode == P_SPAWNCHILD {
+            // Child offsets stay raw payload bytes: the port's child
+            // transform (mother rotpos) adds them unscaled.
+            self.emit8(x);
+            self.emit8(y);
+            self.emit8(z);
             self.emit8(child_num);
+        } else {
+            // ROM P_SPAWN macro stores ({coord})/4 (PATHMACS.ASM:1167); the
+            // runtime scales x4 after rotation (PATHS.ASM:1790). Callers pass
+            // the full coordinate; /4 truncates toward zero like the
+            // assembler's division.
+            self.emit8(x / 4);
+            self.emit8(y / 4);
+            self.emit8(z / 4);
         }
     }
 
@@ -604,9 +639,12 @@ impl PathLiteralBuilder {
     ) {
         self.emit_spawn(
             P_SPAWNLINK,
-            x.into() as i8,
-            y.into() as i8,
-            z.into() as i8,
+            // Full coordinates pass through — emit_spawn stores coord/4 and
+            // pre-truncating to i8 here would wrap out-of-range coords
+            // (tow_0 -200, septer -300) before the division.
+            x.into(),
+            y.into(),
+            z.into(),
             rotx.into() as i8,
             roty.into() as i8,
             rotz.into() as i8,

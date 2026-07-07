@@ -9,6 +9,15 @@
 //! This test replays the identical scenarios through the Rust interpreter
 //! with a recording [`PathHost`] whose stub behavior matches the C harness
 //! stubs 1:1, and asserts the produced trace text is byte-identical.
+//!
+//! The Rust interpreter has since diverged from the C oracle ON PURPOSE where
+//! the 65816 oracle proved C wrong vs the ROM (proportional ROM achase
+//! curves, P_ADDW world adds, P_SPAWN coord/4 + x4, accel exact-hit zeroing,
+//! adiv2 space-flight coupling, P_IFBETWEEN exclusive lower bound,
+//! P_CHILDDEAD fallthrough, p_sound2 data — see
+//! sf-oracle/tests/audit_path.rs). The pi_*.txt fixtures are now a snapshot
+//! of the ROM-corrected Rust output; re-bless with SF_BLESS_FIXTURES=1 after
+//! intentional behavior changes.
 
 use sf_path::alien::{Alien, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF4_NOPOLYEXP,
     ASF_COLLDISABLE, ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL};
@@ -617,9 +626,14 @@ fn interp_trace_parity() {
             env!("CARGO_MANIFEST_DIR"),
             sc.name
         );
+        let actual = run_scenario(sc);
+        if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
+            std::fs::write(&fixture_path, &actual)
+                .unwrap_or_else(|e| panic!("bless {fixture_path}: {e}"));
+            continue;
+        }
         let expected = std::fs::read_to_string(&fixture_path)
             .unwrap_or_else(|e| panic!("read {fixture_path}: {e}"));
-        let actual = run_scenario(sc);
 
         if actual != expected {
             // Report the first diverging line for debugging.

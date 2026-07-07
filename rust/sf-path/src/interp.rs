@@ -763,6 +763,52 @@ fn path_fire_at_target<H: PathHost>(
     world.aliens[shot as usize].ptr = target as u16;
 }
 
+/// ROM `adiv2` (STRATMAC.INC:712) applied `rate` times with the
+/// `nolessrange -(1<<rate),(1<<rate)` prologue — the proportional ease-out
+/// chase core of `Achase_var2A` (STRATMAC.INC:525) / `sr8_achase_alvarN`
+/// (STRATROU.ASM:2740).
+///
+/// delta = target - cur as a SIGNED difference (8-bit for the byte form, so
+/// angle chases wrap the short way around the circle); |delta| is raised to
+/// at least 2^rate, then halved toward zero `rate` times (minimum step ±1);
+/// cur += delta. Equal-at-entry leaves cur untouched (the WAIT variants key
+/// their "finished" test off that entry equality, not off reaching the
+/// target after the step).
+fn achase_delta(mut d: i32, rate: u32) -> i32 {
+    let lim = 1i32 << rate;
+    if d >= 0 && d < lim {
+        d = lim;
+    }
+    if d < 0 && d > -lim {
+        d = -lim;
+    }
+    for _ in 0..rate {
+        d = if d >= 0 { d >> 1 } else { -((-d) >> 1) }; // adiv2: toward zero
+    }
+    d
+}
+
+/// ROM `sr8_achase_alvar<rate>` — 8-bit proportional chase (see
+/// [`achase_delta`]). Public so the oracle audit can diff it against the ROM
+/// routines directly.
+pub fn path_achase8(cur: u8, target: u8, rate: u32) -> u8 {
+    if cur == target {
+        return cur;
+    }
+    let d = achase_delta(target.wrapping_sub(cur) as i8 as i32, rate);
+    cur.wrapping_add(d as u8)
+}
+
+/// ROM `sr16_achase_alvar<rate>` — 16-bit proportional chase (see
+/// [`achase_delta`]).
+pub fn path_achase16(cur: i16, target: i16, rate: u32) -> i16 {
+    if cur == target {
+        return cur;
+    }
+    let d = achase_delta(target.wrapping_sub(cur) as i32, rate);
+    cur.wrapping_add(d as i16)
+}
+
 /// C `path_obj_index_or_null` — every index is in range in this port.
 fn path_obj_index_or_null(idx: usize) -> u16 {
     idx as u16
@@ -1018,8 +1064,22 @@ fn path_switch_context_by_ptr(world: &PathWorld, self_idx: &mut usize, ptr: u16)
     path_switch_context_to(world, self_idx, target)
 }
 
-/// C `path_add_rotated_offset`.
-fn path_add_rotated_offset(world: &mut PathWorld, dst: usize, src: usize, ox: i8, oy: i8, oz: i8) {
+/// C `path_add_rotated_offset` — ROM `s_add_Roffs2pos` (STRATMAC.INC:4098):
+/// rotate the offset by the source rots in Z, X, Y order (rotate_8yx,
+/// rotate_8yz, rotate_8xz), then shift each component left `scale_shift`
+/// times before adding to the position (PATHS.ASM:1790 passes 2,2,2 for the
+/// spawn opcodes — a x4 scale on the stored coord/4 payload bytes). Trig is
+/// float here; the ROM's fixed-point tables lose a few units of magnitude,
+/// which the oracle audit tolerates.
+fn path_add_rotated_offset(
+    world: &mut PathWorld,
+    dst: usize,
+    src: usize,
+    ox: i8,
+    oy: i8,
+    oz: i8,
+    scale_shift: u32,
+) {
     let (srotx, sroty, srotz) = {
         let s = &world.aliens[src];
         (s.rotx, s.roty, s.rotz)
@@ -1038,25 +1098,25 @@ fn path_add_rotated_offset(world: &mut PathWorld, dst: usize, src: usize, ox: i8
     let (cy, sy) = (cosf(ry), sinf(ry));
     let (cz, sz) = (cosf(rz), sinf(rz));
 
-    // X rotation
-    let y1 = (y * cx) - (z * sx);
-    let z1 = (y * sx) + (z * cx);
-    let x1 = x;
+    // Z rotation (ROM rotate_8yx)
+    let x1 = (x * cz) - (y * sz);
+    let y1 = (x * sz) + (y * cz);
+    let z1 = z;
 
-    // Y rotation
-    let x2 = (x1 * cy) + (z1 * sy);
-    let z2 = (-x1 * sy) + (z1 * cy);
-    let y2 = y1;
+    // X rotation (ROM rotate_8yz)
+    let y2 = (y1 * cx) - (z1 * sx);
+    let z2 = (y1 * sx) + (z1 * cx);
+    let x2 = x1;
 
-    // Z rotation
-    let x3 = (x2 * cz) - (y2 * sz);
-    let y3 = (x2 * sz) + (y2 * cz);
-    let z3 = z2;
+    // Y rotation (ROM rotate_8xz)
+    let x3 = (x2 * cy) + (z2 * sy);
+    let z3 = (-x2 * sy) + (z2 * cy);
+    let y3 = y2;
 
     let d = &mut world.aliens[dst];
-    d.worldx = (d.worldx as i32 + (lroundf(x3) as i16) as i32) as i16;
-    d.worldy = (d.worldy as i32 + (lroundf(y3) as i16) as i32) as i16;
-    d.worldz = (d.worldz as i32 + (lroundf(z3) as i16) as i32) as i16;
+    d.worldx = d.worldx.wrapping_add((lroundf(x3) as i16) << scale_shift);
+    d.worldy = d.worldy.wrapping_add((lroundf(y3) as i16) << scale_shift);
+    d.worldz = d.worldz.wrapping_add((lroundf(z3) as i16) << scale_shift);
 }
 
 /// C `path_trigger_condition`.
@@ -1612,8 +1672,9 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     let target_yaw = host.angle_xz(&world.aliens[si], &world.aliens[pi]);
                     let target_pitch = path_pitch_toward(&world.aliens[si], &world.aliens[pi]);
                     let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                    world.aliens[si].roty = host.chase8(roty, target_yaw, 2);
-                    world.aliens[si].rotx = host.chase8(rotx, target_pitch, 2);
+                    // ROM s_obj2obj_3dangle rate 2 (PATHS.ASM:573), proportional.
+                    world.aliens[si].roty = path_achase8(roty, target_yaw, 2);
+                    world.aliens[si].rotx = path_achase8(rotx, target_pitch, 2);
                 }
                 advance = 1;
             }
@@ -1715,9 +1776,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target_yaw = host.angle_xz(&world.aliens[si], &world.aliens[obj]);
                 let target_pitch = path_pitch_toward(&world.aliens[si], &world.aliens[obj]);
                 let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                world.aliens[si].roty = host.chase8(roty, target_yaw, 3);
-                world.aliens[si].rotx = host.chase8(rotx, target_pitch, 3);
-                if world.aliens[si].roty != target_yaw || world.aliens[si].rotx != target_pitch {
+                // ROM s_obj2obj_3dangle rate 3 (PATHS.ASM:1000); finishes only
+                // when both angles were already equal AT ENTRY.
+                let done = roty == target_yaw && rotx == target_pitch;
+                world.aliens[si].roty = path_achase8(roty, target_yaw, 3);
+                world.aliens[si].rotx = path_achase8(rotx, target_pitch, 3);
+                if !done {
                     world.aliens[si].sword2 = ip as i16;
                     break 'dispatch;
                 }
@@ -1788,8 +1852,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 }
 
                 let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                world.aliens[si].roty = host.chase8(roty, target_yaw, 2);
-                world.aliens[si].rotx = host.chase8(rotx, target_pitch, 2);
+                // ROM s_goto_WP angle chase rate 2 (PATHS.ASM:1091 via
+                // s_obj2WP_angle -> Achase_alvar2a), proportional.
+                world.aliens[si].roty = path_achase8(roty, target_yaw, 2);
+                world.aliens[si].rotx = path_achase8(rotx, target_pitch, 2);
                 world.aliens[si].vel = speed;
                 path_genvecs(host, &mut world.aliens[si]);
                 host.apply_velocity(&mut world.aliens[si]);
@@ -1909,7 +1975,9 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].worldx = wx;
                     world.aliens[na].worldy = wy;
                     world.aliens[na].worldz = wz;
-                    path_add_rotated_offset(world, na, si, off_x, off_y, off_z);
+                    // ROM stores coord/4 in the P_SPAWN payload (PATHMACS.ASM:1167)
+                    // and scales x4 after rotation (PATHS.ASM:1790).
+                    path_add_rotated_offset(world, na, si, off_x, off_y, off_z, 2);
                     world.aliens[na].rotx = srotx.wrapping_add(rotx_off as u8);
                     world.aliens[na].roty = sroty.wrapping_add(roty_off as u8);
                     world.aliens[na].rotz = srotz.wrapping_add(rotz_off as u8);
@@ -1968,7 +2036,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].worldx = mwx;
                     world.aliens[na].worldy = mwy;
                     world.aliens[na].worldz = mwz;
-                    path_add_rotated_offset(world, na, mother, off_x, off_y, off_z);
+                    path_add_rotated_offset(world, na, mother, off_x, off_y, off_z, 0);
                     world.aliens[na].rotx = mrotx.wrapping_add(rotx);
                     world.aliens[na].roty = mroty.wrapping_add(roty);
                     world.aliens[na].rotz = mrotz.wrapping_add(rotz);
@@ -1982,8 +2050,11 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             P_CHILDDEAD => {
                 let child_num = world.pread8(ip, 1);
                 let target = world.pread16(ip, 2);
+                // ROM .childdead (PATHS.ASM:1813-1828): with NO mother
+                // (objtobemother yields al_ptr==0 -> .cannaedojim2) it falls
+                // through — it does NOT treat "no mother" as "child dead".
                 let mother = path_get_mother_obj(world, si);
-                let mut take = true;
+                let mut take = false;
                 if let Some(m) = mother {
                     take = path_find_child_obj(world, m, child_num).is_none();
                 }
@@ -2293,7 +2364,8 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread8(ip, 1);
                 let offset = world.pread8(ip, 2);
                 if let Some(cur) = alien_compat::path_read8(&world.aliens[si], offset) {
-                    let cur = host.chase8(cur, target, 1);
+                    // ROM .achaseB: s_achase_var rate 3 (PATHS.ASM:680).
+                    let cur = path_achase8(cur, target, 3);
                     alien_compat::path_write8(&mut world.aliens[si], offset, cur);
                 }
                 advance = 3;
@@ -2462,11 +2534,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     let target_yaw = host.angle_xz(&world.aliens[si], &world.aliens[pi]);
                     let target_pitch = path_pitch_toward(&world.aliens[si], &world.aliens[pi]);
                     let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                    world.aliens[si].roty = host.chase8(roty, target_yaw, 3);
-                    world.aliens[si].rotx = host.chase8(rotx, target_pitch, 3);
-                    if world.aliens[si].roty != target_yaw
-                        || world.aliens[si].rotx != target_pitch
-                    {
+                    // ROM s_obj2obj_3dangle rate 3 (PATHS.ASM:567); finishes
+                    // only when both angles were already equal AT ENTRY.
+                    let done = roty == target_yaw && rotx == target_pitch;
+                    world.aliens[si].roty = path_achase8(roty, target_yaw, 3);
+                    world.aliens[si].rotx = path_achase8(rotx, target_pitch, 3);
+                    if !done {
                         world.aliens[si].sword2 = ip as i16;
                         break 'dispatch;
                     }
@@ -2481,7 +2554,8 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread16s(ip, 1);
                 let offset = world.pread8(ip, 3);
                 if let Some(cur_u) = alien_compat::path_read16(&world.aliens[si], offset) {
-                    let next = host.chase16(cur_u as i16, target, 1);
+                    // ROM .achaseW: s_achase_var rate 3 (PATHS.ASM:700).
+                    let next = path_achase16(cur_u as i16, target, 3);
                     alien_compat::path_write16(&mut world.aliens[si], offset, next as u16);
                 }
                 advance = 4;
@@ -2491,9 +2565,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread8(ip, 1);
                 let offset = world.pread8(ip, 2);
                 if let Some(cur) = alien_compat::path_read8(&world.aliens[si], offset) {
-                    let next = host.chase8(cur, target, 1);
-                    alien_compat::path_write8(&mut world.aliens[si], offset, next);
-                    if next != target {
+                    // ROM .waitachaseB: rate 3 (PATHS.ASM:717); the finish
+                    // branch fires only when cur == target AT ENTRY (one
+                    // frame later than reached-after-step).
+                    if cur != target {
+                        let next = path_achase8(cur, target, 3);
+                        alien_compat::path_write8(&mut world.aliens[si], offset, next);
                         world.aliens[si].sword2 = ip as i16;
                         break 'dispatch;
                     }
@@ -2505,9 +2582,11 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread16s(ip, 1);
                 let offset = world.pread8(ip, 3);
                 if let Some(cur_u) = alien_compat::path_read16(&world.aliens[si], offset) {
-                    let next = host.chase16(cur_u as i16, target, 1);
-                    alien_compat::path_write16(&mut world.aliens[si], offset, next as u16);
-                    if next != target {
+                    // ROM .waitachaseW: rate 3 (PATHS.ASM:741); finishes only
+                    // when already equal at entry.
+                    if cur_u as i16 != target {
+                        let next = path_achase16(cur_u as i16, target, 3);
+                        alien_compat::path_write16(&mut world.aliens[si], offset, next as u16);
                         world.aliens[si].sword2 = ip as i16;
                         break 'dispatch;
                     }
@@ -2793,10 +2872,14 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let lo = world.pread8s(ip, 2);
                 let hi = world.pread8s(ip, 3);
                 let target = world.pread16(ip, 4);
+                // ROM .ifbetweenb (PATHS.ASM:1606-1613): `bpl .add6` on
+                // (val1 - var) makes the LOWER bound EXCLUSIVE; the upper
+                // stays inclusive. Both compares are signed 8-bit wrapped
+                // differences.
                 let mut take = match alien_compat::path_read8(&world.aliens[si], offset) {
                     Some(cur_u) => {
-                        let cur = cur_u as i8;
-                        cur >= lo && cur <= hi
+                        ((lo as u8).wrapping_sub(cur_u) as i8) < 0
+                            && ((hi as u8).wrapping_sub(cur_u) as i8) >= 0
                     }
                     None => false,
                 };
@@ -2817,10 +2900,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let lo = world.pread16s(ip, 2);
                 let hi = world.pread16s(ip, 4);
                 let target = world.pread16(ip, 6);
+                // ROM .ifbetweenw: same as .ifbetweenb with 16-bit compares —
+                // lower bound exclusive, upper inclusive.
                 let mut take = match alien_compat::path_read16(&world.aliens[si], offset) {
                     Some(cur_u) => {
-                        let cur = cur_u as i16;
-                        cur >= lo && cur <= hi
+                        ((lo as u16).wrapping_sub(cur_u) as i16) < 0
+                            && ((hi as u16).wrapping_sub(cur_u) as i16) >= 0
                     }
                     None => false,
                 };
@@ -3170,23 +3255,30 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
     // Applied every frame after opcode dispatch.
     // ============================================================
 
-    // 1. Acceleration: chase vel toward count (target) at count1 (rate)
+    // 1. Acceleration: chase vel toward count (target) at count1 (rate).
+    // ROM .move (PATHS.ASM:2816-2837): all compares are signed 8-bit
+    // differences (bmi/bpl after cmp). On increase, landing AT OR ABOVE the
+    // target clamps and zeroes count1 (exact hit included, .incit/.finish2);
+    // on decrease an exact hit stores vel==count but keeps count1 — it is
+    // zeroed one frame later when the equal-vel pass overshoots.
     if world.aliens[si].count1 != 0 {
         {
             let al = &mut world.aliens[si];
-            if al.vel < al.count {
-                al.vel = al.vel.wrapping_add(al.count1);
-                if al.vel > al.count {
-                    al.vel = al.count;
+            if (al.vel.wrapping_sub(al.count) as i8) < 0 {
+                // .incit
+                let next = al.vel.wrapping_add(al.count1);
+                if (next.wrapping_sub(al.count) as i8) < 0 {
+                    al.vel = next; // .finish
+                } else {
+                    al.vel = al.count; // .finish2
                     al.count1 = 0;
                 }
-            } else if al.vel > al.count {
-                if al.vel - al.count < al.count1 {
-                    al.vel = al.count;
+            } else {
+                let next = al.vel.wrapping_sub(al.count1);
+                if (next.wrapping_sub(al.count) as i8) >= 0 {
+                    al.vel = next; // .finish
                 } else {
-                    al.vel -= al.count1;
-                }
-                if al.vel == al.count {
+                    al.vel = al.count; // .finish2
                     al.count1 = 0;
                 }
             }
@@ -3196,11 +3288,14 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
         }
     }
 
-    // 2. Space flight coupling (sflag4): roty += rotz / 4
+    // 2. Space flight coupling (sflag4): roty += adiv2(adiv2(rotz)) — each
+    // halving rounds TOWARD ZERO (PATHS.ASM:2845, STRATMAC.INC:712), so rotz
+    // in -3..=3 contributes nothing. Rust `/` truncates toward zero, and two
+    // toward-zero halvings equal one toward-zero /4.
     if world.aliens[si].sflags2 & PSFLAG4_SPACE != 0 {
         let al = &mut world.aliens[si];
         let rotz = al.rotz as i8;
-        al.roty = al.roty.wrapping_add((rotz >> 2) as u8);
+        al.roty = al.roty.wrapping_add((rotz / 4) as u8);
     }
 
     // 3. Helicopter mode (sflag3): vel = rotx
@@ -3261,7 +3356,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     let c = &world.aliens[child];
                     (c.childx as i8, c.childy as i8, c.childz as i8)
                 };
-                path_add_rotated_offset(world, child, si, cx, cy, cz);
+                path_add_rotated_offset(world, child, si, cx, cy, cz, 0);
                 let c = &mut world.aliens[child];
                 c.rotx = rx.wrapping_add(c.childrotx);
                 c.roty = ry.wrapping_add(c.childroty);

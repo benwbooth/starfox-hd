@@ -820,7 +820,9 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.fixup16("friend_inib");
     b.emit8(P_ZREMOVEON);
     b.emit8(P_SPACESHIPOFF);
-    b.emit_soundeffect(1);
+    // ASM macro P_SOUND emits p_sound2 (attached al_snd2), not the one-shot
+    // p_sound — ROM e_falcon+7 is 77 01.
+    b.emit_sound2(1);
     b.label("pe_falcon.fit_start");
     b.emit_setvel(30);
     b.emit_distless(2000, "pe_falcon.fit");
@@ -1058,7 +1060,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     // DPATHDAT uses `tow_1` for the child shape here, but raw path-only shape
     // symbols still lack canonical flat ids. Keep the existing shape proxy and
     // fix the literal child offsets.
-    b.emit_spawn_link(0, path_i8(-200), 5, 0, 0, 0, SH_TOW_0, PATH_ID_TOW_1, 10, 10);
+    b.emit_spawn_link(0, -200, 5, 0, 0, 0, SH_TOW_0, PATH_ID_TOW_1, 10, 10);
     b.emit_trigger("tow_0.explode", PATH_TRIGGER_WHENDEAD_VALUE);
     b.emit8(P_END);
     b.label("tow_0.explode");
@@ -1919,7 +1921,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("egu6_ifal.e6i_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, path_i8(-300), 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_RAB, 100, 1);
+    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_RAB, 100, 1);
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "egu6_ifal.e6i_tim");
 
@@ -1930,7 +1932,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("egu6_ifal.e6i_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, path_i8(-300), 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FRO, 100, 1);
+    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FRO, 100, 1);
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "egu6_ifal.e6i_tim");
 
@@ -1941,7 +1943,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("egu6_ifal.e6i_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, path_i8(-300), 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FAL, 100, 1);
+    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FAL, 100, 1);
     b.emit_add(PAL_WORLDZ, 1500);
 
     b.label("egu6_ifal.e6i_tim");
@@ -4126,8 +4128,8 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_goto(P_RANDOMGOTO, "patrol.patr_ran");
     b.emit_trigger("pspiralexplode", PATH_TRIGGER_WHENDEAD_VALUE);
     b.label("patrol.patr_ran");
-    b.emit8(P_SOUND);
-    b.emit8(3);
+    // ASM P_SOUND macro -> p_sound2 (attached), not the one-shot p_sound.
+    b.emit_sound2(3);
     b.emit_setb(PAL_HP, 2);
     b.emit_setb(PAL_AP, 8);
     b.emit8(P_RIGHTOFPLAYER);
@@ -4184,7 +4186,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("patret_ifal.inter_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, path_i8(-300), 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_RAB, 100, 1);
+    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_RAB, 100, 1);
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "patret_ifal.inter_tim");
 
@@ -4194,7 +4196,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("patret_ifal.inter_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, path_i8(-300), 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FRO, 100, 1);
+    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FRO, 100, 1);
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "patret_ifal.inter_tim");
 
@@ -4204,7 +4206,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("patret_ifal.inter_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, path_i8(-300), 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FAL, 100, 1);
+    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FAL, 100, 1);
     b.emit_add(PAL_WORLDZ, 1500);
 
     b.label("patret_ifal.inter_tim");
@@ -4230,8 +4232,8 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_setb(PAL_PBYTE1, 0);
     b.emit_exportb(PAL_PBYTE1, PATH_EXT_EBYTE2);
     b.emit_iflevel(1, "patret_ifal.patfal_jp");
-    b.emit8(P_SOUND);
-    b.emit8(3);
+    // ASM P_SOUND macro -> p_sound2 (attached), not the one-shot p_sound.
+    b.emit_sound2(3);
     b.label("patret_ifal.patfal_jp");
     b.emit_setb(PAL_HP, 2);
     b.emit_setb(PAL_AP, 8);
