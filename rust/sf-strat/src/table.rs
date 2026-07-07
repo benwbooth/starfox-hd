@@ -211,6 +211,10 @@ pub fn register_all(g: &mut Game) {
     // BOSS8/launcher/pillar 0x060014/15/16).
     enemy_b::register(&mut g.world);
     bosses::register(&mut g.world);
+    // Mother system (ASM/MOTHER.ASM + D2STRATS mother1/2 + the MOTHERS.ASM
+    // child strategies): registers STRAT_ADDR_MOTHER1/2 and the
+    // meteor/slowmeteor/searchmeteor/clasteroid child strats.
+    crate::mother::register(g);
 
     // ---- Address map (C Strat_RegisterAddressMap, strat_table.c:104) ----
     // Flat-id + synthetic `0x02:xxxx` forms for every non-null istrat...

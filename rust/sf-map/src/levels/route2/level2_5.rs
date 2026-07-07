@@ -52,7 +52,7 @@ pub fn build() -> Route2Level {
     b.pathobj(2500, -100, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
 
     // Lines 26-32: mapmother + cspecial uper_m group + maprem
-    b.mapmother(1000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(1000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_uperm);
     b.cspecial(1000, 0, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, 100, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, -100, 2000, 3000, SH_UPER_M, IS_UPERM);
@@ -144,7 +144,7 @@ pub fn build() -> Route2Level {
     b.pathcspecial(8000, 300, 2200, 2300, SH_BZACO_8, PATH_ID_EGU5, 10, 10);
 
     // Lines 95-99: mapmother + cspecial uper_m group (second mother)
-    b.mapmother(1000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(1000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_uperm);
     b.cspecial(1000, 100, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, -100, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, 200, 2000, 3000, SH_UPER_M, IS_UPERM);

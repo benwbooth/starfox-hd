@@ -11,6 +11,7 @@ use crate::builder::MapBuilder;
 
 pub(crate) fn build() -> Route3Level {
     let mut b = MapBuilder::new();
+    let mm = crate::mothers::mother_maps();
 
     // MAP3_6.ASM wrapper: space level, mapjsr map3_6, mapjsr cl_dive, mapend.
     b.mapjsr("level3_6.map3_6");
@@ -32,7 +33,7 @@ pub(crate) fn build() -> Route3Level {
     b.cspecial(2000, 100, SPACE_VIEWCY + 100, 4000, SH_BIG_M, IS_MISSPOD);
 
     // Lines 13-20: zacos — mapmother mine2 + shark call_fol paths + bzaco_8 + maprem
-    b.mapmother(6000, 0, 1035 + SPACE_VIEWCY, 1800, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(6000, 0, 1035 + SPACE_VIEWCY, 1800, SH_MOTHER1, STRAT_ADDR_MOTHER2, mm.map_mine2);
     b.pathcspecial(2000, 1000, -700, 2000, SH_SHARK, PATH_ID_CALL_FOL, 10, 10);
     b.pathcspecial(2000, -1000, -700, 2000, SH_SHARK, PATH_ID_CALL_FOL, 10, 10);
     b.pathcspecial(2000, 1000, -700, 2000, SH_SHARK, PATH_ID_CALL_FOL, 10, 10);
@@ -52,7 +53,7 @@ pub(crate) fn build() -> Route3Level {
 
     // Lines 33-43: mapmother + friend chase3 + spacepilon + uper_m group + maprem
     b.mapwait(2000);
-    b.mapmother(9000, 0, 1035 + SPACE_VIEWCY, 1800, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(9000, 0, 1035 + SPACE_VIEWCY, 1800, SH_MOTHER1, STRAT_ADDR_MOTHER2, mm.map_mine2);
     b.pathobj(0, 0, 400, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE3_1, 200, 10);
     b.pathobj(2000, 0, 400, 0, SH_ZACO_B, PATH_ID_CHASE3_2, 10, 10);
     b.mapobj(2000, 200, -200, 2000, SH_SPACEPILON, STRAT_ADDR_SPACEPILON);
@@ -62,7 +63,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapremove(SH_MOTHER1);
 
     // Lines 47-55: mothers + windmill
-    b.mapmother(5000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(5000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, mm.map_uperm);
     b.mapremove(SH_MOTHER1);
     // windmill
     b.special(0, 0, 0, 4000, SH_ROUND_0, IS_WINDMILL);
@@ -70,7 +71,7 @@ pub(crate) fn build() -> Route3Level {
     b.setalvarw(AL_SWORD1, 1);
 
     // Lines 54-56: mapmother mine2 + maprem + asteroid cspecial
-    b.mapmother(6000, 0, 1035 + SPACE_VIEWCY, 1800, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(6000, 0, 1035 + SPACE_VIEWCY, 1800, SH_MOTHER1, STRAT_ADDR_MOTHER2, mm.map_mine2);
     b.mapremove(SH_MOTHER1);
     b.cspecial(3000, 0, SPACE_VIEWCY, 4000, SH_ASTEROID1_PROXY, IS_MISSPOD);
 
@@ -106,7 +107,7 @@ pub(crate) fn build() -> Route3Level {
     b.pathobj(2000, 3000, 0, 1000, SH_NULLSHAPE, PATH_ID_E_GATE, 10, 10);
 
     // Lines 85-89: warp section + mapmother
-    b.mapmother(2000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(2000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, mm.map_uperm);
     b.cspecial(2000, 0, 0, 1500, SH_WARP_PROXY, STRAT_ADDR_WARP);
     b.special(2000, 0, 0, 1500, SH_WARP_PROXY, STRAT_ADDR_WARP);
     b.cspecial(4000, 0, 0, 1500, SH_WARP_PROXY, STRAT_ADDR_WARP);
@@ -120,7 +121,7 @@ pub(crate) fn build() -> Route3Level {
     b.skillfly_init();
     b.skillfly_set(0, SPACE_VIEWCY, 4000, 100);
     b.pathcspecial(0, 0, 0, 4000, SH_B_HOU_0, PATH_ID_DAMYSCR, 2, 4);
-    b.mapmother(4000, 0, 1035 + SPACE_VIEWCY, 1500, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(4000, 0, 1035 + SPACE_VIEWCY, 1500, SH_MOTHER1, STRAT_ADDR_MOTHER2, mm.map_mine2);
     // skillfly_bonus — reuse bonus0 guard (already consumed, so just mapobj)
     b.mapobj(4000, 0, SPACE_VIEWCY, 1500, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
@@ -129,7 +130,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapremove(SH_MOTHER1);
 
     // Lines 104-115: mapmother + big_m missiles + bazooka + shieldr + spacepilon
-    b.mapmother(3000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(3000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, mm.map_uperm);
     b.cspecial(3000, 100, SPACE_VIEWCY - 100, 3000, SH_BIG_M, IS_MISSPOD);
     b.cspecial(2000, -100, SPACE_VIEWCY + 100, 3000, SH_BIG_M, IS_MISSPOD);
     b.cspecial(4000, -200, 1000, 3500, SH_BAZOOKA, IS_BAZOOKAL);

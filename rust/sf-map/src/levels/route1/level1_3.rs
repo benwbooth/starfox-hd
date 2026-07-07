@@ -76,7 +76,7 @@ mod lc {
     pub const IS_COLONYEXIT: u32 = 236;
 
     // ---- synthetic strategy addresses (levels.c STRAT_ADDR_*) ----
-    pub const STRAT_ADDR_MOTHER1: u32 = 0x020000;
+    pub const STRAT_ADDR_MOTHER1: u32 = crate::consts::STRAT_ADDR_MOTHER1;
     pub const STRAT_ADDR_SPACEPILON: u32 = 0x030004;
     pub const STRAT_ADDR_SHIP0CDOWN: u32 = 0x030007;
     pub const STRAT_ADDR_SHIP1A: u32 = 0x05000B;
@@ -580,7 +580,9 @@ fn append_cl_ship_submap(b: &mut MapBuilder) {
     // cl_ship_cont shared continuation
     b.label("cl_ship.cont");
     b.mapwait(9000 - CL_GND_FRIENDWAIT);
-    b.mapmother(0, 0, 0, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER1, 0);
+    // CL_SHIP.ASM:42: mapmother ...,mother1_istrat,mother_CLasteroids.
+    let mm = crate::mothers::mother_maps();
+    b.mapmother(0, 0, 0, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER1, mm.mother_clasteroids);
 
     b.setvarb(wm::STAGECLEAR, 1);
     b.sendmsg(1);

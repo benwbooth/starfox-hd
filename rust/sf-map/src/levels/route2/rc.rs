@@ -187,8 +187,10 @@ pub const IS_SHIPINTRO: u32 = 239;
 
 // ---- synthetic strategy addresses (levels.c STRAT_ADDR_*) ----
 pub const STRAT_ADDR_GATE3: u32 = IS_GATE;
-pub const STRAT_ADDR_MOTHER1: u32 = 0x020000;
-pub const STRAT_ADDR_MOTHER2: u32 = 0x020001;
+// (The old 0x020000/0x020001 values collided with synth istrats 0/1 —
+// mothers ran the player strategy. consts.rs owns the fixed ids now.)
+pub const STRAT_ADDR_MOTHER1: u32 = crate::consts::STRAT_ADDR_MOTHER1;
+pub const STRAT_ADDR_MOTHER2: u32 = crate::consts::STRAT_ADDR_MOTHER2;
 pub const STRAT_ADDR_SPACEPILON: u32 = 0x030004;
 pub const STRAT_ADDR_BOSSSEAMON: u32 = 0x030005;
 pub const STRAT_ADDR_BOSSG: u32 = 0x030006;

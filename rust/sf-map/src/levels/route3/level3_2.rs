@@ -11,6 +11,7 @@ use crate::builder::MapBuilder;
 
 pub(crate) fn build() -> Route3Level {
     let mut b = MapBuilder::new();
+    let mm = crate::mothers::mother_maps();
 
     // LEVEL3_2.ASM wrapper around MAP3_2.ASM.
     b.mapjsr("level3_2.map3_2");
@@ -51,7 +52,7 @@ pub(crate) fn build() -> Route3Level {
     b.pathcspecial(500, 200, 100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
 
     // MAP3_2.ASM:34-45 – mother ship pattern with break meteors and big meteors.
-    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.cspecial(1300, -350, -100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1300, 0, 0, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.mapobj(1300, -700, -300, 7000, SH_BIG_METEOR_PROXY, IS_BIG_METEOR);
@@ -75,7 +76,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapnobj(1000, -300, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
     b.pathcspecial(1000, -200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.cspecial(1000, -400, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_2);
     b.pathcspecial(1000, 200, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.mapremove(SH_MOTHER1);
 
@@ -85,9 +86,9 @@ pub(crate) fn build() -> Route3Level {
     b.cspecial(0, 180, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(0, -180, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(400, 0, -200, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
-    let skillfly_bonus_guard_ptr = b.mapcode65816_inline(); 
+    let skillfly_bonus_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, 0, SPACE_VIEWCY, 1500, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
     b.label("level3_2.map3_2.skillfly_bonus_0_skip");
@@ -98,7 +99,7 @@ pub(crate) fn build() -> Route3Level {
     b.cspecial(1500, 200, SPACE_VIEWCY - 100, 800, SH_CAMELEON, IS_CAMELEON);
 
     // MAP3_2.ASM:74-79 – meteo & launcher mother with itachi formations.
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.map_shou0);
     b.pathcspecial(2000, 0, -130, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.pathcspecial(2000, -200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.pathcspecial(2000, 200, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
@@ -200,20 +201,20 @@ pub(crate) fn build() -> Route3Level {
     // MAP3_2.ASM:161-164 – break meteors + mother_1.
     b.cspecial(1000, 0, 300, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1000, -200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(400, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(400, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
     b.mapwait(2000);
 
     // MAP3_2.ASM:167-168 – mother_5.
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_5);
     b.mapremove(SH_MOTHER1);
 
     // MAP3_2.ASM:170-171 – hider (map_meteo0 mother).
-    b.mapmother(5000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(5000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.map_meteo0);
     b.mapremove(SH_MOTHER1);
 
     // MAP3_2.ASM:173-180 – mother_5 with itachi formations.
-    b.mapmother(1500, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(1500, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_5);
     b.pathcspecial(1000, 200, -200, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
     b.pathcspecial(1000, 0, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.pathcspecial(1000, -200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);

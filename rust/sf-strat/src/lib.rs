@@ -19,6 +19,7 @@ pub mod common;
 pub mod enemy_a;
 pub mod enemy_b;
 pub mod ground;
+pub mod mother;
 pub mod path_adapter;
 pub mod player;
 pub mod snes_trig;

@@ -46,9 +46,10 @@ mod lc {
     pub const IS_BREAK_METEOR: u32 = 235;
     pub const IS_BREAK_METEORT: u32 = 238;
 
-    // Synthetic strategy addresses (levels.c STRAT_ADDR_*).
-    pub const STRAT_ADDR_MOTHER1: u32 = 0x020000;
-    pub const STRAT_ADDR_SLOWMETEOR: u32 = 0x030003;
+    // Synthetic strategy addresses: STRAT_ADDR_MOTHER1/STRAT_ADDR_SLOWMETEOR
+    // now come from `crate::consts` (glob-imported above). The old local
+    // values collided: MOTHER1 0x020000 = synth istrat 0 (player),
+    // SLOWMETEOR 0x030003 = STRAT_ADDR_PLAYER_EXITBASE.
 
     // Path ids (src/path/path_literals.h PATH_ID_*).
     pub const PATH_ID_ASTEMSG: u16 = 241;
@@ -68,6 +69,7 @@ use lc::*;
 /// C `build_level1_2_wrapper_slice()` + `register_level1_2_inline_callbacks()`.
 pub fn build() -> Route1Level {
     let mut b = MapBuilder::new();
+    let mm = crate::mothers::mother_maps();
 
     // LEVEL1_2.ASM wrapper. Keep the generic level init approximation already
     // used by the C port, then hand off into the map body and clear-demo warp.
@@ -114,7 +116,7 @@ pub fn build() -> Route1Level {
     }
 
     b.mapwait(4500);
-    b.mapmother(3500, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(3500, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
 
     b.mapobj(2000, 200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
@@ -147,12 +149,12 @@ pub fn build() -> Route1Level {
     b.cspecial(0, 0, SPACE_VIEWCY + 200, 800, SH_CAMELEON, IS_CAMELEON);
     b.special(4000, 0, SPACE_VIEWCY - 200, 800, SH_CAMELEON, IS_CAMELEON);
 
-    b.mapmother(3000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(3000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_3);
     b.cspecial(4000, -200, 0, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
     b.mapremove(SH_MOTHER1);
 
     b.mapobj(1000, 100, SPACE_VIEWCY + 100, 3000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
     b.mapobj(0, 0, SPACE_VIEWCY - 100, 6800, sh::ITEM_5, is::ITEM5);
     b.setalvarb(al::SBYTE1, 1);
@@ -172,9 +174,9 @@ pub fn build() -> Route1Level {
     b.cspecial(0, -180, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(400, 0, -200, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.mapnobj(300, 200, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
-    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_2);
     b.mapremove(SH_MOTHER1);
-    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
 
     let skillfly_bonus_guard_ptr = b.mapcode65816_inline();
@@ -202,10 +204,10 @@ pub fn build() -> Route1Level {
     b.pathcspecial(1000, 0, -100, 4000, sh::NULLSHAPE, PATH_ID_INSEKIKUN, 10, 10);
     b.special(1000, 1000, SPACE_VIEWCY + 100, 3000, SH_TADPOLE, IS_TADPOLE);
     b.pathcspecial(400, -200, 200, 4000, SH_B_HOU_0, PATH_ID_SCREW, 10, 10);
-    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
     b.pathcspecial(200, 100, -100, 4000, SH_B_HOU_0, PATH_ID_DAMYSCR, 10, 10);
-    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
 
     b.pathcspecial(2000, 200, -200, 4000, SH_B_HOU_0, PATH_ID_SCREW, 10, 10);
@@ -216,7 +218,7 @@ pub fn build() -> Route1Level {
     b.skillfly_set_default(0, SPACE_VIEWCY - 100, 4000);
     b.pathcspecial(1000, 0, -100, 4000, sh::NULLSHAPE, PATH_ID_INSEKIKUN, 10, 10);
     b.mapobj(1000, -100, 0, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
-    b.mapmother(1000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(1000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_0);
     b.mapremove(SH_MOTHER1);
     b.skillfly_set_default(-200, SPACE_VIEWCY - 100, 4000);
     b.pathcspecial(1000, -200, -100, 4000, sh::NULLSHAPE, PATH_ID_INSEKIKUN, 10, 10);
@@ -289,9 +291,8 @@ pub fn build() -> Route1Level {
 
     b.mapwait(500);
 
-    // `mother_1` from MOTHERS.ASM and `mother1_istrat` are still unported.
-    // Keep the wrapper structure literal, but use a bounded placeholder map ref.
-    b.mapmother(10000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    // CL_WARP.ASM:31: mapmother 10000,...,mother1_istrat,mother_1.
+    b.mapmother(10000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
     b.setvarb(wm::CLB2, 0);
     b.setvarb(wm::STAGECLEAR, 0);
     b.mapcodejsl_builtin(cb::CL_WARP_PRINTLEVELFIN);

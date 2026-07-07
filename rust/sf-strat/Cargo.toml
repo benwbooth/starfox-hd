@@ -7,4 +7,5 @@ license.workspace = true
 [dependencies]
 sf-core.workspace = true
 sf-game = { path = "../sf-game" }
+sf-map.workspace = true
 sf-path = { path = "../sf-path" }

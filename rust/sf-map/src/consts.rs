@@ -267,6 +267,25 @@ pub const STRAT_ADDR_GATE3: u32 = is::GATE;
 // `tit_istrat` is the title screen strategy (TITLE.ASM).
 pub const STRAT_ADDR_TIT: u32 = 0x050020;
 
+// Mother-system strategy addresses (registered by sf-strat::mother).
+// NOTE: the old values 0x020000/0x020001 collided with the synthetic
+// istrat forms of istrats 0/1 (the PLAYER init strat and pbody), so mother
+// objects resolved to the player strategy and the mothermap never ran.
+// 0x0300xx is the non-istrat symbol space (0x030001-0x030007 are already
+// claimed by TOW0EXPLODE/GATE3/PLAYER_EXITBASE/SPACEPILON/BOSSSEAMON/
+// BOSSG/SHIP0CDOWN).
+pub const STRAT_ADDR_MOTHER1: u32 = 0x030008; // mother1_istrat (D2STRATS.ASM:501)
+pub const STRAT_ADDR_MOTHER2: u32 = 0x030009; // mother2_istrat (D2STRATS.ASM:524)
+pub const STRAT_ADDR_METEOR: u32 = 0x03000A; // meteor_istrat (DSTRATS.ASM:1215)
+// slowmeteor's old id 0x030003 collided with STRAT_ADDR_PLAYER_EXITBASE.
+pub const STRAT_ADDR_SLOWMETEOR: u32 = 0x03000B; // slowmeteor_istrat (DSTRATS.ASM:1199)
+pub const STRAT_ADDR_SEARCHMETEOR: u32 = 0x03000C; // searchmeteor_istrat (DSTRATS.ASM:1167)
+pub const STRAT_ADDR_CLASTEROID: u32 = 0x03000D; // clasteroid_Istrat (GA2STRAT.ASM:3357)
+// Reserved (referenced by mothermap data; strategies not yet ported —
+// children spawn inert until their lane lands them).
+pub const STRAT_ADDR_SEADRAGON: u32 = 0x03000E; // seadragon_istrat (DSTRATS.ASM:1934)
+pub const STRAT_ADDR_DAMYSCR: u32 = 0x03000F; // damyscr_istrat (DSTRATS.ASM:8476)
+
 // ============================================================
 // Path ids (src/path/path_literals.h PATH_ID_* subset)
 // ============================================================

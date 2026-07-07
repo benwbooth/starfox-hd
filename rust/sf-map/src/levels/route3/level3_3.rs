@@ -159,8 +159,17 @@ pub(crate) fn build() -> Route3Level {
     // Line 89: nessie 3000,-400,0000,5000,deg45,40
     b.nessie(3000, -400, 0, 5000, 32, 40);
 
-    // Line 90: mapmother — mother_snakes pattern
-    b.mapmother(4000, 0, 0, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, 0);
+    // Line 90: mapmother — mother_snakes pattern (children spawn inert
+    // until seadragon_istrat is ported; STRAT_ADDR_SEADRAGON is reserved).
+    b.mapmother(
+        4000,
+        0,
+        0,
+        3000,
+        SH_MOTHER1,
+        STRAT_ADDR_MOTHER2,
+        crate::mothers::mother_maps().mother_snakes,
+    );
 
     // Lines 91-92: seadragon2 snakes
     b.mapobj(3000, 300, 0, 4000, SH_SNAKE_1, IS_SEADRAGON2);

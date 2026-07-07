@@ -48,7 +48,7 @@ mod lc {
     pub const IS_MINE0: u32 = 246;
 
     // Synthetic strategy addresses (levels.c STRAT_ADDR_*)
-    pub const STRAT_ADDR_MOTHER2: u32 = 0x020001;
+    pub const STRAT_ADDR_MOTHER2: u32 = crate::consts::STRAT_ADDR_MOTHER2;
     pub const STRAT_ADDR_WARP: u32 = 0x06000E;
     pub const STRAT_ADDR_BOSSB: u32 = 0x06000F;
 
@@ -71,6 +71,7 @@ mod lc {
 /// C `build_level1_5_slice()` + `register_level1_5_inline_callbacks()`.
 pub fn build() -> Route1Level {
     let mut b = MapBuilder::new();
+    let mm = crate::mothers::mother_maps();
 
     // LEVEL1_5.ASM wrapper: initlevel 1_5,mstarwipe_circle
     // mapwait 100 / setvar dospacesc,1 / setvar.W bg2Yscroll,172
@@ -100,7 +101,7 @@ pub fn build() -> Route1Level {
     b.pathcspecial(5000, -400, -400, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
 
     // Lines 26-30: uper_missile — mapmother + cspecial loop x2
-    b.mapmother(1200, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(1200, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, mm.map_uperm);
     b.label("level1_5.uperloop");
     b.cspecial(1200, 180, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
     b.cspecial(1200, -180, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
@@ -203,7 +204,7 @@ pub fn build() -> Route1Level {
     b.cspecial(1000, -400, SPACE_VIEWCY, 3000, lc::SH_W_L, lc::IS_WINGLAZERMAN);
 
     // Lines 119-130: mapmother + chase3 + uper_m group + maprem
-    b.mapmother(2000, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(2000, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, mm.map_uperm);
     b.pathobj(0, 0, 500, 0, sh::FRIENDSHIP_4, lc::PATH_ID_CHASE3_1, 10, 10);
     b.pathcspecial(6000, 0, 500, 0, lc::SH_ZACO_B, lc::PATH_ID_CHASE3_2, 10, 10);
     b.cspecial(1200, 0, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
@@ -234,7 +235,7 @@ pub fn build() -> Route1Level {
     b.cspecial(1300, 100, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
     b.cspecial(1300, -200, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
     b.cspecial(1300, 200, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
-    b.mapmother(2500, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, 0);
+    b.mapmother(2500, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, mm.map_uperm);
     // supply_bird
     b.pathobj(5000, -350, -400, 0, lc::SH_MY_BIRD, lc::PATH_ID_MY_BIRD, 10, 10);
 

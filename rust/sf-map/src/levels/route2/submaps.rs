@@ -55,7 +55,16 @@ pub fn append_map1_1a_submap(b: &mut MapBuilder) {
 /// C `append_cl_earth_submap()` — CL_EARTH.ASM clear demo.
 pub fn append_cl_earth_submap(b: &mut MapBuilder) {
     b.label("cl_earth");
-    b.mapmother(0, 0, 0, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    // CL_EARTH.ASM:2: mapmother ...,mother1_istrat,mother_CLasteroids.
+    b.mapmother(
+        0,
+        0,
+        0,
+        3000,
+        SH_MOTHER1,
+        STRAT_ADDR_MOTHER1,
+        crate::mothers::mother_maps().mother_clasteroids,
+    );
     b.mapplayeroutview();
     b.setbgm(BGM_FADEOUT);
     b.mapcodejsl_builtin(MAP_CB_SET_PLAYER_CLEAR_EARTH_L);

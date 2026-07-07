@@ -357,8 +357,10 @@ pub const STRAT_ADDR_BOTLEFT1: u32 = 327700;
 pub const STRAT_ADDR_BOTRIGHT1: u32 = 327699;
 pub const STRAT_ADDR_GATE3: u32 = 53;
 pub const STRAT_ADDR_MONOLITH: u32 = 327701;
-pub const STRAT_ADDR_MOTHER1: u32 = 131072;
-pub const STRAT_ADDR_MOTHER2: u32 = 131073;
+// (The old 131072/131073 = 0x020000/0x020001 values collided with synth
+// istrats 0/1 — mothers ran the player strategy.)
+pub const STRAT_ADDR_MOTHER1: u32 = crate::consts::STRAT_ADDR_MOTHER1;
+pub const STRAT_ADDR_MOTHER2: u32 = crate::consts::STRAT_ADDR_MOTHER2;
 pub const STRAT_ADDR_NUCLEUSLAUNCHER: u32 = 393237;
 pub const STRAT_ADDR_NUCLEUSPILLAR: u32 = 393238;
 pub const STRAT_ADDR_OPENLR: u32 = 327713;
@@ -425,7 +427,16 @@ impl Route3Ext for MapBuilder {
 pub(crate) fn append_cl_chase_submap(b: &mut MapBuilder) {
     // CL_CHASE.ASM shared clear-demo helper for LEVEL3_2.
     b.label("cl_chase");
-    b.mapmother(0, 0, 0, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    // mother_CLasteroids (CL_CHASE.ASM:2 / CL_SHIP.ASM:42).
+    b.mapmother(
+        0,
+        0,
+        0,
+        3000,
+        SH_MOTHER1,
+        STRAT_ADDR_MOTHER1,
+        crate::mothers::mother_maps().mother_clasteroids,
+    );
     b.mapplayeroutview();
     b.setbgm(BGM_FADEOUT);
     b.mapcodejsl_builtin(MAP_CB_SET_PLAYER_CLEAR_CHASE_L);
@@ -498,7 +509,16 @@ pub(crate) fn append_cl_ship_submap(b: &mut MapBuilder) {
     // cl_ship_cont shared continuation
     b.label("cl_ship.cont");
     b.mapwait(9000 - CL_GND_FRIENDWAIT);
-    b.mapmother(0, 0, 0, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    // mother_CLasteroids (CL_CHASE.ASM:2 / CL_SHIP.ASM:42).
+    b.mapmother(
+        0,
+        0,
+        0,
+        3000,
+        SH_MOTHER1,
+        STRAT_ADDR_MOTHER1,
+        crate::mothers::mother_maps().mother_clasteroids,
+    );
 
     b.setvarb(WM_STAGECLEAR, 1);
     b.sendmsg(1);

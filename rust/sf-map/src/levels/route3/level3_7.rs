@@ -172,7 +172,15 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0x1800, 0, 0, 3000, SH_RPILLAR3_PROXY, IS_PILLAR3);
 
     // Line 100: mapmother flypillars
-    b.mapmother(0x8000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, 0);
+    b.mapmother(
+        0x8000,
+        0,
+        0,
+        4000,
+        SH_MOTHER1,
+        STRAT_ADDR_MOTHER1,
+        crate::mothers::mother_maps().map_flypillars,
+    );
 
     // Lines 101-107: pillar3 objects
     b.mapobj(0x0800, 0, 0, 3000, SH_RPILLAR3_PROXY, IS_PILLAR3);

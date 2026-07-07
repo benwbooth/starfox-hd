@@ -829,6 +829,7 @@ version = "0.1.0"
 dependencies = [
  "sf-core",
  "sf-game",
+ "sf-map",
  "sf-path",
 ]
 
