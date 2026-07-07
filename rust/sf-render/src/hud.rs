@@ -537,11 +537,20 @@ impl Hud {
                 }
             }
 
-            // Boss HP bar (mdrawbossHP): right-aligned at x=222, bitmap y=2.
+            // Boss HP bar (mdrawbossHP, MDRAWLIS.MC:985-1057): right-aligned
+            // at x=222, bitmap y=2. Fill = m_bossHP / m_bossmaxHP, both halved
+            // when maxHP>=128. ROM does NOT clamp the fill to max — it only
+            // resets m_bossHP to 0 when it overflows max+10 (MDRAWLIS.MC:993-999,
+            // low-byte compare, before the halving); otherwise the fill is
+            // drawn unclamped.
             if inputs.boss_hp_max > 0 {
-                let mut maxv = inputs.boss_hp_max & 0xFF;
-                let mut curv = inputs.boss_hp_cur;
-                if maxv & 0x80 != 0 {
+                let maxv_raw = inputs.boss_hp_max & 0xFF;
+                let mut curv = inputs.boss_hp_cur & 0xFF;
+                if curv >= maxv_raw + 10 {
+                    curv = 0;
+                }
+                let mut maxv = maxv_raw;
+                if maxv_raw & 0x80 != 0 {
                     maxv >>= 1;
                     curv >>= 1;
                 }
@@ -551,7 +560,6 @@ impl Hud {
                     gpu, sprites,bx, (2 + BITMAP_Y_OFS) as f32, w as f32, 6.0, 14,
                 );
                 if curv > 0 {
-                    let curv = curv.min(maxv);
                     self.snes_solid_rect(
                         gpu, sprites,bx + 2.0, (4 + BITMAP_Y_OFS) as f32,
                         curv as f32, 2.0, 2,

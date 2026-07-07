@@ -314,6 +314,70 @@ fn smoke_zaco34_with_targets() {
 }
 
 // ============================================================
+// Boss HP bar accumulator (m_bossHP / bossmaxhp), MDRAWLIS.MC:985-1057.
+// ============================================================
+
+/// boss1 seeds bossmaxhp once at init, then every living part re-adds its
+/// current HP into m_bossHP each frame (zeroed in init_strats); damaging a
+/// part drops the bar proportionally. Uses run_strategies (no collision) so
+/// the parts stay alive across ticks.
+#[test]
+fn boss_hp_bar_accumulates_and_drains() {
+    let mut g = Game::new();
+    g.vars.write_ext16(wm::RNDVAL, 0x77AB);
+    g.vars.pviewvelz = 65;
+    g.vars.minpmove_y = -60;
+    g.vars.playerflymode = 8;
+    // Level 2 -> boss1 keeps full HP (level 1 halves it, GBSTRATS.ASM:99/102).
+    g.vars.write_ext8(wm::CURRENTLEVEL, 2);
+
+    // Player slot 0 (add_player_z / aim look it up).
+    let p = g.objs.alloc().unwrap();
+    strat_init_obj_vars(&mut g.objs.aliens[p as usize]);
+    g.objs.aliens[0].shape = 2;
+    g.objs.aliens[0].hp = 40;
+    g.objs.aliens[0].sflags4 |= 0x01;
+
+    // boss1 mother: stratptr = the Istrat, which on its first tick spawns the
+    // 8 turrets + cover and seeds bossmaxhp, then hands off to boss1up_strat.
+    let boss = g.objs.alloc().unwrap();
+    strat_init_obj_vars(&mut g.objs.aliens[boss as usize]);
+    g.objs.aliens[boss as usize].worldz = 1500;
+    let init = g.world.register_strategy(enemy_a::strat_boss1_init as StrategyFn);
+    g.objs.aliens[boss as usize].stratptr = Some(init);
+
+    // First tick runs the init: bossmaxhp = mother(70) + 8 turrets * 8 = 134,
+    // set ONCE (s_set_bossmaxHP + 8x s_add_bossmaxHP).
+    g.run_strategies();
+    assert_eq!(g.vars.bossmaxhp, 70 + 8 * 8, "bossmaxhp seeded at boss init");
+
+    // Let the parts settle; every frame m_bossHP is zeroed then re-summed.
+    for _ in 0..4 {
+        g.run_strategies();
+    }
+    let full = g.vars.bosshp;
+    assert_eq!(
+        full, g.vars.bossmaxhp,
+        "full bar: mother + all 8 turrets re-add their HP each frame"
+    );
+    assert!(full > 0);
+
+    // Damage the mother by 30 HP; the accumulator (and the bar) must drop by
+    // exactly that on the next frame.
+    let hp = g.objs.aliens[boss as usize].hp;
+    assert_eq!(hp, 70, "mother at full HP before damage");
+    g.objs.aliens[boss as usize].hp = hp - 30;
+    g.run_strategies();
+    let drained = g.vars.bosshp;
+    assert_eq!(drained, full - 30, "m_bossHP drops by the damage dealt");
+    assert!(
+        drained < g.vars.bossmaxhp,
+        "bar reads less than full after damage ({drained} < {})",
+        g.vars.bossmaxhp
+    );
+}
+
+// ============================================================
 // install() registration surface (table-lane contract)
 // ============================================================
 

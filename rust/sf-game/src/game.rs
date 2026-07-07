@@ -178,6 +178,12 @@ impl Game {
 
     /// C `init_strats_l` (src/game/obj.c:134, GSTRATS.ASM:423-434).
     fn init_strats(&mut self) {
+        // m_bossHP (MVARS.MC:251) is a per-frame accumulator: ROM zeroes it
+        // in mdrawbossHP after the bar draws (MDRAWLIS.MC:1057); the port
+        // zeroes it here, before the strat pass re-sums each living boss
+        // part's `s_add_bossHP x,al_hp`. Done unconditionally (even with no
+        // player) so a stale value never leaks into the HUD.
+        self.vars.bosshp = 0;
         let playpt = self.vars.internal_playpt;
         let mut player: Option<usize> = None;
         if playpt >= 0 && (playpt as usize) < NUMBER_AL {

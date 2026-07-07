@@ -179,6 +179,12 @@ pub struct GameVars {
     // --- Boss/HUD mirrors written by level inline callbacks ---
     /// C `g_bossmaxhp`.
     pub bossmaxhp: u16,
+    /// C `m_bossHP` (MVARS.MC:251) — per-frame boss HP accumulator. Zeroed
+    /// each frame in `init_strats` (ROM zeroes it in `mdrawbossHP`,
+    /// MDRAWLIS.MC:1057, after the bar draws) and re-summed by every living
+    /// boss part's `s_add_bossHP x,al_hp` (STRATLIB.INC:562). The HUD boss
+    /// bar fill = `bosshp / bossmaxhp`.
+    pub bosshp: u16,
     /// C `g_meters`.
     pub meters: u16,
     /// C `g_circleanim`.
@@ -252,6 +258,7 @@ impl Default for GameVars {
             palfade_target: PALFADE_NIGHT,
             palfade_from: PALFADE_NIGHT,
             bossmaxhp: 0,
+            bosshp: 0,
             meters: 0,
             circleanim: 0,
             oncewipe: 0,

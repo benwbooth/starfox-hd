@@ -2009,6 +2009,14 @@ fn boss1_fire_relslowlaser(g: &mut Game, self_idx: u16, target: Option<u16>, hom
 }
 
 /// C `boss1_finish` (strat_enemy.c:2296).
+/// C `s_add_bossHP x,al_hp` (STRATLIB.INC:562): `m_bossHP += al_hp`. The
+/// accumulator is zeroed each frame in `init_strats`, so every living boss
+/// part re-adds its current HP; the HUD bar = m_bossHP / m_bossmaxHP.
+fn add_bosshp(g: &mut Game, idx: u16) {
+    let hp = g.objs.aliens[idx as usize].hp as u16;
+    g.vars.bosshp = g.vars.bosshp.wrapping_add(hp);
+}
+
 fn boss1_finish(g: &mut Game, self_idx: u16, allow_center_fire: bool) {
     let left_alive = boss1_child_bank_alive(g, self_idx, BOSS1_CHILD_TL0, BOSS1_CHILD_TL3);
     let right_alive = boss1_child_bank_alive(g, self_idx, BOSS1_CHILD_TR0, BOSS1_CHILD_TR3);
@@ -2042,6 +2050,9 @@ fn boss1_finish(g: &mut Game, self_idx: u16, allow_center_fire: bool) {
         boss1back_init(g, self_idx);
     }
     add_player_z(g, self_idx);
+    // boss1_fin: s_add_bossHP x,al_hp (GBSTRATS.ASM:274) — every mother
+    // mode (up/normal/in/out/inclose/back) ends here.
+    add_bosshp(g, self_idx);
 }
 
 /// C `boss1normal_init` (strat_enemy.c:2333).
@@ -2409,6 +2420,10 @@ fn boss1turret_common_strat(g: &mut Game, idx: u16, right_side: bool) {
         g.objs.aldead = 1;
         return;
     };
+    // boss1turret_end: s_add_bossHP x,al_hp (GBSTRATS.ASM:400) — reached by
+    // EVERY turret path (nfire, cover-hold, fire). al_hp is constant across
+    // the tick, so accumulate once up front to cover all exits.
+    add_bosshp(g, idx);
     let m = g.objs.aliens[mother as usize];
     let side_matches = m.sflags2 & BOSS1_PARENT_FLAG_SIDE_RIGHT != 0;
     if side_matches != right_side

@@ -527,7 +527,9 @@ impl Shell {
 
         // calcmeters/HUD inputs (nmi.c:77-90): shield from the player
         // alien when present (NMI_PLAYER_MAX_HP cap), else full defaults;
-        // boss meter shows a full bar while g_bossmaxhp is nonzero.
+        // boss meter fill = m_bossHP / g_bossmaxhp (mdrawbossHP,
+        // MDRAWLIS.MC:985-1057): bosshp is re-summed each frame by the boss
+        // part strats, bossmaxhp is set once at boss init.
         let (shield_cur, shield_max) = match self.game.objs.player() {
             Some(p) => (p.hp as i32, NMI_PLAYER_MAX_HP),
             None => (NMI_PLAYER_MAX_HP, NMI_PLAYER_MAX_HP),
@@ -556,7 +558,7 @@ impl Shell {
             stage: self.planets.stage,
             shield_cur,
             shield_max,
-            boss_hp_cur: v.bossmaxhp as i32,
+            boss_hp_cur: v.bosshp as i32,
             boss_hp_max: v.bossmaxhp as i32,
             lives: self.planets.lives as i32,
             bombs: self.specwepcnt as i32,

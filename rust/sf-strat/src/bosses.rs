@@ -113,6 +113,13 @@ fn set_bossmaxhp(g: &mut Game, v: u16) {
     g.vars.bossmaxhp = v;
     g.vars.write_ext16(ebwm::BOSSMAXHP, v);
 }
+/// C `s_add_bossHP x,al_hp` (STRATLIB.INC:562): `m_bossHP += al_hp`. Zeroed
+/// each frame in init_strats; drives the HUD boss bar (= m_bossHP/bossmaxhp).
+#[inline]
+fn add_bosshp(g: &mut Game, idx: u16) {
+    let hp = g.objs.aliens[idx as usize].hp as u16;
+    g.vars.bosshp = g.vars.bosshp.wrapping_add(hp);
+}
 
 /// C `SfRtl_Random()` — the one shared PRNG cell (0x1F00, enemy_a::wm).
 #[inline]
@@ -869,6 +876,9 @@ fn boss2top_strat(g: &mut Game, idx: u16) {
         boss2_fire_bosshmissile2(g, idx, b2u(-30), yaw, p);
         g.objs.aliens[idx as usize].roty = saved_roty;
     }
+
+    // boss2top .nfire tail: s_add_bossHP x,al_hp (GBSTRATS.ASM:756).
+    add_bosshp(g, idx);
 }
 
 /// boss2topcol_Istrat (strat_boss2.c:1041).
@@ -930,6 +940,9 @@ fn boss2turret_strat(g: &mut Game, idx: u16) {
         let p = player_idx(g);
         boss2_fire_hplasma(g, idx, (-26i16).wrapping_mul(8), (36i16).wrapping_mul(8), p);
     }
+
+    // boss2turret .nfire tail: s_add_bossHP x,al_hp (GBSTRATS.ASM:803).
+    add_bosshp(g, idx);
 }
 
 /// boss2turretexp_Istrat (strat_boss2.c:1130).
@@ -2184,6 +2197,8 @@ fn bossg_generate_shadows(g: &mut Game, self_idx: u16) {
 
 /// .move2 (strat_boss_sea.c:948).
 fn bossg_move2(g: &mut Game, self_idx: u16) {
+    // .move2: s_add_bosshp x,al_hp (D2STRATS.ASM:368) precedes add_playerz.
+    add_bosshp(g, self_idx);
     sea_add_player_z(g, self_idx);
     // s_jmp_notdelay 1,.nosplash (D2STRATS.ASM:372, no al1pt): gameframe&1==0.
     if !sea_not_delay(0, 1, g.vars.gameframe) {
@@ -2920,6 +2935,10 @@ fn boss8_cont(g: &mut Game, idx: u16) {
             set_gsvar_byte1(g, (gsv + 1) as u8);
         }
     }
+
+    // boss8_cont tail: s_add_bossHP x,al_hp (GB3STRAT.ASM:130) — runs from
+    // wait/a/b ticks and the boss8die countdown branch.
+    add_bosshp(g, idx);
 }
 
 fn boss8a_init(g: &mut Game, idx: u16) {

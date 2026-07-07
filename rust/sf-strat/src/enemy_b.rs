@@ -317,6 +317,13 @@ pub(crate) mod eb_compat {
         g.vars.bossmaxhp = v;
         wm16_set(g, ebwm::BOSSMAXHP, v);
     }
+    /// C `s_add_bossHP x,al_hp` (STRATLIB.INC:562): `m_bossHP += al_hp`.
+    /// Zeroed each frame in init_strats; drives the HUD boss bar.
+    #[inline]
+    pub fn add_bosshp(g: &mut Game, idx: u16) {
+        let hp = g.objs.aliens[idx as usize].hp as u16;
+        g.vars.bosshp = g.vars.bosshp.wrapping_add(hp);
+    }
 
     /// C `SfRtl_Random()` — there is exactly ONE `g_rndval` in C. The
     /// enemy_a helpers this lane calls at runtime (`strat_explode`,
@@ -951,6 +958,8 @@ fn boss7hatch_strat(g: &mut Game, idx: u16) {
 
     let mother = g.objs.aliens[mother_idx as usize];
     boss_apply_yaw_offset(g, idx, &mother, -(20i16 << BOSS7_SCALE), 0, 0);
+    // boss7hatch .donef tail: s_add_bossHP x,al_hp (GB3STRAT.ASM:3605).
+    add_bosshp(g, idx);
 }
 
 /// C `boss7hatch_coll` (strat_enemy.c:1355).
@@ -1039,6 +1048,8 @@ fn boss7launcher_common_strat(g: &mut Game, idx: u16, yoff: i16) {
 
     let mother = g.objs.aliens[mother_idx as usize];
     boss_apply_yaw_offset(g, idx, &mother, 30i16 << BOSS7_SCALE, yoff, 0);
+    // boss7launcher_cont .donef tail: s_add_bossHP x,al_hp (GB3STRAT.ASM:3720).
+    add_bosshp(g, idx);
 }
 
 /// C `boss7launcherT_strat` (strat_enemy.c:1432).
@@ -1195,6 +1206,8 @@ fn boss7_parent_cont(g: &mut Game, idx: u16) {
     }
 
     add_player_z(g, idx);
+    // boss7_cont2: s_add_playerZ then s_add_bossHP x,al_hp (GB3STRAT.ASM:3250-3251).
+    add_bosshp(g, idx);
 }
 
 /// C `boss7a_strat` (strat_enemy.c:1578).
@@ -1426,6 +1439,8 @@ fn boss7_alldead_cont(g: &mut Game, idx: u16) {
         al.colframe = al.colframe.wrapping_add(1) & 3;
     }
     add_player_z(g, idx);
+    // boss7_alldeadcont brl boss7_cont2: s_add_bossHP x,al_hp (GB3STRAT.ASM:3258->3251).
+    add_bosshp(g, idx);
 }
 
 /// C `boss7alldead_strat` (strat_enemy.c:1774).
@@ -1899,6 +1914,14 @@ fn bossa_turret_cont(g: &mut Game, idx: u16) {
     };
     let me = g.objs.aliens[idx as usize];
 
+    // bossAturret_cont (GB3STRAT.ASM:1184-1186): s_jmp_alsflag invisible ->
+    // .dfire skips the bossHP add AND fire; the add sits between the
+    // invisible gate and the nohitaffect gate, so it runs for every VISIBLE
+    // turret tick (dead husks stay invisible and contribute nothing).
+    if me.sflags & ASF_INVISIBLE == 0 {
+        add_bosshp(g, idx);
+    }
+
     // Fire block: skipped entirely for invisible husks and while
     // nohitaffect (cup covering).
     if me.sflags & ASF_INVISIBLE == 0 && me.sflags & ASF_NOHITAFFECT == 0 {
@@ -2193,8 +2216,10 @@ fn bossa_cup_strat(g: &mut Game, idx: u16) {
         }
     }
 
-    // Shared tail (GB3STRAT.ASM:1005-1008): fly on the sbyte3/sbyte4
-    // heading (vel is 0 outside GO, so this only moves drilling cups).
+    // Shared tail (GB3STRAT.ASM:1000-1008): s_add_bossHP x,al_hp
+    // (bossAcupper_Icont:1000), then fly on the sbyte3/sbyte4 heading (vel is
+    // 0 outside GO, so this only moves drilling cups).
+    add_bosshp(g, idx);
     {
         let al = &mut g.objs.aliens[idx as usize];
         let (yaw, pitch) = (al.sbyte3, al.sbyte4);
@@ -3626,6 +3651,11 @@ fn bossftur_cont(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].hp == HARD_HP {
         return;
     }
+
+    // bossFtur_cont (GB2STRAT.ASM:449): s_add_bossHP x,al_hp — after the
+    // s_jmp_alvarEQ #hardHP,.dead gate above (a turret parked at hardHP is
+    // "dead" and skips both the add and the fire logic).
+    add_bosshp(g, idx);
 
     {
         let al = &mut g.objs.aliens[idx as usize];
