@@ -638,13 +638,17 @@ impl Shell {
         self.draw_list.clear();
         self.game.run_strategies();
         self.cam_snapshot = self.camera.update(&self.game.vars, &self.game.objs);
+        // Cull anchors on the camera viewpos published by camera.update
+        // (ROM viewposx/z, game.c:94-98), with the coldet shape-extents
+        // table supplying the sh_zmax margin (alienflags_l MAIN.ASM:2030).
         draw::build_list(
             &mut self.game.objs,
             self.game.vars.playerflymode,
             self.game.vars.gameframe,
-            self.camera.vars.pviewposx,
-            self.camera.vars.pviewposz,
+            self.camera.vars.viewposx,
+            self.camera.vars.viewposz,
             self.game.vars.gameflags,
+            &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
         );
 
@@ -730,14 +734,16 @@ impl Shell {
         // calcmeters / HUD (nmi.c:77-90): shield/lives/bombs/boss values
         // are surfaced through frame() instead of Hud_Set* calls.
 
-        // showview_l (nmi.c:96).
+        // showview_l (nmi.c:96). Cull anchor = camera viewpos (published by
+        // getview above), sh_zmax margin from the coldet shape-extents table.
         draw::build_list(
             &mut self.game.objs,
             self.game.vars.playerflymode,
             self.game.vars.gameframe,
-            self.camera.vars.pviewposx,
-            self.camera.vars.pviewposz,
+            self.camera.vars.viewposx,
+            self.camera.vars.viewposz,
             self.game.vars.gameflags,
+            &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
         );
 

@@ -22,7 +22,7 @@
 //!     (MAIN.ASM:2020-22 with marioshowview:2103-05 skipping emission).
 //!
 //! Rust port under audit: sf-game/src/draw.rs `build_list`.
-//! The Rust side is fed an identity camera (pviewpos = 0, no rotation) so
+//! The Rust side is fed an identity camera (viewpos = 0, no rotation) so
 //! its world coords line up with the ROM's rotated drawlist values.
 //!
 //! NOTE on the +1: the harness stub's CLC/XCE leaves carry=1 at JSL, and
@@ -131,7 +131,7 @@ fn rom_pass(rom: &[u8], addr: u32, gameflags: u8, zmax: i16, objs: &[Obj]) -> Ro
 }
 
 /// Run the Rust port on the equivalent identity-camera scene: worldx/z equal
-/// to the ROM's rotated dl_x/dl_z, pviewpos = 0. Returns (flags, alive).
+/// to the ROM's rotated dl_x/dl_z, viewpos = 0. Returns (flags, alive).
 fn rust_pass(gameflags: u8, objs: &[Obj]) -> (Vec<u8>, Vec<bool>) {
     let mut o = Objects::init();
     // Objects::alloc pushes to the head of the active list, so allocate in
@@ -156,7 +156,9 @@ fn rust_pass(gameflags: u8, objs: &[Obj]) -> (Vec<u8>, Vec<bool>) {
         al.worldz = z;
     }
     let mut out = Vec::new();
-    draw::build_list(&mut o, 0, 0, 0, 0, gameflags, &mut out);
+    // Extents provider mirrors the ROM fixture's shape header: sh_zmax = 100
+    // (the same per-shape source coldet uses supplies the cull margin).
+    draw::build_list(&mut o, 0, 0, 0, 0, gameflags, &|_| Some((100, 100, 100)), &mut out);
     (
         ids.iter().map(|&i| o.aliens[i as usize].flags).collect(),
         ids.iter().map(|&i| o.aliens[i as usize].active).collect(),
@@ -175,7 +177,7 @@ fn obj(flags: u8, type_: u8, collflags: u8, sflags4: u8, dl: Option<(i16, i16)>)
 }
 
 /// In-front objects: afinviewpl always set, afleftpl iff rotated view x < 0.
-/// The Rust port agrees under an identity camera (dl_x == worldx - pviewposx).
+/// The Rust port agrees under an identity camera (dl_x == worldx - viewposx).
 #[test]
 fn leftpl_is_sign_of_rotated_view_x() {
     let Some((addr, rom)) = setup() else {
@@ -204,8 +206,9 @@ fn leftpl_is_sign_of_rotated_view_x() {
 /// z + sh_zmax >= 0 (the shape's own extent is the cull margin), and such an
 /// object keeps affrontpl and still gets afinviewpl/afleftpl.
 ///
-/// KNOWN DIVERGENCE (draw.rs:59-78): the Rust port culls at
-/// worldz - pviewposz < 0 with no shape margin, so it frees this object.
+/// (Was a KNOWN DIVERGENCE: draw.rs used to cull at worldz - pviewposz < 0
+/// with no shape margin. Fixed: the cull now anchors on the camera viewpos
+/// and adds the shape's z half-extent as the margin.)
 #[test]
 fn behind_test_uses_shape_zmax_margin() {
     let Some((addr, rom)) = setup() else {
@@ -218,12 +221,10 @@ fn behind_test_uses_shape_zmax_margin() {
     assert!(r.alive[0], "ROM keeps z=-50 with zmax=100 (margin not crossed)");
     assert_eq!(r.flags[0], AFFRONTPL | AFINVIEWPL | AFLEFTPL);
 
-    let (_, ra) = rust_pass(0, &objs);
-    assert!(
-        !ra[0],
-        "draw.rs:69-77 frees at worldz < pviewposz with no sh_zmax margin; \
-         if this starts passing, the divergence was fixed - update this test"
-    );
+    // Rust port, identity camera: same zmax margin -> kept, same flags.
+    let (rf, ra) = rust_pass(0, &objs);
+    assert!(ra[0], "Rust keeps z=-50 with zmax=100 (margin not crossed)");
+    assert_eq!(rf[0], AF_FRONT_PL | AF_INVIEW_PL | AF_LEFT_PL);
 }
 
 /// Fully behind (z + zmax < 0): freed iff atzremove && !firstframe &&
@@ -270,25 +271,29 @@ fn behind_kill_conditions_and_frontpl_clear() {
     assert!(r.alive[0]);
     assert_eq!(r.flags[0], AFINVIEWPL);
 
-    // KNOWN DIVERGENCE (draw.rs:83-87): the Rust port force-sets AF_FRONT_PL
-    // on every walked object and never clears it for behind survivors.
+    // Rust port (was a KNOWN DIVERGENCE: AF_FRONT_PL used to stay set on
+    // behind survivors). Now matches the ROM: behind clears AF_FRONT_PL on
+    // ANY behind object, survivors still get AF_INVIEW_PL.
     let (rf, ra) = rust_pass(GF_NOZREMOVE, &[obj(AFFRONTPL, ATZREMOVE, 0, 0, behind)]);
     assert!(ra[0]);
     assert_eq!(
-        rf[0],
-        AF_FRONT_PL | AF_INVIEW_PL,
-        "draw.rs keeps AF_FRONT_PL on behind survivors (ROM: {:#04x}); \
-         if this starts failing with AF_FRONT_PL clear, the divergence was fixed",
-        AFINVIEWPL,
+        rf[0], AF_INVIEW_PL,
+        "Rust clears AF_FRONT_PL on behind survivors (ROM parity)"
     );
+
+    // And the free path itself: behind + atzremove + no firstframe + zremove
+    // enabled -> freed, like ROM case (a).
+    let (_, ra) = rust_pass(0, &[obj(AFFRONTPL, ATZREMOVE, 0, 0, behind)]);
+    assert!(!ra[0], "Rust frees behind atzremove objects");
 }
 
 /// Invisible objects are skipped before the behind test: never z-removed,
 /// flags untouched, and they do not consume a drawlist slot (the next
 /// visible alien reads the slot the invisible one would have used).
 ///
-/// KNOWN DIVERGENCE (draw.rs:59-92): the Rust port culls before the
-/// invisible check, so a behind invisible atzremove object is freed.
+/// (Was a KNOWN DIVERGENCE: the Rust port used to cull before the invisible
+/// check, freeing behind invisible atzremove objects. Fixed: invisible skip
+/// now runs before the behind test, like alienflags_l.)
 #[test]
 fn invisible_objects_skip_cull_and_keep_flags() {
     let Some((addr, rom)) = setup() else {
@@ -311,10 +316,8 @@ fn invisible_objects_skip_cull_and_keep_flags() {
         "visible alien after an invisible one reads drawlist slot 0"
     );
 
-    // Rust: an invisible object with worldz behind the camera gets freed
-    // (cull runs before the invisible skip). ROM keeps it.
-    let behind_invis = [obj(AFFRONTPL, ATZREMOVE, 0, ASF4_INVISIBLE, None)];
-    // Give it a behind position on the Rust side only.
+    // Rust: an invisible object with worldz far behind the camera must NOT
+    // be freed (invisible skip runs before the behind test, ROM parity).
     let mut o = Objects::init();
     let id = o.alloc().unwrap();
     {
@@ -327,11 +330,13 @@ fn invisible_objects_skip_cull_and_keep_flags() {
         al.worldz = -2000;
     }
     let mut out = Vec::new();
-    draw::build_list(&mut o, 0, 0, 0, 0, 0, &mut out);
+    draw::build_list(&mut o, 0, 0, 0, 0, 0, &|_| Some((100, 100, 100)), &mut out);
     assert!(
-        !o.aliens[id as usize].active,
-        "draw.rs frees behind invisible objects (ROM keeps them); \
-         if this starts failing, the divergence was fixed - update this test"
+        o.aliens[id as usize].active,
+        "invisible objects skip the behind cull (ROM parity)"
     );
-    let _ = behind_invis;
+    // marioshowview's placement-flag rewrite runs before the invisible skip,
+    // so the flags read affrontpl — the same value the ROM leaves in place.
+    assert_eq!(o.aliens[id as usize].flags, AF_FRONT_PL);
+    assert!(out.is_empty(), "invisible objects emit no draw entry");
 }

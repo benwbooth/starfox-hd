@@ -3815,10 +3815,11 @@ fn zaco3_circle(g: &mut Game, idx: u16) {
 /// C `zaco3_flyaway` (strat_enemy.c:5220).
 fn zaco3_flyaway(g: &mut Game, idx: u16) {
     let target = zaco34_target(g, idx);
-    let pl = player(g);
-    let me = g.objs.aliens[idx as usize];
     let mut target_yaw = (-30i8) as u8;
-    if target.is_none() || pl.map(|p| me.worldx > p.worldx).unwrap_or(false) {
+    // ROM s_jmp_rightofview (KSTRATS.ASM:149, STRATMAC.INC s_rightview_strat):
+    // "right of view" = al_flags & afleftpl CLEAR — the showview view-side
+    // flag, not a live worldx-vs-player compare.
+    if target.is_none() || g.objs.aliens[idx as usize].flags & AF_LEFT_PL == 0 {
         target_yaw = 30;
     }
     {

@@ -285,6 +285,9 @@ impl Renderer {
             prev,
             curr,
             alpha,
+            // Per-level BGS.ASM shadowheight (0 everywhere except the
+            // Nucleus interiors), keyed off the current setbg id.
+            crate::bg2d::shadow_height_for_bg(inputs.currentbg),
         );
         self.particles.render(&mut self.gpu, &self.transform);
         self.hud.render(

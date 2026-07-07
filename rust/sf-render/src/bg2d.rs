@@ -167,6 +167,25 @@ pub static MAP_DEFAULT_BG: &[(u32, u8)] = &[
     (29, 44), // MAP_ID_TRAINING
 ];
 
+/// Per-bg `shadowheight` (BGS.ASM set_bg blocks): the SNES-world Y of the
+/// ground plane drop shadows flatten onto (MDRAWLIS.MC:1416-1432 rotates the
+/// shadow at y = shadowheight). Every set_bg in BGS.ASM says `shadowheight 0`
+/// except the Nucleus interiors bg_1_3d / bg_1_3da (BGS.ASM:280/292), which
+/// use `nucleusheight = (100/2) << boss8_scale` = 50 << 3 = 400
+/// (STRATEQU.INC:699, boss8_scale STRATEQU.INC:298). Keyed by the same
+/// setbg-operand bg ids as [`BG_DEFS`] (bg_1_3c = 9, bg_1_3e = 12 anchor the
+/// BGS.ASM bglists ordering: bg_1_3d = 10, bg_1_3da = 11).
+pub static BG_SHADOW_HEIGHTS: &[(u16, f32)] = &[(10, 400.0), (11, 400.0)];
+
+/// Shadow ground-plane height (SNES world Y, +down) for a bg id; 0 for
+/// every bg without an explicit BGS.ASM `shadowheight`.
+pub fn shadow_height_for_bg(bg_id: u16) -> f32 {
+    BG_SHADOW_HEIGHTS
+        .iter()
+        .find(|(id, _)| *id == bg_id)
+        .map_or(0.0, |&(_, h)| h)
+}
+
 // ---------------------------------------------------------------------------
 // SNES decode helpers (pure; shared with tests)
 // ---------------------------------------------------------------------------

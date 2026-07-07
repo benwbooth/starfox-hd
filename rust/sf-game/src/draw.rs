@@ -39,15 +39,22 @@ fn fp16_from_int(i: i32) -> i32 {
 ///
 /// * `playerflymode` — C `g_playerflymode` (shadow gate, draw.c:145).
 /// * `gameframe` — C `g_gameframe` (anim/col frame source, draw.c:119/126).
-/// * `pviewposx` — C `g_pviewposx` (view-side flag, draw.c:157).
+/// * `viewposx`/`viewposz` — the CAMERA position published by getview
+///   (ROM `viewposx/z`, game.c:94-98) — NOT pviewpos (the player). The
+///   camera sits behind the player by viewdist, so anchoring the cull on
+///   pviewposz popped objects that were still on screen.
+/// * `shape_extents` — per-shape AABB half-extents provider (same source
+///   coldet uses, C `load_collision_extents`); `.2` supplies the ROM
+///   `sh_zmax` cull margin. `None` (mesh unavailable) -> margin 0.
 #[allow(clippy::too_many_arguments)]
 pub fn build_list(
     objs: &mut Objects,
     playerflymode: u8,
     gameframe: u16,
-    pviewposx: i16,
-    pviewposz: i16,
+    viewposx: i16,
+    viewposz: i16,
     gameflags: u8,
+    shape_extents: &dyn Fn(u16) -> Option<(i16, i16, i16)>,
     out: &mut Vec<DrawListEntry>,
 ) {
     let mut cur = objs.active_head;
@@ -56,30 +63,10 @@ pub fn build_list(
         // Advance first; the walk body never mutates list links.
         cur = objs.aliens[idx].next;
 
-        // --- Behind-camera cull (MAIN.ASM:2044-2062 `chkkillal`) ---
-        // Free objects that have scrolled behind the view. init_objvars sets
-        // `atzremove` on every object by default (STRATROU.ASM:2311); showview
-        // frees them once behind so the 70-slot pool doesn't fill with passed
-        // scenery — the reason later Corneria enemies stopped spawning. Skip
-        // when gf_nozremove (all-range), still on the first frame, or the
-        // object cleared atzremove. "Behind" = world Z behind the camera Z
-        // (same i16 world-Z frame the camera follows).
-        {
-            let al = &objs.aliens[idx];
-            let rel_z = al.worldz.wrapping_sub(pviewposz);
-            if gameflags & GF_NOZREMOVE == 0
-                && al.collflags & ACF_FIRSTFRAME == 0
-                && al.type_ & ATZREMOVE != 0
-                && rel_z < 0
-            {
-                objs.free(i);
-                continue;
-            }
-        }
-
         // --- Clear view placement flags (draw.c:51-55, MAIN.ASM:2118-2121):
         // al_flags &= ~(afinrngpl | affrontpl | afinviewpl | afleftpl);
-        // al_flags |= affrontpl.
+        // al_flags |= affrontpl. marioshowview does this BEFORE the
+        // invisible skip, so invisible aliens get the rewrite too.
         {
             let al = &mut objs.aliens[idx];
             al.flags &= !(AF_INRNG_PL | AF_FRONT_PL | AF_INVIEW_PL | AF_LEFT_PL);
@@ -87,9 +74,60 @@ pub fn build_list(
         }
 
         // --- Skip invisible aliens (draw.c:57-61) ---
+        // ROM checks asf_invisible BEFORE the behind test (alienflags_l,
+        // MAIN.ASM:2019-2021): invisible objects are never z-freed, keep the
+        // flags written above, and consume no drawlist slot.
         if objs.aliens[idx].sflags & ASF_INVISIBLE != 0 {
             continue;
         }
+
+        // --- Behind-camera cull (alienflags_l, MAIN.ASM:2024-2062) ---
+        // ROM: behind iff sh_zmax(shape) + dl_z < 0, where dl_z is the
+        // ROTATED camera-space z (world - viewpos through the view matrix).
+        // The on-rails camera flies with yaw ~= 0, so unrotated
+        // worldz - viewposz + zmax is equivalent; if a free-yaw camera ever
+        // lands here this needs the rotated z like the ROM. The shape's own
+        // z half-extent is the margin, so an object stays drawable until its
+        // far edge passes the camera plane instead of popping at its origin.
+        //
+        // Behind objects first lose affrontpl (MAIN.ASM:2039-2041), then are
+        // freed iff !gf_nozremove && !acf_firstframe && atzremove
+        // (init_objvars sets atzremove by default, STRATROU.ASM:2311; the
+        // free keeps the 70-slot pool from filling with passed scenery).
+        // Behind survivors fall through: ROM's .dontkill still gives them
+        // afinviewpl/afleftpl and their marioshowview drawlist slot.
+        {
+            let al = &objs.aliens[idx];
+            let zmax = shape_extents(al.shape).map_or(0, |(_, _, z)| z);
+            let rel_z = al.worldz.wrapping_sub(viewposz);
+            if zmax.wrapping_add(rel_z) < 0 {
+                objs.aliens[idx].flags &= !AF_FRONT_PL;
+                let al = &objs.aliens[idx];
+                if gameflags & GF_NOZREMOVE == 0
+                    && al.collflags & ACF_FIRSTFRAME == 0
+                    && al.type_ & ATZREMOVE != 0
+                {
+                    // ROM freed the alien after its slot was already emitted;
+                    // we skip the entry instead (behind the near plane, the
+                    // renderer would clip it anyway).
+                    objs.free(i);
+                    continue;
+                }
+            }
+        }
+
+        // --- View-side flags (alienflags_l .dontkill, MAIN.ASM:2065-2077):
+        // every non-invisible survivor (in-front OR behind) gets afinviewpl,
+        // plus afleftpl iff rotated view-space x < 0. Same yaw ~= 0 note as
+        // the cull: worldx - viewposx stands in for the rotated dl_x.
+        {
+            let al = &mut objs.aliens[idx];
+            al.flags |= AF_INVIEW_PL;
+            if al.worldx.wrapping_sub(viewposx) < 0 {
+                al.flags |= AF_LEFT_PL;
+            }
+        }
+
         // --- Skip if no shape (draw.c:63-67) ---
         if objs.aliens[idx].shape == 0 {
             continue;
@@ -168,15 +206,6 @@ pub fn build_list(
         // Stable identity for render interpolation (draw.c:149-152).
         entry.obj_id = i + 1;
 
-        // View-side flag from world position vs camera (draw.c:154-159).
-        {
-            let al = &mut objs.aliens[idx];
-            al.flags |= AF_INVIEW_PL;
-            if al.worldx < pviewposx {
-                al.flags |= AF_LEFT_PL;
-            }
-        }
-
         // Game_SubmitDrawEntry cap (boot.c:295-299).
         if out.len() < MAX_DRAW_LIST {
             out.push(entry);
@@ -218,8 +247,8 @@ mod tests {
 
         let mut out = Vec::new();
         // playerflymode has PFM_SHADOWS; gameframe = 130 -> & 127 = 2;
-        // camera pviewposx = 0 > worldx -10 -> AF_LEFT_PL set.
-        build_list(&mut objs, PFM_SHADOWS, 130, 0, 0, GF_NOZREMOVE, &mut out);
+        // camera viewposx = 0 > worldx -10 -> AF_LEFT_PL set.
+        build_list(&mut objs, PFM_SHADOWS, 130, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
 
         assert_eq!(out.len(), 1);
         let e = &out[0];
@@ -273,7 +302,7 @@ mod tests {
         objs.aliens[a as usize].shape = 0; // skipped: no shape
 
         let mut out = Vec::new();
-        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &mut out);
+        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
         // Active list is newest-first: only slot 1 emitted.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].explosion_cnt, 12);
@@ -286,7 +315,7 @@ mod tests {
         objs.aliens[b as usize].sflags4 = ASF4_NOPOLYEXP;
         objs.aliens[b as usize].flags = AFEXP; // rebuild cleared placement bits
         out.clear();
-        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &mut out);
+        build_list(&mut objs, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
         assert_eq!(out[0].explosion_cnt, 0);
     }
 }

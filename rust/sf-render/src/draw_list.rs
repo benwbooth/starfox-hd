@@ -154,7 +154,11 @@ impl DrawListRenderer {
 
     /// Mirror of `RenderShadow` (MARIO/MDRAWLIS.MC shadow pass): project the
     /// object's own mesh onto the ground plane by flattening the world-space
-    /// Y row of the model matrix.
+    /// Y row of the model matrix. `shadow_height` is the per-level BGS.ASM
+    /// `shadowheight` (MDRAWLIS.MC:1416-1432 rotates the shadow at
+    /// y = shadowheight - viewposy): SNES world Y of the ground plane,
+    /// +down, 0 for planet surfaces, nucleusheight (400) inside the Nucleus.
+    #[allow(clippy::too_many_arguments)]
     fn render_shadow(
         &self,
         gpu: &mut Gpu,
@@ -163,6 +167,7 @@ impl DrawListRenderer {
         shapes: &ShapeStore,
         transform: &Transform,
         e: &DrawListEntry,
+        shadow_height: f32,
     ) {
         let Some(shape) = shapes.get(e.shape_id) else {
             return;
@@ -170,19 +175,20 @@ impl DrawListRenderer {
         if shape.num_triangles <= 0 {
             return;
         }
-        if e.y > 0 {
+        // FP16.16 ground-plane height in the entry's coordinate space.
+        let ground_fp = (shadow_height * 65536.0) as i32;
+        if e.y > ground_fp {
             return; // below ground (SNES +Y is down): no shadow
         }
 
         let mut model = [0.0f32; 16];
-        // Ground height 0 (BGS.ASM shadowheight for planet levels).
-        transform.build_model_matrix(&mut model, e.x, 0, e.z, e.rx, e.ry, e.rz);
+        transform.build_model_matrix(&mut model, e.x, ground_fp, e.z, e.rx, e.ry, e.rz);
         // Flatten world-space Y (row 1 of the column-major matrix); lift
-        // slightly to avoid coplanar artifacts.
+        // slightly off the ground plane to avoid coplanar artifacts.
         model[1] = 0.0;
         model[5] = 0.0;
         model[9] = 0.0;
-        model[13] = 0.5;
+        model[13] += 0.5;
 
         // Alpha-blended, non-depth-writing (was GL SRC_ALPHA blend + depth
         // mask off) so the shadow tints the ground instead of occluding it.
@@ -199,6 +205,7 @@ impl DrawListRenderer {
         prev: &[DrawListEntry],
         curr: &[DrawListEntry],
         alpha: f32,
+        shadow_height: f32,
     ) {
         if curr.is_empty() {
             return;
@@ -294,7 +301,7 @@ impl DrawListRenderer {
         // has no alpha blend / depth-mask toggle, so shadows draw as opaque
         // black tris (see parity note). ---
         for e in &shadow_list {
-            self.render_shadow(gpu, &proj, &view, shapes, transform, e);
+            self.render_shadow(gpu, &proj, &view, shapes, transform, e, shadow_height);
         }
     }
 }
