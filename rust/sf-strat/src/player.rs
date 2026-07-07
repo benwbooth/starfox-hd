@@ -28,6 +28,7 @@ use sf_game::alien::{
     StratId, ACF_COLLTYPE1, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
     ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATZREMOVE,
 };
+use sf_game::coldet::PcboxKind;
 use sf_game::game::StrategyFn;
 use sf_game::vars::{
     GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STRATDONE1, GF_STRATDONE2, GF_VIEWROT,
@@ -163,6 +164,9 @@ const PLAYER_BODY_HP: u8 = 40;
 const PLAYER_HITFLASH_FRMS: u8 = 7;
 const SCREENFLASH_BODY_FRMS: u8 = 4;
 const SCREENFLASH_BODY_TYPE: u8 = 0;
+/// Wing screenflash (STRATEQU.INC:775-776 screenflashwingfrms/type).
+const SCREENFLASH_WING_FRMS: u8 = 2;
+const SCREENFLASH_WING_TYPE: u8 = 1;
 const PLAYER_DEAD_FRAMES: u8 = 60;
 const SHIPINTRO_LIFE: u8 = 40;
 const SHIPINTRO_BOOST_Z: i16 = 50;
@@ -218,8 +222,14 @@ const K_VIEWOPENING_STRAT: u16 = 19;
 // re-parks the player at worldz=-200 and hides it. Invoked from the map VM's
 // SET_PLAYER_EXITBASE_L callback (registered at STRAT_ADDR_PLAYER_EXITBASE).
 const K_EXITBASE_INIT: u16 = 20;
+// pcbox proxy strats (ROM pBody_strat / pLWing_strat|pRWing_strat / the
+// pcolB_strat family, PSTRATS.ASM). Body/wing re-park each frame; coll routes
+// a box hit back onto the ship.
+const K_PCBOX_BODY: u16 = 21;
+const K_PCBOX_WING: u16 = 22;
+const K_PCBOX_COLL: u16 = 23;
 
-const FNS: [StrategyFn; 21] = [
+const FNS: [StrategyFn; 24] = [
     strat_player,
     playercoll_istrat,
     playerdead_istrat,
@@ -241,6 +251,9 @@ const FNS: [StrategyFn; 21] = [
     playeropeningboost_strat,
     viewopening_strat,
     strat_player_exit_base,
+    pcbox_body_strat,
+    pcbox_wing_strat,
+    pcbox_coll_strat,
 ];
 
 fn ids_base(g: &mut Game) -> u16 {
@@ -615,16 +628,188 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     al.ap = 0;
     al.sbyte1 = 0;
     al.sflags &= !ASF_COLLIDE;
-    // The dying ship takes no further body damage (ROM: player collisions go
-    // through the pcbox objects, which the death sequence detaches; in the
-    // port's direct model continued do_coll damage re-zeroed hp and froze the
-    // crash sequence via do_strat's expstrat routing).
+    // The dying ship takes no further body damage. ROM `playerdead_Istrat`
+    // (PSTRATS.ASM:3031-3044) DETACHES the three pcbox proxies (clears their
+    // strat pointers + sets colldisable) so no hit can route into the ship; the
+    // ship object itself keeps colliding (as a hazard, colltype enemyweap).
+    // In the port's DIRECT model (no boxes attached) the equivalent is
+    // colldisable on the ship — without it, continued `do_coll` re-zeroed hp
+    // and the persisting ASF_COLLIDE made do_strat run playercoll instead of
+    // the crash strat, freezing the sequence. Under the pcbox layer
+    // (`Game::pcbox_attach`) the ship is ALREADY colldisable and
+    // `pcbox_coll_strat` calls `g.pcbox_detach()` before this runs, so this
+    // line is a redundant no-op there but stays correct for the direct model.
     al.sflags |= ASF_COLLDISABLE;
     al.stratptr = Some(dead);
     al.collstratptr = Some(coll);
     al.expstratptr = Some(exp);
 
     g.hooks.play_se(0x03);
+}
+
+// ============================================================
+// pcbox proxy boxes (PSTRATS.ASM pBody/pLWing/pRWing + pcolB family)
+// ============================================================
+
+/// Public entry: build the three player collision-proxy boxes and route the
+/// ship's body collisions through them (ROM per-level player setup,
+/// GSTRATS.ASM:100-125 -> pBody_Istrat/pLWing_Istrat/pRWing_Istrat).
+///
+/// `player` is the ship slot. Registers the box strats (idempotent) and hands
+/// their [`StratId`]s to the game-core [`Game::pcbox_attach`], which allocates
+/// the boxes and makes the ship `colldisable`.
+///
+/// FOLLOW-UP (game-core lane): this is not yet called by the real per-level
+/// setup — that wiring belongs in world/level init (outside this lane's two
+/// files). Until then the boxes are opt-in (tests + any future setup call).
+pub fn pcbox_attach(g: &mut Game, player: u16) -> bool {
+    let body = sid(g, K_PCBOX_BODY);
+    let wing = sid(g, K_PCBOX_WING);
+    let coll = sid(g, K_PCBOX_COLL);
+    g.pcbox_attach(player, body, wing, coll)
+}
+
+/// Rotate a wing offset `(ox, oy)` about the ship's Z axis by `rotz`
+/// (ROM `s_add_Roffs2pos ...,0,0,1` — rotz on, rotx/roty off,
+/// PSTRATS.ASM:283/419). Z has offset 0 (playerW_z), so only X/Y rotate.
+fn rotz_offset(ox: i16, oy: i16, rotz: u8) -> (i16, i16) {
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let a = rotz as usize;
+    let sin = SINTAB[a] as i32;
+    let cos = COSTAB[a] as i32;
+    let x = ox as i32;
+    let y = oy as i32;
+    let xr = mulslog(x, cos) - mulslog(y, sin);
+    let yr = mulslog(x, sin) + mulslog(y, cos);
+    (xr as i16, yr as i16)
+}
+
+/// Re-park the body box on the ship every frame (ROM `pBody_strat`,
+/// PSTRATS.ASM:151-168): copy the ship's position and rotations (offset 0).
+fn pcbox_body_strat(g: &mut Game, idx: u16) {
+    let Some(player) = g.coldet.pcbox.player else {
+        return;
+    };
+    let p = g.objs.aliens[player as usize];
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = p.worldx;
+    al.worldy = p.worldy;
+    al.worldz = p.worldz;
+    al.rotx = p.rotx;
+    al.roty = p.roty;
+    al.rotz = p.rotz;
+}
+
+/// Re-park a wing box on the ship every frame (ROM `pLWing_strat`/
+/// `pRWing_strat`, PSTRATS.ASM:270-310/415-...): ship position + the rotz-
+/// rotated wing offset. Left wing uses -X, right wing +X.
+fn pcbox_wing_strat(g: &mut Game, idx: u16) {
+    let Some(player) = g.coldet.pcbox.player else {
+        return;
+    };
+    let kind = g.coldet.pcbox.kind_of(idx);
+    let p = g.objs.aliens[player as usize];
+    let off_x = match kind {
+        Some(PcboxKind::LWing) => -sf_game::coldet::PCBOX_WING_X,
+        _ => sf_game::coldet::PCBOX_WING_X,
+    };
+    let (dx, dy) = rotz_offset(off_x, sf_game::coldet::PCBOX_WING_Y, p.rotz);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = p.worldx.wrapping_add(dx);
+    al.worldy = p.worldy.wrapping_add(dy);
+    al.worldz = p.worldz.wrapping_add(sf_game::coldet::PCBOX_WING_Z);
+    al.rotx = p.rotx;
+    al.roty = p.roty;
+    al.rotz = p.rotz;
+}
+
+/// Route a box hit back onto the ship (ROM `pcolB_Istrat`/`pcolB_strat` +
+/// `pcolLW_Istrat`, PSTRATS.ASM:174-234/320-...). Runs as the box's collide-
+/// strat the frame after `chkcoll` set its collide flag and `do_coll` already
+/// docked the box's HP. Applies the ship hitflash + screenflash + hit counter,
+/// and drives death (body HP 0) / wing-break (wing HP 0).
+fn pcbox_coll_strat(g: &mut Game, idx: u16) {
+    let kind = g.coldet.pcbox.kind_of(idx);
+    let Some(kind) = kind else {
+        // Stale collide on a detached box — just clear it.
+        g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+        return;
+    };
+    let Some(player) = g.coldet.pcbox.player else {
+        g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+        return;
+    };
+
+    if g.vars.pshipflags3 & PSF3_NOCOLLISIONS != 0 {
+        g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+        return;
+    }
+
+    // s_inc_var pnumhits (playercoll_Istrat PSTRATS.ASM:3285).
+    let hits = g.vars.sv_u8(sv::PNUMHITS);
+    if hits < 0xFF {
+        g.vars.set_sv_u8(sv::PNUMHITS, hits + 1);
+    }
+
+    // Ship hitflash + invulnerability window (pcolB sets al_sbyte1 =
+    // player_hitflashfrms on the PLAYER, PSTRATS.ASM:200/220).
+    {
+        let p = &mut g.objs.aliens[player as usize];
+        p.sbyte1 = PLAYER_HITFLASH_FRMS;
+        p.sflags |= ASF_HITFLASH | ASF_NOHITAFFECT;
+    }
+
+    // Body vs wing screenflash (pcolB_Istrat / pcolLW_Istrat).
+    let (flash_frms, flash_type) = match kind {
+        PcboxKind::Body => (SCREENFLASH_BODY_FRMS, SCREENFLASH_BODY_TYPE),
+        _ => (SCREENFLASH_WING_FRMS, SCREENFLASH_WING_TYPE),
+    };
+    g.vars.set_sv_u8(sv::SCREENFLASHCNT, flash_frms);
+    g.vars.set_sv_u8(sv::SCREENFLASHTYPE, flash_type);
+
+    let box_hp = g.objs.aliens[idx as usize].hp;
+    match kind {
+        PcboxKind::Body => {
+            // Body destroyed -> death sequence (ROM pcolBexp_Istrat ->
+            // playerdead_Istrat). Detach the boxes first so no further hit
+            // re-enters the crash.
+            if box_hp == 0 {
+                g.objs.aliens[player as usize].hp = 0;
+                g.pcbox_detach();
+                playerdead_istrat(g, player);
+                return;
+            }
+        }
+        PcboxKind::LWing | PcboxKind::RWing => {
+            if box_hp == 0 {
+                // Wing break (ROM PLWbrk_Istrat/PRWbrk_Istrat): set the broken-
+                // wing ship flag, sound, and drop just this wing box out of the
+                // collision system.
+                let bit = if kind == PcboxKind::LWing {
+                    PSF_BRKLWING
+                } else {
+                    PSF_BRKRWING
+                };
+                g.vars.pshipflags |= bit;
+                g.hooks.play_se(0x14);
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sflags |= ASF_COLLDISABLE;
+                    al.sflags &= !ASF_COLLIDE;
+                    al.stratptr = None;
+                    al.collstratptr = None;
+                }
+                if kind == PcboxKind::LWing {
+                    g.coldet.pcbox.lwing = None;
+                } else {
+                    g.coldet.pcbox.rwing = None;
+                }
+                return;
+            }
+        }
+    }
+
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
 }
 
 /// C `setcurrpshape` (strat_player.c:262).
