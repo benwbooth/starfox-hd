@@ -734,7 +734,32 @@ pub fn strat_hit_flash(g: &mut Game, idx: u16) {
             return;
         }
     }
+    // ROM hitflash_Istrat (GSTRATS.ASM:895-925): every non-fatal hit plays
+    // se_damageenemynear/mid/far ($24/$25/$26) by xzdiffs range to the player
+    // (<1000 / <2000 / else). The port was silent.
+    play_se_by_range(g, idx, 0x24, 0x25, 0x26);
     g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+}
+
+/// ROM range-selected sound trigger (EXPSTRAT.ASM:855-877 / GSTRATS.ASM:905-925
+/// pattern): `xzdiffs_l(self, player)` rangexz < 1000 -> near, < 2000 -> mid,
+/// else far.
+fn play_se_by_range(g: &mut Game, idx: u16, near: u8, mid: u8, far: u8) {
+    let me = g.objs.aliens[idx as usize];
+    let se = match g.objs.player() {
+        Some(p) => {
+            let d = crate::common::strat_dist_xz(&me, p) as u16;
+            if d < 1000 {
+                near
+            } else if d < 2000 {
+                mid
+            } else {
+                far
+            }
+        }
+        None => far,
+    };
+    g.hooks.play_se(se);
 }
 
 /// C `Strat_Explode` (strat_enemy.c:5931, explode_Istrat).
@@ -754,7 +779,12 @@ pub fn strat_explode(g: &mut Game, idx: u16) {
             g.vars.gameflags |= GF_BOSSDEAD;
         }
     }
-    g.hooks.play_se(0x10);
+    // ROM explode chain (EXPSTRAT.ASM:853-877): se_destructenemynear/mid/far
+    // ($21/$22/$23) by xzdiffs range to the player, gated on the noexpsnd
+    // sflag. The port played $10 (se_itemcatch, the item chime!) on every kill.
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_NOEXPSND == 0 {
+        play_se_by_range(g, idx, 0x21, 0x22, 0x23);
+    }
     g.objs.aldead = 1;
 }
 
