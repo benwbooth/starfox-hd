@@ -68,15 +68,127 @@ fn arctan16_is_sane() {
             deg(exp)
         );
     }
-    // Informational: refinement-dependent angles (not yet asserted).
+    // Off-axis/shallow angles now verified too (see off_axis_grid below).
     for &(x, y) in &[(50i16, 87i16), (0, 100)] {
         let got = gsu_arctan(&rom, x, y);
         eprintln!(
-            "arctan16 x={x:4} y={y:4}: GSU={got:5} ({:3}deg)  atan2~{:3}deg  [refinement WIP]",
+            "arctan16 x={x:4} y={y:4}: GSU={got:5} ({:3}deg)  atan2~{:3}deg",
             deg(got),
             deg(expected_angle(x, y))
         );
     }
     assert_eq!(bad, 0, "{bad} cardinal/diagonal cases diverge from atan2");
+}
+
+/// Circular distance between two 16-bit angles, in [0, 32768].
+fn circ(got: u16, exp: u16) -> i32 {
+    let dd = (got as i32 - exp as i32).rem_euclid(65536);
+    dd.min(65536 - dd)
+}
+
+/// Off-axis grid: the divide (`mdivu3115` @ $8192) + arctan table lookup path
+/// that the cardinal/diagonal cases skip. Previously "WIP" because the GSU
+/// emulator had SuperFX branch opcodes $06/$07 (BGE/BLT) swapped, so
+/// `marctan16` took `blt marctan3` on positive CMP results and skipped the
+/// mandatory operand swap — dividing by zero on any |y|>|x| input. With the
+/// opcode fix ($06=BGE S==OV, $07=BLT S!=OV), the ROM's own arctan is now
+/// exercised end-to-end. It matches atan2:
+///   * within 64/65536 in the raw 16-bit angle (ROM `arctantab` is 512 entries
+///     + `quotient>>5`, so the low bits are quantized — this is ROM precision,
+///     not an emulator defect), and
+///   * within +/-1 in the 8-bit angle the game actually uses (`arctan16>>8`).
+#[test]
+fn arctan16_off_axis_grid() {
+    let Some(rom) = load_built_rom() else {
+        eprintln!("skip: built ROM data/sf.sfc not present");
+        return;
+    };
+    // Mix of magnitudes, shallow ratios, both signs, all quadrants.
+    let vals: [i16; 24] = [
+        -12345, -4000, -1000, -300, -173, -100, -37, -13, -7, -3, -1, 0, 1, 3, 7, 13, 37, 91, 100,
+        300, 1000, 4000, 12345, 173,
+    ];
+    let mut max16 = 0i32;
+    let mut max8 = 0i32;
+    let mut worst = (0i16, 0i16, 0u16, 0u16);
+    let mut n = 0;
+    for &x in &vals {
+        for &y in &vals {
+            if x == 0 && y == 0 {
+                continue;
+            }
+            let got = gsu_arctan(&rom, x, y);
+            let exp = expected_angle(x, y);
+            let d16 = circ(got, exp);
+            // 8-bit angle the game uses: arctan16 >> 8 (256 = full circle).
+            let g8 = (got >> 8) as i32;
+            let e8 = (exp >> 8) as i32;
+            let d8 = {
+                let dd = (g8 - e8).rem_euclid(256);
+                dd.min(256 - dd)
+            };
+            if d16 > max16 {
+                max16 = d16;
+                worst = (x, y, got, exp);
+            }
+            max8 = max8.max(d8);
+            n += 1;
+        }
+    }
+    eprintln!(
+        "off-axis grid n={n}: max 16-bit delta={max16} (worst x={} y={} GSU={} atan2={}), max 8-bit delta={max8}",
+        worst.0, worst.1, worst.2, worst.3
+    );
+    assert!(max16 <= 64, "ROM arctan16 diverges from atan2 by {max16} (>64) in raw 16-bit units");
+    assert!(max8 <= 1, "ROM arctan16>>8 diverges from atan2 by {max8} 8-bit units (>1)");
+}
+
+/// Port parity: the Rust enemy-aiming helper (`sf_strat`'s `angle_xz`) computes
+/// `atan2(dx, dz) * 256/(2*PI)` truncated to u8. This replicates that exact
+/// float formula and checks it against the ROM's `arctan16>>8` over the same
+/// off-axis grid. They agree within +/-1 8-bit unit everywhere — the intended,
+/// acceptable float-vs-fixed difference. This is what verifies enemy aiming.
+#[test]
+fn arctan16_matches_port_angle() {
+    let Some(rom) = load_built_rom() else {
+        eprintln!("skip: built ROM data/sf.sfc not present");
+        return;
+    };
+    // Exact replica of sf_strat::enemy_a::angle_xz / common::strat_angle_xz.
+    fn port_angle8(dx: i32, dz: i32) -> u8 {
+        let mut a = (dx as f32).atan2(dz as f32);
+        if a < 0.0 {
+            a += 2.0 * 3.141_592_65_f32;
+        }
+        ((a * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8
+    }
+    let vals: [i16; 20] = [
+        -4000, -1000, -300, -100, -37, -13, -3, -1, 0, 1, 3, 13, 37, 100, 300, 1000, 4000, 7, 91,
+        173,
+    ];
+    let mut maxd = 0i32;
+    let mut worst = (0i16, 0i16, 0u8, 0u8);
+    for &x in &vals {
+        for &y in &vals {
+            if x == 0 && y == 0 {
+                continue;
+            }
+            let rom8 = (gsu_arctan(&rom, x, y) >> 8) as u8;
+            let port8 = port_angle8(x as i32, y as i32);
+            let d = {
+                let dd = (rom8 as i32 - port8 as i32).rem_euclid(256);
+                dd.min(256 - dd)
+            };
+            if d > maxd {
+                maxd = d;
+                worst = (x, y, rom8, port8);
+            }
+        }
+    }
+    eprintln!(
+        "port vs ROM arctan16>>8: max 8-bit delta={maxd} (worst x={} y={} ROM={} port={})",
+        worst.0, worst.1, worst.2, worst.3
+    );
+    assert!(maxd <= 1, "port angle_xz diverges from ROM arctan16>>8 by {maxd} 8-bit units (>1)");
 }
 

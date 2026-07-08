@@ -191,8 +191,13 @@ impl Gsu {
                 let rel = self.fetch() as i8 as i32;
                 let take = match op {
                     0x05 => true,                                             // BRA
-                    0x06 => self.flag(sfr::S) != self.flag(sfr::OV),          // BLT
-                    0x07 => self.flag(sfr::S) == self.flag(sfr::OV),          // BGE
+                    // SuperFX branch encoding (verified against the retail-built
+                    // ROM's `blt`/`bge` at $01:81ED, `marctan16`): $06 = BGE
+                    // (S==OV), $07 = BLT (S!=OV). Previously these were swapped,
+                    // which made `marctan16` skip the operand swap on off-axis
+                    // inputs and divide by zero (see gsu_arctan.rs / AUDIT).
+                    0x06 => self.flag(sfr::S) == self.flag(sfr::OV),          // BGE
+                    0x07 => self.flag(sfr::S) != self.flag(sfr::OV),          // BLT
                     0x08 => !self.flag(sfr::Z),                               // BNE
                     0x09 => self.flag(sfr::Z),                                // BEQ
                     0x0A => !self.flag(sfr::S),                               // BPL

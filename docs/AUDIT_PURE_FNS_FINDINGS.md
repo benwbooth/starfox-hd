@@ -305,3 +305,64 @@ see gsu_arctan.rs), not the sqrt remainder path. It warrants the same
 "inherent-16-bit vs genuine-emulator-bug" bisection performed here (compare the
 emulator against a faithful narrow model and a wide model) before any gsu.rs
 change is attempted; scoped as its own task.
+
+---
+
+## RESOLVED (2026-07-08): off-axis `arctan16` — real emulator bug (swapped BGE/BLT), fixed
+
+The deferred off-axis `arctan16` divergence was **NOT** ROM precision and **NOT**
+the divide refinement (`mdivu3115` @ $8192). It was a genuine GSU-emulator
+control-flow bug: **SuperFX branch opcodes $06/$07 were swapped.**
+
+### Bug
+`rust/sf-oracle/src/gsu.rs` had `$06 => BLT (S!=OV)` and `$07 => BGE (S==OV)`.
+The retail-built ROM (`data/sf.sfc`) encodes `blt marctan3` (`marctan16`, source
+`MMATHS.MC`) as byte **$07** at $01:81ED. Correct SuperFX: **$06 = BGE (S==OV),
+$07 = BLT (S!=OV)**.
+
+### Proof (bisection, ROM as oracle)
+Traced `arctan16(x=0, y=100)` (should be exactly 0 = arctan(0)). At $81ED the
+`cmp r6` gives `r0-r6 = 100-0 = 100` → S=0, OV=0. The buggy emulator ran $07 as
+BGE (S==OV → true) and **took** `blt marctan3`, skipping the mandatory
+`mexg r6,r0,r4` operand swap. Result: the divisor `r6` stayed **0** through the
+entire `mdivu3115` loop (verified in trace: `r6=0000` every iteration) → divide
+by zero → garbage angle (232deg instead of 0). The algorithm *requires* the swap
+whenever |y|>|x| so the larger magnitude becomes the divisor; on real hardware
+(and every shipping SuperFX emulator, since the game aims correctly) byte $07
+must branch on S!=OV. This is a control-flow divide-by-zero, categorically
+different from the msqrt32 case (a few-LSB 16-bit-precision effect) — a real bug.
+
+The flag computation itself (CMP/SUB setting S, OV, CY) was already correct; only
+the two branch-condition assignments were transposed. Fix = swap them. The
+project's own disassembler `tools/sf2/disasm/gsu.py` shares the same mistaken
+$06=BLT/$07=BGE table (pre-existing; not touched here, but noted as wrong).
+
+### Verification
+- Fix: `gsu.rs` branch table now `$06=BGE (S==OV)`, `$07=BLT (S!=OV)`.
+- Axis-aligned/diagonal cases (which early-exit and never hit this branch) stay
+  bit-exact; **all 28 sf-oracle test binaries stay green** (incl. `gsu_rotmat`,
+  an independent GSU routine — confirms the swap is globally correct, not a
+  local hack).
+- New `arctan16_off_axis_grid` (575 off-axis (x,y) points): GSU vs `atan2`
+  **max 16-bit delta = 51/65536**, **max 8-bit delta = 1**. The 51-unit 16-bit
+  residual is genuine ROM table quantization (`arctantab` = 512 entries fed by
+  `quotient>>5`), i.e. real ROM precision, not an emulator defect.
+
+### Q1 verdict — EMULATOR: real bug, fixed
+Not faithful-ROM-precision: a swapped-branch divide-by-zero. Minimal 2-line fix
+in `gsu.rs`; off-axis now matches atan2 to ROM-quantization precision.
+
+### Q2 verdict — PORT: VERIFIED within +/-1 8-bit unit
+`sf_strat` `angle_xz` / `strat_angle_xz` compute `atan2(dx,dz)*256/(2*PI)`
+truncated to u8 — the ROM's `arctan16>>8` convention (256 = full circle). New
+`arctan16_matches_port_angle` compares the port's exact float formula against
+ROM `arctan16>>8` over the off-axis grid: **max delta = 1 8-bit unit**
+(worst e.g. x=-4000,y=-300: ROM=189, port=188). This is the intended, acceptable
+float-vs-fixed boundary-rounding difference (libm `atan2f` truncated vs the ROM's
+quantized table). Enemy aiming is VERIFIED-within-precision; no port divergence.
+
+### Gameplay impact
+None on the shipping C/Rust port (which uses libm `atan2f`, always correct). The
+bug lived only in the GSU *oracle*, so it had blocked *validation* of GSU angle
+math, not gameplay. It is now unblocked: enemy-aiming angles are proven correct
+against the real ROM routine to ±1 in the 8-bit units the game uses.
