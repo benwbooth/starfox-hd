@@ -178,35 +178,123 @@ fn msqrt32_is_exact_floor_sqrt() {
     assert_eq!(diffs_low, 0, "msqrt32 must be exact floor-sqrt for x < 2^28 (the realistic domain)");
 }
 
-/// FLAGGED (GSU-core fidelity, not a port bug). `msqrt32` is a bit-by-bit
-/// integer sqrt — mathematically EXACT by construction — yet through this GSU
-/// core it reads low (by up to ~3 LSB, growing with magnitude) for inputs
-/// >= 2^28, concentrated at `x == s^2 - 1`. msqrt16 is exact over its ENTIRE
-/// 16-bit domain, so the defect is specific to msqrt32's wider 3-register shift
-/// (rol/sbc carry chain across the r0 top word) in `gsu.rs`, i.e. a suspected
-/// carry-propagation bug in the emulator, not the ROM or any Rust port (there
-/// is no integer-sqrt port — distances use f32 `sqrtf`). Pinned here for the
-/// emulator follow-up; excluded from the green suite.
+/// A faithful, self-contained 16-bit model of the ROM's `msqrt32` (MMATHS.MC
+/// msqrt32). `wide=false` masks every register to 16 bits exactly like the GSU;
+/// `wide=true` lets the remainder registers (`rt`,`rt2`,`rsqrt`) grow unbounded.
+/// The ONLY difference is register width — the opcode sequence is identical.
+fn msqrt32_model(inp: u32, wide: bool) -> u16 {
+    let m = |v: u64| if wide { v } else { v & 0xFFFF };
+    let mut rsqr = (inp & 0xFFFF) as u64; // r5: input low  (always a 16-bit shift reg)
+    let mut rsqrhi = ((inp >> 16) & 0xFFFF) as u64; // r4: input high
+    let mut rsqrt: u64 = 0; // r6: running root
+    let mut rt: u64 = 0; // r8: running remainder
+    for _ in 0..16 {
+        // Two `add rsqr ; rol rsqrhi ; rol rt` steps shift 2 input bits up into
+        // the remainder `rt`. On real 16-bit hardware the top bit rolled out of
+        // `rt` is DROPPED (no 17th-bit register) — that is the whole defect.
+        for _ in 0..2 {
+            let s = rsqr + rsqr;
+            let c = (s > 0xFFFF) as u64;
+            rsqr = s & 0xFFFF;
+            let v = (rsqrhi << 1) | c;
+            let c2 = ((rsqrhi & 0x8000) != 0) as u64;
+            rsqrhi = v & 0xFFFF;
+            rt = m((rt << 1) | c2); // narrow: overflow bit lost; wide: retained
+        }
+        rsqrt = m(rsqrt << 1); // root <<= 1
+        let rt2 = m(rsqrt << 1); // test value 2*root (can overflow 16 bits!)
+        if rt > rt2 {
+            // remainder >= 2*root+1
+            rt = m(rt - rt2 - 1);
+            rsqrt = m(rsqrt + 1);
+        }
+    }
+    rsqrt as u16
+}
+
+/// RESOLVED (was: "suspected GSU-core carry bug"). The prior batch flagged
+/// `msqrt32` as reading low by up to ~3 LSB for x >= 2^28 and hypothesised a
+/// carry-propagation bug in `gsu.rs`. That is a MISDIAGNOSIS: the emulator is
+/// faithful, and the divergence is an INHERENT limitation of the ROM routine.
+///
+/// `msqrt32` keeps its running remainder in a SINGLE 16-bit register (`rt`=r8;
+/// MMATHS.MC msqrt32) whose true value reaches ~9e7 for 32-bit inputs and so
+/// overflows 16 bits once x >= 2^28 — real GSU hardware (16-bit regs, no 17th
+/// remainder bit) drops the same top bit and returns the same low-by-1..3
+/// result. `msqrt16` never overflows (root <= 255, remainder <= ~1020), which is
+/// why it is exact over its whole domain.
+///
+/// This test proves it two ways, with NO change to gsu.rs (a "fix" there would
+/// make the core UNfaithful to hardware):
+///   (a) a faithful 16-bit model reproduces the emulator BIT-EXACT across the
+///       high domain — so gsu.rs is a correct 16-bit GSU; and
+///   (b) the SAME algorithm with WIDE (un-truncated) remainder registers yields
+///       exact floor-sqrt — so register WIDTH, not carry handling, is the cause.
+/// No Rust port is affected: integer sqrt is unused (distances use f32 `sqrtf`).
 #[test]
-#[ignore = "flagged: GSU-core msqrt32 loses up to ~3 LSB for x>=2^28 (suspected 32-bit carry bug)"]
-fn msqrt32_high_domain_divergence() {
+fn msqrt32_high_domain_is_faithful_16bit_overflow() {
     let syms = load_symbols();
     let (Some(&sym), Some(rom)) = (syms.get("MSQRT32"), load_built_rom()) else {
+        eprintln!("skip: no MSQRT32 / ROM");
         return;
     };
     let (pbr, pc) = sym_to_gsu(sym);
     let stop = find_stop(&rom, pbr);
     let mut g = Gsu::new(rom);
-    // x = 16404^2 - 1: true floor 16403, this core returns 16402.
-    let x: u32 = 16404 * 16404 - 1;
-    g.r[R_SQR32_LO] = x as u16;
-    g.r[R_SQR32_HI] = (x >> 16) as u16;
-    g.r[11] = stop;
-    g.run(pbr, pc);
-    let rom_r = g.r[R_SQRT];
-    let floor = (x as f64).sqrt().floor() as u16;
-    eprintln!("msqrt32({x}) core={rom_r} floor={floor}");
-    assert_eq!(rom_r, floor, "GSU-core msqrt32 reads low in the high domain");
+    // A grid concentrated on the failing regime: x == s^2-1 for s across the
+    // whole high domain (>= 2^28) plus the canonical 16404^2-1 witness.
+    let mut inputs: Vec<u32> = Vec::new();
+    let mut s = 16384u32;
+    while s <= 46340 {
+        let sq = s * s;
+        inputs.push(sq.wrapping_sub(1));
+        inputs.push(sq);
+        inputs.push(sq.wrapping_add(1));
+        s += 7;
+    }
+    inputs.push(16404 * 16404 - 1); // the canonical witness (core=16402, floor=16403)
+    inputs.retain(|&v| v <= 0x7FFF_FFFF);
+
+    let mut emu_vs_model = 0usize; // emulator vs faithful 16-bit model (must be 0)
+    let mut wide_vs_floor = 0usize; // wide model vs true floor-sqrt (must be 0)
+    let mut overflow_confirmed = false;
+    let mut first: Vec<String> = Vec::new();
+    for &x in &inputs {
+        g.r[R_SQR32_LO] = x as u16;
+        g.r[R_SQR32_HI] = (x >> 16) as u16;
+        g.r[11] = stop;
+        g.run(pbr, pc);
+        let emu = g.r[R_SQRT];
+        let narrow = msqrt32_model(x, false);
+        let wide = msqrt32_model(x, true);
+        let floor = (x as f64).sqrt().floor() as u16;
+        if emu != narrow {
+            emu_vs_model += 1;
+            if first.len() < 8 {
+                first.push(format!("EMU!=MODEL msqrt32({x}) emu={emu} model16={narrow}"));
+            }
+        }
+        if wide != floor {
+            wide_vs_floor += 1;
+            if first.len() < 8 {
+                first.push(format!("WIDE!=FLOOR msqrt32({x}) wide={wide} floor={floor}"));
+            }
+        }
+        if emu != floor {
+            overflow_confirmed = true; // the register-width divergence is present
+        }
+    }
+    for l in &first {
+        eprintln!("{l}");
+    }
+    eprintln!(
+        "PROBE msqrt32 high-domain root-cause: {} inputs; emu==16bit-model diffs={emu_vs_model}; \
+         wide-model==floor diffs={wide_vs_floor}; overflow-divergence present={overflow_confirmed}",
+        inputs.len()
+    );
+    assert_eq!(emu_vs_model, 0, "gsu.rs must be a faithful 16-bit GSU (matches the 16-bit msqrt32 model)");
+    assert_eq!(wide_vs_floor, 0, "the algorithm is exact with wide registers — width, not carry, is the cause");
+    assert!(overflow_confirmed, "the 16-bit-overflow divergence should be observable in the high domain");
 }
 
 // ===========================================================================

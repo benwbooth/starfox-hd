@@ -253,3 +253,55 @@ flagged (emulator-side, not port-side) divergence.
 - **`ANGLEXZ` ($0012DD) is NOT a function** — it is an `alc`-allocated RAM
   variable (ALCS.INC:141, the current XZ angle), so there is nothing to diff.
 - **`ADDALVECS_L`** already covered by apply_vel.rs (`apply_velocity`).
+
+## GSU-core follow-up — `msqrt32` high-domain divergence: RESOLVED (ROM limit, not an emulator bug)
+
+Harness: `rust/sf-oracle/tests/fuzz_pure_fns2.rs`
+(`msqrt32_high_domain_is_faithful_16bit_overflow`, now GREEN — replaces the old
+`#[ignore]`d `msqrt32_high_domain_divergence` reproducer).
+
+**Prior hypothesis (WRONG):** the batch-2 sweep flagged `msqrt32` (GSU $018086,
+MMATHS.MC:109) as reading low by up to ~3 LSB for x >= 2^28 (concentrated at
+`x == s^2-1`) and suspected a **carry-propagation bug in a GSU opcode** in
+`gsu.rs` (rol / sbc / the wide shift chain).
+
+**Actual root cause:** an **inherent limitation of the ROM routine**, faithfully
+reproduced by the emulator. `msqrt32` is a bit-by-bit sqrt that keeps its running
+remainder in a **single 16-bit register** (`rt` = r8). The shift chain is
+`rsqr`(r5,lo) -> `rsqrhi`(r4,hi) -> `rt`(r8): each iteration does
+`add rsqr ; rol rsqrhi ; rol rt` twice, shifting 2 input bits up into `rt`. The
+carry rolled out the **top** of `rt` has nowhere to go — there is no 17th-bit /
+high-word register for the remainder (r7 `rt2` is only scratch for the test value
+`2*root`). For 32-bit inputs the true remainder reaches ~9e7, and both `rt` and
+the test value `rt2 = 2*root` (up to 92680) **overflow 16 bits once x >= 2^28**,
+corrupting the compare/subtract by 1..3 LSB. `msqrt16` never overflows (root <=
+255, remainder <= ~1020), which is exactly why it is bit-exact over its whole
+domain — the defect is specific to the *width*, not to any opcode.
+
+Because real GSU registers are 16-bit with no hidden 17th bit, **real hardware
+produces the same low-by-1..3 result**. Making `gsu.rs` return exact floor-sqrt
+would make the core UN-faithful to hardware — the opposite of what the ROM oracle
+needs. So **`gsu.rs` is left unchanged**; there was no carry bug to fix.
+
+**Proof (in-test, self-contained):**
+- (a) A faithful 16-bit model of `msqrt32` reproduces the emulator **bit-exact**
+  across the high domain (12,841 inputs, `emu==16bit-model diffs=0`) — confirming
+  `gsu.rs` is a correct 16-bit GSU (`rol`/`add`/`sub`/`sbc`/carry all faithful).
+- (b) The **identical** algorithm with **wide (un-truncated) remainder
+  registers** yields exact floor-sqrt (`wide-model==floor diffs=0`) — proving
+  register **width**, not carry handling, is the sole cause.
+- The `add_flags`/`sub_flags` carry logic (gsu.rs:132-149), `ROL` (0x04), and
+  `SBC`/`CMP` (0x60-0x6F) were audited against Super-FX semantics and are correct.
+
+**Verdict:** GSU suite stays fully GREEN; `msqrt32` is now a *characterized*
+faithful behavior (exact for x < 2^28, the only realistic domain; the >=2^28
+quirk is a ROM property). **No Rust port is affected** — integer sqrt is unused
+(enemy/camera distances use libm f32 `sqrtf`).
+
+**Off-axis `anglexy`/`arctan16` — still BLOCKED (separate issue).** This fix does
+NOT unblock the deferred off-axis `arctan16` divide validation: that divergence
+is in the arctan shift-subtract **divide refinement** (a different routine/loop,
+see gsu_arctan.rs), not the sqrt remainder path. It warrants the same
+"inherent-16-bit vs genuine-emulator-bug" bisection performed here (compare the
+emulator against a faithful narrow model and a wide model) before any gsu.rs
+change is attempted; scoped as its own task.
