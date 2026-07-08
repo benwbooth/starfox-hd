@@ -54,6 +54,7 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 ## Wave log
 - 2026-07-04 wave 1: trig/player/coldet/strats/boss/mapvm audits — ~18 fixes, all committed (see rom-oracle-plan memory).
 - 2026-07-07 wave 2 COMPLETE: path (8), map-VM (5), showview (6), bg2d. 229/0.
+- 2026-07-07 wave 8: seadragon/seadragon2/lochness (route-3 3_3, sprouty neck chain) -> boss parity 15/~22; audits banked (sound-IDs: 0 wrong-id/4 wrong-type/2 stray; route-progression: LE_* dispatch missing = warps unreachable). Workspace 301/0.
 - 2026-07-07 wave 7: castanet 'Metal Smasher' + shared ground-vehicle base
   (route-2 2_5); chicken + shared arm_istrat grabber (route-3 3_3) -> boss parity
   14/~22; enemy-A ground/common batch (10 High +~27, ROM-correct laser speed/fire
