@@ -24,7 +24,9 @@ use sf_game::alien::{
     ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, StrategyFn};
-use sf_game::vars::{COLLTYPE_ENEMY1, GF_BOSSDEAD, GF_STAGEDONE, HARD_AP, HARD_HP};
+use sf_game::vars::{
+    COLLTYPE_ENEMY1, GF_BOSSDEAD, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, HARD_AP, HARD_HP,
+};
 use sf_game::world::World;
 
 // Canonical strat_common.c ports.
@@ -180,6 +182,11 @@ pub const IS_BOSS8: usize = 84;
 pub const IS_NUCLEUSLAUNCHER: usize = 86;
 /// C `IS_NUCLEUSPILLAR` (strat_boss8.c:68, def_Istrat 87).
 pub const IS_NUCLEUSPILLAR: usize = 87;
+/// `flingboss` (ISTRATS.ASM:479 def_istrat, macro-counted 58 = sf-map
+/// IS_FLINGBOSS / sf-oracle IS_FLINGBOSS_ISTRAT($39)+1).
+pub const IS_FLINGBOSS: usize = 58;
+/// `deadflingboss` (ISTRATS.ASM:480 def_istrat, macro-counted 59).
+pub const IS_DEADFLINGBOSS: usize = 59;
 
 /// C `STRAT_ADDR_BOSSSEAMON` (strat_boss_sea.c:45).
 pub const STRAT_ADDR_BOSSSEAMON: u32 = 0x030005;
@@ -3535,6 +3542,931 @@ fn nucleuspillar_strat(g: &mut Game, idx: u16) {
 // BOSS8_END
 
 // ============================================================
+// FLINGBOSS_BEGIN — "flingboss" + "deadflingboss" (Route 2 L4 armsmap).
+//
+// ASM oracle: `flingboss_istrat` / `fling` (DSTRATS.ASM:2951-3545) +
+// `deadflingboss_istrat` (DSTRATS.ASM:3650-3687), with the shared arm strat
+// `arm_istrat` (DSTRATS.ASM:2444-2650) and the arm removal `sprouty.expl`
+// (DSTRATS.ASM:2348-2384). ISTRATS.ASM:479/480 (`def_istrat flingboss` /
+// `deadflingboss`) → macro-counted indices 58 / 59 (matches sf-map rc.rs
+// IS_FLINGBOSS=58 and the sf-oracle IS_*_ISTRAT+1 convention).
+//
+// SCOPE NOTE (fidelity caveats, cited inline):
+//  * The mother state machine, both fire systems, the two-form transition and
+//    `deadflingboss` are ported faithfully tick-for-tick.
+//  * The two "arms" are modeled as the two DIRECT arm children the mother
+//    links via `al_ptr` / `al_sword1` (DSTRATS.ASM:3183/3190). The recursive
+//    grabber-tentacle GROWTH (`arm_istrat` `.nbl` -> `.generate`,
+//    DSTRATS.ASM:2618-2637/2806-2859) and the inter-segment spring easing
+//    (`arm_istrat.position`, DSTRATS.ASM:2860-2944) are NOT reproduced — they
+//    reuse the chicken boss's shared code (unported) and need an oracle diff.
+//    Consequence: arms are single-segment. To keep phase-1 killable (ROM
+//    routes damage through the grabber segments' `.grabberhit` -> `.passiton`
+//    which sets the mother's sflag5, DSTRATS.ASM:2752-2791), the direct arm's
+//    collstrat sets the mother's sflag5 here — the same observable effect.
+// ============================================================
+
+// STRATEQU.INC:60-62 / :978-979, DSTRATS.ASM:58-59.
+const FLINGBOSS1HP: u8 = 24;
+const FLINGBOSS2HP: u8 = 80;
+const FLINGBOSS_AP: u8 = 32;
+const FLINGBOSSWIDTH: i16 = 40;
+const ARMLENGTH: i16 = 80;
+const ARM_AP: u8 = 10; // DSTRATS.ASM:59 armAP
+const FB_DEG11: u8 = 8; // VARS.INC:16 deg11 = 256/32
+
+// BOSSHMISSILE1 = fire_Hmissile1 (GSTRATS.ASM:2627): speed 60, life 100,
+// hp=hmissile1HP(2), ap=hmissile1AP(8). HPLASMA = fire_Hplasma
+// (GSTRATS.ASM:2517): bouncyball, speed 60, life 50, ap HplasmaAP(10).
+const FB_HMISSILE_SPEED: u8 = 60;
+const FB_HMISSILE_LIFE: u8 = 100;
+const FB_HMISSILE_HP: u8 = 2;
+const FB_HMISSILE_AP: u8 = 8;
+const FB_HPLASMA_SPEED: u8 = 60;
+const FB_HPLASMA_LIFE: u8 = 50;
+const FB_HPLASMA_AP: u8 = 10;
+
+// Strategy flags (STRATEQU.INC:912-918 layout mapped onto the Rust bytes as
+// boss2/enemy_b do): sflag1..4 -> sflags2 0x10/20/40/80; sflag5/6 -> sflags3
+// 0x01/0x02.
+const FB_SFLAG1: u8 = 0x10;
+const FB_SFLAG2: u8 = 0x20;
+const FB_SFLAG3: u8 = 0x40;
+const FB_SFLAG4: u8 = 0x80;
+const FB_SFLAG5: u8 = 0x01; // sflags3 — mother damage latch / missile homing-lock
+const FB_SFLAG6: u8 = 0x02; // sflags3 — phase-2 arm marker
+
+// Shape proxies (arm / bulge). The body keeps the map's SH_FLINGBOSS(12).
+const SH_FLINGARM_PROXY: u16 = 274;
+const SH_FLINGBULGE_PROXY: u16 = 275;
+
+const FB_SE_SPIN: u8 = 0x39; // trigse $39 (spin/whoosh)
+const FB_SE_HIT: u8 = 0x2e; // trigse $2e (mother took an arm hit)
+
+/// s_set_objtobealvar-style read of a mother slot holding an object pointer
+/// (index+1 encoding, DSTRATS.ASM `s_set_alvartobeobj`). Returns the live idx.
+#[inline]
+fn fb_read_obj(g: &Game, raw: u16) -> Option<u16> {
+    let idx = boss_child_from_index_raw(raw)?;
+    if g.objs.aliens[idx as usize].active {
+        Some(idx)
+    } else {
+        None
+    }
+}
+
+/// Fixed-step chase toward `target` by `rate`, signed-byte compare
+/// (Fchase_A, STRATMAC.INC:559-571). No overshoot clamp (rate 1 sites only).
+#[inline]
+fn fb_fchase(cur: u8, target: i8, rate: i8) -> u8 {
+    let c = cur as i8;
+    let r = if c == target {
+        c
+    } else if c < target {
+        c.wrapping_add(rate)
+    } else {
+        c.wrapping_sub(rate)
+    };
+    r as u8
+}
+
+/// `.wavex` (DSTRATS.ASM:3155-3159): worldx = sign_extend(sintab[gameframe])
+/// << 1 (s_set_var2vartab B,B,W,...,sintab,1). Absolute, not additive.
+fn flingboss_wavex(g: &mut Game, idx: u16) {
+    let gf = (g.vars.gameframe & 0xff) as usize;
+    let s = crate::snes_trig::SINTAB[gf] as i16;
+    g.objs.aliens[idx as usize].worldx = s << 1;
+}
+
+// ---- child positioning (DSTRATS.ASM:3202-3343) ----
+
+/// `.positional` (DSTRATS.ASM:3341-3343): child worldpos = mother worldpos +
+/// rotate(offset<<2 by mother rotz,rotx,roty). Reuses the verified
+/// `b2_full_offset_pos` (s_add_Roffs2pos flags 1,1,1); the <<2 is the trailing
+/// `2,2,2` scale args.
+fn fb_positional(g: &mut Game, mother: &Alien, child: u16, offx: i16, offy: i16, offz: i16) {
+    b2_full_offset_pos(g, child, mother, offx << 2, offy << 2, offz << 2);
+}
+
+/// `.position1` (DSTRATS.ASM:3203-3227) — left arm (mother.al_ptr).
+fn flingboss_position1(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        // copyrots_yx then roty += deg90 + sbyte3 ; rotx += sbyte2 + rotz.
+        c.rotx = m.rotx.wrapping_add(m.sbyte2).wrapping_add(m.rotz);
+        c.roty = m.roty.wrapping_add(DEG90).wrapping_add(m.sbyte3);
+        c.rotz = m.rotz;
+    }
+    fb_positional(g, &m, child, -(FLINGBOSSWIDTH - 10), 0, 2);
+}
+
+/// `.position2` (DSTRATS.ASM:3228-3251) — right arm (mother.al_sword1).
+fn flingboss_position2(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        // roty += -deg90 - sbyte3 ; rotx += sbyte2 - rotz.
+        c.rotx = m.rotx.wrapping_add(m.sbyte2).wrapping_sub(m.rotz);
+        c.roty = m.roty.wrapping_sub(DEG90).wrapping_sub(m.sbyte3);
+        c.rotz = m.rotz;
+    }
+    fb_positional(g, &m, child, FLINGBOSSWIDTH - 10, 0, 2);
+}
+
+/// `.position5` (DSTRATS.ASM:3314-3340) — phase-2 single arm.
+fn flingboss_position5(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        // rotx += -sbyte2 + deg11 - rotz ; roty += -sbyte3 ; rotz += -deg90.
+        c.rotx = m
+            .rotx
+            .wrapping_sub(m.sbyte2)
+            .wrapping_add(FB_DEG11)
+            .wrapping_sub(m.rotz);
+        c.roty = m.roty.wrapping_sub(m.sbyte3);
+        c.rotz = m.rotz.wrapping_sub(DEG90);
+    }
+    fb_positional(g, &m, child, 0, 10, 20);
+}
+
+// ---- projectiles ----
+
+/// hmissile1_strat (GSTRATS.ASM:1459-1495): continuous homing toward al_ptr
+/// (the player) at >>3, locks (stops homing) once within 300, spins rotz.
+fn flingboss_hmissile1_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(10);
+    if g.objs.aliens[idx as usize].sflags2 & FB_SFLAG2 == 0 {
+        let me = g.objs.aliens[idx as usize];
+        let target = fb_read_obj(g, me.ptr);
+        if let Some(t) = target {
+            let tt = g.objs.aliens[t as usize];
+            if crate::common::strat_dist_xz(&me, &tt) < 300 {
+                g.objs.aliens[idx as usize].sflags2 |= FB_SFLAG2; // .nac lock
+            } else {
+                let want_yaw = strat_angle_xz(&me, &tt);
+                let want_pitch = strat_pitch_toward(&me, &tt);
+                let dyaw = me.roty.wrapping_sub(want_yaw) as i8;
+                let dpitch = me.rotx.wrapping_sub(want_pitch) as i8;
+                let al = &mut g.objs.aliens[idx as usize];
+                al.roty = me.roty.wrapping_sub((dyaw >> 3) as u8);
+                al.rotx = me.rotx.wrapping_sub((dpitch >> 3) as u8);
+            }
+        }
+        strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    }
+    add_player_z(g, idx);
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let al = &mut g.objs.aliens[idx as usize];
+    if al.count > 0 {
+        al.count -= 1;
+    }
+    if al.count == 0 {
+        g.objs.aldead = 1;
+    }
+}
+
+/// `.missile` (DSTRATS.ASM:3396-3401): fire BOSSHMISSILE1 from muzzle
+/// (0, 20>>ws<<ws = 20, 0) rotated by the mother, initial rots = mother rots +
+/// the s_weapon_rot (pitch,yaw) offsets, then homes the player.
+fn flingboss_fire_missile(g: &mut Game, idx: u16, wr_pitch: u8, wr_yaw: u8) {
+    let me = g.objs.aliens[idx as usize];
+    let pitch = me.rotx.wrapping_add(wr_pitch);
+    let yaw = me.roty.wrapping_add(wr_yaw);
+    let Some(shot) = spawn_projectile(
+        g,
+        Some(idx),
+        0,
+        0,
+        0,
+        pitch,
+        yaw,
+        FB_HMISSILE_SPEED,
+        FB_HMISSILE_LIFE,
+        FB_HMISSILE_AP,
+        ACF_COLLTYPE4,
+    ) else {
+        return;
+    };
+    b2_full_offset_pos(g, shot, &me, 0, 20, 0);
+    let s = sid(g, flingboss_hmissile1_strat);
+    let ppt = player_idx(g).map(boss_obj_index_or_null).unwrap_or(0);
+    let al = &mut g.objs.aliens[shot as usize];
+    al.rotx = pitch;
+    al.roty = yaw;
+    al.rotz = me.rotz;
+    al.sflags &= !ASF_INVISIBLE;
+    al.sflags |= ASF_SHADOW;
+    al.type_ = ATMISSILE | ATZREMOVE;
+    al.hp = FB_HMISSILE_HP;
+    al.ptr = ppt; // al_ptr = playpt (homing target)
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.stratptr = Some(s);
+    strat_gen_vecs_3d(al);
+}
+
+/// `.triggermissile2` (DSTRATS.ASM:3370-3374): 1 BOSSHMISSILE1 every 64
+/// frames (s_jmp_notdelay 6 -> gf&63==0), s_weapon_rot #deg11,#0.
+fn flingboss_triggermissile2(g: &mut Game, idx: u16) {
+    if g.vars.gameframe & 63 != 0 {
+        return;
+    }
+    flingboss_fire_missile(g, idx, FB_DEG11, 0);
+}
+
+/// `.triggermissile3` (DSTRATS.ASM:3376-3395): phase-2 fire, every 64 frames.
+/// hp >= 40 -> 2 missiles at ±(deg45+deg22); hp < 40 (`.harder`) -> 4 missiles.
+fn flingboss_triggermissile3(g: &mut Game, idx: u16) {
+    if g.vars.gameframe & 63 != 0 {
+        return;
+    }
+    if (g.objs.aliens[idx as usize].hp as i8) < (FLINGBOSS2HP as i8) / 2 {
+        // .harder
+        flingboss_fire_missile(g, idx, FB_DEG11, DEG45);
+        flingboss_fire_missile(g, idx, FB_DEG11, (-(DEG45 as i8)) as u8);
+        flingboss_fire_missile(g, idx, 0, 0);
+        flingboss_fire_missile(g, idx, DEG22, 0);
+    } else {
+        let off = DEG45.wrapping_add(DEG22); // deg45+deg22 = 48
+        flingboss_fire_missile(g, idx, FB_DEG11, off);
+        flingboss_fire_missile(g, idx, FB_DEG11, (-(off as i8)) as u8);
+    }
+}
+
+/// arm `.fire2` (DSTRATS.ASM:2599-2605): fire HPLASMA (homingflat) from the
+/// arm tip, homing the player. Reuses `boss2_hplasma_strat` (= homingflat_Istrat,
+/// GSTRATS.ASM:1723). Muzzle z = ((armlength-5)>>ws)<<1 then <<ws (fire_weapon).
+fn flingboss_arm_fire_hplasma(g: &mut Game, idx: u16) {
+    let me = g.objs.aliens[idx as usize];
+    let Some(shot) = spawn_projectile(
+        g,
+        Some(idx),
+        0,
+        0,
+        0,
+        me.rotx,
+        me.roty,
+        FB_HPLASMA_SPEED,
+        FB_HPLASMA_LIFE,
+        FB_HPLASMA_AP,
+        ACF_COLLTYPE4,
+    ) else {
+        return;
+    };
+    let muzzle_z = (((ARMLENGTH - 5) >> 2) << 1) << 2; // = 144
+    b2_full_offset_pos(g, shot, &me, 0, 0, muzzle_z);
+    let s = sid(g, boss2_hplasma_strat);
+    let ppt = player_idx(g).map(boss_obj_index_or_null).unwrap_or(0);
+    let al = &mut g.objs.aliens[shot as usize];
+    al.rotx = me.rotx;
+    al.roty = me.roty;
+    al.rotz = me.rotz;
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.ptr = ppt;
+    al.fireobjptr = ppt; // boss2_hplasma_strat homes via fireobjptr
+    al.stratptr = Some(s);
+    strat_gen_vecs_3d(al);
+}
+
+// ---- arm (scoped arm_istrat for shape #arm) ----
+
+/// arm_istrat init (DSTRATS.ASM:2444-2453) for the flingboss arm shapes only.
+fn flingboss_arm_init(g: &mut Game, idx: u16) {
+    let s_strat = sid(g, flingboss_arm_strat);
+    let s_col = sid(g, flingboss_arm_col);
+    let s_exp = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s_strat);
+    al.collstratptr = Some(s_col);
+    al.expstratptr = Some(s_exp);
+    al.hp = HARD_HP; // armHP = hardHP (invulnerable body; damage routes to mother)
+    al.ap = ARM_AP;
+    al.sbyte1 = 0;
+    al.sbyte2 = 0;
+    al.sbyte3 = 0;
+    al.sbyte4 = 32;
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.type_ &= !ATZREMOVE; // s_clr_altype x,zremove
+    // arm_istrat falls into .strat the same tick (s_start_strat re-entry).
+    flingboss_arm_strat(g, idx);
+}
+
+/// arm collstrat — mirrors `.grabberhit` -> `.passiton` (DSTRATS.ASM:2752-2791,
+/// sflag1-clear path): a hit on the arm latches the mother's sflag5.
+fn flingboss_arm_col(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags &= !ASF_COLLIDE;
+        al.sflags |= ASF_HITFLASH;
+    }
+    if let Some(m) = fb_read_obj(g, g.objs.aliens[idx as usize].childrotobj) {
+        g.objs.aliens[m as usize].sflags3 |= FB_SFLAG5;
+    }
+}
+
+/// arm_istrat `.strat` (DSTRATS.ASM:2558-2650) scoped to shape #arm: the
+/// sflag2-triggered bulge windup + HPLASMA fire. Positioning is driven by the
+/// mother (`.keepitlinked`). The `.nbl` grabber-growth branch is scoped out.
+fn flingboss_arm_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags2 & FB_SFLAG2 != 0 {
+        if g.objs.aliens[idx as usize].sflags2 & FB_SFLAG3 == 0 {
+            // .nx: begin bulge.
+            let al = &mut g.objs.aliens[idx as usize];
+            al.animframe = 0;
+            al.shape = SH_FLINGBULGE_PROXY;
+            al.sflags2 |= FB_SFLAG3;
+        } else {
+            // .b: advance (dincanim #5), fire at frame 4 (.nxtone -> .fire2).
+            let al = &mut g.objs.aliens[idx as usize];
+            al.animframe = (al.animframe + 1) % 5;
+            if al.animframe == 4 {
+                al.sflags2 &= !(FB_SFLAG2 | FB_SFLAG3);
+                al.shape = SH_FLINGARM_PROXY;
+                flingboss_arm_fire_hplasma(g, idx);
+            }
+        }
+    }
+    // .nbl sbyte4 idle counter (decbne -> reset 32). The recursive `.generate`
+    // that this gates (DSTRATS.ASM:2637) is scoped out — see the section note.
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sbyte4 = al.sbyte4.wrapping_sub(1);
+    if al.sbyte4 == 0 {
+        al.sbyte4 = 32;
+    }
+}
+
+/// arm-fall init — the `sprouty.expl` -> `.fall_istrat` handoff
+/// (DSTRATS.ASM:2385-2394): the pulled-off arm gets a random spin, velocity and
+/// falls until it detonates. Simplified single segment (no chain).
+fn flingboss_arm_fall_init(g: &mut Game, arm: u16) {
+    let s = sid(g, flingboss_arm_fall_strat);
+    let r = (sfrtl_random(g) & 0xff) as u8;
+    {
+        let al = &mut g.objs.aliens[arm as usize];
+        al.vel = 30;
+        al.roty = r; // s_set_alvar2rnd x,al_roty
+    }
+    strat_gen_vecs_3d(&mut g.objs.aliens[arm as usize]);
+    let al = &mut g.objs.aliens[arm as usize];
+    al.vy = -10;
+    al.stratptr = Some(s);
+    al.collstratptr = None;
+}
+
+/// `.fall` (DSTRATS.ASM:2394-2411): spin + gravity, detonate on landing.
+fn flingboss_arm_fall_strat(g: &mut Game, arm: u16) {
+    {
+        let al = &mut g.objs.aliens[arm as usize];
+        al.rotz = al.rotz.wrapping_add(5);
+        al.rotx = al.rotx.wrapping_add(2);
+    }
+    let landed = boss2_falldown_yvec(g, arm, 2, 3, 0);
+    strat_apply_velocity(&mut g.objs.aliens[arm as usize]);
+    if landed {
+        // .le_fin: s_set_expstrat explode, s_kill_obj -> explode.
+        strat_explode(g, arm);
+    }
+}
+
+// ---- mother spawn/generate ----
+
+/// fling.makeobj (DSTRATS.ASM:3195-3200): allocate an arm shell.
+fn flingboss_makeobj(g: &mut Game, mother: u16) -> Option<u16> {
+    let arm = g.objs.alloc()?;
+    strat_init_obj_vars(&mut g.objs.aliens[arm as usize]);
+    g.objs.aliens[arm as usize].shape = SH_FLINGARM_PROXY;
+    copy_pos(g, arm, mother);
+    Some(arm)
+}
+
+/// `.generate` (DSTRATS.ASM:3177-3193): spawn the two arms. Returns true when
+/// both exist (carry-clear path).
+fn flingboss_generate(g: &mut Game, mother: u16) -> bool {
+    if fb_read_obj(g, g.objs.aliens[mother as usize].ptr).is_none() {
+        let Some(a1) = flingboss_makeobj(g, mother) else {
+            return false;
+        };
+        let s = sid(g, flingboss_arm_init);
+        {
+            let al = &mut g.objs.aliens[a1 as usize];
+            al.stratptr = Some(s);
+            al.sword1 = 5;
+            al.childrotobj = boss_obj_index_or_null(mother);
+        }
+        g.objs.aliens[mother as usize].ptr = boss_obj_index_or_null(a1);
+        flingboss_position1(g, mother, a1);
+    }
+    let Some(a2) = flingboss_makeobj(g, mother) else {
+        return false;
+    };
+    let s = sid(g, flingboss_arm_init);
+    {
+        let al = &mut g.objs.aliens[a2 as usize];
+        al.stratptr = Some(s);
+        al.sword1 = 5;
+        al.childrotobj = boss_obj_index_or_null(mother);
+    }
+    g.objs.aliens[mother as usize].sword1 = boss_obj_index_or_null(a2) as i16;
+    flingboss_position2(g, mother, a2);
+    true
+}
+
+/// `.generate3` (DSTRATS.ASM:3535-3545): spawn the single phase-2 arm.
+fn flingboss_generate3(g: &mut Game, mother: u16) -> bool {
+    let Some(arm) = flingboss_makeobj(g, mother) else {
+        return false;
+    };
+    let s = sid(g, flingboss_arm_init);
+    {
+        let al = &mut g.objs.aliens[arm as usize];
+        al.stratptr = Some(s);
+        al.sword1 = 6;
+        al.sflags3 |= FB_SFLAG6;
+        al.childrotobj = boss_obj_index_or_null(mother);
+    }
+    g.objs.aliens[mother as usize].ptr = boss_obj_index_or_null(arm);
+    flingboss_position5(g, mother, arm);
+    true
+}
+
+/// `.pullthearmsoff` (DSTRATS.ASM:3403-3414): fling both arms off to fall +
+/// explode, unlinking them from the mother.
+fn flingboss_pullthearmsoff(g: &mut Game, mother: u16) {
+    if let Some(a1) = fb_read_obj(g, g.objs.aliens[mother as usize].ptr) {
+        flingboss_arm_fall_init(g, a1);
+    }
+    if let Some(a2) = fb_read_obj(g, g.objs.aliens[mother as usize].sword1 as u16) {
+        flingboss_arm_fall_init(g, a2);
+    }
+    g.objs.aliens[mother as usize].ptr = 0;
+    g.objs.aliens[mother as usize].sword1 = 0;
+}
+
+// ---- mother fire trigger (arm HPLASMA) ----
+
+#[inline]
+fn fb_sword2_lo(g: &Game, idx: u16) -> u8 {
+    (g.objs.aliens[idx as usize].sword2 as u16) as u8
+}
+#[inline]
+fn fb_sword2_hi(g: &Game, idx: u16) -> u8 {
+    ((g.objs.aliens[idx as usize].sword2 as u16) >> 8) as u8
+}
+#[inline]
+fn fb_set_sword2_lo(g: &mut Game, idx: u16, v: u8) {
+    let hi = fb_sword2_hi(g, idx);
+    g.objs.aliens[idx as usize].sword2 = (((hi as u16) << 8) | v as u16) as i16;
+}
+#[inline]
+fn fb_set_sword2_hi(g: &mut Game, idx: u16, v: u8) {
+    let lo = fb_sword2_lo(g, idx);
+    g.objs.aliens[idx as usize].sword2 = (((v as u16) << 8) | lo as u16) as i16;
+}
+
+/// `.triggermissile` (DSTRATS.ASM:3349-3368): staggered arm-fire cadence.
+/// sword2 hi = 5-frame reload, lo = 3-shot burst, then a ~1.6% random re-arm.
+fn flingboss_triggermissile(g: &mut Game, idx: u16) {
+    // s_beqdec_alvar sword2+1 -> .firem
+    if fb_sword2_hi(g, idx) != 0 {
+        let hi = fb_sword2_hi(g, idx).wrapping_sub(1);
+        fb_set_sword2_hi(g, idx, hi);
+        return;
+    }
+    // .firem: s_beqdec_alvar sword2 -> .rndbit
+    if fb_sword2_lo(g, idx) == 0 {
+        // .rndbit: s_jmp_random .no,99 — branch out ~98.4% of the time.
+        if (sfrtl_random(g) as u8) < ((99u16 * 255 / 100) as u8) {
+            return; // .no
+        }
+        fb_set_sword2_lo(g, idx, 3);
+        g.objs.aliens[idx as usize].sflags2 ^= FB_SFLAG4; // alternate arm
+        return;
+    }
+    let lo = fb_sword2_lo(g, idx).wrapping_sub(1);
+    fb_set_sword2_lo(g, idx, lo);
+    // fire: trigger the current arm (sflag4 selects sword1-arm vs ptr-arm).
+    let arm = if g.objs.aliens[idx as usize].sflags2 & FB_SFLAG4 != 0 {
+        fb_read_obj(g, g.objs.aliens[idx as usize].sword1 as u16)
+    } else {
+        fb_read_obj(g, g.objs.aliens[idx as usize].ptr)
+    };
+    if let Some(a) = arm {
+        g.objs.aliens[a as usize].sflags2 |= FB_SFLAG2;
+    }
+    fb_set_sword2_hi(g, idx, 4);
+}
+
+// ---- mother movement ----
+
+/// `.movebackandforth` (DSTRATS.ASM:3126-3154): oscillate between z-distance
+/// ~500 (advance) and ~2000 (retreat), chasing rotx and worldy to the player.
+fn flingboss_movebackandforth(g: &mut Game, idx: u16) {
+    flingboss_wavex(g, idx);
+    let Some(pl) = player_idx(g) else {
+        return;
+    };
+    let me = g.objs.aliens[idx as usize];
+    if me.sflags2 & FB_SFLAG3 != 0 {
+        // retreat
+        let py = g.objs.aliens[pl as usize].worldy.wrapping_add(100);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(20);
+        al.rotx = fb_fchase(al.rotx, 0, 1);
+        al.worldy = chase_proportional(al.worldy, py, 4);
+        if !sea_dz_less(g, idx, 2000) {
+            g.objs.aliens[idx as usize].sflags2 ^= FB_SFLAG3; // .notflag
+        }
+    } else {
+        // advance
+        let py = g.objs.aliens[pl as usize].worldy.wrapping_sub(250);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_sub(40);
+        al.rotx = fb_fchase(al.rotx, 20, 1);
+        al.worldy = chase_proportional(al.worldy, py, 4);
+        if sea_dz_less(g, idx, 500) {
+            g.objs.aliens[idx as usize].sflags2 ^= FB_SFLAG3; // .notflag
+        }
+    }
+}
+
+// ---- mother state machine ----
+
+/// `.keepitlinked` tail (DSTRATS.ASM:3021-3029): position both arms +
+/// accumulate the HP bar (s_add_bossHP x,al_sbyte4,#flingboss2HP).
+fn flingboss_keepitlinked(g: &mut Game, idx: u16) {
+    if let Some(a1) = fb_read_obj(g, g.objs.aliens[idx as usize].ptr) {
+        flingboss_position1(g, idx, a1);
+    }
+    if let Some(a2) = fb_read_obj(g, g.objs.aliens[idx as usize].sword1 as u16) {
+        flingboss_position2(g, idx, a2);
+    }
+    let sb4 = g.objs.aliens[idx as usize].sbyte4 as u16;
+    g.vars.bosshp = g.vars.bosshp.wrapping_add(sb4 + FLINGBOSS2HP as u16);
+}
+
+/// `.fin` common body (DSTRATS.ASM:3008-3029): colanim, sflag5 damage (drains
+/// sbyte4 by 2 -> phase 2 at 0), movement, both fire systems, arm positioning.
+fn flingboss_fin_body(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].colframe = (g.objs.aliens[idx as usize].colframe + 1) & 3;
+    if g.objs.aliens[idx as usize].sflags3 & FB_SFLAG5 != 0 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sflags |= ASF_HITFLASH;
+            al.sflags3 &= !FB_SFLAG5;
+        }
+        play_se(g, FB_SE_HIT);
+        // Two s_beqdec_alvar sbyte4 -> .crazy2 (branch when already 0).
+        for _ in 0..2 {
+            if g.objs.aliens[idx as usize].sbyte4 == 0 {
+                return flingboss_crazy2(g, idx);
+            }
+            g.objs.aliens[idx as usize].sbyte4 -= 1;
+        }
+    }
+    add_player_z(g, idx);
+    flingboss_movebackandforth(g, idx);
+    flingboss_triggermissile(g, idx);
+    flingboss_triggermissile2(g, idx);
+    flingboss_keepitlinked(g, idx);
+}
+
+/// `.mainstrat` (DSTRATS.ASM:3004-3006): sbyte1 countdown into the fling arc.
+fn flingboss_main(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        return flingboss_spinlikecrazy(g, idx);
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    flingboss_fin_body(g, idx);
+}
+
+/// `.initmain` / `.backforabit` (DSTRATS.ASM:3000-3004): enter the main state.
+fn flingboss_initmain(g: &mut Game, idx: u16) {
+    let s = sid(g, flingboss_main);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.objs.aliens[idx as usize].sbyte1 = 80;
+    flingboss_main(g, idx);
+}
+
+/// `.spinlikecrazy` (DSTRATS.ASM:3031-3037): begin the spin state.
+fn flingboss_spinlikecrazy(g: &mut Game, idx: u16) {
+    let s = sid(g, flingboss_spin);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags2 ^= FB_SFLAG2; // toggle (drives the dead .otherstuff branch)
+    al.sbyte1 = 100;
+    al.stratptr = Some(s);
+    al.sflags2 ^= FB_SFLAG1; // toggle spin direction
+    flingboss_spin(g, idx);
+}
+
+/// `.spin` (DSTRATS.ASM:3037-3055): spin roty ±8 for ~100 ticks.
+fn flingboss_spin(g: &mut Game, idx: u16) {
+    let dir_add = g.objs.aliens[idx as usize].sflags2 & FB_SFLAG1 != 0;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = if dir_add {
+            al.roty.wrapping_add(8)
+        } else {
+            al.roty.wrapping_sub(8)
+        };
+    }
+    let roty = g.objs.aliens[idx as usize].roty;
+    if roty == 64 || roty == 192 {
+        play_se(g, FB_SE_SPIN);
+    }
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        // .cmp
+        if roty == DEG180 {
+            return flingboss_wavearmsabout(g, idx);
+        }
+        return flingboss_fin_body(g, idx);
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    flingboss_fin_body(g, idx);
+}
+
+/// `.wavearmsabout` (DSTRATS.ASM:3056-3059): enter the wave state.
+fn flingboss_wavearmsabout(g: &mut Game, idx: u16) {
+    let s = sid(g, flingboss_wave);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.objs.aliens[idx as usize].sbyte1 = 50;
+    flingboss_wave(g, idx);
+}
+
+/// `.setvar2tab` (DSTRATS.ASM:3072-3074): sbyte2-scale = sintab[(gf*2)&0xff]
+/// with scale -2 (adiv2 twice, toward zero).
+#[inline]
+fn fb_sintab_gf2_scale2(gf: u16) -> i16 {
+    let off = (gf.wrapping_mul(2) & 0xff) as usize;
+    let v = crate::snes_trig::SINTAB[off] as i16;
+    (v / 2) / 2
+}
+
+/// `.wave` (DSTRATS.ASM:3059-3071): undulate sbyte2 from the sine table.
+fn flingboss_wave(g: &mut Game, idx: u16) {
+    let v = fb_sintab_gf2_scale2(g.vars.gameframe);
+    g.objs.aliens[idx as usize].sbyte2 = v as u8;
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        // .chkfin
+        if g.objs.aliens[idx as usize].sbyte2 == 0 {
+            return flingboss_wavearmsforward(g, idx);
+        }
+        return flingboss_fin_body(g, idx);
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    flingboss_fin_body(g, idx);
+}
+
+/// `.wavearmsforward` (DSTRATS.ASM:3075-3078): enter the wave2 state.
+fn flingboss_wavearmsforward(g: &mut Game, idx: u16) {
+    let s = sid(g, flingboss_wave2);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.objs.aliens[idx as usize].sbyte1 = 140;
+    flingboss_wave2(g, idx);
+}
+
+/// `.wave2` (DSTRATS.ASM:3078-3089): sweep sbyte3 down to -52.
+fn flingboss_wave2(g: &mut Game, idx: u16) {
+    let sb3 = g.objs.aliens[idx as usize].sbyte3 as i8;
+    if sb3 == -24 {
+        play_se(g, FB_SE_SPIN);
+    }
+    if sb3 != -52 {
+        g.objs.aliens[idx as usize].sbyte3 = sb3.wrapping_sub(4) as u8;
+    }
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        return flingboss_sidetoside(g, idx);
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    flingboss_fin_body(g, idx);
+}
+
+/// `.sidetoside` (DSTRATS.ASM:3092-3095): enter the side-sway state.
+fn flingboss_sidetoside(g: &mut Game, idx: u16) {
+    let s = sid(g, flingboss_side);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.objs.aliens[idx as usize].sbyte1 = 180;
+    flingboss_side(g, idx);
+}
+
+/// `.side` (DSTRATS.ASM:3095-3114): roty sways ±(sintab/8) around deg180.
+fn flingboss_side(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        return flingboss_resetside(g, idx);
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    let v = fb_sintab_gf2_scale2(g.vars.gameframe) / 2; // extra adiv2 (total /8)
+    g.objs.aliens[idx as usize].roty = (v + DEG180 as i16) as u8;
+    flingboss_fin_body(g, idx);
+}
+
+/// `.resetside` (DSTRATS.ASM:3111-3114): reset then loop back to main.
+fn flingboss_resetside(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sbyte3 = 0;
+    al.roty = DEG180;
+    flingboss_initmain(g, idx);
+}
+
+// ---- phase 2 (arms pulled off, spinning dying form) ----
+
+/// `.crazy2` (DSTRATS.ASM:3479-3490): pull the arms off then transform.
+fn flingboss_crazy2(g: &mut Game, idx: u16) {
+    flingboss_pullthearmsoff(g, idx);
+    flingboss_andagainif(g, idx);
+}
+
+/// `.andagainif` (DSTRATS.ASM:3480-3490): set up the phase-2 form (damageable,
+/// hp=flingboss2HP, expstrat=deadflingboss) and spawn the phase-2 arm.
+fn flingboss_andagainif(g: &mut Game, idx: u16) {
+    let s_body = sid(g, flingboss_almostgone2);
+    let s_col = sid(g, strat_hit_flash);
+    let s_exp = sid(g, flingboss_deadflingboss_init);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s_body);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.sflags &= !ASF_NOHITAFFECT; // now directly damageable
+        al.hp = FLINGBOSS2HP;
+        al.ap = FLINGBOSS_AP;
+        al.sword1 = 80;
+        al.sbyte2 = 0;
+        al.sbyte3 = 0;
+    }
+    if flingboss_generate3(g, idx) {
+        flingboss_almostgone2(g, idx);
+    } else {
+        let s = sid(g, flingboss_andagainif);
+        g.objs.aliens[idx as usize].stratptr = Some(s); // retry next tick
+    }
+}
+
+/// `.almostgone2` (DSTRATS.ASM:3491-3533): recede then spin faster as it dies.
+fn flingboss_almostgone2(g: &mut Game, idx: u16) {
+    {
+        // s_add_colanim x,#1,#8,NOJUMP,#4 (cap 8, wrap to firstframe 4).
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.colframe + 1;
+        al.colframe = if c >= 8 { 4 } else { c };
+        // dincanimjmp_x #9 (cosmetic body anim wrap).
+        al.animframe = (al.animframe + 1) % 9;
+    }
+    add_player_z(g, idx);
+    let sw1 = g.objs.aliens[idx as usize].sword1;
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(sw1);
+    // s_beqdec_alvar sword1 -> .backfoth ; else s_dec (total -2/tick).
+    if g.objs.aliens[idx as usize].sword1 == 0 {
+        flingboss_movebackandforth(g, idx); // .backfoth
+        return flingboss_almostgone2_spinning(g, idx);
+    }
+    g.objs.aliens[idx as usize].sword1 -= 1;
+    g.objs.aliens[idx as usize].sword1 -= 1;
+    flingboss_wavex(g, idx);
+    flingboss_almostgone2_spinning(g, idx);
+}
+
+/// `.spinning` (DSTRATS.ASM:3503-3530): roty += f(hp), position the arm, fire.
+fn flingboss_almostgone2_spinning(g: &mut Game, idx: u16) {
+    let me = g.objs.aliens[idx as usize];
+    // Sound gate on the pre-increment roty (cosmetic).
+    if (72..96).contains(&me.roty) || (200..224).contains(&me.roty) {
+        play_se(g, FB_SE_SPIN);
+    }
+    // roty += (255 - ((hp>>2)&0xF8)) + 19 + bit1(hp) — spins faster at low hp.
+    let hp = me.hp;
+    let a1 = (hp >> 2) & 0xF8;
+    let carry = (hp >> 1) & 1;
+    let delta = (255u8.wrapping_sub(a1)).wrapping_add(19).wrapping_add(carry);
+    g.objs.aliens[idx as usize].roty = me.roty.wrapping_add(delta);
+    if let Some(arm) = fb_read_obj(g, g.objs.aliens[idx as usize].ptr) {
+        flingboss_position5(g, idx, arm);
+    }
+    flingboss_triggermissile3(g, idx);
+    let hp = g.objs.aliens[idx as usize].hp as u16;
+    g.vars.bosshp = g.vars.bosshp.wrapping_add(hp);
+}
+
+// ---- deadflingboss (post-kill sink + explode) ----
+
+/// `deadflingboss_istrat` init (DSTRATS.ASM:3650-3663): reached as the mother's
+/// expstrat when phase-2 hp hits 0. Blows off the last arm, then sinks away.
+fn flingboss_deadflingboss_init(g: &mut Game, idx: u16) {
+    if let Some(arm) = fb_read_obj(g, g.objs.aliens[idx as usize].ptr) {
+        flingboss_arm_fall_init(g, arm); // sprouty.expl on the tentacle
+    }
+    g.objs.aliens[idx as usize].ptr = 0;
+    let s = sid(g, flingboss_deadflingboss_strat);
+    let s_exp = sid(g, strat_boss_explode_init); // bossexplode_istrat
+    let al = &mut g.objs.aliens[idx as usize];
+    al.roty = DEG180;
+    al.hp = HARD_HP;
+    al.ap = HARD_AP;
+    al.stratptr = Some(s);
+    al.expstratptr = Some(s_exp);
+    al.sword1 = 161;
+    flingboss_deadflingboss_strat(g, idx);
+}
+
+/// `deadflingboss` `.strat`/`.strat2` (DSTRATS.ASM:3664-3687): wait for the
+/// player within 100, recede while tilting back, then kill -> bossexplode.
+fn flingboss_deadflingboss_strat(g: &mut Game, idx: u16) {
+    // `.strat` gate is a one-shot: sword1==161 means "not yet moving".
+    if g.objs.aliens[idx as usize].sword1 == 161 {
+        if !sea_dz_less(g, idx, 100) {
+            return; // dz >= 100 -> wait (.end)
+        }
+        // fall through to .strat2 the same tick.
+    }
+    add_player_z(g, idx);
+    g.objs.aliens[idx as usize].sword1 -= 4;
+    if g.objs.aliens[idx as usize].sword1 < 40 {
+        // .die
+        let gf = g.vars.gameflags;
+        if gf & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
+            return; // wait while the player is dying
+        }
+        // s_kill_obj -> hp0 + colldisable -> engine fires bossexplode expstrat.
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sflags |= ASF_COLLDISABLE;
+            al.hp = 0;
+        }
+        if let Some(exp) = g.objs.aliens[idx as usize].expstratptr {
+            g.call_strat(exp, idx);
+        }
+        return;
+    }
+    let sw1 = g.objs.aliens[idx as usize].sword1;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_add(sw1);
+    al.rotx = al.rotx.wrapping_add((-20i8) as u8);
+}
+
+/// `flingboss_istrat` init (DSTRATS.ASM:2951-2973).
+pub fn strat_flingboss_init(g: &mut Game, idx: u16) {
+    g.vars.gameflags &= !GF_BOSSDEAD;
+    let bf = bossflags(g);
+    set_bossflags(g, bf & !BF_DYING);
+    set_bossmaxhp(g, (FLINGBOSS1HP + FLINGBOSS2HP) as u16); // 104
+    g.vars.meters = 1;
+
+    let s_strat = sid(g, flingboss_approach);
+    let s_col = sid(g, strat_hit_flash);
+    let s_exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.animframe = 0;
+        al.colframe = 0;
+        al.stratptr = Some(s_strat);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.sflags |= ASF_NOHITAFFECT; // body invulnerable in phase 1
+        al.hp = HARD_HP;
+        al.ap = FLINGBOSS_AP;
+        al.sbyte4 = FLINGBOSS1HP; // 24 — phase-1 hit reserve
+        al.roty = DEG180;
+        al.sword2 = 0;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.worldz = al.worldz.wrapping_add(4000);
+        al.stratstate = 0;
+    }
+
+    if flingboss_generate(g, idx) {
+        // `.created` -> falls into `.strat` the same tick.
+        flingboss_approach(g, idx);
+    } else {
+        // Retry the whole init next tick (s_set_strat x,flingboss_istrat).
+        let s = sid(g, strat_flingboss_init);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+    }
+}
+
+/// `.strat` approach (DSTRATS.ASM:2974-2998): tumble in on rotx until close +
+/// upright, then hand off to `.mainstrat`.
+fn flingboss_approach(g: &mut Game, idx: u16) {
+    let old = g.objs.aliens[idx as usize].rotx;
+    let newrx = old.wrapping_add(DEG22); // += deg22 (16)
+    g.objs.aliens[idx as usize].rotx = newrx;
+    if (newrx ^ old) & 0x80 != 0 {
+        play_se(g, FB_SE_SPIN);
+    }
+    g.objs.aliens[idx as usize].worldz -= 50;
+
+    if sea_dz_less(g, idx, 2000) {
+        // .chk: within 2000 — upright frame hands off to main.
+        if g.objs.aliens[idx as usize].rotx == 0 {
+            return flingboss_initmain(g, idx);
+        }
+    }
+    // .nochk
+    add_player_z(g, idx);
+    flingboss_wavex(g, idx);
+    flingboss_keepitlinked(g, idx);
+}
+// FLINGBOSS_END
+
+// ============================================================
 // install / register (C: StratBoss2_Register + StratBossSea_Register +
 // StratBoss8_Register, called from Strat_RegisterAll, strat_table.c).
 // ============================================================
@@ -3604,6 +4536,10 @@ pub fn register(world: &mut World) {
     world.istrats[IS_BOSS8] = Some(wsid(world, strat_boss8_init));
     world.istrats[IS_NUCLEUSLAUNCHER] = Some(wsid(world, nucleuslauncher_istrat));
     world.istrats[IS_NUCLEUSPILLAR] = Some(wsid(world, nucleuspillar_istrat));
+    // flingboss (Route 2 L4 armsmap). deadflingboss is reached as the mother's
+    // expstrat, but is registered too so the address map resolves it.
+    world.istrats[IS_FLINGBOSS] = Some(wsid(world, strat_flingboss_init));
+    world.istrats[IS_DEADFLINGBOSS] = Some(wsid(world, flingboss_deadflingboss_init));
 
     // Synthetic addresses referenced by the MAP2_3 / washmap literal map
     // data (src/map/levels.c).
