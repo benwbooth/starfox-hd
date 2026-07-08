@@ -9530,6 +9530,245 @@ fn madbiker_konostrat(g: &mut Game, idx: u16) {
 }
 // MADTRUCKER_END
 
+// ============================================================
+// AMOEBA_BEGIN — "amoeba" swarm + "amoebastick" stick-to-player
+// (GA2STRAT.ASM:126-224). Mother-spawned swarm (sf-map mothers.rs
+// map_amoebas, count 250) on Route 2 L4 (level2_4.rs:50-69) and the
+// Route 1 blackhole (blackhole.rs:105). Each child resolves through
+// world.istrats[128] via the synthetic 0x02:0080 strategy address
+// (mothers.rs:149 `AMOEBA = IS_SYNTH | 128`).
+//
+// NOT a boss-HP-bar boss: the amoeba chain has no `s_add_bossHP` /
+// `s_set_bossmaxHP` anywhere (GA2STRAT.ASM:126-224 verified). hp = hardHP
+// (0xFF) makes the body INDESTRUCTIBLE — do_coll's `LDA hp / BMI` skips
+// any subtract for hp with bit7 set (coldet.rs:246-255) — and the init's
+// third al_ptr (expstrat) is 0, so the amoeba has NO death/explode path.
+// The only way to shed one is a barrel roll while it is stuck.
+//
+// FOLLOW-UP (collision-routing lane, not this crate): the mother-spawn
+// (mother.rs mother_spawn) leaves the child's collflags at the
+// strat_init_obj_vars default and the ROM amoeba_Istrat sets no
+// s_set_colltype, so whether a live map actually delivers a player
+// contact (amoebacol sees collobjptr==playpt) needs an integration check.
+// The state machine below is a faithful literal port; the test drives the
+// collision by setting collobjptr directly.
+// ============================================================
+
+/// ISTRATS.ASM def_Istrat index in the C-port "MACRO-counted" numbering
+/// (+1 vs the ROM `IS_AMOEBA_ISTRAT`=0x7f=127). The mother spawns the
+/// swarm as `IS_SYNTH|128`; table.rs maps istrats[128] -> synth 0x02:0080.
+pub const IS_AMOEBA: usize = 128;
+
+/// al_sflags3 software-sprite bit (obj.h; = `enemy_b::ASF3_SSPRITE`).
+const AMOEBA_ASF3_SSPRITE: u8 = 0x80;
+
+/// `g_slimecount` (GILESALC.INC:296, ROM WRAM $162b): live count of
+/// amoebas stuck to the ship, capped at 3 by amoebacol / cleared by
+/// amoebago. Distinct WRAM cell (0x162b < WRAM_SIZE, no sv/0x1F aliasing).
+const AMOEBA_SLIMECOUNT: u16 = 0x162b;
+
+/// `amoeba1` windshield-splat sprite id. The dedicated 2D sprite
+/// (DEFSPR.ASM:179 `defsprabs_hi amoeba1`; USHAPES.ASM:219 shapehdr) is
+/// NOT in the ported 3D shape catalog, so the stuck blob keeps the
+/// amoeba2 body id (104, sf-map mothers.rs AMOEBA2) to stay visible —
+/// scoped VISUAL boundary; the stick/damage/detach behavior is faithful.
+const SH_AMOEBA1: u16 = 104;
+
+/// screenflashbodyfrms / screenflashbodytype (STRATEQU.INC:773-774).
+const AMOEBA_SCREENFLASH_BODY_FRMS: u8 = 4;
+const AMOEBA_SCREENFLASH_BODY_TYPE: u8 = 0;
+
+/// `s_set_objtobeplayer y` — the ship object (`playpt`), with the
+/// init_strats playpt-then-slot-0 fallback (mother.rs amoeba_player_z).
+fn amoeba_playpt(g: &Game) -> Option<u16> {
+    let playpt = g.vars.internal_playpt;
+    if playpt >= 0
+        && (playpt as usize) < NUMBER_AL
+        && g.objs.aliens[playpt as usize].active
+    {
+        return Some(playpt as u16);
+    }
+    if g.objs.aliens[0].active {
+        return Some(0);
+    }
+    None
+}
+
+/// `Achase_var2A` word form (STRATMAC.INC:518 -> sr16_achase_alvar4,
+/// STRATROU.ASM:2749): step `cur` toward `target` by `diff>>rate`
+/// (arithmetic, toward -inf like ROM `adiv2`), with the `nolessrange`
+/// small-diff clamp so it always advances by at least one. Byte-identical
+/// twin of mother.rs `achase16` (the same `s_achase_alvar2alvar.w …,4`).
+fn amoeba_achase16(cur: i16, target: i16, rate: u32) -> i16 {
+    let mut d = target as i32 - cur as i32;
+    if d == 0 {
+        return cur;
+    }
+    let min = 1i32 << rate;
+    if d > -min && d < min {
+        d = if d < 0 { -min } else { min };
+    }
+    cur.wrapping_add((d >> rate) as i16)
+}
+
+/// `amoeba_Istrat` (GA2STRAT.ASM:126-131): promote to a software sprite,
+/// wire strat/collstrat (expstrat = 0 -> no death), set hardHP/ap=0 and
+/// face away (roty = deg180). Falls through into amoeba_strat the same
+/// tick (no s_end_strat between the label and amoeba_strat).
+pub fn amoeba_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, amoeba_strat);
+    let col = sid(g, amoebacol_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_sprite_obj x,#0 (STRATLIB.INC:873): ssprite + depthoffset(colour) 0.
+        al.sflags3 |= AMOEBA_ASF3_SSPRITE;
+        al.depthoffset = 0;
+        // s_set_alptrs x,amoeba_strat,amoebacol_Istrat,0
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(col);
+        al.expstratptr = None;
+        // s_set_aldata x,#hardHP,#0 — indestructible, no contact AP.
+        al.hp = HARD_HP;
+        al.ap = 0;
+        // s_set_alvar B,x,al_roty,#deg180
+        al.roty = DEG180;
+    }
+    amoeba_strat(g, idx);
+}
+
+/// `amoeba_strat` / `amoeba_cont` (GA2STRAT.ASM:132-137): drift toward the
+/// player in Z and scroll with the world.
+fn amoeba_strat(g: &mut Game, idx: u16) {
+    // s_add_alvar W,x,al_worldz,#-60
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_sub(60);
+    // s_add_playerZ x
+    add_player_z(g, idx);
+}
+
+/// `amoebacol_Istrat` (GA2STRAT.ASM:139-147): on collision, latch onto the
+/// player if fewer than 3 are already stuck AND it was the player we hit;
+/// otherwise fall back to the "chase the ship" home behavior.
+fn amoebacol_strat(g: &mut Game, idx: u16) {
+    let slimecount = wm8(g, AMOEBA_SLIMECOUNT);
+    let collobj = g.objs.aliens[idx as usize].collobjptr;
+    let playpt = g.vars.internal_playpt;
+    // s_jmp_varEQ B,slimecount,#3,.end / s_jmp_alvarNE W,x,al_collobjptr,playpt,.end
+    let hit_player = playpt >= 0 && collobj == playpt as u16;
+    if slimecount == 3 || !hit_player {
+        // .end: s_jmp amoebahome_init
+        amoebahome_init(g, idx);
+        return;
+    }
+    // s_set_strat x,amoebastick_Istrat / s_inc_var slimecount / s_jmpto_strat
+    wm8_set(g, AMOEBA_SLIMECOUNT, slimecount.wrapping_add(1));
+    amoebastick_init(g, idx);
+}
+
+/// `amoebahome_init` / `amoebahome_strat` (GA2STRAT.ASM:149-156): chase the
+/// player's screen X/Y (achase rate 4) then run amoeba_cont (Z drift +
+/// scroll). Reached when the amoeba is shot or the ship is already full.
+fn amoebahome_init(g: &mut Game, idx: u16) {
+    // s_set_strat x,amoebahome_strat — then fall through the same tick.
+    let tick = sid(g, amoebahome_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    amoebahome_strat(g, idx);
+}
+
+fn amoebahome_strat(g: &mut Game, idx: u16) {
+    // s_set_objtobeplayer y + s_achase_alvar2alvar.w W,x,al_worldx/y,y,…,4
+    if let Some(p) = amoeba_playpt(g) {
+        let px = g.objs.aliens[p as usize].worldx;
+        let py = g.objs.aliens[p as usize].worldy;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = amoeba_achase16(al.worldx, px, 4);
+        al.worldy = amoeba_achase16(al.worldy, py, 4);
+    }
+    // s_brl amoeba_cont
+    amoeba_strat(g, idx);
+}
+
+/// `amoebastick_Istrat` (GA2STRAT.ASM:159-181): latch onto the player.
+/// Disable the player's fire + this object's collisions, swap to the splat
+/// sprite, and capture the screen-relative offset (quarter of the contact
+/// delta). Falls through into amoebastick_strat the same tick.
+fn amoebastick_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, amoebastick_strat);
+    // s_playerfire off (s_or_var pshipflags,#psf_nofire).
+    g.vars.pshipflags |= PSF_NOFIRE;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.shape = SH_AMOEBA1; // s_set_alvar W,x,al_shape,#amoeba1
+        al.stratptr = Some(tick); // s_set_strat x,amoebastick_strat
+    }
+    // a16: sword1 = (worldx - player_posx) asra asra ; sword2 = (worldy - …).
+    let px = g.vars.player_posx;
+    let py = g.vars.player_posy;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sword1 = al.worldx.wrapping_sub(px) >> 2; // two arithmetic shifts
+    al.sword2 = al.worldy.wrapping_sub(py) >> 2;
+    amoebastick_strat(g, idx);
+}
+
+/// `amoebastick_strat` (GA2STRAT.ASM:184-218): pin to the ship at the
+/// captured offset, flash + hurt the player on the ROM's frame gates, and
+/// fling off on a barrel roll.
+fn amoebastick_strat(g: &mut Game, idx: u16) {
+    // s_Set_objtobeplayer y — base for the offset AND the hitflash target.
+    let Some(p) = amoeba_playpt(g) else { return };
+    let player_al = g.objs.aliens[p as usize];
+    // s_copy_alvar2var svar_word1/2 = sword1/2 ; s_set_pos x,#0,#0,#0 (moot);
+    // s_add_Roffs2pos B,x,y,y,svar_word1,svar_word2,#0,1,1,1 — offset rotated
+    // by the PLAYER's full rotation, base = player world pos. Size B: the ROM
+    // reads only the low byte of each word (sign-extended). The contact delta
+    // is tiny so this equals the stored word, but honor the byte truncation.
+    let offx = (g.objs.aliens[idx as usize].sword1 as u8 as i8) as i16;
+    let offy = (g.objs.aliens[idx as usize].sword2 as u8 as i8) as i16;
+    b2_full_offset_pos(g, idx, &player_al, offx, offy, 0);
+    add_player_z(g, idx); // s_add_playerZ x
+
+    let gf = g.vars.gameframe;
+    // s_jmp_notdelay 2,.ngo,al1pt — roll-detach check on (gf+idx)&3==0.
+    if gf.wrapping_add(idx) & 3 == 0
+        && wm8(g, crate::common::sv::PLAYER_ROLLZVEL) != 0
+    {
+        // s_jmp_varNOTZERO B,player_rollZvel,amoebago_init
+        amoebago_init(g, idx);
+        return;
+    }
+    // s_jmp_notdelay 1,.nhfl — hitflash the ship + SE every other frame.
+    if gf & 1 == 0 {
+        g.objs.aliens[p as usize].sflags |= ASF_HITFLASH; // s_set_alsflag y,hitflash
+        play_se(g, 0x56); // TRIGSE $56
+    }
+    // s_jmp_notdelay 4,.ndam — hurt the player every 16 frames.
+    if gf & 15 == 0 {
+        wm8_set(g, crate::common::sv::SCREENFLASHCNT, AMOEBA_SCREENFLASH_BODY_FRMS);
+        wm8_set(g, crate::common::sv::SCREENFLASHTYPE, AMOEBA_SCREENFLASH_BODY_TYPE);
+        // s_set_objtobevar y,pcboxobj_B ; s_beqdec_alvar B,y,al_hp (dec unless 0).
+        if let Some(body) = g.coldet.pcbox.body {
+            let hp = g.objs.aliens[body as usize].hp;
+            if hp != 0 {
+                g.objs.aliens[body as usize].hp = hp - 1;
+            }
+        }
+    }
+}
+
+/// `amoebago_init` (GA2STRAT.ASM:220-224): the barrel-roll fling-off. Back
+/// to amoeba_strat, clear the whole stuck count, re-enable player fire, and
+/// re-run this tick. NOTE the ROM does NOT clear colldisable or restore the
+/// shape/collstrat — the flung blob drifts away harmlessly (ATZREMOVE).
+fn amoebago_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, amoeba_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick); // s_set_strat x,amoeba_strat
+    wm8_set(g, AMOEBA_SLIMECOUNT, 0); // s_clr_var B,slimecount
+    g.vars.pshipflags &= !PSF_NOFIRE; // s_playerfire on
+    amoeba_strat(g, idx); // s_jmpto_strat
+}
+// AMOEBA_END
+
 /// Register a strategy on the world registry, deduping by fn identity
 /// (World-level twin of [`sid`], used when only the World is available).
 fn wsid(world: &mut World, f: StrategyFn) -> StratId {
@@ -9579,6 +9818,10 @@ pub fn register(world: &mut World) {
     // flingboss/castanet/chicken (level3_2.rs:234 spawns SH_BOSS_0_1 carrying
     // this ISTRAT index). The 6 turrets + fan are the mother's child objects.
     world.istrats[IS_WEBMONSTER] = Some(wsid(world, strat_webmonster_init));
+    // amoeba swarm (Route 2 L4 + Route 1 blackhole). Mother-spawned through
+    // world.istrats[128] -> synthetic 0x02:0080 (sf-map mothers.rs AMOEBA);
+    // the address-map loop in table.rs registers that synth id automatically.
+    world.istrats[IS_AMOEBA] = Some(wsid(world, amoeba_init));
 
     // Synthetic addresses referenced by the MAP2_3 / washmap literal map
     // data (src/map/levels.c).
