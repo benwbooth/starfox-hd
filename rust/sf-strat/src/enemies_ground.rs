@@ -2503,6 +2503,428 @@ fn colonyexit_strat(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// Environmental hazards — trackcorner / windmill / volcano / firepillar (+
+// their volplasma / volrock / volrockdown projectile children). ASM is the
+// sole ground truth (no C-oracle): GASTRATS.ASM (trackcorner:1626-1630,
+// windmill:3528-3570), GA2STRAT.ASM (volcano:1929-2033, firepillar/
+// volrockdown:2039-2127). ISTRATS.ASM def_Istrat rows DRIFT +1 from the sf-map
+// placement past ~row 162; every index below is the sf-map placement VALUE
+// (grep sf-map route3/common.rs), which is what the runtime table is indexed by:
+//   - trackcorner = 50  (ISTRATS.ASM:470, macro 50)   — route3 rail-corner marker.
+//   - windmill    = 66  (ISTRATS.ASM:489, macro 67)   — route1 L5 / route3 L2/4/6.
+//   - volcano     = 191 (ISTRATS.ASM:622, macro 192)  — route3 L5.
+//   - firepillar  = 193 (ISTRATS.ASM:624, macro 194)  — route3 L5.
+// All four are placed by ported maps -> reachable.
+//
+// flypillars (ISTRATS.ASM:496, macro 74) is DELIBERATELY NOT ported/registered:
+// the C oracle aliased it to IS_PILLAR3 (=79) — sf-map route3/common.rs
+// IS_FLYPILLARS = 79 == IS_PILLAR3, and mothers.rs:155 documents the same
+// `flypillar_istrat -> IS_PILLAR3 (as C)` alias. Registering a distinct
+// flypillar_strat at 79 would clobber the already-registered pillar3 (heavily
+// placed by level1_1/1_6). As placed, level3_7's flypillars run pillar3's
+// falling-pillar behaviour; the standalone flypillar mover (GASTRATS.ASM:
+// 2365-2402) is unreachable in this port's index scheme and is left unported
+// per the "skip, don't invent" rule. Re-instating it needs an sf-map re-index
+// (out of scope).
+//
+// State machines (per-fn cites):
+//   trackcorner : indestructible (hardHP/ap0), NO colltype, NO strat/coll/exp
+//                 ptrs — a pure static render marker (the rail corner mesh).
+//   windmill    : hp6/ap4 spinner. In [500,2000) z, on the notdelay-1 gate,
+//                 turns the whole mill (roty += sword1); every tick scrolls,
+//                 coasts along roty at speed 50, and spins the blades (rotz+=4).
+//   volcano     : indestructible (hardHP/hardAP) enemy1 emitter facing deg180.
+//                 In [600,4000) z it rumbles once (sflag1 latch) and lobs a
+//                 homing volplasma on the notdelay-4 gate; a ballistic volrock
+//                 is thrown on the notdelay-3 gate REGARDLESS of range (the
+//                 out-of-range branch lands past the plasma block).
+//   firepillar  : indestructible (hardHP/hardAP) enemy1 pillar. Init randomises
+//                 worldx around player_posx/2, faces deg180 upside-down
+//                 (rotz=deg180); a 30% coin latches sflag2 = permanently inert.
+//                 Active: within 1000 z it latches sflag1 + rumbles once (the
+//                 particlefiredown burst is cosmetic); within 800 z it drops a
+//                 volrockdown on the notdelay-2 gate.
+//   volplasma   : hp2/plasmaAP homing fireball. Within 500 z it 3D-homes the
+//                 player (rate 2) and regenerates its velocity; clamps worldy
+//                 to <=0; double-integrates (add_vecs2pos, scroll, add_vecs2pos).
+//   volrock     : hp2/plasmaAP ballistic rock. Random heading (rnd&127)+64,
+//                 speed (rnd&7)+15, upward vy -(rnd&15)-30, then bounces on the
+//                 y=0 floor forever (falldown, no removal).
+//   volrockdown : hp2/plasmaAP downward-erupting rock. Rises (vy=80) until y>=0,
+//                 then scatters (random vx/vy/vz), advances state and falls under
+//                 gravity, self-removing when the bounce decays.
+//
+// Scoped-out cosmetics (never asserted): particlefire/particlefiredown fire
+// emitters, make_smoke trails, s_rots_flat billboard orient, s_sprite_obj, the
+// windmill's four SLOWELASER "smoke" jets (GASTRATS.ASM:3550-3569, ASM-commented
+// "smoke") and windexp's round0p blade shower (GASTRATS.ASM:3573-3599) — routed
+// through strat_explode instead.
+// ============================================================
+
+const IS_TRACKCORNER: usize = 50;
+const IS_WINDMILL: usize = 66;
+const IS_VOLCANO: usize = 191;
+const IS_FIREPILLAR: usize = 193;
+
+const WINDMILL_HP: u8 = 6; // STRATEQU.INC:102 windmillHP
+const WINDMILL_AP: u8 = 4; // STRATEQU.INC:103 windmillAP
+// HARD_AP (hardAP = 8, STRATEQU.INC:66) is defined once above (colony section).
+const PLASMA_AP: u8 = 10; // STRATEQU.INC:86 plasmaAP
+const HAZARD_PROJ_HP: u8 = 2; // vol* s_set_aldata #2,#plasmaAP
+
+/// al_sflags2 sflag2 bit (STRATEQU.INC:914) — firepillar's "inert" latch.
+const ASF2_SFLAG2: u8 = 0x20;
+
+/// Cosmetic fireball child mesh (`s_make_obj #fireball`): the mesh is not
+/// resolvable from ported map data, so nullshape stands in — the collision/AI
+/// behaviour is what this lane reproduces.
+const SH_FIREBALL: u16 = 0;
+
+/// `s_jmp_random label,#pct` (STRATMAC.INC:1407-1417): branch when
+/// `random_l() < (pct*255)/100`. (The 1-arg form == pct 50 -> jmp_random50.)
+fn jmp_random_pct(g: &mut Game, pct: u32) -> bool {
+    (ea_random(g) & 0xff) < ((pct * 255) / 100) as u16
+}
+
+/// `s_jmp_outZdistrng x,y,#min,#max` inverted: TRUE when the player is IN range
+/// (`min <= |dz| < max`) — the fall-through side (STRATMAC.INC:3354 ->
+/// jmp_outdistrng, out-of-range branches away).
+fn zdist_in_range(g: &Game, idx: u16, min: i32, max: i32) -> bool {
+    match player(g) {
+        Some(p) => {
+            let d = abs_axis_dist(g.objs.aliens[idx as usize].worldz, p.worldz);
+            d >= min && d < max
+        }
+        None => false,
+    }
+}
+
+/// `s_jmp_notdelay N,al1pt` gate with the per-object index stagger (al1pt -> idx,
+/// port convention, e.g. meteo0 enemies_ground.rs:1804): TRUE when
+/// `(gameframe + idx) & ((1<<N)-1) == 0`.
+fn notdelay_staggered(g: &Game, idx: u16, bits: u16) -> bool {
+    g.vars.gameframe.wrapping_add(idx) & ((1u16 << bits) - 1) == 0
+}
+
+/// `s_falldown_Yvec obj,shift,gravity,ground` (STRATMAC.INC:1813): add gravity
+/// to vy; while still above `ground` (worldy < ground) stay airborne; on/below
+/// ground snap to it and bounce (vy = (-vy) >> shift; a small residual -> 0).
+/// Returns true once the bounce has decayed to rest (the optional `remove`
+/// label fires). Byte-identical to bosses.rs boss2_falldown_yvec.
+fn falldown_yvec(g: &mut Game, idx: u16, shift: u32, gravity: i16, ground: i16) -> bool {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.vy = al.vy.wrapping_add(gravity); // s_add_2Yvec
+    if al.worldy < ground {
+        return false; // s_jmp_higher — still airborne
+    }
+    al.worldy = ground;
+    let mut v = al.vy.wrapping_neg();
+    v >>= shift;
+    if (-5..=0).contains(&v) {
+        v = 0;
+    }
+    al.vy = v;
+    v == 0
+}
+
+/// `trackcorner_Istrat` (GASTRATS.ASM:1626-1630): a pure static marker — alptrs
+/// all 0 (no tick/coll/exp), aldata hardHP/ap0, s_end_strat. It sets no colltype,
+/// so it is render-only scenery (the rail-corner mesh).
+fn trackcorner_init(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = None; // s_set_alptrs x,0,0,0
+    al.collstratptr = None;
+    al.expstratptr = None;
+    al.hp = HARDHP; // s_set_aldata #hardHP,#0
+    al.ap = 0;
+}
+
+/// `windmill_Istrat` (GASTRATS.ASM:3528-3533): wire strats/data, speed 50, sound
+/// $f. `windexp_Istrat` (the round0p blade shower) is scoped to plain explode.
+/// No s_end_strat before the tick label -> falls into `windmill_strat`.
+fn windmill_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, windmill_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = WINDMILL_HP; // s_set_aldata #windmillHP,#windmillAP
+        al.ap = WINDMILL_AP;
+        al.vel = 50; // s_set_speed x,#50
+        al.snd2 = 0x0f; // set_sound2 x,#$f
+    }
+    windmill_strat(g, idx);
+}
+
+/// `windmill_strat` (GASTRATS.ASM:3534-3570): turn the mill (roty += sword1)
+/// while in [500,2000) z on the every-other-frame gate; then scroll, coast along
+/// roty, and spin the blades (rotz += 4). The 4 SLOWELASER "smoke" jets are
+/// cosmetic (scoped).
+fn windmill_strat(g: &mut Game, idx: u16) {
+    // s_jmp_OUTZdistrng x,y,#500,#2000,.nrot ; s_jmp_notdelay 1,.nrot ;
+    // s_add_alvars B,x,al_roty,x,al_sword1.
+    if zdist_in_range(g, idx, 500, 2000) && notdelay(g, 1) {
+        let sw = g.objs.aliens[idx as usize].sword1 as u8; // byte add of sword1's low byte
+        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(sw);
+    }
+    add_player_z(g, idx); // s_add_playerZ x
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]); // s_gen_3dvecs x,al_roty,al_rotx,al_vel
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_add_vecs2pos x
+    g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(4);
+}
+
+/// `volcano_Istrat` (GA2STRAT.ASM:1929-1941): volcano_strat + alptrs 0,0 (no
+/// collide/explode handler — hardHP makes it indestructible anyway), hardHP/
+/// hardAP, enemy1, face deg180, clear sflag1. The particlefire child is cosmetic
+/// (scoped). No s_end_strat -> falls into `volcano_strat`.
+fn volcano_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, volcano_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = None; // s_set_alptrs x,volcano_strat,0,0
+        al.expstratptr = None;
+        al.hp = HARDHP; // s_set_aldata #hardHP,#hardAP
+        al.ap = HARD_AP;
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,enemy1
+        al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+        al.sflags2 &= !ASF2_SFLAG1; // s_clr_alsflag x,sflag1
+    }
+    volcano_strat(g, idx);
+}
+
+/// `volcano_strat` (GA2STRAT.ASM:1942-1966): in [600,4000) z, rumble once and
+/// lob a homing volplasma on the notdelay-4 gate; a ballistic volrock is thrown
+/// on the notdelay-3 gate in ALL ranges (the out-of-range `.nfire` branch lands
+/// after the plasma block, before the volrock block). Both children spawn at the
+/// volcano pose, worldy - 120 (-30<<2).
+fn volcano_strat(g: &mut Game, idx: u16) {
+    if zdist_in_range(g, idx, 600, 4000) {
+        // s_jmp_alsflag x,sflag1,.nsnd ; s_set_alsflag ; trigse $9a.
+        if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+            g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+            crate::common::strat_trig_se(g, 0x9a);
+        }
+        // s_jmp_notdelay 4,.nfire,al1pt -> homing volplasma.
+        if notdelay_staggered(g, idx, 4) {
+            spawn_vol_child(g, idx, true);
+        }
+    }
+    // .nfire: s_jmp_notdelay 3,.nfire2,al1pt -> ballistic volrock (any range).
+    if notdelay_staggered(g, idx, 3) {
+        spawn_vol_child(g, idx, false);
+    }
+}
+
+/// Shared volcano child spawn: `s_make_obj #fireball ; s_set_strat y,<Istrat> ;
+/// s_copy_pos y,x ; s_add_alvar W,y,al_worldy,#-30<<2`. `plasma` picks the
+/// volplasma vs volrock init.
+fn spawn_vol_child(g: &mut Game, idx: u16, plasma: bool) {
+    if let Some(child) = make_obj(g, SH_FIREBALL) {
+        copy_pos(g, child, idx);
+        g.objs.aliens[child as usize].worldy =
+            g.objs.aliens[child as usize].worldy.wrapping_sub(120);
+        let s = if plasma {
+            sid(g, volplasma_init)
+        } else {
+            sid(g, volrock_init)
+        };
+        g.objs.aliens[child as usize].stratptr = Some(s);
+    }
+}
+
+/// `volplasma_Istrat` (GA2STRAT.ASM:1969-1980): hp2/plasmaAP homing fireball.
+/// ROM stores the 3D aim in al_sbyte1/al_sbyte2 to keep roty/rotx free for the
+/// cosmetic s_rots_flat (scoped); the port keeps the aim in roty/rotx so
+/// strat_gen_vecs_3d / strat_aim_3d apply directly — roty=deg180 (toward camera),
+/// rotx=-deg90 (straight up), speed 50. No s_end_strat -> falls into the tick.
+fn volplasma_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, volplasma_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HAZARD_PROJ_HP; // s_set_aldata #2,#plasmaAP
+        al.ap = PLASMA_AP;
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,enemy1
+        al.roty = DEG180; // (== ROM al_sbyte1 = deg180)
+        al.rotx = (-(DEG90 as i8)) as u8; // (== ROM al_sbyte2 = -deg90)
+        al.vel = 50; // s_set_speed x,#50
+        al.sflags |= ASF_SHADOW; // s_set_alsflag x,shadow
+    }
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]); // s_gen_3dvecs sbyte1,sbyte2,vel
+    volplasma_strat(g, idx);
+}
+
+/// `volplasma_strat` (GA2STRAT.ASM:1981-1999): within 500 z, 3D-home the player
+/// (rate 2) and regenerate the velocity; move, clamp worldy to <=0 (never sinks
+/// below ground), scroll, move again. make_smoke / rots_flat are cosmetic.
+fn volplasma_strat(g: &mut Game, idx: u16) {
+    // s_jmp_Zdistless x,y,#500,.cont — inside 500 z home + regen vecs.
+    if zdist_less(g, idx, 500) {
+        if let Some(pl) = player(g) {
+            strat_aim_3d(g, idx, &pl, 2); // s_obj2obj_3dangle sbyte1,sbyte2,2
+            gen_vecs_3d(&mut g.objs.aliens[idx as usize]); // s_gen_3dvecs
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_add_vecs2pos
+    // s_jmp_higher x,#0,.high — worldy<0 skip; else pin to ground 0.
+    if g.objs.aliens[idx as usize].worldy >= 0 {
+        g.objs.aliens[idx as usize].worldy = 0;
+    }
+    add_player_z(g, idx); // s_add_playerZ
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_Add_vecs2pos (again)
+}
+
+/// `volrock_Istrat` (GA2STRAT.ASM:2004-2023): hp2/plasmaAP ballistic rock. Random
+/// heading (rnd&127)+64 (ROM al_sbyte1; port stores in roty for gen_vecs_2d),
+/// random speed (rnd&7)+15, then gen the flat vecs and set an upward launch vy =
+/// -(rnd&15)-30. No s_end_strat -> falls into the tick.
+fn volrock_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, volrock_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    // s_set_alvar2rnd sbyte1,#127 ; s_add_alvar #deg180-64.
+    let heading = ((ea_random(g) as u8) & 127).wrapping_add(DEG180.wrapping_sub(64));
+    // s_set_var2rnd svar,#7 ; s_add_var #15.
+    let speed = ((ea_random(g) as u8) & 7).wrapping_add(15);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HAZARD_PROJ_HP;
+        al.ap = PLASMA_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.sflags |= ASF_SHADOW; // s_set_alsflag x,shadow
+        al.roty = heading;
+        al.vel = speed;
+    }
+    gen_vecs_2d(&mut g.objs.aliens[idx as usize]); // s_gen_vecs sbyte1,vel (vx,vz; vy=0)
+    // s_set_alvar2rnd al_vy,#15 ; vy+1=0 ; s_neg_alvar ; s_add_alvar #-30.
+    let vy = -(((ea_random(g) as u8) & 15) as i16) - 30;
+    g.objs.aliens[idx as usize].vy = vy;
+    volrock_strat(g, idx);
+}
+
+/// `volrock_strat` (GA2STRAT.ASM:2024-2033): gravity + bounce on the y=0 floor
+/// (never removed), then coast. make_smoke / rots_flat are cosmetic.
+fn volrock_strat(g: &mut Game, idx: u16) {
+    let _ = falldown_yvec(g, idx, 1, 2, 0); // s_falldown_Yvec x,1,#2,#0 (no remove label)
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_Add_vecs2pos
+}
+
+/// `firepillar_Istrat` (GA2STRAT.ASM:2039-2062): indestructible enemy1 pillar,
+/// faces deg180 upside-down (rotz=deg180). Init randomises worldx to a
+/// (0..1023)-512 offset then adds player_posx/2 (asra); a 30% coin latches sflag2
+/// = permanently inert (the 70%-branch of jmp_random skips setting it). The
+/// particlefiredown burst is cosmetic. No s_end_strat -> falls into the tick.
+fn firepillar_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, firepillar_strat);
+    // s_set_alvar2rnd worldx (low byte) ; +1,#3 (high byte & 3) -> 0..1023.
+    let lo = (ea_random(g) as u8) as i16;
+    let hi = ((ea_random(g) as u8) & 3) as i16;
+    let mut wx = lo | (hi << 8);
+    wx -= 512; // s_sub_alvar W,x,al_worldx,#512
+    wx = wx.wrapping_add(g.vars.player_posx >> 1); // asra player_posx (/2) + worldx
+    // jmp_random .ndrop,70 branches (skips the sflag2 set) on 70% -> inert 30%.
+    let inert = !jmp_random_pct(g, 70);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = None; // s_set_alptrs x,firepillar_strat,0,0
+        al.expstratptr = None;
+        al.hp = HARDHP; // s_set_aldata #hardhp,#hardAP
+        al.ap = HARD_AP;
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,enemy1
+        al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+        al.rotz = DEG180; // s_set_alvar B,x,al_rotz,#deg180
+        al.worldx = wx;
+        if inert {
+            al.sflags2 |= ASF2_SFLAG2; // s_set_alsflag x,sflag2
+        }
+    }
+    firepillar_strat(g, idx);
+}
+
+/// `firepillar_strat` (GA2STRAT.ASM:2064-2090): sflag2 pillars are inert. Active:
+/// within 1000 z, first time only, latch sflag1 + rumble (particlefiredown
+/// cosmetic); within 800 z, on the notdelay-2 gate, drop a volrockdown.
+fn firepillar_strat(g: &mut Game, idx: u16) {
+    // s_jmp_alsflag x,sflag2,.nfire (== END).
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 != 0 {
+        return;
+    }
+    // s_jmp_Zdistmore #1000,.badobj ; s_jmp_alsflag sflag1,.badobj.
+    if zdist_less(g, idx, 1000) && g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1; // s_set_alsflag x,sflag1
+        crate::common::strat_trig_se(g, 0x49); // trigse $49
+    }
+    // s_jmp_Zdistmore #800,.nfire ; s_jmp_notdelay 2,.nfire,al1pt -> volrockdown.
+    if zdist_less(g, idx, 800) && notdelay_staggered(g, idx, 2) {
+        if let Some(child) = make_obj(g, SH_FIREBALL) {
+            copy_pos(g, child, idx); // s_copy_pos y,x (worldy offset line is ASM-commented)
+            let s = sid(g, volrockdown_init);
+            g.objs.aliens[child as usize].stratptr = Some(s);
+        }
+    }
+}
+
+/// `volrockdown_Istrat` (GA2STRAT.ASM:2095-2101): hp2/plasmaAP rock launched
+/// downward (`s_set_vecs #0,#80,#0`). No s_end_strat -> falls into the tick.
+fn volrockdown_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, volrockdown_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HAZARD_PROJ_HP;
+        al.ap = PLASMA_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.vx = 0; // s_set_vecs x,#0,#80,#0
+        al.vy = 80;
+        al.vz = 0;
+    }
+    volrockdown_strat(g, idx);
+}
+
+/// `volrockdown_strat` (GA2STRAT.ASM:2102-2127): state 0 rises (vy=80) until
+/// worldy>=0, then scatters (random vx/vy/vz), advances to state 1 and integrates
+/// once more; state 1 falls under gravity and self-removes when the bounce decays.
+/// The leading add_vecs2pos runs every tick. rots_flat is cosmetic.
+fn volrockdown_strat(g: &mut Game, idx: u16) {
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_Add_vecs2pos (leading)
+    // s_jmp_ifnotstate x,0,.nsdown ; s_jmp_higher x,#0,.nsdown (worldy<0 skip).
+    if g.objs.aliens[idx as usize].stratstate == 0 && g.objs.aliens[idx as usize].worldy >= 0 {
+        let vx = (((ea_random(g) as u8) & 15) as i16) - 7; // (rnd&15)-7
+        let vy = (((ea_random(g) as u8) & 7) as i16) - 15; // (rnd&7)-15 (upward pop)
+        let vz = (((ea_random(g) as u8) & 15) as i16) - 7; // (rnd&15)-7
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.vx = vx;
+            al.vy = vy;
+            al.vz = vz;
+        }
+        next_state(g, idx); // s_next_state
+        g.objs.aliens[idx as usize].worldy = 0; // s_set_alvar W,x,al_worldy,#0
+        apply_velocity(&mut g.objs.aliens[idx as usize]); // s_Add_vecs2pos
+    }
+    // .nsdown: s_jmp_ifnotstate x,1,.nsbounce ; s_falldown_Yvec x,1,#2,#0,remove.
+    if g.objs.aliens[idx as usize].stratstate == 1 && falldown_yvec(g, idx, 1, 2, 0) {
+        g.objs.aliens[idx as usize].type_ |= ATZREMOVE; // remove_istrat
+    }
+}
+
+// ============================================================
 // State helper.
 // ============================================================
 
@@ -2561,4 +2983,12 @@ pub fn register(world: &mut World) {
     world.istrats[IS_COLONY1] = Some(wsid(world, colony1_init));
     world.istrats[IS_COLONY2] = Some(wsid(world, colony2_init));
     world.istrats[IS_COLONYEXIT] = Some(wsid(world, colonyexit_strat));
+
+    // Environmental hazards — all placed by ported route3 (+ route1 windmill)
+    // maps -> reachable. flypillars is intentionally NOT registered: it aliases
+    // to pillar3 (IS 79) in this port's index scheme (see hazard section doc).
+    world.istrats[IS_TRACKCORNER] = Some(wsid(world, trackcorner_init));
+    world.istrats[IS_WINDMILL] = Some(wsid(world, windmill_init));
+    world.istrats[IS_VOLCANO] = Some(wsid(world, volcano_init));
+    world.istrats[IS_FIREPILLAR] = Some(wsid(world, firepillar_init));
 }

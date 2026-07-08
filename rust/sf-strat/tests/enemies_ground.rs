@@ -1196,3 +1196,303 @@ fn colonyexit_snaps_shut_when_player_behind() {
     tick(&mut g, b);
     assert_eq!(g.objs.aliens[b as usize].animframe, 0, "door snaps shut");
 }
+
+// ============================================================
+// Environmental hazards — trackcorner / windmill / volcano / firepillar +
+// their volplasma / volrock / volrockdown children. ASM oracle: GASTRATS.ASM
+// (trackcorner:1626-1630, windmill:3528-3570), GA2STRAT.ASM (volcano:1929-2033,
+// firepillar/volrockdown:2039-2127). Every expected value hand-derived from the
+// 65816 source and cited inline. flypillars is aliased to pillar3 (IS 79) in
+// this port's index scheme and is not exercised here (see enemies_ground.rs
+// hazard section doc). Scoped-out cosmetics (particlefire, make_smoke,
+// rots_flat, SLOWELASER "smoke" jets, windexp/round0p) are never asserted.
+// ============================================================
+
+const IS_TRACKCORNER: usize = 50;
+const IS_WINDMILL: usize = 66;
+const IS_VOLCANO: usize = 191;
+const IS_FIREPILLAR: usize = 193;
+
+const ASF2_SFLAG2: u8 = 0x20; // STRATEQU.INC:914
+const DEG180_H: u8 = 128; // deg180
+const HARD_AP_M: u8 = 8; // STRATEQU.INC:66 hardAP
+const PLASMA_AP_M: u8 = 10; // STRATEQU.INC:86 plasmaAP
+const WINDMILL_HP_M: u8 = 6; // STRATEQU.INC:102
+const WINDMILL_AP_M: u8 = 4; // STRATEQU.INC:103
+
+/// Active aliens that are neither the player (slot 0) nor `hazard` — i.e. the
+/// spawned projectile children.
+fn children(g: &Game, hazard: u16) -> Vec<u16> {
+    (0..NUMBER_AL as u16)
+        .filter(|&i| i != 0 && i != hazard && g.objs.aliens[i as usize].active)
+        .collect()
+}
+
+// ---- trackcorner (GASTRATS.ASM:1626-1630) -----------------
+
+#[test]
+fn trackcorner_is_inert_static_marker() {
+    // alptrs all 0, aldata hardHP/ap0, no colltype -> render-only scenery.
+    let mut g = setup();
+    let t = place(&mut g, IS_TRACKCORNER, 0, 0, 1000, 0);
+    tick(&mut g, t);
+    let a = g.objs.aliens[t as usize];
+    assert_eq!(a.hp, HARDHP, "indestructible hardHP");
+    assert_eq!(a.ap, 0, "ap 0");
+    assert!(a.stratptr.is_none(), "no tick strat (alptrs 0)");
+    assert!(a.collstratptr.is_none(), "no collide strat");
+    assert!(a.expstratptr.is_none(), "no explode strat");
+    assert_eq!(a.collflags & COLLTYPE_ENEMY1, 0, "no colltype set");
+}
+
+// ---- windmill (GASTRATS.ASM:3528-3570) --------------------
+
+#[test]
+fn windmill_init_then_spins_in_range() {
+    // z1000 -> |dz| in [500,2000); gameframe0 -> notdelay-1 gate open. Init data
+    // (hp6/ap4/vel50/snd$f), roty += sword1, rotz += 4.
+    let mut g = setup();
+    g.vars.gameframe = 0;
+    let w = place(&mut g, IS_WINDMILL, 0, 0, 1000, 0);
+    g.objs.aliens[w as usize].sword1 = 5; // al_word1 Y-rot add (map datum)
+    tick(&mut g, w);
+    let a = g.objs.aliens[w as usize];
+    assert_eq!(a.hp, WINDMILL_HP_M, "windmillHP");
+    assert_eq!(a.ap, WINDMILL_AP_M, "windmillAP");
+    assert_eq!(a.vel, 50, "speed 50");
+    assert_eq!(a.snd2, 0x0f, "set_sound2 $f");
+    assert_eq!(a.roty, 5, "roty += sword1 (in-range gate)");
+    assert_eq!(a.rotz, 4, "blades spin rotz += 4");
+}
+
+#[test]
+fn windmill_no_body_spin_out_of_range() {
+    // z3000 -> |dz| = 3000 >= 2000 -> OUTZdistrng skips the roty add; blades
+    // (rotz += 4) still spin every tick.
+    let mut g = setup();
+    g.vars.gameframe = 0;
+    let w = place(&mut g, IS_WINDMILL, 0, 0, 3000, 0);
+    g.objs.aliens[w as usize].sword1 = 5;
+    tick(&mut g, w);
+    let a = g.objs.aliens[w as usize];
+    assert_eq!(a.roty, 0, "no body turn when out of [500,2000) z");
+    assert_eq!(a.rotz, 4, "blades still spin");
+}
+
+// ---- volcano (GA2STRAT.ASM:1929-1966) ---------------------
+
+#[test]
+fn volcano_init_flags() {
+    // z100 (|dz|<600 out of range) + gameframe1 (both notdelay gates shut) ->
+    // no spawn; just the init datum. hardHP/hardAP, enemy1, roty=deg180, no
+    // collide/explode ptr, sflag1 clear.
+    let mut g = setup();
+    g.vars.gameframe = 1; // (1+1)&7=2, (1+1)&15=2 -> gates closed
+    let v = place(&mut g, IS_VOLCANO, 0, 0, 100, 0);
+    tick(&mut g, v);
+    let a = g.objs.aliens[v as usize];
+    assert_eq!(a.hp, HARDHP, "hardHP indestructible");
+    assert_eq!(a.ap, HARD_AP_M, "hardAP");
+    assert_eq!(a.roty, DEG180_H, "faces deg180");
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 colltype");
+    assert!(a.collstratptr.is_none(), "alptrs coll = 0");
+    assert!(a.expstratptr.is_none(), "alptrs exp = 0");
+    assert_eq!(a.sflags2 & ASF2_SFLAG1, 0, "sflag1 cleared");
+    assert!(children(&g, v).is_empty(), "no children when gates shut");
+}
+
+#[test]
+fn volcano_in_range_spawns_plasma_and_rock_and_rumbles() {
+    // z2000 -> |dz| in [600,4000); gameframe15 -> (15+1)&15==0 (notdelay-4) and
+    // (15+1)&7==0 (notdelay-3) both fire -> a volplasma AND a volrock spawn at
+    // pose worldy-120, and sflag1 latches (rumble).
+    let mut g = setup();
+    g.vars.gameframe = 15;
+    let v = place(&mut g, IS_VOLCANO, 0, 0, 2000, 0);
+    tick(&mut g, v);
+    assert_ne!(
+        g.objs.aliens[v as usize].sflags2 & ASF2_SFLAG1,
+        0,
+        "in-range rumble latches sflag1"
+    );
+    let kids = children(&g, v);
+    assert_eq!(kids.len(), 2, "volplasma + volrock spawned");
+    for c in kids {
+        assert_eq!(
+            g.objs.aliens[c as usize].worldy, -120,
+            "child at volcano worldy - 30<<2"
+        );
+    }
+}
+
+#[test]
+fn volcano_out_of_range_throws_only_volrock() {
+    // z5000 -> |dz| = 5000 >= 4000 (out of range): the sound + plasma block is
+    // skipped, but the .nfire branch lands on the volrock notdelay-3 gate, which
+    // still fires. gameframe15 -> (15+1)&7==0.
+    let mut g = setup();
+    g.vars.gameframe = 15;
+    let v = place(&mut g, IS_VOLCANO, 0, 0, 5000, 0);
+    tick(&mut g, v);
+    assert_eq!(
+        g.objs.aliens[v as usize].sflags2 & ASF2_SFLAG1,
+        0,
+        "no rumble when out of range"
+    );
+    assert_eq!(children(&g, v).len(), 1, "only the ballistic volrock");
+}
+
+// ---- volplasma / volrock children (GA2STRAT.ASM:1969-2033) -
+
+#[test]
+fn volplasma_child_init_and_coasts() {
+    // Spawn a volplasma via an in-range volcano, then tick the child through its
+    // init. hp2/plasmaAP, shadow, roty=deg180 (the ROM al_sbyte1 aim; player far
+    // >500 z so no homing this tick), and it moves (worldz changes from 2000).
+    let mut g = setup();
+    g.vars.gameframe = 15;
+    let v = place(&mut g, IS_VOLCANO, 0, 0, 2000, 0);
+    tick(&mut g, v);
+    // The volplasma is the notdelay-4 child (spawned first); it starts at z2000,
+    // y-120. Player at z0 -> |dz| 2000 > 500, so no homing: the ROM aim
+    // (roty=deg180, rotx=-deg90) fires it straight up (vz=0), so the double
+    // add_vecs2pos moves it on Y only.
+    let c = children(&g, v)[0];
+    let y0 = g.objs.aliens[c as usize].worldy;
+    let z0 = g.objs.aliens[c as usize].worldz;
+    tick(&mut g, c);
+    let a = g.objs.aliens[c as usize];
+    assert_eq!(a.hp, 2, "volplasma hp2");
+    assert_eq!(a.ap, PLASMA_AP_M, "plasmaAP");
+    assert_ne!(a.sflags & ASF_SHADOW, 0, "shadow flag");
+    assert_eq!(a.roty, DEG180_H, "no homing beyond 500 z (ROM sbyte1 aim)");
+    assert_eq!(a.worldz, z0, "vertical shot -> vz 0");
+    assert_ne!(a.worldy, y0, "coasts on Y (double add_vecs2pos)");
+}
+
+#[test]
+fn volrock_child_launches_upward_ballistic() {
+    // The volrock child gets a random upward launch vy = -(rnd&15)-30 (in
+    // [-45,-30]) and hp2/plasmaAP/shadow. Tick it through its init.
+    let mut g = setup();
+    g.vars.gameframe = 15;
+    let v = place(&mut g, IS_VOLCANO, 0, 0, 5000, 0); // out of range -> only volrock
+    tick(&mut g, v);
+    let c = children(&g, v)[0];
+    tick(&mut g, c);
+    let a = g.objs.aliens[c as usize];
+    assert_eq!(a.hp, 2, "volrock hp2");
+    assert_eq!(a.ap, PLASMA_AP_M, "plasmaAP");
+    assert_ne!(a.sflags & ASF_SHADOW, 0, "shadow flag");
+    // vy after the leading falldown gravity (+2): launch in [-45,-30] then +2.
+    assert!(
+        a.vy >= -45 && a.vy <= -28,
+        "upward ballistic launch, got vy={}",
+        a.vy
+    );
+}
+
+// ---- firepillar (GA2STRAT.ASM:2039-2090) ------------------
+
+#[test]
+fn firepillar_init_faces_upside_down() {
+    // roty=deg180, rotz=deg180 (upside-down), hardHP/hardAP, enemy1, no
+    // collide/explode ptr.
+    let mut g = setup();
+    g.vars.gameframe = 1; // keep the init-tick rock gate shut ((1+1)&3=2)
+    let f = place(&mut g, IS_FIREPILLAR, 0, 0, 400, 0);
+    tick(&mut g, f);
+    let a = g.objs.aliens[f as usize];
+    assert_eq!(a.roty, DEG180_H, "faces deg180");
+    assert_eq!(a.rotz, DEG180_H, "rotz deg180 (upside down)");
+    assert_eq!(a.hp, HARDHP, "hardHP");
+    assert_eq!(a.ap, HARD_AP_M, "hardAP");
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 colltype");
+    assert!(a.collstratptr.is_none(), "alptrs coll = 0");
+}
+
+#[test]
+fn firepillar_inert_when_sflag2_set() {
+    // sflag2 pillars branch straight to END: no particle latch, no rock, even
+    // with the gate open and the player in range.
+    let mut g = setup();
+    g.vars.gameframe = 1;
+    let f = place(&mut g, IS_FIREPILLAR, 0, 0, 400, 0);
+    tick(&mut g, f); // init (rock gate shut)
+    let base = children(&g, f).len();
+    // Force inert + open the rock gate.
+    g.objs.aliens[f as usize].sflags2 |= ASF2_SFLAG2;
+    g.objs.aliens[f as usize].sflags2 &= !ASF2_SFLAG1;
+    g.vars.gameframe = 3; // (3+1)&3==0
+    tick(&mut g, f);
+    assert_eq!(children(&g, f).len(), base, "inert pillar spawns nothing");
+    assert_eq!(
+        g.objs.aliens[f as usize].sflags2 & ASF2_SFLAG1,
+        0,
+        "inert pillar never latches sflag1"
+    );
+}
+
+#[test]
+fn firepillar_active_latches_and_drops_rock() {
+    // Active pillar within 800 z on the notdelay-2 gate: latches sflag1 (within
+    // 1000 z rumble) AND drops a volrockdown.
+    let mut g = setup();
+    g.vars.gameframe = 1;
+    let f = place(&mut g, IS_FIREPILLAR, 0, -200, 400, 0);
+    tick(&mut g, f);
+    // Force active (clear the inert + particle latches).
+    g.objs.aliens[f as usize].sflags2 &= !(ASF2_SFLAG2 | ASF2_SFLAG1);
+    let base = children(&g, f).len();
+    g.vars.gameframe = 3; // (3+1)&3==0 -> notdelay-2 gate open
+    tick(&mut g, f);
+    assert_ne!(
+        g.objs.aliens[f as usize].sflags2 & ASF2_SFLAG1,
+        0,
+        "within 1000 z latches sflag1"
+    );
+    assert_eq!(
+        children(&g, f).len(),
+        base + 1,
+        "within 800 z drops a volrockdown"
+    );
+}
+
+#[test]
+fn volrockdown_rises_scatters_then_falls_and_removes() {
+    // The volrockdown child rises (vy=80) from firepillar worldy (-200) toward
+    // y>=0; at apex it scatters + advances to state 1; then gravity brings it
+    // down and it self-removes (ATZREMOVE) once the bounce decays.
+    let mut g = setup();
+    g.vars.gameframe = 1;
+    let f = place(&mut g, IS_FIREPILLAR, 0, -200, 400, 0);
+    tick(&mut g, f);
+    g.objs.aliens[f as usize].sflags2 &= !(ASF2_SFLAG2 | ASF2_SFLAG1);
+    g.vars.gameframe = 3;
+    tick(&mut g, f);
+    let c = *children(&g, f).last().expect("volrockdown child");
+    // First child tick: init (vy=80) + leading add_vecs2pos -> worldy -200+80.
+    tick(&mut g, c);
+    assert_eq!(g.objs.aliens[c as usize].vy, 80, "launched downward vy=80");
+    assert_eq!(g.objs.aliens[c as usize].stratstate, 0, "still rising");
+    // Rise until it reaches y>=0 and flips to the fall state.
+    let mut reached = false;
+    for _ in 0..8 {
+        tick(&mut g, c);
+        if g.objs.aliens[c as usize].stratstate == 1 {
+            reached = true;
+            break;
+        }
+    }
+    assert!(reached, "apex reached -> next_state to the fall state");
+    // Fall + bounce decay until self-removal.
+    let mut removed = false;
+    for _ in 0..200 {
+        tick(&mut g, c);
+        if g.objs.aliens[c as usize].type_ & ATZREMOVE != 0 {
+            removed = true;
+            break;
+        }
+    }
+    assert!(removed, "self-removes (remove_istrat) once the bounce decays");
+}
