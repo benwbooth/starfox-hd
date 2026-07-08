@@ -138,7 +138,10 @@ pub const IS_CLSHIPBRIDGEC: u32 = 36;
 pub const IS_CLSHIPDIVEA: u32 = 40;
 pub const IS_CLSHIPDIVEB: u32 = 41;
 pub const IS_CLSHIPDIVEC: u32 = 42;
-pub const IS_MISSTANK: u32 = 50;
+// ISTRATS.ASM:471 def_istrat misstank (row after trackcorner=50). Was mislabeled
+// 50, which collided with trackcorner (IS 50) so level2_3's misstank cspecials
+// spawned as inert rail markers instead of firing tanks.
+pub const IS_MISSTANK: u32 = 51;
 pub const IS_GATE: u32 = 53;
 pub const IS_FLINGBOSS: u32 = 58;
 pub const IS_CAMELEON: u32 = 63;
