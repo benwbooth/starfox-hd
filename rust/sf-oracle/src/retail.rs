@@ -219,6 +219,88 @@ pub const RETAIL_STAYREL_STRAT: u32 = 0x06_864B;
 pub const AL_SFLAGS: u32 = 0x1D;
 pub const AL_SFLAGS2: u32 = 0x1E;
 
+// ------------------------------------------------------------------------
+// BATCH 2 — ground family extension (`staydist`, `gnd`).
+//
+// These extend the certified `stayrel` family. Located by masked signature
+// scan of the retail cart (opcodes fixed, WRAM operands wildcarded), skeletons
+// first read out of the BUILT ROM (data/sf.sfc, symbol-mapped) then cross-
+// validated against retail. See tests/coexec_retail.rs.
+// ------------------------------------------------------------------------
+
+/// Retail `staydist_Istrat` ($06:8656) — the per-tick view-tracking ground
+/// strat (the Istrat IS the per-tick body; it never swaps `al_stratptr`). Body:
+/// `rep #$20; lda al_sword1,x; sta al_worldz,x; sep #$20; rep #$20;
+/// lda al_worldz,x; clc; adc pviewposz; sta al_worldz,x; sep #$20;
+/// lda al_sflags2,x; ora #$01; sta al_sflags2,x; rtl`
+/// (`C2 20 B5 26 95 10 E2 20  C2 20 B5 10 18 6D <pvp> 95 10 E2 20
+/// B5 1E 09 01 95 1E 6B`). Net effect: `al_worldz = al_sword1 + pviewposz` each
+/// tick (idempotent — re-derives worldz from sword1, tracking the viewer) plus
+/// set `colldisable`. UNIQUE masked hit; sits right after `stayrel_strat`
+/// ($06:864B + 11 bytes = $8656). Footprint: reads `pviewposz` + `al_sword1`,
+/// writes `al_worldz` + `al_sflags2`.
+pub const RETAIL_STAYDIST_ISTRAT: u32 = 0x06_8656;
+/// Retail `pviewposz` ($14FA) — read straight out of `staydist_Istrat`'s
+/// `adc pviewposz` operand. Cross-validated: `pviewvelz`($14F4) + 6 = $14FA,
+/// the identical +6 spacing as the built ROM ($157F -> $1585). Written only by
+/// PLAYER/camera strats, so a directly-seeded value survives a tick.
+pub const RETAIL_PVIEWPOSZ: u32 = 0x14FA;
+/// `al_sword1` struct offset ($26) — the staydist desired-Z-offset scratch
+/// word (identical retail/built/port; GILESAL.INC `defal sword1,2`).
+pub const AL_SWORD1: u32 = 0x26;
+
+/// Retail `gnd_Istrat` ($08:F15D) — the static ground-plane segment strat
+/// (GASTRATS.ASM:3720). INIT-ONLY: zeroes `al_stratptr` (so the per-tick body is
+/// a no-op), `jsl set_0collptrsx_l` (zeroes the extended-array coll/exp strat
+/// pointers), sets `al_type |= gnd($01)` and `al_sflags2 |= colldisable($01)`.
+/// Body: `rep #$20; lda #0; sta al_stratptr,x; sep #$20; lda #0;
+/// sta al_stratptr+2,x; jsl set_0collptrs; lda al_type,x; ora #$01;
+/// sta al_type,x; lda al_sflags2,x; ora #$01; sta al_sflags2,x; rtl`
+/// (`C2 20 A9 00 00 95 16 E2 20 A9 00 95 18 22 <set0coll> B5 09 09 01 95 09
+/// B5 1E 09 01 95 1E 6B`). UNIQUE masked hit. Footprint: reads NOTHING (no
+/// globals); writes `al_stratptr`, `al_type`, `al_sflags2` (+ extended coll/exp
+/// ptrs via the leaf).
+pub const RETAIL_GND_ISTRAT: u32 = 0x08_F15D;
+/// `al_type` struct offset ($09) — from `gnd_Istrat`'s `lda al_type,x` operand.
+pub const AL_TYPE: u32 = 0x09;
+
+// ------------------------------------------------------------------------
+// BATCH 2 — a pure ROTATE scenery strat (`hardrot`) and a fixed-velocity
+// MOVER (`straight`). Both located by masked signature scan.
+// ------------------------------------------------------------------------
+
+/// Retail `hardrot_strat` ($06:8614) — spin-in-place scenery: per axis
+/// `al_rot* += al_sbyte*`. Body (all 8-bit): `lda al_rotx,x; clc;
+/// adc al_sbyte1,x; sta al_rotx,x` × {rotx/sbyte1, roty/sbyte2, rotz/sbyte3};
+/// `rtl` (`B5 12 18 7D 22 00 95 12  B5 13 18 7D 23 00 95 13  B5 14 18 7D 24 00
+/// 95 14  6B`). Pure struct-offset — byte-identical retail/built (like
+/// `addalvecs_l`); UNIQUE scan hit. Footprint: NO globals, NO RNG; reads
+/// `al_rotx/y/z` + `al_sbyte1/2/3`, writes `al_rotx/y/z`.
+pub const RETAIL_HARDROT_STRAT: u32 = 0x06_8614;
+/// Rotation-angle struct offsets ($12/$13/$14) and the per-axis rate scratch
+/// bytes ($22/$23/$24) — from `hardrot_strat`'s operands (identical all carts).
+pub const AL_ROTX: u32 = 0x12;
+pub const AL_ROTY: u32 = 0x13;
+pub const AL_ROTZ: u32 = 0x14;
+pub const AL_SBYTE1: u32 = 0x22;
+pub const AL_SBYTE2: u32 = 0x23;
+pub const AL_SBYTE3: u32 = 0x24;
+
+/// Retail `straight_Istrat` ($0B:8CE1) — a fixed-heading MOVER. The Istrat
+/// installs `straight_strat` and computes vx/vy/vz ONCE from `al_roty/al_rotx/
+/// al_vel` via `gen_3dvecs` (the GSU), then FALLS THROUGH into `straight_strat`.
+pub const RETAIL_STRAIGHT_ISTRAT: u32 = 0x0B_8CE1;
+/// Retail `straight_strat` ($0B:8D00) — the per-tick mover body:
+/// `jsl addalvecs_l; jsl sr_addplayerZx; rtl`
+/// (`22 BB C7 1F 22 69 DC 1F 6B`) = move by fixed velocity (`al_worldx/y/z +=
+/// al_vx/vy/vz`) then scroll with the world (`al_worldz += pviewvelz`). Located
+/// by scanning the full `straight_Istrat` signature (UNIQUE) then adding the +31
+/// fall-through offset; CROSS-VALIDATED because the Istrat's own `s_set_strat`
+/// operand equals this derived address ($0B:8D00). Footprint (per tick): reads
+/// `al_vx/vy/vz` + `pviewvelz`, writes `al_worldx/y/z`. NO RNG, NO player-
+/// relative, NO GSU in the tick (gen_3dvecs runs only in the Istrat).
+pub const RETAIL_STRAIGHT_STRAT: u32 = 0x0B_8D00;
+
 /// Retail `runmario_l` — the RAM-resident GSU trampoline. Two addresses:
 ///  * ROM copy-source `$02:9D56` — where the 35-byte routine is stored in the
 ///    cart (`sta.l m_pbr; phb; ldb #0; lda mario_draw_mode; ora #$18;

@@ -9,7 +9,8 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**15 tests, all green**). Nothing committed.
+`rust/sf-oracle/tests/coexec_retail.rs` (**21 tests, all green** — 6 named strats
+certified vs retail; see UPDATE 3). Nothing committed.
 
 ## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
 
@@ -99,6 +100,58 @@ whole effect is `jsl sr_addplayerZx; rtl`.
    that a player/camera routine recomputes each frame would need re-seeding or a
    surgical-only diff).
 
+## UPDATE 3 — BATCH 2: four MORE named strats certified vs retail
+
+Applying the UPDATE-2 recipe to the next batch. **Six new tests, all green**
+(`coexec_retail` now 21 tests). Four more real, named strats certified
+tick-for-tick vs the retail cart, spanning three *new* footprint shapes.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_batch2_ground_addresses` | ✅ | Masked-scans `staydist_Istrat`=**$06:8656** (UNIQUE) — its `adc` operand gives `pviewposz`=**$14FA**, cross-validated as `pviewvelz`($14F4)+6 (identical +6 spacing as built $157F→$1585) and by adjacency (`stayrel_strat`$864B + 11-byte body = $8656). Also `gnd_Istrat`=**$08:F15D** (UNIQUE), whose `jsl` operand gives `set_0collptrsx_l`=$1F:D450. |
+| `retail_staydist_strat_vs_port` | ✅ **MATCH** | Runs the retail `staydist_Istrat` body ($06:8656) each tick: `al_worldz = al_sword1 + pviewposz` (viewer-tracking, idempotent). worldz MATCH over 40 ticks × 2 scenarios, incl. a 16-bit wrap AND a **mid-run `pviewposz` change on both sides** (proving worldz tracks the global, not a frozen one-shot). colldisable set each side (retail sflags2 bit$01 ↔ port sflags bit$10). |
+| `retail_gnd_strat_vs_port` | ✅ **MATCH** | INIT-ONLY strat. Seeds a DIRTY object, runs retail `gnd_Istrat` ($08:F15D): zeroes `al_stratptr` (per-tick becomes a no-op), `jsl set_0collptrsx_l`, sets `al_type\|=gnd($01)` + colldisable. Semantic MATCH vs port `strat_gnd_init` (both zero stratptr/coll/exp ptrs, both flag ground + colldisable). |
+| `retail_batch2_rotate_mover_addresses` | ✅ | Masked-scans `hardrot_strat`=**$06:8614** (UNIQUE; pure struct-offset, byte-identical retail/built like `addalvecs_l`) and `straight_Istrat`=**$0B:8CE1** (UNIQUE full-signature scan). Derives `straight_strat`=**$0B:8D00** via the +31 fall-through offset, **self-cross-validated** because the Istrat's own `s_set_strat` operand equals that derived address. |
+| `retail_hardrot_strat_vs_port` | ✅ **MATCH** | Pure spin-in-place scenery: `al_rot{x,y,z} += al_sbyte{1,2,3}` (8-bit). rotx/y/z MATCH over **300 ticks** (full 8-bit wrap on every axis). ZERO globals, ZERO RNG — the simplest non-scroll footprint. (Harness note: called with `p=$20` — 8-bit A / 16-bit X — because the body is a mid-strat fragment that assumes `s_start_strat`'s `shorta` and does no rep/sep of its own.) |
+| `retail_straight_strat_vs_port` | ✅ **MATCH** | The canonical fixed-velocity MOVER: `al_worldx/y/z += al_vx/vy/vz` (addalvecs) then `al_worldz += pviewvelz` (scroll). vx/vy/vz seeded DIRECTLY (bypassing the Istrat's one-shot `gen_3dvecs` → no GSU needed). worldx/y/z MATCH over 30 ticks incl. a 16-bit worldx wrap. Port equiv = `strat_apply_velocity` ∘ scroll — exactly `straight_strat`'s two `jsl`s. |
+
+### CERTIFIED VS RETAIL — running list (6 named strats, tick-for-tick MATCH)
+| # | Strat | Retail addr | Kind | Global footprint | Struct fields | Ticks |
+|---|------|------|------|------|------|------|
+| 1 | `stayrelhard180YR_strat` | $06:8646 | scroll | `pviewvelz` | worldz | 60 |
+| 2 | `stayrel_strat` | $06:864B | scroll+flag | `pviewvelz` | worldz, sflags2 | 40 |
+| 3 | `staydist_Istrat` | $06:8656 | view-track | `pviewposz` | worldz, sword1, sflags2 | 40 |
+| 4 | `gnd_Istrat` | $08:F15D | init-only | *(none)* | stratptr, type, sflags2 (+coll/exp) | 1 |
+| 5 | `hardrot_strat` | $06:8614 | rotate | *(none)* | rotx/y/z, sbyte1/2/3 | 300 |
+| 6 | `straight_strat` | $0B:8D00 | mover+scroll | `pviewvelz` | worldx/y/z, vx/vy/vz | 30 |
+
+Plus the synthetic-but-dispatched `addalvecs_l` motion integrator and the full
+`dostrats` pipeline (UPDATE 1). **Newly-located retail globals/offsets:**
+`pviewposz`=$14FA; struct offsets `al_type`=$09, `al_rotx/y/z`=$12/$13/$14,
+`al_sbyte1/2/3`=$22/$23/$24, `al_sword1`=$26 (all struct-offsets identical
+retail↔built↔port). Leaf `set_0collptrsx_l`=$1F:D450.
+
+### Batch-2 footprint maps
+- **`staydist`** (view-tracking ground): reads `pviewposz`($14FA) + `al_sword1`
+  ($26); writes `al_worldz`(+$10) + `al_sflags2`(+$1E bit$01). Body is
+  IDEMPOTENT (`worldz = sword1 + pviewposz` re-derived each tick), so it TRACKS
+  a changing global rather than accumulating — the mid-run pviewposz swap proves
+  the read dependency. Second global beyond `pviewvelz`, same "survives a frame"
+  property (player/camera-written only).
+- **`gnd`** (static ground plane): reads NOTHING; writes `al_stratptr`(=0),
+  `al_type`(\|=1), `al_sflags2`(\|=colldisable), + extended-array `collstratptr`/
+  `expstratptr`(=0 via the leaf). INIT-ONLY — per-tick is a no-op. The extended
+  coll/exp pointers live in the *separate* `xalblks` array (not the main pool);
+  the leaf write lands in valid zeroed WRAM so the call never traps, but that
+  array's retail base is not mapped — cert covers the main-pool observables +
+  the port's `Option::None` clears.
+- **`hardrot`** (spin scenery): reads/writes `al_rotx/y/z`($12/$13/$14), reads
+  `al_sbyte1/2/3`($22/$23/$24). ZERO globals — the cleanest footprint yet.
+- **`straight`** (fixed-velocity mover): reads `al_vx/vy/vz`($2F/$31/$33) +
+  `pviewvelz`; writes `al_worldx/y/z`. The Istrat's `gen_3dvecs` (GSU) sets the
+  velocity ONCE; the per-tick body is pure CPU move+scroll, so seeding vx/vy/vz
+  directly sidesteps the GSU entirely.
+
 ### Remaining blockers for HARDER strats (beyond `stayrel`)
 - **RNG-driven strats** (dodge/aim jitter): need the retail RNG state global
   located + seeded, and the runtime SWB chain (see commit 67a4524) matched.
@@ -180,11 +233,13 @@ the full retail `dostrats` per-frame tick runs on seeded state and diffs MATCH
 against the port through the real `do_strat_l` dispatch path.
 
 ## Recommended next steps (remaining)
-1. ✅ **DONE — Certify a named enemy strat.** `stayrelhard180YR_strat` +
-   `stayrel_strat` certified vs retail (see UPDATE 2). Next: certify a MOVER
-   (`al_vx/vy/vz` footprint) then an RNG/player-relative strat using the recipe
-   in UPDATE 2 — the harder blockers (RNG state, player-recomputed globals) are
-   itemised there.
+1. ✅ **DONE — Certify named enemy strats.** 6 certified vs retail:
+   `stayrelhard180YR`/`stayrel` (UPDATE 2) + `staydist`/`gnd`/`hardrot`/
+   `straight` (UPDATE 3), covering scroll / view-track / init-only / rotate /
+   fixed-velocity-mover footprints. The MOVER (`al_vx/vy/vz` + `pviewvelz`) is
+   `straight_strat`. Next frontier: an RNG or player-relative strat — the harder
+   blockers (RNG state, player-recomputed globals, GSU-in-the-tick) are itemised
+   below.
 2. **Exercise the spawn VM**: hand retail `mapobjdo` ($03:F79B) / `newobjs_l`
    ($03:EDA1) a minimal map script so retail SPAWNS objects (instead of
    hand-seeding), then diff the spawn output vs the port map builder.

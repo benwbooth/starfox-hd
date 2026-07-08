@@ -721,6 +721,13 @@ use sf_oracle::{
     AL_SFLAGS2, RETAIL_PVIEWVELZ, RETAIL_SR_ADDPLAYERZX, RETAIL_STAYRELHARD180YR_STRAT,
     RETAIL_STAYREL_STRAT,
 };
+use sf_oracle::{
+    AL_SWORD1, AL_TYPE, RETAIL_GND_ISTRAT, RETAIL_PVIEWPOSZ, RETAIL_STAYDIST_ISTRAT,
+};
+use sf_oracle::{
+    AL_ROTX, AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE2, AL_SBYTE3, RETAIL_HARDROT_STRAT,
+    RETAIL_STRAIGHT_ISTRAT, RETAIL_STRAIGHT_STRAT,
+};
 
 /// Scan `rom` for a masked byte pattern (`None` = wildcard byte). Returns ROM
 /// file offsets of every match.
@@ -1010,5 +1017,375 @@ fn retail_stayrelhard180yr_dispatch_vs_port() {
     match first_div {
         None => eprintln!("NAMED-STRAT DISPATCH stayrelhard180yr: MATCH — retail dostrats-dispatched named strat == port over {N} frames"),
         Some((t, r, p)) => panic!("dispatch diverged frame {t}: retail worldz={r} port worldz={p}"),
+    }
+}
+
+// ============================================================================
+// BATCH 2 — GROUND FAMILY EXTENSION: `staydist` + `gnd` (certified vs retail).
+//
+// `staydist_Istrat` ($06:8656) extends the stayrel family with a SECOND global
+// (`pviewposz`) and a struct-field read (`al_sword1`): its per-tick body is
+// `al_worldz = al_sword1 + pviewposz` (viewer-tracking, idempotent) + set
+// colldisable. `gnd_Istrat` ($08:F15D) is an INIT-ONLY strat (zeroes stratptr,
+// sets type|=gnd + colldisable). Both located by masked signature scan of
+// retail, skeleton read out of the built ROM first, then cross-validated.
+// ============================================================================
+
+/// The port's `PVIEWPOSZ` compat-WRAM address (sf-strat `enemy_a::wm::PVIEWPOSZ`
+/// = $1F24 — the port's own address space, distinct from retail $14FA).
+const PORT_PVIEWPOSZ: u16 = 0x1F24;
+
+/// MILESTONE (batch-2 step 1) — LOCATE + CROSS-VALIDATE `staydist_Istrat` and
+/// `gnd_Istrat` in retail by masked signature scan, and read back the ONE new
+/// global they touch (`pviewposz`).
+#[test]
+fn retail_batch2_ground_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // --- staydist_Istrat: rep;lda sword1,x;sta worldz,x;sep; rep;lda worldz,x;
+    //     clc;adc <pviewposz>;sta worldz,x;sep; lda sflags2,x;ora #1;sta;rtl ---
+    let staydist_pat: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xB5), Some(0x26), Some(0x95), Some(0x10),
+        Some(0xE2), Some(0x20), Some(0xC2), Some(0x20), Some(0xB5), Some(0x10),
+        Some(0x18), Some(0x6D), None, None, Some(0x95), Some(0x10), Some(0xE2),
+        Some(0x20), Some(0xB5), Some(0x1E), Some(0x09), Some(0x01), Some(0x95),
+        Some(0x1E), Some(0x6B),
+    ];
+    let sd = masked_scan(&rom, &staydist_pat);
+    assert_eq!(sd.len(), 1, "staydist_Istrat is a UNIQUE masked hit");
+    let h = sd[0];
+    let staydist = rom_off_to_snes(h);
+    let pviewposz = rom[h + 14] as u32 | ((rom[h + 15] as u32) << 8);
+    let sword1_off = rom[h + 3] as u32; // lda al_sword1,x operand
+    eprintln!("BATCH2: staydist_Istrat=${staydist:06X}  pviewposz=${pviewposz:04X}  al_sword1=${sword1_off:02X}");
+    assert_eq!(staydist, RETAIL_STAYDIST_ISTRAT, "staydist_Istrat address");
+    assert_eq!(pviewposz, RETAIL_PVIEWPOSZ, "pviewposz operand");
+    assert_eq!(sword1_off, AL_SWORD1, "al_sword1 offset");
+    // Cross-validate: pviewposz == pviewvelz + 6 (same +6 spacing as built ROM).
+    assert_eq!(pviewposz, RETAIL_PVIEWVELZ + 6, "pviewposz should sit 6 bytes after pviewvelz");
+    // Adjacency: staydist_Istrat immediately follows stayrel_strat (11-byte body).
+    assert_eq!(staydist, RETAIL_STAYREL_STRAT + 11, "staydist follows stayrel_strat body");
+
+    // --- gnd_Istrat: rep;lda#0;sta stratptr,x;sep;lda#0;sta stratptr+2,x;
+    //     jsl <set0coll>; lda type,x;ora#1;sta type,x; lda sflags2,x;ora#1;sta;rtl
+    let gnd_pat: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xA9), Some(0x00), Some(0x00), Some(0x95),
+        Some(0x16), Some(0xE2), Some(0x20), Some(0xA9), Some(0x00), Some(0x95),
+        Some(0x18), Some(0x22), None, None, None, Some(0xB5), Some(0x09),
+        Some(0x09), Some(0x01), Some(0x95), Some(0x09), Some(0xB5), Some(0x1E),
+        Some(0x09), Some(0x01), Some(0x95), Some(0x1E), Some(0x6B),
+    ];
+    let g = masked_scan(&rom, &gnd_pat);
+    assert_eq!(g.len(), 1, "gnd_Istrat is a UNIQUE masked hit");
+    let gh = g[0];
+    let gnd = rom_off_to_snes(gh);
+    let set0coll = rom[gh + 14] as u32 | ((rom[gh + 15] as u32) << 8) | ((rom[gh + 16] as u32) << 16);
+    let type_off = rom[gh + 18] as u32; // lda al_type,x operand
+    eprintln!("BATCH2: gnd_Istrat=${gnd:06X}  set_0collptrsx_l=${set0coll:06X}  al_type=${type_off:02X}");
+    assert_eq!(gnd, RETAIL_GND_ISTRAT, "gnd_Istrat address");
+    assert_eq!(type_off, AL_TYPE, "al_type offset");
+    // set_0collptrsx_l must be a real jsl target (bank $1F leaf).
+    assert_eq!(set0coll >> 16, 0x1F, "set_0collptrsx_l lives in bank $1F");
+}
+
+/// CAPSTONE (batch-2) — RETAIL `staydist_Istrat` vs THE PORT, TICK-FOR-TICK.
+///
+/// Certifies the viewer-tracking ground strat: each tick `al_worldz =
+/// al_sword1 + pviewposz`. Footprint = ONE new global (`pviewposz`) + one
+/// struct field (`al_sword1`), seeded identically both sides. The scenario
+/// changes `pviewposz` mid-run on BOTH sides to prove worldz tracks the global
+/// (not a frozen one-shot). Two (sword1, pviewposz) cases incl. a 16-bit wrap.
+#[test]
+fn retail_staydist_strat_vs_port() {
+    let Some(rom) = retail() else { return };
+    const N: u32 = 40;
+    for (sword1, pvp0, pvp1) in [(2000i16, 500i16, -300i16), (-30000i16, -4000i16, 5000i16)] {
+        // --- retail ---
+        let mut bus = SnesBus::new(rom.clone());
+        let blk = RETAIL_POOL.base;
+        bus.wram_write16(RETAIL_PVIEWPOSZ, pvp0 as u16);
+        bus.wram_write16(blk + AL_SWORD1, sword1 as u16);
+        // --- port ---
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::ground::install(&mut g);
+        let idx = g.objs.alloc().expect("alien pool");
+        g.objs.aliens[idx as usize].sword1 = sword1;
+        g.vars.write_ext16(PORT_PVIEWPOSZ, pvp0 as u16);
+        g.call_strat(ids.staydist, idx); // arms stratptr + runs body once
+        let tick = g.objs.aliens[idx as usize].stratptr.expect("staydist per-tick armed");
+
+        let mut first_div: Option<(u32, i32, i32)> = None;
+        for t in 1..=N {
+            if t == N / 2 {
+                // Change the tracked global on BOTH sides mid-run.
+                bus.wram_write16(RETAIL_PVIEWPOSZ, pvp1 as u16);
+                g.vars.write_ext16(PORT_PVIEWPOSZ, pvp1 as u16);
+            }
+            call(&mut bus, RETAIL_STAYDIST_ISTRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+            let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+            g.call_strat(tick, idx);
+            let pw = g.objs.aliens[idx as usize].worldz;
+            if rw != pw && first_div.is_none() {
+                first_div = Some((t, rw as i32, pw as i32));
+            }
+        }
+        // Final worldz must equal sword1 + pvp1 (wrapping), and colldisable set.
+        let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+        assert_eq!(rw, (sword1 as i32 + pvp1 as i32) as i16, "retail staydist worldz = sword1 + pviewposz");
+        let retail_sflags2 = bus.read8(0x7E_0000 | (blk + AL_SFLAGS2));
+        let port_sflags = g.objs.aliens[idx as usize].sflags;
+        assert_ne!(retail_sflags2 & 0x01, 0, "retail staydist set colldisable in al_sflags2 bit $01");
+        assert_ne!(port_sflags & 0x10, 0, "port staydist set colldisable in al_sflags bit $10");
+        match first_div {
+            None => eprintln!(
+                "BATCH2 staydist [sword1={sword1} pvp {pvp0}->{pvp1}]: MATCH — retail == port worldz over {N} ticks (final {rw}); colldisable retail al_sflags2=${retail_sflags2:02X}(bit$01) <-> port al_sflags=${port_sflags:02X}(bit$10)"
+            ),
+            Some((t, r, p)) => panic!("staydist diverged tick {t}: retail worldz={r} port worldz={p}"),
+        }
+    }
+}
+
+/// CAPSTONE (batch-2) — RETAIL `gnd_Istrat` vs THE PORT.
+///
+/// `gnd_Istrat` is INIT-ONLY: zero `al_stratptr` (per-tick becomes a no-op),
+/// `jsl set_0collptrsx_l` (zero the extended coll/exp strat ptrs), set
+/// `al_type |= gnd($01)` + `al_sflags2 |= colldisable($01)`. We seed an object
+/// with DIRTY strat pointers + type + sflags, run the retail Istrat once, and
+/// diff the observable effects vs the port `strat_gnd_init`. Footprint reads NO
+/// globals. The colldisable sflag uses the same representation remap as stayrel
+/// (retail al_sflags2 bit $01 <-> port al_sflags bit $10).
+#[test]
+fn retail_gnd_strat_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    let blk = RETAIL_POOL.base;
+
+    // Seed DIRTY state so we can prove the strat clears / sets bits.
+    bus.wram_write16(blk + AL_STRATPTR, 0xBEEF);
+    bus.write8(0x7E_0000 | (blk + AL_STRATPTR + 2), 0x1F);
+    bus.write8(0x7E_0000 | (blk + AL_TYPE), 0x00);
+    bus.write8(0x7E_0000 | (blk + AL_SFLAGS2), 0x00);
+
+    call(&mut bus, RETAIL_GND_ISTRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+
+    // Retail observable effects.
+    let r_stratptr_lo = bus.wram_read16(blk + AL_STRATPTR);
+    let r_stratptr_bk = bus.read8(0x7E_0000 | (blk + AL_STRATPTR + 2));
+    let r_type = bus.read8(0x7E_0000 | (blk + AL_TYPE));
+    let r_sflags2 = bus.read8(0x7E_0000 | (blk + AL_SFLAGS2));
+    eprintln!(
+        "BATCH2 gnd: retail stratptr=${r_stratptr_bk:02X}:{r_stratptr_lo:04X} type=${r_type:02X} sflags2=${r_sflags2:02X}"
+    );
+    assert_eq!(r_stratptr_lo, 0, "retail gnd zeroed al_stratptr low word");
+    assert_eq!(r_stratptr_bk, 0, "retail gnd zeroed al_stratptr bank");
+    assert_ne!(r_type & 0x01, 0, "retail gnd set al_type |= gnd($01)");
+    assert_ne!(r_sflags2 & 0x01, 0, "retail gnd set colldisable in al_sflags2 bit $01");
+
+    // Port equivalent.
+    let mut g = sf_game::game::Game::new();
+    let ids = sf_strat::ground::install(&mut g);
+    let idx = g.objs.alloc().expect("alien pool");
+    // Dirty the port object too.
+    g.objs.aliens[idx as usize].type_ = 0;
+    g.objs.aliens[idx as usize].sflags = 0;
+    g.call_strat(ids.gnd, idx);
+    let p = &g.objs.aliens[idx as usize];
+    eprintln!(
+        "BATCH2 gnd: port stratptr={:?} collstratptr={:?} expstratptr={:?} type=${:02X} sflags=${:02X}",
+        p.stratptr, p.collstratptr, p.expstratptr, p.type_, p.sflags
+    );
+    assert!(p.stratptr.is_none(), "port gnd cleared stratptr");
+    assert!(p.collstratptr.is_none(), "port gnd cleared collstratptr");
+    assert!(p.expstratptr.is_none(), "port gnd cleared expstratptr");
+    assert_ne!(p.type_ & 0x01, 0, "port gnd set type_ |= ATGND($01)");
+    assert_ne!(p.sflags & 0x10, 0, "port gnd set colldisable in al_sflags bit $10");
+
+    // Semantic MATCH: both zeroed the strat pointer (per-tick becomes a no-op),
+    // both flagged the object as ground + collision-disabled.
+    eprintln!("BATCH2 gnd: MATCH — retail & port both zero stratptr + set type=gnd + colldisable (sflag remap $01<->$10)");
+}
+
+// ============================================================================
+// BATCH 2 — a pure ROTATE scenery strat (`hardrot`) and a fixed-velocity
+// MOVER (`straight`), both certified vs retail. These add two NEW footprint
+// shapes: rotation + per-axis rate scratch (no globals), and velocity + scroll.
+// ============================================================================
+
+/// MILESTONE (batch-2 step 1b) — LOCATE `hardrot_strat` + `straight_strat` in
+/// retail by masked signature scan and cross-validate.
+#[test]
+fn retail_batch2_rotate_mover_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // hardrot_strat: pure struct-offset spin (byte-identical retail/built).
+    let hardrot_pat: Vec<Option<u8>> = vec![
+        Some(0xB5), Some(0x12), Some(0x18), Some(0x7D), Some(0x22), Some(0x00), Some(0x95), Some(0x12),
+        Some(0xB5), Some(0x13), Some(0x18), Some(0x7D), Some(0x23), Some(0x00), Some(0x95), Some(0x13),
+        Some(0xB5), Some(0x14), Some(0x18), Some(0x7D), Some(0x24), Some(0x00), Some(0x95), Some(0x14),
+        Some(0x6B),
+    ];
+    let hr = masked_scan(&rom, &hardrot_pat);
+    assert_eq!(hr.len(), 1, "hardrot_strat is a UNIQUE scan hit");
+    let hardrot = rom_off_to_snes(hr[0]);
+    eprintln!("BATCH2: hardrot_strat=${hardrot:06X} (rotx=${AL_ROTX:02X}/sbyte1=${AL_SBYTE1:02X} ...)");
+    assert_eq!(hardrot, RETAIL_HARDROT_STRAT, "hardrot_strat address");
+
+    // straight_Istrat: s_set_strat + gen_3dvecs setup + jsl gen3dvecs(wild) +
+    // jsl addalvecs_l(FIXED) + jsl sr_addplayerZx(FIXED) + rtl.  UNIQUE.
+    let w = None;
+    let straight_pat: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20),
+        Some(0xA9), w, Some(0x95), Some(0x18),
+        Some(0xB5), Some(0x15), Some(0x85), w,
+        Some(0xB5), Some(0x13), Some(0x8D), w, w,
+        Some(0xB5), Some(0x12), Some(0x8D), w, w,
+        Some(0x22), w, w, w,
+        Some(0x22), Some((RETAIL_ADDALVECS_L & 0xFF) as u8), Some(((RETAIL_ADDALVECS_L >> 8) & 0xFF) as u8), Some((RETAIL_ADDALVECS_L >> 16) as u8),
+        Some(0x22), Some((RETAIL_SR_ADDPLAYERZX & 0xFF) as u8), Some(((RETAIL_SR_ADDPLAYERZX >> 8) & 0xFF) as u8), Some((RETAIL_SR_ADDPLAYERZX >> 16) as u8),
+        Some(0x6B),
+    ];
+    let st = masked_scan(&rom, &straight_pat);
+    assert_eq!(st.len(), 1, "straight_Istrat is a UNIQUE scan hit");
+    let istrat = rom_off_to_snes(st[0]);
+    // s_set_strat operand (the pointer the Istrat installs) must equal the
+    // derived straight_strat body (istrat + 31, the fall-through offset).
+    let installed = rom[st[0] + 3] as u32 | ((rom[st[0] + 4] as u32) << 8) | ((rom[st[0] + 10] as u32) << 16);
+    let strat = istrat + 31;
+    eprintln!("BATCH2: straight_Istrat=${istrat:06X} installs strat=${installed:06X} -> straight_strat=${strat:06X}");
+    assert_eq!(istrat, RETAIL_STRAIGHT_ISTRAT, "straight_Istrat address");
+    assert_eq!(strat, RETAIL_STRAIGHT_STRAT, "straight_strat = istrat + 31 fall-through");
+    assert_eq!(installed, RETAIL_STRAIGHT_STRAT, "Istrat's s_set_strat operand == derived straight_strat (self-cross-validate)");
+    // straight_strat body = jsl addalvecs_l; jsl sr_addplayerZx; rtl.
+    let bo = snes_to_rom_off(RETAIL_STRAIGHT_STRAT);
+    let body: Vec<u8> = (0..9).map(|i| rom[bo + i]).collect();
+    assert_eq!(
+        body,
+        vec![0x22, 0xBB, 0xC7, 0x1F, 0x22, 0x69, 0xDC, 0x1F, 0x6B],
+        "straight_strat body = jsl addalvecs_l; jsl sr_addplayerZx; rtl"
+    );
+}
+
+/// CAPSTONE (batch-2) — RETAIL `hardrot_strat` vs THE PORT, TICK-FOR-TICK.
+///
+/// Pure spin-in-place scenery: `al_rot{x,y,z} += al_sbyte{1,2,3}` (8-bit wrap).
+/// Footprint = ZERO globals, ZERO RNG — the simplest possible non-scroll strat.
+/// We seed the rotation angles + per-axis rates and diff all three angles per
+/// tick over a full 256-step 8-bit wrap.
+#[test]
+fn retail_hardrot_strat_vs_port() {
+    let Some(rom) = retail() else { return };
+    const N: u32 = 300; // > 256 to exercise the 8-bit wrap on every axis
+    let (rx0, ry0, rz0) = (10u8, 200u8, 128u8);
+    let (s1, s2, s3) = (16u8, 6u8, 251u8); // 251 = -5, exercises signed-ish wrap
+
+    // retail
+    let mut bus = SnesBus::new(rom);
+    let blk = RETAIL_POOL.base;
+    bus.write8(0x7E_0000 | (blk + AL_ROTX), rx0);
+    bus.write8(0x7E_0000 | (blk + AL_ROTY), ry0);
+    bus.write8(0x7E_0000 | (blk + AL_ROTZ), rz0);
+    bus.write8(0x7E_0000 | (blk + AL_SBYTE1), s1);
+    bus.write8(0x7E_0000 | (blk + AL_SBYTE2), s2);
+    bus.write8(0x7E_0000 | (blk + AL_SBYTE3), s3);
+
+    // port
+    let mut g = sf_game::game::Game::new();
+    let ea = sf_strat::enemy_a::install(&mut g);
+    let idx = g.objs.alloc().expect("alien pool");
+    g.call_strat(ea.hardrot, idx); // arms hardrot_strat as the per-tick body
+    let tick = g.objs.aliens[idx as usize].stratptr.expect("hardrot per-tick armed");
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = rx0; al.roty = ry0; al.rotz = rz0;
+        al.sbyte1 = s1; al.sbyte2 = s2; al.sbyte3 = s3;
+    }
+
+    let mut first_div: Option<(u32, &'static str, u8, u8)> = None;
+    for t in 1..=N {
+        // hardrot_strat is a mid-strat body: it assumes 8-bit A (set by
+        // s_start_strat) and 16-bit X, and does NOT do its own rep/sep. Call with
+        // p=$20 (M=1 -> 8-bit A; X=0 -> 16-bit X) or the lda/adc/sta run 16-bit.
+        call(&mut bus, RETAIL_HARDROT_STRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+        g.call_strat(tick, idx);
+        let al = &g.objs.aliens[idx as usize];
+        for (name, rv, pv) in [
+            ("rotx", bus.read8(0x7E_0000 | (blk + AL_ROTX)), al.rotx),
+            ("roty", bus.read8(0x7E_0000 | (blk + AL_ROTY)), al.roty),
+            ("rotz", bus.read8(0x7E_0000 | (blk + AL_ROTZ)), al.rotz),
+        ] {
+            if rv != pv && first_div.is_none() {
+                first_div = Some((t, name, rv, pv));
+            }
+        }
+    }
+    let (rx, ry, rz) = (
+        bus.read8(0x7E_0000 | (blk + AL_ROTX)),
+        bus.read8(0x7E_0000 | (blk + AL_ROTY)),
+        bus.read8(0x7E_0000 | (blk + AL_ROTZ)),
+    );
+    assert_eq!(rx, rx0.wrapping_add((s1 as u32 * N) as u8), "retail rotx spun N*sbyte1");
+    match first_div {
+        None => eprintln!("BATCH2 hardrot: MATCH — retail == port rotx/y/z over {N} ticks (final {rx},{ry},{rz})"),
+        Some((t, f, r, p)) => panic!("hardrot diverged tick {t} {f}: retail={r} port={p}"),
+    }
+}
+
+/// CAPSTONE (batch-2) — RETAIL `straight_strat` vs THE PORT, TICK-FOR-TICK.
+///
+/// The canonical fixed-velocity MOVER: per tick `al_worldx/y/z += al_vx/vy/vz`
+/// (addalvecs) then `al_worldz += pviewvelz` (scroll). We seed vx/vy/vz DIRECTLY
+/// (bypassing the Istrat's one-shot `gen_3dvecs`, so no GSU is needed) plus
+/// `pviewvelz`, and diff worldx/y/z per tick. Footprint = `al_vx/vy/vz` +
+/// `pviewvelz` (both already located). The port equivalent is
+/// `strat_apply_velocity` (the port `addalvecs`) composed with the world scroll
+/// (`worldz += pviewvelz`), exactly `straight_strat`'s two `jsl`s.
+#[test]
+fn retail_straight_strat_vs_port() {
+    let Some(rom) = retail() else { return };
+    const N: u32 = 30;
+    // (pos, vel, pviewvelz) — includes a 16-bit worldx wrap.
+    let (px, py, pz) = (1000i16, 500i16, 8000i16);
+    let (vx, vy, vz) = (300i16, -120i16, -50i16);
+    let pvz = -200i16;
+
+    // retail
+    let mut bus = SnesBus::new(rom);
+    let blk = RETAIL_POOL.base;
+    bus.wram_write16(RETAIL_PVIEWVELZ, pvz as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldx, px as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldy, py as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldz, pz as u16);
+    bus.wram_write16(blk + AL_VX, vx as u16);
+    bus.wram_write16(blk + AL_VY, vy as u16);
+    bus.wram_write16(blk + AL_VZ, vz as u16);
+
+    // port: strat_apply_velocity (addalvecs) then worldz += pviewvelz (scroll).
+    let mut a = sf_game::alien::Alien::default();
+    a.worldx = px; a.worldy = py; a.worldz = pz;
+    a.vx = vx; a.vy = vy; a.vz = vz;
+
+    let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+    for t in 1..=N {
+        call(&mut bus, RETAIL_STRAIGHT_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+        let o = snapshot_objects(&bus, &RETAIL_POOL)[0];
+        // Port: addalvecs then scroll (straight_strat's two jsls).
+        sf_strat::common::strat_apply_velocity(&mut a);
+        a.worldz = a.worldz.wrapping_add(pvz);
+        for (name, rv, pv) in [
+            ("worldx", o.worldx as i32, a.worldx as i32),
+            ("worldy", o.worldy as i32, a.worldy as i32),
+            ("worldz", o.worldz as i32, a.worldz as i32),
+        ] {
+            if rv != pv && first_div.is_none() {
+                first_div = Some((t, name, rv, pv));
+            }
+        }
+    }
+    let o = snapshot_objects(&bus, &RETAIL_POOL)[0];
+    // worldz advances by (vz + pviewvelz) per tick; worldx/y by vx/vy.
+    assert_eq!(o.worldz as i32, pz as i32 + (vz as i32 + pvz as i32) * N as i32, "retail straight scrolled worldz by vz+pviewvelz");
+    match first_div {
+        None => eprintln!("BATCH2 straight: MATCH — retail == port worldx/y/z over {N} ticks (final {},{},{})", o.worldx, o.worldy, o.worldz),
+        Some((t, f, r, p)) => panic!("straight diverged tick {t} {f}: retail={r} port={p}"),
     }
 }
