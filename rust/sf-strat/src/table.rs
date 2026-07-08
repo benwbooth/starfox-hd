@@ -217,6 +217,11 @@ pub fn register_all(g: &mut Game) {
     // Andross final boss (bossB face IS 115 + bossBrob robot IS 118). Self-
     // populates its istrat rows and the MAP1_5 synthetic address (0x06000F).
     crate::bossb::register(&mut g.world);
+    // bossH — the "gggy" legged spider (D3STRATS.ASM). No ISTRATS.ASM row;
+    // placed by direct address in MAP1_4.ASM:217. Registers STRAT_ADDR_BOSSH
+    // (0x060011). NOTE: sf-map level1_4.rs:312 still placeholder-wires the
+    // boss_h_0 mapobj to lc::IS_BOSS2; rewire to STRAT_ADDR_BOSSH to spawn live.
+    crate::bossh::register(&mut g.world);
     // Mother system (ASM/MOTHER.ASM + D2STRATS mother1/2 + the MOTHERS.ASM
     // child strategies): registers STRAT_ADDR_MOTHER1/2 and the
     // meteor/slowmeteor/searchmeteor/clasteroid child strats.

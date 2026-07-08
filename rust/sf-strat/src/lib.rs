@@ -16,6 +16,7 @@
 
 pub mod bossb;
 pub mod bosses;
+pub mod bossh;
 pub mod common;
 pub mod enemies_ground;
 pub mod enemy_a;

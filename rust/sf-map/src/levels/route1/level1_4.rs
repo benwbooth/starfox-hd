@@ -41,7 +41,11 @@ mod lc {
     // Strategies (levels.c IS_* block)
     pub const IS_WALKING: u32 = 78;
     pub const IS_UP1MAN: u32 = 90;
-    pub const IS_BOSS2: u32 = 108;
+    /// bossH ("gggy") synthetic strategy address (sf-strat bossh::register).
+    /// MAP1_4.ASM:217 places boss_h_0/bossh_istrat here — the level-1_4 boss is
+    /// gggy, NOT Boss2 (which belongs at route3 3_5, MAP3_5.ASM:303). The port
+    /// stubbed this to IS_BOSS2 before bossH was ported.
+    pub const STRAT_ADDR_BOSSH: u32 = 0x060011;
     pub const IS_BASE0: u32 = 138;
     pub const IS_TANK2: u32 = 162;
     pub const IS_HARD180YRFOG: u32 = 180;
@@ -308,8 +312,8 @@ pub fn build() -> Route1Level {
     // MAP1_4.ASM:214 — setbgm bgm_boss1
     b.setbgm(BGM_BOSS1);
 
-    // MAP1_4.ASM:217 — boss_h_0
-    b.mapobj(0x0000, 0x2000, -600, 1000, lc::SH_BOSS_H_0_PROXY, lc::IS_BOSS2);
+    // MAP1_4.ASM:217 — boss_h_0 / bossh_istrat (gggy legged boss).
+    b.mapobj(0x0000, 0x2000, -600, 1000, lc::SH_BOSS_H_0_PROXY, lc::STRAT_ADDR_BOSSH);
 
     // mapwaitboss pattern
     let mapwaitboss_trigse_ptr = b.mapcode65816_inline();
