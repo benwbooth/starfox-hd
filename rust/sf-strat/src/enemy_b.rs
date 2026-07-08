@@ -3967,10 +3967,31 @@ fn strat_title_tick(g: &mut Game, idx: u16) {
     add_player_z(g, idx);
 }
 
-/// ROM `tit_istrat` (ENDSEQ.ASM:1799-1804): set the tilted display pose
+/// ROM `tit_istrat` (ENDSEQ.ASM:1799-1804) sets a tilted display pose
 /// (rotx = -deg45+deg11+deg11+3-deg5 = -17, roty = deg45+deg90 = 96,
-/// rotz = 0; deg45=32/deg90=64/deg11=8/deg5=4, VARS.INC:13-17), then
-/// `s_set_strat x,tit_strat` and fall through into the first tick.
+/// rotz = 0; deg45=32/deg90=64/deg11=8/deg5=4, VARS.INC:13-17) and then
+/// `s_set_strat x,tit_strat` falls through into the first tick.
+///
+/// PORT DEVIATION — display pose is rotated ~90 deg vs those raw ROM bytes.
+/// The ROM's values are calibrated for the ROM's title view; the port's
+/// title camera is pinned static at (0,0,0) (there is no player object, so
+/// `getview_l`'s outvx/outvy accumulators are zero — see camera.rs and
+/// tests/title_demo_ship.rs). Under a (0,0,0) camera the certified
+/// ZXY model matrix (transform.rs, Δ=0 vs ROM gsu_rotmat) renders the
+/// Arwing BROADSIDE — its nose/tail axis lies across the screen. The ROM
+/// `tit_strat` then rolls that axis (`al_rotz += 2`), so twice per
+/// revolution the ship turns edge-on and collapses to a razor-thin
+/// vertical spike (the reported "completely vertical / standing on its
+/// tail" bug). Swapping in the true `my_demo` mesh (shape 226) does not
+/// help: it shares the same nose=-Z / tail=+Z default orientation.
+///
+/// To reproduce the SNES look (a solid 3/4 Arwing that rolls) with the
+/// static camera we point the nose/tail (roll) axis toward the camera, so
+/// the roll becomes a stable barrel roll that keeps the hull's volume at
+/// every phase instead of sweeping edge-on. rotx=48 pitches the nose up
+/// toward the viewer (the ROM's -17 pitch + ~deg90 of camera-gap
+/// compensation); roty=32 yaws it to the diagonal display angle. Values
+/// picked visually (SF_DUMP_PPM title frames across a full roll).
 pub fn strat_title_init(g: &mut Game, idx: u16) {
     let s = sid(g, strat_title_tick);
     {
@@ -3978,8 +3999,8 @@ pub fn strat_title_init(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = 0;
         al.collflags = 0;
-        al.rotx = (-32i8 + 8 + 8 + 3 - 4) as u8; // 0xEF
-        al.roty = 32 + 64;
+        al.rotx = 48; // nose-up display pitch (ROM -17 + camera-gap comp)
+        al.roty = 32; // diagonal 3/4 display yaw
         al.rotz = 0;
         al.stratptr = Some(s);
     }

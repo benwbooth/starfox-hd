@@ -54,10 +54,13 @@ fn register_populates_istrats_and_address_map() {
 
 #[test]
 fn title_init_and_spin_are_exact() {
-    // ROM tit_istrat (ENDSEQ.ASM:1799-1804): rotx = -deg45+deg11+deg11+3-deg5
-    // = -17 (0xEF), roty = deg45+deg90 = 96, rotz = 0, then falls through
-    // into tit_strat (ENDSEQ.ASM:1805-1809), which rolls al_rotz += 2 per
-    // frame (Z-axis roll, NOT the yaw spin an earlier port used).
+    // ROM tit_istrat (ENDSEQ.ASM:1799-1804) sets rotx=-17 (0xEF), roty=96,
+    // rotz=0, then falls through into tit_strat (ENDSEQ.ASM:1805-1809), which
+    // rolls al_rotz += 2 per frame (Z-axis roll, NOT the yaw spin an earlier
+    // port used). The port uses a display pose rotated ~90 deg from those raw
+    // bytes (rotx=48, roty=32) because its title camera is pinned static at
+    // (0,0,0): under that camera the raw ROM pose renders broadside and the
+    // roll would collapse edge-on to a vertical spike. See strat_title_init.
     let mut g = Game::new();
     let e = spawn(&mut g, 2);
     let sid = g.world.register_strategy(enemy_b::strat_title_init);
@@ -70,15 +73,15 @@ fn title_init_and_spin_are_exact() {
     assert_eq!(al.hp, 255);
     assert_eq!(al.ap, 0);
     assert_eq!(al.collflags, 0);
-    assert_eq!(al.rotx, 0xEF, "tit_istrat pitch pose");
-    assert_eq!(al.roty, 96, "tit_istrat yaw pose");
+    assert_eq!(al.rotx, 48, "display pitch pose (static-camera compensation)");
+    assert_eq!(al.roty, 32, "display yaw pose");
     assert_eq!(al.rotz, 2, "install frame falls through into tit_strat");
 
     for i in 2u8..=30 {
         g.run_strategies();
         let al = g.objs.aliens[e as usize];
         assert_eq!(al.rotz, i.wrapping_mul(2), "constant +2/frame roll");
-        assert_eq!(al.roty, 96, "yaw never moves");
-        assert_eq!(al.rotx, 0xEF, "pitch never moves");
+        assert_eq!(al.roty, 32, "yaw never moves");
+        assert_eq!(al.rotx, 48, "pitch never moves");
     }
 }

@@ -58,10 +58,18 @@ fn title_ship_rolls_rom_faithfully_and_persists() {
     assert_eq!(start.len(), 1, "title map spawns exactly one demo ship");
     let (_, rotx0, roty0, rotz0) = start[0];
 
-    // tit_istrat pose (ENDSEQ.ASM:1800-1802): rotx = -deg45+deg11+deg11+3-deg5
-    // = -17 (0xEF), roty = deg45+deg90 = 96. rotz advances 2 per tick.
-    assert_eq!(rotx0, 0xEF, "tilted pitch from tit_istrat");
-    assert_eq!(roty0, 96, "yaw pose from tit_istrat");
+    // tit_istrat display pose. The ROM bytes (ENDSEQ.ASM:1800-1802) are
+    // rotx=-17 (0xEF), roty=96, but they are calibrated for the ROM's title
+    // view. The port's title camera is pinned static at (0,0,0) (no player
+    // object -> getview_l accumulators zero; see title_camera_is_static
+    // below), and under that camera the certified ZXY model matrix renders
+    // the ship broadside, so the ROM roll (rotz) collapses it edge-on to a
+    // vertical spike. strat_title_init rotates the display pose ~90 deg so
+    // the roll axis points at the camera and the roll stays a solid 3/4
+    // barrel roll (see strat_title_init doc comment). rotz still advances 2
+    // per tick, verbatim from the ROM tit_strat.
+    assert_eq!(rotx0, 48, "display pitch (nose toward static title camera)");
+    assert_eq!(roty0, 32, "diagonal 3/4 display yaw");
 
     // Leave the "intro" running a long time (5000 ticks = 250 s of game
     // time). The ship must neither vanish (old behind-cull free at ~tick
@@ -72,8 +80,8 @@ fn title_ship_rolls_rom_faithfully_and_persists() {
         let objs = active_objs(&shell);
         assert_eq!(objs.len(), 1, "demo ship vanished at +{t} ticks");
         let (_, rotx, roty, rotz) = objs[0];
-        assert_eq!(rotx, 0xEF, "pitch must stay fixed");
-        assert_eq!(roty, 96, "yaw must stay fixed (ROM rolls Z, not Y)");
+        assert_eq!(rotx, 48, "pitch must stay fixed");
+        assert_eq!(roty, 32, "yaw must stay fixed (ROM rolls Z, not Y)");
         assert_eq!(
             rotz.wrapping_sub(prev_rotz),
             2,
