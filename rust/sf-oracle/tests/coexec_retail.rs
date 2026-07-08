@@ -704,3 +704,311 @@ fn retail_snapshot_reads_seeded_object() {
         let _ = bbus;
     }
 }
+
+
+// ============================================================================
+// FIRST NAMED ENEMY-STRAT CERTIFICATION vs RETAIL — the `stayrel` ground family
+//
+// Capstone: run the retail cart's OWN per-tick enemy-strat body on seeded state
+// and diff the object vs the port's `sf_strat::ground` strat tick-for-tick.
+// Unlike the earlier `addalvecs_l` diff (a synthetic strat wired through
+// dispatch), this certifies REAL, NAMED enemy AI: `stayrelhard180YR_strat` and
+// `stayrel_strat`, whose entire per-tick body is `jsl sr_addplayerZx; rtl`
+// (`worldz += pviewvelz`). Global footprint = exactly ONE global (`pviewvelz`).
+// ============================================================================
+
+use sf_oracle::{
+    AL_SFLAGS2, RETAIL_PVIEWVELZ, RETAIL_SR_ADDPLAYERZX, RETAIL_STAYRELHARD180YR_STRAT,
+    RETAIL_STAYREL_STRAT,
+};
+
+/// Scan `rom` for a masked byte pattern (`None` = wildcard byte). Returns ROM
+/// file offsets of every match.
+fn masked_scan(rom: &[u8], pat: &[Option<u8>]) -> Vec<usize> {
+    let mut hits = vec![];
+    if rom.len() < pat.len() {
+        return hits;
+    }
+    for i in 0..=rom.len() - pat.len() {
+        if pat.iter().enumerate().all(|(j, p)| p.map_or(true, |b| rom[i + j] == b)) {
+            hits.push(i);
+        }
+    }
+    hits
+}
+/// LoROM ROM-file-offset -> SNES bank:addr (banks $00-$3F, $8000-$FFFF window).
+fn rom_off_to_snes(off: usize) -> u32 {
+    let bank = (off >> 15) as u32;
+    let addr = ((off & 0x7FFF) + 0x8000) as u32;
+    (bank << 16) | addr
+}
+/// SNES bank:addr -> LoROM ROM-file offset.
+fn snes_to_rom_off(snes: u32) -> usize {
+    (((snes >> 16) as usize & 0x7F) << 15) | ((snes & 0xFFFF) as usize - 0x8000)
+}
+
+/// MILESTONE (named-strat step 1) — LOCATE + CROSS-VALIDATE the `stayrel`-family
+/// retail addresses by masked signature scan, and read back the ONE global they
+/// touch (`pviewvelz`) plus the `al_sflags2` struct offset.
+///
+///  * `sr_addplayerZx` — 8 skeleton matches, but exactly ONE is referenced by a
+///    `jsl` (247 refs; 97 of them `jsl X; rtl` pure-scroll strat bodies). That
+///    is the genuine leaf; its `adc` operand IS `pviewvelz`.
+///  * `stayrel_strat` — a UNIQUE masked hit (`jsl sr_addplayerZx; set sflag;
+///    rtl`); its `sta` operand pins `al_sflags2`.
+///  * `stayrelhard180YR_strat` — the pure-scroll body (`jsl sr_addplayerZx;
+///    rtl`) immediately preceding `stayrel_strat`.
+#[test]
+fn retail_stayrel_family_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // --- sr_addplayerZx: C2 20 B5 10 18 6D ?? ?? 95 10 E2 20 6B ---
+    let leaf_pat: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xB5), Some(0x10), Some(0x18), Some(0x6D),
+        None, None, Some(0x95), Some(0x10), Some(0xE2), Some(0x20), Some(0x6B),
+    ];
+    let mut genuine: Option<(u32, u16)> = None;
+    let mut refd = 0usize;
+    for &h in &masked_scan(&rom, &leaf_pat) {
+        let snes = rom_off_to_snes(h);
+        // Count `jsl snes` references across the whole ROM.
+        let (lo, hi, bk) = (snes as u8, (snes >> 8) as u8, (snes >> 16) as u8);
+        let jsl = masked_scan(&rom, &[Some(0x22), Some(lo), Some(hi), Some(bk)]);
+        if !jsl.is_empty() {
+            refd += 1;
+            genuine = Some((snes, rom[h + 6] as u16 | ((rom[h + 7] as u16) << 8)));
+        }
+    }
+    assert_eq!(refd, 1, "exactly one of the sr_addplayerZ skeleton matches is CALLED");
+    let (leaf, pviewvelz) = genuine.unwrap();
+    eprintln!("NAMED-STRAT: sr_addplayerZx=${leaf:06X}  pviewvelz=${pviewvelz:04X}");
+    assert_eq!(leaf, RETAIL_SR_ADDPLAYERZX, "sr_addplayerZx address");
+    assert_eq!(pviewvelz as u32, RETAIL_PVIEWVELZ, "pviewvelz operand");
+
+    // --- stayrel_strat: 22 <leaf> B5 off 09 01 95 off 6B (UNIQUE) ---
+    let (llo, lhi, lbk) = (leaf as u8, (leaf >> 8) as u8, (leaf >> 16) as u8);
+    let stayrel_pat: Vec<Option<u8>> = vec![
+        Some(0x22), Some(llo), Some(lhi), Some(lbk),
+        Some(0xB5), None, Some(0x09), Some(0x01), Some(0x95), None, Some(0x6B),
+    ];
+    let sr = masked_scan(&rom, &stayrel_pat);
+    assert_eq!(sr.len(), 1, "stayrel_strat is a unique masked hit");
+    let h = sr[0];
+    let stayrel = rom_off_to_snes(h);
+    let sflags2_off = rom[h + 5] as u32;
+    eprintln!(
+        "NAMED-STRAT: stayrel_strat=${stayrel:06X}  al_sflags2=${sflags2_off:02X} ora #${:02X}",
+        rom[h + 7]
+    );
+    assert_eq!(stayrel, RETAIL_STAYREL_STRAT, "stayrel_strat address");
+    assert_eq!(sflags2_off, AL_SFLAGS2, "al_sflags2 offset");
+    assert_eq!(rom[h + 5], rom[h + 9], "lda/sta hit the same sflags2 offset");
+
+    // --- stayrelhard180YR_strat: the pure-scroll body just before it ---
+    // stayrel_strat is preceded by `22 <leaf> 6B` (5 bytes).
+    let prev = rom_off_to_snes(h - 5);
+    let prev_bytes: Vec<u8> = (0..5).map(|i| rom[h - 5 + i]).collect();
+    eprintln!("NAMED-STRAT: stayrelhard180YR_strat=${prev:06X} body={prev_bytes:02X?}");
+    assert_eq!(prev, RETAIL_STAYRELHARD180YR_STRAT, "stayrelhard180YR_strat address");
+    assert_eq!(prev_bytes, vec![0x22, llo, lhi, lbk, 0x6B], "pure `jsl sr_addplayerZx; rtl`");
+}
+
+/// Set up a fresh retail bus with `pviewvelz` seeded and ONE object whose
+/// `al_worldz` = `pz` at pool base. Returns the block offset (== X for a strat
+/// call). `sr_addplayerZx` only touches `al_worldz,x` + `pviewvelz`, so nothing
+/// else needs seeding (fresh WRAM is zeroed).
+fn seed_scroll_object(bus: &mut SnesBus, pz: i16, pviewvelz: i16) -> u32 {
+    let blk = RETAIL_POOL.base;
+    bus.wram_write16(RETAIL_PVIEWVELZ, pviewvelz as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldz, pz as u16);
+    blk
+}
+
+/// Build the port equivalent: a Game with `pviewvelz` set and one alien at
+/// `worldz = pz`, its `stratptr` armed to the named ground strat's per-tick
+/// body. Returns `(game, alien_index, per_tick_stratid)`.
+fn port_scroll_object(
+    pz: i16,
+    pviewvelz: i16,
+    init: fn(&mut sf_game::game::Game) -> sf_game::alien::StratId,
+) -> (sf_game::game::Game, u16, sf_game::alien::StratId) {
+    let mut g = sf_game::game::Game::new();
+    let istrat = init(&mut g);
+    let idx = g.objs.alloc().expect("alien pool");
+    g.objs.aliens[idx as usize].worldz = pz;
+    g.vars.pviewvelz = pviewvelz;
+    // Run the Istrat to arm the per-tick strat (sets stratptr; leaves worldz).
+    g.call_strat(istrat, idx);
+    let tick = g.objs.aliens[idx as usize].stratptr.expect("per-tick strat armed");
+    (g, idx, tick)
+}
+
+/// CAPSTONE — RETAIL `stayrelhard180YR_strat` vs THE PORT, TICK-FOR-TICK.
+///
+/// This certifies a REAL, NAMED enemy strat (not the synthetic `addalvecs_l`):
+/// each tick we run the retail cart's OWN `stayrelhard180YR_strat` body
+/// ($06:8646 = `jsl sr_addplayerZx; rtl`) on the seeded object and diff its
+/// `worldz` against the port's `sf_strat::ground` stayrelhard180yr per-tick
+/// strat. Global footprint = ONE global (`pviewvelz`, seeded identically both
+/// sides). Two scenarios, including a 16-bit `worldz` wrap.
+#[test]
+fn retail_stayrelhard180yr_strat_vs_port() {
+    let Some(rom) = retail() else { return };
+    const N: u32 = 60;
+    // (pz, pviewvelz) — case 2 drives worldz past -32768 to exercise the wrap.
+    for (pz, pvz) in [(8000i16, -200i16), (-30000i16, -1000i16)] {
+        let mut bus = SnesBus::new(rom.clone());
+        let blk = seed_scroll_object(&mut bus, pz, pvz);
+        let (mut g, idx, tick) = port_scroll_object(pz, pvz, |g| {
+            sf_strat::ground::install(g).stayrelhard180yr
+        });
+
+        let mut first_div: Option<(u32, i32, i32)> = None;
+        for t in 1..=N {
+            // Retail: run the named strat body ($06:8646) with X = block.
+            call(&mut bus, RETAIL_STAYRELHARD180YR_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+            let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+            // Port: one per-tick strat call.
+            g.call_strat(tick, idx);
+            let pw = g.objs.aliens[idx as usize].worldz;
+            if rw != pw && first_div.is_none() {
+                first_div = Some((t, rw as i32, pw as i32));
+            }
+        }
+        let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+        let expect = (pz as i32 + pvz as i32 * N as i32) as i16; // wrapping i16
+        assert_eq!(rw, expect, "retail worldz must scroll by pviewvelz each tick");
+        match first_div {
+            None => eprintln!(
+                "NAMED-STRAT stayrelhard180yr [pz={pz} pvz={pvz}]: MATCH — retail == port worldz over {N} ticks (final {rw})"
+            ),
+            Some((t, r, p)) => panic!("stayrelhard180yr diverged tick {t}: retail worldz={r} port worldz={p}"),
+        }
+    }
+}
+
+/// CAPSTONE (2nd strat) — RETAIL `stayrel_strat` vs THE PORT.
+///
+/// `stayrel_strat` ($06:864B) = `jsl sr_addplayerZx` (scroll) + set the
+/// `colldisable` sflag. `worldz` is diffed directly (MATCH expected). The sflag
+/// is NOT raw-diffable: retail stores `colldisable` in `al_sflags2` bit `$01`
+/// (sflag bit 8), while the port's C `obj.h` layout stores it in `al_sflags`
+/// bit `$10` — a deliberate representation remap, not a bug. We assert each
+/// side sets ITS OWN `colldisable` bit, and document the mapping.
+#[test]
+fn retail_stayrel_strat_vs_port() {
+    let Some(rom) = retail() else { return };
+    const N: u32 = 40;
+    let (pz, pvz) = (6000i16, -150i16);
+
+    let mut bus = SnesBus::new(rom.clone());
+    let blk = seed_scroll_object(&mut bus, pz, pvz);
+    let (mut g, idx, tick) =
+        port_scroll_object(pz, pvz, |g| sf_strat::ground::install(g).stayrel);
+
+    let mut first_div: Option<(u32, i32, i32)> = None;
+    for t in 1..=N {
+        call(&mut bus, RETAIL_STAYREL_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+        let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+        g.call_strat(tick, idx);
+        let pw = g.objs.aliens[idx as usize].worldz;
+        if rw != pw && first_div.is_none() {
+            first_div = Some((t, rw as i32, pw as i32));
+        }
+    }
+    // worldz: exact tick-for-tick match.
+    let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+    assert_eq!(rw, (pz as i32 + pvz as i32 * N as i32) as i16, "retail stayrel scrolled worldz");
+    assert!(first_div.is_none(), "stayrel worldz: {first_div:?}");
+
+    // colldisable sflag — each side sets its own representation's bit.
+    let retail_sflags2 = bus.read8(0x7E_0000 | (blk + AL_SFLAGS2)); // bit $01 = colldisable
+    let port_sflags = g.objs.aliens[idx as usize].sflags; // bit $10 = ASF_COLLDISABLE
+    eprintln!(
+        "NAMED-STRAT stayrel [pz={pz} pvz={pvz}]: worldz MATCH over {N} ticks (final {rw}); \
+         colldisable set retail al_sflags2=${retail_sflags2:02X}(bit $01) <-> port al_sflags=${port_sflags:02X}(bit $10)"
+    );
+    assert_ne!(retail_sflags2 & 0x01, 0, "retail stayrel set colldisable in al_sflags2 bit $01");
+    assert_ne!(port_sflags & 0x10, 0, "port stayrel set colldisable in al_sflags bit $10");
+}
+
+/// Prove the located `stayrelhard180YR_strat` really is `jsl sr_addplayerZx;
+/// rtl` by reading it straight out of the retail ROM through the bus (LoROM),
+/// and that a direct call of it advances `worldz` by exactly `pviewvelz`.
+#[test]
+fn retail_stayrelhard180yr_body_is_jsl_addplayerz() {
+    let Some(rom) = retail() else { return };
+    // Read the 5 body bytes from ROM offset.
+    let off = snes_to_rom_off(RETAIL_STAYRELHARD180YR_STRAT);
+    let body: Vec<u8> = (0..5).map(|i| rom[off + i]).collect();
+    let leaf = RETAIL_SR_ADDPLAYERZX;
+    eprintln!("stayrelhard180YR_strat body @${RETAIL_STAYRELHARD180YR_STRAT:06X} = {body:02X?}");
+    assert_eq!(
+        body,
+        vec![0x22, leaf as u8, (leaf >> 8) as u8, (leaf >> 16) as u8, 0x6B],
+        "body must be `jsl sr_addplayerZx; rtl`"
+    );
+    // One-tick behavioural check: worldz += pviewvelz.
+    let mut bus = SnesBus::new(rom);
+    let blk = seed_scroll_object(&mut bus, 1234, 77);
+    call(&mut bus, RETAIL_STAYRELHARD180YR_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+    assert_eq!(bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16, 1234 + 77);
+}
+
+/// CAPSTONE (full pipeline) — RETAIL `stayrelhard180YR_strat` dispatched through
+/// the ENTIRE retail `dostrats` per-frame tick, vs the port.
+///
+/// Where `retail_stayrelhard180yr_strat_vs_port` calls the strat body surgically,
+/// this points an object's `al_stratptr` at the REAL named strat ($06:8646) and
+/// runs the whole retail `dostrats` ($02:DAF2 = init_strats_l + update_objects_l
+/// + active-list walk + do_strat_l dispatch + write-back) each frame. It also
+/// PROVES the strat's one global (`pviewvelz`) survives a full frame — nothing in
+/// the pipeline clobbers a directly-seeded `pviewvelz` when no player strat runs.
+#[test]
+fn retail_stayrelhard180yr_dispatch_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    bus.enable_gsu();
+    inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+    init_object_pool(&mut bus);
+    let blk = walk_freelist(&bus, &RETAIL_POOL)[0] as u32;
+
+    let (pz, pvz) = (8000i16, -200i16);
+    bus.wram_write16(RETAIL_PVIEWVELZ, pvz as u16);
+    bus.wram_write16(RETAIL_POOL.active_head, blk as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_next, 0);
+    bus.wram_write16(blk + RETAIL_POOL.al_shape, 0x0042);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldz, pz as u16);
+    // al_stratptr ($16 low / $18 bank) = $06:8646 (stayrelhard180YR_strat).
+    bus.wram_write16(blk + AL_STRATPTR, (RETAIL_STAYRELHARD180YR_STRAT & 0xFFFF) as u16);
+    bus.write8(0x7E_0000 | (blk + AL_STRATPTR + 2), (RETAIL_STAYRELHARD180YR_STRAT >> 16) as u8);
+
+    let (mut g, idx, tick) =
+        port_scroll_object(pz, pvz, |g| sf_strat::ground::install(g).stayrelhard180yr);
+
+    const N: u32 = 8;
+    let slot = ((blk - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize;
+    let mut first_div: Option<(u32, i32, i32)> = None;
+    for t in 1..=N {
+        // A full retail frame. update_objects_l/init_strats_l must NOT clobber
+        // our seeded pviewvelz (no player strat runs it back to a default).
+        call_near(&mut bus, RETAIL_DOSTRATS, &Entry { p: 0x00, ..Default::default() });
+        let rw = snapshot_objects(&bus, &RETAIL_POOL)[slot].worldz;
+        g.call_strat(tick, idx);
+        let pw = g.objs.aliens[idx as usize].worldz;
+        if rw != pw && first_div.is_none() {
+            first_div = Some((t, rw as i32, pw as i32));
+        }
+    }
+    let pvz_after = bus.wram_read16(RETAIL_PVIEWVELZ) as i16;
+    let rw = snapshot_objects(&bus, &RETAIL_POOL)[slot].worldz;
+    eprintln!(
+        "NAMED-STRAT DISPATCH stayrelhard180yr: pviewvelz {pvz}->{pvz_after} after {N} frames; retail worldz final={rw}"
+    );
+    assert_eq!(pvz_after, pvz, "dostrats must not clobber the seeded pviewvelz");
+    assert_eq!(rw, (pz as i32 + pvz as i32 * N as i32) as i16, "dispatched strat scrolled worldz per frame");
+    match first_div {
+        None => eprintln!("NAMED-STRAT DISPATCH stayrelhard180yr: MATCH — retail dostrats-dispatched named strat == port over {N} frames"),
+        Some((t, r, p)) => panic!("dispatch diverged frame {t}: retail worldz={r} port worldz={p}"),
+    }
+}

@@ -177,6 +177,48 @@ pub const RETAIL_STRATOBJ_POSX: u32 = 0x1513; // built $159E
 pub const RETAIL_AL1PT: u32 = 0x123A; //     built $12C5
 pub const RETAIL_MARIO_DRAW_MODE: u32 = 0x1260; // built $12EB
 
+// ------------------------------------------------------------------------
+// FIRST NAMED ENEMY-STRAT CERTIFICATION — the `stayrel` ground family.
+//
+// These are the simplest per-tick enemy strats in the port: a pure world-Z
+// scroll (`worldz += pviewvelz`). Their ENTIRE per-tick body is a single
+// `jsl sr_addplayerZx; rtl`, so the retail computation is fully captured by
+// `sr_addplayerZx` — a leaf routine that touches exactly ONE global (`pviewvelz`)
+// and one struct field (`al_worldz`). All addresses located by masked scan and
+// cross-validated (see tests/coexec_retail.rs::retail_stayrel_family_addresses).
+// ------------------------------------------------------------------------
+
+/// Retail `sr_addplayerZx` ($1F:DC69) — the leaf routine every scroll strat
+/// calls: `s_add_alvar W,x,al_worldz,pviewvelz; rtl`, i.e. 16-bit
+/// `al_worldz,x += pviewvelz`. Body bytes: `C2 20 (rep #$20)  B5 10 (lda
+/// al_worldz,x)  18 (clc)  6D F4 14 (adc pviewvelz)  95 10 (sta al_worldz,x)
+/// E2 20 (sep #$20)  6B (rtl)`. Located by scanning for that skeleton with the
+/// ADC operand wildcarded: 8 byte-matches, but this is the ONLY one that is
+/// actually CALLED (247 `jsl` references / 97 of them `jsl X; rtl` pure-scroll
+/// strat bodies) — the other 7 are inlined `worldz += <other global>` motifs
+/// with zero references. Its embedded `adc` operand IS the retail `pviewvelz`.
+pub const RETAIL_SR_ADDPLAYERZX: u32 = 0x1F_DC69;
+/// Retail `pviewvelz` ($14F4) — the view-Z scroll velocity, read straight out
+/// of `sr_addplayerZx`'s `adc pviewvelz` operand. Written only by the PLAYER
+/// strats (PSTRATS/PCSTRATS/PISTRATS), never by `update_objects_l`/
+/// `init_strats_l`, so a directly-seeded value survives a strat tick.
+pub const RETAIL_PVIEWVELZ: u32 = 0x14F4;
+/// Retail `stayrelhard180YR_strat` ($06:8646) — pure scroll strat body,
+/// `jsl sr_addplayerZx; rtl` (`22 69 DC 1F 6B`). Identified as the pure-scroll
+/// routine (one of 97) immediately preceding the UNIQUE `stayrel_strat`.
+pub const RETAIL_STAYRELHARD180YR_STRAT: u32 = 0x06_8646;
+/// Retail `stayrel_strat` ($06:864B) — scroll + set the `colldisable` sflag:
+/// `jsl sr_addplayerZx; lda al_sflags2,x; ora #$01; sta al_sflags2,x; rtl`
+/// (`22 69 DC 1F  B5 1E 09 01 95 1E  6B`). Located by masked scan: exactly ONE
+/// hit. Its `sta` operand pins `al_sflags2 = $1E` (so `al_sflags = $1D`), and
+/// `ora #$01` confirms `colldisable` = sflag bit 8 (`asf_colldisable`>>8 = $01),
+/// i.e. it lives in the SECOND sflags byte — a different bit layout from the
+/// port's C `obj.h` (colldisable = `al_sflags` bit `$10`); see the cert test.
+pub const RETAIL_STAYREL_STRAT: u32 = 0x06_864B;
+/// `al_sflags` / `al_sflags2` struct offsets (from `stayrel_strat`'s operand).
+pub const AL_SFLAGS: u32 = 0x1D;
+pub const AL_SFLAGS2: u32 = 0x1E;
+
 /// Retail `runmario_l` — the RAM-resident GSU trampoline. Two addresses:
 ///  * ROM copy-source `$02:9D56` — where the 35-byte routine is stored in the
 ///    cart (`sta.l m_pbr; phb; ldb #0; lda mario_draw_mode; ora #$18;

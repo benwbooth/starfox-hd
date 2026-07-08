@@ -9,7 +9,7 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**10 tests, all green**). Nothing committed.
+`rust/sf-oracle/tests/coexec_retail.rs` (**15 tests, all green**). Nothing committed.
 
 ## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
 
@@ -43,21 +43,71 @@ Auto-derived retail strat globals: `gameframe`=$15BB, `aldead`=$1248,
 `mario_draw_mode`=$1260. Struct offset `al_stratptr`=$16 (low word) / $18 (bank),
 verified against `al_HP`=$2A and `al_vx`=$2F.
 
-### What remains — certifying a REAL (non-synthetic) enemy strat
-`retail_dostrats_dispatch_vs_port` dispatches `addalvecs_l` **as** the object's
-strat (a genuine ROM routine, through the genuine dispatch path), which exercises
-the entire pipeline but is a pure motion routine. Diffing a full *named* enemy
-strat (e.g. `torpedo_strat`, a ground/rock strat) additionally needs, per strat:
-1. that strat's retail address (masked scan — the technique is proven), set as
-   the object's `al_stratptr`;
-2. the strat's OWN global footprint remapped retail-side (RNG state, player/
-   camera object, timers) — many touch dozens of globals whose retail addresses
-   shifted; each must be located like the `dostrats` set above; and
-3. a port-side equivalent callable in isolation — the port's strats take `&mut
-   Game` (full world context), not a lone `Alien`, so a `Game`-vs-retail-WRAM
-   seeding shim is needed to line the two up. The pure per-strat helpers
-   (`gen_vecs`, `speed_to`, `perc*`, `xzdiffs`) are already tier-1 oracle-verified
-   and can be re-certified vs retail surgically (like `addalvecs_l`) if desired.
+## UPDATE 2 — the FIRST NAMED enemy strat is now certified vs retail
+
+`retail_dostrats_dispatch_vs_port` dispatched `addalvecs_l` (a synthetic
+pure-motion strat) through the genuine dispatch path. We have now certified TWO
+**real, named** ground enemy strats — `stayrelhard180YR_strat` and
+`stayrel_strat` — both surgically AND (for the first) through the full retail
+`dostrats` frame, tick-for-tick MATCH vs the port.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_stayrel_family_addresses` | ✅ | Masked-scans + cross-validates the whole family: `sr_addplayerZx`=**$1F:DC69** (the ONE of 8 skeleton matches that is actually `jsl`-referenced — 247 refs, 97 of them `jsl X;rtl` pure-scroll strat bodies), reads its `adc` operand to derive `pviewvelz`=**$14F4**; `stayrel_strat`=**$06:864B** (UNIQUE masked hit) whose `sta` operand pins `al_sflags2`=**$1E** and `ora #$01` confirms `colldisable` = sflag bit 8; `stayrelhard180YR_strat`=**$06:8646** = the pure-scroll body immediately preceding it. |
+| `retail_stayrelhard180yr_body_is_jsl_addplayerz` | ✅ | Reads the 5 body bytes of `stayrelhard180YR_strat` out of retail ROM (LoROM): `22 69 DC 1F 6B` = `jsl sr_addplayerZx; rtl`, and a one-tick call advances `worldz` by exactly `pviewvelz`. |
+| `retail_stayrelhard180yr_strat_vs_port` | ✅ **MATCH** | Runs the retail cart's OWN `stayrelhard180YR_strat` body ($06:8646) each tick on a seeded object and diffs `worldz` vs the port's `sf_strat::ground` stayrelhard180yr per-tick strat. **MATCH over 60 ticks**, two scenarios including a 16-bit `worldz` wrap (pz=-30000, pvz=-1000 wraps past -32768 identically both sides). |
+| `retail_stayrel_strat_vs_port` | ✅ **MATCH** | `stayrel_strat` ($06:864B) = scroll + set `colldisable`. `worldz` MATCH over 40 ticks; each side sets ITS OWN `colldisable` bit (retail `al_sflags2` bit $01 ↔ port `al_sflags` bit $10 — a representation remap, see below). |
+| `retail_stayrelhard180yr_dispatch_vs_port` | ✅ **MATCH** | The STRONGEST claim: points an object's `al_stratptr` at the real `stayrelhard180YR_strat` ($06:8646) and runs the ENTIRE retail `dostrats` frame each tick. **MATCH over 8 frames**, and `pviewvelz` survives every frame (-200→-200) — proving nothing in `init_strats_l`/`update_objects_l` clobbers a directly-seeded `pviewvelz` when no player strat runs. |
+
+### Certified strat #1/#2 — global footprint map (`stayrel` family)
+The `stayrel`/`stayrelhard180yr` per-tick body is the smallest possible: its
+whole effect is `jsl sr_addplayerZx; rtl`.
+
+| What the strat touches | Retail address | Port | Notes |
+|------|------|------|------|
+| `pviewvelz` (READ) | WRAM **$14F4** | `g.vars.pviewvelz` | The ONE global. Written only by PLAYER strats; seed it once, it survives a frame. |
+| `al_worldz` (RW) | struct **+$10** | `Alien::worldz` | 16-bit wrapping add; directly diffable, byte-identical both sides. |
+| `al_sflags2` (RW, `stayrel` only) | struct **+$1E**, bit **$01** | `Alien::sflags` bit **$10** | `colldisable`. NOT raw-diffable: the port's C `obj.h` uses a different sflag bit layout than the ASM (`STRATEQU.INC`). Each side correctly sets its own `colldisable`; the mapping is retail `sflags2:$01` ↔ port `sflags:$10`. |
+
+`sr_addplayerZx` = $1F:DC69 (leaf); `stayrelhard180YR_strat` = $06:8646;
+`stayrel_strat` = $06:864B. Struct offsets `al_sflags`=$1D / `al_sflags2`=$1E.
+
+### Reusable recipe — certifying the NEXT named strat vs retail
+1. **Read the port strat** (`sf-strat/src/*.rs`) and enumerate its footprint:
+   which globals it READS (each = one retail WRAM address to locate) and which
+   `al_*` struct fields it writes (offsets are identical retail↔built↔port).
+   Prefer strats with the fewest globals (ground/scroll strats read only
+   `pviewvelz`; movers add `al_vx/vy/vz`; homing strats add player pos + RNG).
+2. **Masked-scan the strat body + its leaf routines.** The strat body is often a
+   couple of `jsl <leaf>` calls + a few field sets. Scan the ROM for the opcode
+   skeleton with absolute/global operands WILDCARDED, then (a) read the operands
+   back to derive the retail global addresses, and (b) DISAMBIGUATE duplicate
+   skeleton hits by reference count — the genuine callable leaf is the one that
+   is `jsl`-referenced (inlined motifs have zero refs). A UNIQUE masked hit (like
+   `stayrel_strat`) also anchors adjacent routines by address order.
+   Helpers `masked_scan` / `rom_off_to_snes` / `snes_to_rom_off` live in the test.
+3. **Seed BOTH sides identically.** Retail: fresh `SnesBus`, `wram_write16` the
+   read-globals + the object's fields at `RETAIL_POOL.base + slot*stride + off`.
+   Port: `Game::new()`, `sf_strat::<mod>::install(&mut g)`, `objs.alloc()`, set
+   the same fields + `g.vars.<global>`, run the Istrat once to arm `stratptr`.
+4. **Tick + diff.** Surgical: `call(&mut bus, <strat_addr>, Entry{x: blk, p:0})`
+   per tick; port `g.call_strat(tick, idx)`; diff the numeric object fields
+   (skip sflag/flag BYTES — the port's bit layout differs; compare semantic bits
+   individually). Full-pipeline (stronger): set `al_stratptr`=strat_addr, put the
+   object on `allst`, run `RETAIL_DOSTRATS` per frame — but first confirm the
+   strat's globals SURVIVE a `dostrats` frame (they do for `pviewvelz`; a global
+   that a player/camera routine recomputes each frame would need re-seeding or a
+   surgical-only diff).
+
+### Remaining blockers for HARDER strats (beyond `stayrel`)
+- **RNG-driven strats** (dodge/aim jitter): need the retail RNG state global
+  located + seeded, and the runtime SWB chain (see commit 67a4524) matched.
+- **Player/camera-relative strats** (homing, `staydist` reads `pviewposz`):
+  need those globals located + seeded; some are recomputed inside `dostrats`
+  (player strats write `pviewvelz`/`pviewposz`), so a full-pipeline diff would
+  require a live player object — surgical per-strat diff sidesteps this.
+- **sflag/flag raw diffs are off the table** — the port re-derived its own
+  `obj.h` bit layout; certify sflag EFFECTS bit-by-bit (semantic), not byte==byte.
 
 The historical blocker analysis below is retained for context.
 
@@ -130,10 +180,11 @@ the full retail `dostrats` per-frame tick runs on seeded state and diffs MATCH
 against the port through the real `do_strat_l` dispatch path.
 
 ## Recommended next steps (remaining)
-1. **Certify a named enemy strat** (e.g. `torpedo_strat`): masked-scan its retail
-   address, set it as an object's `al_stratptr`, and diff vs the port — needs the
-   strat's own global footprint remapped retail-side and a `Game`-context seeding
-   shim for the port side (the port's strats take `&mut Game`, not a lone Alien).
+1. ✅ **DONE — Certify a named enemy strat.** `stayrelhard180YR_strat` +
+   `stayrel_strat` certified vs retail (see UPDATE 2). Next: certify a MOVER
+   (`al_vx/vy/vz` footprint) then an RNG/player-relative strat using the recipe
+   in UPDATE 2 — the harder blockers (RNG state, player-recomputed globals) are
+   itemised there.
 2. **Exercise the spawn VM**: hand retail `mapobjdo` ($03:F79B) / `newobjs_l`
    ($03:EDA1) a minimal map script so retail SPAWNS objects (instead of
    hand-seeding), then diff the spawn output vs the port map builder.
