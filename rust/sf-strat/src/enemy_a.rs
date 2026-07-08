@@ -30,13 +30,15 @@ use sf_game::alien::{
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
-    GF_BOSSDEAD, HARD_AP, HARD_HP, PFM_SHADOWS, PSF2_PLAYERHP0, PSTF_NOTDIE, SPFM_INSIDE,
+    GF_BOSSDEAD, HARD_AP, HARD_HP, PFM_SHADOWS, PSF2_PLAYERHP0, PSF3_ENGINESND, PSTF_NOTDIE,
+    SPFM_INSIDE,
 };
 
 // ============================================================
 // Angle constants (C src/variables.h DEG*)
 // ============================================================
 pub const DEG0: u8 = 0;
+pub const DEG5: u8 = 4;
 pub const DEG11: u8 = 8;
 pub const DEG22: u8 = 16;
 pub const DEG45: u8 = 32;
@@ -5788,6 +5790,664 @@ pub fn strat_clship_chasec_init(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// CLEAR-DEMO SHIPS — SHIP / TURN / BRIDGE / DIVE / UNDER families
+// (GCSTRATS.ASM:318-1033). Appended alongside the WARP/GND/EARTH/CHASE
+// families above; they share the same infrastructure (clship_flyinleft/right,
+// clship_float2, clship_common_init, clshipboost_enter/_step,
+// chase_proportional, achase_angle, add_player_z, gen_vecs_2d/_3d,
+// apply_velocity, speed_to). These are non-firing demo fly-through ships;
+// behaviour is movement only. The `boost_sprite`/`boostobj` shape-swap and the
+// commented-out `set_sound*`/engine-sound audio hooks in the ROM are omitted
+// (visual/audio, consistent with the WARP/GND/EARTH/CHASE ports).
+// ============================================================
+
+// ---- SHIP family (clshipSHIPa/b/c -> clship1/2/3, GCSTRATS.ASM:318-368) ----
+// Structurally EARTH minus the floatCLship2 wobble (and slightly different
+// rotz/Y offsets): fly-in via worldx chase, then the shared clship_cont
+// player-relative chase + sflag1 space-boost machinery.
+
+fn clship_shipa_strat(g: &mut Game, idx: u16) {
+    // ASM clship1_strat (GCSTRATS.ASM:330) `s_achase_alvar al_worldx,#-50,4`.
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, -50, 4);
+    // :331-332 svar_word2=100 (Z), svar_word3=20 (Y).
+    clship_cont(g, idx, 100, 20);
+}
+
+fn clship_shipb_strat(g: &mut Game, idx: u16) {
+    // ASM clship2_strat (GCSTRATS.ASM:347).
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, 50, 4);
+    clship_cont(g, idx, 200, 40);
+}
+
+fn clship_shipc_strat(g: &mut Game, idx: u16) {
+    // ASM clship3_strat (GCSTRATS.ASM:365).
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, 0, 4);
+    clship_cont(g, idx, 300, 50);
+}
+
+/// C-less port of `clshipSHIPa_Istrat` (GCSTRATS.ASM:318).
+pub fn strat_clship_shipa_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_shipa_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags2 |= CLSHIP_FLAG1; // :320 s_set_alsflag sflag1
+    al.sbyte1 = 10; // :321
+    al.rotz = DEG90.wrapping_neg(); // :326 -deg90
+}
+
+/// Port of `clshipSHIPb_Istrat` (GCSTRATS.ASM:335).
+pub fn strat_clship_shipb_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_shipb_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags2 |= CLSHIP_FLAG1; // :337
+    al.sbyte1 = 20; // :338
+    al.rotz = DEG90; // :343
+}
+
+/// Port of `clshipSHIPc_Istrat` (GCSTRATS.ASM:354). No rotz set -> stays 0.
+pub fn strat_clship_shipc_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_shipc_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags2 |= CLSHIP_FLAG1; // :356
+    al.sbyte1 = 30; // :357
+}
+
+// ---- TURN family (clshipTURNa/b/c, GCSTRATS.ASM:435-560) ----
+// Fly-in, then clshipTURN_cont (player chase + floatCLship2 wobble). On the
+// sword1 timeout it banks (clshipTURN_strat) then rolls away
+// (clshipTURN2_strat) and the engine auto-removes it once behind the view.
+
+/// ASM clshipTURN_cont (GCSTRATS.ASM:500). `svar_word2` is ADDED to the
+/// player Z here (unlike SHIP/EARTH's clship_cont which subtracts).
+fn clship_turn_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
+    // :502 `s_beqdec_alvar al_sword1,clshipTURN_Istrat` — TEST-then-DEC.
+    if g.objs.aliens[idx as usize].sword1 == 0 {
+        clship_turn_enter(g, idx);
+        clship_turn_step(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sword1 -= 1;
+    let pl = player(g);
+    if let Some(pl) = pl {
+        let al = &mut g.objs.aliens[idx as usize];
+        // :506-508 worldz chase toward player.worldz + svar_word2, shift 4.
+        al.worldz = chase_proportional(al.worldz, pl.worldz.wrapping_add(zoff), 4);
+        // :510-512 worldy chase toward player.worldy + svar_word3, shift 5.
+        al.worldy = chase_proportional(al.worldy, pl.worldy.wrapping_add(yoff), 5);
+        // :514 `s_achase_alvar al_rotz,#0,5`.
+        let mut rotz = al.rotz;
+        achase_angle(&mut rotz, 0, 5);
+        al.rotz = rotz;
+    }
+    // :516 `jsl floatCLship2_l` — adds to rotz/worldy (unconditional).
+    clship_float2(g, idx);
+    if let Some(pl) = pl {
+        // :518 `s_achase_alvar2alvar al_rotx,y,al_rotx,5`.
+        let al = &mut g.objs.aliens[idx as usize];
+        let mut rotx = al.rotx;
+        achase_angle(&mut rotx, pl.rotx, 5);
+        al.rotx = rotx;
+    }
+    // :520 add_playerZ (no psvar_word2 add for TURN_cont).
+    add_player_z(g, idx);
+}
+
+/// ASM clshipTURN_Istrat (GCSTRATS.ASM:525): begin the bank-in.
+fn clship_turn_enter(g: &mut Game, idx: u16) {
+    let s = sid(g, clship_turn_step);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.sbyte2 = 42; // :527
+}
+
+/// ASM clshipTURN_strat (GCSTRATS.ASM:528): ramp speed to 32 while yawing.
+fn clship_turn_step(g: &mut Game, idx: u16) {
+    // :530 `s_beqdec_alvar al_sbyte2,clshipTURN2_Istrat` — TEST-then-DEC.
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        clship_turn2_enter(g, idx);
+        clship_turn2_step(g, idx);
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte2 -= 1;
+        speed_to(al, 32, 1); // :531
+        al.roty = al.roty.wrapping_sub(1); // :532
+        al.rotz = al.rotz.wrapping_sub(1); // :533 add rotz #-1
+    }
+    // clshipTURN2_cont :556-558.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+/// ASM clshipTURN2_Istrat (GCSTRATS.ASM:536): begin the roll-away; the ship is
+/// now set to auto-remove once behind the view.
+fn clship_turn2_enter(g: &mut Game, idx: u16) {
+    let s = sid(g, clship_turn2_step);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    // :538 sbyte1 = (deg180+42)/4 = 170/4 = 42.
+    al.sbyte1 = ((DEG180 as u16 + 42) / 4) as u8;
+    al.type_ |= ATZREMOVE; // :543 s_setremove_behind
+}
+
+/// ASM clshipTURN2_strat (GCSTRATS.ASM:544): roll up for sbyte1 frames, then
+/// settle rotz.
+fn clship_turn2_step(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // :547 `s_beqdec_alvar al_sbyte1,.nadd` — TEST-then-DEC (local branch).
+        if al.sbyte1 == 0 {
+            al.rotz = al.rotz.wrapping_sub(2); // .nadd :552
+        } else {
+            al.sbyte1 -= 1;
+            al.rotz = al.rotz.wrapping_add(2); // :548
+            al.roty = al.roty.wrapping_add(4); // :549
+        }
+        // clshipTURN2_cont :556-558.
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+fn clship_turna_strat(g: &mut Game, idx: u16) {
+    clship_flyinleft(g, idx); // :451
+    clship_turn_cont(g, idx, 100, -20); // :453-454 word2=100, word3=-20
+}
+
+fn clship_turnb_strat(g: &mut Game, idx: u16) {
+    clship_flyinright(g, idx); // :475
+    clship_turn_cont(g, idx, 200, -20);
+}
+
+fn clship_turnc_strat(g: &mut Game, idx: u16) {
+    // :493 `s_achase_alvar al_worldx,#0,4`.
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, 0, 4);
+    clship_turn_cont(g, idx, 300, -30);
+}
+
+/// sbyte1 = (deg180+deg45+deg22)/4 = 176/4 = 44 (set at init; overwritten in
+/// clshipTURN2_Istrat before use, but kept for state fidelity).
+const CLSHIP_TURN_SBYTE1: u8 = ((DEG180 as u16 + DEG45 as u16 + DEG22 as u16) / 4) as u8;
+
+/// Port of `clshipTURNa_Istrat` (GCSTRATS.ASM:435).
+pub fn strat_clship_turna_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_turna_strat);
+    let r1 = (ea_random(g) & 15) as u8;
+    let r2 = (ea_random(g) & 7) as u8;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.vx = 10; // :440
+    al.rotz = DEG90.wrapping_neg(); // :441 -deg90
+    al.sword1 = 100 + 130 + 10 - CLSHIP_BUNNYWAIT; // :442 = 180
+    al.sbyte1 = CLSHIP_TURN_SBYTE1; // :443
+    al.sflags2 |= CLSHIP_FLAG2; // :444 set sflag2 (sound-only, dead)
+    al.sbyte3 = r1; // :445
+    al.sbyte4 = r2; // :446
+}
+
+/// Port of `clshipTURNb_Istrat` (GCSTRATS.ASM:460).
+pub fn strat_clship_turnb_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_turnb_strat);
+    let r1 = (ea_random(g) & 15) as u8;
+    let r2 = (ea_random(g) & 7) as u8;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.vx = -10; // :465
+    al.rotz = DEG90; // :466
+    al.sword1 = 100 + 120 + 10 - CLSHIP_FROGWAIT; // :467 = 200
+    al.sbyte1 = CLSHIP_TURN_SBYTE1; // :468
+    al.sflags2 &= !CLSHIP_FLAG2; // :469 clr sflag2
+    al.sbyte3 = r1;
+    al.sbyte4 = r2;
+}
+
+/// Port of `clshipTURNc_Istrat` (GCSTRATS.ASM:481). No vx/rotz set.
+pub fn strat_clship_turnc_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_turnc_strat);
+    let r1 = (ea_random(g) & 15) as u8;
+    let r2 = (ea_random(g) & 7) as u8;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sword1 = 100 + 100 + 10 - CLSHIP_COCKWAIT; // :486 = 120
+    al.sbyte1 = CLSHIP_TURN_SBYTE1; // :487
+    al.sflags2 |= CLSHIP_FLAG2; // :488
+    al.sbyte3 = r1;
+    al.sbyte4 = r2;
+}
+
+// ---- BRIDGE family (clshipBRIDGEa/b/c, GCSTRATS.ASM:564-669) ----
+// Player chase (identical shape to CHASE_cont), then a bridge-specific boost
+// (clshipBridgeboost_strat) that drifts sideways for 50 frames before handing
+// off to the general boost.
+
+/// ASM clshipBRIDGE_cont (GCSTRATS.ASM:616).
+fn clship_bridge_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
+    // :617 `s_beqdec_alvar al_sword1,clshipbridgeboost_Istrat` — TEST-then-DEC.
+    if g.objs.aliens[idx as usize].sword1 == 0 {
+        clship_bridgeboost_enter(g, idx);
+        clship_bridgeboost_step(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sword1 -= 1;
+    if let Some(pl) = player(g) {
+        let tick1 = frame_tick_mod(g, 1);
+        let al = &mut g.objs.aliens[idx as usize];
+        // :620-622 worldz chase toward player.worldz + svar_word2, shift 4.
+        al.worldz = chase_proportional(al.worldz, pl.worldz.wrapping_add(zoff), 4);
+        // :624-626 worldy chase toward player.worldy + svar_word3, shift 5.
+        al.worldy = chase_proportional(al.worldy, pl.worldy.wrapping_add(yoff), 5);
+        // :629 `s_achase_alvar2alvar al_rotx,y,al_rotx,5`.
+        let mut rotx = al.rotx;
+        achase_angle(&mut rotx, pl.rotx, 5);
+        al.rotx = rotx;
+        // :631 `s_jmp_notdelay 1,.ny`.
+        if tick1 {
+            let mut rotz = al.rotz;
+            achase_angle(&mut rotz, pl.rotz, 5); // :632
+            al.rotz = rotz;
+            let mut roty = al.roty;
+            achase_angle(&mut roty, pl.roty, 4); // :633
+            al.roty = roty;
+        }
+    }
+    add_player_z(g, idx); // :636
+    let w2 = g.vars.psvar_word2;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_add(w2); // :637
+}
+
+/// ASM clshipBridgeboost_Istrat (GCSTRATS.ASM:642).
+fn clship_bridgeboost_enter(g: &mut Game, idx: u16) {
+    let s = sid(g, clship_bridgeboost_step);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.sbyte1 = 50; // :644
+    al.vel = 20; // :645 s_set_speed #20
+}
+
+/// ASM clshipBridgeboost_strat (GCSTRATS.ASM:646): sideways drift (vz forced
+/// to 0), slow roll, then general boost when sbyte1 expires.
+fn clship_bridgeboost_step(g: &mut Game, idx: u16) {
+    let tick1 = frame_tick_mod(g, 1);
+    let tick3 = frame_tick_mod(g, 3);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_2d(al); // :649 s_gen_vecs roty,vel
+        al.vz = 0; // :650 s_set_alvar al_vz,#0
+        apply_velocity(al); // :651
+        if tick1 {
+            al.rotz = al.rotz.wrapping_sub(1); // :654-655
+        }
+        if tick3 {
+            al.roty = al.roty.wrapping_sub(1); // :659
+            al.rotx = al.rotx.wrapping_sub(1); // :660
+        }
+    }
+    // :663 `s_decbne_alvar al_sbyte1,.nengineoff` — DEC-then-BNE.
+    let engine_off = {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = al.sbyte1.wrapping_sub(1);
+        al.sbyte1 == 0
+    };
+    if engine_off {
+        // :664 clear engine sound, :665 brl clshipboost_Istrat (plays $32).
+        g.vars.pshipflags3 &= !PSF3_ENGINESND;
+        clshipboost_enter(g, idx, true);
+        clshipboost_step(g, idx);
+        return;
+    }
+    add_player_z(g, idx); // :668
+}
+
+fn clship_bridgea_strat(g: &mut Game, idx: u16) {
+    // :575 `s_achase_alvar al_worldx,#-70,4`.
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, -70, 4);
+    clship_bridge_cont(g, idx, -100, 20); // :577-578
+}
+
+fn clship_bridgeb_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, 70, 4); // :595
+    clship_bridge_cont(g, idx, -200, 20);
+}
+
+fn clship_bridgec_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, 0, 4); // :609
+    clship_bridge_cont(g, idx, -300, 30);
+}
+
+/// Port of `clshipBRIDGEa_Istrat` (GCSTRATS.ASM:564).
+pub fn strat_clship_bridgea_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_bridgea_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotz = DEG90.wrapping_neg(); // :569 -deg90
+    al.roty = DEG45; // :570
+    al.sword1 = 130 - CLSHIP_BUNNYWAIT; // :571 = 70
+}
+
+/// Port of `clshipBRIDGEb_Istrat` (GCSTRATS.ASM:584).
+pub fn strat_clship_bridgeb_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_bridgeb_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotz = DEG90; // :589
+    al.roty = DEG45.wrapping_neg(); // :590 -deg45
+    al.sword1 = 140 - CLSHIP_FROGWAIT; // :591 = 110
+}
+
+/// Port of `clshipBRIDGEc_Istrat` (GCSTRATS.ASM:601). No rotz/roty set.
+pub fn strat_clship_bridgec_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_bridgec_strat);
+    g.objs.aliens[idx as usize].sword1 = 150 - CLSHIP_COCKWAIT; // :606 = 60
+}
+
+// ---- DIVE family (clshipDIVEa/b/c, GCSTRATS.ASM:672-803) ----
+// Three sword1 regimes: >60 normal player chase (clshipDIVE_cont); 30..60 the
+// dive tilt (rotz/vx/vy nudges + velocity add); <30 velocity-only, snapping
+// onto the player at sword1==1 for the fly-past; at 0 the DIVE boost levels
+// out (rotx=deg5) and hands to the general boost.
+
+/// ASM clshipDIVE_cont (GCSTRATS.ASM:774): high-altitude player chase, falls
+/// through to clshipDIVE_cont2.
+fn clship_dive_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
+    if let Some(pl) = player(g) {
+        let al = &mut g.objs.aliens[idx as usize];
+        // :779-781 worldz chase toward player.worldz + svar_word2, shift 4.
+        al.worldz = chase_proportional(al.worldz, pl.worldz.wrapping_add(zoff), 4);
+        // :783-785 worldy chase toward player.worldy + svar_word3, shift 4.
+        al.worldy = chase_proportional(al.worldy, pl.worldy.wrapping_add(yoff), 4);
+        // :788 `s_achase_alvar al_rotz,#0,5`.
+        let mut rotz = al.rotz;
+        achase_angle(&mut rotz, 0, 5);
+        al.rotz = rotz;
+        // :790 `s_achase_alvar2alvar al_rotx,y,al_rotx,5`.
+        let mut rotx = al.rotx;
+        achase_angle(&mut rotx, pl.rotx, 5);
+        al.rotx = rotx;
+    }
+    clship_dive_cont2(g, idx);
+}
+
+/// ASM clshipDIVE_cont2 (GCSTRATS.ASM:792).
+fn clship_dive_cont2(g: &mut Game, idx: u16) {
+    // :793 `s_beqdec_alvar al_sword1,clshipDIVEboost_Istrat` — TEST-then-DEC.
+    if g.objs.aliens[idx as usize].sword1 == 0 {
+        clship_diveboost(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sword1 -= 1;
+    add_player_z(g, idx); // :794
+    let w2 = g.vars.psvar_word2;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_add(w2); // :795
+}
+
+/// ASM clshipDIVEboost_Istrat (GCSTRATS.ASM:799): level out then general boost.
+fn clship_diveboost(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = 0; // :801
+        al.rotx = DEG5; // :802
+    }
+    clshipboost_enter(g, idx, true); // :803 -> clshipboost_Istrat (trigse $32)
+    clshipboost_step(g, idx);
+}
+
+fn clship_divea_strat(g: &mut Game, idx: u16) {
+    let tick1 = frame_tick_mod(g, 1);
+    let tick2 = frame_tick_mod(g, 2);
+    // :681 `s_achase_alvar al_worldx,#-50,4`.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, -50, 4);
+    }
+    let sword1 = g.objs.aliens[idx as usize].sword1;
+    // :686 `s_jmp_alvarMORE al_sword1,#60,.nhigh`.
+    if sword1 > 60 {
+        clship_dive_cont(g, idx, 100, -20); // :683-684
+        return;
+    }
+    // :687 `s_jmp_alvarLESS al_sword1,#30,.nvy`.
+    if sword1 >= 30 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(2); // :688
+        if tick2 {
+            al.vx = al.vx.wrapping_sub(1); // :690 add vx #-1
+        }
+        if tick1 {
+            al.vy = al.vy.wrapping_sub(1); // :692 add vy #-1
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // .nvy :694
+    // :695 `s_jmp_alvarNE al_sword1,#1,.nb`: snap onto player for the fly-past.
+    if sword1 == 1 && g.objs.player().is_some() {
+        copy_pos(g, idx, 0); // :697 s_copy_pos x,y (player -> me)
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = al.worldy.wrapping_sub(200); // :698
+        al.worldx = al.worldx.wrapping_sub(50); // :699
+    }
+    clship_dive_cont2(g, idx); // :702
+}
+
+fn clship_diveb_strat(g: &mut Game, idx: u16) {
+    let tick1 = frame_tick_mod(g, 1);
+    let tick2 = frame_tick_mod(g, 2);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, 50, 4); // :718
+    }
+    let sword1 = g.objs.aliens[idx as usize].sword1;
+    if sword1 > 60 {
+        clship_dive_cont(g, idx, 200, -20); // :720-721
+        return;
+    }
+    if sword1 >= 30 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_sub(2); // :725 sub rotz #2
+        if tick2 {
+            al.vx = al.vx.wrapping_add(1); // :727 add vx #1
+        }
+        if tick1 {
+            al.vy = al.vy.wrapping_sub(1); // :729 add vy #-1
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // :731
+    if sword1 == 1 && g.objs.player().is_some() {
+        copy_pos(g, idx, 0); // :734
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = al.worldy.wrapping_sub(200); // :735
+        al.worldx = al.worldx.wrapping_add(50); // :736 add worldx #50
+    }
+    clship_dive_cont2(g, idx); // :739
+}
+
+fn clship_divec_strat(g: &mut Game, idx: u16) {
+    let tick1 = frame_tick_mod(g, 1);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, 0, 4); // :752
+    }
+    let sword1 = g.objs.aliens[idx as usize].sword1;
+    if sword1 > 60 {
+        clship_dive_cont(g, idx, 300, -30); // :753-754
+        return;
+    }
+    // :757 `s_jmp_alvarLESS al_sword1,#30,.nvy`; DIVEc's tilt is Y-only.
+    if sword1 >= 30 && tick1 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vy = al.vy.wrapping_sub(1); // :759 add vy #-1
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // :761
+    if sword1 == 1 && g.objs.player().is_some() {
+        copy_pos(g, idx, 0); // :764
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = al.worldy.wrapping_sub(200); // :765 (no worldx offset)
+    }
+    clship_dive_cont2(g, idx); // :768
+}
+
+/// Port of `clshipDIVEa_Istrat` (GCSTRATS.ASM:672). No shadow flag in the ROM.
+pub fn strat_clship_divea_init(g: &mut Game, idx: u16) {
+    let s = sid(g, clship_divea_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.type_ &= !ATZREMOVE; // :675 s_setnoremove_behind
+    al.stratptr = Some(s);
+    al.sword1 = 180 - CLSHIP_BUNNYWAIT; // :676 = 120
+    al.rotz = DEG90.wrapping_neg(); // :677 -deg90
+}
+
+/// Port of `clshipDIVEb_Istrat` (GCSTRATS.ASM:709).
+pub fn strat_clship_diveb_init(g: &mut Game, idx: u16) {
+    let s = sid(g, clship_diveb_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.type_ &= !ATZREMOVE; // :712
+    al.stratptr = Some(s);
+    al.sword1 = 190 - CLSHIP_FROGWAIT; // :713 = 160
+    al.rotz = DEG90; // :714
+}
+
+/// Port of `clshipDIVEc_Istrat` (GCSTRATS.ASM:744).
+pub fn strat_clship_divec_init(g: &mut Game, idx: u16) {
+    let s = sid(g, clship_divec_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.type_ &= !ATZREMOVE; // :747
+    al.stratptr = Some(s);
+    al.sword1 = 170 - CLSHIP_COCKWAIT; // :748 = 80
+    al.sbyte2 = 20; // :749 general-boost removal timer
+}
+
+// ---- UNDER family (clshipUNDERa/b/c, GCSTRATS.ASM:922-1033) ----
+// Player chase (same shape as CHASE/BRIDGE_cont), then an underground boost
+// (clshipUNDERboost_strat) that flies off along roty banking per sbyte1. No
+// auto-remove — the ship simply flies out of view.
+
+/// ASM clshipUNDER_cont (GCSTRATS.ASM:979).
+fn clship_under_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
+    // :980 `s_beqdec_alvar al_sword1,clshipUNDERboost_Istrat` — TEST-then-DEC.
+    if g.objs.aliens[idx as usize].sword1 == 0 {
+        clship_underboost_enter(g, idx);
+        clship_underboost_step(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sword1 -= 1;
+    if let Some(pl) = player(g) {
+        let tick1 = frame_tick_mod(g, 1);
+        let al = &mut g.objs.aliens[idx as usize];
+        // :983-985 worldz chase toward player.worldz + svar_word2, shift 4.
+        al.worldz = chase_proportional(al.worldz, pl.worldz.wrapping_add(zoff), 4);
+        // :987-989 worldy chase toward player.worldy + svar_word3, shift 5.
+        al.worldy = chase_proportional(al.worldy, pl.worldy.wrapping_add(yoff), 5);
+        // :992 `s_achase_alvar2alvar al_rotx,y,al_rotx,5`.
+        let mut rotx = al.rotx;
+        achase_angle(&mut rotx, pl.rotx, 5);
+        al.rotx = rotx;
+        // :994 `s_jmp_notdelay 1,.ny`.
+        if tick1 {
+            let mut rotz = al.rotz;
+            achase_angle(&mut rotz, pl.rotz, 5); // :995
+            al.rotz = rotz;
+            let mut roty = al.roty;
+            achase_angle(&mut roty, pl.roty, 4); // :996
+            al.roty = roty;
+        }
+    }
+    add_player_z(g, idx); // :999
+    let w2 = g.vars.psvar_word2;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_add(w2); // :1000
+}
+
+/// ASM clshipUNDERboost_Istrat (GCSTRATS.ASM:1005): just swaps to the boost
+/// strat (sound is commented out in the ROM).
+fn clship_underboost_enter(g: &mut Game, idx: u16) {
+    let s = sid(g, clship_underboost_step);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+}
+
+/// ASM clshipUNDERboost_strat (GCSTRATS.ASM:1011): ramp to speed 40 and fly
+/// off along roty, banking per sbyte1 (1 = one way, 2 = the other, 0 = none).
+fn clship_underboost_step(g: &mut Game, idx: u16) {
+    let tick1 = frame_tick_mod(g, 1);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        speed_to(al, 40, 1); // :1014
+        gen_vecs_2d(al); // :1015 s_gen_vecs roty,vel
+        apply_velocity(al); // :1016 (vz NOT zeroed, unlike bridge)
+        // :1018 `s_jmp_alvarZERO al_sbyte1,.nnz`.
+        if al.sbyte1 != 0 {
+            // :1020 `s_jmp_alvarNE al_sbyte1,#1,.nl`.
+            if al.sbyte1 == 1 {
+                al.rotz = al.rotz.wrapping_add(1); // :1021
+                if tick1 {
+                    al.roty = al.roty.wrapping_add(1); // :1023
+                }
+            } else {
+                al.rotz = al.rotz.wrapping_sub(1); // :1026
+                if tick1 {
+                    al.roty = al.roty.wrapping_sub(1); // :1028
+                }
+            }
+        }
+    }
+    add_player_z(g, idx); // :1032
+}
+
+fn clship_undera_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, -70, 4); // :935
+    clship_under_cont(g, idx, -100, 20); // :937-938
+}
+
+fn clship_underb_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, 70, 4); // :957
+    clship_under_cont(g, idx, -200, 20);
+}
+
+fn clship_underc_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = chase_proportional(al.worldx, 0, 4); // :972
+    clship_under_cont(g, idx, -300, 30);
+}
+
+/// Port of `clshipUNDERa_Istrat` (GCSTRATS.ASM:922).
+pub fn strat_clship_undera_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_undera_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotz = DEG90.wrapping_neg(); // :927 -deg90
+    al.roty = DEG45; // :928
+    al.sword1 = 140 + 5; // :929 = 145
+    al.sbyte1 = 1; // :930 bank one way
+    al.sflags2 |= CLSHIP_FLAG2; // :931 set sflag2 (sound-only, dead)
+}
+
+/// Port of `clshipUNDERb_Istrat` (GCSTRATS.ASM:944).
+pub fn strat_clship_underb_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_underb_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotz = DEG90; // :949
+    al.roty = DEG45.wrapping_neg(); // :950 -deg45
+    al.sword1 = 140 + 10; // :951 = 150
+    al.sbyte1 = 2; // :952 bank the other way
+    al.sflags2 &= !CLSHIP_FLAG2; // :953 clr sflag2
+}
+
+/// Port of `clshipUNDERc_Istrat` (GCSTRATS.ASM:963). No rotz/roty/sbyte1 set.
+pub fn strat_clship_underc_init(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_underc_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sword1 = 140 + 15; // :968 = 155
+    al.sflags2 |= CLSHIP_FLAG2; // :969
+}
+
+// ============================================================
 // BOSS EXPLOSION STRATEGIES (EXPSTRAT.ASM; C strat_enemy.c:6815-7333)
 // Shared with the enemy_b/bosses lanes (pub/pub(crate)).
 // ============================================================
@@ -6212,6 +6872,36 @@ pub struct EnemyAStratIds {
     pub clship_chaseb: StratId,
     /// `clshipCHASEC_Istrat`.
     pub clship_chasec: StratId,
+    /// `clshipSHIPa_Istrat`.
+    pub clship_shipa: StratId,
+    /// `clshipSHIPb_Istrat`.
+    pub clship_shipb: StratId,
+    /// `clshipSHIPc_Istrat`.
+    pub clship_shipc: StratId,
+    /// `clshipTURNa_Istrat`.
+    pub clship_turna: StratId,
+    /// `clshipTURNb_Istrat`.
+    pub clship_turnb: StratId,
+    /// `clshipTURNc_Istrat`.
+    pub clship_turnc: StratId,
+    /// `clshipBRIDGEa_Istrat`.
+    pub clship_bridgea: StratId,
+    /// `clshipBRIDGEb_Istrat`.
+    pub clship_bridgeb: StratId,
+    /// `clshipBRIDGEc_Istrat`.
+    pub clship_bridgec: StratId,
+    /// `clshipDIVEa_Istrat`.
+    pub clship_divea: StratId,
+    /// `clshipDIVEb_Istrat`.
+    pub clship_diveb: StratId,
+    /// `clshipDIVEc_Istrat`.
+    pub clship_divec: StratId,
+    /// `clshipUNDERa_Istrat`.
+    pub clship_undera: StratId,
+    /// `clshipUNDERb_Istrat`.
+    pub clship_underb: StratId,
+    /// `clshipUNDERc_Istrat`.
+    pub clship_underc: StratId,
     /// `bossdelayexplode_Istrat` (`Strat_BossDelayExplode_Init`).
     pub boss_delay_explode: StratId,
     /// `qbossexplode_Istrat` (`Strat_QBossExplode_Init`).
@@ -6281,6 +6971,21 @@ pub fn install(g: &mut Game) -> EnemyAStratIds {
         clship_chasea: sid(g, strat_clship_chasea_init),
         clship_chaseb: sid(g, strat_clship_chaseb_init),
         clship_chasec: sid(g, strat_clship_chasec_init),
+        clship_shipa: sid(g, strat_clship_shipa_init),
+        clship_shipb: sid(g, strat_clship_shipb_init),
+        clship_shipc: sid(g, strat_clship_shipc_init),
+        clship_turna: sid(g, strat_clship_turna_init),
+        clship_turnb: sid(g, strat_clship_turnb_init),
+        clship_turnc: sid(g, strat_clship_turnc_init),
+        clship_bridgea: sid(g, strat_clship_bridgea_init),
+        clship_bridgeb: sid(g, strat_clship_bridgeb_init),
+        clship_bridgec: sid(g, strat_clship_bridgec_init),
+        clship_divea: sid(g, strat_clship_divea_init),
+        clship_diveb: sid(g, strat_clship_diveb_init),
+        clship_divec: sid(g, strat_clship_divec_init),
+        clship_undera: sid(g, strat_clship_undera_init),
+        clship_underb: sid(g, strat_clship_underb_init),
+        clship_underc: sid(g, strat_clship_underc_init),
         boss_delay_explode: sid(g, strat_boss_delay_explode_init),
         qboss_explode: sid(g, strat_qboss_explode_init),
         boss_explode: sid(g, strat_boss_explode_init),
