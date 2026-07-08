@@ -737,6 +737,77 @@ pub const ASF3_SAMESHAPECOLLIDE: u8 = 0x80;
 /// `chkcoll`, that the same-shape gate compares each candidate against.
 pub const RETAIL_CURRSHAPE: u32 = 0x1F03;
 
+// ------------------------------------------------------------------------
+// PLAYER MOVEMENT — the per-frame physics the ship runs every frame it is
+// alive: steering -> rotation accumulators -> velocity, position integration,
+// the screen-edge BOUNDS clamp, and the boost/brake speed ramp. The two
+// runnable cores located here are the pieces that are pure/ROM-resident and so
+// can be RUN surgically vs the port:
+//   * playerlimitx_srou — the screen-edge X bounds clamp (+ edge arrows). The
+//     "known concern": inclusive vs exclusive boundary + which arrow fires.
+//   * sr_speedto        — the boost/brake speed ramp (`al_vel` -> tospeed).
+// The rest of the pipeline is certified elsewhere: the steering->velocity map
+// is `gen_3dvecs`/`n3dvecs_l` (UPDATE 8) and the position integrator is
+// `addalvecs_l` (UPDATE 1), both already MATCH vs retail. Located by masked
+// signature scan of the retail cart, cross-validated by reading operands back.
+// ------------------------------------------------------------------------
+
+/// Retail `playerlimitx_srou` ($0B:DF21, PSTRATS.ASM:2819-2829) — the player's
+/// screen-edge X clamp, run every frame after `add_vecs2pos`. Body (8-bit A in,
+/// REP #$20 for each 16-bit compare):
+/// `lda arrows; and #$F3; sta arrows;                 (clear left|right arrows)
+///  rep; lda al_worldX,x; cmp minpmoveX; sep;
+///  beq .clmpMin; bmi .clmpMin; jml .nminX;           (clamp iff worldX <= min)
+///  .clmpMin: rep; lda minpmoveX; sta al_worldX,x; sep; lda arrows; ora #$04; sta;
+///  .nminX: rep; lda al_worldX,x; cmp maxpmoveX; sep;
+///  bpl .clmpMax; jml .nmaxX;                          (clamp iff worldX >= max)
+///  .clmpMax: rep; lda maxpmoveX; sta al_worldX,x; sep; lda arrows; ora #$08; sta;
+///  .nmaxX: rts`. BOTH boundaries are INCLUSIVE: the min side clamps on `<=`
+/// (BEQ+BMI), the max side on `>=` (BPL after CMP). Located by masked scan
+/// (UNIQUE) with the arrows/min/max operands wildcarded; the AND #$F3, the
+/// F0/30/5C boundary triple, and the ORA #$04/#$08 arrow sets pin it. Port <->
+/// `player::playerlimit_x_srou` (X portion). NOTE: the port ALSO clamps Y
+/// (miny/maxy) in the same fn — that is an HD-runtime addition NOT present in
+/// the ROM `playerlimitx_srou`, so only the X clamp + LEFT/RIGHT arrows are
+/// certified here.
+pub const RETAIL_PLAYERLIMITX_SROU: u32 = 0x0B_DF21;
+/// Retail `arrows` ($1FC7, built $1ACB) — the edge-arrow HUD bitfield, read out
+/// of `playerlimitx_srou`'s `lda/sta arrows` operands. Bits: up=1, down=2,
+/// left=4, right=8.
+pub const RETAIL_ARROWS: u32 = 0x1FC7;
+/// Retail `minpmoveX`/`maxpmoveX` ($156F/$1571, built $15F9/$15FB) — the
+/// player's X movement box, read out of `playerlimitx_srou`'s `cmp`/`lda`
+/// operands (contiguous words, identical +2 spacing as built). Port <->
+/// `g.vars` MINPMOVEX/MAXPMOVEX slots.
+pub const RETAIL_MINPMOVEX: u32 = 0x156F;
+pub const RETAIL_MAXPMOVEX: u32 = 0x1571;
+/// `sprar_left` (4) / `sprar_right` (8) — the edge arrows `playerlimitx_srou`
+/// sets, from its `ora #imm` operands. Port <-> `player::SPRAR_LEFT/RIGHT`.
+pub const SPRAR_LEFT: u8 = 0x04;
+pub const SPRAR_RIGHT: u8 = 0x08;
+
+/// Retail `sr_speedto` ($1F:D60D, STRATROU.ASM:2707-2733) — the speed ramp
+/// (`JSL`/`RTL`, 8-bit A). Given A=rate on entry, `tpa`=target speed, X=object:
+/// `sta tpx(=rate); lda al_vel,x; sec; sbc tpa; beq .nsc(->sec;rtl);
+///  bpl+; nega;                                        (|vel - target|)
+///  cmp tpx; bpl .sc;                                  (|diff| >= rate -> step)
+///  lda tpa; bra .fs;                                  (|diff| < rate -> SNAP)
+///  .sc: lda al_vel,x; cmp tpa; <Fchase_A tpx>;        (step by rate, no overshoot)
+///  .fs: sta al_vel,x; clc; rtl`. The snap-when-near guard is why the step
+/// never over/undershoots (the port's overflow fix mirrors this). Located by
+/// masked scan (UNIQUE); its three `tpa` operands all read back == [`RETAIL_TPA`]
+/// ($14C5) — the SAME `tpa` scratch as `do_coll`/`sr_make_obj`, an independent
+/// cross-validation. `al_vel` struct offset = $15; `tpx` (rate) = dp $3A.
+/// Port <-> `common::strat_speed_to`. This is the boost/brake ramp: `viewmove_srou`
+/// calls it as `strat_speed_to(al, player_tospeed, 2)` each frame (boost sets
+/// tospeed=MAX_PSPEED=85, brake sets MIN_PSPEED=20).
+pub const RETAIL_SR_SPEEDTO: u32 = 0x1F_D60D;
+/// `al_vel` struct offset ($15) — the ship's scalar forward speed the boost/
+/// brake ramp drives (identical retail/built/port; from `sr_speedto`'s
+/// `lda al_vel,x` operand). Distinct from `al_vx/vy/vz` ($2F/$31/$33), the
+/// 3D velocity components `gen_3dvecs` derives from it + the rotations.
+pub const AL_VEL: u32 = 0x15;
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.

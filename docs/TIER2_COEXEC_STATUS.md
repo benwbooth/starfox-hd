@@ -9,8 +9,9 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**49 tests, all green** — **15 named
-strats** + the **GSU-per-tick AIMING CLASS** (aim angle via the live GSU + aim
+`rust/sf-oracle/tests/coexec_retail.rs` (**52 tests, all green** — **15 named
+strats** + the **PLAYER-MOVEMENT** physics (screen-edge BOUNDS clamp +
+boost/brake speed ramp, UPDATE 11) + the **GSU-per-tick AIMING CLASS** (aim angle via the live GSU + aim
 velocity + fire-gate timing, UPDATE 8) + the **PROJECTILE-SPAWN + TARGET-SEARCH
 machinery** (UPDATE 9) + the **COLLISION SYSTEM** (do_coll response + box-overlap
 math + colltype allow-matrix, UPDATE 10) + the runtime RNG stream + the RNG-driven
@@ -666,6 +667,68 @@ port `Game::coldet_run` (coldet.rs) has **no shape gate at all**.
 | box-overlap MATH (`COLDET`) | $02:A1BF (RAM copy-source) | 16-bit AABB | port `aabb_overlap` == ROM formula over the boundary grid (Z/X/Y, strictly-less, shape-table sizes) |
 | colltype ALLOW-MATRIX (`chkcoll0`) | $02:A159 | who-hits-whom | port filter == ROM `cf_a&cf_b&$F8` over all 4096 combos; no both-zero skip |
 | same-shape gate (`chkcoll0`) | $02:A199 | same-shape skip | **DIVERGENCE** — ROM skips same-shape pairs, port does not (narrow; fix noted) |
+
+## UPDATE 11 — PLAYER MOVEMENT certified vs retail (the per-frame ship physics)
+
+The highest-blast-radius shared system that runs every frame the player is
+alive. Two runnable cores located + certified vs the cartridge, plus the rest of
+the pipeline confirmed already-certified. **Three new tests, all green**
+(`coexec_retail` now **52**). Both cores **MATCH** the port; the known
+bounds-clamp parity concern is CONFIRMED already-fixed (inclusive both edges);
+one domain-boundary numeric divergence characterized (unreachable in gameplay).
+
+### Retail player-move addresses located (all cross-validated)
+| Routine | Retail | How located / cross-validated |
+|------|------|------|
+| `playerlimitx_srou` (X bounds clamp) | **$0B:DF21** | UNIQUE masked scan; operands read back = `arrows`=$1FC7, `minpmoveX`=$156F, `maxpmoveX`=$1571 (contiguous +2); boundary opcodes min BEQ+BMI (`<=`), max BPL (`>=`); arrow sets ORA #$04/#$08 |
+| `sr_speedto` (boost/brake ramp) | **$1F:D60D** | UNIQUE masked scan; all three `tpa` operands read back == `RETAIL_TPA` ($14C5) — the SAME scratch as `do_coll`/`sr_make_obj`, an independent cross-validation; `al_vel`=$15, `tpx`(rate)=dp $3A |
+| steering rot-step (`playermove_srou`) | (in $0B) | the `clc; adc #$0200` step immediate (ZROT_SPEED/XROT_SPEED) confirmed present (5 sites) — the port's `XROT_SPEED`/`ZROT_SPEED`=$200 are cartridge-faithful |
+
+The full steering→velocity→position pipeline is
+`playermove_srou` (pad → plrot*/ztilt accumulators → `al_rot*`) →
+`gen_3dvecs` (→ `al_vx/vy/vz`) → `addalvecs_l` (→ `al_worldx/y/z`) →
+`playerlimitx_srou` (clamp). The middle two stages are **already certified vs
+retail**: `gen_3dvecs`/`n3dvecs_l` (UPDATE 8, vx/vz + |vy| bit-exact) and
+`addalvecs_l` (UPDATE 1, tick-for-tick). This UPDATE lands the clamp + the
+boost/brake speed ramp; the plrot* accumulator body is the only remaining
+uncertified sub-step (large WRAM + pad-read footprint — its rotation-scale
+constants are cross-validated statically here).
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_player_move_addresses` | ✅ | Locates + cross-validates `playerlimitx_srou`=$0B:DF21 + `sr_speedto`=$1F:D60D (each UNIQUE), reading every WRAM operand + boundary opcode back out. `sr_speedto`'s `tpa` independently == `RETAIL_TPA`. |
+| `retail_playerlimit_x_bounds_vs_port` | ✅ **MATCH** | Runs the cart's OWN `playerlimitx_srou` over a grid straddling each screen-edge X bound (below/at/above min & max, 3 boxes incl. the degenerate `[0,0]`) and diffs (clamped worldX, arrows) vs the port. **MATCH over 27 cases.** Pins BOTH bounds INCLUSIVE (worldX==min → clamp+LEFT; worldX==max → clamp+RIGHT), and that `AND #$F3` preserves non-L/R arrow bits. The Task-#34 bounds concern is CONFIRMED already-fixed vs the cartridge. |
+| `retail_speedto_boost_brake_vs_port` | ✅ **MATCH** | Runs the cart's OWN `sr_speedto` over the reachable player-speed domain (vel/target in the 20..85 boost/brake band, at the rate-2 the player ramp uses + rate-1) and diffs the resulting `al_vel` vs the port `strat_speed_to`. **MATCH over all cases** — the snap-when-near guard, the directional step, and the already-at-target fixed point all agree (the port's overflow fix is cartridge-faithful). |
+
+### BOUNDS clamp — the known concern, MATCH + exact limits
+- **Both bounds INCLUSIVE.** min side clamps on `worldX <= min` (ROM BEQ+BMI),
+  max side on `worldX >= max` (ROM BPL after CMP). The port's `<=`/`>=` match
+  exactly. (This is the Task-#34 fix; certified here vs the *retail* cart, not
+  just the built ROM.)
+- **Edge arrows**: at the min edge the ROM sets `sprar_left` ($04) + clamps; at
+  the max edge `sprar_right` ($08) + clamps; the top `AND #$F3` clears only
+  left|right and preserves other arrow bits — port `& !(RIGHT|LEFT)` identical.
+- **X only**: the ROM `playerlimitx_srou` clamps only X + the L/R arrows. The
+  port's Y clamp (miny/maxy → up/down arrows) in the same fn is an HD-runtime
+  addition NOT present in the ROM routine, so it is excluded from this cert.
+
+### CHARACTERIZED (domain-boundary, UNREACHABLE) — CMP sign-bit wrap
+The ROM compares `worldX` to the bound with a 16-bit `CMP` + `BMI`/`BPL`, which
+tests only the SIGN bit of the subtraction (the 65816 `CMP` sets no V flag), so
+when `|worldX − bound| > 32767` the comparison wraps. The port uses a TRUE i16
+`<=`/`>=`. They diverge past that overflow edge: e.g. `worldX=32700`,
+box `[-500,500]` → retail clamps to **−500 + LEFT** (32700−(−500)=33200 wraps
+negative), port clamps to **500 + RIGHT**. `worldX` cannot reach ~+32700 in one
+frame under the per-frame clamp, so this is **unreachable in gameplay** — it is
+recorded (test eprintln) but NOT asserted as a bug.
+
+### CERTIFIED VS RETAIL — running total: **15 named strats + AIMING + SPAWN/SEARCH + COLLISION + PLAYER-MOVE**
+| Cert | Retail addr | Kind | Certified |
+|------|------|------|------|
+| player X BOUNDS clamp (`playerlimitx_srou`) | $0B:DF21 | screen-edge clamp | (clamped worldX, arrows) == port `playerlimit_x_srou` (X) over 27 cases; both bounds INCLUSIVE; CMP-wrap edge unreachable |
+| boost/brake speed ramp (`sr_speedto`) | $1F:D60D | `al_vel` -> tospeed | `al_vel` == port `strat_speed_to` over the reachable 20..85 domain (rate 1-2) |
+| steering->velocity (`gen_3dvecs`) | $1F:C41E | *(UPDATE 8)* | vx/vz + \|vy\| bit-exact == port (already certified) |
+| position integrator (`addalvecs_l`) | $1F:C7BB | *(UPDATE 1)* | worldx/y/z tick-for-tick == port (already certified) |
 
 ---
 

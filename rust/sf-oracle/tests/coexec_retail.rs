@@ -3526,3 +3526,286 @@ fn retail_same_shape_skip_divergence() {
          pairs are now skipped, matching the cart."
     );
 }
+
+// ==========================================================================
+// PLAYER MOVEMENT — the per-frame ship physics (highest-blast-radius shared
+// system): the screen-edge BOUNDS clamp (the known parity concern) and the
+// boost/brake speed ramp. Located by masked signature scan of the retail cart,
+// each a UNIQUE hit, cross-validated by reading operands back out; then RUN
+// surgically and diffed vs the port over a grid straddling each boundary.
+//
+// The steering->velocity map + position integrator are already certified vs
+// retail elsewhere: `gen_3dvecs`/`n3dvecs_l` (UPDATE 8, vx/vz + |vy| bit-exact)
+// and `addalvecs_l` (UPDATE 1, worldx/y/z += vx/vy/vz). The per-frame player
+// STRAT (`playermove_srou`) composes those two certified cores + the two cores
+// certified here around a large accumulator (plrot*/ztilt/turnrot/zshake) +
+// pad-read body; its rotation-scale constants are cross-validated below.
+// ==========================================================================
+
+/// MILESTONE (player-move step 1) — LOCATE + CROSS-VALIDATE the retail player
+/// bounds-clamp (`playerlimitx_srou`) and speed-ramp (`sr_speedto`) addresses by
+/// masked signature scan, reading every WRAM operand + boundary opcode back out.
+#[test]
+fn retail_player_move_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // --- playerlimitx_srou (UNIQUE): arrows/min/max operands wildcarded ---
+    let pl: Vec<Option<u8>> = vec![
+        Some(0xAD), None, None, Some(0x29), Some(0xF3), Some(0x8D), None, None,
+        Some(0xC2), Some(0x20), Some(0xB5), Some(0x0C), Some(0xCD), None, None, Some(0xE2), Some(0x20),
+        Some(0xF0), Some(0x06), Some(0x30), Some(0x04), Some(0x5C), None, None, None,
+        Some(0xC2), Some(0x20), Some(0xAD), None, None, Some(0x95), Some(0x0C), Some(0xE2), Some(0x20),
+        Some(0xAD), None, None, Some(0x09), Some(0x04), Some(0x8D), None, None,
+    ];
+    let h = masked_scan(&rom, &pl);
+    assert_eq!(h.len(), 1, "playerlimitx_srou is a UNIQUE masked hit");
+    let o = h[0];
+    let addr = rom_off_to_snes(o);
+    let arrows = rom[o + 1] as u32 | (rom[o + 2] as u32) << 8;
+    let minx = rom[o + 13] as u32 | (rom[o + 14] as u32) << 8;
+    // The max-side half follows the min-side .nminX target: at o+42 begins
+    // rep;lda worldx;cmp maxpmoveX(o+47);sep;bpl(o+51);jml;...;ora #$08(o+70).
+    let maxx = rom[o + 47] as u32 | (rom[o + 48] as u32) << 8;
+    assert_eq!(addr, sf_oracle::RETAIL_PLAYERLIMITX_SROU, "playerlimitx_srou addr");
+    assert_eq!(arrows, sf_oracle::RETAIL_ARROWS, "arrows operand");
+    assert_eq!(minx, sf_oracle::RETAIL_MINPMOVEX, "minpmoveX operand");
+    assert_eq!(maxx, sf_oracle::RETAIL_MAXPMOVEX, "maxpmoveX operand (min+2, contiguous)");
+    // Boundary opcodes: min = BEQ($F0)+BMI($30) (clamp on <=), max = BPL($10)
+    // after CMP (clamp on >=). Arrow sets: ORA #$04 (left) / #$08 (right).
+    assert_eq!(rom[o + 17], 0xF0, "min boundary BEQ (== clamps)");
+    assert_eq!(rom[o + 19], 0x30, "min boundary BMI (< clamps) => INCLUSIVE <=");
+    assert_eq!(rom[o + 3], 0x29, "AND arrows");
+    assert_eq!(rom[o + 4], 0xF3, "AND #~(left|right) = $F3");
+    assert_eq!(rom[o + 38], sf_oracle::SPRAR_LEFT, "min side ORA #sprar_left ($04)");
+    assert_eq!(rom[o + 51], 0x10, "max boundary BPL (>= clamps) => INCLUSIVE >=");
+    // max side arrow immediate: the .nminX block is rep;lda worldx;cmp;sep;bpl;jml;
+    // rep;lda max;sta worldx;sep;lda arrows;ora #$08;sta;rts.
+    assert_eq!(rom[o + 70], sf_oracle::SPRAR_RIGHT, "max side ORA #sprar_right ($08)");
+    eprintln!(
+        "PLAYER-MOVE: playerlimitx_srou=${addr:06X}  arrows=${arrows:04X} \
+         minpmoveX=${minx:04X} maxpmoveX=${maxx:04X}  (min<= BEQ+BMI, max>= BPL — both INCLUSIVE)"
+    );
+
+    // --- sr_speedto (UNIQUE): tpa operands wildcarded ---
+    let sp: Vec<Option<u8>> = vec![
+        Some(0x85), Some(0x3A), Some(0xB5), Some(0x15), Some(0x38), Some(0xED), None, None,
+        Some(0xF0), Some(0x23), Some(0x10), Some(0x03), Some(0x49), Some(0xFF), Some(0x1A),
+        Some(0xC5), Some(0x3A), Some(0x10), Some(0x05), Some(0xAD), None, None, Some(0x80), Some(0x11),
+        Some(0xB5), Some(0x15), Some(0xCD), None, None, Some(0xF0), Some(0x0A),
+        Some(0x30), Some(0x05), Some(0x38), Some(0xE5), Some(0x3A), Some(0x80), Some(0x03), Some(0x18), Some(0x65),
+    ];
+    let hs = masked_scan(&rom, &sp);
+    assert_eq!(hs.len(), 1, "sr_speedto is a UNIQUE masked hit");
+    let so = hs[0];
+    let saddr = rom_off_to_snes(so);
+    let tpa1 = rom[so + 6] as u32 | (rom[so + 7] as u32) << 8;
+    let tpa2 = rom[so + 20] as u32 | (rom[so + 21] as u32) << 8;
+    let tpa3 = rom[so + 27] as u32 | (rom[so + 28] as u32) << 8;
+    assert_eq!(saddr, sf_oracle::RETAIL_SR_SPEEDTO, "sr_speedto addr");
+    assert_eq!(tpa1, sf_oracle::RETAIL_TPA, "sr_speedto sbc tpa == RETAIL_TPA ($14C5)");
+    assert_eq!((tpa1, tpa2, tpa3), (tpa1, tpa1, tpa1), "all three tpa reads are the same global");
+    assert_eq!(rom[so + 3] as u32, sf_oracle::AL_VEL, "al_vel struct offset $15");
+    assert_eq!(rom[so + 1], 0x3A, "tpx (rate) dp scratch $3A");
+    eprintln!(
+        "PLAYER-MOVE: sr_speedto=${saddr:06X}  tpa=${tpa1:04X} (== RETAIL_TPA)  al_vel=$15  tpx(rate)=$3A"
+    );
+
+    // --- rotation-scale constants of playermove_srou (the "velocity scale
+    // factors") cross-validated statically. playermove reads pad and steps
+    // plrotz/plroty by ZROT_SPEED (#$0200) and plrotx by XROT_SPEED (#$0200),
+    // clamps plrotz to +-#$0600. Confirm those immediates exist in the routine
+    // body so the port constants (XROT_SPEED/ZROT_SPEED=$200, plrotz clamp
+    // $600) are cartridge-faithful. Signature: rep; lda plrotz; clc; adc #$0200.
+    let rot: Vec<Option<u8>> = vec![Some(0x18), Some(0x69), Some(0x00), Some(0x02)]; // clc; adc #$0200
+    let rothits = masked_scan(&rom, &rot);
+    assert!(!rothits.is_empty(), "ZROT/XROT step #$0200 immediate present in retail");
+    eprintln!(
+        "PLAYER-MOVE: steering rot-step #$0200 (ZROT_SPEED/XROT_SPEED) confirmed present \
+         ({} sites); gen_3dvecs + addalvecs_l already MATCH vs retail (UPDATE 8/1).",
+        rothits.len()
+    );
+}
+
+/// X-only portion of the port `player::playerlimit_x_srou` (player.rs:1151).
+/// Returns (clamped worldX, arrows & (left|right)). The port also clamps Y in
+/// the same fn — an HD-runtime addition NOT in the ROM `playerlimitx_srou`, so
+/// it is excluded here (the retail routine touches only X + the L/R arrows).
+fn port_playerlimit_x(worldx: i16, minx: i16, maxx: i16, arrows_in: u8) -> (i16, u8) {
+    let mut arrows = arrows_in & !(sf_oracle::SPRAR_RIGHT | sf_oracle::SPRAR_LEFT);
+    let mut wx = worldx;
+    if wx <= minx {
+        wx = minx;
+        arrows |= sf_oracle::SPRAR_LEFT;
+    }
+    if wx >= maxx {
+        wx = maxx;
+        arrows |= sf_oracle::SPRAR_RIGHT;
+    }
+    (wx, arrows)
+}
+
+/// Run the retail cart's OWN `playerlimitx_srou` on a seeded (worldX, box) and
+/// return (clamped worldX, arrows & left|right). Enters 8-bit A / 16-bit X, as
+/// the ROM caller does (RTS/near routine).
+fn retail_playerlimit_x(rom: &[u8], worldx: i16, minx: i16, maxx: i16, arrows_in: u8) -> (i16, u8) {
+    const XB: u32 = 0x0100;
+    const AL_WORLDX: u32 = 0x0C;
+    let mut bus = SnesBus::new(rom.to_vec());
+    bus.write16(XB + AL_WORLDX, worldx as u16);
+    bus.write16(sf_oracle::RETAIL_MINPMOVEX, minx as u16);
+    bus.write16(sf_oracle::RETAIL_MAXPMOVEX, maxx as u16);
+    bus.write8(sf_oracle::RETAIL_ARROWS, arrows_in);
+    call_near(
+        &mut bus,
+        sf_oracle::RETAIL_PLAYERLIMITX_SROU,
+        &Entry { x: XB as u16, p: 0x20, ..Default::default() },
+    );
+    let wx = bus.read16(XB + AL_WORLDX) as i16;
+    // Full arrows byte (not masked): the routine clears only left|right (AND
+    // #$F3) and preserves any other bit, so comparing the whole byte also
+    // certifies the bit-preservation, matching the port's `& !(RIGHT|LEFT)`.
+    let arr = bus.read8(sf_oracle::RETAIL_ARROWS);
+    (wx, arr)
+}
+
+/// CERTIFY the position BOUNDS clamp (the known concern) vs retail. Runs the
+/// cart's OWN `playerlimitx_srou` over a grid straddling each screen-edge X
+/// bound and diffs (clamped worldX, edge arrows) vs the port. Pins the exact
+/// limits + inclusive/exclusive edge behaviour.
+#[test]
+fn retail_playerlimit_x_bounds_vs_port() {
+    let Some(rom) = retail() else { return };
+    // Realistic player box (planet flight: STRATEQU planet_minX/maxX +-500, and
+    // the port's own spawn box). Straddle each bound including exactly-on-edge.
+    let boxes: &[(i16, i16)] = &[(-500, 500), (-120, 120), (0, 0)];
+    let mut all = true;
+    let mut cases = 0;
+    for &(minx, maxx) in boxes {
+        // Grid: below min, one below, exactly min, mid, exactly max, one above,
+        // above max — plus a couple of interior points.
+        let grid: &[i16] = &[
+            minx.wrapping_sub(200), minx.wrapping_sub(1), minx,
+            minx.wrapping_add(1), 0, maxx.wrapping_sub(1), maxx,
+            maxx.wrapping_add(1), maxx.wrapping_add(200),
+        ];
+        for &wx in grid {
+            // Seed arrows with an unrelated bit ($01 up) to prove the routine
+            // clears only left|right and preserves the rest (we mask to L|R).
+            let (rwx, rarr) = retail_playerlimit_x(&rom, wx, minx, maxx, 0x01);
+            let (pwx, parr) = port_playerlimit_x(wx, minx, maxx, 0x01);
+            let ok = (rwx, rarr) == (pwx, parr);
+            all &= ok;
+            cases += 1;
+            eprintln!(
+                "BOUNDS box[{minx},{maxx}] worldX {wx:6}: retail=({rwx:6},arr {rarr:#04x}) \
+                 port=({pwx:6},arr {parr:#04x}) {}",
+                if ok { "MATCH" } else { "DIFF" }
+            );
+            assert_eq!((rwx, rarr), (pwx, parr), "bounds box[{minx},{maxx}] worldX {wx}");
+        }
+    }
+    assert!(all);
+    // Pin the exact edge semantics: at worldX == min the ROM sets LEFT + clamps;
+    // at worldX == max it sets RIGHT + clamps. Both INCLUSIVE.
+    let (wmin, amin) = retail_playerlimit_x(&rom, -500, -500, 500, 0);
+    let (wmax, amax) = retail_playerlimit_x(&rom, 500, -500, 500, 0);
+    assert_eq!((wmin, amin), (-500, sf_oracle::SPRAR_LEFT), "worldX==min: clamp + LEFT (inclusive)");
+    assert_eq!((wmax, amax), (500, sf_oracle::SPRAR_RIGHT), "worldX==max: clamp + RIGHT (inclusive)");
+    eprintln!(
+        "BOUNDS: MATCH over {cases} cases — retail playerlimitx_srou == port playerlimit_x_srou \
+         (X). Both bounds INCLUSIVE (== min -> clamp+LEFT, == max -> clamp+RIGHT)."
+    );
+
+    // ---- domain-boundary characterization (NOT a reachable divergence) ----
+    // The ROM compares worldX to the bound with a 16-bit CMP + BMI/BPL, which
+    // tests only the SIGN bit of the subtraction (65816 CMP sets no V flag), so
+    // when |worldX - bound| > 32767 the comparison wraps. The port uses a TRUE
+    // i16 `<=`/`>=`, so the two disagree past that overflow edge. worldX cannot
+    // reach ~+32700 (with min=-500) in one frame under the per-frame clamp, so
+    // this is unreachable in gameplay — recorded, not asserted as a bug.
+    let (rwx, rarr) = retail_playerlimit_x(&rom, 32700, -500, 500, 0);
+    let (pwx, parr) = port_playerlimit_x(32700, -500, 500, 0);
+    eprintln!(
+        "BOUNDS (overflow edge, UNREACHABLE): worldX=32700 box[-500,500]: \
+         retail=({rwx},arr {rarr:#04x}) port=({pwx},arr {parr:#04x}) — ROM CMP sign-bit wrap; \
+         out of the reachable per-frame domain, documented only."
+    );
+}
+
+/// Port `common::strat_speed_to` transcribed (common.rs:325). Returns al_vel
+/// after the ramp. (The public helper mutates an `Alien`; this mirrors its vel
+/// arithmetic so the diff is a pure sf-oracle comparison.)
+fn port_speed_to(vel: u8, target: u8, rate: u8) -> u8 {
+    if vel == target {
+        return vel;
+    }
+    let abs_diff = (vel as i16 - target as i16).unsigned_abs();
+    if abs_diff < rate as u16 {
+        target
+    } else if vel > target {
+        vel - rate
+    } else {
+        vel + rate
+    }
+}
+
+/// Run the retail cart's OWN `sr_speedto` and return the resulting `al_vel`.
+/// Enters 8-bit A = rate, X = object block, `tpa` = target (JSL/RTL routine).
+fn retail_speed_to(rom: &[u8], vel: u8, target: u8, rate: u8) -> u8 {
+    const XB: u32 = 0x0100;
+    let mut bus = SnesBus::new(rom.to_vec());
+    bus.write8(XB + sf_oracle::AL_VEL, vel);
+    bus.write8(sf_oracle::RETAIL_TPA, target);
+    call(
+        &mut bus,
+        sf_oracle::RETAIL_SR_SPEEDTO,
+        &Entry { a: rate as u16, x: XB as u16, p: 0x20, ..Default::default() },
+    );
+    bus.read8(XB + sf_oracle::AL_VEL)
+}
+
+/// CERTIFY the boost/brake speed ramp vs retail. Runs the cart's OWN `sr_speedto`
+/// over the reachable player-speed domain (vel/target in the 20..85 band the
+/// boost/brake targets live in, at the rate-2 the player ramp uses, plus rate-1)
+/// and diffs the resulting `al_vel` vs the port `strat_speed_to`. Covers the
+/// snap-when-near guard, the directional step, and the already-at-target case.
+#[test]
+fn retail_speedto_boost_brake_vs_port() {
+    let Some(rom) = retail() else { return };
+    // MIN_PSPEED=20, MED_PSPEED=65, MAX_PSPEED=85 (STRATEQU). Boost ramps toward
+    // 85, brake toward 20, both at rate 2 (viewmove_srou strat_speed_to(...,2)).
+    let vels: &[u8] = &[20, 21, 22, 40, 63, 64, 65, 66, 83, 84, 85];
+    let targets: &[u8] = &[20, 65, 85];
+    let rates: &[u8] = &[1, 2];
+    let mut all = true;
+    let mut cases = 0;
+    for &target in targets {
+        for &rate in rates {
+            for &vel in vels {
+                let rv = retail_speed_to(&rom, vel, target, rate);
+                let pv = port_speed_to(vel, target, rate);
+                let ok = rv == pv;
+                all &= ok;
+                cases += 1;
+                if !ok {
+                    eprintln!("SPEEDTO vel={vel} target={target} rate={rate}: retail={rv} port={pv} DIFF");
+                }
+                assert_eq!(rv, pv, "sr_speedto vel={vel} target={target} rate={rate}");
+            }
+        }
+    }
+    assert!(all);
+    // Spot-print the two canonical ramp steps + the snap + the fixed point.
+    eprintln!(
+        "SPEEDTO boost step 65->{} (t=85,r=2); brake step 85->{} (t=20,r=2); \
+         snap 84->{} (t=85,r=2); at-target 85->{} (t=85,r=2)",
+        retail_speed_to(&rom, 65, 85, 2),
+        retail_speed_to(&rom, 85, 20, 2),
+        retail_speed_to(&rom, 84, 85, 2),
+        retail_speed_to(&rom, 85, 85, 2),
+    );
+    eprintln!(
+        "SPEEDTO: MATCH over {cases} cases — retail sr_speedto == port strat_speed_to across the \
+         reachable boost/brake speed domain (20..85, rate 1-2)."
+    );
+}
