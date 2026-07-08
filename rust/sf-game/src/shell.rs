@@ -981,7 +981,13 @@ impl Shell {
             le::BHOLE2 => self.planets.routechangebhole2(), // routes[3]=P18 -> Sector Y
             le::BHOLE3 => self.planets.routechangebhole3(), // routes[3]=P20 -> Sector Z
             le::SPECIAL => self.planets.routechange1(),     // routes[0]=P22 -> Out of This Dimension
-            _ => {} // ENTERBHOLE/ENTERSPEC: branch armed upstream (Finding 2)
+            // ROM `routechange 2` (GA2STRAT.ASM:2202) arms routes[1]=P21 before
+            // LE_ENTERBHOLE — the black-hole approach strat (blackhole2_strat)
+            // only holds &mut Game, so the routes[1] arm lands here on dispatch
+            // (nothing reads routes[1] between the strat's trigger frame and the
+            // stage-advance walk). Closes Route Finding 2's ENTER branch.
+            le::ENTERBHOLE => self.planets.routechange2(),
+            _ => {} // ENTERSPEC: needs the sf-path LE_ENTERSPEC store (PATHDATA.ASM:375)
         }
 
         // MAIN.ASM:314-320 `enterbhole`: codes 11-15 append the skipped-stage

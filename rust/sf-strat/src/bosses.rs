@@ -9769,6 +9769,410 @@ fn amoebago_init(g: &mut Game, idx: u16) {
 }
 // AMOEBA_END
 
+// ============================================================
+// BLACKHOLE_BEGIN — the route-warp "black hole" strats (what ARMS the warps
+// that shell.rs LE_* dispatch + planets.rs routechange* already consume).
+//
+// ASM oracle:
+//  * `blackhole_Istrat` (GA2STRAT.ASM:2170-2262) — the black-hole APPROACH on
+//    Asteroid Belt 1. Placed as SH_ASTEROID2 carrying ISTRAT IS_BLACKHOLE
+//    (sf-map route1/level1_2.rs:230, IS_BLACKHOLE=196). It is a normal shootable
+//    asteroid until destroyed; its expstrat MORPHS it into the black hole (shape
+//    #blackhole=194) and switches to `.blackhole2_strat`, the draw-in sequence
+//    that ARMS the enter-warp: `routechange 2` (routes[1]=P21) + `levelfinished
+//    = le_enterbhole` (GA2STRAT.ASM:2202-2203) once sbyte1 counts down to 0.
+//  * `bholeexit1/2/3_istrat` + `bholecoll_istrat` + `blackholeexit_Istrat`
+//    (KSTRATS.ASM:679-758) — the three EXIT gates inside the BLACKHOLE stage.
+//    Placed as SH_GATE_0 carrying IS_BHOLEEXIT1/2/3 (=244/245/246, sf-map
+//    route1/blackhole.rs:94/127/150). Each preloads al_sbyte2 with its LE code
+//    (le_bhole1/2/3 = 11/12/13). Fly into a gate (|dz|<200 && |dx|+|dy|<100) ->
+//    hands to `blackholeexit`, an ~80-frame (10 steps x 8 frames) draw-in that
+//    finally stores `levelfinished = al_sbyte2` (KSTRATS.ASM:730-731). The shell
+//    warp dispatch already re-points routes[3] on those codes (MAIN.ASM:306-311
+//    exittobhole*, mirrored in shell.rs:980-982 -> routechangebhole1/2/3).
+//
+// WHERE/HOW the warp value is SET (game-side representation):
+//  * levelfinished — written directly to `g.world.levelfinished` (the World
+//    field IS the ROM `levelfinished` global; shell.rs gameplay_progress_tick
+//    dispatches on it, le::ENTERBHOLE=15 / le::BHOLE1..3=11..13).
+//  * routechange 2 (the ENTER-warp *arming*) — ROM fires it from inside the
+//    approach strat, one op before the levelfinished store (GA2STRAT.ASM:2202).
+//    The port's `planets.routechange2()` lives on the Shell and is NOT reachable
+//    from a strat (a strat only holds `&mut Game`; `planets` is not on Game).
+//    So this port sets levelfinished=ENTERBHOLE and leaves the routechange2 wire
+//    as the single remaining sf-game follow-up: shell.rs `warp_advance` must add
+//    `le::ENTERBHOLE => self.planets.routechange2()` (today that arm is a no-op
+//    with a "branch armed upstream (Finding 2)" TODO, shell.rs:984). The EXIT
+//    codes need NO such wire — warp_advance already calls routechangebhole1/2/3
+//    on le::BHOLE1/2/3, so the black-hole EXIT path is fully closed by this port.
+//
+// SCOPE (cosmetic ROM sites — ported where a var exists, else a cited no-op):
+//  * draw-in camera pull (achase player X/Y toward viewcy/0, viewdist zoom,
+//    player_zstratadd, screenflash wing frames, outvz) — ported via the
+//    crate::common::sv WRAM cells + g.vars.viewdist. These do not gate the warp.
+//  * startbgm $f4/$f5/$f1 -> g.hooks.play_music; trigse $2c -> play_se; Fadedown
+//    -> fadedir=-1 (MACROS.INC:4042). s_queue_rumble -> no-op (RUMBLE off, as in
+//    every prior boss section). The spawned trailing #blackhole sprites are
+//    cosmetic (colldisable, no warp effect).
+// ============================================================
+
+/// ISTRAT indices in the C-port levels.c numbering (= sf-map placements):
+/// approach on Asteroid Belt 1 (level1_2.rs:230) + the three exit gates
+/// (blackhole.rs:94/127/150).
+pub const IS_BLACKHOLE: usize = 196;
+pub const IS_BHOLEEXIT1: usize = 244;
+pub const IS_BHOLEEXIT2: usize = 245;
+pub const IS_BHOLEEXIT3: usize = 246;
+
+// ROM `LE_*` warp codes (KALCS.INC:91-103) the strats store into levelfinished.
+const LE_ENTERBHOLE: u8 = 15; // enter the BLACK HOLE stage (approach arms it)
+const LE_BHOLE1: u8 = 11; // black-hole exit -> Venom 1 Orbital (routes[3]=P19)
+const LE_BHOLE2: u8 = 12; // black-hole exit -> Sector Y (routes[3]=P18)
+const LE_BHOLE3: u8 = 13; // black-hole exit -> Sector Z (routes[3]=P20)
+
+/// `#blackhole` shape (ISTRATS.ASM:335 def_shape; sf-render shape_data id 194).
+const SH_BLACKHOLE: u16 = 194;
+/// `meteorAP` (STRATEQU.INC:213) — the approach asteroid's contact AP.
+const BH_METEOR_AP: u8 = 12;
+/// al_sflags3 software-sprite bit (obj.h; = amoeba AMOEBA_ASF3_SSPRITE).
+const BH_ASF3_SSPRITE: u8 = 0x80;
+/// `sflag1` — ROM sflags byte2 0x10, relocated to Rust `sflags2` (same port
+/// convention as flingboss FB_SFLAG1 / boss2, keeping colldisable in `sflags`).
+const BH_SFLAG1: u8 = 0x10;
+/// pshipflags3 bits (variables.h PSF3_*): enginesnd 0x02, nocollisions 0x08.
+const BH_PSF3_ENGINESND: u8 = 0x02;
+const BH_PSF3_NOCOLLISIONS: u8 = 0x08;
+/// screenflashwingfrms / screenflashwingtype (STRATEQU.INC:775-776).
+const BH_SCREENFLASH_WING_FRMS: u8 = 2;
+const BH_SCREENFLASH_WING_TYPE: u8 = 1;
+
+// ---------------------------------------------------------------
+// Approach — blackhole_Istrat (GA2STRAT.ASM:2170-2262)
+// ---------------------------------------------------------------
+
+/// `blackhole_Istrat` init (GA2STRAT.ASM:2170-2178). Sets up the shootable
+/// asteroid; its expstrat (below) morphs it into the warp on destruction. The
+/// init runs `s_end_strat` (no same-tick fall-through into `.blackhole_strat`).
+pub fn blackhole_init(g: &mut Game, idx: u16) {
+    let s_tick = sid(g, blackhole_float_strat);
+    let s_col = sid(g, strat_hit_flash);
+    let s_exp = sid(g, blackhole_exp_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    // s_set_alptrs x,.blackhole_strat,hitflash_Istrat,.exp_Istrat
+    al.stratptr = Some(s_tick);
+    al.collstratptr = Some(s_col);
+    al.expstratptr = Some(s_exp);
+    // s_sprite_obj x,#0 (STRATLIB.INC:873): ssprite + depthoffset 0.
+    al.sflags3 |= BH_ASF3_SSPRITE;
+    al.depthoffset = 0;
+    // s_set_aldata x,#20,#meteorAP
+    al.hp = 20;
+    al.ap = BH_METEOR_AP;
+    // s_set_alvar B,x,al_roty,#deg180 / W,al_sword1,#100 / B,al_sbyte1,#70
+    al.roty = DEG180;
+    al.sword1 = 100;
+    al.sbyte1 = 70;
+}
+
+/// `.blackhole_strat` (GA2STRAT.ASM:2244-2247) — inert drift tail: scroll with
+/// the world Z and drift toward the camera. Also the shared tail every branch of
+/// `.blackhole2_strat` / `.blackhole3_strat` falls into.
+fn blackhole_float_strat(g: &mut Game, idx: u16) {
+    add_player_z(g, idx); // s_add_playerZ x
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_sub(30); // s_add_alvar W,x,al_worldz,#-30
+}
+
+/// `.exp_Istrat` (GA2STRAT.ASM:2248-2253) — on destruction the asteroid does NOT
+/// explode; it morphs into the black hole and re-enters at `.blackhole2_strat`
+/// the same tick (s_jmpto_strat).
+fn blackhole_exp_strat(g: &mut Game, idx: u16) {
+    let s2 = sid(g, blackhole2_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.shape = SH_BLACKHOLE; // s_set_alvar W,x,al_shape,#blackhole
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.stratptr = Some(s2); // s_set_strat x,.blackhole2_strat
+    }
+    blackhole2_strat(g, idx); // s_jmpto_strat
+}
+
+/// `.blackhole2_strat` (GA2STRAT.ASM:2179-2247) — the enter-warp draw-in. Once
+/// the ship is within 100 (XZ) it latches sflag1 and counts al_sbyte1 down from
+/// 70; on the tick it reaches 0 it ARMS the warp (levelfinished=le_enterbhole,
+/// preceded in ROM by `routechange 2` — the missing 1-line shell wire noted
+/// above). Every tick it also pulls the camera in + spawns trailing sprites.
+fn blackhole2_strat(g: &mut Game, idx: u16) {
+    // s_jmp_ifplayerdead .ninto — dead player skips the whole warp, just floats.
+    if g.vars.gameflags & GF_PLAYERDEAD != 0 {
+        blackhole_float_strat(g, idx);
+        return;
+    }
+    // s_add_alvar B,x,al_rotz,#12
+    let rz = g.objs.aliens[idx as usize].rotz.wrapping_add(12);
+    g.objs.aliens[idx as usize].rotz = rz;
+    // s_set_objtobeplayer y
+    let Some(p) = player_idx(g) else {
+        blackhole_float_strat(g, idx);
+        return;
+    };
+    // s_jmp_alsflag x,sflag1,.do : once latched, always run the draw-in; before
+    // that, s_jmp_distmore x,y,#100,.ninto gates on the ship approaching (XZ,
+    // inclusive: |d|>=100 skips).
+    if g.objs.aliens[idx as usize].sflags2 & BH_SFLAG1 == 0 {
+        let me = g.objs.aliens[idx as usize];
+        let pl = g.objs.aliens[p as usize];
+        if crate::common::strat_dist_xz(&me, &pl) >= 100 {
+            blackhole_float_strat(g, idx); // .ninto
+            return;
+        }
+        // s_setnoremove_behind x ; s_set_alsflag x,sflag1
+        let al = &mut g.objs.aliens[idx as usize];
+        al.type_ &= !ATZREMOVE;
+        al.sflags2 |= BH_SFLAG1;
+    }
+    // .do
+    let sbyte1 = g.objs.aliens[idx as usize].sbyte1;
+    // s_jmp_alvarNE B,x,al_sbyte1,#70,.nbgm : first draw-in tick starts $f4.
+    if sbyte1 == 70 {
+        g.hooks.play_music(0xf4); // startbgm $f4
+        g.vars.pshipflags3 &= !BH_PSF3_ENGINESND; // s_and_var ~psf3_enginesnd
+    }
+    // s_jmp_alvarNE B,x,al_sbyte1,#31,.nf : near the end, swap music + fade down.
+    if sbyte1 == 31 {
+        g.hooks.play_music(0xf1); // startbgm $f1
+        wm8_set(g, crate::common::sv::FADEDIR, 0xFF); // Fadedown -> fadedir=-1
+    }
+    // s_decbne_alvar B,x,al_sbyte1,.nc : dec; when it hits 0, ARM the warp.
+    let new_sb1 = sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = new_sb1;
+    if new_sb1 == 0 {
+        // routechange 2 (GA2STRAT.ASM:2202) — armed via the shell follow-up wire
+        // (routechange2 lives on planets, unreachable from a strat; see block
+        // note). s_set_var B,levelfinished,#le_enterbhole (GA2STRAT.ASM:2203).
+        g.world.levelfinished = LE_ENTERBHOLE;
+    }
+    // .nc — the draw-in runs every tick regardless of the trigger.
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE; // s_playerctrl off
+    g.vars.pshipflags3 |= BH_PSF3_NOCOLLISIONS; // s_or_var pshipflags3,#psf3_nocollisions
+    // s_achase_alvar W,y,al_worldy,viewcy,2 / W,y,al_worldx,#0,2 (move the ship).
+    let viewcy = wm16s(g, crate::common::sv::VIEWCY);
+    {
+        let al = &mut g.objs.aliens[p as usize];
+        al.worldy = chase_proportional(al.worldy, viewcy, 2);
+        al.worldx = chase_proportional(al.worldx, 0, 2);
+    }
+    g.vars.viewdist = g.vars.viewdist.wrapping_add(8); // s_add_var W,viewdist,#8
+    let pz = wm8(g, crate::common::sv::PLAYER_ZSTRATADD);
+    wm8_set(g, crate::common::sv::PLAYER_ZSTRATADD, pz.wrapping_add(12)); // player_zstratadd += 12
+    wm8_set(g, crate::common::sv::SCREENFLASHCNT, BH_SCREENFLASH_WING_FRMS);
+    wm8_set(g, crate::common::sv::SCREENFLASHTYPE, BH_SCREENFLASH_WING_TYPE);
+    // s_achase_alvar W,x,al_worldy,player_posy,2 / W,x,al_worldx,player_posx,2 ;
+    // s_add_alvar W,x,al_worldz,#-20 (the hole chases the ship).
+    let ppx = g.vars.player_posx;
+    let ppy = g.vars.player_posy;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = chase_proportional(al.worldy, ppy, 2);
+        al.worldx = chase_proportional(al.worldx, ppx, 2);
+        al.worldz = al.worldz.wrapping_sub(20);
+    }
+    // Sound gate (GA2STRAT.ASM:2222-2230): far (sbyte1>30) every 8 frames, close
+    // every 4. `s_jmp_alvarMORE B,x,al_sbyte1,#30` reads the post-dec value.
+    let gf = g.vars.gameframe;
+    let play_snd = if g.objs.aliens[idx as usize].sbyte1 > 30 {
+        gf & 7 == 0
+    } else {
+        gf & 3 == 0
+    };
+    if play_snd {
+        play_se(g, 0x2c); // s_queue_rumble (no-op) + trigse $2c
+    }
+    // s_jmp_notdelay 2,.badobj : spawn a trailing #blackhole sprite every 4 frames.
+    if gf & 3 == 0 {
+        if let Some(child) = make_obj(g, SH_BLACKHOLE) {
+            let ppz = g.vars.player_posz;
+            let mother_sword1 = g.objs.aliens[idx as usize].sword1;
+            let s3 = sid(g, blackhole3_strat);
+            {
+                let c = &mut g.objs.aliens[child as usize];
+                c.sflags3 |= BH_ASF3_SSPRITE; // s_sprite_obj y,#0
+                c.depthoffset = 0;
+                c.sflags |= ASF_COLLDISABLE; // s_set_alsflag y,colldisable
+                c.worldx = ppx; // player_posx
+                c.worldy = ppy; // player_posy
+                // s_set_alvar W,y,al_worldz,player_posz ; s_add_alvars +mother.sword1
+                c.worldz = ppz.wrapping_add(mother_sword1);
+                c.stratptr = Some(s3); // s_set_strat y,.blackhole3_strat
+            }
+            // s_jmp_alvarMORE W,x,al_sword1,#600,.max : grow the trail depth to 600.
+            if mother_sword1 <= 600 {
+                g.objs.aliens[idx as usize].sword1 = mother_sword1.wrapping_add(300);
+            }
+        }
+    }
+    // .badobj / .ninto -> .blackhole_strat tail.
+    blackhole_float_strat(g, idx);
+}
+
+/// `.blackhole3_strat` (GA2STRAT.ASM:2255-2262) — a trailing black-hole sprite:
+/// spin, face away, chase the ship, then the shared float tail.
+fn blackhole3_strat(g: &mut Game, idx: u16) {
+    let ppx = g.vars.player_posx;
+    let ppy = g.vars.player_posy;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(12); // s_add_alvar B,x,al_rotz,#12
+        al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+        al.worldy = chase_proportional(al.worldy, ppy, 2);
+        al.worldx = chase_proportional(al.worldx, ppx, 2);
+        al.worldz = al.worldz.wrapping_sub(20); // s_add_alvar W,x,al_worldz,#-20
+    }
+    blackhole_float_strat(g, idx); // s_brl .blackhole_strat
+}
+
+// ---------------------------------------------------------------
+// Exit gates — bholeexit1/2/3 + bholecoll + blackholeexit (KSTRATS.ASM:679-758)
+// ---------------------------------------------------------------
+
+/// `bholeexit1_istrat` (KSTRATS.ASM:679-681): preload the LE code, share the
+/// collision strat. (2/3 identical with le_bhole2/3.)
+pub fn bholeexit1_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = LE_BHOLE1; // lda #le_bhole1 ; sta al_sbyte2
+    bholecoll_init(g, idx);
+}
+pub fn bholeexit2_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = LE_BHOLE2;
+    bholecoll_init(g, idx);
+}
+pub fn bholeexit3_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = LE_BHOLE3;
+    bholecoll_init(g, idx);
+}
+
+/// `bholecoll_istrat` init (KSTRATS.ASM:688-693). Falls into `bholecoll_strat`
+/// the same tick (no s_end_strat before the `.strat` label).
+fn bholecoll_init(g: &mut Game, idx: u16) {
+    let s = sid(g, bholecoll_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s); // s_set_strat x,bholecoll_strat
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.colframe = 4 | 0x80; // s_init_colanim x,#4 (colframe = frame | 0x80, STRATLIB.INC:89-91)
+    }
+    bholecoll_strat(g, idx);
+}
+
+/// `bholecoll_strat` (KSTRATS.ASM:694-706): spin; when the ship flies into the
+/// gate (|dz|<200 && |dx|+|dy|<100 combined rangexy) hand off to the exit
+/// draw-in. No same-tick jump — `blackholeexit` runs the next tick.
+fn bholecoll_strat(g: &mut Game, idx: u16) {
+    // s_add_alvar B,x,al_rotz,#12
+    let rz = g.objs.aliens[idx as usize].rotz.wrapping_add(12);
+    g.objs.aliens[idx as usize].rotz = rz;
+    // s_set_objtobeplayer y
+    let Some(p) = player_idx(g) else { return };
+    let me = g.objs.aliens[idx as usize];
+    let pl = g.objs.aliens[p as usize];
+    // s_jmp_Zdistmore x,y,#200,.ntouch (inclusive skip)
+    if ((me.worldz as i32 - pl.worldz as i32).abs() as i16) >= 200 {
+        return;
+    }
+    // s_jmp_outXYdistrng x,y,#0,#(25<<2),.ntouch : rangexy = |dx|+|dy|
+    // (xydiffs_l, STRATROU.ASM:1865); in-range [0,100) -> touch requires < 100.
+    let rangexy = (me.worldx as i32 - pl.worldx as i32).abs()
+        + (me.worldy as i32 - pl.worldy as i32).abs();
+    if rangexy >= 100 {
+        return;
+    }
+    // s_set_alsflag x,sflag1 ; s_set_strat x,blackholeexit_istrat ;
+    // s_setnoremove_behind x
+    let s = sid(g, blackholeexit_init);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags2 |= BH_SFLAG1;
+    al.stratptr = Some(s);
+    al.type_ &= !ATZREMOVE;
+}
+
+/// `blackholeexit_Istrat` init (KSTRATS.ASM:711-717). Falls into `.strat` the
+/// same tick.
+fn blackholeexit_init(g: &mut Game, idx: u16) {
+    let s = sid(g, blackholeexit_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = 8; // s_set_alvar B,x,al_sbyte1,#8 (8-frame step)
+        al.sbyte3 = 10; // s_set_alvar B,x,al_sbyte3,#10 (10 steps to warp)
+        al.stratptr = Some(s); // s_set_strat x,.strat
+    }
+    g.hooks.play_music(0xf5); // startbgm $f5
+    g.vars.pshipflags3 &= !BH_PSF3_ENGINESND; // s_and_var ~psf3_enginesnd
+    blackholeexit_strat(g, idx);
+}
+
+/// `blackholeexit .strat` (KSTRATS.ASM:718-752): a 10-step draw-in (each step =
+/// 8 frames via the sbyte1 sub-counter). At step 4 it swaps music + fades; when
+/// the step counter (sbyte3) reaches 0 it stores `levelfinished = al_sbyte2`
+/// (the le_bhole1/2/3 preloaded by the gate) — the EXIT warp the shell's
+/// warp_advance already consumes to re-point routes[3].
+fn blackholeexit_strat(g: &mut Game, idx: u16) {
+    // s_decbne_alvar B,x,al_sbyte1,.ninto : only advance a step every 8 frames.
+    let sb1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = sb1;
+    if sb1 != 0 {
+        return; // .ninto
+    }
+    // s_set_alvar B,x,al_sbyte1,#8 (reload the sub-counter)
+    g.objs.aliens[idx as usize].sbyte1 = 8;
+    // lda al_sbyte3,x ; cmp #4 ; bne .nf
+    let sb3 = g.objs.aliens[idx as usize].sbyte3;
+    if sb3 == 4 {
+        wm8_set(g, crate::common::sv::FADEDIR, 0xFF); // lda #-1 ; sta fadedir
+        g.hooks.play_music(0xf1); // startbgm $f1
+    }
+    // s_decbne_alvar B,x,al_sbyte3,.nc : when the step counter hits 0, SET WARP.
+    let new_sb3 = sb3.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte3 = new_sb3;
+    if new_sb3 == 0 {
+        // lda al_sbyte2,x ; sta levelfinished (KSTRATS.ASM:730-731)
+        let code = g.objs.aliens[idx as usize].sbyte2;
+        g.world.levelfinished = code;
+        // s_and_var B,pshipflags3,#~psf3_nocollisions
+        g.vars.pshipflags3 &= !BH_PSF3_NOCOLLISIONS;
+        return; // brl .badobj
+    }
+    // .nc — the draw-in: freeze control, spawn a trailing hole sprite, chirp.
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE; // s_playerctrl off
+    g.vars.pshipflags3 |= BH_PSF3_NOCOLLISIONS; // s_or_var pshipflags3,#psf3_nocollisions
+    // s_make_obj #blackhole,.badobj
+    if let Some(child) = make_obj(g, SH_BLACKHOLE) {
+        let ppx = g.vars.player_posx;
+        let ppy = g.vars.player_posy;
+        let ppz = g.vars.player_posz;
+        let s2 = sid(g, blackholeexit_sprite_strat);
+        let c = &mut g.objs.aliens[child as usize];
+        c.sflags3 |= BH_ASF3_SSPRITE; // s_sprite_obj y,#0
+        c.depthoffset = 0;
+        c.sflags |= ASF_COLLDISABLE; // s_set_alsflag y,colldisable
+        c.worldx = ppx; // player_posx
+        c.worldy = ppy; // player_posy
+        c.worldz = ppz.wrapping_add(600); // player_posz ; s_add_alvar W,y,al_worldz,#600
+        c.stratptr = Some(s2); // s_set_strat y,.strat2
+    }
+    play_se(g, 0x2c); // s_queue_rumble (no-op) + trigse $2c
+}
+
+/// `blackholeexit .strat2` (KSTRATS.ASM:754-758) — the spawned black-hole sprite.
+fn blackholeexit_sprite_strat(g: &mut Game, idx: u16) {
+    // s_add_alvar W,x,al_worldz,#-60
+    let wz = g.objs.aliens[idx as usize].worldz.wrapping_sub(60);
+    g.objs.aliens[idx as usize].worldz = wz;
+    add_player_z(g, idx); // s_add_playerZ x
+    // s_add_var W,outvz,#10*256
+    let outvz = wm16s(g, crate::common::sv::OUTVZ);
+    wm16s_set(g, crate::common::sv::OUTVZ, outvz.wrapping_add(2560));
+}
+// BLACKHOLE_END
+
 /// Register a strategy on the world registry, deduping by fn identity
 /// (World-level twin of [`sid`], used when only the World is available).
 fn wsid(world: &mut World, f: StrategyFn) -> StratId {
@@ -9822,6 +10226,17 @@ pub fn register(world: &mut World) {
     // world.istrats[128] -> synthetic 0x02:0080 (sf-map mothers.rs AMOEBA);
     // the address-map loop in table.rs registers that synth id automatically.
     world.istrats[IS_AMOEBA] = Some(wsid(world, amoeba_init));
+
+    // Route-warp arming set (unblocks Route Finding 2). The black-hole APPROACH
+    // (Asteroid Belt 1, IS_BLACKHOLE=196) sets levelfinished=le_enterbhole; the
+    // three EXIT gates inside the BLACKHOLE stage (IS_BHOLEEXIT1/2/3=244/245/246)
+    // set levelfinished=le_bhole1/2/3. Resolve through world.istrats[] exactly
+    // like the other def_istrat rows; the internal bholecoll/blackholeexit tick
+    // strats are reached by runtime s_set_strat transitions, not the table.
+    world.istrats[IS_BLACKHOLE] = Some(wsid(world, blackhole_init));
+    world.istrats[IS_BHOLEEXIT1] = Some(wsid(world, bholeexit1_init));
+    world.istrats[IS_BHOLEEXIT2] = Some(wsid(world, bholeexit2_init));
+    world.istrats[IS_BHOLEEXIT3] = Some(wsid(world, bholeexit3_init));
 
     // Synthetic addresses referenced by the MAP2_3 / washmap literal map
     // data (src/map/levels.c).
