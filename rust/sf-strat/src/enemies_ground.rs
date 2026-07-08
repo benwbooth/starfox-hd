@@ -29,10 +29,15 @@
 
 use sf_game::alien::{
     Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON, ASF_COLLDISABLE,
-    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATLASER, ATZREMOVE, NUMBER_AL,
+    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, StrategyFn};
+use sf_game::vars::{
+    GF_STRATDONE1, PSF2_PLAYERHP0, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, SPFM_INSIDE, SPFM_TONORM,
+};
 use sf_game::world::World;
+
+use crate::common::{sv, StratRam};
 
 use crate::enemy_a::{
     achase_angle, add_player_z, boss_attach_child_to_mother, boss_find_child_obj,
@@ -2085,6 +2090,419 @@ fn torpedoa_strat(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// Base / colony structure set-pieces — base0 / massivebase / colony0-2 /
+// colonyexit. ASM is the sole ground truth (no C-oracle): KSTRATS.ASM
+// (base0:353-370), D2STRATS.ASM (massivebase:650-681), GA2STRAT.ASM
+// (colony0/1/2:1671-1779, colonyexit:3039-3053). ISTRATS.ASM def_Istrat rows
+// DRIFT +1 from the sf-map placement past ~row 162 (macro-count vs placed
+// value); every index below is the sf-map placement VALUE (grep sf-map):
+//   - base0       = 138 (route1 level1_4)        — animated landing-base door.
+//   - massivebase = 142 (route2 level2_3 / rc)   — indestructible mega-structure
+//                                                   that funnels the player in.
+//   - colony0     = 170 (route3 level3_4)        — space-colony approach trigger
+//                                                   (cutscene + ambient debris).
+//   - colony1     = 171 (route3 level3_4)        — colony piece mirrored on the
+//                                                   camera's vertical.
+//   - colony2     = 172 (route3 level3_4)        — colony entrance door.
+//   - colonyexit  = 236 (route1 level1_3 / route2 level2_6 / rc) — animated
+//                                                   exit-tunnel door.
+// All six are placed by ported maps -> reachable.
+//
+// State machines (per-fn cites):
+//   base0      : static enemy1 obstacle (hardHP/AP2, faces deg270). Waits inert
+//                until the player closes to 2500 z, then plays its open anim
+//                (0->8) and holds. Collide/explode both re-run the tick (never
+//                explodes). KSTRATS.ASM:353-370.
+//   massivebase: colldisable indestructible structure (hardHP/hardAP, faces
+//                deg180). Inside 3000 z it forces player control off and drags
+//                the player toward x=0 / y=viewcy (funnel). LOD shape swap:
+//                kichi_0 (near, <0x3500 z) / kichi_1 (far). D2STRATS.ASM:650-681.
+//   colony0    : enemy1/gnd approach trigger. Far (>=1500 z) it sheds ambient
+//                wireframe-spacebar debris on a notdelay-4 gate. Inside 800 z it
+//                disables collision, forces control off and drags the player to
+//                x=0 / y=viewcy; once the player passes it (objinfront) it latches
+//                sflag1 + sets GF_STRATDONE1. Always scrolls z-20 + add_playerZ.
+//                GA2STRAT.ASM:1671-1730.
+//   colony1    : colldisable/gnd piece that pins its worldy to 2*viewcy -
+//                viewposy + 50 each tick (mirror of the camera), then runs
+//                colony0_cont's z-20 + add_playerZ. GA2STRAT.ASM:1734-1754.
+//   colony2    : colldisable/gnd door positioned at its al_ptr parent + 280 z;
+//                opens (anim 0->9) when the player is in front or within 40 z.
+//                GA2STRAT.ASM:1758-1779.
+//   colonyexit : self-recurring colldisable/gnd door (never sets a separate
+//                tick). Opens (anim 0->9) as the player approaches from in front
+//                and beyond 75 z; snaps shut (anim 0) when the player is behind
+//                it or within 75 z. NOT a stage-transition — purely cosmetic
+//                (the REACHABLE_UNPORTED guess of an IS_COLONYEXIT level-end is
+//                wrong; the ASM sets no LE_/levelfinished). GA2STRAT.ASM:3039-3053.
+// ============================================================
+
+/// ISTRATS.ASM def rows resolved to sf-map placement indices.
+const IS_BASE0: usize = 138;
+const IS_MASSIVEBASE: usize = 142;
+const IS_COLONY0: usize = 170;
+const IS_COLONY1: usize = 171;
+const IS_COLONY2: usize = 172;
+const IS_COLONYEXIT: usize = 236;
+
+/// Structure data (STRATEQU.INC:66/68). `HARDHP` (0xFF == -1) is defined above.
+const HARD_AP: u8 = 8; // STRATEQU.INC:66 hardAP
+const BASE0_AP: u8 = 2; // KSTRATS.ASM:357 s_set_aldata #hardhp,#2
+
+/// LOD shape words. `kichi_0` == 120 (sf-map rc.rs SH_KICHI_0 / shape_data
+/// #120). `kichi_1` is an uncompiled wireframe mesh (SHAPES.EXT:287; not in the
+/// 236-shape render table) — there is no valid render id for it, so the far-LOD
+/// swap reuses kichi_0. Scoped-out: the far low-detail mesh is not shown; the
+/// near (playable) LOD is faithful. (massivebase D2STRATS.ASM:675/678.)
+const KICHI_0: u16 = 120;
+const KICHI_1: u16 = 120;
+
+/// `XPwirespacebar` ambient-debris shape (sf-map consts.rs XPWIRESPACEBAR /
+/// shape_data #138). colony0 GA2STRAT.ASM:1716.
+const XPWIRESPACEBAR: u16 = 138;
+
+// ------------------------------------------------------------
+// objinfront helper (STRATMAC.INC:3445 s_jmp_objinfront: rlbpl on
+// al_worldz[a] - al_worldz[b] >= 0, i.e. a.worldz >= b.worldz). Player-absent
+// -> false (don't branch), the safe default vs the ROM's garbage compare.
+// ------------------------------------------------------------
+
+/// `s_jmp_objinfront self,player` — self is at/beyond the player in z.
+fn self_in_front_of_player(g: &Game, idx: u16) -> bool {
+    match player(g) {
+        Some(p) => g.objs.aliens[idx as usize].worldz >= p.worldz,
+        None => false,
+    }
+}
+
+/// `s_jmp_objinfront player,self` — player is at/beyond self in z.
+fn player_in_front_of_self(g: &Game, idx: u16) -> bool {
+    match player(g) {
+        Some(p) => p.worldz >= g.objs.aliens[idx as usize].worldz,
+        None => false,
+    }
+}
+
+// ------------------------------------------------------------
+// base0 (IS 138) — KSTRATS.ASM:353-370.
+// ------------------------------------------------------------
+
+/// `base0_istrat` (KSTRATS.ASM:353-359): enemy1 collide, faces deg270,
+/// hardHP(255)/AP2, anim 0. `s_set_alptrs x,base0_strat,base0_strat,base0_strat`
+/// aims tick + collide + explode all at the tick — it has no real death chain
+/// (hardHP + explode==tick means it never explodes). No `s_end_strat` before the
+/// `base0_strat` label -> falls into the tick this same frame.
+fn base0_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, base0_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,enemy1
+        al.stratptr = Some(tick); // s_set_alptrs x,base0_strat,...
+        al.collstratptr = Some(tick);
+        al.expstratptr = Some(tick);
+        al.hp = HARDHP; // s_set_aldata #hardhp,#2
+        al.ap = BASE0_AP;
+        al.roty = DEG270; // s_set_alvar B,x,al_roty,#deg270
+        al.animframe = 0; // s_init_anim x,#0
+    }
+    base0_strat(g, idx);
+}
+
+/// `base0_strat` (KSTRATS.ASM:360-370): inert until the player closes to 2500 z,
+/// then hands off to `base0b_strat` (falls in same tick) which grows the open
+/// anim to 8 and holds.
+fn base0_strat(g: &mut Game, idx: u16) {
+    // s_jmp_Zdistless x,y,#2500,.start
+    if zdist_less(g, idx, 2500) {
+        // .start: s_set_strat x,base0b_strat ; no s_end_strat -> fall through.
+        let t = sid(g, base0b_strat);
+        g.objs.aliens[idx as usize].stratptr = Some(t);
+        base0b_strat(g, idx);
+    }
+    // else s_end_strat (stay waiting).
+}
+
+/// `base0b_strat` (KSTRATS.ASM:365-370): `s_cmp_anim #8` / `s_beq .no` gate over
+/// `s_add_anim x,#1,#15` (3-arg wrap-at-15) — increments the open anim each tick
+/// and stops at 8 (wrap never reached).
+fn base0b_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    if al.animframe != 8 {
+        al.animframe = (al.animframe + 1) % 15;
+    }
+}
+
+// ------------------------------------------------------------
+// massivebase (IS 142) — D2STRATS.ASM:650-681.
+// ------------------------------------------------------------
+
+/// `massivebase_istrat` (D2STRATS.ASM:650-657): tick=.strat, no collide/explode
+/// (`s_set_alptrs x,.strat,0,0`), colldisable, hardHP/hardAP, faces deg180, clear
+/// the zremove type bit. `s_set_var maptrigger,#0` is unported (g_maptrigger is
+/// an unwired map-scripting global, shell.rs). No `s_end_strat` before `.strat`
+/// -> falls into the tick this same frame.
+fn massivebase_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, massivebase_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = None; // s_set_alptrs x,.strat,0,0
+        al.expstratptr = None;
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.hp = HARDHP; // s_set_aldata #hardHP,#hardAP
+        al.ap = HARD_AP;
+        al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+        al.type_ &= !ATZREMOVE; // s_clr_altype x,zremove
+    }
+    massivebase_strat(g, idx);
+}
+
+/// `.strat` (D2STRATS.ASM:658-681): inside 3000 z force player control off and
+/// drag the player toward x=0 / y=viewcy (rate-4 achase); LOD swap kichi_0
+/// (near, |dz| < 0x3500) / kichi_1 (far).
+fn massivebase_strat(g: &mut Game, idx: u16) {
+    // lda #3000 / dzdistless -> bcc .noforce : |dz| < 3000 applies the funnel.
+    if zdist_less(g, idx, 3000) {
+        g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE; // s_playerctrl off
+        if let Some(pi) = player_index(g) {
+            let viewcy = g.vars.sv_i16(sv::VIEWCY);
+            let px = g.objs.aliens[pi as usize].worldx;
+            g.objs.aliens[pi as usize].worldx = achase_word(px, 0, 4); // ->x=0
+            let py = g.objs.aliens[pi as usize].worldy;
+            g.objs.aliens[pi as usize].worldy = achase_word(py, viewcy, 4); // ->viewcy
+        }
+    }
+    // lda #$3500 / dzdistless -> bcs .complex : |dz| < 0x3500 => kichi_0 (near).
+    let shape = if zdist_less(g, idx, 0x3500) {
+        KICHI_0
+    } else {
+        KICHI_1
+    };
+    g.objs.aliens[idx as usize].shape = shape;
+}
+
+// ------------------------------------------------------------
+// colony0 / colony1 (IS 170 / 171) — GA2STRAT.ASM:1671-1754.
+// ------------------------------------------------------------
+
+/// `colony0_Istrat` (GA2STRAT.ASM:1671-1678): tick=colony0_strat, hp/ap 10,
+/// clear GF_STRATDONE1, enemy1 collide, gnd, sound2=8. Falls into the tick this
+/// frame (no `s_end_strat` before the label).
+fn colony0_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, colony0_strat);
+    g.vars.gameflags &= !GF_STRATDONE1; // s_and_var gameflags,#~gf_stratdone1
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_strat x,colony0_strat
+        al.hp = 10; // s_set_aldata #10,#10
+        al.ap = 10;
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,enemy1
+        al.type_ |= ATGND; // s_set_altype x,gnd
+        al.snd2 = 8; // set_sound2 x,#8
+    }
+    colony0_strat(g, idx);
+}
+
+/// `colony0_strat` (GA2STRAT.ASM:1679-1730): the approach-trigger state machine.
+fn colony0_strat(g: &mut Game, idx: u16) {
+    // s_jmp_alsflag x,sflag1,.nthere — already latched -> just scroll.
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        colony0_cont(g, idx);
+        return;
+    }
+    // s_jmp_Zdistmore x,y,#200<<2,.nclose — far (>=800) -> debris path.
+    if zdist_more(g, idx, 200 << 2) {
+        colony0_nclose(g, idx);
+        return;
+    }
+    // within 800: s_set_alsflag x,colldisable
+    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    // s_jmp_varAND pshipflags2,#psf2_playerHP0,colony0_cont — player dead: skip.
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        colony0_cont(g, idx);
+        return;
+    }
+    // cutscene funnel: s_or_var pstratflags,#pstf_inseq
+    g.vars.pstratflags |= PSTF_INSEQ;
+    // splayerflymode INSIDE -> TONORM (+ changeviewmode_l, unported view-mode swap).
+    if g.vars.splayerflymode == SPFM_INSIDE {
+        g.vars.splayerflymode = SPFM_TONORM;
+    }
+    // s_playerctrl off
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    if let Some(pi) = player_index(g) {
+        let viewcy = g.vars.sv_i16(sv::VIEWCY);
+        let px = g.objs.aliens[pi as usize].worldx;
+        g.objs.aliens[pi as usize].worldx = achase_word(px, 0, 4); // ->x=0
+        let py = g.objs.aliens[pi as usize].worldy;
+        g.objs.aliens[pi as usize].worldy = achase_word(py, viewcy, 4); // ->viewcy
+    }
+    // s_jmp_objinfront x,y,.nthere — colony still ahead of the player -> wait.
+    if self_in_front_of_player(g, idx) {
+        colony0_cont(g, idx);
+        return;
+    }
+    // player has passed through: latch done.
+    g.vars.gameflags |= GF_STRATDONE1; // s_or_var gameflags,#gf_stratdone1
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1; // s_set_alsflag x,sflag1
+    colony0_cont(g, idx); // s_brl .nthere
+}
+
+/// `.nclose` (GA2STRAT.ASM:1713-1724): far-field ambient debris. Spawns a
+/// wireframe spacebar on the notdelay-4 gate only when |dz| >= 1500, then
+/// randomizes its orientation and scatters it. Scoped-out: `SPINspacebar_Istrat`
+/// (the debris spin/scroll tick) is not ported, so the spawned object is a
+/// static, colldisable, zremove-culled cosmetic proxy carrying the ROM's
+/// randomized initial transform (no spin).
+fn colony0_nclose(g: &mut Game, idx: u16) {
+    // s_jmp_Zdistless x,y,#1500,.nthere
+    if zdist_less(g, idx, 1500) {
+        colony0_cont(g, idx);
+        return;
+    }
+    // s_jmp_notdelay 4,.nthere — gameframe & 15 == 0.
+    if !notdelay(g, 4) {
+        colony0_cont(g, idx);
+        return;
+    }
+    // s_make_obj #XPwirespacebar,.nthere
+    if let Some(dbr) = make_obj(g, XPWIRESPACEBAR) {
+        copy_pos(g, dbr, idx); // s_copy_pos y,x (debris <- colony)
+        // s_set_alvar2rnd y,al_rotz — full-byte random orientation.
+        let rotz = (ea_random(g) & 0xFF) as u8;
+        // s_set_alvar2rnd y,al_sbyte1,#15 ; s_sub_alvar #7 -> spin rate [-7,+8].
+        let sbyte1 = ((ea_random(g) & 15) as i16 - 7) as u8;
+        // s_add_rnd2pos y,255,255,0 — per-axis (rnd&m)-m/2; z draws but adds 0.
+        let dx = (ea_random(g) & 255) as i16 - 127;
+        let dy = (ea_random(g) & 255) as i16 - 127;
+        let _dz = (ea_random(g) & 0) as i16; // draw kept for RNG parity
+        let al = &mut g.objs.aliens[dbr as usize];
+        al.rotz = rotz;
+        al.sbyte1 = sbyte1;
+        al.roty = DEG90; // s_set_alvar B,y,al_roty,#deg90
+        al.worldx = al.worldx.wrapping_add(dx as u16 as i16);
+        al.worldy = al.worldy.wrapping_add(dy as u16 as i16);
+        // SPINspacebar_Istrat unported: inert + cullable cosmetic proxy.
+        al.stratptr = None;
+        al.sflags |= ASF_COLLDISABLE;
+        al.type_ |= ATZREMOVE;
+    }
+    colony0_cont(g, idx);
+}
+
+/// `colony0_cont` (GA2STRAT.ASM:1727-1730): scroll the structure toward the
+/// player (`al_worldz += -20`) and ride the world scroll (`s_add_playerZ`).
+fn colony0_cont(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].worldz =
+        g.objs.aliens[idx as usize].worldz.wrapping_add((-20i16) as u16 as i16);
+    add_player_z(g, idx);
+}
+
+/// `colony1_Istrat` (GA2STRAT.ASM:1734-1738): colldisable/gnd, tick=colony1_strat.
+/// Falls into the tick this frame.
+fn colony1_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, colony1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_strat x,colony1_strat
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.type_ |= ATGND; // s_set_altype x,gnd
+    }
+    colony1_strat(g, idx);
+}
+
+/// `colony1_strat` (GA2STRAT.ASM:1739-1754): pin worldy to `2*viewcy - viewposy
+/// + 50` (mirror the camera vertical), then run colony0_cont.
+fn colony1_strat(g: &mut Game, idx: u16) {
+    let viewcy = g.vars.sv_i16(sv::VIEWCY) as i32;
+    let viewposy = g.vars.sv_i16(sv::VIEWPOSY) as i32;
+    // -(viewposy - viewcy) + viewcy + 50 = 2*viewcy - viewposy + 50.
+    let worldy = 2 * viewcy - viewposy + 50;
+    g.objs.aliens[idx as usize].worldy = worldy as i16;
+    colony0_cont(g, idx); // s_brl colony0_cont
+}
+
+// ------------------------------------------------------------
+// colony2 (IS 172) — GA2STRAT.ASM:1758-1779.
+// ------------------------------------------------------------
+
+/// `colony2_Istrat` (GA2STRAT.ASM:1758-1763): colldisable, tick=colony2_strat,
+/// anim 0, gnd. Falls into the tick this frame.
+fn colony2_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, colony2_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.stratptr = Some(tick); // s_set_strat x,colony2_strat
+        al.animframe = 0; // s_init_anim x,#0
+        al.type_ |= ATGND; // s_set_altype x,gnd
+    }
+    colony2_strat(g, idx);
+}
+
+/// `colony2_strat` (GA2STRAT.ASM:1764-1779): position the door at its al_ptr
+/// parent + 280 z, and open (anim 0->9) when the player is in front OR within
+/// 40 z. Scoped-out: the ported maps do not wire colony2's `al_ptr` parent link,
+/// so when unset the door holds its map placement instead of tracking a parent
+/// (the ROM's `s_set_objtobealvar y,x,al_ptr` -> `s_copy_pos x,y` is honoured
+/// only when the link resolves to a live object).
+fn colony2_strat(g: &mut Game, idx: u16) {
+    // s_set_objtobealvar y,x,al_ptr ; s_copy_pos x,y (colony2 <- parent).
+    let ptr = g.objs.aliens[idx as usize].ptr; // al_ptr, index+1 encoding.
+    if ptr != 0 {
+        let parent = ptr - 1;
+        if (parent as usize) < NUMBER_AL && g.objs.aliens[parent as usize].active {
+            copy_pos(g, idx, parent);
+        }
+    }
+    // s_add_alvar W,x,al_worldz,#70<<2
+    g.objs.aliens[idx as usize].worldz =
+        g.objs.aliens[idx as usize].worldz.wrapping_add(70 << 2);
+    // s_jmp_objinfront y,x,.open (player in front) ; else s_jmp_Zdistmore #40,.nopen.
+    let animate = if player_in_front_of_self(g, idx) {
+        true
+    } else {
+        !zdist_more(g, idx, 10 << 2)
+    };
+    if animate {
+        // .open: s_cmp_anim #9 / s_beq .nopen / s_add_anim x,#1,#10 (wrap 10).
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.animframe != 9 {
+            al.animframe = (al.animframe + 1) % 10;
+        }
+    }
+}
+
+// ------------------------------------------------------------
+// colonyexit (IS 236) — GA2STRAT.ASM:3039-3053.
+// ------------------------------------------------------------
+
+/// `colonyexit_Istrat` (GA2STRAT.ASM:3039-3053): a self-recurring door (it never
+/// sets a separate tick, so this function is both the istrat and the per-frame
+/// tick). Re-asserts colldisable/gnd, then opens (anim 0->9) when the player is
+/// in front and beyond `medpspeed+10` (75) z; snaps shut (anim 0) when the player
+/// is behind it or inside 75 z. `s_nodepthcue` (a render fog-exclusion flag) and
+/// `s_dooropen_snd` are unported cosmetics. This is NOT a stage-transition — the
+/// ASM sets no LE_/levelfinished (correcting REACHABLE_UNPORTED's guess).
+fn colonyexit_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.type_ |= ATGND; // s_set_altype x,gnd
+    }
+    // s_jmp_objinfront x,y,.close ; s_jmp_Zdistless x,y,#medpspeed+10,.close.
+    if self_in_front_of_player(g, idx) || zdist_less(g, idx, (MEDPSPEED as i16) + 10) {
+        g.objs.aliens[idx as usize].animframe = 0; // .close: s_init_anim x,#0
+        return;
+    }
+    // s_dooropen_snd 0 (cosmetic) ; s_cmp_anim #9 / s_beq .end / s_add_anim x,#1,#10.
+    let al = &mut g.objs.aliens[idx as usize];
+    if al.animframe != 9 {
+        al.animframe = (al.animframe + 1) % 10;
+    }
+}
+
+// ============================================================
 // State helper.
 // ============================================================
 
@@ -2135,4 +2553,12 @@ pub fn register(world: &mut World) {
     world.istrats[IS_BREAK_METEORT] = Some(wsid(world, break_meteort_init));
     world.istrats[IS_MINE0] = Some(wsid(world, mine0_init));
     world.istrats[IS_TORPEDO] = Some(wsid(world, torpedo_init));
+
+    // Base / colony structure set-pieces (all placed by ported maps -> reachable).
+    world.istrats[IS_BASE0] = Some(wsid(world, base0_init));
+    world.istrats[IS_MASSIVEBASE] = Some(wsid(world, massivebase_init));
+    world.istrats[IS_COLONY0] = Some(wsid(world, colony0_init));
+    world.istrats[IS_COLONY1] = Some(wsid(world, colony1_init));
+    world.istrats[IS_COLONY2] = Some(wsid(world, colony2_init));
+    world.istrats[IS_COLONYEXIT] = Some(wsid(world, colonyexit_strat));
 }

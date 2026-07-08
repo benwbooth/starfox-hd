@@ -944,3 +944,255 @@ fn torpedo_death_explodes() {
     }
     assert_eq!(g.objs.aldead, 1, "torpedo explodes when hp hits 0");
 }
+
+// ============================================================
+// Base / colony structure set-pieces
+//   base0       KSTRATS.ASM:353-370
+//   massivebase D2STRATS.ASM:650-681
+//   colony0/1/2 GA2STRAT.ASM:1671-1779
+//   colonyexit  GA2STRAT.ASM:3039-3053
+// sf-map placement indices (ISTRATS.ASM def rows drift +1 past ~row 162).
+// ============================================================
+
+const IS_BASE0: usize = 138;
+const IS_MASSIVEBASE: usize = 142;
+const IS_COLONY0: usize = 170;
+const IS_COLONY1: usize = 171;
+const IS_COLONY2: usize = 172;
+const IS_COLONYEXIT: usize = 236;
+
+const ATGND_M: u8 = 1; // alien.rs:165
+const DEG90: u8 = 64; // VARS.INC
+const KICHI_0: u16 = 120; // shape_data #120 / sf-map SH_KICHI_0
+const XPWIRESPACEBAR: u16 = 138; // sf-map consts.rs / shape_data #138
+const GF_STRATDONE1: u8 = 8; // vars.rs:24
+const PSF_NOCTRL: u8 = 32; // vars.rs:31
+const PSF_NOFIRE: u8 = 64; // vars.rs:32
+const PSF2_PLAYERHP0: u8 = 128; // vars.rs:35
+const PSTF_INSEQ: u8 = 8; // vars.rs:45
+const SV_VIEWCY: u16 = 0x0524; // common.rs sv::VIEWCY
+const SV_VIEWPOSY: u16 = 0x0552; // common.rs sv::VIEWPOSY
+const HARD_AP: u8 = 8; // STRATEQU.INC:66 hardAP
+const BASE0_AP: u8 = 2; // KSTRATS.ASM:357
+
+fn count_shape(g: &Game, shape: u16) -> usize {
+    g.objs
+        .aliens
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| *i != 0 && a.active && a.shape == shape)
+        .count()
+}
+
+// ---- base0 (KSTRATS.ASM:353-370) --------------------------
+
+#[test]
+fn base0_init_static_and_waits_far() {
+    // z=6000 -> |dz| 6000 >= 2500: init sets data/facing, falls into base0_strat
+    // which stays waiting (KSTRATS.ASM:362 s_jmp_Zdistless #2500 not taken).
+    let mut g = setup();
+    let istrat = g.world.istrats[IS_BASE0];
+    let b = place(&mut g, IS_BASE0, 0, 0, 6000, 8);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.hp, HARDHP, "hardHP");
+    assert_eq!(a.ap, BASE0_AP, "AP 2");
+    assert_eq!(a.roty, DEG270, "faces deg270");
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 collide");
+    assert!(a.collstratptr.is_some(), "collide wired to the tick");
+    assert!(a.expstratptr.is_some(), "explode wired to the tick");
+    assert_eq!(a.animframe, 0, "closed while far");
+    assert_ne!(a.stratptr, istrat, "handed the istrat off to base0_strat");
+}
+
+#[test]
+fn base0_close_opens_and_caps_at_8() {
+    // z=2000 < 2500: base0_strat -> base0b_strat, anim grows 0->8 and holds
+    // (KSTRATS.ASM:364-370 cmp #8/beq gate over s_add_anim #1,#15).
+    let mut g = setup();
+    let b = place(&mut g, IS_BASE0, 0, 0, 2000, 8);
+    tick(&mut g, b);
+    assert_eq!(g.objs.aliens[b as usize].animframe, 1, "first open frame");
+    for _ in 0..20 {
+        tick(&mut g, b);
+    }
+    assert_eq!(g.objs.aliens[b as usize].animframe, 8, "opens fully then holds");
+}
+
+// ---- massivebase (D2STRATS.ASM:650-681) -------------------
+
+#[test]
+fn massivebase_init_indestructible_static() {
+    // Far (z >= 0x3500): colldisable + hardHP/hardAP, no collide/explode ptr,
+    // faces deg180, far LOD shape (D2STRATS.ASM:650-675).
+    let mut g = setup();
+    let b = place(&mut g, IS_MASSIVEBASE, 0, 0, 20000, KICHI_0);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.hp, HARDHP, "hardHP");
+    assert_eq!(a.ap, HARD_AP, "hardAP");
+    assert_eq!(a.roty, DEG180, "faces deg180");
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert!(a.collstratptr.is_none(), "no collide handler (s_set_alptrs .strat,0,0)");
+    assert!(a.expstratptr.is_none(), "no explode handler");
+    assert_eq!(a.shape, KICHI_0, "far LOD (kichi_1 mesh uncompiled -> kichi_0)");
+}
+
+#[test]
+fn massivebase_funnels_player_when_near() {
+    // Inside 3000 z: playerctrl off + drag the player toward x=0 / y=viewcy
+    // (D2STRATS.ASM:663-668). viewcy=-60; player parked off-centre.
+    let mut g = setup();
+    g.vars.write_ext16(SV_VIEWCY, (-60i16) as u16);
+    g.objs.aliens[0].worldx = 500;
+    g.objs.aliens[0].worldy = 500;
+    let b = place(&mut g, IS_MASSIVEBASE, 0, 0, 1000, KICHI_0);
+    tick(&mut g, b);
+    assert_ne!(g.vars.pshipflags & PSF_NOCTRL, 0, "control disabled");
+    assert_ne!(g.vars.pshipflags & PSF_NOFIRE, 0, "fire disabled");
+    assert!(g.objs.aliens[0].worldx < 500, "player dragged toward x=0");
+    assert!(g.objs.aliens[0].worldy < 500, "player dragged toward y=viewcy(-60)");
+    assert_eq!(g.objs.aliens[b as usize].shape, KICHI_0, "near LOD kichi_0");
+}
+
+// ---- colony0 (GA2STRAT.ASM:1671-1730) ---------------------
+
+#[test]
+fn colony0_init_flags_and_clears_stratdone() {
+    // gameframe=1 so the notdelay-4 debris gate is closed; verify base init.
+    let mut g = setup();
+    g.vars.gameframe = 1;
+    g.vars.gameflags |= GF_STRATDONE1; // must be cleared by init.
+    let b = place(&mut g, IS_COLONY0, 0, 0, 5000, 0);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.hp, 10, "hp 10");
+    assert_eq!(a.ap, 10, "ap 10");
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 collide");
+    assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
+    assert_eq!(a.snd2, 8, "sound2 = 8");
+    assert_eq!(g.vars.gameflags & GF_STRATDONE1, 0, "GF_STRATDONE1 cleared at init");
+    assert_eq!(count_shape(&g, XPWIRESPACEBAR), 0, "no debris while notdelay closed");
+}
+
+#[test]
+fn colony0_far_spawns_debris_on_gate() {
+    // z=2000 (>=1500, >=800) + gameframe=0 (notdelay-4 open) -> one wireframe
+    // spacebar shed, oriented roty=deg90 (GA2STRAT.ASM:1714-1723).
+    let mut g = setup();
+    g.vars.gameframe = 0;
+    let b = place(&mut g, IS_COLONY0, 0, 0, 2000, 0);
+    tick(&mut g, b);
+    assert_eq!(count_shape(&g, XPWIRESPACEBAR), 1, "ambient debris spawned");
+    let dbr = g
+        .objs
+        .aliens
+        .iter()
+        .find(|a| a.active && a.shape == XPWIRESPACEBAR)
+        .unwrap();
+    assert_eq!(dbr.roty, DEG90, "debris roty = deg90");
+    assert_ne!(dbr.sflags & ASF_COLLDISABLE, 0, "debris colldisable proxy");
+}
+
+#[test]
+fn colony0_latches_stratdone_when_player_passes() {
+    // Player alive, within 800 z, and PAST the colony (self.z < player.z) ->
+    // objinfront false -> latch sflag1 + GF_STRATDONE1 (GA2STRAT.ASM:1708-1711).
+    let mut g = setup();
+    g.objs.aliens[0].worldz = 300; // player ahead of the colony.
+    let b = place(&mut g, IS_COLONY0, 0, 0, 100, 0);
+    tick(&mut g, b);
+    assert_ne!(g.vars.gameflags & GF_STRATDONE1, 0, "stratdone latched");
+    assert_ne!(g.objs.aliens[b as usize].sflags2 & ASF2_SFLAG1, 0, "sflag1 latched");
+    assert_ne!(g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE, 0, "collide off inside");
+    assert_ne!(g.vars.pshipflags & PSF_NOCTRL, 0, "control disabled");
+    assert_ne!(g.vars.pstratflags & PSTF_INSEQ, 0, "in-seq flag set");
+}
+
+#[test]
+fn colony0_player_dead_skips_cutscene() {
+    // Within 800 but player HP0: disable collide then bail to cont without the
+    // funnel/latch (GA2STRAT.ASM:1686-1688).
+    let mut g = setup();
+    g.vars.pshipflags2 |= PSF2_PLAYERHP0;
+    g.objs.aliens[0].worldz = 300;
+    let b = place(&mut g, IS_COLONY0, 0, 0, 100, 0);
+    tick(&mut g, b);
+    assert_ne!(g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE, 0, "collide off");
+    assert_eq!(g.vars.gameflags & GF_STRATDONE1, 0, "no latch while player dead");
+    assert_eq!(g.objs.aliens[b as usize].sflags2 & ASF2_SFLAG1, 0, "sflag1 not set");
+}
+
+// ---- colony1 (GA2STRAT.ASM:1734-1754) ---------------------
+
+#[test]
+fn colony1_pins_worldy_to_camera_mirror() {
+    // worldy = 2*viewcy - viewposy + 50. viewcy=-60, viewposy=100 -> -170.
+    let mut g = setup();
+    g.vars.write_ext16(SV_VIEWCY, (-60i16) as u16);
+    g.vars.write_ext16(SV_VIEWPOSY, 100u16);
+    let b = place(&mut g, IS_COLONY1, 0, 999, 4000, KICHI_0);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.worldy, -170, "worldy = 2*(-60) - 100 + 50");
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
+}
+
+// ---- colony2 (GA2STRAT.ASM:1758-1779) ---------------------
+
+#[test]
+fn colony2_opens_when_player_in_front() {
+    // No al_ptr link -> holds placement; +280 z each tick; player ahead
+    // (player.z >= self.z) -> door anim 0->1 (GA2STRAT.ASM:1773-1777).
+    let mut g = setup();
+    g.objs.aliens[0].worldz = 5000; // player well in front.
+    let b = place(&mut g, IS_COLONY2, 0, 0, 100, KICHI_0);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.animframe, 1, "door opened one frame");
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
+}
+
+#[test]
+fn colony2_stays_shut_when_player_behind() {
+    // Player behind (self.z after +280 > player.z) and |dz| >= 40 -> .nopen,
+    // anim stays 0 (GA2STRAT.ASM:1773-1774).
+    let mut g = setup();
+    g.objs.aliens[0].worldz = 0;
+    let b = place(&mut g, IS_COLONY2, 0, 0, 100, KICHI_0);
+    tick(&mut g, b);
+    assert_eq!(g.objs.aliens[b as usize].animframe, 0, "door stays shut");
+}
+
+// ---- colonyexit (GA2STRAT.ASM:3039-3053) ------------------
+
+#[test]
+fn colonyexit_opens_as_player_approaches_from_front() {
+    // Player in front and beyond 75 z -> neither close condition -> anim 0->9.
+    let mut g = setup();
+    g.objs.aliens[0].worldz = 1000; // player ahead, far.
+    let b = place(&mut g, IS_COLONYEXIT, 0, 0, 100, 0);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.animframe, 1, "exit door begins opening");
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
+    for _ in 0..20 {
+        g.objs.aliens[0].worldz = 1000;
+        tick(&mut g, b);
+    }
+    assert_eq!(g.objs.aliens[b as usize].animframe, 9, "opens fully then holds");
+}
+
+#[test]
+fn colonyexit_snaps_shut_when_player_behind() {
+    // self in front of player (self.z >= player.z) -> .close resets anim to 0.
+    let mut g = setup();
+    g.objs.aliens[0].worldz = 50; // player behind the door.
+    let b = place(&mut g, IS_COLONYEXIT, 0, 0, 100, 0);
+    g.objs.aliens[b as usize].animframe = 5; // pretend partly open.
+    tick(&mut g, b);
+    assert_eq!(g.objs.aliens[b as usize].animframe, 0, "door snaps shut");
+}
