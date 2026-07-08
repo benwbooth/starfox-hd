@@ -51,6 +51,48 @@ pub const DEATH_RESPAWN_TICKS: i32 = 50;
 /// C `NMI_PLAYER_MAX_HP` (src/game/nmi.c:47) — player body hit points.
 pub const NMI_PLAYER_MAX_HP: i32 = 40;
 
+/// ROM `LE_*` level-end codes (`reference/ultrastarfox/SF/INC/KALCS.INC:91-103`).
+///
+/// The map VM's `mapend(N)` stores one of these into
+/// [`World::levelfinished`](crate::world::World::levelfinished);
+/// [`Shell::gameplay_progress_tick`] dispatches on the value exactly like ROM
+/// `MAIN.ASM:222-322` — normal clears run the tally then advance the route,
+/// while the warp codes (11-16) skip the tally and walk straight into the
+/// black-hole / special stage (ROM `enterbhole`/`exittobhole*`/`exittospecial`
+/// jump to `planetseq_l`, bypassing `end_level_seq`).
+pub mod le {
+    /// Still playing (mapend has not run).
+    pub const PLAYING: u8 = 0;
+    /// Normal level clear (`mapend` no-arg, MAPMACS.INC:274) — tally + advance.
+    pub const NORMAL: u8 = 1;
+    /// Fade to white then planetseq (tally + white fade + advance).
+    pub const FADETOWHITE: u8 = 4;
+    /// Fade down then planetseq (no tally).
+    pub const FADEDOWN: u8 = 5;
+    /// End-of-game credits path (`end_game_seq`).
+    pub const ENDOFGAME: u8 = 6;
+    /// Venom-surface hand-off (`mapend__not`, MAPMACS.INC:1990).
+    pub const STARTGAME: u8 = 7;
+    /// End of credits.
+    pub const ENDOFCREDS: u8 = 8;
+    /// Total-score screen.
+    pub const ENDTOTALSCORE: u8 = 9;
+    /// GAME OVER (ROM handles this first, with NO `inc stage`, MAIN.ASM:226).
+    pub const GAMEOVER: u8 = 10;
+    /// Black-hole exit -> Venom 1 Orbital (routechange bhole1 -> routes[3]=P19).
+    pub const BHOLE1: u8 = 11;
+    /// Black-hole exit -> Sector Y (routechange bhole2 -> routes[3]=P18).
+    pub const BHOLE2: u8 = 12;
+    /// Black-hole exit -> Sector Z (routechange bhole3 -> routes[3]=P20).
+    pub const BHOLE3: u8 = 13;
+    /// Special-stage route change (routechange 1 -> routes[0]=P22 + nebula_on).
+    pub const SPECIAL: u8 = 14;
+    /// Enter the BLACK HOLE stage (via the P21 branch, armed upstream).
+    pub const ENTERBHOLE: u8 = 15;
+    /// Enter the SPECIAL stage ("Out of This Dimension", map SPECIAL/planet 14).
+    pub const ENTERSPEC: u8 = 16;
+}
+
 /// C `GameState` (src/game/boot.h:17-25), same order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameState {
@@ -854,22 +896,86 @@ impl Shell {
         }
         self.death_ticks = 0;
 
-        // --- Level completion (boot.c:200-218) ---
-        // mapend runs after the clear-demo submap + wipe script. TODO(C
-        // parity): LE_ENTERBHOLE/LE_ENTERSPEC warp values currently advance
-        // the normal route (boot.c:197-199 has the same caveat).
-        if self.game.world.levelfinished != 0 {
-            self.levelclear_ticks += 1;
-            if self.levelclear_ticks < LEVEL_CLEAR_SETTLE_TICKS {
-                return;
-            }
-            // ROM end_level_seq runs the tally screen before advancing
-            // (MAIN.ASM:1077). Compute + record this stage's score, then hand
-            // off to GameState::Tally; the stage advance happens on tally exit.
-            self.enter_tally();
+        // --- Level completion / ROM LE_* level-end dispatch
+        // (MAIN.ASM:222-322) ---
+        // The map VM's `mapend(N)` stores N into `world.levelfinished`; ROM
+        // branches on that LE_* value (see [`le`]). mapend runs after the
+        // clear-demo submap + wipe script.
+        let lf = self.game.world.levelfinished;
+        if lf == le::PLAYING {
+            self.levelclear_ticks = 0;
             return;
         }
-        self.levelclear_ticks = 0;
+
+        // le_gameover (10): ROM skips `inc stage` and shows GAME OVER
+        // (MAIN.ASM:226-227). The port normally reaches game-over through the
+        // GF_PLAYERDEAD path above (Finding 5); no ported map sets
+        // levelfinished=10, so this arm is defensive only — it must NOT
+        // advance the stage.
+        if lf == le::GAMEOVER {
+            self.levelclear_ticks = 0;
+            self.death_ticks = 0;
+            self.game_state = GameState::Continue;
+            return;
+        }
+
+        // All remaining codes hold on screen for the clear settle first (ROM
+        // animates the clear demo; the port uses a fixed hold).
+        self.levelclear_ticks += 1;
+        if self.levelclear_ticks < LEVEL_CLEAR_SETTLE_TICKS {
+            return;
+        }
+
+        match lf {
+            // Warp codes (MAIN.ASM:238-322): re-point routes[], record the
+            // skipped-stage marker, and walk straight into the warp stage
+            // WITHOUT the end-of-level tally.
+            le::BHOLE1 | le::BHOLE2 | le::BHOLE3 | le::SPECIAL
+            | le::ENTERBHOLE | le::ENTERSPEC => self.warp_advance(lf),
+            // Normal clear (1) + end codes (4/6/7/…): ROM `end_level_seq` runs
+            // the tally screen before advancing (MAIN.ASM:253). Compute +
+            // record this stage's score, hand off to GameState::Tally; the
+            // stage advance happens on tally exit.
+            _ => self.enter_tally(),
+        }
+    }
+
+    /// ROM warp level-end handlers (`MAIN.ASM:238-322`). The black-hole and
+    /// special-stage LE_* codes re-point `routes[]`, append the skipped-stage
+    /// sentinel (`specbuf`=101, [`score::STAGE_SKIPPED`]), and walk the map
+    /// graph WITHOUT the end-of-level tally — ROM
+    /// `exittobhole*`/`exittospecial`/`enterbhole` jump straight to
+    /// `planetseq_l`, bypassing `end_level_seq`.
+    ///
+    /// Finding 2 (partial wiring): the route *repointing* driven by the exit
+    /// codes (BHOLE1/2/3 -> routes[3], SPECIAL -> routes[0]) IS wired here.
+    /// The route *arming* that must precede LE_ENTERBHOLE/LE_ENTERSPEC — ROM
+    /// `routechange 2` inside the black-hole-approach strat
+    /// (GA2STRAT.ASM:2202) and the LE_ENTERSPEC store from PATHDATA.ASM:375 —
+    /// is still blocked on unported sf-strat/sf-path, so those two enter codes
+    /// rely on the P21/P22 branch already being armed upstream (do NOT touch
+    /// rust/sf-strat here). TODO(sf-strat/sf-path): fire `routechange2`
+    /// (and `routechange3`) + set LE_ENTERSPEC from the ported strat/path.
+    fn warp_advance(&mut self, lf: u8) {
+        // MAIN.ASM:302-312: the exit codes rewrite routes[] before re-walking.
+        match lf {
+            le::BHOLE1 => self.planets.routechangebhole1(), // routes[3]=P19 -> Venom 1 Orbital
+            le::BHOLE2 => self.planets.routechangebhole2(), // routes[3]=P18 -> Sector Y
+            le::BHOLE3 => self.planets.routechangebhole3(), // routes[3]=P20 -> Sector Z
+            le::SPECIAL => self.planets.routechange1(),     // routes[0]=P22 -> Out of This Dimension
+            _ => {} // ENTERBHOLE/ENTERSPEC: branch armed upstream (Finding 2)
+        }
+
+        // MAIN.ASM:314-320 `enterbhole`: codes 11-15 append the skipped-stage
+        // sentinel so the black-hole/special stage is excluded from the score
+        // tally (`sta specbuf,x`). LE_ENTERSPEC (16, `exitspec.white`) does
+        // not store it.
+        if lf != le::ENTERSPEC {
+            self.planets.stage_scores.push(score::STAGE_SKIPPED);
+        }
+
+        // ROM `inc stage` (MAIN.ASM:229) + `planetseq_l` walk, no tally.
+        self.advance_stage_and_walk();
     }
 
     /// ROM `end_level_seq` entry (MAIN.ASM:1077-1090): compute this stage's hit
@@ -922,14 +1028,22 @@ impl Shell {
     /// re-entry). Extracted from the old level-clear path.
     fn advance_stage_after_tally(&mut self) {
         self.tally_ticks = 0;
+        self.advance_stage_and_walk();
+    }
+
+    /// ROM `inc stage` (MAIN.ASM:229) + `planetseq_l` re-entry: increment the
+    /// stage, re-walk the map graph, and begin gameplay on the resolved map
+    /// (or enter the ending when the route is exhausted). Shared by the normal
+    /// post-tally advance and the warp ([`Shell::warp_advance`]) path.
+    ///
+    /// planetseq_l calls `convertroute` on entry (PLANETS.ASM:251) and again
+    /// on `.continuewithgame` before gamestart (PLANETS.ASM:1090). The map
+    /// walk therefore runs with the *converted* route (e.g. gameplay
+    /// whichroute 0 -> 1 -> root P6 -> MAP_ID_1_2), then converts back for
+    /// gameplay. Without this bracket the walk used the raw gameplay route
+    /// (P1 -> MAP_ID_2_2).
+    fn advance_stage_and_walk(&mut self) {
         self.planets.stage = self.planets.stage.wrapping_add(1);
-        // ROM: level-finish does `inc stage` (MAIN.ASM:229) then re-enters
-        // planetseq_l, which calls `convertroute` on entry (PLANETS.ASM:251)
-        // and again on `.continuewithgame` before gamestart
-        // (PLANETS.ASM:1090). The map walk therefore runs with the
-        // *converted* route (e.g. gameplay whichroute 0 -> 1 -> root P6 ->
-        // MAP_ID_1_2), then converts back for gameplay. Without this bracket
-        // the walk used the raw gameplay route (P1 -> MAP_ID_2_2).
         self.planets.convertroute();
         let advanced = self.planets.drawplanetlines();
         self.planets.convertroute();
@@ -1083,6 +1197,79 @@ mod tests {
         assert_eq!(sh.state().code(), 4);
         let _ = sh.drain_sound(); // clear launch SFX
         sh
+    }
+
+    /// Drive `n` gameplay ticks with a held level-end code, so the clear
+    /// settle timer elapses and the LE_* dispatch fires.
+    fn run_settle(sh: &mut Shell, lf: u8) {
+        sh.game.world.levelfinished = lf;
+        for _ in 0..LEVEL_CLEAR_SETTLE_TICKS {
+            sh.tick(0);
+        }
+    }
+
+    /// Finding 1/2: the black-hole *exit* codes (LE_BHOLE1/2/3) skip the tally
+    /// and re-point routes[3] to the ROM exit destination (Venom 1 Orbital /
+    /// Sector Y / Sector Z) — MAIN.ASM:306-311 + PLANETS.ASM:3107-3155.
+    #[test]
+    fn bhole_exit_codes_repoint_routes3() {
+        use crate::planets::path_id;
+        for (lf, expect) in [
+            (le::BHOLE1, path_id::P19), // -> Venom 1 Orbital
+            (le::BHOLE2, path_id::P18), // -> Sector Y
+            (le::BHOLE3, path_id::P20), // -> Sector Z
+        ] {
+            let mut sh = into_gameplay();
+            run_settle(&mut sh, lf);
+            assert_eq!(sh.planets.routes[3], expect, "LE code {lf} routes[3]");
+            // Warp path skips the tally: never enters GameState::Tally.
+            assert_ne!(sh.state(), GameState::Tally, "LE code {lf} showed tally");
+            assert_eq!(sh.state().code(), 4, "LE code {lf} back to Playing");
+        }
+    }
+
+    /// Finding 1/2: LE_SPECIAL re-points routes[0] -> P22 (Out of This
+    /// Dimension) and sets nebula_on (routechange 1, MAIN.ASM:312).
+    #[test]
+    fn special_code_repoints_routes0_and_nebula() {
+        use crate::planets::path_id;
+        let mut sh = into_gameplay();
+        run_settle(&mut sh, le::SPECIAL);
+        assert_eq!(sh.planets.routes[0], path_id::P22);
+        assert_eq!(sh.planets.nebula_on, path_id::P22);
+        assert_ne!(sh.state(), GameState::Tally);
+    }
+
+    /// Finding 1: with the P21 branch armed upstream (ROM `routechange 2`,
+    /// simulated here — the real trigger is blocked on unported sf-strat),
+    /// LE_ENTERBHOLE walks straight into the BLACK HOLE stage.
+    #[test]
+    fn enterbhole_reaches_black_hole_stage() {
+        let mut sh = into_gameplay();
+        // Simulate the black-hole-approach strat: routechange 2 arms the P21
+        // branch (routes[1]=P21). Route 0, stage 1 -> after inc stage 2:
+        // P6(0) -> routes[1]=P21(1) -> routes[3]=P19(2) = BLACKHOLE.
+        sh.planets.routechange2();
+        sh.planets.stage = 1;
+        run_settle(&mut sh, le::ENTERBHOLE);
+        assert_eq!(sh.frame().newmap, map_id::BLACKHOLE);
+        assert_ne!(sh.state(), GameState::Tally);
+    }
+
+    /// Finding 1: with routechange 1 applied upstream, LE_ENTERSPEC walks into
+    /// the SPECIAL stage ("Out of This Dimension", map SPECIAL / planet 14).
+    #[test]
+    fn enterspec_reaches_special_stage() {
+        let mut sh = into_gameplay();
+        // Venom-3 spine (route 2) with routes[0]=P22: P11(0) -> P22(1) ->
+        // OTHEREND(2) = SPECIAL. Stage 1 -> after inc stage 2.
+        sh.planets.whichroute = 2;
+        sh.planets.routechange1();
+        sh.planets.stage = 1;
+        run_settle(&mut sh, le::ENTERSPEC);
+        assert_eq!(sh.frame().newmap, map_id::SPECIAL);
+        assert_eq!(sh.frame().currentplanet, 14);
+        assert_ne!(sh.state(), GameState::Tally);
     }
 
     /// End-of-level tally: computes calcstageperc from specials_dead /

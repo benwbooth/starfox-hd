@@ -78,8 +78,10 @@ pub fn build() -> Route1Level {
     // mapjsr map1_5 / mapjsr cl_dive / mapend__not level1_6
     b.mapjsr("level1_5.map1_5");
     b.mapjsr("cl_dive");
-    // mapend__not level1_6: sets levelfinished=6 (next is 1_6).
-    b.mapend(6);
+    // mapend__not level1_6: sets levelfinished=7 (le_startgame), matching
+    // ROM LEVEL1_5.ASM:13 `mapend__not` (MAPMACS.INC:1989-1990) and level2_5.
+    // Was mapend(6) (le_endofgame) — see AUDIT Finding 3.
+    b.mapend(7);
 
     // === MAP1_5.ASM subroutine — Venom 1 Orbital space content ===
     b.label("level1_5.map1_5");
@@ -307,6 +309,36 @@ pub fn build() -> Route1Level {
         },
         native_regs: vec![], // level1_5 registers no natives
         inline_regs,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build;
+    use crate::consts::{op, wm};
+
+    /// AUDIT Finding 3: the level1_5 wrapper's `mapend__not` must store
+    /// levelfinished=7 (le_startgame), matching ROM LEVEL1_5.ASM:13 and
+    /// level2_5 — NOT 6 (le_endofgame). The map VM encodes `mapend(N)` as
+    /// `setvarb(LEVELFINISHED, N)` = [SETVARB, N, addr_lo, addr_hi, 0].
+    #[test]
+    fn mapend_sets_levelfinished_le_startgame() {
+        let lvl = build();
+        let data = &lvl.level.data;
+        let lo = (wm::LEVELFINISHED & 0xFF) as u8;
+        let hi = (wm::LEVELFINISHED >> 8) as u8;
+        let mut found = None;
+        for i in 0..data.len().saturating_sub(4) {
+            if data[i] == op::SETVARB
+                && data[i + 2] == lo
+                && data[i + 3] == hi
+                && data[i + 4] == 0
+            {
+                found = Some(data[i + 1]);
+                break;
+            }
+        }
+        assert_eq!(found, Some(7), "level1_5 mapend must store le_startgame (7)");
     }
 }
 
