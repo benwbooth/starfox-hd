@@ -202,6 +202,23 @@ pub const IS_CASTANET: usize = 124;
 /// IS_CHICKEN_ISTRAT=$74(116); +1 = 117.
 pub const IS_CHICKEN: usize = 117;
 
+/// `seadragon2` (ISTRATS.ASM:627 `def_istrat seadragon2,snake_1`). Resolves
+/// through `world.istrats[197]` — matches sf-map `route3::common::IS_SEADRAGON2
+/// = 197` (level3_3.rs spawns SH_SNAKE_1 objects carrying this index). This is
+/// the map-placed root of the sprouting sea-dragon neck.
+pub const IS_SEADRAGON2: usize = 197;
+/// `lochnessmonster` (ISTRATS.ASM:628 `def_istrat lochnessmonster,nullshape`)
+/// → `world.istrats[198]`. Not placed by any ported map (the plan flags its
+/// reachability as uncertain); registered so a future map + the seadragon
+/// head's underwater `.startnextneck` respawn (D2STRATS.ASM:842) resolve it.
+pub const IS_LOCHNESS: usize = 198;
+
+/// `seadragon_istrat` synthetic address (sf-map `consts::STRAT_ADDR_SEADRAGON`
+/// = 0x03000E, DSTRATS.ASM:1934). The Route-3 L3 `mother_snakes` spawner
+/// (mothers.rs:236) fires children at this address — the plain (non-`sbyte2`)
+/// sea-dragon variant.
+pub const STRAT_ADDR_SEADRAGON: u32 = 0x03000E;
+
 /// C `STRAT_ADDR_BOSSSEAMON` (strat_boss_sea.c:45).
 pub const STRAT_ADDR_BOSSSEAMON: u32 = 0x030005;
 /// C `STRAT_ADDR_BOSSG` (strat_boss_sea.c:46).
@@ -6863,6 +6880,693 @@ fn chicken_kill_alptr_list(g: &mut Game, start_raw: u16) {
 // CHICKEN_END
 
 // ============================================================
+// SEADRAGON_BEGIN — seadragon / seadragon2 / lochnessmonster (Route 3 L3)
+// ASM oracle: DSTRATS.ASM:1926-2395 (`lochnessmonster_istrat` :1926 /
+// `seadragon2_istrat` :1931 / `seadragon_istrat` :1934 / `seadragon_istrat2`
+// :1950 and the shared `sprouty` growth machine `sprout2_istrat`/`sprouty`
+// :2093-2395) + D2STRATS.ASM:732-861 (`snake_istrat`, the fire-breathing
+// head). Constants: D2STRATS.ASM:29-30, DSTRATS.ASM:57/100-101,
+// STRATEQU.INC:66-68/980. Macro semantics per docs/AUDIT_BOSS_TICKS2_FINDINGS.
+//
+// MECHANISM (how it reuses / differs from the ported worm):
+//  * The ported `worm`/`worm2` (enemy_a.rs) is a SELF-CONTAINED splitter — it
+//    does NOT use `sproutstrat`. The sea dragon instead uses the engine's
+//    `sprouty` SEGMENT-GROWTH primitive (a vertical al_ptr chain), the same
+//    label family flingboss/chicken arms lean on. That primitive was not yet
+//    ported (flingboss/chicken ported the separate `arm_istrat`), so the
+//    seadragon-relevant subset is ported fresh here and linked exactly like
+//    the flingboss/chicken child chains: `al_ptr` (raw u16, index+1; 0 = none,
+//    0xFFFF = "grew past the play field / topmost").
+//  * A map-placed root (seadragon2 = IS_SEADRAGON2, or a mother-spawned plain
+//    seadragon at STRAT_ADDR_SEADRAGON) GROWS a neck upward: each ~2 ticks a
+//    segment finishes its stretch anim (`sprouty.strat` -> `.finished`) and
+//    `.strat2` spawns the next segment above it (roffs offset along its own
+//    rots), links parent.al_ptr -> child, hands the child `sproutstrat`
+//    (= seadragon_istrat2) and turns itself into a body piece (`.strat3`).
+//    `al_sbyte1` (init (rnd&3)+2) counts the neck height down per generation
+//    (`seadragon_istrat2` beqdec); at 0 the top segment stops (`.stopstrat`).
+//  * When the player is within z<1000 (`dzdistless`), the growing root spawns
+//    the snake_0 fire-breathing HEAD (`.nobluff`) and links head.al_ptr = root.
+//    Necks are hardHP(255)+nohitaffect (near-unkillable); killing the HEAD
+//    (hp=4) runs `snake_istrat.explode`, which sets the neck's sflag5 -> the
+//    neck `.withdraw`s (shrinks + sinks) and unlinks. That is the kill.
+//
+// SCOPE / FIDELITY BOUNDARIES (honest, cited inline):
+//  * Only the SNAKE path of the shared `sprouty` machine is ported. The
+//    tree1/tree2/tree3 (sflag6), tunnel-sprouter (sflag7) and flower/leaf
+//    (`.bloom`/`leaf_istrat`) branches (DSTRATS.ASM:1970-2064, 2188-2192,
+//    2288-2311, 2398-2416) are OUT of scope — different enemies that reuse the
+//    same code. The snake-only branches are taken verbatim.
+//  * Distinct snake FRAMES snake_0/snake_3/snake_4 collapse to SH_SNAKE_1
+//    (201) — the renderer only models snake_1 (sf-map route3::common). Shape
+//    ids are behaviour-inert here (no branch reads them), so this is purely a
+//    visual approximation; firebreath reuses SH_CHICK_FIREBREATH.
+//  * `make_splash` (sea_make_splash, a no-op like the rest of the sea lane),
+//    `enemyupsea`/`enemydownsea` (sound only), and the `.bluff` idle are
+//    modelled per the existing sea-boss port conventions.
+//  * NO boss HP bar: verified there is no `s_add_bossHP`/`s_set_bossmaxHP`
+//    anywhere in the seadragon/snake/sprouty spans — each segment/head is an
+//    individually shootable object, so no `set_bossmaxhp`/`add_bosshp` calls
+//    (unlike the generic boss template). Death routes through the simple
+//    `explode_istrat` (strat_explode), not bossexplode.
+// ============================================================
+
+// --- constants ---
+const SD_SEADRAGON_HP: u8 = 4; // D2STRATS.ASM:29 seadragonHP
+const SD_SEADRAGON_AP: u8 = 6; // D2STRATS.ASM:30 seadragonAP
+const SD_SEANECK_HP: u8 = 255; // DSTRATS.ASM:100 seaneckHP = hardHP (-1)
+const SD_SEANECK_AP: u8 = 16; // DSTRATS.ASM:101 seaneckAP
+const SD_SPROUT_MAXY: i16 = 80; // STRATEQU.INC:980 sprout_maxy
+const SD_ANIM_SPEED: u8 = 4; // DSTRATS.ASM:1947 al_sword1 (anim speed)
+const SD_TAIL_TIMER: u8 = 255; // DSTRATS.ASM:1938 al_sword1+1 (tail delay)
+const SD_ANIM_MAX: u8 = 8; // s_add_anim ...,#8
+
+// sflag mapping (same as flingboss/castanet/chicken): sflag1..4 ->
+// sflags2 0x10/20/40/80; sflag5 -> sflags3 0x01; sflag8 -> sflags4 ASF4_SFLAG8.
+const SD_SFLAG1: u8 = 0x10; // sflags2 — "always splash"
+const SD_SFLAG2: u8 = 0x20; // sflags2 — "it's a dragon" (snake path marker)
+const SD_SFLAG3: u8 = 0x40; // sflags2 — head created once
+const SD_SFLAG4: u8 = 0x80; // sflags2 — fire-breathing (cosmetic here)
+const SD_SFLAG5: u8 = 0x01; // sflags3 — sink/withdraw request
+
+// Shapes (see scope note — collapse to snake_1 for rendering).
+const SH_SNAKE_1: u16 = 201; // sf-map route3::common SH_SNAKE_1
+const SD_SNAKE_HEAD: u16 = SH_SNAKE_1; // snake_0 (fire head) — proxy
+const SD_SNAKE_BODY: u16 = SH_SNAKE_1; // snake_4 (sproutbody) — proxy
+const SD_SNAKE_TAIL: u16 = SH_SNAKE_1; // snake_3 (sprouttail, lochness) — proxy
+const SD_FIREBREATH: u16 = SH_CHICK_FIREBREATH; // reuse firebreath shape
+
+const SD_SE_FIRE: u8 = 0x2e; // trigse $2e (D2STRATS.ASM:797)
+
+// --- al_sword1 byte accessors (ROM treats al_sword1 low = anim speed,
+// al_sword1+1 high = tail timer; STRUCTS.INC word-in-two-bytes). ---
+#[inline]
+fn sd_sword1_lo(al: &Alien) -> u8 {
+    (al.sword1 as u16 & 0x00ff) as u8
+}
+#[inline]
+fn sd_sword1_hi(al: &Alien) -> u8 {
+    ((al.sword1 as u16 >> 8) & 0xff) as u8
+}
+#[inline]
+fn sd_set_sword1_lo(al: &mut Alien, v: u8) {
+    al.sword1 = ((al.sword1 as u16 & 0xff00) | v as u16) as i16;
+}
+#[inline]
+fn sd_set_sword1_hi(al: &mut Alien, v: u8) {
+    al.sword1 = ((al.sword1 as u16 & 0x00ff) | ((v as u16) << 8)) as i16;
+}
+
+/// `s_add_Roffs2pos B,y,y,y,#0,y1,#0,1,1,1,0,0,0` — position `obj` at its own
+/// world pos + rotate(offset by its own rotz,rotx,roty), scale 0 (no shift).
+fn sd_roffs(g: &mut Game, obj: u16, offx: i16, offy: i16, offz: i16) {
+    let base = g.objs.aliens[obj as usize];
+    b2_full_offset_pos(g, obj, &base, offx, offy, offz);
+}
+
+// ==== inits ====
+
+/// `seadragon_istrat` (DSTRATS.ASM:1934) — plain sea dragon
+/// (STRAT_ADDR_SEADRAGON, mother-spawned). Falls into `.missheight`.
+fn sd_seadragon_init(g: &mut Game, idx: u16) {
+    let r = (sfrtl_random(g) & 3) as u8; // s_set_alvar2rnd sbyte1,#3
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sbyte1 = r.wrapping_add(2); // s_add_alvar sbyte1,#2 -> [2,5]
+    sd_set_sword1_hi(al, SD_TAIL_TIMER); // sword1+1 = 255
+    sd_missheight(g, idx);
+}
+
+/// `seadragon2_istrat` (DSTRATS.ASM:1931) — map-placed root (IS_SEADRAGON2).
+/// Sets sbyte2=15 then falls into `seadragon_istrat` (`seady`).
+fn sd_seadragon2_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = 15; // s_set_alvar sbyte2,#15
+    sd_seadragon_init(g, idx);
+}
+
+/// `lochnessmonster_istrat` (DSTRATS.ASM:1926). Sets sflag8 + sprouttail=snake_3
+/// and jumps to `seady.missheight` (skips the sbyte1/tail-timer randomization,
+/// so sbyte1 stays 0 -> `seadragon_istrat2` takes its sflag8 early-out and
+/// never runs the height countdown).
+fn sd_lochness_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_SFLAG8; // sflag8 "lock ness"
+    // sprouttail=#snake_3 is a global; collapsed to the snake_1 proxy here.
+    sd_missheight(g, idx);
+}
+
+/// `seady.missheight` (DSTRATS.ASM:1939-1948): snake flags + shapes + drop the
+/// root half a segment, then fall into `seadragon_istrat2`.
+fn sd_missheight(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags2 |= SD_SFLAG2 | SD_SFLAG4; // dragon + fire-breathing
+        al.worldy = al.worldy.wrapping_sub(SD_SPROUT_MAXY / 2); // -40
+        sd_set_sword1_lo(al, SD_ANIM_SPEED); // anim speed = 4
+        al.sflags |= ASF_COLLDISABLE; // colldisable
+    }
+    sd_seadragon_istrat2(g, idx);
+}
+
+/// `seadragon_istrat2` (`sead`, DSTRATS.ASM:1950-1968) — the `sproutstrat`
+/// handed to every new segment AND the root's continuation. Sets the growth
+/// strat/coll/exp ptrs, then either bails to `sprouty.strat` (lochness / still
+/// growing) or, when the height counter hits 0, becomes the topmost `.stop`.
+fn sd_seadragon_istrat2(g: &mut Game, idx: u16) {
+    let s_strat = sid(g, sprouty_strat);
+    let s_coll = sid(g, strat_hit_flash); // hitflash_istrat
+    let s_exp = sid(g, strat_explode); // explode_istrat (simple)
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s_strat);
+        al.collstratptr = Some(s_coll);
+        al.expstratptr = Some(s_exp);
+        al.hp = SD_SEANECK_HP; // sproutiHP (255)
+        al.ap = SD_SEANECK_AP;
+        al.sflags |= ASF_NOHITAFFECT; // nohitaffect
+        al.collflags |= COLLTYPE_ENEMY1;
+    }
+    sea_anim_set(&mut g.objs.aliens[idx as usize], 0); // s_init_anim #0
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_SFLAG8 != 0 {
+        // lochness -> straight to growth
+        sprouty_strat(g, idx);
+        return;
+    }
+    // s_beqdec_alvar sbyte1,.stop : branch at 0 BEFORE decrement.
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        let s_stop = sid(g, sd_stopstrat);
+        g.objs.aliens[idx as usize].stratptr = Some(s_stop);
+        sd_stopstrat(g, idx); // .stop falls straight into .stopstrat same tick
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    sprouty_strat(g, idx);
+}
+
+/// `.stopstrat` (DSTRATS.ASM:1965-1968): the topmost segment idles until its
+/// head is killed (sflag2 && sflag5) -> withdraw.
+fn sd_stopstrat(g: &mut Game, idx: u16) {
+    let al = g.objs.aliens[idx as usize];
+    if al.sflags2 & SD_SFLAG2 != 0 && al.sflags3 & SD_SFLAG5 != 0 {
+        sprouty_withdraw_init(g, idx);
+    }
+}
+
+// ==== sprouty growth machine (snake path) ====
+
+/// `sprouty.strat` (DSTRATS.ASM:2107-2168) — the per-tick growth driver for a
+/// still-growing segment. Snake path only (see scope note).
+fn sprouty_strat(g: &mut Game, idx: u16) {
+    let me = g.objs.aliens[idx as usize];
+    let sflag8 = me.sflags4 & ASF4_SFLAG8 != 0;
+    // s_jmp_NOTalsflag sflag2,.notsnake2 — seadragon always has sflag2, so the
+    // snake branch is taken. sflag8 || sbyte2!=0 -> jump straight to .lochness
+    // (grow now, no distance gate); else gate on dzdistless(1000).
+    let reached_grow = if sflag8 || me.sbyte2 != 0 {
+        true // .lochness (jump over the distance check)
+    } else if !sea_dz_less(g, idx, 1000) {
+        // .chksnake: far away — splash only (cosmetic), stay submerged.
+        if g.vars.gameframe & 7 == 0 {
+            sea_make_splash(g, idx); // s_make_splash; y.worldz-=10 (no-op)
+        }
+        return;
+    } else {
+        true // close -> fall into .lochness label
+    };
+    if reached_grow {
+        // .lochness (DSTRATS.ASM:2125-2145)
+        if me.sflags2 & SD_SFLAG3 == 0 {
+            // head not yet created — decide nobluff / bluff.
+            let do_nobluff = if sflag8 || me.sbyte2 != 0 {
+                true
+            } else if (sfrtl_random(g) & 0xff) < 127 {
+                // s_jmp_random .bluff (branch when random < 127)
+                sprouty_bluff_init(g, idx);
+                return;
+            } else {
+                sea_enemy_up_sea(g); // enemyupsea then .nobluff
+                true
+            };
+            if do_nobluff {
+                sprouty_make_head(g, idx);
+            }
+        }
+    }
+    // .notsnake: grow the stretch animation.
+    sprouty_animate_growth(g, idx);
+}
+
+/// `.nobluff` (DSTRATS.ASM:2132-2146): create the snake_0 fire head, link it
+/// head.al_ptr -> this segment, mark this segment "always splash".
+fn sprouty_make_head(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 |= SD_SFLAG3; // only do this once
+    if let Some(head) = make_obj(g, SD_SNAKE_HEAD) {
+        copy_pos(g, head, idx);
+        chicken_copyrots(g, head, idx); // fling.copyrots_yx
+        let s_head = sid(g, sd_snake_head_init);
+        {
+            let seg = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[head as usize];
+            al.stratptr = Some(s_head); // snake_istrat
+            al.collflags |= COLLTYPE_ENEMY1;
+            al.ptr = boss_obj_index_or_null(idx); // head.al_ptr = segment
+            al.sbyte2 = seg.sbyte2; // copy sbyte2 (fire counter)
+            al.sbyte3 = sd_sword1_hi(&seg); // copy sword1+1 -> head sbyte3
+            al.sflags &= !ASF_INVISIBLE;
+            if seg.sflags4 & ASF4_SFLAG8 != 0 {
+                al.sflags2 |= SD_SFLAG1; // nessie head: set sflag1
+            }
+        }
+    }
+    // .failed: this segment shows snake_1 + becomes collidable.
+    let al = &mut g.objs.aliens[idx as usize];
+    al.shape = SH_SNAKE_1;
+    al.sflags &= !ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= SD_SFLAG1; // always splash (segment)
+}
+
+/// `.notsnake` growth anim (DSTRATS.ASM:2147-2159): `s_add_anim x,sword1_lo,#8,
+/// .finished`. 4-arg/label form -> cap at max-1 and jump (AUDIT rule). On the
+/// finish tick decide withdraw vs. spawn-next.
+fn sprouty_animate_growth(g: &mut Game, idx: u16) {
+    let amt = sd_sword1_lo(&g.objs.aliens[idx as usize]); // svar_byte1
+    let cur = g.objs.aliens[idx as usize].animframe & 0x7f;
+    let next = cur.wrapping_add(amt);
+    if next >= SD_ANIM_MAX {
+        // .finished
+        sea_anim_set(&mut g.objs.aliens[idx as usize], SD_ANIM_MAX - 1); // cap 7 (|bit7)
+        let al = g.objs.aliens[idx as usize];
+        if al.sflags2 & SD_SFLAG2 != 0 && al.sflags3 & SD_SFLAG5 != 0 {
+            sprouty_withdraw_init(g, idx);
+        } else {
+            let s = sid(g, sprouty_strat2);
+            g.objs.aliens[idx as usize].stratptr = Some(s); // -> .strat2 next tick
+        }
+    } else {
+        sea_anim_set(&mut g.objs.aliens[idx as usize], next);
+    }
+}
+
+/// `.bluff` (DSTRATS.ASM:2162-2168): the snake fakes out — idle + splash,
+/// never emerges (a legit ROM outcome for a fraction of snakes).
+fn sprouty_bluff_init(g: &mut Game, idx: u16) {
+    let s = sid(g, sprouty_bluff_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    sprouty_bluff_strat(g, idx);
+}
+fn sprouty_bluff_strat(g: &mut Game, idx: u16) {
+    if g.vars.gameframe & 7 == 0 {
+        sea_make_splash(g, idx);
+    }
+}
+
+/// `.strat2` (DSTRATS.ASM:2170-2210): a finished segment spawns the next
+/// segment above it, links parent.al_ptr -> child, hands the child the
+/// `sproutstrat` (seadragon_istrat2), then becomes a `.strat3` body piece.
+fn sprouty_strat2(g: &mut Game, idx: u16) {
+    sea_anim_set(&mut g.objs.aliens[idx as usize], SD_ANIM_MAX); // s_init_anim #8
+    let Some(child) = make_obj(g, SD_SNAKE_BODY) else {
+        return; // .end (alloc failed)
+    };
+    copy_pos(g, child, idx);
+    chicken_copyrots(g, child, idx);
+    {
+        let x = g.objs.aliens[idx as usize];
+        let y = &mut g.objs.aliens[child as usize];
+        y.sbyte1 = x.sbyte1;
+        y.sbyte2 = x.sbyte2;
+        y.sbyte3 = x.sbyte3;
+        y.sword1 = x.sword1;
+        y.sflags = x.sflags; // s_copy_sflags (all 4 bytes)
+        y.sflags2 = x.sflags2;
+        y.sflags3 = x.sflags3;
+        y.sflags4 = x.sflags4;
+    }
+    // .roffs (offset -37 up along child's own rots) — first application.
+    sd_roffs(g, child, 0, -(SD_SPROUT_MAXY - 5) / 2, 0);
+    // .snakemiss (DSTRATS.ASM:2193-2198): tilt the child back a little.
+    {
+        let sflag8 = g.objs.aliens[idx as usize].sflags4 & ASF4_SFLAG8 != 0;
+        let y = &mut g.objs.aliens[child as usize];
+        if sflag8 {
+            y.rotx = y.rotx.wrapping_sub(DEG22); // -deg22
+            y.sflags2 &= !SD_SFLAG1; // don't always splash
+        } else {
+            y.rotx = y.rotx.wrapping_sub(DEG22 / 2); // -deg11
+        }
+    }
+    // .normmiss: second .roffs, link, bounds check.
+    sd_roffs(g, child, 0, -(SD_SPROUT_MAXY - 5) / 2, 0);
+    let s_child = sid(g, sd_seadragon_istrat2); // sproutstrat
+    g.objs.aliens[child as usize].stratptr = Some(s_child);
+    if sprouty_out_of_bounds(g, child) {
+        // .finishitup: parent marks "topmost" and drops the child.
+        g.objs.aliens[idx as usize].ptr = 0xffff; // al_ptr = -1
+        g.objs.free(child);
+    } else {
+        g.objs.aliens[idx as usize].ptr = boss_obj_index_or_null(child); // link
+    }
+    // .strat3_i: this segment is now a body piece.
+    let s3 = sid(g, sprouty_strat3);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.hp = SD_SEANECK_HP; // sproutiHP
+    al.shape = SD_SNAKE_BODY;
+    al.stratptr = Some(s3);
+}
+
+/// `.boundscheck .nottunnel` (DSTRATS.ASM:2239-2246): the snake path just
+/// tests worldy — `s_bpl .setit` marks out-of-bounds when worldy >= 0 (the
+/// neck grows UP into negative Y and stays in-bounds; a falling piece is
+/// "out" once it sinks back to/below the water plane y=0). (The tunnel branch,
+/// sflag7, is scoped out.)
+fn sprouty_out_of_bounds(g: &Game, obj: u16) -> bool {
+    g.objs.aliens[obj as usize].worldy >= 0
+}
+
+/// `.strat3` (DSTRATS.ASM:2266-2295) — a body segment. Splash at the top,
+/// fall when the child is destroyed, count the tail timer down.
+fn sprouty_strat3(g: &mut Game, idx: u16) {
+    let me = g.objs.aliens[idx as usize];
+    if me.sflags2 & SD_SFLAG2 == 0 {
+        return; // .notsnakey (non-snake) — not our case
+    }
+    if me.sflags3 & SD_SFLAG5 != 0 {
+        sprouty_withdraw_init(g, idx);
+        return;
+    }
+    // splash when topmost (al_ptr==-1) or "always splash" (sflag1).
+    let ptr = me.ptr;
+    let want_splash = ptr == 0xffff || me.sflags2 & SD_SFLAG1 != 0;
+    if want_splash && g.vars.gameframe & 7 == 0 {
+        sea_make_splash(g, idx); // + child worldy=0, worldz-=10 (no-op)
+    }
+    // .notsnakey: child destroyed (al_ptr==0) -> fall.
+    if ptr == 0 {
+        sprouty_fall_init(g, idx);
+        return;
+    }
+    // s_beqdec_alvar sword1+1,.animate : tail timer.
+    let hi = sd_sword1_hi(&g.objs.aliens[idx as usize]);
+    if hi == 0 {
+        sprouty_tail_init(g, idx);
+        return;
+    }
+    sd_set_sword1_hi(&mut g.objs.aliens[idx as usize], hi - 1);
+    // (sflag6 tree / sflag4 leaf branch is scoped out.)
+}
+
+/// `.withdraw_i`/`.withdraw` (DSTRATS.ASM:2252-2264): shrink the stretch anim
+/// to 0, then latch sflag5 on whoever points at us and remove ourselves —
+/// propagating the sink down the neck.
+fn sprouty_withdraw_init(g: &mut Game, idx: u16) {
+    let s = sid(g, sprouty_withdraw_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.shape = SH_SNAKE_1; // sprouthead
+    sprouty_withdraw_strat(g, idx);
+}
+fn sprouty_withdraw_strat(g: &mut Game, idx: u16) {
+    let frame = g.objs.aliens[idx as usize].animframe & 0x7f;
+    if frame == 0 {
+        // .finishedshrink: find whoever links to us, set its sflag5, remove us.
+        if let Some(parent) = sprouty_find_alptr(g, idx) {
+            g.objs.aliens[parent as usize].sflags3 |= SD_SFLAG5;
+        }
+        g.objs.aldead = 1; // s_remove_obj x (current)
+        return;
+    }
+    let al = &mut g.objs.aliens[idx as usize];
+    let nf = frame.saturating_sub(4);
+    al.animframe = 0x80 | (nf & 0x7f); // s_sub_alvar animframe,#4
+}
+
+/// `find_alptr_l`-style scan: the alien whose al_ptr points at `target`.
+fn sprouty_find_alptr(g: &Game, target: u16) -> Option<u16> {
+    let want = boss_obj_index_or_null(target);
+    for i in g.objs.active_indices() {
+        if g.objs.aliens[i as usize].active && g.objs.aliens[i as usize].ptr == want {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// `.animate`/`.finishup` (DSTRATS.ASM:2313-2345): the tail piece appears and
+/// retracts. Rarely reached (255-tick timer) but ported for completeness.
+fn sprouty_tail_init(g: &mut Game, idx: u16) {
+    let s = sid(g, sprouty_tail_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        // animframe = 128 - sword1_lo (ROM: eor -1; inc; +128).
+        let lo = sd_sword1_lo(al);
+        al.animframe = 0x80 | (128u8.wrapping_sub(lo) & 0x7f);
+    }
+    // sflag8 splash branch (D2STRATS-style) omitted (cosmetic).
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_SFLAG8 == 0 {
+        g.objs.aliens[idx as usize].hp = 1; // s_set_alvar al_hp,#1
+    }
+    sprouty_tail_strat(g, idx);
+}
+fn sprouty_tail_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].ptr == 0 {
+        sprouty_fall_init(g, idx);
+        return;
+    }
+    let lo = sd_sword1_lo(&g.objs.aliens[idx as usize]);
+    let frame = g.objs.aliens[idx as usize].animframe & 0x7f;
+    let nf = frame.wrapping_add(lo);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.shape = SD_SNAKE_TAIL; // sprouttail
+        al.animframe = 0x80 | (nf & 0x7f);
+    }
+    if nf & 0x7f >= SD_ANIM_MAX {
+        g.objs.aldead = 1; // .rem (current)
+    }
+}
+
+/// `.fall_istrat`/`.fall` (DSTRATS.ASM:2359-2381): a detached segment tumbles
+/// with gravity + spin, then explodes when it leaves the field.
+fn sprouty_fall_init(g: &mut Game, idx: u16) {
+    let s = sid(g, sprouty_fall_strat);
+    let roty = (sfrtl_random(g) & 0xff) as u8;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.vel = 30;
+        al.roty = roty; // s_set_alvar2rnd al_roty
+    }
+    // dgen3dvecs + vy = -10.
+    strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    g.objs.aliens[idx as usize].vy = -10;
+    // remove_alptrs: unlink anything pointing at us (avoid dangling neck).
+    if let Some(p) = sprouty_find_alptr(g, idx) {
+        g.objs.aliens[p as usize].ptr = 0;
+    }
+    sprouty_fall_strat(g, idx);
+}
+fn sprouty_fall_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(5);
+        al.rotx = al.rotx.wrapping_add(2);
+        al.vy = al.vy.wrapping_add(3); // s_falldown_Yvec (gravity 3)
+    }
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    if sprouty_out_of_bounds(g, idx) {
+        // .le_fin: s_set_expstrat explode + s_kill_obj (strat_explode marks
+        // the current object dead via aldead).
+        let s = sid(g, strat_explode);
+        g.objs.aliens[idx as usize].expstratptr = Some(s);
+        strat_explode(g, idx);
+    }
+}
+
+// ==== snake head (snake_istrat, D2STRATS.ASM:732-861) ====
+
+/// `snake_istrat` init (D2STRATS.ASM:732-745).
+fn sd_snake_head_init(g: &mut Game, idx: u16) {
+    let s = sid(g, sd_snake_head_strat);
+    let s_coll = sid(g, strat_hit_flash);
+    let s_exp = sid(g, sd_snake_head_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_coll);
+        al.expstratptr = Some(s_exp);
+        al.hp = SD_SEADRAGON_HP; // 4
+        al.ap = SD_SEADRAGON_AP; // 6
+        al.collflags |= COLLTYPE_ENEMY1;
+    }
+    sea_make_splash(g, idx);
+    // Face sideways toward the player: roty += (x < player.x ? -deg90 : +deg90).
+    if let Some(p) = player(g) {
+        let me = &mut g.objs.aliens[idx as usize];
+        if me.worldx < p.worldx {
+            me.roty = me.roty.wrapping_sub(DEG90);
+        } else {
+            me.roty = me.roty.wrapping_add(DEG90);
+        }
+    }
+}
+
+/// `snake_istrat.getneck` (D2STRATS.ASM:849-861): follow al_ptr to the neck,
+/// climbing to the next piece while the current one still has a child.
+/// Returns None (and removes the head) when the neck is gone.
+fn sd_head_getneck(g: &mut Game, idx: u16) -> Option<u16> {
+    let neck_raw = g.objs.aliens[idx as usize].ptr;
+    let Some(neck) = boss_child_from_index_raw(neck_raw) else {
+        // al_ptr == 0 -> .removeit (remove head).
+        g.objs.aldead = 1;
+        return None;
+    };
+    // If this neck piece has a live child, climb up to it (head.al_ptr = child).
+    let cptr = g.objs.aliens[neck as usize].ptr;
+    if let Some(child) = boss_child_from_index_raw(cptr) {
+        g.objs.aliens[idx as usize].ptr = boss_obj_index_or_null(child);
+        return Some(child);
+    }
+    Some(neck)
+}
+
+/// `snake_istrat.strat` (D2STRATS.ASM:746-806): aim, ride the top of the neck,
+/// breathe fire (seadragon2 only).
+fn sd_snake_head_strat(g: &mut Game, idx: u16) {
+    let neck_raw = g.objs.aliens[idx as usize].ptr;
+    // if neck.al_ptr == -1 -> underwater (the neck grew off the top).
+    if let Some(neck) = boss_child_from_index_raw(neck_raw) {
+        if g.objs.aliens[neck as usize].ptr == 0xffff {
+            sd_head_underwater_init(g, idx);
+            return;
+        }
+    }
+    // Aim: sflag1 uses the neck's rots offset; else obj2obj toward player.
+    if g.objs.aliens[idx as usize].sflags2 & SD_SFLAG1 != 0 {
+        if let Some(neck) = sd_head_getneck(g, idx) {
+            let n = g.objs.aliens[neck as usize];
+            let me = &mut g.objs.aliens[idx as usize];
+            me.rotx = n.rotx;
+            me.roty = n.roty.wrapping_add(DEG180);
+            me.rotz = n.rotz;
+            me.rotx = (0i8.wrapping_sub(me.rotx as i8)) as u8; // negate
+            me.rotx = me.rotx.wrapping_sub(DEG90).wrapping_sub(DEG22); // -deg90-deg22
+        } else {
+            return; // head removed
+        }
+    } else if let Some(p) = player_idx(g) {
+        let me = g.objs.aliens[idx as usize];
+        let pl = g.objs.aliens[p as usize];
+        let yaw = strat_angle_xz(&me, &pl);
+        let pitch = strat_pitch_toward(&me, &pl);
+        let a = &mut g.objs.aliens[idx as usize];
+        a.roty = yaw;
+        a.rotx = pitch;
+    }
+    // Position at the top of the neck (offset from neck's stretch anim).
+    let Some(neck) = sd_head_getneck(g, idx) else {
+        return; // head removed
+    };
+    let animval = (g.objs.aliens[neck as usize].animframe & 0x7f) as i16;
+    let y1 = 40 - animval * 10; // ROM: 40 - anim*10 (signed byte)
+    let n = g.objs.aliens[neck as usize];
+    b2_full_offset_pos(g, idx, &n, 0, y1, -10);
+    // Fire: sbyte2==0 never; sbyte2==1 fire every gf&15==0; else countdown.
+    let sb2 = g.objs.aliens[idx as usize].sbyte2;
+    if sb2 == 0 {
+        return;
+    }
+    if sb2 == 1 {
+        if g.vars.gameframe & 15 == 0 {
+            sd_head_fire(g, idx);
+        }
+    } else {
+        g.objs.aliens[idx as usize].sbyte2 = sb2 - 1;
+    }
+}
+
+/// `.notfire`/firebreath spawn (D2STRATS.ASM:792-798): reuse the firebreath
+/// mover (a straight tracked fireball; see chicken scope note).
+fn sd_head_fire(g: &mut Game, idx: u16) {
+    let Some(fb) = make_obj(g, SD_FIREBREATH) else {
+        return;
+    };
+    copy_pos(g, fb, idx);
+    chicken_copyrots(g, fb, idx);
+    let s = sid(g, chicken_firebreath_strat);
+    {
+        let al = &mut g.objs.aliens[fb as usize];
+        al.shape = SD_FIREBREATH;
+        al.stratptr = Some(s);
+        al.vel = 120; // firebreathe2 vel
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.sflags &= !ASF_INVISIBLE;
+    }
+    play_se(g, SD_SE_FIRE);
+}
+
+/// `snake_istrat.explode` (D2STRATS.ASM:810-817): tell the neck to sink
+/// (sflag5), unlink, then run the simple explode.
+fn sd_snake_head_explode(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags2 & SD_SFLAG1 == 0 {
+        if let Some(neck) = sd_head_getneck(g, idx) {
+            g.objs.aliens[neck as usize].sflags3 |= SD_SFLAG5; // sink it back down
+        }
+    }
+    g.objs.aliens[idx as usize].ptr = 0; // al_ptr = 0
+    let s = sid(g, strat_explode);
+    g.objs.aliens[idx as usize].expstratptr = Some(s);
+    strat_explode(g, idx);
+}
+
+/// `.underwater`/`.swimabit`/`.startnextneck` (D2STRATS.ASM:820-847): the head
+/// dives, swims a beat, then spawns a fresh lochness root at the surface and
+/// removes itself. (Modelled with sound + a simple dive; see scope note.)
+fn sd_head_underwater_init(g: &mut Game, idx: u16) {
+    let s = sid(g, sd_head_swim_strat);
+    sea_enemy_down_sea(g);
+    let neck_raw = g.objs.aliens[idx as usize].ptr;
+    let neck_rots = boss_child_from_index_raw(neck_raw).map(|n| {
+        let a = g.objs.aliens[n as usize];
+        (a.rotx, a.roty, a.rotz)
+    });
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.shape = 0; // nullshape
+        if let Some((rx, ry, rz)) = neck_rots {
+            al.rotx = rx;
+            al.roty = ry;
+            al.rotz = rz;
+        }
+        al.vel = (-20i8) as u8;
+        al.sbyte1 = 10;
+        al.rotx = 0;
+    }
+    sea_gen_vecs_angle(g, idx, g.objs.aliens[idx as usize].roty);
+    sd_head_swim_strat(g, idx);
+}
+fn sd_head_swim_strat(g: &mut Game, idx: u16) {
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let sb1 = g.objs.aliens[idx as usize].sbyte1;
+    if sb1 == 0 {
+        // .startnextneck: spawn a lochness root at the surface, remove self.
+        if let Some(root) = make_obj(g, 0) {
+            copy_pos(g, root, idx);
+            let s = sid(g, sd_lochness_init);
+            let sbyte3 = g.objs.aliens[idx as usize].sbyte3;
+            let al = &mut g.objs.aliens[root as usize];
+            al.stratptr = Some(s);
+            al.worldy = 0;
+            sd_set_sword1_hi(al, sbyte3);
+        }
+        sea_enemy_up_sea(g);
+        g.objs.aldead = 1; // .dekinai -> .remove (current)
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 = sb1 - 1;
+}
+// SEADRAGON_END
+
+// ============================================================
 // install / register (C: StratBoss2_Register + StratBossSea_Register +
 // StratBoss8_Register, called from Strat_RegisterAll, strat_table.c).
 // ============================================================
@@ -6944,6 +7648,12 @@ pub fn register(world: &mut World) {
     // flingboss/castanet; the map spawns the SH_BOSS_D_1 body carrying this
     // ISTRAT index. The neck/head/tail segments + wings are child objects.
     world.istrats[IS_CHICKEN] = Some(wsid(world, strat_chicken_init));
+    // seadragon2 (Route 3 L3): the map-placed root of a sprouting sea-dragon
+    // neck. Resolves through world.istrats[197] exactly like the others.
+    // lochnessmonster (198) is registered too — not yet map-placed but reached
+    // by the underwater head respawn.
+    world.istrats[IS_SEADRAGON2] = Some(wsid(world, sd_seadragon2_init));
+    world.istrats[IS_LOCHNESS] = Some(wsid(world, sd_lochness_init));
 
     // Synthetic addresses referenced by the MAP2_3 / washmap literal map
     // data (src/map/levels.c).
@@ -6957,6 +7667,9 @@ pub fn register(world: &mut World) {
     world.register_strategy_address(B8_STRAT_ADDR_NUCLEUSLAUNCHER, nl);
     let np = wsid(world, nucleuspillar_istrat);
     world.register_strategy_address(B8_STRAT_ADDR_NUCLEUSPILLAR, np);
+    // seadragon plain variant — mother-spawned children (mothers.rs mother_snakes).
+    let sd = wsid(world, sd_seadragon_init);
+    world.register_strategy_address(STRAT_ADDR_SEADRAGON, sd);
 }
 
 // ============================================================
