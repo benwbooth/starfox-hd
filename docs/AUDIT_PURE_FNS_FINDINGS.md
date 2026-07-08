@@ -116,4 +116,140 @@ latent divergences below; run `-- --ignored` to reproduce them.
   `call` harness: `arctan16_l` ($03:8550) is an `rtl` stub whose real body runs on
   the SuperFX (`runmario_l`), which this core does not execute — the ROM side
   returns a constant 0 (see audit_trig.rs `angle_xz_vs_rom`). Validate those via
-  the GSU harness (gsu_arctan.rs), out of scope here.
+  the GSU harness (gsu_arctan.rs) — done in BATCH 2 below, at the emulator-exact
+  directions.
+
+---
+
+# BATCH 2 — GSU-side leaves + score/scale math
+
+Harness: `rust/sf-oracle/tests/fuzz_pure_fns2.rs`. Same doctrine as BATCH 1, but
+these leaves live on the GSU ("MARIO" chip), so they run through `sf-oracle`'s
+**GSU core** (`gsu::Gsu::run`) instead of the 65816 `call`. GSU leaves that end
+in `jmp r11` are returned by seeding `r11` with a scanned STOP address;
+`mcall`-wrapper entries (`mcalcperc`, `mcallarctan16`) already end in STOP.
+
+Run:
+```
+nix develop --command bash -c \
+  "cd rust && cargo test -p sf-oracle --test fuzz_pure_fns2 2>&1 \
+   | grep -E 'test result|PROBE|DIVERGE'"
+```
+Default run is GREEN (7 passed, 1 ignored). The `#[ignore]`d test pins the one
+flagged (emulator-side, not port-side) divergence.
+
+## Summary
+
+- **Functions swept: 7** — `msqrt16`, `msqrt32`, `mcalcperc`, `calcstageperc`
+  (whole `calc_stage_perc`), `framescalevecs`, `addvecs0_l`, `anglexy_l`/
+  `arctan16`.
+- **Bit-exact over the tested/reachable regime: 7 / 7.** No new *port* latents
+  found — the ports that exist (`calc_stage_perc`, `strat_add_to_pos`,
+  `strat_angle_xz`) are bit-exact against the real ROM math.
+- **Flagged divergence: 1**, and it is an **emulator** (GSU-core) fidelity limit,
+  not a Rust-port bug: `msqrt32` reads ~3 LSB low for inputs `>= 2^28`.
+
+### Top findings
+
+1. **`msqrt16` is bit-exact floor-sqrt over its ENTIRE 16-bit domain (all 65 536
+   inputs)** AND the f32 distance path the port actually uses
+   (`(x as f32).sqrt() as u16`) agrees with it bit-for-bit — swapping in the
+   integer ROM routine would change nothing. Strong validation of the GSU core.
+2. **`mcalcperc` (the hit-% divide) is bit-exact vs `calc_stage_perc`'s hit ratio
+   over the FULL byte domain (65 280 dead×total pairs)**, and the whole
+   `calc_stage_perc` (ratio + 5%/teammate + clamp-100) matches a ROM-faithful
+   oracle (real GSU divide composed with the verbatim 65816 wrapper) across 576
+   `(dead,total,teammates)` combos.
+3. **`msqrt32` GSU-core divergence (FLAGGED, emulator not port).** A bit-by-bit
+   integer sqrt is exact by construction, yet this GSU core reads low by up to
+   ~3 LSB (growing with magnitude) for `x >= 2^28`, concentrated at `x = s^2-1`.
+   Because `msqrt16` is exact everywhere, the defect is isolated to `msqrt32`'s
+   wider 3-register shift (rol/sbc carry across the r0 top word) in `gsu.rs` — a
+   suspected carry-propagation bug in the emulator. No Rust port exists (integer
+   sqrt is unused — distances go through f32 `sqrtf`), so no game code is
+   affected. Reproducer: `msqrt32_high_domain_divergence` (`#[ignore]`d).
+
+---
+
+## Per-function detail
+
+### `msqrt16` — GSU $018058 (MMATHS.MC:48)
+- **ABI (GSU):** in `rsqr=r3`; out `rsqrt=r6`. Leaf, returns via `jmp r11`.
+- **Rust equivalent:** NONE dedicated (distance uses libm f32 `sqrtf`, e.g.
+  enemy_a.rs / camera.rs). Validated as a ROM/emulator proof + a check that the
+  float path agrees.
+- **Input grid:** EXHAUSTIVE, all 65 536 u16 inputs.
+- **VERDICT: bit-exact** integer floor-sqrt, and bit-identical to the port's
+  `(x as f32).sqrt() as u16` on every input.
+
+### `msqrt32` — GSU $018086 (MMATHS.MC:109)
+- **ABI (GSU):** in `rsqr=r5` (low), `rsqrhi=r4` (high, `<=$7FFF`); out
+  `rsqrt=r6`. Leaf, `jmp r11`.
+- **Rust equivalent:** NONE (same f32 path). Input grid: perfect squares `s^2`
+  and `s^2±1` for stepped `s<=46340`, plus 32-bit boundaries (2544 inputs, domain
+  capped at `$7FFFFFFF`).
+- **VERDICT: bit-exact for `x < 2^28`** (the realistic squared-distance domain).
+  **DIVERGES (FLAGGED, emulator-side)** for `x >= 2^28`: reads low by up to ~3
+  LSB, at `x = s^2-1`. Isolated to the GSU core's 32-bit shift chain (msqrt16 is
+  exact), so a suspected `gsu.rs` carry bug, not a ROM or port bug. `#[ignore]`d
+  reproducer `msqrt32_high_domain_divergence`.
+
+### `mcalcperc` — GSU $01B6B2 (MTXTPRT.MC:355)
+- **ABI (GSU):** in RAM `m_x1`=specials_dead, `m_y1`=specialobjtotal; out
+  `m_x1 = floor(dead*100 / total)` (via `mcall mdivu3216`). Wrapper ends in STOP.
+- **Rust equivalent:** the hit-ratio term of `sf_game::score::calc_stage_perc`
+  (`specials_dead*100 / total`).
+- **Input grid:** every `dead × total` over the byte domain the 65816 masks them
+  to (`total` 1..=255, `dead` 0..=255 — 65 280 pairs; `total==0` is guarded
+  upstream so the divide never sees it).
+- **VERDICT: bit-exact.**
+
+### `calcstageperc` — 65816 $02E7AD (MAIN.ASM:1031)
+- **Not diffable through the 65816 core directly** (its ratio comes from
+  `call_mario mcalcperc`, a GSU dispatch the 65816 core can't run). Instead
+  composed a ROM-faithful oracle = the **real GSU `mcalcperc` divide** (proven
+  above) + the verbatim 65816 wrapper (`+5` per living teammate, `cmp #100`
+  clamp, MAIN.ASM:1037-1070) and diffed the WHOLE Rust
+  `sf_game::score::calc_stage_perc` against it.
+- **Input grid:** 12 `dead` × 12 `total` (incl. 0) × 4 teammate counts = 576.
+- **VERDICT: bit-exact** — the full stage-% function matches the ROM divide +
+  clamp, incl. the `total==0` (no-specials) branch and the >100 clamp path.
+
+### `framescalevecs` — 65816 $0BEA90 (PSTRATS.ASM:3529)
+- **ABI:** p=$20, X=alien; scales `al_vx/al_vy` by `framerate/4` via
+  `new = adiv2^3( mulslog(vel<<8, framerate) )`. **No dedicated Rust port** — the
+  fixed-step port makes it a no-op, correct only at base `framerate=4`.
+- Pinned the EXACT ROM formula bit-exact against a spec built from the
+  already-proven `mulslog` + round-toward-zero `adiv2`, over the full signed-byte
+  `vel` domain × 12 framerates (0,1,2,3,4,5,8,15,16,24,32,60 — 3072 combos).
+- **VERDICT: bit-exact** vs the mulslog+adiv2³ spec, and **identity at
+  `framerate=4`** on every input — so the no-op port is correct at the base rate
+  (extends framescale.rs from a spot-check to a full-grid proof of the contract).
+
+### `addvecs0_l` — 65816 $01C7BB (STRATROU.ASM:493)
+- The raw shared body of the addvecs family (entered with A already 16-bit;
+  `addvecs_l/2/4` fall through here after their `a16`/shifts). ABI p=$00, X=alien;
+  `al_worldx/y/z += x1/y1/z1`. Rust equiv: `strat_add_to_pos`. Grid: 6 positions ×
+  6 vectors × 6 positions incl. `i16::MIN/MAX` wraps (216 combos).
+- **VERDICT: bit-exact** (confirms the shared entry matches, complementing the
+  BATCH-1 `addvecs_l/2/4` proofs).
+
+### `anglexy_l` / `arctan16` — GSU $0181AA (MMATHS.MC:587/618)
+- The aim angle every homing/aiming enemy uses: `anglexy_l` = `arctan16(dx,dz)`
+  then the HIGH byte → 8-bit angle. **Rust equiv:** `sf_strat::common::
+  strat_angle_xz` (f32 `atan2`, mapped 0..256).
+- The GSU core runs the real ROM octant/quadrant + table code and is bit-exact
+  vs `atan2` **only at the `dz=0` axis and the 4 diagonals** (marctan16's
+  `deg90`/`deg45` special cases, no divide); the `dx=0` axis and all off-axis
+  angles go through the shift-subtract divide **refinement**, which the GSU core
+  still gets wrong (see gsu_arctan.rs) — so those are documented-BLOCKED, not
+  diffed.
+- **Input grid:** the 6 emulator-exact directions × 6 magnitudes (1..16000) = 36.
+- **VERDICT: bit-exact** (`d==0` on all 36) at the trustworthy directions —
+  `strat_angle_xz` reproduces `arctan16>>8` exactly there. Full-grid off-axis
+  validation is blocked on the GSU divide-refinement fix (emulator WIP).
+
+### Non-targets discovered
+- **`ANGLEXZ` ($0012DD) is NOT a function** — it is an `alc`-allocated RAM
+  variable (ALCS.INC:141, the current XZ angle), so there is nothing to diff.
+- **`ADDALVECS_L`** already covered by apply_vel.rs (`apply_velocity`).
