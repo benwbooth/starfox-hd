@@ -808,6 +808,116 @@ pub const RETAIL_SR_SPEEDTO: u32 = 0x1F_D60D;
 /// 3D velocity components `gen_3dvecs` derives from it + the rotations.
 pub const AL_VEL: u32 = 0x15;
 
+// ------------------------------------------------------------------------
+// BOSS8 — the "washing machine" wash boss (GB3STRAT.ASM:42-204, Sector Z /
+// Venom). The largest remaining behavioral-coverage gap: a multi-phase BOSS
+// with a child family. The pieces certifiable WITHOUT the GSU are:
+//   * boss8_Istrat  — INIT: HP/AP (level-gated), bossmaxHP, colltype, sbyte4
+//                     timer, cleared sflags, gsvar_byte1=0, stratptr=boss8wait.
+//   * boss8_cont    — the COMMON per-tick body every phase (wait/a/b) converges
+//                     to: worldz = 1680 + player_posz (view-track), an sbyte4
+//                     countdown 150->0 that toggles sflag1 + reloads 150, and a
+//                     gsvar_byte1 speed accumulator that ramps +/-1 toward +/-5
+//                     (gated on gameframe&7, direction from sflag1). Pure CPU:
+//                     NO GSU, NO RNG — reads player_posz + gameframe + the
+//                     gsvar_byte1 global; ends with s_add_bossHP (a bank-$70
+//                     accumulator add, harmless to the object diff).
+// The phase-transition machine (boss8wait/boss8a/boss8b) is gated on the beam
+// CHILDREN's sflag1 and is documented as the remaining gap. All addresses
+// located by masked signature scan of the retail cart (skeleton read out of the
+// built ROM via symbols.txt, WRAM/jml operands wildcarded), cross-validated by
+// reading the operands back.
+// ------------------------------------------------------------------------
+
+/// Retail `boss8_Istrat` ($07:919C, GB3STRAT.ASM:42) — the boss8 shell INIT.
+/// `lda #boss8HP($20); sta al_HP; lda #hardAP($08); sta al_AP;
+///  <s_set_bossmaxHP $20 -> $70:019A>; lda currentlevel; cmp #0; bne .easy;
+///  <2x branch: HP=$40, bossmaxHP=$40>; .easy: rep; lda #boss8wait_strat($9359);
+///  sta al_stratptr; sep; lda #$07; sta al_stratptr+2; <make 4 children>;
+///  set colltype enemy2|enemyweap; al_sbyte4=150; clr sflag1|sflag2;
+///  gsvar_byte1=0; init_anim; brl boss8_cont`. UNIQUE masked hit (+$0C shift
+/// from the built $079190). Port <-> `bosses::strat_boss8_init` (IS_BOSS8=84).
+pub const RETAIL_BOSS8_ISTRAT: u32 = 0x07_919C;
+/// Retail `boss8wait_strat` ($07:9359) — the phase-wait tick the Istrat installs
+/// (read straight out of `boss8_Istrat`'s `s_set_strat` immediate = $07:9359).
+/// Routes to `boss8_cont` (beam child sflag1 clear) or `boss8a_init` (all beams'
+/// sflag1 set / gone). The child-gated phase machine is the documented gap.
+pub const RETAIL_BOSS8WAIT_STRAT: u32 = 0x07_9359;
+/// Retail `boss8_cont` ($07:93BB, GB3STRAT.ASM:108) — the COMMON per-tick body.
+/// `rep; lda #$0690(210<<3); sta al_worldz; sep; rep; lda al_worldz; clc;
+///  adc player_posz; sta al_worldz; sep; dec al_sbyte4; bne .nchg;
+///  lda #150; sta al_sbyte4; lda al_sflags2; eor #sflag1($10); sta al_sflags2;
+///  .nchg: lda gameframe; and #$07; bne .donespeed;
+///    lda al_sflags2; and #sflag1; bne .speeddown;
+///      lda gsvar_byte1; cmp #5; beq .donespeed; inc gsvar_byte1; bra .donespeed;
+///    .speeddown: lda gsvar_byte1; cmp #-5; beq .donespeed; dec gsvar_byte1;
+///  .donespeed: <s_add_bossHP: $70:0170 += al_HP>; rtl`. UNIQUE masked hit
+/// (+$0C shift from built $0793AF). Reads `player_posz`($1511), `gameframe`
+/// ($15BB), `gsvar_byte1`($154F). Port <-> `bosses::boss8_cont`.
+pub const RETAIL_BOSS8_CONT: u32 = 0x07_93BB;
+/// Retail `gsvar_byte1` ($154F, built $15DA) — the boss8 wall-rotation speed
+/// accumulator, read straight out of `boss8_cont`'s `lda/inc/dec gsvar_byte1`
+/// operands (all three agree). Port <-> ext-WRAM cell $0310 (`ebwm::GSVAR_BYTE1`,
+/// `g.vars.read_ext8(0x0310)`), a representation remap of the same logical cell.
+pub const RETAIL_GSVAR_BYTE1: u32 = 0x154F;
+/// Retail `currentlevel` ($1FFD, built $1B01) — the difficulty gate boss8_Istrat
+/// reads (`cmp #0` -> level 1 = easy = boss8HP; else = boss8HP*2). Read out of
+/// `boss8_Istrat`'s `lda currentlevel` operand.
+pub const RETAIL_CURRENTLEVEL: u32 = 0x1FFD;
+/// `al_sbyte4` struct offset ($25) — boss8's phase-toggle countdown, from
+/// `boss8_cont`'s `dec al_sbyte4,x` operand (identical retail/built/port; it is
+/// `al_sbyte3`($24) + 1).
+pub const AL_SBYTE4: u32 = 0x25;
+/// boss8's `sflag1` = `al_sflags2` bit $10 (from `boss8_cont`'s `eor #$10`).
+/// Port <-> `bosses::B8_SFLAG1` (= 0x10).
+pub const B8_SFLAG1: u8 = 0x10;
+
+// ------------------------------------------------------------------------
+// PLAYER-MOVE plrot* ACCUMULATOR — the pad-read -> roty/rotz tilt accumulation
+// inside `playermove_srou` (PSTRATS.ASM:2334-2703). The deferred player-move
+// sub-step (UPDATE 11 left "the plrot* accumulator body" as the only remaining
+// uncertified player-move piece). Per frame, controllable flight does:
+//   * LEFT  held: plrotz += Zrotspeed($200); plroty += Zrotspeed
+//   * RIGHT held: plrotz -= Zrotspeed;       plroty -= Zrotspeed
+//   * decay: plroty = Achase(plroty, 0, rate 3); plrotz = Achase(plrotz, 0,
+//     rate 4); then LIMIT plrotz to [-$600, +$600].
+// The Achase primitive is `strat_chase_proportional`, already certified vs the
+// retail cart (parajump, UPDATE 4). `playermove_srou` is a ~600-byte routine
+// that reads the pad + a dozen player globals and threads no clean RTL through
+// the plrot block, so — exactly like the RAM-resident COLDET and the inline
+// fire-gate (UPDATES 8/10) — the plrot accumulator is certified by CROSS-
+// VALIDATING its constants (step, clamp, plrotz/y addresses) against the retail
+// ROM BYTES + the certified decay primitive, then grid-diffing the composed
+// per-frame update. All blocks located by masked signature scan (UNIQUE), the
+// plrotz/plroty absolute operands wildcarded then read back.
+// ------------------------------------------------------------------------
+
+/// Retail `plroty` / `plrotz` — the player yaw/roll tilt accumulators (16-bit,
+/// `>>8` -> `al_roty`/`al_rotz`). Built $12BD/$12BF; retail = built − $8B (the
+/// same dostrats-globals shift as player_pos*), read straight out of the plrot
+/// accumulation block's `lda/sta` operands. Port <-> `sv::PLROTY`/`sv::PLROTZ`.
+pub const RETAIL_PLROTY: u32 = 0x1232;
+pub const RETAIL_PLROTZ: u32 = 0x1234;
+/// Retail plrot LEFT-steer accumulation block ($0B:DA79): `rep; lda plrotz; clc;
+/// adc #$0200; sta plrotz; sep; rep; lda plroty; clc; adc #$0200; sta plroty;
+/// sep`. UNIQUE masked hit; its `adc` immediates read back = Zrotspeed ($200).
+pub const RETAIL_PLROT_ACCUM_LEFT: u32 = 0x0B_DA79;
+/// Retail plrot RIGHT-steer accumulation block ($0B:DACA): the same, `sec; sbc
+/// #$0200` (subtract). UNIQUE masked hit.
+pub const RETAIL_PLROT_ACCUM_RIGHT: u32 = 0x0B_DACA;
+/// Retail plrotz LIMIT block ($0B:DD8E): `rep; lda plrotz; cmp #$0000; bmi ...;
+/// cmp #$0600; bmi ...` then the `lda #$FA00 (-$600); sta plrotz` lower clamp —
+/// i.e. `s_limit_var W,plrotz,-$600,$600`. UNIQUE masked hit; the `cmp` operand
+/// reads back = $0600.
+pub const RETAIL_PLROT_CLAMP: u32 = 0x0B_DD8E;
+/// `Zrotspeed`/`Xrotspeed` = $0200 (PSTRATS.ASM:1684-1685) — the per-frame plrot
+/// steering step, read out of the accumulation block. Port <-> `player::
+/// XROT_SPEED`/`ZROT_SPEED` (= 0x200).
+pub const RETAIL_ZROTSPEED: i16 = 0x0200;
+/// plrotz roll clamp magnitude ($600), read out of the LIMIT block. Port <->
+/// `player.rs:1067` `clamp16(plrotz, -0x600, 0x600)`.
+pub const RETAIL_PLROTZ_CLAMP: i16 = 0x0600;
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.

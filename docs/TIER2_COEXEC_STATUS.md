@@ -9,8 +9,10 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**52 tests, all green** — **15 named
-strats** + the **PLAYER-MOVEMENT** physics (screen-edge BOUNDS clamp +
+`rust/sf-oracle/tests/coexec_retail.rs` (**56 tests, all green** — the FIRST
+**BOSS** (`boss8`: INIT + 4-child spawn + common per-tick state machine) and the
+player-move **plrot\* accumulator** are certified vs the cart, see UPDATE 12; plus
+**15 named strats** + the **PLAYER-MOVEMENT** physics (screen-edge BOUNDS clamp +
 boost/brake speed ramp, UPDATE 11) + the **GSU-per-tick AIMING CLASS** (aim angle via the live GSU + aim
 velocity + fire-gate timing, UPDATE 8) + the **PROJECTILE-SPAWN + TARGET-SEARCH
 machinery** (UPDATE 9) + the **COLLISION SYSTEM** (do_coll response + box-overlap
@@ -729,6 +731,81 @@ recorded (test eprintln) but NOT asserted as a bug.
 | boost/brake speed ramp (`sr_speedto`) | $1F:D60D | `al_vel` -> tospeed | `al_vel` == port `strat_speed_to` over the reachable 20..85 domain (rate 1-2) |
 | steering->velocity (`gen_3dvecs`) | $1F:C41E | *(UPDATE 8)* | vx/vz + \|vy\| bit-exact == port (already certified) |
 | position integrator (`addalvecs_l`) | $1F:C7BB | *(UPDATE 1)* | worldx/y/z tick-for-tick == port (already certified) |
+
+## UPDATE 12 — the FIRST BOSS certified vs retail (`boss8`) + the plrot* accumulator
+
+The largest remaining behavioral-coverage gap — a multi-phase **BOSS** with a
+child family — is broken open: **`boss8`** (the "washing machine" wash boss,
+GB3STRAT.ASM:42-204, Sector Z / Venom) has its INIT, its child spawn, and its
+common per-tick STATE MACHINE certified tick-for-tick vs the cartridge. Plus the
+deferred player-move sub-step (UPDATE 11's one open item) — the `playermove_srou`
+**plrot\* accumulator** — is closed. **Four new tests, all green** (`coexec_retail`
+now **56**). All boss addresses located by masked signature scan (skeleton read
+from the built ROM via symbols.txt, WRAM/jml operands wildcarded), each a UNIQUE
+hit, cross-validated by reading the operands back.
+
+### Why `boss8` (tractability)
+Of the ~15 bosses, `boss8`'s per-tick machine converges (from all three phases —
+`boss8wait`/`boss8a`/`boss8b`) into ONE common body, **`boss8_cont`**, that is
+pure CPU: **NO GSU, NO RNG**. It reads `player_posz` + `gameframe` + one global
+(`gsvar_byte1`) and evolves a rich multi-field state machine — ideal to isolate.
+Its INIT is a clean scalar init + a 4-child spawn. (boss1's phase strats all fall
+through a GSU turret-repositioning tail `boss1rots_srou`; the Andross/`bossA`
+forms are the multi-child GSU-heavy targets — deferred, see the gap map.)
+
+### Retail boss8 addresses located (all cross-validated)
+| Routine | Retail | How located / cross-validated |
+|------|------|------|
+| `boss8_cont` (common per-tick body) | **$07:93BB** | UNIQUE masked scan (+$0C from built $0793AF); operands read back = `player_posz`=$1511 + `gameframe`=$15BB (both already-certified globals) and DERIVE `gsvar_byte1`=$154F (lda/inc/dec all agree) |
+| `boss8_Istrat` (INIT) | **$07:919C** | UNIQUE masked scan; operands = `currentlevel`=$1FFD, installed `boss8wait_strat`=$07:9359, HP=$20 easy/$40 hard, AP=$08 |
+| `boss8wait_strat` (phase-wait tick) | **$07:9359** | read straight out of `boss8_Istrat`'s `s_set_strat` immediate |
+| `gsvar_byte1` | **$154F** (built $15DA) | `boss8_cont`'s `lda/inc/dec` operands; port ext-WRAM cell $0310 |
+
+Newly-located: `al_sbyte4`=$25 (struct offset), boss8 `sflag1` = `al_sflags2`
+bit $10, `currentlevel`=$1FFD, `gsvar_byte1`=$154F.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_boss8_addresses` | ✅ | Locates + cross-validates all three boss8 routines (each UNIQUE), reads back the three per-tick globals + the INIT constants (HP level-gate $20/$40, AP $08, `boss8wait` pointer). |
+| `retail_boss8_init_vs_port` | ✅ **MATCH** | Runs the cart's OWN `boss8_Istrat` ($07:919C) on a formatted pool (boss block popped off the free list) and diffs the boss's INIT scalar fields vs the port `strat_boss8_init` (IS_BOSS8=84): HP (level-gated), AP=$08, sbyte4 phase timer, colltype (enemy2\|enemyweap), cleared sflag1\|sflag2, `gsvar_byte1`=0, `stratptr`=boss8wait, and the init-tail `boss8_cont` worldz = 1680+player_posz — all MATCH, **both difficulty branches** (retail currentlevel 0=easy/1=hard <-> port 1/2, a level-encoding remap). **Spawn observable**: the boss makes exactly **4 children** (cover + 3 nucleus beams) — the free list shrank by 4. |
+| `retail_boss8_cont_body_vs_port` | ✅ **MATCH (GOLD)** | Runs the cart's OWN `boss8_cont` ($07:93BB) over a long horizon on a seeded boss and diffs its evolving STATE MACHINE tick-for-tick vs the port (reached through the armed `boss8wait_strat` with the beam-child sflag1 cleared so the wait routes into `boss8_cont`). Three fields: **worldz** = 1680+player_posz view-track (incl. an i16 wrap), the **sbyte4** countdown that reloads 150 and TOGGLES sflag1 at 0, and the **gsvar_byte1** speed accumulator that ramps +1 toward +5 (sflag1 clear) / -1 toward -5 (sflag1 set), gated on `gameframe & 7`. Two scenarios: a full 150-tick countdown -> sflag1 toggle -> gsvar ramps +5 then REVERSES to -5 (200 ticks); and an early toggle + worldz wrap (40 ticks). **MATCH every tick.** |
+| `retail_plrot_accumulator_vs_port` | ✅ **MATCH** | Closes UPDATE 11's deferred player-move sub-step. Locates the `playermove_srou` plrot steering blocks — LEFT (`plrotz/plroty += $200`), RIGHT (`-= $200`), and the plrotz LIMIT (`±$600`), each a UNIQUE masked hit — and reads back the step (Zrotspeed=**$0200**), the roll clamp (**$0600**) and the `plrotz`/`plroty` addresses (**$1234/$1232** = built $12BF/$12BD − $8B) from the retail BYTES. The decay is `strat_chase_proportional` (already certified vs the cart, UPDATE 4); a grid-diff confirms the port primitive == a byte-faithful `Achase` at the plrot rates (3/4), and the composed per-frame plrot(y,z) update (accumulate ±$200, decay, clamp ±$600) is cartridge-faithful (ramp-under-hold, saturate plrotz at +$600, decay-to-0 on release, LEFT+RIGHT cancels). |
+
+### boss8 footprint map
+- **`boss8_Istrat`** (INIT): reads `currentlevel`($1FFD); writes `al_HP`
+  (level-gated $20/$40), `al_AP`($08), `bossmaxhp`(bank-$70 $019A), `al_stratptr`
+  (=boss8wait), `al_collflags`(enemy2\|enemyweap), `al_sbyte4`(=150),
+  `al_sflags2`(clr sflag1\|sflag2), `gsvar_byte1`(=0); spawns 4 children
+  (`s_make_childobj` cover + 3 nucleus beams); falls into `boss8_cont`.
+- **`boss8_cont`** (common per-tick body): reads `player_posz`($1511),
+  `gameframe`($15BB), `gsvar_byte1`($154F); writes `al_worldz`(=1680+player_posz),
+  `al_sbyte4`(countdown/reload), `al_sflags2` sflag1($10, toggle),
+  `gsvar_byte1`(±1 toward ±5). Tail `s_add_bossHP x,al_hp` (`$70:0170 += al_HP`)
+  is a bank-$70 HUD accumulator, harmless to the object diff.
+
+### REMAINING BOSS GAP (precise map)
+Certified for `boss8`: INIT (+ child spawn count) + the common `boss8_cont`
+per-tick body. **Not** certified (documented gap):
+- **boss8 PHASE-TRANSITION machine** (`boss8wait` -> `boss8a` -> `boss8b` ->
+  `boss8wait`): gated on the beam CHILDREN's sflag1 (set/cleared by the nucleus
+  beams' own strats) + the `boss8a` HPLASMA fire + anim frames. Reaching the
+  transitions needs the child family's per-tick beams ticked in lockstep both
+  sides — the same "multi-child family" step deferred here. The common body all
+  phases share IS certified; the phase-select + child-flag gates are the residual.
+- **Other bosses**: `boss1` (barricader; phase strats fall through a GSU
+  turret-repositioning tail `boss1rots_srou` — needs the aim/rotate GSU per tick,
+  8 turret children), `boss2`/`bossg`/`bossseamon`/`bossA`/`bossF`/`bossH`
+  (each a multi-child family + several with GSU-per-tick aim). The RECIPES for all
+  of them are proven (RNG, player-relative, GSU aim, spawn, collision, and now a
+  boss INIT + common-body state machine); each remaining boss is "locate by
+  masked scan + seed the children + tick the family" — mechanical, not blocked.
+
+### CERTIFIED VS RETAIL — running total: **15 named strats + AIMING + SPAWN/SEARCH + COLLISION + PLAYER-MOVE + BOSS8**
+| Cert | Retail addr | Kind | Certified |
+|------|------|------|------|
+| `boss8` INIT (`boss8_Istrat`) | $07:919C | boss shell init + 4-child spawn | HP(level-gate)/AP/sbyte4/colltype/sflags/gsvar/stratptr/worldz == port `strat_boss8_init`; 4 children spawned, both difficulty branches |
+| `boss8` per-tick (`boss8_cont`) | $07:93BB | boss common state machine | worldz view-track + sbyte4 countdown/reload + sflag1 toggle + gsvar ±5 speed ramp == port, tick-for-tick over 200 ticks |
+| plrot* accumulator (`playermove_srou`) | $0B:DA79/DACA/DD8E | player steering tilt | step $0200 + clamp $0600 + plrotz/plroty addrs from retail bytes; decay == certified `strat_chase_proportional`; composed plrot(y,z) cartridge-faithful |
 
 ---
 

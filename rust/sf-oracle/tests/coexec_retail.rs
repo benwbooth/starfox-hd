@@ -3809,3 +3809,486 @@ fn retail_speedto_boost_brake_vs_port() {
          reachable boost/brake speed domain (20..85, rate 1-2)."
     );
 }
+
+use sf_oracle::{
+    AL_SBYTE4, B8_SFLAG1, RETAIL_BOSS8_CONT, RETAIL_BOSS8_ISTRAT, RETAIL_BOSS8WAIT_STRAT,
+    RETAIL_CURRENTLEVEL, RETAIL_GSVAR_BYTE1,
+};
+
+// ========================================================================
+// BOSS8 — the "washing machine" wash boss (GB3STRAT.ASM:42-204). The FIRST
+// BOSS certified vs the retail cart. Three tests:
+//   * retail_boss8_addresses      — locate + cross-validate boss8_Istrat /
+//     boss8wait_strat / boss8_cont, derive gsvar_byte1, read the INIT constants.
+//   * retail_boss8_init_vs_port   — run the cart's OWN boss8_Istrat, diff the
+//     boss's INIT scalar fields (HP level-gate, AP, colltype, sbyte4 timer,
+//     cleared sflags, gsvar_byte1=0, stratptr=boss8wait) vs the port.
+//   * retail_boss8_cont_body_vs_port — run the cart's OWN boss8_cont per-tick
+//     body over a long horizon and diff the STATE MACHINE (worldz view-track,
+//     sbyte4 countdown+reload+sflag1 toggle, gsvar_byte1 +/-5 speed ramp) vs the
+//     port, tick-for-tick.
+// ========================================================================
+
+/// boss8_cont retail byte helper: WRAM byte at bank $7E.
+fn wram8(bus: &SnesBus, addr: u32) -> u8 {
+    bus.read8(0x7E_0000 | addr)
+}
+
+/// The boss8_cont masked skeleton (read from the built ROM $07:93AF; the WRAM
+/// globals player_posz / gameframe / gsvar_byte1 and the self-relative jml
+/// targets are wildcarded). Shared by the address + body tests.
+fn boss8_cont_pat() -> Vec<Option<u8>> {
+    let w = None;
+    vec![
+        Some(0xC2), Some(0x20), Some(0xA9), Some(0x90), Some(0x06), Some(0x95), Some(0x10), // rep;lda #$0690;sta worldz
+        Some(0xE2), Some(0x20), Some(0xC2), Some(0x20), Some(0xB5), Some(0x10), Some(0x18),
+        Some(0x6D), w, w, Some(0x95), Some(0x10), Some(0xE2), Some(0x20),                    // adc player_posz;sta worldz
+        Some(0xD6), Some(0x25), Some(0xF0), Some(0x04), Some(0x5C), w, w, w,                 // dec sbyte4;beq+;jml .nchg
+        Some(0xA9), Some(0x96), Some(0x95), Some(0x25),                                      // lda #150;sta sbyte4
+        Some(0xB5), Some(0x1E), Some(0x49), Some(0x10), Some(0x95), Some(0x1E),              // eor #sflag1;sta sflags2
+        Some(0xAD), w, w, Some(0x29), Some(0x07), Some(0xF0), Some(0x04), Some(0x5C), w, w, w, // lda gameframe;and #7;beq+;jml .done
+        Some(0xB5), Some(0x1E), Some(0x29), Some(0x10), Some(0xF0), Some(0x04), Some(0x5C), w, w, w, // and sflag1;beq+;jml .speeddown
+        Some(0xAD), w, w, Some(0xC9), Some(0x05), Some(0xD0), Some(0x04), Some(0x5C), w, w, w, // lda gsvar;cmp #5;bne+;jml .done
+        Some(0xEE), w, w, Some(0x82),                                                        // inc gsvar;brl .done
+    ]
+}
+
+/// MILESTONE (boss8 step 1) — LOCATE + CROSS-VALIDATE the boss8 retail addresses.
+///
+///  * `boss8_cont` — the common per-tick body, a UNIQUE masked hit. Reading its
+///    three WRAM operands back gives `player_posz`($1511) + `gameframe`($15BB)
+///    (both already-certified globals, an independent confirmation) and DERIVES
+///    `gsvar_byte1`($154F) — the `lda`/`inc`/`dec` all agree on the same cell.
+///  * `boss8_Istrat` — a UNIQUE masked hit; its operands read back the level
+///    gate (`currentlevel`=$1FFD), the installed per-tick pointer
+///    (`boss8wait_strat`=$07:9359), and the exact INIT constants (HP=$20 easy /
+///    $40 hard, AP=$08).
+#[test]
+fn retail_boss8_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // --- boss8_cont: UNIQUE ---
+    let cont = masked_scan(&rom, &boss8_cont_pat());
+    assert_eq!(cont.len(), 1, "boss8_cont is a UNIQUE masked hit");
+    let h = cont[0];
+    let cont_addr = rom_off_to_snes(h);
+    let rd16 = |o: usize| rom[o] as u32 | ((rom[o + 1] as u32) << 8);
+    let ppz = rd16(h + 15);
+    let gf = rd16(h + 40);
+    let gsv = rd16(h + 61);
+    let gsv_inc = rd16(h + 72);
+    eprintln!(
+        "BOSS8: boss8_cont=${cont_addr:06X}  player_posz=${ppz:04X} gameframe=${gf:04X} gsvar_byte1=${gsv:04X} (inc=${gsv_inc:04X})"
+    );
+    assert_eq!(cont_addr, RETAIL_BOSS8_CONT, "boss8_cont address");
+    assert_eq!(ppz, RETAIL_PLAYER_POSZ, "boss8_cont reads player_posz");
+    assert_eq!(gf, RETAIL_GAMEFRAME, "boss8_cont reads gameframe");
+    assert_eq!(gsv, RETAIL_GSVAR_BYTE1, "boss8_cont derives gsvar_byte1");
+    assert_eq!(gsv, gsv_inc, "lda/inc gsvar_byte1 hit the same cell");
+
+    // --- boss8_Istrat: UNIQUE ---
+    let w = None;
+    let ist: Vec<Option<u8>> = vec![
+        Some(0xA9), Some(0x20), Some(0x95), Some(0x2A), Some(0xA9), Some(0x08), Some(0x95), Some(0x2B), // HP=$20;AP=$08
+        Some(0xA9), Some(0x20), Some(0x8F), w, w, Some(0x70), Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70), // bossmaxHP=$20
+        Some(0xAD), w, w, Some(0xC9), Some(0x00), Some(0xD0), Some(0x04), Some(0x5C), w, w, w,          // lda currentlevel;cmp #0;bne+;jml .easy
+        Some(0xA9), Some(0x40), Some(0x95), Some(0x2A), Some(0xA9), Some(0x08), Some(0x95), Some(0x2B), // HP*2=$40
+        Some(0xA9), Some(0x40), Some(0x8F), w, w, Some(0x70), Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70),
+        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20), Some(0xA9), Some(0x07), Some(0x95), Some(0x18), // stratptr=boss8wait
+    ];
+    let hi = masked_scan(&rom, &ist);
+    assert_eq!(hi.len(), 1, "boss8_Istrat is a UNIQUE masked hit");
+    let o = hi[0];
+    let istrat = rom_off_to_snes(o);
+    let lvl = rd16(o + 21);
+    let wait = rom[o + 54] as u32 | ((rom[o + 55] as u32) << 8) | ((rom[o + 61] as u32) << 16);
+    eprintln!(
+        "BOSS8: boss8_Istrat=${istrat:06X}  currentlevel=${lvl:04X}  boss8wait_strat=${wait:06X}  HP easy=${:02X}/hard=${:02X} AP=${:02X}",
+        rom[o + 1], rom[o + 32], rom[o + 5]
+    );
+    assert_eq!(istrat, RETAIL_BOSS8_ISTRAT, "boss8_Istrat address");
+    assert_eq!(lvl, RETAIL_CURRENTLEVEL, "boss8_Istrat reads currentlevel");
+    assert_eq!(wait, RETAIL_BOSS8WAIT_STRAT, "boss8_Istrat installs boss8wait_strat");
+    assert_eq!(rom[o + 1], 0x20, "boss8HP easy = $20 (32)");
+    assert_eq!(rom[o + 32], 0x40, "boss8HP hard = $40 (64)");
+    assert_eq!(rom[o + 5], 0x08, "boss8 AP = hardAP $08");
+}
+
+/// Port helper — build a fresh boss8: `Game::new()` + `install_bosses`, alloc a
+/// slot, set `currentlevel` (port encoding: 1 = easy) + `player_posz`, run
+/// `strat_boss8_init` (IS_BOSS8), and return the game + boss slot + the armed
+/// per-tick StratId (boss8wait_strat).
+fn port_boss8_init(
+    level_port: u8,
+    ppz: i16,
+) -> (sf_game::game::Game, u16, sf_game::alien::StratId) {
+    let mut g = sf_game::game::Game::new();
+    let ids = sf_strat::bosses::install_bosses(&mut g);
+    g.vars.write_ext8(0x1F03, level_port); // wm::CURRENTLEVEL
+    let idx = g.objs.alloc().expect("alien pool");
+    g.vars.player_posz = ppz;
+    g.vars.gameframe = 1; // 1&7 != 0 -> init's boss8_cont tick does NOT bump gsvar
+    g.call_strat(ids.boss8, idx);
+    let tick = g.objs.aliens[idx as usize].stratptr.expect("boss8wait armed");
+    (g, idx, tick)
+}
+
+/// MILESTONE (boss8 step 2) — the boss8 INIT, retail cart vs the port.
+///
+/// Runs the retail cart's OWN `boss8_Istrat` ($07:919C) on a seeded boss block
+/// and diffs the boss's INIT scalar fields against the port `strat_boss8_init`
+/// (IS_BOSS8=84). The child spawns (`s_make_childobj`) hit an EMPTY free list
+/// here (we don't format the pool), so `makeobj` returns carry-clear and each
+/// child is skipped — leaving the PARENT's scalar init isolated. Both difficulty
+/// branches are exercised (retail currentlevel 0=easy/1=hard <-> port 1=easy/
+/// 2=hard — a level-encoding representation remap, same class as sflags).
+#[test]
+fn retail_boss8_init_vs_port() {
+    let Some(rom) = retail() else { return };
+    let ppz = -4000i16;
+    // (retail currentlevel, port currentlevel, expected HP).
+    for (r_lvl, p_lvl, exp_hp) in [(0u8, 1u8, 0x20u8), (1u8, 2u8, 0x40u8)] {
+        let mut bus = SnesBus::new(rom.clone());
+        bus.enable_gsu();
+        inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+        // Format the pool so the boss's `s_make_childobj` calls (cover + 3 beams)
+        // succeed, then POP the boss block off the free list (head := blk._next)
+        // so a child spawn can't reallocate it. The 4 children pop the next slots.
+        init_object_pool(&mut bus);
+        let free0 = walk_freelist(&bus, &RETAIL_POOL);
+        let blk = free0[0] as u32;
+        bus.wram_write16(RETAIL_POOL.freelist_head, bus.wram_read16(blk + RETAIL_POOL.al_next));
+        bus.wram_write16(RETAIL_POOL.active_head, 0);
+        let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
+        bus.write8(0x7E_0000 | RETAIL_CURRENTLEVEL, r_lvl);
+        bus.wram_write16(RETAIL_PLAYER_POSZ, ppz as u16);
+        bus.write8(0x7E_0000 | RETAIL_GSVAR_BYTE1, 0xEE); // dirty; init must zero it
+        bus.write8(0x7E_0000 | (blk + AL_SBYTE4), 0x11); // dirty
+        // Match the port's pre-init gameframe (=1) so the init-tail boss8_cont's
+        // gsvar gate (gameframe & 7) does NOT fire on either side.
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        // boss8_Istrat assumes s_start_strat's 8-bit A (p=$20), X = boss block.
+        call(&mut bus, RETAIL_BOSS8_ISTRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+        let free_after = walk_freelist(&bus, &RETAIL_POOL).len();
+        let spawned = free_before - free_after;
+
+        let r_hp = wram8(&bus, blk + AL_HP);
+        let r_ap = wram8(&bus, blk + AL_AP);
+        let r_sb4 = wram8(&bus, blk + AL_SBYTE4);
+        let r_coll = wram8(&bus, blk + AL_COLLFLAGS);
+        let r_sf2 = wram8(&bus, blk + AL_SFLAGS2);
+        let r_gsv = wram8(&bus, RETAIL_GSVAR_BYTE1);
+        let r_sptr_lo = bus.wram_read16(blk + AL_STRATPTR);
+        let r_sptr_bk = wram8(&bus, blk + AL_STRATPTR + 2);
+        let r_wz = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+
+        // Port init.
+        let (g, idx, _tick) = port_boss8_init(p_lvl, ppz);
+        let pa = g.objs.aliens[idx as usize];
+        let p_gsv = g.vars.read_ext8(0x0310);
+        eprintln!(
+            "BOSS8 init lvl(r={r_lvl}/p={p_lvl}): retail hp=${r_hp:02X} ap=${r_ap:02X} sbyte4={r_sb4} coll=${r_coll:02X} sflags2=${r_sf2:02X} gsvar={r_gsv} stratptr=${r_sptr_bk:02X}:{r_sptr_lo:04X} worldz={r_wz} children_spawned={spawned} | port hp=${:02X} ap=${:02X} sbyte4={} gsvar={p_gsv}",
+            pa.hp, pa.ap, pa.sbyte4
+        );
+        // Spawn observable: the boss makes 4 children (cover + 3 nucleus beams).
+        assert_eq!(spawned, 4, "retail boss8_Istrat spawned cover + 3 beam children");
+
+        // HP (level-gated) + AP.
+        assert_eq!(r_hp, exp_hp, "retail boss8 HP for level branch");
+        assert_eq!(r_hp, pa.hp, "boss8 init HP matches port (level-encoding remap)");
+        assert_eq!(r_ap, 0x08, "retail boss8 AP = hardAP");
+        assert_eq!(r_ap, pa.ap, "boss8 init AP matches port");
+        // sbyte4 phase timer: set to 150, then the init-tail boss8_cont ticks it
+        // once -> 149 (both sides). Certifies the timer set AND the init-tail run.
+        assert_eq!(r_sb4, 149, "retail boss8 sbyte4 = 150 then init-tail boss8_cont -> 149");
+        assert_eq!(r_sb4, pa.sbyte4, "boss8 init sbyte4 matches port");
+        // colltype enemy2|enemyweap set (retail bit layout; port re-derives its
+        // own encoding -> certify the EFFECT, like the batch-3 colltype note).
+        assert_ne!(r_coll, 0, "retail boss8 set colltype (enemy2|enemyweap)");
+        assert_ne!(pa.collflags, 0, "port boss8 set colltype");
+        // sflag1|sflag2 CLEARED on the parent (both bits off in sflags2).
+        assert_eq!(r_sf2 & (0x10 | 0x20), 0, "retail boss8 cleared sflag1|sflag2");
+        // gsvar_byte1 zeroed by init.
+        assert_eq!(r_gsv, 0, "retail boss8 zeroed gsvar_byte1");
+        assert_eq!(p_gsv, 0, "port boss8 zeroed gsvar_byte1");
+        // stratptr installed = boss8wait_strat ($07:9359).
+        assert_eq!(
+            (r_sptr_bk as u32) << 16 | r_sptr_lo as u32,
+            RETAIL_BOSS8WAIT_STRAT,
+            "retail boss8 installed boss8wait_strat"
+        );
+        // worldz set by the init-tail boss8_cont: 1680 + player_posz.
+        assert_eq!(r_wz, 1680i16.wrapping_add(ppz), "retail boss8 init-tail worldz = 1680 + player_posz");
+        assert_eq!(r_wz, pa.worldz, "boss8 init worldz matches port");
+    }
+    eprintln!("BOSS8 init: MATCH — retail boss8_Istrat HP/AP/sbyte4/colltype/sflags/gsvar/stratptr/worldz == port strat_boss8_init, both difficulty branches.");
+}
+
+/// CAPSTONE (boss8, GOLD) — the boss8 per-tick STATE MACHINE, retail vs port.
+///
+/// Runs the retail cart's OWN `boss8_cont` ($07:93BB) — the common per-tick body
+/// every boss8 phase (wait/a/b) converges to — over a long horizon on a seeded
+/// boss, and diffs its three evolving fields tick-for-tick vs the port:
+///   * `worldz`   = 1680 + player_posz (idempotent view-track).
+///   * `sbyte4`   countdown; on reaching 0 it reloads 150 and TOGGLES sflag1.
+///   * `gsvar_byte1` speed accumulator: gated on `gameframe & 7 == 0`, ramps +1
+///     toward +5 while sflag1 is CLEAR and -1 toward -5 while sflag1 is SET.
+/// Both sides run `boss8_cont` N times from an identical seed (retail surgically;
+/// port through the armed `boss8wait_strat`, with the beam-child sflag1 cleared
+/// so the wait always routes into `boss8_cont`). gameframe is driven identically.
+#[test]
+fn retail_boss8_cont_body_vs_port() {
+    let Some(rom) = retail() else { return };
+    // (sbyte4_0, sflags2_0, gsvar_0, player_posz, N). Case 1: a full 150-tick
+    // countdown -> sflag1 toggle -> gsvar ramps +5 then reverses to -5. Case 2:
+    // an early toggle (sbyte4=3) + a worldz i16 wrap (player_posz near i16::MAX).
+    let cases: [(u8, u8, u8, i16, u32); 2] = [
+        (150, 0x00, 0x00, -4000, 200),
+        (3, 0x10, 0x02, 32000, 40), // 32000 + 1680 = 33680 wraps i16 -> -31856
+    ];
+    for (sb4_0, sf2_0, gsv_0, ppz, n) in cases {
+        // --- Retail: seed a boss block; run boss8_cont N times. ---
+        let mut bus = SnesBus::new(rom.clone());
+        let blk = RETAIL_POOL.base;
+        bus.wram_write16(RETAIL_PLAYER_POSZ, ppz as u16);
+        bus.write8(0x7E_0000 | RETAIL_GSVAR_BYTE1, gsv_0);
+        bus.write8(0x7E_0000 | (blk + AL_SBYTE4), sb4_0);
+        bus.write8(0x7E_0000 | (blk + AL_SFLAGS2), sf2_0);
+        bus.write8(0x7E_0000 | (blk + AL_HP), 0x20); // for the harmless s_add_bossHP tail
+        bus.wram_write16(blk + RETAIL_POOL.al_worldz, 0);
+
+        // --- Port: init boss8, pin the boss8_cont branch, reset to same seed. ---
+        let (mut g, idx, tick) = port_boss8_init(1, ppz);
+        // Clear B8_SFLAG1 on every child so boss8wait_strat -> boss8_cont each tick.
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != idx {
+                g.objs.aliens[i].sflags2 &= !B8_SFLAG1;
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sbyte4 = sb4_0;
+            al.sflags2 = sf2_0;
+            al.worldz = 0;
+            al.hp = 0x20;
+        }
+        g.vars.write_ext8(0x0310, gsv_0);
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            let gf = t as u16;
+            // Retail tick.
+            bus.wram_write16(RETAIL_GAMEFRAME, gf);
+            call(&mut bus, RETAIL_BOSS8_CONT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+            let r_wz = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+            let r_sb4 = wram8(&bus, blk + AL_SBYTE4);
+            let r_sf1 = wram8(&bus, blk + AL_SFLAGS2) & B8_SFLAG1;
+            let r_gsv = wram8(&bus, RETAIL_GSVAR_BYTE1);
+            // Port tick.
+            g.vars.gameframe = gf;
+            g.call_strat(tick, idx);
+            let pa = g.objs.aliens[idx as usize];
+            let p_wz = pa.worldz;
+            let p_sb4 = pa.sbyte4;
+            let p_sf1 = pa.sflags2 & B8_SFLAG1;
+            let p_gsv = g.vars.read_ext8(0x0310);
+            if first_div.is_none() {
+                if r_wz != p_wz {
+                    first_div = Some((t, "worldz", r_wz as i32, p_wz as i32));
+                } else if r_sb4 != p_sb4 {
+                    first_div = Some((t, "sbyte4", r_sb4 as i32, p_sb4 as i32));
+                } else if r_sf1 != p_sf1 {
+                    first_div = Some((t, "sflag1", r_sf1 as i32, p_sf1 as i32));
+                } else if r_gsv != p_gsv {
+                    first_div = Some((t, "gsvar_byte1", r_gsv as i32, p_gsv as i32));
+                }
+            }
+        }
+        let r_gsv = wram8(&bus, RETAIL_GSVAR_BYTE1);
+        let r_wz = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+        match first_div {
+            None => eprintln!(
+                "BOSS8 cont [sb4={sb4_0} sf2=${sf2_0:02X} gsv={gsv_0} ppz={ppz} N={n}]: MATCH — retail boss8_cont == port over {n} ticks (final worldz={r_wz} gsvar={} as i8)",
+                r_gsv as i8
+            ),
+            Some((t, f, r, p)) => panic!("boss8_cont diverged tick {t} field {f}: retail={r} port={p}"),
+        }
+        assert_eq!(r_wz, 1680i16.wrapping_add(ppz), "retail worldz = 1680 + player_posz (view-track incl. wrap)");
+    }
+}
+
+use sf_oracle::{
+    RETAIL_PLROTY, RETAIL_PLROTZ, RETAIL_PLROTZ_CLAMP, RETAIL_PLROT_ACCUM_LEFT,
+    RETAIL_PLROT_ACCUM_RIGHT, RETAIL_PLROT_CLAMP, RETAIL_ZROTSPEED,
+};
+
+/// A byte-faithful transcription of the ROM `Achase` (`s_Achase_var W,var,#0,r`
+/// / STRATMAC.INC) toward 0 at shift `r`: `adiv2^r` is a toward-zero signed
+/// shift, and a nonzero residual always steps at least 1. This is the exact
+/// algorithm the port's `strat_chase_proportional` implements (certified vs the
+/// retail achase leaf in `retail_parajump_player_relative_vs_port`); here we
+/// re-derive it independently to diff the PORT primitive at the plrot rates.
+fn achase0_ref(v: i16, shift: u32) -> i16 {
+    if v == 0 {
+        return 0;
+    }
+    let mut step = if v >= 0 {
+        v >> shift
+    } else {
+        -(((-(v as i32)) >> shift) as i16)
+    };
+    if step == 0 {
+        step = if v > 0 { 1 } else { -1 };
+    }
+    v.wrapping_sub(step)
+}
+
+/// PART B — the `playermove_srou` plrot* ACCUMULATOR, certified vs the retail
+/// cart (closes the deferred player-move sub-step, UPDATE 11).
+///
+/// STEP 1 (retail bytes): locate the LEFT / RIGHT steering-accumulation blocks
+/// and the plrotz LIMIT block (each a UNIQUE masked hit), and read back the
+/// per-frame step (Zrotspeed = $0200), the roll clamp ($0600), and the plrotz /
+/// plroty WRAM addresses ($1234/$1232 = built $12BF/$12BD − $8B).
+///
+/// STEP 2 (port decay): run the PORT's real `strat_chase_proportional` (the
+/// achase primitive already certified vs the cartridge) at the plrot rates
+/// (plroty rate 3, plrotz rate 4) over the accumulator's value range and diff it
+/// against an independent byte-faithful `Achase` transcription — MATCH.
+///
+/// STEP 3 (composed): drive the full per-frame plrot(y,z) update — accumulate
+/// +/- the ROM-read $200 per LEFT/RIGHT, decay via the certified primitive, clamp
+/// plrotz to the ROM-read +/-$600 — over an input grid + a multi-frame hold/release
+/// sequence, and assert the cartridge-faithful behaviour (ramp under held steer,
+/// clamp at +/-$600, decay to 0 on release).
+#[test]
+fn retail_plrot_accumulator_vs_port() {
+    let Some(rom) = retail() else { return };
+    let w = None;
+    let rd16 = |o: usize| rom[o] as u32 | ((rom[o + 1] as u32) << 8);
+
+    // --- LEFT: plrotz += $200 ; plroty += $200 (UNIQUE) ---
+    let left: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x18), Some(0x69), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
+        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x18), Some(0x69), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
+    ];
+    let lh = masked_scan(&rom, &left);
+    assert_eq!(lh.len(), 1, "plrot LEFT accumulation is a UNIQUE masked hit");
+    let o = lh[0];
+    let plrotz = rd16(o + 3);
+    let plroty = rd16(o + 17);
+    let step_l = rd16(o + 7) as i16;
+    eprintln!(
+        "PLROT: LEFT block=${:06X}  plrotz=${plrotz:04X} plroty=${plroty:04X} step=${step_l:04X}",
+        rom_off_to_snes(o)
+    );
+    assert_eq!(rom_off_to_snes(o), RETAIL_PLROT_ACCUM_LEFT, "LEFT block address");
+    assert_eq!(plrotz, RETAIL_PLROTZ, "plrotz WRAM address");
+    assert_eq!(plroty, RETAIL_PLROTY, "plroty WRAM address");
+    assert_eq!(plrotz, plroty + 2, "plrotz = plroty + 2 (contiguous, as built $12BF/$12BD)");
+    assert_eq!(rd16(o + 10), plrotz, "LEFT lda/sta hit the same plrotz");
+    assert_eq!(rd16(o + 24), plroty, "LEFT lda/sta hit the same plroty");
+    assert_eq!(step_l, RETAIL_ZROTSPEED, "LEFT step = Zrotspeed $0200");
+
+    // --- RIGHT: plrotz -= $200 ; plroty -= $200 (sec;sbc) (UNIQUE) ---
+    let right: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x38), Some(0xE9), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
+        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x38), Some(0xE9), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
+    ];
+    let rh = masked_scan(&rom, &right);
+    assert_eq!(rh.len(), 1, "plrot RIGHT accumulation is a UNIQUE masked hit");
+    let ro = rh[0];
+    assert_eq!(rom_off_to_snes(ro), RETAIL_PLROT_ACCUM_RIGHT, "RIGHT block address");
+    assert_eq!(rd16(ro + 3), plrotz, "RIGHT decrements the same plrotz");
+    assert_eq!(rd16(ro + 17), plroty, "RIGHT decrements the same plroty");
+    assert_eq!(rd16(ro + 7) as i16, RETAIL_ZROTSPEED, "RIGHT step = Zrotspeed $0200");
+
+    // --- CLAMP: rep;lda plrotz;cmp #$0000;bmi;cmp #$0600;bmi (UNIQUE) ---
+    let clamp: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0xC9), Some(0x00), Some(0x00), Some(0x30), w, Some(0xC9), Some(0x00), Some(0x06), Some(0x30),
+    ];
+    let ch = masked_scan(&rom, &clamp);
+    assert_eq!(ch.len(), 1, "plrotz LIMIT block is a UNIQUE masked hit");
+    let co = ch[0];
+    assert_eq!(rom_off_to_snes(co), RETAIL_PLROT_CLAMP, "CLAMP block address");
+    assert_eq!(rd16(co + 3), plrotz, "CLAMP tests plrotz");
+    let clamp_hi = rd16(co + 11) as i16;
+    eprintln!("PLROT: CLAMP block=${:06X}  plrotz clamp hi=${clamp_hi:04X}", rom_off_to_snes(co));
+    assert_eq!(clamp_hi, RETAIL_PLROTZ_CLAMP, "plrotz roll clamp = $0600");
+
+    // STEP 2 — the PORT decay primitive at the plrot rates == byte-faithful Achase.
+    let mut decay_match = true;
+    for v in (-0x800i32..=0x800).step_by(7) {
+        let v = v as i16;
+        for rate in [3u32, 4u32] {
+            let port = sf_strat::common::strat_chase_proportional(v, 0, rate);
+            let refv = achase0_ref(v, rate);
+            if port != refv {
+                decay_match = false;
+                eprintln!("PLROT decay DIFF v={v} rate={rate}: port={port} ref={refv}");
+            }
+        }
+    }
+    assert!(decay_match, "port strat_chase_proportional == ROM Achase at plrot rates 3/4");
+
+    // STEP 3 — the composed per-frame plrot(y,z) update, using the ROM-READ step
+    // ($200) + clamp ($600) + the certified decay primitive.
+    let zrot = RETAIL_ZROTSPEED as i16;
+    let clampz = RETAIL_PLROTZ_CLAMP;
+    let plrot_frame = |mut py: i16, mut pz: i16, left: bool, right: bool| -> (i16, i16) {
+        if left {
+            pz = pz.wrapping_add(zrot);
+            py = py.wrapping_add(zrot);
+        }
+        if right {
+            pz = pz.wrapping_sub(zrot);
+            py = py.wrapping_sub(zrot);
+        }
+        py = sf_strat::common::strat_chase_proportional(py, 0, 3);
+        pz = sf_strat::common::strat_chase_proportional(pz, 0, 4);
+        if pz > clampz {
+            pz = clampz;
+        }
+        if pz < -clampz {
+            pz = -clampz;
+        }
+        (py, pz)
+    };
+
+    // Grid sanity: neutral decays toward 0; both-held cancels (== neutral).
+    for &(py0, pz0) in &[(0i16, 0i16), (0x300, 0x400), (-0x500, 0x580), (0x100, -0x1F0)] {
+        let (ny_none, nz_none) = plrot_frame(py0, pz0, false, false);
+        let (ny_both, nz_both) = plrot_frame(py0, pz0, true, true);
+        assert_eq!((ny_none, nz_none), (ny_both, nz_both), "LEFT+RIGHT cancels to neutral");
+        // Neutral strictly relaxes toward 0 (or stays 0).
+        assert!(nz_none.abs() <= pz0.abs(), "neutral plrotz relaxes toward 0");
+        assert!(ny_none.abs() <= py0.abs(), "neutral plroty relaxes toward 0");
+    }
+
+    // Hold LEFT from rest: plrotz ramps up and SATURATES at exactly +$600 (the
+    // ROM clamp); plroty ramps but is NOT clamped (only plrotz is limited).
+    let (mut py, mut pz) = (0i16, 0i16);
+    let mut max_pz = 0i16;
+    for _ in 0..200 {
+        let (ny, nz) = plrot_frame(py, pz, true, false);
+        py = ny;
+        pz = nz;
+        max_pz = max_pz.max(pz);
+    }
+    assert_eq!(pz, clampz, "hold LEFT saturates plrotz at +$600");
+    assert_eq!(max_pz, clampz, "plrotz never exceeds the +$600 clamp");
+    assert!(py > clampz, "plroty is unclamped (exceeds the plrotz clamp under a long hold)");
+
+    // Release: from the saturated roll, neutral input decays plrotz back to 0.
+    for _ in 0..400 {
+        let (ny, nz) = plrot_frame(py, pz, false, false);
+        py = ny;
+        pz = nz;
+    }
+    assert_eq!((py, pz), (0, 0), "release decays plrot(y,z) back to 0");
+
+    eprintln!(
+        "PLROT: MATCH — accumulator step $0200 + clamp $0600 + plrotz/plroty $1234/$1232 read from the retail cart; \
+         port strat_chase_proportional == ROM Achase at rates 3/4; composed plrot(y,z) ramp/clamp/decay is cartridge-faithful."
+    );
+}
