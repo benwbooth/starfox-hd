@@ -181,7 +181,9 @@ pub const IS_SPACEBARWALKER: u32 = 173;
 pub const IS_ITEM5: u32 = 175;
 pub const IS_ITEM6: u32 = 176;
 pub const IS_ITEM7: u32 = 177;
-pub const IS_BASE1: u32 = 181;
+// ROM MAP2_3 places base_0/base1_istrat; sf-strat registers base1 at 230.
+// Was 181 (=hard180yr) -> the 3 base doors spawned as rotation obstacles.
+pub const IS_BASE1: u32 = 230;
 pub const IS_TANK3: u32 = 186;
 pub const IS_HOUDAI5F: u32 = 187;
 pub const IS_ROCKHARD: u32 = 192;
