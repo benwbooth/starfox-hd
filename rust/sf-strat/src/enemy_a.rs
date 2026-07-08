@@ -539,13 +539,18 @@ pub(crate) fn strat_find_near_shape(
         if !(al.shape == shape_id || al.shape == mapped_shape) {
             continue;
         }
+        // ROM find_nearobject_l (STRATROU.ASM:697) ranks purely by rangexz =
+        // |dx|+|dz| (xzdiffs) — Y appears NOWHERE in the gate or the metric. The
+        // port (via the C oracle) added a dy box gate + dy in the Manhattan
+        // metric, so it could lock a DIFFERENT target than the cartridge when
+        // candidates differ in Y (tier-2 coexec-found: retail_find_nearobject
+        // _vs_port). Drop Y to match the cart.
         let dz = (al.worldz as i32 - me.worldz as i32).abs() as i16;
         let dx = (al.worldx as i32 - me.worldx as i32).abs() as i16;
-        let dy = (al.worldy as i32 - me.worldy as i32).abs() as i16;
-        if dz > max_z || dx > max_xy || dy > max_xy {
+        if dz > max_z || dx > max_xy {
             continue;
         }
-        let metric = dx as i32 + dy as i32 + dz as i32;
+        let metric = dx as i32 + dz as i32;
         if metric < best_metric {
             best_metric = metric;
             best = Some(it);
@@ -573,13 +578,18 @@ pub(crate) fn strat_find_near_colltype(
         if !al.active || al.collflags & colltype_mask == 0 {
             continue;
         }
+        // ROM find_nearobject_l (STRATROU.ASM:697) ranks purely by rangexz =
+        // |dx|+|dz| (xzdiffs) — Y appears NOWHERE in the gate or the metric. The
+        // port (via the C oracle) added a dy box gate + dy in the Manhattan
+        // metric, so it could lock a DIFFERENT target than the cartridge when
+        // candidates differ in Y (tier-2 coexec-found: retail_find_nearobject
+        // _vs_port). Drop Y to match the cart.
         let dz = (al.worldz as i32 - me.worldz as i32).abs() as i16;
         let dx = (al.worldx as i32 - me.worldx as i32).abs() as i16;
-        let dy = (al.worldy as i32 - me.worldy as i32).abs() as i16;
-        if dz > max_z || dx > max_xy || dy > max_xy {
+        if dz > max_z || dx > max_xy {
             continue;
         }
-        let metric = dx as i32 + dy as i32 + dz as i32;
+        let metric = dx as i32 + dz as i32;
         if metric < best_metric {
             best_metric = metric;
             best = Some(it);

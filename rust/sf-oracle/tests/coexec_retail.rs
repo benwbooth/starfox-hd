@@ -2981,17 +2981,21 @@ fn port_find_near_shape(
     let (mx, my, mz) = self_pos;
     let mut best: Option<u32> = None;
     let mut best_metric: i32 = i32::MAX;
-    for (i, &(sh, x, y, z)) in objs.iter().enumerate() {
+    for (i, &(sh, x, _y, z)) in objs.iter().enumerate() {
         if sh != shape_id {
             continue;
         }
+        // Mirrors the FIXED sf_strat::enemy_a::find_near_shape: XZ-only
+        // (rangexz = |dx|+|dz|), Y dropped from gate + metric to match the cart's
+        // xzdiffs. (my/dy intentionally unused now — kept in the signature for
+        // parity with the port's caller shape.)
+        let _ = my;
         let dz = (z as i32 - mz as i32).unsigned_abs() as i16;
         let dx = (x as i32 - mx as i32).unsigned_abs() as i16;
-        let dy = (y as i32 - my as i32).unsigned_abs() as i16;
-        if dz > max_z || dx > max_xy || dy > max_xy {
+        if dz > max_z || dx > max_xy {
             continue;
         }
-        let metric = dx as i32 + dy as i32 + dz as i32;
+        let metric = dx as i32 + dz as i32;
         if metric < best_metric {
             best_metric = metric;
             best = Some(i as u32 + 1);
@@ -3004,14 +3008,13 @@ fn port_find_near_shape(
 /// port. Runs the retail cart's OWN `find_nearobject_l` over seeded object lists
 /// and diffs the SELECTED target vs the port's `strat_find_near_shape`.
 ///
-/// RESULT: MATCH across the whole COPLANAR region (targets sharing the searcher's
-/// Y-plane, which is the overwhelming in-game case for a same-type target search)
-/// — 8 configs, byte-identical selection. DIVERGENCE characterized for
-/// Y-separated targets: retail's `xzdiffs` **rangexz** is an XZ-plane octagonal
-/// distance that IGNORES Y (both gate and nearest-metric), whereas the port uses
-/// a 3D box gate + Manhattan `dx+dy+dz` metric that COUNTS Y. So when candidates
-/// differ enough in Y they can rank differently — a real (minor) fidelity gap in
-/// the port's `find_near_shape`.
+/// RESULT: MATCH across the COPLANAR region (8 configs) AND the Y-separated case.
+/// This test originally FOUND a fidelity gap — retail's `xzdiffs` **rangexz** is
+/// an XZ-plane distance that IGNORES Y (both gate and nearest-metric), whereas the
+/// port used a 3D box gate + Manhattan `dx+dy+dz` that COUNTED Y, so Y-separated
+/// candidates could rank differently. FIXED: `sf_strat::enemy_a::find_near_shape`
+/// / `find_near_colltype` now drop Y to match the cart; this test asserts the
+/// resulting MATCH (find->fix->re-certify loop closed).
 #[test]
 fn retail_find_nearobject_vs_port() {
     let Some(rom) = retail() else { return };
@@ -3074,26 +3077,26 @@ fn retail_find_nearobject_vs_port() {
     assert_eq!(rr, None, "retail rejects candidates beyond max radius");
     assert_eq!(pp, None, "port rejects candidates beyond max radius");
 
-    // --- Characterized DIVERGENCE: Y-separated targets. Retail (XZ-only) picks
-    // the XZ-nearest; the port (3D Manhattan incl. Y) picks the other. This is a
-    // genuine port-vs-cartridge fidelity gap in `find_near_shape`. ---
+    // --- FIXED + re-certified: Y-separated targets. Retail (XZ-only) picks the
+    // XZ-nearest; the port now also drops Y (enemy_a find_near_shape fix, this
+    // commit's sibling in sf-strat) -> both pick the XZ-nearest. This is the
+    // find->fix->re-certify loop closing on the bug this test originally found. ---
     let ydiv: Vec<(u16, i16, i16, i16)> = vec![
-        (shape, 300, 7000, 0), // close in XZ, far in Y   -> retail picks (slot 1)
-        (shape, 2000, 0, 0),   // farther XZ, coplanar     -> port picks   (slot 2)
+        (shape, 300, 7000, 0), // close in XZ, far in Y -> XZ-nearest (slot 1)
+        (shape, 2000, 0, 0),   // farther XZ, coplanar
     ];
     let r = retail_find_near(&rom, &ydiv, (0, 0, 0), shape, min_r, max_r);
     let p = port_find_near_shape(&ydiv, (0, 0, 0), shape, max_z, max_xy);
     eprintln!(
-        "FIND [Y-separated targets]: retail=slot{:?} (XZ-nearest, ignores Y) | port=slot{:?} (3D Manhattan, counts Y)  -> DIVERGENCE",
-        r, p
+        "FIND [Y-separated targets]: retail=slot{:?} port=slot{:?}  {}",
+        r, p, if r == p { "MATCH (Y dropped)" } else { "DIFF" }
     );
-    assert_eq!(r, Some(1), "retail find_nearobject_l ignores Y -> picks the XZ-nearest (slot 1)");
-    assert_eq!(p, Some(2), "port find_near_shape counts Y in metric -> picks slot 2");
-    assert_ne!(r, p, "characterized divergence: retail XZ-octagonal-band vs port 3D-Manhattan-box");
+    assert_eq!(r, Some(1), "retail find_nearobject_l ignores Y -> XZ-nearest (slot 1)");
+    assert_eq!(p, Some(1), "port find_near_shape now XZ-only -> XZ-nearest (slot 1)");
+    assert_eq!(r, p, "FIXED: port find_near_shape now matches retail's XZ-only ranking");
     eprintln!(
-        "FIND: CHARACTERIZED GAP — retail `xzdiffs`/rangexz is XZ-plane only (ignores Y in BOTH gate and nearest-metric); \
-         port `strat_find_near_shape` uses a 3D box gate + `dx+dy+dz`. Identical for coplanar targets; \
-         can pick a different target when candidates differ in Y."
+        "FIND: FIXED — port find_near_shape/find_near_colltype drop Y to match the \
+         cart's xzdiffs/rangexz (XZ-plane only). Y-separated targets now agree."
     );
 }
 
