@@ -364,6 +364,33 @@ pub const RETAIL_RAND: u32 = 0x00EF;
 /// public `common::strat_chase_proportional`).
 pub const RETAIL_PARAJUMP_STRAT: u32 = 0x04_F851;
 
+/// Retail `firepillar_Istrat` ($0A:DAE4) — the FIRST certified RNG-DRIVEN ENEMY
+/// strat, and the end-to-end proof of the `ea_random`->`sf_random` fix (commit
+/// f280388). GA2STRAT.ASM:2039-2062. The init draws the runtime RNG THREE times
+/// and reads the player-X mirror:
+///  * `jsl RANDOM_L` -> `sta al_worldx (low byte)`          (DRAW 1)
+///  * `jsl RANDOM_L; and #3 -> sta al_worldx+1 (high byte)` (DRAW 2)
+///    => `al_worldx = draw1 | ((draw2 & 3) << 8)` (0..1023)
+///  * `sbc #512`, then `lda player_posx; asra (>>1 signed); clc; adc al_worldx`
+///  * `jsl RANDOM_L; cmp #$B2 (178 = 70%); bcs -> set al_sflags2 |= $20`  (DRAW 3)
+///    => the "inert" latch fires on the 30% (rnd >= 178) branch.
+/// Located by masked signature scan of the retail cart (99-byte skeleton read
+/// out of the built ROM at $0A:DABE, RANDOM_L/set0coll/player_posx/strat-ptr
+/// operands wildcarded): UNIQUE hit. Cross-validated by reading the operands
+/// back: all three `jsl` land on RETAIL_RANDOM_L ($02:FC58), `lda` reads
+/// RETAIL_PLAYER_POSX ($150D), the coin is `cmp #$B2`, and the `jml` fall-through
+/// target = `firepillar_strat` ($0A:DB47 = Istrat + $63). The 5-byte-longer
+/// build offset ($0A:DABE) shifts +$26 in retail; the struct offsets, constants,
+/// and RNG-draw sequence are byte-identical.
+pub const RETAIL_FIREPILLAR_ISTRAT: u32 = 0x0A_DAE4;
+/// Retail `firepillar_strat` ($0A:DB47) — the per-tick body the Istrat installs
+/// and falls into (read out of the Istrat's `jml` fall-through operand). Not RNG-
+/// driven itself; the RNG lives entirely in the Istrat.
+pub const RETAIL_FIREPILLAR_STRAT: u32 = 0x0A_DB47;
+/// `al_sflags2` bit `$20` (`asf_sflag2`) — firepillar's permanent "inert" latch,
+/// set on the 30% coin. Port ↔ `enemies_ground::ASF2_SFLAG2` (also `$20`).
+pub const ASF2_SFLAG2: u8 = 0x20;
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.

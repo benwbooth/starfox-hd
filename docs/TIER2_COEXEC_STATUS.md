@@ -9,10 +9,11 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**24 tests, all green** — 7 named strats
-+ the runtime RNG stream certified vs retail; see UPDATE 3 and UPDATE 4). The
-player-relative + RNG state-seeding frontier is CLEARED (UPDATE 4). Nothing
-committed.
+`rust/sf-oracle/tests/coexec_retail.rs` (**27 tests, all green** — 8 named strats
++ the runtime RNG stream + the FIRST RNG-driven ENEMY strat certified vs retail;
+see UPDATE 3, UPDATE 4 and UPDATE 5). The player-relative + RNG state-seeding
+frontier is CLEARED (UPDATE 4), and the RNG-driven ENEMY class is now CERTIFIABLE
+and certified (UPDATE 5). Nothing committed.
 
 ## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
 
@@ -213,8 +214,13 @@ object at slot 0 if the strat reads the player's world coords via `PLAYPT`).
    the frame's player strats. Diff object fields per tick. For an RNG strat,
    carry the `rand` state across the harness param-block collision.
 
-### GAP MAP — the RNG lane is only HALF wired (high-value finding)
-The port has **two** RNG implementations, and the enemy lane is on the WRONG one:
+### GAP MAP — the RNG lane WAS only HALF wired (RESOLVED — commit f280388, certified UPDATE 5)
+> **STATUS: FIXED + CERTIFIED.** Commit f280388 rewired all 61 enemy/boss RNG
+> sites `ea_random` → `sf_random`. UPDATE 5 below certifies the enemy lane
+> (`firepillar`) against the retail cart, both coin branches. The finding as
+> originally written:
+
+The port had **two** RNG implementations, and the enemy lane was on the WRONG one:
 - `common::sf_random(&mut g.vars.rng)` = the correct 4-byte **SWB chain** (proven
   == retail here). Used by the boss/player lanes (commit 67a4524).
 - `enemy_a::ea_random(g)` = the OLD **build-time LCG** (`rnd*91+$61D7`) over a
@@ -225,6 +231,57 @@ The port has **two** RNG implementations, and the enemy lane is on the WRONG one
   strats: swap `ea_random` → `sf_random` (over `g.vars.rng`) at those call sites,
   then re-certify with the now-proven RNG seeding infra. (The seeding + stream
   infra is done; the port-side rewire is a sf-strat change, out of scope here.)
+
+## UPDATE 5 — RNG-DRIVEN ENEMY CLASS CERTIFIED: `firepillar` vs retail (closes the fix)
+
+The `ea_random`→`sf_random` fix (commit f280388) is now proven end-to-end
+against the cartridge. The FIRST RNG-driven ENEMY strat, `firepillar`, is
+certified vs retail — both coin branches — extending tier-2 coverage to the
+RNG-driven enemy class. Three new tests (`coexec_retail` now **27, all green**).
+
+`firepillar_Istrat` (retail **$0A:DAE4**, GA2STRAT.ASM:2039-2062) draws the
+runtime RNG THREE times on init and reads the player-X mirror:
+- DRAW 1 → `al_worldx` low byte; DRAW 2 `& 3` → high byte ⇒ `worldx = d1|((d2&3)<<8)` (0..1023)
+- `worldx += -512 + (player_posx asra 1)` (signed `>>1`)
+- DRAW 3 coin `cmp #$B2 (178)` → 30% (rnd≥178) latches `al_sflags2` bit **$20** ("inert"); 70% leaves it clear.
+
+Port ↔ `sf_strat::enemies_ground::firepillar_init` (IS_FIREPILLAR row 193), whose
+three `sf_random(&mut g.vars)` calls ARE the just-fixed enemy-lane sites.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_firepillar_addresses` | ✅ | Masked-scans `firepillar_Istrat`=**$0A:DAE4** (UNIQUE, 99-byte skeleton from built $0A:DABE, +$26 shift). Reads the operands back: all THREE `jsl` draws land on **RANDOM_L $02:FC58** (the routine `retail_rng_stream_vs_port` proved == port `sf_random`), the `lda` reads **player_posx $150D**, the coin is `cmp #$B2` (178), and the `jml` fall-through = `firepillar_strat`=**$0A:DB47** (Istrat+$63). Confirms the exact RNG-draw sequence + global read the port consumes. |
+| `retail_firepillar_rng_vs_port` | ✅ **MATCH** | Draws firepillar's 3-value sequence from the cart's OWN `RANDOM` (carried across the param-block collision by `retail_random_next`), applies the cross-validated formula → cartridge-faithful `(worldx, inert)`, and diffs the PORT's real `firepillar_init` (the fixed `sf_random` site) on the SAME seed. Two seeds drive both coin branches (`[1,2,3,4]`→active, `[171,205,239,18]`→inert); retail and port take the SAME branch and same worldx each time. Direct proof the fix is cartridge-faithful. |
+| `retail_firepillar_body_vs_port` | ✅ **MATCH** (GOLD) | Runs the retail cart's OWN `firepillar_Istrat` body ($0A:DAE4) — 3 real `jsl RANDOM_L` draws — on seeded RNG + player_posx, and diffs `(worldx, inert)` vs the port. Both branches MATCH (`[200,1,2,54]`→active worldx=-1558, `[99,88,77,54]`→inert worldx=-1977). This is the strongest form: the actual cartridge enemy AI == the port. |
+
+### Seeding an RNG strat body vs retail — the param-block collision, solved
+Running an RNG strat body surgically hits the documented `rand`($EF-$F2) ↔ `call`
+param-block ($F0-$F5) overlap. The strat needs **X = object block**, which PINS
+`$F2 = rand[3] =` the block's low byte ($36 for pool base $0336). So: seed
+`rand[0]`(@$EF, below the block) directly; ride `rand[1..3]` in via `entry.a`
+($F0/$F1) and `entry.x`-low ($F2); pick seeds whose 4th byte = the block low byte
+($36 = 54). The first 3 state bytes stay free — enough to drive each coin branch.
+A distant player (via `PLAYPT`) keeps the fall-through `firepillar_strat` tick
+(no RNG) a clean no-op so it never perturbs worldx/sflag2. (The draw-sequence
+cert `retail_firepillar_rng_vs_port` sidesteps the pin entirely via
+`retail_random_next`, so it can use any seed.)
+
+### CERTIFIED VS RETAIL — running total: **8 named strats** + RNG stream + RNG-enemy
+| # | Strat | Retail addr | Kind | RNG draws | Certified fields |
+|---|------|------|------|------|------|
+| 8 | `firepillar_Istrat` | $0A:DAE4 | **RNG-driven enemy** | 3× `RANDOM_L` | worldx (draws 1&2 + player_posx), inert sflag2 (draw 3) — both coin branches |
+
+Newly-located retail: `firepillar_Istrat`=$0A:DAE4, `firepillar_strat`=$0A:DB47,
+`asf_sflag2`=`al_sflags2` bit $20. Reused: `RANDOM_L`=$02:FC58, `player_posx`=$150D,
+`set_0collptrsx_l`=$1F:D450 (the firepillar init's coll-ptr-zero leaf).
+
+### The RNG-driven enemy class is now CERTIFIABLE
+The infrastructure (RNG stream lockstep + the param-block-collision seeding
+recipe above) generalizes to the other rewired enemy RNG strats — `volrockdown`
+(3 draws: vx/vy/vz scatter), `mother` (4 draws), the `volrock`/player spread
+strats, etc. Each is: locate by masked scan (skeleton from the built ROM,
+RANDOM_L operands wildcarded), seed the stream both sides, diff the RNG-derived
+kinematic fields. `firepillar` is the template.
 
 ### Remaining blockers for HARDER strats (beyond `stayrel`)
 - **RNG-driven strats** (dodge/aim jitter): need the retail RNG state global

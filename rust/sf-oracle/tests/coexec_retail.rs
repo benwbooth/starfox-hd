@@ -732,6 +732,9 @@ use sf_oracle::{
     seed_player_relative_state, RETAIL_PARAJUMP_STRAT, RETAIL_PLAYER_POSX, RETAIL_PLAYER_POSY,
     RETAIL_PLAYER_POSZ, RETAIL_PLAYPT, RETAIL_RANDOM_L, RETAIL_RAND,
 };
+use sf_oracle::{
+    seed_retail_rng, ASF2_SFLAG2, RETAIL_FIREPILLAR_ISTRAT, RETAIL_FIREPILLAR_STRAT,
+};
 
 /// Scan `rom` for a masked byte pattern (`None` = wildcard byte). Returns ROM
 /// file offsets of every match.
@@ -1586,4 +1589,230 @@ fn retail_parajump_player_relative_vs_port() {
         ),
         Some((t, f, r, p)) => panic!("parajump diverged tick {t} {f}: retail={r} port={p}"),
     }
+}
+
+// ============================================================================
+// RNG-DRIVEN ENEMY CLASS — closing the loop on the `ea_random`->`sf_random` fix.
+//
+// commit f280388 rewired 61 enemy/boss RNG sites off the build-time LCG
+// (`ea_random`, rnd*91+$61D7 over RNDVAL) onto the ROM's runtime SWB stream
+// (`sf_random` over g.vars.rng), which `retail_rng_stream_vs_port` proved
+// bit-identical to the retail cart's `RANDOM` ($02:FC5C). These three tests
+// certify the FIRST RNG-driven ENEMY strat, `firepillar`, against the retail
+// cartridge — extending tier-2 certified coverage to the RNG-driven enemy class
+// and proving the fix cartridge-faithful end-to-end.
+//
+// `firepillar_Istrat` (retail $0A:DAE4, GA2STRAT.ASM:2039-2062) draws the RNG
+// THREE times on init:
+//   DRAW 1 -> al_worldx low byte
+//   DRAW 2 & 3 -> al_worldx high byte    => worldx = d1 | ((d2&3)<<8)  (0..1023)
+//   then  worldx += -512 + (player_posx asra 1)   (signed >>1)
+//   DRAW 3: coin `cmp #$B2 (178)` -> 30% (rnd>=178) latches al_sflags2 bit $20
+//           ("inert"); 70% (rnd<178) leaves it clear.
+// Port ↔ `sf_strat::enemies_ground::firepillar_init` (IS_FIREPILLAR row 193),
+// whose three `sf_random(&mut g.vars)` calls ARE the just-fixed enemy-lane sites.
+// ============================================================================
+
+/// sf-map / ISTRATS.ASM placement index for firepillar (matches the port's
+/// `enemies_ground::IS_FIREPILLAR`).
+const IS_FIREPILLAR: usize = 193;
+/// The `s_jmp_random .ndrop,70` threshold: `cmp #((70)*255)/100` = `cmp #$B2`.
+const FIREPILLAR_COIN_THRESH: u16 = 178;
+
+/// Retail-side firepillar init observables derived from a 3-draw RNG stream +
+/// player_posx (the exact `firepillar_Istrat` formula, cross-validated in
+/// `retail_firepillar_addresses` by reading the cart's own operands).
+fn firepillar_expected(d1: u8, d2: u8, d3: u8, player_posx: i16) -> (i16, bool) {
+    let worldx = ((d1 as i16) | (((d2 & 3) as i16) << 8))
+        .wrapping_sub(512)
+        .wrapping_add(player_posx >> 1); // asra = signed >>1
+    let inert = (d3 as u16) >= FIREPILLAR_COIN_THRESH; // 30% branch
+    (worldx, inert)
+}
+
+/// Run the PORT's real `firepillar_init` (the fixed `sf_random` call site) with
+/// `rng`/`player_posx` seeded, returning its RNG-derived observables
+/// `(worldx, inert)`. A distant player keeps the fall-through per-tick body
+/// (`firepillar_strat`, no RNG) a clean no-op — it never touches worldx/sflag2.
+fn port_firepillar(rng: [u8; 4], player_posx: i16) -> (i16, bool) {
+    let mut g = sf_game::game::Game::new();
+    sf_strat::enemies_ground::register(&mut g.world);
+    // Player far in Z (slot 0) so firepillar_strat's zdist gates all fail.
+    let pl = g.objs.alloc().expect("player slot");
+    sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[pl as usize]);
+    g.objs.aliens[pl as usize].worldz = 20000;
+    // Enemy (slot 1) carrying the firepillar istrat.
+    let e = g.objs.alloc().expect("enemy slot");
+    sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[e as usize]);
+    g.objs.aliens[e as usize].worldz = 0;
+    g.objs.aliens[e as usize].stratptr = g.world.istrats[IS_FIREPILLAR];
+    g.vars.rng = rng;
+    g.vars.player_posx = player_posx;
+    let s = g.objs.aliens[e as usize].stratptr.expect("firepillar istrat registered");
+    g.call_strat(s, e);
+    let al = &g.objs.aliens[e as usize];
+    (al.worldx, al.sflags2 & ASF2_SFLAG2 != 0)
+}
+
+/// MILESTONE (RNG-enemy step 1) — LOCATE + CROSS-VALIDATE `firepillar_Istrat` in
+/// the retail cart by masked signature scan, and read back the THREE `jsl
+/// RANDOM_L` draw sites + the `lda player_posx` read + the coin `cmp #$B2` + the
+/// `al_sflags2` inert bit — the exact RNG-draw sequence the port consumes.
+#[test]
+fn retail_firepillar_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // 99-byte firepillar_Istrat skeleton (read from the BUILT ROM $0A:DABE),
+    // with the strat-ptr immediate, the set_0collptrs JSL, the three RANDOM_L
+    // JSLs, the player_posx operand, and the fall-through JML wildcarded.
+    let w = None;
+    let pat: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), // rep;lda #strat;sta stratptr
+        Some(0xE2), Some(0x20), Some(0xA9), w, Some(0x95), Some(0x18),     // sep;lda #bank;sta stratptr+2
+        Some(0x22), w, w, w,                                               // jsl set_0collptrs
+        Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A),                    // lda #hardHP;sta al_HP
+        Some(0xA9), Some(0x08), Some(0x95), Some(0x2B),                    // lda #hardAP;sta al_AP
+        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E), // ora enemy1 colltype
+        Some(0xA9), Some(0x80), Some(0x95), Some(0x13),                    // lda #deg180;sta al_roty
+        Some(0xA9), Some(0x80), Some(0x95), Some(0x14),                    // lda #deg180;sta al_rotz
+        Some(0x22), w, w, w, Some(0x95), Some(0x0C),                       // DRAW 1 -> al_worldx lo
+        Some(0x22), w, w, w, Some(0x29), Some(0x03), Some(0x95), Some(0x0D), // DRAW 2 & #3 -> al_worldx hi
+        Some(0xC2), Some(0x20), Some(0xB5), Some(0x0C), Some(0x38), Some(0xE9), Some(0x00), Some(0x02), Some(0x95), Some(0x0C), // sbc #512
+        Some(0xE2), Some(0x20), Some(0xC2), Some(0x20),
+        Some(0xAD), w, w,                                                  // lda player_posx
+        Some(0xC9), Some(0x00), Some(0x80), Some(0x6A),                    // asra: cmp #$8000; ror a
+        Some(0x18), Some(0x75), Some(0x0C), Some(0x95), Some(0x0C), Some(0xE2), Some(0x20), // clc;adc;sta;sep
+        Some(0x22), w, w, w,                                               // DRAW 3 (coin)
+        Some(0xC9), Some(0xB2), Some(0xB0), Some(0x04),                    // cmp #$B2; bcs +4
+        Some(0x5C), w, w, w,                                               // jml firepillar_strat
+        Some(0xB5), Some(0x1E), Some(0x09), Some(0x20), Some(0x95), Some(0x1E), // set al_sflags2 bit $20
+    ];
+    let hits = masked_scan(&rom, &pat);
+    assert_eq!(hits.len(), 1, "firepillar_Istrat is a UNIQUE masked hit");
+    let h = hits[0];
+    let istrat = rom_off_to_snes(h);
+    // Read back the operands.
+    let rd24 = |o: usize| rom[o] as u32 | ((rom[o + 1] as u32) << 8) | ((rom[o + 2] as u32) << 16);
+    let rd16 = |o: usize| rom[o] as u32 | ((rom[o + 1] as u32) << 8);
+    let draw1 = rd24(h + 40);
+    let draw2 = rd24(h + 46);
+    let posx = rd16(h + 68);
+    let draw3 = rd24(h + 82);
+    let jml = rd24(h + 90);
+    eprintln!(
+        "RNG-ENEMY: firepillar_Istrat=${istrat:06X}  draws=[{draw1:06X},{draw2:06X},{draw3:06X}]  player_posx=${posx:04X}  ->firepillar_strat=${jml:06X}"
+    );
+    assert_eq!(istrat, RETAIL_FIREPILLAR_ISTRAT, "firepillar_Istrat address");
+    // All three draws are the runtime RNG wrapper RANDOM_L ($02:FC58) — this is
+    // the exact routine `retail_rng_stream_vs_port` proved == port `sf_random`.
+    assert_eq!(draw1, RETAIL_RANDOM_L, "DRAW 1 is jsl RANDOM_L");
+    assert_eq!(draw2, RETAIL_RANDOM_L, "DRAW 2 is jsl RANDOM_L");
+    assert_eq!(draw3, RETAIL_RANDOM_L, "DRAW 3 (coin) is jsl RANDOM_L");
+    assert_eq!(posx as u32, RETAIL_PLAYER_POSX, "reads player_posx=$150D");
+    assert_eq!(jml, RETAIL_FIREPILLAR_STRAT, "jml fall-through = firepillar_strat");
+    // Coin threshold cmp #$B2 = (70*255)/100 = 178.
+    assert_eq!(rom[h + 86] as u16, FIREPILLAR_COIN_THRESH, "coin cmp #$B2 (178)");
+}
+
+/// CAPSTONE (RNG-enemy) — THE PORT's `firepillar_init` RNG-DERIVED FIELDS vs the
+/// RETAIL cartridge RNG STREAM, BOTH COIN BRANCHES.
+///
+/// This is the direct proof of the `ea_random`->`sf_random` fix for the enemy
+/// class: we draw firepillar's 3-value sequence from the retail cart's OWN
+/// `RANDOM` ($02:FC5C, carried across the harness param-block collision by
+/// [`retail_random_next`]), apply the cross-validated `firepillar_Istrat` formula
+/// to get the cartridge-faithful `(worldx, inert)`, and diff against the PORT's
+/// real `firepillar_init` (the fixed enemy-lane `sf_random` call site) seeded
+/// with the SAME 4-byte RNG state + player_posx. Two seeds drive the two coin
+/// outcomes; we assert retail and port take the SAME branch each time.
+#[test]
+fn retail_firepillar_rng_vs_port() {
+    let Some(rom) = retail() else { return };
+    let player_posx = -3000i16; // exercises the signed asra (>>1 = -1500)
+    // Seeds chosen (via the SWB stream) to hit BOTH coin branches:
+    //   [1,2,3,4]        -> DRAW 3 = 8   (<178)  -> ACTIVE (70%)
+    //   [171,205,239,18] -> DRAW 3 = 194 (>=178) -> INERT  (30%)
+    let cases: [([u8; 4], bool); 2] = [([1, 2, 3, 4], false), ([171, 205, 239, 18], true)];
+    let mut saw_active = false;
+    let mut saw_inert = false;
+    for (seed, expect_inert) in cases {
+        // Retail: draw the 3-value sequence from the cart's own RANDOM.
+        let mut bus = SnesBus::new(rom.clone());
+        let mut rs = seed;
+        let d1 = retail_random_next(&mut bus, &mut rs);
+        let d2 = retail_random_next(&mut bus, &mut rs);
+        let d3 = retail_random_next(&mut bus, &mut rs);
+        let (rwx, r_inert) = firepillar_expected(d1, d2, d3, player_posx);
+        // Port: the REAL fixed firepillar_init over the same seed.
+        let (pwx, p_inert) = port_firepillar(seed, player_posx);
+        eprintln!(
+            "RNG-ENEMY firepillar seed {seed:02X?}: retail draws=[{d1},{d2},{d3}] worldx={rwx} inert={r_inert} | port worldx={pwx} inert={p_inert}  {}",
+            if rwx == pwx && r_inert == p_inert { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!(rwx, pwx, "firepillar worldx (RNG draws 1&2 + player_posx) must match retail");
+        assert_eq!(r_inert, p_inert, "firepillar inert coin (RNG draw 3) branch must match retail");
+        assert_eq!(r_inert, expect_inert, "seed {seed:02X?} drives the expected coin branch");
+        saw_active |= !r_inert;
+        saw_inert |= r_inert;
+    }
+    assert!(saw_active && saw_inert, "both coin branches (30% inert / 70% active) exercised");
+    eprintln!("RNG-ENEMY firepillar: MATCH both branches — port sf_random == retail RANDOM through firepillar. ea_random->sf_random fix is cartridge-faithful.");
+}
+
+/// CAPSTONE (RNG-enemy, GOLD) — run the RETAIL cart's OWN `firepillar_Istrat`
+/// body ($0A:DAE4) on seeded RNG + player_posx, and diff its RNG-derived
+/// `(worldx, inert)` against the port. This executes the actual cartridge enemy
+/// AI (3 real `jsl RANDOM_L` draws), not a formula, and is the strongest form of
+/// the cert.
+///
+/// Harness note — the RNG state `rand` ($EF-$F2) OVERLAPS the [`call`] param
+/// block ($F0-$F5): the object block X = pool base ($0336) PINS `rand[3]` = $F2 =
+/// $36 (the block's low byte). So both seeds here end in $36 (=54) — the first 3
+/// state bytes remain free and are enough to drive each coin branch. `rand[0]`
+/// ($EF, below the block) is seeded directly; `rand[1..3]` ride in via entry.a
+/// ($F0/$F1) and entry.x-low ($F2). A distant player (via PLAYPT) keeps the
+/// fall-through `firepillar_strat` tick (no RNG) a clean no-op.
+#[test]
+fn retail_firepillar_body_vs_port() {
+    let Some(rom) = retail() else { return };
+    let player_posx = -3000i16;
+    let enemy = RETAIL_POOL.base; // slot 0 — X for the strat call; low byte $36
+    let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride; // slot 1
+    // Seeds ending in $36 (=54, the pinned rand[3]); chosen to hit both branches:
+    //   [200,1,2,54]  -> DRAW 3 = 24  (<178)  -> ACTIVE
+    //   [99,88,77,54] -> DRAW 3 = 183 (>=178) -> INERT
+    let cases: [([u8; 4], bool); 2] = [([200, 1, 2, 54], false), ([99, 88, 77, 54], true)];
+    let mut saw_active = false;
+    let mut saw_inert = false;
+    for (seed, expect_inert) in cases {
+        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+        let mut bus = SnesBus::new(rom.clone());
+        // Player far in Z via PLAYPT so firepillar_strat's zdist gates all fail.
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 20000u16);
+        bus.wram_write16(enemy + RETAIL_POOL.al_worldz, 0);
+        // Seed player_posx + the RNG state. rand[0]=$EF direct; rand[1..3] ride
+        // in via entry.a/entry.x-low (which land at $F0/$F1/$F2 == rand[1..3]).
+        bus.wram_write16(RETAIL_PLAYER_POSX, player_posx as u16);
+        seed_retail_rng(&mut bus, seed); // establishes $EF; $F0-$F2 set again below by call
+        bus.write8(RETAIL_RAND, seed[0]); // rand[0] @ $EF (safe, below param block)
+        let a = seed[1] as u16 | ((seed[2] as u16) << 8); // -> $F0/$F1 = rand[1]/rand[2]
+        // entry.x = enemy block -> $F2 = block low byte = seed[3]; also the strat's X.
+        call(&mut bus, RETAIL_FIREPILLAR_ISTRAT, &Entry { a, x: enemy as u16, p: 0x00, ..Default::default() });
+        let rwx = bus.wram_read16(enemy + RETAIL_POOL.al_worldx) as i16;
+        let r_inert = bus.read8(0x7E_0000 | (enemy + AL_SFLAGS2)) & ASF2_SFLAG2 != 0;
+        // Port: the real firepillar_init over the SAME seed.
+        let (pwx, p_inert) = port_firepillar(seed, player_posx);
+        eprintln!(
+            "RNG-ENEMY firepillar BODY seed {seed:02X?}: retail worldx={rwx} inert={r_inert} | port worldx={pwx} inert={p_inert}  {}",
+            if rwx == pwx && r_inert == p_inert { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!(rwx, pwx, "retail firepillar_Istrat BODY worldx == port");
+        assert_eq!(r_inert, p_inert, "retail firepillar_Istrat BODY inert coin == port");
+        assert_eq!(r_inert, expect_inert, "seed {seed:02X?} drives the expected branch on retail");
+        saw_active |= !r_inert;
+        saw_inert |= r_inert;
+    }
+    assert!(saw_active && saw_inert, "both coin branches exercised on the retail body");
+    eprintln!("RNG-ENEMY firepillar BODY: MATCH both branches — retail cart's OWN firepillar AI == port. RNG-driven enemy class certified vs retail.");
 }
