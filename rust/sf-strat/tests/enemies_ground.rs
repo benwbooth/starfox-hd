@@ -11,7 +11,7 @@
 //! `s_dofog`), engine-flame sprites (`makeengine_srou`), debris/smoke meshes,
 //! and positional sound — all cosmetic reads of global scratch RAM.
 
-use sf_game::alien::{ATLASER, NUMBER_AL};
+use sf_game::alien::{ATLASER, ATZREMOVE, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemies_ground;
@@ -22,6 +22,27 @@ const IS_BAZOOKAR: usize = 159;
 const IS_TANK2: usize = 162;
 const IS_TANK1A: usize = 183;
 const IS_TANK3: usize = 186;
+const IS_WALKING: usize = 78;
+const IS_WIREMAN: usize = 88;
+const IS_WINGLAZERMAN: usize = 91;
+const IS_UPERM: usize = 160;
+const IS_ROCKHARD: usize = 192;
+
+// Mobile-family shape words (sf-map lc::SH_*).
+const SH_WIRE_MAN: u16 = 48;
+const SH_W_L: u16 = 50;
+const SH_WALKER_0: u16 = 27;
+const SH_UPER_M: u16 = 133;
+
+// Mobile-family constants (cited).
+const ASF_SHADOW: u8 = 0x04; // alien.rs
+const COLLTYPE_ENEMY1_M: u8 = 0x10;
+const COLLTYPE_ENEMYWEAP_M: u8 = 0x40;
+const WIREMAN_HP: u8 = 4; // wiremanHP
+const WINGLAZERMAN_HP: u8 = 8; // winglazermanHP
+const WALKING_HP: u8 = 200; // DSTRATS.ASM:863
+const UPERM_HP: u8 = 2; // upermHP
+const HARDHP: u8 = 0xFF; // hardHP == -1
 
 // Constants mirrored from the port / ASM (cited).
 const DEG180: u8 = 128;
@@ -339,4 +360,294 @@ fn bazooka_death_drops_debris_and_explodes() {
     let after = (0..NUMBER_AL).filter(|&i| g.objs.aliens[i].active).count();
     assert!(after > before, "a falling debris object was spawned");
     assert_eq!(g.objs.aldead, 1, "bazooka explodes (aldead)");
+}
+
+// ============================================================
+// wireman (GASTRATS.ASM:2446-2511) — homing evasive flyer (no weapon).
+// ============================================================
+
+#[test]
+fn wireman_init_sets_data_and_pose() {
+    // wireman_Istrat: hp4/ap16, shadow, speed 40, hit/die strats wired. Placed
+    // far (>1500 XZ) so it stays in the chase/move path (GASTRATS.ASM:2446-2466).
+    let mut g = setup();
+    let wm = place(&mut g, IS_WIREMAN, 6000, -500, 6000, SH_WIRE_MAN);
+    tick(&mut g, wm);
+    let a = g.objs.aliens[wm as usize];
+    assert_eq!(a.hp, WIREMAN_HP, "s_set_aldata wiremanHP");
+    assert_eq!(a.ap, 16, "wiremanAP");
+    assert_eq!(a.vel, 40, "s_set_speed #40");
+    assert_ne!(a.sflags & ASF_SHADOW, 0, "s_set_alsflag shadow");
+    assert!(a.collstratptr.is_some() && a.expstratptr.is_some());
+    assert!(a.stratptr.is_some());
+}
+
+#[test]
+fn wireman_close_enters_evasive_roll() {
+    // Inside 1500 XZ -> wireman2_init sets al_sbyte1 = deg180/4 = 32 (dodge
+    // time), picks a random branch, and runs one dodge tick (countdown 32->31)
+    // (GASTRATS.ASM:2458,2467-2492).
+    let mut g = setup();
+    let wm = place(&mut g, IS_WIREMAN, 0, -500, 1000, SH_WIRE_MAN);
+    tick(&mut g, wm);
+    assert_eq!(
+        g.objs.aliens[wm as usize].sbyte1, 31,
+        "entered wireman2 (sbyte1 32 -> 31 after one dodge tick)"
+    );
+    // Keep it close: the dodge counts down toward 0 then resumes chase, which
+    // immediately re-enters wireman2 (still inside 1500) — sbyte1 stays bounded.
+    for _ in 0..40 {
+        g.objs.aliens[wm as usize].worldx = 0;
+        g.objs.aliens[wm as usize].worldz = 1000;
+        tick(&mut g, wm);
+    }
+    assert!(
+        g.objs.aliens[wm as usize].sbyte1 <= 32,
+        "dodge counter stays within its window"
+    );
+    assert!(g.objs.aliens[wm as usize].active, "still flying");
+}
+
+#[test]
+fn wireman_grounded_pops_up() {
+    // Far from the player (no dodge) but at/under the ground plane (worldy>=0):
+    // wireman_cont routes to wiremanup_init -> worldy reset to 0, rotx=-deg22
+    // (240), climb timer 30 (GASTRATS.ASM:2460-2498).
+    let mut g = setup();
+    let wm = place(&mut g, IS_WIREMAN, 6000, 200, 6000, SH_WIRE_MAN);
+    tick(&mut g, wm);
+    let a = g.objs.aliens[wm as usize];
+    // wiremanup_init resets worldy to 0, then wireman_cont2 applies one climb
+    // step the same tick, so worldy ends near 0 (down from the placed 200).
+    assert!(a.worldy.abs() < 60, "worldy reset to ~0 (was 200): {}", a.worldy);
+    assert_eq!(a.rotx, 240, "rotx = -deg22");
+    assert!(a.sbyte1 <= 30, "climb timer armed (<=30)");
+}
+
+#[test]
+fn wireman_death_explodes() {
+    // hp=4: four hitflash hits route through wiremandie -> explode (aldead).
+    let mut g = setup();
+    let wm = place(&mut g, IS_WIREMAN, 6000, -500, 6000, SH_WIRE_MAN);
+    tick(&mut g, wm); // init (hp=4)
+    let coll = g.objs.aliens[wm as usize].collstratptr.unwrap();
+    g.objs.aldead = 0;
+    for _ in 0..3 {
+        g.call_strat(coll, wm);
+        assert_eq!(g.objs.aldead, 0, "alive until the 4th hit");
+    }
+    g.call_strat(coll, wm); // 1 -> 0 -> explode
+    assert_eq!(g.objs.aldead, 1, "wiremandie -> explode set aldead");
+}
+
+// ============================================================
+// winglazerman (GASTRATS.ASM:2811-2903) — wing-laser strafer.
+// ============================================================
+
+#[test]
+fn winglazerman_init_sets_data_and_pose() {
+    // hp8/ap16, speed 40, shadow, al_sbyte2=2 (spin-cycle budget). Far (>1000 Z)
+    // so it stays in the chase/move path (GASTRATS.ASM:2811-2830).
+    let mut g = setup();
+    let wl = place(&mut g, IS_WINGLAZERMAN, 0, -400, 3000, SH_W_L);
+    tick(&mut g, wl);
+    let a = g.objs.aliens[wl as usize];
+    assert_eq!(a.hp, WINGLAZERMAN_HP, "winglazermanHP");
+    assert_eq!(a.ap, 16, "winglazermanAP");
+    assert_eq!(a.vel, 40, "s_set_speed #40");
+    assert_eq!(a.sbyte2, 2, "al_sbyte2 = 2");
+    assert_ne!(a.sflags & ASF_SHADOW, 0, "shadow");
+    assert!(a.collstratptr.is_some() && a.expstratptr.is_some());
+}
+
+#[test]
+fn winglazerman_spins_then_fires_wing_lasers() {
+    // Inside 1000 Z: spin (deg360/4) then fire two RELSLOWELASERs on the
+    // notdelay-2 gate (GASTRATS.ASM:2844-2882). Pin Z in range each tick.
+    let mut g = setup();
+    let wl = place(&mut g, IS_WINGLAZERMAN, 0, -100, 500, SH_W_L);
+    let mut fired = false;
+    for _ in 0..400 {
+        g.objs.aliens[wl as usize].worldx = 0;
+        g.objs.aliens[wl as usize].worldz = 500;
+        tick(&mut g, wl);
+        if !g.objs.aliens[wl as usize].active {
+            break;
+        }
+        if any_hplasma(&g) {
+            fired = true;
+            break;
+        }
+    }
+    assert!(fired, "winglazerman reaches its fire routine and fires");
+}
+
+#[test]
+fn winglazerman_death_explodes() {
+    // hp=8: eight hitflash hits -> winglazermandie -> explode.
+    let mut g = setup();
+    let wl = place(&mut g, IS_WINGLAZERMAN, 0, -400, 3000, SH_W_L);
+    tick(&mut g, wl);
+    let coll = g.objs.aliens[wl as usize].collstratptr.unwrap();
+    g.objs.aldead = 0;
+    for _ in 0..7 {
+        g.call_strat(coll, wl);
+    }
+    assert_eq!(g.objs.aldead, 0, "alive until the 8th hit");
+    g.call_strat(coll, wl);
+    assert_eq!(g.objs.aldead, 1, "winglazermandie -> explode");
+}
+
+// ============================================================
+// walking (DSTRATS.ASM:860-964) — striding mech.
+// ============================================================
+
+#[test]
+fn walking_init_sets_data_and_heading() {
+    // hp200/ap16, heading 4, speed medpspeed+10=75, shadow, walk timer 200,
+    // leg counters 4/4 (DSTRATS.ASM:860-872). First tick already coasts one step
+    // and decrements the walk timer to 199.
+    let mut g = setup();
+    let wk = place(&mut g, IS_WALKING, 0, 0, 3000, SH_WALKER_0);
+    tick(&mut g, wk);
+    let a = g.objs.aliens[wk as usize];
+    assert_eq!(a.hp, WALKING_HP, "s_set_aldata #200");
+    assert_eq!(a.ap, 16, "walkingAP");
+    assert_eq!(a.roty, 4, "heading 4");
+    assert_eq!(a.vel, 75, "medpspeed+10");
+    assert_eq!(a.sbyte1, 199, "walk timer 200 -> 199");
+    assert_eq!(a.sbyte2, 4);
+    assert_eq!(a.sbyte3, 4);
+    assert_ne!(a.sflags & ASF_SHADOW, 0, "shadow");
+    assert_eq!(a.type_, 0, "type 0 while walking (not yet zremove)");
+}
+
+#[test]
+fn walking_turns_around_after_the_walk() {
+    // After 200 walk frames -> walking2: type gains ATZREMOVE, it turns toward
+    // deg180 (roty-=4) and decelerates (vel-=4 while >=10) (DSTRATS.ASM:881-895).
+    let mut g = setup();
+    let wk = place(&mut g, IS_WALKING, 0, 0, 3000, SH_WALKER_0);
+    for _ in 0..230 {
+        tick(&mut g, wk);
+    }
+    let a = g.objs.aliens[wk as usize];
+    assert_ne!(a.type_ & ATZREMOVE, 0, "entered walking2 (zremove set)");
+    assert!(a.vel < 75, "decelerating in walking2");
+    assert_ne!(a.roty, 4, "turned away from the initial heading");
+}
+
+#[test]
+fn walking_legs_topple_and_kill() {
+    // Five HF1 (left-leg) hits topple the mech right -> wobble -> fallover ->
+    // s_kill_obj (hp=0) (DSTRATS.ASM:897-964). Feed HF1 each tick; after the
+    // topple the wobble/fall states ignore hitflags.
+    let mut g = setup();
+    let wk = place(&mut g, IS_WALKING, 0, 0, 3000, SH_WALKER_0);
+    tick(&mut g, wk); // init
+    let mut killed = false;
+    for _ in 0..60 {
+        g.objs.aliens[wk as usize].hitflags |= 0x01; // HF1
+        tick(&mut g, wk);
+        if g.objs.aliens[wk as usize].hp == 0 {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "leg hits toppled and killed the walker (hp=0)");
+}
+
+#[test]
+fn walking_death_explodes() {
+    // Direct explode path (expstrat = explode_istrat).
+    let mut g = setup();
+    let wk = place(&mut g, IS_WALKING, 0, 0, 3000, SH_WALKER_0);
+    tick(&mut g, wk);
+    let exp = g.objs.aliens[wk as usize].expstratptr.unwrap();
+    g.objs.aldead = 0;
+    g.call_strat(exp, wk);
+    assert_eq!(g.objs.aldead, 1, "walking explodes");
+}
+
+// ============================================================
+// uperm (GA2STRAT.ASM:1112-1141) — pop-up dasher.
+// ============================================================
+
+#[test]
+fn uperm_init_sets_rise_pose() {
+    // hp2/ap8, enemy1+enemyweap, roty=deg180, rotx=-deg90(192), speed 70,
+    // al_sword1=player_posy, snd2=2. Placed deep (worldy>=sword1+756) so it
+    // just rises + spins rotz (+8) this tick (GA2STRAT.ASM:1112-1141).
+    let mut g = setup();
+    g.vars.player_posy = 100;
+    let up = place(&mut g, IS_UPERM, 1000, 5000, 5000, SH_UPER_M);
+    tick(&mut g, up);
+    let a = g.objs.aliens[up as usize];
+    assert_eq!(a.hp, UPERM_HP, "upermHP");
+    assert_eq!(a.ap, 8, "upermAP");
+    assert_eq!(a.roty, DEG180, "roty=deg180");
+    assert_eq!(a.rotx, 192, "rotx=-deg90");
+    assert_eq!(a.vel, 70, "still rising at speed 70");
+    assert_eq!(a.sword1, 100, "captured player_posy");
+    assert_eq!(a.snd2, 2);
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1_M, 0);
+    assert_ne!(a.collflags & COLLTYPE_ENEMYWEAP_M, 0);
+    assert_eq!(a.rotz, 8, "nysearch rotz += 8");
+}
+
+#[test]
+fn uperm_dashes_when_leveled_and_in_range() {
+    // worldy below the level-off datum AND player 400..1300 Z away -> dash:
+    // speedto 80 (rate 2) + rotz += 18/tick + yaw-track (GA2STRAT.ASM:1128-1137).
+    let mut g = setup();
+    g.vars.player_posy = 100; // datum sword1+756 = 856
+    let up = place(&mut g, IS_UPERM, 0, 0, 800, SH_UPER_M);
+    for _ in 0..6 {
+        g.objs.aliens[up as usize].worldy = 0; // pin below datum (< 856)
+        g.objs.aliens[up as usize].worldz = 800; // pin |dz|=800 in [400,1300)
+        tick(&mut g, up);
+    }
+    let a = g.objs.aliens[up as usize];
+    assert_eq!(a.vel, 80, "dash accelerated to speed 80");
+    // rotx achases -deg90 (192 == -64 i8) toward 0 the short way (through 255),
+    // so it climbs 192->..., shrinking the signed pitch magnitude.
+    assert!(
+        (a.rotx as i8).unsigned_abs() < 64,
+        "pitch leveled off toward 0 (rotx {})",
+        a.rotx
+    );
+}
+
+#[test]
+fn uperm_death_explodes() {
+    let mut g = setup();
+    g.vars.player_posy = 100;
+    let up = place(&mut g, IS_UPERM, 1000, 5000, 5000, SH_UPER_M);
+    tick(&mut g, up);
+    let coll = g.objs.aliens[up as usize].collstratptr.unwrap();
+    g.objs.aldead = 0;
+    g.call_strat(coll, up); // 2 -> 1
+    assert_eq!(g.objs.aldead, 0);
+    g.call_strat(coll, up); // 1 -> 0 -> explode
+    assert_eq!(g.objs.aldead, 1, "uperm explodes");
+}
+
+// ============================================================
+// rockhard (GSTRATS.ASM:663-669) — static indestructible obstacle.
+// ============================================================
+
+#[test]
+fn rockhard_init_is_static_indestructible() {
+    // enemy1 collide, roty=deg180, hardHP(255)/rockhardAP(20), then s_set_strat
+    // x,0 -> null tick (no further ticks, no hit/explode strats).
+    let mut g = setup();
+    let rk = place(&mut g, IS_ROCKHARD, 500, 0, 4000, 100);
+    tick(&mut g, rk);
+    let a = g.objs.aliens[rk as usize];
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1_M, 0, "enemy1 collide");
+    assert_eq!(a.roty, DEG180, "roty=deg180");
+    assert_eq!(a.hp, HARDHP, "hardHP (indestructible)");
+    assert_eq!(a.ap, 20, "rockhardAP");
+    assert!(a.stratptr.is_none(), "s_set_strat x,0 -> null tick");
+    assert!(a.expstratptr.is_none(), "no explode strat (obstacle)");
 }
