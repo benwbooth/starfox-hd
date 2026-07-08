@@ -293,7 +293,10 @@ fn main() {
         // --- HandleEvents (main.c:86-111) ---
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } => running = false,
+                Event::Quit { .. } => {
+                    eprintln!("[exit] SDL Event::Quit received -> quitting");
+                    running = false;
+                }
                 Event::Window {
                     win_event: WindowEvent::Resized(w, h),
                     ..
@@ -309,7 +312,10 @@ fn main() {
                 Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => running = false,
+                } => {
+                    eprintln!("[exit] Escape key -> quitting");
+                    running = false;
+                }
                 Event::KeyDown {
                     keycode: Some(Keycode::F11),
                     ..
@@ -323,6 +329,7 @@ fn main() {
                     }
                 }
                 Event::ControllerDeviceRemoved { which, .. } => {
+                    eprintln!("[input] controller {which} removed");
                     input.remove_gamepad(sdl3::sys::joystick::SDL_JoystickID(which));
                 }
                 _ => {}
