@@ -194,6 +194,14 @@ pub const IS_DEADFLINGBOSS: usize = 59;
 /// mother's child objects).
 pub const IS_CASTANET: usize = 124;
 
+/// `chicken` (ISTRATS.ASM:541 `def_istrat chicken,boss_d_1`, macro-counted 117
+/// = sf-map route3::common IS_CHICKEN, Route 3 L3). Resolves through
+/// `world.istrats[117]` exactly like IS_FLINGBOSS/IS_CASTANET (the map spawns
+/// the SH_BOSS_D_1 body carrying this ISTRAT index; the neck/head/tail
+/// segments and wings are the mother's child objects). sf-oracle symbol
+/// IS_CHICKEN_ISTRAT=$74(116); +1 = 117.
+pub const IS_CHICKEN: usize = 117;
+
 /// C `STRAT_ADDR_BOSSSEAMON` (strat_boss_sea.c:45).
 pub const STRAT_ADDR_BOSSSEAMON: u32 = 0x030005;
 /// C `STRAT_ADDR_BOSSG` (strat_boss_sea.c:46).
@@ -5315,6 +5323,1546 @@ fn castanet_strat(g: &mut Game, idx: u16) {
 // CASTANET_END
 
 // ============================================================
+// CHICKEN_BEGIN — "chicken" (Route 3 L3 boss) + the SHARED grabber-tentacle
+// `arm_istrat` (which flingboss also builds on).
+//
+// ASM oracle: `chicken_istrat` / `chick` (DSTRATS.ASM:3696-4523) and the shared
+// arm strat `arm_istrat` / `ars` (DSTRATS.ASM:2444-2944) — init, `.strat`,
+// `.chickenheadcol`, `.chickenheadhit`, `.grabberhit`, `.passiton`,
+// `.zipthrough`/`.position` spring easing, `.generate`/`.noacc` growth.
+// def_istrat index 117 (=IS_CHICKEN).
+//
+// STRUCTURE: the SH_BOSS_D_1 body (the map's mother, HP=chickenbodyHP=64) drives
+// a 29-entry `s_mode_table` machine (DSTRATS.ASM:3721-3763; +7 unreachable
+// `flyaway_mode` entries :3754-3761). It links THREE neck chains — al_ptr
+// (left neck→head), al_sword1 (right neck→head), al_sword2 (tail) — plus two
+// wings (al_sWPx1/al_sWPy1). Each neck is a chain of `arm_istrat` segments that
+// GROW outward (`.nbl`→`.generate`, sword1 countdown → head/tail/grabber) and
+// are positioned by an inter-segment damped SPRING (`.zipthrough`→`.position`:
+// each child eases half-way toward its parent's rots + a decaying momentum term
+// on al_sbyte1..3). The body is invulnerable (nohitaffect) until a neck grows
+// its head/tail fully — then `.check_fin` (DSTRATS.ASM:4031-4079) clears
+// nohitaffect (the red vulnerability window) and the body's hp drains the boss
+// bar (`s_add_bossHP x,al_hp`, :4027). Shooting a head shortens its neck
+// (`.chickenheadhit`, :2678). `armmode` (a shared WRAM byte, $17f0) gates which
+// head fires firebreath and whether growth makes a head/tail vs a grabber.
+//
+// SCOPE NOTE (fidelity boundaries, cited inline):
+//  * The mother mode machine, neck GROWTH (`.generate`/`.nbl`), the inter-
+//    segment SPRING easing (`.position`), `.chickenheadcol`/`.chickenheadhit`
+//    neck-shortening, `.check_fin` vulnerability + HP-bar drain, `.regrownecks`
+//    regrowth, and the grabber routing (`.grabberhit`→`.passiton`→mother
+//    sflag5) are ported faithfully.
+//  * `.passiton`'s no-sflag1 branch searches for the `#flingboss` body shape
+//    (DSTRATS.ASM:2777) — arm_istrat was written for flingboss and chicken
+//    reuses it; chicken's chain roots carry sflag1 and route damage UP the
+//    parent chain instead, so the flingboss-shape lookup is inert under chicken
+//    (faithful — verified: chicken never spawns a #flingboss object). The
+//    routing is exercised in tests via a flingboss-shaped stand-in mother.
+//  * Sub-objects are spawned faithfully (RNG/object-count parity) but their
+//    FLIGHT internals are simplified to straight/gravity movers, exactly as
+//    castanet's ringlaser/mini were: `firebreathe_istrat` (the trail-piece
+//    fireball, DSTRATS.ASM:4629-4699), `egg_istrat`/`shell_istrat`
+//    (:4528-4622) and `wings_istrat` (:4744-4761, a colldisable nohitaffect
+//    cosmetic flapper). The arm HPLASMA fire reuses the ported homingflat
+//    `boss2_hplasma_strat`.
+//  * `s_leftview_strat` (screen-side turn selector, DSTRATS.ASM:4227/4245) is
+//    approximated by worldx-vs-player (no projected-screen math); the 5-arg
+//    `s_add_anim` firstframe clamp on `.sitdown` (:3913) is read per the
+//    AUDIT_BOSS_TICKS2 macro rule (cap→jump) rather than its ambiguous
+//    firstframe clamp. Both are cosmetic timing.
+// ============================================================
+
+// DSTRATS.ASM:68-71 / :58-59.
+const CHICKEN_BODY_HP: u8 = 64; // chickenbodyHP
+const CHICKEN_BODY_AP: u8 = HARD_AP; // chickenbodyAP = hardAP
+const CHICKEN_HEAD_HP: u8 = 4; // chickenheadHP
+const CHICKEN_TAIL_HP: u8 = 2; // chickentailHP
+const CHICK_ARM_AP: u8 = 10; // armAP (DSTRATS.ASM:59)
+const CHICK_ARMLENGTH: i16 = 80; // armlength (= ARMLENGTH)
+const CHICK_HPLASMA_SPEED: u8 = 60;
+const CHICK_HPLASMA_LIFE: u8 = 50;
+const CHICK_HPLASMA_AP: u8 = 10; // HplasmaAP
+const CHICK_DEG11: u8 = 8; // deg11
+
+// sflag mapping (same as flingboss/castanet): sflag1..4 -> sflags2 0x10/20/40/80;
+// sflag5/6 -> sflags3 0x01/0x02.
+const CH_SFLAG1: u8 = 0x10;
+const CH_SFLAG2: u8 = 0x20;
+const CH_SFLAG3: u8 = 0x40;
+const CH_SFLAG4: u8 = 0x80;
+const CH_SFLAG5: u8 = 0x01; // sflags3
+const CH_SFLAG6: u8 = 0x02; // sflags3
+
+// Shapes. boss_d_1 (body) = the map's SH_BOSS_D_1 (78, route3::common); the rest
+// are behaviour-only proxies (compared for equality only).
+const CH_BOSS_D_1: u16 = 78; // body / mother (map SH_BOSS_D_1)
+const SH_CHICK_BOSS_D_0: u16 = 282; // head (boss_d_0)
+const SH_CHICK_BOSS_D_2: u16 = 283; // tail (boss_d_2)
+const SH_CHICK_NECK: u16 = 284; // neck
+const SH_CHICK_ARM: u16 = 285; // arm
+const SH_CHICK_BULGE: u16 = 286; // bulge (charge/damage travelling shape)
+const SH_CHICK_GRABBER: u16 = 287; // grabber
+const SH_CHICK_GRABBER2: u16 = 288; // grabber2
+const SH_CHICK_EGG: u16 = 289; // egg
+const SH_CHICK_FIREBREATH: u16 = 290; // firebreath
+const SH_CHICK_BOSS_D_8: u16 = 291; // wing1 (boss_d_8)
+const SH_CHICK_BOSS_D_9: u16 = 292; // wing2 (boss_d_9)
+
+// flingboss body shape (sf-map rc.rs SH_FLINGBOSS=12) — the `.passiton` mother
+// target for the shared arm code (DSTRATS.ASM:2777 `#flingboss`).
+const SH_FLINGBOSS_BODY: u16 = 12;
+
+// C `g_armmode` = ARMMODE ($000017f0) — shared WRAM byte read/written by the
+// mother AND every arm segment (they cannot reach the mother directly).
+const WM_ARMMODE: u16 = 0x17F0;
+
+const CHICK_SE_FIRE: u8 = 0x3b; // trigse $3b
+const CHICK_SE_EGG: u8 = 0x3a; // trigse $3a
+const CHICK_SE_WHOOSH: u8 = 0x39; // trigse $39
+
+#[inline]
+fn armmode(g: &Game) -> u8 {
+    wm8(g, WM_ARMMODE)
+}
+#[inline]
+fn set_armmode(g: &mut Game, v: u8) {
+    wm8_set(g, WM_ARMMODE, v);
+}
+
+/// adiv2 — signed halve toward zero (STRATMAC.INC adiv2, AUDIT finding 24).
+#[inline]
+fn adiv2i(v: u8) -> u8 {
+    ((v as i8) / 2) as u8
+}
+/// Repeated toward-zero halving (s_set_alvar2vartab scale -N).
+#[inline]
+fn adiv_n(mut v: u8, n: u32) -> u8 {
+    for _ in 0..n {
+        v = adiv2i(v);
+    }
+    v
+}
+
+/// s_copy_rots y,x — copy `src` rots into `dst` (DSTRATS.ASM `fling.copyrots_yx`).
+fn chicken_copyrots(g: &mut Game, dst: u16, src: u16) {
+    let s = g.objs.aliens[src as usize];
+    let d = &mut g.objs.aliens[dst as usize];
+    d.rotx = s.rotx;
+    d.roty = s.roty;
+    d.rotz = s.rotz;
+}
+
+/// fling.makeobj — allocate a child shell copied onto the mother's position.
+fn chicken_makeobj(g: &mut Game, mother: u16) -> Option<u16> {
+    let child = make_obj(g, 0)?;
+    copy_pos(g, child, mother);
+    Some(child)
+}
+
+/// find_y_l — first active object of shape `shape` (DSTRATS.ASM:3589).
+fn chicken_find_shape(g: &Game, shape: u16) -> Option<u16> {
+    (0..NUMBER_AL)
+        .find(|&i| g.objs.aliens[i].active && g.objs.aliens[i].shape == shape)
+        .map(|i| i as u16)
+}
+/// find_alptr_l — the object whose al_ptr points at `target` (i.e. `target`'s
+/// parent toward the body; DSTRATS.ASM:3548).
+fn chicken_find_alptr(g: &Game, target: u16) -> Option<u16> {
+    let want = boss_obj_index_or_null(target);
+    (0..NUMBER_AL)
+        .find(|&i| g.objs.aliens[i].active && g.objs.aliens[i].ptr == want)
+        .map(|i| i as u16)
+}
+/// remove_alptrs_l — clear any al_ptr pointing at `target` (DSTRATS.ASM:2364).
+fn chicken_remove_alptrs(g: &mut Game, target: u16) {
+    let want = boss_obj_index_or_null(target);
+    for i in 0..NUMBER_AL {
+        if g.objs.aliens[i].active && g.objs.aliens[i].ptr == want {
+            g.objs.aliens[i].ptr = 0;
+        }
+    }
+}
+
+// ============================================================
+// SHARED arm_istrat (DSTRATS.ASM:2444-2944).
+// ============================================================
+
+/// arm_istrat init (DSTRATS.ASM:2444-2473).
+pub fn chicken_arm_init(g: &mut Game, idx: u16) {
+    let s_strat = sid(g, chicken_arm_strat);
+    let s_exp = sid(g, strat_explode);
+    let shape = g.objs.aliens[idx as usize].shape;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s_strat);
+        al.collstratptr = None; // s_set_alptrs .strat,0,explode
+        al.expstratptr = Some(s_exp);
+        al.hp = HARD_HP; // armHP = hardHP
+        al.ap = CHICK_ARM_AP;
+        al.sbyte1 = 0;
+        al.sbyte2 = 0;
+        al.sbyte3 = 0;
+        al.sbyte4 = 32;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.type_ &= !ATZREMOVE; // s_clr_altype zremove
+    }
+    if shape == SH_CHICK_GRABBER {
+        let s = sid(g, chicken_arm_grabberhit);
+        g.objs.aliens[idx as usize].collstratptr = Some(s);
+    }
+    // head/tail data + chickenheadcol collstrat (overrides grabberhit — but
+    // grabber is never head/tail so no conflict).
+    if shape == SH_CHICK_BOSS_D_2 {
+        let s = sid(g, chicken_arm_chickenheadcol);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = CHICKEN_TAIL_HP + 64;
+        al.ap = CHICK_ARM_AP;
+        al.collstratptr = Some(s);
+    } else if shape == SH_CHICK_BOSS_D_0 {
+        let s = sid(g, chicken_arm_chickenheadcol);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = CHICKEN_HEAD_HP + 64;
+        al.ap = CHICK_ARM_AP;
+        al.collstratptr = Some(s);
+    }
+    // init falls into .strat the same tick.
+    chicken_arm_strat(g, idx);
+}
+
+/// arm_istrat `.strat` (DSTRATS.ASM:2476-2650).
+fn chicken_arm_strat(g: &mut Game, idx: u16) {
+    let shape = g.objs.aliens[idx as usize].shape;
+    let is_head = shape == SH_CHICK_BOSS_D_0;
+    let is_tail = shape == SH_CHICK_BOSS_D_2;
+    if is_head || is_tail {
+        // .taildesu: below the +64 floor means the player damaged it.
+        if (g.objs.aliens[idx as usize].hp as u16) < 65 {
+            chicken_arm_chickenheadhit(g, idx);
+        }
+        if is_head {
+            // Orient the head upright (DSTRATS.ASM:2494-2504).
+            let rotx = g.objs.aliens[idx as usize].rotx;
+            let diff = rotx.wrapping_sub(DEG90);
+            g.objs.aliens[idx as usize].rotz = if diff & 0x80 == 0 { DEG180 } else { 0 };
+            chicken_arm_firebreath(g, idx);
+        }
+    }
+    // .notachicken
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 == 0 {
+        // sflag1 CLEAR -> this is a chain ROOT: ease the whole al_ptr chain.
+        chicken_arm_zipthrough(g, idx);
+    }
+    // .nm — sflag2 fire/bulge windup.
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG2 != 0 && chicken_arm_fire_bulge(g, idx) {
+        return; // sprouty.expl removed this segment (.end)
+    }
+    // .nb — sflag5 reverse-bullet (damage travelling up the chain).
+    if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG5 != 0 {
+        // ddecanim x,#8 (-1 mod 8).
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.animframe = (al.animframe + 8 - 1) % 8;
+        }
+        if g.objs.aliens[idx as usize].animframe == 7 {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.shape = SH_CHICK_ARM;
+                al.sflags3 &= !CH_SFLAG5;
+            }
+            chicken_arm_passiton(g, idx);
+        }
+    }
+    // .nbl — grabber/neck GROWTH gate.
+    chicken_arm_nbl(g, idx);
+}
+
+/// arm `.strat` head firebreath (DSTRATS.ASM:2517-2557): swap `armmode` head
+/// bit, gate on the alternating head, spawn one firebreath if none is live.
+fn chicken_arm_firebreath(g: &mut Game, idx: u16) {
+    let mut am = armmode(g) ^ 64; // swap head mode
+    set_armmode(g, am);
+    if am & 1 == 0 {
+        return; // rlbeq .notachicken
+    }
+    if ((am << 1) ^ am) & 64 != 0 {
+        return; // bit#64 -> .notachicken
+    }
+    if chicken_find_shape(g, SH_CHICK_FIREBREATH).is_some() {
+        return; // only one firebreath live
+    }
+    let Some(fb) = chicken_makeobj(g, idx) else {
+        return;
+    };
+    copy_pos(g, fb, idx);
+    chicken_copyrots(g, fb, idx);
+    let s = sid(g, chicken_firebreath_strat);
+    {
+        let al = &mut g.objs.aliens[fb as usize];
+        al.shape = SH_CHICK_FIREBREATH;
+        al.stratptr = Some(s);
+        al.vel = 80;
+        al.sflags &= !ASF_INVISIBLE;
+    }
+    play_se(g, CHICK_SE_FIRE);
+    am ^= 32; // allow the other head to fire
+    set_armmode(g, am);
+    // Pitch the firebreath away from the head's facing (DSTRATS.ASM:2547-2556).
+    let rotx = g.objs.aliens[idx as usize].rotx;
+    let diff = rotx.wrapping_sub(DEG90);
+    let off = DEG45.wrapping_add(CHICK_DEG11); // deg45+deg11 = 40
+    let add = if diff & 0x80 != 0 {
+        off
+    } else {
+        (-(off as i8)) as u8
+    };
+    g.objs.aliens[fb as usize].rotx = g.objs.aliens[fb as usize].rotx.wrapping_add(add);
+}
+
+/// arm `.nm` sflag2 block (DSTRATS.ASM:2562-2605). Returns true when the segment
+/// removed itself (sprouty.expl).
+fn chicken_arm_fire_bulge(g: &mut Game, idx: u16) -> bool {
+    let shape = g.objs.aliens[idx as usize].shape;
+    if shape == SH_CHICK_GRABBER {
+        // .fire: muzzle z = (10>>ws)<<1, then fire_weapon <<ws.
+        chicken_arm_fire_hplasma(g, idx, ((10i16 >> 2) << 1) << 2);
+        g.objs.aliens[idx as usize].sflags2 &= !CH_SFLAG2;
+        return false;
+    }
+    if shape == SH_CHICK_BOSS_D_2 {
+        // tail drops an egg.
+        if let Some(egg) = chicken_makeobj(g, idx) {
+            copy_pos(g, egg, idx);
+            chicken_copyrots(g, egg, idx);
+            let s = sid(g, chicken_egg_strat);
+            let al = &mut g.objs.aliens[egg as usize];
+            al.shape = SH_CHICK_EGG;
+            al.stratptr = Some(s);
+            al.sflags &= !ASF_INVISIBLE;
+        }
+        g.objs.aliens[idx as usize].sflags2 &= !CH_SFLAG2;
+        return false;
+    }
+    // .notaneggmate
+    if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG5 != 0
+        && g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 != 0
+    {
+        chicken_arm_sprouty_expl(g, idx);
+        return true;
+    }
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG3 == 0 {
+        // .nx: begin bulge.
+        let al = &mut g.objs.aliens[idx as usize];
+        al.animframe = 0;
+        al.shape = SH_CHICK_BULGE;
+        al.sflags2 |= CH_SFLAG3;
+    } else {
+        // .b: dincanim #5 (+1 mod 5); at frame 4 propagate/fire.
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.animframe = (al.animframe + 1) % 5;
+        }
+        if g.objs.aliens[idx as usize].animframe == 4 {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.sflags2 &= !(CH_SFLAG2 | CH_SFLAG3);
+                al.shape = SH_CHICK_ARM;
+            }
+            if let Some(child) = fb_read_obj(g, g.objs.aliens[idx as usize].ptr) {
+                // bulge travels to the next segment.
+                g.objs.aliens[child as usize].sflags2 |= CH_SFLAG2;
+            } else {
+                // .fire2: tip fires HPLASMA (muzzle z = ((armlength-5)>>ws)<<1).
+                chicken_arm_fire_hplasma(g, idx, (((CHICK_ARMLENGTH - 5) >> 2) << 1) << 2);
+                g.objs.aliens[idx as usize].sflags2 &= !CH_SFLAG2;
+            }
+        }
+    }
+    false
+}
+
+/// arm `.nbl` (DSTRATS.ASM:2617-2648): idle-timer + grow gate.
+fn chicken_arm_nbl(g: &mut Game, idx: u16) {
+    let am = armmode(g);
+    if am == 0 {
+        // s_decbne_alvar sbyte4 -> .notend (branch while != 0), reset 32 at 0.
+        let sb4 = g.objs.aliens[idx as usize].sbyte4.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte4 = sb4;
+        if sb4 != 0 {
+            return chicken_arm_notend(g, idx);
+        }
+        g.objs.aliens[idx as usize].sbyte4 = 32;
+    }
+    // .nowait
+    if am & 6 == 6 {
+        return; // both head bits set -> .notgrabber2 (.end)
+    }
+    if g.objs.aliens[idx as usize].ptr != 0 {
+        return chicken_arm_notend(g, idx); // already has a forward child
+    }
+    let shape = g.objs.aliens[idx as usize].shape;
+    if shape == SH_CHICK_GRABBER2 {
+        return chicken_arm_notend(g, idx);
+    }
+    if shape == SH_CHICK_BOSS_D_2 || shape == SH_CHICK_BOSS_D_0 {
+        return; // head/tail terminus -> .notgrabber2
+    }
+    if shape == SH_CHICK_GRABBER {
+        return chicken_arm_notend(g, idx); // grabber is terminal
+    }
+    // neck/arm tip -> grow the next segment.
+    chicken_arm_generate(g, idx);
+}
+
+/// arm `.notend` (DSTRATS.ASM:2638-2648): grabber2 self-rights its rots.
+fn chicken_arm_notend(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].shape != SH_CHICK_GRABBER2 {
+        return;
+    }
+    let al = &mut g.objs.aliens[idx as usize];
+    al.roty = DEG180;
+    al.rotx = 0;
+    al.rotz = 0;
+}
+
+/// arm `.generate` (DSTRATS.ASM:2806-2859): spawn the next segment forward,
+/// counting `al_sword1` down to the head/tail/grabber terminus.
+fn chicken_arm_generate(g: &mut Game, idx: u16) {
+    let Some(y) = chicken_makeobj(g, idx) else {
+        return; // bcs .end
+    };
+    let shape_x = g.objs.aliens[idx as usize].shape;
+    let sword1_x = (g.objs.aliens[idx as usize].sword1 as u16) as u8;
+    let mut through_notgrabber = false;
+    if sword1_x != 1 {
+        through_notgrabber = true;
+    } else if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG6 != 0 {
+        g.objs.aliens[y as usize].shape = SH_CHICK_GRABBER2;
+        g.objs.aliens[y as usize].animframe = 0;
+        through_notgrabber = true;
+    } else {
+        let am = armmode(g);
+        if am == 0 {
+            g.objs.aliens[y as usize].shape = SH_CHICK_GRABBER; // .normgrab3
+        } else if shape_x == SH_CHICK_NECK {
+            g.objs.aliens[y as usize].shape = SH_CHICK_BOSS_D_0; // .chickenhead (head)
+            set_armmode(g, am.wrapping_add(2));
+        } else {
+            g.objs.aliens[y as usize].shape = SH_CHICK_BOSS_D_2; // tail
+            set_armmode(g, am.wrapping_add(2));
+        }
+    }
+    // .notgrabber: a neck parent stamps neck shape onto y.
+    if through_notgrabber && shape_x == SH_CHICK_NECK {
+        g.objs.aliens[y as usize].shape = SH_CHICK_NECK;
+    }
+    // .normgrab2 (DSTRATS.ASM:2843-2859).
+    let s = sid(g, chicken_arm_init);
+    g.objs.aliens[y as usize].stratptr = Some(s);
+    g.objs.aliens[y as usize].sword1 = sword1_x.wrapping_sub(1) as i16; // y.sword1 = x.sword1 - 1
+    if (sword1_x as i8) >= 3 {
+        g.objs.aliens[idx as usize].sword1 = sword1_x.wrapping_sub(1) as i16;
+    }
+    chicken_copyrots(g, y, idx);
+    if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG6 != 0 {
+        g.objs.aliens[y as usize].sflags3 |= CH_SFLAG6;
+    }
+    g.objs.aliens[y as usize].sflags2 |= CH_SFLAG1; // generated segments are non-root
+    g.objs.aliens[idx as usize].ptr = boss_obj_index_or_null(y); // link forward
+    chicken_arm_noacc(g, idx, y);
+}
+
+/// `.noacc` (DSTRATS.ASM:2936-2942): position child at (0,0,(armlength-2)/2)
+/// rotated by the parent (fling.positional).
+fn chicken_arm_noacc(g: &mut Game, parent: u16, child: u16) {
+    let p = g.objs.aliens[parent as usize];
+    fb_positional(g, &p, child, 0, 0, (CHICK_ARMLENGTH - 2) / 2);
+}
+
+/// `.zipthrough` (DSTRATS.ASM:2794-2805): ease each al_ptr descendant toward its
+/// parent's rots.
+fn chicken_arm_zipthrough(g: &mut Game, idx: u16) {
+    let mut x = idx;
+    while let Some(y) = fb_read_obj(g, g.objs.aliens[x as usize].ptr) {
+        chicken_arm_position(g, x, y);
+        x = y;
+    }
+}
+
+/// `.position` (DSTRATS.ASM:2860-2934): damped spring — child rot eases half-way
+/// toward the parent, with a decaying momentum term on al_sbyte1..3.
+pub fn chicken_arm_position(g: &mut Game, parent: u16, child: u16) {
+    if g.objs.aliens[parent as usize].shape == SH_CHICK_GRABBER2 {
+        return chicken_arm_noacc(g, parent, child); // grabber2 = rigid
+    }
+    // rotx / roty / rotz each: x1 = adiv2(parent - child); child -= x1 + 1
+    // (clc+sbc borrow); if parent != child afterward, momentum += x1.
+    chicken_arm_position_axis(g, parent, child, 0);
+    chicken_arm_position_axis(g, parent, child, 1);
+    chicken_arm_position_axis(g, parent, child, 2);
+    // Apply + decay the momentum accumulators (DSTRATS.ASM:2920-2934).
+    {
+        let al = &mut g.objs.aliens[child as usize];
+        al.rotx = al.rotx.wrapping_add(al.sbyte1);
+        al.roty = al.roty.wrapping_add(al.sbyte2);
+        al.rotz = al.rotz.wrapping_add(al.sbyte3);
+        al.sbyte1 = adiv2i(al.sbyte1);
+        al.sbyte2 = adiv2i(al.sbyte2);
+        al.sbyte3 = adiv2i(al.sbyte3);
+    }
+    chicken_arm_noacc(g, parent, child);
+}
+
+#[inline]
+fn chicken_arm_position_axis(g: &mut Game, parent: u16, child: u16, axis: u8) {
+    let (pr, cr) = {
+        let p = g.objs.aliens[parent as usize];
+        let c = g.objs.aliens[child as usize];
+        match axis {
+            0 => (p.rotx, c.rotx),
+            1 => (p.roty, c.roty),
+            _ => (p.rotz, c.rotz),
+        }
+    };
+    let x1 = adiv2i(pr.wrapping_sub(cr));
+    let new_c = cr.wrapping_sub(x1).wrapping_sub(1); // clc then sbc -> -x1 - 1
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        match axis {
+            0 => c.rotx = new_c,
+            1 => c.roty = new_c,
+            _ => c.rotz = new_c,
+        }
+    }
+    if pr != new_c {
+        let c = &mut g.objs.aliens[child as usize];
+        match axis {
+            0 => c.sbyte1 = c.sbyte1.wrapping_add(x1),
+            1 => c.sbyte2 = c.sbyte2.wrapping_add(x1),
+            _ => c.sbyte3 = c.sbyte3.wrapping_add(x1),
+        }
+    }
+}
+
+/// `.chickenheadcol` (DSTRATS.ASM:2652-2675): a head/tail hit only counts when
+/// it faces the player (else nohitaffect graze); routes through hitflash.
+pub fn chicken_arm_chickenheadcol(g: &mut Game, idx: u16) {
+    let rotx = g.objs.aliens[idx as usize].rotx;
+    let base = if (rotx.wrapping_sub(DEG90) as i8) < 0 {
+        g.objs.aliens[idx as usize].roty
+    } else {
+        g.objs.aliens[idx as usize].roty.wrapping_sub(DEG180)
+    };
+    if base.wrapping_add(128 + 45) >= 90 {
+        g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT; // graze
+    } else {
+        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT; // counts
+    }
+    strat_hit_flash(g, idx);
+}
+
+/// `.chickenheadhit` (DSTRATS.ASM:2678-2749): restore the head/tail hp and
+/// remove the neck piece behind it (shortening the chain by one).
+fn chicken_arm_chickenheadhit(g: &mut Game, idx: u16) {
+    play_se(g, CHICK_SE_FIRE);
+    if g.objs.aliens[idx as usize].shape == SH_CHICK_BOSS_D_0 {
+        let hp = g.objs.aliens[idx as usize].hp;
+        g.objs.aliens[idx as usize].hp = hp.wrapping_add(CHICKEN_HEAD_HP);
+    } else {
+        g.objs.aliens[idx as usize].hp = CHICKEN_TAIL_HP + 64;
+    }
+    let Some(parent) = chicken_find_alptr(g, idx) else {
+        return;
+    };
+    if g.objs.aliens[parent as usize].shape == CH_BOSS_D_1 {
+        return; // parent is the body -> nothing to remove
+    }
+    let grandparent = chicken_find_alptr(g, parent);
+    // Remove the parent neck piece.
+    chicken_remove_alptrs(g, parent);
+    g.objs.aliens[parent as usize].ptr = 0;
+    g.objs.aliens[parent as usize].hp = 0;
+    g.objs.aliens[parent as usize].active = false; // kill/remove
+    // Relink so the head/tail attaches to the grandparent (or the body).
+    match grandparent {
+        Some(gp) if gp != idx && g.objs.aliens[gp as usize].shape != CH_BOSS_D_1 => {
+            g.objs.aliens[gp as usize].ptr = boss_obj_index_or_null(idx);
+        }
+        _ => {
+            // .mainbody: relink the mother's chain slot to the head/tail.
+            let Some(mother) = chicken_find_shape(g, CH_BOSS_D_1) else {
+                return;
+            };
+            if g.objs.aliens[idx as usize].shape == SH_CHICK_BOSS_D_2 {
+                g.objs.aliens[mother as usize].sword2 = boss_obj_index_or_null(idx) as i16;
+            } else if g.objs.aliens[mother as usize].ptr == 0 {
+                g.objs.aliens[mother as usize].ptr = boss_obj_index_or_null(idx);
+            } else {
+                g.objs.aliens[mother as usize].sword1 = boss_obj_index_or_null(idx) as i16;
+            }
+        }
+    }
+}
+
+/// `.grabberhit` (DSTRATS.ASM:2752-2772): a laser hit on a forward-facing
+/// grabber latches the damage up the chain.
+pub fn chicken_arm_grabberhit(g: &mut Game, idx: u16) {
+    let roty = g.objs.aliens[idx as usize].roty;
+    if roty.wrapping_add(128 + 45) >= 90 {
+        return;
+    }
+    let rotx = g.objs.aliens[idx as usize].rotx;
+    if rotx.wrapping_add(45) >= 90 {
+        return;
+    }
+    // Only lasers (s_jmpNOT_colltype y,laser).
+    if let Some(c) = fb_read_obj(g, g.objs.aliens[idx as usize].collobjptr) {
+        if g.objs.aliens[c as usize].type_ & ATLASER != 0 {
+            chicken_arm_passiton(g, idx);
+        }
+    }
+}
+
+/// `.passiton` (DSTRATS.ASM:2775-2791): propagate the damage latch (sflag5) UP —
+/// to the arm/bulge parent (turning it into a travelling bulge) or, for a chain
+/// root, to the `#flingboss` mother.
+pub fn chicken_arm_passiton(g: &mut Game, idx: u16) {
+    let y = if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 != 0 {
+        chicken_find_alptr(g, idx) // .tisok — parent
+    } else {
+        chicken_find_shape(g, SH_FLINGBOSS_BODY) // mother
+    };
+    let Some(y) = y else {
+        return;
+    };
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 != 0 {
+        let ps = g.objs.aliens[y as usize].shape;
+        if ps == SH_CHICK_ARM || ps == SH_CHICK_BULGE {
+            if g.objs.aliens[y as usize].sflags3 & CH_SFLAG5 != 0 {
+                return; // .dont2 — already latched
+            }
+            g.objs.aliens[y as usize].animframe = 3;
+            g.objs.aliens[y as usize].shape = SH_CHICK_BULGE;
+        }
+    }
+    g.objs.aliens[y as usize].sflags3 |= CH_SFLAG5; // .justset
+}
+
+/// `sprouty.expl` (DSTRATS.ASM:2361-2384, simplified): unlink + remove the
+/// segment (the falling-tentacle chain is scoped out — see the section note).
+fn chicken_arm_sprouty_expl(g: &mut Game, idx: u16) {
+    chicken_remove_alptrs(g, idx);
+    g.objs.aliens[idx as usize].hp = 0;
+    g.objs.aliens[idx as usize].active = false;
+}
+
+/// arm HPLASMA fire (homingflat, GSTRATS.ASM:1723 = ported `boss2_hplasma_strat`).
+fn chicken_arm_fire_hplasma(g: &mut Game, idx: u16, muzzle_z: i16) {
+    let me = g.objs.aliens[idx as usize];
+    let Some(shot) = spawn_projectile(
+        g,
+        Some(idx),
+        0,
+        0,
+        0,
+        me.rotx,
+        me.roty,
+        CHICK_HPLASMA_SPEED,
+        CHICK_HPLASMA_LIFE,
+        CHICK_HPLASMA_AP,
+        ACF_COLLTYPE4,
+    ) else {
+        return;
+    };
+    b2_full_offset_pos(g, shot, &me, 0, 0, muzzle_z);
+    let s = sid(g, boss2_hplasma_strat);
+    let ppt = player_idx(g).map(boss_obj_index_or_null).unwrap_or(0);
+    let al = &mut g.objs.aliens[shot as usize];
+    al.rotx = me.rotx;
+    al.roty = me.roty;
+    al.rotz = me.rotz;
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.ptr = ppt;
+    al.fireobjptr = ppt;
+    al.stratptr = Some(s);
+    strat_gen_vecs_3d(al);
+}
+
+// ---- scoped sub-object movers (see the section note) ----
+
+/// firebreathe_istrat (DSTRATS.ASM:4629-4699) — straight fireball mover.
+fn chicken_firebreath_strat(g: &mut Game, idx: u16) {
+    chicken_gen3dvecs(g, idx);
+    add_player_z(g, idx);
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    if !sea_dz_less(g, idx, 4000) {
+        g.objs.free(idx);
+    }
+}
+
+/// egg_istrat (DSTRATS.ASM:4528-4574) — falls, detonates on landing.
+fn chicken_egg_strat(g: &mut Game, idx: u16) {
+    let landed = boss2_falldown_yvec(g, idx, 2, 4, 0);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = al.worldy.wrapping_add(al.vy);
+    }
+    add_player_z(g, idx);
+    if landed {
+        play_se(g, CHICK_SE_EGG);
+        strat_explode(g, idx);
+    }
+}
+
+/// wings_istrat init (DSTRATS.ASM:4744-4752).
+fn chicken_wings_strat_init(g: &mut Game, idx: u16) {
+    let s = sid(g, chicken_wings_strat);
+    let s_exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.expstratptr = Some(s_exp);
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.sflags |= ASF_NOHITAFFECT | ASF_COLLDISABLE | ASF_SHADOW;
+        al.sflags &= !ASF_INVISIBLE;
+        al.type_ &= !ATZREMOVE;
+        al.animframe = 0;
+    }
+    chicken_wings_strat(g, idx);
+}
+
+/// wings_istrat `.strat` (DSTRATS.ASM:4753-4761): fold (sflag1) or flap.
+fn chicken_wings_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 != 0 {
+        let a = g.objs.aliens[idx as usize].animframe;
+        if a > 0 {
+            g.objs.aliens[idx as usize].animframe = a - 1;
+        }
+    } else {
+        let na = (g.objs.aliens[idx as usize].animframe + 1) % 15;
+        g.objs.aliens[idx as usize].animframe = if na == 14 { 4 } else { na };
+    }
+}
+
+/// s_gen_3dvecs x,al_roty,al_rotx,al_vel (DSTRATS.ASM:475 dgen3dvecs).
+fn chicken_gen3dvecs(g: &mut Game, idx: u16) {
+    let al = g.objs.aliens[idx as usize];
+    let ry = (al.roty as f32) * (2.0 * std::f32::consts::PI / 256.0);
+    let rx = (al.rotx as f32) * (2.0 * std::f32::consts::PI / 256.0);
+    let sp = (al.vel as i8) as f32;
+    let a = &mut g.objs.aliens[idx as usize];
+    a.vx = (sp * ry.sin() * rx.cos()) as i16;
+    a.vy = (sp * (-rx.sin())) as i16;
+    a.vz = (sp * ry.cos() * rx.cos()) as i16;
+}
+
+/// s_gen_vecs x,al_roty,al_vel (flat; vx/vz only, vy untouched).
+fn chicken_gen_vecs_roty(g: &mut Game, idx: u16) {
+    let al = g.objs.aliens[idx as usize];
+    let rad = (al.roty as f32) * (2.0 * std::f32::consts::PI / 256.0);
+    let sp = (al.vel as i8) as f32;
+    let a = &mut g.objs.aliens[idx as usize];
+    a.vx = (sp * rad.sin()) as i16;
+    a.vz = (sp * rad.cos()) as i16;
+}
+
+// ============================================================
+// chicken_istrat mother (DSTRATS.ASM:3696-4523).
+// ============================================================
+
+const CHICK_UPDOWNTAB: [(i8, i8); 13] = [
+    (0, 0),
+    (-10, 0),
+    (-14, 0),
+    (-10, 0),
+    (0, 0),
+    (-10, 0),
+    (-14, 0),
+    (-10, 0),
+    (7, 5),
+    (15, 10),
+    (-2, -14),
+    (4, -27),
+    (15, -35),
+];
+
+/// `.addtabtoy` (DSTRATS.ASM:4456-4473): add the body-animation offset row to
+/// (y1,z1).
+fn chicken_addtabtoy(g: &Game, mother: u16, y1: i16, z1: i16) -> (i16, i16) {
+    let i = (g.objs.aliens[mother as usize].animframe & 15) as usize;
+    let (a, b) = if i < 13 { CHICK_UPDOWNTAB[i] } else { (0, 0) };
+    (y1.wrapping_add(a as i16), z1.wrapping_add(b as i16))
+}
+
+/// `.position1` (DSTRATS.ASM:4333-4364) — left neck (al_ptr).
+fn chicken_position1(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        c.roty = m.roty.wrapping_sub(m.sbyte3).wrapping_sub(CHICK_DEG11);
+        c.rotx = m
+            .rotx
+            .wrapping_add(m.sbyte2)
+            .wrapping_add(m.sbyte3)
+            .wrapping_add(m.rotz)
+            .wrapping_sub(DEG90 + DEG45 + DEG22); // 112
+        c.rotz = m.rotz.wrapping_add(DEG180);
+    }
+    let (y1, z1) = chicken_addtabtoy(g, mother, -50, -15);
+    fb_positional(g, &m, child, -10, y1, z1);
+}
+
+/// `.position2` (DSTRATS.ASM:4366-4392) — right neck (al_sword1).
+fn chicken_position2(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        c.roty = m.roty.wrapping_add(m.sbyte3).wrapping_add(DEG180 + CHICK_DEG11); // 136
+        c.rotx = m
+            .rotx
+            .wrapping_sub(m.sbyte4)
+            .wrapping_sub(m.sbyte3)
+            .wrapping_add(m.rotz)
+            .wrapping_sub(DEG90 - DEG45 - DEG22); // 16
+        c.rotz = m.rotz;
+    }
+    let (y1, z1) = chicken_addtabtoy(g, mother, -50, -15);
+    fb_positional(g, &m, child, 10, y1, z1);
+}
+
+/// `.position3` (DSTRATS.ASM:4395-4436) — tail (al_sword2).
+fn chicken_position3(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    let y1i = ((g.vars.gameframe << 3) & 0xff) as usize;
+    let x1 = adiv_n(crate::snes_trig::SINTAB[y1i] as u8, 2);
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        c.roty = m.roty.wrapping_add(x1);
+        c.rotx = m.rotx.wrapping_add(m.rotz).wrapping_add(CHICK_DEG11);
+        c.rotz = m.rotz;
+    }
+    if (x1 == 0 || x1 == 128) && sea_dz_less(g, mother, 2000) {
+        play_se(g, CHICK_SE_WHOOSH);
+    }
+    let (y1, z1) = chicken_addtabtoy(g, mother, -25, 15);
+    fb_positional(g, &m, child, 0, y1, z1);
+}
+
+/// `.position4`/`.position5` (DSTRATS.ASM:4438-4454) — the two wings.
+fn chicken_position4(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    chicken_copyrots(g, child, mother);
+    let (y1, z1) = chicken_addtabtoy(g, mother, 0, 0);
+    fb_positional(g, &m, child, -18, y1, z1);
+}
+fn chicken_position5(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    chicken_copyrots(g, child, mother);
+    let (y1, z1) = chicken_addtabtoy(g, mother, 0, 0);
+    fb_positional(g, &m, child, 18, y1, z1);
+}
+
+/// `.generate` (DSTRATS.ASM:4268-4324): spawn the 3 neck chain roots + 2 wings.
+/// Returns true on FAILURE (bcs .end -> re-init next tick).
+fn chicken_generate(g: &mut Game, idx: u16) -> bool {
+    // left neck (al_ptr)
+    if g.objs.aliens[idx as usize].ptr == 0 {
+        let Some(y) = chicken_makeobj(g, idx) else {
+            return true;
+        };
+        let s = sid(g, chicken_arm_init);
+        {
+            let al = &mut g.objs.aliens[y as usize];
+            al.stratptr = Some(s);
+            al.shape = SH_CHICK_NECK;
+            al.sword1 = 1;
+        }
+        g.objs.aliens[idx as usize].ptr = boss_obj_index_or_null(y);
+        chicken_position1(g, idx, y);
+    }
+    // right neck (al_sword1)
+    if g.objs.aliens[idx as usize].sword1 == 0 {
+        let Some(y) = chicken_makeobj(g, idx) else {
+            return true;
+        };
+        let s = sid(g, chicken_arm_init);
+        {
+            let al = &mut g.objs.aliens[y as usize];
+            al.stratptr = Some(s);
+            al.shape = SH_CHICK_NECK;
+            al.sword1 = 1;
+        }
+        g.objs.aliens[idx as usize].sword1 = boss_obj_index_or_null(y) as i16;
+        chicken_position2(g, idx, y);
+    }
+    // tail (al_sword2) — no shape (default) so growth makes a tail (boss_d_2).
+    if g.objs.aliens[idx as usize].sword2 == 0 {
+        let Some(y) = chicken_makeobj(g, idx) else {
+            return true;
+        };
+        let s = sid(g, chicken_arm_init);
+        {
+            let al = &mut g.objs.aliens[y as usize];
+            al.stratptr = Some(s);
+            al.sword1 = 1;
+        }
+        g.objs.aliens[idx as usize].sword2 = boss_obj_index_or_null(y) as i16;
+        chicken_position3(g, idx, y);
+    }
+    // wing1 (guarded by sflag1 so a retry doesn't double-spawn).
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 == 0 {
+        let Some(y) = chicken_makeobj(g, idx) else {
+            return true;
+        };
+        let s = sid(g, chicken_wings_strat_init);
+        {
+            let al = &mut g.objs.aliens[y as usize];
+            al.shape = SH_CHICK_BOSS_D_8;
+            al.stratptr = Some(s);
+        }
+        g.objs.aliens[idx as usize].sflags2 |= CH_SFLAG1;
+        g.objs.aliens[idx as usize].swpx1 = boss_obj_index_or_null(y) as i16;
+        chicken_position4(g, idx, y);
+    }
+    // wing2
+    {
+        let Some(y) = chicken_makeobj(g, idx) else {
+            return true;
+        };
+        let s = sid(g, chicken_wings_strat_init);
+        {
+            let al = &mut g.objs.aliens[y as usize];
+            al.shape = SH_CHICK_BOSS_D_9;
+            al.stratptr = Some(s);
+        }
+        g.objs.aliens[idx as usize].sflags2 |= CH_SFLAG2;
+        g.objs.aliens[idx as usize].swpy1 = boss_obj_index_or_null(y) as i16;
+        chicken_position5(g, idx, y);
+    }
+    g.objs.aliens[idx as usize].sflags2 &= !CH_SFLAG1; // clr sflag1 (leaves sflag2 set)
+    false
+}
+
+/// `chicken_istrat` init (DSTRATS.ASM:3696-3717).
+pub fn strat_chicken_init(g: &mut Game, idx: u16) {
+    set_bossmaxhp(g, CHICKEN_BODY_HP as u16); // m_bossmaxHP = 64
+    set_armmode(g, 128);
+    let s_col = sid(g, strat_hit_flash);
+    let s_exp = sid(g, chicken_chickenexplode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.hp = CHICKEN_BODY_HP;
+        al.ap = CHICKEN_BODY_AP;
+        al.count = 16;
+        al.count1 = 0;
+        al.sflags3 |= CH_SFLAG6;
+        al.type_ &= !ATZREMOVE;
+        al.animframe = 0;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ENEMY1;
+    }
+    if chicken_generate(g, idx) {
+        return; // pool full -> re-init next tick (stratptr unchanged)
+    }
+    let s = sid(g, chicken_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.objs.aliens[idx as usize].stratstate = 0; // s_mode_change x,#0
+    chicken_strat(g, idx);
+}
+
+/// nxtmode_srou (DSTRATS.ASM:3782-3785): re-arm the mode dispatch + mode += 1.
+fn chicken_nxtmode(g: &mut Game, idx: u16) {
+    let s = sid(g, chicken_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.objs.aliens[idx as usize].stratstate = g.objs.aliens[idx as usize].stratstate.wrapping_add(1);
+}
+
+/// `chicken_istrat` `.strat` — the mode-table dispatch (DSTRATS.ASM:3720-3763).
+fn chicken_strat(g: &mut Game, idx: u16) {
+    match g.objs.aliens[idx as usize].stratstate {
+        0 | 7 | 16 => chicken_mode_foldwings(g, idx),
+        1 | 22 => chicken_mode_sitdown(g, idx),
+        2 | 15 => chicken_mode_waitfor600z(g, idx),
+        3 | 17 | 24 | 31 => chicken_mode_getup(g, idx),
+        4 | 12 | 30 => chicken_mode_unfoldwings(g, idx),
+        5 | 8 | 27 | 33 => chicken_mode_cometurn(g, idx),
+        6 | 19 | 28 | 34 => chicken_mode_goturn(g, idx),
+        9 | 20 => chicken_mode_startturn(g, idx),
+        10 | 21 => chicken_mode_endturn(g, idx),
+        11 => chicken_mode_moveabit(g, idx),
+        13 | 18 | 26 | 32 => chicken_mode_waitabit(g, idx),
+        14 => chicken_mode_jump(g, idx),
+        23 => chicken_mode_fireblaze(g, idx),
+        25 => chicken_mode_attack(g, idx),
+        35 => chicken_mode_flyflyaway(g, idx),
+        36 => chicken_mode_cometurnfly(g, idx),
+        // 29 .repeat + any overflow -> s_mode_change x,#0, re-dispatch.
+        _ => {
+            g.objs.aliens[idx as usize].stratstate = 0;
+            chicken_mode_foldwings(g, idx);
+        }
+    }
+}
+
+// ---- mode handlers (DSTRATS.ASM:3766-3993) ----
+
+fn chicken_getwing1(g: &Game, idx: u16) -> Option<u16> {
+    fb_read_obj(g, g.objs.aliens[idx as usize].swpx1 as u16)
+}
+fn chicken_getwing2(g: &Game, idx: u16) -> Option<u16> {
+    fb_read_obj(g, g.objs.aliens[idx as usize].swpy1 as u16)
+}
+
+fn chicken_mode_foldwings(g: &mut Game, idx: u16) {
+    if let Some(w) = chicken_getwing1(g, idx) {
+        g.objs.aliens[w as usize].sflags2 |= CH_SFLAG1;
+    }
+    if let Some(w) = chicken_getwing2(g, idx) {
+        g.objs.aliens[w as usize].sflags2 |= CH_SFLAG1;
+    }
+    chicken_nxtmode(g, idx);
+    chicken_nomove(g, idx);
+}
+fn chicken_mode_unfoldwings(g: &mut Game, idx: u16) {
+    if let Some(w) = chicken_getwing1(g, idx) {
+        g.objs.aliens[w as usize].sflags2 &= !CH_SFLAG1;
+    }
+    if let Some(w) = chicken_getwing2(g, idx) {
+        g.objs.aliens[w as usize].sflags2 &= !CH_SFLAG1;
+    }
+    chicken_nxtmode(g, idx);
+    chicken_nomove(g, idx);
+}
+
+/// `.cometurn` (DSTRATS.ASM:3771-3777): advance only when turning finished
+/// (sflag3 set, sflag1 clear); always `.move`.
+fn chicken_mode_cometurn(g: &mut Game, idx: u16) {
+    let f = g.objs.aliens[idx as usize].sflags2;
+    if f & CH_SFLAG3 != 0 && f & CH_SFLAG1 == 0 {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_move(g, idx);
+}
+/// `.goturn` (DSTRATS.ASM:3788-3791).
+fn chicken_mode_goturn(g: &mut Game, idx: u16) {
+    let f = g.objs.aliens[idx as usize].sflags2;
+    if f & CH_SFLAG3 == 0 && f & CH_SFLAG1 == 0 {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_move(g, idx);
+}
+/// `.startturn` (DSTRATS.ASM:3902-3904): toggle sflag3, advance, `.move`.
+fn chicken_mode_startturn(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 ^= CH_SFLAG3;
+    chicken_nxtmode(g, idx);
+    chicken_move(g, idx);
+}
+/// `.endturn` (DSTRATS.ASM:3907-3909).
+fn chicken_mode_endturn(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 == 0 {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_move(g, idx);
+}
+/// `.moveabit` (DSTRATS.ASM:3834-3840).
+fn chicken_mode_moveabit(g: &mut Game, idx: u16) {
+    let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+    g.objs.aliens[idx as usize].sbyte1 = sb;
+    if sb >= 20 {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_move(g, idx);
+}
+/// `.waitfor600z` (DSTRATS.ASM:3867-3873).
+fn chicken_mode_waitfor600z(g: &mut Game, idx: u16) {
+    if sea_dz_less(g, idx, 600) {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_nomove(g, idx);
+}
+/// `.sitdown` (DSTRATS.ASM:3912-3914): sit animation caps at 12 then advances
+/// (5-arg firstframe clamp read as cap→jump — see section note).
+fn chicken_mode_sitdown(g: &mut Game, idx: u16) {
+    let a = g.objs.aliens[idx as usize].animframe;
+    if a + 1 >= 13 {
+        g.objs.aliens[idx as usize].animframe = 12;
+        chicken_nxtmode(g, idx);
+    } else {
+        g.objs.aliens[idx as usize].animframe = a + 1;
+    }
+    chicken_nomove(g, idx);
+}
+/// `.getup` (DSTRATS.ASM:3916-3923).
+fn chicken_mode_getup(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].animframe < 7 {
+        chicken_nxtmode(g, idx);
+        chicken_nomove(g, idx);
+        return;
+    }
+    let a = g.objs.aliens[idx as usize].animframe;
+    let na = (a + 12 - 1) % 12; // ddecanim #12
+    g.objs.aliens[idx as usize].animframe = na;
+    if na == 7 {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_nomove(g, idx);
+}
+
+/// `.waitabit` (DSTRATS.ASM:3842-3851).
+fn chicken_mode_waitabit(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.animframe = 0;
+        al.sbyte2 = 0;
+        al.sbyte4 = 0;
+        al.sbyte1 = 10;
+    }
+    let am = armmode(g) & 0xFE; // s_and_var armmode,#-2
+    set_armmode(g, am);
+    let s = sid(g, chicken_waitabit_strat4);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    chicken_waitabit_strat4(g, idx);
+}
+fn chicken_waitabit_strat4(g: &mut Game, idx: u16) {
+    // s_beqdec_alvar sbyte1 -> .nxtmode2 (branch when already 0).
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        chicken_nxtmode(g, idx);
+    } else {
+        g.objs.aliens[idx as usize].sbyte1 -= 1;
+    }
+    chicken_nomove(g, idx);
+}
+
+/// `.fireblaze` (DSTRATS.ASM:3854-3864).
+fn chicken_mode_fireblaze(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 ^= CH_SFLAG4;
+    let am = armmode(g) | 1; // s_or_var armmode,#1
+    set_armmode(g, am);
+    let s = sid(g, chicken_fireblaze_strat5);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    chicken_fireblaze_strat5(g, idx);
+}
+fn chicken_fireblaze_strat5(g: &mut Game, idx: u16) {
+    if sea_dz_less(g, idx, 1500) {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_nomove(g, idx);
+}
+
+/// `.jump` (DSTRATS.ASM:3808-3830).
+fn chicken_mode_jump(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].animframe = 7;
+    let s = sid(g, chicken_jump_strat2);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    chicken_jump_strat2(g, idx);
+}
+fn chicken_jump_strat2(g: &mut Game, idx: u16) {
+    // s_add_anim x,#8,#10,.stopanim (cap 9 + jump).
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let na = al.animframe.wrapping_add(8);
+        al.animframe = if na >= 10 { 9 } else { na };
+    }
+    if sea_dz_less(g, idx, 600) {
+        chicken_jump_leap(g, idx);
+    } else {
+        chicken_nomove(g, idx);
+    }
+}
+fn chicken_jump_leap(g: &mut Game, idx: u16) {
+    play_se(g, CHICK_SE_FIRE);
+    let s = sid(g, chicken_jump_strat3);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.vy = -60;
+    }
+    chicken_jump_strat3(g, idx);
+}
+fn chicken_jump_strat3(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(40);
+        al.worldy = al.worldy.wrapping_add(al.vy);
+    }
+    let landed = boss2_falldown_yvec(g, idx, 2, 4, 0); // dfallyvec_x
+    if landed {
+        chicken_nxtmode(g, idx);
+    }
+    chicken_nomove(g, idx);
+}
+
+/// `.attack` (DSTRATS.ASM:3875-3899): swipe with the wings.
+fn chicken_mode_attack(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte1 = 200;
+    let s = sid(g, chicken_attack_strat6);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    chicken_attack_strat6(g, idx);
+}
+fn chicken_attack_strat6(g: &mut Game, idx: u16) {
+    if g.vars.gameframe & 31 == 0 {
+        g.objs.aliens[idx as usize].sflags3 ^= CH_SFLAG5;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.animframe = (al.animframe + 8 - 1) % 8; // ddecanim #8
+    }
+    add_player_z(g, idx);
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        chicken_nxtmode(g, idx);
+        chicken_move(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    if g.objs.aliens[idx as usize].sbyte1 < 160 {
+        // .strike — set the two wing swipe angles by sflag5.
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.sflags3 & CH_SFLAG5 != 0 {
+            al.sbyte2 = (-(DEG22 as i8)) as u8;
+            al.sbyte4 = DEG22;
+        } else {
+            al.sbyte4 = (-(DEG22 as i8)) as u8;
+            al.sbyte2 = DEG22;
+        }
+    }
+    chicken_nomove(g, idx);
+}
+
+// ---- flyaway modes (DSTRATS.ASM:3942-3993 — unreachable, ported for parity) ----
+
+fn chicken_mode_flyflyaway(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vy = -70;
+        al.sbyte1 = 20;
+    }
+    let s = sid(g, chicken_flyflyaway_strat7);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    chicken_flyflyaway_strat7(g, idx);
+}
+fn chicken_flyflyaway_strat7(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(40);
+        al.worldy = al.worldy.wrapping_add(al.vy);
+    }
+    add_player_z(g, idx);
+    boss2_falldown_yvec(g, idx, 2, 4, 0);
+    // vy ramp toward -60 (DSTRATS.ASM:3953-3967) — cosmetic.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let mut v = (al.vy as i8).wrapping_sub(20);
+        if v >= 0 || v < -60 {
+            v = -60;
+        }
+        if !(al.worldy < 0 && al.worldy >= -100) {
+            al.vy = v as i16;
+        }
+    }
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        chicken_nxtmode(g, idx);
+    } else {
+        g.objs.aliens[idx as usize].sbyte1 -= 1;
+    }
+    chicken_nomove(g, idx);
+}
+fn chicken_mode_cometurnfly(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].vel = (-20i8) as u8;
+    let s = sid(g, chicken_cometurnfly_strat8);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    chicken_cometurnfly_strat8(g, idx);
+}
+fn chicken_cometurnfly_strat8(g: &mut Game, idx: u16) {
+    if (g.objs.aliens[idx as usize].vel as i8) != -80 {
+        g.objs.aliens[idx as usize].vel = (g.objs.aliens[idx as usize].vel as i8).wrapping_sub(1) as u8;
+    }
+    g.objs.aliens[idx as usize].sbyte1 = 10;
+    chicken_gen3dvecs(g, idx);
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let ry = g.objs.aliens[idx as usize].roty;
+    if ry != 0 {
+        g.objs.aliens[idx as usize].roty = ry.wrapping_sub(8);
+    }
+    chicken_nomove(g, idx);
+}
+
+// ---- movement + the common .move/.nomove tails (DSTRATS.ASM:4002-4029) ----
+
+/// `.movebackandforth` (DSTRATS.ASM:4196-4223): oscillate between z≈2500 and
+/// z≈600, turning to face the player.
+fn chicken_movebackandforth(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.animframe = (al.animframe + 1) % 8; // dincanim #8
+    }
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG3 != 0 {
+        g.objs.aliens[idx as usize].vel = (-20i8) as u8;
+        chicken_needtorotate(g, idx, true);
+        if !sea_dz_less(g, idx, 2500) {
+            g.objs.aliens[idx as usize].sflags2 ^= CH_SFLAG3; // dz>=2500 -> flip
+        }
+    } else {
+        g.objs.aliens[idx as usize].vel = (-40i8) as u8;
+        chicken_needtorotate(g, idx, false);
+        if sea_dz_less(g, idx, 600) {
+            g.objs.aliens[idx as usize].sflags2 ^= CH_SFLAG3; // dz<600 -> flip
+        }
+    }
+    chicken_gen_vecs_roty(g, idx);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_add(al.vz);
+    al.worldx = al.worldx.wrapping_add(al.vx);
+}
+
+/// s_leftview_strat approximation (see section note): player to the left.
+fn chicken_leftview(g: &Game, idx: u16) -> bool {
+    player(g)
+        .map(|p| g.objs.aliens[idx as usize].worldx > p.worldx)
+        .unwrap_or(false)
+}
+fn chicken_leftviewchk(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 |= CH_SFLAG1;
+    if chicken_leftview(g, idx) {
+        g.objs.aliens[idx as usize].sflags2 |= CH_SFLAG2; // .otherway
+    } else {
+        g.objs.aliens[idx as usize].sflags2 &= !CH_SFLAG2;
+    }
+}
+/// `.needtorotate1/2` + `.rotate` (DSTRATS.ASM:4233-4265).
+fn chicken_needtorotate(g: &mut Game, idx: u16, mode1: bool) {
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG1 == 0 {
+        let roty = g.objs.aliens[idx as usize].roty;
+        let done = if mode1 { roty == DEG180 } else { roty == 0 };
+        if done {
+            return; // .yohohoandabarrelofrum
+        }
+        chicken_leftviewchk(g, idx);
+        if mode1 {
+            g.objs.aliens[idx as usize].sflags2 ^= CH_SFLAG2; // needtorotate1 extra
+        }
+    }
+    // .rotate
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG2 != 0 {
+        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_sub(CHICK_DEG11);
+    } else {
+        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(CHICK_DEG11);
+    }
+    if g.objs.aliens[idx as usize].roty & 127 == 0 {
+        g.objs.aliens[idx as usize].sflags2 &= !CH_SFLAG1;
+    }
+}
+
+/// `.move` (DSTRATS.ASM:4002-4004).
+fn chicken_move(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    chicken_movebackandforth(g, idx);
+    chicken_nomove(g, idx);
+}
+/// `.nomove` (DSTRATS.ASM:4006-4029): triggeregg + waveheads + position 1..5 +
+/// check_fin + regrownecks + HP bar.
+fn chicken_nomove(g: &mut Game, idx: u16) {
+    chicken_triggeregg(g, idx);
+    // .nomove2
+    chicken_waveheads(g, idx);
+    if let Some(c) = fb_read_obj(g, g.objs.aliens[idx as usize].ptr) {
+        chicken_position1(g, idx, c);
+    }
+    if let Some(c) = fb_read_obj(g, g.objs.aliens[idx as usize].sword1 as u16) {
+        chicken_position2(g, idx, c);
+    }
+    if let Some(c) = fb_read_obj(g, g.objs.aliens[idx as usize].sword2 as u16) {
+        chicken_position3(g, idx, c);
+    }
+    if let Some(w) = chicken_getwing1(g, idx) {
+        chicken_position4(g, idx, w);
+    }
+    if let Some(w) = chicken_getwing2(g, idx) {
+        chicken_position5(g, idx, w);
+    }
+    chicken_check_fin(g, idx);
+    chicken_regrownecks(g, idx);
+    add_bosshp(g, idx); // s_add_bossHP x,al_hp
+}
+
+/// `.waveheads` (DSTRATS.ASM:4326-4332).
+fn chicken_waveheads(g: &mut Game, idx: u16) {
+    let y1 = ((g.vars.gameframe << 2) & 0xff) as usize;
+    let v = crate::snes_trig::SINTAB[y1] as u8;
+    g.objs.aliens[idx as usize].sbyte3 = adiv_n(v, 3);
+}
+
+/// `.triggeregg` (DSTRATS.ASM:4489-4503).
+fn chicken_triggeregg(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags2 & CH_SFLAG3 == 0 {
+        return;
+    }
+    // s_jmp_random .dontdo,99 — fire only ~1.6% of ticks.
+    if (sfrtl_random(g) as u8) < ((99u16 * 255 / 100) as u8) {
+        return;
+    }
+    if let Some(y) = fb_read_obj(g, g.objs.aliens[idx as usize].sword2 as u16) {
+        if g.objs.aliens[y as usize].sflags2 & CH_SFLAG2 != 0 {
+            return;
+        }
+        g.objs.aliens[y as usize].sflags2 |= CH_SFLAG2;
+    }
+}
+
+/// `.check_fin` (DSTRATS.ASM:4031-4079): the mother becomes vulnerable + flashes
+/// red once a neck has grown its head/tail.
+fn chicken_check_fin(g: &mut Game, idx: u16) {
+    let m = g.objs.aliens[idx as usize];
+    let tail_grown = fb_read_obj(g, m.sword2 as u16)
+        .map(|c| g.objs.aliens[c as usize].shape == SH_CHICK_BOSS_D_2)
+        .unwrap_or(false);
+    let both_heads = fb_read_obj(g, m.ptr)
+        .map(|c| g.objs.aliens[c as usize].shape == SH_CHICK_BOSS_D_0)
+        .unwrap_or(false)
+        && fb_read_obj(g, m.sword1 as u16)
+            .map(|c| g.objs.aliens[c as usize].shape == SH_CHICK_BOSS_D_0)
+            .unwrap_or(false);
+    if tail_grown || both_heads {
+        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT; // vulnerable
+        if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG6 == 0 {
+            g.objs.aliens[idx as usize].count = 56; // red time
+            g.objs.aliens[idx as usize].count1 = g.objs.aliens[idx as usize].count1.wrapping_add(1);
+        }
+        g.objs.aliens[idx as usize].sflags3 |= CH_SFLAG6;
+    } else {
+        g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT; // invulnerable
+    }
+    // Red/normal coltab flash (gf&1) is cosmetic — omitted.
+}
+
+/// `.regrownecks` (DSTRATS.ASM:4083-4123).
+fn chicken_regrownecks(g: &mut Game, idx: u16) {
+    // s_decbne_alvar count -> .nogrow (dec; return while != 0).
+    let c = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+    g.objs.aliens[idx as usize].count = c;
+    if c != 0 {
+        return;
+    }
+    // Reset the interval by sflag6 (fast/slow), then grow the 3 chains.
+    if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG6 != 0 {
+        g.objs.aliens[idx as usize].count = 4; // fast
+    } else {
+        g.objs.aliens[idx as usize].count = 80; // slow
+    }
+    let mut finished = 0u8;
+    finished += chicken_regrowneck(g, idx, ChickenSlot::Ptr, 3);
+    finished += chicken_regrowneck(g, idx, ChickenSlot::Sword1, 3);
+    finished += chicken_regrowneck(g, idx, ChickenSlot::Sword2, 5);
+    if finished == 3 {
+        g.objs.aliens[idx as usize].sflags3 &= !CH_SFLAG6; // slow the grow rate
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ChickenSlot {
+    Ptr,
+    Sword1,
+    Sword2,
+}
+fn chicken_slot_get(g: &Game, idx: u16, slot: ChickenSlot) -> u16 {
+    match slot {
+        ChickenSlot::Ptr => g.objs.aliens[idx as usize].ptr,
+        ChickenSlot::Sword1 => g.objs.aliens[idx as usize].sword1 as u16,
+        ChickenSlot::Sword2 => g.objs.aliens[idx as usize].sword2 as u16,
+    }
+}
+fn chicken_slot_set(g: &mut Game, idx: u16, slot: ChickenSlot, raw: u16) {
+    match slot {
+        ChickenSlot::Ptr => g.objs.aliens[idx as usize].ptr = raw,
+        ChickenSlot::Sword1 => g.objs.aliens[idx as usize].sword1 = raw as i16,
+        ChickenSlot::Sword2 => g.objs.aliens[idx as usize].sword2 = raw as i16,
+    }
+}
+
+/// `.regrowneck` (DSTRATS.ASM:4125-4192): walk one chain, and if it is shorter
+/// than its target length, insert a fresh neck/arm segment before the terminus.
+/// Returns 1 when the chain is already long enough (`.clrtheflag`).
+fn chicken_regrowneck(g: &mut Game, idx: u16, slot: ChickenSlot, target_base: u8) -> u8 {
+    let count1 = g.objs.aliens[idx as usize].count1;
+    let t = (target_base as i16) - (count1 as i16);
+    let target = if t < 2 { 2u16 } else { t as u16 };
+    // Walk to the head/tail terminus, counting the neck length.
+    let mut cur = fb_read_obj(g, chicken_slot_get(g, idx, slot));
+    let mut len = 0u16;
+    let mut last: Option<u16> = None;
+    let mut terminus: Option<u16> = None;
+    while let Some(c) = cur {
+        let sh = g.objs.aliens[c as usize].shape;
+        if sh == SH_CHICK_BOSS_D_0 || sh == SH_CHICK_BOSS_D_2 {
+            terminus = Some(c);
+            break;
+        }
+        len += 1;
+        last = Some(c);
+        cur = fb_read_obj(g, g.objs.aliens[c as usize].ptr);
+    }
+    let Some(term) = terminus else {
+        return 0; // still growing its terminus — nothing to regrow yet
+    };
+    if len >= target {
+        return 1; // .clrtheflag
+    }
+    let Some(y) = chicken_makeobj(g, idx) else {
+        return 0; // .okdone (pool full)
+    };
+    let s = sid(g, chicken_arm_init);
+    g.objs.aliens[y as usize].stratptr = Some(s);
+    g.objs.aliens[y as usize].shape = if g.objs.aliens[term as usize].shape == SH_CHICK_BOSS_D_0 {
+        SH_CHICK_NECK
+    } else {
+        SH_CHICK_ARM
+    };
+    if len == 0 {
+        // .mainbody: insert between the mother slot and the terminus.
+        g.objs.aliens[y as usize].ptr = boss_obj_index_or_null(term);
+        chicken_slot_set(g, idx, slot, boss_obj_index_or_null(y));
+    } else {
+        // insert between the last neck and the terminus.
+        let last = last.unwrap();
+        g.objs.aliens[y as usize].ptr = boss_obj_index_or_null(term);
+        g.objs.aliens[last as usize].ptr = boss_obj_index_or_null(y);
+        chicken_copyrots(g, y, last);
+        copy_pos(g, y, last);
+    }
+    0
+}
+
+/// `.chickenexplode` (DSTRATS.ASM:4505-4519): kill every chain + wing, then
+/// hand off to bossexplode.
+pub fn chicken_chickenexplode(g: &mut Game, idx: u16) {
+    chicken_kill_alptr_list(g, g.objs.aliens[idx as usize].ptr);
+    chicken_kill_alptr_list(g, g.objs.aliens[idx as usize].sword1 as u16);
+    chicken_kill_alptr_list(g, g.objs.aliens[idx as usize].sword2 as u16);
+    if let Some(w) = chicken_getwing1(g, idx) {
+        g.objs.free(w);
+    }
+    if let Some(w) = chicken_getwing2(g, idx) {
+        g.objs.free(w);
+    }
+    let s = sid(g, strat_boss_explode_init);
+    g.objs.aliens[idx as usize].expstratptr = Some(s);
+    strat_boss_explode_init(g, idx); // bossexplode_istrat
+}
+/// kill_alptr_list_y_l (DSTRATS.ASM:4891): free the al_ptr chain from `start`.
+fn chicken_kill_alptr_list(g: &mut Game, start_raw: u16) {
+    let mut cur = fb_read_obj(g, start_raw);
+    while let Some(c) = cur {
+        let next = fb_read_obj(g, g.objs.aliens[c as usize].ptr);
+        g.objs.free(c);
+        cur = next;
+    }
+}
+// CHICKEN_END
+
+// ============================================================
 // install / register (C: StratBoss2_Register + StratBossSea_Register +
 // StratBoss8_Register, called from Strat_RegisterAll, strat_table.c).
 // ============================================================
@@ -5392,6 +6940,10 @@ pub fn register(world: &mut World) {
     // exactly like flingboss; the shared trucklaunch/fallingtruck ground-vehicle
     // base is reached from the mother's death (not a def_istrat row of its own).
     world.istrats[IS_CASTANET] = Some(wsid(world, strat_castanet_init));
+    // chicken (Route 3 L3). Resolves through world.istrats[117] exactly like
+    // flingboss/castanet; the map spawns the SH_BOSS_D_1 body carrying this
+    // ISTRAT index. The neck/head/tail segments + wings are child objects.
+    world.istrats[IS_CHICKEN] = Some(wsid(world, strat_chicken_init));
 
     // Synthetic addresses referenced by the MAP2_3 / washmap literal map
     // data (src/map/levels.c).
