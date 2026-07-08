@@ -6,8 +6,8 @@
 
 use crate::alien::{
     StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE,
-    ASF_HITFLASH, ASF_INVISIBLE, ASF_LCOLLIDE,
+    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_SAMESHAPECOLLIDE, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_LCOLLIDE,
 };
 use crate::game::Game;
 use crate::vars::{FRAMESPERAP, HARD_AP, PSF3_INTUNNEL};
@@ -310,6 +310,19 @@ impl Game {
                 let a_types = a.collflags & TYPE_MASK;
                 let b_types = b.collflags & TYPE_MASK;
                 if a_types & b_types != 0 {
+                    continue;
+                }
+                // Same-shape gate (ROM chkcoll0, COLDET.ASM; retail $02:A199):
+                // skip a pair with equal al_shape UNLESS both set
+                // sameshapecollide (sflags3 bit $80) — which ~nothing does, so
+                // the cart effectively never collides two same-shape objects. The
+                // port lacked this gate (tier-2 coexec-found:
+                // retail_same_shape_skip_divergence), so same-shape /
+                // different-colltype pairs collided where the cart skips.
+                if a.shape == b.shape
+                    && !(a.sflags3 & ASF3_SAMESHAPECOLLIDE != 0
+                        && b.sflags3 & ASF3_SAMESHAPECOLLIDE != 0)
+                {
                     continue;
                 }
                 // Player <-> friend never collide. A friend path object carries

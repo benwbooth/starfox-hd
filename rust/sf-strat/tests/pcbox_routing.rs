@@ -54,7 +54,22 @@ fn spawn_shot(g: &mut Game, x: i16, y: i16, z: i16, ap: u8) -> u16 {
     al.hp = 5;
     al.ap = ap;
     al.collflags = ACF_COLLTYPE1; // enemy weapon type
+    // A real enemy shot carries a nonzero laser shape (SHAPE_ELASER2), distinct
+    // from the shape-0 pcbox collision boxes. Needed since coldet_run now applies
+    // the ROM chkcoll0 same-shape gate (equal al_shape -> skip); leaving this 0
+    // would make the shot share the boxes' shape and wrongly skip the hit.
+    al.shape = 511; // SHAPE_ELASER2
     s
+}
+
+/// Detach the two wing boxes (colldisable -> dropped from the collision list) so
+/// a body-routing test isn't confounded by a wing also overlapping the shot. The
+/// wing strat only re-parks position, so ASF_COLLDISABLE persists.
+fn isolate_body(g: &mut Game) {
+    let lw = g.coldet.pcbox.lwing.unwrap();
+    let rw = g.coldet.pcbox.rwing.unwrap();
+    g.objs.aliens[lw as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[rw as usize].sflags |= ASF_COLLDISABLE;
 }
 
 #[test]
@@ -75,8 +90,20 @@ fn attach_makes_ship_colldisable_and_builds_three_boxes() {
 fn enemy_shot_at_body_box_routes_hit_to_player() {
     let (mut g, p) = spawn_with_boxes();
     let body = g.coldet.pcbox.body.unwrap();
-    // Shot overlapping the body box (ship centre).
-    spawn_shot(&mut g, 0, 0, 0, 3);
+    // Isolate the body box (detach the wings) so they don't contend for the shot.
+    // In-game the thin elaser2 shot only overlaps the one box it hits; the
+    // unit-test extent map is empty so every shape gets the default-20 half-extent,
+    // which would otherwise let a centre shot also reach a wing at ±32. Since the
+    // ROM same-shape gate now correctly suppresses the box↔box collisions this
+    // test previously relied on, an un-isolated centre shot gets absorbed by a
+    // wing instead of the body.
+    isolate_body(&mut g);
+    g.tick(); // position the boxes
+    let (bx, by, bz) = {
+        let a = &g.objs.aliens[body as usize];
+        (a.worldx, a.worldy, a.worldz)
+    };
+    let _ = spawn_shot(&mut g, bx, by, bz, 3);
 
     let hits0 = g.vars.sv_u8(sv::PNUMHITS);
 
@@ -111,9 +138,16 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     let (mut g, p) = spawn_with_boxes();
     let body = g.coldet.pcbox.body.unwrap();
     let lwing = g.coldet.pcbox.lwing.unwrap();
-    // Prime the body box so one hit is lethal.
+    // Isolate the body box (see enemy_shot_at_body_box for why), then prime it so
+    // one hit is lethal and spawn the shot AT the body box.
+    isolate_body(&mut g);
+    g.tick();
+    let (bx, by, bz) = {
+        let a = &g.objs.aliens[body as usize];
+        (a.worldx, a.worldy, a.worldz)
+    };
     g.objs.aliens[body as usize].hp = 3;
-    spawn_shot(&mut g, 0, 0, 0, 3);
+    spawn_shot(&mut g, bx, by, bz, 3);
 
     g.tick(); // detect + do_coll: body hp 3 -> 0
     assert_eq!(g.objs.aliens[body as usize].hp, 0);

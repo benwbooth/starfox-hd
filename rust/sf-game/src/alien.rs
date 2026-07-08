@@ -149,6 +149,10 @@ pub const ASF_LCOLLIDE: u8 = 0x80;
 
 // al_sflags3 bits (C ASF3_*).
 pub const ASF3_REALOBJ: u8 = 0x08;
+/// Allow this object to collide with another of the SAME al_shape. The ROM
+/// collision detector (chkcoll0, COLDET.ASM) skips any same-shape pair UNLESS
+/// both objects set this bit (~nothing does). C `src/game/obj.h` ASF3_*.
+pub const ASF3_SAMESHAPECOLLIDE: u8 = 0x80;
 
 // al_sflags4 bits (C `src/game/obj.h` ASF4_* + `src/game/world.h` markers).
 pub const ASF4_PLAYEROBJ: u8 = 0x01;

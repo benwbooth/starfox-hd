@@ -3513,16 +3513,16 @@ fn retail_same_shape_skip_divergence() {
     eprintln!(
         "COLL same-shape: shape=$0042 both, colltype enemy1 vs enemy2, overlapping -> port collide=({coll_a},{coll_b})"
     );
-    // RETAIL would NOT collide these (same shape, no sameshapecollide). The PORT
-    // does — this pins the CURRENT (divergent) port behaviour. A follow-up
-    // sf-game fix adds the same-shape gate and this expectation flips to false.
+    // FIXED + re-certified: retail chkcoll0 SKIPS same-shape pairs (no
+    // sameshapecollide). The port's coldet_run now has the same-shape gate
+    // (sf-game fix, this commit's sibling), so it ALSO skips -> MATCH.
+    // find->fix->re-certify loop closed on the 3rd cert-found bug.
     assert!(
-        coll_a && coll_b,
-        "PORT currently collides same-shape different-colltype objects (divergence vs retail which skips). \
-         If this fails, the same-shape gate was added to coldet_run — update this test to assert !collide."
+        !coll_a && !coll_b,
+        "FIXED: port coldet_run now skips same-shape pairs (no sameshapecollide), matching retail chkcoll0"
     );
     eprintln!(
-        "COLL: DIVERGENCE characterized — retail chkcoll0 SKIPS same-shape pairs (no sameshapecollide); \
-         port coldet_run has no shape gate and collides them. Narrow blast radius (same shape + different colltype)."
+        "COLL: FIXED — port coldet_run adds the ROM same-shape gate; same-shape/different-colltype \
+         pairs are now skipped, matching the cart."
     );
 }

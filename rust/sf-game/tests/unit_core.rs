@@ -328,7 +328,41 @@ fn make_pair(g: &mut Game, ta: u8, tb: u8) -> (u16, u16) {
         al.hp = 20;
         al.ap = 0;
     }
+    // Distinct shapes: a real colliding pair (e.g. laser vs enemy) has different
+    // al_shape. The ROM chkcoll0 same-shape gate skips equal-shape pairs, so
+    // leaving both at the default 0 would (correctly) suppress the collision and
+    // is not what these colltype/response tests are exercising.
+    g.objs.aliens[a as usize].shape = 1;
+    g.objs.aliens[b as usize].shape = 2;
     (a, b)
+}
+
+#[test]
+fn coldet_same_shape_gate_skips_unless_sameshapecollide() {
+    use sf_game::alien::ASF3_SAMESHAPECOLLIDE;
+    let mut g = Game::new();
+    // Collidable colltypes (different bits) but the SAME al_shape: ROM chkcoll0
+    // skips the pair (retail-certified: coexec retail_same_shape_skip_divergence).
+    let (a, b) = make_pair(&mut g, ACF_COLLTYPE1, ACF_COLLTYPE2);
+    g.objs.aliens[a as usize].shape = 42;
+    g.objs.aliens[b as usize].shape = 42;
+    g.coldet_generate_list();
+    g.coldet_run();
+    assert_eq!(
+        g.objs.aliens[a as usize].sflags & ASF_COLLIDE,
+        0,
+        "same-shape pair must NOT collide (ROM chkcoll0 gate)"
+    );
+    // With both objects flagged sameshapecollide, the gate is bypassed.
+    g.objs.aliens[a as usize].sflags3 |= ASF3_SAMESHAPECOLLIDE;
+    g.objs.aliens[b as usize].sflags3 |= ASF3_SAMESHAPECOLLIDE;
+    g.coldet_generate_list();
+    g.coldet_run();
+    assert_ne!(
+        g.objs.aliens[a as usize].sflags & ASF_COLLIDE,
+        0,
+        "sameshapecollide on both -> same-shape pair collides"
+    );
 }
 
 #[test]
