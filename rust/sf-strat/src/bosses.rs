@@ -42,7 +42,7 @@ use crate::common::strat_speed_to as speed_to;
 
 // Canonical strat_enemy.c helpers (crate::enemy_a pub / pub(crate) surface).
 use crate::enemy_a::{
-    add_player_z, addrnd2pos_xy, boss_attach_child_to_mother, boss_child_from_index_raw,
+    achase_angle, add_player_z, addrnd2pos_xy, boss_attach_child_to_mother, boss_child_from_index_raw,
     boss_count_children, boss_dying, boss_find_child_obj, boss_get_mother_obj,
     boss_keeprel_to_player, boss_obj_index_or_null, bossflags, copy_pos, currentlevel, ea_random,
     pviewposz, set_bossflags, strat_boss_explode_init, strat_cos, strat_explode, strat_hit_flash,
@@ -187,6 +187,12 @@ pub const IS_NUCLEUSPILLAR: usize = 87;
 pub const IS_FLINGBOSS: usize = 58;
 /// `deadflingboss` (ISTRATS.ASM:480 def_istrat, macro-counted 59).
 pub const IS_DEADFLINGBOSS: usize = 59;
+/// `castanet` "Metal Smasher" (ISTRATS.ASM:549 def_istrat, macro-counted 124 =
+/// sf-map route2::rc IS_CASTANET, Route 2 L5). Resolves through
+/// `world.istrats[124]` exactly like IS_FLINGBOSS (the map spawns a nullshape
+/// proxy carrying this ISTRAT index; the two visible cymbal "bits" are the
+/// mother's child objects).
+pub const IS_CASTANET: usize = 124;
 
 /// C `STRAT_ADDR_BOSSSEAMON` (strat_boss_sea.c:45).
 pub const STRAT_ADDR_BOSSSEAMON: u32 = 0x030005;
@@ -4467,6 +4473,848 @@ fn flingboss_approach(g: &mut Game, idx: u16) {
 // FLINGBOSS_END
 
 // ============================================================
+// GROUNDVEHICLE_BEGIN — shared ground-vehicle base (build-once infra).
+//
+// ASM oracle: `trucklaunch_istrat` (DSTRATS.ASM:6260-6310) and
+// `fallingtruck_istrat` (DSTRATS.ASM:6313-6336). These two strats are the
+// road/ground-lane vehicle base shared between castanet (which turns its
+// surviving cymbal-bit into a launching truck on death, DSTRATS.ASM:6094)
+// and the still-unported `madtrucker` (DSTRATS.ASM:5233, which reuses
+// `trucklaunch_istrat`/`fallingtruck_istrat` verbatim per
+// docs/UNPORTED_BOSSES_PLAN.md §4). They are placed here, above castanet, so
+// the madtrucker port can call `trucklaunch_init` / `fallingtruck_init`
+// directly.
+//
+// The lower-level ground-lane primitives it composes already exist and are
+// reused as-is: `add_player_z` (s_add_playerZ, world scroll),
+// `strat_gen_vecs_3d` (dgen3dvecs), `strat_apply_velocity` (daddvecs2pos_x).
+// The only genuinely new shared piece is the two vehicle strats + the 16-bit
+// fixed chase `gv_fchase16` (s_fchase_alvar W).
+// ============================================================
+
+/// s_fchase_alvar W (STRATMAC.INC Fchase_var2A, 16-bit): step `cur` toward
+/// `target` by a fixed `rate`, clamping so it never overshoots the target.
+fn gv_fchase16(cur: i16, target: i16, rate: i16) -> i16 {
+    if cur == target {
+        cur
+    } else if cur < target {
+        let n = cur.wrapping_add(rate);
+        if n > target {
+            target
+        } else {
+            n
+        }
+    } else {
+        let n = cur.wrapping_sub(rate);
+        if n < target {
+            target
+        } else {
+            n
+        }
+    }
+}
+
+/// s_beqdec_alvar B (STRATMAC.INC): if the byte is 0 return true WITHOUT
+/// touching it (the `beq` fires before the `dec`); otherwise decrement and
+/// return false.
+#[inline]
+fn gv_beqdec(v: &mut u8) -> bool {
+    if *v == 0 {
+        true
+    } else {
+        *v -= 1;
+        false
+    }
+}
+
+/// `trucklaunch_istrat` init (DSTRATS.ASM:6260-6266). Entered as the strat of
+/// castanet's surviving bit (or, later, a madtrucker truck) — the object
+/// slides to its launch spot, tilts to the launch angle, spawns a
+/// `fallingtruck` and self-destructs into `bossexplode`.
+pub fn trucklaunch_init(g: &mut Game, idx: u16) {
+    let s = sid(g, trucklaunch_strat);
+    let s_col = sid(g, strat_hit_flash);
+    let s_exp = sid(g, strat_boss_explode_init); // bossexplode_istrat
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.sbyte4 = al.hp; // s_copy_alvar2alvar al_sbyte4,al_hp (save bar hp)
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.sflags |= ASF_COLLDISABLE;
+        al.sbyte1 = 70;
+    }
+    // init falls into .strat the same tick.
+    trucklaunch_strat(g, idx);
+}
+
+/// `trucklaunch_istrat` `.strat` (DSTRATS.ASM:6267-6281): fchase to the launch
+/// spot (-150,-200), advance with the world, count down 70 ticks.
+fn trucklaunch_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = gv_fchase16(al.worldx, -150, 8);
+        al.worldy = gv_fchase16(al.worldy, -200, 8);
+    }
+    if sea_dz_less(g, idx, 2000) {
+        g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(30);
+    }
+    if gv_beqdec(&mut g.objs.aliens[idx as usize].sbyte1) {
+        // .nxtstrat
+        let s = sid(g, trucklaunch_strat2);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.sbyte1 = 40;
+    }
+    // .move
+    add_player_z(g, idx);
+    let sb4 = g.objs.aliens[idx as usize].sbyte4 as u16;
+    g.vars.bosshp = g.vars.bosshp.wrapping_add(sb4);
+}
+
+/// `.strat2` (DSTRATS.ASM:6285-6310): swing to the launch orientation over 40
+/// ticks, then spawn the falling truck and enter the 1-tick kill state.
+fn trucklaunch_strat2(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_achase_alvar B toward -deg45-deg22 (=-48) / -deg45+deg11 (=-24) / 0.
+        let mut ry = al.roty;
+        achase_angle(&mut ry, (DEG45.wrapping_add(DEG22)).wrapping_neg(), 4);
+        al.roty = ry;
+        let mut rz = al.rotz;
+        achase_angle(&mut rz, DEG45.wrapping_sub(CAST_DEG11).wrapping_neg(), 4);
+        al.rotz = rz;
+        let mut rx = al.rotx;
+        achase_angle(&mut rx, 0, 4);
+        al.rotx = rx;
+    }
+    if gv_beqdec(&mut g.objs.aliens[idx as usize].sbyte1) {
+        // .nxtstrat2: spawn the falling truck.
+        g.objs.aliens[idx as usize].sbyte1 = 1;
+        if let Some(truck) = cast_makeobj(g, idx) {
+            copy_pos(g, truck, idx);
+            let m = g.objs.aliens[idx as usize];
+            let s_ft = sid(g, fallingtruck_init);
+            let al = &mut g.objs.aliens[truck as usize];
+            al.rotx = m.rotx;
+            al.roty = m.roty;
+            al.rotz = m.rotz;
+            al.shape = SH_CAST_BOSS_E_3_PROXY;
+            al.roty = al.roty.wrapping_sub(DEG90);
+            // s_copy al_rotx,al_rotz ; s_neg al_rotx ; al_rotz = 0.
+            al.rotx = (al.rotz as i8).wrapping_neg() as u8;
+            al.rotz = 0;
+            al.stratptr = Some(s_ft);
+        }
+        let s = sid(g, trucklaunch_strat3);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+        // falls into .strat3 the next tick.
+        return;
+    }
+    // .move
+    add_player_z(g, idx);
+    let sb4 = g.objs.aliens[idx as usize].sbyte4 as u16;
+    g.vars.bosshp = g.vars.bosshp.wrapping_add(sb4);
+}
+
+/// `.strat3` (DSTRATS.ASM:6305-6310): one-tick fuse, then s_kill_obj into
+/// bossexplode.
+fn trucklaunch_strat3(g: &mut Game, idx: u16) {
+    // s_decbne_alvar sbyte1 -> .move (dec first, branch when != 0).
+    let sb1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = sb1;
+    if sb1 != 0 {
+        add_player_z(g, idx);
+        let sb4 = g.objs.aliens[idx as usize].sbyte4 as u16;
+        g.vars.bosshp = g.vars.bosshp.wrapping_add(sb4);
+        return;
+    }
+    // s_set_bossmaxHP #0 ; s_kill_obj x (hp0 + colldisable -> bossexplode).
+    set_bossmaxhp(g, 0);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
+        al.hp = 0;
+    }
+    if let Some(exp) = g.objs.aliens[idx as usize].expstratptr {
+        g.call_strat(exp, idx);
+    }
+}
+
+/// `fallingtruck_istrat` init (DSTRATS.ASM:6313-6319).
+pub fn fallingtruck_init(g: &mut Game, idx: u16) {
+    let s = sid(g, fallingtruck_strat);
+    let s_col = sid(g, strat_hit_flash);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.collstratptr = Some(s_col);
+    al.expstratptr = None;
+    al.hp = HARD_HP;
+    al.ap = HARD_AP;
+    al.sflags |= ASF_COLLDISABLE;
+    al.vel = 50;
+    al.sbyte1 = 10;
+    fallingtruck_strat(g, idx);
+}
+
+/// `fallingtruck` `.strat` (DSTRATS.ASM:6320-6336): fly straight for 10 ticks,
+/// then level the pitch back toward the ground; scroll with the world.
+fn fallingtruck_strat(g: &mut Game, idx: u16) {
+    strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]); // dgen3dvecs
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]); // daddvecs2pos_x
+    if gv_beqdec(&mut g.objs.aliens[idx as usize].sbyte1) {
+        // .cmpit: rotx -= (deg90+deg22); if that >= deg22, subtract (deg11-deg90-deg22).
+        let rotx = g.objs.aliens[idx as usize].rotx;
+        let a = rotx.wrapping_sub(DEG90.wrapping_add(DEG22));
+        if a >= DEG22 {
+            let k = CAST_DEG11.wrapping_sub(DEG90).wrapping_sub(DEG22); // = 184 (i.e. +72)
+            g.objs.aliens[idx as usize].rotx = a.wrapping_sub(k);
+        }
+    }
+    add_player_z(g, idx);
+}
+// GROUNDVEHICLE_END
+
+// ============================================================
+// CASTANET_BEGIN — "castanet" / "Metal Smasher" (Route 2 L5).
+//
+// ASM oracle: `castanet_istrat` (DSTRATS.ASM:5754-6221), the two cymbal
+// halves `castbit_istrat` (DSTRATS.ASM:6225-6257), `fireringlaser_l` +
+// `ringlaser_istrat` (DSTRATS.ASM:6356-6492), and the ground-vehicle death
+// (`trucklaunch`/`fallingtruck`, above). def_istrat index 124 (=IS_CASTANET).
+//
+// STRUCTURE: an invisible controller (the map's nullshape mother) drives a
+// 27-entry `s_mode_table` state machine (DSTRATS.ASM:5770-5814). It links two
+// visible cymbal "bit" objects via al_ptr (bit1, boss_e_0) and al_sword1
+// (bit2, boss_e_1/1a) and every tick positions them apart/together by
+// `al_sbyte2` (separation) at orientation `al_sbyte3`, rotated by the mother's
+// rotz — reusing the flingboss `.positional` (s_add_Roffs2pos, fb_positional).
+// Both bits carry castanetHP(120); the boss bar = bit1.hp+bit2.hp
+// accumulated per tick; bossmaxhp = castanetHP*2. The boss dies when bit2
+// (al_sword1) reaches 0 hp: bit1 becomes a `trucklaunch` and the mother is
+// removed (DSTRATS.ASM:6085-6096).
+//
+// SCOPE NOTE (fidelity boundaries, cited):
+//  * The mode machine, cymbal positioning, HP-bar/death, roll-in and the
+//    aim/fire cadence (bit sflag1 firing gate) are ported tick-for-tick.
+//  * ringlaser is ported as a straight scroll-and-fly laser (init + `.strat`,
+//    DSTRATS.ASM:6398-6416). Its two trajectory-SHAPING systems are scoped
+//    out: the spawn-time ring/cross spread keyed off the global `locusmode`
+//    (DSTRATS.ASM:6366-6390) and the mid-flight `powerbuild`-triggered
+//    aim-to-player curve (`.aimtoplayer`, DSTRATS.ASM:6417-6471). Both read
+//    cross-object global scratch RAM (locusmode/powerbuild) that no other
+//    ported strat needs; reproducing them faithfully needs those globals wired
+//    into sf-game and an oracle diff. The mother's `locusmode`/`powerbuild`
+//    writes (DSTRATS.ASM:5863/5882/6099-6111) are therefore intentional
+//    no-ops here. Consequence: lasers fly straight ahead instead of fanning.
+//  * `minicastanet` swarm (`.generateminis`, 4×`.launchminicastanets`,
+//    DSTRATS.ASM:5955-5999): the ROM spawns four `path_istrat` mini-cymbals
+//    on the `minicastanet`/`minicastanetLR` ROM path bytecodes, which are not
+//    ported to sf-map. They are spawned here as straight scroll-movers (shape
+//    boss_e_4) so the object count and the 3-draws-per-mini RNG consumption
+//    stay faithful, but the ROM path curve is scoped out.
+// ============================================================
+
+// STRATEQU.INC / DSTRATS.ASM:78-97.
+const CASTANET_HP: u8 = 120; // castanetHP
+const CASTANET_AP: u8 = 10; // castanetAP
+const MINICASTANET_HP: u8 = 2; // minicastanetHP
+const MINICASTANET_AP: u8 = 8; // minicastanetAP
+const CAST_DEG11: u8 = 8; // deg11
+
+// Strategy flags (same mapping as flingboss): sflag1 -> sflags2 0x10;
+// sflag8 -> sflags4 0x20 (ASF4_SFLAG8).
+const CAST_SFLAG1: u8 = 0x10;
+
+// Shape proxies (cosmetic; behaviour is shape-independent). The map's mother
+// keeps SH_NULLSHAPE.
+const SH_CAST_BOSS_E_0_PROXY: u16 = 276; // bit1
+const SH_CAST_BOSS_E_1_PROXY: u16 = 277; // bit2 when rotz==128
+const SH_CAST_BOSS_E_1A_PROXY: u16 = 278; // bit2 otherwise
+const SH_CAST_BOSS_E_3_PROXY: u16 = 279; // fallingtruck
+const SH_CAST_BOSS_E_4_PROXY: u16 = 280; // minicastanet
+const SH_CAST_RINGLASER_PROXY: u16 = 281; // ringlaser
+
+const CAST_SE_CLANG: u8 = 0x8d; // trigse $8d (cymbals meet)
+const CAST_SE_SMASH: u8 = 0x8e; // trigse $8e (smash complete)
+
+// Mode-table indices (DSTRATS.ASM:5770-5814, `ci`-counted from 0).
+const M_ROLLONINIT: u8 = 0;
+const M_ROLLON: u8 = 1;
+const CAST_REPEAT: u8 = 2; // s_mode_entry .moveaway,cast_repeat
+const M_LAST: u8 = 26; // .repeat
+
+/// fling.makeobj analog (DSTRATS.ASM:3195, `s_make_obj`): allocate a child
+/// shell copied onto the mother's position.
+fn cast_makeobj(g: &mut Game, mother: u16) -> Option<u16> {
+    let child = make_obj(g, SH_CAST_BOSS_E_0_PROXY)?;
+    copy_pos(g, child, mother);
+    Some(child)
+}
+
+/// s_set_objtobealvar read of a mother pointer slot (index+1 encoding),
+/// returning the live child idx (None if unset or dead).
+#[inline]
+fn cast_read_obj(g: &Game, raw: u16) -> Option<u16> {
+    let idx = boss_child_from_index_raw(raw)?;
+    if g.objs.aliens[idx as usize].active {
+        Some(idx)
+    } else {
+        None
+    }
+}
+
+/// `castbit_istrat` init (DSTRATS.ASM:6225-6231).
+fn castbit_init(g: &mut Game, idx: u16) {
+    let s = sid(g, castbit_strat);
+    let s_col = sid(g, castbit_col);
+    let s_exp = sid(g, strat_explode); // explode_istrat
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.hp = CASTANET_HP;
+        al.ap = CASTANET_AP;
+        al.type_ &= !ATZREMOVE; // s_clr_altype zremove
+        al.collflags |= COLLTYPE_ENEMY1 | COLLTYPE_ENEMYWEAP;
+    }
+    castbit_strat(g, idx);
+}
+
+/// `castbit_istrat` `.strat` (DSTRATS.ASM:6232-6244): pick the cymbal frame
+/// shape, then (when the mother has flagged this bit's sflag1) fire a ringlaser
+/// every other frame.
+fn castbit_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.shape != SH_CAST_BOSS_E_0_PROXY {
+            // bit2: rotz==128 -> boss_e_1 else boss_e_1a.
+            al.shape = if al.rotz == 128 {
+                SH_CAST_BOSS_E_1_PROXY
+            } else {
+                SH_CAST_BOSS_E_1A_PROXY
+            };
+        }
+    }
+    if g.objs.aliens[idx as usize].sflags2 & CAST_SFLAG1 == 0 {
+        return; // .end
+    }
+    if g.vars.gameframe & 1 != 0 {
+        return; // s_jmp_NOTdelay 1 -> only on gf&1==0
+    }
+    cast_fire_ringlaser(g, idx);
+}
+
+/// `castbit_istrat` `.hit` (DSTRATS.ASM:6248-6257): hitflash variant. The HF2
+/// hitflag toggles `nohitaffect`; routed through the standard hitflash here
+/// (the HF2 damage-vs-graze distinction is a collision-lane detail).
+fn castbit_col(g: &mut Game, idx: u16) {
+    strat_hit_flash(g, idx);
+}
+
+/// `fireringlaser_l` (DSTRATS.ASM:6356-6395) — straight-fly port (see the
+/// section scope note: the locusmode ring spread is omitted).
+fn cast_fire_ringlaser(g: &mut Game, idx: u16) {
+    let me = g.objs.aliens[idx as usize];
+    let Some(shot) = spawn_projectile(
+        g,
+        Some(idx),
+        0,
+        0,
+        0,
+        me.rotx,
+        me.roty,
+        60, // al_vel = 60
+        60, // lifetime (no ROM cap; ringlaser removes via .aimtoplayer, scoped)
+        7,  // ringlaserAP
+        ACF_COLLTYPE4,
+    ) else {
+        return;
+    };
+    let s = sid(g, cast_ringlaser_strat);
+    let al = &mut g.objs.aliens[shot as usize];
+    al.rotx = me.rotx;
+    al.roty = me.roty;
+    al.rotz = me.rotz;
+    al.shape = SH_CAST_RINGLASER_PROXY;
+    al.type_ = ATLASER | ATZREMOVE;
+    al.sflags &= !ASF_INVISIBLE;
+    al.sflags |= ASF_SHADOW;
+    al.stratptr = Some(s);
+    strat_gen_vecs_3d(al);
+}
+
+/// `ringlaser_istrat` `.strat` (DSTRATS.ASM:6398-6416): straight scroll-and-fly
+/// (the `.aimtoplayer`/curve branch is scoped out).
+fn cast_ringlaser_strat(g: &mut Game, idx: u16) {
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]); // daddvecs2pos_x
+    add_player_z(g, idx);
+    // s_add_colanim x,#1,#5 (cosmetic frame cycle).
+    let al = &mut g.objs.aliens[idx as usize];
+    al.colframe = (al.colframe + 1) % 5;
+}
+
+// ---- mother helpers ----
+
+/// `.gethp` (DSTRATS.ASM:5850-5858): bit1.hp + bit2.hp.
+fn cast_gethp(g: &Game, idx: u16) -> u16 {
+    let m = g.objs.aliens[idx as usize];
+    let h1 = cast_read_obj(g, m.ptr)
+        .map(|b| g.objs.aliens[b as usize].hp as u16)
+        .unwrap_or(0);
+    let h2 = cast_read_obj(g, m.sword1 as u16)
+        .map(|b| g.objs.aliens[b as usize].hp as u16)
+        .unwrap_or(0);
+    h1 + h2
+}
+
+/// `.position1` (DSTRATS.ASM:6153-6180) — bit1 (al_ptr, boss_e_0).
+fn cast_position1(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        c.rotx = m.rotx;
+        c.roty = m.roty;
+        c.rotz = m.rotz;
+        c.animframe = m.animframe;
+        if m.sflags2 & CAST_SFLAG1 != 0 {
+            c.rotx = c.rotx.wrapping_sub(m.sbyte3); // .otherbit1
+        } else {
+            c.roty = c.roty.wrapping_sub(m.sbyte3);
+        }
+    }
+    // x1 = -42 - sbyte2 (s_varsub_alvar), y1=z1=0; fling.positional (<<2).
+    let x1 = (-42i8).wrapping_sub(m.sbyte2 as i8) as i16;
+    fb_positional(g, &m, child, x1, 0, 0);
+}
+
+/// `.position2` (DSTRATS.ASM:6182-6220) — bit2 (al_sword1, boss_e_1/1a).
+fn cast_position2(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        c.rotx = m.rotx;
+        c.roty = m.roty;
+        c.rotz = m.rotz;
+        // animframe = (mother.animframe EOR 7), then dincanim -1 wrap 8.
+        c.animframe = (m.animframe ^ 7).wrapping_add(7) % 8; // -1 mod 8
+        c.rotz = c.rotz.wrapping_add(DEG180);
+        if m.sflags2 & CAST_SFLAG1 != 0 {
+            c.rotx = c.rotx.wrapping_add(m.sbyte3); // .otherbit2
+        } else {
+            c.roty = c.roty.wrapping_add(m.sbyte3);
+        }
+    }
+    // x1 = 42 + sbyte2 (s_varadd_alvar), y1=z1=0.
+    let x1 = (42i8).wrapping_add(m.sbyte2 as i8) as i16;
+    fb_positional(g, &m, child, x1, 0, 0);
+}
+
+/// `.move` / `.movenochk` common tail (DSTRATS.ASM:6083-6130). Returns true
+/// when the mother was removed (a bit died -> trucklaunch) — the caller must
+/// then stop ticking the mode machine.
+fn cast_move(g: &mut Game, idx: u16) -> bool {
+    let m = g.objs.aliens[idx as usize];
+    // .move: death test keys on bit2 (al_sword1) hp==0.
+    let bit2_dead = cast_read_obj(g, m.sword1 as u16)
+        .map(|b| g.objs.aliens[b as usize].hp == 0)
+        .unwrap_or(true);
+    let ptr_nonzero = m.ptr != 0;
+    if bit2_dead {
+        // .ok_change_mode: survivor = al_ptr (bit1).
+        if let Some(s) = cast_read_obj(g, m.ptr) {
+            trucklaunch_init(g, s);
+        }
+        g.objs.aldead = 1; // s_remove_obj (mother is the current object)
+        return true;
+    } else if !ptr_nonzero {
+        // .ok_change_mode2: survivor = al_sword1 (bit2). (bit1 pointer cleared.)
+        if let Some(s) = cast_read_obj(g, m.sword1 as u16) {
+            trucklaunch_init(g, s);
+        }
+        g.objs.aldead = 1;
+        return true;
+    }
+    // .movenochk (both alive). locusmode computation is a no-op here (scoped).
+    add_player_z(g, idx);
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_SFLAG8 == 0 {
+        // homing: chase worldx/worldy toward the player (s_achase_alvar2alvar W,4).
+        if let Some(pl) = player_idx(g) {
+            let p = g.objs.aliens[pl as usize];
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldx = chase_proportional(al.worldx, p.worldx, 4);
+            al.worldy = chase_proportional(al.worldy, p.worldy, 4);
+        }
+    }
+    // .nohomein: position both bits + accumulate the HP bar.
+    if let Some(b1) = cast_read_obj(g, g.objs.aliens[idx as usize].ptr) {
+        add_bosshp(g, b1);
+        cast_position1(g, idx, b1);
+    }
+    if let Some(b2) = cast_read_obj(g, g.objs.aliens[idx as usize].sword1 as u16) {
+        add_bosshp(g, b2);
+        cast_position2(g, idx, b2);
+    }
+    false
+}
+
+/// `.launchminicastanets` (DSTRATS.ASM:5962-5999). See the scope note: spawned
+/// as a straight scroll-mover with faithful 3-draw RNG consumption.
+fn cast_launch_mini(g: &mut Game, mother: u16) {
+    let Some(mini) = cast_makeobj(g, mother) else {
+        return;
+    };
+    let s = sid(g, cast_mini_strat);
+    copy_pos(g, mini, mother);
+    {
+        let m = g.objs.aliens[mother as usize];
+        let al = &mut g.objs.aliens[mini as usize];
+        al.rotx = m.rotx;
+        al.roty = m.roty;
+        al.rotz = m.rotz;
+        al.shape = SH_CAST_BOSS_E_4_PROXY;
+        al.hp = MINICASTANET_HP;
+        al.ap = MINICASTANET_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.stratptr = Some(s);
+    }
+    // random_l offsets: worldx, worldy (sign-extended byte adds), then worldz+20.
+    let rx = (sfrtl_random(g) as u8 as i8) as i16;
+    g.objs.aliens[mini as usize].worldx = g.objs.aliens[mini as usize].worldx.wrapping_add(rx);
+    let ry = (sfrtl_random(g) as u8 as i8) as i16;
+    g.objs.aliens[mini as usize].worldy = g.objs.aliens[mini as usize].worldy.wrapping_add(ry);
+    g.objs.aliens[mini as usize].worldz = g.objs.aliens[mini as usize].worldz.wrapping_add(20);
+    // sbyte1 = (random_l & 7) << 2.
+    let sb = ((sfrtl_random(g) as u8) & 7) << 2;
+    g.objs.aliens[mini as usize].sbyte1 = sb;
+}
+
+/// Minimal minicastanet mover (ROM: path_istrat on the minicastanet path —
+/// scoped): scroll with the world.
+fn cast_mini_strat(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+}
+
+// ---- mother state machine ----
+
+/// `castanet_istrat` `.generate` (DSTRATS.ASM:6132-6151): spawn the two cymbal
+/// bits, linking bit1 via al_ptr and bit2 via al_sword1. Returns true on
+/// success (both bits present).
+fn cast_generate(g: &mut Game, mother: u16) -> bool {
+    if cast_read_obj(g, g.objs.aliens[mother as usize].ptr).is_none() {
+        let Some(b1) = cast_makeobj(g, mother) else {
+            return false;
+        };
+        let s = sid(g, castbit_init);
+        {
+            let al = &mut g.objs.aliens[b1 as usize];
+            al.stratptr = Some(s);
+            al.shape = SH_CAST_BOSS_E_0_PROXY;
+            al.depthoffset = 1;
+        }
+        g.objs.aliens[mother as usize].ptr = boss_obj_index_or_null(b1);
+        cast_position1(g, mother, b1);
+    }
+    let Some(b2) = cast_makeobj(g, mother) else {
+        return false;
+    };
+    let s = sid(g, castbit_init);
+    {
+        let al = &mut g.objs.aliens[b2 as usize];
+        al.stratptr = Some(s);
+        al.shape = SH_CAST_BOSS_E_1_PROXY;
+        al.hp = 1; // (overwritten to castanetHP by castbit_init next tick)
+        al.depthoffset = 2;
+    }
+    g.objs.aliens[mother as usize].sword1 = boss_obj_index_or_null(b2) as i16;
+    cast_position2(g, mother, b2);
+    true
+}
+
+/// `castanet_istrat` init (DSTRATS.ASM:5754-5768).
+pub fn strat_castanet_init(g: &mut Game, idx: u16) {
+    set_bossmaxhp(g, (CASTANET_HP as u16) * 2); // 240
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.animframe = 0;
+        al.type_ &= !ATZREMOVE;
+    }
+    if !cast_generate(g, idx) {
+        // .generate failed (pool full) -> retry the whole init next tick.
+        let s = sid(g, strat_castanet_init);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+        return;
+    }
+    let s = sid(g, castanet_strat);
+    let s_col = sid(g, strat_hit_flash);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = None;
+        al.sflags |= ASF_NOHITAFFECT;
+        al.stratstate = 0; // s_mode_change x,#0
+    }
+    // init falls into .strat the same tick.
+    castanet_strat(g, idx);
+}
+
+/// `castanet_istrat` `.strat` (DSTRATS.ASM:5769-6130): the 27-entry mode
+/// machine. `stratstate` holds the mode index; `.nxtmode`/`.znxtmode` advance
+/// and re-enter the same tick, `.move` ends the tick (positioning + HP bar +
+/// death check).
+fn castanet_strat(g: &mut Game, idx: u16) {
+    loop {
+        let mode = g.objs.aliens[idx as usize].stratstate as u8;
+        match mode {
+            // 0 .rolloninit
+            M_ROLLONINIT => {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.worldz = al.worldz.wrapping_add(6000);
+                al.worldy = al.worldy.wrapping_add(4000);
+                al.sword2 = -500;
+                al.sflags4 |= ASF4_SFLAG8;
+                // -> .nxtmode
+            }
+            // 1 .rollon
+            M_ROLLON => {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    let sw2 = al.sword2;
+                    al.worldy = al.worldy.wrapping_add(sw2);
+                    al.sword2 = al.sword2.wrapping_add(20);
+                    al.worldz = al.worldz.wrapping_sub(150);
+                }
+                if sea_dz_less(g, idx, 2000) {
+                    // -> .nxtmode
+                } else {
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+            }
+            // 3, 9 .generateminis
+            3 | 9 => {
+                for _ in 0..4 {
+                    cast_launch_mini(g, idx);
+                }
+                // -> .nxtmode
+            }
+            // 4,10,16,21 .moveapart
+            4 | 10 | 16 | 21 => {
+                let s_col = sid(g, castbit_col);
+                let m = g.objs.aliens[idx as usize];
+                if let Some(b1) = cast_read_obj(g, m.ptr) {
+                    g.objs.aliens[b1 as usize].collstratptr = Some(s_col);
+                }
+                if let Some(b2) = cast_read_obj(g, m.sword1 as u16) {
+                    g.objs.aliens[b2 as usize].collstratptr = Some(s_col);
+                }
+                let sb2 = g.objs.aliens[idx as usize].sbyte2.wrapping_add(2);
+                g.objs.aliens[idx as usize].sbyte2 = sb2;
+                if sb2 >= 40 {
+                    // -> .nxtmode
+                } else {
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+            }
+            // 5, 11 .movetoplayer
+            5 | 11 => {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    let mut sb3 = al.sbyte3;
+                    achase_angle(&mut sb3, DEG45, 2);
+                    al.sbyte3 = sb3;
+                    al.worldz = al.worldz.wrapping_sub(20); // 2000/100
+                    al.sbyte1 = al.sbyte1.wrapping_add(1);
+                }
+                if g.objs.aliens[idx as usize].sbyte1 >= 100 {
+                    // .znxtmode
+                    g.objs.aliens[idx as usize].sbyte1 = 0;
+                } else {
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+            }
+            // 6,12,19,24 .smashtogether
+            6 | 12 | 19 | 24 => {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    let mut sb3 = al.sbyte3;
+                    achase_angle(&mut sb3, 0, 1);
+                    al.sbyte3 = sb3;
+                }
+                // two s_beqdec_alvar sbyte2 -> .sndnxtmode when it hits 0.
+                let mut done = false;
+                for _ in 0..2 {
+                    if gv_beqdec(&mut g.objs.aliens[idx as usize].sbyte2) {
+                        done = true;
+                        break;
+                    }
+                }
+                if done {
+                    // .sndnxtmode
+                    play_se(g, CAST_SE_SMASH);
+                } else {
+                    let m = g.objs.aliens[idx as usize];
+                    if let Some(b1) = cast_read_obj(g, m.ptr) {
+                        if g.objs.aliens[b1 as usize].collstratptr.is_some() {
+                            play_se(g, CAST_SE_CLANG);
+                        }
+                        g.objs.aliens[b1 as usize].collstratptr = None;
+                    }
+                    if let Some(b2) = cast_read_obj(g, m.sword1 as u16) {
+                        g.objs.aliens[b2 as usize].collstratptr = None;
+                    }
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+            }
+            // 2,7,13 .moveaway
+            2 | 7 | 13 => {
+                g.objs.aliens[idx as usize].sflags4 &= !ASF4_SFLAG8;
+                if sea_dz_less(g, idx, 2000) {
+                    g.objs.aliens[idx as usize].worldz =
+                        g.objs.aliens[idx as usize].worldz.wrapping_add(60);
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+                // dz>=2000 -> .nxtmode
+            }
+            // 8, 20 .rotate90r
+            8 | 20 => {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sflags2 |= CAST_SFLAG1;
+                    al.rotz = al.rotz.wrapping_add(8);
+                    al.sbyte1 = al.sbyte1.wrapping_add(1);
+                }
+                if g.objs.aliens[idx as usize].sbyte1 == 8 {
+                    // .znxtmode
+                    g.objs.aliens[idx as usize].sbyte1 = 0;
+                } else {
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+            }
+            // 14, 25 .rotate90l
+            14 | 25 => {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.rotz = al.rotz.wrapping_sub(8);
+                    al.sbyte1 = al.sbyte1.wrapping_add(1);
+                }
+                if g.objs.aliens[idx as usize].sbyte1 == 8 {
+                    // .zznxtmode: clear sflag1 then .znxtmode.
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sflags2 &= !CAST_SFLAG1;
+                    al.sbyte1 = 0;
+                } else {
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+            }
+            // 15 .checkhp
+            15 => {
+                let total = cast_gethp(g, idx);
+                if total < (CASTANET_HP as u16) + (CASTANET_HP as u16) / 2 {
+                    // < 180 -> .nxtmode (proceed to the aim/fire attack phase)
+                } else {
+                    // healthy -> .repeat (mode = cast_repeat).
+                    g.objs.aliens[idx as usize].stratstate = CAST_REPEAT;
+                    continue;
+                }
+            }
+            // 17, 22 .aim
+            17 | 22 => {
+                let mut sb3 = g.objs.aliens[idx as usize].sbyte3;
+                let reached = achase_angle(&mut sb3, DEG22, 2);
+                g.objs.aliens[idx as usize].sbyte3 = sb3;
+                if reached {
+                    // -> .nxtmode
+                } else {
+                    // powerbuild=0 (scoped no-op)
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+            }
+            // 18, 23 .fire
+            18 | 23 => {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    let add = al.sbyte1 >> 3;
+                    al.animframe = al.animframe.wrapping_add(add) % 8;
+                }
+                let m = g.objs.aliens[idx as usize];
+                if let Some(b1) = cast_read_obj(g, m.ptr) {
+                    g.objs.aliens[b1 as usize].sflags2 |= CAST_SFLAG1;
+                }
+                if let Some(b2) = cast_read_obj(g, m.sword1 as u16) {
+                    g.objs.aliens[b2 as usize].sflags2 |= CAST_SFLAG1;
+                }
+                let sb1 = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+                g.objs.aliens[idx as usize].sbyte1 = sb1;
+                if sb1 < 40 {
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+                // powerbuild=1 (scoped); clear both bits' sflag1.
+                let m = g.objs.aliens[idx as usize];
+                if let Some(b1) = cast_read_obj(g, m.ptr) {
+                    g.objs.aliens[b1 as usize].sflags2 &= !CAST_SFLAG1;
+                }
+                if let Some(b2) = cast_read_obj(g, m.sword1 as u16) {
+                    g.objs.aliens[b2 as usize].sflags2 &= !CAST_SFLAG1;
+                }
+                if sb1 < 60 {
+                    if cast_move(g, idx) {
+                        return;
+                    }
+                    return;
+                }
+                // .znxtmode
+                g.objs.aliens[idx as usize].sbyte1 = 0;
+            }
+            // 26 .repeat
+            _ => {
+                g.objs.aliens[idx as usize].stratstate = CAST_REPEAT;
+                continue;
+            }
+        }
+        // Fell through the match arm without ending the tick: advance mode
+        // (.nxtmode / .znxtmode) and re-enter the same tick.
+        let next = g.objs.aliens[idx as usize].stratstate + 1;
+        g.objs.aliens[idx as usize].stratstate = next;
+    }
+}
+// CASTANET_END
+
+// ============================================================
 // install / register (C: StratBoss2_Register + StratBossSea_Register +
 // StratBoss8_Register, called from Strat_RegisterAll, strat_table.c).
 // ============================================================
@@ -4540,6 +5388,10 @@ pub fn register(world: &mut World) {
     // expstrat, but is registered too so the address map resolves it.
     world.istrats[IS_FLINGBOSS] = Some(wsid(world, strat_flingboss_init));
     world.istrats[IS_DEADFLINGBOSS] = Some(wsid(world, flingboss_deadflingboss_init));
+    // castanet "Metal Smasher" (Route 2 L5). Resolves through world.istrats[124]
+    // exactly like flingboss; the shared trucklaunch/fallingtruck ground-vehicle
+    // base is reached from the mother's death (not a def_istrat row of its own).
+    world.istrats[IS_CASTANET] = Some(wsid(world, strat_castanet_init));
 
     // Synthetic addresses referenced by the MAP2_3 / washmap literal map
     // data (src/map/levels.c).
