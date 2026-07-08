@@ -211,6 +211,9 @@ pub fn register_all(g: &mut Game) {
     // BOSS8/launcher/pillar 0x060014/15/16).
     enemy_b::register(&mut g.world);
     bosses::register(&mut g.world);
+    // Ground-artillery family (tank1a/tank2/tank3 + bazookaL/R). Self-populates
+    // its g_istrats rows exactly like bosses::register.
+    crate::enemies_ground::register(&mut g.world);
     // Mother system (ASM/MOTHER.ASM + D2STRATS mother1/2 + the MOTHERS.ASM
     // child strategies): registers STRAT_ADDR_MOTHER1/2 and the
     // meteor/slowmeteor/searchmeteor/clasteroid child strats.
