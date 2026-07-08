@@ -173,33 +173,241 @@ use w65c816::{AddressType, Signals, System, CPU};
 /// [`SnesBus`], which overrides $FFFC to a bootstrap stub for direct subroutine
 /// calls). Hardware registers are lightly stubbed so the boot can make forward
 /// progress far enough to characterise where a CPU-only core stalls.
+///
+/// The PPU shim models a **free-running raster** — a dot counter advanced once
+/// per CPU clock (see [`boot_retail`]) that sweeps H (0..341) and V (0..262) —
+/// so that scanline/vblank spin loops (e.g. the `$03:BD97` OPVCT raster-wait)
+/// actually satisfy instead of parking forever. This is the *minimal* hardware
+/// needed to march the boot into the per-frame game loop; it is NOT a real PPU
+/// (no framebuffer, no rendering, no OAM/CGRAM effects).
 pub struct RetailBootBus {
     inner: SnesBus,
     res_line: bool,
-    /// Toggles each PPU-status read so vblank-wait loops don't spin forever.
-    vbl_toggle: bool,
+    /// Free-running dot counter (advanced by [`boot_retail`] each CPU clock).
+    /// H = `dot % DOTS_PER_LINE`, V = `(dot / DOTS_PER_LINE) % LINES_PER_FRAME`.
+    pub dot: u64,
+    /// Latched H/V counters (set by a read of $2137 SLHV, or by any OPHCT/OPVCT
+    /// read — hardware latches on H/V read too). Consumed low-then-high-bit via
+    /// the read toggles below.
+    latched_h: u16,
+    latched_v: u16,
+    ophct_hi: bool,
+    opvct_hi: bool,
+    /// Sticky NMI-occurred flag ($4210 bit7): set when V crosses into vblank,
+    /// cleared on read (real RDNMI semantics). Lets `bit $4210 / bpl` frame
+    /// waits both arm and re-arm.
+    nmi_latch: bool,
+    prev_vblank: bool,
+    /// --- Minimal SPC700 upload-handshake shim (ports $2140-$2143) ---
+    /// The retail boot uploads several audio blocks (driver, samples, sequences)
+    /// through a Nintendo-IPL-style protocol. Two states:
+    ///  * **Idle** (`!apu_active`): ports read $AA/$BB — the "SPC ready" signal
+    ///    the `$03:B12E` `CMP #$BBAA` loop waits for. A `$FF` write (the driver
+    ///    "re-arm" nudge at `$03:B11E`) is ignored; any other $2140 write (the
+    ///    `$CC` kick) enters Active.
+    ///  * **Active** (`apu_active`): $2140 echoes the last value written — which
+    ///    satisfies the `$CC` start-echo AND every per-byte index-echo wait of
+    ///    the block-upload, no real SPC700 needed.
+    /// The upload routine terminates each block with `STZ $2141/$2142/$2143`
+    /// (`$03:B204`); a `$00` write to $2143 returns us to Idle so the NEXT
+    /// block's ready-check passes. This models the upload port protocol ONLY —
+    /// not the running SPC music engine (no per-frame command responses).
+    apu_active: bool,
+    apu_echo: u8,
+    /// NMITIMEN ($4200) bit7 — vblank NMI enable. (Star Fox actually drives its
+    /// frame timing off the H/V-counter IRQ, not NMI — see `irq_enabled` — but
+    /// we honour NMI too in case a code path uses it.)
+    nmi_enabled: bool,
+    /// NMITIMEN ($4200) bits 4/5 — H/V-counter IRQ enable. Star Fox writes
+    /// $4200 = $31 (H+V IRQ + auto-joypad). When set we fire the CPU IRQ line
+    /// once per frame at the programmed scanline so the game's IRQ handler
+    /// ($00:010C RAM trampoline -> $02:88xx) runs, sets the frame-ready flag
+    /// $18BB the main loop ($02:DA3B) spins on, and RTIs — turning the top-of-
+    /// frame wait into an actual per-frame tick.
+    irq_enabled: bool,
+    /// Programmed V-count IRQ line ($4209/$420A VTIME); default = vblank start.
+    irq_vtime: u16,
+    /// IRQ request latched at the target scanline, cleared by a $4211 ack read.
+    irq_pending: bool,
+    /// Auto-joypad-read result presented on $4218 (JOY1L) / $4219 (JOY1H).
+    /// Bit layout (16-bit): B Y Sel Start Up Dn Lt Rt A X L R 0 0 0 0.
+    /// Default 0 = no buttons; set via [`RetailBootBus::set_pad1`] to script
+    /// input for the co-exec harness.
+    pad1: u16,
 }
+
+/// Dots per scanline (SNES: 341 dots, 340 on some lines — we use the nominal).
+const DOTS_PER_LINE: u64 = 341;
+/// Scanlines per frame (NTSC nominal).
+const LINES_PER_FRAME: u64 = 262;
+/// First scanline of vblank (NTSC: 225 = $E1 after 224 visible lines).
+const VBLANK_START_LINE: u64 = 225;
 
 impl RetailBootBus {
     pub fn new(rom: Vec<u8>) -> Self {
-        RetailBootBus { inner: SnesBus::new(rom), res_line: true, vbl_toggle: false }
+        RetailBootBus {
+            inner: SnesBus::new(rom),
+            res_line: true,
+            dot: 0,
+            latched_h: 0,
+            latched_v: 0,
+            ophct_hi: false,
+            opvct_hi: false,
+            nmi_latch: false,
+            prev_vblank: false,
+            apu_active: false,
+            apu_echo: 0,
+            nmi_enabled: false,
+            irq_enabled: false,
+            irq_vtime: VBLANK_START_LINE as u16,
+            irq_pending: false,
+            pad1: 0,
+        }
+    }
+
+    /// Set the controller-1 button state presented to the auto-joypad registers.
+    pub fn set_pad1(&mut self, buttons: u16) {
+        self.pad1 = buttons;
+    }
+
+    #[inline]
+    fn cur_h(&self) -> u16 {
+        (self.dot % DOTS_PER_LINE) as u16
+    }
+    #[inline]
+    fn cur_v(&self) -> u16 {
+        ((self.dot / DOTS_PER_LINE) % LINES_PER_FRAME) as u16
+    }
+    #[inline]
+    fn in_vblank(&self) -> bool {
+        (self.cur_v() as u64) >= VBLANK_START_LINE
+    }
+
+    /// Advance the raster by one CPU clock and update the sticky NMI flag +
+    /// scanline IRQ latch on the relevant raster edges. Called once per
+    /// `cpu.cycle` by [`boot_retail`].
+    pub fn tick_raster(&mut self) {
+        let prev_v = self.cur_v();
+        self.dot = self.dot.wrapping_add(1);
+        let v = self.cur_v();
+        let vb = self.in_vblank();
+        if vb && !self.prev_vblank {
+            self.nmi_latch = true; // vblank just began -> NMI would fire
+        }
+        self.prev_vblank = vb;
+        // Latch a scanline IRQ once, when V first reaches the programmed line.
+        if self.irq_enabled && v == self.irq_vtime && prev_v != self.irq_vtime {
+            self.irq_pending = true;
+        }
     }
 
     fn reg_read(&mut self, off: u16) -> Option<u8> {
         match off {
-            // RDNMI ($4210): bit7 = NMI/vblank flag, low nibble = CPU version (2).
+            // SLHV ($2137): reading latches the current H/V counters.
+            0x2137 => {
+                self.latched_h = self.cur_h();
+                self.latched_v = self.cur_v();
+                self.ophct_hi = false;
+                self.opvct_hi = false;
+                Some(0)
+            }
+            // OPHCT ($213C): H counter, low byte then high bit, toggling.
+            0x213C => {
+                let v = if self.ophct_hi {
+                    (self.latched_h >> 8) & 0x01
+                } else {
+                    self.latched_h & 0xFF
+                };
+                self.ophct_hi = !self.ophct_hi;
+                Some(v as u8)
+            }
+            // OPVCT ($213D): V counter, low byte then high bit, toggling. A read
+            // also latches (hardware latches H/V on OPHCT/OPVCT access), so a
+            // loop that skips $2137 still sweeps.
+            0x213D => {
+                if !self.opvct_hi {
+                    self.latched_v = self.cur_v();
+                }
+                let v = if self.opvct_hi {
+                    (self.latched_v >> 8) & 0x01
+                } else {
+                    self.latched_v & 0xFF
+                };
+                self.opvct_hi = !self.opvct_hi;
+                Some(v as u8)
+            }
+            // RDNMI ($4210): bit7 = NMI-occurred (sticky, cleared on read),
+            // low nibble = CPU version (2).
             0x4210 => {
-                self.vbl_toggle = !self.vbl_toggle;
-                Some(if self.vbl_toggle { 0x82 } else { 0x02 })
+                let b7 = if self.nmi_latch { 0x80 } else { 0x00 };
+                self.nmi_latch = false;
+                Some(b7 | 0x02)
             }
-            // HVBJOY ($4212): bit7 = vblank, bit0 = auto-joypad-read done.
+            // TIMEUP ($4211): bit7 = H/V-IRQ occurred; reading acks (clears)
+            // the IRQ line, exactly as the IRQ handler does to dismiss it.
+            0x4211 => {
+                let b7 = if self.irq_pending { 0x80 } else { 0x00 };
+                self.irq_pending = false;
+                Some(b7)
+            }
+            // HVBJOY ($4212): bit7 = vblank, bit6 = hblank, bit0 = auto-joypad
+            // busy (0 = ready). Reflects the real raster so both `bmi`/`bpl`
+            // spin directions resolve.
             0x4212 => {
-                self.vbl_toggle = !self.vbl_toggle;
-                Some(if self.vbl_toggle { 0x81 } else { 0x01 })
+                let mut v = 0u8;
+                if self.in_vblank() {
+                    v |= 0x80;
+                }
+                // hblank: dots outside the active 0..256 region.
+                if self.cur_h() >= 274 || self.cur_h() < 1 {
+                    v |= 0x40;
+                }
+                Some(v) // bit0 = 0: auto-joypad read is "done"
             }
-            // APU I/O ports ($2140-$2143): return 0 (no SPC handshake modelled).
-            0x2140..=0x2143 => Some(0x00),
+            // APUIO0 ($2140): Idle -> $AA (ready); Active -> echo last write.
+            0x2140 => Some(if self.apu_active { self.apu_echo } else { 0xAA }),
+            // APUIO1 ($2141): Idle -> $BB (pairs with $AA for the $BBAA ready
+            // check); Active the CPU only writes it (data-out).
+            0x2141 => Some(if self.apu_active { 0x00 } else { 0xBB }),
+            // APUIO2/3 ($2142/$2143): address-in ports, CPU writes only.
+            0x2142..=0x2143 => Some(0x00),
+            // JOY1L/JOY1H ($4218/$4219): auto-joypad-read controller-1 state.
+            0x4218 => Some(self.pad1 as u8),
+            0x4219 => Some((self.pad1 >> 8) as u8),
             _ => None,
+        }
+    }
+
+    /// Intercept writes to the APU ports to drive the upload-handshake shim.
+    fn reg_write(&mut self, off: u16, v: u8) {
+        match off {
+            // NMITIMEN ($4200): bit7 = NMI enable, bits 5/4 = V/H-IRQ enable.
+            0x4200 => {
+                self.nmi_enabled = (v & 0x80) != 0;
+                self.irq_enabled = (v & 0x30) != 0;
+            }
+            // VTIME ($4209 low / $420A high bit): programmed V-IRQ scanline.
+            0x4209 => self.irq_vtime = (self.irq_vtime & 0x100) | v as u16,
+            0x420A => self.irq_vtime = (self.irq_vtime & 0x0FF) | (((v as u16) & 1) << 8),
+            0x2140 => {
+                if self.apu_active {
+                    // Echo every index/kick back on the next $2140 read.
+                    self.apu_echo = v;
+                } else if v != 0xFF {
+                    // Idle: the $CC kick starts a block; the $FF re-arm nudge is
+                    // ignored (we are already presenting "ready").
+                    self.apu_active = true;
+                    self.apu_echo = v;
+                }
+            }
+            // Block terminate is `STZ $2143`; a $00 write here returns us to
+            // Idle so the next block's $BBAA ready-check passes.
+            0x2143 => {
+                if v == 0x00 {
+                    self.apu_active = false;
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -216,12 +424,31 @@ impl System for RetailBootBus {
         self.inner.read8(addr)
     }
     fn write(&mut self, addr: u32, data: u8, _at: AddressType, _s: &Signals) {
+        let bank = (addr >> 16) & 0xFF;
+        let off = (addr & 0xFFFF) as u16;
+        if (bank <= 0x3F || (0x80..=0xBF).contains(&bank))
+            && ((0x2140..=0x2143).contains(&off)
+                || off == 0x4200
+                || off == 0x4209
+                || off == 0x420A)
+        {
+            self.reg_write(off, data);
+        }
         self.inner.write8(addr, data);
     }
     fn res(&mut self) -> bool {
         let r = self.res_line;
         self.res_line = false;
         r
+    }
+    fn nmi(&mut self) -> bool {
+        // Assert NMI through vblank (the core edge-triggers on the rising edge,
+        // so it fires once per frame) while the game has NMI enabled.
+        self.nmi_enabled && self.in_vblank()
+    }
+    fn irq(&mut self) -> bool {
+        // Level-sensitive: held until the handler acks via a $4211 read.
+        self.irq_enabled && self.irq_pending
     }
 }
 
@@ -251,6 +478,17 @@ pub struct BootReport {
     /// First few opcode addresses after reset (bank<<16 | pc), for a sanity
     /// trace that the reset really vectored into bank $1F boot code.
     pub head_trace: Vec<u32>,
+    /// Periodic (step, pc) samples so we can see the boot march forward through
+    /// distinct code regions instead of only the final resting place.
+    pub progress: Vec<(u64, u32)>,
+    /// Final raster dot count reached (frames ≈ dot / (341*262)).
+    pub final_dot: u64,
+    /// Peak number of live object slots (shape != 0) seen during the run.
+    pub max_live_objects: usize,
+    /// Object-pool snapshot taken at the step where `max_live_objects` peaked.
+    pub objects_at_peak: Vec<ObjState>,
+    /// Step at which the live-object peak was observed.
+    pub peak_step: u64,
 }
 
 /// Boot the retail cart from its real reset vector and run up to `max_steps`
@@ -276,9 +514,18 @@ pub fn boot_retail(rom: Vec<u8>, max_steps: u64) -> BootReport {
 
     let mut prev_pc = u32::MAX;
     let mut cycles = 0u64;
+    let mut progress: Vec<(u64, u32)> = Vec::new();
+    let mut last_sample = 0u64;
+    let mut last_pool_sample = 0u64;
+    let mut max_live_objects = 0usize;
+    let mut objects_at_peak: Vec<ObjState> = Vec::new();
+    let mut peak_step = 0u64;
     let cyc_cap = max_steps.saturating_mul(64);
     while steps < max_steps && cycles < cyc_cap {
         cpu.cycle(&mut bus);
+        // Advance the free-running raster once per CPU clock so scanline/vblank
+        // spin loops satisfy.
+        bus.tick_raster();
         cycles += 1;
         let cur = ((cpu.pbr() as u32) << 16) | cpu.pc() as u32;
         // Count an instruction boundary each time PC moves to a new fetch after
@@ -291,6 +538,22 @@ pub fn boot_retail(rom: Vec<u8>, max_steps: u64) -> BootReport {
             if head_trace.len() < 24 {
                 head_trace.push(cur);
             }
+            // Periodic progress sample (bounded).
+            if steps - last_sample >= 25_000 && progress.len() < 400 {
+                progress.push((steps, cur));
+                last_sample = steps;
+            }
+            // Periodically snapshot the object pool and track the live peak.
+            if steps - last_pool_sample >= 50_000 {
+                last_pool_sample = steps;
+                let snap = snapshot_objects(&bus.inner, &RETAIL_POOL);
+                let live = snap.iter().filter(|o| o.shape != 0).count();
+                if live > max_live_objects {
+                    max_live_objects = live;
+                    objects_at_peak = snap;
+                    peak_step = steps;
+                }
+            }
             recent.push_back(cur);
             if recent.len() > 8 {
                 recent.pop_front();
@@ -301,7 +564,11 @@ pub fn boot_retail(rom: Vec<u8>, max_steps: u64) -> BootReport {
             let sig = ((lo as u64) << 32) | hi as u64;
             if recent.len() == 8 && (hi - lo) < 0x40 && sig == last_window_sig {
                 repeat_run += 1;
-                if repeat_run > 2000 {
+                // Threshold set well above the game's longest finite busy-wait
+                // (a `LDX #$0000; DEX; BNE` delay = 65536 iters ≈ 131 072 PC
+                // steps) so real countdown delays pass; only a genuinely
+                // unbounded hardware-poll trips this.
+                if repeat_run > 400_000 {
                     stalled = true;
                     loop_lo = (lo & 0xFFFF) as u16;
                     loop_hi = (hi & 0xFFFF) as u16;
@@ -343,5 +610,10 @@ pub fn boot_retail(rom: Vec<u8>, max_steps: u64) -> BootReport {
         stopped: cpu.stopped(),
         distinct_pcs: visited.len(),
         head_trace,
+        progress,
+        final_dot: bus.dot,
+        max_live_objects,
+        objects_at_peak,
+        peak_step,
     }
 }

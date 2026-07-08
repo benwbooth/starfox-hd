@@ -22,18 +22,29 @@ fn retail() -> Option<Vec<u8>> {
     }
 }
 
-/// MILESTONE 1 — the retail cart boots from its real reset vector and the CPU
-/// runs real code (does not immediately trap). Reports how far it gets.
+/// MILESTONE 1 — the retail cart boots from its real reset vector, and with a
+/// minimal set of hardware shims (PPU raster counter, SPC upload handshake,
+/// H/V-counter IRQ) it marches all the way into the **per-frame main game loop**
+/// and ticks ~230 frames before parking.
 ///
-/// Star Fox is a Super-FX title: the CPU side is a shell that hands 3D/render to
-/// the GSU (Mario Chip) and waits on PPU vblank + the SPC audio handshake. A
-/// CPU-only core therefore CANNOT reach live gameplay; it runs the boot path and
-/// then parks in a hardware-wait loop. We assert only that it ran a healthy
-/// amount of real code and characterise the stall.
+/// Shim coverage (see `retail.rs::RetailBootBus`):
+///  * PPU raster: $2137 SLHV latch, $213C/$213D OPHCT/OPVCT sweeping counters,
+///    $4212 HVBJOY, $4210 RDNMI — clears the $03:BD97 OPVCT raster-wait.
+///  * SPC700 upload: $2140-$2143 Idle/Active handshake ($AA/$BB ready + port-0
+///    echo) — clears the $03:B12E `CMP #$BBAA` + all block-upload echo waits.
+///  * H/V-counter IRQ: $4200 enable, $4209/$420A VTIME, $4211 ack — fires the
+///    game's IRQ handler each frame, which sets the frame-ready flag $18BB the
+///    main loop ($02:DA3B) spins on. This is what makes the loop actually tick.
+///
+/// Remaining blocker (precise): after ~230 frames control falls into the bank-$0
+/// forced-blank screen/fade routine $00:8100-8198 ending in the terminal
+/// `BRA $8198`. Reaching *live gameplay object spawns* additionally needs
+/// controller-input injection (auto-joypad $4218/$4219) to leave the attract/
+/// intro, plus GSU co-execution for the per-frame 3D + level-start spawn path.
 #[test]
 fn retail_boots_from_reset() {
     let Some(rom) = retail() else { return };
-    let rep = boot_retail(rom, 2_000_000);
+    let rep = boot_retail(rom, 12_000_000);
     eprintln!(
         "RETAIL BOOT: steps={} distinct_pcs={} final={:02X}:{:04X} stopped={} stalled_loop={} loop={:02X}:{:04X}-{:04X}",
         rep.steps,
@@ -52,16 +63,40 @@ fn retail_boots_from_reset() {
     );
     let trace: Vec<String> = rep.head_trace.iter().map(|a| format!("{a:06X}")).collect();
     eprintln!("RETAIL BOOT head trace (opcode addrs): {trace:?}");
+    eprintln!("RETAIL BOOT raster: final_dot={} (~{} frames)", rep.final_dot, rep.final_dot / (341 * 262));
+    eprintln!(
+        "RETAIL BOOT objects: peak_live={} at step {}k",
+        rep.max_live_objects, rep.peak_step / 1000
+    );
+    for o in rep.objects_at_peak.iter().filter(|o| o.shape != 0).take(12) {
+        eprintln!(
+            "  slot {:>2}: shape=${:04X} flags=${:04X} world=({},{},{})",
+            o.slot, o.shape, o.flags, o.worldx, o.worldy, o.worldz
+        );
+    }
+    let prog: Vec<String> =
+        rep.progress.iter().map(|(s, a)| format!("{}k@{a:06X}", s / 1000)).collect();
+    eprintln!("RETAIL BOOT PC progression: {prog:?}");
 
     // Reset is `BRA $FF96 -> CLC/XCE/JML $1F:BDB1`; confirm we actually vectored
     // into the bank-$1F boot code rather than trapping at the vector.
     let hit_boot_bank = rep.head_trace.iter().any(|a| (a >> 16) == 0x1F);
     eprintln!("RETAIL BOOT reached bank $1F boot code: {hit_boot_bank}");
 
-    // "CPU runs, doesn't immediately crash": it retired real instructions and
-    // touched a non-trivial number of distinct code addresses.
+    // The shims march boot deep past the raster/APU/IRQ gates into the ticking
+    // main loop: thousands of distinct code addresses and many frames of raster.
+    // (Generous lower bounds so the milestone is robust, not brittle.)
     assert!(rep.steps > 100, "CPU stalled almost immediately ({} steps)", rep.steps);
-    assert!(rep.distinct_pcs > 20, "too little distinct code ran");
+    assert!(
+        rep.distinct_pcs > 5_000,
+        "expected the boot to reach the main loop (distinct_pcs={})",
+        rep.distinct_pcs,
+    );
+    assert!(
+        rep.final_dot / (341 * 262) > 30,
+        "expected many frames of main-loop ticking (frames={})",
+        rep.final_dot / (341 * 262),
+    );
 }
 
 /// MILESTONE 2 — the retail object-array layout, re-derived from the retail cart
