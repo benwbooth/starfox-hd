@@ -1496,3 +1496,252 @@ fn volrockdown_rises_scatters_then_falls_and_removes() {
     }
     assert!(removed, "self-removes (remove_istrat) once the bounce decays");
 }
+
+// ============================================================
+// Firing-enemy family — misspod / misstank / szaco0 / szaco5 / houdai5f.
+// ASM oracle: GASTRATS.ASM (misspod:3275-3395, misstank:1319-1436),
+// GA2STRAT.ASM (szaco0:329-357, szaco5:478-527), KSTRATS.ASM
+// (houdai5f:588-608), STRATMAC.INC (s_goto_WPpostab:2510-2583). No C oracle.
+// Every expected value is hand-derived from the 65816 source and cited inline.
+// ============================================================
+
+// misstank's ROM-correct istrat index is 51 (ISTRATS.ASM:471) — sf-map rc.rs's
+// IS_MISSTANK=50 is a mislabel that collides with trackcorner (see the port's
+// module doc). Registering at 51 keeps trackcorner (50) intact.
+const IS_MISSTANK: usize = 51;
+const IS_MISSPOD: usize = 68; // level1_5
+const IS_SZACO0: usize = 130; // level1_2
+const IS_SZACO5: usize = 156; // level1_3
+const IS_HOUDAI5F: usize = 187; // route3 level3_7
+
+const MISSPOD_HP: u8 = 2; // STRATEQU.INC:112
+const MISSPOD_AP: u8 = 16; // STRATEQU.INC:113
+const MISSTANK_HP: u8 = 4; // STRATEQU.INC:150
+const MISSTANK_AP: u8 = 8; // STRATEQU.INC:151
+const SZACO0_HP: u8 = 4; // STRATEQU.INC:158
+const SZACO5_HP: u8 = 2; // STRATEQU.INC:162
+const SZACO5_AP: u8 = 8; // STRATEQU.INC:163
+const HOUDAI5_HP: u8 = 4; // KSTRATS.ASM:47
+const HOUDAI5_AP: u8 = 6; // KSTRATS.ASM:48
+const ATMISSILE: u8 = 2; // alien.rs
+// (ASF_COLLDISABLE = 0x10 is already declared earlier in this test module.)
+
+fn count_type(g: &Game, enemy: u16, tflag: u8) -> usize {
+    g.objs
+        .aliens
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| *i != 0 && *i as u16 != enemy && a.active && a.type_ & tflag != 0)
+        .count()
+}
+
+fn any_laser(g: &Game) -> bool {
+    g.objs
+        .aliens
+        .iter()
+        .enumerate()
+        .any(|(i, a)| i != 0 && a.active && a.type_ & ATLASER != 0)
+}
+
+// ---------------- misspod (IS 68) ----------------
+
+#[test]
+fn misspod_init_sets_flags_and_drifts_when_far() {
+    // GASTRATS.ASM:3277-3283: hp/ap, vz=-10, roty=deg180, sbyte1=rnd&3.
+    let mut g = setup();
+    let pod = place(&mut g, IS_MISSPOD, 0, 0, 3000, 40);
+    tick(&mut g, pod); // misspod_Istrat (no fall-through)
+    let a = g.objs.aliens[pod as usize];
+    assert_eq!(a.hp, MISSPOD_HP, "misspodHP");
+    assert_eq!(a.ap, MISSPOD_AP, "misspodAP");
+    assert_eq!(a.roty, DEG180, "s_set_alvar roty,#deg180");
+    assert_eq!(a.vz, -10, "s_set_vecs #0,#0,#-10");
+    assert!(a.sbyte1 <= 3, "sbyte1 = rnd&3 pattern select");
+    assert!(a.expstratptr.is_some(), "explode wired");
+    // Far (z3000, dist_xz ~1000+): misspod_strat drifts + rolls rotz.
+    let rotz0 = g.objs.aliens[pod as usize].rotz;
+    tick(&mut g, pod);
+    assert_eq!(
+        g.objs.aliens[pod as usize].rotz,
+        rotz0.wrapping_add(5),
+        "endmisspod: s_add_alvar rotz,#5"
+    );
+    assert!(g.objs.aliens[pod as usize].active, "still alive when far");
+}
+
+#[test]
+fn misspod_close_fires_five_missiles_and_self_destructs() {
+    // GASTRATS.ASM:3288 s_jmp_distless #1000 -> misspoda: 5x s_fire_weapon
+    // missile2 then s_kill_obj x (hp0 + colldisable).
+    let mut g = setup();
+    let pod = place(&mut g, IS_MISSPOD, 0, 0, 800, 40); // dist_xz(800) ~675 < 1000
+    tick(&mut g, pod); // init
+    tick(&mut g, pod); // misspod_strat -> misspoda burst
+    assert_eq!(count_type(&g, pod, ATMISSILE), 5, "5x missile2 burst");
+    let a = g.objs.aliens[pod as usize];
+    assert_eq!(a.hp, 0, "s_kill_obj: hp=0");
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "s_kill_obj: colldisable");
+}
+
+// ---------------- misstank (IS 50) ----------------
+
+#[test]
+fn misstank_init_builds_carrier_and_counts_down() {
+    // GASTRATS.ASM:1327-1342 init falls through into the strat (no s_end_strat),
+    // so sbyte1 (20) is decremented once this same tick.
+    let mut g = setup();
+    let tank = place(&mut g, IS_MISSTANK, 0, 0, 3000, 60);
+    tick(&mut g, tank);
+    let a = g.objs.aliens[tank as usize];
+    assert_eq!(a.hp, MISSTANK_HP, "misstankHP");
+    assert_eq!(a.ap, MISSTANK_AP, "misstankAP");
+    assert_eq!(a.vel, 30, "s_set_speed #30");
+    assert_eq!(a.sbyte1, 19, "sbyte1 20 set, strat decremented once");
+    assert_ne!(a.ptr, 0, "al_ptr holds the small_m carrier");
+    let child = (a.ptr - 1) as usize;
+    assert_eq!(g.objs.aliens[child].hp, 4, "carrier hp4");
+    assert_eq!(a.sflags2 & ASF2_SFLAG1, 0, "not launched while far");
+}
+
+#[test]
+fn misstank_launches_missile_when_player_close() {
+    // GASTRATS.ASM:1362-1370: within 1000 z -> child becomes woodsgo missile,
+    // speed 60, sflag1 latched.
+    let mut g = setup();
+    let tank = place(&mut g, IS_MISSTANK, 0, 0, 500, 60);
+    tick(&mut g, tank); // init falls through -> launch this tick
+    let a = g.objs.aliens[tank as usize];
+    assert_ne!(a.sflags2 & ASF2_SFLAG1, 0, "sflag1 latched after launch");
+    let child = (a.ptr - 1) as usize;
+    assert_eq!(g.objs.aliens[child].vel, 60, "launched missile speed 60");
+    assert!(g.objs.aliens[child].stratptr.is_some(), "child now woodsgo_strat");
+}
+
+#[test]
+fn misstank_death_kills_unlaunched_carrier() {
+    // GASTRATS.ASM:1319-1325: misstankexp kills the carried missile if unlaunched.
+    let mut g = setup();
+    let tank = place(&mut g, IS_MISSTANK, 0, 0, 3000, 60); // far -> not launched
+    tick(&mut g, tank);
+    let child = (g.objs.aliens[tank as usize].ptr - 1) as usize;
+    let exp = g.objs.aliens[tank as usize].expstratptr.expect("exp wired");
+    g.call_strat(exp, tank);
+    assert_eq!(g.objs.aliens[child].hp, 0, "s_kill_obj carrier on death");
+}
+
+// ---------------- szaco0 (IS 130) ----------------
+
+#[test]
+fn szaco0_init_picks_path_and_arms_timer() {
+    // GA2STRAT.ASM:329-337 falls through into szaco0_strat; sword1 (340) is
+    // decremented once this tick.
+    let mut g = setup();
+    let z = place(&mut g, IS_SZACO0, 0, 0, 3000, 42);
+    tick(&mut g, z);
+    let a = g.objs.aliens[z as usize];
+    assert_eq!(a.hp, SZACO0_HP, "Szaco0HP");
+    assert!(a.sbyte1 <= 3, "rnd&3 flight-path select");
+    assert_eq!(a.sword1, 339, "sword1 340 set, decremented once");
+    assert!(a.expstratptr.is_some(), "explode wired");
+}
+
+#[test]
+fn szaco0_navigates_toward_waypoint() {
+    // s_goto_WP s_speedto #40: velocity ramps up from 0 as it flies the path.
+    let mut g = setup();
+    let z = place(&mut g, IS_SZACO0, 0, 0, 3000, 42);
+    for _ in 0..4 {
+        tick(&mut g, z);
+    }
+    assert!(g.objs.aliens[z as usize].vel > 0, "speed_to ramps toward 40");
+}
+
+#[test]
+fn szaco0_fires_at_the_fire_waypoint() {
+    // Every table's waypoint 1 carries wp_fire; in state 1 on the notdelay(2)
+    // gate it fires RELSLOWELASER at the player (STRATMAC.INC:2545-2554).
+    let mut g = setup();
+    let z = place(&mut g, IS_SZACO0, 0, 0, 900, 42);
+    tick(&mut g, z); // init -> stratptr = szaco0_strat
+    g.objs.aliens[z as usize].stratstate = 1; // waypoint 1 (wp_fire)
+    g.vars.gameframe = 0; // notdelay(2) passes
+    tick(&mut g, z);
+    assert!(any_laser(&g), "wp_fire spawns a RELSLOWELASER");
+}
+
+// ---------------- szaco5 (IS 156) ----------------
+
+#[test]
+fn szaco5_init_sets_flags_state0() {
+    // GA2STRAT.ASM:478-488: hp/ap, speed 30, deg180 facing, anim active.
+    let mut g = setup();
+    let z = place(&mut g, IS_SZACO5, 0, 0, 4000, 129); // far: no fire, stays state 0
+    tick(&mut g, z);
+    let a = g.objs.aliens[z as usize];
+    assert_eq!(a.hp, SZACO5_HP, "Szaco5HP");
+    assert_eq!(a.ap, SZACO5_AP, "Szaco5AP");
+    assert_eq!(a.vel, 30, "s_set_speed #30");
+    assert_eq!(a.animframe & 0x80, 0x80, "s_init_anim active flag");
+    assert_eq!(a.stratstate, 0, "far (>=1500 z) stays in the aim state");
+    assert!(a.expstratptr.is_some(), "explode wired");
+}
+
+#[test]
+fn szaco5_fires_and_advances_when_in_range() {
+    // GA2STRAT.ASM:491-499: within 1500 z it aims, fires RELSLOWELASER, and
+    // s_next_state advances out of state 0.
+    let mut g = setup();
+    let z = place(&mut g, IS_SZACO5, 0, 0, 1000, 129);
+    tick(&mut g, z); // init falls through into state 0
+    assert!(any_laser(&g), "state 0 fires RELSLOWELASER within 1500 z");
+    assert!(g.objs.aliens[z as usize].stratstate >= 1, "s_next_state advanced");
+}
+
+// ---------------- houdai5f (IS 187) ----------------
+
+#[test]
+fn houdai5f_init_sets_flags() {
+    // KSTRATS.ASM:588-593: hp/ap, anim active. Use a frame that fails the /32
+    // gate so no shot is spawned during the init tick.
+    let mut g = setup();
+    g.vars.gameframe = 1; // (gf & 31) != 0 -> no fire
+    let h = place(&mut g, IS_HOUDAI5F, 0, 0, 3000, 44);
+    tick(&mut g, h);
+    let a = g.objs.aliens[h as usize];
+    assert_eq!(a.hp, HOUDAI5_HP, "houdai5HP");
+    assert_eq!(a.ap, HOUDAI5_AP, "houdai5AP");
+    assert_eq!(a.animframe & 0x80, 0x80, "s_init_anim active flag");
+    assert!(a.expstratptr.is_some(), "explode wired");
+    assert!(!any_laser(&g), "gate closed -> no shot");
+}
+
+#[test]
+fn houdai5f_fires_homing_hplasma_when_far() {
+    // KSTRATS.ASM:596-606: (gf&31)==0 and |dz|>=400 -> homing Hplasma, speed/
+    // life 100.
+    let mut g = setup();
+    g.vars.gameframe = 0; // gate open
+    let h = place(&mut g, IS_HOUDAI5F, 0, 0, 3000, 44); // |dz|=3000 >= 400
+    tick(&mut g, h);
+    assert!(any_laser(&g), "fires a homing Hplasma when far");
+    let shot = g
+        .objs
+        .aliens
+        .iter()
+        .enumerate()
+        .find(|(i, a)| *i != 0 && a.active && a.type_ & ATLASER != 0)
+        .map(|(_, a)| *a)
+        .expect("shot");
+    assert_eq!(shot.vel, 100, "s_set_speed y,#100");
+    assert_eq!(shot.count, 100, "s_set_lifecnt y,#100");
+}
+
+#[test]
+fn houdai5f_holds_fire_when_player_close() {
+    // KSTRATS.ASM:598 s_jmp_Zdistless #400 -> no fire when the player is near.
+    let mut g = setup();
+    g.vars.gameframe = 0;
+    let h = place(&mut g, IS_HOUDAI5F, 0, 0, 200, 44); // |dz|=200 < 400
+    tick(&mut g, h);
+    assert!(!any_laser(&g), "no shot when the player is within 400 z");
+}

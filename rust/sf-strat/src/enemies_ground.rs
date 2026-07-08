@@ -29,7 +29,7 @@
 
 use sf_game::alien::{
     Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON, ASF_COLLDISABLE,
-    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATZREMOVE, NUMBER_AL,
+    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, StrategyFn};
 use sf_game::vars::{
@@ -43,8 +43,9 @@ use crate::enemy_a::{
     achase_angle, add_player_z, boss_attach_child_to_mother, boss_find_child_obj,
     boss_get_mother_obj, copy_pos, ea_random, homingflat_strat, player, sid, speed_to,
     strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser,
-    strat_fire_relslowlaserhome, strat_hit_flash, strat_move3d, strat_pitch_toward,
-    COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG180, DEG45, DEG90,
+    strat_fire_relslowlaserhome, strat_hit_flash, strat_move3d, strat_phase_offset,
+    strat_pitch_toward, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG180, DEG45,
+    DEG90,
 };
 use crate::common::{
     angle_xz, apply_velocity, dist_xz, gen_vecs_2d, gen_vecs_3d, make_obj, projectile_strat_ids,
@@ -2925,6 +2926,813 @@ fn volrockdown_strat(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// Firing-enemy family — misspod / misstank / szaco0 / szaco5 / houdai5f.
+//
+// ASM is the sole ground truth (no C-oracle for any of these):
+//   misspod   GASTRATS.ASM:3275-3395   misstank  GASTRATS.ASM:1319-1436
+//   szaco0    GA2STRAT.ASM:329-357     szaco5    GA2STRAT.ASM:478-527
+//   houdai5f  KSTRATS.ASM:588-608      + STRATMAC s_goto_WPpostab:2510-2583.
+//
+// ISTRATS.ASM def_istrat rows -> sf-map placement indices:
+//   misspod  = 68   (level1_5 / route3 common.rs)         [macro-count == 68]
+//   szaco0   = 130  (level1_2 / route2_5)                 [macro-count == 130]
+//   szaco5   = 156  (level1_3)                            [macro-count == 156]
+//   houdai5f = 187  (route3 level3_7 / route2 rc.rs / level1_4)
+//                   [macro-count 188; sf-map 187 is the ROM truth — the +1
+//                    def_istrat drift past ~162, so we register at 187]
+//   misstank = 51   (ISTRATS.ASM:471, one after trackcorner:470=50)
+//                   [macro-count == 51].
+//
+// KNOWN sf-map BUG (outside this lane's edit scope): route2 `rc.rs:141`
+// declares `IS_MISSTANK = 50`, which COLLIDES with trackcorner (correctly 50,
+// ISTRATS.ASM:470, already registered+tested here). 50 is a mislabel — the true
+// misstank istrat index is 51 (its def_istrat is the very next row). We register
+// misstank at the ROM-correct 51 and leave trackcorner's 50 intact; until
+// rc.rs's const is fixed to 51, route2's misstank cspecials resolve to
+// trackcorner (inert scenery) rather than spawning the tank.
+//
+// SYNTH IS SKIPPED (false gap): the doc's `IS_SYNTH` is `mothers.rs:146
+// const IS_SYNTH = 0x020000` — the synthetic-strategy-address namespace base,
+// NOT a placed enemy. No `synth_Istrat` exists anywhere in the reference ASM
+// and no map cspecial spawns it; the reachable-doc scanner picked up the
+// identifier by name. Nothing to port.
+//
+// Fidelity scope-outs (cosmetic, asserted-around, never asserted):
+//   fog (s_initfog/s_dofog), engine-flame sprites (makeengine_srou), smoke
+//   (makesmoke_srou), death-debris meshes (s_set_debrisdata + relexplode),
+//   escapee/smark explosion variants (escapeeexplode2 / smarkexplode reduce to
+//   the generic explode here), and positional sound. Visual weapon meshes are
+//   shape-0 invisible like every other ported projectile.
+// ============================================================
+
+const IS_MISSTANK: usize = 51; // ISTRATS.ASM:471 (sf-map rc.rs's 50 is a mislabel — see above)
+const IS_MISSPOD: usize = 68;
+const IS_SZACO0: usize = 130;
+const IS_SZACO5: usize = 156;
+const IS_HOUDAI5F: usize = 187;
+
+// HP/AP (INC/STRATEQU.INC + KSTRATS.ASM equs).
+const MISSPOD_HP: u8 = 2; // STRATEQU.INC:112 misspodHP
+const MISSPOD_AP: u8 = 16; // STRATEQU.INC:113 misspodAP
+const MISSTANK_HP: u8 = 4; // STRATEQU.INC:150 misstankHP
+const MISSTANK_AP: u8 = 8; // STRATEQU.INC:151 misstankAP
+const SZACO0_HP: u8 = 4; // STRATEQU.INC:158 Szaco0HP
+const SZACO0_AP: u8 = 8; // STRATEQU.INC:159 Szaco0AP
+const SZACO5_HP: u8 = 2; // STRATEQU.INC:162 Szaco5HP
+const SZACO5_AP: u8 = 8; // STRATEQU.INC:163 Szaco5AP
+const HOUDAI5_HP: u8 = 4; // KSTRATS.ASM:47 houdai5HP
+const HOUDAI5_AP: u8 = 6; // KSTRATS.ASM:48 houdai5AP
+
+// missile2 projectile facts (fire_missile2, GSTRATS.ASM:2740-2749).
+const MISSILE2_HP: u8 = 2; // STRATEQU.INC:82 missile2HP
+const MISSILE2_AP: u8 = 4; // STRATEQU.INC:83 missile2AP
+const MISSILE2_SPEED: u8 = 30; // GSTRATS.ASM:2746 s_set_speed #30
+const MISSILE2_LIFE: u8 = 100; // GSTRATS.ASM:2747 s_set_lifecnt #100
+
+// houdai5f homing-Hplasma override (KSTRATS.ASM:605-606).
+const HOUDAI5F_SHOT_SPEED: u8 = 100; // s_set_speed y,#100
+const HOUDAI5F_SHOT_LIFE: u8 = 100; // s_set_lifecnt y,#100
+// s_weapon_pos #0,#(-59<<2)>>weapon_scale,#0 -> <<weapon_scale(2) world muzzle.
+const HOUDAI5F_MUZZLE_Y: i16 = ((-59i16 << 2) >> 2) << 2; // = -236
+
+// (ASF2_SFLAG2 = sflags2 0x20 is already defined earlier in this module.)
+
+/// `-deg11` misstank turret pitch (VARS.INC deg11 = deg360/32 = 8).
+const NEG_DEG11: u8 = 0u8.wrapping_sub(8);
+
+const TWO_PI: f32 = 2.0 * std::f32::consts::PI;
+
+// ============================================================
+// missile2 — misspod's launched homing missile (fire_missile2 +
+// missile2_Istrat/missile2a_strat, GSTRATS.ASM:2740/1834-1856).
+// ============================================================
+
+/// `missile2a_strat` (GSTRATS.ASM:1846-1856): slow homing missile that pitches
+/// to `deg180` (dead-ahead, toward the player screen) and speeds up to 100 when
+/// within 600 z, spinning `rotz` as it flies. ROM removal is off-screen
+/// (`missboundchkexp`); here the `lifecnt`(100) countdown frees it (scope-out).
+fn missile2a_strat(g: &mut Game, idx: u16) {
+    // s_jmp_alsflag sflag2,.nspi ; s_jmp_Zdistmore #600 ; s_speedto #100,5.
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 == 0 && !zdist_more(g, idx, 600) {
+        let _ = speed_to(&mut g.objs.aliens[idx as usize], 100, 5);
+    }
+    // s_gen_3dvecs ; s_add_playerz ; s_add_vecs2pos.
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    // s_dec_lifecnt.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.count > 0 {
+            al.count -= 1;
+        }
+    }
+    // s_achase_2alvars rotx->0 rate2, roty->deg180 rate2 ; rotz += 10.
+    {
+        let mut rotx = g.objs.aliens[idx as usize].rotx;
+        achase_angle(&mut rotx, 0, 2);
+        let mut roty = g.objs.aliens[idx as usize].roty;
+        achase_angle(&mut roty, DEG180, 2);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = rotx;
+        al.roty = roty;
+        al.rotz = al.rotz.wrapping_add(10);
+    }
+    if g.objs.aliens[idx as usize].count == 0 {
+        g.objs.free(idx);
+    }
+}
+
+/// One `s_fire_weapon x,missile2` from misspod: build a #missile object at the
+/// (full-rotation-rotated) muzzle offset with the firer's current rots saved
+/// into sbyte1/sbyte2 (missile2_Istrat, GSTRATS.ASM:1834-1843), running
+/// `missile2a_strat`. Reads the firer's live rotx/roty (misspoda sets them per
+/// shot) and rotz (forced 0 by misspoda), matching `gen_weapon`.
+fn misspod_spawn_missile2(g: &mut Game, owner: u16, mx: i16, my: i16, mz: i16) {
+    let me = g.objs.aliens[owner as usize];
+    let (rx, ry, rz) = rotate_full_offset(&me, mx, my, mz);
+    let Some(shot) = make_obj(g, 0) else {
+        return;
+    };
+    let tick = sid(g, missile2a_strat);
+    let coll = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[shot as usize];
+    al.shape = 0;
+    al.sflags |= ASF_INVISIBLE | ASF_SHADOW; // missile2_Istrat s_set_alsflag shadow
+    al.type_ |= ATMISSILE | ATZREMOVE; // gen_weapon ATMISSILE + setremove_behind
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(coll);
+    al.hp = MISSILE2_HP;
+    al.ap = MISSILE2_AP;
+    al.vel = MISSILE2_SPEED;
+    al.count = MISSILE2_LIFE;
+    al.snd2 = 2;
+    al.worldx = me.worldx.wrapping_add(rx);
+    al.worldy = me.worldy.wrapping_add(ry);
+    al.worldz = me.worldz.wrapping_add(rz);
+    al.rotx = me.rotx;
+    al.roty = me.roty;
+    al.rotz = 0;
+    al.sbyte1 = me.rotx; // missile2_Istrat: al_sbyte1 = orig rotx
+    al.sbyte2 = me.roty; // al_sbyte2 = orig roty
+    al.immuneptr = owner;
+    al.collflags = ACF_FIRSTFRAME | ACF_WEAPON | COLLTYPE_ENEMYWEAP;
+    gen_vecs_3d(al);
+}
+
+// ============================================================
+// misspod (IS 68) — GASTRATS.ASM:3275-3395.
+// al_sbyte1 = rnd&3 selects the burst pattern: 0/3 = X, 1 = H, 2 = V.
+// ============================================================
+
+/// `misspod_Istrat` (GASTRATS.ASM:3275-3283): drift backward (`vz=-10`) facing
+/// `deg180`, roll `rotz`, until the player closes.
+fn misspod_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, misspod_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let r = (ea_random(g) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = MISSPOD_HP;
+    al.ap = MISSPOD_AP;
+    al.vx = 0; // s_set_vecs x,#0,#0,#-10
+    al.vy = 0;
+    al.vz = -10;
+    al.roty = DEG180;
+    al.sbyte1 = r;
+    al.snd2 = 2;
+    // s_end_strat: no fall-through (unlike szaco0/szaco5/houdai5f).
+}
+
+/// `misspod_strat` (GASTRATS.ASM:3284-3293): coast + roll until the player is
+/// within 1000 xz, then hand off to `misspoda_strat` (fires the burst THIS
+/// tick — misspoda_init has no s_end_strat, GASTRATS.ASM:3295-3297).
+fn misspod_strat(g: &mut Game, idx: u16) {
+    if let Some(pl) = player(g) {
+        if (dist_xz(&g.objs.aliens[idx as usize], &pl) as i32) < 1000 {
+            let s = sid(g, misspoda_strat);
+            g.objs.aliens[idx as usize].stratptr = Some(s);
+            g.hooks.play_se(0x49); // trigse $49
+            return misspoda_strat(g, idx);
+        }
+    }
+    // endmisspod: s_add_vecs2pos ; s_add_alvar rotz,#5.
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotz = al.rotz.wrapping_add(5);
+}
+
+/// `misspoda_strat` (GASTRATS.ASM:3298-3389): weapon_rot 0, fire the 5-missile
+/// burst for this pod's pattern, then `s_kill_obj x` (hp0 + colldisable -> the
+/// engine explodes it via `explode_Istrat`). rotz is pushed/zeroed for the
+/// muzzle-rotation math and pulled back before the kill.
+fn misspoda_strat(g: &mut Game, idx: u16) {
+    let pattern = g.objs.aliens[idx as usize].sbyte1;
+    let saved_rotz = g.objs.aliens[idx as usize].rotz;
+    g.objs.aliens[idx as usize].rotz = 0; // s_set_alvar rotz,#0
+    match pattern {
+        2 => misspod_fire_v(g, idx),
+        1 => misspod_fire_h(g, idx),
+        _ => misspod_fire_x(g, idx), // 0 or 3
+    }
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotz = saved_rotz; // s_pull_alvar rotz
+    // s_kill_obj x.
+    al.sflags |= ASF_COLLDISABLE;
+    al.hp = 0;
+}
+
+/// misspodV (GASTRATS.ASM:3310-3335): vertical column — muzzle offsets on Y,
+/// the outer pair pitched ±deg90.
+fn misspod_fire_v(g: &mut Game, idx: u16) {
+    set_pod_aim(g, idx, 0, DEG180);
+    misspod_spawn_missile2(g, idx, 0, 0, 120); // #120>>2<<2
+    misspod_spawn_missile2(g, idx, 0, 68, 0); // #70>>2<<2 = 68
+    misspod_spawn_missile2(g, idx, 0, -68, 0);
+    set_pod_aim(g, idx, DEG90, DEG180);
+    misspod_spawn_missile2(g, idx, 0, -68, 0);
+    set_pod_aim(g, idx, DEG90.wrapping_neg(), DEG180);
+    misspod_spawn_missile2(g, idx, 0, -68, 0);
+}
+
+/// misspodH (GASTRATS.ASM:3337-3362): horizontal row — muzzle offsets on X, the
+/// outer pair yawed ±deg90.
+fn misspod_fire_h(g: &mut Game, idx: u16) {
+    set_pod_aim(g, idx, 0, DEG180);
+    misspod_spawn_missile2(g, idx, 0, 0, 120);
+    misspod_spawn_missile2(g, idx, 68, 0, 0);
+    misspod_spawn_missile2(g, idx, -68, 0, 0);
+    set_pod_aim(g, idx, 0, DEG90);
+    misspod_spawn_missile2(g, idx, -68, 0, 0);
+    set_pod_aim(g, idx, 0, DEG90.wrapping_neg());
+    misspod_spawn_missile2(g, idx, -68, 0, 0);
+}
+
+/// misspodX (GASTRATS.ASM:3364-3389): 5-way star from a point muzzle — ahead,
+/// yaw ±deg90, pitch ±deg90.
+fn misspod_fire_x(g: &mut Game, idx: u16) {
+    set_pod_aim(g, idx, 0, DEG180);
+    misspod_spawn_missile2(g, idx, 0, 0, 0);
+    set_pod_aim(g, idx, 0, DEG90);
+    misspod_spawn_missile2(g, idx, 0, 0, 0);
+    set_pod_aim(g, idx, 0, DEG90.wrapping_neg());
+    misspod_spawn_missile2(g, idx, 0, 0, 0);
+    set_pod_aim(g, idx, DEG90, DEG180);
+    misspod_spawn_missile2(g, idx, 0, 0, 0);
+    set_pod_aim(g, idx, DEG90.wrapping_neg(), DEG180);
+    misspod_spawn_missile2(g, idx, 0, 0, 0);
+}
+
+/// `s_set_alvar rotx / s_set_alvar roty` before a fire — the shot inherits these
+/// via `gen_weapon`'s `s_copy_rots y,x`.
+fn set_pod_aim(g: &mut Game, idx: u16, rotx: u8, roty: u8) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotx = rotx;
+    al.roty = roty;
+}
+
+// ============================================================
+// misstank (IS 50) — GASTRATS.ASM:1319-1436.
+// A tank carrying one small_m missile on its back; launches it (as a woodsgo
+// homing missile) when the player closes to within 1000 z, once.
+// ============================================================
+
+/// `misstank_Istrat` (GASTRATS.ASM:1327-1342): make the small_m child, wire it
+/// as a hp4 shootable turret, stash it in `al_ptr`, then FALL THROUGH into
+/// `misstank_strat` this tick (no s_end_strat before the label).
+fn misstank_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, misstank_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, misstankexp_strat);
+    let child_coll = sid(g, strat_hit_flash);
+    let child_exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.snd2 = 9;
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = MISSTANK_HP;
+        al.ap = MISSTANK_AP;
+    }
+    // s_make_obj #small_m ; wire child ; s_set_alvartobeobj x,al_ptr,y.
+    if let Some(child) = make_obj(g, 0) {
+        copy_pos(g, child, idx);
+        let cal = &mut g.objs.aliens[child as usize];
+        cal.rotx = NEG_DEG11; // s_set_alvar y,al_rotx,#-deg11
+        cal.collflags |= COLLTYPE_ENEMY1;
+        cal.stratptr = None; // s_set_alptrs y,0,... — passive, positioned by the tank
+        cal.collstratptr = Some(child_coll);
+        cal.expstratptr = Some(child_exp);
+        cal.hp = 4; // s_set_aldata y,#4,#4
+        cal.ap = 4;
+        g.objs.aliens[idx as usize].ptr = child + 1; // al_ptr (index+1, 0 = none)
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.collflags |= COLLTYPE_ENEMY1; // .badobj: s_set_colltype x,enemy1
+        al.vel = 30; // s_set_speed x,#30
+        al.sbyte1 = 20; // s_set_alvar al_sbyte1,#20
+    }
+    misstank_strat(g, idx); // fall-through
+}
+
+/// `misstank_strat` (GASTRATS.ASM:1343-1372): count `sbyte1` down 20 frames
+/// (no facing), then face the player (roty->deg180) forever after. Each tick,
+/// until launched, pins the missile 85 above the tank; when the player is
+/// within 1000 z, launches it (woodsgo homing missile) and latches sflag1.
+fn misstank_strat(g: &mut Game, idx: u16) {
+    // s_beqdec al_sbyte1,.facepl / s_brl .nfacepl.
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        // .facepl: s_achase_alvar roty,#deg180,3 ; s_add_playerZ.
+        let mut roty = g.objs.aliens[idx as usize].roty;
+        achase_angle(&mut roty, DEG180, 3);
+        g.objs.aliens[idx as usize].roty = roty;
+        add_player_z(g, idx);
+    } else {
+        g.objs.aliens[idx as usize].sbyte1 -= 1;
+    }
+    // .nfacepl: s_jmp_alsflag sflag1,.nmiss (skip once launched).
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        let child_ref = g.objs.aliens[idx as usize].ptr;
+        if child_ref != 0 {
+            let child = child_ref - 1;
+            // ROM writes the child pose unconditionally; we guard on `active`
+            // so a shot-down carrier can't corrupt a recycled slot.
+            if (child as usize) < NUMBER_AL && g.objs.aliens[child as usize].active {
+                let self_roty = g.objs.aliens[idx as usize].roty;
+                g.objs.aliens[child as usize].roty = self_roty; // copy roty
+                copy_pos(g, child, idx); // s_copy_pos y,x
+                let cal = &mut g.objs.aliens[child as usize];
+                cal.worldy = cal.worldy.wrapping_add(-(65 + 20)); // #-(65+20)
+                // s_jmp_Zdistmore #1000,.notgo -> launch only when within 1000.
+                if !zdist_more(g, idx, 1000) {
+                    let wtick = sid(g, woodsgo_strat);
+                    let cal = &mut g.objs.aliens[child as usize];
+                    cal.stratptr = Some(wtick); // s_set_strat y,woodsgo_strat
+                    cal.sbyte2 = 40; // s_set_alvar y,al_sbyte2,#40
+                    cal.vel = 60; // s_set_speed y,#60
+                    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1; // s_set_alsflag x,sflag1
+                }
+            }
+        }
+    }
+    // s_gen_vecs x,al_roty,al_vel ; s_add_vecs2pos (no playerZ at the tail).
+    gen_vecs_2d(&mut g.objs.aliens[idx as usize]);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// `misstankexp_Istrat` (GASTRATS.ASM:1319-1326): on death, if the missile was
+/// never launched (sflag1 clear) kill the carried child, then explode.
+fn misstankexp_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        let child_ref = g.objs.aliens[idx as usize].ptr;
+        if child_ref != 0 {
+            let child = child_ref - 1;
+            if (child as usize) < NUMBER_AL && g.objs.aliens[child as usize].active {
+                let cal = &mut g.objs.aliens[child as usize];
+                cal.sflags |= ASF_COLLDISABLE; // s_kill_obj y
+                cal.hp = 0;
+            }
+        }
+    }
+    strat_explode(g, idx); // s_jmp smarkexplode_Istrat (smark cosmetic)
+}
+
+/// `woodsgo_strat` (GASTRATS.ASM:1398-1425): the launched missile — roll,
+/// accelerate to 80, and (only while still `>=400` z from the player) count
+/// `sbyte1` down and nudge its heading at the player once it wraps. Smoke trail
+/// is cosmetic (omitted).
+fn woodsgo_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(8); // s_add_alvar rotz,#8
+    }
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 80, 1); // s_speedto #80,1
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+    // s_jmp_Zdistless #400,.nfire -> the decbne/home only runs when |dz| >= 400.
+    if !zdist_less(g, idx, 400) {
+        let sb1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb1;
+        if sb1 == 0 {
+            g.objs.aliens[idx as usize].sbyte1 = 1;
+            if let Some(pl) = player(g) {
+                strat_aim_3d(g, idx, &pl, 2); // s_obj2obj_3dangle roty,rotx,2
+            }
+        }
+    }
+}
+
+// ============================================================
+// szaco0 (IS 130) — GA2STRAT.ASM:329-357 + s_goto_WPpostab
+// (STRATMAC.INC:2510-2583). A waypoint follower: rnd&3 picks one of 4
+// player-relative flight paths; waypoint 1 fires RELSLOWELASER at the player.
+// ============================================================
+
+const WP_FIRE: u8 = 1; // STRATEQU.INC:826 wp_fire
+
+/// szaco0 waypoint tables (GA2STRAT.ASM:296-327). Each entry: (x, y, z, flags);
+/// z is added to `player_posz` at runtime (no wp_fixpos flag).
+type Wp = (i16, i16, i16, u8);
+const SZACO0A: [Wp; 5] = [
+    (0, 0, 2500, 0),
+    (0, 0, 1600, WP_FIRE),
+    (-400, -300, 1000, 0),
+    (400, 400, 1000, 0),
+    (0, 0, 200, 0),
+];
+const SZACO0B: [Wp; 5] = [
+    (0, 0, 2500, 0),
+    (0, 0, 1600, WP_FIRE),
+    (400, -300, 1000, 0),
+    (-400, 400, 1000, 0),
+    (0, 0, 200, 0),
+];
+const SZACO0C: [Wp; 5] = [
+    (0, 0, 2500, 0),
+    (0, 0, 1600, WP_FIRE),
+    (0, 0, 1000, 0),
+    (400, -400, 1000, 0),
+    (0, 0, 200, 0),
+];
+const SZACO0D: [Wp; 5] = [
+    (0, 0, 2500, 0),
+    (0, 0, 1600, WP_FIRE),
+    (-200, 0, 1000, 0),
+    (-400, 200, 1000, 0),
+    (0, 0, 200, 0),
+];
+
+/// `s_obj2WP_angle` yaw: `-atan2(dx, dz)` mapped to a u8 angle (twin of
+/// enemy_a `szaco2_waypoint_yaw`).
+fn wp_yaw(dx: i16, dz: i16) -> u8 {
+    let mut a = (dx as f32).atan2(dz as f32);
+    if a < 0.0 {
+        a += TWO_PI;
+    }
+    (-((a * (256.0 / TWO_PI)) as i32)) as u8
+}
+
+/// `rangexz` from `xzdiffs_l` (STRATROU.ASM) — the approximate-Euclidean value
+/// the WPdistmore compare reads. Byte-identical to `common::strat_dist_xz`.
+fn wp_rangexz(dx: i16, dz: i16) -> i16 {
+    let mut x1 = dx;
+    if x1 < 0 {
+        x1 = x1.wrapping_neg();
+    }
+    let mut y1 = dz;
+    if y1 < 0 {
+        y1 = y1.wrapping_neg();
+    }
+    x1 >>= 1;
+    y1 >>= 1;
+    let rangexz = (y1.wrapping_add(x1)).wrapping_shl(1);
+    let m = if y1 < x1 { x1 } else { y1 };
+    let t = m.wrapping_add(rangexz);
+    let acc = (t >> 1).wrapping_add(t.wrapping_shl(2));
+    ((acc >> 1) >> 1) >> 1
+}
+
+/// `s_next_state x,#max` (STRATMAC.INC): inc; keep if `<= max`, else wrap to 1.
+fn next_state_cap(g: &mut Game, idx: u16, max: u8) {
+    let s = g.objs.aliens[idx as usize].stratstate.wrapping_add(1);
+    g.objs.aliens[idx as usize].stratstate = if s <= max { s } else { 1 };
+}
+
+/// `s_goto_WP x,x,1,#40,1,2,3,#300,#40,.fin` (STRATMAC.INC:2470-2503) as used by
+/// szaco0's WPpostab: add velocity, brake/accelerate toward the WP, aim (rate 2)
+/// with a skid-lagged heading (rate 3). Returns true when in range AND at min
+/// speed (the `.fin` -> next-waypoint branch).
+fn szaco0_goto_wp(g: &mut Game, idx: u16, wx: i16, wy: i16, wz: i16) -> bool {
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_add_vecs2pos
+    let me = g.objs.aliens[idx as usize];
+    let rxz = wp_rangexz(wx.wrapping_sub(me.worldx), wz.wrapping_sub(me.worldz));
+    let hwp = (me.worldy as i32 - wy as i32).abs();
+    let reached = if (rxz as i32) >= 300 || hwp >= 300 {
+        // .f: s_speedto #40,1 (max speed, out of range).
+        let _ = speed_to(&mut g.objs.aliens[idx as usize], 40, 1);
+        false
+    } else {
+        // in range: s_speedto #40,2,.fin (min-dist speed; carry -> next WP).
+        speed_to(&mut g.objs.aliens[idx as usize], 40, 2)
+    };
+    // .n: s_obj2WP_angle rate 2.
+    let me = g.objs.aliens[idx as usize];
+    let dx = wx.wrapping_sub(me.worldx);
+    let dy = wy.wrapping_sub(me.worldy);
+    let dz = wz.wrapping_sub(me.worldz);
+    let mut roty = me.roty;
+    achase_angle(&mut roty, wp_yaw(dx, dz), 2);
+    let mut rotx = me.rotx;
+    let dist = ((dx as f32) * (dx as f32) + (dz as f32) * (dz as f32)).sqrt();
+    if dist > 1.0 {
+        let pitch = ((dy as f32).atan2(dist) * (256.0 / TWO_PI)) as i32 as u8;
+        achase_angle(&mut rotx, pitch, 2);
+    }
+    // skid = 3: al_skidy chases roty (rate 3); vecs generated from skidy.
+    let mut skidy = me.skidy;
+    achase_angle(&mut skidy, roty, 3);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.roty = roty;
+    al.rotx = rotx;
+    al.skidy = skidy;
+    // s_gen_3dvecs x,al_skidy,al_rotx,al_vel (heading = skidy, not roty).
+    let saved = al.roty;
+    al.roty = al.skidy;
+    gen_vecs_3d(al);
+    al.roty = saved;
+    reached
+}
+
+/// `s_goto_WPpostab` body (STRATMAC.INC:2520-2578) specialised to szaco0's
+/// fixed params. `stratstate` indexes the waypoint; at `state == len` the path
+/// is done (coast). The wp_fire waypoint fires RELSLOWELASER at the player (±3
+/// per-axis spread) on the `notdelay 2` gate.
+fn szaco0_goto_wppostab(g: &mut Game, idx: u16, table: &[Wp]) {
+    let len = table.len() as u8;
+    let state = g.objs.aliens[idx as usize].stratstate;
+    if state >= len {
+        // s_jmp_IFNOTstate len,.cont false -> s_add_vecs2pos ; s_brl .end.
+        apply_velocity(&mut g.objs.aliens[idx as usize]);
+        return;
+    }
+    let (wx, wy, wz0, flags) = table[state as usize];
+    // wp_fire: s_jmp_notdelay 2 ; weapon_pos 0 ; rnd ±3 spread ; RELSLOWELASER.
+    if flags & WP_FIRE != 0 && notdelay(g, 2) {
+        if let Some(pl) = player(g) {
+            let me = g.objs.aliens[idx as usize];
+            let base_pitch = strat_pitch_toward(&me, &pl); // svar_byte1 offsets pitch
+            let base_yaw = angle_xz(&me, &pl); // svar_byte2 offsets yaw
+            let dpitch = (((ea_random(g) as u8) & 7) as i8).wrapping_sub(3);
+            let dyaw = (((ea_random(g) as u8) & 7) as i8).wrapping_sub(3);
+            strat_fire_relslowlaser(
+                g,
+                idx,
+                base_pitch.wrapping_add(dpitch as u8),
+                base_yaw.wrapping_add(dyaw as u8),
+            );
+        }
+    }
+    // Waypoint z is player-relative (no wp_fixpos): wpposZ = player_posz.
+    let wz = wz0.wrapping_add(g.vars.player_posz);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.swpx1 = wx; // s_set_WP absolute
+        al.swpy1 = wy;
+        al.swpz1 = wz;
+    }
+    if szaco0_goto_wp(g, idx, wx, wy, wz) {
+        next_state_cap(g, idx, len); // .fin: s_next_state x,#len
+    }
+}
+
+/// `szaco0_Istrat` (GA2STRAT.ASM:329-337): pick the flight path (rnd&3), arm a
+/// 340-frame `sword1` scroll timer, then FALL THROUGH into `szaco0_strat`.
+fn szaco0_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, szaco0_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode); // escapeeexplode2 -> generic (escapee cosmetic)
+    let r = (ea_random(g) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = SZACO0_HP;
+        al.ap = SZACO0_AP;
+        al.sbyte1 = r;
+        al.snd2 = 0xf;
+        al.sword1 = 340; // s_set_alvar W,al_sword1,#340
+    }
+    szaco0_strat(g, idx); // fall-through
+}
+
+/// `szaco0_strat` (GA2STRAT.ASM:338-356): run the selected WPpostab, then run
+/// the `sword1` scroll timer — for its first 340 frames the object scrolls with
+/// the world (`s_add_playerZ`); once expired it holds its z.
+fn szaco0_strat(g: &mut Game, idx: u16) {
+    let table: &[Wp] = match g.objs.aliens[idx as usize].sbyte1 {
+        0 => &SZACO0A,
+        1 => &SZACO0B,
+        2 => &SZACO0C,
+        _ => &SZACO0D, // 3
+    };
+    szaco0_goto_wppostab(g, idx, table);
+    // s_beqdec_alvar W,al_sword1,.nrel ; s_add_playerZ.
+    if g.objs.aliens[idx as usize].sword1 != 0 {
+        g.objs.aliens[idx as usize].sword1 -= 1;
+        add_player_z(g, idx);
+    }
+}
+
+// ============================================================
+// szaco5 (IS 156) — GA2STRAT.ASM:478-527. A fighter that snaps to face the
+// player and fires, spins up, loops (pitch a full turn), then banks to the
+// player. States fall through in-tick (linear next_state, no re-dispatch except
+// the state-2 -> state-3 `nextstate` jmptostrat).
+// ============================================================
+
+/// `sr_banktoplayer` (STRATROU.ASM) as used by szaco5 state 3 — roll toward the
+/// player each frame (`rotz += dx>>6`), then on the `notdelay 2` gate step the
+/// yaw/pitch one unit toward the player. Twin of enemy_a `szaco2_bank_to_player`.
+fn szaco5_bank(g: &mut Game, idx: u16) {
+    let posx = g.vars.player_posx;
+    let posy = g.vars.player_posy;
+    let dx = {
+        let al = &mut g.objs.aliens[idx as usize];
+        let dx = al.worldx.wrapping_sub(posx);
+        al.rotz = al.rotz.wrapping_add(((dx >> 6) as i8) as u8);
+        dx
+    };
+    if (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & 0x03 != 0 {
+        return;
+    }
+    let al = &mut g.objs.aliens[idx as usize];
+    if dx >= 0 {
+        al.roty = al.roty.wrapping_add(1);
+    } else {
+        al.roty = al.roty.wrapping_sub(1);
+    }
+    let dy = al.worldy.wrapping_sub(posy);
+    if dy >= 0 {
+        al.rotx = al.rotx.wrapping_add(1);
+    } else {
+        al.rotx = al.rotx.wrapping_sub(1);
+    }
+}
+
+/// `s_add_anim x,#amt,#max` (STRATLIB.INC:180): advance the low-7 anim frame,
+/// single-subtract wrap at `max`, keeping the 0x80 "active" flag.
+fn add_anim_wrap(al: &mut Alien, amount: u8, maxframes: u8) {
+    let mut f = (al.animframe & 0x7F).wrapping_add(amount);
+    if f >= maxframes {
+        f -= maxframes;
+    }
+    al.animframe = 0x80 | f;
+}
+
+/// `szaco5_Istrat` (GA2STRAT.ASM:478-488): face `deg180`, anim 0, speed 30,
+/// then FALL THROUGH into `szaco5_strat`.
+fn szaco5_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, szaco5_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = SZACO5_HP;
+        al.ap = SZACO5_AP;
+        al.roty = DEG180;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.animframe = 0x80; // s_init_anim x,#0
+        al.vel = 30; // s_set_speed x,#30
+    }
+    szaco5_strat(g, idx); // fall-through
+}
+
+/// `szaco5_strat` (GA2STRAT.ASM:489-527).
+fn szaco5_strat(g: &mut Game, idx: u16) {
+    let pl = player(g);
+
+    // state 0: aim 3d at the player (rate 2); within 1500 z fire once + advance.
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        if let Some(p) = pl {
+            strat_aim_3d(g, idx, &p, 2); // s_obj2obj_3dangle roty,rotx,2
+        }
+        if !zdist_more(g, idx, 1500) {
+            if let Some(p) = pl {
+                let me = g.objs.aliens[idx as usize];
+                let yaw = angle_xz(&me, &p); // s_weapon_rots2obj y
+                let pitch = strat_pitch_toward(&me, &p);
+                strat_fire_relslowlaser(g, idx, pitch, yaw);
+            }
+            next_state(g, idx); // -> 1 (falls through this tick)
+        }
+    }
+
+    // state 1: arm the loop counter (sbyte1 = 32), spin the anim to 9, and once
+    // within 200 z dash (speed 40) with a random ±15 yaw kick, then advance.
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        g.objs.aliens[idx as usize].sbyte1 = 32; // deg360/8
+        if g.objs.aliens[idx as usize].animframe & 0x7F != 9 {
+            add_anim_wrap(&mut g.objs.aliens[idx as usize], 1, 10);
+        }
+        if !zdist_more(g, idx, 200) {
+            g.objs.aliens[idx as usize].vel = 40;
+            next_state(g, idx); // -> 2
+            let r = (ea_random(g) as u8) & 31;
+            let sb2 = r.wrapping_sub(15);
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sbyte2 = sb2;
+            al.roty = al.roty.wrapping_add(sb2);
+        }
+    }
+
+    // state 2: pitch a full loop (rotx -= 8 for 32 frames); on completion the
+    // ROM `nextstate` label re-dispatches the strat top at state 3.
+    if g.objs.aliens[idx as usize].stratstate == 2 {
+        if g.objs.aliens[idx as usize].sbyte1 == 0 {
+            next_state(g, idx); // -> 3
+            return szaco5_strat(g, idx); // s_brl jmptostrat
+        }
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 -= 1;
+        al.rotx = al.rotx.wrapping_sub(8);
+    }
+
+    // state 3: bank toward the player.
+    if g.objs.aliens[idx as usize].stratstate == 3 {
+        szaco5_bank(g, idx);
+    }
+
+    // tail: s_gen_3dvecs ; s_add_vecs2pos ; s_add_playerZ.
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+}
+
+// ============================================================
+// houdai5f (IS 187) — KSTRATS.ASM:588-608. A fog turret: every 32 frames, if
+// the player is at least 400 z away, fires a homing Hplasma (speed/life 100).
+// ============================================================
+
+/// houdai5f homing Hplasma (KSTRATS.ASM:599-606): fire_Hplasma (homingflat,
+/// muzzle rotated by firer + `s_weapon_rot #0,#deg180`) then override the shot
+/// to home the player at speed/life 100. Twin of `fire_hplasma` with houdai5f's
+/// muzzle/speed/life.
+fn houdai5f_fire(g: &mut Game, idx: u16) {
+    let Some(player_idx) = player_index(g) else {
+        return;
+    };
+    let Some(shot) = make_obj(g, 0) else {
+        return;
+    };
+    let me = g.objs.aliens[idx as usize];
+    full_offset_pos(g, shot, &me, 0, HOUDAI5F_MUZZLE_Y, 0);
+    let s_tick = sid(g, homingflat_strat);
+    let (_gen_tick, s_coll) = projectile_strat_ids(g);
+    let yaw = me.roty.wrapping_add(DEG180); // s_weapon_rot #0,#deg180
+    let pitch = me.rotx;
+    let al = &mut g.objs.aliens[shot as usize];
+    al.shape = 0;
+    al.sflags |= ASF_INVISIBLE;
+    al.type_ |= ATLASER | ATZREMOVE;
+    al.stratptr = Some(s_tick);
+    al.collstratptr = Some(s_coll);
+    al.expstratptr = Some(s_coll);
+    al.hp = 1;
+    al.ap = HPLASMA_AP;
+    al.vel = HOUDAI5F_SHOT_SPEED;
+    al.count = HOUDAI5F_SHOT_LIFE;
+    al.snd2 = 6;
+    al.collflags = ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4;
+    al.fireobjptr = player_idx + 1; // s_set_alvar y,al_ptr,playpt (homing target)
+    al.immuneptr = idx;
+    al.sbyte1 = yaw;
+    al.sbyte2 = pitch;
+    al.roty = yaw;
+    al.rotx = pitch;
+    gen_vecs_3d(al);
+}
+
+/// `houdai5f_Istrat` (KSTRATS.ASM:588-593): anim 0, then FALL THROUGH into
+/// `houdai5f_strat`.
+fn houdai5f_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, houdai5f_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode); // smarkexplode -> generic (smark cosmetic)
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HOUDAI5_HP;
+        al.ap = HOUDAI5_AP;
+        al.animframe = 0x80; // s_init_anim x,#0
+    }
+    houdai5f_strat(g, idx); // fall-through
+}
+
+/// `houdai5f_strat` (KSTRATS.ASM:594-607): spin the anim (0..11), and on the
+/// `(gameframe & 31) == 0` gate — only when the player is at least 400 z away —
+/// fire a homing Hplasma. Fog is cosmetic.
+fn houdai5f_strat(g: &mut Game, idx: u16) {
+    add_anim_wrap(&mut g.objs.aliens[idx as usize], 1, 12); // s_add_anim x,#1,#12
+    // s_jmp_notANDframe #31 ; s_jmp_Zdistless #400 -> fire when far, gated /32.
+    if g.vars.gameframe & 31 == 0 && !zdist_less(g, idx, 400) {
+        houdai5f_fire(g, idx);
+    }
+}
+
+// ============================================================
 // State helper.
 // ============================================================
 
@@ -2991,4 +3799,13 @@ pub fn register(world: &mut World) {
     world.istrats[IS_WINDMILL] = Some(wsid(world, windmill_init));
     world.istrats[IS_VOLCANO] = Some(wsid(world, volcano_init));
     world.istrats[IS_FIREPILLAR] = Some(wsid(world, firepillar_init));
+
+    // Firing-enemy family (all placed by ported maps -> reachable). synth is a
+    // false gap (mothers.rs IS_SYNTH is the 0x020000 synthetic-address base,
+    // not a placed enemy) -> intentionally not registered.
+    world.istrats[IS_MISSTANK] = Some(wsid(world, misstank_init));
+    world.istrats[IS_MISSPOD] = Some(wsid(world, misspod_init));
+    world.istrats[IS_SZACO0] = Some(wsid(world, szaco0_init));
+    world.istrats[IS_SZACO5] = Some(wsid(world, szaco5_init));
+    world.istrats[IS_HOUDAI5F] = Some(wsid(world, houdai5f_init));
 }
