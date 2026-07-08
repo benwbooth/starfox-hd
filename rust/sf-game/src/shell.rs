@@ -737,6 +737,18 @@ impl Shell {
             }
         };
         self.game.load_level(level);
+
+        // Wire the route lanes' name-keyed callback registrations (they leave
+        // BuiltLevel's typed vectors empty). Without this the map VM halts at
+        // the first unregistered inline CODE65816 op — for the launch levels
+        // that is `level_scramble_keep_player_strat`, which sits before the
+        // exit-base setup, so the opening never returns control to the player.
+        // Must run after load_level (which seeds the lists from BuiltLevel).
+        if let Some((natives, inlines)) = sf_map::catalog::get_map_callback_regs(map_id) {
+            self.game
+                .world
+                .register_named_callbacks(natives, inlines, &level.labels);
+        }
     }
 
     /// C `Planets_Init` call sites (boot.c:160/238): planets.c:306 also
@@ -839,6 +851,20 @@ impl Shell {
         if let Some(hook) = self.spawn_player.take() {
             hook(&mut self.game, self.planets.newmap);
             self.spawn_player = Some(hook);
+
+            // Per-level player-collision setup (ROM GSTRATS.ASM:100-125, the
+            // `mapplayermode` player setup): build the three pcbox proxy boxes
+            // that route enemy hits onto the ship. The ROM does this in the
+            // level-init/exit-base sequence; the port wires it here at gameplay
+            // start (right after the spawn hook creates the player at playpt) so
+            // the ship actually takes damage. Without it the boxes were never
+            // attached and every enemy shot/contact passed through the ship.
+            // No-op in sf-game-only harnesses that never register the strat lane
+            // (pcbox_strats is None). Player is slot playpt (Strat_SpawnPlayer).
+            let player = self.game.vars.internal_playpt;
+            if player >= 0 && self.game.objs.aliens[player as usize].active {
+                self.game.pcbox_attach_player(player as u16);
+            }
         }
 
         self.game_state = GameState::Playing; // boot.c:104

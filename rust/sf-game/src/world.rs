@@ -147,6 +147,58 @@ pub enum InlineCb {
     ContmapInit,
 }
 
+/// Map a route lane's native-callback C-fn-name to its typed identity
+/// (C `register_*_native_callbacks`). Only the clear-demo natives have ported
+/// identities today; unrecognized names return `None` (native ops that find no
+/// callback simply skip their effect — they never halt the map VM, unlike
+/// inline ops).
+fn native_cb_from_name(name: &str) -> Option<NativeCallback> {
+    if name.ends_with("printlevelfin") {
+        Some(NativeCallback::ClGroundPrintlevelfin)
+    } else if name.ends_with("wipeout") {
+        Some(NativeCallback::ClGroundWipeout)
+    } else if name.contains("enginesnd") {
+        Some(NativeCallback::ClDiveClearEnginesnd)
+    } else {
+        None
+    }
+}
+
+/// Map a route lane's inline (CODE65816) C-fn-name to its typed [`InlineCb`].
+/// `guard_ptr` is the inline op's script ptr; `labels` resolves the skillfly
+/// guard's skip target as the nearest following `skillfly*skip` label (guards
+/// and their skip labels are emitted in interleaved order, so the closest skip
+/// label after the guard is its own). Unrecognized names return `None` — those
+/// map VMs will still halt at the op (a pre-existing gap for that specific
+/// level; the launch/boss/clear inlines that gate player control are covered).
+fn inline_cb_from_name(
+    name: &str,
+    guard_ptr: u16,
+    labels: &[(String, u16)],
+) -> Option<InlineCb> {
+    if name.contains("scramble_keep_player_strat") {
+        Some(InlineCb::LevelScrambleKeepPlayerStrat)
+    } else if name.contains("skillfly") {
+        let skip_ptr = labels
+            .iter()
+            .filter(|(n, off)| {
+                *off > guard_ptr && n.contains("skillfly") && n.contains("skip")
+            })
+            .map(|&(_, off)| off)
+            .min()
+            .unwrap_or(0);
+        Some(InlineCb::SkillflyGuard { skip_ptr })
+    } else if name.ends_with("mapwaitboss_trigse") {
+        Some(InlineCb::MapwaitbossTrigse)
+    } else if name.ends_with("mapwaitboss_cantdie") {
+        Some(InlineCb::MapwaitbossCantdie)
+    } else if name.ends_with("mapwaitboss_cleanup") {
+        Some(InlineCb::MapwaitbossCleanup)
+    } else {
+        None
+    }
+}
+
 /// C `Shapes_ResolveShapeWord()` (src/renderer/shapes.c:452) — canonicalize
 /// live raw 16-bit shape words into flat runtime ids.
 /// TODO(consolidation): belongs to the sf-render lane; local literal copy
@@ -323,6 +375,40 @@ impl World {
             }
         }
         self.inline_cbs.push((script_ptr, cb));
+    }
+
+    /// Register a route lane's name-keyed callback records (from
+    /// `sf_map::catalog::get_map_callback_regs`) into the executor.
+    ///
+    /// The route lanes (`Route{1,2,3}Level`) record their
+    /// `World_RegisterNativeCallback` / `World_RegisterInlineMapCode` calls as
+    /// raw `(addr/ptr, C-fn-name)` pairs and leave `BuiltLevel`'s typed callback
+    /// vectors empty (a deliberate lane-isolation choice, see their module
+    /// docs). Without wiring these the map VM halts forever at the first
+    /// unregistered inline CODE65816 op — for the launch levels that op is
+    /// `level_scramble_keep_player_strat`, sitting between the scramble intro and
+    /// the exit-base setup, so the player never regains control (BUG: "arwing
+    /// gets stuck"). This maps each C-fn-name to its typed identity and appends
+    /// it. `labels` (the level's label table) resolves the skillfly guard's skip
+    /// target. Call AFTER `load_level` (which seeds the lists from `BuiltLevel`).
+    pub fn register_named_callbacks(
+        &mut self,
+        natives: &[(u32, &'static str)],
+        inlines: &[(u16, &'static str)],
+        labels: &[(String, u16)],
+    ) {
+        for &(addr, name) in natives {
+            if let Some(cb) = native_cb_from_name(name) {
+                if !self.native_cbs.iter().any(|e| e.0 == addr) {
+                    self.native_cbs.push((addr, cb));
+                }
+            }
+        }
+        for &(ptr, name) in inlines {
+            if let Some(cb) = inline_cb_from_name(name, ptr, labels) {
+                self.register_inline(ptr, cb);
+            }
+        }
     }
 
     /// C `world_find_inline_map_func()` (src/game/world.c:379).

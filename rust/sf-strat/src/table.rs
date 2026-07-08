@@ -133,6 +133,12 @@ const STRAT_ADDR_SYNTH_BASE: u32 = 0x020000;
 pub fn register_all(g: &mut Game) {
     // ---- Lanes that hand back handles (player / ground / enemy_a) ----
     let p = player::install(g);
+    // Publish the player collision-proxy box strat handles so the game-core
+    // per-level setup (`Game::pcbox_attach_player`, ROM GSTRATS player setup)
+    // can build the boxes that route enemy hits onto the ship. Runs on every
+    // World::init (each level load), keeping the handles valid for the freshly
+    // rebuilt registry.
+    g.coldet.pcbox_strats = Some((p.pcbox_body, p.pcbox_wing, p.pcbox_coll));
     let gr = ground::install(g);
     let ea = enemy_a::install(g);
     // Path-following adapter: registers the path-lane strategies, installs the

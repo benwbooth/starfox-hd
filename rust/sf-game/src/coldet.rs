@@ -149,6 +149,12 @@ pub struct Coldet {
     /// Player collision-proxy boxes (ROM `pcboxobj_B/LW/RW`). Empty until
     /// [`Game::pcbox_attach`] runs.
     pub pcbox: PcboxState,
+    /// (body, wing, coll) proxy-box strategy handles, published by the strat
+    /// lane during `Strat_RegisterAll` (sf_strat::table::register_all) so the
+    /// game-core per-level setup ([`Game::pcbox_attach_player`]) can build the
+    /// boxes without an sf-game -> sf-strat dependency. `None` until the strat
+    /// lane registers (e.g. headless sf-game-only tests never set it).
+    pub pcbox_strats: Option<(StratId, StratId, StratId)>,
 }
 
 impl Coldet {
@@ -157,6 +163,7 @@ impl Coldet {
         Coldet {
             list: Vec::new(),
             pcbox: PcboxState::default(),
+            pcbox_strats: None,
         }
     }
 }
@@ -486,6 +493,26 @@ impl Game {
             rwing: Some(rwing),
         };
         true
+    }
+
+    /// Per-level player-collision setup entry point (ROM GSTRATS.ASM:100-125,
+    /// invoked from the `mapplayermode`/exit-base level init): build the three
+    /// player collision-proxy boxes on `player` using the box strategy handles
+    /// the strat lane published in [`Coldet::pcbox_strats`].
+    ///
+    /// `Coldet` persists across level loads (it is only `Coldet::init`ed once at
+    /// `Game::init`), so any boxes from a previous level are stale slot indices
+    /// after the objects table is reset. This first drops the stale
+    /// [`PcboxState`] so a fresh attach always rebuilds the boxes for the newly
+    /// spawned player. Returns false if the strat lane hasn't registered (no
+    /// handles) or object allocation fails.
+    pub fn pcbox_attach_player(&mut self, player: u16) -> bool {
+        let Some((body, wing, coll)) = self.coldet.pcbox_strats else {
+            return false;
+        };
+        // Fresh level: discard any stale box slots from a previous load.
+        self.coldet.pcbox = PcboxState::default();
+        self.pcbox_attach(player, body, wing, coll)
     }
 
     /// Detach the player collision boxes (ROM `playerdead_Istrat`

@@ -303,6 +303,11 @@ pub struct PlayerStratIds {
     pub opening_init: StratId,
     /// `Strat_PlayerExitBase` (set_playerExitBase_l hangar-launch init).
     pub exit_base_init: StratId,
+    /// pcbox body/wing/coll proxy strats (ROM pBody/pLWing|pRWing/pcolB), used
+    /// by the game-core per-level player-collision setup (`pcbox_attach`).
+    pub pcbox_body: StratId,
+    pub pcbox_wing: StratId,
+    pub pcbox_coll: StratId,
 }
 
 /// Register the player strategy block (idempotent) and return the public
@@ -318,6 +323,9 @@ pub fn install(g: &mut Game) -> PlayerStratIds {
         escape_nucleus_init: StratId(base + K_ESCNUCLEUS_INIT),
         opening_init: StratId(base + K_OPENING_INIT),
         exit_base_init: StratId(base + K_EXITBASE_INIT),
+        pcbox_body: StratId(base + K_PCBOX_BODY),
+        pcbox_wing: StratId(base + K_PCBOX_WING),
+        pcbox_coll: StratId(base + K_PCBOX_COLL),
     }
 }
 

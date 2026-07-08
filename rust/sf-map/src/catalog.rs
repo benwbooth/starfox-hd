@@ -95,3 +95,33 @@ pub fn get_map_data(id: u32) -> Option<&'static BuiltLevel> {
             .or_else(|| crate::levels::route3::get(id)),
     }
 }
+
+/// The route-lane callback registration records for a map id, as raw
+/// `(native regs, inline regs)` name-keyed pairs (C registration-call order).
+///
+/// The route lanes stash their `World_RegisterNativeCallback` /
+/// `World_RegisterInlineMapCode` registrations on their lane-local level
+/// wrappers (see `Route{1,2,3}Level`) rather than on the shared [`BuiltLevel`],
+/// whose callback vectors they leave EMPTY. The loader must consult these so a
+/// route level's inline CODE65816 hooks (e.g. `level_scramble_keep_player_strat`
+/// at the launch/exit-base handoff) are registered — otherwise the map VM halts
+/// permanently at the first unregistered inline op and the opening sequence
+/// never hands control back to the player.
+///
+/// Returns `None` for the non-route maps (NONE/M1_1/TITLE/PLANET), which
+/// already carry their callbacks on [`BuiltLevel`] directly.
+#[allow(clippy::type_complexity)]
+pub fn get_map_callback_regs(
+    id: u32,
+) -> Option<(&'static [(u32, &'static str)], &'static [(u16, &'static str)])> {
+    if let Some(l) = crate::levels::route1::get_full(id) {
+        return Some((&l.native_regs, &l.inline_regs));
+    }
+    if let Some(l) = crate::levels::route2::get_route2(id) {
+        return Some((&l.native, &l.inline));
+    }
+    if let Some(l) = crate::levels::route3::get_level(id) {
+        return Some((&l.native_regs, &l.inline_regs));
+    }
+    None
+}
