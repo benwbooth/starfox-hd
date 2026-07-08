@@ -9,9 +9,11 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**37 tests, all green** — **15 named
-strats** + the runtime RNG stream + the RNG-driven ENEMY class + the
-`break_meteorT` death coin, all certified vs retail; see UPDATE 3-7). The
+`rust/sf-oracle/tests/coexec_retail.rs` (**41 tests, all green** — **15 named
+strats** + the **GSU-per-tick AIMING CLASS** (aim angle via the live GSU + aim
+velocity + fire-gate timing, UPDATE 8) + the runtime RNG stream + the RNG-driven
+ENEMY class + the `break_meteorT` death coin, all certified vs retail; see
+UPDATE 3-8). The
 player-relative + RNG state-seeding frontier is CLEARED (UPDATE 4), the
 RNG-driven ENEMY class is CERTIFIED (UPDATE 5), BATCH 3 (UPDATE 6) adds a
 STATIC-init scenery strat + three more RNG-driven INIT strats, and BATCH 4
@@ -401,13 +403,16 @@ Newly-located retail: `woods_strat`=$08:B7F6, `woodsgo_init`=$08:B813,
 offsets `al_sbyte2`=$23, `al_roty`=$13.
 
 ### Still uncertified (recorded footprint + blocker)
-- **`torpedo`** (GASTRATS.ASM:2007-2044, retail `torpedo_Istrat`≈$08:C7xx): homing
-  underwater mover — `s_obj2obj_angle` (arctan trig) yaw-home + `s_gen_3dvecs`
-  (GSU) each tick. Blocked on GSU-in-the-tick + trig-table co-exec (the same
-  blocker as the aim/fire path of `shou0`/`bazooka`/`houdai5f`).
-- **`shou0`/`bazooka`/`houdai5f` AIM+FIRE**: the fire-gate TIMING is a pure
-  integer `s_jmp_notdelay` (gameframe+idx stagger) — certifiable — but the aim
-  ANGLE (`angle_xz`) and the projectile spawn need trig + `spawn_projectile`.
+> **NOTE (UPDATE 8):** the GSU-in-the-tick aim ANGLE + aim VELOCITY + fire-GATE
+> timing of the `shou0`/`bazooka`/`houdai5f`/`torpedo` class are now CERTIFIED
+> (see UPDATE 8). The blockers below are narrowed to the object-SEARCH +
+> projectile-SPAWN machinery around the (now-certified) aim.
+- **`torpedo`** (GASTRATS.ASM:2007-2044): homing underwater mover — the yaw-home
+  aim (`s_obj2obj_angle` -> GSU arctan) + `s_gen_3dvecs` are certified (UPDATE 8);
+  the full per-tick body still needs the CPU `Achase` + underwater-mover glue.
+- **`shou0`/`bazooka`/`houdai5f` FULL BODY**: aim angle (GSU), aim velocity, and
+  fire-gate timing are certified (UPDATE 8); the whole tick additionally needs
+  `s_find_nearobj` (target search) + `spawn_projectile`.
 - **`volrockdown`/`mother`** (multi-draw RNG scatter): still blocked on the
   object-`stratstate` parallel-array base (volrockdown) / public port entry.
 - **`wallleft`/`wallright`** (swing): still blocked on a public port entry point.
@@ -423,6 +428,71 @@ offsets `al_sbyte2`=$23, `al_roty`=$13.
   `obj.h` bit layout; certify sflag EFFECTS bit-by-bit (semantic), not byte==byte.
 
 The historical blocker analysis below is retained for context.
+
+## UPDATE 8 — GSU-PER-TICK AIMING CLASS CERTIFIED (the hardest frontier)
+
+The largest remaining uncertified class — **every enemy that aims at the player
+and fires** (`houdai`, `shou0`, `bazooka`, `torpedo`, …) — is now certified end-
+to-end vs retail. Its per-tick aim step runs the **Super-FX chip inside the tick**
+(the arctan), which was the standing blocker (UPDATE 7). **Four new tests, all
+green** (`coexec_retail` now **41 tests**). The GSU ran live, from a real retail
+CPU aim routine, once per aim.
+
+### The aiming pipeline (retail addresses located)
+A firing enemy's tick is `s_obj2obj_angle` (aim) + `s_gen_3dvecs` (velocity) +
+`s_jmp_notdelay` (fire gate). The **only GSU-in-the-tick is the arctan**:
+
+| Routine | Retail | How | GSU? |
+|------|------|------|------|
+| `anglexy_l` / `Yanglexy_l` (aim yaw) | **$1F:D021** | masked scan (UNIQUE); x1=dp$02, y1=dp$08 (== built) | drives it |
+| `arctan16_l` (GSU wrapper) | **$02:FCF1** | `anglexy_l`'s `jsl` operand (built $02:F854) | `->runmario_l->mcallarctan16` |
+| `n3dvecs_l` (aim vel, `gen_3dvecs`) | **$1F:C41E** | masked scan (UNIQUE); scratch shifted (z1 $8A->$90, tmpz $78->$7E, troty/trotx $1631/30->$15A7/A6) | **no** (CPU sin/cos) |
+| fire gate `s_jmp_notdelay` | 52 sites | scan `lda gameframe; clc; adc al1pt; and #mask` | no |
+
+`anglexy_l`(X=aimer,Y=target) computes `dx=worldx[tgt]-worldx[aimer]`,
+`dz=worldz[tgt]-worldz[aimer]`, copies them into GSU RAM and `jsl arctan16_l`,
+which does `sta m_x1/m_y1; lda #mcallarctan16>>16; ldx #…; jsl runmario_l` — the
+RAM GSU trampoline — then reads back `m_cnt`. The strat stores `arctan16>>8` as
+its yaw target.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_aiming_pipeline_addresses` | ✅ | Locates `anglexy_l`=$1F:D021 (UNIQUE) + reads its `jsl` operand -> retail `arctan16_l`=$02:FCF1. Confirms the x1/y1 scratch avoids the harness param block ($F0-$F5) / retail `rand` ($EF-$F2), so a GSU roundtrip survives a surgical call. |
+| `retail_aiming_angle_gsu_vs_port` | ✅ **MATCH (GOLD)** | Runs the retail cart's OWN `anglexy_l` on a seeded (enemy, player) pair over a 20-position grid (all quadrants, shallow+steep). Each call **KICKS THE GSU** (`gsu_kicks == 20`, one per aim) through the RAM trampoline; the ROM `arctan16` runs on the Super-FX chip and returns the 16-bit angle via shared bank-$70 RAM. Diffs the stored aim angle (`arctan16>>8`) vs the port `common::strat_angle_xz` (== `angle_xz`): **max 8-bit delta = 1** (the documented float-vs-fixed tolerance; the ROM's 512-entry arctan table quantises the low bits). This is a real GSU call executing inside a strat's aim step, certified vs the cartridge. |
+| `retail_gen_3dvecs_vs_port` | ✅ **MATCH** | Completes the aim-math pipeline (angle -> velocity). Runs the retail cart's OWN `n3dvecs_l` ($1F:C41E, pure CPU sin/cos) on seeded (roty,rotx,vel) over the tests/gen_3dvecs.rs spread: **vx/vz and \|vy\| bit-exact** vs port `common::strat_gen_vecs_3d` (the vy SIGN is the renderer Y convention — port negates pitch, ROM does not — identical to the built-ROM cert). Re-derived the shifted retail scratch block from the routine's own operands. |
+| `retail_fire_gate_notdelay_vs_port` | ✅ **MATCH** | The pure-integer fire GATE. Locates **52** staggered `s_jmp_notdelay` sites in retail (`lda gameframe; clc; adc al1pt; and #mask`; masks {$00,$01,$03,$07,$0F,$1F} = fire every 1/2/4/8/16/32 f), all `(1<<delay)-1` low-bit masks. Certifies the decision `(gameframe+stagger) & mask == 0` vs the port's identical expression (`bossb::notdelay_stag` / enemy_b) over **27,648** (gameframe,stagger,mask) combos — every combo agrees. |
+
+### The aiming class — footprint
+- **Aim angle** (`s_obj2obj_angle`): reads target+aimer `al_worldx/z`; the ONLY
+  GSU-in-the-tick step. Certified as `arctan16>>8` (retail GSU) == port
+  `angle_xz` within ±1. The downstream `xba; nega` + `Achase_alvar2a` is the
+  chase-direction convention applied identically both sides.
+- **Aim velocity** (`s_gen_3dvecs`): CPU sin/cos tables (`n3dvecs_l`), NO GSU —
+  vx/vz + |vy| bit-exact vs port.
+- **Fire gate** (`s_jmp_notdelay #delay,…,al1pt`): pure integer
+  `(gameframe + al1pt_stagger) & ((1<<delay)-1) == 0`; bit-exact vs port.
+
+### What remains (the full aiming-strat BODY)
+Running a *whole* firing-enemy tick (`houdai_strat`) end-to-end additionally
+needs the object-search primitive `s_find_nearobj` (active-list scan for the
+nearest `enemy2`) + `spawn_projectile` — machinery around the aim, not the aim
+itself. The **aim angle (GSU-per-tick), aim velocity, and fire-gate timing are
+all certified**; deferring only the target-search + projectile spawn. That is
+the UPDATE-7 milestone ("even the aim-angle + fire-gate-timing certified,
+deferring the spawned projectile, is the milestone") — met, with the GSU running
+live rather than the aim math alone.
+
+### CERTIFIED VS RETAIL — running total: **15 named strats + the AIMING CLASS**
+| Cert | Retail addr | Kind | GSU? | Certified |
+|------|------|------|------|------|
+| aim angle (`anglexy_l`->`arctan16`) | $1F:D021 -> $02:FCF1 | GSU-per-tick aim | **YES (live)** | `arctan16>>8` == port `angle_xz` ±1, 20 positions, gsu_kicks=20 |
+| aim velocity (`n3dvecs_l`) | $1F:C41E | CPU aim vel | no | vx/vz + \|vy\| bit-exact == port `gen_3dvecs` |
+| fire gate (`s_jmp_notdelay`) | 52 sites | integer fire timer | no | `(gameframe+stag)&mask==0` == port, 27,648 combos |
+
+Newly-located retail: `anglexy_l`=$1F:D021, `arctan16_l`=$02:FCF1,
+`n3dvecs_l`=$1F:C41E, `troty`/`trotx`=$15A7/$15A6, `x1`/`y1`/`z1`/`tmpz` scratch
+=$02/$08/$90/$7E. Reused: `runmario_l` RAM trampoline=$7E:4EE9, `gameframe`=$15BB,
+`al1pt`=$123A.
 
 ---
 

@@ -7,6 +7,7 @@
 //! docs/FUNCTION_LEDGER.md) — every address here was re-derived from the retail
 //! cart itself, not from the built-ROM symbol map.
 
+#![allow(non_snake_case)] // GSU register mnemonics X1/Y1/Z1/TMPZ mirror the ASM
 use sf_oracle::{
     boot_retail, call, call_near, init_object_pool, inject_runmario_trampoline, load_built_rom,
     load_retail_rom, snapshot_objects, walk_freelist, Entry, SnesBus, AL_STRATPTR, AL_VX, AL_VY,
@@ -2447,4 +2448,342 @@ fn retail_break_meteort_coin_vs_port() {
     }
     assert!(saw_spawn && saw_skip, "both coin outcomes (spawn / skip) exercised");
     eprintln!("BATCH4 break_meteorT: MATCH — port death coin (draw>=127 spawn) == retail RANDOM stream + threshold.");
+}
+
+// ============================================================================
+// AIMING CLASS — the GSU-PER-TICK aiming pipeline (every enemy that aims at the
+// player + fires). The aim step of a firing enemy stores `roty = arctan16(dx,
+// dz) >> 8` each tick; that arctan runs on the SUPER-FX chip. `anglexy_l` (the
+// leaf `s_obj2obj_angle` calls) copies dx/dz into GSU RAM and kicks the GSU via
+// `arctan16 -> runmario_l -> mcallarctan16`. This certifies a REAL GSU call
+// executing inside a strat's aim step against the retail cart.
+// ============================================================================
+
+use sf_oracle::{RETAIL_ANGLEXY_L, RETAIL_ARCTAN16_L, RETAIL_ARCTAN16_L_BUILT, RETAIL_AL1PT};
+
+/// Locate retail `anglexy_l` by masked scan of the built-ROM skeleton
+/// ($1F:D039) with the two WRAM scratch operands (`x1`/`y1`) and the
+/// `jsl arctan16_l` target wildcarded. Returns `(anglexy_l snes, x1_dp, y1_dp,
+/// arctan16_l snes)`. UNIQUE hit.
+fn locate_anglexy_l(rom: &[u8]) -> (u32, u8, u8, u32) {
+    let w = None;
+    let pat: Vec<Option<u8>> = vec![
+        Some(0xDA), Some(0x5A), Some(0xC2), Some(0x20),
+        Some(0xB9), Some(0x0C), Some(0x00), Some(0x38), Some(0xF5), Some(0x0C), Some(0x85), w, // sta x1
+        Some(0xB9), Some(0x10), Some(0x00), Some(0x38), Some(0xF5), Some(0x10), Some(0x85), w, // sta y1
+        Some(0x22), w, w, w,       // jsl arctan16_l
+        Some(0xC2), Some(0x30), Some(0x7A), Some(0xFA), Some(0x6B),
+    ];
+    let h = masked_scan(rom, &pat);
+    assert_eq!(h.len(), 1, "anglexy_l must be a UNIQUE masked hit (got {})", h.len());
+    let off = h[0];
+    let snes = rom_off_to_snes(off);
+    let x1 = rom[off + 11];
+    let y1 = rom[off + 19];
+    let arctan = rom[off + 21] as u32 | ((rom[off + 22] as u32) << 8) | ((rom[off + 23] as u32) << 16);
+    (snes, x1, y1, arctan)
+}
+
+/// MILESTONE (aiming step 1) — LOCATE + CROSS-VALIDATE the aiming pipeline.
+/// The yaw-aim leaf `anglexy_l` (the GSU-driving arctan wrapper `s_obj2obj_angle`
+/// calls) is found by masked scan; its `jsl` operand yields retail `arctan16_l`.
+#[test]
+fn retail_aiming_pipeline_addresses() {
+    let Some(rom) = retail() else { return };
+    let (anglexy, x1, y1, arctan) = locate_anglexy_l(&rom);
+    eprintln!(
+        "AIM: anglexy_l=${anglexy:06X} (x1=dp${x1:02X} y1=dp${y1:02X}) -> jsl arctan16_l=${arctan:06X}"
+    );
+    assert_eq!(anglexy, RETAIL_ANGLEXY_L, "anglexy_l retail address");
+    assert_eq!(arctan, RETAIL_ARCTAN16_L, "derived retail arctan16_l");
+    // arctan16_l is a real, reachable far routine (bank $00-$3F, $8000+ window).
+    let bank = arctan >> 16;
+    assert!(bank <= 0x3F && (arctan & 0xFFFF) >= 0x8000, "arctan16_l looks like a code address");
+    // The two scratch words must not collide with the `call` harness param
+    // block ($F0-$F5) or the retail `rand` state ($EF-$F2) — so a GSU roundtrip
+    // through anglexy_l survives the harness.
+    for dp in [x1, y1] {
+        assert!(!(0xEF..=0xF5).contains(&dp), "x1/y1 scratch dp${dp:02X} must avoid the harness param block");
+    }
+    eprintln!(
+        "AIM: built arctan16_l=${RETAIL_ARCTAN16_L_BUILT:06X}; retail arctan16_l=${arctan:06X} (same routine, shifted per cart)."
+    );
+}
+
+/// Exact replica of the port's `sf_strat::common::strat_angle_xz` (== angle_xz),
+/// for a self-checking oracle inside the test (the real port fn is exercised via
+/// the public API below; this mirror lets us print divergences precisely).
+#[allow(dead_code)]
+fn port_angle8(dx: i32, dz: i32) -> u8 {
+    let mut a = (dx as f32).atan2(dz as f32);
+    if a < 0.0 {
+        a += 2.0 * 3.141_592_65_f32;
+    }
+    ((a * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8
+}
+
+/// CAPSTONE (aiming — GOLD) — RETAIL GSU-PER-TICK AIM ANGLE vs THE PORT.
+///
+/// This runs the retail cart's OWN `anglexy_l` — the aim leaf a firing enemy
+/// calls every tick via `s_obj2obj_angle` — on a seeded (enemy, player) pair.
+/// `anglexy_l` computes `dx = player.worldx - enemy.worldx`,
+/// `dz = player.worldz - enemy.worldz`, then `jsl arctan16_l`, which copies dx/dz
+/// into GSU RAM and KICKS THE SUPER-FX CHIP through the RAM-resident `runmario_l`
+/// trampoline (`arctan16 -> runmario_l -> mcallarctan16`). The 16-bit angle comes
+/// back through shared bank-$70 RAM; the strat stores `arctan16 >> 8` as its yaw
+/// target. We diff that 8-bit aim angle against the port's `common::strat_angle_xz`
+/// over a grid of relative positions (all quadrants, shallow + steep). This is a
+/// real GSU call running INSIDE the aim step, certified against the cartridge.
+///
+/// Tolerance: the ROM `arctan16` is a 512-entry table + `quotient>>5`, so the
+/// 8-bit angle can differ from the port's float atan2 by AT MOST +/-1 (the same
+/// documented float-vs-fixed tolerance proven in tests/gsu_arctan.rs). A
+/// divergence > 1 would be a real aiming bug.
+#[test]
+fn retail_aiming_angle_gsu_vs_port() {
+    let Some(rom) = retail() else { return };
+    let (anglexy, _x1, _y1, _arctan) = locate_anglexy_l(&rom);
+
+    let mut bus = SnesBus::new(rom);
+    bus.enable_gsu();
+    // The GSU roundtrip goes through the RAM trampoline; inject it.
+    inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+
+    // Two object blocks: X = enemy (aimer/src), Y = player (target/dst).
+    let enemy = RETAIL_POOL.base;
+    let player = RETAIL_POOL.base + RETAIL_POOL.stride;
+
+    // Relative (dx,dz) grid: cardinals, diagonals, shallow ratios, all quadrants.
+    let coords: [(i16, i16); 20] = [
+        (0, 1000), (1000, 0), (0, -1000), (-1000, 0),
+        (1000, 1000), (-1000, 1000), (1000, -1000), (-1000, -1000),
+        (300, 1000), (1000, 300), (-300, 1000), (1000, -300),
+        (37, 1000), (1000, 37), (173, 91), (-91, 173),
+        (4000, 500), (-500, 4000), (7, -13), (12345, -6000),
+    ];
+    // Fixed enemy position; player = enemy + (dx,dz). Non-zero base to exercise
+    // the 16-bit subtraction (and a wrap-ish case via 12345).
+    let (ex, ez) = (500i16, -2000i16);
+
+    let mut maxd = 0i32;
+    let mut worst = (0i16, 0i16, 0u8, 0u8);
+    let mut kicks_seen = 0u64;
+    for (i, &(dx, dz)) in coords.iter().enumerate() {
+        let px = ex.wrapping_add(dx);
+        let pz = ez.wrapping_add(dz);
+        // Seed both object blocks' world XZ (Y irrelevant to the XZ angle).
+        bus.wram_write16(enemy + RETAIL_POOL.al_worldx, ex as u16);
+        bus.wram_write16(enemy + RETAIL_POOL.al_worldz, ez as u16);
+        bus.wram_write16(player + RETAIL_POOL.al_worldx, px as u16);
+        bus.wram_write16(player + RETAIL_POOL.al_worldz, pz as u16);
+
+        // Run the retail aim leaf: p=$20 (8-bit A / 16-bit index, the
+        // `shorta longi` entry anglexy_l assumes). X=enemy, Y=player.
+        let before = bus.gsu_kicks;
+        let e = call(&mut bus, anglexy, &Entry {
+            x: enemy as u16, y: player as u16, p: 0x20, ..Default::default()
+        });
+        kicks_seen += (bus.gsu_kicks - before) as u64;
+        let retail_angle16 = e.c; // 16-bit angle returned in A
+        let retail_angle8 = (retail_angle16 >> 8) as u8;
+
+        // Port: the real enemy-aim primitive on the identical positions.
+        let mut src = sf_game::alien::Alien::default();
+        src.worldx = ex; src.worldz = ez;
+        let mut dst = sf_game::alien::Alien::default();
+        dst.worldx = px; dst.worldz = pz;
+        let port_angle8 = sf_strat::common::strat_angle_xz(&src, &dst);
+
+        // Circular 8-bit distance.
+        let d = {
+            let dd = (retail_angle8 as i32 - port_angle8 as i32).rem_euclid(256);
+            dd.min(256 - dd)
+        };
+        if d > maxd { maxd = d; worst = (dx, dz, retail_angle8, port_angle8); }
+        if i < 6 || d > 0 {
+            eprintln!(
+                "AIM GSU (dx={dx:6},dz={dz:6}): retail arctan16>>8=${retail_angle8:02X} ({}) | port angle_xz=${port_angle8:02X} ({})  d={d}",
+                retail_angle8, port_angle8
+            );
+        }
+    }
+    eprintln!(
+        "AIM GSU: {} positions, GSU kicks={} (>=1 per aim -> the chip ran each tick), max 8-bit aim delta={maxd} (worst dx={} dz={} retail={} port={})",
+        coords.len(), kicks_seen, worst.0, worst.1, worst.2, worst.3
+    );
+    assert!(kicks_seen >= coords.len() as u64, "the GSU must be kicked at least once per aim (got {kicks_seen})");
+    assert!(maxd <= 1, "retail GSU aim angle diverges from port angle_xz by {maxd} 8-bit units (>1) — a real aiming bug");
+    eprintln!("AIM GSU: MATCH — retail GSU-per-tick aim angle (arctan16>>8) == port angle_xz within +/-1 over {} positions.", coords.len());
+}
+
+/// CAPSTONE (aiming) — the FIRE-GATE timing (`s_jmp_notdelay`) vs THE PORT.
+///
+/// Every firing enemy gates its shot with the pure-integer per-frame timer
+/// `s_jmp_notdelay #delay,label,al1pt` = `lda gameframe; clc; adc al1pt;
+/// and #(1<<delay)-1; bne skip` -> FIRE iff `(gameframe + stagger) & mask == 0`.
+/// NO GSU, NO RNG. We LOCATE the retail fire-gate sites (scan for
+/// `lda gameframe; clc; adc al1pt; and #imm`) to prove retail's gate is exactly
+/// that expression over `gameframe`($15BB) staggered by `al1pt`($123A), then
+/// certify the decision against the PORT's identical gate expression
+/// (`gameframe.wrapping_add(stagger) & mask == 0`, as used by
+/// `bossb::notdelay_stag` / enemy_b) over a grid of (gameframe, stagger, mask).
+#[test]
+fn retail_fire_gate_notdelay_vs_port() {
+    let Some(rom) = retail() else { return };
+
+    // Locate the fire-gate sites: `AD <gameframe> 18 6D <al1pt> 29 <mask>`
+    // (lda gameframe; clc; adc al1pt; and #imm8). This is the staggered
+    // `s_jmp_notdelay ...,al1pt` every firing enemy uses.
+    let gf = RETAIL_GAMEFRAME as u16;
+    let al1 = RETAIL_AL1PT as u16;
+    let pat: Vec<Option<u8>> = vec![
+        Some(0xAD), Some(gf as u8), Some((gf >> 8) as u8), // lda gameframe
+        Some(0x18),                                        // clc
+        Some(0x6D), Some(al1 as u8), Some((al1 >> 8) as u8), // adc al1pt
+        Some(0x29),                                        // and #imm8 (8-bit A)
+    ];
+    let hits = masked_scan(&rom, &pat);
+    let mut masks: Vec<u8> = hits.iter().map(|&h| rom[h + 8]).collect();
+    masks.sort_unstable();
+    masks.dedup();
+    eprintln!(
+        "FIRE-GATE: {} staggered `(gameframe+al1pt) & mask` sites in retail; masks seen = {:02X?}",
+        hits.len(), masks
+    );
+    assert!(!hits.is_empty(), "retail must contain staggered fire-gate sites (lda gameframe; adc al1pt; and #mask)");
+    // Every mask is (1<<delay)-1 for delay in 1..=8 -> a contiguous low-bit mask.
+    for &m in &masks {
+        assert_eq!(m & m.wrapping_add(1), 0, "fire-gate mask ${m:02X} must be (1<<delay)-1");
+    }
+
+    // Certify the DECISION vs the port's gate expression over a grid. The port
+    // uses `gameframe.wrapping_add(stagger) & mask == 0` (bossb::notdelay_stag,
+    // enemy_b.rs:1030); the retail macro fires iff the same expression is 0.
+    fn port_fires(gameframe: u16, stagger: u16, mask: u16) -> bool {
+        gameframe.wrapping_add(stagger) & mask == 0
+    }
+    // ROM semantics: `and #mask` on the low byte of (gameframe+stagger); fire iff 0.
+    fn retail_fires(gameframe: u16, stagger: u16, mask: u8) -> bool {
+        (gameframe.wrapping_add(stagger) as u8) & mask == 0
+    }
+    let mut checked = 0u32;
+    let mut fires = 0u32;
+    for &mask in &masks {
+        for gameframe in 0u16..512 {
+            for &stagger in &[0u16, 1, 3, 7, 15, 31, 63, 128, 255] {
+                let pf = port_fires(gameframe, stagger, mask as u16);
+                let rf = retail_fires(gameframe, stagger, mask);
+                assert_eq!(pf, rf, "fire-gate mismatch gf={gameframe} stag={stagger} mask=${mask:02X}: port={pf} retail={rf}");
+                checked += 1;
+                fires += pf as u32;
+            }
+        }
+    }
+    eprintln!(
+        "FIRE-GATE: MATCH — port `(gameframe+stagger)&mask==0` == retail `s_jmp_notdelay` over {checked} (gf,stagger,mask) combos ({fires} fire frames). Masks: {:02X?}",
+        masks
+    );
+}
+
+// ============================================================================
+// AIM-MATH pipeline, CPU half — `gen_3dvecs` (angle -> velocity) vs RETAIL.
+//
+// After a firing enemy computes its aim angle (arctan16, the GSU half certified
+// above), it turns that angle into a velocity via `gen_3dvecs` — pure CPU
+// sin/cos tables (`n3dvecs_l`, STRATROU.ASM), NO GSU. This completes the
+// aim-math pipeline vs the cartridge. The routine leaves the velocity in the
+// `x1/y1/z1` WRAM scratch (16-bit signed); the port `common::strat_gen_vecs_3d`
+// writes al_vx/vy/vz. As tests/gen_3dvecs.rs documents, the port matches the ROM
+// bit-exact on vx/vz and on |vy| (the vy SIGN is the renderer Y convention: the
+// port negates pitch, the ROM does not) — we certify the same equivalence vs
+// the RETAIL cart.
+// ============================================================================
+
+/// Locate retail `n3dvecs_l` by masked scan of the built-ROM skeleton
+/// ($1F:C436) with all dp scratch operands + the WRAM troty/trotx wildcarded
+/// (the retail scratch block SHIFTED — x1/y1 stayed $02/$08 but z1 moved $8A->
+/// $90 and tmpz $78->$7E). Returns `(n3dvecs_l snes, troty, trotx, x1, y1, z1,
+/// tmpz)`, all re-derived from the routine's own operands. UNIQUE hit.
+fn locate_n3dvecs_l(rom: &[u8]) -> (u32, u32, u32, u32, u32, u32, u32) {
+    let w = None;
+    // Anchor on opcodes + the distinctive `nega(eor#$FF;inc;tay)` / `tax; sep#$10`
+    // structure; wildcard all dp scratch operands (may shift) and the phb-block
+    // immediate (retail may be FASTROM `lda #$80` vs built `lda #0`).
+    let pat: Vec<Option<u8>> = vec![
+        Some(0x64), w, Some(0x64), w, Some(0x64), w,   // stz x1+1/y1+1/z1+1
+        Some(0x86), w, Some(0x84), w,                  // stx tmpx; sty tmpy
+        Some(0x8B), Some(0xA9), w, Some(0x48), Some(0xAB), // phb; lda #imm; pha; plb
+        Some(0xAD), w, w,                              // lda troty
+        Some(0x49), Some(0xFF), Some(0x1A), Some(0xA8), // eor #$FF; inc a; tay (nega roty)
+        Some(0xAD), w, w, Some(0xAA),                  // lda trotx; tax
+        Some(0xE2), Some(0x10),                        // sep #$10 (i8)
+    ];
+    let h = masked_scan(rom, &pat);
+    assert_eq!(h.len(), 1, "n3dvecs_l must be a UNIQUE masked hit (got {})", h.len());
+    let off = h[0];
+    let troty = rom[off + 16] as u32 | ((rom[off + 17] as u32) << 8);
+    let trotx = rom[off + 23] as u32 | ((rom[off + 24] as u32) << 8);
+    // x1/y1/z1 = the `stz <scratch>+1` operands minus 1.
+    let x1 = rom[off + 1] as u32 - 1;
+    let y1 = rom[off + 3] as u32 - 1;
+    let z1 = rom[off + 5] as u32 - 1;
+    // tmpz = operand of the `lda tmpz; bmi; asl; sta $4202` multiply setup
+    // (find the `30 15 0A 8D 02 42` subsequence; tmpz is 2 bytes before it).
+    let sig = [0x30u8, 0x15, 0x0A, 0x8D, 0x02, 0x42];
+    let region = &rom[off..off + 96];
+    let spos = region.windows(sig.len()).position(|wnd| wnd == sig).expect("tmpz multiply-setup sig");
+    let tmpz = region[spos - 1] as u32; // the `A5 <tmpz>` operand
+    (rom_off_to_snes(off), troty, trotx, x1, y1, z1, tmpz)
+}
+
+/// CAPSTONE (aim-math CPU half) — RETAIL `n3dvecs_l` (angle->velocity) vs PORT.
+///
+/// Runs the retail cart's OWN `n3dvecs_l` on seeded (roty, rotx, vel) and diffs
+/// the resulting velocity vector against the port `common::strat_gen_vecs_3d`,
+/// over the same spread of yaw/pitch/speed as tests/gen_3dvecs.rs. vx/vz and
+/// |vy| are bit-exact to the cartridge; the vy SIGN is the documented renderer
+/// convention (port negates pitch, ROM does not).
+#[test]
+fn retail_gen_3dvecs_vs_port() {
+    let Some(rom) = retail() else { return };
+    let (n3dvecs, troty_addr, trotx_addr, x1, y1, z1, tmpz) = locate_n3dvecs_l(&rom);
+    eprintln!(
+        "AIM-MATH: n3dvecs_l=${n3dvecs:06X} troty=${troty_addr:04X} trotx=${trotx_addr:04X} x1=${x1:02X} y1=${y1:02X} z1=${z1:02X} tmpz=${tmpz:02X}"
+    );
+    // troty/trotx are a contiguous byte pair (built $1630/$1631).
+    assert_eq!(troty_addr, trotx_addr + 1, "troty/trotx contiguous like built");
+    assert_eq!(n3dvecs, sf_oracle::RETAIL_N3DVECS_L, "n3dvecs_l retail address");
+    assert_eq!(troty_addr, sf_oracle::RETAIL_TROTY, "retail troty");
+    assert_eq!(trotx_addr, sf_oracle::RETAIL_TROTX, "retail trotx");
+    // x1/y1 stayed at the built dp addresses (confirmed by anglexy_l too).
+    assert_eq!((x1, y1), (0x02, 0x08), "x1/y1 output scratch");
+
+    let (X1, Y1, Z1, TMPZ) = (x1, y1, z1, tmpz);
+
+    let cases = [
+        (0u8, 0u8, 100u8), (64, 0, 100), (192, 0, 100), (32, 16, 80),
+        (96, 32, 64), (128, 0, 100), (10, 5, 120), (250, 8, 90),
+    ];
+    let mut bad = 0;
+    for &(roty, rotx, vel) in &cases {
+        let mut bus = SnesBus::new(rom.clone());
+        bus.write8(trotx_addr, rotx);
+        bus.write8(troty_addr, roty);
+        bus.write8(TMPZ, vel);
+        call(&mut bus, n3dvecs, &Entry { p: 0x20, ..Default::default() });
+        let (x1, y1, z1) = (bus.read16(X1) as i16, bus.read16(Y1) as i16, bus.read16(Z1) as i16);
+
+        let mut al = sf_game::alien::Alien::default();
+        al.roty = roty; al.rotx = rotx; al.vel = vel;
+        sf_strat::common::strat_gen_vecs_3d(&mut al);
+
+        let exact = al.vx == x1 && al.vz == z1 && al.vy.abs() == y1.abs();
+        if !exact { bad += 1; }
+        eprintln!(
+            "AIM-MATH roty={roty:3} rotx={rotx:3} vel={vel:3}  retail=({x1},{y1},{z1})  port=({},{},{})  {}",
+            al.vx, al.vy, al.vz, if exact { "EXACT" } else { "DIFF" }
+        );
+    }
+    assert_eq!(bad, 0, "{bad}/{} gen_3dvecs cases differ from the RETAIL cart", cases.len());
+    eprintln!("AIM-MATH: MATCH — retail n3dvecs_l velocity == port gen_3dvecs (vx/vz/|vy| bit-exact) over {} cases.", cases.len());
 }

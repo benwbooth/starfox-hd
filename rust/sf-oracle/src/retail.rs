@@ -495,6 +495,66 @@ pub const RETAIL_SHOU0_ISTRAT: u32 = 0x0A_D615;
 /// Retail `shou0_strat` ($0A:D646) — shou0's per-tick body (fall-through target).
 pub const RETAIL_SHOU0_STRAT: u32 = 0x0A_D646;
 
+// ------------------------------------------------------------------------
+// AIMING CLASS — the GSU-per-tick aiming pipeline (every enemy that aims at
+// the player + fires). The aim ANGLE the strat stores each tick is
+// `arctan16(dx,dz) >> 8`, computed by the CPU routine `anglexy_l` which copies
+// dx/dz into GSU RAM and KICKS the Super-FX chip (`arctan16 -> runmario_l ->
+// mcallarctan16`). This is a real GSU call executing INSIDE a strat's aim step
+// — the hardest tier-2 frontier. gen_3dvecs (velocity from the angle) is, by
+// contrast, pure CPU (sin/cos tables), so the GSU-in-the-tick is arctan alone.
+// ------------------------------------------------------------------------
+
+/// Retail `anglexy_l` / `Yanglexy_l` — the yaw-aim leaf every firing enemy calls
+/// via `s_obj2obj_angle obj1,obj2,al_roty,#chase`. Given X=obj1 (aimer/src),
+/// Y=obj2 (target/dst) it computes `x1 = worldx[dst]-worldx[src]`,
+/// `y1 = worldz[dst]-worldz[src]`, then `jsl arctan16_l` (which drives the GSU)
+/// and returns the 16-bit angle in A (0..$FFFF = 0..360deg). The strat macro
+/// then takes `>>8` (`xba`) + `nega` as the roty chase target.
+/// Body (built $1F:D039, 29 bytes): `phx; phy; rep #$20; lda al_worldx,y; sec;
+/// sbc al_worldx,x; sta x1; lda al_worldz,y; sec; sbc al_worldz,x; sta y1;
+/// jsl arctan16_l; rep #$30; ply; plx; rtl`
+/// (`DA 5A C2 20 B9 0C 00 38 F5 0C 85 <x1> B9 10 00 38 F5 10 85 <y1>
+/// 22 <arctan16_l> C2 30 7A FA 6B`). Located by masked scan (the two WRAM
+/// scratch operands `x1`/`y1` + the `jsl arctan16_l` target wildcarded), a
+/// UNIQUE hit; cross-validated by reading the `jsl` operand back == the
+/// derived retail `arctan16_l` ($02:FCF1). The two scratch words land at the
+/// SAME direct-page addresses as the built ROM (x1=dp$02, y1=dp$08).
+/// Port <-> `common::strat_angle_xz` (== angle_xz).
+pub const RETAIL_ANGLEXY_L: u32 = 0x1F_D021;
+/// Retail `arctan16_l` ($02:FCF1) — read straight out of `anglexy_l`'s `jsl`
+/// operand (built ROM's is $02:F854; the routine shifted +$49D in retail).
+pub const RETAIL_ARCTAN16_L: u32 = 0x02_FCF1;
+/// Retail `arctan16_l` — the far wrapper `jsr arctan16; a16; rtl` that
+/// `anglexy_l` calls; `arctan16` copies `x1/y1` into GSU RAM `m_x1`($62)/
+/// `m_y1`($2C), does `lda #mcallarctan16>>16; ldx #mcallarctan16&$ffff;
+/// jsl runmario_l` (the RAM GSU trampoline), then reads back `m_cnt`($40).
+/// Read straight out of `anglexy_l`'s `jsl` operand (built $02:F854). Not
+/// called directly by the harness — `anglexy_l` invokes it internally, so the
+/// whole GSU roundtrip runs from one `call(anglexy_l)`.
+pub const RETAIL_ARCTAN16_L_BUILT: u32 = 0x02_F854;
+
+/// Retail `n3dvecs_l` ($1F:C41E) — the CPU aim-math step that turns an aim
+/// angle into a velocity (`s_gen_3dvecs`; pure sin/cos tables, NO GSU). Reads
+/// `troty`/`trotx` (angle bytes) + `tmpz` (magnitude), writes the velocity into
+/// the `x1/y1/z1` WRAM scratch. Located by masked scan (the `nega roty; tax
+/// rotx; sep #$10` skeleton with all scratch/table operands wildcarded); the
+/// retail scratch block SHIFTED (x1/y1 stayed $02/$08 but z1 $8A->$90, tmpz
+/// $78->$7E, troty/trotx $1631/$1630->$15A7/$15A6). Port <-> `common::
+/// strat_gen_vecs_3d` (vx/vz + |vy| bit-exact; vy sign = renderer convention).
+pub const RETAIL_N3DVECS_L: u32 = 0x1F_C41E;
+/// Retail `troty`/`trotx` — the `n3dvecs_l` angle inputs (built $1631/$1630).
+pub const RETAIL_TROTY: u32 = 0x15A7;
+pub const RETAIL_TROTX: u32 = 0x15A6;
+/// The fire-gate timing (`s_jmp_notdelay #delay,label,al1pt`,
+/// GASTRATS.ASM:1310) — the pure-integer per-frame fire timer every firing
+/// enemy uses: `lda gameframe; clc; adc al1pt; and #(1<<delay)-1; bne .skip`,
+/// i.e. FIRE this frame iff `(gameframe + stagger) & ((1<<delay)-1) == 0`. NO
+/// GSU, NO RNG — a closed-form decision. Retail has 52 staggered sites (masks
+/// {$00,$01,$03,$07,$0F,$1F}); port <-> the identical expression
+/// `gameframe.wrapping_add(idx) & mask == 0` (`bossb::notdelay_stag`,
+/// `enemy_b.rs:1030`, etc.). See tests/coexec_retail.rs::retail_fire_gate_*.
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.
