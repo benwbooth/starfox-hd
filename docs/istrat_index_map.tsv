@@ -1,8 +1,20 @@
-# Authoritative ISTRAT name->index map (index = 0-based def_istrat row in
-# ISTRATS.ASM). Calibrated offset-0 vs 9 known registrations 50..197.
-# There is NO '+1 drift past 162' — that was a misconception that caused
-# sf-map IS_* const bugs (kdoor/walls/misstank). Use THIS to register + place.
-index	name
+# ISTRAT name -> RAW def_istrat row position in ISTRATS.ASM.
+#
+# WARNING: this raw row count is NOT universally the port's istrat index.
+# Counter-examples: IS_NOCOLL works at 10 (raw row 11); the CLSHIP* family is
+# uniformly +3 vs raw rows. The port uses a C-derived 'MACRO-counted' numbering
+# that diverges from the raw ASM rows in the low range by varying amounts. A
+# 9-name calibration (all >=50) gave offset 0 BY LUCK, missing the low-range
+# divergence -- an earlier header wrongly claimed the raw count IS the index.
+#
+# THE RELIABLE INVARIANT for a correct placement is NOT this file. It is:
+#   sf-map  IS_FOO = N   ==   sf-strat  register(world.istrats[N] = foo_init)
+# i.e. the map must place a strat at the SAME index the strat lane registers it
+# at. A bug is when sf-map places IS_FOO at an index where sf-strat registered a
+# DIFFERENT/no strat -> wrong behavior spawns. That is how misstank/kdoor/walls
+# were found+fixed (sf-map disagreed with the sf-strat registration). This table
+# is only a ROUGH relative-order reference; always confirm vs the register() call.
+index_raw	name
 0	MACRO
 1	player
 2	pbody
