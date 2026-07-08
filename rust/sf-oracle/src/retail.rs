@@ -640,6 +640,103 @@ pub const RETAIL_ROTATE_8YX_L: u32 = 0x1F_CC78;
 pub const RETAIL_ROTATE_8YZ_L: u32 = 0x1F_CAFB;
 pub const RETAIL_ROTATE_8XZ_L: u32 = 0x1F_C97B;
 
+// ------------------------------------------------------------------------
+// COLLISION SYSTEM — the highest-blast-radius shared surface (every laser
+// hit, ship/enemy contact, pickup). Three pieces:
+//   * do_coll_l           — the collision RESPONSE (hp decrement + framesperAP
+//                           cooldown + in-tunnel hardAP halving + hp bit7
+//                           indestructible). ROM-resident ($1F bank), so it is
+//                           RUN surgically vs the port.
+//   * COLDET macro        — the object-vs-object box-overlap TEST (16-bit
+//                           |d|<sum on Z,X,Y). Inlined in `chkcoll`, which is a
+//                           RAM-resident routine (SNES $7E:5015; symbol map),
+//                           so it can NOT be JSL'd on a non-booted bus. Located
+//                           in its ROM COPY-SOURCE (bank $02) and certified
+//                           structurally + by grid-diffing the port `aabb_overlap`
+//                           against a byte-faithful transcription of this ASM.
+//   * chkcoll0 colltype   — the collision ALLOW-MATRIX (who may hit whom).
+//                           Also inside the RAM `chkcoll`; located in the ROM
+//                           copy-source and certified by matrix-diff.
+// All located by masked signature scan of the retail cart, cross-validated by
+// reading operands back out. See tests/coexec_retail.rs.
+// ------------------------------------------------------------------------
+
+/// Retail `do_coll_l` ($1F:D23A, STRATROU.ASM:2143) — the collision RESPONSE
+/// (`JSL`/`RTL`), applied to a victim block X with damage in `x1` (dp $02).
+/// Body (8-bit A):
+/// `DEC al_collcount,x; BEQ +; JML .skip;      (DEC-then-BNE: damage only when
+///                                              collcount reaches 0)
+///  LDA pshipflags3; AND #psf3_intunnel; BNE +; JML .ntun;
+///  LDA x1; CMP #hardAP; BNE .nhard; CMP #$80; ROR A; STA x1;   (asra: halve
+///                                              hardAP damage in a tunnel)
+///  .nhard/.ntun: LDA al_HP,x; BMI .o2c;        (hp bit7 set => indestructible)
+///  SEC; SBC x1; BPL .nnhc; LDA #0; .nnhc STA al_HP,x;   (clamp at 0)
+///  .o2c: LDA tpa; STA al_collcount,x; .skip: RTL`   (reload cooldown = tpa)
+/// Located by UNIQUE masked scan (`D6 2D F0 04 5C.. AD..(pshipflags3) 29 01
+/// D0 04 5C.. A5 02 C9 08 D0 05 C9 80 6A 85 02 B5 2A 30 09 38 E5 02 10 02 A9 00
+/// 95 2A AD..(tpa) 95 2D`). Cross-validated: the `AD` operands read back give
+/// `pshipflags3`=$14D8 and `tpa`=$14C5 (== [`RETAIL_TPA`]); struct offsets
+/// collcount=$2D, HP=$2A (== [`AL_HP`]) match. Port <-> `Game::do_coll`
+/// (coldet.rs:236). RUN surgically vs the port — the response cert.
+pub const RETAIL_DO_COLL_L: u32 = 0x1F_D23A;
+/// Retail `pshipflags3` ($14D8) — read out of `do_coll_l`'s `LDA pshipflags3`
+/// operand (built $1563; the −$8B dostrats-globals shift). Bit $01 = in-tunnel.
+/// Port <-> `g.vars.pshipflags3`, `PSF3_INTUNNEL` = $01.
+pub const RETAIL_PSHIPFLAGS3: u32 = 0x14D8;
+/// `al_collcount` struct offset ($2D) — the do_coll cooldown counter (identical
+/// retail/built/port; from `do_coll_l`'s `DEC al_collcount,x` operand).
+pub const AL_COLLCOUNT: u32 = 0x2D;
+/// `hardAP` (8) / `framesperAP` (10) collision constants (STRATEQU.INC:66/798;
+/// identical retail/built/port — port `HARD_AP`/`FRAMESPERAP`).
+pub const HARD_AP: u8 = 8;
+pub const FRAMESPERAP: u8 = 10;
+
+/// Retail box-overlap `COLDET` macro expansion (SNES $02:A1BF) — the
+/// object-vs-object AABB test, in the ROM copy-source of the RAM-resident
+/// `chkcoll` (SNES $7E:5015). Three consecutive 16-bit axis tests in Z, X, Y
+/// order, each: `lda cl_Nmax,x; clc; adc Ncol; sta rangexz; lda tp<N>;
+/// sec; sbc <N>p; bpl+4; eor #$FFFF; inc a;  (16-bit two's-complement abs)
+/// sec; sbc rangexz; bmi .in; jmp .notcollided`. Overlap iff on ALL three axes
+/// `|pos2 - pos1| < (cl_Nmax_1 + cl_Nmax_2)` — a STRICTLY-LESS boundary. The
+/// summed half-extents `cl_Nmax` come from the per-SHAPE size table
+/// (`generate_collist_l` copies `sh_xmax/ymax/zmax`), NOT a per-object size.
+/// `rangexz`=$1250 (== [`RETAIL_RANGEXZ`]); position DP scratch tpz/tpx/tpy
+/// =$3E/$3A/$3C, zp/xp/ys=$6E/$6C/$74. Byte-structurally IDENTICAL to the port
+/// `aabb_overlap` (coldet.rs:166): same 16-bit width, same Z/X/Y order, same
+/// two's-complement abs, same strictly-less boundary. Certified structurally +
+/// by grid-diff (the RAM residency of `chkcoll` blocks a live JSL).
+pub const RETAIL_COLDET_OVERLAP: u32 = 0x02_A1BF;
+
+/// Retail `chkcoll0` colltype ALLOW-MATRIX filter (SNES $02:A159) — the
+/// who-may-hit-whom gate, in `chkcoll`'s ROM copy-source. Body:
+/// `lda al_collflags,y; and al_collflags,x; and #colltype_mask; beq +;
+///  brl chkcollnxt` — i.e. a pair is SKIPPED iff it shares ANY collision-type
+/// bit (`cf_a & cf_b & $F8 != 0`). NO "both zero => skip" (an object with no
+/// type bit still collides). Cross-validated: the `and #imm` operand = $00F8 =
+/// `colltype1|2|3|4|5`. Followed immediately by the immunity checks
+/// (`cmp al_immuneptr,x`, NO nonzero guard; immuneptr=$19) and the same-shape
+/// gate (see [`RETAIL_CURRSHAPE`]). Port <-> `Game::coldet_run` colltype filter
+/// (coldet.rs:310 — `if a_types & b_types != 0 continue`, TYPE_MASK=$F8). MATCH.
+pub const RETAIL_CHKCOLL_COLLTYPE: u32 = 0x02_A159;
+/// `colltype1|colltype2|colltype3|colltype4|colltype5` mask ($F8) — the retail
+/// allow-matrix typemask, read out of the `chkcoll0` `and #$00F8` operand.
+/// Semantics (STRATEQU.INC:943-954): colltype1=lasers, 2=enemy1, 3=enemy2,
+/// 4=enemy-weapons, 5=friend. Identical to the port `TYPE_MASK`.
+pub const COLLTYPE_MASK: u8 = 0xF8;
+/// `al_immuneptr` struct offset ($19) — from `chkcoll0`'s `cmp al_immuneptr,x`.
+pub const AL_IMMUNEPTR: u32 = 0x19;
+/// `al_sflags3` struct offset ($1F) + the `sameshapecollide` bit ($80). The
+/// retail same-shape gate (`chkcoll0`, right after immunity): unless BOTH
+/// objects carry `sflags3 & $80`, a pair whose `al_shape` == `currshape`
+/// ($1F03) is SKIPPED (`lda al_shape,x; cmp currshape; beq -> brl chkcollnxt`).
+/// The port `coldet_run` has NO shape gate — a REAL (narrow-blast-radius)
+/// divergence characterized in `retail_same_shape_skip_divergence`.
+pub const AL_SFLAGS3: u32 = 0x1F;
+pub const ASF3_SAMESHAPECOLLIDE: u8 = 0x80;
+/// Retail `currshape` ($1F03) — the primary object's shape, cached at the top of
+/// `chkcoll`, that the same-shape gate compares each candidate against.
+pub const RETAIL_CURRSHAPE: u32 = 0x1F03;
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.

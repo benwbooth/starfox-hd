@@ -3158,3 +3158,371 @@ fn retail_sr_make_obj_spawn_vs_port() {
     assert_eq!((wx, wy, wz), (pal.worldx, pal.worldy, pal.worldz), "spawned world pos matches port");
     eprintln!("MAKEOBJ: MATCH — retail sr_make_obj new-object observable (shape + zeroed world pos) == port make_obj.");
 }
+
+// ============================================================================
+// COLLISION SYSTEM vs the RETAIL cart — the highest-blast-radius shared surface
+// (every laser hit, ship/enemy contact, pickup). Three pieces certified:
+//   1. do_coll_l   — the collision RESPONSE (damage + cooldown). ROM-resident,
+//                    RUN surgically vs the port.
+//   2. COLDET      — the object-vs-object box-overlap TEST. Inlined in the
+//                    RAM-resident `chkcoll` (SNES $7E:5015 in the symbol map),
+//                    so it cannot be JSL'd on a non-booted bus; located in its
+//                    ROM copy-source (bank $02) + certified structurally and by
+//                    grid-diffing the port `aabb_overlap` vs a byte-faithful
+//                    transcription of the ASM.
+//   3. chkcoll0    — the colltype ALLOW-MATRIX (who may hit whom) + the
+//                    same-shape gate. Also inside `chkcoll`; located in the copy-
+//                    source. The colltype matrix MATCHES the port; the same-shape
+//                    gate is a REAL port-vs-cart divergence, characterized below.
+// ============================================================================
+
+/// MILESTONE — LOCATE + CROSS-VALIDATE the three collision routines in the
+/// retail cart by masked signature scan, reading their operands back out.
+#[test]
+fn retail_collision_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // --- do_coll_l (ROM-resident, $1F bank) — UNIQUE ---
+    let dc: Vec<Option<u8>> = vec![
+        Some(0xD6), Some(0x2D), Some(0xF0), Some(0x04), Some(0x5C), None, None, None,
+        Some(0xAD), None, None, Some(0x29), Some(0x01), Some(0xD0), Some(0x04), Some(0x5C), None, None, None,
+        Some(0xA5), Some(0x02), Some(0xC9), Some(0x08), Some(0xD0), Some(0x05), Some(0xC9), Some(0x80),
+        Some(0x6A), Some(0x85), Some(0x02), Some(0xB5), Some(0x2A), Some(0x30), Some(0x09), Some(0x38),
+        Some(0xE5), Some(0x02), Some(0x10), Some(0x02), Some(0xA9), Some(0x00), Some(0x95), Some(0x2A),
+        Some(0xAD), None, None, Some(0x95), Some(0x2D),
+    ];
+    let h = masked_scan(&rom, &dc);
+    assert_eq!(h.len(), 1, "do_coll_l unique");
+    let o = h[0];
+    let addr = rom_off_to_snes(o);
+    let pshipflags3 = rom[o + 9] as u32 | (rom[o + 10] as u32) << 8;
+    let tpa = rom[o + 44] as u32 | (rom[o + 45] as u32) << 8;
+    assert_eq!(addr, sf_oracle::RETAIL_DO_COLL_L, "do_coll_l addr");
+    assert_eq!(pshipflags3, sf_oracle::RETAIL_PSHIPFLAGS3, "pshipflags3 operand");
+    assert_eq!(tpa, sf_oracle::RETAIL_TPA, "tpa (framesperAP reload) operand == RETAIL_TPA");
+    // struct offsets read back: collcount=$2D, HP=$2A; consts hardAP=$08, intunnel=$01.
+    assert_eq!(rom[o + 1] as u32, sf_oracle::AL_COLLCOUNT, "DEC al_collcount,x offset");
+    assert_eq!(rom[o + 31] as u32, sf_oracle::AL_HP, "LDA al_HP,x offset");
+    assert_eq!(rom[o + 22], sf_oracle::HARD_AP, "CMP #hardAP immediate");
+    assert_eq!(rom[o + 12], 0x01, "AND #psf3_intunnel immediate");
+    eprintln!("COLL: do_coll_l=${addr:06X}  pshipflags3=${pshipflags3:04X} tpa=${tpa:04X} (collcount=$2D HP=$2A hardAP=8)");
+
+    // --- COLDET box-overlap macro (RAM copy-source, bank $02): three
+    //     consecutive 16-bit axis tests. Anchor on the abs+bmi+jmp core. ---
+    let axis_core: Vec<Option<u8>> = vec![
+        // ...bpl+4; eor #$FFFF; inc a; sec; sbc rangexz; bmi+3; jmp ....
+        Some(0x10), Some(0x04), Some(0x49), Some(0xFF), Some(0xFF), Some(0x1A),
+        Some(0x38), Some(0xED), None, None, Some(0x30), Some(0x03), Some(0x4C),
+    ];
+    // full one-axis pattern: lda cl_max,x; clc; adc Ncol; sta rangexz; lda tpN;
+    // sec; sbc Np; <axis_core>
+    let mut zaxis: Vec<Option<u8>> = vec![
+        Some(0xBD), None, None, Some(0x18), Some(0x6D), None, None, Some(0x8D), None, None,
+        Some(0xA5), None, Some(0x38), Some(0xE5), None,
+    ];
+    zaxis.extend_from_slice(&axis_core);
+    let za = masked_scan(&rom, &zaxis);
+    assert!(!za.is_empty(), "COLDET axis pattern present in retail (RAM copy-source)");
+    // The documented Z-axis start of the normalcol expansion:
+    let want = snes_to_rom_off(sf_oracle::RETAIL_COLDET_OVERLAP);
+    assert!(za.contains(&want), "RETAIL_COLDET_OVERLAP is one of the located axis tests");
+    // Confirm the boundary is STRICTLY-LESS: `sbc rangexz; bmi` (30) => in-range
+    // iff (|d| - sum) < 0, and the sum's low operand at this site is rangexz.
+    let rangexz = rom[want + 8] as u32 | (rom[want + 9] as u32) << 8; // sta rangexz operand
+    assert_eq!(rangexz, sf_oracle::RETAIL_RANGEXZ, "COLDET compares against rangexz ($1250)");
+    assert_eq!(rom[want + 25], 0x30, "boundary opcode is BMI (strictly-less)");
+    eprintln!("COLL: COLDET box-overlap @${:06X} (16-bit |d|<sum, Z/X/Y, bmi strictly-less), {} axis-tests total", sf_oracle::RETAIL_COLDET_OVERLAP, za.len());
+
+    // --- chkcoll0 colltype allow-matrix filter (RAM copy-source, bank $02) ---
+    // lda al_collflags,y (B9 2E 00); and al_collflags,x (35 2E); and #F8 00; beq +; brl skip
+    let ct: Vec<Option<u8>> = vec![
+        Some(0xB9), Some(0x2E), Some(0x00), Some(0x35), Some(0x2E), Some(0x29), Some(0xF8), Some(0x00),
+        Some(0xF0), Some(0x03), Some(0x82),
+    ];
+    let ch = masked_scan(&rom, &ct);
+    assert_eq!(ch.len(), 1, "chkcoll0 colltype filter unique");
+    let co = rom_off_to_snes(ch[0]);
+    assert_eq!(co, sf_oracle::RETAIL_CHKCOLL_COLLTYPE, "colltype filter addr");
+    let mask = rom[ch[0] + 6]; // and #$00F8 low byte
+    assert_eq!(mask, sf_oracle::COLLTYPE_MASK, "colltype mask == $F8 (colltype1..5)");
+    assert_eq!(rom[ch[0] + 1] as u32, sf_oracle::AL_COLLFLAGS, "al_collflags offset $2E");
+    eprintln!("COLL: colltype allow-matrix @${co:06X}  mask=${mask:02X}  (skip iff cf_a&cf_b&mask != 0; NO both-zero skip)");
+
+    // --- immunity + same-shape gate right after the colltype filter ---
+    // cmp al_immuneptr,x (D5 19) appears twice; lda al_shape,x; cmp currshape.
+    // Locate the same-shape compare: B5 04 (lda al_shape,x); CD <currshape>; then a
+    // long branch to chkcollnxt. Confirm currshape operand and immuneptr offset.
+    let ss: Vec<Option<u8>> = vec![Some(0xB5), Some(0x04), Some(0x9B), Some(0xCD), None, None, Some(0xD0), Some(0x03), Some(0x82)];
+    let sh = masked_scan(&rom, &ss);
+    assert!(!sh.is_empty(), "same-shape gate present in retail chkcoll0");
+    let sso = sh[0];
+    let currshape = rom[sso + 4] as u32 | (rom[sso + 5] as u32) << 8;
+    assert_eq!(currshape, sf_oracle::RETAIL_CURRSHAPE, "same-shape gate compares al_shape,x to currshape ($1F03)");
+    eprintln!("COLL: same-shape gate @${:06X} (lda al_shape,x; cmp currshape=${currshape:04X}; beq->skip) — port has NO shape gate (divergence)", rom_off_to_snes(sso));
+}
+
+/// Retail collision RESPONSE certified vs the port: run the cart's OWN `do_coll_l`
+/// ($1F:D23A) on a seeded victim over a grid of (collcount, hp, ap, tunnel) and
+/// diff the resulting (collcount, hp) against the port `Game::do_coll`
+/// (coldet.rs:236) transcribed byte-faithfully. Covers: the DEC-then-BNE cooldown
+/// gate, the hp bit-7 (>=$80) indestructible branch, the underflow clamp at 0,
+/// the in-tunnel hardAP halving, and the framesperAP reload.
+#[test]
+fn retail_docoll_response_vs_port() {
+    let Some(rom) = retail() else { return };
+    const XB: u32 = 0x0100; // any WRAM block; do_coll only touches collcount/HP here.
+    const X1: u32 = 0x02; // dp scratch: damage (AP)
+
+    // Byte-faithful port do_coll (coldet.rs:236-259). Returns (collcount, hp).
+    fn port_do_coll(collcount: u8, hp: u8, ap: u8, tunnel: bool) -> (u8, u8) {
+        let mut cc = collcount;
+        let mut h = hp;
+        cc = cc.wrapping_sub(1);
+        if cc != 0 {
+            return (cc, h);
+        }
+        let mut damage = ap;
+        if tunnel && damage == sf_oracle::HARD_AP {
+            damage >>= 1;
+        }
+        if (h as i8) >= 0 {
+            h = h.saturating_sub(damage);
+        }
+        (sf_oracle::FRAMESPERAP, h)
+    }
+
+    let grid: &[(u8, u8, u8, bool)] = &[
+        (10, 50, 1, false),   // cooldown active: DEC only
+        (1, 50, 1, false),    // DEC->0: apply 1 damage
+        (1, 50, 7, false),    // heavier hit
+        (0, 50, 1, false),    // collcount 0 -> wraps to 255 (cooldown, no damage)
+        (1, 3, 5, false),     // underflow clamp at 0
+        (1, 0x80, 20, false), // hp bit7 set => indestructible
+        (1, 0xFF, 20, false), // hp $FF => indestructible
+        (1, 50, 8, true),     // in-tunnel + hardAP(8): halved to 4
+        (1, 50, 8, false),    // hardAP but NOT tunnel: full 8
+        (1, 50, 6, true),     // in-tunnel + non-hardAP: unchanged
+        (2, 50, 8, true),     // cooldown active in tunnel: DEC only
+    ];
+
+    let mut all = true;
+    for &(cc, hp, ap, tunnel) in grid {
+        let mut bus = SnesBus::new(rom.clone());
+        bus.write8(XB + sf_oracle::AL_COLLCOUNT, cc);
+        bus.write8(XB + sf_oracle::AL_HP, hp);
+        bus.write8(X1, ap);
+        bus.write8(sf_oracle::RETAIL_TPA, sf_oracle::FRAMESPERAP);
+        bus.write8(sf_oracle::RETAIL_PSHIPFLAGS3, if tunnel { 1 } else { 0 });
+        call(&mut bus, sf_oracle::RETAIL_DO_COLL_L, &Entry { x: XB as u16, p: 0x20, ..Default::default() });
+        let rcc = bus.read8(XB + sf_oracle::AL_COLLCOUNT);
+        let rhp = bus.read8(XB + sf_oracle::AL_HP);
+        let (pcc, php) = port_do_coll(cc, hp, ap, tunnel);
+        let ok = (rcc, rhp) == (pcc, php);
+        all &= ok;
+        eprintln!(
+            "COLL do_coll cc={cc} hp={hp} ap={ap} tun={tunnel}: retail=({rcc},{rhp}) port=({pcc},{php}) {}",
+            if ok { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!((rcc, rhp), (pcc, php), "do_coll cc={cc} hp={hp} ap={ap} tunnel={tunnel}");
+    }
+    assert!(all);
+    eprintln!("COLL: RESPONSE MATCH — retail do_coll_l == port Game::do_coll over the full damage/cooldown/tunnel/indestructible grid.");
+}
+
+/// Retail box-overlap MATH certified vs the port `aabb_overlap`. The retail test
+/// (`chkcoll`) is RAM-resident so it cannot be JSL'd on a non-booted bus; instead
+/// we transcribe the confirmed `COLDET` macro ASM (16-bit two's-complement abs,
+/// Z/X/Y order, strictly-less `|d| < sum`) into a reference and diff the PORT's
+/// public `aabb_overlap` against it over a grid that STRADDLES the boundary on
+/// each axis (the off-by-one home) plus the i16 wrap edge.
+#[test]
+fn retail_box_overlap_vs_port() {
+    use sf_game::coldet::aabb_overlap;
+
+    // ROM COLDET reference: transcribed from SNES $02:A1CE (see
+    // RETAIL_COLDET_OVERLAP). Overlap iff on ALL of Z,X,Y: |pos2-pos1| < e1+e2,
+    // with a 16-bit two's-complement abs (matches the ASM eor #$FFFF; inc a).
+    fn rom_overlap(
+        x1: i16, y1: i16, z1: i16, e1x: i16, e1y: i16, e1z: i16,
+        x2: i16, y2: i16, z2: i16, e2x: i16, e2y: i16, e2z: i16,
+    ) -> bool {
+        // axis order Z, X, Y — early-out exactly like the ASM's three jmps.
+        let dz = z2.wrapping_sub(z1);
+        let dz = if dz < 0 { dz.wrapping_neg() } else { dz };
+        if dz >= e1z.wrapping_add(e2z) { return false; }
+        let dx = x2.wrapping_sub(x1);
+        let dx = if dx < 0 { dx.wrapping_neg() } else { dx };
+        if dx >= e1x.wrapping_add(e2x) { return false; }
+        let dy = y2.wrapping_sub(y1);
+        let dy = if dy < 0 { dy.wrapping_neg() } else { dy };
+        if dy >= e1y.wrapping_add(e2y) { return false; }
+        true
+    }
+
+    // Extents: object 1 = (20,16,20), object 2 = (10,10,10). Sums: x=30,y=26,z=30.
+    let (e1x, e1y, e1z) = (20i16, 16, 20);
+    let (e2x, e2y, e2z) = (10i16, 10, 10);
+    let mut checks = 0usize;
+    let mut mism = 0usize;
+
+    // Boundary-straddling grid on each axis independently (others coincident).
+    for &sep in &[
+        // separations around each axis's boundary (sum ±2), incl. exact boundary.
+        -32i16, -31, -30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20,
+        -2, -1, 0, 1, 2,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+    ] {
+        // vary X
+        {
+            let p = aabb_overlap(0, 0, 0, e1x, e1y, e1z, sep, 0, 0, e2x, e2y, e2z);
+            let r = rom_overlap(0, 0, 0, e1x, e1y, e1z, sep, 0, 0, e2x, e2y, e2z);
+            checks += 1; if p != r { mism += 1; eprintln!("DIFF X sep={sep}: port={p} rom={r}"); }
+        }
+        // vary Y
+        {
+            let p = aabb_overlap(0, 0, 0, e1x, e1y, e1z, 0, sep, 0, e2x, e2y, e2z);
+            let r = rom_overlap(0, 0, 0, e1x, e1y, e1z, 0, sep, 0, e2x, e2y, e2z);
+            checks += 1; if p != r { mism += 1; eprintln!("DIFF Y sep={sep}: port={p} rom={r}"); }
+        }
+        // vary Z
+        {
+            let p = aabb_overlap(0, 0, 0, e1x, e1y, e1z, 0, 0, sep, e2x, e2y, e2z);
+            let r = rom_overlap(0, 0, 0, e1x, e1y, e1z, 0, 0, sep, e2x, e2y, e2z);
+            checks += 1; if p != r { mism += 1; eprintln!("DIFF Z sep={sep}: port={p} rom={r}"); }
+        }
+    }
+
+    // The i16 wrap edge: two's-complement abs of i16::MIN is i16::MIN (both sides
+    // treat it as "in range"). Place obj2 near the wrap so dx wraps.
+    for &(a, b) in &[(30000i16, -30000i16), (-32768, 0), (32000, -32000), (i16::MIN, 0)] {
+        let p = aabb_overlap(a, 0, 0, e1x, e1y, e1z, b, 0, 0, e2x, e2y, e2z);
+        let r = rom_overlap(a, 0, 0, e1x, e1y, e1z, b, 0, 0, e2x, e2y, e2z);
+        checks += 1; if p != r { mism += 1; eprintln!("DIFF wrap a={a} b={b}: port={p} rom={r}"); }
+    }
+
+    eprintln!("COLL: box-overlap grid {checks} checks, {mism} mismatches");
+    assert_eq!(mism, 0, "port aabb_overlap must match the retail COLDET macro over the boundary grid");
+    // Prove the boundary is where it should be (strictly-less): exactly at the sum
+    // there is NO overlap; one below there IS.
+    assert!(!aabb_overlap(0, 0, 0, e1x, e1y, e1z, 30, 0, 0, e2x, e2y, e2z), "sep==sum(30) => NO overlap");
+    assert!(aabb_overlap(0, 0, 0, e1x, e1y, e1z, 29, 0, 0, e2x, e2y, e2z), "sep==sum-1(29) => overlap");
+    eprintln!("COLL: box-overlap MATCH — port == retail COLDET, boundary is strictly |d| < e1+e2 on Z/X/Y.");
+}
+
+/// Retail collision ALLOW-MATRIX (who may hit whom) certified vs the port. The
+/// retail rule (`chkcoll0`, SNES $02:A15E): a pair is SKIPPED iff it shares any
+/// collision-type bit (`cf_a & cf_b & $F8 != 0`), with NO "both zero => skip".
+/// Diff the port's identical filter (`Game::coldet_run`: `a_types & b_types != 0
+/// -> continue`) against a ROM-faithful reference over the FULL colltype matrix.
+#[test]
+fn retail_colltype_matrix_vs_port() {
+    // ROM reference: SKIP iff (cf_a & cf_b & mask) != 0.
+    fn rom_skip(cf_a: u8, cf_b: u8) -> bool {
+        (cf_a & cf_b & sf_oracle::COLLTYPE_MASK) != 0
+    }
+    // Port reference: coldet.rs:310-314.
+    const PORT_MASK: u8 = sf_game::alien::ACF_COLLTYPE1
+        | sf_game::alien::ACF_COLLTYPE2
+        | sf_game::alien::ACF_COLLTYPE3
+        | sf_game::alien::ACF_COLLTYPE4
+        | sf_game::alien::ACF_COLLTYPE5;
+    fn port_skip(cf_a: u8, cf_b: u8) -> bool {
+        (cf_a & PORT_MASK) & (cf_b & PORT_MASK) != 0
+    }
+
+    assert_eq!(PORT_MASK, sf_oracle::COLLTYPE_MASK, "port TYPE_MASK == retail colltype mask $F8");
+
+    // Full matrix over the type bits + weapon/firstframe noise bits.
+    let bits = [0u8, 0x08, 0x10, 0x20, 0x40, 0x80, 0x02, 0x04];
+    let mut mism = 0;
+    let mut n = 0;
+    for &a0 in &bits { for &a1 in &bits { for &b0 in &bits { for &b1 in &bits {
+        let cf_a = a0 | a1;
+        let cf_b = b0 | b1;
+        let r = rom_skip(cf_a, cf_b);
+        let p = port_skip(cf_a, cf_b);
+        n += 1;
+        if r != p { mism += 1; eprintln!("DIFF cf_a=${cf_a:02X} cf_b=${cf_b:02X}: rom_skip={r} port_skip={p}"); }
+    }}}}
+    assert_eq!(mism, 0, "colltype allow-matrix must match retail over the full matrix ({n} combos)");
+
+    // Semantic allow-matrix spot-checks (STRATEQU.INC:943-954):
+    let laser = 0x08u8;    // colltype1 all lasers
+    let enemy1 = 0x10u8;   // colltype2
+    let enemy2 = 0x20u8;   // colltype3
+    let enemyw = 0x40u8;   // colltype4 enemy weapons
+    let friend = 0x80u8;   // colltype5
+    assert!(!rom_skip(laser, enemy1), "laser vs enemy1 => COLLIDE");
+    assert!(!rom_skip(laser, enemy2), "laser vs enemy2 => COLLIDE");
+    assert!(rom_skip(laser, laser), "laser vs laser => skip (shared colltype1)");
+    assert!(rom_skip(enemy1, enemy1), "enemy1 vs enemy1 => skip (shared colltype2)");
+    assert!(!rom_skip(enemyw, 0), "enemy-weapon vs player(no type) => COLLIDE (no both-zero skip)");
+    assert!(!rom_skip(0, 0), "two typeless objects => COLLIDE (no both-zero skip)");
+    assert!(!rom_skip(laser, friend), "laser vs friend => COLLIDE");
+    eprintln!("COLL: ALLOW-MATRIX MATCH — retail chkcoll0 colltype filter == port over {n} combos; skip iff shared colltype bit, no both-zero skip.");
+}
+
+/// REAL DIVERGENCE (characterized) — the retail same-shape collision gate.
+///
+/// Retail `chkcoll0` (SNES $02:A15E region) SKIPS a candidate pair when the two
+/// objects have the SAME `al_shape` (`lda al_shape,x; cmp currshape; beq -> brl
+/// chkcollnxt`), UNLESS BOTH carry the `sameshapecollide` sflag (sflags3 bit
+/// $80). `sameshapecollide` is set by essentially nothing (1 file / 2 sites in
+/// the whole reference source), so the cart effectively NEVER collides two
+/// same-shape objects with each other. The port `Game::coldet_run` (coldet.rs)
+/// has NO shape gate at all — so it WILL collide same-shape objects the cart
+/// skips.
+///
+/// Blast radius is NARROW: same-shape objects usually also share a colltype and
+/// are already dropped by the colltype filter (certified above). The residual
+/// case that bites is two objects of the SAME shape but DIFFERENT colltype (e.g.
+/// two same-model enemies registered as enemy1 vs enemy2) overlapping — the cart
+/// skips, the port damages both. This test constructs exactly that scene and
+/// shows the port DOES collide (where the cart would not); the assertion pins the
+/// current port behaviour so a follow-up sf-game fix (add the same-shape gate)
+/// flips it deliberately.
+#[test]
+fn retail_same_shape_skip_divergence() {
+    use sf_game::alien::{ACF_COLLTYPE2, ACF_COLLTYPE3, ASF_COLLIDE};
+    use sf_game::game::Game;
+
+    let mut g = Game::new();
+    // Two objects, SAME shape, DIFFERENT colltype (enemy1 vs enemy2), overlapping.
+    let a = g.objs.alloc().expect("alloc a");
+    let b = g.objs.alloc().expect("alloc b");
+    for (idx, ct) in [(a, ACF_COLLTYPE2), (b, ACF_COLLTYPE3)] {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.shape = 0x0042; // SAME shape id
+        al.collflags = ct; // clears ACF_FIRSTFRAME (alloc set it) so it enters the list
+        al.hp = 50;
+        al.ap = 5;
+        al.sflags = 0;
+        al.sflags3 = 0; // NEITHER has sameshapecollide -> cart would SKIP the pair
+        al.worldx = 0;
+        al.worldy = 0;
+        al.worldz = 0;
+        al.immuneptr = 0;
+        al.sbyte4 = 0;
+    }
+
+    g.coldet_generate_list();
+    g.coldet_run();
+
+    let coll_a = g.objs.aliens[a as usize].sflags & ASF_COLLIDE != 0;
+    let coll_b = g.objs.aliens[b as usize].sflags & ASF_COLLIDE != 0;
+    eprintln!(
+        "COLL same-shape: shape=$0042 both, colltype enemy1 vs enemy2, overlapping -> port collide=({coll_a},{coll_b})"
+    );
+    // RETAIL would NOT collide these (same shape, no sameshapecollide). The PORT
+    // does — this pins the CURRENT (divergent) port behaviour. A follow-up
+    // sf-game fix adds the same-shape gate and this expectation flips to false.
+    assert!(
+        coll_a && coll_b,
+        "PORT currently collides same-shape different-colltype objects (divergence vs retail which skips). \
+         If this fails, the same-shape gate was added to coldet_run — update this test to assert !collide."
+    );
+    eprintln!(
+        "COLL: DIVERGENCE characterized — retail chkcoll0 SKIPS same-shape pairs (no sameshapecollide); \
+         port coldet_run has no shape gate and collides them. Narrow blast radius (same shape + different colltype)."
+    );
+}

@@ -9,12 +9,13 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**44 tests, all green** — **15 named
+`rust/sf-oracle/tests/coexec_retail.rs` (**49 tests, all green** — **15 named
 strats** + the **GSU-per-tick AIMING CLASS** (aim angle via the live GSU + aim
 velocity + fire-gate timing, UPDATE 8) + the **PROJECTILE-SPAWN + TARGET-SEARCH
-machinery** (UPDATE 9) + the runtime RNG stream + the RNG-driven
+machinery** (UPDATE 9) + the **COLLISION SYSTEM** (do_coll response + box-overlap
+math + colltype allow-matrix, UPDATE 10) + the runtime RNG stream + the RNG-driven
 ENEMY class + the `break_meteorT` death coin, all certified vs retail; see
-UPDATE 3-9). The
+UPDATE 3-10). The
 player-relative + RNG state-seeding frontier is CLEARED (UPDATE 4), the
 RNG-driven ENEMY class is CERTIFIED (UPDATE 5), BATCH 3 (UPDATE 6) adds a
 STATIC-init scenery strat + three more RNG-driven INIT strats, BATCH 4
@@ -582,6 +583,89 @@ proven equivalent via `retail_gen_3dvecs_vs_port`).
 | target search (`find_nearobject_l`) | $1F:C870 -> `xzdiffs_l` $1F:D0AB | XZ octagonal-band nearest | selected target == port `find_near_shape` for all coplanar configs (8/8) + radius reject; Y-separated divergence characterized |
 | spawn alloc (`sr_make_obj`) | $1F:D54B -> `makeobj_l` $1F:D3A9 | pool pop + init + shape | new-object observable (shape + zeroed world pos) == port `make_obj` |
 | muzzle offset (`gen_weapon`) | rotate `$1F:CC78/CAFB/C97B` | CPU sin/cos rotate + firer pos | transitively (== certified `gen_3dvecs` sin/cos); (0,0,0) common path exact |
+
+## UPDATE 10 — the COLLISION SYSTEM certified vs retail (highest blast radius)
+
+The shared code every laser hit, ship/enemy contact and pickup depends on. Three
+pieces located + certified vs the cartridge. **Five new tests, all green**
+(`coexec_retail` now **49**). The box-overlap MATH and the colltype ALLOW-MATRIX
+both **MATCH** the port exactly; the collision RESPONSE (`do_coll_l`) **MATCHES**
+run-for-run; and **one real (narrow-blast-radius) port-vs-cart divergence** is
+characterized — the retail **same-shape collision gate** the port omits.
+
+### Retail collision addresses located (all cross-validated)
+| Routine | Retail | Residency | How located / cross-validated |
+|------|------|------|------|
+| `do_coll_l` (response) | **$1F:D23A** | ROM (JSL/RTL) | UNIQUE masked scan; operands read back = `pshipflags3`=$14D8, `tpa`=$14C5 (== `RETAIL_TPA`); offsets collcount=$2D, HP=$2A; consts hardAP=8, intunnel=$01 |
+| `COLDET` box-overlap | **$02:A1BF** | ROM copy-source of RAM `chkcoll` ($7E:5015) | axis-pattern scan; `sta/sbc rangexz`=$1250 (== `RETAIL_RANGEXZ`), boundary opcode = **BMI** (strictly-less); 8 axis-tests total |
+| `chkcoll0` colltype filter | **$02:A159** | (same copy-source) | UNIQUE scan; `and #imm`=$00F8, `al_collflags`=$2E |
+| `chkcoll0` same-shape gate | **$02:A199** | (same copy-source) | scan; `lda al_shape,x; cmp currshape=$1F03; beq->skip`; immuneptr=$19 |
+
+**KEY: `chkcoll` is RAM-resident** (SNES $7E:5015 in the symbol map — the whole
+detector is copied to WRAM at boot), so it can NOT be `JSL`'d on a non-booted
+bus. The box-overlap + colltype/same-shape logic was therefore located in its
+**ROM copy-source** (bank $02) and certified structurally + by grid/matrix-diff.
+`do_coll_l` IS ROM-resident, so it is RUN surgically.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_collision_addresses` | ✅ | Locates + cross-validates all four (do_coll_l UNIQUE; colltype filter UNIQUE; COLDET axis-pattern + same-shape gate present), reading every operand back. |
+| `retail_docoll_response_vs_port` | ✅ **MATCH** | Runs the cart's OWN `do_coll_l` ($1F:D23A) on a seeded victim over an 11-case grid of (collcount, hp, ap, tunnel) and diffs (collcount, hp) vs the port `Game::do_coll`: the DEC-then-BNE cooldown gate, hp bit-7 (>=$80) indestructible branch, underflow clamp at 0, in-tunnel hardAP halving (`asra`), and framesperAP reload — all MATCH. |
+| `retail_box_overlap_vs_port` | ✅ **MATCH** | Grid-diffs the PORT public `aabb_overlap` vs a byte-faithful transcription of the retail `COLDET` macro (16-bit two's-complement abs, Z/X/Y order, strictly-less `|d| < e1+e2`) over boundary-straddling separations on each axis + the i16 wrap edge. 0 mismatches; boundary pinned exactly (sep==sum -> no overlap, sep==sum-1 -> overlap). |
+| `retail_colltype_matrix_vs_port` | ✅ **MATCH** | Diffs the port colltype filter (`a_types & b_types != 0 -> skip`) vs the ROM rule (`cf_a & cf_b & $F8 != 0 -> skip`) over the FULL type matrix (4096 combos) + semantic spot-checks (laser vs enemy = collide; laser vs laser / enemy1 vs enemy1 = skip; typeless objects = collide — **no both-zero skip**). |
+| `retail_same_shape_skip_divergence` | ⚠️ **DIVERGENCE (characterized)** | Constructs two SAME-shape, DIFFERENT-colltype overlapping objects, runs the port collision pass, and shows the port collides them — where the cart's same-shape gate would SKIP. Pins current port behaviour with a note to flip on the sf-game fix. |
+
+### Box-overlap MATH — MATCH (the size source, axis order, boundary)
+- **Size source**: the retail overlap sums the per-SHAPE `cl_xmax/ymax/zmax`
+  (`generate_collist_l` copies `sh_xmax/ymax/zmax` from the shape header) — a
+  **shape->size table**, NOT a per-object `al_size`. The port reads the identical
+  source (`hooks.shape_extents(al.shape)`). **MATCH.**
+- **Axis order**: Z, then X, then Y (three early-out `jmp`s) — identical to the
+  port `aabb_overlap`.
+- **No Z asymmetry**: Z uses the SAME `cl_zmax + zmax` formula as X/Y (no
+  different threshold) — the early-out ORDER is Z-first but the math is symmetric.
+- **Boundary**: `sec; sbc rangexz; bmi` => in-range iff `(|d| - sum) < 0` i.e.
+  `|d| < sum` (STRICTLY less). Port: `if |d| >= sum return false`. Identical,
+  including the i16 wrap: two's-complement abs of `i16::MIN` stays `i16::MIN`
+  both sides (treated as "in range").
+
+### Colltype ALLOW-MATRIX — MATCH (who may hit whom)
+Retail `chkcoll0`: `lda al_collflags,y; and al_collflags,x; and #$F8; bne ->skip`
+— a pair is dropped iff it SHARES any collision-type bit; typemask $F8 =
+colltype1(lasers)|2(enemy1)|3(enemy2)|4(enemy-weapons)|5(friend). The port uses
+the identical rule + identical bit values (`ACF_COLLTYPE1..5` = $08..$80). Crucially
+**neither** side has a "both objects typeless -> skip" (the earlier port bug,
+already removed) — verified over all 4096 collflag combos. Immunity: retail
+`cmp al_immuneptr,x` has NO nonzero guard (immuneptr=$19); the port's WEAPON-based
+guard is a documented workaround for its 0-based-slot player representation
+(player == slot 0 collides with the "no owner" 0), a representation remap not a
+behaviour change.
+
+### REAL FINDING — the retail SAME-SHAPE gate the port omits
+Retail `chkcoll0` (SNES $02:A199): `lda al_shape,x; cmp currshape; beq ->
+chkcollnxt` — two objects with the **same `al_shape`** are SKIPPED, UNLESS BOTH
+carry the `sameshapecollide` sflag (sflags3 bit $80). `sameshapecollide` is set
+by essentially nothing in the whole game (1 file / 2 sites: DSTRATS.ASM), so the
+cart effectively **never collides two same-shape objects with each other**. The
+port `Game::coldet_run` (coldet.rs) has **no shape gate at all**.
+- **Blast radius is NARROW**: same-shape objects usually also share a colltype and
+  are already dropped by the (certified-matching) colltype filter. The residual
+  case that bites is two objects of the SAME shape but DIFFERENT colltype (e.g.
+  the same enemy model registered enemy1 vs enemy2) overlapping — the cart skips,
+  the port damages both.
+- **FIX (sf-game, out of scope here)**: in `coldet_run`, before `aabb_overlap`,
+  skip the pair when `a.shape == b.shape` unless both objects carry a
+  `sameshapecollide` bit (add `ASF3_SAMESHAPECOLLIDE = $80` to `sflags3`).
+  `retail_same_shape_skip_divergence` pins the current behaviour; flip its
+  expectation to `!collide` when the gate lands.
+
+### CERTIFIED VS RETAIL — running total: **15 named strats + AIMING + SPAWN/SEARCH + COLLISION**
+| Cert | Retail addr | Kind | Certified |
+|------|------|------|------|
+| collision RESPONSE (`do_coll_l`) | $1F:D23A | hp/cooldown damage | (collcount,hp) == port `do_coll` over the full damage/cooldown/tunnel/indestructible grid |
+| box-overlap MATH (`COLDET`) | $02:A1BF (RAM copy-source) | 16-bit AABB | port `aabb_overlap` == ROM formula over the boundary grid (Z/X/Y, strictly-less, shape-table sizes) |
+| colltype ALLOW-MATRIX (`chkcoll0`) | $02:A159 | who-hits-whom | port filter == ROM `cf_a&cf_b&$F8` over all 4096 combos; no both-zero skip |
+| same-shape gate (`chkcoll0`) | $02:A199 | same-shape skip | **DIVERGENCE** — ROM skips same-shape pairs, port does not (narrow; fix noted) |
 
 ---
 
