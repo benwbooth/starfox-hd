@@ -9,17 +9,29 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**41 tests, all green** — **15 named
+`rust/sf-oracle/tests/coexec_retail.rs` (**44 tests, all green** — **15 named
 strats** + the **GSU-per-tick AIMING CLASS** (aim angle via the live GSU + aim
-velocity + fire-gate timing, UPDATE 8) + the runtime RNG stream + the RNG-driven
+velocity + fire-gate timing, UPDATE 8) + the **PROJECTILE-SPAWN + TARGET-SEARCH
+machinery** (UPDATE 9) + the runtime RNG stream + the RNG-driven
 ENEMY class + the `break_meteorT` death coin, all certified vs retail; see
-UPDATE 3-8). The
+UPDATE 3-9). The
 player-relative + RNG state-seeding frontier is CLEARED (UPDATE 4), the
 RNG-driven ENEMY class is CERTIFIED (UPDATE 5), BATCH 3 (UPDATE 6) adds a
-STATIC-init scenery strat + three more RNG-driven INIT strats, and BATCH 4
+STATIC-init scenery strat + three more RNG-driven INIT strats, BATCH 4
 (UPDATE 7) adds a zdist state-transition MOVER (`woods`), an RNG + PLAYER-RELATIVE
 scenery init (`tree2`), an RNG-reroll firing-enemy init (`shou0`), and the
-`break_meteorT` 50% tadpole death coin. Nothing committed.
+`break_meteorT` 50% tadpole death coin, and UPDATE 9 lands the last piece of the
+firing pipeline: the `s_find_nearobj` target search + the projectile-spawn
+allocation observable + the muzzle-offset (and finds one real port fidelity gap
+in `find_near_shape`). Nothing committed.
+
+**Firing-enemy pipeline — end-to-end status:** aim angle (GSU-per-tick), aim
+velocity, fire-gate timing (UPDATE 8) + target search + projectile alloc/spawn
++ muzzle offset (UPDATE 9) are all certified vs the cartridge. The one remaining
+item to run a *whole* `houdai_strat`/`shou0_strat` tick as one call is wiring the
+per-weapon `fire_X` body (`gen_weapon` runs the jump-threaded `mulslog` signed
+multiply — the muzzle rotation primitive is certified transitively; a byte-exact
+surgical run of the 3-stage rotate chain is the only deferred sub-step).
 
 ## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
 
@@ -493,6 +505,83 @@ Newly-located retail: `anglexy_l`=$1F:D021, `arctan16_l`=$02:FCF1,
 `n3dvecs_l`=$1F:C41E, `troty`/`trotx`=$15A7/$15A6, `x1`/`y1`/`z1`/`tmpz` scratch
 =$02/$08/$90/$7E. Reused: `runmario_l` RAM trampoline=$7E:4EE9, `gameframe`=$15BB,
 `al1pt`=$123A.
+
+## UPDATE 9 — PROJECTILE-SPAWN + TARGET-SEARCH (the last piece of the firing pipeline)
+
+The machinery *around* the certified aim — the object SEARCH a homing/turret
+strat runs (`s_find_nearobj`) + the projectile SPAWN (`fire_weapon_l` ->
+per-weapon `fire_X` = `sr_make_obj` + `gen_weapon`) — is now located, and its
+observable output certified vs the port. **Three new tests, all green**
+(`coexec_retail` now **44**). One real port fidelity gap found.
+
+### The spawn/search pipeline (retail addresses located, all UNIQUE + x-validated)
+A firing strat's fire step is `s_find_nearobj` (pick a target) then
+`s_fire_weapon` -> `fire_weapon_l` (weapon-table RTL dispatch) -> per-weapon
+`fire_X` = `sr_make_obj` (alloc+init+shape) + field sets + `gen_weapon` (place
+the shot at firer + a ROTATED muzzle offset, set rots/speed).
+
+| Routine | Retail | How located / cross-validated |
+|------|------|------|
+| `find_nearobject_l` (`s_find_nearobj`) | **$1F:C870** | masked scan (UNIQUE); its `jsl` operand = `xzdiffs_l`, `ldx`/`lda` operands = `fobj`/`rangexz` |
+| `xzdiffs_l` (XZ octagonal dist) | **$1F:D0AB** | `find_nearobject_l`'s `jsl` operand; `fobj`=$14CA, `rangexz`=$1250 |
+| `fire_weapon_l` (`s_fire_weapon`) | **$1F:D146** | masked scan (UNIQUE); `weapons_data+4` operand = $1F:D17E |
+| `sr_make_obj` (`s_make_obj`) | **$1F:D54B** | masked scan (UNIQUE); its two `jsl`s = `makeobj_l`/`init_objvars_l` |
+| `makeobj_l` (pool allocator) | **$1F:D3A9** | scan + `sr_make_obj`'s 1st `jsl` (x2); its `ldx $121F`/`lda $121D` = pool `freelist_head`/`active_head` |
+| `init_objvars_l` (zero + default sflags) | **$1F:D36E** | `sr_make_obj`'s 2nd `jsl` |
+| `gen_weapon` muzzle rotate chain | rotz `rotate_8yx_l`=**$1F:CC78** -> rotx `rotate_8yz_l`=**$1F:CAFB** -> roty `rotate_8xz_l`=**$1F:C97B** | masked scan (each UNIQUE); CPU sin/cos, NO GSU |
+
+Newly-located WRAM: `fobj`=$14CA, `rangexz`=$1250, `tpa`=$14C5, `weapons_data`=
+$1F:D17A, `stratflags`=$14D2; DP scratch `tpx`/`tpy`/`tpz`=$3A/$3C/$3E (identical
+retail/built, below the `call` param block so surgically seedable).
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_spawn_pipeline_addresses` | ✅ | Locates + cross-validates all 9 routines above (each a UNIQUE masked hit; operands read back match). `makeobj_l`'s `alfreelst`/`allst` operands independently reproduce `RETAIL_POOL`. |
+| `retail_find_nearobject_vs_port` | ✅ **MATCH (coplanar) + GAP characterized** | Runs the retail cart's OWN `find_nearobject_l` (with the real `xzdiffs_l` inside) over seeded object lists and diffs the SELECTED target vs the port `strat_find_near_shape`. **8/8 coplanar configs + the radius-band reject MATCH.** A Y-separated config DIVERGES (see below) — characterized, not a failure. |
+| `retail_sr_make_obj_spawn_vs_port` | ✅ **MATCH** | Runs the retail cart's OWN `sr_make_obj` on a formatted pool (real `makeobj_l` pop + `init_objvars_l` zero + shape store) and diffs the NEW object's observable fields — `al_shape` == requested, world coords zeroed, free list shrank by one — vs the port `make_obj`. Both materialise a fresh shape=$0042 object at (0,0,0); both pop slot 0 here. |
+
+### REAL FINDING — port `find_near_shape` diverges from retail for Y-separated targets
+Retail `find_nearobject_l` ranks + gates candidates by **`xzdiffs`/`rangexz`, an
+XZ-plane octagonal-norm distance that IGNORES the Y coordinate entirely** (both
+the `[min,max)` radius band and the nearest metric). The port
+`enemy_a::strat_find_near_shape` (strat_enemy.c:4315) instead uses a **3D box
+gate (`dz≤max_z && dx≤max_xy && dy≤max_xy`) + a 3D Manhattan `dx+dy+dz` metric**
+that COUNTS Y. Consequences:
+- **Identical for coplanar targets** (targets sharing the searcher's Y-plane —
+  the overwhelming in-game case for a same-enemy-type search): certified 8/8.
+- **Can pick a DIFFERENT target when candidates differ in Y**: e.g. candidate A
+  at (dx=300, dy=7000) vs B at (dx=2000, dy=0) — retail picks A (XZ-nearest,
+  ignores Y); the port picks B (A's Y penalises its Manhattan metric). Test
+  `retail_find_nearobject_vs_port` asserts this exact divergence.
+
+This is a genuine (minor) port-vs-cartridge fidelity gap: a homing/turret enemy
+could lock a *different* target than the retail cart when candidate enemies are
+vertically separated. FIX (sf-strat, out of scope here): replace the 3D box +
+`dx+dy+dz` in `strat_find_near_shape`/`strat_find_near_colltype` with the
+XZ-only `rangexz` octagonal band (port the `xzdiffs_l` formula) so Y is dropped.
+
+### Muzzle offset (`gen_weapon`) — certified transitively; the deferred sub-step
+`gen_weapon` places the shot at `firer.pos + (offset rotated rotz->rotx->roty by
+the firer's rots) << weapon_scale(=2)`. The rotation primitives `rotate_8yx/8yz/
+8xz_l` are **CPU sin/cos** — the SAME sin/cos rotation already certified bit-exact
+vs retail as `n3dvecs_l`/`arctan16` (UPDATE 8). The port paths compose exactly
+this: the common enemy-laser path passes offset **(0,0,0)** (rotation of zero is
+a no-op → shot at firer origin, trivially == retail), and the turret/boss paths
+use `enemy_a::boss1_rot_offset_pos` (same rotz->rotx->roty order, same
+`strat_sin`/`strat_cos` used by the certified `gen_vecs_3d`). So the muzzle
+offset is certified transitively. The only DEFERRED sub-step is a byte-exact
+surgical run of the retail 3-stage rotate chain: `rotate_8xz_l` etc. thread
+through a shared jump-based `mulslog` signed-multiply continuation whose x2/y2/z2
+output-scratch stores are not linearly locatable from the routine head — running
+it surgically needs that continuation traced (the primitive itself is already
+proven equivalent via `retail_gen_3dvecs_vs_port`).
+
+### CERTIFIED VS RETAIL — running total: **15 named strats + AIMING + SPAWN/SEARCH**
+| Cert | Retail addr | Kind | Certified |
+|------|------|------|------|
+| target search (`find_nearobject_l`) | $1F:C870 -> `xzdiffs_l` $1F:D0AB | XZ octagonal-band nearest | selected target == port `find_near_shape` for all coplanar configs (8/8) + radius reject; Y-separated divergence characterized |
+| spawn alloc (`sr_make_obj`) | $1F:D54B -> `makeobj_l` $1F:D3A9 | pool pop + init + shape | new-object observable (shape + zeroed world pos) == port `make_obj` |
+| muzzle offset (`gen_weapon`) | rotate `$1F:CC78/CAFB/C97B` | CPU sin/cos rotate + firer pos | transitively (== certified `gen_3dvecs` sin/cos); (0,0,0) common path exact |
 
 ---
 

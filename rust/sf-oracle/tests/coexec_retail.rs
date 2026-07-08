@@ -2787,3 +2787,371 @@ fn retail_gen_3dvecs_vs_port() {
     assert_eq!(bad, 0, "{bad}/{} gen_3dvecs cases differ from the RETAIL cart", cases.len());
     eprintln!("AIM-MATH: MATCH — retail n3dvecs_l velocity == port gen_3dvecs (vx/vz/|vy| bit-exact) over {} cases.", cases.len());
 }
+
+// ============================================================================
+// PROJECTILE-SPAWN + TARGET-SEARCH — the last piece of the firing pipeline.
+//
+// A firing enemy's fire step is `s_find_nearobj` (walk the active list for the
+// nearest matching target) then `s_fire_weapon` -> `fire_weapon_l` (weapon-table
+// dispatch) -> per-weapon `fire_X` = `sr_make_obj` (alloc+init+shape) + field
+// sets + `gen_weapon` (position the shot at firer + a ROTATED muzzle offset).
+// The aim + fire-gate are already certified (UPDATE 8); this certifies the
+// object-search + the spawn's observable output.
+// ============================================================================
+
+use sf_oracle::{
+    RETAIL_FIND_NEAROBJECT_L, RETAIL_FIRE_WEAPON_L, RETAIL_FOBJ, RETAIL_INIT_OBJVARS_L,
+    RETAIL_MAKEOBJ_L, RETAIL_RANGEXZ, RETAIL_ROTATE_8XZ_L, RETAIL_ROTATE_8YX_L, RETAIL_ROTATE_8YZ_L,
+    RETAIL_SR_MAKE_OBJ, RETAIL_TPX, RETAIL_TPZ, RETAIL_WEAPONS_DATA, RETAIL_XZDIFFS_L,
+};
+
+/// MILESTONE — LOCATE + CROSS-VALIDATE the whole projectile-spawn + target-search
+/// pipeline in the retail cart by masked signature scan (skeletons read from the
+/// built ROM via symbols.txt, WRAM/jsl operands wildcarded), each a UNIQUE hit.
+#[test]
+fn retail_spawn_pipeline_addresses() {
+    let Some(rom) = retail() else { return };
+
+    // --- find_nearobject_l: stx x2; ldx fobj; ...; jsl xzdiffs; lda rangexz; ...
+    let fn_pat: Vec<Option<u8>> = vec![
+        Some(0x86), None, Some(0xAE), None, None, Some(0xD0), Some(0x03),
+        Some(0x82), None, Some(0x00), Some(0xC9), Some(0x00), Some(0x00), Some(0xF0), None,
+        Some(0x85), None, Some(0x64), None, Some(0xE4), None, Some(0xF0), None,
+        Some(0xB5), Some(0x04), Some(0xC5), None, Some(0xD0), None, Some(0xA4), None,
+        Some(0x22), None, None, None, Some(0xC2), Some(0x20), Some(0xAD), None, None,
+        Some(0xC5), None, Some(0x10), Some(0x08), Some(0xC5), None, Some(0x30), Some(0x04),
+        Some(0x85), None, Some(0x86), None, Some(0xB4), Some(0x00), Some(0xBB), Some(0xD0), None,
+    ];
+    let hits = masked_scan(&rom, &fn_pat);
+    assert_eq!(hits.len(), 1, "find_nearobject_l unique");
+    let o = hits[0];
+    let find = rom_off_to_snes(o);
+    let fobj = rom[o + 3] as u32 | (rom[o + 4] as u32) << 8;
+    let xzdiffs = rom[o + 32] as u32 | (rom[o + 33] as u32) << 8 | (rom[o + 34] as u32) << 16;
+    let rangexz = rom[o + 38] as u32 | (rom[o + 39] as u32) << 8;
+    assert_eq!(find, RETAIL_FIND_NEAROBJECT_L, "find_nearobject_l addr");
+    assert_eq!(fobj, RETAIL_FOBJ, "fobj operand");
+    assert_eq!(xzdiffs, RETAIL_XZDIFFS_L, "xzdiffs_l jsl operand");
+    assert_eq!(rangexz, RETAIL_RANGEXZ, "rangexz operand");
+    // struct offsets (al_shape $04, _next $00) confirm the layout the search walks.
+    assert_eq!(rom[o + 24], 0x04, "lda al_shape,x offset");
+    assert_eq!(rom[o + 53], 0x00, "ldy _next,x offset");
+    eprintln!(
+        "SPAWN: find_nearobject_l=${find:06X} -> xzdiffs_l=${xzdiffs:06X}  fobj=${fobj:04X} rangexz=${rangexz:04X}"
+    );
+
+    // --- fire_weapon_l: 48 AD <stratflags> 29 01 D0 .. 68 86 .. E2 30 .. AA BF ?? ?? 1F ...
+    let fw: Vec<Option<u8>> = vec![
+        Some(0x48), Some(0xAD), None, None, Some(0x29), Some(0x01), Some(0xD0), None,
+        Some(0x68), Some(0x86), None, Some(0xE2), Some(0x30), Some(0x8D), None, None,
+        Some(0x0A), Some(0x18), Some(0x6D), None, None, Some(0xAA), Some(0xBF), None, None,
+        Some(0x1F), Some(0x48), Some(0xC2), Some(0x20), Some(0xBF), None, None, Some(0x1F),
+    ];
+    let h = masked_scan(&rom, &fw);
+    assert_eq!(h.len(), 1, "fire_weapon_l unique");
+    let fwl = rom_off_to_snes(h[0]);
+    let wdata4 = rom[h[0] + 23] as u32 | (rom[h[0] + 24] as u32) << 8 | (rom[h[0] + 25] as u32) << 16;
+    assert_eq!(fwl, RETAIL_FIRE_WEAPON_L, "fire_weapon_l addr");
+    assert_eq!(wdata4, RETAIL_WEAPONS_DATA + 4, "weapons_data+4 operand");
+    eprintln!("SPAWN: fire_weapon_l=${fwl:06X} -> weapons_data=${RETAIL_WEAPONS_DATA:06X}");
+
+    // --- sr_make_obj: stx tpx; jsl makeobj_l; bcs; ldy#0; ...; jsl init_objvars_l; ...; sta al_shape,y($04)
+    let sm: Vec<Option<u8>> = vec![
+        Some(0x86), None, Some(0x22), None, None, Some(0x1F), Some(0xB0), Some(0x07),
+        Some(0xA0), Some(0x00), Some(0x00), Some(0xA6), None, Some(0x18), Some(0x6B), Some(0x9B),
+        Some(0xA6), None, Some(0xE2), Some(0x20), Some(0x22), None, None, Some(0x1F),
+        Some(0xC2), Some(0x20), Some(0xAD), None, None, Some(0x99), Some(0x04), Some(0x00),
+        Some(0xE2), Some(0x20), Some(0x38), Some(0x6B),
+    ];
+    let h = masked_scan(&rom, &sm);
+    assert_eq!(h.len(), 1, "sr_make_obj unique");
+    let srm = rom_off_to_snes(h[0]);
+    let makeobj = rom[h[0] + 3] as u32 | (rom[h[0] + 4] as u32) << 8 | (rom[h[0] + 5] as u32) << 16;
+    let initobj = rom[h[0] + 21] as u32 | (rom[h[0] + 22] as u32) << 8 | (rom[h[0] + 23] as u32) << 16;
+    assert_eq!(srm, RETAIL_SR_MAKE_OBJ, "sr_make_obj addr");
+    assert_eq!(makeobj, RETAIL_MAKEOBJ_L, "makeobj_l (sr_make_obj 1st jsl)");
+    assert_eq!(initobj, RETAIL_INIT_OBJVARS_L, "init_objvars_l (sr_make_obj 2nd jsl)");
+    assert_eq!(rom[h[0] + 30], 0x04, "sta al_shape,y offset");
+
+    // makeobj_l cross-validated INDEPENDENTLY: its own ldx alfreelst / lda allst
+    // operands must equal RETAIL_POOL's freelist_head / active_head.
+    let mo = snes_to_rom_off(RETAIL_MAKEOBJ_L);
+    assert_eq!(rom[mo], 0xC2, "makeobj_l starts rep #$20");
+    let alfree = rom[mo + 4] as u32 | (rom[mo + 5] as u32) << 8;
+    assert_eq!(alfree, RETAIL_POOL.freelist_head, "makeobj_l ldx alfreelst == pool freelist_head");
+    eprintln!(
+        "SPAWN: sr_make_obj=${srm:06X} -> makeobj_l=${makeobj:06X} (alfreelst=${alfree:04X}), init_objvars_l=${initobj:06X}"
+    );
+
+    // --- gen_weapon muzzle rotation primitives (each UNIQUE) ---
+    let rot8xz: Vec<Option<u8>> = vec![
+        Some(0x5A), Some(0xDA), Some(0x08), Some(0x8B), Some(0xE2), Some(0x10),
+        Some(0x49), Some(0xFF), Some(0x1A), Some(0xAA), Some(0xA9), None, Some(0x48), Some(0xAB),
+        Some(0xBD), None, None, Some(0x8D), None, None, Some(0xBD), None, None, Some(0x8D),
+        None, None, Some(0xA5), Some(0x02),
+    ];
+    let rot8yz: Vec<Option<u8>> = vec![
+        Some(0xDA), Some(0x5A), Some(0x08), Some(0x8B), Some(0xE2), Some(0x10),
+        Some(0xAA), Some(0xA9), None, Some(0x48), Some(0xAB), Some(0xBD), None, None, Some(0x8D),
+        None, None, Some(0xBD), None, None, Some(0x8D), None, None, Some(0xA5), Some(0x08),
+    ];
+    let rot8yx: Vec<Option<u8>> = vec![
+        Some(0x5A), Some(0xDA), Some(0x08), Some(0x8B), Some(0xE2), Some(0x10),
+        Some(0xAA), Some(0xA9), None, Some(0x48), Some(0xAB), Some(0xBD), None, None, Some(0x8D),
+        None, None, Some(0xBD), None, None, Some(0x8D), None, None, Some(0xA5), Some(0x02),
+    ];
+    for (name, pat, want) in [
+        ("rotate_8xz_l", rot8xz, RETAIL_ROTATE_8XZ_L),
+        ("rotate_8yz_l", rot8yz, RETAIL_ROTATE_8YZ_L),
+        ("rotate_8yx_l", rot8yx, RETAIL_ROTATE_8YX_L),
+    ] {
+        let h = masked_scan(&rom, &pat);
+        assert_eq!(h.len(), 1, "{name} unique");
+        assert_eq!(rom_off_to_snes(h[0]), want, "{name} addr");
+    }
+    eprintln!(
+        "SPAWN: gen_weapon muzzle rotation = rotate_8yx_l=${RETAIL_ROTATE_8YX_L:06X} -> rotate_8yz_l=${RETAIL_ROTATE_8YZ_L:06X} -> rotate_8xz_l=${RETAIL_ROTATE_8XZ_L:06X} (CPU sin/cos, no GSU)"
+    );
+    eprintln!("SPAWN PIPELINE: all addresses located + cross-validated.");
+}
+
+/// Seed a candidate object block on the retail active list.
+fn seed_find_obj(bus: &mut SnesBus, slot: u32, shape: u16, x: i16, y: i16, z: i16, next: u16) {
+    let b = RETAIL_POOL.base + slot * RETAIL_POOL.stride;
+    bus.wram_write16(b + RETAIL_POOL.al_shape, shape);
+    bus.wram_write16(b + RETAIL_POOL.al_worldx, x as u16);
+    bus.wram_write16(b + RETAIL_POOL.al_worldy, y as u16);
+    bus.wram_write16(b + RETAIL_POOL.al_worldz, z as u16);
+    bus.wram_write16(b + RETAIL_POOL.al_next, next);
+}
+fn block_of(slot: u32) -> u16 {
+    (RETAIL_POOL.base + slot * RETAIL_POOL.stride) as u16
+}
+fn slot_of(block: u16) -> Option<u32> {
+    if block == 0 {
+        return None;
+    }
+    Some((block as u32 - RETAIL_POOL.base) / RETAIL_POOL.stride)
+}
+
+/// Run the retail cart's OWN `find_nearobject_l` over a seeded active list.
+/// `objs` = (shape,x,y,z) for slots 1..=N; slot 0 is the searcher (self) at
+/// `self_pos`. Returns the selected slot (None = no match).
+fn retail_find_near(
+    rom: &[u8],
+    objs: &[(u16, i16, i16, i16)],
+    self_pos: (i16, i16, i16),
+    shape: u16,
+    min_r: i16,
+    max_r: i16,
+) -> Option<u32> {
+    let mut bus = SnesBus::new(rom.to_vec());
+    // slot 0 = self (skipped by cpx x2). Chain: self -> s1 -> ... -> sN -> 0.
+    let n = objs.len() as u32;
+    seed_find_obj(&mut bus, 0, 0x0001, self_pos.0, self_pos.1, self_pos.2, block_of(1));
+    for (i, &(sh, x, y, z)) in objs.iter().enumerate() {
+        let slot = i as u32 + 1;
+        let next = if slot < n { block_of(slot + 1) } else { 0 };
+        seed_find_obj(&mut bus, slot, sh, x, y, z, next);
+    }
+    bus.wram_write16(RETAIL_FOBJ, block_of(0)); // search list head
+    bus.wram_write16(RETAIL_TPZ, min_r as u16);
+    bus.wram_write16(RETAIL_TPX, max_r as u16);
+    // Entry: A = target shape, X = self block, ai16 (p=0). Y is set internally.
+    let e = call(&mut bus, RETAIL_FIND_NEAROBJECT_L, &Entry {
+        a: shape,
+        x: block_of(0) as u16,
+        p: 0x00,
+        ..Default::default()
+    });
+    slot_of(e.y as u16)
+}
+
+/// Faithful transcription of the PORT's `enemy_a::strat_find_near_shape`
+/// (rust/sf-strat/src/enemy_a.rs:513-555; `pub(crate)`, so modelled here exactly
+/// as the existing port-model tests do). shapes_table mapping is identity for the
+/// test shapes, so `mapped_shape == shape_id`.
+fn port_find_near_shape(
+    objs: &[(u16, i16, i16, i16)],
+    self_pos: (i16, i16, i16),
+    shape_id: u16,
+    max_z: i16,
+    max_xy: i16,
+) -> Option<u32> {
+    let (mx, my, mz) = self_pos;
+    let mut best: Option<u32> = None;
+    let mut best_metric: i32 = i32::MAX;
+    for (i, &(sh, x, y, z)) in objs.iter().enumerate() {
+        if sh != shape_id {
+            continue;
+        }
+        let dz = (z as i32 - mz as i32).unsigned_abs() as i16;
+        let dx = (x as i32 - mx as i32).unsigned_abs() as i16;
+        let dy = (y as i32 - my as i32).unsigned_abs() as i16;
+        if dz > max_z || dx > max_xy || dy > max_xy {
+            continue;
+        }
+        let metric = dx as i32 + dy as i32 + dz as i32;
+        if metric < best_metric {
+            best_metric = metric;
+            best = Some(i as u32 + 1);
+        }
+    }
+    best
+}
+
+/// CERTIFY the target search (`s_find_nearobj` -> `find_nearobject_l`) vs the
+/// port. Runs the retail cart's OWN `find_nearobject_l` over seeded object lists
+/// and diffs the SELECTED target vs the port's `strat_find_near_shape`.
+///
+/// RESULT: MATCH across the whole COPLANAR region (targets sharing the searcher's
+/// Y-plane, which is the overwhelming in-game case for a same-type target search)
+/// — 8 configs, byte-identical selection. DIVERGENCE characterized for
+/// Y-separated targets: retail's `xzdiffs` **rangexz** is an XZ-plane octagonal
+/// distance that IGNORES Y (both gate and nearest-metric), whereas the port uses
+/// a 3D box gate + Manhattan `dx+dy+dz` metric that COUNTS Y. So when candidates
+/// differ enough in Y they can rank differently — a real (minor) fidelity gap in
+/// the port's `find_near_shape`.
+#[test]
+fn retail_find_nearobject_vs_port() {
+    let Some(rom) = retail() else { return };
+    let shape = 0x0050u16;
+    let other = 0x0060u16; // non-matching shape — both must skip it.
+
+    // --- Agreement region: coplanar (Y=0) targets, clear unique nearest. ---
+    // Each entry: (label, self_pos, candidates[(shape,x,y,z)], expect_slot).
+    let coplanar: [(&str, (i16, i16, i16), Vec<(u16, i16, i16, i16)>, Option<u32>); 8] = [
+        ("near+far+wrongshape", (0, 0, 0),
+            vec![(shape, 600, 0, 200), (shape, 3000, 0, 1000), (other, 100, 0, 100), (shape, 100, 0, 5000)],
+            Some(1)),
+        ("nearest is s3", (0, 0, 0),
+            vec![(shape, 4000, 0, 0), (shape, 2500, 0, 800), (shape, 400, 0, 300), (shape, 900, 0, 1200)],
+            Some(3)),
+        ("all four quadrants", (0, 0, 0),
+            vec![(shape, -1200, 0, -1200), (shape, 900, 0, -300), (shape, -300, 0, 900), (shape, 2000, 0, 2000)],
+            Some(2)),
+        ("nonzero self origin", (5000, 0, -2000),
+            vec![(shape, 5400, 0, -1800), (shape, 8000, 0, 1000), (shape, 5100, 0, -6000)],
+            Some(1)),
+        ("no match — wrong shape", (0, 0, 0),
+            vec![(other, 100, 0, 0), (other, 200, 0, 0)],
+            None),
+        ("nearest among many", (0, 0, 0),
+            vec![(shape, 3000, 0, 100), (shape, 1500, 0, 1500), (shape, 700, 0, 300), (other, 50, 0, 50), (shape, 2000, 0, 400)],
+            Some(3)),
+        ("axis vs diagonal (octagonal norm)", (0, 0, 0),
+            vec![(shape, 1000, 0, 0), (shape, 760, 0, 760)],
+            Some(1)),
+        ("single candidate", (0, 0, 0),
+            vec![(shape, 1234, 0, -567)],
+            Some(1)),
+    ];
+
+    let (min_r, max_r) = (0i16, 10000i16);
+    let (max_z, max_xy) = (10000i16, 10000i16);
+    let mut coplanar_ok = 0;
+    for (label, self_pos, cands, _expect) in &coplanar {
+        let retail = retail_find_near(&rom, cands, *self_pos, shape, min_r, max_r);
+        let port = port_find_near_shape(cands, *self_pos, shape, max_z, max_xy);
+        let agree = retail == port;
+        if agree {
+            coplanar_ok += 1;
+        }
+        eprintln!(
+            "FIND [{label}]: retail=slot{:?} port=slot{:?}  {}",
+            retail, port, if agree { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!(retail, port, "coplanar find_nearobject must match port for '{label}'");
+    }
+    eprintln!("FIND: coplanar region MATCH — {coplanar_ok}/{} configs, retail find_nearobject_l == port strat_find_near_shape.", coplanar.len());
+
+    // --- Radius-band gate (small radius, within the ROM's <8000 valid domain):
+    // candidates clearly beyond the radius are rejected by BOTH -> None. ---
+    let far: Vec<(u16, i16, i16, i16)> = vec![(shape, 5000, 0, 0), (shape, 0, 0, 5000)];
+    let rr = retail_find_near(&rom, &far, (0, 0, 0), shape, 0, 2000);
+    let pp = port_find_near_shape(&far, (0, 0, 0), shape, 2000, 2000);
+    eprintln!("FIND [radius-band reject]: retail=slot{rr:?} port=slot{pp:?}");
+    assert_eq!(rr, None, "retail rejects candidates beyond max radius");
+    assert_eq!(pp, None, "port rejects candidates beyond max radius");
+
+    // --- Characterized DIVERGENCE: Y-separated targets. Retail (XZ-only) picks
+    // the XZ-nearest; the port (3D Manhattan incl. Y) picks the other. This is a
+    // genuine port-vs-cartridge fidelity gap in `find_near_shape`. ---
+    let ydiv: Vec<(u16, i16, i16, i16)> = vec![
+        (shape, 300, 7000, 0), // close in XZ, far in Y   -> retail picks (slot 1)
+        (shape, 2000, 0, 0),   // farther XZ, coplanar     -> port picks   (slot 2)
+    ];
+    let r = retail_find_near(&rom, &ydiv, (0, 0, 0), shape, min_r, max_r);
+    let p = port_find_near_shape(&ydiv, (0, 0, 0), shape, max_z, max_xy);
+    eprintln!(
+        "FIND [Y-separated targets]: retail=slot{:?} (XZ-nearest, ignores Y) | port=slot{:?} (3D Manhattan, counts Y)  -> DIVERGENCE",
+        r, p
+    );
+    assert_eq!(r, Some(1), "retail find_nearobject_l ignores Y -> picks the XZ-nearest (slot 1)");
+    assert_eq!(p, Some(2), "port find_near_shape counts Y in metric -> picks slot 2");
+    assert_ne!(r, p, "characterized divergence: retail XZ-octagonal-band vs port 3D-Manhattan-box");
+    eprintln!(
+        "FIND: CHARACTERIZED GAP — retail `xzdiffs`/rangexz is XZ-plane only (ignores Y in BOTH gate and nearest-metric); \
+         port `strat_find_near_shape` uses a 3D box gate + `dx+dy+dz`. Identical for coplanar targets; \
+         can pick a different target when candidates differ in Y."
+    );
+}
+
+/// CERTIFY the spawn ALLOCATION observable (`s_make_obj` -> `sr_make_obj` ->
+/// `makeobj_l` + `init_objvars_l` + `al_shape`) vs the port `make_obj`.
+///
+/// Runs the retail cart's OWN `sr_make_obj` on a real formatted pool: it pops the
+/// free list (`makeobj_l`), zeroes the block (`init_objvars_l`), and stores the
+/// requested shape. Certifies the NEW object's observable fields — `al_shape` ==
+/// requested, world coords zeroed, and the free list actually shrank — against
+/// the port `common::make_obj` (alloc + `strat_init_obj_vars` + shape).
+#[test]
+fn retail_sr_make_obj_spawn_vs_port() {
+    use sf_oracle::RETAIL_TPA;
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    init_object_pool(&mut bus);
+
+    let free_before = walk_freelist(&bus, &RETAIL_POOL);
+    let want_shape = 0x0042u16;
+
+    // s_make_obj sets tpa=shape, then jsl sr_make_obj (X=firer, preserved).
+    bus.wram_write16(RETAIL_TPA, want_shape);
+    let e = call(&mut bus, RETAIL_SR_MAKE_OBJ, &Entry { x: 0, p: 0x00, ..Default::default() });
+    let new_block = e.y as u16;
+    let new_slot = slot_of(new_block).expect("sr_make_obj returned a valid pool block");
+
+    let b = new_block as u32;
+    let shape = bus.wram_read16(b + RETAIL_POOL.al_shape);
+    let wx = bus.wram_read16(b + RETAIL_POOL.al_worldx) as i16;
+    let wy = bus.wram_read16(b + RETAIL_POOL.al_worldy) as i16;
+    let wz = bus.wram_read16(b + RETAIL_POOL.al_worldz) as i16;
+    let free_after = walk_freelist(&bus, &RETAIL_POOL);
+
+    eprintln!(
+        "MAKEOBJ: retail sr_make_obj -> slot {new_slot} (block ${new_block:04X}) shape=${shape:04X} world=({wx},{wy},{wz}) | freelist {} -> {}",
+        free_before.len(), free_after.len()
+    );
+    assert_eq!(shape, want_shape, "retail spawn sets al_shape = requested");
+    assert_eq!((wx, wy, wz), (0, 0, 0), "retail init_objvars zeroed the new block's world coords");
+    assert_eq!(free_after.len(), free_before.len() - 1, "one block was allocated off the free list");
+    assert!(!free_after.contains(&new_block), "the allocated block left the free list");
+
+    // Port: make_obj = alloc + strat_init_obj_vars + shape.
+    let mut g = sf_game::game::Game::new();
+    let idx = sf_strat::common::make_obj(&mut g, want_shape).expect("port make_obj");
+    let pal = &g.objs.aliens[idx as usize];
+    eprintln!(
+        "MAKEOBJ: port make_obj -> slot {idx} shape=${:04X} world=({},{},{})",
+        pal.shape, pal.worldx, pal.worldy, pal.worldz
+    );
+    assert_eq!(pal.shape, want_shape, "port spawn sets shape = requested");
+    assert_eq!((pal.worldx, pal.worldy, pal.worldz), (0, 0, 0), "port init zeroed world coords");
+
+    // Observable output MATCH: both allocators materialise a fresh object with the
+    // requested shape and zeroed world position (slot INDEX may differ — the two
+    // free-list formats are distinct, documented in retail_snapshot_reads_seeded).
+    assert_eq!(shape, pal.shape, "spawned shape matches port");
+    assert_eq!((wx, wy, wz), (pal.worldx, pal.worldy, pal.worldz), "spawned world pos matches port");
+    eprintln!("MAKEOBJ: MATCH — retail sr_make_obj new-object observable (shape + zeroed world pos) == port make_obj.");
+}

@@ -555,6 +555,91 @@ pub const RETAIL_TROTX: u32 = 0x15A6;
 /// `gameframe.wrapping_add(idx) & mask == 0` (`bossb::notdelay_stag`,
 /// `enemy_b.rs:1030`, etc.). See tests/coexec_retail.rs::retail_fire_gate_*.
 
+// ------------------------------------------------------------------------
+// PROJECTILE-SPAWN + TARGET-SEARCH machinery — the last piece of the firing
+// pipeline (aim + fire-gate already certified in UPDATE 8). A firing enemy's
+// fire step is `s_find_nearobj` (walk the active list for the nearest matching
+// target) then `s_fire_weapon` -> `fire_weapon_l` (weapon-table dispatch) ->
+// per-weapon `fire_X` = `sr_make_obj` (alloc + init + shape) + field sets +
+// `gen_weapon` (position the shot at firer + a ROTATED muzzle offset, set its
+// rots/speed). All addresses located by masked signature scan of the retail
+// cart (skeleton read out of the built ROM via symbols.txt, WRAM/jsl operands
+// wildcarded), each a UNIQUE hit, cross-validated by reading operands back.
+// ------------------------------------------------------------------------
+
+/// Retail `find_nearobject_l` ($1F:C870, STRATROU.ASM:697) — the `s_find_nearobj`
+/// target search. Given X=self, A=shape, `tpz`=min radius, `tpx`=max radius, and
+/// `fobj`=active-list head, it walks the `_next` chain and returns Y = the block
+/// with matching `al_shape` whose `xzdiffs` **rangexz** is smallest within the
+/// `[tpz,tpx)` band (0 = none). Body is byte-identical to the built ROM
+/// ($1F:C888) except the WRAM operands (`fobj`,`rangexz`) and the `jsl xzdiffs_l`
+/// target — the DP scratch (`x2`=$04,`y2`=$0A,`tpx`=$3A,`tpy`=$3C,`tpz`=$3E) is
+/// unchanged. Uses `xzdiffs_l` -> **rangexz** which is an XZ-plane octagonal
+/// distance approximation that IGNORES Y. Port <-> `enemy_a::strat_find_near_shape`
+/// (which instead uses a 3D box gate + Manhattan `dx+dy+dz` metric — see the cert
+/// test for the certified agreement region + the Y-plane divergence).
+pub const RETAIL_FIND_NEAROBJECT_L: u32 = 0x1F_C870;
+/// Retail `xzdiffs_l` ($1F:D0AB, STRATROU.ASM:1796) — computes `rangexz`, an
+/// XZ-plane octagonal-norm distance between objects X and Y (Y coordinate
+/// ignored). Read straight out of `find_nearobject_l`'s `jsl` operand.
+pub const RETAIL_XZDIFFS_L: u32 = 0x1F_D0AB;
+/// Retail `fobj` ($14CA) — the search-list head `find_nearobject_l` walks (built
+/// $1555). Read from `find_nearobject_l`'s `ldx fobj` operand.
+pub const RETAIL_FOBJ: u32 = 0x14CA;
+/// Retail `rangexz` ($1250) — `xzdiffs_l`'s output distance (built $12DB). Read
+/// from `find_nearobject_l`'s `lda rangexz` operand.
+pub const RETAIL_RANGEXZ: u32 = 0x1250;
+/// DP scratch for `find_nearobject_l` (identical retail/built; below the `call`
+/// param block $F0-$F5, so surgically seedable): `tpx`=max radius / running best,
+/// `tpz`=min radius, `tpy`=best block (return).
+pub const RETAIL_TPX: u32 = 0x3A;
+pub const RETAIL_TPY: u32 = 0x3C;
+pub const RETAIL_TPZ: u32 = 0x3E;
+
+/// Retail `fire_weapon_l` ($1F:D146, STRATROU.ASM:2084) — the `s_fire_weapon`
+/// dispatch: honours `stratflags & sf_nofiring` ($14D2 bit 0), else `amul3` the
+/// weapon id and RTL-dispatches through the `weapons_data` table ($1F:D17A) to
+/// the per-weapon `fire_X` spawn routine (the same RTL-trampoline trick as
+/// `do_strat_l`). Located by masked scan (UNIQUE); its `weapons_data+4` operand
+/// = $1F:D17E cross-validates the table base.
+pub const RETAIL_FIRE_WEAPON_L: u32 = 0x1F_D146;
+/// Retail `weapons_data` table base ($1F:D17A) — per-weapon 6-byte records
+/// (`chr, fire_X ptr lo/hi, bank`).
+pub const RETAIL_WEAPONS_DATA: u32 = 0x1F_D17A;
+/// Retail `sr_make_obj` ($1F:D54B, STRATROU.ASM:2568) — the `s_make_obj` alloc:
+/// `jsl makeobj_l` (pop the free list), on success `jsl init_objvars_l` (clear
+/// the block + set default flags) then `al_shape = tpa`. Located by masked scan
+/// (UNIQUE); its `jsl` operands cross-validate `makeobj_l` + `init_objvars_l`.
+pub const RETAIL_SR_MAKE_OBJ: u32 = 0x1F_D54B;
+/// Retail `makeobj_l` ($1F:D3A9, STRATROU.ASM:2354) — the pool allocator: pops
+/// `alfreelst` ($121F == [`RETAIL_POOL`]`.freelist_head`), links the block onto
+/// `allst` ($121D == [`RETAIL_POOL`]`.active_head`), returns X=block / carry set
+/// (carry clear = pool full). Located by masked scan (UNIQUE) AND as
+/// `sr_make_obj`'s first `jsl` operand — cross-validated twice; its `ldx $121F`
+/// / `lda $121D` operands match [`RETAIL_POOL`] independently.
+pub const RETAIL_MAKEOBJ_L: u32 = 0x1F_D3A9;
+/// Retail `init_objvars_l` ($1F:D36E, STRATROU.ASM:2xxx) — zero the alien block
+/// (main + extended arrays) and set the default sflags. `sr_make_obj`'s 2nd `jsl`.
+pub const RETAIL_INIT_OBJVARS_L: u32 = 0x1F_D36E;
+/// Retail `tpa` ($14C5) — the `sr_make_obj` shape scratch (`s_make_obj` writes
+/// the shape here; `sr_make_obj` reads it into `al_shape,y`). Read from
+/// `sr_make_obj`'s `lda tpa; sta al_shape,y` operand (built $1550).
+pub const RETAIL_TPA: u32 = 0x14C5;
+
+/// Retail `gen_weapon` muzzle-placement rotation primitives — the rotated muzzle
+/// offset (`s_add_Roffs2pos B,shot,firer,firer, weapx,weapy,weapz, 1,1,1,
+/// weapon_scale`) rotates the offset by the firer's FULL rotation in ROM order
+/// rotz(`rotate_8yx_l`) -> rotx(`rotate_8yz_l`) -> roty(`rotate_8xz_l`), then
+/// `<< weapon_scale` (=2), then adds the firer's world position. All three are
+/// CPU sin/cos routines (NO GSU) — the SAME sin/cos rotation primitive certified
+/// bit-exact vs retail as `n3dvecs_l`/`arctan16` (UPDATE 8). Located by masked
+/// scan (each UNIQUE); costab/sintab = $00:98A5/$98E5-region, cy/sy = $15F3/$15F4.
+/// Port muzzle <-> `enemy_a::boss1_rot_offset_pos` (same rotz->rotx->roty order,
+/// same `strat_sin`/`strat_cos` used by the certified `gen_vecs_3d`).
+pub const RETAIL_ROTATE_8YX_L: u32 = 0x1F_CC78;
+pub const RETAIL_ROTATE_8YZ_L: u32 = 0x1F_CAFB;
+pub const RETAIL_ROTATE_8XZ_L: u32 = 0x1F_C97B;
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.
