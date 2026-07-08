@@ -119,6 +119,96 @@ pub const RETAIL_ADDALVECS_L: u32 = 0x1F_C7BB;
 pub const AL_VX: u32 = 0x2F;
 pub const AL_VY: u32 = 0x31;
 pub const AL_VZ: u32 = 0x33;
+/// `al_stratptr` — the object's strategy routine pointer (3 bytes: low word at
+/// $16, program bank at $18). Struct-relative, identical in retail and built
+/// (`GILESAL.INC defal stratptr,3` starts the strat sub-block at $16; verified:
+/// $16+$14=$2A=al_HP and $16+$19=$2F=al_vx, both matching `do_strat_l`'s
+/// `lda al_HP,x`/`al_collflags,x` operands). `do_strat_l` reads this and
+/// RTL-dispatches to it as the object's per-frame strat.
+pub const AL_STRATPTR: u32 = 0x16;
+
+// ------------------------------------------------------------------------
+// FULL per-frame strat-tick pipeline — retail addresses located by MASKED
+// signature scan (opcodes fixed, absolute operands wildcarded) and then
+// **cross-validated** by reading the embedded operands back out.
+//
+// The keystone is `dostrats`: found by scanning retail for the masked skeleton
+//   inc gameframe; bne+3; inc gameframe+1; phb; lda #$7e; pha; plb;
+//   jsl init_strats_l; jsl update_objects_l; ldx allst; stz aldead;
+//   jsl do_strat_l; lda aldead; bne; ldy _next,x; tyx; bne
+// (exactly ONE hit in retail → $02:DAF2). Its embedded JSL/absolute operands
+// then DIRECTLY yield the addresses below — no separate scan needed — and the
+// derivation is self-validating: `ldx allst` reads **$121D**, byte-identical to
+// the independently-derived [`RETAIL_POOL`]`.active_head`, and every located
+// routine's opcode skeleton matches its built-ROM counterpart.
+// ------------------------------------------------------------------------
+
+/// Retail `dostrats` — the per-frame strat walk (near / `RTS`). $02:DAF2.
+/// `incw gameframe; phb; ldb #$7e; jsl init_strats_l; jsl update_objects_l;
+/// ldx allst; {stz aldead; jsl do_strat_l; ... ldy _next,x; tyx; bne}; plb; rts`.
+pub const RETAIL_DOSTRATS: u32 = 0x02_DAF2;
+/// Retail `init_strats_l` — per-frame reset (coll/player-move init). $06:81D5
+/// (JSL target embedded in `dostrats`; built lives in bank $02, retail in $06).
+pub const RETAIL_INIT_STRATS_L: u32 = 0x06_81D5;
+/// Retail `update_objects_l` — per-frame scroll/delta update. $03:ED7E
+/// (JSL target embedded in `dostrats`).
+pub const RETAIL_UPDATE_OBJECTS_L: u32 = 0x03_ED7E;
+/// Retail `do_strat_l` — single-object strat dispatch (`JSL`/`RTL`). $1F:D26B
+/// (JSL target embedded in `dostrats`; opcode skeleton matches built $1F:D283).
+/// Copies `al_worldx/y/z,x -> stratobj_posx/y/z`, sets `al1pt=x`, then computes
+/// the object's strat pointer and RTL-jumps to it; a null `al_stratptr` returns
+/// cleanly via `.strad (plp; rtl)`.
+pub const RETAIL_DO_STRAT_L: u32 = 0x1F_D26B;
+/// Retail `mapobjdo` — the map-bytecode spawn VM entry. $03:F79B (first of a
+/// 5-member family `bb bd 01 80 8d mapobjnext …`, all reusing `ldx allst=$121D`).
+pub const RETAIL_MAPOBJDO: u32 = 0x03_F79B;
+/// Retail `newobjex` — object spawner core (`e2 20 ad mapptr …`). $03:EDAB.
+pub const RETAIL_NEWOBJEX: u32 = 0x03_EDAB;
+/// Retail `newobjs_l` — far spawn entry (`php; sep; rep; phb; jsr newobjex; …`).
+/// $03:EDA1 (the 10-byte `JSL`/`RTL` wrapper immediately preceding `newobjex`).
+pub const RETAIL_NEWOBJS_L: u32 = 0x03_EDA1;
+
+/// Retail per-frame strat globals (WRAM), auto-derived from the embedded
+/// operands of `dostrats` + `do_strat_l`. Built-ROM equivalents in parens.
+pub const RETAIL_GAMEFRAME: u32 = 0x15BB; // built $1640
+pub const RETAIL_ALDEAD: u32 = 0x1248; //    built $12D3
+pub const RETAIL_DUMMYOBJ: u32 = 0x156B; //  built $15F6
+pub const RETAIL_STRATOBJ_POSX: u32 = 0x1513; // built $159E
+pub const RETAIL_AL1PT: u32 = 0x123A; //     built $12C5
+pub const RETAIL_MARIO_DRAW_MODE: u32 = 0x1260; // built $12EB
+
+/// Retail `runmario_l` — the RAM-resident GSU trampoline. Two addresses:
+///  * ROM copy-source `$02:9D56` — where the 35-byte routine is stored in the
+///    cart (`sta.l m_pbr; phb; ldb #0; lda mario_draw_mode; ora #$18;
+///    sta m_scmr; stx mr15; .wait lda m_sfr; and #$20; bne; sta m_scmr; plb;
+///    rtl`). Byte-identical to the built copy at `$02:9D32` except the
+///    `mario_draw_mode` operand ($1260 vs $12EB).
+///  * RAM destination `$7E:4EE9` — where the boot copies it and where every
+///    `jsl runmario_l` in retail code points (63 call sites; the single most
+///    common bank-$7E JSL target — built's is `$7E:4F51`, 58 sites). The
+///    intra-block sub-entries line up too: retail `$7E:4F10`/`$7E:4F55` are
+///    built `$7E:4F78`/`$7E:4FBD` at the identical +$27/+$6C offsets.
+pub const RETAIL_RUNMARIO_L_ROM: u32 = 0x02_9D56;
+pub const RETAIL_RUNMARIO_RAM: u32 = 0x7E_4EE9;
+/// Built-ROM `runmario_l`: ROM copy-source `$02:9D32`, RAM dest `$7E:4F51`.
+pub const BUILT_RUNMARIO_L_ROM: u32 = 0x02_9D32;
+pub const BUILT_RUNMARIO_RAM: u32 = 0x7E_4F51;
+/// Length of the `runmario_l` routine in bytes (`sta.l`…`rtl`).
+pub const RUNMARIO_LEN: u32 = 0x23;
+
+/// Install the `runmario_l` GSU trampoline into WRAM so a `jsl runmario_l` from
+/// within game code (e.g. a strat inside `dostrats`) reaches a live routine
+/// instead of empty RAM. Copies the `RUNMARIO_LEN`-byte routine from its ROM
+/// copy-source (`rom_src`) to its RAM destination (`ram_dst`) — exactly what the
+/// cart's boot does. The bytes drive the memory-mapped GSU registers the bus
+/// already wires ([`SnesBus::enable_gsu`]): `sta.l m_pbr`, `stx mr15` (the R15
+/// high-byte write kicks the chip), `.wait lda m_sfr; and #$20; bne`.
+pub fn inject_runmario_trampoline(bus: &mut SnesBus, rom_src: u32, ram_dst: u32) {
+    for i in 0..RUNMARIO_LEN {
+        let b = bus.read8(rom_src + i);
+        bus.write8(0x7E_0000 | (ram_dst & 0xFFFF).wrapping_add(i), b);
+    }
+}
 
 /// One object slot's observable state, read from WRAM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

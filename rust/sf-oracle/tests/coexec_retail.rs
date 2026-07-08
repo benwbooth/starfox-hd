@@ -8,9 +8,14 @@
 //! cart itself, not from the built-ROM symbol map.
 
 use sf_oracle::{
-    boot_retail, call, init_object_pool, load_built_rom, load_retail_rom, snapshot_objects,
-    walk_freelist, Entry, SnesBus, AL_VX, AL_VY, AL_VZ, BUILT_POOL, RETAIL_ADDALVECS_L, RETAIL_POOL,
+    boot_retail, call, call_near, init_object_pool, inject_runmario_trampoline, load_built_rom,
+    load_retail_rom, snapshot_objects, walk_freelist, Entry, SnesBus, AL_STRATPTR, AL_VX, AL_VY,
+    AL_VZ, BUILT_POOL, BUILT_RUNMARIO_L_ROM, BUILT_RUNMARIO_RAM, RETAIL_ADDALVECS_L, RETAIL_ALDEAD,
+    RETAIL_DOSTRATS, RETAIL_DO_STRAT_L, RETAIL_GAMEFRAME, RETAIL_INIT_STRATS_L, RETAIL_POOL,
+    RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM, RETAIL_STRATOBJ_POSX, RETAIL_UPDATE_OBJECTS_L,
 };
+
+const STRATOBJ_POSX: u32 = RETAIL_STRATOBJ_POSX;
 
 /// Bank-$70 (GSU cart RAM) word address as a full 24-bit CPU address.
 fn gsuram(off: u32) -> u32 {
@@ -153,6 +158,258 @@ fn gsu_kicks_through_bus_registers() {
         vec![ONE, 0, 0, 0, ONE, 0, 0, 0, ONE],
         "GSU run through the bus registers must produce the identity matrix"
     );
+}
+
+/// MILESTONE (step 1) — THE GSU TRAMPOLINE PATH WORKS FROM RAM. The full
+/// `dostrats` tick reaches the Super-FX chip only through `runmario_l`, a
+/// 35-byte routine the boot copies into WRAM (retail $7E:4EE9 / built $7E:4F51).
+/// A directly-called (non-booted) bus has empty RAM there, so a `jsl runmario_l`
+/// from inside a strat would execute BRK garbage.
+///
+/// This test proves the fix end-to-end: inject the real `runmario_l` bytes (from
+/// their ROM copy-source) into WRAM, then **call the RAM trampoline itself** with
+/// `A = program bank, X = entry PC` (the exact ABI a strat uses) and confirm the
+/// GSU runs a real ROM program to completion through it — the CPU executes the
+/// RAM-resident wait-loop, the `stx mr15` store kicks the chip via the bus, and
+/// the identity matrix comes back through shared bank-$70 RAM. No direct
+/// `Gsu::run`, no register pokes from the test — the RAM routine does it all.
+#[test]
+fn gsu_trampoline_runs_from_ram() {
+    let Some(rom) = load_built_rom() else {
+        eprintln!("GSU-TRAMPOLINE: skip — built ROM (data/sf.sfc) not present");
+        return;
+    };
+    const ROTMAT_PBR: u8 = 0x01; // mcrotmatzxy16 program bank
+    const ROTMAT_PC: u16 = 0x8295; //                    entry PC
+    const ONE: i16 = 32766;
+
+    let mut bus = SnesBus::new(rom);
+    bus.enable_gsu();
+
+    // Boot-equivalent: copy runmario_l from its ROM copy-source to its RAM dest.
+    inject_runmario_trampoline(&mut bus, BUILT_RUNMARIO_L_ROM, BUILT_RUNMARIO_RAM);
+    // Sanity: the RAM now holds the routine (starts `sta.l $003034` = 8F 34 30 00).
+    let head: Vec<u8> = (0..4).map(|i| bus.read8(BUILT_RUNMARIO_RAM + i)).collect();
+    eprintln!("TRAMPOLINE @ $7E:{:04X} head = {head:02X?}", BUILT_RUNMARIO_RAM & 0xFFFF);
+    assert_eq!(head, vec![0x8F, 0x34, 0x30, 0x00], "runmario_l not injected");
+
+    // Zero input angles at GSU RAM $20/$22/$24 (bank $70).
+    bus.write16(0x70_0020, 0);
+    bus.write16(0x70_0022, 0);
+    bus.write16(0x70_0024, 0);
+
+    // Call the RAM trampoline exactly as a strat would: 8-bit A = program bank,
+    // 16-bit X = entry PC (p=$20 -> M=1/X=0). runmario_l does the rest.
+    let _ = call(&mut bus, BUILT_RUNMARIO_RAM, &Entry { a: ROTMAT_PBR as u16, x: ROTMAT_PC, p: 0x20, ..Default::default() });
+
+    let m: Vec<i16> = (0..9).map(|i| bus.read16(0x70_0000 | (0xD2 + i * 2)) as i16).collect();
+    eprintln!("GSU-TRAMPOLINE kicks={} rot(0,0,0)={:?}", bus.gsu_kicks, m);
+    assert_eq!(bus.gsu_kicks, 1, "the RAM trampoline's `stx mr15` must kick the GSU once");
+    assert_eq!(
+        m,
+        vec![ONE, 0, 0, 0, ONE, 0, 0, 0, ONE],
+        "GSU driven through the RAM-resident runmario_l trampoline must yield identity"
+    );
+}
+
+/// MILESTONE (step 2) — THE FULL STRAT-PIPELINE RETAIL ADDRESSES ARE LOCATED and
+/// CROSS-VALIDATED. `dostrats` was found by a masked signature scan (opcodes
+/// fixed, absolute operands wildcarded — exactly ONE hit at $02:DAF2); its
+/// embedded JSL/absolute operands then directly yield `init_strats_l`,
+/// `update_objects_l`, `do_strat_l`, `allst`, `aldead`, `gameframe`. This test
+/// reads those bytes back out of the retail cart and asserts the chain:
+///  * `dostrats` opcodes are `inc gameframe … phb; ldb #$7e; jsl …; ldx allst …`,
+///  * the `ldx allst` operand equals the INDEPENDENTLY-derived pool active head
+///    (`RETAIL_POOL.active_head` = $121D, from the allocator scan) — the two
+///    derivations agree to the byte,
+///  * the three `jsl` operands equal the derived `init_strats_l`/
+///    `update_objects_l`/`do_strat_l` addresses,
+///  * `do_strat_l`'s landing site has the do_strat_l opcode skeleton
+///    (`php; rep #$30; cpx dummyobj; … lda al_collflags,x; and #$fffb`).
+#[test]
+fn retail_strat_pipeline_addresses() {
+    let Some(rom) = retail() else { return };
+    let bus = SnesBus::new(rom);
+    let rd = |a: u32, n: u32| -> Vec<u8> { (0..n).map(|i| bus.read8(a + i)).collect() };
+    let w = |a: u32| -> u16 { bus.read16(a) };
+
+    // dostrats @ $02:DAF2 — verify opcodes and read embedded operands.
+    let d = rd(RETAIL_DOSTRATS, 40);
+    eprintln!("STRAT dostrats @${RETAIL_DOSTRATS:06X}: {d:02X?}");
+    assert_eq!(d[0], 0xEE, "dostrats must open `inc gameframe`");
+    assert_eq!(w(RETAIL_DOSTRATS + 1), RETAIL_GAMEFRAME as u16, "gameframe operand");
+    assert_eq!(&d[8..13], &[0x8B, 0xA9, 0x7E, 0x48, 0xAB], "phb; lda #$7e; pha; plb");
+    // jsl init_strats_l ; jsl update_objects_l
+    assert_eq!(d[13], 0x22);
+    let init = w(RETAIL_DOSTRATS + 14) as u32 | ((d[16] as u32) << 16);
+    assert_eq!(d[17], 0x22);
+    let upd = w(RETAIL_DOSTRATS + 18) as u32 | ((d[20] as u32) << 16);
+    // ldx allst
+    assert_eq!(d[21], 0xAE, "ldx allst");
+    let allst = w(RETAIL_DOSTRATS + 22);
+    // jsl do_strat_l (after `stz aldead`)
+    assert_eq!(d[24], 0x9C, "stz aldead");
+    let aldead = w(RETAIL_DOSTRATS + 25);
+    assert_eq!(d[27], 0x22, "jsl do_strat_l");
+    let dostrat = w(RETAIL_DOSTRATS + 28) as u32 | ((d[30] as u32) << 16);
+
+    eprintln!("STRAT derived: init_strats_l=${init:06X} update_objects_l=${upd:06X} do_strat_l=${dostrat:06X}");
+    eprintln!("STRAT globals: allst=${allst:04X} aldead=${aldead:04X} gameframe=${:04X}", RETAIL_GAMEFRAME);
+
+    // Cross-validation: dostrats's `ldx allst` == the pool active head derived
+    // independently from the retail allocator scan.
+    assert_eq!(allst as u32, RETAIL_POOL.active_head, "dostrats allst != pool active_head");
+    assert_eq!(aldead as u32, RETAIL_ALDEAD);
+    assert_eq!(init, RETAIL_INIT_STRATS_L, "derived init_strats_l");
+    assert_eq!(upd, RETAIL_UPDATE_OBJECTS_L, "derived update_objects_l");
+    assert_eq!(dostrat, RETAIL_DO_STRAT_L, "derived do_strat_l");
+
+    // do_strat_l landing site has the do_strat_l opcode skeleton.
+    let s = rd(RETAIL_DO_STRAT_L, 18);
+    eprintln!("STRAT do_strat_l @${RETAIL_DO_STRAT_L:06X}: {s:02X?}");
+    assert_eq!(&s[0..4], &[0x08, 0xC2, 0x30, 0xEC], "php; rep #$30; cpx dummyobj");
+    // lda al_collflags,x ; and #$fffb ; sta al_collflags,x  (clear firstframe)
+    assert_eq!(&s[11..18], &[0xB5, 0x2E, 0x29, 0xFB, 0xFF, 0x95, 0x2E], "clr firstframe on al_collflags($2E)");
+}
+
+/// MILESTONE (step 3) — THE FULL RETAIL `dostrats` PER-FRAME TICK EXECUTES on
+/// seeded state. Seed the pool with the retail allocator, put ONE object on the
+/// active list (`allst -> block -> 0`), install the `runmario_l` GSU trampoline,
+/// and run the REAL retail `dostrats` ($02:DAF2) via the near-call harness.
+///
+/// After the tick: `gameframe` incremented (the `incw gameframe` at the top ran),
+/// the object survived (`init_strats_l` + `update_objects_l` + the active-list
+/// walk + `do_strat_l` all executed without trapping), and — proving `do_strat_l`
+/// actually processed OUR object inside the loop — `stratobj_posx/y/z`
+/// ($1513/15/17, written only by `do_strat_l` from `al_worldx/y/z,x`) hold the
+/// object's seeded world coordinates. This is the entire retail per-frame strat
+/// pipeline running on directly-seeded state, no cold boot.
+#[test]
+fn retail_dostrats_pipeline_runs() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    bus.enable_gsu();
+    inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+    init_object_pool(&mut bus);
+    let blk = walk_freelist(&bus, &RETAIL_POOL)[0] as u32;
+
+    // One null-strat object (al_stratptr = 0 -> do_strat_l returns via `.strad`).
+    let (px, py, pz) = (1000i16, 500i16, 8000i16);
+    bus.wram_write16(RETAIL_POOL.active_head, blk as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_next, 0);
+    bus.wram_write16(blk + RETAIL_POOL.al_shape, 0x0042);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldx, px as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldy, py as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldz, pz as u16);
+
+    let gf0 = bus.wram_read16(RETAIL_GAMEFRAME);
+    call_near(&mut bus, RETAIL_DOSTRATS, &Entry { p: 0x00, ..Default::default() });
+    let gf1 = bus.wram_read16(RETAIL_GAMEFRAME);
+    let slot = ((blk - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize;
+    let o = snapshot_objects(&bus, &RETAIL_POOL)[slot];
+    let (sx, sy, sz) = (
+        bus.wram_read16(STRATOBJ_POSX) as i16,
+        bus.wram_read16(STRATOBJ_POSX + 2) as i16,
+        bus.wram_read16(STRATOBJ_POSX + 4) as i16,
+    );
+    eprintln!(
+        "STRAT dostrats tick: gameframe {gf0}->{gf1}; object survived (shape=${:04X} world=({},{},{})); do_strat_l wrote stratobj_pos=({sx},{sy},{sz}); aldead=${:04X}",
+        o.shape, o.worldx, o.worldy, o.worldz, bus.wram_read16(RETAIL_ALDEAD)
+    );
+    assert_eq!(gf1, gf0.wrapping_add(1), "dostrats must inc gameframe once");
+    assert_eq!(o.shape, 0x0042, "object must survive the tick");
+    assert_eq!((sx, sy, sz), (px, py, pz), "do_strat_l must copy this object's world pos into stratobj_pos");
+}
+
+/// MILESTONE (step 4) — RETAIL `dostrats` DISPATCH vs THE PORT, TICK-FOR-TICK.
+///
+/// This drives the object through the ENTIRE retail dispatch machine each frame,
+/// not the surgical single-routine call of `retail_vs_port_per_tick_object_diff`:
+/// the object's own `al_stratptr` ($16, bank $18) points at the retail motion
+/// routine `addalvecs_l` ($1F:C7BB), so `dostrats -> do_strat_l` reads that
+/// pointer and RTL-dispatches into it exactly as it dispatches a real enemy
+/// strat. So each `dostrats` call runs: `init_strats_l`, `update_objects_l`,
+/// walk the active list, `do_strat_l` (copy world->stratobj_pos, resolve the
+/// strat pointer, jump), the strat integrates `world += vel`, return. We diff the
+/// resulting object array against the port (`sf_strat::common::strat_apply_
+/// velocity`, the port's `addalvecs_l`) per field, per tick.
+///
+/// Certifies: the retail per-frame strat DISPATCH (allst walk + `do_strat_l`
+/// pointer resolution + strat execution + object write-back) evolves a seeded
+/// object identically to the Rust port over N ticks.
+#[test]
+fn retail_dostrats_dispatch_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    bus.enable_gsu();
+    inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+    init_object_pool(&mut bus);
+    let blk = walk_freelist(&bus, &RETAIL_POOL)[0] as u32;
+
+    // Seed one object whose al_stratptr = retail addalvecs_l ($1F:C7BB): the
+    // real routine `do_strat_l` will resolve + dispatch as this object's strat.
+    let (px, py, pz) = (1000i16, 500i16, 8000i16);
+    let (vx, vy, vz) = (100i16, -50i16, -200i16);
+    bus.wram_write16(RETAIL_POOL.active_head, blk as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_next, 0);
+    bus.wram_write16(blk + RETAIL_POOL.al_shape, 0x0042);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldx, px as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldy, py as u16);
+    bus.wram_write16(blk + RETAIL_POOL.al_worldz, pz as u16);
+    bus.wram_write16(blk + AL_VX, vx as u16);
+    bus.wram_write16(blk + AL_VY, vy as u16);
+    bus.wram_write16(blk + AL_VZ, vz as u16);
+    // al_stratptr ($16 low word, $18 bank) = $1F:C7BB (retail addalvecs_l).
+    bus.wram_write16(blk + AL_STRATPTR, (RETAIL_ADDALVECS_L & 0xFFFF) as u16);
+    bus.write8(0x7E_0000 | (blk + AL_STRATPTR + 2), (RETAIL_ADDALVECS_L >> 16) as u8);
+
+    // Port mirror.
+    let mut a = sf_game::alien::Alien::default();
+    a.shape = 0x0042;
+    a.worldx = px; a.worldy = py; a.worldz = pz;
+    a.vx = vx; a.vy = vy; a.vz = vz;
+
+    // N kept small: each `dostrats` call runs the full `init_strats_l` +
+    // `update_objects_l` on the whole (zeroed) game state, which is thousands of
+    // 65816 instructions per tick — a few ticks certifies the dispatch loop.
+    const N: u32 = 8;
+    let slot = ((blk - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize;
+    let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+    for tick in 1..=N {
+        // Retail: one full per-frame strat tick, object integrated via its own
+        // al_stratptr through do_strat_l.
+        call_near(&mut bus, RETAIL_DOSTRATS, &Entry { p: 0x00, ..Default::default() });
+        let o = snapshot_objects(&bus, &RETAIL_POOL)[slot];
+        // Port: the equivalent per-frame motion.
+        sf_strat::common::strat_apply_velocity(&mut a);
+        for (name, rv, pv) in [
+            ("worldx", o.worldx as i32, a.worldx as i32),
+            ("worldy", o.worldy as i32, a.worldy as i32),
+            ("worldz", o.worldz as i32, a.worldz as i32),
+        ] {
+            if rv != pv && first_div.is_none() {
+                first_div = Some((tick, name, rv, pv));
+            }
+        }
+        if tick == 1 || tick == N || tick % 10 == 0 {
+            eprintln!(
+                "STRAT DISPATCH TICK {tick:>2}: retail world=({},{},{}) | port=({},{},{}) gsu_kicks={}",
+                o.worldx, o.worldy, o.worldz, a.worldx, a.worldy, a.worldz, bus.gsu_kicks
+            );
+        }
+    }
+    let o = snapshot_objects(&bus, &RETAIL_POOL)[slot];
+    assert_eq!(
+        o.worldz as i32, pz as i32 + vz as i32 * N as i32,
+        "retail dostrats dispatch must integrate the object every tick"
+    );
+    match first_div {
+        None => eprintln!("STRAT DISPATCH DIFF: MATCH — retail dostrats-dispatched object == port over {N} ticks."),
+        Some((t, f, rv, pv)) => {
+            eprintln!("STRAT DISPATCH DIFF: first divergence tick={t} field={f} retail={rv} port={pv}");
+            panic!("retail dostrats dispatch vs port diverged tick {t} {f}: retail={rv} port={pv}");
+        }
+    }
 }
 
 /// MILESTONE (steps 2-4) — THE FIRST RETAIL-vs-PORT PER-TICK OBJECT-ARRAY DIFF.

@@ -9,7 +9,60 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (6 tests, all green). Nothing committed.
+`rust/sf-oracle/tests/coexec_retail.rs` (**10 tests, all green**). Nothing committed.
+
+## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
+
+The three blockers below are cleared. We now run the retail cart's **entire
+per-frame strat pipeline** (`dostrats` = `init_strats_l` + `update_objects_l` +
+active-list walk + `do_strat_l` dispatch) on directly-seeded state, with the GSU
+reachable through the RAM trampoline, and diff the object array against the port
+tick-for-tick.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `gsu_trampoline_runs_from_ram` | ✅ | Injects the real 35-byte `runmario_l` into WRAM (from its ROM copy-source) and **calls the RAM trampoline itself** (`A`=bank,`X`=PC) — the CPU runs the RAM wait-loop, its `stx mr15` kicks the GSU via the bus, and the ROM `mcrotmatzxy16` program returns the identity matrix. `gsu_kicks==1`. Blocker 1 cleared. |
+| `retail_strat_pipeline_addresses` | ✅ | Locates `dostrats` @ **$02:DAF2** by masked signature scan (1 hit) and reads its embedded operands back out — auto-deriving `init_strats_l`=$06:81D5, `update_objects_l`=$03:ED7E, `do_strat_l`=$1F:D26B, plus `allst`/`aldead`/`gameframe`. Cross-validated: `dostrats`'s `ldx allst` operand = **$121D**, byte-identical to the pool `active_head` derived independently from the allocator scan. Blocker 2 cleared. |
+| `retail_dostrats_pipeline_runs` | ✅ | Seeds the pool + one object on `allst`, installs the trampoline, and runs the REAL retail `dostrats` ($02:DAF2). After the tick: `gameframe` +1, the object survives, and `stratobj_posx/y/z` (written only by `do_strat_l` from `al_worldx/y/z,x`) hold the object's seeded coords — the whole pipeline executed on retail code without trapping. |
+| `retail_dostrats_dispatch_vs_port` | ✅ **MATCH** | Sets the object's own `al_stratptr` ($16/bank $18) = retail `addalvecs_l` ($1F:C7BB), so `dostrats -> do_strat_l` resolves + RTL-dispatches into it exactly as it dispatches a real enemy strat. Diffs the object array vs the port (`strat_apply_velocity`) per field per tick: **MATCH over 8 ticks** — the full retail dispatch machine (allst walk + `do_strat_l` pointer resolution + strat execution + write-back) evolves the object identically to the port. |
+
+### Retail strat-pipeline addresses located (all cross-validated)
+| Routine | Retail | Built | How |
+|------|------|------|------|
+| `dostrats` (near) | $02:DAF2 | $02:D6DE | masked scan, 1 hit |
+| `do_strat_l` | $1F:D26B | $1F:D283 | JSL operand in `dostrats`; opcode skeleton matches built |
+| `init_strats_l` | $06:81D5 | $02:81CC | JSL operand in `dostrats` (note: retail moved it to bank $06) |
+| `update_objects_l` | $03:ED7E | (JSL) | JSL operand in `dostrats` |
+| `mapobjdo` (spawn VM) | $03:F79B | $03:EB80 | masked scan, 5-member family, all reuse `ldx allst=$121D` |
+| `newobjex` / `newobjs_l` | $03:EDAB / $03:EDA1 | $03:E188 / $03:E17E | masked scan, 1 hit |
+| `runmario_l` (ROM copy) | $02:9D56 | $02:9D32 | `sta.l $003034` anchor; byte-identical but `mario_draw_mode` operand |
+| `runmario_l` (RAM dest) | $7E:4EE9 | $7E:4F51 | most-common bank-$7E JSL target (63 sites); intra-block +$27/+$6C sub-entries line up with built |
+
+Auto-derived retail strat globals: `gameframe`=$15BB, `aldead`=$1248,
+`dummyobj`=$156B, `stratobj_posx/y/z`=$1513/15/17, `al1pt`=$123A,
+`mario_draw_mode`=$1260. Struct offset `al_stratptr`=$16 (low word) / $18 (bank),
+verified against `al_HP`=$2A and `al_vx`=$2F.
+
+### What remains — certifying a REAL (non-synthetic) enemy strat
+`retail_dostrats_dispatch_vs_port` dispatches `addalvecs_l` **as** the object's
+strat (a genuine ROM routine, through the genuine dispatch path), which exercises
+the entire pipeline but is a pure motion routine. Diffing a full *named* enemy
+strat (e.g. `torpedo_strat`, a ground/rock strat) additionally needs, per strat:
+1. that strat's retail address (masked scan — the technique is proven), set as
+   the object's `al_stratptr`;
+2. the strat's OWN global footprint remapped retail-side (RNG state, player/
+   camera object, timers) — many touch dozens of globals whose retail addresses
+   shifted; each must be located like the `dostrats` set above; and
+3. a port-side equivalent callable in isolation — the port's strats take `&mut
+   Game` (full world context), not a lone `Alien`, so a `Game`-vs-retail-WRAM
+   seeding shim is needed to line the two up. The pure per-strat helpers
+   (`gen_vecs`, `speed_to`, `perc*`, `xzdiffs`) are already tier-1 oracle-verified
+   and can be re-certified vs retail surgically (like `addalvecs_l`) if desired.
+
+The historical blocker analysis below is retained for context.
+
+---
+
 
 ## What works end-to-end (the first retail-vs-port per-tick diff)
 
@@ -65,20 +118,25 @@ integrator every strat applies each frame. Driving the **entire** retail
    path here (seed the pool directly, drive the tick) sidesteps this and is the
    recommended route.
 
-## Precise summary
+## Precise summary (historical — superseded by the UPDATE at the top)
 
-**We can diff X but not Y because Z:** we CAN run the retail cart's own object
-allocator + real per-object motion integrator on seeded state and diff the whole
-object array against the port tick-for-tick (MATCH). We CANNOT yet run the full
-`dostrats` AI tick, because (Z) the GSU is reached via a RAM-resident
-`runmario_l` trampoline that isn't populated on a directly-called (non-booted)
-bus, and the remaining per-tick routines (`dostrats`/`do_strat_l`/spawn VM) still
-need their retail addresses re-derived by signature scan.
+At the time this section was written: we could run the allocator + motion
+integrator and diff tick-for-tick, but not the full `dostrats` tick. **All three
+blockers below are now cleared** (see the UPDATE section at the top): the
+`runmario_l` trampoline is injected into WRAM and verified to drive the GSU; the
+`dostrats`/`do_strat_l`/`init_strats_l`/`update_objects_l`/`mapobjdo`/`newobjs`
+retail addresses are located by masked signature scan and cross-validated; and
+the full retail `dostrats` per-frame tick runs on seeded state and diffs MATCH
+against the port through the real `do_strat_l` dispatch path.
 
-## Recommended next steps
-1. Inject/relocate the retail `runmario_l` stub into WRAM (or bus-intercept the
-   `JSL` to it → `gsu_kick`) so GSU-using strats run.
-2. Signature-locate retail `dostrats` / `do_strat_l`; drive a single seeded
-   object through one real strat tick with the GSU live; diff vs the port strat.
-3. Signature-locate `newobjs`/`mapobjdo` and hand a minimal map script so retail
-   SPAWNS the objects (instead of hand-seeding), then diff the spawn output.
+## Recommended next steps (remaining)
+1. **Certify a named enemy strat** (e.g. `torpedo_strat`): masked-scan its retail
+   address, set it as an object's `al_stratptr`, and diff vs the port — needs the
+   strat's own global footprint remapped retail-side and a `Game`-context seeding
+   shim for the port side (the port's strats take `&mut Game`, not a lone Alien).
+2. **Exercise the spawn VM**: hand retail `mapobjdo` ($03:F79B) / `newobjs_l`
+   ($03:EDA1) a minimal map script so retail SPAWNS objects (instead of
+   hand-seeding), then diff the spawn output vs the port map builder.
+3. **Re-certify the pure per-strat helpers vs retail** surgically (like
+   `addalvecs_l`): `gen_vecs`, `speed_to`, `perc*`, `xzdiffs` — all struct-offset/
+   pure-math, so byte-identical in retail and quick to scan + diff.
