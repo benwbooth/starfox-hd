@@ -54,6 +54,12 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 ## Wave log
 - 2026-07-04 wave 1: trig/player/coldet/strats/boss/mapvm audits — ~18 fixes, all committed (see rom-oracle-plan memory).
 - 2026-07-07 wave 2 COMPLETE: path (8), map-VM (5), showview (6), bg2d. 229/0.
+- 2026-07-07 wave 7: castanet 'Metal Smasher' + shared ground-vehicle base
+  (route-2 2_5); chicken + shared arm_istrat grabber (route-3 3_3) -> boss parity
+  14/~22; enemy-A ground/common batch (10 High +~27, ROM-correct laser speed/fire
+  masks/worldy/Achase across nearly every regular enemy; #31 correctly skipped as
+  a bad-doc-fix; base1 door caveated). 6 fixtures re-blessed single-cause
+  (RNG-aligned). Workspace 296/0.
 - 2026-07-07 wave 6: path friend-weights (weighted RNG tree); pcbox 3-box
   collision-proxy layer (gated); unported-boss roadmap (docs/UNPORTED_BOSSES_PLAN
   .md, 12 ported/~11 unported/2 cut); mulslog bit-exact vs ROM (3 latent >=128
