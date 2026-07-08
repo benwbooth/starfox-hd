@@ -14,6 +14,7 @@
 //! - `enemy_b`, `bosses`           -> strat_enemy.c (back), strat_boss*.c
 //! - `table`                       -> strat_table.c registration
 
+pub mod bossb;
 pub mod bosses;
 pub mod common;
 pub mod enemies_ground;

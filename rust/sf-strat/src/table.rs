@@ -214,6 +214,9 @@ pub fn register_all(g: &mut Game) {
     // Ground-artillery family (tank1a/tank2/tank3 + bazookaL/R). Self-populates
     // its g_istrats rows exactly like bosses::register.
     crate::enemies_ground::register(&mut g.world);
+    // Andross final boss (bossB face IS 115 + bossBrob robot IS 118). Self-
+    // populates its istrat rows and the MAP1_5 synthetic address (0x06000F).
+    crate::bossb::register(&mut g.world);
     // Mother system (ASM/MOTHER.ASM + D2STRATS mother1/2 + the MOTHERS.ASM
     // child strategies): registers STRAT_ADDR_MOTHER1/2 and the
     // meteor/slowmeteor/searchmeteor/clasteroid child strats.
