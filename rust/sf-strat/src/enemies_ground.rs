@@ -29,7 +29,8 @@
 
 use sf_game::alien::{
     Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON, ASF_COLLDISABLE,
-    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ASF_COLLIDE, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE,
+    NUMBER_AL,
 };
 use sf_game::game::{Game, StrategyFn};
 use sf_game::vars::{
@@ -41,8 +42,8 @@ use crate::common::{sv, StratRam};
 
 use crate::enemy_a::{
     achase_angle, add_player_z, boss_attach_child_to_mother, boss_find_child_obj,
-    boss_get_mother_obj, copy_pos, ea_random, homingflat_strat, player, sid, speed_to,
-    strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser,
+    boss_get_mother_obj, copy_pos, ea_random, hmissile1_strat, homingflat_strat, player, sid,
+    speed_to, strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser,
     strat_fire_relslowlaserhome, strat_hit_flash, strat_move3d, strat_phase_offset,
     strat_pitch_toward, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG180, DEG45,
     DEG90,
@@ -4202,6 +4203,444 @@ fn tree_strat(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// Final niche enemies/objects — shou0 / shou0a (rotating plasma turrets),
+// iris (damage-triggered aperture door), truck (rail ground vehicle), item6
+// (wireframe-ship power-up), and kichi2 (aliased — see below). ASM is the sole
+// ground truth (no C-oracle): GA2STRAT.ASM:1850-1897 (shou0), DSTRATS.ASM:1375-
+// 1399 + D3STRATS.ASM:1090-1093 (iris/iris_1), GASTRATS.ASM:1575-1623 (truck),
+// GASTRATS.ASM:2598-2621 (item6), D2STRATS.ASM:725-728 (kichi2).
+//
+// INDEX DISCIPLINE (sf-map IS_FOO placement == the register() row here):
+//   - iris   : sf-map IS_IRIS=48  (route1 blackhole.rs:36)   == ROM row 48.
+//   - truck  : sf-map IS_TRUCK=49 (route3 common.rs:114)     == ROM row 49.
+//   - item6  : sf-map IS_ITEM6=176 (route2 rc.rs:182)        == ROM row 176.
+//   - shou0  : sf-map IS_SHOU0=178 (route3 common.rs:106)    == ROM row 178.
+//   - shou0a : sf-map IS_SHOU0A=179 (route3 common.rs:107)   == ROM row 179.
+// All five agree with their ISTRATS.ASM def_Istrat rows (docs/istrat_index_map.
+// tsv) and are placed-but-unregistered in docs/REACHABLE_UNPORTED.md — this lane
+// wires them so those placements resolve to real behaviour instead of nullshape.
+//
+//   - kichi2 : NOT REGISTERED — DELIBERATE. `kichi2_istrat` is literally
+//     `jml nocoll_istrat` (D2STRATS.ASM:725-728): a passive, collision-disabled
+//     decoration, behaviourally identical to the already-registered IS_NOCOLL
+//     (table.rs:140, enemy_a Strat_NoColl_Init). sf-map gives IS_KICHI2=140
+//     (rc.rs:173) — the SAME slot as the reachable, already-ported kdoor door
+//     (IS_KDOOR=140, rc.rs:172; registered above at line ~4279). level2_3.rs
+//     places BOTH at the massivebase airlock: SH_K_DOOR@IS_KDOOR (the sliding
+//     door) and SH_KICHI_3@IS_KICHI2 (the robot behind it), collapsed onto row
+//     140. The ROM keeps them distinct (kdoor=140, kichi2=141 raw), but sf-map
+//     aliased kichi2 down onto kdoor. Registering kichi2 at 140 would OVERWRITE
+//     kdoor and the airlock would never open (a progress-blocking regression),
+//     so per the "skip aliased, note it, do NOT edit sf-map" rule kichi2 is left
+//     unwired. Its intended behaviour (nocoll) is already reachable at IS_NOCOLL,
+//     and today the SH_KICHI_3 robots harmlessly run the kdoor open/close anim.
+//     sf-map DISCREPANCY (report only): kichi2 should own a distinct free row
+//     (ROM 141) rather than sharing kdoor's 140.
+//
+// STATE MACHINES (per-fn cites):
+//   shou0  : enemy1 plasma turret. Init rolls sbyte1 in {0,1,2} (reroll on 3).
+//            Each tick, while 500<=|dz|<2500, spins two of its three rot axes by
+//            +6 (which pair is sbyte1-selected) and — on a per-object /16 gate —
+//            fires a player-aimed PLASMA. shou0a = shou0 + sflag1: fires on the
+//            slower /32 gate (GA2STRAT.ASM:1874-1897).
+//   iris   : aperture door, hp 127. Sealed while hp>=125; once damaged below
+//            (127-irisHP=125) it animates open 0->8 and holds. The iris_1 inner
+//            mesh child (fling.makeobj) is a passive colldisable no-op with an
+//            unresolvable shape — SCOPED OUT (DSTRATS.ASM:1375-1399).
+//   truck  : Zenemy rail vehicle. Drives along sbyte1 heading (speed 30), body
+//            roty chasing sbyte1. In 1000<=|dz|<3000 it lobs ONE homing HMISSILE1
+//            at the player (sflag2 one-shot latch). On hitting a rail_4 it snaps
+//            to the rail and turns ±deg90 by the rail's sbyte1 (GASTRATS.ASM:
+//            1575-1623).
+//   item6  : wireframe-ship power-up (colldisable). Drifts +z (until sbyte1 set)
+//            and spins roty+=4; when the player closes within 120 z & 60 xy it
+//            grants the wireframe ship, chimes ($16) and removes itself. The full
+//            ship-swap (curr_ship/select_ship_l, shieldup, pnumhits) is player-
+//            progression machinery not modelled in sf-game; only the modelled
+//            pshipflags2|=psf2_wireship bit + chime + self-remove are applied
+//            here — SCOPED, see item6_strat (GASTRATS.ASM:2598-2621).
+// ============================================================
+
+const IS_IRIS: usize = 48;
+const IS_TRUCK: usize = 49;
+const IS_ITEM6: usize = 176;
+const IS_SHOU0: usize = 178;
+const IS_SHOU0A: usize = 179;
+
+const SHOU0_HP: u8 = 2; // STRATEQU.INC:249 shou0HP
+const SHOU0_AP: u8 = 12; // STRATEQU.INC:250 shou0AP
+const TRUCK_HP: u8 = 4; // STRATEQU.INC:142 truckHP
+const TRUCK_AP: u8 = 8; // STRATEQU.INC:143 truckAP
+/// iris opens once hp < 127-irisHP; irisHP=2 (STRATEQU.INC:218) -> 125.
+const IRIS_OPEN_HP: u8 = 125;
+/// PLASMA weapon facts (fire_plasma, GSTRATS.ASM:2406-2414): speed 80, life
+/// 30+70, ap plasmaAP(=PLASMA_AP=10, defined above). Modelled as a plain flat
+/// projectile via spawn_projectile — the `relflatmiss` player-relative scroll
+/// is approximated exactly as szaco0's rel-laser is (strat_fire_relslowlaser).
+const PLASMA_SPEED: u8 = 80;
+const PLASMA_LIFE: u8 = 100;
+/// HMISSILE1 facts (STRATEQU.INC / enemy_a): speed 60, life 100, ap 8.
+const HMISSILE1_SPEED: u8 = 60;
+const HMISSILE1_LIFE: u8 = 100;
+const HMISSILE1_AP: u8 = 8;
+/// truck muzzle `s_weapon_pos #0,#-105>>weapon_scale,#100>>weapon_scale`
+/// (weapon_scale=2 -> /4): (0, -26, 25).
+const TRUCK_MUZZLE_Y: i16 = -26; // -105>>2
+const TRUCK_MUZZLE_Z: i16 = 25; // 100>>2
+/// rail_4 collision partner shape (sf-map SH_RAIL_4, route3 common.rs:298).
+const SH_RAIL_4: u16 = 6;
+/// psf2_wireship (GILESALC.INC:85) — the wireframe-ship power-up bit.
+const PSF2_WIRESHIP: u8 = 2;
+
+// ------------------------------------------------------------
+// shou0 / shou0a (IS 178 / 179) — GA2STRAT.ASM:1850-1897.
+// ------------------------------------------------------------
+
+/// `shou0a_Istrat` (GA2STRAT.ASM:1850-1852): set sflag1 (the /32 "type-a" fire
+/// cadence), then FALL THROUGH into `shou0_Istrat`.
+fn shou0a_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1; // s_set_alsflag x,sflag1
+    shou0_init(g, idx);
+}
+
+/// `shou0_Istrat` (GA2STRAT.ASM:1853-1859): wire strats/data, enemy1, and roll
+/// sbyte1 in {0,1,2} (`.again`: rnd&3, reroll on 3). No s_end_strat -> falls into
+/// the tick this frame.
+fn shou0_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, shou0_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    // .again: s_set_alvar2rnd sbyte1,#3 ; s_jmp_alvarEQ #3,.again (reroll on 3).
+    let mut sb1 = (ea_random(g) as u8) & 3;
+    while sb1 == 3 {
+        sb1 = (ea_random(g) as u8) & 3;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_alptrs x,shou0_strat,hitflash,explode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = SHOU0_HP; // s_set_aldata x,#shou0HP,#shou0AP
+        al.ap = SHOU0_AP;
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,enemy1
+        al.sbyte1 = sb1;
+    }
+    shou0_strat(g, idx); // fall-through
+}
+
+/// `shou0_strat` (GA2STRAT.ASM:1860-1897): while the player is in [500,2500) z,
+/// spin the sbyte1-selected pair of rot axes by +6, then fire a player-aimed
+/// PLASMA on the fire gate (shou0 /16, shou0a /32, both al1pt-staggered).
+fn shou0_strat(g: &mut Game, idx: u16) {
+    // s_jmp_OUTZdistrng x,y,#500,#2500,.nospin (fall-through == IN range).
+    if !zdist_in_range(g, idx, 500, 2500) {
+        return; // .nospin -> s_end_strat
+    }
+    let sb1 = g.objs.aliens[idx as usize].sbyte1;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        match sb1 {
+            0 => {
+                // .nsp0 not taken: roty+=6, rotx+=6.
+                al.roty = al.roty.wrapping_add(6);
+                al.rotx = al.rotx.wrapping_add(6);
+            }
+            1 => {
+                // .nsp1 not taken: roty+=6, rotz+=6.
+                al.roty = al.roty.wrapping_add(6);
+                al.rotz = al.rotz.wrapping_add(6);
+            }
+            _ => {
+                // .nsp1: rotx+=6, rotz+=6.
+                al.rotx = al.rotx.wrapping_add(6);
+                al.rotz = al.rotz.wrapping_add(6);
+            }
+        }
+    }
+    // .fire: s_jmp_alsflag sflag1,.typea. shou0 -> notdelay 4, shou0a -> 5.
+    let bits = if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        5
+    } else {
+        4
+    };
+    if notdelay_staggered(g, idx, bits) {
+        shou0_fire(g, idx);
+    }
+}
+
+/// `s_weapon_pos #0,#0,#0 ; s_weapon_rots2obj y ; s_fire_weapon x,PLASMA`
+/// (GA2STRAT.ASM:1888-1891/1896): muzzle at the turret centre, shot rotation
+/// aimed straight at the player, a PLASMA laser.
+fn shou0_fire(g: &mut Game, idx: u16) {
+    let Some(p) = player(g) else { return };
+    let me = g.objs.aliens[idx as usize];
+    let yaw = angle_xz(&me, &p); // s_weapon_rots2obj y (3D aim, yaw)
+    let pitch = strat_pitch_toward(&me, &p); // (pitch)
+    let _ = spawn_projectile(
+        g,
+        Some(idx),
+        0,
+        0,
+        0,
+        pitch,
+        yaw,
+        PLASMA_SPEED,
+        PLASMA_LIFE,
+        PLASMA_AP,
+        // fire_plasma colltype laser+enemyweap (GSTRATS.ASM:2411-2412).
+        ACF_COLLTYPE1 | ACF_COLLTYPE4,
+    );
+}
+
+// ------------------------------------------------------------
+// iris (IS 48) — DSTRATS.ASM:1375-1399 + D3STRATS.ASM:1090-1093.
+// ------------------------------------------------------------
+
+/// `iris_istrat` (DSTRATS.ASM:1375-1391): faces deg180, wires strats/data
+/// (hp 127, hardAP), anim 0. The iris_1 inner aperture child (fling.makeobj ->
+/// iris_1_istrat, a passive colldisable no-op with an unresolvable shape) is
+/// SCOPED OUT — it has zero gameplay effect. No s_end_strat -> falls into the
+/// tick this frame.
+fn iris_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, iris_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+        al.stratptr = Some(tick); // s_set_alptrs x,iris_strat,hitflash,explode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = 127; // s_set_aldata x,#127,#hardAP
+        al.ap = HARD_AP;
+        al.animframe = 0x80; // s_init_anim x,#0
+    }
+    iris_strat(g, idx); // fall-through
+}
+
+/// `iris_strat` (DSTRATS.ASM:1392-1399): stays sealed while hp>=125
+/// (`s_cmp_alvar al_hp,#127-irisHP ; bcs .miss`); once damaged below that, opens
+/// the aperture anim toward 8 (dincanimjmp, the 4-arg jmp form -> clamp at the
+/// max-1 frame 7) and holds. The door-open sound is cosmetic.
+fn iris_strat(g: &mut Game, idx: u16) {
+    // s_cmp_alvar B,x,al_hp,#125 ; bcs .miss (hp>=125 == sealed).
+    if g.objs.aliens[idx as usize].hp >= IRIS_OPEN_HP {
+        return;
+    }
+    // .animate: lda #8 ; dincanimjmp_x (advance anim toward the cap 8, hold).
+    add_anim_cap(&mut g.objs.aliens[idx as usize], 1, 8);
+}
+
+// ------------------------------------------------------------
+// truck (IS 49) — GASTRATS.ASM:1575-1623.
+// ------------------------------------------------------------
+
+/// `s_gen_vecs x,al_sbyte1,al_vel` — flat (vx,vz) from the sbyte1 HEADING (not
+/// roty; roty lags behind as the visual body-turn chase). Unsigned velocity.
+fn truck_gen_vecs(al: &mut Alien) {
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    let angle = al.sbyte1 as usize;
+    let vel = al.vel as i32;
+    al.vx = mulslog(vel, SINTAB[angle] as i32) as i16;
+    al.vy = 0;
+    al.vz = mulslog(vel, COSTAB[angle] as i32) as i16;
+}
+
+/// `truck_Istrat` (GASTRATS.ASM:1575-1583): wire strats (tick / truckcol / explode)
+/// + data, seed the heading sbyte1 from roty, speed 30, gen the drive vecs, and
+/// mark Zenemy. s_end_strat — does NOT run the tick this frame.
+fn truck_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, truck_strat);
+    let coll = sid(g, truckcol_strat);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_alptrs x,truck_strat,truckcol,explode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = TRUCK_HP; // s_set_aldata x,#truckHP,#truckAP
+        al.ap = TRUCK_AP;
+        al.sbyte1 = al.roty; // s_copy_alvar2alvar B,x,al_sbyte1,x,al_roty
+        al.vel = 30; // s_set_speed x,#30
+        truck_gen_vecs(al); // s_gen_vecs x,al_sbyte1,al_vel
+        al.collflags |= COLLTYPE_ZENEMY; // s_set_colltype x,Zenemy
+    }
+    // s_end_strat (no fall-through).
+}
+
+/// `truck_strat` (GASTRATS.ASM:1584-1587): clear the rail-turn debounce (sflag1)
+/// then run `truck_norm`.
+fn truck_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 &= !ASF2_SFLAG1; // s_clr_alsflag x,sflag1
+    truck_norm(g, idx); // s_brl truck_norm
+}
+
+/// `truck_cont` (GASTRATS.ASM:1588-1589): regenerate the drive vecs from the
+/// (possibly just-turned) sbyte1 heading, then fall into `truck_norm`.
+fn truck_cont(g: &mut Game, idx: u16) {
+    truck_gen_vecs(&mut g.objs.aliens[idx as usize]); // s_gen_vecs x,al_sbyte1,al_vel
+    truck_norm(g, idx);
+}
+
+/// `truck_norm` (GASTRATS.ASM:1590-1604): in 1000<=|dz|<3000, on the global /16
+/// gate, fire ONE homing HMISSILE1 at the player (sflag2 one-shot latch). Always
+/// chase roty toward the heading sbyte1 (rate 1) and drive.
+fn truck_norm(g: &mut Game, idx: u16) {
+    // s_jmp_outZdistrng x,y,#1000,#3000,.nfire
+    if zdist_in_range(g, idx, 1000, 3000)
+        // s_jmp_NOTdelay 4,.nfire (no al1pt — global /16 gate).
+        && notdelay(g, 4)
+        // s_jmp_alsflag x,sflag2,.nfire (already fired once).
+        && g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 == 0
+    {
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG2; // s_set_alsflag x,sflag2
+        truck_fire_missile(g, idx);
+    }
+    // .nfire: s_achase_alvar2alvar B,x,al_roty,x,al_sbyte1,1 (body-turn toward heading).
+    let mut roty = g.objs.aliens[idx as usize].roty;
+    let sb1 = g.objs.aliens[idx as usize].sbyte1;
+    achase_angle(&mut roty, sb1, 1);
+    g.objs.aliens[idx as usize].roty = roty;
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_add_vecs2pos x
+}
+
+/// `s_weapon_pos #0,#-105>>2,#100>>2 ; s_weapon_rot #0,#0 ; s_fire_weapon
+/// x,HMISSILE1 ; s_set_alvar y,al_ptr,playpt` (GASTRATS.ASM:1598-1602): a homing
+/// missile from the truck-relative muzzle, aligned with the truck's facing,
+/// targeting the player. Mirrors boss7launcher_fire_hmissile1's wiring.
+fn truck_fire_missile(g: &mut Game, idx: u16) {
+    let Some(player_idx) = player_index(g) else {
+        return;
+    };
+    let Some(shot) = make_obj(g, 0) else {
+        return;
+    };
+    let me = g.objs.aliens[idx as usize];
+    // s_weapon_pos muzzle rotated by the firer's full rots (gen_weapon flags 1,1,1).
+    full_offset_pos(g, shot, &me, 0, TRUCK_MUZZLE_Y, TRUCK_MUZZLE_Z);
+    let s_tick = sid(g, hmissile1_strat);
+    let (_gen, s_coll) = projectile_strat_ids(g);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.rotx = me.rotx; // s_weapon_rot #0,#0 -> shot rots == firer rots
+        al.roty = me.roty;
+        al.rotz = me.rotz;
+        al.stratptr = Some(s_tick);
+        al.collstratptr = Some(s_coll);
+        al.expstratptr = Some(s_coll);
+        al.hp = 2;
+        al.ap = HMISSILE1_AP;
+        al.vel = HMISSILE1_SPEED;
+        al.count = HMISSILE1_LIFE;
+        al.snd2 = 2;
+        al.type_ = ATMISSILE | ATZREMOVE;
+        al.sflags |= ASF_SHADOW;
+        al.collflags = ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4;
+        al.immuneptr = idx;
+        al.fireobjptr = player_idx + 1; // s_set_alvar y,al_ptr,playpt (homing target)
+    }
+    gen_vecs_3d(&mut g.objs.aliens[shot as usize]);
+}
+
+/// `truckcol_Istrat` (GASTRATS.ASM:1606-1623): the collision handler. On hitting
+/// anything other than a rail_4, take a normal hit (hitflash). On a rail_4:
+/// clear the collide flag, and (once per contact, sflag1-debounced) snap onto the
+/// rail and turn ±deg90 chosen by the RAIL's sbyte1 (==1 -> -deg90, else +deg90),
+/// then run truck_cont.
+fn truckcol_strat(g: &mut Game, idx: u16) {
+    // s_set_objtobealvar y,x,al_collobjptr ; s_jmp_alvarne.w al_shape,#rail_4,hitflash.
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    let is_rail = (partner as usize) < NUMBER_AL
+        && g.objs.aliens[partner as usize].active
+        && g.objs.aliens[partner as usize].shape == SH_RAIL_4;
+    if !is_rail {
+        strat_hit_flash(g, idx); // hitflash_Istrat (normal damage)
+        return;
+    }
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE; // s_clr_alsflag x,collide
+    // s_jmp_alsflag x,sflag1,truck_cont (already turned this contact -> just recompute).
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        truck_cont(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1; // s_set_alsflag x,sflag1
+    copy_pos(g, idx, partner); // s_copy_pos x,y (snap the truck onto the rail)
+    // s_jmp_alvarNE.w B,y,al_sbyte1,#1,.not_right — branch on the RAIL's sbyte1.
+    let rail_sb1 = g.objs.aliens[partner as usize].sbyte1;
+    if rail_sb1 == 1 {
+        // s_add_alvar B,x,al_sbyte1,#-deg90 (turn one way).
+        g.objs.aliens[idx as usize].sbyte1 =
+            g.objs.aliens[idx as usize].sbyte1.wrapping_sub(DEG90);
+    } else {
+        // .not_right: s_sub_alvar B,x,al_sbyte1,#-deg90 (== +deg90, the other way).
+        g.objs.aliens[idx as usize].sbyte1 =
+            g.objs.aliens[idx as usize].sbyte1.wrapping_add(DEG90);
+    }
+    truck_cont(g, idx);
+}
+
+// ------------------------------------------------------------
+// item6 (IS 176) — GASTRATS.ASM:2598-2621. Wireframe-ship power-up.
+// ------------------------------------------------------------
+
+/// `item6_Istrat` (GASTRATS.ASM:2598-2601): tick=item6_strat (no collide/explode),
+/// colldisable. There is NO s_start_strat/s_end_strat guard here — it falls
+/// straight into `item6_strat` the same frame.
+fn item6_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, item6_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_alptrs x,item6_strat,0,0
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+    }
+    item6_strat(g, idx); // fall-through
+}
+
+/// `item6_strat` (GASTRATS.ASM:2602-2621): remove on player death; drift +z
+/// (until sbyte1 is set) and spin roty+=4; when the player closes within 120 z &
+/// 60 xy, grant the wireframe ship, chime, and self-remove. The full ship-swap
+/// (curr_ship/select_ship_l, shieldup=1, pnumhits=0) is player-progression state
+/// not modelled in sf-game — only the modelled `pshipflags2 |= psf2_wireship`
+/// bit, the $16 chime, and the self-remove are applied (SCOPED, noted above).
+fn item6_strat(g: &mut Game, idx: u16) {
+    // s_remove_ifplayerdead x (mirrors item5: removes on pshipflags2 HP0 / no player).
+    let Some(pl) = player(g) else {
+        g.objs.aldead = 1;
+        return;
+    };
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        g.objs.aldead = 1;
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_jmp_alvarNOTZERO B,x,al_sbyte1,.stop ; s_add_alvar W,x,al_worldz,#20.
+        if al.sbyte1 == 0 {
+            al.worldz = al.worldz.wrapping_add(20);
+        }
+        al.roty = al.roty.wrapping_add(4); // s_add_alvar B,x,al_roty,#4
+    }
+    // s_set_objtobeplayer y ; s_jmp_Zdistmore #60*2 ; s_jmp_XYdistmore #30*2 (skip
+    // when |dz|>=120 or |dx|+|dy|>=60 — pickup needs strictly less).
+    let me = g.objs.aliens[idx as usize];
+    let zdist = (me.worldz as i32 - pl.worldz as i32).abs();
+    if zdist >= 120 {
+        return;
+    }
+    let xydist =
+        (me.worldx as i32 - pl.worldx as i32).abs() + (me.worldy as i32 - pl.worldy as i32).abs();
+    if xydist >= 60 {
+        return;
+    }
+    // Pickup: grant the wireframe ship (modelled bit only), chime, remove.
+    g.vars.pshipflags2 |= PSF2_WIRESHIP; // s_or_var pshipflags2,#psf2_wireship
+    g.hooks.play_se(0x16); // TRIGSE $16
+    g.objs.aldead = 1; // s_jmp remove_Istrat
+}
+
+// ============================================================
 // Registration (table lane hookup).
 // ============================================================
 
@@ -4282,4 +4721,13 @@ pub fn register(world: &mut World) {
     world.istrats[IS_WALLR] = Some(wsid(world, wallr_init));
     world.istrats[IS_TREE1] = Some(wsid(world, tree1_init));
     world.istrats[IS_TREE2] = Some(wsid(world, tree2_init));
+
+    // Final niche enemies/objects (sf-map IS_FOO == these rows).
+    world.istrats[IS_SHOU0] = Some(wsid(world, shou0_init));
+    world.istrats[IS_SHOU0A] = Some(wsid(world, shou0a_init));
+    world.istrats[IS_IRIS] = Some(wsid(world, iris_init));
+    world.istrats[IS_TRUCK] = Some(wsid(world, truck_init));
+    world.istrats[IS_ITEM6] = Some(wsid(world, item6_init));
+    // kichi2 (IS_KICHI2=140) is DELIBERATELY unregistered — its sf-map slot
+    // aliases the reachable kdoor (see the section doc above).
 }

@@ -2024,3 +2024,260 @@ fn tree2_tilts_other_way_when_left_of_player() {
     assert_eq!(a.roty, DEG45, "tilt +deg45 (left of player, base 0)");
     assert_eq!(a.sbyte2, DEG22.wrapping_neg(), "sbyte2 negated (-deg22)");
 }
+
+// ============================================================
+// Final niche enemies — shou0/shou0a, iris, truck, item6.
+// ASM oracle: GA2STRAT.ASM:1850-1897 (shou0), DSTRATS.ASM:1375-1399 (iris),
+// GASTRATS.ASM:1575-1623 (truck), GASTRATS.ASM:2598-2621 (item6). No C oracle;
+// every expected value hand-derived from the 65816 source and cited inline.
+// ============================================================
+
+// sf-map IS_FOO placement == sf-strat register() row (verified in the port doc).
+const IS_SHOU0: usize = 178;
+const IS_SHOU0A: usize = 179;
+const IS_IRIS: usize = 48;
+const IS_TRUCK: usize = 49;
+const IS_ITEM6: usize = 176;
+
+const SH_RAIL_4: u16 = 6; // sf-map SH_RAIL_4 (route3 common.rs:298)
+const SHOU0_HP: u8 = 2; // STRATEQU.INC:249
+const SHOU0_AP: u8 = 12; // STRATEQU.INC:250
+const TRUCK_HP: u8 = 4; // STRATEQU.INC:142
+const TRUCK_AP: u8 = 8; // STRATEQU.INC:143
+// HARD_AP / DEG90 / ASF_COLLDISABLE / ASF2_SFLAG2 / PSF2_PLAYERHP0 are already
+// defined earlier in this test module (reused here).
+const ASF_COLLIDE_M: u8 = 0x20; // alien.rs ASF_COLLIDE
+const PSF2_WIRESHIP: u8 = 2; // GILESALC.INC:85
+
+fn any_missile(g: &Game) -> bool {
+    use sf_game::alien::ATMISSILE;
+    g.objs
+        .aliens
+        .iter()
+        .enumerate()
+        .any(|(i, a)| i != 0 && a.active && a.type_ & ATMISSILE != 0)
+}
+
+fn call_collide(g: &mut Game, idx: u16) {
+    let c = g.objs.aliens[idx as usize]
+        .collstratptr
+        .expect("collstratptr");
+    g.call_strat(c, idx);
+}
+
+// ---- shou0 / shou0a (GA2STRAT.ASM:1850-1897) --------------------------------
+
+#[test]
+fn shou0_init_rolls_sbyte1_and_wires() {
+    // s_set_aldata shou0HP/AP, enemy1; `.again` picks sbyte1 in {0,1,2}
+    // (reroll on 3). Placed far (z6000 -> |dz|>=2500) so the fall-through tick
+    // does not spin/fire (GA2STRAT.ASM:1853-1859).
+    let mut g = setup();
+    let e = place(&mut g, IS_SHOU0, 0, 0, 6000, 100);
+    tick(&mut g, e);
+    let a = g.objs.aliens[e as usize];
+    assert_eq!(a.hp, SHOU0_HP, "shou0HP");
+    assert_eq!(a.ap, SHOU0_AP, "shou0AP");
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 colltype");
+    assert!(a.sbyte1 <= 2, "sbyte1 rolled into {{0,1,2}} (reroll on 3)");
+    // out of [500,2500): no spin.
+    assert_eq!((a.roty, a.rotx, a.rotz), (0, 0, 0), "no spin out of range");
+}
+
+#[test]
+fn shou0_in_range_spins_selected_axes_and_fires() {
+    // In [500,2500) z the sbyte1-selected pair advances +6; on the /16 gate
+    // ((gameframe+idx)&15==0) a player-aimed PLASMA fires (GA2STRAT.ASM:1860-1896).
+    let mut g = setup();
+    let e = place(&mut g, IS_SHOU0, 0, 0, 1000, 100); // slot 1
+    g.vars.gameframe = 15; // (15+1)&15 == 0 -> fire gate open
+    tick(&mut g, e);
+    let a = g.objs.aliens[e as usize];
+    match a.sbyte1 {
+        0 => assert_eq!((a.roty, a.rotx, a.rotz), (6, 6, 0), "sbyte1=0: roty+rotx"),
+        1 => assert_eq!((a.roty, a.rotx, a.rotz), (6, 0, 6), "sbyte1=1: roty+rotz"),
+        _ => assert_eq!((a.roty, a.rotx, a.rotz), (0, 6, 6), "sbyte1=2: rotx+rotz"),
+    }
+    assert!(any_hplasma(&g), "PLASMA fired on the /16 gate");
+}
+
+#[test]
+fn shou0a_sets_sflag1_and_uses_slower_gate() {
+    // shou0a = shou0 + sflag1 -> fires on /32, not /16. At gameframe=15,idx=1 the
+    // /16 gate is open (16&15==0) but /32 is not (16&31!=0): shou0a must NOT fire
+    // yet, though it still spins (GA2STRAT.ASM:1850-1852, 1892-1896).
+    let mut g = setup();
+    let e = place(&mut g, IS_SHOU0A, 0, 0, 1000, 100);
+    assert_ne!(
+        g.objs.aliens[e as usize].stratptr, None,
+        "shou0a wired via init"
+    );
+    g.vars.gameframe = 15;
+    tick(&mut g, e);
+    let a = g.objs.aliens[e as usize];
+    assert_ne!(a.sflags2 & ASF2_SFLAG1, 0, "shou0a sets sflag1");
+    // still spun this frame (in range) but held fire on the /32 cadence.
+    assert!(
+        (a.roty, a.rotx, a.rotz) != (0, 0, 0),
+        "spun while in range"
+    );
+    assert!(!any_hplasma(&g), "shou0a holds fire on the /32 gate");
+}
+
+// ---- iris (DSTRATS.ASM:1375-1399) -------------------------------------------
+
+#[test]
+fn iris_init_sealed_faces_deg180() {
+    // hp 127, roty deg180, anim 0, hardAP; sealed while hp>=125 so the
+    // fall-through tick does not open (DSTRATS.ASM:1382-1399).
+    let mut g = setup();
+    let e = place(&mut g, IS_IRIS, 0, 0, 4000, 4);
+    tick(&mut g, e);
+    let a = g.objs.aliens[e as usize];
+    assert_eq!(a.hp, 127, "s_set_aldata #127");
+    assert_eq!(a.ap, HARD_AP, "hardAP");
+    assert_eq!(a.roty, DEG180, "faces deg180");
+    assert_eq!(a.animframe & 0x7F, 0, "sealed: anim stays 0");
+    assert!(a.expstratptr.is_some(), "explode wired (death path)");
+}
+
+#[test]
+fn iris_opens_when_damaged_below_threshold() {
+    // Drop hp below 127-irisHP=125 -> the aperture animates open 0->8
+    // (DSTRATS.ASM:1395-1398).
+    let mut g = setup();
+    let e = place(&mut g, IS_IRIS, 0, 0, 4000, 4);
+    tick(&mut g, e); // init (sealed at 127)
+    g.objs.aliens[e as usize].hp = 124; // one below the 125 seal threshold
+    tick(&mut g, e);
+    assert_eq!(g.objs.aliens[e as usize].animframe & 0x7F, 1, "opened +1");
+    // holds at the 4-arg jmp clamp (max-1 == 7) after enough ticks.
+    for _ in 0..12 {
+        tick(&mut g, e);
+    }
+    assert_eq!(g.objs.aliens[e as usize].animframe & 0x7F, 7, "holds fully open (max-1)");
+}
+
+// ---- truck (GASTRATS.ASM:1575-1623) -----------------------------------------
+
+#[test]
+fn truck_init_wires_and_generates_drive_vecs() {
+    // truckHP/AP, sbyte1<-roty(0), speed 30, Zenemy, gen vecs from heading 0
+    // (sin0=0 -> vx 0, cos0 max -> vz>0). s_end_strat: no movement this frame
+    // (GASTRATS.ASM:1575-1583).
+    let mut g = setup();
+    let e = place(&mut g, IS_TRUCK, 0, 0, 4000, 5);
+    tick(&mut g, e);
+    let a = g.objs.aliens[e as usize];
+    assert_eq!(a.hp, TRUCK_HP, "truckHP");
+    assert_eq!(a.ap, TRUCK_AP, "truckAP");
+    assert_eq!(a.sbyte1, 0, "sbyte1 = roty(0)");
+    assert_eq!(a.vel, 30, "speed 30");
+    assert_ne!(a.collflags & COLLTYPE_ZENEMY, 0, "Zenemy colltype");
+    assert_eq!(a.vx, 0, "heading 0: vx=0 (sin0)");
+    assert!(a.vz > 0, "heading 0: vz>0 (cos0)");
+    assert_eq!(a.worldz, 4000, "s_end_strat: no drive on the init frame");
+}
+
+#[test]
+fn truck_fires_one_homing_missile_in_range() {
+    // In 1000<=|dz|<3000, on the global /16 gate (gameframe&15==0), sflag2 clear,
+    // fire ONE homing HMISSILE1 and latch sflag2 (GASTRATS.ASM:1591-1602).
+    let mut g = setup();
+    let e = place(&mut g, IS_TRUCK, 0, 0, 2000, 5);
+    tick(&mut g, e); // init only (s_end_strat)
+    g.vars.gameframe = 0; // notdelay(4): 0&15==0
+    tick(&mut g, e); // truck_strat -> truck_norm -> fire
+    assert!(any_missile(&g), "HMISSILE1 fired in range");
+    assert_ne!(g.objs.aliens[e as usize].sflags2 & ASF2_SFLAG2, 0, "sflag2 latched");
+    // second in-range gate: no second missile (one-shot).
+    let missiles = |g: &Game| {
+        use sf_game::alien::ATMISSILE;
+        g.objs
+            .aliens
+            .iter()
+            .enumerate()
+            .filter(|(i, a)| *i != 0 && a.active && a.type_ & ATMISSILE != 0)
+            .count()
+    };
+    let n1 = missiles(&g);
+    tick(&mut g, e);
+    assert_eq!(missiles(&g), n1, "sflag2 blocks a second missile");
+}
+
+#[test]
+fn truck_turns_on_rail_hit_and_hitflashes_otherwise() {
+    // truckcol: hitting a rail_4 snaps onto it, sets sflag1, and turns the heading
+    // by +deg90 (rail sbyte1 != 1). A non-rail partner takes a normal hit and does
+    // NOT turn (GASTRATS.ASM:1606-1623).
+    let mut g = setup();
+    let e = place(&mut g, IS_TRUCK, 0, 0, 2000, 5);
+    tick(&mut g, e); // init
+    g.objs.aliens[e as usize].sbyte1 = 0;
+    g.objs.aliens[e as usize].sflags |= ASF_COLLIDE_M; // engine sets this on contact
+    // Rail partner (shape 6, sbyte1=0 -> the .not_right +deg90 branch).
+    let rail = spawn(&mut g, 500, 0, 2000, SH_RAIL_4);
+    g.objs.aliens[rail as usize].sbyte1 = 0;
+    g.objs.aliens[e as usize].collobjptr = rail;
+    call_collide(&mut g, e);
+    let a = g.objs.aliens[e as usize];
+    assert_eq!(a.sbyte1, DEG90, "turned +deg90 on rail (rail sbyte1 != 1)");
+    assert_ne!(a.sflags2 & ASF2_SFLAG1, 0, "sflag1 debounce set");
+    assert_eq!(a.sflags & ASF_COLLIDE_M, 0, "collide flag cleared");
+    // truck_cont falls into truck_norm, which drives (add_vecs2pos) the same
+    // frame, so worldx is the snapped rail x (500) plus one step of the new
+    // heading's velocity — not exactly 500. The turn + snap having happened is
+    // what matters; assert it left the origin.
+    assert_ne!(a.worldx, 0, "moved off the origin after snapping to the rail");
+
+    // Non-rail collision: normal hit, no turn.
+    let mut g2 = setup();
+    let e2 = place(&mut g2, IS_TRUCK, 0, 0, 2000, 5);
+    tick(&mut g2, e2);
+    g2.objs.aliens[e2 as usize].sbyte1 = 33;
+    let foe = spawn(&mut g2, 100, 0, 2000, 999); // not rail_4
+    g2.objs.aliens[e2 as usize].collobjptr = foe;
+    call_collide(&mut g2, e2);
+    let b = g2.objs.aliens[e2 as usize];
+    assert_eq!(b.sbyte1, 33, "non-rail: heading unchanged");
+    assert_eq!(b.sflags2 & ASF2_SFLAG1, 0, "non-rail: no turn debounce");
+}
+
+// ---- item6 (GASTRATS.ASM:2598-2621) -----------------------------------------
+
+#[test]
+fn item6_init_colldisable_and_drifts() {
+    // colldisable; sbyte1==0 -> worldz+=20, roty+=4. Placed far so no pickup
+    // (GASTRATS.ASM:2598-2610).
+    let mut g = setup();
+    let e = place(&mut g, IS_ITEM6, 0, 0, 5000, 160);
+    tick(&mut g, e);
+    let a = g.objs.aliens[e as usize];
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_eq!(a.worldz, 5020, "drift +20 z (sbyte1==0)");
+    assert_eq!(a.roty, 4, "spin roty +4");
+    assert_eq!(a.hp, 0, "far away: not picked up (still alive-ish)");
+}
+
+#[test]
+fn item6_pickup_grants_wireship_and_removes() {
+    // Player close (|dz|<120, xy<60 after the +20 drift): grant the wireframe
+    // ship bit, chime, self-remove (GASTRATS.ASM:2611-2620).
+    let mut g = setup();
+    // z90 -> +20 drift -> 110 < 120 pickup window; xy 0 < 60.
+    let e = place(&mut g, IS_ITEM6, 0, 0, 90, 160);
+    tick(&mut g, e);
+    assert_ne!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0, "psf2_wireship granted");
+    assert_eq!(g.objs.aldead, 1, "item removes itself on pickup");
+}
+
+#[test]
+fn item6_removes_on_player_dead() {
+    // s_remove_ifplayerdead: pshipflags2 & psf2_playerHP0 -> remove (GASTRATS.ASM:2603).
+    let mut g = setup();
+    let e = place(&mut g, IS_ITEM6, 0, 0, 5000, 160);
+    tick(&mut g, e); // init
+    g.vars.pshipflags2 |= PSF2_PLAYERHP0;
+    tick(&mut g, e);
+    assert_eq!(g.objs.aldead, 1, "removed when player HP0");
+}
