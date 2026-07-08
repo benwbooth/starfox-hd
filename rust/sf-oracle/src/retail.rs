@@ -391,6 +391,61 @@ pub const RETAIL_FIREPILLAR_STRAT: u32 = 0x0A_DB47;
 /// set on the 30% coin. Port ↔ `enemies_ground::ASF2_SFLAG2` (also `$20`).
 pub const ASF2_SFLAG2: u8 = 0x20;
 
+// ------------------------------------------------------------------------
+// BATCH 3 — static-init scenery (`rockhard`) + RNG-driven INIT strats
+// (`mine0`, `big_meteor`, `tree1`). All located by masked signature scan of
+// the retail cart (skeleton read out of the built ROM via symbols.txt SNES
+// addresses, WRAM/jsl operands wildcarded), each a UNIQUE hit, cross-validated
+// by reading the RANDOM_L operand back == RETAIL_RANDOM_L ($02:FC58).
+// ------------------------------------------------------------------------
+
+/// Retail `rockhard_Istrat` ($06:85D9) — a STATIC indestructible obstacle
+/// (GSTRATS.ASM:663-669). Pure struct-offset, ZERO globals, ZERO RNG, so it is
+/// byte-identical retail↔built and located by an EXACT scan (UNIQUE hit). Body:
+/// `lda al_collflags,x; ora #enemy1($10); sta; lda #deg180($80); sta al_roty,x;
+/// lda #hardHP($FF); sta al_HP,x; lda #rockhardAP($14=20); sta al_AP,x;
+/// rep #$20; lda #0; sta al_stratptr,x; sep #$20; lda #0; sta al_stratptr+2,x;
+/// rtl`. Footprint: writes al_collflags(|=$10), al_roty($80), al_HP, al_AP,
+/// al_stratptr(=0, null tick). Port ↔ `enemies_ground::rockhard_istrat`
+/// (IS_ROCKHARD=192).
+pub const RETAIL_ROCKHARD_ISTRAT: u32 = 0x06_85D9;
+
+/// Retail `mine0_Istrat` ($09:9117) — a static destructible mine
+/// (DSTRATS.ASM:1572-1577). Draws the runtime RNG ONCE for a random orientation:
+/// `... jsl set_coll; lda #2; sta al_HP; lda #$0A(10); sta al_AP;
+/// lda al_collflags,x; ora #enemy1($10); sta; jsl RANDOM_L; sta al_rotz,x; rtl`.
+/// The single `jsl RANDOM_L` (cross-validated == $02:FC58) yields the FULL-byte
+/// `al_rotz` (no mask). Footprint: 1 RNG draw → al_rotz; writes HP=2/AP=10/
+/// enemy1. Port ↔ `enemies_ground::mine0_init` (IS_MINE0=246).
+pub const RETAIL_MINE0_ISTRAT: u32 = 0x09_9117;
+
+/// Retail `big_meteor_Istrat` ($00:FA62) — an indestructible spinning obstacle
+/// (D3STRATS.ASM:1069-1077). Draws the runtime RNG ONCE for a (cosmetically
+/// unused) spin datum: `... set nohitaffect; HP=$FF; AP=$0C(12); <s_rots_flat:
+/// lda $1849/$1547-view-vecs -> al_roty/al_rotx, cosmetic>; jsl RANDOM_L;
+/// and #$0F; sta al_sbyte1,x; lda al_sbyte1,x; sec; sbc #8; sta al_sbyte1,x;
+/// rtl`. The single `jsl RANDOM_L` (== $02:FC58) yields `al_sbyte1 = (rnd&15)-8`.
+/// Footprint: 1 RNG draw → al_sbyte1; writes HP=$FF/AP=12/nohitaffect (+ cosmetic
+/// rotx/roty from view vectors, scoped out of the port). Port ↔
+/// `enemies_ground::big_meteor_init` (IS_BIG_METEOR=234).
+pub const RETAIL_BIG_METEOR_ISTRAT: u32 = 0x00_FA62;
+
+/// Retail `tree1_Istrat` ($09:95EE) — indestructible sprouting-tree scenery
+/// (DSTRATS.ASM:2016-2043). Head sets two sflag bits then draws the runtime RNG
+/// ONCE for the tree height: `lda al_sflags,x; ora #2; sta; lda al_sflags2,x;
+/// ora #$80; sta; jsl RANDOM_L; and #3; sta al_sbyte1,x; inc al_sbyte1,x; ...`.
+/// The single `jsl RANDOM_L` (== $02:FC58) yields `al_sbyte1 = (rnd&3)+1`.
+/// Footprint (RNG part): 1 RNG draw → al_sbyte1. Port ↔
+/// `enemies_ground::tree1_init` (IS_TREE1=204).
+pub const RETAIL_TREE1_ISTRAT: u32 = 0x09_95EE;
+
+/// `al_HP` / `al_AP` / `al_collflags` struct offsets (identical all carts;
+/// verified against `mine0`/`rockhard` `sta al_HP($2A)/al_AP($2B)` +
+/// `lda al_collflags($2E)` operands, and `do_strat_l`'s `al_HP,x`).
+pub const AL_HP: u32 = 0x2A;
+pub const AL_AP: u32 = 0x2B;
+pub const AL_COLLFLAGS: u32 = 0x2E;
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.

@@ -9,11 +9,12 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**27 tests, all green** — 8 named strats
-+ the runtime RNG stream + the FIRST RNG-driven ENEMY strat certified vs retail;
-see UPDATE 3, UPDATE 4 and UPDATE 5). The player-relative + RNG state-seeding
-frontier is CLEARED (UPDATE 4), and the RNG-driven ENEMY class is now CERTIFIABLE
-and certified (UPDATE 5). Nothing committed.
+`rust/sf-oracle/tests/coexec_retail.rs` (**32 tests, all green** — **12 named
+strats** + the runtime RNG stream + the RNG-driven ENEMY class certified vs
+retail; see UPDATE 3-6). The player-relative + RNG state-seeding frontier is
+CLEARED (UPDATE 4), the RNG-driven ENEMY class is CERTIFIED (UPDATE 5), and
+BATCH 3 (UPDATE 6) adds a STATIC-init scenery strat + three more RNG-driven INIT
+strats. Nothing committed.
 
 ## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
 
@@ -274,6 +275,66 @@ cert `retail_firepillar_rng_vs_port` sidesteps the pin entirely via
 Newly-located retail: `firepillar_Istrat`=$0A:DAE4, `firepillar_strat`=$0A:DB47,
 `asf_sflag2`=`al_sflags2` bit $20. Reused: `RANDOM_L`=$02:FC58, `player_posx`=$150D,
 `set_0collptrsx_l`=$1F:D450 (the firepillar init's coll-ptr-zero leaf).
+
+## UPDATE 6 — BATCH 3: a STATIC-init scenery strat + three more RNG INIT strats
+
+Applying the batch-2 (masked-scan / body-diff) and firepillar (param-block RNG)
+recipes to four more named strats. **Five new tests, all green** (`coexec_retail`
+now **32 tests**). All four located as UNIQUE masked-scan hits (skeleton read out
+of the built ROM via `symbols.txt` SNES addresses, WRAM/jsl operands wildcarded)
+and cross-validated (RNG strats: `jsl RANDOM_L` operand read back == $02:FC58).
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_batch3_addresses` | ✅ | Masked-scans all four (each UNIQUE): `rockhard_Istrat`=**$06:85D9** (EXACT scan — pure struct-offset, byte-identical retail/built), `mine0_Istrat`=**$09:9117**, `big_meteor_Istrat`=**$00:FA62**, `tree1_Istrat`=**$09:95EE**. Reads the single `jsl RANDOM_L` operand of the three RNG strats back out == RETAIL_RANDOM_L ($02:FC58). |
+| `retail_rockhard_strat_vs_port` | ✅ **MATCH** | STATIC scenery init (GSTRATS.ASM:663-669), ZERO globals/RNG. Seeds a DIRTY object, runs the retail cart's OWN body ($06:85D9): sets `al_collflags\|=enemy1`, `al_roty=deg180($80)`, `al_HP=$FF`, `al_AP=20`, NULLS `al_stratptr`. roty/hp/ap/null-tick MATCH vs port `rockhard_istrat` (IS 192). |
+| `retail_mine0_body_vs_port` | ✅ **MATCH** | RNG INIT (DSTRATS.ASM:1572). Runs the retail cart's OWN `mine0_Istrat` body ($09:9117) — 1 real `jsl RANDOM_L` -> `al_rotz` (full byte). Seeds RNG via the firepillar param-block recipe (X=block PINS rand[3]=$36); `al_rotz` (RNG orientation) + HP=2/AP=10 MATCH vs port `mine0_init` (IS 246) on the same seed. Two seeds (rotz $C3/$CF). |
+| `retail_big_meteor_body_vs_port` | ✅ **MATCH** | RNG INIT (D3STRATS.ASM:1069). Runs the retail cart's OWN `big_meteor_Istrat` body ($00:FA62) — 1 real `jsl RANDOM_L` -> `al_sbyte1=(rnd&15)-8`. `sbyte1` (RNG spin datum) + HP=$FF/AP=12 MATCH vs port `big_meteor_init` (IS 234). Two seeds (sbyte1 -8/+6). Confirmed the strat's `s_set_alvar2rnd` really is `jsl random_l` (per STRATMAC.INC:4409); the strat's `lda $18xx`/`$15xx` reads are the cosmetic `s_rots_flat` (view-vector rotx/roty, scoped out of the port), NOT the RNG. |
+| `retail_tree1_rng_vs_port` | ✅ **MATCH** | RNG INIT (DSTRATS.ASM:2016). tree1 draws RANDOM once -> `al_sbyte1=(rnd&3)+1` (tree height). Draws one value from the cart's OWN `RANDOM` (via `retail_random_next`), applies `(rnd&3)+1`, and diffs vs port `tree1_init` (IS 204) on the same seed. Four seeds — height in [1,4], MATCH each. (Stream form: tree1's body does sprite/anim table reads after the draw, so the RANDOM stream is the clean surgical cert.) |
+
+### Batch-3 footprint maps + newly-located retail
+- **`rockhard`** (static scenery): reads NOTHING; writes `al_collflags`(|=enemy1),
+  `al_roty`($80), `al_HP`($FF), `al_AP`(20), `al_stratptr`(=0, null tick). New
+  class: a NON-init-only STATIC strat with a real collision/data footprint, no
+  globals, no RNG — byte-identical struct-offset body (EXACT-scan hit).
+- **`mine0`/`big_meteor`/`tree1`** (RNG INIT): each draws the runtime RNG exactly
+  ONCE (`s_set_alvar2rnd`), landing on an orientation/height/spin datum:
+  `mine0` -> `al_rotz` (full byte), `big_meteor` -> `al_sbyte1=(rnd&15)-8`,
+  `tree1` -> `al_sbyte1=(rnd&3)+1`. All on the just-fixed enemy-lane `sf_random`
+  site — three more confirmations the `ea_random`->`sf_random` fix is cartridge-
+  faithful. Struct offsets `al_HP`=$2A, `al_AP`=$2B, `al_collflags`=$2E (all
+  identical retail↔built↔port; from the mine0/rockhard `sta al_HP/AP` +
+  `lda al_collflags` operands).
+- **colltype is a representation remap** (like sflags): retail's ASM stores
+  `enemy1` in `al_collflags` bit `$10`; the port re-derived its own `obj.h`
+  `COLLTYPE_ENEMY1` encoding, and the port object additionally carries
+  `strat_init_obj_vars` baseline bits — so colltype is certified by EFFECT
+  (both set a colltype), not raw byte==byte, exactly as sflags.
+
+### CERTIFIED VS RETAIL — running total: **12 named strats** + RNG stream + RNG-enemy
+| # | Strat | Retail addr | Kind | Global/RNG footprint | Certified fields |
+|---|------|------|------|------|------|
+| 9 | `rockhard_Istrat` | $06:85D9 | static-init scenery | *(none)* | collflags(enemy1), roty, HP, AP, stratptr=0 |
+| 10 | `mine0_Istrat` | $09:9117 | RNG init | 1× `RANDOM_L` | rotz (full byte), HP=2, AP=10 |
+| 11 | `big_meteor_Istrat` | $00:FA62 | RNG init | 1× `RANDOM_L` | sbyte1=(rnd&15)-8, HP=$FF, AP=12 |
+| 12 | `tree1_Istrat` | $09:95EE | RNG init | 1× `RANDOM_L` | sbyte1=(rnd&3)+1 (tree height) |
+
+### Not certified this pass (recorded footprint + blocker)
+The per-tick BODIES of the swing/mover strats are **private to sf-strat** (not
+exposed via `world.istrats[]` or an `install()` ids struct), so the port side is
+not publicly reachable from the integration test:
+- **`wallleft_strat`/`wallright_strat`** (swing): located conceptually — retail
+  bodies are pure struct-offset `al_roty += ±16` toward a limit (`b5 13 c9 C0/40
+  d0 04 5c <jml> b5 13 18 69 10/F0 95 13 6b`), byte-identical retail/built with
+  only the self-`jml` operand shifting. Blocked ONLY on a public port entry point
+  for `wallleft_strat`/`wallright_strat`.
+- **`volrockdown_strat`** (RNG mover / spread, 3 draws vx/vy/vz scatter): retail
+  body ($0A:DC27) confirmed `vx=(rnd&15)-7, vy=(rnd&7)-15, vz=(rnd&15)-7` (3×
+  `jsl RANDOM_L`), but reads/writes an object-`stratstate` PARALLEL array at abs
+  `$1CDA,x` (base differs retail↔built) and its per-tick vy is post-`falldown`.
+  Blocked on a public port entry point + the state-array base.
+Both are one small sf-strat change (expose the per-tick fn as a StratId) away
+from certifiable with the recipes already proven here.
 
 ### The RNG-driven enemy class is now CERTIFIABLE
 The infrastructure (RNG stream lockstep + the param-block-collision seeding
