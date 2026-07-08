@@ -116,9 +116,9 @@ pub const IS_UP1MAN: u32 = 90;
 pub const IS_UPERM: u32 = 160;
 pub const IS_VOLCANO: u32 = 191;
 pub const IS_WALKING: u32 = 78;
-pub const IS_WALLL: u32 = 105;
-pub const IS_WALLLEFTRIGHT: u32 = 105;
-pub const IS_WALLR: u32 = 105;
+pub const IS_WALLL: u32 = 76;        // ISTRATS.ASM def_istrat row 76 (walll)
+pub const IS_WALLLEFTRIGHT: u32 = 75; // row 75 (wallleftright)
+pub const IS_WALLR: u32 = 77;        // row 77 (wallr). Were all 105=hard180yr.
 pub const IS_WEBMONSTER: u32 = 123;
 pub const IS_WINDMILL: u32 = 66;
 pub const IS_WINGLAZERMAN: u32 = 91;
