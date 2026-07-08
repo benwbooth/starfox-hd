@@ -28,6 +28,20 @@ pub struct SnesBus {
     rdmpy: u16,     // $4216/7 RDMPY (product, or divide remainder)
     dividend: u16,  // $4204/5 WRDIV
     quotient: u16,  // $4214/5 RDDIV
+    /// Optional GSU (Super-FX) co-processor. When present, the memory-mapped
+    /// GSU registers ($3000-$303F, banks $00-$3F/$80-$BF) are live: writing the
+    /// high byte of R15 ($301F) *kicks* the chip — the CPU's `runmario_l`
+    /// (`sta m_pbr; stx mr15; .wait lda m_sfr; and #$20; bne .wait`) drives 3D /
+    /// spawn math exactly as on hardware. See [`SnesBus::enable_gsu`].
+    gsu: Option<Box<gsu::Gsu>>,
+    /// Shadow of the memory-mapped GSU register file (R0..R15). Kept in sync
+    /// with `gsu.r`; separated so register reads/writes need no `&mut gsu`.
+    gsu_regs: [u16; 16],
+    gsu_pbr: u8,  // $3034 program bank
+    gsu_sfr: u16, // $3030/1 status/flag register presented to the CPU
+    /// Number of times the CPU kicked the GSU (diagnostic — proves the per-tick
+    /// path actually invoked the chip).
+    pub gsu_kicks: u64,
 }
 
 impl SnesBus {
@@ -41,7 +55,84 @@ impl SnesBus {
             rdmpy: 0,
             dividend: 0,
             quotient: 0,
+            gsu: None,
+            gsu_regs: [0; 16],
+            gsu_pbr: 0,
+            gsu_sfr: 0,
+            gsu_kicks: 0,
         }
+    }
+
+    /// Attach a GSU that shares this bus's cartridge ROM. After this, CPU stores
+    /// to the memory-mapped GSU registers run real GSU programs (RAM shared via
+    /// bank $70). Idempotent-safe: replaces any prior GSU.
+    pub fn enable_gsu(&mut self) {
+        self.gsu = Some(Box::new(gsu::Gsu::new(self.rom.clone())));
+    }
+
+    /// True for the memory-mapped GSU register block ($3000-$303F) in the
+    /// CPU-visible register banks.
+    fn is_gsu_reg(addr: u32) -> bool {
+        let bank = (addr >> 16) & 0xFF;
+        let off = addr & 0xFFFF;
+        (bank <= 0x3F || (0x80..=0xBF).contains(&bank)) && (0x3000..=0x303F).contains(&off)
+    }
+
+    /// Read a memory-mapped GSU register (only meaningful while `gsu.is_some()`).
+    fn gsu_reg_read(&self, off: u16) -> u8 {
+        match off {
+            0x3000..=0x301F => {
+                let n = ((off - 0x3000) >> 1) as usize;
+                let w = self.gsu_regs[n];
+                if off & 1 == 0 { w as u8 } else { (w >> 8) as u8 }
+            }
+            0x3030 => self.gsu_sfr as u8,
+            0x3031 => (self.gsu_sfr >> 8) as u8,
+            0x3034 => self.gsu_pbr,
+            0x303B => 0x52, // VCR — report a Super-FX version code
+            _ => 0,
+        }
+    }
+
+    /// Write a memory-mapped GSU register. Writing R15-high ($301F) launches the
+    /// GSU from `pbr:R15` and runs it to STOP, syncing the shared bank-$70 RAM in
+    /// and out so the CPU sees the results (mirrors real hardware auto-start).
+    fn gsu_reg_write(&mut self, off: u16, v: u8) {
+        match off {
+            0x3000..=0x301F => {
+                let n = ((off - 0x3000) >> 1) as usize;
+                if off & 1 == 0 {
+                    self.gsu_regs[n] = (self.gsu_regs[n] & 0xFF00) | v as u16;
+                } else {
+                    self.gsu_regs[n] = (self.gsu_regs[n] & 0x00FF) | ((v as u16) << 8);
+                    if n == 15 {
+                        self.gsu_kick();
+                    }
+                }
+            }
+            0x3030 => self.gsu_sfr = (self.gsu_sfr & 0xFF00) | v as u16,
+            0x3031 => self.gsu_sfr = (self.gsu_sfr & 0x00FF) | ((v as u16) << 8),
+            0x3034 => self.gsu_pbr = v,
+            _ => {}
+        }
+    }
+
+    /// Run the attached GSU from `pbr:R15` to STOP, sharing bank-$70 RAM.
+    fn gsu_kick(&mut self) {
+        let Some(mut g) = self.gsu.take() else { return };
+        // Share RAM: bank $70:$0000-$7FFF <-> GSU RAM low 32 KB.
+        g.ram[..0x8000].copy_from_slice(&self.gsuram);
+        g.r = self.gsu_regs;
+        let pbr = self.gsu_pbr;
+        let pc = self.gsu_regs[15];
+        g.run(pbr, pc);
+        self.gsu_regs = g.r;
+        self.gsuram.copy_from_slice(&g.ram[..0x8000]);
+        // Present G (go, bit 5) cleared so the CPU's `.wait lda m_sfr; and #$20`
+        // poll falls through — the chip has finished.
+        self.gsu_sfr &= !0x0020;
+        self.gsu_kicks += 1;
+        self.gsu = Some(g);
     }
 
     /// True for the CPU math registers ($4202-06 write, $4214-17 read), which
@@ -87,6 +178,10 @@ impl SnesBus {
                 _ => 0,
             };
         }
+        // Memory-mapped GSU registers ($3000-$303F) when a GSU is attached.
+        if self.gsu.is_some() && Self::is_gsu_reg(addr) {
+            return self.gsu_reg_read((addr & 0xFFFF) as u16);
+        }
         // GSU cart RAM: bank $70 (and $71 mirror), offsets < $8000.
         if ((addr >> 16) & 0xFF) & 0xFE == 0x70 && (addr & 0xFFFF) < 0x8000 {
             return self.gsuram[(addr & 0x7FFF) as usize];
@@ -115,6 +210,11 @@ impl SnesBus {
                 }
                 _ => {}
             }
+            return;
+        }
+        // Memory-mapped GSU registers ($3000-$303F) when a GSU is attached.
+        if self.gsu.is_some() && Self::is_gsu_reg(addr) {
+            self.gsu_reg_write((addr & 0xFFFF) as u16, v);
             return;
         }
         // GSU cart RAM: bank $70 (and $71 mirror), offsets < $8000.

@@ -102,6 +102,24 @@ pub const BUILT_POOL: PoolLayout = PoolLayout {
 /// (see [`PoolLayout`]).
 pub const RETAIL_KILL_LIST: u32 = 0x02_F4C9;
 
+/// Retail cart's per-object motion integrator `addalvecs_l` — the routine the
+/// per-frame tick applies to every live object: `worldx/y/z += vx/vy/vz` (16-bit
+/// wrapping). Located at retail SNES **$1F:C7BB** by an EXACT byte-signature scan
+/// (`c2 20  b5 0C 18 75 2F 95 0C  b5 0E 18 75 31 95 0E  b5 10 18 75 33 95 10
+/// e2 20 6b` — REP #$20; LDA/CLC/ADC/STA over the world/vel struct offsets;
+/// SEP #$20; RTL). The pattern is byte-identical in the built ROM (its
+/// `ADDALVECS_L` sits 0x18 bytes later at $1F:C7D3) because it touches only the
+/// world/velocity *struct offsets* ($0C/$0E/$10 and $2F/$31/$33), which are
+/// proven identical across both carts — so this is the genuine retail routine,
+/// not a built-ROM stand-in. The scan finds exactly one occurrence.
+pub const RETAIL_ADDALVECS_L: u32 = 0x1F_C7BB;
+
+/// Velocity field offsets within an object block (struct-relative; identical in
+/// retail and built — see [`PoolLayout`] doc). `addalvecs_l` reads these.
+pub const AL_VX: u32 = 0x2F;
+pub const AL_VY: u32 = 0x31;
+pub const AL_VZ: u32 = 0x33;
+
 /// One object slot's observable state, read from WRAM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ObjState {

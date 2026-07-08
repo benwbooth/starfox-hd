@@ -8,9 +8,14 @@
 //! cart itself, not from the built-ROM symbol map.
 
 use sf_oracle::{
-    boot_retail, init_object_pool, load_built_rom, load_retail_rom, snapshot_objects, walk_freelist,
-    SnesBus, BUILT_POOL, RETAIL_POOL,
+    boot_retail, call, init_object_pool, load_built_rom, load_retail_rom, snapshot_objects,
+    walk_freelist, Entry, SnesBus, AL_VX, AL_VY, AL_VZ, BUILT_POOL, RETAIL_ADDALVECS_L, RETAIL_POOL,
 };
+
+/// Bank-$70 (GSU cart RAM) word address as a full 24-bit CPU address.
+fn gsuram(off: u32) -> u32 {
+    0x70_0000 | off
+}
 
 fn retail() -> Option<Vec<u8>> {
     match load_retail_rom() {
@@ -97,6 +102,223 @@ fn retail_boots_from_reset() {
         "expected many frames of main-loop ticking (frames={})",
         rep.final_dot / (341 * 262),
     );
+}
+
+/// MILESTONE (step 1) — GSU WIRED INTO THE BUS. The per-frame tick reaches the
+/// 3D/spawn math by kicking the Super-FX chip: `runmario_l` does
+/// `sta m_pbr ($3034); stx mr15 ($301E); .wait lda m_sfr ($3030); and #$20;
+/// bne .wait`. This test drives that exact register protocol through `SnesBus`
+/// (the same bus that runs the retail cart) and confirms the chip runs a REAL
+/// ROM GSU program to completion, feeding results back through shared bank-$70
+/// RAM — with NO direct `Gsu::run` call, only CPU-visible register writes.
+///
+/// Program: `mcrotmatzxy16` (built via `crotmat16_l`), entry $01:8295, angles in
+/// GSU RAM $20/$22/$24, 3x3 matrix read back at $D2 (same ABI as gsu_rotmat.rs).
+/// Zero angles must yield the identity matrix (ROM's fixed-point 1.0 = $7FFE).
+#[test]
+fn gsu_kicks_through_bus_registers() {
+    let Some(rom) = load_built_rom() else {
+        eprintln!("GSU-BUS: skip — built ROM (data/sf.sfc) not present");
+        return;
+    };
+    const ROTMAT_PBR: u8 = 0x01;
+    const ROTMAT_PC: u16 = 0x8295;
+    const ONE: i16 = 32766;
+
+    let mut bus = SnesBus::new(rom);
+    bus.enable_gsu();
+
+    // Inputs: rx/ry/rz = 0 at GSU RAM $20/$22/$24 (bank $70).
+    bus.write16(gsuram(0x20), 0);
+    bus.write16(gsuram(0x22), 0);
+    bus.write16(gsuram(0x24), 0);
+
+    // Drive the chip EXACTLY as runmario_l: set the program bank, then start it
+    // by writing R15 (the high-byte store is the launch edge), then spin on SFR
+    // bit 5 until the chip clears "go".
+    bus.write8(0x00_3034, ROTMAT_PBR); // m_pbr
+    bus.write8(0x00_301E, ROTMAT_PC as u8); // mr15 low
+    bus.write8(0x00_301F, (ROTMAT_PC >> 8) as u8); // mr15 high -> KICK
+    let mut spins = 0;
+    while (bus.read8(0x00_3030) & 0x20) != 0 && spins < 1000 {
+        spins += 1; // .wait lda m_sfr; and #$20; bne .wait
+    }
+
+    // Read the 3x3 matrix back out of shared GSU RAM at $D2.
+    let m: Vec<i16> = (0..9).map(|i| bus.read16(gsuram(0xD2 + i * 2)) as i16).collect();
+    eprintln!("GSU-BUS kicks={} sfr_spins={} rot(0,0,0)={:?}", bus.gsu_kicks, spins, m);
+    assert_eq!(bus.gsu_kicks, 1, "the R15-high write should have kicked the GSU exactly once");
+    assert_eq!(
+        m,
+        vec![ONE, 0, 0, 0, ONE, 0, 0, 0, ONE],
+        "GSU run through the bus registers must produce the identity matrix"
+    );
+}
+
+/// MILESTONE (steps 2-4) — THE FIRST RETAIL-vs-PORT PER-TICK OBJECT-ARRAY DIFF.
+///
+/// This is the tier-2 certifier working end-to-end for one scenario:
+///  * SEED  — run the retail cart's OWN allocator to format the object pool,
+///    then build a 3-object active list (`allst` -> block0 -> block1 -> block2
+///    -> 0) exactly as the retail allocator + `l_add` would, each block carrying
+///    a shape, world position, and per-frame velocity.
+///  * TICK  — each frame, walk the retail active list and run the REAL RETAIL
+///    per-object motion routine `addalvecs_l` ($1F:C7BB, located by signature)
+///    on every live block, then `snapshot_objects` the WHOLE pool. This is the
+///    retail game logic advancing the seeded state frame by frame.
+///  * DIFF  — set up the identical scenario in the Rust PORT (`sf_game::Alien` +
+///    `sf_strat::common::strat_apply_velocity`) and tick it in lockstep, then
+///    compare worldx/y/z (and shape) per slot, per tick. Report the first
+///    divergence (tick/slot/field) or MATCH.
+///
+/// Scope note: `addalvecs_l` is the CPU-only motion integrator every strat
+/// applies each frame; it needs no GSU/PPU/input, so it runs cleanly on seeded
+/// state. Driving the FULL per-frame tick (`dostrats` -> per-strat AI, which
+/// calls the GSU via the RAM-resident `runmario_l` trampoline) is the remaining
+/// work — see docs/TIER2_COEXEC_STATUS.md. The GSU side is now wired
+/// (`gsu_kicks_through_bus_registers`); the open blocker is the RAM trampoline +
+/// input injection, not the chip.
+#[test]
+fn retail_vs_port_per_tick_object_diff() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+
+    // --- SEED: retail allocator formats the pool, then build a 3-block list. ---
+    init_object_pool(&mut bus);
+    let free = walk_freelist(&bus, &RETAIL_POOL);
+    assert!(free.len() >= 3, "need >=3 free blocks to seed");
+    let blocks: Vec<u32> = free[..3].iter().map(|&b| b as u32).collect();
+
+    // Per-object seed state (shape, pos, velocity). Velocities chosen to exercise
+    // +/- and Z-scroll (objects approaching the camera) with one wrap case.
+    struct Seed {
+        shape: u16,
+        pos: (i16, i16, i16),
+        vel: (i16, i16, i16),
+    }
+    let seeds = [
+        Seed { shape: 0x0042, pos: (1000, 500, 8000), vel: (100, -50, -200) },
+        Seed { shape: 0x0058, pos: (-1200, 300, 6000), vel: (-30, 20, -150) },
+        Seed { shape: 0x0011, pos: (32000, -6789, 4321), vel: (1000, 222, -333) }, // X wraps
+    ];
+
+    // Link the active list at the retail stride and write each block's fields.
+    bus.wram_write16(RETAIL_POOL.active_head, blocks[0] as u16);
+    for (i, s) in seeds.iter().enumerate() {
+        let b = blocks[i];
+        let next = if i + 1 < blocks.len() { blocks[i + 1] as u16 } else { 0 };
+        bus.wram_write16(b + RETAIL_POOL.al_next, next);
+        bus.wram_write16(b + RETAIL_POOL.al_shape, s.shape);
+        bus.wram_write16(b + RETAIL_POOL.al_worldx, s.pos.0 as u16);
+        bus.wram_write16(b + RETAIL_POOL.al_worldy, s.pos.1 as u16);
+        bus.wram_write16(b + RETAIL_POOL.al_worldz, s.pos.2 as u16);
+        bus.wram_write16(b + AL_VX, s.vel.0 as u16);
+        bus.wram_write16(b + AL_VY, s.vel.1 as u16);
+        bus.wram_write16(b + AL_VZ, s.vel.2 as u16);
+    }
+
+    // Confirm the seed is readable as an active list before ticking.
+    let chain = walk_active_list(&bus, blocks[0] as u16);
+    eprintln!("RETAIL SEED: active list = {chain:04X?} (expect {blocks:04X?})");
+    assert_eq!(chain, blocks.iter().map(|&b| b as u16).collect::<Vec<_>>());
+
+    // --- Port side: mirror the seed into sf_game Aliens. ---
+    let mut port: Vec<sf_game::alien::Alien> = seeds
+        .iter()
+        .map(|s| {
+            let mut a = sf_game::alien::Alien::default();
+            a.shape = s.shape;
+            a.worldx = s.pos.0;
+            a.worldy = s.pos.1;
+            a.worldz = s.pos.2;
+            a.vx = s.vel.0;
+            a.vy = s.vel.1;
+            a.vz = s.vel.2;
+            a
+        })
+        .collect();
+
+    // --- TICK + DIFF over N frames. ---
+    const N: u32 = 30;
+    let mut first_div: Option<(u32, usize, &'static str, i32, i32)> = None;
+    for tick in 1..=N {
+        // Retail: walk the active list, integrate every live block via real code.
+        let mut x = bus.wram_read16(RETAIL_POOL.active_head);
+        let mut guard = 0;
+        while x != 0 && guard < RETAIL_POOL.count {
+            call(&mut bus, RETAIL_ADDALVECS_L, &Entry { x, p: 0x00, ..Default::default() });
+            x = bus.wram_read16(x as u32 + RETAIL_POOL.al_next);
+            guard += 1;
+        }
+        let snap = snapshot_objects(&bus, &RETAIL_POOL);
+
+        // Port: integrate every alien in lockstep.
+        for a in port.iter_mut() {
+            sf_strat::common::strat_apply_velocity(a);
+        }
+
+        // Diff the seeded slots (whole-array snapshot, but only these are live).
+        for (i, &blk) in blocks.iter().enumerate() {
+            let slot = ((blk - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize;
+            let o = snap[slot];
+            let p = &port[i];
+            for (name, rv, pv) in [
+                ("worldx", o.worldx as i32, p.worldx as i32),
+                ("worldy", o.worldy as i32, p.worldy as i32),
+                ("worldz", o.worldz as i32, p.worldz as i32),
+                ("shape", o.shape as i32, p.shape as i32),
+            ] {
+                if rv != pv && first_div.is_none() {
+                    first_div = Some((tick, i, name, rv, pv));
+                }
+            }
+        }
+
+        if tick == 1 || tick == N || tick % 10 == 0 {
+            let o0 = snap[((blocks[0] - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize];
+            eprintln!(
+                "TICK {tick:>2}: retail slot0 world=({},{},{}) | port=({},{},{})",
+                o0.worldx, o0.worldy, o0.worldz, port[0].worldx, port[0].worldy, port[0].worldz
+            );
+        }
+    }
+
+    // Prove the retail tick actually MOVED the objects (not a no-op snapshot).
+    let final_snap = snapshot_objects(&bus, &RETAIL_POOL);
+    let s0 = final_snap[((blocks[0] - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize];
+    eprintln!(
+        "RETAIL RESULT after {N} ticks: slot0 worldz {} -> {} (Δ={}); GSU kicks this run = {}",
+        seeds[0].pos.2, s0.worldz, s0.worldz as i32 - seeds[0].pos.2 as i32, bus.gsu_kicks
+    );
+    assert_eq!(
+        s0.worldz as i32,
+        seeds[0].pos.2 as i32 + (seeds[0].vel.2 as i32) * N as i32,
+        "retail addalvecs must have scrolled the object worldz every tick"
+    );
+
+    match first_div {
+        None => eprintln!(
+            "RETAIL DIFF: MATCH — retail object array == Rust port for all {} slots over {N} ticks.",
+            blocks.len()
+        ),
+        Some((t, slot, field, rv, pv)) => {
+            eprintln!("RETAIL DIFF: first divergence tick={t} slot={slot} field={field} retail={rv} port={pv}");
+            panic!("retail vs port diverged at tick {t} slot {slot} {field}: retail={rv} port={pv}");
+        }
+    }
+}
+
+/// Walk an object active list from `head`, returning block offsets in order.
+fn walk_active_list(bus: &SnesBus, head: u16) -> Vec<u16> {
+    let mut out = Vec::new();
+    let mut p = head;
+    let mut guard = 0;
+    while p != 0 && guard <= RETAIL_POOL.count {
+        out.push(p);
+        p = bus.wram_read16(p as u32 + RETAIL_POOL.al_next);
+        guard += 1;
+    }
+    out
 }
 
 /// MILESTONE 2 — the retail object-array layout, re-derived from the retail cart
