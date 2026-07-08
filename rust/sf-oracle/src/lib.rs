@@ -9,6 +9,8 @@
 //! is out of scope for this harness.
 
 pub mod gsu;
+mod retail;
+pub use retail::*;
 
 use w65c816::{AddressType, Signals, System, CPU};
 
