@@ -54,6 +54,7 @@ UNVERIFIED (not yet audited) · N/A (no ROM counterpart, e.g. HD glue).
 ## Wave log
 - 2026-07-04 wave 1: trig/player/coldet/strats/boss/mapvm audits — ~18 fixes, all committed (see rom-oracle-plan memory).
 - 2026-07-07 wave 2 COMPLETE: path (8), map-VM (5), showview (6), bg2d. 229/0.
+- 2026-07-07 wave 9: LE_* warp/route dispatch (black-hole/special routes now reachable; strat-side arming still blocked on unported bholeexit); webmonster spider (route-3 3_2) -> boss parity 16/~22. Workspace 310/0. Remaining bosses: amoeba, cruiser1/2, madtrucker, seadragon2-variants, Andross(bossB)+bossh capstones.
 - 2026-07-07 wave 8: seadragon/seadragon2/lochness (route-3 3_3, sprouty neck chain) -> boss parity 15/~22; audits banked (sound-IDs: 0 wrong-id/4 wrong-type/2 stray; route-progression: LE_* dispatch missing = warps unreachable). Workspace 301/0.
 - 2026-07-07 wave 7: castanet 'Metal Smasher' + shared ground-vehicle base
   (route-2 2_5); chicken + shared arm_istrat grabber (route-3 3_3) -> boss parity
