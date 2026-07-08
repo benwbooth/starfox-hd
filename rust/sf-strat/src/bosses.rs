@@ -8470,6 +8470,1066 @@ pub fn install_bosses(g: &mut Game) -> BossStratIds {
     }
 }
 
+// ============================================================
+// MADTRUCKER_BEGIN — "madtrucker" boss family (Route 2 L6 trucker road) +
+// madbiker/bike2 escort + the dropped barrier mines.
+//
+// ASM oracle: `madtrucker_istrat` (DSTRATS.ASM:5233-5717), `madbiker_istrat` /
+// `bike2_istrat` (DSTRATS.ASM:4947-5222) and `barrier_istrat`
+// (DSTRATS.ASM:5720-5751). Map placement: TRUCKER.ASM:31 (`boss_9_5`,
+// madtrucker) + :2/:3/:8/:9 (`air_1`, madbiker), which the Rust map mirrors in
+// route2/submaps.rs:312 (STRAT_ADDR_MADTRUCKER) and :284/:285/:295/:296
+// (STRAT_ADDR_MADBIKER). def_istrat rows 120/119 are NOT used by the map — the
+// objects resolve through the synthetic 0x0500xx strategy-address table exactly
+// like the seadragon/bossg/boss8 rows below.
+//
+// STRUCTURE: the map's `boss_9_5` object is an INVISIBLE controller mother
+// (nullshape proxy, ENEMY1 collision, HP=madtruckerHP=64). `.generate`
+// (DSTRATS.ASM:5506) spawns ONE visible truck-body child (`boss_9_0`,
+// `hard_istrat` = inert/invincible), linked via `al_ptr`, and repositions it on
+// the mother every tick (`.position1`, s_add_Roffs2pos flags 1,1,1 offset
+// (0,0,-19)<<2 — the reused `fb_positional`). The mother runs a 17-entry
+// `s_mode_table` machine (DSTRATS.ASM:5250-5272) that barges the truck up/down
+// the road lanes (`.rightlane`/`.leftlane`/`.farleftlane`), opens/closes its
+// armour (`.openback`/`.closeback`, the truck-body's anim 0..12), spawns two
+// escort bikes (`.maketwobikes` -> `bike2_istrat`), drops barrier mines
+// (`.dropmines` -> `barrier_istrat`) and chases the player's worldz with a
+// fixed-accel `truck_accel`. The BOSS HP BAR is real: init does
+// `s_set_bossmaxHP #madtruckerHP` (DSTRATS.ASM:5245) and every `.move`/`.nomove`
+// runs `s_add_bossHP x,al_hp` (:5611). Death is the mother's own
+// `.explode` -> `.swerveviolently` -> `.skid` -> `.flippul` chain (:5616-5717,
+// NOT trucklaunch/fallingtruck — those belong only to castanet, verified: no
+// trucklaunch/fallingtruck reference exists inside the madtrucker span).
+//
+// SCOPE NOTE (fidelity boundaries, cited inline):
+//  * The mother mode machine, truck-body positioning, lane movement, armour
+//    open/close vulnerability gate, HP-bar/maxHP, the bike-escort + mine spawns
+//    and the full swerve/skid/flip death chain are ported tick-for-tick.
+//  * The `.hit` damage gate (DSTRATS.ASM:5580-5603) keys off per-sub-box
+//    hitflags HF1 (truck body) / HF2 (mother weak spot) that only the REAL
+//    `boss_9_5`/`boss_9_0` collision meshes emit; the map uses SH_NULLSHAPE
+//    proxies (route2/rc.rs:112) so in-game the gate currently sees no
+//    sub-box hitflags (undamageable until the real shapes are wired — a
+//    map-proxy caveat of the same class as castanet's). The gate is ported
+//    faithfully and exercised in tests by setting hitflags directly.
+//  * Cosmetic-only ROM calls that read cross-object global scratch RAM or
+//    unported sprite/particle systems are intentional no-ops, exactly as
+//    castanet scoped its ringlaser/mini spread: `sgenspark`/`genspark2`
+//    (spark puffs, :5696-5716), `bigwhiteFOsprite`/`circleobj`/`rumble` (the
+//    white death flash, :5631-5634), madbiker's `makeengine`/`updateengine`
+//    (the engine-flame child, :4970/:5219) and `float64_srou` (the hover bob,
+//    :5210 — reads global floatvar1/floatvar2 oscillators). `set_sound2` audio
+//    init is likewise dropped (no audio hook in the parity harness).
+//  * The escort-bike/mine SHAPES are cosmetic proxies (SH_MT_* below); the map's
+//    nullshape `air_1`/`boss_9_5` proxies are overwritten to them on init so the
+//    `find_y #air_1` bike lookups (`.waitforbikes`/`.destroybikes`) resolve
+//    uniformly for both map-placed and truck-spawned bikes.
+// ============================================================
+
+// DSTRATS.ASM:72-77.
+const MADTRUCKER_HP: u8 = 64; // madtruckerHP
+const MADTRUCKER_AP: u8 = 2; // madtruckerAP
+const MADBIKER_HP: u8 = 10; // madbikerHP
+const MADBIKER_AP: u8 = 4; // madbikerAP
+const BARRIER_HP: u8 = 6; // barrierHP
+const BARRIER_AP: u8 = 12; // barrierAP
+
+/// `madtrucker_istrat` / `madbiker_istrat` synthetic addresses (sf-map
+/// route2/rc.rs:204-205). Resolved through the strat-address table, like
+/// STRAT_ADDR_SEADRAGON.
+pub const STRAT_ADDR_MADTRUCKER: u32 = 0x050009;
+pub const STRAT_ADDR_MADBIKER: u32 = 0x050008;
+
+// Shape proxies (cosmetic; behaviour is shape-independent). Continue the
+// castanet 276-281 proxy range.
+const SH_MT_BOSS_9_0: u16 = 282; // truck body (hard child)
+const SH_MT_AIR_1: u16 = 283; // escort bike
+const SH_MT_BARRIER: u16 = 284; // dropped mine
+
+// Strategy flags (same STRATEQU.INC:912-918 mapping as flingboss/castanet):
+// sflag1/sflag2 -> sflags2 0x10/0x20; sflag6 -> sflags3 0x02.
+const MT_SFLAG1: u8 = 0x10;
+const MT_SFLAG2: u8 = 0x20;
+const MT_SFLAG6: u8 = 0x02;
+
+// Hit-flag sub-box bits (VARS.INC:167-168).
+const MT_HF1: u8 = 0x01;
+const MT_HF2: u8 = 0x02;
+
+// Sound effects.
+const MT_SE_OPEN: u8 = 0x5a; // trigse $5a (armour opening)
+const MT_SE_CLOSE: u8 = 0x59; // trigse $59 (armour closing)
+const MT_SE_SKID: u8 = 0x1d; // trigse $1d (death skid)
+
+// g_maxpmoveX WRAM mirror (common::sv::MAXPMOVEX).
+const MT_MAXPMOVEX: u16 = 0x0528;
+
+// ---- anim helpers (0x80 "initialised" marker, STRATLIB.INC:67-90/262-274) ----
+
+#[inline]
+fn mt_anim_get(al: &Alien) -> u8 {
+    al.animframe & 0x7f
+}
+#[inline]
+fn mt_anim_set(al: &mut Alien, frame: u8) {
+    al.animframe = 0x80 | (frame & 0x7f);
+}
+/// 4-arg `s_add_anim obj,#amount,#max,label` (STRATLIB.INC:180-255): CAP at
+/// max-1 and return true (the jump) once the frame would reach `max`.
+#[inline]
+fn mt_add_anim_cap(al: &mut Alien, amount: u8, max: u8) -> bool {
+    let f = mt_anim_get(al).wrapping_add(amount);
+    if f < max {
+        mt_anim_set(al, f);
+        false
+    } else {
+        mt_anim_set(al, max - 1);
+        true
+    }
+}
+
+// ---- shared small helpers ----
+
+/// `s_jmp_random label,#pct` (STRATMAC.INC:1407-1417): branch when
+/// random_l()&0xff < (pct*255)/100.
+#[inline]
+fn mt_jmp_random(g: &mut Game, pct: u32) -> bool {
+    let thresh = ((pct * 255) / 100) as u16;
+    (sfrtl_random(g) & 0xff) < thresh
+}
+
+#[inline]
+fn mt_player_z(g: &Game) -> i16 {
+    player(g).map(|p| p.worldz).unwrap_or(0)
+}
+#[inline]
+fn mt_player_x(g: &Game) -> i16 {
+    player(g).map(|p| p.worldx).unwrap_or(0)
+}
+
+/// Live truck-body child (mother.al_ptr, index+1 encoding).
+#[inline]
+fn mt_child(g: &Game, mother: u16) -> Option<u16> {
+    fb_read_obj(g, g.objs.aliens[mother as usize].ptr)
+}
+
+/// `truck_accel` (DSTRATS.ASM:174-197): step al_sword1 (a signed velocity
+/// accumulator) toward +10 when the truck is BEHIND the target-z (`behind` =
+/// the ROM `bmi` on `(worldz-offset) - player_worldz`) or toward -20 when ahead,
+/// then apply it to worldz.
+#[inline]
+fn mt_truck_accel(al: &mut Alien, behind: bool) {
+    let v = al.sword1 as i32;
+    al.sword1 = if behind {
+        (v + 1).min(10) as i16
+    } else {
+        (v - 2).max(-20) as i16
+    };
+    al.worldz = al.worldz.wrapping_add(al.sword1);
+}
+
+// ---- lane / armour movement subroutines (return the ROM carry = "secured") ----
+
+/// `.rightlane` (DSTRATS.ASM:5315-5328): creep +2 until worldx>=30.
+#[inline]
+fn mt_rightlane(al: &mut Alien) -> bool {
+    if al.worldx >= 30 {
+        true
+    } else {
+        al.worldx = al.worldx.wrapping_add(2);
+        false
+    }
+}
+/// `.leftlane` (DSTRATS.ASM:5330-5344): creep -4 until worldx< -70.
+#[inline]
+fn mt_leftlane(al: &mut Alien) -> bool {
+    if al.worldx < -70 {
+        true
+    } else {
+        al.worldx = al.worldx.wrapping_sub(4);
+        false
+    }
+}
+/// `.farleftlane` (DSTRATS.ASM:5393-5408): creep -5 until worldx< -160, then set
+/// maptrigger bit0.
+fn mt_farleftlane(g: &mut Game, idx: u16) -> bool {
+    let wx = g.objs.aliens[idx as usize].worldx;
+    if wx < -160 {
+        let mt = maptrigger(g) | 1;
+        set_maptrigger(g, mt);
+        true
+    } else {
+        g.objs.aliens[idx as usize].worldx = wx.wrapping_sub(5);
+        false
+    }
+}
+/// `.openback` (DSTRATS.ASM:5351-5361): raise the truck-body's armour anim by 1
+/// (cap 12), chime on anim==1, secure when it caps.
+fn mt_openback(g: &mut Game, mother: u16) -> bool {
+    let Some(c) = mt_child(g, mother) else {
+        return true;
+    };
+    if mt_anim_get(&g.objs.aliens[c as usize]) == 1 {
+        play_se(g, MT_SE_OPEN);
+    }
+    mt_add_anim_cap(&mut g.objs.aliens[c as usize], 1, 13)
+}
+/// `.closeback` (DSTRATS.ASM:5367-5377): lower the armour anim by 1, chime on
+/// anim==10, secure when it hits 0.
+fn mt_closeback(g: &mut Game, mother: u16) -> bool {
+    let Some(c) = mt_child(g, mother) else {
+        return true;
+    };
+    let a = mt_anim_get(&g.objs.aliens[c as usize]);
+    if a == 10 {
+        play_se(g, MT_SE_CLOSE);
+    }
+    if a == 0 {
+        return true;
+    }
+    mt_anim_set(&mut g.objs.aliens[c as usize], a - 1);
+    false
+}
+
+// ---- `.position1` / `.move` / `.nomove` (DSTRATS.ASM:5525-5612) ----
+
+/// `.position1` (DSTRATS.ASM:5525-5531): copy the mother's rots onto the child,
+/// then place it at (0,0,-19)<<2 rotated by the mother (reusing `fb_positional`).
+fn mt_position1(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    {
+        let c = &mut g.objs.aliens[child as usize];
+        c.rotx = m.rotx;
+        c.roty = m.roty;
+        c.rotz = m.rotz;
+    }
+    // z1 = -24 + (20/4) = -19.
+    fb_positional(g, &m, child, 0, 0, -19);
+}
+
+/// `.nomove` (DSTRATS.ASM:5607-5612): reposition the child + drain the boss bar.
+fn mt_nomove(g: &mut Game, idx: u16) {
+    if let Some(c) = mt_child(g, idx) {
+        mt_position1(g, idx, c);
+    }
+    add_bosshp(g, idx); // s_add_bossHP x,al_hp
+}
+/// `.move` (DSTRATS.ASM:5605-5612): scroll with the world, then `.nomove`.
+fn mt_move(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    mt_nomove(g, idx);
+}
+
+/// `.move2` (DSTRATS.ASM:5569-5578): truck_accel toward player-z at offset 600.
+fn mt_move2(g: &mut Game, idx: u16) {
+    let pz = mt_player_z(g);
+    let wz = g.objs.aliens[idx as usize].worldz;
+    let behind = wz.wrapping_sub(600).wrapping_sub(pz) < 0;
+    mt_truck_accel(&mut g.objs.aliens[idx as usize], behind);
+    mt_move(g, idx);
+}
+/// `.move4` (DSTRATS.ASM:5534-5543): truck_accel at offset 1200.
+fn mt_move4(g: &mut Game, idx: u16) {
+    let pz = mt_player_z(g);
+    let wz = g.objs.aliens[idx as usize].worldz;
+    let behind = wz.wrapping_sub(1200).wrapping_sub(pz) < 0;
+    mt_truck_accel(&mut g.objs.aliens[idx as usize], behind);
+    mt_move(g, idx);
+}
+/// `.move3` (DSTRATS.ASM:5545-5567): truck_accel at offset 120, then snap to
+/// player-z+50 if the truck has fallen more than 50 behind.
+fn mt_move3(g: &mut Game, idx: u16) {
+    let pz = mt_player_z(g);
+    let wz = g.objs.aliens[idx as usize].worldz;
+    let behind = wz.wrapping_sub(120).wrapping_sub(pz) < 0;
+    mt_truck_accel(&mut g.objs.aliens[idx as usize], behind);
+    let wz2 = g.objs.aliens[idx as usize].worldz;
+    if wz2.wrapping_sub(50).wrapping_sub(pz) < 0 {
+        g.objs.aliens[idx as usize].worldz = pz.wrapping_add(50);
+    }
+    mt_move(g, idx);
+}
+
+// ---- escort bike / mine spawns ----
+
+/// Escort-bike lookups (`find_y #air_1`).
+fn mt_bikes_alive(g: &Game) -> bool {
+    sea_find_shape(g, SH_MT_AIR_1).is_some()
+}
+/// `.destroybikes` (DSTRATS.ASM:5690-5694): s_kill_obj the first live bike.
+fn mt_destroybikes(g: &mut Game) {
+    if let Some(b) = sea_find_shape(g, SH_MT_AIR_1) {
+        let al = &mut g.objs.aliens[b as usize];
+        al.hp = 0;
+        al.sflags |= ASF_COLLDISABLE;
+    }
+}
+
+/// `.maketwobikes` inner (DSTRATS.ASM:5445-5463): spawn one `bike2` at
+/// (x1,10,0)<<2 relative to the mother.
+fn mt_spawn_bike(g: &mut Game, mother: u16, x1: i16) {
+    let Some(child) = make_obj(g, SH_MT_AIR_1) else {
+        return;
+    };
+    copy_pos(g, child, mother);
+    let s = sid(g, bike2_strat);
+    {
+        let m = g.objs.aliens[mother as usize];
+        let c = &mut g.objs.aliens[child as usize];
+        c.rotx = m.rotx; // copyrots_yx
+        c.roty = m.roty;
+        c.rotz = m.rotz;
+        c.shape = SH_MT_AIR_1;
+        c.stratptr = Some(s);
+    }
+    let m = g.objs.aliens[mother as usize];
+    fb_positional(g, &m, child, x1, 10, 0);
+}
+
+/// `.dropmines` (DSTRATS.ASM:5290-5300): spawn one `barrier` mine at (0,0,-40)<<2.
+fn mt_spawn_barrier(g: &mut Game, mother: u16) {
+    let Some(child) = make_obj(g, SH_MT_BARRIER) else {
+        return;
+    };
+    copy_pos(g, child, mother);
+    let s = sid(g, barrier_init);
+    {
+        let m = g.objs.aliens[mother as usize];
+        let c = &mut g.objs.aliens[child as usize];
+        c.rotx = m.rotx; // copyrots_yx
+        c.roty = m.roty;
+        c.rotz = m.rotz;
+        c.shape = SH_MT_BARRIER;
+        c.stratptr = Some(s);
+    }
+    let m = g.objs.aliens[mother as usize];
+    fb_positional(g, &m, child, 0, 0, -40);
+}
+
+// ---- truck-body child (hard_istrat = inert/invincible) ----
+
+/// Inert repositioned-by-mother truck body (ROM `hard_istrat`). No per-tick
+/// behaviour: the mother's `.position1` drives it.
+fn mt_truckbody_strat(_g: &mut Game, _idx: u16) {}
+
+/// `.generate` (DSTRATS.ASM:5506-5522): spawn the visible truck body, link it as
+/// the mother's al_ptr and position it. Returns false when the pool is full.
+fn mt_generate(g: &mut Game, mother: u16) -> bool {
+    let Some(child) = make_obj(g, SH_MT_BOSS_9_0) else {
+        return false;
+    };
+    copy_pos(g, child, mother);
+    let s = sid(g, mt_truckbody_strat);
+    {
+        let al = &mut g.objs.aliens[child as usize];
+        al.stratptr = Some(s); // s_set_strat y,hard_istrat
+        al.collstratptr = None;
+        al.expstratptr = None;
+        mt_anim_set(al, 0); // s_init_anim y,#0
+        al.type_ &= !ATZREMOVE; // s_clr_altype zremove
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype ENEMY1
+        al.hp = HARD_HP; // hard_istrat set_hard_vars (invincible)
+        al.ap = HARD_AP;
+        al.shape = SH_MT_BOSS_9_0;
+    }
+    g.objs.aliens[mother as usize].ptr = boss_obj_index_or_null(child);
+    mt_position1(g, mother, child);
+    true
+}
+
+/// `madtrucker_istrat` init (DSTRATS.ASM:5233-5246).
+pub fn madtrucker_init(g: &mut Game, idx: u16) {
+    set_maptrigger(g, 0); // s_set_var maptrigger,#0
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = MADTRUCKER_HP; // s_set_aldata
+        al.ap = MADTRUCKER_AP;
+        al.type_ &= !ATZREMOVE; // s_clr_altype zremove
+        mt_anim_set(al, 0); // s_init_anim #0
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype ENEMY1
+        al.sflags |= ASF_SHADOW; // s_set_alsflag shadow
+    }
+    if !mt_generate(g, idx) {
+        // s_bcs .end: pool full -> retry the whole init next tick (the map's
+        // strat pointer is already this init).
+        let s = sid(g, madtrucker_init);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+        return;
+    }
+    let s = sid(g, madtrucker_strat);
+    let sc = sid(g, madtrucker_hit);
+    let se = sid(g, madtrucker_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s); // s_set_alptrs .strat,.hit,.explode
+        al.collstratptr = Some(sc);
+        al.expstratptr = Some(se);
+        al.stratstate = 0; // s_mode_change #0
+    }
+    set_bossmaxhp(g, MADTRUCKER_HP as u16); // s_set_bossmaxHP #madtruckerHP
+    madtrucker_strat(g, idx); // fall into .strat
+}
+
+/// `madtrucker_istrat` `.strat` (DSTRATS.ASM:5247-5567): the 17-entry mode
+/// machine. `stratstate` holds the mode; arms that end the tick call a `.move*`
+/// and return; arms that fall out advance the mode (.nxtmode); `.chkbikesagain`
+/// / `.repeat` / the no-bikes branch jump to a specific mode and re-enter.
+fn madtrucker_strat(g: &mut Game, idx: u16) {
+    loop {
+        match g.objs.aliens[idx as usize].stratstate {
+            // 0 .bargeforward
+            0 => {
+                if !mt_rightlane(&mut g.objs.aliens[idx as usize]) {
+                    mt_move2(g, idx);
+                    return;
+                }
+            }
+            // 1 .maketwobikes
+            1 => {
+                mt_spawn_bike(g, idx, 7);
+                mt_spawn_bike(g, idx, -7);
+            }
+            // 2 .openup
+            2 => {
+                if !mt_openback(g, idx) {
+                    mt_move(g, idx);
+                    return;
+                }
+            }
+            // 3 .moveleftlane
+            3 => {
+                if !mt_leftlane(&mut g.objs.aliens[idx as usize]) {
+                    mt_move2(g, idx);
+                    return;
+                }
+            }
+            // 4 .close
+            4 => {
+                if !mt_closeback(g, idx) {
+                    mt_move(g, idx);
+                    return;
+                }
+            }
+            // 5 .movefarleft
+            5 => {
+                if !mt_farleftlane(g, idx) {
+                    mt_move2(g, idx);
+                    return;
+                }
+            }
+            // 6 .waitforbikes (bikesagain)
+            6 => {
+                if mt_jmp_random(g, 1) {
+                    // rare random advance -> .nxtmode
+                } else if mt_bikes_alive(g) {
+                    mt_move2(g, idx);
+                    return;
+                } else {
+                    g.objs.aliens[idx as usize].stratstate = 13; // madbikesdead
+                    continue;
+                }
+            }
+            // 7 .movefarforward
+            7 => {
+                if sea_dz_less(g, idx, 1200) {
+                    if g.objs.aliens[idx as usize].sflags2 & MT_SFLAG1 != 0 {
+                        mt_leftlane(&mut g.objs.aliens[idx as usize]);
+                    } else {
+                        mt_rightlane(&mut g.objs.aliens[idx as usize]);
+                    }
+                    mt_move4(g, idx);
+                    return;
+                }
+                // dz>=1200 -> .nxttime: toggle sflag1, then .nxtmode.
+                g.objs.aliens[idx as usize].sflags2 ^= MT_SFLAG1;
+            }
+            // 8 .bumpitup
+            8 => {
+                g.objs.aliens[idx as usize].worldy =
+                    g.objs.aliens[idx as usize].worldy.wrapping_sub(2);
+                mt_openback(g, idx);
+                mt_openback(g, idx);
+                if !mt_openback(g, idx) {
+                    mt_move(g, idx);
+                    return;
+                }
+            }
+            // 9 .dropmines
+            9 => {
+                mt_spawn_barrier(g, idx);
+            }
+            // 10 .waitabit4
+            10 => {
+                let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+                g.objs.aliens[idx as usize].sbyte1 = sb;
+                if sb == 15 {
+                    g.objs.aliens[idx as usize].sbyte1 = 0;
+                } else {
+                    mt_move4(g, idx);
+                    return;
+                }
+            }
+            // 11 .bumpitdown
+            11 => {
+                g.objs.aliens[idx as usize].worldy =
+                    g.objs.aliens[idx as usize].worldy.wrapping_add(2);
+                mt_closeback(g, idx);
+                mt_closeback(g, idx);
+                if !mt_closeback(g, idx) {
+                    mt_move(g, idx);
+                    return;
+                }
+            }
+            // 12 .chkbikesagain
+            12 => {
+                g.objs.aliens[idx as usize].stratstate = 6; // bikesagain
+                continue;
+            }
+            // 13 .hangback (madbikesdead)
+            13 => {
+                if mt_rightlane(&mut g.objs.aliens[idx as usize]) {
+                    let mt = maptrigger(g) | 1;
+                    set_maptrigger(g, mt);
+                } else {
+                    mt_move3(g, idx);
+                    return;
+                }
+            }
+            // 14 .waitabit3
+            14 => {
+                let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+                g.objs.aliens[idx as usize].sbyte1 = sb;
+                if sb == 55 {
+                    g.objs.aliens[idx as usize].sbyte1 = 0;
+                } else {
+                    mt_move3(g, idx);
+                    return;
+                }
+            }
+            // 15 .movefarleft3
+            15 => {
+                if !mt_farleftlane(g, idx) {
+                    mt_move3(g, idx);
+                    return;
+                }
+            }
+            // 16 .repeat
+            _ => {
+                g.objs.aliens[idx as usize].stratstate = 0;
+                continue;
+            }
+        }
+        // .nxtmode: advance and re-enter the same tick.
+        g.objs.aliens[idx as usize].stratstate =
+            g.objs.aliens[idx as usize].stratstate.wrapping_add(1);
+    }
+}
+
+/// `.hit` (DSTRATS.ASM:5580-5603): a hit only counts when the truck-body armour
+/// is OPEN (child anim!=0), the body's HF1 sub-box did not absorb it, and the
+/// mother's HF2 weak-spot sub-box was struck. Otherwise `nohitaffect` is set and
+/// the hit is cosmetic (ROM `hitflash_Istrat` `.nocol`).
+fn madtrucker_hit(g: &mut Game, idx: u16) {
+    let actual = match mt_child(g, idx) {
+        None => false,
+        Some(c) => {
+            if mt_anim_get(&g.objs.aliens[c as usize]) == 0 {
+                false // armour closed -> invulnerable
+            } else if g.objs.aliens[c as usize].hitflags & MT_HF1 != 0 {
+                g.objs.aliens[c as usize].hitflags &= !MT_HF1; // body armour absorbed
+                false
+            } else if g.objs.aliens[idx as usize].hitflags & MT_HF2 != 0 {
+                g.objs.aliens[idx as usize].hitflags &= !MT_HF2; // weak spot hit
+                true
+            } else {
+                false
+            }
+        }
+    };
+    if actual {
+        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+        strat_hit_flash(g, idx); // s_docoll: drain hp, may route to .explode
+    } else {
+        // nohitaffect -> hitflash_Istrat .nocol (GSTRATS.ASM:899/925): drop the
+        // collide flag, no damage. Hitflags are NOT cleared here.
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags &= !ASF_COLLIDE;
+    }
+}
+
+// ---- death chain (.explode -> .swerveviolently -> .skid -> .flippul) ----
+
+/// `.explode` (DSTRATS.ASM:5616-5624): the mother's expstrat. Mark the truck
+/// body for removal, arm the 35-tick swerve, play the boss-dying stinger, then
+/// run the swerve same tick.
+fn madtrucker_explode(g: &mut Game, idx: u16) {
+    if let Some(c) = mt_child(g, idx) {
+        g.objs.aliens[c as usize].type_ |= ATZREMOVE;
+    }
+    let s = sid(g, madtrucker_swerve);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.expstratptr = Some(s);
+        al.sbyte1 = 35;
+    }
+    boss_dying(g); // trigse $1e + startbgm $f1 (BF_DYING-guarded)
+    madtrucker_swerve(g, idx);
+}
+
+/// `.swerveviolently` (DSTRATS.ASM:5625-5649): weave the truck (roty from a
+/// scaled sintab) while creeping far-left for `sbyte1` ticks, then flip to the
+/// skid state.
+fn madtrucker_swerve(g: &mut Game, idx: u16) {
+    // s_decbne_alvar sbyte1,.swervy: dec THEN branch when !=0.
+    let sb1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = sb1;
+    if sb1 != 0 {
+        // .swervy: roty = sintab[(gameframe<<4)&0xff] >> 3.
+        let gf = (g.vars.gameframe as u8) << 4;
+        let v = crate::snes_trig::SINTAB[gf as usize] >> 3;
+        g.objs.aliens[idx as usize].roty = v as u8;
+        mt_farleftlane(g, idx);
+        mt_destroybikes(g);
+        // .genspark scoped.
+        mt_move(g, idx);
+        return;
+    }
+    // sbyte1 hit 0 -> transition to .skid.
+    let s = sid(g, madtrucker_skid);
+    let mt = maptrigger(g) | 2;
+    set_maptrigger(g, mt);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.expstratptr = Some(s);
+        al.sword1 = 20;
+    }
+    // bigwhiteFOsprite / circleobj / rumble scoped.
+    play_se(g, MT_SE_SKID);
+    madtrucker_skid(g, idx); // s_jmp .skid
+}
+
+/// `.skid` + `.flippul` (DSTRATS.ASM:5651-5688): once the player passes the
+/// wreck (player-z >= truck-z) it is removed; until then the wreck swings to
+/// the skid heading, slides left, flips over on rotz and coasts on sword1.
+fn madtrucker_skid(g: &mut Game, idx: u16) {
+    let pz = mt_player_z(g);
+    let wz = g.objs.aliens[idx as usize].worldz;
+    if pz.wrapping_sub(wz) >= 0 {
+        // s_remove_obj x (player has driven past the wreck).
+        g.objs.aldead = 1;
+        return;
+    }
+    // .notbehind
+    let mt = maptrigger(g) | 2;
+    set_maptrigger(g, mt);
+    let mut roty = g.objs.aliens[idx as usize].roty;
+    let target = (DEG45.wrapping_add(DEG22)).wrapping_neg(); // -(deg45+deg22)
+    let reached = achase_angle(&mut roty, target, 2);
+    g.objs.aliens[idx as usize].roty = roty;
+    if !reached {
+        g.objs.aliens[idx as usize].sword1 = 40;
+    }
+    // .flippul
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = al.worldx.wrapping_sub(4);
+        if al.rotz != DEG90 {
+            al.rotz = al.rotz.wrapping_add(8); // deg11
+        }
+        al.worldz = al.worldz.wrapping_add(al.sword1);
+        if al.sword1 >= 0 {
+            al.sword1 = al.sword1.wrapping_sub(15);
+        }
+    }
+    mt_destroybikes(g);
+    // .genspark / .genspark2 scoped.
+    mt_nomove(g, idx); // s_jmp .nomove (no world scroll here)
+}
+
+// ============================================================
+// barrier_istrat (DSTRATS.ASM:5720-5751) — the dropped mine.
+// ============================================================
+
+/// `barrier_istrat` init (DSTRATS.ASM:5720-5727).
+fn barrier_init(g: &mut Game, idx: u16) {
+    let s = sid(g, barrier_strat);
+    let sc = sid(g, barrier_hit);
+    let se = sid(g, strat_explode); // explode_istrat
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(sc);
+        al.expstratptr = Some(se);
+        al.hp = BARRIER_HP;
+        al.ap = BARRIER_AP;
+        al.roty = DEG180;
+        mt_anim_set(al, 0);
+        al.vy = 0;
+    }
+    barrier_strat(g, idx);
+}
+/// `.strat` (DSTRATS.ASM:5728-5732): fall under gravity; on landing switch to the
+/// settle animation.
+fn barrier_strat(g: &mut Game, idx: u16) {
+    // dfallyvec_x = s_falldown_Yvec x,2,#4,#0.
+    if boss2_falldown_yvec(g, idx, 2, 4, 0) {
+        let s = sid(g, barrier_strat2);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+        return;
+    }
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldy = al.worldy.wrapping_add(al.vy);
+}
+/// `.strat2` (DSTRATS.ASM:5734-5736): play the deploy anim (0->15), then loop.
+fn barrier_strat2(g: &mut Game, idx: u16) {
+    if mt_add_anim_cap(&mut g.objs.aliens[idx as usize], 1, 16) {
+        let s = sid(g, barrier_strat3);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+    }
+}
+/// `.strat3` (DSTRATS.ASM:5738-5740): loop the settled anim in [13,16)
+/// (s_add_anim x,#1,#16,NOJUMP,#13).
+fn barrier_strat3(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    let mut f = mt_anim_get(al).wrapping_add(1);
+    if f >= 16 {
+        f = f - 16 + 13;
+    }
+    mt_anim_set(al, f);
+}
+/// `.hit` (DSTRATS.ASM:5742-5750): only HF1 (the shootable core) does damage.
+fn barrier_hit(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].hitflags & MT_HF1 != 0 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hitflags &= !MT_HF1;
+        al.sflags &= !ASF_NOHITAFFECT;
+        strat_hit_flash(g, idx);
+    } else {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags &= !ASF_COLLIDE;
+    }
+}
+
+// ============================================================
+// bike2_istrat / madbiker_istrat (DSTRATS.ASM:4947-5222) — the escort bikes.
+// ============================================================
+
+/// `bike2_istrat` (DSTRATS.ASM:4947-4960): the 11-tick spawn-drop phase; both
+/// the "init" and the tick (re-sets colltype/anim each frame), then hands off to
+/// `madbiker_istrat`.
+fn bike2_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype ENEMY1
+        al.shape = SH_MT_AIR_1;
+        mt_anim_set(al, 7); // s_init_anim #7
+    }
+    add_player_z(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.sbyte1 < 5 {
+            al.sword1 = -20;
+        }
+        al.worldz = al.worldz.wrapping_sub(5);
+        al.sbyte1 = al.sbyte1.wrapping_add(1);
+    }
+    if g.objs.aliens[idx as usize].sbyte1 == 11 {
+        madbiker_init(g, idx); // s_beq madbiker_istrat
+    }
+}
+
+/// `madbiker_istrat` init (DSTRATS.ASM:4961-4978).
+pub fn madbiker_init(g: &mut Game, idx: u16) {
+    let s = sid(g, madbiker_strat);
+    let sc = sid(g, madbiker_hit);
+    let se = sid(g, madbiker_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s); // s_set_alptrs .strat,.hit,.explode
+        al.collstratptr = Some(sc);
+        al.expstratptr = Some(se);
+        al.hp = MADBIKER_HP; // s_set_aldata
+        al.ap = MADBIKER_AP;
+        al.type_ &= !ATZREMOVE; // s_clr_altype zremove
+        mt_anim_set(al, 7); // s_init_anim #7
+        al.collflags |= COLLTYPE_ENEMY2; // s_set_colltype ENEMY2
+        al.sflags |= ASF_SHADOW; // s_set_alsflag shadow
+        al.shape = SH_MT_AIR_1; // (map proxy is nullshape; keep the find_y shape)
+        al.sword2 = al.worldy; // s_copy_alvar2alvar sword2,worldy
+        al.stratstate = 0; // s_mode_change #0
+    }
+    // makeengine (engine-flame child) scoped.
+    madbiker_strat(g, idx); // fall into .strat
+}
+
+/// `madbiker_istrat` `.strat` (DSTRATS.ASM:4979-5122): the 12-entry escort mode
+/// machine. Most modes end the tick via `.move`; `.initboost` falls straight
+/// into `.doboost`; `.randomjump` re-enters at repeathere/boostit.
+fn madbiker_strat(g: &mut Game, idx: u16) {
+    loop {
+        match g.objs.aliens[idx as usize].stratstate {
+            // 0,6 .movealongside
+            0 | 6 => {
+                if g.objs.aliens[idx as usize].sflags2 & MT_SFLAG1 != 0 {
+                    // .gitaway
+                    g.objs.aliens[idx as usize].sbyte1 = 7;
+                    g.objs.aliens[idx as usize].stratstate = 9; // playaway
+                } else {
+                    let pz = mt_player_z(g);
+                    let wz = g.objs.aliens[idx as usize].worldz;
+                    let behind = wz.wrapping_sub(120).wrapping_sub(pz) < 0;
+                    mt_truck_accel(&mut g.objs.aliens[idx as usize], behind);
+                    let sb = g.objs.aliens[idx as usize].sbyte2.wrapping_add(1);
+                    g.objs.aliens[idx as usize].sbyte2 = sb;
+                    if sb == 30 {
+                        g.objs.aliens[idx as usize].sbyte2 = 0;
+                        g.objs.aliens[idx as usize].stratstate += 1;
+                    }
+                }
+                madbiker_move(g, idx);
+                return;
+            }
+            // 1,7 .shuntplayer
+            1 | 7 => {
+                g.objs.aliens[idx as usize].sbyte1 = 5;
+                if g.objs.aliens[idx as usize].sflags2 & MT_SFLAG1 != 0 {
+                    // .spnxtmode -> .nxtmode
+                    g.objs.aliens[idx as usize].stratstate += 1;
+                    madbiker_move(g, idx);
+                    return;
+                }
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.worldz = al.worldz.wrapping_sub(15);
+                    al.rotz = al.rotz.wrapping_sub(4);
+                }
+                let px = mt_player_x(g);
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    if al.worldx.wrapping_sub(px) >= 0 {
+                        al.rotz = al.rotz.wrapping_add(8);
+                    }
+                }
+                let rotz = g.objs.aliens[idx as usize].rotz;
+                if rotz != 0 && rotz.wrapping_add(DEG45) < DEG90 {
+                    madbiker_move(g, idx);
+                    return;
+                }
+                // .nmode
+                g.objs.aliens[idx as usize].stratstate += 1;
+                g.objs.aliens[idx as usize].sflags2 |= MT_SFLAG2;
+                madbiker_move(g, idx);
+                return;
+            }
+            // 2,10 .rightwayup
+            2 | 10 => {
+                let rotz = g.objs.aliens[idx as usize].rotz;
+                if rotz == 0 {
+                    g.objs.aliens[idx as usize].stratstate += 1;
+                } else {
+                    let mut v = rotz;
+                    if (rotz as i8) >= 0 {
+                        v = v.wrapping_sub(8);
+                    }
+                    v = v.wrapping_add(4);
+                    g.objs.aliens[idx as usize].rotz = v;
+                }
+                madbiker_move(g, idx);
+                return;
+            }
+            // 3 .initboost (falls straight into .doboost)
+            3 => {
+                g.objs.aliens[idx as usize].stratstate += 1;
+                continue;
+            }
+            // 4 .doboost
+            4 => {
+                if g.objs.aliens[idx as usize].sflags2 & MT_SFLAG1 != 0 {
+                    g.objs.aliens[idx as usize].sbyte1 = 7; // .sp2nxtmode
+                    g.objs.aliens[idx as usize].stratstate += 1;
+                    madbiker_move(g, idx);
+                    return;
+                }
+                g.objs.aliens[idx as usize].worldz =
+                    g.objs.aliens[idx as usize].worldz.wrapping_add(20);
+                if gv_beqdec(&mut g.objs.aliens[idx as usize].sbyte1) {
+                    // .nxtmodeclr -> .nxtmode
+                    g.objs.aliens[idx as usize].sflags2 |= MT_SFLAG2;
+                    g.objs.aliens[idx as usize].stratstate += 1;
+                }
+                madbiker_move(g, idx);
+                return;
+            }
+            // 5,9 .awayfromplayer
+            5 | 9 => {
+                if g.objs.aliens[idx as usize].sflags2 & MT_SFLAG2 != 0 {
+                    // .nnmode
+                    g.objs.aliens[idx as usize].sflags2 &= !MT_SFLAG2;
+                    g.objs.aliens[idx as usize].stratstate += 1;
+                    madbiker_move(g, idx);
+                    return;
+                }
+                g.objs.aliens[idx as usize].worldz =
+                    g.objs.aliens[idx as usize].worldz.wrapping_add(10);
+                let px = mt_player_x(g);
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    let sb4: i8 = if al.worldx.wrapping_sub(px) >= 0 { -8 } else { 8 };
+                    al.rotz = al.rotz.wrapping_add(sb4 as u8);
+                }
+                // s_decbne_alvar sbyte1,.move
+                let sb1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+                g.objs.aliens[idx as usize].sbyte1 = sb1;
+                if sb1 == 0 {
+                    g.objs.aliens[idx as usize].stratstate += 1;
+                }
+                madbiker_move(g, idx);
+                return;
+            }
+            // 8 .waittwosecs
+            8 => {
+                let pz = mt_player_z(g);
+                let wz = g.objs.aliens[idx as usize].worldz;
+                let behind = wz.wrapping_add(10).wrapping_sub(pz) < 0;
+                mt_truck_accel(&mut g.objs.aliens[idx as usize], behind);
+                let sb = g.objs.aliens[idx as usize].sbyte2.wrapping_add(1);
+                g.objs.aliens[idx as usize].sbyte2 = sb;
+                if sb == 8 {
+                    g.objs.aliens[idx as usize].sbyte2 = 0;
+                    g.objs.aliens[idx as usize].stratstate += 1;
+                }
+                madbiker_move(g, idx);
+                return;
+            }
+            // 11 .randomjump
+            11 => {
+                g.objs.aliens[idx as usize].stratstate = if mt_jmp_random(g, 90) {
+                    6 // .repeat -> repeathere
+                } else {
+                    2 // boostit
+                };
+                continue;
+            }
+            _ => {
+                g.objs.aliens[idx as usize].stratstate = 6;
+                continue;
+            }
+        }
+    }
+}
+
+/// `.move` (DSTRATS.ASM:5193-5221): steer worldx by the lean (rotz), ease worldy
+/// toward the player, scroll, wall-bounce, clear sflag1.
+fn madbiker_move(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // worldx += sign_extend((-rotz) >> 2).
+        let neg = (al.rotz as i8).wrapping_neg();
+        let delta = (neg >> 2) as i16;
+        al.worldx = al.worldx.wrapping_add(delta);
+    }
+    let py = player(g).map(|p| p.worldy).unwrap_or(0);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sword2 = gv_fchase16(al.sword2, py, 1); // s_fchase_alvar2alvar sword2,player.worldy,1
+        al.worldy = al.sword2; // s_copy_alvar2alvar worldy,sword2
+    }
+    // float64 hover bob scoped.
+    add_player_z(g, idx);
+    madbiker_boundscheck(g, idx);
+    g.objs.aliens[idx as usize].sflags2 &= !MT_SFLAG1; // s_clr_alsflag sflag1
+    // updateengine scoped.
+}
+
+/// `.boundscheck` (DSTRATS.ASM:5166-5190): clamp against the right wall
+/// (maxpmoveX-16) and spin rotz on the bounce.
+fn madbiker_boundscheck(g: &mut Game, idx: u16) {
+    let maxx = wm16s(g, MT_MAXPMOVEX);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    if wx.wrapping_add(15).wrapping_sub(maxx) >= 0 {
+        // .hitwall
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = maxx.wrapping_sub(16);
+        // .genspark scoped.
+        al.rotz = al.rotz.wrapping_add(8);
+    }
+}
+
+/// `.hit` (DSTRATS.ASM:5125-5133): only weapon collisions damage the bike;
+/// player-body contact sets nohitaffect. Always latches sflag1 (a "hit this
+/// frame" marker cleared in `.move`).
+fn madbiker_hit(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 |= MT_SFLAG1;
+    let is_weapon = match fb_read_obj(g, g.objs.aliens[idx as usize].collobjptr) {
+        Some(c) => g.objs.aliens[c as usize].collflags & ACF_WEAPON != 0,
+        None => false,
+    };
+    if is_weapon {
+        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+        strat_hit_flash(g, idx);
+    } else {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags &= !ASF_COLLIDE;
+    }
+}
+
+/// `.explode` (DSTRATS.ASM:5136-5140): revive to 1hp under a spinning-crash
+/// strat so the wreck tumbles before the real explosion.
+fn madbiker_explode(g: &mut Game, idx: u16) {
+    let s = sid(g, madbiker_konostrat);
+    let sc = sid(g, strat_hit_flash);
+    let se = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(sc);
+        al.expstratptr = Some(se);
+        al.sword2 = 0;
+        al.hp = 1;
+        al.collflags &= !COLLTYPE_ENEMY2;
+    }
+    madbiker_konostrat(g, idx);
+}
+/// `.konostrat` (DSTRATS.ASM:5141-5164): drift back (sword2 accel), fall,
+/// tumble rotx, and flip over via sflag6 before dying into explode_istrat.
+fn madbiker_konostrat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_sub(al.sword2);
+        al.sword2 = al.sword2.wrapping_add(3);
+    }
+    // s_falldown_Yvec x,1,#4,#-25,explode_istrat.
+    if boss2_falldown_yvec(g, idx, 1, 4, -25) {
+        strat_explode(g, idx);
+        return;
+    }
+    add_player_z(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = al.worldy.wrapping_add(al.vy);
+        al.rotx = al.rotx.wrapping_add(4);
+    }
+    if g.objs.aliens[idx as usize].sflags3 & MT_SFLAG6 != 0 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = al.rotx.wrapping_add(24);
+        if al.rotx < 24 {
+            // .killit: hp0 + colldisable -> explode_istrat next tick.
+            al.hp = 0;
+            al.sflags |= ASF_COLLDISABLE;
+            return;
+        }
+    }
+    // .noflip: latch sflag6 once (worldy+25) low byte is non-negative.
+    let low = (g.objs.aliens[idx as usize].worldy.wrapping_add(25) as u16 & 0xff) as u8;
+    if low & 0x80 == 0 {
+        g.objs.aliens[idx as usize].sflags3 |= MT_SFLAG6;
+    }
+}
+// MADTRUCKER_END
+
 /// Register a strategy on the world registry, deduping by fn identity
 /// (World-level twin of [`sid`], used when only the World is available).
 fn wsid(world: &mut World, f: StrategyFn) -> StratId {
@@ -8535,6 +9595,15 @@ pub fn register(world: &mut World) {
     // seadragon plain variant — mother-spawned children (mothers.rs mother_snakes).
     let sd = wsid(world, sd_seadragon_init);
     world.register_strategy_address(STRAT_ADDR_SEADRAGON, sd);
+    // madtrucker family (Route 2 L6 trucker road). Both the truck and the escort
+    // bikes resolve through the synthetic 0x0500xx strategy-address table
+    // (TRUCKER.ASM / route2/submaps.rs) — no def_istrat row is used. madbiker is
+    // ALSO reached as a runtime transition from bike2 (the truck's spawned
+    // escorts), but is registered here for the map-placed bikes too.
+    let mt = wsid(world, madtrucker_init);
+    world.register_strategy_address(STRAT_ADDR_MADTRUCKER, mt);
+    let mb = wsid(world, madbiker_init);
+    world.register_strategy_address(STRAT_ADDR_MADBIKER, mb);
 }
 
 // ============================================================
