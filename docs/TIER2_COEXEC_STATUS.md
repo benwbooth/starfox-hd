@@ -9,8 +9,10 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**21 tests, all green** — 6 named strats
-certified vs retail; see UPDATE 3). Nothing committed.
+`rust/sf-oracle/tests/coexec_retail.rs` (**24 tests, all green** — 7 named strats
++ the runtime RNG stream certified vs retail; see UPDATE 3 and UPDATE 4). The
+player-relative + RNG state-seeding frontier is CLEARED (UPDATE 4). Nothing
+committed.
 
 ## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
 
@@ -124,6 +126,10 @@ tick-for-tick vs the retail cart, spanning three *new* footprint shapes.
 | 4 | `gnd_Istrat` | $08:F15D | init-only | *(none)* | stratptr, type, sflags2 (+coll/exp) | 1 |
 | 5 | `hardrot_strat` | $06:8614 | rotate | *(none)* | rotx/y/z, sbyte1/2/3 | 300 |
 | 6 | `straight_strat` | $0B:8D00 | mover+scroll | `pviewvelz` | worldx/y/z, vx/vy/vz | 30 |
+| 7 | `parajump_strat` | $04:F851 | player-relative | `player_posx/y`, `PLAYPT`→player Z | worldx, worldy | 90 |
+
+Plus the runtime **RNG stream** (`RANDOM` $02:FC5C) certified bit-exact vs the
+port `sf_random` — see UPDATE 4 for the player-pos + RNG state-seeding frontier.
 
 Plus the synthetic-but-dispatched `addalvecs_l` motion integrator and the full
 `dostrats` pipeline (UPDATE 1). **Newly-located retail globals/offsets:**
@@ -151,6 +157,74 @@ retail↔built↔port). Leaf `set_0collptrsx_l`=$1F:D450.
   `pviewvelz`; writes `al_worldx/y/z`. The Istrat's `gen_3dvecs` (GSU) sets the
   velocity ONCE; the per-tick body is pure CPU move+scroll, so seeding vx/vy/vz
   directly sidesteps the GSU entirely.
+
+## UPDATE 4 — FRONTIER CLEARED: player-relative + RNG state seeding
+
+The hardest tier-2 step is done: the retail machine state a **player-relative**
+or **RNG-driven** strat depends on is now LOCATED, SEEDED, and CERTIFIED against
+the port. Three new tests (`coexec_retail` now **24, all green**), the seeding
+helper `seed_player_relative_state`, and the first player-position-relative
+strat certified tick-for-tick vs retail.
+
+### Located globals — retail ↔ port
+| Global | Retail WRAM | Built | Port | How located / cross-validated |
+|------|------|------|------|------|
+| `player_posx` | **$150D** | $1598 | `g.vars.player_posx` | 37 abs reads (built 38); `parajump_strat` `lda $150D` operand |
+| `player_posy` | **$150F** | $159A | `g.vars.player_posy` | 34 abs reads (built 32); `parajump_strat` `lda $150F` operand |
+| `player_posz` | **$1511** | $159C | `g.vars.player_posz` | 25 abs reads (built 24); leaf `worldz += $1511` ($07:9808) |
+| `PLAYPT` (player-obj ptr) | **$1238** | $12C3 | slot 0 (`objs.player()`=`aliens[0]`) | `parajump_strat` `ldy $1238` operand |
+| RNG `rand` (SWB state) | **$EF-$F2** (zeropage) | $DE-$E1 | `g.vars.rng: [u8;4]` | masked SWB-skeleton scan (dp operands wildcarded) |
+| `RANDOM` / `RANDOM_L` | **$02:FC5C / $02:FC58** | $02:F7BF / $02:F7BB | `common::sf_random` | wrapper `jsr;rtl` is `jsl`-called 288× (the runtime PRNG) |
+
+`player_pos*` are a contiguous x,y,z word triple (identical shape to built);
+most `dostrats` globals shifted retail = built − $8B (`player_pos`, `PLAYPT`,
+`pviewvelz/posz`), but NOT all (`gameframe` shifted −$85), so each was derived
+independently, never by a blanket offset. **KEY DISCOVERY:** retail's runtime
+`rand` moved to zeropage **$EF-$F2** (built $DE-$E1) — and that OVERLAPS the
+`call` harness's direct-page param block ($F0-$F5), so a RANDOM stream must
+carry its SWB state manually (seed $EF directly + inject $F0/$F1/$F2 via the
+entry A/X regs each call). `seed_retail_rng` / `retail_random_next` handle this.
+
+### Seeding infrastructure (`retail.rs`)
+`seed_player_relative_state(bus, px, py, pz, rng_seed)` writes the three
+`player_pos*` mirror globals + the 4-byte `rand` state into retail WRAM. Port
+equivalent: `g.vars.player_pos* = …; g.vars.rng = rng_seed;` (+ a live player
+object at slot 0 if the strat reads the player's world coords via `PLAYPT`).
+
+### Certified (frontier)
+| # | Cert (test) | Status | What it proves |
+|---|------|------|------|
+| — | `retail_player_rng_globals` | ✅ | Locates + cross-validates all 6 addresses above by signature scan. |
+| 7 | `retail_rng_stream_vs_port` | ✅ **MATCH** | Retail `RANDOM` ($02:FC5C) vs port `common::sf_random`, seeded identically: bit-identical streams over 16 draws × 4 seeds (incl. all-0 and the all-$FF fixed point). **RNG seeding infra proven — streams stay in lockstep.** |
+| 8 | `retail_parajump_player_relative_vs_port` | ✅ **MATCH** | First PLAYER-POSITION-relative strat. Retail `parajump_strat` ($04:F851) reads `player_posy`/`player_posx` (proportional chases) + `PLAYPT`→player Z (distance gate). Seeded both sides; `worldx`+`worldy` **MATCH over 90 ticks**, converging to the seeded player pos (5000,−3000). Called DIRECTLY (surgical, X=enemy block) so seeded `player_pos*` survives (a full `dostrats` walk would rerun the player strats that recompute them). |
+
+### Generalized method — certifying a player-relative / RNG strat vs retail
+1. **Read the port strat's footprint** (`sf-strat/src/*.rs`): which `player_pos*`
+   it reads, whether it draws RNG (and how many draws, in what order), whether
+   it reads the live player object (→ needs `PLAYPT` + a seeded slot-0/slot-1
+   object). Pure-integer player-pos strats are easiest; trig/aim (`angle_xz`)
+   and GSU-in-tick are harder.
+2. **Locate the retail body** by masked scan; read its `lda player_pos*` / `ldy
+   PLAYPT` / `jsl RANDOM_L` operands back out to self-validate the addresses.
+3. **Seed both sides identically** with `seed_player_relative_state`; if the
+   strat reads the player object, `wram_write16(PLAYPT, block)` + seed that block.
+4. **Call the strat DIRECTLY** (surgical, `call(bus, addr, Entry{x:block})`) —
+   NOT the full `dostrats` walk — so the seeded `player_pos*` is not clobbered by
+   the frame's player strats. Diff object fields per tick. For an RNG strat,
+   carry the `rand` state across the harness param-block collision.
+
+### GAP MAP — the RNG lane is only HALF wired (high-value finding)
+The port has **two** RNG implementations, and the enemy lane is on the WRONG one:
+- `common::sf_random(&mut g.vars.rng)` = the correct 4-byte **SWB chain** (proven
+  == retail here). Used by the boss/player lanes (commit 67a4524).
+- `enemy_a::ea_random(g)` = the OLD **build-time LCG** (`rnd*91+$61D7`) over a
+  separate compat-WRAM slot (`RNDVAL`), NOT the runtime PRNG. **Every enemy-lane
+  RNG-driven strat still calls `ea_random`** (e.g. `firepillar_init` draws 3,
+  `mother` 4, `volrock`/`player` spread strats) — so those would DESYNC from
+  retail's SWB stream. This is the precise remaining gap for RNG-driven ENEMY
+  strats: swap `ea_random` → `sf_random` (over `g.vars.rng`) at those call sites,
+  then re-certify with the now-proven RNG seeding infra. (The seeding + stream
+  infra is done; the port-side rewire is a sf-strat change, out of scope here.)
 
 ### Remaining blockers for HARDER strats (beyond `stayrel`)
 - **RNG-driven strats** (dodge/aim jitter): need the retail RNG state global

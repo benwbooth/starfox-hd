@@ -301,6 +301,96 @@ pub const RETAIL_STRAIGHT_ISTRAT: u32 = 0x0B_8CE1;
 /// relative, NO GSU in the tick (gen_3dvecs runs only in the Istrat).
 pub const RETAIL_STRAIGHT_STRAT: u32 = 0x0B_8D00;
 
+// ------------------------------------------------------------------------
+// PLAYER-RELATIVE + RNG FRONTIER — the machine-state seeding infrastructure.
+//
+// Everything above touches at most `pviewvelz`/`pviewposz` (view-scroll
+// globals) or pure struct offsets. The next tier of strats reads the PLAYER
+// POSITION mirror (`player_posx/y/z`) and/or draws the runtime RNG. Both need
+// their retail WRAM state located + seeded so the port and the cart start
+// byte-identical. All addresses below were re-derived from the retail cart.
+// ------------------------------------------------------------------------
+
+/// Retail `player_posx/y/z` — the player-position MIRROR globals (built
+/// PLAYER_POSX/Y/Z = $1598/$159A/$159C). Written each frame by `init_strats_l`
+/// from the player object; read by player-relative enemy strats. Located by:
+///  * the same -$8B shift the other `dostrats` globals show (built - $8B), and
+///  * INDEPENDENTLY: retail has 37/34/25 absolute reads of $150D/$150F/$1511
+///    (matching built's 38/32/24 reads of $1598/$159A/$159C), and the leaf
+///    `worldz += $1511` ($07:9808) + `parajump_strat`'s own operands
+///    (`lda $150F` / `lda $150D`) read these exact addresses. Contiguous words
+///    exactly like built. Port ↔ `g.vars.player_posx/y/z`.
+pub const RETAIL_PLAYER_POSX: u32 = 0x150D;
+pub const RETAIL_PLAYER_POSY: u32 = 0x150F;
+pub const RETAIL_PLAYER_POSZ: u32 = 0x1511;
+/// Retail `PLAYPT` ($1238) — the player-OBJECT pointer (built PLAYPT $12C3, the
+/// -$8B shift). `do_strat_l`/`init_strats` set it to the player block; strats
+/// that need the player's live world coords (`parajump`'s Z-distance gate)
+/// `ldy PLAYPT; lda al_worldz,y`. Read straight out of `parajump_strat`'s
+/// `ldy` operand. Port ↔ slot 0 (`g.objs.player()` = `aliens[0]`).
+pub const RETAIL_PLAYPT: u32 = 0x1238;
+
+/// Retail runtime RNG `RANDOM` ($02:FC5C) + its far wrapper `RANDOM_L`
+/// ($02:FC58 = `jsr RANDOM; rtl`, 288 `jsl` refs — the heavily-used runtime
+/// PRNG). The algorithm is the 4-byte **subtract-with-borrow chain** proven in
+/// tests/random.rs (`A=rand0; clc; sbc rand1->rand1; sbc rand2->rand2;
+/// sbc rand3->rand3; sbc rand0(orig)->rand0; return A`) — byte-for-byte the
+/// same routine as the built ROM's `RANDOM` ($02:F7BF), EXCEPT the state lives
+/// at a DIFFERENT zeropage address: retail `rand` = **$EF-$F2**, built = $DE-$E1.
+/// Found by a masked scan of the SWB skeleton with the direct-page operands
+/// wildcarded (2 hits; the referenced one, jsr-wrapped, is the live PRNG). The
+/// port's `sf_strat::common::sf_random` runs the identical algorithm over
+/// `g.vars.rng: [u8;4]`, so seeding both with the same 4 bytes keeps the two
+/// streams in lockstep.
+pub const RETAIL_RANDOM_L: u32 = 0x02_FC58;
+pub const RETAIL_RANDOM: u32 = 0x02_FC5C;
+/// Retail `rand` zeropage state ($EF-$F2, 4 bytes). NOTE: this OVERLAPS the
+/// [`call`] harness's direct-page param block ($F0-$F5), so a stream of RANDOM
+/// calls must re-inject the carried state each call (seed $EF directly + encode
+/// $F0/$F1/$F2 into the entry A/X regs) — see [`seed_retail_rng`] and
+/// tests/coexec_retail.rs::retail_rng_stream_vs_port.
+pub const RETAIL_RAND: u32 = 0x00EF;
+
+/// Retail `parajump_strat` ($04:F851 — same address as the built ROM; this ROM
+/// region did not shift). The first PLAYER-POSITION-relative strat certified.
+/// Body (all integer, no GSU/trig):
+///  * `al_worldy = achase_proportional(al_worldy, player_posy, rate 2)`
+///    (leaf $1F:D66F),
+///  * `ldy PLAYPT; if |player.worldz - al_worldz| < 200`:
+///    `al_worldx = achase_proportional(al_worldx, player_posx, rate 3)`
+///    (leaf $1F:D6AB).
+/// Reads `player_posy`($150F), `player_posx`($150D), `PLAYPT`($1238)→player Z.
+/// Port ↔ `sf_strat::enemy_a::parajump_strat` (a direct composition of the
+/// public `common::strat_chase_proportional`).
+pub const RETAIL_PARAJUMP_STRAT: u32 = 0x04_F851;
+
+/// Seed the player-relative + RNG machine state into retail WRAM so a
+/// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
+/// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.
+///
+/// The port equivalent is: `g.vars.player_posx = px; ...player_posy = py;
+/// ...player_posz = pz; g.vars.rng = rng_seed;` (+ a live player object at
+/// slot 0 if the strat reads the player's world coords through `PLAYPT`).
+pub fn seed_player_relative_state(
+    bus: &mut SnesBus,
+    px: i16,
+    py: i16,
+    pz: i16,
+    rng_seed: [u8; 4],
+) {
+    bus.wram_write16(RETAIL_PLAYER_POSX, px as u16);
+    bus.wram_write16(RETAIL_PLAYER_POSY, py as u16);
+    bus.wram_write16(RETAIL_PLAYER_POSZ, pz as u16);
+    seed_retail_rng(bus, rng_seed);
+}
+
+/// Write the retail runtime-RNG state (`rand`, $EF-$F2) into WRAM.
+pub fn seed_retail_rng(bus: &mut SnesBus, rng_seed: [u8; 4]) {
+    for (i, &b) in rng_seed.iter().enumerate() {
+        bus.write8(RETAIL_RAND + i as u32, b);
+    }
+}
+
 /// Retail `runmario_l` — the RAM-resident GSU trampoline. Two addresses:
 ///  * ROM copy-source `$02:9D56` — where the 35-byte routine is stored in the
 ///    cart (`sta.l m_pbr; phb; ldb #0; lda mario_draw_mode; ora #$18;

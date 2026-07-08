@@ -728,6 +728,10 @@ use sf_oracle::{
     AL_ROTX, AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE2, AL_SBYTE3, RETAIL_HARDROT_STRAT,
     RETAIL_STRAIGHT_ISTRAT, RETAIL_STRAIGHT_STRAT,
 };
+use sf_oracle::{
+    seed_player_relative_state, RETAIL_PARAJUMP_STRAT, RETAIL_PLAYER_POSX, RETAIL_PLAYER_POSY,
+    RETAIL_PLAYER_POSZ, RETAIL_PLAYPT, RETAIL_RANDOM_L, RETAIL_RAND,
+};
 
 /// Scan `rom` for a masked byte pattern (`None` = wildcard byte). Returns ROM
 /// file offsets of every match.
@@ -1387,5 +1391,199 @@ fn retail_straight_strat_vs_port() {
     match first_div {
         None => eprintln!("BATCH2 straight: MATCH — retail == port worldx/y/z over {N} ticks (final {},{},{})", o.worldx, o.worldy, o.worldz),
         Some((t, f, r, p)) => panic!("straight diverged tick {t} {f}: retail={r} port={p}"),
+    }
+}
+
+// ============================================================================
+// FRONTIER — PLAYER-RELATIVE + RNG STATE SEEDING (tier-2 hardest step).
+//
+// The 6 strats above touch at most the view-scroll globals (`pviewvelz`/
+// `pviewposz`) or pure struct offsets. This section unblocks the bulk of the
+// remaining strats: those that read the PLAYER POSITION mirror (`player_pos*`)
+// and/or draw the runtime RNG. It (1) locates + cross-validates those retail
+// WRAM addresses, (2) certifies the RNG STREAM stays in lockstep with the port,
+// and (3) certifies the first PLAYER-POSITION-relative named strat, `parajump`.
+// ============================================================================
+
+/// MILESTONE (frontier step 1) — LOCATE + CROSS-VALIDATE the player-position
+/// mirror globals (`player_posx/y/z`, `PLAYPT`) and the runtime-RNG state
+/// (`RANDOM` + `rand`) in the retail cart by signature scan.
+#[test]
+fn retail_player_rng_globals() {
+    let Some(rom) = retail() else { return };
+
+    // --- RNG: the 4-byte SWB skeleton with the direct-page operands wildcarded.
+    //   A5 d0 18 E5 d1 85 d1 E5 d2 85 d2 E5 d3 85 d3 E5 d0 85 d0 60
+    let rng_pat: Vec<Option<u8>> = vec![
+        Some(0xA5), None, Some(0x18), Some(0xE5), None, Some(0x85), None, Some(0xE5), None,
+        Some(0x85), None, Some(0xE5), None, Some(0x85), None, Some(0xE5), None, Some(0x85), None,
+        Some(0x60),
+    ];
+    // The genuine PRNG is the one whose `jsr RANDOM; rtl` wrapper is `jsl`-called.
+    let mut found: Option<(u32, u8)> = None;
+    for &h in &masked_scan(&rom, &rng_pat) {
+        let snes = rom_off_to_snes(h);
+        // The near-jsr wrapper sits 4 bytes before (`20 lo hi 6b`).
+        let (lo, hi) = (snes as u8, (snes >> 8) as u8);
+        let wrapper = masked_scan(&rom, &[Some(0x20), Some(lo), Some(hi), Some(0x6B)]);
+        if let Some(&w) = wrapper.first() {
+            let ws = rom_off_to_snes(w);
+            let (wlo, whi, wbk) = (ws as u8, (ws >> 8) as u8, (ws >> 16) as u8);
+            let refs = masked_scan(&rom, &[Some(0x22), Some(wlo), Some(whi), Some(wbk)]);
+            if refs.len() > 50 {
+                found = Some((snes, rom[h + 1])); // rom[h+1] = rand[0] dp addr
+            }
+        }
+    }
+    let (random, rand0) = found.expect("live retail RANDOM");
+    eprintln!("FRONTIER: RANDOM=${random:06X} rand=${rand0:02X}-${:02X}", rand0 + 3);
+    assert_eq!(random, RETAIL_RANDOM_L + 4, "RANDOM near-entry is RANDOM_L+4");
+    assert_eq!(rand0 as u32, RETAIL_RAND, "retail rand state at $EF");
+
+    // --- player_pos: 37/34/25 absolute reads of $150D/$150F/$1511 (the same
+    // relative counts as the built ROM's $1598/$159A/$159C), and `parajump_strat`
+    // reads them as its chase targets. Read the operands straight out of
+    // `parajump_strat` ($04:F851) — self-validating.
+    let po = snes_to_rom_off(RETAIL_PARAJUMP_STRAT);
+    // Confirm the parajump skeleton head: rep;lda worldy,x;sta $3A;lda player_posy.
+    assert_eq!(&rom[po..po + 7], &[0xC2, 0x20, 0xB5, 0x0E, 0x85, 0x3A, 0xAD], "parajump head");
+    let posy = rom[po + 7] as u32 | ((rom[po + 8] as u32) << 8);
+    let playpt = rom[po + 18] as u32 | ((rom[po + 19] as u32) << 8);
+    let posx = rom[po + 52] as u32 | ((rom[po + 53] as u32) << 8);
+    eprintln!("FRONTIER: parajump player_posy=${posy:04X} player_posx=${posx:04X} PLAYPT=${playpt:04X}");
+    assert_eq!(posy, RETAIL_PLAYER_POSY, "parajump reads player_posy=$150F");
+    assert_eq!(posx, RETAIL_PLAYER_POSX, "parajump reads player_posx=$150D");
+    assert_eq!(playpt, RETAIL_PLAYPT, "parajump reads PLAYPT=$1238");
+    // player_pos is a contiguous x,y,z word triple (identical shape to built).
+    assert_eq!(RETAIL_PLAYER_POSY, RETAIL_PLAYER_POSX + 2);
+    assert_eq!(RETAIL_PLAYER_POSZ, RETAIL_PLAYER_POSX + 4);
+}
+
+/// Draw one value from retail's runtime PRNG, carrying the 4-byte SWB state
+/// manually so it survives the [`call`] harness's direct-page param block
+/// ($F0-$F5), which OVERLAPS retail's `rand` ($EF-$F2). We seed `rand[0]` at $EF
+/// directly (outside the block) and inject `rand[1..4]` through the entry A/X
+/// registers, which the harness lands at $F0/$F1/$F2 right before `RANDOM` runs;
+/// then we read the advanced state back out. Returns the PRNG byte.
+fn retail_random_next(bus: &mut SnesBus, s: &mut [u8; 4]) -> u8 {
+    bus.write8(RETAIL_RAND, s[0]); // $EF (safe: below the param block)
+    // Harness writes entry.a -> $F0/$F1, entry.x -> $F2/$F3 before `RANDOM` runs.
+    let a = s[1] as u16 | ((s[2] as u16) << 8);
+    let x = s[3] as u16;
+    let e = call(bus, RETAIL_RANDOM_L, &Entry { a, x, p: 0x20, ..Default::default() });
+    // RANDOM wrote the advanced state back to $EF-$F2; read it for the next draw.
+    for i in 0..4 {
+        s[i] = bus.read8(0x7E_0000 | (RETAIL_RAND + i as u32));
+    }
+    e.a
+}
+
+/// CAPSTONE (frontier) — RETAIL runtime RNG STREAM vs THE PORT, in lockstep.
+///
+/// Certifies that the retail cart's OWN `RANDOM` ($02:FC5C, the 288-refs runtime
+/// PRNG) produces the identical stream to the port's `sf_strat::common::sf_random`
+/// when both are seeded with the same 4-byte state. This is the RNG-seeding
+/// infrastructure that unblocks every RNG-driven strat: seed both sides, and the
+/// two streams stay bit-identical draw-for-draw. Four seeds incl. all-zero and
+/// all-ones.
+#[test]
+fn retail_rng_stream_vs_port() {
+    let Some(rom) = retail() else { return };
+    use sf_game::vars::GameVars;
+    const N: usize = 16;
+    for seed in [[1u8, 2, 3, 4], [0xAB, 0xCD, 0xEF, 0x12], [0, 0, 0, 0], [0xFF, 0xFF, 0xFF, 0xFF]] {
+        // Retail: draw N via the real cart routine, carrying the SWB state.
+        let mut bus = SnesBus::new(rom.clone());
+        let mut rs = seed;
+        let romv: Vec<u8> = (0..N).map(|_| retail_random_next(&mut bus, &mut rs)).collect();
+        // Port: the wired SWB RNG over g.vars.rng.
+        let mut vars = GameVars::default();
+        vars.rng = seed;
+        let portv: Vec<u8> = (0..N).map(|_| sf_strat::common::sf_random(&mut vars) as u8).collect();
+        eprintln!("FRONTIER RNG seed {seed:02X?}\n  retail {romv:02X?}\n  port   {portv:02X?}  {}",
+            if romv == portv { "MATCH" } else { "DIFF" });
+        assert_eq!(romv, portv, "retail RNG stream must match port sf_random for seed {seed:02X?}");
+    }
+    eprintln!("FRONTIER RNG: seed both sides identically -> streams stay in lockstep. RNG frontier UNBLOCKED.");
+}
+
+/// CAPSTONE (frontier) — THE FIRST PLAYER-POSITION-RELATIVE STRAT, `parajump`,
+/// certified vs retail, TICK-FOR-TICK.
+///
+/// `parajump_strat` ($04:F851) reads the player-position mirror (`player_posy`
+/// $150F for the Y chase, `player_posx` $150D for the X chase) AND the live
+/// player object through `PLAYPT` ($1238) for a Z-distance gate — the exact
+/// player-relative footprint the frontier is about. We seed:
+///  * `player_posx/y/z` via [`seed_player_relative_state`],
+///  * a live player OBJECT at slot 1 with `PLAYPT` pointing at it, at the SAME
+///    worldz as the enemy (|dz| = 0 < 200) so BOTH chases run,
+///  * an enemy object at slot 0 far from the player in X/Y so the proportional
+///    chases run for many ticks.
+///
+/// We call retail `parajump_strat` DIRECTLY (surgical, X = enemy block) — not
+/// the full `dostrats` walk — precisely because a full walk would run the player
+/// strats that RECOMPUTE `player_pos*` from the player object each frame, which
+/// would fight our directly-seeded values. The port model mirrors sf-strat's
+/// `enemy_a::parajump_strat` exactly: two applications of the PUBLIC
+/// `common::strat_chase_proportional` (rate 2 toward player_posy, rate 3 toward
+/// player_posx). Diff `worldx`+`worldy` per tick.
+#[test]
+fn retail_parajump_player_relative_vs_port() {
+    let Some(rom) = retail() else { return };
+    use sf_strat::common::strat_chase_proportional as chasep;
+
+    // Player at (px,py,pz); targets the enemy chases toward.
+    let (px, py, pz) = (5000i16, -3000i16, 8000i16);
+    // Enemy starts far in X/Y, SAME worldz as the player => |dz| = 0 < 200.
+    let (ex0, ey0, ez) = (-4000i16, 9000i16, pz);
+
+    let mut bus = SnesBus::new(rom);
+    let enemy = RETAIL_POOL.base; // slot 0 block ($0336) — X for the strat call
+    let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride; // slot 1 block
+
+    // Seed player_pos globals + rng (rng unused here) + the player object/pointer.
+    seed_player_relative_state(&mut bus, px, py, pz, [0; 4]);
+    bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+    bus.wram_write16(player_blk + RETAIL_POOL.al_worldx, px as u16); // mirror
+    bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, pz as u16);
+    // Enemy object.
+    bus.wram_write16(enemy + RETAIL_POOL.al_worldx, ex0 as u16);
+    bus.wram_write16(enemy + RETAIL_POOL.al_worldy, ey0 as u16);
+    bus.wram_write16(enemy + RETAIL_POOL.al_worldz, ez as u16);
+
+    // Port model of enemy_a::parajump_strat (public helper composition).
+    let (mut pwx, mut pwy) = (ex0, ey0);
+
+    const N: u32 = 90;
+    let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+    for t in 1..=N {
+        // Retail: run the cart's OWN parajump_strat body (X = enemy block).
+        call(&mut bus, RETAIL_PARAJUMP_STRAT, &Entry { x: enemy as u16, p: 0x00, ..Default::default() });
+        let rwx = bus.wram_read16(enemy + RETAIL_POOL.al_worldx) as i16;
+        let rwy = bus.wram_read16(enemy + RETAIL_POOL.al_worldy) as i16;
+
+        // Port: worldy chase (rate 2) then, since |dz|=0<200, worldx chase (rate 3).
+        pwy = chasep(pwy, py, 2);
+        pwx = chasep(pwx, px, 3);
+
+        for (name, rv, pv) in [("worldx", rwx as i32, pwx as i32), ("worldy", rwy as i32, pwy as i32)] {
+            if rv != pv && first_div.is_none() {
+                first_div = Some((t, name, rv, pv));
+            }
+        }
+        if t == 1 || t == N || t % 30 == 0 {
+            eprintln!("FRONTIER parajump TICK {t:>2}: retail=({rwx},{rwy}) port=({pwx},{pwy})");
+        }
+    }
+    // Prove the chase actually converged toward the seeded player_pos (not a no-op).
+    let rwy = bus.wram_read16(enemy + RETAIL_POOL.al_worldy) as i16;
+    let rwx = bus.wram_read16(enemy + RETAIL_POOL.al_worldx) as i16;
+    assert!((rwy - py).abs() < (ey0 - py).abs(), "retail worldy chased toward player_posy");
+    assert!((rwx - px).abs() < (ex0 - px).abs(), "retail worldx chased toward player_posx");
+    match first_div {
+        None => eprintln!(
+            "FRONTIER parajump: MATCH — retail player-relative strat == port over {N} ticks (final worldx={rwx} worldy={rwy}). Player-pos frontier UNBLOCKED."
+        ),
+        Some((t, f, r, p)) => panic!("parajump diverged tick {t} {f}: retail={r} port={p}"),
     }
 }
