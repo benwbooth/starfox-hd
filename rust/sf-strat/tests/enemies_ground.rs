@@ -1745,3 +1745,282 @@ fn houdai5f_holds_fire_when_player_close() {
     tick(&mut g, h);
     assert!(!any_laser(&g), "no shot when the player is within 400 z");
 }
+
+// ============================================================
+// Door / wall / tree / woods scenery family.
+// ASM oracle: GASTRATS.ASM (woods:1381-1435), D2STRATS.ASM (kdoor:686-721),
+// DSTRATS.ASM (walls:968-1053, trees:1976-2063). ISTRAT rows: see the port's
+// section doc (woods=54, kdoor=140[ROM], kdoor2=141, wall{leftright,l,r}=
+// 75/76/77[ROM], tree1=204, tree2=205). Every expected value hand-derived from
+// the 65816 source. Scoped-out (never asserted): door sounds, trigse/movewall
+// sound, launch-flash/smoke meshes, wall_l/wall_r cosmetic mesh swap, and the
+// sprouty segment-chain / leaf-flower bloom for trees.
+// ============================================================
+
+const IS_WOODS: usize = 54;
+const IS_KDOOR: usize = 140;
+const IS_KDOOR2: usize = 141;
+const IS_WALLLEFTRIGHT: usize = 75;
+const IS_WALLL: usize = 76;
+const IS_WALLR: usize = 77;
+const IS_TREE1: usize = 204;
+const IS_TREE2: usize = 205;
+
+const SH_MISS_1_2: u16 = 9; // route3 common.rs SH_MISS_1_2 (woods)
+const SH_K_DOOR: u16 = 118; // rc.rs SH_K_DOOR
+const SH_STALK: u16 = 209; // route3 common.rs SH_STALK (trees)
+const SH_KICHI_0: u16 = 120; // massivebase mesh (kdoor2 removes it)
+
+const WOODS_HP: u8 = 2; // STRATEQU.INC:148
+const WOODS_AP: u8 = 8; // STRATEQU.INC:149
+const WALL1_AP: u8 = 16; // STRATEQU.INC:210
+const TREE1_AP: u8 = 8; // DSTRATS.ASM:99
+// (HARD_AP / ASF_NOHITAFFECT / ASF_COLLDISABLE / ASF_SHADOW / PSF_NOCTRL /
+// PSF_NOFIRE are already defined earlier in this test module.)
+const DEG22: u8 = 16; // deg360/16
+const DEG45: u8 = 32; // enemy_a DEG45
+
+// -------------------- woods (GASTRATS.ASM:1381-1435) --------------------
+
+#[test]
+fn woods_init_is_zenemy_obstacle_while_far() {
+    // Player z0, woods z3000 -> |dz|=3000 >= 2100 -> stays woods_strat
+    // (GASTRATS.ASM:1389 s_jmp_Zdistless #2100 falls through to s_end_strat).
+    let mut g = setup();
+    let w = place(&mut g, IS_WOODS, 0, 0, 3000, SH_MISS_1_2);
+    tick(&mut g, w); // init -> falls into woods_strat (stays, |dz| >= 2100)
+    let launcher = g.objs.aliens[w as usize].stratptr;
+    tick(&mut g, w); // still far -> stratptr stable, not converted
+    let a = g.objs.aliens[w as usize];
+    assert_eq!(a.hp, WOODS_HP, "s_set_aldata #woodsHP");
+    assert_eq!(a.ap, WOODS_AP, "s_set_aldata #woodsAP");
+    assert_ne!(a.collflags & COLLTYPE_ZENEMY, 0, "s_set_colltype Zenemy");
+    assert_eq!(a.stratptr, launcher, "still the woods launcher while far");
+    assert_eq!(a.snd2, 0, "not converted (woodsgo_init would set snd2=2)");
+    assert!(a.collstratptr.is_some(), "hitflash wired");
+    assert!(a.expstratptr.is_some(), "woodsexp wired");
+}
+
+#[test]
+fn woods_converts_to_homing_missile_when_close() {
+    // |dz|=1000 < 2100 -> woodsgo_init: swap tick, arm the 10-frame home timer,
+    // sound2=2 (GASTRATS.ASM:1392-1398).
+    let mut g = setup();
+    let istrat = g.world.istrats[IS_WOODS];
+    let w = place(&mut g, IS_WOODS, 0, 0, 1000, SH_MISS_1_2);
+    tick(&mut g, w);
+    let a = g.objs.aliens[w as usize];
+    assert_ne!(a.stratptr, istrat, "converted out of the launcher");
+    assert!(a.stratptr.is_some());
+    assert_eq!(a.sbyte1, 10, "s_set_alvar al_sbyte1,#10");
+    assert_eq!(a.snd2, 2, "set_sound2 #$2");
+}
+
+#[test]
+fn woods_death_explodes() {
+    // woodsexp_Istrat -> remove (no) child + explode -> aldead
+    // (GASTRATS.ASM:1431-1435).
+    let mut g = setup();
+    let w = place(&mut g, IS_WOODS, 0, 0, 3000, SH_MISS_1_2);
+    tick(&mut g, w); // run init (far, stays launcher)
+    let exp = g.objs.aliens[w as usize].expstratptr.unwrap();
+    g.objs.aldead = 0;
+    g.call_strat(exp, w);
+    assert_eq!(g.objs.aldead, 1, "woodsexp routes to explode");
+}
+
+// -------------------- kdoor / kdoor2 (D2STRATS.ASM:686-721) --------------------
+
+#[test]
+fn kdoor_init_is_closed_indestructible_door() {
+    // hardHP/hardAP, colldisable, anim 0; far (|dz|>=600) -> stays closed
+    // (D2STRATS.ASM:690-706).
+    let mut g = setup();
+    let k = place(&mut g, IS_KDOOR, 0, 0, 3000, SH_K_DOOR);
+    tick(&mut g, k);
+    let a = g.objs.aliens[k as usize];
+    assert_eq!(a.hp, HARDHP, "s_set_aldata #hardHP");
+    assert_eq!(a.ap, HARD_AP, "s_set_aldata #hardAP");
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "s_set_alsflag colldisable");
+    assert_eq!(a.animframe & 0x7F, 0, "closed (anim 0) while far");
+}
+
+#[test]
+fn kdoor_opens_when_player_close_then_clamps() {
+    // |dz|=100 < 600 -> s_add_anim x,#1,#8,.remove each tick: 0->1->..->7, then
+    // clamps at 7 (D2STRATS.ASM:707-710).
+    let mut g = setup();
+    let k = place(&mut g, IS_KDOOR, 0, 0, 100, SH_K_DOOR);
+    tick(&mut g, k); // init + first open step
+    assert_eq!(g.objs.aliens[k as usize].animframe & 0x7F, 1, "anim 0->1");
+    for _ in 0..20 {
+        tick(&mut g, k);
+    }
+    assert_eq!(g.objs.aliens[k as usize].animframe & 0x7F, 7, "clamps at max-1 (7)");
+}
+
+#[test]
+fn kdoor_closes_when_player_recedes() {
+    // Open a few steps, then move the player far -> s_cmp_anim #0 / s_add_anim
+    // x,#-1,#8 decrements toward 0 (D2STRATS.ASM:702-706).
+    let mut g = setup();
+    let k = place(&mut g, IS_KDOOR, 0, 0, 100, SH_K_DOOR);
+    for _ in 0..4 {
+        tick(&mut g, k); // open toward 4
+    }
+    let open = g.objs.aliens[k as usize].animframe & 0x7F;
+    assert!(open >= 3, "opened up first (got {open})");
+    g.objs.aliens[k as usize].worldz = 3000; // recede -> |dz| >= 600
+    tick(&mut g, k);
+    assert_eq!(g.objs.aliens[k as usize].animframe & 0x7F, open - 1, "closes one step");
+}
+
+#[test]
+fn kdoor2_restores_control_and_removes_kichi_when_open() {
+    // kdoor2 sets sflag1; once fully open .remove runs s_playerctrl on + removes
+    // the kichi_0 object (D2STRATS.ASM:686-689/711-721).
+    let mut g = setup();
+    let door = place(&mut g, IS_KDOOR2, 0, 0, 100, SH_K_DOOR);
+    let kichi = spawn(&mut g, 0, 0, 200, SH_KICHI_0);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE; // control was taken away
+    for _ in 0..20 {
+        tick(&mut g, door); // open fully -> .remove
+    }
+    assert_eq!(
+        g.vars.pshipflags & (PSF_NOCTRL | PSF_NOFIRE),
+        0,
+        "s_playerctrl on cleared the noctrl/nofire bits"
+    );
+    assert!(!g.objs.aliens[kichi as usize].active, "kichi_0 (massivebase) removed");
+}
+
+#[test]
+fn kdoor_plain_leaves_control_and_objects_alone() {
+    // kdoor (no sflag1): .remove hits .noflagclr -> no playerctrl / no removal
+    // (D2STRATS.ASM:712).
+    let mut g = setup();
+    let door = place(&mut g, IS_KDOOR, 0, 0, 100, SH_K_DOOR);
+    let kichi = spawn(&mut g, 0, 0, 200, SH_KICHI_0);
+    g.vars.pshipflags |= PSF_NOCTRL;
+    for _ in 0..20 {
+        tick(&mut g, door);
+    }
+    assert_ne!(g.vars.pshipflags & PSF_NOCTRL, 0, "plain kdoor never restores control");
+    assert!(g.objs.aliens[kichi as usize].active, "plain kdoor removes nothing");
+}
+
+// -------------------- walls (DSTRATS.ASM:968-1053) --------------------
+
+#[test]
+fn walll_init_faces_deg180_leans_left() {
+    // hardHP, wall1AP, roty deg180, nohitaffect, colanim 4, anim 1 (leans left)
+    // (DSTRATS.ASM:987-998). Placed far so no swing this tick.
+    let mut g = setup();
+    let w = place(&mut g, IS_WALLL, 0, 0, 3000, SH_MISS_1_2);
+    tick(&mut g, w);
+    let a = g.objs.aliens[w as usize];
+    assert_eq!(a.hp, HARDHP, "s_set_aldata #hardHP");
+    assert_eq!(a.ap, WALL1_AP, "s_set_aldata #wall1AP");
+    assert_eq!(a.roty, DEG180, "s_set_alvar al_roty,#deg180");
+    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "s_set_alsflag nohitaffect");
+    // init sets colanim 4, then the fall-through wall1_strat add_colanim +1 -> 5.
+    assert_eq!(a.colframe & 0x7F, 5, "s_init_colanim #4 then +1 same tick");
+    assert_eq!(a.animframe & 0x7F, 1, "s_init_anim #1 (leans left)");
+}
+
+#[test]
+fn walll_swings_left_when_player_close() {
+    // Within wall1DIST(600) xz -> walllr_i: anim 1 != 0 -> wallleft_strat swings
+    // roty toward -64(=192) by +16 (DSTRATS.ASM:1027-1040).
+    let mut g = setup();
+    let w = place(&mut g, IS_WALLL, 0, 0, 100, SH_MISS_1_2); // |dz|=100 -> xz<600
+    tick(&mut g, w); // init falls into wall1_strat -> wall_nothit -> swing latched
+    let a = g.objs.aliens[w as usize];
+    assert_eq!(a.roty, DEG180.wrapping_add(16), "swung +16 toward -64");
+}
+
+#[test]
+fn wallr_swings_right_when_player_close() {
+    // wallr anim 0 -> wallright_strat swings roty toward +64 by -16
+    // (DSTRATS.ASM:1043-1053).
+    let mut g = setup();
+    let w = place(&mut g, IS_WALLR, 0, 0, 100, SH_MISS_1_2);
+    tick(&mut g, w);
+    let a = g.objs.aliens[w as usize];
+    assert_eq!(a.animframe & 0x7F, 0, "wallr leans right (anim 0)");
+    assert_eq!(a.roty, DEG180.wrapping_sub(16), "swung -16 toward +64");
+}
+
+#[test]
+fn wallleftright_oscillates_lean_on_notdelay() {
+    // wall2_strat toggles animframe bit0 every 16 frames (notdelay 4). Placed far
+    // so wall_nothit is a no-op; drive on a /16 frame (DSTRATS.ASM:976-1019).
+    let mut g = setup();
+    let w = place(&mut g, IS_WALLLEFTRIGHT, 0, 0, 3000, SH_MISS_1_2);
+    // First tick runs init (falls into wall2_strat once). Land the flip on a
+    // notdelay(4) frame.
+    g.vars.gameframe = 16; // 16 & 15 == 0
+    tick(&mut g, w);
+    let a = g.objs.aliens[w as usize];
+    assert_eq!(a.hp, HARDHP, "wallleftright hp = -1 (indestructible)");
+    assert_eq!(a.animframe & 1, 1, "lean bit flipped on the /16 gate");
+}
+
+// -------------------- trees (DSTRATS.ASM:1976-2063) --------------------
+
+#[test]
+fn tree1_init_is_indestructible_sprout_scenery() {
+    // hp=tree1HP=hardHP(-1), ap=tree1AP, ENEMY1 + nohitaffect, root lowered by
+    // sprout_maxy/2, sbyte1 in [1,4], anim speed 2 (DSTRATS.ASM:2016-2043).
+    let mut g = setup();
+    let t = place(&mut g, IS_TREE1, 0, 100, 500, SH_STALK);
+    tick(&mut g, t); // init + first grow step
+    let a = g.objs.aliens[t as usize];
+    assert_eq!(a.hp, HARDHP, "tree1HP = hardHP (indestructible)");
+    assert_eq!(a.ap, TREE1_AP, "s_set_aldata #tree1ap");
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "s_set_colltype ENEMY1");
+    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "s_set_alsflag nohitaffect");
+    assert_eq!(a.worldy, 60, "root lowered by sprout_maxy/2 (100 - 40)");
+    assert!((1..=4).contains(&a.sbyte1), "height (rnd&3)+1 in [1,4]");
+    assert_eq!(a.sword1 as u16 & 0xff, 2, "anim speed 2 (sword1 lo)");
+    assert_eq!(a.sflags & ASF_SHADOW, 0, "tree1 casts no shadow (unlike tree2)");
+}
+
+#[test]
+fn tree1_trunk_grows_to_full_then_holds() {
+    // sprouty.strat .notsnake grow: +2 per tick, clamp/hold at 8
+    // (DSTRATS.ASM:2148-2149, scoped base-trunk grow).
+    let mut g = setup();
+    let t = place(&mut g, IS_TREE1, 0, 0, 500, SH_STALK);
+    for _ in 0..10 {
+        tick(&mut g, t);
+    }
+    assert_eq!(g.objs.aliens[t as usize].animframe & 0x7F, 8, "trunk grown to full and held");
+}
+
+#[test]
+fn tree2_tilts_toward_player_and_casts_shadow() {
+    // Player at x0. Tree2 right of player (x>0): self.worldx - px >= 0 ->
+    // .notthatway -> roty += -deg45; sets shadow (DSTRATS.ASM:1993-2004). Trees
+    // never set an absolute roty (unlike walls), so the tilt is relative to the
+    // map-placed base (0 here).
+    let mut g = setup();
+    let t = place(&mut g, IS_TREE2, 500, 0, 500, SH_STALK);
+    tick(&mut g, t);
+    let a = g.objs.aliens[t as usize];
+    assert_eq!(a.roty, 0u8.wrapping_sub(DEG45), "tilt -deg45 (right of player)");
+    assert_ne!(a.sflags & ASF_SHADOW, 0, "tree2 casts a shadow");
+    assert_eq!(a.sbyte2, DEG22, "sbyte2 = +deg22 overhang (not negated)");
+}
+
+#[test]
+fn tree2_tilts_other_way_when_left_of_player() {
+    // Tree2 left of player (x<0): self.worldx - px < 0 -> .otherway -> neg sbyte2,
+    // roty += deg45 (DSTRATS.ASM:1998-2001).
+    let mut g = setup();
+    let t = place(&mut g, IS_TREE2, -500, 0, 500, SH_STALK);
+    tick(&mut g, t);
+    let a = g.objs.aliens[t as usize];
+    assert_eq!(a.roty, DEG45, "tilt +deg45 (left of player, base 0)");
+    assert_eq!(a.sbyte2, DEG22.wrapping_neg(), "sbyte2 negated (-deg22)");
+}

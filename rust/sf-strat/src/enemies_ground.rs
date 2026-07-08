@@ -3743,6 +3743,465 @@ fn next_state(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// Door / wall / tree / woods scenery family.
+// ASM oracle (no C-oracle for any of these): GASTRATS.ASM (woods:1381-1435),
+// D2STRATS.ASM (kdoor/kdoor2:686-721), DSTRATS.ASM (walls:968-1053,
+// trees:1970-2063). Constants: STRATEQU.INC:66-68/148-149/210-211/980,
+// DSTRATS.ASM:98-99. Macro semantics per docs/AUDIT_BOSS_TICKS2_FINDINGS.
+//
+// ISTRAT def_istrat rows (macro-counted) vs sf-map placement (= the runtime
+// dispatch key, `world.istrats[]`). Where sf-map == ROM the strat is REACHABLE;
+// where sf-map's const collides with an already-registered strat it is a KNOWN
+// sf-map BUG (outside this lane's edit scope) and we register at the ROM-correct
+// free row per the misstank/trackcorner precedent (:2946):
+//   - woods         : ROM 54, sf-map IS_WOODS=54            -> REACHABLE @54.
+//   - kdoor2        : ROM 142, sf-map IS_KDOOR2=141 (free)  -> REACHABLE @141.
+//                     (sf-map's kichi2=140/kdoor2=141/massivebase=142 window is
+//                     uniformly -1 vs ROM because kdoor lost its slot below; 141
+//                     is self-consistent — the map places AND we register there.)
+//   - kdoor         : ROM 140. sf-map IS_KDOOR=139 COLLIDES with the registered
+//                     carrier (table.rs:176, IS_CARRIER=139). Registered at the
+//                     ROM-correct free row 140. UNREACHABLE until sf-map fixes
+//                     rc.rs:170 IS_KDOOR (139->140); today kdoor mapobjs resolve
+//                     to carrier. (kichi2's sf-map slot is 140 but kichi2 is
+//                     unregistered dead content, so 140 is free.)
+//   - wallleftright : ROM 75. walll ROM 76. wallr ROM 77. sf-map collapses ALL
+//                     THREE to IS_WALL*=105 (route3 common.rs:119-121) with a
+//                     proxy shape SH_WALL_1_PROXY — and 105 COLLIDES with the
+//                     registered hard180yr (rc.rs:165 IS_HARD180YR=105). This is
+//                     an unfinished sf-map placeholder; registered at the ROM
+//                     rows 75/76/77 (all free). UNREACHABLE until sf-map assigns
+//                     distinct non-colliding IS_ for the three walls.
+//   - tree1         : ROM 204, sf-map IS_TREE1=204           -> REACHABLE @204.
+//   - tree2         : ROM 205, sf-map IS_TREE2=205           -> REACHABLE @205.
+//
+// STATE MACHINES (per-fn cites):
+//   woods  : Zenemy obstacle; inside 2100 z converts ITSELF into a woodsgo
+//            homing missile (reuses the already-ported `woodsgo_strat`).
+//   kdoor  : proximity airlock — open anim 0->8 inside 600 z, close 8->0 out.
+//   kdoor2 : kdoor + sflag1: once fully open, restores player control and
+//            removes the kichi_0 (massivebase) object it gated.
+//   walll/ : swinging walls — swing roty toward -64 (left) / +64 (right) when
+//   wallr    the player is within wall1DIST(600) xz; toggle lean on being hit.
+//   wallleftright : oscillating wall — flips its lean every 16 frames.
+//   tree1/ : indestructible (tree1HP=hardHP=-1) ENEMY1 sprouting-tree scenery.
+//   tree2    Only the base trunk GROW is modelled (grow anim 0->8, then hold);
+//            the sprouty segment-chain (.strat2/.strat3), leaf/flower bloom
+//            (.bloom/.flower/createleaf/leaf_istrat) and fall-on-death are
+//            cosmetic spawn-in visuals SCOPED OUT — exactly as bosses.rs scoped
+//            the tree branch out of its snake-only sprouty port (bosses.rs:6920).
+// ============================================================
+
+const IS_WOODS: usize = 54;
+const IS_KDOOR: usize = 140; // ROM row; sf-map IS_KDOOR=139 collides carrier.
+const IS_KDOOR2: usize = 141; // sf-map IS_KDOOR2=141 (reachable).
+const IS_WALLLEFTRIGHT: usize = 75; // ROM row; sf-map=105 collides hard180yr.
+const IS_WALLL: usize = 76; // ROM row.
+const IS_WALLR: usize = 77; // ROM row.
+const IS_TREE1: usize = 204;
+const IS_TREE2: usize = 205;
+
+const WOODS_HP: u8 = 2; // STRATEQU.INC:148 woodsHP
+const WOODS_AP: u8 = 8; // STRATEQU.INC:149 woodsAP
+const WALL1_AP: u8 = 16; // STRATEQU.INC:210 wall1AP
+const WALL1_DIST: i16 = 600; // STRATEQU.INC:211 wall1DIST
+const TREE1_AP: u8 = 8; // DSTRATS.ASM:99 tree1AP (tree1HP = hardHP = -1)
+const SPROUT_MAXY: i16 = 80; // STRATEQU.INC:980 sprout_maxy
+
+/// `s_add_anim x,#amt,#max,label` (STRATLIB.INC:178, 4-arg jmp form): advance
+/// the low-7 anim frame; when it reaches `max`, CLAMP to `max-1` (keeping the
+/// 0x80 flag) and return true (the ROM branches to `label`). Otherwise store the
+/// new frame and return false. (Distinct from the 3-arg wrap form add_anim_wrap.)
+fn add_anim_cap(al: &mut Alien, amount: u8, maxframes: u8) -> bool {
+    let f = (al.animframe & 0x7F).wrapping_add(amount);
+    if f >= maxframes {
+        al.animframe = 0x80 | (maxframes - 1);
+        true
+    } else {
+        al.animframe = 0x80 | f;
+        false
+    }
+}
+
+/// `s_init_colanim x,#v` (STRATLIB.INC:83): al_colframe = v | 0x80.
+fn init_colanim(al: &mut Alien, v: u8) {
+    al.colframe = v | 0x80;
+}
+
+/// `s_add_colanim x,#amt,#max` (STRATLIB.INC:100, 3-arg wrap form): advance the
+/// low-7 collision-frame, single-subtract wrap at `max`, keep the 0x80 flag.
+fn add_colanim_wrap(al: &mut Alien, amount: u8, maxframes: u8) {
+    let mut f = (al.colframe & 0x7F).wrapping_add(amount);
+    if f >= maxframes {
+        f -= maxframes;
+    }
+    al.colframe = 0x80 | f;
+}
+
+/// `find_Y_l` (STRATROU.ASM): first ACTIVE alien whose shape == `shape`, or
+/// None (ROM returns dummyobj -> the `cpy dummyobj / beq` no-op).
+fn find_by_shape(g: &Game, shape: u16) -> Option<u16> {
+    (0..NUMBER_AL)
+        .find(|&i| g.objs.aliens[i].active && g.objs.aliens[i].shape == shape)
+        .map(|i| i as u16)
+}
+
+// ------------------------------------------------------------
+// woods (IS 54) — GASTRATS.ASM:1381-1435.
+// ------------------------------------------------------------
+
+/// `woods_Istrat` (GASTRATS.ASM:1381-1385): Zenemy obstacle, woodsHP/AP, hit=
+/// hitflash, death=woodsexp. No `s_end_strat` before `woods_strat` -> falls into
+/// the tick this frame.
+fn woods_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, woods_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, woodsexp_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_alptrs x,woods_strat,hitflash,woodsexp
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = WOODS_HP; // s_set_aldata #woodsHP,#woodsAP
+        al.ap = WOODS_AP;
+        al.collflags |= COLLTYPE_ZENEMY; // s_set_colltype x,Zenemy
+    }
+    woods_strat(g, idx); // fall-through
+}
+
+/// `woods_strat` (GASTRATS.ASM:1386-1390): wait inert until the player closes to
+/// within 2100 z, then hand off to `woodsgo_init`.
+fn woods_strat(g: &mut Game, idx: u16) {
+    // s_jmp_Zdistless x,y,#2100,woodsgo_init
+    if zdist_less(g, idx, 2100) {
+        woods_woodsgo_init(g, idx);
+    }
+    // else s_end_strat (keep waiting).
+}
+
+/// `woodsgo_init` (GASTRATS.ASM:1392-1398): convert THIS object into a homing
+/// missile — swap its tick to the ported `woodsgo_strat`, arm the 10-frame home
+/// timer, sound2=2. `makeMEDexpobj_srou` (launch-flash mesh) is cosmetic. Ends
+/// the tick (does NOT fall into woodsgo_strat this frame).
+fn woods_woodsgo_init(g: &mut Game, idx: u16) {
+    let wtick = sid(g, woodsgo_strat);
+    let exp = sid(g, strat_explode); // s_set_expstrat x,stopexplode_Istrat -> generic.
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(wtick); // s_set_strat x,woodsgo_strat
+    al.expstratptr = Some(exp);
+    al.sbyte1 = 10; // s_set_alvar al_sbyte1,#10
+    al.snd2 = 2; // set_sound2 x,#$2
+}
+
+/// `woodsexp_Istrat` (GASTRATS.ASM:1431-1435): remove the al_ptr child (woods
+/// has none, so this is a no-op in practice), then explode (smarkexplode ->
+/// generic).
+fn woodsexp_strat(g: &mut Game, idx: u16) {
+    let child_ref = g.objs.aliens[idx as usize].ptr;
+    if child_ref != 0 {
+        let child = child_ref - 1;
+        if (child as usize) < NUMBER_AL && g.objs.aliens[child as usize].active {
+            g.objs.free(child); // s_remove_obj y
+        }
+    }
+    strat_explode(g, idx); // s_jmp smarkexplode_Istrat
+}
+
+// ------------------------------------------------------------
+// kdoor (IS 140) / kdoor2 (IS 141) — D2STRATS.ASM:686-721.
+// ------------------------------------------------------------
+
+/// `kdoor2_istrat` (D2STRATS.ASM:686-689): set sflag1, then FALL THROUGH into
+/// kdoor_istrat (no s_end_strat before the label).
+fn kdoor2_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1; // s_set_alsflag x,sflag1
+    kdoor_init(g, idx);
+}
+
+/// `kdoor_istrat` (D2STRATS.ASM:690-696): tick=.strat, hit=hitflash, death=
+/// explode, hardHP/hardAP, colldisable, anim 0. Falls into the tick this frame.
+fn kdoor_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, kdoor_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_alptrs x,.strat,hitflash,explode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HARDHP; // s_set_aldata #hardHP,#hardAP
+        al.ap = HARD_AP;
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.animframe = 0x80; // s_init_anim x,#0
+    }
+    kdoor_strat(g, idx); // fall-through
+}
+
+/// `.strat` (D2STRATS.ASM:696-721): open the door anim (0->8, clamp) while the
+/// player is within 600 z; else close it (8->0). Door sounds are cosmetic. When
+/// fully open, `.remove` runs (kdoor2 only): restore control + drop the kichi_0.
+fn kdoor_strat(g: &mut Game, idx: u16) {
+    // lda #600 / dzdistless -> bcs .open : |dz| < 600 opens.
+    if zdist_less(g, idx, 600) {
+        // .open: s_dooropen_snd 0 (cosmetic) ; s_add_anim x,#1,#8,.remove
+        if add_anim_cap(&mut g.objs.aliens[idx as usize], 1, 8) {
+            kdoor_remove(g, idx);
+        }
+    } else {
+        // close: s_doorclose_snd 7 (cosmetic) ; s_cmp_anim #0 beq .end ;
+        // s_add_anim x,#-1,#8 (3-arg wrap; the #0 guard keeps it from wrapping).
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.animframe & 0x7F != 0 {
+            add_anim_wrap(al, 0xFF, 8); // -1
+        }
+    }
+}
+
+/// `.remove` (D2STRATS.ASM:711-721): only the sflag1 variant (kdoor2) restores
+/// player control and removes the gated kichi_0 (massivebase) object.
+fn kdoor_remove(g: &mut Game, idx: u16) {
+    // s_jmp_notalsflag x,sflag1,.noflagclr
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        return;
+    }
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE); // s_playerctrl on
+    // ldy #kichi_0 ; find_Y_l ; cpy dummyobj ; beq .end ; s_remove_obj y
+    if let Some(k) = find_by_shape(g, KICHI_0) {
+        g.objs.free(k);
+    }
+}
+
+// ------------------------------------------------------------
+// walll / wallr (IS 76 / 77) + wallleftright (IS 75) — DSTRATS.ASM:968-1053.
+// wall_l / wall_r cosmetic mesh ids (used by the swing) are NOT def_shape'd in
+// ISTRATS.ASM and unresolvable here, so the shape swap is omitted (the swing —
+// the gameplay behaviour — is faithful). movewallsound / trigse are cosmetic.
+// ------------------------------------------------------------
+
+/// `wallleftright_istrat` (DSTRATS.ASM:968-975): anim 0, tick=wall2_strat, hp=-1
+/// (indestructible), wall1AP, faces deg180, colanim 0. Falls into the tick.
+fn wallleftright_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, wall2_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.animframe = 0x80; // s_init_anim x,#0
+        al.stratptr = Some(tick); // s_set_alptrs x,wall2_strat,hitflash,explode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HARDHP; // s_set_aldata #-1,#wall1AP
+        al.ap = WALL1_AP;
+        al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+        init_colanim(al, 0); // s_init_colanim x,#0
+    }
+    wall2_strat(g, idx); // fall-through
+}
+
+/// `walll_istrat` (DSTRATS.ASM:987-990): anim 1 (leans left), then `wallin`.
+fn walll_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].animframe = 0x81; // s_init_anim x,#1
+    wall_in(g, idx);
+}
+
+/// `wallr_istrat` (DSTRATS.ASM:991-993): anim 0 (leans right), then `wallin`.
+fn wallr_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].animframe = 0x80; // s_init_anim x,#0
+    wall_in(g, idx);
+}
+
+/// `wallin` (DSTRATS.ASM:994-998): tick=wall1_strat, hardHP, wall1AP, faces
+/// deg180, colanim 4, nohitaffect. Falls into the tick this frame.
+fn wall_in(g: &mut Game, idx: u16) {
+    let tick = sid(g, wall1_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick); // s_set_alptrs x,wall1_strat,hitflash,explode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HARDHP; // s_set_aldata #hardHP,#wall1AP
+        al.ap = WALL1_AP;
+        al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+        init_colanim(al, 4); // s_init_colanim x,#4
+        al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag x,nohitaffect
+    }
+    wall1_strat(g, idx); // fall-through
+}
+
+/// `wall2_strat` (DSTRATS.ASM:976-982): the wallleftright oscillator — advance
+/// colanim, and every 16 frames (`notdelay 4`) run `wallchk` (flip the lean bit),
+/// then fall into `wallnothit`. On being hit (HF1) skip straight to wallnothit.
+fn wall2_strat(g: &mut Game, idx: u16) {
+    // s_test_hitflags x,#HF1 ; s_bne wallnothit
+    if g.objs.aliens[idx as usize].hitflags & HF1 != 0 {
+        wall_nothit(g, idx);
+        return;
+    }
+    add_colanim_wrap(&mut g.objs.aliens[idx as usize], 1, 4); // s_add_colanim x,#1,#4
+    // s_jmp_notdelay 4,wallnothit -> reach wallchk only on the /16 tick.
+    if notdelay(g, 4) {
+        wall_chk(&mut g.objs.aliens[idx as usize]); // s_jmp wallchk
+    }
+    wall_nothit(g, idx);
+}
+
+/// `wall1_strat` (DSTRATS.ASM:1000-1025): the walll/wallr wall — decay the hit
+/// debounce (sbyte4), keep colanim >= 4, and on a fresh HF1 hit (debounce clear)
+/// flip the lean bit + arm a 10-frame debounce. Always falls into wallnothit.
+fn wall1_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_beqdec al_sbyte4,.noinc (.noinc is the next line -> just decrements).
+        if al.sbyte4 != 0 {
+            al.sbyte4 -= 1;
+        }
+        add_colanim_wrap(al, 1, 8); // s_add_colanim x,#1,#8
+        // s_cmp_colanim #4 ; bcs .ok ; s_init_colanim #4 (clamp colanim >= 4).
+        if al.colframe & 0x7F < 4 {
+            init_colanim(al, 4);
+        }
+    }
+    // s_test_hitflags x,#HF1 ; s_beq wallnothit
+    if g.objs.aliens[idx as usize].hitflags & HF1 == 0 {
+        wall_nothit(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].hitflags &= !HF1; // s_clr_hitflags x,#HF1
+    // s_jmp_alvarNOTZERO al_sbyte4,wallnothit (debounce still active -> skip flip).
+    if g.objs.aliens[idx as usize].sbyte4 != 0 {
+        wall_nothit(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte4 = 10; // s_set_alvar al_sbyte4,#10
+    wall_chk(&mut g.objs.aliens[idx as usize]); // wallchk
+    wall_nothit(g, idx);
+}
+
+/// `wallchk` (DSTRATS.ASM:1014-1019): toggle animframe bit 0 (lean flip); trigse
+/// $57 is cosmetic.
+fn wall_chk(al: &mut Alien) {
+    al.animframe ^= 1;
+}
+
+/// `wallnothit` (DSTRATS.ASM:1021-1025 + walllr_i/wallleft/wallright:1027-1053):
+/// once the player is within wall1DIST(600) xz, latch the swing tick — animframe
+/// bit0 == 0 swings right (roty -> +64), else left (roty -> -64).
+fn wall_nothit(g: &mut Game, idx: u16) {
+    // s_jmp_distless x,y,#wall1DIST,walllr_i
+    if !xzdist_less(g, idx, WALL1_DIST) {
+        return; // s_end_strat
+    }
+    // walllr_i: s_cmp_anim #0 ; s_beq wallright_i (else wallleft_i).
+    if g.objs.aliens[idx as usize].animframe & 0x7F == 0 {
+        let t = sid(g, wallright_strat);
+        g.objs.aliens[idx as usize].stratptr = Some(t); // s_set_strat x,wallright_strat
+        wallright_strat(g, idx); // falls into it this frame
+    } else {
+        let t = sid(g, wallleft_strat);
+        g.objs.aliens[idx as usize].stratptr = Some(t); // s_set_strat x,wallleft_strat
+        wallleft_strat(g, idx);
+    }
+}
+
+/// `wallleft_strat` (DSTRATS.ASM:1034-1040): swing roty toward -64 (=192) by +16.
+fn wallleft_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    if al.roty != 192 {
+        al.roty = al.roty.wrapping_add(16); // s_add_alvar B,x,al_roty,#16
+    }
+}
+
+/// `wallright_strat` (DSTRATS.ASM:1047-1053): swing roty toward +64 by -16.
+fn wallright_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    if al.roty != 64 {
+        al.roty = al.roty.wrapping_sub(16); // s_add_alvar B,x,al_roty,#-16
+    }
+}
+
+// ------------------------------------------------------------
+// tree1 (IS 204) / tree2 (IS 205) — DSTRATS.ASM:1976-2063.
+// Indestructible (tree1HP = hardHP = -1) ENEMY1 sprouting-tree scenery. Only the
+// base-trunk grow is modelled (see the section doc for the scoped-out sprouty
+// segment-chain / leaf-flower bloom). sflag3/4/5/6 (leaf/flower/kinky markers)
+// are consumed ONLY by that scoped-out bloom code, so they are not set here.
+// ------------------------------------------------------------
+
+/// `tree1_istrat` (DSTRATS.ASM:2016-2043): flower/leaf tree — random height
+/// (rnd&3)+1, lower the root by sprout_maxy/2, anim speed 2 / tail timer 255,
+/// ENEMY1 + nohitaffect + hp=-1, anim 0. Falls into the grow tick.
+fn tree1_init(g: &mut Game, idx: u16) {
+    let r = (ea_random(g) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
+    tree_setup(g, idx, r.wrapping_add(1)); // s_inc_alvar -> [1,4]
+    // tree1 has no player-relative tilt (unlike tree2); s_not_alsflag sflag3 and
+    // the leaf/flower flags drive only the scoped-out bloom.
+}
+
+/// `tree2_istrat` (DSTRATS.ASM:1976-2014): as tree1 but tilts toward the player
+/// (roty ±deg45, sbyte2 = ±deg22 overhang) and casts a shadow.
+fn tree2_init(g: &mut Game, idx: u16) {
+    let r = (ea_random(g) as u8) & 3;
+    let mut sbyte2 = DEG22; // s_set_alvar al_sbyte2,#deg22
+    // s_cmp_alvars W,x,al_worldx,y,al_worldx ; s_bmi .otherway.
+    let self_x = g.objs.aliens[idx as usize].worldx;
+    let px = player(g).map(|p| p.worldx).unwrap_or(0);
+    if self_x.wrapping_sub(px) < 0 {
+        // .otherway: s_neg_alvar sbyte2 ; s_add_alvar al_roty,#deg45
+        sbyte2 = sbyte2.wrapping_neg();
+        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(DEG45);
+    } else {
+        // .notthatway: s_add_alvar al_roty,#-deg45
+        g.objs.aliens[idx as usize].roty =
+            g.objs.aliens[idx as usize].roty.wrapping_add(0u8.wrapping_sub(DEG45));
+    }
+    tree_setup(g, idx, r.wrapping_add(1));
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sbyte2 = sbyte2;
+    al.sflags |= ASF_SHADOW; // s_set_alsflag x,shadow (tree2_istrat2)
+}
+
+/// Shared tree init body (DSTRATS.ASM:1985-2043, tree-common part): sprout root
+/// lowering + destructible-scenery wiring + the grow tick. `height` = sbyte1
+/// (number of scoped-out segment generations, stored for fidelity).
+fn tree_setup(g: &mut Game, idx: u16, height: u8) {
+    let tick = sid(g, tree_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = height;
+        al.worldy = al.worldy.wrapping_sub(SPROUT_MAXY / 2); // s_sub al_worldy,#sprout_maxy/2
+        // al_sword1 lo = anim speed 2, hi = tail timer 255 (sword1 = 0xFF02).
+        al.sword1 = 0xFF02u16 as i16;
+        al.stratptr = Some(tick); // s_set_alptrs x,sprouty.strat,hitflash,explode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HARDHP; // s_set_aldata sproutiHP(=tree1HP=-1),#tree1ap
+        al.ap = TREE1_AP;
+        al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag x,nohitaffect
+        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,ENEMY1
+        al.animframe = 0x80; // s_init_anim x,#0
+    }
+    tree_strat(g, idx); // jmp sprouty.strat (falls into the grow tick)
+}
+
+/// `sprouty.strat` .notsnake grow (DSTRATS.ASM:2147-2150), scoped to the base
+/// trunk: grow the anim by the anim speed (sword1 lo) toward the cap 8, then hold
+/// (the ROM's `.finished` -> `.strat2` segment spawn is the scoped-out chain).
+fn tree_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    let speed = (al.sword1 as u16 & 0xff) as u8; // svar_byte1 = al_sword1 lo
+    let cur = al.animframe & 0x7F;
+    if cur != 8 {
+        // s_add_anim x,svar_byte1,#8 (clamp/hold at the cap in this scoped port).
+        let f = cur.wrapping_add(speed).min(8);
+        al.animframe = 0x80 | f;
+    }
+}
+
+// ============================================================
 // Registration (table lane hookup).
 // ============================================================
 
@@ -3808,4 +4267,19 @@ pub fn register(world: &mut World) {
     world.istrats[IS_SZACO0] = Some(wsid(world, szaco0_init));
     world.istrats[IS_SZACO5] = Some(wsid(world, szaco5_init));
     world.istrats[IS_HOUDAI5F] = Some(wsid(world, houdai5f_init));
+
+    // Door / wall / tree / woods scenery family (see the section doc for the
+    // ISTRAT-index / sf-map reachability analysis). woods / kdoor2 / tree1 /
+    // tree2 are REACHABLE at their sf-map placement values; kdoor and the three
+    // walls register at their ROM-correct free rows because sf-map's consts for
+    // them collide with already-registered strats (carrier@139 / hard180yr@105)
+    // — UNREACHABLE until sf-map re-indexes them (misstank/trackcorner precedent).
+    world.istrats[IS_WOODS] = Some(wsid(world, woods_init));
+    world.istrats[IS_KDOOR] = Some(wsid(world, kdoor_init));
+    world.istrats[IS_KDOOR2] = Some(wsid(world, kdoor2_init));
+    world.istrats[IS_WALLLEFTRIGHT] = Some(wsid(world, wallleftright_init));
+    world.istrats[IS_WALLL] = Some(wsid(world, walll_init));
+    world.istrats[IS_WALLR] = Some(wsid(world, wallr_init));
+    world.istrats[IS_TREE1] = Some(wsid(world, tree1_init));
+    world.istrats[IS_TREE2] = Some(wsid(world, tree2_init));
 }
