@@ -43,8 +43,9 @@ use crate::common::strat_speed_to as speed_to;
 // Canonical strat_enemy.c helpers (crate::enemy_a pub / pub(crate) surface).
 use crate::enemy_a::{
     achase_angle, add_player_z, addrnd2pos_xy, boss_attach_child_to_mother, boss_child_from_index_raw,
-    boss_count_children, boss_dying, boss_find_child_obj, boss_get_mother_obj,
-    boss_keeprel_to_player, boss_obj_index_or_null, bossflags, copy_pos, currentlevel, ea_random,
+    boss_clear_child_link, boss_count_children, boss_dying, boss_find_child_obj, boss_get_mother_obj,
+    boss_keeprel_to_player, boss_obj_index_or_null, boss_prune_family_links, bossflags, copy_pos,
+    currentlevel, ea_random,
     pviewposz, set_bossflags, strat_boss_explode_init, strat_cos, strat_explode, strat_hit_flash,
     strat_pitch_toward, strat_sin,
 };
@@ -7567,6 +7568,862 @@ fn sd_head_swim_strat(g: &mut Game, idx: u16) {
 // SEADRAGON_END
 
 // ============================================================
+// WEBMONSTER_BEGIN — "webmonster" (Route 3 L2 spider boss) + its child strats.
+//
+// ASM oracle: DSTRATS.ASM —
+//   webmonster_istrat     :6504 (mother; intro descent / .mainstrat / .move /
+//                                .bossdead / .generate / .position)
+//   drill_istrat          :6587 (the "web_fan" child; .strat spin+sweep+turret
+//                                sequencing / .drillattack / .drillretrieve /
+//                                .launchweb / .hit)
+//   launchatplayer_istrat :6787 (fan detach on death)
+//   web_istrat            :6800 (launched grab projectile)
+//   propturret_istrat     :6886 (the 6 damageable turrets)
+// Child ring layout: DSTRATS.ASM:6572-6583 (.generate). Child numbers
+// web_turret1..6 = 1..6, web_fan = 7 (DSTRATS.ASM:6496-6502).
+// ISTRATS.ASM:548 `def_istrat webmonster,boss_0_1` -> macro-counted index 123
+// (= sf-map route3::common IS_WEBMONSTER; the map spawns SH_BOSS_0_1(85)
+// carrying this ISTRAT index, resolved through world.istrats[123] exactly like
+// flingboss/castanet/chicken — level3_2.rs:234).
+//
+// HP MODEL (no dedicated per-body HP; the bar is turret-driven):
+//  * The mother is invulnerable — hp = hardHP, collstrat = hitflash
+//    (DSTRATS.ASM:6513-6514). Direct hits only flash it.
+//  * The boss HP bar = m_bossHP, re-accumulated each tick from the 6 LIVE
+//    propturrets (each `s_add_bossHP x,al_hp`, DSTRATS.ASM:6933). bossmaxHP =
+//    0 at mother init (:6508) + 6 * propturretHP(20) from each turret's
+//    `s_add_bossmaxHP` (:6890) = 120. As turrets die the bar drains.
+//  * The boss "dies" when all 6 turrets are dead (`s_jmp_childrendead
+//    web_turret1..6 -> .bossdead`, DSTRATS.ASM:6531).
+//
+// SCOPE NOTES (fidelity caveats, cited inline):
+//  * `.hit`'s RebElasercol branch (DSTRATS.ASM:6696) — a player-laser reflect —
+//    is scoped to plain hitflash (collision-lane detail; the reflect body is
+//    commented out in the ROM anyway, :6687-6694).
+//  * web_istrat's player GRAB (drag player.worldx/y to the web, DSTRATS.ASM:
+//    6837-6842) and the SHAKE-FREE input reader (:6845-6863) are player-lane:
+//    the observable web motion / sflag transitions / sbyte3 timeout are ported,
+//    the shake counter uses the available `player_rollZvel` cell; the
+//    dir-key-change contribution (cont0^lastcont0) is scoped out (no live
+//    `cont0` mirror). The player-position drag is applied faithfully when a
+//    live player object exists.
+//  * The death `bgm_music/bgmcnt` poke (DSTRATS.ASM:6560-6562) is audio-only;
+//    only the `trigse $1e` sound is emitted (no music-cell plumbing here).
+// ============================================================
+
+/// `webmonster` ISTRATS.ASM:548 def_istrat, macro-counted 123 (= sf-map
+/// route3::common IS_WEBMONSTER; level3_2.rs:234 spawns SH_BOSS_0_1 carrying it).
+pub const IS_WEBMONSTER: usize = 123;
+
+// Child numbers (DSTRATS.ASM:6496-6502).
+const WM_TURRET1: u8 = 1;
+const WM_TURRET6: u8 = 6;
+const WM_FAN: u8 = 7;
+
+// propturretHP/AP (DSTRATS.ASM:81-82).
+const WM_PROPTURRET_HP: u8 = 20;
+const WM_PROPTURRET_AP: u8 = 4;
+
+// Shape proxies (next free after chicken's 292). The mother keeps the map's
+// SH_BOSS_0_1(85); these back the boss_0_2/0_0/0_0a/0_3 shapes set in code.
+const SH_WM_BOSS_0_2: u16 = 293; // turret
+const SH_WM_BOSS_0_0: u16 = 294; // fan (rest / boss_0_0)
+const SH_WM_BOSS_0_0A: u16 = 295; // fan (spinning / boss_0_0a)
+const SH_WM_BOSS_0_3: u16 = 296; // launched web (boss_0_3)
+
+// Strategy flags mapped onto the Rust bytes exactly like flingboss/boss2:
+// sflag1..3 -> sflags2 0x10/20/40, sflag8 -> sflags4 (ASF4_SFLAG8).
+const WM_SFLAG1: u8 = 0x10; // turret: spinning(=invuln) ; fan/web: banks/grab
+const WM_SFLAG2: u8 = 0x20; // turret: armed-to-fire ; fan: bank toggle ; web: attach
+const WM_SFLAG3: u8 = 0x40; // turret: fade-out ; web: released
+const WM_SFLAG8: u8 = ASF4_SFLAG8; // web: shake edge-latch
+
+// deg constants absent from the shared surface (VARS.INC:20-23): deg120=85,
+// deg60=42, deg240=170, deg300=212.
+const WM_DEG60: u8 = 42;
+const WM_DEG120: u8 = 85;
+
+// HMISSILE1 = fire_Hmissile1 (GSTRATS.ASM:2627): speed 60, life 100,
+// hp=hmissile1HP(2), ap=hmissile1AP(8), strat hmissile1_Istrat (homing).
+const WM_HMISSILE_SPEED: u8 = 60;
+const WM_HMISSILE_LIFE: u8 = 100;
+const WM_HMISSILE_HP: u8 = 2;
+const WM_HMISSILE_AP: u8 = 8;
+
+// trigse ids used by the boss.
+const WM_SE_SPIN: u8 = 0x4f; // fan spin whir
+const WM_SE_DRILL: u8 = 0x50; // metal drill
+const WM_SE_DRILLGO: u8 = 0x8f; // drill launch
+const WM_SE_GRAB: u8 = 0x51; // web grab
+const WM_SE_DEATH: u8 = 0x1e; // boss death
+
+// ---- shared child-flag / dead helpers (STRATLIB.INC:736/770/803) ----
+
+/// `s_set/clr_childsflag mother,sflag1..3,begin,end` — the flags used all live
+/// on sflags2. `set=true` sets, `false` clears, over child numbers [begin,end].
+fn wm_child_sflag2_range(g: &mut Game, mother: u16, bit: u8, begin: u8, end: u8, set: bool) {
+    for n in begin..=end {
+        if let Some(c) = boss_find_child_obj(g, mother, n) {
+            if set {
+                g.objs.aliens[c as usize].sflags2 |= bit;
+            } else {
+                g.objs.aliens[c as usize].sflags2 &= !bit;
+            }
+        }
+    }
+}
+
+/// `s_jmp_childrendead mother,begin,end` (STRATLIB.INC:803): true only when
+/// EVERY child number in [begin,end] is dead (absent).
+fn wm_children_dead(g: &mut Game, mother: u16, begin: u8, end: u8) -> bool {
+    for n in begin..=end {
+        if boss_find_child_obj(g, mother, n).is_some() {
+            return false;
+        }
+    }
+    true
+}
+
+/// find_y_l (DSTRATS.ASM:3589): first active object whose al_shape == `shape`.
+fn wm_find_by_shape(g: &Game, shape: u16) -> Option<u16> {
+    for i in 0..NUMBER_AL {
+        let a = &g.objs.aliens[i];
+        if a.active && a.shape == shape {
+            return Some(i as u16);
+        }
+    }
+    None
+}
+
+/// dzdistless (DSTRATS.ASM:156): |obj.worldz - player.worldz| < dist.
+fn wm_dz_less(g: &Game, obj: u16, dist: i16) -> bool {
+    let Some(p) = player_idx(g) else {
+        return false;
+    };
+    let dz = g.objs.aliens[obj as usize]
+        .worldz
+        .wrapping_sub(g.objs.aliens[p as usize].worldz) as i32;
+    dz.abs() < dist as i32
+}
+
+/// Manhattan-blend XY distance mirroring `strat_dist_xz` but on worldx/worldy
+/// (the game's s_jmp_outxydistrng uses the same rangexy blend on X/Y).
+fn wm_dist_xy(a: &Alien, b: &Alien) -> i16 {
+    let mut x1 = b.worldx.wrapping_sub(a.worldx);
+    if x1 < 0 {
+        x1 = x1.wrapping_neg();
+    }
+    let mut y1 = b.worldy.wrapping_sub(a.worldy);
+    if y1 < 0 {
+        y1 = y1.wrapping_neg();
+    }
+    x1 >>= 1;
+    y1 >>= 1;
+    let rangexy = (y1.wrapping_add(x1)).wrapping_shl(1);
+    let m = if y1 < x1 { x1 } else { y1 };
+    let t = m.wrapping_add(rangexy);
+    let acc = (t >> 1).wrapping_add(t.wrapping_shl(2));
+    ((acc >> 1) >> 1) >> 1
+}
+
+/// dincanimjmp_x #max (DSTRATS.ASM:137, 4-arg s_add_anim CAP): increment
+/// animframe, capping at max-1 (STRATLIB.INC:180 label variant).
+fn wm_dinc_anim_cap(g: &mut Game, idx: u16, max: u8) {
+    let al = &mut g.objs.aliens[idx as usize];
+    if al.animframe < max - 1 {
+        al.animframe += 1;
+    }
+}
+
+/// ddecanim_x #n (DSTRATS.ASM:146, 3-arg s_add_anim -1 WRAP): decrement mod n.
+fn wm_ddec_anim(g: &mut Game, idx: u16, n: u8) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.animframe = (al.animframe + n - 1) % n;
+}
+
+// ---- child ring positioning (child_rotpos_l / rotpos_allchildren_l,
+//      DSTRATS.ASM:6939-6991) ----
+
+/// child_rotpos_l: child rots = mother rots + stored child rot offsets; child
+/// worldpos = mother worldpos + rotate(childXYZ << childscale(3)) by the
+/// mother's FULL rotation (s_add_Roffs2pos flags 1,1,1, scale childscale).
+fn wm_child_rotpos(g: &mut Game, mother: u16, child: u16) {
+    let m = g.objs.aliens[mother as usize];
+    let c = g.objs.aliens[child as usize];
+    let rotx = m.rotx.wrapping_add(c.childrotx);
+    let roty = m.roty.wrapping_add(c.childroty);
+    let rotz = m.rotz.wrapping_add(c.childrotz);
+    let ox = ((c.childx as i8) as i16) << 3;
+    let oy = ((c.childy as i8) as i16) << 3;
+    let oz = ((c.childz as i8) as i16) << 3;
+    {
+        let a = &mut g.objs.aliens[child as usize];
+        a.rotx = rotx;
+        a.roty = roty;
+        a.rotz = rotz;
+    }
+    b2_full_offset_pos(g, child, &m, ox, oy, oz);
+}
+
+/// `.position` (DSTRATS.ASM:6568-6570) = s_rotpos_allchildren: reposition every
+/// live child (turrets 1-6 + fan 7).
+fn wm_position(g: &mut Game, mother: u16) {
+    for n in WM_TURRET1..=WM_FAN {
+        if let Some(c) = boss_find_child_obj(g, mother, n) {
+            wm_child_rotpos(g, mother, c);
+        }
+    }
+}
+
+// ============================================================
+// propturret (the 6 damageable turrets) — DSTRATS.ASM:6886-6934.
+// ============================================================
+
+/// propturret_istrat init (DSTRATS.ASM:6886-6891): HP/AP, add to the boss bar's
+/// max, depthoffset=1. Falls into `.strat` the same tick.
+fn wm_propturret_init(g: &mut Game, idx: u16) {
+    let s = sid(g, wm_propturret_strat);
+    let s_col = sid(g, strat_hit_flash);
+    let s_exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.hp = WM_PROPTURRET_HP;
+        al.ap = WM_PROPTURRET_AP;
+        al.depthoffset = 1;
+    }
+    set_bossmaxhp(g, bossmaxhp(g).wrapping_add(WM_PROPTURRET_HP as u16)); // s_add_bossmaxHP
+    wm_propturret_strat(g, idx);
+}
+
+/// fire HMISSILE1 from the turret (DSTRATS.ASM:6912-6917): s_weapon_rot
+/// #0,#-deg180 (pitch 0, yaw +deg180), muzzle 0,0,0, then homes al_ptr=player.
+fn wm_propturret_fire(g: &mut Game, idx: u16) {
+    let me = g.objs.aliens[idx as usize];
+    let pitch = me.rotx;
+    let yaw = me.roty.wrapping_add(DEG180);
+    let Some(shot) = spawn_projectile(
+        g,
+        Some(idx),
+        0,
+        0,
+        0,
+        pitch,
+        yaw,
+        WM_HMISSILE_SPEED,
+        WM_HMISSILE_LIFE,
+        WM_HMISSILE_AP,
+        ACF_COLLTYPE4,
+    ) else {
+        return;
+    };
+    // hmissile1_Istrat homing is the flingboss port (identical weapon strat).
+    let s = sid(g, flingboss_hmissile1_strat);
+    let ppt = player_idx(g).map(boss_obj_index_or_null).unwrap_or(0);
+    let al = &mut g.objs.aliens[shot as usize];
+    al.rotx = pitch;
+    al.roty = yaw;
+    al.rotz = me.rotz;
+    al.sflags &= !ASF_INVISIBLE;
+    al.sflags |= ASF_SHADOW;
+    al.type_ = ATMISSILE | ATZREMOVE;
+    al.hp = WM_HMISSILE_HP;
+    al.ptr = ppt; // s_set_alvar al_ptr,playpt
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.stratptr = Some(s);
+    strat_gen_vecs_3d(al);
+}
+
+/// propturret_istrat `.strat` (DSTRATS.ASM:6892-6934).
+fn wm_propturret_strat(g: &mut Game, idx: u16) {
+    // fade-out window (sflag3): every 8 frames step depthoffset down to 1.
+    if g.objs.aliens[idx as usize].sflags2 & WM_SFLAG3 != 0 && g.vars.gameframe & 7 == 0 {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.depthoffset == 1 {
+            al.sflags2 &= !WM_SFLAG3; // .clrflag
+        } else {
+            al.depthoffset -= 1;
+        }
+    }
+    // .fannotfading
+    if g.objs.aliens[idx as usize].sflags2 & WM_SFLAG1 != 0 {
+        // .fanspinning: invulnerable, arm the shot, fade in (depthoffset -> 4).
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sflags |= ASF_NOHITAFFECT;
+            al.sflags2 |= WM_SFLAG2;
+        }
+        if g.objs.aliens[idx as usize].sflags2 & WM_SFLAG3 == 0 && g.vars.gameframe & 15 == 0 {
+            let al = &mut g.objs.aliens[idx as usize];
+            if al.depthoffset != 4 {
+                al.depthoffset += 1;
+            }
+        }
+    } else {
+        // not spinning: vulnerable, and fire once when armed.
+        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+        if g.objs.aliens[idx as usize].sflags2 & WM_SFLAG2 != 0 {
+            wm_propturret_fire(g, idx);
+            g.objs.aliens[idx as usize].sflags2 &= !WM_SFLAG2;
+        }
+    }
+    // .fannotspinning
+    add_bosshp(g, idx); // s_add_bossHP x,al_hp
+}
+
+// ============================================================
+// drill / web_fan (child #7) — DSTRATS.ASM:6587-6784.
+// ============================================================
+
+/// drill_istrat init (DSTRATS.ASM:6587-6592). Falls into `.strat`.
+fn wm_drill_init(g: &mut Game, idx: u16) {
+    let s = sid(g, wm_drill_strat);
+    let s_col = sid(g, wm_drill_hit);
+    let s_exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.animframe = 0;
+        al.hp = HARD_HP;
+        al.ap = 2;
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.sflags |= ASF_NOHITAFFECT;
+    }
+    wm_drill_strat(g, idx);
+}
+
+/// drill_istrat `.strat` (DSTRATS.ASM:6593-6682): spin the fan (childrotz +=
+/// sbyte2), then branch on sbyte3 (fade-out settle) vs `.carryon` (sweep).
+fn wm_drill_strat(g: &mut Game, idx: u16) {
+    let mother = boss_get_mother_obj(g, idx);
+    // spin fan.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let (crz, carry) = al.childrotz.overflowing_add(al.sbyte2);
+        al.childrotz = crz;
+        if carry {
+            play_se(g, WM_SE_SPIN);
+        }
+    }
+    if g.objs.aliens[idx as usize].sbyte3 == 0 {
+        wm_drill_carryon(g, idx, mother);
+    } else {
+        wm_drill_settle(g, idx, mother);
+    }
+}
+
+/// `.carryon` (DSTRATS.ASM:6646-6681): advance the sweep angle sbyte2, launch
+/// the drill at 63, restart the turret-fire fade window at the 0 wrap.
+fn wm_drill_carryon(g: &mut Game, idx: u16, mother: Option<u16>) {
+    let sbyte2 = g.objs.aliens[idx as usize].sbyte2;
+    // a = sbyte2 + 1; if a >= 42 -> a = sbyte2 + 2; if a >= 85 -> a = 0.
+    let mut a = sbyte2.wrapping_add(1);
+    if a >= 42 {
+        a = sbyte2.wrapping_add(2);
+    }
+    if a >= WM_DEG120 {
+        a = 0;
+    }
+    g.objs.aliens[idx as usize].sbyte2 = a;
+
+    if a == 63 {
+        // deg360/6 + deg360/12 -> drill launch.
+        if g.objs.aliens[idx as usize].rotx == 0 {
+            wm_drill_launchweb(g, idx);
+            play_se(g, WM_SE_DRILLGO);
+        }
+        // s_set_strat x,.drillattack ; s_end_strat (runs .drillattack next tick).
+        let s = sid(g, wm_drill_attack);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+        return;
+    }
+    if a == 0 {
+        // .clr: toggle the bank marker, open the 50-tick fade window, rest shape.
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags2 ^= WM_SFLAG2;
+        al.sbyte3 = 50;
+        al.shape = SH_WM_BOSS_0_0;
+    } else {
+        // spinning: spinning fan shape + all turrets spin (invuln).
+        g.objs.aliens[idx as usize].shape = SH_WM_BOSS_0_0A;
+        if let Some(m) = mother {
+            wm_child_sflag2_range(g, m, WM_SFLAG1, WM_TURRET1, WM_TURRET6, true);
+        }
+    }
+}
+
+/// `.strat` sbyte3 branch (DSTRATS.ASM:6605-6645): settle childrotz to a deg120
+/// sector boundary; each alignment decrements sbyte3 and releases (un-spins) a
+/// turret bank so it becomes vulnerable and fires.
+fn wm_drill_settle(g: &mut Game, idx: u16, mother: Option<u16>) {
+    let crz = g.objs.aliens[idx as usize].childrotz;
+    let sflag2 = g.objs.aliens[idx as usize].sflags2 & WM_SFLAG2 != 0;
+    let mut a = if sflag2 {
+        crz.wrapping_add(WM_DEG60)
+    } else {
+        crz
+    };
+    // .rechk: reduce a by deg120 while >= deg120 (keeps residue), stop on a==0.
+    let do_nochange;
+    loop {
+        if a == 0 {
+            do_nochange = true;
+            break;
+        }
+        let (res, borrow) = a.overflowing_sub(WM_DEG120);
+        a = res;
+        if !borrow {
+            continue; // carry set -> loop
+        }
+        // borrowed: a is the wrapped residue.
+        if a < 252 {
+            // .noz: step childrotz down by 4, aligned; skip the sbyte3 dec.
+            let nc = crz.wrapping_sub(4) & 0xFC;
+            g.objs.aliens[idx as usize].childrotz = nc;
+            return;
+        }
+        // a in [252,255]: snap exactly to the boundary, then .nochange.
+        let nc = crz.wrapping_sub(a);
+        g.objs.aliens[idx as usize].childrotz = nc;
+        do_nochange = true;
+        break;
+    }
+    if do_nochange {
+        g.objs.aliens[idx as usize].sbyte3 = g.objs.aliens[idx as usize].sbyte3.wrapping_sub(1);
+        if let Some(m) = mother {
+            if sflag2 {
+                wm_child_sflag2_range(g, m, WM_SFLAG1, 4, 6, false);
+            } else {
+                wm_child_sflag2_range(g, m, WM_SFLAG1, 1, 3, false);
+            }
+        }
+    }
+}
+
+/// `.launchweb` (DSTRATS.ASM:6775-6784): spawn a web_istrat grab projectile at
+/// the drill's pos/rots (fling.makeobj + copyrots/copypos).
+fn wm_drill_launchweb(g: &mut Game, idx: u16) {
+    let Some(web) = make_obj(g, SH_WM_BOSS_0_3) else {
+        return;
+    };
+    let d = g.objs.aliens[idx as usize];
+    let s = sid(g, wm_web_init);
+    let al = &mut g.objs.aliens[web as usize];
+    al.stratptr = Some(s);
+    al.rotx = d.rotx;
+    al.roty = d.roty;
+    al.rotz = d.rotz;
+    al.worldx = d.worldx;
+    al.worldy = d.worldy;
+    al.worldz = d.worldz;
+}
+
+/// `.moveagain` (DSTRATS.ASM:6731-6745): spin the fan + drill/whir sound.
+fn wm_drill_moveagain(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    let (crz, carry) = al.childrotz.overflowing_add(al.sbyte2);
+    al.childrotz = crz;
+    let anim = al.animframe;
+    if !carry {
+        // ROM `bcs .nosound2` -> emits only when NO carry.
+        if anim >= 8 {
+            play_se(g, WM_SE_DRILL);
+        } else {
+            play_se(g, WM_SE_SPIN);
+        }
+    }
+}
+
+/// `.drillattack` (DSTRATS.ASM:6700-6745): while the launched web lives, open
+/// the drill (anim toward 10) and lunge the whole boss toward the player.
+fn wm_drill_attack(g: &mut Game, idx: u16) {
+    let Some(web) = wm_find_by_shape(g, SH_WM_BOSS_0_3) else {
+        // web gone -> retrieve (s_jmp .drillretrieve same tick).
+        let s = sid(g, wm_drill_retrieve);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+        wm_drill_retrieve(g, idx);
+        return;
+    };
+    // The web's sflag2 (attach window) gates the drill-open anim.
+    if g.objs.aliens[web as usize].sflags2 & WM_SFLAG2 != 0 && g.vars.gameframe & 3 == 0 {
+        wm_dinc_anim_cap(g, idx, 11);
+    }
+    // .ok23: at fully-open (anim 10), lunge the mother toward the player.
+    if g.objs.aliens[idx as usize].animframe == 10 {
+        if let Some(m) = boss_get_mother_obj(g, idx) {
+            if !wm_dz_less(g, m, 350) {
+                g.objs.aliens[m as usize].worldz =
+                    g.objs.aliens[m as usize].worldz.wrapping_sub(20);
+            }
+        }
+    }
+    wm_drill_moveagain(g, idx);
+}
+
+/// `.drillretrieve` (DSTRATS.ASM:6747-6773): close the drill, pull the boss
+/// back; once >=1200 away re-arm the turrets (sflag3) and return to `.strat`.
+fn wm_drill_retrieve(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].animframe != 0 {
+        wm_ddec_anim(g, idx, 11);
+        wm_drill_moveagain(g, idx);
+        return;
+    }
+    // .noanim
+    if let Some(m) = boss_get_mother_obj(g, idx) {
+        g.objs.aliens[m as usize].worldz = g.objs.aliens[m as usize].worldz.wrapping_add(80);
+        if !wm_dz_less(g, m, 1200) {
+            // fully retracted: re-arm turrets + resume the main loop.
+            wm_child_sflag2_range(g, m, WM_SFLAG3, WM_TURRET1, WM_TURRET6, true);
+            let s = sid(g, wm_drill_strat);
+            g.objs.aliens[idx as usize].stratptr = Some(s);
+            wm_drill_strat(g, idx);
+            return;
+        }
+    }
+    wm_drill_moveagain(g, idx);
+}
+
+/// drill_istrat `.hit` (DSTRATS.ASM:6684-6698). RebElasercol reflect scoped to
+/// hitflash (see section note); the rest-shape path is plain hitflash.
+fn wm_drill_hit(g: &mut Game, idx: u16) {
+    strat_hit_flash(g, idx);
+}
+
+// ============================================================
+// launchatplayer (fan detach on death) — DSTRATS.ASM:6787-6798.
+// ============================================================
+
+/// launchatplayer_istrat init (DSTRATS.ASM:6788-6790): sbyte2=80, -> `.strat`.
+fn wm_launchatplayer_init(g: &mut Game, idx: u16) {
+    let s = sid(g, wm_launchatplayer_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sbyte2 = 80;
+    al.stratptr = Some(s);
+}
+
+/// launchatplayer_istrat `.strat`/`.strat2` (DSTRATS.ASM:6791-6798): count
+/// sbyte2 down, then detach from the mother and idle.
+fn wm_launchatplayer_strat(g: &mut Game, idx: u16) {
+    let sb = g.objs.aliens[idx as usize].sbyte2;
+    if sb != 0 {
+        g.objs.aliens[idx as usize].sbyte2 = sb - 1; // s_beqdec_alvar
+        return;
+    }
+    // .more: remove from the mother, switch to the inert .strat2.
+    if let Some(m) = boss_get_mother_obj(g, idx) {
+        // s_remove_child x,y — sever the child link so the fan floats free.
+        boss_prune_family_links(g, m);
+    }
+    boss_clear_child_link(g, idx);
+    let s = sid(g, wm_launchatplayer_strat2);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+}
+
+/// `.strat2` (DSTRATS.ASM:6797-6798): inert.
+fn wm_launchatplayer_strat2(_g: &mut Game, _idx: u16) {}
+
+// ============================================================
+// web (launched grab projectile) — DSTRATS.ASM:6800-6883.
+// ============================================================
+
+/// web_istrat init (DSTRATS.ASM:6800-6808). Falls into `.strat`.
+fn wm_web_init(g: &mut Game, idx: u16) {
+    let s = sid(g, wm_web_strat);
+    let s_col = sid(g, strat_hit_flash);
+    let s_exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.hp = HARD_HP;
+        al.ap = 0;
+        al.sflags |= ASF_NOHITAFFECT | ASF_COLLDISABLE;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.animframe = 0;
+        al.sbyte3 = 100;
+    }
+    wm_web_strat(g, idx);
+}
+
+/// web_istrat `.chkhit` (DSTRATS.ASM:6869-6883): set sflag1 when within 50 in z
+/// and inside the [0,100) XY grab ring of the player.
+fn wm_web_chkhit(g: &mut Game, idx: u16) {
+    let Some(p) = player_idx(g) else {
+        g.objs.aliens[idx as usize].sflags2 &= !WM_SFLAG1;
+        return;
+    };
+    let within_z = wm_dz_less(g, idx, 50);
+    let me = g.objs.aliens[idx as usize];
+    let pl = g.objs.aliens[p as usize];
+    let xy = wm_dist_xy(&me, &pl);
+    let in_ring = (0..(25 << 2)).contains(&xy); // [0,100)
+    if within_z && in_ring {
+        if me.sflags2 & WM_SFLAG2 == 0 {
+            play_se(g, WM_SE_GRAB);
+        }
+        g.objs.aliens[idx as usize].sflags2 |= WM_SFLAG1;
+    } else {
+        g.objs.aliens[idx as usize].sflags2 &= !WM_SFLAG1;
+    }
+}
+
+/// web_istrat `.strat` (DSTRATS.ASM:6809-6867).
+fn wm_web_strat(g: &mut Game, idx: u16) {
+    wm_web_chkhit(g, idx);
+
+    if wm_dz_less(g, idx, 600) {
+        // within 600: open toward the player (dincanimjmp cap 8).
+        wm_dinc_anim_cap(g, idx, 8);
+    }
+    add_player_z(g, idx);
+    g.objs.aliens[idx as usize].sflags2 |= WM_SFLAG2;
+
+    let sflag3 = g.objs.aliens[idx as usize].sflags3 & WM_SFLAG3 != 0;
+    let sflag1 = g.objs.aliens[idx as usize].sflags2 & WM_SFLAG1 != 0;
+    // sflag3 set OR (sflag3 clear && sflag1 clear) -> .gopast.
+    if sflag3 || !sflag1 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_sub(40);
+        al.sflags2 &= !WM_SFLAG2;
+    }
+    // .move
+    wm_web_move(g, idx);
+    g.objs.aliens[idx as usize].sflags2 &= !WM_SFLAG1; // .noachase clr sflag1
+}
+
+/// `.move` (DSTRATS.ASM:6829-6865): homing (sflag2 set) vs player-grab drag
+/// (sflag2 clear) + the shake-free timeout.
+fn wm_web_move(g: &mut Game, idx: u16) {
+    let Some(p) = player_idx(g) else {
+        return;
+    };
+    if g.objs.aliens[idx as usize].sflags2 & WM_SFLAG2 != 0 {
+        // homing: fchase the player + keep player fire enabled.
+        let pl = g.objs.aliens[p as usize];
+        let me = g.objs.aliens[idx as usize];
+        let nx = fb_fchase_word(me.worldx, pl.worldx, 12);
+        let ny = fb_fchase_word(me.worldy, pl.worldy, 6);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = nx;
+        al.worldy = ny;
+        return; // .noachase
+    }
+    // .nofchase: grab — drag the player onto the web, ease the web toward
+    // centre, pin z to the player, then run the shake/timeout.
+    {
+        let me = g.objs.aliens[idx as usize];
+        let pl = &mut g.objs.aliens[p as usize];
+        pl.worldx = me.worldx;
+        pl.worldy = me.worldy;
+    }
+    let pz = g.objs.aliens[p as usize].worldz;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = fb_fchase_word(al.worldx, 0, 1);
+        al.worldy = fb_fchase_word(al.worldy, 0, 1);
+        al.worldz = pz.wrapping_add(40);
+    }
+    // s_beqdec_alvar sbyte3 -> .finishup on the zero tick.
+    let sb3 = g.objs.aliens[idx as usize].sbyte3;
+    if sb3 == 0 {
+        g.objs.aliens[idx as usize].sflags3 |= WM_SFLAG3; // .finishup
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte3 = sb3 - 1;
+
+    // shake detection (player_rollZvel path faithful; dir-key edge scoped out).
+    let rollzvel = wm8(g, 0x0516) as i8; // g_player_rollZvel
+    if rollzvel != 0 {
+        if g.objs.aliens[idx as usize].sflags4 & WM_SFLAG8 == 0 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sflags4 |= WM_SFLAG8;
+            al.sbyte4 = al.sbyte4.wrapping_add(13);
+        }
+    } else {
+        g.objs.aliens[idx as usize].sflags4 &= !WM_SFLAG8;
+    }
+    // .doneshake: sbyte4 >= 50 -> release.
+    if (g.objs.aliens[idx as usize].sbyte4 as i8) >= 50 {
+        g.objs.aliens[idx as usize].sflags3 |= WM_SFLAG3;
+    }
+}
+
+/// Fixed-step chase of a word coordinate toward `target` by `rate`
+/// (s_fchase_alvar / s_fchase_alvar2alvar, no overshoot at these rates).
+#[inline]
+fn fb_fchase_word(cur: i16, target: i16, rate: i16) -> i16 {
+    if cur == target {
+        cur
+    } else if cur < target {
+        cur.wrapping_add(rate)
+    } else {
+        cur.wrapping_sub(rate)
+    }
+}
+
+// ============================================================
+// webmonster mother — DSTRATS.ASM:6504-6566.
+// ============================================================
+
+/// `.generate` (DSTRATS.ASM:6572-6583): make the mother + spawn the 6 turret
+/// ring + the fan, storing each child's ring offset (childXYZ bytes = value<<
+/// boss00_scale(2)>>childscale(3)) and rot offset.
+fn wm_generate(g: &mut Game, mother: u16) {
+    // (child_num, childx, childy, childz, childrotz, shape, init) in ASM order.
+    let turrets: [(u8, i8, i8, i8, u8); 6] = [
+        (6, 0, -33, 0, 0),                     // turret6, rotz 0
+        (3, 28, -16, 0, (-(WM_DEG60 as i16)) as u8), // rotz -deg60
+        (5, 28, 16, 0, (-(WM_DEG120 as i16)) as u8), // rotz -deg120
+        (2, 0, 32, 0, DEG180),                 // rotz -deg180 (==128)
+        (4, -28, 16, 0, (-(170i16)) as u8),    // rotz -deg240
+        (1, -28, -16, 0, (-(212i16)) as u8),   // rotz -deg300
+    ];
+    for &(num, cx, cy, cz, crz) in &turrets {
+        wm_spawn_child(g, mother, SH_WM_BOSS_0_2, num, cx, cy, cz, crz, wm_propturret_init);
+    }
+    // web_fan (child 7): fan shape, offset (0,0,-5<<3), no rot offset.
+    wm_spawn_child(g, mother, SH_WM_BOSS_0_0, WM_FAN, 0, 0, -5, 0, wm_drill_init);
+    wm_position(g, mother);
+}
+
+/// s_make_childobjrotpos (STRATLIB.INC:670): alloc + attach + store the ring
+/// offsets + set the child's strat (NOT run same tick).
+#[allow(clippy::too_many_arguments)]
+fn wm_spawn_child(
+    g: &mut Game,
+    mother: u16,
+    shape: u16,
+    child_num: u8,
+    cx: i8,
+    cy: i8,
+    cz: i8,
+    crz: u8,
+    init_fn: StrategyFn,
+) -> Option<u16> {
+    let child = make_obj(g, shape)?;
+    copy_pos(g, child, mother);
+    if !boss_attach_child_to_mother(g, mother, child, child_num) {
+        g.objs.free(child);
+        return None;
+    }
+    let s = sid(g, init_fn);
+    let al = &mut g.objs.aliens[child as usize];
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.childx = cx as u8;
+    al.childy = cy as u8;
+    al.childz = cz as u8;
+    al.childrotx = 0;
+    al.childroty = 0;
+    al.childrotz = crz;
+    al.stratptr = Some(s);
+    Some(child)
+}
+
+/// webmonster_istrat init (DSTRATS.ASM:6504-6514). Falls into `.strat`.
+pub fn strat_webmonster_init(g: &mut Game, idx: u16) {
+    set_bossmaxhp(g, 0); // s_set_bossmaxHP #0 (turrets add 6*20 = 120)
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.depthoffset = 1;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.rotx = DEG90 + DEG45; // 96
+        al.worldy = 1000;
+    }
+    wm_generate(g, idx);
+    let s = sid(g, webmonster_strat);
+    let s_col = sid(g, strat_hit_flash);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col); // hitflash_istrat
+        al.expstratptr = None; // 0
+        al.hp = HARD_HP; // hardHP (invulnerable body)
+        al.ap = HARD_AP; // hardAP
+    }
+    webmonster_strat(g, idx);
+}
+
+/// webmonster_istrat `.strat`/`.mainstrat` (DSTRATS.ASM:6515-6537): the intro
+/// descent (rotx 96->0, worldy 1000->0), then the "all turrets dead" death gate.
+fn webmonster_strat(g: &mut Game, idx: u16) {
+    let al = g.objs.aliens[idx as usize];
+    if al.rotx != 0 {
+        // .missthat -> .missthat2
+        let a = &mut g.objs.aliens[idx as usize];
+        a.rotx = a.rotx.wrapping_sub(1);
+        a.worldy = a.worldy.wrapping_sub(10);
+        wm_move(g, idx);
+        return;
+    }
+    if al.worldy != 0 {
+        // .missthat2
+        g.objs.aliens[idx as usize].worldy = g.objs.aliens[idx as usize].worldy.wrapping_sub(10);
+        wm_move(g, idx);
+        return;
+    }
+    // .mainstrat: all 6 turrets dead -> .bossdead.
+    if wm_children_dead(g, idx, WM_TURRET1, WM_TURRET6) {
+        wm_bossdead(g, idx);
+        return;
+    }
+    wm_move(g, idx);
+}
+
+/// `.move` (DSTRATS.ASM:6533-6537): slow spin, scroll with the player, position
+/// the ring.
+fn wm_move(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_sub(1);
+    add_player_z(g, idx);
+    boss_keeprel_to_player(g, idx);
+    wm_position(g, idx);
+}
+
+/// `.bossdead` (DSTRATS.ASM:6539-6566): fling the fan at the player, spin up,
+/// spew medium explosions, then bossexplode at sbyte2==30.
+fn wm_bossdead(g: &mut Game, idx: u16) {
+    // sbyte2 == 0 (first entry): launch the fan child at the player.
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        if let Some(fan) = boss_find_child_obj(g, idx, WM_FAN) {
+            let s = sid(g, wm_launchatplayer_init);
+            g.objs.aliens[fan as usize].stratptr = Some(s);
+        }
+    }
+    // rotz += sbyte2 (pre-increment) ; sbyte2 += 1.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(al.sbyte2);
+        al.sbyte2 = al.sbyte2.wrapping_add(1);
+    }
+    let sb = g.objs.aliens[idx as usize].sbyte2;
+    if sb == 30 {
+        strat_boss_explode_init(g, idx); // bossexplode_istrat
+        return;
+    }
+    if sb < 20 {
+        if sb == 1 && g.vars.pshipflags2 & PSF2_PLAYERHP0 == 0 {
+            // boss death sting (bgm_music/bgmcnt poke is audio-only, scoped).
+            play_se(g, WM_SE_DEATH);
+        }
+        // makemedexpobj_srou + addrnd2posy_srou.
+        if let Some(exp) = b2_make_medium_exp_obj(g, idx) {
+            let rx = (sfrtl_random(g) & 0xff) as i8 as i16;
+            g.objs.aliens[exp as usize].worldx =
+                g.objs.aliens[exp as usize].worldx.wrapping_add(rx);
+            let ry = (sfrtl_random(g) & 0xff) as i8 as i16;
+            g.objs.aliens[exp as usize].worldy =
+                g.objs.aliens[exp as usize].worldy.wrapping_add(ry);
+        }
+    }
+    // .noexp -> jmp .move
+    wm_move(g, idx);
+}
+// WEBMONSTER_END
+
+// ============================================================
 // install / register (C: StratBoss2_Register + StratBossSea_Register +
 // StratBoss8_Register, called from Strat_RegisterAll, strat_table.c).
 // ============================================================
@@ -7654,6 +8511,10 @@ pub fn register(world: &mut World) {
     // by the underwater head respawn.
     world.istrats[IS_SEADRAGON2] = Some(wsid(world, sd_seadragon2_init));
     world.istrats[IS_LOCHNESS] = Some(wsid(world, sd_lochness_init));
+    // webmonster (Route 3 L2). Resolves through world.istrats[123] exactly like
+    // flingboss/castanet/chicken (level3_2.rs:234 spawns SH_BOSS_0_1 carrying
+    // this ISTRAT index). The 6 turrets + fan are the mother's child objects.
+    world.istrats[IS_WEBMONSTER] = Some(wsid(world, strat_webmonster_init));
 
     // Synthetic addresses referenced by the MAP2_3 / washmap literal map
     // data (src/map/levels.c).
