@@ -9,12 +9,15 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**32 tests, all green** — **12 named
-strats** + the runtime RNG stream + the RNG-driven ENEMY class certified vs
-retail; see UPDATE 3-6). The player-relative + RNG state-seeding frontier is
-CLEARED (UPDATE 4), the RNG-driven ENEMY class is CERTIFIED (UPDATE 5), and
-BATCH 3 (UPDATE 6) adds a STATIC-init scenery strat + three more RNG-driven INIT
-strats. Nothing committed.
+`rust/sf-oracle/tests/coexec_retail.rs` (**37 tests, all green** — **15 named
+strats** + the runtime RNG stream + the RNG-driven ENEMY class + the
+`break_meteorT` death coin, all certified vs retail; see UPDATE 3-7). The
+player-relative + RNG state-seeding frontier is CLEARED (UPDATE 4), the
+RNG-driven ENEMY class is CERTIFIED (UPDATE 5), BATCH 3 (UPDATE 6) adds a
+STATIC-init scenery strat + three more RNG-driven INIT strats, and BATCH 4
+(UPDATE 7) adds a zdist state-transition MOVER (`woods`), an RNG + PLAYER-RELATIVE
+scenery init (`tree2`), an RNG-reroll firing-enemy init (`shou0`), and the
+`break_meteorT` 50% tadpole death coin. Nothing committed.
 
 ## UPDATE — the FULL retail `dostrats` per-frame strat tick now runs (and diffs)
 
@@ -343,6 +346,71 @@ recipe above) generalizes to the other rewired enemy RNG strats — `volrockdown
 strats, etc. Each is: locate by masked scan (skeleton from the built ROM,
 RANDOM_L operands wildcarded), seed the stream both sides, diff the RNG-derived
 kinematic fields. `firepillar` is the template.
+
+## UPDATE 7 — BATCH 4: a zdist state-transition MOVER + RNG/player-relative + death coin
+
+Four more strats/decisions certified vs retail, spanning three NEW classes.
+**Five new tests, all green** (`coexec_retail` now **37 tests**). All located by
+masked signature scan (skeletons read from the built ROM via `symbols.txt` SNES
+addresses, WRAM/jsl operands wildcarded), each a UNIQUE hit, cross-validated by
+reading the embedded operands back out.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_batch4_addresses` | ✅ | Masked-scans all four (each UNIQUE): `woods_strat`=**$08:B7F6** (reads back `PLAYPT`=$1238, gate `cmp #2100`, `jml woodsgo_init`=$08:B813, and `woodsgo_init`'s installed `woodsgo_strat`=$08:B840), `tree2_Istrat`=**$09:952F** (RNG-first; `jsl RANDOM_L`==$02:FC58, `deg22`=$10), `shou0_Istrat`=**$0A:D615** (`jsl RANDOM_L`==$02:FC58; the `.again` reroll target = Istrat+31, i.e. it re-loops to the RNG draw). |
+| `retail_woods_convert_gate_vs_port` | ✅ **MATCH** | zdist STATE-TRANSITION mover (GASTRATS.ASM:1386-1398). Runs the retail cart's OWN `woods_strat` body across the `\|dz\| < 2100` gate: below the gate it `jml`s `woodsgo_init` which CONVERTS the object into a homing missile (`al_stratptr = woodsgo_strat $08:B840`, `al_sbyte1 = 10` home timer); at/above it stays inert. The conversion DECISION (+ the sbyte1=10 / stratptr swap) MATCHes the port `woods_strat` (reached via its registered `woods_init` fall-through) at 4 distances incl. both sides of the boundary (2100 inclusive). First strat that MUTATES its own strat pointer on a player-Z gate. |
+| `retail_tree2_body_vs_port` | ✅ **MATCH** | RNG + PLAYER-RELATIVE (DSTRATS.ASM:1976-2014) — the first strat combining an RNG draw with a player-position branch. Runs the retail cart's OWN `tree2_Istrat` body on seeded RNG + a live player (via PLAYPT): the PLAYER-RELATIVE tilt `(sbyte2, roty)` is an EXACT body match across BOTH branches (`enemy_x < player_x` → sbyte2=-deg22($F0)/roty+=deg45($20); else → sbyte2=deg22($10)/roty+=-deg45($E0)) — the port's `enemy_x-player_x` bit-15 test == retail's `cmp;bpl`. The RNG height `(rnd&3)+1` is stream-certified (port init consumes one RANDOM, `(draw&3)+1`, in [1,4]). |
+| `retail_shou0_reroll_vs_port` | ✅ **MATCH** | RNG-REROLL firing-enemy init (GA2STRAT.ASM:1853-1859). Runs the retail cart's OWN `shou0_Istrat` body (player far → the fall-through `shou0_strat` zdist gate no-ops) on seeded RNG: its fire-pattern selector `sbyte1 = rnd&3` with a REROLL-on-3 loop (`jml .again` back to the draw) MATCHes the port `shou0_init` (IS_SHOU0=178) — the first RNG-with-reroll init certified. sbyte1 ∈ {0,1,2}. |
+| `retail_break_meteort_coin_vs_port` | ✅ **MATCH** | The `break_meteorT` tadpole DEATH COIN (DPATHDAT.ASM:1787-1792). The spawn lives in the path VM (not a strat address), so certified at the DECISION level: draw one value from the cart's OWN `RANDOM` and compare `draw >= 127` (the 50% `s_jmp_random` threshold) against the PORT's REAL death strat `break_meteort_exp` (reached via its registered `break_meteort_init` expstrat), observed by whether it actually spawns a `SH_TADPOLE`. Both outcomes exercised. |
+
+### Batch-4 footprint maps + newly-located retail
+- **`woods`** (zdist state-transition mover): reads `PLAYPT`->player `al_worldz` +
+  own `al_worldz`; on `\|dz\| < 2100` jml's `woodsgo_init`, which writes
+  `al_stratptr`(=woodsgo_strat), the extended coll/exp ptrs (`$7E:1CD0/1CD2,x`,
+  absolute WRAM — benign, like `gnd`), a leaf `jsl $06:EEEE`, `al_sbyte1`(=10) +
+  snd2. NEW class: a player-Z gate that MUTATES the object's strat pointer.
+- **`tree2`** (RNG + player-relative scenery): 1 RNG draw → height `(rnd&3)+1`;
+  reads `PLAYPT`->player `al_worldx` + own `al_worldx`; writes `al_sbyte2`
+  (±deg22 = $10/$F0), `al_roty` (±deg45 = $20/$E0). Entered 8-bit-A (`s_start_
+  strat` shorta, p=$20). NOTE: the retail BODY's post-init `sbyte1` reads
+  `(draw&3)` because it falls through into the sprouty grow tick whose segment
+  countdown decrements the stored height once — the sprouty SEGMENT machinery is
+  scoped out of the port, so the height is certified at the stream/formula level
+  (port `sbyte1` == `(draw&3)+1`), not by diffing the post-tick body byte.
+- **`shou0`** (RNG-reroll firing turret init): 1+ RNG draws → `al_sbyte1 = rnd&3`
+  with REROLL while `==3` (uniform {0,1,2}); HP2/AP12/enemy1. Falls through into
+  `shou0_strat` whose `[500,2500)` zdist gate no-ops when the player is far. The
+  fire aim (`angle_xz` trig) + `/16`,`/32` staggered fire gate are the further,
+  GSU/trig-touching part (not certified here).
+- **`break_meteorT`** (death coin): a 50% `s_jmp_random` (threshold 127) in the
+  path VM. Certified as a DECISION (RNG draw + threshold) against the port's real
+  `break_meteort_exp`. Newly-confirmed: the port's private per-tick/exp bodies are
+  reachable from the registered init via `world.istrats[]` + `expstratptr`.
+
+### CERTIFIED VS RETAIL — running total: **15 named strats** + RNG stream + RNG-enemy + death coin
+| # | Strat | Retail addr | Kind | Global/RNG footprint | Certified fields |
+|---|------|------|------|------|------|
+| 13 | `woods_strat` | $08:B7F6 | zdist state-transition mover | `PLAYPT`->player Z | conversion gate (stratptr swap→woodsgo_strat, sbyte1=10) |
+| 14 | `tree2_Istrat` | $09:952F | RNG + player-relative | 1× `RANDOM_L`, `PLAYPT`->player X | sbyte2/roty tilt (body, both branches), height (rnd&3)+1 (stream) |
+| 15 | `shou0_Istrat` | $0A:D615 | RNG-reroll firing init | 1+× `RANDOM_L` (reroll on 3) | sbyte1 ∈ {0,1,2} |
+| — | `break_meteorT` coin | (path VM) | RNG death decision | 1× `RANDOM_L`, thresh 127 | tadpole spawn iff draw≥127 (both outcomes) |
+
+Newly-located retail: `woods_strat`=$08:B7F6, `woodsgo_init`=$08:B813,
+`woodsgo_strat`=$08:B840, `tree2_Istrat`=$09:952F, `shou0_Istrat`=$0A:D615,
+`shou0_strat`=$0A:D646. Reused: `RANDOM_L`=$02:FC58, `PLAYPT`=$1238, struct
+offsets `al_sbyte2`=$23, `al_roty`=$13.
+
+### Still uncertified (recorded footprint + blocker)
+- **`torpedo`** (GASTRATS.ASM:2007-2044, retail `torpedo_Istrat`≈$08:C7xx): homing
+  underwater mover — `s_obj2obj_angle` (arctan trig) yaw-home + `s_gen_3dvecs`
+  (GSU) each tick. Blocked on GSU-in-the-tick + trig-table co-exec (the same
+  blocker as the aim/fire path of `shou0`/`bazooka`/`houdai5f`).
+- **`shou0`/`bazooka`/`houdai5f` AIM+FIRE**: the fire-gate TIMING is a pure
+  integer `s_jmp_notdelay` (gameframe+idx stagger) — certifiable — but the aim
+  ANGLE (`angle_xz`) and the projectile spawn need trig + `spawn_projectile`.
+- **`volrockdown`/`mother`** (multi-draw RNG scatter): still blocked on the
+  object-`stratstate` parallel-array base (volrockdown) / public port entry.
+- **`wallleft`/`wallright`** (swing): still blocked on a public port entry point.
 
 ### Remaining blockers for HARDER strats (beyond `stayrel`)
 - **RNG-driven strats** (dodge/aim jitter): need the retail RNG state global

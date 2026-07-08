@@ -2095,3 +2095,356 @@ fn retail_tree1_rng_vs_port() {
     }
     eprintln!("BATCH3 tree1: MATCH — port sf_random tree height == retail RANDOM (rnd&3)+1.");
 }
+
+// ============================================================================
+// BATCH 4 — a zdist state-transition MOVER (`woods`), an RNG + PLAYER-RELATIVE
+// scenery init (`tree2`), an RNG-reroll FIRING-enemy init (`shou0`), and the
+// `break_meteorT` tadpole death COIN. Four more classes widening tier-2:
+//  * `woods`  (IS_WOODS=54): waits inert, then on `|dz| < 2100` converts itself
+//    into a homing missile (jml woodsgo_init: stratptr swap + sbyte1=10 home
+//    timer). A zdist-GATED state transition — new footprint (player-Z gate that
+//    MUTATES the object's strat), certified by running the retail cart's OWN
+//    woods_strat body across the gate boundary.
+//  * `tree2`  (IS_TREE2=205): RNG height `(rnd&3)+1` AND a PLAYER-RELATIVE tilt
+//    — the first strat combining an RNG draw with a player-position branch.
+//  * `shou0`  (IS_SHOU0=178): a plasma turret whose init draws the RNG for its
+//    fire-pattern selector `sbyte1` in {0,1,2} with a REROLL-on-3 loop — the
+//    first RNG-with-reroll init certified vs retail.
+//  * `break_meteorT` (IS_BREAK_METEORT=238): the tadpole death coin — a 50%
+//    `s_jmp_random` (threshold 127) spawn decision; certified at the DECISION
+//    level (RNG draw + threshold) against the port's real death-strat.
+// ============================================================================
+
+use sf_oracle::{
+    RETAIL_SHOU0_ISTRAT, RETAIL_TREE2_ISTRAT, RETAIL_WOODSGO_STRAT, RETAIL_WOODS_STRAT,
+    RETAIL_WOODS_ZGATE,
+};
+
+const IS_WOODS: usize = 54;
+const IS_TREE2: usize = 205;
+const IS_SHOU0: usize = 178;
+const IS_BREAK_METEORT: usize = 238;
+const SH_TADPOLE: u16 = 228;
+/// `s_jmp_random` (no factor) 50% coin threshold `cmp #((50)*255)/100 = 127`.
+const COIN_THRESH_50: u16 = 127;
+
+/// MILESTONE (batch-4 step 1) — LOCATE + CROSS-VALIDATE the four batch-4 retail
+/// addresses by masked signature scan (each a UNIQUE hit), reading the embedded
+/// operands (PLAYPT, RANDOM_L draws, the woodsgo/shou0 fall-through pointers,
+/// the tree2/woods/shou0 gate constants) back out to self-validate.
+#[test]
+fn retail_batch4_addresses() {
+    let Some(rom) = retail() else { return };
+    let w = None;
+
+    // --- woods_strat: ldy PLAYPT; rep; lda worldz,y; sec; sbc worldz,x; bpl+;
+    //     eor #$FFFF; inc; cmp #$0834(2100); sep; bpl+; jml woodsgo_init; rtl ---
+    let woods_pat: Vec<Option<u8>> = vec![
+        Some(0xAC), w, w, Some(0xC2), Some(0x20), Some(0xB9), Some(0x10), Some(0x00),
+        Some(0x38), Some(0xF5), Some(0x10), Some(0x10), Some(0x04), Some(0x49), Some(0xFF),
+        Some(0xFF), Some(0x1A), Some(0xC9), Some(0x34), Some(0x08), Some(0xE2), Some(0x20),
+        Some(0x10), Some(0x04), Some(0x5C), w, w, w, Some(0x6B),
+    ];
+    let h = masked_scan(&rom, &woods_pat);
+    assert_eq!(h.len(), 1, "woods_strat is a UNIQUE masked hit");
+    let woods = rom_off_to_snes(h[0]);
+    let woods_playpt = rom[h[0] + 1] as u32 | ((rom[h[0] + 2] as u32) << 8);
+    let gate = rom[h[0] + 18] as u16 | ((rom[h[0] + 19] as u16) << 8);
+    let woodsgo_init = rom[h[0] + 25] as u32 | ((rom[h[0] + 26] as u32) << 8) | ((rom[h[0] + 27] as u32) << 16);
+    eprintln!("BATCH4: woods_strat=${woods:06X} PLAYPT=${woods_playpt:04X} zgate={gate} ->woodsgo_init=${woodsgo_init:06X}");
+    assert_eq!(woods, RETAIL_WOODS_STRAT, "woods_strat address");
+    assert_eq!(woods_playpt, RETAIL_PLAYPT, "woods reads PLAYPT=$1238");
+    assert_eq!(gate as i16, RETAIL_WOODS_ZGATE, "woods gate cmp #2100");
+    // woodsgo_init installs woodsgo_strat: read its `lda #woodsgo_strat` immediate.
+    let wgo_off = snes_to_rom_off(woodsgo_init);
+    assert_eq!(&rom[wgo_off..wgo_off + 3], &[0xC2, 0x20, 0xA9], "woodsgo_init head rep;lda #strat");
+    let woodsgo_strat = rom[wgo_off + 3] as u32 | ((rom[wgo_off + 4] as u32) << 8) | ((rom[wgo_off + 10] as u32) << 16);
+    assert_eq!(woodsgo_strat, RETAIL_WOODSGO_STRAT, "woodsgo_init installs woodsgo_strat=$08:B840");
+
+    // --- tree2_Istrat: jsl RANDOM_L; and #3; sta sbyte1; inc sbyte1; lda #deg22;
+    //     sta sbyte2; ... (RNG-first). ---
+    let tree2_pat: Vec<Option<u8>> = vec![
+        Some(0x22), w, w, w, Some(0x29), Some(0x03), Some(0x95), Some(0x22), Some(0xF6),
+        Some(0x22), Some(0xA9), Some(0x10), Some(0x95), Some(0x23), Some(0xB5), Some(0x1F),
+        Some(0x09), Some(0x02), Some(0x95), Some(0x1F), Some(0xB5), Some(0x1F), Some(0x09),
+        Some(0x01), Some(0x95), Some(0x1F),
+    ];
+    let h = masked_scan(&rom, &tree2_pat);
+    assert_eq!(h.len(), 1, "tree2_Istrat is a UNIQUE masked hit");
+    let tree2 = rom_off_to_snes(h[0]);
+    let tree2_rnd = rom[h[0] + 1] as u32 | ((rom[h[0] + 2] as u32) << 8) | ((rom[h[0] + 3] as u32) << 16);
+    let deg22 = rom[h[0] + 11];
+    eprintln!("BATCH4: tree2_Istrat=${tree2:06X} random_l=${tree2_rnd:06X} deg22=${deg22:02X}");
+    assert_eq!(tree2, RETAIL_TREE2_ISTRAT, "tree2_Istrat address");
+    assert_eq!(tree2_rnd, RETAIL_RANDOM_L, "tree2 draw is jsl RANDOM_L");
+    assert_eq!(deg22, 0x10, "tree2 sbyte2 seed = deg22 ($10)");
+
+    // --- shou0_Istrat: rep;lda #strat;sta stratptr; sep;lda #bk;sta; jsl set0coll;
+    //     HP2/AP12/enemy1; jsl RANDOM_L; and #3; sta sbyte1; lda sbyte1; cmp #3;
+    //     bne+; jml .again ---
+    let shou0_pat: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20),
+        Some(0xA9), w, Some(0x95), Some(0x18), Some(0x22), w, w, w,
+        Some(0xA9), Some(0x02), Some(0x95), Some(0x2A), Some(0xA9), Some(0x0C), Some(0x95), Some(0x2B),
+        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E),
+        Some(0x22), w, w, w, Some(0x29), Some(0x03), Some(0x95), Some(0x22),
+        Some(0xB5), Some(0x22), Some(0xC9), Some(0x03), Some(0xD0), Some(0x04), Some(0x5C), w, w, w,
+    ];
+    let h = masked_scan(&rom, &shou0_pat);
+    assert_eq!(h.len(), 1, "shou0_Istrat is a UNIQUE masked hit");
+    let shou0 = rom_off_to_snes(h[0]);
+    let shou0_rnd = rom[h[0] + 32] as u32 | ((rom[h[0] + 33] as u32) << 8) | ((rom[h[0] + 34] as u32) << 16);
+    let again = rom[h[0] + 46] as u32 | ((rom[h[0] + 47] as u32) << 8) | ((rom[h[0] + 48] as u32) << 16);
+    eprintln!("BATCH4: shou0_Istrat=${shou0:06X} random_l=${shou0_rnd:06X} .again=${again:06X}");
+    assert_eq!(shou0, RETAIL_SHOU0_ISTRAT, "shou0_Istrat address");
+    assert_eq!(shou0_rnd, RETAIL_RANDOM_L, "shou0 sbyte1 draw is jsl RANDOM_L");
+    // .again reroll target == the RNG-draw jsl site (Istrat + 31): re-rolls sbyte1.
+    assert_eq!(again, shou0 + 31, ".again reloops to the RANDOM draw (reroll on 3)");
+}
+
+/// CAPSTONE (batch-4) — RETAIL `woods_strat` zdist CONVERSION GATE vs THE PORT.
+///
+/// woods waits inert until the player closes within 2100 z, then converts itself
+/// into a homing missile (jml woodsgo_init: install woodsgo_strat + `sbyte1=10`
+/// home timer). We run the retail cart's OWN `woods_strat` body ($08:B7F6) on a
+/// seeded object across the gate boundary (player just-outside vs just-inside
+/// 2100 z) and diff the CONVERSION against the port `woods_strat` (reached via
+/// its registered `woods_init` fall-through). Retail-converted iff `al_sbyte1`
+/// became 10 (and `al_stratptr` was swapped to woodsgo_strat $08:B840).
+#[test]
+fn retail_woods_convert_gate_vs_port() {
+    let Some(rom) = retail() else { return };
+    let enemy = RETAIL_POOL.base; // X for the strat call
+    let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+
+    // Player at z=0; enemy at ez. |dz|=|ez|. Boundary at 2100.
+    //   ez=1900 -> |dz|<2100  -> CONVERT
+    //   ez=2100 -> |dz|>=2100 -> STAY (cmp is inclusive: bpl on >=)
+    for (ez, expect_convert) in [(1900i16, true), (2100i16, false), (-1000i16, true), (3000i16, false)] {
+        // --- retail: run the cart's OWN woods_strat body across the gate. ---
+        let mut bus = SnesBus::new(rom.clone());
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(enemy + RETAIL_POOL.al_worldz, ez as u16);
+        call(&mut bus, RETAIL_WOODS_STRAT, &Entry { x: enemy as u16, p: 0x00, ..Default::default() });
+        let r_sbyte1 = bus.read8(0x7E_0000 | (enemy + AL_SBYTE1));
+        let r_sptr_lo = bus.wram_read16(enemy + AL_STRATPTR);
+        let r_sptr_bk = bus.read8(0x7E_0000 | (enemy + AL_STRATPTR + 2));
+        let r_stratptr = r_sptr_lo as u32 | ((r_sptr_bk as u32) << 16);
+        let r_convert = r_sbyte1 == 10;
+
+        // --- port: reach woods_strat via its registered init fall-through. ---
+        let mut g = sf_game::game::Game::new();
+        sf_strat::enemies_ground::register(&mut g.world);
+        let pl = g.objs.alloc().expect("player slot"); // slot 0 = player
+        sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[pl as usize]);
+        g.objs.aliens[pl as usize].worldz = 0;
+        let e = g.objs.alloc().expect("enemy slot");
+        sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[e as usize]);
+        g.objs.aliens[e as usize].worldz = ez;
+        // woods_init falls into woods_strat once — converts this frame if in gate.
+        g.objs.aliens[e as usize].stratptr = g.world.istrats[IS_WOODS];
+        let s = g.objs.aliens[e as usize].stratptr.expect("woods istrat");
+        g.call_strat(s, e);
+        let p_sbyte1 = g.objs.aliens[e as usize].sbyte1;
+        let p_convert = p_sbyte1 == 10;
+
+        eprintln!(
+            "BATCH4 woods [ez={ez} |dz|={}]: retail convert={r_convert} (sbyte1={r_sbyte1} stratptr=${r_stratptr:06X}) | port convert={p_convert} (sbyte1={p_sbyte1})  {}",
+            ez.unsigned_abs(),
+            if r_convert == p_convert { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!(r_convert, expect_convert, "retail woods gate decision at ez={ez}");
+        assert_eq!(r_convert, p_convert, "woods conversion decision must match retail (ez={ez})");
+        if r_convert {
+            assert_eq!(r_sbyte1, 10, "retail woods home timer = 10");
+            assert_eq!(r_stratptr, RETAIL_WOODSGO_STRAT, "retail woods installed woodsgo_strat");
+        }
+    }
+    eprintln!("BATCH4 woods: MATCH — retail woods_strat zdist<2100 conversion gate == port.");
+}
+
+/// CAPSTONE (batch-4) — RETAIL `tree2_Istrat` (RNG + PLAYER-RELATIVE) vs THE PORT.
+///
+/// tree2 is the first strat combining an RNG draw with a PLAYER-POSITION branch:
+///  * RNG height `sbyte1 = (rnd&3)+1`, then
+///  * a player tilt: reads `PLAYPT`->player `al_worldx`, compares its OWN
+///    `al_worldx` (`cmp`/`bpl` = test bit 15 of `enemy_x - player_x`); on
+///    `enemy_x < player_x` (.otherway) `sbyte2 = -deg22($F0)` + `roty += deg45
+///    ($20)`, else (.notthatway) `sbyte2 = deg22($10)` + `roty += -deg45($E0)`.
+///
+/// We run the retail cart's OWN `tree2_Istrat` body ($09:952F) on seeded RNG
+/// (firepillar param-block recipe, 8-bit-A entry) + a live player object (via
+/// PLAYPT), and diff the PLAYER-RELATIVE tilt `(sbyte2, roty)` vs the port
+/// `tree2_init` (IS_TREE2=205) — an EXACT body match across BOTH tilt branches.
+///
+/// The RNG HEIGHT is certified via the proven RANDOM stream (`(rnd&3)+1`, exactly
+/// as tree1): the port init consumes ONE RANDOM and stores `(draw&3)+1` into
+/// `sbyte1`, matching the cart's RANDOM draw. (The retail BODY's post-init
+/// `sbyte1` reads `(draw&3)` because it falls through into the sprouty grow tick,
+/// whose segment countdown decrements the stored height once — that sprouty
+/// SEGMENT machinery is scoped out of the port, so the raw body `sbyte1` is
+/// certified at the stream/formula level, not diffed against the post-tick byte.)
+#[test]
+fn retail_tree2_body_vs_port() {
+    let Some(rom) = retail() else { return };
+    let enemy = RETAIL_POOL.base; // low byte $36 = pinned rand[3]
+    let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+    // (enemy_x, player_x): case A enemy left of player (.otherway); B right (.notthatway).
+    let scenarios = [(-5000i16, 5000i16), (5000i16, -5000i16)];
+    for seed in [[10u8, 20, 30, 54], [201, 88, 143, 54]] {
+        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+
+        // RNG height: the cart's own RANDOM stream draw, (draw&3)+1 (== tree1).
+        let mut sbus = SnesBus::new(rom.clone());
+        let mut rs = seed;
+        let stream_draw = retail_random_next(&mut sbus, &mut rs);
+        let expect_height = (stream_draw & 3).wrapping_add(1);
+
+        for (ex, px) in scenarios {
+            // --- retail: run tree2_Istrat body on seeded RNG + player object. ---
+            let mut bus = SnesBus::new(rom.clone());
+            bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+            bus.wram_write16(player_blk + RETAIL_POOL.al_worldx, px as u16);
+            bus.wram_write16(enemy + RETAIL_POOL.al_worldx, ex as u16);
+            seed_retail_rng(&mut bus, seed);
+            bus.write8(RETAIL_RAND, seed[0]); // rand[0] @ $EF (below param block)
+            let a = seed[1] as u16 | ((seed[2] as u16) << 8); // -> $F0/$F1 = rand[1]/rand[2]
+            // tree2_Istrat is entered via s_start_strat's `shorta` (8-bit A) — its
+            // first op is `jsl RANDOM; and #3` (8-bit). p=$20 -> 8-bit A / 16-bit X;
+            // the harness still pre-loads $F0-$F2 (rand[1..3]) into WRAM regardless.
+            call(&mut bus, RETAIL_TREE2_ISTRAT, &Entry { a, x: enemy as u16, p: 0x20, ..Default::default() });
+            let r_sb2 = bus.read8(0x7E_0000 | (enemy + AL_SBYTE2));
+            let r_roty = bus.read8(0x7E_0000 | (enemy + AL_ROTY));
+
+            // --- port: tree2_init on the same seed + player at slot 0. ---
+            let mut g = sf_game::game::Game::new();
+            sf_strat::enemies_ground::register(&mut g.world);
+            let pl = g.objs.alloc().expect("player slot"); // slot 0 = player
+            sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[pl as usize]);
+            g.objs.aliens[pl as usize].worldx = px;
+            let e = g.objs.alloc().expect("enemy slot");
+            sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[e as usize]);
+            g.objs.aliens[e as usize].worldx = ex;
+            g.vars.rng = seed;
+            g.objs.aliens[e as usize].stratptr = g.world.istrats[IS_TREE2];
+            let s = g.objs.aliens[e as usize].stratptr.expect("tree2 istrat");
+            g.call_strat(s, e);
+            let p_sb1 = g.objs.aliens[e as usize].sbyte1;
+            let p_sb2 = g.objs.aliens[e as usize].sbyte2;
+            let p_roty = g.objs.aliens[e as usize].roty;
+
+            eprintln!(
+                "BATCH4 tree2 seed {seed:02X?} ex={ex} px={px}: retail tilt (sb2=${r_sb2:02X} roty=${r_roty:02X}) | port (sb1={p_sb1} sb2=${p_sb2:02X} roty=${p_roty:02X}) height={expect_height}  {}",
+                if (r_sb2, r_roty) == (p_sb2, p_roty) && p_sb1 == expect_height { "MATCH" } else { "DIFF" }
+            );
+            // Player-relative tilt: EXACT retail-body match.
+            assert_eq!(r_sb2, p_sb2, "tree2 sbyte2 (+/-deg22 overhang) must match retail body");
+            assert_eq!(r_roty, p_roty, "tree2 roty (+/-deg45 player tilt) must match retail body");
+            // RNG height: port init == (cart RANDOM draw & 3)+1, in [1,4].
+            assert_eq!(p_sb1, expect_height, "tree2 port height == (retail RANDOM draw & 3)+1");
+            assert!((1..=4).contains(&p_sb1), "tree2 height in [1,4]");
+            // Branch sanity: enemy left of player -> otherway (roty=+deg45=$20,
+            // sbyte2=-deg22=$F0); enemy right -> notthatway (roty=-deg45=$E0, sbyte2=$10).
+            if ex < px {
+                assert_eq!(r_roty, 0x20, "otherway roty=+deg45");
+                assert_eq!(r_sb2, 0xF0, "otherway sbyte2=-deg22");
+            } else {
+                assert_eq!(r_roty, 0xE0, "notthatway roty=-deg45");
+                assert_eq!(r_sb2, 0x10, "notthatway sbyte2=deg22");
+            }
+        }
+    }
+    eprintln!("BATCH4 tree2: MATCH — retail player-relative tilt (body) + RNG height (stream) == port.");
+}
+
+/// CAPSTONE (batch-4) — RETAIL `shou0_Istrat` RNG-REROLL init vs THE PORT.
+///
+/// shou0's init draws the RNG for its fire-pattern selector `sbyte1 = rnd&3`,
+/// REROLLING while the result is 3 (`jml .again` back to the draw) so the value
+/// is uniform in {0,1,2}. We run the retail cart's OWN `shou0_Istrat` body
+/// ($0A:D615) on seeded RNG (param-block recipe) with the player far (so the
+/// fall-through `shou0_strat` zdist gate is a clean no-op), and diff `al_sbyte1`
+/// vs the port `shou0_init` (IS_SHOU0=178) on the SAME seed — certifying the
+/// reroll loop produces the identical RNG-consumption + result.
+#[test]
+fn retail_shou0_reroll_vs_port() {
+    let Some(rom) = retail() else { return };
+    let enemy = RETAIL_POOL.base; // low byte $36 = pinned rand[3]
+    let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+    for seed in [[1u8, 2, 3, 54], [15, 31, 63, 54], [200, 100, 50, 54], [3, 7, 11, 54]] {
+        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+        // --- retail: run shou0_Istrat body; player far so the tick no-ops. ---
+        let mut bus = SnesBus::new(rom.clone());
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 30000u16);
+        bus.wram_write16(enemy + RETAIL_POOL.al_worldz, 0);
+        seed_retail_rng(&mut bus, seed);
+        bus.write8(RETAIL_RAND, seed[0]);
+        let a = seed[1] as u16 | ((seed[2] as u16) << 8);
+        call(&mut bus, RETAIL_SHOU0_ISTRAT, &Entry { a, x: enemy as u16, p: 0x00, ..Default::default() });
+        let r_sb1 = bus.read8(0x7E_0000 | (enemy + AL_SBYTE1));
+
+        // --- port: shou0_init on the same seed (player() = the enemy, dz=0 out of
+        // [500,2500) -> tick no-ops), read sbyte1. ---
+        let (_rotz, r_sb1_port, _roty, _hp, _ap, _coll, _n) = port_ground_init(IS_SHOU0, seed);
+        eprintln!(
+            "BATCH4 shou0 seed {seed:02X?}: retail sbyte1={r_sb1} | port sbyte1={r_sb1_port}  {}",
+            if r_sb1 == r_sb1_port { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!(r_sb1, r_sb1_port, "shou0 sbyte1 (rnd&3, reroll on 3) must match retail");
+        assert!(r_sb1 <= 2, "shou0 sbyte1 rerolled into {{0,1,2}}");
+    }
+    eprintln!("BATCH4 shou0: MATCH — retail RNG-reroll fire-pattern selector == port.");
+}
+
+/// CAPSTONE (batch-4) — the `break_meteorT` TADPOLE DEATH COIN vs THE PORT.
+///
+/// On death, break_meteorT runs `break1.createtadpole` (DPATHDAT.ASM:1787-1792):
+/// a 50% `s_jmp_random` (threshold `#127`) that SKIPS the tadpole spawn on
+/// `random < 127` and SPAWNS a tadpole on `random >= 127`. The spawn lives in the
+/// path VM (not a strat address), so we certify the DECISION: draw one value from
+/// the retail cart's OWN `RANDOM` (carried across the param-block collision by
+/// `retail_random_next`) and compare `draw >= 127` against the PORT's REAL death
+/// strat `break_meteort_exp` (reached via its registered `break_meteort_init`
+/// expstrat), observed by whether it actually spawned a `SH_TADPOLE` object.
+/// Several seeds drive BOTH outcomes.
+#[test]
+fn retail_break_meteort_coin_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut saw_spawn = false;
+    let mut saw_skip = false;
+    for seed in [[1u8, 2, 3, 4], [200, 50, 90, 7], [0xEF, 0x10, 0x33, 0x9C], [126, 0, 0, 0], [128, 0, 0, 0]] {
+        // Retail: the single coin draw from the cart's own RANDOM.
+        let mut bus = SnesBus::new(rom.clone());
+        let mut rs = seed;
+        let draw = retail_random_next(&mut bus, &mut rs);
+        let r_spawn = (draw as u16) >= COIN_THRESH_50; // >=127 -> spawn a tadpole
+
+        // Port: the REAL break_meteort_exp death strat on the same seed. Count
+        // SH_TADPOLE objects before/after to observe the spawn decision.
+        let mut g = sf_game::game::Game::new();
+        sf_strat::enemies_ground::register(&mut g.world);
+        let e = g.objs.alloc().expect("meteor slot");
+        sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[e as usize]);
+        g.objs.aliens[e as usize].stratptr = g.world.istrats[IS_BREAK_METEORT];
+        g.vars.rng = seed;
+        let init = g.objs.aliens[e as usize].stratptr.expect("break_meteort istrat");
+        g.call_strat(init, e); // arms expstratptr = break_meteort_exp
+        let exp = g.objs.aliens[e as usize].expstratptr.expect("break_meteort expstrat");
+        let before = g.objs.aliens.iter().filter(|a| a.active && a.shape == SH_TADPOLE).count();
+        g.call_strat(exp, e); // the death coin + explosion
+        let after = g.objs.aliens.iter().filter(|a| a.active && a.shape == SH_TADPOLE).count();
+        let p_spawn = after > before;
+
+        eprintln!(
+            "BATCH4 break_meteorT seed {seed:02X?}: retail draw={draw} spawn={r_spawn} | port spawn={p_spawn}  {}",
+            if r_spawn == p_spawn { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!(r_spawn, p_spawn, "break_meteorT tadpole coin (draw>=127) must match retail");
+        saw_spawn |= p_spawn;
+        saw_skip |= !p_spawn;
+    }
+    assert!(saw_spawn && saw_skip, "both coin outcomes (spawn / skip) exercised");
+    eprintln!("BATCH4 break_meteorT: MATCH — port death coin (draw>=127 spawn) == retail RANDOM stream + threshold.");
+}

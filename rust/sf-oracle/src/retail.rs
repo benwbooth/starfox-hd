@@ -446,6 +446,55 @@ pub const AL_HP: u32 = 0x2A;
 pub const AL_AP: u32 = 0x2B;
 pub const AL_COLLFLAGS: u32 = 0x2E;
 
+// ------------------------------------------------------------------------
+// BATCH 4 — a zdist state-transition MOVER (`woods`), an RNG + PLAYER-RELATIVE
+// scenery init (`tree2`), an RNG reroll firing-enemy init (`shou0`), and the
+// `break_meteorT` tadpole death coin. All located by masked signature scan of
+// the retail cart (skeleton read out of the built ROM via symbols.txt, WRAM/jsl
+// operands wildcarded), each a UNIQUE hit, cross-validated.
+// ------------------------------------------------------------------------
+
+/// Retail `woods_strat` ($08:B7F6, GASTRATS.ASM:1386-1390) — a Zenemy obstacle
+/// that waits inert until the player closes within `2100` z, then `jml`s into
+/// `woodsgo_init` which converts it into a homing missile. Body:
+/// `ldy PLAYPT; rep #$20; lda al_worldz,y; sec; sbc al_worldz,x; bpl+; eor
+/// #$FFFF; inc a; cmp #$0834(2100); sep #$20; bpl .stay; jml woodsgo_init; rtl`.
+/// Footprint: reads `PLAYPT`->player `al_worldz` + own `al_worldz`; on convert
+/// jml's to `woodsgo_init`. Port <-> `enemies_ground::woods_strat` (IS_WOODS=54).
+pub const RETAIL_WOODS_STRAT: u32 = 0x08_B7F6;
+/// Retail `woodsgo_init` ($08:B813) — the conversion body woods_strat jml's to:
+/// installs `al_stratptr = woodsgo_strat ($08:B840)`, sets the extended coll/exp
+/// strat ptrs (`$7E:1CD0/1CD2,x`), a leaf `jsl $06:EEEE`, then `al_sbyte1 = 10`
+/// (home timer) + snd2 (`$7E:1CE9,x = 2`). Read straight out of woods_strat's
+/// `jml` operand.
+pub const RETAIL_WOODSGO_INIT: u32 = 0x08_B813;
+/// Retail `woodsgo_strat` ($08:B840) — the homing-missile tick woodsgo_init
+/// installs (read out of woodsgo_init's `sta al_stratptr` immediate).
+pub const RETAIL_WOODSGO_STRAT: u32 = 0x08_B840;
+/// The woods conversion Z-distance gate (`s_jmp_Zdistless #2100`).
+pub const RETAIL_WOODS_ZGATE: i16 = 2100;
+
+/// Retail `tree2_Istrat` ($09:952F, DSTRATS.ASM:1976-2014) — a destructible
+/// tree that (a) draws the runtime RNG ONCE for its height (`al_sbyte1 =
+/// (rnd&3)+1`) and (b) tilts toward the player: reads `PLAYPT`->player
+/// `al_worldx`, compares it to its own `al_worldx`, and on `enemy_x < player_x`
+/// (.otherway) negates `al_sbyte2` (=-deg22) and `al_roty += deg45($20)`, else
+/// (.notthatway) `al_roty += -deg45($E0)`. `al_sbyte2` starts = `deg22($10)`.
+/// The single `jsl RANDOM_L` (== $02:FC58) is the first instruction. Port <->
+/// `enemies_ground::tree2_init` (IS_TREE2=205).
+pub const RETAIL_TREE2_ISTRAT: u32 = 0x09_952F;
+
+/// Retail `shou0_Istrat` ($0A:D615, GA2STRAT.ASM:1853-1859) — a rotating plasma
+/// turret. Wires strats/data (HP2/AP12/enemy1), then draws the runtime RNG for
+/// its fire-pattern selector `al_sbyte1 = rnd&3`, REROLLING while `sbyte1 == 3`
+/// (`jml .again` back to the draw) so the result is uniform in {0,1,2}. Falls
+/// through into `shou0_strat` ($0A:D646), whose zdist range gate (`[500,2500)`)
+/// makes it a clean no-op when the player is far. Port <->
+/// `enemies_ground::shou0_init` (IS_SHOU0=178).
+pub const RETAIL_SHOU0_ISTRAT: u32 = 0x0A_D615;
+/// Retail `shou0_strat` ($0A:D646) — shou0's per-tick body (fall-through target).
+pub const RETAIL_SHOU0_STRAT: u32 = 0x0A_D646;
+
 /// Seed the player-relative + RNG machine state into retail WRAM so a
 /// player-aware / RNG-drawing strat starts byte-identical to the port. Writes
 /// the `player_posx/y/z` mirror globals and the 4-byte `rand` SWB state.
