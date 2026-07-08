@@ -325,17 +325,18 @@ pub(crate) mod eb_compat {
         g.vars.bosshp = g.vars.bosshp.wrapping_add(hp);
     }
 
-    /// C `SfRtl_Random()` — there is exactly ONE `g_rndval` in C. The
-    /// enemy_a helpers this lane calls at runtime (`strat_explode`,
-    /// `addrnd2pos_xy`, `strat_random_centered`, ...) advance the PRNG
-    /// cell at `ea_wm::RNDVAL` (0x1F00), so this lane draws from the SAME
-    /// cell or C-trace parity would desync the moment a shared helper
-    /// rolls. (crate::common::sv::RNDVAL is a reported cross-lane
-    /// divergence to consolidate; the common-lane projectile path this
-    /// lane uses never rolls the PRNG.)
+    /// ROM `RANDOM` ($2F7BF) — the single runtime SWB PRNG stream on
+    /// `g.vars.rng`, shared by every strat lane (player/enemy/boss). Proven
+    /// bit-exact + tier-2 stream-certified vs the retail cart
+    /// (coexec_retail::retail_rng_stream_vs_port); see
+    /// docs/TIER2_COEXEC_STATUS.md UPDATE 4. The enemy_a helpers this lane also
+    /// calls now draw from this same stream (they were rewired off the
+    /// build-time LCG `ea_random`/RNDVAL, which bakes static data and is NOT the
+    /// runtime RNG). Returns the new low byte (A) widened to u16; callers mask
+    /// low bits / modulo, matching the ROM's 8-bit RANDOM return.
     #[inline]
     pub fn sfrtl_random(g: &mut Game) -> u16 {
-        crate::enemy_a::ea_random(g)
+        sf_random(&mut g.vars)
     }
 
     // ============================================================

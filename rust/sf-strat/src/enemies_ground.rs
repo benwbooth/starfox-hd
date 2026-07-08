@@ -42,7 +42,7 @@ use crate::common::{sv, StratRam};
 
 use crate::enemy_a::{
     achase_angle, add_player_z, boss_attach_child_to_mother, boss_find_child_obj,
-    boss_get_mother_obj, copy_pos, ea_random, hmissile1_strat, homingflat_strat, player, sid,
+    boss_get_mother_obj, copy_pos, hmissile1_strat, homingflat_strat, player, sid,
     speed_to, strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser,
     strat_fire_relslowlaserhome, strat_hit_flash, strat_move3d, strat_phase_offset,
     strat_pitch_toward, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG180, DEG45,
@@ -50,7 +50,7 @@ use crate::enemy_a::{
 };
 use crate::common::{
     angle_xz, apply_velocity, dist_xz, gen_vecs_2d, gen_vecs_3d, make_obj, projectile_strat_ids,
-    spawn_projectile,
+    sf_random, spawn_projectile,
 };
 
 /// `Obj_GetPlayer` index (init_strats convention, game.rs:228): the
@@ -786,8 +786,8 @@ fn tank2zaco_fire(g: &mut Game, idx: u16, player_al: &Alien) {
     let me = g.objs.aliens[idx as usize];
     let base_yaw = angle_xz(&me, player_al);
     let base_pitch = strat_pitch_toward(&me, player_al);
-    let dpitch = ((ea_random(g) as u8 & 7) as i8).wrapping_sub(3);
-    let dyaw = ((ea_random(g) as u8 & 7) as i8).wrapping_sub(3);
+    let dpitch = ((sf_random(&mut g.vars) as u8 & 7) as i8).wrapping_sub(3);
+    let dyaw = ((sf_random(&mut g.vars) as u8 & 7) as i8).wrapping_sub(3);
     let pitch = base_pitch.wrapping_add(dpitch as u8);
     let yaw = base_yaw.wrapping_add(dyaw as u8);
     strat_fire_relslowlaser(g, idx, pitch, yaw);
@@ -952,7 +952,7 @@ fn bazooka_strat(g: &mut Game, idx: u16) {
 /// rotated by the firer.
 fn bazooka_fire(g: &mut Game, idx: u16, muzzle_x: i16) {
     let me = g.objs.aliens[idx as usize];
-    let dpitch = ((ea_random(g) as u8 & 3) as i8).wrapping_sub(1);
+    let dpitch = ((sf_random(&mut g.vars) as u8 & 3) as i8).wrapping_sub(1);
     let pitch = me.rotx.wrapping_add(dpitch as u8);
     let yaw = me.roty;
     // Muzzle offset rotated by the firer, added to its position via the
@@ -1024,7 +1024,7 @@ fn bazfall_strat(g: &mut Game, idx: u16) {
 /// branch when `random_l() < 127`. Draws (advances the RNG) per the codebase's
 /// `mt_jmp_random` convention.
 fn jmp_random50(g: &mut Game) -> bool {
-    (ea_random(g) & 0xff) < 127
+    (sf_random(&mut g.vars) & 0xff) < 127
 }
 
 /// `s_kill_obj` (STRATMAC.INC): hp=0 + colldisable — the engine's death sweep
@@ -1861,9 +1861,9 @@ fn meteor_istrat(g: &mut Game, idx: u16) {
         al.rotz = 0; // s_set_alvar B,x,al_rotz,#0
     }
     // s_set_alvar2rnd x,al_vel,#7 / al_sbyte1,#3 / al_roty (full byte).
-    let vel = (ea_random(g) as u8) & 7;
-    let sbyte1 = (ea_random(g) as u8) & 3;
-    let roty = ea_random(g) as u8;
+    let vel = (sf_random(&mut g.vars) as u8) & 7;
+    let sbyte1 = (sf_random(&mut g.vars) as u8) & 3;
+    let roty = sf_random(&mut g.vars) as u8;
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.vel = vel;
@@ -1913,7 +1913,7 @@ fn big_meteor_init(g: &mut Game, idx: u16) {
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode);
     // s_set_alvar2rnd x,al_sbyte1,#15 ; s_sub_alvar B,al_sbyte1,#8.
-    let sb1 = ((ea_random(g) as u8) & 15).wrapping_sub(8);
+    let sb1 = ((sf_random(&mut g.vars) as u8) & 15).wrapping_sub(8);
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(tick);
     al.collstratptr = Some(coll);
@@ -2004,7 +2004,7 @@ fn mine0_init(g: &mut Game, idx: u16) {
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode);
     // s_set_alvar2rnd x,al_rotz (full byte -> any orientation).
-    let rotz = ea_random(g) as u8;
+    let rotz = sf_random(&mut g.vars) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(tick);
     al.collstratptr = Some(coll);
@@ -2371,13 +2371,13 @@ fn colony0_nclose(g: &mut Game, idx: u16) {
     if let Some(dbr) = make_obj(g, XPWIRESPACEBAR) {
         copy_pos(g, dbr, idx); // s_copy_pos y,x (debris <- colony)
         // s_set_alvar2rnd y,al_rotz — full-byte random orientation.
-        let rotz = (ea_random(g) & 0xFF) as u8;
+        let rotz = (sf_random(&mut g.vars) & 0xFF) as u8;
         // s_set_alvar2rnd y,al_sbyte1,#15 ; s_sub_alvar #7 -> spin rate [-7,+8].
-        let sbyte1 = ((ea_random(g) & 15) as i16 - 7) as u8;
+        let sbyte1 = ((sf_random(&mut g.vars) & 15) as i16 - 7) as u8;
         // s_add_rnd2pos y,255,255,0 — per-axis (rnd&m)-m/2; z draws but adds 0.
-        let dx = (ea_random(g) & 255) as i16 - 127;
-        let dy = (ea_random(g) & 255) as i16 - 127;
-        let _dz = (ea_random(g) & 0) as i16; // draw kept for RNG parity
+        let dx = (sf_random(&mut g.vars) & 255) as i16 - 127;
+        let dy = (sf_random(&mut g.vars) & 255) as i16 - 127;
+        let _dz = (sf_random(&mut g.vars) & 0) as i16; // draw kept for RNG parity
         let al = &mut g.objs.aliens[dbr as usize];
         al.rotz = rotz;
         al.sbyte1 = sbyte1;
@@ -2585,7 +2585,7 @@ const SH_FIREBALL: u16 = 0;
 /// `s_jmp_random label,#pct` (STRATMAC.INC:1407-1417): branch when
 /// `random_l() < (pct*255)/100`. (The 1-arg form == pct 50 -> jmp_random50.)
 fn jmp_random_pct(g: &mut Game, pct: u32) -> bool {
-    (ea_random(g) & 0xff) < ((pct * 255) / 100) as u16
+    (sf_random(&mut g.vars) & 0xff) < ((pct * 255) / 100) as u16
 }
 
 /// `s_jmp_outZdistrng x,y,#min,#max` inverted: TRUE when the player is IN range
@@ -2793,9 +2793,9 @@ fn volrock_init(g: &mut Game, idx: u16) {
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode);
     // s_set_alvar2rnd sbyte1,#127 ; s_add_alvar #deg180-64.
-    let heading = ((ea_random(g) as u8) & 127).wrapping_add(DEG180.wrapping_sub(64));
+    let heading = ((sf_random(&mut g.vars) as u8) & 127).wrapping_add(DEG180.wrapping_sub(64));
     // s_set_var2rnd svar,#7 ; s_add_var #15.
-    let speed = ((ea_random(g) as u8) & 7).wrapping_add(15);
+    let speed = ((sf_random(&mut g.vars) as u8) & 7).wrapping_add(15);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
@@ -2810,7 +2810,7 @@ fn volrock_init(g: &mut Game, idx: u16) {
     }
     gen_vecs_2d(&mut g.objs.aliens[idx as usize]); // s_gen_vecs sbyte1,vel (vx,vz; vy=0)
     // s_set_alvar2rnd al_vy,#15 ; vy+1=0 ; s_neg_alvar ; s_add_alvar #-30.
-    let vy = -(((ea_random(g) as u8) & 15) as i16) - 30;
+    let vy = -(((sf_random(&mut g.vars) as u8) & 15) as i16) - 30;
     g.objs.aliens[idx as usize].vy = vy;
     volrock_strat(g, idx);
 }
@@ -2830,8 +2830,8 @@ fn volrock_strat(g: &mut Game, idx: u16) {
 fn firepillar_init(g: &mut Game, idx: u16) {
     let tick = sid(g, firepillar_strat);
     // s_set_alvar2rnd worldx (low byte) ; +1,#3 (high byte & 3) -> 0..1023.
-    let lo = (ea_random(g) as u8) as i16;
-    let hi = ((ea_random(g) as u8) & 3) as i16;
+    let lo = (sf_random(&mut g.vars) as u8) as i16;
+    let hi = ((sf_random(&mut g.vars) as u8) & 3) as i16;
     let mut wx = lo | (hi << 8);
     wx -= 512; // s_sub_alvar W,x,al_worldx,#512
     wx = wx.wrapping_add(g.vars.player_posx >> 1); // asra player_posx (/2) + worldx
@@ -2907,9 +2907,9 @@ fn volrockdown_strat(g: &mut Game, idx: u16) {
     apply_velocity(&mut g.objs.aliens[idx as usize]); // s_Add_vecs2pos (leading)
     // s_jmp_ifnotstate x,0,.nsdown ; s_jmp_higher x,#0,.nsdown (worldy<0 skip).
     if g.objs.aliens[idx as usize].stratstate == 0 && g.objs.aliens[idx as usize].worldy >= 0 {
-        let vx = (((ea_random(g) as u8) & 15) as i16) - 7; // (rnd&15)-7
-        let vy = (((ea_random(g) as u8) & 7) as i16) - 15; // (rnd&7)-15 (upward pop)
-        let vz = (((ea_random(g) as u8) & 15) as i16) - 7; // (rnd&15)-7
+        let vx = (((sf_random(&mut g.vars) as u8) & 15) as i16) - 7; // (rnd&15)-7
+        let vy = (((sf_random(&mut g.vars) as u8) & 7) as i16) - 15; // (rnd&7)-15 (upward pop)
+        let vz = (((sf_random(&mut g.vars) as u8) & 15) as i16) - 7; // (rnd&15)-7
         {
             let al = &mut g.objs.aliens[idx as usize];
             al.vx = vx;
@@ -3093,7 +3093,7 @@ fn misspod_init(g: &mut Game, idx: u16) {
     let tick = sid(g, misspod_strat);
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode);
-    let r = (ea_random(g) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
+    let r = (sf_random(&mut g.vars) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(tick);
     al.collstratptr = Some(coll);
@@ -3470,8 +3470,8 @@ fn szaco0_goto_wppostab(g: &mut Game, idx: u16, table: &[Wp]) {
             let me = g.objs.aliens[idx as usize];
             let base_pitch = strat_pitch_toward(&me, &pl); // svar_byte1 offsets pitch
             let base_yaw = angle_xz(&me, &pl); // svar_byte2 offsets yaw
-            let dpitch = (((ea_random(g) as u8) & 7) as i8).wrapping_sub(3);
-            let dyaw = (((ea_random(g) as u8) & 7) as i8).wrapping_sub(3);
+            let dpitch = (((sf_random(&mut g.vars) as u8) & 7) as i8).wrapping_sub(3);
+            let dyaw = (((sf_random(&mut g.vars) as u8) & 7) as i8).wrapping_sub(3);
             strat_fire_relslowlaser(
                 g,
                 idx,
@@ -3499,7 +3499,7 @@ fn szaco0_init(g: &mut Game, idx: u16) {
     let tick = sid(g, szaco0_strat);
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode); // escapeeexplode2 -> generic (escapee cosmetic)
-    let r = (ea_random(g) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
+    let r = (sf_random(&mut g.vars) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
@@ -3629,7 +3629,7 @@ fn szaco5_strat(g: &mut Game, idx: u16) {
         if !zdist_more(g, idx, 200) {
             g.objs.aliens[idx as usize].vel = 40;
             next_state(g, idx); // -> 2
-            let r = (ea_random(g) as u8) & 31;
+            let r = (sf_random(&mut g.vars) as u8) & 31;
             let sb2 = r.wrapping_sub(15);
             let al = &mut g.objs.aliens[idx as usize];
             al.sbyte2 = sb2;
@@ -4134,7 +4134,7 @@ fn wallright_strat(g: &mut Game, idx: u16) {
 /// (rnd&3)+1, lower the root by sprout_maxy/2, anim speed 2 / tail timer 255,
 /// ENEMY1 + nohitaffect + hp=-1, anim 0. Falls into the grow tick.
 fn tree1_init(g: &mut Game, idx: u16) {
-    let r = (ea_random(g) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
+    let r = (sf_random(&mut g.vars) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
     tree_setup(g, idx, r.wrapping_add(1)); // s_inc_alvar -> [1,4]
     // tree1 has no player-relative tilt (unlike tree2); s_not_alsflag sflag3 and
     // the leaf/flower flags drive only the scoped-out bloom.
@@ -4143,7 +4143,7 @@ fn tree1_init(g: &mut Game, idx: u16) {
 /// `tree2_istrat` (DSTRATS.ASM:1976-2014): as tree1 but tilts toward the player
 /// (roty ±deg45, sbyte2 = ±deg22 overhang) and casts a shadow.
 fn tree2_init(g: &mut Game, idx: u16) {
-    let r = (ea_random(g) as u8) & 3;
+    let r = (sf_random(&mut g.vars) as u8) & 3;
     let mut sbyte2 = DEG22; // s_set_alvar al_sbyte2,#deg22
     // s_cmp_alvars W,x,al_worldx,y,al_worldx ; s_bmi .otherway.
     let self_x = g.objs.aliens[idx as usize].worldx;
@@ -4311,9 +4311,9 @@ fn shou0_init(g: &mut Game, idx: u16) {
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode);
     // .again: s_set_alvar2rnd sbyte1,#3 ; s_jmp_alvarEQ #3,.again (reroll on 3).
-    let mut sb1 = (ea_random(g) as u8) & 3;
+    let mut sb1 = (sf_random(&mut g.vars) as u8) & 3;
     while sb1 == 3 {
-        sb1 = (ea_random(g) as u8) & 3;
+        sb1 = (sf_random(&mut g.vars) as u8) & 3;
     }
     {
         let al = &mut g.objs.aliens[idx as usize];

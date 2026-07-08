@@ -224,7 +224,7 @@ pub fn ea_random(g: &mut Game) -> u16 {
 
 pub(crate) use crate::common::{
     apply_velocity, chase_proportional, count_down, dist_xz, gen_vecs_2d, gen_vecs_3d, make_obj,
-    spawn_projectile, speed_to,
+    sf_random, spawn_projectile, speed_to,
 };
 /// Registry-shaped projectile collide strategy (C takes the address of
 /// `Strat_ProjectileOnCollide`); same slot ids as the common lane's.
@@ -345,7 +345,7 @@ pub(crate) fn strat_random_centered(g: &mut Game, span: u8) -> i8 {
     if span == 0 {
         return 0;
     }
-    let rnd = (ea_random(g) % span as u16) as u8;
+    let rnd = (sf_random(&mut g.vars) % span as u16) as u8;
     (rnd as i8).wrapping_sub((span / 2) as i8)
 }
 
@@ -2331,8 +2331,8 @@ fn boss1back_strat(g: &mut Game, idx: u16) {
     // aim at player; the shot homes via its al_ptr=player target afterward.
     if g.vars.gameframe & 63 == 0 {
         let me = g.objs.aliens[idx as usize];
-        let pitch = me.rotx.wrapping_add(((ea_random(g) & 15) as i16 - 7) as u8);
-        let yaw = me.roty.wrapping_add(((ea_random(g) & 15) as i16 - 7) as u8);
+        let pitch = me.rotx.wrapping_add(((sf_random(&mut g.vars) & 15) as i16 - 7) as u8);
+        let yaw = me.roty.wrapping_add(((sf_random(&mut g.vars) & 15) as i16 - 7) as u8);
         let _ = boss1_fire_hplasma(g, idx, 0, 0, 0, 0, pitch, yaw);
     }
     // HMISSILE1 pair: `s_jmp_NOTdelay 6,.nofire,#15` (GBSTRATS.ASM:217) = fire when
@@ -2901,8 +2901,8 @@ fn wormheadexp_strat(g: &mut Game, idx: u16) {
 
 /// C `wormsplit_init` (strat_enemy.c:3823).
 fn wormsplit_init(g: &mut Game, idx: u16) {
-    let r1 = ((ea_random(g) & 63) as i16) - 32;
-    let r2 = ((ea_random(g) & 63) as i16) - 32;
+    let r1 = ((sf_random(&mut g.vars) & 63) as i16) - 32;
+    let r2 = ((sf_random(&mut g.vars) & 63) as i16) - 32;
     let s = sid(g, wormsplit_strat);
     let al = &mut g.objs.aliens[idx as usize];
     al.vx = r1;
@@ -2953,7 +2953,7 @@ pub fn strat_worm2_init(g: &mut Game, idx: u16) {
     let s = sid(g, worm2_strat);
     let s_coll = sid(g, strat_hit_flash);
     let s_exp = sid(g, strat_explode);
-    let rnd = ea_random(g) as u8;
+    let rnd = sf_random(&mut g.vars) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(s);
     al.collstratptr = Some(s_coll);
@@ -4426,8 +4426,8 @@ fn zaco0_fire(g: &mut Game, idx: u16) {
             // ASM `s_weapon_rndrots2obj y,3,3` (KSTRATS.ASM:244) = per-axis
             // (rnd&3)-1, PITCH(x) drawn BEFORE YAW(y). Old port used (rnd%3)-1,
             // yaw-first. (Audit A Minor 5)
-            let spread_pitch = ((ea_random(g) & 3) as i8).wrapping_sub(1);
-            let spread_yaw = ((ea_random(g) & 3) as i8).wrapping_sub(1);
+            let spread_pitch = ((sf_random(&mut g.vars) & 3) as i8).wrapping_sub(1);
+            let spread_yaw = ((sf_random(&mut g.vars) & 3) as i8).wrapping_sub(1);
             let me = g.objs.aliens[idx as usize];
             let fire_pitch = strat_pitch_toward(&me, &pl).wrapping_add(spread_pitch as u8);
             let fire_yaw = angle_xz(&me, &pl).wrapping_add(spread_yaw as u8);
@@ -5730,8 +5730,8 @@ fn clship_chasec_strat(g: &mut Game, idx: u16) {
 /// C `Strat_ClshipEARTHA_Init` (strat_enemy.c:6764).
 pub fn strat_clship_eartha_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_eartha_strat);
-    let r1 = (ea_random(g) & 15) as u8;
-    let r2 = (ea_random(g) & 7) as u8;
+    let r1 = (sf_random(&mut g.vars) & 15) as u8;
+    let r2 = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sflags2 |= CLSHIP_FLAG1;
     al.sbyte1 = 10;
@@ -5743,8 +5743,8 @@ pub fn strat_clship_eartha_init(g: &mut Game, idx: u16) {
 /// C `Strat_ClshipEARTHB_Init` (strat_enemy.c:6773).
 pub fn strat_clship_earthb_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_earthb_strat);
-    let r1 = (ea_random(g) & 15) as u8;
-    let r2 = (ea_random(g) & 7) as u8;
+    let r1 = (sf_random(&mut g.vars) & 15) as u8;
+    let r2 = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sflags2 |= CLSHIP_FLAG1;
     al.sbyte1 = 20;
@@ -5756,8 +5756,8 @@ pub fn strat_clship_earthb_init(g: &mut Game, idx: u16) {
 /// C `Strat_ClshipEARTHC_Init` (strat_enemy.c:6782).
 pub fn strat_clship_earthc_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_earthc_strat);
-    let r1 = (ea_random(g) & 15) as u8;
-    let r2 = (ea_random(g) & 7) as u8;
+    let r1 = (sf_random(&mut g.vars) & 15) as u8;
+    let r2 = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sflags2 |= CLSHIP_FLAG1;
     al.sbyte1 = 30;
@@ -5981,8 +5981,8 @@ const CLSHIP_TURN_SBYTE1: u8 = ((DEG180 as u16 + DEG45 as u16 + DEG22 as u16) / 
 /// Port of `clshipTURNa_Istrat` (GCSTRATS.ASM:435).
 pub fn strat_clship_turna_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_turna_strat);
-    let r1 = (ea_random(g) & 15) as u8;
-    let r2 = (ea_random(g) & 7) as u8;
+    let r1 = (sf_random(&mut g.vars) & 15) as u8;
+    let r2 = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.vx = 10; // :440
     al.rotz = DEG90.wrapping_neg(); // :441 -deg90
@@ -5996,8 +5996,8 @@ pub fn strat_clship_turna_init(g: &mut Game, idx: u16) {
 /// Port of `clshipTURNb_Istrat` (GCSTRATS.ASM:460).
 pub fn strat_clship_turnb_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_turnb_strat);
-    let r1 = (ea_random(g) & 15) as u8;
-    let r2 = (ea_random(g) & 7) as u8;
+    let r1 = (sf_random(&mut g.vars) & 15) as u8;
+    let r2 = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.vx = -10; // :465
     al.rotz = DEG90; // :466
@@ -6011,8 +6011,8 @@ pub fn strat_clship_turnb_init(g: &mut Game, idx: u16) {
 /// Port of `clshipTURNc_Istrat` (GCSTRATS.ASM:481). No vx/rotz set.
 pub fn strat_clship_turnc_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_turnc_strat);
-    let r1 = (ea_random(g) & 15) as u8;
-    let r2 = (ea_random(g) & 7) as u8;
+    let r1 = (sf_random(&mut g.vars) & 15) as u8;
+    let r2 = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sword1 = 100 + 100 + 10 - CLSHIP_COCKWAIT; // :486 = 120
     al.sbyte1 = CLSHIP_TURN_SBYTE1; // :487
@@ -6463,8 +6463,8 @@ pub const EXPSHAPE_FOLARGE: u16 = 4;
 
 /// C `addrnd2pos_xy` (strat_enemy.c:6832, addrnd2posy_srou).
 pub(crate) fn addrnd2pos_xy(g: &mut Game, idx: u16) {
-    let rx = (ea_random(g) & 0xFF) as u8 as i8;
-    let ry = (ea_random(g) & 0xFF) as u8 as i8;
+    let rx = (sf_random(&mut g.vars) & 0xFF) as u8 as i8;
+    let ry = (sf_random(&mut g.vars) & 0xFF) as u8 as i8;
     let al = &mut g.objs.aliens[idx as usize];
     al.worldx = al.worldx.wrapping_add(rx as i16);
     al.worldy = al.worldy.wrapping_add(ry as i16);

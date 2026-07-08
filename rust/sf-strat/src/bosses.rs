@@ -30,6 +30,7 @@ use sf_game::vars::{
 use sf_game::world::World;
 
 // Canonical strat_common.c ports.
+use crate::common::sf_random;
 use crate::common::{
     strat_angle_xz, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars,
     strat_projectile_on_collide,
@@ -45,7 +46,7 @@ use crate::enemy_a::{
     achase_angle, add_player_z, addrnd2pos_xy, boss_attach_child_to_mother, boss_child_from_index_raw,
     boss_clear_child_link, boss_count_children, boss_dying, boss_find_child_obj, boss_get_mother_obj,
     boss_keeprel_to_player, boss_obj_index_or_null, boss_prune_family_links, bossflags, copy_pos,
-    currentlevel, ea_random,
+    currentlevel,
     pviewposz, set_bossflags, strat_boss_explode_init, strat_cos, strat_explode, strat_hit_flash,
     strat_pitch_toward, strat_sin,
 };
@@ -124,10 +125,16 @@ fn add_bosshp(g: &mut Game, idx: u16) {
     g.vars.bosshp = g.vars.bosshp.wrapping_add(hp);
 }
 
-/// C `SfRtl_Random()` — the one shared PRNG cell (0x1F00, enemy_a::wm).
+/// ROM `RANDOM` ($2F7BF) — the single runtime SWB PRNG stream shared by every
+/// strat lane (player/enemy/boss), on `g.vars.rng`. Proven bit-exact + tier-2
+/// stream-certified vs the retail cart (coexec_retail::retail_rng_stream_vs_port);
+/// see docs/TIER2_COEXEC_STATUS.md UPDATE 4. (Was the build-time LCG `ea_random`
+/// on RNDVAL $0500 — that macro bakes static data, it is NOT the runtime RNG.)
+/// Returns the new low byte (A) widened to u16; callers mask low bits / modulo,
+/// matching the ROM's 8-bit RANDOM return.
 #[inline]
 fn sfrtl_random(g: &mut Game) -> u16 {
-    ea_random(g)
+    sf_random(&mut g.vars)
 }
 
 /// C `Obj_GetPlayer` (src/game/obj.c:125): slot 0 when active.

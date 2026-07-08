@@ -44,6 +44,7 @@ use sf_game::game::{Game, StrategyFn};
 use sf_game::vars::GF_BOSSDEAD;
 use sf_game::world::World;
 
+use crate::common::sf_random;
 use crate::common::{
     strat_angle_xz as angle_xz, strat_apply_velocity as apply_velocity,
     strat_gen_vecs_3d as gen_vecs_3d, strat_make_obj as make_obj,
@@ -51,7 +52,7 @@ use crate::common::{
 };
 use crate::enemy_a::{
     achase_angle, add_player_z, boss_attach_child_to_mother, boss_keeprel_to_player, copy_pos,
-    currentlevel, ea_random, player, strat_aim_3d, strat_boss_explode_init, strat_hit_flash,
+    currentlevel, player, strat_aim_3d, strat_boss_explode_init, strat_hit_flash,
     strat_pitch_toward,
 };
 
@@ -275,8 +276,8 @@ fn aim_and_fire_laser(g: &mut Game, idx: u16, spread: u8) {
         let yaw = angle_xz(&me, &p);
         let pitch = strat_pitch_toward(&me, &p);
         let m = spread.max(1);
-        let dyaw = (ea_random(g) as u8 % (2 * m + 1)).wrapping_sub(m);
-        let dp = (ea_random(g) as u8 % (2 * m + 1)).wrapping_sub(m);
+        let dyaw = (sf_random(&mut g.vars) as u8 % (2 * m + 1)).wrapping_sub(m);
+        let dp = (sf_random(&mut g.vars) as u8 % (2 * m + 1)).wrapping_sub(m);
         fire_relslowlaser(g, idx, pitch.wrapping_add(dp), yaw.wrapping_add(dyaw));
     }
 }
@@ -418,7 +419,7 @@ fn bossbdodge_strat(g: &mut Game, idx: u16) {
             al.sbyte2 = 0;
             // s_jmp_random .same,80 ; s_set_alvar al_sbyte2,#16 — 80/255 chance
             // of the +16 (second half-space) variant.
-            if (ea_random(g) as u8) >= 127 {
+            if (sf_random(&mut g.vars) as u8) >= 127 {
                 g.objs.aliens[idx as usize].sbyte2 = 16;
             }
         }
@@ -735,9 +736,9 @@ fn bossbrobsplit_strat(g: &mut Game, idx: u16) {
 /// through the parts. The child link uses child slots 1/2/3.
 fn bossbrobsplit2_init(g: &mut Game, idx: u16) {
     // s_set_var2rnd svar_byte1,#3 ; reject 3 (0..2).
-    let mut pick = ea_random(g) as u8 & 3;
+    let mut pick = sf_random(&mut g.vars) as u8 & 3;
     while pick == 3 {
-        pick = ea_random(g) as u8 & 3;
+        pick = sf_random(&mut g.vars) as u8 & 3;
     }
     // Part positions (al_sword1/sword2 rest targets), GB3STRAT.ASM:1985-1998.
     let parts = [(0i16, -400i16), (-450, -100), (450, -100)];

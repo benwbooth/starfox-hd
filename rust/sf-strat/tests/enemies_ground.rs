@@ -679,7 +679,6 @@ const SH_TADPOLE: u16 = 228; // break_meteorT death spawn
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs:147
 const ASF_COLLDISABLE: u8 = 0x10; // alien.rs:145
 const COLLTYPE_ZENEMY: u8 = 0x01; // enemy_a acf_colltype6
-const RNDVAL: u16 = 0x1F00; // ea_random seed slot (setup())
 
 fn find_shape(g: &Game, shape: u16) -> Option<usize> {
     g.objs
@@ -830,12 +829,14 @@ fn break_meteor_is_destructible_and_explodes_without_fragment() {
 #[test]
 fn break_meteort_death_spawns_tadpole_on_the_coin() {
     // break1.createtadpole: P_RANDOMGOTO skips on random<127, spawns otherwise.
-    // RNDVAL=0 -> first draw 0x61D7 (low 0xD7=215 >= 127) -> spawn a tadpole.
+    // The coin now draws the ROM runtime RNG (SWB on g.vars.rng), not the old
+    // build-time LCG on RNDVAL. rng=[0,0,0,0] -> first RANDOM draw = 254
+    // (>= 127) -> spawn a tadpole.
     let mut g = setup();
     let b = place(&mut g, IS_BREAK_METEORT, 2000, 200, 4000, SH_ASTEROID2);
     tick(&mut g, b);
     let exp = g.objs.aliens[b as usize].expstratptr.unwrap();
-    g.vars.write_ext16(RNDVAL, 0);
+    g.vars.rng = [0, 0, 0, 0];
     g.objs.aldead = 0;
     g.call_strat(exp, b);
     assert_eq!(g.objs.aldead, 1, "break_meteorT explodes");
@@ -847,12 +848,14 @@ fn break_meteort_death_spawns_tadpole_on_the_coin() {
 
 #[test]
 fn break_meteort_death_skips_tadpole_on_the_low_coin() {
-    // RNDVAL=0x1234 -> first draw 0xDA53 (low 0x53=83 < 127) -> skip the spawn.
+    // The coin now draws the ROM runtime RNG (SWB on g.vars.rng), not the old
+    // build-time LCG on RNDVAL. rng=[0,128,0,0] -> first RANDOM draw = 126
+    // (< 127) -> skip the spawn.
     let mut g = setup();
     let b = place(&mut g, IS_BREAK_METEORT, 2000, 200, 4000, SH_ASTEROID2);
     tick(&mut g, b);
     let exp = g.objs.aliens[b as usize].expstratptr.unwrap();
-    g.vars.write_ext16(RNDVAL, 0x1234);
+    g.vars.rng = [0, 128, 0, 0];
     g.objs.aldead = 0;
     g.call_strat(exp, b);
     assert_eq!(g.objs.aldead, 1, "still explodes");
