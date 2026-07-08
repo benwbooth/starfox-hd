@@ -487,6 +487,7 @@ impl Shell {
     /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
     /// stored into `game.vars.pad1`.
     pub fn tick(&mut self, pad1: u16) {
+        let trace_state = self.game_state;
         self.pad1_new = pad1 & !self.prev_pad;
         self.prev_pad = pad1;
         self.game.vars.pad1 = pad1;
@@ -561,6 +562,21 @@ impl Shell {
                 .update(&mut self.game.vars.oncewipe, &mut self.game.vars.circleanim);
             st.strings
                 .update(self.game.vars.gameflags, &mut self.rndval, &mut st.sound);
+        }
+
+        // Diagnostic: report state transitions + the level entered. Low-volume
+        // (a handful of transitions per session); makes a "stuck after X" report
+        // pinpoint the exact state without a debugger.
+        if self.game_state != trace_state {
+            println!(
+                "[state] {:?} -> {:?}  (frame {}, route {}, stage {}, level {})",
+                trace_state,
+                self.game_state,
+                self.game.vars.gameframe,
+                self.planets.whichroute,
+                self.planets.stage,
+                self.planets.currentlevel,
+            );
         }
     }
 
