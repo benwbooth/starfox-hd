@@ -48,7 +48,14 @@ mod lc {
     pub const STRAT_ADDR_BOSSH: u32 = 0x060011;
     pub const IS_BASE0: u32 = 138;
     pub const IS_TANK2: u32 = 162;
-    pub const IS_HARD180YRFOG: u32 = 180;
+    // sf-strat registers hard180yrfog at 181 (= ROM row 181, aliased to the
+    // hard180yr rotation strat). Was 180 here, so 1_4's ~10 rotating ground
+    // objects missed hard180yr. Fixed to match the registration.
+    pub const IS_HARD180YRFOG: u32 = 181;
+    // TODO(caveat): IS_BASE1=181 misroutes to hard180yr — sf-strat registers
+    // base1 at 230 (IS_BASE_1). Tangled with the caveated ultrastarfox base1
+    // door hack (docs/AUDIT... base1 flagged for review); left for a dedicated
+    // pass rather than repoint blindly onto the caveated strat.
     pub const IS_BASE1: u32 = 181;
     pub const IS_TANK1A: u32 = 183;
     pub const IS_HOUDAI5F: u32 = 187;
