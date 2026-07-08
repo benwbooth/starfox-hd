@@ -1266,8 +1266,15 @@ mod tests {
         assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_MISSILE), Some(0x3c));
         assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_DAMENEMY), Some(0x24));
         assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_ENEMYUPSEA), Some(0x69));
+        // Findings F1-F4 families: door + sea, near-centre ids.
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_DOOROPEN), Some(0x54));
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_DOORCLOSE), Some(0x52));
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_ENEMYDOWNSEA), Some(0x75));
         // Far.
         assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_HITWALL), Some(0x29));
+        // F1/F2 door far bands collapse to the mid/far id.
+        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_DOOROPEN), Some(0x55));
+        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_DOORCLOSE), Some(0x53));
     }
 
     #[test]

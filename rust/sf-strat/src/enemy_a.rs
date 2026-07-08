@@ -28,7 +28,7 @@ use sf_game::alien::{
     ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE,
     ATZREMOVE, NUMBER_AL,
 };
-use sf_game::game::{Game, StrategyFn};
+use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
     GF_BOSSDEAD, HARD_AP, HARD_HP, PFM_SHADOWS, PSF2_PLAYERHP0, PSTF_NOTDIE, SPFM_INSIDE,
 };
@@ -703,11 +703,6 @@ const RELSLOWELASERHOME_LIFE: u8 = 40;
 const RELSLOWELASERHOME_AP: u8 = 2;
 /// Hit flag HF1 (VARS.INC:167 `HF1 equ 1<<0`) tested by base1's door.
 const HF1_MASK: u8 = 0x01;
-/// Door open/close sounds — ASM `dooropensound_l`/`doorclosesound_l`
-/// (SOUND.ASM:839/850) are multi-channel; approximated by the primary
-/// L/C/R channel SE (open 0x54, close 0x52).
-const BASE1_DOOR_OPEN_SE: u8 = 0x54;
-const BASE1_DOOR_CLOSE_SE: u8 = 0x52;
 /// base1 door dwell (ASM `.wait_istrat` `s_set_alvar al_sbyte1,#5`).
 const BASE1_WAIT_FRAMES: u8 = 5;
 const TADPOLE_HP: u8 = 4;
@@ -2656,7 +2651,8 @@ pub fn strat_tow0_explode(g: &mut Game, idx: u16) {
     if ptr != 0 && (ptr as usize) < NUMBER_AL && g.objs.aliens[ptr as usize].active {
         g.objs.aliens[ptr as usize].sflags4 |= ASF4_SFLAG8;
     }
-    g.hooks.play_se(0x10);
+    // (F5) ASM tow0explode_Istrat -> pillarexplode plays NO direct sound; the
+    // former play_se(0x10) here was a leftover placeholder chime. Deleted.
     let s = sid(g, tow0explode_wait);
     let al = &mut g.objs.aliens[idx as usize];
     al.flags |= AFEXP;
@@ -4171,7 +4167,9 @@ fn zaco3die_init(g: &mut Game, idx: u16) {
         al.collstratptr = None;
         al.expstratptr = Some(s);
     }
-    g.hooks.play_se(0x10);
+    // (F6) ASM zaco3die_istrat -> makeMEDexpobj_srou is empty (s_rtl); no
+    // trigse anywhere in the zaco3die chain. The former play_se(0x10) chime
+    // here was a leftover placeholder. Deleted.
 }
 
 /// C `zaco3die_strat` (strat_enemy.c:5271).
@@ -4755,12 +4753,16 @@ fn base1_strat(g: &mut Game, idx: u16) {
     }
     // .anim_istrat: clear HF1, door-open sound, switch to open (falls through).
     let s = sid(g, base1_open_strat);
+    let (ox, oz);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.hitflags &= !HF1_MASK;
         al.stratptr = Some(s);
+        ox = al.worldx;
+        oz = al.worldz;
     }
-    g.hooks.play_se(BASE1_DOOR_OPEN_SE);
+    // ASM `jsl dooropensound_l` -> makesnd (positional, POS_DOOROPEN). (F1)
+    g.hooks.make_snd(PosSndFamilyId::DoorOpen, ox, oz);
     base1_open_strat(g, idx);
 }
 
@@ -4786,8 +4788,13 @@ fn base1_wait_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].sbyte1 == 0 {
         // .close: door-close sound, switch to close, fall through.
         let s = sid(g, base1_close_strat);
-        g.objs.aliens[idx as usize].stratptr = Some(s);
-        g.hooks.play_se(BASE1_DOOR_CLOSE_SE);
+        let (ox, oz) = {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.stratptr = Some(s);
+            (al.worldx, al.worldz)
+        };
+        // ASM `jsl doorclosesound_l` -> makesnd (positional, POS_DOORCLOSE). (F2)
+        g.hooks.make_snd(PosSndFamilyId::DoorClose, ox, oz);
         base1_close_strat(g, idx);
         return;
     }
@@ -6273,5 +6280,102 @@ pub fn install(g: &mut Game) -> EnemyAStratIds {
         boss_explode: sid(g, strat_boss_explode_init),
         hit_flash: sid(g, strat_hit_flash),
         explode: sid(g, strat_explode),
+    }
+}
+
+#[cfg(test)]
+mod sound_wiring_tests {
+    //! Findings F1/F2 (door -> positional make_snd) and F5/F6 (stray
+    //! placeholder chime deleted) from docs/AUDIT_SOUND_IDS_FINDINGS.md.
+    use super::*;
+    use sf_game::game::{Hooks, PosSndFamilyId};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum SndEvent {
+        PlaySe(u8),
+        MakeSnd(PosSndFamilyId, i16, i16),
+    }
+
+    #[derive(Clone, Default)]
+    struct Rec(Rc<RefCell<Vec<SndEvent>>>);
+    impl Hooks for Rec {
+        fn play_se(&mut self, id: u8) {
+            self.0.borrow_mut().push(SndEvent::PlaySe(id));
+        }
+        fn trig_se(&mut self, id: u8) {
+            self.0.borrow_mut().push(SndEvent::PlaySe(id));
+        }
+        fn make_snd(&mut self, family: PosSndFamilyId, x: i16, z: i16) {
+            self.0.borrow_mut().push(SndEvent::MakeSnd(family, x, z));
+        }
+    }
+
+    fn game_with_alien() -> (Game, u16, Rc<RefCell<Vec<SndEvent>>>) {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let mut g = Game::with_hooks(Box::new(Rec(log.clone())));
+        let idx = g.objs.alloc().expect("alloc alien");
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.active = true;
+            al.worldx = 111;
+            al.worldz = 222;
+        }
+        (g, idx, log)
+    }
+
+    #[test]
+    fn f1_base1_door_open_fires_positional_dooropen() {
+        let (mut g, idx, log) = game_with_alien();
+        // s_test_hitflags x,#HF1 must pass to reach the door-open sound.
+        g.objs.aliens[idx as usize].hitflags |= HF1_MASK;
+        base1_strat(&mut g, idx);
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::DoorOpen, 111, 222)],
+            "door-open must go through positional make_snd(POS_DOOROPEN)"
+        );
+    }
+
+    #[test]
+    fn f2_base1_door_close_fires_positional_doorclose() {
+        let (mut g, idx, log) = game_with_alien();
+        // Drive base1_wait_strat straight into its .close branch (sbyte1 == 0).
+        let s = sid(&mut g, base1_wait_strat);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.stratptr = Some(s);
+            al.sbyte1 = 0;
+            al.animframe = 8; // so base1_close_strat doesn't immediately re-init
+        }
+        base1_wait_strat(&mut g, idx);
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::DoorClose, 111, 222)],
+            "door-close must go through positional make_snd(POS_DOORCLOSE)"
+        );
+    }
+
+    #[test]
+    fn f5_tow0_explode_emits_no_sound() {
+        let (mut g, idx, log) = game_with_alien();
+        strat_tow0_explode(&mut g, idx);
+        assert!(
+            log.borrow().is_empty(),
+            "tow0explode/pillarexplode plays no direct sound (F5); got {:?}",
+            log.borrow()
+        );
+    }
+
+    #[test]
+    fn f6_zaco3die_init_emits_no_sound() {
+        let (mut g, idx, log) = game_with_alien();
+        zaco3die_init(&mut g, idx);
+        assert!(
+            log.borrow().is_empty(),
+            "zaco3die_init plays no sound (F6); got {:?}",
+            log.borrow()
+        );
     }
 }

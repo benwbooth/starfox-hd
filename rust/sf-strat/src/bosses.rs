@@ -23,7 +23,7 @@ use sf_game::alien::{
     ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATLASER,
     ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
-use sf_game::game::{Game, StrategyFn};
+use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
     COLLTYPE_ENEMY1, GF_BOSSDEAD, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, HARD_AP, HARD_HP,
 };
@@ -1488,8 +1488,6 @@ const SEA_SFLAG2: u8 = 0x40; // seamon swim toggle / fish landed latch
 const SEA_SFLAG3: u8 = 0x80; // fish: launch to +X side
 const SEA_SFLAG8: u8 = ASF4_SFLAG8; // bossg sflag8 (al_sflags4)
 
-const SND_UPSEA: u8 = 0x69;
-const SND_DOWNSEA: u8 = 0x75;
 
 // bossg mode-table indices (D2STRATS.ASM:66-109).
 const BOSSG_MODE_WAITHITPLAYER: u16 = 0;
@@ -1571,13 +1569,19 @@ fn sea_fire_relslowelaser(g: &mut Game, self_idx: u16, target: u16) {
 #[inline]
 fn sea_make_splash(_g: &mut Game, _idx: u16) {}
 
+/// ASM `jsl enemyupsea_l` -> makesnd (positional, POS_ENEMYUPSEA). (F3)
 #[inline]
-fn sea_enemy_up_sea(g: &mut Game) {
-    play_se(g, SND_UPSEA);
+fn sea_enemy_up_sea(g: &mut Game, idx: u16) {
+    let al = &g.objs.aliens[idx as usize];
+    let (ox, oz) = (al.worldx, al.worldz);
+    g.hooks.make_snd(PosSndFamilyId::EnemyUpSea, ox, oz);
 }
+/// ASM `jsl enemydownsea_l` -> makesnd (positional, POS_ENEMYDOWNSEA). (F4)
 #[inline]
-fn sea_enemy_down_sea(g: &mut Game) {
-    play_se(g, SND_DOWNSEA);
+fn sea_enemy_down_sea(g: &mut Game, idx: u16) {
+    let al = &g.objs.aliens[idx as usize];
+    let (ox, oz) = (al.worldx, al.worldz);
+    g.hooks.make_snd(PosSndFamilyId::EnemyDownSea, ox, oz);
 }
 
 /// find_y_l equivalent: first active alien with the given shape word.
@@ -1705,7 +1709,7 @@ fn bossseamon_strat(g: &mut Game, idx: u16) {
                 al.sbyte2 = al.sbyte2.wrapping_add(4);
             }
             if !sea_not_delay(idx, 5, gf) {
-                sea_enemy_down_sea(g);
+                sea_enemy_down_sea(g, idx);
                 sea_make_splash(g, idx);
                 let al = &mut g.objs.aliens[idx as usize];
                 al.sbyte1 = 10;
@@ -1726,7 +1730,7 @@ fn bossseamon_strat(g: &mut Game, idx: u16) {
             if g.objs.aliens[idx as usize].sbyte1 == 0 {
                 g.objs.aliens[idx as usize].stratstate = 0;
                 g.objs.aliens[idx as usize].shape = SH_SEA_0_0;
-                sea_enemy_down_sea(g);
+                sea_enemy_down_sea(g, idx);
                 sea_make_splash(g, idx);
             }
         }
@@ -1741,7 +1745,7 @@ fn bossseamon_strat(g: &mut Game, idx: u16) {
                 al.vy = -15;
                 al.shape = SH_SEA_0_PROXY;
             }
-            sea_enemy_down_sea(g);
+            sea_enemy_down_sea(g, idx);
             sea_make_splash(g, idx);
             strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
             if g.objs.aliens[idx as usize].sbyte4 == 0 {
@@ -1764,7 +1768,7 @@ fn bossseamon_strat(g: &mut Game, idx: u16) {
             }
             g.objs.aliens[idx as usize].vy = g.objs.aliens[idx as usize].vy.wrapping_add(1);
             if g.objs.aliens[idx as usize].worldy >= 0 {
-                sea_enemy_down_sea(g);
+                sea_enemy_down_sea(g, idx);
                 sea_make_splash(g, idx);
                 let al = &mut g.objs.aliens[idx as usize];
                 al.vy = 0;
@@ -1787,7 +1791,7 @@ fn bossseamon_strat(g: &mut Game, idx: u16) {
 
         // state 5
         if g.objs.aliens[idx as usize].stratstate == 5 {
-            sea_enemy_down_sea(g);
+            sea_enemy_down_sea(g, idx);
             sea_make_splash(g, idx);
             {
                 let al = &mut g.objs.aliens[idx as usize];
@@ -1802,7 +1806,7 @@ fn bossseamon_strat(g: &mut Game, idx: u16) {
         if g.objs.aliens[idx as usize].stratstate == 6 {
             g.objs.aliens[idx as usize].vy = g.objs.aliens[idx as usize].vy.wrapping_add(2);
             if g.objs.aliens[idx as usize].worldy >= 0 {
-                sea_enemy_down_sea(g);
+                sea_enemy_down_sea(g, idx);
                 sea_make_splash(g, idx);
                 let al = &mut g.objs.aliens[idx as usize];
                 al.vy = 0;
@@ -1958,7 +1962,7 @@ fn seamon_strat(g: &mut Game, idx: u16) {
                 g.objs.aliens[idx as usize].shape = SH_SEA_0_0;
                 if g.objs.aliens[idx as usize].sflags2 & SEA_SFLAG1 == 0 {
                     g.objs.aliens[idx as usize].sflags2 |= SEA_SFLAG1;
-                    sea_enemy_down_sea(g);
+                    sea_enemy_down_sea(g, idx);
                     sea_make_splash(g, idx);
                     let al = &mut g.objs.aliens[idx as usize];
                     al.sbyte3 = 10;
@@ -2011,7 +2015,7 @@ fn seamon_strat(g: &mut Game, idx: u16) {
         al.vy = -25;
     }
 
-    sea_enemy_up_sea(g);
+    sea_enemy_up_sea(g, idx);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags &= !ASF_COLLDISABLE;
@@ -2087,7 +2091,7 @@ fn flyingfish_strat(g: &mut Game, idx: u16) {
     sea_gen_vecs_angle(g, idx, roty);
     g.objs.aliens[idx as usize].vy = -15;
     sea_make_splash(g, idx);
-    sea_enemy_up_sea(g);
+    sea_enemy_up_sea(g, idx);
 
     flyingfish_flying_strat(g, idx);
 }
@@ -7103,7 +7107,7 @@ fn sprouty_strat(g: &mut Game, idx: u16) {
                 sprouty_bluff_init(g, idx);
                 return;
             } else {
-                sea_enemy_up_sea(g); // enemyupsea then .nobluff
+                sea_enemy_up_sea(g, idx); // enemyupsea then .nobluff
                 true
             };
             if do_nobluff {
@@ -7523,7 +7527,7 @@ fn sd_snake_head_explode(g: &mut Game, idx: u16) {
 /// removes itself. (Modelled with sound + a simple dive; see scope note.)
 fn sd_head_underwater_init(g: &mut Game, idx: u16) {
     let s = sid(g, sd_head_swim_strat);
-    sea_enemy_down_sea(g);
+    sea_enemy_down_sea(g, idx);
     let neck_raw = g.objs.aliens[idx as usize].ptr;
     let neck_rots = boss_child_from_index_raw(neck_raw).map(|n| {
         let a = g.objs.aliens[n as usize];
@@ -7559,7 +7563,7 @@ fn sd_head_swim_strat(g: &mut Game, idx: u16) {
             al.worldy = 0;
             sd_set_sword1_hi(al, sbyte3);
         }
-        sea_enemy_up_sea(g);
+        sea_enemy_up_sea(g, idx);
         g.objs.aldead = 1; // .dekinai -> .remove (current)
         return;
     }

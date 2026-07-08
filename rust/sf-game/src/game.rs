@@ -34,6 +34,42 @@ use sf_map::levels::{BuiltLevel, NativeCallback};
 /// phase 1 only hosts the world.c builtin spacebar strats.
 pub type StrategyFn = fn(&mut Game, u16);
 
+/// Selects one of SOUND.ASM's `*sound_l` positional-SE families for
+/// [`Hooks::make_snd`] (the `jsl <family>sound_l -> makesnd` sites). The audio
+/// lane (sf-app) maps each variant to the matching `sf_audio::sound::POS_*`
+/// id table; this enum keeps sf-game free of an sf-audio dependency.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PosSndFamilyId {
+    /// `lasersound_l` (POS_LASER $44-$48).
+    Laser,
+    /// `missilesound_l` (POS_MISSILE $3c-$3e).
+    Missile,
+    /// `hitwallsound_l` (POS_HITWALL $27-$29).
+    HitWall,
+    /// `movewallsound_l` (POS_MOVEWALL $3f-$43).
+    MoveWall,
+    /// `ringlasersound_l` (POS_RINGLASER $5c-$5e).
+    RingLaser,
+    /// `dooropensound_l` (POS_DOOROPEN $54/$55/$55).
+    DoorOpen,
+    /// `doorclosesound_l` (POS_DOORCLOSE $52/$53/$53).
+    DoorClose,
+    /// `enemyupsea_l` (POS_ENEMYUPSEA $68-$6c).
+    EnemyUpSea,
+    /// `enemydownsea_l` (POS_ENEMYDOWNSEA $74-$78).
+    EnemyDownSea,
+    /// `destbosssound_l` (POS_DESTBOSS $1e-$20).
+    DestBoss,
+    /// `destenemysound_l` (POS_DESTENEMY $21-$23).
+    DestEnemy,
+    /// `damenemysound_l` (POS_DAMENEMY $24-$26).
+    DamEnemy,
+    /// `enemybattrysound_l` (POS_ENEMYBATTRY $49-$4b).
+    EnemyBattry,
+    /// `separatemissile_l` (POS_SEPARATEMISSILE $49-$4b).
+    SeparateMissile,
+}
+
 /// Outward-effect hooks for systems owned by other lanes (sound, windows,
 /// strings, renderer shapes, path data). Defaults mirror the C oracle
 /// harness stubs: no-ops, fades never active, unresolved paths -> 0,
@@ -43,6 +79,11 @@ pub trait Hooks {
     fn play_music(&mut self, _track_id: u8) {}
     /// C `Sound_PlaySE` (level inline callbacks).
     fn play_se(&mut self, _sound_id: u8) {}
+    /// C `makesnd` (SOUND.ASM:899): distance-attenuated positional ONE-SHOT SE
+    /// keyed to a `*sound_l` family, from a spawn/impact site. Pass the SOURCE
+    /// object's world XZ; the audio lane bands L/C/R/far by the object<->player
+    /// range. No-op in the parity harness (like `play_se`).
+    fn make_snd(&mut self, _family: PosSndFamilyId, _obj_worldx: i16, _obj_worldz: i16) {}
     /// C `Strat_TrigSE` (blocksnd builtin).
     fn trig_se(&mut self, _sound_id: u8) {}
     /// C `Strings_SendMessage` (sendmsg opcode, CLfriendmsg builtins).

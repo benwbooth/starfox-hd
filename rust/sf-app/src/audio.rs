@@ -10,8 +10,10 @@ use std::path::PathBuf;
 
 use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStreamWithCallback};
 use sf_audio::player::SpcPlayer;
-use sf_audio::sound::{Sound, SoundBackend, SoundGameState, SoundObj, SoundPlayer};
-use sf_game::game::Game;
+use sf_audio::sound::{
+    PosSndFamily, Sound, SoundBackend, SoundGameState, SoundObj, SoundPlayer,
+};
+use sf_game::game::{Game, PosSndFamilyId};
 use sf_game::shell::{FrameSnapshot, GameState, Shell, SoundCmd};
 
 /// SPC native output rate (C SPC_SAMPLE_RATE).
@@ -140,6 +142,14 @@ impl AudioSys {
         for cmd in shell.drain_sound() {
             match cmd {
                 SoundCmd::PlaySe(id) => self.sound.play_se(&state, id),
+                SoundCmd::MakeSnd { family, x, z } => {
+                    // C makesnd (SOUND.ASM:899): band the family's ids against
+                    // the live player position. No player -> nothing to key on.
+                    if let Some(player) = Self::sound_player(&shell.game) {
+                        let fam = Self::pos_family(family);
+                        self.sound.make_snd(&state, &player, x, z, fam);
+                    }
+                }
                 SoundCmd::PlayMusic(id) => {
                     self.sound.play_music(&mut self.backend, id, in_gameplay)
                 }
@@ -193,6 +203,28 @@ impl AudioSys {
         }
     }
 
+    /// Map a strat-lane [`PosSndFamilyId`] to the sf-audio `POS_*` id table
+    /// (the `*sound_l` L/C/R/mid/far ids of SOUND.ASM:735-897).
+    fn pos_family(id: PosSndFamilyId) -> &'static PosSndFamily {
+        use sf_audio::sound::*;
+        match id {
+            PosSndFamilyId::Laser => &POS_LASER,
+            PosSndFamilyId::Missile => &POS_MISSILE,
+            PosSndFamilyId::HitWall => &POS_HITWALL,
+            PosSndFamilyId::MoveWall => &POS_MOVEWALL,
+            PosSndFamilyId::RingLaser => &POS_RINGLASER,
+            PosSndFamilyId::DoorOpen => &POS_DOOROPEN,
+            PosSndFamilyId::DoorClose => &POS_DOORCLOSE,
+            PosSndFamilyId::EnemyUpSea => &POS_ENEMYUPSEA,
+            PosSndFamilyId::EnemyDownSea => &POS_ENEMYDOWNSEA,
+            PosSndFamilyId::DestBoss => &POS_DESTBOSS,
+            PosSndFamilyId::DestEnemy => &POS_DESTENEMY,
+            PosSndFamilyId::DamEnemy => &POS_DAMENEMY,
+            PosSndFamilyId::EnemyBattry => &POS_ENEMYBATTRY,
+            PosSndFamilyId::SeparateMissile => &POS_SEPARATEMISSILE,
+        }
+    }
+
     /// C `sound_get_player`.
     fn sound_player(game: &Game) -> Option<SoundPlayer> {
         game.objs.player().map(|al| SoundPlayer {
@@ -223,5 +255,45 @@ impl AudioSys {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sf_audio::sound::*;
+
+    /// Every strat-lane family selector maps to the matching SOUND.ASM
+    /// `*sound_l` id table (findings F1-F4 rely on Door*/Sea being correct).
+    #[test]
+    fn pos_family_maps_every_variant() {
+        use PosSndFamilyId::*;
+        assert_eq!(AudioSys::pos_family(Laser), &POS_LASER);
+        assert_eq!(AudioSys::pos_family(Missile), &POS_MISSILE);
+        assert_eq!(AudioSys::pos_family(HitWall), &POS_HITWALL);
+        assert_eq!(AudioSys::pos_family(MoveWall), &POS_MOVEWALL);
+        assert_eq!(AudioSys::pos_family(RingLaser), &POS_RINGLASER);
+        assert_eq!(AudioSys::pos_family(DoorOpen), &POS_DOOROPEN);
+        assert_eq!(AudioSys::pos_family(DoorClose), &POS_DOORCLOSE);
+        assert_eq!(AudioSys::pos_family(EnemyUpSea), &POS_ENEMYUPSEA);
+        assert_eq!(AudioSys::pos_family(EnemyDownSea), &POS_ENEMYDOWNSEA);
+        assert_eq!(AudioSys::pos_family(DestBoss), &POS_DESTBOSS);
+        assert_eq!(AudioSys::pos_family(DestEnemy), &POS_DESTENEMY);
+        assert_eq!(AudioSys::pos_family(DamEnemy), &POS_DAMENEMY);
+        assert_eq!(AudioSys::pos_family(EnemyBattry), &POS_ENEMYBATTRY);
+        assert_eq!(AudioSys::pos_family(SeparateMissile), &POS_SEPARATEMISSILE);
+    }
+
+    /// End-to-end of the F1/F3 path: a mapped family routed through
+    /// Sound::make_snd bands by distance (near-centre vs far).
+    #[test]
+    fn make_snd_routes_mapped_family_by_distance() {
+        let mut snd = Sound::new();
+        let st = SoundGameState::default();
+        let player = SoundPlayer::default();
+        let open = AudioSys::pos_family(PosSndFamilyId::DoorOpen);
+        // Near-centre door-open -> $54; far -> $55.
+        assert_eq!(snd.make_snd(&st, &player, 0, 50, open), Some(0x54));
+        assert_eq!(snd.make_snd(&st, &player, 0, 2500, open), Some(0x55));
     }
 }

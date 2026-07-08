@@ -24,7 +24,7 @@ use std::rc::Rc;
 use sf_core::{pad, DrawListEntry};
 
 use crate::camera::GameCamera;
-use crate::game::{Game, Hooks};
+use crate::game::{Game, Hooks, PosSndFamilyId};
 use crate::obj::Objects;
 use crate::planets::{Planets, DEFAULT_LIVES};
 use crate::score;
@@ -144,6 +144,15 @@ impl GameState {
 pub enum SoundCmd {
     PlayMusic(u8),
     PlaySe(u8),
+    /// `Sound_MakeSnd` (SOUND.ASM makesnd): positional one-shot SE keyed to a
+    /// `*sound_l` family, using the source object's world XZ. sf-app resolves
+    /// the family to the `sf_audio::sound::POS_*` table and bands it against
+    /// the live player position.
+    MakeSnd {
+        family: PosSndFamilyId,
+        x: i16,
+        z: i16,
+    },
     PlayImmediate(u8),
     StopMusic,
 }
@@ -273,6 +282,15 @@ impl Hooks for ShellHooks {
     fn play_se(&mut self, sound_id: u8) {
         // C Sound_PlaySE (level inline callbacks).
         self.state.borrow_mut().sound.push(SoundCmd::PlaySe(sound_id));
+    }
+
+    fn make_snd(&mut self, family: PosSndFamilyId, obj_worldx: i16, obj_worldz: i16) {
+        // C makesnd (SOUND.ASM:899): positional one-shot SE, banded by sf-app.
+        self.state.borrow_mut().sound.push(SoundCmd::MakeSnd {
+            family,
+            x: obj_worldx,
+            z: obj_worldz,
+        });
     }
 
     fn trig_se(&mut self, sound_id: u8) {
@@ -1067,6 +1085,26 @@ impl Default for Shell {
 mod tests {
     use super::*;
     use sf_map::catalog::map_id;
+
+    /// The make_snd hook (positional SE, findings F1-F4) routes through the
+    /// shell's sound queue as a distinct SoundCmd carrying the family selector
+    /// and the source object's world XZ, alongside one-shot play_se.
+    #[test]
+    fn make_snd_hook_queues_positional_soundcmd() {
+        let mut sh = Shell::new();
+        sh.game.hooks.make_snd(PosSndFamilyId::DoorOpen, 111, 222);
+        sh.game.hooks.play_se(0x35); // one-shot still works alongside
+        sh.game.hooks.make_snd(PosSndFamilyId::EnemyDownSea, -50, 900);
+        let sounds = sh.drain_sound();
+        assert_eq!(
+            sounds,
+            vec![
+                SoundCmd::MakeSnd { family: PosSndFamilyId::DoorOpen, x: 111, z: 222 },
+                SoundCmd::PlaySe(0x35),
+                SoundCmd::MakeSnd { family: PosSndFamilyId::EnemyDownSea, x: -50, z: 900 },
+            ],
+        );
+    }
 
     /// Scripted-pad state walk matching boot.c: BOOT tick only runs
     /// Game_Init; START at the title enters planet select; START at planet
