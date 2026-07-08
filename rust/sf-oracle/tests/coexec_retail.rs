@@ -4292,3 +4292,521 @@ fn retail_plrot_accumulator_vs_port() {
          port strat_chase_proportional == ROM Achase at rates 3/4; composed plrot(y,z) ramp/clamp/decay is cartridge-faithful."
     );
 }
+
+use sf_oracle::{
+    AL_LIFECNT, AL_SFLAGS, B2_SFLAG1, B2_SFLAG4, RETAIL_BOSS2EXP_ISTRAT, RETAIL_BOSS2_ISTRAT,
+    RETAIL_BOSS2_STRAT, RETAIL_PLAYERVEL_Z,
+};
+
+// ========================================================================
+// BOSS2 — the "spinning top" (Macbeth spider / Venom1, GBSTRATS.ASM:484). The
+// SECOND boss certified vs the retail cart. A 9-child family boss:
+//   * retail_boss2_addresses       — locate + cross-validate boss2_Istrat /
+//     boss2_strat / boss2exp_Istrat + the state-0 near-path globals.
+//   * retail_boss2_init_vs_port    — run the cart's OWN boss2_Istrat, diff the
+//     boss's INIT scalar fields (HP/AP/lifecnt/colltype/sflags/stratptr) + the
+//     9-child spawn count vs the port strat_boss2_init.
+//   * retail_boss2_wait_body_vs_port — run the cart's OWN boss2_strat state-0
+//     (wait/idle) per-tick near branch and diff the STATE MACHINE (roty ramp,
+//     sflag4|sflag1, sbyte3, worldz += playervel_z view-track) vs the port.
+// ========================================================================
+
+/// The boss2_Istrat tail scalar-init masked skeleton (read from the built ROM
+/// $08:8BBA +$220; low-word strat pointers, the extended-array coll/exp stores,
+/// and the bank-$70 bossmaxHP addresses are wildcarded — everything else is the
+/// distinctive `HP=$FF; AP=$0A; collflags|=$10|$40; lifecnt=$32; sflags2|=$01;
+/// sflags|=$08` sequence). The anchor sits at boss2_Istrat + $220.
+fn boss2_istrat_tail_pat() -> Vec<Option<u8>> {
+    let w = None;
+    vec![
+        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20),
+        Some(0xA9), Some(0x08), Some(0x95), Some(0x18), // stratptr = boss2_strat (lo wildcard), bank $08
+        Some(0xA9), Some(0x00), Some(0x9D), w, w, Some(0xA9), Some(0x08), Some(0x9D), w, w,
+        Some(0xC2), Some(0x20), Some(0xA9), Some(0x00), Some(0x00), Some(0x9D), w, w,
+        Some(0xA9), w, w, Some(0x9D), w, w, Some(0xE2), Some(0x20), // expstrat = boss2exp (lo wildcard)
+        Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A), Some(0xA9), Some(0x0A), Some(0x95), Some(0x2B), // HP=$FF; AP=$0A
+        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E), // collflags |= enemy1
+        Some(0xB5), Some(0x2E), Some(0x09), Some(0x40), Some(0x95), Some(0x2E), // collflags |= enemyweap
+        Some(0xA9), Some(0x32), Some(0x95), Some(0x0A), // lifecnt = 50
+        Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70), Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70), // bossmaxHP=0
+        Some(0xB5), Some(0x1E), Some(0x09), Some(0x01), Some(0x95), Some(0x1E), // sflags2 |= colldisable
+        Some(0xB5), Some(0x1D), Some(0x09), Some(0x08), Some(0x95), Some(0x1D), // sflags  |= shadow
+    ]
+}
+
+/// MILESTONE (boss2 step 1) — LOCATE + CROSS-VALIDATE the boss2 retail addresses.
+///
+///  * `boss2_Istrat` — a UNIQUE masked hit on the tail scalar-init anchor. The
+///    anchor is at boss2_Istrat + $220; reading the wildcarded operands back
+///    gives the installed per-tick pointer (`boss2_strat`) and the exp pointer
+///    (`boss2exp_Istrat`), plus the INIT constants HP=$FF, AP=$0A, lifecnt=50.
+///  * The state-0 near-branch globals `playervel_z`/`pviewvelz` are confirmed via
+///    the `s_keeprelto_player` leaf ($1F:DB21) whose operands read them back.
+#[test]
+fn retail_boss2_addresses() {
+    let Some(rom) = retail() else { return };
+    let rd16 = |o: usize| rom[o] as u32 | ((rom[o + 1] as u32) << 8);
+
+    // --- boss2_Istrat: UNIQUE tail anchor ---
+    let hits = masked_scan(&rom, &boss2_istrat_tail_pat());
+    assert_eq!(hits.len(), 1, "boss2_Istrat tail anchor is a UNIQUE masked hit");
+    let anchor = hits[0];
+    let istrat = rom_off_to_snes(anchor - 0x220);
+    // stratptr low word at anchor+3, bank at anchor+10.
+    let strat = rd16(anchor + 3) | ((rom[anchor + 10] as u32) << 16);
+    // expstrat low word at anchor+32 (the `A9 ?? ?? 9D` in the ext-array block).
+    let exp_lo = rd16(anchor + 32);
+    eprintln!(
+        "BOSS2: boss2_Istrat=${istrat:06X}  boss2_strat=${strat:06X}  boss2exp_lo=${exp_lo:04X}  HP=${:02X} AP=${:02X} lifecnt={}",
+        rom[anchor + 40], rom[anchor + 44], rom[anchor + 60]
+    );
+    assert_eq!(istrat, RETAIL_BOSS2_ISTRAT, "boss2_Istrat address");
+    assert_eq!(strat, RETAIL_BOSS2_STRAT, "boss2_Istrat installs boss2_strat");
+    assert_eq!((0x08u32 << 16) | exp_lo, RETAIL_BOSS2EXP_ISTRAT, "boss2_Istrat installs boss2exp_Istrat");
+    assert_eq!(rom[anchor + 40], 0xFF, "boss2 HP = hardHP $FF");
+    assert_eq!(rom[anchor + 44], 0x0A, "boss2 AP = 10");
+    assert_eq!(rom[anchor + 60], 0x32, "boss2 lifecnt = 50");
+
+    // --- s_keeprelto_player leaf: confirm playervel_z / pviewvelz ---
+    let w = None;
+    let kp: Vec<Option<u8>> = vec![
+        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x38), Some(0xED), w, w, Some(0x18),
+        Some(0x75), Some(0x10), Some(0x95), Some(0x10), Some(0xE2), Some(0x20), Some(0x6B),
+    ];
+    let kh = masked_scan(&rom, &kp);
+    assert_eq!(kh.len(), 1, "s_keeprelto_player is a UNIQUE masked hit");
+    let ko = kh[0];
+    let pvz = rd16(ko + 3);
+    let pview = rd16(ko + 7);
+    eprintln!(
+        "BOSS2: keeprelto=${:06X}  playervel_z=${pvz:04X} pviewvelz=${pview:04X}",
+        rom_off_to_snes(ko)
+    );
+    assert_eq!(pvz, RETAIL_PLAYERVEL_Z, "keeprelto reads playervel_z");
+    assert_eq!(pview, RETAIL_PVIEWVELZ, "keeprelto reads pviewvelz");
+}
+
+/// Port helper — a fresh boss2: `Game::new()` + `install_bosses`, alloc a slot,
+/// run `strat_boss2_init` (IS_BOSS2), return game + boss slot + the armed
+/// per-tick StratId (boss2_strat).
+fn port_boss2_init() -> (sf_game::game::Game, u16, sf_game::alien::StratId) {
+    let mut g = sf_game::game::Game::new();
+    let ids = sf_strat::bosses::install_bosses(&mut g);
+    let idx = g.objs.alloc().expect("alien pool");
+    g.call_strat(ids.boss2, idx);
+    let tick = g.objs.aliens[idx as usize].stratptr.expect("boss2_strat armed");
+    (g, idx, tick)
+}
+
+/// MILESTONE (boss2 step 2) — the boss2 INIT, retail cart vs the port.
+///
+/// Runs the retail cart's OWN `boss2_Istrat` ($08:8BBE) on a formatted pool
+/// (boss block popped off the free list) and diffs the boss's INIT scalar fields
+/// against the port `strat_boss2_init` (IS_BOSS2=108): HP ($FF), AP (10),
+/// lifecnt (50), colltype (enemy1|enemyweap), sflags (colldisable+shadow),
+/// stratptr (boss2_strat). Spawn observable: the boss makes exactly 9 children
+/// (1 top + 4 petals + 4 turrets) — the free list shrank by 9, matching the port.
+#[test]
+fn retail_boss2_init_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom.clone());
+    bus.enable_gsu();
+    inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+    // Format the pool so the 9 `s_make_childobj` spawns succeed, then POP the boss
+    // block off the free list so a child spawn can't reallocate it.
+    init_object_pool(&mut bus);
+    let free0 = walk_freelist(&bus, &RETAIL_POOL);
+    let blk = free0[0] as u32;
+    bus.wram_write16(RETAIL_POOL.freelist_head, bus.wram_read16(blk + RETAIL_POOL.al_next));
+    bus.wram_write16(RETAIL_POOL.active_head, 0);
+    let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
+    // Dirty the boss fields so the init must actually write them.
+    bus.write8(0x7E_0000 | (blk + AL_HP), 0x11);
+    bus.write8(0x7E_0000 | (blk + AL_LIFECNT), 0x22);
+    // boss2_Istrat assumes s_start_strat's 8-bit A (p=$20), X = boss block.
+    call(&mut bus, RETAIL_BOSS2_ISTRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+    let free_after = walk_freelist(&bus, &RETAIL_POOL).len();
+    let spawned = free_before - free_after;
+
+    let r_hp = wram8(&bus, blk + AL_HP);
+    let r_ap = wram8(&bus, blk + AL_AP);
+    let r_life = bus.wram_read16(blk + AL_LIFECNT);
+    let r_coll = wram8(&bus, blk + AL_COLLFLAGS);
+    let r_sf = wram8(&bus, blk + AL_SFLAGS);
+    let r_sf2 = wram8(&bus, blk + AL_SFLAGS2);
+    let r_sptr = bus.wram_read16(blk + AL_STRATPTR) as u32 | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
+
+    // Port init.
+    let (g, idx, _tick) = port_boss2_init();
+    let pa = g.objs.aliens[idx as usize];
+    let p_children = g.objs.aliens.iter().enumerate().filter(|(i, a)| *i != idx as usize && a.active).count();
+    eprintln!(
+        "BOSS2 init: retail hp=${r_hp:02X} ap=${r_ap:02X} lifecnt={r_life} coll=${r_coll:02X} sflags=${r_sf:02X} sflags2=${r_sf2:02X} stratptr=${r_sptr:06X} children={spawned} | port hp=${:02X} ap=${:02X} count={} coll=${:02X} sflags=${:02X} children={p_children}",
+        pa.hp, pa.ap, pa.count, pa.collflags, pa.sflags
+    );
+
+    // Spawn observable: 9 children (1 top + 4 petals + 4 turrets), both sides.
+    assert_eq!(spawned, 9, "retail boss2_Istrat spawned 1 top + 4 petals + 4 turrets");
+    assert_eq!(p_children, 9, "port boss2 init spawned 9 children");
+    // HP / AP / lifecnt — identical scalar values.
+    assert_eq!(r_hp, 0xFF, "retail boss2 HP = hardHP");
+    assert_eq!(r_hp, pa.hp, "boss2 HP matches port");
+    assert_eq!(r_ap, 0x0A, "retail boss2 AP = 10");
+    assert_eq!(r_ap, pa.ap, "boss2 AP matches port");
+    assert_eq!(r_life, 50, "retail boss2 lifecnt = 50");
+    assert_eq!(r_life as u8, pa.count, "boss2 lifecnt matches port count");
+    // colltype (enemy1|enemyweap) set — retail bit layout; port re-derives its own
+    // encoding, so certify the EFFECT (both nonzero), like boss8.
+    assert_eq!(r_coll & (0x10 | 0x40), 0x50, "retail boss2 set enemy1|enemyweap");
+    assert_ne!(pa.collflags, 0, "port boss2 set colltype");
+    // sflags: colldisable (sflags2 $01) + shadow (sflags $08) — retail; port sets
+    // its own ASF_COLLDISABLE|ASF_SHADOW.
+    assert_eq!(r_sf2 & 0x01, 0x01, "retail boss2 set colldisable (sflags2 $01)");
+    assert_eq!(r_sf & 0x08, 0x08, "retail boss2 set shadow (sflags $08)");
+    assert_ne!(pa.sflags, 0, "port boss2 set sflags");
+    // stratptr installed = boss2_strat.
+    assert_eq!(r_sptr, RETAIL_BOSS2_STRAT, "retail boss2 installed boss2_strat");
+    eprintln!("BOSS2 init: MATCH — retail boss2_Istrat HP/AP/lifecnt/colltype/sflags/stratptr + 9-child spawn == port strat_boss2_init.");
+}
+
+/// CAPSTONE (boss2) — the boss2 state-0 (wait/idle) per-tick body, retail vs port.
+///
+/// Runs the retail cart's OWN `boss2_strat` ($08:8E3C) in state 0 on the NEAR
+/// branch (|dz| < 1100) over a horizon and diffs its evolving state tick-for-tick
+/// vs the port `boss2_strat` (reached through the armed pointer):
+///   * `roty`    accumulates +4 / tick (two `+= 2` steps).
+///   * `sflags2` latches sflag4 ($80) | sflag1 ($10) (raw-diffable — same bits).
+///   * `sbyte3`  = 2 (petals half-open).
+///   * `worldz`  = keeprelto_player + add_playerZ = `+= playervel_z` (view-track).
+/// Both sides seed sflag1 SET so the once-only `trigse` is skipped and no bank-$24
+/// sound JSL runs. The child count is 0 (boss `sword1` = 0) so the count-gated
+/// block runs on both sides. Player is seeded near the boss (zdist gate = near).
+#[test]
+fn retail_boss2_wait_body_vs_port() {
+    let Some(rom) = retail() else { return };
+    // (wz0, ry0, playervel_z, pviewvelz, pz_player, N).
+    let cases: [(i16, u8, i16, i16, i16, u32); 2] = [
+        (0, 0, 0, 300, 0, 30),        // static worldz (keeprelto+addz cancel), roty ramp
+        (500, 100, -40, 150, 500, 25), // worldz drifts -1000 (|dz| < 1100), roty ramp from 100
+    ];
+    for (wz0, ry0, pvelz, pviewvelz, pz_player, n) in cases {
+        // --- Retail: seed a player block + a boss block; run boss2_strat N times. ---
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYERVEL_Z, pvelz as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, pviewvelz as u16);
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, pz_player as u16);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, wz0 as u16);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), ry0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS2), B2_SFLAG1); // sflag1 set -> no trigse
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE3), 0xEE); // dirty
+        bus.wram_write16(boss_blk + 0x26, 0); // al_sword1 = 0 -> 0 children
+
+        // --- Port: player at slot 0 (near), boss + init, pin state 0, reset seed. ---
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().expect("player slot 0");
+        assert_eq!(pl, 0, "player is slot 0");
+        g.objs.aliens[pl as usize].worldz = pz_player;
+        let boss = g.objs.alloc().expect("boss slot");
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.expect("boss2_strat armed");
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 0;
+            al.sword1 = 0; // 0 children
+            al.worldz = wz0;
+            al.roty = ry0;
+            al.sflags2 = B2_SFLAG1;
+            al.sbyte3 = 0xEE;
+        }
+        g.vars.playervel_z = pvelz;
+        g.vars.pviewvelz = pviewvelz;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            let gf = t as u16;
+            // Retail tick.
+            call(&mut bus, RETAIL_BOSS2_STRAT, &Entry { x: boss_blk as u16, p: 0x20, ..Default::default() });
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_roty = wram8(&bus, boss_blk + AL_ROTY);
+            let r_sf2 = wram8(&bus, boss_blk + AL_SFLAGS2) & (B2_SFLAG4 | B2_SFLAG1);
+            let r_sb3 = wram8(&bus, boss_blk + AL_SBYTE3);
+            // Port tick.
+            g.vars.gameframe = gf;
+            g.call_strat(tick, boss);
+            let pa = g.objs.aliens[boss as usize];
+            let p_sf2 = pa.sflags2 & (B2_SFLAG4 | B2_SFLAG1);
+            if first_div.is_none() {
+                if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_roty != pa.roty {
+                    first_div = Some((t, "roty", r_roty as i32, pa.roty as i32));
+                } else if r_sf2 != p_sf2 {
+                    first_div = Some((t, "sflags2", r_sf2 as i32, p_sf2 as i32));
+                } else if r_sb3 != pa.sbyte3 {
+                    first_div = Some((t, "sbyte3", r_sb3 as i32, pa.sbyte3 as i32));
+                }
+            }
+        }
+        let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+        let r_roty = wram8(&bus, boss_blk + AL_ROTY);
+        match first_div {
+            None => eprintln!(
+                "BOSS2 wait [wz0={wz0} ry0={ry0} pvelz={pvelz} pviewvelz={pviewvelz} N={n}]: MATCH — retail boss2_strat state-0 near == port over {n} ticks (final worldz={r_wz} roty={r_roty})"
+            ),
+            Some((t, f, r, p)) => panic!("boss2_strat state-0 diverged tick {t} field {f}: retail={r} port={p}"),
+        }
+        // worldz drift == N * playervel_z (view-track via keeprelto + add_playerZ).
+        assert_eq!(r_wz, wz0.wrapping_add((n as i16).wrapping_mul(pvelz)), "retail worldz += playervel_z/tick");
+        assert_eq!(r_roty, ry0.wrapping_add((n as u8).wrapping_mul(4)), "retail roty += 4/tick");
+    }
+}
+
+use sf_oracle::{
+    RETAIL_BOSS1UP_STRAT, RETAIL_BOSS1_ISTRAT, RETAIL_BOSSGEXPLODE_ISTRAT, RETAIL_BOSSG_ISTRAT,
+    RETAIL_BOSSG_STRAT, RETAIL_BOSSSEAMONEXP_ISTRAT, RETAIL_BOSSSEAMON_ISTRAT,
+    RETAIL_BOSSSEAMON_STRAT, RETAIL_MAPTRIGGER,
+};
+
+// ========================================================================
+// BOSSG / BOSSSEAMON / BOSS1 — three more bosses located + INIT-certified vs the
+// retail cart (route-2 sea bosses + the Corneria barricader). Their per-tick
+// bodies (bossg's mode table, bossseamon's player-relative fire loop, boss1's GSU
+// turret-repositioning tail) are the documented remaining gaps.
+// ========================================================================
+
+/// MILESTONE — LOCATE + CROSS-VALIDATE the bossg / bossseamon / boss1 addresses.
+#[test]
+fn retail_seaboss_and_boss1_addresses() {
+    let Some(rom) = retail() else { return };
+    let rd16 = |o: usize| rom[o] as u32 | ((rom[o + 1] as u32) << 8);
+    let w = None;
+
+    // --- bossg_istrat (anchor at +$2A): HP=$FF/AP=$08/anim/sflags/collflags/mode/trigse ---
+    let bg: Vec<Option<u8>> = vec![
+        Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A), Some(0xA9), Some(0x08), Some(0x95), Some(0x2B),
+        Some(0xA9), Some(0x00), Some(0x09), Some(0x80), Some(0x9D), w, w,
+        Some(0xB5), Some(0x1D), Some(0x09), Some(0x08), Some(0x95), Some(0x1D),
+        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E),
+        Some(0xA9), Some(0x00), Some(0x9D), w, w, Some(0xA9), Some(0x9D), Some(0x22), w, w, w,
+    ];
+    let bgh = masked_scan(&rom, &bg);
+    assert_eq!(bgh.len(), 1, "bossg_istrat is a UNIQUE masked hit");
+    let bgi = bgh[0] - 0x2A;
+    let bg_strat = rd16(bgi + 6) | ((rom[bgi + 13] as u32) << 16);
+    let bg_exp = rd16(bgi + 0x23) | ((rom[bgi + 0x16] as u32) << 16);
+    let bg_maptrig = rd16(bgi + 1);
+    eprintln!(
+        "SEABOSS: bossg_istrat=${:06X} strat=${bg_strat:06X} exp=${bg_exp:06X} maptrigger=${bg_maptrig:04X}",
+        rom_off_to_snes(bgi)
+    );
+    assert_eq!(rom_off_to_snes(bgi), RETAIL_BOSSG_ISTRAT, "bossg_istrat address");
+    assert_eq!(bg_strat, RETAIL_BOSSG_STRAT, "bossg installs bossg_strat");
+    assert_eq!(bg_exp, RETAIL_BOSSGEXPLODE_ISTRAT, "bossg installs bossgexplode_istrat");
+    assert_eq!(bg_maptrig, RETAIL_MAPTRIGGER, "bossg zeroes maptrigger");
+
+    // --- bossseamon_istrat (anchor at +$27): HP=2/AP=4/jsl RANDOM/roty/collflags/type/sbyte3/4 ---
+    let ss: Vec<Option<u8>> = vec![
+        Some(0xA9), Some(0x02), Some(0x95), Some(0x2A), Some(0xA9), Some(0x04), Some(0x95), Some(0x2B),
+        Some(0x22), w, w, w, Some(0x95), Some(0x23), Some(0xA9), Some(0x80), Some(0x95), Some(0x13),
+        Some(0xB5), Some(0x2E), Some(0x09), Some(0x40), Some(0x95), Some(0x2E),
+        Some(0xB5), Some(0x09), Some(0x29), Some(0xF7), Some(0x95), Some(0x09),
+        Some(0xA9), Some(0x3C), Some(0x95), Some(0x24), Some(0xA9), Some(0x03), Some(0x95), Some(0x25),
+    ];
+    let ssh = masked_scan(&rom, &ss);
+    assert_eq!(ssh.len(), 1, "bossseamon_istrat is a UNIQUE masked hit");
+    let ssi = ssh[0] - 0x27;
+    let ss_strat = rd16(ssi + 3) | ((rom[ssi + 10] as u32) << 16);
+    let ss_rand = rd16(ssi + 0x30) | ((rom[ssi + 0x32] as u32) << 16);
+    let ss_exp = rd16(ssi + 0x20) | ((rom[ssi + 10] as u32) << 16);
+    eprintln!(
+        "SEABOSS: bossseamon_istrat=${:06X} strat=${ss_strat:06X} exp=${ss_exp:06X} RANDOM=${ss_rand:06X}",
+        rom_off_to_snes(ssi)
+    );
+    assert_eq!(rom_off_to_snes(ssi), RETAIL_BOSSSEAMON_ISTRAT, "bossseamon_istrat address");
+    assert_eq!(ss_strat, RETAIL_BOSSSEAMON_STRAT, "bossseamon installs bossseamon_strat");
+    assert_eq!(ss_exp, RETAIL_BOSSSEAMONEXP_ISTRAT, "bossseamon installs bossseamonexp_istrat");
+    assert_eq!(ss_rand, RETAIL_RANDOM_L, "bossseamon draws the runtime RNG (RANDOM_L)");
+
+    // --- boss1_istrat (anchor at +$77): roty/collflags/type/anim/sflags4/trigse ---
+    let b1: Vec<Option<u8>> = vec![
+        Some(0xA9), Some(0x80), Some(0x95), Some(0x13), Some(0xB5), Some(0x2E), Some(0x09), Some(0x10),
+        Some(0x95), Some(0x2E), Some(0xB5), Some(0x09), Some(0x09), Some(0x01), Some(0x95), Some(0x09),
+        Some(0xA9), Some(0x04), Some(0x09), Some(0x80), Some(0x9D), w, w,
+        Some(0xB5), Some(0x20), Some(0x09), Some(0x04), Some(0x95), Some(0x20),
+        Some(0xA9), Some(0x82), Some(0x22), w, w, w,
+    ];
+    let b1h = masked_scan(&rom, &b1);
+    assert_eq!(b1h.len(), 1, "boss1_istrat is a UNIQUE masked hit");
+    let b1i = b1h[0] - 0x77;
+    let b1_up = rd16(b1i + 0x20) | ((rom[b1i + 0x27] as u32) << 16);
+    let b1_lvl = rd16(b1i + 0x59);
+    eprintln!(
+        "BOSS1: boss1_istrat=${:06X} boss1up_strat=${b1_up:06X} currentlevel=${b1_lvl:04X} HPdef=${:02X}",
+        rom_off_to_snes(b1i), rom[b1i + 0x45]
+    );
+    assert_eq!(rom_off_to_snes(b1i), RETAIL_BOSS1_ISTRAT, "boss1_istrat address");
+    assert_eq!(b1_up, RETAIL_BOSS1UP_STRAT, "boss1 installs boss1up_strat");
+    assert_eq!(b1_lvl as u32, RETAIL_CURRENTLEVEL, "boss1 reads currentlevel");
+    assert_eq!(rom[b1i + 0x45], 0x23, "boss1 default HP = 35 (easy)");
+}
+
+/// MILESTONE — the bossg INIT, retail cart vs the port. Runs the cart's OWN
+/// `bossg_istrat` ($04:EE35) on a seeded boss + a FAR player (so the mode-0
+/// fall-through `.waituntilalmosthitplayer` is a clean `worldz -= 40; return`),
+/// and diffs the scalar init fields (HP/AP/collflags/sflags/stratmem/stratptr) +
+/// the mode-0 `worldz` vs the port `strat_bossg_init` + one `bossg_strat` tick.
+#[test]
+fn retail_bossg_init_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom.clone());
+    let player_blk = RETAIL_POOL.base;
+    let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+    // Far player so the mode-0 zdist gate never fires.
+    bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+    bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 30000u16);
+    bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 0);
+    bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x11); // dirty
+    call(&mut bus, RETAIL_BOSSG_ISTRAT, &Entry { x: boss_blk as u16, p: 0x20, ..Default::default() });
+    let r_hp = wram8(&bus, boss_blk + AL_HP);
+    let r_ap = wram8(&bus, boss_blk + AL_AP);
+    let r_coll = wram8(&bus, boss_blk + AL_COLLFLAGS);
+    let r_sf = wram8(&bus, boss_blk + AL_SFLAGS);
+    let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+    let r_sptr = bus.wram_read16(boss_blk + AL_STRATPTR) as u32 | ((wram8(&bus, boss_blk + AL_STRATPTR + 2) as u32) << 16);
+
+    // Port: player slot 0 far, boss + init + one body tick.
+    let mut g = sf_game::game::Game::new();
+    let ids = sf_strat::bosses::install_bosses(&mut g);
+    let pl = g.objs.alloc().expect("player");
+    g.objs.aliens[pl as usize].worldz = 30000;
+    let boss = g.objs.alloc().expect("boss");
+    g.objs.aliens[boss as usize].worldz = 0;
+    g.call_strat(ids.bossg, boss);
+    let tick = g.objs.aliens[boss as usize].stratptr.expect("bossg_strat armed");
+    g.call_strat(tick, boss);
+    let pa = g.objs.aliens[boss as usize];
+    eprintln!(
+        "BOSSG init: retail hp=${r_hp:02X} ap=${r_ap:02X} coll=${r_coll:02X} sflags=${r_sf:02X} worldz={r_wz} stratptr=${r_sptr:06X} | port hp=${:02X} ap=${:02X} coll=${:02X} sflags=${:02X} worldz={}",
+        pa.hp, pa.ap, pa.collflags, pa.sflags, pa.worldz
+    );
+    assert_eq!(r_hp, 0xFF, "retail bossg HP = hardHP");
+    assert_eq!(r_hp, pa.hp, "bossg HP matches port");
+    assert_eq!(r_ap, 0x08, "retail bossg AP = 8");
+    assert_eq!(r_ap, pa.ap, "bossg AP matches port");
+    assert_eq!(r_coll & 0x10, 0x10, "retail bossg set enemy1");
+    assert_ne!(pa.collflags, 0, "port bossg set colltype");
+    assert_eq!(r_sf & 0x08, 0x08, "retail bossg set shadow (sflags $08)");
+    assert_ne!(pa.sflags, 0, "port bossg set sflags");
+    assert_eq!(r_wz, -40, "retail bossg mode-0 fall-through worldz -= 40");
+    assert_eq!(r_wz, pa.worldz, "bossg mode-0 worldz matches port");
+    assert_eq!(r_sptr, RETAIL_BOSSG_STRAT, "retail bossg installed bossg_strat");
+    eprintln!("BOSSG init: MATCH — retail bossg_istrat HP/AP/colltype/sflags/stratptr + mode-0 worldz == port.");
+}
+
+/// MILESTONE — the bossseamon INIT, retail cart vs the port. Runs the cart's OWN
+/// `bossseamon_istrat` ($0A:F2D1) — which draws the RNG once then falls into its
+/// player-relative body — and diffs the STABLE scalar init fields (HP/AP/roty/
+/// collflags/stratptr) the body never touches, vs the port. (The RNG-derived
+/// `sbyte2` + the player-relative body are the documented remaining gap.)
+#[test]
+fn retail_bossseamon_init_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom.clone());
+    let boss_blk = RETAIL_POOL.base;
+    bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x77); // dirty
+    // No player seeded -> the body's player-relative branch is a clean far no-op;
+    // the RNG draw lands in sbyte2 (not diffed here).
+    call(&mut bus, RETAIL_BOSSSEAMON_ISTRAT, &Entry { x: boss_blk as u16, p: 0x20, ..Default::default() });
+    let r_hp = wram8(&bus, boss_blk + AL_HP);
+    let r_ap = wram8(&bus, boss_blk + AL_AP);
+    let r_roty = wram8(&bus, boss_blk + AL_ROTY);
+    let r_coll = wram8(&bus, boss_blk + AL_COLLFLAGS);
+    let r_sptr = bus.wram_read16(boss_blk + AL_STRATPTR) as u32 | ((wram8(&bus, boss_blk + AL_STRATPTR + 2) as u32) << 16);
+
+    // Port init (draws RNG, falls into body once) — no player active.
+    let mut g = sf_game::game::Game::new();
+    let ids = sf_strat::bosses::install_bosses(&mut g);
+    let boss = g.objs.alloc().expect("boss");
+    g.call_strat(ids.bossseamon, boss);
+    let pa = g.objs.aliens[boss as usize];
+    eprintln!(
+        "BOSSSEAMON init: retail hp=${r_hp:02X} ap=${r_ap:02X} roty=${r_roty:02X} coll=${r_coll:02X} stratptr=${r_sptr:06X} | port hp=${:02X} ap=${:02X} roty=${:02X} coll=${:02X}",
+        pa.hp, pa.ap, pa.roty, pa.collflags
+    );
+    assert_eq!(r_hp, 0x02, "retail bossseamon HP = 2");
+    assert_eq!(r_hp, pa.hp, "bossseamon HP matches port");
+    assert_eq!(r_ap, 0x04, "retail bossseamon AP = 4");
+    assert_eq!(r_ap, pa.ap, "bossseamon AP matches port");
+    assert_eq!(r_roty, 0x80, "retail bossseamon roty = deg180");
+    assert_eq!(r_roty, pa.roty, "bossseamon roty matches port");
+    assert_eq!(r_coll & 0x40, 0x40, "retail bossseamon set enemyweap");
+    assert_ne!(pa.collflags, 0, "port bossseamon set colltype");
+    assert_eq!(r_sptr, RETAIL_BOSSSEAMON_STRAT, "retail bossseamon installed bossseamon_strat");
+    eprintln!("BOSSSEAMON init: MATCH — retail bossseamon_istrat HP/AP/roty/colltype/stratptr == port (RNG sbyte2 + body = gap).");
+}
+
+/// MILESTONE — the boss1 INIT, retail cart vs the port. Runs the cart's OWN
+/// `boss1_istrat` ($08:816E) on a formatted pool (boss popped off the free list)
+/// and diffs the level-gated HP + AP/roty/colltype/type + the 9-child spawn count
+/// vs the port `strat_boss1_init`. Both difficulty branches (retail currentlevel
+/// 0=easy/1=hard <-> port 1/2, the boss8-class level remap).
+#[test]
+fn retail_boss1_init_vs_port() {
+    let Some(rom) = retail() else { return };
+    // (retail currentlevel, port currentlevel, expected HP).
+    for (r_lvl, p_lvl, exp_hp) in [(0u8, 1u8, 0x23u8), (1u8, 2u8, 0x46u8)] {
+        let mut bus = SnesBus::new(rom.clone());
+        bus.enable_gsu();
+        inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+        init_object_pool(&mut bus);
+        let free0 = walk_freelist(&bus, &RETAIL_POOL);
+        let blk = free0[0] as u32;
+        bus.wram_write16(RETAIL_POOL.freelist_head, bus.wram_read16(blk + RETAIL_POOL.al_next));
+        bus.wram_write16(RETAIL_POOL.active_head, 0);
+        let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
+        bus.write8(0x7E_0000 | RETAIL_CURRENTLEVEL, r_lvl);
+        bus.write8(0x7E_0000 | (blk + AL_HP), 0x11); // dirty
+        call(&mut bus, RETAIL_BOSS1_ISTRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+        let free_after = walk_freelist(&bus, &RETAIL_POOL).len();
+        let spawned = free_before - free_after;
+
+        let r_hp = wram8(&bus, blk + AL_HP);
+        let r_ap = wram8(&bus, blk + AL_AP);
+        let r_roty = wram8(&bus, blk + AL_ROTY);
+        let r_coll = wram8(&bus, blk + AL_COLLFLAGS);
+        let r_type = wram8(&bus, blk + AL_TYPE);
+        let r_sptr = bus.wram_read16(blk + AL_STRATPTR) as u32 | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
+
+        // Port init.
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::enemy_a::install(&mut g);
+        g.vars.write_ext8(0x1F03, p_lvl); // CURRENTLEVEL
+        let idx = g.objs.alloc().expect("boss");
+        g.call_strat(ids.boss1, idx);
+        let pa = g.objs.aliens[idx as usize];
+        let p_children = g.objs.aliens.iter().enumerate().filter(|(i, a)| *i != idx as usize && a.active).count();
+        eprintln!(
+            "BOSS1 init lvl(r={r_lvl}/p={p_lvl}): retail hp=${r_hp:02X} ap=${r_ap:02X} roty=${r_roty:02X} coll=${r_coll:02X} type=${r_type:02X} stratptr=${r_sptr:06X} children={spawned} | port hp=${:02X} ap=${:02X} roty=${:02X} children={p_children}",
+            pa.hp, pa.ap, pa.roty
+        );
+        // Spawn observable: 8 turrets + 1 cover = 9 children.
+        assert_eq!(spawned, 9, "retail boss1_istrat spawned 8 turrets + 1 cover");
+        assert_eq!(p_children, 9, "port boss1 spawned 9 children");
+        // HP (level-gated) + AP.
+        assert_eq!(r_hp, exp_hp, "retail boss1 HP for level branch");
+        assert_eq!(r_hp, pa.hp, "boss1 HP matches port (level remap)");
+        assert_eq!(r_ap, 0x0A, "retail boss1 AP = 10");
+        assert_eq!(r_ap, pa.ap, "boss1 AP matches port");
+        assert_eq!(r_roty, 0x80, "retail boss1 roty = deg180");
+        assert_eq!(r_roty, pa.roty, "boss1 roty matches port");
+        assert_eq!(r_coll & 0x10, 0x10, "retail boss1 set enemy1");
+        assert_ne!(pa.collflags, 0, "port boss1 set colltype");
+        assert_eq!(r_type & 0x01, 0x01, "retail boss1 set type|=gnd");
+        assert_eq!(r_sptr, RETAIL_BOSS1UP_STRAT, "retail boss1 installed boss1up_strat");
+    }
+    eprintln!("BOSS1 init: MATCH — retail boss1_istrat level-gated HP + AP/roty/colltype/type + 9-child spawn == port strat_boss1_init.");
+}

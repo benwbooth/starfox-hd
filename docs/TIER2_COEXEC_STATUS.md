@@ -9,9 +9,11 @@ This is a **different binary** from the built ROM (`sf-oracle/data/sf.sfc`), so
 every retail address here was re-derived from the retail cart itself.
 
 All harness code lives in `rust/sf-oracle/src/{lib.rs,retail.rs}` +
-`rust/sf-oracle/tests/coexec_retail.rs` (**56 tests, all green** — the FIRST
-**BOSS** (`boss8`: INIT + 4-child spawn + common per-tick state machine) and the
-player-move **plrot\* accumulator** are certified vs the cart, see UPDATE 12; plus
+`rust/sf-oracle/tests/coexec_retail.rs` (**63 tests, all green** — **FIVE BOSSES**
+certified vs the cart: `boss8` (INIT + 4-child spawn + common per-tick state
+machine, UPDATE 12), `boss2` (INIT + 9-child spawn + the state-0 wait state
+machine), and `bossg`/`bossseamon`/`boss1` (INIT, UPDATE 13); plus the player-move
+**plrot\* accumulator** (UPDATE 12); plus
 **15 named strats** + the **PLAYER-MOVEMENT** physics (screen-edge BOUNDS clamp +
 boost/brake speed ramp, UPDATE 11) + the **GSU-per-tick AIMING CLASS** (aim angle via the live GSU + aim
 velocity + fire-gate timing, UPDATE 8) + the **PROJECTILE-SPAWN + TARGET-SEARCH
@@ -806,6 +808,78 @@ per-tick body. **Not** certified (documented gap):
 | `boss8` INIT (`boss8_Istrat`) | $07:919C | boss shell init + 4-child spawn | HP(level-gate)/AP/sbyte4/colltype/sflags/gsvar/stratptr/worldz == port `strat_boss8_init`; 4 children spawned, both difficulty branches |
 | `boss8` per-tick (`boss8_cont`) | $07:93BB | boss common state machine | worldz view-track + sbyte4 countdown/reload + sflag1 toggle + gsvar ±5 speed ramp == port, tick-for-tick over 200 ticks |
 | plrot* accumulator (`playermove_srou`) | $0B:DA79/DACA/DD8E | player steering tilt | step $0200 + clamp $0600 + plrotz/plroty addrs from retail bytes; decay == certified `strat_chase_proportional`; composed plrot(y,z) cartridge-faithful |
+
+## UPDATE 13 — FOUR MORE BOSSES certified vs retail (`boss2` full + `bossg`/`bossseamon`/`boss1` INIT)
+
+Extending the boss8 boss-certification recipe to the remaining boss families.
+**Seven new tests, all green** (`coexec_retail` now **63**). `boss2` (Macbeth
+spider / Venom1) gets the FULL treatment — INIT + a per-tick state-machine phase,
+like boss8; `bossg`, `bossseamon` and `boss1` get INIT certification (with precise
+body gaps documented). All boss addresses located by masked signature scan of the
+retail cart (tail scalar-init / struct-offset anchors read out of the built ROM
+via symbols.txt, WRAM/jml operands wildcarded), each a UNIQUE hit, cross-validated
+by reading the installed strat/exp pointers + globals back out.
+
+### Retail boss addresses located (all cross-validated)
+| Boss | Istrat | Per-tick body | Exp | Shift | How |
+|------|------|------|------|------|------|
+| `boss2` | **$08:8BBE** | `boss2_strat` $08:8E3C | `boss2exp_Istrat` $08:9391 | +4 | tail scalar-init anchor (UNIQUE); reads back stratptr/exp/HP=$FF/AP=$0A/lifecnt=50 |
+| `bossg` | **$04:EE35** | `bossg_strat` $04:EE85 | `bossgexplode` $04:F326 | 0 (bank $04) | HP=$FF/anim/sflags/collflags/mode/trigse anchor (UNIQUE); `maptrigger`=$176D |
+| `bossseamon` | **$0A:F2D1** | `bossseamon_strat` $0A:F31E | `bossseamonexp` $0A:F675 | +$2A (bank $0A) | HP=2/AP=4/`jsl RANDOM`/roty/collflags/type/sbyte3/4 anchor (UNIQUE); RNG == `RANDOM_L` $02:FC58 |
+| `boss1` | **$08:816E** | `boss1up_strat` $08:8413 | (backup slot) | +4 | roty/collflags/type/anim/sflags4/trigse anchor (UNIQUE); `currentlevel`=$1FFD, HPdef=$23 |
+
+Newly-located retail: `playervel_z`=$14EA (built $1575 −$8B; boss2's
+`s_keeprelto_player` leaf $1F:DB21 reads it), `maptrigger`=$176D, `AL_LIFECNT`=$0A
+(boss lifetime/anim counter), `B2_SFLAG4`/`B2_SFLAG1` = `al_sflags2` $80/$10.
+
+| New milestone (test) | Status | What it proves |
+|------|------|------|
+| `retail_boss2_addresses` | ✅ | Locates + cross-validates `boss2_Istrat`/`boss2_strat`/`boss2exp_Istrat` (UNIQUE tail anchor) + the state-0 near-branch globals (`playervel_z`/`pviewvelz` via the `s_keeprelto_player` leaf $1F:DB21). |
+| `retail_boss2_init_vs_port` | ✅ **MATCH** | Runs the cart's OWN `boss2_Istrat` on a formatted pool and diffs the INIT scalar fields (HP=$FF, AP=10, lifecnt=50, colltype enemy1\|enemyweap, sflags2 colldisable + sflags shadow, stratptr=boss2_strat) + the **9-child spawn** (top + 4 petals + 4 turrets — free list shrank by 9) vs the port `strat_boss2_init`. |
+| `retail_boss2_wait_body_vs_port` | ✅ **MATCH (GOLD)** | Runs the cart's OWN `boss2_strat` **state 0** (the wait/idle phase) on the near branch (child count 0, player near) over a horizon and diffs the STATE MACHINE tick-for-tick vs the port: `roty += 4`/tick, `sflags2` latches sflag4\|sflag1 (raw-diffable), `sbyte3`=2, and `worldz += playervel_z` (keeprelto_player + add_playerZ view-track). 2 scenarios (static worldz over 30 ticks + a −40/tick drift over 25) — MATCH every tick. sflag1 pre-set so the once-only `trigse` is skipped. |
+| `retail_seaboss_and_boss1_addresses` | ✅ | Locates + cross-validates all of `bossg`/`bossseamon`/`boss1` (each UNIQUE), reading the installed strat/exp pointers + `maptrigger`/`RANDOM_L`/`currentlevel` operands back. |
+| `retail_bossg_init_vs_port` | ✅ **MATCH** | Runs the cart's OWN `bossg_istrat` (CLEAN scalar init — no RNG, no children) on a seeded boss + a FAR player, so its mode-table fall-through (mode 0 = `.waituntilalmosthitplayer`) is a clean `worldz -= 40; return`. Diffs HP=$FF/AP=8/colltype enemy1/sflags shadow/stratptr=bossg_strat + the mode-0 `worldz`(−40) vs the port init + one `bossg_strat` tick. |
+| `retail_bossseamon_init_vs_port` | ✅ **MATCH (partial)** | Runs the cart's OWN `bossseamon_istrat` (draws the RNG once, then falls into its player-relative body) and diffs the STABLE scalar init fields the body never touches — HP=2, AP=4, roty=deg180, collflags enemyweap, stratptr=bossseamon_strat — vs the port. The RNG-derived `sbyte2` + the player-relative fire-loop body are the documented gap. |
+| `retail_boss1_init_vs_port` | ✅ **MATCH** | Runs the cart's OWN `boss1_istrat` (a self-contained RTL init — does NOT fall into the GSU body) on a formatted pool and diffs the **level-gated HP** (retail currentlevel 0→$23=35 / 1→$46=70, the boss8-class remap ↔ port 1/2) + AP=10/roty=deg180/colltype enemy1/type gnd/stratptr=boss1up_strat + the **9-child spawn** (8 turrets + 1 cover) vs the port `strat_boss1_init`, both difficulty branches. |
+
+### boss2 footprint map
+- **`boss2_Istrat`** (INIT): spawns 9 children (`s_make_childobj` ×9), then a clean
+  scalar init (HP=$FF, AP=10, lifecnt=50, bossmaxHP=0, colltype enemy1\|enemyweap,
+  sflags2 colldisable + sflags shadow, stratptr=boss2_strat, expstratptr=boss2exp).
+  Ends RTL — the Istrat does NOT run the per-tick body (unlike boss8).
+- **`boss2_strat` state 0** (wait/idle): counts children into `svar_byte5`; while
+  count ≤ 7 sets sflag4, sflag1, sbyte3=2, roty += 2; the near branch (|dz| < 1100
+  via PLAYPT) does `s_keeprelto_player` + `s_add_playerZ` (net `worldz += playervel_z`)
+  + a final roty += 2; the far branch spawns RNG smoke (deferred). Reads
+  `PLAYPT`→player Z, `playervel_z`($14EA), `pviewvelz`($14F4), the child-link chain.
+
+### REMAINING BOSS GAP (updated precise map)
+Certified: `boss8` (INIT + `boss8_cont`), `boss2` (INIT + state-0 wait body),
+`bossg`/`bossseamon`/`boss1` (INIT). **Not** certified (documented per boss):
+- **boss2 states 1..5** (leap / flip+slam / back-away / strafe-circle / topple+die):
+  each is player-relative + spawns explosions/particles/lasers (RNG) and transitions
+  on child liveness / player HP. The common state-0 body IS certified; states 1-5 +
+  the smoke/laser child spawns are the residual (all recipes proven).
+- **bossg mode table** (17-entry `s_mode_table`: scrollmsg / sf9e / runaway / appear /
+  opentrunk+launchfish ×3 …): mode 0 (wait) is certified via the fall-through;
+  the fish-launch + shadow-gen modes need the child family ticked in lockstep.
+- **bossseamon** RNG-`sbyte2` + player-relative fire-loop body (states 0..5:
+  dive/surface/fire `relslowElaser`): the stable scalar init is certified; the
+  RNG draw (needs the firepillar param-block seeding) + the body are the residual.
+- **boss1** phase strats (`boss1up_strat` → the GSU turret-repositioning tail
+  `boss1rots_srou`, 8 turret children): the INIT (level-gated HP + 9-child spawn) is
+  certified; the per-tick body needs the GSU trampoline per tick + the turret family.
+- **Other bosses**: `bossA` (Andross), `bossF`, `bossH` — each a multi-child family,
+  several with GSU-per-tick aim; recipes all proven, mechanical to extend.
+
+### CERTIFIED VS RETAIL — running total: **15 named strats + AIMING + SPAWN/SEARCH + COLLISION + PLAYER-MOVE + 5 BOSSES**
+| Cert | Retail addr | Kind | Certified |
+|------|------|------|------|
+| `boss2` INIT (`boss2_Istrat`) | $08:8BBE | boss shell init + 9-child spawn | HP/AP/lifecnt/colltype/sflags/stratptr == port; 9 children (top+4 petals+4 turrets) |
+| `boss2` state-0 (`boss2_strat`) | $08:8E3C | boss wait/idle state machine | roty+=4 + sflag4\|sflag1 + sbyte3 + worldz+=playervel_z == port, tick-for-tick |
+| `bossg` INIT (`bossg_istrat`) | $04:EE35 | clean sea-boss init + mode-0 tick | HP/AP/colltype/sflags/stratptr + mode-0 worldz(−40) == port |
+| `bossseamon` INIT (`bossseamon_istrat`) | $0A:F2D1 | RNG sea-boss init (partial) | stable HP/AP/roty/colltype/stratptr == port (RNG sbyte2 + body = gap) |
+| `boss1` INIT (`boss1_istrat`) | $08:816E | 9-child barricader init | level-gated HP + AP/roty/colltype/type + 9-child spawn == port, both branches |
 
 ---
 

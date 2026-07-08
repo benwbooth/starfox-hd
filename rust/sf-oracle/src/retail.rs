@@ -873,6 +873,129 @@ pub const AL_SBYTE4: u32 = 0x25;
 pub const B8_SFLAG1: u8 = 0x10;
 
 // ------------------------------------------------------------------------
+// BOSS2 — the "spinning top" (Macbeth spider / Venom1, GBSTRATS.ASM:484-... ).
+// A multi-phase BOSS with a NINE-child family (1 top + 4 petals + 4 turrets).
+// The pieces certifiable WITHOUT the GSU are:
+//   * boss2_Istrat — INIT: spawns the 9-child family, then a clean scalar init
+//                    (HP=$FF, AP=10, colltype enemy1|enemyweap, lifecnt=50,
+//                    bossmaxHP=0, sflags2|=colldisable, sflags|=shadow,
+//                    stratptr=boss2_strat, expstratptr=boss2exp_Istrat). Unlike
+//                    boss8 the Istrat does NOT fall into the per-tick body — it
+//                    RTLs, so worldz is untouched by init.
+//   * boss2_strat state 0 (the "wait/idle" phase) — the common per-tick body the
+//                    boss runs while its top child lives: counts children into
+//                    svar_byte5, and while <=7 sets sflag4, sflag1, sbyte3=2 and
+//                    accumulates roty += 4/tick; the near branch (|dz|<1100) does
+//                    keeprelto_player + add_playerZ = worldz += playervel_z. Pure
+//                    CPU, NO GSU, NO RNG on the near path (the far path spawns
+//                    RNG smoke — deferred). Reads player_posz-via-PLAYPT (zdist
+//                    gate) + playervel_z + pviewvelz + the child-link chain.
+// The phase-transition machine (states 1..5: leap/slam/backaway/strafe/die) is
+// gated on child liveness + player HP and is documented as the remaining gap.
+// All addresses located by masked signature scan of the retail cart (skeleton
+// read out of the built ROM via symbols.txt, WRAM/jml operands wildcarded).
+// ------------------------------------------------------------------------
+
+/// Retail `boss2_Istrat` ($08:8BBE, GBSTRATS.ASM:484 — built $08:8BBA, +4 shift)
+/// — the boss2 shell INIT. Spawns 9 children (`s_make_childobj` ×9: 1 top, 4
+/// petals, 4 turrets), then `s_set_alptrs x,boss2_strat,0,boss2exp_Istrat;
+/// s_set_aldata x,#hardHP($FF),#10; s_set_colltype enemy1|enemyweap;
+/// s_set_lifecnt #50; s_set_bossmaxHP #0; s_set_alsflag colldisable(sflags2 $01);
+/// s_set_alsflag shadow(sflags $08); trigse $95; rtl`. UNIQUE masked hit (the
+/// tail scalar-init anchor). Port <-> `bosses::strat_boss2_init` (IS_BOSS2=108).
+pub const RETAIL_BOSS2_ISTRAT: u32 = 0x08_8BBE;
+/// Retail `boss2_strat` ($08:8E3C — built $08:8E38, +4) — the per-tick state
+/// machine the Istrat installs (read straight out of `boss2_Istrat`'s
+/// `s_set_alptrs` stratptr immediate). State 0 = the wait/idle body certified
+/// here; states 1..5 (leap/slam/backaway/strafe/die) are the documented gap.
+pub const RETAIL_BOSS2_STRAT: u32 = 0x08_8E3C;
+/// Retail `boss2exp_Istrat` ($08:9391 — built $08:938D, +4) — the death/explosion
+/// strat boss2_Istrat installs as `expstratptr` (read out of the Istrat's
+/// extended-array `sta expstratptr` immediate). Lives in the parallel xalblks
+/// array (like `gnd`/`woods`), so certified by the installed pointer value.
+pub const RETAIL_BOSS2EXP_ISTRAT: u32 = 0x08_9391;
+/// Retail `playervel_z` ($14EA — built $1575, the −$8B dostrats-globals shift) —
+/// the player's Z velocity, read by boss2's `s_keeprelto_player` leaf ($1F:DB21:
+/// `al_worldz += playervel_z − pviewvelz`). Located + cross-validated by masked
+/// scan of that leaf (`al_worldz += $14EA − $14F4`), UNIQUE + jsl-referenced.
+/// Port <-> `g.vars.playervel_z`.
+pub const RETAIL_PLAYERVEL_Z: u32 = 0x14EA;
+/// Retail `s_keeprelto_player` leaf ($1F:DB21) — `rep; lda playervel_z; sec;
+/// sbc pviewvelz; clc; adc al_worldz,x; sta al_worldz,x; sep; rtl`. boss2's
+/// state-0 near branch calls it (then `s_add_playerZ` = `worldz += pviewvelz`),
+/// so the net per-tick worldz change is `+= playervel_z`. Port <->
+/// `enemy_a::boss_keeprel_to_player`.
+pub const RETAIL_KEEPRELTO_PLAYER: u32 = 0x1F_DB21;
+/// `al_lifecnt` / `al_count` struct offset ($0A) — the boss lifetime/anim counter
+/// (identical retail/built/port; from `boss2_Istrat`'s `sta al_lifecnt,x`
+/// operand). Port <-> `Alien::count`.
+pub const AL_LIFECNT: u32 = 0x0A;
+/// boss2's `sflag4` = `al_sflags2` bit $80, `sflag1` = bit $10 (from
+/// `boss2_strat` state 0's `ora #$80` / `ora #$10`). Port <-> `bosses::
+/// BOSS2_SFLAG4` / `BOSS2_SFLAG1` (same bit positions — raw-diffable).
+pub const B2_SFLAG4: u8 = 0x80;
+pub const B2_SFLAG1: u8 = 0x10;
+
+// ------------------------------------------------------------------------
+// BOSSG / BOSSSEAMON — the route-2 sea bosses (D2STRATS.ASM / GA2STRAT.ASM).
+//   * bossg_istrat ($04:EE35) — a CLEAN scalar INIT (no RNG, no children):
+//     stratptr=bossg_strat, coll=hitflash, exp=bossgexplode, HP=$FF, AP=8,
+//     init_anim, sflags|=shadow, collflags|=enemy1, stratmem(mode)=0, trigse.
+//     It FALLS THROUGH into its `s_mode_table` body (mode 0 = wait-until-near),
+//     which on a far player is a clean `worldz -= 40; return` (no GSU, no spawn).
+//   * bossseamon_istrat ($0A:F2D1) — draws the RNG ONCE (`sbyte2`) then a scalar
+//     init (HP=2, AP=4, roty=deg180, collflags|=enemyweap, type&=~ATZREMOVE,
+//     sbyte3=60, sbyte4=3, stratptr=bossseamon_strat) and FALLS THROUGH into its
+//     player-relative body. The RNG-`sbyte2` + the fall-through body are the gap;
+//     the stable scalar init (HP/AP/roty/collflags/stratptr) is certified.
+// bossg is at the SAME address in retail as built (bank $04 unshifted, like
+// parajump); bossseamon shifted +$2A (bank $0A, like firepillar). All located by
+// masked signature scan of the retail cart.
+// ------------------------------------------------------------------------
+
+/// Retail `bossg_istrat` ($04:EE35, D2STRATS.ASM:54 — SAME as built, bank $04
+/// unshifted). Port <-> `bosses::strat_bossg_init` (IS_BOSSG=144 / 0x030006).
+pub const RETAIL_BOSSG_ISTRAT: u32 = 0x04_EE35;
+/// Retail `bossg_strat` ($04:EE85 — the `.strat s_mode_table` per-tick body the
+/// Istrat installs, read out of the Istrat's `s_set_alptrs` immediate). Mode 0 =
+/// `.waituntilalmosthitplayer` (`worldz -= 40` until |dz| < 150).
+pub const RETAIL_BOSSG_STRAT: u32 = 0x04_EE85;
+/// Retail `bossgexplode_istrat` ($04:F326 — the death strat, read out of the
+/// Istrat's extended-array `sta expstratptr` immediate).
+pub const RETAIL_BOSSGEXPLODE_ISTRAT: u32 = 0x04_F326;
+/// Retail `maptrigger` ($176D — built $17F2, the −$85 shift) — bossg zeroes it in
+/// its INIT (`stz maptrigger`), read out of the Istrat's `stz` operand.
+pub const RETAIL_MAPTRIGGER: u32 = 0x176D;
+
+/// Retail `bossseamon_istrat` ($0A:F2D1, GA2STRAT.ASM — built $0A:F2A7, +$2A).
+/// Port <-> `bosses::strat_bossseamon_init` (STRAT_ADDR_BOSSSEAMON=0x030005).
+pub const RETAIL_BOSSSEAMON_ISTRAT: u32 = 0x0A_F2D1;
+/// Retail `bossseamon_strat` ($0A:F31E — built $0A:F2F4, +$2A — the player-
+/// relative per-tick body the Istrat installs + falls through into).
+pub const RETAIL_BOSSSEAMON_STRAT: u32 = 0x0A_F31E;
+/// Retail `bossseamonexp_istrat` ($0A:F675 — built $0A:F64B, +$2A).
+pub const RETAIL_BOSSSEAMONEXP_ISTRAT: u32 = 0x0A_F675;
+
+// ------------------------------------------------------------------------
+// BOSS1 — the barricader (Corneria boss, GBSTRATS.ASM). A NINE-child family
+// (8 turrets + 1 cover) with a level-gated HP (like boss8). Its per-tick phase
+// strats fall through a GSU turret-repositioning tail (`boss1rots_srou`) — the
+// harder body, documented as the gap. The INIT is a clean self-contained routine
+// (ends RTL, no fall-through into the GSU body): level-gated HP, AP=10,
+// roty=deg180, collflags|=enemy1, type|=gnd, sflags|=shadow|colldisable, +9-child
+// spawn. Located by masked signature scan (built $08:816A, retail +4).
+// ------------------------------------------------------------------------
+
+/// Retail `boss1_istrat` ($08:816E — built $08:816A, +4). Port <->
+/// `enemy_a::strat_boss1_init` (IS_BOSS1). HP is level-gated: retail
+/// `currentlevel==0` -> HP=$23(35), else HP=$46(70) (a level-encoding remap of
+/// the port's `currentlevel==1 -> 35 else 70`, same class as boss8).
+pub const RETAIL_BOSS1_ISTRAT: u32 = 0x08_816E;
+/// Retail `boss1up_strat` ($08:8413 — built $08:840F, +4 — the per-tick body the
+/// Istrat installs; its phase strats fall through the GSU `boss1rots_srou` tail).
+pub const RETAIL_BOSS1UP_STRAT: u32 = 0x08_8413;
+
+// ------------------------------------------------------------------------
 // PLAYER-MOVE plrot* ACCUMULATOR — the pad-read -> roty/rotz tilt accumulation
 // inside `playermove_srou` (PSTRATS.ASM:2334-2703). The deferred player-move
 // sub-step (UPDATE 11 left "the plrot* accumulator body" as the only remaining
