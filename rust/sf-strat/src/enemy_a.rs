@@ -300,7 +300,13 @@ pub fn achase_angle(current: &mut u8, target: u8, shift: u32) -> bool {
     if *current == target {
         return true;
     }
-    let diff = (current.wrapping_sub(target) as i8) as i32;
+    // ROM sr8_achase_alvar (STRATMAC.INC:519-544): step = adiv2^shift(target -
+    // current), then current += step. The port computed (current - target) and
+    // SUBTRACTED, algebraically identical EXCEPT at the antipodal tie (|gap| ==
+    // 128, target exactly 180deg away): current-target and target-current are
+    // both -128 as i8, so the two formulas break the tie in opposite directions
+    // (tier-1 fuzz: cur=0 tgt=128 rate1 -> ROM 192, old 64). Match ROM exactly.
+    let diff = (target.wrapping_sub(*current) as i8) as i32;
     let mut step = if diff >= 0 {
         diff >> shift
     } else {
@@ -309,7 +315,7 @@ pub fn achase_angle(current: &mut u8, target: u8, shift: u32) -> bool {
     if step == 0 {
         step = if diff > 0 { 1 } else { -1 };
     }
-    *current = current.wrapping_sub(step as u8);
+    *current = current.wrapping_add(step as u8);
     false
 }
 

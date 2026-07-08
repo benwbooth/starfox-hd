@@ -136,7 +136,10 @@ fn sr8_achase_all_rates_vs_achase_angle() {
         diffs_reachable, 0,
         "achase_angle diverges from ROM sr8_achase for a reachable (rate<=6, non-antipodal) input"
     );
-    assert!(diffs_antipodal > 0, "expected the antipodal boundary to still diverge");
+    // FIXED (achase_angle now uses the ROM's target-current+add form): the
+    // antipodal |diff|==128 tie is bit-exact too. Only rate 7 (unreachable, the
+    // ROM's own 2^7=-128 min-step quirk) remains.
+    assert_eq!(diffs_antipodal, 0, "achase_angle should now match ROM at |diff|==128");
 }
 
 /// LATENT DIVERGENCE (finding #1). ROM `sr8_achase_alvarN` computes
@@ -150,7 +153,7 @@ fn sr8_achase_all_rates_vs_achase_angle() {
 /// opposite its target). TODO: match the ROM by adding the adiv2 result to
 /// `current` from `target-current` instead of subtracting `current-target`.
 #[test]
-#[ignore = "latent: sr8 achase diverges from ROM at the exact-180 (|diff|=128) boundary"]
+// FIXED (achase_angle now matches ROM's target-current+add at the ±128 tie).
 fn sr8_achase_antipodal_divergence() {
     let syms = load_symbols();
     let (Some(&addr), Some(rom)) = (syms.get("SR8_ACHASE_ALVAR1"), load_built_rom()) else {

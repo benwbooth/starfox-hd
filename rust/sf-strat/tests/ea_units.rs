@@ -17,13 +17,16 @@ fn achase_angle_steps_match_rom() {
     // ROM Achase (STRATMAC.INC:525 / SR8_ACHASE_ALVAR3, oracle-proven in
     // sf-oracle tests/audit_strats_b.rs): adiv2 rounds toward zero and the
     // reached-branch fires only when already at the target ON ENTRY.
-    // diff = (int8)(0-128) = -128, step = -16 -> cur = 16.
+    // ROM sr8_achase = current + adiv2^N(target-current) (oracle-probed
+    // fuzz_pure_fns). At the antipodal |diff|==128 tie, (target-current) as i8
+    // = -128, adiv2^3 = -16, so 0 + (-16) = 240. (The old port subtracted
+    // (current-target) and gave 16 — the exact-180 turn-direction bug.)
     let mut cur = 0u8;
     assert!(!achase_angle(&mut cur, 128, 3));
-    assert_eq!(cur, 16);
-    // diff = (int8)(16-128) = -112, step = -14 -> cur = 30.
+    assert_eq!(cur, 240);
+    // From 240 toward 128: target-current = 128-240 = -112 (i8), step -14 -> 226.
     assert!(!achase_angle(&mut cur, 128, 3));
-    assert_eq!(cur, 30);
+    assert_eq!(cur, 226);
     // Toward-zero rounding: 0 -> 100 at rate 3 steps 100/8 = 12 (the old
     // floor shift gave 13; ROM gives 12).
     let mut cur = 0u8;
