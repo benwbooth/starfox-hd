@@ -651,3 +651,296 @@ fn rockhard_init_is_static_indestructible() {
     assert!(a.stratptr.is_none(), "s_set_strat x,0 -> null tick");
     assert!(a.expstratptr.is_none(), "no explode strat (obstacle)");
 }
+
+// ============================================================
+// Space / air-hazard family — meteo0 / big_meteor / break_meteor /
+// break_meteorT / mine0 / torpedo. ASM oracle: GA2STRAT.ASM:2130-2168 (meteo0),
+// D3STRATS.ASM:1069-1090 (big/break meteors) + DPATHDAT.ASM break1/break2,
+// DSTRATS.ASM:1215-1246 (meteor fragment) / :1572-1582 (mine0), GASTRATS.ASM
+// :2007-2044 (torpedo). No C oracle; every value hand-derived from the 65816
+// source. Scope-outs asserted-around (never asserted): billboard sprite /
+// flat-orient / splash / engine-up-sea cosmetics, and the unwired path VM for
+// the break meteors (reduced to destructible + scroll + death trigger).
+// ============================================================
+
+const IS_TORPEDO_H: usize = 80;
+const IS_METEO0: usize = 195;
+const IS_BIG_METEOR: usize = 234;
+const IS_BREAK_METEOR: usize = 235;
+const IS_BREAK_METEORT: usize = 238;
+const IS_MINE0: usize = 246;
+
+const SH_ASTEROID2: u16 = 195; // break-meteor placement shape
+const SH_METEO_0: u16 = 193; // meteo0 placement shape
+const SH_ASTEROID1: u16 = 275; // meteo0 death fragment
+const SH_F_FISH: u16 = 271; // torpedo surfaced shape
+const SH_TADPOLE: u16 = 228; // break_meteorT death spawn
+
+const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs:147
+const ASF_COLLDISABLE: u8 = 0x10; // alien.rs:145
+const COLLTYPE_ZENEMY: u8 = 0x01; // enemy_a acf_colltype6
+const RNDVAL: u16 = 0x1F00; // ea_random seed slot (setup())
+
+fn find_shape(g: &Game, shape: u16) -> Option<usize> {
+    g.objs
+        .aliens
+        .iter()
+        .enumerate()
+        .find(|(i, a)| *i != 0 && a.active && a.shape == shape)
+        .map(|(i, _)| i)
+}
+
+// ------------------------------------------------------------
+// meteo0 (GA2STRAT.ASM:2130-2168)
+// ------------------------------------------------------------
+
+#[test]
+fn meteo0_init_sets_pose_and_stays_inert_when_far() {
+    // hp2/ap16, roty=deg180, anim 0, budget 20, nohitaffect; far (|dz|>=1000)
+    // -> the fall-through tick returns at .nclose without growing.
+    let mut g = setup();
+    let m = place(&mut g, IS_METEO0, 0, 0, 5000, SH_METEO_0);
+    tick(&mut g, m);
+    let a = g.objs.aliens[m as usize];
+    assert_eq!(a.hp, 2, "meteo0HP");
+    assert_eq!(a.ap, 16, "meteo0AP");
+    assert_eq!(a.roty, DEG180, "faces deg180");
+    assert_eq!(a.animframe, 0, "inert: anim stays 0 when far");
+    assert_eq!(a.sbyte1, 20, "fire budget primed to 20");
+    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "invulnerable while growing");
+}
+
+#[test]
+fn meteo0_grows_to_max_then_sheds_invulnerability() {
+    // Player within 1000 z: anim climbs +1/tick (wrap 9) to 8; nohitaffect is
+    // held until anim==8 (.max), which is also the first tick sbyte1 decrements.
+    let mut g = setup();
+    let m = place(&mut g, IS_METEO0, 0, 0, 500, SH_METEO_0);
+    // Init tick grows anim 0->1; ticks 2..8 climb it to 8 (still .grow path).
+    for _ in 0..8 {
+        g.objs.aliens[m as usize].worldz = 500; // keep |dz|<1000
+        tick(&mut g, m);
+    }
+    let a = g.objs.aliens[m as usize];
+    assert_eq!(a.animframe, 8, "grown to full (anim 8)");
+    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "still invulnerable at anim 8 entry");
+    assert_eq!(a.sbyte1, 20, "budget untouched during growth");
+    // One more tick: anim==8 -> .max clears nohitaffect and decs the budget.
+    g.vars.gameframe = 1; // (gf+idx)&7 != 0 -> no fire this tick
+    tick(&mut g, m);
+    let a = g.objs.aliens[m as usize];
+    assert_eq!(a.sflags & ASF_NOHITAFFECT, 0, "sheds nohitaffect at max");
+    assert_eq!(a.sbyte1, 19, "budget decremented once maxed");
+}
+
+#[test]
+fn meteo0_fires_homing_laser_on_notdelay_gate() {
+    // Maxed meteo0, player close, gate (gf+idx)&7==0 -> fire RELSLOWELASERHOME
+    // and consume one budget tick. idx==1 (player is slot 0), so gf=7 -> gate.
+    let mut g = setup();
+    let m = place(&mut g, IS_METEO0, 0, 0, 500, SH_METEO_0);
+    tick(&mut g, m); // run init (stratptr -> meteo0_strat)
+    g.objs.aliens[m as usize].animframe = 8;
+    g.objs.aliens[m as usize].sbyte1 = 20;
+    g.objs.aliens[m as usize].worldz = 500;
+    g.vars.gameframe = 7; // (7 + 1) & 7 == 0
+    assert!(!any_hplasma(&g), "no shot before the gate tick");
+    tick(&mut g, m);
+    assert!(any_hplasma(&g), "homing laser fired on the notdelay gate");
+    assert_eq!(g.objs.aliens[m as usize].sbyte1, 19, "budget consumed");
+}
+
+#[test]
+fn meteo0_death_spawns_meteor_fragment_and_explodes() {
+    // .exp: make an asteroid1 fragment running meteor_Istrat, then explode.
+    let mut g = setup();
+    let m = place(&mut g, IS_METEO0, 300, 0, 4000, SH_METEO_0);
+    tick(&mut g, m);
+    let coll = g.objs.aliens[m as usize].collstratptr.unwrap();
+    g.objs.aldead = 0;
+    g.call_strat(coll, m); // 2 -> 1 (flash)
+    assert_eq!(g.objs.aldead, 0, "survives the first hit");
+    g.call_strat(coll, m); // 1 -> 0 -> meteo0_exp
+    assert_eq!(g.objs.aldead, 1, "meteo0 explodes on the fatal hit");
+    let frag = find_shape(&g, SH_ASTEROID1).expect("asteroid1 fragment spawned");
+    assert!(
+        g.objs.aliens[frag].stratptr.is_some(),
+        "fragment carries the meteor drift strat"
+    );
+    let z0 = g.objs.aliens[frag].worldz;
+    tick(&mut g, frag as u16); // meteor_istrat init + first meteor_strat drift
+    assert!(
+        g.objs.aliens[frag].worldz < z0,
+        "fragment drifts toward the viewer (worldz -= sword1)"
+    );
+}
+
+// ------------------------------------------------------------
+// big_meteor (D3STRATS.ASM:1069-1078)
+// ------------------------------------------------------------
+
+#[test]
+fn big_meteor_is_indestructible_and_static() {
+    let mut g = setup();
+    let b = place(&mut g, IS_BIG_METEOR, 1300, -700, 7000, 100);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.hp, HARDHP, "hardHP (indestructible)");
+    assert_eq!(a.ap, 12, "big_meteor ap 12");
+    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "nohitaffect");
+    // .strat is a no-op: position unchanged across ticks (add_player_z is a
+    // test no-op with pviewvelz=0, and big_meteor never scrolls anyway).
+    let (x0, y0, z0) = (a.worldx, a.worldy, a.worldz);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!((a.worldx, a.worldy, a.worldz), (x0, y0, z0), "static no-op tick");
+    // Indestructible: hitflash never kills a hardHP object.
+    let coll = a.collstratptr.unwrap();
+    g.objs.aldead = 0;
+    for _ in 0..5 {
+        g.call_strat(coll, b);
+    }
+    assert_eq!(g.objs.aldead, 0, "hardHP survives repeated hits");
+    assert_eq!(g.objs.aliens[b as usize].hp, HARDHP, "hp pinned at hardHP");
+}
+
+// ------------------------------------------------------------
+// break_meteor / break_meteorT (D3STRATS.ASM:1080-1090 + DPATHDAT break1/break2)
+// ------------------------------------------------------------
+
+#[test]
+fn break_meteor_is_destructible_and_explodes_without_fragment() {
+    let mut g = setup();
+    let b = place(&mut g, IS_BREAK_METEOR, 2000, 200, 4000, SH_ASTEROID2);
+    tick(&mut g, b);
+    let a = g.objs.aliens[b as usize];
+    assert_eq!(a.hp, 2, "meteorHP");
+    assert_eq!(a.ap, 12, "meteorAP");
+    let coll = a.collstratptr.unwrap();
+    g.objs.aldead = 0;
+    g.call_strat(coll, b); // 2 -> 1
+    g.call_strat(coll, b); // 1 -> 0 -> explode
+    assert_eq!(g.objs.aldead, 1, "break_meteor explodes");
+    assert!(
+        find_shape(&g, SH_TADPOLE).is_none(),
+        "break_meteor (break2) spawns no tadpole"
+    );
+}
+
+#[test]
+fn break_meteort_death_spawns_tadpole_on_the_coin() {
+    // break1.createtadpole: P_RANDOMGOTO skips on random<127, spawns otherwise.
+    // RNDVAL=0 -> first draw 0x61D7 (low 0xD7=215 >= 127) -> spawn a tadpole.
+    let mut g = setup();
+    let b = place(&mut g, IS_BREAK_METEORT, 2000, 200, 4000, SH_ASTEROID2);
+    tick(&mut g, b);
+    let exp = g.objs.aliens[b as usize].expstratptr.unwrap();
+    g.vars.write_ext16(RNDVAL, 0);
+    g.objs.aldead = 0;
+    g.call_strat(exp, b);
+    assert_eq!(g.objs.aldead, 1, "break_meteorT explodes");
+    assert!(
+        find_shape(&g, SH_TADPOLE).is_some(),
+        "spawns a tadpole on the >=127 coin"
+    );
+}
+
+#[test]
+fn break_meteort_death_skips_tadpole_on_the_low_coin() {
+    // RNDVAL=0x1234 -> first draw 0xDA53 (low 0x53=83 < 127) -> skip the spawn.
+    let mut g = setup();
+    let b = place(&mut g, IS_BREAK_METEORT, 2000, 200, 4000, SH_ASTEROID2);
+    tick(&mut g, b);
+    let exp = g.objs.aliens[b as usize].expstratptr.unwrap();
+    g.vars.write_ext16(RNDVAL, 0x1234);
+    g.objs.aldead = 0;
+    g.call_strat(exp, b);
+    assert_eq!(g.objs.aldead, 1, "still explodes");
+    assert!(
+        find_shape(&g, SH_TADPOLE).is_none(),
+        "no tadpole on the <127 coin"
+    );
+}
+
+// ------------------------------------------------------------
+// mine0 (DSTRATS.ASM:1572-1582)
+// ------------------------------------------------------------
+
+#[test]
+fn mine0_init_static_destructible_then_explodes() {
+    let mut g = setup();
+    let m = place(&mut g, IS_MINE0, 0, -150, 4000, 0);
+    let (x0, y0, z0) = {
+        let a = g.objs.aliens[m as usize];
+        (a.worldx, a.worldy, a.worldz)
+    };
+    tick(&mut g, m);
+    let a = g.objs.aliens[m as usize];
+    assert_eq!(a.hp, 2, "mine0HP");
+    assert_eq!(a.ap, 10, "mine0AP");
+    assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 collide");
+    assert_eq!((a.worldx, a.worldy, a.worldz), (x0, y0, z0), "static no-op tick");
+    // Standard explosion (NOT mine2exp): two hits -> explode.
+    let coll = a.collstratptr.unwrap();
+    g.objs.aldead = 0;
+    g.call_strat(coll, m); // 2 -> 1
+    g.call_strat(coll, m); // 1 -> 0 -> explode
+    assert_eq!(g.objs.aldead, 1, "mine0 explodes");
+}
+
+// ------------------------------------------------------------
+// torpedo (GASTRATS.ASM:2007-2044)
+// ------------------------------------------------------------
+
+#[test]
+fn torpedo_init_runs_submerged_and_tracks_yaw() {
+    // Invisible (nullshape), colldisable, Zenemy, speed 30, hp4/ap4. Far from
+    // the player (>800 z) it yaw-homes and moves but does NOT surface.
+    let mut g = setup();
+    let t = place(&mut g, IS_TORPEDO_H, 2000, 0, 5000, 0);
+    tick(&mut g, t);
+    let a = g.objs.aliens[t as usize];
+    assert_eq!(a.hp, 4, "torpedoHP");
+    assert_eq!(a.ap, 4, "torpedoAP");
+    assert_eq!(a.vel, 30, "speed 30");
+    assert_eq!(a.shape, 0, "still submerged (nullshape)");
+    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "non-collidable underwater");
+    assert_ne!(a.collflags & COLLTYPE_ZENEMY, 0, "Zenemy collide");
+    assert_ne!(a.roty, 0, "yaw turned toward the player (obj2obj_angle rate 3)");
+}
+
+#[test]
+fn torpedo_surfaces_inside_800z_and_levels_pitch() {
+    // Inside 800 z: torpedoa_init -> f_fish shape, pitch -deg45 (224),
+    // collidable; torpedoa_strat then achases the pitch back toward 0.
+    let mut g = setup();
+    let t = place(&mut g, IS_TORPEDO_H, 0, 0, 500, 0);
+    tick(&mut g, t); // init falls through -> torpedo_strat -> surfaces this tick
+    let a = g.objs.aliens[t as usize];
+    assert_eq!(a.shape, SH_F_FISH, "surfaced to the f_fish shape");
+    assert_eq!(a.sflags & ASF_COLLDISABLE, 0, "now collidable");
+    let pitch0 = a.rotx;
+    // rotx was set to -deg45 (224) then achased once toward 0 the short way
+    // (through 255), so it should already be > 224 (climbing toward 256==0).
+    assert!(pitch0 >= 224, "pitch pitched up near -deg45 ({pitch0})");
+    g.objs.aliens[t as usize].worldz = 400; // stay surfaced
+    tick(&mut g, t);
+    let pitch1 = g.objs.aliens[t as usize].rotx;
+    assert!(
+        (pitch1 as i8).unsigned_abs() < (pitch0 as i8).unsigned_abs(),
+        "pitch levels toward 0 ({pitch0} -> {pitch1})"
+    );
+}
+
+#[test]
+fn torpedo_death_explodes() {
+    let mut g = setup();
+    let t = place(&mut g, IS_TORPEDO_H, 0, 0, 5000, 0);
+    tick(&mut g, t);
+    let coll = g.objs.aliens[t as usize].collstratptr.unwrap();
+    g.objs.aldead = 0;
+    for _ in 0..4 {
+        g.call_strat(coll, t); // hp 4 -> 0
+    }
+    assert_eq!(g.objs.aldead, 1, "torpedo explodes when hp hits 0");
+}

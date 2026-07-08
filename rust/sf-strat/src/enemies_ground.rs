@@ -29,7 +29,7 @@
 
 use sf_game::alien::{
     Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON, ASF_COLLDISABLE,
-    ASF_INVISIBLE, ASF_SHADOW, ATLASER, ATZREMOVE, NUMBER_AL,
+    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATLASER, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, StrategyFn};
 use sf_game::world::World;
@@ -37,8 +37,9 @@ use sf_game::world::World;
 use crate::enemy_a::{
     achase_angle, add_player_z, boss_attach_child_to_mother, boss_find_child_obj,
     boss_get_mother_obj, copy_pos, ea_random, homingflat_strat, player, sid, speed_to,
-    strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser, strat_hit_flash,
-    strat_move3d, strat_pitch_toward, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, DEG180, DEG45, DEG90,
+    strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser,
+    strat_fire_relslowlaserhome, strat_hit_flash, strat_move3d, strat_pitch_toward,
+    COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG180, DEG45, DEG90,
 };
 use crate::common::{
     angle_xz, apply_velocity, dist_xz, gen_vecs_2d, gen_vecs_3d, make_obj, projectile_strat_ids,
@@ -1680,6 +1681,410 @@ fn rockhard_istrat(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// Space / air-hazard family — meteor set (meteo0 / big_meteor /
+// break_meteor / break_meteorT), mine0, and torpedo. ASM is the sole ground
+// truth (no C-oracle). ISTRATS.ASM def rows == sf-map placement indices
+// (grep sf-map; the reachable index drifts from the raw macro-count past ~162,
+// so these trust the placement value):
+//   - torpedo        = 80  (ISTRATS.ASM:503)  — route2 rc / route3 level3_3
+//   - meteo0         = 195 (ISTRATS.ASM:625)  — route3 level3_2
+//   - big_meteor     = 234 (ISTRATS.ASM:673)  — route3 level3_2
+//   - break_meteor   = 235 (ISTRATS.ASM:676)  — route1 level1_2 / route3
+//   - break_meteorT  = 238 (ISTRATS.ASM:681)  — route1 level1_2 / route3
+//   - mine0          = 246 (ISTRATS.ASM:684-ish) — route1 level1_5
+// All six are placed by ported maps -> reachable.
+//
+// State machines (per-fn cites):
+//   meteo0 : sits inert until the player closes to 1000 z, grows its anim to
+//            full (8) shedding nohitaffect, then rains homing lasers on a
+//            notdelay-3 gate for a 20-tick budget; death spawns an asteroid1
+//            fragment running meteor_strat, then explodes. GA2STRAT.ASM:2130-2168.
+//   big_meteor : indestructible (hardHP) spinning obstacle; init randomizes an
+//            (unused) spin datum, tick is a pure no-op. D3STRATS.ASM:1069-1078.
+//   break_meteor / break_meteorT : destructible asteroid-belt fragments driven
+//            in the ROM by the motionless `break2`/`break1` PATHS (DPATHDAT.ASM
+//            :1778-1795). The path VM is not wired into this crate, so the port
+//            reduces them to their observable effect — a meteorHP/meteorAP
+//            destructible that scrolls past (add_playerZ, inferred: the paths
+//            carry NO velocity command) with a death trigger: break_meteor emits
+//            particles (standard explode); break_meteorT additionally 50%-spawns
+//            a tadpole. D3STRATS.ASM:1080-1090 + DPATHDAT.ASM break1/break2.
+//   mine0  : static random-oriented destructible mine (enemy1), standard
+//            explosion on death. DSTRATS.ASM:1572-1582.
+//   torpedo: invisible Zenemy that homes the player's yaw underwater at speed 30;
+//            inside 800 z it surfaces (f_fish shape, pitch -deg45, becomes
+//            collidable) and levels its pitch back to 0. GASTRATS.ASM:2007-2044.
+// ============================================================
+
+/// ISTRATS.ASM def rows (== sf-map placement indices).
+const IS_TORPEDO: usize = 80;
+const IS_METEO0: usize = 195;
+const IS_BIG_METEOR: usize = 234;
+const IS_BREAK_METEOR: usize = 235;
+const IS_BREAK_METEORT: usize = 238;
+const IS_MINE0: usize = 246;
+
+/// Hazard-family equs (STRATEQU.INC).
+const METEOR_HP: u8 = 2; // STRATEQU.INC:212 meteorHP
+const METEOR_AP: u8 = 12; // STRATEQU.INC:213 meteorAP
+const MINE0_HP: u8 = 2; // STRATEQU.INC:226 mine0HP
+const MINE0_AP: u8 = 10; // STRATEQU.INC:227 mine0AP
+const TORPEDO_HP: u8 = 4; // STRATEQU.INC:132 torpedoHP
+const TORPEDO_AP: u8 = 4; // STRATEQU.INC:133 torpedoAP
+const BIG_METEOR_AP: u8 = 12; // D3STRATS.ASM:1073 s_set_aldata #hardHP,#12
+const METEO0_HP: u8 = 2; // GA2STRAT.ASM:2133 s_set_aldata #2,#16
+const METEO0_AP: u8 = 16;
+const METEO0_BUDGET: u8 = 20; // GA2STRAT.ASM:2136 al_sbyte1 = 20
+
+/// Cosmetic child shapes (sf-map route3 common.rs SH_* numbers). These meshes
+/// may not resolve to a live model, but the spawned object's *behaviour* (the
+/// meteor drift / tadpole placement) is what this lane reproduces.
+const SH_ASTEROID1: u16 = 275; // meteo0 death fragment (SH_ASTEROID1_PROXY)
+const SH_F_FISH: u16 = 271; // torpedo surfaced shape (SH_F_FISH_PROXY)
+const SH_TADPOLE: u16 = 228; // break_meteorT death spawn (SH_TADPOLE)
+
+// ------------------------------------------------------------
+// meteo0 (IS 195) — GA2STRAT.ASM:2130-2168.
+// ------------------------------------------------------------
+
+/// `meteo0_Istrat` (GA2STRAT.ASM:2130-2137): wire strats/data, face deg180,
+/// anim 0, prime the 20-tick fire budget, and set nohitaffect (invulnerable
+/// while it grows). The ROM uses `coll_Istrat` (a hitflash that suppresses the
+/// visual flash) as the collide handler; this port substitutes the standard
+/// `strat_hit_flash` — the damage-gating (nohitaffect) semantics match; only
+/// the cosmetic flash differs (GSTRATS.ASM:887-893 coll_Istrat vs hitflash).
+/// Init falls into `meteo0_strat` next tick (ROM has `s_start_strat` between,
+/// i.e. no fall-through).
+fn meteo0_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, meteo0_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, meteo0_exp);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = METEO0_HP; // s_set_aldata #2,#16
+    al.ap = METEO0_AP;
+    al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
+    al.animframe = 0; // s_init_anim x,#0
+    al.sbyte1 = METEO0_BUDGET; // s_set_alvar B,x,al_sbyte1,#20
+    al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag x,nohitaffect
+    // No s_end_strat before .meteo0_strat -> falls into the tick body same frame.
+    meteo0_strat(g, idx);
+}
+
+/// `.meteo0_strat` (GA2STRAT.ASM:2138-2162): inert until close; grow anim to 8;
+/// once maxed clear nohitaffect and rain homing lasers on the notdelay-3 gate,
+/// consuming the budget; scroll while active.
+fn meteo0_strat(g: &mut Game, idx: u16) {
+    // s_jmp_alvarZERO B,x,al_sbyte1,.nclose — budget spent -> inert (no scroll).
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        return;
+    }
+    // s_set_objtobeplayer y ; s_jmp_Zdistmore x,y,#1000,.nclose — far -> inert.
+    if zdist_more(g, idx, 1000) {
+        return;
+    }
+    // s_cmp_anim x,#8 ; s_beq .max ; else s_add_anim x,#1,#9 (wrap 9) ; .done.
+    let anim = g.objs.aliens[idx as usize].animframe;
+    if anim != 8 {
+        g.objs.aliens[idx as usize].animframe = (anim + 1) % 9;
+        add_player_z(g, idx); // .done: s_add_playerZ x
+        return;
+    }
+    // .max: s_clr_alsflag x,nohitaffect
+    g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+    // s_jmp_notdelay 3,.nfire,al1pt — fire when (gameframe + idx) & 7 == 0
+    // (al1pt == per-object index stagger, port convention; enemy_a.rs:2543).
+    if g.vars.gameframe.wrapping_add(idx) & 7 == 0 {
+        // s_weapon_pos #0,#0,#0 ; s_weapon_rots2obj y ; s_fire_weapon RELSLOWELASERHOME:
+        // muzzle at centre, aim the homing laser at the player in full 3D.
+        if let Some(pl) = player(g) {
+            let me = g.objs.aliens[idx as usize];
+            let yaw = angle_xz(&me, &pl);
+            let pitch = strat_pitch_toward(&me, &pl);
+            strat_fire_relslowlaserhome(g, idx, pitch, yaw);
+        }
+    }
+    // .nfire: s_dec_alvar B,x,al_sbyte1
+    let sb1 = g.objs.aliens[idx as usize].sbyte1;
+    g.objs.aliens[idx as usize].sbyte1 = sb1.wrapping_sub(1);
+    // .done: s_add_playerZ x
+    add_player_z(g, idx);
+}
+
+/// `.exp_Istrat` (GA2STRAT.ASM:2163-2168): spawn an asteroid1 fragment running
+/// `meteor_Istrat` at this meteor's pose, then run the standard explosion.
+fn meteo0_exp(g: &mut Game, idx: u16) {
+    // s_make_obj #asteroid1,.badobj ; s_set_strat y,meteor_Istrat ; s_copy_pos y,x
+    if let Some(child) = make_obj(g, SH_ASTEROID1) {
+        copy_pos(g, child, idx);
+        let frag = sid(g, meteor_istrat);
+        g.objs.aliens[child as usize].stratptr = Some(frag);
+    }
+    // .badobj: s_jmp explode_Istrat
+    strat_explode(g, idx);
+}
+
+// ------------------------------------------------------------
+// meteor fragment (meteo0's asteroid1 child) — DSTRATS.ASM:1215-1246. A drifting
+// asteroid: random spin/velocity/heading, then each tick drifts toward the
+// viewer (worldz -= 60) + spins + coasts. Self-contained; ported here as the
+// fragment-spawn model (meteor_Istrat is not otherwise registered).
+// ------------------------------------------------------------
+
+/// `meteor_istrat` entry (DSTRATS.ASM:1215-1246): sword1=60 then the shared
+/// `.in` init — data, random spin (sbyte1 = rnd&3, negated when the random
+/// heading roty >= 128, then 50%-zeroed), random heading + velocity, gen 3D
+/// vecs, enemy1 collide, nohitaffect. Falls into `meteor_strat`.
+/// (`s_sprite_obj`/`drotsflat_x` are cosmetic billboard/flat-orient ops —
+/// scoped out.)
+fn meteor_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, meteor_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sword1 = 60; // s_set_alvar W,x,al_sword1,#60
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = METEOR_HP; // s_set_aldata #meteorHP,#meteorAP
+        al.ap = METEOR_AP;
+        al.rotz = 0; // s_set_alvar B,x,al_rotz,#0
+    }
+    // s_set_alvar2rnd x,al_vel,#7 / al_sbyte1,#3 / al_roty (full byte).
+    let vel = (ea_random(g) as u8) & 7;
+    let sbyte1 = (ea_random(g) as u8) & 3;
+    let roty = ea_random(g) as u8;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vel = vel;
+        al.roty = roty;
+        // s_cmp_alvar B,al_roty,#128 ; s_bcc .oneway — roty>=128 negates the spin.
+        al.sbyte1 = if roty >= 128 {
+            (sbyte1 as i8).wrapping_neg() as u8
+        } else {
+            sbyte1
+        };
+    }
+    // s_jmp_random .noclear — branch (skip) when random<127; else zero the spin.
+    if !jmp_random50(g) {
+        g.objs.aliens[idx as usize].sbyte1 = 0;
+    }
+    // meteor_istrat3: s_jsr dgen3dvecs (roty/rotx=0/vel) then fall into strat.
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    g.objs.aliens[idx as usize].collflags |= COLLTYPE_ENEMY1;
+    g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+    meteor_strat(g, idx);
+}
+
+/// `meteor_strat` (DSTRATS.ASM:1240-1246): drift toward the viewer (worldz -=
+/// sword1) unless it is an `asteroid3` variant (never true for this asteroid1
+/// fragment, so the guard is inert here), spin (rotz += sbyte1), and coast.
+fn meteor_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_cmp_alvar W,al_shape,#asteroid3 ; s_beq .missbit — always false here.
+        al.worldz = al.worldz.wrapping_sub(al.sword1); // s_sub_alvars al_worldz,al_sword1
+        al.rotz = al.rotz.wrapping_add(al.sbyte1); // s_add_alvars al_rotz,al_sbyte1
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_jsr daddvecs2pos_x
+}
+
+// ------------------------------------------------------------
+// big_meteor (IS 234) — D3STRATS.ASM:1069-1078.
+// ------------------------------------------------------------
+
+/// `big_meteor_istrat` (D3STRATS.ASM:1069-1077): an indestructible (hardHP)
+/// obstacle. Sets nohitaffect + ap12, randomizes a spin datum in sbyte1
+/// ((rnd&15)-8, which `.strat` never actually reads), then installs the no-op
+/// tick. `s_rots_flat` (a view-vector flat orientation) is cosmetic — scoped
+/// out. `.strat` is a pure `s_end_strat` no-op.
+fn big_meteor_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, big_meteor_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    // s_set_alvar2rnd x,al_sbyte1,#15 ; s_sub_alvar B,al_sbyte1,#8.
+    let sb1 = ((ea_random(g) as u8) & 15).wrapping_sub(8);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag x,nohitaffect
+    al.hp = HARDHP; // s_set_aldata #hardHP,#12 (255 == indestructible)
+    al.ap = BIG_METEOR_AP;
+    al.sbyte1 = sb1;
+}
+
+/// `big_meteor .strat` (D3STRATS.ASM:1077-1078): `s_end_strat` — pure no-op.
+fn big_meteor_strat(_g: &mut Game, _idx: u16) {}
+
+// ------------------------------------------------------------
+// break_meteor / break_meteorT (IS 235 / 238) — D3STRATS.ASM:1080-1090.
+// Path-driven in the ROM; reduced to destructible + scroll + death trigger
+// (see family header). The break1/break2 paths carry no velocity (DPATHDAT.ASM
+// :1778-1795), so per-tick motion is scroll-only.
+// ------------------------------------------------------------
+
+/// `break_meteor_istrat` (D3STRATS.ASM:1080-1084): `s_set_path x,break2` +
+/// aldata(2, meteorAP) then `jml path_istrat`. Reduced: destructible meteor,
+/// standard explosion (break2's `P_TRIGGER pparticles,WhenDead`).
+fn break_meteor_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, break_meteor_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = METEOR_HP; // s_set_aldata #2,#meteorAP
+    al.ap = METEOR_AP;
+    // jml path_istrat runs the path tick same frame; reduced to scroll-only.
+    break_meteor_strat(g, idx);
+}
+
+/// `break_meteort_istrat` (D3STRATS.ASM:1086-1090): `s_set_path x,break1` +
+/// aldata(2, meteorAP) then `jml path_istrat`. break1 == break2 plus a
+/// `createtadpole` death trigger (50% spawn a tadpole, DPATHDAT.ASM:1787-1792).
+fn break_meteort_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, break_meteor_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, break_meteort_exp);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = METEOR_HP;
+    al.ap = METEOR_AP;
+    break_meteor_strat(g, idx);
+}
+
+/// Shared break-meteor tick: the break1/break2 paths have no motion command, so
+/// the reduced behaviour is scroll-only (add_playerZ — inferred, see header).
+fn break_meteor_strat(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+}
+
+/// `break1.createtadpole` (DPATHDAT.ASM:1787-1792): `P_RANDOMGOTO .notad` skips
+/// the spawn on a 50% coin (branch when random<127), else `P_QSPAWN tadpole,
+/// meteor_tadpole` spawns a tadpole (path meteor_tadpole == `P_SETSTRAT
+/// tadpole_istrat`). `tadpole_istrat` is unported (out of this lane's scope),
+/// so the tadpole is placed inert (no AI). Then the standard explosion runs.
+fn break_meteort_exp(g: &mut Game, idx: u16) {
+    // P_RANDOMGOTO branches (skips spawn) when random<127; spawn on the else.
+    if !jmp_random50(g) {
+        if let Some(t) = make_obj(g, SH_TADPOLE) {
+            copy_pos(g, t, idx);
+            // tadpole_istrat unported: leave inert + non-colliding.
+            g.objs.aliens[t as usize].sflags |= ASF_COLLDISABLE;
+        }
+    }
+    strat_explode(g, idx);
+}
+
+// ------------------------------------------------------------
+// mine0 (IS 246) — DSTRATS.ASM:1572-1582.
+// ------------------------------------------------------------
+
+/// `mine0_istrat` (DSTRATS.ASM:1572-1577): a static destructible mine — hp2/
+/// ap10, enemy1 collide, a random full-byte rotz orientation, standard
+/// explosion. Installs the no-op `mine0_strat` tick. (NOTE: the ROM mine0 uses
+/// plain `explode_istrat`, NOT `mine2exp` — the proximity/beam-burst death
+/// belongs to the unrelated `mine2` strat, GA2STRAT.ASM:2560.)
+fn mine0_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, mine0_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    // s_set_alvar2rnd x,al_rotz (full byte -> any orientation).
+    let rotz = ea_random(g) as u8;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = MINE0_HP; // s_set_aldata #mine0HP,#mine0AP
+    al.ap = MINE0_AP;
+    al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,ENEMY1
+    al.rotz = rotz;
+}
+
+/// `mine0_strat` (DSTRATS.ASM:1578-1580): `s_end_strat` — pure no-op.
+fn mine0_strat(_g: &mut Game, _idx: u16) {}
+
+// ------------------------------------------------------------
+// torpedo (IS 80) — GASTRATS.ASM:2007-2044.
+// ------------------------------------------------------------
+
+/// `torpedo_Istrat` (GASTRATS.ASM:2007-2014): starts invisible (nullshape) and
+/// non-collidable (colldisable) underwater, speed 30, Zenemy collide, hp4/ap4.
+/// Falls into `torpedo_strat` the same tick (no `s_end_strat` between).
+fn torpedo_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, torpedo_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = TORPEDO_HP; // s_set_aldata #torpedoHP,#torpedoAP
+        al.ap = TORPEDO_AP;
+        al.shape = 0; // s_set_alvar W,x,al_shape,#nullshape
+        al.vel = 30; // s_set_speed x,#30
+        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.collflags |= COLLTYPE_ZENEMY; // s_set_colltype x,Zenemy
+    }
+    torpedo_strat(g, idx);
+}
+
+/// `torpedo_strat` (GASTRATS.ASM:2015-2030): while > 800 z, yaw-home the player
+/// (rate 3) then move; inside 800 z surface via `torpedoa_init`.
+/// (`makeSsplash` is cosmetic — scoped out.)
+fn torpedo_strat(g: &mut Game, idx: u16) {
+    // s_jmp_Zdistless x,y,#800,torpedoa_init
+    if zdist_less(g, idx, 800) {
+        torpedoa_init(g, idx);
+        return;
+    }
+    // s_obj2obj_angle x,y,al_roty,3
+    if let Some(pl) = player(g) {
+        strat_aim_yaw(g, idx, &pl, 3);
+    }
+    torpedo_cont(g, idx);
+}
+
+/// `torpedo_cont` (GASTRATS.ASM:2026-2030): gen 3D vecs, scroll, coast.
+fn torpedo_cont(g: &mut Game, idx: u16) {
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]); // s_gen_3dvecs x,al_roty,al_rotx,al_vel
+    add_player_z(g, idx); // s_add_playerZ x
+    apply_velocity(&mut g.objs.aliens[idx as usize]); // s_add_vecs2pos x
+}
+
+/// `torpedoa_init` (GASTRATS.ASM:2032-2038): surface — pitch up -deg45, become
+/// the visible f_fish, become collidable, then fall into `torpedoa_strat`.
+/// (`makesplash`/`enemyupsea` are cosmetic — scoped out.)
+fn torpedoa_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, torpedoa_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick); // s_set_strat x,torpedoa_strat
+    al.rotx = (-(DEG45 as i8)) as u8; // s_set_alvar B,x,al_rotx,#-deg45
+    al.shape = SH_F_FISH; // s_set_alvar W,x,al_shape,#f_fish
+    al.sflags &= !ASF_COLLDISABLE; // s_clr_alsflag x,colldisable
+    torpedoa_strat(g, idx);
+}
+
+/// `torpedoa_strat` (GASTRATS.ASM:2039-2042): after surfacing, level the pitch
+/// back to 0 (rate 2) then coast (torpedo_cont — note it no longer yaw-homes).
+fn torpedoa_strat(g: &mut Game, idx: u16) {
+    // s_achase_alvar B,x,al_rotx,#0,2
+    let mut rotx = g.objs.aliens[idx as usize].rotx;
+    achase_angle(&mut rotx, 0, 2);
+    g.objs.aliens[idx as usize].rotx = rotx;
+    // s_brl torpedo_cont
+    torpedo_cont(g, idx);
+}
+
+// ============================================================
 // State helper.
 // ============================================================
 
@@ -1722,4 +2127,12 @@ pub fn register(world: &mut World) {
     world.istrats[IS_WINGLAZERMAN] = Some(wsid(world, winglazerman_istrat));
     world.istrats[IS_UPERM] = Some(wsid(world, uperm_istrat));
     world.istrats[IS_ROCKHARD] = Some(wsid(world, rockhard_istrat));
+
+    // Space / air-hazard family (all placed by ported maps -> reachable).
+    world.istrats[IS_METEO0] = Some(wsid(world, meteo0_init));
+    world.istrats[IS_BIG_METEOR] = Some(wsid(world, big_meteor_init));
+    world.istrats[IS_BREAK_METEOR] = Some(wsid(world, break_meteor_init));
+    world.istrats[IS_BREAK_METEORT] = Some(wsid(world, break_meteort_init));
+    world.istrats[IS_MINE0] = Some(wsid(world, mine0_init));
+    world.istrats[IS_TORPEDO] = Some(wsid(world, torpedo_init));
 }
