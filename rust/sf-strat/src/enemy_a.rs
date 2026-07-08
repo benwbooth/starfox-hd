@@ -5373,16 +5373,17 @@ fn clship_warp_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
     let pl = player(g);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        if al.sword1 > 0 {
-            al.sword1 -= 1;
-            if al.sword1 == 0 {
-                // ASM clshipWARP_cont (GCSTRATS.ASM:143) jumps to clshipboost_Istrat
-                // (:234 `trigse $32`) — the warp boost DOES play the sound. (Audit A #28)
-                clshipboost_enter(g, idx, true);
-                clshipboost_step(g, idx);
-                return;
-            }
+        // s_beqdec (STRATMAC.INC:6286) is TEST-then-DEC: boost when sword1 is
+        // ALREADY 0 on entry, else decrement. The old dec-then-test form fired
+        // the warp one frame early. (Matches the CHASE variant + ROM.)
+        if al.sword1 == 0 {
+            // ASM clshipWARP_cont (GCSTRATS.ASM:143) jumps to clshipboost_Istrat
+            // (:234 `trigse $32`) — the warp boost DOES play the sound. (Audit A #28)
+            clshipboost_enter(g, idx, true);
+            clshipboost_step(g, idx);
+            return;
         }
+        al.sword1 -= 1;
     }
     if let Some(pl) = pl {
         let al = &mut g.objs.aliens[idx as usize];
@@ -5411,14 +5412,13 @@ fn clship_gnd_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
     let pl = player(g);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        if al.sword1 > 0 {
-            al.sword1 -= 1;
-            if al.sword1 == 0 {
-                clshipboost_enter(g, idx, true);
-                clshipboost_step(g, idx);
-                return;
-            }
+        // s_beqdec TEST-then-DEC (was dec-then-test, one frame early).
+        if al.sword1 == 0 {
+            clshipboost_enter(g, idx, true);
+            clshipboost_step(g, idx);
+            return;
         }
+        al.sword1 -= 1;
     }
     if let Some(pl) = pl {
         let tick1 = frame_tick_mod(g, 1);
