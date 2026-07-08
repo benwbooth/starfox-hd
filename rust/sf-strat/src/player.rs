@@ -925,6 +925,32 @@ fn boost_brake_update(g: &mut Game, idx: u16) {
         return;
     }
 
+    // No-control gate (PSTRATS.ASM:2088-2097): the pad-X/pad-B boost/brake is
+    // dead during black-screen / wipe / noctrl sequences. Force boost/brake
+    // above run BEFORE this gate (ROM `brl .boost`/`.brake` bypasses it).
+    // player_noctrlcnt is only READ here — playermove_srou owns the
+    // once-per-frame decrement (it runs later this tick via do_player_*).
+    let no_ctrl = g.vars.pshipflags & PSF_NOCTRL != 0
+        || g.vars.sv_i8(sv::STAYBLACK) != -1
+        || g.vars.sv_u8(sv::DOINGWIPE) != 0
+        || g.vars.sv_u8(sv::PLAYER_NOCTRLCNT) != 0;
+    if no_ctrl {
+        return;
+    }
+
+    // Speed gate (PSTRATS.ASM:2103, `s_jmp_alvarNOTZERO al_sbyte2,.npsd`):
+    // while the boost/brake timer sbyte2 is nonzero, holding X/B does NOTHING.
+    // The boost is a pulsed 20-frame (brake: 30) burst that cannot re-trigger
+    // until sbyte2 decrements back to 0 (which also clears the boosting/braking
+    // flag, top of this fn). Without this gate the held key re-set sbyte2/vel
+    // every frame, pinning speed to max/min and replaying the SFX each frame.
+    // (ROM also gates on m_boostanim>=40, the boost-meter charge, PSTRATS.ASM:
+    //  2105-2107 — that value lives in the sf-render HUD, not sf-strat, so it is
+    //  not checked here; see audit follow-up.)
+    if g.objs.aliens[i].sbyte2 != 0 {
+        return;
+    }
+
     if pad1(g) & pad::X != 0 {
         g.vars.pshipflags2 |= PSF2_BOOSTING;
         g.vars.set_sv_u8(sv::BOOSTCNT, 1);
@@ -1433,7 +1459,12 @@ fn do_player_yvel125(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         let vy = al.vy;
-        al.vy = vy.wrapping_add(vy >> 2);
+        // do_player_Yvel125 (PSTRATS.ASM:3374-3395): vy = vy + vy>>2 + vy>>3
+        // (= x1.375, despite the "125" name). The ROM uses `asra` (arithmetic
+        // shift right, toward -inf); i16 `>>` is arithmetic too, so the negative
+        // (climbing, SNES +y=down) case matches the ROM. Previously only added
+        // vy>>2 (x1.25), so every pitch climb/dive was ~9% weaker than ROM.
+        al.vy = vy.wrapping_add(vy >> 2).wrapping_add(vy >> 3);
     }
 
     framescalevecs(g, idx);
@@ -1450,7 +1481,15 @@ fn do_player_yvel_d2(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.vx = strat_perc62(al.vx);
-        al.vy >>= 1;
+        // do_playerYvelD2 (PSTRATS.ASM:3417-3419): `adiv2` = signed halve that
+        // rounds TOWARD ZERO (STRATMAC.INC:712), not the toward-(-inf) arithmetic
+        // `>>`. They differ by 1 each frame for upward (vy<0) motion.
+        let vy = al.vy;
+        al.vy = if vy >= 0 {
+            vy >> 1
+        } else {
+            -((-(vy as i32) >> 1) as i16)
+        };
     }
 
     framescalevecs(g, idx);
@@ -1471,6 +1510,16 @@ fn viewmove_srou(g: &mut Game, idx: u16) {
         let z = g.vars.sv_i16(sv::PVIEWPOSZ);
         g.vars.set_sv_i16(sv::BGSSCROLLZ, z);
         return;
+    }
+
+    // View-distance ease (PSTRATS.ASM:1636-1638): unless PSTF_NOVDISTC, each
+    // frame `outdist` chases `viewdist` at rate 3 so the camera pull-back eases
+    // to a new distance instead of snapping. NOTE (follow-up): the camera still
+    // reads `viewdist` directly (sf-game camera.rs) — to make the ease visible it
+    // must consume `outdist`; that consumer change is a cross-crate follow-up.
+    if g.vars.pstratflags & PSTF_NOVDISTC == 0 {
+        let od = strat_chase_proportional(g.vars.sv_i16(sv::OUTDIST), g.vars.viewdist, 3);
+        g.vars.set_sv_i16(sv::OUTDIST, od);
     }
 
     let mut pviewposz = g
@@ -1551,10 +1600,20 @@ pub fn strat_player(g: &mut Game, idx: u16) {
 
     boost_brake_update(g, idx);
 
+    // The ROM picks the do_player_* velocity handler by the active player STRAT
+    // pointer — each mode's strat hard-wires exactly one handler (PSTRATS.ASM
+    // do_player_*), there is no runtime flag test. It is NOT selected by the
+    // pfm_diefall/pfm_dieYrot bits: those are SET during NORMAL planet/water/
+    // undergnd flight (planet_flymode, STRATEQU.INC:566) as mode *capabilities*
+    // (death-anim style), not a live "dying" flag. Dying is handled earlier by
+    // playerdead_strat, which returns before reaching here. game_mode is the
+    // reachable proxy for the strat identity:
+    //   SPACE_MODE           -> playerinspace              -> do_player_limitX
+    //   else (planet/water)  -> playeronplanet/playeronwater -> do_player_Yvel125
+    // (undergnd/tunnel -> do_playerYvelD2 and onbridge -> do_player_bridge are
+    //  driven by their own dedicated strats, e.g. playeronbridge_strat.)
     if g.vars.game_mode == SPACE_MODE {
         do_player_limit_x(g, idx);
-    } else if g.vars.playerflymode & PFM_DIEFALL != 0 || g.vars.playerflymode & PFM_DIEYROT != 0 {
-        do_player_yvel_d2(g, idx);
     } else {
         do_player_yvel125(g, idx);
     }
