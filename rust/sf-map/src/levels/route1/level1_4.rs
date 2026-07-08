@@ -52,11 +52,12 @@ mod lc {
     // hard180yr rotation strat). Was 180 here, so 1_4's ~10 rotating ground
     // objects missed hard180yr. Fixed to match the registration.
     pub const IS_HARD180YRFOG: u32 = 181;
-    // TODO(caveat): IS_BASE1=181 misroutes to hard180yr — sf-strat registers
-    // base1 at 230 (IS_BASE_1). Tangled with the caveated ultrastarfox base1
-    // door hack (docs/AUDIT... base1 flagged for review); left for a dedicated
-    // pass rather than repoint blindly onto the caveated strat.
-    pub const IS_BASE1: u32 = 181;
+    // ROM MAP1_4.ASM:156/190/191 places base_0/base1_istrat; sf-strat registers
+    // base1 at 230 (IS_BASE_1). Was 181 here (=hard180yr), so 1_4's 3 base doors
+    // spawned as rotation obstacles. Fixed to resolve to the base1 strat. (base1's
+    // exact behavior is separately caveated — the ultrastarfox door hack — but the
+    // placement must point at base1, not hard180yr.)
+    pub const IS_BASE1: u32 = 230;
     pub const IS_TANK1A: u32 = 183;
     pub const IS_HOUDAI5F: u32 = 187;
 
