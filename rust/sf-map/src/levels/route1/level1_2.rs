@@ -20,33 +20,44 @@ use crate::levels::BuiltLevel;
 // TODO(consolidation): move to consts.rs (sh/is/path modules).
 mod lc {
     // Shape ids (levels.c SH_* block).
-    pub const SH_D_HEAD_0: u16 = 14;
-    pub const SH_D_BODY_0: u16 = 15;
-    pub const SH_CAMELEON: u16 = 16;
-    pub const SH_BOSS_1_2: u16 = 20;
-    pub const SH_ZACO_4: u16 = 106;
-    pub const SH_B_HOU_0: u16 = 164;
-    pub const SH_ASTEROID2: u16 = 195;
-    pub const SH_ZACO_B: u16 = 202;
-    pub const SH_TADPOLE: u16 = 228;
+    pub const SH_D_HEAD_0: u16 = 13;
+    pub const SH_D_BODY_0: u16 = 14;
+    pub const SH_CAMELEON: u16 = 15;
+    pub const SH_BOSS_1_2: u16 = 19;
+    pub const SH_ZACO_4: u16 = 105;
+    pub const SH_B_HOU_0: u16 = 163;
+    pub const SH_ASTEROID2: u16 = 194;
+    pub const SH_ZACO_B: u16 = 201;
+    pub const SH_TADPOLE: u16 = 227;
     pub const SH_ASTEROID1_PROXY: u16 = 275; // SHAPE_EXT_ASTEROID1 (USHAPES.ASM)
+    pub const SH_BIG_METEOR: u16 = 237;
+    pub const SH_MY_BIRD: u16 = 557; // raw ROM word -> SHAPE_EXT_MY_BIRD
     pub const SH_MOTHER1: u16 = 278;
+    pub const SH_R_HOU_0: u16 = 161;
+    pub const SH_SPACEPILON: u16 = 614; // raw ShapeHdr word -> SHAPE_EXT_PILON
 
     // Strategy ids (levels.c IS_* block).
-    pub const IS_CLSHIPWARPA: u32 = 22;
-    pub const IS_CLSHIPWARPB: u32 = 23;
-    pub const IS_CLSHIPWARPC: u32 = 24;
-    pub const IS_WORMHEAD: u32 = 52;
-    pub const IS_WORM: u32 = 61;
-    pub const IS_CAMELEON: u32 = 63;
-    pub const IS_BOSS1: u32 = 69;
-    pub const IS_SZACO0: u32 = 130;
-    pub const IS_BLACKHOLE: u32 = 196;
-    pub const IS_TADPOLE: u32 = 228;
-    pub const IS_BREAK_METEOR: u32 = 235;
-    pub const IS_BREAK_METEORT: u32 = 238;
+    pub const IS_CLSHIPWARPA: u32 = 18;
+    pub const IS_CLSHIPWARPB: u32 = 19;
+    pub const IS_CLSHIPWARPC: u32 = 20;
+    pub const IS_WORMHEAD: u32 = 51;
+    pub const IS_WORM: u32 = 60;
+    pub const IS_CAMELEON: u32 = 62;
+    pub const IS_BOSS1: u32 = 68;
+    pub const IS_SZACO0: u32 = 129;
+    pub const IS_BLACKHOLE: u32 = 195;
+    pub const IS_TADPOLE: u32 = 227;
+    pub const IS_BREAK_METEOR: u32 = 234;
+    pub const IS_BREAK_METEORT: u32 = 237;
+    pub const IS_BIG_METEOR: u32 = 233;
+    pub const IS_GATE: u32 = 52;
+    pub const IS_SHOU0A: u32 = 178;
 
-    // Synthetic strategy addresses: STRAT_ADDR_MOTHER1/STRAT_ADDR_SLOWMETEOR
+    /// Non-table `spacepilon_istrat` address registered by sf-strat.
+    pub const STRATEGY_SPACEPILON: crate::consts::DirectStrategy =
+        crate::consts::DirectStrategy::SpacePilon;
+
+    // Synthetic strategy addresses: STRATEGY_MOTHER1/STRATEGY_SLOWMETEOR
     // now come from `crate::consts` (glob-imported above). The old local
     // values collided: MOTHER1 0x020000 = synth istrat 0 (player),
     // SLOWMETEOR 0x030003 = STRAT_ADDR_PLAYER_EXITBASE.
@@ -62,6 +73,9 @@ mod lc {
     pub const PATH_ID_INSEKIKUN: u16 = 256;
     pub const PATH_ID_SCREW: u16 = 257;
     pub const PATH_ID_DAMYSCR: u16 = 258;
+    pub const PATH_ID_CHASE2_1: u16 = 269;
+    pub const PATH_ID_CHASE2_2: u16 = 270;
+    pub const PATH_ID_MY_BIRD: u16 = 245;
 }
 
 use lc::*;
@@ -87,7 +101,16 @@ pub fn build() -> Route1Level {
     b.mapwait(1000);
 
     b.cspecial(1800, 0, SPACE_VIEWCY - 1000, 800, SH_ZACO_4, IS_SZACO0);
-    b.pathobj(5000, 3000, 3000, 3000, sh::NULLSHAPE, PATH_ID_ASTEMSG, 10, 10);
+    b.pathobj(
+        5000,
+        3000,
+        3000,
+        3000,
+        sh::NULLSHAPE,
+        PATH_ID_ASTEMSG,
+        10,
+        10,
+    );
     b.cspecial(2000, 1000, SPACE_VIEWCY, 800, SH_ZACO_4, IS_SZACO0);
     b.cspecial(5000, 1000, SPACE_VIEWCY + 1000, 800, SH_ZACO_4, IS_SZACO0);
 
@@ -116,19 +139,49 @@ pub fn build() -> Route1Level {
     }
 
     b.mapwait(4500);
-    b.mapmother(3500, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(3500, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
 
     b.mapobj(2000, 200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1000, 0, SPACE_VIEWCY, 800, SH_CAMELEON, IS_CAMELEON);
-    b.pathobj(0, 1200, 200, 600, sh::FRIENDSHIP_4, PATH_ID_CHASE1_1, 200, 10);
+    b.pathobj(
+        0,
+        1200,
+        200,
+        600,
+        sh::FRIENDSHIP_4,
+        PATH_ID_CHASE1_1,
+        200,
+        10,
+    );
     b.pathcspecial(2000, 1200, 200, 600, SH_ZACO_B, PATH_ID_CHASE1_2, 10, 10);
-    b.mapnobj(400, -400, SPACE_VIEWCY, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        400,
+        -400,
+        SPACE_VIEWCY,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.mapobj(200, 200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(2000, 0, SPACE_VIEWCY - 1000, 800, SH_ZACO_4, IS_SZACO0);
-    b.mapnobj(1400, -400, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        1400,
+        -400,
+        SPACE_VIEWCY + 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.cspecial(1200, -200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapnobj(1400, 300, SPACE_VIEWCY - 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        1400,
+        300,
+        SPACE_VIEWCY - 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.mapobj(2000, -100, -200, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
 
     b.special(0, -128, SPACE_VIEWCY + 128, 2000, SH_D_HEAD_0, IS_WORMHEAD);
@@ -141,31 +194,75 @@ pub fn build() -> Route1Level {
         b.mapwait(150);
     }
 
-    b.mapnobj(1400, -300, SPACE_VIEWCY - 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        1400,
+        -300,
+        SPACE_VIEWCY - 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.mapobj(2000, 100, 0, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(0, 200, SPACE_VIEWCY, 800, SH_CAMELEON, IS_CAMELEON);
     b.special(2000, -200, SPACE_VIEWCY, 800, SH_CAMELEON, IS_CAMELEON);
-    b.mapnobj(400, 300, SPACE_VIEWCY - 300, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        400,
+        300,
+        SPACE_VIEWCY - 300,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.cspecial(0, 0, SPACE_VIEWCY + 200, 800, SH_CAMELEON, IS_CAMELEON);
     b.special(4000, 0, SPACE_VIEWCY - 200, 800, SH_CAMELEON, IS_CAMELEON);
 
-    b.mapmother(3000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_3);
+    b.mapmother(3000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_3);
     b.cspecial(4000, -200, 0, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
     b.mapremove(SH_MOTHER1);
 
-    b.mapobj(1000, 100, SPACE_VIEWCY + 100, 3000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapobj(
+        1000,
+        100,
+        SPACE_VIEWCY + 100,
+        3000,
+        SH_ASTEROID2,
+        IS_BREAK_METEOR,
+    );
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
     b.mapobj(0, 0, SPACE_VIEWCY - 100, 6800, sh::ITEM_5, is::ITEM5);
     b.setalvarb(al::SBYTE1, 1);
-    b.pathspecial(1000, 250, SPACE_VIEWCY, 7000, sh::WALKER_2, PATH_ID_PYONTA, 10, 10);
-    b.mapnobj(800, -300, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.pathspecial(
+        1000,
+        250,
+        SPACE_VIEWCY,
+        7000,
+        sh::WALKER_2,
+        PATH_ID_PYONTA,
+        10,
+        10,
+    );
+    b.mapnobj(
+        800,
+        -300,
+        SPACE_VIEWCY + 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.mapobj(800, 300, -200, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
 
     b.pathobj(0, 900, -60, 0, sh::FRIENDSHIP_4, PATH_ID_CHASE4_1, 200, 10);
     b.pathcspecial(0, 900, -60, 0, SH_ZACO_B, PATH_ID_CHASE4_2, 200, 10);
     b.pathcspecial(2000, 900, -60, 0, SH_ZACO_B, PATH_ID_CHASE4_3, 200, 10);
-    b.mapnobj(200, -400, SPACE_VIEWCY, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        200,
+        -400,
+        SPACE_VIEWCY,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.mapobj(1800, 100, 200, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
 
     b.skillfly_init();
@@ -173,10 +270,17 @@ pub fn build() -> Route1Level {
     b.cspecial(0, 180, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(0, -180, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(400, 0, -200, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapnobj(300, 200, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
-    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_2);
+    b.mapnobj(
+        300,
+        200,
+        SPACE_VIEWCY + 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
+    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_2);
     b.mapremove(SH_MOTHER1);
-    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
 
     let skillfly_bonus_guard_ptr = b.mapcode65816_inline();
@@ -201,13 +305,22 @@ pub fn build() -> Route1Level {
     b.cspecial(1000, 200, SPACE_VIEWCY - 500, 3000, SH_TADPOLE, IS_TADPOLE);
     b.skillfly_init();
     b.skillfly_set_default(0, SPACE_VIEWCY - 100, 4000);
-    b.pathcspecial(1000, 0, -100, 4000, sh::NULLSHAPE, PATH_ID_INSEKIKUN, 10, 10);
+    b.pathcspecial(
+        1000,
+        0,
+        -100,
+        4000,
+        sh::NULLSHAPE,
+        PATH_ID_INSEKIKUN,
+        10,
+        10,
+    );
     b.special(1000, 1000, SPACE_VIEWCY + 100, 3000, SH_TADPOLE, IS_TADPOLE);
     b.pathcspecial(400, -200, 200, 4000, SH_B_HOU_0, PATH_ID_SCREW, 10, 10);
-    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
     b.pathcspecial(200, 100, -100, 4000, SH_B_HOU_0, PATH_ID_DAMYSCR, 10, 10);
-    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
 
     b.pathcspecial(2000, 200, -200, 4000, SH_B_HOU_0, PATH_ID_SCREW, 10, 10);
@@ -216,23 +329,107 @@ pub fn build() -> Route1Level {
     b.pathcspecial(400, -300, 0, 4000, SH_B_HOU_0, PATH_ID_SCREW, 10, 10);
     b.mapobj(800, 300, -100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.skillfly_set_default(0, SPACE_VIEWCY - 100, 4000);
-    b.pathcspecial(1000, 0, -100, 4000, sh::NULLSHAPE, PATH_ID_INSEKIKUN, 10, 10);
+    b.pathcspecial(
+        1000,
+        0,
+        -100,
+        4000,
+        sh::NULLSHAPE,
+        PATH_ID_INSEKIKUN,
+        10,
+        10,
+    );
     b.mapobj(1000, -100, 0, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
-    b.mapmother(1000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_0);
+    b.mapmother(1000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_0);
     b.mapremove(SH_MOTHER1);
     b.skillfly_set_default(-200, SPACE_VIEWCY - 100, 4000);
-    b.pathcspecial(1000, -200, -100, 4000, sh::NULLSHAPE, PATH_ID_INSEKIKUN, 10, 10);
+    b.pathcspecial(
+        1000,
+        -200,
+        -100,
+        4000,
+        sh::NULLSHAPE,
+        PATH_ID_INSEKIKUN,
+        10,
+        10,
+    );
     b.pathcspecial(1000, 0, -200, 3500, SH_B_HOU_0, PATH_ID_DAMYSCR, 10, 10);
     b.mapobj(1000, -400, -100, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
     b.mapobj(1000, 200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
 
     let blackhole_bonus_guard_ptr = b.mapcode65816_inline();
-    b.mapobj(0, -300, SPACE_VIEWCY + 100, 3000, SH_ASTEROID2, IS_BLACKHOLE);
+    b.mapobj(
+        0,
+        -300,
+        SPACE_VIEWCY + 100,
+        3000,
+        SH_ASTEROID2,
+        IS_BLACKHOLE,
+    );
     b.setalvarb(al::SBYTE1, 1);
     b.label("level1_2.map1_2.blackhole_bonus_skip");
     b.cspecial(1500, -100, 0, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
-    b.mapnobj(1200, -100, SPACE_VIEWCY - 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
-    b.maprts();
+    b.mapnobj(
+        1200,
+        -100,
+        SPACE_VIEWCY - 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
+    // MAP1_2.ASM:153-194.  This tail used to be omitted entirely, causing
+    // map1_2 to return before its gate, large-meteor field, space pylon and
+    // Barricader boss.  Keep the source's natural fall-through into
+    // `map12boss`; there is deliberately no maprts before that label.
+    b.mapobj(400, 150, -100, 4000, sh::GATE_0, IS_GATE);
+    b.pathobj(2400, 3000, 3000, 1000, sh::NULLSHAPE, path::E_GATE, 10, 10);
+    b.mapobj(2000, -100, 100, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
+    b.cspecial(2000, 200, -100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
+
+    b.pathobj(0, -900, 0, 0, sh::FRIENDSHIP_4, PATH_ID_CHASE2_1, 200, 10);
+    b.pathcspecial(1000, -900, 0, 0, SH_ZACO_B, PATH_ID_CHASE2_2, 10, 10);
+
+    b.mapobj(400, -200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
+    b.pathcspecial(1000, 0, -100, 3500, SH_B_HOU_0, PATH_ID_DAMYSCR, 10, 10);
+    b.mapobj(200, 0, -300, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
+    b.mapnobj(
+        1000,
+        -200,
+        SPACE_VIEWCY + 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
+    b.mapnobj(
+        1000,
+        200,
+        SPACE_VIEWCY - 100,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
+    b.mapmother(800, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
+    b.mapremove(SH_MOTHER1);
+    b.pathcspecial(1000, 300, -150, 3500, SH_B_HOU_0, PATH_ID_SCREW, 10, 10);
+    b.mapmother(500, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
+    b.mapremove(SH_MOTHER1);
+
+    b.mapobj(1500, 600, 500, 7000, SH_BIG_METEOR, IS_BIG_METEOR);
+    b.cspecial(500, -200, 100, 7000, SH_R_HOU_0, IS_SHOU0A);
+    b.mapobj(
+        1000,
+        -400,
+        SPACE_VIEWCY - 500,
+        7000,
+        SH_BIG_METEOR,
+        IS_BIG_METEOR,
+    );
+    b.mapmother(7000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.map_shou0);
+    b.mapremove(SH_MOTHER1);
+    b.pathobj(5000, -250, -350, 0, SH_MY_BIRD, PATH_ID_MY_BIRD, 10, 10);
+    b.mapobj(5000, 0, 200, 2000, SH_SPACEPILON, STRATEGY_SPACEPILON);
+    b.mapmother(500, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_0);
+    b.mapremove(SH_MOTHER1);
 
     // MAP1_2.ASM:195 map12boss subroutine.
     b.label("level1_2.map12boss");
@@ -271,28 +468,49 @@ pub fn build() -> Route1Level {
     b.mapif_builtin(cb::FROG_ALIVE, "cl_warp.frog_alive");
     b.mapgoto("cl_warp.nf");
     b.label("cl_warp.frog_alive");
-    b.mapobj(CL_WARP_FRIENDWAIT, 300, -60, 50, sh::MYSHIP_4, IS_CLSHIPWARPB);
+    b.mapobj(
+        CL_WARP_FRIENDWAIT,
+        300,
+        -60,
+        50,
+        sh::MYSHIP_4,
+        IS_CLSHIPWARPB,
+    );
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_FROG);
     b.label("cl_warp.nf");
 
     b.mapif_builtin(cb::BUNNY_ALIVE, "cl_warp.bunny_alive");
     b.mapgoto("cl_warp.nb");
     b.label("cl_warp.bunny_alive");
-    b.mapobj(CL_WARP_FRIENDWAIT, -300, -60, 50, sh::MYSHIP_4, IS_CLSHIPWARPA);
+    b.mapobj(
+        CL_WARP_FRIENDWAIT,
+        -300,
+        -60,
+        50,
+        sh::MYSHIP_4,
+        IS_CLSHIPWARPA,
+    );
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_BUNNY);
     b.label("cl_warp.nb");
 
     b.mapif_builtin(cb::COCK_ALIVE, "cl_warp.cock_alive");
     b.mapgoto("cl_warp.nc");
     b.label("cl_warp.cock_alive");
-    b.mapobj(CL_WARP_FRIENDWAIT, 0, -100, -3000, sh::MYSHIP_4, IS_CLSHIPWARPC);
+    b.mapobj(
+        CL_WARP_FRIENDWAIT,
+        0,
+        -100,
+        -3000,
+        sh::MYSHIP_4,
+        IS_CLSHIPWARPC,
+    );
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_COCK);
     b.label("cl_warp.nc");
 
     b.mapwait(500);
 
     // CL_WARP.ASM:31: mapmother 10000,...,mother1_istrat,mother_1.
-    b.mapmother(10000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(10000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.setvarb(wm::CLB2, 0);
     b.setvarb(wm::STAGECLEAR, 0);
     b.mapcodejsl_builtin(cb::CL_WARP_PRINTLEVELFIN);
@@ -311,11 +529,13 @@ pub fn build() -> Route1Level {
 
     // C: mb_lookup_label guards for the bonus skip labels (must exist).
     assert!(
-        b.lookup_label("level1_2.map1_2.skillfly_bonus_0_skip").is_some(),
+        b.lookup_label("level1_2.map1_2.skillfly_bonus_0_skip")
+            .is_some(),
         "level1_2 skillfly bonus skip label missing"
     );
     assert!(
-        b.lookup_label("level1_2.map1_2.blackhole_bonus_skip").is_some(),
+        b.lookup_label("level1_2.map1_2.blackhole_bonus_skip")
+            .is_some(),
         "level1_2 blackhole bonus skip label missing"
     );
 
@@ -346,7 +566,10 @@ pub fn build() -> Route1Level {
             native_callbacks: vec![],
             inline_callbacks: vec![],
         },
-        native_regs: vec![(cb::CL_WARP_PRINTLEVELFIN, "level1_1_cl_ground_printlevelfin")],
+        native_regs: vec![(
+            cb::CL_WARP_PRINTLEVELFIN,
+            "level1_1_cl_ground_printlevelfin",
+        )],
         inline_regs,
     }
 }

@@ -22,7 +22,11 @@ struct Regs {
 
 fn parse_regs(name: &str) -> Regs {
     let text = String::from_utf8(fixture(name, "regs.txt")).unwrap();
-    let mut regs = Regs { length: 0, native: Vec::new(), inline: Vec::new() };
+    let mut regs = Regs {
+        length: 0,
+        native: Vec::new(),
+        inline: Vec::new(),
+    };
     for line in text.lines() {
         let mut it = line.split_ascii_whitespace();
         match (it.next(), it.next()) {
@@ -44,11 +48,23 @@ fn assert_level_matches(name: &str, id: u32) {
     // Bless mode: the C harness that dumped these fixtures is gone (RIIR), and
     // it shared the maploop count-encoding bug (builder emitted raw count; ROM
     // macro emits count-1 — see MapBuilder::maploop + sf-oracle audit_mapvm2).
-    // SF_BLESS_FIXTURES=1 rewrites the .bin from the current builder output
-    // (lengths unchanged, so .regs.txt stays valid). Regression guard.
+    // SF_BLESS_FIXTURES=1 rewrites the current regression blob and its length;
+    // callback lists remain independently checked from the original capture.
     if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
         let out = format!("{}/tests/fixtures/{name}.bin", env!("CARGO_MANIFEST_DIR"));
         std::fs::write(&out, &entry.level.data).unwrap();
+        let regs_path = format!(
+            "{}/tests/fixtures/{name}.regs.txt",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut regs = format!("length {}\n", entry.level.data.len());
+        for &(addr, _) in &entry.native {
+            regs.push_str(&format!("native 0x{addr:06x}\n"));
+        }
+        for &(ptr, _) in &entry.inline {
+            regs.push_str(&format!("inline {ptr}\n"));
+        }
+        std::fs::write(regs_path, regs).unwrap();
         return;
     }
     let blob = fixture(name, "bin");
@@ -128,8 +144,121 @@ fn special_matches_c() {
 }
 
 #[test]
+fn special_preserves_wrapper_scroll_boss_and_restart_state() {
+    use sf_map::consts::{op, wm};
+
+    let level = route2::get_route2(map_id::SPECIAL).expect("secret level");
+    let data = &level.level.data;
+    let contains = |needle: &[u8]| data.windows(needle.len()).any(|window| window == needle);
+
+    assert!(contains(&[
+        op::SETVARB,
+        2,
+        wm::DOSPACESC as u8,
+        (wm::DOSPACESC >> 8) as u8,
+        0,
+        op::SETVARW,
+        0xC0,
+        0xFF,
+        wm::BG2YSCROLL as u8,
+        (wm::BG2YSCROLL >> 8) as u8,
+        0,
+    ]));
+    assert!(contains(&[
+        op::SETVARW,
+        0,
+        0,
+        wm::HPOSJMP as u8,
+        (wm::HPOSJMP >> 8) as u8,
+        0,
+    ]));
+    assert!(contains(&[
+        op::SETVARB,
+        0,
+        wm::NUMPLASERS as u8,
+        (wm::NUMPLASERS >> 8) as u8,
+        0,
+        op::SETVARB,
+        0,
+        wm::NUMENDOK as u8,
+        (wm::NUMENDOK >> 8) as u8,
+        0,
+    ]));
+
+    let names: Vec<_> = level.inline.iter().map(|(_, name)| *name).collect();
+    assert_eq!(
+        names,
+        vec![
+            "special_mapwaitboss_trigse",
+            "special_mapwaitboss_cantdie",
+            "special_mapwaitboss_cleanup",
+            "special_boss_cleanup",
+            "special_theenddead_check",
+        ]
+    );
+}
+
+#[test]
 fn credits_matches_c() {
     assert_level_matches("r2_credits", map_id::CREDITS);
+}
+
+#[test]
+fn credits_preserves_the_retail_asm_state_transitions() {
+    use sf_map::consts::{cb, op, wm};
+
+    let level = route2::get_route2(map_id::CREDITS).expect("credits map");
+    let data = &level.level.data;
+    let charmap = cb::SETCHARMAPFROMMAP_L.wrapping_sub(1);
+    let bg = route2::rc::BG_CRED as u16;
+    let expected_prefix = [
+        op::QFADEDOWN,
+        op::WAITFADE,
+        // MAPMACS `meters_off trans`: m_meters is $70:0200.
+        op::SETVARB,
+        0,
+        0x00,
+        0x02,
+        0x70,
+        op::CODEJSL,
+        charmap as u8,
+        (charmap >> 8) as u8,
+        (cb::SETCHARMAPFROMMAP_L >> 16) as u8,
+        op::SETBG,
+        bg as u8,
+        (bg >> 8) as u8,
+        op::WAITSETBG,
+        op::SETBGINFO,
+    ];
+    assert_eq!(&data[..expected_prefix.len()], &expected_prefix);
+
+    let contains = |needle: &[u8]| data.windows(needle.len()).any(|window| window == needle);
+    assert!(contains(&[
+        op::SETVARB,
+        1,
+        wm::BG2VOFSOVERRIDE as u8,
+        (wm::BG2VOFSOVERRIDE >> 8) as u8,
+        0,
+        op::SETVARW,
+        0,
+        0,
+        wm::BG2HOFSREQ as u8,
+        (wm::BG2HOFSREQ >> 8) as u8,
+        0,
+        op::SETVARW,
+        0,
+        0,
+        wm::BG2VOFSREQ as u8,
+        (wm::BG2VOFSREQ >> 8) as u8,
+        0,
+    ]));
+    assert!(contains(&[
+        op::SETVARB,
+        8,
+        wm::LEVELFINISHED as u8,
+        (wm::LEVELFINISHED >> 8) as u8,
+        0,
+    ]));
 }
 
 #[test]

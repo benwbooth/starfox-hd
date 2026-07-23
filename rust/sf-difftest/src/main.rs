@@ -83,7 +83,14 @@ fn parse(path: &str) -> Result<Vec<Tick>, String> {
 
 fn describe_tick(t: &Tick) -> String {
     let mut s = String::new();
-    let _ = write!(s, "tick {} pad {:#06x} state {} entries {}", t.tick, t.pad, t.state, t.entries.len());
+    let _ = write!(
+        s,
+        "tick {} pad {:#06x} state {} entries {}",
+        t.tick,
+        t.pad,
+        t.state,
+        t.entries.len()
+    );
     s
 }
 

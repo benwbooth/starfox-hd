@@ -56,14 +56,15 @@ directly (shapes, matrices, tables).
 | Bank | File range | Entropy | Identified contents (confidence) |
 |---|---|---|---|
 | 00 | 000000–007FFF | 6.8 | 65816 host code; RESET `0x7BB8`; engine tag `0xE07`; text/message data (title/HUD `0x3083`, credits `0x38BA`, mission text `~0x1E00`) — high |
-| 01 | 008000–00FFFF | 7.1 | **Color/material tables** `0x8000–0x86F1` + **shape/graphics pointer index** `0x8703–0x8960` — high |
+| 01 | 008000–00FFFF | 7.1 | **Color/material tables** `0x8000–0x86F1`; **577 contiguous 28-byte ShapeHdr records** at CPU `$00:BC9C..$00:FB9B` — certain |
 | 02–04 | 010000–027FFF | 6.7 | 65816 code + data; **enemy/boss name tables** in bank 03 (`0x187D6`, `0x18941`) — high |
 | 05–07 | 028000–03FFFF | 6.2–6.8 | mixed code/data — medium |
 | 08–0A | 040000–057FFF | 6.6–7.2 | 2D graphics: font / HUD / portrait / strategic-map tiles (high printable density) — medium |
 | 0B–11 | 058000–08FFFF | 5.8–7.0 | code + tables + graphics — low/medium |
-| 12–17 | 090000–0BFFFF | 6.4–7.6 | **3D shape data** (point + face lists; 200+ point-blocks concentrated here) — high |
+| 12–14 | 090000–0A7FFF | 6.4–7.6 | **Exact packed-nibble polygon-texture banks**, selected by the descriptor table at file `0x8703` — certain |
+| 15–17 | 0A8000–0BFFFF | 6.4–7.6 | packed graphics/tile and other asset data; an earlier shape-bank classification was disproved by pointer tracing — medium |
 | 18 | 0C0000–0C7FFF | 7.4 | graphics/data — low |
-| 19–1F | 0C8000–0FFFFF | 7.0–7.6 | **SPC sound driver + BGM/SE sequences + BRR samples**; driver blob at `0xCBE1E` — high |
+| 19–1F | 0C8000–0FFFFF | 7.0–7.6 | **SPC sound driver + BGM/SE sequences + BRR samples**; exact reset-path driver upload starts at `0xD0000` — certain |
 
 (Boundaries are approximate; several banks interleave code, tables, and packed graphics.)
 
@@ -79,13 +80,17 @@ Signatures were derived from the SF1 reconstruction and pattern-matched against 
 | Ext. header | `0x7FB0` | Maker/game-code ASCII | certain |
 | 65816 reset code | `0x7BB8` | Emu reset vector | certain |
 | Engine tag `STAR GLIDER 01 NOV 1991` | `0x000E07` | ASCII scan | certain |
-| SPC driver upload blob | `0xCBE1E` | `[len][dest]` chain: 6 blocks incl **dest `$0400`** (driver code) + `$2593/$1D03` (samples) + `$4E0A/$2DE8` (DSP/echo) + `$EC00`; terminator `00 00 00 04` @ `0xD2E7D` | high |
-| SPC song / sample / SE blobs | `0xCBE1E`–`0xFFDD1` | ~30 `[len16][dest16]…00 00 00 04` chains; dests cluster at `$3064/$9800` (BGM control+seq), `$3Exx` (DSP), `$Exxx` (ARAM seq), BRR sample banks | high |
+| SPC driver upload file | `0xD0000`–`0xD2E81` | Reset calls the uploader with CPU `$1A:8000`; exact subchain has 7 blocks to `$3100/$31BA/$2FE8/$0400/$4E0A/$2DE8/$EC00`, then entry `$0400` | certain |
+| SPC upload catalog | `0xCBE1E`–`0xFFEC3` | 62 broad `[len16][dest16]…00 00 00 04` regions; later host tables resolve exact upload starts within this catalog | certain |
+| Host audio-program table | `0x1E495`–`0x1E724` | 50 variable-length records; each supplies a preload command, port-3 cue, and exact upload pointers | certain |
 | 65816 APU uploader (`LDA #$BBAA` IPL handshake) | `0xA710D`, `0xEF466` | Opcode `A9 AA BB` | high |
 | APU start byte `LDA #$CC` | `0x37967`, `0xA4D07`, `0xA7508` (+others) | Opcode `A9 CC` | medium |
 | Color / material tables | `0x008000`–`0x0086F1` (bank 01) | Word runs with high byte `$3E` (coldepth) / `$3F` (colnorm); a 196-word master table at `0x806C` | high |
-| Shape / graphics pointer index | `0x008703`–`0x008960` (bank 01) | Six stride-3 pointer arrays into banks `$12/$13/$14` | medium |
-| 3D shape point/face data | banks **`0x12`–`0x17`** (`0x90000`–`0xBFFFF`) | Point-block grammar `04 <count> <count×3 signed> 0C`: 44/6/45/25/36/38 hits in banks 12/13/14/15/16/17 | high |
+| Polygon texture descriptors/layouts | `0x008703`–`0x008A0B` | Live GSU polygon-colour routine indexes 211 three-byte descriptors at `$8703` and 12 layout records through pointer table `$897C`; all 52 IDs referenced by 126 decoded shapes resolve | certain |
+| 3D shape headers | CPU `$00:BC9C..$00:FB9B` | 577 contiguous, pointer-validated 28-byte `ShapeHdr` records | certain |
+| 3D shape point/face data | CPU banks `$07/$0D/$0F` | Full BSP traversal validates the SF1 SHMACS point/face grammar; 11,860 vertices, 10,524 faces, 2 procedural shapes | certain |
+| Retail draw list | WRAM `$7E:B273`, 38-byte records; count `$7E:18C6` | Write tracing of copied builder `$7F:9201..$7F:947D` (ROM `$02:9201..$02:947D`) | certain |
+| Map bytecode | 25 roots, 4,094 reachable commands | Dispatcher `$03:8FD3`, 22 reachable semantics, 232 spawns, 262 typed inline routines | certain |
 | Text: title / HUD (`NINTENDO PRESENTS`, `YOU LOST`, `CONTINUED`, `CORNERIA`) | `0x003083` | ASCII, null-terminated | high |
 | Text: staff-roll / credits | `0x0038BA` | ASCII w/ control-byte prefixes; scroll record table at `0x38A0` | high |
 | Text: boss/enemy display names | `0x0187D6` | space-padded, null-terminated list (`MOTH GLIDER`,`HAL BIRD`,`ANDORF`,`ANDROSS`,…) | high |
@@ -100,21 +105,32 @@ text — the SF2 analogue of SF1's `MSG/` message tables. Note SF2 retains **bot
 and `ANDROSS` name strings adjacently (regional-naming carryover).
 
 ### SPC upload-block format (shared with SF1, confirmed byte-for-byte)
-Each blob = chain of `[len:2 LE][dest:2 LE][data…]` blocks, terminated by `00 00` (len=0)
-followed by the entry word `00 04` (**$0400**, the driver entry). SF1's uploader (`ASM/SOUND.ASM`)
-uses the `$BBAA` IPL ready handshake then `$CC` start byte; SF2's uploader at `0xA710D`
-matches. This means **the SF1 audio pipeline in `sf-audio` is directly reusable for SF2** —
-only the blob offsets and the sequence/instrument payloads differ.
+Each exact host-selected upload file is a chain of `[len:2 LE][dest:2 LE][data…]`
+blocks, terminated by `00 00` (len=0) followed by an entry word. SF1's uploader
+(`ASM/SOUND.ASM`) uses the `$BBAA` IPL ready handshake then `$CC` start byte;
+SF2's reset uploader at CPU `$03:E409` uses the same protocol and receives CPU
+pointer `$1A:8000` (file `0xD0000`) for the driver. The earlier `0xCBE1E`
+classification was too broad: it is the beginning of a larger catalog region,
+not the driver file passed by reset. The offline `sf-audio` oracle reuses the
+upload protocol, while the shipping runtime plays semantic PCM rendered from it.
 
-### What is NOT precisely located (low confidence)
-- **Map/level bytecode VM tables** and **ISTRAT strategy pointer tables.** SF1's signatures
-  (even opcodes `$00–$8C`, `$8A xx` short-waits, stride-4 `[addr16][bank][shapeidx]` ISTRAT
-  records, stride-3 `mapdef` level tables) do **not** cleanly resolve in SF2 by blind scan:
-  SF2 reorders and extends both VMs, and `$8A`/even-byte density is diffuse across code and
-  graphics banks. Locating these needs a live disassembly / GSU+65816 trace, not a byte scan.
-  The SF1 **encoding grammars** (documented in §5) remain the ground-truth template once a
-  disassembly pins the dispatch tables. Expect the map/strat data to live in banks `0x02–0x07`
-  alongside the host code, referenced by 3-byte pointers.
+### Remaining precisely-located but not yet fully implemented logic
+
+- The map VM is extracted and implemented for every command reachable from all 25 retail
+  roots. Its 232 spawns resolve to four initializer targets: `$06:82ED`, `$06:82F9`,
+  `$7F:7E00`, and `$7F:7E1E`.
+- The general object path interpreter at copied WRAM `$7F:7E53` is mechanically extracted:
+  106 roots produce a closed graph of 11,798 commands and 274 logical opcode handlers.
+  Handler CFG analysis resolves every static advance, branch, wait, return, and
+  dynamic-pointer exit with no invalid records. All handlers have proof-gated identities;
+  23 remain explicitly isolated behind the oracle-only retail bridge.
+- Strategic-map, player, mission, boss, and progression state machines now have native
+  typed implementations, but their remaining PARTIAL audit rows still require the same
+  trace-and-decompile pass before full parity can be claimed. The player has retail pilot
+  profiles, distinct rapid/charge weapon lifecycles, exact active/transform/Walker forms,
+  and a shared Select-driven transformation state; Walker turn easing and jump wind-up
+  remain explicitly open. Polygon texture descriptors, layouts, and all three source banks
+  are exact generated data consumed by the native renderer.
 
 ---
 
@@ -138,7 +154,7 @@ only the blob offsets and the sequence/instrument payloads differ.
 |---|---|---|
 | **Strategic map layer** (real-time Corneria-defense overworld: missiles inbound, base HP, node travel, mission select) | new `game-mode` above the existing per-level map VM | New meta-state machine + timer/economy model; the 2D strategic-map graphics are the tile banks (`0x08–0x0A`). No SF1 equivalent — net-new module. |
 | **All-range (free-flight) arenas** | `sf-map` + `sf-strat` | Camera/movement changes from on-rails to 6-DoF arena; enemy `sf-strat` behaviors gain pursue/orbit instead of scripted spawn waypoints. |
-| **Walker transformation** (Arwing ↔ ground walker) | `sf-strat` player + `sf-render` | Two player shapes with a morph animation (the `WALKER_L`/`WALKER_R` shape family exists already in SF1 `SHAPES/`); add a transform state + control mode toggle. |
+| **Walker transformation** (Arwing ↔ ground walker) | `sf2-game` typed player state + `sf-render` | Implemented as a shared flat `PlayerCraftForm`: Select drives exact class-specific two-stage meshes and retail-sampled timing in ground missions. Walker movement/fire are connected; exact turn easing and jump wind-up remain open. |
 | **Dogfight / boss AI** (homing, evasion, formation) | `sf-strat` enemy | New strategy routines; grammar is the same ISTRAT/path VM. |
 | **2-pilot select** (choose 2 of Fox/Falco/Peppy/Slippy/**Miyu/Fay**) + per-pilot stats & levelling | `sf-game` | New save/roster state + stat modifiers on player strat; menu screens (text VM + portrait tiles in graphics banks). |
 | **Base-defense / timed objectives** | `sf-map` + strategic layer | Objective/score conditions; ties into `mapif`/`mapjmpvar`-style VM ops. |
@@ -184,8 +200,8 @@ code, and incorporating it would contaminate the clean-room status of the entire
    **numeric opcode values** (which differ from SF1) can be pinned to the grammars in §5.
 3. Symbol names for shapes, strategies, paths, levels, and messages so extracted data can be
    labelled rather than numbered.
-4. The build's data-file manifest (which bank holds which shape/level/song), to replace the
-   entropy-derived bank map above with exact boundaries.
+4. Exact strategic-map, texture, path, and audio symbol names would improve readability,
+   but implementation continues from retail-ROM traces without requiring such a reference.
 
 ---
 
@@ -205,29 +221,19 @@ enum, not a fork.
 - New engine-delta crate `sf2-meta` for the strategic-map / mission / roster layer (no SF1
   analogue).
 
-**Phases:**
-1. **Extraction harness.** Reuse this doc's block scanners as a `sf-tools` extractor: dump
-   the SPC blobs (`0xCBE1E+`), color tables (`0x8000`), 3D shape point/face data (banks
-   `0x12–0x17`), and text tables. Verify blob round-trips (re-pack → byte-identical). Cheapest
-   win because the formats are already SF1-compatible. **Blocks on: nothing.**
-2. **Audio bring-up.** Feed extracted SF2 SPC blobs through the existing `sf-audio` uploader
-   (protocol identical). Validate against an emulator SPC dump. **Blocks on: phase 1.**
-3. **Shape/render bring-up.** Load SF2 shapes into `sf-render` via the shared `shapehdr`
-   pipeline; the color-word decode already exists. Diff rendered models vs emulator frames in
-   `sf-difftest`. **Blocks on: phase 1; needs the shape header/index format pinned — medium
-   risk until a disassembly confirms bank-01 header layout.**
-4. **VM opcode mapping.** Using an acquired SF2 disassembly (§5), pin the map/strat/path
-   dispatch tables and transcribe SF2's opcode→handler numbering onto the shared VM crates as
-   `sf2-*` tables. This is the **critical-path blocker** — without a reference this stays
-   reverse-engineering-by-trace. **Blocks on: acquiring a source/disassembly reference.**
-5. **On-rails levels.** With VMs mapped, port SF2's rail levels (reuse SF1 rail-camera logic
-   in `sf-map`/`sf-game`). Difftest against emulator. **Blocks on: phase 4.**
-6. **Engine deltas.** Implement all-range camera, walker transform, dogfight AI, 2-pilot
-   select in `sf2-strat`/`sf2-meta`. **Blocks on: phase 5.**
-7. **Strategic layer.** Build `sf2-meta` (Corneria defense, mission graph, base HP, roster
-   levelling) on top. Net-new; validate against gameplay. **Blocks on: phase 6.**
-
-**Sequencing note:** phases 1–3 (data extraction, audio, shapes) are unblocked *today*
-because they ride SF1-identical formats. Phases 4–7 are gated on acquiring an SF2
-source/disassembly reference (§5) to resolve the reordered VM opcodes and the strategic-map
-logic — the one thing byte-scanning cannot recover.
+**Current phases:**
+1. **Complete:** exact shape extraction (577 shapes), exact color-table words, retail draw
+   ABI, map roots/commands/spawns, typed inline map actions, and the closed 27-root object
+   path graph (11,798 commands / 274 opcode handlers).
+2. **In progress:** 251 of 274 reachable path handlers execute as typed staging operations;
+   replace the 23 explicit oracle-backed bridge operations and decompile the four spawn
+   initializers and per-frame strategies into native typed gameplay systems.
+3. **Complete:** exact 211-entry texture descriptor table, all 12 coordinate layouts,
+   three packed-nibble banks, reachability validation, and offscreen GPU readback.
+   Continue pixel-level emulator frame diffs and audio-oracle comparison.
+4. **In progress:** strategic-map, all-range player/Walker, boss/dogfight, roster,
+   objectives, and progression state machines are native and behind the shared game
+   selector. Continue oracle-backed behavioral closure; the Walker transformation itself is
+   descriptor- and frame-verified, while its ground movement dynamics remain partial.
+5. **Acceptance:** unattended retail-oracle scenarios plus complete workspace tests and both
+   SF1/SF2 playable-route regression. No phase is gated on leaked or external source.

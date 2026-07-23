@@ -19,6 +19,17 @@ pub const WINDOW_MODE_BLACK: u8 = 1;
 pub const WINDOW_MODE_WHITEFADE: u8 = 2;
 pub const WINDOW_MODE_WHITE2NORM: u8 = 3;
 pub const WINDOW_MODE_MAPFADE: u8 = 4;
+/// ROM `dyingred` / `bossflash_l` color-math flash slot (WINDOWS.ASM:240).
+pub const WINDOW_MODE_DYINGRED: u8 = 5;
+/// ROM `alloc_window hitflash` (WINDOWS.ASM:104-163) — screen hit tint.
+pub const WINDOW_MODE_HITFLASH: u8 = 6;
+/// ROM `halffade` window (MAIN.ASM:1470 fadehalf2norm).
+pub const WINDOW_MODE_HALFFADE: u8 = 7;
+
+/// `stayblack` color tag for [`WINDOW_MODE_HITFLASH`] (not a black-hold timer).
+pub const HITFLASH_TURQ: u8 = 0;
+pub const HITFLASH_TURQ2: u8 = 1;
+pub const HITFLASH_RED: u8 = 2;
 
 /// C `MSTARWIPE_CIRCLE` (src/game/windows.c:8).
 const MSTARWIPE_CIRCLE: i16 = 1;
@@ -167,6 +178,21 @@ impl Windows {
                 WINDOW_MODE_WHITEFADE => self.update_fadewhite_slot(i),
                 WINDOW_MODE_WHITE2NORM => self.update_fadewhite2norm_slot(i),
                 WINDOW_MODE_MAPFADE => self.update_mapfade_slot(i),
+                WINDOW_MODE_DYINGRED => {
+                    // One-shot flash: decay wm_val then free the slot.
+                    if self.slots[i].wm_val > 0 {
+                        self.slots[i].wm_val -= 1;
+                    } else {
+                        self.dealloc(i);
+                    }
+                }
+                WINDOW_MODE_HITFLASH => {
+                    // Screen hitflash is driven by screenflashcnt in GSTRATS;
+                    // keep the slot until hitflash_off / overwrite.
+                }
+                WINDOW_MODE_HALFFADE => {
+                    // Stepped explicitly by fade_half_to_norm.
+                }
                 _ => {}
             }
         }
@@ -274,11 +300,139 @@ impl Windows {
         self.slots[slot].wm_val = 31;
     }
 
+    /// ROM `fadehalf2norm` (MAIN.ASM:1470) — step half-screen color-math
+    /// fade toward normal; dealloc when `wm_val` hits 0. Returns `true` while
+    /// the fade is still active.
+    pub fn fade_half_to_norm(&mut self) -> bool {
+        let Some(slot) = self.get_or_alloc(WINDOW_MODE_HALFFADE) else {
+            return false;
+        };
+        self.slots[slot].mode = WINDOW_MODE_HALFFADE;
+        if self.slots[slot].wm_val == 0 {
+            self.dealloc(slot);
+            return false;
+        }
+        self.slots[slot].wm_val = self.slots[slot].wm_val.wrapping_sub(1);
+        if self.slots[slot].wm_val == 0 {
+            self.dealloc(slot);
+            return false;
+        }
+        true
+    }
+
+    /// Arm a half-fade at full intensity (ROM alloc path before stepping).
+    pub fn start_half_fade(&mut self) {
+        if let Some(slot) = self.get_or_alloc(WINDOW_MODE_HALFFADE) {
+            self.slots[slot].mode = WINDOW_MODE_HALFFADE;
+            if self.slots[slot].wm_val == 0 {
+                self.slots[slot].wm_val = 31;
+            }
+        }
+    }
+
+    /// ROM `dyingred_l` (WINDOWS.ASM:166) — red death tint (coldata_r = 10).
+    pub fn dying_red(&mut self) {
+        let Some(slot) = self.get_or_alloc(WINDOW_MODE_DYINGRED) else {
+            return;
+        };
+        self.slots[slot].mode = WINDOW_MODE_DYINGRED;
+        self.slots[slot].wm_val = 10; // ROM coldata_r
+        self.slots[slot].stayblack = 1; // tag: dying red (vs boss cyan stayblack=0)
+    }
+
+    /// ROM `dyingredoff_l` (WINDOWS.ASM:186).
+    pub fn dying_red_off(&mut self) {
+        if let Some(slot) = self.find_mode(WINDOW_MODE_DYINGRED) {
+            self.dealloc(slot);
+        }
+    }
+
+    /// ROM `find_window_pri` (TRANS.ASM:344) — lowest set bit in `windowmode`
+    /// (first allocated slot). Returns `None` if no windows active.
+    pub fn find_window_pri(&self) -> Option<usize> {
+        if self.windowmode == 0 {
+            return None;
+        }
+        Some(self.windowmode.trailing_zeros() as usize)
+    }
+
+    /// ROM `bossflash_l` (WINDOWS.ASM:240) — cyan dyingred color-math flash.
+    /// HD stores intensity in `wm_val` (31 = full); renderer may treat
+    /// `WINDOW_MODE_DYINGRED` as a one-shot screen tint.
+    pub fn boss_flash(&mut self) {
+        let Some(slot) = self.get_or_alloc(WINDOW_MODE_DYINGRED) else {
+            return;
+        };
+        self.slots[slot].mode = WINDOW_MODE_DYINGRED;
+        self.slots[slot].wm_val = 31; // ROM coldata_g/b = %11111
+        self.slots[slot].stayblack = 0;
+    }
+
+    /// Shared `alloc_window hitflash` body (WINDOWS.ASM:104-163).
+    /// `wm_val` = coldata intensity; `stayblack` = [`HITFLASH_*`] color tag.
+    fn hitflash(&mut self, kind: u8, intensity: u8) {
+        let Some(slot) = self.get_or_alloc(WINDOW_MODE_HITFLASH) else {
+            return;
+        };
+        self.slots[slot].mode = WINDOW_MODE_HITFLASH;
+        self.slots[slot].wm_val = intensity;
+        self.slots[slot].stayblack = kind;
+    }
+
+    /// ROM `flashturq_l` (WINDOWS.ASM:104) — full cyan hitflash (g/b = 31).
+    pub fn flash_turq(&mut self) {
+        self.hitflash(HITFLASH_TURQ, 31);
+    }
+
+    /// ROM `flashturq2_l` (WINDOWS.ASM:125) — dim cyan hitflash (g/b = 7).
+    pub fn flash_turq2(&mut self) {
+        self.hitflash(HITFLASH_TURQ2, 7);
+    }
+
+    /// ROM `flashred_l` (WINDOWS.ASM:146) — red hitflash (r = 31).
+    pub fn flash_red(&mut self) {
+        self.hitflash(HITFLASH_RED, 31);
+    }
+
+    /// ROM `dealloc_window hitflash` (GSTRATS.ASM screenflash disable).
+    pub fn hitflash_off(&mut self) {
+        if let Some(slot) = self.find_mode(WINDOW_MODE_HITFLASH) {
+            self.dealloc(slot);
+        }
+    }
+
     /// C `fadewhite2norm()` (src/game/windows.c:231).
     pub fn fade_white2norm(&mut self) {
         if let Some(slot) = self.find_mode(WINDOW_MODE_WHITE2NORM) {
             self.update_fadewhite2norm_slot(slot);
         }
+    }
+
+    /// ROM `fadetonorm_l` body after clearing `circleanim` — arm white→norm.
+    /// Strat wrapper `fade_to_norm_l` also zeros `GameVars::circleanim`.
+    pub fn fade_to_norm(&mut self) {
+        self.init_fade_white2norm();
+    }
+}
+
+/// ROM `fadered_l` (MAIN.ASM:2858) — boost red in the first 8×16 BGR555
+/// colours of `pal0palette`, then clear colour index `6*16+15`.
+///
+/// Per colour: keep G/B (`c & 0x7FE0`); if R≤3 force R|=3; R = min(R*2, 31).
+pub fn fade_red_palette(palette: &mut [u16]) {
+    let n = palette.len().min(8 * 16);
+    for c in palette.iter_mut().take(n) {
+        let gb = *c & 0x7FE0;
+        let mut r = *c & 0x1F;
+        if r <= 3 {
+            r |= 3;
+        }
+        r = (r << 1).min(31);
+        *c = gb | r;
+    }
+    const CLEAR_IDX: usize = 6 * 16 + 15; // pal0palette+6*32+30
+    if palette.len() > CLEAR_IDX {
+        palette[CLEAR_IDX] = 0;
     }
 }
 
@@ -384,5 +538,38 @@ mod tests {
         assert_eq!(w.windowmode, 1);
         tick(&mut w, &mut ow, &mut ca, 1);
         assert_eq!(w.windowmode, 0); // wm_val hit 0 -> dealloc
+    }
+
+    #[test]
+    fn hitflash_turq_red_and_off() {
+        let mut w = Windows::new();
+        w.flash_turq();
+        assert_eq!(w.slots[0].mode, WINDOW_MODE_HITFLASH);
+        assert_eq!(w.slots[0].wm_val, 31);
+        assert_eq!(w.slots[0].stayblack, HITFLASH_TURQ);
+
+        w.flash_turq2(); // same slot overwrite
+        assert_eq!(w.slots[0].wm_val, 7);
+        assert_eq!(w.slots[0].stayblack, HITFLASH_TURQ2);
+
+        w.flash_red();
+        assert_eq!(w.slots[0].wm_val, 31);
+        assert_eq!(w.slots[0].stayblack, HITFLASH_RED);
+
+        w.hitflash_off();
+        assert_eq!(w.windowmode, 0);
+    }
+
+    #[test]
+    fn fade_half_to_norm_steps_and_deallocs() {
+        let mut w = Windows::new();
+        w.start_half_fade();
+        assert_eq!(w.slots[0].mode, WINDOW_MODE_HALFFADE);
+        assert_eq!(w.slots[0].wm_val, 31);
+        assert!(w.fade_half_to_norm());
+        assert_eq!(w.slots[0].wm_val, 30);
+        // Drain to zero.
+        while w.fade_half_to_norm() {}
+        assert_eq!(w.windowmode, 0);
     }
 }

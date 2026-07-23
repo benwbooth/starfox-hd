@@ -4,5 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Decoded source-program records are useful to the oracle and decompiler, but
+# are not part of the native game's resource model.
+oracle-data = []
+
 [dependencies]
 sf-core.workspace = true

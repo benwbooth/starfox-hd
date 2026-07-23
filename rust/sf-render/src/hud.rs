@@ -21,16 +21,43 @@ use crate::sprites::{Sprites, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_VFL
 #[inline]
 fn ortho(w: f32, h: f32) -> [f32; 16] {
     [
-        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+        2.0 / w,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        2.0 / h,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        -1.0,
+        -1.0,
+        0.0,
+        1.0,
     ]
 }
 
 /// Unit quad (pos.xy = uv.xy), transformed per draw by the model matrix.
 const UNIT_QUAD: [Vertex2; 4] = [
-    Vertex2 { pos: [0.0, 0.0], uv: [0.0, 0.0] },
-    Vertex2 { pos: [1.0, 0.0], uv: [1.0, 0.0] },
-    Vertex2 { pos: [1.0, 1.0], uv: [1.0, 1.0] },
-    Vertex2 { pos: [0.0, 1.0], uv: [0.0, 1.0] },
+    Vertex2 {
+        pos: [0.0, 0.0],
+        uv: [0.0, 0.0],
+    },
+    Vertex2 {
+        pos: [1.0, 0.0],
+        uv: [1.0, 0.0],
+    },
+    Vertex2 {
+        pos: [1.0, 1.0],
+        uv: [1.0, 1.0],
+    },
+    Vertex2 {
+        pos: [0.0, 1.0],
+        uv: [0.0, 1.0],
+    },
 ];
 
 /// Vertical offset of the 256x192 Super FX bitmap within the 256x224 screen.
@@ -204,8 +231,8 @@ pub struct Hud {
     pub pending_sounds: Vec<u8>,
 }
 
-impl Hud {
-    pub fn new(_gpu: &mut Gpu) -> Self {
+impl Default for Hud {
+    fn default() -> Self {
         Hud {
             boostanim: 40,
             sprframe: 0,
@@ -221,6 +248,12 @@ impl Hud {
             boostcnt_seen: 0,
             pending_sounds: Vec::new(),
         }
+    }
+}
+
+impl Hud {
+    pub fn new(_gpu: &mut Gpu) -> Self {
+        Self::default()
     }
 
     pub fn take_pending_sounds(&mut self) -> Vec<u8> {
@@ -288,7 +321,7 @@ impl Hud {
     }
 
     /// Per-game-frame animation updates (mirror of `Hud_TickAnimations`).
-    fn tick_animations(&mut self, inputs: &FrameInputs) {
+    pub(crate) fn tick_animations(&mut self, inputs: &FrameInputs) {
         if inputs.gameframe as u32 == self.last_gameframe {
             return;
         }
@@ -304,7 +337,11 @@ impl Hud {
             self.boostcnt_seen = inputs.boostcnt;
             self.boostcnt_zeroed = false;
         }
-        let boostcnt = if self.boostcnt_zeroed { 0 } else { inputs.boostcnt };
+        let boostcnt = if self.boostcnt_zeroed {
+            0
+        } else {
+            inputs.boostcnt
+        };
 
         // mboostmeter drive (TRANS.ASM calcmeters:613-632).
         if boostcnt != 0 {
@@ -339,9 +376,8 @@ impl Hud {
                 if inputs.msg_count1 < 30 {
                     mouth = 0;
                 }
-                self.face_talk = MSG_OPENING_FRAMES as i32
-                    + (((inputs.whichfriend & 0x7F) as i32) << 1)
-                    + mouth;
+                self.face_talk =
+                    MSG_OPENING_FRAMES as i32 + (((inputs.whichfriend & 0x7F) as i32) << 1) + mouth;
             }
         }
     }
@@ -462,14 +498,31 @@ impl Hud {
         }
 
         let mut hp = (inputs.friends_meter & 0x7F) as i32;
-        self.snes_outline_box(gpu, sprites, 82.0, (177 + BITMAP_Y_OFS) as f32, 44.0, 12.0, 14);
+        self.snes_outline_box(
+            gpu,
+            sprites,
+            82.0,
+            (177 + BITMAP_Y_OFS) as f32,
+            44.0,
+            12.0,
+            14,
+        );
         if hp > 0 {
             hp = hp.min(40);
-            self.snes_solid_rect(gpu, sprites, 84.0, (179 + BITMAP_Y_OFS) as f32, hp as f32, 8.0, 2);
+            self.snes_solid_rect(
+                gpu,
+                sprites,
+                84.0,
+                (179 + BITMAP_Y_OFS) as f32,
+                hp as f32,
+                8.0,
+                2,
+            );
         }
     }
 
-    /// Mirror of `Hud_Render` (state-gated: gameplay only).
+    /// Mirror of `Hud_Render`. The end-level transfer loop retains the
+    /// standard shield/boost/inventory HUD around its dedicated tally bitmap.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -480,8 +533,8 @@ impl Hud {
         screen_width: i32,
         screen_height: i32,
     ) {
-        // Gameplay HUD only applies while actually playing.
-        if inputs.game_state != GameState::Playing {
+        let tally = inputs.tally_active;
+        if inputs.game_state != GameState::Playing && !tally {
             self.was_playing = false;
             return;
         }
@@ -508,16 +561,29 @@ impl Hud {
             // --- Super FX bitmap meters (MDRAWLIS.MC), bitmap y + 16 ---
 
             // Shield meter (mdamagemeter): 40x8 box colour 13 at (8,176),
-            // fill = player HP clamped to 36, 4px tall, colour 2.
+            // fill = player HP clamped to 36, 4px tall. Colour 7 while
+            // shieldup (wireframe shield), else colour 2 (MDRAWLIS.MC:911-926).
             {
                 let fill = inputs.shield_cur.clamp(0, 36);
+                let fill_col = shield_meter_fill_color(inputs.shieldup);
                 self.snes_outline_box(
-                    gpu, sprites,8.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
+                    gpu,
+                    sprites,
+                    8.0,
+                    (176 + BITMAP_Y_OFS) as f32,
+                    40.0,
+                    8.0,
+                    13,
                 );
                 if fill > 0 {
                     self.snes_solid_rect(
-                        gpu, sprites,10.0, (178 + BITMAP_Y_OFS) as f32,
-                        fill as f32, 4.0, 2,
+                        gpu,
+                        sprites,
+                        10.0,
+                        (178 + BITMAP_Y_OFS) as f32,
+                        fill as f32,
+                        4.0,
+                        fill_col,
                     );
                 }
             }
@@ -527,12 +593,23 @@ impl Hud {
             {
                 let fill = self.boostanim.min(36);
                 self.snes_outline_box(
-                    gpu, sprites,176.0, (176 + BITMAP_Y_OFS) as f32, 40.0, 8.0, 13,
+                    gpu,
+                    sprites,
+                    176.0,
+                    (176 + BITMAP_Y_OFS) as f32,
+                    40.0,
+                    8.0,
+                    13,
                 );
                 if fill > 0 {
                     self.snes_solid_rect(
-                        gpu, sprites,178.0, (178 + BITMAP_Y_OFS) as f32,
-                        fill as f32, 4.0, 6,
+                        gpu,
+                        sprites,
+                        178.0,
+                        (178 + BITMAP_Y_OFS) as f32,
+                        fill as f32,
+                        4.0,
+                        6,
                     );
                 }
             }
@@ -543,7 +620,7 @@ impl Hud {
             // resets m_bossHP to 0 when it overflows max+10 (MDRAWLIS.MC:993-999,
             // low-byte compare, before the halving); otherwise the fill is
             // drawn unclamped.
-            if inputs.boss_hp_max > 0 {
+            if !tally && inputs.boss_hp_max > 0 {
                 let maxv_raw = inputs.boss_hp_max & 0xFF;
                 let mut curv = inputs.boss_hp_cur & 0xFF;
                 if curv >= maxv_raw + 10 {
@@ -557,32 +634,51 @@ impl Hud {
                 let w = maxv + 4;
                 let bx = (222 - w) as f32;
                 self.snes_outline_box(
-                    gpu, sprites,bx, (2 + BITMAP_Y_OFS) as f32, w as f32, 6.0, 14,
+                    gpu,
+                    sprites,
+                    bx,
+                    (2 + BITMAP_Y_OFS) as f32,
+                    w as f32,
+                    6.0,
+                    14,
                 );
                 if curv > 0 {
                     self.snes_solid_rect(
-                        gpu, sprites,bx + 2.0, (4 + BITMAP_Y_OFS) as f32,
-                        curv as f32, 2.0, 2,
+                        gpu,
+                        sprites,
+                        bx + 2.0,
+                        (4 + BITMAP_Y_OFS) as f32,
+                        curv as f32,
+                        2.0,
+                        2,
                     );
                 }
             }
 
-            self.draw_teammate_meter(gpu, sprites, inputs);
+            if !tally {
+                self.draw_teammate_meter(gpu, sprites, inputs);
 
-            // --- Portrait sits on the bitmap layer, under the OAM sprites --
-            self.draw_radio_message(gpu, sprites, font, inputs);
+                // Portrait sits on the bitmap layer, under the OAM sprites.
+                self.draw_radio_message(gpu, sprites, font, inputs);
+            }
 
             // --- OAM sprites (SPRITES.ASM do_sprites_l order) ---
 
-            // Nova bomb icons (do_spec_weap): tile $3C from (225,182)
-            // stepping x -= 9 per bomb.
-            for i in 0..inputs.bombs.clamp(0, 9) {
+            // Nova bomb icons (do_spec_weap, SPRITES.ASM:664-717): tile $3C
+            // from (225,182) stepping x -= 9. While `specflash` is live, draw
+            // bombs-1 solid then blink the newest icon on `gameframe&7 >= 3`.
+            let (solid, blink_on) =
+                bomb_icon_draw_count(inputs.bombs, inputs.specflash, inputs.gameframe);
+            for i in 0..solid {
                 sprites.draw8(0x3C, 225 - i * 9, 182, SPR_PAL_DEFAULT, 0);
+            }
+            if blink_on {
+                sprites.draw8(0x3C, 225 - solid * 9, 182, SPR_PAL_DEFAULT, 0);
             }
 
             // Crosshair (do_crosshair): four tile-$61 corners around
             // (124,100), palette 4, cockpit view only.
-            if inputs.splayerflymode == SPFM_INSIDE {
+            if !tally && inputs.splayerflymode == SPFM_INSIDE {
                 sprites.draw8(0x61, 124 - 8, 100 - 8, SPR_PAL_CROSS, 0);
                 sprites.draw8(0x61, 124 + 8, 100 - 8, SPR_PAL_CROSS, SPR_HFLIP);
                 sprites.draw8(0x61, 124 - 8, 100 + 8, SPR_PAL_CROSS, SPR_VFLIP);
@@ -606,7 +702,7 @@ impl Hud {
             sprites.draw8(0x4E, 48, 183, SPR_PAL_DEFAULT, 0);
 
             // Boss "ENEMY" tiles (do_enemy): $71-$74 at (200-hp, 16).
-            if inputs.boss_hp_max > 0 {
+            if !tally && inputs.boss_hp_max > 0 {
                 let mut v = inputs.boss_hp_max & 0xFF;
                 if v & 0x80 != 0 {
                     v >>= 1;
@@ -617,24 +713,102 @@ impl Hud {
             }
 
             // Radar arrows (do_arrows), flashing via sprframe.
-            if inputs.arrows & SPRAR_UP != 0 {
+            if !tally && inputs.arrows & SPRAR_UP != 0 {
                 self.draw_arrow_set(sprites, &ARROW_UP);
             }
-            if inputs.arrows & SPRAR_DOWN != 0 {
+            if !tally && inputs.arrows & SPRAR_DOWN != 0 {
                 self.draw_arrow_set(sprites, &ARROW_DOWN);
             }
-            if inputs.arrows & SPRAR_LEFT != 0 {
+            if !tally && inputs.arrows & SPRAR_LEFT != 0 {
                 self.draw_arrow_set(sprites, &ARROW_LEFT);
             }
-            if inputs.arrows & SPRAR_RIGHT != 0 {
+            if !tally && inputs.arrows & SPRAR_RIGHT != 0 {
                 self.draw_arrow_set(sprites, &ARROW_RIGHT);
             }
         } else {
-            // Radio traffic still runs with the meters hidden.
-            self.draw_teammate_meter(gpu, sprites, inputs);
-            self.draw_radio_message(gpu, sprites, font, inputs);
+            // Radio traffic still runs with the meters hidden during flight.
+            if !tally {
+                self.draw_teammate_meter(gpu, sprites, inputs);
+                self.draw_radio_message(gpu, sprites, font, inputs);
+            }
         }
 
         sprites.render_hud(gpu);
+    }
+}
+
+/// Shield meter fill color: wireframe shield uses 7, otherwise 2
+/// (MDRAWLIS.MC:911-926 / TRANS.ASM m_shieldup).
+pub fn shield_meter_fill_color(shieldup: u8) -> usize {
+    if shieldup != 0 {
+        7
+    } else {
+        2
+    }
+}
+
+/// ROM `do_spec_weap` (SPRITES.ASM:664-717) bomb-icon layout:
+/// solid icons for `bombs` (or `bombs-1` while flashing), plus the newest
+/// icon only when `specflash != 0` and `(gameframe & 7) >= 3`.
+pub fn bomb_icon_draw_count(bombs: i32, specflash: u8, gameframe: u16) -> (i32, bool) {
+    let bombs = bombs.clamp(0, 9);
+    let flashing = specflash > 0 && bombs > 0;
+    let solid = if flashing { bombs - 1 } else { bombs };
+    let blink_on = flashing && (gameframe & 7) >= 3;
+    (solid, blink_on)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bomb_icon_draw_count, shield_meter_fill_color, Hud, SPRAR_UP};
+    use crate::renderer::FrameInputs;
+
+    #[test]
+    fn bomb_flash_hides_newest_until_blink_window() {
+        // No flash: all three solid, no blink icon.
+        assert_eq!(bomb_icon_draw_count(3, 0, 0), (3, false));
+        // Flashing: draw 2 solid; blink off when gameframe&7 < 3.
+        assert_eq!(bomb_icon_draw_count(3, 30, 0), (2, false));
+        assert_eq!(bomb_icon_draw_count(3, 30, 2), (2, false));
+        // Blink on when gameframe&7 >= 3.
+        assert_eq!(bomb_icon_draw_count(3, 30, 3), (2, true));
+        assert_eq!(bomb_icon_draw_count(3, 30, 7), (2, true));
+        // Zero bombs: nothing.
+        assert_eq!(bomb_icon_draw_count(0, 30, 7), (0, false));
+    }
+
+    #[test]
+    fn shield_meter_uses_color_seven_when_shieldup() {
+        assert_eq!(shield_meter_fill_color(0), 2);
+        assert_eq!(shield_meter_fill_color(1), 7);
+        assert_eq!(shield_meter_fill_color(0xFF), 7);
+    }
+
+    #[test]
+    fn arrow_flash_wrap_queues_se_8a_when_arrows_visible() {
+        // do_arrows (SPRITES.ASM:861-876): every other gameframe advances
+        // sprframe; on wrap (4→0) with arrows≠0 queue trigse $8a.
+        let mut hud = Hud::default();
+        let mut inputs = FrameInputs::default();
+        inputs.arrows = SPRAR_UP;
+        // Prime last_gameframe so subsequent ticks animate.
+        inputs.gameframe = 0;
+        hud.tick_animations(&inputs);
+        assert!(hud.pending_sounds.is_empty());
+
+        // Odd frames advance sprframe: 1,2,3,4→wrap.
+        for gf in [1u16, 3, 5, 7] {
+            inputs.gameframe = gf;
+            hud.tick_animations(&inputs);
+        }
+        assert_eq!(hud.take_pending_sounds(), vec![0x8A]);
+
+        // Wrap with no arrows: silent.
+        inputs.arrows = 0;
+        for gf in [9u16, 11, 13, 15] {
+            inputs.gameframe = gf;
+            hud.tick_animations(&inputs);
+        }
+        assert!(hud.take_pending_sounds().is_empty());
     }
 }

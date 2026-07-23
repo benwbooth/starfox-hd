@@ -32,372 +32,268 @@ Macro facts most load-bearing for THIS audit (re-verified):
 
 ## High
 
-1. **Shared `strat_fire_relslowlaser` fires at the wrong speed and lifetime — hits
-   7+ enemy strats.** ASM `fire_relslowElaser` (GSTRATS.ASM:2548-2561): speed via
-   `doelaserspeed` (GSTRATS.ASM:2780 = 48 at level 1, else 60), `lifecnt 40`,
-   ap `enemylaserAP=2`. Rust (enemy_a.rs:429-431) hardcodes `speed 52, life 55`.
-   The sibling `strat_fire_relslowlaserhome` (enemy_a.rs:443, life 40, speed via
-   `strat_relslowelaser_speed` 48/60) is correct — proving intent. Callers of the
-   broken non-home helper: zacos (enemy_a.rs:3678,3727), zaco3 (:3922), zaco4 (:4101),
-   zaco0 (:4229), cameleon (:4599), szaco2 (:4764). Fix: `spawn_projectile(g,
-   Some(idx), 0,0,0, pitch, yaw, strat_relslowelaser_speed(g), 40, 2, ACF_COLLTYPE4)`.
-   (See Minor 1 for the missing laser colltype + muzzle Z on both helpers.)
+1. ~~**Shared `strat_fire_relslowlaser` fires at the wrong speed and lifetime — hits
+   7+ enemy strats.**~~ **FIXED (verified tick 150):**
+   `doelaserspeed` 48@L1 / 60 else, `lifecnt 40`, AP 2, colltypes
+   `enemyweap|laser` (GSTRATS.ASM:2548-2561). Tests
+   `enemy_a_weapon_explode_se::relslowlaser_speed_life_colltypes_match_rom`.
 
-2. **`frame_tick_mod` treats the delay as a modulus, not a bit-count (shared helper).**
-   `s_jmp_notdelay N` gates on `gameframe & ((1<<N)-1)==0` (period 2^N;
-   STRATMAC.INC:6456-6468). Rust (enemy_a.rs:347-349) returns `gameframe % step == 0`
-   and callers pass the ASM `N` directly, so `mod(1)` is always-true (should be every
-   2nd frame), `mod(2)` every-2nd (should be 4th), `mod(3)` every-3rd (should be 8th).
-   Every clship banking/roll/decel rate runs too fast. clship callers
-   enemy_a.rs:5056,5076,5143,5316,5364,5414 vs ASM GCSTRATS.ASM:53,59,70,76,219,223,
-   419,423,880,903,907. Fix: `g.vars.gameframe & ((1u16 << step) - 1) == 0`. Shared —
-   audit enemy_b.rs callers to confirm they also pass the bit-count before flipping.
+2. ~~**`frame_tick_mod` treats the delay as a modulus, not a bit-count (shared helper).**~~
+   **FIXED (verified tick 150):** `gameframe & ((1<<N)-1)==0` (period 2^N;
+   STRATMAC.INC:6456-6468). Test
+   `enemy_a_weapon_explode_se::frame_tick_mod_is_bit_count_not_modulus`.
+   Callers pass the ASM bit-count `N` (clship banking/roll/decel).
 
-3. **`houdai_strat` fire gate: wrong mask + dropped `al1pt` stagger.** ASM
-   GASTRATS.ASM:1309 `s_jmp_notdelay 4,.nfindobj,al1pt` = fire when `(gameframe+idx)&0x0F
-   ==0` (every 16 frames, staggered). Rust (enemy_a.rs:3820) `if gameframe & 3 != 0
-   { return }` = every 4 frames, in lockstep (~4x too fast). Fix: `if (g.vars.gameframe
-   as u8).wrapping_add(strat_phase_offset(idx)) & 0x0F != 0 { return; }`. The sibling
-   spacebarwalker (enemy_a.rs:3385) already does this correctly for the same macro.
+3. ~~**`houdai_strat` fire gate: wrong mask + dropped `al1pt` stagger.**~~
+   **FIXED (verified tick 147):** `(gameframe+idx)&0x0F==0` (GASTRATS.ASM:1309
+   `notdelay 4,...,al1pt`). Tests `houdai_cadence.rs`.
 
-4. **Per-object fire staggers with wrong mask AND missing `al1pt` — three sites.**
-   `s_jmp_notdelay N,...,al1pt` = `(gameframe+idx)&((1<<N)-1)==0`.
-   - `zaco0_fire` enemy_a.rs:4222 `gameframe & 1 == 0` vs KSTRATS.ASM:241
-     `notdelay 2,.nfire,al1pt` → `(gf+idx)&3==0` (2x too fast, no stagger).
-   - `para2_strat` enemy_a.rs:4357 `gameframe & 3 == 0` vs D2STRATS.ASM:587
-     `notdelay 4,.njump,al1pt` → `(gf+idx)&15==0` (hop impulse 4x too frequent).
-   - `cameleon_phase1` enemy_a.rs:4594 `gameframe & 3 == 0` vs DSTRATS.ASM:1546
-     `notdelay 4,...,al1pt` → `(gf+idx)&15==0`.
-   Fix each to `(g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & mask`.
+4. ~~**Per-object fire staggers with wrong mask AND missing `al1pt` — three sites.**~~
+   **FIXED (verified tick 147):**
+   - `zaco0_fire` → `(gf+idx)&3==0` (KSTRATS.ASM:241 `notdelay 2,al1pt`)
+   - `para2_strat` hop → `(gf+idx)&0x0F==0` (D2STRATS.ASM:587)
+   - `cameleon_phase1` → `(gf+idx)&0x0F==0` (DSTRATS.ASM:1546)
+   Tests `houdai_cadence.rs` (zaco0c) + prior para/cameleon coverage.
 
-5. **Five inverted `worldy` comparisons (`jmp_higher`/`jmp_lower` misread).** Smaller y
-   is higher; `jmp_higher` branches when `worldy < v`, `jmp_lower` when `worldy >= v`.
-   - `gate2_strat` ground clamp: ASM GA2STRAT.ASM:2658 `s_jmp_higher x,#-30<<1,.ngnd`
-     → clamp `worldy=-60` runs when `worldy >= -60` (a floor). Rust (enemy_a.rs:1211)
-     clamps when `worldy <= GATE2_GROUND_Y` — opposite half-space. Fix: `>=`.
-   - `zaco2_cont` ground bounce: ASM GASTRATS.ASM:1097 `s_jmp_higher x,#0,.ngnd` →
-     block runs when `worldy >= 0`. Rust (enemy_a.rs:2640) `if worldy <= 0`. Fix: `>=`.
-     (Sibling `para2_strat` enemy_a.rs:4311 uses the correct `>= 0` for the same clamp.)
-   - `zacos_phase0` pitch/fire gate: ASM GASTRATS.ASM:950 `s_jmp_higher x,svar_word1,
-     .nup` → block runs when `worldy >= player_posy-800`. Rust (enemy_a.rs:3675)
-     `if worldy <= target_y`. Fix: `>=`.
-   - `zaco3die_strat` land trigger: ASM KSTRATS.ASM:171 `s_jmp_lower x,#-100,
-     zaco3go_init` → branch when `worldy >= -100`. Rust (enemy_a.rs:4011) `if worldy
-     < -100`. Fix: `>= -100` (then run zaco3go_init + zaco3go_strat same frame).
-   - `zaco1_cont` ceiling clamp: ASM GASTRATS.ASM:1219 `s_jmp_higher x,#0,.hok` →
-     `worldy=0` runs when `worldy >= 0` (ceiling). Rust (enemy_a.rs:4802) `if worldy
-     < 0`. Fix: `>=`.
+5. ~~**Five inverted `worldy` comparisons (`jmp_higher`/`jmp_lower` misread).**~~
+   **FIXED (verified tick 151):** smaller y = higher; clamp/fire/land when
+   `worldy >= v` (STRATMAC `s_jmp_higher`/`s_jmp_lower`):
+   - `gate2_strat` floor `-60` (GA2STRAT.ASM:2658)
+   - `zaco2_cont` ground bounce `0` (GASTRATS.ASM:1097)
+   - `zacos_phase0` pitch/fire vs `player_posy-800` (GASTRATS.ASM:950)
+   - `zaco3die_strat` land `-100` (KSTRATS.ASM:171)
+   - `zaco1_cont` ceiling `0` (GASTRATS.ASM:1219)
+   Tests `enemy_a_worldy_higher.rs` (5).
 
-6. **`zaco3_circle` / `zaco4_circle` chase `worldy` linearly; ASM uses proportional
-   Achase.** ASM KSTRATS.ASM:139/141 `s_Achase_alvar W,x,al_worldy,#-200/#-60,1`
-   (16-bit proportional). Rust (enemy_a.rs:3950, 4117) `chase(al.worldy, target, 1)`
-   = linear ±1/frame. Fix: `chase_proportional(al.worldy, target_y, 1)`. (Sibling
-   `carrierb_strat` enemy_a.rs:4469 correctly uses `chase_proportional`.)
+6. ~~**`zaco3_circle` / `zaco4_circle` chase `worldy` linearly; ASM uses proportional
+   Achase.**~~ **FIXED (verified tick 152):** `chase_proportional(..., 1)` toward
+   `-60`/`-200` (KSTRATS.ASM:139/141). Tests `enemy_a_achase_clship.rs`.
 
-7. **`parajump_strat` chases `worldy`/`worldx` linearly; ASM uses proportional
-   Achase.** ASM D2STRATS.ASM:600/604 `s_achase_alvar W,x,al_worldy,player_posy,2`
-   and `al_worldx,player_posx,3` (proportional). Rust (enemy_a.rs:4379/4385) uses
-   linear `chase`. Fix: `chase_proportional(..., 2)` / `(..., 3)`.
+7. ~~**`parajump_strat` chases `worldy`/`worldx` linearly; ASM uses proportional
+   Achase.**~~ **FIXED (verified tick 152):** `chase_proportional` worldy shift-2 /
+   worldx shift-3 (D2STRATS.ASM:600/604). Tests `enemy_a_achase_clship.rs`.
 
-8. **Every clship position chase is linear; ASM uses proportional Achase.** All clship
-   demos chase `al_worldx/y/z` with `s_achase_alvar`; Rust uses `chase()`. The whole
-   approach trajectory is wrong (asymptotic vs constant-velocity) every frame. Sites →
-   ASM (GCSTRATS.ASM):
-   - `clship_warp_cont` z/y enemy_a.rs:5110-5111 → :148,:152
-   - `clship_warpc_strat` x enemy_a.rs:5175 → :132
-   - `clship_gnd_cont` z/y enemy_a.rs:5146-5147 → :213,:217
-   - `clship_gnda/b/c_strat` x enemy_a.rs:5183,5191,5199 → :175,:189,:202
-   - `clship_cont` z/y enemy_a.rs:5319-5320 → :413,:417
-   - `clship_eartha/b/c_strat` x enemy_a.rs:5338,5347,5356 → :271,:291,:311
-   - `clship_chase_cont` z/y enemy_a.rs:5416-5417 → :871,:875
-   - `clship_chasea/b/c_strat` x enemy_a.rs:5439,5447,5455 → :824,:844,:858
-   Fix: swap `chase(cur,target,N)` → `chase_proportional(cur,target,N)` at each. The
-   rotation chases (`achase_angle`) are already correct.
+8. ~~**Every clship position chase is linear; ASM uses proportional Achase.**~~
+   **FIXED (verified tick 152):** all WARP/GND/EARTH/CHASE (and SHIP/TURN/…)
+   position chases use `chase_proportional` (GCSTRATS.ASM). Tests
+   `enemy_a_achase_clship.rs` + `clship_families.rs`.
 
-9. **`clship_chase_cont` transitions to the wrong boost on timer expiry.** ASM
-   GCSTRATS.ASM:866 `s_beqdec_alvar W,x,al_sword1,clshipboost_Istrat` — on `sword1==0`
-   jump to the GENERAL boost (GCSTRATS.ASM:234: `trigse $32`, `set_speed 120`,
-   straight-line flyaway, removed after `sbyte2`). Rust (enemy_a.rs:5406-5408) enters
-   the chase-specific `clship_chaseboost_enter`/`_step` (speed 20, 2D vecs, never
-   removed) — wrong behavior. Fix: on `sword1==0` call `clshipboost_enter(g,idx,true);
-   clshipboost_step(g,idx); return;`. Related dead code: `clship_chaseboost_step`
-   (enemy_a.rs:5378) re-arms forever instead of transitioning (ASM GCSTRATS.ASM:912
-   also `beqdec → clshipboost_Istrat`).
+9. ~~**`clship_chase_cont` transitions to the wrong boost on timer expiry.**~~
+   **FIXED (verified tick 152):** `sword1==0` → `clshipboost_enter` (vel 120,
+   snd2 `$32`) — general boost, not chaseboost (GCSTRATS.ASM:866/234). Test
+   `clship_chase_expires_into_general_boost`.
 
-10. **`base1_strat` implements the wrong machine entirely.** ASM `base1_strat`
-    (KSTRATS.ASM:380) is a HIT-TRIGGERED door: idle until `s_test_hitflags x,#HF1`,
-    then open (anim 0→8) with `dooropensound_l`, wait `sbyte1=5`, close (anim 8→0)
-    with `doorclosesound_l`, re-init. Rust (enemy_a.rs:4521) is a free-running timer
-    FSM keyed on `BASE1_PHASE_FLAG`/`BASE1_WAIT_FRAMES=10`, SE 0x59/0x5A, never testing
-    hit flags. `strat_base1_init` (enemy_a.rs:4506) also diverges: ASM sets
-    `alptrs base1_strat,0,0` (null coll+exp), `aldata #hardhp,#2` (ap=2),
-    `roty=deg180`; Rust sets coll=hit_flash, exp=explode, ap=HARD_AP(8), no roty, adds
-    ASF_NOHITAFFECT. Fix: reimplement as the hit-triggered door; init `collstratptr=None,
-    expstratptr=None, ap=2, roty=DEG180`, drop the added flag. CAVEAT: the reference is
-    the ultrastarfox hack — confirm base1 against the original disassembly, as the C
-    oracle may have targeted a different base1.
+10. ~~**`base1_strat` implements the wrong machine entirely.**~~
+    **FIXED (verified tick 153):** hit-triggered door — idle until HF1 →
+    open anim 0→8 + `DoorOpen` → wait `sbyte1=5` → `DoorClose` → close
+    anim 8→0 → re-init; init null coll/exp, hardhp, ap=2, roty=deg180
+    (KSTRATS.ASM:373-408). Tests `base1_door.rs` (3) + sound F1/F2.
 
 ## Medium
 
-11. **`zaco2loop_strat` circle turn direction inverted.** ASM GASTRATS.ASM:1120-1127
-    `s_jmp_rightofview` branches to `.tright` when `leftpl` CLEAR (STRATMAC.INC:6176);
-    `.tright` (leftpl clear) does `rotz+=10; roty+=4`, else `rotz-=10; roty-=4`. Rust
-    (enemy_a.rs:2674-2680) has them reversed. Fix: swap the two branches.
+11. ~~**`zaco2loop_strat` circle turn direction inverted.**~~
+    **FIXED (verified tick 154):** leftpl SET → rotz/roty −10/−4; CLEAR → +10/+4
+    (GASTRATS.ASM:1120-1127). Test `zaco2loop_turn_follows_leftpl`.
 
-12. **`wormgo_strat` drift direction inverted.** ASM GASTRATS.ASM:2243-2246
-    `s_leftview_strat x,.gl` branches to `.gl` when `leftpl` SET → `vx+=1`, else
-    `vx-=1`. Rust (enemy_a.rs:2837-2841) reversed. Fix: LEFT_PL set → `+1`, else `-1`.
+12. ~~**`wormgo_strat` drift direction inverted.**~~
+    **FIXED (verified tick 154):** leftpl SET → vx+=1; else vx-=1
+    (GASTRATS.ASM:2243-2246). Test `wormgo_drift_follows_leftpl`.
 
-13. **`itemtorange_srou` height comparison inverted.** ASM GASTRATS.ASM:3159-3164
-    `s_jmp_lower x,svar_word1,.iny` skips the add when `worldy >= minpmoveY+50`, so
-    `worldy+=3` runs only when `worldy < minpmoveY+50`. Rust (enemy_a.rs:2984)
-    `if worldy >= min_y { += 3 }` — reversed (affects item7/item7a settling). Fix: `<`.
+13. ~~**`itemtorange_srou` height comparison inverted.**~~
+    **FIXED (verified tick 154):** `worldy+=3` only when `worldy < minpmoveY+50`
+    (GASTRATS.ASM:3159-3164). Test `itemtorange_raises_only_when_higher_than_floor`.
 
-14. **`zaco3_attack` / `zaco4_attack` `s_beqdec` off-by-one (fires once too few, circles
-    early).** ASM KSTRATS.ASM:118 `s_beqdec_alvar B,x,al_sbyte1,.circle` = test-then-dec:
-    with `sbyte1=2` fires on 2→1 and 1→0 then circles on the 3rd tick. Rust
-    (enemy_a.rs:3908, 4091) uses guarded `--x==0` (fires once, circles a tick early).
-    Fix: `if sbyte1==0 { circle } else { sbyte1-=1; fire }`.
+14. ~~**`zaco3_attack` / `zaco4_attack` `s_beqdec` off-by-one.**~~
+    **FIXED (verified tick 154):** TEST-then-DEC — sbyte1=2 fires twice then
+    circles (KSTRATS.ASM:118). Test `zaco3_beqdec_fires_twice_then_circles`.
 
-15. **`cameleon_phase1` `s_beqdec` off-by-one.** ASM DSTRATS.ASM:1545 `s_beqdec_alvar
-    B,x,al_sbyte1,...`; Rust (enemy_a.rs:4584-4588) uses `--x==0`. Same fix as 14.
+15. ~~**`cameleon_phase1` `s_beqdec` off-by-one.**~~
+    **FIXED (verified tick 154):** TEST-then-DEC → phase2 same tick
+    (DSTRATS.ASM:1545). Test `cameleon_beqdec_transitions_when_zero`.
 
-16. **`zaco4_attack` / `zaco4_circle` do not run the next phase the same frame.** ASM
-    `.circle` (KSTRATS.ASM:127) and `.flyaway` (:144) fall into their strat bodies the
-    same tick. Rust (enemy_a.rs:4094-4104, 4122-4124) only sets the pointer then runs
-    `strat_move3d`, deferring one tick. (`zaco3_attack`/`zaco3_circle` do it correctly.)
-    Fix: after setup, `zaco4_circle(g,idx); return;` / `zaco4_flyaway(g,idx); return;`.
+16. ~~**`zaco4_attack` / `zaco4_circle` do not run the next phase the same frame.**~~
+    **FIXED (verified tick 155):** `.circle` / `.flyaway` fall through same tick
+    (KSTRATS.ASM:127/144). Tests `enemy_a_mediums_16_22.rs`.
 
-17. **`zaco4_flyaway` uses a live worldx compare instead of the view-side flag.** ASM
-    shares zaco3's `.flyaway` using `s_jmp_rightofview` (`afleftpl`; KSTRATS.ASM:149).
-    Rust (enemy_a.rs:4135) `me.worldx > p.worldx`. `zaco3_flyaway` (:3962) does it right.
-    Fix: `if target.is_none() || al.flags & AF_LEFT_PL == 0 { target_yaw = 30; }`.
+17. ~~**`zaco4_flyaway` uses a live worldx compare instead of the view-side flag.**~~
+    **FIXED (verified tick 155):** `AF_LEFT_PL` CLEAR → yaw +30 (KSTRATS.ASM:149).
+    Test `zaco4_flyaway_uses_leftpl_not_worldx`.
 
-18. **`zaco3_die_strat` rotx pitch cap uses unsigned compare.** ASM KSTRATS.ASM:172
-    `s_jmp_alvarMORE B,x,al_rotx,#deg45` is SIGNED (STRATMAC.INC:6652): `+4` while
-    `(i8)rotx <= deg45`. Rust (enemy_a.rs:4018) `if al.rotx <= DEG45` is unsigned — stops
-    for rotx in [33..255] (e.g. -30=226), never wrapping up through 0. Fix:
-    `if (al.rotx as i8) <= DEG45 as i8`.
+18. ~~**`zaco3_die_strat` rotx pitch cap uses unsigned compare.**~~
+    **FIXED (verified tick 155):** signed `(i8)rotx <= deg45` (KSTRATS.ASM:172).
+    Test `zaco3die_signed_rotx_cap_climbs_from_negative`.
 
-19. **`zaco3go_strat` regenerates velocity when close; ASM keeps stale vecs.** ASM
-    KSTRATS.ASM:195 `s_jmp_Zdistless x,y,#400,zaco3cont` branches PAST `s_gen_3dvecs`
-    when `|zdist|<400`. Rust (enemy_a.rs:4047) always calls `gen_vecs_3d`. Fix: only
-    gen_vecs when `zdist >= 400`.
+19. ~~**`zaco3go_strat` regenerates velocity when close; ASM keeps stale vecs.**~~
+    **FIXED (verified tick 155):** `|dz|<400` skips `gen_vecs_3d` (KSTRATS.ASM:195).
+    Test `zaco3go_keeps_stale_vecs_when_close`.
 
-20. **`para_strat`→para2 transition: missing `s_initface_player`, runs para2 a frame
-    early.** ASM `para2_istrat` (D2STRATS.ASM:569-577) does `s_initface_player`
-    (stores sbyte3/sbyte4 aim + smflag1) and ends with `s_end_strat`. Rust
-    (enemy_a.rs:4312-4322) omits initface and calls `para2_strat` the same tick. Fix:
-    perform initface (store target angles/set smflag1), don't call para2 on the switch.
+20. ~~**`para_strat`→para2 transition: missing `s_initface_player`, runs para2 a frame
+    early.**~~ **FIXED (verified tick 155):** clears `smflag1`, no para2 same tick
+    (D2STRATS.ASM:569-577). Test `para_to_para2_initface_latches_aim`.
 
-21. **`para2_strat` re-aims at the live player; ASM homes toward precomputed angles.**
-    ASM D2STRATS.ASM:580 `s_face_player x,1,0,.nogen` achases roty→sbyte3, rotx→sbyte4
-    (fixed at transition, gated on smflag1). Rust (enemy_a.rs:4332-4335) continuously
-    re-aims via `angle_xz`/`strat_pitch_toward`. Fix: achase toward the stored sbyte3/4.
+21. ~~**`para2_strat` re-aims at the live player; ASM homes toward precomputed angles.**~~
+    **FIXED (verified tick 155):** latch sbyte3/4 on first tick, achase stored aim
+    (D2STRATS.ASM:580). Test `para_to_para2_initface_latches_aim`.
 
-22. **`para2_strat` gravity magnitude wrong.** ASM D2STRATS.ASM:592 `s_falldown_Yvec
-    x,1,#3,#0` adds +3 to vy. Rust (enemy_a.rs:4364) adds +1. Fix: `vy += 3`.
+22. ~~**`para2_strat` gravity magnitude wrong.**~~
+    **FIXED (verified tick 155):** `vy += 3` (D2STRATS.ASM:592). Test
+    `para2_gravity_adds_three`.
 
-23. **`item5_strat` missing player-dead removal.** ASM GASTRATS.ASM:2571
-    `s_remove_ifplayerdead x` removes when `pshipflags2 & psf2_playerHP0` is set
-    (HP0, not object existence). Rust (enemy_a.rs:2959) only checks `player().is_none()`.
-    (`item7_strat` enemy_a.rs:3069 correctly tests PSF2_PLAYERHP0.) Fix: also gate on
-    `g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0`.
+23. ~~**`item5_strat` missing player-dead removal.**~~
+    **FIXED (verified tick 156):** `PSF2_PLAYERHP0` → remove (GASTRATS.ASM:2571).
+    Test `item5_removes_when_player_hp0`.
 
-24. **`item5_collect` missing `specflash = 30`.** ASM GASTRATS.ASM:2586 inside the
-    `specwepcnt<5` block: `s_set_var B,specflash,#30`. Rust (enemy_a.rs:2945-2954)
-    increments count, plays 0x18, adds score, but never sets specflash (HUD flash).
-    Fix: write `specflash = 30` in the `cnt < ITEM5_MAX_SPEC` branch.
+24. ~~**`item5_collect` missing `specflash = 30`.**~~
+    **FIXED (verified tick 156):** `specflash=#30` in `specwepcnt<5` block
+    (GASTRATS.ASM:2586). Test `item5_collect_sets_specflash_30`.
 
-25. **`item7_strat` repair path diverges from ASM.** ASM GASTRATS.ASM:2934-2956 spawns
-    a `ripair_w` pod (`ripair_Istrat`) that flies to the player over ~30 frames, plays
-    `$17`, clears the 4 wing flags, and re-inits the wing objects; the not-broken branch
-    re-inits `pLWing_Istrat`/`pRWing_Istrat`. Rust (enemy_a.rs:3094-3111) clears the
-    flags instantly and skips the pod + wing re-init. Flag set matches; timing/re-init
-    differ. Likely intentional simplification — reported for fidelity.
+25. ~~**`item7_strat` repair path diverges from ASM.**~~
+    **FIXED (tick 203):** broken-wing pickup `s_make_obj #ripair_w` →
+    `ripair_Istrat` (SE `$8b`); repair + `$17` deferred to ripair catch;
+    intact path keeps `$15`/score/doublaser/beamball; `item7_Istrat` falls
+    through. Tests `item7_ripair_spawn.rs` (4).
+    (Was: ACCEPTED inline repair simplification.)
 
-26. **`up1man_strat` scrolls worldz when `sbyte3==0`.** ASM GASTRATS.ASM:2728
-    `s_jmp_alvarZERO B,x,al_sbyte3,.ninrng` early-outs to strat END when `sbyte3==0`,
-    skipping rotz, `worldz+=30`, and the item spawn. Rust (enemy_a.rs:3566-3574) guards
-    only the rotz add; the scroll runs unconditionally. Since `sbyte3` starts 0 (never
-    set in init), the mother should be static until a child is hit. Fix: `if me.sbyte3
-    == 0 { return; }` after the player fetch.
+26. ~~**`up1man_strat` scrolls worldz when `sbyte3==0`.**~~
+    **FIXED (verified tick 156):** early-out when `sbyte3==0` (GASTRATS.ASM:2728).
+    Test `up1man_static_while_sbyte3_zero`.
 
-27. **`clship_cont` chases the player during the space-boost countdown.** ASM
-    GCSTRATS.ASM:397 `s_decbne_alvar B,x,al_sbyte1,.nplayerchase` branches PAST the
-    normal chase (:411-425) while `sbyte1` counts down, doing only `add_playerZ`. Rust
-    (enemy_a.rs:5300-5313) only returns when `sbyte1==0`; while counting down it falls
-    through to the chase. Fix: whenever the `sflag1 && player-sflag4` branch is taken,
-    skip the chase (move `add_player_z; return;` to the end of the whole `if`, not just
-    the `sbyte1==0` case).
+27. ~~**`clship_cont` chases the player during the space-boost countdown.**~~
+    **FIXED (verified tick 156):** FLAG1+player-sflag4 path skips chase
+    (GCSTRATS.ASM:397). Test `clship_cont_countdown_skips_chase`.
 
-28. **`clship_warp_cont` omits the boost sound.** ASM `clshipWARP_cont` (:143) jumps to
-    `clshipboost_Istrat` (:234 `trigse $32`). Rust (enemy_a.rs:5102) calls
-    `clshipboost_enter(g,idx,false)` — no `snd2=0x32`. Fix: pass `true`.
+28. ~~**`clship_warp_cont` omits the boost sound.**~~
+    **FIXED (verified tick 156):** `clshipboost_enter(..., true)` → snd2 `$32`
+    (GCSTRATS.ASM:143/234). Test `clship_warp_boost_plays_sound`.
 
-29. **`clship_chaseboost_enter` plays a sound the ASM does not.** ASM
-    `clshipCHASEboost_Istrat` (GCSTRATS.ASM:891-894) has no `trigse`. Rust
-    (enemy_a.rs:5395) sets `snd2=0x32`. Fix: drop it (folds into the boost-transition
-    fix, item 9).
+29. ~~**`clship_chaseboost_enter` plays a sound the ASM does not.**~~
+    **FIXED (superseded tick 152 High #9):** chase expiry routes to general
+    `clshipboost` only; chaseboost path removed.
 
-30. **`zaco1_phase2` zeroes `sword2`/`ptr` with no ASM basis.** ASM `zaco1b_strat`
-    (GASTRATS.ASM:1238-1276) sets sword2/ptr only in `.circ` and never zeroes them
-    elsewhere; leaving `.circ` the last spiral offsets keep being added by zaco1_cont.
-    Rust (enemy_a.rs:4944-4945, 4948-4949) resets both in the mid/far branches. Fix:
-    remove the `sword2 = 0; ptr = 0;` from the two non-`.circ` branches.
+30. ~~**`zaco1_phase2` zeroes `sword2`/`ptr` with no ASM basis.**~~
+    **FIXED (verified tick 156):** mid/far bands retain spiral offsets
+    (GASTRATS.ASM:1238-1276). Test `zaco1_phase2_retains_spiral_offsets_outside_circ`.
 
-31. **`friendexitbase_strat` left/right channel sound inverted at the boundary.** ASM
-    GISTRATS.ASM:326-332 `s_beqdec_alvar B,x,al_sbyte2,.left` — always decrement
-    (wrapping), play LEFT `0x51` only the single frame the result hits 0, else RIGHT
-    `0xB1`. Rust (enemy_a.rs:4992-4997) never wraps, plays right until sbyte2 reaches 0
-    then left every frame after. Fix: `al.sbyte2 = al.sbyte2.wrapping_sub(1); al.snd1 =
-    if al.sbyte2 == 0 { 0x51 } else { 0xB1 };`.
+31. ~~**`friendexitbase_strat` left/right channel sound inverted at the boundary.**~~
+    **FIXED (verified tick 156):** `s_beqdec` — RIGHT while dec, LEFT while
+    `sbyte2==0` (GISTRATS.ASM:326-332). Test `friendexitbase_beqdec_snd_channels`.
 
-32. **`gate2_strat` touch test uses a per-axis box; ASM uses combined XY distance.**
-    ASM GA2STRAT.ASM:2670 `s_jmp_XYdistmore x,y,#30<<1,.ntouch` → touch when
-    `rangexy=|dx|+|dy| < 60`. Rust (enemy_a.rs:1228-1231) `dx<=60 && dy<=60` (square,
-    inclusive). Fix: require `|dx|+|dy| < GATE2_TOUCH_XY`.
+32. ~~**`gate2_strat` touch test uses a per-axis box; ASM uses combined XY distance.**~~
+    **FIXED (verified tick 156):** `|dx|+|dy| < 60` (GA2STRAT.ASM:2670). Test
+    `gate2_touch_uses_combined_rangexy`.
 
-33. **`skillfly_strat` "flew-behind" removal wrongly decrements the ring counter.** ASM
-    DSTRATS.ASM:8465-8479: the `jmp_objinfront → .rem` path removes WITHOUT
-    `s_dec_var skillfly`; only the caught path decrements. Rust (enemy_a.rs:1036-1039)
-    calls `skillfly_remove(g)` (which decrements) on the behind path — corrupting the
-    skill-ring bonus. Fix: set `g.objs.aldead = 1;` directly there (no decrement).
+33. ~~**`skillfly_strat` "flew-behind" removal wrongly decrements the ring counter.**~~
+    **FIXED (verified tick 156):** behind → `aldead=1` only, no `skillfly` dec
+    (DSTRATS.ASM:8465-8479). Test `skillfly_behind_removes_without_decrement`.
 
-34. **`strat_hard90yr_init` adds a colltype the ASM does not.** ASM `hard90YR_Istrat`
-    (KSTRATS.ASM:326-331) has no `s_set_colltype` (unlike hard180YR). Rust
-    (enemy_a.rs:829) sets `COLLTYPE_ENEMY1`, making inert scenery enemy-collidable.
-    Fix: drop the `collflags |= COLLTYPE_ENEMY1`.
+34. ~~**`strat_hard90yr_init` adds a colltype the ASM does not.**~~ **FIXED (verified tick 157):**
+    no `COLLTYPE_ENEMY1` (unlike hard180YR). Test `hard90yr_has_no_enemy1_colltype`.
 
-35. **`delayexplode_strat` / `bossdelayexplode_strat` / `circdelayexplode_strat` fire one
-    frame early.** ASM uses `s_decbpl_lifecnt` (EXPSTRAT.ASM:262,:53,:280) = die when the
-    decrement goes NEGATIVE (entry count 0), surviving count+1 ticks. Rust inline
-    (enemy_a.rs:5620-5624, 5702-5706, 5669-5673) `if count>0 {count-=1} if count==0
-    {die}` fires at entry count 1 — one frame early. Fix: use `strat_count_down(al)`
-    (common.rs:534, already correct). `delayremove_strat` (enemy_a.rs:5637) is correct
-    (`decbne`) and must stay inline. (Same root cause makes `strat_qboss_explode_init`
-    enemy_a.rs:5734 fire the circexp a frame late — Minor.)
+35. ~~**`delayexplode_strat` / `bossdelayexplode_strat` / `circdelayexplode_strat` fire one
+    frame early.**~~ **FIXED (verified tick 157):** `count_down` / `s_decbpl` — entry
+    count 1 survives first tick. Test `delayexplode_count_one_survives_first_tick`
+    (+ `expobj_lifecnt.rs`).
 
-36. **`pillar3explode_strat` drops the 8-object explosion chain and plays a wrong
-    sound.** ASM `pillarexplode_Istrat` (EXPSTRAT.ASM:1078-1113) spawns 8 medium-exp
-    children along a rotz-rotated line (counts `8-z1`, nopolyexp, worldz-10), sets
-    pillar `lifecnt=7`, jumps to `delayremove_Istrat`, and plays NO direct sound (each
-    child has noexpsnd). Rust (enemy_a.rs:960-971) spawns none, plays `play_se(0x10)`
-    (the item-catch chime), and sets AFEXP (not in ASM). Fix: drop `play_se(0x10)`;
-    spawn the 8 children (or route the visual to the renderer). Related:
-    `pillar3_enter_fall` (enemy_a.rs:928) omits the bouncyball spawn (DSTRATS.ASM:804).
+36. ~~**`pillar3explode_strat` drops the 8-object explosion chain and plays a wrong
+    sound.**~~ **FIXED (verified tick 157):** 8 nopolyexp medium children along rotz
+    line, lifecnt 7 → delayremove, no direct SE. Test
+    `pillar3explode_spawns_eight_silent_children`.
+    ~~(bouncyball on fall still Minor.)~~ **FIXED (tick 208):** `pillar3fall_i` /
+    `pillar3ffall_i` spawn bouncyball→explode×3→kill_obj (z−10 on pillar3 only);
+    pillar3f rightview roll sign corrected. Tests `pillar3_fall_bouncyball.rs` (5).
 
-37. **Missing init `_Istrat → _strat` same-frame fall-through (first-tick delay).** In
-    ROM these `_Istrat` blocks have their `_strat` label immediately after with no
-    `s_end_strat`, so the body runs on the spawn frame. tadpole/up1man/pillar3/gate*
-    already model this; these do NOT:
-    - `strat_spacebarwalker_init` enemy_a.rs:3406 → GA2STRAT.ASM:1788
-    - `strat_spacebarshoot_init` enemy_a.rs:3438 → GA2STRAT.ASM:1814
-    - `strat_zacos_init` enemy_a.rs:3652 → GASTRATS.ASM:942
-    - `strat_houdai_init` enemy_a.rs:3840 → GASTRATS.ASM:1292
-    - `item0_istrat` enemy_a.rs:3455 → GASTRATS.ASM:2678
-    - `strat_skillfly_init` enemy_a.rs:1045 → DSTRATS.ASM:8438
-    - `strat_zaco1l/r_init` (via zaco1_common_init) enemy_a.rs:4813 → GASTRATS.ASM:1227
-    Fix: append the matching strat call at the end of each init. (`houdaiNS`/`tower0`
-    correctly do NOT — their `_Istrat` ends with `s_end_strat`, GASTRATS.ASM:1153,1285.)
+37. ~~**Missing init `_Istrat → _strat` same-frame fall-through (first-tick delay).**~~
+    **FIXED (verified tick 157):** skillfly/spacebarshoot/houdai/zacos/zaco1 (+walker/
+    item0) call strat body on spawn frame. Tests `*_init_runs_*_same_frame` (5).
+    (`houdaiNS`/`tower0` correctly do NOT.)
 
 ## Minor
 
-1. **Shared relslowlaser helpers: missing laser colltype + muzzle Z offset.** ASM
-   `fire_relslowElaser`/`Home` (GSTRATS.ASM:2554-2557, 2569-2572) set BOTH
-   `enemyweap`(acf_colltype4) AND `laser`(acf_colltype1=8) colltypes and add a Z muzzle
-   `elaserfireZoff(80)>>weapon_scale(2)=20` / `80>>2=20` (rotated by the firer's rots).
-   Rust helpers (enemy_a.rs:430, 445) pass only `ACF_COLLTYPE4` and off_z=0. Fix: OR in
-   `ACF_COLLTYPE1` and pass a +20 forward muzzle offset (rotated) if bit-exact.
+1. ~~**Shared relslowlaser helpers: missing laser colltype + muzzle Z offset.**~~
+   **FIXED (tick 158):** colltypes `enemyweap|laser`; muzzle local Z 80
+   (`elaserfireZoff` after `<<weapon_scale`) rotated by firer full rots.
+   Tests `relslowlaser_muzzle_*` + prior colltype test.
 
-2. **`relelaserhome_strat` lock latch boundary inclusive.** ASM GSTRATS.ASM:1916
-   `s_jmp_Zdistmore x,y,#800,.nmin` skips the lock when `|dz|>=800`, so lock latches at
-   strictly `|dz|<800`. Rust (enemy_a.rs:1689-1690) latches at `<= 800`. Fix: `<`.
+2. ~~**`relelaserhome_strat` lock latch boundary inclusive.**~~ **FIXED (tick 158):**
+   latch when `|dz|<800` (ASM `Zdistmore #800` skips at `>=`). Test
+   `relelaserhome_lock_strict_less_than_800`.
 
-3. **Item5/item7/item0/tadpole/up1man distance boundaries inclusive where ASM is
-   strict.** `jmp_distmore` proceed-path is `|d| < dist`.
-   - item5 pickup enemy_a.rs:2969,2974 (`> 120/60`) → GASTRATS.ASM (should collect only
-     `< 120/60`); item7 :3086,3091 same.
-   - item0 pickup enemy_a.rs:3488,3491,3494 (`>`) → GASTRATS.ASM:2685-2687.
-   - up1man scroll gate enemy_a.rs:3571 (`<= 1500`) → GASTRATS.ASM:2731.
-   - tadpole fire enemy_a.rs:3274 (`<= 1500`) → GA2STRAT.ASM:2937.
-   - bomwing_phase2 fire enemy_a.rs:3188 (`<= 3000`) → GASTRATS.ASM:2542 (fire `< 3000`).
-   - zaco2loop reset enemy_a.rs:2686 (`> 2000`) → GASTRATS.ASM:1132 (reset `>= 2000`).
-   - carrier_strat enemy_a.rs:4433 (`> 3000`) → KSTRATS.ASM:284 (`>= 3000`).
-   - zaco1_phase0 enemy_a.rs:4887 (`> 1000`) → GASTRATS.ASM:1215 (`>= 1000`).
-   - gate3 dz/dxy enemy_a.rs:1106,1109; gate dz/dxy :1153-1155; gate2 dz :1226 —
-     inclusive vs strict per GA2STRAT.ASM:2616-2617,:2669 / DSTRATS.ASM:1755,1758.
-   Fix: use `<` / `>=` (or drop constants by 1) at each.
+3. ~~**Item5/item7/item0/tadpole/up1man distance boundaries inclusive where ASM is
+   strict.**~~ **FIXED (tick 159):** `jmp_distmore` proceed-path is `|d|<dist`.
+   Fixed remaining tadpole fire `<1500` and zaco1_phase0 `>=1000`; other sites
+   (item5/7/0, up1man, bomwing, zaco2loop, carrier, gates) already correct.
+   Tests `item5_pickup_strict_less_than_120`, `tadpole_fire_strict_less_than_1500`,
+   `zaco1_phase0_transitions_at_dz_1000`.
 
-4. **`zaco1_phase2` mid-band upper bound inclusive.** ASM fires `1400<=|zdist|<1800`
-   (GASTRATS.ASM:1243 excludes 1800). Rust (enemy_a.rs:4932) `(1400..=1800)`. Fix:
-   `(1400..1800)`.
+4. ~~**`zaco1_phase2` mid-band upper bound inclusive.**~~ **FIXED (verified tick 159):**
+   `(1400..1800)` excludes 1800. Test `zaco1_phase2_midband_excludes_1800`.
 
-5. **`zaco0_fire` random spread: modulo vs mask, wrong draw order.** ASM
-   `s_weapon_rndrots2obj y,3,3` (KSTRATS.ASM:244) = per-axis `(rnd&3)-1` ∈ {-1,0,1,2},
-   PITCH then YAW. Rust (enemy_a.rs:4225-4228) `strat_random_centered(3)` = `(rnd%3)-1`
-   ∈ {-1,0,1}, YAW then PITCH. Fix: `(rnd&3)-1` per axis, pitch-first draw order.
+5. ~~**`zaco0_fire` random spread: modulo vs mask, wrong draw order.**~~
+   **FIXED (verified tick 159):** `(rnd&3)-1` pitch-then-yaw. Test
+   `zaco0_fire_spread_mask_pitch_then_yaw`.
 
-6. **`zacos` laser muzzle Z-offset dropped.** ASM zacos2/3 fire with
-   `s_weapon_pos #0,#0,#40>>weapon_scale` (=+10 z) before RELSLOWELASER
-   (GASTRATS.ASM:967,991). Rust (enemy_a.rs:3678,3727) spawns at (0,0,0). Cosmetic.
+6. ~~**`zacos` laser muzzle Z-offset dropped.**~~ **FIXED (tick 160):**
+   `s_weapon_pos #0,#0,#40>>weapon_scale` on top of elaserfireZoff → world
+   muzzle Z 120. Test `zacos_muzzle_is_weapon_pos_plus_elaserfirezoff`.
 
-7. **`clship_flyinleft`/`flyinright`: `sflag1` set not gated by the notdelay.** ASM
-   GCSTRATS.ASM:53-57 puts both the `vx==-5→set sflag1` and `vx-=1` inside the
-   `notdelay 1` gate. Rust (enemy_a.rs:5062-5066, 5082-5086) gates only `vx-=1`. Fix:
-   gate the flag-set too. (Masked today by High 2.)
+7. ~~**`clship_flyinleft`/`flyinright`: `sflag1` set not gated by the notdelay.**~~
+   **FIXED (verified tick 160):** both flag-set and vx step inside `notdelay 1`.
+   Tests `clship_flyin*_sflag1_gated_by_notdelay`.
 
-8. **`zaco2loop_init` adds an `aliens[0].active` guard before firing.** ASM
-   GASTRATS.ASM:1107-1114 fires HMISSILE1 unconditionally on level!=1. Rust
-   (enemy_a.rs:2661-2665) wraps it in `if aliens[0].active`, which can suppress a
-   missile the ROM spawns. Fix: fire unconditionally (target = player).
+8. ~~**`zaco2loop_init` adds an `aliens[0].active` guard before firing.**~~
+   **FIXED (verified tick 160):** HMISSILE1 fires unconditionally on level!=1.
+   Test `zaco2loop_fires_hmissile_on_non_easy_unconditionally`.
 
-9. **`bomwing`/`cameleon`/`strat_bomwing_init` extra colltypes vs ASM.** ASM
-   `bomwing_Istrat` (GASTRATS.ASM:2515-2523) and `cameleon_istrat` (DSTRATS.ASM:1527)
-   set no colltype. Rust adds `COLLTYPE_ENEMY1` (enemy_a.rs:3231, 4631). Reconcile
-   against object/shape spawn defaults; if defaults don't already include enemy1, the
-   ROM objects are not laser-collidable and the Rust add is a deviation.
+9. ~~**`bomwing`/`cameleon`/`strat_bomwing_init` extra colltypes vs ASM.**~~
+   **FIXED (tick 161):** no `COLLTYPE_ENEMY1` (ASM sets none). Tests
+   `bomwing_init_has_no_enemy1_colltype`, `cameleon_init_has_no_enemy1_colltype`.
 
-10. **`flashplayer_istrat` writes `colframe=0` (not in ASM).** ASM `flashplayer_Istrat`
-    (GASTRATS.ASM:3130-3132) does not touch colframe. Rust (enemy_a.rs:3028) adds it.
-    Cosmetic color-anim phase.
+10. ~~**`flashplayer_istrat` writes `colframe=0` (not in ASM).**~~ **FIXED (tick 161):**
+    leaves colframe untouched. Test `flashplayer_istrat_leaves_colframe_untouched`.
 
-11. **`strat_gate_init` hardcodes restart map bank 0.** ASM `gate_Istrat`
-    (DSTRATS.ASM:1746) stores `maprestartbanktemp = mapbank`. Rust (enemy_a.rs:1192)
-    writes 0. Harmless only if map data is always bank 0.
+11. ~~**`strat_gate_init` hardcodes restart map bank 0.**~~ **FIXED (tick 161):**
+    `MAPRESTARTBANKTEMP = $7E` (HD map VM WRAM bank). Test `gate_init_stores_mapbank_7e`.
 
-12. **`gate_strat`/`gate3_strat` skip the spin/colanim step on the touch frame.** ASM
-    falls through the heal branch into the spin (DSTRATS.ASM:1786; GA2STRAT gate3
-    continues to `init_colanim`). Rust (enemy_a.rs:1172) `return`s after the checkpoint
-    latch, deferring one frame (colframe 4 vs ROM 5). Cosmetic.
+12. ~~**`gate_strat`/`gate3_strat` skip the spin/colanim step on the touch frame.**~~
+    **FIXED (tick 161):** gate touch falls through to `gate_spin_strat` same frame.
+    (gate3 already spun before touch.) Test `gate_touch_runs_spin_same_frame`.
 
-13. **`pillar3explode_wait` counts one frame long.** Uses `count_down` (fires at
-    count+1); ASM sets `lifecnt=7`+`delayremove` (`decbne`, fires at count),
-    EXPSTRAT.ASM:1112. Fix: inline `decbne`.
+13. ~~**`pillar3explode_wait` counts one frame long.**~~ **FIXED (superseded tick 157
+    Medium #36):** pillar3explode uses `delayremove` (`decbne`) with lifecnt=7.
 
-14. **`strat_explode` may omit the in-view gate + special→gate_2 reward (needs
-    verification).** ASM `explode_Icont` (EXPSTRAT.ASM:705) silently `remove_strat`s
-    when not `inviewpl`; `explode_Istrat` (:693) spawns a `gate_2` heal ring for
-    `special` objects. Rust `strat_explode` (enemy_a.rs:768-803) does neither. Confirm
-    whether the port creates the explosion sprite / gate reward in the collision/object
-    layer before acting.
+14. ~~**`strat_explode` may omit the in-view gate + special→gate_2 reward.**~~
+    **FIXED (tick 161):** special → spawn `gate_2`+`gate2_Istrat`; not `inviewpl` →
+    silent remove (no destruct SE). Tests `explode_special_spawns_gate2`,
+    `explode_not_inview_removes_silently`.
 
-15. **`zaco1`/`zaco4`/`zaco3go`/`para2` etc. cosmetic/1-tick class items:** newly-set
-    zaco1 phase runs a frame late (enemy_a.rs:4890,4908 vs GASTRATS.ASM:1227,1235);
-    zaco1_phase2 spiral uses float sin/cos + arithmetic (toward -inf) shift instead of
-    ROM tables + toward-zero (enemy_a.rs:4929 vs GASTRATS.ASM:1257); zaco3die/zaco3go
-    omit `makesmoke` particles (KSTRATS.ASM:168,186); para2 first `add_vecs2pos` omits
-    vy (enemy_a.rs:4344, benign while gen_vecs_2d ran); zaco0_sweep signed-vs-unsigned
-    worldy compares (enemy_a.rs:4184,4187, benign in-band); `zaco1_phase2` roty target
-    not negated vs `s_obj2obj_3Dangle`'s `nega(Yanglexy)` — inconsistent with
-    szaco2_waypoint_yaw (:4648) and zaco1_phase0 (:4870) which do negate; verify the
-    arctan16 sign convention before flipping enemy_a.rs:4954. `szaco2` init defers the
-    `relexplode` sflag (GA2STRAT.ASM:238) — known debris gap.
-
-16. **`strat_hard_init` always sets `COLLTYPE_ENEMY1` (table-lane check).** ASM `hard_Istrat`
-    (GSTRATS.ASM:642) has no colltype; `hardenemy1_Istrat` (:639) does. Both are
-    registered (ISTRATS.ASM:528,663). If the ISTRATS row for plain `hard` maps to
-    `strat_hard_init`, it wrongly gains enemy1. Depends on table wiring outside this file.
+15. ~~**`zaco1`/`zaco4`/`zaco3go`/`para2` etc. cosmetic/1-tick class items:**~~
+    **FIXED (tick 162, actionable subset):** zaco1 phase0→1 / phase1→2 fall-through
+    same frame; phase2 spiral uses `bee_tab_scaled` SINTAB/COSTAB toward-zero
+    (`sintab,-3` / `costab,-2`); `szaco2` init sets `ASF2_RELEXPLODE`.
+    **FIXED (tick 164):** zaco3die/zaco3go `makesmoke` (notdelay 1 / 2 + go smoke
+    `vz=#40`); szaco2 `debrisshape=105` (`zaco_8` stand-in for missing `zaco_8p`);
+    zaco3die double `add_player_z` removed.
+    **FIXED (tick 165):** movement aim uses `nega(Yanglexy)` — `zaco1_phase2`,
+    `strat_aim_yaw`/`strat_aim_3d`, para2 initface latch — matching ROM
+    `s_obj2obj_3Dangle` + `gen_vecs_3d` yaw negation (angle_xz VERIFIED tick 163).
+    Weapon fire keeps raw `angle_xz` (fire_weapon Yanglexabs has no nega).
+    **FIXED (tick 166):** remaining inline `s_obj2obj_*` / `s_face_player` /
+    projectile-obj2obj sites — headfire, helpballhome, homingflat, spacebarwalker
+    body, stbfp/bee1a latch, evader, cam2dash, sdragonfly `3DangleOFF`, blowcube
+    `3DangleOFF`, bonfire + ironball2/3/4 aim — all store `nega(Yanglexy)`.
+    **FIXED (tick 167):** true `zaco_8p` mesh — `SHAPE_EXT_ZACO_8P=283` from
+    SHAPES2.ASM via `tools/shape_compiler.py` EXTENDED_SHAPES; szaco2
+    `debrisshape` uses it (no longer zaco_8/105 stand-in).
+    **FIXED (tick 171):** para2 `s_gen_vecs` → `strat_gen_vecs_nvecs` (no longer
+    `gen_vecs_2d` which zeroed vy); first `add_vecs2pos` is full xyz matching
+    ASM. zaco0_sweep worldy climb/clamp use unsigned `s_cmp`/`cmp #-30` semantics.
+    Tests `enemy_a_minors_15_16.rs` + `enemy_a_minors_15_smoke.rs` +
+    `enemy_a_minors_15_yaw.rs` + `enemy_a_inline_aim_yaw.rs` + `zaco_8p_debris.rs` +
+    `enemy_a_minors_15_leftovers.rs`. **#15 leftovers closed.**
+16. ~~**`strat_hard_init` always sets `COLLTYPE_ENEMY1` (table-lane check).**~~
+    **FIXED (tick 162):** `hard_Istrat` drops enemy1; `hardenemy1_Istrat` keeps it;
+    ISTRATS index 104 wired via `IS_HARDENEMY1`. Tests
+    `hard_init_has_no_enemy1_colltype`, `hardenemy1_sets_enemy1_and_is_registered`.
 
 ## Verified correct (don't touch)
 - Shared: `achase_angle` (proportional, toward-zero, reached-before-step), `strat_aim_yaw/3d`,
@@ -410,8 +306,8 @@ Macro facts most load-bearing for THIS audit (re-verified):
   `boss_dying` ($1e+$f1+flags order), `delayremove_strat`, `strat_boss_explode_init` (all 14
   timed children in factory order, lifecnts 5..34, circdelayexplode proxy, count 38 tail,
   GF_BOSSDEAD only in bossdelayexplode).
-- rader0/1, pillar3 (dist/hp/HF2 fall triggers, sbyte1=±4, $49 landing; aside from the
-  bouncyball spawn), gate3/gate/gate2 heal+checkpoint latch cores.
+- rader0/1, pillar3 (dist/hp/HF2 fall triggers, sbyte1=±4, $49 landing, fall
+  bouncyball→explode flash), gate3/gate/gate2 heal+checkpoint latch cores.
 - zaco2 (istrat data, beqdec order, Zdistless<500, dash count 30 kill), worms (link-dead
   killtype1/2 split logic, sin/cos shift -4, wormsplit 2-draw (rnd&63)-32, worm2 next_state
   wrap 4→1), item5/item7 progression, flashplayer copy+toggle, bomwing phase FSM

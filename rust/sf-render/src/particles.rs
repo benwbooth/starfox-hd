@@ -45,10 +45,18 @@ impl Particles {
     pub fn new(_gpu: &mut Gpu) -> Self {
         // Unit quad centred at origin, in XY plane. Fan order was
         // (v0,v1,v2,v3); triangulate as (v0,v1,v2) + (v0,v2,v3).
-        let v0 = Vertex3 { pos: [-0.5, -0.5, 0.0] };
-        let v1 = Vertex3 { pos: [0.5, -0.5, 0.0] };
-        let v2 = Vertex3 { pos: [0.5, 0.5, 0.0] };
-        let v3 = Vertex3 { pos: [-0.5, 0.5, 0.0] };
+        let v0 = Vertex3 {
+            pos: [-0.5, -0.5, 0.0],
+        };
+        let v1 = Vertex3 {
+            pos: [0.5, -0.5, 0.0],
+        };
+        let v2 = Vertex3 {
+            pos: [0.5, 0.5, 0.0],
+        };
+        let v3 = Vertex3 {
+            pos: [-0.5, 0.5, 0.0],
+        };
         Particles {
             particles: [Particle::default(); MAX_PARTICLES],
             quad_tris: [v0, v1, v2, v0, v2, v3],
@@ -56,7 +64,17 @@ impl Particles {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn spawn(&mut self, x: f32, y: f32, z: f32, vx: f32, vy: f32, vz: f32, life: f32, ptype: u8) {
+    pub fn spawn(
+        &mut self,
+        x: f32,
+        y: f32,
+        z: f32,
+        vx: f32,
+        vy: f32,
+        vz: f32,
+        life: f32,
+        ptype: u8,
+    ) {
         for p in self.particles.iter_mut() {
             if !p.active {
                 *p = Particle {
@@ -110,7 +128,11 @@ impl Particles {
             if !p.active {
                 continue;
             }
-            let alpha = if p.max_life > 0.0 { p.life / p.max_life } else { 0.0 };
+            let alpha = if p.max_life > 0.0 {
+                p.life / p.max_life
+            } else {
+                0.0
+            };
             if alpha <= 0.0 {
                 continue;
             }

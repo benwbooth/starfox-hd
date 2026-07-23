@@ -4,31 +4,31 @@
 //! `ringlaser_istrat`, and the shared `trucklaunch`/`fallingtruck`
 //! ground-vehicle base (reference/ultrastarfox/SF/STRAT/DSTRATS.ASM:5754-6336).
 //!
-//! No sf-oracle differential fixture is used: the ROM boss depends on the
-//! unported `path_istrat` `minicastanet` swarm and reads cross-object global
-//! scratch RAM (locusmode/powerbuild) that shapes the ringlaser trajectory —
-//! both deliberately scoped out (see the CASTANET_BEGIN scope note in
-//! bosses.rs). These tests assert the ported mother mode machine, cymbal-bit
-//! positioning, HP-bar accumulation and death->trucklaunch->explode routing
-//! against hand-derived ASM expectations, cited inline.
+//! The paired-laser convergence and mini-cymbal path tests use the exact
+//! symbol-derived DPATHDAT catalog. The remaining assertions exercise the
+//! mother mode machine, HP accumulation and death routing against the cited
+//! assembly control flow.
 
 use sf_game::alien::NUMBER_AL;
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses;
+use sf_strat::enemy_a::wm;
 
 const WM_RNDVAL: u16 = 0x1F00;
 
 // Local mirrors of the private bosses.rs constants (cited to the port).
-const SH_CAST_BOSS_E_0_PROXY: u16 = 276; // bit1 (DSTRATS.ASM:6137)
-const SH_CAST_BOSS_E_1_PROXY: u16 = 277; // bit2 rotz==128 (DSTRATS.ASM:6237)
-const SH_CAST_BOSS_E_1A_PROXY: u16 = 278; // bit2 otherwise (DSTRATS.ASM:6239)
-const SH_CAST_RINGLASER_PROXY: u16 = 281; // ringlaser (DSTRATS.ASM:6363)
+const SH_CAST_BOSS_E_0_PROXY: u16 = 329; // bit1 (DSTRATS.ASM:6137)
+const SH_CAST_BOSS_E_1_PROXY: u16 = 330; // bit2 rotz==128 (DSTRATS.ASM:6237)
+const SH_CAST_BOSS_E_1A_PROXY: u16 = 331; // bit2 otherwise (DSTRATS.ASM:6239)
+const SH_CAST_RINGLASER_PROXY: u16 = 334; // ringlaser (DSTRATS.ASM:6363)
 const CAST_SFLAG1: u8 = 0x10; // sflag1 on sflags2
 const ASF_COLLDISABLE: u8 = 0x10; // alien.rs
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
 const CASTANET_MAXHP: u16 = 240; // castanetHP(120) * 2 (DSTRATS.ASM:5762)
 const FIRE_MODE: u8 = 18; // .fire mode-table index (DSTRATS.ASM:5803)
+const GENERATE_MINIS_MODE: u8 = 3;
+const ASF3_SAMESHAPECOLLIDE: u8 = 0x80;
 
 fn spawn(g: &mut Game, x: i16, y: i16, z: i16, shape: u16) -> u16 {
     let idx = g.objs.alloc().expect("alien pool");
@@ -47,7 +47,7 @@ fn setup(player_z: i16, boss_z: i16) -> (Game, u16) {
     let mut g = Game::new();
     g.vars.write_ext16(WM_RNDVAL, 0x1234);
     g.vars.internal_playpt = 0;
-    bosses::register(&mut g.world);
+    sf_strat::table::register_all(&mut g);
 
     let p = spawn(&mut g, 0, 0, player_z, 2);
     {
@@ -178,6 +178,144 @@ fn fire_mode_spawns_ringlasers() {
 }
 
 // ------------------------------------------------------------
+// 2c. locusmode fans the two cymbal shots into opposite planes; their
+//     same-shape collision enters the four-tick convergence wait, and
+//     powerbuild releases the surviving pair into the ROM curve routine.
+//     (DSTRATS.ASM:6099-6111, 6356-6492.)
+// ------------------------------------------------------------
+#[test]
+fn paired_ringlasers_converge_then_curve_on_powerbuild() {
+    let (mut g, boss) = setup(0, 0);
+    arm_boss(&mut g, boss);
+    g.run_strategies();
+
+    g.objs.aliens[boss as usize].stratstate = FIRE_MODE;
+    g.objs.aliens[boss as usize].sbyte1 = 0;
+    // First tick raises the bits' firing flags and computes locusmode=1;
+    // the next even frame lets both bits emit, and the following strategy
+    // pass runs each ringlaser init.
+    for _ in 0..4 {
+        g.run_strategies();
+        if count_ringlasers(&g) >= 2
+            && (0..NUMBER_AL)
+                .filter(|&i| {
+                    g.objs.aliens[i].active
+                        && g.objs.aliens[i].shape == SH_CAST_RINGLASER_PROXY
+                        && g.objs.aliens[i].hp == 0xff
+                })
+                .count()
+                >= 2
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        g.vars.read_ext8(wm::LOCUSMODE),
+        1,
+        "full-HP, unrotated mother selects locusmode 1"
+    );
+    let rings: Vec<usize> = (0..NUMBER_AL)
+        .filter(|&i| {
+            g.objs.aliens[i].active
+                && g.objs.aliens[i].shape == SH_CAST_RINGLASER_PROXY
+                && g.objs.aliens[i].hp == 0xff
+        })
+        .take(2)
+        .collect();
+    assert_eq!(rings.len(), 2, "one initialized shot from each cymbal");
+    assert_ne!(
+        g.objs.aliens[rings[0]].roty, g.objs.aliens[rings[1]].roty,
+        "locus fan gives the two halves opposite yaw"
+    );
+    assert!(rings
+        .iter()
+        .all(|&i| { g.objs.aliens[i].sflags3 & ASF3_SAMESHAPECOLLIDE != 0 }));
+
+    let (a, b) = (rings[0] as u16, rings[1] as u16);
+    g.objs.aliens[a as usize].worldx = 100;
+    g.objs.aliens[b as usize].worldx = 300;
+    g.objs.aliens[a as usize].collobjptr = b;
+    g.objs.aliens[b as usize].collobjptr = a;
+    g.vars.write_ext8(wm::POWERBUILD, 0);
+    let ca = g.objs.aliens[a as usize]
+        .collstratptr
+        .expect("ring hit strat");
+    let cb = g.objs.aliens[b as usize]
+        .collstratptr
+        .expect("ring hit strat");
+    g.call_strat(ca, a);
+    g.call_strat(cb, b);
+    assert_eq!(g.objs.aliens[a as usize].worldx, 200);
+    assert_eq!(g.objs.aliens[b as usize].worldx, 200);
+    assert_eq!(g.objs.aliens[a as usize].vel, 120);
+    assert_eq!(g.objs.aliens[a as usize].sbyte1, 3, "4 -> 3 wait count");
+    assert_eq!(
+        g.objs.aliens[a as usize].sflags3 & ASF3_SAMESHAPECOLLIDE,
+        0,
+        "converged shot no longer seeks another same-shape partner"
+    );
+
+    g.vars.write_ext8(wm::POWERBUILD, 1);
+    let before = (
+        g.objs.aliens[a as usize].worldx,
+        g.objs.aliens[a as usize].worldy,
+        g.objs.aliens[a as usize].worldz,
+    );
+    let wait = g.objs.aliens[a as usize].stratptr.expect("wait strat");
+    g.call_strat(wait, a);
+    let after = (
+        g.objs.aliens[a as usize].worldx,
+        g.objs.aliens[a as usize].worldy,
+        g.objs.aliens[a as usize].worldz,
+    );
+    assert_ne!(after, before, "powerbuild releases the shot into its curve");
+    assert!(
+        g.objs.aliens[a as usize].sbyte2 != 0 || g.objs.aliens[a as usize].sbyte4 != 0,
+        "curve carries a signed pitch or yaw delta"
+    );
+}
+
+// ------------------------------------------------------------
+// 2d. .generateminis attaches the exact DPATHDAT minicastanet program rather
+//     than the former straight-scroll stand-in. (DSTRATS.ASM:5955-5999;
+//     DPATHDAT.ASM:1962-2080.)
+// ------------------------------------------------------------
+#[test]
+fn generated_minis_run_the_exact_path_program() {
+    let (mut g, boss) = setup(0, 0);
+    arm_boss(&mut g, boss);
+    g.run_strategies();
+    g.objs.aliens[boss as usize].stratstate = GENERATE_MINIS_MODE;
+    g.run_strategies();
+
+    let start =
+        sf_path::literals::get_catalog().offsets[sf_path::ids::PATH_ID_MINICASTANET as usize];
+    let minis: Vec<usize> = (0..NUMBER_AL)
+        .filter(|&i| g.objs.aliens[i].active && g.objs.aliens[i].shape == 333)
+        .collect();
+    assert_eq!(
+        minis.len(),
+        4,
+        "four mini-cymbals generated in one mode entry"
+    );
+    assert!(
+        minis
+            .iter()
+            .all(|&i| g.objs.aliens[i].sword2 as u16 == start),
+        "each mini starts at the symbol-derived minicastanet path"
+    );
+
+    // Init then execute RELTOPLAYER/ALWAYSGENVECS/SET/RANDOMGOTO/WAIT. The VM
+    // stores the resume IP after WAIT, mechanically proving this is no longer
+    // the one-line add_player_z fallback.
+    g.run_strategies();
+    g.run_strategies();
+    assert!(minis
+        .iter()
+        .all(|&i| { g.objs.aliens[i].active && g.objs.aliens[i].sword2 as u16 != start }));
+}
+
+// ------------------------------------------------------------
 // 3. the boss bar = bit1.hp + bit2.hp accumulated per tick; damaging a bit
 //    drops it. (DSTRATS.ASM:6119-6127 s_add_bossHP y,al_hp for each bit.)
 // ------------------------------------------------------------
@@ -198,7 +336,11 @@ fn bosshp_drains_on_bit_damage() {
     let b1 = bit_idx(&g, g.objs.aliens[boss as usize].ptr).expect("bit1 alive");
     g.objs.aliens[b1].hp = 100;
     g.run_strategies();
-    assert_eq!(g.vars.bosshp, CASTANET_MAXHP - 20, "bar tracked the -20 hit");
+    assert_eq!(
+        g.vars.bosshp,
+        CASTANET_MAXHP - 20,
+        "bar tracked the -20 hit"
+    );
     assert!(g.vars.bosshp < full, "m_bossHP bar dropped");
 }
 

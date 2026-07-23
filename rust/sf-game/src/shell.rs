@@ -21,17 +21,22 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use sf_core::{pad, DrawListEntry};
+use sf_core::{
+    pad,
+    scene::{PaletteFadeTarget, SceneStyle},
+    DrawListEntry,
+};
 
 use crate::camera::GameCamera;
+use crate::charmap::CharMap;
 use crate::game::{Game, Hooks, PosSndFamilyId};
 use crate::obj::Objects;
 use crate::planets::{Planets, DEFAULT_LIVES};
 use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
-    GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PALFADE_NUM_START, PFM_SHADOWS, PSF2_PLAYERHP0,
-    PSF3_ENGINESND, SPACE_MODE, SPFM_NORM,
+    BossEncounter, GameVars, GF_PLAYERDEAD, PFM_SHADOWS, PSF2_PLAYERHP0, PSF3_ENGINESND,
+    PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, SPFM_NORM, STAY_BLACK_INACTIVE,
 };
 use crate::windows::Windows;
 use crate::world::World;
@@ -40,13 +45,46 @@ use crate::{bgs, draw};
 /// C `LEVEL_CLEAR_SETTLE_TICKS` (src/game/boot.c:39) — 3 s after mapend
 /// before the stage advance.
 pub const LEVEL_CLEAR_SETTLE_TICKS: i32 = 60;
-/// Minimum frames the end-of-level tally screen is shown before it can be
-/// dismissed (ROM `end_level_seq` animates the percent count-up over many
-/// frames, MAIN.ASM:1101-1210; no single ROM constant — a display hold).
-pub const TALLY_HOLD_TICKS: i32 = 120;
+/// One retail `printspeclp` display step spans roughly two 20 Hz native-port
+/// ticks (independent Mesen Rev 2 oracle: 5-6 video frames per loop).
+pub const TALLY_DISPLAY_STEP_TICKS: u8 = 2;
+/// ROM `cla1 += 3` graph step (MAIN.ASM:1191-1201).
+pub const TALLY_PERCENT_STEP: u8 = 3;
+/// ROM `clam = 20` delay between reaching the target and committing it.
+pub const TALLY_COMMIT_DELAY_STEPS: u8 = 20;
+/// ROM `clb1 = 20` delay before a newly crossed bonus is announced.
+pub const TALLY_BONUS_DELAY_STEPS: u8 = 20;
+/// ROM `plotx1 = 10`; the credit increments after nine visible decrements.
+pub const TALLY_BONUS_AWARD_STEPS: u8 = 9;
+/// Native unattended safeguard once every retail tally operation is complete.
+pub const TALLY_READY_AUTO_TICKS: u16 = 60;
 /// C `DEATH_RESPAWN_TICKS` (src/game/boot.c:40) — 2.5 s after
 /// GF_PLAYERDEAD before reload.
 pub const DEATH_RESPAWN_TICKS: i32 = 50;
+
+/// Staff-roll music package in the native audio catalog. The source ending
+/// switches to this package immediately before loading the credits map.
+pub const MUSIC_STAFF_ROLL: u8 = 32;
+/// End-sequence sound package. Its catalog start cue is the source recap song.
+pub const MUSIC_END_SEQUENCE: u8 = 31;
+/// Source circular wipe duration between replay entries and after the last.
+pub const ENDING_REPLAY_TRANSITION_TICKS: u8 = 37;
+/// The source begins bringing the detail panel in below this remaining count.
+pub const ENDING_REPLAY_SCROLL_TICKS: u16 = 110;
+/// The detail text becomes visible at this exact remaining count.
+pub const ENDING_REPLAY_DETAILS_TICK: u16 = 100;
+/// Source interval between successive stage-score rows.
+pub const ENDING_STAGE_ROW_TICKS: u8 = 30;
+/// Source wrapped countdown after the final stage row before the summary.
+pub const ENDING_STAGE_FINISH_TICKS: u8 = 85;
+/// Delay between score-summary label/value groups.
+pub const ENDING_SUMMARY_REVEAL_TICKS: u8 = 25;
+/// Hold after the pre-recap score summary.
+pub const ENDING_SUMMARY_HOLD_TICKS: u8 = 80;
+/// Source `400-30` transfer interval before the boss recap.
+pub const ENDING_SUMMARY_FADE_TICKS: u16 = 370;
+/// Delay between each final-score row/value reveal.
+pub const FINAL_SCORE_REVEAL_TICKS: u8 = 10;
 
 /// C `NMI_PLAYER_MAX_HP` (src/game/nmi.c:47) — player body hit points.
 pub const NMI_PLAYER_MAX_HP: i32 = 40;
@@ -109,12 +147,551 @@ pub enum GameState {
     Tally,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TallyPhase {
+    Counting,
+    CommitDelay { steps_remaining: u8 },
+    BonusDelay { steps_remaining: u8 },
+    BonusAward { steps_remaining: u8 },
+    Ready,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TallyState {
+    target_percent: u8,
+    current_percent: u8,
+    teammate_shields: [u8; 3],
+    phase: TallyPhase,
+    display_tick: u8,
+    ready_ticks: u16,
+    bonus_visible: bool,
+}
+
+/// Post-campaign presentation after the boss replay has handed off to the
+/// retail credits map. Kept as semantic flat state rather than reusing any of
+/// the source machine's scratch storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EndingPhase {
+    ScoreParade,
+    ScoreSummary,
+    ScoreHold,
+    ScoreFade,
+    BossReplay,
+    BossTransition,
+    StaffRoll,
+    FinalScore,
+}
+
+/// The two source background/palette selections used by every boss recap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndingReplayBackdrop {
+    RisingGradient,
+    SplitGradient,
+}
+
+/// Exact English text attached to one semantic boss recap. Strings remain
+/// ordinary typed presentation data; the renderer owns glyph rasterization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndingReplayText {
+    pub title: &'static str,
+    pub subtitle: Option<&'static str>,
+    pub location: Option<&'static str>,
+    pub location_second_line: Option<&'static str>,
+    pub details: [&'static str; 3],
+}
+
+/// Source timing and camera setup for one recorded boss recap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndingReplaySpec {
+    pub duration_ticks: u16,
+    pub warmup_ticks: u16,
+    pub initial_view_distance: i16,
+    pub target_view_distance: i16,
+    pub view_height: i16,
+    pub backdrop: EndingReplayBackdrop,
+}
+
+/// Fixed, inspectable presentation state consumed by the native renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndingReplayPresentation {
+    pub encounter: BossEncounter,
+    pub backdrop: EndingReplayBackdrop,
+    pub text: EndingReplayText,
+    /// Number of detail characters already emitted. The retail NMI writes one
+    /// printable character per game tick after the countdown crosses 100.
+    pub detail_characters_visible: u8,
+}
+
+/// Exact handler constants from `ENDSEQ.ASM` for every semantic encounter.
+pub fn ending_replay_spec(encounter: BossEncounter) -> EndingReplaySpec {
+    use BossEncounter::*;
+    use EndingReplayBackdrop::{RisingGradient, SplitGradient};
+
+    match encounter {
+        Route1Stage1 | Route2Stage1 => EndingReplaySpec {
+            duration_ticks: 180,
+            warmup_ticks: 200,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: RisingGradient,
+        },
+        Route1Stage2 => EndingReplaySpec {
+            duration_ticks: 195,
+            warmup_ticks: 0,
+            initial_view_distance: 1_000,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route2Stage2 => EndingReplaySpec {
+            duration_ticks: 195,
+            warmup_ticks: 0,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route1Stage3 | Route3Stage4 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 0,
+            initial_view_distance: 1_500,
+            target_view_distance: 1_500,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route1Stage4 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 230,
+            initial_view_distance: 2_500,
+            target_view_distance: 2_300,
+            view_height: 200,
+            backdrop: RisingGradient,
+        },
+        Route1Stage5 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 40,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route1Stage6 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 0,
+            initial_view_distance: 1_000,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route2Stage3 => EndingReplaySpec {
+            duration_ticks: 180,
+            warmup_ticks: 0,
+            initial_view_distance: 200,
+            target_view_distance: 400,
+            view_height: 0,
+            backdrop: RisingGradient,
+        },
+        Route2Stage4 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 0,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route2Stage5 => EndingReplaySpec {
+            duration_ticks: 220,
+            warmup_ticks: 0,
+            initial_view_distance: 1_000,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route2Stage6 => EndingReplaySpec {
+            duration_ticks: 220,
+            warmup_ticks: 50,
+            initial_view_distance: 500,
+            target_view_distance: 1_000,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route3Stage1 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 230,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: -400,
+            backdrop: RisingGradient,
+        },
+        Route3Stage2 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 50,
+            initial_view_distance: 1_000,
+            target_view_distance: 2_300,
+            view_height: 0,
+            backdrop: SplitGradient,
+        },
+        Route3Stage3 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 0,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: -300,
+            backdrop: RisingGradient,
+        },
+        Route3Stage5 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 200,
+            initial_view_distance: 1_000,
+            target_view_distance: 2_300,
+            view_height: -300,
+            backdrop: SplitGradient,
+        },
+        Route3Stage6 => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 300,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: -200,
+            backdrop: SplitGradient,
+        },
+        Route3Stage7 => EndingReplaySpec {
+            duration_ticks: 250,
+            warmup_ticks: 50,
+            initial_view_distance: 1_500,
+            target_view_distance: 2_300,
+            view_height: -300,
+            backdrop: SplitGradient,
+        },
+        FinalBattle => EndingReplaySpec {
+            duration_ticks: 200,
+            warmup_ticks: 200,
+            initial_view_distance: 2_000,
+            target_view_distance: 2_300,
+            view_height: -300,
+            backdrop: SplitGradient,
+        },
+    }
+}
+
+/// Exact `ENDSEQ.ASM` strings for every route/stage identity.
+pub fn ending_replay_text(encounter: BossEncounter) -> EndingReplayText {
+    use BossEncounter::*;
+
+    let (title, location, location_second_line, details) = match encounter {
+        Route1Stage1 => (
+            "LEVEL 1",
+            Some("CORNERIA"),
+            None,
+            [
+                "NAME   - ATTACK CARRIER",
+                "WEAPON - MISSILE BLASTER",
+                "SIZE   - H70*W100*D150",
+            ],
+        ),
+        Route2Stage1 => (
+            "LEVEL 2",
+            Some("CORNERIA"),
+            None,
+            [
+                "NAME   - ATTACK CARRIER",
+                "WEAPON - MISSILE BLASTER",
+                "SIZE   - H70*W100*D150",
+            ],
+        ),
+        Route3Stage1 => (
+            "LEVEL 3",
+            Some("CORNERIA"),
+            None,
+            [
+                "NAME   - DESTRUCTOR",
+                "WEAPON - PLASMA",
+                "SIZE   - H45*W150*D90",
+            ],
+        ),
+        Route1Stage2 => (
+            "LEVEL 1",
+            Some("ASTEROID"),
+            None,
+            [
+                "NAME   - ROCK CRUSHER",
+                "WEAPON - LASER",
+                "SIZE   - H60*W86*D45",
+            ],
+        ),
+        Route2Stage2 => (
+            "LEVEL 2",
+            Some("SECTOR %"),
+            None,
+            [
+                "NAME   - ROCK CRUSHER",
+                "WEAPON - LASER",
+                "SIZE   - H60*W86*D45",
+            ],
+        ),
+        Route3Stage2 => (
+            "LEVEL 3",
+            Some("ASTEROID"),
+            None,
+            [
+                "NAME   - BLADE BARRIER",
+                "WEAPON - WEB ATTACK",
+                "SIZE   - H90*W90*D65",
+            ],
+        ),
+        Route1Stage3 => (
+            "LEVEL 1",
+            Some("SPACE"),
+            Some("ARMADA"),
+            [
+                "NAME   - ATOMIC BASE",
+                "WEAPON - LASER",
+                "SIZE   - H600*W850*D1200",
+            ],
+        ),
+        Route2Stage3 => (
+            "LEVEL 2",
+            Some("TITANIA"),
+            None,
+            [
+                "NAME   - PROFESSOR HANGER",
+                "WEAPON - SHADOW THRUSTER",
+                "SIZE   - H25*W18*D30",
+            ],
+        ),
+        Route3Stage3 => (
+            "LEVEL 3",
+            Some("FORTUNA"),
+            None,
+            [
+                "NAME   - MONARCH DODORA",
+                "WEAPON - FIRE BREATH",
+                "SIZE   - H85*W160*D200",
+            ],
+        ),
+        Route1Stage4 => (
+            "LEVEL 1",
+            Some("METEOR"),
+            None,
+            [
+                "NAME   - DANCING INSECTOR",
+                "WEAPON - FIRE BLASTER",
+                "SIZE   - H120*W87*D72",
+            ],
+        ),
+        Route2Stage4 => (
+            "LEVEL 2",
+            Some("SECTOR $"),
+            None,
+            [
+                "NAME   - PLASMA HYDRA",
+                "WEAPON - PLASMA SPEWER",
+                "SIZE   - H96*W280*D55",
+            ],
+        ),
+        Route3Stage4 => (
+            "LEVEL 3",
+            Some("SECTOR #"),
+            None,
+            [
+                "NAME   - ATOMIC BASE II",
+                "WEAPON - LASER",
+                "SIZE   - H92*W90*D1100",
+            ],
+        ),
+        Route1Stage5 => (
+            "LEVEL 1",
+            Some("VENOM"),
+            None,
+            [
+                "NAME   - PHANTRON",
+                "WEAPON - LASER",
+                "SIZE   - H25*W22*D31",
+            ],
+        ),
+        Route2Stage5 => (
+            "LEVEL 2",
+            Some("VENOM"),
+            None,
+            [
+                "NAME   - METAL SMASHER",
+                "WEAPON - CRUSH ATTACK",
+                "SIZE   - H17*W20*D38",
+            ],
+        ),
+        Route3Stage5 => (
+            "LEVEL 3",
+            Some("MACBETH"),
+            None,
+            [
+                "NAME   - SPINNING CORE",
+                "WEAPON - LASER",
+                "SIZE   - H63*W52*D45",
+            ],
+        ),
+        // The retail Route 1 stage 6 record deliberately reuses
+        // `boss15txt2`, including its PHANTRON identification.
+        Route1Stage6 => (
+            "LEVEL 1",
+            Some("VENOM"),
+            None,
+            [
+                "NAME   - PHANTRON",
+                "WEAPON - LASER",
+                "SIZE   - H25*W22*D31",
+            ],
+        ),
+        Route2Stage6 => (
+            "LEVEL 2",
+            Some("VENOM"),
+            None,
+            [
+                "NAME   - GALACTIC RIDER",
+                "WEAPON - AIR BIKERS",
+                "SIZE   - H80*W61*D25",
+            ],
+        ),
+        Route3Stage6 => (
+            "LEVEL 3",
+            Some("VENOM"),
+            None,
+            [
+                "NAME   - GREAT COMMANDER",
+                "WEAPON - LASER",
+                "SIZE   - H73*W97*D250",
+            ],
+        ),
+        Route3Stage7 => (
+            "LEVEL 3",
+            Some("VENOM"),
+            None,
+            [
+                "NAME   - GREAT COMMANDER",
+                "WEAPON - IRON BALLS",
+                "SIZE   - H73*W97*D250",
+            ],
+        ),
+        FinalBattle => {
+            return EndingReplayText {
+                title: "FINAL",
+                subtitle: Some("STAGE"),
+                location: None,
+                location_second_line: None,
+                details: [
+                    "NAME   - ANDROSS...",
+                    "WEAPON - TELEKINESIS",
+                    "SIZE   - H100*W80*D30",
+                ],
+            };
+        }
+    };
+
+    EndingReplayText {
+        title,
+        subtitle: None,
+        location,
+        location_second_line,
+        details,
+    }
+}
+
+/// Semantic pieces emitted by the source final-score presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndingScorePart {
+    StageScore {
+        stage_number: u8,
+        score: u8,
+        row: u8,
+    },
+    ParadeTotalLabel,
+    ParadeTotalValue,
+    ParadeAverageLabel,
+    ParadeAverageValue,
+    TotalLabel,
+    TotalValue,
+    AverageLabel,
+    AverageValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FinalScoreStep {
+    WaitingForCredits,
+    TotalValue,
+    AverageLabel,
+    AverageValue,
+    Complete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScoreSummaryStep {
+    TotalValue,
+    AverageLabel,
+    AverageValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct EndingState {
+    phase: EndingPhase,
+    replay_index: u8,
+    replay_ticks_remaining: u16,
+    replay_transition_ticks: u8,
+    replay_anchor: Option<u16>,
+    replay_encounter: Option<BossEncounter>,
+    replay_view_height: i16,
+    replay_target_view_distance: i16,
+    replay_backdrop: EndingReplayBackdrop,
+    replay_detail_characters_visible: u8,
+    score_stage_index: u8,
+    score_stage_ticks: u8,
+    score_summary_step: ScoreSummaryStep,
+    score_summary_ticks: u8,
+    score_fade_ticks: u16,
+    final_score_step: FinalScoreStep,
+    reveal_ticks: u8,
+}
+
+impl Default for EndingState {
+    fn default() -> Self {
+        Self {
+            phase: EndingPhase::StaffRoll,
+            replay_index: 0,
+            replay_ticks_remaining: 0,
+            replay_transition_ticks: 0,
+            replay_anchor: None,
+            replay_encounter: None,
+            replay_view_height: 0,
+            replay_target_view_distance: 0,
+            replay_backdrop: EndingReplayBackdrop::RisingGradient,
+            replay_detail_characters_visible: 0,
+            score_stage_index: 0,
+            score_stage_ticks: 0,
+            score_summary_step: ScoreSummaryStep::TotalValue,
+            score_summary_ticks: 0,
+            score_fade_ticks: 0,
+            final_score_step: FinalScoreStep::WaitingForCredits,
+            reveal_ticks: 0,
+        }
+    }
+}
+
+impl Default for TallyState {
+    fn default() -> Self {
+        Self {
+            target_percent: 0,
+            current_percent: 0,
+            teammate_shields: [0; 3],
+            phase: TallyPhase::Ready,
+            display_tick: 0,
+            ready_ticks: 0,
+            bonus_visible: false,
+        }
+    }
+}
+
 impl GameState {
-    /// Numeric code in boot.h enum order (BOOT=0 .. ENDING=6).
-    ///
-    /// The tally screen has no distinct render state yet; it reports
-    /// `PlanetSelect` (3) so sf-app renders the map screen underneath and
-    /// ui.rs overlays the tally figures via `FrameInputs::tally_active`.
+    /// Numeric code in boot.h enum order (BOOT=0 .. ENDING=6), followed by
+    /// the port's semantic tally presentation state.
     pub fn code(self) -> u8 {
         match self {
             GameState::Boot => 0,
@@ -124,7 +701,7 @@ impl GameState {
             GameState::Playing => 4,
             GameState::Continue => 5,
             GameState::Ending => 6,
-            GameState::Tally => 3,
+            GameState::Tally => 7,
         }
     }
 }
@@ -155,6 +732,12 @@ pub enum SoundCmd {
     },
     PlayImmediate(u8),
     StopMusic,
+    /// ROM `pausesnd` (MAIN.ASM dopause → IRQ.ASM drain): flush the SE ring
+    /// and force port3 to `se_pauseon` ($02) / `se_pauseoff` ($01).
+    PauseSnd(u8),
+    /// ROM `nosetport3` (SOUND.ASM:955 gate; PATHDATA bird_touch / ENDSEQ /
+    /// PLANETS.ASM:257 `stz`). When true, `play_se` drops into the void.
+    NoSetPort3(bool),
 }
 
 /// C `WindowState` (src/game/game_vars.h:263-268).
@@ -189,12 +772,12 @@ pub struct FrameSnapshot {
     pub bgflags: u8,
     pub bg2_xscroll: i32,
     pub nomax_bg2_yscroll: bool,
-    /// Shape-palette fade source (vars PALFADE_*, FADETOSEA/FADETOGROUND).
-    pub pal_from: u8,
-    /// Shape-palette fade target (vars PALFADE_*).
-    pub pal_target: u8,
-    /// Fade progress 0..1 (ROM palnum 15-frame walk as a fraction).
-    pub pal_fade: f32,
+    pub scene_style: SceneStyle,
+    /// Background palette-row source selected by FADETOSEA/FADETOGROUND.
+    pub pal_target: Option<PaletteFadeTarget>,
+    /// ROM `palnum` remaining counter. Starts at 30 and steps by two while
+    /// the renderer copies background palette entries 15 down to 1.
+    pub palfade_num: u16,
     pub windowmode: u8,
     pub windows: [WindowSlot; 8],
     pub meters: u16,
@@ -211,6 +794,10 @@ pub struct FrameSnapshot {
     pub boss_hp_max: i32,
     pub lives: i32,
     pub bombs: i32,
+    /// ROM `specflash` — nova-bomb HUD blink timer (SPRITES.ASM do_spec_weap).
+    pub specflash: u8,
+    /// ROM `shieldup` — wireframe-shield meter fill color (MDRAWLIS color 7).
+    pub shieldup: u8,
     pub msg_count1: u8,
     pub msg_count2: u8,
     pub whichfriend: u8,
@@ -237,6 +824,21 @@ pub struct FrameSnapshot {
     pub tally_active: bool,
     /// The just-finished stage's hit percentage, shown on the tally screen.
     pub tally_stage_perc: u8,
+    /// Animated graph value (ROM `cla1`).
+    pub tally_current_perc: u8,
+    /// Peppy, Falco, and Slippy shield values in screen order.
+    pub tally_teammate_shields: [u8; 3],
+    /// `BONUS 1 CREDIT` replaces the graph after the bonus delay.
+    pub tally_bonus_visible: bool,
+    /// Active route-specific boss recap, including its typed background and
+    /// exact detail-panel reveal boundary.
+    pub ending_replay: Option<EndingReplayPresentation>,
+    /// The credits map has completed and the permanent final-score
+    /// presentation is active.
+    pub ending_final_score_visible: bool,
+    /// All four final-score parts have been emitted and the permanent ending
+    /// presentation is fully assembled.
+    pub ending_final_score_complete: bool,
 }
 
 /// State shared between the shell and the map-VM hooks (the C globals that
@@ -245,6 +847,8 @@ struct ShellState {
     windows: Windows,
     strings: Strings,
     sound: Vec<SoundCmd>,
+    /// Last `setcharmap*_l` layout (HD stand-in for SNES VRAM tilemap upload).
+    charmap: CharMap,
     /// C `s_missing_path_warned` (src/path/paths.c) — warn-once bitmap for
     /// `resolve_path_start`.
     path_warned: Vec<bool>,
@@ -261,6 +865,7 @@ impl ShellState {
             windows: Windows::new(),
             strings: Strings::new(),
             sound: Vec::new(),
+            charmap: CharMap::new(),
             path_warned: vec![false; 512],
             shape_extents: HashMap::new(),
         }
@@ -276,12 +881,18 @@ struct ShellHooks {
 impl Hooks for ShellHooks {
     fn play_music(&mut self, track_id: u8) {
         // C Sound_PlayMusic (map setbgm, world.c setbgmdo).
-        self.state.borrow_mut().sound.push(SoundCmd::PlayMusic(track_id));
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlayMusic(track_id));
     }
 
     fn play_se(&mut self, sound_id: u8) {
         // C Sound_PlaySE (level inline callbacks).
-        self.state.borrow_mut().sound.push(SoundCmd::PlaySe(sound_id));
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlaySe(sound_id));
     }
 
     fn make_snd(&mut self, family: PosSndFamilyId, obj_worldx: i16, obj_worldz: i16) {
@@ -295,12 +906,26 @@ impl Hooks for ShellHooks {
 
     fn trig_se(&mut self, sound_id: u8) {
         // C Strat_TrigSE == Sound_PlaySE (src/strat/strat_common.c:323).
-        self.state.borrow_mut().sound.push(SoundCmd::PlaySe(sound_id));
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlaySe(sound_id));
+    }
+
+    fn set_nosetport3(&mut self, disabled: bool) {
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::NoSetPort3(disabled));
     }
 
     fn send_message(&mut self, msg_id: u8) {
         // C Strings_SendMessage (map sendmsg, CLfriendmsg builtins).
         self.state.borrow_mut().strings.send_message(msg_id);
+    }
+
+    fn set_friends_meter(&mut self, value: u8) {
+        self.state.borrow_mut().strings.friends_meter = value;
     }
 
     fn fade_to_black(&mut self, speed: i32) {
@@ -321,6 +946,38 @@ impl Hooks for ShellHooks {
 
     fn init_fade_white2norm(&mut self) {
         self.state.borrow_mut().windows.init_fade_white2norm();
+    }
+
+    fn boss_flash(&mut self) {
+        self.state.borrow_mut().windows.boss_flash();
+    }
+
+    fn flash_turq(&mut self) {
+        self.state.borrow_mut().windows.flash_turq();
+    }
+
+    fn flash_turq2(&mut self) {
+        self.state.borrow_mut().windows.flash_turq2();
+    }
+
+    fn flash_red(&mut self) {
+        self.state.borrow_mut().windows.flash_red();
+    }
+
+    fn hitflash_off(&mut self) {
+        self.state.borrow_mut().windows.hitflash_off();
+    }
+
+    fn set_charmap_game(&mut self) {
+        self.state.borrow_mut().charmap.set_game();
+    }
+
+    fn set_charmap_plan(&mut self) {
+        self.state.borrow_mut().charmap.set_plan();
+    }
+
+    fn set_charmap_fox(&mut self) {
+        self.state.borrow_mut().charmap.set_fox();
     }
 
     fn resolve_path_start(&mut self, path_id: u16) -> u16 {
@@ -375,33 +1032,17 @@ pub struct Shell {
     levelclear_ticks: i32,
     /// C `s_death_ticks` (boot.c:43).
     death_ticks: i32,
-    /// Frames spent on the tally screen (GameState::Tally hold timer).
-    tally_ticks: i32,
-    /// The just-finished stage's hit percentage, for the tally overlay
-    /// (ROM `cla2`, MAIN.ASM:1071).
-    tally_stage_perc: u8,
+    /// Typed native equivalent of `cla1`/`cla2`/`clam`/`clb1`/`plotx1`.
+    tally: TallyState,
+    /// Typed post-campaign staff-roll/final-score state.
+    ending: EndingState,
     /// C `g_rndval` (sf_rtl.c:16) — strings face animation PRNG.
     rndval: u16,
     /// Warn-once set for unported map ids (C levels.c warn-once END stub).
     warned_maps: Vec<u32>,
 
-    // --- C globals surfaced in FrameSnapshot but owned by lanes that are
-    // not ported yet; held here with GameVars_Init defaults. ---
-    /// C `g_specwepcnt` (game_vars.c:429, DEFAULT_NUKE_COUNT).
-    /// TODO(sf-strat): nuke pickup/fire mutates this.
-    specwepcnt: u16,
-    /// C `g_stayblack` (game_vars.c:369, default -1). TODO(sf-strat).
-    stayblack: i8,
-    /// C `g_arrows` (game_vars.c:367). TODO(sf-strat).
-    arrows: u8,
-    /// C `g_boostcnt` (game_vars.c:430). TODO(sf-strat).
-    boostcnt: u8,
-    /// C `g_doingwipe` (game_vars.c:368; boot.c:68 clears it).
-    doingwipe: u8,
-    /// C `g_bg2Xscroll` (game_vars.c:234). TODO(sf-strat/render).
-    bg2_xscroll: i16,
-    /// C `g_nomaxbg2Yscroll` (game_vars.c:195). TODO(sf-strat/render).
-    nomax_bg2_yscroll: u8,
+    /// ROM `dopause` latch (MAIN.ASM:1386) — START toggles; freezes nmi tick.
+    paused: bool,
 
     /// Strategy-registration hook (C `Strat_RegisterAll`, boot.c). Injected
     /// by the app layer because `sf-strat` depends on `sf-game`, so this
@@ -415,12 +1056,22 @@ pub struct Shell {
     /// `register_strats`). Called with the newmap id at gameplay start so it
     /// can run the opening strategy for LEVEL1_1/2_1/3_1.
     spawn_player: Option<Box<dyn Fn(&mut Game, u32)>>,
+
+    /// Final-score object-spawn hook, injected by sf-app because the concrete
+    /// path-text strategy lives in sf-strat.
+    ending_score_part: Option<Box<dyn Fn(&mut Game, EndingScorePart, u16, u16)>>,
+
+    /// Boss-recap object producer. The sf-strat implementation installs the
+    /// real encounter initializer and returns the camera-anchor object.
+    ending_boss_replay: Option<Box<dyn Fn(&mut Game, BossEncounter) -> Option<u16>>>,
 }
 
 impl Shell {
     pub fn new() -> Self {
         let state = Rc::new(RefCell::new(ShellState::new()));
-        let hooks = ShellHooks { state: Rc::clone(&state) };
+        let hooks = ShellHooks {
+            state: Rc::clone(&state),
+        };
         Shell {
             game: Game::with_hooks(Box::new(hooks)),
             state,
@@ -434,19 +1085,15 @@ impl Shell {
             pad1_new: 0,
             levelclear_ticks: 0,
             death_ticks: 0,
-            tally_ticks: 0,
-            tally_stage_perc: 0,
+            tally: TallyState::default(),
+            ending: EndingState::default(),
             rndval: 0,
             warned_maps: Vec::new(),
-            specwepcnt: 3,
-            stayblack: -1,
-            arrows: 0,
-            boostcnt: 0,
-            doingwipe: 0,
-            bg2_xscroll: 0,
-            nomax_bg2_yscroll: 0,
+            paused: false,
             register_strats: None,
             spawn_player: None,
+            ending_score_part: None,
+            ending_boss_replay: None,
         }
     }
 
@@ -473,6 +1120,22 @@ impl Shell {
         self.spawn_player = Some(hook);
     }
 
+    /// Install the source 3D final-score object producer.
+    pub fn set_ending_score_part(
+        &mut self,
+        hook: Box<dyn Fn(&mut Game, EndingScorePart, u16, u16)>,
+    ) {
+        self.ending_score_part = Some(hook);
+    }
+
+    /// Install the source encounter object producer used by the ending recap.
+    pub fn set_ending_boss_replay(
+        &mut self,
+        hook: Box<dyn Fn(&mut Game, BossEncounter) -> Option<u16>>,
+    ) {
+        self.ending_boss_replay = Some(hook);
+    }
+
     /// Re-run the registration hook after a `World::init()` reset (C re-runs
     /// Strat_RegisterAll on each level load).
     fn reregister_strats(&mut self) {
@@ -497,12 +1160,14 @@ impl Shell {
         // GameVars is canonical for those (the map VM friend-alive
         // callbacks read them there). Nothing mutates them mid-tick until
         // sf-strat lands, so a top-of-tick sync is exact.
-        {
+        let friends_meter = {
             let mut st = self.state.borrow_mut();
             st.strings.bunny_hp = self.game.vars.bunny_hp;
             st.strings.falcon_hp = self.game.vars.falcon_hp;
             st.strings.frog_hp = self.game.vars.frog_hp;
-        }
+            st.strings.friends_meter
+        };
+        self.game.vars.shared.friends_meter = friends_meter;
 
         // C Game_Tick state switch (boot.c:226-276).
         match self.game_state {
@@ -526,28 +1191,43 @@ impl Shell {
                 }
             }
             GameState::Playing => {
-                // Core gameplay tick + progression bridge (boot.c:250-255).
-                self.nmi_game_tick();
-                self.gameplay_progress_tick();
+                // ROM gameloop START → dopause (MAIN.ASM:200-211 / 1386-1426).
+                self.try_toggle_pause();
+                if !self.paused {
+                    self.nmi_game_tick();
+                    self.gameplay_progress_tick();
+                }
             }
             GameState::Continue => {
-                // CONTINUE.ASM semantics (boot.c:257-268).
+                // CONTINUE.ASM `foxy_continue_l`: accept costs one credit
+                // (`dec credits` + `trigse $67` + `startbgm $f1`), then refill
+                // lives and restart. Zero credits → Title (ROM `.end2`).
                 if self.pad1_new & (pad::START | pad::A) != 0 {
-                    self.planets.lives = DEFAULT_LIVES;
-                    self.begin_gameplay_from_planet_select();
+                    if self.planets.credits > 0 {
+                        self.planets.credits -= 1;
+                        {
+                            let mut st = self.state.borrow_mut();
+                            st.sound.push(SoundCmd::PlaySe(0x67));
+                            st.sound.push(SoundCmd::PlayMusic(0xf1));
+                        }
+                        self.planets.lives = DEFAULT_LIVES;
+                        self.game.vars.reset_player_run_state();
+                        self.begin_gameplay_from_planet_select();
+                    } else {
+                        self.game_state = GameState::Title;
+                    }
                 } else if self.pad1_new & (pad::B | pad::SELECT) != 0 {
                     self.game_state = GameState::Title;
                 }
             }
             GameState::Ending => {
-                // Minimal ending flow (boot.c:270-275).
-                if self.pad1_new & (pad::START | pad::A | pad::B) != 0 {
-                    self.game_state = GameState::Title;
-                }
+                self.ending_tick();
             }
             GameState::Tally => {
                 // End-of-level tally screen (ROM end_level_seq).
-                self.draw_list.clear();
+                // The retail transfer loop keeps presenting the stage-clear
+                // scene behind the framebuffer tally. Retain the final typed
+                // draw list instead of replacing it with the planet map.
                 self.tally_tick();
             }
         }
@@ -555,14 +1235,16 @@ impl Shell {
         // Every tick after the state switch (boot.c:278-284):
         // Bgs_Update, Windows_Update, Strings_Update.
         bgs::update(&mut self.game.vars);
-        {
+        let friends_meter = {
             let mut st = self.state.borrow_mut();
             let st = &mut *st;
             st.windows
                 .update(&mut self.game.vars.oncewipe, &mut self.game.vars.circleanim);
             st.strings
                 .update(self.game.vars.gameflags, &mut self.rndval, &mut st.sound);
-        }
+            st.strings.friends_meter
+        };
+        self.game.vars.shared.friends_meter = friends_meter;
 
         // Diagnostic: report state transitions + the level entered. Low-volume
         // (a handful of transitions per session); makes a "stuck after X" report
@@ -582,6 +1264,11 @@ impl Shell {
 
     pub fn state(&self) -> GameState {
         self.game_state
+    }
+
+    /// ROM `dopause` latch — true while gameplay is frozen on START pause.
+    pub fn is_paused(&self) -> bool {
+        self.paused
     }
 
     /// C `Game_GetDrawList` (boot.c:287) — the current tick's entries.
@@ -616,20 +1303,19 @@ impl Shell {
             currentbg: v.currentbg,
             newmap: self.planets.newmap,
             bgflags: v.bgflags,
-            bg2_xscroll: self.bg2_xscroll as i32,
-            nomax_bg2_yscroll: self.nomax_bg2_yscroll != 0,
-            pal_from: v.palfade_from,
+            bg2_xscroll: v.shared.background_scroll_x as i32,
+            nomax_bg2_yscroll: v.strategy.no_maximum_background_y != 0,
+            scene_style: v.scene_style,
             pal_target: v.palfade_target,
-            pal_fade: (PALFADE_NUM_START.saturating_sub(v.palfade_num)) as f32
-                / PALFADE_NUM_START as f32,
+            palfade_num: v.palfade_num,
             windowmode: st.windows.windowmode,
             windows: st.windows.slots,
             meters: v.meters,
-            stayblack: self.stayblack,
+            stayblack: v.strategy.stay_black,
             gameflags: v.gameflags,
             gameframe: v.gameframe,
-            boostcnt: self.boostcnt,
-            arrows: self.arrows,
+            boostcnt: v.strategy.boost_count,
+            arrows: v.strategy.arrow_flags,
             splayerflymode: v.splayerflymode,
             stage: self.planets.stage,
             shield_cur,
@@ -637,7 +1323,10 @@ impl Shell {
             boss_hp_cur: v.bosshp as i32,
             boss_hp_max: v.bossmaxhp as i32,
             lives: self.planets.lives as i32,
-            bombs: self.specwepcnt as i32,
+            // Live strategy bomb count during gameplay; shell default otherwise.
+            bombs: v.strategy.special_weapon_count as i32,
+            specflash: self.game.vars.shared.special_flash,
+            shieldup: self.game.vars.shieldup,
             msg_count1: st.strings.msg_count1,
             msg_count2: st.strings.msg_count2,
             whichfriend: st.strings.whichfriend,
@@ -657,7 +1346,28 @@ impl Shell {
             score_total: self.planets.total_score(),
             credits: self.planets.credits,
             tally_active: self.game_state == GameState::Tally,
-            tally_stage_perc: self.tally_stage_perc,
+            tally_stage_perc: self.tally.target_percent,
+            tally_current_perc: self.tally.current_percent,
+            tally_teammate_shields: self.tally.teammate_shields,
+            tally_bonus_visible: self.tally.bonus_visible,
+            ending_replay: if self.game_state == GameState::Ending
+                && self.ending.phase == EndingPhase::BossReplay
+            {
+                self.ending
+                    .replay_encounter
+                    .map(|encounter| EndingReplayPresentation {
+                        encounter,
+                        backdrop: self.ending.replay_backdrop,
+                        text: ending_replay_text(encounter),
+                        detail_characters_visible: self.ending.replay_detail_characters_visible,
+                    })
+            } else {
+                None
+            },
+            ending_final_score_visible: self.game_state == GameState::Ending
+                && self.ending.phase == EndingPhase::FinalScore,
+            ending_final_score_complete: self.game_state == GameState::Ending
+                && self.ending.final_score_step == FinalScoreStep::Complete,
         }
     }
 
@@ -670,6 +1380,9 @@ impl Shell {
         // initialise_ram + GameVars_Init (boot.c:112-117): GameVars::init
         // recreates the zeroed WRAM mirror and all ported defaults.
         self.game.vars = GameVars::init();
+        // MAIN.ASM initializes the player's run-wide inventory and ship state
+        // once after the global variable reset. Stage transitions do not.
+        self.game.vars.reset_player_run_state();
         // Obj_Init / GameCamera_Init / World_Init (boot.c:120-122).
         self.game.objs = Objects::init();
         self.camera = GameCamera::new();
@@ -690,14 +1403,6 @@ impl Shell {
         }
         bgs::init(&mut self.game.vars); // Bgs_Init (boot.c:132)
 
-        // GameVars_Init resets of C globals mirrored shell-side.
-        self.specwepcnt = 3; // DEFAULT_NUKE_COUNT (game_vars.c:429)
-        self.stayblack = -1; // game_vars.c:369
-        self.arrows = 0;
-        self.boostcnt = 0;
-        self.doingwipe = 0;
-        self.bg2_xscroll = 0;
-        self.nomax_bg2_yscroll = 0;
         self.planets = Planets::new(); // route/stage defaults (game_vars.c:443-458)
         self.levelclear_ticks = 0;
         self.death_ticks = 0;
@@ -725,6 +1430,16 @@ impl Shell {
     /// back to the empty (mapend-only) level with a warn-once, matching
     /// the C warn-once END stub in levels.c.
     fn load_map(&mut self, map_id: u32) {
+        // The original `register_level_special_inline_callbacks` resets this
+        // native KSTRATS counter every time the secret level is loaded.
+        if map_id == sf_map::catalog::map_id::SPECIAL {
+            self.game.vars.numendok = 0;
+        }
+        // `register_level2_6_inline_callbacks` also clears MAPTRIGGER before
+        // the Mad Trucker script starts consuming its road-block/death bits.
+        if map_id == sf_map::catalog::map_id::M2_6 {
+            self.game.vars.map.trigger = 0;
+        }
         let level = match sf_map::catalog::get_map_data(map_id) {
             Some(level) => level,
             None => {
@@ -737,6 +1452,13 @@ impl Shell {
             }
         };
         self.game.load_level(level);
+        self.game.world.loaded_map_id = Some(map_id);
+
+        if let Some(background) = sf_map::catalog::opening_background(map_id) {
+            self.game.vars.currentbg = background;
+            self.game.vars.set_sound_environment_for_bg(background);
+            self.game.vars.set_scene_style_for_bg(background);
+        }
 
         // Wire the route lanes' name-keyed callback registrations (they leave
         // BuiltLevel's typed vectors empty). Without this the map VM halts at
@@ -756,6 +1478,12 @@ impl Shell {
     fn planets_init(&mut self) {
         self.planets.init();
         self.game.vars.bg_dmalist = 0;
+        // ROM planetseq_l (PLANETS.ASM:257): stz nosetport3 — re-enable SFX
+        // after a warp/endseq path that may have set it.
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::NoSetPort3(false));
     }
 
     /// C `TitleScreen_Tick()` (src/game/boot.c:141).
@@ -776,7 +1504,7 @@ impl Shell {
         // freezestrats guard, no coldet), camera, draw build.
         self.draw_list.clear();
         self.game.run_strategies();
-        self.cam_snapshot = self.camera.update(&self.game.vars, &self.game.objs);
+        self.cam_snapshot = self.camera.update(&mut self.game.vars, &self.game.objs);
         // Cull anchors on the camera viewpos published by camera.update
         // (ROM viewposx/z, game.c:94-98), with the coldet shape-extents
         // table supplying the sh_zmax margin (alienflags_l MAIN.ASM:2030).
@@ -795,6 +1523,7 @@ impl Shell {
         // Check for Start to enter gameplay (boot.c:158-164).
         if self.pad1_new & pad::START != 0 {
             self.state.borrow_mut().sound.push(SoundCmd::PlaySe(0x10));
+            self.game.vars.reset_player_run_state();
             self.planets_init();
             self.game_state = GameState::PlanetSelect;
             self.title_loaded = false;
@@ -805,27 +1534,42 @@ impl Shell {
     fn begin_gameplay_from_planet_select(&mut self) {
         // Per-run player/game flag reset (boot.c:55-69).
         let v = &mut self.game.vars;
-        // Seed the unified WRAM lives store (sv::LIVES 0x0520 — the ROM's one
-        // `lives` var: death decs it in playerdead_strat, the 1-UP item incs
-        // it) from the shell-persistent copy; the shell mirrors it back every
-        // tick so respawn/game-over/HUD all see gameplay changes.
-        v.write_ext8(0x0520, self.planets.lives);
-        v.gameflags &= !(GF_PLAYERDYING | GF_PLAYERDEAD);
-        v.pshipflags = 0;
-        v.pshipflags2 = 0;
-        v.pshipflags3 = 0;
+        // Seed the unified lives field from the shell-persistent copy. Death
+        // decrements it and the 1-UP item increments it; the shell mirrors it
+        // back every tick so respawn, game-over, and the HUD stay consistent.
+        v.strategy.lives = self.planets.lives;
+        // Strategy difficulty is one-based; route/path level is zero-based,
+        // matching the two distinct original globals.
+        v.shared.difficulty_level = self.planets.currentlevel.wrapping_add(1);
+        v.shared.current_level = self.planets.currentlevel;
+        v.shared.stage = self.planets.stage as u8;
+        // ROM MAIN.ASM:120 / planetseq: clear nosetport3 at gameplay start.
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::NoSetPort3(false));
+        // A newly loaded stage starts with fresh transient gameplay flags.
+        // Keeping the previous level's bits leaks cutscene-only state such as
+        // ClearShip's GF_NOZREMOVE into the next map, disabling behind-camera
+        // culling until the object pool is exhausted.  Planet/space setup and
+        // the map callbacks re-arm the flags required by the new stage.
+        v.gameflags = 0;
         v.pstratflags = 0;
+        // Wing damage is run state; collision contacts and cinematic control
+        // locks occupy the remaining bits of the same source-layout field and
+        // must not cross the HD shell's direct tally-to-stage transition.
+        v.pshipflags &= PSF_STAGE_DAMAGE;
         v.playerflymode = PFM_SHADOWS;
         v.splayerflymode = SPFM_NORM;
         v.freezestrats = 0;
         v.bossmaxhp = 0;
         v.meters = 0;
-        // g_maptrigger / g_screenflashcnt (boot.c:65-66) are unported
-        // strat/render-lane globals; nothing in the Rust port reads them
-        // yet. TODO(sf-strat)/TODO(sf-render).
+        self.paused = false;
+        v.map.trigger = 0;
+        // g_screenflashcnt remains renderer-lane state.
         v.circleanim = 0;
         v.oncewipe = 0;
-        self.doingwipe = 0;
+        v.strategy.wipe_active = 0;
         self.state.borrow_mut().windows.init(); // Windows_Init (boot.c:70)
 
         self.levelclear_ticks = 0;
@@ -870,6 +1614,34 @@ impl Shell {
         self.game_state = GameState::Playing; // boot.c:104
     }
 
+    /// ROM `dopause` (MAIN.ASM:1386-1426) — START edge toggles pause.
+    /// Skipped during wipe / stayblack≠−1 / boss dying / pstf_notdie.
+    /// Queues `pausesnd` se_pauseon ($02) / se_pauseoff ($01).
+    fn try_toggle_pause(&mut self) {
+        if self.pad1_new & pad::START == 0 {
+            return;
+        }
+        if self.game.vars.strategy.wipe_active != 0
+            || self.game.vars.strategy.stay_black != STAY_BLACK_INACTIVE
+        {
+            return;
+        }
+        const BF_DYING: u8 = 16;
+        if self.game.vars.shared.boss_flags & BF_DYING != 0 {
+            return;
+        }
+        if self.game.vars.pstratflags & PSTF_NOTDIE != 0 {
+            return;
+        }
+        if !self.paused {
+            self.paused = true;
+            self.state.borrow_mut().sound.push(SoundCmd::PauseSnd(0x02)); // se_pauseon
+        } else {
+            self.paused = false;
+            self.state.borrow_mut().sound.push(SoundCmd::PauseSnd(0x01)); // se_pauseoff
+        }
+    }
+
     /// C `Nmi_GameTick()` (src/game/nmi.c:49) — PLAYING-state tick, exact
     /// ordering.
     fn nmi_game_tick(&mut self) {
@@ -879,19 +1651,34 @@ impl Shell {
             self.game.run_strategies();
         }
 
+        // ENDSEQ `dostratlist` pins the recap camera lane to the active boss
+        // after all strategies have moved it and before `getview` consumes the
+        // position. This is typed scene state, not a machine-memory alias.
+        self.update_ending_replay_anchor();
+
         // Store last frame's controller state (nmi.c:65-66,
         // TRANS.ASM:158-161).
         self.game.vars.lastcont0 = (self.game.vars.pad1 >> 8) as u8;
         self.game.vars.lastcontl0 = (self.game.vars.pad1 & 0xFF) as u8;
 
         // getview_l (nmi.c:70).
-        self.cam_snapshot = self.camera.update(&self.game.vars, &self.game.objs);
+        self.cam_snapshot = self.camera.update(&mut self.game.vars, &self.game.objs);
 
         // dosounds_l (nmi.c:73) runs app-side: sf-app feeds the
         // FrameSnapshot sound-layer inputs to sf-audio each tick.
 
+        // TRANS.ASM:166-167: palgoto_l then fadepalto_l. palgoto_l is inert
+        // in retail; advance the typed background-palette cursor here so the
+        // real shell path does not bypass Game::tick's fade step.
+        self.game.step_palette_fade();
+
         // calcmeters / HUD (nmi.c:77-90): shield/lives/bombs/boss values
         // are surfaced through frame() instead of Hud_Set* calls.
+        // ROM do_spec_weap (SPRITES.ASM:673-675) decrements specflash once/frame.
+        let flash = self.game.vars.shared.special_flash;
+        if flash > 0 {
+            self.game.vars.shared.special_flash = flash.wrapping_sub(1);
+        }
 
         // showview_l (nmi.c:96). Cull anchor = camera viewpos (published by
         // getview above), sh_zmax margin from the coldet shape-extents table.
@@ -912,7 +1699,16 @@ impl Shell {
                 .draw_list
                 .iter()
                 .take(6)
-                .map(|e| format!("sh={} f={:x} xyz=({},{},{})", e.shape_id, e.flags, e.x >> 16, e.y >> 16, e.z >> 16))
+                .map(|e| {
+                    format!(
+                        "sh={} f={:x} xyz=({},{},{})",
+                        e.shape_id,
+                        e.flags,
+                        e.x >> 16,
+                        e.y >> 16,
+                        e.z >> 16
+                    )
+                })
                 .collect();
             eprintln!(
                 "DRAW gf={} n={} p0.shape={} p0.sflags={:x} {}",
@@ -935,9 +1731,9 @@ impl Shell {
     /// completion and death/respawn/game-over bridge.
     fn gameplay_progress_tick(&mut self) {
         // --- Death / respawn / game over (boot.c:174-192) ---
-        // Mirror the unified WRAM lives store back to the shell-persistent
+        // Mirror the unified lives field back to the shell-persistent
         // copy (survives map reloads, feeds the HUD + respawn/game-over).
-        self.planets.lives = self.game.vars.read_ext8(0x0520);
+        self.planets.lives = self.game.vars.strategy.lives;
 
         if self.game.vars.gameflags & GF_PLAYERDEAD != 0 {
             self.levelclear_ticks = 0;
@@ -947,10 +1743,16 @@ impl Shell {
             }
             if self.planets.lives > 0 {
                 // Reload the current map; route/stage/newmap untouched.
+                self.game.vars.reset_player_run_state();
                 self.begin_gameplay_from_planet_select();
             } else {
                 self.death_ticks = 0;
-                self.game_state = GameState::Continue;
+                // ROM CONTINUE.ASM:55-56 — no credits skips the continue screen.
+                self.game_state = if self.planets.credits > 0 {
+                    GameState::Continue
+                } else {
+                    GameState::Title
+                };
             }
             return;
         }
@@ -975,7 +1777,11 @@ impl Shell {
         if lf == le::GAMEOVER {
             self.levelclear_ticks = 0;
             self.death_ticks = 0;
-            self.game_state = GameState::Continue;
+            self.game_state = if self.planets.credits > 0 {
+                GameState::Continue
+            } else {
+                GameState::Title
+            };
             return;
         }
 
@@ -990,8 +1796,9 @@ impl Shell {
             // Warp codes (MAIN.ASM:238-322): re-point routes[], record the
             // skipped-stage marker, and walk straight into the warp stage
             // WITHOUT the end-of-level tally.
-            le::BHOLE1 | le::BHOLE2 | le::BHOLE3 | le::SPECIAL
-            | le::ENTERBHOLE | le::ENTERSPEC => self.warp_advance(lf),
+            le::BHOLE1 | le::BHOLE2 | le::BHOLE3 | le::SPECIAL | le::ENTERBHOLE | le::ENTERSPEC => {
+                self.warp_advance(lf)
+            }
             // Normal clear (1) + end codes (4/6/7/…): ROM `end_level_seq` runs
             // the tally screen before advancing (MAIN.ASM:253). Compute +
             // record this stage's score, hand off to GameState::Tally; the
@@ -1007,34 +1814,33 @@ impl Shell {
     /// `exittobhole*`/`exittospecial`/`enterbhole` jump straight to
     /// `planetseq_l`, bypassing `end_level_seq`.
     ///
-    /// Finding 2 (partial wiring): the route *repointing* driven by the exit
-    /// codes (BHOLE1/2/3 -> routes[3], SPECIAL -> routes[0]) IS wired here.
-    /// The route *arming* that must precede LE_ENTERBHOLE/LE_ENTERSPEC — ROM
-    /// `routechange 2` inside the black-hole-approach strat
-    /// (GA2STRAT.ASM:2202) and the LE_ENTERSPEC store from PATHDATA.ASM:375 —
-    /// is still blocked on unported sf-strat/sf-path, so those two enter codes
-    /// rely on the P21/P22 branch already being armed upstream (do NOT touch
-    /// rust/sf-strat here). TODO(sf-strat/sf-path): fire `routechange2`
-    /// (and `routechange3`) + set LE_ENTERSPEC from the ported strat/path.
+    /// Finding 2 (closed tick 198): exit codes re-point routes[] here; ENTER
+    /// codes also arm here (`routechange2` / `routechange1`) because planets
+    /// is Shell-owned — the blackhole/path strats only store levelfinished.
+    /// PATHDATA bird_touch / blackhole2 still set LE_ENTERSPEC / LE_ENTERBHOLE
+    /// on the Game side (sf-strat/sf-path).
     fn warp_advance(&mut self, lf: u8) {
         // MAIN.ASM:302-312: the exit codes rewrite routes[] before re-walking.
         match lf {
             le::BHOLE1 => self.planets.routechangebhole1(), // routes[3]=P19 -> Venom 1 Orbital
             le::BHOLE2 => self.planets.routechangebhole2(), // routes[3]=P18 -> Sector Y
             le::BHOLE3 => self.planets.routechangebhole3(), // routes[3]=P20 -> Sector Z
-            le::SPECIAL => self.planets.routechange1(),     // routes[0]=P22 -> Out of This Dimension
+            le::SPECIAL => self.planets.routechange1(), // routes[0]=P22 -> Out of This Dimension
             // ROM `routechange 2` (GA2STRAT.ASM:2202) arms routes[1]=P21 before
             // LE_ENTERBHOLE — the black-hole approach strat (blackhole2_strat)
             // only holds &mut Game, so the routes[1] arm lands here on dispatch
             // (nothing reads routes[1] between the strat's trigger frame and the
             // stage-advance walk). Closes Route Finding 2's ENTER branch.
             le::ENTERBHOLE => self.planets.routechange2(),
-            _ => {} // ENTERSPEC: needs the sf-path LE_ENTERSPEC store (PATHDATA.ASM:375)
+            // PATHDATA bird_touch sets LE_ENTERSPEC + routechange 1; apply the
+            // route arm here (same pattern as ENTERBHOLE).
+            le::ENTERSPEC => self.planets.routechange1(),
+            _ => {}
         }
 
         // MAIN.ASM:314-320 `enterbhole`: codes 11-15 append the skipped-stage
         // sentinel so the black-hole/special stage is excluded from the score
-        // tally (`sta specbuf,x`). LE_ENTERSPEC (16, `exitspec.white`) does
+        // tally score buffer. LE_ENTERSPEC (16, `exitspec.white`) does
         // not store it.
         if lf != le::ENTERSPEC {
             self.planets.stage_scores.push(score::STAGE_SKIPPED);
@@ -1044,14 +1850,13 @@ impl Shell {
         self.advance_stage_and_walk();
     }
 
-    /// ROM `end_level_seq` entry (MAIN.ASM:1077-1090): compute this stage's hit
-    /// percentage (`calcstageperc`), append it to `specbuf`, run `checkbonus`
-    /// (awarding a credit + bonus SFX on a `bonertab` crossing), and switch to
-    /// the tally screen state.
+    /// ROM `end_level_seq` entry (MAIN.ASM:1077-1101): compute the target
+    /// percentage and initialise the animated graph. Score-buffer and credit
+    /// mutations remain deferred to their retail display boundaries.
     fn enter_tally(&mut self) {
-        // Numerator: per-stage special kills (WRAM 0x1F0B, written by the
-        // sf-strat explode strat). Denominator: the stable map-build count.
-        let specials_dead = self.game.vars.read_ext8(score::SPECIALS_DEAD);
+        // Numerator: per-stage special kills. Denominator: the stable
+        // map-build count.
+        let specials_dead = self.game.vars.shared.specials_dead;
         let total_specials = self.game.world.total_specials;
         let teammates = score::teammates_alive(
             self.game.vars.bunny_hp,
@@ -1059,41 +1864,123 @@ impl Shell {
             self.game.vars.falcon_hp,
         );
         let perc = score::calc_stage_perc(specials_dead, total_specials, teammates);
-        self.tally_stage_perc = perc;
-
-        // Append to specbuf + checkbonus (MAIN.ASM:1213-1219).
-        if self.planets.record_stage_score(perc) {
-            // Bonus threshold crossed: credit awarded, play trigse $1a
-            // (MAIN.ASM:1149).
-            self.state
-                .borrow_mut()
-                .sound
-                .push(SoundCmd::PlaySe(score::SE_BONUS));
-        }
+        self.tally = TallyState {
+            target_percent: perc,
+            current_percent: 0,
+            // MAIN.ASM `friends_hp` iteration order is Peppy, Falco, Slippy.
+            teammate_shields: [
+                self.game.vars.bunny_hp,
+                self.game.vars.falcon_hp,
+                self.game.vars.frog_hp,
+            ],
+            phase: if perc == 0 {
+                TallyPhase::CommitDelay {
+                    steps_remaining: TALLY_COMMIT_DELAY_STEPS,
+                }
+            } else {
+                TallyPhase::Counting
+            },
+            display_tick: 0,
+            ready_ticks: 0,
+            bonus_visible: false,
+        };
 
         self.levelclear_ticks = 0;
-        self.tally_ticks = 0;
         self.game_state = GameState::Tally;
     }
 
-    /// GameState::Tally hold + exit. Holds the tally figures for
-    /// [`TALLY_HOLD_TICKS`] (or until START/A/B), then performs the ROM
-    /// stage-advance / route-resolve that used to follow mapend directly.
+    /// Retail `printspeclp`: count by three, settle, commit the score, delay a
+    /// crossed bonus, and award its credit. The enum is the flat typed port of
+    /// the source's overlapping display counters.
     fn tally_tick(&mut self) {
-        self.tally_ticks += 1;
-        let held = self.tally_ticks >= TALLY_HOLD_TICKS;
         let pressed = self.pad1_new & (pad::START | pad::A | pad::B) != 0;
-        // Dismiss on START/A/B once the figures have been shown, or auto-advance
-        // after twice the hold so headless/AI runs still progress without input.
-        if (held && pressed) || self.tally_ticks >= TALLY_HOLD_TICKS.saturating_mul(2) {
-            self.advance_stage_after_tally();
+        if self.tally.phase == TallyPhase::Ready {
+            self.tally.ready_ticks = self.tally.ready_ticks.saturating_add(1);
+            if pressed || self.tally.ready_ticks >= TALLY_READY_AUTO_TICKS {
+                self.advance_stage_after_tally();
+            }
+            return;
+        }
+
+        self.tally.display_tick = self.tally.display_tick.saturating_add(1);
+        if self.tally.display_tick < TALLY_DISPLAY_STEP_TICKS {
+            return;
+        }
+        self.tally.display_tick = 0;
+
+        match self.tally.phase {
+            TallyPhase::Counting => {
+                self.state
+                    .borrow_mut()
+                    .sound
+                    .push(SoundCmd::PlaySe(score::SE_TALLY_COUNT));
+                self.tally.current_percent = self
+                    .tally
+                    .current_percent
+                    .saturating_add(TALLY_PERCENT_STEP)
+                    .min(self.tally.target_percent);
+                if self.tally.current_percent == self.tally.target_percent {
+                    self.tally.phase = TallyPhase::CommitDelay {
+                        steps_remaining: TALLY_COMMIT_DELAY_STEPS,
+                    };
+                }
+            }
+            TallyPhase::CommitDelay { steps_remaining } => {
+                let next = steps_remaining.saturating_sub(1);
+                if next == 2 {
+                    self.state
+                        .borrow_mut()
+                        .sound
+                        .push(SoundCmd::PlaySe(score::SE_TALLY_COMMIT));
+                    let crossed = self.planets.append_stage_score(self.tally.target_percent);
+                    self.tally.phase = if crossed {
+                        TallyPhase::BonusDelay {
+                            steps_remaining: TALLY_BONUS_DELAY_STEPS,
+                        }
+                    } else {
+                        TallyPhase::Ready
+                    };
+                } else {
+                    self.tally.phase = TallyPhase::CommitDelay {
+                        steps_remaining: next,
+                    };
+                }
+            }
+            TallyPhase::BonusDelay { steps_remaining } => {
+                let next = steps_remaining.saturating_sub(1);
+                if next == 2 {
+                    self.state
+                        .borrow_mut()
+                        .sound
+                        .push(SoundCmd::PlaySe(score::SE_BONUS));
+                    self.tally.bonus_visible = true;
+                    self.tally.phase = TallyPhase::BonusAward {
+                        steps_remaining: TALLY_BONUS_AWARD_STEPS,
+                    };
+                } else {
+                    self.tally.phase = TallyPhase::BonusDelay {
+                        steps_remaining: next,
+                    };
+                }
+            }
+            TallyPhase::BonusAward { steps_remaining } => {
+                if steps_remaining <= 1 {
+                    self.planets.award_bonus_credit();
+                    self.tally.phase = TallyPhase::Ready;
+                } else {
+                    self.tally.phase = TallyPhase::BonusAward {
+                        steps_remaining: steps_remaining - 1,
+                    };
+                }
+            }
+            TallyPhase::Ready => unreachable!("ready handled before display stepping"),
         }
     }
 
     /// ROM post-tally stage advance (MAIN.ASM:229 `inc stage` + planetseq
     /// re-entry). Extracted from the old level-clear path.
     fn advance_stage_after_tally(&mut self) {
-        self.tally_ticks = 0;
+        self.tally = TallyState::default();
         self.advance_stage_and_walk();
     }
 
@@ -1110,6 +1997,7 @@ impl Shell {
     /// (P1 -> MAP_ID_2_2).
     fn advance_stage_and_walk(&mut self) {
         self.planets.stage = self.planets.stage.wrapping_add(1);
+        self.game.vars.shared.stage = self.planets.stage as u8;
         self.planets.convertroute();
         let advanced = self.planets.drawplanetlines();
         self.planets.convertroute();
@@ -1118,7 +2006,401 @@ impl Shell {
             self.begin_gameplay_from_planet_select();
         } else {
             self.levelclear_ticks = 0;
-            self.game_state = GameState::Ending;
+            self.begin_ending_score_parade();
+        }
+    }
+
+    /// Begin the source's pre-recap stage-score parade without resetting the
+    /// final gameplay object lane. Two path-text objects and one formatted
+    /// score message are added for each recorded stage at 30-tick intervals.
+    fn begin_ending_score_parade(&mut self) {
+        self.ending = EndingState {
+            phase: EndingPhase::ScoreParade,
+            ..EndingState::default()
+        };
+        self.game.vars.meters = 0;
+        self.paused = false;
+        self.game_state = GameState::Ending;
+    }
+
+    fn tick_ending_score_parade(&mut self) {
+        self.nmi_game_tick();
+        self.game.vars.meters = 0;
+
+        if self.ending.score_stage_ticks > 0 {
+            self.ending.score_stage_ticks -= 1;
+            if self.ending.score_stage_ticks > 0 {
+                return;
+            }
+        }
+
+        let index = usize::from(self.ending.score_stage_index);
+        if let Some(&stage_score) = self.planets.stage_scores.get(index) {
+            self.emit_ending_score_part(EndingScorePart::StageScore {
+                stage_number: self.ending.score_stage_index.saturating_add(1),
+                score: stage_score,
+                row: self.ending.score_stage_index,
+            });
+            self.ending.score_stage_index = self.ending.score_stage_index.saturating_add(1);
+            self.ending.score_stage_ticks =
+                if usize::from(self.ending.score_stage_index) < self.planets.stage_scores.len() {
+                    ENDING_STAGE_ROW_TICKS
+                } else {
+                    ENDING_STAGE_FINISH_TICKS
+                };
+            return;
+        }
+
+        self.ending.phase = EndingPhase::ScoreSummary;
+        self.ending.score_summary_step = ScoreSummaryStep::TotalValue;
+        self.ending.score_summary_ticks = ENDING_SUMMARY_REVEAL_TICKS;
+        self.emit_ending_score_part(EndingScorePart::ParadeTotalLabel);
+    }
+
+    fn tick_ending_score_summary(&mut self) {
+        self.nmi_game_tick();
+        self.game.vars.meters = 0;
+        if self.ending.score_summary_ticks > 0 {
+            self.ending.score_summary_ticks -= 1;
+            return;
+        }
+
+        match self.ending.score_summary_step {
+            ScoreSummaryStep::TotalValue => {
+                self.emit_ending_score_part(EndingScorePart::ParadeTotalValue);
+                self.ending.score_summary_step = ScoreSummaryStep::AverageLabel;
+                self.ending.score_summary_ticks = ENDING_SUMMARY_REVEAL_TICKS;
+            }
+            ScoreSummaryStep::AverageLabel => {
+                self.emit_ending_score_part(EndingScorePart::ParadeAverageLabel);
+                self.ending.score_summary_step = ScoreSummaryStep::AverageValue;
+                self.ending.score_summary_ticks = ENDING_SUMMARY_REVEAL_TICKS;
+            }
+            ScoreSummaryStep::AverageValue => {
+                self.emit_ending_score_part(EndingScorePart::ParadeAverageValue);
+                self.ending.phase = EndingPhase::ScoreHold;
+                self.ending.score_summary_ticks = ENDING_SUMMARY_HOLD_TICKS;
+            }
+        }
+    }
+
+    fn tick_ending_score_hold(&mut self) {
+        self.nmi_game_tick();
+        self.game.vars.meters = 0;
+        if self.ending.score_summary_ticks > 0 {
+            self.ending.score_summary_ticks -= 1;
+            return;
+        }
+        self.ending.phase = EndingPhase::ScoreFade;
+        self.ending.score_fade_ticks = ENDING_SUMMARY_FADE_TICKS;
+        self.game.world.levelfinished = le::ENDTOTALSCORE;
+    }
+
+    fn tick_ending_score_fade(&mut self) {
+        self.nmi_game_tick();
+        self.game.vars.meters = 0;
+        if self.ending.score_fade_ticks > 0 {
+            self.ending.score_fade_ticks -= 1;
+            return;
+        }
+        self.begin_ending_replay();
+    }
+
+    /// Start the recorded end-sequence boss recap. Encounter identity was
+    /// captured at each retail marker while the route ran; the ending consumes
+    /// that typed ordered list rather than reconstructing it from a route id.
+    fn begin_ending_replay(&mut self) {
+        self.ending = EndingState {
+            phase: EndingPhase::BossReplay,
+            ..EndingState::default()
+        };
+        self.paused = false;
+        self.levelclear_ticks = 0;
+        self.death_ticks = 0;
+        self.game_state = GameState::Ending;
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlayMusic(MUSIC_END_SEQUENCE));
+        // ROM ENDSEQ mutes sound effects throughout the recap and staff roll.
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::NoSetPort3(true));
+
+        if !self.start_ending_replay_entry(0) {
+            self.begin_staff_roll();
+        }
+    }
+
+    /// Reset the source's object/camera lane and instantiate one semantic
+    /// encounter. Warm-up strategy ticks happen off-screen exactly as specified
+    /// by that encounter's handler.
+    fn start_ending_replay_entry(&mut self, index: u8) -> bool {
+        let Some(encounter) = self
+            .game
+            .vars
+            .boss_seq
+            .get(usize::from(index))
+            .copied()
+            .flatten()
+        else {
+            return false;
+        };
+        let spec = ending_replay_spec(encounter);
+
+        self.draw_list.clear();
+        self.game.vars.gameflags = 0;
+        self.game.vars.pstratflags = 0;
+        self.game.vars.freezestrats = 0;
+        self.game.vars.meters = 0;
+        self.game.vars.map.trigger = 0;
+        self.game.vars.circleanim = 0;
+        self.game.vars.oncewipe = 0;
+        self.game.vars.strategy.wipe_active = 0;
+        self.game.objs = Objects::init();
+        self.camera.init(&mut self.game.vars);
+        self.game.world = World::init();
+        self.reregister_strats();
+        self.state.borrow_mut().windows.init();
+
+        // The source creates its invisible credits player before the replay
+        // boss so slot zero remains the canonical player/view anchor.
+        if let Some(hook) = self.spawn_player.take() {
+            hook(&mut self.game, sf_map::catalog::map_id::CREDITS);
+            self.spawn_player = Some(hook);
+        }
+
+        let anchor = if let Some(hook) = self.ending_boss_replay.take() {
+            let anchor = hook(&mut self.game, encounter);
+            self.ending_boss_replay = Some(hook);
+            anchor
+        } else {
+            None
+        };
+        let Some(anchor) = anchor else {
+            return false;
+        };
+
+        self.game.vars.viewdist = spec.initial_view_distance;
+        self.game.vars.strategy.view_distance = spec.initial_view_distance;
+        self.game.vars.strategy.view_pitch = 0;
+        self.game.vars.strategy.view_yaw = 0;
+        self.game.vars.strategy.view_roll = 0;
+        self.ending = EndingState {
+            phase: EndingPhase::BossReplay,
+            replay_index: index,
+            replay_ticks_remaining: spec.duration_ticks,
+            replay_transition_ticks: 0,
+            replay_anchor: Some(anchor),
+            replay_encounter: Some(encounter),
+            replay_view_height: spec.view_height,
+            replay_target_view_distance: spec.target_view_distance,
+            replay_backdrop: spec.backdrop,
+            replay_detail_characters_visible: 0,
+            ..EndingState::default()
+        };
+
+        for _ in 0..spec.warmup_ticks {
+            self.game.run_strategies();
+            self.update_ending_replay_anchor();
+            self.game.vars.meters = 0;
+        }
+        true
+    }
+
+    fn update_ending_replay_anchor(&mut self) {
+        if self.game_state != GameState::Ending || self.ending.phase == EndingPhase::StaffRoll {
+            return;
+        }
+        let Some(index) = self.ending.replay_anchor else {
+            return;
+        };
+        let Some(anchor) = self.game.objs.aliens.get(index as usize) else {
+            return;
+        };
+        if !anchor.active {
+            return;
+        }
+        self.game.vars.strategy.player_view_position = [
+            anchor.worldx,
+            anchor.worldy.wrapping_add(self.ending.replay_view_height),
+            anchor.worldz,
+        ];
+    }
+
+    fn tick_ending_replay(&mut self) {
+        if self.ending.replay_ticks_remaining == 0 {
+            self.ending.phase = EndingPhase::BossTransition;
+            self.ending.replay_transition_ticks = ENDING_REPLAY_TRANSITION_TICKS;
+            return;
+        }
+
+        self.ending.replay_ticks_remaining -= 1;
+        if self.ending.replay_ticks_remaining < ENDING_REPLAY_SCROLL_TICKS {
+            let target = self.ending.replay_target_view_distance;
+            let current = self.game.vars.strategy.view_distance;
+            self.game.vars.strategy.view_distance =
+                current.wrapping_add(target.wrapping_sub(current) >> 2);
+            self.game.vars.viewdist = self.game.vars.strategy.view_distance;
+        }
+        if self.ending.replay_ticks_remaining < ENDING_REPLAY_DETAILS_TICK {
+            self.ending.replay_detail_characters_visible =
+                (ENDING_REPLAY_DETAILS_TICK - self.ending.replay_ticks_remaining) as u8;
+        }
+        self.nmi_game_tick();
+        self.game.vars.meters = 0;
+        if self.ending.replay_ticks_remaining == 0 {
+            self.ending.phase = EndingPhase::BossTransition;
+            self.ending.replay_transition_ticks = ENDING_REPLAY_TRANSITION_TICKS;
+        }
+    }
+
+    fn tick_ending_replay_transition(&mut self) {
+        if self.ending.replay_transition_ticks > 0 {
+            self.ending.replay_transition_ticks -= 1;
+            self.nmi_game_tick();
+            self.game.vars.meters = 0;
+            if self.ending.replay_transition_ticks > 0 {
+                return;
+            }
+        }
+
+        let next = self.ending.replay_index.saturating_add(1);
+        if !self.start_ending_replay_entry(next) {
+            self.begin_staff_roll();
+        }
+    }
+
+    /// Load the exact retail staff-roll map after the end-sequence replay.
+    ///
+    /// The boss replay and pre-credits score parade are modelled by the
+    /// surrounding ending state machine; this entry point owns the source
+    /// `initgame` handoff to `CREDITS`, including the invisible credits
+    /// player, background, map callbacks, and staff music.
+    fn begin_staff_roll(&mut self) {
+        self.ending = EndingState {
+            phase: EndingPhase::StaffRoll,
+            ..EndingState::default()
+        };
+        self.planets.newmap = sf_map::catalog::map_id::CREDITS;
+        self.paused = false;
+        self.levelclear_ticks = 0;
+        self.death_ticks = 0;
+        self.draw_list.clear();
+
+        // The ending keeps run-wide score and encounter state, but initgame
+        // starts a fresh object/map/camera lane for the staff roll.
+        self.game.vars.gameflags = 0;
+        self.game.vars.pstratflags = 0;
+        self.game.vars.freezestrats = 0;
+        self.game.vars.meters = 0;
+        self.game.vars.map.trigger = 0;
+        self.game.vars.circleanim = 0;
+        self.game.vars.oncewipe = 0;
+        self.game.vars.strategy.wipe_active = 0;
+        self.game.objs = Objects::init();
+        self.camera.init(&mut self.game.vars);
+        self.game.world = World::init();
+        self.reregister_strats();
+        self.state.borrow_mut().windows.init();
+        self.load_map(sf_map::catalog::map_id::CREDITS);
+
+        if let Some(hook) = self.spawn_player.take() {
+            hook(&mut self.game, sf_map::catalog::map_id::CREDITS);
+            self.spawn_player = Some(hook);
+        }
+
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlayMusic(MUSIC_STAFF_ROLL));
+        self.game_state = GameState::Ending;
+    }
+
+    /// Tick the staff-roll map with the normal strategy/camera/draw ordering.
+    /// The retail credits script stores `ENDOFCREDS`; from then on the game
+    /// keeps presenting the final score indefinitely rather than returning to
+    /// the title screen on input.
+    fn ending_tick(&mut self) {
+        match self.ending.phase {
+            EndingPhase::ScoreParade => {
+                self.tick_ending_score_parade();
+                return;
+            }
+            EndingPhase::ScoreSummary => {
+                self.tick_ending_score_summary();
+                return;
+            }
+            EndingPhase::ScoreHold => {
+                self.tick_ending_score_hold();
+                return;
+            }
+            EndingPhase::ScoreFade => {
+                self.tick_ending_score_fade();
+                return;
+            }
+            EndingPhase::BossReplay => {
+                self.tick_ending_replay();
+                return;
+            }
+            EndingPhase::BossTransition => {
+                self.tick_ending_replay_transition();
+                return;
+            }
+            EndingPhase::StaffRoll | EndingPhase::FinalScore => {}
+        }
+        self.nmi_game_tick();
+        if self.ending.phase == EndingPhase::StaffRoll
+            && self.game.world.levelfinished == le::ENDOFCREDS
+        {
+            self.ending.phase = EndingPhase::FinalScore;
+            self.emit_ending_score_part(EndingScorePart::TotalLabel);
+            self.ending.final_score_step = FinalScoreStep::TotalValue;
+            self.ending.reveal_ticks = FINAL_SCORE_REVEAL_TICKS;
+            return;
+        }
+
+        if self.ending.phase != EndingPhase::FinalScore
+            || self.ending.final_score_step == FinalScoreStep::Complete
+        {
+            return;
+        }
+        if self.ending.reveal_ticks > 0 {
+            self.ending.reveal_ticks -= 1;
+            return;
+        }
+
+        let (part, next) = match self.ending.final_score_step {
+            FinalScoreStep::TotalValue => {
+                (EndingScorePart::TotalValue, FinalScoreStep::AverageLabel)
+            }
+            FinalScoreStep::AverageLabel => {
+                (EndingScorePart::AverageLabel, FinalScoreStep::AverageValue)
+            }
+            FinalScoreStep::AverageValue => {
+                (EndingScorePart::AverageValue, FinalScoreStep::Complete)
+            }
+            FinalScoreStep::WaitingForCredits | FinalScoreStep::Complete => return,
+        };
+        self.emit_ending_score_part(part);
+        self.ending.final_score_step = next;
+        self.ending.reveal_ticks = if next == FinalScoreStep::Complete {
+            0
+        } else {
+            FINAL_SCORE_REVEAL_TICKS
+        };
+    }
+
+    fn emit_ending_score_part(&mut self, part: EndingScorePart) {
+        if let Some(hook) = self.ending_score_part.take() {
+            hook(
+                &mut self.game,
+                part,
+                self.planets.total_score(),
+                self.planets.average_score(),
+            );
+            self.ending_score_part = Some(hook);
         }
     }
 }
@@ -1142,16 +2424,164 @@ mod tests {
         let mut sh = Shell::new();
         sh.game.hooks.make_snd(PosSndFamilyId::DoorOpen, 111, 222);
         sh.game.hooks.play_se(0x35); // one-shot still works alongside
-        sh.game.hooks.make_snd(PosSndFamilyId::EnemyDownSea, -50, 900);
+        sh.game
+            .hooks
+            .make_snd(PosSndFamilyId::EnemyDownSea, -50, 900);
         let sounds = sh.drain_sound();
         assert_eq!(
             sounds,
             vec![
-                SoundCmd::MakeSnd { family: PosSndFamilyId::DoorOpen, x: 111, z: 222 },
+                SoundCmd::MakeSnd {
+                    family: PosSndFamilyId::DoorOpen,
+                    x: 111,
+                    z: 222
+                },
                 SoundCmd::PlaySe(0x35),
-                SoundCmd::MakeSnd { family: PosSndFamilyId::EnemyDownSea, x: -50, z: 900 },
+                SoundCmd::MakeSnd {
+                    family: PosSndFamilyId::EnemyDownSea,
+                    x: -50,
+                    z: 900
+                },
             ],
         );
+    }
+
+    #[test]
+    fn frame_reads_live_typed_hud_and_background_state() {
+        let mut shell = Shell::new();
+        shell.game.vars.shared.background_scroll_x = -77;
+        shell.game.vars.strategy.no_maximum_background_y = 1;
+        shell.game.vars.strategy.stay_black = STAY_BLACK_INACTIVE;
+        shell.game.vars.strategy.boost_count = 9;
+        shell.game.vars.strategy.arrow_flags = 5;
+        shell.game.vars.strategy.special_weapon_count = 2;
+
+        let frame = shell.frame();
+        assert_eq!(frame.bg2_xscroll, -77);
+        assert!(frame.nomax_bg2_yscroll);
+        assert_eq!(frame.stayblack, STAY_BLACK_INACTIVE);
+        assert_eq!(frame.boostcnt, 9);
+        assert_eq!(frame.arrows, 5);
+        assert_eq!(frame.bombs, 2);
+    }
+
+    #[test]
+    fn playing_nmi_advances_the_background_palette_walk() {
+        let mut shell = Shell::new();
+        shell.game.world.map_loaded = false;
+        shell.game.vars.palfade_target = Some(PaletteFadeTarget::Sea);
+        shell.game.vars.palfade_num = sf_core::scene::PALETTE_FADE_COUNTER_START;
+
+        shell.nmi_game_tick();
+
+        assert_eq!(
+            shell.game.vars.palfade_num,
+            sf_core::scene::PALETTE_FADE_COUNTER_START - 2
+        );
+    }
+
+    #[test]
+    fn title_map_writes_the_typed_screen_black_counter() {
+        let mut shell = Shell::new();
+        shell.tick(0); // boot
+        shell.tick(0); // load the title map and start its fade-down
+        for _ in 0..40 {
+            shell.tick(0);
+            if shell.game.vars.strategy.stay_black == 10 {
+                break;
+            }
+        }
+
+        assert_eq!(shell.game.vars.strategy.stay_black, 10);
+        assert_eq!(shell.frame().stayblack, 10);
+        assert_eq!(shell.game.vars.map.global_strategy_byte, 0);
+    }
+
+    #[test]
+    fn stage_load_preserves_run_inventory_and_ship_upgrades() {
+        const DOUBLE_LASER: u8 = 1;
+        const BROKEN_LEFT_WING: u8 = 8;
+        const STALE_CONTROL_LOCKS: u8 = 32 | 64 | 128;
+
+        let mut shell = Shell::new();
+        shell.game.vars.strategy.special_weapon_count = 1;
+        shell.game.vars.pshipflags2 = DOUBLE_LASER;
+        shell.game.vars.pshipflags = BROKEN_LEFT_WING | STALE_CONTROL_LOCKS;
+        shell.begin_gameplay_from_planet_select();
+
+        assert_eq!(shell.game.vars.strategy.special_weapon_count, 1);
+        assert_eq!(shell.game.vars.pshipflags2 & DOUBLE_LASER, DOUBLE_LASER);
+        assert_eq!(shell.game.vars.pshipflags, BROKEN_LEFT_WING);
+    }
+
+    /// ROM dopause (MAIN.ASM:1386): START while Playing → pausesnd $02 / $01.
+    #[test]
+    fn playing_start_toggles_pause_snd() {
+        let mut sh = Shell::new();
+        sh.tick(0); // Boot → Title
+        sh.tick(0);
+        sh.tick(pad::START); // → PlanetSelect
+        let _ = sh.drain_sound();
+        sh.tick(0);
+        sh.tick(pad::START); // → Playing
+        let _ = sh.drain_sound();
+        assert_eq!(sh.state(), GameState::Playing);
+        assert!(!sh.is_paused());
+
+        // Pause on.
+        sh.tick(0); // release START for edge
+        sh.tick(pad::START);
+        assert!(sh.is_paused());
+        assert!(sh.drain_sound().contains(&SoundCmd::PauseSnd(0x02)));
+
+        // Frozen: gameframe must not advance while paused.
+        let gf = sh.frame().gameframe;
+        sh.tick(0);
+        sh.tick(0);
+        assert_eq!(sh.frame().gameframe, gf);
+
+        // Pause off.
+        sh.tick(pad::START);
+        assert!(!sh.is_paused());
+        assert!(sh.drain_sound().contains(&SoundCmd::PauseSnd(0x01)));
+    }
+
+    /// ROM dopause gates: stayblack≠−1 / doingwipe / bf_dying / pstf_notdie.
+    #[test]
+    fn pause_blocked_while_stayblack_or_notdie() {
+        let mut sh = Shell::new();
+        sh.tick(0);
+        sh.tick(0);
+        sh.tick(pad::START);
+        let _ = sh.drain_sound();
+        sh.tick(0);
+        sh.tick(pad::START);
+        let _ = sh.drain_sound();
+
+        sh.game.vars.strategy.stay_black = 0;
+        sh.tick(0);
+        sh.tick(pad::START);
+        assert!(!sh.is_paused());
+        assert!(!sh
+            .drain_sound()
+            .iter()
+            .any(|c| matches!(c, SoundCmd::PauseSnd(_))));
+
+        sh.game.vars.strategy.stay_black = STAY_BLACK_INACTIVE;
+        sh.game.vars.pstratflags |= PSTF_NOTDIE;
+        sh.tick(0);
+        sh.tick(pad::START);
+        assert!(!sh.is_paused());
+        assert!(!sh
+            .drain_sound()
+            .iter()
+            .any(|c| matches!(c, SoundCmd::PauseSnd(_))));
+
+        sh.game.vars.pstratflags &= !PSTF_NOTDIE;
+        sh.tick(0);
+        sh.tick(pad::START);
+        assert!(sh.is_paused());
+        assert!(sh.drain_sound().contains(&SoundCmd::PauseSnd(0x02)));
     }
 
     /// Scripted-pad state walk matching boot.c: BOOT tick only runs
@@ -1229,10 +2659,8 @@ mod tests {
         }
         assert_eq!(sh.state(), GameState::Tally);
         assert_eq!(sh.frame().stage, 0); // stage advance deferred until tally exits
-        // Hold the tally, then dismiss with START to advance the stage.
-        for _ in 0..TALLY_HOLD_TICKS {
-            sh.tick(0);
-        }
+                                         // Run the retail count/commit phases, then dismiss with START.
+        run_tally_to_ready(&mut sh);
         sh.tick(pad::START);
         let f = sh.frame();
         assert_eq!(f.stage, 1);
@@ -1242,8 +2670,8 @@ mod tests {
         assert_eq!(f.newmap, map_id::M1_2);
     }
 
-    /// Death path: GF_PLAYERDEAD + no lives -> CONTINUE after
-    /// DEATH_RESPAWN_TICKS; continue restarts with refilled lives.
+    /// Death path: GF_PLAYERDEAD + no lives + credits → CONTINUE after
+    /// DEATH_RESPAWN_TICKS; accept spends one credit and refills lives.
     #[test]
     fn death_to_continue_and_back() {
         let mut sh = Shell::new();
@@ -1257,19 +2685,47 @@ mod tests {
         // Lives are unified in WRAM 0x0520 during gameplay (the shell mirrors
         // it back each tick), so exhaust the canonical store.
         sh.planets.lives = 0;
-        sh.game.vars.write_ext8(0x0520, 0);
+        sh.game.vars.strategy.lives = 0;
+        sh.planets.credits = 2; // CONTINUE.ASM requires credits > 0
         sh.game.vars.gameflags |= GF_PLAYERDEAD;
         for _ in 0..DEATH_RESPAWN_TICKS {
             sh.tick(0);
         }
         assert_eq!(sh.state().code(), 5); // GAME_STATE_CONTINUE
+        assert_eq!(sh.frame().credits, 2);
 
         sh.tick(0); // release edge
-        sh.tick(pad::START); // continue: refill lives, retry stage
+        let _ = sh.drain_sound();
+        sh.tick(pad::START); // continue: dec credits, refill lives, retry
         assert_eq!(sh.state().code(), 4);
         assert_eq!(sh.frame().lives, DEFAULT_LIVES as i32);
+        assert_eq!(sh.frame().credits, 1);
         // Begin-gameplay cleared the dead flag (boot.c:55).
         assert!(!sh.frame().player_dead);
+        let snd = sh.drain_sound();
+        assert!(snd.contains(&SoundCmd::PlaySe(0x67)));
+        assert!(snd.contains(&SoundCmd::PlayMusic(0xf1)));
+    }
+
+    /// Zero continue credits: death with no lives skips Continue → Title.
+    #[test]
+    fn death_without_credits_goes_to_title() {
+        let mut sh = Shell::new();
+        sh.tick(0);
+        sh.tick(0);
+        sh.tick(pad::START);
+        sh.tick(0);
+        sh.tick(pad::START);
+        assert_eq!(sh.state().code(), 4);
+
+        sh.planets.lives = 0;
+        sh.game.vars.strategy.lives = 0;
+        sh.planets.credits = 0;
+        sh.game.vars.gameflags |= GF_PLAYERDEAD;
+        for _ in 0..DEATH_RESPAWN_TICKS {
+            sh.tick(0);
+        }
+        assert_eq!(sh.state().code(), 1); // GAME_STATE_TITLE
     }
 
     /// Drive a game into gameplay (BOOT -> PLAYING).
@@ -1285,6 +2741,138 @@ mod tests {
         sh
     }
 
+    /// AUDIT_BOSS_TICKS2 High #5: begin_gameplay writes strat `currentlevel`
+    /// (WRAM 0x1F03) as planets.currentlevel+1 so `== N` matches ROM
+    /// `s_jmp_iflevel N` (raw == N-1). Default map route is easy (raw 0).
+    #[test]
+    fn begin_gameplay_wires_currentlevel_easy() {
+        let sh = into_gameplay();
+        assert_eq!(sh.planets.currentlevel, 0);
+        assert_eq!(sh.game.vars.shared.difficulty_level, 1);
+    }
+
+    /// Hard route (whichroute 2 / MAP_ID_3_*) stores raw currentlevel 2 →
+    /// port WRAM 3 so boss7 `s_jmp_ifnotlevel 3` and mcore1 level-3 HP fire.
+    #[test]
+    fn begin_gameplay_wires_currentlevel_hard_route() {
+        let mut sh = Shell::new();
+        sh.tick(0);
+        sh.tick(0);
+        sh.tick(pad::START); // → PlanetSelect (convertroute 0→1 = easy)
+        sh.tick(0);
+        sh.tick(pad::RIGHT); // whichroute 1→2 = hard
+        sh.tick(0);
+        sh.tick(pad::START); // → Playing
+        assert_eq!(sh.state(), GameState::Playing);
+        assert_eq!(sh.planets.currentlevel, 2);
+        assert_eq!(sh.game.vars.shared.difficulty_level, 3);
+    }
+
+    fn run_ending_to_staff_roll(sh: &mut Shell) {
+        const MAX_ENDING_HANDOFF_TICKS: usize = 2_000;
+        for _ in 0..MAX_ENDING_HANDOFF_TICKS {
+            if sh.state() == GameState::Ending && sh.frame().newmap == map_id::CREDITS {
+                return;
+            }
+            sh.tick(0);
+        }
+        panic!("ending did not hand off to the staff-roll map");
+    }
+
+    /// Completing the post-campaign score parade and recorded recap mutes
+    /// ordinary effects, switches to staff-roll music, and loads the exact
+    /// credits map.
+    #[test]
+    fn route_exhaust_enters_the_staff_roll() {
+        let mut sh = into_gameplay();
+        let _ = sh.drain_sound();
+        // Exhaust the route: stage past END1 so drawplanetlines fails.
+        sh.planets.stage = 20;
+        sh.advance_stage_and_walk();
+        assert_eq!(sh.state(), GameState::Ending);
+        assert_ne!(sh.frame().newmap, map_id::CREDITS);
+        run_ending_to_staff_roll(&mut sh);
+        assert_eq!(sh.frame().newmap, map_id::CREDITS);
+        assert_eq!(sh.frame().currentbg, 43);
+        let sounds = sh.drain_sound();
+        assert!(
+            sounds.contains(&SoundCmd::NoSetPort3(true)),
+            "ending sequence enables the sound-effect mute"
+        );
+        assert!(sounds.contains(&SoundCmd::PlayMusic(MUSIC_STAFF_ROLL)));
+    }
+
+    /// The source final screen is an infinite presentation, not a shortcut
+    /// back to the title on controller input.
+    #[test]
+    fn completed_staff_roll_stays_on_the_final_score() {
+        let mut sh = into_gameplay();
+        sh.planets.stage = 20;
+        sh.advance_stage_and_walk();
+        run_ending_to_staff_roll(&mut sh);
+        sh.game.world.levelfinished = le::ENDOFCREDS;
+
+        sh.tick(0);
+        assert!(sh.frame().ending_final_score_visible);
+        sh.tick(pad::START | pad::A | pad::B);
+        assert_eq!(sh.state(), GameState::Ending);
+        assert!(sh.frame().ending_final_score_visible);
+    }
+
+    #[test]
+    fn ending_replay_text_preserves_route_specific_records() {
+        let sector = ending_replay_text(BossEncounter::Route2Stage4);
+        assert_eq!(sector.title, "LEVEL 2");
+        assert_eq!(sector.location, Some("SECTOR $"));
+        assert_eq!(sector.details[0], "NAME   - PLASMA HYDRA");
+
+        let armada = ending_replay_text(BossEncounter::Route1Stage3);
+        assert_eq!(armada.location, Some("SPACE"));
+        assert_eq!(armada.location_second_line, Some("ARMADA"));
+
+        let final_record = ending_replay_text(BossEncounter::FinalBattle);
+        assert_eq!(final_record.title, "FINAL");
+        assert_eq!(final_record.subtitle, Some("STAGE"));
+        assert_eq!(final_record.details[0], "NAME   - ANDROSS...");
+    }
+
+    #[test]
+    fn ending_detail_record_reveals_one_character_after_countdown_100() {
+        let mut sh = Shell::new();
+        sh.game_state = GameState::Ending;
+        sh.ending = EndingState {
+            phase: EndingPhase::BossReplay,
+            replay_ticks_remaining: ENDING_REPLAY_DETAILS_TICK + 1,
+            replay_encounter: Some(BossEncounter::Route1Stage1),
+            ..EndingState::default()
+        };
+
+        sh.tick(0);
+        assert_eq!(
+            sh.frame()
+                .ending_replay
+                .expect("recap remains active")
+                .detail_characters_visible,
+            0
+        );
+        sh.tick(0);
+        assert_eq!(
+            sh.frame()
+                .ending_replay
+                .expect("recap remains active")
+                .detail_characters_visible,
+            1
+        );
+        sh.tick(0);
+        assert_eq!(
+            sh.frame()
+                .ending_replay
+                .expect("recap remains active")
+                .detail_characters_visible,
+            2
+        );
+    }
+
     /// Drive `n` gameplay ticks with a held level-end code, so the clear
     /// settle timer elapses and the LE_* dispatch fires.
     fn run_settle(sh: &mut Shell, lf: u8) {
@@ -1292,6 +2880,17 @@ mod tests {
         for _ in 0..LEVEL_CLEAR_SETTLE_TICKS {
             sh.tick(0);
         }
+    }
+
+    fn run_tally_to_ready(sh: &mut Shell) {
+        const MAX_TALLY_TICKS: usize = 1_000;
+        for _ in 0..MAX_TALLY_TICKS {
+            if sh.tally.phase == TallyPhase::Ready {
+                return;
+            }
+            sh.tick(0);
+        }
+        panic!("tally did not reach its ready phase");
     }
 
     /// Finding 1/2: the black-hole *exit* codes (LE_BHOLE1/2/3) skip the tally
@@ -1368,33 +2967,50 @@ mod tests {
         // 10 specials, all destroyed, all three teammates alive -> 100 + 15
         // capped to 100.
         sh.game.world.total_specials = 10;
-        sh.game.vars.write_ext8(score::SPECIALS_DEAD, 10);
+        sh.game.vars.shared.specials_dead = 10;
         sh.game.vars.bunny_hp = 3;
         sh.game.vars.frog_hp = 3;
         sh.game.vars.falcon_hp = 3;
 
         sh.enter_tally();
         assert_eq!(sh.state(), GameState::Tally);
-        assert_eq!(sh.tally_stage_perc, 100);
+        assert_eq!(sh.tally.target_percent, 100);
         let f = sh.frame();
         assert_eq!(f.tally_stage_perc, 100);
-        assert_eq!(f.score_total, 100); // calctotalscore
-        assert_eq!(f.credits, 1); // crossed bonertab 100 -> +1 credit
+        assert_eq!(f.tally_current_perc, 0);
+        assert_eq!(f.score_total, 0); // commit is delayed like retail
+        assert_eq!(f.credits, 0);
         assert!(f.tally_active);
-        assert!(sh.drain_sound().contains(&SoundCmd::PlaySe(score::SE_BONUS)));
+        assert!(sh.drain_sound().is_empty());
+
+        run_tally_to_ready(&mut sh);
+        let f = sh.frame();
+        assert_eq!(f.tally_current_perc, 100);
+        assert_eq!(f.score_total, 100);
+        assert_eq!(f.credits, 1);
+        assert!(f.tally_bonus_visible);
+        let sounds = sh.drain_sound();
+        assert!(sounds.contains(&SoundCmd::PlaySe(score::SE_TALLY_COUNT)));
+        assert!(sounds.contains(&SoundCmd::PlaySe(score::SE_TALLY_COMMIT)));
+        assert!(sounds.contains(&SoundCmd::PlaySe(score::SE_BONUS)));
 
         // A second, weaker stage (50%, no teammates) accumulates into the
         // running total but stays below the next threshold (300) -> no credit.
         sh.game.world.total_specials = 10;
-        sh.game.vars.write_ext8(score::SPECIALS_DEAD, 5);
+        sh.game.vars.shared.specials_dead = 5;
         sh.game.vars.bunny_hp = 0;
         sh.game.vars.frog_hp = 0;
         sh.game.vars.falcon_hp = 0;
         sh.enter_tally();
-        assert_eq!(sh.tally_stage_perc, 50);
-        assert_eq!(sh.frame().score_total, 150); // 100 + 50, calctotalscore
+        assert_eq!(sh.tally.target_percent, 50);
+        assert_eq!(sh.frame().score_total, 100);
+        run_tally_to_ready(&mut sh);
+        assert_eq!(sh.frame().score_total, 150);
         assert_eq!(sh.frame().credits, 1); // 150 < 300, no new credit
-        assert!(!sh.drain_sound().contains(&SoundCmd::PlaySe(score::SE_BONUS)));
+        assert!(!sh.frame().tally_bonus_visible);
+        assert!(!sh
+            .drain_sound()
+            .contains(&SoundCmd::PlaySe(score::SE_BONUS)));
     }
 
     /// Accumulating stages across a bonertab boundary awards a second credit.
@@ -1409,10 +3025,14 @@ mod tests {
         // Three 100% stages -> totals 100, 200, 300. Credits at 100 and 300.
         let mut credited = 0;
         for expect_total in [100u16, 200, 300] {
-            sh.game.vars.write_ext8(score::SPECIALS_DEAD, 1);
+            sh.game.vars.shared.specials_dead = 1;
             sh.enter_tally();
+            run_tally_to_ready(&mut sh);
             assert_eq!(sh.frame().score_total, expect_total);
-            if sh.drain_sound().contains(&SoundCmd::PlaySe(score::SE_BONUS)) {
+            if sh
+                .drain_sound()
+                .contains(&SoundCmd::PlaySe(score::SE_BONUS))
+            {
                 credited += 1;
             }
         }

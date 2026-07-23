@@ -1,0 +1,8 @@
+[package]
+name = "sf2-map"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sf2-data = { workspace = true, features = ["oracle-data"] }

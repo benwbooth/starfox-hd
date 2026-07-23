@@ -222,8 +222,6 @@ pub struct Strings {
     pub face_frame: u8,
     /// C `g_whichfriend`.
     pub whichfriend: u8,
-    /// C `g_friends_msg`.
-    pub friends_msg: u16,
     /// C `g_friends_sound`.
     pub friends_sound: u8,
     /// C `g_friends_meter`.
@@ -256,7 +254,6 @@ impl Default for Strings {
             active_text: None,
             face_frame: 0,
             whichfriend: FRIEND_FOX,
-            friends_msg: 0,
             friends_sound: 2,
             friends_meter: 0,
             msg_count1: 0,
@@ -283,7 +280,6 @@ impl Strings {
         self.active_text = None;
         self.face_frame = 0;
         self.whichfriend = FRIEND_FOX;
-        self.friends_msg = 0;
         self.friends_sound = 2;
         self.friends_meter = 0;
         self.msg_count1 = 0;
@@ -343,16 +339,23 @@ impl Strings {
             return;
         }
 
-        // normal — C SfRtl_Random() (src/sf_rtl.c:192, PRNG_NEXT types.h:57).
+        // normal — CONTINUE.ASM:721-744 friends_messages_l.
+        // `random&31==0` → absolute face frame 4 (the "anyone" flash), then
+        // `.doit` — do NOT add openingframes/whichfriend. Otherwise mouth =
+        // rnd&1 (forced 0 when msg_count1<30) + openingframes + whichfriend*2.
         *rndval = rndval.wrapping_mul(91).wrapping_add(0x61D7);
         let rnd = (*rndval & 31) as u8;
-        let mut face_frame = if rnd == 0 { 4 } else { rnd & 1 };
-        if self.msg_count1 < 30 {
-            face_frame = 0;
-        }
-        face_frame = face_frame
-            .wrapping_add(OPENING_FRAMES)
-            .wrapping_add((self.whichfriend & 0x7F) << 1);
+        let face_frame = if rnd == 0 {
+            4
+        } else {
+            let mut mouth = rnd & 1;
+            if self.msg_count1 < 30 {
+                mouth = 0;
+            }
+            mouth
+                .wrapping_add(OPENING_FRAMES)
+                .wrapping_add((self.whichfriend & 0x7F) << 1)
+        };
         self.face_frame = face_frame;
 
         self.msg_count1 -= 1;
@@ -396,7 +399,6 @@ impl Strings {
 
         self.whichfriend = whichfriend;
         self.friends_sound = sound_class;
-        self.friends_msg = msg_id as u16; // flat-memory text-pointer stand-in
         self.msg_count1 = 50;
         self.msg_count2 = 0;
         self.active_text = text;
@@ -486,5 +488,39 @@ mod tests {
         s.friends_meter = 0xFF;
         s.send_message(25); // rabbit, hp 3
         assert_eq!(s.friends_meter, 3 | 0x80);
+    }
+
+    /// CONTINUE.ASM:721-744 — `random&31==0` selects absolute face frame 4
+    /// (anyone flash); do not add OPENING_FRAMES + whichfriend*2.
+    #[test]
+    fn talk_flash_frame_is_absolute_four() {
+        let mut s = Strings::new();
+        s.send_message(5); // falcon
+        let mut rnd = 0u16;
+        let mut snd = Vec::new();
+        // Drain openup (5 frames) so we enter the normal talk phase.
+        for _ in 0..5 {
+            s.update(0, &mut rnd, &mut snd);
+        }
+        assert!(s.msg_count2 >= OPENING_FRAMES);
+        assert!(s.msg_count1 > 0);
+
+        // Force the LCG into a state where the next `*91+0x61D7 & 31 == 0`.
+        // Solve: (rnd*91 + 0x61D7) & 31 == 0  =>  find a seed by brute force.
+        let mut seed = 0u16;
+        loop {
+            let next = seed.wrapping_mul(91).wrapping_add(0x61D7);
+            if next & 31 == 0 {
+                break;
+            }
+            seed = seed.wrapping_add(1);
+            assert!(seed < 64, "LCG should hit &31==0 within 32 steps");
+        }
+        rnd = seed;
+        s.update(0, &mut rnd, &mut snd);
+        assert_eq!(
+            s.face_frame, 4,
+            "rnd&31==0 must set absolute face frame 4 (CONTINUE.ASM .doit)"
+        );
     }
 }

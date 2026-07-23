@@ -1,0 +1,1224 @@
+SESSION 2026-07-07 — restored from Claude Code jsonl
+Turns: 75
+========================================================================
+
+### Turn 1176 @ 2026-07-07T13:48:27.613Z
+USER:
+A session-scoped Stop hook is now active with condition: "Please verify RE accuracy across all functions. We're aiming for 100% accuracy to the original SNES game". Briefly acknowledge the goal, then immediately start (or continue) working toward it — treat the condition itself as your directive and do not pause to ask the user what to do. The hook will block stopping until the condition holds. It auto-clears once the condition is met — do not tell the user to run `/goal clear` after success; that's only for clearing a goal early.
+
+ASSISTANT (final):
+Goal acknowledged: systematic verification of every RE'd function against the SNES original, targeting 100% accuracy. The scalable way to do this is a **tracked coverage matrix** — enumerate every subsystem/function, record its verification status, and drive the unverified ones through the oracle in waves. Let me first build the inventory of what's verified vs not:
+----------------------------------------
+
+### Turn 1177 @ 2026-07-07T13:52:30.441Z
+USER:
+49:	jsl	calcbgscroll_l
+---
+	jsl	calcbgscroll_l
+
+	jsr	calcbg2voffsets
+
+	ai16
+	lda	bgsscrollZ
+	sta	oldviewposz
+
+	lda	bg3scrollflag
+	beq	.noscroll
+	ldx	viewpt
+	lda	al_worldx,x
+	asra
+	asra
+	asra
+	dec	a
+	dec	a
+	dec	a
+	dec	a
+	sta	bg3scroll
+.noscroll
+	lda	dospacesc
+	and	#$ff
+	beq	.noscrollsp
+	cmp	#1
+	beq	.l15
+
+	lda	spacescz
+	clc
+	adc	lastzchange
+	cmp	#500
+	bcc	.stspsc
+	lda	bg2yscroll
+	cmp	#-294
+	beq	.noscrollsp
+	dec	a
+	sta	bg2yscroll
+	lda	#0
+	bra	.stspsc
+.l15
+	lda	spacescz
+	clc
+	adc	lastzchange
+	cmp	#2000
+	bcc	.stspsc
+	lda	bg2yscroll
+	cmp	#212
+	beq	.noscrollsp
+	inc	a
+	sta	bg2yscroll
+	lda	#0
+.stspsc	sta	spacescz
+.noscrollsp
+	jsr	do_hpositions
+	jsr	dmahpos
+
+ASSISTANT (final):
+TRANS.ASM only calls it. Let me find the definition:
+----------------------------------------
+
+### Turn 1178 @ 2026-07-07T13:57:39.785Z
+USER:
+The file /home/ben/src/starfox-hd/docs/ACCURACY_AUDIT.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Major haul from the showview audit — 6 confirmed discrepancies including two that map directly to your reported symptoms (objects popping at screen bottom = wrong cull anchor; shadow height = hardcoded y=0 instead of per-level `shadowheight`). Let me commit the agent's oracle tests first, then launch the fix application:
+----------------------------------------
+
+### Turn 1179 @ 2026-07-07T14:11:11.266Z
+USER:
+diff --git a/rust/sf-oracle/Cargo.toml b/rust/sf-oracle/Cargo.toml
+index 9d5afe7..09cae94 100644
+--- a/rust/sf-oracle/Cargo.toml
++++ b/rust/sf-oracle/Cargo.toml
+@@ -12,3 +12,5 @@ w65c816 = "0.1"
+ [dev-dependencies]
+ sf-strat.workspace = true
+ sf-game.workspace = true
++sf-map.workspace = true
++sf-path.workspace = true
+--- lock diff summary ---
+
+ASSISTANT (final):
+Another big haul — including a **one-line bug affecting every level**: `maploop` runs every loop one extra iteration (ROM macro emits N−1, the Rust builder emits N). Let me apply the small confirmed fixes myself (#1/#2/#3/#6/#7). First, check what the sf-map parity tests compare against, since #1 changes built bytes:
+----------------------------------------
+
+### Turn 1180 @ 2026-07-07T14:16:56.989Z
+USER:
+=== what do sf-map parity tests compare against? ===
+//! Byte-equality of the route1 (wave-2) level builders against the C oracle.
+//!
+//! Fixtures were dumped from the C MapBuilder (`src/map/levels.c`) by a
+//! standalone harness that compiles levels.c with recording stubs for
+//! `World_RegisterNativeCallback` / `World_RegisterInlineMapCode`, calls
+//! `Levels_GetMapData(id)` once per map and writes `<name>.bin` (the blob)
+//! plus `<name>.regs.txt` (`length`, `native 0x......` addr24s and
+//! `inline <ptr>` script ptrs in C registration-call order) — the same
+//! format as the phase-1 fixtures in `tests/fixture_parity.rs`.
+use sf_map::catalog::{self, map_id};
+use sf_map::levels::route1;
+fn fixture(name: &str, ext: &str) -> Vec<u8> {
+    let path = format!("{}/tests/fixtures/{name}.{ext}", env!("CARGO_MANIFEST_DIR"));
+    std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
+}
+=== fixture source ===
+continue.bin
+continue.regs.txt
+level1_1.bin
+level1_1.regs.txt
+none.bin
+
+ASSISTANT (final):
+The sf-map fixtures came from the **C builder which shared the same bug** — stale-C class again; ROM truth is the `dw \2-1` macro. Let me apply the five small fixes:
+----------------------------------------
+
+### Turn 1181 @ 2026-07-07T14:19:09.098Z
+USER:
+39	fn assert_level_matches(name: &str, id: u32) {
+40	    let level = catalog::get_map_data(id)
+41	        .unwrap_or_else(|| panic!("{name}: map id {id} not ported"));
+42	    let blob = fixture(name, "bin");
+43	    let regs = parse_regs(name);
+44	
+45	    assert_eq!(regs.length, blob.len(), "{name}: fixture self-consistency");
+46	    assert_eq!(
+47	        level.data.len(),
+48	        blob.len(),
+49	        "{name}: bytecode length (rust {} vs C {})",
+50	        level.data.len(),
+51	        blob.len()
+52	    );
+53	    if level.data != blob {
+54	        let first = level
+55	            .data
+56	            .iter()
+57	            .zip(blob.iter())
+58	            .position(|(a, b)| a != b)
+59	            .unwrap();
+60	        panic!(
+61	            "{name}: bytecode diverges at offset {first}: rust {:#04x} vs C {:#04x}",
+62	            level.data[first], blob[first]
+63	        );
+64	    }
+65	
+66	    let native: Vec<u32> = level.native_callbacks.iter().map(|&(a, _)| a).collect();
+67	    assert_eq!(native, regs.native, "{name}: native callback addr24 order");
+68	
+69	    let inline: Vec<u16> = level.inline_callbacks.iter().map(|&(p, _)| p).collect();
+70	    assert_eq!(inline, regs.inline, "{name}: inline script ptr order");
+71	}
+72	
+73	#[test]
+
+ASSISTANT (final):
+Blob length is unchanged (only count values change), so `regs.txt` stays valid. Let me add a bless hook to all four sf-map parity test files:
+----------------------------------------
+
+### Turn 1182 @ 2026-07-07T14:19:33.771Z
+USER:
+patched rust/sf-map/tests/fixture_parity.rs
+patched rust/sf-map/tests/route1_parity.rs
+patched rust/sf-map/tests/route2_parity.rs
+patched rust/sf-map/tests/route3_parity.rs
+
+ASSISTANT (final):
+Now bless and verify the byte diff is exactly the maploop count decrements:
+----------------------------------------
+
+### Turn 1183 @ 2026-07-07T14:19:46.732Z
+USER:
+=== which .bin files changed + byte-level diff of level1_1 ===
+
+ASSISTANT (final):
+My bless patch assumed the same variable names across files — route tests differ. Let me fix each:
+----------------------------------------
+
+### Turn 1184 @ 2026-07-07T14:22:14.316Z
+USER:
+flipped
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+PUSHED
+
+ASSISTANT (final):
+Both fix agents are running. Let me update the coverage matrix with wave-2 findings and commit it:
+----------------------------------------
+
+### Turn 1185 @ 2026-07-07T14:23:24.922Z
+USER:
+updated
+PUSHED
+
+ASSISTANT (final):
+Showview fixes all landed (40 binaries green). The one failing suite (`trace_parity`) is fallout from **my** committed maploop fix — the level bytecode changed, so the trace mapptr shifted. Let me re-bless it, verify, and commit the showview batch:
+----------------------------------------
+
+### Turn 1186 @ 2026-07-07T14:24:50.790Z
+USER:
+162 passed, 0 failed
+PUSHED
+
+ASSISTANT (final):
+sf-game is free now. Let me apply my deferred map-VM fixes (REMOVE, SETBGM, WAIT2, SETVAROBJ):
+----------------------------------------
+
+### Turn 1187 @ 2026-07-07T14:26:11.424Z
+USER:
+test wait2_scaling_matches_but_zero_diverges ... FAILED
+test remove_takes_first_match_only_in_rom ... FAILED
+test setvarobj_valid_matches_invalid_diverges ... FAILED
+test setbgm_hp0_guard_diverges ... FAILED
+test result: FAILED. 13 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+ASSISTANT (final):
+Exactly the 4 expected pins. Let me see each assertion to flip:
+----------------------------------------
+
+### Turn 1188 @ 2026-07-07T14:26:58.021Z
+USER:
+test op_remove_frees_matching_shapes ... FAILED
+test op_wait2_scales_by_16_and_pauses ... FAILED
+thread 'op_remove_frees_matching_shapes' (3175941) panicked at sf-game/tests/unit_core.rs:114:5:
+thread 'op_wait2_scales_by_16_and_pauses' (3175945) panicked at sf-game/tests/unit_core.rs:129:5:
+test result: FAILED. 21 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+ASSISTANT (final):
+Two stale unit tests encode the old REMOVE/WAIT2 behavior. Let me update them:
+----------------------------------------
+
+### Turn 1189 @ 2026-07-07T14:28:20.287Z
+USER:
+updated
+PUSHED
+
+ASSISTANT (final):
+All 8 path fixes landed green (plus 2 extra byte-parity fixes found during the ROM walk). Let me run the full workspace, commit, and relaunch:
+----------------------------------------
+
+### Turn 1190 @ 2026-07-07T14:48:48.531Z
+USER:
+RUNNING
+
+ASSISTANT (final):
+The game is **running with the full wave-2 build**. Let me close out wave 2 in the tracker and launch wave 3:
+----------------------------------------
+
+### Turn 1191 @ 2026-07-07T14:49:22.979Z
+USER:
+Updated task #50 status
+
+ASSISTANT (final):
+The enemy-B audit is the biggest haul yet — 26 confirmed discrepancy classes (bossF's signature 180-turn mechanic entirely missing, bossA's turret-resurrection core loop broken, inverted gates, 6.4× fire rates from `notdelay` misreads). The MOTHER agent is still mid-edit in sf-map. Let me save the full findings to a file so the fix agent gets them verbatim, and commit the audit test:
+----------------------------------------
+
+### Turn 1192 @ 2026-07-07T15:17:12.365Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+The game session ended (both wave-3 agents still working). Given the volume of session state, let me checkpoint the audit progress in memory so nothing is lost across context boundaries:
+----------------------------------------
+
+### Turn 1193 @ 2026-07-07T15:29:30.831Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/rom-oracle-plan.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+MOTHER port is done and oracle-verified (bit-identical `bemother` ticks; the 1-2 asteroid field now spawns 25 asteroids where before there were **zero**). The enemy-B agent is still editing sf-strat, so I'll hold the commit — but let me back up the MOTHER work as insurance first:
+----------------------------------------
+
+### Turn 1194 @ 2026-07-07T15:46:56.685Z
+USER:
+20
+backed up
+ M rust/Cargo.lock
+ M rust/sf-map/src/consts.rs
+ M rust/sf-map/src/levels/route1/blackhole.rs
+ M rust/sf-map/src/levels/route1/level1_2.rs
+ M rust/sf-map/src/levels/route1/level1_3.rs
+ M rust/sf-map/src/levels/route1/level1_5.rs
+ M rust/sf-map/src/levels/route2/level2_4.rs
+ M rust/sf-map/src/levels/route2/level2_5.rs
+ M rust/sf-map/src/levels/route2/rc.rs
+ M rust/sf-map/src/levels/route2/submaps.rs
+ M rust/sf-map/src/levels/route3/common.rs
+ M rust/sf-map/src/levels/route3/level3_2.rs
+ M rust/sf-map/src/levels/route3/level3_3.rs
+ M rust/sf-map/src/levels/route3/level3_6.rs
+ M rust/sf-map/src/levels/route3/level3_7.rs
+ M rust/sf-map/src/lib.rs
+ M rust/sf-map/tests/fixtures/r1_blackhole.bin
+ M rust/sf-map/tests/fixtures/r1_level1_2.bin
+ M rust/sf-map/tests/fixtures/r1_level1_3.bin
+ M rust/sf-map/tests/fixtures/r1_level1_5.bin
+ M rust/sf-map/tests/fixtures/r2_level2_1.bin
+ M rust/sf-map/tests/fixtures/r2_level2_2.bin
+ M rust/sf-map/tests/fixtures/r2_level2_4.bin
+ M rust/sf-map/tests/fixtures/r2_level2_5.bin
+ M rust/sf-map/tests/fixtures/r3_level3_1.bin
+
+ASSISTANT (final):
+Both wave-3 agents done — all 26 enemy-B findings applied and the MOTHER port complete. Let me verify the combined tree with a full workspace run:
+----------------------------------------
+
+### Turn 1195 @ 2026-07-07T16:04:20.757Z
+USER:
+241 passed, 0 failed, 1 ignored
+
+ASSISTANT (final):
+**241 passed, 0 failed** on the combined tree. Committing the two batches separately:
+----------------------------------------
+
+### Turn 1196 @ 2026-07-07T16:05:47.588Z
+USER:
+updated
+PUSHED
+
+ASSISTANT (final):
+The boss-ticks agent stalled. Let me check for partial work, then relaunch it:
+----------------------------------------
+
+### Turn 1197 @ 2026-07-07T16:17:05.892Z
+USER:
+(Bash completed with no output)
+
+ASSISTANT (final):
+The HUD/SFX audit found gameplay-critical gaps: **you can never game-over** (lives state is three disconnected variables), **the boss HP bar never drains**, **every explosion plays the item-catch chime**, and the score/credit system doesn't exist. Let me commit the findings and launch the fix agent:
+----------------------------------------
+
+### Turn 1198 @ 2026-07-07T16:27:48.598Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+boss2/bossg audit done — 10 findings, and its top item (the missing `m_bossHP` accumulator) is exactly what the HUD fix agent is implementing right now. Let me commit the findings doc and hold the boss-ticks fix until the HUD agent lands (both touch the same boss files):
+----------------------------------------
+
+### Turn 1199 @ 2026-07-07T16:38:09.003Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+Wave 4 status — three lanes:
+
+1. **HUD/lives/score/SFX fixes** — in progress (lives unification, boss HP bar, explosion sounds, credits system, positional audio)
+2. **boss8/seamon/boss1 tick audit** — just launched (report-only, armed with the now 10-item STRATMAC gotcha checklist including the new ones from boss2/bossg: Zdistmore inclusivity, `rnd<127` coin flips, muzzle rotz rotation)
+3. **boss2/bossg fix batch** — queued behind the HUD agent (same files); findings committed
+
+The audit machine's efficiency keeps climbing — each wave's misread patterns feed the next wave's checklist, so agents find the same bug classes faster. Once the HUD agent lands I'll verify the lives/game-over loop explicitly (that's core play), commit, then chain the boss-ticks fix agent on the combined findings (10 from boss2/bossg + whatever pass 2 finds), then the remaining queue: pcbox routing, palette fades, path leftovers, ≥128 latents.
+----------------------------------------
+
+### Turn 1200 @ 2026-07-07T16:38:51.725Z
+USER:
+i notice if i leave the intro for a long time that the ship keeps spinning faster and faster
+
+ASSISTANT (final):
+A concrete symptom — that's an unbounded accumulator (a rotation *rate* being incremented per tick instead of the angle). Let me find the intro/title ship-spin strategy:
+----------------------------------------
+
+### Turn 1201 @ 2026-07-07T16:39:37.550Z
+USER:
+=== places where a spin RATE accumulates ===
+rust/sf-strat/src/enemy_a.rs:1097:    al.sbyte1 = al.sbyte1.wrapping_add(1);
+rust/sf-strat/src/enemy_a.rs:2778:                al.sbyte1 = al.sbyte1.wrapping_add(4);
+rust/sf-strat/src/enemy_a.rs:2784:                al.sbyte1 = al.sbyte1.wrapping_add(4);
+rust/sf-strat/src/enemy_a.rs:2790:                al.sbyte1 = al.sbyte1.wrapping_add(4);
+rust/sf-strat/src/enemy_a.rs:2796:                al.sbyte1 = al.sbyte1.wrapping_add(4);
+rust/sf-strat/src/enemy_a.rs:4424:        al.sbyte1 = al.sbyte1.wrapping_add(1);
+rust/sf-strat/src/enemy_a.rs:4441:        al.sbyte1 = al.sbyte1.wrapping_add(1);
+rust/sf-strat/src/bosses.rs:1044:        al.sbyte1 = al.sbyte1.wrapping_add(spin);
+rust/sf-strat/src/bosses.rs:2205:                g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+rust/sf-strat/src/bosses.rs:2234:                g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+=== intro map ship strats (route1/intro.rs istrat wiring) ===
+7://! Presents fade-in, player intro ships, deboss_1 intro boss, zaco waves,
+20:    /// levels.c `#define SH_OLD_TYPE_PROXY SH_MYSHIP_4`
+21:    pub const SH_OLD_TYPE_PROXY: u16 = sh::MYSHIP_4;
+25:    /// levels.c `#define STRAT_ADDR_PLAYERDOWNINTRO 0x050019u`
+26:    pub const STRAT_ADDR_PLAYERDOWNINTRO: u32 = 0x050019;
+27:    /// levels.c `#define STRAT_ADDR_PLAYERDOWN2INTRO 0x05001Au`
+28:    pub const STRAT_ADDR_PLAYERDOWN2INTRO: u32 = 0x05001A;
+29:    /// levels.c `#define STRAT_ADDR_PLAYERDOWN3INTRO 0x05001Bu`
+30:    pub const STRAT_ADDR_PLAYERDOWN3INTRO: u32 = 0x05001B;
+31:    /// levels.c `#define STRAT_ADDR_PLAYERFIREINTRO 0x05001Cu`
+32:    pub const STRAT_ADDR_PLAYERFIREINTRO: u32 = 0x05001C;
+33:    /// levels.c `#define STRAT_ADDR_BOSS7INTRO 0x05001Du`
+=== title screen ship (shell.rs)? ===
+897:        // Route 0 (spine PATH_ID_6 -> routes[1]=PATH_ID_7): stage 1 is
+
+ASSISTANT (final):
+The build/relaunch completed. Rather than guessing, let me reproduce the title-spin acceleration headless and trace the spinner's rate:
+----------------------------------------
+
+### Turn 1202 @ 2026-07-07T16:45:36.870Z
+USER:
+655-
+656-    /// C `TitleScreen_Tick()` (src/game/boot.c:141).
+657:    fn title_tick(&mut self) {
+658-        if !self.title_loaded {
+659-            // boot.c:143-149.
+660-            self.game.objs = Objects::init();
+661-            self.camera.init(&mut self.game.vars);
+662-            self.game.world = World::init();
+663-            self.reregister_strats();
+664-            // TODO(wave3): sf_strat::table::register_all(&mut self.game)
+665-            //   (C Strat_RegisterAll, boot.c:146).
+666-            self.load_map(sf_map::catalog::map_id::TITLE);
+667-            self.title_loaded = true;
+668-        }
+669-
+670-        // boot.c:152-155: clear list, Obj_RunStrategies directly (no
+671-        // freezestrats guard, no coldet), camera, draw build.
+672-        self.draw_list.clear();
+673-        self.game.run_strategies();
+674-        self.cam_snapshot = self.camera.update(&self.game.vars, &self.game.objs);
+675-        // Cull anchors on the camera viewpos published by camera.update
+676-        // (ROM viewposx/z, game.c:94-98), with the coldet shape-extents
+677-        // table supplying the sh_zmax margin (alienflags_l MAIN.ASM:2030).
+678-        draw::build_list(
+679-            &mut self.game.objs,
+680-            self.game.vars.playerflymode,
+681-            self.game.vars.gameframe,
+682-            self.camera.vars.viewposx,
+683-            self.camera.vars.viewposz,
+684-            self.game.vars.gameflags,
+685-            &|shape| self.game.hooks.shape_extents(shape),
+686-            &mut self.draw_list,
+687-        );
+
+ASSISTANT (final):
+You've hit your session limit · resets 11:10am (America/Los_Angeles)
+----------------------------------------
+
+### Turn 1203 @ 2026-07-07T16:55:28.660Z
+USER:
+objects are still above the ground not touching.
+
+ASSISTANT (final):
+You've hit your session limit · resets 11:10am (America/Los_Angeles)
+----------------------------------------
+
+### Turn 1204 @ 2026-07-07T18:32:30.200Z
+USER:
+objects are still above the ground not touching.
+
+ASSISTANT (final):
+All three agents died on the session limit mid-edit, leaving the tree broken — and your floating-objects report points straight at my earlier bg2d change. Working directly now. First, restore a clean tree:
+----------------------------------------
+
+### Turn 1205 @ 2026-07-07T18:34:15.662Z
+USER:
+The file /home/ben/src/starfox-hd/rust/sf-render/src/bg2d.rs has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+The gl_runtime golden needs to flip back too (the window shifts back 18 rows):
+----------------------------------------
+
+### Turn 1206 @ 2026-07-07T18:35:15.304Z
+USER:
+RUNNING
+
+ASSISTANT (final):
+The game is running with the horizon fix — **please check whether ground objects sit on the terrain now.** Let me record the lesson so this doesn't regress again:
+----------------------------------------
+
+### Turn 1207 @ 2026-07-07T18:35:34.196Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/rom-oracle-plan.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+**Horizon fix is live** — the game is running with it. Fly Corneria and check whether buildings/tanks now sit on the terrain.
+
+## What happened & where things stand
+
+**Your floating-objects report → fixed directly.** When I made the bg scroll ROM-exact earlier, I removed the +18-row horizon-base shift on purity grounds — that was wrong. The 18-row gap between the painted horizon and the 3D vanishing line reads as haze on a CRT but as *floating objects* on our clean output. Restored the base shift (the ROM-exact linear pitch slope stays), committed, pushed, and saved a memory note so it never gets "purified" away again.
+
+**The session limit killed the three background agents mid-flight** (resets 11:10am PT):
+- HUD/lives/score/SFX fix batch — partial edits left the tree broken; I **reverted them cleanly** (the findings doc is committed, so nothing is lost — the batch just needs re-running)
+- boss8/seamon/boss1 audit — no output yet
+- intro-spin diagnosis — left only its probe test file
+
+All three are checkpointed in memory and the findings docs, ready to resume once the limit resets.
+
+## Current state
+- Tree: clean, builds, all tests green, everything pushed
+- Game: running with wave 2+3 fixes (~80 ROM divergences fixed this session) + the horizon restore
+- Pending after reset: the HUD/lives/score batch (game-over/1-UPs/boss-bar/explosion-sounds), remaining boss audits, intro-spin diagnosis, pcbox routing, palette fades
+
+Check the ground contact and keep noting symptoms — the intro-spin one is queued with a full diagnostic trail.
+----------------------------------------
+
+### Turn 1208 @ 2026-07-07T18:35:57.664Z
+USER:
+Stop hook feedback:
+[Please verify RE accuracy across all functions. We're aiming for 100% accuracy to the original SNES game]: The transcript shows substantial progress toward 100% ROM accuracy (waves 2-3 landed ~80 fixes, 241/0 tests passing, oracle test suites standing guard), but explicitly documents remaining unaudited/unfixed systems: HUD/lives/score/SFX (16 findings), boss8/seamon/boss1 ticks (audit incomplete), boss2/bossg (10 findings), intro-spin acceleration (diagnosis incomplete), pcbox collision routing, palette fades (FADETOSEA/GROUND), path leftovers (gotopos triggers, explode children, linkchild, friend weights, spawnchild), and >=128 latents. The transcript ends mid-work with three agents killed by session limit, their fixes uncommitted. The accuracy matrix (docs/ACCURACY_AUDIT.md) explicitly states 'Remaining queue' and 'Wave 3 remaining after'. This is ~40+ known divergences still in flight or queued. 100% accuracy has not been achieved.
+
+ASSISTANT (final):
+Correct — continuing directly (subagents are limit-blocked until 11:10). Picking off the highest-impact committed findings myself, starting with the most audible one: every kill plays the *item-catch chime*. Let me read the exact findings:
+----------------------------------------
+
+### Turn 1209 @ 2026-07-07T18:37:01.716Z
+USER:
+sounds fixed
+41 passed, 0 failed
+
+ASSISTANT (final):
+Explosion/hitflash sounds fixed (41/0). Committing, then straight to your intro-camera report:
+----------------------------------------
+
+### Turn 1210 @ 2026-07-07T18:38:05.262Z
+USER:
+=== PISTRATS viewtoobj writes (the intro strat sets the camera target) ===
+563:	s_set_vartobeobj	viewtoobj,y
+600:	ldy	viewtoobj
+783:	s_set_vartobeobj	viewtoobj,y
+=== context of the first ===
+	s_playerfly_mode	planet
+	s_set_alptrs		x,playerDIVEGND_strat,playercoll_Istrat,playerdead_Istrat
+
+
+	s_and_var		B,gameflags,#~gf_viewrot	
+	s_playerctrl		off
+
+	jsr			dupplayer
+	s_set_strat		y,pshipDIVEGND_Istrat
+;	s_set_alvar		W,y,al_shape,#myship_4
+	s_set_vartobeobj	svar_word1,y
+	s_set_pos		y,#0,#0,#0
+	s_set_vartobeobj	viewtoobj,y
+
+	s_make_obj		#nullshape,.badobj
+	phx
+	tyx
+
+ASSISTANT (final):
+The ROM sets `viewtoobj` to a duplicated ship at the very start of the dive shot — camera tracks it from frame one. Now the Rust side:
+----------------------------------------
+
+### Turn 1211 @ 2026-07-07T18:44:14.896Z
+USER:
+shell callers updated (2)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+ASSISTANT (final):
+API Error: Server error mid-response. The response above may be incomplete.
+----------------------------------------
+
+### Turn 1212 @ 2026-07-07T18:46:51.847Z
+USER:
+playeropening_Istrat
+	s_start_strat
+	s_playerctrl		off
+	s_playerfly_mode	Ltunnel
+	s_set_alptrs		x,playerpening_strat,0,0
+
+	stz		gameframe
+	
+	lda	#2
+	sta	fadedir
+
+	s_set_var	W,outvx,#-deg11*256
+	s_or_var		B,gameflags,#gf_nozremove
+
+	s_set_var		B,viewtype,#viewtype_toobj!viewtype_Fpos
+
+	s_make_obj		#nullshape,.bad
+	s_set_strat		y,viewopening_Istrat
+	s_copy_pos		y,x
+.bad
+	s_AND_var		B,gameflags,#~gf_stratdone2
+
+	s_set_var		B,psvar_byte3,#70
+	s_set_alvar		W,x,al_shape,#Imyship_4
+
+	s_set_var		B,psvar_byte1,#0
+	s_set_var		B,psvar_byte2,#0
+
+playerpening_strat
+	s_start_strat
+
+
+	s_inc_var		B,psvar_byte1
+	s_jmp_varNE		B,psvar_byte1,#pZrotfloattab_len,.pfzptrok
+	s_set_var		B,psvar_byte1,#0
+.pfzptrok	s_set_alvar2vartab	B,B,B,x,al_rotz,psvar_byte1,pZrotfloattab
+
+	s_add_var		B,psvar_byte2,#2
+	s_jmp_varNE		B,psvar_byte2,#viewfloattab_len,.nmaxy
+	s_set_var		B,psvar_byte2,#0
+.nmaxy	s_set_alvar2vartab	B,B,W,x,al_worldy,psvar_byte2,viewfloattab,1
+
+	s_add_alvar		W,x,al_worldy,#-30
+
+
+	s_jmpNOT_varAND		B,gameflags,#gf_stratdone2,.nboost
+	s_beqdec_var		B,psvar_byte3,playeropeningboost_init
+.nboost
+
+	s_add_Alvar		W,x,al_worldz,#medpspeed
+	jsl		makeBG2black_l
+	s_end_strat
+
+playeropeningboost_init
+	s_set_strat		x,playeropeningboost_strat
+	s_set_vartobeobj	boostobj,x
+	IFNE	RUMBLE
+	s_queue_rumble_table	partyboostrumbletab2
+	ENDC
+	boost_sprite
+	trigse			$32
+	s_and_var		B,pshipflags3,#~psf3_enginesnd
+playeropeningboost_strat
+
+ASSISTANT (final):
+The ROM's opening makes **the player itself visible** (`al_shape = Imyship_4`) and tracks it. Let me check the rest of the Rust opening init for the shape/viewtype/carrier setup:
+----------------------------------------
+
+### Turn 1213 @ 2026-07-07T18:51:13.916Z
+USER:
+PROBE non_bg=0 bbox=(9999,9999)-(-1,-1)
+thread 'opening_lookback_camera_renders_ship' (3390189) panicked at sf-render/tests/opening_cam_probe.rs:42:5:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+ASSISTANT (final):
+**Reproduced in isolation** — the look-back camera renders zero ship pixels. Now bisecting which rotation component breaks it:
+----------------------------------------
+
+### Turn 1214 @ 2026-07-07T18:57:07.753Z
+USER:
+RUNNING
+
+ASSISTANT (final):
+The game session closed. Continuing the accuracy queue directly — next up: the **lives unification** (the "can never game-over" bug). Let me find the three disconnected stores:
+----------------------------------------
+
+### Turn 1215 @ 2026-07-07T19:02:24.293Z
+USER:
+Terminated                 SF_HIDDEN=1 SF_START_PLAYING=1 SF_START_MAP=1 SF_DEBUG_CAM=1 SF_MAX_TICKS=700 timeout 120 ./play.sh 2>&1 | grep 'CAM ' > /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/death_trace.txt
+578
+CAM vt=0 toobj=0 campos=(-6,-55,12849) | plr pos=(-6,-56,13032) vel=65 hp=40
+CAM vt=0 toobj=0 campos=(-6,-59,13857) | plr pos=(-6,-56,14040) vel=65 hp=0
+CAM vt=0 toobj=0 campos=(-6,-49,13857) | plr pos=(-6,-56,14040) vel=65 hp=0
+CAM vt=0 toobj=0 campos=(-6,-58,13857) | plr pos=(-6,-56,14040) vel=65 hp=0
+CAM vt=0 toobj=0 campos=(-6,-55,13857) | plr pos=(-6,-56,14040) vel=65 hp=0
+
+ASSISTANT (final):
+**Death stall confirmed** — at hp=0 the player freezes at z=14040, no fall, no respawn, world stops. That's your "collision stops the arwing." Let me read the death chain to find the stall:
+----------------------------------------
+
+### Turn 1216 @ 2026-07-07T19:07:05.143Z
+USER:
+rust/sf-game/src/alien.rs:162:pub const AFEXP: u8 = 1;
+import added
+0
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+ASSISTANT (final):
+Now the lives unification — repoint the 1-UP and wire the shell mirror:
+----------------------------------------
+
+### Turn 1217 @ 2026-07-07T19:08:04.744Z
+USER:
+/// Death path: GF_PLAYERDEAD + no lives -> CONTINUE after
+    /// DEATH_RESPAWN_TICKS; continue restarts with refilled lives.
+    #[test]
+    fn death_to_continue_and_back() {
+        let mut sh = Shell::new();
+        sh.tick(0);
+        sh.tick(0);
+        sh.tick(pad::START);
+        sh.tick(0);
+        sh.tick(pad::START);
+        assert_eq!(sh.state().code(), 4);
+
+        sh.planets.lives = 0;
+        sh.game.vars.gameflags |= GF_PLAYERDEAD;
+        for _ in 0..DEATH_RESPAWN_TICKS {
+            sh.tick(0);
+test updated
+45 passed, 0 failed
+
+ASSISTANT (final):
+All green. Now the end-to-end death verification — fall motion, respawn, and the life actually deducted:
+----------------------------------------
+
+### Turn 1218 @ 2026-07-07T19:14:45.023Z
+USER:
+1341:pub fn strat_player(g: &mut Game, idx: u16) {
+pub fn strat_player(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].hp == 0 {
+        playerdead_istrat(g, idx);
+    }
+
+    if g.vars.gameflags & GF_PLAYERDYING != 0 || g.vars.gameflags & GF_PLAYERDEAD != 0 {
+        let dead_id = sid(g, K_PLAYERDEAD_STRAT);
+        if g.objs.aliens[idx as usize].stratptr == Some(dead_id) {
+            playerdead_strat(g, idx);
+        }
+        return;
+    }
+
+    boost_brake_update(g, idx);
+
+    if g.vars.game_mode == SPACE_MODE {
+        do_player_limit_x(g, idx);
+    } else if g.vars.playerflymode & PFM_DIEFALL != 0 || g.vars.playerflymode & PFM_DIEYROT != 0 {
+        do_player_yvel_d2(g, idx);
+    } else {
+        do_player_yvel125(g, idx);
+    }
+
+    update_viewxy_for_mode(g, idx);
+    viewmove_srou(g, idx);
+}
+
+/// C `Strat_SpawnPlayer` (strat_player.c:725) — spawn the player alien and
+/// reset all player globals.
+pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
+    let player_id = sid(g, K_PLAYER);
+
+ASSISTANT (final):
+`strat_player` does dispatch correctly — so is `playerdead_strat` even being called? One targeted probe:
+----------------------------------------
+
+### Turn 1219 @ 2026-07-07T19:17:19.329Z
+USER:
+probe in
+0
+Terminated                 SF_HIDDEN=1 SF_START_PLAYING=1 SF_START_MAP=1 SF_DEBUG_CAM=1 SF_MAX_TICKS=600 timeout 120 ./play.sh 2>&1 | grep -E 'DEADSTRAT' | head -5
+done
+
+ASSISTANT (final):
+**Confirmed: `playerdead_strat` never executes.** Something upstream stops dispatching the player. Check the strategy loop for a dying/freeze gate:
+----------------------------------------
+
+### Turn 1220 @ 2026-07-07T19:21:45.893Z
+USER:
+test player_trace_matches_c_oracle ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+ASSISTANT (final):
+The player-trace fixture caught the intentional dying-sequence change. Verify it's the death fields, then re-bless:
+----------------------------------------
+
+### Turn 1221 @ 2026-07-07T19:23:00.558Z
+USER:
+RUNNING
+
+ASSISTANT (final):
+boss2/bossg batch done (9 fixes, tests green, single-cause fixture diff). One handoff: sf-render needs the `BLACK_C` color table at ID 6 or the new bossg shadow flicker renders magenta. Adding it now:
+----------------------------------------
+
+### Turn 1222 @ 2026-07-07T19:47:07.567Z
+USER:
+41 passed, 0 failed
+PUSHED
+
+ASSISTANT (final):
+The intro-spin mystery is solved — and it's elegant: the camera treated the title demo ship as the *player* and co-rotated with it (screen-space acceleration = "faster and faster"), then the cull deleted the ship entirely at 5s. Verifying and committing:
+----------------------------------------
+
+### Turn 1223 @ 2026-07-07T19:55:07.185Z
+USER:
+RUNNING
+
+ASSISTANT (final):
+The audit agent died on a server error. Checking for partial output, then relaunching (the tree is stable now — no concurrent bosses.rs churn):
+----------------------------------------
+
+### Turn 1224 @ 2026-07-07T19:55:56.191Z
+USER:
+no partial doc
+
+ASSISTANT (final):
+The palette-fade agent reports green but the diagnostics show arity/field errors — let me verify the actual build state:
+----------------------------------------
+
+### Turn 1225 @ 2026-07-07T20:20:57.664Z
+USER:
+matrix updated
+PUSHED
+
+ASSISTANT (final):
+You've reached your Fable 5 limit. Run /usage-credits to continue or switch models with /model.
+----------------------------------------
+
+### Turn 1226 @ 2026-07-07T22:16:37.692Z
+USER:
+whats the status
+
+ASSISTANT (final):
+You've reached your Fable 5 limit. Run /usage-credits to continue or switch models with /model.
+----------------------------------------
+
+### Turn 1227 @ 2026-07-07T22:19:08.082Z
+USER:
+=== working tree ===
+?? docs/AUDIT_BOSS_TICKS2_FINDINGS.md
+348dc2c docs: accuracy matrix — wave 4 progress (user-report fixes + boss2/bossg + palette fades)
+65fef28 feat(render): FADETOSEA/FADETOGROUND palette crossfade (Aquas water level)
+0af81ac fix(title): accelerating intro spin — camera co-rotation + ROM tit pose
+cdfbc65 fix(boss): 9 boss2/bossg audit findings + BLACK_C color table
+cf3c418 fix(player): ROM death crash sequence + lives unification (game loop works)
+=== audit doc from failed agent? ===
+-rw-rw-r-- 1 ben users 26346 Jul  7 13:24 docs/AUDIT_BOSS_TICKS2_FINDINGS.md
+=== any running game/procs ===
+0
+
+ASSISTANT (final):
+The failed audit agent actually *did* write its findings doc before hitting the limit (26KB). Let me check what it captured:
+----------------------------------------
+
+### Turn 1228 @ 2026-07-07T22:19:12.351Z
+USER:
+# boss8 (wash boss) + bossseamon + boss1 tick audit findings (2026-07-07, ASM-verified)
+Scope: tick state machines (+ death chains, fire gates, muzzle offsets). ASM authoritative:
+GB3STRAT.ASM + GASTRATS.ASM:39-131 (boss8 room), GA2STRAT.ASM:3056-3196 (bossseamon),
+GASTRATS.ASM:2046-2140 (seamon, audited alongside), GBSTRATS.ASM:87-462 (boss1),
+STRATMAC.INC / STRATLIB.INC / STRATEQU.INC macros. Rust: rust/sf-strat/src/bosses.rs
+(boss8, bossseamon, seamon), rust/sf-strat/src/enemy_a.rs (boss1).
+Per instructions, sea_not_delay's own semantics and everything bossg were NOT re-audited
+(fixed in docs/AUDIT_BOSS_TICKS_FINDINGS.md items already committed).
+
+Macro facts established for this audit (cite these when fixing):
+- s_jmp_notdelay/ifdelay N,label[,off] = (gameframe [+off]) & ((1<<N)-1) (STRATMAC.INC:6456/6470).
+  N is a BIT COUNT, never a modulus. `al1pt` off = per-object stagger.
+- setstateN (STRATROU.ASM:2980-2992) re-enters the strat TOP same tick (s_jmpto_strat).
+- s_add_anim amount,max (3-arg) WRAPS at max; 4-arg with label CAPS at max-1 and jumps
+  (STRATLIB.INC:180-247).
+- s_gen_vecs writes al_vx/al_vz ONLY — never vy (STRATMAC.INC:3637).
+- s_jmp_random label = branch when random_l() < 127 (STRATMAC.INC:1407).
+- s_set_alvar2rnd obj,var,#m = rnd & m, no centering (STRATMAC.INC:4404).
+- s_add_rnd2pos obj,mx,my,mz = per axis (rnd&m)-m/2, one draw PER AXIS even for m=0
+  (STRATMAC.INC s_add_rnd2pos).
+- s_add_Roffs2pos rot flags apply rotz FIRST, then rotx, then roty; trailing 3 args are
+  per-axis ASL counts (STRATMAC.INC:4098). fire_weapon uses flags 1,1,1 + <<weapon_scale(2)
+  (GSTRATS.ASM:2795); dobossrot/boss1rots use rotz+roty (no rotx) + <<1 (GBSTRATS.ASM:40-45).
+- jmp_distmore branches on |d| >= dist (inclusive); jmp_distless strictly less;
+  ABSalvarmore strictly more, ABSalvarless strictly less (beq falls through in both);
+  jmp_outdistrng in-range = min <= |d| < max (STRATMAC.INC:3275-3436, 6609-6650).
+- Flag byte layout (STRATEQU.INC:896-915): sflags b
+
+ASSISTANT (final):
+This is a substantial audit — it got the whole thing out before dying. Let me get the shape of it and commit it:
+----------------------------------------
+
+### Turn 1229 @ 2026-07-07T22:19:22.247Z
+USER:
+=== section headers / finding count ===
+31:## High
+33:1. boss1: five fire-rate constants misread as `% N` periods — the raw macro N (a bit
+50:2. boss1back_strat hold/retreat condition INVERTED. ASM `s_jmp_Zdistmore x,y,#1500,.nzi`
+58:3. boss1 child/muzzle offsets: missing <<1 / <<2 scaling and missing rotz rotation.
+73:4. m_bossHP per-frame accumulator sites (lane list for the accumulator fix from
+91:5. currentlevel is never wired: enemy_a.rs `currentlevel()` reads WRAM 0x1F03
+102:## Medium
+104:6. boss1 back-mode HPLASMA spread + aim base (GBSTRATS.ASM:210-214):
+111:7. boss1 back-mode HMISSILE1 offset applied to the wrong axis (GBSTRATS.ASM:217-226):
+117:8. boss1out_strat cycle counter order (GBSTRATS.ASM:170): `s_beqdec_alvar sbyte3,
+124:9. boss1 death chain simplified vs bossexplode_Istrat (EXPSTRAT.ASM:78-140): ROM plays
+132:10. bossseamon state 8 splash-down randomization (GA2STRAT.ASM:3178-3181): ROM draws
+138:11. seamon post-landing surface snap missing (GASTRATS.ASM:2091-2101): in the
+145:12. seamon swim-shape toggle is a whole-byte test in ROM (GASTRATS.ASM:2077-2079):
+158:13. boss8a open-flap animation wraps instead of capping (GB3STRAT.ASM:146):
+164:14. nucleuslauncher missing the objinfront gate (GASTRATS.ASM:60): ROM only arms when
+169:15. boss8die clears bossmaxhp, ROM does not: boss8die_Istrat (GB3STRAT.ASM:208-220)
+175:16. boss8die Shyper debris uses the wrong view variable (GB3STRAT.ASM:254):
+180:17. boss8shrap RNG stream/order drift:
+195:## Minor
+197:18. boss1up rise boundary (GBSTRATS.ASM:138): s_jmp_higher branches when worldy <
+202:19. boss1in advance boundary (GBSTRATS.ASM:159): Zdistmore is inclusive — |dz| >= 1000
+208:20. boss1 center missiles missing `s_set_colltype y,enemy1` (GBSTRATS.ASM:253/258) —
+213:21. boss1back tail: ASM goes straight to boss1_fin (GBSTRATS.ASM:227) — no sflag1 rotz
+220:22. bossseamonexp gsvar_byte1 decrement (GA2STRAT.ASM:3194): `s_dec_var B` wraps 0->255;
+224:23. sea_gen_vecs_angle zeroes vy (bosses.rs:1482); s_gen_v
+
+ASSISTANT (final):
+The audit is complete — the agent finished writing all 28 findings, the `s_add_bossHP` site list, and the verified-correct section before the API cut it off on a cleanup step. Committing it:
+----------------------------------------
+
+### Turn 1230 @ 2026-07-07T22:19:33.028Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+## Status
+
+**Everything committed and pushed. Working tree clean, no orphaned processes, 248 tests green.**
+
+### Both background lanes resolved
+- **boss8/seamon/boss1 audit** — the agent hit the Fable 5 limit, but it had already written its full findings doc (28 findings + the boss-HP-bar site list). Just committed it. **Complete, no rework needed.**
+- **Intro-spin rebuild/relaunch** — completed successfully.
+
+### Landed today (wave 4), all pushed
+| Fix | Your report |
+|---|---|
+| Opening cinematic restored (view matrix + rotated cull) | "green grass for 5 seconds" ✓ |
+| Death crash sequence + working lives/game-over | "collisions stop the arwing" ✓ |
+| Title barrel-roll (camera co-rotation was the accel) | "spins faster and faster" ✓ |
+| Horizon +18 base restored | "objects above the ground" ✓ |
+| Ground-object float (same horizon root) | — ✓ |
+| boss2/bossg: 9 ROM fixes + BLACK_C palette | audit |
+| FADETOSEA/GROUND water-level palette crossfade | audit |
+| Explosion/hitflash ranged SFX | audit |
+
+**All 5 of your live bug reports are fixed**, each with a regression guard.
+
+### Note on model
+The audit agent died on a **Fable 5 limit** — you just switched your default to **Opus 4.8 (1M context)**, so new agents I spawn will run on Opus and won't hit that Fable cap.
+
+### Queue (fully tracked in `docs/ACCURACY_AUDIT.md` + findings docs)
+The freshly-committed audit unblocks a big one: **boss HP bar accumulator** — the ROM sums each boss part's HP into `m_bossHP` every tick to drain the bar; I now have the exact site list. Also queued: the **boss1 fixes** the new audit found (5 fire-rate misreads + inverted back-mode branch are the high-severity ones), score/credits, positional sound layer, pcbox collision routing.
+
+Want me to kick off the next fix wave (boss1 fixes + boss-HP-bar accumulator) on Opus, or pause here so you can playtest?
+----------------------------------------
+
+### Turn 1231 @ 2026-07-07T22:19:51.606Z
+USER:
+Stop hook feedback:
+[Please verify RE accuracy across all functions. We're aiming for 100% accuracy to the original SNES game]: The condition asks for verification that RE (reverse-engineering) accuracy across ALL functions has reached 100% parity with the original SNES game. The transcript shows: (1) ~110 confirmed ROM divergences fixed as of this session, (2) 248 tests passing, (3) a queue of remaining fixes documented in docs/ACCURACY_AUDIT.md including boss1 fire-rate misreads, boss HP bar accumulator, score/credits system, positional sound layer, pcbox collision routing, and ≥128 latent items. The audit findings doc (AUDIT_BOSS_TICKS2_FINDINGS.md) explicitly lists 28 unfixed findings across boss1/boss8/seamon. The assistant explicitly states 'remaining known queue' and offers to 'kick off the next fix wave.' No claim of 100% completion is made; the work is explicitly in-progress.
+
+ASSISTANT (final):
+All three lanes landed. Before building, I'll add the score agent's required `strat_explode` fix to `enemy_a.rs` (now unblocked — the boss1 agent is done), then reconcile everything together. First, locate the special-count bug:
+----------------------------------------
+
+### Turn 1232 @ 2026-07-07T22:45:14.815Z
+USER:
+=== GSTRATS.ASM:3150-3180 (specialobjtotal readers) ===
+
+viewfloattab_len	equ	*-viewfloattab
+
+
+
+;*****************************************************************************
+calcteamdamage_l
+
+	a8
+	lda	specialobjtotal
+	clc
+	adc	spectot
+	sta	spectot
+	lda	specials_dead
+	clc
+	adc	spectotdead
+	sta	spectotdead
+
+
+	a8
+	lda	specialobjtotal
+	sec
+	sbc	specials_dead
+	beq	.plok
+	asl	a
+	sta	tpa
+	lda	planetdead
+	clc
+	adc	tpa
+	cmp	#100
+	bcc	.plok2
+=== what sets GF_BOSSDEAD in the Rust port today ===
+rust/sf-strat/src/enemy_b.rs:695:    g.vars.gameflags |= GF_BOSSDEAD;
+rust/sf-strat/src/enemy_b.rs:3492:                g.vars.gameflags |= GF_BOSSDEAD;
+rust/sf-strat/src/bosses.rs:768:    g.vars.gameflags |= GF_BOSSDEAD;
+rust/sf-strat/src/bosses.rs:3024:    g.vars.gameflags |= GF_BOSSDEAD;
+rust/sf-strat/src/enemy_a.rs:781:            g.vars.gameflags |= GF_BOSSDEAD;
+rust/sf-strat/src/enemy_a.rs:5682:        g.vars.gameflags |= GF_BOSSDEAD;
+rust/sf-strat/src/enemy_a.rs:5712:    g.vars.gameflags |= GF_BOSSDEAD;
+
+ASSISTANT (final):
+Confirmed via ROM: `specialobjtotal` is score-only (team-damage calc `calcteamdamage_l`), **never** decremented, and `GF_BOSSDEAD` is set exclusively by the explode chains — never by a special count. So the port's `specialobjtotal -= 1` + `== 0 → GF_BOSSDEAD` is an invention. The score agent already immunized the score denominator game-side, so the safe, unambiguous fidelity fix here is the `s_test_special` counting rule (SPECIAL **or** CSPECIAL). I'll apply that and leave the riskier bossdead-coupling removal as a verified follow-up (it needs per-boss death-path checking):
+----------------------------------------
+
+### Turn 1233 @ 2026-07-07T22:45:56.674Z
+USER:
+The file /home/ben/src/starfox-hd/rust/sf-strat/src/enemy_a.rs has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now the full reconciliation — build and test the whole workspace with all three lanes + the score-count fix:
+----------------------------------------
+
+### Turn 1234 @ 2026-07-07T22:47:18.132Z
+USER:
+232 passed, 2 failed, 0 ignored
+test parity_boss1 ... FAILED
+test parity_rader0 ... FAILED
+test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+ASSISTANT (final):
+Two parity failures. The boss1 agent re-blessed `ea_boss1.txt`, but my `strat_explode` edit (specials_dead now counts SPECIAL too) likely shifted it further, and touched `rader0`. Let me confirm both diffs are single-cause before re-blessing:
+----------------------------------------
+
+### Turn 1235 @ 2026-07-07T22:47:29.822Z
+USER:
+cd rust && cargo build
+assertion `left == right` failed: ea_rader0.txt line 31 mismatch
+assertion `left == right` failed: ea_boss1.txt line 1320 mismatch
+
+ASSISTANT (final):
+The harness only prints line numbers. Let me re-bless and inspect the actual `git diff` against HEAD to confirm every changed line is explained by our fixes:
+----------------------------------------
+
+### Turn 1236 @ 2026-07-07T22:47:43.414Z
+USER:
+=== ea_rader0 line ~31 region: current fixture (HEAD) ===
+O 0 sh=2 fl=16 ty=8 cn=0 cn1=0 x=-17 y=-13 z=650 rx=18 ry=247 rz=9 vel=0 sf=0 sf2=0 sf3=8 sf4=1 sb1=0 sb2=0 sb3=0 sb4=0 
+T 10 gf=11 gfl=4 bmh=0 met=0 bf=0 gas=0 sot=0 sd=0 ps=0 swc=0 lives=0 rnd=4660 sk=0
+O 0 sh=2 fl=16 ty=8 cn=0 cn1=0 x=-10 y=-10 z=715 rx=20 ry=246 rz=10 vel=0 sf=0 sf2=0 sf3=8 sf4=1 sb1=0 sb2=0 sb3=0 sb4=0
+
+=== does the ea trace dump specials_dead? grep header ===
+73:        g.world.specialobjtotal,
+251:    g.world.specialobjtotal = 1;
+
+ASSISTANT (final):
+`sd=` (specials_dead) is dumped in the trace, and rader0 is `sf4=1` (ASF4_SPECIAL) — so my fix flips its `sd` 0→1 at death. That's the expected single-cause diff. Let me re-bless both and verify the diff touches only explained fields:
+----------------------------------------
+
+### Turn 1237 @ 2026-07-07T22:48:05.813Z
+USER:
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+=== rader0: my delta (vs HEAD) — should be only sd= ===
+31c31
+< T 10 gf=11 gfl=4 bmh=0 met=0 bf=0 gas=0 sot=0 sd=0 ps=0 swc=0 lives=0  sk=0
+---
+> T 10 gf=11 gfl=4 bmh=0 met=0 bf=0 gas=0 sot=0 sd=1 ps=0 swc=0 lives=0  sk=0
+33c33
+< T 11 gf=12 gfl=4 bmh=0 met=0 bf=0 gas=0 sot=0 sd=0 ps=0 swc=0 lives=0  sk=0
+---
+> T 11 gf=12 gfl=4 bmh=0 met=0 bf=0 gas=0 sot=0 sd=1 ps=0 swc=0 lives=0  sk=0
+35c35
+< T 12 gf=13 gfl=4 bmh=0 met=0 bf=0 gas=0 sot=0 sd=0 ps=0 swc=0 lives=0  sk=0
+---
+> T 12 gf=13 gfl=4 bmh=0 met=0 bf=0 gas=0 sot=0 sd=1 ps=0 swc=0 lives=0  sk=0
+=== rader0: which FIELDS changed (unique) ===
+    220 bf
+    220 bmh
+    220 gas
+    220 gfl
+    220 met
+    220 ps
+    220 sd
+    220 sot
+    220 swc
+
+ASSISTANT (final):
+The visible diff confirms rader0 is single-cause: **only `sd=0`→`sd=1`** flips, exactly at the special enemy's death tick — my `s_test_special` fix. Let me verify boss1 the same rigorous way (separating the agent's delta from mine, token-level):
+----------------------------------------
+
+### Turn 1238 @ 2026-07-07T22:48:23.811Z
+USER:
+=== boss1: MY delta only (agent-blessed -> my re-bless): which tokens differ ===
+12
+my-delta changed lines: 12
+fields that differ (agent-blessed -> mine): {'sd': 12}
+
+ASSISTANT (final):
+Both re-blesses are clean: my delta is **exclusively `sd`** (specials_dead) — rader0 and 12 boss1 lines, the `s_test_special` fix — layered on the agent's already-verified boss1 delta. Full suite now:
+----------------------------------------
+
+### Turn 1239 @ 2026-07-07T22:49:43.939Z
+USER:
+260 passed, 0 failed
+
+ASSISTANT (final):
+All 260 green. Committing the three lanes as separate logical commits:
+----------------------------------------
+
+### Turn 1240 @ 2026-07-07T22:50:15.946Z
+USER:
+M rust/sf-app/src/main.rs
+ M rust/sf-game/src/game.rs
+ M rust/sf-game/src/lib.rs
+ M rust/sf-game/src/planets.rs
+ M rust/sf-game/src/shell.rs
+ M rust/sf-game/src/world.rs
+ M rust/sf-render/src/renderer.rs
+ M rust/sf-render/src/ui.rs
+ M rust/sf-strat/src/bosses.rs
+ M rust/sf-strat/src/enemy_a.rs
+ M rust/sf-strat/tests/fixtures/ea_boss1.txt
+ M rust/sf-strat/tests/fixtures/ea_rader0.txt
+?? rust/sf-game/src/score.rs
+=== commit 1: boss8/seamon ===
+=== commit 2: boss1 ===
+=== commit 3: score/credits ===
+PUSHED
+
+ASSISTANT (final):
+Positional sound lane is done — but it's **infrastructure-only**: the agent found the per-frame `nearobjs` looping layer already existed and is correct; the genuinely-missing piece was the `makesnd` one-shot positional helper, which it built + tested but which has **no callers yet** (wiring needs the strat files the HP-bar agent is currently holding). It's isolated to `sf-audio/sound.rs` with no behavior change, so I'll verify and commit it as a building block, then queue the call-site wiring:
+----------------------------------------
+
+### Turn 1241 @ 2026-07-07T22:58:27.947Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+HP-bar agent reports green, but the diagnostics flag a missing `bosshp` in a second `GameVars` initializer and a `build_list` arity mismatch — possibly a struct-init the agent missed. Ground-truth build:
+----------------------------------------
+
+### Turn 1242 @ 2026-07-07T23:05:56.473Z
+USER:
+--- errors: 0
+
+ASSISTANT (final):
+Clean build — the diagnostics were stale rust-analyzer state; the agent did update everything. Full test + commit:
+----------------------------------------
+
+### Turn 1243 @ 2026-07-07T23:07:28.076Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+Boss HP bar accumulator committed — the bar drains now. Updating the matrix and launching the next wave. Two clean non-overlapping lanes this time (path leftovers is fully isolated in `sf-path`; pcbox is `coldet.rs` + `player.rs`):
+----------------------------------------
+
+### Turn 1244 @ 2026-07-07T23:07:54.210Z
+USER:
+matrix updated
+PUSHED
+
+ASSISTANT (final):
+Path lane is done — 1 real fix (friend weights, correctly weighted RNG tree), 4 deferred as genuinely needing game-side hooks (honest calls), STRATMAC checklist all verified correct. It's isolated to `sf-path`, which builds independently, so I can reconcile it now without waiting for the still-running pcbox agent (the `common.rs` diagnostics are that agent's mid-edit state). Verifying sf-path in isolation:
+----------------------------------------
+
+### Turn 1245 @ 2026-07-07T23:25:18.366Z
+USER:
+=== sf-path deps ===
+no sf-game/sf-strat dep -> independent
+=== sf-path changes ===
+ M rust/sf-path/src/interp.rs
+ M rust/sf-path/tests/fixtures/pi_chase1_1.txt
+?? rust/sf-path/tests/friend_weights.rs
+11 passed, 0 failed
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+ASSISTANT (final):
+sf-path green in isolation (11 tests + oracle 8/8). Committing the path lane:
+----------------------------------------
+
+### Turn 1246 @ 2026-07-07T23:25:32.252Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+Path lane committed and pushed (11 sf-path tests + oracle 8/8 green). The friend-select RNG is now the ROM's real weighted tree (20/40/40 falcon/rabbit/frog) instead of a uniform pick — matters for wingman-conditional path branches and RNG-stream alignment.
+
+One lane still running — **pcbox collision routing** (`coldet.rs` + `player.rs`). The `common.rs` diagnostics are its mid-edit state, so I'm holding on any workspace build/commit until it lands. No other lane can start without overlapping its files or the shared hooks, so I'll reconcile it solo when done.
+
+Progress note on the queue: the path lane closed cleanly (1 fix + 4 honestly-deferred items that need game-side hooks I'll batch later). When pcbox lands and I reconcile it, the next wave is:
+1. `make_snd` call-site wiring (completes the committed sound layer)
+2. The deferred path hooks (gotopos min-dist/speedto ramp, explode-children `s_kill_obj`, linkchild `sflag8`) — now grouped as one game-side-hook batch
+3. `mulslog`/`speedto` ≥128 latents
+
+The remaining big-ticket item stays the unported late-game bosses (bossB/Andross, D3, DSTRATS family) — real ports, which I'll scope separately once the mechanical-fix queue is drained. Still not at 100%; still draining.
+----------------------------------------
+
+### Turn 1247 @ 2026-07-07T23:25:53.698Z
+USER:
+Stop hook feedback:
+[Please verify RE accuracy across all functions. We're aiming for 100% accuracy to the original SNES game]: The transcript shows explicitly that 100% accuracy has NOT been achieved. The assistant states: 'One lane still running — **pcbox collision routing**'; lists remaining work including 'make_snd call-site wiring', 'deferred path hooks', 'mulslog/speedto >=128 latents'; and explicitly concludes: 'The remaining big-ticket item stays the unported late-game bosses (bossB/Andross, D3, DSTRATS family) — real ports, which I'll scope separately once the mechanical-fix queue is drained. **Still not at 100%; still draining.**' The session has completed 5 waves of fixes (approx. 130+ ROM divergences fixed, 267 tests green), but the accuracy queue in docs/ACCURACY_AUDIT.md remains documented with identified unfixed items. Completion is explicitly denied.
+
+ASSISTANT (final):
+pcbox lane done — a faithful 3-box (body + 2 wings) collision-proxy layer with routing + ROM death-detach, gated OFF until wired into level init (game-core lane it didn't own), so zero behavior change and no re-bless. Committable as infrastructure. Reconciling:
+----------------------------------------
+
+### Turn 1248 @ 2026-07-07T23:28:03.705Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+pcbox layer committed (278 tests green). The boss-scoping agent is still running (read-only, docs). Meanwhile I'll take the **`mulslog`/`speedto` ≥128 latents** myself — it's a self-contained correctness item in a core math primitive, well-defined, no conflict with the scoping agent. Let me find the current state:
+----------------------------------------
+
+### Turn 1249 @ 2026-07-07T23:28:57.457Z
+USER:
+=== ROM mulslog168 macro def ===
+reference/ultrastarfox/SF/INC/MACROS.INC-2538-
+reference/ultrastarfox/SF/INC/MACROS.INC-2539-	ifeq	0
+reference/ultrastarfox/SF/INC/MACROS.INC:2540:mulslog168 macro
+reference/ultrastarfox/SF/INC/MACROS.INC-2541-	 lda \1
+reference/ultrastarfox/SF/INC/MACROS.INC-2542-	 sta m1
+reference/ultrastarfox/SF/INC/MACROS.INC-2543-	 lda \1+1
+reference/ultrastarfox/SF/INC/MACROS.INC-2544-	 sta m2
+reference/ultrastarfox/SF/INC/MACROS.INC-2545-	 lda \2
+reference/ultrastarfox/SF/INC/MACROS.INC-2546-	 sta m3
+reference/ultrastarfox/SF/INC/MACROS.INC-2547-	 jsl muls816log16_l
+reference/ultrastarfox/SF/INC/MACROS.INC-2548-	 endm 
+reference/ultrastarfox/SF/INC/MACROS.INC-2549-	endc
+reference/ultrastarfox/SF/INC/MACROS.INC-2550-
+reference/ultrastarfox/SF/INC/MACROS.INC-2551-
+reference/ultrastarfox/SF/INC/MACROS.INC-2552-addbw	macro
+reference/ultrastarfox/SF/INC/MACROS.INC-2553-	lda \1,x
+reference/ultrastarfox/SF/INC/MACROS.INC-2554-	and #$00ff	
+reference/ultrastarfox/SF/INC/MACROS.INC-2555-	bit #128	
+reference/ultrastarfox/SF/INC/MACROS.INC-2556-	beq \@p
+reference/ultrastarfox/SF/INC/MACROS.INC-2557-	ora #$ff00
+reference/ultrastarfox/SF/INC/MACROS.INC-2558-\@p
+reference/ultrastarfox/SF/INC/MACROS.INC-2559-	clc
+reference/ultrastarfox/SF/INC/MACROS.INC-2560-	adc \2
+
+ASSISTANT (final):
+The scoping is done — a concrete roadmap. **~11 unported bosses, ~9–10 reachable, their maps already ported (spawning proxies today), and critically: no unported boss needs any new renderer/GSU feature** — all the required infra (child-linking, explode chain, HP-bar, worm-chain) already exists. Top 3 to port: flingboss (M), castanet (L), chicken (L). Committing the plan:
+----------------------------------------
+
+### Turn 1250 @ 2026-07-07T23:35:10.939Z
+USER:
+PUSHED
+
+ASSISTANT (final):
+Both lanes landed. Full reconcile — workspace build + test with mulslog + flingboss together:
+----------------------------------------

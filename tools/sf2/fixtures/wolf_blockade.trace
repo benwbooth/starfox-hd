@@ -1,0 +1,13 @@
+# Compact Mesen oracle evidence for the final Star Wolf blockade.
+# Raw oracle trace SHA-256: aa08aa6c14fc12849e535c9f28606f8cd3a8abb5f7625d76d2bebce1e42990d2
+# The preceding recurring pursuer is independently documented in
+# final_pursuer.trace. Retail allocates this actor only after that pursuer has
+# retired, even though it reuses the same strategic-object slot and catalog.
+elapsed=135307 event=wolf-allocated live_attackers_before=0 live_attackers_after=1
+elapsed=135644 event=stage-selection visit=wolf_blockade catalog=7 encounter_variant=11
+elapsed=135727 event=mission-start visit=wolf_blockade
+elapsed=136140 event=wolf-defeated
+elapsed=136682 event=strategic-map-return
+elapsed=136862 event=wolf-retired live_attackers_before=1 live_attackers_after=0
+elapsed=137229 event=final-gate major_objectives=1 missiles=0 live_attackers=0
+elapsed=137318 event=astropolis-unlocked catalog=11

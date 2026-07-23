@@ -36,7 +36,15 @@ fn rom_achase8(rom: &[u8], addr: u32, current: u8, target: u8) -> (u8, bool) {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write8(TPX, current);
     // p=0x20: 8-bit A (the sr8_ variants run with LONGA=0), 16-bit X/Y.
-    let exit = call(&mut bus, addr, &Entry { a: target as u16, p: 0x20, ..Default::default() });
+    let exit = call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: target as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     let new = bus.read8(TPX);
     // carry set (fin path) only when current == target on entry.
     let _ = exit;
@@ -47,7 +55,15 @@ fn rom_achase8(rom: &[u8], addr: u32, current: u8, target: u8) -> (u8, bool) {
 fn rom_achase16(rom: &[u8], addr: u32, current: i16, target: i16) -> i16 {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write16(TPX, current as u16);
-    let exit = call(&mut bus, addr, &Entry { a: target as u16, p: 0x00, ..Default::default() });
+    let exit = call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: target as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     let _ = exit;
     bus.read16(TPX) as i16
 }
@@ -87,7 +103,11 @@ fn achase_angle_matches_rom_sr8_achase() {
             achase_angle(&mut rust_cur, tgt, rate);
             println!(
                 "rate{rate} cur={cur:>3} tgt={tgt:>3} -> ROM {rom_new:>3}  rust {rust_cur:>3}  {}",
-                if rom_new == rust_cur { "" } else { "<-- MISMATCH" }
+                if rom_new == rust_cur {
+                    ""
+                } else {
+                    "<-- MISMATCH"
+                }
             );
             assert_eq!(
                 rom_new, rust_cur,
@@ -128,7 +148,11 @@ fn strat_chase_proportional_matches_rom_16bit_achase() {
             let rust_new = strat_chase_proportional(cur, tgt, rate);
             println!(
                 "rate{rate} cur={cur:>6} tgt={tgt:>6} -> ROM {rom_new:>6}  rust {rust_new:>6}  {}",
-                if rom_new == rust_new { "" } else { "<-- MISMATCH" }
+                if rom_new == rust_new {
+                    ""
+                } else {
+                    "<-- MISMATCH"
+                }
             );
             assert_eq!(
                 rom_new, rust_new,

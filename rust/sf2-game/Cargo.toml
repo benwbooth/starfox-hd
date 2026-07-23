@@ -1,0 +1,21 @@
+[package]
+name = "sf2-game"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# Verification-only escape hatch while native strategy transcriptions are
+# certified. Shipping binaries must leave this disabled.
+oracle-bridge = ["dep:w65c816", "dep:sf2-map", "dep:sf2-path"]
+
+[dependencies]
+sf-core.workspace = true
+sf2-data.workspace = true
+sf2-map = { workspace = true, optional = true }
+sf2-path = { workspace = true, optional = true }
+w65c816 = { version = "0.1", optional = true }
+
+[[example]]
+name = "long_run"
+required-features = ["oracle-bridge"]

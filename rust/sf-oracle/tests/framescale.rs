@@ -16,11 +16,16 @@ fn rom_framescale(rom: &[u8], addr: u32, vx: i16, vy: i16, framerate: u8) -> (i1
     bus.write16(XB + AL_VX, vx as u16);
     bus.write16(XB + AL_VY, vy as u16);
     bus.write8(FRAMERATE, framerate);
-    call_near(&mut bus, addr, &Entry { x: XB as u16, p: 0x20, ..Default::default() });
-    (
-        bus.read16(XB + AL_VX) as i16,
-        bus.read16(XB + AL_VY) as i16,
-    )
+    call_near(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
+    (bus.read16(XB + AL_VX) as i16, bus.read16(XB + AL_VY) as i16)
 }
 
 #[test]

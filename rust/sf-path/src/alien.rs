@@ -42,6 +42,10 @@ pub enum StratRef {
     TrailTick,
     /// `path_literal_particlepollen_strat` (src/path/path_literals.c static).
     ParticlePollenStrat,
+    /// Opaque handle for a native strategy already registered by the game
+    /// runtime. This is deliberately a typed handle, not a synthetic source
+    /// address: native strategy identity has no relationship to ROM layout.
+    Native(u16),
     /// Strategy resolved through `World_FindStrategyAddress` from a 24-bit
     /// SNES address (P_SETSTRAT / tow0explode binding). The host maps the
     /// address to a real routine.

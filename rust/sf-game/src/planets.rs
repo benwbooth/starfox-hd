@@ -92,12 +92,19 @@ const fn node(
     choice_slot: u8,
     next_path: u16,
 ) -> StagePathNode {
-    StagePathNode { planet, map_id, peppermsg, currentlevel, next_type, choice_slot, next_path }
+    StagePathNode {
+        planet,
+        map_id,
+        peppermsg,
+        currentlevel,
+        next_type,
+        choice_slot,
+        next_path,
+    }
 }
 
 /// C `kRouteRoots` (src/game/planets.c:87).
-const ROUTE_ROOTS: [u16; PLANET_ROUTE_CHOICES as usize] =
-    [path_id::P1, path_id::P6, path_id::P11];
+const ROUTE_ROOTS: [u16; PLANET_ROUTE_CHOICES as usize] = [path_id::P1, path_id::P6, path_id::P11];
 
 /// C `kStagePaths` (src/game/planets.c:93-120), verbatim.
 #[rustfmt::skip]
@@ -241,23 +248,39 @@ impl Planets {
         score::calc_total_score(&self.stage_scores)
     }
 
+    /// ROM `maketotalscore` / `maketotalscore2` average percentage
+    /// (MAIN.ASM:649-658): `floor(total / played stages)`.
+    pub fn average_score(&self) -> u16 {
+        score::calc_average_score(&self.stage_scores)
+    }
+
     /// Append a completed stage's percentage to `specbuf` and run
     /// `checkbonus` (MAIN.ASM:1213-1219): returns `true` if the new running
     /// total crossed a fresh `bonertab` threshold, in which case a credit is
     /// awarded (`inc credits`, MAIN.ASM:1138) and the caller should play the
     /// bonus SFX ([`score::SE_BONUS`], `trigse $1a`, MAIN.ASM:1149).
     pub fn record_stage_score(&mut self, stage_perc: u8) -> bool {
+        let crossed = self.append_stage_score(stage_perc);
+        if crossed {
+            self.award_bonus_credit();
+        }
+        crossed
+    }
+
+    /// Append the newly counted stage percentage at the retail graph-commit
+    /// boundary. Returns whether `checkbonus` armed a delayed bonus; unlike
+    /// [`Self::record_stage_score`], this does not award the credit yet.
+    pub fn append_stage_score(&mut self, stage_perc: u8) -> bool {
         // checkbonus compares against clbm = total BEFORE this stage was added
         // (MAIN.ASM:1082-1084).
         let old_total = self.total_score();
         self.stage_scores.push(stage_perc);
-        let new_total = self.total_score();
-        if score::crossed_bonus_threshold(new_total, old_total) {
-            self.credits = self.credits.saturating_add(1);
-            true
-        } else {
-            false
-        }
+        score::crossed_bonus_threshold(self.total_score(), old_total)
+    }
+
+    /// Retail `inc credits` after the ten-frame bonus sprite countdown.
+    pub fn award_bonus_credit(&mut self) {
+        self.credits = self.credits.saturating_add(1);
     }
 
     /// C `convertroute()` (src/game/planets.c:136).
@@ -402,7 +425,11 @@ impl Planets {
 
         if press & (pad::LEFT | pad::SELECT | pad::UP) != 0 {
             self.whichroute = normalize_route_choice(self.whichroute);
-            self.whichroute = if self.whichroute == 0 { 2 } else { self.whichroute - 1 };
+            self.whichroute = if self.whichroute == 0 {
+                2
+            } else {
+                self.whichroute - 1
+            };
             let _ = self.drawplanetlines();
             return false;
         }
@@ -445,7 +472,14 @@ mod tests {
         p.init();
         assert_eq!(
             p.route_path_ids(1),
-            vec![path_id::P6, path_id::P7, path_id::P8, path_id::P9, path_id::P10, path_id::END1]
+            vec![
+                path_id::P6,
+                path_id::P7,
+                path_id::P8,
+                path_id::P9,
+                path_id::P10,
+                path_id::END1
+            ]
         );
         assert_eq!(p.route_nodes(1), vec![0, 2, 6, 8, 15, 15]);
 
@@ -473,12 +507,25 @@ mod tests {
         p.routechange2(); // routes[1] = PATH_ID_21 (choice slot 3)
         assert_eq!(
             p.route_path_ids(1),
-            vec![path_id::P6, path_id::P21, path_id::P19, path_id::P10, path_id::END1]
+            vec![
+                path_id::P6,
+                path_id::P21,
+                path_id::P19,
+                path_id::P10,
+                path_id::END1
+            ]
         );
         p.routechangebhole2(); // routes[3] = PATH_ID_18 -> jumps to route-2 spine
         assert_eq!(
             p.route_path_ids(1),
-            vec![path_id::P6, path_id::P21, path_id::P18, path_id::P4, path_id::P5, path_id::END2]
+            vec![
+                path_id::P6,
+                path_id::P21,
+                path_id::P18,
+                path_id::P4,
+                path_id::P5,
+                path_id::END2
+            ]
         );
     }
 
@@ -495,5 +542,70 @@ mod tests {
         assert_eq!(p.whichroute, 0);
         assert_eq!(p.newmap, m::M1_1);
         assert_eq!(p.stage, 0);
+    }
+}
+
+/// ROM `dividebynum` (PLANETS.ASM:1884) — signed 16-bit divide of `delta` by
+/// `frames`, folding in fractional `remainder` (0..frames-1).
+///
+/// Used by `calcdxdy` for planet-select camera scroll. Returns
+/// `(quotient, new_remainder)`. Control flow is a literal port of the ASM
+/// (positive subtract-loop / negative add-until-carry); verified by
+/// `sf-oracle` `fuzz_calcdxdy`.
+pub fn divide_by_num(delta: i16, frames: u16, remainder: u16) -> (i16, u16) {
+    debug_assert!(frames > 0);
+    let frames_i = frames as i16;
+    if (delta as u16) >= 0x8000 {
+        // .negative: X=1; DEX; CLC; ADC frames; BCC .ndivide
+        let mut x: i16 = 1;
+        let mut a = delta as u16;
+        loop {
+            x = x.wrapping_sub(1);
+            let (sum, carry) = a.overflowing_add(frames);
+            a = sum;
+            if carry {
+                break;
+            }
+        }
+        // SEC; SBC frames (undo wrap)
+        a = a.wrapping_sub(frames);
+        // CLC; ADC remainder
+        a = a.wrapping_add(remainder);
+        if a >= frames {
+            a = a.wrapping_sub(frames);
+            x = x.wrapping_sub(1);
+        }
+        (x, a)
+    } else {
+        // positive: X=-1; INX; SEC; SBC frames; BCS .divide
+        let mut x: i16 = -1;
+        let mut a = delta;
+        loop {
+            x = x.wrapping_add(1);
+            let (diff, borrow) = (a as u16).overflowing_sub(frames);
+            a = diff as i16;
+            if borrow {
+                break;
+            }
+        }
+        // CLC; ADC frames (undo)
+        a = a.wrapping_add(frames_i);
+        // CLC; ADC remainder
+        let mut au = (a as u16).wrapping_add(remainder);
+        if au >= frames {
+            au = au.wrapping_sub(frames);
+            x = x.wrapping_add(1);
+        }
+        (x, au)
+    }
+}
+
+/// ROM `calcdxdy` per-axis step (PLANETS.ASM:1844): zero delta is a no-op
+/// (`.nochange`); otherwise `divide_by_num`.
+pub fn calc_scroll_step(delta: i16, frames: u16, remainder: u16) -> (i16, u16) {
+    if delta == 0 {
+        (0, remainder)
+    } else {
+        divide_by_num(delta, frames, remainder)
     }
 }

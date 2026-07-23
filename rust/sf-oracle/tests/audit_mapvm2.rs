@@ -13,28 +13,14 @@
 //!
 //! The Rust side runs the very same bytes through `Game::map_exec`.
 //!
-//! CONFIRMED DIVERGENCES (asserted below so they are machine-checked; fixing
-//! game.rs will flip the corresponding `rust_*` assertion and flag the test
-//! for update):
-//!  - WAIT2 with a zero operand: ROM stores mapcnt=0 and STOPS the frame
-//!    (WORLD.ASM:175-187 always RTS); Rust `continue`s into the next opcode.
-//!  - SETBGM: ROM skips the music change while pshipflags2 has
-//!    psf2_playerHP0 set (WORLD.ASM:196-198); Rust always plays.
-//!  - SETVAROBJ with lastmapobj==0: ROM skips the write entirely
-//!    (`ifobjinvalid`, WORLD.ASM:744-745); Rust writes 0.
-//!  - REMOVE: ROM removes only the FIRST matching alien after the list head
-//!    (WORLD.ASM:1977-1988 falls through to .out after removedeadal_l);
-//!    Rust frees every active alien with the shape.
-//!  - Opcode 136: ROM's `notneededyet` label falls through into `setbgmdo`
-//!    (WORLD.ASM:191-194) => it IS a 2-byte setbgm; Rust treats it as a
-//!    1-byte nop. (No level emits 136; documented, not load-bearing.)
-//!  - FADETOSEA/FADETOGROUND: ROM starts a palette fade
-//!    (palfade/palcnt/palnum, WORLD.ASM:371-394); Rust arms the matching
-//!    palfade_* walk in GameVars (stepped by Game::tick, mixed in
-//!    sf-render). ROM `palcnt` is a dead store — nothing reads it.
+//! AUDITED EDGE CASES: the tests below mechanically retain the retail
+//! behavior for zero-length compact waits, death-gated music changes,
+//! invalid-object writes, first-match removal, the alternate music command,
+//! and palette-fade state. The shipping port represents those effects with
+//! typed Rust state rather than source-machine storage.
 
 use sf_game::game::{Game, Hooks};
-use sf_oracle::{call_near, load_built_rom, load_symbols, Entry, SnesBus};
+use sf_oracle::{call, call_near, load_built_rom, load_symbols, Entry, SnesBus};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -68,7 +54,9 @@ const AL_SWORD2: u32 = 0x28;
 
 // Harness layout: alien blocks clear of the call stub ($0200) / trap ($0300).
 const BLOCK: u32 = 0x0140;
-const VAR: u16 = 0x1900; // scratch "external variable" (low WRAM)
+// Low-bank scratch selected for oracle bytecode probes. The native port
+// decodes this retained operand to its typed background-scroll fields.
+const VAR: u16 = 0x1F30;
 
 fn setup() -> Option<(std::collections::HashMap<String, u32>, Vec<u8>)> {
     let syms = load_symbols();
@@ -94,7 +82,11 @@ fn rom_exec(
     call_near(
         &mut bus,
         newobjex,
-        &Entry { x: start, p: 0x00, ..Default::default() },
+        &Entry {
+            x: start,
+            p: 0x00,
+            ..Default::default()
+        },
     );
     bus
 }
@@ -104,7 +96,11 @@ fn rom_resume(bus: &mut SnesBus, newobjex: u32, start: u16) {
     call_near(
         bus,
         newobjex,
-        &Entry { x: start, p: 0x00, ..Default::default() },
+        &Entry {
+            x: start,
+            p: 0x00,
+            ..Default::default()
+        },
     );
 }
 
@@ -178,7 +174,11 @@ fn wait2_scaling_matches_but_zero_diverges() {
         g.vars.mapptr, g.vars.mapcnt
     );
     // FIXED: WAIT2 now ends the frame unconditionally like the ROM RTS.
-    assert_eq!((g.vars.mapptr, g.vars.mapcnt), (2, 0), "wait2 0 ends the frame like the ROM");
+    assert_eq!(
+        (g.vars.mapptr, g.vars.mapcnt),
+        (2, 0),
+        "wait2 0 ends the frame like the ROM"
+    );
 }
 
 // ============================================================
@@ -248,7 +248,11 @@ fn setvar_b_w_l_match_rom() {
     let g = rust_exec(&m, |_| {});
     assert_eq!(bus.read8(VAR as u32), 0xAB);
     assert_eq!(bus.read16(MAPPTR), 5);
-    assert_eq!((g.vars.read_ext8(VAR), g.vars.mapptr), (0xAB, 5), "rust setvarb");
+    assert_eq!(
+        (g.vars.read_ext8(VAR), g.vars.mapptr),
+        (0xAB, 5),
+        "rust setvarb"
+    );
 
     // setvarw: value(2) @1, ptr(3) @3 (WORLD.ASM:616-629).
     let m = [94u8, 0xCD, 0xAB, vl, vh, 0x00, 2];
@@ -256,7 +260,11 @@ fn setvar_b_w_l_match_rom() {
     let g = rust_exec(&m, |_| {});
     assert_eq!(bus.read16(VAR as u32), 0xABCD);
     assert_eq!(bus.read16(MAPPTR), 6);
-    assert_eq!((g.vars.read_ext16(VAR), g.vars.mapptr), (0xABCD, 6), "rust setvarw");
+    assert_eq!(
+        (g.vars.read_ext16(VAR), g.vars.mapptr),
+        (0xABCD, 6),
+        "rust setvarw"
+    );
 
     // setvarl: ptr(3) @1, lo16 @4, hi8 @6 (WORLD.ASM:590-612).
     let m = [96u8, vl, vh, 0x00, 0x34, 0x12, 0x56, 2];
@@ -266,7 +274,11 @@ fn setvar_b_w_l_match_rom() {
     assert_eq!(bus.read8(VAR as u32 + 2), 0x56);
     assert_eq!(bus.read16(MAPPTR), 7);
     assert_eq!(
-        (g.vars.read_ext16(VAR), g.vars.read_ext8(VAR + 2), g.vars.mapptr),
+        (
+            g.vars.read_ext16(VAR),
+            g.vars.read_ext8(VAR + 2),
+            g.vars.mapptr
+        ),
         (0x1234, 0x56, 7),
         "rust setvarl"
     );
@@ -295,7 +307,11 @@ fn setalvar_family_matches_rom() {
     assert_eq!(bus.read8(BLOCK + AL_ROTX), 0x5A);
     assert_eq!(bus.read16(MAPPTR), 4);
     let idx = g.world.last_obj.unwrap() as usize;
-    assert_eq!((g.objs.aliens[idx].rotx, g.vars.mapptr), (0x5A, 4), "rust setalvarb");
+    assert_eq!(
+        (g.objs.aliens[idx].rotx, g.vars.mapptr),
+        (0x5A, 4),
+        "rust setalvarb"
+    );
 
     // invalid object: write skipped, still advances (ifobjinvalid,
     // WORLD.ASM:849/39-47).
@@ -330,8 +346,15 @@ fn setalvar_family_matches_rom() {
     assert_eq!(bus.read8(BLOCK + 0x0E), 0x56);
     assert_eq!(bus.read16(MAPPTR), 6);
     let idx = g.world.last_obj.unwrap() as usize;
-    assert_eq!(g.objs.aliens[idx].worldx as u16, 0x1234, "rust setalvarl lo");
-    assert_eq!(g.objs.aliens[idx].worldy as u16 & 0xFF, 0x56, "rust setalvarl hi");
+    assert_eq!(
+        g.objs.aliens[idx].worldx as u16, 0x1234,
+        "rust setalvarl lo"
+    );
+    assert_eq!(
+        g.objs.aliens[idx].worldy as u16 & 0xFF,
+        0x56,
+        "rust setalvarl hi"
+    );
     assert_eq!(g.vars.mapptr, 6);
 
     // setalxvarb: byte -> xalblks+lastmapobj+off, +4 (WORLD.ASM:906-923).
@@ -389,7 +412,11 @@ fn alvar_pointer_ops_match_rom() {
     assert_eq!(bus.read8(BLOCK + 0x14), 0x66);
     assert_eq!(bus.read16(MAPPTR), 6);
     let idx = g.world.last_obj.unwrap() as usize;
-    assert_eq!((g.objs.aliens[idx].rotz, g.vars.mapptr), (0x66, 6), "rust setalvarpb");
+    assert_eq!(
+        (g.objs.aliens[idx].rotz, g.vars.mapptr),
+        (0x66, 6),
+        "rust setalvarpb"
+    );
 
     // setalvarptrw (WORLD.ASM:786-807). 0x28 = al_sword2.
     let m = [72u8, AL_SWORD2 as u8, 0x00, vl, vh, 0x00, 2];
@@ -429,7 +456,11 @@ fn alvar_pointer_ops_match_rom() {
     assert_eq!(bus.read8(BLOCK + 0x14), 5);
     assert_eq!(bus.read16(MAPPTR), 6);
     let idx = g.world.last_obj.unwrap() as usize;
-    assert_eq!((g.objs.aliens[idx].rotz, g.vars.mapptr), (5, 6), "rust addalvarpb");
+    assert_eq!(
+        (g.objs.aliens[idx].rotz, g.vars.mapptr),
+        (5, 6),
+        "rust addalvarpb"
+    );
 
     // addalvarptrw: 16-bit add (WORLD.ASM:438-460). 0x28 = al_sword2.
     let m = [106u8, AL_SWORD2 as u8, 0x00, vl, vh, 0x00, 2];
@@ -476,7 +507,11 @@ fn setvarobj_valid_matches_invalid_diverges() {
         g.world.last_obj = Some(idx);
         g.world.lastmapobj = idx + 1;
     });
-    assert_eq!(g.vars.read_ext16(VAR), g.world.lastmapobj, "rust writes obj ref");
+    assert_eq!(
+        g.vars.read_ext16(VAR),
+        g.world.lastmapobj,
+        "rust writes obj ref"
+    );
     assert_eq!(g.vars.mapptr, 4);
 
     // DISCREPANCY: invalid object — ROM's ifobjinvalid skips the write
@@ -493,7 +528,11 @@ fn setvarobj_valid_matches_invalid_diverges() {
         g.vars.read_ext16(VAR)
     );
     // FIXED: SETVAROBJ skips the write when lastmapobj==0 like the ROM.
-    assert_eq!(g.vars.read_ext16(VAR), 0x1234, "sentinel survives an invalid-object setvarobj");
+    assert_eq!(
+        g.vars.read_ext16(VAR),
+        0x1234,
+        "sentinel survives an invalid-object setvarobj"
+    );
 }
 
 // ============================================================
@@ -521,7 +560,11 @@ fn setbgm_hp0_guard_diverges() {
         b.write8(BGM_MUSIC, 0x77);
         b.write8(BGMCNT, 0x55);
     });
-    assert_eq!(bus.read8(BGM_MUSIC), 0x77, "ROM: no music change while dead");
+    assert_eq!(
+        bus.read8(BGM_MUSIC),
+        0x77,
+        "ROM: no music change while dead"
+    );
     assert_eq!(bus.read8(BGMCNT), 0x55);
     assert_eq!(bus.read16(MAPPTR), 2);
 
@@ -534,11 +577,15 @@ fn setbgm_hp0_guard_diverges() {
     g.vars.pshipflags2 = 0x80; // dead
     g.map_exec();
     // FIXED: game.rs SETBGM now guards on psf2_playerHP0 like the ROM.
-    assert_eq!(*played.borrow(), Vec::<u8>::new(), "no music change while player HP0");
+    assert_eq!(
+        *played.borrow(),
+        Vec::<u8>::new(),
+        "no music change while player HP0"
+    );
 }
 
 #[test]
-fn opcode136_is_setbgm_in_rom_nop_in_rust() {
+fn alternate_setbgm_command_matches_rom() {
     let Some((syms, rom)) = setup() else { return };
     let ne = syms["NEWOBJEX"];
     // ROM: dispatch 136 -> notneededyet label, which falls through into
@@ -548,18 +595,16 @@ fn opcode136_is_setbgm_in_rom_nop_in_rust() {
     assert_eq!(bus.read8(BGM_MUSIC), 42, "ROM op136 == setbgm");
     assert_eq!(bus.read16(MAPPTR), 2);
 
-    // Rust: 1-byte RESERVED nop, then byte 42 is decoded as an opcode (RTS).
+    // Rust: the semantic alias consumes the same operand and invokes the
+    // same typed music hook.
     let played = Rc::new(RefCell::new(Vec::new()));
     let mut g = Game::with_hooks(Box::new(RecHooks(played.clone())));
     g.world.map = m.to_vec();
     g.world.map_loaded = true;
     g.vars.mapptr = 0;
     g.map_exec();
-    eprintln!(
-        "DISCREPANCY op136 (unused by levels): ROM sets bgm=42; Rust played {:?}",
-        played.borrow()
-    );
-    assert!(played.borrow().is_empty());
+    assert_eq!(*played.borrow(), vec![42]);
+    assert_eq!(g.vars.mapptr, 2);
 }
 
 // ============================================================
@@ -578,9 +623,15 @@ fn maploop_iteration_count_matches_rom() {
     // extra iteration (see maploop_builder_encoding_off_by_one below).
     for c in [1u16, 2, 5] {
         let map = [
-            18u8, 0x40, 0x00, // wait 0x40
-            4, 0x00, 0x00, (c & 0xFF) as u8, (c >> 8) as u8, // loop -> 0
-            2, // end
+            18u8,
+            0x40,
+            0x00, // wait 0x40
+            4,
+            0x00,
+            0x00,
+            (c & 0xFF) as u8,
+            (c >> 8) as u8, // loop -> 0
+            2,              // end
         ];
         // ROM: step until mapptr == 8 (the END opcode).
         let mut bus = rom_exec(&rom, ne, &map, 0, |_| {});
@@ -622,20 +673,24 @@ fn maploop_iteration_count_matches_rom() {
 fn maploop_builder_encoding_off_by_one() {
     // ROM macro (MAPMACS.INC:264-268):
     //   maploop  macro label:  db ctrlloop / dw (\1)&$7fff / dw \2-1
-    // i.e. `maploop .x,8` stores 7. The Rust builder stores 8:
+    // i.e. `maploop .x,8` stores 7. The builder also uses the ROM's compact
+    // WAIT2 encoding for 0x40, so the loop begins after two wait bytes.
     let mut b = sf_map::builder::MapBuilder::new();
     b.label("x");
     b.mapwait(0x40);
     b.maploop("x", 8);
     let (data, _labels) = b.finish();
-    // data: wait(3 bytes) + [4, tgt16, count16]
-    assert_eq!(data[3], 4, "loop opcode");
-    let stored = data[6] as u16 | ((data[7] as u16) << 8);
+    // data: WAIT2(2 bytes) + [4, tgt16, count16]
+    assert_eq!(data[2], 4, "loop opcode");
+    let stored = data[5] as u16 | ((data[6] as u16) << 8);
     // FIXED: MapBuilder::maploop now emits count-1 exactly like the ROM macro
     // (dw \2-1), so the ROM-exact stored+1-iteration handler runs the body
     // `count` times. The old raw-count emission ran every level loop once too
     // often.
-    assert_eq!(stored, 7, "builder emits count-1 like the ROM maploop macro");
+    assert_eq!(
+        stored, 7,
+        "builder emits count-1 like the ROM maploop macro"
+    );
 }
 
 // ============================================================
@@ -652,7 +707,11 @@ fn jsr_rts_goto_match_rom() {
     let m = [40u8, 0x08, 0x00, 0x7E, 18, 0x40, 0x00, 0, 42];
     let bus = rom_exec(&rom, ne, &m, 0, |_| {});
     let g = rust_exec(&m, |_| {});
-    assert_eq!(bus.read16(MAPPTR), 7, "ROM: rts returns to jsr+4, wait stops at 7");
+    assert_eq!(
+        bus.read16(MAPPTR),
+        7,
+        "ROM: rts returns to jsr+4, wait stops at 7"
+    );
     assert_eq!(bus.read16(MAPCNT), 0x40);
     assert_eq!(bus.read16(NUMMAPJSR), 0);
     assert_eq!((g.vars.mapptr, g.vars.mapcnt), (7, 0x40), "rust jsr/rts");
@@ -700,8 +759,16 @@ fn remove_takes_first_match_only_in_rom() {
     assert_eq!(bus.read16(MAPPTR), 5);
     // ROM removed exactly ONE object (A): head now links straight to B,
     // and B is still live in the list.
-    assert_eq!(bus.read16(HEAD), B as u16, "ROM unlinked only the first match");
-    assert_eq!(bus.read16(ALLST), HEAD as u16, "list head (player) never touched");
+    assert_eq!(
+        bus.read16(HEAD),
+        B as u16,
+        "ROM unlinked only the first match"
+    );
+    assert_eq!(
+        bus.read16(ALLST),
+        HEAD as u16,
+        "list head (player) never touched"
+    );
 
     // DISCREPANCY: Rust frees every active alien with the shape.
     let g = rust_exec(&m, |g| {
@@ -807,7 +874,11 @@ fn small_state_ops_match_rom() {
     assert_eq!(bus.read8(SPECIALOBJTOTAL), 1);
     let g = rust_exec(&m, rust_obj);
     let idx = g.world.last_obj.unwrap() as usize;
-    assert_eq!(g.objs.aliens[idx].sflags4 & 0x80, 0x80, "rust ASF4_CSPECIAL");
+    assert_eq!(
+        g.objs.aliens[idx].sflags4 & 0x80,
+        0x80,
+        "rust ASF4_CSPECIAL"
+    );
     assert_eq!(g.world.specialobjtotal, 1);
 }
 
@@ -816,7 +887,7 @@ fn small_state_ops_match_rom() {
 // ============================================================
 
 #[test]
-fn fadetosea_ground_write_palette_fade_in_rom_only() {
+fn fadetosea_ground_arm_typed_background_palette_fade() {
     let Some((syms, rom)) = setup() else { return };
     let ne = syms["NEWOBJEX"];
 
@@ -836,16 +907,60 @@ fn fadetosea_ground_write_palette_fade_in_rom_only() {
     assert_eq!(bus.read16(PALFADE), 62);
     assert_eq!(bus.read16(MAPPTR), 1);
 
-    // Rust: arms the palette-fade walk (palfade_target/palfade_num); the
-    // fadepalto_l mirror in Game::tick steps it and sf-render mixes
-    // NIGHT/SEA/GROUND palettes from the bridged fraction.
+    // Rust: arms the same typed source and cursor. The shipping NMI path
+    // steps the cursor once per game tick, and sf-render copies the selected
+    // word into the independently owned background palette row 4.
     let g = rust_exec(&[108u8, 2], |_| {});
     assert_eq!(g.vars.mapptr, 1);
-    assert_eq!(g.vars.palfade_target, sf_game::vars::PALFADE_SEA);
+    assert_eq!(
+        g.vars.palfade_target,
+        Some(sf_core::scene::PaletteFadeTarget::Sea)
+    );
     assert_eq!(g.vars.palfade_num, 30, "rust arms the 15-frame palnum walk");
     let g = rust_exec(&m, |_| {});
     assert_eq!(g.vars.mapptr, 1);
-    assert_eq!(g.vars.palfade_target, sf_game::vars::PALFADE_GROUND);
+    assert_eq!(
+        g.vars.palfade_target,
+        Some(sf_core::scene::PaletteFadeTarget::Ground)
+    );
+}
+
+#[test]
+fn fadepalto_copies_background_palette_four_from_high_to_low() {
+    let Some((syms, rom)) = setup() else { return };
+    const BACKGROUND_PALETTE_FOUR_BYTE_OFFSET: u32 = 4 * 32;
+    const LAST_COLOR_BYTE_OFFSET: u32 = 30;
+    const PREVIOUS_COLOR_BYTE_OFFSET: u32 = 28;
+    const SENTINEL: u16 = 12_345;
+
+    let mut bus = SnesBus::new(rom);
+    let destination = syms["PAL0PALETTE"] + BACKGROUND_PALETTE_FOUR_BYTE_OFFSET;
+    let sea = syms["SEAPAL"];
+    bus.write16(destination + LAST_COLOR_BYTE_OFFSET, SENTINEL);
+    bus.write16(destination + PREVIOUS_COLOR_BYTE_OFFSET, SENTINEL);
+    bus.write16(PALFADE, LAST_COLOR_BYTE_OFFSET as u16);
+    bus.write16(PALNUM, LAST_COLOR_BYTE_OFFSET as u16);
+
+    call(&mut bus, syms["FADEPALTO_L"], &Entry::default());
+    assert_eq!(
+        bus.read16(destination + LAST_COLOR_BYTE_OFFSET),
+        bus.read16(sea + LAST_COLOR_BYTE_OFFSET),
+        "first frame copies background palette color 15"
+    );
+    assert_eq!(
+        bus.read16(destination + PREVIOUS_COLOR_BYTE_OFFSET),
+        SENTINEL,
+        "color 14 remains untouched until the next frame"
+    );
+    assert_eq!(bus.read16(PALFADE), PREVIOUS_COLOR_BYTE_OFFSET as u16);
+    assert_eq!(bus.read16(PALNUM), PREVIOUS_COLOR_BYTE_OFFSET as u16);
+
+    call(&mut bus, syms["FADEPALTO_L"], &Entry::default());
+    assert_eq!(
+        bus.read16(destination + PREVIOUS_COLOR_BYTE_OFFSET),
+        bus.read16(sea + PREVIOUS_COLOR_BYTE_OFFSET),
+        "second frame copies background palette color 14"
+    );
 }
 
 // ============================================================
@@ -878,7 +993,7 @@ fn mapif_carry_semantics_match_rom() {
         0x00, // bank 0
         0x10,
         0x00, // else -> 16
-        2, // @6 END (fallthrough)
+        2,    // @6 END (fallthrough)
         0,
         0,
         0,

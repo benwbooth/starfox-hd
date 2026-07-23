@@ -4,10 +4,7 @@
 //! ASM oracle: `chicken_istrat` / `chick` (DSTRATS.ASM:3696-4523) and the shared
 //! `arm_istrat` / `ars` (DSTRATS.ASM:2444-2944).
 //!
-//! No sf-oracle differential fixture is used: the ROM boss depends on the
-//! unported firebreath/egg/shell/wing flight strats and a projected-screen
-//! turn selector (`s_leftview_strat`) — all deliberately simplified (see the
-//! CHICKEN_BEGIN scope note in bosses.rs). These tests assert the ported mother
+//! No sf-oracle differential fixture is used. These tests assert the ported mother
 //! mode machine, neck GROWTH, the inter-segment SPRING easing, the grabber
 //! hit->mother-sflag5 routing, the HP-bar accumulator and the death->explode
 //! chain against hand-derived ASM expectations, cited inline.
@@ -22,13 +19,13 @@ const WM_ARMMODE: u16 = 0x17F0; // ARMMODE ($17f0)
 
 // Local mirrors of the private bosses.rs constants (cited to the port).
 const CH_BOSS_D_1: u16 = 78; // body (map SH_BOSS_D_1)
-const SH_CHICK_BOSS_D_0: u16 = 282; // head
-const SH_CHICK_BOSS_D_2: u16 = 283; // tail
-const SH_CHICK_NECK: u16 = 284;
-const SH_CHICK_GRABBER: u16 = 287;
-const SH_CHICK_BOSS_D_8: u16 = 291; // wing1
-const SH_CHICK_BOSS_D_9: u16 = 292; // wing2
-const SH_FLINGBOSS_BODY: u16 = 12; // .passiton mother target
+const SH_CHICK_BOSS_D_0: u16 = 381; // head
+const SH_CHICK_BOSS_D_2: u16 = 382; // tail
+const SH_CHICK_NECK: u16 = 383;
+const SH_CHICK_GRABBER: u16 = 384;
+const SH_CHICK_BOSS_D_8: u16 = 387; // wing1
+const SH_CHICK_BOSS_D_9: u16 = 388; // wing2
+const SH_FLINGBOSS_BODY: u16 = 11; // .passiton mother target
 
 const CH_SFLAG5_SFLAGS3: u8 = 0x01; // mother/parent damage latch (sflags3)
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
@@ -90,7 +87,11 @@ fn init_sets_bossmaxhp_armmode_and_spawns_necks_wings() {
     bosses::strat_chicken_init(&mut g, boss);
 
     assert_eq!(g.vars.bossmaxhp, CHICKEN_MAXHP, "bossmaxHP = chickenbodyHP");
-    assert_eq!(g.vars.read_ext8(WM_ARMMODE), 128, "armmode initialised to 128");
+    assert_eq!(
+        g.vars.read_ext8(WM_ARMMODE),
+        128,
+        "armmode initialised to 128"
+    );
 
     let b = &g.objs.aliens[boss as usize];
     assert_ne!(b.ptr, 0, "left neck linked via al_ptr");
@@ -102,7 +103,11 @@ fn init_sets_bossmaxhp_armmode_and_spawns_necks_wings() {
 
     assert_eq!(count_shape(&g, SH_CHICK_BOSS_D_8), 1, "wing1 spawned");
     assert_eq!(count_shape(&g, SH_CHICK_BOSS_D_9), 1, "wing2 spawned");
-    assert_eq!(count_shape(&g, SH_CHICK_NECK), 2, "two neck roots (ptr, sword1)");
+    assert_eq!(
+        count_shape(&g, SH_CHICK_NECK),
+        2,
+        "two neck roots (ptr, sword1)"
+    );
 }
 
 // ------------------------------------------------------------
@@ -131,6 +136,59 @@ fn neck_chains_grow_heads_and_tail() {
         0,
         "armmode tracked the generated head/tail(s)"
     );
+}
+
+// ------------------------------------------------------------
+// 2a. Repeated legal hits on all three +64-biased termini shorten their
+//     established chains through s_kill_obj (not an immediate foreign-object
+//     free), preserve the intrusive active list, and eventually expose the
+//     mother for its one-frame damage window. (DSTRATS.ASM:2678-2749.)
+// ------------------------------------------------------------
+#[test]
+fn terminus_hits_shorten_chains_without_corrupting_the_active_list() {
+    let (mut g, boss) = setup(0, 0);
+    arm_boss(&mut g, boss);
+
+    for _ in 0..30 {
+        g.run_strategies();
+    }
+    assert_eq!(count_shape(&g, SH_CHICK_BOSS_D_0), 2, "both heads grew");
+    assert_eq!(count_shape(&g, SH_CHICK_BOSS_D_2), 1, "tail grew");
+
+    let mut exposed = false;
+    for _ in 0..64 {
+        for al in &mut g.objs.aliens {
+            if al.active
+                && (al.shape == SH_CHICK_BOSS_D_0 || al.shape == SH_CHICK_BOSS_D_2)
+                && al.hp > 64
+            {
+                al.hp = 64;
+            }
+        }
+        g.run_strategies();
+
+        // Every active-list link remains reciprocal and no slot is visited
+        // twice.  This specifically guards the old free(parent) traversal
+        // corruption while a head strategy is running.
+        let mut seen = [false; NUMBER_AL];
+        let mut prev = None;
+        let mut cur = g.objs.active_head;
+        while let Some(i) = cur {
+            assert!(!seen[i as usize], "active-list cycle at slot {i}");
+            seen[i as usize] = true;
+            let al = &g.objs.aliens[i as usize];
+            assert!(al.active, "inactive slot {i} linked as active");
+            assert_eq!(al.prev, prev, "broken prev link at slot {i}");
+            prev = Some(i);
+            cur = al.next;
+        }
+
+        if g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT == 0 {
+            exposed = true;
+            break;
+        }
+    }
+    assert!(exposed, "legal terminus hits exposed the chicken body");
 }
 
 // ------------------------------------------------------------

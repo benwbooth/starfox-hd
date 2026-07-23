@@ -10,7 +10,11 @@ fn rom_perc(rom: &[u8], addr: u32, val: i16) -> i16 {
     let exit = call(
         &mut bus,
         addr,
-        &Entry { a: val as u16, p: 0x00, ..Default::default() }, // 16-bit A
+        &Entry {
+            a: val as u16,
+            p: 0x00,
+            ..Default::default()
+        }, // 16-bit A
     );
     exit.c as i16
 }

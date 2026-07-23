@@ -164,6 +164,21 @@ impl SpcPlayer {
         result
     }
 
+    /// Load an explicit source-game upload program for offline verification.
+    /// Shipping builds do not include this oracle-only player.
+    pub fn load_files(
+        &self,
+        files: &[&'static str],
+        asset_dir: &Path,
+        driver_entry: u16,
+    ) -> Result<(), BootError> {
+        let mut inner = self.inner.lock().unwrap();
+        let result = boot::load_files(&mut inner.spc, files, asset_dir, driver_entry);
+        inner.queue.clear();
+        inner.bgm_state = BgmState::Idle;
+        result
+    }
+
     /// True when no BGM start handshake is pending or awaiting an echo.
     pub fn bgm_idle(&self) -> bool {
         self.inner.lock().unwrap().bgm_state == BgmState::Idle

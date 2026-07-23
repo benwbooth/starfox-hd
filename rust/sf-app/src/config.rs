@@ -74,7 +74,10 @@ fn atoi(s: &str) -> i32 {
     if !seen_digit {
         return 0;
     }
-    s[..end].parse::<i64>().unwrap_or(0).clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    s[..end]
+        .parse::<i64>()
+        .unwrap_or(0)
+        .clamp(i32::MIN as i64, i32::MAX as i64) as i32
 }
 
 /// C `atof` subset (leading float, 0.0 on garbage).
@@ -113,7 +116,9 @@ impl Config {
                 }
                 continue;
             }
-            let Some((key, val)) = s.split_once('=') else { continue };
+            let Some((key, val)) = s.split_once('=') else {
+                continue;
+            };
             let (key, val) = (key.trim(), val.trim());
 
             match (section.as_str(), key) {

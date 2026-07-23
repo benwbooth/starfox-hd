@@ -1,18 +1,26 @@
-//! Audio: SPC-700 playback of the original sound driver + APU port protocol.
+//! Native audio for the modern Rust port.
 //!
-//! Ported from the original C reference (`audio/audio.c`,
-//! `audio/spc_player.c`, `audio/spc_boot.c` — the IPL ROM upload handshake —
-//! and `game/sound.c` — the port 1/2/3 protocol and SFX ring queue).
-//!
-//! The pure-Rust `sf-spc` engine drives audio; there is no C++ dependency.
+//! Shipping playback mixes decoded PCM assets through typed music, engine,
+//! ambience, and effect channels. Verification may still run the original
+//! sound processor program behind the explicit `oracle-audio` feature, but
+//! that machinery is unreachable from `sf-app`.
 
-pub mod backend;
-pub mod boot;
-pub mod native;
-pub mod player;
+pub mod catalog;
+pub mod native_player;
+pub mod sf2_native_player;
 pub mod sound;
 
-/// Active backend: `Spc` + `IPL_ROM` resolve to the native pure-Rust engine.
+#[cfg(feature = "oracle-audio")]
+pub mod backend;
+#[cfg(feature = "oracle-audio")]
+pub mod boot;
+#[cfg(feature = "oracle-audio")]
+pub mod native;
+#[cfg(feature = "oracle-audio")]
+pub mod player;
+
+/// Verification-only sound-machine surface.
+#[cfg(feature = "oracle-audio")]
 pub mod spc {
     pub use crate::native::{Spc, IPL_ROM};
 }

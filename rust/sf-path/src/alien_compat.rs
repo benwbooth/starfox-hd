@@ -290,32 +290,74 @@ pub fn add16(al: &mut Alien, offset: u16, is_alx: bool, delta: i16) -> bool {
 
 /// C `AlienCompat_PathRead8` (src/game/alien_compat.h).
 pub fn path_read8(al: &Alien, encoded_offset: u8) -> Option<u8> {
-    read8(al, u16::from(encoded_offset & 0x7F), encoded_offset & 0x80 != 0)
+    read8(
+        al,
+        u16::from(encoded_offset & 0x7F),
+        encoded_offset & 0x80 != 0,
+    )
 }
 
 /// C `AlienCompat_PathRead16` (src/game/alien_compat.h).
 pub fn path_read16(al: &Alien, encoded_offset: u8) -> Option<u16> {
-    read16(al, u16::from(encoded_offset & 0x7F), encoded_offset & 0x80 != 0)
+    read16(
+        al,
+        u16::from(encoded_offset & 0x7F),
+        encoded_offset & 0x80 != 0,
+    )
 }
 
 /// C `AlienCompat_PathWrite8` (src/game/alien_compat.h).
 pub fn path_write8(al: &mut Alien, encoded_offset: u8, value: u8) -> bool {
-    write8(al, u16::from(encoded_offset & 0x7F), encoded_offset & 0x80 != 0, value)
+    write8(
+        al,
+        u16::from(encoded_offset & 0x7F),
+        encoded_offset & 0x80 != 0,
+        value,
+    )
 }
 
 /// C `AlienCompat_PathWrite16` (src/game/alien_compat.h).
 pub fn path_write16(al: &mut Alien, encoded_offset: u8, value: u16) -> bool {
-    write16(al, u16::from(encoded_offset & 0x7F), encoded_offset & 0x80 != 0, value)
+    let offset = u16::from(encoded_offset & 0x7F);
+    let is_alx = encoded_offset & 0x80 != 0;
+    let value = if (!is_alx && offset == 4) || (is_alx && offset == 26) {
+        sf_core::shape::resolve_shape_word(value)
+    } else {
+        value
+    };
+    write16(al, offset, is_alx, value)
+}
+
+/// Normalize a source word when a path instruction compares it with a typed
+/// shape field. Other 16-bit path operands retain their literal value.
+pub fn path_comparison_word(encoded_offset: u8, value: u16) -> u16 {
+    let offset = encoded_offset & 0x7F;
+    let is_alx = encoded_offset & 0x80 != 0;
+    if (!is_alx && offset == 4) || (is_alx && offset == 26) {
+        sf_core::shape::resolve_shape_word(value)
+    } else {
+        value
+    }
 }
 
 /// C `AlienCompat_PathAdd8` (src/game/alien_compat.h).
 pub fn path_add8(al: &mut Alien, encoded_offset: u8, delta: i8) -> bool {
-    add8(al, u16::from(encoded_offset & 0x7F), encoded_offset & 0x80 != 0, delta)
+    add8(
+        al,
+        u16::from(encoded_offset & 0x7F),
+        encoded_offset & 0x80 != 0,
+        delta,
+    )
 }
 
 /// C `AlienCompat_PathAdd16` (src/game/alien_compat.h).
 pub fn path_add16(al: &mut Alien, encoded_offset: u8, delta: i16) -> bool {
-    add16(al, u16::from(encoded_offset & 0x7F), encoded_offset & 0x80 != 0, delta)
+    add16(
+        al,
+        u16::from(encoded_offset & 0x7F),
+        encoded_offset & 0x80 != 0,
+        delta,
+    )
 }
 
 #[cfg(test)]
@@ -352,5 +394,16 @@ mod tests {
         // base offset 42 = HP
         assert!(path_write8(&mut al, 42, 9));
         assert_eq!(al.hp, 9);
+    }
+
+    #[test]
+    fn path_shape_fields_are_flattened_at_the_compatibility_boundary() {
+        let mut al = Alien::default();
+        assert!(path_write16(&mut al, 4, 0xB6E7));
+        assert_eq!(al.shape, 442);
+        assert_eq!(path_comparison_word(4, 0xAAA7), 421);
+
+        assert!(path_write16(&mut al, 0x80 | 26, 0x97BC));
+        assert_eq!(al.debrisshape, 275);
     }
 }

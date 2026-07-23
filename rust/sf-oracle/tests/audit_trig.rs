@@ -59,8 +59,20 @@ fn rom_2d(rom: &[u8], addr: u32, roty: u8, vel: u8) -> (i16, i16, i16) {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write8(XB + AL_ROTY, roty);
     bus.write8(XB + AL_VEL, vel);
-    call(&mut bus, addr, &Entry { x: XB as u16, p: 0x20, ..Default::default() });
-    (bus.read16(X1) as i16, bus.read16(Y1) as i16, bus.read16(Z1) as i16)
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
+    (
+        bus.read16(X1) as i16,
+        bus.read16(Y1) as i16,
+        bus.read16(Z1) as i16,
+    )
 }
 fn rust_2d(roty: u8, vel: u8) -> (i16, i16, i16) {
     let mut al = Alien::default();
@@ -77,7 +89,7 @@ fn gen_vecs_2d_matches_rom() {
         return;
     };
     let mut bad = 0;
-    let mut bad_lo = 0; // divergences with vel < 128 (the realistic range)
+    let mut bad_lo = 0;
     let mut first: Vec<String> = Vec::new();
     for roty in (0..=255u8).step_by(7) {
         for vel in (0..=255u8).step_by(5) {
@@ -98,17 +110,7 @@ fn gen_vecs_2d_matches_rom() {
         eprintln!("{l}");
     }
     eprintln!("gen_vecs_2d diffs: {bad} total, {bad_lo} with vel<128");
-    // Reachable range (all speed constants are <=120) is bit-exact.
-    assert_eq!(bad_lo, 0, "gen_vecs_2d diverges from ROM for vel<128");
-    // LATENT: for vel>=128 the ROM's mulslogmac treats the magnitude byte as
-    // signed (|vel|=256-vel, negated result); Rust's mulslog uses the unsigned
-    // value. Not reachable with current speed constants. Documented, not asserted.
-    if bad != 0 {
-        eprintln!(
-            "NOTE: {} vel>=128 cases diverge (ROM signed-byte mulslog quirk)",
-            bad - bad_lo
-        );
-    }
+    assert_eq!(bad, 0, "gen_vecs_2d diverges from ROM");
 }
 
 // ---------------------------------------------------------------------------
@@ -123,8 +125,19 @@ fn rom_3d(rom: &[u8], addr: u32, roty: u8, rotx: u8, vel: u8) -> (i16, i16, i16)
     bus.write8(TROTX, rotx);
     bus.write8(TROTY, roty);
     bus.write8(TMPZ, vel);
-    call(&mut bus, addr, &Entry { p: 0x20, ..Default::default() });
-    (bus.read16(X1) as i16, bus.read16(Y1) as i16, bus.read16(Z1) as i16)
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            p: 0x20,
+            ..Default::default()
+        },
+    );
+    (
+        bus.read16(X1) as i16,
+        bus.read16(Y1) as i16,
+        bus.read16(Z1) as i16,
+    )
 }
 fn rust_3d(roty: u8, rotx: u8, vel: u8) -> (i16, i16, i16) {
     let mut al = Alien::default();
@@ -168,11 +181,7 @@ fn gen_vecs_3d_vel_sweep() {
         eprintln!("{l}");
     }
     eprintln!("gen_vecs_3d(rotx=0) diffs: {bad} total, {bad_lo} with vel<128");
-    assert_eq!(bad_lo, 0, "gen_vecs_3d diverges from ROM for vel<128");
-    // LATENT vel>=128 signed-byte mulslog quirk (same as gen_vecs_2d).
-    if bad != 0 {
-        eprintln!("NOTE: {} vel>=128 cases diverge (ROM signed-byte mulslog quirk)", bad - bad_lo);
-    }
+    assert_eq!(bad, 0, "gen_vecs_3d diverges from ROM");
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +194,12 @@ fn rom_vec_a(rom: &[u8], addr: u32, roty: u8, vel: u8) -> (i16, i16) {
     call(
         &mut bus,
         addr,
-        &Entry { a: vel as u16, x: XB as u16, p: 0x20, ..Default::default() },
+        &Entry {
+            a: vel as u16,
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
     );
     (bus.read16(X1) as i16, bus.read16(Z1) as i16)
 }
@@ -235,7 +249,15 @@ fn side_and_front_vecs_match_rom() {
 // ---------------------------------------------------------------------------
 fn rom_perc(rom: &[u8], addr: u32, val: i16) -> i16 {
     let mut bus = SnesBus::new(rom.to_vec());
-    let e = call(&mut bus, addr, &Entry { a: val as u16, p: 0x00, ..Default::default() });
+    let e = call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: val as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     e.c as i16
 }
 #[test]
@@ -294,7 +316,12 @@ fn rom_angle(rom: &[u8], addr: u32, dx: i16, dz: i16) -> u8 {
     let e = call(
         &mut bus,
         addr,
-        &Entry { x: XSRC as u16, y: YDST as u16, p: 0x20, ..Default::default() },
+        &Entry {
+            x: XSRC as u16,
+            y: YDST as u16,
+            p: 0x20,
+            ..Default::default()
+        },
     );
     e.a
 }
@@ -354,7 +381,16 @@ fn rom_speedto(rom: &[u8], addr: u32, vel: u8, target: u8, rate: u8) -> u8 {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write8(XB + AL_VEL, vel);
     bus.write8(TARGET, target);
-    call(&mut bus, addr, &Entry { a: rate as u16, x: XB as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: rate as u16,
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     bus.read8(XB + AL_VEL)
 }
 fn rust_speedto(vel: u8, target: u8, rate: u8) -> u8 {
@@ -397,11 +433,5 @@ fn speedto_sweep() {
         eprintln!("{l}");
     }
     eprintln!("speedto diffs: {bad} total, {bad_reasonable} with |diff|<128");
-    assert_eq!(bad_reasonable, 0, "speedto diverges from ROM for |diff|<128 && rate<128");
-    // LATENT: for |vel-target|>=128 the ROM's 8-bit signed compare flips the
-    // step direction and wraps the long way round the 256 circle; Rust steps the
-    // short way. Not reachable (all speeds/targets are <128). Documented only.
-    if bad != 0 {
-        eprintln!("NOTE: {} |diff|>=128 cases diverge (ROM 8-bit signed-cmp wrap quirk)", bad - bad_reasonable);
-    }
+    assert_eq!(bad, 0, "speedto diverges from ROM");
 }

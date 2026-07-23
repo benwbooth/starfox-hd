@@ -17,7 +17,22 @@ const IDENTITY: [f32; 16] = [
 #[inline]
 fn ortho(w: f32, h: f32) -> [f32; 16] {
     [
-        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+        2.0 / w,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        2.0 / h,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        -1.0,
+        -1.0,
+        0.0,
+        1.0,
     ]
 }
 
@@ -154,8 +169,7 @@ impl Sprites {
                     for pal in 0..NUM_PALETTES {
                         let row_off = (8 + pal) * 32;
                         for c in 0..COLORS_PER_PAL {
-                            s.palettes[pal][c] =
-                                decode_bgr555_bytes(&col_data[row_off + c * 2..]);
+                            s.palettes[pal][c] = decode_bgr555_bytes(&col_data[row_off + c * 2..]);
                         }
                         // Color 0 of every palette is transparent
                         s.palettes[pal][0][3] = 0.0;
@@ -200,23 +214,23 @@ impl Sprites {
                                         let idx = tile8x8[px + py * 8] as usize;
                                         let ax = fr * FACE_W + col4 * 8 + px;
                                         let ay = trow * 8 + py;
-                                        let dst = &mut face_atlas
-                                            [(ay * FACE_ATLAS_W + ax) * 4..][..4];
+                                        let dst =
+                                            &mut face_atlas[(ay * FACE_ATLAS_W + ax) * 4..][..4];
                                         // Color 0 = transparent (3D shows through)
-                                        dst[0] =
-                                            (s.bitmap_palette[idx][0] * 255.0) as u8;
-                                        dst[1] =
-                                            (s.bitmap_palette[idx][1] * 255.0) as u8;
-                                        dst[2] =
-                                            (s.bitmap_palette[idx][2] * 255.0) as u8;
+                                        dst[0] = (s.bitmap_palette[idx][0] * 255.0) as u8;
+                                        dst[1] = (s.bitmap_palette[idx][1] * 255.0) as u8;
+                                        dst[2] = (s.bitmap_palette[idx][2] * 255.0) as u8;
                                         dst[3] = if idx != 0 { 255 } else { 0 };
                                     }
                                 }
                             }
                         }
                     }
-                    s.face_tex =
-                        Some(gpu.create_texture_rgba(FACE_ATLAS_W as u32, FACE_ATLAS_H as u32, &face_atlas));
+                    s.face_tex = Some(gpu.create_texture_rgba(
+                        FACE_ATLAS_W as u32,
+                        FACE_ATLAS_H as u32,
+                        &face_atlas,
+                    ));
                 }
             }
         }
@@ -227,6 +241,12 @@ impl Sprites {
     pub fn set_screen_size(&mut self, w: i32, h: i32) {
         self.screen_w = w;
         self.screen_h = h;
+    }
+
+    /// ROM `clearsprites_l` (CONTINUE.ASM:433) — wipe the OAM staging buffer
+    /// before `dma_sprites_l`. HD clears the sprite draw queue.
+    pub fn clear_sprites(&mut self) {
+        self.queue.clear();
     }
 
     /// Queue an 8x8 sprite (SNES 256x224 coordinates).
@@ -292,10 +312,22 @@ impl Sprites {
             let ph = 8.0 * sy;
 
             let verts = [
-                Vertex2 { pos: [px, py], uv: [u0, v1] },
-                Vertex2 { pos: [px + pw, py], uv: [u1, v1] },
-                Vertex2 { pos: [px + pw, py + ph], uv: [u1, v0] },
-                Vertex2 { pos: [px, py + ph], uv: [u0, v0] },
+                Vertex2 {
+                    pos: [px, py],
+                    uv: [u0, v1],
+                },
+                Vertex2 {
+                    pos: [px + pw, py],
+                    uv: [u1, v1],
+                },
+                Vertex2 {
+                    pos: [px + pw, py + ph],
+                    uv: [u1, v0],
+                },
+                Vertex2 {
+                    pos: [px, py + ph],
+                    uv: [u0, v0],
+                },
             ];
             // uUseTexture == 2: palette-indexed R8; color is ignored by mode 2.
             gpu.push_overlay_fan(
@@ -345,11 +377,31 @@ impl Sprites {
         let u1 = ((frame as usize + 1) * FACE_W) as f32 / FACE_ATLAS_W as f32;
 
         let verts = [
-            Vertex2 { pos: [px, py], uv: [u0, 1.0] },
-            Vertex2 { pos: [px + pw, py], uv: [u1, 1.0] },
-            Vertex2 { pos: [px + pw, py + ph], uv: [u1, 0.0] },
-            Vertex2 { pos: [px, py + ph], uv: [u0, 0.0] },
+            Vertex2 {
+                pos: [px, py],
+                uv: [u0, 1.0],
+            },
+            Vertex2 {
+                pos: [px + pw, py],
+                uv: [u1, 1.0],
+            },
+            Vertex2 {
+                pos: [px + pw, py + ph],
+                uv: [u1, 0.0],
+            },
+            Vertex2 {
+                pos: [px, py + ph],
+                uv: [u0, 0.0],
+            },
         ];
-        gpu.push_overlay_fan(&verts, &proj, &IDENTITY, [1.0, 1.0, 1.0, 1.0], 1, None, face_tex);
+        gpu.push_overlay_fan(
+            &verts,
+            &proj,
+            &IDENTITY,
+            [1.0, 1.0, 1.0, 1.0],
+            1,
+            None,
+            face_tex,
+        );
     }
 }

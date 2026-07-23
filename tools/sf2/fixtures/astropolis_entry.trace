@@ -1,0 +1,12 @@
+# Compact Mesen oracle evidence for the first Astropolis assault.
+# Raw oracle trace SHA-256: c18e92f879d8cfb9d13bbed8d47b201f50a046119e77250fd68646db425e56f1
+# Source state was captured from the clean retail final-gate route. No target
+# activation, objective counter, stage-selection, or mission-completion repair
+# was enabled in this run.
+elapsed=137318 event=stage-selection visit=astropolis catalog=11
+elapsed=137410 event=mission-start visit=astropolis
+elapsed=137520 phase=exterior-approach
+elapsed=137800 phase=exterior-approach
+elapsed=138200 phase=base-entry
+elapsed=138742 phase=interior-corridor mission_timer_tenths=0
+elapsed=143000 phase=interior-corridor mission_timer_tenths=42

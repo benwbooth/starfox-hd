@@ -16,14 +16,21 @@
 
 pub mod bossb;
 pub mod bosses;
+pub mod bossf_heli;
 pub mod bossh;
 pub mod common;
+pub mod damyscr;
+pub mod endscore;
+pub mod endseq;
 pub mod enemies_ground;
 pub mod enemy_a;
 pub mod enemy_b;
+pub mod gameover;
 pub mod ground;
+mod istrat_shapes;
 pub mod mother;
 pub mod path_adapter;
 pub mod player;
 pub mod snes_trig;
 pub mod table;
+pub mod theend;

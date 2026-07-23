@@ -40,8 +40,8 @@ fn arctan16_is_sane() {
     // Cardinal + diagonal angles: the GSU emulator runs the real ROM octant/
     // quadrant + table code and matches atan2 EXACTLY here — this validates the
     // core (prefix system, ~50 opcodes, memory, FMULT, MOVE/MOVES, LINK, LOOP,
-    // branches, the GSU RAM/ROM ABI). Off-axis/shallow angles depend on the
-    // shift-subtract divide refinement ($8192) which still has a flag bug (WIP).
+    // branches, the GSU RAM/ROM ABI). Off-axis/shallow angles exercise the
+    // shift-subtract divide refinement ($8192); see `arctan16_off_axis_grid`.
     let exact_cases = [
         (100i16, 0i16),
         (100, 100),
@@ -139,8 +139,14 @@ fn arctan16_off_axis_grid() {
         "off-axis grid n={n}: max 16-bit delta={max16} (worst x={} y={} GSU={} atan2={}), max 8-bit delta={max8}",
         worst.0, worst.1, worst.2, worst.3
     );
-    assert!(max16 <= 64, "ROM arctan16 diverges from atan2 by {max16} (>64) in raw 16-bit units");
-    assert!(max8 <= 1, "ROM arctan16>>8 diverges from atan2 by {max8} 8-bit units (>1)");
+    assert!(
+        max16 <= 64,
+        "ROM arctan16 diverges from atan2 by {max16} (>64) in raw 16-bit units"
+    );
+    assert!(
+        max8 <= 1,
+        "ROM arctan16>>8 diverges from atan2 by {max8} 8-bit units (>1)"
+    );
 }
 
 /// Port parity: the Rust enemy-aiming helper (`sf_strat`'s `angle_xz`) computes
@@ -189,6 +195,8 @@ fn arctan16_matches_port_angle() {
         "port vs ROM arctan16>>8: max 8-bit delta={maxd} (worst x={} y={} ROM={} port={})",
         worst.0, worst.1, worst.2, worst.3
     );
-    assert!(maxd <= 1, "port angle_xz diverges from ROM arctan16>>8 by {maxd} 8-bit units (>1)");
+    assert!(
+        maxd <= 1,
+        "port angle_xz diverges from ROM arctan16>>8 by {maxd} 8-bit units (>1)"
+    );
 }
-

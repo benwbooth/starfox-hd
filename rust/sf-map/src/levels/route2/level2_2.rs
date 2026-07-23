@@ -34,11 +34,16 @@ pub fn build() -> Route2Level {
     b.pathcspecial(12000, -2500, -2000, 2100, SH_ZACO_8, PATH_ID_EGU6, 10, 10);
 
     b.pathobj(0, 0, -700, 1000, SH_NULLSHAPE, PATH_ID_CHECK, 10, 10);
-    b.pathcspecial(0,
-                    2 * SPACEBAR_UNIT_LEN,
-                    SPACE_VIEWCY - SPACEBAR_UNIT_LEN,
-                    SPACEBAR_BASE_DIST,
-                    SH_WALKER_2, PATH_ID_PYONTA, 10, 10);
+    b.pathcspecial(
+        0,
+        2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY - SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST,
+        SH_WALKER_2,
+        PATH_ID_PYONTA,
+        10,
+        10,
+    );
     b.map_sbtype1(0, 0, -1, 0);
     b.map_sbtype7(0, -5, 0, 0);
     b.map_sbtype7(0, 5, 0, 0);
@@ -52,19 +57,30 @@ pub fn build() -> Route2Level {
     b.map_sbtype1(2, 0, 1, 0);
     b.map_sbtype1(0, 0, -1, 0);
     b.map_sbtype1(2, 0, 1, 0);
-    b.special(0, 0, SPACE_VIEWCY + SPACEBAR_UNIT_LEN, SPACEBAR_BASE_DIST,
-               SH_S_WARK_0, IS_SPACEBARWALKER);
+    b.special(
+        0,
+        0,
+        SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST,
+        SH_S_WARK_0,
+        IS_SPACEBARWALKER,
+    );
     b.map_sbtype1(4 * 2, 0, 1, 0);
 
     b.pathobj(0, 900, -60, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE4_1, 200, 10);
     b.pathcspecial(0, 900, -60, 0, SH_ZACO_B, PATH_ID_CHASE4_2, 200, 10);
     b.pathcspecial(1000, 900, -60, 0, SH_ZACO_B, PATH_ID_CHASE4_3, 200, 10);
 
-    b.pathcspecial(0,
-                    2 * SPACEBAR_UNIT_LEN,
-                    SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
-                    SPACEBAR_BASE_DIST,
-                    SH_WALKER_2, PATH_ID_PYONTA, 10, 10);
+    b.pathcspecial(
+        0,
+        2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST,
+        SH_WALKER_2,
+        PATH_ID_PYONTA,
+        10,
+        10,
+    );
     b.map_sbtype1(4 * 2, 0, 1, 0);
     b.map_sbtype0(1 * 2, -3, 0, 0);
     b.map_sbtype0(2 * 2, 2, 1, 0);
@@ -110,7 +126,14 @@ pub fn build() -> Route2Level {
     b.map_sbtype15(5, 2, 0, 0, 0, 4);
     b.map_sbtype15(5, 1, 0, 0, 0, 4);
     b.map_sbtype15(5, 0, 0, 0, 0, 4);
-    b.mapobj(0, 50, SPACE_VIEWCY + 50, SPACEBAR_BASE_DIST, SH_ITEM_5, IS_ITEM5);
+    b.mapobj(
+        0,
+        50,
+        SPACE_VIEWCY + 50,
+        SPACEBAR_BASE_DIST,
+        SH_ITEM_5,
+        IS_ITEM5,
+    );
     b.setalvarb(AL_SBYTE1, 1);
     b.map_sbtype15(5, 0, 0, 0, 0, 4);
     b.map_sbtype15(5, -1, 0, 0, 0, 4);
@@ -119,10 +142,22 @@ pub fn build() -> Route2Level {
     b.map_sbtype15(5, -1, 0, 0, 0, 4);
     b.map_sbtype15(5, 0, 0, 0, 0, 4);
 
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, SPACEBAR_BASE_DIST,
-              SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(2000, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, SPACEBAR_BASE_DIST,
-              SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        SPACEBAR_BASE_DIST,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        2000,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        SPACEBAR_BASE_DIST,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     b.cspecial(0, -500, -300, 4000, SH_W_L, IS_WINGLAZERMAN);
     b.special(0, 300, SPACE_VIEWCY, 800, SH_CAMELEON, IS_CAMELEON);
@@ -131,10 +166,26 @@ pub fn build() -> Route2Level {
     b.cspecial(2000, 0, SPACE_VIEWCY - 250, 800, SH_CAMELEON, IS_CAMELEON);
 
     b.pathcspecial(0, 2500, -2000, 1800, SH_ZACO_8, PATH_ID_EGU6_IFAL, 10, 10);
-    b.pathcspecial(6000, -2500, -2000, 2400, SH_ZACO_8, PATH_ID_EGU6_IRAB, 10, 10);
+    b.pathcspecial(
+        6000,
+        -2500,
+        -2000,
+        2400,
+        SH_ZACO_8,
+        PATH_ID_EGU6_IRAB,
+        10,
+        10,
+    );
 
     b.cspecial(0, 250, SPACE_VIEWCY + 250, 800, SH_CAMELEON, IS_CAMELEON);
-    b.cspecial(1000, -250, SPACE_VIEWCY - 250, 800, SH_CAMELEON, IS_CAMELEON);
+    b.cspecial(
+        1000,
+        -250,
+        SPACE_VIEWCY - 250,
+        800,
+        SH_CAMELEON,
+        IS_CAMELEON,
+    );
     b.cspecial(0, -250, SPACE_VIEWCY + 250, 800, SH_CAMELEON, IS_CAMELEON);
     b.special(4000, 250, SPACE_VIEWCY - 250, 800, SH_CAMELEON, IS_CAMELEON);
 
@@ -146,17 +197,35 @@ pub fn build() -> Route2Level {
     b.mapobj(0, 0, SPACE_VIEWCY, SPACEBAR_BASE_DIST, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
 
-    b.special(0, -2 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
-               SPACEBAR_BASE_DIST, SH_S_WARK_0, IS_SPACEBARWALKER);
-    b.cspecial(0, 2 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
-                SPACEBAR_BASE_DIST, SH_BWARKER_3, IS_SPACEBARWALKER);
+    b.special(
+        0,
+        -2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST,
+        SH_S_WARK_0,
+        IS_SPACEBARWALKER,
+    );
+    b.cspecial(
+        0,
+        2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST,
+        SH_BWARKER_3,
+        IS_SPACEBARWALKER,
+    );
     b.map_sbtype_e(2 * 2, 4, 1, 0);
     b.map_sbtype_c(6 * 2, 3, 0, 0);
     b.map_sbtype3(3 * 2, 0, 0, 0);
     b.map_sbtype6(3 * 2, 0, 0, 0);
 
-    b.mapobj(0, SPACEBAR_UNIT_LEN, SPACE_VIEWCY, SPACEBAR_BASE_DIST + (2 * SPACEBAR_UNIT_LEN),
-              SH_ITEM_6, IS_ITEM6);
+    b.mapobj(
+        0,
+        SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        SPACEBAR_BASE_DIST + (2 * SPACEBAR_UNIT_LEN),
+        SH_ITEM_6,
+        IS_ITEM6,
+    );
 
     b.special(0, 350, SPACE_VIEWCY, 800, SH_CAMELEON, IS_CAMELEON);
     b.cspecial(3000, -350, SPACE_VIEWCY, 800, SH_CAMELEON, IS_CAMELEON);
@@ -168,12 +237,30 @@ pub fn build() -> Route2Level {
     b.map_sbtype_b(1 * 2, 1, -1, 0);
     b.map_sbtype8(1 * 2, -1, 0, 0);
 
-    b.cspecial(0, -2 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
-                SPACEBAR_BASE_DIST + (4 * SPACEBAR_UNIT_LEN), SH_BWARKER_3, IS_SPACEBARWALKER);
-    b.special(0, 0, SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
-               SPACEBAR_BASE_DIST + (6 * SPACEBAR_UNIT_LEN), SH_S_WARK_0, IS_SPACEBARWALKER);
-    b.cspecial(0, 3 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
-                SPACEBAR_BASE_DIST + (7 * SPACEBAR_UNIT_LEN), SH_BWARKER_3, IS_SPACEBARWALKER);
+    b.cspecial(
+        0,
+        -2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST + (4 * SPACEBAR_UNIT_LEN),
+        SH_BWARKER_3,
+        IS_SPACEBARWALKER,
+    );
+    b.special(
+        0,
+        0,
+        SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST + (6 * SPACEBAR_UNIT_LEN),
+        SH_S_WARK_0,
+        IS_SPACEBARWALKER,
+    );
+    b.cspecial(
+        0,
+        3 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + SPACEBAR_UNIT_LEN,
+        SPACEBAR_BASE_DIST + (7 * SPACEBAR_UNIT_LEN),
+        SH_BWARKER_3,
+        IS_SPACEBARWALKER,
+    );
     b.map_sbtype_f(15 * 2, 0, 1, 0);
 
     b.mapobj(0, 0, -60, 2800, SH_GATE_0, IS_GATE);
@@ -183,10 +270,22 @@ pub fn build() -> Route2Level {
 
     b.map_sbtype10(8 * 2, 0, 0, 0);
 
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, SPACEBAR_BASE_DIST,
-              SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(2000, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, SPACEBAR_BASE_DIST,
-              SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        SPACEBAR_BASE_DIST,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        2000,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        SPACEBAR_BASE_DIST,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     b.pathobj(0, 0, 400, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE3_1, 200, 10);
     b.pathcspecial(3000, 0, 400, 0, SH_ZACO_B, PATH_ID_CHASE3_2, 10, 10);
@@ -271,9 +370,18 @@ pub fn build() -> Route2Level {
         b.map_sbtype16(3000, 10, 1, 0, -speed, 0);
     }
 
-    b.pathobj(0, 1200, 200, 600, SH_FRIENDSHIP_4, PATH_ID_CHASE1_1, 200, 10);
+    b.pathobj(
+        0,
+        1200,
+        200,
+        600,
+        SH_FRIENDSHIP_4,
+        PATH_ID_CHASE1_1,
+        200,
+        10,
+    );
     b.pathcspecial(1000, 1200, 200, 600, SH_ZACO_B, PATH_ID_CHASE1_2, 10, 10);
-    b.mapobj(4000, 0, 0, 2000, SH_SPACEPILON, STRAT_ADDR_SPACEPILON);
+    b.mapobj(4000, 0, 0, 2000, SH_SPACEPILON, STRATEGY_SPACEPILON);
 
     b.pathspecial(200, 0, -200, 3000, SH_SHIELDR, PATH_ID_E_SHIELDR, 10, 10);
     b.pathspecial(200, 0, 200, 3000, SH_SHIELDR, PATH_ID_E_SHIELDR, 10, 10);
@@ -309,9 +417,18 @@ pub fn build() -> Route2Level {
         labels,
         vec![],
         vec![
-            (level2_2_mapwaitboss_trigse_ptr, "level1_1_mapwaitboss_trigse"),
-            (level2_2_mapwaitboss_cantdie_ptr, "level1_1_mapwaitboss_cantdie"),
-            (level2_2_mapwaitboss_cleanup_ptr, "level1_1_mapwaitboss_cleanup"),
+            (
+                level2_2_mapwaitboss_trigse_ptr,
+                "level1_1_mapwaitboss_trigse",
+            ),
+            (
+                level2_2_mapwaitboss_cantdie_ptr,
+                "level1_1_mapwaitboss_cantdie",
+            ),
+            (
+                level2_2_mapwaitboss_cleanup_ptr,
+                "level1_1_mapwaitboss_cleanup",
+            ),
         ],
     )
 }

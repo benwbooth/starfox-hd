@@ -19,7 +19,7 @@ fn setup(init: StrategyFn, subject_x: i16) -> (Game, u16) {
     let mut g = Game::new();
     g.vars.pviewvelz = 65;
     g.vars.psvar_word2 = 40; // playerZ boost term used by *_cont tails
-    // Player slot 0.
+                             // Player slot 0.
     let p = g.objs.alloc().unwrap();
     strat_init_obj_vars(&mut g.objs.aliens[p as usize]);
     g.objs.aliens[0].shape = 2;
@@ -172,8 +172,7 @@ fn dive_runs_all_regimes_then_boosts() {
     }
     assert!(reached_boost, "DIVE reaches the general boost (speed 120)");
     assert_eq!(
-        g.objs.aliens[e as usize].rotx,
-        4,
+        g.objs.aliens[e as usize].rotx, 4,
         "DIVE boost sets rotx=deg5=4 (:802)"
     );
 }

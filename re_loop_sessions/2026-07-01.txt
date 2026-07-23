@@ -1,0 +1,510 @@
+SESSION 2026-07-01 — restored from Claude Code jsonl
+Turns: 43
+========================================================================
+
+### Turn 0 @ 2026-07-01T21:04:12.239Z
+USER:
+can you pick up this project. were supposed to produce a decompiled pc port of starfox/starfox 2 for snes, then add in higher framerates and resolution options
+
+ASSISTANT (final):
+I'll pick up the project. Let me check the current state of the port queue and the build first.
+----------------------------------------
+
+### Turn 1 @ 2026-07-01T21:04:22.122Z
+USER:
+1	# Phase 1 Checklist
+2	
+3	Phase 1 is the literal ASM->C port.
+4	
+5	Rules:
+6	- gameplay/content source-of-truth must be C, not generated Python output
+7	- rewrite 16-bit memory model quirks into flat-memory C only where required
+8	- preserve ASM file structure, section boundaries, macro intent, and table order
+9	- one queue row = one bounded ASM file/section
+10	- shared runtime fixes are allowed only when a real slice needs them
+11	
+12	## Snapshot
+13	
+14	- Maps: `MAP_ID_1_1`, `MAP_ID_1_2`, `MAP_ID_2_1`, and `MAP_ID_3_1` are live in [levels.c](/home/ben/src/starfox-hd/src/map/levels.c).
+15	- Paths: 54 literal path ids are active in [path_literals.h](/home/ben/src/starfox-hd/src/path/path_literals.h).
+16	- Strategies: 57 explicit registrations are present in [strat_table.c](/home/ben/src/starfox-hd/src/strat/strat_table.c); the active subset is aligned to `ISTRATS.ASM`.
+17	- Shapes: runtime still uses a small built-in mesh registry in [shapes.c](/home/ben/src/starfox-hd/src/renderer/shapes.c); there is no general `def_shape` loader yet.
+18	
+19	## Immediate Front Of Queue
+20	
+21	- [x] Port the Sector X opening path ids used by `MAP2_2.ASM`: `check`, `egu6`, `chase2_1`, `chase2_2`.
+22	  - Queue row: `sf-path-pathdata-sectorx-opening` (`done`)
+23	- [x] Port the opening `MAPMACS.INC` space-bar macro/runtime subset needed by `MAP2_2.ASM` through the first reward block.
+24	  - Queue row: `sf-map-spacebar-runtime-core` (`done`)
+25	- [x] Port `shipintro_Istrat`, which `MAP1_1A` still depends on.
+26	  - Queue row: `sf-istrat-gistrats-shipintro` (`done`)
+27	- [x] Port the `LEVEL1_3.ASM` opening wrapper slice plus `cl_warpout` and `map1_3a`.
+28	  - Queue row: `sf-map-level1_3` (`done`)
+29	- [x] Port the next Sector X middle path ids used by later `MAP2_2` / `MAP3_2` slices: `chase3_1`, `chase3_2`, `e_shieldr`.
+30	  - Queue row: `sf-path-pathdata-sectorx-middle` (`done`)
+31	- [x] Port the `egu6` friend variants used by later Sector X and route-3 space slices.
+32	  - Queue row: `s
+
+ASSISTANT (final):
+The queue is drained (154 done, 1 blocked-by-design). Let me verify the build works and check the overall project state.
+----------------------------------------
+
+### Turn 2 @ 2026-07-01T21:05:36.361Z
+USER:
+case MAP_ID_3_6:
+        register_level3_6_inline_callbacks();
+        return &s_level3_6;
+    case MAP_ID_3_7:
+        register_level3_7_inline_callbacks();
+        return &s_level3_7;
+    case MAP_ID_SPECIAL:
+        register_level_special_inline_callbacks();
+        return &s_level_special;
+    case MAP_ID_FINAL:
+        register_final_inline_callbacks();
+        return &s_final;
+    case MAP_ID_INTRO:
+        register_intro_inline_callbacks();
+        return &s_intro;
+    case MAP_ID_TITLE:
+        register_title_inline_callbacks();
+        return &s_title;
+    case MAP_ID_CONTINUE:
+        register_title_inline_callbacks();
+        return &s_title;
+    case MAP_ID_WAIT:
+        return &s_title;
+    case MAP_ID_PLANET:
+        return &s_planet;
+    case MAP_ID_CREDITS:
+        register_credits_inline_callbacks();
+        return &s_credits;
+    case MAP_ID_TRAINING:
+        register_training_inline_callbacks();
+        return &s_training;
+    default:
+        return warn_unported_level(map_id);
+    }
+}
+===
+20260308-091258-sf-map-level2_2-wrapper.prompt.txt
+20260308-091258-sf-map-level2_2-wrapper.result.json
+20260308-091640-sf-map-map2_3a.prompt.txt
+20260308-091640-sf-map-map2_3a.result.json
+workers/
+build/starfox-hd*
+
+build/data:
+font/
+snd/
+sprites/
+
+ASSISTANT (final):
+All map IDs are covered — the literal port phase looks complete. Let me verify the game actually boots.
+----------------------------------------
+
+### Turn 3 @ 2026-07-01T21:07:00.293Z
+USER:
+ugrep: warning: src/map/levels.c: No such file or directory
+===
+ugrep: warning: src/renderer/shapes.c: No such file or directory
+
+ASSISTANT (final):
+Still in build/ — let me use absolute paths.
+----------------------------------------
+
+### Turn 4 @ 2026-07-01T21:08:34.145Z
+USER:
+Updated task #1 status
+
+ASSISTANT (final):
+All four diagnoses are complete, and the picture is much better than "rewrite everything" — each failure is localized with a proven fix path. Now I'll launch four implementation agents in parallel, one per lane, with disjoint file ownership so they don't collide.
+----------------------------------------
+
+### Turn 5 @ 2026-07-01T21:19:38.864Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/MEMORY.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+The colors/lighting lane is done — clean build, all edits confined to `shapes.c`/`shapes.h`.
+----------------------------------------
+
+### Turn 6 @ 2026-07-01T21:22:59.410Z
+USER:
+Updated task #2 status
+
+ASSISTANT (final):
+Lighting fix is in: per-face shading now computes shade level 0–9 from face-normal · light-direction through the real `LIGHT.ASM` tables (mirroring the viewer's proven implementation exactly), COLDEPTH materials now bank through night1–night4 by view distance (transcribed byte-exact from `COLTAB.ASM`), and a `Shapes_SetLightGroup` API was added for per-level light control. The Arwing hull should now shade light-to-dark across its faces instead of rendering flat mid-tones.
+
+One honest caveat the agent flagged: the distance thresholds for the depth banks (2500/5000/7500) are a reasonable guess, not ASM-derived — the original's Super FX threshold constants weren't located yet. Easy to retune later.
+
+Still running: audio (SPC IPL boot), 2D pipeline, and progression. I'll merge and integration-test once all lanes report.
+----------------------------------------
+
+### Turn 7 @ 2026-07-01T21:26:51.749Z
+USER:
+we need to make sure our port is accurate and fully playable
+
+ASSISTANT (final):
+Agreed — accuracy and full playability are the bar. While the three remaining fix lanes finish, I'll start systematic verification work: a full fidelity audit against the reference ASM (to catch every remaining stub, deviation, and silently-dropped behavior), and ground-truth research to replace the one known guess (depth-bank thresholds) with real ASM constants.
+----------------------------------------
+
+### Turn 8 @ 2026-07-01T21:28:11.804Z
+USER:
+Updated task #7 status
+
+ASSISTANT (final):
+Excellent ground truth — the guessed constants are indeed wrong (real thresholds are 2560/3328/3840, much tighter, and per-level), the light group must track the depth band rather than being pinned to 0, and shading must rotate with the object. The colors agent has finished, so `shapes.c` is unowned and I can apply these corrections directly myself. Let me first read the exact reference math and the current code.
+----------------------------------------
+
+### Turn 9 @ 2026-07-01T21:39:18.537Z
+USER:
+The file /home/ben/src/starfox-hd/src/renderer/shapes.c has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now the render loop (compute the rotated light once per object) and `Shapes_Init`:
+----------------------------------------
+
+### Turn 10 @ 2026-07-01T21:39:28.965Z
+USER:
+The file /home/ben/src/starfox-hd/src/renderer/shapes.c has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now the header — swap the light-group API for the depth-table API:
+----------------------------------------
+
+### Turn 11 @ 2026-07-01T21:40:42.502Z
+USER:
+Your questions have been answered: "How should we approach the Rust rewrite (RIIR)?"="Stabilize C first, then RIIR (Recommended)". You can now continue with these answers in mind.
+
+ASSISTANT (final):
+Good call — we'll stabilize and verify the C port first so the Rust port has a working oracle to validate against, then RIIR module-by-module. Let me record that decision and then continue: first, verify my ground-truth rendering edits compile.
+----------------------------------------
+
+### Turn 12 @ 2026-07-01T21:45:03.689Z
+USER:
+The file /home/ben/src/starfox-hd/CMakeLists.txt has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now wire the register calls into `strat_table.c`:
+----------------------------------------
+
+### Turn 13 @ 2026-07-01T21:47:49.019Z
+USER:
+Task #12 created successfully: Audit P1/P2 backlog (post-boss fixes)
+
+ASSISTANT (final):
+The 2D lane is complete — and it's a great result: the agent discovered `gfx_title.bin` was actually 65816 code (not graphics), recovered the real title screen composition from `BGS.ASM` (logo layer + crew backdrop + palette), and composes it pixel-exact at init. It also fixed the font decoder, which was reading the wrong tile format entirely. All four original overhaul lanes are now done. Let me merge everything into the main build and run an integrated smoke test.
+----------------------------------------
+
+### Turn 14 @ 2026-07-01T22:02:09.305Z
+USER:
+Updated task #13 activeForm, status
+
+ASSISTANT (final):
+Boss2 is done — the full Macbeth "spinning top" boss with its 6-phase state machine, 9 child objects, and correct `GF_BOSSDEAD` release, registered at the verified istrat index 108 that levels.c already references. Route 1's blocker is cleared (pending shape gaps: some boss parts render as invisible placeholders until their meshes are compiled — hittable but unseen).
+----------------------------------------
+
+### Turn 15 @ 2026-07-01T22:14:30.073Z
+USER:
+Updated task #14 activeForm, status
+
+ASSISTANT (final):
+Boss8 is done — the full washmap boss cast (shell, cover, beam switches, nucleus launchers, pillars, shrapnel death sequence) with correct `GF_BOSSDEAD + GF_STAGEDONE` release, unblocking route 3 at 3_4. It also caught and fixed two latent map-data issues (wrong boss height and a nullshape shell proxy now corrected to the real mesh).
+----------------------------------------
+
+### Turn 16 @ 2026-07-01T22:16:44.087Z
+USER:
+Updated task #11 status
+
+ASSISTANT (final):
+All three route-blocking boss ports are now complete — the Sea Zone pair landed with the full multi-wave gating (bossG disappears → 5 sea monsters wave → bossG reappears → kill sets `GF_BOSSDEAD`). Let me verify all three compile together in the integrated build and record the newly-flagged pre-existing issues.
+----------------------------------------
+
+### Turn 17 @ 2026-07-01T22:20:51.112Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+/home/ben/src/starfox-hd/src/game/world.c:608:5: error: implicit declaration of function ‘Strat_PlayerExitBase’ [-Wimplicit-function-declaration]
+
+ASSISTANT (final):
+Per-level backgrounds are done — Corneria now renders its genuine sky/clouds/mountains/ground, planet select shows the real MAP-screen backdrop, and 20+ level backgrounds are wired with a sensible per-map default table (it caught that most levels never call `setbg` at level start — the original relies on carry-over state). Encouragingly, its verification frames showed **enemies and radio messages** appearing in Corneria — meaning the scene-diagnosis agent's fixes are already taking effect in the shared tree.
+----------------------------------------
+
+### Turn 18 @ 2026-07-01T22:35:08.935Z
+USER:
+Updated task #14 status
+
+ASSISTANT (final):
+One agent remains — the Corneria scene diagnosis (mid-edit in `world.c`, which is what's holding the integrated build). As soon as it lands I'll rebuild the main target, run the full autoplay smoke test with screenshots, and then we're at the commit checkpoint.
+----------------------------------------
+
+### Turn 19 @ 2026-07-01T22:44:31.001Z
+USER:
+the audio is very glitchy sounds like a bunch of machine beeps. we should be able to get the audio running really well i would think since we're basically not doing anything to enhance it
+
+ASSISTANT (final):
+Glitchy machine beeps points at the driver playing with wrong or missing sample data — the most likely culprits are the track→file mapping (which `SGSOUND*/SGBGM*` files get uploaded per track), the settle/handshake shortcuts in the new IPL boot, or the per-frame port 1/2 writes spamming the driver at the wrong cadence. You're right that this should be essentially bit-perfect — we're running the original driver in a proper SPC emulator, so any wrongness is in how we feed it. Launching a focused audio-fidelity agent:
+----------------------------------------
+
+### Turn 20 @ 2026-07-01T22:47:19.556Z
+USER:
+ok
+
+ASSISTANT (final):
+That's Star Fox: Corneria's real sky, clouds, and mountain horizon; green terrain; the Arwing banking mid-flight; scenery streaming past; a wingman radio message ("LOOK LOOK!") rendering in the fixed font; HUD bars and lives. The integrated build now runs the whole flow — title with logo/music → planet-select map screen → playable Corneria with enemies and scripted chatter.
+
+Where things stand:
+
+**Complete:** all four overhaul lanes, all three route-blocking boss ports (Boss2, Seamon+BossG, Boss8) plus BossF's fix, ground-truth lighting/depth constants, per-level backgrounds, the Corneria scramble-intro deadlock and 16×-too-slow player speed fix, and the autoplay test harness.
+
+**Still running:** the audio-fidelity agent chasing the "machine beeps" — top suspects are the track→file upload mapping from `sndtbl`, port 1/2 write spam outside gameplay, or a DSP register (a stuck noise-enable flag would sound exactly like machine noise). It's building an offline WAV-render harness so it can iterate quickly and verify the title theme is actually musical, not just non-silent.
+
+**After that:** final integrated smoke test, then this is the commit checkpoint for the stabilized C reference build — say the word and I'll commit it. Remaining known work before "fully playable, accurate" sign-off: the P1/P2 backlog (barrel-roll deflection, invisible-mesh gaps like the Asteroid Belt rocks and boss parts, score tally, BossB and the final Airship boss, black-hole warps, tunnel `playermode` opcodes) — and a real human playthrough from you, since autoplay can't beat bosses or judge feel.
+----------------------------------------
+
+### Turn 21 @ 2026-07-01T22:49:45.899Z
+USER:
+the title music sounds great but theres a lot of missing stuff in corneria, the intro sequence is missing. i see the corneria background and a bunch of objects moving away from the camera instead of toward it. hear lots of machine beeps and weird atmospheric music. so its sort of playing but its not the right music it sounds wrong
+
+ASSISTANT (final):
+The RIIR can start very soon — here's the honest gate and timeline:
+
+**The gate we agreed on** was "C port verified playable" so Rust has a behavioral oracle. We're nearly there:
+- Done: title (visuals + music), planet select, Corneria renders with real background/scenery/enemies, all three routes' blocking bosses ported, progression loop, HUD.
+- In flight right now (2 agents): the in-level music/beeps fix and the Corneria opening (launch sequence + the objects-receding motion bug).
+- Then: one integrated smoke pass + your hands-on Corneria playthrough as sign-off.
+
+**So realistically: RIIR scaffolding can start as soon as those two agents land and the smoke test passes — i.e., this session.** I'd structure it as:
+
+1. **Start now-ish (parallel with final C fixes):** Rust workspace scaffolding — crate layout (`sf-core`, `sf-map`, `sf-strat`, `sf-path`, `sf-render`, `sf-audio`, `sf-app`), the SDL2/OpenGL + snes_spc FFI shims, and the differential-test harness that runs both binaries under `SF_AUTOPLAY` and diffs draw-list/state dumps per tick. None of this depends on the C code being final.
+2. **Port leaf/data modules first** (shape data, path bytecodes, map bytecode builders — mechanical, huge, low-risk), then the deterministic core (map VM, strategies, collision) with per-tick differential testing against the C build, then renderer/audio last.
+3. **The P1/P2 backlog** (BossB, Airship final boss, missing meshes, barrel-roll deflection, score tally) — port those **once, directly in Rust** as we reach their modules rather than fixing them in C first and porting twice. Only genuine oracle-blocking bugs keep getting fixed in C.
+
+One caveat to flag again: the "Star Fox 2 too" goal needs SF2 reference source/disassembly, which isn't in the repo — worth lining that up while the SF1 Rust port proceeds.
+
+Want me to kick off step 1 (workspace + differential harness) right now while the two C fix agents finish, or hold until your Corneria playthrough signs off the oracle?
+----------------------------------------
+
+### Turn 22 @ 2026-07-01T22:58:51.266Z
+USER:
+yes go ahead and start the riir now
+
+ASSISTANT (final):
+Starting the RIIR now. First: toolchain — check the Nix flake and add Rust to the dev shell.
+----------------------------------------
+
+### Turn 23 @ 2026-07-01T22:59:13.795Z
+USER:
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+/home/ben/.cargo/bin/cargo
+/home/ben/.cargo/bin/rustc
+
+ASSISTANT (final):
+Rust is already available via the user's rustup install inside the dev shell — no flake changes needed. Checking the version, then scaffolding the workspace:
+----------------------------------------
+
+### Turn 24 @ 2026-07-01T22:59:49.455Z
+USER:
+File created successfully at: /home/ben/src/starfox-hd/rust/sf-core/src/lib.rs (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Let me verify those constants against the actual C definitions rather than trusting memory:
+----------------------------------------
+
+### Turn 25 @ 2026-07-01T23:04:07.363Z
+USER:
+Updated task #16 activeForm, status
+
+ASSISTANT (final):
+The in-level audio is fixed, and the diagnosis is satisfying: the emulation was fine all along — we were feeding the driver wrong.
+
+1. **The "weird atmospheric music" at Corneria** — the map opcode `setbgm 5` (boss music) was being treated as "reboot the SPC with sound-table row 5," which happens to be the map-screen ambience. In the original it's just a raw song command to the already-loaded bank. Fixed to match.
+2. **The "machine beeps"** — gameplay never booted its level sound bank at all, so every engine hum and fly-by SFX command landed on the *title bank's music samples*. The original boots each level's bank from `BGS.ASM` (`bgm 11` for Corneria); that hook now exists, transcribed per-level.
+3. Plus nine wrong rows in the track→file table and a missing "resident RAM" behavior (the original never clears APU RAM between uploads; the port now pre-uploads the SFX/orchestra banks the same way).
+
+Verification was properly rigorous: an offline WAV harness renders any track — Corneria now plays a tonal G-major march (spectral flatness 0.045 vs noise-like before), boss-music switching works mid-song, and a full autoplay run shows title theme → Corneria march with SFX on top. There's a new `SF_AUDIO_WAV=<path>` dump tool kept for future audio debugging.
+
+Let me pull this into the main build now:
+----------------------------------------
+
+### Turn 26 @ 2026-07-01T23:10:17.700Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+[ 92%] Built target starfox-hd
+
+ASSISTANT (final):
+The audio fixes are in the main build (`build/starfox-hd`) if you want to hear Corneria's march now. Two agents still running: the Corneria opening/motion/bounce fix and the planet-select bitmaps. One known audio compromise to note: Corneria's tunnel-intro scramble theme is skipped (the march starts at level entry) because the sound layer can't yet observe mid-level BG switches — logged in the backlog.
+
+Once those two agents land I'll run the full verification pass (autoplay + screenshots + state dump), and then it's genuinely worth committing this checkpoint — the tree now holds the entire stabilization plus the RIIR scaffold, all uncommitted. After that, the first Rust module port (path data, validated byte-for-byte via the difftest harness) begins.
+----------------------------------------
+
+### Turn 27 @ 2026-07-01T23:23:34.973Z
+USER:
+the colors on the arwing's cockpit window are wrong. please fix. still tons of bugs. part of the problem may be the low 16 bit precision. how can we tackle that to make the game smooth? but tons of other weird bugs and issues
+
+ASSISTANT (final):
+Three things here: the cockpit color bug (concrete, fixable now), the 16-bit precision/smoothness question (architectural — I'll give you a direct answer), and the general bug volume (needs a systematic sweep rather than whack-a-mole). Launching the cockpit fix first:
+----------------------------------------
+
+### Turn 28 @ 2026-07-01T23:24:43.277Z
+USER:
+Updated task #17 status
+
+ASSISTANT (final):
+The cockpit color fix is underway (comparing the game render against the mesh viewer, which renders the Arwing correctly, and the actual `NIGHT.COL` palette values — top suspects are my GSU intensity-curve scale factor and a possible depth-bank flip at title-screen distance).
+
+**On 16-bit precision and smoothness — here's the honest architectural picture:**
+
+The choppiness you feel is mostly *not* 16-bit precision. It's three separable things:
+
+1. **20Hz game logic.** The original runs game logic at ~15–20fps (Super FX frame time), and our port replicates that with a fixed 20Hz tick. Everything gameplay-visible moves in 50ms steps.
+2. **Render interpolation defects.** We already render at vsync/uncapped and interpolate between ticks — but the interpolator pairs draw-list entries *by index*, so when spawn order shifts between ticks, objects get interpolated against the wrong partner. That's very likely your "ship bounces around" bug, and the motion agent is on it. Fixing pairing (stable entity IDs) makes the existing interpolation actually smooth.
+3. **16-bit sim quantization** is real but third-order: positions snap to integer SNES units, angles to 256ths. You only notice it after 1 and 2 are fixed.
+
+**The plan that gets you smoothness without sacrificing accuracy:**
+- **C oracle: don't touch the math.** Its 16-bit quirks *are* the fidelity reference — changing them destroys its value for differential testing.
+- **Rust port: two modes.** *Fidelity mode* reproduces the 16-bit math exactly (validated tick-for-tick against the oracle — this is how we prove the port is right). *Enhanced mode* — the actual "HD" deliverable — then widens the sim to i32/f64, raises the logic tick to 60/120Hz with time-scaled constants (timers, velocities, spawn cadences all expressed per-second instead of per-tick), and keys interpolation on entity identity. Because enhanced mode diffs against fidelity mode at matched timestamps, we can verify the enhancements don't change *behavior*, only granularity.
+
+That ordering means precision work happens once, in Rust, instead of twice.
+
+**On "tons of other weird bugs":** agreed, and I've queued the fix for the workflow itself — after this fix wave lands and we commit the checkpoint, I'll add an `SF_START_MAP` hook so tests can jump straight into any level, then run a systematic sweep: autoplay + frame-dump every live map, catalog every deviation against reference footage, and triage into a fix queue. That converts "tons of weird bugs" into an enumerated list we burn down.
+
+Currently running: cockpit colors, Corneria opening/motion/bounce, planet-select bitmaps.
+----------------------------------------
+
+### Turn 29 @ 2026-07-01T23:28:14.719Z
+USER:
+cool. when the agents finish let's port to rust, then continue
+
+ASSISTANT (final):
+This was the big one — three root causes nailed:
+
+1. **Objects receding:** a coordinate-convention mismatch at the renderer boundary — SNES +Z-forward vs OpenGL −Z-forward meant everything ahead of the player was *behind* the GL near plane; objects only appeared after you passed them. Always broken, invisible at the old 16×-slower speed. Fixed at the root in the transform layer with a pure rotation (no mirroring).
+2. **Ship bouncing:** exactly the suspected interpolation mispairing — entries now carry an `obj_id` and interpolate against the same object, not the same list slot.
+3. **Wrong objects:** systematic shape-id drift — ~60 constants in the level data were off by one or more (wingmen were literally rendering as enemy fighters). All corrected against the canonical catalog.
+
+And the **full launch intro is in**: fixed camera in the hangar, wingmen scrambling overhead, "ALL SHIPS CHECK IN!", the Arwing exiting past the base with the camera panning, "READY FOX!" follow-cam handoff. Verified frame-by-frame over a 150-second run.
+
+The C `DrawListEntry` gained a field, so let me sync the Rust mirror and rebuild:
+----------------------------------------
+
+### Turn 30 @ 2026-07-01T23:29:13.728Z
+USER:
+94:    uint16 obj_id;               // Stable source-object id (alien index + 1);
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+[ 92%] Built target starfox-hd
+
+ASSISTANT (final):
+Integrated build is clean with all the motion, intro, interpolation, and shape-id fixes, and the Rust `sf-core` mirror is synced with the new `obj_id` field.
+
+Two agents remain: Arwing cockpit colors and planet-select bitmaps. When they land: final smoke test → commit the checkpoint → the Rust port fleet launches.
+----------------------------------------
+
+### Turn 31 @ 2026-07-01T23:31:31.872Z
+USER:
+all the objects are floatinga above the ground instead of connected to it
+
+ASSISTANT (final):
+That's almost certainly fallout from (or exposed by) the coordinate-convention fix that just landed — ground alignment depends on the object Y origin, the 3D ground tiles, and the 2D horizon line all agreeing, and the Y-axis handling just changed. Launching a targeted fix:
+----------------------------------------
+
+### Turn 32 @ 2026-07-01T23:33:03.305Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+[ 92%] Built target starfox-hd
+
+ASSISTANT (final):
+Planet select is fully in the main build now — real planet bitmaps plus the stale-3D-leak fix.
+
+Two agents remain: **Arwing cockpit colors** and **objects floating above the ground** (the new report — investigating the Y-convention fallout, whether the 3D ground tiles render at all, camera height vs the painted horizon, and missing drop shadows). Once both land: final smoke test → commit checkpoint → Rust port fleet launches, per the agreed sequence.
+----------------------------------------
+
+### Turn 33 @ 2026-07-01T23:33:20.086Z
+USER:
+also in the intro it doesnt show the arwings in the base the base is invisible and all the arwings glitch forward and backward instead of smoothly going forward
+
+ASSISTANT (final):
+Two more distinct issues: the invisible base (missing meshes — the runway/base/hangar shapes were never compiled: wireframe-only and extended-bank shapes the shape compiler skips), and the forward-backward glitching (classic camera-vs-object interpolation mismatch: objects interpolate smoothly between 20Hz ticks but the camera snaps, so everything appears to oscillate). Routing both:
+----------------------------------------
+
+### Turn 34 @ 2026-07-01T23:34:45.727Z
+USER:
+Updated task #19 activeForm, status
+
+ASSISTANT (final):
+Both new issues are being worked:
+
+1. **Arwings glitching forward/backward** — routed to the ground-alignment agent (it owns the camera/transform files): the diagnosis is that objects interpolate smoothly between 20Hz ticks but the camera only moves *at* ticks, so everything visually snaps back each time the camera steps. The fix is per-frame camera interpolation with cut detection (so intentional camera jumps in the intro stay instant). It'll verify the arwings advance monotonically across frame dumps.
+
+2. **Invisible base/runway** — a new shape-coverage agent is extending the shape compiler: the base, runway strips, and ~18 other referenced meshes (including the lethal-but-invisible asteroids in level 1_2 and several boss parts) were never compiled because they're wireframe-only (line faces) or live in an extended shape bank the compiler doesn't parse. It must keep the existing 236 shape ids perfectly stable while adding the missing ones, plus a GL line-rendering path for the wireframes.
+
+Three agents now running: cockpit colors, ground/camera, shape coverage. The commit checkpoint and Rust port fleet remain queued behind this fix wave, as agreed.
+----------------------------------------
+
+### Turn 35 @ 2026-07-01T23:35:18.399Z
+USER:
+the status indicator also not showing up; lots of 2d stuff not showing up including character portraits
+
+ASSISTANT (final):
+More missing 2D — the radio character portraits (the face animation state machine runs in `strings.c` but nothing ever draws the faces) and the status indicator, plus likely other HUD elements that were never compared against the original. Launching a HUD/2D-parity agent (the relevant files just freed up):
+----------------------------------------
+
+### Turn 36 @ 2026-07-01T23:36:05.019Z
+USER:
+Updated task #20 activeForm, status
+
+ASSISTANT (final):
+The cockpit is fixed — and the root cause was satisfying: not the lighting work at all, but the hand-coded builtin Arwing mesh having its color and visibility indices **transposed** for all 20 faces. Every face was colored by the wrong field. The canopy now cycles the correct animated blues (pixel-verified against the exact NIGHT.COL palette values), the jet fire glows red-orange, and the orange/indigo noses on all the ships are grey as intended.
+----------------------------------------
+
+### Turn 37 @ 2026-07-01T23:37:07.654Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+[ 92%] Built target starfox-hd
+
+ASSISTANT (final):
+Excellent results — the "floating" was actually **buildings rendering at 1/4–1/8 scale**: the shape compiler silently resolved unknown scale constants (defined in `STRATEQU.INC`, not the shape files) to zero, so every Corneria building compiled tiny and visually pinned to the horizon. Now they're full skyscrapers flanking the flight corridor. Plus two more original-hardware features restored: **drop shadows** (the SNES shadow pass was never ported — objects now cast translucent silhouettes on the terrain) and **per-frame camera interpolation** with teleport/cut detection — arwing motion verified strictly monotonic across frames, no more back-stepping.
+----------------------------------------
+
+### Turn 38 @ 2026-07-01T23:48:27.333Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+[ 92%] Built target starfox-hd
+
+ASSISTANT (final):
+Shape coverage is complete — 277/277 shapes compile with perfect id stability, including the runway, base, asteroids, and all the invisible boss parts. It left me three integration handoffs that are now unblocked (the owning agents have all finished): the `shapes.c` line-rendering patch, retargeting the nullshape proxies to the new meshes, and a levels.c wiring gap for the intro runway. Applying them now:
+----------------------------------------
+
+### Turn 39 @ 2026-07-01T23:56:04.872Z
+USER:
+The file /home/ben/src/starfox-hd/src/renderer/shapes.c has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now the render-loop part and the `Shapes_Register` free:
+----------------------------------------
+
+### Turn 40 @ 2026-07-01T23:56:42.273Z
+USER:
+The file /home/ben/src/starfox-hd/src/renderer/shapes.c has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now retarget the nullshape proxies to the new extended meshes. Checking the current proxy definitions:
+----------------------------------------
+
+### Turn 41 @ 2026-07-01T23:57:24.122Z
+USER:
+levels.c proxies retargeted
+
+ASSISTANT (final):
+Now the boss-file shape placeholders — boss8, sea, and boss2 all noted nullshape gaps that now have real meshes:
+----------------------------------------
+
+### Turn 42 @ 2026-07-01T23:59:01.580Z
+USER:
+Updated task #21 activeForm, status
+
+ASSISTANT (final):
+The intro is now complete — runway flyover with edge lights, hangar tunnel, base exterior with hangar mouths, wingmen launching, and the whole sequence still releases into normal flight. One small residual it flagged in my territory: `mybase_0` (shape 256) resolves against the wrong color table. Let me fix that:
+----------------------------------------

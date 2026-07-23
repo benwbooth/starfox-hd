@@ -22,7 +22,12 @@ fn rom_vec(rom: &[u8], addr: u32, roty: u8, rotx: u8, vel: u8, a_in: u16) -> (i1
     bus.write8(XBASE + AL_ROTY, roty);
     bus.write8(XBASE + AL_ROTX, rotx);
     bus.write8(XBASE + AL_VEL, vel);
-    let entry = Entry { a: a_in, x: XBASE as u16, p: 0x20, ..Default::default() };
+    let entry = Entry {
+        a: a_in,
+        x: XBASE as u16,
+        p: 0x20,
+        ..Default::default()
+    };
     call(&mut bus, addr, &entry);
     (
         bus.read16(X1) as i16,
@@ -65,7 +70,10 @@ fn frontvecs_matches_rom() {
         if !ok {
             bad += 1;
         }
-        eprintln!("front roty={roty:3} vel={vel:3}  ROM=({x1},{z1}) RUST=({rx},{rz}) {}", if ok { "EXACT" } else { "DIFF" });
+        eprintln!(
+            "front roty={roty:3} vel={vel:3}  ROM=({x1},{z1}) RUST=({rx},{rz}) {}",
+            if ok { "EXACT" } else { "DIFF" }
+        );
     }
     assert_eq!(bad, 0, "{bad} frontvecs cases differ");
 }
@@ -85,7 +93,10 @@ fn sidevecs_matches_rom() {
         if !ok {
             bad += 1;
         }
-        eprintln!("side  roty={roty:3} vel={vel:3}  ROM=({x1},{z1}) RUST=({rx},{rz}) {}", if ok { "EXACT" } else { "DIFF" });
+        eprintln!(
+            "side  roty={roty:3} vel={vel:3}  ROM=({x1},{z1}) RUST=({rx},{rz}) {}",
+            if ok { "EXACT" } else { "DIFF" }
+        );
     }
     assert_eq!(bad, 0, "{bad} sidevecs cases differ");
 }
@@ -107,7 +118,13 @@ fn genvecs2d_matches_rom() {
         if !ok {
             bad += 1;
         }
-        eprintln!("2d    roty={roty:3} vel={vel:3}  ROM=({x1},{y1},{z1}) RUST=({},{},{}) {}", al.vx, al.vy, al.vz, if ok { "EXACT" } else { "DIFF" });
+        eprintln!(
+            "2d    roty={roty:3} vel={vel:3}  ROM=({x1},{y1},{z1}) RUST=({},{},{}) {}",
+            al.vx,
+            al.vy,
+            al.vz,
+            if ok { "EXACT" } else { "DIFF" }
+        );
     }
     assert_eq!(bad, 0, "{bad} genvecs2d cases differ");
 }

@@ -32,6 +32,7 @@ pub mod alien_compat;
 pub mod coldet;
 pub mod game;
 pub mod obj;
+pub mod trig8;
 pub mod vars;
 pub mod world;
 
@@ -39,7 +40,13 @@ pub mod world;
 // game.c camera, bgs.c/windows.c/strings.c/planets.c frame-input producers).
 pub mod bgs;
 pub mod camera;
+pub mod charmap;
+pub mod clip;
+pub mod debug_draw;
+pub mod dma;
 pub mod draw;
+pub mod foxy;
+pub mod heap;
 pub mod planets;
 pub mod score;
 pub mod shell;

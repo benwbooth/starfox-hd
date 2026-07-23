@@ -47,26 +47,58 @@ pub fn build() -> Route2Level {
 
     // .amoebas1 loop: 3 iterations of mapmother + maprem
     b.label("level2_4.amoebas1");
-    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_amoebas);
+    b.mapmother(
+        200,
+        0,
+        0,
+        4000,
+        SH_MOTHER1,
+        STRATEGY_MOTHER2,
+        crate::mothers::mother_maps().map_amoebas,
+    );
     b.mapremove(SH_MOTHER1);
 
     b.mapwait(1000);
     b.maploop("level2_4.amoebas1", 3);
     b.pathobj(0, 3000, 3000, 3000, SH_NULLSHAPE, PATH_ID_AMEBMSG, 10, 10);
 
-    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_amoebas);
+    b.mapmother(
+        200,
+        0,
+        0,
+        4000,
+        SH_MOTHER1,
+        STRATEGY_MOTHER2,
+        crate::mothers::mother_maps().map_amoebas,
+    );
     b.mapremove(SH_MOTHER1);
 
     b.mapobj(0, 100, -100, 4500, SH_NULLSHAPE, IS_UP1MAN);
     b.setalvarw(AL_SWORD2, SH_ITEM_0_PROXY as i32);
     b.mapwait(1000);
 
-    b.mapmother(200, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_amoebas);
+    b.mapmother(
+        200,
+        0,
+        0,
+        4000,
+        SH_MOTHER1,
+        STRATEGY_MOTHER2,
+        crate::mothers::mother_maps().map_amoebas,
+    );
     b.mapremove(SH_MOTHER1);
 
     b.mapwait(1000);
 
-    b.mapmother(8000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_amoebas);
+    b.mapmother(
+        8000,
+        0,
+        0,
+        4000,
+        SH_MOTHER1,
+        STRATEGY_MOTHER2,
+        crate::mothers::mother_maps().map_amoebas,
+    );
     b.pathcspecial(300, 300, -300, 0, SH_ZACO_7, PATH_ID_EGU1_IFRO, 4, 10);
     b.pathcspecial(300, 500, -600, 0, SH_ZACO_7, PATH_ID_EGU1_IRAB, 4, 10);
     b.pathcspecial(4000, 700, -900, 0, SH_ZACO_7, PATH_ID_EGU1_IFAL, 4, 10);
@@ -170,9 +202,18 @@ pub fn build() -> Route2Level {
         labels,
         vec![],
         vec![
-            (level2_4_mapwaitboss_trigse_ptr, "level1_1_mapwaitboss_trigse"),
-            (level2_4_mapwaitboss_cantdie_ptr, "level1_1_mapwaitboss_cantdie"),
-            (level2_4_mapwaitboss_cleanup_ptr, "level1_1_mapwaitboss_cleanup"),
+            (
+                level2_4_mapwaitboss_trigse_ptr,
+                "level1_1_mapwaitboss_trigse",
+            ),
+            (
+                level2_4_mapwaitboss_cantdie_ptr,
+                "level1_1_mapwaitboss_cantdie",
+            ),
+            (
+                level2_4_mapwaitboss_cleanup_ptr,
+                "level1_1_mapwaitboss_cleanup",
+            ),
         ],
     )
 }

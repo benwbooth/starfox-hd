@@ -4,8 +4,8 @@
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemy_b::{
-    self, install_enemy_b, register, IS_BOSSA, IS_BOSSF, IS_BOSS7, STRAT_ADDR_BOSSF,
-    STRAT_ADDR_SPACEPILON, STRAT_ADDR_TIT,
+    self, install_enemy_b, register, IS_BOSS7, IS_BOSSA, IS_BOSSF, STRATEGY_SPACEPILON,
+    STRAT_ADDR_BOSSF, STRAT_ADDR_TIT,
 };
 
 fn spawn(g: &mut Game, shape: u16) -> u16 {
@@ -45,7 +45,7 @@ fn register_populates_istrats_and_address_map() {
     assert!(g.world.istrats[IS_BOSSA].is_some());
     assert!(g.world.istrats[IS_BOSSF].is_some());
 
-    assert!(g.world.find_strategy_address(STRAT_ADDR_SPACEPILON).is_some());
+    assert!(g.world.find_direct_strategy(STRATEGY_SPACEPILON).is_some());
     assert!(g.world.find_strategy_address(STRAT_ADDR_TIT).is_some());
     // bossF is both an istrat row and an address-map entry.
     let addr = g.world.find_strategy_address(STRAT_ADDR_BOSSF);
@@ -73,7 +73,10 @@ fn title_init_and_spin_are_exact() {
     assert_eq!(al.hp, 255);
     assert_eq!(al.ap, 0);
     assert_eq!(al.collflags, 0);
-    assert_eq!(al.rotx, 48, "display pitch pose (static-camera compensation)");
+    assert_eq!(
+        al.rotx, 48,
+        "display pitch pose (static-camera compensation)"
+    );
     assert_eq!(al.roty, 32, "display yaw pose");
     assert_eq!(al.rotz, 2, "install frame falls through into tit_strat");
 

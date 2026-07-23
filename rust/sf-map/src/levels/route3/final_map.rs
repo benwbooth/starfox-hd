@@ -15,9 +15,9 @@ pub(crate) fn build() -> Route3Level {
     // (MAP_ID_FINAL)
     // ============================================================
 
-
     // Reuse the shared helper with "final" prefix.
-    let (mapwaitboss_cantdie_ptr, mapwaitboss_cleanup_ptr) = append_finalmap_content(&mut b, "final");
+    let (mapwaitboss_cantdie_ptr, mapwaitboss_cleanup_ptr) =
+        append_finalmap_content(&mut b, "final", 1);
 
     b.resolve();
 

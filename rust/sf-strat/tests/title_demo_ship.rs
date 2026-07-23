@@ -22,14 +22,7 @@ fn make_shell() -> Shell {
     let mut shell = Shell::new();
     shell.set_register_strats(Box::new(sf_strat::table::register_all));
     shell.set_spawn_player(Box::new(|game, newmap| {
-        if let Some(idx) = sf_strat::player::strat_spawn_player(game) {
-            if newmap == sf_map::catalog::map_id::M1_1
-                || newmap == sf_map::catalog::map_id::M2_1
-                || newmap == sf_map::catalog::map_id::M3_1
-            {
-                sf_strat::player::strat_player_opening_init(game, idx);
-            }
-        }
+        let _ = sf_strat::player::strat_spawn_player_for_map(game, newmap);
     }));
     shell
 }

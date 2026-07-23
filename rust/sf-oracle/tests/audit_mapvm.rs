@@ -29,10 +29,10 @@ const AL_WORLDZ: u32 = 0x10;
 // WRAM layout for the harness (avoid stub $0200-$0213 and RTS trap $0300).
 const PLAYER: u32 = 0x0100; // player block (playpt)
 const OBJ: u32 = 0x0140; // free block that will be allocated for the spawn
-// The map struct base is `mapbase&WM` = $8000 (symbols.txt MAP_CTRL=$8000);
-// handlers read fields as absolute `$8000+field+X` under DBR=mapbank. We host
-// the map in WRAM bank $7E ($7E:8000 = wram index 0x8000) and set DBR=$7E via a
-// trampoline. mapptr (Y) = 0, so the opcode sits at $7E:8000.
+                         // The map struct base is `mapbase&WM` = $8000 (symbols.txt MAP_CTRL=$8000);
+                         // handlers read fields as absolute `$8000+field+X` under DBR=mapbank. We host
+                         // the map in WRAM bank $7E ($7E:8000 = wram index 0x8000) and set DBR=$7E via a
+                         // trampoline. mapptr (Y) = 0, so the opcode sits at $7E:8000.
 const MAPWRAM: u32 = 0x8000; // wram index that $7E:8000 maps to
 const TRAMPOLINE: u32 = 0x0400; // DBR-setter stub
 
@@ -80,7 +80,11 @@ fn rom_spawn(rom: &[u8], addr: u32, player_z: i16, map_bytes: &[u8]) -> Spawn {
     call_near(
         &mut bus,
         TRAMPOLINE,
-        &Entry { y: 0x0000, p: 0x00, ..Default::default() },
+        &Entry {
+            y: 0x0000,
+            p: 0x00,
+            ..Default::default()
+        },
     );
     Spawn {
         x: bus.read16(OBJ + AL_WORLDX) as i16,
@@ -127,12 +131,12 @@ fn qobj_coords_match_rom() {
     };
     // (frame, x, y, z, shape, strat) raw bytes; frame nonzero so it RTSs.
     let cases: [(u8, u8, u8, u8, u8, u8); 6] = [
-        (2, 0x05, 0x0A, 0x10, 0, 0),    // small positive
-        (1, 0xFC, 0xF6, 0x08, 0, 0),    // negative x/y (-4, -10)
-        (3, 0x7F, 0x80, 0xF0, 0, 0),    // x=+127 y=-128 z=240 (zero-ext!)
-        (1, 0x00, 0x00, 0xFF, 0, 0),    // z=255 -> 0x0FF0 zero-ext
-        (5, 0x40, 0xC0, 0x00, 0, 0),    // z=0
-        (2, 0x81, 0x7F, 0x01, 0, 0),    // x=-127 y=+127
+        (2, 0x05, 0x0A, 0x10, 0, 0), // small positive
+        (1, 0xFC, 0xF6, 0x08, 0, 0), // negative x/y (-4, -10)
+        (3, 0x7F, 0x80, 0xF0, 0, 0), // x=+127 y=-128 z=240 (zero-ext!)
+        (1, 0x00, 0x00, 0xFF, 0, 0), // z=255 -> 0x0FF0 zero-ext
+        (5, 0x40, 0xC0, 0x00, 0, 0), // z=0
+        (2, 0x81, 0x7F, 0x01, 0, 0), // x=-127 y=+127
     ];
     let player_z: i16 = 0x1000;
     let mut bad = 0;

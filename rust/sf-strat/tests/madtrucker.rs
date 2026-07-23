@@ -7,8 +7,8 @@
 //! STRAT_ADDR_MADBIKER.
 //!
 //! No sf-oracle differential fixture is used: the ROM boss's `.hit` gate keys
-//! off per-sub-box hitflags that only the real boss_9_5 / boss_9_0 collision
-//! meshes emit (the map uses SH_NULLSHAPE proxies), and several cosmetic ROM
+//! off per-sub-box hitflags that only the boss_9_5 / boss_9_0 collision
+//! meshes emit, and several cosmetic ROM
 //! calls (spark/engine/float sprites) read global scratch RAM — all scoped out
 //! (see the MADTRUCKER_BEGIN scope note in bosses.rs). These tests assert the
 //! ported mother mode machine, truck-body positioning, HP bar, damage gate,
@@ -21,9 +21,9 @@ use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses;
 
 // Local mirrors of the private bosses.rs constants (cited to the port / ASM).
-const SH_MT_BOSS_9_0: u16 = 282; // truck body
-const SH_MT_AIR_1: u16 = 283; // escort bike
-const SH_MT_BARRIER: u16 = 284; // dropped mine
+const SH_MT_BOSS_9_0: u16 = 391; // truck body
+const SH_MT_AIR_1: u16 = 79; // canonical `air_1` runtime shape
+const SH_MT_BARRIER: u16 = 392; // dropped mine
 const MT_SFLAG1: u8 = 0x10; // sflags2
 const MT_HF1: u8 = 0x01;
 const MT_HF2: u8 = 0x02;
@@ -31,8 +31,8 @@ const ASF_COLLDISABLE: u8 = 0x10; // alien.rs
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
 const ASF_SHADOW: u8 = 0x04; // alien.rs (s_set_alsflag shadow)
 const ATZREMOVE: u8 = 0x08; // alien.rs type_ zremove
-const COLLTYPE_ENEMY1: u8 = 0x01; // sf_game::vars::COLLTYPE_ENEMY1 (bosses lane)
-const COLLTYPE_ENEMY2: u8 = 0x02; // bosses.rs local (acf_colltype6)
+const ACF_COLLTYPE2: u8 = 0x10; // ROM ENEMY1 (not vars COLLTYPE_ENEMY1=0x01)
+const COLLTYPE_ENEMY2: u8 = 0x20; // ROM ENEMY2 (acf_colltype3)
 const MADTRUCKER_HP: u8 = 64; // DSTRATS.ASM:74
 const MADBIKER_HP: u8 = 10; // DSTRATS.ASM:72
 
@@ -73,7 +73,9 @@ fn tick(g: &mut Game, boss: u16) {
 
 /// Run the boss's expstrat once (the dead-object path).
 fn tick_exp(g: &mut Game, boss: u16) {
-    let e = g.objs.aliens[boss as usize].expstratptr.expect("expstratptr");
+    let e = g.objs.aliens[boss as usize]
+        .expstratptr
+        .expect("expstratptr");
     g.call_strat(e, boss);
 }
 
@@ -111,17 +113,23 @@ fn init_links_truck_body_and_sets_hp_bar() {
     let (mut g, boss) = setup(0, 0);
     bosses::madtrucker_init(&mut g, boss);
 
-    assert_eq!(g.vars.bossmaxhp, MADTRUCKER_HP as u16, "bossmaxHP = madtruckerHP");
+    assert_eq!(
+        g.vars.bossmaxhp, MADTRUCKER_HP as u16,
+        "bossmaxHP = madtruckerHP"
+    );
     let b = &g.objs.aliens[boss as usize];
     assert_eq!(b.hp, MADTRUCKER_HP, "mother hp = madtruckerHP");
-    assert_ne!(b.collflags & COLLTYPE_ENEMY1, 0, "mother is ENEMY1");
+    assert_ne!(b.collflags & ACF_COLLTYPE2, 0, "mother is ENEMY1 (0x10)");
     assert_ne!(b.sflags & ASF_SHADOW, 0, "mother casts a shadow");
     assert!(b.stratptr.is_some() && b.collstratptr.is_some() && b.expstratptr.is_some());
 
     let c = child(&g, boss).expect("truck body linked via al_ptr");
-    assert_eq!(g.objs.aliens[c].shape, SH_MT_BOSS_9_0, "body shape = boss_9_0");
+    assert_eq!(
+        g.objs.aliens[c].shape, SH_MT_BOSS_9_0,
+        "body shape = boss_9_0"
+    );
     assert_eq!(g.objs.aliens[c].hp, 0xFF, "truck body is hard/invincible");
-    assert_ne!(g.objs.aliens[c].collflags & COLLTYPE_ENEMY1, 0);
+    assert_ne!(g.objs.aliens[c].collflags & ACF_COLLTYPE2, 0);
 }
 
 // ------------------------------------------------------------
@@ -141,8 +149,15 @@ fn bargeforward_creeps_right_then_spawns_bikes() {
     // through mode 1 (two bikes) into mode 2 (armour opens to anim 1).
     g.objs.aliens[boss as usize].worldx = 30;
     tick(&mut g, boss);
-    assert_eq!(g.objs.aliens[boss as usize].stratstate, 2, "reached .openup");
-    assert_eq!(count_shape(&g, SH_MT_AIR_1), 2, ".maketwobikes spawned two bikes");
+    assert_eq!(
+        g.objs.aliens[boss as usize].stratstate, 2,
+        "reached .openup"
+    );
+    assert_eq!(
+        count_shape(&g, SH_MT_AIR_1),
+        2,
+        ".maketwobikes spawned two bikes"
+    );
     let c = child(&g, boss).unwrap();
     assert_eq!(anim(&g, c), 1, ".openback raised the armour anim to 1");
 }
@@ -185,8 +200,16 @@ fn open_weakspot_hit_damages() {
     let coll = g.objs.aliens[boss as usize].collstratptr.unwrap();
 
     g.call_strat(coll, boss);
-    assert_eq!(g.objs.aliens[boss as usize].hp, MADTRUCKER_HP - 1, "took 1 hp");
-    assert_eq!(g.objs.aliens[boss as usize].hitflags & MT_HF2, 0, "HF2 consumed");
+    assert_eq!(
+        g.objs.aliens[boss as usize].hp,
+        MADTRUCKER_HP - 1,
+        "took 1 hp"
+    );
+    assert_eq!(
+        g.objs.aliens[boss as usize].hitflags & MT_HF2,
+        0,
+        "HF2 consumed"
+    );
     assert_eq!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0);
 }
 
@@ -223,8 +246,16 @@ fn body_armour_absorbs_hit() {
 
     g.call_strat(coll, boss);
     assert_eq!(g.objs.aliens[boss as usize].hp, MADTRUCKER_HP, "no damage");
-    assert_eq!(g.objs.aliens[c].hitflags & MT_HF1, 0, "HF1 absorbed & cleared");
-    assert_ne!(g.objs.aliens[boss as usize].hitflags & MT_HF2, 0, "HF2 untouched");
+    assert_eq!(
+        g.objs.aliens[c].hitflags & MT_HF1,
+        0,
+        "HF1 absorbed & cleared"
+    );
+    assert_ne!(
+        g.objs.aliens[boss as usize].hitflags & MT_HF2,
+        0,
+        "HF2 untouched"
+    );
 }
 
 // ------------------------------------------------------------
@@ -245,9 +276,16 @@ fn fatal_hit_runs_swerve_skid_death() {
 
     g.call_strat(coll, boss); // hp 1 -> 0 -> .explode -> one swerve tick
     assert_eq!(g.objs.aliens[boss as usize].hp, 0, "boss killed");
-    assert_ne!(g.objs.aliens[c].type_ & ATZREMOVE, 0, "truck body flagged zremove");
+    assert_ne!(
+        g.objs.aliens[c].type_ & ATZREMOVE,
+        0,
+        "truck body flagged zremove"
+    );
     // .explode sets sbyte1=35, then .swerveviolently decs to 34.
-    assert_eq!(g.objs.aliens[boss as usize].sbyte1, 34, "swerve timer armed");
+    assert_eq!(
+        g.objs.aliens[boss as usize].sbyte1, 34,
+        "swerve timer armed"
+    );
 
     // Drive the swerve down to 0 -> transition to .skid (its expstrat swaps,
     // maptrigger bit2 latches). The truck crept +1 in z during the init tick so
@@ -256,7 +294,11 @@ fn fatal_hit_runs_swerve_skid_death() {
     for _ in 0..34 {
         tick_exp(&mut g, boss);
     }
-    assert_ne!(g.vars.read_ext8(0x0311) & 2, 0, "maptrigger bit2 set at skid");
+    assert_ne!(
+        g.vars.read_ext8(0x0311) & 2,
+        0,
+        "maptrigger bit2 set at skid"
+    );
     assert_ne!(
         g.objs.aliens[boss as usize].expstratptr.unwrap(),
         swerve_exp,
@@ -282,7 +324,10 @@ fn dropmines_spawns_falling_barrier() {
     g.objs.aliens[boss as usize].worldy = -200;
     g.objs.aliens[boss as usize].stratstate = 9; // .dropmines
     tick(&mut g, boss);
-    assert_eq!(g.objs.aliens[boss as usize].stratstate, 10, ".dropmines -> nxtmode");
+    assert_eq!(
+        g.objs.aliens[boss as usize].stratstate, 10,
+        ".dropmines -> nxtmode"
+    );
 
     let mine = find_shape(&g, SH_MT_BARRIER).expect("barrier spawned");
     // First tick runs barrier_init (hp/roty set) then one fall step.
@@ -320,7 +365,10 @@ fn bike2_becomes_madbiker_after_eleven_ticks() {
     g.objs.aliens[boss as usize].stratstate = 1; // .maketwobikes
     tick(&mut g, boss);
     let bike = find_shape(&g, SH_MT_AIR_1).expect("bike spawned") as u16;
-    assert!(g.objs.aliens[bike as usize].hp != MADBIKER_HP, "still bike2 (not madbiker yet)");
+    assert!(
+        g.objs.aliens[bike as usize].hp != MADBIKER_HP,
+        "still bike2 (not madbiker yet)"
+    );
 
     // bike2 already ran its strat once inside the spawn tick? No — it is spawned
     // with stratptr=bike2_strat and ticks on subsequent frames. Drive 11 ticks.
@@ -328,8 +376,15 @@ fn bike2_becomes_madbiker_after_eleven_ticks() {
         let s = g.objs.aliens[bike as usize].stratptr.unwrap();
         g.call_strat(s, bike);
     }
-    assert_eq!(g.objs.aliens[bike as usize].hp, MADBIKER_HP, "handed off to madbiker");
-    assert_ne!(g.objs.aliens[bike as usize].collflags & COLLTYPE_ENEMY2, 0, "ENEMY2 colltype");
+    assert_eq!(
+        g.objs.aliens[bike as usize].hp, MADBIKER_HP,
+        "handed off to madbiker"
+    );
+    assert_ne!(
+        g.objs.aliens[bike as usize].collflags & COLLTYPE_ENEMY2,
+        0,
+        "ENEMY2 colltype"
+    );
 }
 
 // ------------------------------------------------------------
@@ -353,13 +408,19 @@ fn madbiker_inits_moves_and_dies() {
     let z0 = g.objs.aliens[boss as usize].worldz;
     tick(&mut g, boss);
     tick(&mut g, boss);
-    assert!(g.objs.aliens[boss as usize].worldz > z0, "madbiker closes on player");
+    assert!(
+        g.objs.aliens[boss as usize].worldz > z0,
+        "madbiker closes on player"
+    );
 
     // Death: hp 0 routes to .explode which revives to 1hp under the crash strat.
     g.objs.aliens[boss as usize].hp = 0;
     let exp = g.objs.aliens[boss as usize].expstratptr.unwrap();
     g.call_strat(exp, boss);
-    assert_eq!(g.objs.aliens[boss as usize].hp, 1, "revived under konostrat");
+    assert_eq!(
+        g.objs.aliens[boss as usize].hp, 1,
+        "revived under konostrat"
+    );
     assert_eq!(
         g.objs.aliens[boss as usize].collflags & COLLTYPE_ENEMY2,
         0,

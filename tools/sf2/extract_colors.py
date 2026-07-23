@@ -46,16 +46,17 @@ def classify(w: int) -> str:
 
 
 def extract(d: bytes):
+    raw = d[TABLE_START:TABLE_END]
     n = (TABLE_END - TABLE_START) // 2
     words = [u16(d, TABLE_START + i * 2) for i in range(n)]
     counts = {}
     for w in words:
         counts[classify(w)] = counts.get(classify(w), 0) + 1
-    emit_rust(words, counts)
+    emit_rust(raw, words, counts)
     return words, counts
 
 
-def emit_rust(words, counts):
+def emit_rust(raw, words, counts):
     L = []
     L.append(AUTOGEN_HEADER.format(tool="extract_colors.py"))
     L.append("//! SF2 color/material word tables (bank 01, 0x806C..0x86F1).")
@@ -99,6 +100,15 @@ def emit_rust(words, counts):
     L.append(f"pub const MASTER_TABLE_LEN: usize = {MASTER_LEN};")
     L.append(f"pub const MATERIAL_WORD_COUNT: usize = {len(words)};")
     L.append("")
+    L.append("/// Byte-exact bank-$01 color data. A number of retail tables begin")
+    L.append("/// at odd addresses, so this is the authoritative lookup source.")
+    L.append("#[rustfmt::skip]")
+    L.append(f"pub static COLOR_DATA: [u8; {len(raw)}] = [")
+    for i in range(0, len(raw), 16):
+        row = ", ".join(f"0x{b:02X}" for b in raw[i:i + 16])
+        L.append(f"    {row},")
+    L.append("];")
+    L.append("")
     L.append("/// Flat material-word array, 0x806C..0x86F1 (several concatenated")
     L.append("/// color tables; the first MASTER_TABLE_LEN words are the master).")
     L.append("#[rustfmt::skip]")
@@ -107,6 +117,37 @@ def emit_rust(words, counts):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])
         L.append(f"    {row},")
     L.append("];")
+    L.append("")
+    L.append("/// Read an unaligned little-endian material word by bank-$01 address.")
+    L.append("pub fn word_at(address: u16) -> Option<u16> {")
+    L.append("    let offset = usize::from(address.checked_sub(COLOR_TABLE_ROM_OFF as u16)?);")
+    L.append("    let bytes = COLOR_DATA.get(offset..offset + 2)?;")
+    L.append("    Some(u16::from_le_bytes([bytes[0], bytes[1]]))")
+    L.append("}")
+    L.append("")
+    L.append("/// Resolve a face index through its exact ShapeHdr color-table pointer.")
+    L.append("pub fn material_at(table_address: u16, face_color_index: u8) -> Option<u16> {")
+    L.append("    word_at(table_address.checked_add(u16::from(face_color_index) * 2)?)")
+    L.append("}")
+    L.append("")
+    L.append("/// Follow SF2's bank-$01 COLANIM records for the object's color frame.")
+    L.append("pub fn resolve_animated_material(mut material: u16, col_frame: u8) -> Option<u16> {")
+    L.append("    for _ in 0..4 {")
+    L.append("        if material & 0xC000 != 0x8000 {")
+    L.append("            return Some(material);")
+    L.append("        }")
+    L.append("        let record = 0x8000 | (material & 0x3FFF);")
+    L.append("        let offset = usize::from(record.checked_sub(COLOR_TABLE_ROM_OFF as u16)?);")
+    L.append("        let &count = COLOR_DATA.get(offset)?;")
+    L.append("        if count == 0 || count > 64 || !count.is_power_of_two() {")
+    L.append("            return None;")
+    L.append("        }")
+    L.append("        let frame = usize::from(col_frame & (count - 1));")
+    L.append("        let bytes = COLOR_DATA.get(offset + 1 + frame * 2..offset + 3 + frame * 2)?;")
+    L.append("        material = u16::from_le_bytes([bytes[0], bytes[1]]);")
+    L.append("    }")
+    L.append("    None")
+    L.append("}")
     L.append("")
     with open(os.path.join(RUST_SRC, "colors.rs"), "w") as f:
         f.write("\n".join(L))

@@ -166,7 +166,8 @@ impl SnesSpc {
     }
     #[inline]
     fn rp16(&self, addr: i32) -> i32 {
-        self.rc(addr as usize & 0xFFFF) as i32 | ((self.rc((addr as usize).wrapping_add(1) & 0xFFFF) as i32) << 8)
+        self.rc(addr as usize & 0xFFFF) as i32
+            | ((self.rc((addr as usize).wrapping_add(1) & 0xFFFF) as i32) << 8)
     }
 
     // ---- tempo / timers ----
@@ -605,7 +606,16 @@ impl SnesSpc {
 
     // ---- addressing modes (side-effect-free except pc) ----
     #[inline]
-    fn addr_mode(&self, opcode: u8, base: u8, pc: &mut u16, data: i32, dp: i32, x: i32, y: i32) -> i32 {
+    fn addr_mode(
+        &self,
+        opcode: u8,
+        base: u8,
+        pc: &mut u16,
+        data: i32,
+        dp: i32,
+        x: i32,
+        y: i32,
+    ) -> i32 {
         let off = opcode as i32 - base as i32;
         match off {
             -2 => {

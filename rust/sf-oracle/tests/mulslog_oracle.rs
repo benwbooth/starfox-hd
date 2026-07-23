@@ -30,8 +30,15 @@ fn rom_mulslog(rom: &[u8], addr: u32, a: u16, b: u8) -> i16 {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write16(M1, a); // m1 = low(a), m2 = high(a)
     bus.write8(M3, b); //  m3 = b (signed byte)
-    // p=$30: 8-bit A AND 8-bit index — mla16mac's `ldy rdmpyhr` demands i8.
-    call(&mut bus, addr, &Entry { p: 0x30, ..Default::default() });
+                       // p=$30: 8-bit A AND 8-bit index — mla16mac's `ldy rdmpyhr` demands i8.
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            p: 0x30,
+            ..Default::default()
+        },
+    );
     bus.read16(M4) as i16
 }
 

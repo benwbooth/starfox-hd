@@ -22,9 +22,9 @@
 //!           > rust/sf-strat/tests/fixtures/ea_$s.txt; done
 
 use sf_game::alien::{ACF_FIRSTFRAME, ASF_COLLDISABLE, ASF_COLLIDE};
-use sf_strat::enemy_a::{self, wm};
 use sf_game::game::{Game, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
+use sf_strat::enemy_a::{self, wm};
 use std::fmt::Write as _;
 
 const ASF4_PLAYEROBJ: u8 = 0x01;

@@ -41,10 +41,24 @@ pub fn build() -> BuiltLevel {
     b.mapobj(0, 0, 0, 0, sh::MYBASE_1, is::NOCOLL);
     b.mapobj(0, 0, 0, 0, sh::MYBASE_0, is::NOCOLL);
 
-    b.mapobj(0, -27 << MYBASE_SCALE, -39 << MYBASE_SCALE, -200, sh::MYSHIP_4, is::FRIENDEXITBASE);
+    b.mapobj(
+        0,
+        -27 << MYBASE_SCALE,
+        -39 << MYBASE_SCALE,
+        -200,
+        sh::MYSHIP_4,
+        is::FRIENDEXITBASE,
+    );
     b.setalvarb(al::SBYTE1, 17);
 
-    b.mapobj(0, -27 << MYBASE_SCALE, -39 << MYBASE_SCALE, -200, sh::MYSHIP_4, is::FRIENDEXITBASE);
+    b.mapobj(
+        0,
+        -27 << MYBASE_SCALE,
+        -39 << MYBASE_SCALE,
+        -200,
+        sh::MYSHIP_4,
+        is::FRIENDEXITBASE,
+    );
     b.setalvarb(al::SBYTE1, 17 + (1000 / PEXITBASE_SPEED));
 
     b.pathobj(0, 3000, 3000, 3000, sh::NULLSHAPE, path::MATEMSG, 10, 10);
@@ -94,21 +108,42 @@ pub fn build() -> BuiltLevel {
     b.mapgoto("cl_ground.nf");
     b.label("cl_ground.frog_alive");
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_FROG);
-    b.mapobj(CL_GND_FRIENDWAIT, 500, -50, 50, sh::MYSHIP_4, is::CLSHIPGNDB);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        500,
+        -50,
+        50,
+        sh::MYSHIP_4,
+        is::CLSHIPGNDB,
+    );
     b.label("cl_ground.nf");
 
     b.mapif_builtin(cb::BUNNY_ALIVE, "cl_ground.bunny_alive");
     b.mapgoto("cl_ground.nb");
     b.label("cl_ground.bunny_alive");
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_BUNNY);
-    b.mapobj(CL_GND_FRIENDWAIT, -500, -50, 50, sh::MYSHIP_4, is::CLSHIPGNDA);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        -500,
+        -50,
+        50,
+        sh::MYSHIP_4,
+        is::CLSHIPGNDA,
+    );
     b.label("cl_ground.nb");
 
     b.mapif_builtin(cb::COCK_ALIVE, "cl_ground.cock_alive");
     b.mapgoto("cl_ground.nc");
     b.label("cl_ground.cock_alive");
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_COCK);
-    b.mapobj(CL_GND_FRIENDWAIT, 0, -500, -300, sh::MYSHIP_4, is::CLSHIPGNDC);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        0,
+        -500,
+        -300,
+        sh::MYSHIP_4,
+        is::CLSHIPGNDC,
+    );
     b.label("cl_ground.nc");
 
     b.mapwait(3800);
@@ -352,7 +387,8 @@ pub fn build() -> BuiltLevel {
 
     // C: s_level1_1_skillfly_bonus_skip_ptr lookup (must exist).
     assert!(
-        b.lookup_label("level1_1.map1_1b.skillfly_bonus_0_skip").is_some(),
+        b.lookup_label("level1_1.map1_1b.skillfly_bonus_0_skip")
+            .is_some(),
         "level1_1 skillfly bonus skip label missing"
     );
 
@@ -361,11 +397,26 @@ pub fn build() -> BuiltLevel {
     // C `register_level1_1_inline_callbacks()` — registration-call order.
     let mut inline_callbacks = Vec::new();
     for (ptr, cbid) in [
-        (keep_player_strat_ptr, InlineCallback::LevelScrambleKeepPlayerStrat),
-        (skillfly_bonus_guard_ptr, InlineCallback::Level1_1SkillflyBonusGuard),
-        (mapwaitboss_trigse_ptr, InlineCallback::Level1_1MapwaitbossTrigse),
-        (mapwaitboss_cantdie_ptr, InlineCallback::Level1_1MapwaitbossCantdie),
-        (mapwaitboss_cleanup_ptr, InlineCallback::Level1_1MapwaitbossCleanup),
+        (
+            keep_player_strat_ptr,
+            InlineCallback::LevelScrambleKeepPlayerStrat,
+        ),
+        (
+            skillfly_bonus_guard_ptr,
+            InlineCallback::Level1_1SkillflyBonusGuard,
+        ),
+        (
+            mapwaitboss_trigse_ptr,
+            InlineCallback::Level1_1MapwaitbossTrigse,
+        ),
+        (
+            mapwaitboss_cantdie_ptr,
+            InlineCallback::Level1_1MapwaitbossCantdie,
+        ),
+        (
+            mapwaitboss_cleanup_ptr,
+            InlineCallback::Level1_1MapwaitbossCleanup,
+        ),
     ] {
         if ptr != 0 {
             inline_callbacks.push((ptr, cbid));
@@ -376,9 +427,15 @@ pub fn build() -> BuiltLevel {
         data,
         labels,
         native_callbacks: vec![
-            (cb::CL_GROUND_PRINTLEVELFIN, NativeCallback::ClGroundPrintlevelfin),
+            (
+                cb::CL_GROUND_PRINTLEVELFIN,
+                NativeCallback::ClGroundPrintlevelfin,
+            ),
             (cb::CL_GROUND_WIPEOUT, NativeCallback::ClGroundWipeout),
-            (cb::CL_DIVE_CLEAR_ENGINESND, NativeCallback::ClDiveClearEnginesnd),
+            (
+                cb::CL_DIVE_CLEAR_ENGINESND,
+                NativeCallback::ClDiveClearEnginesnd,
+            ),
         ],
         inline_callbacks,
     }

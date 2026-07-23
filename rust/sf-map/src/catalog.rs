@@ -3,14 +3,9 @@
 //! C oracle: `src/map/levels.c` `Levels_GetMapData()` /
 //! `ensure_literal_levels_built()` and `src/map/levels.h` MAP_ID_*.
 //!
-//! Ported subset (phase 1): MAP_ID_NONE, MAP_ID_1_1, MAP_ID_TITLE,
-//! MAP_ID_CONTINUE, MAP_ID_WAIT (title-blob entry points) and
-//! MAP_ID_PLANET. All other ids return `None`.
-//!
-//! Not yet ported (C `build_*` still the only source):
-//! 1_2, 1_3, 1_4, 1_5, 1_6, 2_1, 2_2, 2_3, 2_4, 2_5, 2_6,
-//! 3_1, 3_2, 3_3, 3_4, 3_5, 3_6, 3_7, BLACKHOLE, SPECIAL, FINAL,
-//! INTRO, CREDITS, TRAINING.
+//! Every retail gameplay, shell, training, secret, and ending map has a
+//! byte-equal Rust builder. `MAP_ID_NONE` remains the intentional one-byte
+//! empty program.
 
 use std::sync::OnceLock;
 
@@ -50,6 +45,103 @@ pub mod map_id {
     pub const TRAINING: u32 = 29;
 }
 
+/// Semantic identity recorded by each completed boss marker and consumed by
+/// the post-campaign replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BossEncounter {
+    Route1Stage1,
+    Route1Stage2,
+    Route1Stage3,
+    Route1Stage4,
+    Route1Stage5,
+    Route1Stage6,
+    Route2Stage1,
+    Route2Stage2,
+    Route2Stage3,
+    Route2Stage4,
+    Route2Stage5,
+    Route2Stage6,
+    Route3Stage1,
+    Route3Stage2,
+    Route3Stage3,
+    Route3Stage4,
+    Route3Stage5,
+    Route3Stage6,
+    Route3Stage7,
+    FinalBattle,
+}
+
+/// Translate the encounter-marker ordinal within a loaded catalog map. Most
+/// maps contain one marker; the two routes whose last catalog entry includes
+/// both its stage boss and the shared final battle contain two.
+pub fn boss_encounter_for_marker(map: u32, marker_ordinal: u8) -> Option<BossEncounter> {
+    use BossEncounter::*;
+    Some(match (map, marker_ordinal) {
+        (map_id::M1_1, _) => Route1Stage1,
+        (map_id::M1_2, _) => Route1Stage2,
+        (map_id::M1_3, _) => Route1Stage3,
+        (map_id::M1_4, _) => Route1Stage4,
+        (map_id::M1_5, _) => Route1Stage5,
+        (map_id::M1_6, _) => Route1Stage6,
+        (map_id::M2_1, _) => Route2Stage1,
+        (map_id::M2_2, _) => Route2Stage2,
+        (map_id::M2_3, _) => Route2Stage3,
+        (map_id::M2_4, _) => Route2Stage4,
+        (map_id::M2_5, _) => Route2Stage5,
+        (map_id::M2_6, 0) => Route2Stage6,
+        (map_id::M2_6, 1) => FinalBattle,
+        (map_id::M3_1, _) => Route3Stage1,
+        (map_id::M3_2, _) => Route3Stage2,
+        (map_id::M3_3, _) => Route3Stage3,
+        (map_id::M3_4, _) => Route3Stage4,
+        (map_id::M3_5, _) => Route3Stage5,
+        (map_id::M3_6, _) => Route3Stage6,
+        (map_id::M3_7, 0) => Route3Stage7,
+        (map_id::M3_7, 1) => FinalBattle,
+        (map_id::FINAL, _) => FinalBattle,
+        _ => return None,
+    })
+}
+
+/// Opening background selected by each map's `initlevel` source macro.
+///
+/// A few builders intentionally omit the common wrapper bytes because their
+/// byte fixtures were captured from an earlier extraction. Gameplay still
+/// needs the source background state before the first map instruction, so the
+/// shell applies this typed catalog value at load time. IDs are the flat
+/// background catalog used by the Rust map data.
+pub fn opening_background(id: u32) -> Option<u16> {
+    match id {
+        map_id::M1_1 | map_id::M2_1 => Some(4),
+        map_id::M1_2 => Some(5),
+        map_id::M1_3 => Some(6),
+        map_id::M1_4 => Some(13),
+        map_id::M1_5 | map_id::M2_5 => Some(14),
+        map_id::M1_6 => Some(15),
+        map_id::M2_2 => Some(22),
+        map_id::M2_3 => Some(23),
+        map_id::M2_4 => Some(26),
+        map_id::M2_6 => Some(27),
+        map_id::M3_1 => Some(3),
+        map_id::M3_2 => Some(30),
+        map_id::M3_3 => Some(31),
+        map_id::M3_4 => Some(33),
+        map_id::M3_5 => Some(36),
+        map_id::M3_6 => Some(37),
+        map_id::M3_7 => Some(38),
+        map_id::BLACKHOLE => Some(39),
+        map_id::SPECIAL => Some(62),
+        map_id::FINAL => Some(17),
+        map_id::INTRO => Some(40),
+        map_id::TITLE => Some(41),
+        map_id::CONTINUE => Some(42),
+        map_id::CREDITS => Some(43),
+        map_id::TRAINING => Some(44),
+        map_id::NONE | map_id::WAIT | map_id::PLANET => None,
+        _ => None,
+    }
+}
+
 fn empty_level() -> &'static BuiltLevel {
     static LEVEL: OnceLock<BuiltLevel> = OnceLock::new();
     LEVEL.get_or_init(levels::build_empty)
@@ -70,7 +162,7 @@ fn planet() -> &'static BuiltLevel {
     LEVEL.get_or_init(levels::planet::build)
 }
 
-/// `Levels_GetMapData` equivalent for the ported subset.
+/// `Levels_GetMapData` equivalent for the complete retail catalog.
 ///
 /// Differences from C (documented, intentional):
 /// - C rebuilds callback registrations on every call; here the
@@ -79,7 +171,7 @@ fn planet() -> &'static BuiltLevel {
 ///   blob WITHOUT registering title callbacks; the wait entry point
 ///   (`title.waitmap` label) never reaches the CODE65816 hook, so using
 ///   the shared registration list is behavior-identical.
-/// - Unported ids return `None` instead of a warn-once END stub.
+/// - Unknown ids return `None` instead of a warn-once END stub.
 pub fn get_map_data(id: u32) -> Option<&'static BuiltLevel> {
     match id {
         map_id::NONE => Some(empty_level()),
@@ -113,7 +205,10 @@ pub fn get_map_data(id: u32) -> Option<&'static BuiltLevel> {
 #[allow(clippy::type_complexity)]
 pub fn get_map_callback_regs(
     id: u32,
-) -> Option<(&'static [(u32, &'static str)], &'static [(u16, &'static str)])> {
+) -> Option<(
+    &'static [(u32, &'static str)],
+    &'static [(u16, &'static str)],
+)> {
     if let Some(l) = crate::levels::route1::get_full(id) {
         return Some((&l.native_regs, &l.inline_regs));
     }

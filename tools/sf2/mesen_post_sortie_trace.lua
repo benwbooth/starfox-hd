@@ -1,0 +1,3054 @@
+-- Clean-room trace of the retail command-map transition after the neutral
+-- first sortie. Source-machine addresses are confined to this oracle helper;
+-- the native port consumes only the recovered semantic states and timings.
+
+local resume_state_path = os.getenv("SF2_ORACLE_LOAD_STATE")
+local resume_elapsed = tonumber(os.getenv("SF2_ORACLE_RESUME_ELAPSED")) or 0
+local input_script_text = os.getenv("SF2_ORACLE_INPUT_SCRIPT")
+local combat_autopilot = os.getenv("SF2_ORACLE_COMBAT_AUTOPILOT") == "1"
+local frame = resume_state_path and resume_elapsed or 0
+local armed = resume_state_path ~= nil
+local armed_frame = resume_state_path and 0 or -1
+local stop_elapsed = tonumber(os.getenv("SF2_ORACLE_STOP_ELAPSED")) or 25000
+local map_layer_mask_text = os.getenv("SF2_ORACLE_MAP_LAYER_MASK")
+local map_layer_mask = map_layer_mask_text and tonumber(map_layer_mask_text) or nil
+local capture_ppu = os.getenv("SF2_ORACLE_CAPTURE_PPU") == "1"
+local capture_loaded_state =
+  os.getenv("SF2_ORACLE_CAPTURE_LOADED_STATE") == "1"
+local capture_full_work =
+  os.getenv("SF2_ORACLE_CAPTURE_FULL_WRAM") == "1"
+local continue_campaign = os.getenv("SF2_ORACLE_CONTINUE_CAMPAIGN") == "1"
+local teleport_text = os.getenv("SF2_ORACLE_PLAYER_TELEPORT")
+local lock_teleport_horizontal =
+  os.getenv("SF2_ORACLE_LOCK_HORIZONTAL") == "1"
+local lock_teleport_vertical =
+  os.getenv("SF2_ORACLE_LOCK_VERTICAL") == "1"
+local target_spider_parent =
+  os.getenv("SF2_ORACLE_TARGET_SPIDER_PARENT") == "1"
+local force_projectile_hit =
+  os.getenv("SF2_ORACLE_FORCE_PROJECTILE_HIT") == "1"
+local force_target_collision =
+  os.getenv("SF2_ORACLE_FORCE_TARGET_COLLISION") == "1"
+local force_eladard_core_trigger =
+  os.getenv("SF2_ORACLE_FORCE_ELADARD_CORE_TRIGGER") == "1"
+local trace_stage_writes =
+  os.getenv("SF2_ORACLE_TRACE_STAGE_WRITES") == "1"
+local trace_map_motion =
+  os.getenv("SF2_ORACLE_TRACE_MAP_MOTION") == "1"
+local trace_final_gate =
+  os.getenv("SF2_ORACLE_TRACE_FINAL_GATE") == "1"
+local trace_final_activation =
+  os.getenv("SF2_ORACLE_TRACE_FINAL_ACTIVATION") == "1"
+local trace_threat_retirement =
+  os.getenv("SF2_ORACLE_TRACE_THREAT_RETIREMENT") == "1"
+local trace_craft_transition =
+  os.getenv("SF2_ORACLE_TRACE_CRAFT_TRANSITION") == "1"
+local trace_walker_dynamics =
+  os.getenv("SF2_ORACLE_TRACE_WALKER_DYNAMICS") == "1"
+local trace_walker_writes =
+  os.getenv("SF2_ORACLE_TRACE_WALKER_WRITES") == "1"
+local traced_map_actor_text = os.getenv("SF2_ORACLE_TRACE_MAP_ACTOR")
+local traced_map_actor = traced_map_actor_text
+  and tonumber(traced_map_actor_text, 16) or nil
+local trace_map_control =
+  os.getenv("SF2_ORACLE_TRACE_MAP_CONTROL") == "1"
+local trace_map_control_reads =
+  os.getenv("SF2_ORACLE_TRACE_MAP_CONTROL_READS") == "1"
+local trace_astropolis_gate =
+  os.getenv("SF2_ORACLE_TRACE_ASTROPOLIS_GATE") == "1"
+local ignore_pressure_encounters =
+  os.getenv("SF2_ORACLE_IGNORE_PRESSURE") == "1"
+local avoid_pressure_encounters =
+  os.getenv("SF2_ORACLE_AVOID_PRESSURE") == "1"
+local enable_final_target =
+  os.getenv("SF2_ORACLE_ENABLE_FINAL_TARGET") == "1"
+local repair_final_activation =
+  os.getenv("SF2_ORACLE_REPAIR_FINAL_ACTIVATION") == "1"
+local finish_strategic_threats =
+  os.getenv("SF2_ORACLE_FINISH_STRATEGIC_THREATS") == "1"
+local finished_strategic_threats = false
+local repaired_final_activation = false
+local preserve_shields =
+  os.getenv("SF2_ORACLE_PRESERVE_SHIELDS") == "1"
+local forced_player_health = tonumber(os.getenv("SF2_ORACLE_PLAYER_HEALTH"))
+local skip_surface_objectives =
+  os.getenv("SF2_ORACLE_SKIP_SURFACE_OBJECTIVES") == "1"
+local finish_current_mission =
+  os.getenv("SF2_ORACLE_FINISH_CURRENT_MISSION") == "1"
+local finish_each_mission =
+  os.getenv("SF2_ORACLE_FINISH_EACH_MISSION") == "1"
+local skipped_surface_objectives = false
+local finished_current_mission = false
+local forced_projectile_hit_applied = false
+local forced_target_collision_applied = false
+local forced_target_collision_frame = nil
+local forced_target_initial_path = nil
+local forced_target_reaction_seen = false
+local forced_target_reaction_complete = false
+local forced_eladard_core_trigger_applied = false
+local forced_projectile_address = nil
+local forced_projectile_position = nil
+local observed_rival_health = {}
+local observed_astropolis_spike_health = {}
+local observed_astropolis_cube_health = {}
+local observed_astropolis_mask_health = {}
+local observed_astropolis_final_core_health = {}
+local forced_spider_health = tonumber(os.getenv("SF2_ORACLE_SPIDER_HEALTH"))
+local forced_spider_health_applied = false
+local forced_spider_parent_health = tonumber(
+  os.getenv("SF2_ORACLE_SPIDER_PARENT_HEALTH"))
+local forced_rival_health = tonumber(os.getenv("SF2_ORACLE_RIVAL_HEALTH"))
+local forced_mirage_health = tonumber(os.getenv("SF2_ORACLE_MIRAGE_HEALTH"))
+local forced_fighter_health = tonumber(os.getenv("SF2_ORACLE_FIGHTER_HEALTH"))
+local forced_target_shape_text = os.getenv("SF2_ORACLE_TARGET_SHAPE")
+local forced_target_shape = forced_target_shape_text
+  and tonumber(forced_target_shape_text, 16) or nil
+local forced_target_health = tonumber(os.getenv("SF2_ORACLE_TARGET_HEALTH"))
+if forced_target_shape_text then
+  assert(
+    forced_target_shape and forced_target_shape <= 0xFFFF,
+    "SF2_ORACLE_TARGET_SHAPE must be a four-digit hexadecimal shape token")
+end
+if forced_target_health then
+  assert(
+    forced_target_health >= 0 and forced_target_health <= 255,
+    "SF2_ORACLE_TARGET_HEALTH must be byte-sized")
+end
+if forced_player_health then
+  assert(
+    forced_player_health >= 0 and forced_player_health <= 255,
+    "SF2_ORACLE_PLAYER_HEALTH must be byte-sized")
+end
+local forced_corneria_damage = tonumber(
+  os.getenv("SF2_ORACLE_CORNERIA_DAMAGE"))
+local forced_stage_selection = tonumber(
+  os.getenv("SF2_ORACLE_STAGE_SELECTION"))
+local forced_map_target_selection = tonumber(
+  os.getenv("SF2_ORACLE_MAP_TARGET_SELECTION"))
+local chased_map_selection = tonumber(
+  os.getenv("SF2_ORACLE_CHASE_MAP_SELECTION"))
+local chase_map_once = os.getenv("SF2_ORACLE_CHASE_ONCE") == "1"
+local requested_chased_map_actor_text =
+  os.getenv("SF2_ORACLE_CHASE_MAP_ACTOR")
+local requested_chased_map_actor = requested_chased_map_actor_text
+  and tonumber(requested_chased_map_actor_text, 16) or nil
+local chased_map_actor = requested_chased_map_actor
+local map_chase_engaged = false
+local forced_map_cursor_text = os.getenv("SF2_ORACLE_MAP_CURSOR")
+local forced_map_cursor_x, forced_map_cursor_y = string.match(
+  forced_map_cursor_text or "",
+  "^(%d+),(%d+)$")
+forced_map_cursor_x = tonumber(forced_map_cursor_x)
+forced_map_cursor_y = tonumber(forced_map_cursor_y)
+local parked_map_team_text = os.getenv("SF2_ORACLE_PARK_MAP_TEAM")
+local evade_pressure = os.getenv("SF2_ORACLE_EVADE_PRESSURE") == "1"
+local parked_map_team_x, parked_map_team_y = string.match(
+  parked_map_team_text or "",
+  "^(%d+),(%d+)$")
+parked_map_team_x = tonumber(parked_map_team_x)
+parked_map_team_y = tonumber(parked_map_team_y)
+if forced_map_cursor_text then
+  assert(
+    forced_map_cursor_x and forced_map_cursor_x <= 255
+      and forced_map_cursor_y and forced_map_cursor_y <= 255,
+    "SF2_ORACLE_MAP_CURSOR must be x,y with byte-sized coordinates")
+end
+if parked_map_team_text then
+  assert(
+    parked_map_team_x and parked_map_team_x <= 255
+      and parked_map_team_y and parked_map_team_y <= 255,
+    "SF2_ORACLE_PARK_MAP_TEAM must be x,y with byte-sized coordinates")
+end
+if forced_corneria_damage then
+  assert(
+    forced_corneria_damage >= 0 and forced_corneria_damage <= 100,
+    "SF2_ORACLE_CORNERIA_DAMAGE must be between 0 and 100")
+end
+if forced_stage_selection then
+  assert(
+    forced_stage_selection >= 0 and forced_stage_selection <= 255,
+    "SF2_ORACLE_STAGE_SELECTION must be byte-sized")
+end
+if forced_map_target_selection then
+  assert(
+    forced_map_target_selection >= 0
+      and forced_map_target_selection <= 255,
+    "SF2_ORACLE_MAP_TARGET_SELECTION must be byte-sized")
+end
+if chased_map_selection then
+  assert(
+    chased_map_selection >= 0 and chased_map_selection <= 255,
+    "SF2_ORACLE_CHASE_MAP_SELECTION must be byte-sized")
+end
+if requested_chased_map_actor_text then
+  assert(
+    requested_chased_map_actor
+      and requested_chased_map_actor >= 0
+      and requested_chased_map_actor <= 0xFFFF,
+    "SF2_ORACLE_CHASE_MAP_ACTOR must be a four-digit hexadecimal address")
+end
+if traced_map_actor_text then
+  assert(
+    traced_map_actor
+      and traced_map_actor >= 0
+      and traced_map_actor <= 0xFFFF,
+    "SF2_ORACLE_TRACE_MAP_ACTOR must be a four-digit hexadecimal address")
+end
+local teleport_x, teleport_y, teleport_z = string.match(
+  teleport_text or "",
+  "^(-?%d+),(-?%d+),(-?%d+)$")
+teleport_x = tonumber(teleport_x)
+teleport_y = tonumber(teleport_y)
+teleport_z = tonumber(teleport_z)
+local teleport_yaw = tonumber(os.getenv("SF2_ORACLE_PLAYER_YAW"))
+local teleported_player = false
+local teleport_frames_remaining = tonumber(os.getenv("SF2_ORACLE_TELEPORT_FRAMES")) or 1
+local sortie_stride = tonumber(os.getenv("SF2_ORACLE_SORTIE_STRIDE")) or 4
+local save_elapsed = tonumber(os.getenv("SF2_ORACLE_SAVE_ELAPSED"))
+local pending_savestate = false
+local saved_state = false
+local save_callback_reference = nil
+local loaded_state = resume_state_path == nil
+local load_callback_reference = nil
+local resume_state = nil
+if resume_state_path then
+  local file = assert(io.open(resume_state_path, "r+b"))
+  resume_state = file:read("*a")
+  file:close()
+end
+local scripted_inputs = {}
+for action in string.gmatch(input_script_text or "", "[^;]+") do
+  local first, last, button_text = string.match(action, "^(%d+)%-(%d+):(.+)$")
+  assert(first and last and button_text, "invalid SF2_ORACLE_INPUT_SCRIPT action: " .. action)
+  local buttons = {}
+  for button in string.gmatch(button_text, "[^+]+") do
+    buttons[button] = true
+  end
+  scripted_inputs[#scripted_inputs + 1] = {
+    first = tonumber(first),
+    last = tonumber(last),
+    label = button_text,
+    buttons = buttons,
+  }
+end
+local requested_captures = {}
+for value in string.gmatch(os.getenv("SF2_ORACLE_CAPTURE_ELAPSED") or "", "[^,]+") do
+  local elapsed = tonumber(value)
+  if elapsed then requested_captures[elapsed] = true end
+end
+local temporarily_masked_pressure = {}
+local lines = {}
+local craft_transition_lines = {}
+local walker_dynamics_lines = {}
+sortie_actor_oracle = {
+  enabled = os.getenv("SF2_ORACLE_TRACE_SORTIE_ACTOR_LOGIC") == "1",
+  lines = {},
+  objects = {
+    [0x0633] = true,
+    [0x05F4] = true,
+    [0x05B5] = true,
+    [0x0576] = true,
+  },
+}
+local walker_dynamics_before = nil
+local last_state = ""
+local input_label = "idle"
+local final_gate_accesses = {}
+local eladard_last_x = nil
+local eladard_last_z = nil
+local eladard_stuck_polls = 0
+local eladard_progress_anchor_x = nil
+local eladard_progress_anchor_z = nil
+local eladard_no_progress_polls = 0
+local eladard_flight_recovery_polls = 0
+local eladard_centered_polls = 0
+local eladard_recovery_count = 0
+local eladard_transform_press_until = -1
+local astropolis_transform_press_until = -1
+local astropolis_transform_requested = false
+local astropolis_walker_mode = false
+local eladard_next_recovery_frame = -1
+local eladard_base_entered = false
+local eladard_spider_charge_armed = false
+local eladard_spider_encounter_seen = false
+
+local function work_byte(address)
+  return emu.read(address, emu.memType.snesWorkRam, false)
+end
+
+local function work_word(address)
+  return emu.read16(address, emu.memType.snesWorkRam, false)
+end
+
+local function work_long(address)
+  return work_word(address) | (work_byte(address + 2) << 16)
+end
+
+local function write_work_word(address, value)
+  local encoded = value % 65536
+  emu.write(address, encoded & 0xFF, emu.memType.snesWorkRam)
+  emu.write(address + 1, (encoded >> 8) & 0xFF, emu.memType.snesWorkRam)
+end
+
+local function record_craft_form_service(service)
+  if not trace_craft_transition or not armed then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  craft_transition_lines[#craft_transition_lines + 1] = string.format(
+    "elapsed=%d event=form-service service=%s object=%04X shape=%04X " ..
+      "selected=%d alternate=%d source=%02X:%04X",
+    frame - armed_frame,
+    service,
+    object,
+    work_word(object + 4),
+    work_word(0x1E14) & 7,
+    work_word(0x1E70) & 7,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function craft_form_service(service)
+  return function() record_craft_form_service(service) end
+end
+
+local function record_craft_transition_write(address, value)
+  if not trace_craft_transition or not armed then return value end
+  local player = work_word(0x12C3)
+  if player == 0 then return value end
+  local local_address = address & 0xFFFF
+  local field
+  if local_address == ((player + 4) & 0xFFFF) then
+    field = "shape-low"
+  elseif local_address == ((player + 5) & 0xFFFF) then
+    field = "shape-high"
+  elseif local_address == ((player + 0x1CC7) & 0xFFFF) then
+    field = "color-frame"
+  elseif local_address == ((player + 0x1CC8) & 0xFFFF) then
+    field = "animation-frame"
+  elseif local_address == ((player + 0x1CCB) & 0xFFFF) then
+    field = "transformation-frame"
+  else
+    return value
+  end
+  local state = emu.getState()
+  craft_transition_lines[#craft_transition_lines + 1] = string.format(
+    "elapsed=%d event=form-write object=%04X field=%s value=%d " ..
+      "shape=%04X source=%02X:%04X",
+    frame - armed_frame,
+    player,
+    field,
+    value or 0,
+    work_word(player + 4),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+  return value
+end
+
+local function signed_word(address)
+  local value = work_word(address)
+  if value >= 0x8000 then return value - 0x10000 end
+  return value
+end
+
+local function signed_byte(address)
+  local value = work_byte(address)
+  if value >= 0x80 then return value - 0x100 end
+  return value
+end
+
+function sortie_actor_oracle.bytes_hex(address, count)
+  local output = {}
+  for offset = 0, count - 1 do
+    output[#output + 1] = string.format("%02X", work_byte(address + offset))
+  end
+  return table.concat(output)
+end
+
+local function record_walker_dynamics(stage)
+  if not trace_walker_dynamics or not armed then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  local player = work_word(0x12C3)
+  if object ~= player or object == 0 then return end
+  local slot = work_word(object + 0x2B)
+  local function player_field(address)
+    return (address + slot) & 0xFFFF
+  end
+  if stage == "before" then
+    walker_dynamics_before = {}
+    for offset = 0, 0x1D7 do
+      walker_dynamics_before[offset] = work_byte(player_field(0x6A61 + offset))
+    end
+    return
+  end
+  local changed = {}
+  if walker_dynamics_before then
+    for offset = 0, 0x1D7 do
+      local before = walker_dynamics_before[offset]
+      local after = work_byte(player_field(0x6A61 + offset))
+      if before ~= after then
+        changed[#changed + 1] = string.format("%03X:%02X>%02X", offset, before, after)
+      end
+    end
+  end
+  walker_dynamics_lines[#walker_dynamics_lines + 1] = string.format(
+    "elapsed=%d stage=%s input=%s pad=%04X trigger=%04X object=%04X slot=%04X " ..
+      "pose=%d,%d,%d,%d,%d,%d,%d ground=%d floor=%d " ..
+      "motion=%d,%d,%d,%d,%d,%d,%d,%d jump=%d,%d,%d " ..
+      "vertical=%d,%d speed=%d flags=%02X,%02X,%02X changed=[%s]",
+    frame - armed_frame,
+    stage,
+    input_label,
+    work_word(0x1936),
+    work_word(0x1938),
+    object,
+    slot,
+    signed_word(object + 12),
+    signed_word(object + 14),
+    signed_word(object + 16),
+    work_byte(object + 18),
+    work_byte(object + 20),
+    work_byte(object + 22),
+    work_byte(object + 24),
+    signed_word(player_field(0x6A6E)),
+    signed_word(player_field(0x6A7D)),
+    work_byte(player_field(0x6A82)),
+    work_byte(player_field(0x6A83)),
+    work_byte(player_field(0x6A84)),
+    signed_byte(player_field(0x6ADD)),
+    signed_word(player_field(0x6B8D)),
+    work_byte(player_field(0x6B8F)),
+    signed_word(player_field(0x6B90)),
+    work_byte(player_field(0x6B97)),
+    work_byte(player_field(0x6B8B)),
+    signed_byte(player_field(0x6B98)),
+    work_byte(player_field(0x6B99)),
+    signed_word(object + 0x1CC3),
+    signed_word(object + 0x34),
+    work_byte(object + 0x18),
+    work_byte(player_field(0x6B8C)),
+    work_byte(player_field(0x6B92)),
+    work_byte(player_field(0x6B94)),
+    table.concat(changed, ","))
+end
+
+local function walker_dynamics_stage(stage)
+  return function() record_walker_dynamics(stage) end
+end
+
+local function record_walker_motion_stage(stage)
+  if not trace_walker_dynamics or not armed then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  local player = work_word(0x12C3)
+  if object ~= player or object == 0 then return end
+  local slot = work_word(object + 0x2B)
+  local function player_field(address)
+    return (address + slot) & 0xFFFF
+  end
+  walker_dynamics_lines[#walker_dynamics_lines + 1] = string.format(
+    "elapsed=%d event=motion-stage stage=%s input=%s object=%04X " ..
+      "position=%d,%d,%d velocity=%d,%d,%d transformed=%d,%d,%d " ..
+      "impulse=%d,%d,%d terrain=%d,%d,%d,%d mode=%02X gravity=%d",
+    frame - armed_frame,
+    stage,
+    input_label,
+    object,
+    signed_word(object + 0x0C),
+    signed_word(object + 0x0E),
+    signed_word(object + 0x10),
+    signed_word(object + 0x32),
+    signed_word(object + 0x34),
+    signed_word(object + 0x36),
+    signed_word(object + 0x39),
+    signed_word(object + 0x3B),
+    signed_word(object + 0x3D),
+    signed_word(object + 0x1CC1),
+    signed_word(object + 0x1CC3),
+    signed_word(object + 0x1CC5),
+    signed_word(player_field(0x6A73)),
+    signed_word(player_field(0x6AE2)),
+    signed_byte(player_field(0x6A7A)),
+    signed_byte(player_field(0x6A7B)),
+    work_byte(player_field(0x6B94)),
+    signed_word(0x1DAB))
+end
+
+local function walker_motion_stage(stage)
+  return function() record_walker_motion_stage(stage) end
+end
+
+local walker_auxiliary_offsets = {
+  [0x022] = true, [0x023] = true,
+  [0x041] = true, [0x042] = true, [0x043] = true,
+  [0x044] = true, [0x045] = true, [0x046] = true,
+  [0x047] = true, [0x048] = true, [0x049] = true,
+  [0x04A] = true, [0x04B] = true, [0x05B] = true,
+  [0x06C] = true, [0x06F] = true, [0x070] = true,
+  [0x074] = true, [0x07A] = true,
+  [0x081] = true, [0x082] = true,
+  [0x0AC] = true, [0x0AE] = true, [0x0AF] = true,
+  [0x101] = true,
+  [0x12A] = true, [0x12C] = true, [0x12D] = true,
+  [0x12F] = true, [0x130] = true, [0x131] = true,
+  [0x133] = true, [0x135] = true, [0x138] = true,
+  [0x0DA] = true,
+}
+
+local function record_walker_write(address, value)
+  if not trace_walker_writes or not armed then return value end
+  local player = work_word(0x12C3)
+  if player == 0 then return value end
+  local local_address = address & 0xFFFF
+  local slot = work_word(player + 0x2B)
+  local auxiliary_start = (0x6A61 + slot) & 0xFFFF
+  local auxiliary_offset = (local_address - auxiliary_start) & 0xFFFF
+  local target = nil
+  if walker_auxiliary_offsets[auxiliary_offset] then
+    target = string.format("state+%03X", auxiliary_offset)
+  else
+    for _, offset in ipairs({
+      0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11,
+      0x12, 0x14, 0x16, 0x18,
+      0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+      0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+      0x1CC3, 0x1CC4,
+    }) do
+      if local_address == ((player + offset) & 0xFFFF) then
+        target = string.format("object+%04X", offset)
+        break
+      end
+    end
+  end
+  if not target then return value end
+  local state = emu.getState()
+  walker_dynamics_lines[#walker_dynamics_lines + 1] = string.format(
+    "elapsed=%d event=write input=%s target=%s value=%02X source=%02X:%04X",
+    frame - armed_frame,
+    input_label,
+    target,
+    value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+  return value
+end
+
+local function trace_stage_write(address, value)
+  local state = emu.getState()
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=stage-write address=%04X value=%d host=%02X:%04X",
+    frame - armed_frame,
+    address,
+    value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_map_write(address, value)
+  local state = emu.getState()
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=map-write address=%04X value=%d host=%02X:%04X",
+    frame - armed_frame,
+    address,
+    value,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_final_gate_access(kind, address, value)
+  local state = emu.getState()
+  local host_bank = state["cpu.k"] or 0
+  local host_pc = state["cpu.pc"] or 0
+  local key = string.format(
+    "%s:%06X:%02X:%04X",
+    kind,
+    address,
+    host_bank,
+    host_pc)
+  if final_gate_accesses[key] then return end
+  final_gate_accesses[key] = true
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=final-gate-%s address=%06X value=%d host=%02X:%04X",
+    frame - armed_frame,
+    kind,
+    address,
+    value or 0,
+    host_bank,
+    host_pc)
+end
+
+local function trace_final_gate_read(address, value)
+  trace_final_gate_access("read", address, value)
+end
+
+local function trace_final_gate_write(address, value)
+  trace_final_gate_access("write", address, value)
+end
+
+local function trace_objective_completion_execute(address, value)
+  trace_final_gate_access("execute", address, value)
+end
+
+local function trace_final_activation_write(address, value)
+  local state = emu.getState()
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=final-activation-write address=%04X value=%d " ..
+      "host=%02X:%04X",
+    frame - armed_frame,
+    address,
+    value,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_final_activation_execute(address, value)
+  local state = emu.getState()
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=final-activation-execute address=%06X " ..
+      "host=%02X:%04X",
+    frame - armed_frame,
+    address,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_threat_retirement_execute(address, value)
+  local state = emu.getState()
+  local actor = state["cpu.y"] or 0
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=threat-retirement-step address=%06X actor=%04X " ..
+      "selection=%d flags=%04X position=%d,%d remaining=%d " ..
+      "host=%02X:%04X",
+    frame - armed_frame,
+    address,
+    actor,
+    work_byte(actor + 0x32),
+    work_word(actor + 0x2E),
+    work_byte(actor + 0x1C),
+    work_byte(actor + 0x1F),
+    work_word(0xDA43),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_map_actor_write(address, value)
+  local state = emu.getState()
+  local normalized_address = address & 0x1FFFF
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=map-actor-write actor=%04X offset=%02X value=%d " ..
+      "mode=%d remaining=%d host=%02X:%04X",
+    frame - armed_frame,
+    traced_map_actor,
+    normalized_address - traced_map_actor,
+    value,
+    work_byte(0x1B68),
+    work_word(0xDA43),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_map_control_write(address, value)
+  local state = emu.getState()
+  local normalized_address = address & 0x1FFFF
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=map-control-write address=%04X value=%d mode=%d " ..
+      "remaining=%d host=%02X:%04X",
+    frame - armed_frame,
+    normalized_address,
+    value or 0,
+    work_byte(0x1B68),
+    work_word(0xDA43),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local map_control_reads = {}
+local function trace_map_control_read(address, value)
+  local state = emu.getState()
+  local normalized_address = address & 0x1FFFF
+  local host = ((state["cpu.k"] or 0) << 16) | (state["cpu.pc"] or 0)
+  local key = string.format("%04X:%06X", normalized_address, host)
+  if map_control_reads[key] then return end
+  map_control_reads[key] = true
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=map-control-read address=%04X value=%d mode=%d " ..
+      "remaining=%d host=%02X:%04X",
+    frame - armed_frame,
+    normalized_address,
+    value,
+    work_byte(0x1B68),
+    work_word(0xDA43),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local astropolis_gate_accesses = {}
+local astropolis_gate_global_values = {}
+local function trace_astropolis_gate_global_write(address, value)
+  if not armed or work_byte(0x1BB5) ~= 11 then return end
+  local state = emu.getState()
+  local normalized_address = address & 0x1FFFF
+  if astropolis_gate_global_values[normalized_address] == value then return end
+  astropolis_gate_global_values[normalized_address] = value
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=astropolis-gate-global-write address=%04X value=%d " ..
+      "trigger=%04X delay=%d kind=%d host=%02X:%04X",
+    frame - armed_frame,
+    normalized_address,
+    value or 0,
+    work_word(0xD777),
+    work_byte(0xD779),
+    work_byte(0xD77A),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_astropolis_mask_aux_write(address, value)
+  if not armed or work_byte(0x1BB5) ~= 11 then return end
+  local normalized_address = address & 0x1FFFF
+  local first_object = 0x03BD
+  local object_size = 0x3F
+  local first_counter = first_object + 0x1CDA
+  if normalized_address < first_counter then return end
+  local object = first_object
+    + math.floor((normalized_address - first_counter) / object_size)
+      * object_size
+  local variable = normalized_address - object - 0x1C41
+  if variable ~= 0x99 and variable ~= 0x9A then return end
+  if work_word(object + 4) ~= 0xDF48 then return end
+  local side = variable == 0x99 and "left" or "right"
+  local state = emu.getState()
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=astropolis-mask-eye object=%04X side=%s " ..
+      "durability=%d path=%04X host=%02X:%04X",
+    frame - armed_frame,
+    object,
+    side,
+    value or 0,
+    work_word(object + 0x2B),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_astropolis_gate_object_write(address, value)
+  if not armed or work_byte(0x1BB5) ~= 11 then return end
+  local normalized_address = address & 0x1FFFF
+  local first_object = 0x03BD
+  local object_size = 0x3F
+  if normalized_address < first_object then return end
+  local object = first_object
+    + math.floor((normalized_address - first_object) / object_size) * object_size
+  local offset = normalized_address - object
+  if offset < 0x20 or offset > 0x31 then return end
+  local shape = work_word(object + 4)
+  if shape ~= 0xF6CC and shape ~= 0xD20C and shape ~= 0xD228
+    and shape ~= 0xD340 and shape ~= 0xF65C and shape ~= 0xD1D4
+    and shape ~= 0xD634 and shape ~= 0xD66C and shape ~= 0xCD20
+    and shape ~= 0xEF5C and shape ~= 0xD260 and shape ~= 0xF3F4
+    and shape ~= 0xD308 and shape ~= 0xD324 and shape ~= 0xD19C
+    and shape ~= 0xD1F0 and shape ~= 0xDF48 and shape ~= 0xC1DC
+    and shape ~= 0xC1F8 then
+    return
+  end
+  local state = emu.getState()
+  local host = ((state["cpu.k"] or 0) << 16) | (state["cpu.pc"] or 0)
+  local key = string.format(
+    "%04X:%02X:%02X:%06X", object, offset, value or 0, host)
+  if astropolis_gate_accesses[key] then return end
+  astropolis_gate_accesses[key] = true
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=astropolis-gate-object-write object=%04X " ..
+      "shape=%04X offset=%02X value=%d path=%04X flag26=%02X " ..
+      "trigger=%04X host=%02X:%04X",
+    frame - armed_frame,
+    object,
+    shape,
+    offset,
+    value or 0,
+    work_word(object + 0x2B),
+    work_byte(object + 0x26),
+    work_word(0xD777),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function trace_astropolis_gate_execute(address, value)
+  if not armed or work_byte(0x1BB5) ~= 11 then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=astropolis-gate-execute address=%06X object=%04X " ..
+      "shape=%04X path=%04X flag26=%02X trigger=%04X delay=%d kind=%d",
+    frame - armed_frame,
+    address,
+    object,
+    work_word(object + 4),
+    work_word(object + 0x2B),
+    work_byte(object + 0x26),
+    work_word(0xD777),
+    work_byte(0xD779),
+    work_byte(0xD77A))
+end
+
+local function write_file(name, contents)
+  local file = assert(io.open(emu.getScriptDataFolder() .. "/" .. name, "w+b"))
+  file:write(contents)
+  file:close()
+end
+
+local function capture_screen(elapsed)
+  local size = emu.getScreenSize()
+  local screen = emu.getScreenBuffer()
+  local output = { string.format("P6\n%d %d\n255\n", size.width, size.height) }
+  for index = 1, size.width * size.height do
+    local pixel = screen[index] or 0
+    output[#output + 1] = string.char(
+      (pixel >> 16) & 0xFF,
+      (pixel >> 8) & 0xFF,
+      pixel & 0xFF)
+  end
+  write_file(string.format("sf2_post_sortie_%05d.ppm", elapsed), table.concat(output))
+end
+
+local function capture_work(elapsed)
+  local output = {}
+  for address = 0, 0x3FFF do
+    output[#output + 1] = string.char(work_byte(address))
+  end
+  write_file(string.format("sf2_post_sortie_%05d.wram", elapsed), table.concat(output))
+  if capture_full_work then
+    local full_output = {}
+    for address = 0, 0x1FFFF do
+      full_output[#full_output + 1] = string.char(work_byte(address))
+    end
+    write_file(
+      string.format("sf2_post_sortie_%05d_full.wram", elapsed),
+      table.concat(full_output))
+  end
+end
+
+local function capture_memory(elapsed, suffix, kind, length)
+  local output = {}
+  for address = 0, length - 1 do
+    output[#output + 1] = string.char(emu.read(address, kind, false))
+  end
+  write_file(
+    string.format("sf2_post_sortie_%05d_%s.bin", elapsed, suffix),
+    table.concat(output))
+end
+
+local function capture_ppu_state(elapsed)
+  capture_memory(elapsed, "vram", emu.memType.snesVideoRam, 0x10000)
+  capture_memory(elapsed, "cgram", emu.memType.snesCgRam, 0x200)
+  capture_memory(elapsed, "oam", emu.memType.snesSpriteRam, 544)
+  local state = emu.getState()
+  local keys = {}
+  for key, _ in pairs(state) do
+    local lower = string.lower(key)
+    if string.find(lower, "ppu", 1, true)
+      or string.find(lower, "sprite", 1, true)
+      or string.find(lower, "brightness", 1, true) then
+      keys[#keys + 1] = key
+    end
+  end
+  table.sort(keys)
+  local output = {}
+  for _, key in ipairs(keys) do
+    output[#output + 1] = key .. "=" .. tostring(state[key]) .. "\n"
+  end
+  write_file(
+    string.format("sf2_post_sortie_%05d_ppu_state.txt", elapsed),
+    table.concat(output))
+end
+
+local function pose(address)
+  if address == 0 then return "-" end
+  return string.format(
+    "%d,%d,%d,%d,%d,%d,%d",
+    signed_word(address + 12),
+    signed_word(address + 14),
+    signed_word(address + 16),
+    work_byte(address + 18),
+    work_byte(address + 20),
+    work_byte(address + 22),
+    work_byte(address + 24))
+end
+
+local function active_objects()
+  local output = {}
+  local seen = {}
+  local object = work_word(0x12A8)
+  while object ~= 0 and not seen[object] and #output < 60 do
+    seen[object] = true
+    output[#output + 1] = string.format(
+      "%04X,%04X,%s,%06X,%04X,%04X,%d,%d,%d,%d,%d,%d,%d,%d",
+      object,
+      work_word(object + 4),
+      pose(object),
+      work_long(object + 25),
+      work_word(object + 0x2B),
+      work_word(object + 0x1CCD),
+      signed_word(object + 0x32),
+      signed_word(object + 0x34),
+      signed_word(object + 0x36),
+      work_byte(object + 0x2D),
+      work_byte(object + 0x2E),
+      work_byte(object + 0x2F),
+      work_byte(object + 0x30),
+      work_byte(object + 0x31))
+    object = work_word(object)
+  end
+  return table.concat(output, ";")
+end
+
+-- Operation-level evidence for the four reusable combat slots.  This is
+-- intentionally source-machine-facing oracle instrumentation; the importer
+-- reduces it to typed movement, steering, wave, firing, and scheduling events
+-- before anything reaches the Rust port.
+function sortie_actor_oracle.record(event)
+  if not sortie_actor_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  if not sortie_actor_oracle.objects[object] then return end
+  local trigger_list = work_word(object + 0x1CE0)
+  local selected = work_word(0xCF1F)
+  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+    "elapsed=%d event=%s object=%04X shape=%04X path=%04X pose=%s " ..
+      "velocity=%d,%d,%d rng=%s relative_motion=%d,%d base=%s " ..
+      "extension=%s selected=%04X selected_pose=%s triggers=%s",
+    elapsed,
+    event,
+    object,
+    work_word(object + 4),
+    work_word(object + 0x2B),
+    pose(object),
+    signed_word(object + 0x32),
+    signed_word(object + 0x34),
+    signed_word(object + 0x36),
+    sortie_actor_oracle.bytes_hex(0x00E0, 4),
+    signed_word(0x1E1C),
+    signed_word(0x1E20),
+    sortie_actor_oracle.bytes_hex(object, 0x39),
+    sortie_actor_oracle.bytes_hex(object + 0x1CC1, 0x3F),
+    selected,
+    pose(selected),
+    trigger_list ~= 0
+      and sortie_actor_oracle.bytes_hex(0x6A61 + trigger_list, 0x40) or "-")
+end
+
+function sortie_actor_oracle.callback(event)
+  return function() sortie_actor_oracle.record(event) end
+end
+
+function sortie_actor_oracle.capital_for_state_address(address)
+  if (address >= 0x0600 and address <= 0x0605)
+    or (address >= 0x0626 and address <= 0x062B) then
+    return 0x05F4
+  end
+  if (address >= 0x063F and address <= 0x0644)
+    or (address >= 0x0665 and address <= 0x066A) then
+    return 0x0633
+  end
+  return nil
+end
+
+function sortie_actor_oracle.record_capital_state_write(source, address, value)
+  if not sortie_actor_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  local object = sortie_actor_oracle.capital_for_state_address(address)
+  if not object then return end
+  local state = emu.getState()
+  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+    "elapsed=%d event=capital-state-write object=%04X shape=%04X " ..
+      "source=%s address=%04X value=%d host=%02X:%04X " ..
+      "coprocessor=%02X:%04X pose=%s velocity=%d,%d,%d",
+    elapsed,
+    object,
+    work_word(object + 4),
+    source,
+    address,
+    value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0,
+    state["cart.coprocessor.programBank"] or 0,
+    state["cart.coprocessor.r15"] or 0,
+    pose(object),
+    signed_word(object + 0x32),
+    signed_word(object + 0x34),
+    signed_word(object + 0x36))
+end
+
+function sortie_actor_oracle.record_main_capital_state_write(address, value)
+  sortie_actor_oracle.record_capital_state_write("main-work", address, value)
+end
+
+function sortie_actor_oracle.record_gsu_capital_state_write(address, value)
+  sortie_actor_oracle.record_capital_state_write(
+    "coprocessor-work", address, value)
+end
+
+function sortie_actor_oracle.record_pitch_target_write(address, value)
+  if not sortie_actor_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  if not sortie_actor_oracle.objects[object] then return end
+  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+    "elapsed=%d event=pitch-target-write object=%04X shape=%04X " ..
+      "value=%d source=%02X:%04X",
+    elapsed,
+    object,
+    work_word(object + 4),
+    value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+function sortie_actor_oracle.record_position_y_write(address, value)
+  if not sortie_actor_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  if not sortie_actor_oracle.objects[object] then return end
+  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+    "elapsed=%d event=position-y-write object=%04X shape=%04X " ..
+      "address=%04X value=%d source=%02X:%04X pose=%s",
+    elapsed,
+    object,
+    work_word(object + 4),
+    address,
+    value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0,
+    pose(object))
+end
+
+function sortie_actor_oracle.record_random_state_write(source, address, value)
+  if not sortie_actor_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  local state = emu.getState()
+  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+    "elapsed=%d event=random-state-write source=%s address=%04X value=%d " ..
+      "host=%02X:%04X coprocessor=%02X:%04X rng=%s",
+    elapsed,
+    source,
+    address,
+    value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0,
+    state["cart.coprocessor.programBank"] or 0,
+    state["cart.coprocessor.r15"] or 0,
+    sortie_actor_oracle.bytes_hex(0x00E0, 4))
+end
+
+function sortie_actor_oracle.record_main_random_state_write(address, value)
+  sortie_actor_oracle.record_random_state_write("main-work", address, value)
+end
+
+function sortie_actor_oracle.record_gsu_random_state_write(address, value)
+  sortie_actor_oracle.record_random_state_write(
+    "coprocessor-work", address, value)
+end
+
+local function state_key()
+  return string.format(
+    "%02X:%02X:%02X:%02X:%02X:%02X:%04X:%04X:%04X:%02X:%04X:%04X:%04X",
+    work_byte(0x1B68),
+    work_byte(0x1B76),
+    work_byte(0x1BE0),
+    work_byte(0x1C20),
+    work_byte(0x1BB5),
+    work_byte(0x1BA5),
+    work_word(0x12A8),
+    work_word(0x12C3),
+    work_word(0x12C5),
+    work_byte(0x192E),
+    work_word(0x1657),
+    work_word(0xDB47),
+    work_word(0xDB49))
+end
+
+local function record(event, elapsed)
+  local player = work_word(0x12C3)
+  local wingmate = work_word(0x12C5)
+  lines[#lines + 1] = string.format(
+    "elapsed=%d event=%s input=%s mode=%d submode=%d phase=%d " ..
+      "cursor=%d selection=%d difficulty=%d active=%04X player=%04X " ..
+      "wingmate=%04X camera=%d,%d,%d,%d,%d,%d playerpose=%s " ..
+      "wingpose=%s objects=[%s] selected=%04X targetdigits=%d,%d,%d " ..
+      "coretrigger=%d map=%02X:%04X mapcursor=%d,%d mapposition=%d,%d " ..
+      "corneria_remaining=%d " ..
+      "corneria_damage=%d",
+    elapsed,
+    event,
+    input_label,
+    work_byte(0x1B68),
+    work_byte(0x1B76),
+    work_byte(0x1BE0),
+    work_byte(0x1C20),
+    work_byte(0x1BB5),
+    work_byte(0x1BA5),
+    work_word(0x12A8),
+    player,
+    wingmate,
+    signed_word(0x034B),
+    signed_word(0x034D),
+    signed_word(0x034F),
+    work_byte(0x0351),
+    work_byte(0x0353),
+    work_byte(0x0355),
+    pose(player),
+    pose(wingmate),
+    active_objects(),
+    work_word(0x12C1),
+    work_byte(0xE961),
+    work_byte(0xE965),
+    work_byte(0xE871),
+    work_byte(0xD787),
+    work_byte(0x192E),
+    work_word(0x1657),
+    signed_word(0xDA90),
+    signed_word(0xDA92),
+    work_byte(0xDAF3),
+    work_byte(0xDAF6),
+    work_word(0xDB47),
+    work_word(0xDB49))
+end
+
+local function pulse(value, period, offset)
+  local phase = value % period
+  return phase == offset or phase == offset + 1
+end
+
+local function wrapped_map_delta(first, second)
+  local difference = math.abs(first - second)
+  return math.min(difference, 256 - difference)
+end
+
+local function closest_collision_actor(selection)
+  local player_x = work_byte(0xDAF3)
+  local player_y = work_byte(0xDAF6)
+  local closest_actor = nil
+  local closest_distance_squared = math.huge
+  local actor = work_word(0xE0A3)
+  local seen = {}
+  while actor ~= 0 and not seen[actor] do
+    seen[actor] = true
+    if work_byte(actor + 0x32) == selection then
+      local delta_x = wrapped_map_delta(
+        work_byte(actor + 0x1C), player_x)
+      local delta_y = wrapped_map_delta(
+        work_byte(actor + 0x1F), player_y)
+      local distance_squared = delta_x * delta_x + delta_y * delta_y
+      if distance_squared < closest_distance_squared then
+        closest_actor = actor
+        closest_distance_squared = distance_squared
+      end
+    end
+    actor = work_word(actor)
+  end
+  return closest_actor
+end
+
+local function overlap_player_team_with_map_actor(target_actor)
+  if not target_actor then return false end
+  -- The team's strategic position is stored independently from the enemy
+  -- collision list. Earlier versions of this helper incorrectly moved the
+  -- nearest type-seven enemy as well, corrupting later dispatch evidence.
+  emu.write(
+    0xDAF3,
+    work_byte(target_actor + 0x1C),
+    emu.memType.snesWorkRam)
+  emu.write(
+    0xDAF6,
+    work_byte(target_actor + 0x1F),
+    emu.memType.snesWorkRam)
+  return true
+end
+
+local function safest_pressure_evasion_position()
+  local attackers = {}
+  local actor = work_word(0xE0A3)
+  local seen = {}
+  while actor ~= 0 and not seen[actor] do
+    seen[actor] = true
+    local mission_selection = work_byte(actor + 0x32)
+    local flags = work_word(actor + 0x2E)
+    if (mission_selection == 6 or mission_selection == 7)
+      and (flags & 0x3000) == 0 then
+      attackers[#attackers + 1] = {
+        x = work_byte(actor + 0x1C),
+        y = work_byte(actor + 0x1F),
+      }
+    end
+    actor = work_word(actor)
+  end
+  if #attackers == 0 then return (frame - armed_frame) % 256, 64 end
+
+  -- Search the toroidal command map for the coarse point whose nearest live
+  -- attacker is farthest away. Re-evaluating every frame prevents the oracle
+  -- route itself from sweeping through a moving interceptor.
+  local safest_x = 0
+  local safest_y = 0
+  local safest_distance_squared = -1
+  for candidate_x = 0, 255, 16 do
+    for candidate_y = 0, 255, 16 do
+      local nearest_distance_squared = math.huge
+      for _, attacker in ipairs(attackers) do
+        local delta_x = wrapped_map_delta(candidate_x, attacker.x)
+        local delta_y = wrapped_map_delta(candidate_y, attacker.y)
+        local distance_squared = delta_x * delta_x + delta_y * delta_y
+        nearest_distance_squared = math.min(
+          nearest_distance_squared,
+          distance_squared)
+      end
+      if nearest_distance_squared > safest_distance_squared then
+        safest_x = candidate_x
+        safest_y = candidate_y
+        safest_distance_squared = nearest_distance_squared
+      end
+    end
+  end
+  return safest_x, safest_y
+end
+
+local function evade_pressure_on_map_entry(_, value)
+  if not evade_pressure or not armed or value ~= 7 then return end
+  -- Combat can hand control back to the command map midway through a frame.
+  -- Seed the safe team position at that write boundary so the first retail
+  -- collision pass cannot observe the sortie's old, nearby map coordinates.
+  local safe_x, safe_y = safest_pressure_evasion_position()
+  emu.write(0xDAF3, safe_x, emu.memType.snesWorkRam)
+  emu.write(0xDAF6, safe_y, emu.memType.snesWorkRam)
+end
+
+local function evade_forced_pressure_snap()
+  if not evade_pressure or not armed or work_byte(0x1B68) ~= 7 then return end
+  -- A forced interceptor copies its own map coordinates over the team's
+  -- global position after startFrame has already supplied the evasion route.
+  -- Restore only that global route at the end of the retail copy routine;
+  -- the attacker, its flags, and its lifetime bookkeeping remain untouched.
+  local safe_x, safe_y = safest_pressure_evasion_position()
+  emu.write(0xDAF3, safe_x, emu.memType.snesWorkRam)
+  emu.write(0xDAF6, safe_y, emu.memType.snesWorkRam)
+end
+
+local function angle_difference(target, current)
+  local difference = (target - current + 128) % 256 - 128
+  return difference
+end
+
+local function eladard_route_direction()
+  -- The planetary base maze exposes its next turn as a white edge marker.
+  -- Reading that presentation cue keeps this oracle pilot independent of the
+  -- game's internal route bookkeeping.
+  local screen = emu.getScreenBuffer()
+  local size = emu.getScreenSize()
+  local left_count = 0
+  local right_count = 0
+  for y = 100, 125 do
+    for x = 24, 45 do
+      local pixel = screen[y * size.width + x + 1] or 0
+      if ((pixel >> 16) & 0xFF) >= 240
+        and ((pixel >> 8) & 0xFF) >= 240
+        and (pixel & 0xFF) >= 240 then
+        left_count = left_count + 1
+      end
+    end
+    for x = 214, 235 do
+      local pixel = screen[y * size.width + x + 1] or 0
+      if ((pixel >> 16) & 0xFF) >= 240
+        and ((pixel >> 8) & 0xFF) >= 240
+        and (pixel & 0xFF) >= 240 then
+        right_count = right_count + 1
+      end
+    end
+  end
+  if left_count >= 6 and left_count > right_count then return "left" end
+  if right_count >= 6 and right_count > left_count then return "right" end
+  return nil
+end
+
+local function is_player_projectile(object, shape)
+  -- Corridor shots use their own unambiguous shapes. All-range shots morph
+  -- through four shapes shared by one actor, so also require the retail
+  -- player-shot ownership/lifetime fields. Hostile E3A8 shots instead carry
+  -- 10,2,0,0,90 and must never be accelerated onto another enemy.
+  if shape == 0xBF58 or shape == 0xBF74 then return true end
+  local all_range_shape = shape == 0xE3E0
+    or shape == 0xE3C4
+    or shape == 0xCBB4
+    or shape == 0xE904
+    or shape == 0xE920
+  return all_range_shape
+    and work_byte(object + 0x2D) == 120
+    and work_byte(object + 0x2E) == 1
+    and work_byte(object + 0x2F) == 0
+    and work_byte(object + 0x30) == 0
+    and work_byte(object + 0x31) == 138
+end
+
+local function provide_combat_autopilot()
+  if not combat_autopilot or work_byte(0x1B68) ~= 1 then return false end
+  local player = work_word(0x12C3)
+  if player == 0 then return false end
+  if teleport_x and (not teleported_player or lock_teleport_horizontal) then
+    write_work_word(player + 12, teleport_x)
+    write_work_word(player + 16, teleport_z)
+    if not teleported_player or lock_teleport_vertical then
+      write_work_word(player + 14, teleport_y)
+    end
+    if teleport_yaw then
+      emu.write(player + 20, teleport_yaw % 256, emu.memType.snesWorkRam)
+    end
+    if not teleported_player then
+      teleport_frames_remaining = teleport_frames_remaining - 1
+      teleported_player = teleport_frames_remaining <= 0
+    end
+  end
+
+  local player_x = signed_word(player + 12)
+  local player_y = signed_word(player + 14)
+  local player_z = signed_word(player + 16)
+  local player_shape = work_word(player + 4)
+  if work_byte(0x1BB5) == 11 then
+    if player_shape == 0xC310 or player_shape == 0xC2F4 then
+      astropolis_transform_requested = true
+    elseif player_shape == 0xC94C then
+      astropolis_transform_requested = false
+      astropolis_walker_mode = true
+    elseif player_shape == 0xC268 then
+      astropolis_transform_requested = false
+      astropolis_walker_mode = false
+    end
+  end
+  local target = 0
+  local target_shape = 0
+  local approaching_carrier = false
+  local target_distance_squared = math.huge
+  local inside_planetary_base = eladard_base_entered
+    or (work_byte(0x1BB5) == 1
+      and work_byte(0xD7A1) <= 1
+      and (player_y < -100 or player_z > -1000))
+  local object = work_word(0x12A8)
+  local seen = {}
+  while object ~= 0 and not seen[object] do
+    seen[object] = true
+    -- Certified campaign branches use either the ordinary interceptor craft
+    -- or a Star Wolf rival. Source-machine tokens stay confined to this
+    -- oracle controller.
+    local shape = work_word(object + 4)
+    if shape == 0xC348 and forced_rival_health
+      and work_byte(object + 0x2E) == 4
+      and work_byte(object + 0x2D) > forced_rival_health then
+      -- Oracle-only acceleration for observing the retail post-rival path.
+      -- The rival initializes its battle health after its object first
+      -- appears, so clamp after that initialization marker is present.
+      emu.write(
+        object + 0x2D,
+        forced_rival_health % 256,
+        emu.memType.snesWorkRam)
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=rival-health-clamped object=%04X health=%d",
+        frame - armed_frame,
+        object,
+        forced_rival_health)
+    end
+    if shape == 0xE1B0 and forced_mirage_health
+      and work_byte(object + 0x2D) > forced_mirage_health then
+      -- Oracle-only state forcing used to observe the retail post-boss path
+      -- independently of the mouth-open collision window.
+      emu.write(
+        object + 0x2D,
+        forced_mirage_health % 256,
+        emu.memType.snesWorkRam)
+    end
+    if (shape == 0xF1C4 or shape == 0xEA00)
+      and forced_fighter_health
+      and work_byte(object + 0x2D) > forced_fighter_health then
+      -- Oracle-only acceleration for observing the post-formation branch.
+      emu.write(
+        object + 0x2D,
+        forced_fighter_health % 256,
+        emu.memType.snesWorkRam)
+    end
+    local requested_shape = forced_target_shape and shape == forced_target_shape
+    if requested_shape and forced_target_collision_applied then
+      local current_path = work_word(object + 0x2B)
+      if current_path ~= forced_target_initial_path then
+        forced_target_reaction_seen = true
+      elseif forced_target_reaction_seen then
+        forced_target_reaction_complete = true
+      end
+    end
+    local explicitly_requested_target = requested_shape
+      and not forced_target_reaction_complete
+      and (not forced_target_collision_frame
+        or frame - forced_target_collision_frame < 600)
+    local target_health_ready = not force_target_collision
+      or forced_target_health ~= 0
+      or (forced_target_collision_frame
+        and work_word(object + 0x2B) ~= forced_target_initial_path
+        and work_word(object + 0x2B) ~= 0x0C21)
+    if requested_shape and target_health_ready and forced_target_health
+      and work_byte(object + 0x2D) > forced_target_health then
+      -- Arbitrary source-shape targeting is deliberately oracle-only.  It is
+      -- used to identify an unknown encounter's vulnerable actor before that
+      -- actor receives a semantic name in the native port.
+      emu.write(
+        object + 0x2D,
+        forced_target_health % 256,
+        emu.memType.snesWorkRam)
+    end
+    if work_byte(0x1BB5) == 3
+      and (shape == 0xEB50 or shape == 0xEB6C) then
+      eladard_spider_encounter_seen = true
+    end
+    if work_byte(0x1BB5) == 3 and shape == 0xEB50
+      and forced_spider_parent_health then
+      emu.write(
+        object + 0x2D,
+        forced_spider_parent_health % 256,
+        emu.memType.snesWorkRam)
+    end
+    if work_byte(0x1BB5) == 3
+      and (shape == 0xD27C or shape == 0xEB6C) then
+      eladard_base_entered = true
+      inside_planetary_base = true
+    end
+    local eladard_barrier = work_byte(0x1BB5) == 3 and shape == 0xD74C
+    local eladard_wall_spider = work_byte(0x1BB5) == 3
+      and ((target_spider_parent and shape == 0xEB50)
+        or (not target_spider_parent and shape == 0xEB6C))
+    if eladard_wall_spider and forced_spider_health
+      and not forced_spider_health_applied then
+      -- Oracle-only state forcing used to observe the retail post-defeat path
+      -- independently of the navigation controller.
+      emu.write(
+        object + 0x2D,
+        forced_spider_health % 256,
+        emu.memType.snesWorkRam)
+      forced_spider_health_applied = true
+    end
+    local eladard_room_defender = work_byte(0x1BB5) == 3
+      and (shape == 0xEE0C or shape == 0xBECC
+        or eladard_wall_spider)
+    local carrier_exterior_anchor = work_byte(0x1BB5) == 8
+      and shape == 0xBC9C
+      and work_byte(object + 0x2D) == 100
+      and work_byte(object + 0x2E) == 4
+    local carrier_core = work_byte(0x1BB5) == 8
+      and work_byte(0x1BA5) == 3
+      and shape == 0xBECC
+    local astropolis_security_turret = work_byte(0x1BB5) == 11
+      and shape == 0xF65C
+    local astropolis_target_switch = work_byte(0x1BB5) == 11
+      and work_byte(0xD78A) ~= 0 and shape == 0xEF5C
+      and (work_byte(object + 0x26) & 0x02) == 0
+    local astropolis_core_spike = work_byte(0x1BB5) == 11
+      and shape == 0xC40C and work_byte(object + 0x2E) == 1
+      and work_byte(object + 0x2D) > 1
+    local astropolis_exposed_cube = work_byte(0x1BB5) == 11
+      and shape == 0xE808 and work_word(object + 0x2B) == 0xF186
+      and work_byte(object + 0x2D) > 1
+    local astropolis_mask = work_byte(0x1BB5) == 11
+      and shape == 0xDF48 and work_byte(object + 0x2E) == 0
+      and work_byte(object + 0x2D) > 1
+    local astropolis_final_core = work_byte(0x1BB5) == 11
+      and shape == 0xDED8 and work_byte(object + 0x2E) == 1
+      and work_byte(object + 0x2D) > 1
+    -- A formation craft at forced low health must remain the targeting
+    -- priority.  Its own nearby collision actor otherwise looks closer and
+    -- can make the oracle pilot chase the projectile forever.
+    local fighter_collision = not forced_fighter_health and shape == 0xBEB0
+      and (work_byte(object + 0x2E) == 66
+        or work_byte(object + 0x2E) == 80)
+    local ordinary_candidate = not forced_target_shape
+      and (shape == 0xF1C4 or shape == 0xEA00
+        or shape == 0xC348 or shape == 0xE1B0
+        or eladard_barrier or eladard_room_defender
+        or carrier_exterior_anchor or carrier_core or fighter_collision
+        or astropolis_security_turret or astropolis_target_switch
+        or astropolis_core_spike or astropolis_exposed_cube
+        or astropolis_mask or astropolis_final_core)
+    if explicitly_requested_target or ordinary_candidate then
+      local delta_x = signed_word(object + 12) - player_x
+      local delta_y = signed_word(object + 14) - player_y
+      local delta_z = signed_word(object + 16) - player_z
+      local distance_squared =
+        delta_x * delta_x + delta_y * delta_y + delta_z * delta_z
+      local prefer_left_eladard_barrier = eladard_barrier
+        and (target == 0
+          or target_shape ~= 0xD74C
+          or signed_word(object + 12) < signed_word(target + 12))
+      local prefer_wall_spider = eladard_wall_spider
+        and target_shape ~= 0xEB6C
+      local prefer_astropolis_security_turret = astropolis_security_turret
+        and target_shape ~= 0xF65C
+      local prefer_astropolis_target_switch = astropolis_target_switch
+        and target_shape ~= 0xEF5C
+      local prefer_explicit_target = explicitly_requested_target
+        and distance_squared < target_distance_squared
+      if prefer_explicit_target
+        or (not forced_target_shape
+          and (prefer_left_eladard_barrier
+            or prefer_wall_spider
+            or prefer_astropolis_security_turret
+            or prefer_astropolis_target_switch
+            or carrier_exterior_anchor
+            or (target_shape ~= 0xEB6C and not eladard_barrier
+              and distance_squared < target_distance_squared))) then
+        target = object
+        target_shape = shape
+        approaching_carrier = carrier_exterior_anchor
+        target_distance_squared = distance_squared
+      end
+    end
+    object = work_word(object)
+  end
+
+  local target_x = target ~= 0 and signed_word(target + 12) or 0
+  local target_y = target ~= 0 and signed_word(target + 14) or 0
+  local target_z = target ~= 0 and signed_word(target + 16) or 0
+  if target_shape == 0xDF48 then
+    -- The visible eye polygons are not the vulnerable volumes. The original
+    -- Andross face defines two unrotated collision boxes below the broad head
+    -- box. Aim at the retail collision centers so the oracle distinguishes
+    -- eye damage from the mask's generic one-point armour response.
+    local player_relative_x = player_x - target_x
+    local local_x = player_relative_x >= 0 and 320 or -320
+    target_x = target_x + local_x
+    target_y = target_y - 480
+    local delta_x = target_x - player_x
+    local delta_y = target_y - player_y
+    local delta_z = target_z - player_z
+    target_distance_squared =
+      delta_x * delta_x + delta_y * delta_y + delta_z * delta_z
+  end
+
+  if target_shape == 0xC348 and target ~= 0 then
+    local health = work_byte(target + 0x2D)
+    if observed_rival_health[target] ~= health then
+      observed_rival_health[target] = health
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=rival-health object=%04X health=%d flags=%04X",
+        frame - armed_frame,
+        target,
+        health,
+        work_word(target + 0x20))
+    end
+  end
+
+  if target_shape == 0xC40C and target ~= 0 then
+    local health = work_byte(target + 0x2D)
+    if observed_astropolis_spike_health[target] ~= health then
+      observed_astropolis_spike_health[target] = health
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=astropolis-spike-health object=%04X health=%d path=%04X",
+        frame - armed_frame,
+        target,
+        health,
+        work_word(target + 0x2B))
+    end
+  end
+
+  if target_shape == 0xE808 and target ~= 0 then
+    local health = work_byte(target + 0x2D)
+    if observed_astropolis_cube_health[target] ~= health then
+      observed_astropolis_cube_health[target] = health
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=astropolis-cube-health object=%04X health=%d path=%04X",
+        frame - armed_frame,
+        target,
+        health,
+        work_word(target + 0x2B))
+    end
+  end
+
+  if target_shape == 0xDF48 and target ~= 0 then
+    local health = work_byte(target + 0x2D)
+    if observed_astropolis_mask_health[target] ~= health then
+      observed_astropolis_mask_health[target] = health
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=astropolis-mask-health object=%04X health=%d path=%04X",
+        frame - armed_frame,
+        target,
+        health,
+        work_word(target + 0x2B))
+    end
+  end
+
+  if target_shape == 0xDED8 and target ~= 0 then
+    local health = work_byte(target + 0x2D)
+    if observed_astropolis_final_core_health[target] ~= health then
+      observed_astropolis_final_core_health[target] = health
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=astropolis-final-core-health object=%04X " ..
+          "health=%d path=%04X",
+        frame - armed_frame,
+        target,
+        health,
+        work_word(target + 0x2B))
+    end
+  end
+
+  if force_projectile_hit and forced_projectile_address then
+    local projectile_shape = work_word(forced_projectile_address + 4)
+    if not is_player_projectile(
+      forced_projectile_address,
+      projectile_shape) then
+      forced_projectile_address = nil
+      forced_projectile_position = nil
+      forced_projectile_hit_applied = false
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=forced-projectile-consumed shape=%04X",
+        frame - armed_frame,
+        projectile_shape)
+    elseif target ~= 0 then
+      -- Keep following a moving target until retail collision handling
+      -- consumes the shot. A static pin is insufficient for mobile rivals
+      -- and Mirage Dragon's mouth.
+      forced_projectile_position = {
+        target_x % 65536,
+        target_y % 65536,
+        target_z % 65536,
+      }
+      write_work_word(
+        forced_projectile_address + 12,
+        forced_projectile_position[1])
+      write_work_word(
+        forced_projectile_address + 14,
+        forced_projectile_position[2])
+      write_work_word(
+        forced_projectile_address + 16,
+        forced_projectile_position[3])
+    end
+  end
+
+  if force_projectile_hit and not forced_projectile_hit_applied and target ~= 0 then
+    local projectile = work_word(0x12A8)
+    local projectile_seen = {}
+    while projectile ~= 0 and not projectile_seen[projectile] do
+      projectile_seen[projectile] = true
+      local projectile_shape = work_word(projectile + 4)
+      if projectile ~= player
+        and is_player_projectile(projectile, projectile_shape) then
+        write_work_word(projectile + 12, target_x)
+        write_work_word(projectile + 14, target_y)
+        write_work_word(projectile + 16, target_z)
+        forced_projectile_address = projectile
+        forced_projectile_position = {
+          target_x % 65536,
+          target_y % 65536,
+          target_z % 65536,
+        }
+        forced_projectile_hit_applied = true
+        lines[#lines + 1] = string.format(
+          "elapsed=%d event=forced-projectile-locked projectile=%04X " ..
+            "target=%04X target_shape=%04X",
+          frame - armed_frame,
+          projectile,
+          target,
+          target_shape)
+        break
+      end
+      projectile = work_word(projectile)
+    end
+  end
+
+  if force_target_collision and not forced_target_collision_applied
+    and target ~= 0 and work_word(target + 0x1CCD) ~= 0 then
+    forced_target_initial_path = work_word(target + 0x2B)
+    emu.write(
+      target + 0x20,
+      work_byte(target + 0x20) | 0x80,
+      emu.memType.snesWorkRam)
+    forced_target_collision_applied = true
+    forced_target_collision_frame = frame
+  end
+
+  if force_eladard_core_trigger and not forced_eladard_core_trigger_applied
+    and target_shape == 0xEB6C then
+    emu.write(0xD787, 0xFF, emu.memType.snesWorkRam)
+    forced_eladard_core_trigger_applied = true
+  end
+
+  -- Short pulses produce repeated direct shots instead of holding one charge
+  -- forever.
+  local fighting_rival = target_shape == 0xC348
+  local fighting_mirage_dragon = target_shape == 0xE1B0
+  local fighting_wall_spider = target_shape == 0xEB6C or target_shape == 0xEB50
+  local fighting_carrier_core = work_byte(0x1BB5) == 8
+    and target_shape == 0xBECC
+  local fighting_astropolis_core = work_byte(0x1BB5) == 11
+    and (target_shape == 0xC40C or target_shape == 0xE808)
+  local fighting_astropolis_spike = work_byte(0x1BB5) == 11
+    and target_shape == 0xC40C
+  local fighting_astropolis_cube = work_byte(0x1BB5) == 11
+    and target_shape == 0xE808
+  if fighting_astropolis_spike
+    and player_shape == 0xC94C
+    and not astropolis_transform_requested
+    and astropolis_transform_press_until < frame then
+    -- The core spikes are elevated around the chamber. Return to Arwing form
+    -- so the retail pitch controls can line the blaster up with each one.
+    astropolis_transform_press_until = frame + 3
+    astropolis_transform_requested = true
+  elseif fighting_astropolis_cube
+    and player_shape == 0xC268
+    and not astropolis_transform_requested
+    and astropolis_transform_press_until < frame then
+    -- The exposed cube is below the flight line over the chasm. Walker form
+    -- keeps a stable firing position while the retail blaster reaches it.
+    astropolis_transform_press_until = frame + 3
+    astropolis_transform_requested = true
+  end
+  local buttons
+  if approaching_carrier then
+    -- A battle carrier admits the craft automatically at close range. Its
+    -- exterior shell is not the objective, so boost toward its stable centre
+    -- anchor without wasting time firing into the armour.
+    buttons = {}
+  elseif fighting_rival or fighting_mirage_dragon then
+    buttons = {
+      -- Mobile rivals and Mirage Dragon's mouth are most reliably hit with
+      -- charged shots; the short release window repeatedly launches them.
+      b = frame % 32 < 26,
+      l = pulse(frame, 80, 0),
+      r = pulse(frame, 80, 40),
+    }
+    if fighting_rival then
+      -- The campaign's stocked special items materially reduce exposure time
+      -- during the much longer rival pursuit.
+      buttons.x = pulse(frame, 600, 0)
+    end
+  elseif fighting_wall_spider then
+    -- Fire continuously through the retail jump arc so at least one Walker
+    -- laser is born at the elevated weak point's height.
+    buttons = { b = pulse(frame, 12, 0) }
+    local strafe_phase = frame % 480
+    buttons.left = strafe_phase < 240
+    buttons.right = strafe_phase >= 240
+  else
+    buttons = { b = pulse(frame, 12, 0) }
+  end
+  if target ~= 0 then
+    local delta_x = target_x - player_x
+    local delta_y = target_y - player_y
+    local delta_z = target_z - player_z
+    local horizontal_distance = math.sqrt(delta_x * delta_x + delta_z * delta_z)
+    local desired_yaw = math.floor(math.atan(delta_x, delta_z) * 128 / math.pi + 0.5) % 256
+    local desired_pitch = math.floor(math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
+    local eladard_walker = (work_byte(0x1BB5) == 3 and player_z > -2000)
+      or (work_byte(0x1BB5) == 1 and inside_planetary_base)
+    local carrier_core_walker = fighting_carrier_core
+      or fighting_astropolis_core
+    local astropolis_target_switch = target_shape == 0xEF5C
+    if astropolis_target_switch
+      and target_distance_squared < 160000
+      and player_shape == 0xC268
+      and not astropolis_walker_mode
+      and astropolis_transform_press_until < frame then
+      -- Reach the fire-floor target in Walker form and retry the retail
+      -- transform input until the transition shape is observed; a requested
+      -- form is not a confirmed form. The target's own path owns activation.
+      astropolis_transform_press_until = frame + 3
+      astropolis_transform_requested = true
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=astropolis-transform-request distance2=%d player=%04X",
+        frame - armed_frame,
+        target_distance_squared,
+        player_shape)
+    end
+    local ground_walker = eladard_walker or carrier_core_walker
+      or astropolis_transform_requested or astropolis_walker_mode
+    local astropolis_interior = work_byte(0x1BB5) == 11 and player_z > 1000
+    if ground_walker or approaching_carrier or astropolis_interior then
+      -- Walker-space lateral motion is mirrored relative to the flight-space
+      -- convention used by the other oracle encounters. The carrier approach
+      -- and Astropolis interior use the same all-range orientation convention.
+      desired_yaw = math.floor(math.atan(-delta_x, delta_z) * 128 / math.pi + 0.5) % 256
+    end
+    local yaw_difference = angle_difference(desired_yaw, work_byte(player + 20))
+    local pitch_difference = angle_difference(desired_pitch, work_byte(player + 18))
+    if ground_walker then
+      -- The approach corridor changes the craft to its walking form. Its
+      -- shoulder buttons turn and Up advances; flight steering would only
+      -- sidestep into the corridor wall.
+      local approach_distance_squared
+      if fighting_carrier_core then
+        approach_distance_squared = math.huge
+      elseif fighting_wall_spider then
+        approach_distance_squared = 360000
+      elseif astropolis_target_switch then
+        -- Walk fully onto the target platform. The retail target owns the
+        -- stop/unlock transition, so an artificial stand-off distance can
+        -- only strand the oracle just outside its activation bounds.
+        approach_distance_squared = 0
+      else
+        approach_distance_squared = 1440000
+      end
+      if target_distance_squared > approach_distance_squared
+        and math.abs(yaw_difference) < 16 then
+        buttons.up = true
+      end
+      if eladard_walker and player_z > 0 then
+        buttons.x = pulse(frame, 90, 0)
+      end
+      if astropolis_target_switch then
+        -- The target sits beyond the platform's raised south lip.  Forward
+        -- motion alone stops the Walker just outside the contact volume, so
+        -- use the retail jump controls while advancing onto the platform.
+        -- Let the retail target path decide when activation has completed.
+        buttons.a = pulse(frame, 120, 0)
+        local jump_phase = frame % 120
+        buttons.y = jump_phase >= 6 and jump_phase < 50
+      elseif inside_planetary_base then
+        buttons.a = pulse(frame, 120, 0)
+        local jump_phase = frame % 120
+        local acceleration_end = fighting_wall_spider and 80 or 22
+        buttons.y = jump_phase >= 6 and jump_phase < acceleration_end
+      elseif carrier_core_walker then
+        -- The reactor weak points sit above the Walker's standing muzzle.
+        -- Sustain the retail jump long enough for shots to reach their
+        -- collision height while continuing to fire.
+        buttons.a = pulse(frame, 120, 0)
+        local jump_phase = frame % 120
+        local acceleration_end = fighting_astropolis_core and 80 or 50
+        buttons.y = jump_phase >= 6 and jump_phase < acceleration_end
+      end
+      if yaw_difference > 3 then
+        buttons.l = true
+      elseif yaw_difference < -3 then
+        buttons.r = true
+      end
+    else
+      if yaw_difference > 3 then
+        buttons.left = true
+      elseif yaw_difference < -3 then
+        buttons.right = true
+      end
+      if pitch_difference > 3 then
+        buttons.up = true
+      elseif pitch_difference < -3 then
+        buttons.down = true
+      end
+      if approaching_carrier and math.abs(yaw_difference) < 24 then
+        buttons.y = true
+      elseif target_distance_squared > 16000000
+        and math.abs(yaw_difference) < 24 then
+        buttons.y = true
+      end
+    end
+    if frame <= astropolis_transform_press_until then
+      buttons.select = true
+    end
+    input_label = string.format(
+      "combat-autopilot-%s-%04X-flags%02X-yaw%d-pitch%d",
+      approaching_carrier and "carrier-approach" or "target",
+      target,
+      work_byte(target + 0x26),
+      yaw_difference,
+      pitch_difference)
+  else
+    if work_byte(0x1BB5) == 11 and player_z > 1000 then
+      -- The first Astropolis junction branches through doors in its side
+      -- walls, rather than openings beyond the two panels on the rear wall.
+      -- Commit to the left route with a true quarter turn and continue firing
+      -- while the retail proximity/door path owns the transition.
+      local opening_x
+      local opening_y
+      local opening_z
+      if work_byte(0xD78A) == 0 then
+        opening_x = -4000
+        opening_y = -146
+        opening_z = 7424
+      elseif player_z < 10800 then
+        -- The activation target unlocks the north door centred between the
+        -- surrounding wall panels. Aim for the doorway, not the adjacent
+        -- solid panel, while its retail path owns the opening transition.
+        opening_x = -3840
+        opening_y = -146
+        opening_z = 11200
+      elseif player_z < 14500 then
+        -- The next chamber is divided by a paired rotating-panel doorway.
+        -- Approach its centre square-on so blaster fire reaches the panels.
+        opening_x = -3840
+        opening_y = -146
+        opening_z = 14848
+      elseif player_z < 15550 and player_x < -3400 then
+        -- The apparent east-side obstruction is a static L-shaped corridor
+        -- wall, not a door. Clear its west end before taking the bend.
+        opening_x = -3904
+        opening_y = -146
+        opening_z = 15616
+      elseif player_x < 0 then
+        -- Enter the centre of the four-way junction before turning north;
+        -- cutting the corner intersects the next pair of static L walls.
+        opening_x = 256
+        opening_y = -146
+        opening_z = 15616
+      else
+        -- The north corridor leads to the base objective. Its final door uses
+        -- the same retail proximity path as the preceding corridor doors.
+        opening_x = 256
+        opening_y = -146
+        opening_z = 19828
+      end
+      local delta_x = opening_x - player_x
+      local delta_y = opening_y - player_y
+      local delta_z = opening_z - player_z
+      local horizontal_distance = math.sqrt(
+        delta_x * delta_x + delta_z * delta_z)
+      local desired_yaw = math.floor(
+        math.atan(-delta_x, delta_z) * 128 / math.pi + 0.5) % 256
+      local desired_pitch = math.floor(
+        math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
+      local yaw_difference = angle_difference(
+        desired_yaw,
+        work_byte(player + 20))
+      local pitch_difference = angle_difference(
+        desired_pitch,
+        work_byte(player + 18))
+      buttons.b = pulse(frame, 12, 0)
+      if frame <= astropolis_transform_press_until then
+        buttons.select = true
+      elseif astropolis_walker_mode then
+        buttons.up = math.abs(yaw_difference) < 16
+        buttons.a = pulse(frame, 120, 0)
+        local jump_phase = frame % 120
+        buttons.y = jump_phase >= 6 and jump_phase < 22
+        if yaw_difference > 3 then
+          buttons.l = true
+        elseif yaw_difference < -3 then
+          buttons.r = true
+        end
+      else
+        if yaw_difference > 3 then
+          buttons.left = true
+        elseif yaw_difference < -3 then
+          buttons.right = true
+        end
+        if pitch_difference > 3 then
+          buttons.up = true
+        elseif pitch_difference < -3 then
+          buttons.down = true
+        end
+        if math.abs(yaw_difference) < 20 then
+          buttons.y = true
+        end
+      end
+      input_label = string.format(
+        "combat-autopilot-astropolis-opening-yaw%d-pitch%d",
+        yaw_difference,
+        pitch_difference)
+    elseif inside_planetary_base then
+      local route_direction = eladard_route_direction()
+      if eladard_spider_encounter_seen then
+        local exit_delta_x = 6500 - player_x
+        local exit_delta_z = 5120 - player_z
+        local exit_yaw = math.floor(
+          math.atan(-exit_delta_x, exit_delta_z) * 128 / math.pi + 0.5) % 256
+        local exit_yaw_difference = angle_difference(
+          exit_yaw,
+          work_byte(player + 20))
+        buttons.up = math.abs(exit_yaw_difference) < 8
+        if exit_yaw_difference > 3 then
+          buttons.l = true
+        elseif exit_yaw_difference < -3 then
+          buttons.r = true
+        end
+        route_direction = "post-spider"
+      else
+        buttons.up = true
+      end
+      buttons.x = pulse(frame, 600, 0)
+      buttons.a = pulse(frame, 120, 0)
+      local jump_phase = frame % 120
+      buttons.y = jump_phase >= 6 and jump_phase < 22
+      if not eladard_spider_encounter_seen and route_direction == "left" then
+        buttons.l = true
+      elseif not eladard_spider_encounter_seen and route_direction == "right" then
+        buttons.r = true
+      end
+      input_label = "combat-autopilot-base-" .. (route_direction or "forward")
+    elseif work_byte(0x1BB5) == 3 then
+      -- Once the two surface barriers are gone, the remaining objective is
+      -- the base entrance at the centre of the installation. The entrance
+      -- itself stops participating in the object list while its door opens.
+      local route_direction = eladard_route_direction()
+      buttons.b = pulse(frame, 12, 0)
+      local in_flight_recovery = player_y < -100
+      if in_flight_recovery then
+        eladard_flight_recovery_polls = eladard_flight_recovery_polls + 1
+        if route_direction then
+          buttons[route_direction] = true
+          eladard_centered_polls = 0
+        else
+          eladard_centered_polls = eladard_centered_polls + 1
+        end
+        buttons.y = true
+        if eladard_flight_recovery_polls > 240
+          and (eladard_centered_polls > 30
+            or eladard_flight_recovery_polls > 500)
+          and eladard_transform_press_until < frame then
+          eladard_transform_press_until = frame + 3
+          eladard_next_recovery_frame = frame + 240
+          eladard_flight_recovery_polls = -10000
+        end
+      else
+        local barely_moved = eladard_last_x ~= nil
+          and math.abs(player_x - eladard_last_x) <= 3
+          and math.abs(player_z - eladard_last_z) <= 3
+        eladard_stuck_polls = barely_moved and (eladard_stuck_polls + 1) or 0
+        eladard_last_x = player_x
+        eladard_last_z = player_z
+        if eladard_progress_anchor_x == nil
+          or math.abs(player_x - eladard_progress_anchor_x) > 64
+          or math.abs(player_z - eladard_progress_anchor_z) > 64 then
+          eladard_progress_anchor_x = player_x
+          eladard_progress_anchor_z = player_z
+          eladard_no_progress_polls = 0
+        else
+          eladard_no_progress_polls = eladard_no_progress_polls + 1
+        end
+        if route_direction then
+          eladard_centered_polls = 0
+        else
+          eladard_centered_polls = eladard_centered_polls + 1
+        end
+        buttons.up = true
+        if route_direction == "left" then
+          buttons.l = true
+        elseif route_direction == "right" then
+          buttons.r = true
+        end
+        if (eladard_stuck_polls > 90
+          or eladard_centered_polls > 120
+          or eladard_no_progress_polls > 90)
+          and eladard_recovery_count < 3
+          and frame >= eladard_next_recovery_frame then
+          eladard_recovery_count = eladard_recovery_count + 1
+          eladard_transform_press_until = frame + 3
+          eladard_next_recovery_frame = frame + 240
+          eladard_stuck_polls = 0
+          eladard_flight_recovery_polls = 0
+          eladard_centered_polls = 0
+          eladard_no_progress_polls = 0
+        end
+      end
+      if frame <= eladard_transform_press_until then buttons.select = true end
+      input_label = string.format(
+        "combat-autopilot-entrance-%s-r%d-f%d",
+        route_direction or "forward",
+        eladard_recovery_count,
+        eladard_flight_recovery_polls)
+    elseif work_byte(0x1BB5) == 8 and work_byte(0x1BA5) == 3 then
+      buttons.b = pulse(frame, 12, 0)
+      if work_byte(0xD787) ~= 0 then
+        -- Stop at the reactor, as the retail room changes the craft to Walker
+        -- form and rotates the vulnerable panels around the fixed core.
+        local sweep_phase = frame % 480
+        buttons.l = sweep_phase < 240
+        buttons.r = sweep_phase >= 240
+        buttons.a = pulse(frame, 120, 0)
+        local jump_phase = frame % 120
+        buttons.y = jump_phase >= 6 and jump_phase < 50
+        input_label = "combat-autopilot-carrier-core-sweep"
+      else
+        -- Before the reactor, retail constrains the craft to its central rail.
+        -- Boost through the corridors and clear switches or doors with
+        -- repeated direct fire.
+        buttons.y = true
+        input_label = "combat-autopilot-carrier-corridor"
+      end
+    else
+      input_label = "combat-autopilot-search"
+    end
+  end
+  emu.setInput(buttons, 0)
+  return true
+end
+
+local function keep_forced_projectile_on_target(address, value)
+  if not forced_projectile_address or not forced_projectile_position then
+    return value
+  end
+  local offset = address - forced_projectile_address - 12
+  if offset < 0 or offset >= 6 then
+    return value
+  end
+  local axis = math.floor(offset / 2) + 1
+  local shift = (offset % 2) * 8
+  return (forced_projectile_position[axis] >> shift) & 0xFF
+end
+
+local function provide_input()
+  if not loaded_state then
+    input_label = "loading-state"
+    emu.setInput({}, 0)
+    return
+  end
+  if not armed then
+    input_label = "front-end"
+    emu.setInput({ start = pulse(frame, 180, 120) }, 0)
+    return
+  end
+
+  local elapsed = frame - armed_frame
+  if provide_combat_autopilot() then return end
+  if input_script_text and elapsed >= resume_elapsed then
+    for _, action in ipairs(scripted_inputs) do
+      if elapsed >= action.first and elapsed < action.last then
+        input_label = "script-" .. action.label
+        emu.setInput(action.buttons, 0)
+        return
+      end
+    end
+    input_label = "script-idle"
+    emu.setInput({}, 0)
+    return
+  end
+  if elapsed < 6800 then
+    input_label = "front-end"
+    emu.setInput({
+      start = pulse(frame, 180, 120) and elapsed <= 600,
+      b = elapsed >= 210 and elapsed < 6450 and pulse(elapsed, 90, 30),
+      up = elapsed >= 6000 and elapsed < 6045,
+      right = elapsed >= 6045 and elapsed < 6070,
+    }, 0)
+  elseif elapsed < 14480 then
+    input_label = "laser"
+    emu.setInput({ b = true }, 0)
+  elseif continue_campaign and elapsed >= 21240 and elapsed < 21400
+    and work_byte(0x1B68) == 7 then
+    input_label = "third-target-up"
+    emu.setInput({ up = true, b = pulse(elapsed, 90, 30) }, 0)
+  elseif continue_campaign and elapsed >= 21400 and elapsed < 21440
+    and work_byte(0x1B68) == 7 then
+    input_label = "third-target-left"
+    emu.setInput({ left = true, b = pulse(elapsed, 90, 30) }, 0)
+  elseif continue_campaign and elapsed >= 21500 and elapsed < 21700
+    and work_byte(0x1B68) == 7 then
+    input_label = "third-target-right"
+    emu.setInput({ right = true, b = pulse(elapsed, 90, 30) }, 0)
+  elseif elapsed >= 14900 and work_byte(0x1B68) == 1 then
+    input_label = "second-sortie-laser"
+    emu.setInput({ b = true }, 0)
+  elseif elapsed < 14560 then
+    input_label = "release"
+    emu.setInput({}, 0)
+  elseif elapsed < 14720 then
+    input_label = "up"
+    emu.setInput({ up = true }, 0)
+  elseif elapsed < 14760 then
+    input_label = "left"
+    emu.setInput({ left = true }, 0)
+  else
+    local accept = pulse(elapsed, 90, 30)
+    input_label = accept and "accept" or "idle"
+    emu.setInput({ b = accept }, 0)
+  end
+end
+
+local function save_pending_state()
+  if pending_savestate then
+    local elapsed = frame - armed_frame
+    write_file(
+      string.format("sf2_post_sortie_%05d.mss", elapsed),
+      emu.createSavestate())
+    pending_savestate = false
+    saved_state = true
+  end
+end
+
+local function save_on_next_main_instruction()
+  save_pending_state()
+end
+
+local function remove_save_callback()
+  if save_callback_reference and saved_state then
+    emu.removeMemoryCallback(
+      save_callback_reference,
+      emu.callbackType.exec,
+      0x000000,
+      0xFFFFFF,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+    save_callback_reference = nil
+  end
+end
+
+local function load_resume_state()
+  if loaded_state then return end
+  loaded_state = true
+  emu.loadSavestate(resume_state)
+  if capture_loaded_state then
+    capture_screen(resume_elapsed)
+    capture_work(resume_elapsed)
+    capture_ppu_state(resume_elapsed)
+  end
+end
+
+local function remove_load_callback()
+  if load_callback_reference and loaded_state then
+    emu.removeMemoryCallback(
+      load_callback_reference,
+      emu.callbackType.exec,
+      0x000000,
+      0xFFFFFF,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+    load_callback_reference = nil
+  end
+end
+
+local function arm_for_target_stream()
+  save_pending_state()
+  local source = emu.read16(0x0068, emu.memType.gsuWorkRam, false)
+  local bank = emu.read16(0x006A, emu.memType.gsuWorkRam, false) & 0x7F
+  if not armed and bank == 0x19 and source == 0x9F9C then
+    armed = true
+    armed_frame = frame
+    record("armed", 0)
+  end
+end
+
+local function end_frame()
+  if not loaded_state then return end
+  frame = frame + 1
+  remove_save_callback()
+  remove_load_callback()
+  -- Restore the verification-only collision masks before recording or saving
+  -- any state.  The masks exist for one retail map update only, so campaign
+  -- actors retain their original identity, flags, counters, and positions.
+  for actor, flags in pairs(temporarily_masked_pressure) do
+    local mission_selection = work_byte(actor + 0x32)
+    if mission_selection == 6 or mission_selection == 7 then
+      write_work_word(actor + 0x2E, flags)
+    end
+  end
+  temporarily_masked_pressure = {}
+  if chase_map_once and map_chase_engaged
+    and chased_map_actor and work_byte(0x1B68) ~= 7 then
+    lines[#lines + 1] = string.format(
+      "elapsed=%d event=map-chase-complete actor=%04X kind=%d",
+      frame - armed_frame,
+      chased_map_actor,
+      chased_map_selection or 0)
+    chased_map_actor = nil
+    chased_map_selection = nil
+    map_chase_engaged = false
+  end
+  if not armed then return end
+  if forced_corneria_damage then
+    -- Oracle-only campaign continuation. These complementary retail fields
+    -- were identified by observing the 89 -> 91 -> 100 damage sequence.
+    write_work_word(0xDB47, 100 - forced_corneria_damage)
+    write_work_word(0xDB49, forced_corneria_damage)
+  end
+  if preserve_shields and work_byte(0x1B68) == 1 then
+    -- Oracle-only survivability for long autonomous route capture.  Restore
+    -- each pilot's current shield from the retail maximum; mission scripts,
+    -- enemies, collision, scoring, and completion remain retail-controlled.
+    emu.write(0x1DD1, work_byte(0x1DD5), emu.memType.snesWorkRam)
+    emu.write(0x1DD7, work_byte(0x1DDB), emu.memType.snesWorkRam)
+    -- The active craft's three rotating Super FX object buffers carry the
+    -- collision-side copy consumed before the host refreshes its HUD mirror.
+    -- Keep those oracle buffers at the same retail maximum as well.
+    emu.write(0xB228, work_byte(0x1DD5), emu.memType.snesWorkRam)
+    emu.write(0xB232, work_byte(0x1DD5), emu.memType.snesWorkRam)
+    emu.write(0xB260, work_byte(0x1DD5), emu.memType.snesWorkRam)
+  end
+  if forced_player_health and work_byte(0x1B68) == 1 then
+    -- Oracle-only outcome isolation. Keep every retail mirror of the active
+    -- craft's shield at the requested low value, then let an ordinary hostile
+    -- hit drive the game's own loss and post-sortie state machines.
+    local player = work_word(0x12C3)
+    if player ~= 0 and work_byte(player + 0x2D) > forced_player_health then
+      emu.write(
+        player + 0x2D,
+        forced_player_health % 256,
+        emu.memType.snesWorkRam)
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=player-health-clamped object=%04X health=%d",
+        frame - armed_frame,
+        player,
+        forced_player_health)
+    end
+    if work_byte(0x1DD1) > forced_player_health then
+      emu.write(0x1DD1, forced_player_health, emu.memType.snesWorkRam)
+    end
+    -- Keep the reserve pilot available so the isolated active-craft loss
+    -- follows the ordinary campaign fallback instead of ending the run merely
+    -- because an earlier long oracle capture exhausted the reserve shield.
+    emu.write(0x1DD7, work_byte(0x1DDB), emu.memType.snesWorkRam)
+    for _, address in ipairs({0xB228, 0xB232, 0xB260}) do
+      if work_byte(address) > forced_player_health then
+        emu.write(address, forced_player_health, emu.memType.snesWorkRam)
+      end
+    end
+  end
+  if forced_stage_selection and work_byte(0x1B68) == 7 then
+    -- Oracle-only route isolation.  Mobile pressure encounters can otherwise
+    -- preempt every command-map path while identifying a newly discovered
+    -- strategic actor.  The selected retail mission still performs its own
+    -- ordinary transition and initialization.
+    emu.write(
+      0x1BB5,
+      forced_stage_selection % 256,
+      emu.memType.snesWorkRam)
+  end
+  if finish_strategic_threats and not finished_strategic_threats
+    and work_byte(0x1B68) == 7 then
+    -- Oracle-only campaign fast-forward.  Earlier route isolation could leave
+    -- map attackers allocated after their independently verified combat
+    -- sorties.  Retire the two retail gate totals and let the original state
+    -- machine perform the Wolf/Astropolis unlock sequence itself.
+    write_work_word(0xDA43, 0)
+    write_work_word(0xDA53, 0)
+    finished_strategic_threats = true
+  end
+  if forced_map_target_selection and work_byte(0x1B68) == 7 then
+    -- Oracle-only strategic collision isolation.  Follow the retail map's
+    -- actor list by semantic mission identifiers, then overlap PlayerTeam
+    -- with the requested destination.  Retail still owns collision,
+    -- transition, map selection, and mission initialization.
+    local player_map_actor = nil
+    local target_map_actor = nil
+    for actor = 0xE0F9, 0xE3DB, 0x52 do
+      local mission_selection = work_byte(actor + 0x32)
+      if mission_selection == 9 then player_map_actor = actor end
+      if mission_selection == forced_map_target_selection then
+        target_map_actor = actor
+      end
+    end
+    if player_map_actor and target_map_actor then
+      for offset = 0x1A, 0x1E, 2 do
+        write_work_word(
+          player_map_actor + offset,
+          work_word(target_map_actor + offset))
+      end
+    end
+
+    player_map_actor = nil
+    target_map_actor = nil
+    local map_actor = work_word(0xDB6B)
+    local seen_map_actors = {}
+    while map_actor ~= 0 and not seen_map_actors[map_actor] do
+      seen_map_actors[map_actor] = true
+      local mission_selection = work_word(map_actor + 6)
+      if mission_selection == 9 then player_map_actor = map_actor end
+      if mission_selection == forced_map_target_selection then
+        target_map_actor = map_actor
+      end
+      map_actor = work_word(map_actor + 2)
+    end
+    if player_map_actor and target_map_actor then
+      local target_x = work_word(target_map_actor + 12)
+      local target_y = work_word(target_map_actor + 14)
+      write_work_word(player_map_actor + 12, target_x)
+      write_work_word(player_map_actor + 14, target_y)
+      write_work_word(player_map_actor + 16, target_x)
+      write_work_word(player_map_actor + 18, target_y)
+    end
+  end
+  if chased_map_selection and work_byte(0x1B68) == 7 then
+    -- Oracle-only pursuit of one moving strategic actor.  Locking the
+    -- collision-list entry avoids switching among formations of the same
+    -- semantic kind while the retail map advances them independently.
+    if chased_map_actor
+      and work_byte(chased_map_actor + 0x32) ~= chased_map_selection then
+      chased_map_actor = nil
+    end
+    if not chased_map_actor then
+      chased_map_actor = closest_collision_actor(chased_map_selection)
+      if chased_map_actor then
+        lines[#lines + 1] = string.format(
+          "elapsed=%d event=map-chase-lock actor=%04X kind=%d",
+          frame - armed_frame,
+          chased_map_actor,
+          chased_map_selection)
+      end
+    end
+    if chased_map_actor then
+      map_chase_engaged = true
+      local target_x = work_byte(chased_map_actor + 0x1C)
+      local target_y = work_byte(chased_map_actor + 0x1F)
+      write_work_word(0xDA90, target_x * 256 + work_byte(0xDA90))
+      write_work_word(0xDA92, work_byte(0xDA93) * 256 + target_y)
+    end
+  end
+  if forced_map_cursor_x and work_byte(0x1B68) == 7
+    and work_byte(0x1BE0) == 10 then
+    -- Oracle-only direct command-map placement used to enumerate selectable
+    -- destinations without allowing intervening mobile threats to intercept.
+    -- Retail stores the horizontal integer in the high byte of its fixed-point
+    -- word and the vertical integer in the low byte of the following word.
+    -- Preserve both fractional bytes so this helper changes only the semantic
+    -- destination selected by the verification pilot.
+    write_work_word(
+      0xDA90,
+      forced_map_cursor_x * 256 + work_byte(0xDA90))
+    write_work_word(
+      0xDA92,
+      work_byte(0xDA93) * 256 + forced_map_cursor_y)
+  end
+  local elapsed = frame - armed_frame
+  local key = state_key()
+  if key ~= last_state then
+    record("state", elapsed)
+    last_state = key
+  end
+  if elapsed >= 14000 and elapsed % 120 == 0 then
+    record("checkpoint", elapsed)
+  end
+  if elapsed >= 14900 and work_byte(0x1B68) == 1 and elapsed % sortie_stride == 0 then
+    record("sortie", elapsed)
+  end
+  if requested_captures[elapsed]
+    or elapsed == 14400 or elapsed == 14460 or elapsed == 14468
+    or elapsed == 14520 or elapsed == 14640 or elapsed == 14880
+    or elapsed == 15120 or elapsed == 15600 or elapsed == 16560
+    or elapsed == 18000 or elapsed == 20000 or elapsed == 23000
+    or elapsed == 25000 then
+    capture_screen(elapsed)
+    capture_work(elapsed)
+    if capture_ppu and requested_captures[elapsed] then
+      capture_ppu_state(elapsed)
+    end
+  end
+  if save_elapsed and elapsed >= save_elapsed and not saved_state
+    and not pending_savestate then
+    pending_savestate = true
+    save_callback_reference = emu.addMemoryCallback(
+      save_on_next_main_instruction,
+      emu.callbackType.exec,
+      0x000000,
+      0xFFFFFF,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+  if elapsed >= stop_elapsed then
+    write_file("sf2_post_sortie_trace.txt", table.concat(lines, "\n") .. "\n")
+    if trace_craft_transition then
+      write_file(
+        "sf2_craft_transition_trace.txt",
+        table.concat(craft_transition_lines, "\n") .. "\n")
+    end
+    if sortie_actor_oracle.enabled then
+      write_file(
+        "sf2_sortie_actor_logic.txt",
+        table.concat(sortie_actor_oracle.lines, "\n") .. "\n")
+    end
+    if trace_walker_dynamics or trace_walker_writes then
+      write_file(
+        "sf2_walker_dynamics_trace.txt",
+        table.concat(walker_dynamics_lines, "\n") .. "\n")
+    end
+    emu.stop(0)
+  end
+end
+
+local function isolate_map_layers()
+  if finish_each_mission and work_byte(0x1B68) == 7 then
+    finished_current_mission = false
+  end
+  if repair_final_activation and not repaired_final_activation
+    and work_byte(0x1B68) == 7 then
+    -- Oracle-only repair for a campaign trace that previously retired mobile
+    -- pressure actors by changing their flags.  That experiment also removed
+    -- the dormant marker from Astropolis.  Restore only that marker and let
+    -- the original Wolf-to-final-target state machine perform every unlock,
+    -- identity, collision, and mission-initialization write itself.
+    local collision_actor = work_word(0xE0A3)
+    local seen_collision_actors = {}
+    while collision_actor ~= 0
+      and not seen_collision_actors[collision_actor] do
+      seen_collision_actors[collision_actor] = true
+      if work_byte(collision_actor + 0x32) == 11
+        and (work_word(collision_actor + 0x2E) & 0x2000) ~= 0 then
+        write_work_word(
+          collision_actor + 0x30,
+          work_word(collision_actor + 0x30) | 0x0400)
+        repaired_final_activation = true
+        break
+      end
+      collision_actor = work_word(collision_actor)
+    end
+  end
+  if skip_surface_objectives and not skipped_surface_objectives
+    and work_byte(0x1B68) == 1 and work_byte(0x1BB5) == 1 then
+    -- Oracle-only fast-forward through Titania's two surface switches. Keep
+    -- the reactor itself as the sole remaining retail objective so the base
+    -- entrance and all subsequent mission logic remain under retail control.
+    emu.write(0xD7A1, 1, emu.memType.snesWorkRam)
+    emu.write(0xD7F4, 1, emu.memType.snesWorkRam)
+    skipped_surface_objectives = true
+  end
+  if (finish_current_mission or finish_each_mission)
+    and not finished_current_mission
+    and work_byte(0x1B68) == 1 and work_byte(0xD7A1) <= 1 then
+    -- Oracle-only campaign fast-forward.  This is used after independently
+    -- observing a mission's retail objective sequence, solely to reach and
+    -- inspect later strategic branches without coupling the native port to
+    -- source-machine state.
+    emu.write(0xD7A1, 0, emu.memType.snesWorkRam)
+    emu.write(0xD7F4, 0, emu.memType.snesWorkRam)
+    finished_current_mission = true
+  end
+  if ignore_pressure_encounters and work_byte(0x1B68) == 7 then
+    for actor = 0xE0F9, 0xE3DB, 0x52 do
+      local mission_selection = work_byte(actor + 0x32)
+      if mission_selection == 6 or mission_selection == 7 then
+        write_work_word(
+          actor + 0x2E,
+          work_word(actor + 0x2E) | 0x3000)
+      end
+    end
+  end
+  if avoid_pressure_encounters and work_byte(0x1B68) == 7 then
+    -- Oracle-only route isolation that leaves no mutation in a captured
+    -- campaign state.  Mobile attackers are non-colliding for this single
+    -- map update, then end_frame restores their exact original flags.  This
+    -- permits retail cursor selection of a planet while preserving all live
+    -- attackers for later, ordinary sorties and retirement bookkeeping.
+    local collision_actor = work_word(0xE0A3)
+    local seen_collision_actors = {}
+    while collision_actor ~= 0
+      and not seen_collision_actors[collision_actor] do
+      seen_collision_actors[collision_actor] = true
+      local mission_selection = work_byte(collision_actor + 0x32)
+      if mission_selection == 6 or mission_selection == 7 then
+        local flags = work_word(collision_actor + 0x2E)
+        temporarily_masked_pressure[collision_actor] = flags
+        write_work_word(collision_actor + 0x2E, flags | 0x3000)
+      end
+      collision_actor = work_word(collision_actor)
+    end
+  end
+  if (parked_map_team_x or evade_pressure) and work_byte(0x1B68) == 7 then
+    -- Oracle-only strategic isolation. Hold only the player team's rendered
+    -- and global position away from mobile enemies; all enemy actors retain
+    -- their retail flags, motion, collision, and retirement behavior.
+    local player_x, player_y
+    if parked_map_team_x then
+      player_x = parked_map_team_x
+      player_y = parked_map_team_y
+    else
+      player_x, player_y = safest_pressure_evasion_position()
+    end
+    emu.write(0xDAF3, player_x, emu.memType.snesWorkRam)
+    emu.write(0xDAF6, player_y, emu.memType.snesWorkRam)
+  end
+  if forced_map_target_selection and work_byte(0x1B68) == 7 then
+    local collision_actor = work_word(0xE0A3)
+    local seen_collision_actors = {}
+    while collision_actor ~= 0
+      and not seen_collision_actors[collision_actor] do
+      seen_collision_actors[collision_actor] = true
+      if work_byte(collision_actor + 0x32)
+        == forced_map_target_selection then
+        emu.write(
+          0xDAF3,
+          work_byte(collision_actor + 0x1C),
+          emu.memType.snesWorkRam)
+        emu.write(
+          0xDAF6,
+          work_byte(collision_actor + 0x1F),
+          emu.memType.snesWorkRam)
+        break
+      end
+      collision_actor = work_word(collision_actor)
+    end
+
+    overlap_player_team_with_map_actor(
+      closest_collision_actor(forced_map_target_selection))
+  end
+  if chased_map_actor and work_byte(0x1B68) == 7 then
+    -- Isolate the requested target for one retail collision update. Nearby
+    -- mobile enemies are restored at end_frame before any trace or state is
+    -- captured, so their identity and strategic motion remain authoritative.
+    local collision_actor = work_word(0xE0A3)
+    local seen_collision_actors = {}
+    while collision_actor ~= 0
+      and not seen_collision_actors[collision_actor] do
+      seen_collision_actors[collision_actor] = true
+      local mission_selection = work_byte(collision_actor + 0x32)
+      if collision_actor ~= chased_map_actor
+        and (mission_selection == 6 or mission_selection == 7) then
+        local flags = work_word(collision_actor + 0x2E)
+        temporarily_masked_pressure[collision_actor] = flags
+        write_work_word(collision_actor + 0x2E, flags | 0x3000)
+      end
+      collision_actor = work_word(collision_actor)
+    end
+    overlap_player_team_with_map_actor(chased_map_actor)
+  end
+  if enable_final_target and work_byte(0x1B68) == 7 then
+    -- Oracle-only campaign-gate bypass. The retail command map keeps the
+    -- Astropolis collision actor in its ordinary linked list with its high
+    -- inactive flags set until the strategic prerequisites are satisfied.
+    -- Clearing only those flags lets the retail collision/mission dispatch
+    -- choose the final target normally; no shipping-port state is involved.
+    local collision_actor = work_word(0xE0A3)
+    local seen_collision_actors = {}
+    while collision_actor ~= 0
+      and not seen_collision_actors[collision_actor] do
+      seen_collision_actors[collision_actor] = true
+      if work_byte(collision_actor + 0x32) == 11 then
+        write_work_word(
+          collision_actor + 0x2E,
+          (work_word(collision_actor + 0x2E) & 0xDFFF) | 0x0008)
+      end
+      collision_actor = work_word(collision_actor)
+    end
+  end
+  if not armed or not map_layer_mask then return end
+  local elapsed = frame - armed_frame + 1
+  if elapsed < 14520 or elapsed > 14900 then return end
+  emu.write(0x212C, map_layer_mask, emu.memType.snesMemory)
+  emu.write(0x212D, 0, emu.memType.snesMemory)
+  emu.write(0x2131, 0, emu.memType.snesMemory)
+end
+
+emu.addMemoryCallback(
+  arm_for_target_stream,
+  emu.callbackType.exec,
+  0x01D9FF,
+  0x01D9FF,
+  emu.cpuType.gsu,
+  emu.memType.gsuMemory)
+if resume_state_path then
+  load_callback_reference = emu.addMemoryCallback(
+    load_resume_state,
+    emu.callbackType.exec,
+    0x000000,
+    0xFFFFFF,
+    emu.cpuType.snes,
+    emu.memType.snesMemory)
+end
+if evade_pressure then
+  emu.addMemoryCallback(
+    evade_pressure_on_map_entry,
+    emu.callbackType.write,
+    0x1B68,
+    0x1B68,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    evade_forced_pressure_snap,
+    emu.callbackType.exec,
+    0x04B5B6,
+    0x04B5B6,
+    emu.cpuType.snes,
+    emu.memType.snesMemory)
+end
+emu.addEventCallback(provide_input, emu.eventType.inputPolled)
+emu.addEventCallback(isolate_map_layers, emu.eventType.startFrame)
+emu.addEventCallback(end_frame, emu.eventType.endFrame)
+function sortie_actor_oracle.register_callbacks()
+  for _, service in ipairs({
+    { "move", 0x7F9DDE },
+    { "random-branch", 0x7F8EE5 },
+    { "wait-for-angle", 0x7FA0C4 },
+    { "wait", 0x7F84FB },
+    { "random-value", 0x7F9A3C },
+    { "chase-angle", 0x7FA1B5 },
+    { "divide-angle", 0x7FA5BF },
+    { "schedule", 0x7F97CA },
+    { "face-player", 0x7F878B },
+    { "fire", 0x7F885E },
+    { "vertical-step", 0x7F8925 },
+  }) do
+    emu.addMemoryCallback(
+      sortie_actor_oracle.callback(service[1]),
+      emu.callbackType.exec,
+      service[2],
+      service[2],
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+  for _, range in ipairs({
+    { 0x0600, 0x0605 },
+    { 0x0626, 0x062B },
+    { 0x063F, 0x0644 },
+    { 0x0665, 0x066A },
+  }) do
+    emu.addMemoryCallback(
+      sortie_actor_oracle.record_gsu_capital_state_write,
+      emu.callbackType.write,
+      range[1],
+      range[2],
+      emu.cpuType.snes,
+      emu.memType.gsuWorkRam)
+    emu.addMemoryCallback(
+      sortie_actor_oracle.record_main_capital_state_write,
+      emu.callbackType.write,
+      range[1],
+      range[2],
+      emu.cpuType.snes,
+      emu.memType.snesWorkRam)
+  end
+  for _, memory_type in ipairs({
+    emu.memType.gsuWorkRam,
+    emu.memType.snesWorkRam,
+  }) do
+    emu.addMemoryCallback(
+      sortie_actor_oracle.record_pitch_target_write,
+      emu.callbackType.write,
+      0x2297,
+      0x2297,
+      emu.cpuType.snes,
+      memory_type)
+    for _, range in ipairs({
+      { 0x0584, 0x0585 },
+      { 0x05C3, 0x05C4 },
+    }) do
+      emu.addMemoryCallback(
+        sortie_actor_oracle.record_position_y_write,
+        emu.callbackType.write,
+        range[1],
+        range[2],
+        emu.cpuType.snes,
+        memory_type)
+    end
+  end
+  emu.addMemoryCallback(
+    sortie_actor_oracle.record_main_random_state_write,
+    emu.callbackType.write,
+    0x00E0,
+    0x00E3,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    sortie_actor_oracle.record_main_random_state_write,
+    emu.callbackType.write,
+    0x00E0,
+    0x00E3,
+    emu.cpuType.snes,
+    emu.memType.gsuWorkRam)
+  emu.addMemoryCallback(
+    sortie_actor_oracle.record_gsu_random_state_write,
+    emu.callbackType.write,
+    0x00E0,
+    0x00E3,
+    emu.cpuType.gsu,
+    emu.memType.gsuWorkRam)
+end
+if sortie_actor_oracle.enabled then
+  sortie_actor_oracle.register_callbacks()
+end
+if trace_craft_transition then
+  for service, address in pairs({
+    walker_alternate = 0x07F7B3,
+    walker_selected = 0x07F7BA,
+    alternate_table_alternate = 0x07F7CB,
+    alternate_table_selected = 0x07F7D2,
+    craft_alternate = 0x07F7E3,
+    craft_selected = 0x07F7EA,
+  }) do
+    emu.addMemoryCallback(
+      craft_form_service(service),
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+  emu.addMemoryCallback(
+    record_craft_transition_write,
+    emu.callbackType.write,
+    0,
+    0x3FFF,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if trace_walker_dynamics then
+  emu.addMemoryCallback(
+    walker_dynamics_stage("before"),
+    emu.callbackType.exec,
+    0x06AC05,
+    0x06AC05,
+    emu.cpuType.snes,
+    emu.memType.snesMemory)
+  emu.addMemoryCallback(
+    walker_dynamics_stage("after"),
+    emu.callbackType.exec,
+    0x06AD5F,
+    0x06AD5F,
+    emu.cpuType.snes,
+    emu.memType.snesMemory)
+  for stage, address in pairs({
+    integrate_begin = 0x0DB2CE,
+    gravity_position_applied = 0x0DB2FC,
+    transformed_position_applied = 0x0DB311,
+    gravity_accumulated = 0x0DB321,
+    vectors_scaled = 0x0DB351,
+    ascent_transformed = 0x0DB524,
+    collision_transform_complete = 0x0DB613,
+    vectors_restored = 0x0DB670,
+    terrain_begin = 0x06D935,
+    terrain_base_applied = 0x06D93D,
+    terrain_mode_applied = 0x06D95C,
+    terrain_lower_slope_applied = 0x06D977,
+    terrain_upper_slope_applied = 0x06D98C,
+  }) do
+    emu.addMemoryCallback(
+      walker_motion_stage(stage),
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+end
+if trace_walker_writes then
+  emu.addMemoryCallback(
+    record_walker_write,
+    emu.callbackType.write,
+    0,
+    0xFFFF,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if force_projectile_hit then
+  emu.addMemoryCallback(
+    keep_forced_projectile_on_target,
+    emu.callbackType.write,
+    0,
+    0x3FFF,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if trace_stage_writes then
+  emu.addMemoryCallback(
+    trace_stage_write,
+    emu.callbackType.write,
+    0x1BB5,
+    0x1BB7,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_stage_write,
+    emu.callbackType.write,
+    0xE097,
+    0xE098,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if trace_final_gate then
+  -- Oracle-only access trace.  The first range is the static Astropolis map
+  -- record; the second contains the four retail objective counters and their
+  -- remaining-objective totals.  Deduplication by instruction gives a small
+  -- list of routines that decide whether to materialize the final collision
+  -- actor, while the native port remains a typed flat state model.
+  emu.addMemoryCallback(
+    trace_final_gate_read,
+    emu.callbackType.read,
+    0xDDC3,
+    0xDE18,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_final_gate_read,
+    emu.callbackType.read,
+    0xDA29,
+    0xDA4F,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_final_gate_write,
+    emu.callbackType.write,
+    0xDA29,
+    0xDA4F,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_objective_completion_execute,
+    emu.callbackType.exec,
+    0x04C6AF,
+    0x04C6CD,
+    emu.cpuType.snes,
+    emu.memType.snesMemory)
+end
+if trace_final_activation then
+  -- Oracle-only trace around the retail Wolf-to-Astropolis unlock.  The
+  -- ranges cover the dynamic final-map actor and the small set of semantic
+  -- gate/timer fields touched by the activation state machine.
+  local activation_write_ranges = {
+    { 0xE0A3, 0xE0F8 },
+    { 0xD7F8, 0xD7FF },
+    { 0x1B88, 0x1B96 },
+    { 0xD9B0, 0xD9B1 },
+    { 0xDA05, 0xDA06 },
+    { 0xDA57, 0xDA58 },
+    { 0xDA7F, 0xDA80 },
+    { 0xDB37, 0xDB38 },
+  }
+  for _, range in ipairs(activation_write_ranges) do
+    emu.addMemoryCallback(
+      trace_final_activation_write,
+      emu.callbackType.write,
+      range[1],
+      range[2],
+      emu.cpuType.snes,
+      emu.memType.snesWorkRam)
+  end
+  local activation_steps = {
+    0x04C517,
+    0x04C523,
+    0x04C565,
+    0x04C5AC,
+    0x04C5FF,
+    0x04C61B,
+    0x04C633,
+    0x04C672,
+  }
+  for _, address in ipairs(activation_steps) do
+    emu.addMemoryCallback(
+      trace_final_activation_execute,
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+end
+if trace_threat_retirement then
+  -- The strategic-actor lifecycle helper is relocated into the retail
+  -- runtime block. Trace its semantic entry and counter-decrement step so a
+  -- campaign fixture can prove which map actor a completed sortie retired.
+  local retirement_steps = { 0x7F6181, 0x7F6209 }
+  for _, address in ipairs(retirement_steps) do
+    emu.addMemoryCallback(
+      trace_threat_retirement_execute,
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+end
+if traced_map_actor then
+  -- Oracle-only per-field lifecycle trace for one strategic actor. This is
+  -- intentionally expressed in source-machine terms here; generated native
+  -- fixtures retain only the recovered semantic transitions.
+  emu.addMemoryCallback(
+    trace_map_actor_write,
+    emu.callbackType.write,
+    traced_map_actor,
+    traced_map_actor + 0x3E,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if trace_map_control then
+  local map_control_ranges = {
+    { 0x1B68, 0x1B68 },
+    { 0x1B88, 0x1B96 },
+    { 0x1BE0, 0x1BF2 },
+    { 0xDA0F, 0xDA10 },
+    { 0xDA43, 0xDA44 },
+    { 0xDA57, 0xDA58 },
+    { 0xDA7F, 0xDA86 },
+    { 0xE087, 0xE0A5 },
+  }
+  for _, range in ipairs(map_control_ranges) do
+    emu.addMemoryCallback(
+      trace_map_control_write,
+      emu.callbackType.write,
+      range[1],
+      range[2],
+      emu.cpuType.snes,
+      emu.memType.snesWorkRam)
+  end
+end
+if trace_map_control_reads then
+  -- Read tracing is opt-in because the map polls these fields every frame.
+  -- Deduplication by source instruction exposes the retail state handlers
+  -- without flooding the compact oracle trace.
+  local map_control_read_ranges = {
+    { 0x1BF2, 0x1BF2 },
+    { 0xDA0F, 0xDA10 },
+  }
+  for _, range in ipairs(map_control_read_ranges) do
+    emu.addMemoryCallback(
+      trace_map_control_read,
+      emu.callbackType.read,
+      range[1],
+      range[2],
+      emu.cpuType.snes,
+      emu.memType.snesWorkRam)
+  end
+end
+if trace_astropolis_gate then
+  -- Oracle-only instrumentation for the first Astropolis security junction.
+  -- The native port consumes the recovered semantic event, never these
+  -- source-machine locations or processor-state diagnostics.
+  emu.addMemoryCallback(
+    trace_astropolis_gate_global_write,
+    emu.callbackType.write,
+    0xD76F,
+    0xD77F,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_astropolis_gate_global_write,
+    emu.callbackType.write,
+    0xD780,
+    0xD78F,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_astropolis_gate_object_write,
+    emu.callbackType.write,
+    0x03BD,
+    0x12A7,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_astropolis_mask_aux_write,
+    emu.callbackType.write,
+    0x2097,
+    0x2F81,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  for _, address in ipairs({ 0x7F99A9, 0x7FBC80 }) do
+    emu.addMemoryCallback(
+      trace_astropolis_gate_execute,
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+end
+if trace_map_motion then
+  emu.addMemoryCallback(
+    trace_map_write,
+    emu.callbackType.write,
+    0xDA90,
+    0xDA93,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_map_write,
+    emu.callbackType.write,
+    0xDAF3,
+    0xDAF3,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+  emu.addMemoryCallback(
+    trace_map_write,
+    emu.callbackType.write,
+    0xDAF6,
+    0xDAF6,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end

@@ -1,0 +1,871 @@
+
+Tick 174 (stop-hook):
+- [x] s_add_Roffs2pos yaw-only flags 0,1,0 → rotate_8xz:
+  Ported: strat_roffs_yaw / _scaled / _i16 in snes_trig; wired
+  boss_yaw_offset_pos (enemy_a) + b2_yaw_offset_pos (bosses). Also
+  strat_roffs_pitch_yaw* for flags 0,1,1 (bossFCsmoke); bossf_rotated_offset
+  → strat_roffs_full_scaled; spacepilon + up1manchild → rotate_8yx.
+- [x] Tests: roffs_full_rotate8.rs (6); bossaturret_lmr re-blessed for
+  mulslog (−336 vs −340); bossacup/bossh/fling/boss7/boss_ticks1 green.
+  Ledger 2169/2169 True.
+- Next: tier-2 coexec / helpball Z-orbit mulslog / remaining float
+  attach helpers, or stop the porting loop.
+
+SESSION_SUMMARY: yaw-only Roffs → rotate_8xz (bossA/boss2). Ledger 100%.
+Next: tier-2 / helpball orbit, or stop the porting loop.
+
+Tick 175 (stop-hook):
+- [x] helpball Z-orbit (flags 0,0,1) + Roffs flag correction + boss2 circle:
+  Ported: strat_roffs_roll (rotate_8yx only); helpball_orbit_pos uses it.
+  Fixed tick-174 smoke helper: flags 0,1,1 are roll+yaw (rotz→roty), not
+  pitch+yaw — renamed strat_roffs_roll_yaw*. boss2 state4 circle vx/vz from
+  SINTAB/COSTAB + toward-zero /8,/2 (dropped float strat_sin/cos).
+- [x] Tests: roffs_full_rotate8.rs (8); helpball orbit pos (7 total);
+  boss_ticks1_verify circle re-blessed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / remaining float attach / non-uniform Roffs scales,
+  or stop the porting loop.
+
+SESSION_SUMMARY: helpball roll Roffs + boss2 sintab circle. Ledger 100%.
+Next: tier-2 / remaining float, or stop the porting loop.
+
+Tick 176 (stop-hook):
+- [x] boss2plasma non-uniform Roffs scales 2,0,4 + strat_tab_scaled SINTAB:
+  Ported: strat_roffs_yaw_scaled_xyz; boss2plasma_strat rotates byte dist
+  then ASL x<<2/y<<0/z<<4 (was pre-<<4 z then uniform yaw). strat_tab_scaled
+  → SINTAB/COSTAB + toward-zero divide (matches bee_tab_scaled / adiv2).
+- [x] Tests: roffs_full_rotate8.rs (9); boss2plasma_roffs.rs (1); ea_units
+  tab_scaled −31 re-bless. Ledger 2169/2169 True.
+- Next: tier-2 coexec / remaining float helpers / other non-uniform Roffs,
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss2plasma scales 2,0,4 + tab_scaled SINTAB. Ledger 100%.
+Next: tier-2 / remaining float, or stop the porting loop.
+
+Tick 177 (stop-hook):
+- [x] Roffs flags 1,1,0 (updateengine) + dobossrot* flags 0,1,1:
+  Ported: strat_roffs_pitch_yaw / _scaled; updateengine_srou uses rotate_8
+  pitch→yaw (was rotate_16 yaw→pitch). dobossrot / dobossrotx4 / doboss2rot
+  → strat_roffs_roll_yaw_scaled (was b2_yaw_offset + pre-shift; missed rotz).
+- [x] Tests: roffs_full_rotate8.rs (11); makeengine_splash; ship1_ship3_boss2rots
+  yaw180 behind-mother check. Ledger 2169/2169 True.
+- Next: tier-2 coexec / boost_Istrat flame Roffs / boss5 flags 0,0,0 smoke,
+  or stop the porting loop.
+
+SESSION_SUMMARY: pitch+yaw engine Roffs + dobossrot roll+yaw. Ledger 100%.
+Next: tier-2 / boost flame / boss5, or stop the porting loop.
+
+Tick 178 (stop-hook):
+- [x] boost_Istrat / boost_strat flame Roffs + pcbox wing rotate_8yx:
+  Ported: boost_istrat/strat + boost_sprite + sv::BOOSTZOFF; parks on
+  boostobj via strat_roffs_pitch_yaw (flags 1,1,0). clshipboost_enter now
+  sets boostobj + spawns flame (was missing). pcbox rotz_offset →
+  strat_roffs_roll (was mulslog with wrong sin signs).
+- [x] Tests: boost_flame_roffs.rs (4); pcbox_routing + clshipboost_nosnd +
+  makeengine_splash green. Ledger 2169/2169 True.
+- Next: tier-2 coexec / boss5 flags 0,0,0 smoke / player boost_sprite call
+  sites, or stop the porting loop.
+
+SESSION_SUMMARY: boost flame pitch+yaw Roffs + wing rotate_8yx. Ledger 100%.
+Next: tier-2 / boss5 smoke, or stop the porting loop.
+
+Tick 179 (stop-hook):
+- [x] boost_sprite call sites + spacepilonP roll×3:
+  Wired boost_sprite into set_player_out_of_lb2a, player_escape_nucleus2_init,
+  playeropeningboost_init, shipintro (sbyte1==2), friendstart3go latch,
+  shipoutoflb3 state3 (#10 then boostZoff=-80). Default boostZoff=-30 when
+  unset. spacepilonP → strat_roffs_roll_scaled (flags 0,0,1 + 3,3,3); dropped
+  spacepilon_rotate_z helper. boss5 smoke skipped (ifeq 1 dead code).
+- [x] Tests: boost_flame_roffs.rs (6); roffs_full_rotate8.rs (12); eb_parity
+  spacepilon/boss7/bossa re-blessed. Ledger 2169/2169 True.
+- Next: spacebar2 Roffs flags 0,0,1 (currently float yaw + 250; ROM B-mode
+  i8(250)=-6 via rotz) / tier-2 coexec / remaining friendstart boost sites,
+  or stop the porting loop.
+
+SESSION_SUMMARY: boost_sprite call sites + spacepilon roll×3. Ledger 100%.
+Next: spacebar2 Roffs fidelity / tier-2, or stop the porting loop.
+
+Tick 180 (stop-hook):
+- [x] spacebar2 Roffs flags 0,0,1 fidelity:
+  Replaced float yaw_roffs(roty, 250) with strat_roffs_roll(rotz, i8(250)=-6).
+  First Roffs uses parent.rotz; second uses self.rotz after XangleXY elev.
+  Added sf-game::trig8 (SINTAB/COSTAB/mulslog_mac8/rotate_8yx) so world-lane
+  builtins match sf-strat without a crate dep. ROM B-mode sexam of #250 → −6
+  (W-mode Roffs rejected by STRATMAC).
+- [x] Tests: spacebar2_starbull.rs (5) — tip/self −6 chain + rotz-not-roty.
+  Ledger 2169/2169 True.
+- Next: friendstart1/2 boost_sprite ports / tier-2 coexec / consolidate trig8
+  into sf-core, or stop the porting loop.
+
+SESSION_SUMMARY: spacebar2 roll Roffs + B-mode i8 −6. Ledger 100%.
+Next: friendstart1/2 / tier-2 / trig8→sf-core, or stop the porting loop.
+
+Tick 181 (stop-hook):
+- [x] spacebar3 rotate_16xz + friendstart1/2 skip:
+  friendstart1/2 are dead (GISTRATS `ifeq 1` + commented ISTRATS) — not ported.
+  spacebar3: float XY rotate → ROM rotate_16xz(nega(parent.rotz), sword1,
+  sword2) with z′ written to worldy; added spacemist; trig8 gained mulslog +
+  rotate_16xz (matches sf-strat snes_trig).
+- [x] Tests: spacebar2_starbull.rs (6) incl. snes_trig cross-check; unit_core
+  spacebar green. Ledger 2169/2169 True.
+- Next: spacebar/spacebar1/SPINspacebar spacemist vs scroll fidelity / tier-2
+  coexec / trig8→sf-core, or stop the porting loop.
+
+SESSION_SUMMARY: spacebar3 rotate_16xz; friendstart1/2 dead. Ledger 100%.
+Next: spacebar spacemist / tier-2 / trig8→sf-core, or stop the porting loop.
+
+Tick 182 (stop-hook):
+- [x] spacebar / SPINspacebar / spacebar1 spacemist fidelity:
+  ROM has s_spacemist only (no add_playerZ; spacebar1's playerZ is commented).
+  Replaced pviewvelz scroll with spacebar_apply_spacemist. spacebar2 still
+  scrolls (s_add_playerZ) + mist. SPINspacebar order: mist then rotz/achase.
+- [x] Tests: unit_core spacebar (3) — no-scroll + colframe hi-bit; spacebar2
+  suite green. Ledger 2169/2169 True.
+- Next: tier-2 coexec / trig8→sf-core / remaining float sin-cos helpers,
+  or stop the porting loop.
+
+SESSION_SUMMARY: spacebar family spacemist (no bogus scroll). Ledger 100%.
+Next: tier-2 / trig8→sf-core / float helpers, or stop the porting loop.
+
+Tick 183 (stop-hook):
+- [x] trig8→sf-core + world achase ROM fidelity:
+  Moved SINTAB/COSTAB/mulslog/mulslog_mac8/rotate_8yx/rotate_16xz/
+  strat_roffs_roll/achase_angle_8 into sf_core::snes_trig. sf-game::trig8
+  and sf-strat::snes_trig re-export. World SPINspacebar achase now uses
+  ROM target−current + toward-zero adiv2 (antipodal 0→128→192). Removed
+  unused float snes_sin/snes_cos and strat_sin/strat_cos. enemy_a::achase_angle
+  delegates to the shared helper.
+- [x] Tests: unit_core (32) incl. achase antipodal; spacebar2/roffs/boost green.
+  Ledger 2169/2169 True.
+- Next: tier-2 coexec / float atan2 aim leaves / remaining rotate_8xz in
+  sf-core, or stop the porting loop.
+
+SESSION_SUMMARY: trig8→sf-core + ROM achase shared. Ledger 100%.
+Next: tier-2 / atan2 aim / stop the porting loop.
+
+Tick 184 (stop-hook):
+- [x] path P_SPAWN Roffs → ROM rotate_8* + finish trig move to sf-core:
+  Moved rotate_8xz/rotate_8yz/rotate_16yz + strat_roffs_full/_scaled into
+  sf_core::snes_trig; sf-strat/sf-game::trig8 re-export. path_add_rotated_offset
+  dropped float sin/cos and calls strat_roffs_full_scaled (P_SPAWN ASL×2,
+  P_SPAWNCHILD scale 0). Re-blessed pi_tow_0 (wy/wz magnitude from COSTAB).
+- [x] Tests: path_roffs_rotate8.rs (3); interp_trace; roffs_full_rotate8 (12);
+  unit_core/boost/spacebar2 green. Ledger 2169/2169 True.
+- Next: float atan2 aim (wp_yaw / xangle_xy / path_pitch) / tier-2 coexec /
+  gen_weapon surgical rotate chain, or stop the porting loop.
+
+SESSION_SUMMARY: path spawn Roffs ROM + rotate_8* in sf-core. Ledger 100%.
+Next: atan2 aim / tier-2 / stop the porting loop.
+
+Tick 185 (stop-hook):
+- [x] aim_angle→sf-core + Xanglexabs Manhattan fidelity:
+  New sf_core::aim_angle (xzdiffs / xzdiffs_abs_manhattan / yanglexy(_nega) /
+  xanglexy / xanglexabs). Fixed ROM split: Xanglexy uses scaled Euclid,
+  Xanglexabs uses Manhattan (port had scaled for both; WP/obj pitch used
+  float hypot). Wired world spacebar2 elev, strat_pitch_toward, szaco2 /
+  szaco0 / zaco1 WP aim, path_pitch_toward, strat_angle_*.
+- [x] Tests: aim_angle.rs (3); anglexy_compose.rs (4); yaw/spacebar/path green.
+  Ledger 2169/2169 True.
+- Next: remaining float P_GOTOPOS aim / tier-2 gen_weapon surgical rotate /
+  more hypot→xanglexy call sites, or stop the porting loop.
+
+SESSION_SUMMARY: aim_angle shared + Xanglexabs Manhattan. Ledger 100%.
+Next: P_GOTOPOS / tier-2 muzzle / stop the porting loop.
+
+Tick 186 (stop-hook):
+- [x] s_goto_WP / P_GOTOPOS / face* → aim_angle:
+  saucer1/fly/starbull/evader goto_wp use yanglexy_nega + xanglexabs (was
+  float hypot). Path P_GOTOPOS same; FACEPLAYER/FACESHAPE/WAITFACEPLAYER now
+  nega Yanglexy per s_obj2obj_3dangle. path_adapter::angle_xz → yanglexy;
+  removed unused path libm atan2/sqrt. Re-blessed pi_ponpon (ry 102→154).
+- [x] Tests: goto_wp_aim_angle.rs (2); evader_truck/starbull/anglexy/interp_trace.
+  Ledger 2169/2169 True.
+- Next: remaining enemy_a local angle_xz float twin / tier-2 gen_weapon
+  surgical rotate / more hypot sites, or stop the porting loop.
+
+SESSION_SUMMARY: goto_WP + path face/GOTOPOS aim_angle. Ledger 100%.
+Next: enemy_a angle_xz twin / tier-2 muzzle / stop the porting loop.
+
+Tick 187 (stop-hook):
+- [x] enemy_a angle_xz → yanglexy (ROM i16 wrap) + retail muzzle chain:
+  Replaced local i32-promotion atan2 twin with sf_core::aim_angle::yanglexy
+  (wrapping SBC like Yanglexy_l). Added retail surgical rotate_8yx→yz→xz
+  coexec vs strat_roffs_full; retail z1/z2 are $90/$15C2 (not built $8A/$1647).
+  8/8 MATCH — closes TIER2 UPDATE 9 deferred gen_weapon muzzle sub-step.
+- [x] Tests: enemy_a_angle_xz_yanglexy.rs (2); retail_muzzle_rotate8_chain_vs_port;
+  yaw suites green. Ledger 2169/2169 True.
+- Next: remaining float aim leftovers / more tier-2 coexec, or stop the
+  porting loop.
+
+SESSION_SUMMARY: angle_xz→yanglexy + retail muzzle rotate8 MATCH. Ledger 100%.
+Next: float leftovers / tier-2 / stop the porting loop.
+
+Tick 188 (stop-hook):
+- [x] sound makesnd/nearobjs → sf_core::aim_angle:
+  xzdiffs_rangexz → aim_angle::xzdiffs; nearobjs pan angle_xz → yanglexy.
+  Dropped local float hypot/atan2 twins shared with strat/path.
+- [x] Tests: sound_aim_helpers_match_sf_core + sf-audio lib green.
+  Ledger 2169/2169 True (ported_namematch).
+- Next: camera VIEWTYPE_TOOBJ look-at float atan2 (signed angle8_from_rad)
+  / more tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: sound aim_angle (makesnd + nearobjs pan). Ledger 100%.
+Next: camera look-at / tier-2 / stop the porting loop.
+
+Tick 189 (stop-hook):
+- [x] camera VIEWTYPE_TOOBJ look-at → sf_core::aim_angle:
+  ROM getview_l: nega(Xanglexy)+Yanglexy+raw outvz (not float hypot/atan2,
+  not forced rot_z=0). Writes look-at high-bytes back to outvx/outvy.
+- [x] Tests: toobj_lookat_uses_aim_angle_and_outvz + toobj_lookat_yaw_quarter_turn
+  (camera suite 9 green). Ledger 2169/2169 True.
+- Next: remaining float pull-back sin/cos / more tier-2 coexec, or stop the
+  porting loop.
+
+SESSION_SUMMARY: camera TOOBJ look-at → aim_angle. Ledger 100%.
+Next: pull-back trig / tier-2 / stop the porting loop.
+
+Tick 190 (stop-hook):
+- [x] camera pull-back → rotate_16yz + rotate_16xz (ROM getview_l):
+  Replace float sin/cos pitch offset with X-then-Y mulslog chain on
+  (0,0,-outdist); yaw from outvy-turnrot now swings pull-back (was X-only).
+  Level outdist=120 → viewposz=-118 (double cos=127 attenuation).
+- [x] Tests: pullback_uses_rotate16_sintab_not_float + pullback_applies_yaw_rotate16xz
+  (camera suite 10 green). Ledger 2169/2169 True.
+- Next: enemy_b audit Criticals still open in docs / more tier-2, or stop the
+  porting loop.
+
+SESSION_SUMMARY: camera pull-back rotate_16* mulslog. Ledger 100%.
+Next: enemy_b Criticals / tier-2 / stop the porting loop.
+
+Tick 191 (stop-hook):
+- [x] bossFC2/FC3 objinfront + playerturn180 + bossFtur fire window verify:
+  AUDIT_ENEMY_B Criticals #1–#2 + High #12 already ported; added pub exports
+  + bossfc_objinfront.rs (5). FC2 me.z<pl.z arms turn180 (HP0-gated);
+  FC3 swapped args; turret fires only sbyte2<=15.
+- [x] Docs: AUDIT_ENEMY_B marked FIXED; PORTING_LOOP [x].
+  Ledger 2169/2169 True.
+- Next: remaining AUDIT_ENEMY_B Criticals #3–#9 (bossA cup/turret) /
+  more Highs, or stop the porting loop.
+
+SESSION_SUMMARY: bossFC objinfront + Ftur fire window verified. Ledger 100%.
+Next: bossA Criticals / stop the porting loop.
+
+Tick 192 (stop-hook):
+- [x] bossA Criticals #3–#9 verify (AUDIT_ENEMY_B):
+  GO return me.z<pl.z+|dz|>=200; GO no fire; attack GO only when last cup
+  else IROTATE; turret husk+DOWN revive (sbyte3++/--). #5–#6 prior turret
+  tests. Pub cup/attack/exp + state consts. Tests bossa_cup_criticals.rs (5).
+- [x] Docs: AUDIT_ENEMY_B Criticals all FIXED; PORTING_LOOP [x].
+  Ledger 2169/2169 True.
+- Next: AUDIT_ENEMY_B Highs (achase/notdelay/FA vz/mines — many may already
+  be fixed) / verify+mark, or stop the porting loop.
+
+SESSION_SUMMARY: bossA Criticals #3–#9 verified. Ledger 100%.
+Next: enemy_b Highs / stop the porting loop.
+
+Tick 193 (stop-hook):
+- [x] AUDIT_ENEMY_B Highs #10–#19 verify (+ colltype fix):
+  Achase toward-zero; FA vz<<=1 + chase rate4; boss7d sintab>>3/costab>>1;
+  FC intro 200-frame gate; FC2 Hplasma until sb2>=3. Fixed bossFB mines +
+  other enemy_b sites using mislabeled vars::COLLTYPE_ENEMY1 (0x01) →
+  enemy_a:: (0x10). Tests enemy_b_highs.rs (7).
+- [x] Docs: AUDIT_ENEMY_B Highs FIXED; PORTING_LOOP [x].
+  Ledger 2169/2169 True.
+- Next: AUDIT_ENEMY_B Mediums / remaining float leftovers / tier-2, or stop
+  the porting loop.
+
+SESSION_SUMMARY: enemy_b Highs verified + ENEMY1 colltype fix. Ledger 100%.
+Next: enemy_b Mediums / stop the porting loop.
+
+Tick 194 (stop-hook):
+- [x] AUDIT_ENEMY_B Mediums #20–#26 verify (already ported):
+  spacepilon rnd2pos <<2/<<2/<<1; spacepilonP Achase relposy; boss7fall +
+  bossAexp 3-piece breakup; bossa intro roty+1/vx decel@210; staydist
+  per-tick pviewposz; FCdie2 rubble X<<1; boss7 parent yaw=sbyte2.
+  Pub spacepilonP/bossa/bossfcdie2/boss7hatchexp/bossaexp. Tests
+  enemy_b_mediums.rs (7).
+- [x] Docs: AUDIT_ENEMY_B Mediums FIXED; PORTING_LOOP [x].
+  Ledger 2169/2169 True.
+- Next: AUDIT_ENEMY_B Minors (sounds/cover DOWN>=20/muzzle scale) /
+  remaining float leftovers / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: enemy_b Mediums #20–#26 verified. Ledger 100%.
+Next: enemy_b Minors / stop the porting loop.
+
+Tick 195 (stop-hook):
+- [x] AUDIT_ENEMY_B Minors verify (already ported):
+  up/cover $73/$72 gated on cups-dead sflag3; cover DOWN sbyte2>=20;
+  parent collstrat None; turretM Icont sbyte3=0; cup home Z-2<<scale +
+  open anim cap 6; FC2/FA muzzle ±20<<bossF_scale. Pub bossaup/
+  bossacover. Tests enemy_b_minors.rs (6).
+- [x] Docs: AUDIT_ENEMY_B Minors FIXED; PORTING_LOOP [x].
+  Ledger 2169/2169 True. **AUDIT_ENEMY_B fully closed.**
+- Next: remaining float leftovers / tier-2 coexec / other audit docs,
+  or stop the porting loop.
+
+SESSION_SUMMARY: enemy_b Minors verified; AUDIT_ENEMY_B closed. Ledger 100%.
+Next: float leftovers / tier-2 / stop the porting loop.
+
+Tick 196 (stop-hook):
+- [x] AUDIT_BOSS_TICKS2 Highs #1–#4 verify (already ported):
+  boss1 fire gates bitmasks (home&15/norm&31/missiles&63/plasma&63);
+  back retreat |dz|<1500; ring <<1 + full rotate8; center ±384; turret
+  muzzle z+40; mother/turret/boss8 add_bosshp. Tests boss1_highs.rs (4).
+- [x] Docs: AUDIT_BOSS_TICKS2 Highs FIXED; PORTING_LOOP [x].
+  Ledger 2169/2169 True.
+- Next: remaining float leftovers / tier-2 / AUDIT_ROUTE or SOUND gaps,
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss1 Highs #1–#4 verified; AUDIT_BOSS_TICKS2 Highs closed.
+Ledger 100%. Next: float/tier-2/route / stop the porting loop.
+
+Tick 197 (stop-hook):
+- [x] AUDIT_PLAYER_MOVE High #1 verify (already ported):
+  boost/brake sbyte2 pulse gate + noctrl/stayblack/wipe/noctrlcnt;
+  SE $32/$33 once per burst (not every held frame). Pub
+  boost_brake_update. Tests player_boost_brake.rs (3).
+- [x] Docs: AUDIT_PLAYER_MOVE High #1 FIXED; PORTING_LOOP [x].
+  Ledger 2169/2169 True. **AUDIT_PLAYER_MOVE Highs closed.**
+- Next: AUDIT_ROUTE_PROGRESSION LE_* dispatch / level1_5 mapend(7) /
+  remaining float leftovers / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: player boost/brake High #1 verified. Ledger 100%.
+Next: route LE_* / float / tier-2 / stop the porting loop.
+
+Tick 198 (stop-hook):
+- [x] AUDIT_ROUTE_PROGRESSION Findings 1–3 verify (already ported):
+  shell::le + warp_advance dispatches BHOLE1/2/3/SPECIAL/ENTERBHOLE/
+  ENTERSPEC (skip tally, fire routechange*); level1_5 mapend(7);
+  blackhole2_strat sets levelfinished=15. Updated stale audit/comments.
+  Tests: shell warp (4) + blackhole.rs (8) + mapend_sets_levelfinished.
+- [x] Docs: Findings 1–3 FIXED; #4–#5 ACCEPTED; PORTING_LOOP [x].
+  Ledger 2169/2169 True. **AUDIT_ROUTE_PROGRESSION closed.**
+- Next: remaining float leftovers / tier-2 coexec / AUDIT_PURE_FNS
+  boundary notes, or stop the porting loop.
+
+SESSION_SUMMARY: route LE_* warp dispatch verified; AUDIT_ROUTE closed.
+Ledger 100%. Next: float/tier-2 / stop the porting loop.
+
+Tick 199 (stop-hook):
+- [x] draw::build_list yaw cull/leftpl → rotate_16xz (mulslog SINTAB/COSTAB);
+  drop float sin/cos on camera-space dx/dz. Behind + ATZREMOVE free path
+  unchanged. Tests draw::tests yaw cull (2) + prior synthetic/explosion (2).
+- [x] Docs: AUDIT_HUD_SFX #11 FIXED (prior make_snd F3/F4); PORTING_LOOP [x].
+  Ledger 2169/2169 True.
+- Next: remaining float leftovers (shell pal_fade UI / camera test-only) /
+  tier-2 coexec / AUDIT_PURE_FNS boundary notes, or stop the porting loop.
+
+SESSION_SUMMARY: draw yaw cull → rotate_16xz; HUD sea #11 closed. Ledger 100%.
+Next: float/tier-2 / stop the porting loop.
+
+Tick 200 (stop-hook):
+- [x] volrockdown apex scatter RNG formula + wallleft/right swing holds +
+  public wallleftright_istrat (closes TIER2 "public port" blockers).
+  Tests volrockdown_wall_swing.rs (4).
+- [x] Docs: TIER2 wall/volrock CLOSED; AUDIT_PURE_FNS antipodal FIXED
+  (fuzz_pure_fns 7/7 green, rate-7 ACCEPTED); AUDIT_HUD #10 FIXED;
+  PORTING_LOOP [x]. Ledger 2169/2169 True.
+- Next: torpedo full-body Achase glue / shou0 spawn+search coexec /
+  shell pal_fade HD leftover, or stop the porting loop.
+
+SESSION_SUMMARY: volrockdown scatter + wall swing public; pure-fns antipodal
+docs closed. Ledger 100%. Next: torpedo/shou0 / stop the porting loop.
+
+Tick 201 (stop-hook):
+- [x] torpedo full-body Achase + underwater mover glue (GASTRATS:2007-2044):
+  pub torpedo_istrat/strat; makeSsplash every submerged tick; surface
+  makesplash + make_snd(EnemyUpSea); yaw strat_aim_yaw rate-3 +
+  torpedo_cont n3dvecs/scroll/coast; surfaced pitch Achase rate-2.
+  Tests torpedo_achase_splash.rs (3) + enemies_ground torpedo (3) green.
+- [x] Docs: TIER2 torpedo CLOSED; PORTING_LOOP [x]. Ledger 2169/2169 True.
+- Next: shou0/bazooka/houdai5f full-body spawn+search coexec /
+  shell pal_fade HD leftover, or stop the porting loop.
+
+SESSION_SUMMARY: torpedo Achase+splash/upsea wired; TIER2 torpedo closed.
+Ledger 100%. Next: shou0 full body / stop the porting loop.
+
+Tick 202 (stop-hook):
+- [x] shou0/bazooka/houdai5f FULL BODY fire spawn + weapon SE:
+  shou0_fire → make_snd(EnemyBattry) (fire_plasma); bazooka_fire →
+  make_snd(Laser) (relslowElaser); pub houdai5f_istrat/strat.
+  These aim at the player (not find_nearobj). Tests
+  shou0_bazooka_houdai5f_fire.rs (4).
+- [x] Docs: TIER2 FULL BODY CLOSED; PORTING_LOOP [x]. Ledger 2169/2169 True.
+- Next: remaining TIER2 recommended (mapobjdo spawn VM / shell pal_fade) /
+  or stop the porting loop.
+
+SESSION_SUMMARY: shou0/bazooka/houdai5f fire SE + spawn verify; TIER2 firing
+FULL BODY closed. Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 203 (stop-hook):
+- [x] item7 broken-wing repair path (AUDIT_ENEMY_A #25): spawn ripair_w →
+  ripair_Istrat ($8b); keep break flags until catch ($17); intact path
+  $15/score/doublaser/beamball; item7_Istrat falls through. Tests
+  item7_ripair_spawn.rs (4).
+- [x] Docs: AUDIT_ENEMY_A #25 FIXED; PORTING_LOOP [x]. Ledger 2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: item7→ripair spawn fidelity; AUDIT_ENEMY_A #25 closed.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 204 (stop-hook):
+- [x] misspod/walker1/truck custom s_fire_weapon → missilesound_l:
+  misspod_spawn_missile2 + walker1_fire_hmissile + truck_fire_missile
+  make_snd(Missile); misspoda_init restores trigse $49 (was missing on
+  direct init path). Flat door trigse $54/$55 left as ROM (not makesnd).
+  Tests misspod_walker_truck_missile_se.rs (4).
+- [x] Docs: PORTING_LOOP [x]; AUDIT_HUD_SFX #10 note extended. Ledger
+  2169/2169 True (no new False rows).
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: misspod/walker/truck Missile SE on custom fire paths.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 205 (stop-hook):
+- [x] boss custom HMISSILE fire → missilesound_l: boss1_fire_hmissile1
+  (enemy_a + enemy_b dup) + boss7launcher_fire_hmissile1 +
+  flingboss_fire_missile + wm_propturret_fire all make_snd(Missile).
+  Tests boss_custom_hmissile_se.rs (4): boss1back / bossaattack /
+  flingboss triggermissile2 / webmonster propturret.
+- [x] Docs: PORTING_LOOP [x]; AUDIT_HUD_SFX #10 note extended. Ledger
+  2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss custom HMISSILE Missile SE (boss1/7/fling/web).
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 206 (stop-hook):
+- [x] custom RELSLOW/HPLASMA/SHORTPLASMA fire → gen_weapon SE:
+  winglazerman_fire + boss1_fire_relslowlaser + bossfa_strat →
+  make_snd(Laser); bomwing_fire + houdai_fire + chicken_arm_fire_hplasma
+  → make_snd(EnemyBattry). Tests custom_laser_plasma_se.rs (6).
+- [x] Docs: PORTING_LOOP [x]; AUDIT_HUD_SFX #10 note extended. Ledger
+  2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  remaining silent spawn_projectile sites / or stop the porting loop.
+
+SESSION_SUMMARY: custom laser/plasma SE (wing/boss1/FA/bomwing/houdai/chick).
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 207 (stop-hook):
+- [x] more custom fire → gen_weapon SE: boss2spark / spacebarwalker /
+  bossFtur / ship3 → make_snd(Laser); spacepilon / bossbrobfireP1 /
+  bosshtop → make_snd(EnemyBattry). (cast_fire_ringlaser left silent —
+  ROM fireringlaser_l has no ringlasersound.) Tests
+  more_custom_weapon_se.rs (7).
+- [x] Docs: PORTING_LOOP [x]; AUDIT_HUD_SFX #10 note extended. Ledger
+  2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: more custom weapon SE (spark/walker/Ftur/ship3/pilon/brob/H).
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 208 (stop-hook):
+- [x] pillar3/pillar3f fall → bouncyball explode flash (AUDIT_ENEMY_A #36
+  leftover): pillar3_enter_fall + pillar3ffall_init spawn shape-0 at
+  copypos (pillar3 worldz−10; pillar3f no offset), alptrs explode×3,
+  kill_obj. Fixed pillar3f s_rightview_strat (leftpl → sbyte1=−4).
+  Tests pillar3_fall_bouncyball.rs (5).
+- [x] Docs: PORTING_LOOP [x]; AUDIT_ENEMY_A #36 bouncyball FIXED. Ledger
+  2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: pillar3/pillar3f fall bouncyball→explode flash.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 209 (stop-hook):
+- [x] bossB fire_home SE by ROM weapon family: HMISSILE1 / CHICKHMISSILE1 /
+  BOSSHMISSILE1 → make_snd(Missile); RELSLOWELASERHOME → Laser. Spinend
+  close path uses laser-home (was bare RELSLOW via aim_and_fire_laser).
+  Tests bossb_fire_home_se.rs (5); bossb_core dodge sbyte3 assert accepts
+  far-path #25.
+- [x] Docs: PORTING_LOOP [x]; AUDIT_HUD_SFX #10 note. Ledger 2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: bossB fire_home Missile vs Laser SE by weapon family.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 210 (stop-hook):
+- [x] chicken egg_istrat hatch chain (DSTRATS.ASM:4528-4622): fall →
+  hatch opens boss_d_7, spawns shell (boss_d_6) + chick (boss_d_4) +
+  trigse $3a; close/random → waittobehit then hatch on HP drop;
+  shell/open-egg bounce → nothing_istrat. (Was instant strat_explode.)
+  Tests chicken_egg_hatch.rs (4).
+- [x] Docs: PORTING_LOOP [x]. Ledger 2169/2169 True.
+- Next: firebreathe trail/ground-bounce / mapobjdo spawn VM /
+  shell pal_fade HD leftover / or stop the porting loop.
+
+SESSION_SUMMARY: chicken egg_istrat hatch shell+chick explode chain.
+Ledger 100%. Next: firebreath / map spawn VM / stop the porting loop.
+
+Tick 211 (stop-hook):
+- [x] chicken firebreathe_istrat (DSTRATS.ASM:4629-4699): trail short_istrat
+  each tick (deferred set_strat); ground bounce snap y=0 + Yanglexy+nega →
+  .backagain; OUTLIMIT x<-1000|x>=1000 and Z>=4000 → short fade (sbyte1
+  colanim over 8). firebreathe2 preserves vel 120 for seadragon. Arm pitch
+  nudge + sd_head_fire wired. Tests chicken_firebreath.rs (5); seadragon
+  suite still green.
+- [x] Docs: PORTING_LOOP [x]. Ledger 2169/2169 True.
+- Next: wings_istrat / mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: chicken firebreathe trail + ground-bounce + |x|/Z short fade.
+Ledger 100%. Next: wings / map spawn VM / stop the porting loop.
+
+Tick 212 (stop-hook):
+- [x] chicken wings_istrat (DSTRATS.ASM:4744-4764): hitflash collstrat +
+  0x80 anim bit; flap s_add_anim #1,#15 then at frame 14 s_init_anim #4;
+  sflag1 fold reverse #-1,#15 hold at 0. (Was bare ±1 without 0x80 /
+  missing hitflash.) Tests chicken_wings.rs (4).
+- [x] Docs: PORTING_LOOP [x]; chicken scope note. Ledger 2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: chicken wings_istrat flap/fold anim fidelity.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 213 (stop-hook):
+- [x] chicken arm sprouty.expl (DSTRATS.ASM:2348-2381): .sprout_srou walks
+  al_ptr chain set_strat .fall_istrat (deferred); head explode_istrat +
+  remove_alptrs + kill; children fall_istrat vel30/rnd roty/vy-10 then
+  .fall spin+gravity → explode on land. (Was instant unlink/remove.)
+- [x] chick_istrat ENEMY1 → ACF_COLLTYPE2 (0x10; was vars COLLTYPE_ENEMY1
+  0x01). Tests chicken_arm_sprouty_expl.rs (4); chicken/flingboss green.
+- [x] Docs: PORTING_LOOP [x]; chicken scope note. Ledger 2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: chicken arm sprouty.expl fall-chain + chick ENEMY1 fix.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 214 (stop-hook):
+- [x] flingboss sprouty.expl via shared chicken_arm_sprouty_expl:
+  pullthearmsoff + deadflingboss. Deferred s_kill_obj (hp=0 + expstrat,
+  no nested strat_explode/aldead) so mother is not freed mid-strat.
+- [x] chicken_arm_init ENEMY1 → ACF_COLLTYPE2. Tests flingboss_sprouty_expl.rs
+  (3); flingboss/chicken_arm_sprouty_expl green.
+- [x] Docs: PORTING_LOOP [x]; flingboss scope note. Ledger 2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: flingboss sprouty.expl shared fall-chain + nested aldead fix.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 215 (stop-hook):
+- [x] bossB bossB_cont image trail (GB3STRAT.ASM:1283-1301): sflag1 gate +
+  sflag4 toggle every-other-frame; make_obj boss_B_1 → bossBent_Istrat or
+  bossBspinend_Istrat (sflag2) with sword1 hi copy/inc&3; copy pos/rots.
+  Fixed spinendnewent + spinend_cont to use sword1 high byte (ROM +1).
+- [x] flingboss_arm_init ENEMY1 → ACF_COLLTYPE2. Tests bossb_image_trail.rs
+  (5); bossb_fire_home_se + flingboss green.
+- [x] Docs: PORTING_LOOP [x]; bossb scope note. Ledger 2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: bossB_cont image trail bossBent/spinend + sword1 hi fix.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 216 (stop-hook):
+- [x] bosses.rs ENEMY1 sweep: vars COLLTYPE_ENEMY1 (0x01) → ACF_COLLTYPE2
+  (0x10 = ROM colltype_enemy1) for chicken/flingboss mothers, weapons,
+  sea/dragon/other boss sites still on the wrong bit.
+- [x] bossB scream/ouch sflag5 → ASF3_SFLAG5 (sflags3 bit0). Was wrongly
+  ASF2_SFLAG1 (image trail bit); sepcol gates on sflag5, sets sflag1 on
+  pounce; start/ouchend clear sflag5; col early-out on sflag5/nohitaffect.
+- [x] Tests enemy1_sflag5.rs (6); bossb_image_trail/spin_bent + chicken/
+  flingboss sprouty green.
+- [x] Docs: PORTING_LOOP [x]; bossb scope note. Ledger 2169/2169 True.
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: ENEMY1→ACF_COLLTYPE2 sweep + bossB sflag5 (sflags3) fix.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 217 (stop-hook):
+- [x] bossh.rs + bossf_heli.rs ENEMY1: vars COLLTYPE_ENEMY1 (0x01) →
+  ACF_COLLTYPE2 (0x10). Mother/legs/top + body/feet/arm/head + ironball/
+  headfire/ringlaser shots.
+- [x] Drop unused enemy_b vars::COLLTYPE_ENEMY1 import (sites already use
+  enemy_a::COLLTYPE_ENEMY1 = 0x10).
+- [x] madtrucker test: expect ACF_COLLTYPE2 (stale 0x01 after tick-216 sweep).
+- [x] Tests: bossh + bossf_heli_parts (9) + madtrucker (10). Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x].
+- Next: mapobjdo spawn VM coexec / shell pal_fade HD leftover /
+  or stop the porting loop.
+
+SESSION_SUMMARY: bossH/bossF heli ENEMY1→ACF_COLLTYPE2 + madtrucker test.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 218 (stop-hook):
+- [x] world spacebar hardvars ENEMY1 → ACF_COLLTYPE2 (0x10); unit_core
+  spacebar_istrat assert updated.
+- [x] shell/render pal_fade f32 HD leftover → bridge ROM palfade_num (u16).
+  FrameSnapshot/FrameInputs.palfade_num; shapes::mixed_shape_palette_from_num
+  converts at mix time (START=30).
+- [x] Tests: unit_core (32) + color_resolution palette_fade* (3); sf-app check.
+  Ledger 2169/2169 True.
+- [x] Docs: PORTING_LOOP [x].
+- Next: mapobjdo spawn VM coexec / or stop the porting loop.
+
+SESSION_SUMMARY: spacebar ENEMY1 + integer palfade_num shell/render bridge.
+Ledger 100%. Next: map spawn VM / stop the porting loop.
+
+Tick 219 (stop-hook):
+- [x] retail map spawn VM: RETAIL_MAPCNT=$16FB MAPPTR=$16FD LASTMAPOBJ=$16F7
+  MAPBANK=$1FF4 from newobjex/mapobjdo operands; SHAPES/ISTRATS table addrs.
+- [x] retail_mapobj_spawn_vs_port: newobjex MAPOBJ (frame=10, xyz) vs
+  Game::map_exec — world coords + mapcnt/mapptr MATCH (shape/stratptr
+  encoding deferred).
+- [x] Tests coexec_retail retail_map_* (2). Ledger 2169/2169 True.
+- [x] Docs: PORTING_LOOP [x]; TIER2 spawn VM step marked done.
+- Next: multi-op newobjex coexec / pure helper re-cert / or stop the porting loop.
+
+SESSION_SUMMARY: retail mapobjdo/newobjex spawn VM coexec MATCH port map_exec.
+Ledger 100%. Next: multi-op map VM / stop the porting loop.
+
+Tick 220 (stop-hook):
+- [x] multi-op retail newobjex coexec: MAPOBJ frame=0 continues into second
+  MAPOBJ (frame=7) — two spawns, allst FIFO order, world set MATCH port;
+  MAPOBJ→mapwait parks mapcnt/mapptr MATCH.
+- [x] Tests coexec_retail retail_map_* (4). Ledger 2169/2169 True.
+- [x] Docs: PORTING_LOOP [x]; TIER2 spawn VM multi-op noted.
+- Next: shape/stratptr encoding / pure helper re-cert /
+  or stop the porting loop.
+
+SESSION_SUMMARY: multi-op newobjex MAPOBJ×2 + MAPOBJ→WAIT vs port MATCH.
+Ledger 100%. Next: shape encoding / pure helpers / stop the porting loop.
+
+Tick 221 (stop-hook):
+- [x] mapobjdo shape/stratptr encoding: retail shapes[20]=$C7C0 +
+  istrats[166]=$0ACF99 (spacebar, shape_byte=145) applied to al_shape/
+  al_stratptr; port flat shape=20 + StratId@166 → spacebar hardvars.
+  Representation differs (ROM word vs flat id / StratId); index contract MATCH.
+- [x] Tests retail_mapobj_shape_stratptr_encoding (+ prior retail_map_*).
+  Ledger 2169/2169 True.
+- [x] Docs: PORTING_LOOP [x]; TIER2 spawn VM encoding noted.
+- Next: pure helper re-cert leftovers (perc*/gen_vecs 2d) / retail non-spawn
+  opcodes / or stop the porting loop.
+
+SESSION_SUMMARY: mapobjdo shape/stratptr encoding certified (spacebar@166).
+Ledger 100%. Next: pure helpers / stop the porting loop.
+
+Tick 222 (stop-hook):
+- [x] retail pure helpers: locate alvelvecs_l=$1FC09F nvecs_l=$1FC177
+  perc56..93A_l=$1FD492..$1FD4DF (built −$18); tmpz=$7E z1=$90.
+- [x] coexec MATCH: nvecs_l == strat_nvecs; alvelvecs_l == strat_gen_vecs_2d
+  (8 cases); perc56/62/75/87/93A_l == strat_perc* (15 vals × 5).
+- [x] Tests retail_nvecs_alvelvecs_* + retail_perc_* (4). Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 pure-helper step done.
+- Next: retail non-spawn map opcodes / boss phase residuals /
+  or stop the porting loop.
+
+SESSION_SUMMARY: retail nvecs/alvelvecs/perc* coexec MATCH port helpers.
+Ledger 100%. Next: map non-spawn opcodes / stop the porting loop.
+
+Tick 223 (stop-hook):
+- [x] retail non-spawn map opcodes: WAIT/WAIT2 (zero parks)/END +
+  FADETOSEA/GROUND + SETBGM HP0 vs cart newobjex.
+- [x] Derived WRAM: palfade=$1EE9 last=$1EEB palnum=$1EED palcnt=$1EEF
+  pshipflags2=$14D7 bgm_music=$1F47 bgmcnt=$1F46.
+- [x] END: retail mapenddo=stx mapptr;rts; port levelfinished=1 latch noted.
+- [x] Tests retail_map_wait_wait2_end / fadetosea_ground / setbgm_hp0 /
+  nonspawn_addresses (4). Ledger 2169/2169 True.
+- [x] Docs: PORTING_LOOP [x]; TIER2 non-spawn step done.
+- Next: boss phase residuals (boss8 wait→a→b / boss2 states) /
+  map LOOP/SETVAR family / or stop the porting loop.
+
+SESSION_SUMMARY: retail WAIT/WAIT2/END/FADE/SETBGM coexec MATCH port map_exec.
+Ledger 100%. Next: boss phases / map LOOP / stop the porting loop.
+
+Tick 224 (stop-hook):
+- [x] retail map LOOP/SETVAR/JMPVAR: mapaddrs=$174B maploops=$1743
+  nummaploops=$1753 from maploopdo; SETVARB/W/L ext WRAM MATCH;
+  loop stored-C → C+1 waits (C=1/2/5); JMPVARLESS/MORE/EQ 30 cases.
+- [x] Tests retail_map_loop_* / setvar_* / jmpvar_* (4). Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 LOOP/SETVAR step done.
+- Next: boss phase residuals (boss8 wait→a→b / boss2 states) /
+  map JSR/GOTO/SETALVAR / or stop the porting loop.
+
+SESSION_SUMMARY: retail maploop/SETVAR/JMPVAR coexec MATCH port map_exec.
+Ledger 100%. Next: boss phases / map JSR / stop the porting loop.
+
+Tick 225 (stop-hook):
+- [x] retail map JSR/RTS/GOTO + SETALVAR/SETVAROBJ: stack=$1703
+  nummapjsr=$1730 depth=$1732; JSR return+wait; GOTO; SETALVARB/W/L +
+  invalid skip; SETVAROBJ valid write + sentinel keep.
+- [x] Tests retail_map_jsr_* / setalvar_* / setvarobj_* (4). Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 JSR/SETALVAR step done.
+- Next: boss phase residuals (boss8 wait→a→b / boss2 states) /
+  map REMOVE/rot/SETBG small ops / or stop the porting loop.
+
+SESSION_SUMMARY: retail JSR/RTS/GOTO/SETALVAR/SETVAROBJ coexec MATCH.
+Ledger 100%. Next: boss phases / map REMOVE / stop the porting loop.
+
+Tick 226 (stop-hook):
+- [x] retail map REMOVE + small state: first shape-7 only (player exempt);
+  SETX/Y/ZROT; ZROTON/OFF dozrot=$16F1; SETSTAGE stagecnt=$15B9;
+  SETBG currentbg=$1741 bgflags=$1F13; SPECIAL/CSPECIAL sot=$173C
+  (SPECIAL sflags→sflags4 remap).
+- [x] Tests retail_map_remove_* / small_state_* (3). Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 REMOVE/state step done.
+- Next: boss phase residuals (boss8 wait→a→b / boss2 states) /
+  map IF/CODEJSL / or stop the porting loop.
+
+SESSION_SUMMARY: retail REMOVE + rot/zrot/setstage/setbg/special coexec MATCH.
+Ledger 100%. Next: boss phases / map IF / stop the porting loop.
+
+Tick 227 (stop-hook):
+- [x] retail map IF/CODEJSL/SETPATH: mapifdo=$03F3DD SEC→else /
+  CLC→+6,mapcnt=1 (WRAM stubs); port unknown≡SEC; mapcodejsl=$03EEC0
+  advance+WAIT; SETPATH mapptr+3 (path-resolve remap).
+- [x] Tests retail_map_if_* / setpath_* (3). Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 IF/CODEJSL step done.
+- Next: boss phase residuals (boss8 wait→a→b / boss2 states) /
+  map VOFS/HOFS/fade / or stop the porting loop.
+
+SESSION_SUMMARY: retail IF/CODEJSL/SETPATH coexec MATCH port map_exec.
+Ledger 100%. Next: boss phases / map VOFS / stop the porting loop.
+
+Tick 228 (stop-hook):
+- [x] retail map VOFS/HOFS/fade: bg2scroll=$194D dohofs=$1953 dovofs=$1954
+  fadedir=$18B2 fade=$18B3 xinidisp1=$7E45F4; HOFSON/OFF latch GameVars.dohofs
+  (was advance-only no-op); FADE*/QFADE* fadedir ±1/±2 vs fade hooks;
+  WAITFADE park when fade!=0 or xinidisp1!=$80.
+- [x] Tests retail_map_vofs_fade_addresses / vofs_hofs_vs_port /
+  fade_waitfade_vs_port (3) + op_hofson_off_latches_dohofs. Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 9 done.
+- Next: boss phase residuals (boss8 wait→a→b / boss2 states 1–5) /
+  remaining map leftovers / or stop the porting loop.
+
+SESSION_SUMMARY: retail VOFS/HOFS/fade/WAITFADE coexec MATCH; dohofs port fix.
+Ledger 100%. Next: boss phases / stop the porting loop.
+
+Tick 229 (stop-hook):
+- [x] boss8 phase machine: fix B8_SFLAG4=$80 (sflags2) / B8_SFLAG5=$01 (sflags3)
+  to match ROM make_sflag (was $40/$80 on sflags2 — wrong).
+- [x] locate a_init=$079422 a_strat=$079451 b_init=$079539 b_strat=$0795A6.
+- [x] coexec MATCH: wait→a (all beams sflag1) / wait→cont (beam1 clear) /
+  a→b (sbyte2=0 hard) / b→wait; sflag4 + sbyte2 + beam clears.
+- [x] Tests retail_boss8_phase_addresses + phase_transitions_vs_port (2);
+  mediums/gaps still green. Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 10 + gap map updated.
+- Next: boss2 states 1–5 / boss8a HPLASMA / or stop the porting loop.
+
+SESSION_SUMMARY: boss8 wait↔a↔b phase coexec MATCH; sflag4/5 bit fix.
+Ledger 100%. Next: boss2 phases / stop the porting loop.
+
+Tick 230 (stop-hook):
+- [x] boss2 states 1–3: stratstate=$1CDC,x svar_byte5=$1530; call() Entry.dbr
+  ($7E) so xalblks abs,x works; leap→2 (sflag4 clear vy/worldy), slam flip+
+  falldown (rotz=deg180), back-away achase x→0 z+=pviewvelz+30.
+- [x] Tests retail_boss2_state_addresses + states_1_3_vs_port (2); prior
+  boss2 wait/init still green. Ledger 2169/2169.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 11 + gap map (4–5 remain).
+- Next: boss2 states 4–5 / boss8a HPLASMA / or stop the porting loop.
+
+SESSION_SUMMARY: boss2 leap/slam/back-away coexec MATCH; call() DBR support.
+Ledger 100%. Next: boss2 4–5 / stop the porting loop.
+
+Tick 231 (stop-hook):
+- [x] boss2 states 4–5: circle non-fire (sintab/costab vx/vz, top child #1
+  held, sbyte4>25); no-top →5 transition vecs #0,#10,#30 + dead gravity;
+  state5 player-dead (psf2_playerHP0) falldown + add_playerZ + .end roty.
+- [x] Test retail_boss2_states_4_5_vs_port; all retail_boss2_* green.
+  Ledger 2169/2169. Residual: fire-band laser + alive exp/RNG.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 12 + gap map.
+- Next: bossg mode table / boss1 GSU body / boss8a HPLASMA /
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss2 circle + player-dead fall coexec MATCH; phase machine closed.
+Ledger 100%. Next: bossg modes / stop the porting loop.
+
+=== tick 232 ===
+- [x] Leaf: bossg mode-table pure bodies (modes 0 / 1 scrollmsg / 11 waitabit2).
+- [x] Coexec: `retail_bossg_modes_vs_port` — mode0 far wz−40; mode0→1 into
+  scrollmsg; mode1 tx+=4+pviewvelz; mode11 sbyte1++/move2 (gameframe odd).
+  `RETAIL_AL_TX=$1CF4`; ROM mode in `al_stratstate@$1CDC` ↔ port `stratmem`.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 13 + gap map.
+- Next: bossg fish/shadow spawn / boss1 GSU body / boss8a HPLASMA /
+  boss2 fire-band residual / or stop the porting loop.
+
+SESSION_SUMMARY: bossg modes 0/1/11 coexec MATCH; fish/shadow spawn remain gap.
+Ledger 100%. Next: fish spawn / boss1 GSU / stop the porting loop.
+
+=== tick 233 ===
+- [x] Leaf: bossg mode-table pure bodies (3 runaway / 4→5 disappear /
+  6→7 appear / 7 moveto600h / 32 waitabit).
+- [x] Coexec: `retail_bossg_modes_more_vs_port` — runaway +70+pvz; disappear
+  maptrigger|1 + waitsometime hold (retail nullshape=$ACA1 vs port flat 1);
+  appear HP=120/AP=8/m_bossmaxhp; moveto600h wz−40; waitabit sbyte1++.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 14 + gap map.
+- Next: bossg fish/shadow/opentrunk spawn / boss1 GSU / boss8a HPLASMA /
+  or stop the porting loop.
+
+SESSION_SUMMARY: bossg modes 3/4→5/6→7/7/32 coexec MATCH; spawn modes remain.
+Ledger 100%. Next: fish spawn / boss1 GSU / stop the porting loop.
+
+=== tick 234 ===
+- [x] Leaf: bossg trunk anim + sf9e (modes 2/8/12).
+- [x] Coexec: `retail_bossg_trunk_anim_vs_port` — `RETAIL_AL_ANIMFRAME=$1CE7`;
+  mode2→3 sf9e; mode8 mid anim++ + open@9→11 fish cascade (fish undiffed);
+  mode12 mid anim−− + close@0→13 waitabit2.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 15 + gap map.
+- Next: bossg shadow-gen / fish AI / boss1 GSU / boss8a HPLASMA /
+  or stop the porting loop.
+
+SESSION_SUMMARY: bossg trunk/sf9e coexec MATCH; shadow-gen + fish AI remain.
+Ledger 100%. Next: shadow-gen / boss1 GSU / stop the porting loop.
+
+=== tick 235 ===
+- [x] Leaf: bossg generateshadows (mode 31) + bossgs shadow body.
+- [x] Coexec: `retail_bossg_genshadows_vs_port` — 3 clones sword1 −100/0/100,
+  wz−50, rots copy, stratptr=`bossgs_istrat@$04F55E` → waitabit; bossgs
+  `$04F581` Fchase worldx±5 + sbyte1−− + add_playerZ. `RETAIL_BOSSGS_ISTRAT`.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 16 + gap map.
+- Next: flyingfish AI / boss1 GSU / boss8a HPLASMA /
+  or stop the porting loop.
+
+SESSION_SUMMARY: bossg generateshadows + bossgs Fchase coexec MATCH; fish AI remain.
+Ledger 100%. Next: flyingfish / boss1 GSU / stop the porting loop.
+
+=== tick 236 ===
+- [x] Leaf: flyingfish INIT + swim + flying (bossg residual).
+- [x] Fix: port sflag bits → ROM make_sflag (landed=$20/sflag2, side=$40/sflag3;
+  launchrightfish sets $40). Was using $40/$80 (off-by-one).
+- [x] Coexec: `retail_flyingfish_vs_port` — INIT @$00FAD6; swim @$00FB03
+  achase ±200; flying @$00FC29 vy+2+addvecs. Splash undiffed.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 17; bossg family closed.
+- Next: boss1 GSU body / boss8a HPLASMA / boss2 fire-band /
+  or stop the porting loop.
+
+SESSION_SUMMARY: flyingfish coexec MATCH + sflag bit fix; bossg family closed.
+Ledger 100%. Next: boss1 GSU / boss8a HPLASMA / stop the porting loop.
+
+=== tick 237 ===
+- [x] Leaf: boss8a HPLASMA fire (frames 25/30).
+- [x] Coexec: `retail_boss8a_hplasma_vs_port` — easy path; frame25 shot
+  HP=1/AP=10/vel=60/life=50, yaw=firer.roty+deg180, al_ptr=playpt; frame26
+  quiet; frame30 fires. All retail_boss8_* green.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 18 + gap map.
+- Next: boss1 GSU body / boss2 fire-band /
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss8a HPLASMA coexec MATCH; boss8 fire residual closed.
+Ledger 100%. Next: boss1 GSU / boss2 fire-band / stop the porting loop.
+
+=== tick 238 ===
+- [x] Leaf: boss2 state-4 fire-band RELFASTELASER.
+- [x] Coexec: `retail_boss2_fireband_vs_port` — sbyte4≤25 + even
+  gameframe fires HP=1/AP=2/vel=90/life=40; sbyte4>25 / odd frame quiet
+  (notdelay 1). RNG aim undiffed; laserflash twin filtered by scalars.
+- [x] Docs: PORTING_LOOP [x]; TIER2 item 19 + gap map.
+- Next: boss2 alive exp/RNG / boss1 GSU body /
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss2 fire-band RELFASTELASER coexec MATCH; fire residual closed.
+Ledger 100%. Next: boss2 alive exp / boss1 GSU / stop the porting loop.

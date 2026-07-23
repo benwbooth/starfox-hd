@@ -23,14 +23,8 @@
 //! table.rs:210). The legs/top are spawned in-code by the mother, so they need
 //! no address.
 //!
-//! MAP-WIRING CAVEAT (reported to caller): sf-map's ported MAP1_4
-//! (`route1/level1_4.rs:312`) currently PLACEHOLDER-wires the boss_h_0 mapobj
-//! to `lc::IS_BOSS2` (the Attack-Carrier istrat) rather than to bossH — bossH
-//! had no ported strategy when that map landed. So bossH is registered and
-//! resolvable here, but will not spawn LIVE from MAP1_4 until that one line is
-//! rewired to place the boss via `STRAT_ADDR_BOSSH` (a `mapnobj(...,0x060011)`
-//! call). This mirrors the bossBrob "stub-pending" situation — the strategy is
-//! ready; the map hookup is a one-line follow-up outside this lane's files.
+//! sf-map's MAP1_4 places the boss through `STRAT_ADDR_BOSSH`, so this strategy
+//! is live on the route-1 Macbeth boss encounter.
 //!
 //! ── FIDELITY / SCOPE ───────────────────────────────────────────────────────
 //! Per task guidance a PLAYABLE, KILLABLE bossH beats an exhaustive one.
@@ -52,23 +46,21 @@
 //!   • death → mother `.explode` (kill top + remove teleport → boss explosion).
 //! SCOPED OUT (inline notes at each site): the deep leg sub-animation pose
 //! machine (bhl_scampering/waggle/lowerpose/middlepose/scamper2/3/moveto30/
-//! shakealeg — the walking-gait frame juggling, D3:602-844), the teleport
-//! prop + bonfire attack (teleporter_istrat/fire_bonfire, D3:892-978), the
-//! smoke puffs (`.createsmoke`), the two-shape leg swap (boss_h_1/boss_h_1a),
-//! and the exotic HPLASMA muzzle mesh (fired through the ported projectile
-//! helper). The choreography of the 22-entry mother mode table is condensed to
-//! its load-bearing phases (walkon → drop → rise/spin → attack-loop) with the
-//! ROM mode indices preserved for the phase gate; the pose/scuttle/teleport
-//! modes advance on a timer rather than driving leg poses.
+//! shakealeg — the walking-gait frame juggling, D3:602-844), the smoke puffs
+//! (`.createsmoke`), the two-shape leg swap (boss_h_1/boss_h_1a), and the
+//! exotic HPLASMA muzzle mesh (fired through the ported projectile helper).
+//! PORTED: `teleporter_istrat` + `fire_bonfire` (enemy_a) — D3:892-978.
+//! The choreography of the 22-entry mother mode table is condensed to its
+//! load-bearing phases (walkon → drop → rise/spin → attack-loop) with the ROM
+//! mode indices preserved for the phase gate; the pose/scuttle/teleport modes
+//! advance on a timer rather than driving leg poses.
 
 #![allow(dead_code)]
 
-use sf_game::alien::{
-    Alien, StratId, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW,
-};
-use sf_game::game::{Game, StrategyFn};
+use sf_game::alien::{Alien, StratId, ACF_COLLTYPE2, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
-use sf_game::vars::COLLTYPE_ENEMY1;
+use sf_game::vars::{HARD_AP, HARD_HP};
 use sf_game::world::World;
 
 use crate::common::{
@@ -76,9 +68,9 @@ use crate::common::{
     strat_spawn_projectile as spawn_projectile,
 };
 use crate::enemy_a::{
-    add_player_z, boss_apply_yaw_offset, boss_attach_child_to_mother, boss_clear_child_link,
-    boss_find_child_obj, boss_get_mother_obj, boss_yaw_offset_pos, player,
-    strat_boss_explode_init, strat_explode, strat_hit_flash, strat_pitch_toward, ASF3_CHILDOBJ,
+    add_player_z, boss_apply_yaw_offset, boss_attach_child_to_mother, boss_find_child_obj,
+    boss_get_mother_obj, boss_yaw_offset_pos, fire_bonfire, player, strat_boss_explode_init,
+    strat_explode, strat_hit_flash, strat_pitch_toward, ASF2_SFLAG1,
 };
 
 // ============================================================
@@ -114,6 +106,11 @@ const BOSSH_LEG4: u8 = 2;
 const BOSSH_LEG5: u8 = 4;
 const BOSSH_TOP: u8 = 6;
 const BOSSH_TELEPORT: u8 = 7;
+// Direct-address component meshes have no ISTRATS def_shape rows.  Their
+// stable extended ids are owned by tools/shape_compiler.py.
+const SH_BOSSH_LEG: u16 = 301;
+const SH_BOSSH_TOP: u16 = 303;
+const SH_BOSSH_TELEPORT: u16 = 304;
 
 /// Per-leg (child_num, offx, offy, offz, roty) from the five
 /// s_make_childobjrotpos calls (D3:479-487). Angles: deg72=51 deg144=102
@@ -152,12 +149,10 @@ const M_LAST_MODE: u8 = 21; // .crouch (last table entry)
 const BH_LOOPTOHERE: u8 = 13;
 
 // ============================================================
-// Registry / synthetic address.
+// Registry identity.
 // ============================================================
 
-/// The synthetic strategy address MAP1_4 uses for `bossh_istrat` (see module
-/// doc). Free slot in the 0x0600xx boss block.
-pub const STRAT_ADDR_BOSSH: u32 = 0x060011;
+pub const STRATEGY_BOSSH: sf_map::consts::DirectStrategy = sf_map::consts::DirectStrategy::BossH;
 
 fn sid(g: &mut Game, f: StrategyFn) -> StratId {
     if let Some(pos) = g
@@ -232,7 +227,7 @@ fn falldown_yvec(al: &mut Alien, bounceyness: u32, gravity: i16, ground: i16) ->
     al.worldy = ground; // s_set_alvar al_worldy,ground
     let mut v = al.vy.wrapping_neg() >> bounceyness;
     if (-5..=0).contains(&v) {
-        v = 0; // cmp #-5 / bcc / lda #0 clamp
+        v = 0;
     }
     al.vy = v;
     v == 0
@@ -270,7 +265,7 @@ pub fn bossh_init(g: &mut Game, idx: u16) {
         al.hp = BOSSH_HP; // s_set_aldata #bosshHP,#bosshAP
         al.ap = BOSSH_AP;
         al.sflags |= ASF_SHADOW; // s_set_alsflag shadow
-        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype ENEMY1
+        al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
         al.depthoffset = 1; // s_set_alvar al_depthoffset,#1
         al.sbyte3 = 1; // s_set_alvar al_sbyte3,#1 (spin rate)
         al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag nohitaffect
@@ -289,7 +284,7 @@ pub fn bossh_init(g: &mut Game, idx: u16) {
 fn generate(g: &mut Game, idx: u16) {
     // s_make_mother marks the mother; boss_attach_child_to_mother sets the flag.
     for &(child_num, _ox, _oy, _oz, roty) in LEG_LAYOUT.iter() {
-        if let Some(leg) = spawn_child(g, idx, bosshleg_init) {
+        if let Some(leg) = spawn_child(g, idx, SH_BOSSH_LEG, bosshleg_init) {
             if boss_attach_child_to_mother(g, idx, leg, child_num) {
                 // s_make_childobjrotpos seeds the leg's arrangement facing.
                 g.objs.aliens[leg as usize].roty = roty;
@@ -299,7 +294,7 @@ fn generate(g: &mut Game, idx: u16) {
             }
         }
     }
-    if let Some(top) = spawn_child(g, idx, bosshtop_init) {
+    if let Some(top) = spawn_child(g, idx, SH_BOSSH_TOP, bosshtop_init) {
         if !boss_attach_child_to_mother(g, idx, top, BOSSH_TOP) {
             g.objs.free(top);
         }
@@ -309,13 +304,14 @@ fn generate(g: &mut Game, idx: u16) {
 
 /// Allocate + init a child object (local copy of bosses.rs `boss2_spawn_child`
 /// minus the mother-attach, which .generate does explicitly per child).
-fn spawn_child(g: &mut Game, mother: u16, init_fn: StrategyFn) -> Option<u16> {
+fn spawn_child(g: &mut Game, mother: u16, shape: u16, init_fn: StrategyFn) -> Option<u16> {
     let child = g.objs.alloc()?;
     strat_init_obj_vars(&mut g.objs.aliens[child as usize]);
     // s_copy_pos y,x — seat at the mother; rotpos will refine it.
     let m = g.objs.aliens[mother as usize];
     {
         let al = &mut g.objs.aliens[child as usize];
+        al.shape = shape;
         al.worldx = m.worldx;
         al.worldy = m.worldy;
         al.worldz = m.worldz;
@@ -403,7 +399,7 @@ fn mode_walkon(g: &mut Game, idx: u16) {
         g.objs.aliens[idx as usize].worldx = g.objs.aliens[idx as usize].worldx.wrapping_add(-25);
         moved = true;
     }
-    // lda #2500 / jsr d3zdistless / bcc skip / s_add_alvar al_worldz,#20.
+    // Move forward while within the source routine's 2,500-unit threshold.
     if zdist_less(g, idx, 2500) {
         g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(20);
         moved = true;
@@ -484,7 +480,7 @@ fn bh_move(g: &mut Game, idx: u16) {
         al.roty = al.roty.wrapping_add(al.sbyte3);
     }
     add_player_z(g, idx); // s_add_playerz x
-    // s_jmp_childrendead x,#1,#5,.setcoltab.
+                          // s_jmp_childrendead x,#1,#5,.setcoltab.
     if children_dead(g, idx, 1, 5) {
         let al = &mut g.objs.aliens[idx as usize];
         al.coltab = ID_1_C; // s_set_coltab x,#id_1_c
@@ -495,7 +491,7 @@ fn bh_move(g: &mut Game, idx: u16) {
     }
     g.objs.aliens[idx as usize].tx = g.objs.aliens[idx as usize].tx.wrapping_add(5);
     position_children(g, idx); // jsr .position
-    // s_add_bossHP x,al_hp ; s_add_bossHP bosshhitcount.
+                               // s_add_bossHP x,al_hp ; s_add_bossHP bosshhitcount.
     add_bosshp_obj(g, idx);
     let hc = hitcount(&g.objs.aliens[idx as usize]);
     add_bosshp_val(g, hc);
@@ -541,7 +537,7 @@ pub fn bosshleg_init(g: &mut Game, idx: u16) {
     al.hp = BOSSHLEG_HP; // effective HP (see note; ROM = bosshlegHP+64)
     al.ap = BOSSHLEG_AP;
     al.depthoffset = 1; // s_set_alvar al_depthoffset,#1
-    al.collflags |= COLLTYPE_ENEMY1;
+    al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
 }
 
 /// bosshleg .strat (D3:602-844): the walking-gait pose machine. SCOPED to a
@@ -568,9 +564,11 @@ fn bosshleg_explode(g: &mut Game, idx: u16) {
         sub_hitcount(&mut g.objs.aliens[mother as usize], 5);
     }
     // s_set_objtobemother / s_remove_child x,y — unlink so children_dead sees
-    // it gone even before the pool frees the object.
-    boss_clear_child_link(g, idx);
-    g.objs.aliens[idx as usize].sflags3 &= !ASF3_CHILDOBJ;
+    // it gone even before the pool frees the object.  This must splice the
+    // child out of the mother's singly-linked list before clearing sword1;
+    // boss_clear_child_link alone would sever the list at this leg and orphan
+    // every later leg plus bossh_top.
+    g.objs.divorce_family(idx);
     g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE; // s_set_alsflag colldisable
     strat_explode(g, idx); // -> the falling explode burst (condensed)
 }
@@ -593,7 +591,7 @@ pub fn bosshtop_init(g: &mut Game, idx: u16) {
     al.hp = HARDHP; // s_set_aldata #bosshtopHP(hardHP),#bosshtopAP
     al.ap = HARDAP;
     al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag nohitaffect
-    al.collflags |= COLLTYPE_ENEMY1;
+    al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
 }
 
 /// bosshtop .strat (D3:874-889): spin the child rotation; when the top faces
@@ -614,22 +612,121 @@ fn bosshtop_strat(g: &mut Game, idx: u16) {
             let yaw = angle_xz(&m, &p);
             let pitch = strat_pitch_toward(&m, &p);
             let _ = spawn_projectile(g, Some(idx), 0, -50, 0, pitch, yaw, 60, 255, 8, 0x40);
+            // ROM `s_fire_weapon x,HPLASMA` → gen_weapon `jsl enemybattrysound_l`.
+            g.hooks
+                .make_snd(PosSndFamilyId::EnemyBattry, m.worldx, m.worldz);
         }
     }
+}
+
+// ============================================================
+// teleporter_istrat — bossH teleport prop + bonfire (D3STRATS.ASM:892-931).
+// ============================================================
+
+/// 3-arg `s_add_anim` wrap (STRATLIB.INC:180): keep 0x80 active bit.
+fn tele_add_anim_wrap(al: &mut Alien, amount: i8, maxframes: u8) {
+    let mut f = (al.animframe & 0x7F) as i8;
+    f = f.wrapping_add(amount);
+    if f < 0 {
+        // ROM: after adc negative, bmi skips the +max wrap-up only when bit7 set
+        // on the raw sum; with 0x80|frame the usual path wraps via +max then &127.
+        f = f.wrapping_add(maxframes as i8);
+    }
+    let mut u = (f as u8) & 0x7F;
+    if u >= maxframes {
+        u -= maxframes;
+    }
+    al.animframe = 0x80 | u;
+}
+
+/// 4-arg `s_add_anim` with jump: advance; if past max, clamp to max-1 and return true.
+fn tele_add_anim_jmp(al: &mut Alien, amount: i8, maxframes: u8) -> bool {
+    let mut f = ((al.animframe & 0x7F) as i8).wrapping_add(amount);
+    if f < 0 {
+        f = f.wrapping_add(maxframes as i8);
+    }
+    let u = (f as u8) & 0x7F;
+    if u >= maxframes {
+        al.animframe = 0x80 | (maxframes - 1);
+        true
+    } else {
+        al.animframe = 0x80 | u;
+        false
+    }
+}
+
+/// ROM `teleporter_istrat` (D3STRATS.ASM:892) — falls through into `.strat`.
+pub fn teleporter_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, teleporter_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.shape = SH_BOSSH_TELEPORT;
+        al.animframe = 0x80; // s_init_anim x,#0
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.sflags |= ASF_COLLDISABLE;
+        al.stratptr = Some(tick);
+        al.sbyte2 = 50;
+    }
+    teleporter_strat(g, idx);
+}
+
+/// ROM teleporter `.strat` — rise + bonfire at sbyte2∈{20,1}; sflag1 → retract/remove.
+pub fn teleporter_strat(g: &mut Game, idx: u16) {
+    // s_jmp_notalsflag x,sflag1,.nodie
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        if (g.objs.aliens[idx as usize].animframe & 0x7F) == 0 {
+            g.objs.aldead = 1; // .nomore2
+            return;
+        }
+        tele_add_anim_wrap(&mut g.objs.aliens[idx as usize], -1, 16);
+        teleporter_move(g, idx);
+        return;
+    }
+
+    let sb = g.objs.aliens[idx as usize].sbyte2;
+    if sb == 20 || sb == 1 {
+        let _ = fire_bonfire(g, idx);
+    }
+
+    // s_beqdec_alvar B,x,al_sbyte2,.knockitdown
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        // .knockitdown: s_add_anim #1,#20,.nomore2 ; bra .nomore
+        if tele_add_anim_jmp(&mut g.objs.aliens[idx as usize], 1, 20) {
+            g.objs.aldead = 1;
+            return;
+        }
+        g.objs.aliens[idx as usize].ty = g.objs.aliens[idx as usize].ty.wrapping_sub(5);
+        teleporter_move(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte2 -= 1;
+
+    // s_add_anim x,#1,#10,.nomore — on cap still runs .nomore (ty-=5)
+    let _ = tele_add_anim_jmp(&mut g.objs.aliens[idx as usize], 1, 10);
+    g.objs.aliens[idx as usize].ty = g.objs.aliens[idx as usize].ty.wrapping_sub(5);
+    teleporter_move(g, idx);
+}
+
+fn teleporter_move(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotx = 0;
+    al.roty = 0;
+    al.rotz = 0;
 }
 
 // ============================================================
 // Registration.
 // ============================================================
 
-/// Register bossH under its synthetic map address (see module doc for the
-/// MAP1_4 rewire caveat). Called from table::register_all after the other
-/// register() calls.
+/// Register bossH under its typed authored-map identity.
 pub fn register(world: &mut World) {
     let id = wsid(world, bossh_init);
-    world.register_strategy_address(STRAT_ADDR_BOSSH, id);
+    world.register_direct_strategy(STRATEGY_BOSSH, id);
     // Pre-register the child strategies so their registry ids exist even before
     // a mother spawns them (mirrors how sids resolve at runtime).
     let _ = wsid(world, bosshleg_init);
     let _ = wsid(world, bosshtop_init);
+    let _ = wsid(world, teleporter_istrat);
 }

@@ -6,4 +6,21 @@ license.workspace = true
 
 [dependencies]
 sf-core.workspace = true
-sf-spc.workspace = true
+sf-spc = { workspace = true, optional = true }
+
+[features]
+default = []
+# Verification-only playback of the original sound processor program. The
+# shipping application never enables this feature.
+oracle-audio = ["dep:sf-spc"]
+
+[dev-dependencies]
+sf2-data = { workspace = true, features = ["oracle-data"] }
+
+[[example]]
+name = "render_native_assets"
+required-features = ["oracle-audio"]
+
+[[example]]
+name = "render_sf2_native_assets"
+required-features = ["oracle-audio"]

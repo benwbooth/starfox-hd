@@ -57,13 +57,12 @@ const ON: i32 = 1;
 #[allow(dead_code)]
 const OFF: i32 = 0;
 
-// src/path/path_literals.c SH_* shape ids (flat runtime shape numbering; the
-// SH_NULLSHAPE proxies are documented gaps carried over from C).
+// Source path shapes expressed as native flat ids for the ROM-less catalog.
 const SH_NULLSHAPE: i32 = 0;
 const SH_PILLAR3: i32 = 27;
 const SH_BOM_WING: i32 = 48;
 const SH_R_BU_7: i32 = 102;
-const SH_ROBOT_0: i32 = 169;
+const SH_ROBOT_0: i32 = 420;
 const SH_B_HOU_0: i32 = 164;
 const SH_S_HOU_0: i32 = SH_B_HOU_0;
 const SH_WALKER_2: i32 = 164;
@@ -71,8 +70,7 @@ const SH_GATE_2: i32 = 210;
 const SH_ZACO_A: i32 = 217;
 const SH_ZACO_B: i32 = 224;
 const SH_FRIENDSHIP_4: i32 = 218;
-// `flower` still lacks a recovered flat runtime shape id (C comment).
-const SH_FLOWER: i32 = SH_NULLSHAPE;
+const SH_FLOWER: i32 = 442;
 const SH_BOSS_7_0: i32 = 240;
 const SH_BOSS_7_1: i32 = 241;
 const SH_BOSS_7_1O: i32 = 242;
@@ -82,12 +80,14 @@ const SH_BOSS_7_4: i32 = 245;
 const SH_ARCH_0: i32 = 228;
 const SH_TOW_0: i32 = 247;
 const SH_PILLAR3_NS: i32 = SH_PILLAR3;
+// `mediumshape` is a source collision/explosion envelope with no vertices or
+// faces; null is its exact visual representation in the native renderer.
 const SH_MEDIUMSHAPE: i32 = SH_NULLSHAPE;
-const SH_ASTEROID1: i32 = SH_NULLSHAPE;
-const SH_EGG: i32 = SH_NULLSHAPE;
-const SH_BOSS_D_8: i32 = SH_NULLSHAPE;
-const SH_BOSS_D_9: i32 = SH_NULLSHAPE;
-const SH_BIG_BIRD: i32 = SH_NULLSHAPE;
+const SH_ASTEROID1: i32 = 275;
+const SH_EGG: i32 = 386;
+const SH_BOSS_D_8: i32 = 387;
+const SH_BOSS_D_9: i32 = 388;
+const SH_BIG_BIRD: i32 = 443;
 
 // src/path/path_literals.c COLTAB_ID_1_C (renderer currently ignores coltab).
 const COLTAB_ID_1_C: i32 = 1;

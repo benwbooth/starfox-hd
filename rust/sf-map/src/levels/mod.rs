@@ -10,6 +10,7 @@ pub mod route1;
 pub mod route2;
 pub mod route3;
 pub mod title;
+pub(crate) mod tunnel;
 
 use crate::builder::Label;
 use crate::consts::op;
@@ -25,6 +26,8 @@ pub enum NativeCallback {
     ClGroundWipeout,
     /// C `cl_dive_clear_enginesnd` @ MAP_CB_CL_DIVE_CLEAR_ENGINESND
     ClDiveClearEnginesnd,
+    /// Titania post-fog scene transition (`bg_1_4b_1`).
+    TitaniaClearFogScene,
 }
 
 /// Identity of an inline map-code callback (C: `World_RegisterInlineMapCode`,

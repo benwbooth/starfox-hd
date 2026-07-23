@@ -13,20 +13,58 @@
 //!  (c) Title frame vs the C-build golden (8x8 region averages captured
 //!      once from SF_DUMP_PPM; exact hash impractical across GPU scaling,
 //!      so per-region average deltas must stay <= 4).
+//!  (d) An SF2 campaign missile samples the retail SF2 descriptor table and
+//!      packed-nibble texture bank without falling back to debug magenta.
+//!  (e) The SF1 end-level tally uses its native graph, teammate portraits,
+//!      and shield bars instead of falling through to the planet map.
 
 use std::path::PathBuf;
 
 use sf_render::draw_list::{DrawListEntry, DL_FLAG_VISIBLE};
+use sf_render::gpu::{Gpu, Vertex3};
 use sf_render::renderer::{
-    config_from_repo_root, FrameInputs, GameState, Renderer,
+    config_from_repo_root, EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState,
+    Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2FrameInputs, Sf2MissionBackdrop,
+    Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase, Sf2StrategicActor, Sf2StrategicActorAppearance,
+    Sf2StrategicActorKind, Sf2TitleMenuItem, Sf2TitlePage, SF2_RADAR_CONTACT_CAPACITY,
 };
-use sf_render::shapes::{self, SHAPE_MYSHIP_4};
+use sf_render::shape_data::SHAPE_EXT_ASTEROID1;
+use sf_render::shapes::{self, SHAPE_ELASER2, SHAPE_MYSHIP_4};
 
 mod common;
 use common::{grid_8x8, C_TITLE_GOLDEN_8X8};
 
 const W: u32 = 1280;
 const H: u32 = 720;
+const SF2_TEST_MISSION_TIME_TENTHS: u16 = 11;
+const SF2_MAP_WIDTH: i32 = 256;
+const SF2_MAP_HEIGHT: i32 = 224;
+const DITHER_TEST_WIDTH: u32 = 512;
+const DITHER_TEST_HEIGHT: u32 = 448;
+const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
+const FNV_PRIME: u32 = 0x01000193;
+const FIRST_RETURN_FNV1A: u32 = 0x92CFDF43;
+const SECOND_RETURN_FNV1A: u32 = 0xC250FC31;
+const POST_INTERCEPTION_RETURN_FNV1A: u32 = 0x21EA4E82;
+const POST_FIGHTER_INTERCEPT_RETURN_FNV1A: u32 = 0x55FCE0B4;
+const POST_PIGMA_RETURN_FNV1A: u32 = 0x82C530D7;
+const POST_ELADARD_RETURN_FNV1A: u32 = 0xB49B8694;
+const POST_CARRIER_RETURN_FNV1A: u32 = 0x7FC7CEFE;
+const POST_LEON_RETURN_FNV1A: u32 = 0xB902871D;
+const POST_MIRAGE_RETURN_FNV1A: u32 = 0x98A81655;
+
+#[derive(Clone, Copy)]
+enum StrategicReturn {
+    First,
+    Second,
+    PostInterception,
+    PostFighterIntercept,
+    PostPigma,
+    PostEladard,
+    PostCarrier,
+    PostLeon,
+    PostMirage,
+}
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -46,6 +84,8 @@ fn expected_rgb8(color: [f32; 4]) -> [u8; 3] {
 
 #[test]
 fn gl_runtime_suite() {
+    check_palette_pair_dither();
+
     let config = config_from_repo_root(&repo_root());
     let mut renderer = match Renderer::new_headless(W as i32, H as i32, &config) {
         Ok(r) => r,
@@ -59,9 +99,779 @@ fn gl_runtime_suite() {
 
     check_title_golden(&mut renderer);
     check_bg_1_1c_sky(&mut renderer);
+    check_sf1_tally(&mut renderer);
     check_arwing(&mut renderer);
+    check_sf2_shape(&mut renderer);
+    check_sf2_texture_face(&mut renderer);
+    check_sf2_native_frontend(&mut renderer);
+    check_sf2_mission_backdrops(&mut renderer);
+    check_superfx_texture_face(&mut renderer);
+    check_player_laser(&mut renderer);
 
     renderer.shutdown();
+    check_sf1_ending_recap(&config);
+    check_sf2_strategic_returns_exact(&config);
+}
+
+fn check_sf1_ending_recap(config: &RendererConfig) {
+    const WIDTH: usize = 256;
+    const HEIGHT: usize = 224;
+    const PANEL_LEFT: usize = 112;
+    const PANEL_TOP: usize = 16;
+    const PANEL_WIDTH: usize = 128;
+    const PANEL_HEIGHT: usize = 136;
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x00000100000001b3;
+    const EXPECTED: [(EndingReplayBackdrop, u64); 2] = [
+        (EndingReplayBackdrop::RisingGradient, 0x764b0b891087caa5),
+        (EndingReplayBackdrop::SplitGradient, 0xc85ebbfcf15eca25),
+    ];
+
+    let mut renderer = match Renderer::new_headless(WIDTH as i32, HEIGHT as i32, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping ending recap check: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    for (backdrop, expected_panel_hash) in EXPECTED {
+        let inputs = FrameInputs {
+            game_state: GameState::Ending,
+            ending_replay: Some(EndingReplayInputs {
+                backdrop,
+                title: "LEVEL 1",
+                subtitle: None,
+                location: Some("CORNERIA"),
+                location_second_line: None,
+                details: [
+                    "NAME   - ATTACK CARRIER",
+                    "WEAPON - MISSILE BLASTER",
+                    "SIZE   - H70*W100*D150",
+                ],
+                detail_characters_visible: 1,
+            }),
+            ..Default::default()
+        };
+        renderer.begin_frame();
+        renderer.submit(&[], &[], 1.0, &inputs);
+        renderer.end_frame();
+        let pixels = renderer.read_pixels_rgb();
+        let mut panel_hash = FNV_OFFSET;
+        for row in PANEL_TOP..PANEL_TOP + PANEL_HEIGHT {
+            let start = (row * WIDTH + PANEL_LEFT) * 3;
+            let end = start + PANEL_WIDTH * 3;
+            for &byte in &pixels[start..end] {
+                panel_hash = (panel_hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME);
+            }
+        }
+        assert_eq!(panel_hash, expected_panel_hash, "{backdrop:?} panel");
+
+        let header = &pixels[(24 * WIDTH + 16) * 3..(48 * WIDTH) * 3];
+        assert!(
+            header.chunks_exact(3).any(|pixel| pixel == [74, 239, 255]),
+            "retail cyan recap glyph layer missing"
+        );
+        let first_detail = &pixels[(168 * WIDTH + 16) * 3..(176 * WIDTH + 24) * 3];
+        assert!(
+            first_detail
+                .chunks_exact(3)
+                .any(|pixel| pixel == [255, 255, 255]),
+            "first gradually revealed detail glyph missing"
+        );
+    }
+    renderer.shutdown();
+}
+
+fn check_sf1_tally(renderer: &mut Renderer) {
+    let inputs = FrameInputs {
+        game_state: GameState::Tally,
+        newmap: 1,
+        meters: 1,
+        score: 0,
+        tally_active: true,
+        tally_stage_perc: 65,
+        tally_current_perc: 30,
+        tally_teammate_shields: [40, 20, 0],
+        ..Default::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+
+    let pixels = renderer.read_pixels_rgb();
+    if let Some(path) = std::env::var_os("SF1_TALLY_DUMP_PPM") {
+        let mut ppm = format!("P6\n{W} {H}\n255\n").into_bytes();
+        ppm.extend_from_slice(&pixels);
+        std::fs::write(path, ppm).expect("write requested SF1 tally dump");
+    }
+
+    let cyan = pixels
+        .chunks_exact(3)
+        .filter(|pixel| color_near(pixel, [104, 216, 248], 3))
+        .count();
+    let pink = pixels
+        .chunks_exact(3)
+        .filter(|pixel| color_near(pixel, [240, 88, 104], 3))
+        .count();
+    let distinct = pixels
+        .chunks_exact(3)
+        .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        cyan > 500,
+        "tally percentage graph is absent ({cyan} pixels)"
+    );
+    assert!(
+        pink > 1_000,
+        "tally teammate bars are absent ({pink} pixels)"
+    );
+    assert!(
+        distinct.len() > 30,
+        "tally portraits collapsed to {} framebuffer colors",
+        distinct.len()
+    );
+}
+
+fn check_palette_pair_dither() {
+    let mut gpu = match Gpu::new_headless(DITHER_TEST_WIDTH, DITHER_TEST_HEIGHT) {
+        Ok(gpu) => gpu,
+        Err(e) => {
+            eprintln!("skipping palette-pair dither check: no wgpu adapter ({e})");
+            return;
+        }
+    };
+    let identity = [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ];
+    let quad = [
+        Vertex3 {
+            pos: [-1.0, -1.0, 0.0],
+        },
+        Vertex3 {
+            pos: [1.0, -1.0, 0.0],
+        },
+        Vertex3 {
+            pos: [1.0, 1.0, 0.0],
+        },
+        Vertex3 {
+            pos: [-1.0, -1.0, 0.0],
+        },
+        Vertex3 {
+            pos: [1.0, 1.0, 0.0],
+        },
+        Vertex3 {
+            pos: [-1.0, 1.0, 0.0],
+        },
+    ];
+    let mut palette = [[0.0; 4]; 16];
+    palette[1] = [1.0, 0.0, 0.0, 1.0];
+    palette[2] = [0.0, 1.0, 0.0, 1.0];
+
+    gpu.begin_frame();
+    gpu.set_clear_color(0.0, 0.0, 1.0, 1.0);
+    gpu.push_palette_pair_tris(&quad, &identity, &identity, &identity, &palette, [1, 2]);
+    gpu.end_frame();
+    let (width, _, pixels) = gpu.read_pixels().expect("headless dither readback");
+    let pixel = |x: usize, y: usize| {
+        let offset = (y * width as usize + x) * 4;
+        [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
+    };
+
+    // The 2x presentation scale must preserve each source pixel as a 2x2
+    // block: equal X/Y parity selects low red, differing parity high green.
+    assert_eq!(pixel(0, 0), [255, 0, 0]);
+    assert_eq!(pixel(1, 0), [255, 0, 0]);
+    assert_eq!(pixel(2, 0), [0, 255, 0]);
+    assert_eq!(pixel(3, 0), [0, 255, 0]);
+    assert_eq!(pixel(0, 2), [0, 255, 0]);
+    assert_eq!(pixel(2, 2), [255, 0, 0]);
+
+    // Palette entry zero remains transparent and does not cover the clear.
+    gpu.begin_frame();
+    gpu.push_palette_pair_tris(&quad, &identity, &identity, &identity, &palette, [0, 2]);
+    gpu.end_frame();
+    let (width, _, pixels) = gpu.read_pixels().expect("transparent dither readback");
+    let pixel = |x: usize, y: usize| {
+        let offset = (y * width as usize + x) * 4;
+        [pixels[offset], pixels[offset + 1], pixels[offset + 2]]
+    };
+    assert_eq!(pixel(0, 0), [0, 0, 255]);
+    assert_eq!(pixel(2, 0), [0, 255, 0]);
+}
+
+const fn strategic_actor(
+    kind: Sf2StrategicActorKind,
+    appearance: Sf2StrategicActorAppearance,
+    x: i16,
+    y: i16,
+) -> Option<Sf2StrategicActor> {
+    Some(Sf2StrategicActor {
+        kind,
+        appearance,
+        position: sf_render::renderer::Sf2MapPoint { x, y },
+    })
+}
+
+fn strategic_return_inputs(checkpoint: StrategicReturn) -> FrameInputs<'static> {
+    use Sf2StrategicActorAppearance::{
+        EscalatedAssault, OpeningAssault, PostCarrier, PostEladard, PostFighterIntercept,
+        PostInterception, PostLeon, PostMirage, PostPigma,
+    };
+    use Sf2StrategicActorKind::{
+        AttackingFighter, DefensePlatform, EasternInterceptor, EnemyCarrier, EnemyFormation,
+        FighterProjectile, Missile, MissileTrail, NorthernInstallation, PatrolShip, RivalFighter,
+        SouthernInstallation, UnknownSignal,
+    };
+
+    let (actors, completed_sorties) = match checkpoint {
+        StrategicReturn::First => (
+            [
+                strategic_actor(NorthernInstallation, OpeningAssault, 16, 14),
+                strategic_actor(SouthernInstallation, OpeningAssault, 208, 110),
+                strategic_actor(EnemyCarrier, OpeningAssault, 220, 7),
+                strategic_actor(EnemyFormation, OpeningAssault, 62, 40),
+                strategic_actor(EasternInterceptor, OpeningAssault, 203, 88),
+                strategic_actor(PatrolShip, OpeningAssault, 12, 150),
+                strategic_actor(MissileTrail, OpeningAssault, 100, 132),
+                strategic_actor(Missile, OpeningAssault, 180, 117),
+                None,
+                None,
+            ],
+            1,
+        ),
+        StrategicReturn::Second => (
+            [
+                strategic_actor(NorthernInstallation, EscalatedAssault, 16, 14),
+                strategic_actor(SouthernInstallation, EscalatedAssault, 208, 110),
+                strategic_actor(EnemyCarrier, EscalatedAssault, 220, 7),
+                strategic_actor(EnemyFormation, EscalatedAssault, 45, 45),
+                strategic_actor(EasternInterceptor, EscalatedAssault, 198, 89),
+                strategic_actor(PatrolShip, EscalatedAssault, 12, 150),
+                strategic_actor(Missile, EscalatedAssault, 147, 125),
+                None,
+                None,
+                None,
+            ],
+            2,
+        ),
+        StrategicReturn::PostInterception => (
+            [
+                strategic_actor(NorthernInstallation, PostInterception, 16, 14),
+                strategic_actor(SouthernInstallation, PostInterception, 208, 110),
+                strategic_actor(EnemyCarrier, PostInterception, 220, 7),
+                strategic_actor(EnemyFormation, PostInterception, 47, 66),
+                strategic_actor(EasternInterceptor, PostInterception, 172, 94),
+                strategic_actor(PatrolShip, PostInterception, 12, 150),
+                strategic_actor(AttackingFighter, PostInterception, 132, 119),
+                None,
+                None,
+                None,
+            ],
+            3,
+        ),
+        StrategicReturn::PostFighterIntercept => (
+            [
+                strategic_actor(NorthernInstallation, PostFighterIntercept, 16, 14),
+                strategic_actor(SouthernInstallation, PostFighterIntercept, 208, 110),
+                strategic_actor(EnemyCarrier, PostFighterIntercept, 220, 7),
+                strategic_actor(EnemyFormation, PostFighterIntercept, 46, 64),
+                strategic_actor(EasternInterceptor, PostFighterIntercept, 170, 95),
+                strategic_actor(PatrolShip, PostFighterIntercept, 12, 150),
+                strategic_actor(AttackingFighter, PostFighterIntercept, 135, 119),
+                strategic_actor(FighterProjectile, PostFighterIntercept, 86, 136),
+                None,
+                None,
+            ],
+            4,
+        ),
+        StrategicReturn::PostPigma => (
+            [
+                strategic_actor(NorthernInstallation, PostPigma, 16, 14),
+                strategic_actor(SouthernInstallation, PostPigma, 208, 110),
+                strategic_actor(EnemyCarrier, PostPigma, 220, 7),
+                strategic_actor(EnemyFormation, PostPigma, 44, 71),
+                strategic_actor(EasternInterceptor, PostPigma, 140, 95),
+                strategic_actor(PatrolShip, PostPigma, 12, 145),
+                strategic_actor(RivalFighter, PostPigma, 211, 120),
+                strategic_actor(FighterProjectile, PostPigma, 115, 132),
+                None,
+                None,
+            ],
+            5,
+        ),
+        StrategicReturn::PostEladard => (
+            [
+                strategic_actor(NorthernInstallation, PostEladard, 16, 12),
+                strategic_actor(SouthernInstallation, PostEladard, 208, 110),
+                strategic_actor(EnemyCarrier, PostEladard, 220, 7),
+                strategic_actor(EnemyFormation, PostEladard, 41, 75),
+                strategic_actor(EasternInterceptor, PostEladard, 161, 96),
+                strategic_actor(PatrolShip, PostEladard, 12, 150),
+                strategic_actor(AttackingFighter, PostEladard, 192, 122),
+                strategic_actor(UnknownSignal, PostEladard, 45, 101),
+                strategic_actor(FighterProjectile, PostEladard, 86, 139),
+                None,
+            ],
+            6,
+        ),
+        StrategicReturn::PostCarrier => (
+            [
+                strategic_actor(NorthernInstallation, PostCarrier, 16, 14),
+                strategic_actor(SouthernInstallation, PostCarrier, 208, 110),
+                strategic_actor(EnemyCarrier, PostCarrier, 220, 7),
+                strategic_actor(EnemyFormation, PostCarrier, 25, 78),
+                strategic_actor(AttackingFighter, PostCarrier, 125, 112),
+                strategic_actor(PatrolShip, PostCarrier, 12, 150),
+                strategic_actor(UnknownSignal, PostCarrier, 54, 123),
+                strategic_actor(MissileTrail, PostCarrier, 8, 80),
+                strategic_actor(Missile, PostCarrier, 24, 111),
+                strategic_actor(FighterProjectile, PostCarrier, 49, 148),
+            ],
+            7,
+        ),
+        StrategicReturn::PostLeon => (
+            [
+                strategic_actor(NorthernInstallation, PostLeon, 16, 14),
+                strategic_actor(SouthernInstallation, PostLeon, 208, 110),
+                strategic_actor(EnemyCarrier, PostLeon, 220, 7),
+                strategic_actor(EnemyFormation, PostLeon, 25, 78),
+                strategic_actor(AttackingFighter, PostLeon, 125, 112),
+                strategic_actor(PatrolShip, PostLeon, 12, 150),
+                strategic_actor(UnknownSignal, PostLeon, 54, 123),
+                strategic_actor(MissileTrail, PostLeon, 8, 80),
+                strategic_actor(Missile, PostLeon, 24, 111),
+                strategic_actor(FighterProjectile, PostLeon, 49, 148),
+            ],
+            8,
+        ),
+        StrategicReturn::PostMirage => (
+            [
+                strategic_actor(NorthernInstallation, PostMirage, 16, 14),
+                strategic_actor(SouthernInstallation, PostMirage, 208, 110),
+                strategic_actor(EnemyCarrier, PostMirage, 220, 7),
+                strategic_actor(EnemyFormation, PostMirage, 25, 78),
+                strategic_actor(AttackingFighter, PostMirage, 14, 120),
+                strategic_actor(PatrolShip, PostMirage, 12, 150),
+                strategic_actor(DefensePlatform, PostMirage, 72, 102),
+                strategic_actor(UnknownSignal, PostMirage, 39, 143),
+                strategic_actor(FighterProjectile, PostMirage, 104, 113),
+                None,
+            ],
+            9,
+        ),
+    };
+    let mut inputs = sf2_inputs(Sf2Mode::StrategicMap);
+    let sf2 = inputs.sf2.as_mut().expect("SF2 fixture");
+    sf2.primary_pilot = Some(Sf2Pilot::Fox);
+    sf2.wingmate = Some(Sf2Pilot::Slippy);
+    sf2.item_count = 3;
+    sf2.campaign_sorties_completed = completed_sorties;
+    sf2.strategic_player = sf_render::renderer::Sf2MapPoint { x: 72, y: 102 };
+    sf2.strategic_actors = actors;
+    match checkpoint {
+        StrategicReturn::First => {
+            sf2.primary_shield = 32;
+            sf2.wingmate_shield = 16;
+            sf2.elapsed_campaign_frames = 12 * 15;
+        }
+        StrategicReturn::Second => {
+            sf2.primary_shield = 8;
+            sf2.corneria_damage_percent = 10;
+            sf2.score = 100;
+            sf2.elapsed_campaign_frames = 19 * 15;
+        }
+        StrategicReturn::PostInterception => {
+            sf2.primary_shield = 8;
+            sf2.corneria_damage_percent = 74;
+            sf2.score = 100;
+            sf2.elapsed_campaign_frames = 55 * 15;
+        }
+        StrategicReturn::PostFighterIntercept => {
+            sf2.primary_shield = 8;
+            sf2.corneria_damage_percent = 74;
+            sf2.score = 300;
+            sf2.elapsed_campaign_frames = 51 * 15;
+        }
+        StrategicReturn::PostPigma => {
+            sf2.primary_shield = 8;
+            sf2.corneria_damage_percent = 74;
+            sf2.item_count = 2;
+            sf2.score = 1_300;
+            sf2.elapsed_campaign_frames = 61 * 15;
+        }
+        StrategicReturn::PostEladard => {
+            sf2.primary_shield = 40;
+            sf2.wingmate_shield = 40;
+            sf2.corneria_damage_percent = 89;
+            sf2.score = 2_251;
+            sf2.elapsed_campaign_frames = 68 * 15;
+        }
+        StrategicReturn::PostCarrier => {
+            sf2.primary_shield = 34;
+            sf2.wingmate_shield = 13;
+            sf2.corneria_damage_percent = 89;
+            sf2.score = 3_003;
+            sf2.elapsed_campaign_frames = 75 * 15;
+        }
+        StrategicReturn::PostLeon => {
+            sf2.primary_shield = 40;
+            sf2.wingmate_shield = 40;
+            sf2.corneria_damage_percent = 89;
+            sf2.score = 3_403;
+            sf2.elapsed_campaign_frames = 76 * 15;
+        }
+        StrategicReturn::PostMirage => {
+            sf2.primary_shield = 100;
+            sf2.wingmate_shield = 100;
+            sf2.item_count = 3;
+            sf2.score = 3_903;
+            sf2.elapsed_campaign_frames = 80 * 15;
+        }
+    }
+    inputs
+}
+
+fn check_sf2_strategic_returns_exact(config: &sf_render::renderer::RendererConfig) {
+    let mut renderer = match Renderer::new_headless(SF2_MAP_WIDTH, SF2_MAP_HEIGHT, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping exact SF2 map checks: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    for (checkpoint, expected) in [
+        (StrategicReturn::First, FIRST_RETURN_FNV1A),
+        (StrategicReturn::Second, SECOND_RETURN_FNV1A),
+        (
+            StrategicReturn::PostInterception,
+            POST_INTERCEPTION_RETURN_FNV1A,
+        ),
+        (
+            StrategicReturn::PostFighterIntercept,
+            POST_FIGHTER_INTERCEPT_RETURN_FNV1A,
+        ),
+        (StrategicReturn::PostPigma, POST_PIGMA_RETURN_FNV1A),
+        (StrategicReturn::PostEladard, POST_ELADARD_RETURN_FNV1A),
+        (StrategicReturn::PostCarrier, POST_CARRIER_RETURN_FNV1A),
+        (StrategicReturn::PostLeon, POST_LEON_RETURN_FNV1A),
+        (StrategicReturn::PostMirage, POST_MIRAGE_RETURN_FNV1A),
+    ] {
+        let inputs = strategic_return_inputs(checkpoint);
+        renderer.begin_frame();
+        renderer.submit(&[], &[], 1.0, &inputs);
+        renderer.end_frame();
+        let pixels = renderer.read_pixels_rgb();
+        if matches!(checkpoint, StrategicReturn::PostPigma) {
+            if let Some(path) = std::env::var_os("SF2_POST_PIGMA_DUMP_PPM") {
+                let mut ppm = format!("P6\n{SF2_MAP_WIDTH} {SF2_MAP_HEIGHT}\n255\n").into_bytes();
+                ppm.extend_from_slice(&pixels);
+                std::fs::write(path, ppm).expect("write requested SF2 Pigma return dump");
+            }
+        }
+        if matches!(checkpoint, StrategicReturn::PostEladard) {
+            if let Some(path) = std::env::var_os("SF2_POST_ELADARD_DUMP_PPM") {
+                let mut ppm = format!("P6\n{SF2_MAP_WIDTH} {SF2_MAP_HEIGHT}\n255\n").into_bytes();
+                ppm.extend_from_slice(&pixels);
+                std::fs::write(path, ppm).expect("write requested SF2 Eladard return dump");
+            }
+        }
+        if matches!(checkpoint, StrategicReturn::PostCarrier) {
+            if let Some(path) = std::env::var_os("SF2_POST_CARRIER_DUMP_PPM") {
+                let mut ppm = format!("P6\n{SF2_MAP_WIDTH} {SF2_MAP_HEIGHT}\n255\n").into_bytes();
+                ppm.extend_from_slice(&pixels);
+                std::fs::write(path, ppm).expect("write requested SF2 carrier return dump");
+            }
+        }
+        if matches!(checkpoint, StrategicReturn::PostLeon) {
+            if let Some(path) = std::env::var_os("SF2_POST_LEON_DUMP_PPM") {
+                let mut ppm = format!("P6\n{SF2_MAP_WIDTH} {SF2_MAP_HEIGHT}\n255\n").into_bytes();
+                ppm.extend_from_slice(&pixels);
+                std::fs::write(path, ppm).expect("write requested SF2 Leon return dump");
+            }
+        }
+        if matches!(checkpoint, StrategicReturn::PostMirage) {
+            if let Some(path) = std::env::var_os("SF2_POST_MIRAGE_DUMP_PPM") {
+                let mut ppm = format!("P6\n{SF2_MAP_WIDTH} {SF2_MAP_HEIGHT}\n255\n").into_bytes();
+                ppm.extend_from_slice(&pixels);
+                std::fs::write(path, ppm).expect("write requested SF2 Mirage return dump");
+            }
+        }
+        let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+            (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+        });
+        assert_eq!(hash, expected, "SF2 strategic return frame drifted");
+    }
+    renderer.shutdown();
+}
+
+fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
+    FrameInputs {
+        sf2: Some(Sf2FrameInputs {
+            mode,
+            polygon_palette: sf_render::shapes::Sf2PolygonPalette::Standard,
+            mission_backdrop: sf_render::renderer::Sf2MissionBackdrop::DeepSpace,
+            title_page: Sf2TitlePage::MainMenu,
+            title_menu_item: Sf2TitleMenuItem::Mission,
+            difficulty: Sf2Difficulty::Normal,
+            audio_output: Sf2AudioOutput::Stereo,
+            pilot_selection_phase: Sf2PilotSelectionPhase::ChoosingPrimary,
+            pilot_cursor: Sf2Pilot::Fox,
+            primary_pilot: None,
+            wingmate: None,
+            primary_shield: 0,
+            wingmate_shield: 0,
+            item_count: 0,
+            target_count: 0,
+            mission_elapsed_time_tenths: SF2_TEST_MISSION_TIME_TENTHS,
+            radar_contacts: [None; SF2_RADAR_CONTACT_CAPACITY],
+            mode_frame: 0,
+            elapsed_campaign_frames: 0,
+            corneria_damage_percent: 0,
+            score: 0,
+            campaign_sorties_completed: 0,
+            strategic_phase: sf_render::renderer::Sf2StrategicPhase::Planning,
+            strategic_marker_phase: 0,
+            strategic_player: sf_render::renderer::Sf2MapPoint::default(),
+            strategic_destination: sf_render::renderer::Sf2MapPoint::default(),
+            strategic_actors: [None; sf_render::renderer::SF2_STRATEGIC_MAP_ACTOR_CAPACITY],
+        }),
+        ..Default::default()
+    }
+}
+
+fn check_sf2_native_frontend(renderer: &mut Renderer) {
+    const MIN_VISIBLE_PIXELS: usize = 10_000;
+    const MIN_DISTINCT_COLORS: usize = 8;
+
+    for mode in [
+        Sf2Mode::Title,
+        Sf2Mode::PilotSelection,
+        Sf2Mode::StrategicMap,
+        Sf2Mode::Mission,
+    ] {
+        let inputs = sf2_inputs(mode);
+        renderer.begin_frame();
+        renderer.submit(&[], &[], 1.0, &inputs);
+        renderer.end_frame();
+
+        let pixels = renderer.read_pixels_rgb();
+        let mut colors = std::collections::BTreeSet::new();
+        let visible = pixels
+            .chunks_exact(3)
+            .filter(|pixel| {
+                colors.insert([pixel[0], pixel[1], pixel[2]]);
+                !color_near(pixel, [0, 0, 13], 2)
+            })
+            .count();
+        assert!(
+            visible >= MIN_VISIBLE_PIXELS,
+            "SF2 {mode:?} frame collapsed to the renderer clear color ({visible} visible pixels)"
+        );
+        assert!(
+            colors.len() >= MIN_DISTINCT_COLORS,
+            "SF2 {mode:?} frame collapsed to {} colors",
+            colors.len()
+        );
+    }
+}
+
+fn check_sf2_mission_backdrops(renderer: &mut Renderer) {
+    let mut hashes = std::collections::BTreeSet::new();
+    for backdrop in [
+        Sf2MissionBackdrop::DeepSpace,
+        Sf2MissionBackdrop::EladardSurface,
+        Sf2MissionBackdrop::EladardInterior,
+        Sf2MissionBackdrop::TitaniaBase,
+        Sf2MissionBackdrop::CarrierInterior,
+        Sf2MissionBackdrop::AstropolisVoid,
+    ] {
+        let mut inputs = sf2_inputs(Sf2Mode::Mission);
+        inputs
+            .sf2
+            .as_mut()
+            .expect("SF2 mission inputs")
+            .mission_backdrop = backdrop;
+        renderer.begin_frame();
+        renderer.submit(&[], &[], 1.0, &inputs);
+        renderer.end_frame();
+        let hash = renderer
+            .read_pixels_rgb()
+            .into_iter()
+            .fold(FNV_OFFSET_BASIS, |value, byte| {
+                (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+            });
+        assert!(
+            hashes.insert(hash),
+            "SF2 {backdrop:?} did not select its own retail backdrop texture"
+        );
+    }
+}
+
+fn check_sf2_shape(renderer: &mut Renderer) {
+    renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+    const ENTRY_FORMATION_CRAFT: u16 = sf_core::shape::sf2_shape_id(415);
+    const TEST_DEPTH: i32 = 500;
+    let entry = DrawListEntry {
+        z: TEST_DEPTH << 16,
+        shape_id: ENTRY_FORMATION_CRAFT,
+        flags: DL_FLAG_VISIBLE,
+        obj_id: 1,
+        ..DrawListEntry::default()
+    };
+    let curr = [entry];
+    let inputs = FrameInputs {
+        game_state: GameState::Boot,
+        ..Default::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&curr, &curr, 1.0, &inputs);
+    renderer.end_frame();
+
+    let px = renderer.read_pixels_rgb();
+    let visible = px
+        .chunks_exact(3)
+        .filter(|pixel| !color_near(pixel, [0, 0, 13], 2))
+        .count();
+    assert!(
+        visible > 100,
+        "SF2 formation craft did not reach the shared 3D pass ({visible} pixels)"
+    );
+}
+
+fn check_sf2_texture_face(renderer: &mut Renderer) {
+    const CAMPAIGN_MISSILE: u16 = sf_core::shape::sf2_shape_id(181);
+    const TEST_DEPTH: i32 = 1_600;
+
+    renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+    let base = DrawListEntry {
+        shape_id: CAMPAIGN_MISSILE,
+        z: TEST_DEPTH << 16,
+        flags: DL_FLAG_VISIBLE,
+        ..DrawListEntry::default()
+    };
+    let curr = [
+        DrawListEntry {
+            x: -280 << 16,
+            ry: 32,
+            obj_id: 1,
+            ..base
+        },
+        DrawListEntry {
+            x: 280 << 16,
+            ry: 160,
+            obj_id: 2,
+            ..base
+        },
+    ];
+    let inputs = FrameInputs {
+        game_state: GameState::Boot,
+        ..Default::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&curr, &curr, 1.0, &inputs);
+    renderer.end_frame();
+
+    let pixels = renderer.read_pixels_rgb();
+    let mut visible = 0usize;
+    let mut magenta = 0usize;
+    let mut colors = std::collections::BTreeSet::new();
+    for pixel in pixels.chunks_exact(3) {
+        if !color_near(pixel, [0, 0, 13], 2) {
+            visible += 1;
+            colors.insert([pixel[0], pixel[1], pixel[2]]);
+        }
+        if color_near(pixel, [255, 0, 255], 2) {
+            magenta += 1;
+        }
+    }
+    assert!(
+        visible > 100,
+        "textured SF2 missile did not render ({visible} pixels)"
+    );
+    assert_eq!(magenta, 0, "SF2 COLTEXT fell back to debug magenta");
+    assert!(
+        colors.len() >= 3,
+        "SF2 texture map collapsed to {} flat colors",
+        colors.len()
+    );
+}
+
+fn check_player_laser(renderer: &mut Renderer) {
+    renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+    let curr = [DrawListEntry {
+        shape_id: SHAPE_ELASER2,
+        z: 120 << 16,
+        rx: 32,
+        anim_frame: 4,
+        col_frame: 0,
+        flags: DL_FLAG_VISIBLE,
+        obj_id: 1,
+        ..Default::default()
+    }];
+    let inputs = FrameInputs {
+        game_state: GameState::Boot,
+        ..Default::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&curr, &curr, 1.0, &inputs);
+    renderer.end_frame();
+
+    let px = renderer.read_pixels_rgb();
+    let visible = px
+        .chunks_exact(3)
+        .filter(|p| !color_near(p, [0, 0, 13], 2))
+        .count();
+    let magenta = px
+        .chunks_exact(3)
+        .filter(|p| color_near(p, [255, 0, 255], 2))
+        .count();
+    assert!(
+        visible > 20,
+        "player laser did not render ({visible} pixels)"
+    );
+    assert_eq!(magenta, 0, "player laser resolved outside bullet_c");
+}
+
+fn check_superfx_texture_face(renderer: &mut Renderer) {
+    renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+    let curr = [DrawListEntry {
+        shape_id: SHAPE_EXT_ASTEROID1,
+        z: 220 << 16,
+        flags: DL_FLAG_VISIBLE,
+        obj_id: 1,
+        ..Default::default()
+    }];
+    let inputs = FrameInputs {
+        game_state: GameState::Boot,
+        ..Default::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&curr, &curr, 1.0, &inputs);
+    renderer.end_frame();
+
+    let px = renderer.read_pixels_rgb();
+    let mut visible = 0usize;
+    let mut magenta = 0usize;
+    let mut colors = std::collections::BTreeSet::new();
+    for p in px.chunks_exact(3) {
+        if !color_near(p, [0, 0, 13], 2) {
+            visible += 1;
+            colors.insert([p[0], p[1], p[2]]);
+        }
+        if color_near(p, [255, 0, 255], 2) {
+            magenta += 1;
+        }
+    }
+    assert!(
+        visible > 100,
+        "textured asteroid did not render ({visible} pixels)"
+    );
+    assert_eq!(magenta, 0, "COLTEXT fell back to debug magenta");
+    assert!(
+        colors.len() >= 3,
+        "texture map collapsed to {} flat colors",
+        colors.len()
+    );
 }
 
 // (c) Full composed title frame vs C-build golden region averages.
@@ -201,8 +1011,14 @@ fn check_arwing(renderer: &mut Renderer) {
     }
 
     println!("arwing: non_bg={non_bg} canopy_hits={canopy_hits} hull_hits={hull_hits}");
-    assert!(non_bg > 500, "arwing barely rendered: {non_bg} non-bg pixels");
-    assert!(canopy_hits > 10, "canopy blue not found ({canopy_hits} hits)");
+    assert!(
+        non_bg > 500,
+        "arwing barely rendered: {non_bg} non-bg pixels"
+    );
+    assert!(
+        canopy_hits > 10,
+        "canopy blue not found ({canopy_hits} hits)"
+    );
     assert!(hull_hits > 50, "hull greys not found ({hull_hits} hits)");
 }
 
@@ -226,8 +1042,17 @@ fn positive_worldx_renders_on_right_half() {
         ..Default::default()
     };
     // +x, ahead in +z, well within the FOV so it's clearly right-of-center.
-    let curr = [DrawListEntry { x: 150 << 16, y: 0, z: 600 << 16, obj_id: 1, ..base }];
-    let inputs = FrameInputs { game_state: GameState::Boot, ..Default::default() };
+    let curr = [DrawListEntry {
+        x: 150 << 16,
+        y: 0,
+        z: 600 << 16,
+        obj_id: 1,
+        ..base
+    }];
+    let inputs = FrameInputs {
+        game_state: GameState::Boot,
+        ..Default::default()
+    };
     renderer.begin_frame();
     renderer.submit(&curr, &curr, 1.0, &inputs);
     renderer.end_frame();
@@ -239,7 +1064,11 @@ fn positive_worldx_renders_on_right_half() {
             let i = (y * w + x) * 3;
             let lum = px[i] as u32 + px[i + 1] as u32 + px[i + 2] as u32;
             if lum > 80 {
-                if x < w / 2 { left += 1; } else { right += 1; }
+                if x < w / 2 {
+                    left += 1;
+                } else {
+                    right += 1;
+                }
             }
         }
     }

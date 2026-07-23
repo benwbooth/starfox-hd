@@ -12,6 +12,9 @@ members = [
     "sf-app",
     "sf-difftest",
     "sf2-data",
+    "sf2-map",
+    "sf2-path",
+    "sf2-game",
     "sf-oracle",
 ]
 
@@ -29,6 +32,11 @@ sf-render = { path = "sf-render" }
 sf-game = { path = "sf-game" }
 sf-spc = { path = "sf-spc" }
 sf-audio = { path = "sf-audio" }
+sf2-data = { path = "sf2-data" }
+sf2-map = { path = "sf2-map" }
+sf2-path = { path = "sf2-path" }
+sf2-game = { path = "sf2-game", default-features = false }
+sf-oracle = { path = "sf-oracle" }
 
 [profile.release]
 debug = true

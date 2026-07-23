@@ -23,7 +23,7 @@ pub(crate) fn build() -> Route3Level {
     b.initbg();
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
-    let keep_player_strat_ptr = b.mapcode65816_inline(); 
+    let keep_player_strat_ptr = b.mapcode65816_inline();
     b.mapif_builtin(MAP_CB_IS_PLAYER_DEAD, "level3_1.after_exitbase_setup");
     b.mapcodejsl_builtin(MAP_CB_SET_PLAYER_EXITBASE_L);
     b.label("level3_1.after_exitbase_setup");
@@ -31,14 +31,46 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0, 0, 0, 0, SH_MYBASE_1, IS_NOCOLL);
     b.mapobj(0, 0, 0, 0, SH_MYBASE_0, IS_NOCOLL);
 
-    b.mapobj(0, -27 << MYBASE_SCALE, -39 << MYBASE_SCALE, -200, SH_MYSHIP_4, IS_FRIENDEXITBASE);
+    b.mapobj(
+        0,
+        -27 << MYBASE_SCALE,
+        -39 << MYBASE_SCALE,
+        -200,
+        SH_MYSHIP_4,
+        IS_FRIENDEXITBASE,
+    );
     b.setalvarb(AL_SBYTE1, 17);
-    b.mapobj(0, -27 << MYBASE_SCALE, -39 << MYBASE_SCALE, -200, SH_MYSHIP_4, IS_FRIENDEXITBASE);
+    b.mapobj(
+        0,
+        -27 << MYBASE_SCALE,
+        -39 << MYBASE_SCALE,
+        -200,
+        SH_MYSHIP_4,
+        IS_FRIENDEXITBASE,
+    );
     b.setalvarb(AL_SBYTE1, 17 + (1000 / PEXITBASE_SPEED));
 
     b.pathobj(0, 3000, 3000, 3000, SH_NULLSHAPE, PATH_ID_MATEMSG, 10, 10);
-    b.pathobj(0, 100, -90, 1400, SH_FRIENDSHIP_4, PATH_ID_FALCO_LV1, 10, 10);
-    b.pathobj(0, -80, -140, 1200, SH_FRIENDSHIP_4, PATH_ID_FROG_LV1, 10, 10);
+    b.pathobj(
+        0,
+        100,
+        -90,
+        1400,
+        SH_FRIENDSHIP_4,
+        PATH_ID_FALCO_LV1,
+        10,
+        10,
+    );
+    b.pathobj(
+        0,
+        -80,
+        -140,
+        1200,
+        SH_FRIENDSHIP_4,
+        PATH_ID_FROG_LV1,
+        10,
+        10,
+    );
 
     b.mapobj(0, -600, 0, 2000, SH_BU_1, IS_HARD180YR);
     b.mapobj(0, 600, 0, 2000, SH_BU_1, IS_HARD180YR);
@@ -128,7 +160,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0, -400, 0, 5000, SH_BASE_1, IS_BASE_1);
     b.mapobj(0, 400, -50, 5200, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
-    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline(); 
+    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, -400, -50, 5200, SH_ITEM_7, IS_ITEM7);
     b.setalvarb(AL_SBYTE1, 1);
     b.label("level3_1.map3_1b.skillfly_bonus_0_skip");
@@ -192,7 +224,16 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(1000, -400, 0, 4000, SH_BU_2, IS_HARD180YR);
     b.mapobj(0, 280, 0, 4000, SH_BU_2, IS_HARD180YR);
     b.mapobj(1000, -280, 0, 4000, SH_BU_2, IS_HARD180YR);
-    b.pathobj(0, -130, -150, -100, SH_FRIENDSHIP_4, PATH_ID_FALCON3_1, 10, 10);
+    b.pathobj(
+        0,
+        -130,
+        -150,
+        -100,
+        SH_FRIENDSHIP_4,
+        PATH_ID_FALCON3_1,
+        10,
+        10,
+    );
     b.mapobj(0, 0, 0, 4000, SH_BU_7, IS_HARD180YR);
     b.mapobj(0, 400, 0, 4000, SH_BU_2, IS_HARD180YR);
     b.mapobj(1000, -400, 0, 4000, SH_BU_2, IS_HARD180YR);
@@ -257,13 +298,13 @@ pub(crate) fn build() -> Route3Level {
     b.setbgm(BGM_FADEOUT);
     b.setbgm(BGM_BOSS1);
     b.mapobj(0, 3000, 0, 375 << BOSSA_SCALE, SH_BOSS_A_2, IS_BOSSA);
-    let mapwaitboss_trigse_ptr = b.mapcode65816_inline(); 
+    let mapwaitboss_trigse_ptr = b.mapcode65816_inline();
     b.label("level3_1.map3_1b.bosswait.loop");
     b.mapif_builtin(MAP_CB_CHKBOSSDEAD, "level3_1.map3_1b.bosswait.cont");
     b.mapgoto("level3_1.map3_1b.bosswait.loop");
     b.label("level3_1.map3_1b.bosswait.cont");
-    let mapwaitboss_cantdie_ptr = b.mapcode65816_inline(); 
-    let mapwaitboss_cleanup_ptr = b.mapcode65816_inline(); 
+    let mapwaitboss_cantdie_ptr = b.mapcode65816_inline();
+    let mapwaitboss_cleanup_ptr = b.mapcode65816_inline();
     b.setbgm(BGM_FADEOUT);
     b.mapcodejsl_builtin(MAP_CB_MARKBOSS_L);
     b.maprts();
@@ -275,7 +316,8 @@ pub(crate) fn build() -> Route3Level {
 
     // C: bails to s_empty_level if the skillfly skip label is missing.
     assert!(
-        b.lookup_label("level3_1.map3_1b.skillfly_bonus_0_skip").is_some(),
+        b.lookup_label("level3_1.map3_1b.skillfly_bonus_0_skip")
+            .is_some(),
         "level3_1 skillfly bonus skip label missing"
     );
 

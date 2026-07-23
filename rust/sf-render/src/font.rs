@@ -30,7 +30,22 @@ pub struct Font {
 #[inline]
 fn ortho(w: f32, h: f32) -> [f32; 16] {
     [
-        2.0 / w, 0.0, 0.0, 0.0, 0.0, 2.0 / h, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -1.0, -1.0, 0.0, 1.0,
+        2.0 / w,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        2.0 / h,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        -1.0,
+        -1.0,
+        0.0,
+        1.0,
     ]
 }
 
@@ -104,7 +119,8 @@ impl Font {
             }
         }
 
-        font.texture = Some(gpu.create_texture_rgba(FONT_ATLAS_W as u32, FONT_ATLAS_H as u32, &atlas));
+        font.texture =
+            Some(gpu.create_texture_rgba(FONT_ATLAS_W as u32, FONT_ATLAS_H as u32, &atlas));
 
         font.initialized = true;
         font
@@ -115,16 +131,14 @@ impl Font {
         self.screen_h = h;
     }
 
-    /// Mirror of `Font_DrawString` (bottom-left origin, height-scaled).
-    pub fn draw_string(
+    fn draw_string_pixels(
         &self,
         gpu: &mut Gpu,
-        x: i32,
-        y: i32,
+        x: f32,
+        y: f32,
         text: &str,
-        r: f32,
-        g: f32,
-        b: f32,
+        cell_px: f32,
+        color: [f32; 4],
     ) {
         if !self.initialized || text.is_empty() {
             return;
@@ -133,16 +147,9 @@ impl Font {
             return;
         };
 
-        // Scale: SNES reference is 256x224; scale by screen height
-        let scale = self.screen_h as f32 / 224.0;
-        let gw = FONT_CELL * scale;
-        let gh = FONT_CELL * scale;
-
         let proj = ortho(self.screen_w as f32, self.screen_h as f32);
-        let color = [r, g, b, 1.0];
-
-        let mut cx = x as f32 * scale;
-        let cy = y as f32 * scale;
+        let mut cx = x;
+        let cy = y;
 
         for &byte in text.as_bytes() {
             let mut glyph = self.ascii_to_glyph[byte as usize];
@@ -151,26 +158,92 @@ impl Font {
             }
 
             if glyph != GLYPH_SPACE {
-                let u0 = (glyph as usize % FONT_ATLAS_COLS * FONT_GLYPH_PX) as f32
-                    / FONT_ATLAS_W as f32;
-                let v0 = (glyph as usize / FONT_ATLAS_COLS * FONT_GLYPH_PX) as f32
-                    / FONT_ATLAS_H as f32;
+                let u0 =
+                    (glyph as usize % FONT_ATLAS_COLS * FONT_GLYPH_PX) as f32 / FONT_ATLAS_W as f32;
+                let v0 =
+                    (glyph as usize / FONT_ATLAS_COLS * FONT_GLYPH_PX) as f32 / FONT_ATLAS_H as f32;
                 let u1 = u0 + FONT_GLYPH_PX as f32 / FONT_ATLAS_W as f32;
                 let v1 = v0 + FONT_GLYPH_PX as f32 / FONT_ATLAS_H as f32;
 
                 // Atlas row 0 is the glyph top; it is uploaded at GL v=0
                 // (texture bottom), so the quad's TOP edge samples v0.
                 let verts = [
-                    Vertex2 { pos: [cx, cy], uv: [u0, v1] }, // bottom-left
-                    Vertex2 { pos: [cx + gw, cy], uv: [u1, v1] }, // bottom-right
-                    Vertex2 { pos: [cx + gw, cy + gh], uv: [u1, v0] }, // top-right
-                    Vertex2 { pos: [cx, cy + gh], uv: [u0, v0] }, // top-left
+                    Vertex2 {
+                        pos: [cx, cy],
+                        uv: [u0, v1],
+                    }, // bottom-left
+                    Vertex2 {
+                        pos: [cx + cell_px, cy],
+                        uv: [u1, v1],
+                    }, // bottom-right
+                    Vertex2 {
+                        pos: [cx + cell_px, cy + cell_px],
+                        uv: [u1, v0],
+                    }, // top-right
+                    Vertex2 {
+                        pos: [cx, cy + cell_px],
+                        uv: [u0, v0],
+                    }, // top-left
                 ];
                 gpu.push_overlay_fan(&verts, &proj, &IDENTITY, color, 1, None, texture);
             }
 
-            cx += gw; // fixed-width advance
+            cx += cell_px; // fixed-width advance
         }
+    }
+
+    /// Mirror of `Font_DrawString` (bottom-left origin, height-scaled).
+    pub fn draw_string(&self, gpu: &mut Gpu, x: i32, y: i32, text: &str, r: f32, g: f32, b: f32) {
+        self.draw_string_sized(gpu, x, y, text, FONT_CELL, [r, g, b, 1.0]);
+    }
+
+    /// Draw fixed-width text with a caller-selected cell size in the 256x224
+    /// UI reference space. SF2's compact strategic-map HUD uses a narrower
+    /// cell than the dialogue font while sharing the same decoded glyphs.
+    pub fn draw_string_sized(
+        &self,
+        gpu: &mut Gpu,
+        x: i32,
+        y: i32,
+        text: &str,
+        cell_ref: f32,
+        color: [f32; 4],
+    ) {
+        // SNES UI coordinates use a 256x224 reference frame and preserve
+        // vertical scale on widescreen displays.
+        let scale = self.screen_h as f32 / 224.0;
+        self.draw_string_pixels(
+            gpu,
+            x as f32 * scale,
+            y as f32 * scale,
+            text,
+            cell_ref * scale,
+            color,
+        );
+    }
+
+    /// Draw MARIO `msprint` text centered on a projected 3D point.
+    /// `ndc_*` are the projected model origin and `cell_ref` is the scaled
+    /// character width in SNES 256x224 reference pixels.
+    pub fn draw_string_scaled_centered_ndc(
+        &self,
+        gpu: &mut Gpu,
+        ndc_x: f32,
+        ndc_y: f32,
+        text: &str,
+        cell_ref: f32,
+        color: [f32; 4],
+    ) {
+        if !ndc_x.is_finite() || !ndc_y.is_finite() || cell_ref <= 0.0 {
+            return;
+        }
+        let scale = self.screen_h as f32 / 224.0;
+        let cell_px = cell_ref * scale;
+        let center_x = (ndc_x + 1.0) * self.screen_w as f32 * 0.5;
+        let center_y = (ndc_y + 1.0) * self.screen_h as f32 * 0.5;
+        let x = center_x - text.len() as f32 * cell_px * 0.5;
+        let y = center_y - cell_px * 0.5;
+        self.draw_string_pixels(gpu, x, y, text, cell_px, color);
     }
 
     /// Mirror of `Font_DrawNumber` (right-aligned decimal).

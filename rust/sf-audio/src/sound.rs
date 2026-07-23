@@ -3,10 +3,10 @@
 //! setport3_l).
 //!
 //! Game-state inputs arrive via plain data structs ([`SoundGameState`],
-//! [`SoundPlayer`], [`SoundObj`]) and port I/O goes through the
+//! [`SoundPlayer`], [`SoundObj`]) and typed playback requests go through the
 //! [`SoundBackend`] trait, so this module does not depend on sf-game.
 
-use crate::boot;
+use crate::catalog;
 
 // ---------------------------------------------------------------------------
 // Distance thresholds (C SOUND_* defines).
@@ -83,7 +83,13 @@ impl PosSndFamily {
     /// Near-only family: l == c == r == `near`, plus `mid`/`far`
     /// (destboss/destenemy/damenemy/hitwall/missile/enemybattry).
     const fn near(near: u8, mid: u8, far: u8) -> Self {
-        PosSndFamily { l: near, c: near, r: near, m: mid, f: far }
+        PosSndFamily {
+            l: near,
+            c: near,
+            r: near,
+            m: mid,
+            f: far,
+        }
     }
 }
 
@@ -184,17 +190,23 @@ pub const MAP_ID_FINAL: u32 = 22;
 pub const MAP_ID_TRAINING: u32 = 29;
 
 // ---------------------------------------------------------------------------
-// Backend: APU port I/O + track boot (implemented over SpcPlayer by the app;
-// C equivalents SpcPlayer_WritePort / SpcPlayer_ReadPort / SpcPlayer_StartBgm
-// / SpcPlayer_LoadTrack+SpcBoot_TrackCommand).
+// Native playback backend. The game-side selection logic retains the source
+// behavior, but publishes semantic channel changes instead of hardware-port
+// traffic.
 // ---------------------------------------------------------------------------
 pub trait SoundBackend {
-    fn write_port(&mut self, port: u8, value: u8);
-    fn read_port(&mut self, port: u8) -> u8;
-    /// Queue a BGM start command (C `SpcPlayer_StartBgm`).
-    fn start_bgm(&mut self, cmd: u8);
-    /// Upload a sndtbl track row via the IPL boot (C `SpcPlayer_LoadTrack`).
-    fn load_track(&mut self, track_id: u8);
+    fn set_engine_sound(&mut self, sound: u8);
+    fn set_ambient_sound(&mut self, sound: u8);
+    fn play_effect(&mut self, effect: u8);
+    fn effect_consumed(&mut self, effect: u8) -> bool;
+    fn clear_effect_acknowledgement(&mut self);
+    fn start_music(&mut self, cue: u8);
+    fn load_track(&mut self, track: u8);
+    fn set_paused(&mut self, paused: bool);
+
+    fn play_immediate(&mut self, effect: u8) {
+        self.play_effect(effect);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -295,28 +307,28 @@ impl Default for Sound {
 /// port can't observe BG switches.  Returns None for maps with no auto boot.
 pub fn sound_track_for_map(map_id: u32) -> Option<u8> {
     match map_id {
-        MAP_ID_1_1 | MAP_ID_2_1 | MAP_ID_3_1 => Some(boot::SND_11), // BGS.ASM:106/127 `bgm 11`
-        MAP_ID_1_2 => Some(boot::SND_12),
-        MAP_ID_1_3 => Some(boot::SND_13),
-        MAP_ID_1_4 => Some(boot::SND_14),
-        MAP_ID_1_5 => Some(boot::SND_15),
-        MAP_ID_1_6 => Some(boot::SND_16),
-        MAP_ID_2_2 => Some(boot::SND_22),
-        MAP_ID_2_3 => Some(boot::SND_23),
-        MAP_ID_2_4 => Some(boot::SND_24),
-        MAP_ID_2_5 => Some(boot::SND_25),
-        MAP_ID_2_6 => Some(boot::SND_26),
-        MAP_ID_3_2 => Some(boot::SND_32),
-        MAP_ID_3_3 => Some(boot::SND_33),
-        MAP_ID_3_4 => Some(boot::SND_34),
-        MAP_ID_3_5 => Some(boot::SND_35),
-        MAP_ID_3_6 => Some(boot::SND_36),
-        MAP_ID_3_7 => Some(boot::SND_37),
-        MAP_ID_BLACKHOLE => Some(boot::SND_BHOLE),
-        MAP_ID_SPECIAL => Some(boot::SND_SPECIAL),
-        MAP_ID_TRAINING => Some(boot::SND_TRAINING),
+        MAP_ID_1_1 | MAP_ID_2_1 | MAP_ID_3_1 => Some(catalog::SND_11),
+        MAP_ID_1_2 => Some(catalog::SND_12),
+        MAP_ID_1_3 => Some(catalog::SND_13),
+        MAP_ID_1_4 => Some(catalog::SND_14),
+        MAP_ID_1_5 => Some(catalog::SND_15),
+        MAP_ID_1_6 => Some(catalog::SND_16),
+        MAP_ID_2_2 => Some(catalog::SND_22),
+        MAP_ID_2_3 => Some(catalog::SND_23),
+        MAP_ID_2_4 => Some(catalog::SND_24),
+        MAP_ID_2_5 => Some(catalog::SND_25),
+        MAP_ID_2_6 => Some(catalog::SND_26),
+        MAP_ID_3_2 => Some(catalog::SND_32),
+        MAP_ID_3_3 => Some(catalog::SND_33),
+        MAP_ID_3_4 => Some(catalog::SND_34),
+        MAP_ID_3_5 => Some(catalog::SND_35),
+        MAP_ID_3_6 => Some(catalog::SND_36),
+        MAP_ID_3_7 => Some(catalog::SND_37),
+        MAP_ID_BLACKHOLE => Some(catalog::SND_BHOLE),
+        MAP_ID_SPECIAL => Some(catalog::SND_SPECIAL),
+        MAP_ID_TRAINING => Some(catalog::SND_TRAINING),
         // FINALMAP.ASM drives $12/$13 within the venom/andross bank.
-        MAP_ID_FINAL => Some(boot::SND_16),
+        MAP_ID_FINAL => Some(catalog::SND_16),
         _ => None, // no auto boot
     }
 }
@@ -332,50 +344,19 @@ fn pan_from_angle(angle: u8) -> u8 {
     }
 }
 
-/// XZ-plane octagonal distance approximation between object and player,
-/// faithful 16-bit-wrapping port of `xzdiffs_l` + `xzdiffs_diffabs_l`
-/// (STRATROU.ASM:1796-1856).  This is `rangexz`, the magnitude makesnd bands
-/// against.  All arithmetic is i16-wrapping / arithmetic-shift to reproduce
-/// the ROM's overflow behaviour exactly (large separations wrap to a huge
-/// unsigned value => silence, matching the original).
+/// XZ-plane octagonal distance (`xzdiffs_l`) — shared with strat/path.
+#[inline]
 fn xzdiffs_rangexz(px: i16, pz: i16, ox: i16, oz: i16) -> i16 {
-    // xzdiffs_l: absolute per-axis differences (player - obj).
-    let mut x1 = px.wrapping_sub(ox);
-    if x1 < 0 {
-        x1 = x1.wrapping_neg();
-    }
-    let mut y1 = pz.wrapping_sub(oz);
-    if y1 < 0 {
-        y1 = y1.wrapping_neg();
-    }
-
-    // xzdiffs_diffabs_l.
-    x1 >>= 1; // asra
-    y1 >>= 1; // asra
-    let mut rangexz = y1.wrapping_add(x1).wrapping_shl(1);
-
-    // a = max(x1, y1)  (`lda y1 / cmp x1 / bmi .xmax` -> x1 when y1 < x1).
-    let maxv = if y1 < x1 { x1 } else { y1 };
-    let a = maxv.wrapping_add(rangexz);
-
-    x1 = a;
-    y1 = a.wrapping_shl(2);
-    let a = (x1 >> 1).wrapping_add(y1); // asra then + y1
-    rangexz = a >> 3; // asra asra asra
-    rangexz
+    sf_core::aim_angle::xzdiffs(px.wrapping_sub(ox), pz.wrapping_sub(oz))
 }
 
-/// 0-255 angle from src to dst in the XZ plane.  Local copy of
-/// `Strat_AngleXZ` (strat_common.c, decompiled from anglexy_l in
-/// STRATROU.ASM) so this crate stays independent of the strat lane.
+/// ROM `Yanglexy_l` / `anglexy_l` for nearobjs pan (SOUND.ASM:617).
+#[inline]
 fn angle_xz(src: &SoundPlayer, dst: &SoundObj) -> u8 {
-    let dx = (dst.worldx.wrapping_sub(src.worldx)) as f32;
-    let dz = (dst.worldz.wrapping_sub(src.worldz)) as f32;
-    let mut angle_rad = dx.atan2(dz);
-    if angle_rad < 0.0 {
-        angle_rad += 2.0 * std::f32::consts::PI;
-    }
-    (angle_rad * (256.0 / (2.0 * std::f32::consts::PI))) as u8
+    sf_core::aim_angle::yanglexy(
+        dst.worldx.wrapping_sub(src.worldx),
+        dst.worldz.wrapping_sub(src.worldz),
+    )
 }
 
 impl Sound {
@@ -408,8 +389,8 @@ impl Sound {
         self.port1bolox = 0;
         self.music_map = 0xFFFF_FFFF;
         self.music_booted = false;
-        backend.write_port(1, 0);
-        backend.write_port(2, 0);
+        backend.set_engine_sound(0);
+        backend.set_ambient_sound(0);
     }
 
     /// C `Sound_Update` (the dosounds_l tick, gameplay only).
@@ -442,7 +423,7 @@ impl Sound {
             self.nearobjs(state, player, objs, backend);
             self.do_obstacles(state, player, objs);
         } else {
-            backend.write_port(2, 0);
+            backend.set_ambient_sound(0);
         }
 
         self.playersnd(state, player, backend);
@@ -479,8 +460,7 @@ impl Sound {
         obj_worldz: i16,
         family: &PosSndFamily,
     ) -> Option<u8> {
-        let rangexz =
-            xzdiffs_rangexz(player.worldx, player.worldz, obj_worldx, obj_worldz) as u16;
+        let rangexz = xzdiffs_rangexz(player.worldx, player.worldz, obj_worldx, obj_worldz) as u16;
 
         let id = if rangexz < SOUND_MAKESND_NEAR {
             // Near: pick L/C/R by dx = pviewposx - obj.worldx (split +-170).
@@ -509,11 +489,9 @@ impl Sound {
         Some(id)
     }
 
-    /// C `Sound_Play`: immediate driver command (Audio_SendCommand ->
-    /// SpcPlayer_SendCommand: cmd on port 0, 0 on port 1).
+    /// C `Sound_Play`: immediate effect command.
     pub fn play(&mut self, backend: &mut dyn SoundBackend, sound_id: u8) {
-        backend.write_port(0, sound_id);
-        backend.write_port(1, 0);
+        backend.play_immediate(sound_id);
     }
 
     /// C `Sound_PlayMusic`.
@@ -521,28 +499,34 @@ impl Sound {
     /// During gameplay (`in_gameplay`, C `g_game_state == GAME_STATE_PLAYING`)
     /// this matches the original exactly: map `setbgm` ops (WORLD.ASM
     /// setbgmdo) and strat `startbgm` macros write a RAW driver song command
-    /// into bgm_music — 5 = boss, 7 = fanfare, $F0/$F1 = fades — played from
+    /// into bgm_music — 5 = boss, 7 = fanfare, $F0 = all-clear, and $F1 =
+    /// fade-out — played from
     /// the bank booted at level entry.  No sbootapu reboot.  Values >=
     /// SND_TRACK_COUNT are always raw commands.
     ///
     /// Outside gameplay the port's UI/map scripts pass sndtbl track ids
     /// (e.g. the title map's setbgm 2 -> SND_TITLE): full bootapu semantics.
-    pub fn play_music(
-        &mut self,
-        backend: &mut dyn SoundBackend,
-        music_id: u8,
-        in_gameplay: bool,
-    ) {
-        if in_gameplay || music_id >= boot::SND_TRACK_COUNT {
-            backend.start_bgm(music_id);
+    pub fn play_music(&mut self, backend: &mut dyn SoundBackend, music_id: u8, in_gameplay: bool) {
+        if in_gameplay || music_id >= catalog::SND_TRACK_COUNT {
+            backend.start_music(music_id);
             return;
         }
         Self::boot_track(backend, music_id);
     }
 
+    /// ROM `do_bgm_init` (SOUND.ASM:47) — `bootapu #snd_init`.
+    pub fn do_bgm_init(&mut self, backend: &mut dyn SoundBackend) {
+        self.play_music(backend, catalog::SND_INIT, false);
+    }
+
+    /// ROM `do_bgm_continue` (SOUND.ASM:75) — `bootapu #snd_continue`.
+    pub fn do_bgm_continue(&mut self, backend: &mut dyn SoundBackend) {
+        self.play_music(backend, catalog::SND_CONTINUE, false);
+    }
+
     /// C `Sound_StopMusic`: startbgm 0 — tell the driver to stop the song.
     pub fn stop_music(&mut self, backend: &mut dyn SoundBackend) {
-        backend.start_bgm(0);
+        backend.start_music(0);
     }
 
     /// `g_pausesnd` setter: next drain flushes the ring and forces this
@@ -567,7 +551,7 @@ impl Sound {
     // -----------------------------------------------------------------------
     fn boot_track(backend: &mut dyn SoundBackend, track_id: u8) {
         backend.load_track(track_id);
-        backend.start_bgm(boot::track_command(track_id));
+        backend.start_music(catalog::track_start_cue(track_id));
     }
 
     // -----------------------------------------------------------------------
@@ -601,16 +585,16 @@ impl Sound {
     // -----------------------------------------------------------------------
     fn drain_port3_queue(&mut self, backend: &mut dyn SoundBackend) {
         if self.sdpck3 != 0 {
-            if backend.read_port(3) != self.sdpck3 {
+            if !backend.effect_consumed(self.sdpck3) {
                 return; // .reject — SPC hasn't consumed it yet
             }
             self.sdpck3 = 0;
-            backend.write_port(3, 0);
+            backend.clear_effect_acknowledgement();
         }
 
         if self.pausesnd != 0 {
             // .pause — flush queue, force command
-            backend.write_port(3, self.pausesnd);
+            backend.set_paused(self.pausesnd == 2);
             self.sdpck3 = self.pausesnd;
             self.sdspt3 = 0;
             self.sdgpt3 = 0;
@@ -622,7 +606,7 @@ impl Sound {
             return;
         }
         let snd = self.sdport3[(self.sdgpt3 & 0x0F) as usize];
-        backend.write_port(3, snd);
+        backend.play_effect(snd);
         self.sdpck3 = snd;
         self.sdgpt3 = self.sdgpt3.wrapping_add(1) & 0x0F;
     }
@@ -639,26 +623,26 @@ impl Sound {
         let player = match player {
             Some(p) if !p.first_frame => p,
             _ => {
-                backend.write_port(1, 0);
+                backend.set_engine_sound(0);
                 self.port1bolox = 0;
                 return;
             }
         };
 
         if state.player_dead {
-            backend.write_port(1, 0);
+            backend.set_engine_sound(0);
             self.port1bolox = 0;
             return;
         }
 
         if !state.engine_snd {
-            backend.write_port(1, 0);
+            backend.set_engine_sound(0);
             self.port1bolox = 0;
             return;
         }
 
         if state.player_hp0 {
-            backend.write_port(1, 0x4B);
+            backend.set_engine_sound(0x4B);
             self.port1bolox = 0x4B;
             return;
         }
@@ -697,7 +681,7 @@ impl Sound {
         }
 
         self.tpa = tpa;
-        backend.write_port(1, tpa);
+        backend.set_engine_sound(tpa);
         self.port1bolox = tpa;
     }
 
@@ -759,10 +743,10 @@ impl Sound {
     }
 
     // -----------------------------------------------------------------------
-    // nearobjs (C `nearobjs`): nearest-object sound on port 2.
+    // nearobjs (C `nearobjs`): nearest-object ambient sound.
     // -----------------------------------------------------------------------
-    fn set_port2_nothing(&mut self, nearest_id: u16, backend: &mut dyn SoundBackend) {
-        backend.write_port(2, 0);
+    fn clear_ambient(&mut self, nearest_id: u16, backend: &mut dyn SoundBackend) {
+        backend.set_ambient_sound(0);
         self.lastblock = nearest_id;
     }
 
@@ -790,7 +774,7 @@ impl Sound {
 
         let range = al.worldz.wrapping_sub(player.worldz);
         if range < 0 {
-            backend.write_port(2, 0);
+            backend.set_ambient_sound(0);
             return;
         }
 
@@ -802,7 +786,7 @@ impl Sound {
         }
 
         if range < SOUND_SHIP1_MINDIST {
-            backend.write_port(2, 0);
+            backend.set_ambient_sound(0);
             return;
         }
         if range < SOUND_SHIP1_DIST1 {
@@ -814,11 +798,11 @@ impl Sound {
         } else if range < SOUND_SHIP1_CUTOFF {
             snd |= 0x30;
         } else {
-            backend.write_port(2, 0);
+            backend.set_ambient_sound(0);
             return;
         }
 
-        backend.write_port(2, snd);
+        backend.set_ambient_sound(snd);
     }
 
     fn nearobjs(
@@ -831,7 +815,7 @@ impl Sound {
         let player = match player {
             Some(p) => *p,
             None => {
-                self.set_port2_nothing(0, backend);
+                self.clear_ambient(0, backend);
                 return;
             }
         };
@@ -867,18 +851,18 @@ impl Sound {
         let nearest = match nearest {
             Some(n) => n,
             None => {
-                self.set_port2_nothing(0, backend);
+                self.clear_ambient(0, backend);
                 return;
             }
         };
 
         if nearest.id != self.lastblock {
-            self.set_port2_nothing(nearest.id, backend);
+            self.clear_ambient(nearest.id, backend);
             return;
         }
 
         if nearest.snd1 != 0 {
-            backend.write_port(2, nearest.snd1);
+            backend.set_ambient_sound(nearest.snd1);
             return;
         }
 
@@ -893,13 +877,13 @@ impl Sound {
         } else if nearest_range < SOUND_DIST3SND {
             snd |= 0x20;
         } else if nearest_range >= SOUND_CUTOFFSND {
-            self.set_port2_nothing(nearest.id, backend);
+            self.clear_ambient(nearest.id, backend);
             return;
         } else {
             snd |= 0x30;
         }
 
-        backend.write_port(2, snd);
+        backend.set_ambient_sound(snd);
     }
 }
 
@@ -914,26 +898,42 @@ mod tests {
         port3_read: u8,
         bgm: Vec<u8>,
         booted: Vec<u8>,
+        paused: Vec<bool>,
     }
 
     impl SoundBackend for FakeBackend {
-        fn write_port(&mut self, port: u8, value: u8) {
-            self.port_writes.push((port, value));
+        fn set_engine_sound(&mut self, sound: u8) {
+            self.port_writes.push((1, sound));
         }
-        fn read_port(&mut self, port: u8) -> u8 {
-            assert_eq!(port, 3);
-            self.port3_read
+        fn set_ambient_sound(&mut self, sound: u8) {
+            self.port_writes.push((2, sound));
         }
-        fn start_bgm(&mut self, cmd: u8) {
-            self.bgm.push(cmd);
+        fn play_effect(&mut self, effect: u8) {
+            self.port_writes.push((3, effect));
+        }
+        fn effect_consumed(&mut self, effect: u8) -> bool {
+            self.port3_read == effect
+        }
+        fn clear_effect_acknowledgement(&mut self) {
+            self.port_writes.push((3, 0));
+        }
+        fn start_music(&mut self, cue: u8) {
+            self.bgm.push(cue);
         }
         fn load_track(&mut self, track_id: u8) {
             self.booted.push(track_id);
         }
+        fn set_paused(&mut self, paused: bool) {
+            self.paused.push(paused);
+        }
     }
 
     fn last_write(b: &FakeBackend, port: u8) -> Option<u8> {
-        b.port_writes.iter().rev().find(|w| w.0 == port).map(|w| w.1)
+        b.port_writes
+            .iter()
+            .rev()
+            .find(|w| w.0 == port)
+            .map(|w| w.1)
     }
 
     #[test]
@@ -969,14 +969,14 @@ mod tests {
 
         snd.play_se(&st, 0x41);
         snd.play_se(&st, 0x42);
-        snd.set_pause_snd(0x77);
+        snd.set_pause_snd(2);
 
         snd.drain_port3_queue(&mut be);
         // .pause branch wins: queue flushed, forced command sent.
-        assert_eq!(be.port_writes, vec![(3, 0x77)]);
+        assert_eq!(be.paused, vec![true]);
         assert_eq!(snd.sdspt3, 0);
         assert_eq!(snd.sdgpt3, 0);
-        assert_eq!(snd.sdpck3, 0x77);
+        assert_eq!(snd.sdpck3, 2);
         assert_eq!(snd.pausesnd, 0);
     }
 
@@ -999,13 +999,19 @@ mod tests {
 
     #[test]
     fn track_for_map_matches_oracle_table() {
-        assert_eq!(sound_track_for_map(MAP_ID_1_1), Some(boot::SND_11));
-        assert_eq!(sound_track_for_map(MAP_ID_2_1), Some(boot::SND_11));
-        assert_eq!(sound_track_for_map(MAP_ID_3_1), Some(boot::SND_11));
-        assert_eq!(sound_track_for_map(MAP_ID_1_4), Some(boot::SND_14));
-        assert_eq!(sound_track_for_map(MAP_ID_BLACKHOLE), Some(boot::SND_BHOLE));
-        assert_eq!(sound_track_for_map(MAP_ID_FINAL), Some(boot::SND_16));
-        assert_eq!(sound_track_for_map(MAP_ID_TRAINING), Some(boot::SND_TRAINING));
+        assert_eq!(sound_track_for_map(MAP_ID_1_1), Some(catalog::SND_11));
+        assert_eq!(sound_track_for_map(MAP_ID_2_1), Some(catalog::SND_11));
+        assert_eq!(sound_track_for_map(MAP_ID_3_1), Some(catalog::SND_11));
+        assert_eq!(sound_track_for_map(MAP_ID_1_4), Some(catalog::SND_14));
+        assert_eq!(
+            sound_track_for_map(MAP_ID_BLACKHOLE),
+            Some(catalog::SND_BHOLE)
+        );
+        assert_eq!(sound_track_for_map(MAP_ID_FINAL), Some(catalog::SND_16));
+        assert_eq!(
+            sound_track_for_map(MAP_ID_TRAINING),
+            Some(catalog::SND_TRAINING)
+        );
         assert_eq!(sound_track_for_map(0), None);
         assert_eq!(sound_track_for_map(24), None); // title map: no auto boot
     }
@@ -1020,8 +1026,8 @@ mod tests {
         };
 
         snd.update(&st, None, &mut [], &mut be);
-        assert_eq!(be.booted, vec![boot::SND_11]);
-        assert_eq!(be.bgm, vec![boot::track_command(boot::SND_11)]);
+        assert_eq!(be.booted, vec![catalog::SND_11]);
+        assert_eq!(be.bgm, vec![catalog::track_start_cue(catalog::SND_11)]);
 
         // Same map again: latched, no reboot.
         snd.update(&st, None, &mut [], &mut be);
@@ -1032,7 +1038,7 @@ mod tests {
         snd.update(&st, None, &mut [], &mut be);
         st.player_dead = false;
         snd.update(&st, None, &mut [], &mut be);
-        assert_eq!(be.booted, vec![boot::SND_11, boot::SND_11]);
+        assert_eq!(be.booted, vec![catalog::SND_11, catalog::SND_11]);
     }
 
     #[test]
@@ -1045,15 +1051,34 @@ mod tests {
         assert_eq!(be.bgm, vec![5]);
         assert!(be.booted.is_empty());
 
-        // >= SND_TRACK_COUNT is always a raw command (e.g. $F0 fade).
+        // >= SND_TRACK_COUNT is always a raw command (e.g. $F0 all-clear).
         snd.play_music(&mut be, 0xF0, false);
         assert_eq!(be.bgm, vec![5, 0xF0]);
         assert!(be.booted.is_empty());
 
         // Outside gameplay with a track id: full bootapu semantics.
-        snd.play_music(&mut be, boot::SND_TITLE, false);
-        assert_eq!(be.booted, vec![boot::SND_TITLE]);
+        snd.play_music(&mut be, catalog::SND_TITLE, false);
+        assert_eq!(be.booted, vec![catalog::SND_TITLE]);
         assert_eq!(be.bgm, vec![5, 0xF0, 0x12]);
+    }
+
+    #[test]
+    fn do_bgm_init_and_continue_bootapu() {
+        // SOUND.ASM:47/75 — thin bootapu wrappers over SND_INIT / SND_CONTINUE.
+        let mut snd = Sound::new();
+        let mut be = FakeBackend::default();
+        snd.do_bgm_init(&mut be);
+        assert_eq!(be.booted, vec![catalog::SND_INIT]);
+        assert_eq!(be.bgm, vec![catalog::track_start_cue(catalog::SND_INIT)]);
+        snd.do_bgm_continue(&mut be);
+        assert_eq!(be.booted, vec![catalog::SND_INIT, catalog::SND_CONTINUE]);
+        assert_eq!(
+            be.bgm,
+            vec![
+                catalog::track_start_cue(catalog::SND_INIT),
+                catalog::track_start_cue(catalog::SND_CONTINUE),
+            ]
+        );
     }
 
     #[test]
@@ -1169,6 +1194,50 @@ mod tests {
     }
 
     #[test]
+    fn sound_aim_helpers_match_sf_core() {
+        // makesnd rangexz + nearobjs pan angle share aim_angle with strat.
+        assert_eq!(
+            xzdiffs_rangexz(0, 0, 300, 400),
+            sf_core::aim_angle::xzdiffs(-300, -400)
+        );
+        assert_eq!(
+            xzdiffs_rangexz(0, 0, 300, 400),
+            sf_core::aim_angle::xzdiffs(300, 400)
+        );
+        let player = SoundPlayer {
+            worldx: 0,
+            worldz: 0,
+            ..Default::default()
+        };
+        let obj = SoundObj {
+            worldx: 1000,
+            worldz: 0,
+            ..Default::default()
+        };
+        assert_eq!(
+            angle_xz(&player, &obj),
+            sf_core::aim_angle::yanglexy(1000, 0)
+        );
+        assert_eq!(angle_xz(&player, &obj), 64); // +X
+                                                 // +X object → pan bit from angle 64.
+        let mut snd = Sound::new();
+        let mut be = FakeBackend::default();
+        let st = SoundGameState::default();
+        let objs = [SoundObj {
+            id: 7,
+            snd2: 0x01,
+            worldx: 1000,
+            worldz: 0,
+            ..Default::default()
+        }];
+        snd.lastblock = 7;
+        snd.nearobjs(&st, Some(&player), &objs, &mut be);
+        let out = last_write(&be, 2).expect("port2");
+        assert_eq!(out & 0x0F, 0x01);
+        assert_ne!(out & 0xC0, 0, "pan bits set from yanglexy");
+    }
+
+    #[test]
     fn forcesnd_shape_takes_over_port2() {
         let mut snd = Sound::new();
         let mut be = FakeBackend::default();
@@ -1208,9 +1277,24 @@ mod tests {
         let st = SoundGameState::default();
         let player = SoundPlayer::default();
         let objs = [
-            SoundObj { id: 1, snd1: 0x11, worldz: 500, ..Default::default() },
-            SoundObj { id: 2, snd1: 0x22, worldz: 100, ..Default::default() }, // nearest
-            SoundObj { id: 3, snd1: 0x33, worldz: 800, ..Default::default() },
+            SoundObj {
+                id: 1,
+                snd1: 0x11,
+                worldz: 500,
+                ..Default::default()
+            },
+            SoundObj {
+                id: 2,
+                snd1: 0x22,
+                worldz: 100,
+                ..Default::default()
+            }, // nearest
+            SoundObj {
+                id: 3,
+                snd1: 0x33,
+                worldz: 800,
+                ..Default::default()
+            },
         ];
         // Pre-latch the nearest so its snd1 goes straight out (2nd-pass gate).
         snd.lastblock = 2;
@@ -1222,23 +1306,45 @@ mod tests {
     fn make_snd_near_lcr_selection() {
         // Near band (small range): L/C/R chosen by dx = pviewposx - obj.worldx.
         let mut snd = Sound::new();
-        let player = SoundPlayer { worldx: 0, worldz: 0, ..Default::default() };
+        let player = SoundPlayer {
+            worldx: 0,
+            worldz: 0,
+            ..Default::default()
+        };
         // obj at (0,100): rangexz well under the 2000 near threshold.
         let ox = 0;
         let oz = 100;
 
         // dx = +200 (>= +170) -> lsnd.
-        let st = SoundGameState { pviewposx: 200, ..Default::default() };
-        assert_eq!(snd.make_snd(&st, &player, ox, oz, &POS_LASER), Some(POS_LASER.l));
+        let st = SoundGameState {
+            pviewposx: 200,
+            ..Default::default()
+        };
+        assert_eq!(
+            snd.make_snd(&st, &player, ox, oz, &POS_LASER),
+            Some(POS_LASER.l)
+        );
         assert_eq!(snd.sdport3[0], POS_LASER.l);
 
         // dx = +100 (< +170) -> csnd.
-        let st = SoundGameState { pviewposx: 100, ..Default::default() };
-        assert_eq!(snd.make_snd(&st, &player, ox, oz, &POS_LASER), Some(POS_LASER.c));
+        let st = SoundGameState {
+            pviewposx: 100,
+            ..Default::default()
+        };
+        assert_eq!(
+            snd.make_snd(&st, &player, ox, oz, &POS_LASER),
+            Some(POS_LASER.c)
+        );
 
         // dx = -200 (< -170) -> rsnd.
-        let st = SoundGameState { pviewposx: -200, ..Default::default() };
-        assert_eq!(snd.make_snd(&st, &player, ox, oz, &POS_LASER), Some(POS_LASER.r));
+        let st = SoundGameState {
+            pviewposx: -200,
+            ..Default::default()
+        };
+        assert_eq!(
+            snd.make_snd(&st, &player, ox, oz, &POS_LASER),
+            Some(POS_LASER.r)
+        );
     }
 
     #[test]
@@ -1248,7 +1354,10 @@ mod tests {
         let player = SoundPlayer::default();
 
         // obj dead ahead at z=2500 -> rangexz ~2109, in [2000,3150): far.
-        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_LASER), Some(POS_LASER.f));
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 2500, &POS_LASER),
+            Some(POS_LASER.f)
+        );
 
         // obj at z=4000 -> rangexz ~3375 >= cutoffsnd: silence, nothing queued.
         let spt = snd.sdspt3;
@@ -1265,16 +1374,34 @@ mod tests {
         // Near, centred.
         assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_MISSILE), Some(0x3c));
         assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_DAMENEMY), Some(0x24));
-        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_ENEMYUPSEA), Some(0x69));
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 50, &POS_ENEMYUPSEA),
+            Some(0x69)
+        );
         // Findings F1-F4 families: door + sea, near-centre ids.
         assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_DOOROPEN), Some(0x54));
-        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_DOORCLOSE), Some(0x52));
-        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_ENEMYDOWNSEA), Some(0x75));
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 50, &POS_DOORCLOSE),
+            Some(0x52)
+        );
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 50, &POS_ENEMYDOWNSEA),
+            Some(0x75)
+        );
         // Far.
-        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_HITWALL), Some(0x29));
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 2500, &POS_HITWALL),
+            Some(0x29)
+        );
         // F1/F2 door far bands collapse to the mid/far id.
-        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_DOOROPEN), Some(0x55));
-        assert_eq!(snd.make_snd(&st, &player, 0, 2500, &POS_DOORCLOSE), Some(0x53));
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 2500, &POS_DOOROPEN),
+            Some(0x55)
+        );
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 2500, &POS_DOORCLOSE),
+            Some(0x53)
+        );
     }
 
     #[test]
@@ -1282,10 +1409,17 @@ mod tests {
         // makesnd routes through setport3_l: the in-game HP0 gate drops it,
         // same as one-shot trigse.
         let mut snd = Sound::new();
-        let st = SoundGameState { in_game: true, player_hp0: true, ..Default::default() };
+        let st = SoundGameState {
+            in_game: true,
+            player_hp0: true,
+            ..Default::default()
+        };
         let player = SoundPlayer::default();
         // Selection still returns the id, but the ring stays empty.
-        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_LASER), Some(POS_LASER.c));
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 50, &POS_LASER),
+            Some(POS_LASER.c)
+        );
         assert_eq!(snd.sdspt3, 0, "HP0 gate drops the positional SE");
     }
 
@@ -1299,7 +1433,10 @@ mod tests {
         let player = SoundPlayer::default();
 
         // Positional laser (near, centred) then a one-shot se_laser $35.
-        assert_eq!(snd.make_snd(&st, &player, 0, 50, &POS_LASER), Some(POS_LASER.c));
+        assert_eq!(
+            snd.make_snd(&st, &player, 0, 50, &POS_LASER),
+            Some(POS_LASER.c)
+        );
         snd.play_se(&st, 0x35);
         assert_eq!(snd.sdport3[0], POS_LASER.c);
         assert_eq!(snd.sdport3[1], 0x35);

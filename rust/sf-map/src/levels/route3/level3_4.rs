@@ -8,6 +8,7 @@ use super::common::*;
 use super::finish_level;
 use super::Route3Level;
 use crate::builder::MapBuilder;
+use crate::levels::tunnel::append_mtunnel_exit;
 
 pub(crate) fn build() -> Route3Level {
     let mut b = MapBuilder::new();
@@ -24,31 +25,73 @@ pub(crate) fn build() -> Route3Level {
 
     // boss_8_0: main boss shell
     // mapobj 0,0,(-50<<boss8_scale)+nucleusheight,210<<boss8_scale,boss_8_0,boss8_Istrat
-    b.mapobj(0, 0, (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT, 210 << BOSS8_SCALE, SH_BOSS_8_0_PROXY, STRAT_ADDR_BOSS8);
+    b.mapobj(
+        0,
+        0,
+        (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT,
+        210 << BOSS8_SCALE,
+        SH_BOSS_8_0_PROXY,
+        STRAT_ADDR_BOSS8,
+    );
 
     // 4 nucleus launchers at various angles
-    b.mapobj(0, 0, (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT, BOSS8_CIRC, SH_HOU_4_PROXY, STRAT_ADDR_NUCLEUSLAUNCHER);
+    b.mapobj(
+        0,
+        0,
+        (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT,
+        BOSS8_CIRC,
+        SH_HOU_4_PROXY,
+        STRAT_ADDR_NUCLEUSLAUNCHER,
+    );
     b.setalvarb(AL_SBYTE2, DEG90 + DEG22);
 
-    b.mapobj(0, 0, (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT, BOSS8_CIRC, SH_HOU_4_PROXY, STRAT_ADDR_NUCLEUSLAUNCHER);
+    b.mapobj(
+        0,
+        0,
+        (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT,
+        BOSS8_CIRC,
+        SH_HOU_4_PROXY,
+        STRAT_ADDR_NUCLEUSLAUNCHER,
+    );
     b.setalvarb(AL_SBYTE2, DEG135 + DEG22);
 
-    b.mapobj(0, 0, (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT, BOSS8_CIRC, SH_HOU_4_PROXY, STRAT_ADDR_NUCLEUSLAUNCHER);
+    b.mapobj(
+        0,
+        0,
+        (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT,
+        BOSS8_CIRC,
+        SH_HOU_4_PROXY,
+        STRAT_ADDR_NUCLEUSLAUNCHER,
+    );
     b.setalvarb(AL_SBYTE2, DEG270 - DEG22);
 
-    b.mapobj(0, 0, (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT, BOSS8_CIRC, SH_HOU_4_PROXY, STRAT_ADDR_NUCLEUSLAUNCHER);
+    b.mapobj(
+        0,
+        0,
+        (-50 << BOSS8_SCALE) + NUCLEUSHEIGHT,
+        BOSS8_CIRC,
+        SH_HOU_4_PROXY,
+        STRAT_ADDR_NUCLEUSLAUNCHER,
+    );
     b.setalvarb(AL_SBYTE2, 0 - DEG22);
 
     // REPT rotnum: 8 nucleus pillars at rotsize*prot angles
     {
-    for prot in 0..ROTNUM_WASH {
-    b.mapobj(0, 0, 0 + NUCLEUSHEIGHT, BOSS8_CIRC, SH_BOSS_8_4_PROXY, STRAT_ADDR_NUCLEUSPILLAR);
-    b.setalvarb(AL_SBYTE2, ROTSIZE_WASH * prot);
-    }
+        for prot in 0..ROTNUM_WASH {
+            b.mapobj(
+                0,
+                0,
+                0 + NUCLEUSHEIGHT,
+                BOSS8_CIRC,
+                SH_BOSS_8_4_PROXY,
+                STRAT_ADDR_NUCLEUSPILLAR,
+            );
+            b.setalvarb(AL_SBYTE2, ROTSIZE_WASH * prot);
+        }
     }
 
-    // maptexitwait -300 (stub: mapwait 300)
-    b.mapwait(300);
+    // maptexitwait -300 => 1000-300.
+    b.mapwait(700);
     // initbg
     b.initbg();
 
@@ -65,8 +108,10 @@ pub(crate) fn build() -> Route3Level {
     // setbgm $f1 (fadeout)
     b.setbgm(BGM_FADEOUT);
 
-    // mapplayermode EscapeNucleus — approximated as player outview
-    b.mapplayeroutview();
+    // mapplayermode EscapeNucleus.
+    b.mapif_builtin(MAP_CB_IS_PLAYER_DEAD, "washmap.after_escape_mode");
+    b.mapcodejsl_builtin(crate::consts::cb::SET_PLAYER_ESCAPENUCLEUS_L);
+    b.label("washmap.after_escape_mode");
 
     // mapwait 4360 (first arg used)
     b.mapwait(4360);
@@ -138,23 +183,37 @@ pub(crate) fn build() -> Route3Level {
     b.pathcspecial(3000, -1000, -700, 2000, SH_SHARK, PATH_ID_CALL_FOL, 10, 10);
 
     // Line 37: skillfly_bonus (item_5)
-    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline(); 
+    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, 0, 0, 1500, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
     b.label("level3_4.skillfly_bonus_0_skip");
 
     // Lines 42-48: big_missile section
-    b.mapnobj(500, -200, 0, 4000, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
+    b.mapnobj(500, -200, 0, 4000, SH_POLE_0_PROXY, STRATEGY_POLE0);
     b.mapobj(2000, 0, SPACE_VIEWCY, 4000, SH_BIG_M, IS_MISSPOD);
     b.map_sbtype7(1, 5, 1, 0);
-    b.mapnobj(500, 200, 100, 4000, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
+    b.mapnobj(500, 200, 100, 4000, SH_POLE_0_PROXY, STRATEGY_POLE0);
     b.mapobj(2000, 200, SPACE_VIEWCY - 100, 4000, SH_BIG_M, IS_MISSPOD);
     b.mapobj(1000, -100, SPACE_VIEWCY + 200, 4000, SH_BIG_M, IS_MISSPOD);
     b.map_sbtype6(1, 4, -1, 0);
 
     // Lines 50-51: colony pair
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(200, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        200,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Lines 52-53: spacebar
     b.map_sbtype13(10, -3, 0, 0);
@@ -190,8 +249,22 @@ pub(crate) fn build() -> Route3Level {
     b.map_setbarshape(BarShapeMode::Solid, false);
 
     // Lines 79-80: colony pair
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(200, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        200,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Line 82: wire mode
     b.map_setbarshape(BarShapeMode::Wire, false);
@@ -206,8 +279,22 @@ pub(crate) fn build() -> Route3Level {
     b.map_sbtype18(4, 0, 0, 0, 0, 4);
 
     // Lines 91-92: colony pair
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(200, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        200,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Lines 94-103: solid bars then wire bars
     b.map_setbarshape(BarShapeMode::Solid, false);
@@ -249,8 +336,22 @@ pub(crate) fn build() -> Route3Level {
 
     // Lines 125-128: solid + colony pair
     b.map_setbarshape(BarShapeMode::Solid, false);
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(0, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        0,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Lines 130-137: solid bars
     b.map_sbtype0(0, 5, 0, 0);
@@ -290,7 +391,14 @@ pub(crate) fn build() -> Route3Level {
 
     // Lines 160-161: SBtype11 + spacebarwalker
     b.map_sbtype11(1, 0, -1, 1);
-    b.special(0, 2 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN), SH_S_WARK_0, IS_SPACEBARWALKER);
+    b.special(
+        0,
+        2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN),
+        SH_S_WARK_0,
+        IS_SPACEBARWALKER,
+    );
     b.mapwait(2000);
 
     // Lines 164-165: friend pair (chase3)
@@ -298,8 +406,22 @@ pub(crate) fn build() -> Route3Level {
     b.pathobj(0, 0, 400, 0, SH_ZACO_B, PATH_ID_CHASE3_2, 10, 10);
 
     // Lines 167-168: colony pair
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(0, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        0,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Line 170: itachi_a
     b.pathcspecial(0, 400, -150, 5000, SH_ZACO_8, PATH_ID_ITACHI_A, 2, 4);
@@ -311,8 +433,22 @@ pub(crate) fn build() -> Route3Level {
     b.maploop("level3_4.sbbar1", 6);
 
     // Lines 176-177: colony pair
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(0, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        0,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Line 179: itachi_a
     b.pathcspecial(0, -300, -100, 4000, SH_ZACO_8, PATH_ID_ITACHI_A, 2, 4);
@@ -324,7 +460,14 @@ pub(crate) fn build() -> Route3Level {
     b.maploop("level3_4.sbbar4", 2);
 
     // Line 184: Bwarker spacebarwalker
-    b.cspecial(0, 1 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN), SH_BWARKER_3, IS_SPACEBARWALKER);
+    b.cspecial(
+        0,
+        1 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN),
+        SH_BWARKER_3,
+        IS_SPACEBARWALKER,
+    );
 
     // Lines 186-189: .sbbar5 loop (2 iterations)
     b.label("level3_4.sbbar5");
@@ -343,30 +486,79 @@ pub(crate) fn build() -> Route3Level {
     b.maploop("level3_4.sbbar6", 2);
 
     // Lines 197-198: colony pair
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(0, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        0,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Line 200: solid bars
     b.map_setbarshape(BarShapeMode::Solid, false);
 
     // Lines 202-206: Bwarker + .sbbar7 loop (4 iterations)
-    b.cspecial(0, 0, SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN), SH_BWARKER_3, IS_SPACEBARWALKER);
+    b.cspecial(
+        0,
+        0,
+        SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN),
+        SH_BWARKER_3,
+        IS_SPACEBARWALKER,
+    );
     b.label("level3_4.sbbar7");
     b.map_sbtype8(0, 0, 1, 0);
     b.map_sbtype8(4, 0, -1, 0);
     b.maploop("level3_4.sbbar7", 4);
 
     // Line 207: Bwarker
-    b.cspecial(0, 0, SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN), SH_BWARKER_3, IS_SPACEBARWALKER);
+    b.cspecial(
+        0,
+        0,
+        SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN),
+        SH_BWARKER_3,
+        IS_SPACEBARWALKER,
+    );
 
     // Lines 209-212: .sbbar9 (no loop — just 2 bars + spacebarwalker)
     b.map_sbtype8(0, 0, 1, 0);
     b.map_sbtype8(4, 0, -1, 0);
-    b.special(0, 0, SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN), SH_S_WARK_0, IS_SPACEBARWALKER);
+    b.special(
+        0,
+        0,
+        SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN),
+        SH_S_WARK_0,
+        IS_SPACEBARWALKER,
+    );
 
     // Lines 215-216: colony pair
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(0, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + 0, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        0,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + 0,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // Lines 218-221: .sbbarb loop (4 iterations)
     b.label("level3_4.sbbarb");
@@ -397,7 +589,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapwait(3000);
 
     // Line 240: skillfly_bonus (gate3)
-    let skillfly_bonus1_guard_ptr = b.mapcode65816_inline(); 
+    let skillfly_bonus1_guard_ptr = b.mapcode65816_inline();
     b.mapnobj(0, -50, 0, 2000, SH_GATE_0, STRAT_ADDR_GATE3);
     b.label("level3_4.skillfly_bonus_1_skip");
 
@@ -413,8 +605,22 @@ pub(crate) fn build() -> Route3Level {
 
     // Lines 250-253: wire&solid section
     b.map_sbtype1(1, 0, 1, 0);
-    b.special(0, -2 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN), SH_S_WARK_0, IS_SPACEBARWALKER);
-    b.cspecial(0, 2 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN), SH_BWARKER_3, IS_SPACEBARWALKER);
+    b.special(
+        0,
+        -2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN),
+        SH_S_WARK_0,
+        IS_SPACEBARWALKER,
+    );
+    b.cspecial(
+        0,
+        2 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + (1 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (0 * SPACEBAR_UNIT_LEN),
+        SH_BWARKER_3,
+        IS_SPACEBARWALKER,
+    );
 
     // Lines 254-258: more spacebar
     b.map_sbtype3(0, 4, -1, 1);
@@ -445,7 +651,14 @@ pub(crate) fn build() -> Route3Level {
     b.map_sbtype5(8, -2, -1, 1);
 
     // Line 276: item_6
-    b.mapobj(1000, 1 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY + (0 * SPACEBAR_UNIT_LEN), SPACEBAR_BASE_DIST + (2 * SPACEBAR_UNIT_LEN), SH_ITEM_6, IS_ITEM6);
+    b.mapobj(
+        1000,
+        1 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY + (0 * SPACEBAR_UNIT_LEN),
+        SPACEBAR_BASE_DIST + (2 * SPACEBAR_UNIT_LEN),
+        SH_ITEM_6,
+        IS_ITEM6,
+    );
 
     // Lines 278-285: repeat pattern
     b.map_sbtype_b(0, -2, 0, 0);
@@ -531,58 +744,67 @@ pub(crate) fn build() -> Route3Level {
 
     // Lines 351-374: horiz and vert moving (speed=30)
     {
-    let speed: i32 = 30;
-    b.map_sbtype17(6, 0, 12, 0, -speed, -4);
-    b.map_sbtype16(6, -12, -1, 0, speed, 3);
-    b.map_sbtype17(6, 0, 10, 0, -speed, -4);
-    b.map_sbtype16(6, -10, -1, 0, speed, 3);
-    b.map_sbtype17(6, -1, -10, 0, speed, -3);
-    b.map_sbtype16(6, 10, 1, 0, -speed, 4);
+        let speed: i32 = 30;
+        b.map_sbtype17(6, 0, 12, 0, -speed, -4);
+        b.map_sbtype16(6, -12, -1, 0, speed, 3);
+        b.map_sbtype17(6, 0, 10, 0, -speed, -4);
+        b.map_sbtype16(6, -10, -1, 0, speed, 3);
+        b.map_sbtype17(6, -1, -10, 0, speed, -3);
+        b.map_sbtype16(6, 10, 1, 0, -speed, 4);
 
-    b.map_sbtype17(2, 0, 12, 0, -speed, -4);
-    b.map_sbtype16(2, -12, -1, 0, speed, 3);
-    b.map_sbtype17(2, 0, 10, 0, -speed, -6);
-    b.map_sbtype16(2, -10, -1, 0, speed, 5);
-    b.map_sbtype17(2, -1, -10, 0, speed, -4);
-    b.map_sbtype16(2, 10, 1, 0, -speed, 3);
-    b.map_sbtype17(2, 1, 10, 0, -speed, -2);
-    b.map_sbtype16(2, -10, 0, 0, speed, 7);
-    b.map_sbtype17(2, -2, -10, 0, speed, -6);
-    b.map_sbtype17(2, 1, 12, 0, -speed, -2);
-    b.map_sbtype16(2, -12, 0, 0, speed, 7);
-    b.map_sbtype16(2, 10, -1, 0, -speed, 4);
-    b.map_sbtype17(2, 2, 10, 0, -speed, -5);
-    b.map_sbtype16(2, -10, 0, 0, speed, 3);
-    b.map_sbtype17(2, 0, -10, 0, speed, -3);
-    b.map_sbtype16(4, 10, 1, 0, -speed, 2);
+        b.map_sbtype17(2, 0, 12, 0, -speed, -4);
+        b.map_sbtype16(2, -12, -1, 0, speed, 3);
+        b.map_sbtype17(2, 0, 10, 0, -speed, -6);
+        b.map_sbtype16(2, -10, -1, 0, speed, 5);
+        b.map_sbtype17(2, -1, -10, 0, speed, -4);
+        b.map_sbtype16(2, 10, 1, 0, -speed, 3);
+        b.map_sbtype17(2, 1, 10, 0, -speed, -2);
+        b.map_sbtype16(2, -10, 0, 0, speed, 7);
+        b.map_sbtype17(2, -2, -10, 0, speed, -6);
+        b.map_sbtype17(2, 1, 12, 0, -speed, -2);
+        b.map_sbtype16(2, -12, 0, 0, speed, 7);
+        b.map_sbtype16(2, 10, -1, 0, -speed, 4);
+        b.map_sbtype17(2, 2, 10, 0, -speed, -5);
+        b.map_sbtype16(2, -10, 0, 0, speed, 3);
+        b.map_sbtype17(2, 0, -10, 0, speed, -3);
+        b.map_sbtype16(4, 10, 1, 0, -speed, 2);
     }
 
     // Lines 375-380: more bars + poles
     b.map_sbtype_b(0, 1, 0, 0);
     b.map_sbtype_b(4, -4, 0, 0);
     b.map_sbtype8(8, 5, 0, 0);
-    b.mapnobj(800, 0, 0, 2500, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
-    b.mapnobj(800, 400, 100, 2500, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
-    b.mapnobj(800, -400, -100, 2500, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
+    b.mapnobj(800, 0, 0, 2500, SH_POLE_0_PROXY, STRATEGY_POLE0);
+    b.mapnobj(800, 400, 100, 2500, SH_POLE_0_PROXY, STRATEGY_POLE0);
+    b.mapnobj(800, -400, -100, 2500, SH_POLE_0_PROXY, STRATEGY_POLE0);
 
     // Lines 382-383: friend pair (chase1)
-    b.pathobj(0, 1200, 200, 600, SH_FRIENDSHIP_4, PATH_ID_CHASE1_1, 200, 10);
+    b.pathobj(
+        0,
+        1200,
+        200,
+        600,
+        SH_FRIENDSHIP_4,
+        PATH_ID_CHASE1_1,
+        200,
+        10,
+    );
     b.pathobj(1000, 1200, 200, 600, SH_ZACO_B, PATH_ID_CHASE1_2, 10, 10);
 
     // Lines 384-385: poles
-    b.mapnobj(1000, 200, 100, 3000, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
-    b.mapnobj(1000, -200, -200, 3000, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
+    b.mapnobj(1000, 200, 100, 3000, SH_POLE_0_PROXY, STRATEGY_POLE0);
+    b.mapnobj(1000, -200, -200, 3000, SH_POLE_0_PROXY, STRATEGY_POLE0);
 
     // Lines 386-392: more horiz/vert moving bars
     {
-    let speed: i32 = 30;
-    b.map_sbtype16(4, -12, -1, 0, speed, 5);
-    b.map_sbtype17(2, -1, -12, 0, speed, -4);
-    b.map_sbtype16(2, 10, 1, 0, -speed, 3);
-    b.map_sbtype17(4, 0, -12, 0, speed, -3);
-    b.map_sbtype16(4, 12, -1, 0, -speed, 4);
-    b.map_sbtype17(4, 0, 12, 0, -speed, -6);
-    b.map_sbtype16(4, -10, 0, 0, speed, 7);
+        let speed: i32 = 30;
+        b.map_sbtype16(4, -12, -1, 0, speed, 5);
+        b.map_sbtype17(2, -1, -12, 0, speed, -4);
+        b.map_sbtype16(2, 10, 1, 0, -speed, 3);
+        b.map_sbtype17(4, 0, -12, 0, speed, -3);
+        b.map_sbtype16(4, 12, -1, 0, -speed, 4);
+        b.map_sbtype17(4, 0, 12, 0, -speed, -6);
+        b.map_sbtype16(4, -10, 0, 0, speed, 7);
     }
 
     // Lines 393-394: houses
@@ -593,7 +815,7 @@ pub(crate) fn build() -> Route3Level {
     b.special(0, 0, -100, 800, SH_CAMELEON, IS_CAMELEON);
     b.cspecial(0, -100, 100, 800, SH_CAMELEON, IS_CAMELEON);
     b.special(1000, 100, 100, 800, SH_CAMELEON, IS_CAMELEON);
-    b.mapnobj(0, 0, 0, 3000, SH_POLE_0_PROXY, STRAT_ADDR_POLE0);
+    b.mapnobj(0, 0, 0, 3000, SH_POLE_0_PROXY, STRATEGY_POLE0);
 
     // Lines 404-406: big iron flame (XPspacebar)
     b.map_xpspacebar(1000, 0, 0, 3000, 0, 6);
@@ -679,7 +901,7 @@ pub(crate) fn build() -> Route3Level {
     // Lines 485-489: .wait loop — busy-wait for boss defeat (chkstratdone1)
     b.label("level3_4.wait");
     b.mapwait(16);
-    let chkstratdone1_loop_ptr = b.mapcode65816_inline(); 
+    let chkstratdone1_loop_ptr = b.mapcode65816_inline();
     b.mapgoto("level3_4.wait");
     b.label("level3_4.end");
 
@@ -818,10 +1040,8 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0, 90, 0, 4000, SH_TUNNEL_0, STRAT_ADDR_BOTRIGHT1);
     b.mapobj(500, -90, 0, 4000, SH_TUNNEL_0, STRAT_ADDR_BOTLEFT1);
 
-    // Line 496: mapjsr Mtunnelexit
-    // TODO: port Mtunnelexit (medium tunnel exit sequence) as a subroutine.
-    // For now, inline a simplified version.
-    b.mapwait(100);
+    // Line 496: mapjsr Mtunnelexit (MEXITMAP.ASM).
+    append_mtunnel_exit(&mut b, "level3_4.map3_4b.mexit");
 
     // Line 497: setbgm $f1 (fade out music)
     b.setbgm(BGM_FADEOUT);

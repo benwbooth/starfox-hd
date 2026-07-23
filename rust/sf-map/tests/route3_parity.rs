@@ -9,7 +9,9 @@
 //! (raw ptr/name pairs) because the shared callback enums are off-limits to
 //! the route-3 lane; see `levels/route3/mod.rs` for the consolidation TODO.
 
+use sf_map::builder::MapBuilder;
 use sf_map::catalog::{self, map_id};
+use sf_map::consts::{BGM_BOSS1, BGM_FADEOUT, MEDPSPEED};
 use sf_map::levels::route3;
 
 fn fixture(name: &str, ext: &str) -> Vec<u8> {
@@ -25,7 +27,11 @@ struct Regs {
 
 fn parse_regs(name: &str) -> Regs {
     let text = String::from_utf8(fixture(name, "regs.txt")).unwrap();
-    let mut regs = Regs { length: 0, native: Vec::new(), inline: Vec::new() };
+    let mut regs = Regs {
+        length: 0,
+        native: Vec::new(),
+        inline: Vec::new(),
+    };
     for line in text.lines() {
         let mut it = line.split_ascii_whitespace();
         match (it.next(), it.next()) {
@@ -47,11 +53,23 @@ fn assert_level_matches(name: &str, id: u32) {
     // Bless mode: the C harness that dumped these fixtures is gone (RIIR), and
     // it shared the maploop count-encoding bug (builder emitted raw count; ROM
     // macro emits count-1 — see MapBuilder::maploop + sf-oracle audit_mapvm2).
-    // SF_BLESS_FIXTURES=1 rewrites the .bin from the current builder output
-    // (lengths unchanged, so .regs.txt stays valid). Regression guard.
+    // SF_BLESS_FIXTURES=1 rewrites the current regression blob and its length;
+    // callback lists remain independently checked from the original capture.
     if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
         let out = format!("{}/tests/fixtures/{name}.bin", env!("CARGO_MANIFEST_DIR"));
         std::fs::write(&out, &level.built.data).unwrap();
+        let regs_path = format!(
+            "{}/tests/fixtures/{name}.regs.txt",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut regs = format!("length {}\n", level.built.data.len());
+        for &(addr, _) in &level.native_regs {
+            regs.push_str(&format!("native 0x{addr:06x}\n"));
+        }
+        for &(ptr, _) in &level.inline_regs {
+            regs.push_str(&format!("inline {ptr}\n"));
+        }
+        std::fs::write(regs_path, regs).unwrap();
         return;
     }
     let blob = fixture(name, "bin");
@@ -117,6 +135,31 @@ fn level3_4_matches_c() {
 #[test]
 fn level3_5_matches_c() {
     assert_level_matches("r3_level3_5", map_id::M3_5);
+}
+
+#[test]
+fn level3_5_uses_the_retail_boss_music_transition() {
+    let level = route3::get_level(map_id::M3_5).expect("route 3 level 5");
+
+    // MAPMACS.INC `fadeoutbgm` followed immediately by MAP3_5.ASM
+    // `setbgm 5`. The intervening MSU-1 fade and 2,000-unit wait are
+    // assembled out because CONFIG/ROM.INC defines MSU1 as zero.
+    let mut expected = MapBuilder::new();
+    expected.setbgm(BGM_FADEOUT);
+    expected.mapwait(MEDPSPEED * 30);
+    expected.setbgm(BGM_BOSS1);
+    let (expected, _) = expected.finish();
+
+    let occurrences = level
+        .built
+        .data
+        .windows(expected.len())
+        .filter(|window| *window == expected.as_slice())
+        .count();
+    assert_eq!(
+        occurrences, 1,
+        "retail boss transition must occur exactly once without the MSU-1-only wait"
+    );
 }
 
 #[test]

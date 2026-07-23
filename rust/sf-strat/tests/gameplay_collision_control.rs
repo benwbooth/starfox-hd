@@ -14,9 +14,9 @@
 //! control back. Fixed by registering those callbacks at level load.
 
 use sf_core::pad;
-use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_game::shell::{GameState, Shell};
-use sf_game::vars::{COLLTYPE_ENEMY1, PSF_NOCTRL};
+use sf_game::vars::{COLLTYPE_ENEMY1, PSF3_NOCOLLISIONS, PSF_NOCTRL};
 use sf_strat::common::StratRam;
 use sf_strat::player::player_sv as sv;
 
@@ -26,14 +26,7 @@ fn make_shell() -> Shell {
     let mut shell = Shell::new();
     shell.set_register_strats(Box::new(sf_strat::table::register_all));
     shell.set_spawn_player(Box::new(|game, newmap| {
-        if let Some(idx) = sf_strat::player::strat_spawn_player(game) {
-            if newmap == sf_map::catalog::map_id::M1_1
-                || newmap == sf_map::catalog::map_id::M2_1
-                || newmap == sf_map::catalog::map_id::M3_1
-            {
-                sf_strat::player::strat_player_opening_init(game, idx);
-            }
-        }
+        let _ = sf_strat::player::strat_spawn_player_for_map(game, newmap);
     }));
     shell
 }
@@ -66,12 +59,34 @@ fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
 
 fn player_slot(sh: &Shell) -> u16 {
     let p = sh.game.vars.internal_playpt;
-    assert!(p >= 0 && sh.game.objs.aliens[p as usize].active, "no live player");
+    assert!(
+        p >= 0 && sh.game.objs.aliens[p as usize].active,
+        "no live player"
+    );
     p as u16
 }
 
 fn player_worldx(sh: &Shell) -> i16 {
     sh.game.objs.aliens[player_slot(sh) as usize].worldx
+}
+
+#[test]
+fn ignored_player_collision_still_runs_flight_strategy_same_frame() {
+    let mut g = sf_game::Game::new();
+    sf_strat::table::register_all(&mut g);
+    let p = sf_strat::player::strat_spawn_player(&mut g).expect("player");
+    sf_strat::player::set_player_in_space(&mut g, p);
+    g.vars.pshipflags3 |= PSF3_NOCOLLISIONS;
+    g.objs.aliens[p as usize].sflags |= ASF_COLLIDE;
+    g.objs.aliens[p as usize].worldz = 0;
+
+    g.run_strategies();
+
+    assert_eq!(g.objs.aliens[p as usize].sflags & ASF_COLLIDE, 0);
+    assert!(
+        g.objs.aliens[p as usize].worldz > 0,
+        "ROM playercoll_Istrat tail-jumps to the normal flight strategy"
+    );
 }
 
 // ============================================================
@@ -81,7 +96,11 @@ fn player_worldx(sh: &Shell) -> i16 {
 fn every_route_regains_control_and_responds_to_steering() {
     for route in 0..3u32 {
         let mut sh = drive_to_controllable(route, 700);
-        assert_eq!(sh.state(), GameState::Playing, "route {route}: not in gameplay");
+        assert_eq!(
+            sh.state(),
+            GameState::Playing,
+            "route {route}: not in gameplay"
+        );
         assert_eq!(
             sh.game.vars.pshipflags & PSF_NOCTRL,
             0,
@@ -108,16 +127,15 @@ fn gameplay_start_attaches_pcbox_and_enemy_shot_damages_player() {
     let mut sh = drive_to_controllable(0, 700);
     let p = player_slot(&sh);
 
-    // The per-level setup ran: the 3 proxy boxes exist and the ship is
-    // colldisable (the boxes carry its collision). Without the fix pcbox was
-    // never attached and this is false.
+    // The per-level setup ran: the three colldisable HP proxies exist and the
+    // ship itself remains collision-enabled with the ROM playerB_col list.
     assert!(
         sh.game.coldet.pcbox.attached(),
         "pcbox not attached in the real gameplay path (BUG A)"
     );
     assert!(
-        sh.game.objs.aliens[p as usize].sflags & ASF_COLLDISABLE != 0,
-        "ship should be colldisable while the boxes carry collision"
+        sh.game.objs.aliens[p as usize].sflags & ASF_COLLDISABLE == 0,
+        "ship must own the live playerB_col collider"
     );
 
     // Freeze the ship so the seeded stationary shot stays overlapping (the boxes

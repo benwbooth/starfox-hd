@@ -12,8 +12,10 @@ use sf_oracle::{
     boot_retail, call, call_near, init_object_pool, inject_runmario_trampoline, load_built_rom,
     load_retail_rom, snapshot_objects, walk_freelist, Entry, SnesBus, AL_STRATPTR, AL_VX, AL_VY,
     AL_VZ, BUILT_POOL, BUILT_RUNMARIO_L_ROM, BUILT_RUNMARIO_RAM, RETAIL_ADDALVECS_L, RETAIL_ALDEAD,
-    RETAIL_DOSTRATS, RETAIL_DO_STRAT_L, RETAIL_GAMEFRAME, RETAIL_INIT_STRATS_L, RETAIL_POOL,
-    RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM, RETAIL_STRATOBJ_POSX, RETAIL_UPDATE_OBJECTS_L,
+    RETAIL_DOSTRATS, RETAIL_DO_STRAT_L, RETAIL_GAMEFRAME, RETAIL_INIT_STRATS_L, RETAIL_ISTRATS,
+    RETAIL_LASTMAPOBJ, RETAIL_MAPBANK, RETAIL_MAPCNT, RETAIL_MAPOBJDO, RETAIL_MAPPTR,
+    RETAIL_NEWOBJEX, RETAIL_NEWOBJS_L, RETAIL_POOL, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM,
+    RETAIL_SHAPES, RETAIL_STRATOBJ_POSX, RETAIL_UPDATE_OBJECTS_L,
 };
 
 const STRATOBJ_POSX: u32 = RETAIL_STRATOBJ_POSX;
@@ -74,10 +76,15 @@ fn retail_boots_from_reset() {
     );
     let trace: Vec<String> = rep.head_trace.iter().map(|a| format!("{a:06X}")).collect();
     eprintln!("RETAIL BOOT head trace (opcode addrs): {trace:?}");
-    eprintln!("RETAIL BOOT raster: final_dot={} (~{} frames)", rep.final_dot, rep.final_dot / (341 * 262));
+    eprintln!(
+        "RETAIL BOOT raster: final_dot={} (~{} frames)",
+        rep.final_dot,
+        rep.final_dot / (341 * 262)
+    );
     eprintln!(
         "RETAIL BOOT objects: peak_live={} at step {}k",
-        rep.max_live_objects, rep.peak_step / 1000
+        rep.max_live_objects,
+        rep.peak_step / 1000
     );
     for o in rep.objects_at_peak.iter().filter(|o| o.shape != 0).take(12) {
         eprintln!(
@@ -85,8 +92,11 @@ fn retail_boots_from_reset() {
             o.slot, o.shape, o.flags, o.worldx, o.worldy, o.worldz
         );
     }
-    let prog: Vec<String> =
-        rep.progress.iter().map(|(s, a)| format!("{}k@{a:06X}", s / 1000)).collect();
+    let prog: Vec<String> = rep
+        .progress
+        .iter()
+        .map(|(s, a)| format!("{}k@{a:06X}", s / 1000))
+        .collect();
     eprintln!("RETAIL BOOT PC progression: {prog:?}");
 
     // Reset is `BRA $FF96 -> CLC/XCE/JML $1F:BDB1`; confirm we actually vectored
@@ -97,7 +107,11 @@ fn retail_boots_from_reset() {
     // The shims march boot deep past the raster/APU/IRQ gates into the ticking
     // main loop: thousands of distinct code addresses and many frames of raster.
     // (Generous lower bounds so the milestone is robust, not brittle.)
-    assert!(rep.steps > 100, "CPU stalled almost immediately ({} steps)", rep.steps);
+    assert!(
+        rep.steps > 100,
+        "CPU stalled almost immediately ({} steps)",
+        rep.steps
+    );
     assert!(
         rep.distinct_pcs > 5_000,
         "expected the boot to reach the main loop (distinct_pcs={})",
@@ -112,8 +126,9 @@ fn retail_boots_from_reset() {
 
 /// MILESTONE (step 1) — GSU WIRED INTO THE BUS. The per-frame tick reaches the
 /// 3D/spawn math by kicking the Super-FX chip: `runmario_l` does
-/// `sta m_pbr ($3034); stx mr15 ($301E); .wait lda m_sfr ($3030); and #$20;
-/// bne .wait`. This test drives that exact register protocol through `SnesBus`
+/// `sta m_pbr ($3034); lda mario_draw_mode; ora #$18; sta m_scmr ($303A);
+/// stx mr15 ($301E); .wait lda m_sfr ($3030); and #$20; bne .wait`. This test
+/// drives that exact register protocol through `SnesBus`
 /// (the same bus that runs the retail cart) and confirms the chip runs a REAL
 /// ROM GSU program to completion, feeding results back through shared bank-$70
 /// RAM — with NO direct `Gsu::run` call, only CPU-visible register writes.
@@ -139,21 +154,33 @@ fn gsu_kicks_through_bus_registers() {
     bus.write16(gsuram(0x22), 0);
     bus.write16(gsuram(0x24), 0);
 
-    // Drive the chip EXACTLY as runmario_l: set the program bank, then start it
-    // by writing R15 (the high-byte store is the launch edge), then spin on SFR
-    // bit 5 until the chip clears "go".
+    // Drive the chip exactly as runmario_l: set the program bank, grant the
+    // cartridge ROM/RAM buses through SCMR, then start it by writing R15 (the
+    // high-byte store is the launch edge) and spin until the chip clears "go".
     bus.write8(0x00_3034, ROTMAT_PBR); // m_pbr
+    bus.write8(0x00_303A, 0x18); // m_scmr: RAM and ROM access
     bus.write8(0x00_301E, ROTMAT_PC as u8); // mr15 low
     bus.write8(0x00_301F, (ROTMAT_PC >> 8) as u8); // mr15 high -> KICK
     let mut spins = 0;
     while (bus.read8(0x00_3030) & 0x20) != 0 && spins < 1000 {
+        // A direct bus probe has no host CPU cycles to advance time, so model
+        // one complete polling-loop iteration before the next status read.
+        bus.tick_gsu(64);
         spins += 1; // .wait lda m_sfr; and #$20; bne .wait
     }
 
     // Read the 3x3 matrix back out of shared GSU RAM at $D2.
-    let m: Vec<i16> = (0..9).map(|i| bus.read16(gsuram(0xD2 + i * 2)) as i16).collect();
-    eprintln!("GSU-BUS kicks={} sfr_spins={} rot(0,0,0)={:?}", bus.gsu_kicks, spins, m);
-    assert_eq!(bus.gsu_kicks, 1, "the R15-high write should have kicked the GSU exactly once");
+    let m: Vec<i16> = (0..9)
+        .map(|i| bus.read16(gsuram(0xD2 + i * 2)) as i16)
+        .collect();
+    eprintln!(
+        "GSU-BUS kicks={} sfr_spins={} rot(0,0,0)={:?}",
+        bus.gsu_kicks, spins, m
+    );
+    assert_eq!(
+        bus.gsu_kicks, 1,
+        "the R15-high write should have kicked the GSU exactly once"
+    );
     assert_eq!(
         m,
         vec![ONE, 0, 0, 0, ONE, 0, 0, 0, ONE],
@@ -191,8 +218,15 @@ fn gsu_trampoline_runs_from_ram() {
     inject_runmario_trampoline(&mut bus, BUILT_RUNMARIO_L_ROM, BUILT_RUNMARIO_RAM);
     // Sanity: the RAM now holds the routine (starts `sta.l $003034` = 8F 34 30 00).
     let head: Vec<u8> = (0..4).map(|i| bus.read8(BUILT_RUNMARIO_RAM + i)).collect();
-    eprintln!("TRAMPOLINE @ $7E:{:04X} head = {head:02X?}", BUILT_RUNMARIO_RAM & 0xFFFF);
-    assert_eq!(head, vec![0x8F, 0x34, 0x30, 0x00], "runmario_l not injected");
+    eprintln!(
+        "TRAMPOLINE @ $7E:{:04X} head = {head:02X?}",
+        BUILT_RUNMARIO_RAM & 0xFFFF
+    );
+    assert_eq!(
+        head,
+        vec![0x8F, 0x34, 0x30, 0x00],
+        "runmario_l not injected"
+    );
 
     // Zero input angles at GSU RAM $20/$22/$24 (bank $70).
     bus.write16(0x70_0020, 0);
@@ -201,11 +235,25 @@ fn gsu_trampoline_runs_from_ram() {
 
     // Call the RAM trampoline exactly as a strat would: 8-bit A = program bank,
     // 16-bit X = entry PC (p=$20 -> M=1/X=0). runmario_l does the rest.
-    let _ = call(&mut bus, BUILT_RUNMARIO_RAM, &Entry { a: ROTMAT_PBR as u16, x: ROTMAT_PC, p: 0x20, ..Default::default() });
+    let _ = call(
+        &mut bus,
+        BUILT_RUNMARIO_RAM,
+        &Entry {
+            a: ROTMAT_PBR as u16,
+            x: ROTMAT_PC,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
 
-    let m: Vec<i16> = (0..9).map(|i| bus.read16(0x70_0000 | (0xD2 + i * 2)) as i16).collect();
+    let m: Vec<i16> = (0..9)
+        .map(|i| bus.read16(0x70_0000 | (0xD2 + i * 2)) as i16)
+        .collect();
     eprintln!("GSU-TRAMPOLINE kicks={} rot(0,0,0)={:?}", bus.gsu_kicks, m);
-    assert_eq!(bus.gsu_kicks, 1, "the RAM trampoline's `stx mr15` must kick the GSU once");
+    assert_eq!(
+        bus.gsu_kicks, 1,
+        "the RAM trampoline's `stx mr15` must kick the GSU once"
+    );
     assert_eq!(
         m,
         vec![ONE, 0, 0, 0, ONE, 0, 0, 0, ONE],
@@ -238,8 +286,16 @@ fn retail_strat_pipeline_addresses() {
     let d = rd(RETAIL_DOSTRATS, 40);
     eprintln!("STRAT dostrats @${RETAIL_DOSTRATS:06X}: {d:02X?}");
     assert_eq!(d[0], 0xEE, "dostrats must open `inc gameframe`");
-    assert_eq!(w(RETAIL_DOSTRATS + 1), RETAIL_GAMEFRAME as u16, "gameframe operand");
-    assert_eq!(&d[8..13], &[0x8B, 0xA9, 0x7E, 0x48, 0xAB], "phb; lda #$7e; pha; plb");
+    assert_eq!(
+        w(RETAIL_DOSTRATS + 1),
+        RETAIL_GAMEFRAME as u16,
+        "gameframe operand"
+    );
+    assert_eq!(
+        &d[8..13],
+        &[0x8B, 0xA9, 0x7E, 0x48, 0xAB],
+        "phb; lda #$7e; pha; plb"
+    );
     // jsl init_strats_l ; jsl update_objects_l
     assert_eq!(d[13], 0x22);
     let init = w(RETAIL_DOSTRATS + 14) as u32 | ((d[16] as u32) << 16);
@@ -255,11 +311,17 @@ fn retail_strat_pipeline_addresses() {
     let dostrat = w(RETAIL_DOSTRATS + 28) as u32 | ((d[30] as u32) << 16);
 
     eprintln!("STRAT derived: init_strats_l=${init:06X} update_objects_l=${upd:06X} do_strat_l=${dostrat:06X}");
-    eprintln!("STRAT globals: allst=${allst:04X} aldead=${aldead:04X} gameframe=${:04X}", RETAIL_GAMEFRAME);
+    eprintln!(
+        "STRAT globals: allst=${allst:04X} aldead=${aldead:04X} gameframe=${:04X}",
+        RETAIL_GAMEFRAME
+    );
 
     // Cross-validation: dostrats's `ldx allst` == the pool active head derived
     // independently from the retail allocator scan.
-    assert_eq!(allst as u32, RETAIL_POOL.active_head, "dostrats allst != pool active_head");
+    assert_eq!(
+        allst as u32, RETAIL_POOL.active_head,
+        "dostrats allst != pool active_head"
+    );
     assert_eq!(aldead as u32, RETAIL_ALDEAD);
     assert_eq!(init, RETAIL_INIT_STRATS_L, "derived init_strats_l");
     assert_eq!(upd, RETAIL_UPDATE_OBJECTS_L, "derived update_objects_l");
@@ -268,9 +330,17 @@ fn retail_strat_pipeline_addresses() {
     // do_strat_l landing site has the do_strat_l opcode skeleton.
     let s = rd(RETAIL_DO_STRAT_L, 18);
     eprintln!("STRAT do_strat_l @${RETAIL_DO_STRAT_L:06X}: {s:02X?}");
-    assert_eq!(&s[0..4], &[0x08, 0xC2, 0x30, 0xEC], "php; rep #$30; cpx dummyobj");
+    assert_eq!(
+        &s[0..4],
+        &[0x08, 0xC2, 0x30, 0xEC],
+        "php; rep #$30; cpx dummyobj"
+    );
     // lda al_collflags,x ; and #$fffb ; sta al_collflags,x  (clear firstframe)
-    assert_eq!(&s[11..18], &[0xB5, 0x2E, 0x29, 0xFB, 0xFF, 0x95, 0x2E], "clr firstframe on al_collflags($2E)");
+    assert_eq!(
+        &s[11..18],
+        &[0xB5, 0x2E, 0x29, 0xFB, 0xFF, 0x95, 0x2E],
+        "clr firstframe on al_collflags($2E)"
+    );
 }
 
 /// MILESTONE (step 3) — THE FULL RETAIL `dostrats` PER-FRAME TICK EXECUTES on
@@ -304,7 +374,14 @@ fn retail_dostrats_pipeline_runs() {
     bus.wram_write16(blk + RETAIL_POOL.al_worldz, pz as u16);
 
     let gf0 = bus.wram_read16(RETAIL_GAMEFRAME);
-    call_near(&mut bus, RETAIL_DOSTRATS, &Entry { p: 0x00, ..Default::default() });
+    call_near(
+        &mut bus,
+        RETAIL_DOSTRATS,
+        &Entry {
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     let gf1 = bus.wram_read16(RETAIL_GAMEFRAME);
     let slot = ((blk - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize;
     let o = snapshot_objects(&bus, &RETAIL_POOL)[slot];
@@ -319,7 +396,11 @@ fn retail_dostrats_pipeline_runs() {
     );
     assert_eq!(gf1, gf0.wrapping_add(1), "dostrats must inc gameframe once");
     assert_eq!(o.shape, 0x0042, "object must survive the tick");
-    assert_eq!((sx, sy, sz), (px, py, pz), "do_strat_l must copy this object's world pos into stratobj_pos");
+    assert_eq!(
+        (sx, sy, sz),
+        (px, py, pz),
+        "do_strat_l must copy this object's world pos into stratobj_pos"
+    );
 }
 
 /// MILESTONE (step 4) — RETAIL `dostrats` DISPATCH vs THE PORT, TICK-FOR-TICK.
@@ -362,13 +443,20 @@ fn retail_dostrats_dispatch_vs_port() {
     bus.wram_write16(blk + AL_VZ, vz as u16);
     // al_stratptr ($16 low word, $18 bank) = $1F:C7BB (retail addalvecs_l).
     bus.wram_write16(blk + AL_STRATPTR, (RETAIL_ADDALVECS_L & 0xFFFF) as u16);
-    bus.write8(0x7E_0000 | (blk + AL_STRATPTR + 2), (RETAIL_ADDALVECS_L >> 16) as u8);
+    bus.write8(
+        0x7E_0000 | (blk + AL_STRATPTR + 2),
+        (RETAIL_ADDALVECS_L >> 16) as u8,
+    );
 
     // Port mirror.
     let mut a = sf_game::alien::Alien::default();
     a.shape = 0x0042;
-    a.worldx = px; a.worldy = py; a.worldz = pz;
-    a.vx = vx; a.vy = vy; a.vz = vz;
+    a.worldx = px;
+    a.worldy = py;
+    a.worldz = pz;
+    a.vx = vx;
+    a.vy = vy;
+    a.vz = vz;
 
     // N kept small: each `dostrats` call runs the full `init_strats_l` +
     // `update_objects_l` on the whole (zeroed) game state, which is thousands of
@@ -379,7 +467,14 @@ fn retail_dostrats_dispatch_vs_port() {
     for tick in 1..=N {
         // Retail: one full per-frame strat tick, object integrated via its own
         // al_stratptr through do_strat_l.
-        call_near(&mut bus, RETAIL_DOSTRATS, &Entry { p: 0x00, ..Default::default() });
+        call_near(
+            &mut bus,
+            RETAIL_DOSTRATS,
+            &Entry {
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let o = snapshot_objects(&bus, &RETAIL_POOL)[slot];
         // Port: the equivalent per-frame motion.
         sf_strat::common::strat_apply_velocity(&mut a);
@@ -401,7 +496,8 @@ fn retail_dostrats_dispatch_vs_port() {
     }
     let o = snapshot_objects(&bus, &RETAIL_POOL)[slot];
     assert_eq!(
-        o.worldz as i32, pz as i32 + vz as i32 * N as i32,
+        o.worldz as i32,
+        pz as i32 + vz as i32 * N as i32,
         "retail dostrats dispatch must integrate the object every tick"
     );
     match first_div {
@@ -455,16 +551,32 @@ fn retail_vs_port_per_tick_object_diff() {
         vel: (i16, i16, i16),
     }
     let seeds = [
-        Seed { shape: 0x0042, pos: (1000, 500, 8000), vel: (100, -50, -200) },
-        Seed { shape: 0x0058, pos: (-1200, 300, 6000), vel: (-30, 20, -150) },
-        Seed { shape: 0x0011, pos: (32000, -6789, 4321), vel: (1000, 222, -333) }, // X wraps
+        Seed {
+            shape: 0x0042,
+            pos: (1000, 500, 8000),
+            vel: (100, -50, -200),
+        },
+        Seed {
+            shape: 0x0058,
+            pos: (-1200, 300, 6000),
+            vel: (-30, 20, -150),
+        },
+        Seed {
+            shape: 0x0011,
+            pos: (32000, -6789, 4321),
+            vel: (1000, 222, -333),
+        }, // X wraps
     ];
 
     // Link the active list at the retail stride and write each block's fields.
     bus.wram_write16(RETAIL_POOL.active_head, blocks[0] as u16);
     for (i, s) in seeds.iter().enumerate() {
         let b = blocks[i];
-        let next = if i + 1 < blocks.len() { blocks[i + 1] as u16 } else { 0 };
+        let next = if i + 1 < blocks.len() {
+            blocks[i + 1] as u16
+        } else {
+            0
+        };
         bus.wram_write16(b + RETAIL_POOL.al_next, next);
         bus.wram_write16(b + RETAIL_POOL.al_shape, s.shape);
         bus.wram_write16(b + RETAIL_POOL.al_worldx, s.pos.0 as u16);
@@ -504,7 +616,15 @@ fn retail_vs_port_per_tick_object_diff() {
         let mut x = bus.wram_read16(RETAIL_POOL.active_head);
         let mut guard = 0;
         while x != 0 && guard < RETAIL_POOL.count {
-            call(&mut bus, RETAIL_ADDALVECS_L, &Entry { x, p: 0x00, ..Default::default() });
+            call(
+                &mut bus,
+                RETAIL_ADDALVECS_L,
+                &Entry {
+                    x,
+                    p: 0x00,
+                    ..Default::default()
+                },
+            );
             x = bus.wram_read16(x as u32 + RETAIL_POOL.al_next);
             guard += 1;
         }
@@ -546,7 +666,10 @@ fn retail_vs_port_per_tick_object_diff() {
     let s0 = final_snap[((blocks[0] - RETAIL_POOL.base) / RETAIL_POOL.stride) as usize];
     eprintln!(
         "RETAIL RESULT after {N} ticks: slot0 worldz {} -> {} (Δ={}); GSU kicks this run = {}",
-        seeds[0].pos.2, s0.worldz, s0.worldz as i32 - seeds[0].pos.2 as i32, bus.gsu_kicks
+        seeds[0].pos.2,
+        s0.worldz,
+        s0.worldz as i32 - seeds[0].pos.2 as i32,
+        bus.gsu_kicks
     );
     assert_eq!(
         s0.worldz as i32,
@@ -586,7 +709,11 @@ fn walk_active_list(bus: &SnesBus, head: u16) -> Vec<u16> {
 fn retail_object_array_layout() {
     eprintln!(
         "RETAIL POOL: base=${:04X} stride={} count={} freelist_head=${:04X} allst=${:04X}",
-        RETAIL_POOL.base, RETAIL_POOL.stride, RETAIL_POOL.count, RETAIL_POOL.freelist_head, RETAIL_POOL.active_head,
+        RETAIL_POOL.base,
+        RETAIL_POOL.stride,
+        RETAIL_POOL.count,
+        RETAIL_POOL.freelist_head,
+        RETAIL_POOL.active_head,
     );
     eprintln!(
         "RETAIL POOL fields: shape=+${:02X} flags=+${:02X} worldx=+${:02X} worldy=+${:02X} worldz=+${:02X}",
@@ -625,7 +752,10 @@ fn retail_object_state_readable() {
     init_object_pool(&mut bus);
 
     let head = bus.wram_read16(RETAIL_POOL.freelist_head);
-    eprintln!("RETAIL TICK0: freelist head = ${head:04X} (expect ${:04X})", RETAIL_POOL.base);
+    eprintln!(
+        "RETAIL TICK0: freelist head = ${head:04X} (expect ${:04X})",
+        RETAIL_POOL.base
+    );
 
     let chain = walk_freelist(&bus, &RETAIL_POOL);
     eprintln!(
@@ -637,8 +767,15 @@ fn retail_object_state_readable() {
 
     // The retail allocator must have produced a coherent 70-block free-list,
     // each block one stride (54 bytes) apart — read straight out of retail WRAM.
-    assert_eq!(head, RETAIL_POOL.base as u16, "retail init did not seed freelist head");
-    assert_eq!(chain.len() as u32, RETAIL_POOL.count, "retail free-list not fully linked");
+    assert_eq!(
+        head, RETAIL_POOL.base as u16,
+        "retail init did not seed freelist head"
+    );
+    assert_eq!(
+        chain.len() as u32,
+        RETAIL_POOL.count,
+        "retail free-list not fully linked"
+    );
     for w in chain.windows(2) {
         assert_eq!(
             w[1] - w[0],
@@ -706,7 +843,6 @@ fn retail_snapshot_reads_seeded_object() {
     }
 }
 
-
 // ============================================================================
 // FIRST NAMED ENEMY-STRAT CERTIFICATION vs RETAIL — the `stayrel` ground family
 //
@@ -719,27 +855,23 @@ fn retail_snapshot_reads_seeded_object() {
 // ============================================================================
 
 use sf_oracle::{
-    AL_SFLAGS2, RETAIL_PVIEWVELZ, RETAIL_SR_ADDPLAYERZX, RETAIL_STAYRELHARD180YR_STRAT,
-    RETAIL_STAYREL_STRAT,
+    seed_player_relative_state, RETAIL_PARAJUMP_STRAT, RETAIL_PLAYER_POSX, RETAIL_PLAYER_POSY,
+    RETAIL_PLAYER_POSZ, RETAIL_PLAYPT, RETAIL_RAND, RETAIL_RANDOM_L,
 };
+use sf_oracle::{seed_retail_rng, ASF2_SFLAG2, RETAIL_FIREPILLAR_ISTRAT, RETAIL_FIREPILLAR_STRAT};
 use sf_oracle::{
-    AL_SWORD1, AL_TYPE, RETAIL_GND_ISTRAT, RETAIL_PVIEWPOSZ, RETAIL_STAYDIST_ISTRAT,
+    AL_AP, AL_COLLFLAGS, AL_HP, RETAIL_BIG_METEOR_ISTRAT, RETAIL_MINE0_ISTRAT,
+    RETAIL_ROCKHARD_ISTRAT, RETAIL_TREE1_ISTRAT,
 };
 use sf_oracle::{
     AL_ROTX, AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE2, AL_SBYTE3, RETAIL_HARDROT_STRAT,
     RETAIL_STRAIGHT_ISTRAT, RETAIL_STRAIGHT_STRAT,
 };
 use sf_oracle::{
-    seed_player_relative_state, RETAIL_PARAJUMP_STRAT, RETAIL_PLAYER_POSX, RETAIL_PLAYER_POSY,
-    RETAIL_PLAYER_POSZ, RETAIL_PLAYPT, RETAIL_RANDOM_L, RETAIL_RAND,
+    AL_SFLAGS2, RETAIL_PVIEWVELZ, RETAIL_SR_ADDPLAYERZX, RETAIL_STAYRELHARD180YR_STRAT,
+    RETAIL_STAYREL_STRAT,
 };
-use sf_oracle::{
-    seed_retail_rng, ASF2_SFLAG2, RETAIL_FIREPILLAR_ISTRAT, RETAIL_FIREPILLAR_STRAT,
-};
-use sf_oracle::{
-    AL_AP, AL_COLLFLAGS, AL_HP, RETAIL_BIG_METEOR_ISTRAT, RETAIL_MINE0_ISTRAT,
-    RETAIL_ROCKHARD_ISTRAT, RETAIL_TREE1_ISTRAT,
-};
+use sf_oracle::{AL_SWORD1, AL_TYPE, RETAIL_GND_ISTRAT, RETAIL_PVIEWPOSZ, RETAIL_STAYDIST_ISTRAT};
 
 /// Scan `rom` for a masked byte pattern (`None` = wildcard byte). Returns ROM
 /// file offsets of every match.
@@ -749,7 +881,11 @@ fn masked_scan(rom: &[u8], pat: &[Option<u8>]) -> Vec<usize> {
         return hits;
     }
     for i in 0..=rom.len() - pat.len() {
-        if pat.iter().enumerate().all(|(j, p)| p.map_or(true, |b| rom[i + j] == b)) {
+        if pat
+            .iter()
+            .enumerate()
+            .all(|(j, p)| p.map_or(true, |b| rom[i + j] == b))
+        {
             hits.push(i);
         }
     }
@@ -783,8 +919,19 @@ fn retail_stayrel_family_addresses() {
 
     // --- sr_addplayerZx: C2 20 B5 10 18 6D ?? ?? 95 10 E2 20 6B ---
     let leaf_pat: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xB5), Some(0x10), Some(0x18), Some(0x6D),
-        None, None, Some(0x95), Some(0x10), Some(0xE2), Some(0x20), Some(0x6B),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB5),
+        Some(0x10),
+        Some(0x18),
+        Some(0x6D),
+        None,
+        None,
+        Some(0x95),
+        Some(0x10),
+        Some(0xE2),
+        Some(0x20),
+        Some(0x6B),
     ];
     let mut genuine: Option<(u32, u16)> = None;
     let mut refd = 0usize;
@@ -798,7 +945,10 @@ fn retail_stayrel_family_addresses() {
             genuine = Some((snes, rom[h + 6] as u16 | ((rom[h + 7] as u16) << 8)));
         }
     }
-    assert_eq!(refd, 1, "exactly one of the sr_addplayerZ skeleton matches is CALLED");
+    assert_eq!(
+        refd, 1,
+        "exactly one of the sr_addplayerZ skeleton matches is CALLED"
+    );
     let (leaf, pviewvelz) = genuine.unwrap();
     eprintln!("NAMED-STRAT: sr_addplayerZx=${leaf:06X}  pviewvelz=${pviewvelz:04X}");
     assert_eq!(leaf, RETAIL_SR_ADDPLAYERZX, "sr_addplayerZx address");
@@ -807,8 +957,17 @@ fn retail_stayrel_family_addresses() {
     // --- stayrel_strat: 22 <leaf> B5 off 09 01 95 off 6B (UNIQUE) ---
     let (llo, lhi, lbk) = (leaf as u8, (leaf >> 8) as u8, (leaf >> 16) as u8);
     let stayrel_pat: Vec<Option<u8>> = vec![
-        Some(0x22), Some(llo), Some(lhi), Some(lbk),
-        Some(0xB5), None, Some(0x09), Some(0x01), Some(0x95), None, Some(0x6B),
+        Some(0x22),
+        Some(llo),
+        Some(lhi),
+        Some(lbk),
+        Some(0xB5),
+        None,
+        Some(0x09),
+        Some(0x01),
+        Some(0x95),
+        None,
+        Some(0x6B),
     ];
     let sr = masked_scan(&rom, &stayrel_pat);
     assert_eq!(sr.len(), 1, "stayrel_strat is a unique masked hit");
@@ -821,15 +980,26 @@ fn retail_stayrel_family_addresses() {
     );
     assert_eq!(stayrel, RETAIL_STAYREL_STRAT, "stayrel_strat address");
     assert_eq!(sflags2_off, AL_SFLAGS2, "al_sflags2 offset");
-    assert_eq!(rom[h + 5], rom[h + 9], "lda/sta hit the same sflags2 offset");
+    assert_eq!(
+        rom[h + 5],
+        rom[h + 9],
+        "lda/sta hit the same sflags2 offset"
+    );
 
     // --- stayrelhard180YR_strat: the pure-scroll body just before it ---
     // stayrel_strat is preceded by `22 <leaf> 6B` (5 bytes).
     let prev = rom_off_to_snes(h - 5);
     let prev_bytes: Vec<u8> = (0..5).map(|i| rom[h - 5 + i]).collect();
     eprintln!("NAMED-STRAT: stayrelhard180YR_strat=${prev:06X} body={prev_bytes:02X?}");
-    assert_eq!(prev, RETAIL_STAYRELHARD180YR_STRAT, "stayrelhard180YR_strat address");
-    assert_eq!(prev_bytes, vec![0x22, llo, lhi, lbk, 0x6B], "pure `jsl sr_addplayerZx; rtl`");
+    assert_eq!(
+        prev, RETAIL_STAYRELHARD180YR_STRAT,
+        "stayrelhard180YR_strat address"
+    );
+    assert_eq!(
+        prev_bytes,
+        vec![0x22, llo, lhi, lbk, 0x6B],
+        "pure `jsl sr_addplayerZx; rtl`"
+    );
 }
 
 /// Set up a fresh retail bus with `pviewvelz` seeded and ONE object whose
@@ -858,7 +1028,9 @@ fn port_scroll_object(
     g.vars.pviewvelz = pviewvelz;
     // Run the Istrat to arm the per-tick strat (sets stratptr; leaves worldz).
     g.call_strat(istrat, idx);
-    let tick = g.objs.aliens[idx as usize].stratptr.expect("per-tick strat armed");
+    let tick = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("per-tick strat armed");
     (g, idx, tick)
 }
 
@@ -878,14 +1050,21 @@ fn retail_stayrelhard180yr_strat_vs_port() {
     for (pz, pvz) in [(8000i16, -200i16), (-30000i16, -1000i16)] {
         let mut bus = SnesBus::new(rom.clone());
         let blk = seed_scroll_object(&mut bus, pz, pvz);
-        let (mut g, idx, tick) = port_scroll_object(pz, pvz, |g| {
-            sf_strat::ground::install(g).stayrelhard180yr
-        });
+        let (mut g, idx, tick) =
+            port_scroll_object(pz, pvz, |g| sf_strat::ground::install(g).stayrelhard180yr);
 
         let mut first_div: Option<(u32, i32, i32)> = None;
         for t in 1..=N {
             // Retail: run the named strat body ($06:8646) with X = block.
-            call(&mut bus, RETAIL_STAYRELHARD180YR_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+            call(
+                &mut bus,
+                RETAIL_STAYRELHARD180YR_STRAT,
+                &Entry {
+                    x: blk as u16,
+                    p: 0x00,
+                    ..Default::default()
+                },
+            );
             let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
             // Port: one per-tick strat call.
             g.call_strat(tick, idx);
@@ -896,7 +1075,10 @@ fn retail_stayrelhard180yr_strat_vs_port() {
         }
         let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
         let expect = (pz as i32 + pvz as i32 * N as i32) as i16; // wrapping i16
-        assert_eq!(rw, expect, "retail worldz must scroll by pviewvelz each tick");
+        assert_eq!(
+            rw, expect,
+            "retail worldz must scroll by pviewvelz each tick"
+        );
         match first_div {
             None => eprintln!(
                 "NAMED-STRAT stayrelhard180yr [pz={pz} pvz={pvz}]: MATCH — retail == port worldz over {N} ticks (final {rw})"
@@ -922,12 +1104,19 @@ fn retail_stayrel_strat_vs_port() {
 
     let mut bus = SnesBus::new(rom.clone());
     let blk = seed_scroll_object(&mut bus, pz, pvz);
-    let (mut g, idx, tick) =
-        port_scroll_object(pz, pvz, |g| sf_strat::ground::install(g).stayrel);
+    let (mut g, idx, tick) = port_scroll_object(pz, pvz, |g| sf_strat::ground::install(g).stayrel);
 
     let mut first_div: Option<(u32, i32, i32)> = None;
     for t in 1..=N {
-        call(&mut bus, RETAIL_STAYREL_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_STAYREL_STRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
         g.call_strat(tick, idx);
         let pw = g.objs.aliens[idx as usize].worldz;
@@ -937,7 +1126,11 @@ fn retail_stayrel_strat_vs_port() {
     }
     // worldz: exact tick-for-tick match.
     let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
-    assert_eq!(rw, (pz as i32 + pvz as i32 * N as i32) as i16, "retail stayrel scrolled worldz");
+    assert_eq!(
+        rw,
+        (pz as i32 + pvz as i32 * N as i32) as i16,
+        "retail stayrel scrolled worldz"
+    );
     assert!(first_div.is_none(), "stayrel worldz: {first_div:?}");
 
     // colldisable sflag — each side sets its own representation's bit.
@@ -947,8 +1140,16 @@ fn retail_stayrel_strat_vs_port() {
         "NAMED-STRAT stayrel [pz={pz} pvz={pvz}]: worldz MATCH over {N} ticks (final {rw}); \
          colldisable set retail al_sflags2=${retail_sflags2:02X}(bit $01) <-> port al_sflags=${port_sflags:02X}(bit $10)"
     );
-    assert_ne!(retail_sflags2 & 0x01, 0, "retail stayrel set colldisable in al_sflags2 bit $01");
-    assert_ne!(port_sflags & 0x10, 0, "port stayrel set colldisable in al_sflags bit $10");
+    assert_ne!(
+        retail_sflags2 & 0x01,
+        0,
+        "retail stayrel set colldisable in al_sflags2 bit $01"
+    );
+    assert_ne!(
+        port_sflags & 0x10,
+        0,
+        "port stayrel set colldisable in al_sflags bit $10"
+    );
 }
 
 /// Prove the located `stayrelhard180YR_strat` really is `jsl sr_addplayerZx;
@@ -964,14 +1165,31 @@ fn retail_stayrelhard180yr_body_is_jsl_addplayerz() {
     eprintln!("stayrelhard180YR_strat body @${RETAIL_STAYRELHARD180YR_STRAT:06X} = {body:02X?}");
     assert_eq!(
         body,
-        vec![0x22, leaf as u8, (leaf >> 8) as u8, (leaf >> 16) as u8, 0x6B],
+        vec![
+            0x22,
+            leaf as u8,
+            (leaf >> 8) as u8,
+            (leaf >> 16) as u8,
+            0x6B
+        ],
         "body must be `jsl sr_addplayerZx; rtl`"
     );
     // One-tick behavioural check: worldz += pviewvelz.
     let mut bus = SnesBus::new(rom);
     let blk = seed_scroll_object(&mut bus, 1234, 77);
-    call(&mut bus, RETAIL_STAYRELHARD180YR_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
-    assert_eq!(bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16, 1234 + 77);
+    call(
+        &mut bus,
+        RETAIL_STAYRELHARD180YR_STRAT,
+        &Entry {
+            x: blk as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16,
+        1234 + 77
+    );
 }
 
 /// CAPSTONE (full pipeline) — RETAIL `stayrelhard180YR_strat` dispatched through
@@ -999,8 +1217,14 @@ fn retail_stayrelhard180yr_dispatch_vs_port() {
     bus.wram_write16(blk + RETAIL_POOL.al_shape, 0x0042);
     bus.wram_write16(blk + RETAIL_POOL.al_worldz, pz as u16);
     // al_stratptr ($16 low / $18 bank) = $06:8646 (stayrelhard180YR_strat).
-    bus.wram_write16(blk + AL_STRATPTR, (RETAIL_STAYRELHARD180YR_STRAT & 0xFFFF) as u16);
-    bus.write8(0x7E_0000 | (blk + AL_STRATPTR + 2), (RETAIL_STAYRELHARD180YR_STRAT >> 16) as u8);
+    bus.wram_write16(
+        blk + AL_STRATPTR,
+        (RETAIL_STAYRELHARD180YR_STRAT & 0xFFFF) as u16,
+    );
+    bus.write8(
+        0x7E_0000 | (blk + AL_STRATPTR + 2),
+        (RETAIL_STAYRELHARD180YR_STRAT >> 16) as u8,
+    );
 
     let (mut g, idx, tick) =
         port_scroll_object(pz, pvz, |g| sf_strat::ground::install(g).stayrelhard180yr);
@@ -1011,7 +1235,14 @@ fn retail_stayrelhard180yr_dispatch_vs_port() {
     for t in 1..=N {
         // A full retail frame. update_objects_l/init_strats_l must NOT clobber
         // our seeded pviewvelz (no player strat runs it back to a default).
-        call_near(&mut bus, RETAIL_DOSTRATS, &Entry { p: 0x00, ..Default::default() });
+        call_near(
+            &mut bus,
+            RETAIL_DOSTRATS,
+            &Entry {
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let rw = snapshot_objects(&bus, &RETAIL_POOL)[slot].worldz;
         g.call_strat(tick, idx);
         let pw = g.objs.aliens[idx as usize].worldz;
@@ -1024,8 +1255,15 @@ fn retail_stayrelhard180yr_dispatch_vs_port() {
     eprintln!(
         "NAMED-STRAT DISPATCH stayrelhard180yr: pviewvelz {pvz}->{pvz_after} after {N} frames; retail worldz final={rw}"
     );
-    assert_eq!(pvz_after, pvz, "dostrats must not clobber the seeded pviewvelz");
-    assert_eq!(rw, (pz as i32 + pvz as i32 * N as i32) as i16, "dispatched strat scrolled worldz per frame");
+    assert_eq!(
+        pvz_after, pvz,
+        "dostrats must not clobber the seeded pviewvelz"
+    );
+    assert_eq!(
+        rw,
+        (pz as i32 + pvz as i32 * N as i32) as i16,
+        "dispatched strat scrolled worldz per frame"
+    );
     match first_div {
         None => eprintln!("NAMED-STRAT DISPATCH stayrelhard180yr: MATCH — retail dostrats-dispatched named strat == port over {N} frames"),
         Some((t, r, p)) => panic!("dispatch diverged frame {t}: retail worldz={r} port worldz={p}"),
@@ -1057,11 +1295,33 @@ fn retail_batch2_ground_addresses() {
     // --- staydist_Istrat: rep;lda sword1,x;sta worldz,x;sep; rep;lda worldz,x;
     //     clc;adc <pviewposz>;sta worldz,x;sep; lda sflags2,x;ora #1;sta;rtl ---
     let staydist_pat: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xB5), Some(0x26), Some(0x95), Some(0x10),
-        Some(0xE2), Some(0x20), Some(0xC2), Some(0x20), Some(0xB5), Some(0x10),
-        Some(0x18), Some(0x6D), None, None, Some(0x95), Some(0x10), Some(0xE2),
-        Some(0x20), Some(0xB5), Some(0x1E), Some(0x09), Some(0x01), Some(0x95),
-        Some(0x1E), Some(0x6B),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB5),
+        Some(0x26),
+        Some(0x95),
+        Some(0x10),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB5),
+        Some(0x10),
+        Some(0x18),
+        Some(0x6D),
+        None,
+        None,
+        Some(0x95),
+        Some(0x10),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xB5),
+        Some(0x1E),
+        Some(0x09),
+        Some(0x01),
+        Some(0x95),
+        Some(0x1E),
+        Some(0x6B),
     ];
     let sd = masked_scan(&rom, &staydist_pat);
     assert_eq!(sd.len(), 1, "staydist_Istrat is a UNIQUE masked hit");
@@ -1074,26 +1334,62 @@ fn retail_batch2_ground_addresses() {
     assert_eq!(pviewposz, RETAIL_PVIEWPOSZ, "pviewposz operand");
     assert_eq!(sword1_off, AL_SWORD1, "al_sword1 offset");
     // Cross-validate: pviewposz == pviewvelz + 6 (same +6 spacing as built ROM).
-    assert_eq!(pviewposz, RETAIL_PVIEWVELZ + 6, "pviewposz should sit 6 bytes after pviewvelz");
+    assert_eq!(
+        pviewposz,
+        RETAIL_PVIEWVELZ + 6,
+        "pviewposz should sit 6 bytes after pviewvelz"
+    );
     // Adjacency: staydist_Istrat immediately follows stayrel_strat (11-byte body).
-    assert_eq!(staydist, RETAIL_STAYREL_STRAT + 11, "staydist follows stayrel_strat body");
+    assert_eq!(
+        staydist,
+        RETAIL_STAYREL_STRAT + 11,
+        "staydist follows stayrel_strat body"
+    );
 
     // --- gnd_Istrat: rep;lda#0;sta stratptr,x;sep;lda#0;sta stratptr+2,x;
     //     jsl <set0coll>; lda type,x;ora#1;sta type,x; lda sflags2,x;ora#1;sta;rtl
     let gnd_pat: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xA9), Some(0x00), Some(0x00), Some(0x95),
-        Some(0x16), Some(0xE2), Some(0x20), Some(0xA9), Some(0x00), Some(0x95),
-        Some(0x18), Some(0x22), None, None, None, Some(0xB5), Some(0x09),
-        Some(0x09), Some(0x01), Some(0x95), Some(0x09), Some(0xB5), Some(0x1E),
-        Some(0x09), Some(0x01), Some(0x95), Some(0x1E), Some(0x6B),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x00),
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x95),
+        Some(0x18),
+        Some(0x22),
+        None,
+        None,
+        None,
+        Some(0xB5),
+        Some(0x09),
+        Some(0x09),
+        Some(0x01),
+        Some(0x95),
+        Some(0x09),
+        Some(0xB5),
+        Some(0x1E),
+        Some(0x09),
+        Some(0x01),
+        Some(0x95),
+        Some(0x1E),
+        Some(0x6B),
     ];
     let g = masked_scan(&rom, &gnd_pat);
     assert_eq!(g.len(), 1, "gnd_Istrat is a UNIQUE masked hit");
     let gh = g[0];
     let gnd = rom_off_to_snes(gh);
-    let set0coll = rom[gh + 14] as u32 | ((rom[gh + 15] as u32) << 8) | ((rom[gh + 16] as u32) << 16);
+    let set0coll =
+        rom[gh + 14] as u32 | ((rom[gh + 15] as u32) << 8) | ((rom[gh + 16] as u32) << 16);
     let type_off = rom[gh + 18] as u32; // lda al_type,x operand
-    eprintln!("BATCH2: gnd_Istrat=${gnd:06X}  set_0collptrsx_l=${set0coll:06X}  al_type=${type_off:02X}");
+    eprintln!(
+        "BATCH2: gnd_Istrat=${gnd:06X}  set_0collptrsx_l=${set0coll:06X}  al_type=${type_off:02X}"
+    );
     assert_eq!(gnd, RETAIL_GND_ISTRAT, "gnd_Istrat address");
     assert_eq!(type_off, AL_TYPE, "al_type offset");
     // set_0collptrsx_l must be a real jsl target (bank $1F leaf).
@@ -1124,7 +1420,9 @@ fn retail_staydist_strat_vs_port() {
         g.objs.aliens[idx as usize].sword1 = sword1;
         g.vars.write_ext16(PORT_PVIEWPOSZ, pvp0 as u16);
         g.call_strat(ids.staydist, idx); // arms stratptr + runs body once
-        let tick = g.objs.aliens[idx as usize].stratptr.expect("staydist per-tick armed");
+        let tick = g.objs.aliens[idx as usize]
+            .stratptr
+            .expect("staydist per-tick armed");
 
         let mut first_div: Option<(u32, i32, i32)> = None;
         for t in 1..=N {
@@ -1133,7 +1431,15 @@ fn retail_staydist_strat_vs_port() {
                 bus.wram_write16(RETAIL_PVIEWPOSZ, pvp1 as u16);
                 g.vars.write_ext16(PORT_PVIEWPOSZ, pvp1 as u16);
             }
-            call(&mut bus, RETAIL_STAYDIST_ISTRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+            call(
+                &mut bus,
+                RETAIL_STAYDIST_ISTRAT,
+                &Entry {
+                    x: blk as u16,
+                    p: 0x00,
+                    ..Default::default()
+                },
+            );
             let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
             g.call_strat(tick, idx);
             let pw = g.objs.aliens[idx as usize].worldz;
@@ -1143,11 +1449,23 @@ fn retail_staydist_strat_vs_port() {
         }
         // Final worldz must equal sword1 + pvp1 (wrapping), and colldisable set.
         let rw = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
-        assert_eq!(rw, (sword1 as i32 + pvp1 as i32) as i16, "retail staydist worldz = sword1 + pviewposz");
+        assert_eq!(
+            rw,
+            (sword1 as i32 + pvp1 as i32) as i16,
+            "retail staydist worldz = sword1 + pviewposz"
+        );
         let retail_sflags2 = bus.read8(0x7E_0000 | (blk + AL_SFLAGS2));
         let port_sflags = g.objs.aliens[idx as usize].sflags;
-        assert_ne!(retail_sflags2 & 0x01, 0, "retail staydist set colldisable in al_sflags2 bit $01");
-        assert_ne!(port_sflags & 0x10, 0, "port staydist set colldisable in al_sflags bit $10");
+        assert_ne!(
+            retail_sflags2 & 0x01,
+            0,
+            "retail staydist set colldisable in al_sflags2 bit $01"
+        );
+        assert_ne!(
+            port_sflags & 0x10,
+            0,
+            "port staydist set colldisable in al_sflags bit $10"
+        );
         match first_div {
             None => eprintln!(
                 "BATCH2 staydist [sword1={sword1} pvp {pvp0}->{pvp1}]: MATCH — retail == port worldz over {N} ticks (final {rw}); colldisable retail al_sflags2=${retail_sflags2:02X}(bit$01) <-> port al_sflags=${port_sflags:02X}(bit$10)"
@@ -1178,7 +1496,15 @@ fn retail_gnd_strat_vs_port() {
     bus.write8(0x7E_0000 | (blk + AL_TYPE), 0x00);
     bus.write8(0x7E_0000 | (blk + AL_SFLAGS2), 0x00);
 
-    call(&mut bus, RETAIL_GND_ISTRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+    call(
+        &mut bus,
+        RETAIL_GND_ISTRAT,
+        &Entry {
+            x: blk as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
 
     // Retail observable effects.
     let r_stratptr_lo = bus.wram_read16(blk + AL_STRATPTR);
@@ -1191,7 +1517,11 @@ fn retail_gnd_strat_vs_port() {
     assert_eq!(r_stratptr_lo, 0, "retail gnd zeroed al_stratptr low word");
     assert_eq!(r_stratptr_bk, 0, "retail gnd zeroed al_stratptr bank");
     assert_ne!(r_type & 0x01, 0, "retail gnd set al_type |= gnd($01)");
-    assert_ne!(r_sflags2 & 0x01, 0, "retail gnd set colldisable in al_sflags2 bit $01");
+    assert_ne!(
+        r_sflags2 & 0x01,
+        0,
+        "retail gnd set colldisable in al_sflags2 bit $01"
+    );
 
     // Port equivalent.
     let mut g = sf_game::game::Game::new();
@@ -1210,7 +1540,11 @@ fn retail_gnd_strat_vs_port() {
     assert!(p.collstratptr.is_none(), "port gnd cleared collstratptr");
     assert!(p.expstratptr.is_none(), "port gnd cleared expstratptr");
     assert_ne!(p.type_ & 0x01, 0, "port gnd set type_ |= ATGND($01)");
-    assert_ne!(p.sflags & 0x10, 0, "port gnd set colldisable in al_sflags bit $10");
+    assert_ne!(
+        p.sflags & 0x10,
+        0,
+        "port gnd set colldisable in al_sflags bit $10"
+    );
 
     // Semantic MATCH: both zeroed the strat pointer (per-tick becomes a no-op),
     // both flagged the object as ground + collision-disabled.
@@ -1231,29 +1565,83 @@ fn retail_batch2_rotate_mover_addresses() {
 
     // hardrot_strat: pure struct-offset spin (byte-identical retail/built).
     let hardrot_pat: Vec<Option<u8>> = vec![
-        Some(0xB5), Some(0x12), Some(0x18), Some(0x7D), Some(0x22), Some(0x00), Some(0x95), Some(0x12),
-        Some(0xB5), Some(0x13), Some(0x18), Some(0x7D), Some(0x23), Some(0x00), Some(0x95), Some(0x13),
-        Some(0xB5), Some(0x14), Some(0x18), Some(0x7D), Some(0x24), Some(0x00), Some(0x95), Some(0x14),
+        Some(0xB5),
+        Some(0x12),
+        Some(0x18),
+        Some(0x7D),
+        Some(0x22),
+        Some(0x00),
+        Some(0x95),
+        Some(0x12),
+        Some(0xB5),
+        Some(0x13),
+        Some(0x18),
+        Some(0x7D),
+        Some(0x23),
+        Some(0x00),
+        Some(0x95),
+        Some(0x13),
+        Some(0xB5),
+        Some(0x14),
+        Some(0x18),
+        Some(0x7D),
+        Some(0x24),
+        Some(0x00),
+        Some(0x95),
+        Some(0x14),
         Some(0x6B),
     ];
     let hr = masked_scan(&rom, &hardrot_pat);
     assert_eq!(hr.len(), 1, "hardrot_strat is a UNIQUE scan hit");
     let hardrot = rom_off_to_snes(hr[0]);
-    eprintln!("BATCH2: hardrot_strat=${hardrot:06X} (rotx=${AL_ROTX:02X}/sbyte1=${AL_SBYTE1:02X} ...)");
+    eprintln!(
+        "BATCH2: hardrot_strat=${hardrot:06X} (rotx=${AL_ROTX:02X}/sbyte1=${AL_SBYTE1:02X} ...)"
+    );
     assert_eq!(hardrot, RETAIL_HARDROT_STRAT, "hardrot_strat address");
 
     // straight_Istrat: s_set_strat + gen_3dvecs setup + jsl gen3dvecs(wild) +
     // jsl addalvecs_l(FIXED) + jsl sr_addplayerZx(FIXED) + rtl.  UNIQUE.
     let w = None;
     let straight_pat: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20),
-        Some(0xA9), w, Some(0x95), Some(0x18),
-        Some(0xB5), Some(0x15), Some(0x85), w,
-        Some(0xB5), Some(0x13), Some(0x8D), w, w,
-        Some(0xB5), Some(0x12), Some(0x8D), w, w,
-        Some(0x22), w, w, w,
-        Some(0x22), Some((RETAIL_ADDALVECS_L & 0xFF) as u8), Some(((RETAIL_ADDALVECS_L >> 8) & 0xFF) as u8), Some((RETAIL_ADDALVECS_L >> 16) as u8),
-        Some(0x22), Some((RETAIL_SR_ADDPLAYERZX & 0xFF) as u8), Some(((RETAIL_SR_ADDPLAYERZX >> 8) & 0xFF) as u8), Some((RETAIL_SR_ADDPLAYERZX >> 16) as u8),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        w,
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        Some(0x95),
+        Some(0x18),
+        Some(0xB5),
+        Some(0x15),
+        Some(0x85),
+        w,
+        Some(0xB5),
+        Some(0x13),
+        Some(0x8D),
+        w,
+        w,
+        Some(0xB5),
+        Some(0x12),
+        Some(0x8D),
+        w,
+        w,
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x22),
+        Some((RETAIL_ADDALVECS_L & 0xFF) as u8),
+        Some(((RETAIL_ADDALVECS_L >> 8) & 0xFF) as u8),
+        Some((RETAIL_ADDALVECS_L >> 16) as u8),
+        Some(0x22),
+        Some((RETAIL_SR_ADDPLAYERZX & 0xFF) as u8),
+        Some(((RETAIL_SR_ADDPLAYERZX >> 8) & 0xFF) as u8),
+        Some((RETAIL_SR_ADDPLAYERZX >> 16) as u8),
         Some(0x6B),
     ];
     let st = masked_scan(&rom, &straight_pat);
@@ -1261,12 +1649,19 @@ fn retail_batch2_rotate_mover_addresses() {
     let istrat = rom_off_to_snes(st[0]);
     // s_set_strat operand (the pointer the Istrat installs) must equal the
     // derived straight_strat body (istrat + 31, the fall-through offset).
-    let installed = rom[st[0] + 3] as u32 | ((rom[st[0] + 4] as u32) << 8) | ((rom[st[0] + 10] as u32) << 16);
+    let installed =
+        rom[st[0] + 3] as u32 | ((rom[st[0] + 4] as u32) << 8) | ((rom[st[0] + 10] as u32) << 16);
     let strat = istrat + 31;
     eprintln!("BATCH2: straight_Istrat=${istrat:06X} installs strat=${installed:06X} -> straight_strat=${strat:06X}");
     assert_eq!(istrat, RETAIL_STRAIGHT_ISTRAT, "straight_Istrat address");
-    assert_eq!(strat, RETAIL_STRAIGHT_STRAT, "straight_strat = istrat + 31 fall-through");
-    assert_eq!(installed, RETAIL_STRAIGHT_STRAT, "Istrat's s_set_strat operand == derived straight_strat (self-cross-validate)");
+    assert_eq!(
+        strat, RETAIL_STRAIGHT_STRAT,
+        "straight_strat = istrat + 31 fall-through"
+    );
+    assert_eq!(
+        installed, RETAIL_STRAIGHT_STRAT,
+        "Istrat's s_set_strat operand == derived straight_strat (self-cross-validate)"
+    );
     // straight_strat body = jsl addalvecs_l; jsl sr_addplayerZx; rtl.
     let bo = snes_to_rom_off(RETAIL_STRAIGHT_STRAT);
     let body: Vec<u8> = (0..9).map(|i| rom[bo + i]).collect();
@@ -1305,11 +1700,17 @@ fn retail_hardrot_strat_vs_port() {
     let ea = sf_strat::enemy_a::install(&mut g);
     let idx = g.objs.alloc().expect("alien pool");
     g.call_strat(ea.hardrot, idx); // arms hardrot_strat as the per-tick body
-    let tick = g.objs.aliens[idx as usize].stratptr.expect("hardrot per-tick armed");
+    let tick = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("hardrot per-tick armed");
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.rotx = rx0; al.roty = ry0; al.rotz = rz0;
-        al.sbyte1 = s1; al.sbyte2 = s2; al.sbyte3 = s3;
+        al.rotx = rx0;
+        al.roty = ry0;
+        al.rotz = rz0;
+        al.sbyte1 = s1;
+        al.sbyte2 = s2;
+        al.sbyte3 = s3;
     }
 
     let mut first_div: Option<(u32, &'static str, u8, u8)> = None;
@@ -1317,7 +1718,15 @@ fn retail_hardrot_strat_vs_port() {
         // hardrot_strat is a mid-strat body: it assumes 8-bit A (set by
         // s_start_strat) and 16-bit X, and does NOT do its own rep/sep. Call with
         // p=$20 (M=1 -> 8-bit A; X=0 -> 16-bit X) or the lda/adc/sta run 16-bit.
-        call(&mut bus, RETAIL_HARDROT_STRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_HARDROT_STRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
         g.call_strat(tick, idx);
         let al = &g.objs.aliens[idx as usize];
         for (name, rv, pv) in [
@@ -1335,9 +1744,15 @@ fn retail_hardrot_strat_vs_port() {
         bus.read8(0x7E_0000 | (blk + AL_ROTY)),
         bus.read8(0x7E_0000 | (blk + AL_ROTZ)),
     );
-    assert_eq!(rx, rx0.wrapping_add((s1 as u32 * N) as u8), "retail rotx spun N*sbyte1");
+    assert_eq!(
+        rx,
+        rx0.wrapping_add((s1 as u32 * N) as u8),
+        "retail rotx spun N*sbyte1"
+    );
     match first_div {
-        None => eprintln!("BATCH2 hardrot: MATCH — retail == port rotx/y/z over {N} ticks (final {rx},{ry},{rz})"),
+        None => eprintln!(
+            "BATCH2 hardrot: MATCH — retail == port rotx/y/z over {N} ticks (final {rx},{ry},{rz})"
+        ),
         Some((t, f, r, p)) => panic!("hardrot diverged tick {t} {f}: retail={r} port={p}"),
     }
 }
@@ -1373,12 +1788,24 @@ fn retail_straight_strat_vs_port() {
 
     // port: strat_apply_velocity (addalvecs) then worldz += pviewvelz (scroll).
     let mut a = sf_game::alien::Alien::default();
-    a.worldx = px; a.worldy = py; a.worldz = pz;
-    a.vx = vx; a.vy = vy; a.vz = vz;
+    a.worldx = px;
+    a.worldy = py;
+    a.worldz = pz;
+    a.vx = vx;
+    a.vy = vy;
+    a.vz = vz;
 
     let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
     for t in 1..=N {
-        call(&mut bus, RETAIL_STRAIGHT_STRAT, &Entry { x: blk as u16, p: 0x00, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_STRAIGHT_STRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let o = snapshot_objects(&bus, &RETAIL_POOL)[0];
         // Port: addalvecs then scroll (straight_strat's two jsls).
         sf_strat::common::strat_apply_velocity(&mut a);
@@ -1395,9 +1822,16 @@ fn retail_straight_strat_vs_port() {
     }
     let o = snapshot_objects(&bus, &RETAIL_POOL)[0];
     // worldz advances by (vz + pviewvelz) per tick; worldx/y by vx/vy.
-    assert_eq!(o.worldz as i32, pz as i32 + (vz as i32 + pvz as i32) * N as i32, "retail straight scrolled worldz by vz+pviewvelz");
+    assert_eq!(
+        o.worldz as i32,
+        pz as i32 + (vz as i32 + pvz as i32) * N as i32,
+        "retail straight scrolled worldz by vz+pviewvelz"
+    );
     match first_div {
-        None => eprintln!("BATCH2 straight: MATCH — retail == port worldx/y/z over {N} ticks (final {},{},{})", o.worldx, o.worldy, o.worldz),
+        None => eprintln!(
+            "BATCH2 straight: MATCH — retail == port worldx/y/z over {N} ticks (final {},{},{})",
+            o.worldx, o.worldy, o.worldz
+        ),
         Some((t, f, r, p)) => panic!("straight diverged tick {t} {f}: retail={r} port={p}"),
     }
 }
@@ -1423,8 +1857,25 @@ fn retail_player_rng_globals() {
     // --- RNG: the 4-byte SWB skeleton with the direct-page operands wildcarded.
     //   A5 d0 18 E5 d1 85 d1 E5 d2 85 d2 E5 d3 85 d3 E5 d0 85 d0 60
     let rng_pat: Vec<Option<u8>> = vec![
-        Some(0xA5), None, Some(0x18), Some(0xE5), None, Some(0x85), None, Some(0xE5), None,
-        Some(0x85), None, Some(0xE5), None, Some(0x85), None, Some(0xE5), None, Some(0x85), None,
+        Some(0xA5),
+        None,
+        Some(0x18),
+        Some(0xE5),
+        None,
+        Some(0x85),
+        None,
+        Some(0xE5),
+        None,
+        Some(0x85),
+        None,
+        Some(0xE5),
+        None,
+        Some(0x85),
+        None,
+        Some(0xE5),
+        None,
+        Some(0x85),
+        None,
         Some(0x60),
     ];
     // The genuine PRNG is the one whose `jsr RANDOM; rtl` wrapper is `jsl`-called.
@@ -1444,8 +1895,15 @@ fn retail_player_rng_globals() {
         }
     }
     let (random, rand0) = found.expect("live retail RANDOM");
-    eprintln!("FRONTIER: RANDOM=${random:06X} rand=${rand0:02X}-${:02X}", rand0 + 3);
-    assert_eq!(random, RETAIL_RANDOM_L + 4, "RANDOM near-entry is RANDOM_L+4");
+    eprintln!(
+        "FRONTIER: RANDOM=${random:06X} rand=${rand0:02X}-${:02X}",
+        rand0 + 3
+    );
+    assert_eq!(
+        random,
+        RETAIL_RANDOM_L + 4,
+        "RANDOM near-entry is RANDOM_L+4"
+    );
     assert_eq!(rand0 as u32, RETAIL_RAND, "retail rand state at $EF");
 
     // --- player_pos: 37/34/25 absolute reads of $150D/$150F/$1511 (the same
@@ -1454,11 +1912,17 @@ fn retail_player_rng_globals() {
     // `parajump_strat` ($04:F851) — self-validating.
     let po = snes_to_rom_off(RETAIL_PARAJUMP_STRAT);
     // Confirm the parajump skeleton head: rep;lda worldy,x;sta $3A;lda player_posy.
-    assert_eq!(&rom[po..po + 7], &[0xC2, 0x20, 0xB5, 0x0E, 0x85, 0x3A, 0xAD], "parajump head");
+    assert_eq!(
+        &rom[po..po + 7],
+        &[0xC2, 0x20, 0xB5, 0x0E, 0x85, 0x3A, 0xAD],
+        "parajump head"
+    );
     let posy = rom[po + 7] as u32 | ((rom[po + 8] as u32) << 8);
     let playpt = rom[po + 18] as u32 | ((rom[po + 19] as u32) << 8);
     let posx = rom[po + 52] as u32 | ((rom[po + 53] as u32) << 8);
-    eprintln!("FRONTIER: parajump player_posy=${posy:04X} player_posx=${posx:04X} PLAYPT=${playpt:04X}");
+    eprintln!(
+        "FRONTIER: parajump player_posy=${posy:04X} player_posx=${posx:04X} PLAYPT=${playpt:04X}"
+    );
     assert_eq!(posy, RETAIL_PLAYER_POSY, "parajump reads player_posy=$150F");
     assert_eq!(posx, RETAIL_PLAYER_POSX, "parajump reads player_posx=$150D");
     assert_eq!(playpt, RETAIL_PLAYPT, "parajump reads PLAYPT=$1238");
@@ -1475,10 +1939,19 @@ fn retail_player_rng_globals() {
 /// then we read the advanced state back out. Returns the PRNG byte.
 fn retail_random_next(bus: &mut SnesBus, s: &mut [u8; 4]) -> u8 {
     bus.write8(RETAIL_RAND, s[0]); // $EF (safe: below the param block)
-    // Harness writes entry.a -> $F0/$F1, entry.x -> $F2/$F3 before `RANDOM` runs.
+                                   // Harness writes entry.a -> $F0/$F1, entry.x -> $F2/$F3 before `RANDOM` runs.
     let a = s[1] as u16 | ((s[2] as u16) << 8);
     let x = s[3] as u16;
-    let e = call(bus, RETAIL_RANDOM_L, &Entry { a, x, p: 0x20, ..Default::default() });
+    let e = call(
+        bus,
+        RETAIL_RANDOM_L,
+        &Entry {
+            a,
+            x,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     // RANDOM wrote the advanced state back to $EF-$F2; read it for the next draw.
     for i in 0..4 {
         s[i] = bus.read8(0x7E_0000 | (RETAIL_RAND + i as u32));
@@ -1499,18 +1972,32 @@ fn retail_rng_stream_vs_port() {
     let Some(rom) = retail() else { return };
     use sf_game::vars::GameVars;
     const N: usize = 16;
-    for seed in [[1u8, 2, 3, 4], [0xAB, 0xCD, 0xEF, 0x12], [0, 0, 0, 0], [0xFF, 0xFF, 0xFF, 0xFF]] {
+    for seed in [
+        [1u8, 2, 3, 4],
+        [0xAB, 0xCD, 0xEF, 0x12],
+        [0, 0, 0, 0],
+        [0xFF, 0xFF, 0xFF, 0xFF],
+    ] {
         // Retail: draw N via the real cart routine, carrying the SWB state.
         let mut bus = SnesBus::new(rom.clone());
         let mut rs = seed;
-        let romv: Vec<u8> = (0..N).map(|_| retail_random_next(&mut bus, &mut rs)).collect();
+        let romv: Vec<u8> = (0..N)
+            .map(|_| retail_random_next(&mut bus, &mut rs))
+            .collect();
         // Port: the wired SWB RNG over g.vars.rng.
         let mut vars = GameVars::default();
         vars.rng = seed;
-        let portv: Vec<u8> = (0..N).map(|_| sf_strat::common::sf_random(&mut vars) as u8).collect();
-        eprintln!("FRONTIER RNG seed {seed:02X?}\n  retail {romv:02X?}\n  port   {portv:02X?}  {}",
-            if romv == portv { "MATCH" } else { "DIFF" });
-        assert_eq!(romv, portv, "retail RNG stream must match port sf_random for seed {seed:02X?}");
+        let portv: Vec<u8> = (0..N)
+            .map(|_| sf_strat::common::sf_random(&mut vars) as u8)
+            .collect();
+        eprintln!(
+            "FRONTIER RNG seed {seed:02X?}\n  retail {romv:02X?}\n  port   {portv:02X?}  {}",
+            if romv == portv { "MATCH" } else { "DIFF" }
+        );
+        assert_eq!(
+            romv, portv,
+            "retail RNG stream must match port sf_random for seed {seed:02X?}"
+        );
     }
     eprintln!("FRONTIER RNG: seed both sides identically -> streams stay in lockstep. RNG frontier UNBLOCKED.");
 }
@@ -1566,7 +2053,15 @@ fn retail_parajump_player_relative_vs_port() {
     let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
     for t in 1..=N {
         // Retail: run the cart's OWN parajump_strat body (X = enemy block).
-        call(&mut bus, RETAIL_PARAJUMP_STRAT, &Entry { x: enemy as u16, p: 0x00, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_PARAJUMP_STRAT,
+            &Entry {
+                x: enemy as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let rwx = bus.wram_read16(enemy + RETAIL_POOL.al_worldx) as i16;
         let rwy = bus.wram_read16(enemy + RETAIL_POOL.al_worldy) as i16;
 
@@ -1574,7 +2069,10 @@ fn retail_parajump_player_relative_vs_port() {
         pwy = chasep(pwy, py, 2);
         pwx = chasep(pwx, px, 3);
 
-        for (name, rv, pv) in [("worldx", rwx as i32, pwx as i32), ("worldy", rwy as i32, pwy as i32)] {
+        for (name, rv, pv) in [
+            ("worldx", rwx as i32, pwx as i32),
+            ("worldy", rwy as i32, pwy as i32),
+        ] {
             if rv != pv && first_div.is_none() {
                 first_div = Some((t, name, rv, pv));
             }
@@ -1586,8 +2084,14 @@ fn retail_parajump_player_relative_vs_port() {
     // Prove the chase actually converged toward the seeded player_pos (not a no-op).
     let rwy = bus.wram_read16(enemy + RETAIL_POOL.al_worldy) as i16;
     let rwx = bus.wram_read16(enemy + RETAIL_POOL.al_worldx) as i16;
-    assert!((rwy - py).abs() < (ey0 - py).abs(), "retail worldy chased toward player_posy");
-    assert!((rwx - px).abs() < (ex0 - px).abs(), "retail worldx chased toward player_posx");
+    assert!(
+        (rwy - py).abs() < (ey0 - py).abs(),
+        "retail worldy chased toward player_posy"
+    );
+    assert!(
+        (rwx - px).abs() < (ex0 - px).abs(),
+        "retail worldx chased toward player_posx"
+    );
     match first_div {
         None => eprintln!(
             "FRONTIER parajump: MATCH — retail player-relative strat == port over {N} ticks (final worldx={rwx} worldy={rwy}). Player-pos frontier UNBLOCKED."
@@ -1653,7 +2157,9 @@ fn port_firepillar(rng: [u8; 4], player_posx: i16) -> (i16, bool) {
     g.objs.aliens[e as usize].stratptr = g.world.istrats[IS_FIREPILLAR];
     g.vars.rng = rng;
     g.vars.player_posx = player_posx;
-    let s = g.objs.aliens[e as usize].stratptr.expect("firepillar istrat registered");
+    let s = g.objs.aliens[e as usize]
+        .stratptr
+        .expect("firepillar istrat registered");
     g.call_strat(s, e);
     let al = &g.objs.aliens[e as usize];
     (al.worldx, al.sflags2 & ASF2_SFLAG2 != 0)
@@ -1672,25 +2178,105 @@ fn retail_firepillar_addresses() {
     // JSLs, the player_posx operand, and the fall-through JML wildcarded.
     let w = None;
     let pat: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), // rep;lda #strat;sta stratptr
-        Some(0xE2), Some(0x20), Some(0xA9), w, Some(0x95), Some(0x18),     // sep;lda #bank;sta stratptr+2
-        Some(0x22), w, w, w,                                               // jsl set_0collptrs
-        Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A),                    // lda #hardHP;sta al_HP
-        Some(0xA9), Some(0x08), Some(0x95), Some(0x2B),                    // lda #hardAP;sta al_AP
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E), // ora enemy1 colltype
-        Some(0xA9), Some(0x80), Some(0x95), Some(0x13),                    // lda #deg180;sta al_roty
-        Some(0xA9), Some(0x80), Some(0x95), Some(0x14),                    // lda #deg180;sta al_rotz
-        Some(0x22), w, w, w, Some(0x95), Some(0x0C),                       // DRAW 1 -> al_worldx lo
-        Some(0x22), w, w, w, Some(0x29), Some(0x03), Some(0x95), Some(0x0D), // DRAW 2 & #3 -> al_worldx hi
-        Some(0xC2), Some(0x20), Some(0xB5), Some(0x0C), Some(0x38), Some(0xE9), Some(0x00), Some(0x02), Some(0x95), Some(0x0C), // sbc #512
-        Some(0xE2), Some(0x20), Some(0xC2), Some(0x20),
-        Some(0xAD), w, w,                                                  // lda player_posx
-        Some(0xC9), Some(0x00), Some(0x80), Some(0x6A),                    // asra: cmp #$8000; ror a
-        Some(0x18), Some(0x75), Some(0x0C), Some(0x95), Some(0x0C), Some(0xE2), Some(0x20), // clc;adc;sta;sep
-        Some(0x22), w, w, w,                                               // DRAW 3 (coin)
-        Some(0xC9), Some(0xB2), Some(0xB0), Some(0x04),                    // cmp #$B2; bcs +4
-        Some(0x5C), w, w, w,                                               // jml firepillar_strat
-        Some(0xB5), Some(0x1E), Some(0x09), Some(0x20), Some(0x95), Some(0x1E), // set al_sflags2 bit $20
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        w,
+        Some(0x95),
+        Some(0x16), // rep;lda #strat;sta stratptr
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        Some(0x95),
+        Some(0x18), // sep;lda #bank;sta stratptr+2
+        Some(0x22),
+        w,
+        w,
+        w, // jsl set_0collptrs
+        Some(0xA9),
+        Some(0xFF),
+        Some(0x95),
+        Some(0x2A), // lda #hardHP;sta al_HP
+        Some(0xA9),
+        Some(0x08),
+        Some(0x95),
+        Some(0x2B), // lda #hardAP;sta al_AP
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x10),
+        Some(0x95),
+        Some(0x2E), // ora enemy1 colltype
+        Some(0xA9),
+        Some(0x80),
+        Some(0x95),
+        Some(0x13), // lda #deg180;sta al_roty
+        Some(0xA9),
+        Some(0x80),
+        Some(0x95),
+        Some(0x14), // lda #deg180;sta al_rotz
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x95),
+        Some(0x0C), // DRAW 1 -> al_worldx lo
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x29),
+        Some(0x03),
+        Some(0x95),
+        Some(0x0D), // DRAW 2 & #3 -> al_worldx hi
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB5),
+        Some(0x0C),
+        Some(0x38),
+        Some(0xE9),
+        Some(0x00),
+        Some(0x02),
+        Some(0x95),
+        Some(0x0C), // sbc #512
+        Some(0xE2),
+        Some(0x20),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        w,
+        w, // lda player_posx
+        Some(0xC9),
+        Some(0x00),
+        Some(0x80),
+        Some(0x6A), // asra: cmp #$8000; ror a
+        Some(0x18),
+        Some(0x75),
+        Some(0x0C),
+        Some(0x95),
+        Some(0x0C),
+        Some(0xE2),
+        Some(0x20), // clc;adc;sta;sep
+        Some(0x22),
+        w,
+        w,
+        w, // DRAW 3 (coin)
+        Some(0xC9),
+        Some(0xB2),
+        Some(0xB0),
+        Some(0x04), // cmp #$B2; bcs +4
+        Some(0x5C),
+        w,
+        w,
+        w, // jml firepillar_strat
+        Some(0xB5),
+        Some(0x1E),
+        Some(0x09),
+        Some(0x20),
+        Some(0x95),
+        Some(0x1E), // set al_sflags2 bit $20
     ];
     let hits = masked_scan(&rom, &pat);
     assert_eq!(hits.len(), 1, "firepillar_Istrat is a UNIQUE masked hit");
@@ -1707,16 +2293,26 @@ fn retail_firepillar_addresses() {
     eprintln!(
         "RNG-ENEMY: firepillar_Istrat=${istrat:06X}  draws=[{draw1:06X},{draw2:06X},{draw3:06X}]  player_posx=${posx:04X}  ->firepillar_strat=${jml:06X}"
     );
-    assert_eq!(istrat, RETAIL_FIREPILLAR_ISTRAT, "firepillar_Istrat address");
+    assert_eq!(
+        istrat, RETAIL_FIREPILLAR_ISTRAT,
+        "firepillar_Istrat address"
+    );
     // All three draws are the runtime RNG wrapper RANDOM_L ($02:FC58) — this is
     // the exact routine `retail_rng_stream_vs_port` proved == port `sf_random`.
     assert_eq!(draw1, RETAIL_RANDOM_L, "DRAW 1 is jsl RANDOM_L");
     assert_eq!(draw2, RETAIL_RANDOM_L, "DRAW 2 is jsl RANDOM_L");
     assert_eq!(draw3, RETAIL_RANDOM_L, "DRAW 3 (coin) is jsl RANDOM_L");
     assert_eq!(posx as u32, RETAIL_PLAYER_POSX, "reads player_posx=$150D");
-    assert_eq!(jml, RETAIL_FIREPILLAR_STRAT, "jml fall-through = firepillar_strat");
+    assert_eq!(
+        jml, RETAIL_FIREPILLAR_STRAT,
+        "jml fall-through = firepillar_strat"
+    );
     // Coin threshold cmp #$B2 = (70*255)/100 = 178.
-    assert_eq!(rom[h + 86] as u16, FIREPILLAR_COIN_THRESH, "coin cmp #$B2 (178)");
+    assert_eq!(
+        rom[h + 86] as u16,
+        FIREPILLAR_COIN_THRESH,
+        "coin cmp #$B2 (178)"
+    );
 }
 
 /// CAPSTONE (RNG-enemy) — THE PORT's `firepillar_init` RNG-DERIVED FIELDS vs the
@@ -1734,9 +2330,9 @@ fn retail_firepillar_addresses() {
 fn retail_firepillar_rng_vs_port() {
     let Some(rom) = retail() else { return };
     let player_posx = -3000i16; // exercises the signed asra (>>1 = -1500)
-    // Seeds chosen (via the SWB stream) to hit BOTH coin branches:
-    //   [1,2,3,4]        -> DRAW 3 = 8   (<178)  -> ACTIVE (70%)
-    //   [171,205,239,18] -> DRAW 3 = 194 (>=178) -> INERT  (30%)
+                                // Seeds chosen (via the SWB stream) to hit BOTH coin branches:
+                                //   [1,2,3,4]        -> DRAW 3 = 8   (<178)  -> ACTIVE (70%)
+                                //   [171,205,239,18] -> DRAW 3 = 194 (>=178) -> INERT  (30%)
     let cases: [([u8; 4], bool); 2] = [([1, 2, 3, 4], false), ([171, 205, 239, 18], true)];
     let mut saw_active = false;
     let mut saw_inert = false;
@@ -1754,13 +2350,25 @@ fn retail_firepillar_rng_vs_port() {
             "RNG-ENEMY firepillar seed {seed:02X?}: retail draws=[{d1},{d2},{d3}] worldx={rwx} inert={r_inert} | port worldx={pwx} inert={p_inert}  {}",
             if rwx == pwx && r_inert == p_inert { "MATCH" } else { "DIFF" }
         );
-        assert_eq!(rwx, pwx, "firepillar worldx (RNG draws 1&2 + player_posx) must match retail");
-        assert_eq!(r_inert, p_inert, "firepillar inert coin (RNG draw 3) branch must match retail");
-        assert_eq!(r_inert, expect_inert, "seed {seed:02X?} drives the expected coin branch");
+        assert_eq!(
+            rwx, pwx,
+            "firepillar worldx (RNG draws 1&2 + player_posx) must match retail"
+        );
+        assert_eq!(
+            r_inert, p_inert,
+            "firepillar inert coin (RNG draw 3) branch must match retail"
+        );
+        assert_eq!(
+            r_inert, expect_inert,
+            "seed {seed:02X?} drives the expected coin branch"
+        );
         saw_active |= !r_inert;
         saw_inert |= r_inert;
     }
-    assert!(saw_active && saw_inert, "both coin branches (30% inert / 70% active) exercised");
+    assert!(
+        saw_active && saw_inert,
+        "both coin branches (30% inert / 70% active) exercised"
+    );
     eprintln!("RNG-ENEMY firepillar: MATCH both branches — port sf_random == retail RANDOM through firepillar. ea_random->sf_random fix is cartridge-faithful.");
 }
 
@@ -1783,14 +2391,18 @@ fn retail_firepillar_body_vs_port() {
     let player_posx = -3000i16;
     let enemy = RETAIL_POOL.base; // slot 0 — X for the strat call; low byte $36
     let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride; // slot 1
-    // Seeds ending in $36 (=54, the pinned rand[3]); chosen to hit both branches:
-    //   [200,1,2,54]  -> DRAW 3 = 24  (<178)  -> ACTIVE
-    //   [99,88,77,54] -> DRAW 3 = 183 (>=178) -> INERT
+                                                            // Seeds ending in $36 (=54, the pinned rand[3]); chosen to hit both branches:
+                                                            //   [200,1,2,54]  -> DRAW 3 = 24  (<178)  -> ACTIVE
+                                                            //   [99,88,77,54] -> DRAW 3 = 183 (>=178) -> INERT
     let cases: [([u8; 4], bool); 2] = [([200, 1, 2, 54], false), ([99, 88, 77, 54], true)];
     let mut saw_active = false;
     let mut saw_inert = false;
     for (seed, expect_inert) in cases {
-        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+        assert_eq!(
+            seed[3] as u32,
+            enemy & 0xFF,
+            "seed[3] must equal the pinned block low byte"
+        );
         let mut bus = SnesBus::new(rom.clone());
         // Player far in Z via PLAYPT so firepillar_strat's zdist gates all fail.
         bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
@@ -1802,8 +2414,17 @@ fn retail_firepillar_body_vs_port() {
         seed_retail_rng(&mut bus, seed); // establishes $EF; $F0-$F2 set again below by call
         bus.write8(RETAIL_RAND, seed[0]); // rand[0] @ $EF (safe, below param block)
         let a = seed[1] as u16 | ((seed[2] as u16) << 8); // -> $F0/$F1 = rand[1]/rand[2]
-        // entry.x = enemy block -> $F2 = block low byte = seed[3]; also the strat's X.
-        call(&mut bus, RETAIL_FIREPILLAR_ISTRAT, &Entry { a, x: enemy as u16, p: 0x00, ..Default::default() });
+                                                          // entry.x = enemy block -> $F2 = block low byte = seed[3]; also the strat's X.
+        call(
+            &mut bus,
+            RETAIL_FIREPILLAR_ISTRAT,
+            &Entry {
+                a,
+                x: enemy as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let rwx = bus.wram_read16(enemy + RETAIL_POOL.al_worldx) as i16;
         let r_inert = bus.read8(0x7E_0000 | (enemy + AL_SFLAGS2)) & ASF2_SFLAG2 != 0;
         // Port: the real firepillar_init over the SAME seed.
@@ -1813,12 +2434,21 @@ fn retail_firepillar_body_vs_port() {
             if rwx == pwx && r_inert == p_inert { "MATCH" } else { "DIFF" }
         );
         assert_eq!(rwx, pwx, "retail firepillar_Istrat BODY worldx == port");
-        assert_eq!(r_inert, p_inert, "retail firepillar_Istrat BODY inert coin == port");
-        assert_eq!(r_inert, expect_inert, "seed {seed:02X?} drives the expected branch on retail");
+        assert_eq!(
+            r_inert, p_inert,
+            "retail firepillar_Istrat BODY inert coin == port"
+        );
+        assert_eq!(
+            r_inert, expect_inert,
+            "seed {seed:02X?} drives the expected branch on retail"
+        );
         saw_active |= !r_inert;
         saw_inert |= r_inert;
     }
-    assert!(saw_active && saw_inert, "both coin branches exercised on the retail body");
+    assert!(
+        saw_active && saw_inert,
+        "both coin branches exercised on the retail body"
+    );
     eprintln!("RNG-ENEMY firepillar BODY: MATCH both branches — retail cart's OWN firepillar AI == port. RNG-driven enemy class certified vs retail.");
 }
 
@@ -1842,9 +2472,8 @@ fn retail_firepillar_body_vs_port() {
 // ============================================================================
 
 const IS_ROCKHARD: usize = 192;
-const IS_MINE0: usize = 246;
-const IS_BIG_METEOR: usize = 234;
-const IS_TREE1: usize = 204;
+const IS_BIG_METEOR: usize = 233;
+const IS_TREE1: usize = 203;
 
 /// Run a port ground-init strat (reached via `world.istrats[is_index]`) on a
 /// fresh object with `rng` seeded, and return its init observables
@@ -1856,10 +2485,46 @@ fn port_ground_init(is_index: usize, rng: [u8; 4]) -> (u8, u8, u8, u8, u8, u8, b
     sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[idx as usize]);
     g.vars.rng = rng;
     g.objs.aliens[idx as usize].stratptr = g.world.istrats[is_index];
-    let s = g.objs.aliens[idx as usize].stratptr.expect("istrat registered");
+    let s = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("istrat registered");
     g.call_strat(s, idx);
     let al = &g.objs.aliens[idx as usize];
-    (al.rotz, al.sbyte1, al.roty, al.hp, al.ap, al.collflags, al.stratptr.is_none())
+    (
+        al.rotz,
+        al.sbyte1,
+        al.roty,
+        al.hp,
+        al.ap,
+        al.collflags,
+        al.stratptr.is_none(),
+    )
+}
+
+fn port_ground_init_direct(
+    strategy: sf_map::consts::DirectStrategy,
+    rng: [u8; 4],
+) -> (u8, u8, u8, u8, u8, u8, bool) {
+    let mut g = sf_game::game::Game::new();
+    sf_strat::enemies_ground::register(&mut g.world);
+    let idx = g.objs.alloc().expect("alien pool");
+    sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[idx as usize]);
+    g.vars.rng = rng;
+    g.objs.aliens[idx as usize].stratptr = g.world.find_direct_strategy(strategy);
+    let s = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("typed strategy registered");
+    g.call_strat(s, idx);
+    let al = &g.objs.aliens[idx as usize];
+    (
+        al.rotz,
+        al.sbyte1,
+        al.roty,
+        al.hp,
+        al.ap,
+        al.collflags,
+        al.stratptr.is_none(),
+    )
 }
 
 /// MILESTONE (batch-3 step 1) — LOCATE + CROSS-VALIDATE the four batch-3 retail
@@ -1872,66 +2537,210 @@ fn retail_batch3_addresses() {
 
     // rockhard: pure struct-offset, byte-identical -> EXACT scan.
     let rockhard: Vec<Option<u8>> = vec![
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E),
-        Some(0xA9), Some(0x80), Some(0x95), Some(0x13), Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A),
-        Some(0xA9), Some(0x14), Some(0x95), Some(0x2B),
-        Some(0xC2), Some(0x20), Some(0xA9), Some(0x00), Some(0x00), Some(0x95), Some(0x16),
-        Some(0xE2), Some(0x20), Some(0xA9), Some(0x00), Some(0x95), Some(0x18), Some(0x6B),
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x10),
+        Some(0x95),
+        Some(0x2E),
+        Some(0xA9),
+        Some(0x80),
+        Some(0x95),
+        Some(0x13),
+        Some(0xA9),
+        Some(0xFF),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x14),
+        Some(0x95),
+        Some(0x2B),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x00),
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x95),
+        Some(0x18),
+        Some(0x6B),
     ];
     let h = masked_scan(&rom, &rockhard);
     assert_eq!(h.len(), 1, "rockhard_Istrat is a UNIQUE exact-scan hit");
     let rockhard_addr = rom_off_to_snes(h[0]);
     eprintln!("BATCH3: rockhard_Istrat=${rockhard_addr:06X}");
-    assert_eq!(rockhard_addr, RETAIL_ROCKHARD_ISTRAT, "rockhard_Istrat address");
+    assert_eq!(
+        rockhard_addr, RETAIL_ROCKHARD_ISTRAT,
+        "rockhard_Istrat address"
+    );
 
     // mine0: 1 draw -> al_rotz (full byte). jsl RANDOM at pattern index 31..35.
     let mine0: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16),
-        Some(0xE2), Some(0x20), Some(0xA9), w, Some(0x95), Some(0x18),
-        Some(0x22), w, w, w,
-        Some(0xA9), Some(0x02), Some(0x95), Some(0x2A), Some(0xA9), Some(0x0A), Some(0x95), Some(0x2B),
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E),
-        Some(0x22), w, w, w, Some(0x95), Some(0x14), Some(0x6B),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        w,
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        Some(0x95),
+        Some(0x18),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0xA9),
+        Some(0x02),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x0A),
+        Some(0x95),
+        Some(0x2B),
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x10),
+        Some(0x95),
+        Some(0x2E),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x95),
+        Some(0x14),
+        Some(0x6B),
     ];
     let h = masked_scan(&rom, &mine0);
     assert_eq!(h.len(), 1, "mine0_Istrat is a UNIQUE masked hit");
     let mine0_addr = rom_off_to_snes(h[0]);
-    let mine0_rnd = rom[h[0] + 32] as u32 | ((rom[h[0] + 33] as u32) << 8) | ((rom[h[0] + 34] as u32) << 16);
+    let mine0_rnd =
+        rom[h[0] + 32] as u32 | ((rom[h[0] + 33] as u32) << 8) | ((rom[h[0] + 34] as u32) << 16);
     eprintln!("BATCH3: mine0_Istrat=${mine0_addr:06X} random_l=${mine0_rnd:06X}");
     assert_eq!(mine0_addr, RETAIL_MINE0_ISTRAT, "mine0_Istrat address");
     assert_eq!(mine0_rnd, RETAIL_RANDOM_L, "mine0 draw is jsl RANDOM_L");
 
     // big_meteor: 1 draw -> al_sbyte1 = (rnd&15)-8. jsl RANDOM at index 51..55.
     let bm: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16),
-        Some(0xE2), Some(0x20), Some(0xA9), w, Some(0x95), Some(0x18),
-        Some(0x22), w, w, w,
-        Some(0xB5), Some(0x1F), Some(0x09), Some(0x20), Some(0x95), Some(0x1F),
-        Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A), Some(0xA9), Some(0x0C), Some(0x95), Some(0x2B),
-        Some(0xAD), w, w, Some(0x49), Some(0xFF), Some(0x1A), Some(0x18), Some(0x69), Some(0x80),
-        Some(0x18), Some(0x6D), w, w, Some(0x95), Some(0x13),
-        Some(0xAD), w, w, Some(0x95), Some(0x12),
-        Some(0x22), w, w, w, Some(0x29), Some(0x0F), Some(0x95), Some(0x22),
-        Some(0xB5), Some(0x22), Some(0x38), Some(0xE9), Some(0x08), Some(0x95), Some(0x22), Some(0x6B),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        w,
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        Some(0x95),
+        Some(0x18),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0xB5),
+        Some(0x1F),
+        Some(0x09),
+        Some(0x20),
+        Some(0x95),
+        Some(0x1F),
+        Some(0xA9),
+        Some(0xFF),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x0C),
+        Some(0x95),
+        Some(0x2B),
+        Some(0xAD),
+        w,
+        w,
+        Some(0x49),
+        Some(0xFF),
+        Some(0x1A),
+        Some(0x18),
+        Some(0x69),
+        Some(0x80),
+        Some(0x18),
+        Some(0x6D),
+        w,
+        w,
+        Some(0x95),
+        Some(0x13),
+        Some(0xAD),
+        w,
+        w,
+        Some(0x95),
+        Some(0x12),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x29),
+        Some(0x0F),
+        Some(0x95),
+        Some(0x22),
+        Some(0xB5),
+        Some(0x22),
+        Some(0x38),
+        Some(0xE9),
+        Some(0x08),
+        Some(0x95),
+        Some(0x22),
+        Some(0x6B),
     ];
     let h = masked_scan(&rom, &bm);
     assert_eq!(h.len(), 1, "big_meteor_Istrat is a UNIQUE masked hit");
     let bm_addr = rom_off_to_snes(h[0]);
-    let bm_rnd = rom[h[0] + 52] as u32 | ((rom[h[0] + 53] as u32) << 8) | ((rom[h[0] + 54] as u32) << 16);
+    let bm_rnd =
+        rom[h[0] + 52] as u32 | ((rom[h[0] + 53] as u32) << 8) | ((rom[h[0] + 54] as u32) << 16);
     eprintln!("BATCH3: big_meteor_Istrat=${bm_addr:06X} random_l=${bm_rnd:06X}");
-    assert_eq!(bm_addr, RETAIL_BIG_METEOR_ISTRAT, "big_meteor_Istrat address");
+    assert_eq!(
+        bm_addr, RETAIL_BIG_METEOR_ISTRAT,
+        "big_meteor_Istrat address"
+    );
     assert_eq!(bm_rnd, RETAIL_RANDOM_L, "big_meteor draw is jsl RANDOM_L");
 
     // tree1: 1 draw -> al_sbyte1 = (rnd&3)+1. jsl RANDOM at index 12..16.
     let tree1: Vec<Option<u8>> = vec![
-        Some(0xB5), Some(0x1F), Some(0x09), Some(0x02), Some(0x95), Some(0x1F),
-        Some(0xB5), Some(0x1E), Some(0x09), Some(0x80), Some(0x95), Some(0x1E),
-        Some(0x22), w, w, w, Some(0x29), Some(0x03), Some(0x95), Some(0x22), Some(0xF6), Some(0x22),
+        Some(0xB5),
+        Some(0x1F),
+        Some(0x09),
+        Some(0x02),
+        Some(0x95),
+        Some(0x1F),
+        Some(0xB5),
+        Some(0x1E),
+        Some(0x09),
+        Some(0x80),
+        Some(0x95),
+        Some(0x1E),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x29),
+        Some(0x03),
+        Some(0x95),
+        Some(0x22),
+        Some(0xF6),
+        Some(0x22),
     ];
     let h = masked_scan(&rom, &tree1);
     assert_eq!(h.len(), 1, "tree1_Istrat is a UNIQUE masked hit");
     let tree1_addr = rom_off_to_snes(h[0]);
-    let tree1_rnd = rom[h[0] + 13] as u32 | ((rom[h[0] + 14] as u32) << 8) | ((rom[h[0] + 15] as u32) << 16);
+    let tree1_rnd =
+        rom[h[0] + 13] as u32 | ((rom[h[0] + 14] as u32) << 8) | ((rom[h[0] + 15] as u32) << 16);
     eprintln!("BATCH3: tree1_Istrat=${tree1_addr:06X} random_l=${tree1_rnd:06X}");
     assert_eq!(tree1_addr, RETAIL_TREE1_ISTRAT, "tree1_Istrat address");
     assert_eq!(tree1_rnd, RETAIL_RANDOM_L, "tree1 draw is jsl RANDOM_L");
@@ -1956,7 +2765,15 @@ fn retail_rockhard_strat_vs_port() {
     bus.write8(0x7E_0000 | (blk + AL_ROTY), 0x11);
 
     // rockhard assumes 8-bit A at entry (s_start_strat shorta) -> p=$20.
-    call(&mut bus, RETAIL_ROCKHARD_ISTRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        RETAIL_ROCKHARD_ISTRAT,
+        &Entry {
+            x: blk as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
 
     let r_coll = bus.read8(0x7E_0000 | (blk + AL_COLLFLAGS));
     let r_roty = bus.read8(0x7E_0000 | (blk + AL_ROTY));
@@ -1969,14 +2786,19 @@ fn retail_rockhard_strat_vs_port() {
     );
 
     // Port (dirty then init).
-    let (_rotz, _sb1, p_roty, p_hp, p_ap, p_coll, p_sptr_none) = port_ground_init(IS_ROCKHARD, [0; 4]);
+    let (_rotz, _sb1, p_roty, p_hp, p_ap, p_coll, p_sptr_none) =
+        port_ground_init(IS_ROCKHARD, [0; 4]);
     eprintln!("BATCH3 rockhard: port roty=${p_roty:02X} hp=${p_hp:02X} ap=${p_ap} coll=${p_coll:02X} stratptr_none={p_sptr_none}");
 
     // colltype: retail's ASM layout stores enemy1 in bit $10; the port re-derived
     // its own obj.h collflags encoding (COLLTYPE_ENEMY1) AND its object went
     // through strat_init_obj_vars (baseline bits) vs our hand-seeded coll=0 — so
     // certify the enemy1 EFFECT (both set a colltype), not a raw byte equality.
-    assert_ne!(r_coll & 0x10, 0, "retail rockhard set enemy1 colltype (bit $10)");
+    assert_ne!(
+        r_coll & 0x10,
+        0,
+        "retail rockhard set enemy1 colltype (bit $10)"
+    );
     assert_ne!(p_coll, 0, "port rockhard set its colltype");
     assert_eq!(r_roty, 0x80, "retail rockhard roty=deg180");
     assert_eq!(r_roty, p_roty, "roty");
@@ -1987,7 +2809,9 @@ fn retail_rockhard_strat_vs_port() {
     assert_eq!(r_sptr_lo, 0, "retail rockhard nulled stratptr low");
     assert_eq!(r_sptr_bk, 0, "retail rockhard nulled stratptr bank");
     assert!(p_sptr_none, "port rockhard nulled stratptr");
-    eprintln!("BATCH3 rockhard: MATCH — retail static-init body == port (coll/roty/hp/ap/null-tick).");
+    eprintln!(
+        "BATCH3 rockhard: MATCH — retail static-init body == port (coll/roty/hp/ap/null-tick)."
+    );
 }
 
 /// CAPSTONE (batch-3) — RETAIL `mine0_Istrat` BODY (RNG) vs THE PORT.
@@ -1997,24 +2821,39 @@ fn retail_rockhard_strat_vs_port() {
 /// firepillar param-block recipe: X=block PINS rand[3]=block-low-byte $36, so
 /// seeds end in $36; rand[0]@$EF direct, rand[1..3] ride entry.a/entry.x-low),
 /// and diff `al_rotz` (RNG-derived) + HP/AP vs the port `mine0_init`
-/// (IS_MINE0=246) seeded with the SAME 4-byte state. Two seeds.
+/// (registered at its exact $09:9117 address) seeded with the SAME 4-byte
+/// state. Two seeds.
 #[test]
 fn retail_mine0_body_vs_port() {
     let Some(rom) = retail() else { return };
     let enemy = RETAIL_POOL.base; // low byte $36 = pinned rand[3]
     for seed in [[1u8, 2, 3, 54], [200, 150, 99, 54]] {
-        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+        assert_eq!(
+            seed[3] as u32,
+            enemy & 0xFF,
+            "seed[3] must equal the pinned block low byte"
+        );
         let mut bus = SnesBus::new(rom.clone());
         seed_retail_rng(&mut bus, seed);
         bus.write8(RETAIL_RAND, seed[0]); // rand[0]@$EF (below param block)
         let a = seed[1] as u16 | ((seed[2] as u16) << 8); // -> $F0/$F1 = rand[1]/rand[2]
-        call(&mut bus, RETAIL_MINE0_ISTRAT, &Entry { a, x: enemy as u16, p: 0x00, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_MINE0_ISTRAT,
+            &Entry {
+                a,
+                x: enemy as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let r_rotz = bus.read8(0x7E_0000 | (enemy + AL_ROTZ));
         let r_hp = bus.read8(0x7E_0000 | (enemy + AL_HP));
         let r_ap = bus.read8(0x7E_0000 | (enemy + AL_AP));
         let r_coll = bus.read8(0x7E_0000 | (enemy + AL_COLLFLAGS));
 
-        let (p_rotz, _sb1, _roty, p_hp, p_ap, _p_coll, _n) = port_ground_init(IS_MINE0, seed);
+        let (p_rotz, _sb1, _roty, p_hp, p_ap, _p_coll, _n) =
+            port_ground_init_direct(sf_map::consts::DirectStrategy::Mine0, seed);
         eprintln!(
             "BATCH3 mine0 seed {seed:02X?}: retail rotz=${r_rotz:02X} hp=${r_hp:02X} ap={r_ap} | port rotz=${p_rotz:02X} hp=${p_hp:02X} ap={p_ap}  {}",
             if r_rotz == p_rotz { "MATCH" } else { "DIFF" }
@@ -2026,9 +2865,15 @@ fn retail_mine0_body_vs_port() {
         assert_eq!(r_ap, p_ap, "ap");
         // enemy1 colltype: retail bit $10 (ASM layout); port uses its own obj.h
         // encoding (representation remap, same as sflags) — certify the effect.
-        assert_ne!(r_coll & 0x10, 0, "retail mine0 set enemy1 colltype (bit $10)");
+        assert_ne!(
+            r_coll & 0x10,
+            0,
+            "retail mine0 set enemy1 colltype (bit $10)"
+        );
     }
-    eprintln!("BATCH3 mine0 BODY: MATCH — retail cart's OWN mine0 RNG orientation == port sf_random.");
+    eprintln!(
+        "BATCH3 mine0 BODY: MATCH — retail cart's OWN mine0 RNG orientation == port sf_random."
+    );
 }
 
 /// CAPSTONE (batch-3) — RETAIL `big_meteor_Istrat` BODY (RNG) vs THE PORT.
@@ -2043,12 +2888,25 @@ fn retail_big_meteor_body_vs_port() {
     let Some(rom) = retail() else { return };
     let enemy = RETAIL_POOL.base;
     for seed in [[7u8, 11, 13, 54], [222, 111, 44, 54]] {
-        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+        assert_eq!(
+            seed[3] as u32,
+            enemy & 0xFF,
+            "seed[3] must equal the pinned block low byte"
+        );
         let mut bus = SnesBus::new(rom.clone());
         seed_retail_rng(&mut bus, seed);
         bus.write8(RETAIL_RAND, seed[0]);
         let a = seed[1] as u16 | ((seed[2] as u16) << 8);
-        call(&mut bus, RETAIL_BIG_METEOR_ISTRAT, &Entry { a, x: enemy as u16, p: 0x00, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_BIG_METEOR_ISTRAT,
+            &Entry {
+                a,
+                x: enemy as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let r_sb1 = bus.read8(0x7E_0000 | (enemy + AL_SBYTE1));
         let r_hp = bus.read8(0x7E_0000 | (enemy + AL_HP));
         let r_ap = bus.read8(0x7E_0000 | (enemy + AL_AP));
@@ -2058,7 +2916,10 @@ fn retail_big_meteor_body_vs_port() {
             "BATCH3 big_meteor seed {seed:02X?}: retail sbyte1=${r_sb1:02X}({}) hp=${r_hp:02X} ap={r_ap} | port sbyte1=${p_sb1:02X}({})  {}",
             r_sb1 as i8, p_sb1 as i8, if r_sb1 == p_sb1 { "MATCH" } else { "DIFF" }
         );
-        assert_eq!(r_sb1, p_sb1, "big_meteor sbyte1 (rnd&15)-8 must match retail");
+        assert_eq!(
+            r_sb1, p_sb1,
+            "big_meteor sbyte1 (rnd&15)-8 must match retail"
+        );
         assert_eq!(r_hp, 0xFF, "retail big_meteor hp=hardHP");
         assert_eq!(r_hp, p_hp, "hp");
         assert_eq!(r_ap, 12, "retail big_meteor ap=12");
@@ -2080,7 +2941,12 @@ fn retail_big_meteor_body_vs_port() {
 #[test]
 fn retail_tree1_rng_vs_port() {
     let Some(rom) = retail() else { return };
-    for seed in [[1u8, 2, 3, 4], [0xAB, 0xCD, 0xEF, 0x12], [99, 88, 77, 66], [255, 0, 128, 64]] {
+    for seed in [
+        [1u8, 2, 3, 4],
+        [0xAB, 0xCD, 0xEF, 0x12],
+        [99, 88, 77, 66],
+        [255, 0, 128, 64],
+    ] {
         let mut bus = SnesBus::new(rom.clone());
         let mut rs = seed;
         let d = retail_random_next(&mut bus, &mut rs);
@@ -2091,7 +2957,10 @@ fn retail_tree1_rng_vs_port() {
             "BATCH3 tree1 seed {seed:02X?}: retail draw={d} sbyte1={r_sb1} | port sbyte1={p_sb1}  {}",
             if r_sb1 == p_sb1 { "MATCH" } else { "DIFF" }
         );
-        assert_eq!(r_sb1, p_sb1, "tree1 sbyte1 (rnd&3)+1 must match the retail RANDOM stream");
+        assert_eq!(
+            r_sb1, p_sb1,
+            "tree1 sbyte1 (rnd&3)+1 must match the retail RANDOM stream"
+        );
         assert!((1..=4).contains(&r_sb1), "tree1 height in [1,4]");
     }
     eprintln!("BATCH3 tree1: MATCH — port sf_random tree height == retail RANDOM (rnd&3)+1.");
@@ -2121,11 +2990,11 @@ use sf_oracle::{
     RETAIL_WOODS_ZGATE,
 };
 
-const IS_WOODS: usize = 54;
-const IS_TREE2: usize = 205;
-const IS_SHOU0: usize = 178;
-const IS_BREAK_METEORT: usize = 238;
-const SH_TADPOLE: u16 = 228;
+const IS_WOODS: usize = 53;
+const IS_TREE2: usize = 204;
+const IS_SHOU0: usize = 177;
+const IS_BREAK_METEORT: usize = 237;
+const SH_TADPOLE: u16 = 227;
 /// `s_jmp_random` (no factor) 50% coin threshold `cmp #((50)*255)/100 = 127`.
 const COIN_THRESH_50: u16 = 127;
 
@@ -2141,39 +3010,97 @@ fn retail_batch4_addresses() {
     // --- woods_strat: ldy PLAYPT; rep; lda worldz,y; sec; sbc worldz,x; bpl+;
     //     eor #$FFFF; inc; cmp #$0834(2100); sep; bpl+; jml woodsgo_init; rtl ---
     let woods_pat: Vec<Option<u8>> = vec![
-        Some(0xAC), w, w, Some(0xC2), Some(0x20), Some(0xB9), Some(0x10), Some(0x00),
-        Some(0x38), Some(0xF5), Some(0x10), Some(0x10), Some(0x04), Some(0x49), Some(0xFF),
-        Some(0xFF), Some(0x1A), Some(0xC9), Some(0x34), Some(0x08), Some(0xE2), Some(0x20),
-        Some(0x10), Some(0x04), Some(0x5C), w, w, w, Some(0x6B),
+        Some(0xAC),
+        w,
+        w,
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB9),
+        Some(0x10),
+        Some(0x00),
+        Some(0x38),
+        Some(0xF5),
+        Some(0x10),
+        Some(0x10),
+        Some(0x04),
+        Some(0x49),
+        Some(0xFF),
+        Some(0xFF),
+        Some(0x1A),
+        Some(0xC9),
+        Some(0x34),
+        Some(0x08),
+        Some(0xE2),
+        Some(0x20),
+        Some(0x10),
+        Some(0x04),
+        Some(0x5C),
+        w,
+        w,
+        w,
+        Some(0x6B),
     ];
     let h = masked_scan(&rom, &woods_pat);
     assert_eq!(h.len(), 1, "woods_strat is a UNIQUE masked hit");
     let woods = rom_off_to_snes(h[0]);
     let woods_playpt = rom[h[0] + 1] as u32 | ((rom[h[0] + 2] as u32) << 8);
     let gate = rom[h[0] + 18] as u16 | ((rom[h[0] + 19] as u16) << 8);
-    let woodsgo_init = rom[h[0] + 25] as u32 | ((rom[h[0] + 26] as u32) << 8) | ((rom[h[0] + 27] as u32) << 16);
+    let woodsgo_init =
+        rom[h[0] + 25] as u32 | ((rom[h[0] + 26] as u32) << 8) | ((rom[h[0] + 27] as u32) << 16);
     eprintln!("BATCH4: woods_strat=${woods:06X} PLAYPT=${woods_playpt:04X} zgate={gate} ->woodsgo_init=${woodsgo_init:06X}");
     assert_eq!(woods, RETAIL_WOODS_STRAT, "woods_strat address");
     assert_eq!(woods_playpt, RETAIL_PLAYPT, "woods reads PLAYPT=$1238");
     assert_eq!(gate as i16, RETAIL_WOODS_ZGATE, "woods gate cmp #2100");
     // woodsgo_init installs woodsgo_strat: read its `lda #woodsgo_strat` immediate.
     let wgo_off = snes_to_rom_off(woodsgo_init);
-    assert_eq!(&rom[wgo_off..wgo_off + 3], &[0xC2, 0x20, 0xA9], "woodsgo_init head rep;lda #strat");
-    let woodsgo_strat = rom[wgo_off + 3] as u32 | ((rom[wgo_off + 4] as u32) << 8) | ((rom[wgo_off + 10] as u32) << 16);
-    assert_eq!(woodsgo_strat, RETAIL_WOODSGO_STRAT, "woodsgo_init installs woodsgo_strat=$08:B840");
+    assert_eq!(
+        &rom[wgo_off..wgo_off + 3],
+        &[0xC2, 0x20, 0xA9],
+        "woodsgo_init head rep;lda #strat"
+    );
+    let woodsgo_strat = rom[wgo_off + 3] as u32
+        | ((rom[wgo_off + 4] as u32) << 8)
+        | ((rom[wgo_off + 10] as u32) << 16);
+    assert_eq!(
+        woodsgo_strat, RETAIL_WOODSGO_STRAT,
+        "woodsgo_init installs woodsgo_strat=$08:B840"
+    );
 
     // --- tree2_Istrat: jsl RANDOM_L; and #3; sta sbyte1; inc sbyte1; lda #deg22;
     //     sta sbyte2; ... (RNG-first). ---
     let tree2_pat: Vec<Option<u8>> = vec![
-        Some(0x22), w, w, w, Some(0x29), Some(0x03), Some(0x95), Some(0x22), Some(0xF6),
-        Some(0x22), Some(0xA9), Some(0x10), Some(0x95), Some(0x23), Some(0xB5), Some(0x1F),
-        Some(0x09), Some(0x02), Some(0x95), Some(0x1F), Some(0xB5), Some(0x1F), Some(0x09),
-        Some(0x01), Some(0x95), Some(0x1F),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x29),
+        Some(0x03),
+        Some(0x95),
+        Some(0x22),
+        Some(0xF6),
+        Some(0x22),
+        Some(0xA9),
+        Some(0x10),
+        Some(0x95),
+        Some(0x23),
+        Some(0xB5),
+        Some(0x1F),
+        Some(0x09),
+        Some(0x02),
+        Some(0x95),
+        Some(0x1F),
+        Some(0xB5),
+        Some(0x1F),
+        Some(0x09),
+        Some(0x01),
+        Some(0x95),
+        Some(0x1F),
     ];
     let h = masked_scan(&rom, &tree2_pat);
     assert_eq!(h.len(), 1, "tree2_Istrat is a UNIQUE masked hit");
     let tree2 = rom_off_to_snes(h[0]);
-    let tree2_rnd = rom[h[0] + 1] as u32 | ((rom[h[0] + 2] as u32) << 8) | ((rom[h[0] + 3] as u32) << 16);
+    let tree2_rnd =
+        rom[h[0] + 1] as u32 | ((rom[h[0] + 2] as u32) << 8) | ((rom[h[0] + 3] as u32) << 16);
     let deg22 = rom[h[0] + 11];
     eprintln!("BATCH4: tree2_Istrat=${tree2:06X} random_l=${tree2_rnd:06X} deg22=${deg22:02X}");
     assert_eq!(tree2, RETAIL_TREE2_ISTRAT, "tree2_Istrat address");
@@ -2184,23 +3111,75 @@ fn retail_batch4_addresses() {
     //     HP2/AP12/enemy1; jsl RANDOM_L; and #3; sta sbyte1; lda sbyte1; cmp #3;
     //     bne+; jml .again ---
     let shou0_pat: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20),
-        Some(0xA9), w, Some(0x95), Some(0x18), Some(0x22), w, w, w,
-        Some(0xA9), Some(0x02), Some(0x95), Some(0x2A), Some(0xA9), Some(0x0C), Some(0x95), Some(0x2B),
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E),
-        Some(0x22), w, w, w, Some(0x29), Some(0x03), Some(0x95), Some(0x22),
-        Some(0xB5), Some(0x22), Some(0xC9), Some(0x03), Some(0xD0), Some(0x04), Some(0x5C), w, w, w,
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        w,
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        Some(0x95),
+        Some(0x18),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0xA9),
+        Some(0x02),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x0C),
+        Some(0x95),
+        Some(0x2B),
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x10),
+        Some(0x95),
+        Some(0x2E),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x29),
+        Some(0x03),
+        Some(0x95),
+        Some(0x22),
+        Some(0xB5),
+        Some(0x22),
+        Some(0xC9),
+        Some(0x03),
+        Some(0xD0),
+        Some(0x04),
+        Some(0x5C),
+        w,
+        w,
+        w,
     ];
     let h = masked_scan(&rom, &shou0_pat);
     assert_eq!(h.len(), 1, "shou0_Istrat is a UNIQUE masked hit");
     let shou0 = rom_off_to_snes(h[0]);
-    let shou0_rnd = rom[h[0] + 32] as u32 | ((rom[h[0] + 33] as u32) << 8) | ((rom[h[0] + 34] as u32) << 16);
-    let again = rom[h[0] + 46] as u32 | ((rom[h[0] + 47] as u32) << 8) | ((rom[h[0] + 48] as u32) << 16);
+    let shou0_rnd =
+        rom[h[0] + 32] as u32 | ((rom[h[0] + 33] as u32) << 8) | ((rom[h[0] + 34] as u32) << 16);
+    let again =
+        rom[h[0] + 46] as u32 | ((rom[h[0] + 47] as u32) << 8) | ((rom[h[0] + 48] as u32) << 16);
     eprintln!("BATCH4: shou0_Istrat=${shou0:06X} random_l=${shou0_rnd:06X} .again=${again:06X}");
     assert_eq!(shou0, RETAIL_SHOU0_ISTRAT, "shou0_Istrat address");
-    assert_eq!(shou0_rnd, RETAIL_RANDOM_L, "shou0 sbyte1 draw is jsl RANDOM_L");
+    assert_eq!(
+        shou0_rnd, RETAIL_RANDOM_L,
+        "shou0 sbyte1 draw is jsl RANDOM_L"
+    );
     // .again reroll target == the RNG-draw jsl site (Istrat + 31): re-rolls sbyte1.
-    assert_eq!(again, shou0 + 31, ".again reloops to the RANDOM draw (reroll on 3)");
+    assert_eq!(
+        again,
+        shou0 + 31,
+        ".again reloops to the RANDOM draw (reroll on 3)"
+    );
 }
 
 /// CAPSTONE (batch-4) — RETAIL `woods_strat` zdist CONVERSION GATE vs THE PORT.
@@ -2221,13 +3200,26 @@ fn retail_woods_convert_gate_vs_port() {
     // Player at z=0; enemy at ez. |dz|=|ez|. Boundary at 2100.
     //   ez=1900 -> |dz|<2100  -> CONVERT
     //   ez=2100 -> |dz|>=2100 -> STAY (cmp is inclusive: bpl on >=)
-    for (ez, expect_convert) in [(1900i16, true), (2100i16, false), (-1000i16, true), (3000i16, false)] {
+    for (ez, expect_convert) in [
+        (1900i16, true),
+        (2100i16, false),
+        (-1000i16, true),
+        (3000i16, false),
+    ] {
         // --- retail: run the cart's OWN woods_strat body across the gate. ---
         let mut bus = SnesBus::new(rom.clone());
         bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
         bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
         bus.wram_write16(enemy + RETAIL_POOL.al_worldz, ez as u16);
-        call(&mut bus, RETAIL_WOODS_STRAT, &Entry { x: enemy as u16, p: 0x00, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_WOODS_STRAT,
+            &Entry {
+                x: enemy as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let r_sbyte1 = bus.read8(0x7E_0000 | (enemy + AL_SBYTE1));
         let r_sptr_lo = bus.wram_read16(enemy + AL_STRATPTR);
         let r_sptr_bk = bus.read8(0x7E_0000 | (enemy + AL_STRATPTR + 2));
@@ -2255,11 +3247,20 @@ fn retail_woods_convert_gate_vs_port() {
             ez.unsigned_abs(),
             if r_convert == p_convert { "MATCH" } else { "DIFF" }
         );
-        assert_eq!(r_convert, expect_convert, "retail woods gate decision at ez={ez}");
-        assert_eq!(r_convert, p_convert, "woods conversion decision must match retail (ez={ez})");
+        assert_eq!(
+            r_convert, expect_convert,
+            "retail woods gate decision at ez={ez}"
+        );
+        assert_eq!(
+            r_convert, p_convert,
+            "woods conversion decision must match retail (ez={ez})"
+        );
         if r_convert {
             assert_eq!(r_sbyte1, 10, "retail woods home timer = 10");
-            assert_eq!(r_stratptr, RETAIL_WOODSGO_STRAT, "retail woods installed woodsgo_strat");
+            assert_eq!(
+                r_stratptr, RETAIL_WOODSGO_STRAT,
+                "retail woods installed woodsgo_strat"
+            );
         }
     }
     eprintln!("BATCH4 woods: MATCH — retail woods_strat zdist<2100 conversion gate == port.");
@@ -2294,7 +3295,11 @@ fn retail_tree2_body_vs_port() {
     // (enemy_x, player_x): case A enemy left of player (.otherway); B right (.notthatway).
     let scenarios = [(-5000i16, 5000i16), (5000i16, -5000i16)];
     for seed in [[10u8, 20, 30, 54], [201, 88, 143, 54]] {
-        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+        assert_eq!(
+            seed[3] as u32,
+            enemy & 0xFF,
+            "seed[3] must equal the pinned block low byte"
+        );
 
         // RNG height: the cart's own RANDOM stream draw, (draw&3)+1 (== tree1).
         let mut sbus = SnesBus::new(rom.clone());
@@ -2311,10 +3316,19 @@ fn retail_tree2_body_vs_port() {
             seed_retail_rng(&mut bus, seed);
             bus.write8(RETAIL_RAND, seed[0]); // rand[0] @ $EF (below param block)
             let a = seed[1] as u16 | ((seed[2] as u16) << 8); // -> $F0/$F1 = rand[1]/rand[2]
-            // tree2_Istrat is entered via s_start_strat's `shorta` (8-bit A) — its
-            // first op is `jsl RANDOM; and #3` (8-bit). p=$20 -> 8-bit A / 16-bit X;
-            // the harness still pre-loads $F0-$F2 (rand[1..3]) into WRAM regardless.
-            call(&mut bus, RETAIL_TREE2_ISTRAT, &Entry { a, x: enemy as u16, p: 0x20, ..Default::default() });
+                                                              // tree2_Istrat is entered via s_start_strat's `shorta` (8-bit A) — its
+                                                              // first op is `jsl RANDOM; and #3` (8-bit). p=$20 -> 8-bit A / 16-bit X;
+                                                              // the harness still pre-loads $F0-$F2 (rand[1..3]) into WRAM regardless.
+            call(
+                &mut bus,
+                RETAIL_TREE2_ISTRAT,
+                &Entry {
+                    a,
+                    x: enemy as u16,
+                    p: 0x20,
+                    ..Default::default()
+                },
+            );
             let r_sb2 = bus.read8(0x7E_0000 | (enemy + AL_SBYTE2));
             let r_roty = bus.read8(0x7E_0000 | (enemy + AL_ROTY));
 
@@ -2340,10 +3354,19 @@ fn retail_tree2_body_vs_port() {
                 if (r_sb2, r_roty) == (p_sb2, p_roty) && p_sb1 == expect_height { "MATCH" } else { "DIFF" }
             );
             // Player-relative tilt: EXACT retail-body match.
-            assert_eq!(r_sb2, p_sb2, "tree2 sbyte2 (+/-deg22 overhang) must match retail body");
-            assert_eq!(r_roty, p_roty, "tree2 roty (+/-deg45 player tilt) must match retail body");
+            assert_eq!(
+                r_sb2, p_sb2,
+                "tree2 sbyte2 (+/-deg22 overhang) must match retail body"
+            );
+            assert_eq!(
+                r_roty, p_roty,
+                "tree2 roty (+/-deg45 player tilt) must match retail body"
+            );
             // RNG height: port init == (cart RANDOM draw & 3)+1, in [1,4].
-            assert_eq!(p_sb1, expect_height, "tree2 port height == (retail RANDOM draw & 3)+1");
+            assert_eq!(
+                p_sb1, expect_height,
+                "tree2 port height == (retail RANDOM draw & 3)+1"
+            );
             assert!((1..=4).contains(&p_sb1), "tree2 height in [1,4]");
             // Branch sanity: enemy left of player -> otherway (roty=+deg45=$20,
             // sbyte2=-deg22=$F0); enemy right -> notthatway (roty=-deg45=$E0, sbyte2=$10).
@@ -2356,7 +3379,9 @@ fn retail_tree2_body_vs_port() {
             }
         }
     }
-    eprintln!("BATCH4 tree2: MATCH — retail player-relative tilt (body) + RNG height (stream) == port.");
+    eprintln!(
+        "BATCH4 tree2: MATCH — retail player-relative tilt (body) + RNG height (stream) == port."
+    );
 }
 
 /// CAPSTONE (batch-4) — RETAIL `shou0_Istrat` RNG-REROLL init vs THE PORT.
@@ -2373,8 +3398,17 @@ fn retail_shou0_reroll_vs_port() {
     let Some(rom) = retail() else { return };
     let enemy = RETAIL_POOL.base; // low byte $36 = pinned rand[3]
     let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
-    for seed in [[1u8, 2, 3, 54], [15, 31, 63, 54], [200, 100, 50, 54], [3, 7, 11, 54]] {
-        assert_eq!(seed[3] as u32, enemy & 0xFF, "seed[3] must equal the pinned block low byte");
+    for seed in [
+        [1u8, 2, 3, 54],
+        [15, 31, 63, 54],
+        [200, 100, 50, 54],
+        [3, 7, 11, 54],
+    ] {
+        assert_eq!(
+            seed[3] as u32,
+            enemy & 0xFF,
+            "seed[3] must equal the pinned block low byte"
+        );
         // --- retail: run shou0_Istrat body; player far so the tick no-ops. ---
         let mut bus = SnesBus::new(rom.clone());
         bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
@@ -2383,7 +3417,16 @@ fn retail_shou0_reroll_vs_port() {
         seed_retail_rng(&mut bus, seed);
         bus.write8(RETAIL_RAND, seed[0]);
         let a = seed[1] as u16 | ((seed[2] as u16) << 8);
-        call(&mut bus, RETAIL_SHOU0_ISTRAT, &Entry { a, x: enemy as u16, p: 0x00, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_SHOU0_ISTRAT,
+            &Entry {
+                a,
+                x: enemy as u16,
+                p: 0x00,
+                ..Default::default()
+            },
+        );
         let r_sb1 = bus.read8(0x7E_0000 | (enemy + AL_SBYTE1));
 
         // --- port: shou0_init on the same seed (player() = the enemy, dz=0 out of
@@ -2393,7 +3436,10 @@ fn retail_shou0_reroll_vs_port() {
             "BATCH4 shou0 seed {seed:02X?}: retail sbyte1={r_sb1} | port sbyte1={r_sb1_port}  {}",
             if r_sb1 == r_sb1_port { "MATCH" } else { "DIFF" }
         );
-        assert_eq!(r_sb1, r_sb1_port, "shou0 sbyte1 (rnd&3, reroll on 3) must match retail");
+        assert_eq!(
+            r_sb1, r_sb1_port,
+            "shou0 sbyte1 (rnd&3, reroll on 3) must match retail"
+        );
         assert!(r_sb1 <= 2, "shou0 sbyte1 rerolled into {{0,1,2}}");
     }
     eprintln!("BATCH4 shou0: MATCH — retail RNG-reroll fire-pattern selector == port.");
@@ -2415,7 +3461,13 @@ fn retail_break_meteort_coin_vs_port() {
     let Some(rom) = retail() else { return };
     let mut saw_spawn = false;
     let mut saw_skip = false;
-    for seed in [[1u8, 2, 3, 4], [200, 50, 90, 7], [0xEF, 0x10, 0x33, 0x9C], [126, 0, 0, 0], [128, 0, 0, 0]] {
+    for seed in [
+        [1u8, 2, 3, 4],
+        [200, 50, 90, 7],
+        [0xEF, 0x10, 0x33, 0x9C],
+        [126, 0, 0, 0],
+        [128, 0, 0, 0],
+    ] {
         // Retail: the single coin draw from the cart's own RANDOM.
         let mut bus = SnesBus::new(rom.clone());
         let mut rs = seed;
@@ -2430,23 +3482,43 @@ fn retail_break_meteort_coin_vs_port() {
         sf_game::obj::strat_init_obj_vars(&mut g.objs.aliens[e as usize]);
         g.objs.aliens[e as usize].stratptr = g.world.istrats[IS_BREAK_METEORT];
         g.vars.rng = seed;
-        let init = g.objs.aliens[e as usize].stratptr.expect("break_meteort istrat");
+        let init = g.objs.aliens[e as usize]
+            .stratptr
+            .expect("break_meteort istrat");
         g.call_strat(init, e); // arms expstratptr = break_meteort_exp
-        let exp = g.objs.aliens[e as usize].expstratptr.expect("break_meteort expstrat");
-        let before = g.objs.aliens.iter().filter(|a| a.active && a.shape == SH_TADPOLE).count();
+        let exp = g.objs.aliens[e as usize]
+            .expstratptr
+            .expect("break_meteort expstrat");
+        let before = g
+            .objs
+            .aliens
+            .iter()
+            .filter(|a| a.active && a.shape == SH_TADPOLE)
+            .count();
         g.call_strat(exp, e); // the death coin + explosion
-        let after = g.objs.aliens.iter().filter(|a| a.active && a.shape == SH_TADPOLE).count();
+        let after = g
+            .objs
+            .aliens
+            .iter()
+            .filter(|a| a.active && a.shape == SH_TADPOLE)
+            .count();
         let p_spawn = after > before;
 
         eprintln!(
             "BATCH4 break_meteorT seed {seed:02X?}: retail draw={draw} spawn={r_spawn} | port spawn={p_spawn}  {}",
             if r_spawn == p_spawn { "MATCH" } else { "DIFF" }
         );
-        assert_eq!(r_spawn, p_spawn, "break_meteorT tadpole coin (draw>=127) must match retail");
+        assert_eq!(
+            r_spawn, p_spawn,
+            "break_meteorT tadpole coin (draw>=127) must match retail"
+        );
         saw_spawn |= p_spawn;
         saw_skip |= !p_spawn;
     }
-    assert!(saw_spawn && saw_skip, "both coin outcomes (spawn / skip) exercised");
+    assert!(
+        saw_spawn && saw_skip,
+        "both coin outcomes (spawn / skip) exercised"
+    );
     eprintln!("BATCH4 break_meteorT: MATCH — port death coin (draw>=127 spawn) == retail RANDOM stream + threshold.");
 }
 
@@ -2459,7 +3531,7 @@ fn retail_break_meteort_coin_vs_port() {
 // executing inside a strat's aim step against the retail cart.
 // ============================================================================
 
-use sf_oracle::{RETAIL_ANGLEXY_L, RETAIL_ARCTAN16_L, RETAIL_ARCTAN16_L_BUILT, RETAIL_AL1PT};
+use sf_oracle::{RETAIL_AL1PT, RETAIL_ANGLEXY_L, RETAIL_ARCTAN16_L, RETAIL_ARCTAN16_L_BUILT};
 
 /// Locate retail `anglexy_l` by masked scan of the built-ROM skeleton
 /// ($1F:D039) with the two WRAM scratch operands (`x1`/`y1`) and the
@@ -2468,19 +3540,49 @@ use sf_oracle::{RETAIL_ANGLEXY_L, RETAIL_ARCTAN16_L, RETAIL_ARCTAN16_L_BUILT, RE
 fn locate_anglexy_l(rom: &[u8]) -> (u32, u8, u8, u32) {
     let w = None;
     let pat: Vec<Option<u8>> = vec![
-        Some(0xDA), Some(0x5A), Some(0xC2), Some(0x20),
-        Some(0xB9), Some(0x0C), Some(0x00), Some(0x38), Some(0xF5), Some(0x0C), Some(0x85), w, // sta x1
-        Some(0xB9), Some(0x10), Some(0x00), Some(0x38), Some(0xF5), Some(0x10), Some(0x85), w, // sta y1
-        Some(0x22), w, w, w,       // jsl arctan16_l
-        Some(0xC2), Some(0x30), Some(0x7A), Some(0xFA), Some(0x6B),
+        Some(0xDA),
+        Some(0x5A),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB9),
+        Some(0x0C),
+        Some(0x00),
+        Some(0x38),
+        Some(0xF5),
+        Some(0x0C),
+        Some(0x85),
+        w, // sta x1
+        Some(0xB9),
+        Some(0x10),
+        Some(0x00),
+        Some(0x38),
+        Some(0xF5),
+        Some(0x10),
+        Some(0x85),
+        w, // sta y1
+        Some(0x22),
+        w,
+        w,
+        w, // jsl arctan16_l
+        Some(0xC2),
+        Some(0x30),
+        Some(0x7A),
+        Some(0xFA),
+        Some(0x6B),
     ];
     let h = masked_scan(rom, &pat);
-    assert_eq!(h.len(), 1, "anglexy_l must be a UNIQUE masked hit (got {})", h.len());
+    assert_eq!(
+        h.len(),
+        1,
+        "anglexy_l must be a UNIQUE masked hit (got {})",
+        h.len()
+    );
     let off = h[0];
     let snes = rom_off_to_snes(off);
     let x1 = rom[off + 11];
     let y1 = rom[off + 19];
-    let arctan = rom[off + 21] as u32 | ((rom[off + 22] as u32) << 8) | ((rom[off + 23] as u32) << 16);
+    let arctan =
+        rom[off + 21] as u32 | ((rom[off + 22] as u32) << 8) | ((rom[off + 23] as u32) << 16);
     (snes, x1, y1, arctan)
 }
 
@@ -2498,12 +3600,18 @@ fn retail_aiming_pipeline_addresses() {
     assert_eq!(arctan, RETAIL_ARCTAN16_L, "derived retail arctan16_l");
     // arctan16_l is a real, reachable far routine (bank $00-$3F, $8000+ window).
     let bank = arctan >> 16;
-    assert!(bank <= 0x3F && (arctan & 0xFFFF) >= 0x8000, "arctan16_l looks like a code address");
+    assert!(
+        bank <= 0x3F && (arctan & 0xFFFF) >= 0x8000,
+        "arctan16_l looks like a code address"
+    );
     // The two scratch words must not collide with the `call` harness param
     // block ($F0-$F5) or the retail `rand` state ($EF-$F2) — so a GSU roundtrip
     // through anglexy_l survives the harness.
     for dp in [x1, y1] {
-        assert!(!(0xEF..=0xF5).contains(&dp), "x1/y1 scratch dp${dp:02X} must avoid the harness param block");
+        assert!(
+            !(0xEF..=0xF5).contains(&dp),
+            "x1/y1 scratch dp${dp:02X} must avoid the harness param block"
+        );
     }
     eprintln!(
         "AIM: built arctan16_l=${RETAIL_ARCTAN16_L_BUILT:06X}; retail arctan16_l=${arctan:06X} (same routine, shifted per cart)."
@@ -2555,11 +3663,26 @@ fn retail_aiming_angle_gsu_vs_port() {
 
     // Relative (dx,dz) grid: cardinals, diagonals, shallow ratios, all quadrants.
     let coords: [(i16, i16); 20] = [
-        (0, 1000), (1000, 0), (0, -1000), (-1000, 0),
-        (1000, 1000), (-1000, 1000), (1000, -1000), (-1000, -1000),
-        (300, 1000), (1000, 300), (-300, 1000), (1000, -300),
-        (37, 1000), (1000, 37), (173, 91), (-91, 173),
-        (4000, 500), (-500, 4000), (7, -13), (12345, -6000),
+        (0, 1000),
+        (1000, 0),
+        (0, -1000),
+        (-1000, 0),
+        (1000, 1000),
+        (-1000, 1000),
+        (1000, -1000),
+        (-1000, -1000),
+        (300, 1000),
+        (1000, 300),
+        (-300, 1000),
+        (1000, -300),
+        (37, 1000),
+        (1000, 37),
+        (173, 91),
+        (-91, 173),
+        (4000, 500),
+        (-500, 4000),
+        (7, -13),
+        (12345, -6000),
     ];
     // Fixed enemy position; player = enemy + (dx,dz). Non-zero base to exercise
     // the 16-bit subtraction (and a wrap-ish case via 12345).
@@ -2580,18 +3703,27 @@ fn retail_aiming_angle_gsu_vs_port() {
         // Run the retail aim leaf: p=$20 (8-bit A / 16-bit index, the
         // `shorta longi` entry anglexy_l assumes). X=enemy, Y=player.
         let before = bus.gsu_kicks;
-        let e = call(&mut bus, anglexy, &Entry {
-            x: enemy as u16, y: player as u16, p: 0x20, ..Default::default()
-        });
+        let e = call(
+            &mut bus,
+            anglexy,
+            &Entry {
+                x: enemy as u16,
+                y: player as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
         kicks_seen += (bus.gsu_kicks - before) as u64;
         let retail_angle16 = e.c; // 16-bit angle returned in A
         let retail_angle8 = (retail_angle16 >> 8) as u8;
 
         // Port: the real enemy-aim primitive on the identical positions.
         let mut src = sf_game::alien::Alien::default();
-        src.worldx = ex; src.worldz = ez;
+        src.worldx = ex;
+        src.worldz = ez;
         let mut dst = sf_game::alien::Alien::default();
-        dst.worldx = px; dst.worldz = pz;
+        dst.worldx = px;
+        dst.worldz = pz;
         let port_angle8 = sf_strat::common::strat_angle_xz(&src, &dst);
 
         // Circular 8-bit distance.
@@ -2599,7 +3731,10 @@ fn retail_aiming_angle_gsu_vs_port() {
             let dd = (retail_angle8 as i32 - port_angle8 as i32).rem_euclid(256);
             dd.min(256 - dd)
         };
-        if d > maxd { maxd = d; worst = (dx, dz, retail_angle8, port_angle8); }
+        if d > maxd {
+            maxd = d;
+            worst = (dx, dz, retail_angle8, port_angle8);
+        }
         if i < 6 || d > 0 {
             eprintln!(
                 "AIM GSU (dx={dx:6},dz={dz:6}): retail arctan16>>8=${retail_angle8:02X} ({}) | port angle_xz=${port_angle8:02X} ({})  d={d}",
@@ -2611,7 +3746,10 @@ fn retail_aiming_angle_gsu_vs_port() {
         "AIM GSU: {} positions, GSU kicks={} (>=1 per aim -> the chip ran each tick), max 8-bit aim delta={maxd} (worst dx={} dz={} retail={} port={})",
         coords.len(), kicks_seen, worst.0, worst.1, worst.2, worst.3
     );
-    assert!(kicks_seen >= coords.len() as u64, "the GSU must be kicked at least once per aim (got {kicks_seen})");
+    assert!(
+        kicks_seen >= coords.len() as u64,
+        "the GSU must be kicked at least once per aim (got {kicks_seen})"
+    );
     assert!(maxd <= 1, "retail GSU aim angle diverges from port angle_xz by {maxd} 8-bit units (>1) — a real aiming bug");
     eprintln!("AIM GSU: MATCH — retail GSU-per-tick aim angle (arctan16>>8) == port angle_xz within +/-1 over {} positions.", coords.len());
 }
@@ -2637,10 +3775,14 @@ fn retail_fire_gate_notdelay_vs_port() {
     let gf = RETAIL_GAMEFRAME as u16;
     let al1 = RETAIL_AL1PT as u16;
     let pat: Vec<Option<u8>> = vec![
-        Some(0xAD), Some(gf as u8), Some((gf >> 8) as u8), // lda gameframe
-        Some(0x18),                                        // clc
-        Some(0x6D), Some(al1 as u8), Some((al1 >> 8) as u8), // adc al1pt
-        Some(0x29),                                        // and #imm8 (8-bit A)
+        Some(0xAD),
+        Some(gf as u8),
+        Some((gf >> 8) as u8), // lda gameframe
+        Some(0x18),            // clc
+        Some(0x6D),
+        Some(al1 as u8),
+        Some((al1 >> 8) as u8), // adc al1pt
+        Some(0x29),             // and #imm8 (8-bit A)
     ];
     let hits = masked_scan(&rom, &pat);
     let mut masks: Vec<u8> = hits.iter().map(|&h| rom[h + 8]).collect();
@@ -2648,12 +3790,20 @@ fn retail_fire_gate_notdelay_vs_port() {
     masks.dedup();
     eprintln!(
         "FIRE-GATE: {} staggered `(gameframe+al1pt) & mask` sites in retail; masks seen = {:02X?}",
-        hits.len(), masks
+        hits.len(),
+        masks
     );
-    assert!(!hits.is_empty(), "retail must contain staggered fire-gate sites (lda gameframe; adc al1pt; and #mask)");
+    assert!(
+        !hits.is_empty(),
+        "retail must contain staggered fire-gate sites (lda gameframe; adc al1pt; and #mask)"
+    );
     // Every mask is (1<<delay)-1 for delay in 1..=8 -> a contiguous low-bit mask.
     for &m in &masks {
-        assert_eq!(m & m.wrapping_add(1), 0, "fire-gate mask ${m:02X} must be (1<<delay)-1");
+        assert_eq!(
+            m & m.wrapping_add(1),
+            0,
+            "fire-gate mask ${m:02X} must be (1<<delay)-1"
+        );
     }
 
     // Certify the DECISION vs the port's gate expression over a grid. The port
@@ -2693,10 +3843,8 @@ fn retail_fire_gate_notdelay_vs_port() {
 // sin/cos tables (`n3dvecs_l`, STRATROU.ASM), NO GSU. This completes the
 // aim-math pipeline vs the cartridge. The routine leaves the velocity in the
 // `x1/y1/z1` WRAM scratch (16-bit signed); the port `common::strat_gen_vecs_3d`
-// writes al_vx/vy/vz. As tests/gen_3dvecs.rs documents, the port matches the ROM
-// bit-exact on vx/vz and on |vy| (the vy SIGN is the renderer Y convention: the
-// port negates pitch, the ROM does not) — we certify the same equivalence vs
-// the RETAIL cart.
+// writes al_vx/vy/vz. The port matches every component, including Y sign,
+// bit-exactly against both the source build and the retail cartridge.
 // ============================================================================
 
 /// Locate retail `n3dvecs_l` by masked scan of the built-ROM skeleton
@@ -2710,16 +3858,42 @@ fn locate_n3dvecs_l(rom: &[u8]) -> (u32, u32, u32, u32, u32, u32, u32) {
     // structure; wildcard all dp scratch operands (may shift) and the phb-block
     // immediate (retail may be FASTROM `lda #$80` vs built `lda #0`).
     let pat: Vec<Option<u8>> = vec![
-        Some(0x64), w, Some(0x64), w, Some(0x64), w,   // stz x1+1/y1+1/z1+1
-        Some(0x86), w, Some(0x84), w,                  // stx tmpx; sty tmpy
-        Some(0x8B), Some(0xA9), w, Some(0x48), Some(0xAB), // phb; lda #imm; pha; plb
-        Some(0xAD), w, w,                              // lda troty
-        Some(0x49), Some(0xFF), Some(0x1A), Some(0xA8), // eor #$FF; inc a; tay (nega roty)
-        Some(0xAD), w, w, Some(0xAA),                  // lda trotx; tax
-        Some(0xE2), Some(0x10),                        // sep #$10 (i8)
+        Some(0x64),
+        w,
+        Some(0x64),
+        w,
+        Some(0x64),
+        w, // stz x1+1/y1+1/z1+1
+        Some(0x86),
+        w,
+        Some(0x84),
+        w, // stx tmpx; sty tmpy
+        Some(0x8B),
+        Some(0xA9),
+        w,
+        Some(0x48),
+        Some(0xAB), // phb; lda #imm; pha; plb
+        Some(0xAD),
+        w,
+        w, // lda troty
+        Some(0x49),
+        Some(0xFF),
+        Some(0x1A),
+        Some(0xA8), // eor #$FF; inc a; tay (nega roty)
+        Some(0xAD),
+        w,
+        w,
+        Some(0xAA), // lda trotx; tax
+        Some(0xE2),
+        Some(0x10), // sep #$10 (i8)
     ];
     let h = masked_scan(rom, &pat);
-    assert_eq!(h.len(), 1, "n3dvecs_l must be a UNIQUE masked hit (got {})", h.len());
+    assert_eq!(
+        h.len(),
+        1,
+        "n3dvecs_l must be a UNIQUE masked hit (got {})",
+        h.len()
+    );
     let off = h[0];
     let troty = rom[off + 16] as u32 | ((rom[off + 17] as u32) << 8);
     let trotx = rom[off + 23] as u32 | ((rom[off + 24] as u32) << 8);
@@ -2731,7 +3905,10 @@ fn locate_n3dvecs_l(rom: &[u8]) -> (u32, u32, u32, u32, u32, u32, u32) {
     // (find the `30 15 0A 8D 02 42` subsequence; tmpz is 2 bytes before it).
     let sig = [0x30u8, 0x15, 0x0A, 0x8D, 0x02, 0x42];
     let region = &rom[off..off + 96];
-    let spos = region.windows(sig.len()).position(|wnd| wnd == sig).expect("tmpz multiply-setup sig");
+    let spos = region
+        .windows(sig.len())
+        .position(|wnd| wnd == sig)
+        .expect("tmpz multiply-setup sig");
     let tmpz = region[spos - 1] as u32; // the `A5 <tmpz>` operand
     (rom_off_to_snes(off), troty, trotx, x1, y1, z1, tmpz)
 }
@@ -2740,9 +3917,7 @@ fn locate_n3dvecs_l(rom: &[u8]) -> (u32, u32, u32, u32, u32, u32, u32) {
 ///
 /// Runs the retail cart's OWN `n3dvecs_l` on seeded (roty, rotx, vel) and diffs
 /// the resulting velocity vector against the port `common::strat_gen_vecs_3d`,
-/// over the same spread of yaw/pitch/speed as tests/gen_3dvecs.rs. vx/vz and
-/// |vy| are bit-exact to the cartridge; the vy SIGN is the documented renderer
-/// convention (port negates pitch, ROM does not).
+/// over the same spread of yaw/pitch/speed as tests/gen_3dvecs.rs.
 #[test]
 fn retail_gen_3dvecs_vs_port() {
     let Some(rom) = retail() else { return };
@@ -2751,8 +3926,16 @@ fn retail_gen_3dvecs_vs_port() {
         "AIM-MATH: n3dvecs_l=${n3dvecs:06X} troty=${troty_addr:04X} trotx=${trotx_addr:04X} x1=${x1:02X} y1=${y1:02X} z1=${z1:02X} tmpz=${tmpz:02X}"
     );
     // troty/trotx are a contiguous byte pair (built $1630/$1631).
-    assert_eq!(troty_addr, trotx_addr + 1, "troty/trotx contiguous like built");
-    assert_eq!(n3dvecs, sf_oracle::RETAIL_N3DVECS_L, "n3dvecs_l retail address");
+    assert_eq!(
+        troty_addr,
+        trotx_addr + 1,
+        "troty/trotx contiguous like built"
+    );
+    assert_eq!(
+        n3dvecs,
+        sf_oracle::RETAIL_N3DVECS_L,
+        "n3dvecs_l retail address"
+    );
     assert_eq!(troty_addr, sf_oracle::RETAIL_TROTY, "retail troty");
     assert_eq!(trotx_addr, sf_oracle::RETAIL_TROTX, "retail trotx");
     // x1/y1 stayed at the built dp addresses (confirmed by anglexy_l too).
@@ -2761,8 +3944,14 @@ fn retail_gen_3dvecs_vs_port() {
     let (X1, Y1, Z1, TMPZ) = (x1, y1, z1, tmpz);
 
     let cases = [
-        (0u8, 0u8, 100u8), (64, 0, 100), (192, 0, 100), (32, 16, 80),
-        (96, 32, 64), (128, 0, 100), (10, 5, 120), (250, 8, 90),
+        (0u8, 0u8, 100u8),
+        (64, 0, 100),
+        (192, 0, 100),
+        (32, 16, 80),
+        (96, 32, 64),
+        (128, 0, 100),
+        (10, 5, 120),
+        (250, 8, 90),
     ];
     let mut bad = 0;
     for &(roty, rotx, vel) in &cases {
@@ -2770,22 +3959,45 @@ fn retail_gen_3dvecs_vs_port() {
         bus.write8(trotx_addr, rotx);
         bus.write8(troty_addr, roty);
         bus.write8(TMPZ, vel);
-        call(&mut bus, n3dvecs, &Entry { p: 0x20, ..Default::default() });
-        let (x1, y1, z1) = (bus.read16(X1) as i16, bus.read16(Y1) as i16, bus.read16(Z1) as i16);
+        call(
+            &mut bus,
+            n3dvecs,
+            &Entry {
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        let (x1, y1, z1) = (
+            bus.read16(X1) as i16,
+            bus.read16(Y1) as i16,
+            bus.read16(Z1) as i16,
+        );
 
         let mut al = sf_game::alien::Alien::default();
-        al.roty = roty; al.rotx = rotx; al.vel = vel;
+        al.roty = roty;
+        al.rotx = rotx;
+        al.vel = vel;
         sf_strat::common::strat_gen_vecs_3d(&mut al);
 
-        let exact = al.vx == x1 && al.vz == z1 && al.vy.abs() == y1.abs();
-        if !exact { bad += 1; }
+        let exact = (al.vx, al.vy, al.vz) == (x1, y1, z1);
+        if !exact {
+            bad += 1;
+        }
         eprintln!(
             "AIM-MATH roty={roty:3} rotx={rotx:3} vel={vel:3}  retail=({x1},{y1},{z1})  port=({},{},{})  {}",
             al.vx, al.vy, al.vz, if exact { "EXACT" } else { "DIFF" }
         );
     }
-    assert_eq!(bad, 0, "{bad}/{} gen_3dvecs cases differ from the RETAIL cart", cases.len());
-    eprintln!("AIM-MATH: MATCH — retail n3dvecs_l velocity == port gen_3dvecs (vx/vz/|vy| bit-exact) over {} cases.", cases.len());
+    assert_eq!(
+        bad,
+        0,
+        "{bad}/{} gen_3dvecs cases differ from the RETAIL cart",
+        cases.len()
+    );
+    eprintln!(
+        "AIM-MATH: MATCH — retail n3dvecs_l velocity == port gen_3dvecs bit-exact over {} cases.",
+        cases.len()
+    );
 }
 
 // ============================================================================
@@ -2801,8 +4013,9 @@ fn retail_gen_3dvecs_vs_port() {
 
 use sf_oracle::{
     RETAIL_FIND_NEAROBJECT_L, RETAIL_FIRE_WEAPON_L, RETAIL_FOBJ, RETAIL_INIT_OBJVARS_L,
-    RETAIL_MAKEOBJ_L, RETAIL_RANGEXZ, RETAIL_ROTATE_8XZ_L, RETAIL_ROTATE_8YX_L, RETAIL_ROTATE_8YZ_L,
-    RETAIL_SR_MAKE_OBJ, RETAIL_TPX, RETAIL_TPZ, RETAIL_WEAPONS_DATA, RETAIL_XZDIFFS_L,
+    RETAIL_MAKEOBJ_L, RETAIL_RANGEXZ, RETAIL_ROTATE_8XZ_L, RETAIL_ROTATE_8YX_L,
+    RETAIL_ROTATE_8YZ_L, RETAIL_SR_MAKE_OBJ, RETAIL_TPX, RETAIL_TPZ, RETAIL_WEAPONS_DATA,
+    RETAIL_XZDIFFS_L,
 };
 
 /// MILESTONE — LOCATE + CROSS-VALIDATE the whole projectile-spawn + target-search
@@ -2814,13 +4027,63 @@ fn retail_spawn_pipeline_addresses() {
 
     // --- find_nearobject_l: stx x2; ldx fobj; ...; jsl xzdiffs; lda rangexz; ...
     let fn_pat: Vec<Option<u8>> = vec![
-        Some(0x86), None, Some(0xAE), None, None, Some(0xD0), Some(0x03),
-        Some(0x82), None, Some(0x00), Some(0xC9), Some(0x00), Some(0x00), Some(0xF0), None,
-        Some(0x85), None, Some(0x64), None, Some(0xE4), None, Some(0xF0), None,
-        Some(0xB5), Some(0x04), Some(0xC5), None, Some(0xD0), None, Some(0xA4), None,
-        Some(0x22), None, None, None, Some(0xC2), Some(0x20), Some(0xAD), None, None,
-        Some(0xC5), None, Some(0x10), Some(0x08), Some(0xC5), None, Some(0x30), Some(0x04),
-        Some(0x85), None, Some(0x86), None, Some(0xB4), Some(0x00), Some(0xBB), Some(0xD0), None,
+        Some(0x86),
+        None,
+        Some(0xAE),
+        None,
+        None,
+        Some(0xD0),
+        Some(0x03),
+        Some(0x82),
+        None,
+        Some(0x00),
+        Some(0xC9),
+        Some(0x00),
+        Some(0x00),
+        Some(0xF0),
+        None,
+        Some(0x85),
+        None,
+        Some(0x64),
+        None,
+        Some(0xE4),
+        None,
+        Some(0xF0),
+        None,
+        Some(0xB5),
+        Some(0x04),
+        Some(0xC5),
+        None,
+        Some(0xD0),
+        None,
+        Some(0xA4),
+        None,
+        Some(0x22),
+        None,
+        None,
+        None,
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        None,
+        None,
+        Some(0xC5),
+        None,
+        Some(0x10),
+        Some(0x08),
+        Some(0xC5),
+        None,
+        Some(0x30),
+        Some(0x04),
+        Some(0x85),
+        None,
+        Some(0x86),
+        None,
+        Some(0xB4),
+        Some(0x00),
+        Some(0xBB),
+        Some(0xD0),
+        None,
     ];
     let hits = masked_scan(&rom, &fn_pat);
     assert_eq!(hits.len(), 1, "find_nearobject_l unique");
@@ -2842,35 +4105,100 @@ fn retail_spawn_pipeline_addresses() {
 
     // --- fire_weapon_l: 48 AD <stratflags> 29 01 D0 .. 68 86 .. E2 30 .. AA BF ?? ?? 1F ...
     let fw: Vec<Option<u8>> = vec![
-        Some(0x48), Some(0xAD), None, None, Some(0x29), Some(0x01), Some(0xD0), None,
-        Some(0x68), Some(0x86), None, Some(0xE2), Some(0x30), Some(0x8D), None, None,
-        Some(0x0A), Some(0x18), Some(0x6D), None, None, Some(0xAA), Some(0xBF), None, None,
-        Some(0x1F), Some(0x48), Some(0xC2), Some(0x20), Some(0xBF), None, None, Some(0x1F),
+        Some(0x48),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x29),
+        Some(0x01),
+        Some(0xD0),
+        None,
+        Some(0x68),
+        Some(0x86),
+        None,
+        Some(0xE2),
+        Some(0x30),
+        Some(0x8D),
+        None,
+        None,
+        Some(0x0A),
+        Some(0x18),
+        Some(0x6D),
+        None,
+        None,
+        Some(0xAA),
+        Some(0xBF),
+        None,
+        None,
+        Some(0x1F),
+        Some(0x48),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xBF),
+        None,
+        None,
+        Some(0x1F),
     ];
     let h = masked_scan(&rom, &fw);
     assert_eq!(h.len(), 1, "fire_weapon_l unique");
     let fwl = rom_off_to_snes(h[0]);
-    let wdata4 = rom[h[0] + 23] as u32 | (rom[h[0] + 24] as u32) << 8 | (rom[h[0] + 25] as u32) << 16;
+    let wdata4 =
+        rom[h[0] + 23] as u32 | (rom[h[0] + 24] as u32) << 8 | (rom[h[0] + 25] as u32) << 16;
     assert_eq!(fwl, RETAIL_FIRE_WEAPON_L, "fire_weapon_l addr");
     assert_eq!(wdata4, RETAIL_WEAPONS_DATA + 4, "weapons_data+4 operand");
     eprintln!("SPAWN: fire_weapon_l=${fwl:06X} -> weapons_data=${RETAIL_WEAPONS_DATA:06X}");
 
     // --- sr_make_obj: stx tpx; jsl makeobj_l; bcs; ldy#0; ...; jsl init_objvars_l; ...; sta al_shape,y($04)
     let sm: Vec<Option<u8>> = vec![
-        Some(0x86), None, Some(0x22), None, None, Some(0x1F), Some(0xB0), Some(0x07),
-        Some(0xA0), Some(0x00), Some(0x00), Some(0xA6), None, Some(0x18), Some(0x6B), Some(0x9B),
-        Some(0xA6), None, Some(0xE2), Some(0x20), Some(0x22), None, None, Some(0x1F),
-        Some(0xC2), Some(0x20), Some(0xAD), None, None, Some(0x99), Some(0x04), Some(0x00),
-        Some(0xE2), Some(0x20), Some(0x38), Some(0x6B),
+        Some(0x86),
+        None,
+        Some(0x22),
+        None,
+        None,
+        Some(0x1F),
+        Some(0xB0),
+        Some(0x07),
+        Some(0xA0),
+        Some(0x00),
+        Some(0x00),
+        Some(0xA6),
+        None,
+        Some(0x18),
+        Some(0x6B),
+        Some(0x9B),
+        Some(0xA6),
+        None,
+        Some(0xE2),
+        Some(0x20),
+        Some(0x22),
+        None,
+        None,
+        Some(0x1F),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x99),
+        Some(0x04),
+        Some(0x00),
+        Some(0xE2),
+        Some(0x20),
+        Some(0x38),
+        Some(0x6B),
     ];
     let h = masked_scan(&rom, &sm);
     assert_eq!(h.len(), 1, "sr_make_obj unique");
     let srm = rom_off_to_snes(h[0]);
     let makeobj = rom[h[0] + 3] as u32 | (rom[h[0] + 4] as u32) << 8 | (rom[h[0] + 5] as u32) << 16;
-    let initobj = rom[h[0] + 21] as u32 | (rom[h[0] + 22] as u32) << 8 | (rom[h[0] + 23] as u32) << 16;
+    let initobj =
+        rom[h[0] + 21] as u32 | (rom[h[0] + 22] as u32) << 8 | (rom[h[0] + 23] as u32) << 16;
     assert_eq!(srm, RETAIL_SR_MAKE_OBJ, "sr_make_obj addr");
     assert_eq!(makeobj, RETAIL_MAKEOBJ_L, "makeobj_l (sr_make_obj 1st jsl)");
-    assert_eq!(initobj, RETAIL_INIT_OBJVARS_L, "init_objvars_l (sr_make_obj 2nd jsl)");
+    assert_eq!(
+        initobj, RETAIL_INIT_OBJVARS_L,
+        "init_objvars_l (sr_make_obj 2nd jsl)"
+    );
     assert_eq!(rom[h[0] + 30], 0x04, "sta al_shape,y offset");
 
     // makeobj_l cross-validated INDEPENDENTLY: its own ldx alfreelst / lda allst
@@ -2878,27 +4206,98 @@ fn retail_spawn_pipeline_addresses() {
     let mo = snes_to_rom_off(RETAIL_MAKEOBJ_L);
     assert_eq!(rom[mo], 0xC2, "makeobj_l starts rep #$20");
     let alfree = rom[mo + 4] as u32 | (rom[mo + 5] as u32) << 8;
-    assert_eq!(alfree, RETAIL_POOL.freelist_head, "makeobj_l ldx alfreelst == pool freelist_head");
+    assert_eq!(
+        alfree, RETAIL_POOL.freelist_head,
+        "makeobj_l ldx alfreelst == pool freelist_head"
+    );
     eprintln!(
         "SPAWN: sr_make_obj=${srm:06X} -> makeobj_l=${makeobj:06X} (alfreelst=${alfree:04X}), init_objvars_l=${initobj:06X}"
     );
 
     // --- gen_weapon muzzle rotation primitives (each UNIQUE) ---
     let rot8xz: Vec<Option<u8>> = vec![
-        Some(0x5A), Some(0xDA), Some(0x08), Some(0x8B), Some(0xE2), Some(0x10),
-        Some(0x49), Some(0xFF), Some(0x1A), Some(0xAA), Some(0xA9), None, Some(0x48), Some(0xAB),
-        Some(0xBD), None, None, Some(0x8D), None, None, Some(0xBD), None, None, Some(0x8D),
-        None, None, Some(0xA5), Some(0x02),
+        Some(0x5A),
+        Some(0xDA),
+        Some(0x08),
+        Some(0x8B),
+        Some(0xE2),
+        Some(0x10),
+        Some(0x49),
+        Some(0xFF),
+        Some(0x1A),
+        Some(0xAA),
+        Some(0xA9),
+        None,
+        Some(0x48),
+        Some(0xAB),
+        Some(0xBD),
+        None,
+        None,
+        Some(0x8D),
+        None,
+        None,
+        Some(0xBD),
+        None,
+        None,
+        Some(0x8D),
+        None,
+        None,
+        Some(0xA5),
+        Some(0x02),
     ];
     let rot8yz: Vec<Option<u8>> = vec![
-        Some(0xDA), Some(0x5A), Some(0x08), Some(0x8B), Some(0xE2), Some(0x10),
-        Some(0xAA), Some(0xA9), None, Some(0x48), Some(0xAB), Some(0xBD), None, None, Some(0x8D),
-        None, None, Some(0xBD), None, None, Some(0x8D), None, None, Some(0xA5), Some(0x08),
+        Some(0xDA),
+        Some(0x5A),
+        Some(0x08),
+        Some(0x8B),
+        Some(0xE2),
+        Some(0x10),
+        Some(0xAA),
+        Some(0xA9),
+        None,
+        Some(0x48),
+        Some(0xAB),
+        Some(0xBD),
+        None,
+        None,
+        Some(0x8D),
+        None,
+        None,
+        Some(0xBD),
+        None,
+        None,
+        Some(0x8D),
+        None,
+        None,
+        Some(0xA5),
+        Some(0x08),
     ];
     let rot8yx: Vec<Option<u8>> = vec![
-        Some(0x5A), Some(0xDA), Some(0x08), Some(0x8B), Some(0xE2), Some(0x10),
-        Some(0xAA), Some(0xA9), None, Some(0x48), Some(0xAB), Some(0xBD), None, None, Some(0x8D),
-        None, None, Some(0xBD), None, None, Some(0x8D), None, None, Some(0xA5), Some(0x02),
+        Some(0x5A),
+        Some(0xDA),
+        Some(0x08),
+        Some(0x8B),
+        Some(0xE2),
+        Some(0x10),
+        Some(0xAA),
+        Some(0xA9),
+        None,
+        Some(0x48),
+        Some(0xAB),
+        Some(0xBD),
+        None,
+        None,
+        Some(0x8D),
+        None,
+        None,
+        Some(0xBD),
+        None,
+        None,
+        Some(0x8D),
+        None,
+        None,
+        Some(0xA5),
+        Some(0x02),
     ];
     for (name, pat, want) in [
         ("rotate_8xz_l", rot8xz, RETAIL_ROTATE_8XZ_L),
@@ -2948,7 +4347,15 @@ fn retail_find_near(
     let mut bus = SnesBus::new(rom.to_vec());
     // slot 0 = self (skipped by cpx x2). Chain: self -> s1 -> ... -> sN -> 0.
     let n = objs.len() as u32;
-    seed_find_obj(&mut bus, 0, 0x0001, self_pos.0, self_pos.1, self_pos.2, block_of(1));
+    seed_find_obj(
+        &mut bus,
+        0,
+        0x0001,
+        self_pos.0,
+        self_pos.1,
+        self_pos.2,
+        block_of(1),
+    );
     for (i, &(sh, x, y, z)) in objs.iter().enumerate() {
         let slot = i as u32 + 1;
         let next = if slot < n { block_of(slot + 1) } else { 0 };
@@ -2958,19 +4365,35 @@ fn retail_find_near(
     bus.wram_write16(RETAIL_TPZ, min_r as u16);
     bus.wram_write16(RETAIL_TPX, max_r as u16);
     // Entry: A = target shape, X = self block, ai16 (p=0). Y is set internally.
-    let e = call(&mut bus, RETAIL_FIND_NEAROBJECT_L, &Entry {
-        a: shape,
-        x: block_of(0) as u16,
-        p: 0x00,
-        ..Default::default()
-    });
+    let e = call(
+        &mut bus,
+        RETAIL_FIND_NEAROBJECT_L,
+        &Entry {
+            a: shape,
+            x: block_of(0) as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     slot_of(e.y as u16)
 }
 
+/// Port `strat_dist_xz` / ROM `xzdiffs_l` (scaled Euclidean on XZ).
+fn port_xzdiffs(dx: i16, dz: i16) -> i16 {
+    let mut x1 = if dx < 0 { dx.wrapping_neg() } else { dx };
+    let mut y1 = if dz < 0 { dz.wrapping_neg() } else { dz };
+    x1 >>= 1;
+    y1 >>= 1;
+    let rangexz = (y1.wrapping_add(x1)).wrapping_shl(1);
+    let m = if y1 < x1 { x1 } else { y1 };
+    let t = m.wrapping_add(rangexz);
+    let acc = (t >> 1).wrapping_add(t.wrapping_shl(2));
+    ((acc >> 1) >> 1) >> 1
+}
+
 /// Faithful transcription of the PORT's `enemy_a::strat_find_near_shape`
-/// (rust/sf-strat/src/enemy_a.rs:513-555; `pub(crate)`, so modelled here exactly
-/// as the existing port-model tests do). shapes_table mapping is identity for the
-/// test shapes, so `mapped_shape == shape_id`.
+/// after the xzdiffs_l fix: rank by scaled-Euclidean rangexz, gate
+/// `0 <= r < max_r` (`max_z` arg), ignore Y and `max_xy`.
 fn port_find_near_shape(
     objs: &[(u16, i16, i16, i16)],
     self_pos: (i16, i16, i16),
@@ -2978,28 +4401,20 @@ fn port_find_near_shape(
     max_z: i16,
     max_xy: i16,
 ) -> Option<u32> {
-    let (mx, my, mz) = self_pos;
+    let (mx, _my, mz) = self_pos;
+    let _ = max_xy;
     let mut best: Option<u32> = None;
-    let mut best_metric: i32 = i32::MAX;
+    let mut best_r = max_z;
     for (i, &(sh, x, _y, z)) in objs.iter().enumerate() {
         if sh != shape_id {
             continue;
         }
-        // Mirrors the FIXED sf_strat::enemy_a::find_near_shape: XZ-only
-        // (rangexz = |dx|+|dz|), Y dropped from gate + metric to match the cart's
-        // xzdiffs. (my/dy intentionally unused now — kept in the signature for
-        // parity with the port's caller shape.)
-        let _ = my;
-        let dz = (z as i32 - mz as i32).unsigned_abs() as i16;
-        let dx = (x as i32 - mx as i32).unsigned_abs() as i16;
-        if dz > max_z || dx > max_xy {
+        let r = port_xzdiffs(x.wrapping_sub(mx), z.wrapping_sub(mz));
+        if r >= best_r || r < 0 {
             continue;
         }
-        let metric = dx as i32 + dz as i32;
-        if metric < best_metric {
-            best_metric = metric;
-            best = Some(i as u32 + 1);
-        }
+        best_r = r;
+        best = Some(i as u32 + 1);
     }
     best
 }
@@ -3008,13 +4423,8 @@ fn port_find_near_shape(
 /// port. Runs the retail cart's OWN `find_nearobject_l` over seeded object lists
 /// and diffs the SELECTED target vs the port's `strat_find_near_shape`.
 ///
-/// RESULT: MATCH across the COPLANAR region (8 configs) AND the Y-separated case.
-/// This test originally FOUND a fidelity gap — retail's `xzdiffs` **rangexz** is
-/// an XZ-plane distance that IGNORES Y (both gate and nearest-metric), whereas the
-/// port used a 3D box gate + Manhattan `dx+dy+dz` that COUNTED Y, so Y-separated
-/// candidates could rank differently. FIXED: `sf_strat::enemy_a::find_near_shape`
-/// / `find_near_colltype` now drop Y to match the cart; this test asserts the
-/// resulting MATCH (find->fix->re-certify loop closed).
+/// RESULT: MATCH across coplanar configs, radius reject, and Y-separated targets.
+/// Ranking uses ROM `xzdiffs_l` (scaled Euclidean) — not Manhattan `|dx|+|dz|`.
 #[test]
 fn retail_find_nearobject_vs_port() {
     let Some(rom) = retail() else { return };
@@ -3023,31 +4433,85 @@ fn retail_find_nearobject_vs_port() {
 
     // --- Agreement region: coplanar (Y=0) targets, clear unique nearest. ---
     // Each entry: (label, self_pos, candidates[(shape,x,y,z)], expect_slot).
-    let coplanar: [(&str, (i16, i16, i16), Vec<(u16, i16, i16, i16)>, Option<u32>); 8] = [
-        ("near+far+wrongshape", (0, 0, 0),
-            vec![(shape, 600, 0, 200), (shape, 3000, 0, 1000), (other, 100, 0, 100), (shape, 100, 0, 5000)],
-            Some(1)),
-        ("nearest is s3", (0, 0, 0),
-            vec![(shape, 4000, 0, 0), (shape, 2500, 0, 800), (shape, 400, 0, 300), (shape, 900, 0, 1200)],
-            Some(3)),
-        ("all four quadrants", (0, 0, 0),
-            vec![(shape, -1200, 0, -1200), (shape, 900, 0, -300), (shape, -300, 0, 900), (shape, 2000, 0, 2000)],
-            Some(2)),
-        ("nonzero self origin", (5000, 0, -2000),
-            vec![(shape, 5400, 0, -1800), (shape, 8000, 0, 1000), (shape, 5100, 0, -6000)],
-            Some(1)),
-        ("no match — wrong shape", (0, 0, 0),
+    let coplanar: [(
+        &str,
+        (i16, i16, i16),
+        Vec<(u16, i16, i16, i16)>,
+        Option<u32>,
+    ); 8] = [
+        (
+            "near+far+wrongshape",
+            (0, 0, 0),
+            vec![
+                (shape, 600, 0, 200),
+                (shape, 3000, 0, 1000),
+                (other, 100, 0, 100),
+                (shape, 100, 0, 5000),
+            ],
+            Some(1),
+        ),
+        (
+            "nearest is s3",
+            (0, 0, 0),
+            vec![
+                (shape, 4000, 0, 0),
+                (shape, 2500, 0, 800),
+                (shape, 400, 0, 300),
+                (shape, 900, 0, 1200),
+            ],
+            Some(3),
+        ),
+        (
+            "all four quadrants",
+            (0, 0, 0),
+            vec![
+                (shape, -1200, 0, -1200),
+                (shape, 900, 0, -300),
+                (shape, -300, 0, 900),
+                (shape, 2000, 0, 2000),
+            ],
+            Some(2),
+        ),
+        (
+            "nonzero self origin",
+            (5000, 0, -2000),
+            vec![
+                (shape, 5400, 0, -1800),
+                (shape, 8000, 0, 1000),
+                (shape, 5100, 0, -6000),
+            ],
+            Some(1),
+        ),
+        (
+            "no match — wrong shape",
+            (0, 0, 0),
             vec![(other, 100, 0, 0), (other, 200, 0, 0)],
-            None),
-        ("nearest among many", (0, 0, 0),
-            vec![(shape, 3000, 0, 100), (shape, 1500, 0, 1500), (shape, 700, 0, 300), (other, 50, 0, 50), (shape, 2000, 0, 400)],
-            Some(3)),
-        ("axis vs diagonal (octagonal norm)", (0, 0, 0),
+            None,
+        ),
+        (
+            "nearest among many",
+            (0, 0, 0),
+            vec![
+                (shape, 3000, 0, 100),
+                (shape, 1500, 0, 1500),
+                (shape, 700, 0, 300),
+                (other, 50, 0, 50),
+                (shape, 2000, 0, 400),
+            ],
+            Some(3),
+        ),
+        (
+            "axis vs diagonal (octagonal norm)",
+            (0, 0, 0),
             vec![(shape, 1000, 0, 0), (shape, 760, 0, 760)],
-            Some(1)),
-        ("single candidate", (0, 0, 0),
+            Some(1),
+        ),
+        (
+            "single candidate",
+            (0, 0, 0),
             vec![(shape, 1234, 0, -567)],
-            Some(1)),
+            Some(1),
+        ),
     ];
 
     let (min_r, max_r) = (0i16, 10000i16);
@@ -3062,9 +4526,14 @@ fn retail_find_nearobject_vs_port() {
         }
         eprintln!(
             "FIND [{label}]: retail=slot{:?} port=slot{:?}  {}",
-            retail, port, if agree { "MATCH" } else { "DIFF" }
+            retail,
+            port,
+            if agree { "MATCH" } else { "DIFF" }
         );
-        assert_eq!(retail, port, "coplanar find_nearobject must match port for '{label}'");
+        assert_eq!(
+            retail, port,
+            "coplanar find_nearobject must match port for '{label}'"
+        );
     }
     eprintln!("FIND: coplanar region MATCH — {coplanar_ok}/{} configs, retail find_nearobject_l == port strat_find_near_shape.", coplanar.len());
 
@@ -3077,10 +4546,7 @@ fn retail_find_nearobject_vs_port() {
     assert_eq!(rr, None, "retail rejects candidates beyond max radius");
     assert_eq!(pp, None, "port rejects candidates beyond max radius");
 
-    // --- FIXED + re-certified: Y-separated targets. Retail (XZ-only) picks the
-    // XZ-nearest; the port now also drops Y (enemy_a find_near_shape fix, this
-    // commit's sibling in sf-strat) -> both pick the XZ-nearest. This is the
-    // find->fix->re-certify loop closing on the bug this test originally found. ---
+    // --- FIXED + re-certified: Y-separated targets + xzdiffs_l metric. ---
     let ydiv: Vec<(u16, i16, i16, i16)> = vec![
         (shape, 300, 7000, 0), // close in XZ, far in Y -> XZ-nearest (slot 1)
         (shape, 2000, 0, 0),   // farther XZ, coplanar
@@ -3089,14 +4555,28 @@ fn retail_find_nearobject_vs_port() {
     let p = port_find_near_shape(&ydiv, (0, 0, 0), shape, max_z, max_xy);
     eprintln!(
         "FIND [Y-separated targets]: retail=slot{:?} port=slot{:?}  {}",
-        r, p, if r == p { "MATCH (Y dropped)" } else { "DIFF" }
+        r,
+        p,
+        if r == p {
+            "MATCH (Y dropped + xzdiffs_l)"
+        } else {
+            "DIFF"
+        }
     );
-    assert_eq!(r, Some(1), "retail find_nearobject_l ignores Y -> XZ-nearest (slot 1)");
-    assert_eq!(p, Some(1), "port find_near_shape now XZ-only -> XZ-nearest (slot 1)");
-    assert_eq!(r, p, "FIXED: port find_near_shape now matches retail's XZ-only ranking");
+    assert_eq!(
+        r,
+        Some(1),
+        "retail find_nearobject_l ignores Y -> XZ-nearest (slot 1)"
+    );
+    assert_eq!(
+        p,
+        Some(1),
+        "port find_near_shape xzdiffs_l -> XZ-nearest (slot 1)"
+    );
+    assert_eq!(r, p, "FIXED: port matches retail xzdiffs_l ranking");
     eprintln!(
-        "FIND: FIXED — port find_near_shape/find_near_colltype drop Y to match the \
-         cart's xzdiffs/rangexz (XZ-plane only). Y-separated targets now agree."
+        "FIND: FIXED — port find_near uses strat_dist_xz (xzdiffs_l) for gate+rank; \
+         Y ignored. Coplanar + Y-separated MATCH."
     );
 }
 
@@ -3120,7 +4600,15 @@ fn retail_sr_make_obj_spawn_vs_port() {
 
     // s_make_obj sets tpa=shape, then jsl sr_make_obj (X=firer, preserved).
     bus.wram_write16(RETAIL_TPA, want_shape);
-    let e = call(&mut bus, RETAIL_SR_MAKE_OBJ, &Entry { x: 0, p: 0x00, ..Default::default() });
+    let e = call(
+        &mut bus,
+        RETAIL_SR_MAKE_OBJ,
+        &Entry {
+            x: 0,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     let new_block = e.y as u16;
     let new_slot = slot_of(new_block).expect("sr_make_obj returned a valid pool block");
 
@@ -3136,9 +4624,20 @@ fn retail_sr_make_obj_spawn_vs_port() {
         free_before.len(), free_after.len()
     );
     assert_eq!(shape, want_shape, "retail spawn sets al_shape = requested");
-    assert_eq!((wx, wy, wz), (0, 0, 0), "retail init_objvars zeroed the new block's world coords");
-    assert_eq!(free_after.len(), free_before.len() - 1, "one block was allocated off the free list");
-    assert!(!free_after.contains(&new_block), "the allocated block left the free list");
+    assert_eq!(
+        (wx, wy, wz),
+        (0, 0, 0),
+        "retail init_objvars zeroed the new block's world coords"
+    );
+    assert_eq!(
+        free_after.len(),
+        free_before.len() - 1,
+        "one block was allocated off the free list"
+    );
+    assert!(
+        !free_after.contains(&new_block),
+        "the allocated block left the free list"
+    );
 
     // Port: make_obj = alloc + strat_init_obj_vars + shape.
     let mut g = sf_game::game::Game::new();
@@ -3149,13 +4648,21 @@ fn retail_sr_make_obj_spawn_vs_port() {
         pal.shape, pal.worldx, pal.worldy, pal.worldz
     );
     assert_eq!(pal.shape, want_shape, "port spawn sets shape = requested");
-    assert_eq!((pal.worldx, pal.worldy, pal.worldz), (0, 0, 0), "port init zeroed world coords");
+    assert_eq!(
+        (pal.worldx, pal.worldy, pal.worldz),
+        (0, 0, 0),
+        "port init zeroed world coords"
+    );
 
     // Observable output MATCH: both allocators materialise a fresh object with the
     // requested shape and zeroed world position (slot INDEX may differ — the two
     // free-list formats are distinct, documented in retail_snapshot_reads_seeded).
     assert_eq!(shape, pal.shape, "spawned shape matches port");
-    assert_eq!((wx, wy, wz), (pal.worldx, pal.worldy, pal.worldz), "spawned world pos matches port");
+    assert_eq!(
+        (wx, wy, wz),
+        (pal.worldx, pal.worldy, pal.worldz),
+        "spawned world pos matches port"
+    );
     eprintln!("MAKEOBJ: MATCH — retail sr_make_obj new-object observable (shape + zeroed world pos) == port make_obj.");
 }
 
@@ -3184,12 +4691,54 @@ fn retail_collision_addresses() {
 
     // --- do_coll_l (ROM-resident, $1F bank) — UNIQUE ---
     let dc: Vec<Option<u8>> = vec![
-        Some(0xD6), Some(0x2D), Some(0xF0), Some(0x04), Some(0x5C), None, None, None,
-        Some(0xAD), None, None, Some(0x29), Some(0x01), Some(0xD0), Some(0x04), Some(0x5C), None, None, None,
-        Some(0xA5), Some(0x02), Some(0xC9), Some(0x08), Some(0xD0), Some(0x05), Some(0xC9), Some(0x80),
-        Some(0x6A), Some(0x85), Some(0x02), Some(0xB5), Some(0x2A), Some(0x30), Some(0x09), Some(0x38),
-        Some(0xE5), Some(0x02), Some(0x10), Some(0x02), Some(0xA9), Some(0x00), Some(0x95), Some(0x2A),
-        Some(0xAD), None, None, Some(0x95), Some(0x2D),
+        Some(0xD6),
+        Some(0x2D),
+        Some(0xF0),
+        Some(0x04),
+        Some(0x5C),
+        None,
+        None,
+        None,
+        Some(0xAD),
+        None,
+        None,
+        Some(0x29),
+        Some(0x01),
+        Some(0xD0),
+        Some(0x04),
+        Some(0x5C),
+        None,
+        None,
+        None,
+        Some(0xA5),
+        Some(0x02),
+        Some(0xC9),
+        Some(0x08),
+        Some(0xD0),
+        Some(0x05),
+        Some(0xC9),
+        Some(0x80),
+        Some(0x6A),
+        Some(0x85),
+        Some(0x02),
+        Some(0xB5),
+        Some(0x2A),
+        Some(0x30),
+        Some(0x09),
+        Some(0x38),
+        Some(0xE5),
+        Some(0x02),
+        Some(0x10),
+        Some(0x02),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x95),
+        Some(0x2D),
     ];
     let h = masked_scan(&rom, &dc);
     assert_eq!(h.len(), 1, "do_coll_l unique");
@@ -3198,10 +4747,22 @@ fn retail_collision_addresses() {
     let pshipflags3 = rom[o + 9] as u32 | (rom[o + 10] as u32) << 8;
     let tpa = rom[o + 44] as u32 | (rom[o + 45] as u32) << 8;
     assert_eq!(addr, sf_oracle::RETAIL_DO_COLL_L, "do_coll_l addr");
-    assert_eq!(pshipflags3, sf_oracle::RETAIL_PSHIPFLAGS3, "pshipflags3 operand");
-    assert_eq!(tpa, sf_oracle::RETAIL_TPA, "tpa (framesperAP reload) operand == RETAIL_TPA");
+    assert_eq!(
+        pshipflags3,
+        sf_oracle::RETAIL_PSHIPFLAGS3,
+        "pshipflags3 operand"
+    );
+    assert_eq!(
+        tpa,
+        sf_oracle::RETAIL_TPA,
+        "tpa (framesperAP reload) operand == RETAIL_TPA"
+    );
     // struct offsets read back: collcount=$2D, HP=$2A; consts hardAP=$08, intunnel=$01.
-    assert_eq!(rom[o + 1] as u32, sf_oracle::AL_COLLCOUNT, "DEC al_collcount,x offset");
+    assert_eq!(
+        rom[o + 1] as u32,
+        sf_oracle::AL_COLLCOUNT,
+        "DEC al_collcount,x offset"
+    );
     assert_eq!(rom[o + 31] as u32, sf_oracle::AL_HP, "LDA al_HP,x offset");
     assert_eq!(rom[o + 22], sf_oracle::HARD_AP, "CMP #hardAP immediate");
     assert_eq!(rom[o + 12], 0x01, "AND #psf3_intunnel immediate");
@@ -3211,53 +4772,126 @@ fn retail_collision_addresses() {
     //     consecutive 16-bit axis tests. Anchor on the abs+bmi+jmp core. ---
     let axis_core: Vec<Option<u8>> = vec![
         // ...bpl+4; eor #$FFFF; inc a; sec; sbc rangexz; bmi+3; jmp ....
-        Some(0x10), Some(0x04), Some(0x49), Some(0xFF), Some(0xFF), Some(0x1A),
-        Some(0x38), Some(0xED), None, None, Some(0x30), Some(0x03), Some(0x4C),
+        Some(0x10),
+        Some(0x04),
+        Some(0x49),
+        Some(0xFF),
+        Some(0xFF),
+        Some(0x1A),
+        Some(0x38),
+        Some(0xED),
+        None,
+        None,
+        Some(0x30),
+        Some(0x03),
+        Some(0x4C),
     ];
     // full one-axis pattern: lda cl_max,x; clc; adc Ncol; sta rangexz; lda tpN;
     // sec; sbc Np; <axis_core>
     let mut zaxis: Vec<Option<u8>> = vec![
-        Some(0xBD), None, None, Some(0x18), Some(0x6D), None, None, Some(0x8D), None, None,
-        Some(0xA5), None, Some(0x38), Some(0xE5), None,
+        Some(0xBD),
+        None,
+        None,
+        Some(0x18),
+        Some(0x6D),
+        None,
+        None,
+        Some(0x8D),
+        None,
+        None,
+        Some(0xA5),
+        None,
+        Some(0x38),
+        Some(0xE5),
+        None,
     ];
     zaxis.extend_from_slice(&axis_core);
     let za = masked_scan(&rom, &zaxis);
-    assert!(!za.is_empty(), "COLDET axis pattern present in retail (RAM copy-source)");
+    assert!(
+        !za.is_empty(),
+        "COLDET axis pattern present in retail (RAM copy-source)"
+    );
     // The documented Z-axis start of the normalcol expansion:
     let want = snes_to_rom_off(sf_oracle::RETAIL_COLDET_OVERLAP);
-    assert!(za.contains(&want), "RETAIL_COLDET_OVERLAP is one of the located axis tests");
+    assert!(
+        za.contains(&want),
+        "RETAIL_COLDET_OVERLAP is one of the located axis tests"
+    );
     // Confirm the boundary is STRICTLY-LESS: `sbc rangexz; bmi` (30) => in-range
     // iff (|d| - sum) < 0, and the sum's low operand at this site is rangexz.
     let rangexz = rom[want + 8] as u32 | (rom[want + 9] as u32) << 8; // sta rangexz operand
-    assert_eq!(rangexz, sf_oracle::RETAIL_RANGEXZ, "COLDET compares against rangexz ($1250)");
-    assert_eq!(rom[want + 25], 0x30, "boundary opcode is BMI (strictly-less)");
+    assert_eq!(
+        rangexz,
+        sf_oracle::RETAIL_RANGEXZ,
+        "COLDET compares against rangexz ($1250)"
+    );
+    assert_eq!(
+        rom[want + 25],
+        0x30,
+        "boundary opcode is BMI (strictly-less)"
+    );
     eprintln!("COLL: COLDET box-overlap @${:06X} (16-bit |d|<sum, Z/X/Y, bmi strictly-less), {} axis-tests total", sf_oracle::RETAIL_COLDET_OVERLAP, za.len());
 
     // --- chkcoll0 colltype allow-matrix filter (RAM copy-source, bank $02) ---
     // lda al_collflags,y (B9 2E 00); and al_collflags,x (35 2E); and #F8 00; beq +; brl skip
     let ct: Vec<Option<u8>> = vec![
-        Some(0xB9), Some(0x2E), Some(0x00), Some(0x35), Some(0x2E), Some(0x29), Some(0xF8), Some(0x00),
-        Some(0xF0), Some(0x03), Some(0x82),
+        Some(0xB9),
+        Some(0x2E),
+        Some(0x00),
+        Some(0x35),
+        Some(0x2E),
+        Some(0x29),
+        Some(0xF8),
+        Some(0x00),
+        Some(0xF0),
+        Some(0x03),
+        Some(0x82),
     ];
     let ch = masked_scan(&rom, &ct);
     assert_eq!(ch.len(), 1, "chkcoll0 colltype filter unique");
     let co = rom_off_to_snes(ch[0]);
-    assert_eq!(co, sf_oracle::RETAIL_CHKCOLL_COLLTYPE, "colltype filter addr");
+    assert_eq!(
+        co,
+        sf_oracle::RETAIL_CHKCOLL_COLLTYPE,
+        "colltype filter addr"
+    );
     let mask = rom[ch[0] + 6]; // and #$00F8 low byte
-    assert_eq!(mask, sf_oracle::COLLTYPE_MASK, "colltype mask == $F8 (colltype1..5)");
-    assert_eq!(rom[ch[0] + 1] as u32, sf_oracle::AL_COLLFLAGS, "al_collflags offset $2E");
+    assert_eq!(
+        mask,
+        sf_oracle::COLLTYPE_MASK,
+        "colltype mask == $F8 (colltype1..5)"
+    );
+    assert_eq!(
+        rom[ch[0] + 1] as u32,
+        sf_oracle::AL_COLLFLAGS,
+        "al_collflags offset $2E"
+    );
     eprintln!("COLL: colltype allow-matrix @${co:06X}  mask=${mask:02X}  (skip iff cf_a&cf_b&mask != 0; NO both-zero skip)");
 
     // --- immunity + same-shape gate right after the colltype filter ---
     // cmp al_immuneptr,x (D5 19) appears twice; lda al_shape,x; cmp currshape.
     // Locate the same-shape compare: B5 04 (lda al_shape,x); CD <currshape>; then a
     // long branch to chkcollnxt. Confirm currshape operand and immuneptr offset.
-    let ss: Vec<Option<u8>> = vec![Some(0xB5), Some(0x04), Some(0x9B), Some(0xCD), None, None, Some(0xD0), Some(0x03), Some(0x82)];
+    let ss: Vec<Option<u8>> = vec![
+        Some(0xB5),
+        Some(0x04),
+        Some(0x9B),
+        Some(0xCD),
+        None,
+        None,
+        Some(0xD0),
+        Some(0x03),
+        Some(0x82),
+    ];
     let sh = masked_scan(&rom, &ss);
     assert!(!sh.is_empty(), "same-shape gate present in retail chkcoll0");
     let sso = sh[0];
     let currshape = rom[sso + 4] as u32 | (rom[sso + 5] as u32) << 8;
-    assert_eq!(currshape, sf_oracle::RETAIL_CURRSHAPE, "same-shape gate compares al_shape,x to currshape ($1F03)");
+    assert_eq!(
+        currshape,
+        sf_oracle::RETAIL_CURRSHAPE,
+        "same-shape gate compares al_shape,x to currshape ($1F03)"
+    );
     eprintln!("COLL: same-shape gate @${:06X} (lda al_shape,x; cmp currshape=${currshape:04X}; beq->skip) — port has NO shape gate (divergence)", rom_off_to_snes(sso));
 }
 
@@ -3313,7 +4947,15 @@ fn retail_docoll_response_vs_port() {
         bus.write8(X1, ap);
         bus.write8(sf_oracle::RETAIL_TPA, sf_oracle::FRAMESPERAP);
         bus.write8(sf_oracle::RETAIL_PSHIPFLAGS3, if tunnel { 1 } else { 0 });
-        call(&mut bus, sf_oracle::RETAIL_DO_COLL_L, &Entry { x: XB as u16, p: 0x20, ..Default::default() });
+        call(
+            &mut bus,
+            sf_oracle::RETAIL_DO_COLL_L,
+            &Entry {
+                x: XB as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
         let rcc = bus.read8(XB + sf_oracle::AL_COLLCOUNT);
         let rhp = bus.read8(XB + sf_oracle::AL_HP);
         let (pcc, php) = port_do_coll(cc, hp, ap, tunnel);
@@ -3323,7 +4965,11 @@ fn retail_docoll_response_vs_port() {
             "COLL do_coll cc={cc} hp={hp} ap={ap} tun={tunnel}: retail=({rcc},{rhp}) port=({pcc},{php}) {}",
             if ok { "MATCH" } else { "DIFF" }
         );
-        assert_eq!((rcc, rhp), (pcc, php), "do_coll cc={cc} hp={hp} ap={ap} tunnel={tunnel}");
+        assert_eq!(
+            (rcc, rhp),
+            (pcc, php),
+            "do_coll cc={cc} hp={hp} ap={ap} tunnel={tunnel}"
+        );
     }
     assert!(all);
     eprintln!("COLL: RESPONSE MATCH — retail do_coll_l == port Game::do_coll over the full damage/cooldown/tunnel/indestructible grid.");
@@ -3343,19 +4989,35 @@ fn retail_box_overlap_vs_port() {
     // RETAIL_COLDET_OVERLAP). Overlap iff on ALL of Z,X,Y: |pos2-pos1| < e1+e2,
     // with a 16-bit two's-complement abs (matches the ASM eor #$FFFF; inc a).
     fn rom_overlap(
-        x1: i16, y1: i16, z1: i16, e1x: i16, e1y: i16, e1z: i16,
-        x2: i16, y2: i16, z2: i16, e2x: i16, e2y: i16, e2z: i16,
+        x1: i16,
+        y1: i16,
+        z1: i16,
+        e1x: i16,
+        e1y: i16,
+        e1z: i16,
+        x2: i16,
+        y2: i16,
+        z2: i16,
+        e2x: i16,
+        e2y: i16,
+        e2z: i16,
     ) -> bool {
         // axis order Z, X, Y — early-out exactly like the ASM's three jmps.
         let dz = z2.wrapping_sub(z1);
         let dz = if dz < 0 { dz.wrapping_neg() } else { dz };
-        if dz >= e1z.wrapping_add(e2z) { return false; }
+        if dz >= e1z.wrapping_add(e2z) {
+            return false;
+        }
         let dx = x2.wrapping_sub(x1);
         let dx = if dx < 0 { dx.wrapping_neg() } else { dx };
-        if dx >= e1x.wrapping_add(e2x) { return false; }
+        if dx >= e1x.wrapping_add(e2x) {
+            return false;
+        }
         let dy = y2.wrapping_sub(y1);
         let dy = if dy < 0 { dy.wrapping_neg() } else { dy };
-        if dy >= e1y.wrapping_add(e2y) { return false; }
+        if dy >= e1y.wrapping_add(e2y) {
+            return false;
+        }
         true
     }
 
@@ -3368,44 +5030,73 @@ fn retail_box_overlap_vs_port() {
     // Boundary-straddling grid on each axis independently (others coincident).
     for &sep in &[
         // separations around each axis's boundary (sum ±2), incl. exact boundary.
-        -32i16, -31, -30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20,
-        -2, -1, 0, 1, 2,
-        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+        -32i16, -31, -30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20, -2, -1, 0, 1, 2, 20, 21,
+        22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
     ] {
         // vary X
         {
             let p = aabb_overlap(0, 0, 0, e1x, e1y, e1z, sep, 0, 0, e2x, e2y, e2z);
             let r = rom_overlap(0, 0, 0, e1x, e1y, e1z, sep, 0, 0, e2x, e2y, e2z);
-            checks += 1; if p != r { mism += 1; eprintln!("DIFF X sep={sep}: port={p} rom={r}"); }
+            checks += 1;
+            if p != r {
+                mism += 1;
+                eprintln!("DIFF X sep={sep}: port={p} rom={r}");
+            }
         }
         // vary Y
         {
             let p = aabb_overlap(0, 0, 0, e1x, e1y, e1z, 0, sep, 0, e2x, e2y, e2z);
             let r = rom_overlap(0, 0, 0, e1x, e1y, e1z, 0, sep, 0, e2x, e2y, e2z);
-            checks += 1; if p != r { mism += 1; eprintln!("DIFF Y sep={sep}: port={p} rom={r}"); }
+            checks += 1;
+            if p != r {
+                mism += 1;
+                eprintln!("DIFF Y sep={sep}: port={p} rom={r}");
+            }
         }
         // vary Z
         {
             let p = aabb_overlap(0, 0, 0, e1x, e1y, e1z, 0, 0, sep, e2x, e2y, e2z);
             let r = rom_overlap(0, 0, 0, e1x, e1y, e1z, 0, 0, sep, e2x, e2y, e2z);
-            checks += 1; if p != r { mism += 1; eprintln!("DIFF Z sep={sep}: port={p} rom={r}"); }
+            checks += 1;
+            if p != r {
+                mism += 1;
+                eprintln!("DIFF Z sep={sep}: port={p} rom={r}");
+            }
         }
     }
 
     // The i16 wrap edge: two's-complement abs of i16::MIN is i16::MIN (both sides
     // treat it as "in range"). Place obj2 near the wrap so dx wraps.
-    for &(a, b) in &[(30000i16, -30000i16), (-32768, 0), (32000, -32000), (i16::MIN, 0)] {
+    for &(a, b) in &[
+        (30000i16, -30000i16),
+        (-32768, 0),
+        (32000, -32000),
+        (i16::MIN, 0),
+    ] {
         let p = aabb_overlap(a, 0, 0, e1x, e1y, e1z, b, 0, 0, e2x, e2y, e2z);
         let r = rom_overlap(a, 0, 0, e1x, e1y, e1z, b, 0, 0, e2x, e2y, e2z);
-        checks += 1; if p != r { mism += 1; eprintln!("DIFF wrap a={a} b={b}: port={p} rom={r}"); }
+        checks += 1;
+        if p != r {
+            mism += 1;
+            eprintln!("DIFF wrap a={a} b={b}: port={p} rom={r}");
+        }
     }
 
     eprintln!("COLL: box-overlap grid {checks} checks, {mism} mismatches");
-    assert_eq!(mism, 0, "port aabb_overlap must match the retail COLDET macro over the boundary grid");
+    assert_eq!(
+        mism, 0,
+        "port aabb_overlap must match the retail COLDET macro over the boundary grid"
+    );
     // Prove the boundary is where it should be (strictly-less): exactly at the sum
     // there is NO overlap; one below there IS.
-    assert!(!aabb_overlap(0, 0, 0, e1x, e1y, e1z, 30, 0, 0, e2x, e2y, e2z), "sep==sum(30) => NO overlap");
-    assert!(aabb_overlap(0, 0, 0, e1x, e1y, e1z, 29, 0, 0, e2x, e2y, e2z), "sep==sum-1(29) => overlap");
+    assert!(
+        !aabb_overlap(0, 0, 0, e1x, e1y, e1z, 30, 0, 0, e2x, e2y, e2z),
+        "sep==sum(30) => NO overlap"
+    );
+    assert!(
+        aabb_overlap(0, 0, 0, e1x, e1y, e1z, 29, 0, 0, e2x, e2y, e2z),
+        "sep==sum-1(29) => overlap"
+    );
     eprintln!("COLL: box-overlap MATCH — port == retail COLDET, boundary is strictly |d| < e1+e2 on Z/X/Y.");
 }
 
@@ -3430,34 +5121,64 @@ fn retail_colltype_matrix_vs_port() {
         (cf_a & PORT_MASK) & (cf_b & PORT_MASK) != 0
     }
 
-    assert_eq!(PORT_MASK, sf_oracle::COLLTYPE_MASK, "port TYPE_MASK == retail colltype mask $F8");
+    assert_eq!(
+        PORT_MASK,
+        sf_oracle::COLLTYPE_MASK,
+        "port TYPE_MASK == retail colltype mask $F8"
+    );
 
     // Full matrix over the type bits + weapon/firstframe noise bits.
     let bits = [0u8, 0x08, 0x10, 0x20, 0x40, 0x80, 0x02, 0x04];
     let mut mism = 0;
     let mut n = 0;
-    for &a0 in &bits { for &a1 in &bits { for &b0 in &bits { for &b1 in &bits {
-        let cf_a = a0 | a1;
-        let cf_b = b0 | b1;
-        let r = rom_skip(cf_a, cf_b);
-        let p = port_skip(cf_a, cf_b);
-        n += 1;
-        if r != p { mism += 1; eprintln!("DIFF cf_a=${cf_a:02X} cf_b=${cf_b:02X}: rom_skip={r} port_skip={p}"); }
-    }}}}
-    assert_eq!(mism, 0, "colltype allow-matrix must match retail over the full matrix ({n} combos)");
+    for &a0 in &bits {
+        for &a1 in &bits {
+            for &b0 in &bits {
+                for &b1 in &bits {
+                    let cf_a = a0 | a1;
+                    let cf_b = b0 | b1;
+                    let r = rom_skip(cf_a, cf_b);
+                    let p = port_skip(cf_a, cf_b);
+                    n += 1;
+                    if r != p {
+                        mism += 1;
+                        eprintln!(
+                            "DIFF cf_a=${cf_a:02X} cf_b=${cf_b:02X}: rom_skip={r} port_skip={p}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        mism, 0,
+        "colltype allow-matrix must match retail over the full matrix ({n} combos)"
+    );
 
     // Semantic allow-matrix spot-checks (STRATEQU.INC:943-954):
-    let laser = 0x08u8;    // colltype1 all lasers
-    let enemy1 = 0x10u8;   // colltype2
-    let enemy2 = 0x20u8;   // colltype3
-    let enemyw = 0x40u8;   // colltype4 enemy weapons
-    let friend = 0x80u8;   // colltype5
+    let laser = 0x08u8; // colltype1 all lasers
+    let enemy1 = 0x10u8; // colltype2
+    let enemy2 = 0x20u8; // colltype3
+    let enemyw = 0x40u8; // colltype4 enemy weapons
+    let friend = 0x80u8; // colltype5
     assert!(!rom_skip(laser, enemy1), "laser vs enemy1 => COLLIDE");
     assert!(!rom_skip(laser, enemy2), "laser vs enemy2 => COLLIDE");
-    assert!(rom_skip(laser, laser), "laser vs laser => skip (shared colltype1)");
-    assert!(rom_skip(enemy1, enemy1), "enemy1 vs enemy1 => skip (shared colltype2)");
-    assert!(!rom_skip(enemyw, 0), "enemy-weapon vs player(no type) => COLLIDE (no both-zero skip)");
-    assert!(!rom_skip(0, 0), "two typeless objects => COLLIDE (no both-zero skip)");
+    assert!(
+        rom_skip(laser, laser),
+        "laser vs laser => skip (shared colltype1)"
+    );
+    assert!(
+        rom_skip(enemy1, enemy1),
+        "enemy1 vs enemy1 => skip (shared colltype2)"
+    );
+    assert!(
+        !rom_skip(enemyw, 0),
+        "enemy-weapon vs player(no type) => COLLIDE (no both-zero skip)"
+    );
+    assert!(
+        !rom_skip(0, 0),
+        "two typeless objects => COLLIDE (no both-zero skip)"
+    );
     assert!(!rom_skip(laser, friend), "laser vs friend => COLLIDE");
     eprintln!("COLL: ALLOW-MATRIX MATCH — retail chkcoll0 colltype filter == port over {n} combos; skip iff shared colltype bit, no both-zero skip.");
 }
@@ -3551,11 +5272,48 @@ fn retail_player_move_addresses() {
 
     // --- playerlimitx_srou (UNIQUE): arrows/min/max operands wildcarded ---
     let pl: Vec<Option<u8>> = vec![
-        Some(0xAD), None, None, Some(0x29), Some(0xF3), Some(0x8D), None, None,
-        Some(0xC2), Some(0x20), Some(0xB5), Some(0x0C), Some(0xCD), None, None, Some(0xE2), Some(0x20),
-        Some(0xF0), Some(0x06), Some(0x30), Some(0x04), Some(0x5C), None, None, None,
-        Some(0xC2), Some(0x20), Some(0xAD), None, None, Some(0x95), Some(0x0C), Some(0xE2), Some(0x20),
-        Some(0xAD), None, None, Some(0x09), Some(0x04), Some(0x8D), None, None,
+        Some(0xAD),
+        None,
+        None,
+        Some(0x29),
+        Some(0xF3),
+        Some(0x8D),
+        None,
+        None,
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB5),
+        Some(0x0C),
+        Some(0xCD),
+        None,
+        None,
+        Some(0xE2),
+        Some(0x20),
+        Some(0xF0),
+        Some(0x06),
+        Some(0x30),
+        Some(0x04),
+        Some(0x5C),
+        None,
+        None,
+        None,
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x95),
+        Some(0x0C),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x09),
+        Some(0x04),
+        Some(0x8D),
+        None,
+        None,
     ];
     let h = masked_scan(&rom, &pl);
     assert_eq!(h.len(), 1, "playerlimitx_srou is a UNIQUE masked hit");
@@ -3566,21 +5324,45 @@ fn retail_player_move_addresses() {
     // The max-side half follows the min-side .nminX target: at o+42 begins
     // rep;lda worldx;cmp maxpmoveX(o+47);sep;bpl(o+51);jml;...;ora #$08(o+70).
     let maxx = rom[o + 47] as u32 | (rom[o + 48] as u32) << 8;
-    assert_eq!(addr, sf_oracle::RETAIL_PLAYERLIMITX_SROU, "playerlimitx_srou addr");
+    assert_eq!(
+        addr,
+        sf_oracle::RETAIL_PLAYERLIMITX_SROU,
+        "playerlimitx_srou addr"
+    );
     assert_eq!(arrows, sf_oracle::RETAIL_ARROWS, "arrows operand");
     assert_eq!(minx, sf_oracle::RETAIL_MINPMOVEX, "minpmoveX operand");
-    assert_eq!(maxx, sf_oracle::RETAIL_MAXPMOVEX, "maxpmoveX operand (min+2, contiguous)");
+    assert_eq!(
+        maxx,
+        sf_oracle::RETAIL_MAXPMOVEX,
+        "maxpmoveX operand (min+2, contiguous)"
+    );
     // Boundary opcodes: min = BEQ($F0)+BMI($30) (clamp on <=), max = BPL($10)
     // after CMP (clamp on >=). Arrow sets: ORA #$04 (left) / #$08 (right).
     assert_eq!(rom[o + 17], 0xF0, "min boundary BEQ (== clamps)");
-    assert_eq!(rom[o + 19], 0x30, "min boundary BMI (< clamps) => INCLUSIVE <=");
+    assert_eq!(
+        rom[o + 19],
+        0x30,
+        "min boundary BMI (< clamps) => INCLUSIVE <="
+    );
     assert_eq!(rom[o + 3], 0x29, "AND arrows");
     assert_eq!(rom[o + 4], 0xF3, "AND #~(left|right) = $F3");
-    assert_eq!(rom[o + 38], sf_oracle::SPRAR_LEFT, "min side ORA #sprar_left ($04)");
-    assert_eq!(rom[o + 51], 0x10, "max boundary BPL (>= clamps) => INCLUSIVE >=");
+    assert_eq!(
+        rom[o + 38],
+        sf_oracle::SPRAR_LEFT,
+        "min side ORA #sprar_left ($04)"
+    );
+    assert_eq!(
+        rom[o + 51],
+        0x10,
+        "max boundary BPL (>= clamps) => INCLUSIVE >="
+    );
     // max side arrow immediate: the .nminX block is rep;lda worldx;cmp;sep;bpl;jml;
     // rep;lda max;sta worldx;sep;lda arrows;ora #$08;sta;rts.
-    assert_eq!(rom[o + 70], sf_oracle::SPRAR_RIGHT, "max side ORA #sprar_right ($08)");
+    assert_eq!(
+        rom[o + 70],
+        sf_oracle::SPRAR_RIGHT,
+        "max side ORA #sprar_right ($08)"
+    );
     eprintln!(
         "PLAYER-MOVE: playerlimitx_srou=${addr:06X}  arrows=${arrows:04X} \
          minpmoveX=${minx:04X} maxpmoveX=${maxx:04X}  (min<= BEQ+BMI, max>= BPL — both INCLUSIVE)"
@@ -3588,11 +5370,46 @@ fn retail_player_move_addresses() {
 
     // --- sr_speedto (UNIQUE): tpa operands wildcarded ---
     let sp: Vec<Option<u8>> = vec![
-        Some(0x85), Some(0x3A), Some(0xB5), Some(0x15), Some(0x38), Some(0xED), None, None,
-        Some(0xF0), Some(0x23), Some(0x10), Some(0x03), Some(0x49), Some(0xFF), Some(0x1A),
-        Some(0xC5), Some(0x3A), Some(0x10), Some(0x05), Some(0xAD), None, None, Some(0x80), Some(0x11),
-        Some(0xB5), Some(0x15), Some(0xCD), None, None, Some(0xF0), Some(0x0A),
-        Some(0x30), Some(0x05), Some(0x38), Some(0xE5), Some(0x3A), Some(0x80), Some(0x03), Some(0x18), Some(0x65),
+        Some(0x85),
+        Some(0x3A),
+        Some(0xB5),
+        Some(0x15),
+        Some(0x38),
+        Some(0xED),
+        None,
+        None,
+        Some(0xF0),
+        Some(0x23),
+        Some(0x10),
+        Some(0x03),
+        Some(0x49),
+        Some(0xFF),
+        Some(0x1A),
+        Some(0xC5),
+        Some(0x3A),
+        Some(0x10),
+        Some(0x05),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x80),
+        Some(0x11),
+        Some(0xB5),
+        Some(0x15),
+        Some(0xCD),
+        None,
+        None,
+        Some(0xF0),
+        Some(0x0A),
+        Some(0x30),
+        Some(0x05),
+        Some(0x38),
+        Some(0xE5),
+        Some(0x3A),
+        Some(0x80),
+        Some(0x03),
+        Some(0x18),
+        Some(0x65),
     ];
     let hs = masked_scan(&rom, &sp);
     assert_eq!(hs.len(), 1, "sr_speedto is a UNIQUE masked hit");
@@ -3602,9 +5419,21 @@ fn retail_player_move_addresses() {
     let tpa2 = rom[so + 20] as u32 | (rom[so + 21] as u32) << 8;
     let tpa3 = rom[so + 27] as u32 | (rom[so + 28] as u32) << 8;
     assert_eq!(saddr, sf_oracle::RETAIL_SR_SPEEDTO, "sr_speedto addr");
-    assert_eq!(tpa1, sf_oracle::RETAIL_TPA, "sr_speedto sbc tpa == RETAIL_TPA ($14C5)");
-    assert_eq!((tpa1, tpa2, tpa3), (tpa1, tpa1, tpa1), "all three tpa reads are the same global");
-    assert_eq!(rom[so + 3] as u32, sf_oracle::AL_VEL, "al_vel struct offset $15");
+    assert_eq!(
+        tpa1,
+        sf_oracle::RETAIL_TPA,
+        "sr_speedto sbc tpa == RETAIL_TPA ($14C5)"
+    );
+    assert_eq!(
+        (tpa1, tpa2, tpa3),
+        (tpa1, tpa1, tpa1),
+        "all three tpa reads are the same global"
+    );
+    assert_eq!(
+        rom[so + 3] as u32,
+        sf_oracle::AL_VEL,
+        "al_vel struct offset $15"
+    );
     assert_eq!(rom[so + 1], 0x3A, "tpx (rate) dp scratch $3A");
     eprintln!(
         "PLAYER-MOVE: sr_speedto=${saddr:06X}  tpa=${tpa1:04X} (== RETAIL_TPA)  al_vel=$15  tpx(rate)=$3A"
@@ -3618,7 +5447,10 @@ fn retail_player_move_addresses() {
     // $600) are cartridge-faithful. Signature: rep; lda plrotz; clc; adc #$0200.
     let rot: Vec<Option<u8>> = vec![Some(0x18), Some(0x69), Some(0x00), Some(0x02)]; // clc; adc #$0200
     let rothits = masked_scan(&rom, &rot);
-    assert!(!rothits.is_empty(), "ZROT/XROT step #$0200 immediate present in retail");
+    assert!(
+        !rothits.is_empty(),
+        "ZROT/XROT step #$0200 immediate present in retail"
+    );
     eprintln!(
         "PLAYER-MOVE: steering rot-step #$0200 (ZROT_SPEED/XROT_SPEED) confirmed present \
          ({} sites); gen_3dvecs + addalvecs_l already MATCH vs retail (UPDATE 8/1).",
@@ -3658,7 +5490,11 @@ fn retail_playerlimit_x(rom: &[u8], worldx: i16, minx: i16, maxx: i16, arrows_in
     call_near(
         &mut bus,
         sf_oracle::RETAIL_PLAYERLIMITX_SROU,
-        &Entry { x: XB as u16, p: 0x20, ..Default::default() },
+        &Entry {
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
     );
     let wx = bus.read16(XB + AL_WORLDX) as i16;
     // Full arrows byte (not masked): the routine clears only left|right (AND
@@ -3684,9 +5520,15 @@ fn retail_playerlimit_x_bounds_vs_port() {
         // Grid: below min, one below, exactly min, mid, exactly max, one above,
         // above max — plus a couple of interior points.
         let grid: &[i16] = &[
-            minx.wrapping_sub(200), minx.wrapping_sub(1), minx,
-            minx.wrapping_add(1), 0, maxx.wrapping_sub(1), maxx,
-            maxx.wrapping_add(1), maxx.wrapping_add(200),
+            minx.wrapping_sub(200),
+            minx.wrapping_sub(1),
+            minx,
+            minx.wrapping_add(1),
+            0,
+            maxx.wrapping_sub(1),
+            maxx,
+            maxx.wrapping_add(1),
+            maxx.wrapping_add(200),
         ];
         for &wx in grid {
             // Seed arrows with an unrelated bit ($01 up) to prove the routine
@@ -3701,7 +5543,11 @@ fn retail_playerlimit_x_bounds_vs_port() {
                  port=({pwx:6},arr {parr:#04x}) {}",
                 if ok { "MATCH" } else { "DIFF" }
             );
-            assert_eq!((rwx, rarr), (pwx, parr), "bounds box[{minx},{maxx}] worldX {wx}");
+            assert_eq!(
+                (rwx, rarr),
+                (pwx, parr),
+                "bounds box[{minx},{maxx}] worldX {wx}"
+            );
         }
     }
     assert!(all);
@@ -3709,8 +5555,16 @@ fn retail_playerlimit_x_bounds_vs_port() {
     // at worldX == max it sets RIGHT + clamps. Both INCLUSIVE.
     let (wmin, amin) = retail_playerlimit_x(&rom, -500, -500, 500, 0);
     let (wmax, amax) = retail_playerlimit_x(&rom, 500, -500, 500, 0);
-    assert_eq!((wmin, amin), (-500, sf_oracle::SPRAR_LEFT), "worldX==min: clamp + LEFT (inclusive)");
-    assert_eq!((wmax, amax), (500, sf_oracle::SPRAR_RIGHT), "worldX==max: clamp + RIGHT (inclusive)");
+    assert_eq!(
+        (wmin, amin),
+        (-500, sf_oracle::SPRAR_LEFT),
+        "worldX==min: clamp + LEFT (inclusive)"
+    );
+    assert_eq!(
+        (wmax, amax),
+        (500, sf_oracle::SPRAR_RIGHT),
+        "worldX==max: clamp + RIGHT (inclusive)"
+    );
     eprintln!(
         "BOUNDS: MATCH over {cases} cases — retail playerlimitx_srou == port playerlimit_x_srou \
          (X). Both bounds INCLUSIVE (== min -> clamp+LEFT, == max -> clamp+RIGHT)."
@@ -3759,7 +5613,12 @@ fn retail_speed_to(rom: &[u8], vel: u8, target: u8, rate: u8) -> u8 {
     call(
         &mut bus,
         sf_oracle::RETAIL_SR_SPEEDTO,
-        &Entry { a: rate as u16, x: XB as u16, p: 0x20, ..Default::default() },
+        &Entry {
+            a: rate as u16,
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
     );
     bus.read8(XB + sf_oracle::AL_VEL)
 }
@@ -3788,7 +5647,9 @@ fn retail_speedto_boost_brake_vs_port() {
                 all &= ok;
                 cases += 1;
                 if !ok {
-                    eprintln!("SPEEDTO vel={vel} target={target} rate={rate}: retail={rv} port={pv} DIFF");
+                    eprintln!(
+                        "SPEEDTO vel={vel} target={target} rate={rate}: retail={rv} port={pv} DIFF"
+                    );
                 }
                 assert_eq!(rv, pv, "sr_speedto vel={vel} target={target} rate={rate}");
             }
@@ -3811,8 +5672,9 @@ fn retail_speedto_boost_brake_vs_port() {
 }
 
 use sf_oracle::{
-    AL_SBYTE4, B8_SFLAG1, RETAIL_BOSS8_CONT, RETAIL_BOSS8_ISTRAT, RETAIL_BOSS8WAIT_STRAT,
-    RETAIL_CURRENTLEVEL, RETAIL_GSVAR_BYTE1,
+    AL_SBYTE4, B8_SFLAG1, B8_SFLAG4, B8_SFLAG5, RETAIL_BOSS8A_INIT, RETAIL_BOSS8A_STRAT,
+    RETAIL_BOSS8B_INIT, RETAIL_BOSS8B_STRAT, RETAIL_BOSS8WAIT_STRAT, RETAIL_BOSS8_CONT,
+    RETAIL_BOSS8_ISTRAT, RETAIL_CURRENTLEVEL, RETAIL_GSVAR_BYTE1,
 };
 
 // ========================================================================
@@ -3840,16 +5702,81 @@ fn wram8(bus: &SnesBus, addr: u32) -> u8 {
 fn boss8_cont_pat() -> Vec<Option<u8>> {
     let w = None;
     vec![
-        Some(0xC2), Some(0x20), Some(0xA9), Some(0x90), Some(0x06), Some(0x95), Some(0x10), // rep;lda #$0690;sta worldz
-        Some(0xE2), Some(0x20), Some(0xC2), Some(0x20), Some(0xB5), Some(0x10), Some(0x18),
-        Some(0x6D), w, w, Some(0x95), Some(0x10), Some(0xE2), Some(0x20),                    // adc player_posz;sta worldz
-        Some(0xD6), Some(0x25), Some(0xF0), Some(0x04), Some(0x5C), w, w, w,                 // dec sbyte4;beq+;jml .nchg
-        Some(0xA9), Some(0x96), Some(0x95), Some(0x25),                                      // lda #150;sta sbyte4
-        Some(0xB5), Some(0x1E), Some(0x49), Some(0x10), Some(0x95), Some(0x1E),              // eor #sflag1;sta sflags2
-        Some(0xAD), w, w, Some(0x29), Some(0x07), Some(0xF0), Some(0x04), Some(0x5C), w, w, w, // lda gameframe;and #7;beq+;jml .done
-        Some(0xB5), Some(0x1E), Some(0x29), Some(0x10), Some(0xF0), Some(0x04), Some(0x5C), w, w, w, // and sflag1;beq+;jml .speeddown
-        Some(0xAD), w, w, Some(0xC9), Some(0x05), Some(0xD0), Some(0x04), Some(0x5C), w, w, w, // lda gsvar;cmp #5;bne+;jml .done
-        Some(0xEE), w, w, Some(0x82),                                                        // inc gsvar;brl .done
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x90),
+        Some(0x06),
+        Some(0x95),
+        Some(0x10), // rep;lda #$0690;sta worldz
+        Some(0xE2),
+        Some(0x20),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xB5),
+        Some(0x10),
+        Some(0x18),
+        Some(0x6D),
+        w,
+        w,
+        Some(0x95),
+        Some(0x10),
+        Some(0xE2),
+        Some(0x20), // adc player_posz;sta worldz
+        Some(0xD6),
+        Some(0x25),
+        Some(0xF0),
+        Some(0x04),
+        Some(0x5C),
+        w,
+        w,
+        w, // dec sbyte4;beq+;jml .nchg
+        Some(0xA9),
+        Some(0x96),
+        Some(0x95),
+        Some(0x25), // lda #150;sta sbyte4
+        Some(0xB5),
+        Some(0x1E),
+        Some(0x49),
+        Some(0x10),
+        Some(0x95),
+        Some(0x1E), // eor #sflag1;sta sflags2
+        Some(0xAD),
+        w,
+        w,
+        Some(0x29),
+        Some(0x07),
+        Some(0xF0),
+        Some(0x04),
+        Some(0x5C),
+        w,
+        w,
+        w, // lda gameframe;and #7;beq+;jml .done
+        Some(0xB5),
+        Some(0x1E),
+        Some(0x29),
+        Some(0x10),
+        Some(0xF0),
+        Some(0x04),
+        Some(0x5C),
+        w,
+        w,
+        w, // and sflag1;beq+;jml .speeddown
+        Some(0xAD),
+        w,
+        w,
+        Some(0xC9),
+        Some(0x05),
+        Some(0xD0),
+        Some(0x04),
+        Some(0x5C),
+        w,
+        w,
+        w, // lda gsvar;cmp #5;bne+;jml .done
+        Some(0xEE),
+        w,
+        w,
+        Some(0x82), // inc gsvar;brl .done
     ]
 }
 
@@ -3889,12 +5816,70 @@ fn retail_boss8_addresses() {
     // --- boss8_Istrat: UNIQUE ---
     let w = None;
     let ist: Vec<Option<u8>> = vec![
-        Some(0xA9), Some(0x20), Some(0x95), Some(0x2A), Some(0xA9), Some(0x08), Some(0x95), Some(0x2B), // HP=$20;AP=$08
-        Some(0xA9), Some(0x20), Some(0x8F), w, w, Some(0x70), Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70), // bossmaxHP=$20
-        Some(0xAD), w, w, Some(0xC9), Some(0x00), Some(0xD0), Some(0x04), Some(0x5C), w, w, w,          // lda currentlevel;cmp #0;bne+;jml .easy
-        Some(0xA9), Some(0x40), Some(0x95), Some(0x2A), Some(0xA9), Some(0x08), Some(0x95), Some(0x2B), // HP*2=$40
-        Some(0xA9), Some(0x40), Some(0x8F), w, w, Some(0x70), Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70),
-        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20), Some(0xA9), Some(0x07), Some(0x95), Some(0x18), // stratptr=boss8wait
+        Some(0xA9),
+        Some(0x20),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x08),
+        Some(0x95),
+        Some(0x2B), // HP=$20;AP=$08
+        Some(0xA9),
+        Some(0x20),
+        Some(0x8F),
+        w,
+        w,
+        Some(0x70),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x8F),
+        w,
+        w,
+        Some(0x70), // bossmaxHP=$20
+        Some(0xAD),
+        w,
+        w,
+        Some(0xC9),
+        Some(0x00),
+        Some(0xD0),
+        Some(0x04),
+        Some(0x5C),
+        w,
+        w,
+        w, // lda currentlevel;cmp #0;bne+;jml .easy
+        Some(0xA9),
+        Some(0x40),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x08),
+        Some(0x95),
+        Some(0x2B), // HP*2=$40
+        Some(0xA9),
+        Some(0x40),
+        Some(0x8F),
+        w,
+        w,
+        Some(0x70),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x8F),
+        w,
+        w,
+        Some(0x70),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        w,
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x07),
+        Some(0x95),
+        Some(0x18), // stratptr=boss8wait
     ];
     let hi = masked_scan(&rom, &ist);
     assert_eq!(hi.len(), 1, "boss8_Istrat is a UNIQUE masked hit");
@@ -3908,7 +5893,10 @@ fn retail_boss8_addresses() {
     );
     assert_eq!(istrat, RETAIL_BOSS8_ISTRAT, "boss8_Istrat address");
     assert_eq!(lvl, RETAIL_CURRENTLEVEL, "boss8_Istrat reads currentlevel");
-    assert_eq!(wait, RETAIL_BOSS8WAIT_STRAT, "boss8_Istrat installs boss8wait_strat");
+    assert_eq!(
+        wait, RETAIL_BOSS8WAIT_STRAT,
+        "boss8_Istrat installs boss8wait_strat"
+    );
     assert_eq!(rom[o + 1], 0x20, "boss8HP easy = $20 (32)");
     assert_eq!(rom[o + 32], 0x40, "boss8HP hard = $40 (64)");
     assert_eq!(rom[o + 5], 0x08, "boss8 AP = hardAP $08");
@@ -3929,7 +5917,9 @@ fn port_boss8_init(
     g.vars.player_posz = ppz;
     g.vars.gameframe = 1; // 1&7 != 0 -> init's boss8_cont tick does NOT bump gsvar
     g.call_strat(ids.boss8, idx);
-    let tick = g.objs.aliens[idx as usize].stratptr.expect("boss8wait armed");
+    let tick = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("boss8wait armed");
     (g, idx, tick)
 }
 
@@ -3957,18 +5947,29 @@ fn retail_boss8_init_vs_port() {
         init_object_pool(&mut bus);
         let free0 = walk_freelist(&bus, &RETAIL_POOL);
         let blk = free0[0] as u32;
-        bus.wram_write16(RETAIL_POOL.freelist_head, bus.wram_read16(blk + RETAIL_POOL.al_next));
+        bus.wram_write16(
+            RETAIL_POOL.freelist_head,
+            bus.wram_read16(blk + RETAIL_POOL.al_next),
+        );
         bus.wram_write16(RETAIL_POOL.active_head, 0);
         let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
         bus.write8(0x7E_0000 | RETAIL_CURRENTLEVEL, r_lvl);
         bus.wram_write16(RETAIL_PLAYER_POSZ, ppz as u16);
         bus.write8(0x7E_0000 | RETAIL_GSVAR_BYTE1, 0xEE); // dirty; init must zero it
         bus.write8(0x7E_0000 | (blk + AL_SBYTE4), 0x11); // dirty
-        // Match the port's pre-init gameframe (=1) so the init-tail boss8_cont's
-        // gsvar gate (gameframe & 7) does NOT fire on either side.
+                                                         // Match the port's pre-init gameframe (=1) so the init-tail boss8_cont's
+                                                         // gsvar gate (gameframe & 7) does NOT fire on either side.
         bus.wram_write16(RETAIL_GAMEFRAME, 1);
         // boss8_Istrat assumes s_start_strat's 8-bit A (p=$20), X = boss block.
-        call(&mut bus, RETAIL_BOSS8_ISTRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_BOSS8_ISTRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
         let free_after = walk_freelist(&bus, &RETAIL_POOL).len();
         let spawned = free_before - free_after;
 
@@ -3991,23 +5992,36 @@ fn retail_boss8_init_vs_port() {
             pa.hp, pa.ap, pa.sbyte4
         );
         // Spawn observable: the boss makes 4 children (cover + 3 nucleus beams).
-        assert_eq!(spawned, 4, "retail boss8_Istrat spawned cover + 3 beam children");
+        assert_eq!(
+            spawned, 4,
+            "retail boss8_Istrat spawned cover + 3 beam children"
+        );
 
         // HP (level-gated) + AP.
         assert_eq!(r_hp, exp_hp, "retail boss8 HP for level branch");
-        assert_eq!(r_hp, pa.hp, "boss8 init HP matches port (level-encoding remap)");
+        assert_eq!(
+            r_hp, pa.hp,
+            "boss8 init HP matches port (level-encoding remap)"
+        );
         assert_eq!(r_ap, 0x08, "retail boss8 AP = hardAP");
         assert_eq!(r_ap, pa.ap, "boss8 init AP matches port");
         // sbyte4 phase timer: set to 150, then the init-tail boss8_cont ticks it
         // once -> 149 (both sides). Certifies the timer set AND the init-tail run.
-        assert_eq!(r_sb4, 149, "retail boss8 sbyte4 = 150 then init-tail boss8_cont -> 149");
+        assert_eq!(
+            r_sb4, 149,
+            "retail boss8 sbyte4 = 150 then init-tail boss8_cont -> 149"
+        );
         assert_eq!(r_sb4, pa.sbyte4, "boss8 init sbyte4 matches port");
         // colltype enemy2|enemyweap set (retail bit layout; port re-derives its
         // own encoding -> certify the EFFECT, like the batch-3 colltype note).
         assert_ne!(r_coll, 0, "retail boss8 set colltype (enemy2|enemyweap)");
         assert_ne!(pa.collflags, 0, "port boss8 set colltype");
         // sflag1|sflag2 CLEARED on the parent (both bits off in sflags2).
-        assert_eq!(r_sf2 & (0x10 | 0x20), 0, "retail boss8 cleared sflag1|sflag2");
+        assert_eq!(
+            r_sf2 & (0x10 | 0x20),
+            0,
+            "retail boss8 cleared sflag1|sflag2"
+        );
         // gsvar_byte1 zeroed by init.
         assert_eq!(r_gsv, 0, "retail boss8 zeroed gsvar_byte1");
         assert_eq!(p_gsv, 0, "port boss8 zeroed gsvar_byte1");
@@ -4018,7 +6032,11 @@ fn retail_boss8_init_vs_port() {
             "retail boss8 installed boss8wait_strat"
         );
         // worldz set by the init-tail boss8_cont: 1680 + player_posz.
-        assert_eq!(r_wz, 1680i16.wrapping_add(ppz), "retail boss8 init-tail worldz = 1680 + player_posz");
+        assert_eq!(
+            r_wz,
+            1680i16.wrapping_add(ppz),
+            "retail boss8 init-tail worldz = 1680 + player_posz"
+        );
         assert_eq!(r_wz, pa.worldz, "boss8 init worldz matches port");
     }
     eprintln!("BOSS8 init: MATCH — retail boss8_Istrat HP/AP/sbyte4/colltype/sflags/gsvar/stratptr/worldz == port strat_boss8_init, both difficulty branches.");
@@ -4079,7 +6097,15 @@ fn retail_boss8_cont_body_vs_port() {
             let gf = t as u16;
             // Retail tick.
             bus.wram_write16(RETAIL_GAMEFRAME, gf);
-            call(&mut bus, RETAIL_BOSS8_CONT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+            call(
+                &mut bus,
+                RETAIL_BOSS8_CONT,
+                &Entry {
+                    x: blk as u16,
+                    p: 0x20,
+                    ..Default::default()
+                },
+            );
             let r_wz = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
             let r_sb4 = wram8(&bus, blk + AL_SBYTE4);
             let r_sf1 = wram8(&bus, blk + AL_SFLAGS2) & B8_SFLAG1;
@@ -4113,8 +6139,556 @@ fn retail_boss8_cont_body_vs_port() {
             ),
             Some((t, f, r, p)) => panic!("boss8_cont diverged tick {t} field {f}: retail={r} port={p}"),
         }
-        assert_eq!(r_wz, 1680i16.wrapping_add(ppz), "retail worldz = 1680 + player_posz (view-track incl. wrap)");
+        assert_eq!(
+            r_wz,
+            1680i16.wrapping_add(ppz),
+            "retail worldz = 1680 + player_posz (view-track incl. wrap)"
+        );
     }
+}
+
+/// Walk mother `sword1` child chain; return WRAM block of child with `sbyte1 == n`.
+fn retail_boss8_child(bus: &SnesBus, mother: u32, child_num: u8) -> Option<u32> {
+    let mut cur = bus.wram_read16(mother + AL_SWORD1) as u32;
+    let mut guard = 16u32;
+    while cur != 0 && guard > 0 {
+        guard -= 1;
+        if wram8(bus, cur + AL_SBYTE1) == child_num {
+            return Some(cur);
+        }
+        cur = bus.wram_read16(cur + AL_SWORD1) as u32;
+    }
+    None
+}
+
+/// Seed retail boss8 via Istrat (4 children) and return (bus, boss_blk).
+fn retail_boss8_with_family(rom: Vec<u8>, level: u8, ppz: i16) -> (SnesBus, u32) {
+    let mut bus = SnesBus::new(rom);
+    bus.enable_gsu();
+    inject_runmario_trampoline(&mut bus, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM);
+    init_object_pool(&mut bus);
+    let free0 = walk_freelist(&bus, &RETAIL_POOL);
+    let blk = free0[0] as u32;
+    bus.wram_write16(
+        RETAIL_POOL.freelist_head,
+        bus.wram_read16(blk + RETAIL_POOL.al_next),
+    );
+    bus.wram_write16(RETAIL_POOL.active_head, 0);
+    bus.write8(0x7E_0000 | RETAIL_CURRENTLEVEL, level);
+    bus.wram_write16(RETAIL_PLAYER_POSZ, ppz as u16);
+    bus.write8(0x7E_0000 | RETAIL_GSVAR_BYTE1, 0);
+    bus.wram_write16(RETAIL_GAMEFRAME, 1);
+    call(
+        &mut bus,
+        RETAIL_BOSS8_ISTRAT,
+        &Entry {
+            x: blk as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
+    (bus, blk)
+}
+
+/// MILESTONE — locate boss8a/boss8b phase addresses from wait/a set_strat immediates.
+#[test]
+fn retail_boss8_phase_addresses() {
+    let Some(rom) = retail() else { return };
+    // boss8a_init is the jml target from wait when beam3 sflag1 set / gone.
+    // Confirm set_strat immediate inside a_init = boss8a_strat.
+    let a_off = ((RETAIL_BOSS8A_INIT >> 16) & 0x7F) << 15 | (RETAIL_BOSS8A_INIT & 0x7FFF);
+    let a_off = a_off as usize;
+    // C2 20 A9 ll hh 95 16 E2 20 A9 07 95 18
+    assert_eq!(rom[a_off], 0xC2);
+    let a_strat =
+        rom[a_off + 3] as u32 | ((rom[a_off + 4] as u32) << 8) | ((rom[a_off + 10] as u32) << 16);
+    assert_eq!(
+        a_strat, RETAIL_BOSS8A_STRAT,
+        "boss8a_init installs boss8a_strat"
+    );
+
+    let b_off = ((RETAIL_BOSS8B_INIT >> 16) & 0x7F) << 15 | (RETAIL_BOSS8B_INIT & 0x7FFF);
+    let b_off = b_off as usize;
+    // boss8b_init: clear collstrat, then `rep; lda #boss8b_strat; sta stratptr; sep; lda #07`
+    // (see dump: A9 A6 95 at +$13 after the collstrat-zero block).
+    let b_strat = rom[b_off + 0x14] as u32
+        | ((rom[b_off + 0x15] as u32) << 8)
+        | ((rom[b_off + 0x1B] as u32) << 16);
+    assert_eq!(
+        b_strat, RETAIL_BOSS8B_STRAT,
+        "boss8b_init installs boss8b_strat"
+    );
+
+    // Cross-check: wait's beam3-open jml lands on a_init.
+    let w_off = ((RETAIL_BOSS8WAIT_STRAT >> 16) & 0x7F) << 15 | (RETAIL_BOSS8WAIT_STRAT & 0x7FFF);
+    let w_off = w_off as usize;
+    // First jml $079422 in wait body (beam3 bad / sflag1) at +$3F from wait start
+    // (see disassembly): 5C 22 94 07
+    let mut found_a = false;
+    for i in 0..0x60 {
+        if rom[w_off + i] == 0x5C {
+            let t = rom[w_off + i + 1] as u32
+                | ((rom[w_off + i + 2] as u32) << 8)
+                | ((rom[w_off + i + 3] as u32) << 16);
+            if t == RETAIL_BOSS8A_INIT {
+                found_a = true;
+                break;
+            }
+        }
+    }
+    assert!(found_a, "boss8wait_strat jml's to boss8a_init");
+    eprintln!(
+        "BOSS8 phase: wait=${:06X} a_init=${:06X} a_strat=${:06X} b_init=${:06X} b_strat=${:06X} \
+         sflag4=${:02X} sflag5=${:02X}",
+        RETAIL_BOSS8WAIT_STRAT,
+        RETAIL_BOSS8A_INIT,
+        RETAIL_BOSS8A_STRAT,
+        RETAIL_BOSS8B_INIT,
+        RETAIL_BOSS8B_STRAT,
+        B8_SFLAG4,
+        B8_SFLAG5
+    );
+}
+
+/// CAPSTONE — boss8 phase-transition machine (wait↔a↔b), retail vs port.
+///
+/// Seeds the 4-child family both sides, surgically latches beam sflag1, and
+/// diffs the phase-select gates + open/close side effects (stratptr / sbyte2 /
+/// sflag4 / collstrat). HPLASMA frames avoided (`gameframe&31` ∉ {25,30}).
+/// Hard difficulty so a→b is live (retail level 1 ↔ port 2).
+#[test]
+fn retail_boss8_phase_transitions_vs_port() {
+    let Some(rom) = retail() else { return };
+    let ppz = -4000i16;
+
+    // --- helpers: set all three beams' sflag1 on/off ---
+    let set_beams = |bus: &mut SnesBus, boss: u32, on: bool| {
+        for n in 2u8..=4 {
+            let c = retail_boss8_child(bus, boss, n).expect("beam child");
+            let sf = wram8(bus, c + AL_SFLAGS2);
+            let sf = if on { sf | B8_SFLAG1 } else { sf & !B8_SFLAG1 };
+            bus.write8(0x7E_0000 | (c + AL_SFLAGS2), sf);
+        }
+    };
+    let set_port_beams = |g: &mut sf_game::game::Game, boss: u16, on: bool| {
+        for i in 0..g.objs.aliens.len() {
+            let al = &g.objs.aliens[i];
+            if al.active && al.sbyte1 >= 2 && al.sbyte1 <= 4 {
+                if on {
+                    g.objs.aliens[i].sflags2 |= B8_SFLAG1;
+                } else {
+                    g.objs.aliens[i].sflags2 &= !B8_SFLAG1;
+                }
+            }
+        }
+        let _ = boss;
+    };
+    let r_sptr = |bus: &SnesBus, blk: u32| -> u32 {
+        let lo = bus.wram_read16(blk + AL_STRATPTR) as u32;
+        let bk = wram8(bus, blk + AL_STRATPTR + 2) as u32;
+        (bk << 16) | lo
+    };
+
+    // ========== (1) wait → a when all beams have sflag1 ==========
+    {
+        let (mut bus, blk) = retail_boss8_with_family(rom.clone(), 1, ppz); // hard
+        assert!(retail_boss8_child(&bus, blk, 2).is_some());
+        assert!(retail_boss8_child(&bus, blk, 3).is_some());
+        assert!(retail_boss8_child(&bus, blk, 4).is_some());
+        set_beams(&mut bus, blk, true);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1); // not fire frame
+        call(
+            &mut bus,
+            RETAIL_BOSS8WAIT_STRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        let r_sp = r_sptr(&bus, blk);
+        let r_sb2 = wram8(&bus, blk + AL_SBYTE2);
+        let r_sf4 = wram8(&bus, blk + AL_SFLAGS2) & B8_SFLAG4;
+        assert_eq!(
+            r_sp, RETAIL_BOSS8A_STRAT,
+            "retail wait→a installs boss8a_strat"
+        );
+        // a_init sets 100; hard a_strat decs once → 99 (beams still latched).
+        assert_eq!(r_sb2, 99, "retail open sbyte2 after same-tick a body");
+        assert_eq!(r_sf4, B8_SFLAG4, "retail open sets sflag4");
+
+        let (mut g, idx, tick) = port_boss8_init(2, ppz); // hard
+        set_port_beams(&mut g, idx, true);
+        g.vars.gameframe = 1;
+        g.call_strat(tick, idx);
+        let pa = g.objs.aliens[idx as usize];
+        assert_eq!(pa.sbyte2, 99, "port wait→a sbyte2");
+        assert_eq!(pa.sflags2 & B8_SFLAG4, B8_SFLAG4, "port open sets sflag4");
+        assert!(pa.collstratptr.is_some(), "port open hitflash collstrat");
+        assert_eq!(
+            pa.sflags & sf_game::alien::ASF_COLLDISABLE,
+            0,
+            "port open damageable"
+        );
+        assert_eq!(r_sb2, pa.sbyte2);
+        assert_eq!(r_sf4, pa.sflags2 & B8_SFLAG4);
+        eprintln!("BOSS8 phase wait→a: MATCH — stratptr=a sbyte2=99 sflag4 set");
+    }
+
+    // ========== (2) wait stays in cont when beam1 lacks sflag1 ==========
+    {
+        let (mut bus, blk) = retail_boss8_with_family(rom.clone(), 1, ppz);
+        set_beams(&mut bus, blk, true);
+        // Clear only beam1 (#2).
+        let c1 = retail_boss8_child(&bus, blk, 2).unwrap();
+        bus.write8(
+            0x7E_0000 | (c1 + AL_SFLAGS2),
+            wram8(&bus, c1 + AL_SFLAGS2) & !B8_SFLAG1,
+        );
+        let sb4_before = wram8(&bus, blk + AL_SBYTE4);
+        call(
+            &mut bus,
+            RETAIL_BOSS8WAIT_STRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            r_sptr(&bus, blk),
+            RETAIL_BOSS8WAIT_STRAT,
+            "retail wait stays wait when beam1 sflag1 clear"
+        );
+        // cont ran: sbyte4 decremented.
+        assert_eq!(
+            wram8(&bus, blk + AL_SBYTE4),
+            sb4_before.wrapping_sub(1),
+            "retail wait→cont decremented sbyte4"
+        );
+
+        let (mut g, idx, tick) = port_boss8_init(2, ppz);
+        set_port_beams(&mut g, idx, true);
+        for i in 0..g.objs.aliens.len() {
+            if g.objs.aliens[i].active && g.objs.aliens[i].sbyte1 == 2 {
+                g.objs.aliens[i].sflags2 &= !B8_SFLAG1;
+            }
+        }
+        let sb4_p0 = g.objs.aliens[idx as usize].sbyte4;
+        g.vars.gameframe = 1;
+        g.call_strat(tick, idx);
+        assert_eq!(
+            g.objs.aliens[idx as usize].stratptr,
+            Some(tick),
+            "port wait stays wait"
+        );
+        assert_eq!(g.objs.aliens[idx as usize].sbyte4, sb4_p0.wrapping_sub(1));
+        eprintln!("BOSS8 phase wait→cont: MATCH — beam1 gate keeps wait");
+    }
+
+    // ========== (3) a → b when sbyte2 hits 0 (hard) ==========
+    {
+        let (mut bus, blk) = retail_boss8_with_family(rom.clone(), 1, ppz);
+        set_beams(&mut bus, blk, true);
+        // Enter a once so collstrat/sflag4 are live, then force sbyte2=0 and tick a.
+        call(
+            &mut bus,
+            RETAIL_BOSS8A_INIT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        bus.write8(0x7E_0000 | (blk + AL_SBYTE2), 0);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        call(
+            &mut bus,
+            RETAIL_BOSS8A_STRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            r_sptr(&bus, blk),
+            RETAIL_BOSS8B_STRAT,
+            "retail a→b installs boss8b_strat"
+        );
+        // b_init sets 15; same-tick b_strat decs → 14; sflag4 cleared.
+        assert_eq!(wram8(&bus, blk + AL_SBYTE2), 14);
+        assert_eq!(wram8(&bus, blk + AL_SFLAGS2) & B8_SFLAG4, 0);
+        // Beams' sflag1 cleared by b_init.
+        for n in 2u8..=4 {
+            let c = retail_boss8_child(&bus, blk, n).unwrap();
+            assert_eq!(
+                wram8(&bus, c + AL_SFLAGS2) & B8_SFLAG1,
+                0,
+                "retail b_init cleared beam{n} sflag1"
+            );
+        }
+
+        let (mut g, idx, _) = port_boss8_init(2, ppz);
+        set_port_beams(&mut g, idx, true);
+        sf_strat::bosses::boss8a_init(&mut g, idx);
+        g.objs.aliens[idx as usize].sbyte2 = 0;
+        g.vars.gameframe = 1;
+        sf_strat::bosses::boss8a_strat(&mut g, idx);
+        let pa = g.objs.aliens[idx as usize];
+        assert_eq!(pa.sbyte2, 14, "port a→b sbyte2");
+        assert_eq!(pa.sflags2 & B8_SFLAG4, 0, "port b clears sflag4");
+        assert!(pa.collstratptr.is_none());
+        assert_ne!(pa.sflags & sf_game::alien::ASF_COLLDISABLE, 0);
+        for i in 0..g.objs.aliens.len() {
+            let al = &g.objs.aliens[i];
+            if al.active && al.sbyte1 >= 2 && al.sbyte1 <= 4 {
+                assert_eq!(al.sflags2 & B8_SFLAG1, 0, "port b cleared beam sflag1");
+            }
+        }
+        assert_eq!(wram8(&bus, blk + AL_SBYTE2), pa.sbyte2);
+        eprintln!("BOSS8 phase a→b: MATCH — sbyte2=14 sflag4 clear beams cleared");
+    }
+
+    // ========== (4) b → wait when sbyte2 hits 0 ==========
+    {
+        let (mut bus, blk) = retail_boss8_with_family(rom.clone(), 1, ppz);
+        call(
+            &mut bus,
+            RETAIL_BOSS8B_INIT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        bus.write8(0x7E_0000 | (blk + AL_SBYTE2), 0);
+        // With beams sflag1 clear (b_init), wait will route to cont — still wait strat.
+        call(
+            &mut bus,
+            RETAIL_BOSS8B_STRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            r_sptr(&bus, blk),
+            RETAIL_BOSS8WAIT_STRAT,
+            "retail b→wait installs boss8wait_strat"
+        );
+
+        let (mut g, idx, wait_tick) = port_boss8_init(2, ppz);
+        sf_strat::bosses::boss8b_init(&mut g, idx);
+        g.objs.aliens[idx as usize].sbyte2 = 0;
+        // boss8b_strat is private — drive via armed stratptr from b_init.
+        let b_tick = g.objs.aliens[idx as usize].stratptr.expect("b armed");
+        g.call_strat(b_tick, idx);
+        assert_eq!(
+            g.objs.aliens[idx as usize].stratptr,
+            Some(wait_tick),
+            "port b→wait"
+        );
+        eprintln!("BOSS8 phase b→wait: MATCH — stratptr back to wait");
+    }
+
+    eprintln!("BOSS8 phase machine: MATCH — wait↔a↔b gates + sflag4/sbyte2/beam clears == port");
+}
+
+/// CAPSTONE — boss8a HPLASMA fire on `gameframe&31 ∈ {25,30}`.
+///
+/// Easy difficulty (`s_jmp_iflevel 1` → retail currentlevel 0 / port 1) so the
+/// post-fire path is `boss8_cont` (no a→b). Diffs spawn count + shot scalars
+/// (HP=1, AP=10, vel=60, lifecnt=50, yaw = firer.roty+deg180). Shape remap
+/// (retail bouncyball ptr vs port flat id) undiffed.
+#[test]
+fn retail_boss8a_hplasma_vs_port() {
+    let Some(rom) = retail() else { return };
+    let ppz = -4000i16;
+    let entry = |blk: u32| Entry {
+        x: blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+
+    let open_a = |bus: &mut SnesBus, blk: u32| {
+        for n in 2u8..=4 {
+            let c = retail_boss8_child(bus, blk, n).expect("beam");
+            let sf = wram8(bus, c + AL_SFLAGS2) | B8_SFLAG1;
+            bus.write8(0x7E_0000 | (c + AL_SFLAGS2), sf);
+        }
+        bus.wram_write16(RETAIL_GAMEFRAME, 1); // not a fire frame
+        call(bus, RETAIL_BOSS8WAIT_STRAT, &entry(blk));
+        assert_eq!(
+            bus.wram_read16(blk + AL_STRATPTR) as u32
+                | ((wram8(bus, blk + AL_STRATPTR + 2) as u32) << 16),
+            RETAIL_BOSS8A_STRAT
+        );
+    };
+
+    let port_open_a = |g: &mut sf_game::game::Game, boss: u16, tick: sf_game::alien::StratId| {
+        for i in 0..g.objs.aliens.len() {
+            let al = &g.objs.aliens[i];
+            if al.active && al.sbyte1 >= 2 && al.sbyte1 <= 4 {
+                g.objs.aliens[i].sflags2 |= B8_SFLAG1;
+            }
+        }
+        g.vars.gameframe = 1;
+        g.call_strat(tick, boss);
+    };
+
+    // ----- (1) frame 25 fires exactly one HPLASMA -----
+    {
+        let (mut bus, blk) = retail_boss8_with_family(rom.clone(), 0, ppz); // easy
+        let player_blk = RETAIL_POOL.base + RETAIL_POOL.stride * 10;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        open_a(&mut bus, blk);
+        bus.write8(0x7E_0000 | (blk + AL_ROTY), 0x40);
+        bus.wram_write16(RETAIL_GAMEFRAME, 25);
+
+        let free_before: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        call(&mut bus, RETAIL_BOSS8A_STRAT, &entry(blk));
+        let free_after: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        let spawned: Vec<u32> = free_before
+            .difference(&free_after)
+            .map(|&b| b as u32)
+            .collect();
+        assert_eq!(spawned.len(), 1, "retail frame25 fires one HPLASMA");
+        let shot = spawned[0];
+        let r_hp = wram8(&bus, shot + AL_HP);
+        let r_ap = wram8(&bus, shot + AL_AP);
+        let r_vel = wram8(&bus, shot + AL_VEL);
+        let r_life = wram8(&bus, shot + AL_LIFECNT);
+        let r_ptr = bus.wram_read16(shot + AL_PTR);
+        assert_eq!(r_hp, 1);
+        assert_eq!(r_ap, 10);
+        assert_eq!(r_vel, 60);
+        assert_eq!(r_life, 50);
+        assert_eq!(r_ptr, player_blk as u16, "retail shot al_ptr = playpt");
+
+        // Port: player slot 0, boss slot 1+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        g.vars.write_ext8(0x1F03, 1); // easy
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.vars.player_posz = ppz;
+        g.vars.gameframe = 1;
+        g.call_strat(ids.boss8, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        port_open_a(&mut g, boss, tick);
+        g.objs.aliens[boss as usize].roty = 0x40;
+        g.vars.gameframe = 25;
+        let active_before = g.objs.aliens.iter().filter(|a| a.active).count();
+        sf_strat::bosses::boss8a_strat(&mut g, boss);
+        let shots: Vec<_> = g
+            .objs
+            .aliens
+            .iter()
+            .enumerate()
+            .filter(|(i, a)| {
+                a.active && *i as u16 != boss && *i as u16 != pl && a.vel == 60 && a.ap == 10
+            })
+            .map(|(_, a)| a)
+            .collect();
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count() - active_before,
+            1,
+            "port frame25 fires one"
+        );
+        assert_eq!(shots.len(), 1);
+        let ps = shots[0];
+        assert_eq!(ps.hp, r_hp);
+        assert_eq!(ps.ap, r_ap);
+        assert_eq!(ps.vel, r_vel);
+        assert_eq!(ps.count, r_life);
+        assert_eq!(
+            ps.sbyte1,
+            0x40u8.wrapping_add(0x80),
+            "yaw = firer.roty+deg180"
+        );
+        eprintln!("BOSS8A HPLASMA frame25: MATCH — HP/AP/vel/life + yaw+180 + playpt");
+    }
+
+    // ----- (2) frame 26 does not fire -----
+    {
+        let (mut bus, blk) = retail_boss8_with_family(rom.clone(), 0, ppz);
+        open_a(&mut bus, blk);
+        bus.wram_write16(RETAIL_GAMEFRAME, 26);
+        let n_before = walk_freelist(&bus, &RETAIL_POOL).len();
+        call(&mut bus, RETAIL_BOSS8A_STRAT, &entry(blk));
+        assert_eq!(
+            walk_freelist(&bus, &RETAIL_POOL).len(),
+            n_before,
+            "retail frame26 no HPLASMA"
+        );
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        g.vars.write_ext8(0x1F03, 1);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.vars.player_posz = ppz;
+        g.vars.gameframe = 1;
+        g.call_strat(ids.boss8, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        port_open_a(&mut g, boss, tick);
+        g.vars.gameframe = 26;
+        let n0 = g.objs.aliens.iter().filter(|a| a.active).count();
+        sf_strat::bosses::boss8a_strat(&mut g, boss);
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count(),
+            n0,
+            "port frame26 no HPLASMA"
+        );
+        eprintln!("BOSS8A HPLASMA frame26: MATCH — no fire");
+    }
+
+    // ----- (3) frame 30 fires -----
+    {
+        let (mut bus, blk) = retail_boss8_with_family(rom.clone(), 0, ppz);
+        bus.wram_write16(
+            RETAIL_PLAYPT,
+            (RETAIL_POOL.base + RETAIL_POOL.stride * 10) as u16,
+        );
+        open_a(&mut bus, blk);
+        bus.wram_write16(RETAIL_GAMEFRAME, 30);
+        let n_before = walk_freelist(&bus, &RETAIL_POOL).len();
+        call(&mut bus, RETAIL_BOSS8A_STRAT, &entry(blk));
+        assert_eq!(
+            n_before - walk_freelist(&bus, &RETAIL_POOL).len(),
+            1,
+            "retail frame30 fires one"
+        );
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        g.vars.write_ext8(0x1F03, 1);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.vars.player_posz = ppz;
+        g.vars.gameframe = 1;
+        g.call_strat(ids.boss8, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        port_open_a(&mut g, boss, tick);
+        g.vars.gameframe = 30;
+        let n0 = g.objs.aliens.iter().filter(|a| a.active).count();
+        sf_strat::bosses::boss8a_strat(&mut g, boss);
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count() - n0,
+            1,
+            "port frame30 fires one"
+        );
+        eprintln!("BOSS8A HPLASMA frame30: MATCH — one fire");
+    }
+
+    eprintln!("BOSS8A HPLASMA: MATCH — frames 25/30 fire, 26 quiet; shot scalars == port");
 }
 
 use sf_oracle::{
@@ -4169,11 +6743,41 @@ fn retail_plrot_accumulator_vs_port() {
 
     // --- LEFT: plrotz += $200 ; plroty += $200 (UNIQUE) ---
     let left: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x18), Some(0x69), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
-        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x18), Some(0x69), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        w,
+        w,
+        Some(0x18),
+        Some(0x69),
+        Some(0x00),
+        Some(0x02),
+        Some(0x8D),
+        w,
+        w,
+        Some(0xE2),
+        Some(0x20),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        w,
+        w,
+        Some(0x18),
+        Some(0x69),
+        Some(0x00),
+        Some(0x02),
+        Some(0x8D),
+        w,
+        w,
+        Some(0xE2),
+        Some(0x20),
     ];
     let lh = masked_scan(&rom, &left);
-    assert_eq!(lh.len(), 1, "plrot LEFT accumulation is a UNIQUE masked hit");
+    assert_eq!(
+        lh.len(),
+        1,
+        "plrot LEFT accumulation is a UNIQUE masked hit"
+    );
     let o = lh[0];
     let plrotz = rd16(o + 3);
     let plroty = rd16(o + 17);
@@ -4182,38 +6786,104 @@ fn retail_plrot_accumulator_vs_port() {
         "PLROT: LEFT block=${:06X}  plrotz=${plrotz:04X} plroty=${plroty:04X} step=${step_l:04X}",
         rom_off_to_snes(o)
     );
-    assert_eq!(rom_off_to_snes(o), RETAIL_PLROT_ACCUM_LEFT, "LEFT block address");
+    assert_eq!(
+        rom_off_to_snes(o),
+        RETAIL_PLROT_ACCUM_LEFT,
+        "LEFT block address"
+    );
     assert_eq!(plrotz, RETAIL_PLROTZ, "plrotz WRAM address");
     assert_eq!(plroty, RETAIL_PLROTY, "plroty WRAM address");
-    assert_eq!(plrotz, plroty + 2, "plrotz = plroty + 2 (contiguous, as built $12BF/$12BD)");
+    assert_eq!(
+        plrotz,
+        plroty + 2,
+        "plrotz = plroty + 2 (contiguous, as built $12BF/$12BD)"
+    );
     assert_eq!(rd16(o + 10), plrotz, "LEFT lda/sta hit the same plrotz");
     assert_eq!(rd16(o + 24), plroty, "LEFT lda/sta hit the same plroty");
     assert_eq!(step_l, RETAIL_ZROTSPEED, "LEFT step = Zrotspeed $0200");
 
     // --- RIGHT: plrotz -= $200 ; plroty -= $200 (sec;sbc) (UNIQUE) ---
     let right: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x38), Some(0xE9), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
-        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x38), Some(0xE9), Some(0x00), Some(0x02), Some(0x8D), w, w, Some(0xE2), Some(0x20),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        w,
+        w,
+        Some(0x38),
+        Some(0xE9),
+        Some(0x00),
+        Some(0x02),
+        Some(0x8D),
+        w,
+        w,
+        Some(0xE2),
+        Some(0x20),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        w,
+        w,
+        Some(0x38),
+        Some(0xE9),
+        Some(0x00),
+        Some(0x02),
+        Some(0x8D),
+        w,
+        w,
+        Some(0xE2),
+        Some(0x20),
     ];
     let rh = masked_scan(&rom, &right);
-    assert_eq!(rh.len(), 1, "plrot RIGHT accumulation is a UNIQUE masked hit");
+    assert_eq!(
+        rh.len(),
+        1,
+        "plrot RIGHT accumulation is a UNIQUE masked hit"
+    );
     let ro = rh[0];
-    assert_eq!(rom_off_to_snes(ro), RETAIL_PLROT_ACCUM_RIGHT, "RIGHT block address");
+    assert_eq!(
+        rom_off_to_snes(ro),
+        RETAIL_PLROT_ACCUM_RIGHT,
+        "RIGHT block address"
+    );
     assert_eq!(rd16(ro + 3), plrotz, "RIGHT decrements the same plrotz");
     assert_eq!(rd16(ro + 17), plroty, "RIGHT decrements the same plroty");
-    assert_eq!(rd16(ro + 7) as i16, RETAIL_ZROTSPEED, "RIGHT step = Zrotspeed $0200");
+    assert_eq!(
+        rd16(ro + 7) as i16,
+        RETAIL_ZROTSPEED,
+        "RIGHT step = Zrotspeed $0200"
+    );
 
     // --- CLAMP: rep;lda plrotz;cmp #$0000;bmi;cmp #$0600;bmi (UNIQUE) ---
     let clamp: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0xC9), Some(0x00), Some(0x00), Some(0x30), w, Some(0xC9), Some(0x00), Some(0x06), Some(0x30),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        w,
+        w,
+        Some(0xC9),
+        Some(0x00),
+        Some(0x00),
+        Some(0x30),
+        w,
+        Some(0xC9),
+        Some(0x00),
+        Some(0x06),
+        Some(0x30),
     ];
     let ch = masked_scan(&rom, &clamp);
     assert_eq!(ch.len(), 1, "plrotz LIMIT block is a UNIQUE masked hit");
     let co = ch[0];
-    assert_eq!(rom_off_to_snes(co), RETAIL_PLROT_CLAMP, "CLAMP block address");
+    assert_eq!(
+        rom_off_to_snes(co),
+        RETAIL_PLROT_CLAMP,
+        "CLAMP block address"
+    );
     assert_eq!(rd16(co + 3), plrotz, "CLAMP tests plrotz");
     let clamp_hi = rd16(co + 11) as i16;
-    eprintln!("PLROT: CLAMP block=${:06X}  plrotz clamp hi=${clamp_hi:04X}", rom_off_to_snes(co));
+    eprintln!(
+        "PLROT: CLAMP block=${:06X}  plrotz clamp hi=${clamp_hi:04X}",
+        rom_off_to_snes(co)
+    );
     assert_eq!(clamp_hi, RETAIL_PLROTZ_CLAMP, "plrotz roll clamp = $0600");
 
     // STEP 2 — the PORT decay primitive at the plrot rates == byte-faithful Achase.
@@ -4229,7 +6899,10 @@ fn retail_plrot_accumulator_vs_port() {
             }
         }
     }
-    assert!(decay_match, "port strat_chase_proportional == ROM Achase at plrot rates 3/4");
+    assert!(
+        decay_match,
+        "port strat_chase_proportional == ROM Achase at plrot rates 3/4"
+    );
 
     // STEP 3 — the composed per-frame plrot(y,z) update, using the ROM-READ step
     // ($200) + clamp ($600) + the certified decay primitive.
@@ -4256,13 +6929,28 @@ fn retail_plrot_accumulator_vs_port() {
     };
 
     // Grid sanity: neutral decays toward 0; both-held cancels (== neutral).
-    for &(py0, pz0) in &[(0i16, 0i16), (0x300, 0x400), (-0x500, 0x580), (0x100, -0x1F0)] {
+    for &(py0, pz0) in &[
+        (0i16, 0i16),
+        (0x300, 0x400),
+        (-0x500, 0x580),
+        (0x100, -0x1F0),
+    ] {
         let (ny_none, nz_none) = plrot_frame(py0, pz0, false, false);
         let (ny_both, nz_both) = plrot_frame(py0, pz0, true, true);
-        assert_eq!((ny_none, nz_none), (ny_both, nz_both), "LEFT+RIGHT cancels to neutral");
+        assert_eq!(
+            (ny_none, nz_none),
+            (ny_both, nz_both),
+            "LEFT+RIGHT cancels to neutral"
+        );
         // Neutral strictly relaxes toward 0 (or stays 0).
-        assert!(nz_none.abs() <= pz0.abs(), "neutral plrotz relaxes toward 0");
-        assert!(ny_none.abs() <= py0.abs(), "neutral plroty relaxes toward 0");
+        assert!(
+            nz_none.abs() <= pz0.abs(),
+            "neutral plrotz relaxes toward 0"
+        );
+        assert!(
+            ny_none.abs() <= py0.abs(),
+            "neutral plroty relaxes toward 0"
+        );
     }
 
     // Hold LEFT from rest: plrotz ramps up and SATURATES at exactly +$600 (the
@@ -4277,7 +6965,10 @@ fn retail_plrot_accumulator_vs_port() {
     }
     assert_eq!(pz, clampz, "hold LEFT saturates plrotz at +$600");
     assert_eq!(max_pz, clampz, "plrotz never exceeds the +$600 clamp");
-    assert!(py > clampz, "plroty is unclamped (exceeds the plrotz clamp under a long hold)");
+    assert!(
+        py > clampz,
+        "plroty is unclamped (exceeds the plrotz clamp under a long hold)"
+    );
 
     // Release: from the saturated roll, neutral input decays plrotz back to 0.
     for _ in 0..400 {
@@ -4293,9 +6984,12 @@ fn retail_plrot_accumulator_vs_port() {
     );
 }
 
+use sf_game::alien::ASF_HITFLASH;
 use sf_oracle::{
-    AL_LIFECNT, AL_SFLAGS, B2_SFLAG1, B2_SFLAG4, RETAIL_BOSS2EXP_ISTRAT, RETAIL_BOSS2_ISTRAT,
-    RETAIL_BOSS2_STRAT, RETAIL_PLAYERVEL_Z,
+    AL_LIFECNT, AL_PTR, AL_SFLAGS, AL_SWORD2, B2_SFLAG1, B2_SFLAG3, B2_SFLAG4,
+    RETAIL_AL_STRATSTATE, RETAIL_BOSS2EXP_ISTRAT, RETAIL_BOSS2_ISTRAT, RETAIL_BOSS2_STRAT,
+    RETAIL_BOSSFLAGS, RETAIL_KILL_ISTRAT, RETAIL_PLAYERVEL_Z, RETAIL_PSTRATFLAGS,
+    RETAIL_SVAR_BYTE5,
 };
 
 // ========================================================================
@@ -4319,18 +7013,93 @@ use sf_oracle::{
 fn boss2_istrat_tail_pat() -> Vec<Option<u8>> {
     let w = None;
     vec![
-        Some(0xC2), Some(0x20), Some(0xA9), w, w, Some(0x95), Some(0x16), Some(0xE2), Some(0x20),
-        Some(0xA9), Some(0x08), Some(0x95), Some(0x18), // stratptr = boss2_strat (lo wildcard), bank $08
-        Some(0xA9), Some(0x00), Some(0x9D), w, w, Some(0xA9), Some(0x08), Some(0x9D), w, w,
-        Some(0xC2), Some(0x20), Some(0xA9), Some(0x00), Some(0x00), Some(0x9D), w, w,
-        Some(0xA9), w, w, Some(0x9D), w, w, Some(0xE2), Some(0x20), // expstrat = boss2exp (lo wildcard)
-        Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A), Some(0xA9), Some(0x0A), Some(0x95), Some(0x2B), // HP=$FF; AP=$0A
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E), // collflags |= enemy1
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x40), Some(0x95), Some(0x2E), // collflags |= enemyweap
-        Some(0xA9), Some(0x32), Some(0x95), Some(0x0A), // lifecnt = 50
-        Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70), Some(0xA9), Some(0x00), Some(0x8F), w, w, Some(0x70), // bossmaxHP=0
-        Some(0xB5), Some(0x1E), Some(0x09), Some(0x01), Some(0x95), Some(0x1E), // sflags2 |= colldisable
-        Some(0xB5), Some(0x1D), Some(0x09), Some(0x08), Some(0x95), Some(0x1D), // sflags  |= shadow
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        w,
+        w,
+        Some(0x95),
+        Some(0x16),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x08),
+        Some(0x95),
+        Some(0x18), // stratptr = boss2_strat (lo wildcard), bank $08
+        Some(0xA9),
+        Some(0x00),
+        Some(0x9D),
+        w,
+        w,
+        Some(0xA9),
+        Some(0x08),
+        Some(0x9D),
+        w,
+        w,
+        Some(0xC2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x00),
+        Some(0x9D),
+        w,
+        w,
+        Some(0xA9),
+        w,
+        w,
+        Some(0x9D),
+        w,
+        w,
+        Some(0xE2),
+        Some(0x20), // expstrat = boss2exp (lo wildcard)
+        Some(0xA9),
+        Some(0xFF),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x0A),
+        Some(0x95),
+        Some(0x2B), // HP=$FF; AP=$0A
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x10),
+        Some(0x95),
+        Some(0x2E), // collflags |= enemy1
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x40),
+        Some(0x95),
+        Some(0x2E), // collflags |= enemyweap
+        Some(0xA9),
+        Some(0x32),
+        Some(0x95),
+        Some(0x0A), // lifecnt = 50
+        Some(0xA9),
+        Some(0x00),
+        Some(0x8F),
+        w,
+        w,
+        Some(0x70),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x8F),
+        w,
+        w,
+        Some(0x70), // bossmaxHP=0
+        Some(0xB5),
+        Some(0x1E),
+        Some(0x09),
+        Some(0x01),
+        Some(0x95),
+        Some(0x1E), // sflags2 |= colldisable
+        Some(0xB5),
+        Some(0x1D),
+        Some(0x09),
+        Some(0x08),
+        Some(0x95),
+        Some(0x1D), // sflags  |= shadow
     ]
 }
 
@@ -4349,7 +7118,11 @@ fn retail_boss2_addresses() {
 
     // --- boss2_Istrat: UNIQUE tail anchor ---
     let hits = masked_scan(&rom, &boss2_istrat_tail_pat());
-    assert_eq!(hits.len(), 1, "boss2_Istrat tail anchor is a UNIQUE masked hit");
+    assert_eq!(
+        hits.len(),
+        1,
+        "boss2_Istrat tail anchor is a UNIQUE masked hit"
+    );
     let anchor = hits[0];
     let istrat = rom_off_to_snes(anchor - 0x220);
     // stratptr low word at anchor+3, bank at anchor+10.
@@ -4361,8 +7134,15 @@ fn retail_boss2_addresses() {
         rom[anchor + 40], rom[anchor + 44], rom[anchor + 60]
     );
     assert_eq!(istrat, RETAIL_BOSS2_ISTRAT, "boss2_Istrat address");
-    assert_eq!(strat, RETAIL_BOSS2_STRAT, "boss2_Istrat installs boss2_strat");
-    assert_eq!((0x08u32 << 16) | exp_lo, RETAIL_BOSS2EXP_ISTRAT, "boss2_Istrat installs boss2exp_Istrat");
+    assert_eq!(
+        strat, RETAIL_BOSS2_STRAT,
+        "boss2_Istrat installs boss2_strat"
+    );
+    assert_eq!(
+        (0x08u32 << 16) | exp_lo,
+        RETAIL_BOSS2EXP_ISTRAT,
+        "boss2_Istrat installs boss2exp_Istrat"
+    );
     assert_eq!(rom[anchor + 40], 0xFF, "boss2 HP = hardHP $FF");
     assert_eq!(rom[anchor + 44], 0x0A, "boss2 AP = 10");
     assert_eq!(rom[anchor + 60], 0x32, "boss2 lifecnt = 50");
@@ -4370,8 +7150,23 @@ fn retail_boss2_addresses() {
     // --- s_keeprelto_player leaf: confirm playervel_z / pviewvelz ---
     let w = None;
     let kp: Vec<Option<u8>> = vec![
-        Some(0xC2), Some(0x20), Some(0xAD), w, w, Some(0x38), Some(0xED), w, w, Some(0x18),
-        Some(0x75), Some(0x10), Some(0x95), Some(0x10), Some(0xE2), Some(0x20), Some(0x6B),
+        Some(0xC2),
+        Some(0x20),
+        Some(0xAD),
+        w,
+        w,
+        Some(0x38),
+        Some(0xED),
+        w,
+        w,
+        Some(0x18),
+        Some(0x75),
+        Some(0x10),
+        Some(0x95),
+        Some(0x10),
+        Some(0xE2),
+        Some(0x20),
+        Some(0x6B),
     ];
     let kh = masked_scan(&rom, &kp);
     assert_eq!(kh.len(), 1, "s_keeprelto_player is a UNIQUE masked hit");
@@ -4394,7 +7189,9 @@ fn port_boss2_init() -> (sf_game::game::Game, u16, sf_game::alien::StratId) {
     let ids = sf_strat::bosses::install_bosses(&mut g);
     let idx = g.objs.alloc().expect("alien pool");
     g.call_strat(ids.boss2, idx);
-    let tick = g.objs.aliens[idx as usize].stratptr.expect("boss2_strat armed");
+    let tick = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("boss2_strat armed");
     (g, idx, tick)
 }
 
@@ -4417,14 +7214,25 @@ fn retail_boss2_init_vs_port() {
     init_object_pool(&mut bus);
     let free0 = walk_freelist(&bus, &RETAIL_POOL);
     let blk = free0[0] as u32;
-    bus.wram_write16(RETAIL_POOL.freelist_head, bus.wram_read16(blk + RETAIL_POOL.al_next));
+    bus.wram_write16(
+        RETAIL_POOL.freelist_head,
+        bus.wram_read16(blk + RETAIL_POOL.al_next),
+    );
     bus.wram_write16(RETAIL_POOL.active_head, 0);
     let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
     // Dirty the boss fields so the init must actually write them.
     bus.write8(0x7E_0000 | (blk + AL_HP), 0x11);
     bus.write8(0x7E_0000 | (blk + AL_LIFECNT), 0x22);
     // boss2_Istrat assumes s_start_strat's 8-bit A (p=$20), X = boss block.
-    call(&mut bus, RETAIL_BOSS2_ISTRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        RETAIL_BOSS2_ISTRAT,
+        &Entry {
+            x: blk as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     let free_after = walk_freelist(&bus, &RETAIL_POOL).len();
     let spawned = free_before - free_after;
 
@@ -4434,19 +7242,29 @@ fn retail_boss2_init_vs_port() {
     let r_coll = wram8(&bus, blk + AL_COLLFLAGS);
     let r_sf = wram8(&bus, blk + AL_SFLAGS);
     let r_sf2 = wram8(&bus, blk + AL_SFLAGS2);
-    let r_sptr = bus.wram_read16(blk + AL_STRATPTR) as u32 | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
+    let r_sptr = bus.wram_read16(blk + AL_STRATPTR) as u32
+        | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
 
     // Port init.
     let (g, idx, _tick) = port_boss2_init();
     let pa = g.objs.aliens[idx as usize];
-    let p_children = g.objs.aliens.iter().enumerate().filter(|(i, a)| *i != idx as usize && a.active).count();
+    let p_children = g
+        .objs
+        .aliens
+        .iter()
+        .enumerate()
+        .filter(|(i, a)| *i != idx as usize && a.active)
+        .count();
     eprintln!(
         "BOSS2 init: retail hp=${r_hp:02X} ap=${r_ap:02X} lifecnt={r_life} coll=${r_coll:02X} sflags=${r_sf:02X} sflags2=${r_sf2:02X} stratptr=${r_sptr:06X} children={spawned} | port hp=${:02X} ap=${:02X} count={} coll=${:02X} sflags=${:02X} children={p_children}",
         pa.hp, pa.ap, pa.count, pa.collflags, pa.sflags
     );
 
     // Spawn observable: 9 children (1 top + 4 petals + 4 turrets), both sides.
-    assert_eq!(spawned, 9, "retail boss2_Istrat spawned 1 top + 4 petals + 4 turrets");
+    assert_eq!(
+        spawned, 9,
+        "retail boss2_Istrat spawned 1 top + 4 petals + 4 turrets"
+    );
     assert_eq!(p_children, 9, "port boss2 init spawned 9 children");
     // HP / AP / lifecnt — identical scalar values.
     assert_eq!(r_hp, 0xFF, "retail boss2 HP = hardHP");
@@ -4457,15 +7275,26 @@ fn retail_boss2_init_vs_port() {
     assert_eq!(r_life as u8, pa.count, "boss2 lifecnt matches port count");
     // colltype (enemy1|enemyweap) set — retail bit layout; port re-derives its own
     // encoding, so certify the EFFECT (both nonzero), like boss8.
-    assert_eq!(r_coll & (0x10 | 0x40), 0x50, "retail boss2 set enemy1|enemyweap");
+    assert_eq!(
+        r_coll & (0x10 | 0x40),
+        0x50,
+        "retail boss2 set enemy1|enemyweap"
+    );
     assert_ne!(pa.collflags, 0, "port boss2 set colltype");
     // sflags: colldisable (sflags2 $01) + shadow (sflags $08) — retail; port sets
     // its own ASF_COLLDISABLE|ASF_SHADOW.
-    assert_eq!(r_sf2 & 0x01, 0x01, "retail boss2 set colldisable (sflags2 $01)");
+    assert_eq!(
+        r_sf2 & 0x01,
+        0x01,
+        "retail boss2 set colldisable (sflags2 $01)"
+    );
     assert_eq!(r_sf & 0x08, 0x08, "retail boss2 set shadow (sflags $08)");
     assert_ne!(pa.sflags, 0, "port boss2 set sflags");
     // stratptr installed = boss2_strat.
-    assert_eq!(r_sptr, RETAIL_BOSS2_STRAT, "retail boss2 installed boss2_strat");
+    assert_eq!(
+        r_sptr, RETAIL_BOSS2_STRAT,
+        "retail boss2 installed boss2_strat"
+    );
     eprintln!("BOSS2 init: MATCH — retail boss2_Istrat HP/AP/lifecnt/colltype/sflags/stratptr + 9-child spawn == port strat_boss2_init.");
 }
 
@@ -4486,7 +7315,7 @@ fn retail_boss2_wait_body_vs_port() {
     let Some(rom) = retail() else { return };
     // (wz0, ry0, playervel_z, pviewvelz, pz_player, N).
     let cases: [(i16, u8, i16, i16, i16, u32); 2] = [
-        (0, 0, 0, 300, 0, 30),        // static worldz (keeprelto+addz cancel), roty ramp
+        (0, 0, 0, 300, 0, 30), // static worldz (keeprelto+addz cancel), roty ramp
         (500, 100, -40, 150, 500, 25), // worldz drifts -1000 (|dz| < 1100), roty ramp from 100
     ];
     for (wz0, ry0, pvelz, pviewvelz, pz_player, n) in cases {
@@ -4512,7 +7341,9 @@ fn retail_boss2_wait_body_vs_port() {
         g.objs.aliens[pl as usize].worldz = pz_player;
         let boss = g.objs.alloc().expect("boss slot");
         g.call_strat(ids.boss2, boss);
-        let tick = g.objs.aliens[boss as usize].stratptr.expect("boss2_strat armed");
+        let tick = g.objs.aliens[boss as usize]
+            .stratptr
+            .expect("boss2_strat armed");
         {
             let al = &mut g.objs.aliens[boss as usize];
             al.stratstate = 0;
@@ -4529,7 +7360,15 @@ fn retail_boss2_wait_body_vs_port() {
         for t in 1..=n {
             let gf = t as u16;
             // Retail tick.
-            call(&mut bus, RETAIL_BOSS2_STRAT, &Entry { x: boss_blk as u16, p: 0x20, ..Default::default() });
+            call(
+                &mut bus,
+                RETAIL_BOSS2_STRAT,
+                &Entry {
+                    x: boss_blk as u16,
+                    p: 0x20,
+                    ..Default::default()
+                },
+            );
             let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
             let r_roty = wram8(&bus, boss_blk + AL_ROTY);
             let r_sf2 = wram8(&bus, boss_blk + AL_SFLAGS2) & (B2_SFLAG4 | B2_SFLAG1);
@@ -4560,15 +7399,1146 @@ fn retail_boss2_wait_body_vs_port() {
             Some((t, f, r, p)) => panic!("boss2_strat state-0 diverged tick {t} field {f}: retail={r} port={p}"),
         }
         // worldz drift == N * playervel_z (view-track via keeprelto + add_playerZ).
-        assert_eq!(r_wz, wz0.wrapping_add((n as i16).wrapping_mul(pvelz)), "retail worldz += playervel_z/tick");
-        assert_eq!(r_roty, ry0.wrapping_add((n as u8).wrapping_mul(4)), "retail roty += 4/tick");
+        assert_eq!(
+            r_wz,
+            wz0.wrapping_add((n as i16).wrapping_mul(pvelz)),
+            "retail worldz += playervel_z/tick"
+        );
+        assert_eq!(
+            r_roty,
+            ry0.wrapping_add((n as u8).wrapping_mul(4)),
+            "retail roty += 4/tick"
+        );
     }
 }
 
+/// MILESTONE — locate boss2 stratstate / svar_byte5 WRAM from `boss2_strat` bytes.
+#[test]
+fn retail_boss2_state_addresses() {
+    let Some(rom) = retail() else { return };
+    let o = (((RETAIL_BOSS2_STRAT >> 16) & 0x7F) << 15 | (RETAIL_BOSS2_STRAT & 0x7FFF)) as usize;
+    // boss2_strat prologue: stz svar_byte5; …; lda stratstate,x; cmp #0
+    assert_eq!(rom[o], 0x9C, "stz svar_byte5");
+    let svar = rom[o + 1] as u32 | ((rom[o + 2] as u32) << 8);
+    assert_eq!(svar, RETAIL_SVAR_BYTE5, "svar_byte5 from stz operand");
+    // First `lda $1CDC,x` (stratstate) before cmp #0.
+    let mut found = None;
+    for i in 0..0x40 {
+        if rom[o + i] == 0xBD {
+            let a = rom[o + i + 1] as u32 | ((rom[o + i + 2] as u32) << 8);
+            if a == RETAIL_AL_STRATSTATE {
+                found = Some(i);
+                break;
+            }
+        }
+    }
+    assert!(found.is_some(), "boss2_strat reads al_stratstate @$1CDC,x");
+    eprintln!(
+        "BOSS2 state: stratstate=${:04X},x svar_byte5=${:04X} al_ptr=${:02X} al_sword2=${:02X}",
+        RETAIL_AL_STRATSTATE, RETAIL_SVAR_BYTE5, AL_PTR, AL_SWORD2
+    );
+}
+
+fn wram8_b2(bus: &SnesBus, addr: u32) -> u8 {
+    bus.read8(0x7E_0000 | addr)
+}
+
+/// CAPSTONE — boss2 states 1 (leap entry), 2 (slam physics), 3 (back-away).
+///
+/// Pure-CPU residuals of the phase machine (no GSU). Particle spawn is skipped
+/// by leaving the freelist empty (`al_ptr` stays 0). State-4 laser / state-5
+/// death remain the documented gap.
+#[test]
+fn retail_boss2_states_1_3_vs_port() {
+    let Some(rom) = retail() else { return };
+
+    // ----- (1) state 1 leap entry → falls into state 2 same tick -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 0);
+        bus.wram_write16(RETAIL_PLAYERVEL_Z, 0);
+        bus.wram_write16(RETAIL_PLAYER_POSX, 0);
+        bus.wram_write16(RETAIL_PLAYER_POSZ, 0);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldx, 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 10);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS2), B2_SFLAG4 | B2_SFLAG1); // sflag4 set; sflag1 skips state0 sound paths
+        bus.wram_write16(boss_blk + AL_SWORD1, 0); // 0 children
+        bus.wram_write16(boss_blk + AL_PTR, 0);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 1);
+        // Empty freelist so make_obj in state 1 fails (.badobj).
+        bus.wram_write16(RETAIL_POOL.freelist_head, 0);
+
+        call(
+            &mut bus,
+            RETAIL_BOSS2_STRAT,
+            &Entry {
+                x: boss_blk as u16,
+                p: 0x20,
+                dbr: 0x7E,
+                ..Default::default()
+            },
+        );
+        let r_st = wram8_b2(&bus, RETAIL_AL_STRATSTATE.wrapping_add(boss_blk));
+        let r_sf4 = wram8_b2(&bus, boss_blk + AL_SFLAGS2) & B2_SFLAG4;
+        let r_vx = bus.wram_read16(boss_blk + AL_VX) as i16;
+        let r_vy = bus.wram_read16(boss_blk + AL_VY) as i16;
+        let r_vz = bus.wram_read16(boss_blk + AL_VZ) as i16;
+        let r_sw2 = bus.wram_read16(boss_blk + AL_SWORD2) as i16;
+        let r_wy = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldy) as i16;
+        let r_ry = wram8_b2(&bus, boss_blk + AL_ROTY);
+        // state1 sets vy=-80, advances to 2; state2 add_vecs + falldown(+2 gravity)
+        // → worldy=-80, vy=-78; .end roty+=2.
+        assert_eq!(r_st, 2, "retail state1→2 same tick");
+        assert_eq!(r_sf4, 0, "retail leap clears sflag4");
+        assert_eq!(r_vx, 0);
+        assert_eq!(r_vz, 0);
+        assert_eq!(r_sw2, 0, "retail sword2 ground=0");
+        assert_eq!(r_vy, -78, "retail vy after leap+gravity");
+        assert_eq!(r_wy, -80, "retail worldy after leap vec");
+        assert_eq!(r_ry, 12, "retail .end roty+=2");
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().expect("player");
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().expect("boss");
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.expect("armed");
+        // Drop children so count==0 (matches retail sword1=0); pin state 1 seed.
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 1;
+            al.sword1 = 0;
+            al.ptr = 0;
+            al.worldx = 0;
+            al.worldy = 0;
+            al.worldz = 0;
+            al.roty = 10;
+            al.sflags2 = B2_SFLAG4 | B2_SFLAG1;
+            al.vx = 99;
+            al.vy = 99;
+            al.vz = 99;
+            al.sword2 = 99;
+        }
+        g.vars.pviewvelz = 0;
+        g.vars.playervel_z = 0;
+        g.vars.player_posx = 0;
+        g.vars.player_posz = 0;
+        // Exhaust freelist so particle make_obj fails like retail.
+        while g.objs.alloc().is_some() {}
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratstate, 2);
+        assert_eq!(pa.sflags2 & B2_SFLAG4, 0);
+        assert_eq!(pa.vx, 0);
+        assert_eq!(pa.vy, -78);
+        assert_eq!(pa.vz, 0);
+        assert_eq!(pa.sword2, 0);
+        assert_eq!(pa.worldy, -80);
+        assert_eq!(pa.roty, 12);
+        assert_eq!(r_vy, pa.vy);
+        assert_eq!(r_wy, pa.worldy);
+        eprintln!("BOSS2 state1 leap: MATCH — →state2 sflag4 clear vy/worldy/roty");
+    }
+
+    // ----- (2) state 2 slam physics (ptr=0), high flip path -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 10);
+        bus.wram_write16(RETAIL_PLAYER_POSX, 400);
+        bus.wram_write16(RETAIL_PLAYER_POSZ, 1000);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldx, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, (-2000i16) as u16); // < -1000 → flip
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.wram_write16(boss_blk + AL_VX, 0);
+        bus.wram_write16(boss_blk + AL_VY, (-40i16) as u16);
+        bus.wram_write16(boss_blk + AL_VZ, 0);
+        bus.wram_write16(boss_blk + AL_SWORD2, ((-60i16) << 3) as u16); // -480 ground
+        bus.wram_write16(boss_blk + AL_PTR, 0);
+        bus.wram_write16(boss_blk + AL_SWORD1, 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTZ), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 0);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 2);
+
+        let n = 5u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 1000;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 2;
+            al.sword1 = 0;
+            al.ptr = 0;
+            al.worldx = 0;
+            al.worldy = -2000;
+            al.worldz = 1000;
+            al.vx = 0;
+            al.vy = -40;
+            al.vz = 0;
+            al.sword2 = -60 << 3;
+            al.rotz = 0;
+            al.roty = 0;
+        }
+        g.vars.pviewvelz = 10;
+        g.vars.player_posx = 400;
+        g.vars.player_posz = 1000;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(
+                &mut bus,
+                RETAIL_BOSS2_STRAT,
+                &Entry {
+                    x: boss_blk as u16,
+                    p: 0x20,
+                    dbr: 0x7E,
+                    ..Default::default()
+                },
+            );
+            g.call_strat(tick, boss);
+            let r_wx = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldx) as i16;
+            let r_wy = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldy) as i16;
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_rz = wram8_b2(&bus, boss_blk + AL_ROTZ);
+            let r_st = wram8_b2(&bus, RETAIL_AL_STRATSTATE.wrapping_add(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wx != pa.worldx {
+                    first_div = Some((t, "worldx", r_wx as i32, pa.worldx as i32));
+                } else if r_wy != pa.worldy {
+                    first_div = Some((t, "worldy", r_wy as i32, pa.worldy as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_rz != pa.rotz {
+                    first_div = Some((t, "rotz", r_rz as i32, pa.rotz as i32));
+                } else if r_st != pa.stratstate {
+                    first_div = Some((t, "state", r_st as i32, pa.stratstate as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!(
+                "BOSS2 state2 slam: MATCH — flip chase + falldown over {n} ticks (rotz=deg180 path)"
+            ),
+            Some((t, f, r, p)) => {
+                panic!("boss2 state2 diverged tick {t} field {f}: retail={r} port={p}")
+            }
+        }
+        assert_eq!(
+            wram8_b2(&bus, boss_blk + AL_ROTZ),
+            0x80,
+            "retail flip sets rotz=deg180"
+        );
+    }
+
+    // ----- (3) state 3 back-away, stay in-state (|dz|<1100) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        let wz0 = 500i16;
+        let pz = 500i16; // |dz|=0 < 1100
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 5);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, pz as u16);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldx, 200);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, wz0 as u16);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE4), 0xEE);
+        bus.wram_write16(boss_blk + AL_SWORD1, 0);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 3);
+
+        let n = 20u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = pz;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 3;
+            al.sword1 = 0;
+            al.worldx = 200;
+            al.worldz = wz0;
+            al.roty = 0;
+            al.sbyte4 = 0xEE;
+        }
+        g.vars.pviewvelz = 5;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(
+                &mut bus,
+                RETAIL_BOSS2_STRAT,
+                &Entry {
+                    x: boss_blk as u16,
+                    p: 0x20,
+                    dbr: 0x7E,
+                    ..Default::default()
+                },
+            );
+            g.call_strat(tick, boss);
+            let r_wx = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldx) as i16;
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_sb4 = wram8_b2(&bus, boss_blk + AL_SBYTE4);
+            let r_st = wram8_b2(&bus, RETAIL_AL_STRATSTATE.wrapping_add(boss_blk));
+            let r_ry = wram8_b2(&bus, boss_blk + AL_ROTY);
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wx != pa.worldx {
+                    first_div = Some((t, "worldx", r_wx as i32, pa.worldx as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_sb4 != pa.sbyte4 {
+                    first_div = Some((t, "sbyte4", r_sb4 as i32, pa.sbyte4 as i32));
+                } else if r_st != pa.stratstate {
+                    first_div = Some((t, "state", r_st as i32, pa.stratstate as i32));
+                } else if r_ry != pa.roty {
+                    first_div = Some((t, "roty", r_ry as i32, pa.roty as i32));
+                }
+            }
+        }
+        let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+        let r_wx = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldx) as i16;
+        match first_div {
+            None => eprintln!(
+                "BOSS2 state3 back-away: MATCH — achase x→0 + z+=pviewvelz+30 over {n} ticks (final wx={r_wx} wz={r_wz})"
+            ),
+            Some((t, f, r, p)) => panic!("boss2 state3 diverged tick {t} field {f}: retail={r} port={p}"),
+        }
+        assert_eq!(
+            wram8_b2(&bus, RETAIL_AL_STRATSTATE.wrapping_add(boss_blk)),
+            3,
+            "stays state3 while |dz|<1100"
+        );
+        assert_eq!(wram8_b2(&bus, boss_blk + AL_SBYTE4), 25);
+        // worldz += (pviewvelz + 30) per tick
+        assert_eq!(r_wz, wz0.wrapping_add((n as i16).wrapping_mul(5 + 30)));
+    }
+
+    eprintln!("BOSS2 states 1–3: MATCH — leap entry + slam physics + back-away == port");
+}
+
+/// CAPSTONE — boss2 states 4 (strafe circle, non-fire) + 5 (player-dead fall).
+///
+/// State 4 keeps a dummy top child (#1) so it does not fall into state 5; fire
+/// band avoided (`sbyte4` stays >25). State 5 uses `psf2_playerHP0` set so the
+/// exp/RNG death path is skipped — pure falldown + add_playerZ.
+#[test]
+fn retail_boss2_states_4_5_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |boss_blk: u32| Entry {
+        x: boss_blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+
+    // ----- (1) state 4 circle, non-fire, top child present -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        let top_blk = RETAIL_POOL.base + RETAIL_POOL.stride * 2;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 8);
+        // |dz| = 800 >= 500 → skip z-hold.
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 800);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldx, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, 0);
+        bus.wram_write16(boss_blk + AL_VX, 0);
+        bus.wram_write16(boss_blk + AL_VY, 0);
+        bus.wram_write16(boss_blk + AL_VZ, 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE2), 16);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE3), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE4), 90); // >25 for N=20
+                                                            // sflag1|sflag3 set → skip spin trigse; sflag3 already latched.
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS2), B2_SFLAG1 | B2_SFLAG3);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 4);
+        // Dummy top child #1 on the sword1 chain (WRAM ptr link).
+        bus.wram_write16(boss_blk + AL_SWORD1, top_blk as u16);
+        bus.wram_write16(top_blk + AL_SWORD1, 0);
+        bus.write8(0x7E_0000 | (top_blk + AL_SBYTE1), 1);
+
+        let n = 20u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        // Replace init children with a single top child #1.
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        let top = g.objs.alloc().expect("top child");
+        assert!(sf_strat::enemy_a::boss_attach_child_to_mother(
+            &mut g, boss, top, 1
+        ));
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 4;
+            al.worldx = 0;
+            al.worldy = 0;
+            al.worldz = 800;
+            al.vx = 0;
+            al.vy = 0;
+            al.vz = 0;
+            al.roty = 0;
+            al.sbyte2 = 16;
+            al.sbyte3 = 0;
+            al.sbyte4 = 90;
+            al.sflags2 = B2_SFLAG1 | B2_SFLAG3;
+            al.sflags |= sf_game::alien::ASF_COLLDISABLE;
+        }
+        g.vars.pviewvelz = 8;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_wx = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldx) as i16;
+            let r_vx = bus.wram_read16(boss_blk + AL_VX) as i16;
+            let r_vz = bus.wram_read16(boss_blk + AL_VZ) as i16;
+            let r_ry = wram8_b2(&bus, boss_blk + AL_ROTY);
+            let r_sb2 = wram8_b2(&bus, boss_blk + AL_SBYTE2);
+            let r_sb3 = wram8_b2(&bus, boss_blk + AL_SBYTE3);
+            let r_sb4 = wram8_b2(&bus, boss_blk + AL_SBYTE4);
+            let r_st = wram8_b2(&bus, RETAIL_AL_STRATSTATE.wrapping_add(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_st != pa.stratstate {
+                    first_div = Some((t, "state", r_st as i32, pa.stratstate as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_wx != pa.worldx {
+                    first_div = Some((t, "worldx", r_wx as i32, pa.worldx as i32));
+                } else if r_vx != pa.vx {
+                    first_div = Some((t, "vx", r_vx as i32, pa.vx as i32));
+                } else if r_vz != pa.vz {
+                    first_div = Some((t, "vz", r_vz as i32, pa.vz as i32));
+                } else if r_ry != pa.roty {
+                    first_div = Some((t, "roty", r_ry as i32, pa.roty as i32));
+                } else if r_sb2 != pa.sbyte2 {
+                    first_div = Some((t, "sbyte2", r_sb2 as i32, pa.sbyte2 as i32));
+                } else if r_sb3 != pa.sbyte3 {
+                    first_div = Some((t, "sbyte3", r_sb3 as i32, pa.sbyte3 as i32));
+                } else if r_sb4 != pa.sbyte4 {
+                    first_div = Some((t, "sbyte4", r_sb4 as i32, pa.sbyte4 as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!(
+                "BOSS2 state4 circle: MATCH — sintab/costab vx/vz + roty+=6 + sbyte2 ramp over {n} ticks"
+            ),
+            Some((t, f, r, p)) => {
+                panic!("boss2 state4 diverged tick {t} field {f}: retail={r} port={p}")
+            }
+        }
+        assert_eq!(
+            wram8_b2(&bus, RETAIL_AL_STRATSTATE.wrapping_add(boss_blk)),
+            4,
+            "stays state4 with top child"
+        );
+        assert_eq!(wram8_b2(&bus, boss_blk + AL_SBYTE3), 4);
+        assert_eq!(wram8_b2(&bus, boss_blk + AL_SBYTE4), 70); // 90-20
+    }
+
+    // ----- (2) state 4 → 5 when top child missing -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 0);
+        bus.write8(0x7E_0000 | RETAIL_PSHIPFLAGS2, 0x80); // player dead → quiet state5
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 800);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, (-2000i16) as u16);
+        bus.wram_write16(boss_blk + AL_SWORD1, 0); // no children
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE4), 90);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS2), B2_SFLAG1 | B2_SFLAG3);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 4);
+
+        call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+        let r_st = wram8_b2(&bus, RETAIL_AL_STRATSTATE.wrapping_add(boss_blk));
+        let r_vx = bus.wram_read16(boss_blk + AL_VX) as i16;
+        let r_vy = bus.wram_read16(boss_blk + AL_VY) as i16;
+        let r_vz = bus.wram_read16(boss_blk + AL_VZ) as i16;
+        // Transition sets vecs #0,#10,#30 then state5 player-dead falldown
+        // (vy += 1) while still airborne (worldy << ground) → vy=11.
+        assert_eq!(r_st, 5, "retail state4→5 without top");
+        assert_eq!(r_vx, 0);
+        assert_eq!(r_vz, 30);
+        assert_eq!(
+            r_vy, 11,
+            "retail state5 dead-path gravity on transition vecs"
+        );
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 4;
+            al.sword1 = 0;
+            al.worldz = 800;
+            al.worldy = -2000;
+            al.sbyte4 = 90;
+            al.sflags2 = B2_SFLAG1 | B2_SFLAG3;
+            al.vx = 0;
+            al.vy = 0;
+            al.vz = 0;
+        }
+        g.vars.pviewvelz = 0;
+        g.vars.pshipflags2 |= 0x80;
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratstate, 5);
+        assert_eq!(pa.vx, 0);
+        assert_eq!(pa.vz, 30);
+        assert_eq!(pa.vy, 11);
+        assert_eq!(r_vy, pa.vy);
+        eprintln!("BOSS2 state4→5: MATCH — no-top transition vecs + dead-path gravity");
+    }
+
+    // ----- (3) state 5 player-dead: falldown + add_playerZ only -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 12);
+        bus.write8(0x7E_0000 | RETAIL_PSHIPFLAGS2, 0x80);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, (-200i16) as u16);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.wram_write16(boss_blk + AL_VX, 0);
+        bus.wram_write16(boss_blk + AL_VY, 5);
+        bus.wram_write16(boss_blk + AL_VZ, 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 0);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 5);
+        bus.wram_write16(boss_blk + AL_SWORD1, 0);
+
+        let n = 15u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 5;
+            al.sword1 = 0;
+            al.worldy = -200;
+            al.worldz = 1000;
+            al.vx = 0;
+            al.vy = 5;
+            al.vz = 0;
+            al.roty = 0;
+        }
+        g.vars.pviewvelz = 12;
+        g.vars.pshipflags2 |= 0x80;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wy = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldy) as i16;
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_vy = bus.wram_read16(boss_blk + AL_VY) as i16;
+            let r_ry = wram8_b2(&bus, boss_blk + AL_ROTY);
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wy != pa.worldy {
+                    first_div = Some((t, "worldy", r_wy as i32, pa.worldy as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_vy != pa.vy {
+                    first_div = Some((t, "vy", r_vy as i32, pa.vy as i32));
+                } else if r_ry != pa.roty {
+                    first_div = Some((t, "roty", r_ry as i32, pa.roty as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!(
+                "BOSS2 state5 dead: MATCH — falldown + add_playerZ + .end roty over {n} ticks"
+            ),
+            Some((t, f, r, p)) => {
+                panic!("boss2 state5 diverged tick {t} field {f}: retail={r} port={p}")
+            }
+        }
+        // worldz += pviewvelz/tick; roty += 2/tick; still airborne (ground = -240).
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            1000i16.wrapping_add((n as i16).wrapping_mul(12))
+        );
+        assert_eq!(
+            wram8_b2(&bus, boss_blk + AL_ROTY),
+            (n as u8).wrapping_mul(2)
+        );
+    }
+
+    eprintln!("BOSS2 states 4–5: MATCH — circle non-fire + no-top→5 + player-dead fall == port");
+}
+
+/// CAPSTONE — boss2 state-4 fire-band (`sbyte4≤25` → `RELFASTELASER`).
+///
+/// GBSTRATS.ASM:636-645: dec sbyte4 (reload 100 at 0); if `sbyte4 > 25` →
+/// `.nfire` circle motion; else `s_jmp_notdelay 1,.stop` (fire only when
+/// `gameframe & 1 == 0`) then `weapon_rndrots2obj` mask 7,7 + `RELFASTELASER`
+/// (HP=1, AP=`enemylaserAP`=2, vel=90, life=40). Laserflash may also allocate;
+/// we identify the shot by scalars (RNG aim undiffed).
+#[test]
+fn retail_boss2_fireband_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |boss_blk: u32| Entry {
+        x: boss_blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+    let take_free = |bus: &mut SnesBus| -> u32 {
+        let free = walk_freelist(bus, &RETAIL_POOL);
+        assert!(!free.is_empty(), "freelist empty");
+        let blk = free[0] as u32;
+        bus.wram_write16(
+            RETAIL_POOL.freelist_head,
+            bus.wram_read16(blk + RETAIL_POOL.al_next),
+        );
+        bus.wram_write16(blk + RETAIL_POOL.al_next, 0);
+        blk
+    };
+    let seed_state4 = |bus: &mut SnesBus,
+                       player_blk: u32,
+                       boss_blk: u32,
+                       top_blk: u32,
+                       sbyte4: u8,
+                       gameframe: u16| {
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 0);
+        bus.wram_write16(RETAIL_GAMEFRAME, gameframe);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldx, 0);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldy, 0);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldx, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, (-200i16) as u16);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 800);
+        bus.wram_write16(boss_blk + AL_VX, 0);
+        bus.wram_write16(boss_blk + AL_VY, 0);
+        bus.wram_write16(boss_blk + AL_VZ, 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTX), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTZ), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE2), 16);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE3), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE4), sbyte4);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS2), B2_SFLAG1 | B2_SFLAG3);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 4);
+        bus.wram_write16(boss_blk + AL_SWORD1, top_blk as u16);
+        bus.wram_write16(top_blk + AL_SWORD1, 0);
+        bus.write8(0x7E_0000 | (top_blk + AL_SBYTE1), 1);
+        seed_retail_rng(bus, [0x11, 0x22, 0x33, 0x44]);
+    };
+    let is_relfast = |bus: &SnesBus, blk: u32| -> bool {
+        wram8(bus, blk + AL_HP) == 1
+            && wram8(bus, blk + AL_AP) == 2
+            && wram8(bus, blk + AL_VEL) == 90
+            && wram8(bus, blk + AL_LIFECNT) == 40
+    };
+    let port_setup =
+        |sbyte4: u8, gameframe: u16| -> (sf_game::game::Game, u16, sf_game::alien::StratId) {
+            let mut g = sf_game::game::Game::new();
+            let ids = sf_strat::bosses::install_bosses(&mut g);
+            let pl = g.objs.alloc().unwrap();
+            assert_eq!(pl, 0, "player must be slot 0");
+            g.objs.aliens[pl as usize].worldx = 0;
+            g.objs.aliens[pl as usize].worldy = 0;
+            g.objs.aliens[pl as usize].worldz = 0;
+            let boss = g.objs.alloc().unwrap();
+            g.call_strat(ids.boss2, boss);
+            let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+            g.objs.aliens[boss as usize].sword1 = 0;
+            for i in 0..g.objs.aliens.len() {
+                if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                    g.objs.free(i as u16);
+                }
+            }
+            let top = g.objs.alloc().expect("top child");
+            assert!(sf_strat::enemy_a::boss_attach_child_to_mother(
+                &mut g, boss, top, 1
+            ));
+            {
+                let al = &mut g.objs.aliens[boss as usize];
+                al.stratstate = 4;
+                al.worldx = 0;
+                al.worldy = -200;
+                al.worldz = 800;
+                al.vx = 0;
+                al.vy = 0;
+                al.vz = 0;
+                al.rotx = 0;
+                al.roty = 0;
+                al.rotz = 0;
+                al.sbyte2 = 16;
+                al.sbyte3 = 0;
+                al.sbyte4 = sbyte4;
+                al.sflags2 = B2_SFLAG1 | B2_SFLAG3;
+                al.sflags |= sf_game::alien::ASF_COLLDISABLE;
+            }
+            g.vars.pviewvelz = 0;
+            g.vars.gameframe = gameframe;
+            g.vars.rng = [0x11, 0x22, 0x33, 0x44];
+            (g, boss, tick)
+        };
+
+    // ----- (1) sbyte4 in band + even gameframe → one RELFASTELASER -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        init_object_pool(&mut bus);
+        let player_blk = take_free(&mut bus);
+        let boss_blk = take_free(&mut bus);
+        let top_blk = take_free(&mut bus);
+        seed_state4(&mut bus, player_blk, boss_blk, top_blk, 20, 0);
+        let free_before: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+        let free_after: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        let spawned: Vec<u32> = free_before
+            .difference(&free_after)
+            .map(|&b| b as u32)
+            .collect();
+        assert!(!spawned.is_empty(), "retail fire-band must allocate");
+        let shot = *spawned
+            .iter()
+            .find(|&&s| is_relfast(&bus, s))
+            .expect("retail RELFASTELASER among spawns");
+        let r_hp = wram8(&bus, shot + AL_HP);
+        let r_ap = wram8(&bus, shot + AL_AP);
+        let r_vel = wram8(&bus, shot + AL_VEL);
+        let r_life = wram8(&bus, shot + AL_LIFECNT);
+        let r_sb4 = wram8_b2(&bus, boss_blk + AL_SBYTE4);
+        assert_eq!(r_hp, 1);
+        assert_eq!(r_ap, 2);
+        assert_eq!(r_vel, 90);
+        assert_eq!(r_life, 40);
+        assert_eq!(r_sb4, 19, "retail sbyte4 20→19 after dec");
+
+        let (mut g, boss, tick) = port_setup(20, 0);
+        let active_before = g.objs.aliens.iter().filter(|a| a.active).count();
+        g.call_strat(tick, boss);
+        let shots: Vec<_> = g
+            .objs
+            .aliens
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.active && a.vel == 90 && a.ap == 2 && a.hp == 1 && a.count == 40)
+            .map(|(_, a)| a)
+            .collect();
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count() - active_before,
+            1,
+            "port fire-band fires one laser (no flash twin)"
+        );
+        assert_eq!(shots.len(), 1);
+        let ps = shots[0];
+        assert_eq!(ps.hp, r_hp);
+        assert_eq!(ps.ap, r_ap);
+        assert_eq!(ps.vel, r_vel);
+        assert_eq!(ps.count, r_life);
+        assert_eq!(g.objs.aliens[boss as usize].sbyte4, r_sb4);
+        eprintln!("BOSS2 fire-band even: MATCH — RELFASTELASER HP/AP/vel/life + sbyte4");
+    }
+
+    // ----- (2) sbyte4 > 25 → no fire (circle path) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        init_object_pool(&mut bus);
+        let player_blk = take_free(&mut bus);
+        let boss_blk = take_free(&mut bus);
+        let top_blk = take_free(&mut bus);
+        seed_state4(&mut bus, player_blk, boss_blk, top_blk, 50, 0);
+        let n_before = walk_freelist(&bus, &RETAIL_POOL).len();
+        call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+        assert_eq!(
+            walk_freelist(&bus, &RETAIL_POOL).len(),
+            n_before,
+            "retail sbyte4>25 no RELFASTELASER"
+        );
+        assert_eq!(wram8_b2(&bus, boss_blk + AL_SBYTE4), 49);
+
+        let (mut g, boss, tick) = port_setup(50, 0);
+        let n0 = g.objs.aliens.iter().filter(|a| a.active).count();
+        g.call_strat(tick, boss);
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count(),
+            n0,
+            "port sbyte4>25 no fire"
+        );
+        assert_eq!(g.objs.aliens[boss as usize].sbyte4, 49);
+        eprintln!("BOSS2 fire-band sbyte4>25: MATCH — no fire");
+    }
+
+    // ----- (3) fire band + odd gameframe → no fire (notdelay 1) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        init_object_pool(&mut bus);
+        let player_blk = take_free(&mut bus);
+        let boss_blk = take_free(&mut bus);
+        let top_blk = take_free(&mut bus);
+        seed_state4(&mut bus, player_blk, boss_blk, top_blk, 20, 1);
+        let n_before = walk_freelist(&bus, &RETAIL_POOL).len();
+        call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+        assert_eq!(
+            walk_freelist(&bus, &RETAIL_POOL).len(),
+            n_before,
+            "retail odd frame no RELFASTELASER"
+        );
+        assert_eq!(wram8_b2(&bus, boss_blk + AL_SBYTE4), 19);
+
+        let (mut g, boss, tick) = port_setup(20, 1);
+        let n0 = g.objs.aliens.iter().filter(|a| a.active).count();
+        g.call_strat(tick, boss);
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count(),
+            n0,
+            "port odd frame no fire"
+        );
+        assert_eq!(g.objs.aliens[boss as usize].sbyte4, 19);
+        eprintln!("BOSS2 fire-band odd frame: MATCH — notdelay skips fire");
+    }
+
+    eprintln!(
+        "BOSS2 fire-band: MATCH — sbyte4≤25 + even frame fires RELFASTELASER; >25 / odd quiet"
+    );
+}
+
+/// CAPSTONE — boss2 state-5 player-alive death (`.dodie`).
+///
+/// GBSTRATS.ASM:675-693: `s_jmp_ifplayeralive .dodie` → `s_boss_dying`
+/// (bossflags|bf_dying, pstratflags|pstf_notdie) + falldown ground=`-30<<3`;
+/// while airborne `makeLexpobj` (lifecnt=1, vy=-20, nopolyexp) + addvecs +
+/// even-frame hitflash; on settle `kill_Istrat` (hp=0/colldisable) — NOT
+/// `boss2exp` (expstrat only). Player-dead path already certified tick 231.
+#[test]
+fn retail_boss2_alive_death_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |boss_blk: u32| Entry {
+        x: boss_blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+    let take_free = |bus: &mut SnesBus| -> u32 {
+        let free = walk_freelist(bus, &RETAIL_POOL);
+        assert!(!free.is_empty());
+        let blk = free[0] as u32;
+        bus.wram_write16(
+            RETAIL_POOL.freelist_head,
+            bus.wram_read16(blk + RETAIL_POOL.al_next),
+        );
+        bus.wram_write16(blk + RETAIL_POOL.al_next, 0);
+        blk
+    };
+    const BF_DYING: u8 = 0x10;
+    const PSTF_NOTDIE: u8 = 0x20;
+    const GROUND: i16 = -240; // -30 << boss2_scale(3)
+
+    // ----- (1) airborne alive: boss_dying + one Lexp + motion + hitflash -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        init_object_pool(&mut bus);
+        let player_blk = take_free(&mut bus);
+        let boss_blk = take_free(&mut bus);
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 8);
+        bus.wram_write16(RETAIL_GAMEFRAME, 0); // even → hitflash
+        bus.write8(0x7E_0000 | RETAIL_PSHIPFLAGS2, 0); // player alive
+        bus.write8(0x7E_0000 | RETAIL_BOSSFLAGS, 0);
+        bus.write8(0x7E_0000 | RETAIL_PSTRATFLAGS, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldx, 0);
+        // Y grows downward; the -240 ground plane means -300 is airborne.
+        // (-200 is already below the plane and immediately takes kill_Istrat.)
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, (-300i16) as u16);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.wram_write16(boss_blk + AL_VX, 0);
+        bus.wram_write16(boss_blk + AL_VY, 5);
+        bus.wram_write16(boss_blk + AL_VZ, 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0xFF);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 5);
+        bus.wram_write16(boss_blk + AL_SWORD1, 0);
+        seed_retail_rng(&mut bus, [0x55, 0x66, 0x77, 0x88]);
+
+        let free_before: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+        let free_after: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        let spawned: Vec<u32> = free_before
+            .difference(&free_after)
+            .map(|&b| b as u32)
+            .collect();
+        assert_eq!(spawned.len(), 1, "retail airborne .dodie spawns one Lexp");
+        let exp = spawned[0];
+        assert_eq!(wram8(&bus, exp + AL_LIFECNT), 1);
+        assert_eq!(bus.wram_read16(exp + AL_VY) as i16, -20);
+        assert_eq!(wram8(&bus, RETAIL_BOSSFLAGS) & BF_DYING, BF_DYING);
+        assert_eq!(wram8(&bus, RETAIL_PSTRATFLAGS) & PSTF_NOTDIE, PSTF_NOTDIE);
+        let r_wy = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldy) as i16;
+        let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+        let r_vy = bus.wram_read16(boss_blk + AL_VY) as i16;
+        let r_ry = wram8_b2(&bus, boss_blk + AL_ROTY);
+        let r_hf = wram8(&bus, boss_blk + AL_SFLAGS) & ASF_HITFLASH;
+        // Still airborne: vy+=1 then addvecs moves Y by 6; worldz +=
+        // pviewvelz; roty+=2; hitflash.
+        assert_eq!(r_vy, 6);
+        assert_eq!(r_wy, -294);
+        assert_eq!(r_wz, 1008);
+        assert_eq!(r_ry, 2);
+        assert_eq!(r_hf, ASF_HITFLASH);
+        assert!(r_wy < GROUND);
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        assert_eq!(pl, 0);
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 5;
+            al.sword1 = 0;
+            al.worldx = 0;
+            al.worldy = -300;
+            al.worldz = 1000;
+            al.vx = 0;
+            al.vy = 5;
+            al.vz = 0;
+            al.roty = 0;
+            al.sflags = 0;
+            al.hp = 0xFF;
+        }
+        g.vars.pviewvelz = 8;
+        g.vars.gameframe = 0;
+        g.vars.pshipflags2 = 0;
+        g.vars.pstratflags = 0;
+        g.vars.rng = [0x55, 0x66, 0x77, 0x88];
+        sf_strat::enemy_a::set_bossflags(&mut g, 0);
+        let n0 = g.objs.aliens.iter().filter(|a| a.active).count();
+        g.call_strat(tick, boss);
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count() - n0,
+            1,
+            "port airborne .dodie spawns one Lexp"
+        );
+        let pexp = g
+            .objs
+            .aliens
+            .iter()
+            .enumerate()
+            .find(|(i, a)| {
+                a.active && *i as u16 != boss && *i as u16 != pl && a.count == 1 && a.vy == -20
+            })
+            .map(|(_, a)| a)
+            .expect("port Lexp");
+        assert_eq!(pexp.count, 1);
+        assert_eq!(pexp.vy, -20);
+        assert_eq!(sf_strat::enemy_a::bossflags(&g) & BF_DYING, BF_DYING);
+        assert_eq!(g.vars.pstratflags & PSTF_NOTDIE, PSTF_NOTDIE);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.vy, r_vy);
+        assert_eq!(pa.worldy, r_wy);
+        assert_eq!(pa.worldz, r_wz);
+        assert_eq!(pa.roty, r_ry);
+        assert_eq!(pa.sflags & ASF_HITFLASH, r_hf);
+        eprintln!("BOSS2 alive airborne: MATCH — BF_DYING + Lexp + fall/hitflash/roty");
+    }
+
+    // ----- (2) ground settle → kill_Istrat (hp=0), not boss2exp -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        init_object_pool(&mut bus);
+        let player_blk = take_free(&mut bus);
+        let boss_blk = take_free(&mut bus);
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 0);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.write8(0x7E_0000 | RETAIL_PSHIPFLAGS2, 0);
+        bus.write8(0x7E_0000 | RETAIL_BOSSFLAGS, BF_DYING); // already dying
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, GROUND as u16);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.wram_write16(boss_blk + AL_VX, 0);
+        bus.wram_write16(boss_blk + AL_VY, 5); // →6 → bounce →0 → kill
+        bus.wram_write16(boss_blk + AL_VZ, 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0xFF);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS), 0);
+        bus.write8(0x7E_0000 | RETAIL_AL_STRATSTATE.wrapping_add(boss_blk), 5);
+        let n_before = walk_freelist(&bus, &RETAIL_POOL).len();
+        call(&mut bus, RETAIL_BOSS2_STRAT, &entry(boss_blk));
+        assert_eq!(
+            walk_freelist(&bus, &RETAIL_POOL).len(),
+            n_before,
+            "retail settle skips Lexp (JML kill)"
+        );
+        assert_eq!(wram8(&bus, boss_blk + AL_HP), 0, "retail kill_Istrat hp=0");
+        assert_eq!(
+            wram8(&bus, boss_blk + AL_SFLAGS) & 0x01, // colldisable is sflags2…
+            0
+        );
+        // colldisable lives in sflags2 bit0
+        assert_ne!(
+            wram8(&bus, boss_blk + AL_SFLAGS2) & 0x01,
+            0,
+            "retail kill sets colldisable"
+        );
+        // Must NOT have jumped into boss2exp (vecs would be 0,15<<3,0).
+        assert_ne!(
+            bus.wram_read16(boss_blk + AL_VY) as i16,
+            15i16 << 3,
+            "settle is kill not boss2exp"
+        );
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.boss2, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        g.objs.aliens[boss as usize].sword1 = 0;
+        for i in 0..g.objs.aliens.len() {
+            if i as u16 != boss && i as u16 != pl && g.objs.aliens[i].active {
+                g.objs.free(i as u16);
+            }
+        }
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratstate = 5;
+            al.sword1 = 0;
+            al.worldy = GROUND;
+            al.worldz = 1000;
+            al.vx = 0;
+            al.vy = 5;
+            al.vz = 0;
+            al.hp = 0xFF;
+            al.sflags = 0;
+            al.sflags2 = 0;
+        }
+        g.vars.pviewvelz = 0;
+        g.vars.gameframe = 1;
+        g.vars.pshipflags2 = 0;
+        sf_strat::enemy_a::set_bossflags(&mut g, BF_DYING);
+        let n0 = g.objs.aliens.iter().filter(|a| a.active).count();
+        g.call_strat(tick, boss);
+        assert_eq!(
+            g.objs.aliens.iter().filter(|a| a.active).count(),
+            n0,
+            "port settle no Lexp"
+        );
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.hp, 0);
+        assert_ne!(pa.sflags & sf_game::alien::ASF_COLLDISABLE, 0);
+        assert_ne!(pa.vy, 15 << 3, "port settle is kill not boss2exp");
+        eprintln!("BOSS2 alive settle: MATCH — kill_Istrat (hp=0/colldisable), not boss2exp");
+    }
+
+    // Cross-check: retail kill_Istrat address from state-5 falldown settle JML.
+    {
+        let o =
+            (((RETAIL_BOSS2_STRAT >> 16) & 0x7F) << 15 | (RETAIL_BOSS2_STRAT & 0x7FFF)) as usize;
+        // Settle JML sits after the .dodie falldown bounce (see disasm ~+503).
+        let mut found = false;
+        for i in 0x480..0x520 {
+            if rom[o + i] == 0x5C {
+                let t = rom[o + i + 1] as u32
+                    | ((rom[o + i + 2] as u32) << 8)
+                    | ((rom[o + i + 3] as u32) << 16);
+                if t == RETAIL_KILL_ISTRAT {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        assert!(found, "boss2 state5 falldown JML's to kill_Istrat");
+    }
+
+    eprintln!(
+        "BOSS2 alive death: MATCH — .dodie BF_DYING/Lexp/hitflash + settle kill_Istrat == port"
+    );
+}
+
 use sf_oracle::{
-    RETAIL_BOSS1UP_STRAT, RETAIL_BOSS1_ISTRAT, RETAIL_BOSSGEXPLODE_ISTRAT, RETAIL_BOSSG_ISTRAT,
-    RETAIL_BOSSG_STRAT, RETAIL_BOSSSEAMONEXP_ISTRAT, RETAIL_BOSSSEAMON_ISTRAT,
-    RETAIL_BOSSSEAMON_STRAT, RETAIL_MAPTRIGGER,
+    RETAIL_AL_ANIMFRAME, RETAIL_AL_TX, RETAIL_BOSS1UP_STRAT, RETAIL_BOSS1_ISTRAT,
+    RETAIL_BOSSGEXPLODE_ISTRAT, RETAIL_BOSSGS_ISTRAT, RETAIL_BOSSG_ISTRAT, RETAIL_BOSSG_STRAT,
+    RETAIL_BOSSSEAMONEXP_ISTRAT, RETAIL_BOSSSEAMON_ISTRAT, RETAIL_BOSSSEAMON_STRAT,
+    RETAIL_FLYINGFISH_FLYING, RETAIL_FLYINGFISH_ISTRAT, RETAIL_FLYINGFISH_STRAT, RETAIL_MAPTRIGGER,
 };
 
 // ========================================================================
@@ -4587,11 +8557,44 @@ fn retail_seaboss_and_boss1_addresses() {
 
     // --- bossg_istrat (anchor at +$2A): HP=$FF/AP=$08/anim/sflags/collflags/mode/trigse ---
     let bg: Vec<Option<u8>> = vec![
-        Some(0xA9), Some(0xFF), Some(0x95), Some(0x2A), Some(0xA9), Some(0x08), Some(0x95), Some(0x2B),
-        Some(0xA9), Some(0x00), Some(0x09), Some(0x80), Some(0x9D), w, w,
-        Some(0xB5), Some(0x1D), Some(0x09), Some(0x08), Some(0x95), Some(0x1D),
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x10), Some(0x95), Some(0x2E),
-        Some(0xA9), Some(0x00), Some(0x9D), w, w, Some(0xA9), Some(0x9D), Some(0x22), w, w, w,
+        Some(0xA9),
+        Some(0xFF),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x08),
+        Some(0x95),
+        Some(0x2B),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x09),
+        Some(0x80),
+        Some(0x9D),
+        w,
+        w,
+        Some(0xB5),
+        Some(0x1D),
+        Some(0x09),
+        Some(0x08),
+        Some(0x95),
+        Some(0x1D),
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x10),
+        Some(0x95),
+        Some(0x2E),
+        Some(0xA9),
+        Some(0x00),
+        Some(0x9D),
+        w,
+        w,
+        Some(0xA9),
+        Some(0x9D),
+        Some(0x22),
+        w,
+        w,
+        w,
     ];
     let bgh = masked_scan(&rom, &bg);
     assert_eq!(bgh.len(), 1, "bossg_istrat is a UNIQUE masked hit");
@@ -4603,18 +8606,58 @@ fn retail_seaboss_and_boss1_addresses() {
         "SEABOSS: bossg_istrat=${:06X} strat=${bg_strat:06X} exp=${bg_exp:06X} maptrigger=${bg_maptrig:04X}",
         rom_off_to_snes(bgi)
     );
-    assert_eq!(rom_off_to_snes(bgi), RETAIL_BOSSG_ISTRAT, "bossg_istrat address");
+    assert_eq!(
+        rom_off_to_snes(bgi),
+        RETAIL_BOSSG_ISTRAT,
+        "bossg_istrat address"
+    );
     assert_eq!(bg_strat, RETAIL_BOSSG_STRAT, "bossg installs bossg_strat");
-    assert_eq!(bg_exp, RETAIL_BOSSGEXPLODE_ISTRAT, "bossg installs bossgexplode_istrat");
+    assert_eq!(
+        bg_exp, RETAIL_BOSSGEXPLODE_ISTRAT,
+        "bossg installs bossgexplode_istrat"
+    );
     assert_eq!(bg_maptrig, RETAIL_MAPTRIGGER, "bossg zeroes maptrigger");
 
     // --- bossseamon_istrat (anchor at +$27): HP=2/AP=4/jsl RANDOM/roty/collflags/type/sbyte3/4 ---
     let ss: Vec<Option<u8>> = vec![
-        Some(0xA9), Some(0x02), Some(0x95), Some(0x2A), Some(0xA9), Some(0x04), Some(0x95), Some(0x2B),
-        Some(0x22), w, w, w, Some(0x95), Some(0x23), Some(0xA9), Some(0x80), Some(0x95), Some(0x13),
-        Some(0xB5), Some(0x2E), Some(0x09), Some(0x40), Some(0x95), Some(0x2E),
-        Some(0xB5), Some(0x09), Some(0x29), Some(0xF7), Some(0x95), Some(0x09),
-        Some(0xA9), Some(0x3C), Some(0x95), Some(0x24), Some(0xA9), Some(0x03), Some(0x95), Some(0x25),
+        Some(0xA9),
+        Some(0x02),
+        Some(0x95),
+        Some(0x2A),
+        Some(0xA9),
+        Some(0x04),
+        Some(0x95),
+        Some(0x2B),
+        Some(0x22),
+        w,
+        w,
+        w,
+        Some(0x95),
+        Some(0x23),
+        Some(0xA9),
+        Some(0x80),
+        Some(0x95),
+        Some(0x13),
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x40),
+        Some(0x95),
+        Some(0x2E),
+        Some(0xB5),
+        Some(0x09),
+        Some(0x29),
+        Some(0xF7),
+        Some(0x95),
+        Some(0x09),
+        Some(0xA9),
+        Some(0x3C),
+        Some(0x95),
+        Some(0x24),
+        Some(0xA9),
+        Some(0x03),
+        Some(0x95),
+        Some(0x25),
     ];
     let ssh = masked_scan(&rom, &ss);
     assert_eq!(ssh.len(), 1, "bossseamon_istrat is a UNIQUE masked hit");
@@ -4626,18 +8669,61 @@ fn retail_seaboss_and_boss1_addresses() {
         "SEABOSS: bossseamon_istrat=${:06X} strat=${ss_strat:06X} exp=${ss_exp:06X} RANDOM=${ss_rand:06X}",
         rom_off_to_snes(ssi)
     );
-    assert_eq!(rom_off_to_snes(ssi), RETAIL_BOSSSEAMON_ISTRAT, "bossseamon_istrat address");
-    assert_eq!(ss_strat, RETAIL_BOSSSEAMON_STRAT, "bossseamon installs bossseamon_strat");
-    assert_eq!(ss_exp, RETAIL_BOSSSEAMONEXP_ISTRAT, "bossseamon installs bossseamonexp_istrat");
-    assert_eq!(ss_rand, RETAIL_RANDOM_L, "bossseamon draws the runtime RNG (RANDOM_L)");
+    assert_eq!(
+        rom_off_to_snes(ssi),
+        RETAIL_BOSSSEAMON_ISTRAT,
+        "bossseamon_istrat address"
+    );
+    assert_eq!(
+        ss_strat, RETAIL_BOSSSEAMON_STRAT,
+        "bossseamon installs bossseamon_strat"
+    );
+    assert_eq!(
+        ss_exp, RETAIL_BOSSSEAMONEXP_ISTRAT,
+        "bossseamon installs bossseamonexp_istrat"
+    );
+    assert_eq!(
+        ss_rand, RETAIL_RANDOM_L,
+        "bossseamon draws the runtime RNG (RANDOM_L)"
+    );
 
     // --- boss1_istrat (anchor at +$77): roty/collflags/type/anim/sflags4/trigse ---
     let b1: Vec<Option<u8>> = vec![
-        Some(0xA9), Some(0x80), Some(0x95), Some(0x13), Some(0xB5), Some(0x2E), Some(0x09), Some(0x10),
-        Some(0x95), Some(0x2E), Some(0xB5), Some(0x09), Some(0x09), Some(0x01), Some(0x95), Some(0x09),
-        Some(0xA9), Some(0x04), Some(0x09), Some(0x80), Some(0x9D), w, w,
-        Some(0xB5), Some(0x20), Some(0x09), Some(0x04), Some(0x95), Some(0x20),
-        Some(0xA9), Some(0x82), Some(0x22), w, w, w,
+        Some(0xA9),
+        Some(0x80),
+        Some(0x95),
+        Some(0x13),
+        Some(0xB5),
+        Some(0x2E),
+        Some(0x09),
+        Some(0x10),
+        Some(0x95),
+        Some(0x2E),
+        Some(0xB5),
+        Some(0x09),
+        Some(0x09),
+        Some(0x01),
+        Some(0x95),
+        Some(0x09),
+        Some(0xA9),
+        Some(0x04),
+        Some(0x09),
+        Some(0x80),
+        Some(0x9D),
+        w,
+        w,
+        Some(0xB5),
+        Some(0x20),
+        Some(0x09),
+        Some(0x04),
+        Some(0x95),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x82),
+        Some(0x22),
+        w,
+        w,
+        w,
     ];
     let b1h = masked_scan(&rom, &b1);
     assert_eq!(b1h.len(), 1, "boss1_istrat is a UNIQUE masked hit");
@@ -4648,9 +8734,16 @@ fn retail_seaboss_and_boss1_addresses() {
         "BOSS1: boss1_istrat=${:06X} boss1up_strat=${b1_up:06X} currentlevel=${b1_lvl:04X} HPdef=${:02X}",
         rom_off_to_snes(b1i), rom[b1i + 0x45]
     );
-    assert_eq!(rom_off_to_snes(b1i), RETAIL_BOSS1_ISTRAT, "boss1_istrat address");
+    assert_eq!(
+        rom_off_to_snes(b1i),
+        RETAIL_BOSS1_ISTRAT,
+        "boss1_istrat address"
+    );
     assert_eq!(b1_up, RETAIL_BOSS1UP_STRAT, "boss1 installs boss1up_strat");
-    assert_eq!(b1_lvl as u32, RETAIL_CURRENTLEVEL, "boss1 reads currentlevel");
+    assert_eq!(
+        b1_lvl as u32, RETAIL_CURRENTLEVEL,
+        "boss1 reads currentlevel"
+    );
     assert_eq!(rom[b1i + 0x45], 0x23, "boss1 default HP = 35 (easy)");
 }
 
@@ -4670,13 +8763,22 @@ fn retail_bossg_init_vs_port() {
     bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 30000u16);
     bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 0);
     bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x11); // dirty
-    call(&mut bus, RETAIL_BOSSG_ISTRAT, &Entry { x: boss_blk as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        RETAIL_BOSSG_ISTRAT,
+        &Entry {
+            x: boss_blk as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     let r_hp = wram8(&bus, boss_blk + AL_HP);
     let r_ap = wram8(&bus, boss_blk + AL_AP);
     let r_coll = wram8(&bus, boss_blk + AL_COLLFLAGS);
     let r_sf = wram8(&bus, boss_blk + AL_SFLAGS);
     let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
-    let r_sptr = bus.wram_read16(boss_blk + AL_STRATPTR) as u32 | ((wram8(&bus, boss_blk + AL_STRATPTR + 2) as u32) << 16);
+    let r_sptr = bus.wram_read16(boss_blk + AL_STRATPTR) as u32
+        | ((wram8(&bus, boss_blk + AL_STRATPTR + 2) as u32) << 16);
 
     // Port: player slot 0 far, boss + init + one body tick.
     let mut g = sf_game::game::Game::new();
@@ -4686,7 +8788,9 @@ fn retail_bossg_init_vs_port() {
     let boss = g.objs.alloc().expect("boss");
     g.objs.aliens[boss as usize].worldz = 0;
     g.call_strat(ids.bossg, boss);
-    let tick = g.objs.aliens[boss as usize].stratptr.expect("bossg_strat armed");
+    let tick = g.objs.aliens[boss as usize]
+        .stratptr
+        .expect("bossg_strat armed");
     g.call_strat(tick, boss);
     let pa = g.objs.aliens[boss as usize];
     eprintln!(
@@ -4703,29 +8807,1326 @@ fn retail_bossg_init_vs_port() {
     assert_ne!(pa.sflags, 0, "port bossg set sflags");
     assert_eq!(r_wz, -40, "retail bossg mode-0 fall-through worldz -= 40");
     assert_eq!(r_wz, pa.worldz, "bossg mode-0 worldz matches port");
-    assert_eq!(r_sptr, RETAIL_BOSSG_STRAT, "retail bossg installed bossg_strat");
+    assert_eq!(
+        r_sptr, RETAIL_BOSSG_STRAT,
+        "retail bossg installed bossg_strat"
+    );
     eprintln!("BOSSG init: MATCH — retail bossg_istrat HP/AP/colltype/sflags/stratptr + mode-0 worldz == port.");
 }
 
-/// MILESTONE — the bossseamon INIT, retail cart vs the port. Runs the cart's OWN
-/// `bossseamon_istrat` ($0A:F2D1) — which draws the RNG once then falls into its
-/// player-relative body — and diffs the STABLE scalar init fields (HP/AP/roty/
-/// collflags/stratptr) the body never touches, vs the port. (The RNG-derived
-/// `sbyte2` + the player-relative body are the documented remaining gap.)
+/// CAPSTONE — bossg mode-table pure bodies (modes 0/1/11), retail vs port.
+///
+/// ROM stores the mode in `al_stratstate` ($1CDC,x); the port keeps it in
+/// `Alien::stratmem` (representation remap). `al_tx` is `$1CF4,x`. Fish/shadow
+/// spawn modes remain the documented gap.
+#[test]
+fn retail_bossg_modes_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |boss_blk: u32| Entry {
+        x: boss_blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+    let mode_addr = |blk: u32| RETAIL_AL_STRATSTATE.wrapping_add(blk);
+    let tx_addr = |blk: u32| RETAIL_AL_TX.wrapping_add(blk);
+
+    // ----- (1) mode 0 far: worldz -= 40/tick, stay mode 0 -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 5000);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 0);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 0);
+
+        let n = 10u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 5000;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 0;
+            al.worldz = 0;
+        }
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode0 far: MATCH — worldz -= 40/tick over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode0 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            0i16.wrapping_sub((n as i16).wrapping_mul(40))
+        );
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 0);
+    }
+
+    // ----- (2) mode 0 near → mode 1 same tick -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        // After worldz-=40, |dz| must be < 150 to advance. Seed |dz|=100.
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 100);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 0);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 0);
+        bus.write8(0x7E_0000 | tx_addr(boss_blk), 1);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 0);
+
+        call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+        // mode0: wz=-40, |dz|=140 < 150 → mode1; mode1: |dz|=140 not <140 so no
+        // +40, tx=5, add_playerZ(0). Mode stays 1 (tx&127 != 0).
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 1, "retail mode0→1");
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            -40
+        );
+        assert_eq!(wram8(&bus, tx_addr(boss_blk)), 5);
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 100;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 0;
+            al.worldz = 0;
+            al.tx = 1;
+        }
+        g.vars.pviewvelz = 0;
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratmem, 1);
+        assert_eq!(pa.worldz, -40);
+        assert_eq!(pa.tx, 5);
+        eprintln!("BOSSG mode0→1: MATCH — near gate advances into scrollmsg");
+    }
+
+    // ----- (3) mode 1 scrollmsg far: tx+=4, worldz+=pviewvelz -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 7);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 2000); // |dz|=2000 >= 140
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 1);
+        bus.write8(0x7E_0000 | tx_addr(boss_blk), 2);
+
+        let n = 15u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 1;
+            al.worldz = 2000;
+            al.tx = 2;
+        }
+        g.vars.pviewvelz = 7;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_tx = wram8(&bus, tx_addr(boss_blk));
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_tx != pa.tx {
+                    first_div = Some((t, "tx", r_tx as i32, pa.tx as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode1 scrollmsg: MATCH — tx+=4 + add_playerZ over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode1 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 1);
+        assert_eq!(
+            wram8(&bus, tx_addr(boss_blk)),
+            2u8.wrapping_add((n as u8).wrapping_mul(4))
+        );
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            2000i16.wrapping_add((n as i16).wrapping_mul(7))
+        );
+    }
+
+    // ----- (4) mode 11 waitabit2: sbyte1++ + move2 (add_playerZ; odd gameframe skips splash) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 3);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1); // odd → s_jmp_notdelay 1 skips splash
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 11);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE1), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x20); // add_bosshp tail (not diffed)
+
+        let n = 9u32; // sbyte1 0→9, stays mode 11; tick 10 would advance
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 11;
+            al.worldz = 1000;
+            al.sbyte1 = 0;
+            al.hp = 0x20;
+        }
+        g.vars.pviewvelz = 3;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_sb1 = wram8(&bus, boss_blk + AL_SBYTE1);
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_sb1 != pa.sbyte1 {
+                    first_div = Some((t, "sbyte1", r_sb1 as i32, pa.sbyte1 as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode11 waitabit2: MATCH — sbyte1++ + add_playerZ over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode11 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 11);
+        assert_eq!(wram8(&bus, boss_blk + AL_SBYTE1), n as u8);
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            1000i16.wrapping_add((n as i16).wrapping_mul(3))
+        );
+    }
+
+    eprintln!("BOSSG modes 0/1/11: MATCH — wait/scrollmsg/waitabit2 pure bodies == port");
+}
+
+/// CAPSTONE — bossg mode-table pure bodies continued (modes 3/4→5/6→7/7/32).
+///
+/// Spawn modes (opentrunk/fish/shadows) remain the documented gap; these cases
+/// stay on scalar + maptrigger / HP paths with no child alloc.
+#[test]
+fn retail_bossg_modes_more_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |boss_blk: u32| Entry {
+        x: boss_blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+    let mode_addr = |blk: u32| RETAIL_AL_STRATSTATE.wrapping_add(blk);
+    const AL_SFLAGS4: u32 = 0x20;
+    const M_BOSSMAXHP: u32 = 0x70_019A;
+
+    // ----- (1) mode 3 runaway stay: |dz|∈[1000,4000), bossmaxhp=0 → +70 + add_playerZ -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 5);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 2000); // |dz|=2000
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 3);
+        bus.write16(M_BOSSMAXHP, 0);
+
+        let n = 8u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 3;
+            al.worldz = 2000;
+        }
+        g.vars.pviewvelz = 5;
+        g.vars.gameframe = 1;
+        g.vars.bossmaxhp = 0;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode3 runaway: MATCH — +70 + add_playerZ over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode3 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 3);
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            2000i16.wrapping_add((n as i16).wrapping_mul(75))
+        );
+    }
+
+    // ----- (2) mode 4 disappear → 5 waitsometime stay (maptrigger bit0 holds) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 4);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 800);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 4);
+        bus.write8(0x7E_0000 | RETAIL_MAPTRIGGER, 0);
+        bus.write16(M_BOSSMAXHP, 0);
+        // Dirty shape so disappear's nullshape write is observable.
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_shape, 0x7777);
+
+        call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+        let r_mode = wram8(&bus, mode_addr(boss_blk));
+        let r_mt = wram8(&bus, RETAIL_MAPTRIGGER);
+        let r_shape = bus.wram_read16(boss_blk + RETAIL_POOL.al_shape);
+        let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+        assert_eq!(r_mode, 5, "retail disappear falls into waitsometime");
+        assert_eq!(r_mt & 1, 1, "retail maptrigger bit0 set");
+        assert_eq!(r_wz, 804, "retail waitsometime add_playerZ (+4)");
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 4;
+            al.worldz = 800;
+            al.shape = 0x7777;
+        }
+        g.vars.pviewvelz = 4;
+        g.vars.gameframe = 1;
+        g.vars.bossmaxhp = 0;
+        g.vars.write_ext8(0x0311, 0);
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratmem, 5);
+        assert_eq!(g.vars.read_ext8(0x0311) & 1, 1);
+        assert_eq!(pa.worldz, 804);
+        assert_eq!(
+            pa.shape,
+            sf_map::consts::sh::NULLSHAPE,
+            "port flat null-shape id"
+        );
+        // Retail `nullshape` is a shapes-table pointer word; the port stores
+        // the source catalog's flat null-shape id instead.
+        assert_ne!(r_shape, 0x7777, "retail disappear overwrote dirty shape");
+        eprintln!(
+            "BOSSG mode4→5 disappear: MATCH — maptrigger|1 + waitsometime hold (retail shape=${r_shape:04X}, port flat null={})",
+            sf_map::consts::sh::NULLSHAPE
+        );
+    }
+
+    // ----- (3) mode 6 appear → 7 moveto600h (bossmaxhp=0 reseeds HP/AP; far stay) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 2);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 5000);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 6);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x11);
+        bus.write8(0x7E_0000 | (boss_blk + AL_AP), 0x22);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS4), 0);
+        bus.write16(M_BOSSMAXHP, 0);
+
+        call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+        let r_mode = wram8(&bus, mode_addr(boss_blk));
+        let r_hp = wram8(&bus, boss_blk + AL_HP);
+        let r_ap = wram8(&bus, boss_blk + AL_AP);
+        let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+        let r_bmh = bus.read16(M_BOSSMAXHP);
+        assert_eq!(r_mode, 7, "retail appear falls into moveto600h");
+        assert_eq!(r_hp, 120, "retail appear reseeds bossgHP");
+        assert_eq!(r_ap, 8, "retail appear reseeds bossgAP");
+        assert_eq!(r_bmh, 120, "retail m_bossmaxhp = al_hp");
+        // appear then moveto600h: wz -= 40 + pviewvelz(2)
+        assert_eq!(r_wz, 5000i16.wrapping_sub(40).wrapping_add(2));
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 6;
+            al.worldz = 5000;
+            al.hp = 0x11;
+            al.ap = 0x22;
+            al.sflags4 = 0;
+        }
+        g.vars.pviewvelz = 2;
+        g.vars.gameframe = 1;
+        g.vars.bossmaxhp = 0;
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratmem, 7);
+        assert_eq!(pa.hp, r_hp);
+        assert_eq!(pa.ap, r_ap);
+        assert_eq!(g.vars.bossmaxhp, 120);
+        assert_eq!(pa.worldz, r_wz);
+        eprintln!("BOSSG mode6→7 appear: MATCH — HP/AP/bossmaxhp reseed + moveto600h far tick");
+    }
+
+    // ----- (4) mode 7 moveto600h far stay: wz−40 + move2 over N -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 3);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 5000);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 7);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SFLAGS4), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x10);
+
+        let n = 10u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 7;
+            al.worldz = 5000;
+            al.sflags4 = 0;
+            al.hp = 0x10;
+        }
+        g.vars.pviewvelz = 3;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode7 moveto600h: MATCH — wz−40 + add_playerZ over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode7 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 7);
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            5000i16.wrapping_add((n as i16).wrapping_mul(-40 + 3))
+        );
+    }
+
+    // ----- (5) mode 32 waitabit: sbyte1++ toward 70 + move2 -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 6);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 32);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE1), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x20);
+
+        let n = 12u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 32;
+            al.worldz = 1000;
+            al.sbyte1 = 0;
+            al.hp = 0x20;
+        }
+        g.vars.pviewvelz = 6;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_sb1 = wram8(&bus, boss_blk + AL_SBYTE1);
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_sb1 != pa.sbyte1 {
+                    first_div = Some((t, "sbyte1", r_sb1 as i32, pa.sbyte1 as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode32 waitabit: MATCH — sbyte1++ + add_playerZ over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode32 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 32);
+        assert_eq!(wram8(&bus, boss_blk + AL_SBYTE1), n as u8);
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            1000i16.wrapping_add((n as i16).wrapping_mul(6))
+        );
+    }
+
+    eprintln!(
+        "BOSSG modes 3/4→5/6→7/7/32: MATCH — runaway/disappear/appear/moveto600h/waitabit == port"
+    );
+}
+
+/// CAPSTONE — bossg trunk anim + sf9e (modes 2/8/12), retail vs port.
+///
+/// Opentrunk/closetrunk are pure anim+move2 leaves (no fish alloc on the mid
+/// path). Mode 8 at anim≥9 cascades through launchfish×2 into waitabit2 — fish
+/// children are not diffed (spawn gap); only mode/sbyte1/worldz.
+#[test]
+fn retail_bossg_trunk_anim_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |boss_blk: u32| Entry {
+        x: boss_blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+    let mode_addr = |blk: u32| RETAIL_AL_STRATSTATE.wrapping_add(blk);
+    let anim_addr = |blk: u32| RETAIL_AL_ANIMFRAME.wrapping_add(blk);
+    let anim8 = |frame: u8| 0x80u8 | (frame & 0x7F);
+
+    // ----- (1) mode 2 sf9e → mode 3 runaway stay (SE not diffed) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 5);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(player_blk + RETAIL_POOL.al_worldz, 0);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 2000);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 2);
+        bus.write16(0x70_019A, 0); // m_bossmaxhp
+
+        call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 3, "retail sf9e→runaway");
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            2000i16.wrapping_add(70).wrapping_add(5)
+        );
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 2;
+            al.worldz = 2000;
+        }
+        g.vars.pviewvelz = 5;
+        g.vars.gameframe = 1;
+        g.vars.bossmaxhp = 0;
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratmem, 3);
+        assert_eq!(pa.worldz, 2075);
+        eprintln!("BOSSG mode2→3 sf9e: MATCH — SE advance into runaway stay");
+    }
+
+    // ----- (2) mode 8 opentrunk mid-anim: anim++ + move2, stay mode 8 -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 3);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 8);
+        bus.write8(0x7E_0000 | anim_addr(boss_blk), anim8(2));
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x10);
+
+        let n = 5u32; // anim 2→7, still < 9
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 8;
+            al.worldz = 1000;
+            al.animframe = anim8(2);
+            al.hp = 0x10;
+        }
+        g.vars.pviewvelz = 3;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_anim = wram8(&bus, anim_addr(boss_blk)) & 0x7F;
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_anim != (pa.animframe & 0x7F) {
+                    first_div = Some((t, "anim", r_anim as i32, (pa.animframe & 0x7F) as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode8 opentrunk mid: MATCH — anim++ + add_playerZ over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode8 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 8);
+        assert_eq!(wram8(&bus, anim_addr(boss_blk)) & 0x7F, 2 + n as u8);
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            1000i16.wrapping_add((n as i16).wrapping_mul(3))
+        );
+    }
+
+    // ----- (3) mode 8 anim≥9 → launchfish×2 cascade → mode 11 waitabit2 -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        init_object_pool(&mut bus);
+        let player_blk = RETAIL_POOL.base;
+        // Use a block off the free list so make_obj can allocate fish.
+        let free = walk_freelist(&bus, &RETAIL_POOL);
+        let boss_blk = free[0] as u32;
+        bus.wram_write16(
+            RETAIL_POOL.freelist_head,
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_next),
+        );
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 4);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 900);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 8);
+        bus.write8(0x7E_0000 | anim_addr(boss_blk), anim8(9));
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE1), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x10);
+
+        call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+        let r_mode = wram8(&bus, mode_addr(boss_blk));
+        let r_sb1 = wram8(&bus, boss_blk + AL_SBYTE1);
+        let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+        assert_eq!(r_mode, 11, "retail open@9 cascades to waitabit2");
+        assert_eq!(r_sb1, 1, "retail waitabit2 sbyte1++");
+        assert_eq!(r_wz, 904, "retail waitabit2 add_playerZ");
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 8;
+            al.worldz = 900;
+            al.animframe = anim8(9);
+            al.sbyte1 = 0;
+            al.hp = 0x10;
+        }
+        g.vars.pviewvelz = 4;
+        g.vars.gameframe = 1;
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratmem, 11);
+        assert_eq!(pa.sbyte1, 1);
+        assert_eq!(pa.worldz, 904);
+        eprintln!("BOSSG mode8@9→11: MATCH — fish cascade into waitabit2 (fish undiffed)");
+    }
+
+    // ----- (4) mode 12 closetrunk mid-anim: anim−− + move2 -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 2);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 1100);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 12);
+        bus.write8(0x7E_0000 | anim_addr(boss_blk), anim8(5));
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x10);
+
+        let n = 3u32; // anim 5→2
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 12;
+            al.worldz = 1100;
+            al.animframe = anim8(5);
+            al.hp = 0x10;
+        }
+        g.vars.pviewvelz = 2;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+            g.call_strat(tick, boss);
+            let r_anim = wram8(&bus, anim_addr(boss_blk)) & 0x7F;
+            let r_wz = bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_mode = wram8(&bus, mode_addr(boss_blk));
+            let pa = g.objs.aliens[boss as usize];
+            if first_div.is_none() {
+                if r_anim != (pa.animframe & 0x7F) {
+                    first_div = Some((t, "anim", r_anim as i32, (pa.animframe & 0x7F) as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_mode as u16 != pa.stratmem {
+                    first_div = Some((t, "mode", r_mode as i32, pa.stratmem as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("BOSSG mode12 closetrunk mid: MATCH — anim−− + add_playerZ over {n}"),
+            Some((t, f, r, p)) => panic!("bossg mode12 diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 12);
+        assert_eq!(wram8(&bus, anim_addr(boss_blk)) & 0x7F, 5 - n as u8);
+    }
+
+    // ----- (5) mode 12 anim=0 → mode 13 waitabit2 -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let boss_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 7);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 500);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 12);
+        bus.write8(0x7E_0000 | anim_addr(boss_blk), anim8(0));
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE1), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x10);
+
+        call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+        assert_eq!(
+            wram8(&bus, mode_addr(boss_blk)),
+            13,
+            "retail close@0→waitabit2"
+        );
+        assert_eq!(wram8(&bus, boss_blk + AL_SBYTE1), 1);
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            507
+        );
+
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let _pl = g.objs.alloc().unwrap();
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 12;
+            al.worldz = 500;
+            al.animframe = anim8(0);
+            al.sbyte1 = 0;
+            al.hp = 0x10;
+        }
+        g.vars.pviewvelz = 7;
+        g.vars.gameframe = 1;
+        g.call_strat(tick, boss);
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratmem, 13);
+        assert_eq!(pa.sbyte1, 1);
+        assert_eq!(pa.worldz, 507);
+        eprintln!("BOSSG mode12@0→13: MATCH — closetrunk done into waitabit2");
+    }
+
+    eprintln!("BOSSG trunk/sf9e: MATCH — modes 2/8/12 anim + cascade == port");
+}
+
+/// CAPSTONE — bossg `.generateshadows` (mode 31) + `bossgs` shadow body.
+///
+/// Mode 31 spawns three `boss_g_s` clones (sword1 = −100/0/+100, worldz−50) then
+/// falls into waitabit. Shadow AI: Fchase worldx→sword1 ±5 + sbyte1 countdown
+/// + add_playerZ (pre-dash path).
+#[test]
+fn retail_bossg_genshadows_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |blk: u32| Entry {
+        x: blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+    let mode_addr = |blk: u32| RETAIL_AL_STRATSTATE.wrapping_add(blk);
+    /// Retail `bossgs_strat` body (`.strat` after istrat's `set_alptrs`, $04:F581).
+    const RETAIL_BOSSGS_STRAT: u32 = 0x04_F581;
+
+    // ----- (1) mode 31 generateshadows → 3 clones + waitabit -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        init_object_pool(&mut bus);
+        let free0 = walk_freelist(&bus, &RETAIL_POOL);
+        let boss_blk = free0[0] as u32;
+        bus.wram_write16(
+            RETAIL_POOL.freelist_head,
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_next),
+        );
+        let player_blk = free0[1] as u32;
+        // Keep player off freelist too so shadows don't collide with it.
+        bus.wram_write16(
+            RETAIL_POOL.freelist_head,
+            bus.wram_read16(player_blk + RETAIL_POOL.al_next),
+        );
+
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 5);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldx, 300);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldy, 40);
+        bus.wram_write16(boss_blk + RETAIL_POOL.al_worldz, 2000);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTX), 0x11);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTY), 0x22);
+        bus.write8(0x7E_0000 | (boss_blk + AL_ROTZ), 0x33);
+        bus.write8(0x7E_0000 | mode_addr(boss_blk), 31);
+        bus.write8(0x7E_0000 | (boss_blk + AL_SBYTE1), 0);
+        bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x20);
+
+        let free_before: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        call(&mut bus, RETAIL_BOSSG_STRAT, &entry(boss_blk));
+        let free_after: std::collections::HashSet<u16> =
+            walk_freelist(&bus, &RETAIL_POOL).into_iter().collect();
+        let mut spawned: Vec<u32> = free_before
+            .difference(&free_after)
+            .map(|&b| b as u32)
+            .collect();
+        assert_eq!(spawned.len(), 3, "retail generateshadows allocates 3");
+        spawned.sort_by_key(|&b| bus.wram_read16(b + AL_SWORD1) as i16);
+
+        let expected_sword = [-100i16, 0, 100];
+        for (i, &blk) in spawned.iter().enumerate() {
+            let sw = bus.wram_read16(blk + AL_SWORD1) as i16;
+            let wz = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+            let wx = bus.wram_read16(blk + RETAIL_POOL.al_worldx) as i16;
+            let wy = bus.wram_read16(blk + RETAIL_POOL.al_worldy) as i16;
+            let rx = wram8(&bus, blk + AL_ROTX);
+            let ry = wram8(&bus, blk + AL_ROTY);
+            let rz = wram8(&bus, blk + AL_ROTZ);
+            let sp = bus.wram_read16(blk + AL_STRATPTR) as u32
+                | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
+            assert_eq!(sw, expected_sword[i], "retail shadow[{i}] sword1");
+            assert_eq!(wz, 1950, "retail shadow[{i}] worldz = boss−50");
+            assert_eq!(wx, 300, "retail shadow[{i}] worldx copy");
+            assert_eq!(wy, 40, "retail shadow[{i}] worldy copy");
+            assert_eq!(
+                (rx, ry, rz),
+                (0x11, 0x22, 0x33),
+                "retail shadow[{i}] rots copy"
+            );
+            assert_eq!(
+                sp, RETAIL_BOSSGS_ISTRAT,
+                "retail shadow[{i}] stratptr=bossgs_istrat"
+            );
+        }
+        assert_eq!(wram8(&bus, mode_addr(boss_blk)), 32, "retail → waitabit");
+        assert_eq!(wram8(&bus, boss_blk + AL_SBYTE1), 1);
+        assert_eq!(
+            bus.wram_read16(boss_blk + RETAIL_POOL.al_worldz) as i16,
+            2005
+        );
+
+        // Port
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let boss = g.objs.alloc().unwrap();
+        g.call_strat(ids.bossg, boss);
+        let tick = g.objs.aliens[boss as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[boss as usize];
+            al.stratmem = 31;
+            al.worldx = 300;
+            al.worldy = 40;
+            al.worldz = 2000;
+            al.rotx = 0x11;
+            al.roty = 0x22;
+            al.rotz = 0x33;
+            al.sbyte1 = 0;
+            al.hp = 0x20;
+        }
+        g.vars.pviewvelz = 5;
+        g.vars.gameframe = 1;
+        let active_before = g.objs.aliens.iter().filter(|a| a.active).count();
+        g.call_strat(tick, boss);
+        let active_after = g.objs.aliens.iter().filter(|a| a.active).count();
+        assert_eq!(active_after - active_before, 3, "port spawns 3 shadows");
+        let mut p_shadows: Vec<_> = g
+            .objs
+            .aliens
+            .iter()
+            .enumerate()
+            .filter(|(i, a)| a.active && *i as u16 != boss && *i as u16 != pl)
+            .map(|(_, a)| a)
+            .collect();
+        p_shadows.sort_by_key(|a| a.sword1);
+        for (i, sh) in p_shadows.iter().enumerate() {
+            assert_eq!(sh.sword1, expected_sword[i], "port shadow[{i}] sword1");
+            assert_eq!(sh.worldz, 1950);
+            assert_eq!(sh.worldx, 300);
+            assert_eq!(sh.worldy, 40);
+            assert_eq!((sh.rotx, sh.roty, sh.rotz), (0x11, 0x22, 0x33));
+        }
+        let pa = g.objs.aliens[boss as usize];
+        assert_eq!(pa.stratmem, 32);
+        assert_eq!(pa.sbyte1, 1);
+        assert_eq!(pa.worldz, 2005);
+        eprintln!("BOSSG mode31 generateshadows: MATCH — 3 clones sword1−100/0/100 + waitabit");
+    }
+
+    // ----- (2) bossgs_strat body: Fchase worldx + sbyte1 countdown + add_playerZ -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let sh_blk = RETAIL_POOL.base;
+        bus.wram_write16(RETAIL_PVIEWVELZ, 3);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1); // odd → BLACK_C (undiffed id)
+        bus.wram_write16(sh_blk + RETAIL_POOL.al_worldx, 0);
+        bus.wram_write16(sh_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.wram_write16(sh_blk + AL_SWORD1, (-100i16) as u16);
+        bus.write8(0x7E_0000 | (sh_blk + AL_SBYTE1), 40);
+
+        let n = 10u32;
+        let mut g = sf_game::game::Game::new();
+        let ids = sf_strat::bosses::install_bosses(&mut g);
+        let sh = g.objs.alloc().unwrap();
+        // Arm bossgs via a throwaway bossg install, then point at bossgs_strat.
+        let _ = ids;
+        {
+            let al = &mut g.objs.aliens[sh as usize];
+            al.worldx = 0;
+            al.worldz = 1000;
+            al.sword1 = -100;
+            al.sbyte1 = 40;
+        }
+        g.vars.pviewvelz = 3;
+        g.vars.gameframe = 1;
+        // Resolve bossgs_strat id by running generate path once… simpler: call
+        // public bossgs_strat directly each tick (same as registry body).
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_BOSSGS_STRAT, &entry(sh_blk));
+            sf_strat::bosses::bossgs_strat(&mut g, sh);
+            let r_wx = bus.wram_read16(sh_blk + RETAIL_POOL.al_worldx) as i16;
+            let r_wz = bus.wram_read16(sh_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_sb1 = wram8(&bus, sh_blk + AL_SBYTE1);
+            let pa = g.objs.aliens[sh as usize];
+            if first_div.is_none() {
+                if r_wx != pa.worldx {
+                    first_div = Some((t, "worldx", r_wx as i32, pa.worldx as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_sb1 != pa.sbyte1 {
+                    first_div = Some((t, "sbyte1", r_sb1 as i32, pa.sbyte1 as i32));
+                }
+            }
+        }
+        match first_div {
+            None => {
+                eprintln!("BOSSGS body: MATCH — Fchase−5/tick + sbyte1−− + add_playerZ over {n}")
+            }
+            Some((t, f, r, p)) => panic!("bossgs diverged tick {t} {f}: retail={r} port={p}"),
+        }
+        // worldx: 0 → −5×10 = −50 toward sword1=−100
+        assert_eq!(bus.wram_read16(sh_blk + RETAIL_POOL.al_worldx) as i16, -50);
+        assert_eq!(wram8(&bus, sh_blk + AL_SBYTE1), 30);
+        assert_eq!(
+            bus.wram_read16(sh_blk + RETAIL_POOL.al_worldz) as i16,
+            1000i16.wrapping_add((n as i16).wrapping_mul(3))
+        );
+    }
+
+    eprintln!("BOSSG generateshadows + bossgs: MATCH — spawn scalars + Fchase body == port");
+}
+
+/// CAPSTONE — flyingfish INIT + swim chase + flying body vs retail.
+///
+/// Fixed port sflag bits to ROM `make_sflag` (landed=sflag2/$20, side=sflag3/$40).
+/// Splash children undiffed (`s_jmp_notdelay 1` on ROM; port always attempts).
+#[test]
+fn retail_flyingfish_vs_port() {
+    let Some(rom) = retail() else { return };
+    let entry = |blk: u32| Entry {
+        x: blk as u16,
+        p: 0x20,
+        dbr: 0x7E,
+        ..Default::default()
+    };
+    // ROM make_sflag bits in al_sflags2:
+    const ROM_SFLAG2: u8 = 0x20; // landed
+    const ROM_SFLAG3: u8 = 0x40; // +X side
+
+    // ----- (1) INIT (sflag2 set → body no-ops after fall-through) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let blk = RETAIL_POOL.base;
+        bus.write8(0x7E_0000 | (blk + AL_HP), 0x77);
+        bus.write8(0x7E_0000 | (blk + AL_ROTY), 0x10);
+        bus.write8(0x7E_0000 | (blk + AL_SFLAGS2), ROM_SFLAG2);
+        bus.write8(0x7E_0000 | (blk + AL_COLLFLAGS), 0);
+        call(&mut bus, RETAIL_FLYINGFISH_ISTRAT, &entry(blk));
+        let r_hp = wram8(&bus, blk + AL_HP);
+        let r_ap = wram8(&bus, blk + AL_AP);
+        let r_roty = wram8(&bus, blk + AL_ROTY);
+        let r_coll = wram8(&bus, blk + AL_COLLFLAGS);
+        let r_anim = wram8(&bus, RETAIL_AL_ANIMFRAME.wrapping_add(blk));
+        let r_sptr = bus.wram_read16(blk + AL_STRATPTR) as u32
+            | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
+        assert_eq!(r_hp, 4);
+        assert_eq!(r_ap, 8);
+        assert_eq!(r_roty, 0x10u8.wrapping_add(0x80));
+        assert_eq!(r_coll & 0x10, 0x10, "ENEMY1");
+        assert_eq!(r_anim & 0x7F, 0);
+        assert_eq!(r_sptr, RETAIL_FLYINGFISH_STRAT, "set_alptrs → .strat");
+
+        let mut g = sf_game::game::Game::new();
+        let fish = g.objs.alloc().unwrap();
+        g.objs.aliens[fish as usize].roty = 0x10;
+        g.objs.aliens[fish as usize].sflags2 = ROM_SFLAG2;
+        sf_strat::bosses::flyingfish_init(&mut g, fish);
+        // init arms body; with landed latch the first tick is a no-op.
+        let tick = g.objs.aliens[fish as usize].stratptr.unwrap();
+        g.call_strat(tick, fish);
+        let pa = g.objs.aliens[fish as usize];
+        assert_eq!(pa.hp, r_hp);
+        assert_eq!(pa.ap, r_ap);
+        assert_eq!(pa.roty, r_roty);
+        assert_eq!(pa.animframe & 0x7F, 0);
+        assert_ne!(pa.collflags & 0x10, 0);
+        eprintln!("FLYINGFISH init: MATCH — HP/AP/roty+180/coll/anim == port");
+    }
+
+    // ----- (2) swim chase left (sflag3 clear): worldx→−200, worldy rise, +pvz -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let player_blk = RETAIL_POOL.base;
+        let fish_blk = RETAIL_POOL.base + RETAIL_POOL.stride;
+        bus.wram_write16(RETAIL_PLAYPT, player_blk as u16);
+        bus.wram_write16(RETAIL_PVIEWVELZ, 4);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1); // odd → skip ROM splash
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldx, 0);
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldy, (-80i16) as u16);
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldz, 1000);
+        bus.wram_write16(fish_blk + AL_VY, 0);
+        bus.write8(0x7E_0000 | (fish_blk + AL_SFLAGS2), 0);
+        bus.write8(0x7E_0000 | (fish_blk + AL_HP), 4);
+
+        let n = 5u32;
+        let mut g = sf_game::game::Game::new();
+        let pl = g.objs.alloc().unwrap();
+        g.objs.aliens[pl as usize].worldz = 0;
+        let fish = g.objs.alloc().unwrap();
+        sf_strat::bosses::flyingfish_init(&mut g, fish);
+        let tick = g.objs.aliens[fish as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[fish as usize];
+            al.worldx = 0;
+            al.worldy = -80;
+            al.worldz = 1000;
+            al.vy = 0;
+            al.sflags2 = 0;
+        }
+        g.vars.pviewvelz = 4;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_FLYINGFISH_STRAT, &entry(fish_blk));
+            g.call_strat(tick, fish);
+            let r_wx = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldx) as i16;
+            let r_wy = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldy) as i16;
+            let r_wz = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldz) as i16;
+            let pa = g.objs.aliens[fish as usize];
+            if first_div.is_none() {
+                if r_wx != pa.worldx {
+                    first_div = Some((t, "worldx", r_wx as i32, pa.worldx as i32));
+                } else if r_wy != pa.worldy {
+                    first_div = Some((t, "worldy", r_wy as i32, pa.worldy as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("FLYINGFISH swim−X: MATCH — achase−200 + rise + pvz over {n}"),
+            Some((t, f, r, p)) => {
+                panic!("flyingfish swim−X diverged tick {t} {f}: retail={r} port={p}")
+            }
+        }
+        // Still pre-jump: worldx should be > -150
+        assert!(
+            (bus.wram_read16(fish_blk + RETAIL_POOL.al_worldx) as i16) >= -150,
+            "still in swim (not jumped)"
+        );
+    }
+
+    // ----- (3) swim chase right (sflag3 set) -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let fish_blk = RETAIL_POOL.base;
+        bus.wram_write16(RETAIL_PVIEWVELZ, 2);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldx, 0);
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldy, 0); // at surface
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldz, 500);
+        bus.write8(0x7E_0000 | (fish_blk + AL_SFLAGS2), ROM_SFLAG3);
+
+        let n = 4u32;
+        let mut g = sf_game::game::Game::new();
+        let fish = g.objs.alloc().unwrap();
+        sf_strat::bosses::flyingfish_init(&mut g, fish);
+        let tick = g.objs.aliens[fish as usize].stratptr.unwrap();
+        {
+            let al = &mut g.objs.aliens[fish as usize];
+            al.worldx = 0;
+            al.worldy = 0;
+            al.worldz = 500;
+            al.sflags2 = ROM_SFLAG3;
+        }
+        g.vars.pviewvelz = 2;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_FLYINGFISH_STRAT, &entry(fish_blk));
+            g.call_strat(tick, fish);
+            let r_wx = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldx) as i16;
+            let r_wz = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldz) as i16;
+            let pa = g.objs.aliens[fish as usize];
+            if first_div.is_none() {
+                if r_wx != pa.worldx {
+                    first_div = Some((t, "worldx", r_wx as i32, pa.worldx as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("FLYINGFISH swim+X: MATCH — achase+200 + pvz over {n}"),
+            Some((t, f, r, p)) => {
+                panic!("flyingfish swim+X diverged tick {t} {f}: retail={r} port={p}")
+            }
+        }
+        assert!(
+            (bus.wram_read16(fish_blk + RETAIL_POOL.al_worldx) as i16) < 150,
+            "still in swim"
+        );
+    }
+
+    // ----- (4) .flying body: vy+=2 + addvecs + pvz while airborne -----
+    {
+        let mut bus = SnesBus::new(rom.clone());
+        let fish_blk = RETAIL_POOL.base;
+        bus.wram_write16(RETAIL_PVIEWVELZ, 3);
+        bus.wram_write16(RETAIL_GAMEFRAME, 1);
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldx, 100);
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldy, (-40i16) as u16);
+        bus.wram_write16(fish_blk + RETAIL_POOL.al_worldz, 800);
+        bus.wram_write16(fish_blk + AL_VX, 10);
+        bus.wram_write16(fish_blk + AL_VY, (-15i16) as u16);
+        bus.wram_write16(fish_blk + AL_VZ, 20);
+        bus.write8(0x7E_0000 | (fish_blk + AL_SFLAGS2), 0);
+
+        let n = 6u32;
+        let mut g = sf_game::game::Game::new();
+        let fish = g.objs.alloc().unwrap();
+        {
+            let al = &mut g.objs.aliens[fish as usize];
+            al.worldx = 100;
+            al.worldy = -40;
+            al.worldz = 800;
+            al.vx = 10;
+            al.vy = -15;
+            al.vz = 20;
+            al.sflags2 = 0;
+        }
+        g.vars.pviewvelz = 3;
+        g.vars.gameframe = 1;
+
+        let mut first_div: Option<(u32, &'static str, i32, i32)> = None;
+        for t in 1..=n {
+            call(&mut bus, RETAIL_FLYINGFISH_FLYING, &entry(fish_blk));
+            // Port flying body (same as registry flyingfish_flying_strat).
+            {
+                let al = &mut g.objs.aliens[fish as usize];
+                al.vy = al.vy.wrapping_add(2);
+            }
+            sf_strat::common::strat_apply_velocity(&mut g.objs.aliens[fish as usize]);
+            g.objs.aliens[fish as usize].worldz = g.objs.aliens[fish as usize]
+                .worldz
+                .wrapping_add(g.vars.pviewvelz);
+            // Don't set landed — stay airborne for the horizon.
+            let r_wx = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldx) as i16;
+            let r_wy = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldy) as i16;
+            let r_wz = bus.wram_read16(fish_blk + RETAIL_POOL.al_worldz) as i16;
+            let r_vy = bus.wram_read16(fish_blk + AL_VY) as i16;
+            let pa = g.objs.aliens[fish as usize];
+            if first_div.is_none() {
+                if r_wx != pa.worldx {
+                    first_div = Some((t, "worldx", r_wx as i32, pa.worldx as i32));
+                } else if r_wy != pa.worldy {
+                    first_div = Some((t, "worldy", r_wy as i32, pa.worldy as i32));
+                } else if r_wz != pa.worldz {
+                    first_div = Some((t, "worldz", r_wz as i32, pa.worldz as i32));
+                } else if r_vy != pa.vy {
+                    first_div = Some((t, "vy", r_vy as i32, pa.vy as i32));
+                }
+            }
+        }
+        match first_div {
+            None => eprintln!("FLYINGFISH flying: MATCH — vy+2 + addvecs + pvz over {n}"),
+            Some((t, f, r, p)) => {
+                panic!("flyingfish flying diverged tick {t} {f}: retail={r} port={p}")
+            }
+        }
+        assert!(
+            (bus.wram_read16(fish_blk + RETAIL_POOL.al_worldy) as i16) < 0,
+            "still airborne"
+        );
+        assert_eq!(
+            wram8(&bus, fish_blk + AL_SFLAGS2) & ROM_SFLAG2,
+            0,
+            "not landed"
+        );
+    }
+
+    eprintln!("FLYINGFISH: MATCH — init + swim±X + flying body == port (sflag bits fixed)");
+}
+
+/// MILESTONE — the bossseamon INIT, retail cart vs the port.
 #[test]
 fn retail_bossseamon_init_vs_port() {
     let Some(rom) = retail() else { return };
     let mut bus = SnesBus::new(rom.clone());
     let boss_blk = RETAIL_POOL.base;
     bus.write8(0x7E_0000 | (boss_blk + AL_HP), 0x77); // dirty
-    // No player seeded -> the body's player-relative branch is a clean far no-op;
-    // the RNG draw lands in sbyte2 (not diffed here).
-    call(&mut bus, RETAIL_BOSSSEAMON_ISTRAT, &Entry { x: boss_blk as u16, p: 0x20, ..Default::default() });
+                                                      // No player seeded -> the body's player-relative branch is a clean far no-op;
+                                                      // the RNG draw lands in sbyte2 (not diffed here).
+    call(
+        &mut bus,
+        RETAIL_BOSSSEAMON_ISTRAT,
+        &Entry {
+            x: boss_blk as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     let r_hp = wram8(&bus, boss_blk + AL_HP);
     let r_ap = wram8(&bus, boss_blk + AL_AP);
     let r_roty = wram8(&bus, boss_blk + AL_ROTY);
     let r_coll = wram8(&bus, boss_blk + AL_COLLFLAGS);
-    let r_sptr = bus.wram_read16(boss_blk + AL_STRATPTR) as u32 | ((wram8(&bus, boss_blk + AL_STRATPTR + 2) as u32) << 16);
+    let r_sptr = bus.wram_read16(boss_blk + AL_STRATPTR) as u32
+        | ((wram8(&bus, boss_blk + AL_STRATPTR + 2) as u32) << 16);
 
     // Port init (draws RNG, falls into body once) — no player active.
     let mut g = sf_game::game::Game::new();
@@ -4745,7 +10146,10 @@ fn retail_bossseamon_init_vs_port() {
     assert_eq!(r_roty, pa.roty, "bossseamon roty matches port");
     assert_eq!(r_coll & 0x40, 0x40, "retail bossseamon set enemyweap");
     assert_ne!(pa.collflags, 0, "port bossseamon set colltype");
-    assert_eq!(r_sptr, RETAIL_BOSSSEAMON_STRAT, "retail bossseamon installed bossseamon_strat");
+    assert_eq!(
+        r_sptr, RETAIL_BOSSSEAMON_STRAT,
+        "retail bossseamon installed bossseamon_strat"
+    );
     eprintln!("BOSSSEAMON init: MATCH — retail bossseamon_istrat HP/AP/roty/colltype/stratptr == port (RNG sbyte2 + body = gap).");
 }
 
@@ -4765,12 +10169,23 @@ fn retail_boss1_init_vs_port() {
         init_object_pool(&mut bus);
         let free0 = walk_freelist(&bus, &RETAIL_POOL);
         let blk = free0[0] as u32;
-        bus.wram_write16(RETAIL_POOL.freelist_head, bus.wram_read16(blk + RETAIL_POOL.al_next));
+        bus.wram_write16(
+            RETAIL_POOL.freelist_head,
+            bus.wram_read16(blk + RETAIL_POOL.al_next),
+        );
         bus.wram_write16(RETAIL_POOL.active_head, 0);
         let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
         bus.write8(0x7E_0000 | RETAIL_CURRENTLEVEL, r_lvl);
         bus.write8(0x7E_0000 | (blk + AL_HP), 0x11); // dirty
-        call(&mut bus, RETAIL_BOSS1_ISTRAT, &Entry { x: blk as u16, p: 0x20, ..Default::default() });
+        call(
+            &mut bus,
+            RETAIL_BOSS1_ISTRAT,
+            &Entry {
+                x: blk as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
         let free_after = walk_freelist(&bus, &RETAIL_POOL).len();
         let spawned = free_before - free_after;
 
@@ -4779,7 +10194,8 @@ fn retail_boss1_init_vs_port() {
         let r_roty = wram8(&bus, blk + AL_ROTY);
         let r_coll = wram8(&bus, blk + AL_COLLFLAGS);
         let r_type = wram8(&bus, blk + AL_TYPE);
-        let r_sptr = bus.wram_read16(blk + AL_STRATPTR) as u32 | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
+        let r_sptr = bus.wram_read16(blk + AL_STRATPTR) as u32
+            | ((wram8(&bus, blk + AL_STRATPTR + 2) as u32) << 16);
 
         // Port init.
         let mut g = sf_game::game::Game::new();
@@ -4788,13 +10204,22 @@ fn retail_boss1_init_vs_port() {
         let idx = g.objs.alloc().expect("boss");
         g.call_strat(ids.boss1, idx);
         let pa = g.objs.aliens[idx as usize];
-        let p_children = g.objs.aliens.iter().enumerate().filter(|(i, a)| *i != idx as usize && a.active).count();
+        let p_children = g
+            .objs
+            .aliens
+            .iter()
+            .enumerate()
+            .filter(|(i, a)| *i != idx as usize && a.active)
+            .count();
         eprintln!(
             "BOSS1 init lvl(r={r_lvl}/p={p_lvl}): retail hp=${r_hp:02X} ap=${r_ap:02X} roty=${r_roty:02X} coll=${r_coll:02X} type=${r_type:02X} stratptr=${r_sptr:06X} children={spawned} | port hp=${:02X} ap=${:02X} roty=${:02X} children={p_children}",
             pa.hp, pa.ap, pa.roty
         );
         // Spawn observable: 8 turrets + 1 cover = 9 children.
-        assert_eq!(spawned, 9, "retail boss1_istrat spawned 8 turrets + 1 cover");
+        assert_eq!(
+            spawned, 9,
+            "retail boss1_istrat spawned 8 turrets + 1 cover"
+        );
         assert_eq!(p_children, 9, "port boss1 spawned 9 children");
         // HP (level-gated) + AP.
         assert_eq!(r_hp, exp_hp, "retail boss1 HP for level branch");
@@ -4806,7 +10231,2253 @@ fn retail_boss1_init_vs_port() {
         assert_eq!(r_coll & 0x10, 0x10, "retail boss1 set enemy1");
         assert_ne!(pa.collflags, 0, "port boss1 set colltype");
         assert_eq!(r_type & 0x01, 0x01, "retail boss1 set type|=gnd");
-        assert_eq!(r_sptr, RETAIL_BOSS1UP_STRAT, "retail boss1 installed boss1up_strat");
+        assert_eq!(
+            r_sptr, RETAIL_BOSS1UP_STRAT,
+            "retail boss1 installed boss1up_strat"
+        );
     }
     eprintln!("BOSS1 init: MATCH — retail boss1_istrat level-gated HP + AP/roty/colltype/type + 9-child spawn == port strat_boss1_init.");
+}
+
+// ============================================================================
+// UPDATE 9 deferred sub-step — surgical retail gen_weapon muzzle rotate chain
+// ============================================================================
+
+/// DP/WRAM scratch used by retail `rotate_8*_l`.
+/// x1/y1/x2/y2 match built; z1/z2 are the shifted retail block ($8A/$1647 →
+/// $90/$15C2 — see `RETAIL_N3DVECS_L` scratch note).
+const R8_X1: u32 = 0x0002;
+const R8_Y1: u32 = 0x0008;
+const R8_X2: u32 = 0x0004;
+const R8_Y2: u32 = 0x000A;
+const R8_Z1: u32 = 0x0090;
+const R8_Z2: u32 = 0x15C2;
+
+/// Run retail `rotate_8yx → rotate_8yz → rotate_8xz` (gen_weapon / Roffs 1,1,1
+/// order) and diff vs port `strat_roffs_full`. Closes the UPDATE 9 deferred
+/// surgical muzzle-rotate sub-step without needing gen_weapon's jump-threaded
+/// mulslog continuation — each leaf is called at its retail address.
+#[test]
+fn retail_muzzle_rotate8_chain_vs_port() {
+    let Some(rom) = retail() else { return };
+    use sf_strat::snes_trig::strat_roffs_full;
+
+    let cases: [(u8, u8, u8, i8, i8, i8); 8] = [
+        (0, 0, 0, 10, -5, 20),
+        (32, 16, 64, 10, -5, 20),
+        (64, 0, 0, 0, 0, 40),
+        (0, 64, 0, 0, 30, 0),
+        (0, 0, 64, 25, 0, 0),
+        (128, 32, 96, -40, 15, -10),
+        (200, 100, 50, 7, -3, 11),
+        (1, 2, 3, 127, -128, 64),
+    ];
+    let mut matched = 0usize;
+    for (rotz, rotx, roty, ox, oy, oz) in cases {
+        let mut bus = SnesBus::new(rom.clone());
+        // Stage 1: rotate_8yx(rotz, ox, oy) → (x2, y2)
+        bus.write8(R8_X1, ox as u8);
+        bus.write8(R8_Y1, oy as u8);
+        call(
+            &mut bus,
+            RETAIL_ROTATE_8YX_L,
+            &Entry {
+                a: rotz as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        let x_after_yx = bus.read16(R8_X2) as i16;
+        let y_after_yx = bus.read16(R8_Y2) as i16;
+
+        // Stage 2: rotate_8yz(rotx, y_lo, oz) → (y2, z2)
+        bus.write8(R8_Y1, y_after_yx as i8 as u8);
+        bus.write8(R8_Z1, oz as u8);
+        call(
+            &mut bus,
+            RETAIL_ROTATE_8YZ_L,
+            &Entry {
+                a: rotx as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        let y_after_yz = bus.read16(R8_Y2) as i16;
+        let z_after_yz = bus.read16(R8_Z2) as i16;
+
+        // Stage 3: rotate_8xz(roty, x_lo, z_lo) → (x2, z2)
+        bus.write8(R8_X1, x_after_yx as i8 as u8);
+        bus.write8(R8_Z1, z_after_yz as i8 as u8);
+        call(
+            &mut bus,
+            RETAIL_ROTATE_8XZ_L,
+            &Entry {
+                a: roty as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        let retail = (
+            bus.read16(R8_X2) as i16,
+            y_after_yz,
+            bus.read16(R8_Z2) as i16,
+        );
+        let port = strat_roffs_full(rotz, rotx, roty, ox, oy, oz);
+        assert_eq!(
+            retail, port,
+            "muzzle chain rotz={rotz} rotx={rotx} roty={roty} off=({ox},{oy},{oz})"
+        );
+        matched += 1;
+    }
+    eprintln!(
+        "MUZZLE: retail rotate_8yx→yz→xz chain MATCH port strat_roffs_full — {matched}/{} configs.",
+        cases.len()
+    );
+}
+
+// ============================================================================
+// MAP SPAWN VM vs the RETAIL cart — `newobjex` / `mapobjdo` ($03:EDAB / $03:F79B).
+// Hand retail a minimal MAPOBJ script so it SPAWNS (instead of hand-seeding),
+// then diff world coords + mapcnt/mapptr vs `Game::map_exec`.
+// ============================================================================
+
+/// MILESTONE — locate + cross-validate retail map-VM WRAM globals from the
+/// embedded operands of `newobjex` / `mapobjdo` (and pin the entry points).
+#[test]
+fn retail_map_spawn_vm_addresses() {
+    let Some(rom) = retail() else { return };
+    let bus = SnesBus::new(rom);
+    let rd = |a: u32, n: u32| -> Vec<u8> { (0..n).map(|i| bus.read8(a + i)).collect() };
+    let w = |a: u32| -> u16 { bus.read16(a) };
+
+    // newobjs_l @ $03:EDA1 — php; sep #$20; phb; jsr newobjex; plp; rtl
+    let wrap = rd(RETAIL_NEWOBJS_L, 10);
+    eprintln!("MAP newobjs_l @${RETAIL_NEWOBJS_L:06X}: {wrap:02X?}");
+    assert_eq!(wrap[0], 0x08, "php");
+    assert_eq!(&wrap[1..3], &[0xE2, 0x20], "sep #$20");
+    assert_eq!(wrap[3], 0x8B, "phb");
+    assert_eq!(wrap[4], 0x20, "jsr newobjex");
+    assert_eq!(w(RETAIL_NEWOBJS_L + 5), (RETAIL_NEWOBJEX & 0xFFFF) as u16);
+    assert_eq!(&wrap[7..10], &[0xAB, 0x28, 0x6B], "plb; plp; rtl");
+
+    // newobjex @ $03:EDAB — sep #$20; lda mapbank; pha; plb; …
+    let nx = rd(RETAIL_NEWOBJEX, 16);
+    eprintln!("MAP newobjex @${RETAIL_NEWOBJEX:06X}: {nx:02X?}");
+    assert_eq!(&nx[0..3], &[0xE2, 0x20, 0xAD], "sep #$20; lda mapbank");
+    assert_eq!(
+        w(RETAIL_NEWOBJEX + 3),
+        RETAIL_MAPBANK as u16,
+        "mapbank operand"
+    );
+    assert_eq!(&nx[5..8], &[0x48, 0xAB, 0xC2], "pha; plb; rep…");
+
+    // mapobjdo @ $03:F79B — tyx; lda $8001,x; sta mapcnt; …
+    let mo = rd(RETAIL_MAPOBJDO, 0xA0);
+    eprintln!("MAP mapobjdo @${RETAIL_MAPOBJDO:06X}: {:02X?}", &mo[..16]);
+    assert_eq!(mo[0], 0xBB, "tyx");
+    assert_eq!(&mo[1..4], &[0xBD, 0x01, 0x80], "lda $8001,x (frame)");
+    assert_eq!(mo[4], 0x8D, "sta mapcnt");
+    assert_eq!(w(RETAIL_MAPOBJDO + 5), RETAIL_MAPCNT as u16);
+    assert_eq!(&mo[8..11], &[0xAE, 0x1D, 0x12], "ldx allst");
+    assert_eq!(w(RETAIL_MAPOBJDO + 9) as u32, RETAIL_POOL.active_head);
+
+    // sty lastmapobj @ +0x89; stx mapptr @ +0x9C (mapcnt≠0 exit).
+    assert_eq!(mo[0x89], 0x8C, "sty lastmapobj");
+    assert_eq!(w(RETAIL_MAPOBJDO + 0x8A), RETAIL_LASTMAPOBJ as u16);
+    assert_eq!(mo[0x9C], 0x8E, "stx mapptr");
+    assert_eq!(w(RETAIL_MAPOBJDO + 0x9D), RETAIL_MAPPTR as u16);
+
+    // playpt for Z spawn: ldy playpt @ +0x4F
+    assert_eq!(&mo[0x4F..0x52], &[0xAC, 0x38, 0x12], "ldy playpt");
+    assert_eq!(w(RETAIL_MAPOBJDO + 0x50) as u32, RETAIL_PLAYPT);
+
+    eprintln!(
+        "MAP globals: mapcnt=${:04X} mapptr=${:04X} lastmapobj=${:04X} mapbank=${:04X}",
+        RETAIL_MAPCNT, RETAIL_MAPPTR, RETAIL_LASTMAPOBJ, RETAIL_MAPBANK
+    );
+}
+
+/// MILESTONE — retail `newobjex` MAPOBJ spawn vs port `Game::map_exec`.
+///
+/// Script: one MAPOBJ with nonzero frame (handler RTS after spawn — no END
+/// needed). Diff worldx/y/z + mapcnt/mapptr. Shape/stratptr encodings differ
+/// (ROM `shapes[]`/`istrats[]` words vs port flat ids) — deferred.
+#[test]
+fn retail_mapobj_spawn_vs_port() {
+    use sf_game::alien::ASF3_REALOBJ;
+    use sf_game::game::Game;
+    use sf_game::obj::strat_init_obj_vars;
+
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    init_object_pool(&mut bus);
+
+    let player_z: i16 = 0x1000;
+    let (frame, x, y, z): (u16, i16, i16, i16) = (10, 1000, -500, 8000);
+    let shape_idx: u8 = 0;
+    let strat_idx: u8 = 0;
+
+    // Player block outside the alien pool — mapobjdo only reads worldz via playpt.
+    const PLAYER_BLK: u32 = 0x0140;
+    bus.wram_write16(PLAYER_BLK + RETAIL_POOL.al_worldz, player_z as u16);
+    bus.wram_write16(RETAIL_PLAYPT, PLAYER_BLK as u16);
+
+    let mut map = vec![0u8; 11];
+    map[0] = 0; // MAPOBJ
+    map[1..3].copy_from_slice(&frame.to_le_bytes());
+    map[3..5].copy_from_slice(&(x as u16).to_le_bytes());
+    map[5..7].copy_from_slice(&(y as u16).to_le_bytes());
+    map[7..9].copy_from_slice(&(z as u16).to_le_bytes());
+    map[9] = shape_idx;
+    map[10] = strat_idx;
+
+    bus.write8(RETAIL_MAPBANK, 0x7E);
+    for (i, b) in map.iter().enumerate() {
+        bus.write8(0x7E_0000 | (0x8000 + i as u32), *b);
+    }
+    bus.wram_write16(RETAIL_MAPPTR, 0);
+    bus.wram_write16(RETAIL_MAPCNT, 0);
+    bus.wram_write16(RETAIL_LASTMAPOBJ, 0);
+    bus.wram_write16(RETAIL_POOL.active_head, 0);
+
+    let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
+    call_near(
+        &mut bus,
+        RETAIL_NEWOBJEX,
+        &Entry {
+            x: 0,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
+
+    let mapcnt = bus.wram_read16(RETAIL_MAPCNT);
+    let mapptr = bus.wram_read16(RETAIL_MAPPTR);
+    let last = bus.wram_read16(RETAIL_LASTMAPOBJ);
+    let active = walk_active_list(&bus, bus.wram_read16(RETAIL_POOL.active_head));
+    assert_eq!(mapcnt, frame, "retail mapcnt = MAPOBJ frame");
+    assert_eq!(mapptr, 11, "retail mapptr advanced by mobj_sizeof");
+    assert_ne!(last, 0, "retail lastmapobj set to new block");
+    assert_eq!(active.len(), 1, "one object on allst");
+    assert_eq!(active[0], last, "allst head == lastmapobj");
+    assert_eq!(
+        walk_freelist(&bus, &RETAIL_POOL).len(),
+        free_before - 1,
+        "freelist shrank by one"
+    );
+
+    let blk = last as u32;
+    let rwx = bus.wram_read16(blk + RETAIL_POOL.al_worldx) as i16;
+    let rwy = bus.wram_read16(blk + RETAIL_POOL.al_worldy) as i16;
+    let rwz = bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16;
+    let ez = player_z.wrapping_add(z);
+    eprintln!(
+        "MAPOBJ retail: world=({rwx},{rwy},{rwz}) mapcnt={mapcnt} mapptr={mapptr} block=${last:04X}"
+    );
+    assert_eq!((rwx, rwy, rwz), (x, y, ez), "retail MAPOBJ world coords");
+
+    // Port mirror.
+    let mut g = Game::new();
+    let p = g.objs.alloc().expect("player");
+    assert_eq!(p, 0);
+    strat_init_obj_vars(&mut g.objs.aliens[0]);
+    g.objs.aliens[0].active = true;
+    g.objs.aliens[0].worldz = player_z;
+    g.objs.aliens[0].sflags3 |= ASF3_REALOBJ;
+    g.world.map = map;
+    g.world.map_loaded = true;
+    g.vars.mapptr = 0;
+    g.vars.mapcnt = 0;
+    g.map_exec();
+
+    assert_eq!(g.vars.mapcnt, frame, "port mapcnt");
+    assert_eq!(g.vars.mapptr, 11, "port mapptr");
+    assert_ne!(g.world.lastmapobj, 0, "port lastmapobj");
+    let idx = g.world.last_obj.expect("port last_obj");
+    let pal = &g.objs.aliens[idx as usize];
+    eprintln!(
+        "MAPOBJ port:   world=({},{},{}) mapcnt={} mapptr={} idx={idx}",
+        pal.worldx, pal.worldy, pal.worldz, g.vars.mapcnt, g.vars.mapptr
+    );
+    assert_eq!(
+        (pal.worldx, pal.worldy, pal.worldz),
+        (x, y, ez),
+        "port MAPOBJ world coords"
+    );
+    assert_eq!(
+        (rwx, rwy, rwz),
+        (pal.worldx, pal.worldy, pal.worldz),
+        "retail vs port MAPOBJ world MATCH"
+    );
+    // Sanity: mapobjdo entry is the jump-table slot 0 target.
+    assert_eq!(
+        bus.read16(RETAIL_NEWOBJEX + 0x14),
+        (RETAIL_MAPOBJDO & 0xFFFF) as u16,
+        "mapjmp[0] == mapobjdo"
+    );
+    eprintln!("MAPOBJ: MATCH — retail newobjex spawn world coords == port map_exec.");
+}
+
+/// Push one MAPOBJ record (11 bytes) onto `map`.
+fn push_mapobj(map: &mut Vec<u8>, frame: u16, x: i16, y: i16, z: i16, shape: u8, strat: u8) {
+    map.push(0);
+    map.extend_from_slice(&frame.to_le_bytes());
+    map.extend_from_slice(&(x as u16).to_le_bytes());
+    map.extend_from_slice(&(y as u16).to_le_bytes());
+    map.extend_from_slice(&(z as u16).to_le_bytes());
+    map.push(shape);
+    map.push(strat);
+}
+
+/// MILESTONE — multi-op retail `newobjex`: MAPOBJ frame=0 continues into a
+/// second MAPOBJ (nonzero frame RTS). Two spawns + mapcnt/mapptr vs port.
+#[test]
+fn retail_mapobj_multi_spawn_vs_port() {
+    use sf_game::alien::ASF3_REALOBJ;
+    use sf_game::game::Game;
+    use sf_game::obj::strat_init_obj_vars;
+
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    init_object_pool(&mut bus);
+
+    let player_z: i16 = 0x1000;
+    const PLAYER_BLK: u32 = 0x0140;
+    bus.wram_write16(PLAYER_BLK + RETAIL_POOL.al_worldz, player_z as u16);
+    bus.wram_write16(RETAIL_PLAYPT, PLAYER_BLK as u16);
+
+    // MAPOBJ frame=0 → jmp newobjex; second MAPOBJ frame=7 → stx mapptr; rts.
+    let a = (0u16, 100i16, -200i16, 500i16);
+    let b = (7u16, -300i16, 400i16, 1200i16);
+    let mut map = Vec::new();
+    push_mapobj(&mut map, a.0, a.1, a.2, a.3, 0, 0);
+    push_mapobj(&mut map, b.0, b.1, b.2, b.3, 0, 0);
+
+    bus.write8(RETAIL_MAPBANK, 0x7E);
+    for (i, byte) in map.iter().enumerate() {
+        bus.write8(0x7E_0000 | (0x8000 + i as u32), *byte);
+    }
+    bus.wram_write16(RETAIL_MAPPTR, 0);
+    bus.wram_write16(RETAIL_MAPCNT, 0);
+    bus.wram_write16(RETAIL_LASTMAPOBJ, 0);
+    bus.wram_write16(RETAIL_POOL.active_head, 0);
+
+    let free_before = walk_freelist(&bus, &RETAIL_POOL).len();
+    call_near(
+        &mut bus,
+        RETAIL_NEWOBJEX,
+        &Entry {
+            x: 0,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
+
+    let mapcnt = bus.wram_read16(RETAIL_MAPCNT);
+    let mapptr = bus.wram_read16(RETAIL_MAPPTR);
+    let active = walk_active_list(&bus, bus.wram_read16(RETAIL_POOL.active_head));
+    assert_eq!(mapcnt, b.0, "retail mapcnt = second MAPOBJ frame");
+    assert_eq!(mapptr, 22, "retail mapptr = 2×11");
+    assert_eq!(active.len(), 2, "two objects on allst");
+    assert_eq!(
+        walk_freelist(&bus, &RETAIL_POOL).len(),
+        free_before - 2,
+        "freelist shrank by two"
+    );
+
+    let retail_worlds: Vec<(i16, i16, i16)> = active
+        .iter()
+        .map(|&blk| {
+            let b = blk as u32;
+            (
+                bus.wram_read16(b + RETAIL_POOL.al_worldx) as i16,
+                bus.wram_read16(b + RETAIL_POOL.al_worldy) as i16,
+                bus.wram_read16(b + RETAIL_POOL.al_worldz) as i16,
+            )
+        })
+        .collect();
+    let expect_a = (a.1, a.2, player_z.wrapping_add(a.3));
+    let expect_b = (b.1, b.2, player_z.wrapping_add(b.3));
+    eprintln!("MAPOBJ×2 retail allst worlds={retail_worlds:?} mapcnt={mapcnt} mapptr={mapptr}");
+    // mapobjdo keeps spawn order on allst (first MAPOBJ remains head).
+    assert_eq!(retail_worlds[0], expect_a, "allst[0] = first MAPOBJ");
+    assert_eq!(retail_worlds[1], expect_b, "allst[1] = second MAPOBJ");
+
+    // Port mirror.
+    let mut g = Game::new();
+    let p = g.objs.alloc().expect("player");
+    assert_eq!(p, 0);
+    strat_init_obj_vars(&mut g.objs.aliens[0]);
+    g.objs.aliens[0].active = true;
+    g.objs.aliens[0].worldz = player_z;
+    g.objs.aliens[0].sflags3 |= ASF3_REALOBJ;
+    g.world.map = map;
+    g.world.map_loaded = true;
+    g.vars.mapptr = 0;
+    g.vars.mapcnt = 0;
+    g.map_exec();
+
+    assert_eq!(g.vars.mapcnt, b.0, "port mapcnt");
+    assert_eq!(g.vars.mapptr, 22, "port mapptr");
+    let port_worlds: Vec<(i16, i16, i16)> = g
+        .objs
+        .active_indices()
+        .into_iter()
+        .filter(|&i| i != 0)
+        .map(|i| {
+            let al = &g.objs.aliens[i as usize];
+            (al.worldx, al.worldy, al.worldz)
+        })
+        .collect();
+    eprintln!(
+        "MAPOBJ×2 port   worlds={port_worlds:?} mapcnt={} mapptr={}",
+        g.vars.mapcnt, g.vars.mapptr
+    );
+    assert_eq!(port_worlds.len(), 2, "port spawned two");
+    // Port alloc order: first MAPOBJ idx=1, second idx=2 — not allst-head order.
+    assert!(port_worlds.contains(&expect_a) && port_worlds.contains(&expect_b));
+    assert_eq!(
+        retail_worlds
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        port_worlds
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        "retail vs port MAPOBJ×2 world set MATCH"
+    );
+    eprintln!("MAPOBJ×2: MATCH — retail multi-op newobjex spawn worlds == port map_exec.");
+}
+
+/// MILESTONE — MAPOBJ frame=0 continues into mapwait (nonzero dist parks).
+#[test]
+fn retail_mapobj_then_wait_vs_port() {
+    use sf_game::alien::ASF3_REALOBJ;
+    use sf_game::game::Game;
+    use sf_game::obj::strat_init_obj_vars;
+
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    init_object_pool(&mut bus);
+
+    let player_z: i16 = 0x1000;
+    const PLAYER_BLK: u32 = 0x0140;
+    bus.wram_write16(PLAYER_BLK + RETAIL_POOL.al_worldz, player_z as u16);
+    bus.wram_write16(RETAIL_PLAYPT, PLAYER_BLK as u16);
+
+    let (x, y, z) = (50i16, -60i16, 700i16);
+    let wait_dist: u16 = 0x40;
+    let mut map = Vec::new();
+    push_mapobj(&mut map, 0, x, y, z, 0, 0);
+    map.push(18); // mapwait
+    map.extend_from_slice(&wait_dist.to_le_bytes());
+
+    bus.write8(RETAIL_MAPBANK, 0x7E);
+    for (i, byte) in map.iter().enumerate() {
+        bus.write8(0x7E_0000 | (0x8000 + i as u32), *byte);
+    }
+    bus.wram_write16(RETAIL_MAPPTR, 0);
+    bus.wram_write16(RETAIL_MAPCNT, 0);
+    bus.wram_write16(RETAIL_LASTMAPOBJ, 0);
+    bus.wram_write16(RETAIL_POOL.active_head, 0);
+
+    call_near(
+        &mut bus,
+        RETAIL_NEWOBJEX,
+        &Entry {
+            x: 0,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
+
+    let mapcnt = bus.wram_read16(RETAIL_MAPCNT);
+    let mapptr = bus.wram_read16(RETAIL_MAPPTR);
+    let active = walk_active_list(&bus, bus.wram_read16(RETAIL_POOL.active_head));
+    let ez = player_z.wrapping_add(z);
+    let blk = active[0] as u32;
+    let retail = (
+        bus.wram_read16(blk + RETAIL_POOL.al_worldx) as i16,
+        bus.wram_read16(blk + RETAIL_POOL.al_worldy) as i16,
+        bus.wram_read16(blk + RETAIL_POOL.al_worldz) as i16,
+    );
+    assert_eq!(active.len(), 1);
+    assert_eq!(mapcnt, wait_dist, "retail mapcnt = wait dist");
+    assert_eq!(mapptr, 14, "retail mapptr = 11+3");
+    assert_eq!(retail, (x, y, ez));
+
+    let mut g = Game::new();
+    let p = g.objs.alloc().expect("player");
+    assert_eq!(p, 0);
+    strat_init_obj_vars(&mut g.objs.aliens[0]);
+    g.objs.aliens[0].active = true;
+    g.objs.aliens[0].worldz = player_z;
+    g.objs.aliens[0].sflags3 |= ASF3_REALOBJ;
+    g.world.map = map;
+    g.world.map_loaded = true;
+    g.vars.mapptr = 0;
+    g.map_exec();
+
+    let idx = g.world.last_obj.expect("spawned");
+    let pal = &g.objs.aliens[idx as usize];
+    assert_eq!(g.vars.mapcnt, wait_dist);
+    assert_eq!(g.vars.mapptr, 14);
+    assert_eq!((pal.worldx, pal.worldy, pal.worldz), retail);
+    eprintln!("MAPOBJ+WAIT: MATCH world={retail:?} mapcnt={mapcnt} mapptr={mapptr}");
+}
+
+/// Read retail `shapes[idx]` (16-bit word) and `istrats[idx]` (24-bit addr +
+/// embedded shape-byte) from the cart tables mapobjdo indexes.
+fn retail_shapes_word(bus: &SnesBus, idx: u8) -> u16 {
+    bus.read16(RETAIL_SHAPES + (idx as u32) * 2)
+}
+fn retail_istrats_entry(bus: &SnesBus, idx: u8) -> (u32, u8) {
+    let base = RETAIL_ISTRATS + (idx as u32) * 4;
+    let lo = bus.read16(base) as u32;
+    let bank = bus.read8(base + 2) as u32;
+    let shape_byte = bus.read8(base + 3);
+    ((bank << 16) | lo, shape_byte)
+}
+
+/// MILESTONE — mapobjdo shape/stratptr encoding vs port.
+///
+/// Retail writes `al_shape = shapes[shape_idx]` (ROM pointer word) and
+/// `al_stratptr = istrats[strat_idx]` (24-bit SNES addr). Port uses flat shape
+/// ids (`shapes_table[i] ≈ i`) and `StratId` handles — different representation,
+/// same *index* contract. Certifies:
+///  1. retail spawn materialises the table words for known indices,
+///  2. port `MAP_ISTRAT_SPACEBAR` (166) resolves and runs spacebar hardvars,
+///  3. istrat embedded shape-byte for 166 is XSOLIDSPACEBAR family (145).
+#[test]
+fn retail_mapobj_shape_stratptr_encoding() {
+    use sf_game::alien::ASF3_REALOBJ;
+    use sf_game::game::Game;
+    use sf_game::obj::strat_init_obj_vars;
+    use sf_game::vars::{HARD_AP, HARD_HP};
+    use sf_game::world::MAP_ISTRAT_SPACEBAR;
+    use sf_oracle::AL_STRATPTR;
+
+    let Some(rom) = retail() else { return };
+    let mut bus = SnesBus::new(rom);
+    init_object_pool(&mut bus);
+
+    let shape_idx: u8 = 20;
+    let strat_idx: u8 = MAP_ISTRAT_SPACEBAR as u8; // 166 — matches retail table
+    let expect_shape = retail_shapes_word(&bus, shape_idx);
+    let (expect_strat, istrat_shape_byte) = retail_istrats_entry(&bus, strat_idx);
+    eprintln!(
+        "ENCODE tables: shapes[{shape_idx}]=${expect_shape:04X} istrats[{strat_idx}]=${expect_strat:06X} shape_byte={istrat_shape_byte}"
+    );
+    assert_eq!(
+        istrat_shape_byte, 145,
+        "spacebar istrat embeds XSOLIDSPACEBAR idx"
+    );
+    assert_ne!(
+        expect_shape, shape_idx as u16,
+        "retail shapes[] is a ROM word, not the flat index"
+    );
+    assert_eq!(
+        (expect_strat >> 16) & 0xFF,
+        0x0A,
+        "spacebar_Istrat lives in bank $0A"
+    );
+
+    // Cross-check mapobjdo's long-table operands (lda.l shapes / istrats).
+    let mo = |off: u32| bus.read8(RETAIL_MAPOBJDO + off);
+    let mut found_shapes = false;
+    let mut found_istrats = false;
+    for off in 0..0x90 {
+        if mo(off) == 0xBF {
+            let a = mo(off + 1) as u32 | ((mo(off + 2) as u32) << 8) | ((mo(off + 3) as u32) << 16);
+            if a == RETAIL_SHAPES {
+                found_shapes = true;
+            }
+            if a == RETAIL_ISTRATS || a == RETAIL_ISTRATS + 2 {
+                found_istrats = true;
+            }
+        }
+    }
+    assert!(found_shapes, "mapobjdo lda.l shapes");
+    assert!(found_istrats, "mapobjdo lda.l istrats");
+
+    let player_z: i16 = 0x1000;
+    const PLAYER_BLK: u32 = 0x0140;
+    bus.wram_write16(PLAYER_BLK + RETAIL_POOL.al_worldz, player_z as u16);
+    bus.wram_write16(RETAIL_PLAYPT, PLAYER_BLK as u16);
+
+    let mut map = Vec::new();
+    push_mapobj(&mut map, 5, 0, 0, 100, shape_idx, strat_idx);
+    bus.write8(RETAIL_MAPBANK, 0x7E);
+    for (i, byte) in map.iter().enumerate() {
+        bus.write8(0x7E_0000 | (0x8000 + i as u32), *byte);
+    }
+    bus.wram_write16(RETAIL_MAPPTR, 0);
+    bus.wram_write16(RETAIL_MAPCNT, 0);
+    bus.wram_write16(RETAIL_LASTMAPOBJ, 0);
+    bus.wram_write16(RETAIL_POOL.active_head, 0);
+
+    call_near(
+        &mut bus,
+        RETAIL_NEWOBJEX,
+        &Entry {
+            x: 0,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
+
+    let blk = bus.wram_read16(RETAIL_LASTMAPOBJ) as u32;
+    let got_shape = bus.wram_read16(blk + RETAIL_POOL.al_shape);
+    let got_strat_lo = bus.wram_read16(blk + AL_STRATPTR) as u32;
+    let got_strat_bank = bus.read8(0x7E_0000 | (blk + AL_STRATPTR + 2)) as u32;
+    let got_strat = (got_strat_bank << 16) | got_strat_lo;
+    eprintln!("ENCODE retail spawn: al_shape=${got_shape:04X} al_stratptr=${got_strat:06X}");
+    assert_eq!(got_shape, expect_shape, "retail al_shape = shapes[idx]");
+    assert_eq!(got_strat, expect_strat, "retail al_stratptr = istrats[idx]");
+
+    // Port: same indices — flat shape id + StratId for spacebar.
+    let mut g = Game::new();
+    let p = g.objs.alloc().expect("player");
+    assert_eq!(p, 0);
+    strat_init_obj_vars(&mut g.objs.aliens[0]);
+    g.objs.aliens[0].active = true;
+    g.objs.aliens[0].worldz = player_z;
+    g.objs.aliens[0].sflags3 |= ASF3_REALOBJ;
+    g.world.map = map;
+    g.world.map_loaded = true;
+    g.vars.mapptr = 0;
+    g.map_exec();
+
+    let idx = g.world.last_obj.expect("spawned");
+    let pal = &g.objs.aliens[idx as usize];
+    assert_eq!(
+        pal.shape, shape_idx as u16,
+        "port al_shape = flat index (shapes_table[i]=i)"
+    );
+    assert!(
+        g.world.istrats[MAP_ISTRAT_SPACEBAR].is_some(),
+        "port registers spacebar at index 166"
+    );
+    assert_eq!(
+        pal.stratptr, g.world.istrats[MAP_ISTRAT_SPACEBAR],
+        "port stratptr = istrats[166]"
+    );
+
+    // Run one strategy tick — spacebar init applies hardvars (encoding→behavior).
+    g.run_strategies();
+    let pal = &g.objs.aliens[idx as usize];
+    assert_eq!(pal.hp, HARD_HP);
+    assert_eq!(pal.ap, HARD_AP);
+    eprintln!(
+        "ENCODE: MATCH — retail table words applied; port index 166 → spacebar hardvars \
+         (shape ROM ${expect_shape:04X} vs flat {shape_idx}; strat ROM ${expect_strat:06X} vs StratId)."
+    );
+}
+
+// ============================================================================
+// PURE HELPER RE-CERT vs retail — `nvecs_l` / `alvelvecs_l` / `perc*A_l`
+// (TIER2 recommended next after map spawn VM; `speed_to` / `xzdiffs_l` /
+// `n3dvecs_l` already MATCH).
+// ============================================================================
+
+use sf_oracle::{
+    AL_VEL, RETAIL_ALVELVECS_L, RETAIL_NVECS_L, RETAIL_PERC56A_L, RETAIL_PERC62A_L,
+    RETAIL_PERC75A_L, RETAIL_PERC87A_L, RETAIL_PERC93A_L, RETAIL_TMPZ, RETAIL_Z1,
+};
+
+/// Locate retail `nvecs_l` / `alvelvecs_l` by masked scan; cross-check constants.
+#[test]
+fn retail_nvecs_alvelvecs_addresses() {
+    let Some(rom) = retail() else { return };
+    let w = None;
+    // alvelvecs_l: lda al_vel,x; sta tmpz; phb; stx; sty; stz y1; stz y1+1; lda al_roty,x; tax; sep #$10
+    let alvel_pat: Vec<Option<u8>> = vec![
+        Some(0xB5),
+        Some(0x15),
+        Some(0x85),
+        w,
+        Some(0x8B),
+        Some(0x86),
+        w,
+        Some(0x84),
+        w,
+        Some(0x64),
+        Some(0x08),
+        Some(0x64),
+        Some(0x09),
+        Some(0xB5),
+        Some(0x13),
+        Some(0xAA),
+        Some(0xE2),
+        Some(0x10),
+    ];
+    let ah = masked_scan(&rom, &alvel_pat);
+    assert_eq!(ah.len(), 1, "alvelvecs_l unique");
+    let alvel = rom_off_to_snes(ah[0]);
+    let tmpz = rom[ah[0] + 3] as u32;
+    assert_eq!(alvel, RETAIL_ALVELVECS_L, "alvelvecs_l addr");
+    assert_eq!(tmpz, RETAIL_TMPZ, "tmpz from alvelvecs sta");
+
+    // nvecs_l: stx tmpx; sty tmpy; stz y1; stz y1+1; eor#$FF; inc; tax; sep#$10; phb; lda#; pha; plb; inx; iny
+    let nvecs_pat: Vec<Option<u8>> = vec![
+        Some(0x86),
+        w,
+        Some(0x84),
+        w,
+        Some(0x64),
+        Some(0x08),
+        Some(0x64),
+        Some(0x09),
+        Some(0x49),
+        Some(0xFF),
+        Some(0x1A),
+        Some(0xAA),
+        Some(0xE2),
+        Some(0x10),
+        Some(0x8B),
+        Some(0xA9),
+        w,
+        Some(0x48),
+        Some(0xAB),
+        Some(0xE8),
+        Some(0xC8),
+    ];
+    let nh = masked_scan(&rom, &nvecs_pat);
+    assert_eq!(nh.len(), 1, "nvecs_l unique");
+    let nvecs = rom_off_to_snes(nh[0]);
+    assert_eq!(nvecs, RETAIL_NVECS_L, "nvecs_l addr");
+    eprintln!(
+        "HELPERS: alvelvecs_l=${alvel:06X} nvecs_l=${nvecs:06X} tmpz=${tmpz:02X} z1=${RETAIL_Z1:02X}"
+    );
+}
+
+/// Locate retail `perc*A_l` block; cross-check constants (tpx=$3A stays).
+#[test]
+fn retail_perc_addresses() {
+    let Some(rom) = retail() else { return };
+    // perc56A_l: asra; sta tpx; asra×3; clc; adc tpx; rtl
+    let p56 = [
+        0xC9u8, 0x00, 0x80, 0x6A, 0x85, 0x3A, 0xC9, 0x00, 0x80, 0x6A, 0xC9, 0x00, 0x80, 0x6A, 0xC9,
+        0x00, 0x80, 0x6A, 0x18, 0x65, 0x3A, 0x6B,
+    ];
+    let hits = masked_scan(&rom, &p56.iter().copied().map(Some).collect::<Vec<_>>());
+    assert_eq!(hits.len(), 1, "perc56A_l unique");
+    let perc56 = rom_off_to_snes(hits[0]);
+    assert_eq!(perc56, RETAIL_PERC56A_L);
+
+    let p62 = [
+        0xC9u8, 0x00, 0x80, 0x6A, 0x85, 0x3A, 0xC9, 0x00, 0x80, 0x6A, 0xC9, 0x00, 0x80, 0x6A, 0x18,
+        0x65, 0x3A, 0x6B,
+    ];
+    let h62 = masked_scan(&rom, &p62.iter().copied().map(Some).collect::<Vec<_>>());
+    // perc56's trailing asra×3+adc also contains a perc62-shaped suffix — take the
+    // hit that is NOT inside perc56 (exactly one standalone after perc56).
+    let perc62 = h62
+        .iter()
+        .map(|&h| rom_off_to_snes(h))
+        .find(|&a| a == RETAIL_PERC62A_L)
+        .expect("perc62A_l");
+    assert_eq!(perc62, RETAIL_PERC62A_L);
+
+    let p75 = [
+        0xC9u8, 0x00, 0x80, 0x6A, 0x85, 0x3A, 0xC9, 0x00, 0x80, 0x6A, 0x18, 0x65, 0x3A, 0x6B,
+    ];
+    let h75 = masked_scan(&rom, &p75.iter().copied().map(Some).collect::<Vec<_>>());
+    assert!(
+        h75.iter().any(|&h| rom_off_to_snes(h) == RETAIL_PERC75A_L),
+        "perc75A_l"
+    );
+
+    let p87 = [
+        0xC9u8, 0x00, 0x80, 0x6A, 0x85, 0x3A, 0xC9, 0x00, 0x80, 0x6A, 0x85, 0x3C, 0xC9, 0x00, 0x80,
+        0x6A, 0x18, 0x65, 0x3A, 0x18, 0x65, 0x3C, 0x6B,
+    ];
+    let h87 = masked_scan(&rom, &p87.iter().copied().map(Some).collect::<Vec<_>>());
+    assert_eq!(h87.len(), 1, "perc87A_l unique");
+    assert_eq!(rom_off_to_snes(h87[0]), RETAIL_PERC87A_L);
+
+    // perc93A_l uses absolute `tpa` ($14C5)
+    let p93 = [
+        0xC9u8, 0x00, 0x80, 0x6A, 0x85, 0x3A, 0xC9, 0x00, 0x80, 0x6A, 0x85, 0x3C, 0xC9, 0x00, 0x80,
+        0x6A, 0x8D, 0xC5, 0x14, 0xC9, 0x00, 0x80, 0x6A, 0x18, 0x6D, 0xC5, 0x14, 0x18, 0x65, 0x3A,
+        0x18, 0x65, 0x3C, 0x6B,
+    ];
+    let h93 = masked_scan(&rom, &p93.iter().copied().map(Some).collect::<Vec<_>>());
+    assert_eq!(h93.len(), 1, "perc93A_l unique");
+    assert_eq!(rom_off_to_snes(h93[0]), RETAIL_PERC93A_L);
+
+    eprintln!(
+        "HELPERS: perc56=${RETAIL_PERC56A_L:06X} perc62=${RETAIL_PERC62A_L:06X} \
+         perc75=${RETAIL_PERC75A_L:06X} perc87=${RETAIL_PERC87A_L:06X} perc93=${RETAIL_PERC93A_L:06X}"
+    );
+}
+
+/// RETAIL `nvecs_l` (s_gen_vecs) + `alvelvecs_l` (gen_vecs 2d) vs port.
+#[test]
+fn retail_nvecs_alvelvecs_vs_port() {
+    let Some(rom) = retail() else { return };
+    const X1: u32 = 0x02;
+    const Y1: u32 = 0x08;
+    let cases = [
+        (0u8, 100u8),
+        (64, 100),
+        (192, 90),
+        (32, 80),
+        (96, 64),
+        (10, 120),
+        (250, 90),
+        (128, 50),
+    ];
+    let mut bad = 0;
+
+    for &(roty, vel) in &cases {
+        // --- nvecs_l: A=angle, tmpz=vel ---
+        let mut bus = SnesBus::new(rom.clone());
+        bus.write8(RETAIL_TMPZ, vel);
+        call(
+            &mut bus,
+            RETAIL_NVECS_L,
+            &Entry {
+                a: roty as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        let (rx, rz) = (bus.read16(X1) as i16, bus.read16(RETAIL_Z1) as i16);
+        let (px, pz) = sf_strat::common::strat_nvecs(roty, vel);
+        let n_ok = rx == px && rz == pz;
+        if !n_ok {
+            bad += 1;
+        }
+        eprintln!(
+            "NVECS  roty={roty:3} vel={vel:3}  retail=({rx},{rz}) port=({px},{pz}) {}",
+            if n_ok { "EXACT" } else { "DIFF" }
+        );
+
+        // --- alvelvecs_l: X=alien with al_roty/al_vel ---
+        const XB: u32 = 0x0100;
+        let mut bus = SnesBus::new(rom.clone());
+        bus.write8(XB + AL_ROTY, roty);
+        bus.write8(XB + AL_VEL, vel);
+        call(
+            &mut bus,
+            RETAIL_ALVELVECS_L,
+            &Entry {
+                x: XB as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        let (ax, ay, az) = (
+            bus.read16(X1) as i16,
+            bus.read16(Y1) as i16,
+            bus.read16(RETAIL_Z1) as i16,
+        );
+        let mut al = sf_game::alien::Alien::default();
+        al.roty = roty;
+        al.vel = vel;
+        sf_strat::common::strat_gen_vecs_2d(&mut al);
+        let a_ok = al.vx == ax && al.vy == ay && al.vz == az;
+        if !a_ok {
+            bad += 1;
+        }
+        eprintln!(
+            "ALVEL  roty={roty:3} vel={vel:3}  retail=({ax},{ay},{az}) port=({},{},{}) {}",
+            al.vx,
+            al.vy,
+            al.vz,
+            if a_ok { "EXACT" } else { "DIFF" }
+        );
+    }
+    assert_eq!(bad, 0, "{bad} nvecs/alvelvecs cases differ from RETAIL");
+    eprintln!(
+        "HELPERS: MATCH — retail nvecs_l == strat_nvecs; alvelvecs_l == strat_gen_vecs_2d \
+         over {} cases (x1/z1 bit-exact; alvel vy=0).",
+        cases.len()
+    );
+}
+
+/// RETAIL `perc*A_l` vs port `strat_perc*`.
+#[test]
+fn retail_perc_vs_port() {
+    let Some(rom) = retail() else { return };
+    let table: [(&str, u32, fn(i16) -> i16); 5] = [
+        ("perc56", RETAIL_PERC56A_L, sf_strat::common::strat_perc56),
+        ("perc62", RETAIL_PERC62A_L, sf_strat::common::strat_perc62),
+        ("perc75", RETAIL_PERC75A_L, sf_strat::common::strat_perc75),
+        ("perc87", RETAIL_PERC87A_L, sf_strat::common::strat_perc87),
+        ("perc93", RETAIL_PERC93A_L, sf_strat::common::strat_perc93),
+    ];
+    let vals = [
+        0i16, 1, -1, 100, -100, 255, -255, 500, -500, 4096, -4096, 12345, -12345, 32000, -32000,
+    ];
+    let mut bad = 0;
+    for (name, addr, rust_fn) in table {
+        for &v in &vals {
+            let mut bus = SnesBus::new(rom.clone());
+            let exit = call(
+                &mut bus,
+                addr,
+                &Entry {
+                    a: v as u16,
+                    p: 0x00, // 16-bit A (longa)
+                    ..Default::default()
+                },
+            );
+            let rom_r = exit.c as i16;
+            let rust_r = rust_fn(v);
+            if rom_r != rust_r {
+                bad += 1;
+                eprintln!("  {name}({v}): retail={rom_r} port={rust_r} DIFF");
+            }
+        }
+        eprintln!("{name}: {} values checked", vals.len());
+    }
+    assert_eq!(bad, 0, "{bad} perc mismatches vs RETAIL");
+    eprintln!(
+        "HELPERS: MATCH — retail perc56/62/75/87/93A_l == strat_perc* over {} values × 5.",
+        vals.len()
+    );
+}
+
+// ============================================================================
+// NON-SPAWN map opcodes vs retail — WAIT / WAIT2 / END / FADETO* / SETBGM
+// (built-ROM already covered in audit_mapvm2; this re-certs against the cart).
+// ============================================================================
+
+use sf_oracle::{
+    RETAIL_BGMCNT, RETAIL_BGM_MUSIC, RETAIL_LASTPALFADE, RETAIL_PALCNT, RETAIL_PALFADE,
+    RETAIL_PALNUM, RETAIL_PSHIPFLAGS2, RETAIL_STAYBLACK,
+};
+
+/// Host map bytes at $7E:8000 and run retail `newobjex` once (RTS-ending op).
+fn retail_map_exec(rom: &[u8], map: &[u8], seed: impl FnOnce(&mut SnesBus)) -> SnesBus {
+    let mut bus = SnesBus::new(rom.to_vec());
+    bus.write8(RETAIL_MAPBANK, 0x7E);
+    for (i, b) in map.iter().enumerate() {
+        bus.write8(0x7E_0000 | (0x8000 + i as u32), *b);
+    }
+    bus.wram_write16(RETAIL_MAPPTR, 0);
+    bus.wram_write16(RETAIL_MAPCNT, 0);
+    seed(&mut bus);
+    call_near(
+        &mut bus,
+        RETAIL_NEWOBJEX,
+        &Entry {
+            x: 0,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
+    bus
+}
+
+fn port_map_exec(map: &[u8], seed: impl FnOnce(&mut sf_game::game::Game)) -> sf_game::game::Game {
+    let mut g = sf_game::game::Game::new();
+    g.world.map = map.to_vec();
+    g.world.map_loaded = true;
+    g.vars.mapptr = 0;
+    g.vars.mapcnt = 0;
+    seed(&mut g);
+    g.map_exec();
+    g
+}
+
+/// Locate fade/SETBGM WRAM from retail handler operands; cross-check constants.
+#[test]
+fn retail_map_nonspawn_addresses() {
+    let Some(rom) = retail() else { return };
+    // fadetoseado: BB E8 A0 1E 00 8C <palfade> 8C <last> A0 02 00 8C <palcnt> A9 1E 00 8D <palnum>
+    let fade_pat: Vec<Option<u8>> = vec![
+        Some(0xBB),
+        Some(0xE8),
+        Some(0xA0),
+        Some(0x1E),
+        Some(0x00),
+        Some(0x8C),
+        None,
+        None,
+        Some(0x8C),
+        None,
+        None,
+        Some(0xA0),
+        Some(0x02),
+        Some(0x00),
+        Some(0x8C),
+        None,
+        None,
+        Some(0xA9),
+        Some(0x1E),
+        Some(0x00),
+        Some(0x8D),
+        None,
+        None,
+    ];
+    let fh = masked_scan(&rom, &fade_pat);
+    assert_eq!(fh.len(), 1, "fadetoseado unique");
+    let o = fh[0];
+    let palfade = rom[o + 6] as u32 | ((rom[o + 7] as u32) << 8);
+    let last = rom[o + 9] as u32 | ((rom[o + 10] as u32) << 8);
+    let palcnt = rom[o + 15] as u32 | ((rom[o + 16] as u32) << 8);
+    let palnum = rom[o + 21] as u32 | ((rom[o + 22] as u32) << 8);
+    assert_eq!(palfade, RETAIL_PALFADE);
+    assert_eq!(last, RETAIL_LASTPALFADE);
+    assert_eq!(palcnt, RETAIL_PALCNT);
+    assert_eq!(palnum, RETAIL_PALNUM);
+    assert_eq!(rom_off_to_snes(o), 0x03_EF5C, "fadetoseado addr");
+
+    // setbgmdo: BB E2 20 AD <pshipflags2> 29 80 ... 8D <bgm> 9C <bgmcnt>
+    let bgm_pat: Vec<Option<u8>> = vec![
+        Some(0xBB),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x29),
+        Some(0x80),
+        Some(0xD0),
+        Some(0x09),
+        Some(0xBD),
+        Some(0x01),
+        Some(0x80),
+        Some(0x8D),
+        None,
+        None,
+        Some(0x9C),
+        None,
+        None,
+    ];
+    let bh = masked_scan(&rom, &bgm_pat);
+    assert_eq!(bh.len(), 1, "setbgmdo unique");
+    let b = bh[0];
+    let psf2 = rom[b + 4] as u32 | ((rom[b + 5] as u32) << 8);
+    let bgm = rom[b + 14] as u32 | ((rom[b + 15] as u32) << 8);
+    let bgmcnt = rom[b + 17] as u32 | ((rom[b + 18] as u32) << 8);
+    assert_eq!(psf2, RETAIL_PSHIPFLAGS2);
+    assert_eq!(bgm, RETAIL_BGM_MUSIC);
+    assert_eq!(bgmcnt, RETAIL_BGMCNT);
+
+    // `dopause`: byte mode, then `doingwipe != 0` and `stayblack != -1`
+    // guards. This independently certifies the map-program operand used by
+    // title, intro, continue, and credits.
+    let pause_pattern: Vec<Option<u8>> = vec![
+        Some(0x08),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xC2),
+        Some(0x10),
+        Some(0xAD),
+        None,
+        None,
+        Some(0xD0),
+        None,
+        Some(0xAD),
+        None,
+        None,
+        Some(0xC9),
+        Some(0xFF),
+        Some(0xD0),
+    ];
+    let pause_hits = masked_scan(&rom, &pause_pattern);
+    assert_eq!(pause_hits.len(), 1, "dopause guard sequence unique");
+    let pause = pause_hits[0];
+    let stay_black = rom[pause + 11] as u32 | ((rom[pause + 12] as u32) << 8);
+    assert_eq!(stay_black, RETAIL_STAYBLACK);
+    assert_eq!(sf_map::consts::wm::STAYBLACK as u32, stay_black);
+    eprintln!(
+        "MAP-NS: palfade=${palfade:04X} palnum=${palnum:04X} palcnt=${palcnt:04X} \
+         pshipflags2=${psf2:04X} bgm=${bgm:04X} bgmcnt=${bgmcnt:04X}"
+    );
+}
+
+/// RETAIL WAIT / WAIT2 / END vs port `map_exec`.
+#[test]
+fn retail_map_wait_wait2_end_vs_port() {
+    let Some(rom) = retail() else { return };
+
+    // WAIT 0x1234 parks.
+    let m = [18u8, 0x34, 0x12, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 0x1234);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 3);
+    assert_eq!((g.vars.mapcnt, g.vars.mapptr), (0x1234, 3));
+
+    // WAIT 0 continues into next WAIT 0x40.
+    let m = [18u8, 0x00, 0x00, 18, 0x40, 0x00, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 0x40);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 6);
+    assert_eq!((g.vars.mapcnt, g.vars.mapptr), (0x40, 6));
+
+    // WAIT2 0x12 → mapcnt = 0x120, always RTS.
+    let m = [138u8, 0x12, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 0x120);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 2);
+    assert_eq!((g.vars.mapcnt, g.vars.mapptr), (0x120, 2));
+
+    // WAIT2 0 → mapcnt=0, still RTS (no fall-through).
+    let m = [138u8, 0x00, 18, 0x40, 0x00, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 0);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 2);
+    assert_eq!((g.vars.mapcnt, g.vars.mapptr), (0, 2), "WAIT2 0 ends frame");
+
+    // END: retail mapenddo = stx mapptr; rts (does NOT write levelfinished).
+    // Port sets levelfinished=1 as the HD clear latch.
+    let m = [2u8];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(
+        bus.wram_read16(RETAIL_MAPPTR),
+        0,
+        "retail END parks mapptr at opcode"
+    );
+    assert_eq!(g.vars.mapptr, 0, "port END does not advance mapptr");
+    assert_eq!(
+        g.world.levelfinished, 1,
+        "port END sets levelfinished latch"
+    );
+
+    eprintln!(
+        "MAP-NS: MATCH — WAIT/WAIT2 mapcnt+mapptr; END mapptr park + port levelfinished=1 \
+         (retail mapenddo is stx mapptr;rts only)."
+    );
+}
+
+/// RETAIL FADETOSEA / FADETOGROUND WRAM arm + port semantic arm.
+#[test]
+fn retail_map_fadetosea_ground_vs_port() {
+    let Some(rom) = retail() else { return };
+
+    let m = [108u8, 2]; // FADETOSEA then END
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_PALFADE), 30);
+    assert_eq!(bus.wram_read16(RETAIL_LASTPALFADE), 30);
+    assert_eq!(bus.wram_read16(RETAIL_PALCNT), 2);
+    assert_eq!(bus.read8(RETAIL_PALNUM), 30);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 1);
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(g.vars.mapptr, 1);
+    assert_eq!(
+        g.vars.palfade_target,
+        Some(sf_core::scene::PaletteFadeTarget::Sea)
+    );
+    assert_eq!(g.vars.palfade_num, sf_game::vars::PALFADE_NUM_START);
+
+    let m = [110u8, 2]; // FADETOGROUND
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_PALFADE), 62); // groundpal-seapal+30
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 1);
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(
+        g.vars.palfade_target,
+        Some(sf_core::scene::PaletteFadeTarget::Ground)
+    );
+    assert_eq!(g.vars.palfade_num, 30);
+
+    eprintln!(
+        "MAP-NS: MATCH — retail FADETOSEA/GROUND palfade/palnum/palcnt; port arms \
+         palfade_target SEA/GROUND + palfade_num=30."
+    );
+}
+
+/// RETAIL SETBGM HP0 guard vs port.
+#[test]
+fn retail_map_setbgm_hp0_vs_port() {
+    use sf_game::game::{Game, Hooks};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let Some(rom) = retail() else { return };
+    let m = [20u8, 5, 2]; // SETBGM 5, END
+
+    // Alive: writes bgm_music=5, bgmcnt=0.
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.write8(RETAIL_BGM_MUSIC, 0x77);
+        b.write8(RETAIL_BGMCNT, 0x55);
+    });
+    assert_eq!(bus.read8(RETAIL_BGM_MUSIC), 5);
+    assert_eq!(bus.read8(RETAIL_BGMCNT), 0);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 2);
+
+    // Dead (psf2_playerHP0): skip music store.
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.write8(RETAIL_PSHIPFLAGS2, 0x80);
+        b.write8(RETAIL_BGM_MUSIC, 0x77);
+        b.write8(RETAIL_BGMCNT, 0x55);
+    });
+    assert_eq!(bus.read8(RETAIL_BGM_MUSIC), 0x77);
+    assert_eq!(bus.read8(RETAIL_BGMCNT), 0x55);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 2);
+
+    struct Rec(Rc<RefCell<Vec<u8>>>);
+    impl Hooks for Rec {
+        fn play_music(&mut self, t: u8) {
+            self.0.borrow_mut().push(t);
+        }
+    }
+
+    let played = Rc::new(RefCell::new(Vec::new()));
+    let mut g = Game::with_hooks(Box::new(Rec(played.clone())));
+    g.world.map = m.to_vec();
+    g.world.map_loaded = true;
+    g.vars.mapptr = 0;
+    g.vars.pshipflags2 = sf_game::vars::PSF2_PLAYERHP0;
+    g.map_exec();
+    assert_eq!(
+        *played.borrow(),
+        Vec::<u8>::new(),
+        "port skips SETBGM while HP0"
+    );
+    assert_eq!(g.vars.mapptr, 2);
+
+    let played = Rc::new(RefCell::new(Vec::new()));
+    let mut g = Game::with_hooks(Box::new(Rec(played.clone())));
+    g.world.map = m.to_vec();
+    g.world.map_loaded = true;
+    g.vars.mapptr = 0;
+    g.map_exec();
+    assert_eq!(*played.borrow(), vec![5], "port plays SETBGM when alive");
+
+    eprintln!(
+        "MAP-NS: MATCH — retail SETBGM writes bgm/bgmcnt when alive, skips on HP0; \
+         port play_music guard identical."
+    );
+}
+
+// ============================================================================
+// MAP LOOP / SETVAR / JMPVAR vs retail
+// ============================================================================
+
+use sf_oracle::{RETAIL_MAPADDRS, RETAIL_MAPLOOPS, RETAIL_NUMMAPLOOPS};
+
+// Low-bank oracle scratch mapped to typed background-scroll fields by the
+// native port's retained map-data decoder.
+const MAP_EXT_VAR: u16 = 0x1F30;
+
+fn retail_map_resume(bus: &mut SnesBus, start: u16) {
+    call_near(
+        bus,
+        RETAIL_NEWOBJEX,
+        &Entry {
+            x: start,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
+}
+
+/// Locate maploopdo slot WRAM; cross-check constants.
+#[test]
+fn retail_map_loop_setvar_addresses() {
+    let Some(rom) = retail() else { return };
+    // maploopdo: TYA; LDX#0; CMP mapaddrs,x; BEQ; INX;INX; CPX#8; BNE; LDX nummaploops; STA mapaddrs,x; ... STA maploops,x
+    let pat: Vec<Option<u8>> = vec![
+        Some(0x98),
+        Some(0xA2),
+        Some(0x00),
+        Some(0x00),
+        Some(0xDD),
+        None,
+        None,
+        Some(0xF0),
+        Some(0x20),
+        Some(0xE8),
+        Some(0xE8),
+        Some(0xE0),
+        Some(0x08),
+        Some(0x00),
+        Some(0xD0),
+        Some(0xF4),
+        Some(0xAE),
+        None,
+        None,
+        Some(0x9D),
+        None,
+        None,
+    ];
+    let h = masked_scan(&rom, &pat);
+    assert_eq!(h.len(), 1, "maploopdo unique");
+    let o = h[0];
+    let mapaddrs = rom[o + 5] as u32 | ((rom[o + 6] as u32) << 8);
+    let nummaploops = rom[o + 17] as u32 | ((rom[o + 18] as u32) << 8);
+    let mapaddrs_sta = rom[o + 20] as u32 | ((rom[o + 21] as u32) << 8);
+    assert_eq!(mapaddrs, RETAIL_MAPADDRS);
+    assert_eq!(mapaddrs_sta, RETAIL_MAPADDRS);
+    assert_eq!(nummaploops, RETAIL_NUMMAPLOOPS);
+    // maploops from `sta maploops,x` a few bytes later (9D 43 17)
+    let region = &rom[o..o + 40];
+    let ml = region
+        .windows(3)
+        .find(|w| w[0] == 0x9D && (w[1] as u32 | ((w[2] as u32) << 8)) == RETAIL_MAPLOOPS);
+    assert!(ml.is_some(), "sta maploops,x");
+    assert_eq!(rom_off_to_snes(o), 0x03_F9C0, "maploopdo addr");
+    eprintln!(
+        "MAP-LOOP: mapaddrs=${mapaddrs:04X} maploops=${RETAIL_MAPLOOPS:04X} \
+         nummaploops=${nummaploops:04X}"
+    );
+}
+
+/// RETAIL SETVARB/W/L vs port ext WRAM writes.
+#[test]
+fn retail_map_setvar_vs_port() {
+    let Some(rom) = retail() else { return };
+    let vl = (MAP_EXT_VAR & 0xFF) as u8;
+    let vh = (MAP_EXT_VAR >> 8) as u8;
+
+    let m = [92u8, 0xAB, vl, vh, 0x00, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.read8(MAP_EXT_VAR as u32), 0xAB);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 5);
+    assert_eq!((g.vars.read_ext8(MAP_EXT_VAR), g.vars.mapptr), (0xAB, 5));
+
+    let m = [94u8, 0xCD, 0xAB, vl, vh, 0x00, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.read16(MAP_EXT_VAR as u32), 0xABCD);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 6);
+    assert_eq!((g.vars.read_ext16(MAP_EXT_VAR), g.vars.mapptr), (0xABCD, 6));
+
+    let m = [96u8, vl, vh, 0x00, 0x34, 0x12, 0x56, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.read16(MAP_EXT_VAR as u32), 0x1234);
+    assert_eq!(bus.read8(MAP_EXT_VAR as u32 + 2), 0x56);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 7);
+    assert_eq!(
+        (
+            g.vars.read_ext16(MAP_EXT_VAR),
+            g.vars.read_ext8(MAP_EXT_VAR + 2),
+            g.vars.mapptr
+        ),
+        (0x1234, 0x56, 7)
+    );
+
+    eprintln!("MAP-LOOP: MATCH — SETVARB/W/L ext WRAM + mapptr == port.");
+}
+
+/// RETAIL maploop iteration count vs port (stored C → C+1 body runs).
+#[test]
+fn retail_map_loop_vs_port() {
+    let Some(rom) = retail() else { return };
+
+    for c in [1u16, 2, 5] {
+        let map = [
+            18u8,
+            0x40,
+            0x00, // WAIT 0x40
+            4,
+            0x00,
+            0x00,
+            (c & 0xFF) as u8,
+            (c >> 8) as u8, // LOOP → 0
+            2,              // END
+        ];
+        let mut bus = retail_map_exec(&rom, &map, |b| {
+            b.wram_write16(RETAIL_NUMMAPLOOPS, 0);
+            b.wram_write16(RETAIL_MAPADDRS, 0);
+            b.wram_write16(RETAIL_MAPLOOPS, 0);
+        });
+        let mut rom_waits = 1u32;
+        let mut guard = 0;
+        while bus.wram_read16(RETAIL_MAPPTR) != 8 && guard < 20 {
+            let at = bus.wram_read16(RETAIL_MAPPTR);
+            retail_map_resume(&mut bus, at);
+            if bus.wram_read16(RETAIL_MAPPTR) == 3 {
+                rom_waits += 1;
+            }
+            guard += 1;
+        }
+        assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 8, "retail END C={c}");
+        assert_eq!(
+            bus.wram_read16(RETAIL_NUMMAPLOOPS),
+            0,
+            "retail slot released"
+        );
+        assert_eq!(rom_waits, c as u32 + 1);
+
+        let mut g = sf_game::game::Game::new();
+        g.world.map = map.to_vec();
+        g.world.map_loaded = true;
+        g.vars.mapptr = 0;
+        let mut rust_waits = 0u32;
+        let mut guard = 0;
+        while g.vars.mapptr != 8 && guard < 20 {
+            g.map_exec();
+            if g.vars.mapptr == 3 {
+                rust_waits += 1;
+            }
+            guard += 1;
+        }
+        assert_eq!(g.vars.mapptr, 8, "port END C={c}");
+        assert_eq!(g.world.num_loops, 0);
+        assert_eq!(rust_waits, rom_waits, "loop body runs for stored {c}");
+        eprintln!("MAP-LOOP C={c}: waits={rom_waits} MATCH");
+    }
+    eprintln!("MAP-LOOP: MATCH — retail maploopdo iteration count == port (stored C → C+1 waits).");
+}
+
+/// RETAIL JMPVARLESS/MORE/EQ signed compare vs port.
+#[test]
+fn retail_map_jmpvar_vs_port() {
+    let Some(rom) = retail() else { return };
+    let mut map = vec![0u8; 17];
+    map[7] = 2;
+    map[16] = 2;
+    let cases: [(u8, u8); 10] = [
+        (5, 5),
+        (4, 5),
+        (6, 5),
+        (0x00, 0x90),
+        (0x90, 0x00),
+        (0x7f, 0x80),
+        (0x80, 0x7f),
+        (0x00, 0x00),
+        (0xff, 0x01),
+        (0x01, 0xff),
+    ];
+    let mut bad = 0;
+    for op in [124u8, 126, 128] {
+        for (var, cmp) in cases {
+            map[0] = op;
+            map[1] = (MAP_EXT_VAR & 0xFF) as u8;
+            map[2] = (MAP_EXT_VAR >> 8) as u8;
+            map[3] = 0x00;
+            map[4] = cmp;
+            map[5] = 16;
+            map[6] = 0;
+            let bus = retail_map_exec(&rom, &map, |b| b.write8(MAP_EXT_VAR as u32, var));
+            let g = port_map_exec(&map, |g| g.vars.write_ext8(MAP_EXT_VAR, var));
+            let romp = bus.wram_read16(RETAIL_MAPPTR);
+            if romp != g.vars.mapptr {
+                bad += 1;
+                eprintln!(
+                    "JMPVAR op={op} var={var:#04x} cmp={cmp:#04x}: retail={romp} port={}",
+                    g.vars.mapptr
+                );
+            }
+        }
+    }
+    assert_eq!(bad, 0, "{bad} jmpvar mapptr mismatches vs RETAIL");
+    eprintln!(
+        "MAP-LOOP: MATCH — JMPVARLESS/MORE/EQ signed compare mapptr == port ({} cases × 3).",
+        cases.len()
+    );
+}
+
+// ============================================================================
+// MAP JSR / RTS / GOTO / SETALVAR / SETVAROBJ vs retail
+// ============================================================================
+
+use sf_oracle::{RETAIL_MAPJSR_DEPTH, RETAIL_MAPJSR_STACK, RETAIL_NUMMAPJSR};
+
+const MAP_OBJ_BLOCK: u32 = 0x0140;
+const AL_ROTX_OFF: u32 = 0x12;
+const AL_SWORD2_OFF: u32 = 0x28;
+
+/// Locate mapjsrdo stack WRAM; cross-check constants.
+#[test]
+fn retail_map_jsr_setalvar_addresses() {
+    let Some(rom) = retail() else { return };
+    // mapjsrdo: TYX; LDY nummapjsr; TXA; STA mapjsrs,y; ... STA mapjsrs+2,y; INY×3; STY nummapjsr
+    let pat: Vec<Option<u8>> = vec![
+        Some(0xBB),
+        Some(0xAC),
+        None,
+        None,
+        Some(0x8A),
+        Some(0x99),
+        None,
+        None,
+        Some(0xE2),
+        Some(0x20),
+        Some(0xAD),
+        Some(0xF4),
+        Some(0x1F), // lda mapbank
+        Some(0x99),
+        None,
+        None,
+        Some(0xC2),
+        Some(0x20),
+        Some(0xC8),
+        Some(0xC8),
+        Some(0xC8),
+        Some(0x8C),
+        None,
+        None,
+    ];
+    let h = masked_scan(&rom, &pat);
+    assert_eq!(h.len(), 1, "mapjsrdo unique");
+    let o = h[0];
+    let num = rom[o + 2] as u32 | ((rom[o + 3] as u32) << 8);
+    let stack = rom[o + 6] as u32 | ((rom[o + 7] as u32) << 8);
+    let num_sty = rom[o + 22] as u32 | ((rom[o + 23] as u32) << 8);
+    assert_eq!(num, RETAIL_NUMMAPJSR);
+    assert_eq!(num_sty, RETAIL_NUMMAPJSR);
+    assert_eq!(stack, RETAIL_MAPJSR_STACK);
+    assert_eq!(rom_off_to_snes(o), 0x03_F42B);
+    // depth counter: EE <depth> near end of jsr
+    let region = &rom[o..o + 48];
+    let depth_hit = region
+        .windows(3)
+        .find(|w| w[0] == 0xEE && (w[1] as u32 | ((w[2] as u32) << 8)) == RETAIL_MAPJSR_DEPTH);
+    assert!(depth_hit.is_some(), "inc mapjsr depth");
+    eprintln!("MAP-JSR: stack=${stack:04X} nummapjsr=${num:04X} depth=${RETAIL_MAPJSR_DEPTH:04X}");
+}
+
+/// RETAIL JSR/RTS/GOTO vs port.
+#[test]
+fn retail_map_jsr_rts_goto_vs_port() {
+    let Some(rom) = retail() else { return };
+
+    // jsr@0 → 8; wait@4 (return = jsr+4); rts@8.
+    let m = [40u8, 0x08, 0x00, 0x7E, 18, 0x40, 0x00, 0, 42];
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.wram_write16(RETAIL_NUMMAPJSR, 0);
+        b.write8(RETAIL_MAPJSR_DEPTH, 0);
+    });
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 7);
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 0x40);
+    assert_eq!(bus.wram_read16(RETAIL_NUMMAPJSR), 0);
+    assert_eq!(bus.read8(RETAIL_MAPJSR_DEPTH), 0);
+    assert_eq!((g.vars.mapptr, g.vars.mapcnt), (7, 0x40));
+    assert_eq!(g.world.num_jsr, 0);
+    assert_eq!(g.world.jsr_top, 0);
+
+    // goto@0 → 5; wait@5.
+    let m = [46u8, 0x05, 0x00, 0x7E, 0, 18, 0x40, 0x00, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 8);
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 0x40);
+    assert_eq!((g.vars.mapptr, g.vars.mapcnt), (8, 0x40));
+
+    eprintln!("MAP-JSR: MATCH — JSR/RTS return+wait; GOTO target; stack depth 0.");
+}
+
+/// RETAIL SETALVARB/W/L (+ invalid skip) vs port.
+#[test]
+fn retail_map_setalvar_vs_port() {
+    let Some(rom) = retail() else { return };
+    let seed_obj = |b: &mut SnesBus| {
+        b.wram_write16(RETAIL_LASTMAPOBJ, MAP_OBJ_BLOCK as u16);
+    };
+    let rust_obj = |g: &mut sf_game::game::Game| {
+        let idx = g.objs.alloc().unwrap();
+        g.world.last_obj = Some(idx);
+        g.world.lastmapobj = idx + 1;
+    };
+
+    // setalvarb → al_rotx
+    let m = [54u8, AL_ROTX_OFF as u8, 0x00, 0x5A, 2];
+    let bus = retail_map_exec(&rom, &m, seed_obj);
+    let g = port_map_exec(&m, rust_obj);
+    assert_eq!(bus.read8(MAP_OBJ_BLOCK + AL_ROTX_OFF), 0x5A);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 4);
+    let idx = g.world.last_obj.unwrap() as usize;
+    assert_eq!((g.objs.aliens[idx].rotx, g.vars.mapptr), (0x5A, 4));
+
+    // invalid lastmapobj: skip write, still advance
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.wram_write16(RETAIL_LASTMAPOBJ, 0);
+        b.write8(MAP_OBJ_BLOCK + AL_ROTX_OFF, 0x77);
+    });
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.read8(MAP_OBJ_BLOCK + AL_ROTX_OFF), 0x77);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 4);
+    assert_eq!(g.vars.mapptr, 4);
+
+    // setalvarw → al_sword2
+    let m = [56u8, AL_SWORD2_OFF as u8, 0x00, 0xEF, 0xBE, 2];
+    let bus = retail_map_exec(&rom, &m, seed_obj);
+    let g = port_map_exec(&m, rust_obj);
+    assert_eq!(bus.read16(MAP_OBJ_BLOCK + AL_SWORD2_OFF), 0xBEEF);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 5);
+    let idx = g.world.last_obj.unwrap() as usize;
+    assert_eq!(
+        (g.objs.aliens[idx].sword2 as u16, g.vars.mapptr),
+        (0xBEEF, 5)
+    );
+
+    // setalvarl → worldx + worldy lo
+    let m = [58u8, 0x0C, 0x00, 0x34, 0x12, 0x56, 2];
+    let bus = retail_map_exec(&rom, &m, seed_obj);
+    let g = port_map_exec(&m, rust_obj);
+    assert_eq!(bus.read16(MAP_OBJ_BLOCK + 0x0C), 0x1234);
+    assert_eq!(bus.read8(MAP_OBJ_BLOCK + 0x0E), 0x56);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 6);
+    let idx = g.world.last_obj.unwrap() as usize;
+    assert_eq!(g.objs.aliens[idx].worldx as u16, 0x1234);
+    assert_eq!(g.objs.aliens[idx].worldy as u16 & 0xFF, 0x56);
+    assert_eq!(g.vars.mapptr, 6);
+
+    eprintln!("MAP-JSR: MATCH — SETALVARB/W/L + invalid-object skip == port.");
+}
+
+/// RETAIL SETVAROBJ valid/invalid vs port.
+#[test]
+fn retail_map_setvarobj_vs_port() {
+    let Some(rom) = retail() else { return };
+    let vl = (MAP_EXT_VAR & 0xFF) as u8;
+    let vh = (MAP_EXT_VAR >> 8) as u8;
+    let m = [74u8, vl, vh, 0x00, 2];
+
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.wram_write16(RETAIL_LASTMAPOBJ, MAP_OBJ_BLOCK as u16);
+    });
+    assert_eq!(bus.read16(MAP_EXT_VAR as u32), MAP_OBJ_BLOCK as u16);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 4);
+    let g = port_map_exec(&m, |g| {
+        let idx = g.objs.alloc().unwrap();
+        g.world.last_obj = Some(idx);
+        g.world.lastmapobj = idx + 1;
+    });
+    assert_eq!(g.vars.read_ext16(MAP_EXT_VAR), g.world.lastmapobj);
+    assert_eq!(g.vars.mapptr, 4);
+
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.wram_write16(RETAIL_LASTMAPOBJ, 0);
+        b.write16(MAP_EXT_VAR as u32, 0x1234);
+    });
+    assert_eq!(
+        bus.read16(MAP_EXT_VAR as u32),
+        0x1234,
+        "retail keeps sentinel"
+    );
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 4);
+    let g = port_map_exec(&m, |g| g.vars.write_ext16(MAP_EXT_VAR, 0x1234));
+    assert_eq!(
+        g.vars.read_ext16(MAP_EXT_VAR),
+        0x1234,
+        "port skips write when lastmapobj==0"
+    );
+    assert_eq!(g.vars.mapptr, 4);
+
+    eprintln!("MAP-JSR: MATCH — SETVAROBJ valid write + invalid skip == port.");
+}
+
+// ============================================================================
+// MAP REMOVE + small state ops (rot / zrot / setstage / setbg / special)
+// ============================================================================
+
+use sf_oracle::{
+    RETAIL_BGFLAGS, RETAIL_CURRENTBG, RETAIL_DOZROT, RETAIL_SPECIALOBJTOTAL, RETAIL_STAGECNT,
+};
+
+const AL_SFLAGS_OFF: u32 = 0x1D;
+const AL_SFLAGS4_OFF: u32 = 0x20;
+/// Port/camera/bgs key for dozrot (built-ROM WRAM address used as ext cell).
+const PORT_DOZROT: u16 = 0x1776;
+
+/// Locate dozrot/stagecnt/currentbg/specialobjtotal from retail handlers.
+#[test]
+fn retail_map_remove_state_addresses() {
+    let Some(rom) = retail() else { return };
+    // setzroton: TYX; SEP; LDA #1; STA dozrot; INX; JMP newobjex
+    let zpat: Vec<Option<u8>> = vec![
+        Some(0xBB),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x01),
+        Some(0x8D),
+        None,
+        None,
+        Some(0xE8),
+        Some(0x4C),
+        Some(0xAB),
+        Some(0xED),
+    ];
+    let zh = masked_scan(&rom, &zpat);
+    let zhit = zh
+        .iter()
+        .copied()
+        .find(|&h| rom_off_to_snes(h) == 0x03_F179)
+        .expect("setzroton @ $03F179");
+    let dozrot = rom[zhit + 6] as u32 | ((rom[zhit + 7] as u32) << 8);
+    assert_eq!(dozrot, RETAIL_DOZROT);
+
+    // setstage: TYX; LDA #50; STA stagecnt
+    let spat: Vec<Option<u8>> = vec![
+        Some(0xBB),
+        Some(0xA9),
+        Some(0x32),
+        Some(0x00),
+        Some(0x8D),
+        None,
+        None,
+        Some(0xE8),
+        Some(0x4C),
+        Some(0xAB),
+        Some(0xED),
+    ];
+    let sh = masked_scan(&rom, &spat);
+    assert_eq!(sh.len(), 1, "setstage unique");
+    let stagecnt = rom[sh[0] + 5] as u32 | ((rom[sh[0] + 6] as u32) << 8);
+    assert_eq!(stagecnt, RETAIL_STAGECNT);
+
+    // setbg helper: STA currentbg; LDA bgflags; ORA #4; STA bgflags; RTL
+    let bpat: Vec<Option<u8>> = vec![
+        Some(0x8D),
+        None,
+        None,
+        Some(0xAD),
+        None,
+        None,
+        Some(0x09),
+        Some(0x04),
+        Some(0x00),
+        Some(0x8D),
+        None,
+        None,
+        Some(0x6B),
+    ];
+    let bh = masked_scan(&rom, &bpat);
+    assert_eq!(bh.len(), 1, "setbg helper unique");
+    let curbg = rom[bh[0] + 1] as u32 | ((rom[bh[0] + 2] as u32) << 8);
+    let bgflags = rom[bh[0] + 4] as u32 | ((rom[bh[0] + 5] as u32) << 8);
+    assert_eq!(curbg, RETAIL_CURRENTBG);
+    assert_eq!(bgflags, RETAIL_BGFLAGS);
+
+    // mapspecial: STA #1 into al_sflags,y; INC specialobjtotal
+    let mpat: Vec<Option<u8>> = vec![
+        Some(0xA9),
+        Some(0x01),
+        Some(0x99),
+        Some(0x1D),
+        Some(0x00),
+        Some(0xEE),
+        None,
+        None,
+    ];
+    let mh = masked_scan(&rom, &mpat);
+    assert_eq!(mh.len(), 1, "mapspecial unique");
+    let sot = rom[mh[0] + 6] as u32 | ((rom[mh[0] + 7] as u32) << 8);
+    assert_eq!(sot, RETAIL_SPECIALOBJTOTAL);
+    eprintln!(
+        "MAP-RM: dozrot=${dozrot:04X} stagecnt=${stagecnt:04X} currentbg=${curbg:04X} \
+         bgflags=${bgflags:04X} specialobjtotal=${sot:04X}"
+    );
+}
+
+/// RETAIL REMOVE — first shape match only (player head exempt).
+#[test]
+fn retail_map_remove_vs_port() {
+    let Some(rom) = retail() else { return };
+    const HEAD: u32 = 0x0100;
+    const A: u32 = 0x0140;
+    const B: u32 = 0x0180;
+    let m = [12u8, 0x00, 0x00, 0x07, 0x00, 2];
+
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.wram_write16(RETAIL_POOL.active_head, HEAD as u16);
+        b.wram_write16(RETAIL_POOL.freelist_head, 0);
+        b.write16(HEAD, A as u16);
+        b.write16(HEAD + 2, 0);
+        b.write16(HEAD + RETAIL_POOL.al_shape, 0x9999);
+        b.write16(A, B as u16);
+        b.write16(A + 2, HEAD as u16);
+        b.write16(A + RETAIL_POOL.al_shape, 7);
+        b.write16(B, 0);
+        b.write16(B + 2, A as u16);
+        b.write16(B + RETAIL_POOL.al_shape, 7);
+    });
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 5);
+    assert_eq!(
+        bus.read16(HEAD),
+        B as u16,
+        "retail unlinked only first match"
+    );
+    assert_eq!(
+        bus.wram_read16(RETAIL_POOL.active_head),
+        HEAD as u16,
+        "player head untouched"
+    );
+
+    let g = port_map_exec(&m, |g| {
+        let a = g.objs.alloc().unwrap();
+        let b2 = g.objs.alloc().unwrap();
+        g.objs.aliens[a as usize].shape = 7;
+        g.objs.aliens[b2 as usize].shape = 7;
+    });
+    let live = g
+        .objs
+        .active_indices()
+        .iter()
+        .filter(|&&i| g.objs.aliens[i as usize].shape == 7)
+        .count();
+    assert_eq!(live, 1, "port one removal");
+    assert_eq!(g.vars.mapptr, 5);
+    eprintln!("MAP-RM: MATCH — REMOVE first shape-7 only; player exempt.");
+}
+
+/// RETAIL rot / zrot / setstage / setbg / special vs port.
+#[test]
+fn retail_map_small_state_vs_port() {
+    let Some(rom) = retail() else { return };
+    let seed_obj = |b: &mut SnesBus| {
+        b.wram_write16(RETAIL_LASTMAPOBJ, MAP_OBJ_BLOCK as u16);
+    };
+    let rust_obj = |g: &mut sf_game::game::Game| {
+        let idx = g.objs.alloc().unwrap();
+        g.world.last_obj = Some(idx);
+        g.world.lastmapobj = idx + 1;
+    };
+
+    for (op, off) in [
+        (48u8, AL_ROTX_OFF),
+        (50, AL_ROTX_OFF + 1),
+        (52, AL_ROTX_OFF + 2),
+    ] {
+        let m = [op, 0xA5, 2];
+        let bus = retail_map_exec(&rom, &m, seed_obj);
+        assert_eq!(bus.read8(MAP_OBJ_BLOCK + off), 0xA5);
+        assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 2);
+        let g = port_map_exec(&m, rust_obj);
+        let idx = g.world.last_obj.unwrap() as usize;
+        let got = match op {
+            48 => g.objs.aliens[idx].rotx,
+            50 => g.objs.aliens[idx].roty,
+            _ => g.objs.aliens[idx].rotz,
+        };
+        assert_eq!((got, g.vars.mapptr), (0xA5, 2));
+    }
+
+    let m = [88u8, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.read8(RETAIL_DOZROT), 1);
+    assert_eq!(g.vars.read_ext8(PORT_DOZROT), 1);
+    let m = [86u8, 2];
+    let bus = retail_map_exec(&rom, &m, |b| b.write8(RETAIL_DOZROT, 1));
+    let g = port_map_exec(&m, |g| g.vars.write_ext8(PORT_DOZROT, 1));
+    assert_eq!(bus.read8(RETAIL_DOZROT), 0);
+    assert_eq!(g.vars.read_ext8(PORT_DOZROT), 0);
+
+    let m = [14u8, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_STAGECNT), 50);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 1);
+    assert_eq!((g.vars.stagecnt, g.vars.mapptr), (50, 1));
+
+    let m = [16u8, 0x34, 0x02, 2];
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(bus.wram_read16(RETAIL_CURRENTBG), 0x0234);
+    assert_eq!(bus.read8(RETAIL_BGFLAGS) & 0x04, 0x04);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 3);
+    assert_eq!((g.vars.currentbg, g.vars.mapptr), (0x0234, 3));
+    assert_eq!(
+        g.vars.bgflags & sf_game::vars::BGF_BG,
+        sf_game::vars::BGF_BG
+    );
+
+    // SPECIAL: retail al_sflags=$01; port ASF4_SPECIAL on sflags4 (remap).
+    let m = [90u8, 2];
+    let bus = retail_map_exec(&rom, &m, |b| {
+        seed_obj(b);
+        b.write8(RETAIL_SPECIALOBJTOTAL, 0);
+    });
+    assert_eq!(bus.read8(MAP_OBJ_BLOCK + AL_SFLAGS_OFF), 0x01);
+    assert_eq!(bus.read8(RETAIL_SPECIALOBJTOTAL), 1);
+    let g = port_map_exec(&m, rust_obj);
+    let idx = g.world.last_obj.unwrap() as usize;
+    assert_eq!(
+        g.objs.aliens[idx].sflags4 & sf_game::alien::ASF4_SPECIAL,
+        sf_game::alien::ASF4_SPECIAL
+    );
+    assert_eq!(g.world.specialobjtotal, 1);
+
+    let m = [132u8, 2];
+    let bus = retail_map_exec(&rom, &m, |b| {
+        seed_obj(b);
+        b.write8(RETAIL_SPECIALOBJTOTAL, 0);
+    });
+    assert_eq!(bus.read8(MAP_OBJ_BLOCK + AL_SFLAGS4_OFF), 0x80);
+    assert_eq!(bus.read8(RETAIL_SPECIALOBJTOTAL), 1);
+    let g = port_map_exec(&m, rust_obj);
+    let idx = g.world.last_obj.unwrap() as usize;
+    assert_eq!(
+        g.objs.aliens[idx].sflags4 & sf_game::alien::ASF4_CSPECIAL,
+        sf_game::alien::ASF4_CSPECIAL
+    );
+    assert_eq!(g.world.specialobjtotal, 1);
+
+    eprintln!(
+        "MAP-RM: MATCH — rot/zrot/setstage/setbg/special(+cspecial); \
+         SPECIAL sflags→sflags4 remap noted."
+    );
+}
+
+// ============================================================================
+// MAP IF / CODEJSL / SETPATH vs retail
+// ============================================================================
+
+/// RETAIL mapif carry semantics + CODEJSL advance vs port.
+#[test]
+fn retail_map_if_codejsl_vs_port() {
+    let Some(rom) = retail() else { return };
+    // Executable stubs in low WRAM (bank 0): SEC/RTL @ $0500, CLC/RTL @ $0504.
+    let sec_stub: u16 = 0x0500;
+    let clc_stub: u16 = 0x0504;
+    let seed_stubs = |b: &mut SnesBus| {
+        b.write8(0x0500, 0x38); // SEC
+        b.write8(0x0501, 0x6B); // RTL
+        b.write8(0x0504, 0x18); // CLC
+        b.write8(0x0505, 0x6B); // RTL
+    };
+
+    // IF: carry set → else @16 (WORLD.ASM mapifdo bcs .nodo).
+    let m = [
+        44u8,
+        (sec_stub & 0xFF) as u8,
+        (sec_stub >> 8) as u8,
+        0x00,
+        0x10,
+        0x00, // else → 16
+        2,    // @6 END (fallthrough)
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2, // @16 END (else)
+    ];
+    let bus = retail_map_exec(&rom, &m, seed_stubs);
+    assert_eq!(
+        bus.wram_read16(RETAIL_MAPPTR),
+        16,
+        "retail: carry set => else"
+    );
+    // Port: unknown callback defaults carry=true → else (MATCH SEC path).
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(g.vars.mapptr, 16, "port unknown-callback == carry-set");
+
+    // IF: carry clear → +6, mapcnt=1, RTS.
+    let mut m2 = m;
+    m2[1] = (clc_stub & 0xFF) as u8;
+    m2[2] = (clc_stub >> 8) as u8;
+    let bus = retail_map_exec(&rom, &m2, seed_stubs);
+    assert_eq!(
+        bus.wram_read16(RETAIL_MAPPTR),
+        6,
+        "retail: carry clear => continue"
+    );
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 1);
+
+    // CODEJSL: stored word = func-1; stub RTL → advance +4 into WAIT.
+    let m3 = [
+        122u8,
+        ((sec_stub - 1) & 0xFF) as u8,
+        ((sec_stub - 1) >> 8) as u8,
+        0x00,
+        18,
+        0x40,
+        0x00,
+        2,
+    ];
+    let bus = retail_map_exec(&rom, &m3, seed_stubs);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 7);
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 0x40);
+    let g = port_map_exec(&m3, |_| {});
+    assert_eq!((g.vars.mapptr, g.vars.mapcnt), (7, 0x40));
+
+    eprintln!(
+        "MAP-IF: MATCH — retail IF SEC→else / CLC→+6,mapcnt=1; port unknown≡SEC; \
+         CODEJSL advance+WAIT."
+    );
+}
+
+/// Locate mapifdo / mapcodejsl in the jump table (cross-check).
+#[test]
+fn retail_map_if_codejsl_addresses() {
+    let Some(rom) = retail() else { return };
+    let off_tbl = snes_to_rom_off(0x03_EDBF);
+    let if_lo = rom[off_tbl + 44] as u32 | ((rom[off_tbl + 45] as u32) << 8);
+    let jsl_lo = rom[off_tbl + 122] as u32 | ((rom[off_tbl + 123] as u32) << 8);
+    let if_addr = 0x03_0000 | if_lo;
+    let jsl_addr = 0x03_0000 | jsl_lo;
+    assert_eq!(if_addr, 0x03_F3DD, "mapifdo");
+    assert_eq!(jsl_addr, 0x03_EEC0, "mapcodejsl");
+    // mapifdo opens with TYX; PHX; SEP; LDA #bank; PHA …
+    let o = snes_to_rom_off(if_addr);
+    assert_eq!(rom[o], 0xBB);
+    assert_eq!(rom[o + 1], 0xDA);
+    eprintln!("MAP-IF: mapifdo=${if_addr:06X} mapcodejsl=${jsl_addr:06X}");
+}
+
+/// RETAIL SETPATH advance (+ raw sword2) vs port advance (path resolve remap).
+#[test]
+fn retail_map_setpath_vs_port() {
+    let Some(rom) = retail() else { return };
+    let m = [140u8, 0x34, 0x12, 2];
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.wram_write16(RETAIL_LASTMAPOBJ, MAP_OBJ_BLOCK as u16);
+    });
+    assert_eq!(
+        bus.read16(MAP_OBJ_BLOCK + AL_SWORD2_OFF),
+        0x1234,
+        "retail raw path word"
+    );
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 3);
+    let g = port_map_exec(&m, |g| {
+        let idx = g.objs.alloc().unwrap();
+        g.world.last_obj = Some(idx);
+        g.world.lastmapobj = idx + 1;
+    });
+    assert_eq!(g.vars.mapptr, 3, "port setpath advance");
+    // Port stores Paths_ResolveStart — representation remap, not raw $1234.
+    eprintln!("MAP-IF: MATCH — SETPATH mapptr+3; retail sword2=raw word; port path-resolve remap.");
+}
+
+// ============================================================================
+// MAP VOFS / HOFS / FADE / WAITFADE vs retail
+// ============================================================================
+
+use sf_oracle::{
+    RETAIL_BG2SCROLL, RETAIL_DOHOFS, RETAIL_DOVOFS, RETAIL_FADE, RETAIL_FADEDIR, RETAIL_XINIDISP1,
+};
+
+/// Locate dovofs/dohofs/fadedir from retail handlers.
+#[test]
+fn retail_map_vofs_fade_addresses() {
+    let Some(rom) = retail() else { return };
+    // vofsonplease: PHP; SEP; LDA bg2scroll; STA $2110; LDA bg2scroll+1; STA $2110; LDA #1; STA dovofs; LDA #2; STA $2105
+    let pat: Vec<Option<u8>> = vec![
+        Some(0x08),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x8D),
+        Some(0x10),
+        Some(0x21),
+        Some(0xAD),
+        None,
+        None,
+        Some(0x8D),
+        Some(0x10),
+        Some(0x21),
+        Some(0xA9),
+        Some(0x01),
+        Some(0x8D),
+        None,
+        None,
+        Some(0xA9),
+        Some(0x02),
+        Some(0x8D),
+        Some(0x05),
+        Some(0x21),
+    ];
+    let h = masked_scan(&rom, &pat);
+    assert_eq!(h.len(), 1, "vofsonplease unique");
+    let bg2 = rom[h[0] + 4] as u32 | ((rom[h[0] + 5] as u32) << 8);
+    let dovofs = rom[h[0] + 18] as u32 | ((rom[h[0] + 19] as u32) << 8);
+    assert_eq!(bg2, RETAIL_BG2SCROLL);
+    assert_eq!(dovofs, RETAIL_DOVOFS);
+    assert_eq!(rom_off_to_snes(h[0]), 0x03_F484);
+
+    // sethofson: LDA #1; STA dohofs
+    let hpat: Vec<Option<u8>> = vec![
+        Some(0xBB),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x01),
+        Some(0x8D),
+        None,
+        None,
+        Some(0xE8),
+        Some(0x4C),
+        Some(0xAB),
+        Some(0xED),
+    ];
+    let hh = masked_scan(&rom, &hpat);
+    let hhit = hh
+        .iter()
+        .copied()
+        .find(|&o| rom_off_to_snes(o) == 0x03_F4C4)
+        .expect("sethofson");
+    let dohofs = rom[hhit + 6] as u32 | ((rom[hhit + 7] as u32) << 8);
+    assert_eq!(dohofs, RETAIL_DOHOFS);
+
+    // setfadeupdo: LDA #1; STA fadedir
+    let fpat: Vec<Option<u8>> = vec![
+        Some(0xBB),
+        Some(0xE2),
+        Some(0x20),
+        Some(0xA9),
+        Some(0x01),
+        Some(0x8D),
+        None,
+        None,
+        Some(0xE8),
+        Some(0x4C),
+        Some(0xAB),
+        Some(0xED),
+    ];
+    let fh = masked_scan(&rom, &fpat);
+    let fhit = fh
+        .iter()
+        .copied()
+        .find(|&o| rom_off_to_snes(o) == 0x03_F24F)
+        .expect("setfadeupdo");
+    let fadedir = rom[fhit + 6] as u32 | ((rom[fhit + 7] as u32) << 8);
+    assert_eq!(fadedir, RETAIL_FADEDIR);
+    eprintln!(
+        "MAP-VOFS: bg2scroll=${bg2:04X} dovofs=${dovofs:04X} dohofs=${dohofs:04X} \
+         fadedir=${fadedir:04X}"
+    );
+}
+
+/// RETAIL VOFS/HOFS vs port dovofs/dohofs/bgmode.
+#[test]
+fn retail_map_vofs_hofs_vs_port() {
+    let Some(rom) = retail() else { return };
+
+    let m = [30u8, 2]; // VOFSON, END
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.write16(RETAIL_BG2SCROLL, 0x00E8);
+        b.write8(RETAIL_DOVOFS, 0);
+    });
+    assert_eq!(bus.read8(RETAIL_DOVOFS), 1);
+    assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 1);
+    let g = port_map_exec(&m, |g| {
+        g.vars.shared.background_scroll = 232;
+    });
+    assert_eq!(g.vars.dovofs, 1);
+    assert_eq!(g.vars.bgmode, 2);
+    assert_eq!(g.vars.bg2vofs, 232);
+
+    let m = [30u8, 32, 2]; // VOFSON, VOFSOFF, END
+    let bus = retail_map_exec(&rom, &m, |b| b.write16(RETAIL_BG2SCROLL, 0x01E8));
+    assert_eq!(bus.read8(RETAIL_DOVOFS), 0);
+    let g = port_map_exec(&m, |g| g.vars.shared.background_scroll = 488);
+    assert_eq!(g.vars.dovofs, 0);
+    assert_eq!(g.vars.bgmode, 1);
+
+    let m = [34u8, 2]; // HOFSON
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    assert_eq!(bus.read8(RETAIL_DOHOFS), 1);
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(g.vars.dohofs, 1);
+
+    let m = [34u8, 36, 2]; // HOFSON, HOFSOFF
+    let bus = retail_map_exec(&rom, &m, |_| {});
+    assert_eq!(bus.read8(RETAIL_DOHOFS), 0);
+    let g = port_map_exec(&m, |_| {});
+    assert_eq!(g.vars.dohofs, 0);
+
+    eprintln!("MAP-VOFS: MATCH — VOFS on/off dovofs+bgmode; HOFS dohofs latch.");
+}
+
+/// RETAIL FADEUP/DOWN/QFADE* fadedir + WAITFADE gate vs port hooks.
+#[test]
+fn retail_map_fade_waitfade_vs_port() {
+    use sf_game::game::{Game, Hooks};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let Some(rom) = retail() else { return };
+
+    for (op, dir) in [(66u8, 1i8), (68, -1), (78, 2), (80, -2)] {
+        let m = [op, 2];
+        let bus = retail_map_exec(&rom, &m, |_| {});
+        assert_eq!(
+            bus.read8(RETAIL_FADEDIR) as i8,
+            dir,
+            "retail fadedir op={op}"
+        );
+        assert_eq!(bus.wram_read16(RETAIL_MAPPTR), 1);
+    }
+
+    struct FadeRec {
+        from: Rc<RefCell<Vec<i32>>>,
+        to: Rc<RefCell<Vec<i32>>>,
+        active: bool,
+    }
+    impl Hooks for FadeRec {
+        fn fade_from_black(&mut self, speed: i32) {
+            self.from.borrow_mut().push(speed);
+        }
+        fn fade_to_black(&mut self, speed: i32) {
+            self.to.borrow_mut().push(speed);
+        }
+        fn is_map_fade_active(&self) -> bool {
+            self.active
+        }
+    }
+
+    let from = Rc::new(RefCell::new(Vec::new()));
+    let to = Rc::new(RefCell::new(Vec::new()));
+    let mut g = Game::with_hooks(Box::new(FadeRec {
+        from: from.clone(),
+        to: to.clone(),
+        active: false,
+    }));
+    g.world.map = vec![66, 68, 78, 80, 2];
+    g.world.map_loaded = true;
+    g.map_exec();
+    assert_eq!(*from.borrow(), vec![1, 2], "port FADEUP/QFADEUP speeds");
+    assert_eq!(*to.borrow(), vec![1, 2], "port FADEDOWN/QFADEDOWN speeds");
+
+    // WAITFADE: fade=0 + xinidisp1=$80 → advance; fade!=0 → park.
+    let m = [76u8, 2];
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.write8(RETAIL_FADE, 0);
+        b.write8(RETAIL_XINIDISP1, 0x80);
+    });
+    assert_eq!(
+        bus.wram_read16(RETAIL_MAPPTR),
+        1,
+        "retail waitfade done → advance"
+    );
+    let bus = retail_map_exec(&rom, &m, |b| {
+        b.write8(RETAIL_FADE, 1);
+        b.write8(RETAIL_XINIDISP1, 0x80);
+    });
+    assert_eq!(bus.wram_read16(RETAIL_MAPCNT), 1);
+    assert_eq!(
+        bus.wram_read16(RETAIL_MAPPTR),
+        0,
+        "retail waitfade busy → park"
+    );
+
+    let mut g = Game::with_hooks(Box::new(FadeRec {
+        from: Rc::new(RefCell::new(Vec::new())),
+        to: Rc::new(RefCell::new(Vec::new())),
+        active: true,
+    }));
+    g.world.map = m.to_vec();
+    g.world.map_loaded = true;
+    g.map_exec();
+    assert_eq!(g.vars.mapcnt, 1);
+    assert_eq!(g.vars.mapptr, 0);
+
+    let mut g = Game::with_hooks(Box::new(FadeRec {
+        from: Rc::new(RefCell::new(Vec::new())),
+        to: Rc::new(RefCell::new(Vec::new())),
+        active: false,
+    }));
+    g.world.map = m.to_vec();
+    g.world.map_loaded = true;
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 1);
+
+    eprintln!("MAP-VOFS: MATCH — fadedir ±1/±2; WAITFADE park/advance; port fade hooks speeds.");
 }

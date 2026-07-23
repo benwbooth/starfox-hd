@@ -20,6 +20,7 @@
 use super::Route1Level;
 use crate::builder::MapBuilder;
 use crate::consts::*;
+use crate::levels::tunnel::append_mtunnel_exit;
 use crate::levels::BuiltLevel;
 
 /// Constants missing from `consts.rs`; values are verbatim from the
@@ -27,69 +28,111 @@ use crate::levels::BuiltLevel;
 /// `src/path/path_literals.h`).
 /// TODO(consolidation): move to consts.rs.
 mod lc {
-    use crate::consts::sh;
-
     // ---- backgrounds (levels.c BG_* block) ----
     pub const BG_1_3I: i32 = 6;
     pub const BG_1_3B: i32 = 8;
     pub const BG_1_3C: i32 = 9;
+    pub const BG_1_3DA: i32 = 11;
     pub const BG_1_3E: i32 = 12;
     pub const BG_3_4D: i32 = 35;
 
     // ---- shape ids (levels.c SH_* block) ----
-    pub const SH_W_L: u16 = 50;
-    pub const SH_ZACO_7: u16 = 129;
-    pub const SH_R_HOU_0: u16 = 162;
-    pub const SH_S_HOU_0: u16 = 163;
-    pub const SH_ZACO_B: u16 = 202;
-    pub const SH_S_ZACO_0: u16 = 222;
-    pub const SH_BZACO_8: u16 = 232;
+    pub const SH_W_L: u16 = 49;
+    pub const SH_ZACO_7: u16 = 128;
+    pub const SH_R_HOU_0: u16 = 161;
+    pub const SH_S_HOU_0: u16 = 162;
+    pub const SH_ZACO_B: u16 = 201;
+    pub const SH_S_ZACO_0: u16 = 221;
+    pub const SH_BZACO_8: u16 = 231;
     pub const SH_MOTHER1: u16 = 278;
     pub const SH_SPACEPILON: u16 = 614;
 
-    // Nullshape proxies for shapes not yet in the compiled catalog.
-    pub const SH_BOU_1_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_PIPE_9_0_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_PIPE_9_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SHIP_1_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SHIP_3_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SHIP_4_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SHIP_0_C_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SHIP_5S_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SHIP_5M_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SHIP_5_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_S_DOOR_1_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_S_DOOR_2_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_BSHIPEXITFACE_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_COLONY_0_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_SSHIP_0_C_PROXY: u16 = sh::NULLSHAPE;
+    // Direct-map shapes, including stable extended slots emitted by
+    // tools/shape_compiler.py for meshes outside ISTRATS.ASM.
+    pub const SH_BOU_1_PROXY: u16 = 284;
+    pub const SH_IRIS: u16 = 3;
+    pub const SH_CORE_1_0: u16 = 70;
+    pub const SH_CORE_1_1: u16 = 71;
+    pub const SH_WALL_0: u16 = 86;
+    pub const SH_WALL_2: u16 = 88;
+    pub const SH_WALL_5: u16 = 91;
+    pub const SH_LENG_0: u16 = 113;
+    pub const SH_TUNNEL_0: u16 = 121;
+    pub const SH_WARKER_3: u16 = 129;
+    pub const SH_ITEM_5: u16 = 158;
+    pub const SH_ITEM_6: u16 = 159;
+    pub const SH_S_WARK_0: u16 = 219;
+    pub const SH_OPEN_L: u16 = 235;
+    pub const SH_UP_DOOR: u16 = 236;
+    pub const SH_BOU_0: u16 = 248;
+    pub const SH_PIPE_9_0_PROXY: u16 = 310;
+    pub const SH_PIPE_9_PROXY: u16 = 311;
+    pub const SH_PIPE_0: u16 = 313;
+    pub const SH_PIPE_1: u16 = 314;
+    pub const SH_PIPE_2: u16 = 315;
+    pub const SH_PIPE_3: u16 = 316;
+    pub const SH_PIPE_4: u16 = 317;
+    pub const SH_PIPE_5: u16 = 318;
+    pub const SH_HOU_4: u16 = 44;
+    pub const SH_BOSS_8_4: u16 = 45;
+    pub const SH_BOSS_8_0: u16 = 46;
+    pub const SH_SHIP_1_PROXY: u16 = 20;
+    pub const SH_SHIP_3_PROXY: u16 = 21;
+    pub const SH_SHIP_4_PROXY: u16 = 127;
+    pub const SH_SHIP_0_C_PROXY: u16 = 22;
+    pub const SH_SHIP_5S_PROXY: u16 = 109;
+    pub const SH_SHIP_5M_PROXY: u16 = 108;
+    pub const SH_SHIP_5_PROXY: u16 = 106;
+    pub const SH_S_DOOR_1_PROXY: u16 = 111;
+    pub const SH_S_DOOR_2_PROXY: u16 = 112;
+    pub const SH_BSHIPEXITFACE_PROXY: u16 = 39;
+    pub const SH_COLONY_0_PROXY: u16 = 152;
+    pub const SH_SSHIP_0_C_PROXY: u16 = 23;
 
     // ---- strategy ids (levels.c IS_* block) ----
-    pub const IS_CLSHIPSHIPA: u32 = 25;
-    pub const IS_CLSHIPSHIPB: u32 = 26;
-    pub const IS_CLSHIPSHIPC: u32 = 27;
-    pub const IS_UP1MAN: u32 = 90;
-    pub const IS_WINGLAZERMAN: u32 = 91;
-    pub const IS_SZACO5: u32 = 156;
-    pub const IS_SHOU0: u32 = 178;
-    pub const IS_SHOU0A: u32 = 179;
-    pub const IS_COLONYEXIT: u32 = 236;
+    pub const IS_CLSHIPSHIPA: u32 = 21;
+    pub const IS_CLSHIPSHIPB: u32 = 22;
+    pub const IS_CLSHIPSHIPC: u32 = 23;
+    pub const IS_UP1MAN: u32 = 89;
+    pub const IS_WINGLAZERMAN: u32 = 90;
+    pub const IS_SZACO5: u32 = 155;
+    pub const IS_SHOU0: u32 = 177;
+    pub const IS_SHOU0A: u32 = 178;
+    pub const IS_COLONYEXIT: u32 = 235;
+    pub const IS_CORE1: u32 = 110;
+    pub const IS_CORE0: u32 = 111;
+    pub const IS_LENG0: u32 = 135;
+    pub const IS_TOPRIGHT1: u32 = 144;
+    pub const IS_TOPLEFT1: u32 = 145;
+    pub const IS_BOTRIGHT1: u32 = 146;
+    pub const IS_BOTLEFT1: u32 = 147;
+    pub const IS_WARKER3: u32 = 154;
+    pub const IS_TWALL0: u32 = 163;
+    pub const IS_ITEM5: u32 = 174;
+    pub const IS_ITEM6: u32 = 175;
+    pub const IS_OPENLR: u32 = 231;
 
     // ---- synthetic strategy addresses (levels.c STRAT_ADDR_*) ----
-    pub const STRAT_ADDR_MOTHER1: u32 = crate::consts::STRAT_ADDR_MOTHER1;
-    pub const STRAT_ADDR_SPACEPILON: u32 = 0x030004;
-    pub const STRAT_ADDR_SHIP0CDOWN: u32 = 0x030007;
-    pub const STRAT_ADDR_SHIP1A: u32 = 0x05000B;
-    pub const STRAT_ADDR_SHIP2: u32 = 0x05000C;
-    pub const STRAT_ADDR_SDOOR1: u32 = 0x05000D;
-    pub const STRAT_ADDR_SDOOR2: u32 = 0x05000E;
-    pub const STRAT_ADDR_CRUISER2: u32 = 0x05000F;
-    pub const STRAT_ADDR_CRUISER2FIRE: u32 = 0x050010;
-    pub const STRAT_ADDR_CRUISER1: u32 = 0x050025;
-    pub const STRAT_ADDR_CRUISER1F: u32 = 0x050026;
-    pub const STRAT_ADDR_SHIP3A: u32 = 0x050027;
-    pub const STRAT_ADDR_SHIP3: u32 = 0x050028;
-    pub const STRAT_ADDR_EXITOPENSND2: u32 = 0x050029;
+    pub const STRATEGY_MOTHER1: crate::consts::DirectStrategy = crate::consts::STRATEGY_MOTHER1;
+    pub const STRATEGY_SPACEPILON: crate::consts::DirectStrategy =
+        crate::consts::DirectStrategy::SpacePilon;
+    pub const STRAT_ADDR_SHIP0CDOWN: u32 = crate::consts::is::SHIP0CDOWN;
+    // These are all ordinary ISTRATS.ASM rows. The removed C bridge used
+    // invented 0x0500xx addresses while the Rust table was incomplete.
+    pub const STRAT_ADDR_SHIP1A: u32 = 69;
+    pub const STRAT_ADDR_SHIP2: u32 = 70;
+    pub const STRAT_ADDR_SDOOR1: u32 = 133;
+    pub const STRAT_ADDR_SDOOR2: u32 = 134;
+    pub const STRAT_ADDR_CRUISER2: u32 = 131;
+    pub const STRAT_ADDR_CRUISER2FIRE: u32 = 130;
+    pub const STRAT_ADDR_CRUISER1: u32 = 152;
+    pub const STRAT_ADDR_CRUISER1F: u32 = 153;
+    pub const STRAT_ADDR_SHIP3A: u32 = 72;
+    pub const STRAT_ADDR_SHIP3: u32 = 71;
+    pub const STRAT_ADDR_EXITOPENSND2: u32 = 230;
+    pub const STRAT_ADDR_BOSS8: u32 = crate::consts::is::BOSS8;
+    pub const STRAT_ADDR_NUCLEUSLAUNCHER: u32 = crate::consts::is::NUCLEUSLAUNCHER;
+    pub const STRAT_ADDR_NUCLEUSPILLAR: u32 = crate::consts::is::NUCLEUSPILLAR;
 
     // ---- path ids (src/path/path_literals.h PATH_ID_*) ----
     pub const PATH_PATRET_IRAB: u16 = 259;
@@ -100,6 +143,8 @@ mod lc {
     pub const PATH_PATRET: u16 = 308;
     pub const PATH_PATCOM: u16 = 339;
     pub const PATH_TOTUMSG: u16 = 340;
+    /// sf-path appended catalog id for PATHDATA.ASM `kastmsg2`.
+    pub const PATH_KASTMSG2: u16 = 361;
 }
 
 /// C `build_level1_3_opening_slice()` + `register_level1_3_inline_callbacks()`.
@@ -121,53 +166,110 @@ pub fn build() -> Route1Level {
     // Line 10: mapjsr map1_3a (SPACE section)
     b.mapjsr("level1_3.map1_3a");
 
-    // LEVEL1_3.ASM lines 16-23: SHIP1 bounded section
-    // .start1: mapjsr map1_3a1 (ship1 interior)
+    // LEVEL1_3.ASM SHIP1 retry loop.
+    b.mapgoto("level1_3.start1");
+    b.label("level1_3.again1");
+    b.setbg(lc::BG_1_3I);
+    b.mapwait(900); // maptexitwait -100
+    b.initbg();
+    b.label("level1_3.start1");
     b.mapjsr("level1_3.map1_3a1");
-
-    // LEVEL1_3.ASM lines 24-26: setbg 1_3b, initbg, mapjsr map1_3b1 (tunnel)
-    // map1_3b1 is incmap 1-3-t1 + mapjsr mtunnelexit; stub for now.
     b.setbg(lc::BG_1_3B);
     b.initbg();
-    b.mapwait(500); // placeholder for incmap 1-3-t1 tunnel data
-    b.mapwait(100); // placeholder for mtunnelexit
+    b.mapjsr("level1_3.map1_3b1");
+    b.mapif_builtin(cb::CHKSTRATDONE1, "level1_3.oks1");
+    b.mapgoto("level1_3.again1");
+    b.label("level1_3.oks1");
 
-    // LEVEL1_3.ASM lines 34-47: SHIP2 bounded section
-    // .start2: mapjsr map1_3a2 (ship2 interior)
+    // LEVEL1_3.ASM SHIP2 retry loop.
+    b.label("level1_3.again2");
+    b.setbg(lc::BG_1_3I);
+    b.mapwait(900); // maptexitwait -100
+    b.initbg();
+    b.label("level1_3.start2");
     b.mapjsr("level1_3.map1_3a2");
-
-    // setbg 1_3b, initbg, mapjsr map1_3b2 (tunnel)
     b.setbg(lc::BG_1_3B);
     b.initbg();
     b.mapjsr("level1_3.map1_3b2");
+    b.mapif_builtin(cb::CHKSTRATDONE1, "level1_3.oks2");
+    b.mapgoto("level1_3.again2");
+    b.label("level1_3.oks2");
 
-    // LEVEL1_3.ASM lines 49-67: .bigship section
+    // LEVEL1_3.ASM .bigship section.
     b.setbg(lc::BG_1_3C);
-    b.mapwait(100); // maptexitwait -100 placeholder
+    b.mapwait(900); // maptexitwait -100
     b.initbg();
     b.mapjsr("level1_3.map1_3c");
 
     // .washroom: 8x bou_1 HARD180yr obstacles (C literal `-060` is octal -48).
-    b.mapobj(0x0000, 0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapobj(0x1000, -0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapobj(0x0000, 0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapobj(0x1000, -0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapobj(0x0000, 0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapobj(0x1000, -0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapobj(0x0000, 0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapobj(0x1000, -0x0070, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    // incmap washent — WASHENT.ASM: 1-3 Boss Entry Cutscene (colony pipe
-    // entrance). mapplayercantdie / mapplayermode / mappipe opcodes are not
-    // yet implemented in the map executor; the C oracle skips them too.
+    b.mapobj(
+        0x0000,
+        0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    b.mapobj(
+        0x1000,
+        -0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    b.mapobj(
+        0x0000,
+        0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    b.mapobj(
+        0x1000,
+        -0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    b.mapobj(
+        0x0000,
+        0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    b.mapobj(
+        0x1000,
+        -0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    b.mapobj(
+        0x0000,
+        0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    b.mapobj(
+        0x1000,
+        -0x0070,
+        -0o60,
+        4000,
+        lc::SH_BOU_1_PROXY,
+        is::HARD180YR,
+    );
+    // incmap WASHENT.ASM — exact pipe-entry geometry and player cutscene.
+    append_washent(&mut b);
 
-    // Lines 10-12: three pipe background objects (mapobjnomem -> mapobj)
-    b.mapobj(0, 0, -60, 4200, lc::SH_PIPE_9_0_PROXY, is::NOCOLL);
-    b.mapobj(400, 0, -60, 4200, lc::SH_PIPE_9_0_PROXY, is::NOCOLL);
-    b.mapobj(0, 0, -60, 4200, lc::SH_PIPE_9_PROXY, lc::IS_COLONYEXIT);
-    // Line 13: mapwait 4000
-    b.mapwait(4000);
-
-    // mapjsr map1_3d (washing machine room) — stub
+    // mapjsr map1_3d (washing machine room).
     b.mapjsr("level1_3.map1_3d");
 
     // .fin: mapjsr cl_ship1_3, mapend
@@ -177,13 +279,20 @@ pub fn build() -> Route1Level {
     // CL_WARPO.ASM:1-7.
     b.label("level1_3.cl_warpout");
     b.mapplayeroutview();
-    b.mapcodejsl_builtin(cb::SET_PLAYER_WARP_L);
+    b.mapcodejsl_builtin(cb::SET_PLAYER_WARPOUT_L);
     b.mapwait(10000);
     b.maprts();
 
     // MAP1_3A.ASM:2-33.
     b.label("level1_3.map1_3a");
-    b.cspecial(1000, 100, SPACE_VIEWCY - 100, 3000, lc::SH_ZACO_7, lc::IS_SZACO5);
+    b.cspecial(
+        1000,
+        100,
+        SPACE_VIEWCY - 100,
+        3000,
+        lc::SH_ZACO_7,
+        lc::IS_SZACO5,
+    );
 
     b.map_farships2(-2000, -500, 9000, -30, 8, 2);
     b.map_farships2(-1000, 0, 9000, -10, 20, 4);
@@ -206,9 +315,30 @@ pub fn build() -> Route1Level {
 
     b.map_farships0(500, -500, 6000, 50, -30, 1);
 
-    b.cspecial(1000, 0, SPACE_VIEWCY - 200, 3000, lc::SH_ZACO_7, lc::IS_SZACO5);
-    b.cspecial(0, 400, SPACE_VIEWCY + 200, 3000, lc::SH_ZACO_7, lc::IS_SZACO5);
-    b.cspecial(3000, -400, SPACE_VIEWCY + 200, 3000, lc::SH_ZACO_7, lc::IS_SZACO5);
+    b.cspecial(
+        1000,
+        0,
+        SPACE_VIEWCY - 200,
+        3000,
+        lc::SH_ZACO_7,
+        lc::IS_SZACO5,
+    );
+    b.cspecial(
+        0,
+        400,
+        SPACE_VIEWCY + 200,
+        3000,
+        lc::SH_ZACO_7,
+        lc::IS_SZACO5,
+    );
+    b.cspecial(
+        3000,
+        -400,
+        SPACE_VIEWCY + 200,
+        3000,
+        lc::SH_ZACO_7,
+        lc::IS_SZACO5,
+    );
 
     b.mapobj(0, 100, -100, 5000, sh::NULLSHAPE, lc::IS_UP1MAN);
     b.maprts();
@@ -219,6 +349,9 @@ pub fn build() -> Route1Level {
     // MAP1_3A2.ASM — ship2 interior subroutine
     append_map1_3a2_submap(&mut b);
 
+    // MAP1_3B1.ASM — ship1 tunnel + exact shared medium exit.
+    append_map1_3b1_submap(&mut b);
+
     // MAP1_3B2.ASM — ship2 tunnel subroutine
     append_map1_3b2_submap(&mut b);
 
@@ -226,19 +359,40 @@ pub fn build() -> Route1Level {
     b.label("level1_3.map1_3c");
 
     // Lines 4-6: near_side cruiser
-    b.mapnobj(0, -1000, SPACE_VIEWCY, 350, lc::SH_SHIP_4_PROXY, lc::STRAT_ADDR_CRUISER1);
+    b.mapnobj(
+        0,
+        -1000,
+        SPACE_VIEWCY,
+        350,
+        lc::SH_SHIP_4_PROXY,
+        lc::STRAT_ADDR_CRUISER1,
+    );
     b.setalvarb(al::VEL, 200);
     b.setalvarb(al::ROTZ, 230);
 
     // Lines 8-11: normal far cruiser
-    b.mapnobj(0, -3400, SPACE_VIEWCY + 100, 3000, lc::SH_SHIP_4_PROXY, lc::STRAT_ADDR_CRUISER1F);
+    b.mapnobj(
+        0,
+        -3400,
+        SPACE_VIEWCY + 100,
+        3000,
+        lc::SH_SHIP_4_PROXY,
+        lc::STRAT_ADDR_CRUISER1F,
+    );
     b.setalvarb(al::SBYTE1, 25);
     b.setalvarb(al::VEL, 55);
     b.setalvarb(al::ROTZ, 20);
     b.mapwait(2000);
 
     // Lines 14-16: far_big_ship
-    b.mapnobj(0, 600, SPACE_VIEWCY, 8000, lc::SH_SHIP_0_C_PROXY, lc::STRAT_ADDR_SHIP3A);
+    b.mapnobj(
+        0,
+        600,
+        SPACE_VIEWCY,
+        8000,
+        lc::SH_SHIP_0_C_PROXY,
+        lc::STRAT_ADDR_SHIP3A,
+    );
     b.setalvarb(al::VEL, 125);
     b.setalvarb(al::ROTX, 10);
 
@@ -246,14 +400,28 @@ pub fn build() -> Route1Level {
     b.cspecial(0, -100, -200, 5000, lc::SH_R_HOU_0, lc::IS_SHOU0A);
 
     // Lines 20-23: from_top cruiser
-    b.mapnobj(0, SPACE_MINX - 2000, SPACE_VIEWCY - 3000, 3000, lc::SH_SHIP_4_PROXY, lc::STRAT_ADDR_CRUISER1);
+    b.mapnobj(
+        0,
+        SPACE_MINX - 2000,
+        SPACE_VIEWCY - 3000,
+        3000,
+        lc::SH_SHIP_4_PROXY,
+        lc::STRAT_ADDR_CRUISER1,
+    );
     b.setalvarb(al::VEL, 100);
     b.setalvarb(al::ROTX, 25);
     b.setalvarb(al::ROTZ, 230);
     b.mapwait(3500);
 
     // Lines 26-28: reverse cruiser
-    b.mapnobj(0, -2500, SPACE_VIEWCY - 100, 4000, lc::SH_SHIP_4_PROXY, lc::STRAT_ADDR_CRUISER1F);
+    b.mapnobj(
+        0,
+        -2500,
+        SPACE_VIEWCY - 100,
+        4000,
+        lc::SH_SHIP_4_PROXY,
+        lc::STRAT_ADDR_CRUISER1F,
+    );
     b.setalvarb(al::VEL, 55);
     b.setalvarb(al::ROTZ, 150);
     b.mapwait(1000);
@@ -267,25 +435,73 @@ pub fn build() -> Route1Level {
     b.pathobj(4000, 3000, 3000, 1000, sh::NULLSHAPE, path::E_GATE, 10, 10);
 
     // Lines 36-38: pathspecial/pathcspecial escorts
-    b.pathspecial(800, 600, 400, -100, lc::SH_S_ZACO_0, lc::PATH_PATRET, 10, 10);
-    b.pathcspecial(800, 500, -100, -100, lc::SH_BZACO_8, lc::PATH_PATRET, 10, 10);
-    b.pathcspecial(4000, -400, 200, -100, lc::SH_BZACO_8, lc::PATH_PATRET, 10, 10);
+    b.pathspecial(
+        800,
+        600,
+        400,
+        -100,
+        lc::SH_S_ZACO_0,
+        lc::PATH_PATRET,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        800,
+        500,
+        -100,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_PATRET,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        4000,
+        -400,
+        200,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_PATRET,
+        10,
+        10,
+    );
 
     // Line 39: cspecial s_hou_0
     b.cspecial(1000, 0, 0x0200, 4000, lc::SH_S_HOU_0, lc::IS_SHOU0);
 
     // Lines 46-48: big ship approach (spsdist=13000, sphigh=6000)
-    b.mapnobj(0, 0, 6000, 13000, lc::SH_SHIP_0_C_PROXY, lc::STRAT_ADDR_SHIP3);
+    b.mapnobj(
+        0,
+        0,
+        6000,
+        13000,
+        lc::SH_SHIP_0_C_PROXY,
+        lc::STRAT_ADDR_SHIP3,
+    );
     b.setvarobj(wm::MAPVAR1);
 
     // Lines 50-53: bshipexitface door 1 (below)
-    b.mapnobj(0, 0, 6000 - 140, 13000 - 240, lc::SH_BSHIPEXITFACE_PROXY, lc::STRAT_ADDR_EXITOPENSND2);
+    b.mapnobj(
+        0,
+        0,
+        6000 - 140,
+        13000 - 240,
+        lc::SH_BSHIPEXITFACE_PROXY,
+        lc::STRAT_ADDR_EXITOPENSND2,
+    );
     b.setalvarw(al::SWORD1, 400);
     b.setalvarptrw(al::SWORD2, wm::MAPVAR1);
     b.setalvarb(al::SBYTE1, -10);
 
     // Lines 56-59: bshipexitface door 2 (above)
-    b.mapnobj(0, 0, 6000 + 140, 13000 - 240, lc::SH_BSHIPEXITFACE_PROXY, lc::STRAT_ADDR_EXITOPENSND2);
+    b.mapnobj(
+        0,
+        0,
+        6000 + 140,
+        13000 - 240,
+        lc::SH_BSHIPEXITFACE_PROXY,
+        lc::STRAT_ADDR_EXITOPENSND2,
+    );
     b.setalvarw(al::SWORD1, 400);
     b.setalvarptrw(al::SWORD2, wm::MAPVAR1);
     b.setalvarb(al::SBYTE1, 10);
@@ -307,15 +523,15 @@ pub fn build() -> Route1Level {
     b.setbg(lc::BG_1_3B);
     b.initbg();
 
-    // Line 83: incmap 1-3-t3 — tunnel transition data (stub for now)
-    b.mapwait(500);
+    // Line 83: incmap 1-3-t3 — final tunnel obstacle course.
+    let skillfly_bonus_guard_ptr = append_1_3_t3(&mut b);
 
     b.maprts();
 
     // MAP1_3D subroutine — Space Armada part D (washing machine boss)
     b.label("level1_3.map1_3d");
-    // INCMAP washmape — wash entrance map data (stub)
-    b.mapwait(500);
+    // INCMAP WASHMAPE — Giant Washing Machine / Atomic Base I.
+    append_washmape(&mut b);
     // markboss boss13
     b.mapcodejsl_builtin(cb::MARKBOSS_L);
     b.maprts();
@@ -332,6 +548,11 @@ pub fn build() -> Route1Level {
         b.lookup_label("level1_3.map1_3c.cont").is_some(),
         "level1_3 map1_3c cont label missing"
     );
+    assert!(
+        b.lookup_label("level1_3.t3.skillfly_bonus_0_skip")
+            .is_some(),
+        "level1_3 T3 skillfly bonus skip label missing"
+    );
 
     let (data, labels) = b.finish();
 
@@ -339,6 +560,9 @@ pub fn build() -> Route1Level {
     let mut inline_regs: Vec<(u16, &'static str)> = Vec::new();
     if chkstratdone1_loop_ptr != 0 {
         inline_regs.push((chkstratdone1_loop_ptr, "map1_3c_chkstratdone1_check"));
+    }
+    if skillfly_bonus_guard_ptr != 0 {
+        inline_regs.push((skillfly_bonus_guard_ptr, "level1_3_t3_skillfly_bonus_guard"));
     }
 
     Route1Level {
@@ -363,31 +587,108 @@ fn append_map1_3a1_submap(b: &mut MapBuilder) {
     b.mapwait(2500);
 
     // Line 6: ship_1 with setalvar vel,roty,rotx,rotz
-    b.mapobj(0, SPACE_MINX + 2000, SPACE_VIEWCY + 600, 9000, lc::SH_SHIP_1_PROXY, lc::STRAT_ADDR_SHIP1A);
+    b.mapobj(
+        0,
+        SPACE_MINX + 2000,
+        SPACE_VIEWCY + 600,
+        9000,
+        lc::SH_SHIP_1_PROXY,
+        lc::STRAT_ADDR_SHIP1A,
+    );
     b.setalvarb(al::VEL, 60);
     b.setalvarb(al::ROTY, 115);
     b.setalvarb(al::ROTX, 250);
     b.setalvarb(al::ROTZ, 20);
 
     // Lines 11-12: pathcspecial escorts
-    b.pathcspecial(0x0300, SPACE_MINX + 1000, SPACE_VIEWCY + 400, 8000, lc::SH_ZACO_7, lc::PATH_PATCOM, 10, 10);
-    b.pathcspecial(0, SPACE_MINX + 500, SPACE_VIEWCY + 500, 7500, lc::SH_ZACO_7, lc::PATH_PATCOM, 10, 10);
+    b.pathcspecial(
+        0x0300,
+        SPACE_MINX + 1000,
+        SPACE_VIEWCY + 400,
+        8000,
+        lc::SH_ZACO_7,
+        lc::PATH_PATCOM,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        0,
+        SPACE_MINX + 500,
+        SPACE_VIEWCY + 500,
+        7500,
+        lc::SH_ZACO_7,
+        lc::PATH_PATCOM,
+        10,
+        10,
+    );
 
     // Line 13: mapwait 6000
     b.mapwait(6000);
 
     // Lines 15-17: pathspecial + pathcspecials
-    b.pathspecial(0x0600, 0, -600, -100, lc::SH_S_ZACO_0, lc::PATH_PATRET_IFAL, 10, 10);
-    b.pathcspecial(0x0600, -500, 100, -100, lc::SH_BZACO_8, lc::PATH_PATRET_IRAB, 10, 10);
-    b.pathcspecial(2500, 500, 100, -100, lc::SH_BZACO_8, lc::PATH_PATRET_IFRO, 10, 10);
+    b.pathspecial(
+        0x0600,
+        0,
+        -600,
+        -100,
+        lc::SH_S_ZACO_0,
+        lc::PATH_PATRET_IFAL,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        0x0600,
+        -500,
+        100,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_PATRET_IRAB,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        2500,
+        500,
+        100,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_PATRET_IFRO,
+        10,
+        10,
+    );
 
     // Lines 20-25: second ship_1 with escorts
-    b.mapobj(0, SPACE_MAXX - 300, SPACE_VIEWCY + 200, 10000, lc::SH_SHIP_1_PROXY, lc::STRAT_ADDR_SHIP1A);
+    b.mapobj(
+        0,
+        SPACE_MAXX - 300,
+        SPACE_VIEWCY + 200,
+        10000,
+        lc::SH_SHIP_1_PROXY,
+        lc::STRAT_ADDR_SHIP1A,
+    );
     b.setalvarb(al::VEL, 50);
     b.setalvarb(al::ROTY, 134);
     b.setalvarb(al::ROTZ, 250);
-    b.pathcspecial(0x0300, SPACE_MAXX, SPACE_VIEWCY + 800, 8000, lc::SH_ZACO_7, lc::PATH_PATCOM, 10, 10);
-    b.pathcspecial(0, SPACE_MAXX + 200, SPACE_VIEWCY + 700, 7500, lc::SH_ZACO_7, lc::PATH_PATCOM, 10, 10);
+    b.pathcspecial(
+        0x0300,
+        SPACE_MAXX,
+        SPACE_VIEWCY + 800,
+        8000,
+        lc::SH_ZACO_7,
+        lc::PATH_PATCOM,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        0,
+        SPACE_MAXX + 200,
+        SPACE_VIEWCY + 700,
+        7500,
+        lc::SH_ZACO_7,
+        lc::PATH_PATCOM,
+        10,
+        10,
+    );
 
     // Line 26: map_farships2
     b.map_farships2(-500, -300, 8000, -16, -25, 2);
@@ -399,7 +700,14 @@ fn append_map1_3a1_submap(b: &mut MapBuilder) {
     b.map_farships1(0, -500, 8000, 20, -40, 1);
 
     // Line 29: mapcspecial (zaco_7 fly out of ship2)
-    b.cspecial(0, -350, SPACE_VIEWCY - 300, 4000, lc::SH_ZACO_7, lc::IS_SZACO5);
+    b.cspecial(
+        0,
+        -350,
+        SPACE_VIEWCY - 300,
+        4000,
+        lc::SH_ZACO_7,
+        lc::IS_SZACO5,
+    );
 
     // Line 30: mapwait 1000
     b.mapwait(1000);
@@ -408,14 +716,39 @@ fn append_map1_3a1_submap(b: &mut MapBuilder) {
     b.map_farships0(500, -1000, 6000, 30, -20, 2);
 
     // Lines 32-33: pathspecial + pathcspecial
-    b.pathspecial(0x0500, -700, -400, -100, lc::SH_S_ZACO_0, lc::PATH_PATRET, 10, 10);
-    b.pathcspecial(0x0500, -800, 200, -100, lc::SH_BZACO_8, lc::PATH_PATRET, 10, 10);
+    b.pathspecial(
+        0x0500,
+        -700,
+        -400,
+        -100,
+        lc::SH_S_ZACO_0,
+        lc::PATH_PATRET,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        0x0500,
+        -800,
+        200,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_PATRET,
+        10,
+        10,
+    );
 
     // Line 34: mapwait 1000
     b.mapwait(1000);
 
     // Line 36: cspecial (zaco_7 fly out of ship2)
-    b.cspecial(0, -300, SPACE_VIEWCY - 200, 3400, lc::SH_ZACO_7, lc::IS_SZACO5);
+    b.cspecial(
+        0,
+        -300,
+        SPACE_VIEWCY - 200,
+        3400,
+        lc::SH_ZACO_7,
+        lc::IS_SZACO5,
+    );
 
     // Line 37: mapwait 2000
     b.mapwait(2000);
@@ -423,11 +756,32 @@ fn append_map1_3a1_submap(b: &mut MapBuilder) {
     // Lines 41-47: totumsg + ship_3 + doors (C `#define SPSDIST 6000`)
     const SPSDIST: i32 = 6000;
     b.pathobj(0, 3000, 3000, 3000, sh::NULLSHAPE, lc::PATH_TOTUMSG, 10, 10);
-    b.mapobj(0, 0x0300, SPACE_VIEWCY - 1500, SPSDIST, lc::SH_SHIP_3_PROXY, lc::STRAT_ADDR_SHIP2);
+    b.mapobj(
+        0,
+        0x0300,
+        SPACE_VIEWCY - 1500,
+        SPSDIST,
+        lc::SH_SHIP_3_PROXY,
+        lc::STRAT_ADDR_SHIP2,
+    );
     b.setvarobj(wm::MAPVAR1);
-    b.mapobj(0, 0x0300, SPACE_VIEWCY - 1500, SPSDIST, lc::SH_S_DOOR_1_PROXY, lc::STRAT_ADDR_SDOOR1);
+    b.mapobj(
+        0,
+        0x0300,
+        SPACE_VIEWCY - 1500,
+        SPSDIST,
+        lc::SH_S_DOOR_1_PROXY,
+        lc::STRAT_ADDR_SDOOR1,
+    );
     b.setalvarptrw(al::SWORD1, wm::MAPVAR1);
-    b.mapobj(0, 0x0300, SPACE_VIEWCY - 1500, SPSDIST, lc::SH_S_DOOR_2_PROXY, lc::STRAT_ADDR_SDOOR2);
+    b.mapobj(
+        0,
+        0x0300,
+        SPACE_VIEWCY - 1500,
+        SPSDIST,
+        lc::SH_S_DOOR_2_PROXY,
+        lc::STRAT_ADDR_SDOOR2,
+    );
     b.setalvarptrw(al::SWORD1, wm::MAPVAR1);
 
     // Lines 50-54: .loop1 — chkstratdone1/2 check loop
@@ -456,20 +810,50 @@ fn append_map1_3a2_submap(b: &mut MapBuilder) {
     b.cspecial(0, -250, 300, 4000, lc::SH_R_HOU_0, lc::IS_SHOU0A);
 
     // Lines 6-7: friend + pathobj (chase3)
-    b.pathobj(0, 0, 0x0400, 0, sh::FRIENDSHIP_4, lc::PATH_CHASE3_1, 200, 10);
+    b.pathobj(
+        0,
+        0,
+        0x0400,
+        0,
+        sh::FRIENDSHIP_4,
+        lc::PATH_CHASE3_1,
+        200,
+        10,
+    );
     b.pathobj(3000, 0, 0x0400, 0, lc::SH_ZACO_B, lc::PATH_CHASE3_2, 10, 10);
 
     // Lines 9-10: ship_5S cruiser2 with setalvar vel,roty
-    b.mapnobj(0, -0x0800, SPACE_VIEWCY - 200, 4000, lc::SH_SHIP_5S_PROXY, lc::STRAT_ADDR_CRUISER2);
+    b.mapnobj(
+        0,
+        -0x0800,
+        SPACE_VIEWCY - 200,
+        4000,
+        lc::SH_SHIP_5S_PROXY,
+        lc::STRAT_ADDR_CRUISER2,
+    );
     b.setalvarb(al::VEL, 18);
 
     // Lines 12-14: ship_5S cruiser2 with roty, vel
-    b.mapnobj(0, -0x1000, SPACE_VIEWCY + 400, 3000, lc::SH_SHIP_5S_PROXY, lc::STRAT_ADDR_CRUISER2);
+    b.mapnobj(
+        0,
+        -0x1000,
+        SPACE_VIEWCY + 400,
+        3000,
+        lc::SH_SHIP_5S_PROXY,
+        lc::STRAT_ADDR_CRUISER2,
+    );
     b.setalvarb(al::ROTY, 20);
     b.setalvarb(al::VEL, 20);
 
     // Lines 16-18: ship_5m cruiser2 with vel, rotx
-    b.mapnobj(0, -500, SPACE_VIEWCY + 400, 2000, lc::SH_SHIP_5M_PROXY, lc::STRAT_ADDR_CRUISER2);
+    b.mapnobj(
+        0,
+        -500,
+        SPACE_VIEWCY + 400,
+        2000,
+        lc::SH_SHIP_5M_PROXY,
+        lc::STRAT_ADDR_CRUISER2,
+    );
     b.setalvarb(al::VEL, 20);
     b.setalvarb(al::ROTX, 240);
 
@@ -480,21 +864,58 @@ fn append_map1_3a2_submap(b: &mut MapBuilder) {
     b.cspecial(0, -200, -300, 4000, lc::SH_R_HOU_0, lc::IS_SHOU0A);
 
     // Line 21: pathspecial s_zaco_0, patret
-    b.pathspecial(0, 1500, -600, -100, lc::SH_S_ZACO_0, lc::PATH_PATRET, 10, 10);
+    b.pathspecial(
+        0,
+        1500,
+        -600,
+        -100,
+        lc::SH_S_ZACO_0,
+        lc::PATH_PATRET,
+        10,
+        10,
+    );
 
     // Lines 22-25: ship_5S cruiser2 with vel, ship_5m with vel,rotx
-    b.mapnobj(0, -2500, SPACE_VIEWCY - 100, 3000, lc::SH_SHIP_5S_PROXY, lc::STRAT_ADDR_CRUISER2);
+    b.mapnobj(
+        0,
+        -2500,
+        SPACE_VIEWCY - 100,
+        3000,
+        lc::SH_SHIP_5S_PROXY,
+        lc::STRAT_ADDR_CRUISER2,
+    );
     b.setalvarb(al::VEL, 20);
-    b.mapnobj(0, -700, SPACE_VIEWCY - 100, 4000, lc::SH_SHIP_5M_PROXY, lc::STRAT_ADDR_CRUISER2);
+    b.mapnobj(
+        0,
+        -700,
+        SPACE_VIEWCY - 100,
+        4000,
+        lc::SH_SHIP_5M_PROXY,
+        lc::STRAT_ADDR_CRUISER2,
+    );
     b.setalvarb(al::VEL, 25);
     b.setalvarb(al::ROTX, 15);
 
     // Lines 28-29: spacepilon + r_hou_0
-    b.mapnobj(3000, 0, -100, 2000, lc::SH_SPACEPILON, lc::STRAT_ADDR_SPACEPILON);
+    b.mapnobj(
+        3000,
+        0,
+        -100,
+        2000,
+        lc::SH_SPACEPILON,
+        lc::STRATEGY_SPACEPILON,
+    );
     b.mapobj(0, -300, 0x0300, 4000, lc::SH_R_HOU_0, lc::IS_SHOU0A);
 
     // Lines 31-33: ship_5 cruiser2fire with vel, rotx
-    b.mapnobj(0, -1800, SPACE_VIEWCY, 5500, lc::SH_SHIP_5_PROXY, lc::STRAT_ADDR_CRUISER2FIRE);
+    b.mapnobj(
+        0,
+        -1800,
+        SPACE_VIEWCY,
+        5500,
+        lc::SH_SHIP_5_PROXY,
+        lc::STRAT_ADDR_CRUISER2FIRE,
+    );
     b.setalvarb(al::VEL, 40);
     b.setalvarb(al::ROTX, 254);
 
@@ -512,7 +933,16 @@ fn append_map1_3a2_submap(b: &mut MapBuilder) {
     b.mapwait(2000);
 
     // Line 43: pathspecial s_zaco_0, patret
-    b.pathspecial(0, 2500, -600, -400, lc::SH_S_ZACO_0, lc::PATH_PATRET, 10, 10);
+    b.pathspecial(
+        0,
+        2500,
+        -600,
+        -400,
+        lc::SH_S_ZACO_0,
+        lc::PATH_PATRET,
+        10,
+        10,
+    );
 
     // Line 46: r_hou_0
     b.mapobj(1000, -250, 0x0100, 6000, lc::SH_R_HOU_0, lc::IS_SHOU0A);
@@ -520,11 +950,32 @@ fn append_map1_3a2_submap(b: &mut MapBuilder) {
     // Lines 48-55: totumsg + ship_3 + doors (C `#define SPSDIST2 6000`)
     const SPSDIST2: i32 = 6000;
     b.pathobj(0, 3000, 3000, 3000, sh::NULLSHAPE, lc::PATH_TOTUMSG, 10, 10);
-    b.mapobj(0, -300, SPACE_VIEWCY - 1500, SPSDIST2, lc::SH_SHIP_3_PROXY, lc::STRAT_ADDR_SHIP2);
+    b.mapobj(
+        0,
+        -300,
+        SPACE_VIEWCY - 1500,
+        SPSDIST2,
+        lc::SH_SHIP_3_PROXY,
+        lc::STRAT_ADDR_SHIP2,
+    );
     b.setvarobj(wm::MAPVAR1);
-    b.mapobj(0, -300, SPACE_VIEWCY - 1500, SPSDIST2, lc::SH_S_DOOR_1_PROXY, lc::STRAT_ADDR_SDOOR1);
+    b.mapobj(
+        0,
+        -300,
+        SPACE_VIEWCY - 1500,
+        SPSDIST2,
+        lc::SH_S_DOOR_1_PROXY,
+        lc::STRAT_ADDR_SDOOR1,
+    );
     b.setalvarptrw(al::SWORD1, wm::MAPVAR1);
-    b.mapobj(0, -300, SPACE_VIEWCY - 1500, SPSDIST2, lc::SH_S_DOOR_2_PROXY, lc::STRAT_ADDR_SDOOR2);
+    b.mapobj(
+        0,
+        -300,
+        SPACE_VIEWCY - 1500,
+        SPSDIST2,
+        lc::SH_S_DOOR_2_PROXY,
+        lc::STRAT_ADDR_SDOOR2,
+    );
     b.setalvarptrw(al::SWORD1, wm::MAPVAR1);
 
     // Lines 58-62: .loop2 — chkstratdone1/2 check loop
@@ -539,18 +990,396 @@ fn append_map1_3a2_submap(b: &mut MapBuilder) {
     b.maprts();
 }
 
-/// C `append_map1_3b2_submap()` — MAP1_3B2.ASM: Space Armada Part B2
-/// (Ship 2 tunnel stub).
+fn append_map1_3b1_submap(b: &mut MapBuilder) {
+    b.label("level1_3.map1_3b1");
+    // INCMAP 1-3-T1 content is appended here in source order.
+    append_1_3_t1(b);
+    append_mtunnel_exit(b, "level1_3.map1_3b1.mexit");
+    b.maprts();
+}
+
+/// MAP1_3B2.ASM: Space Armada Part B2.
 fn append_map1_3b2_submap(b: &mut MapBuilder) {
     b.label("level1_3.map1_3b2");
+    append_1_3_t2(b);
+    append_mtunnel_exit(b, "level1_3.map1_3b2.mexit");
+    b.maprts();
+}
 
-    // incmap 1-3-t2 — tunnel data (stub/placeholder)
+/// One four-piece `tunnel_0` ring. The delay is carried by the bottom-left
+/// piece exactly as in 1-3-T1/T2 and 3-4-T.ASM.
+fn tunnel_ring(b: &mut MapBuilder, wait: i32, z: i32) {
+    b.mapobj(0, 90, -120, z, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, z, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(0, 90, 0, z, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(wait, -90, 0, z, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+}
+
+/// MAPMACS.INC `mapLRdoor wait,z`.
+fn lr_door(b: &mut MapBuilder, wait: i32, z: i32) {
+    b.mapobj(0, -45, -60, z, lc::SH_OPEN_L, lc::IS_OPENLR);
+    b.mapobj(0, 45, -60, z, lc::SH_OPEN_L, lc::IS_OPENLR);
+    b.setalvarb(al::ROTZ, DEG180);
+    b.mapwait(wait);
+}
+
+/// `1-3-T1.ASM` — complete first Space Armada medium-tunnel obstacle course.
+fn append_1_3_t1(b: &mut MapBuilder) {
+    b.mapwait(500);
+    b.mapobj(0, 90, -120, 3000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 3000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(0, 0, -20, 3000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(0, 90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(0, -90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+    b.mapobj(500, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+
+    b.label("level1_3.t1.tunnel2");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t1.tunnel2", 2);
+    b.mapobj(0, 60, -60, 4000, lc::SH_WALL_2, is::HARD180YR);
+    b.mapobj(700, -60, -60, 4000, lc::SH_WALL_2, is::HARD180YR);
+
+    b.label("level1_3.t1.tunnel3");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t1.tunnel3", 2);
+    b.mapobj(0, 0, -80, 5000, lc::SH_ITEM_6, lc::IS_ITEM6);
+    b.setalvarb(al::SBYTE1, 1);
+    b.mapobj(500, 0, 0, 4000, lc::SH_LENG_0, lc::IS_LENG0);
+
+    b.label("level1_3.t1.tunnel4");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t1.tunnel4", 2);
+    b.mapobj(300, 0, 0, 4000, lc::SH_LENG_0, lc::IS_LENG0);
+
+    b.label("level1_3.t1.tunnel5");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t1.tunnel5", 3);
+    b.mapobj(0, 0, -60, 4200, lc::SH_IRIS, 47);
+
+    b.label("level1_3.t1.tunnel6");
+    b.mapobj(0, 70, -60, 4800, lc::SH_BOU_1_PROXY, is::HARD180YR);
+    b.mapobj(700, -70, -60, 4800, lc::SH_BOU_1_PROXY, is::HARD180YR);
+    b.maploop("level1_3.t1.tunnel6", 3);
+
+    b.mapobj(0, 0, 0, 4700, lc::SH_CORE_1_0, lc::IS_CORE0);
+    b.mapobj(1000, 0, 0, 4700, lc::SH_CORE_1_1, lc::IS_CORE1);
+    b.mapobj(0, 70, -60, 4200, lc::SH_BOU_1_PROXY, is::HARD180YR);
+    b.mapobj(500, -70, -60, 4200, lc::SH_BOU_1_PROXY, is::HARD180YR);
+}
+
+/// `1-3-T2.ASM` — complete second Space Armada medium-tunnel obstacle course.
+fn append_1_3_t2(b: &mut MapBuilder) {
+    b.mapwait(500);
+    lr_door(b, 1200, 3500);
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(1000, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(0, 90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(0, -90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+    b.mapobj(1000, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    for _ in 0..4 {
+        b.mapobj(200, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+    }
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(800, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(0, 90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(0, -90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+    for _ in 0..6 {
+        b.mapobj(200, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+    }
+    tunnel_ring(b, 50, 4000);
+    b.mapobj(200, 0, -40, 4000, lc::SH_BOU_0, lc::IS_TWALL0);
+    b.mapobj(200, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(400, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.pathobj(600, 0, 0, -100, sh::NULLSHAPE, lc::PATH_KASTMSG2, 10, 10);
+
+    b.label("level1_3.t2.tunneld");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t2.tunneld", 3);
+
+    lr_door(b, 600, 4000);
+    tunnel_ring(b, 600, 4000);
+    lr_door(b, 200, 4000);
+    b.mapobj(0, -60, -40, 4000, lc::SH_ITEM_5, lc::IS_ITEM5);
+    b.setalvarb(al::SBYTE1, 1);
+    b.mapwait(1000);
+    lr_door(b, 600, 4000);
+    tunnel_ring(b, 600, 4000);
+    lr_door(b, 600, 4000);
+    tunnel_ring(b, 600, 4000);
+
+    b.mapobj(0, 0, 0, 3000, lc::SH_WARKER_3, lc::IS_WARKER3);
+    b.mapobj(0, 60, 0, 3300, lc::SH_WARKER_3, lc::IS_WARKER3);
+    b.special(0, -60, 0, 3600, lc::SH_S_WARK_0, lc::IS_WARKER3);
     b.mapwait(500);
 
-    // mapjsr mtunnelexit — medium tunnel exit (stub)
-    b.mapwait(100);
+    b.label("level1_3.t2.tunnel7");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t2.tunnel7", 7);
+    b.mapobj(0, 0, -60, 4200, lc::SH_IRIS, 47);
 
-    b.maprts();
+    b.label("level1_3.t2.tunnel8");
+    b.mapobj(0, 70, -60, 4800, lc::SH_BOU_1_PROXY, is::HARD180YR);
+    b.mapobj(700, -70, -60, 4800, lc::SH_BOU_1_PROXY, is::HARD180YR);
+    b.maploop("level1_3.t2.tunnel8", 3);
+
+    b.mapobj(0, 0, 0, 4700, lc::SH_CORE_1_0, lc::IS_CORE0);
+    b.mapobj(1000, 0, 0, 4700, lc::SH_CORE_1_1, lc::IS_CORE1);
+    b.mapobj(0, 70, -60, 4200, lc::SH_BOU_1_PROXY, is::HARD180YR);
+    b.mapobj(500, -70, -60, 4200, lc::SH_BOU_1_PROXY, is::HARD180YR);
+}
+
+/// MAPMACS.INC `mapUPDNdoor wait,z`: the wait is carried by the door object.
+fn updn_door(b: &mut MapBuilder, wait: i32, z: i32) {
+    b.mapobj(wait, 0, -60, z, lc::SH_UP_DOOR, 232);
+}
+
+/// MAPMACS.INC `mapDNUPdoor wait,z`: inverted door followed by a separate wait.
+fn dnup_door(b: &mut MapBuilder, wait: i32, z: i32) {
+    b.mapobj(0, 0, -60, z, lc::SH_UP_DOOR, 232);
+    b.setalvarb(al::ROTZ, DEG180);
+    b.mapwait(wait);
+}
+
+/// `1-3-T3.ASM` — final Space Armada medium-tunnel obstacle course.
+/// Returns the inline skill-fly bonus guard pointer for callback registration.
+fn append_1_3_t3(b: &mut MapBuilder) -> u16 {
+    b.mapwait(500);
+    dnup_door(b, 1400, 3500);
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+
+    for (wait, y, shape) in [
+        (200, -10, lc::SH_WALL_5),
+        (200, -20, lc::SH_WALL_0),
+        (200, -30, lc::SH_WALL_0),
+    ] {
+        b.mapobj(wait, 0, y, 4000, shape, is::HARD180YR);
+    }
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(600, 0, -40, 4000, lc::SH_WALL_0, is::HARD180YR);
+    tunnel_ring(b, 600, 4000);
+
+    b.mapobj(0, 90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(0, -90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+    for (wait, y, shape) in [
+        (200, -110, lc::SH_WALL_5),
+        (200, -100, lc::SH_WALL_0),
+        (200, -90, lc::SH_WALL_0),
+    ] {
+        b.mapobj(wait, 0, y, 4000, shape, is::HARD180YR);
+    }
+    b.mapobj(0, 90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(0, -90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+    b.mapobj(600, 0, -80, 4000, lc::SH_WALL_0, is::HARD180YR);
+
+    tunnel_ring(b, 600, 4000);
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(800, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(0, 90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(0, -90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+    b.mapobj(500, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+
+    b.label("level1_3.t3.tunnela");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t3.tunnela", 2);
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(800, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(0, 90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTRIGHT1);
+    b.mapobj(0, -90, 0, 4000, lc::SH_TUNNEL_0, lc::IS_BOTLEFT1);
+    b.mapobj(800, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(0, 90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPRIGHT1);
+    b.mapobj(0, -90, -120, 4000, lc::SH_TUNNEL_0, lc::IS_TOPLEFT1);
+    b.mapobj(500, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+
+    b.label("level1_3.t3.tunnelb");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t3.tunnelb", 2);
+    b.mapobj(0, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+    b.mapobj(300, 0, -100, 4000, lc::SH_WALL_0, is::HARD180YR);
+
+    b.label("level1_3.t3.tunnelc");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t3.tunnelc", 2);
+
+    b.skillfly_init();
+    b.skillfly_set_default(0, -140, 4050);
+    b.setalvarb(al::SBYTE1, 1);
+    updn_door(b, 2000, 4000);
+    b.skillfly_set_default(0, 20, 4050);
+    dnup_door(b, 2000, 4000);
+    b.skillfly_set_default(0, -140, 4050);
+    updn_door(b, 700, 4000);
+    b.mapobj(1300, 0, -20, 4000, lc::SH_WALL_0, is::HARD180YR);
+    dnup_door(b, 100, 4000);
+
+    b.special(500, 0, 0, 4000, lc::SH_S_WARK_0, lc::IS_WARKER3);
+    b.cspecial(500, 60, 0, 4000, lc::SH_WARKER_3, lc::IS_WARKER3);
+    b.cspecial(500, -60, 0, 4000, lc::SH_WARKER_3, lc::IS_WARKER3);
+    b.special(400, 0, 0, 4000, lc::SH_S_WARK_0, lc::IS_WARKER3);
+
+    let bonus_guard = b.mapcode65816_inline();
+    b.mapobj(0, 0, -100, 1400, lc::SH_ITEM_5, lc::IS_ITEM5);
+    b.setalvarb(al::SBYTE1, 1);
+    b.label("level1_3.t3.skillfly_bonus_0_skip");
+
+    b.label("level1_3.t3.tunnel9");
+    tunnel_ring(b, 700, 4000);
+    b.maploop("level1_3.t3.tunnel9", 7);
+    lr_door(b, 800, 4000);
+    lr_door(b, 800, 4000);
+    lr_door(b, 400, 4000);
+    bonus_guard
+}
+
+fn pipe_shape(kind: u8) -> u16 {
+    match kind {
+        0 => lc::SH_PIPE_0,
+        1 => lc::SH_PIPE_1,
+        2 => lc::SH_PIPE_2,
+        3 => lc::SH_PIPE_3,
+        4 => lc::SH_PIPE_4,
+        5 => lc::SH_PIPE_5,
+        _ => panic!("invalid WASHENT pipe kind {kind}"),
+    }
+}
+
+/// Expand MAPMACS.INC `mappipe` using WASHENT's `pipescale=16`.
+fn wash_pipe(
+    b: &mut MapBuilder,
+    pdist: i32,
+    y_units: i32,
+    z_units: i32,
+    pitch_steps: i32,
+    flip: i32,
+    kind: u8,
+    no_ground: bool,
+) {
+    const PIPE_SCALE: i32 = 16;
+    let strat = if no_ground { is::NOCOLL } else { is::GND };
+    b.mapobj(
+        0,
+        0,
+        -60 + y_units * PIPE_SCALE,
+        pdist + z_units * PIPE_SCALE,
+        pipe_shape(kind),
+        strat,
+    );
+    b.setalvarb(al::ROTX, (DEG360 / 12) * pitch_steps);
+    b.setalvarb(al::ROTZ, DEG180 * flip);
+}
+
+/// `WASHENT.ASM` — 1-3 boss-entry pipe cutscene.
+fn append_washent(b: &mut MapBuilder) {
+    const PIPE_WAIT: i32 = 40 * 16;
+    let mut pdist = 960 + 20 * 16;
+    let pipe_wait = |b: &mut MapBuilder, pdist: &mut i32| {
+        b.mapwait(PIPE_WAIT);
+        *pdist -= PIPE_WAIT;
+    };
+
+    b.mapplayercantdie();
+    b.mapcodejsl_builtin(cb::SET_PLAYER_TOCSLOW_L);
+    b.mapobj(800, 0, -60, 4200, lc::SH_PIPE_9_0_PROXY, is::NOCOLL);
+    b.mapobj(400, 0, -60, 4200, lc::SH_PIPE_9_0_PROXY, is::NOCOLL);
+    b.mapobj(0, 0, -60, 4200, lc::SH_PIPE_9_PROXY, lc::IS_COLONYEXIT);
+    b.mapwait(4000);
+
+    b.setbg(lc::BG_1_3DA);
+    b.initbg();
+    // BGS.ASM bg_1_3da owns `pstrat playerwashent`; the Rust background
+    // scheduler has no pstrat table, so preserve the same handoff explicitly.
+    b.mapcodejsl_builtin(cb::SET_PLAYER_WASHENT_L);
+
+    wash_pipe(b, pdist, 0, 0, 0, 0, 0, false);
+    wash_pipe(b, pdist, -11, 40, -1, 0, 2, false);
+    wash_pipe(b, pdist, -40, 70, -2, 1, 2, false);
+    pipe_wait(b, &mut pdist);
+    wash_pipe(b, pdist, -69, 100, -1, 0, 3, false);
+    pipe_wait(b, &mut pdist);
+    wash_pipe(b, pdist, -80, 140, 0, 1, 0, false);
+    pipe_wait(b, &mut pdist);
+    wash_pipe(b, pdist, -69, 180, 1, 0, 3, false);
+    pipe_wait(b, &mut pdist);
+    wash_pipe(b, pdist, -40, 210, 2, 0, 2, true);
+    pipe_wait(b, &mut pdist);
+    wash_pipe(b, pdist, -11, 240, 1, 0, 1, true);
+    pipe_wait(b, &mut pdist);
+    pipe_wait(b, &mut pdist);
+    wash_pipe(b, pdist, 0, 280, 0, 0, 4, true);
+    pipe_wait(b, &mut pdist);
+    wash_pipe(b, pdist, 0, 320, 0, 0, 5, true);
+    wash_pipe(b, pdist, 0, 360, 0, 0, 4, true);
+    wash_pipe(b, pdist, 0, 400, 0, 0, 5, true);
+    wash_pipe(b, pdist, 0, 440, 0, 0, 4, true);
+    wash_pipe(b, pdist, 0, 480, 0, 0, 5, true);
+    for _ in 0..4 {
+        pipe_wait(b, &mut pdist);
+    }
+}
+
+/// `WASHMAPE.ASM` — Giant Washing Machine / Atomic Base I boss sequence.
+fn append_washmape(b: &mut MapBuilder) {
+    const BOSS8_SCALE: i32 = 3;
+    const NUCLEUS_HEIGHT: i32 = 100;
+    const BOSS8_CIRC: i32 = 1680;
+    const ROT_SIZE: i32 = DEG45;
+
+    b.setbgm(6);
+    b.mapwait(300);
+    let boss_y = (-50 << BOSS8_SCALE) + NUCLEUS_HEIGHT;
+    b.mapnobj(
+        0,
+        0,
+        boss_y,
+        210 << BOSS8_SCALE,
+        lc::SH_BOSS_8_0,
+        lc::STRAT_ADDR_BOSS8,
+    );
+
+    for angle in [DEG90 + DEG22, 96 + DEG22, 192 - DEG22, -DEG22] {
+        b.mapnobj(
+            0,
+            0,
+            boss_y,
+            BOSS8_CIRC,
+            lc::SH_HOU_4,
+            lc::STRAT_ADDR_NUCLEUSLAUNCHER,
+        );
+        b.setalvarb(al::SBYTE2, angle);
+    }
+    for angle in (0..8).map(|n| n * ROT_SIZE) {
+        b.mapnobj(
+            0,
+            0,
+            NUCLEUS_HEIGHT,
+            BOSS8_CIRC,
+            lc::SH_BOSS_8_4,
+            lc::STRAT_ADDR_NUCLEUSPILLAR,
+        );
+        b.setalvarb(al::SBYTE2, angle);
+    }
+
+    b.label("level1_3.washmape.loop");
+    b.mapif_builtin(cb::CHKSTAGEDONE, "level1_3.washmape.cont");
+    b.mapgoto("level1_3.washmape.loop");
+    b.label("level1_3.washmape.cont");
+    b.setvarw(wm::BOSSMAXHP, 0);
+    b.mapwait(1000);
+    b.setbgm(BGM_FADEOUT);
+    let after_escape = "level1_3.washmape.after_escape_mode";
+    b.mapif_builtin(cb::IS_PLAYER_DEAD, after_escape);
+    b.mapcodejsl_builtin(cb::SET_PLAYER_ESCAPENUCLEUS_L);
+    b.label(after_escape);
+    b.mapwait(4360);
+    b.mapcodejsl_builtin(cb::CLEARREALOBJMAP_L);
+    b.mapwait(MEDPSPEED);
 }
 
 /// C `append_cl_ship_submap()` — CL_SHIP.ASM: clear demo for route-1 ship
@@ -565,7 +1394,14 @@ fn append_cl_ship_submap(b: &mut MapBuilder) {
     b.initbg();
     b.mapcodejsl_builtin(cb::SET_PLAYER_CLEAR_SHIP2_L);
     b.setbgm(BGM_FANFARE);
-    b.mapobj(0, 0, SPACE_VIEWCY, 0, lc::SH_COLONY_0_PROXY, lc::STRAT_ADDR_SHIP0CDOWN);
+    b.mapobj(
+        0,
+        0,
+        SPACE_VIEWCY,
+        0,
+        lc::SH_COLONY_0_PROXY,
+        lc::STRAT_ADDR_SHIP0CDOWN,
+    );
     b.setalvarb(al::ROTY, DEG180);
     b.mapgoto("cl_ship.cont");
 
@@ -575,14 +1411,29 @@ fn append_cl_ship_submap(b: &mut MapBuilder) {
     b.initbg();
     b.mapcodejsl_builtin(cb::SET_PLAYER_CLEAR_SHIP2_L);
     b.setbgm(BGM_FANFARE);
-    b.mapobj(0, 0, SPACE_VIEWCY, 0, lc::SH_SSHIP_0_C_PROXY, lc::STRAT_ADDR_SHIP0CDOWN);
+    b.mapobj(
+        0,
+        0,
+        SPACE_VIEWCY,
+        0,
+        lc::SH_SSHIP_0_C_PROXY,
+        lc::STRAT_ADDR_SHIP0CDOWN,
+    );
 
     // cl_ship_cont shared continuation
     b.label("cl_ship.cont");
     b.mapwait(9000 - CL_GND_FRIENDWAIT);
     // CL_SHIP.ASM:42: mapmother ...,mother1_istrat,mother_CLasteroids.
     let mm = crate::mothers::mother_maps();
-    b.mapmother(0, 0, 0, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER1, mm.mother_clasteroids);
+    b.mapmother(
+        0,
+        0,
+        0,
+        3000,
+        lc::SH_MOTHER1,
+        lc::STRATEGY_MOTHER1,
+        mm.mother_clasteroids,
+    );
 
     b.setvarb(wm::STAGECLEAR, 1);
     b.sendmsg(1);
@@ -591,21 +1442,42 @@ fn append_cl_ship_submap(b: &mut MapBuilder) {
     b.mapif_builtin(cb::FROG_ALIVE, "cl_ship.frog_alive");
     b.mapgoto("cl_ship.nf");
     b.label("cl_ship.frog_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, -1000, -50, 50, sh::MYSHIP_4, lc::IS_CLSHIPSHIPA);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        -1000,
+        -50,
+        50,
+        sh::MYSHIP_4,
+        lc::IS_CLSHIPSHIPA,
+    );
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_FROG);
     b.label("cl_ship.nf");
 
     b.mapif_builtin(cb::BUNNY_ALIVE, "cl_ship.bunny_alive");
     b.mapgoto("cl_ship.nb");
     b.label("cl_ship.bunny_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 1000, -50, 50, sh::MYSHIP_4, lc::IS_CLSHIPSHIPB);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        1000,
+        -50,
+        50,
+        sh::MYSHIP_4,
+        lc::IS_CLSHIPSHIPB,
+    );
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_BUNNY);
     b.label("cl_ship.nb");
 
     b.mapif_builtin(cb::COCK_ALIVE, "cl_ship.cock_alive");
     b.mapgoto("cl_ship.nc");
     b.label("cl_ship.cock_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 0, 200, -500, sh::MYSHIP_4, lc::IS_CLSHIPSHIPC);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        0,
+        200,
+        -500,
+        sh::MYSHIP_4,
+        lc::IS_CLSHIPSHIPC,
+    );
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_COCK);
     b.label("cl_ship.nc");
 

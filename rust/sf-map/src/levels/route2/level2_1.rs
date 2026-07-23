@@ -33,16 +33,46 @@ pub fn build() -> Route2Level {
     b.mapobj(0, 0, 0, 0, SH_MYBASE_1, IS_NOCOLL);
     b.mapobj(0, 0, 0, 0, SH_MYBASE_0, IS_NOCOLL);
 
-    b.mapobj(0, -27 << MYBASE_SCALE, -39 << MYBASE_SCALE, -200,
-              SH_MYSHIP_4, IS_FRIENDEXITBASE);
+    b.mapobj(
+        0,
+        -27 << MYBASE_SCALE,
+        -39 << MYBASE_SCALE,
+        -200,
+        SH_MYSHIP_4,
+        IS_FRIENDEXITBASE,
+    );
     b.setalvarb(AL_SBYTE1, 17);
-    b.mapobj(0, -27 << MYBASE_SCALE, -39 << MYBASE_SCALE, -200,
-              SH_MYSHIP_4, IS_FRIENDEXITBASE);
+    b.mapobj(
+        0,
+        -27 << MYBASE_SCALE,
+        -39 << MYBASE_SCALE,
+        -200,
+        SH_MYSHIP_4,
+        IS_FRIENDEXITBASE,
+    );
     b.setalvarb(AL_SBYTE1, 17 + (1000 / PEXITBASE_SPEED));
 
     b.pathobj(0, 3000, 3000, 3000, SH_NULLSHAPE, PATH_ID_MATEMSG, 10, 10);
-    b.pathobj(0, 100, -90, 1400, SH_FRIENDSHIP_4, PATH_ID_FALCO_LV1, 10, 10);
-    b.pathobj(0, -80, -140, 1200, SH_FRIENDSHIP_4, PATH_ID_FROG_LV1, 10, 10);
+    b.pathobj(
+        0,
+        100,
+        -90,
+        1400,
+        SH_FRIENDSHIP_4,
+        PATH_ID_FALCO_LV1,
+        10,
+        10,
+    );
+    b.pathobj(
+        0,
+        -80,
+        -140,
+        1200,
+        SH_FRIENDSHIP_4,
+        PATH_ID_FROG_LV1,
+        10,
+        10,
+    );
 
     b.mapobj(0, -600, 0, 2000, SH_BU_1, IS_HARD180YR);
     b.mapobj(0, 600, 0, 2000, SH_BU_1, IS_HARD180YR);
@@ -298,8 +328,12 @@ pub fn build() -> Route2Level {
     b.resolve();
 
     // C: skillfly bonus skip-label lookups (build fails if missing).
-    assert!(b.lookup_label("level2_1.map2_1b.skillfly_bonus_0_skip").is_some());
-    assert!(b.lookup_label("level2_1.map2_1b.skillfly_bonus_1_skip").is_some());
+    assert!(b
+        .lookup_label("level2_1.map2_1b.skillfly_bonus_0_skip")
+        .is_some());
+    assert!(b
+        .lookup_label("level2_1.map2_1b.skillfly_bonus_1_skip")
+        .is_some());
 
     let (data, labels) = b.finish();
 
@@ -309,12 +343,30 @@ pub fn build() -> Route2Level {
         labels,
         vec![],
         vec![
-            (level2_1_keep_player_strat_ptr, "level_scramble_keep_player_strat"),
-            (level2_1_skillfly_bonus0_guard_ptr, "level2_1_skillfly_bonus0_guard"),
-            (level2_1_skillfly_bonus1_guard_ptr, "level2_1_skillfly_bonus1_guard"),
-            (level2_1_mapwaitboss_trigse_ptr, "level1_1_mapwaitboss_trigse"),
-            (level2_1_mapwaitboss_cantdie_ptr, "level1_1_mapwaitboss_cantdie"),
-            (level2_1_mapwaitboss_cleanup_ptr, "level1_1_mapwaitboss_cleanup"),
+            (
+                level2_1_keep_player_strat_ptr,
+                "level_scramble_keep_player_strat",
+            ),
+            (
+                level2_1_skillfly_bonus0_guard_ptr,
+                "level2_1_skillfly_bonus0_guard",
+            ),
+            (
+                level2_1_skillfly_bonus1_guard_ptr,
+                "level2_1_skillfly_bonus1_guard",
+            ),
+            (
+                level2_1_mapwaitboss_trigse_ptr,
+                "level1_1_mapwaitboss_trigse",
+            ),
+            (
+                level2_1_mapwaitboss_cantdie_ptr,
+                "level1_1_mapwaitboss_cantdie",
+            ),
+            (
+                level2_1_mapwaitboss_cleanup_ptr,
+                "level1_1_mapwaitboss_cleanup",
+            ),
         ],
     )
 }

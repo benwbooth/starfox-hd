@@ -11,31 +11,34 @@ nix develop --command bash -c \
   "cd rust && cargo test -p sf-oracle --test fuzz_pure_fns 2>&1 \
    | grep -E 'test result|PROBE|DIVERGE'"
 ```
-The default run is GREEN (5 passed, 2 ignored). The 2 `#[ignore]`d tests pin the
-latent divergences below; run `-- --ignored` to reproduce them.
+The default run is GREEN (**7 passed, 0 ignored**). Antipodal ±128 / ±32768
+cases are bit-exact after the ROM-faithful `target−current` chase form
+(`achase_angle_8` / `strat_chase_proportional`). Rate-7 remains a ROM-side
+quirk (unreachable in gameplay) counted only in the sr8 probe note.
 
 ## Summary
 
 - **Functions swept: 18** — `sr8_achase_alvar1..7` (7), `sr16_achase_alvar1..7`
   (7), `addvecs_l`, `addvecs2_l`, `addvecs4_l`, `add_objvecs_l`.
 - **Bit-exact over the reachable input regime: 18 / 18.**
-- **Latent divergences (boundary bugs): 2** distinct classes, both the same
-  signed-negation-overflow family as the mulslog bugs, both confined to
-  boundary inputs (assert-guarded out of the green suite, `#[ignore]`d + TODO).
+- **Also bit-exact at antipodal boundaries** (sr8 `|diff|==128`, sr16
+  `|diff|==32768`) — FIXED prior to tick 200; oracle asserts `diffs_antipodal==0`.
+- **Remaining ROM quirk (not a port bug):** `sr8_achase_alvar7` rate-7
+  `nolessrange` loads `#128` as i8 `-128` (unreachable — no gameplay rate-7).
 
-### Top 3
+### Top 3 (historical → status)
 
-1. **`sr8_achase_alvarN` vs `achase_angle` — antipodal (exact-180) turn flips
-   direction.** Reachable. When the 8-bit signed angle gap is exactly ±128
-   (target 180° from current), ROM and Rust pick OPPOSITE turn directions.
-2. **`sr16_achase_alvarN` vs `strat_chase_proportional` — ±32768 diff flips
-   direction.** Same class, 16-bit. Effectively unreachable (needs two 16-bit
-   quantities exactly 32768 apart) but a real boundary bug.
+1. ~~**`sr8_achase` antipodal turn flip**~~ **FIXED** — `achase_angle_8` matches
+   ROM `current + adiv2(target−current)` at `|diff|==128`. Test
+   `sr8_achase_antipodal_divergence` green.
+2. ~~**`sr16_achase` ±32768 flip**~~ **FIXED** — `strat_chase_proportional` uses
+   i16-wrapped `(target−current)` then toward-zero step. Test
+   `sr16_achase_antipodal_divergence` green.
 3. **`sr8_achase_alvar7` (rate 7) min-step sign overflow.** ROM-side quirk:
    `2^7 = 128` is not a positive `i8`, so `nolessrange`'s `lda #128` loads
    `0x80 = -128` and corrupts the step sign for every input. Unreachable — no
    8-bit chase in the game uses rate 7 (ROM strat tables + `achase_angle`
-   callers top out at rate 6).
+   callers top out at rate 6). **ACCEPTED** (document only).
 
 ---
 
@@ -51,18 +54,13 @@ latent divergences below; run `-- --ignored` to reproduce them.
   1..7 (62,720 triples).
 - **VERDICT:** bit-exact for **rates 1-6, any non-antipodal gap** (the entire
   reachable regime — 8-bit chases in ROM/Rust only ever use rates 1-6).
-  - **DIVERGES @ |8-bit diff| == 128 (antipodal, all rates):** ROM computes
-    `current + adiv2^N(target-current)`; `achase_angle` computes
-    `current - adiv2^N(current-target)`. Algebraically equal EXCEPT at the 8-bit
-    MIN diff -128, where `-(-128) == -128` overflows so the two forms turn
-    opposite ways. e.g. `cur=0 tgt=128 rate1`: ROM=192, RUST=64 (both land 64
-    from the target — convergence still happens, only the path/direction
-    differs). Cite: STRATMAC.INC:525 (`sec/sbc` sign) + enemy_a.rs:303.
-    Test: `sr8_achase_antipodal_divergence` (`#[ignore]`d).
+  - **FIXED @ |8-bit diff| == 128 (antipodal, all rates):** port now uses the
+    ROM form `current + adiv2^N(target−current)` via `achase_angle_8`. Oracle
+    `diffs_antipodal==0`; focused test `sr8_achase_antipodal_divergence` green.
   - **DIVERGES @ rate 7 (unreachable):** `nolessrange` `lda #(1<<7)` = `lda #128`
     loads `0x80 = -128`, so the forced min-step is negative regardless of the
     real gap sign. Not a Rust bug — a ROM-side quirk that never fires because
-    rate-7 8-bit chase is unused.
+    rate-7 8-bit chase is unused. **ACCEPTED.**
 
 ### `sr16_achase_alvar1..7`  — ROM $1FD654.. (STRATROU.ASM:2740)
 - **Rust equivalent:** `sf_strat::common::strat_chase_proportional`
@@ -71,17 +69,10 @@ latent divergences below; run `-- --ignored` to reproduce them.
   Same `Achase_var2A` body at 16-bit accumulator width.
 - **Input grid:** 33 signed magnitudes (incl. `i16::MIN/MAX`, ±16384 and the
   exact values that make `diff = ±32768`) squared × rates 1..7 (7,623 triples).
-- **VERDICT:** bit-exact for **every diff whose magnitude ≠ 32768**.
-  - **DIVERGES @ |current-target| == 32768:** `strat_chase_proportional` does
-    `diff = current.wrapping_sub(target)` as **i16**, then branches on
-    `diff >= 0`. When the true diff is ±32768 the i16 wraps to `i16::MIN`, so the
-    SIGN test uses the wrong sign and the chase steps the wrong way — the i32
-    widening in the negative branch (common.rs:315) does NOT help, because the
-    branch was already chosen from the wrapped i16. e.g. `cur=0 tgt=-32768
-    rate1`: ROM=-16384, RUST=+16384. Cite: common.rs:308/312 vs
-    STRATMAC.INC:525. Test: `sr16_achase_antipodal_divergence` (`#[ignore]`d).
-  - **Fix (TODO, not applied — src not owned):** compute `diff` in i32 and branch
-    on the i32 sign, for both `achase_angle` and `strat_chase_proportional`.
+- **VERDICT:** bit-exact for **every diff**, including `|current-target| == 32768`.
+  - **FIXED @ |diff| == 32768:** `strat_chase_proportional` uses i16-wrapped
+    `(target − current)` (ROM 65816 width) then toward-zero `|diff|>>shift`.
+    Oracle `diffs_antipodal==0`; `sr16_achase_antipodal_divergence` green.
 
 ### `addvecs_l`  — ROM $1FC7B9 (STRATROU.ASM:497)
 - **Rust equivalent:** `sf_strat::common::strat_add_to_pos` (common.rs:464).

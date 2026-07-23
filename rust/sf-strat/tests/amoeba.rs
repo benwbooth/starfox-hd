@@ -11,9 +11,8 @@
 //! software-sprite path — none of which is a pure-65816-tractable single
 //! function. These tests hand-derive expected values from the ASM.
 //!
-//! Fidelity boundaries (also noted in the AMOEBA_BEGIN block in bosses.rs):
-//!  * `#amoeba1` is the 2D windshield-splat sprite (DEFSPR.ASM:179), not in
-//!    the ported 3D shape catalog — the stuck blob reuses amoeba2's id (104).
+//! The dedicated `#amoeba1` windshield-splat sprite is compiled from
+//! USHAPES.ASM into a stable native shape slot.
 //!  * hardHP(0xFF) makes the body indestructible (do_coll BMI) and expstrat=0
 //!    means NO death/explode path — the only removal is drift-off (ATZREMOVE)
 //!    or a barrel-roll fling.
@@ -22,12 +21,13 @@ use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{pcbox_attach, strat_spawn_player};
+use sf_strat::snes_trig::strat_roffs_full_i16;
 use sf_strat::{bosses, table};
 
 // ---- local mirrors of private bosses.rs / engine constants ----
 const WM_RNDVAL: u16 = 0x1F00;
 const AMOEBA_SLIMECOUNT: u16 = 0x162b; // GILESALC.INC:296
-const SH_AMOEBA1: u16 = 104; // reuse amoeba2 (scoped visual boundary)
+const SH_AMOEBA1: u16 = 438;
 const ASF3_SSPRITE: u8 = 0x80;
 const ASF_COLLDISABLE: u8 = 0x10;
 const ASF_COLLIDE: u8 = 0x20;
@@ -221,8 +221,9 @@ fn amoeba_stick_tracks_ship_and_damages_on_gate() {
     assert_eq!(wm8(&g, AMOEBA_SLIMECOUNT), 1);
     clear_collide(&mut g, a);
 
-    // Move the ship; the stuck amoeba re-pins to it (player pos + rotated
-    // offset). With player rots all zero the amoeba sits at ship + (dx,dy).
+    // Move the ship; the stuck amoeba re-pins to it using the ROM's full
+    // rotate_8 chain. Even at zero angles COSTAB[0]=127 attenuates the offset,
+    // so this is not an exact ship + (dx,dy) copy.
     let (dx, dy) = (
         g.objs.aliens[a as usize].sword1,
         g.objs.aliens[a as usize].sword2,
@@ -235,8 +236,9 @@ fn amoeba_stick_tracks_ship_and_damages_on_gate() {
     g.vars.gameframe = 15; // run_strategies -> 16
     g.run_strategies();
     let al = g.objs.aliens[a as usize];
-    assert_eq!(al.worldx, 111 + dx, "re-pinned x to the moved ship");
-    assert_eq!(al.worldy, 77 + dy, "re-pinned y to the moved ship");
+    let (rx, ry, _) = strat_roffs_full_i16(0, 0, 0, dx, dy, 0);
+    assert_eq!(al.worldx, 111 + rx, "re-pinned x to the moved ship");
+    assert_eq!(al.worldy, 77 + ry, "re-pinned y to the moved ship");
     assert_eq!(
         g.objs.aliens[body as usize].hp,
         body_hp0 - 1,
@@ -284,7 +286,10 @@ fn amoeba_stick_detaches_on_barrel_roll() {
     // It now drifts as a plain amoeba again (worldz decreasing).
     let z0 = g.objs.aliens[a as usize].worldz;
     g.run_strategies();
-    assert!(g.objs.aliens[a as usize].worldz < z0, "flung blob drifts off");
+    assert!(
+        g.objs.aliens[a as usize].worldz < z0,
+        "flung blob drifts off"
+    );
 }
 
 // ============================================================
@@ -318,22 +323,25 @@ fn amoeba_does_not_stick_when_three_already_clinging() {
 }
 
 // ============================================================
-// 7. map wiring: istrats[128] + the mother's synthetic 0x02:0080 resolve
+// 7. map wiring: istrats[127] + the mother's synthetic 0x02:007f resolve
 // ============================================================
 #[test]
 fn amoeba_registers_and_resolves_mother_synth_address() {
     let mut g = Game::new();
     table::register_all(&mut g);
 
-    // ISTRATS.ASM def_Istrat 128 (C-port numbering) is populated.
+    // ISTRATS.ASM row 127 is populated.
     let via_index = g.world.istrats[bosses::IS_AMOEBA];
-    assert!(via_index.is_some(), "istrats[128] wired");
-    assert_eq!(bosses::IS_AMOEBA, 128);
+    assert!(via_index.is_some(), "istrats[127] wired");
+    assert_eq!(bosses::IS_AMOEBA, 127);
 
-    // sf-map mothers.rs spawns the swarm as IS_SYNTH|128 == 0x020080; the
+    // sf-map mothers.rs spawns the swarm as IS_SYNTH|127 == 0x02007f; the
     // table.rs address-map loop must resolve that to the same strategy.
-    let via_synth = g.world.find_strategy_address(0x020080);
-    assert!(via_synth.is_some(), "mother synth address 0x020080 resolves");
+    let via_synth = g.world.find_strategy_address(0x02007f);
+    assert!(
+        via_synth.is_some(),
+        "mother synth address 0x02007f resolves"
+    );
     assert_eq!(via_synth, via_index, "synth and index resolve identically");
 }
 

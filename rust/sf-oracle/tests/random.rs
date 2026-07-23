@@ -16,7 +16,14 @@ fn rom_seq(rom: &[u8], addr: u32, seed: [u8; 4], n: usize) -> Vec<u8> {
     }
     let mut out = Vec::new();
     for _ in 0..n {
-        let e = call(&mut bus, addr, &Entry { p: 0x20, ..Default::default() });
+        let e = call(
+            &mut bus,
+            addr,
+            &Entry {
+                p: 0x20,
+                ..Default::default()
+            },
+        );
         out.push(e.a); // RANDOM returns A (new $DE)
     }
     out
@@ -34,7 +41,12 @@ fn sf_random_matches_rom() {
         eprintln!("skip: no symbol/ROM");
         return;
     };
-    for seed in [[1u8, 2, 3, 4], [0xAB, 0xCD, 0xEF, 0x12], [0, 0, 0, 0], [0xFF, 0xFF, 0xFF, 0xFF]] {
+    for seed in [
+        [1u8, 2, 3, 4],
+        [0xAB, 0xCD, 0xEF, 0x12],
+        [0, 0, 0, 0],
+        [0xFF, 0xFF, 0xFF, 0xFF],
+    ] {
         let romv = rom_seq(&rom, addr, seed, 8);
         // The real, wired port: seed GameVars.rng, call sf_random (returns the
         // new low byte widened to u16; callers mask, so the low byte is truth).
@@ -43,8 +55,13 @@ fn sf_random_matches_rom() {
         let rustv: Vec<u8> = (0..8)
             .map(|_| sf_strat::common::sf_random(&mut vars) as u8)
             .collect();
-        eprintln!("seed {seed:02x?}\n  ROM  {romv:02x?}\n  RUST {rustv:02x?}  {}",
-            if romv == rustv { "ok" } else { "DIFF" });
-        assert_eq!(romv, rustv, "sf_random must match ROM RANDOM for seed {seed:02x?}");
+        eprintln!(
+            "seed {seed:02x?}\n  ROM  {romv:02x?}\n  RUST {rustv:02x?}  {}",
+            if romv == rustv { "ok" } else { "DIFF" }
+        );
+        assert_eq!(
+            romv, rustv,
+            "sf_random must match ROM RANDOM for seed {seed:02x?}"
+        );
     }
 }

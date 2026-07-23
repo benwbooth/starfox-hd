@@ -10,7 +10,8 @@
 //! PFM_SHADOWS)`, and the AF_* placement-flag clears/sets on the alien.
 
 use crate::alien::{
-    ACF_FIRSTFRAME, AFEXP, ASF_HITFLASH, ASF_INVISIBLE, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATZREMOVE,
+    ACF_FIRSTFRAME, AFEXP, ASF4_TEXTOBJ, ASF_HITFLASH, ASF_INVISIBLE, ASF_PARTOBJ, ASF_SHADOW,
+    ATGND, ATZREMOVE,
 };
 use crate::obj::Objects;
 use crate::vars::{GF_NOZREMOVE, PFM_SHADOWS};
@@ -37,6 +38,10 @@ fn fp16_from_int(i: i32) -> i32 {
 /// beyond MAX_DRAW_LIST are dropped exactly like `Game_SubmitDrawEntry`
 /// (src/game/boot.c:295).
 ///
+/// ROM `build_drawlist_l` / `build_drawlist` (MAIN.ASM:2581) is an empty
+/// empty stub in the retail tree — the live path is `marioshowview` /
+/// this function.
+///
 /// * `playerflymode` — C `g_playerflymode` (shadow gate, draw.c:145).
 /// * `gameframe` — C `g_gameframe` (anim/col frame source, draw.c:119/126).
 /// * `viewposx`/`viewposz` — the CAMERA position published by getview
@@ -60,12 +65,11 @@ pub fn build_list(
 ) {
     // Camera-space rotation for the behind test / leftpl (alienflags_l runs on
     // the GSU-ROTATED dl_x/dl_z, MAIN.ASM:2024+). yaw 0 = +z forward; forward
-    // vector = (sin, cos) in (x, z), matching camera.rs angle8(atan2(dx, dz)).
+    // vector = (sin, cos) in (x, z) via ROM `rotate_16xz` (mulslog SINTAB/
+    // COSTAB — same formula as float sin/cos, cos=127 attenuation).
     // Without this, the opening cinematic (camera ahead of the ships looking
     // BACK, yaw ~128) culled the whole arwing formation as "behind" -> a solid
     // green screen for the first seconds of Corneria.
-    let yaw_rad = cam_yaw as f32 * (core::f32::consts::PI / 128.0);
-    let (yaw_sin, yaw_cos) = (yaw_rad.sin(), yaw_rad.cos());
     let mut cur = objs.active_head;
     while let Some(i) = cur {
         let idx = i as usize;
@@ -93,12 +97,11 @@ pub fn build_list(
         // --- Behind-camera cull (alienflags_l, MAIN.ASM:2024-2062) ---
         // ROM: behind iff sh_zmax(shape) + dl_z < 0, where dl_z is the
         // ROTATED camera-space z (world - viewpos through the view matrix).
-        // dl_z here = dx*sin(yaw) + dz*cos(yaw) (yaw-only rotation — pitch is
-        // negligible for the near-plane test, and the ROM's GSU path rotates
-        // fully; yaw is what flips during the look-back cinematics). The
-        // shape's own z half-extent is the margin, so an object stays drawable
-        // until its far edge passes the camera plane instead of popping at its
-        // origin.
+        // Yaw-only: `rotate_16xz` → (dl_x, dl_z) = (dx·cos−dz·sin, dx·sin+dz·cos)
+        // (pitch is negligible for the near-plane test; ROM GSU rotates fully,
+        // yaw is what flips during look-back cinematics). Shape z half-extent
+        // is the margin so an object stays drawable until its far edge passes
+        // the camera plane instead of popping at its origin.
         //
         // Behind objects first lose affrontpl (MAIN.ASM:2039-2041), then are
         // freed iff !gf_nozremove && !acf_firstframe && atzremove
@@ -106,13 +109,16 @@ pub fn build_list(
         // free keeps the 70-slot pool from filling with passed scenery).
         // Behind survivors fall through: ROM's .dontkill still gives them
         // afinviewpl/afleftpl and their marioshowview drawlist slot.
+        let (rel_x, rel_z) = {
+            let al = &objs.aliens[idx];
+            let dx = al.worldx.wrapping_sub(viewposx);
+            let dz = al.worldz.wrapping_sub(viewposz);
+            crate::trig8::rotate_16xz(cam_yaw, dx, dz)
+        };
         {
             let al = &objs.aliens[idx];
             let zmax = shape_extents(al.shape).map_or(0, |(_, _, z)| z);
-            let dx = al.worldx.wrapping_sub(viewposx) as f32;
-            let dz = al.worldz.wrapping_sub(viewposz) as f32;
-            let rel_z = (dx * yaw_sin + dz * yaw_cos) as i32;
-            if (zmax as i32).saturating_add(rel_z) < 0 {
+            if (zmax as i32).saturating_add(rel_z as i32) < 0 {
                 objs.aliens[idx].flags &= !AF_FRONT_PL;
                 let al = &objs.aliens[idx];
                 if gameflags & GF_NOZREMOVE == 0
@@ -130,19 +136,20 @@ pub fn build_list(
 
         // --- View-side flags (alienflags_l .dontkill, MAIN.ASM:2065-2077):
         // every non-invisible survivor (in-front OR behind) gets afinviewpl,
-        // plus afleftpl iff rotated view-space x < 0 (dl_x = dx*cos - dz*sin).
+        // plus afleftpl iff rotated view-space x < 0 (dl_x from rotate_16xz).
         {
             let al = &mut objs.aliens[idx];
             al.flags |= AF_INVIEW_PL;
-            let dx = al.worldx.wrapping_sub(viewposx) as f32;
-            let dz = al.worldz.wrapping_sub(viewposz) as f32;
-            if dx * yaw_cos - dz * yaw_sin < 0.0 {
+            if rel_x < 0 {
                 al.flags |= AF_LEFT_PL;
             }
         }
 
-        // --- Skip if no shape (draw.c:63-67) ---
-        if objs.aliens[idx].shape == 0 {
+        // MARIO handles scaled text before shape lookup; textpath carriers
+        // deliberately use nullshape. Ordinary shape-zero objects remain
+        // invisible as in the object pass.
+        let is_text = objs.aliens[idx].sflags4 & ASF4_TEXTOBJ != 0;
+        if objs.aliens[idx].shape == 0 && !is_text {
             continue;
         }
 
@@ -167,7 +174,11 @@ pub fn build_list(
 
         // Explosion state (draw.c:91-107).
         if al.flags & AFEXP != 0 {
-            entry.explosion_cnt = if al.sflags4 & ASF4_NOPOLYEXP != 0 { 0 } else { al.count };
+            entry.explosion_cnt = if al.sflags4 & ASF4_NOPOLYEXP != 0 {
+                0
+            } else {
+                al.count
+            };
             // Particle objects store extra data in shadow fields.
             if al.sflags & ASF_PARTOBJ != 0 {
                 entry.shad_y = i as i16; // alien index as unique ID
@@ -210,6 +221,9 @@ pub fn build_list(
 
         // Mark as visible (draw.c:139-140).
         entry.flags = dl_flags::VISIBLE;
+        if is_text {
+            entry.flags |= dl_flags::TEXT;
+        }
 
         // Drop shadow (draw.c:142-147).
         if al.sflags & ASF_SHADOW != 0 && playerflymode & PFM_SHADOWS != 0 {
@@ -261,7 +275,17 @@ mod tests {
         let mut out = Vec::new();
         // playerflymode has PFM_SHADOWS; gameframe = 130 -> & 127 = 2;
         // camera viewposx = 0 > worldx -10 -> AF_LEFT_PL set.
-        build_list(&mut objs, PFM_SHADOWS, 130, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
+        build_list(
+            &mut objs,
+            PFM_SHADOWS,
+            130,
+            0,
+            0,
+            0,
+            GF_NOZREMOVE,
+            &|_| None,
+            &mut out,
+        );
 
         assert_eq!(out.len(), 1);
         let e = &out[0];
@@ -330,5 +354,81 @@ mod tests {
         out.clear();
         build_list(&mut objs, 0, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
         assert_eq!(out[0].explosion_cnt, 0);
+    }
+
+    /// Yaw-only cull uses `rotate_16xz` (mulslog), not float sin/cos.
+    #[test]
+    fn yaw_cull_uses_rotate16xz_leftpl_and_behind() {
+        // yaw=0x40 (90°): world +Z maps to camera −X → LEFT; dl_z≈0 → FRONT.
+        let mut objs = Objects::init();
+        let idx = objs.alloc().unwrap();
+        {
+            let al = &mut objs.aliens[idx as usize];
+            al.shape = 1;
+            al.worldx = 0;
+            al.worldz = 100;
+        }
+        let mut out = Vec::new();
+        build_list(
+            &mut objs,
+            0,
+            0,
+            0,
+            0,
+            0x40,
+            GF_NOZREMOVE,
+            &|_| None,
+            &mut out,
+        );
+        assert_eq!(out.len(), 1);
+        let al = &objs.aliens[idx as usize];
+        let (expect_x, expect_z) = crate::trig8::rotate_16xz(0x40, 0, 100);
+        assert!(expect_x < 0, "sanity: +Z at yaw90 → −X");
+        assert_eq!(expect_z, 0);
+        assert_eq!(
+            al.flags,
+            AF_FRONT_PL | AF_INVIEW_PL | AF_LEFT_PL,
+            "leftpl from rotate_16xz dl_x"
+        );
+
+        // yaw=0x80 (180°): world +Z → camera −Z → behind; GF_NOZREMOVE keeps it.
+        objs.aliens[idx as usize].worldz = 100;
+        out.clear();
+        build_list(
+            &mut objs,
+            0,
+            0,
+            0,
+            0,
+            0x80,
+            GF_NOZREMOVE,
+            &|_| None,
+            &mut out,
+        );
+        assert_eq!(out.len(), 1, "nozremove keeps behind survivor");
+        let al = &objs.aliens[idx as usize];
+        let (_, expect_z) = crate::trig8::rotate_16xz(0x80, 0, 100);
+        assert!(expect_z < 0);
+        assert_eq!(al.flags & AF_FRONT_PL, 0, "behind clears affrontpl");
+        assert_eq!(al.flags & AF_INVIEW_PL, AF_INVIEW_PL);
+    }
+
+    /// Without GF_NOZREMOVE, behind + ATZREMOVE frees the alien (no draw slot).
+    #[test]
+    fn yaw_behind_atzremove_frees_without_nozremove() {
+        let mut objs = Objects::init();
+        let idx = objs.alloc().unwrap();
+        {
+            let al = &mut objs.aliens[idx as usize];
+            al.shape = 1;
+            al.type_ = ATZREMOVE;
+            al.collflags = 0; // past first frame (alloc seeds ACF_FIRSTFRAME)
+            al.worldx = 0;
+            al.worldz = -200; // yaw0 → dl_z negative
+        }
+        let mut out = Vec::new();
+        build_list(&mut objs, 0, 0, 0, 0, 0, 0, &|_| None, &mut out);
+        assert!(out.is_empty());
+        assert!(objs.active_head.is_none());
     }
 }

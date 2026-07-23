@@ -1,0 +1,8 @@
+{
+  "Snes": {
+    "RamPowerOnState": "AllZeros",
+    "Port1": {
+      "Type": "SnesController"
+    }
+  }
+}

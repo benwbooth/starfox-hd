@@ -16,15 +16,18 @@
 use sf_game::alien::NUMBER_AL;
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
+use sf_map::consts::sh;
 use sf_strat::bosses;
 
 const WM_RNDVAL: u16 = 0x1F00;
 const WM_BOSSFLAGS: u16 = 0x1F02;
 
 // Local mirrors of the private bosses.rs constants (cited to the port).
-const SH_BOSS_0_1: u16 = 85; // mother body (sf-map route3::common)
-const SH_WM_BOSS_0_2: u16 = 293; // turret proxy
-const SH_WM_BOSS_0_0: u16 = 294; // fan proxy (rest shape)
+const SH_BOSS_0_1: u16 = 84; // mother body (sf-map route3::common)
+const SH_WM_BOSS_0_2: u16 = sh::BOSS_0_2;
+const SH_WM_BOSS_0_0: u16 = sh::BOSS_0_0;
+const SH_WM_BOSS_0_3: u16 = sh::BOSS_0_3;
+const WM_SFLAG3: u8 = 0x40; // released web latch (strategy sflag3)
 const ATMISSILE: u8 = 2; // alien.rs al_type
 const BF_DYING: u8 = 16; // bossflags (bosses.rs)
 const HARD_HP: u8 = 0xFF;
@@ -93,20 +96,33 @@ fn init_spawns_ring_and_hp_bar() {
     // one descent step has run: rotx 96->95, worldy 1000->990.
     {
         let b = &g.objs.aliens[boss as usize];
-        assert_eq!(b.rotx, 95, "rotx = deg90+deg45-1 after the fall-through tick");
-        assert_eq!(b.worldy, 990, "worldy = 1000-10 after the fall-through tick");
+        assert_eq!(
+            b.rotx, 95,
+            "rotx = deg90+deg45-1 after the fall-through tick"
+        );
+        assert_eq!(
+            b.worldy, 990,
+            "worldy = 1000-10 after the fall-through tick"
+        );
         assert_eq!(b.depthoffset, 1, "depthoffset = 1");
         assert_eq!(b.hp, HARD_HP, "body is hard/invulnerable");
         assert_ne!(b.sword1, 0, "children linked via al_sword1 chain");
     }
     assert_eq!(count_shape(&g, SH_WM_BOSS_0_2), 6, "6 propturrets spawned");
-    assert_eq!(count_shape(&g, SH_WM_BOSS_0_0), 1, "1 fan (web_fan) spawned");
+    assert_eq!(
+        count_shape(&g, SH_WM_BOSS_0_0),
+        1,
+        "1 fan (web_fan) spawned"
+    );
 
     // The turrets each add propturretHP to the bar's max on their first tick.
     for _ in 0..4 {
         g.run_strategies();
     }
-    assert_eq!(g.vars.bossmaxhp, WM_MAXHP, "bossmaxHP = 6 * propturretHP(20)");
+    assert_eq!(
+        g.vars.bossmaxhp, WM_MAXHP,
+        "bossmaxHP = 6 * propturretHP(20)"
+    );
     assert_eq!(
         g.vars.bosshp, WM_MAXHP,
         "all 6 turrets alive -> m_bossHP re-summed to 120"
@@ -133,7 +149,11 @@ fn intro_descent_completes_then_spins() {
     // .move spins rotz by -1 every tick it runs -> no longer 0.
     assert_ne!(b.rotz, 0, "mother slow-spins in .move (rotz-=1)");
     // Boss still alive (turrets present) -> not in .bossdead.
-    assert_eq!(g.vars.read_ext8(WM_BOSSFLAGS) & BF_DYING, 0, "boss not dying yet");
+    assert_eq!(
+        g.vars.read_ext8(WM_BOSSFLAGS) & BF_DYING,
+        0,
+        "boss not dying yet"
+    );
 }
 
 // ------------------------------------------------------------
@@ -202,5 +222,42 @@ fn death_routes_to_bossexplode() {
             break;
         }
     }
-    assert!(died, "all-turrets-dead -> .bossdead -> bossexplode (BF_DYING)");
+    assert!(
+        died,
+        "all-turrets-dead -> .bossdead -> bossexplode (BF_DYING)"
+    );
+}
+
+// ------------------------------------------------------------
+// 5. a web which catches the player counts down its 100-tick grab window,
+//    sets sflag3, and begins the fly-past/retrieval phase.  Keeping sflag3 in
+//    the wrong flag byte or reversing the sflag2 branch leaves the drill in an
+//    infinite attack and all surviving turrets permanently invulnerable.
+//    (DSTRATS.ASM:6819-6863.)
+// ------------------------------------------------------------
+#[test]
+fn grabbed_web_releases_after_its_timeout() {
+    let (mut g, boss) = setup(0, 0);
+    bosses::strat_webmonster_init(&mut g, boss);
+    let fan = (0..NUMBER_AL)
+        .find(|&i| g.objs.aliens[i].active && g.objs.aliens[i].shape == SH_WM_BOSS_0_0)
+        .expect("web fan") as u16;
+    bosses::drill_launchweb(&mut g, fan);
+    let web = (0..NUMBER_AL)
+        .find(|&i| g.objs.aliens[i].active && g.objs.aliens[i].shape == SH_WM_BOSS_0_3)
+        .expect("launched web");
+    let web_pos = g.objs.aliens[web];
+    g.objs.aliens[0].worldx = web_pos.worldx;
+    g.objs.aliens[0].worldy = web_pos.worldy;
+    g.objs.aliens[0].worldz = web_pos.worldz;
+
+    for _ in 0..110 {
+        g.run_strategies();
+    }
+
+    assert_ne!(
+        g.objs.aliens[web].sflags2 & WM_SFLAG3,
+        0,
+        "grab timeout sets strategy sflag3 so the web can fly past and be culled"
+    );
 }

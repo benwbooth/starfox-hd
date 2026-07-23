@@ -25,8 +25,7 @@ pub const DEFAULT_COLL_EXTENT: i16 = 20;
 //
 // ROM model (STRAT/PSTRATS.ASM + STRAT/GSTRATS.ASM + INC/GILESALC.INC):
 //
-// The player's Arwing does NOT take enemy hits on its own body directly.
-// The ROM allocates THREE proxy "collision box" objects — `pcboxobj_B`
+// The ROM allocates THREE damage-state objects — `pcboxobj_B`
 // (body), `pcboxobj_LW` (left wing), `pcboxobj_RW` (right wing)
 // (GILESALC.INC:255-257) — set up by `pBody_Istrat` / `pLWing_Istrat` /
 // `pRWing_Istrat` (PSTRATS.ASM:145/262/408) and flagged `playerobj`
@@ -49,28 +48,25 @@ pub const DEFAULT_COLL_EXTENT: i16 = 20;
 // player hitflash timer + body screenflash, and on body HP==0 the box's exp
 // strat drives the death sequence; the wing strats break wings.
 //
-// This port models the same routing with the boxes as the real colliders
-// (the port has no `cl_colbox` sub-box shape data), which is behaviourally
-// equivalent for the observable routing (body vs wing, damage-to-player,
-// detach-on-death). While attached, the ship object is `colldisable` (it
-// never self-collides); the boxes carry the collision and route hits back to
-// the ship via [`ColEntry`]-driven `do_coll` + a box collide-strat.
+// The proxy objects are themselves `colldisable`; they only carry HP/AP and
+// collision strategies.  The ship remains in the collision list.  Its exact
+// three-entry `playerB_col` list is evaluated below and sets HF1/HF2/HF3 on
+// the ship, after which `playercoll_Istrat` routes the hit to the appropriate
+// proxy object.  This mirrors COLBOXES.ASM:20-22 and PSTRATS.ASM:3332-3350.
 //
-// The pcbox layer is OPT-IN: [`Game::pcbox_attach`] must be called to build
-// the boxes. Until then [`PcboxState`] is empty and the collision system runs
-// the historical direct model (the ship collides for itself) byte-for-byte —
-// so every existing fixture (sp_player_parity, trace_parity, …) is untouched.
-//
-// FOLLOW-UP (game-core lane): wire [`Game::pcbox_attach`] into the per-level
-// player-flymode setup (ROM GSTRATS.ASM:100-125 setup path) so the real game
-// uses the boxes. That call site lives in world/level init (not this lane's
-// two files); until it lands the boxes are exercised only by the pcbox tests.
+// The shell's per-level gameplay setup calls [`Game::pcbox_attach_player`].
+// A direct-model fallback remains only for isolated sf-game/headless callers
+// that intentionally spawn a player without running the level setup.
 
-/// Body-box collision half-extents (approximation; the ROM `cl_colbox`
-/// sub-box sizes are not yet extracted — see FOLLOW-UP).
-pub const PCBOX_BODY_EXT: (i16, i16, i16) = (20, 16, 20);
-/// Wing-box collision half-extents (approximation).
-pub const PCBOX_WING_EXT: (i16, i16, i16) = (16, 10, 16);
+/// Exact `playerB_col` body half-extents (COLBOXES.ASM:20).
+pub const PCBOX_BODY_EXT: (i16, i16, i16) = (10, 10, 20);
+/// Exact `playerLW_col` / `playerRW_col` half-extents (COLBOXES.ASM:21-22).
+pub const PCBOX_WING_EXT: (i16, i16, i16) = (5, 5, 10);
+
+/// Hit-zone bits written by the player's three collision boxes.
+pub const PCBOX_HF_BODY: u8 = 0x01;
+pub const PCBOX_HF_LWING: u8 = 0x02;
+pub const PCBOX_HF_RWING: u8 = 0x04;
 
 /// Wing offset relative to the ship centre (STRATEQU.INC:332-334
 /// playerW_x/y/z). The right wing uses +x, the left wing -x.
@@ -92,12 +88,12 @@ pub enum PcboxKind {
     RWing,
 }
 
-/// Live player collision-proxy box slots. Empty = direct model (no boxes).
+/// Live player damage-proxy slots. Empty = direct model (no boxes).
 /// Mirrors the ROM `pcboxobj_B/LW/RW` word vars (GILESALC.INC:255-257) plus
-/// the ship slot (`playpt`) so the layer can toggle the ship's `colldisable`.
+/// the ship slot (`playpt`) that owns the three-box collision list.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PcboxState {
-    /// The ship object (ROM `playpt`) — made colldisable while attached.
+    /// The ship object (ROM `playpt`) — owns the live three-box collider.
     pub player: Option<u16>,
     pub body: Option<u16>,
     pub lwing: Option<u16>,
@@ -120,14 +116,6 @@ impl PcboxState {
             Some(PcboxKind::RWing)
         } else {
             None
-        }
-    }
-
-    /// Collision half-extents for a box slot.
-    pub fn extents_of(&self, idx: u16) -> Option<(i16, i16, i16)> {
-        match self.kind_of(idx)? {
-            PcboxKind::Body => Some(PCBOX_BODY_EXT),
-            PcboxKind::LWing | PcboxKind::RWing => Some(PCBOX_WING_EXT),
         }
     }
 }
@@ -171,8 +159,18 @@ impl Coldet {
 /// C `aabb_overlap` (src/game/coldet.c:157, COLDET macro COLDET.ASM:10-65).
 /// Axis order Z, X, Y as in the ASM; i16 arithmetic throughout.
 pub fn aabb_overlap(
-    x1: i16, y1: i16, z1: i16, e1x: i16, e1y: i16, e1z: i16,
-    x2: i16, y2: i16, z2: i16, e2x: i16, e2y: i16, e2z: i16,
+    x1: i16,
+    y1: i16,
+    z1: i16,
+    e1x: i16,
+    e1y: i16,
+    e1z: i16,
+    x2: i16,
+    y2: i16,
+    z2: i16,
+    e2x: i16,
+    e2y: i16,
+    e2z: i16,
 ) -> bool {
     let mut dz = z2.wrapping_sub(z1);
     if dz < 0 {
@@ -199,6 +197,60 @@ pub fn aabb_overlap(
 }
 
 impl Game {
+    /// Evaluate the exact `playerB_col` three-box list against one normal
+    /// collision-list entry.  The ROM ORs every overlapping box's flag, so a
+    /// large object can legitimately hit body and wing in the same frame.
+    fn pcbox_hitflags(&self, player: u16, other: ColEntry) -> u8 {
+        let p = self.objs.aliens[player as usize];
+        let o = self.objs.aliens[other.alien as usize];
+        let mut flags = 0;
+
+        let overlaps = |x: i16, y: i16, z: i16, ext: (i16, i16, i16)| {
+            aabb_overlap(
+                x, y, z, ext.0, ext.1, ext.2, o.worldx, o.worldy, o.worldz, other.xmax, other.ymax,
+                other.zmax,
+            )
+        };
+
+        if overlaps(p.worldx, p.worldy, p.worldz, PCBOX_BODY_EXT) {
+            flags |= PCBOX_HF_BODY;
+        }
+
+        // `s_add_Roffs2pos ...,0,0,1`: rotate the signed byte offsets around
+        // Z only.  `strat_roffs_roll` is the byte-exact SNES helper used by the
+        // strategy lane for the visible proxy positions as well.
+        let (left_dx, left_dy, _) = sf_core::snes_trig::strat_roffs_roll(
+            p.rotz,
+            -(PCBOX_WING_X as i8),
+            PCBOX_WING_Y as i8,
+            PCBOX_WING_Z as i8,
+        );
+        if overlaps(
+            p.worldx.wrapping_add(left_dx),
+            p.worldy.wrapping_add(left_dy),
+            p.worldz.wrapping_add(PCBOX_WING_Z),
+            PCBOX_WING_EXT,
+        ) {
+            flags |= PCBOX_HF_LWING;
+        }
+
+        let (rdx, rdy, _) = sf_core::snes_trig::strat_roffs_roll(
+            p.rotz,
+            PCBOX_WING_X as i8,
+            PCBOX_WING_Y as i8,
+            PCBOX_WING_Z as i8,
+        );
+        if overlaps(
+            p.worldx.wrapping_add(rdx),
+            p.worldy.wrapping_add(rdy),
+            p.worldz.wrapping_add(PCBOX_WING_Z),
+            PCBOX_WING_EXT,
+        ) {
+            flags |= PCBOX_HF_RWING;
+        }
+        flags
+    }
+
     /// C `Coldet_GenerateList()` (src/game/coldet.c:75) — walk the active
     /// list, skip ineligible aliens, build collision entries. Extents come
     /// from the shape hook (C `load_collision_extents`); missing shape data
@@ -221,13 +273,11 @@ impl Game {
                 cur = next;
                 continue;
             }
-            // pcbox proxy slots use fixed body/wing extents (they carry no
-            // shape mesh); everything else reads its shape's collision half.
-            let (xmax, ymax, zmax) = self.coldet.pcbox.extents_of(i).unwrap_or_else(|| {
-                self.hooks
-                    .shape_extents(al.shape)
-                    .unwrap_or((DEFAULT_COLL_EXTENT, DEFAULT_COLL_EXTENT, DEFAULT_COLL_EXTENT))
-            });
+            let (xmax, ymax, zmax) = self.hooks.shape_extents(al.shape).unwrap_or((
+                DEFAULT_COLL_EXTENT,
+                DEFAULT_COLL_EXTENT,
+                DEFAULT_COLL_EXTENT,
+            ));
             self.coldet.list.push(ColEntry {
                 alien: i,
                 xmax,
@@ -256,7 +306,7 @@ impl Game {
         if in_tunnel && damage == HARD_AP {
             damage >>= 1;
         }
-        // ROM: `LDA hp; BMI .o2c` — ANY hp with bit 7 set ($80-$FF) is
+        // Any health byte with its sign bit set is
         // indestructible (the port only treated $FF as such). Reset the
         // cooldown regardless, matching the ROM's `.o2c` fall-through.
         if (al.hp as i8) >= 0 {
@@ -265,14 +315,29 @@ impl Game {
         al.collcount = FRAMESPERAP; // tpa = framesperAP
     }
 
+    /// Strategy-facing `s_docoll`/`s_docollAP` bridge. Collision detection in
+    /// the ROM only records the pair; individual collide strategies decide
+    /// how much damage to apply. Most of the compatibility port folds that
+    /// call into [`Game::coldet_run`], but the player's routed body/wing proxy
+    /// strategies need the original operation and its AP scale-down argument.
+    pub fn coldet_apply_damage(&mut self, victim: u16, attacker_ap: u8, scale_down: u8) {
+        self.do_coll(victim, attacker_ap >> scale_down.min(7));
+    }
+
     /// C `Coldet_Run()` (src/game/coldet.c:179, chkcoll COLDET.ASM:225-861),
     /// prefixed by the per-frame reset from `init_strats_ram_l`
     /// (COLDET.ASM:165-218).
     pub fn coldet_run(&mut self) {
-        // Step 1: clear per-frame collision state (init_strats_ram_l
-        // mirrors collide -> Lcollide before clearing collide).
-        for k in 0..self.coldet.list.len() {
-            let idx = self.coldet.list[k].alien;
+        // Step 1: `init_strats_ram_l` walks ALL active objects, including
+        // colldisable proxy objects. It mirrors collide -> Lcollide before
+        // clearing collide/collobjptr and seeds collcount on a fresh pair.
+        let mut active = Vec::new();
+        let mut cur = self.objs.active_head;
+        while let Some(idx) = cur {
+            active.push(idx);
+            cur = self.objs.aliens[idx as usize].next;
+        }
+        for idx in active {
             let al = &mut self.objs.aliens[idx as usize];
             if al.sflags & ASF_COLLIDE != 0 {
                 al.sflags |= ASF_LCOLLIDE;
@@ -294,8 +359,8 @@ impl Game {
         }
 
         // Step 2: test all pairs.
-        const TYPE_MASK: u8 = ACF_COLLTYPE1 | ACF_COLLTYPE2 | ACF_COLLTYPE3
-            | ACF_COLLTYPE4 | ACF_COLLTYPE5;
+        const TYPE_MASK: u8 =
+            ACF_COLLTYPE1 | ACF_COLLTYPE2 | ACF_COLLTYPE3 | ACF_COLLTYPE4 | ACF_COLLTYPE5;
         for i in 0..self.coldet.list.len() {
             let ia = self.coldet.list[i].alien;
             if self.objs.aliens[ia as usize].sflags & ASF_COLLIDE != 0 {
@@ -332,22 +397,6 @@ impl Game {
                 {
                     continue;
                 }
-                // Player <-> friend never collide. A friend path object carries
-                // a nonzero friend id in al_sbyte4 (set by the P_FRIEND path
-                // command, PATHS.ASM .friend). In the ROM the player object is
-                // colldisable and its collisions run through separate box objects
-                // (PSTRATS.ASM pcboxobj_B/LW/RW), and playercoll_Istrat applies
-                // NO body-collision HP damage — so bumping a wingman (e.g. the
-                // Corneria launch escort, level1_1 FROG/FALCO path ships) can't
-                // hurt the player. This port collides the player object directly
-                // for enemy hits, so exclude the player<->friend pair explicitly;
-                // otherwise the escort ship kills the player right after the
-                // exit-base launch and freezes the follow camera.
-                let a_player = a.sflags4 & ASF4_PLAYEROBJ != 0;
-                let b_player = b.sflags4 & ASF4_PLAYEROBJ != 0;
-                if (a_player && b.sbyte4 != 0) || (b_player && a.sbyte4 != 0) {
-                    continue;
-                }
                 // Immunity cross-checks. ROM chkcoll0 (COLDET.ASM:523-529)
                 // compares al_immuneptr against the other object's slot directly,
                 // with NO nonzero guard — in the ROM immuneptr is a real (nonzero)
@@ -369,12 +418,27 @@ impl Game {
                 }
                 let ea = self.coldet.list[i];
                 let eb = self.coldet.list[j];
-                if !aabb_overlap(
-                    a.worldx, a.worldy, a.worldz, ea.xmax, ea.ymax, ea.zmax,
-                    b.worldx, b.worldy, b.worldz, eb.xmax, eb.ymax, eb.zmax,
-                ) {
-                    continue;
-                }
+                let player_side = if self.coldet.pcbox.player == Some(ia) {
+                    Some((ia, ib, self.pcbox_hitflags(ia, eb)))
+                } else if self.coldet.pcbox.player == Some(ib) {
+                    Some((ib, ia, self.pcbox_hitflags(ib, ea)))
+                } else {
+                    None
+                };
+                let hitflags = if let Some((_, _, flags)) = player_side {
+                    if flags == 0 {
+                        continue;
+                    }
+                    flags
+                } else {
+                    if !aabb_overlap(
+                        a.worldx, a.worldy, a.worldz, ea.xmax, ea.ymax, ea.zmax, b.worldx,
+                        b.worldy, b.worldz, eb.xmax, eb.ymax, eb.zmax,
+                    ) {
+                        continue;
+                    }
+                    0
+                };
 
                 // --- Collision occurred ---
                 self.objs.aliens[ia as usize].sflags |= ASF_COLLIDE;
@@ -382,11 +446,18 @@ impl Game {
                 self.objs.aliens[ia as usize].collobjptr = ib;
                 self.objs.aliens[ib as usize].collobjptr = ia;
 
+                if let Some((player, _, _)) = player_side {
+                    self.objs.aliens[player as usize].hitflags |= hitflags;
+                }
+
                 // Damage: A takes B's AP, B takes A's AP.
-                if b.ap > 0 && a.hp > 0 {
+                // A live player collision is routed to the colldisable body /
+                // wing HP objects by `playercoll_Istrat`; never damage the ship
+                // object's placeholder HP here.
+                if b.ap > 0 && a.hp > 0 && self.coldet.pcbox.player != Some(ia) {
                     self.do_coll(ia, b.ap);
                 }
-                if a.ap > 0 && b.hp > 0 {
+                if a.ap > 0 && b.hp > 0 && self.coldet.pcbox.player != Some(ib) {
                     self.do_coll(ib, a.ap);
                 }
 
@@ -414,10 +485,9 @@ impl Game {
     /// that routes a box hit back onto the ship. These are sf-strat registry
     /// handles, passed in because the strategy bodies live in that lane.
     ///
-    /// While attached the ship is made `colldisable` so it never self-collides
-    /// (ROM: the boxes carry the collision); the boxes carry HP/AP and the
-    /// enemy-facing collision. Idempotent: a second call with boxes already
-    /// live is a no-op.
+    /// The boxes are `colldisable` state carriers; the ship remains collision
+    /// enabled and owns the exact `playerB_col` multi-box collider. Idempotent:
+    /// a second call with boxes already live is a no-op.
     pub fn pcbox_attach(
         &mut self,
         player: u16,
@@ -447,9 +517,9 @@ impl Game {
         };
         let setup = |al: &mut crate::alien::Alien, hp: u8, ap: u8, strat: StratId| {
             al.shape = 0;
-            al.sflags = ASF_INVISIBLE;
-            al.sflags4 = ASF4_PLAYEROBJ; // player <-> friend exclusion applies
-            al.collflags = 0; // collide with everything except same colltype
+            al.sflags = ASF_INVISIBLE | ASF_COLLDISABLE;
+            al.sflags4 = ASF4_PLAYEROBJ;
+            al.collflags = 0;
             al.hp = hp;
             al.ap = ap;
             al.worldx = px;
@@ -457,7 +527,9 @@ impl Game {
             al.worldz = pz;
             al.stratptr = Some(strat);
             al.collstratptr = Some(coll_strat);
-            al.expstratptr = None;
+            // The shared dispatcher distinguishes collide-entry from hp==0
+            // and implements pcolBexp / PLWbrk / PRWbrk as well.
+            al.expstratptr = Some(coll_strat);
             al.endcollstratptr = None;
         };
         setup(
@@ -479,11 +551,18 @@ impl Game {
             wing_strat,
         );
 
-        // Ship: colldisable + playerobj (ROM GSTRATS.ASM:100-125 flags all four
-        // objects playerobj; `pBody_Istrat` etc. set the ship's own collision
-        // off — the boxes carry it).
+        // MAPP.ASM allocates these in player/body/left/right order and ROM
+        // `l_add` inserts after the current map object. Preserve that strategy
+        // order even though the compatibility allocator normally pushes new
+        // objects at the active-list head.
+        self.objs.active_move_after(body, player);
+        self.objs.active_move_after(lwing, body);
+        self.objs.active_move_after(rwing, lwing);
+
+        // GSTRATS marks all four objects playerobj. PSTRATS marks only the
+        // three HP proxies colldisable; the ship itself stays live in coldet.
         let p = &mut self.objs.aliens[player as usize];
-        p.sflags |= ASF_COLLDISABLE;
+        p.sflags &= !ASF_COLLDISABLE;
         p.sflags4 |= ASF4_PLAYEROBJ;
 
         self.coldet.pcbox = PcboxState {
@@ -518,10 +597,8 @@ impl Game {
     /// Detach the player collision boxes (ROM `playerdead_Istrat`
     /// PSTRATS.ASM:3031-3044): each box gets its strat pointers cleared and
     /// `colldisable` set, so it drops out of the collision list and stops
-    /// routing hits. Called from the death sequence; the dying ship stays
-    /// `colldisable` (it was made so at attach), so no further body damage can
-    /// re-enter the crash sequence — this is the ROM behaviour the direct
-    /// model's `ASF_COLLDISABLE`-on-the-ship workaround approximates.
+    /// routing hits. Called from the death sequence; that sequence separately
+    /// changes the ship to the enemy-weapon collision category.
     pub fn pcbox_detach(&mut self) {
         for slot in [
             self.coldet.pcbox.body,

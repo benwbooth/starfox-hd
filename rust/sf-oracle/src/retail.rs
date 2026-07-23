@@ -168,6 +168,60 @@ pub const RETAIL_NEWOBJEX: u32 = 0x03_EDAB;
 /// $03:EDA1 (the 10-byte `JSL`/`RTL` wrapper immediately preceding `newobjex`).
 pub const RETAIL_NEWOBJS_L: u32 = 0x03_EDA1;
 
+/// Retail map-VM WRAM globals — derived from `newobjex` / `mapobjdo` operands
+/// (see `coexec_retail::retail_map_spawn_vm_addresses`). Built-ROM equivalents
+/// in `audit_mapvm2.rs` are `$1780`/`$1782`/`$177C`/`$1AF8`.
+pub const RETAIL_MAPCNT: u32 = 0x16FB; // `sta mapcnt` in mapobjdo
+pub const RETAIL_MAPPTR: u32 = 0x16FD; // `stx mapptr` on mapcnt≠0 exit
+pub const RETAIL_LASTMAPOBJ: u32 = 0x16F7; // `sty lastmapobj` after spawn
+pub const RETAIL_MAPBANK: u32 = 0x1FF4; // `lda mapbank` / `pha; plb` in newobjex
+/// Retail `shapes[]` long table (mapobjdo `lda.l shapes,x`).
+pub const RETAIL_SHAPES: u32 = 0x00_A64B;
+/// Retail `istrats[]` long table (mapobjdo `lda.l istrats,x`).
+pub const RETAIL_ISTRATS: u32 = 0x00_A83D;
+/// Retail palette-fade WRAM (fadetoseado / fadetogrounddo operands).
+/// Built `$19EF`/`$19F3`/`$19F5` / lastpalfade `$19F1`.
+pub const RETAIL_PALFADE: u32 = 0x1EE9;
+pub const RETAIL_LASTPALFADE: u32 = 0x1EEB;
+pub const RETAIL_PALNUM: u32 = 0x1EED;
+pub const RETAIL_PALCNT: u32 = 0x1EEF;
+/// Retail `pshipflags2` ($14D7) — SETBGM HP0 guard (`and #psf2_playerHP0=$80`).
+/// Built `$1562`. Adjacent to [`RETAIL_PSHIPFLAGS3`].
+pub const RETAIL_PSHIPFLAGS2: u32 = 0x14D7;
+/// Retail `bgm_music` / `bgmcnt` (setbgmdo stores). Built `$1A4B`/`$1A4A`.
+pub const RETAIL_BGM_MUSIC: u32 = 0x1F47;
+pub const RETAIL_BGMCNT: u32 = 0x1F46;
+/// Retail `stayblack`, recovered from the `dopause` operand sequence.
+pub const RETAIL_STAYBLACK: u32 = 0x1962;
+/// Retail map-loop slots (`maploopdo` operands). Built `$17xx` block.
+/// `mapaddrs`=$174B, `maploops`=$1743, `nummaploops`=$1753 (word index, ±2).
+pub const RETAIL_MAPADDRS: u32 = 0x174B;
+pub const RETAIL_MAPLOOPS: u32 = 0x1743;
+pub const RETAIL_NUMMAPLOOPS: u32 = 0x1753;
+/// Retail map-JSR stack (`mapjsrdo`/`maprtsdo`). Built `$17B7` nummapjsr.
+/// Stack words at `$1703` (return mapptr) / `$1705` (bank); Y-index `$1730`
+/// (+3 per push); depth counter `$1732` (inc/dec).
+pub const RETAIL_MAPJSR_STACK: u32 = 0x1703;
+pub const RETAIL_NUMMAPJSR: u32 = 0x1730;
+pub const RETAIL_MAPJSR_DEPTH: u32 = 0x1732;
+/// Retail small-state WRAM (setzroton/off, setstage, setbg, mapspecial).
+/// Built: dozrot `$1776`, stagecnt `$163E`, currentbg `$17C6`, bgflags `$1A17`,
+/// specialobjtotal `$17C1`.
+pub const RETAIL_DOZROT: u32 = 0x16F1;
+pub const RETAIL_STAGECNT: u32 = 0x15B9;
+pub const RETAIL_CURRENTBG: u32 = 0x1741;
+pub const RETAIL_BGFLAGS: u32 = 0x1F13;
+pub const RETAIL_SPECIALOBJTOTAL: u32 = 0x173C;
+/// Retail VOFS/HOFS/fade WRAM (vofsonplease / sethofson / setfade*do).
+/// Built: bg2scroll `$1F32`, dovofs/dohofs in `$19xx`, fadedir/fade `$18xx`.
+pub const RETAIL_BG2SCROLL: u32 = 0x194D;
+pub const RETAIL_DOHOFS: u32 = 0x1953;
+pub const RETAIL_DOVOFS: u32 = 0x1954;
+pub const RETAIL_FADEDIR: u32 = 0x18B2;
+pub const RETAIL_FADE: u32 = 0x18B3;
+/// Retail `xinidisp1` (mapwaitfade compares to `$80`). Built nearby in `$7E`.
+pub const RETAIL_XINIDISP1: u32 = 0x7E_45F4;
+
 /// Retail per-frame strat globals (WRAM), auto-derived from the embedded
 /// operands of `dostrats` + `do_strat_l`. Built-ROM equivalents in parens.
 pub const RETAIL_GAMEFRAME: u32 = 0x15BB; // built $1640
@@ -416,7 +470,8 @@ pub const RETAIL_ROCKHARD_ISTRAT: u32 = 0x06_85D9;
 /// lda al_collflags,x; ora #enemy1($10); sta; jsl RANDOM_L; sta al_rotz,x; rtl`.
 /// The single `jsl RANDOM_L` (cross-validated == $02:FC58) yields the FULL-byte
 /// `al_rotz` (no mask). Footprint: 1 RNG draw → al_rotz; writes HP=2/AP=10/
-/// enemy1. Port ↔ `enemies_ground::mine0_init` (IS_MINE0=246).
+/// enemy1. Port ↔ `enemies_ground::mine0_init` registered at this exact
+/// non-table strategy address.
 pub const RETAIL_MINE0_ISTRAT: u32 = 0x09_9117;
 
 /// Retail `big_meteor_Istrat` ($00:FA62) — an indestructible spinning obstacle
@@ -546,6 +601,26 @@ pub const RETAIL_N3DVECS_L: u32 = 0x1F_C41E;
 /// Retail `troty`/`trotx` — the `n3dvecs_l` angle inputs (built $1631/$1630).
 pub const RETAIL_TROTY: u32 = 0x15A7;
 pub const RETAIL_TROTX: u32 = 0x15A6;
+/// Retail `alvelvecs_l` ($1F:C09F, STRATROU.ASM:100) — 2D XZ velocity from
+/// `al_roty`/`al_vel` (no yaw nega; `vy` zeroed). Built $1F:C0B7 (−$18). Scratch
+/// `tmpz`=$7E (same block as `n3dvecs_l`). Port ↔ `strat_gen_vecs_2d`.
+pub const RETAIL_ALVELVECS_L: u32 = 0x1F_C09F;
+/// Retail `nvecs_l` ($1F:C177, STRATROU.ASM:162) — `s_gen_vecs` XZ from angle in
+/// A + magnitude in `tmpz`; table index `−angle+1`. Built $1F:C18F (−$18). Does
+/// not write `vy`. Port ↔ `strat_nvecs`.
+pub const RETAIL_NVECS_L: u32 = 0x1F_C177;
+/// Retail `tmpz` for `alvelvecs_l`/`nvecs_l`/`n3dvecs_l` (built $78 → $7E).
+pub const RETAIL_TMPZ: u32 = 0x7E;
+/// Retail `z1` velocity scratch (built $8A → $90); `x1`/`y1` stay $02/$08.
+pub const RETAIL_Z1: u32 = 0x90;
+/// Retail `perc56A_l`…`perc93A_l` (STRATROU.ASM:2494) — signed ASR percentage
+/// scales (`tpx`=$3A / `tpy`=$3C / `tpa`=$14C5). Built block at $1F:D4AA (−$18).
+/// Port ↔ `strat_perc56`…`strat_perc93`.
+pub const RETAIL_PERC56A_L: u32 = 0x1F_D492;
+pub const RETAIL_PERC62A_L: u32 = 0x1F_D4A8;
+pub const RETAIL_PERC75A_L: u32 = 0x1F_D4BA;
+pub const RETAIL_PERC87A_L: u32 = 0x1F_D4C8;
+pub const RETAIL_PERC93A_L: u32 = 0x1F_D4DF;
 /// The fire-gate timing (`s_jmp_notdelay #delay,label,al1pt`,
 /// GASTRATS.ASM:1310) — the pure-integer per-frame fire timer every firing
 /// enemy uses: `lda gameframe; clc; adc al1pt; and #(1<<delay)-1; bne .skip`,
@@ -871,6 +946,29 @@ pub const AL_SBYTE4: u32 = 0x25;
 /// boss8's `sflag1` = `al_sflags2` bit $10 (from `boss8_cont`'s `eor #$10`).
 /// Port <-> `bosses::B8_SFLAG1` (= 0x10).
 pub const B8_SFLAG1: u8 = 0x10;
+/// boss8's `sflag4` = `al_sflags2` bit $80 (from `boss8a_strat`'s `ora #$80` /
+/// `boss8b_strat`'s `and #$7F`). Port <-> `bosses::B8_SFLAG4`.
+pub const B8_SFLAG4: u8 = 0x80;
+/// boss8's `sflag5` = `al_sflags3` bit $01 (from `boss8a_strat`'s `lda sflags3;
+/// and #$01`). Port <-> `bosses::B8_SFLAG5` on `sflags3`.
+pub const B8_SFLAG5: u8 = 0x01;
+/// Retail `boss8a_init` ($07:9422) — open-flap phase entry (jml target from
+/// `boss8wait_strat` when beam3 is gone or has sflag1). Sets stratptr=boss8a,
+/// collstrat=hitflash, sbyte2=100, trigse $73; falls into `boss8a_strat`.
+pub const RETAIL_BOSS8A_INIT: u32 = 0x07_9422;
+/// Retail `boss8a_strat` ($07:9451) — open-flap per-tick (read out of
+/// `boss8a_init`'s `s_set_strat` immediate). Sets sflag4; HPLASMA on frames
+/// 25/30; on hard (`currentlevel!=0`) closes via sbyte2 countdown or any beam
+/// with sflag1 clear → `boss8b_init`.
+pub const RETAIL_BOSS8A_STRAT: u32 = 0x07_9451;
+/// Retail `boss8b_init` ($07:9539) — close-flap phase entry (jml from
+/// `boss8a_strat`). Clears collstrat, installs boss8b, sbyte2=15, clears beam
+/// sflag1 ×3, trigse $72; falls into `boss8b_strat`.
+pub const RETAIL_BOSS8B_INIT: u32 = 0x07_9539;
+/// Retail `boss8b_strat` ($07:95A6) — close-flap per-tick (read out of
+/// `boss8b_init`'s `s_set_strat` immediate). Clears sflag4; sbyte2 countdown
+/// → `boss8wait_init`.
+pub const RETAIL_BOSS8B_STRAT: u32 = 0x07_95A6;
 
 // ------------------------------------------------------------------------
 // BOSS2 — the "spinning top" (Macbeth spider / Venom1, GBSTRATS.ASM:484-... ).
@@ -914,6 +1012,16 @@ pub const RETAIL_BOSS2_STRAT: u32 = 0x08_8E3C;
 /// extended-array `sta expstratptr` immediate). Lives in the parallel xalblks
 /// array (like `gnd`/`woods`), so certified by the installed pointer value.
 pub const RETAIL_BOSS2EXP_ISTRAT: u32 = 0x08_9391;
+/// Retail `bossflags` ($14D3) — `s_boss_dying` gate/set (`and/ora #bf_dying=$10`)
+/// in boss2 state-5 `.dodie` (and every other `s_boss_dying` site). Built $1F02.
+/// Port <-> `enemy_a::bossflags` / `wm::BOSSFLAGS`.
+pub const RETAIL_BOSSFLAGS: u32 = 0x14D3;
+/// Retail `pstratflags` ($14DD) — `s_boss_dying` sets `pstf_notdie=$20`.
+/// Port <-> `GameVars::pstratflags` / `PSTF_NOTDIE`.
+pub const RETAIL_PSTRATFLAGS: u32 = 0x14DD;
+/// Retail `kill_Istrat` ($06:8D07) — boss2 state-5 falldown settle target
+/// (`s_falldown_Yvec …,kill_Istrat`). Port <-> `common::kill_istrat`.
+pub const RETAIL_KILL_ISTRAT: u32 = 0x06_8D07;
 /// Retail `playervel_z` ($14EA — built $1575, the −$8B dostrats-globals shift) —
 /// the player's Z velocity, read by boss2's `s_keeprelto_player` leaf ($1F:DB21:
 /// `al_worldz += playervel_z − pviewvelz`). Located + cross-validated by masked
@@ -935,6 +1043,20 @@ pub const AL_LIFECNT: u32 = 0x0A;
 /// BOSS2_SFLAG4` / `BOSS2_SFLAG1` (same bit positions — raw-diffable).
 pub const B2_SFLAG4: u8 = 0x80;
 pub const B2_SFLAG1: u8 = 0x10;
+/// boss2's `sflag3` = `al_sflags2` bit $40 (from state-4 `ora #$40` / sound gate).
+pub const B2_SFLAG3: u8 = 0x40;
+/// Retail `al_stratstate` in the xalblks parallel array (`$1CDC,x` — from
+/// `boss2_strat`'s `lda/sta $1CDC,x` state gates). Port <-> `Alien::stratstate`.
+pub const RETAIL_AL_STRATSTATE: u32 = 0x1CDC;
+/// Retail `svar_byte5` ($1530) — boss2's child-count scratch (from
+/// `boss2_strat`'s `stz/inc/lda $1530`). Port recomputes via `boss_count_children`.
+pub const RETAIL_SVAR_BYTE5: u32 = 0x1530;
+/// `al_ptr` struct offset ($06) — boss2 state-2 particle link (STRUCTS.INC
+/// `defal ptr,2` after shape@$04). Port <-> `Alien::ptr`.
+pub const AL_PTR: u32 = 0x06;
+/// `al_sword2` struct offset ($28) — boss2 ground Y / state scratch (after
+/// `al_sword1`@$26). Port <-> `Alien::sword2`.
+pub const AL_SWORD2: u32 = 0x28;
 
 // ------------------------------------------------------------------------
 // BOSSG / BOSSSEAMON — the route-2 sea bosses (D2STRATS.ASM / GA2STRAT.ASM).
@@ -960,15 +1082,32 @@ pub const RETAIL_BOSSG_ISTRAT: u32 = 0x04_EE35;
 /// Istrat installs, read out of the Istrat's `s_set_alptrs` immediate). Mode 0 =
 /// `.waituntilalmosthitplayer` (`worldz -= 40` until |dz| < 150).
 pub const RETAIL_BOSSG_STRAT: u32 = 0x04_EE85;
+/// Retail `al_tx` in xalblks (`$1CF4,x` — from bossg `.scrollmsg`'s
+/// `lda/adc #4/sta $1CF4,x`). Port <-> `Alien::tx`.
+pub const RETAIL_AL_TX: u32 = 0x1CF4;
+/// Retail `al_animframe` in xalblks (`$1CE7,x` — from bossg_istrat's
+/// `s_init_anim` `ora #$80 / sta $1CE7,x`). Port <-> `Alien::animframe`.
+pub const RETAIL_AL_ANIMFRAME: u32 = 0x1CE7;
 /// Retail `bossgexplode_istrat` ($04:F326 — the death strat, read out of the
 /// Istrat's extended-array `sta expstratptr` immediate).
 pub const RETAIL_BOSSGEXPLODE_ISTRAT: u32 = 0x04_F326;
+/// Retail `bossgs_istrat` ($04:F55E — shadow-clone INIT installed by
+/// `.generateshadows`'s `s_set_strat y,bossgs_istrat`). Port <-> `bossgs_init`.
+pub const RETAIL_BOSSGS_ISTRAT: u32 = 0x04_F55E;
 /// Retail `maptrigger` ($176D — built $17F2, the −$85 shift) — bossg zeroes it in
 /// its INIT (`stz maptrigger`), read out of the Istrat's `stz` operand.
 pub const RETAIL_MAPTRIGGER: u32 = 0x176D;
 
+/// Retail `flyingfish_istrat` ($00:FAD6 — D3STRATS.ASM; unique
+/// `roty+=deg180` + HP=4/AP=8 anchor). Port <-> `flyingfish_init`.
+pub const RETAIL_FLYINGFISH_ISTRAT: u32 = 0x00_FAD6;
+/// Retail `flyingfish_strat` body (`.strat` after istrat `set_alptrs`, $00:FB03).
+pub const RETAIL_FLYINGFISH_STRAT: u32 = 0x00_FB03;
+/// Retail `flyingfish` `.flying` body ($00:FC29 — `s_set_strat x,.flying`).
+pub const RETAIL_FLYINGFISH_FLYING: u32 = 0x00_FC29;
+
 /// Retail `bossseamon_istrat` ($0A:F2D1, GA2STRAT.ASM — built $0A:F2A7, +$2A).
-/// Port <-> `bosses::strat_bossseamon_init` (STRAT_ADDR_BOSSSEAMON=0x030005).
+/// Port <-> `bosses::strat_bossseamon_init` (typed direct-strategy key).
 pub const RETAIL_BOSSSEAMON_ISTRAT: u32 = 0x0A_F2D1;
 /// Retail `bossseamon_strat` ($0A:F31E — built $0A:F2F4, +$2A — the player-
 /// relative per-tick body the Istrat installs + falls through into).
@@ -1048,13 +1187,7 @@ pub const RETAIL_PLROTZ_CLAMP: i16 = 0x0600;
 /// The port equivalent is: `g.vars.player_posx = px; ...player_posy = py;
 /// ...player_posz = pz; g.vars.rng = rng_seed;` (+ a live player object at
 /// slot 0 if the strat reads the player's world coords through `PLAYPT`).
-pub fn seed_player_relative_state(
-    bus: &mut SnesBus,
-    px: i16,
-    py: i16,
-    pz: i16,
-    rng_seed: [u8; 4],
-) {
+pub fn seed_player_relative_state(bus: &mut SnesBus, px: i16, py: i16, pz: i16, rng_seed: [u8; 4]) {
     bus.wram_write16(RETAIL_PLAYER_POSX, px as u16);
     bus.wram_write16(RETAIL_PLAYER_POSY, py as u16);
     bus.wram_write16(RETAIL_PLAYER_POSZ, pz as u16);
@@ -1159,32 +1292,213 @@ pub fn walk_freelist(bus: &SnesBus, pool: &PoolLayout) -> Vec<u16> {
 pub fn init_object_pool(bus: &mut SnesBus) {
     // ai16 entry (16-bit A/X/Y); the routine PHPs/REP #$30 itself but we hand it
     // a native 16-bit context to match.
-    call(bus, RETAIL_KILL_LIST, &Entry { p: 0x00, ..Default::default() });
+    call(
+        bus,
+        RETAIL_KILL_LIST,
+        &Entry {
+            p: 0x00,
+            ..Default::default()
+        },
+    );
 }
 
 // ------------------------------------------------------------------------
 // Retail boot-from-reset probe (milestone 1).
 // ------------------------------------------------------------------------
 
+use crate::ppu::{Ppu, PpuFrame, FRAME_HEIGHT};
+use sf_spc::{Filter, SnesSpc, BASS_NORM, GAIN_UNIT, IPL_ROM};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use w65c816::{AddressType, Signals, System, CPU};
+
+/// Thread-safe PCM queue produced by the retail SPC-700 and consumed by the
+/// SDL audio callback. Samples are signed 16-bit interleaved stereo at the
+/// native SNES 32 kHz rate.
+pub type RetailPcmQueue = Arc<Mutex<VecDeque<i16>>>;
+
+const SNES_MASTER_CLOCK_HZ: u64 = 21_477_272;
+const SPC_CLOCK_HZ: u64 = 1_024_000;
+const APU_OUTPUT_CAPACITY: usize = 2048;
+const APU_QUEUE_CAPACITY: usize = 32_000 * 2 * 4;
+
+/// The retail cartridge's real SPC-700/S-DSP, synchronized to the PPU raster.
+///
+/// `SnesSpc` writes through a raw pointer, so the output allocation is boxed
+/// and never moved. Only completed PCM is shared with the audio thread; the
+/// emulation core itself remains owned by the SNES bus.
+struct RetailApu {
+    spc: Box<SnesSpc>,
+    filter: Filter,
+    output: Box<[i16; APU_OUTPUT_CAPACITY]>,
+    pcm: RetailPcmQueue,
+    frame_start_clock: u64,
+    generated_samples: u64,
+    last_cpu_reads: [u8; 4],
+    last_cpu_writes: [u8; 4],
+}
+
+impl RetailApu {
+    fn new() -> Self {
+        let mut spc = SnesSpc::new();
+        spc.init_rom(&IPL_ROM);
+        spc.reset();
+        let mut filter = Filter::new();
+        filter.set_gain(GAIN_UNIT);
+        filter.set_bass(BASS_NORM);
+        let mut apu = Self {
+            spc,
+            filter,
+            output: Box::new([0; APU_OUTPUT_CAPACITY]),
+            pcm: Arc::new(Mutex::new(VecDeque::with_capacity(APU_QUEUE_CAPACITY))),
+            frame_start_clock: 0,
+            generated_samples: 0,
+            last_cpu_reads: [0; 4],
+            last_cpu_writes: [0; 4],
+        };
+        apu.arm_output();
+        apu
+    }
+
+    #[inline]
+    fn clock_at_master(master_clock: u64) -> u64 {
+        // A rational conversion keeps the 32 kHz audio clock phase-locked to
+        // the SNES master oscillator over long runs.
+        ((u128::from(master_clock) * u128::from(SPC_CLOCK_HZ)) / u128::from(SNES_MASTER_CLOCK_HZ))
+            as u64
+    }
+
+    #[inline]
+    fn time_in_frame(&self, master_clock: u64) -> i32 {
+        Self::clock_at_master(master_clock)
+            .saturating_sub(self.frame_start_clock)
+            .min(i32::MAX as u64) as i32
+    }
+
+    fn arm_output(&mut self) {
+        // SAFETY: `output` is a boxed allocation owned by `self`, so its data
+        // pointer remains stable until the next end-of-frame re-arm.
+        unsafe {
+            self.spc
+                .set_output(self.output.as_mut_ptr(), APU_OUTPUT_CAPACITY as i32)
+        };
+    }
+
+    fn read_port(&mut self, master_clock: u64, port: usize) -> u8 {
+        let value = self.spc.read_port(self.time_in_frame(master_clock), port) as u8;
+        self.last_cpu_reads[port] = value;
+        value
+    }
+
+    fn write_port(&mut self, master_clock: u64, port: usize, value: u8) {
+        self.spc
+            .write_port(self.time_in_frame(master_clock), port, i32::from(value));
+        self.last_cpu_writes[port] = value;
+    }
+
+    fn finish_video_frame(&mut self, master_clock: u64) {
+        let end_clock = Self::clock_at_master(master_clock);
+        let end_time = end_clock.saturating_sub(self.frame_start_clock) as i32;
+        self.spc.end_frame(end_time);
+
+        let count = ((self.spc.sample_count().max(0) as usize).min(APU_OUTPUT_CAPACITY)) & !1;
+        self.filter.run(&mut self.output[..count]);
+        if count != 0 {
+            let mut pcm = self
+                .pcm
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let excess = pcm
+                .len()
+                .saturating_add(count)
+                .saturating_sub(APU_QUEUE_CAPACITY);
+            let discard = excess.min(pcm.len());
+            pcm.drain(..discard);
+            pcm.extend(self.output[..count].iter().copied());
+            self.generated_samples = self.generated_samples.wrapping_add(count as u64);
+        }
+
+        self.frame_start_clock = end_clock;
+        self.arm_output();
+    }
+
+    fn pcm_queue(&self) -> RetailPcmQueue {
+        Arc::clone(&self.pcm)
+    }
+
+    fn pcm_stats(&self) -> (usize, usize, i16, i16, u64) {
+        let pcm = self
+            .pcm
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut nonzero = 0usize;
+        let mut minimum = i16::MAX;
+        let mut maximum = i16::MIN;
+        let mut fnv1a = 0xCBF2_9CE4_8422_2325u64;
+        for &sample in pcm.iter() {
+            nonzero += usize::from(sample != 0);
+            minimum = minimum.min(sample);
+            maximum = maximum.max(sample);
+            for byte in sample.to_le_bytes() {
+                fnv1a = (fnv1a ^ u64::from(byte)).wrapping_mul(0x100_0000_01B3);
+            }
+        }
+        if pcm.is_empty() {
+            minimum = 0;
+            maximum = 0;
+        }
+        (pcm.len(), nonzero, minimum, maximum, fnv1a)
+    }
+}
+
+/// One completed SNES DMA transfer observed by [`RetailBootBus`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DmaEvent {
+    pub channel: u8,
+    pub source: u32,
+    /// CPU WRAM destination when BBAD is WMDATA (`$2180`), otherwise `None`.
+    pub wram_destination: Option<u32>,
+    pub length: u32,
+    pub dmap: u8,
+    pub bbad: u8,
+    /// Number of nonzero bytes observed on the transfer bus.
+    pub nonzero_bytes: u32,
+    /// FNV-1a of the transferred byte stream.
+    pub fnv1a: u32,
+}
 
 /// A bus that boots the retail cart from its *real* reset vector (unlike
 /// [`SnesBus`], which overrides $FFFC to a bootstrap stub for direct subroutine
 /// calls). Hardware registers are lightly stubbed so the boot can make forward
 /// progress far enough to characterise where a CPU-only core stalls.
 ///
-/// The PPU shim models a **free-running raster** — a dot counter advanced once
-/// per CPU clock (see [`boot_retail`]) that sweeps H (0..341) and V (0..262) —
+/// The PPU models a **free-running raster** driven by the SNES master clock,
+/// with address-dependent 6/8/12-clock CPU bus cycles, sweeping H (0..341)
+/// and V (0..262) —
 /// so that scanline/vblank spin loops (e.g. the `$03:BD97` OPVCT raster-wait)
 /// actually satisfy instead of parking forever. This is the *minimal* hardware
 /// needed to march the boot into the per-frame game loop; it is NOT a real PPU
 /// (no framebuffer, no rendering, no OAM/CGRAM effects).
 pub struct RetailBootBus {
     inner: SnesBus,
+    /// CPU-visible PPU registers and backing video memories.  Raster timing is
+    /// still owned by this bus; the PPU object captures port semantics and
+    /// produces the native 256x224 reference frame.
+    ppu: Ppu,
     res_line: bool,
     /// Free-running dot counter (advanced by [`boot_retail`] each CPU clock).
     /// H = `dot % DOTS_PER_LINE`, V = `(dot / DOTS_PER_LINE) % LINES_PER_FRAME`.
     pub dot: u64,
+    /// NTSC master oscillator count. CPU bus accesses take 6, 8, or 12 master
+    /// clocks; four master clocks advance one nominal PPU dot.
+    master_clock: u64,
+    /// Duration selected by the address touched during the current 65816
+    /// microcycle. Internal/invalid cycles use the CPU's fixed 6-clock speed.
+    cpu_cycle_master_clocks: u8,
+    /// Synchronous DMA time charged after the `$420B` initiating CPU write.
+    dma_master_clocks_pending: u64,
+    /// MEMSEL `$420D` bit 0, controlling 6-clock FastROM accesses.
+    fast_rom: bool,
     /// Latched H/V counters (set by a read of $2137 SLHV, or by any OPHCT/OPVCT
     /// read — hardware latches on H/V read too). Consumed low-then-high-bit via
     /// the read toggles below.
@@ -1197,22 +1511,9 @@ pub struct RetailBootBus {
     /// waits both arm and re-arm.
     nmi_latch: bool,
     prev_vblank: bool,
-    /// --- Minimal SPC700 upload-handshake shim (ports $2140-$2143) ---
-    /// The retail boot uploads several audio blocks (driver, samples, sequences)
-    /// through a Nintendo-IPL-style protocol. Two states:
-    ///  * **Idle** (`!apu_active`): ports read $AA/$BB — the "SPC ready" signal
-    ///    the `$03:B12E` `CMP #$BBAA` loop waits for. A `$FF` write (the driver
-    ///    "re-arm" nudge at `$03:B11E`) is ignored; any other $2140 write (the
-    ///    `$CC` kick) enters Active.
-    ///  * **Active** (`apu_active`): $2140 echoes the last value written — which
-    ///    satisfies the `$CC` start-echo AND every per-byte index-echo wait of
-    ///    the block-upload, no real SPC700 needed.
-    /// The upload routine terminates each block with `STZ $2141/$2142/$2143`
-    /// (`$03:B204`); a `$00` write to $2143 returns us to Idle so the NEXT
-    /// block's ready-check passes. This models the upload port protocol ONLY —
-    /// not the running SPC music engine (no per-frame command responses).
-    apu_active: bool,
-    apu_echo: u8,
+    /// Real SPC-700/S-DSP instance. The retail 65816 uploads and commands its
+    /// own SF2 driver through $2140-$2143; no host protocol is synthesized.
+    apu: RetailApu,
     /// NMITIMEN ($4200) bit7 — vblank NMI enable. (Star Fox actually drives its
     /// frame timing off the H/V-counter IRQ, not NMI — see `irq_enabled` — but
     /// we honour NMI too in case a code path uses it.)
@@ -1228,11 +1529,35 @@ pub struct RetailBootBus {
     irq_vtime: u16,
     /// IRQ request latched at the target scanline, cleared by a $4211 ack read.
     irq_pending: bool,
+    /// The CPU crate samples IRQ as a level but (unlike silicon) can re-enter
+    /// while I is set.  Present each latched request once; TIMEUP remains
+    /// sticky until the handler reads it.
+    irq_line_delivered: bool,
+    /// Current 65816 P.I state, supplied by the boot harness before each CPU
+    /// cycle.  `w65c816` 0.1.17 incorrectly enters a non-WAI IRQ when I is set;
+    /// gating the bus line preserves the hardware mask while leaving TIMEUP
+    /// pending until the game executes CLI.
+    cpu_irq_masked: bool,
     /// Auto-joypad-read result presented on $4218 (JOY1L) / $4219 (JOY1H).
     /// Bit layout (16-bit): B Y Sel Start Up Dn Lt Rt A X L R 0 0 0 0.
     /// Default 0 = no buttons; set via [`RetailBootBus::set_pad1`] to script
     /// input for the co-exec harness.
     pad1: u16,
+    /// CPU-visible WRAM data-port address (`$2181..$2183`, 17 bits).
+    wram_port_addr: u32,
+    /// DMA channel registers `$43x0..$43xF`.  Boot-time ROM-to-WRAM DMA is
+    /// required before IRQ/NMI vectors can safely enter their low-WRAM
+    /// trampolines; PPU-targeted transfers are consumed but otherwise ignored.
+    dma: [[u8; 16]; 8],
+    hdma_channels: u8,
+    hdma_finished: [bool; 8],
+    hdma_do_transfer: [bool; 8],
+    dma_events: Vec<DmaEvent>,
+    /// Last real opcode fetch observed on the bus and its monotonic sequence
+    /// number.  CPU register accessors can expose transient microcycle state,
+    /// so archaeology tools use this pair for instruction-accurate tracing.
+    last_opcode_address: u32,
+    opcode_fetch_count: u64,
 }
 
 /// Dots per scanline (SNES: 341 dots, 340 on some lines — we use the nominal).
@@ -1246,27 +1571,117 @@ impl RetailBootBus {
     pub fn new(rom: Vec<u8>) -> Self {
         RetailBootBus {
             inner: SnesBus::new(rom),
+            ppu: Ppu::new(),
             res_line: true,
             dot: 0,
+            master_clock: 0,
+            cpu_cycle_master_clocks: 6,
+            dma_master_clocks_pending: 0,
+            fast_rom: false,
             latched_h: 0,
             latched_v: 0,
             ophct_hi: false,
             opvct_hi: false,
             nmi_latch: false,
             prev_vblank: false,
-            apu_active: false,
-            apu_echo: 0,
+            apu: RetailApu::new(),
             nmi_enabled: false,
             irq_enabled: false,
             irq_vtime: VBLANK_START_LINE as u16,
             irq_pending: false,
+            irq_line_delivered: false,
+            cpu_irq_masked: true,
             pad1: 0,
+            wram_port_addr: 0,
+            dma: [[0; 16]; 8],
+            hdma_channels: 0,
+            hdma_finished: [false; 8],
+            hdma_do_transfer: [false; 8],
+            dma_events: Vec::new(),
+            last_opcode_address: 0,
+            opcode_fetch_count: 0,
         }
     }
 
     /// Set the controller-1 button state presented to the auto-joypad registers.
     pub fn set_pad1(&mut self, buttons: u16) {
         self.pad1 = buttons;
+    }
+
+    /// Supply the CPU interrupt-disable flag before the next [`CPU::cycle`].
+    /// This is required only because the current CPU dependency does not mask
+    /// ordinary IRQ entry itself.
+    pub fn set_cpu_irq_masked(&mut self, masked: bool) {
+        self.cpu_irq_masked = masked;
+    }
+
+    /// Attach the Super FX core to a reset-boot bus.  Most host-side boot
+    /// archaeology only needs the hardware-register shims, but SF2 reaches
+    /// GSU jobs much earlier than SF1 and some captures need the real job to
+    /// complete before the 65816 continues.
+    pub fn enable_gsu(&mut self) {
+        self.inner.enable_gsu();
+    }
+
+    /// Read the CPU-visible address space without advancing either processor.
+    /// This is intentionally a narrow observation API for reset-boot capture
+    /// tools; normal oracle calls should continue to use [`SnesBus`].
+    pub fn peek8(&self, addr: u32) -> u8 {
+        self.inner.read8(addr)
+    }
+
+    /// Snapshot the CPU-visible video state and composite a native SNES frame.
+    pub fn ppu_frame(&self) -> PpuFrame {
+        self.ppu.frame()
+    }
+
+    /// Write the CPU-visible address space without advancing either processor.
+    /// Used to seed input/state in reset-boot archaeology tools.
+    pub fn poke8(&mut self, addr: u32, value: u8) {
+        self.inner.write8(addr, value);
+    }
+
+    /// Return `(fetch_sequence, address)` for the most recent opcode fetch.
+    pub fn opcode_fetch_state(&self) -> (u64, u32) {
+        (self.opcode_fetch_count, self.last_opcode_address)
+    }
+
+    /// Drain DMA transfers completed since the previous observation point.
+    pub fn take_dma_events(&mut self) -> Vec<DmaEvent> {
+        std::mem::take(&mut self.dma_events)
+    }
+
+    /// Internal APU state for reset-boot archaeology diagnostics: generated
+    /// PCM count, queued PCM count, last CPU reads, and last CPU writes.
+    pub fn apu_debug_state(&self) -> (u64, usize, [u8; 4], [u8; 4]) {
+        let queued = self
+            .apu
+            .pcm
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len();
+        (
+            self.apu.generated_samples,
+            queued,
+            self.apu.last_cpu_reads,
+            self.apu.last_cpu_writes,
+        )
+    }
+
+    pub fn apu_pcm_queue(&self) -> RetailPcmQueue {
+        self.apu.pcm_queue()
+    }
+
+    pub fn timing_debug_state(&self) -> (bool, bool, u16, bool, bool, u16, u16) {
+        (
+            self.nmi_enabled,
+            self.irq_enabled,
+            self.irq_vtime,
+            self.irq_pending,
+            self.cpu_irq_masked,
+            self.cur_h(),
+            self.cur_v(),
+        )
     }
 
     #[inline]
@@ -1282,26 +1697,365 @@ impl RetailBootBus {
         (self.cur_v() as u64) >= VBLANK_START_LINE
     }
 
-    /// Advance the raster by one CPU clock and update the sticky NMI flag +
-    /// scanline IRQ latch on the relevant raster edges. Called once per
-    /// `cpu.cycle` by [`boot_retail`].
-    pub fn tick_raster(&mut self) {
-        let prev_v = self.cur_v();
-        self.dot = self.dot.wrapping_add(1);
-        let v = self.cur_v();
-        let vb = self.in_vblank();
-        if vb && !self.prev_vblank {
-            self.nmi_latch = true; // vblank just began -> NMI would fire
-        }
-        self.prev_vblank = vb;
-        // Latch a scanline IRQ once, when V first reaches the programmed line.
-        if self.irq_enabled && v == self.irq_vtime && prev_v != self.irq_vtime {
-            self.irq_pending = true;
+    #[inline]
+    fn wram_port_cpu_address(&self) -> u32 {
+        let address = self.wram_port_addr & 0x1_FFFF;
+        if address < 0x1_0000 {
+            0x7E_0000 | address
+        } else {
+            0x7F_0000 | (address & 0xFFFF)
         }
     }
 
+    #[inline]
+    fn advance_wram_port(&mut self) {
+        self.wram_port_addr = (self.wram_port_addr + 1) & 0x1_FFFF;
+    }
+
+    fn read_b_bus(&mut self, register: u8) -> u8 {
+        match register {
+            0x80 => {
+                let value = self.inner.read8(self.wram_port_cpu_address());
+                self.advance_wram_port();
+                value
+            }
+            0x00..=0x3F => self.ppu.read(0x2100 | u16::from(register)).unwrap_or(0),
+            _ => 0,
+        }
+    }
+
+    fn write_b_bus(&mut self, register: u8, value: u8) {
+        match register {
+            0x80 => {
+                self.inner.write8(self.wram_port_cpu_address(), value);
+                self.advance_wram_port();
+            }
+            0x00..=0x3F => self.ppu.write(0x2100 | u16::from(register), value),
+            _ => {}
+        }
+    }
+
+    fn run_dma(&mut self, enabled: u8) {
+        const B_PATTERNS: [&[u8]; 8] = [
+            &[0],
+            &[0, 1],
+            &[0, 0],
+            &[0, 0, 1, 1],
+            &[0, 1, 2, 3],
+            &[0, 1, 0, 1],
+            &[0, 0],
+            &[0, 0, 1, 1],
+        ];
+
+        let mut dma_clocks = if enabled != 0 {
+            let start = self
+                .master_clock
+                .saturating_add(u64::from(self.cpu_cycle_master_clocks));
+            8 - (start & 7)
+        } else {
+            0
+        };
+        for channel in 0..8 {
+            if enabled & (1 << channel) == 0 {
+                continue;
+            }
+            let regs = self.dma[channel];
+            let dmap = regs[0];
+            let bbad = regs[1];
+            let mut a_addr = u16::from_le_bytes([regs[2], regs[3]]);
+            let a_bank = regs[4];
+            let mut remaining = u16::from_le_bytes([regs[5], regs[6]]) as u32;
+            if remaining == 0 {
+                remaining = 0x1_0000;
+            }
+            dma_clocks = dma_clocks.saturating_add(8 + u64::from(remaining) * 8);
+            let source = ((a_bank as u32) << 16) | u32::from(a_addr);
+            let wram_destination = (bbad == 0x80).then(|| self.wram_port_cpu_address());
+            let pattern = B_PATTERNS[(dmap & 7) as usize];
+            let fixed = dmap & 0x08 != 0;
+            let decrement = dmap & 0x10 != 0;
+            let b_to_a = dmap & 0x80 != 0;
+            let mut nonzero_bytes = 0u32;
+            let mut fnv1a = 0x811C_9DC5u32;
+
+            for i in 0..remaining {
+                let b_register = bbad.wrapping_add(pattern[i as usize % pattern.len()]);
+                let a_cpu = ((a_bank as u32) << 16) | a_addr as u32;
+                if b_to_a {
+                    let value = self.read_b_bus(b_register);
+                    self.inner.write8(a_cpu, value);
+                } else {
+                    let value = self.inner.read8(a_cpu);
+                    self.write_b_bus(b_register, value);
+                    nonzero_bytes += u32::from(value != 0);
+                    fnv1a = (fnv1a ^ u32::from(value)).wrapping_mul(0x0100_0193);
+                }
+                if !fixed {
+                    a_addr = if decrement {
+                        a_addr.wrapping_sub(1)
+                    } else {
+                        a_addr.wrapping_add(1)
+                    };
+                }
+            }
+
+            self.dma[channel][2..4].copy_from_slice(&a_addr.to_le_bytes());
+            self.dma[channel][5] = 0;
+            self.dma[channel][6] = 0;
+            self.dma_events.push(DmaEvent {
+                channel: channel as u8,
+                source,
+                wram_destination,
+                length: remaining,
+                dmap,
+                bbad,
+                nonzero_bytes,
+                fnv1a,
+            });
+        }
+        if dma_clocks != 0 {
+            let cpu_speed = u64::from(self.cpu_cycle_master_clocks);
+            dma_clocks = dma_clocks.saturating_add(cpu_speed - dma_clocks % cpu_speed);
+            self.dma_master_clocks_pending =
+                self.dma_master_clocks_pending.saturating_add(dma_clocks);
+        }
+    }
+
+    fn hdma_read_table(&mut self, bank: u8, address: u16) -> u8 {
+        self.inner
+            .read8((u32::from(bank) << 16) | u32::from(address))
+    }
+
+    /// Initialize enabled HDMA channels at the start of an SNES frame.
+    fn init_hdma(&mut self) {
+        self.hdma_finished.fill(false);
+        self.hdma_do_transfer.fill(false);
+        if self.hdma_channels == 0 {
+            return;
+        }
+        let mut clocks = 8u64;
+        for channel in 0..8 {
+            self.hdma_do_transfer[channel] = true;
+            if self.hdma_channels & (1 << channel) == 0 {
+                continue;
+            }
+            let bank = self.dma[channel][4];
+            let mut table = u16::from_le_bytes([self.dma[channel][2], self.dma[channel][3]]);
+            let counter = self.hdma_read_table(bank, table);
+            table = table.wrapping_add(1);
+            clocks += 8;
+            self.dma[channel][0x0A] = counter;
+            self.hdma_finished[channel] = counter == 0;
+            if self.dma[channel][0] & 0x40 != 0 {
+                let lo = self.hdma_read_table(bank, table);
+                table = table.wrapping_add(1);
+                clocks += 8;
+                let hi = self.hdma_read_table(bank, table);
+                table = table.wrapping_add(1);
+                clocks += 8;
+                self.dma[channel][5..7]
+                    .copy_from_slice(&u16::from_le_bytes([lo, hi]).to_le_bytes());
+            }
+            self.dma[channel][8..10].copy_from_slice(&table.to_le_bytes());
+        }
+        self.dma_master_clocks_pending = self.dma_master_clocks_pending.saturating_add(clocks);
+    }
+
+    /// Execute one H-blank DMA pass. This follows the SNES two-phase order:
+    /// all channel transfers happen first, then every active channel advances
+    /// its line counter/table state for the following scanline.
+    fn run_hdma_scanline(&mut self) {
+        const B_PATTERNS: [&[u8]; 8] = [
+            &[0],
+            &[0, 1],
+            &[0, 0],
+            &[0, 0, 1, 1],
+            &[0, 1, 2, 3],
+            &[0, 1, 0, 1],
+            &[0, 0],
+            &[0, 0, 1, 1],
+        ];
+        if self.hdma_channels == 0 {
+            return;
+        }
+        let mut clocks = 8u64;
+
+        for channel in 0..8 {
+            if self.hdma_channels & (1 << channel) == 0
+                || self.hdma_finished[channel]
+                || !self.hdma_do_transfer[channel]
+            {
+                continue;
+            }
+            let dmap = self.dma[channel][0];
+            let pattern = B_PATTERNS[(dmap & 7) as usize];
+            let bbad = self.dma[channel][1];
+            let indirect = dmap & 0x40 != 0;
+            let bank = if indirect {
+                self.dma[channel][7]
+            } else {
+                self.dma[channel][4]
+            };
+            let mut source = if indirect {
+                u16::from_le_bytes([self.dma[channel][5], self.dma[channel][6]])
+            } else {
+                u16::from_le_bytes([self.dma[channel][8], self.dma[channel][9]])
+            };
+            for &offset in pattern {
+                let source_address = source;
+                source = source.wrapping_add(1);
+                if dmap & 0x80 != 0 {
+                    let value = self.read_b_bus(bbad.wrapping_add(offset));
+                    self.inner
+                        .write8((u32::from(bank) << 16) | u32::from(source_address), value);
+                } else {
+                    let value = self.hdma_read_table(bank, source_address);
+                    self.write_b_bus(bbad.wrapping_add(offset), value);
+                }
+                clocks += 8;
+            }
+            if indirect {
+                self.dma[channel][5..7].copy_from_slice(&source.to_le_bytes());
+            } else {
+                self.dma[channel][8..10].copy_from_slice(&source.to_le_bytes());
+            }
+        }
+
+        for channel in 0..8 {
+            if self.hdma_channels & (1 << channel) == 0 || self.hdma_finished[channel] {
+                continue;
+            }
+            let mut counter = self.dma[channel][0x0A].wrapping_sub(1);
+            self.hdma_do_transfer[channel] = counter & 0x80 != 0;
+            let bank = self.dma[channel][4];
+            let mut table = u16::from_le_bytes([self.dma[channel][8], self.dma[channel][9]]);
+            let next_counter = self.hdma_read_table(bank, table);
+            clocks += 8;
+            if counter & 0x7F == 0 {
+                counter = next_counter;
+                table = table.wrapping_add(1);
+                if self.dma[channel][0] & 0x40 != 0 {
+                    let lo = self.hdma_read_table(bank, table);
+                    table = table.wrapping_add(1);
+                    let hi = self.hdma_read_table(bank, table);
+                    table = table.wrapping_add(1);
+                    clocks += 16;
+                    self.dma[channel][5..7]
+                        .copy_from_slice(&u16::from_le_bytes([lo, hi]).to_le_bytes());
+                }
+                if counter == 0 {
+                    self.hdma_finished[channel] = true;
+                }
+                self.hdma_do_transfer[channel] = true;
+            }
+            self.dma[channel][0x0A] = counter;
+            self.dma[channel][8..10].copy_from_slice(&table.to_le_bytes());
+        }
+
+        self.dma_master_clocks_pending = self.dma_master_clocks_pending.saturating_add(clocks);
+    }
+
+    #[inline]
+    fn cpu_access_speed(&self, address: u32, address_type: AddressType) -> u8 {
+        if address_type == AddressType::Invalid {
+            return 6;
+        }
+        let bank = ((address >> 16) & 0xFF) as u8;
+        let offset = address as u16;
+        match bank {
+            0x40..=0x7F => 8,
+            0xC0..=0xFF => {
+                if self.fast_rom {
+                    6
+                } else {
+                    8
+                }
+            }
+            _ => match offset {
+                0x0000..=0x1FFF => 8,
+                0x2000..=0x3FFF => 6,
+                0x4000..=0x41FF => 12,
+                0x4200..=0x5FFF => 6,
+                0x6000..=0x7FFF => 8,
+                _ => {
+                    if self.fast_rom {
+                        6
+                    } else {
+                        8
+                    }
+                }
+            },
+        }
+    }
+
+    #[inline]
+    fn record_cpu_access(&mut self, address: u32, address_type: AddressType) {
+        self.cpu_cycle_master_clocks = self.cpu_access_speed(address, address_type);
+    }
+
+    fn advance_ppu_dot(&mut self) {
+        // The GSU scheduler accounts for CLSR, opcode fetches, and cache-line
+        // refills in SNES master clocks. One nominal PPU dot contributes four.
+        self.inner.tick_gsu(4);
+        let prev_v = self.cur_v();
+        let prev_frame = self.dot / (DOTS_PER_LINE * LINES_PER_FRAME);
+        self.dot = self.dot.wrapping_add(1);
+        let new_frame = self.dot / (DOTS_PER_LINE * LINES_PER_FRAME) != prev_frame;
+        if new_frame {
+            self.apu.finish_video_frame(self.master_clock);
+            self.ppu.begin_frame();
+            self.init_hdma();
+        }
+        let v = self.cur_v();
+        if v != prev_v {
+            // HDMA runs in the prior scanline's H-blank and updates registers
+            // for the line now becoming visible. SNES scanlines 1..224 map to
+            // the 224-line native output.
+            if u64::from(prev_v) < VBLANK_START_LINE {
+                self.run_hdma_scanline();
+            }
+            if (1..=FRAME_HEIGHT as u16).contains(&v) {
+                self.ppu.render_scanline(usize::from(v - 1));
+            }
+        }
+        let vb = self.in_vblank();
+        if vb && !self.prev_vblank {
+            self.nmi_latch = true;
+        }
+        self.prev_vblank = vb;
+        if self.irq_enabled && v == self.irq_vtime && prev_v != self.irq_vtime {
+            self.irq_pending = true;
+            self.irq_line_delivered = false;
+        }
+    }
+
+    fn advance_master_clocks(&mut self, clocks: u64) {
+        let target = self.master_clock.saturating_add(clocks);
+        while self.dot < target / 4 {
+            self.master_clock = (self.dot + 1) * 4;
+            self.advance_ppu_dot();
+        }
+        self.master_clock = target;
+    }
+
+    /// Complete one 65816 microcycle using the address-dependent duration
+    /// observed by [`System::read`] or [`System::write`]. DMA time is charged
+    /// here as well, while the PPU, SPC, and Super FX continue concurrently.
+    pub fn tick_raster(&mut self) {
+        let clocks =
+            u64::from(self.cpu_cycle_master_clocks).saturating_add(self.dma_master_clocks_pending);
+        self.cpu_cycle_master_clocks = 6;
+        self.dma_master_clocks_pending = 0;
+        self.advance_master_clocks(clocks);
+    }
+
     fn reg_read(&mut self, off: u16) -> Option<u8> {
+        if let Some(value) = self.ppu.read(off) {
+            return Some(value);
+        }
         match off {
+            // WMDATA ($2180): read at the 17-bit WMADD pointer, then increment.
+            0x2180 => Some(self.read_b_bus(0x80)),
             // SLHV ($2137): reading latches the current H/V counters.
             0x2137 => {
                 self.latched_h = self.cur_h();
@@ -1347,11 +2101,15 @@ impl RetailBootBus {
             0x4211 => {
                 let b7 = if self.irq_pending { 0x80 } else { 0x00 };
                 self.irq_pending = false;
+                self.irq_line_delivered = false;
                 Some(b7)
             }
             // HVBJOY ($4212): bit7 = vblank, bit6 = hblank, bit0 = auto-joypad
-            // busy (0 = ready). Reflects the real raster so both `bmi`/`bpl`
-            // spin directions resolve.
+            // busy.  Auto-read starts at vblank and remains busy for a short
+            // hardware window.  SF2's $03:8F8F synchronizer deliberately
+            // waits for both edges (`bit #1; beq`, then `bit #1; bne`), so a
+            // permanent "ready" value deadlocks even though simple polling
+            // code is satisfied by it.
             0x4212 => {
                 let mut v = 0u8;
                 if self.in_vblank() {
@@ -1361,15 +2119,17 @@ impl RetailBootBus {
                 if self.cur_h() >= 274 || self.cur_h() < 1 {
                     v |= 0x40;
                 }
-                Some(v) // bit0 = 0: auto-joypad read is "done"
+                if self.cur_v() as u64 == VBLANK_START_LINE && self.cur_h() < 128 {
+                    v |= 0x01;
+                }
+                Some(v)
             }
-            // APUIO0 ($2140): Idle -> $AA (ready); Active -> echo last write.
-            0x2140 => Some(if self.apu_active { self.apu_echo } else { 0xAA }),
-            // APUIO1 ($2141): Idle -> $BB (pairs with $AA for the $BBAA ready
-            // check); Active the CPU only writes it (data-out).
-            0x2141 => Some(if self.apu_active { 0x00 } else { 0xBB }),
-            // APUIO2/3 ($2142/$2143): address-in ports, CPU writes only.
-            0x2142..=0x2143 => Some(0x00),
+            // CPU/APU communication ports. Reads advance the real SPC-700 to
+            // the bus's current audio clock before returning the driver value.
+            0x2140..=0x2143 => Some(
+                self.apu
+                    .read_port(self.master_clock, (off - 0x2140) as usize),
+            ),
             // JOY1L/JOY1H ($4218/$4219): auto-joypad-read controller-1 state.
             0x4218 => Some(self.pad1 as u8),
             0x4219 => Some((self.pad1 >> 8) as u8),
@@ -1379,32 +2139,42 @@ impl RetailBootBus {
 
     /// Intercept writes to the APU ports to drive the upload-handshake shim.
     fn reg_write(&mut self, off: u16, v: u8) {
+        if (0x2100..=0x2133).contains(&off) {
+            self.ppu.write(off, v);
+            return;
+        }
         match off {
+            // WMDATA/WMADD ($2180-$2183).
+            0x2180 => self.write_b_bus(0x80, v),
+            0x2181 => self.wram_port_addr = (self.wram_port_addr & 0x1_FF00) | v as u32,
+            0x2182 => self.wram_port_addr = (self.wram_port_addr & 0x1_00FF) | ((v as u32) << 8),
+            0x2183 => {
+                self.wram_port_addr = (self.wram_port_addr & 0x0_FFFF) | (((v as u32) & 1) << 16)
+            }
             // NMITIMEN ($4200): bit7 = NMI enable, bits 5/4 = V/H-IRQ enable.
             0x4200 => {
                 self.nmi_enabled = (v & 0x80) != 0;
                 self.irq_enabled = (v & 0x30) != 0;
             }
+            // MDMAEN: data transfer is synchronous; its master-clock cost is
+            // charged after the initiating CPU write.
+            0x420B => self.run_dma(v),
+            // HDMAEN: channels are initialized automatically at the next
+            // frame boundary and transfer during each visible H-blank.
+            0x420C => self.hdma_channels = v,
+            // MEMSEL: bit 0 enables 6-master-clock accesses in FastROM areas.
+            0x420D => self.fast_rom = v & 1 != 0,
             // VTIME ($4209 low / $420A high bit): programmed V-IRQ scanline.
             0x4209 => self.irq_vtime = (self.irq_vtime & 0x100) | v as u16,
             0x420A => self.irq_vtime = (self.irq_vtime & 0x0FF) | (((v as u16) & 1) << 8),
-            0x2140 => {
-                if self.apu_active {
-                    // Echo every index/kick back on the next $2140 read.
-                    self.apu_echo = v;
-                } else if v != 0xFF {
-                    // Idle: the $CC kick starts a block; the $FF re-arm nudge is
-                    // ignored (we are already presenting "ready").
-                    self.apu_active = true;
-                    self.apu_echo = v;
-                }
+            0x2140..=0x2143 => {
+                self.apu
+                    .write_port(self.master_clock, (off - 0x2140) as usize, v);
             }
-            // Block terminate is `STZ $2143`; a $00 write here returns us to
-            // Idle so the next block's $BBAA ready-check passes.
-            0x2143 => {
-                if v == 0x00 {
-                    self.apu_active = false;
-                }
+            0x4300..=0x437F => {
+                let channel = ((off - 0x4300) >> 4) as usize;
+                let register = ((off - 0x4300) & 0xF) as usize;
+                self.dma[channel][register] = v;
             }
             _ => {}
         }
@@ -1412,7 +2182,12 @@ impl RetailBootBus {
 }
 
 impl System for RetailBootBus {
-    fn read(&mut self, addr: u32, _at: AddressType, _s: &Signals) -> u8 {
+    fn read(&mut self, addr: u32, at: AddressType, _s: &Signals) -> u8 {
+        self.record_cpu_access(addr, at);
+        if at == AddressType::Opcode {
+            self.last_opcode_address = addr;
+            self.opcode_fetch_count = self.opcode_fetch_count.wrapping_add(1);
+        }
         let bank = (addr >> 16) & 0xFF;
         let off = (addr & 0xFFFF) as u16;
         if (bank <= 0x3F || (0x80..=0xBF).contains(&bank)) && (0x2000..0x6000).contains(&off) {
@@ -1422,14 +2197,21 @@ impl System for RetailBootBus {
         }
         self.inner.read8(addr)
     }
-    fn write(&mut self, addr: u32, data: u8, _at: AddressType, _s: &Signals) {
+    fn write(&mut self, addr: u32, data: u8, at: AddressType, _s: &Signals) {
+        self.record_cpu_access(addr, at);
         let bank = (addr >> 16) & 0xFF;
         let off = (addr & 0xFFFF) as u16;
         if (bank <= 0x3F || (0x80..=0xBF).contains(&bank))
             && ((0x2140..=0x2143).contains(&off)
+                || (0x2100..=0x2133).contains(&off)
+                || (0x2180..=0x2183).contains(&off)
                 || off == 0x4200
                 || off == 0x4209
-                || off == 0x420A)
+                || off == 0x420A
+                || off == 0x420B
+                || off == 0x420C
+                || off == 0x420D
+                || (0x4300..=0x437F).contains(&off))
         {
             self.reg_write(off, data);
         }
@@ -1446,8 +2228,217 @@ impl System for RetailBootBus {
         self.nmi_enabled && self.in_vblank()
     }
     fn irq(&mut self) -> bool {
-        // Level-sensitive: held until the handler acks via a $4211 read.
-        self.irq_enabled && self.irq_pending
+        // TIMEUP is a level request: it remains asserted until the interrupt
+        // handler acknowledges $4211. `cpu_irq_masked` prevents the CPU-core
+        // quirk described above from re-entering while P.I is set.  Do not
+        // suppress the level merely because the core sampled it once during a
+        // non-interruptible microcycle; doing so loses SF2's frame IRQ and
+        // leaves the main loop waiting forever on WRAM $1B92 bit 2.
+        let assert = self.irq_enabled && self.irq_pending && !self.cpu_irq_masked;
+        if assert {
+            self.irq_line_delivered = true;
+        }
+        assert
+    }
+}
+
+/// Persistent reset-to-gameplay machine for the retail Star Fox 2 host code.
+///
+/// Unlike [`boot_retail`], this owns the CPU between calls and advances by
+/// complete NTSC video frames.  It is the production bridge used by the HD
+/// front end for the still-unlifted title, pilot-select, strategic-map, and
+/// mission-lifecycle code while preserving the original cartridge semantics.
+pub struct RetailMachine {
+    bus: RetailBootBus,
+    cpu: CPU,
+    cycles: u64,
+}
+
+impl RetailMachine {
+    /// Construct a retail machine with the Super FX core enabled.  The first
+    /// call to [`Self::tick_video_frames`] consumes the cartridge reset pulse.
+    pub fn new(rom: Vec<u8>) -> Self {
+        let mut bus = RetailBootBus::new(rom);
+        bus.enable_gsu();
+        Self {
+            bus,
+            cpu: CPU::new(),
+            cycles: 0,
+        }
+    }
+
+    /// Advance `frames` native video frames while presenting one held joypad
+    /// state.  Input edges are still derived by the retail code from its own
+    /// previous-frame state.
+    pub fn tick_video_frames(&mut self, pad1: u16, frames: u32) -> Result<(), String> {
+        self.bus.set_pad1(pad1);
+        let frame_dots = DOTS_PER_LINE * LINES_PER_FRAME;
+        let target = self
+            .bus
+            .dot
+            .saturating_add(frame_dots.saturating_mul(u64::from(frames)));
+        while self.bus.dot < target {
+            self.bus.set_cpu_irq_masked(self.cpu.p() & 0x04 != 0);
+            self.cpu.cycle(&mut self.bus);
+            self.bus.tick_raster();
+            self.cycles = self.cycles.wrapping_add(1);
+            if self.cpu.stopped() {
+                return Err(format!(
+                    "retail CPU stopped at {:02X}:{:04X} after {} cycles",
+                    self.cpu.pbr(),
+                    self.cpu.pc(),
+                    self.cycles
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn video_frame(&self) -> u64 {
+        self.bus.dot / (DOTS_PER_LINE * LINES_PER_FRAME)
+    }
+
+    pub fn cycles(&self) -> u64 {
+        self.cycles
+    }
+
+    pub fn master_clock(&self) -> u64 {
+        self.bus.master_clock
+    }
+
+    pub fn pc(&self) -> u32 {
+        (u32::from(self.cpu.pbr()) << 16) | u32::from(self.cpu.pc())
+    }
+
+    pub fn peek8(&self, address: u32) -> u8 {
+        self.bus.peek8(address)
+    }
+
+    pub fn peek16(&self, address: u32) -> u16 {
+        u16::from_le_bytes([self.peek8(address), self.peek8(address.wrapping_add(1))])
+    }
+
+    pub fn ppu_frame(&self) -> PpuFrame {
+        self.bus.ppu_frame()
+    }
+
+    /// Clone the native 32 kHz stereo PCM queue consumed by the front end.
+    pub fn audio_queue(&self) -> RetailPcmQueue {
+        self.bus.apu_pcm_queue()
+    }
+
+    pub fn audio_debug_state(&self) -> (u64, usize, [u8; 4], [u8; 4]) {
+        self.bus.apu_debug_state()
+    }
+
+    /// `(queued, nonzero, minimum, maximum, FNV-1a)` over currently buffered
+    /// PCM. This is a read-only health/oracle surface; it does not drain audio.
+    pub fn audio_pcm_stats(&self) -> (usize, usize, i16, i16, u64) {
+        self.bus.apu.pcm_stats()
+    }
+
+    pub fn gsu_plot_count(&self) -> u64 {
+        self.bus.inner.gsu_plot_count()
+    }
+
+    pub fn gsu_screen_state(&self) -> Option<(u8, u8, u8, u8, u64, u64, u64, u8, u16)> {
+        self.bus.inner.gsu_screen_state()
+    }
+
+    pub fn watch_gsu_execution(&mut self, pbr: u8, pc: u16) {
+        self.bus.inner.watch_gsu_execution(pbr, pc);
+    }
+
+    pub fn watch_gsu_execution_with_ram_mask(
+        &mut self,
+        pbr: u8,
+        pc: u16,
+        ram_address: u16,
+        value: u32,
+        mask: u32,
+    ) {
+        self.bus
+            .inner
+            .watch_gsu_execution_with_ram_mask(pbr, pc, ram_address, value, mask);
+    }
+
+    pub fn gsu_execution_watch_hit(&self) -> bool {
+        self.bus.inner.gsu_execution_watch_hit()
+    }
+
+    pub fn gsu_execution_watch_state(&self) -> Option<(u64, u32, bool)> {
+        self.bus.inner.gsu_execution_watch_state()
+    }
+
+    pub fn gsu_execution_watch_values(&self) -> Vec<u32> {
+        self.bus.inner.gsu_execution_watch_values()
+    }
+
+    pub fn gsu_run_debug_state(&self) -> Option<((u8, u16), (u8, u16, u16), u64, bool, u64)> {
+        self.bus.inner.gsu_run_debug_state()
+    }
+
+    pub fn gsu_last_run_samples(&self) -> Vec<(u64, u8, u16, u16, u16, u16, u16, u16, u16)> {
+        self.bus.inner.gsu_last_run_samples()
+    }
+
+    pub fn gsu_last_entry_ram_probe(&self) -> [u16; 4] {
+        self.bus.inner.gsu_last_entry_ram_probe()
+    }
+
+    pub fn gsu_recent_runs(&self) -> Vec<crate::GsuRunEvent> {
+        self.bus.inner.gsu_recent_runs()
+    }
+
+    pub fn gsu_first_cd99_entry_ram(&self) -> Option<Vec<u8>> {
+        self.bus.inner.gsu_first_cd99_entry_ram()
+    }
+
+    pub fn gsu_first_cd99_exit_ram(&self) -> Option<Vec<u8>> {
+        self.bus.inner.gsu_first_cd99_exit_ram()
+    }
+
+    pub fn gsu_first_cd99_pc_trace(&self) -> Option<Vec<u32>> {
+        self.bus.inner.gsu_first_cd99_pc_trace()
+    }
+
+    pub fn gsu_first_cd99_register_trace(&self) -> Option<Vec<String>> {
+        self.bus.inner.gsu_first_cd99_register_trace()
+    }
+
+    pub fn gsu_first_cd99_point_states(
+        &self,
+    ) -> Option<Vec<(u32, [u16; 16], u16, usize, usize, bool, bool, bool)>> {
+        self.bus.inner.gsu_first_cd99_point_states()
+    }
+
+    pub fn gsu_first_ce37_entry_ram(&self) -> Option<Vec<u8>> {
+        self.bus.inner.gsu_first_ce37_entry_ram()
+    }
+
+    pub fn gsu_first_ce37_exit_ram(&self) -> Option<Vec<u8>> {
+        self.bus.inner.gsu_first_ce37_exit_ram()
+    }
+
+    pub fn gsu_first_ce37_pc_trace(&self) -> Option<Vec<u32>> {
+        self.bus.inner.gsu_first_ce37_pc_trace()
+    }
+
+    pub fn gsu_first_ce37_register_trace(&self) -> Option<Vec<String>> {
+        self.bus.inner.gsu_first_ce37_register_trace()
+    }
+
+    pub fn gsu_first_d9ff_register_trace(&self) -> Option<Vec<String>> {
+        self.bus.inner.gsu_first_d9ff_register_trace()
+    }
+
+    pub fn take_dma_events(&mut self) -> Vec<DmaEvent> {
+        self.bus.take_dma_events()
+    }
+
+    pub fn timing_debug_state(&self) -> (bool, bool, u16, bool, bool, u16, u16, u8) {
+        let (nmi, irq, vtime, pending, masked, h, v) = self.bus.timing_debug_state();
+        (nmi, irq, vtime, pending, masked, h, v, self.cpu.p())
     }
 }
 
@@ -1521,9 +2512,10 @@ pub fn boot_retail(rom: Vec<u8>, max_steps: u64) -> BootReport {
     let mut peak_step = 0u64;
     let cyc_cap = max_steps.saturating_mul(64);
     while steps < max_steps && cycles < cyc_cap {
+        bus.set_cpu_irq_masked(cpu.p() & 0x04 != 0);
         cpu.cycle(&mut bus);
-        // Advance the free-running raster once per CPU clock so scanline/vblank
-        // spin loops satisfy.
+        // Advance all concurrent hardware by this address-dependent CPU bus
+        // cycle so scanline/vblank waits observe master-clock time.
         bus.tick_raster();
         cycles += 1;
         let cur = ((cpu.pbr() as u32) << 16) | cpu.pc() as u32;
@@ -1584,8 +2576,11 @@ pub fn boot_retail(rom: Vec<u8>, max_steps: u64) -> BootReport {
         }
     }
 
-    let (hottest_pc, hottest_hits) =
-        freq.iter().max_by_key(|(_, &c)| c).map(|(&a, &c)| (a, c)).unwrap_or((0, 0));
+    let (hottest_pc, hottest_hits) = freq
+        .iter()
+        .max_by_key(|(_, &c)| c)
+        .map(|(&a, &c)| (a, c))
+        .unwrap_or((0, 0));
     // Treat "ran a lot but revisited very few addresses" as a stall even if the
     // tight-window heuristic didn't trip (boot wait loops can span >0x40 or bank
     // boundaries).
@@ -1614,5 +2609,86 @@ pub fn boot_retail(rom: Vec<u8>, max_steps: u64) -> BootReport {
         max_live_objects,
         objects_at_peak,
         peak_step,
+    }
+}
+
+#[cfg(test)]
+mod retail_boot_bus_tests {
+    use super::*;
+
+    fn bus() -> RetailBootBus {
+        RetailBootBus::new(vec![0; 0x10_0000])
+    }
+
+    #[test]
+    fn dma_channel_zero_copies_cpu_memory_through_wram_port() {
+        let mut bus = bus();
+        bus.poke8(0x7E_1000, 0x12);
+        bus.poke8(0x7E_1001, 0x34);
+        bus.poke8(0x7E_1002, 0x56);
+
+        bus.reg_write(0x2181, 0x00);
+        bus.reg_write(0x2182, 0x02);
+        bus.reg_write(0x2183, 0x00);
+        bus.reg_write(0x4300, 0x00); // A -> B, increment, transfer mode 0
+        bus.reg_write(0x4301, 0x80); // B-bus WMDATA ($2180)
+        bus.reg_write(0x4302, 0x00);
+        bus.reg_write(0x4303, 0x10);
+        bus.reg_write(0x4304, 0x7E);
+        bus.reg_write(0x4305, 0x03);
+        bus.reg_write(0x4306, 0x00);
+        bus.reg_write(0x420B, 0x01);
+
+        assert_eq!(bus.peek8(0x7E_0200), 0x12);
+        assert_eq!(bus.peek8(0x7E_0201), 0x34);
+        assert_eq!(bus.peek8(0x7E_0202), 0x56);
+        assert_eq!(&bus.dma[0][2..7], &[0x03, 0x10, 0x7E, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn real_apu_boots_the_ipl_and_produces_native_pcm() {
+        let mut bus = bus();
+        let mut ready = false;
+        for _ in 0..20_000 {
+            if bus.reg_read(0x2140) == Some(0xAA) && bus.reg_read(0x2141) == Some(0xBB) {
+                ready = true;
+                break;
+            }
+            bus.tick_raster();
+        }
+        assert!(
+            ready,
+            "the real IPL ROM must publish the $BBAA ready signature"
+        );
+
+        for _ in 0..(DOTS_PER_LINE * LINES_PER_FRAME) {
+            bus.tick_raster();
+        }
+        let (generated, queued, reads, _) = bus.apu_debug_state();
+        assert!(
+            generated >= 1000,
+            "one video frame should produce stereo PCM"
+        );
+        assert_eq!(queued as u64, generated);
+        assert_eq!(reads[..2], [0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn irq_stays_pending_while_cpu_interrupt_mask_is_set() {
+        let mut bus = bus();
+        bus.irq_enabled = true;
+        bus.irq_pending = true;
+        bus.irq_line_delivered = false;
+        bus.set_cpu_irq_masked(true);
+
+        assert!(!System::irq(&mut bus));
+        assert!(bus.irq_pending);
+        bus.set_cpu_irq_masked(false);
+        assert!(System::irq(&mut bus));
+        assert!(System::irq(&mut bus), "TIMEUP remains a level until ack");
+        bus.set_cpu_irq_masked(true);
+        assert!(!System::irq(&mut bus), "P.I masks the pending level");
+        assert_eq!(bus.reg_read(0x4211), Some(0x80));
+        assert!(!bus.irq_pending);
     }
 }

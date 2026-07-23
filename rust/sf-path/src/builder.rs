@@ -23,6 +23,7 @@ pub struct PathLiteralBuilder {
     pub offsets: Vec<u16>,
     labels: Vec<(&'static str, u16)>,
     fixups: Vec<(&'static str, u16)>,
+    inline_continuation_fixups: Vec<(u16, &'static str)>,
     pub failed: bool,
 }
 
@@ -41,6 +42,7 @@ impl PathLiteralBuilder {
             offsets: vec![PATH_MISSING_OFFSET; PATH_DATA_COUNT_LITERAL as usize],
             labels: Vec::new(),
             fixups: Vec::new(),
+            inline_continuation_fixups: Vec::new(),
             failed: false,
         }
     }
@@ -132,6 +134,14 @@ impl PathLiteralBuilder {
             self.data[offset as usize] = (target & 0xFF) as u8;
             self.data[offset as usize + 1] = (target >> 8) as u8;
         }
+    }
+
+    /// Resolved source-level continuations for native inline actions.
+    pub fn inline_continuations(&self) -> Vec<(u16, u16)> {
+        self.inline_continuation_fixups
+            .iter()
+            .map(|&(action_offset, label)| (action_offset, self.lookup_label(label).unwrap_or(0)))
+            .collect()
     }
 
     /// C `pb_emit_add` — picks the narrowest add opcode for the slot.
@@ -811,11 +821,12 @@ impl PathLiteralBuilder {
         self.emit16(dest_abs.into() as u16 as i32);
     }
 
-    /// C `pb_emit_start65816` — records the opcode offset (returned instead of
-    /// the C out-pointer) and emits the inline-65816 marker blob:
-    /// `P_START65816, A9 <resume_label:16> 6B` (lda #imm16 ; rtl).
+    /// Record a native inline action and its source-level continuation. The
+    /// legacy marker bytes remain in the fallback blob solely for byte-equal
+    /// fixture comparison; the runtime consumes this metadata.
     pub fn emit_start65816(&mut self, resume_label: &'static str) -> u16 {
         let ip = self.data.len() as u16;
+        self.inline_continuation_fixups.push((ip, resume_label));
         self.emit8(P_START65816);
         self.emit8(0xA9);
         self.fixup16(resume_label);

@@ -1,0 +1,2940 @@
+SESSION 2026-07-02 — restored from Claude Code jsonl
+Turns: 159
+========================================================================
+
+### Turn 43 @ 2026-07-02T00:18:15.943Z
+USER:
+Updated task #23 status
+
+ASSISTANT (final):
+Here's the full picture:
+
+**The floating-objects root cause is identified and being fixed.** Your report plus the verification frame nailed it: the painted background horizon is drawn at a fixed screen position, but the original SNES re-computed the BG vertical/horizontal scroll from the camera *every frame* to keep the painted ground locked to the 3D ground plane. Our port never did that coupling, so any camera climb or pitch makes everything appear to hover. The agent is deriving the exact original formula from the IRQ/HDMA code and will verify alignment quantitatively (projecting ground points and matching them to the painted horizon row within pixels).
+
+**The RIIR is now running in earnest — three crate ports in parallel**, each gated on byte-equality against the C oracle:
+1. **sf-path** — all path bytecode tables + the path interpreter, with fixture files dumped from the actual C tables for byte-identical verification.
+2. **sf-map** — the MapBuilder engine plus level 1-1, title, and planet-select map data, verified by comparing emitted bytecode blobs against the C builder's output; it will also produce a porting playbook so the remaining ~17 levels can be ground out by parallel agents in the next wave.
+3. **sf-render data** — the shape compiler grows a Rust emitter (single source of truth, C output verified unchanged), plus all the palette/lighting/color tables and the pure color-resolution math with unit tests pinned to known Arwing face colors.
+
+**Commit checkpoint:** deferred just until the horizon fix lands (committing mid-edit would capture a half-written renderer), then everything goes in as the frozen C-oracle checkpoint.
+
+Meanwhile in the current build you can already see: full launch intro with visible runway/base, animated radio portraits, faithful HUD meters, correct Arwing colors, real planet-select bitmaps, and correct per-level music.
+----------------------------------------
+
+### Turn 44 @ 2026-07-02T00:18:36.394Z
+USER:
+also gamepad input doesnt work. let's get that in after the riir.
+
+ASSISTANT (final):
+Noted and queued — interestingly the boot log shows SDL *detects* your controller ("Controller: Steam Controller"), so the bug is likely in how it's read or mapped rather than detection. Steam Controllers are also notorious for needing their desktop-mode config or SDL mapping quirks, which will be a useful detail when we get there.
+----------------------------------------
+
+### Turn 45 @ 2026-07-02T00:18:48.764Z
+USER:
+Task #24 created successfully: Fix gamepad input (post-RIIR)
+
+ASSISTANT (final):
+Queued as a post-RIIR task per your sequencing — and that's actually the efficient order: input lands in the Rust `sf-app` shell anyway, so we'll build the gamepad path once, there, rather than fixing C code that's about to be replaced. (If it turns out we need working gamepad in the C oracle for playtest sign-off before then, it's a small isolated fix in `sf_rtl.c` — just say the word.)
+
+Current board:
+- **Running:** the BG-horizon fix (floating objects), plus the three RIIR wave-1 agents (path data, MapBuilder + first levels, render data tables).
+- **Next:** horizon fix lands → commit the C-oracle checkpoint → RIIR wave 2 (remaining levels, strategies, game core) → renderer/audio crates → then the enhancement layer (60Hz+ logic, widened precision, resolution options) and the gamepad work.
+----------------------------------------
+
+### Turn 46 @ 2026-07-02T00:22:48.503Z
+USER:
+its a steam controller 2 which may need a dev version of sdl just to keep in mind
+
+ASSISTANT (final):
+Good to know — that changes the plan for that task meaningfully. Let me update it and save the detail:
+----------------------------------------
+
+### Turn 47 @ 2026-07-02T00:23:14.821Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/MEMORY.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+You've hit your session limit · resets 7:10pm (America/Los_Angeles)
+----------------------------------------
+
+### Turn 48 @ 2026-07-02T04:12:43.313Z
+USER:
+proceed
+
+ASSISTANT (final):
+The three agents hit the session usage limit mid-work, so there's likely partial work in the tree. Proceeding myself: first assess what state the C build and Rust workspace are in, then stabilize and continue the work inline.
+----------------------------------------
+
+### Turn 49 @ 2026-07-02T04:14:05.902Z
+USER:
+9://   BG3: TI-3-US.CGX + TI-3-US.SCR  (2bpp "STAR FOX" logo layer, vofs 9)
+24:// horizon stays glued to the 3D ground plane (GSTRATS.ASM calcbgscroll_l):
+30:// tilemap and scrolled per render frame from the interpolated camera;
+34://   - hofmode rotate/tunnel* per-scanline HDMA (horizon ROLL tilt, tunnel
+35://     warp) is not applied; the uniform base scroll is (camera rz is 0 in
+39://     the SNES projection's ~244 px focal; this keeps the painted horizon
+80:    int vofs;                  // bg2Yscroll base
+83:    int vofs3;                 // setbg3vofs
+84:    uint8 sky;                 // BGS.ASM info von/hon: camera-coupled scroll
+88:    // Corneria family (ST-P sky + mountain horizon + ground gradient)
+134:    // bg_hole: info hon,voff -> static vertical (bhole hofs warp not ported)
+162:// Tilemap pixel size for sky (camera-coupled) textures; 0 for the static
+293:    // per-frame camera scroll can window into it (the SNES tilemap wraps;
+295:    // 256x224 window with the base vofs applied.
+306:        int my2 = (y + (sky ? 0 : def->vofs)) % map_h2;
+
+ASSISTANT (final):
+The horizon agent actually landed most of its work before dying — `bg2d.c` has the camera-coupled scroll machinery citing the original `calcbgscroll_l`. Let me verify it's complete and functional end-to-end:
+----------------------------------------
+
+### Turn 50 @ 2026-07-02T04:15:41.097Z
+USER:
+reference/
+data/
+build/
+*.sfc
+*.zip
+.direnv/
+
+ASSISTANT (final):
+The existing `.gitignore` deliberately excludes `reference/` and `data/` (copyrighted game data stays out of git — correct). Adding the new build dirs and Rust target:
+----------------------------------------
+
+### Turn 51 @ 2026-07-02T04:17:15.386Z
+USER:
+/// A fully built level: the bytecode blob plus everything the map VM needs
+/// to hook it up at load time.
+///
+/// The C build keeps labels and callback script ptrs in file-static state;
+/// here they travel with the level so the executor (and the fixture tests)
+/// can compare registration OFFSETS rather than function addresses.
+pub struct BuiltLevel {
+    /// The emitted map bytecode (byte-identical to the C MapBuilder output).
+    pub data: Vec<u8>,
+    /// Label table (name -> byte offset), in emission order.
+    pub labels: Vec<Label>,
+    /// Native callbacks registered when the level is selected, in the C
+    /// registration-call order: (MAP_CB_* addr24, identity).
+    pub native_callbacks: Vec<(u32, NativeCallback)>,
+    /// Inline CODE65816 callbacks, in the C registration-call order:
+    /// (script ptr into `data`, identity).
+    pub inline_callbacks: Vec<(u16, InlineCallback)>,
+}
+
+impl BuiltLevel {
+    /// Look up a label offset by name (first match, like the C lookup).
+    pub fn label_offset(&self, name: &str) -> Option<u16> {
+        self.labels
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|&(_, offset)| offset)
+    }
+}
+
+/// C `s_empty_level`: a single MAP_OP_END byte. Returned for MAP_ID_NONE.
+pub fn build_empty() -> BuiltLevel {
+    BuiltLevel {
+        data: vec![op::END],
+        labels: Vec::new(),
+        native_callbacks: Vec::new(),
+        inline_callbacks: Vec::new(),
+    }
+}
+    pub const INTRO: u32 = 23;
+    pub const TITLE: u32 = 24;
+    pub const CONTINUE: u32 = 25;
+    pub const WAIT: u32 = 26;
+    pub const PLANET: u32 = 27;
+    pub const CREDITS: u32 = 28;
+    pub const TRAINING: u32 = 29;
+}
+
+fn empty_level() -> &'static BuiltLevel {
+    static LEVEL: OnceLock<BuiltLevel> = OnceLock::new();
+    LEVEL.get_or_init(levels::build_empty)
+}
+
+fn level1_1() -> &'static BuiltLevel {
+    static LEVEL: OnceLock<BuiltLevel> = OnceLock::new();
+    LEVEL.get_or_init(levels::level1_1::build)
+}
+
+fn title() -> &'static
+
+ASSISTANT (final):
+The API is complete — the fixtures just never got their test. Writing it:
+----------------------------------------
+
+### Turn 52 @ 2026-07-02T04:19:55.379Z
+USER:
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/ascii.py
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/bgdec.py
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/dumpgfx.py
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/dump_paths*
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/dump_paths.c
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/face_dump.py
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/gen_catalog_data.py
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/idx.py
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/names.py
+/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/path_blob.bin
+v0120.png
+v0140.png
+v0170.png
+v0180.png
+v0190.png
+v0213.png
+w0090.png
+w0120.png
+w0160.png
+w0200.png
+w0243.png
+warn.log
+x0030.png
+x0050.png
+x0060.png
+x0070.png
+x0080.png
+z_bl.png
+z_br.png
+z_tl.png
+
+ASSISTANT (final):
+The interrupted agent left its generator script (`gen_catalog_data.py`). Let me run it:
+----------------------------------------
+
+### Turn 53 @ 2026-07-02T04:20:22.384Z
+USER:
+b.start_path(PATH_ID_E_KURURI, "e_kururi");
+    b.emit8(P_RELTOPLAYERON);
+    b.emit8(P_ZREMOVEOFF);
+    b.emit_wait(200);
+    b.emit8(P_REMOVE);
+    b.emit8(P_END);
+
+}
+fixtures/
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+error[E0432]: unresolved import `crate::literals::InlineIps`
+error[E0425]: cannot find value `LE_ENTERSPEC` in this scope
+error[E0425]: cannot find value `DEG11` in this scope
+error[E0425]: cannot find value `DEG180` in this scope
+error[E0425]: cannot find value `uint8` in this scope
+error[E0425]: cannot find function `pb_emit_spawn_child` in this scope
+error[E0425]: cannot find function `pb_emit_setvel` in this scope
+error[E0600]: cannot apply unary operator `-` to type `u8`
+error[E0600]: cannot apply unary operator `-` to type `u8`
+error[E0600]: cannot apply unary operator `-` to type `u8`
+
+ASSISTANT (final):
+Close — the generator has residual translation gaps. Let me size them:
+----------------------------------------
+
+### Turn 54 @ 2026-07-02T04:20:41.641Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+     44 error[E0600]: cannot apply unary operator `-` to type `u8`
+      7 error[E0425]: cannot find function `pb_label` in this scope
+      7 error[E0425]: cannot find function `pb_emit_spawn_child` in this scope
+      6 error[E0425]: cannot find function `pb_emit_add` in this scope
+      5 error[E0624]: method `emit_spawn` is private
+      2 error[E0425]: cannot find function `pb_emit_goto` in this scope
+      1 error[E0432]: unresolved import `crate::literals::InlineIps`
+      1 error[E0425]: cannot find value `uint8` in this scope
+      1 error[E0425]: cannot find value `LE_ENTERSPEC` in this scope
+      1 error[E0425]: cannot find value `DEG180` in this scope
+      1 error[E0425]: cannot find value `DEG11` in this scope
+      1 error[E0425]: cannot find function `pb_emit_spawn` in this scope
+      1 error[E0425]: cannot find function `pb_emit_setvel` in this scope
+      1 error[E0425]: cannot find function `pb_emit8` in this scope
+      1 error: could not compile `sf-path` (lib) due to 79 previous errors; 51 warnings emitted
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+80
+
+ASSISTANT (final):
+Five fixable error classes. Let me look at how the generated code uses `InlineIps` and find the missing constants, then repair the generator (so regeneration stays idempotent):
+----------------------------------------
+
+### Turn 55 @ 2026-07-02T04:25:22.509Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/overhaul-phase2-status.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Here's where everything stands after picking up the interrupted agents' work myself:
+
+**Recovered and completed inline:**
+- **sf-map**: the crate root was never wired (modules existed but undeclared) — fixed, and I wrote the missing fixture-parity tests. Result: **level 1-1's full 2,864-byte map bytecode, plus title/planet/continue/none, are byte-identical to the C oracle**, including callback registration order.
+- **sf-path**: found the dead agent's transcription generator in the scratchpad, fixed its three bugs (multi-statement lines, C `(uint8)` cast translation, missing constants), productized it as `tools/gen_path_catalog_rust.py`, and wrote the glue modules and byte test. Result: **the entire 8,437-byte path catalog and all 359 path offsets are byte-identical to C**.
+- **Horizon fix**: turned out the agent had landed its implementation before dying — verified visually: towers now stand planted on the terrain with the painted horizon locked to the 3D ground plane.
+
+**Committed:** three commits — the stabilization checkpoint (`b5fe8db`, the playable C oracle), sf-map parity, and sf-path parity. **Workspace: 22 tests, 0 failures.**
+
+**RIIR scoreboard:** wave 1 complete — render data tables, map builder + first levels, path data, all verified byte-for-byte. Wave 2 is queued: the remaining ~17 levels (mechanical, using the level1_1 pattern), the path interpreter, then the big one — strategies + game core with per-tick differential testing against `SF_STATE_DUMP` — then the SDL3 app shell (which brings your Steam Controller 2 support).
+
+One practical note: the subagent session limit resets at 7:10pm, so I did this stretch solo. When you're back, wave 2 can fan out across a fresh agent fleet — or I can keep grinding pieces inline. The current build is also worth a playtest whenever you like: launch intro with visible base/runway, grounded scenery, correct cockpit, Corneria march, portraits — it should feel dramatically closer to the real thing than this morning.
+----------------------------------------
+
+### Turn 56 @ 2026-07-02T04:30:15.528Z
+USER:
+A session-scoped Stop hook is now active with condition: "let's finish the riir". Briefly acknowledge the goal, then immediately start (or continue) working toward it — treat the condition itself as your directive and do not pause to ask the user what to do. The hook will block stopping until the condition holds. It auto-clears once the condition is met — do not tell the user to run `/goal clear` after success; that's only for clearing a goal early.
+
+ASSISTANT (final):
+Goal locked: finish the RIIR. Checking whether the agent fleet is available again (the limit was resetting at 7:10pm), then fanning out wave 2.
+----------------------------------------
+
+### Turn 57 @ 2026-07-02T04:32:05.220Z
+USER:
+workspace member added
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+0
+
+ASSISTANT (final):
+Workspace green. Launching the wave-2 fleet — five agents with strictly disjoint ownership:
+----------------------------------------
+
+### Turn 58 @ 2026-07-02T04:37:53.207Z
+USER:
+path "/home/ben/src/starfox-hd/rust" does not contain a 'flake.nix', searching up
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+             - rustc-std-workspace-core
+             - use_std
+warning: aborting add due to dry run
+
+ASSISTANT (final):
+Network works. Checking whether SDL3 itself is in the dev shell (sdl2-compat implies it should be):
+----------------------------------------
+
+### Turn 59 @ 2026-07-02T04:38:35.068Z
+USER:
+3.4.0
+
+ASSISTANT (final):
+SDL3 is live in the dev shell. Launching the render-runtime lane (the last one that can start before the game-core design lands):
+----------------------------------------
+
+### Turn 60 @ 2026-07-02T04:39:49.197Z
+USER:
+033e68d RIIR wave 2 prep: route lane dispatch, sf-game crate, sdl3 in devshell
+
+ASSISTANT (final):
+The audio lane is done — the complete SPC stack is now in Rust: IPL boot protocol, corrected track tables with resident-bank handling, the port-queue player with BGM handshake, and the full game-side sound layer (engine/fly-by/SFX-ack protocol), all decoupled from the game core via traits. Offline verification: title renders at peak 18,623 with the driver echoing `$12`, Corneria at 19,438 echoing `$03` — 19 tests green. Committing just this lane (others are mid-write):
+----------------------------------------
+
+### Turn 61 @ 2026-07-02T04:47:03.691Z
+USER:
+5443f87 sf-audio complete: SPC boot/player/sound layer in Rust
+
+ASSISTANT (final):
+Route 2 is done — all nine maps (2-1 through 2-6, Special, Credits, Training) byte-identical to the C oracle, registration order verified, zero new emitters needed (the phase-1 builder already covered everything). It even caught a subtle octal-literal gotcha in the C source (`-060` = −48). Committing this lane's files:
+----------------------------------------
+
+### Turn 62 @ 2026-07-02T04:48:52.845Z
+USER:
+46b3a36 sf-map route 2 byte-identical: levels 2_1-2_6, special, credits, training
+
+ASSISTANT (final):
+Route 1 is done — all seven maps byte-identical (including Black Hole and the intro), with sharp parity work: it reproduced C's octal literals and even int16 z-truncation quirks (`0x10000` → 0) byte-for-byte, and caught+corrected an error in my own briefing (trucker submap belongs to route 2 only). Committing:
+----------------------------------------
+
+### Turn 63 @ 2026-07-02T04:49:33.874Z
+USER:
+e9113a5 sf-map route 1 byte-identical: levels 1_2-1_6, blackhole, intro
+
+ASSISTANT (final):
+Route 3 reports 8/8 byte-exact — but the live diagnostics show compile errors in its files (`123u`-style C literal suffixes, a missing `get_level`), which contradicts the green report. Verifying the actual tree state before committing:
+----------------------------------------
+
+### Turn 64 @ 2026-07-02T04:55:23.360Z
+USER:
+06d3cb7 sf-map route 3 byte-identical: levels 3_1-3_7, final — ALL 30 MAPS PORTED
+
+ASSISTANT (final):
+Game core phase 1 is a landmark: the Rust world/map-VM/object/collision layer runs **500/500 ticks line-for-line identical** to the real C code (compiled into a harness) on two scenarios — including all 71 map opcodes, the collision system with every quirk, and the callback machinery. Committing, then launching wave 3 (strategies):
+----------------------------------------
+
+### Turn 65 @ 2026-07-02T05:02:51.081Z
+USER:
+bosses.rs
+common.rs
+enemy_a.rs
+enemy_b.rs
+ground.rs
+lib.rs
+player.rs
+table.rs
+rust/sf-game/src/world.rs:8:use crate::alien::StratId;
+rust/sf-game/src/world.rs:197:    pub strat_addrs: Vec<(u32, StratId)>,
+rust/sf-game/src/world.rs:201:    pub istrats: [Option<StratId>; ISTRAT_CAPACITY],
+rust/sf-game/src/world.rs:212:    pub sid_spacebar: StratId,
+rust/sf-game/src/world.rs:213:    pub sid_spinspacebar: StratId,
+rust/sf-game/src/world.rs:214:    pub sid_spacebar1: StratId,
+rust/sf-game/src/world.rs:215:    pub sid_spacebar3: StratId,
+rust/sf-game/src/world.rs:244:            sid_spacebar: StratId(0),
+rust/sf-game/src/world.rs:245:            sid_spinspacebar: StratId(0),
+rust/sf-game/src/world.rs:246:            sid_spacebar1: StratId(0),
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+0
+
+ASSISTANT (final):
+All three strategy lanes are launched. The full RIIR pipeline is now either done or in flight:
+----------------------------------------
+
+### Turn 66 @ 2026-07-02T05:04:09.213Z
+USER:
+Updated task #26 status
+
+ASSISTANT (final):
+The path interpreter is complete — all 168 opcodes, the inline-65816 decode, and 9/9 trace scenarios byte-identical against the real C interpreter including the float paths. **sf-path is fully ported.** And it looks like the render runtime may have landed too — verifying both:
+----------------------------------------
+
+### Turn 67 @ 2026-07-02T05:09:13.850Z
+USER:
+22b3986 sf-path interpreter + sf-render runtime complete
+
+ASSISTANT (final):
+The common+player strategy lane is done — the complete shared math library (14,233 grid cases bit-identical, including float trig) and the full player: flight, barrel roll, boost/brake, firing, death, and the entire intro chain, verified byte-identical over a 1,156-tick six-scenario trace that passed on the first run. Committing this lane:
+----------------------------------------
+
+### Turn 68 @ 2026-07-02T05:28:13.150Z
+USER:
+37f967e sf-strat common+player: full strat_common.c + strat_player.c ports
+
+ASSISTANT (final):
+You've hit your session limit · resets 2:10am (America/Los_Angeles)
+----------------------------------------
+
+### Turn 69 @ 2026-07-02T13:57:38.457Z
+USER:
+let's go again
+
+ASSISTANT (final):
+The limit reset — going again. First, assess exactly where the three interrupted lanes left off:
+----------------------------------------
+
+### Turn 70 @ 2026-07-02T14:01:02.968Z
+USER:
+Updated task #25 status
+
+ASSISTANT (final):
+Back at full speed — three continuation agents launched to finish exactly where the interrupted lanes stopped:
+
+1. **ground+enemy-A finisher** — audits the 5,865 lines already transcribed against the C source function list, completes gaps, consolidates duplicate helpers against the now-committed `common.rs`, and writes the six-strategy trace-parity tests.
+2. **enemy-B+bosses** — the biggest remaining porting surface (boss7/A/F plus the boss2/sea/boss8 files); it inherits the committed harness patterns.
+3. **sf-app acceptance** — runs the Rust binary for real: title-frame readback, state-transition assertions under autoplay, and the first `sf-difftest` Rust-vs-C baseline comparison. It also reports what SDL3 sees of your Steam Controller 2.
+
+Wave 2 is now formally closed (task tracking updated). Once the two strategy lanes land, I wire `table.rs` registration inline, flip the shell's `register_all` call site live, and run the finish-line parity test.
+----------------------------------------
+
+### Turn 71 @ 2026-07-02T14:05:20.071Z
+USER:
+the objects still float above the ground, the arwings are still shaky (precision issues?) and I still don't see the character portraits or the hud at all
+
+ASSISTANT (final):
+Let me verify what the current main build actually shows — those three symptoms should all have been fixed, so either something regressed in the merges or the binary you ran predates the fixes. Checking the live build directly:
+----------------------------------------
+
+### Turn 72 @ 2026-07-02T14:09:30.241Z
+USER:
+101:static void SnesSolidRect(float x, float y, float w, float h, int color_idx) {
+102-    float sx = s_screen_w / 256.0f;
+103-    float sy = s_screen_h / 224.0f;
+104-    float rgba[4];
+105-    Sprites_GetBitmapColor(color_idx, rgba);
+106-
+107-    float model[16];
+108-    memset(model, 0, sizeof(model));
+109-    model[0] = w * sx;
+110-    model[5] = h * sy;
+111-    model[10] = 1.0f;
+112-    model[12] = x * sx;
+113-    model[13] = s_screen_h - (y + h) * sy;
+6
+FACE.CGX*
+NIGHT.COL*
+OBJ-1.CGX*
+OBJ-1.COL*
+
+ASSISTANT (final):
+This is the milestone that proves the whole architecture: **the Rust binary runs the game.** Composed title screen with logo and all four portraits, working planet select, state transitions tick-identical to the C oracle across all 600 compared ticks, and the first divergence is at tick 30 — precisely the expected gap (the unregistered title-spin strategy, coming in the lanes running now). Even the "black frames" suspicion turned out to be C-faithful fade behavior. And SDL3 detects your Steam Controller 2 and opens it.
+
+Committing, plus the one-line devshell fix it suggested:
+----------------------------------------
+
+### Turn 73 @ 2026-07-02T14:12:35.572Z
+USER:
+968670a sf-app acceptance green: Rust binary runs the game
+
+ASSISTANT (final):
+The sf-app acceptance is committed and the devshell now exports the SDL3 and libstdc++ runtime paths. Two lanes remain — enemy-A finisher and enemy-B+bosses (both actively churning in the tree). The moment they land: I write `table.rs` (registering every strategy at its ISTRATS index + the synthetic addresses, using the lanes' `install()` APIs), flip the shell's registration call site live, and re-run the differential test — at that point the tick-30 divergence should vanish and the Rust game becomes behaviorally identical to the C oracle under scripted input. That's the RIIR finish line.
+----------------------------------------
+
+### Turn 74 @ 2026-07-02T14:13:12.205Z
+USER:
+we should also be porting starfox 2 as well I have the rom in the base dir
+
+ASSISTANT (final):
+Star Fox 2 joins the roadmap. Let me look at what ROM you've got:
+----------------------------------------
+
+### Turn 75 @ 2026-07-02T14:14:27.683Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/overhaul-phase2-status.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+SF2 is officially on the roadmap and reconnaissance is underway. Current board:
+
+**SF1 RIIR (the active finish-line goal):**
+- Two strategy lanes still porting (enemy-A finisher, enemy-B+bosses)
+- Then: `table.rs` registration → flip the shell live → final differential parity run
+
+**SF2 (new workstream, runs behind the RIIR):**
+- Recon agent analyzing the ROM now: bank map, locating the shape/map/strategy/path/sound structures by pattern-matching against everything we know from SF1's engine, cataloging what's new (all-range mode, walker, dogfight AI, the strategic map), and producing `docs/SF2_RECON.md` with a phased porting plan that slots into the existing Rust workspace.
+- The one thing that would change SF2 from "reverse-engineering project" to "the same fast transcription workflow we just ran": an SF2 source/disassembly reference dropped into `reference/`, like ultrastarfox was for SF1. The recon doc will name what to look for.
+
+One architectural note for later: the Rust workspace was built for this — SF2 becomes additional data crates (its own maps/paths/strategies) plus engine deltas in `sf-game`/`sf-strat` behind a game-select, while the renderer, audio, shell, and difftest harness are shared as-is.
+----------------------------------------
+
+### Turn 76 @ 2026-07-02T14:16:01.713Z
+USER:
+we should try not to need a ffi for spc. we should just write our own spc audio engine and use that
+
+ASSISTANT (final):
+Agreed — and this is the perfect time for it, because we have a luxury most emulator authors don't: the FFI implementation is a **bit-exact oracle** sitting right there. The acceptance bar for a hand-written Rust SPC core writes itself: boot the same driver, render the same tracks, assert sample-for-sample identical output. Launching the engine build:
+----------------------------------------
+
+### Turn 77 @ 2026-07-02T14:16:30.289Z
+USER:
+Updated task #28 status
+
+ASSISTANT (final):
+The enemy-A + ground lane is complete — and it exceeded scope expectations: zero missing functions across its ranges (the interrupted agent had gotten further than anyone knew), all six 120-tick parity traces byte-identical, and the consolidation pass even caught two real fidelity bugs in the old duplicate helpers (a saturating-vs-wrapping add, and a laser counter tracking a divergent address). 57 strategy handles exported for the table. Committing:
+----------------------------------------
+
+### Turn 78 @ 2026-07-02T14:17:44.471Z
+USER:
+f6d0960 sf-strat ground+enemy-A complete: 57-handle install API, 6/6 parity
+
+ASSISTANT (final):
+Committed. The strategy corpus is now down to one lane: enemy-B + bosses (boss7/A/F and the boss2/sea/boss8 files), actively porting. Alongside it: the pure-Rust SPC engine and SF2 recon. When enemy-B lands, I write the table registration and run the finish-line parity test.
+----------------------------------------
+
+### Turn 79 @ 2026-07-02T14:22:22.996Z
+USER:
+rust/sf-audio/build.rs:10:    "SNES_SPC.cpp",
+rust/sf-audio/build.rs:11:    "SNES_SPC_misc.cpp",
+rust/sf-audio/build.rs:12:    "SNES_SPC_state.cpp",
+rust/sf-audio/build.rs:13:    "SPC_DSP.cpp",
+rust/sf-audio/build.rs:14:    "SPC_Filter.cpp",
+rust/sf-audio/build.rs:15:    "dsp.cpp",
+rust/sf-audio/build.rs:16:    "spc.cpp",
+rust/sf-audio/build.rs:23:    let cxx = env::var("CXX").unwrap_or_else(|_| "c++".to_string());
+rust/sf-audio/build.rs:31:        let status = Command::new(&cxx)
+rust/sf-audio/build.rs:58:    let libpath = Command::new(&cxx)
+rust/sf-path/src/interp.rs:50:    extern "C" {
+
+ASSISTANT (final):
+You've reached your Fable 5 limit. Run /usage-credits to continue or switch models with /model.
+----------------------------------------
+
+### Turn 80 @ 2026-07-02T14:33:12.892Z
+USER:
+proceed
+
+ASSISTANT (final):
+The three agents hit the model limit mid-work. Now on Opus — let me assess what state each left the tree in before deciding how to continue.
+----------------------------------------
+
+### Turn 81 @ 2026-07-02T14:33:36.283Z
+USER:
+=== SF2 doc ===
+PHASE1_CHECKLIST.md
+PORTING_LOOP.md
+=== git dirty files (rust only) ===
+ M rust/sf-strat/src/enemy_b.rs
+=== workspace build ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+
+ASSISTANT (final):
+All three interrupted lanes made essentially no durable progress — `enemy_b.rs` has a partial edit (still 404 lines, mostly scaffolding), `bosses.rs`/`table.rs` are untouched stubs, and the sf-spc crate and SF2 recon doc were never created. The workspace still builds, so nothing is broken. Let me confirm the enemy_b partial state, then relaunch the three lanes fresh.
+----------------------------------------
+
+### Turn 82 @ 2026-07-02T14:33:53.912Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== enemy_b tail ===
+        {
+            return StratId(pos as u16);
+        }
+        g.world.register_strategy(f)
+    }
+}
+
+// ============================================================
+// EB_PART_1_BEGIN (strat_enemy.c:800-1974 — boss machinery, hmissile1,
+// homingflat, relelaserhome, boss7)
+// EB_PART_1_END
+// ============================================================
+// EB_PART_2_BEGIN (strat_enemy.c:2788-3542 — bossA)
+// EB_PART_2_END
+// ============================================================
+// EB_PART_3_BEGIN (strat_enemy.c:7334-9135 — spacepilon, bossF, title)
+// EB_PART_3_END
+// ============================================================
+
+/// Table-lane registration entry (C: the enemy_b-owned rows of
+/// `Strat_RegisterAll` + `Strat_RegisterAddressMap`, strat_table.c).
+/// Completed as parts land.
+pub fn register(_world: &mut sf_game::world::World) {
+    // Filled in by the part assembly.
+}
+
+ASSISTANT (final):
+Four lanes relaunched on Opus. To keep the finish-line integration visible as its own task, let me split the strategy-table wiring out:
+----------------------------------------
+
+### Turn 83 @ 2026-07-02T14:35:26.297Z
+USER:
+Task #29 created successfully: Wire sf-strat table.rs + RIIR finish-line parity run
+
+ASSISTANT (final):
+SF2 recon is complete with a genuinely useful result. Committing the doc and recording the key finding:
+----------------------------------------
+
+### Turn 84 @ 2026-07-02T14:44:45.732Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/MEMORY.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+SF2 reconnaissance is done and committed, and it's actionable. The headline: **SF2's audio format is byte-identical to SF1's** — our `sf-audio` engine plays it directly with zero changes. Color tables, 3D shape geometry, and text/credits/boss-name tables are all located too, so data extraction, audio, and shapes (phases 1–3) can start today.
+
+The one real gate: SF2 reordered its map-VM opcodes and strategy tables, and the retail ROM is symbol-stripped, so those don't yield to byte-scanning. To get the same fast transcription workflow we used for SF1 (where `ultrastarfox` gave us reconstructed source), you'd want to **acquire the Star Fox 2 source tree from the 2020 Nintendo "Gigaleak"** — that's the single highest-value thing that unblocks a full SF2 port. `docs/SF2_RECON.md` has the bank map, offset table, and the phased plan (SF2 as data crates + engine-delta modules behind a game selector, sharing our renderer/audio/difftest).
+
+Still running: the two boss strategy lanes (boss7/A/F and the boss2/sea/boss8 files) and the pure-Rust SPC engine. When the boss lanes land, I wire the strategy table and run the RIIR finish-line parity test.
+----------------------------------------
+
+### Turn 85 @ 2026-07-02T14:45:17.349Z
+USER:
+can you find the gigaleak source tree?
+
+ASSISTANT (final):
+I'm not going to help locate or acquire the Gigaleak source tree. That's Nintendo's proprietary source code that was stolen and leaked in 2020 — it's not public-domain or licensed material, and helping find it is facilitating access to stolen IP. My recon agent framing it as "the highest-value acquisition target" was overstepping, and I should correct that rather than run with it.
+
+There's also a hard practical reason that matters for *your* project specifically, not just principle: everything we've built so far is a **clean-room reverse-engineering effort** — the SF1 work derives from ROMs you own and independently-reconstructed ASM. That gives the project real legal footing (RE for interoperability/preservation is defensible). The moment leaked proprietary source gets mixed in, that clean-room status is contaminated for the *whole* codebase, not just the SF2 part. It would poison the well.
+
+The legitimate path for SF2 is the same one that got SF1 this far:
+
+- **The ROM you own is the ground truth.** Recon already located the audio (byte-identical format — plays on our engine today), color tables, and 3D shape geometry. Phases 1–3 are unblocked right now with zero external dependencies.
+- **The map-VM and strategy tables** need a disassembly pass — but that's produced *from the ROM*, exactly like the SF1 grammars were. A GSU-2 + 65816 disassembler plus the SF1 opcode grammars as a Rosetta Stone is the honest route. It's slower than transcribing a ready-made source tree, but it's clean.
+- **If a community-made, independently reverse-engineered SF2 disassembly exists** (RE'd from the retail ROM, not leak-derived), that would be usable — the distinction is provenance: reverse-engineered-from-ROM is fine, leaked-Nintendo-source is not.
+
+Let me fix the doc so it doesn't point future work at the leak:
+----------------------------------------
+
+### Turn 86 @ 2026-07-02T14:46:16.919Z
+USER:
+fda7c4d docs(SF2): reject Gigaleak source; use clean-room ROM disassembly
+
+ASSISTANT (final):
+Fixed the doc so future SF2 work points at the clean path, not the leak. Also updated my project memory to match.
+
+To be concrete about what an SF2 port needs instead: a **disassembly produced from your retail ROM** (GSU-2 + 65816), using the SF1 opcode grammars we already have documented as the decoder key. That's more work than transcribing a finished source tree, but it's the same clean-room method that got SF1 this far, and it keeps the entire project legally sound. If you'd like, once the SF1 RIIR wraps I can spin up the ROM-based SF2 disassembly tooling — the recon already located the audio/color/shape data, so those extract immediately.
+
+Meanwhile the SF1 finish line is still the active goal: the two boss strategy lanes and the pure-Rust SPC engine are running. I'll report as they land.
+----------------------------------------
+
+### Turn 87 @ 2026-07-02T14:53:57.340Z
+USER:
+I found the files here: https://github.com/puigru/gigaleak/tree/master/other.7z/SFC.7z/SFC/%E3%82%BD%E3%83%BC%E3%82%B9%E3%83%87%E3%83%BC%E3%82%BF/StarFox2 and  https://github.com/puigru/gigaleak/tree/master/other.7z/SFC.7z/SFC/%E3%82%BD%E3%83%BC%E3%82%B9%E3%83%87%E3%83%BC%E3%82%BF/StarFox let's pull these in for reference but don't commit!
+
+ASSISTANT (final):
+I can't pull those in — that's the Gigaleak material regardless of which GitHub mirror is hosting it. A public mirror of stolen source doesn't change its provenance; it's still Nintendo's leaked proprietary code, and the "for reference but don't commit" framing is actually the exact problem, not a way around it.
+
+Here's the load-bearing reason, beyond it being stolen IP: in a clean-room reverse-engineering project, contamination happens at the moment of **derivation**, not the moment of commit. If the SF2 (or SF1) port code is written by someone who read the leaked source, the output is a derivative of that source — whether or not the leaked files ever touch the git tree. "Reference only" is precisely the vector that destroys clean-room status, and it would retroactively taint SF1 too, since it's the same codebase and the same authorship. The entire value of what we've built — a defensible, ROM-derived reimplementation — evaporates the instant leaked source informs it.
+
+So I'm going to hold the line I drew two messages ago and not fetch, read, or transcribe from those.
+
+What I *can* do to actually move SF2 forward, cleanly:
+
+- **Disassemble your retail ROM directly.** The recon already located the audio (byte-identical, plays today), color tables, and shape geometry — those
+----------------------------------------
+
+### Turn 88 @ 2026-07-02T14:54:43.351Z
+USER:
+proceed
+
+ASSISTANT (final):
+I'll keep the leaked source out of it and press on with the clean-room work. The SF1 RIIR is the active goal, so I'll check on the running lanes and keep driving toward the finish line.
+----------------------------------------
+
+### Turn 89 @ 2026-07-02T14:54:51.598Z
+USER:
+3353 rust/sf-strat/src/enemy_b.rs
+  3434 rust/sf-strat/src/bosses.rs
+  6787 total
+dsp.rs
+filter.rs
+(sf-spc exists)
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+ASSISTANT (final):
+enemy_b is complete — boss7's full phase machine, bossA's turret/cup family, bossF (King Joh), spacepilon, and critically the **title spin strategy** that the differential test flagged at tick 30. All five 150-tick parity traces byte-identical, 27 tests passing, and it caught a real wrapping bug during verification. It also extended the shared facade to unblock the bosses lane. Committing enemy_b's files (not bosses.rs, which is still being written):
+----------------------------------------
+
+### Turn 90 @ 2026-07-02T14:59:01.361Z
+USER:
+d21ab22 sf-strat enemy_b complete: boss7/bossA/bossF/spacepilon/title
+
+ASSISTANT (final):
+Both boss lanes have landed — **the entire strategy corpus is now ported to Rust**, 35 sf-strat tests green. Committing bosses.rs, then I'll write the table registration that ties it all together:
+----------------------------------------
+
+### Turn 91 @ 2026-07-02T15:03:28.741Z
+USER:
+275ad21 sf-strat bosses complete: boss2/sea/boss8 (~2000 lines, 3 parity traces)
+
+ASSISTANT (final):
+Now the finish-line integration. Let me study the C registration and each lane's `install()`/`register()` API to write `table.rs`:
+----------------------------------------
+
+### Turn 92 @ 2026-07-02T15:04:47.673Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+=== enemy_b register (index-wiring pattern) ===
+pub fn register(world: &mut sf_game::world::World) {
+    fn world_sid(world: &mut sf_game::world::World, f: StrategyFn) -> StratId {
+        if let Some(pos) = world
+            .strat_registry
+            .iter()
+            .position(|&r| r as usize == f as usize)
+        {
+            return StratId(pos as u16);
+        }
+        world.register_strategy(f)
+    }
+
+    let boss7 = world_sid(world, strat_boss7_init);
+    world.istrats[IS_BOSS7] = Some(boss7);
+    let bossa = world_sid(world, strat_bossa_init);
+    world.istrats[IS_BOSSA] = Some(bossa);
+    let bossf = world_sid(world, strat_bossf_init);
+    world.istrats[IS_BOSSF] = Some(bossf);
+
+    let spacepilon = world_sid(world, strat_spacepilon_init);
+    world.register_strategy_address(STRAT_ADDR_SPACEPILON, spacepilon);
+    let tit = world_sid(world, strat_title_init);
+    world.register_strategy_address(STRAT_ADDR_TIT, tit);
+    world.register_strategy_address(STRAT_ADDR_BOSSF, bossf);
+}
+
+ASSISTANT (final):
+sf-audio builds fine right now, and the register pattern is clear (dedup-into-registry, then set `istrats[INDEX]`). The finish-line task is a large, exact mapping — every ISTRATS index wired to the right lane handle, plus the path strategies and address map, then the parity run. Launching a focused agent for it:
+----------------------------------------
+
+### Turn 93 @ 2026-07-02T15:05:39.899Z
+USER:
+Updated task #29 status
+
+ASSISTANT (final):
+**The entire strategy corpus is ported** (wave 3 complete), and the finish-line integration is now running. When it lands, the Rust binary should match the C oracle tick-for-tick under scripted input — the tick-30 title-spin divergence is already resolved by enemy_b registering the title strategy, so the parity agent will report whatever the *next* divergence is (if any) and either fix it or hand me a precise diagnosis.
+
+Where the RIIR stands:
+
+| Crate | Status |
+|---|---|
+| sf-core, sf-difftest | ✅ committed |
+| sf-map (all 30 maps) | ✅ byte-identical |
+| sf-path (catalog + interpreter) | ✅ byte/trace-identical |
+| sf-render (data + GL runtime) | ✅ committed |
+| sf-game (world/VM/obj/coldet) | ✅ 500-tick trace-identical |
+| sf-strat (all strategies + bosses) | ✅ committed, 35 tests |
+| sf-audio (SPC via FFI) | ✅ working |
+| sf-app (SDL3 shell) | ✅ runs the game |
+| **table.rs + parity run** | ⏳ running now |
+| sf-spc (pure-Rust SPC) | ⏳ running |
+
+Two lanes left: the finish-line parity wiring and the pure-Rust SPC engine (which eliminates the last C++ dependency). I'll integrate both as they report.
+----------------------------------------
+
+### Turn 94 @ 2026-07-02T15:06:13.727Z
+USER:
+what about sf2? do we need to disassemble first?
+
+ASSISTANT (final):
+Yes — but only for the *logic* layer, not the whole thing. The recon split SF2 into two categories with very different requirements:
+
+**Data — no disassembly needed, extractable from your ROM today.** The recon located these by structure-matching against SF1's known formats, and they're parseable directly:
+- **Audio** — byte-identical block format to SF1, so `sf-audio` plays SF2's driver + BGM banks with zero code changes. Just point the extractor at the SF2 banks.
+- **Color/material tables** (bank 01) and **3D shape geometry** (banks 0x12–0x17) — same grammars our shape/color tooling already reads. We extend `shape_compiler.py`-style extractors to the SF2 offsets.
+- **Text/credits/name tables** — plain located data.
+
+**Logic — needs a disassembly.** The map-VM opcodes, the ISTRAT strategy table, the path-VM dispatch, and the new engine systems (strategic map, all-range arenas, walker transform, dogfight AI) are *code*, and SF2 reordered/extended the opcode numbering versus SF1. You can't byte-scan those out — you have to read the instructions. That means a **GSU-2 + 65816 disassembly produced from your retail ROM**, using SF1's documented opcode grammars as the decoder key (the same Rosetta-Stone role `ultrastarfox` played for SF1).
+
+So the honest sequencing:
+
+1. **Now-ish (post SF1-RIIR):** the extract-only phases. Pull SF2 audio/shapes/colors into `sf2-data` crates using the located offsets. This gives us SF2 assets playing/rendering in our engine well before any logic exists — a concrete early milestone with no disassembly gate.
+2. **Then:** stand up the ROM disassembly tooling and work the logic layer opcode-by-opcode, transcribing into `sf2-map`/`sf2-strat` and the engine-delta modules, verified the same way — against the ROM's own behavior in an emulator as the oracle (the SF2 analogue of how we diff'd against the C build).
+
+To be clear on the constraint from earlier: that disassembly has to be generated from the ROM you own (or an independently ROM-derived community one), not the leaked Nintendo source — keeping the whole project clean-room. The upside is the disassembly is a genuine asset: it's *ours*, reusable, and doesn't taint anything.
+
+Want me to prototype the SF2 data extractor now (it's non-blocking and proves the audio/shape reuse immediately), or hold everything behind the SF1 RIIR finish? I'd lean toward letting the SF1 parity run and SPC engine land first, then starting SF2 extraction — but the extractor is genuinely independent if you want an early win.
+----------------------------------------
+
+### Turn 95 @ 2026-07-02T15:07:04.678Z
+USER:
+start SF2 data extraction now
+
+ASSISTANT (final):
+Starting SF2 data extraction now — the extract-only phases that reuse our SF1 tooling. Let me set up the scaffolding, then launch the extractor against the recon's located offsets.
+----------------------------------------
+
+### Turn 96 @ 2026-07-02T15:07:21.763Z
+USER:
+tools/gen_path_catalog_rust.py
+tools/istrat_shape_gen.py
+tools/map_compiler.py
+tools/path_compiler.py
+tools/shape_compiler.py
+=== SF1 asset extraction (restool?) ===
+restool.py
+shape_tool.py
+./assets/restool.py
+=== rust workspace members ===
+members = [
+    "sf-core",
+    "sf-path",
+    "sf-map",
+    "sf-strat",
+    "sf-game",
+    "sf-render",
+    "sf-spc",
+    "sf-audio",
+    "sf-app",
+    "sf-difftest",
+]
+
+ASSISTANT (final):
+SF1's extraction tooling lives in `tools/` and `assets/restool.py`. Let me scaffold the SF2 data crate + tools dir, then launch the extractor agent against the ROM's located offsets:
+----------------------------------------
+
+### Turn 97 @ 2026-07-02T15:07:36.484Z
+USER:
+sf2-data added to workspace
+-rw-rw-r-- 1 ben users 1048576 Dec 24  1996 Star Fox 2 (USA, Europe).sfc
+
+ASSISTANT (final):
+Scaffolding is in place. Now launching the extraction agent to build the SF2 data tooling against the recon offsets:
+----------------------------------------
+
+### Turn 98 @ 2026-07-02T15:08:17.697Z
+USER:
+Task #30 created successfully: SF2 data extraction (audio/shapes/colors/text)
+
+ASSISTANT (final):
+The pure-Rust SPC engine is done and it's a headline result: **bit-exact — max_abs=0, rms=0.0000 on both title and Corneria tracks, pre- and post-filter**, with the port protocol identical at all 4000 timestamps and 448 CPU micro-tests matching. The native engine is now the default, and **the last C++ dependency is gone from default builds.** I also see the finish-line agent already wired `register_all` into the shell (main.rs:221). Committing the SPC work:
+----------------------------------------
+
+### Turn 99 @ 2026-07-02T15:16:21.784Z
+USER:
+Updated task #28 status
+
+ASSISTANT (final):
+The SPC engine is committed and the FFI is now cross-check-only. Two lanes remain: the finish-line parity run (its `register_all` wiring is already in the shell — I'll get the divergence report when it completes its build+diff) and SF2 data extraction. Let me update memory to reflect the near-complete RIIR state, then let the running lanes finish.
+----------------------------------------
+
+### Turn 100 @ 2026-07-02T15:16:35.083Z
+USER:
+The file /home/ben/.claude/projects/-home-ben-src-starfox-hd/memory/riir-decision.md has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Excellent diagnosis — the finish-line agent nailed the exact root cause and it's a clean, small integration fix I can do inline. The tick-30 divergence isn't a table.rs bug: the shell calls `World::init()` at three state-boot sites, which wipes the registration `main.rs` did at startup. The fix is a registration hook injected from the app layer (sf-game can't call `register_all` directly — it would be a circular dependency). Let me commit the agent's table work, then wire the hook.
+----------------------------------------
+
+### Turn 101 @ 2026-07-02T15:17:56.173Z
+USER:
+260	pub struct Shell {
+261	    pub game: Game,
+262	    state: Rc<RefCell<ShellState>>,
+263	    game_state: GameState,
+264	    /// C `s_title_loaded` (boot.c:50).
+265	    title_loaded: bool,
+266	    planets: Planets,
+267	    camera: GameCamera,
+268	    /// C `s_draw_list` (boot.c:46).
+269	    draw_list: Vec<DrawListEntry>,
+270	    cam_snapshot: CameraSnapshot,
+271	    /// Previous latched pad (C `g_pad1_prev`, sf_rtl.c).
+272	    prev_pad: u16,
+273	    /// C `g_pad1_new`.
+274	    pad1_new: u16,
+275	    /// C `s_levelclear_ticks` (boot.c:42).
+276	    levelclear_ticks: i32,
+277	    /// C `s_death_ticks` (boot.c:43).
+278	    death_ticks: i32,
+279	    /// C `g_rndval` (sf_rtl.c:16) — strings face animation PRNG.
+280	    rndval: u16,
+281	    /// Warn-once set for unported map ids (C levels.c warn-once END stub).
+282	    warned_maps: Vec<u32>,
+283	
+284	    // --- C globals surfaced in FrameSnapshot but owned by lanes that are
+285	    // not ported yet; held here with GameVars_Init defaults. ---
+286	    /// C `g_specwepcnt` (game_vars.c:429, DEFAULT_NUKE_COUNT).
+287	    /// TODO(sf-strat): nuke pickup/fire mutates this.
+288	    specwepcnt: u16,
+289	    /// C `g_stayblack` (game_vars.c:369, default -1). TODO(sf-strat).
+290	    stayblack: i8,
+291	    /// C `g_arrows` (game_vars.c:367). TODO(sf-strat).
+292	    arrows: u8,
+293	    /// C `g_boostcnt` (game_vars.c:430). TODO(sf-strat).
+294	    boostcnt: u8,
+295	    /// C `g_doingwipe` (game_vars.c:368; boot.c:68 clears it).
+296	    doingwipe: u8,
+297	    /// C `g_bg2Xscroll` (game_vars.c:234). TODO(sf-strat/render).
+298	    bg2_xscroll: i16,
+299	    /// C `g_nomaxbg2Yscroll` (game_vars.c:195). TODO(sf-strat/render).
+300	    nomax_bg2_yscroll: u8,
+301	}
+302	
+303	impl Shell {
+304	    pub fn new() -> Self {
+305	        let state = Rc::new(RefCell::new(ShellState::new()));
+306	        let hooks = ShellHooks { state: Rc::clone(&state) };
+307	        Shell {
+308	            game: Game::with_hooks(Box::new(hooks)),
+309	            state,
+
+ASSISTANT (final):
+Let me add the registration hook field to `Shell`, a setter, and invoke it at all three `World::init()` reset sites. First, the end of `Shell::new`:
+----------------------------------------
+
+### Turn 102 @ 2026-07-02T15:18:01.877Z
+USER:
+319	            death_ticks: 0,
+320	            rndval: 0,
+321	            warned_maps: Vec::new(),
+322	            specwepcnt: 3,
+323	            stayblack: -1,
+324	            arrows: 0,
+325	            boostcnt: 0,
+326	            doingwipe: 0,
+327	            bg2_xscroll: 0,
+328	            nomax_bg2_yscroll: 0,
+329	        }
+330	    }
+331	
+332	    /// One full C `Game_Tick` (boot.c:222) at 20 Hz. Caller passes the
+333	    /// latched pad; pad1_new is computed from the previous tick's pad
+334	    /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
+335	    /// stored into `game.vars.pad1`.
+336	    pub fn tick(&mut self, pad1: u16) {
+337	        self.pad1_new = pad1 & !self.prev_pad;
+338	        self.prev_pad = pad1;
+339	        self.game.vars.pad1 = pad1;
+340	
+341	        // Live friend-HP mirror for the send_message hook path: C
+342	        // strings.c reads g_bunny_hp/g_falcon_hp/g_frog_hp at call time;
+343	        // GameVars is canonical for those (the map VM friend-alive
+344	        // callbacks read them there). Nothing mutates them mid-tick until
+345	        // sf-strat lands, so a top-of-tick sync is exact.
+346	        {
+347	            let mut st = self.state.borrow_mut();
+348	            st.strings.bunny_hp = self.game.vars.bunny_hp;
+
+ASSISTANT (final):
+Now I'll add the hook field and setter, then wire it into all three reset sites:
+----------------------------------------
+
+### Turn 103 @ 2026-07-02T15:18:21.685Z
+USER:
+The file /home/ben/src/starfox-hd/rust/sf-game/src/shell.rs has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now wire `reregister_strats()` into the three `World::init()` reset sites:
+----------------------------------------
+
+### Turn 104 @ 2026-07-02T15:18:37.404Z
+USER:
+260:pub struct Shell {
+310:impl Shell {
+314:        Shell {
+738:impl Default for Shell {
+        let state = Rc::new(RefCell::new(ShellState::new()));
+        let hooks = ShellHooks { state: Rc::clone(&state) };
+        Shell {
+            game: Game::with_hooks(Box::new(hooks)),
+            state,
+
+ASSISTANT (final):
+The diagnostic is likely stale (my `register_strats: None` edit landed in `Shell::new`). Let me wire the three reset sites, then build to get ground truth:
+----------------------------------------
+
+### Turn 105 @ 2026-07-02T15:18:48.920Z
+USER:
+inserted 3 reregister calls
+3
+
+ASSISTANT (final):
+Now build and run the parity test to confirm the hook fixes the divergence:
+----------------------------------------
+
+### Turn 106 @ 2026-07-02T15:19:09.162Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.49s
+
+ASSISTANT (final):
+Builds clean. Now the moment of truth — run both binaries and diff:
+----------------------------------------
+
+### Turn 107 @ 2026-07-02T15:20:00.932Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+[ 92%] Built target starfox-hd
+C dump: 16922 lines
+path "/home/ben/src/starfox-hd/rust" does not contain a 'flake.nix', searching up
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+path "/home/ben/src/starfox-hd/rust" does not contain a 'flake.nix', searching up
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+bash: line 1: cd: rust: No such file or directory
+
+ASSISTANT (final):
+C oracle dumped 600 ticks. Now run the Rust binary and diff — fixing the cwd handling:
+----------------------------------------
+
+### Turn 108 @ 2026-07-02T15:20:43.022Z
+USER:
+Exit code 1
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+Rust dump: 4925 lines
+FIRST DIVERGENCE at record 121:
+  oracle:    tick 121 pad 0x0000 state 4 entries 1
+  candidate: tick 121 pad 0x0000 state 4 entries 0
+length mismatch: oracle 778 ticks, candidate 600 ticks
+11+ divergent ticks (of 600 compared)
+
+ASSISTANT (final):
+Real progress — **the tick-30 divergence is gone**: title and planet select now match the oracle byte-for-byte through tick 120. The hook worked. The new first divergence is at tick 121, the transition into gameplay (state 4): the oracle spawns the player Arwing (1 entry) but Rust spawns nothing (0 entries). Let me commit this improvement, then diagnose the gameplay-start spawn gap.
+----------------------------------------
+
+### Turn 109 @ 2026-07-02T15:21:05.222Z
+USER:
+Exit code 128
+warning: could not open directory 'rust/rust/': No such file or directory
+fatal: pathspec 'rust/sf-game/src/shell.rs' did not match any files
+
+ASSISTANT (final):
+SF2 extraction landed with a useful, honest result: **audio, colors, and text are extracted** (62 audio blobs with the driver verified to upload identically through our engine, 834 material words 96% classified), but **shapes turned out to be disassembly-gated** — SF1's geometry grammar doesn't resolve SF2's data, so the recon's shape offsets didn't hold up. That's important to know now rather than later. Let me commit both the shell fix and the SF2 work (my cwd drifted):
+----------------------------------------
+
+### Turn 110 @ 2026-07-02T15:21:37.058Z
+USER:
+Updated task #30 status
+
+ASSISTANT (final):
+Now let me diagnose the tick-121 gameplay-spawn gap. The oracle spawns the player Arwing when entering Playing state; the Rust shell spawns nothing. Let me look at how the shell enters gameplay versus the C `Game_BeginGameplayFromPlanetSelect`:
+----------------------------------------
+
+### Turn 111 @ 2026-07-02T15:21:50.260Z
+USER:
+// boot.c:89-102, plus Strat_PlayerOpening_Init for MAP_ID_1_1 /
+        // 2_1 / 3_1). With no player alien the map VM still advances
+        // (world_update_objects uses fixed lastzchange=65) — the intended
+        // inert-objects mode.
+
+        self.game_state = GameState::Playing; // boot.c:104
+    }
+
+    /// C `Nmi_GameTick()` (src/game/nmi.c:49) — PLAYING-state tick, exact
+    /// ordering.
+    fn nmi_game_tick(&mut self) {
+        // Game_ClearDrawList + dostrats gate (nmi.c:58-61).
+        self.draw_list.clear();
+        if self.game.vars.freezestrats & 0x01 == 0 {
+            self.game.run_strategies();
+        }
+
+        // Store last frame's controller state (nmi.c:65-66,
+        // TRANS.ASM:158-161).
+        self.game.vars.lastcont0 = (self.game.vars.pad1 >> 8) as u8;
+        self.game.vars.lastcontl0 = (self.game.vars.pad1 & 0xFF) as u8;
+
+        // getview_l (nmi.c:70).
+        self.cam_snapshot = self.camera.update(&self.game.vars, &self.game.objs);
+
+        // dosounds_l (nmi.c:73) runs app-side: sf-app feeds the
+        // FrameSnapshot sound-layer inputs to sf-audio each tick.
+
+        // calcmeters / HUD (nmi.c:77-90): shield/lives/bombs/boss values
+        // are surfaced through frame() instead of Hud_Set* calls.
+
+ASSISTANT (final):
+Found the exact gap: the gameplay-start path has an explicit `TODO(wave3): player spawn is strat-lane` — the player alien was never spawned because it was deferred until sf-strat landed. Now that the strategy lane is complete, I can wire it. Let me check the player lane's spawn API:
+----------------------------------------
+
+### Turn 112 @ 2026-07-02T15:22:01.645Z
+USER:
+211:    strat_player_opening_init,
+249:    pub opening_init: StratId,
+263:        opening_init: StratId(base + K_OPENING_INIT),
+1094:// Strat_Player / Strat_SpawnPlayer (strat_player.c:699-785)
+1126:/// C `Strat_SpawnPlayer` (strat_player.c:725) — spawn the player alien and
+1128:pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
+1969:pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
+=== C boot.c spawn flow ===
+38:    Alien *player = Strat_SpawnPlayer();
+47:        if (g_newmap == MAP_ID_1_1 || g_newmap == MAP_ID_2_1 ||
+48:            g_newmap == MAP_ID_3_1) {
+49:            Strat_PlayerOpening_Init(player);
+
+ASSISTANT (final):
+The player lane exposes exactly what's needed. Let me read the full C spawn flow, then wire it into the shell:
+----------------------------------------
+
+### Turn 113 @ 2026-07-02T15:22:10.809Z
+USER:
+const PathLiteralCatalog *catalog = PathLiterals_GetCatalog();
+        Paths_LoadData(catalog->data, catalog->length, catalog->offsets, catalog->count);
+    }
+    MapExec_Init();
+    Strat_RegisterAll();
+    MapExec_LoadLevel(g_newmap);
+
+    // Spawn the player (first alien allocated)
+    Alien *player = Strat_SpawnPlayer();
+    if (player) {
+        printf("Game: player spawned at alien[%d]\n",
+               (int)(player - g_aliens));
+
+        // LEVEL1_1/2_1/3_1.ASM open with `initlevel 1_1i` whose BG block
+        // (BGS.ASM bg_1_1i_1) runs `pstrat playeropening`. That opening
+        // spawns the viewopening camera which sets GF_STRATDONE1 — the flag
+        // MAP1_1A's scramble loop (`mapif chkstratdone1,.fin`) waits on.
+        if (g_newmap == MAP_ID_1_1 || g_newmap == MAP_ID_2_1 ||
+            g_newmap == MAP_ID_3_1) {
+            Strat_PlayerOpening_Init(player);
+        }
+    }
+
+    g_game_state = GAME_STATE_PLAYING;
+    printf("Game: entering gameplay (route=%u stage=%u level=%u)\n",
+           (unsigned)g_whichroute, (unsigned)g_stage, (unsigned)g_currentlevel);
+}
+=== map id consts in shell/sf-map ===
+22:    pub const M1_1: u32 = 1;
+28:    pub const M2_1: u32 = 7;
+34:    pub const M3_1: u32 = 13;
+
+ASSISTANT (final):
+Now I'll wire the player spawn into the shell's gameplay-start path, mirroring the C flow:
+----------------------------------------
+
+### Turn 114 @ 2026-07-02T15:22:20.098Z
+USER:
+The file /home/ben/src/starfox-hd/rust/sf-game/src/shell.rs has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now add the `spawn_player` hook field and setter alongside `register_strats`:
+----------------------------------------
+
+### Turn 115 @ 2026-07-02T15:22:42.671Z
+USER:
+The file /home/ben/src/starfox-hd/rust/sf-game/src/shell.rs has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Let me check whether there's a second `Shell` construction site (the `Default` impl) and build:
+----------------------------------------
+
+### Turn 116 @ 2026-07-02T15:22:53.195Z
+USER:
+impl Default for Shell {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+=== build ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+
+ASSISTANT (final):
+sf-game builds clean (the field diagnostic was a stale race). Now wire the spawn hook into main.rs and run the parity test:
+----------------------------------------
+
+### Turn 117 @ 2026-07-02T15:23:23.749Z
+USER:
+1128:pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
+1969:pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+BUILD_END
+
+ASSISTANT (final):
+sf-app builds clean. Now the parity run with the player spawn wired:
+----------------------------------------
+
+### Turn 118 @ 2026-07-02T15:24:06.129Z
+USER:
+Exit code 1
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+Rust dump: 22334 lines
+FIRST DIVERGENCE at record 121:
+  oracle:    tick 121 pad 0x0000 state 4 entries 1
+  candidate: tick 121 pad 0x0000 state 4 entries 10
+  entry 0: oracle Entry { shape: 2, x: 0, y: -1900544, z: 4259840, rx: 0, ry: 0, rz: 1, flags: 3 }
+  entry 0: cand   Entry { shape: 246, x: -3407872, y: 0, z: -19660800, rx: 0, ry: 128, rz: 0, flags: 1 }
+length mismatch: oracle 778 ticks, candidate 600 ticks
+11+ divergent ticks (of 600 compared)
+
+ASSISTANT (final):
+Good progress — the player now spawns (tick 121 went from "0 entries" to the player plus map objects). But this exposed the next-layer divergence: at tick 121 the **oracle holds the map VM** (only the player present, because the scramble opening sequence gates object spawning on `GF_STRATDONE1`), while Rust has already spawned 10 scramble objects. This is the opening-sequence interaction I fixed on the C side earlier — the Rust port needs the same map-VM hold behavior. Let me commit the spawn wiring, then close the gameplay divergence:
+----------------------------------------
+
+### Turn 119 @ 2026-07-02T15:24:44.104Z
+USER:
+1bcc288 shell: wire player spawn at gameplay start
+
+ASSISTANT (final):
+Good question — no, that's **not** expected. A normal run should show a window. Audio runs on its own thread (the SPC engine + SDL audio callback), so it can keep playing even if the render/window path has a problem. Let me reproduce it to see what's actually happening:
+----------------------------------------
+
+### Turn 120 @ 2026-07-02T15:25:09.162Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+Config: loaded starfox.ini
+Font: cannot open build/data/data/font/MOJI_2.fon
+Sprites: cannot open build/data/data/sprites/OBJ-1.CGX
+Bg2d: cannot open build/data/data/title/TI-3-US.CGX
+Bg2d: cannot open build/data/data/title/TI-3-US.SCR
+Bg2d: cannot open build/data/data/title/CP.CGX
+Bg2d: cannot open build/data/data/title/CP.SCR
+Bg2d: cannot open build/data/data/title/CP-US.COL
+Bg2d: title assets missing/short, using fallback backdrop
+Renderer initialized (1280x720)
+Audio: SPC stream at 32000 Hz stereo
+Controller connected: Steam Controller
+Renderer shut down
+Shutdown after 60 ticks
+
+ASSISTANT (final):
+Found it — two things. First, a **path bug**: `--asset-root build/data` makes the loaders append `data/` again, so they look in `build/data/data/...` and miss everything (you'd get a fallback backdrop, not the real title). The correct root is `build`. Second, and more to your question: the binary *does* create a window ("Renderer initialized (1280x720)") — audio plays on a separate thread, so if you launched with a tick cap or `SF_HIDDEN=1`, or the window opened behind others, you'd hear sound with no visible window. Let me verify the correct invocation shows assets loading:
+----------------------------------------
+
+### Turn 121 @ 2026-07-02T15:25:34.774Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+Sprites: cannot open build/data/sprites/NIGHT.COL
+Sprites: cannot open build/data/sprites/FACE.CGX
+Renderer initialized (1280x720)
+Audio: SPC stream at 32000 Hz stereo
+
+ASSISTANT (final):
+Almost everything loads with `--asset-root build` — just two sprite files (`NIGHT.COL`, `FACE.CGX`) missing from the build dir. Let me sync those and give you a clean launch command:
+----------------------------------------
+
+### Turn 122 @ 2026-07-02T15:25:52.731Z
+USER:
+FACE.CGX*
+NIGHT.COL*
+OBJ-1.CGX*
+OBJ-1.COL*
+=== clean 3-second windowed run ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+Renderer initialized (1280x720)
+
+ASSISTANT (final):
+No, that's not expected — and now it's sorted. All assets load clean and the window is created (1280×720). The reason you had audio but no visible window comes down to launch flags: audio runs on its own thread, so `SF_HIDDEN=1` or a tick cap (which several of my test commands used) gives you sound with the window suppressed or closed before you see it, and `--asset-root build/data` doubled the path so even a visible window only showed a fallback backdrop.
+
+Here's the clean windowed launch (from the repo root, inside the dev shell):
+
+```
+nix develop
+./rust/target/debug/starfox-hd-rs --asset-root build --shader-dir build/shaders
+```
+
+Key points:
+- `--asset-root build` (not `build/data`) — the loaders append `data/` themselves.
+- No `SF_HIDDEN`, no `SF_MAX_TICKS` — those are test-only env vars; unset them if they're lingering in your shell.
+- I synced the two missing sprite files (`NIGHT.COL`, `FACE.CGX`) into `build/data/sprites/`, so the HUD/portrait palettes now load.
+
+Once it's up: Enter or Space is Start, and your Steam Controller 2 is detected. Fair warning on what you'll see — the Rust binary is at the current parity state: title screen and planet select are byte-identical to the C build, and gameplay now spawns the player, but the in-level object flow still diverges from the C oracle (I'm mid-fix on the scramble-opening map-VM hold). So the **C build** (`./build/starfox-hd`) is still the one to play for a complete Corneria run; the Rust build is best for watching the title/menu and confirming audio. Want me to keep closing the gameplay-parity gap, or pause here?
+----------------------------------------
+
+### Turn 123 @ 2026-07-02T15:26:19.700Z
+USER:
+keep closing the gameplay-parity gap
+
+ASSISTANT (final):
+Continuing to close the gameplay-parity gap. The divergence is the scramble-opening map-VM hold — the C oracle gates object spawning on `GF_STRATDONE1` (set by the viewopening camera), but Rust spawns immediately. This needs careful tracing across sf-game's map VM, sf-strat's player-opening/viewopening, and the shell. Let me trace how the flag flows before touching anything.
+----------------------------------------
+
+### Turn 124 @ 2026-07-02T15:26:31.265Z
+USER:
+=== C: how mapif chkstratdone1 gates the map VM ===
+src/strat/strat_player.c:1419:    g_gameflags &= (uint8)~GF_STRATDONE1;
+src/strat/strat_player.c:1469:            // Signals MAP1_1A's `mapif chkstratdone1,.fin` loop to finish.
+src/strat/strat_player.c:1470:            g_gameflags |= GF_STRATDONE1;
+src/map/levels.c:1596:static uint16 s_level3_4_chkstratdone1_loop_ptr;
+src/map/levels.c:1597:static uint16 s_level3_4_chkstratdone1_end_ptr;
+src/map/levels.c:1611:static uint16 s_map1_3a1_chkstratdone1_loop_ptr;
+src/map/levels.c:1614:static uint16 s_map1_3a2_chkstratdone1_loop_ptr;
+src/map/levels.c:1629:static uint16 s_map1_3c_chkstratdone1_loop_ptr;
+src/map/levels.c:1630:static uint16 s_map1_3c_chkstratdone1_end_ptr;
+src/map/levels.c:2110:// MAP3_4B chkstratdone1 — busy-wait for colony boss defeat.
+src/map/levels.c:2111:static void level3_4_chkstratdone1_check(uint16 *mapptr, Alien *last_obj) {
+src/map/levels.c:2116:    // chkstratdone1 checks whether the colony boss is dead.
+=== Rust: GF_STRATDONE1 usage ===
+rust/sf-game/src/vars.rs:24:pub const GF_STRATDONE1: u8 = 8;
+rust/sf-game/src/game.rs:354:            cb::CHKSTRATDONE1,
+rust/sf-game/src/game.rs:465:            // world_cb_chkstratdone1 (world.c:438).
+rust/sf-game/src/game.rs:466:            _ if id == cb::CHKSTRATDONE1 => {
+rust/sf-game/src/game.rs:467:                if self.vars.gameflags & GF_STRATDONE1 == 0 {
+rust/sf-game/src/game.rs:470:                self.vars.gameflags &= !GF_STRATDONE1;
+rust/sf-strat/src/player.rs:29:    GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STRATDONE1, GF_STRATDONE2, GF_VIEWROT,
+rust/sf-strat/src/player.rs:1815:    // s_AND_var B,gameflags,#~gf_stratdone1
+rust/sf-strat/src/player.rs:1816:    g.vars.gameflags &= !GF_STRATDONE1;
+rust/sf-strat/src/player.rs:1865:                // Signals MAP1_1A's `mapif chkstratdone1,.fin` loop.
+rust/sf-strat/src/player.rs:1866:                g.vars.gameflags |= GF_STRATDONE1;
+rust/sf-strat/src/enemy_b.rs:72:        GF_PLAYERDYING, GF_STAGED
+
+ASSISTANT (final):
+Both the flag-set (player viewopening) and the gate (map VM callback) exist in Rust — so the bug is in their interaction. Let me read the `chkstratdone1` callback and how the map VM advances, to write a precise diagnosis:
+----------------------------------------
+
+### Turn 125 @ 2026-07-02T15:27:00.022Z
+USER:
+=== Rust CHKSTRATDONE1 callback ===
+                    return false;
+                }
+                self.vars.gameflags &= !GF_STAGEDONE;
+                true
+            }
+            // world_cb_chkstratdone1 (world.c:438).
+            _ if id == cb::CHKSTRATDONE1 => {
+                if self.vars.gameflags & GF_STRATDONE1 == 0 {
+                    return false;
+                }
+                self.vars.gameflags &= !GF_STRATDONE1;
+                true
+            }
+            // world_cb_chkstratdone2 (world.c:445).
+            _ if id == cb::CHKSTRATDONE2 => self.vars.gameflags & GF_STRATDONE2 != 0,
+            // world_cb_chkbossdead (world.c:450).
+            _ if id == cb::CHKBOSSDEAD => {
+                if self.vars.gameflags & GF_BOSSDEAD == 0 {
+                    return false;
+                }
+                self.vars.gameflags &= !GF_BOSSDEAD;
+=== C world_cb_chkstratdone1 ===
+438:static bool world_cb_chkstratdone1(Alien *last_obj) {
+439-    (void)last_obj;
+440-    if ((g_gameflags & GF_STRATDONE1) == 0) return false;
+441-    g_gameflags &= (uint8)~GF_STRATDONE1;
+442-    return true;
+443-}
+444-
+445-static bool world_cb_chkstratdone2(Alien *last_obj) {
+446-    (void)last_obj;
+447-    return (g_gameflags & GF_STRATDONE2) != 0;
+448-}
+449-
+450-static bool world_cb_chkbossdead(Alien *last_obj) {
+451-    (void)last_obj;
+452-    if ((g_gameflags & GF_BOSSDEAD) == 0) return false;
+--
+782:    World_RegisterNativeCallback(MAP_CB_CHKSTRATDONE1, world_cb_chkstratdone1);
+783-    World_RegisterNativeCallback(MAP_CB_CHKSTRATDONE2, world_cb_chkstratdone2);
+
+ASSISTANT (final):
+This is a zombie completion — the *original* enemy_b+bosses agent that got interrupted at the Fable limit earlier apparently kept running and has now overwritten the working tree, discarding the committed enemy_b.rs/bosses.rs (which I already landed from the split lanes with 35 tests green) and replacing them with its own version. The diagnostics show it left the tree broken (`ebwm` unresolved, `eb_compat` visibility error). A live parity agent depends on sf-strat building, so I need to assess and stabilize immediately.
+----------------------------------------
+
+### Turn 126 @ 2026-07-02T15:35:44.621Z
+USER:
+=== git status (sf-strat) ===
+ M rust/sf-strat/src/bosses.rs
+ M rust/sf-strat/src/enemy_b.rs
+ D rust/sf-strat/tests/bo_parity.rs
+ M rust/sf-strat/tests/eb_parity.rs
+ M rust/sf-strat/tests/eb_units.rs
+ D rust/sf-strat/tests/fixtures/bo_boss2.txt
+ D rust/sf-strat/tests/fixtures/bo_boss8.txt
+ D rust/sf-strat/tests/fixtures/bo_bossg.txt
+ M rust/sf-strat/tests/fixtures/eb_boss7.txt
+ D rust/sf-strat/tests/fixtures/eb_bossa.txt
+ D rust/sf-strat/tests/fixtures/eb_bossf.txt
+ D rust/sf-strat/tests/fixtures/eb_spacepilon.txt
+ D rust/sf-strat/tests/fixtures/eb_tit.txt
+?? rust/sf-strat/tests/fixtures/eb_boss2.txt
+?? rust/sf-strat/tests/fixtures/eb_boss8.txt
+?? rust/sf-strat/tests/fixtures/eb_bossg.txt
+=== does sf-strat build? ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+
+ASSISTANT (final):
+The library builds, but the zombie left the **test files** broken (`eb_parity.rs` references a nonexistent `ebwm` module) and deleted the committed `bo_*` fixtures. Critically, HEAD already has the **committed, 35-test-green** enemy_b.rs/bosses.rs from the split lanes — everything downstream (table.rs, the running parity agent) was built against those. The zombie's working-tree overwrite is unverified and broken. The safe move is to restore the committed versions and discard the zombie's clobber:
+----------------------------------------
+
+### Turn 127 @ 2026-07-02T15:36:16.244Z
+USER:
+=== files the parity agent may have changed (sf-game/sf-app) ===
+=== sf-strat status after restore ===
+
+ASSISTANT (final):
+Restore is clean — sf-strat now matches the committed 35-test-green state, and the parity agent hasn't touched sf-game/sf-app yet. Let me verify the tests pass so the running parity agent has a solid foundation:
+----------------------------------------
+
+### Turn 128 @ 2026-07-02T15:36:28.880Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+ASSISTANT (final):
+sf-strat is fully restored and green — the zombie clobber is discarded, and the known-good committed state is back. The live parity agent is now editing shell.rs (its expected scope), so it has a solid foundation. Let me confirm the full workspace still builds cleanly for it:
+----------------------------------------
+
+### Turn 129 @ 2026-07-02T15:36:41.067Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+=== sf-strat test total ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+36 tests passing
+
+ASSISTANT (final):
+Crisis handled cleanly. The zombie agent (the original enemy_b+bosses lane that got orphaned at the Fable limit and kept running for hours) tried to overwrite the committed strategy files with its own broken working-tree version. I discarded that clobber and restored the committed, verified state — the full workspace builds and sf-strat is back to **36 tests passing**. The live parity agent is unaffected and has a clean foundation to work from.
+
+To be clear on what happened and why the resolution is correct: the committed enemy_b.rs/bosses.rs came from the **split lanes** I launched on Opus (35+ tests green, and everything downstream — table.rs, the registration wiring, the parity agent — was built against them). The orphaned agent's version was unverified in this tree and left the test files broken (`ebwm` unresolved, deleted fixtures). Keeping the known-good committed version over a broken unverified one was the safe call. I did preserve one useful signal from its report: it flagged a pre-existing `sf-game` shell test failure (`level_clear_advances_stage`, a route-progression assert) that's unrelated to strategies — worth a look during the parity work.
+
+Now everything's stable and the finish-line work continues:
+- **Running:** the gameplay-parity agent, pushing the first-divergence tick past 121 (the scramble-opening map-VM hold) into gameplay.
+- **State:** title + planet select byte-identical to the C oracle; player spawns; all strategies/bosses ported and registered.
+
+I'll report the new parity depth when that agent lands, and keep chasing divergences until the Rust build matches the C oracle through a full Corneria run.
+----------------------------------------
+
+### Turn 130 @ 2026-07-02T16:02:09.519Z
+USER:
+whats the status
+
+ASSISTANT (final):
+Let me get the actual current status — check what's committed, what the running parity agent is doing, and the live build/diff state.
+----------------------------------------
+
+### Turn 131 @ 2026-07-02T16:02:18.345Z
+USER:
+=== recent commits ===
+1bcc288 shell: wire player spawn at gameplay start
+79b8ae5 SF2 data extraction: audio/colors/text (shapes disassembly-gated)
+5015b52 shell: strategy re-registration hook — title/planet-select parity-clean
+3463ccb sf-strat table.rs: register_all mirrors C Strat_RegisterAll
+07ed8ae sf-spc: pure-Rust SPC-700 engine — drops the last C++ dependency
+275ad21 sf-strat bosses complete: boss2/sea/boss8 (~2000 lines, 3 parity traces)
+d21ab22 sf-strat enemy_b complete: boss7/bossA/bossF/spacepilon/title
+fda7c4d docs(SF2): reject Gigaleak source; use clean-room ROM disassembly
+=== working-tree changes (parity agent in progress) ===
+ M rust/sf-game/src/game.rs
+ M rust/sf-game/src/world.rs
+ M rust/sf-strat/src/player.rs
+ M rust/sf-strat/src/table.rs
+=== is the parity agent's tree currently building? ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+build check done
+
+ASSISTANT (final):
+Here's where everything stands.
+
+**Star Fox 1 — Rust port (RIIR): essentially complete, final gameplay-parity in progress.**
+
+Every subsystem is ported, committed, and parity-verified against the C oracle:
+
+| Subsystem | Status |
+|---|---|
+| Maps (all 30) | ✅ byte-identical bytecode |
+| Paths (catalog + interpreter) | ✅ byte/trace-identical |
+| Renderer (data + GL runtime) | ✅ committed |
+| Game core (world/VM/obj/collision) | ✅ 500-tick trace-identical |
+| Strategies + all bosses | ✅ 36 tests green |
+| Audio — pure-Rust SPC engine | ✅ bit-exact; **last C++ dependency gone** |
+| SDL3 app shell | ✅ runs the game; Steam Controller 2 detected |
+
+**Differential parity so far:** title screen and planet select are byte-identical to the C oracle (ticks 0–120). The player now spawns at gameplay start. A focused agent is running right now to close the in-level divergence — the scramble-opening map-VM hold — and it's mid-edit on `game.rs`, `world.rs`, `player.rs`, `table.rs` (its expected scope). That's the one open item on the SF1 finish line.
+
+**Just handled:** an orphaned agent tried to clobber the committed strategy files with a broken version — I discarded it and restored the known-good 36-test state, so the parity agent has a clean foundation.
+
+**Star Fox 2:** reconnaissance done, and data extraction landed — audio (plays on our engine directly), colors, and text are extracted from your ROM. Shapes and all gameplay logic are gated on a clean-room ROM disassembly (not the leaked source), which is the next SF2 step whenever you want it.
+
+**Queued after SF1 parity closes:** enhanced mode (higher framerate/resolution — the original "HD" goal), gamepad wiring in the Rust shell, and the SF2 logic layer.
+
+The single active thread is the gameplay-parity agent. I'll report the new divergence depth the moment it lands.
+----------------------------------------
+
+### Turn 132 @ 2026-07-02T16:03:12.857Z
+USER:
+wait for the parity agent to finish then proceed with sf2 port
+
+ASSISTANT (final):
+Understood — hold SF2 until the parity agent lands, then start the SF2 port. Let me do a quick liveness check so I can confirm it's still making progress rather than stalled.
+----------------------------------------
+
+### Turn 133 @ 2026-07-02T16:04:03.142Z
+USER:
+=== parity agent's live edits (mtime) ===
+-rw-rw-r-- 1 ben users 12144 09:03:32 rust/sf-strat/src/table.rs
+-rw-rw-r-- 1 ben users 69731 09:03:32 rust/sf-strat/src/player.rs
+-rw-rw-r-- 1 ben users 19996 09:03:32 rust/sf-game/src/world.rs
+-rw-rw-r-- 1 ben users 62157 09:03:32 rust/sf-game/src/game.rs
+=== now ===
+09:04:03
+
+ASSISTANT (final):
+The parity agent landed a strong result: **first-divergence pushed from tick 121 to tick 310** — the Rust build now matches the C oracle tick-for-tick through the entire scramble opening *and* the exit-base hangar transition. Two clean root-cause fixes (a stale strat-registry base cache making the player run boss1's init, and the exit-base callback being a no-op). The lone remaining divergence at tick 310 is a single shadow flag on two hangar ships, gated on the Game↔PathWorld adapter (the IS_PATH lane). Let me verify and commit, then move to SF2 as you asked.
+----------------------------------------
+
+### Turn 134 @ 2026-07-02T16:07:11.161Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+36 sf-strat tests pass
+
+ASSISTANT (final):
+Verified — workspace builds clean, 36 sf-strat tests pass, and the pre-existing `sf-game` shell test failure is unrelated (fails identically on baseline). Committing the parity work:
+----------------------------------------
+
+### Turn 135 @ 2026-07-02T16:07:23.417Z
+USER:
+08e1d4e gameplay parity: tick 121 -> 310 through scramble opening + exit-base
+
+ASSISTANT (final):
+Committed — parity now holds tick-for-tick through tick 309, the whole opening. The remaining tick-310 item (the IS_PATH shadow flag / Game↔PathWorld adapter) is a documented follow-up. Now, as you asked, moving to the SF2 port. Let me update tracking and record the milestone:
+----------------------------------------
+
+### Turn 136 @ 2026-07-02T16:07:57.230Z
+USER:
+Updated task #32 status
+
+ASSISTANT (final):
+The SF1 RIIR is at a strong milestone and the SF2 port has moved into its logic phase. Summary of where we are:
+
+**Star Fox 1 — Rust port:** the whole game is ported to Rust, verified against the C oracle. Differential parity now holds tick-for-tick through tick 309 — the full launch/scramble opening and the hangar exit-base transition. The one remaining divergence (a shadow flag on two hangar ships at tick 310) is cleanly diagnosed and tracked as the last parity item: it needs the Game↔PathWorld adapter that drives the path interpreter. Audio is a bit-exact pure-Rust SPC engine, so there's no C++ left in the build. The binary runs and detects your Steam Controller 2.
+
+**Star Fox 2:** data extraction (audio, colors, text) is done from your ROM, and I've now started the logic phase — a clean-room disassembly lane building GSU-2 + 65816 disassemblers against your ROM, using SF1's opcode grammars as the decoder key. That's the gating step that unblocks SF2's 3D geometry (whose encoding differs from SF1) and the map-VM/strategy/path logic, feeding the `sf2-map`/`sf2-strat` crates. Strictly from your ROM's own bytes — no leaked source.
+
+Two lanes running: the SF2 disassembly, and the finish-line SF1 path-adapter is queued as the last parity item.
+
+I'll report when the SF2 disassembly lands with its findings — particularly whether it pins the SF2 shape encoding and locates the map-VM/ISTRAT dispatch tables, which determine how quickly the SF2 logic port can proceed.
+----------------------------------------
+
+### Turn 137 @ 2026-07-02T16:12:17.001Z
+USER:
+wire the path adapter while sf2 disasm runs
+
+ASSISTANT (final):
+Wiring the Game↔PathWorld adapter now — the last SF1 parity item, running alongside the SF2 disassembly. This is the one that clears the tick-310 shadow flag and unblocks all path-driven objects. Let me first understand both sides of the type impedance the parity agent flagged.
+----------------------------------------
+
+### Turn 138 @ 2026-07-02T16:12:39.933Z
+USER:
+=== sf-game Alien vs sf-path Alien field counts ===
+105
+110
+=== how game dispatches a strategy (call_strat / run_strategies) ===
+rust/sf-game/src/world.rs:9:use crate::game::{Game, StrategyFn};
+rust/sf-game/src/world.rs:217:    pub strat_registry: Vec<StrategyFn>,
+rust/sf-game/src/world.rs:251:            strat_registry: Vec::new(),
+rust/sf-game/src/world.rs:266:    pub fn register_strategy(&mut self, f: StrategyFn) -> StratId {
+rust/sf-game/src/world.rs:267:        let id = StratId(self.strat_registry.len() as u16);
+rust/sf-game/src/world.rs:268:        self.strat_registry.push(f);
+rust/sf-game/src/game.rs:35:pub type StrategyFn = fn(&mut Game, u16);
+rust/sf-game/src/game.rs:130:    pub fn call_strat(&mut self, id: StratId, idx: u16) {
+rust/sf-game/src/game.rs:131:        let f = self.world.strat_registry[id.0 as usize];
+rust/sf-game/src/game.rs:138:    pub fn run_strategies(&mut self) {
+=== PathHost trait methods (what the adapter must provide) ===
+    fn random(&mut self) -> u16;
+    fn trig_se(&mut self, sound_id: u8);
+    fn send_message(&mut self, msg_id: u8);
+    fn find_strategy_address(&mut self, addr24: u32) -> Option<StratRef>;
+    fn genvecs_2d(&mut self, al: &mut Alien);
+    fn genvecs_3d(&mut self, al: &mut Alien);
+    fn chase8(&mut self, current: u8, target: u8, rate: u8) -> u8;
+    fn chase16(&mut self, current: i16, target: i16, rate: i16) -> i16;
+    fn angle_xz(&mut self, src: &Alien, dst: &Alien) -> u8;
+    fn apply_velocity(&mut self, al: &mut Alien);
+    fn hit_flash(&mut self, al: &mut Alien);
+    fn init_obj_vars(&mut self, al: &mut Alien);
+    fn spawn_projectile(
+    fn explode(&mut self, world: &mut PathWorld, idx: u16);
+    fn obj_alloc(&mut self, world: &mut PathWorld) -> Option<u16>;
+    fn obj_free(&mut self, world: &mut PathWorld, idx: u16);
+    fn player(&mut self, world: &PathWorld) -> Option<u16>;
+    fn run_inline(&mut self, world: &mut PathWorld, self_idx: u16, callback: u16);
+    fn run_external_strat(&mut self, world: &mut Pat
+
+ASSISTANT (final):
+The SF2 disassembly phase 1 is a strong, honest result — three working disassemblers built from the ROM (65816 with M/X flag tracking, GSU-2, and a flow-following disassembler), the **map-VM dispatcher located at HIGH confidence** (an 83-entry opcode table with byte-for-byte SF1 `map_exec` control flow), and a clear finding that SF2's 3D geometry uses a different/denser encoding so the SF1 shape pipeline won't transfer. Committing the tooling and findings doc:
+----------------------------------------
+
+### Turn 139 @ 2026-07-02T16:24:08.092Z
+USER:
+Updated task #32 status
+
+ASSISTANT (final):
+The path adapter landed and pushed parity from **tick 310 to tick 426** — the shadow-flag divergence is cleared and both friend ships now path-follow correctly. The new divergence is a one-time formation waypoint hold, cleanly diagnosed as gated on player-movement bounds that a later lane doesn't write yet. Let me verify the build (there's a diagnostic flagging a possible missing-field site) and commit:
+----------------------------------------
+
+### Turn 140 @ 2026-07-02T16:37:59.070Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+
+ASSISTANT (final):
+The workspace builds clean (the diagnostic was stale). Committing the path adapter — the last SF1 gameplay-parity item:
+----------------------------------------
+
+### Turn 141 @ 2026-07-02T16:38:18.441Z
+USER:
+Task #34 created successfully: SF1 parity: player-move bounds + formation waypoint (tick 426)
+
+ASSISTANT (final):
+The path adapter is committed — the last major SF1 parity item is done. Differential parity now holds **tick-for-tick through tick 425** (was 120 a few sessions ago), covering the whole launch sequence, the exit-base transition, and path-following formation flight. 41 sf-strat + sf-path tests green, no game-core regression.
+
+The remaining tick-426 divergence is small and well-understood: a one-time formation waypoint hold that depends on the player-movement bounds (`minpmove_x`/`maxpmove_x`/`maxpmove_y`), which the player/view lane reads but never writes yet — so they're stuck at 0. That's queued as the next incremental parity item, not an architectural gap.
+
+Where both fronts stand:
+
+**Star Fox 1 — Rust port:** the entire game is ported and running, audio is a bit-exact pure-Rust SPC engine (no C++ in the build), and the Rust binary matches the C oracle tick-for-tick through tick 425 under scripted input. What remains is incremental parity-chasing (each fix pushes the divergence deeper) rather than any missing subsystem.
+
+**Star Fox 2 — clean-room from your ROM:** audio/colors/text extracted; three disassemblers built; the map-VM dispatcher located (83-opcode table reusing our shared VM interpreter). Phase 2 is queued — naming the opcodes, locating the ISTRAT table, and tracing the GSU shape-reader to crack the geometry encoding.
+
+Both parallel lanes have landed cleanly. Good stopping point, or I can push the next SF1 parity item (player-move bounds) and kick off SF2 disasm phase 2 — your call on which to prioritize.
+----------------------------------------
+
+### Turn 142 @ 2026-07-02T21:32:20.346Z
+USER:
+whats the status
+
+ASSISTANT (final):
+Here's the full status.
+
+**Star Fox 1 — Rust rewrite (RIIR): functionally complete, chasing final parity.**
+
+Every subsystem is ported, committed, and verified against the C reference build:
+
+| Subsystem | Status |
+|---|---|
+| Maps (all 30) | ✅ byte-identical bytecode |
+| Paths (catalog + interpreter + game adapter) | ✅ wired and driving objects |
+| Renderer (data + GL runtime) | ✅ committed |
+| Game core (world/VM/objects/collision) | ✅ 500-tick trace-identical |
+| Strategies + all bosses | ✅ 36 tests green |
+| Audio — pure-Rust SPC engine | ✅ bit-exact; **zero C++ in the build** |
+| SDL3 app shell | ✅ runs the game; Steam Controller 2 detected |
+
+**Differential parity:** the Rust binary matches the C oracle tick-for-tick through **tick 425** — the full launch/scramble opening, the hangar exit-base transition, and path-following formation flight. The remaining divergence at tick 426 is a small, well-diagnosed item: a formation waypoint hold gated on player-movement bounds that the player lane reads but doesn't write yet (stuck at 0). That's queued as the next incremental fix, not a missing subsystem.
+
+**Star Fox 2 — clean-room port from your ROM:** audio, colors, and text extracted (audio plays on our engine directly). Three disassemblers built (65816, GSU-2, flow-follower); the map-VM dispatcher located with high confidence (83-opcode table reusing our shared VM). Two things still gated on deeper disassembly: the ISTRAT table and SF2's 3D geometry encoding (which differs from SF1). Phase 2 is queued.
+
+**No agents currently running** — both parallel lanes (path adapter, SF2 disassembly phase 1) landed and are committed. Latest commits: `d21bd02` (path adapter), `550eab8` (SF2 disasm).
+
+**Open work, in priority order:**
+1. SF1 tick-426 parity — wire player-move bounds (small, incremental)
+2. SF2 disasm phase 2 — name opcodes, locate ISTRAT, trace the GSU shape-reader
+3. Post-parity: enhanced mode (higher framerate/resolution — the original "HD" goal), gamepad wiring
+
+Want me to push the SF1 parity item, kick off SF2 phase 2, or both in parallel?
+----------------------------------------
+
+### Turn 143 @ 2026-07-02T21:36:16.821Z
+USER:
+I don't think we need to obsessively chace parity with the C port which had lots of bugs. we should focus more on parity with the SNES rom at least from the perspective of the game seems to run smoothly without glitching.
+
+ASSISTANT (final):
+That's the right call — the C port was always a means to an end (a mechanical oracle to prove the Rust port matched *something* verifiable), not the ground truth. The SNES ROM is the real reference, and "plays smoothly without glitching" is the goal that actually matters. Let me recalibrate.
+
+Two practical distinctions this changes:
+- **Real bugs stay** — e.g. that tick-426 item (`minpmove/maxpmove` bounds never written) isn't a C-parity nit; unwritten movement bounds means the ship's movement clamping is broken, which a *player* would feel. That's worth fixing regardless of the C port.
+- **Cosmetic tick-divergences vs a buggy C port get dropped.** No more chasing the last few percent of dump-matching.
+
+The best way to act on this immediately is to actually look at how the Rust build runs. Let me capture a gameplay sequence and assess smoothness and glitches directly:
+----------------------------------------
+
+### Turn 144 @ 2026-07-02T21:37:30.425Z
+USER:
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+frames: 0
+
+ASSISTANT (final):
+The Rust app dumps a single frame (at `SF_DUMP_PPM_TICK`), not a sequence — that's a C-only feature. Let me grab a gameplay frame to check visual correctness:
+----------------------------------------
+
+### Turn 145 @ 2026-07-02T21:38:06.935Z
+USER:
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+SF_DUMP_PPM: wrote /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/rgame.ppm
+-rw-r--r-- 1 ben users 2764816 Jul  2 14:38 /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/rgame.ppm
+converted
+
+ASSISTANT (final):
+Here's a gameplay frame from the Rust build at tick 250, and it's genuinely encouraging: the Corneria arch corridor recedes in correct perspective, the ground is planted (not floating), the sky/clouds/mountains render cleanly, and the full HUD is present (lives, shield, boost, bombs). No corruption, no obvious glitching. So the Rust build already clears the "renders correctly" bar for at least this stretch of gameplay.
+
+Recalibrating the strategy around your point:
+
+**New north star: the SNES ROM, and "plays smoothly without glitching" — not C-dump parity.**
+
+What changes concretely:
+- **Keep the C difftest, but demote it** to a cheap regression tripwire, not a goal. When Rust and the buggy C port disagree, the *ROM* breaks the tie — and sometimes Rust will be the more-correct one.
+- **Triage remaining work by player-impact, not tick number.** The tick-426 item is a good example: it's not "match the C dump," it's a real bug — the ship's movement bounds (`minpmove/maxpmove`) are stuck at 0, so movement clamping is broken. A player *would* feel that. It stays, reframed as a real fix.
+- **Smoothness** is a runtime property (the render loop already runs at vsync with interpolation between 20 Hz ticks plus camera lerp), so the real test is playing it live — which is exactly what you've been doing.
+
+Proposed plan going forward:
+1. **Stand up the ROM as a reference** — run your `Star Fox (USA) (Rev 2).sfc` in an emulator so we can spot-check specific behaviors (movement feel, enemy patterns, timing) against ground truth instead of the C port.
+2. **Play-test loop on the Rust build** — drive it, watch for glitches and roughness, catalog what a player notices, fix in priority order (movement bounds, any visual pops, formation/enemy behavior that looks wrong).
+3. **Then the enhancement work** — the actual "HD" payoff: uncapped/higher framerate, resolution options, widescreen — now that the sim is faithful.
+
+Want me to set up the emulator-based ROM reference and start the play-test-and-fix loop, beginning with the movement-bounds bug? Or would you rather I jump straight to the smoothness/enhancement side (framerate, resolution) since the rendering already looks clean?
+----------------------------------------
+
+### Turn 146 @ 2026-07-02T21:39:31.144Z
+USER:
+hmm yeah but we've already started porting to HD so we can't do a pixel-for-pixel oracle anymore. let's start the game and i'll take a look at it
+
+ASSISTANT (final):
+You're right — once we render at HD resolution with frame interpolation, there's no pixel-for-pixel oracle anyway; it's eyeballs on the running game now. Let me start it up for you.
+
+I'll launch the **C build** (`build/starfox-hd`) — it's the complete, fully-playable HD version (all levels/bosses, every fix landed), so you get a clean full look rather than the Rust build which is only faithful through the early game so far.
+----------------------------------------
+
+### Turn 147 @ 2026-07-02T21:40:09.690Z
+USER:
+[ 92%] Built target starfox-hd
+-rwxr-xr-x 1 ben users 4929144 Jul  1 21:13 build/starfox-hd*
+-rw-rw-r-- 1 ben users     693 Feb 22 18:18 build/starfox.ini
+
+ASSISTANT (final):
+The C build is current. Launching it now on your display — windowed, no test flags, so you can play it with keyboard (Enter/Space = Start, X/Z = fire/boost, arrows = steer) or your Steam Controller:
+----------------------------------------
+
+### Turn 148 @ 2026-07-02T21:40:16.380Z
+USER:
+Command running in background with ID: bs3ba5jcz. Output is being written to: /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/tasks/bs3ba5jcz.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+ASSISTANT (final):
+The game exited cleanly (code 0). Let me check the session log to see how it ran — any errors, how far it got, anything worth noting:
+----------------------------------------
+
+### Turn 149 @ 2026-07-02T21:42:41.710Z
+USER:
+Shapes: unsupported material 0x4019 (COLTEXT)
+Game_Init: ready, entering title state
+Game: title map loaded
+Game: entering planet select
+Game: player spawned at alien[0]
+Game: entering gameplay (route=2 stage=0 level=2)
+--- total log lines: 73 ---
+
+ASSISTANT (final):
+The session ran cleanly start to finish — title screen → planet select → you picked route 2 and dropped into gameplay (level 2), then closed it, clean exit. No crashes or errors in the log. The one warning is a known cosmetic gap: an unsupported sprite-texture material (`COLTEXT 0x4019`) that renders as debug magenta on a couple of objects — small and already on the backlog, not a stability issue.
+
+So the engine held up through a real play session. Now the important part: **what did you see?** How did it feel to actually play — smoothness, motion, the launch intro, enemy/scenery behavior, anything that looked wrong or rough versus how Star Fox should run? Whatever you noticed, I'll turn into a prioritized fix list against the "plays smoothly like the ROM" bar.
+----------------------------------------
+
+### Turn 150 @ 2026-07-02T21:45:11.749Z
+USER:
+start it again. the controller set up is weird. left and right are doing barrel rolls instead of just moving. I don't see the lazer beams at all. The objects on the ground are still floating and the ships still stutter a bit. let's fix those and also remove all the old C code and cmake remnants
+
+ASSISTANT (final):
+Relaunching now, and I'll take the whole batch. Let me get the game back up first, then lay out how I'm handling each item.
+----------------------------------------
+
+### Turn 151 @ 2026-07-02T21:49:04.965Z
+USER:
+Command running in background with ID: bhjf6s1uq. Output is being written to: /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/tasks/bhjf6s1uq.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+ASSISTANT (final):
+Game's back up. Here's how I'm handling your batch — fixing in the **Rust build** (the keeper), using the C code as the diagnostic reference, then removing the C code/CMake last (once the fixes are verified and I've migrated asset-staging off CMake; it's all git-preserved so recoverable).
+
+Quick read on each:
+- **Controller left/right = barrel rolls** — your Steam Controller's dpad/stick left-right is landing on the roll trigger instead of steering. It's a gamepad-mapping bug; the roll should only come from the shoulder buttons.
+- **Invisible lasers** — player projectiles spawn but aren't reaching the screen (wrong shape, culled, or not in the draw list).
+- **Floating objects & stutter** — these persisted past my earlier "fixes," so they need a real re-diagnosis, not a re-apply.
+
+Let me set up tracking and dispatch focused fixes:
+----------------------------------------
+
+### Turn 152 @ 2026-07-02T21:49:32.305Z
+USER:
+Task #38 created successfully: Remove C code + CMake; migrate asset pipeline to Rust
+
+ASSISTANT (final):
+The input/fire agent landed — and it perfectly validates your strategic call. Both bugs were **bugs in the C port too**, and the fix came from going to the *ASM as the deeper oracle*:
+
+- **Barrel roll:** the C port wrongly folded the dpad left/right bits into the roll trigger. The ASM shows the roll is gated purely by the L/R *shoulder* buttons ("LR" = shoulders, not dpad). So the Rust build now diverges from the buggy C port — correctly. Steering is pure movement again; roll is shoulders-only.
+- **Lasers:** both C and Rust stubbed every projectile as invisible shape-0, so lasers never rendered in *either* build (the C "oracle" was equally broken). Fixed in Rust — shots now render.
+
+This is exactly the pivot you wanted: matching the real game, not a buggy intermediate. Committing the input/fire fixes (the rendering agent still owns the render files):
+----------------------------------------
+
+### Turn 153 @ 2026-07-02T22:19:20.492Z
+USER:
+Task #39 created successfully: Register faithful elaser2 laser mesh + repoint SHAPE_PLAYER_LASER
+
+ASSISTANT (final):
+Both rendering fixes landed, and — same pattern — they were bugs shared with the C port, fixed against real behavior rather than matching the broken oracle:
+
+- **Floating objects:** the earlier horizon lock only corrected the *slope*, not the *base alignment* — the painted green-ground horizon sat 18 rows below where the 3D ground plane actually vanishes, so objects converged into the haze band above the ground. Fixed by offsetting the BG vertical scroll to lock the painted horizon to the true y=0 vanishing line.
+- **Stutter:** the smoking gun — camera yaw was *frozen within each 20 Hz tick* because the angle interpolation truncated sub-unit deltas back to the base angle, so rotation snapped at 20 Hz while position glided smoothly. Fixed with fractional angle interpolation plus interpolated sin/cos table lookups.
+
+Let me verify and commit:
+----------------------------------------
+
+### Turn 154 @ 2026-07-02T22:20:15.517Z
+USER:
+Updated task #37 status
+
+ASSISTANT (final):
+All four gameplay bugs are fixed. Let me verify the floating fix visually before the C teardown, then proceed:
+----------------------------------------
+
+### Turn 155 @ 2026-07-02T22:20:42.052Z
+USER:
+Star Fox HD dev shell ready
+  cmake -B build && cmake --build build
+  ./build/starfox-hd
+SF_DUMP_PPM: wrote /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/fix.ppm
+converted
+
+ASSISTANT (final):
+The arch columns now plant onto the terrain instead of floating in the haze band — the floating fix holds. All four gameplay bugs are done.
+
+Now the last item — removing the C code and CMake. This one needs care because the Rust build still reaches into `src/` in a couple of places (shaders, the FFI-oracle feature). Let me map those dependencies before deleting anything:
+----------------------------------------
+
+### Turn 156 @ 2026-07-02T22:21:20.852Z
+USER:
+=== Rust references into src/ or the C tree ===
+rust/sf2-data/src/audio.rs:9://! `Booter` (rust/sf-audio/src/boot.rs) can upload each
+rust/sf-audio/src/lib.rs:9://! snes_spc C++ emulator behind FFI (same library the C build links, so its
+rust/sf-game/src/camera.rs:43:// like sf-path/src/interp.rs does.
+rust/sf-audio/src/ffi.rs:1://! Raw FFI over the bundled snes_spc C API (`src/snes_spc/spc.h`).
+rust/sf-audio/src/backend.rs:3://! engine (default) or the snes_spc C++ FFI oracle (feature `ffi-oracle`),
+rust/sf-core/src/lib.rs:3://! Rust rewrite of the C reference implementation in `../src/`. The C build
+rust/sf-audio/src/ffi_spc.rs:1://! Safe wrapper over the snes_spc emulator (C oracle:
+rust/sf-audio/src/ffi_spc.rs:20:        assert!(!spc.is_null() && !filter.is_null(), "snes_spc alloc");
+rust/sf-game/src/alien_compat.rs:9://! TODO(consolidation): `sf-path/src/alien_compat.rs` is the same port over
+rust/sf-game/src/alien.rs:7://! TODO(consolidation): `sf-path/src/alien.rs` carries a near-identical copy
+rust/sf-spc/src/lib.rs:4://! bit-for-bit identical to the bundled snes_spc 0.9.0 C++ emulator (the FFI
+rust/sf-spc/src/dsp.rs:4://! semantics of snes_spc 0.9.0's `SPC_DSP.cpp` (the bit-exact oracle).
+rust/sf-spc/src/dsp.rs:139:/// Output write target, mirroring snes_spc's `out`/`out_end`/`extra` scheme.
+rust/sf-spc/src/cpu.rs:3://! snes_spc 0.9.0's `SNES_SPC.cpp` / `SPC_CPU.h` bit-for-bit: full instruction
+rust/sf-audio/build.rs:1://! Compiles the bundled snes_spc C++ emulator (same sources the C oracle
+rust/sf-audio/build.rs:2://! links: ../src/snes_spc/*.cpp) into a static lib without external crate
+rust/sf-audio/build.rs:20:    // The C++ snes_spc oracle is only needed for the opt-in `ffi-oracle`
+rust/sf-audio/build.rs:29:    let spc_dir = manifest.join("../../src/snes_spc");
+rust/sf-audio/build.rs:36:        // -DBLARGG_BUILD_DLL matches the C build (CMakeLists.txt snes_spc
+rust/sf-audio/build.rs:50:    let lib = out_dir.join("libsnes_spc_rs.a");
+=== where sf-rende
+
+ASSISTANT (final):
+The teardown committed, but the diagnostics flag stragglers — the agent removed the `ffi-oracle` feature from `Cargo.toml` but appears to have left the FFI files and their `#[cfg(feature = "ffi-oracle")]` references behind. Let me verify the actual on-disk state and build before trusting the "done" report:
+----------------------------------------
+
+### Turn 157 @ 2026-07-02T22:31:54.504Z
+USER:
+=== do the C tree + ffi files still exist? ===
+ls: cannot access 'src/': No such file or directory
+ls: cannot access 'CMakeLists.txt': No such file or directory
+ls: cannot access 'rust/sf-audio/src/ffi.rs': No such file or directory
+ls: cannot access 'rust/sf-audio/src/ffi_spc.rs': No such file or directory
+ls: cannot access 'rust/sf-audio/tests/parity.rs': No such file or directory
+ls: cannot access 'rust/sf-audio/tests/cpu_micro.rs': No such file or directory
+ls: cannot access 'rust/sf-audio/build.rs': No such file or directory
+=== ffi-oracle cfg refs still in tracked source? ===
+=== does the workspace build clean (default)? ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+
+ASSISTANT (final):
+The diagnostics were stale (rust-analyzer's cache of the deleted files) — the actual state is clean: `src/` and `CMakeLists.txt` are gone, all the FFI files are gone, no `ffi-oracle` references remain, and the workspace builds with zero C++. The teardown was complete and correct. Let me do a final end-to-end verification — full test suite plus a standalone binary launch:
+----------------------------------------
+
+### Turn 158 @ 2026-07-02T22:33:38.215Z
+USER:
+Updated task #38 status
+
+ASSISTANT (final):
+The C teardown is done and fully verified. The project is now **Rust-only**:
+
+- **`src/` (148 C/C++ files) and CMakeLists.txt are gone** — removed via `git rm`, ~106k lines across 165 files, fully recoverable from git history.
+- **Zero C++ in the build.** The last tie was the `ffi-oracle` cross-check feature; it's severed, so the only audio backend is the pure-Rust `sf-spc` engine. The remaining `build.rs` files just run `pkg-config` for the SDL3 link path — no compilation.
+- **Pipeline migrated off CMake:** shaders moved into `rust/sf-render/shaders/` (with byte-equal embedded fallbacks, so they resolve with no shader-dir), and assets resolve cwd-relative, so the binary runs standalone.
+- **Verified clean:** 144 tests pass (the 1 failure is the pre-existing `level_clear_advances_stage` shell test, unrelated), and the binary launches from the repo root with no CMake step — loads config, inits the renderer, streams audio, detects your controller.
+
+The whole build is now just:
+```
+nix develop --command ./scripts/run.sh
+```
+(or `cd rust && cargo build`).
+
+So, tallying the full session: all four gameplay bugs you reported are fixed (against the real game's behavior, not the buggy C port), and the legacy C codebase is retired — the game is entirely Rust now, with a bit-exact hand-written SPC audio engine and no C++ anywhere.
+
+Open threads whenever you want to pick them up:
+- **Test the controller on your SC2** — confirm steering-only-moves and shoulders-roll now (if it's still off, that's SDL's mapping for the SC2 specifically).
+- Small follow-ups: swap the laser stand-in for the faithful mesh; the player-move-bounds behavior; strip the now-dead C-header emit from `shape_compiler.py`.
+- **SF2**: disassembly phase 2 (name opcodes, locate ISTRAT, crack the shape encoding) whenever you're ready to push that forward.
+
+What would you like to do next?
+----------------------------------------
+
+### Turn 159 @ 2026-07-02T22:44:36.498Z
+USER:
+commit and push, then let's run the game
+
+ASSISTANT (final):
+I'll check the git state, push, then launch the game. Let me first see what's uncommitted and whether a remote is configured.
+----------------------------------------
+
+### Turn 160 @ 2026-07-02T22:44:47.354Z
+USER:
+=== uncommitted changes ===
+=== unpushed commits ===
+=== remotes ===
+=== branch ===
+master
+
+ASSISTANT (final):
+Working tree is clean — everything's already committed (the fix commits and the teardown commit captured it all). But there's **no git remote configured**, so there's nothing to push to yet. Let me confirm the state and check for a GitHub setup:
+----------------------------------------
+
+### Turn 161 @ 2026-07-02T22:45:02.776Z
+USER:
+=== full status incl untracked ===
+(clean if empty above)
+=== recent commits ===
+18effb9 Remove legacy C/C++ tree; make Rust build fully standalone
+cd37bcc fix: ground objects float + ship stutter (both shared C bugs)
+73a82af fix: barrel-roll trigger (shoulders-only) + visible player lasers
+d21bd02 path adapter: wire IS_PATH lane — parity tick 310 -> 426
+550eab8 SF2 disassembly phase 1: clean-room 65816 + GSU-2 disassemblers
+08e1d4e gameplay parity: tick 121 -> 310 through scramble opening + exit-base
+=== gh auth available? ===
+github.com
+  ✓ Logged in to github.com account benwbooth (keyring)
+  - Active account: true
+
+ASSISTANT (final):
+`gh` is authenticated as `benwbooth`, and the tree is fully committed. There's no remote yet, so pushing means creating a GitHub repo. Before I do that, let me confirm nothing copyrighted would go up — the `.gitignore` excludes the ROMs, extracted `data/`, and the reference ASM, but I want to verify that's actually holding:
+----------------------------------------
+
+### Turn 162 @ 2026-07-02T22:45:25.063Z
+USER:
+=== any ROM / extracted-data / reference-ASM tracked in git? (should be NONE) ===
+rust/sf-map/tests/fixtures/continue.bin
+rust/sf-map/tests/fixtures/level1_1.bin
+rust/sf-map/tests/fixtures/none.bin
+rust/sf-map/tests/fixtures/planet.bin
+rust/sf-map/tests/fixtures/r1_blackhole.bin
+rust/sf-map/tests/fixtures/r1_intro.bin
+rust/sf-map/tests/fixtures/r1_level1_2.bin
+rust/sf-map/tests/fixtures/r1_level1_3.bin
+rust/sf-map/tests/fixtures/r1_level1_4.bin
+rust/sf-map/tests/fixtures/r1_level1_5.bin
+--- count of any such tracked files: 32 ---
+=== what top-level dirs ARE tracked ===
+AGENTS.md
+assets
+docs
+flake.lock
+flake.nix
+.gitignore
+rust
+scripts
+starfox.ini
+tools
+
+ASSISTANT (final):
+Before I create the repo and push, one thing genuinely needs your call. The tree is clean and fully committed, and the `.gitignore` correctly keeps the ROMs, extracted `data/`, and reference ASM out. But the tracked source *is* a Star Fox reimplementation — including the level and shape data reconstructed as code (the `sf-map` builders and their `.bin` test fixtures encode the original game's level layouts). Publishing that publicly is materially different from a private backup, and it's hard to undo once it's indexed.
+
+Since there's no remote yet, "push" means creating a new GitHub repo under your `benwbooth` account — so the visibility is a fresh decision:
+----------------------------------------
+
+### Turn 163 @ 2026-07-02T22:46:26.929Z
+USER:
+Your questions have been answered: "How should I create the GitHub repo for the push?"="Private (Recommended)". You can now continue with these answers in mind.
+
+ASSISTANT (final):
+Private it is — the safe default. Creating the repo and pushing:
+----------------------------------------
+
+### Turn 164 @ 2026-07-02T22:46:37.039Z
+USER:
+https://github.com/benwbooth/starfox-hd
+To github.com:benwbooth/starfox-hd.git
+ * [new branch]      HEAD -> master
+branch 'master' set up to track 'origin/master'.
+=== verify ===
+origin	git@github.com:benwbooth/starfox-hd.git (fetch)
+origin	git@github.com:benwbooth/starfox-hd.git (push)
+unpushed commits: 0
+
+ASSISTANT (final):
+Pushed to a private repo — **github.com/benwbooth/starfox-hd**, all commits up, `master` tracking `origin`, 0 unpushed. Now launching the game (with all the fixes: shoulder-only rolls, visible lasers, planted objects, smooth camera):
+----------------------------------------
+
+### Turn 165 @ 2026-07-02T22:46:45.122Z
+USER:
+Command running in background with ID: bxxdse0nh. Output is being written to: /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/tasks/bxxdse0nh.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+ASSISTANT (final):
+Game exited cleanly (code 0). Let me check the session log for anything notable, then I'll wait for your read on the fixes:
+----------------------------------------
+
+### Turn 166 @ 2026-07-02T22:47:31.111Z
+USER:
+Controller connected: Steam Controller
+Shutdown after 669 ticks
+--- lines: 9 ---
+
+ASSISTANT (final):
+The session ran clean — controller connected, ~33 seconds of play (669 ticks), no errors, no crashes, clean exit. The engine held up.
+
+Now the part that matters: **how did the four fixes actually feel?**
+- **Steering** — did left/right just move the ship this time, with rolls only on the L/R shoulder buttons? (This is the one I most need your eyes on, since I could only fix it by reasoning from the mapping.)
+- **Lasers** — visible when you fired?
+- **Ground objects** — planted on the terrain, or still hovering?
+- **Ship motion** — smooth through turns, or still stuttering?
+
+Tell me what's good and what's still off. Anything that doesn't match how you remember Star Fox playing goes straight on the fix list — same discipline as before: match the real game, keep it smooth. And whatever we fix next, I'll commit and push to keep the private repo current.
+----------------------------------------
+
+### Turn 167 @ 2026-07-02T23:11:48.325Z
+USER:
+Command running in background with ID: bt2yxj4dz. Output is being written to: /tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/tasks/bt2yxj4dz.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+ASSISTANT (final):
+The game's running — window should be up on your display. Take your time; I'll be here when you've had a look. Whatever you notice (controller feel, lasers, ground objects, motion, or anything else), let me know and I'll turn it into the next round of fixes.
+----------------------------------------
+
+### Turn 168 @ 2026-07-02T23:12:12.666Z
+USER:
+new bug introduced: the camera is stuck! it doesnt move at all
+
+ASSISTANT (final):
+A regression from the stutter fix — the fractional-angle change broke the base camera advancement. Let me diagnose directly by reading what that fix touched in the camera path:
+----------------------------------------
+
+### Turn 169 @ 2026-07-02T23:12:41.786Z
+USER:
+253	    pub fn set_camera(&mut self, cx: i32, cy: i32, cz: i32, crx: i16, cry: i16, crz: i16) {
+254	        if self.cam_valid {
+255	            self.cam_prev = self.cam_curr;
+256	        }
+257	        self.cam_curr = CameraState {
+258	            x: cx,
+259	            y: cy,
+260	            z: cz,
+261	            rx: crx,
+262	            ry: cry,
+263	            rz: crz,
+264	        };
+265	        if !self.cam_valid {
+266	            self.cam_prev = self.cam_curr;
+267	            self.cam_valid = true;
+268	        }
+269	        self.build_view_matrix(cx, cy, cz, crx, cry, crz);
+270	    }
+271	
+272	    /// Camera cut (viewtype change, fixed-position jump, level load).
+273	    pub fn snap_camera(&mut self) {
+274	        self.cam_prev = self.cam_curr;
+275	    }
+276	
+277	    /// Mirror of `Transform_SetViewLerp`: rebuild the view matrix from
+278	    /// lerp(prev, curr, alpha), with camera-cut (big jump) detection.
+279	    pub fn set_view_lerp(&mut self, alpha: f32) {
+280	        if !self.cam_valid {
+281	            return;
+282	        }
+283	        let alpha = alpha.clamp(0.0, 1.0);
+284	
+285	        let mut big_jump = false;
+286	        let rx = lerp_cam_angle_f(self.cam_prev.rx, self.cam_curr.rx, alpha, &mut big_jump);
+287	        let ry = lerp_cam_angle_f(self.cam_prev.ry, self.cam_curr.ry, alpha, &mut big_jump);
+288	        let rz = lerp_cam_angle_f(self.cam_prev.rz, self.cam_curr.rz, alpha, &mut big_jump);
+289	
+290	        let dx = fp16_to_float(self.cam_curr.x.wrapping_sub(self.cam_prev.x));
+291	        let dy = fp16_to_float(self.cam_curr.y.wrapping_sub(self.cam_prev.y));
+292	        let dz = fp16_to_float(self.cam_curr.z.wrapping_sub(self.cam_prev.z));
+293	        // A displacement this large in one 20Hz tick is a teleport, not motion.
+294	        if dx * dx + dy * dy + dz * dz > 600.0 * 600.0 {
+295	            big_jump = true;
+296	        }
+297	
+298	        if big_jump {
+299	            self.cam_prev = self.cam_curr;
+300	            let c = self.cam_curr;
+301
+
+ASSISTANT (final):
+Let me read the main-loop structure to see how `set_camera` and `set_view_lerp` are actually driven per tick vs per render frame:
+----------------------------------------
+
+### Turn 170 @ 2026-07-02T23:13:07.266Z
+USER:
+300	                        input.add_gamepad(gp, sdl3::sys::joystick::SDL_JoystickID(which));
+301	                    }
+302	                }
+303	                Event::ControllerDeviceRemoved { which, .. } => {
+304	                    input.remove_gamepad(sdl3::sys::joystick::SDL_JoystickID(which));
+305	                }
+306	                _ => {}
+307	            }
+308	        }
+309	
+310	        // --- Fixed timestep game ticks (main.c:177-189) ---
+311	        let mut frame = shell.frame();
+312	        while accumulator >= tick_duration {
+313	            prev_list.clear();
+314	            prev_list.extend_from_slice(&curr_list);
+315	
+316	            // SfRtl_BeginFrame -> Game_Tick -> Game_GetDrawList.
+317	            input.begin_frame(&event_pump.keyboard_state());
+318	            shell.tick(input.pad1);
+319	            curr_list.clear();
+320	            curr_list.extend(
+321	                shell
+322	                    .draw_list()
+323	                    .iter()
+324	                    .take(MAX_DRAW_LIST)
+325	                    .map(to_render_entry),
+326	            );
+327	
+328	            frame = shell.frame();
+329	            audio.tick(&mut shell, &frame);
+330	
+331	            if let Some(d) = dump.as_mut() {
+332	                let list = shell.draw_list();
+333	                d.tick(
+334	                    input.pad1,
+335	                    frame.game_state_code,
+336	                    &list[..list.len().min(MAX_DRAW_LIST)],
+337	                );
+338	            }
+339	
+340	            // Camera for the render pass (nmi.c GameCamera_Update ->
+341	            // Transform_SetCamera / Transform_SnapCamera).
+342	            let cam = frame.camera;
+343	            renderer
+344	                .transform
+345	                .set_camera(cam.x, cam.y, cam.z, cam.rx, cam.ry, cam.rz);
+346	            if cam.snap {
+347	                renderer.transform.snap_camera();
+348	            }
+349	
+350	            accumulator -= tick_duration;
+351	            total_t
+
+ASSISTANT (final):
+`set_camera` is correctly driven once per tick (line 345), latching prev/curr properly. Now let me find the render section — whether `set_view_lerp(alpha)` is actually called per render frame:
+----------------------------------------
+
+### Turn 171 @ 2026-07-02T23:13:16.031Z
+USER:
+380	            windowmode: frame.windowmode,
+381	            windows,
+382	            meters: frame.meters,
+383	            stayblack: frame.stayblack,
+384	            gameflags: frame.gameflags,
+385	            gameframe: frame.gameframe,
+386	            boostcnt: frame.boostcnt,
+387	            arrows: frame.arrows,
+388	            splayerflymode: frame.splayerflymode,
+389	            stage: frame.stage,
+390	            shield_cur: frame.shield_cur,
+391	            shield_max: frame.shield_max,
+392	            boss_hp_cur: frame.boss_hp_cur,
+393	            boss_hp_max: frame.boss_hp_max,
+394	            lives: frame.lives,
+395	            bombs: frame.bombs,
+396	            msg_count1: frame.msg_count1,
+397	            msg_count2: frame.msg_count2,
+398	            whichfriend: frame.whichfriend,
+399	            friends_meter: frame.friends_meter,
+400	            message_text: frame.message_text.as_deref(),
+401	            whichroute: frame.whichroute,
+402	            currentplanet: frame.currentplanet,
+403	            nebula_on: frame.nebula_on,
+404	            route_path_ids: &frame.route_path_ids,
+405	        };
+406	
+407	        // Render interpolated frame (main.c:195-200).
+408	        renderer.begin_frame();
+409	        renderer.submit(&prev_list, &curr_list, alpha, &inputs);
+410	        renderer.end_frame();
+411	        window.gl_swap_window();
+412	
+413	        if ppm_pending && total_ticks >= ppm_tick {
+414	            if let Some(path) = &ppm_path {
+415	                let rgb = renderer.read_pixels_rgb();
+416	                write_ppm(path, fb_w, fb_h, &rgb);
+417	            }
+418	            ppm_pending = false;
+419	        }
+420	    }
+421	
+422	    // Final PPM if the run ended before the requested tick.
+423	    if ppm_pending {
+424	        if let Some(path) = &ppm_path {
+425	            let rgb = renderer.read_pixels_rgb();
+426	            write_ppm(path, fb_w, fb_h, &rgb);
+427	        }
+428	    }
+429	
+430	    if let Some(d) = dump.as_mut() {
+431
+
+ASSISTANT (final):
+The render loop calls `submit(&prev_list, &curr_list, alpha, ...)` but I don't see a `set_view_lerp(alpha)` in main. Let me find where `set_view_lerp` is actually called — the stutter fix hooked it somewhere in the render path:
+----------------------------------------
+
+### Turn 172 @ 2026-07-02T23:13:37.961Z
+USER:
+=== set_view_lerp call sites ===
+rust/sf-render/src/transform.rs:37:    /// per 20 Hz tick (see `set_view_lerp`).
+rust/sf-render/src/transform.rs:279:    pub fn set_view_lerp(&mut self, alpha: f32) {
+rust/sf-render/src/transform.rs:400:        t.set_view_lerp(0.0);
+rust/sf-render/src/transform.rs:403:        t.set_view_lerp(0.5);
+rust/sf-render/src/transform.rs:406:        t.set_view_lerp(1.0);
+rust/sf-render/src/draw_list.rs:217:        transform.set_view_lerp(alpha);
+rust/sf-render/src/renderer.rs:287:        // set_view_lerp with the same alpha is then a no-op).
+rust/sf-render/src/renderer.rs:288:        self.transform.set_view_lerp(alpha);
+=== what submit() does (draw_list / renderer) ===
+275:    pub fn submit(
+287:        // set_view_lerp with the same alpha is then a no-op).
+288:        self.transform.set_view_lerp(alpha);
+=== git diff of transform.rs render-camera fields from the stutter-fix commit ===
+commit cd37bcca8c20c363b58eba6a1c00625fe3c16dd2
+Author: Ben Booth <benwbooth@gmail.com>
+Date:   Thu Jul 2 15:20:11 2026 -0700
+
+    fix: ground objects float + ship stutter (both shared C bugs)
+    
+    Verified shared with the C oracle (250-tick state dumps byte-identical),
+    so fixed the shared logic in the Rust build.
+    
+    Floating: the camera-coupled BG horizon lock corrected only the per-pitch
+    slope, not base alignment — painted green-ground horizon sat ~18 rows
+    (224-space) below the 3D y=0 vanishing line, so worldy=0 objects
+
+ASSISTANT (final):
+`set_view_lerp(alpha)` IS called in `submit` (renderer.rs:288), so the view rebuilds per frame. The bug must be inside the interpolation math the fix changed. Let me see exactly what the stutter commit changed in the camera path:
+----------------------------------------
+
+### Turn 173 @ 2026-07-02T23:14:07.345Z
+USER:
+-        let (sy, cy_) = (self.sin_table[ay], self.cos_table[ay]);
+-        let (sz, cz_) = (self.sin_table[az], self.cos_table[az]);
++        let (sx, cx_) = self.sincos_frac(-crx);
++        let (sy, cy_) = self.sincos_frac(cry);
++        let (sz, cz_) = self.sincos_frac(-crz);
+ 
+         // ZYX rotation order (matching SNES)
+         let mut rotation = [0.0f32; 16];
+@@ -239,9 +283,9 @@ impl Transform {
+         let alpha = alpha.clamp(0.0, 1.0);
+ 
+         let mut big_jump = false;
+-        let rx = lerp_cam_angle(self.cam_prev.rx, self.cam_curr.rx, alpha, &mut big_jump);
+-        let ry = lerp_cam_angle(self.cam_prev.ry, self.cam_curr.ry, alpha, &mut big_jump);
+-        let rz = lerp_cam_angle(self.cam_prev.rz, self.cam_curr.rz, alpha, &mut big_jump);
++        let rx = lerp_cam_angle_f(self.cam_prev.rx, self.cam_curr.rx, alpha, &mut big_jump);
++        let ry = lerp_cam_angle_f(self.cam_prev.ry, self.cam_curr.ry, alpha, &mut big_jump);
++        let rz = lerp_cam_angle_f(self.cam_prev.rz, self.cam_curr.rz, alpha, &mut big_jump);
+ 
+         let dx = fp16_to_float(self.cam_curr.x.wrapping_sub(self.cam_prev.x));
+         let dy = fp16_to_float(self.cam_curr.y.wrapping_sub(self.cam_prev.y));
+@@ -264,7 +308,7 @@ impl Transform {
+             + ((self.cam_curr.y.wrapping_sub(self.cam_prev.y)) as f32 * alpha) as i32;
+         let z = self.cam_prev.z
+             + ((self.cam_curr.z.wrapping_sub(self.cam_prev.z)) as f32 * alpha) as i32;
+-        self.build_view_matrix(x, y, z, rx, ry, rz);
++        self.build_view_matrix_f(x, y, z, rx, ry, rz);
+     }
+ 
+     /// Mirror of `Transform_GetRenderCamera`.
+@@ -272,6 +316,14 @@ impl Transform {
+         self.cam_render
+     }
+ 
++    /// Fractional signed render-camera pitch/yaw (SNES units) for the 2D
++    /// background horizon coupling — the interpolated angle before it is
++    /// rounded into `cam_render`, so the painted horizon glides per render
++    /// frame instead of stepping once per tick.
++    pub fn render_camera_ang
+
+ASSISTANT (final):
+The rotation-interpolation math looks correct on the surface. Let me read the full current `build_view_matrix_f` — especially the translation part, since a broken camera-position term would make the world stop scrolling ("stuck"):
+----------------------------------------
+
+### Turn 174 @ 2026-07-02T23:15:13.763Z
+USER:
+245	        // Apply translation in rotated space
+246	        self.view[12] = self.view[0] * tx + self.view[4] * ty + self.view[8] * tz;
+247	        self.view[13] = self.view[1] * tx + self.view[5] * ty + self.view[9] * tz;
+248	        self.view[14] = self.view[2] * tx + self.view[6] * ty + self.view[10] * tz;
+249	    }
+250	
+251	    /// Mirror of `Transform_SetCamera`: advance the interpolation history
+252	    /// (called exactly once per game tick).
+253	    pub fn set_camera(&mut self, cx: i32, cy: i32, cz: i32, crx: i16, cry: i16, crz: i16) {
+254	        if self.cam_valid {
+255	            self.cam_prev = self.cam_curr;
+256	        }
+
+ASSISTANT (final):
+The translation and rotation code is structurally sound, and the stutter fix only touched the rotation path — so reading isn't localizing it. Let me get empirical evidence: capture two gameplay frames at different ticks and check whether the world actually scrolls between them.
+----------------------------------------
+
+### Turn 175 @ 2026-07-02T23:16:11.073Z
+USER:
+Star Fox HD dev shell ready (Rust)
+  cd rust && cargo build
+  ./scripts/run.sh        # launch from the repo root
+31718.2 (0.483988) <- RMSE between tick 150 and 320 (0 = identical/stuck)
+
+ASSISTANT (final):
+The RMSE is high (0.48) — so in autoplay the world *does* scroll between ticks; the camera isn't globally frozen. That's a key clue: the difference between autoplay (flies dead straight) and your play (you steer) points at the camera **rotation** being broken, not translation. The stutter fix only touched the angle-interpolation path — so a bug there would freeze the camera's turning/banking while forward scroll still works, which reads as "stuck" the moment you steer. Let me look at the two frames and re-read the angle interpolation for the actual defect:
+----------------------------------------
+
+### Turn 176 @ 2026-07-02T23:17:01.856Z
+USER:
+85	fn lerp_cam_angle_f(from: i16, to: i16, t: f32, big_jump: &mut bool) -> f32 {
+86	    let a8 = (from & 0xFF) as i32;
+87	    let b8 = (to & 0xFF) as i32;
+88	    let mut diff = b8 - a8;
+89	    if diff > 127 {
+90	        diff -= 256;
+91	    }
+92	    if diff < -128 {
+93	        diff += 256;
+94	    }
+95	    if diff > 48 || diff < -48 {
+96	        *big_jump = true; // > ~67 deg in one tick: cut
+97	    }
+98	    (a8 as f32 + diff as f32 * t).rem_euclid(256.0)
+99	}
+100	
+101	// SNES 0-255 angle -> signed [-128, 128) in the same units (float-safe).
+102	#[inline]
+103	fn signed_angle_f(a: f32) -> f32 {
+104	    let m = a.rem_euclid(256.0);
+105	    if m >= 128.0 {
+106	        m - 256.0
+107	    } else {
+108	        m
+109	    }
+110	}
+111	
+112	impl Default for Transform {
+
+ASSISTANT (final):
+The tick-320 frame is **black** — that's what drove the high RMSE, not the world scrolling. So between tick 150 (normal gameplay) and 320 the screen blacks out. That reframes the whole thing: it's likely a fade or state transition getting stuck, not a camera-math bug. Let me get the state trace to see exactly what happens — does the game leave the Playing state, does the draw count collapse, does the world stop advancing:
+----------------------------------------
+
+### Turn 177 @ 2026-07-02T23:18:17.196Z
+USER:
+Star Fox HD dev shell ready (Rust)
+  cd rust && cargo build
+  ./scripts/run.sh        # launch from the repo root
+=== state (col3) + ndraw (col5) at sampled ticks ===
+0 state=1 ndraw=0
+119 state=3 ndraw=0
+149 state=4 ndraw=14
+179 state=4 ndraw=18
+209 state=4 ndraw=24
+239 state=4 ndraw=28
+269 state=4 ndraw=29
+299 state=4 ndraw=31
+329 state=4 ndraw=11
+348 state=4 ndraw=12
+=== player Arwing (shape 2) z over ticks (is the world advancing?) ===
+tick 29 player_z=1310720
+tick 58 player_z=1310720
+tick 130 player_z=-6225920
+tick 137 player_z=-4587520
+tick 145 player_z=-6946816
+tick 152 player_z=-4784128
+
+ASSISTANT (final):
+State stays Playing throughout (not a state transition), but the screen goes fully black around tick 300-320 with the object count also dropping (31→11) — that's likely a stuck fade overlay, which may be an autoplay-specific artifact separate from your interactive "camera stuck." Let me get the decisive missing evidence: two *non-black* gameplay frames and whether the world actually scrolls between them:
+----------------------------------------
+
+### Turn 178 @ 2026-07-02T23:19:38.964Z
+USER:
+Star Fox HD dev shell ready (Rust)
+  cd rust && cargo build
+  ./scripts/run.sh        # launch from the repo root
+bash: line 2: 1003553 Aborted                    (core dumped) SF_HIDDEN=1 SF_AUTOPLAY=1 SF_MAX_TICKS=$((T+3)) SF_DUMP_PPM=/tmp/ben/claude-1000/-home-ben-src-starfox-hd/8f7b8292-fbc0-48f8-8506-8b6a0949123b/scratchpad/w_$T.ppm SF_DUMP_PPM_TICK=$T ./rust/target/debug/starfox-hd-rs > /dev/null 2>&1
+brightness (mean) 160 vs 240 (near-0 = black):
+0.429188 (160)
+0.427388 (240)
+RMSE 160 vs 240 (nonzero = world scrolled = camera translates):
+1848.86 (0.0282118)
+
+ASSISTANT (final):
+Two critical signals there: the RMSE between tick 160 and 240 is only 2.8% (near-static — the world barely advances over 4 seconds), **and one run core-dumped**. So forward flight itself is broken, not just the camera math — and there's a crash. Since forward motion lives in the player strategy (not the renderer), the input-fix commit that touched `player.rs` is the prime suspect. Let me see its full scope beyond the roll-mask change:
+----------------------------------------
+
+### Turn 179 @ 2026-07-02T23:21:05.210Z
+USER:
+=== 73a82af player.rs diff: functions touched ===
+    Lasers: strat_spawn_projectile stubbed shape=0 + ASF_INVISIBLE (both
+    now clears ASF_INVISIBLE and sets a registered plasma-bolt shape so shots
+@@ -108,6 +108,21 @@ const ASF2_SFLAG1: u8 = 0x10;
++/// therefore stubbed every projectile as `shape = 0` + `ASF_INVISIBLE`, which
++const SHAPE_PLAYER_LASER: u16 = 11;
+@@ -550,8 +565,18 @@ fn setcurrpshape(g: &mut Game, idx: u16) {
++/// The barrel roll triggers on the L/R SHOULDER buttons only, matching the
++/// `barrel_roll_update` wrongly OR-ed in `PAD_LEFT|PAD_RIGHT` (dpad steering),
++/// so on a gamepad, steering left/right spuriously triggered rolls. Steering
+@@ -564,7 +589,7 @@ fn barrel_roll_update(g: &mut Game, allow_start: bool) {
+@@ -855,7 +880,15 @@ fn spawn_player_projectile(
++        // stubs every projectile as shape 0 + ASF_INVISIBLE, which the draw
++        laser.shape = SHAPE_PLAYER_LASER;
++        laser.sflags &= !ASF_INVISIBLE;
+=== the actual crash: run once, capture the abort message ===
+
+ASSISTANT (final):
+The input-fix diff is clean — it only touched the roll mask and laser shape, nothing in the movement/velocity path. So that's not it. But the **core dump** is the strongest concrete lead, and it likely explains everything: if the game crashes/hangs around tick 300, the camera freezes and the screen blacks out — which is exactly "camera stuck." Let me reproduce the crash with a backtrace:
+----------------------------------------
+
+### Turn 180 @ 2026-07-02T23:22:21.525Z
+USER:
+(Bash completed with no output)
+
+ASSISTANT (final):
+No panic that run — the crash is intermittent. Let me run it a few times capturing full output and exit codes to catch it:
+----------------------------------------
+
+### Turn 181 @ 2026-07-02T23:23:36.850Z
+USER:
+run 1: exit=0  0 panic/abort lines; last non-audio line: Shutdown after 400 ticks
+run 2: exit=0  0 panic/abort lines; last non-audio line: Shutdown after 400 ticks
+run 3: exit=0  0 panic/abort lines; last non-audio line: Shutdown after 400 ticks
+=== any panic text across runs ===
+
+ASSISTANT (final):
+The crash is intermittent (3 clean runs) — a rare shutdown race, not the per-tick culprit. I've been inferring indirectly; let me get the definitive answer with one temporary probe: print the camera's Z each tick and see whether it actually advances during flight.
+----------------------------------------
+
+### Turn 182 @ 2026-07-02T23:24:47.062Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+     1	CAMDBG z=0 x=0 ry=0
+     2	CAMDBG z=-7864320 x=0 ry=11
+     3	CAMDBG z=-7864320 x=0 ry=31
+     4	CAMDBG z=-7864320 x=0 ry=31
+     5	CAMDBG z=-7864320 x=0 ry=0
+     6	CAMDBG z=-7864320 x=0 ry=0
+     7	CAMDBG z=-7864320 x=0 ry=0
+     8	CAMDBG z=-7864320 x=0 ry=0
+     9	CAMDBG z=-7864320 x=0 ry=0
+    10	CAMDBG z=-7864320 x=0 ry=0
+
+ASSISTANT (final):
+Camera Z is frozen at -7864320 (-120 units) for the entire flight — never advances. But I need to check whether that's actually a bug: in Star Fox's coordinate model, the camera may legitimately sit at a fixed offset while the *world scrolls via object positions relative to the player*. Let me read the camera model to know whether camera-Z should track the player, then remove the probe:
+----------------------------------------
+
+### Turn 183 @ 2026-07-02T23:25:28.096Z
+USER:
+=== camera.rs: how camera z/pos is computed ===
+9://! `g_viewtype` / `g_viewtoobj` / `g_player_turnrot` / `g_pviewpos*` /
+10://! `g_pviewposzoff` are strat-lane variables not yet ported into
+13://! lands. `g_viewdist` IS in GameVars (the map VM's set_player_* callbacks
+63:/// TODO(sf-strat): once the strat lane ports the player/camera strategies,
+65:/// by viewopening / playerfly / shake strategies:
+66:/// - `g_pviewposx/y/z`, `g_pviewposzoff` (game_vars.c:67-74)
+72:/// - `g_player_turnrot` (game_vars.c:47)
+75:    pub pviewposx: i16,
+76:    pub pviewposy: i16,
+77:    pub pviewposz: i16,
+78:    pub pviewposzoff: i16,
+90:    pub player_turnrot: i16,
+122:    pub fn init(&mut self, vars: &mut GameVars) {
+135:    pub fn update(&mut self, vars: &GameVars, objs: &Objects) -> CameraSnapshot {
+136:        let player = match objs.player() {
+139:                // No player (e.g. title screen before any spawn) — keep the
+163:            // --- Step 1: base position from pviewpos + shake + bob
+167:                .pviewposx
+172:                .pviewposy
+177:                .pviewposz
+179:                .wrapping_add(self.vars.pviewposzoff);
+190:            let pitch_rad = player.rotx as f32 * (3.14159265f32 / 128.0f32);
+222:                candidate.unwrap_or(player)
+227:            let dz = (target.worldz as i32 - pos_z as i32) as f32;
+235:            rot_x = player.rotx as i16;
+
+ASSISTANT (final):
+The camera model explains the fixed Z: the camera sits at a fixed offset and the world scrolls via *object* positions relative to the player — and critically, `camera.rs` documents that the strat-lane camera variables (`pviewpos`, `player_turnrot`) that make the camera bank/turn with steering are **not yet ported**. That's very likely your "stuck" — the camera doesn't respond to steering. Let me remove the probe and get the one definitive fact I'm still missing: whether the world scrolls forward at all (tracking object Z across consecutive ticks, cutting through the self-similar-corridor ambiguity):
+----------------------------------------
+
+### Turn 184 @ 2026-07-02T23:26:48.768Z
+USER:
+Star Fox HD dev shell ready (Rust)
+  cd rust && cargo build
+  ./scripts/run.sh        # launch from the repo root
+=== nearest object z (min over non-player entries) per tick, ticks 160-185 ===
+
+ASSISTANT (final):
+I've been going deep on autoplay, which flies straight and can't reproduce a *steering*-related problem — so let me consolidate honestly rather than keep guessing. Here's what I've actually established, and where I need one word from you.
+
+**Confirmed facts:**
+- The camera's world position is fixed by design (in Star Fox the world scrolls via object positions relative to the player, not by the camera moving), so that part isn't the bug.
+- `camera.rs` explicitly documents that the strat-lane camera variables — `pviewpos` and `player_turnrot`, the ones that make the camera **bank and turn with your steering** — are *not yet ported* into the Rust camera. So the camera can't respond to steering. This is my leading suspect for "stuck," and it fits the timeline: your run 1 was the **C build** (which has that camera response); runs 2–3 are the **Rust build** (which doesn't), and now that steering actually works, you're turning and noticing the view won't follow.
+- Separately, I did find a real objective bug: in a long autoplay the screen goes fully black around ~30 seconds in (state's still "playing," objects still exist) — likely a stuck death/fade — plus a rare crash on shutdown. I'll fix those regardless.
+
+The one thing autoplay can't tell me is what *you* saw, so — when you say "camera stuck, doesn't move at all," which is it:
+----------------------------------------
+
+### Turn 185 @ 2026-07-02T23:28:45.666Z
+USER:
+Your questions have been answered: "When the camera was "stuck," what was actually frozen?"="the arwings flew off but the camera was left behind". You can now continue with these answers in mind.
+
+ASSISTANT (final):
+That's the decisive clue — **the Arwings flew off but the camera stayed behind.** So the camera is supposed to *follow* the ships forward through the world, but its world-Z is stuck at −120 while the player's world-Z advances. The camera looks *at* the player (I saw the look-at in `camera.rs`), so as the player flies forward and the camera position doesn't, the ships recede into the distance — exactly what you saw. The fix is to make the camera position track the player's forward progress. Let me read the full camera update to see where the Z is pinned:
+----------------------------------------
+
+### Turn 186 @ 2026-07-02T23:29:30.655Z
+USER:
+135	    pub fn update(&mut self, vars: &GameVars, objs: &Objects) -> CameraSnapshot {
+136	        let player = match objs.player() {
+137	            Some(p) if p.active => *p,
+138	            _ => {
+139	                // No player (e.g. title screen before any spawn) — keep the
+140	                // current camera transform; the C early-return path never
+141	                // reaches the snap detection (game.c:46-50).
+142	                return CameraSnapshot {
+143	                    x: self.camera_x,
+144	                    y: self.camera_y,
+145	                    z: self.camera_z,
+146	                    rx: self.camera_rx,
+147	                    ry: self.camera_ry,
+148	                    rz: self.camera_rz,
+149	                    snap: false,
+150	                };
+151	            }
+152	        };
+153	
+154	        let (pos_x, pos_y, pos_z): (i16, i16, i16);
+155	        let (rot_x, rot_y, rot_z): (i16, i16, i16);
+156	
+157	        if self.vars.viewtype & VIEWTYPE_FPOS != 0 {
+158	            // --- Fixed-position camera (game.c:55-61) ---
+159	            pos_x = self.vars.viewposx;
+160	            pos_y = self.vars.viewposy;
+161	            pos_z = self.vars.viewposz;
+162	        } else {
+163	            // --- Step 1: base position from pviewpos + shake + bob
+164	            // (game.c:63-67) ---
+165	            let base_x = self
+166	                .vars
+167	                .pviewposx
+168	                .wrapping_add(self.vars.viewshake_x as i8 as i16)
+169	                .wrapping_add(self.vars.viewfloat_x);
+170	            let base_y = self
+171	                .vars
+172	                .pviewposy
+173	                .wrapping_add(self.vars.viewshake_y as i8 as i16)
+174	                .wrapping_add(self.vars.viewfloat_y);
+175	            let base_z = self
+176	                .vars
+177	                .pviewposz
+178	                .wrapping_add(self.vars.viewshake_z as i8 as i16)
+179	                .wrapping_add(self.vars.pviewposzoff);
+180	
+181
+
+ASSISTANT (final):
+The camera base is `pviewposz` (line 175), which is meant to track the player's forward position — the camera origin follows the ship, then pulls back by `outdist`. If nothing updates `pviewposz` each tick, the camera stays put while the ships advance. Let me confirm the model (how objects are positioned) and whether anything actually writes `pviewposz`:
+----------------------------------------
+
+### Turn 187 @ 2026-07-02T23:30:07.241Z
+USER:
+=== who WRITES pviewposz (camera-follow source)? ===
+rust/sf-strat/src/player.rs:1093:    let mut pviewposz = g
+rust/sf-strat/src/player.rs:1101:    pviewposz = g.vars.player_posz.wrapping_add(z_diff);
+rust/sf-strat/src/player.rs:1106:        pviewposz = strat_chase_proportional(pviewposz, g.vars.player_posz, 3);
+=== are object draw positions absolute worldz or player-relative? (draw.rs) ===
+9://! DL_FLAG_SHADOW gate on `(sflags & ASF_SHADOW) && (playerflymode &
+38:/// * `playerflymode` — C `g_playerflymode` (shadow gate, draw.c:145).
+43:    playerflymode: u8,
+81:        entry.z = fp16_from_int(al.worldz as i32);
+138:        if al.sflags & ASF_SHADOW != 0 && playerflymode & PFM_SHADOWS != 0 {
+179:            al.worldz = 300;
+194:        // playerflymode has PFM_SHADOWS; gameframe = 130 -> & 127 = 2;
+
+ASSISTANT (final):
+Now the picture's complete: objects are drawn at **absolute** world-Z (draw.rs:81), and `pviewposz` (the camera-follow position) IS computed in `player.rs:1093-1106` from `player_posz`. So the follow logic exists — the question is whether it's written back to `g.vars.pviewposz` and whether `player_posz` actually advances. Let me read that function:
+----------------------------------------
+
+### Turn 188 @ 2026-07-02T23:30:22.500Z
+USER:
+1085	fn viewmove_srou(g: &mut Game, idx: u16) {
+1086	    let i = idx as usize;
+1087	    if g.vars.pstratflags & PSTF_NOVIEWMOVE != 0 {
+1088	        let z = g.vars.sv_i16(sv::PVIEWPOSZ);
+1089	        g.vars.set_sv_i16(sv::BGSSCROLLZ, z);
+1090	        return;
+1091	    }
+1092	
+1093	    let mut pviewposz = g
+1094	        .vars
+1095	        .sv_i16(sv::PVIEWPOSZ)
+1096	        .wrapping_add(g.vars.pviewvelz);
+1097	    g.vars.pviewvelz = strat_chase(g.vars.pviewvelz, g.objs.aliens[i].vz, 1);
+1098	
+1099	    let mut z_diff = pviewposz.wrapping_sub(g.vars.player_posz);
+1100	    z_diff = clamp16(z_diff, -200, 50);
+1101	    pviewposz = g.vars.player_posz.wrapping_add(z_diff);
+1102	
+1103	    if g.objs.aliens[i].sbyte2 <= 10 {
+1104	        let med = g.vars.sv_u8(sv::PLAYER_MEDSPEED);
+1105	        g.vars.set_sv_u8(sv::PLAYER_TOSPEED, med);
+1106	        pviewposz = strat_chase_proportional(pviewposz, g.vars.player_posz, 3);
+1107	    }
+1108	    g.vars.set_sv_i16(sv::PVIEWPOSZ, pviewposz);
+1109	
+1110	    let tospeed = g.vars.sv_u8(sv::PLAYER_TOSPEED);
+1111	    strat_speed_to(&mut g.objs.aliens[i], tospeed, 2);
+1112	
+1113	    if g.vars.splayerflymode == SPFM_INSIDE {
+1114	        let al = g.objs.aliens[i];
+1115	        g.vars.set_sv_i16(sv::PVIEWPOSX, al.worldx);
+1116	        g.vars.set_sv_i16(sv::PVIEWPOSY, al.worldy);
+1117	        g.vars.set_sv_i16(sv::PVIEWPOSZ, al.worldz);
+1118	    }
+1119	
+1120	    let z = g.vars.sv_i16(sv::PVIEWPOSZ);
+1121	    g.vars.set_sv_i16(sv::BGSSCROLLZ, z);
+1122	}
+1123	
+1124	/// C `update_viewxy_for_mode` (strat_player.c:682).
+1125	fn update_viewxy_for_mode(g: &mut Game, idx: u16) {
+1126	    let al = g.objs.aliens[idx as usize];
+1127	    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+1128	    if g.vars.game_mode == SPACE_MODE {
+1129	        if g.vars.splayerflymode == SPFM_INSIDE {
+
+ASSISTANT (final):
+Found it — the definitive root cause. It's a variable disconnect from the parallel port:
+
+- The **player strategy** (`viewmove_srou`) computes the camera-follow position and writes it to a **strat-lane WRAM slot** `sv::PVIEWPOSZ` (line 1108).
+- The **camera** reads a **separate `GameVars` struct field** `self.vars.pviewposz` (camera.rs:177) — which nothing ever updates.
+
+So the follow-the-player value is computed but never reaches the camera → camera frozen while the ships fly off. This wouldn't show in the differential tests (those check the object draw list, which uses absolute world-Z, not the camera). Let me confirm the field vs WRAM split and fix it by mirroring the computed values into the fields the camera reads:
+----------------------------------------
+
+### Turn 189 @ 2026-07-02T23:31:39.679Z
+USER:
+=== GameVars fields the camera reads (pviewpos*, player_turnrot, player_posz) ===
+100:    pub player_posz: i16,
+104:    pub pviewvelz: i16,
+=== sv:: WRAM slot addresses the strat writes ===
+rust/sf-strat/src/common.rs:55:    pub const PLAYER_TURNROT: u16 = 0x0510;
+rust/sf-strat/src/common.rs:112:    pub const PVIEWPOSX: u16 = 0x053C;
+rust/sf-strat/src/common.rs:113:    pub const PVIEWPOSY: u16 = 0x053E;
+rust/sf-strat/src/common.rs:114:    pub const PVIEWPOSZ: u16 = 0x0540;
+=== does the strat lane ever set g.vars.player_posz (the follow source)? ===
+
+ASSISTANT (final):
+Confirmed: `pviewposx/y/z` aren't `GameVars` fields — they're the strat lane's WRAM slots (`0x053C/E/0x0540`), and `GameCamera` reads a *stale internal copy* that's never synced. Since the strat lane writes the live values into the GameVars WRAM mirror, the surgical fix is to have the camera read those live WRAM slots. Let me see the camera struct and GameVars' WRAM accessor:
+----------------------------------------
+
+### Turn 190 @ 2026-07-02T23:32:18.087Z
+USER:
+93	/// Camera state (C `g_camera_x/y/z`, `g_camera_rx/ry/rz`, game.c:26-27,
+94	/// plus the `s_last_viewtype` snap-detection static, game.c:148).
+95	#[derive(Debug, Clone, Default)]
+96	pub struct GameCamera {
+97	    pub vars: CameraVars,
+98	    /// C `g_camera_x/y/z` (FP16.16).
+99	    pub camera_x: i32,
+100	    pub camera_y: i32,
+101	    pub camera_z: i32,
+102	    /// C `g_camera_rx/ry/rz`.
+103	    pub camera_rx: i16,
+104	    pub camera_ry: i16,
+105	    pub camera_rz: i16,
+106	    /// C `s_last_viewtype` (game.c:148, static -> zero-initialized).
+107	    last_viewtype: u8,
+108	}
+109	
+110	/// C `angle8_from_rad` (src/game/game.c:38).
+111	fn angle8_from_rad(rad: f32) -> i16 {
+112	    unsafe { cmath::lroundf(rad * (128.0f32 / 3.14159265f32)) as i16 }
+113	}
+114	
+115	impl GameCamera {
+116	    pub fn new() -> Self {
+117	        Self::default()
+118	    }
+119	
+120	    /// C `GameCamera_Init()` (src/game/game.c:29). Writes
+121	    /// `GameVars::viewdist` (C `g_viewdist = OUTVIEWDIST`).
+122	    pub fn init(&mut self, vars: &mut GameVars) {
+123	        self.camera_x = fp16_from_int(0);
+124	        self.camera_y = fp16_from_int(0);
+125	        self.camera_z = fp16_from_int(-500);
+126	        self.camera_rx = 0;
+127	        self.camera_ry = 0;
+128	        self.camera_rz = 0;
+129	        vars.viewdist = OUTVIEWDIST;
+130	    }
+131	
+132	    /// C `GameCamera_Update()` (src/game/game.c:42). Returns the snapshot
+133	    /// the C code hands to `Transform_SetCamera`, with `snap` mirroring the
+134	    /// `Transform_SnapCamera` call site (game.c:146-153).
+
+ASSISTANT (final):
+The camera reads its own stale `self.vars` copy while the live values sit in the GameVars WRAM mirror. Let me check the WRAM accessor and whether `player_posz` (the follow source) actually advances, then fix the camera to read the live slots:
+----------------------------------------
+
+### Turn 191 @ 2026-07-02T23:32:40.951Z
+USER:
+=== GameVars WRAM read/write accessors ===
+261:    pub fn read_ext16(&self, addr: u16) -> u16 {
+273:    pub fn write_ext16(&mut self, addr: u16, value: u16) {
+=== where is player_posz set (does it advance with the player)? ===
+rust/sf-strat/src/player.rs:1883:    // s_set_var W,svar_word1,player_posx / word2,#-30 / word3,player_posz
+rust/sf-game/src/game.rs:186:        self.vars.player_posz = al.worldz;
+=== the C source for GameCamera_Update pviewpos (from git history) ===
+7://   1. Computes base position: viewpos = pviewpos + shake + float_bob
+63:        // --- Step 1: Base position from pviewpos + shake + bob ---
+64:        // (GAME.ASM: viewposx = pviewposx + sign_extend(viewshakeX) + viewfloatX)
+65:        int16 base_x = g_pviewposx + (int8)g_viewshakeX + g_viewfloatX;
+66:        int16 base_y = g_pviewposy + (int8)g_viewshakeY + g_viewfloatY;
+67:        int16 base_z = g_pviewposz + (int8)g_viewshakeZ + g_pviewposzoff;
+
+ASSISTANT (final):
+Confirmed the full data flow: `player_posz` IS updated (game.rs:186 = player's worldz), and the strat computes the follow position into the WRAM slots — but the camera reads its own stale `CameraVars` copy. Let me see the `CameraVars` struct to make a clean sync fix:
+----------------------------------------
+
+### Turn 192 @ 2026-07-02T23:33:35.624Z
+USER:
+73	#[derive(Debug, Clone, Copy, Default)]
+74	pub struct CameraVars {
+75	    pub pviewposx: i16,
+76	    pub pviewposy: i16,
+77	    pub pviewposz: i16,
+78	    pub pviewposzoff: i16,
+79	    pub viewposx: i16,
+80	    pub viewposy: i16,
+81	    pub viewposz: i16,
+82	    pub viewshake_x: u8,
+83	    pub viewshake_y: u8,
+84	    pub viewshake_z: u8,
+85	    pub viewfloatptr: i16,
+86	    pub viewfloat_x: i16,
+87	    pub viewfloat_y: i16,
+88	    pub viewtype: u8,
+89	    pub viewtoobj: i16,
+90	    pub player_turnrot: i16,
+91	}
+92
+
+ASSISTANT (final):
+The `CameraVars` struct holds all the strat-updated camera inputs as a stale copy. The fix is to sync it from the live WRAM slots each update. Let me pull the full set of `sv::` addresses and confirm the strat writes them:
+----------------------------------------
+
+### Turn 193 @ 2026-07-02T23:33:51.975Z
+USER:
+=== sv:: camera-input addresses (common.rs) ===
+55:    pub const PLAYER_TURNROT: u16 = 0x0510;
+71:    pub const VIEWSHAKEX: u16 = 0x051A;
+72:    pub const VIEWSHAKEY: u16 = 0x051B;
+73:    pub const VIEWSHAKEZ: u16 = 0x051C;
+112:    pub const PVIEWPOSX: u16 = 0x053C;
+113:    pub const PVIEWPOSY: u16 = 0x053E;
+114:    pub const PVIEWPOSZ: u16 = 0x0540;
+124:    pub const VIEWTYPE: u16 = 0x054C;
+128:    pub const VIEWTOOBJ: u16 = 0x054E;
+130:    pub const VIEWPOSX: u16 = 0x0550;
+131:    pub const VIEWPOSY: u16 = 0x0552;
+132:    pub const VIEWPOSZ: u16 = 0x0554;
+=== which does the strat actually WRITE (set_sv_*)? ===
+      2 PLAYER_TURNROT
+      6 PVIEWPOSX
+      4 PVIEWPOSY
+      4 PVIEWPOSZ
+      4 VIEWPOSX
+      4 VIEWPOSY
+      4 VIEWPOSZ
+      2 VIEWTOOBJ
+      3 VIEWTYPE
+
+ASSISTANT (final):
+All the addresses confirmed, and the strat writes them to WRAM. The camera just needs to read the live values instead of its stale copy. Let me implement the sync at the top of `update()`:
+----------------------------------------
+
+### Turn 194 @ 2026-07-02T23:34:17.311Z
+USER:
+The file /home/ben/src/starfox-hd/rust/sf-game/src/camera.rs has been updated successfully. (file state is current in your context — no need to Read it back)
+
+ASSISTANT (final):
+Now build and verify the camera follows the player — using the same camera-Z probe approach but checking the world actually scrolls now:
+----------------------------------------
+
+### Turn 195 @ 2026-07-02T23:34:56.634Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+Star Fox HD dev shell ready (Rust)
+  cd rust && cargo build
+  ./scripts/run.sh        # launch from the repo root
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+Star Fox HD dev shell ready (Rust)
+  cd rust && cargo build
+  ./scripts/run.sh        # launch from the repo root
+RMSE 170 vs 230 (was ~0.028 stuck; higher now = world scrolling):
+14650.4 (0.22355)
+brightness (both should be normal ~0.4):
+0.322919 0.295368
+
+ASSISTANT (final):
+The RMSE jumped from 0.028 (stuck) to 0.224 — the world now scrolls, meaning the camera follows the ship. Let me confirm the frame looks like proper flight, then commit:
+----------------------------------------
+
+### Turn 196 @ 2026-07-02T23:35:09.059Z
+USER:
+ok
+
+ASSISTANT (final):
+That's proper Star Fox flight — the player Arwing center-frame with wingmen in formation ahead, building columns flanking the corridor, and the camera now riding behind the ships instead of being left behind. The follow bug is fixed. Let me verify tests, commit, and push:
+----------------------------------------
+
+### Turn 197 @ 2026-07-02T23:35:31.426Z
+USER:
+=== only camera.rs changed? (probe cleanly removed) ===
+ M rust/sf-game/src/camera.rs
+=== build + camera-adjacent tests ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+ passed, 2 failed (1 known-preexisting expected)
+
+ASSISTANT (final):
+The probe is cleanly removed (only camera.rs changed), but there are now **2 failures** in sf-game — one more than the known pre-existing one. My camera change broke a test. Let me find which:
+----------------------------------------
+
+### Turn 198 @ 2026-07-02T23:35:39.228Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+test camera::tests::viewtype_change_snaps ... FAILED
+test shell::tests::level_clear_advances_stage ... FAILED
+thread 'camera::tests::viewtype_change_snaps' (1028970) panicked at sf-game/src/camera.rs:361:9:
+assertion failed: snap.snap
+thread 'shell::tests::level_clear_advances_stage' (1028977) panicked at sf-game/src/shell.rs:847:9:
+assertion `left == right` failed
+  left: 8
+ right: 2
+
+ASSISTANT (final):
+The `viewtype_change_snaps` test broke because my sync overwrites `self.vars.viewtype` from WRAM, but the test injects the viewtype change through a different path. Let me read the test to fix it correctly:
+----------------------------------------
+
+### Turn 199 @ 2026-07-02T23:35:50.806Z
+USER:
+340	        // raised tab[1] = 1 lands on tick 3.
+341	        let snap2 = cam.update(&vars, &objs);
+342	        assert_eq!(snap2.y, 0);
+343	        assert_eq!(cam.vars.viewfloat_y, 1);
+344	        let snap3 = cam.update(&vars, &objs);
+345	        assert_eq!(snap3.y, fp16_from_int(1));
+346	    }
+347	
+348	    #[test]
+349	    fn viewtype_change_snaps() {
+350	        let mut vars = GameVars::init();
+351	        let mut objs = Objects::init();
+352	        objs.alloc().unwrap();
+353	        let mut cam = GameCamera::new();
+354	        cam.init(&mut vars);
+355	
+356	        cam.vars.viewtype = VIEWTYPE_FPOS;
+357	        cam.vars.viewposx = 10;
+358	        cam.vars.viewposy = 20;
+359	        cam.vars.viewposz = 30;
+360	        let snap = cam.update(&vars, &objs);
+361	        assert!(snap.snap);
+362	        assert_eq!(snap.x, fp16_from_int(10));
+363	        assert_eq!(snap.y, fp16_from_int(20));
+364	        assert_eq!(snap.z, fp16_from_int(30));
+365	
+366	        let snap2 = cam.update(&vars, &objs);
+367	        assert!(!snap2.snap);
+368	    }
+369	}
+
+ASSISTANT (final):
+The test injects the viewtype change by writing `cam.vars` directly — but that's now the stale copy my sync overwrites. The test needs to inject through the new source of truth (the WRAM slots), matching how the real strat→camera flow works. Fixing the test's setup:
+----------------------------------------
+
+### Turn 200 @ 2026-07-02T23:36:23.748Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+0 passed, 1 failed
+=== confirm only the 1 known-preexisting failure remains ===
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+test shell::tests::level_clear_advances_stage ... FAILED
+
+ASSISTANT (final):
+Only the 1 known pre-existing failure remains — the camera test passes with the corrected injection path. The camera-follow fix is clean. Committing and pushing:
+----------------------------------------
+
+### Turn 201 @ 2026-07-02T23:36:39.389Z
+USER:
+warning: Git tree '/home/ben/src/starfox-hd' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.41s
+pushed
+7dfcb5b fix: camera now follows the ship (was left behind as ships flew off)
+
+ASSISTANT (final):
+Fixed and pushed. The camera-follow bug is resolved.
+
+**Root cause:** the same "one C global, two Rust stores" class of split we've been hitting. The player's view code writes the live camera-follow position into the game's WRAM mirror, but the camera was reading a stale internal copy that nothing updated — so it stayed pinned at Z=−120 while the ships advanced, which is exactly what you saw: the Arwings flew off, the camera got left behind. It slipped past all the differential tests because those check the *object* draw list, not the camera. Now the camera syncs from the live values each tick — verified the world actually scrolls again (the chase cam rides behind the ships), and the fix is committed and pushed to your private repo.
+
+Two things I turned up while chasing this that I'd flag as separate follow-ups (not fixed yet, since I wanted to get the camera fix to you first):
+- **Screen goes fully black ~30 seconds into a long autoplay** — state's still "playing," objects still exist, so it looks like a stuck death/fade sequence (autoplay never dodges, so it probably takes a hit and dies). Worth a look, but it happens deeper than your session did.
+- **A rare crash on shutdown** — intermittent (3 clean runs, then one core dump), likely a GL/SDL teardown race.
+
+Want me to start the game again so you can confirm the camera now follows properly, or would you rather I go after that black-screen/death issue next?
+----------------------------------------

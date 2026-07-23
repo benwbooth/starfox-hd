@@ -9,9 +9,10 @@
 //! vulnerable transition, and death → explode against hand-derived ASM
 //! expectations, cited inline.
 
-use sf_game::alien::{ACF_WEAPON, NUMBER_AL};
+use sf_game::alien::{ACF_COLLTYPE2, ACF_WEAPON, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
+use sf_game::vars::COLLTYPE_ENEMY1;
 use sf_strat::bossh;
 
 const WM_RNDVAL: u16 = 0x1F00;
@@ -54,8 +55,8 @@ fn setup(player_z: i16, boss_x: i16, boss_y: i16, boss_z: i16) -> (Game, u16) {
 fn arm(g: &mut Game, boss: u16) {
     let id = g
         .world
-        .find_strategy_address(bossh::STRAT_ADDR_BOSSH)
-        .expect("bossH address registered");
+        .find_direct_strategy(bossh::STRATEGY_BOSSH)
+        .expect("bossH strategy registered");
     g.objs.aliens[boss as usize].stratptr = Some(id);
 }
 
@@ -83,19 +84,34 @@ fn legs(g: &Game, mother: u16) -> Vec<u16> {
         .collect()
 }
 
+/// Child numbers reachable through the mother's ROM sword1 sibling chain.
+fn linked_child_numbers(g: &Game, mother: u16) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut ptr = g.objs.aliens[mother as usize].sword1 as u16;
+    let mut guard = NUMBER_AL + 1;
+    while ptr != 0 && guard != 0 {
+        guard -= 1;
+        let idx = (ptr - 1) as usize;
+        assert!(idx < NUMBER_AL, "family link outside the object pool");
+        result.push(g.objs.aliens[idx].sbyte1);
+        ptr = g.objs.aliens[idx].sword1 as u16;
+    }
+    assert_ne!(guard, 0, "family list contains a cycle");
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Registration + map wiring.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn registers_at_synthetic_map_address() {
+fn registers_typed_map_strategy() {
     let (g, _b) = setup(0, 0, -600, 5000);
-    // bossH has no ISTRATS.ASM def_Istrat; MAP1_4.ASM:217 places it by the
-    // direct bossh_istrat address -> synthetic STRAT_ADDR_BOSSH (0x060011).
-    assert_eq!(bossh::STRAT_ADDR_BOSSH, 0x060011);
     assert!(
-        g.world.find_strategy_address(bossh::STRAT_ADDR_BOSSH).is_some(),
-        "bossH strategy address resolves"
+        g.world
+            .find_direct_strategy(bossh::STRATEGY_BOSSH)
+            .is_some(),
+        "bossH typed strategy resolves"
     );
 }
 
@@ -113,12 +129,24 @@ fn init_seeds_bar_and_generates_family() {
     // s_set_aldata #bosshHP (D3:70).
     assert_eq!(g.objs.aliens[boss as usize].hp, BOSSH_HP, "hp = bosshHP");
     // s_set_bossmaxHP bosshhitcount(35) + s_add_bossmaxHP #bosshHP(64) = 99.
-    assert_eq!(g.vars.bossmaxhp, BOSSMAXHP, "bossmaxHP = hitcount + bosshHP");
+    assert_eq!(
+        g.vars.bossmaxhp, BOSSMAXHP,
+        "bossmaxHP = hitcount + bosshHP"
+    );
     // s_add_bossHP x,al_hp (64) + s_add_bossHP bosshhitcount (35) = 99 = full bar.
     assert_eq!(g.vars.bosshp, BOSSMAXHP, "m_bossHP full bar accumulated");
     // .generate: 5 legs + top = +6 objects.
     assert_eq!(active_count(&g), base + 6, "5 legs + top generated");
     assert_eq!(legs(&g, boss).len(), 5, "five child legs linked");
+    // ROM colltype_enemy1 = 0x10 (ACF_COLLTYPE2), not vars 0x01.
+    let cf = g.objs.aliens[boss as usize].collflags;
+    assert_ne!(cf & ACF_COLLTYPE2, 0);
+    assert_eq!(cf & COLLTYPE_ENEMY1, 0);
+    for leg in legs(&g, boss) {
+        let lcf = g.objs.aliens[leg as usize].collflags;
+        assert_ne!(lcf & ACF_COLLTYPE2, 0, "leg {leg}");
+        assert_eq!(lcf & COLLTYPE_ENEMY1, 0, "leg {leg}");
+    }
     // bosshhitcount seeded in the mother's gate byte (al_sbyte1).
     assert_eq!(g.objs.aliens[boss as usize].sbyte1, HITCOUNT_INIT);
     // nohitaffect set while legs live (body invulnerable).
@@ -177,7 +205,10 @@ fn droptoground_gate_drains_hitcount() {
             break;
         }
     }
-    assert!(dropped, "a scripted droptoground drained the hitcount gate by 5");
+    assert!(
+        dropped,
+        "a scripted droptoground drained the hitcount gate by 5"
+    );
 }
 
 #[test]
@@ -191,7 +222,7 @@ fn leg_death_drains_gate_and_bar() {
     // Shoot a leg dead -> its expstrat (bosshleg_explode) fires.
     g.objs.aliens[leg as usize].hp = 0;
     g.run_strategies(); // leg explode: -5 gate + detach
-    // s_sub_var bosshhitcount,#5 (D3:853).
+                        // s_sub_var bosshhitcount,#5 (D3:853).
     assert_eq!(
         g.objs.aliens[boss as usize].sbyte1,
         hc0 - 5,
@@ -199,9 +230,15 @@ fn leg_death_drains_gate_and_bar() {
     );
     // The leg is gone from the mother's children.
     assert_eq!(legs(&g, boss).len(), 4, "one leg removed from the family");
+    let linked = linked_child_numbers(&g, boss);
+    assert_eq!(linked.len(), 5, "four legs plus the top remain linked");
+    assert!(linked.contains(&6), "leg removal preserves the top link");
     // Re-sum: the bar reflects the reduced gate.
     g.run_strategies();
-    assert!(g.vars.bosshp < BOSSMAXHP, "bar dropped below full after leg loss");
+    assert!(
+        g.vars.bosshp < BOSSMAXHP,
+        "bar dropped below full after leg loss"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -218,8 +255,15 @@ fn body_invulnerable_until_all_legs_dead_then_explodes() {
     // (s_jmp_childrendead else-branch, D3:566-568).
     g.objs.aliens[boss as usize].hp = 10; // simulate a chip
     g.run_strategies();
-    assert_eq!(g.objs.aliens[boss as usize].hp, BOSSH_HP, "body HP re-pinned (invulnerable)");
-    assert_ne!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0, "still nohitaffect");
+    assert_eq!(
+        g.objs.aliens[boss as usize].hp, BOSSH_HP,
+        "body HP re-pinned (invulnerable)"
+    );
+    assert_ne!(
+        g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT,
+        0,
+        "still nohitaffect"
+    );
 
     // Kill all five legs.
     for leg in legs(&g, boss) {
@@ -240,7 +284,10 @@ fn body_invulnerable_until_all_legs_dead_then_explodes() {
     g.objs.aliens[boss as usize].hp = 0; // -> expstrat bossh_explode
     g.run_strategies();
     // .explode -> strat_boss_explode_init spawns the explosion burst.
-    assert!(active_count(&g) > before, "death spawned the boss explosion burst");
+    assert!(
+        active_count(&g) > before,
+        "death spawned the boss explosion burst"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -261,5 +308,8 @@ fn bar_tracks_body_hp_when_vulnerable() {
     let full = g.vars.bosshp;
     g.objs.aliens[boss as usize].hp = 20;
     g.run_strategies();
-    assert!(g.vars.bosshp < full, "m_bossHP bar dropped after body damage");
+    assert!(
+        g.vars.bosshp < full,
+        "m_bossHP bar dropped after body damage"
+    );
 }

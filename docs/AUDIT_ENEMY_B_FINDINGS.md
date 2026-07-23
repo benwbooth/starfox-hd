@@ -3,47 +3,98 @@ Source: accuracy-audit agent report. Fix agent: apply in order, flip audit_strat
 assertions, re-bless eb_parity fixtures after. ASM refs authoritative.
 
 ## Critical
-1. bossF: playerturn180_Istrat missing entirely. ROM GB2STRAT.ASM:178 (FC2, gated psf2_playerHP0), :256 (FC3 ungated), :286 (bossFCdie2_init). Port playerturn180 + playerbossFdie (GB2STRAT:351-359 — incl. pviewposz -= medpspeed*2 and playerinspace_strat swap) and wire all 4 sites (enemy_b.rs:2664-2669, 2757-2762, 2800, 2853-2862).
-2. bossFC2/FC3 objinfront gates INVERTED (enemy_b.rs:2657-2658, 2750-2751). s_jmp_objinfront a,b = lda a.z; cmp b.z; bpl skip (STRATMAC.INC:3445): FC2 turn block runs when me.z < pl.z. Rust runs complement.
-3. bossA cup GO-state return INVERTED (enemy_b.rs:1742-1744). ROM .ngo: return home when cup.z < player.z AND zdist >= 200. Rust is complement -> drill run never happens. Also: stop homing inside 1000 units; fly by heading sbyte3/sbyte4 not visual rotx/roty (no strat_aim_3d every tick); NO GO timer (BOSSA_CUP_GO_TIME=45 is invented — delete).
-4. bossA cups NEVER fire in ROM (bossacupfire* GB3STRAT:1018/1027 have no callers). Delete the GO-state hmissile fire (enemy_b.rs:1752-1759).
-5. bossA turret aim: boss_apply_yaw_offset (enemy_a.rs:1402-1404) stomps turret roty with mother.roty each tick before the achase (enemy_b.rs:1597-1611). ROM never writes turret roty from mother (GB3STRAT:1209+1226). Make the offset position-only for turrets.
-6. bossA turret fire gate INVERTED + pattern: ROM s_jmpnot_objpointnegZ fires when roty in 180±45 (STRATMAC:6214-6221); Rust fires at 0±45. Cadence: frames 15 (yaw -deg11) and 30 (+deg11) of &31, homing HPLASMA + weapon_rot spread (GB3STRAT:1191-1207); Rust every 15 aimed straight. NOTE bossFA maps the same macro inverted too — make both consistent with ROM.
-7. bossA turret death/resurrection missing: bossAturretexp_Istrat (GB3STRAT:1229-1240) leaves invisible hardHP husk + mother.sbyte3++; bossAcupDOWN_srou resurrects (hp=turrHP, clear invisible, sbyte3--). Rust frees the turret (enemy_b.rs:1558) — core loop broken. DOWN state :1814-1818 needs the husk revive.
-8. bossA parent machine: mother.sbyte3 = destroyed-turret COUNT. ==2 -> 3-missile barrage (frames 20/25/30 of &63); !=2 -> retarget turrets from bossATY_tab via sword2 (+3 mod 9) every 32 frames (notdelay 5); ==3 + 3 children -> kill parent. Rust (enemy_b.rs:1967-1990) treats sbyte3 as pattern idx cycling every 5 frames. Lone-turret sweep (turret sbyte2 60/20 toggle, GB3STRAT:1211-1222) missing.
-9. bossA GO/IROTATE selection: GO only when last cup (2 dead), else IROTATE (Rust has it backwards, enemy_b.rs:1956-1960).
+1. ~~bossF: playerturn180_Istrat missing entirely.~~ **FIXED (verified tick 191):**
+   `playerturn180_*` + `bossf_set_player_turn180` wired at FC2 (HP0-gated), FC3
+   (ungated), FCdie2. Tests `bossfc_objinfront.rs`.
+2. ~~bossFC2/FC3 objinfront gates INVERTED.~~ **FIXED (verified tick 191):**
+   FC2 runs turn when `me.z < pl.z`; FC3 swapped args (`pl.z < me.z`). Tests
+   `bossfc_objinfront.rs`.
+3. ~~bossA cup GO-state return INVERTED.~~ **FIXED (verified tick 192):**
+   return when `me.z < pl.z` && `|dz|>=200`; homing via sbyte3/sbyte4; no GO
+   timer; no GO fire. Tests `bossa_cup_criticals.rs`.
+4. ~~bossA cups NEVER fire in ROM (GO hmissile).~~ **FIXED (verified tick 192):**
+   GO path has no weapon spawn. Test `bossa_cup_go_does_not_fire`.
+5. ~~bossA turret aim: mother.roty stomp.~~ **FIXED (prior + tick 192):**
+   `bossa_update_turret_position` is pos-only; cont Achases toward sbyte3.
+   Covered by `bossaturret_lmr.rs`.
+6. ~~bossA turret fire gate INVERTED + pattern.~~ **FIXED (prior + tick 192):**
+   fires when roty in 180±45; frames 15/30 of &31 with ±deg11. `bossaturret_lmr.rs`.
+7. ~~bossA turret death/resurrection missing.~~ **FIXED (verified tick 192):**
+   husk (`invisible`+hardHP) + mother.sbyte3++; DOWN revives. Test
+   `bossa_turret_husk_and_down_revive`.
+8. ~~bossA parent machine sbyte3 wrong.~~ **FIXED (verified tick 192):**
+   sbyte3 = destroyed-turret count; ==2 missile barrage; else retarget &31;
+   ==3+3 children kill parent. Lone-turret sweep in cont.
+9. ~~bossA GO/IROTATE selection backwards.~~ **FIXED (verified tick 192):**
+   GO only when `dead_cups==2`, else IROTATE. Test `bossa_attack_go_only_when_last_cup`.
 
 ## High
-10. achase_angle rounds toward -inf; ROM toward zero (enemy_a.rs:271-283). Oracle-proven (audit_strats_b.rs vs SR8_ACHASE_ALVAR3/4: 0->100 r3 ROM 12 vs Rust 13). Use the strat_chase_proportional (common.rs:296) toward-zero core. Every enemy-B rotation uses this.
-11. s_jmp_notdelay N = gameframe & ((1<<N)-1) (STRATMAC:6456), misread as %N or halved:
-    boss7 hatch volley 32 not 5 (enemy_b.rs:679); boss7 launcher missile 32 not 5 (:770);
-    bossA retarget 32 not 5 (:1967); bossF turret laser 8 not 4 (:3055); bossFC smoke 8 not 4 (:2439);
-    boss7a speedto 4 not 2 (:939); boss7exp spin 8 not 4 (:1295).
-12. bossFtur fire-window INVERTED (enemy_b.rs:3043): ROM fires only when sbyte2 <= 15; Rust returns then.
-13. bossFA/FB vz scale: ROM s_scale_alvar W,vz,1 = asl = x2 (STRATMAC:4604); Rust >>1 (enemy_b.rs:3181, 3268) — 4x too slow.
-14. bossFA/FB combine chase: ROM Achase rate 4 trunc+min-step; Rust >>2 floor (enemy_b.rs:3131-3133, 3214-3216). Use strat_chase_proportional(_,_,4).
-15. boss7 s_jmp_lower gates INVERTED (branches when worldy >= value, STRATMAC:3098): boss7a_strat (:954) rise while < -320; boss7launch_cont (:1008) rise while < -240; boss7alldead (:1174) inverted AND threshold is -40<<2=-160 not -40<<3.
-16. boss7d/e loop amplitude: ROM sintab>>3 (±15) dy, costab>>1 (±63) dz (GB3STRAT:3494-3500); Rust sin*8/cos*2 (enemy_b.rs:1089-1090, 1124-1125).
-17. bossFC intro: s_decbne sbyte2 200-frame countdown gates states 0/1 (GB2STRAT:82-95) — Rust descends immediately (enemy_b.rs:2539-2559). State-2 sound $8E when roty REACHES 0, latch on ASF4_SFLAG8 (:2570-2574).
-18. bossFC2_cont: skip smoke AND twin-Hplasma until sbyte2 >= 3 turrets destroyed (GB2STRAT:185-201); fire straight weapon_rot #0,#0 (homing ptr aims), not pre-aimed (enemy_b.rs:2687-2700).
-19. bossFB mines inert: ROM mine0_istrat (DSTRATS:1572-1580) colltype ENEMY1, hitflash/explode strats, random rotz, no lifetime. Rust colldisable+colltype4+stratptr None+count 60 (enemy_b.rs:3252-3261). HP/AP 2/10 correct.
+10. ~~achase_angle rounds toward -inf.~~ **FIXED (verified tick 193 + oracle):**
+    `achase_angle` → `achase_angle_8` toward-zero; fuzz/audit_strats_b MATCH.
+    Test `achase_toward_zero_0_to_100_rate3`.
+11. ~~s_jmp_notdelay N misread.~~ **FIXED (verified tick 193):** hatch/launcher/
+    retarget `&31`, Ftur/FC smoke/exp `&7`, boss7a speedto `&3`. Code + prior tests.
+12. ~~bossFtur fire-window INVERTED.~~ **FIXED (verified tick 191):**
+    fires only when `sbyte2 <= 15`; notdelay 3 (= every 8 frames). Test
+    `bossftur_fires_only_when_sbyte2_le_15`.
+13. ~~bossFA/FB vz scale >>1.~~ **FIXED (verified tick 193):** `vz <<= 1` (ASL).
+    Test `bossfa_vz_scale_asl_x2`.
+14. ~~bossFA/FB combine chase >>2 floor.~~ **FIXED (verified tick 193):**
+    `strat_chase_proportional(_,_,4)`. Test `bossfa_combine_uses_chase_rate4`.
+15. ~~boss7 s_jmp_lower gates INVERTED.~~ **FIXED (code):** rise/advance when
+    `worldy >=` threshold (−320/−240/−160).
+16. ~~boss7d/e loop amplitude wrong.~~ **FIXED (verified tick 193):**
+    sintab>>3 / costab>>1 via `adiv2n`. Test `boss7d_loop_sintab_scaled`.
+17. ~~bossFC intro descends immediately.~~ **FIXED (verified tick 193):**
+    200-frame `sbyte2` countdown gates states 0/1. Test
+    `bossfc_intro_countdown_gates_descent`.
+18. ~~bossFC2_cont fires before 3 turrets.~~ **FIXED (verified tick 193):**
+    smoke+Hplasma held until `sbyte2 >= 3`. Test
+    `bossfc2_cont_holds_fire_until_3_turrets`.
+19. ~~bossFB mines inert.~~ **FIXED (tick 193):** live mines (hitflash/explode,
+    no lifetime) + **colltype fix** `enemy_a::COLLTYPE_ENEMY1` (0x10), not
+    mislabeled vars 0x01. Also swept other enemy_b ENEMY1 sites. Test
+    `bossfb_spawns_live_mines`.
 
 ## Medium
-20. spacepilon scatter: ROM s_add_rnd2pos x,255,255,255,2,2,1 = (rnd&255-127)<<2/<<2/<<1 via random_l; Rust deterministic idx*37/53/17 unscaled (enemy_b.rs:2319-2322).
-21. spacepilonP state-0 chase: inline >>3 floor; use toward-zero trunc helper (enemy_b.rs:2129-2143).
-22. Death sequences stubbed: boss7 parts skip boss7fall detach/bounce (:614); shield removal s_kill_obj (hp=0 -> shieldexp fall) not obj_free (:922); boss7exp per-tick L-explosions + end on worldy>=0 -> bossbigoutexplode, not 24-frame timer (:1291-1310); bossA death 3-piece tank breakup (bossAexp2/L/M/R, GB3STRAT:800-880) vs spin+timer (:2024-2038).
-23. bossa_strat intro: roty +1 every 2 frames (notdelay 1); slide-in applies vx every tick, decel (vx+=1) only once worldx <= 210 (enemy_b.rs:1997-2004, 1857-1864).
-24. ground.rs staydist: re-runs every frame (worldz = sword1 + pviewposz tracks viewer, GSTRATS:704-710); Rust computes once + stratptr None (ground.rs:65-71).
-25. bossFCdie2 rubble: X offset <<1 (enemy_b.rs:2819-2826).
-26. boss7 parent motion yaw from sbyte2 not roty (GB3STRAT:3227; enemy_b.rs:916).
+20. ~~spacepilon scatter: ROM s_add_rnd2pos …~~ **FIXED (verified tick 194):**
+    `((rnd&255)-127)<<2/<<2/<<1` via `sfrtl_random`. Test
+    `spacepilon_scatter_rnd2pos_scales`.
+21. ~~spacepilonP state-0 chase: inline >>3 floor~~ **FIXED (verified tick 194):**
+    `achase_angle` toward-zero on relposy. Test
+    `spacepilonp_state0_achase_relposy`.
+22. ~~Death sequences stubbed~~ **FIXED (verified tick 194):**
+    `boss7fall_*` detach/bounce; shield `s_kill_obj`; `bossAexp*` 3-piece
+    breakup. Test `death_sequences_boss7fall_and_bossa_breakup`.
+23. ~~bossa_strat intro~~ **FIXED (verified tick 194):**
+    roty+1 every 2 frames; vx decel only when `worldx<=210`. Test
+    `bossa_intro_roty_and_vx_decel`.
+24. ~~ground.rs staydist~~ **FIXED (verified tick 194 + prior ea_units):**
+    per-tick `worldz = sword1 + pviewposz`. Test
+    `staydist_tracks_pviewposz_each_tick`.
+25. ~~bossFCdie2 rubble X offset~~ **FIXED (verified tick 194):**
+    X `<<1`. Test `bossfcdie2_rubble_x_offset_asl`.
+26. ~~boss7 parent motion yaw~~ **FIXED (verified tick 194):**
+    `gen_vecs` from `sbyte2` not `roty`. Test
+    `boss7_parent_yaw_from_sbyte2_not_roty`.
 
 ## Minor
-- bossAup/cover sounds $73/$72 gate on sflag3 all-cups-dead flag (maintain it) (enemy_b.rs:1876, 1901).
-- bossAcover DOWN while sbyte2 >= 20 (not > 20) (:1913).
-- bossA parent collstrat: none in ROM (no hit_flash) (:2050).
-- bossA turret M sbyte3 overwritten to 0 by Icont (Rust keeps DEG180) (:1633).
-- Cup home Z offset -2<<bossA_scale in bossa_cup_set_home (:1450-1474); cup open anim cap 6 not 7.
-- Muzzle offsets 4x too small at bossFC2 fire (:2692-2698) + bossFA (:3164-3172) — use effective-value convention like boss7launcher/bossA turret sites.
+- ~~bossAup/cover sounds $73/$72 gate on sflag3~~ **FIXED (verified tick 195):**
+  gated on `BOSSA_PARENT_FLAG_CUPS_DEAD`. Test
+  `bossa_up_cover_sounds_gated_on_cups_dead`.
+- ~~bossAcover DOWN while sbyte2 >= 20~~ **FIXED (verified tick 195):**
+  `>= 20` not `> 20`. Test `bossacover_down_at_sbyte2_eq_20`.
+- ~~bossA parent collstrat: none~~ **FIXED (verified tick 195):**
+  `collstratptr = None` in `strat_bossa_init`. Test
+  `bossa_parent_collstrat_none`.
+- ~~bossA turret M sbyte3 overwritten to 0~~ **FIXED (verified tick 195):**
+  Icont sets sbyte3=0 for all turrets. Test
+  `bossaturretm_icont_sbyte3_zero`.
+- ~~Cup home Z offset -2<<scale; open anim cap 6~~ **FIXED (verified tick 195):**
+  Tests `bossa_cup_home_z_and_open_anim_cap6`.
+- ~~Muzzle offsets 4x too small at bossFC2/FA~~ **FIXED (verified tick 195):**
+  effective `±20<<bossF_scale`. Test
+  `bossf_muzzle_offsets_effective_scale`.
 
 ## Verified correct (don't touch)
 boss7 phase graph/timers/fan-shot quirk/HP; bossA child layout/HP/cup chase rates+lifts/rotz/timers; bossF turret table/fire frames/FC2-FC3 roty targets/FCdie structure/sounds; spacepilon tick structure; ground stayrel/gnd/stayrelhard180yr; SPACE_VIEWCY=-60.

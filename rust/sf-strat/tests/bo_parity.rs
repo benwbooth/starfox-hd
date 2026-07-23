@@ -1,5 +1,5 @@
-//! Boss lane parity tests against the C oracle (strat_boss2.c /
-//! strat_boss_sea.c / strat_boss8.c).
+//! Boss-lane trace regressions, originally captured from the removed C port
+//! and subsequently corrected against the retail ASM/ROM oracle.
 //!
 //! Fixtures `tests/fixtures/bo_{boss2,bossg,boss8}.txt` were dumped by the
 //! scratchpad C harness (`bo_harness/bo_harness.c` + `bo_stubs.c`), which
@@ -10,8 +10,8 @@
 //! spawn the boss with its Istrat as the initial stratptr, run 150 ticks
 //! of `Game::run_strategies` (C `Obj_RunStrategies`) while scripting the
 //! player identically. Every tick emits one `T` global line plus one `A`
-//! line per active alien in SLOT order; the Rust replay must match the C
-//! dump byte-for-byte.
+//! line per active alien in SLOT order; the Rust replay must match the blessed
+//! ROM-verified trace byte-for-byte.
 //!
 //! Regenerate (repo root; harness in the session scratchpad):
 //!   gcc -O1 -Isrc -o bo_harness bo_harness.c bo_stubs.c \
@@ -199,15 +199,12 @@ fn check(scenario: &str, fixture: &str) {
         std::fs::write(fixture, &got).unwrap_or_else(|e| panic!("write {fixture}: {e}"));
         return;
     }
-    let want = std::fs::read_to_string(fixture)
-        .unwrap_or_else(|e| panic!("read {fixture}: {e}"));
+    let want = std::fs::read_to_string(fixture).unwrap_or_else(|e| panic!("read {fixture}: {e}"));
     if got != want {
         // Report the first diverging line for a fast bisect.
         for (i, (a, b)) in got.lines().zip(want.lines()).enumerate() {
             if a != b {
-                panic!(
-                    "{scenario} parity diverged at line {i}:\n  rust: {a}\n     c: {b}"
-                );
+                panic!("{scenario} parity diverged at line {i}:\n  rust: {a}\n     c: {b}");
             }
         }
         panic!(
@@ -219,7 +216,7 @@ fn check(scenario: &str, fixture: &str) {
 }
 
 #[test]
-fn boss2_spawn_through_first_leap_matches_c() {
+fn boss2_spawn_through_first_leap_matches_rom_verified_trace() {
     check(
         "boss2",
         concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bo_boss2.txt"),
@@ -227,7 +224,7 @@ fn boss2_spawn_through_first_leap_matches_c() {
 }
 
 #[test]
-fn bossg_mode_table_walk_matches_c() {
+fn bossg_mode_table_walk_matches_rom_verified_trace() {
     check(
         "bossg",
         concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bo_bossg.txt"),
@@ -235,7 +232,7 @@ fn bossg_mode_table_walk_matches_c() {
 }
 
 #[test]
-fn boss8_open_volley_cycle_matches_c() {
+fn boss8_open_volley_cycle_matches_rom_verified_trace() {
     check(
         "boss8",
         concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/bo_boss8.txt"),

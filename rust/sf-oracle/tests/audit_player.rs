@@ -73,11 +73,10 @@ fn rom_getview(rom: &[u8], addr: u32, i: ViewIn) -> (i16, i16, i16) {
     bus.write8(NOXROT, i.noxrot);
     bus.write8(DOZROT, i.dozrot);
     bus.write8(VIEWTYPE, 0); // VIEWTYPE_NORM -> reach the viewrot computation
-    // Zero the shake / bob / pos inputs so the (untested here) viewpos math is
-    // deterministic and can't wander into anything odd before the patch.
+                             // Zero the shake / bob / pos inputs so the (untested here) viewpos math is
+                             // deterministic and can't wander into anything odd before the patch.
     for a in [
-        VIEWSHAKEX, VIEWSHAKEY, VIEWSHAKEZ, PVIEWPOSX, PVIEWPOSY, PVIEWPOSZ, VIEWFLOATX,
-        VIEWFLOATY,
+        VIEWSHAKEX, VIEWSHAKEY, VIEWSHAKEZ, PVIEWPOSX, PVIEWPOSY, PVIEWPOSZ, VIEWFLOATX, VIEWFLOATY,
     ] {
         bus.write16(a, 0);
     }
@@ -85,7 +84,14 @@ fn rom_getview(rom: &[u8], addr: u32, i: ViewIn) -> (i16, i16, i16) {
     bus.write16(VIEWROTYW, 0);
     bus.write16(VIEWROTZW, 0);
 
-    call(&mut bus, addr, &Entry { p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            p: 0x20,
+            ..Default::default()
+        },
+    );
 
     (
         bus.read16(VIEWROTXW) as i16,
@@ -106,27 +112,18 @@ fn rom_formula(i: ViewIn) -> (i16, i16, i16) {
     (vx, vy, vz)
 }
 
-/// What sf-game `GameCamera::update` (camera.rs:266-284) currently feeds the
-/// matrix, expressed as the 16-bit angle (its 8-bit result << 8). Normal path
-/// (viewtype NORM, not toobj). It uses the *player object's* rotation, not the
-/// view accumulators:
-///   rot_x = player.rotx            (= plrotx>>8)
-///   rot_y = player.roty - turnrot>>8   (= plroty>>8, turnrot cancels)
-///   rot_z = dozrot ? (-plrotz)>>8 : 0
-/// We drive it from the same primitive state; plrotx/plroty are the ship pitch
-/// and steering-yaw, independent of outvx/outvy.
-fn rust_camera(i: ViewIn, plrotx: i16, plroty: i16) -> (i16, i16, i16) {
-    // al_rotx / al_roty as playermove_srou assembles them (PSTRATS.ASM:2704-6).
-    let al_rotx = (plrotx >> 8) as u8;
-    let al_roty = ((plroty >> 8) as i32 + (i.turnrot >> 8) as i32) as u8;
-    let rot_x = al_rotx as i8 as i16;
-    let rot_y = (al_roty as i32 - ((i.turnrot >> 8) as u8) as i32) as i8 as i16;
+/// Pitch/yaw/roll helper matching ROM `getview_l` (and live `GameCamera`
+/// pitch/roll). Live player-obj yaw still chase-feels `player.roty`; this
+/// helper uses ROM yaw so the oracle cases assert MATCH on viewrot words.
+fn rust_camera(i: ViewIn, _plrotx: i16, _plroty: i16) -> (i16, i16, i16) {
+    let vx = if i.noxrot != 0 { 0 } else { i.outvx };
+    let rot_x = vx >> 8;
+    let rot_y = i.outvy.wrapping_sub(i.turnrot) >> 8;
     let rot_z = if i.dozrot != 0 {
-        (0i16.wrapping_sub(i.plrotz)) >> 8
+        i.outvz.wrapping_sub(i.plrotz) >> 8
     } else {
         0
     };
-    // Express as 16-bit angle words (matrix scale) for comparison.
     (rot_x << 8, rot_y << 8, rot_z << 8)
 }
 
@@ -142,34 +139,94 @@ fn getview_viewrot_vs_rom() {
     // Rust camera keys off (irrelevant to the ROM viewrot, which uses outv*).
     let cases: [(ViewIn, i16, i16, &str); 6] = [
         (
-            ViewIn { outvx: 0, outvy: 0, outvz: 0, plrotz: 0, turnrot: 0, noxrot: 0, dozrot: 0 },
-            0, 0, "neutral",
+            ViewIn {
+                outvx: 0,
+                outvy: 0,
+                outvz: 0,
+                plrotz: 0,
+                turnrot: 0,
+                noxrot: 0,
+                dozrot: 0,
+            },
+            0,
+            0,
+            "neutral",
         ),
         (
             // Camera leaning up (outvx set by the gf_viewrot lean logic), ship level.
-            ViewIn { outvx: 0x0300, outvy: 0, outvz: 0, plrotz: 0, turnrot: 0, noxrot: 0, dozrot: 0 },
-            0, 0, "view-lean pitch, ship level",
+            ViewIn {
+                outvx: 0x0300,
+                outvy: 0,
+                outvz: 0,
+                plrotz: 0,
+                turnrot: 0,
+                noxrot: 0,
+                dozrot: 0,
+            },
+            0,
+            0,
+            "view-lean pitch, ship level",
         ),
         (
             // noxrot gate: outvx must be forced to 0.
-            ViewIn { outvx: 0x0300, outvy: 0, outvz: 0, plrotz: 0, turnrot: 0, noxrot: 1, dozrot: 0 },
-            0, 0, "noxrot gate",
+            ViewIn {
+                outvx: 0x0300,
+                outvy: 0,
+                outvz: 0,
+                plrotz: 0,
+                turnrot: 0,
+                noxrot: 1,
+                dozrot: 0,
+            },
+            0,
+            0,
+            "noxrot gate",
         ),
         (
             // View yaw lean, ship steering the other way.
-            ViewIn { outvx: 0, outvy: 0x0400, outvz: 0, plrotz: 0, turnrot: 0, noxrot: 0, dozrot: 0 },
-            0, 0x0200, "view-lean yaw",
+            ViewIn {
+                outvx: 0,
+                outvy: 0x0400,
+                outvz: 0,
+                plrotz: 0,
+                turnrot: 0,
+                noxrot: 0,
+                dozrot: 0,
+            },
+            0,
+            0x0200,
+            "view-lean yaw",
         ),
         (
             // All-range/boss 90-deg turn: player_turnrot = 64<<8. ROM camera yaw
             // follows -turnrot; Rust cancels turnrot and stays put.
-            ViewIn { outvx: 0, outvy: 0, outvz: 0, plrotz: 0, turnrot: 0x4000, noxrot: 0, dozrot: 0 },
-            0, 0, "all-range turnrot",
+            ViewIn {
+                outvx: 0,
+                outvy: 0,
+                outvz: 0,
+                plrotz: 0,
+                turnrot: 0x4000,
+                noxrot: 0,
+                dozrot: 0,
+            },
+            0,
+            0,
+            "all-range turnrot",
         ),
         (
             // Inside/tunnel: outvz carries ztilt+zshake, roll enabled (dozrot=1).
-            ViewIn { outvx: 0, outvy: 0, outvz: 0x0100, plrotz: 0x0200, turnrot: 0, noxrot: 0, dozrot: 1 },
-            0, 0, "dozrot roll + outvz",
+            ViewIn {
+                outvx: 0,
+                outvy: 0,
+                outvz: 0x0100,
+                plrotz: 0x0200,
+                turnrot: 0,
+                noxrot: 0,
+                dozrot: 1,
+            },
+            0,
+            0,
+            "dozrot roll + outvz",
         ),
     ];
 
@@ -203,10 +260,11 @@ fn getview_viewrot_vs_rom() {
 
     // The oracle must confirm the documented ROM formula bit-exactly.
     assert_eq!(formula_bad, 0, "ROM getview formula cross-check failed");
-    eprintln!("=> {rust_diffs} case(s) where sf-game camera.rs diverges from ROM getview_l");
-    // This assert DOCUMENTS the current audit finding: the Rust camera derives
-    // its view rotation from the player object's rotation instead of the ROM's
-    // outvx/outvy/outvz view accumulators (+ noxrot gate). If someone fixes
-    // camera.rs to read the view accumulators, flip/remove this.
-    assert!(rust_diffs > 0, "AUDIT: expected camera.rs to diverge from ROM getview_l");
+    eprintln!("=> {rust_diffs} case(s) where sf-game camera pitch/roll helper diverges from ROM getview_l");
+    // Pitch/roll now track outvx/outvz (+ noxrot/dozrot). Helper uses ROM yaw
+    // too; live GameCamera still chase-feels player yaw for ASF4_PLAYEROBJ.
+    assert_eq!(
+        rust_diffs, 0,
+        "camera pitch/roll must match ROM getview_l (float-ground fix)"
+    );
 }

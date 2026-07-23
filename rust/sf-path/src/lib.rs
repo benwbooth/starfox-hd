@@ -1,9 +1,9 @@
 //! Path bytecode data and interpreter.
 //!
 //! Ports (C oracle): `src/path/paths.c`, `src/path/path_literals.c/h`,
-//! `src/path/path_catalog.c`. The path data itself is a literal transcription
-//! of `reference/ultrastarfox/SF/PATH/*.ASM` — ported as a builder-emitted
-//! catalog with the same ids and byte layout the C catalog exposes.
+//! `src/path/path_catalog.c`. When the extracted user-owned catalog is
+//! available, path data comes directly from the reference assembler's ROM
+//! bytes. The builder-emitted literal catalog remains the no-ROM fallback.
 //!
 //! C source mapping:
 //! - `src/path/paths.h` opcode constants  -> [`opcodes`]
@@ -30,3 +30,4 @@ pub mod ids;
 pub mod interp;
 pub mod literals;
 pub mod opcodes;
+pub mod rom_catalog_data;

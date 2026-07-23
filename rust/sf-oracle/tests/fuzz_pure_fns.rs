@@ -23,10 +23,10 @@
 //! ROM refs: STRATROU.ASM (addvecs_l:497, add_objvecs_l:1576, sr_achase:2740),
 //! STRATMAC.INC Achase_var2A:525 + nolessrange:697 + adiv2:712.
 
+use sf_game::alien::Alien;
 use sf_oracle::{call, load_built_rom, load_symbols, Entry, SnesBus};
 use sf_strat::common::{strat_add_to_pos, strat_chase_proportional};
 use sf_strat::enemy_a::achase_angle;
-use sf_game::alien::Alien;
 
 // ---- DP / field addresses (data/symbols.txt) -------------------------------
 const TPX: u32 = 0x003A; // STRATROU scratch `tpx` (chase current)
@@ -50,7 +50,15 @@ const AL_VZ: u32 = 0x0033;
 fn rom_achase8(rom: &[u8], addr: u32, current: u8, target: u8) -> u8 {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write8(TPX, current);
-    call(&mut bus, addr, &Entry { a: target as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: target as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     bus.read8(TPX)
 }
 
@@ -129,9 +137,8 @@ fn sr8_achase_all_rates_vs_achase_angle() {
          antipodal(|diff|=128)={diffs_antipodal} rate7(unreachable)={diffs_rate7}"
     );
     // Reachable everyday regime (rates 1-6, any non-antipodal angle gap) is
-    // bit-exact. The antipodal |diff|=128 case and the unreachable rate-7 case
-    // are documented latent divergences (see the #[ignore]d
-    // sr8_achase_antipodal_divergence test + AUDIT_PURE_FNS_FINDINGS.md).
+    // bit-exact. Antipodal |diff|==128 is also bit-exact (achase_angle_8).
+    // Only rate 7 (unreachable ROM quirk) remains in the probe counters.
     assert_eq!(
         diffs_reachable, 0,
         "achase_angle diverges from ROM sr8_achase for a reachable (rate<=6, non-antipodal) input"
@@ -139,21 +146,16 @@ fn sr8_achase_all_rates_vs_achase_angle() {
     // FIXED (achase_angle now uses the ROM's target-current+add form): the
     // antipodal |diff|==128 tie is bit-exact too. Only rate 7 (unreachable, the
     // ROM's own 2^7=-128 min-step quirk) remains.
-    assert_eq!(diffs_antipodal, 0, "achase_angle should now match ROM at |diff|==128");
+    assert_eq!(
+        diffs_antipodal, 0,
+        "achase_angle should now match ROM at |diff|==128"
+    );
 }
 
-/// LATENT DIVERGENCE (finding #1). ROM `sr8_achase_alvarN` computes
-/// `new = current + adiv2^N(target - current)`. The Rust `achase_angle`
-/// (enemy_a.rs:299) computes `new = current - adiv2^N(current - target)`. These
-/// are algebraically equal EXCEPT when the 8-bit signed diff == -128 (0x80): the
-/// exactly-antipodal (180-degree) angle gap, where `-(-128)` overflows back to
-/// -128, so the two forms pick OPPOSITE turn directions. Both land equidistant
-/// from an antipodal target, so convergence still happens, but the path (and the
-/// intermediate angle) mismatches the ROM. Reachable (an enemy aimed exactly
-/// opposite its target). TODO: match the ROM by adding the adiv2 result to
-/// `current` from `target-current` instead of subtracting `current-target`.
+/// REGRESSION (was finding #1). ROM `sr8_achase_alvarN` computes
+/// `new = current + adiv2^N(target - current)`. Port `achase_angle_8` matches
+/// that form, including the antipodal `|diff|==128` tie.
 #[test]
-// FIXED (achase_angle now matches ROM's target-current+add at the ±128 tie).
 fn sr8_achase_antipodal_divergence() {
     let syms = load_symbols();
     let (Some(&addr), Some(rom)) = (syms.get("SR8_ACHASE_ALVAR1"), load_built_rom()) else {
@@ -165,7 +167,10 @@ fn sr8_achase_antipodal_divergence() {
     let mut rust = 0u8;
     achase_angle(&mut rust, 128, 1);
     eprintln!("sr8 antipodal cur=0 tgt=128 rate1: ROM={rom_new} RUST={rust}");
-    assert_eq!(rom_new, rust, "ROM turns one way (192), achase_angle the other (64)");
+    assert_eq!(
+        rom_new, rust,
+        "ROM turns one way (192), achase_angle the other (64)"
+    );
 }
 
 // ===========================================================================
@@ -178,7 +183,15 @@ fn sr8_achase_antipodal_divergence() {
 fn rom_achase16(rom: &[u8], addr: u32, current: i16, target: i16) -> i16 {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write16(TPX, current as u16);
-    call(&mut bus, addr, &Entry { a: target as u16, p: 0x00, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: target as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     bus.read16(TPX) as i16
 }
 
@@ -191,8 +204,38 @@ fn sr16_achase_all_rates_vs_chase_proportional() {
     };
     // Broad signed magnitudes incl. the exact values that make diff = i16::MIN.
     let vals: [i16; 33] = [
-        i16::MIN, -32767, -32000, -20000, -16385, -16384, -10000, -1000, -353, -128, -64, -17, -16,
-        -9, -8, -1, 0, 1, 7, 8, 9, 16, 17, 64, 128, 941, 1000, 10000, 16384, 20000, 32000, 32766,
+        i16::MIN,
+        -32767,
+        -32000,
+        -20000,
+        -16385,
+        -16384,
+        -10000,
+        -1000,
+        -353,
+        -128,
+        -64,
+        -17,
+        -16,
+        -9,
+        -8,
+        -1,
+        0,
+        1,
+        7,
+        8,
+        9,
+        16,
+        17,
+        64,
+        128,
+        941,
+        1000,
+        10000,
+        16384,
+        20000,
+        32000,
+        32766,
         i16::MAX,
     ];
     let mut checked = 0usize;
@@ -233,27 +276,21 @@ fn sr16_achase_all_rates_vs_chase_proportional() {
     eprintln!(
         "test result note: sr16_achase diffs reachable={diffs_reachable} antipodal(|diff|=32768)={diffs_antipodal}"
     );
-    // Reachable regime (any diff whose magnitude != 32768) is bit-exact. The
-    // exact ±32768 diff is the 16-bit antipodal boundary — see the #[ignore]d
-    // sr16_achase_antipodal_divergence test + AUDIT_PURE_FNS_FINDINGS.md.
+    // Reachable regime is bit-exact, including the ±32768 antipodal boundary
+    // (strat_chase_proportional). See AUDIT_PURE_FNS_FINDINGS.md.
     assert_eq!(
         diffs_reachable, 0,
         "strat_chase_proportional diverges from ROM sr16_achase for |diff| != 32768"
     );
-    assert!(diffs_antipodal > 0, "expected the ±32768 boundary to still diverge");
+    assert_eq!(
+        diffs_antipodal, 0,
+        "strat_chase_proportional should match ROM at the ±32768 boundary (i32 diff)"
+    );
 }
 
-/// LATENT DIVERGENCE (finding #2). Same class as finding #1 but 16-bit.
-/// `strat_chase_proportional` (common.rs:304) computes `diff = current - target`
-/// as an i16 `wrapping_sub`, then branches on `diff >= 0`. When the true diff is
-/// exactly ±32768 the i16 wraps to i16::MIN (-32768), so the SIGN test uses the
-/// wrong sign and the chase steps the wrong direction (the i32 widening in the
-/// negative branch does not help — the branch was already chosen from the
-/// wrapped value). Only reachable if two 16-bit quantities sit exactly 32768
-/// apart (e.g. worldx +16384 vs -16384) — effectively never in normal play, but
-/// a real boundary bug. TODO: compute diff in i32 and branch on the i32 sign.
+/// Was a latent divergence at |diff|==32768; fixed by computing the chase
+/// delta in i32 (`strat_chase_proportional`). Kept as a focused regression.
 #[test]
-#[ignore = "latent: sr16 achase diverges from ROM at the exact ±32768 diff boundary"]
 fn sr16_achase_antipodal_divergence() {
     let syms = load_symbols();
     let (Some(&addr), Some(rom)) = (syms.get("SR16_ACHASE_ALVAR1"), load_built_rom()) else {
@@ -263,7 +300,10 @@ fn sr16_achase_antipodal_divergence() {
     let rom_new = rom_achase16(&rom, addr, 0, -32768); // true diff +32768
     let rust = strat_chase_proportional(0, -32768, 1);
     eprintln!("sr16 antipodal cur=0 tgt=-32768 rate1: ROM={rom_new} RUST={rust}");
-    assert_eq!(rom_new, rust, "ROM steps to -16384, chase_proportional to +16384");
+    assert_eq!(
+        rom_new, rust,
+        "ROM steps to -16384, chase_proportional must match"
+    );
 }
 
 // ===========================================================================
@@ -271,7 +311,12 @@ fn sr16_achase_antipodal_divergence() {
 //    ABI: shorta/longi (p=$20). X = alien base; adds x1/y1/z1 (16-bit) into
 //    al_worldx/y/z. Rust equiv: strat_add_to_pos(al, dx, dy, dz).
 // ===========================================================================
-fn rom_addvecs(rom: &[u8], addr: u32, pos: (i16, i16, i16), vec: (i16, i16, i16)) -> (i16, i16, i16) {
+fn rom_addvecs(
+    rom: &[u8],
+    addr: u32,
+    pos: (i16, i16, i16),
+    vec: (i16, i16, i16),
+) -> (i16, i16, i16) {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write16(XB + AL_WORLDX, pos.0 as u16);
     bus.write16(XB + AL_WORLDY, pos.1 as u16);
@@ -279,7 +324,15 @@ fn rom_addvecs(rom: &[u8], addr: u32, pos: (i16, i16, i16), vec: (i16, i16, i16)
     bus.write16(X1, vec.0 as u16);
     bus.write16(Y1, vec.1 as u16);
     bus.write16(Z1, vec.2 as u16);
-    call(&mut bus, addr, &Entry { x: XB as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     (
         bus.read16(XB + AL_WORLDX) as i16,
         bus.read16(XB + AL_WORLDY) as i16,
@@ -316,7 +369,9 @@ fn addvecs_l_vs_add_to_pos() {
                     if rom != rust {
                         diffs += 1;
                         if first.len() < 12 {
-                            first.push(format!("pos={pos:?} vec={vec:?}: ROM={rom:?} RUST={rust:?}"));
+                            first.push(format!(
+                                "pos={pos:?} vec={vec:?}: ROM={rom:?} RUST={rust:?}"
+                            ));
                         }
                     }
                 }
@@ -376,7 +431,9 @@ fn addvecs2_and_4_shift_contract() {
                     if rom != spec {
                         diffs += 1;
                         if first.len() < 12 {
-                            first.push(format!("{name} pos={pos:?} vec={vec:?}: ROM={rom:?} SPEC={spec:?}"));
+                            first.push(format!(
+                                "{name} pos={pos:?} vec={vec:?}: ROM={rom:?} SPEC={spec:?}"
+                            ));
                         }
                     }
                 }
@@ -388,7 +445,10 @@ fn addvecs2_and_4_shift_contract() {
         eprintln!("DIVERGE {l}");
     }
     eprintln!("test result note: addvecs2/4 diffs={diffs}");
-    assert_eq!(diffs, 0, "addvecs2_l/addvecs4_l diverge from vec<<{{1,2}} + add spec");
+    assert_eq!(
+        diffs, 0,
+        "addvecs2_l/addvecs4_l diverge from vec<<{{1,2}} + add spec"
+    );
 }
 
 // ===========================================================================
@@ -411,7 +471,16 @@ fn rom_add_objvecs(
     bus.write16(XB + AL_VX, v2.0 as u16);
     bus.write16(XB + AL_VY, v2.1 as u16);
     bus.write16(XB + AL_VZ, v2.2 as u16);
-    call(&mut bus, addr, &Entry { x: XB as u16, y: YB as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            y: YB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     (
         bus.read16(XB + AL_VX) as i16,
         bus.read16(XB + AL_VY) as i16,
@@ -456,5 +525,8 @@ fn add_objvecs_l_sum_contract() {
         eprintln!("DIVERGE {l}");
     }
     eprintln!("test result note: add_objvecs_l diffs={diffs}");
-    assert_eq!(diffs, 0, "add_objvecs_l diverges from obj2.vel += obj1.vel spec");
+    assert_eq!(
+        diffs, 0,
+        "add_objvecs_l diverges from obj2.vel += obj1.vel spec"
+    );
 }

@@ -62,7 +62,7 @@ pub fn append_cl_earth_submap(b: &mut MapBuilder) {
         0,
         3000,
         SH_MOTHER1,
-        STRAT_ADDR_MOTHER1,
+        STRATEGY_MOTHER1,
         crate::mothers::mother_maps().mother_clasteroids,
     );
     b.mapplayeroutview();
@@ -78,21 +78,42 @@ pub fn append_cl_earth_submap(b: &mut MapBuilder) {
     b.mapif_builtin(MAP_CB_FROG_ALIVE, "cl_earth.frog_alive");
     b.mapgoto("cl_earth.nf");
     b.label("cl_earth.frog_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 2000, -50, 50, SH_MYSHIP_4, IS_CLSHIPEARTHB);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        2000,
+        -50,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPEARTHB,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_FROG);
     b.label("cl_earth.nf");
 
     b.mapif_builtin(MAP_CB_BUNNY_ALIVE, "cl_earth.bunny_alive");
     b.mapgoto("cl_earth.nb");
     b.label("cl_earth.bunny_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, -2000, -50, 50, SH_MYSHIP_4, IS_CLSHIPEARTHA);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        -2000,
+        -50,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPEARTHA,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_BUNNY);
     b.label("cl_earth.nb");
 
     b.mapif_builtin(MAP_CB_COCK_ALIVE, "cl_earth.cock_alive");
     b.mapgoto("cl_earth.nc");
     b.label("cl_earth.cock_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 0, 1000, -700, SH_MYSHIP_4, IS_CLSHIPEARTHC);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        0,
+        1000,
+        -700,
+        SH_MYSHIP_4,
+        IS_CLSHIPEARTHC,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_COCK);
     b.label("cl_earth.nc");
 
@@ -131,21 +152,42 @@ pub fn append_cl_dive_submap(b: &mut MapBuilder) {
     b.mapgoto("cl_dive.nf");
     b.label("cl_dive.frog_alive");
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_FROG);
-    b.mapobj(CL_GND_FRIENDWAIT, 200, SPACE_VIEWCY, 50, SH_MYSHIP_4, IS_CLSHIPDIVEB);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        200,
+        SPACE_VIEWCY,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPDIVEB,
+    );
     b.label("cl_dive.nf");
 
     b.mapif_builtin(MAP_CB_BUNNY_ALIVE, "cl_dive.bunny_alive");
     b.mapgoto("cl_dive.nb");
     b.label("cl_dive.bunny_alive");
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_BUNNY);
-    b.mapobj(CL_GND_FRIENDWAIT, -200, SPACE_VIEWCY, 50, SH_MYSHIP_4, IS_CLSHIPDIVEA);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        -200,
+        SPACE_VIEWCY,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPDIVEA,
+    );
     b.label("cl_dive.nb");
 
     b.mapif_builtin(MAP_CB_COCK_ALIVE, "cl_dive.cock_alive");
     b.mapgoto("cl_dive.nc");
     b.label("cl_dive.cock_alive");
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_COCK);
-    b.mapobj(CL_GND_FRIENDWAIT, 0, SPACE_VIEWCY - 40, -50, SH_MYSHIP_4, IS_CLSHIPDIVEC);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        0,
+        SPACE_VIEWCY - 40,
+        -50,
+        SH_MYSHIP_4,
+        IS_CLSHIPDIVEC,
+    );
     b.label("cl_dive.nc");
 
     b.mapwait(5000);
@@ -182,21 +224,42 @@ pub fn append_cl_bridge_submap(b: &mut MapBuilder) {
     b.mapif_builtin(MAP_CB_FROG_ALIVE, "cl_bridge.frog_alive");
     b.mapgoto("cl_bridge.nf");
     b.label("cl_bridge.frog_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, -1000, -300, 50, SH_MYSHIP_4, IS_CLSHIPBRIDGEB);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        -1000,
+        -300,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPBRIDGEB,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_FROG);
     b.label("cl_bridge.nf");
 
     b.mapif_builtin(MAP_CB_BUNNY_ALIVE, "cl_bridge.bunny_alive");
     b.mapgoto("cl_bridge.nb");
     b.label("cl_bridge.bunny_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 1000, -300, 50, SH_MYSHIP_4, IS_CLSHIPBRIDGEA);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        1000,
+        -300,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPBRIDGEA,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_BUNNY);
     b.label("cl_bridge.nb");
 
     b.mapif_builtin(MAP_CB_COCK_ALIVE, "cl_bridge.cock_alive");
     b.mapgoto("cl_bridge.nc");
     b.label("cl_bridge.cock_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 0, 0, -2000, SH_MYSHIP_4, IS_CLSHIPBRIDGEC);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        0,
+        0,
+        -2000,
+        SH_MYSHIP_4,
+        IS_CLSHIPBRIDGEC,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_COCK);
     b.label("cl_bridge.nc");
 
@@ -233,21 +296,42 @@ pub fn append_cl_turn_submap(b: &mut MapBuilder) {
     b.mapif_builtin(MAP_CB_FROG_ALIVE, "cl_turn.frog_alive");
     b.mapgoto("cl_turn.nf");
     b.label("cl_turn.frog_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 700, SPACE_VIEWCY, 50, SH_MYSHIP_4, IS_CLSHIPTURNB);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        700,
+        SPACE_VIEWCY,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPTURNB,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_FROG);
     b.label("cl_turn.nf");
 
     b.mapif_builtin(MAP_CB_BUNNY_ALIVE, "cl_turn.bunny_alive");
     b.mapgoto("cl_turn.nb");
     b.label("cl_turn.bunny_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, -500, SPACE_VIEWCY, 50, SH_MYSHIP_4, IS_CLSHIPTURNA);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        -500,
+        SPACE_VIEWCY,
+        50,
+        SH_MYSHIP_4,
+        IS_CLSHIPTURNA,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_BUNNY);
     b.label("cl_turn.nb");
 
     b.mapif_builtin(MAP_CB_COCK_ALIVE, "cl_turn.cock_alive");
     b.mapgoto("cl_turn.nc");
     b.label("cl_turn.cock_alive");
-    b.mapobj(CL_GND_FRIENDWAIT, 0, SPACE_VIEWCY + 400, -3000, SH_MYSHIP_4, IS_CLSHIPTURNC);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        0,
+        SPACE_VIEWCY + 400,
+        -3000,
+        SH_MYSHIP_4,
+        IS_CLSHIPTURNC,
+    );
     b.mapcodejsl_builtin(MAP_CB_CLFRIENDMSG_COCK);
     b.label("cl_turn.nc");
 
@@ -273,6 +357,7 @@ pub fn append_cl_turn_submap(b: &mut MapBuilder) {
 /// Inline script ptrs captured while appending the TRUCKER.ASM submap.
 pub struct TruckerPtrs {
     pub biker_check: u16,
+    pub approach_sound: u16,
     pub trigger: u16,
 }
 
@@ -281,19 +366,20 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
     b.label("level2_6.trucker");
 
     // Lines 2-3: initial biker pair
-    b.mapobj(0x1000, -0x400, -60, 1000, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
-    b.mapobj(0x1000, -0x300, -60, 0x0300, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
+    b.mapobj(1000, -400, -60, 1000, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
+    b.mapobj(1000, -300, -60, 300, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
 
     // Lines 4-6: .mad loop — wall/boulder obstacles x6
-    // (C source used octal literals -060 == -48 for the y coordinate.)
+    // The Argonaut assembler's unprefixed literals are decimal even when
+    // zero-padded; only `$`-prefixed literals are hexadecimal.
     b.label("level2_6.trucker.mad");
-    b.mapobj(0x1000, -0x050, -0o60, 4000, SH_WALL_4_PROXY, IS_HARD180YR);
-    b.mapobj(0x1000, -0x200, -0o60, 4000, SH_BOU_1B_PROXY, IS_HARD180YR);
+    b.mapobj(1000, -50, -60, 4000, SH_WALL_4_PROXY, IS_HARD180YR);
+    b.mapobj(1000, -200, -60, 4000, SH_BOU_1B_PROXY, IS_HARD180YR);
     b.maploop("level2_6.trucker.mad", 6);
 
     // Lines 8-9: more bikers
-    b.mapobj(0, -50, -60, -0x200, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
-    b.mapobj(0x100, 50, -10, -0x400, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
+    b.mapobj(0, -50, -60, -200, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
+    b.mapobj(100, 50, -10, -400, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
 
     // Lines 11-23: .loop — wait for all bikers destroyed
     b.label("level2_6.trucker.loop");
@@ -305,11 +391,12 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
     b.label("level2_6.trucker.carryon");
     b.setbgm(BGM_FADEOUT);
     b.setbgm(BGM_BOSS1);
-    // trigse $0b (boss approach sound)
+    // `trigse $0b` lives in an inline 65816 block in TRUCKER.ASM.
+    let approach_sound = b.mapcode65816_inline();
     b.mapwait(3000);
 
     // Line 31: boss spawn
-    b.mapobj(0, -0x200, -70, -0x300, SH_BOSS_9_5_PROXY, STRAT_ADDR_MADTRUCKER);
+    b.mapobj(0, -200, -70, -300, SH_BOSS_9_5_PROXY, STRAT_ADDR_MADTRUCKER);
 
     // Line 32: mapwait 1
     b.mapwait(1);
@@ -336,10 +423,14 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
 
     // Lines 65-73: .continue — boss defeated
     b.label("level2_6.trucker.continue");
-    // Original 65816 block: lda #0 / sta.l m_bossmaxHP
+    b.mapplayercantdie();
+    // Original inline action clears the boss-health maximum.
     b.setvarw(WM_BOSSMAXHP, 0);
     b.setbgm(BGM_FADEOUT);
-    b.maprts();
 
-    TruckerPtrs { biker_check, trigger }
+    TruckerPtrs {
+        biker_check,
+        approach_sound,
+        trigger,
+    }
 }

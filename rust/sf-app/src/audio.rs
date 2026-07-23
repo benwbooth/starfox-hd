@@ -1,23 +1,23 @@
-//! Audio bridge: SDL3 playback stream driving the sf-audio SPC player,
-//! plus the game-side Sound layer wired to shell state each tick.
+//! Audio bridge: SDL3 playback stream driving the native PCM mixer, plus the
+//! game-side Sound layer wired to shell state each tick.
 //!
-//! Port (C oracle): `src/audio/audio.c` (SDL audio device + callback ->
-//! `SpcPlayer_Generate`) and the `src/game/sound.c` call sites in
-//! `Nmi_GameTick`/boot.c (here: `AudioSys::tick`). The SPC always runs at
-//! its native 32000 Hz stereo; SDL3 resamples to the device rate.
+//! Port (C oracle): `src/audio/audio.c` (SDL audio device + callback) and the
+//! `src/game/sound.c` call sites in
+//! `Nmi_GameTick`/boot.c (here: `AudioSys::tick`). Certified assets use the
+//! original 32000 Hz stereo rate; SDL3 resamples to the device rate.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStreamWithCallback};
-use sf_audio::player::SpcPlayer;
-use sf_audio::sound::{
-    PosSndFamily, Sound, SoundBackend, SoundGameState, SoundObj, SoundPlayer,
-};
+use sf_audio::native_player::{NativeAudioError, NativePlayer};
+use sf_audio::sf2_native_player::{Sf2MusicCue, Sf2NativePlayer};
+use sf_audio::sound::{PosSndFamily, Sound, SoundBackend, SoundGameState, SoundObj, SoundPlayer};
 use sf_game::game::{Game, PosSndFamilyId};
 use sf_game::shell::{FrameSnapshot, GameState, Shell, SoundCmd};
 
-/// SPC native output rate (C SPC_SAMPLE_RATE).
-const SPC_RATE: i32 = 32000;
+/// Native asset output rate.
+const AUDIO_RATE: i32 = 32000;
 
 /// C `ASF4_DONESND` (src/game/obj.h:116) — write-back flag from the sound
 /// layer's nearobjs pass.
@@ -29,14 +29,19 @@ const ASF3_REALOBJ: u8 = sf_game::alien::ASF3_REALOBJ;
 /// C `ACF_FIRSTFRAME` — matches sf_game::alien.
 const ACF_FIRSTFRAME: u8 = sf_game::alien::ACF_FIRSTFRAME;
 
-/// The audio-thread callback: pull samples from the shared SPC player.
-/// C oracle: `audio_callback` in src/audio/audio.c.
-struct SpcStreamCallback {
-    player: SpcPlayer,
+enum StreamSource {
+    StarFox(NativePlayer),
+    StarFox2(Sf2NativePlayer),
+}
+
+/// The audio-thread callback: pull samples from the selected game's native
+/// 32 kHz native source.
+struct NativeStreamCallback {
+    source: StreamSource,
     scratch: Vec<i16>,
 }
 
-impl AudioCallback<i16> for SpcStreamCallback {
+impl AudioCallback<i16> for NativeStreamCallback {
     fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
         // `requested` is in i16 samples; keep whole stereo frames.
         let mut n = requested.max(0) as usize;
@@ -45,62 +50,122 @@ impl AudioCallback<i16> for SpcStreamCallback {
             return;
         }
         self.scratch.resize(n, 0);
-        self.player.generate(&mut self.scratch);
+        match &mut self.source {
+            StreamSource::StarFox(player) => player.generate(&mut self.scratch),
+            StreamSource::StarFox2(player) => player.generate(&mut self.scratch),
+        }
         let _ = stream.put_data_i16(&self.scratch);
     }
 }
 
-/// SoundBackend over the shared SpcPlayer handle (C SpcPlayer_* calls).
-struct SpcBackend {
-    player: SpcPlayer,
-    asset_dir: PathBuf,
+/// Semantic sound backend over the shared native mixer.
+struct NativeBackend {
+    player: NativePlayer,
+    reported_errors: HashSet<String>,
 }
 
-impl SoundBackend for SpcBackend {
-    fn write_port(&mut self, port: u8, value: u8) {
-        self.player.write_port(port, value);
-    }
-    fn read_port(&mut self, port: u8) -> u8 {
-        self.player.read_port(port)
-    }
-    fn start_bgm(&mut self, cmd: u8) {
-        self.player.start_bgm(cmd);
-    }
-    fn load_track(&mut self, track_id: u8) {
-        if let Err(e) = self.player.load_track(track_id, &self.asset_dir) {
-            eprintln!("Audio: load_track({track_id}) failed: {e}");
+impl NativeBackend {
+    fn report(&mut self, result: Result<(), NativeAudioError>) {
+        if let Err(error) = result {
+            let message = error.to_string();
+            if self.reported_errors.insert(message.clone()) {
+                eprintln!("Audio: {message}");
+            }
         }
+    }
+}
+
+impl SoundBackend for NativeBackend {
+    fn set_engine_sound(&mut self, sound: u8) {
+        let result = self.player.set_engine_sound(sound);
+        self.report(result);
+    }
+    fn set_ambient_sound(&mut self, sound: u8) {
+        let result = self.player.set_ambient_sound(sound);
+        self.report(result);
+    }
+    fn play_effect(&mut self, effect: u8) {
+        let result = self.player.play_effect(effect);
+        self.report(result);
+    }
+    fn effect_consumed(&mut self, effect: u8) -> bool {
+        self.player.effect_consumed(effect)
+    }
+    fn clear_effect_acknowledgement(&mut self) {
+        self.player.clear_effect_acknowledgement();
+    }
+    fn start_music(&mut self, cue: u8) {
+        let result = self.player.start_music(cue);
+        self.report(result);
+    }
+    fn load_track(&mut self, track: u8) {
+        self.player.load_track(track);
+    }
+    fn set_paused(&mut self, paused: bool) {
+        self.player.set_paused(paused);
     }
 }
 
 pub struct AudioSys {
     /// Keeps the SDL stream (and its callback) alive; None when the audio
     /// device could not be opened (CI/dummy driver) — the game still runs.
-    _stream: Option<AudioStreamWithCallback<SpcStreamCallback>>,
-    backend: SpcBackend,
+    _stream: Option<AudioStreamWithCallback<NativeStreamCallback>>,
+    backend: NativeBackend,
     sound: Sound,
+    sf2_player: Option<Sf2NativePlayer>,
+    sf2_music: Option<Sf2MusicCue>,
 }
 
 impl AudioSys {
     /// C `Audio_Init` (src/audio/audio.c) + `Sound_Init` (boot.c Game_Init).
     /// A failed device open is a warning, not an error (dummy-audio guard).
-    pub fn new(sdl: &sdl3::Sdl, asset_dir: PathBuf) -> AudioSys {
-        let player = SpcPlayer::new();
+    pub fn new(sdl: &sdl3::Sdl, asset_dir: PathBuf) -> Result<AudioSys, NativeAudioError> {
+        let player = NativePlayer::new(&asset_dir);
+        player.validate_star_fox_assets()?;
+        Ok(Self::with_source(
+            sdl,
+            asset_dir,
+            player.clone(),
+            StreamSource::StarFox(player),
+            None,
+        ))
+    }
+
+    pub fn new_sf2(sdl: &sdl3::Sdl, asset_dir: PathBuf) -> Result<AudioSys, NativeAudioError> {
+        let sf2_player = Sf2NativePlayer::new(&asset_dir);
+        sf2_player.validate_assets()?;
+        let backend_player = NativePlayer::new(&asset_dir);
+        Ok(Self::with_source(
+            sdl,
+            asset_dir,
+            backend_player,
+            StreamSource::StarFox2(sf2_player.clone()),
+            Some(sf2_player),
+        ))
+    }
+
+    fn with_source(
+        sdl: &sdl3::Sdl,
+        _asset_dir: PathBuf,
+        player: NativePlayer,
+        source: StreamSource,
+        sf2_player: Option<Sf2NativePlayer>,
+    ) -> AudioSys {
         let stream = match sdl.audio() {
             Ok(audio) => {
                 let spec = AudioSpec {
-                    freq: Some(SPC_RATE),
+                    freq: Some(AUDIO_RATE),
                     channels: Some(2),
                     format: Some(AudioFormat::s16_sys()),
                 };
-                let cb = SpcStreamCallback {
-                    player: player.clone(),
+                let cb = NativeStreamCallback {
+                    source,
                     scratch: Vec::new(),
                 };
                 match audio.open_playback_stream(&spec, cb) {
                     Ok(stream) => match stream.resume() {
                         Ok(()) => {
-                            println!("Audio: SPC stream at {SPC_RATE} Hz stereo");
+                            println!("Audio: native PCM stream at {AUDIO_RATE} Hz stereo");
                             Some(stream)
                         }
                         Err(e) => {
@@ -120,14 +185,71 @@ impl AudioSys {
             }
         };
 
-        let mut backend = SpcBackend { player, asset_dir };
+        let mut backend = NativeBackend {
+            player,
+            reported_errors: HashSet::new(),
+        };
         let mut sound = Sound::new();
         sound.init(&mut backend);
         AudioSys {
             _stream: stream,
             backend,
             sound,
+            sf2_player,
+            sf2_music: None,
         }
+    }
+
+    pub fn tick_sf2(&mut self, mode: sf2_game::GameMode) {
+        use sf2_game::{GameMode, IntroPhase};
+
+        let cue = match mode {
+            GameMode::Intro(IntroPhase::Boot)
+            | GameMode::Intro(IntroPhase::ArgonautLogo)
+            | GameMode::Intro(IntroPhase::NintendoLogo) => Sf2MusicCue::LogoPresentation,
+            GameMode::Intro(IntroPhase::Formation) | GameMode::Title | GameMode::Records => {
+                Sf2MusicCue::FormationAndTitle
+            }
+            GameMode::Briefing => Sf2MusicCue::AndrossBriefing,
+            GameMode::StrategicMap | GameMode::PilotSelection => Sf2MusicCue::StrategicMap,
+            GameMode::Mission | GameMode::Results | GameMode::Ending => {
+                Sf2MusicCue::FormationAndTitle
+            }
+        };
+        if self.sf2_music == Some(cue) {
+            return;
+        }
+        let Some(player) = &self.sf2_player else {
+            return;
+        };
+        let result = player.start_music(cue);
+        if result.is_ok() {
+            self.sf2_music = Some(cue);
+        }
+        self.backend.report(result);
+    }
+
+    /// Quiesce the SDL callback before its Rust userdata is freed.
+    ///
+    /// sdl3 0.18's `AudioStreamWithCallback::drop` releases the callback box
+    /// before its `AudioStreamOwner` field destroys the native stream. A
+    /// callback racing that drop reads freed userdata and intermittently
+    /// corrupts the allocator at process exit. Pause first, then take the
+    /// stream lock (which waits for an in-flight callback) before dropping.
+    pub fn shutdown(&mut self) {
+        let Some(mut stream) = self._stream.take() else {
+            return;
+        };
+        if let Err(e) = stream.pause() {
+            eprintln!("Audio: stream pause during shutdown failed: {e}");
+        }
+        // SDL documents that the stream mutex is held throughout callbacks.
+        // Acquiring and releasing it after pausing is therefore a callback
+        // completion barrier; no new callback can begin on the paused device.
+        if let Some(guard) = stream.lock() {
+            drop(guard);
+        }
+        drop(stream);
     }
 
     /// Per-tick sound processing, run right after `Shell::tick`:
@@ -155,6 +277,8 @@ impl AudioSys {
                 }
                 SoundCmd::PlayImmediate(id) => self.sound.play(&mut self.backend, id),
                 SoundCmd::StopMusic => self.sound.stop_music(&mut self.backend),
+                SoundCmd::PauseSnd(cmd) => self.sound.set_pause_snd(cmd),
+                SoundCmd::NoSetPort3(disabled) => self.sound.set_nosetport3(disabled),
             }
         }
 
@@ -177,6 +301,14 @@ impl AudioSys {
         }
     }
 
+    /// Play a one-shot SE from the HUD/render path (arrow beep $8A).
+    /// Same ring as shell `SoundCmd::PlaySe` — not gated by pause.
+    pub fn play_hud_se(&mut self, shell: &Shell, id: u8) {
+        let frame = shell.frame();
+        let state = Self::sound_state(shell, &frame);
+        self.sound.play_se(&state, id);
+    }
+
     /// Assemble `SoundGameState` from shell state (the globals sound.c read).
     fn sound_state(shell: &Shell, frame: &FrameSnapshot) -> SoundGameState {
         let in_game = shell.state() == GameState::Playing;
@@ -193,9 +325,9 @@ impl AudioSys {
             player_hp0: frame.player_hp0,
             engine_snd: frame.engine_snd,
             level_finished: frame.level_finished,
-            in_a_tunnel: 0, // TODO(sf-strat): g_inatunnel is strat-lane state
+            in_a_tunnel: shell.game.vars.in_a_tunnel,
             space_mode: frame.space_mode,
-            player_snd_flag: 0, // TODO(sf-strat): g_playersndflag
+            player_snd_flag: shell.game.vars.player_snd_flag,
             pad1: shell.game.vars.pad1,
             pviewposx: frame.pviewposx,
             new_map: frame.newmap,
@@ -255,6 +387,12 @@ impl AudioSys {
                 }
             })
             .collect()
+    }
+}
+
+impl Drop for AudioSys {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

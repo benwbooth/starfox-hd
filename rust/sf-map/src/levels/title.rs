@@ -31,7 +31,7 @@ pub fn build() -> BuiltLevel {
 
     // Lines 8-16: timeovercont — start_65816 block: clear pos
     b.mapcodejsl_builtin(cb::INITBLACK_L);
-    b.setvarb(wm::GSVAR_BYTE1, 10); // stayblack proxy
+    b.setvarb(wm::STAYBLACK, 10);
 
     // Line 22: mapwait 800
     b.mapwait(800);
@@ -65,7 +65,7 @@ pub fn build() -> BuiltLevel {
 
     // Lines 62-63: initblack + stayblack
     b.mapcodejsl_builtin(cb::INITBLACK_L);
-    b.setvarb(wm::GSVAR_BYTE1, 3); // stayblack proxy
+    b.setvarb(wm::STAYBLACK, 3);
 
     // Line 64: setfadeup quick
     b.qfadeup();

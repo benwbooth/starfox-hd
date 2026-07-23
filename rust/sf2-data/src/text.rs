@@ -23,180 +23,673 @@ pub struct TextTable {
 }
 
 pub static HUD_LABELS: [TextEntry; 12] = [
-    TextEntry { control: &[], text: "NINTENDO" },
-    TextEntry { control: &[], text: "PRESENTS" },
-    TextEntry { control: &[], text: "  GAME" },
-    TextEntry { control: &[], text: "  OVER" },
-    TextEntry { control: &[], text: "YOU WIN" },
-    TextEntry { control: &[], text: "       " },
-    TextEntry { control: &[], text: "YOU LOST" },
-    TextEntry { control: &[], text: "       " },
-    TextEntry { control: &[], text: "  TO BE" },
-    TextEntry { control: &[], text: "CONTINUED" },
-    TextEntry { control: &[], text: "CORNERIA" },
-    TextEntry { control: &[], text: "  FELL" },
+    TextEntry {
+        control: &[],
+        text: "NINTENDO",
+    },
+    TextEntry {
+        control: &[],
+        text: "PRESENTS",
+    },
+    TextEntry {
+        control: &[],
+        text: "  GAME",
+    },
+    TextEntry {
+        control: &[],
+        text: "  OVER",
+    },
+    TextEntry {
+        control: &[],
+        text: "YOU WIN",
+    },
+    TextEntry {
+        control: &[],
+        text: "       ",
+    },
+    TextEntry {
+        control: &[],
+        text: "YOU LOST",
+    },
+    TextEntry {
+        control: &[],
+        text: "       ",
+    },
+    TextEntry {
+        control: &[],
+        text: "  TO BE",
+    },
+    TextEntry {
+        control: &[],
+        text: "CONTINUED",
+    },
+    TextEntry {
+        control: &[],
+        text: "CORNERIA",
+    },
+    TextEntry {
+        control: &[],
+        text: "  FELL",
+    },
 ];
 
 pub static CREDITS: [TextEntry; 107] = [
-    TextEntry { control: &[0xF7, 0xB2], text: "" },
-    TextEntry { control: &[], text: "LEXECUTING SECURITY CROSS CHECK" },
-    TextEntry { control: &[], text: "?ACCESS GRANTED" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "LEXECUTING STAFF ROLL SEQUENCE" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "-EXECUTIVE PRODUCER" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "HIROSHI YAMAUCHI" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "\"PRODUCER" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "SHIGERU MIYAMOTO" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "\"DIRECTOR" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "KATSUYA EGUCHI" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "\"ASSISTANT DIRECTOR" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "YOICHI YAMADA" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "&PROGRAMMERS" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "DYLAN CUTHBERT" },
-    TextEntry { control: &[0x04], text: "TAKUMI KAWAGOE" },
-    TextEntry { control: &[0x04], text: "YASUHIRO KAWAGUCHI" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "&ASSISTANT PROGRAMMER" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "HAJIME YAJIMA" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "#PROGRAM ASSIST" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "ARGONAUT SOFTWARE LTD" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "#3D SYSTEM PROGRAMMERS" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "PETE WARNES" },
-    TextEntry { control: &[0x04], text: "CARL GRAHAM" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "#GRAPHIC DESIGNER" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "MASANAO ARIMOTO" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "#3D SHAPE DESIGNER" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "TSUYOSHI WATANABE" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "/SOUND PROGRAMMER" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "YOJI INAGAKI" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "/MUSIC COMPOSERS" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "KOZUE ISHIKAWA" },
-    TextEntry { control: &[0x04], text: "YUMIKO KANKI" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "&3D TOOL PROGRAMMER" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "DAIKI IWAMOTO" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: "#ENGLISH TRANSLATOR" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "MARCUS LINDBLOM" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[], text: ".SPECIAL THANKS TO" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "TAKAYA IMAMURA" },
-    TextEntry { control: &[0x04], text: "DAN OWSEN" },
-    TextEntry { control: &[0x04], text: "KAYOMI MCDONALD" },
-    TextEntry { control: &[0x04], text: "ROBIN KROUSE" },
-    TextEntry { control: &[0x04], text: "ISAAC MARSHALL" },
-    TextEntry { control: &[0x04], text: "NINTENDO OF AMERICA" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0x04], text: "" },
-    TextEntry { control: &[0xB2], text: "PUSH START" },
-    TextEntry { control: &[], text: " " },
-    TextEntry { control: &[], text: "0" },
-    TextEntry { control: &[], text: "2" },
-    TextEntry { control: &[], text: "Q" },
-    TextEntry { control: &[], text: "S" },
-    TextEntry { control: &[], text: "U" },
-    TextEntry { control: &[], text: "i" },
-    TextEntry { control: &[], text: "k" },
-    TextEntry { control: &[], text: "}" },
-    TextEntry { control: &[0x7F], text: "" },
-    TextEntry { control: &[0x89], text: "" },
-    TextEntry { control: &[0x8B], text: "" },
-    TextEntry { control: &[0x9D], text: "" },
-    TextEntry { control: &[0x9F], text: "" },
-    TextEntry { control: &[0xA9], text: "" },
-    TextEntry { control: &[0xAB], text: "" },
-    TextEntry { control: &[0xBB], text: "" },
-    TextEntry { control: &[0xBD], text: "" },
-    TextEntry { control: &[0xD1], text: "" },
-    TextEntry { control: &[0xD3], text: "" },
-    TextEntry { control: &[0xE2], text: "" },
-    TextEntry { control: &[0xE4], text: "" },
-    TextEntry { control: &[0xF1], text: "" },
-    TextEntry { control: &[0xF3], text: "" },
+    TextEntry {
+        control: &[0xF7, 0xB2],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "LEXECUTING SECURITY CROSS CHECK",
+    },
+    TextEntry {
+        control: &[],
+        text: "?ACCESS GRANTED",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "LEXECUTING STAFF ROLL SEQUENCE",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "-EXECUTIVE PRODUCER",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "HIROSHI YAMAUCHI",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "\"PRODUCER",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "SHIGERU MIYAMOTO",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "\"DIRECTOR",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "KATSUYA EGUCHI",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "\"ASSISTANT DIRECTOR",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "YOICHI YAMADA",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "&PROGRAMMERS",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "DYLAN CUTHBERT",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "TAKUMI KAWAGOE",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "YASUHIRO KAWAGUCHI",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "&ASSISTANT PROGRAMMER",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "HAJIME YAJIMA",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "#PROGRAM ASSIST",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "ARGONAUT SOFTWARE LTD",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "#3D SYSTEM PROGRAMMERS",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "PETE WARNES",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "CARL GRAHAM",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "#GRAPHIC DESIGNER",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "MASANAO ARIMOTO",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "#3D SHAPE DESIGNER",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "TSUYOSHI WATANABE",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "/SOUND PROGRAMMER",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "YOJI INAGAKI",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "/MUSIC COMPOSERS",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "KOZUE ISHIKAWA",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "YUMIKO KANKI",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "&3D TOOL PROGRAMMER",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "DAIKI IWAMOTO",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: "#ENGLISH TRANSLATOR",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "MARCUS LINDBLOM",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[],
+        text: ".SPECIAL THANKS TO",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "TAKAYA IMAMURA",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "DAN OWSEN",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "KAYOMI MCDONALD",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "ROBIN KROUSE",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "ISAAC MARSHALL",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "NINTENDO OF AMERICA",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x04],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xB2],
+        text: "PUSH START",
+    },
+    TextEntry {
+        control: &[],
+        text: " ",
+    },
+    TextEntry {
+        control: &[],
+        text: "0",
+    },
+    TextEntry {
+        control: &[],
+        text: "2",
+    },
+    TextEntry {
+        control: &[],
+        text: "Q",
+    },
+    TextEntry {
+        control: &[],
+        text: "S",
+    },
+    TextEntry {
+        control: &[],
+        text: "U",
+    },
+    TextEntry {
+        control: &[],
+        text: "i",
+    },
+    TextEntry {
+        control: &[],
+        text: "k",
+    },
+    TextEntry {
+        control: &[],
+        text: "}",
+    },
+    TextEntry {
+        control: &[0x7F],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x89],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x8B],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x9D],
+        text: "",
+    },
+    TextEntry {
+        control: &[0x9F],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xA9],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xAB],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xBB],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xBD],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xD1],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xD3],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xE2],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xE4],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xF1],
+        text: "",
+    },
+    TextEntry {
+        control: &[0xF3],
+        text: "",
+    },
 ];
 
 pub static BOSS_NAMES: [TextEntry; 24] = [
-    TextEntry { control: &[0x84, 0x87, 0x03], text: "(k MOTH GLIDER " },
-    TextEntry { control: &[], text: " PLANET MISSILE " },
-    TextEntry { control: &[], text: " NIGHT FANG " },
-    TextEntry { control: &[], text: " HAL BIRD " },
-    TextEntry { control: &[], text: " SKULL TOAD " },
-    TextEntry { control: &[], text: " GOLD STAR " },
-    TextEntry { control: &[], text: " CANNON BETRAYER " },
-    TextEntry { control: &[], text: " MIRAGE DRAGON " },
-    TextEntry { control: &[], text: " THE WOLF TEAM " },
-    TextEntry { control: &[], text: " ANDORF" },
-    TextEntry { control: &[], text: " ANDROSS" },
-    TextEntry { control: &[], text: " SKY KICKER " },
-    TextEntry { control: &[], text: " SPREAD MISSILE " },
-    TextEntry { control: &[], text: " BRAIN SPOILER " },
-    TextEntry { control: &[], text: " SPIRAL KITE " },
-    TextEntry { control: &[], text: " CANNON BOMBER " },
-    TextEntry { control: &[], text: " TEKTRON " },
-    TextEntry { control: &[], text: " HUNTER FANTRON " },
-    TextEntry { control: &[], text: " TURTLE MISSILE " },
-    TextEntry { control: &[], text: " STATION MISSILE " },
-    TextEntry { control: &[], text: " THE SPINNERS " },
-    TextEntry { control: &[], text: " METAL BOOMERANG " },
-    TextEntry { control: &[], text: " SPACE BLADE " },
-    TextEntry { control: &[], text: " ASTROPOLIS " },
+    TextEntry {
+        control: &[0x84, 0x87, 0x03],
+        text: "(k MOTH GLIDER ",
+    },
+    TextEntry {
+        control: &[],
+        text: " PLANET MISSILE ",
+    },
+    TextEntry {
+        control: &[],
+        text: " NIGHT FANG ",
+    },
+    TextEntry {
+        control: &[],
+        text: " HAL BIRD ",
+    },
+    TextEntry {
+        control: &[],
+        text: " SKULL TOAD ",
+    },
+    TextEntry {
+        control: &[],
+        text: " GOLD STAR ",
+    },
+    TextEntry {
+        control: &[],
+        text: " CANNON BETRAYER ",
+    },
+    TextEntry {
+        control: &[],
+        text: " MIRAGE DRAGON ",
+    },
+    TextEntry {
+        control: &[],
+        text: " THE WOLF TEAM ",
+    },
+    TextEntry {
+        control: &[],
+        text: " ANDORF",
+    },
+    TextEntry {
+        control: &[],
+        text: " ANDROSS",
+    },
+    TextEntry {
+        control: &[],
+        text: " SKY KICKER ",
+    },
+    TextEntry {
+        control: &[],
+        text: " SPREAD MISSILE ",
+    },
+    TextEntry {
+        control: &[],
+        text: " BRAIN SPOILER ",
+    },
+    TextEntry {
+        control: &[],
+        text: " SPIRAL KITE ",
+    },
+    TextEntry {
+        control: &[],
+        text: " CANNON BOMBER ",
+    },
+    TextEntry {
+        control: &[],
+        text: " TEKTRON ",
+    },
+    TextEntry {
+        control: &[],
+        text: " HUNTER FANTRON ",
+    },
+    TextEntry {
+        control: &[],
+        text: " TURTLE MISSILE ",
+    },
+    TextEntry {
+        control: &[],
+        text: " STATION MISSILE ",
+    },
+    TextEntry {
+        control: &[],
+        text: " THE SPINNERS ",
+    },
+    TextEntry {
+        control: &[],
+        text: " METAL BOOMERANG ",
+    },
+    TextEntry {
+        control: &[],
+        text: " SPACE BLADE ",
+    },
+    TextEntry {
+        control: &[],
+        text: " ASTROPOLIS ",
+    },
 ];
 
 pub static RIVAL_NAMES: [TextEntry; 16] = [
-    TextEntry { control: &[], text: "ALGY" },
-    TextEntry { control: &[], text: "PIGMA" },
-    TextEntry { control: &[], text: "LEON" },
-    TextEntry { control: &[], text: "WOLF" },
-    TextEntry { control: &[], text: "QUEEN DRAGOON" },
-    TextEntry { control: &[], text: "KAMANTIS" },
-    TextEntry { control: &[], text: "H.FANTRON" },
-    TextEntry { control: &[], text: "TEKTRON" },
-    TextEntry { control: &[], text: "MIRAGE DRAGON" },
-    TextEntry { control: &[], text: "KNIGHT NACK" },
-    TextEntry { control: &[], text: "KICK GUNNER" },
-    TextEntry { control: &[], text: "HEAVY CHARIOT" },
-    TextEntry { control: &[], text: "QUEEN DIORAY" },
-    TextEntry { control: &[], text: "TAL KONG" },
-    TextEntry { control: &[], text: "SPACE BLADE" },
-    TextEntry { control: &[], text: "KING DODORA" },
+    TextEntry {
+        control: &[],
+        text: "ALGY",
+    },
+    TextEntry {
+        control: &[],
+        text: "PIGMA",
+    },
+    TextEntry {
+        control: &[],
+        text: "LEON",
+    },
+    TextEntry {
+        control: &[],
+        text: "WOLF",
+    },
+    TextEntry {
+        control: &[],
+        text: "QUEEN DRAGOON",
+    },
+    TextEntry {
+        control: &[],
+        text: "KAMANTIS",
+    },
+    TextEntry {
+        control: &[],
+        text: "H.FANTRON",
+    },
+    TextEntry {
+        control: &[],
+        text: "TEKTRON",
+    },
+    TextEntry {
+        control: &[],
+        text: "MIRAGE DRAGON",
+    },
+    TextEntry {
+        control: &[],
+        text: "KNIGHT NACK",
+    },
+    TextEntry {
+        control: &[],
+        text: "KICK GUNNER",
+    },
+    TextEntry {
+        control: &[],
+        text: "HEAVY CHARIOT",
+    },
+    TextEntry {
+        control: &[],
+        text: "QUEEN DIORAY",
+    },
+    TextEntry {
+        control: &[],
+        text: "TAL KONG",
+    },
+    TextEntry {
+        control: &[],
+        text: "SPACE BLADE",
+    },
+    TextEntry {
+        control: &[],
+        text: "KING DODORA",
+    },
 ];
 
 pub const TEXT_TABLE_COUNT: usize = 4;
 pub static TEXT_TABLES: [TextTable; TEXT_TABLE_COUNT] = [
-    TextTable { name: "HUD_LABELS", rom_off: 0x003083, entries: &HUD_LABELS },
-    TextTable { name: "CREDITS", rom_off: 0x0038BA, entries: &CREDITS },
-    TextTable { name: "BOSS_NAMES", rom_off: 0x0187D6, entries: &BOSS_NAMES },
-    TextTable { name: "RIVAL_NAMES", rom_off: 0x018941, entries: &RIVAL_NAMES },
+    TextTable {
+        name: "HUD_LABELS",
+        rom_off: 0x003083,
+        entries: &HUD_LABELS,
+    },
+    TextTable {
+        name: "CREDITS",
+        rom_off: 0x0038BA,
+        entries: &CREDITS,
+    },
+    TextTable {
+        name: "BOSS_NAMES",
+        rom_off: 0x0187D6,
+        entries: &BOSS_NAMES,
+    },
+    TextTable {
+        name: "RIVAL_NAMES",
+        rom_off: 0x018941,
+        entries: &RIVAL_NAMES,
+    },
 ];

@@ -3,7 +3,8 @@
 //! Port (C oracle): `src/renderer/draw_list.c` plus the `DrawListEntry`
 //! struct and `DL_FLAG_*` constants from `src/types.h`.
 
-use crate::gpu::{Gpu, Vertex3};
+use crate::font::Font;
+use crate::gpu::Gpu;
 use crate::shapes_gl::ShapeStore;
 use crate::transform::Transform;
 
@@ -13,7 +14,31 @@ pub const MAX_DRAW_LIST: usize = 128;
 pub const DL_FLAG_VISIBLE: u8 = 0x01;
 pub const DL_FLAG_SHADOW: u8 = 0x02;
 pub const DL_FLAG_HIGHLIGHT: u8 = 0x04;
-pub const DL_FLAG_WIREFRAME: u8 = 0x08;
+pub const DL_FLAG_TEXT: u8 = 0x10;
+
+/// Project the model origin through the column-major GPU matrices. Returns
+/// NDC x/y and positive camera depth (`clip.w`) for an in-front point.
+fn project_model_origin(
+    proj: &[f32; 16],
+    view: &[f32; 16],
+    model: &[f32; 16],
+) -> Option<(f32, f32, f32)> {
+    let mut pv = [0.0f32; 16];
+    crate::transform::multiply(&mut pv, proj, view);
+    let mut pvm = [0.0f32; 16];
+    crate::transform::multiply(&mut pvm, &pv, model);
+    let w = pvm[15];
+    if !w.is_finite() || w <= 0.0 {
+        return None;
+    }
+    let x = pvm[12] / w;
+    let y = pvm[13] / w;
+    if x.is_finite() && y.is_finite() {
+        Some((x, y, w))
+    } else {
+        None
+    }
+}
 
 /// Draw list entry — the bridge between game logic and renderer
 /// (STRUCTS.INC `dl_` structure; wider types like the C port).
@@ -44,9 +69,6 @@ pub struct DrawListEntry {
     /// Stable source-object id (alien index + 1); 0 = no identity.
     pub obj_id: u16,
 }
-
-// Scratch buffer size for wireframe edge extraction (DL_MAX_LINE_VERTS).
-const DL_MAX_LINE_VERTS: usize = 4096;
 
 fn lerp_angle8(from: i16, to: i16, t: f32) -> i16 {
     let a8 = from & 0xFF;
@@ -92,64 +114,11 @@ fn interpolate_entry(a: &DrawListEntry, b: &DrawListEntry, alpha: f32) -> DrawLi
     out
 }
 
-pub struct DrawListRenderer {
-    line_scratch: Vec<Vertex3>,
-}
+pub struct DrawListRenderer;
 
 impl DrawListRenderer {
     pub fn new() -> Self {
-        DrawListRenderer {
-            line_scratch: Vec::with_capacity(DL_MAX_LINE_VERTS),
-        }
-    }
-
-    /// Mirror of `RenderWireframeEntry`: draw a DL_FLAG_WIREFRAME entry as a
-    /// single-color edge wireframe (flat light grey stand-in).
-    fn render_wireframe_entry(
-        &mut self,
-        gpu: &mut Gpu,
-        proj: &[f32; 16],
-        view: &[f32; 16],
-        shapes: &ShapeStore,
-        shape_id: u16,
-        model: &[f32; 16],
-    ) {
-        let Some(shape) = shapes.get(shape_id) else {
-            return;
-        };
-
-        self.line_scratch.clear();
-        let mut vert_count = 0usize;
-        'faces: for face in &shape.faces {
-            if face.num_verts < 2 {
-                continue;
-            }
-            let nv = face.num_verts as usize;
-            let edge_count = if nv == 2 { 1 } else { nv };
-            for e in 0..edge_count {
-                let a = face.vertex_indices[e] as usize;
-                let b = face.vertex_indices[(e + 1) % nv] as usize;
-                if a >= shape.vertices.len() || b >= shape.vertices.len() {
-                    continue;
-                }
-                if vert_count + 2 > DL_MAX_LINE_VERTS {
-                    break 'faces;
-                }
-                let va = &shape.vertices[a];
-                let vb = &shape.vertices[b];
-                self.line_scratch.push(Vertex3 { pos: [va.x, va.y, va.z] });
-                self.line_scratch.push(Vertex3 { pos: [vb.x, vb.y, vb.z] });
-                vert_count += 2;
-            }
-        }
-
-        if vert_count == 0 {
-            return;
-        }
-
-        let scratch = std::mem::take(&mut self.line_scratch);
-        gpu.push_flat_lines(&scratch, proj, view, model, [0.75, 0.78, 0.82, 1.0]);
-        self.line_scratch = scratch;
+        DrawListRenderer
     }
 
     /// Mirror of `RenderShadow` (MARIO/MDRAWLIS.MC shadow pass): project the
@@ -196,7 +165,7 @@ impl DrawListRenderer {
     }
 
     /// Mirror of `DrawList_Render`. `shape_palette` is the frame's decoded
-    /// shape palette (FADETOSEA/FADETOGROUND mix, night when idle).
+    /// BGS-selected polygon palette.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -208,6 +177,7 @@ impl DrawListRenderer {
         alpha: f32,
         shadow_height: f32,
         shape_palette: &crate::shapes::ShapePaletteRgb,
+        font: &mut Font,
     ) {
         if curr.is_empty() {
             return;
@@ -272,23 +242,48 @@ impl DrawListRenderer {
             let mut model = [0.0f32; 16];
             transform.build_model_matrix_f(&mut model, interp.x, interp.y, interp.z, frx, fry, frz);
 
-            // Render the shape. Wireframe-flagged entries draw as edge lines
-            // instead of filled triangles.
-            if interp.flags & DL_FLAG_WIREFRAME != 0 {
-                self.render_wireframe_entry(gpu, &proj, &view, shapes, interp.shape_id, &model);
-            } else {
-                shapes.render(
-                    gpu,
-                    transform,
-                    interp.shape_id,
-                    interp.anim_frame,
-                    interp.col_frame,
-                    interp.color_table,
-                    interp.explosion_cnt,
-                    &model,
-                    shape_palette,
-                );
+            // MARIO MDRAWLIS.MC handles ASF_TEXTOBJ before shape lookup.
+            // The message pointer is in coltab, color in depth, and signed
+            // size adjustment in tscrollx. `msprint` projects 127+size at
+            // the object's camera depth and centers the fixed-width string.
+            if interp.flags & DL_FLAG_TEXT != 0 {
+                if let (Some(text), Some((ndc_x, ndc_y, depth))) = (
+                    crate::text3d::message_text(interp.color_table),
+                    project_model_origin(&proj, &view, &model),
+                ) {
+                    let size = interp.tscroll_x as i8 as i16;
+                    let cell_ref = (127 + size) as f32 * 256.0 / depth;
+                    let mut color_index = interp.depth_offset & 0x0f;
+                    if color_index == 15 {
+                        color_index = 14u8.saturating_sub(((depth as u32) >> 10).min(5) as u8);
+                    }
+                    let rgb = shape_palette[color_index as usize];
+                    font.draw_string_scaled_centered_ndc(
+                        gpu,
+                        ndc_x,
+                        ndc_y,
+                        text.as_ref(),
+                        cell_ref,
+                        [rgb[0], rgb[1], rgb[2], 1.0],
+                    );
+                }
+                continue;
             }
+
+            // Retail wireframe objects are dedicated Face2-only shapes, so
+            // they take the same exact material-aware shape path as every
+            // other object.
+            shapes.render(
+                gpu,
+                transform,
+                interp.shape_id,
+                interp.anim_frame,
+                interp.col_frame,
+                interp.color_table,
+                interp.explosion_cnt,
+                &model,
+                shape_palette,
+            );
 
             // Queue the drop shadow (skip exploding objects).
             if interp.flags & DL_FLAG_SHADOW != 0
@@ -312,5 +307,44 @@ impl DrawListRenderer {
 impl Default for DrawListRenderer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+
+    #[test]
+    fn projects_model_origin_with_gpu_matrix_order() {
+        let mut proj = [0.0; 16];
+        let mut view = [0.0; 16];
+        let mut model = [0.0; 16];
+        crate::transform::identity(&mut proj);
+        crate::transform::identity(&mut view);
+        crate::transform::identity(&mut model);
+        // A minimal perspective transform with w = -z.
+        proj[11] = -1.0;
+        proj[15] = 0.0;
+        model[12] = 2.0;
+        model[13] = -1.0;
+        model[14] = -4.0;
+        let (x, y, depth) = project_model_origin(&proj, &view, &model).unwrap();
+        assert_eq!(depth, 4.0);
+        assert_eq!(x, 0.5);
+        assert_eq!(y, -0.25);
+    }
+
+    #[test]
+    fn rejects_points_behind_camera() {
+        let mut proj = [0.0; 16];
+        let mut view = [0.0; 16];
+        let mut model = [0.0; 16];
+        crate::transform::identity(&mut proj);
+        crate::transform::identity(&mut view);
+        crate::transform::identity(&mut model);
+        proj[11] = -1.0;
+        proj[15] = 0.0;
+        model[14] = 4.0;
+        assert!(project_model_origin(&proj, &view, &model).is_none());
     }
 }

@@ -28,8 +28,9 @@ use sf_strat::bosses;
 const WM_RNDVAL: u16 = 0x1F00;
 
 // Local mirrors of the private bosses.rs constants (cited to the port).
-const SH_SNAKE_1: u16 = 201; // sf-map route3::common SH_SNAKE_1
-const SH_FIREBREATH: u16 = 290; // SH_CHICK_FIREBREATH (reused)
+const SH_SNAKE_1: u16 = 200; // sf-map route3::common SH_SNAKE_1
+const SH_SNAKE_0: u16 = 335;
+const SH_FIREBREATH: u16 = 363;
 const SD_SFLAG2: u8 = 0x20; // sflags2 — "it's a dragon"
 const SD_SFLAG3: u8 = 0x40; // sflags2 — head created once
 const SD_SFLAG5_SFLAGS3: u8 = 0x01; // sflags3 — sink/withdraw request
@@ -82,7 +83,7 @@ fn find_head(g: &Game) -> Option<usize> {
         g.objs.aliens[i].active
             && i != 0
             && g.objs.aliens[i].hp == SEADRAGON_HEAD_HP
-            && g.objs.aliens[i].shape == SH_SNAKE_1
+            && g.objs.aliens[i].shape == SH_SNAKE_0
     })
 }
 
@@ -156,11 +157,7 @@ fn seadragon2_grows_neck_and_emerges_head() {
         "neck grew: more objects than the root+player"
     );
     // sflag3 latched: the head is created exactly once.
-    assert_ne!(
-        g.objs.aliens[root as usize].sflags3 & 0,
-        0xff,
-        "sanity"
-    );
+    assert_ne!(g.objs.aliens[root as usize].sflags3 & 0, 0xff, "sanity");
 }
 
 // ------------------------------------------------------------
@@ -180,7 +177,10 @@ fn seadragon2_head_breathes_fire() {
             break;
         }
     }
-    assert!(saw_fire, "head fired a firebreath after the sbyte2 countdown");
+    assert!(
+        saw_fire,
+        "head fired a firebreath after the sbyte2 countdown"
+    );
 }
 
 // ------------------------------------------------------------
@@ -220,14 +220,17 @@ fn head_kill_sinks_the_neck() {
     // which run_strategies turns into a free of the object).
     let sunk_after = (0..NUMBER_AL)
         .any(|i| g.objs.aliens[i].active && g.objs.aliens[i].sflags3 & SD_SFLAG5_SFLAGS3 != 0);
-    assert!(sunk_after, "a neck latched sflag5 (sink request) on head death");
+    assert!(
+        sunk_after,
+        "a neck latched sflag5 (sink request) on head death"
+    );
     assert_eq!(g.objs.aldead, 1, "head death latched (explode -> aldead)");
     assert_eq!(g.objs.aliens[head].ptr, 0, "head unlinked from its neck");
     let _ = root;
 }
 
 // ------------------------------------------------------------
-// 5. plain seadragon (STRAT_ADDR_SEADRAGON) + lochness init variants.
+// 5. plain seadragon + lochness init variants.
 //    seadragon: sbyte2==0 (gated on proximity + a bluff coin), sflag2 set.
 //    lochness: sflag8 ("lock ness"), no height countdown.
 // ------------------------------------------------------------
@@ -235,12 +238,12 @@ fn head_kill_sinks_the_neck() {
 fn seadragon_and_lochness_init_variants() {
     let mut g = new_game(200);
 
-    // Plain seadragon via the synthetic address (mother-spawned variant).
+    // Plain seadragon via the typed mother-map strategy.
     let sd = spawn(&mut g, 0, 0, 200, SH_SNAKE_1);
     let sd_id = g
         .world
-        .find_strategy_address(bosses::STRAT_ADDR_SEADRAGON)
-        .expect("STRAT_ADDR_SEADRAGON registered");
+        .find_direct_strategy(bosses::STRATEGY_SEADRAGON)
+        .expect("seadragon strategy registered");
     g.objs.aliens[sd as usize].stratptr = Some(sd_id);
 
     // Lochness via its ISTRAT row.
@@ -252,13 +255,23 @@ fn seadragon_and_lochness_init_variants() {
 
     let s = &g.objs.aliens[sd as usize];
     assert_ne!(s.sflags2 & SD_SFLAG2, 0, "seadragon sflag2 set");
-    assert_eq!(s.sbyte2, 0, "plain seadragon has no fire counter (sbyte2=0)");
-    assert_ne!(s.sflags & ASF_COLLDISABLE, 0, "seadragon colldisable (submerged)");
+    assert_eq!(
+        s.sbyte2, 0,
+        "plain seadragon has no fire counter (sbyte2=0)"
+    );
+    assert_ne!(
+        s.sflags & ASF_COLLDISABLE,
+        0,
+        "seadragon colldisable (submerged)"
+    );
 
     let l = &g.objs.aliens[ln as usize];
     assert_ne!(l.sflags4 & ASF4_SFLAG8, 0, "lochness sflag8 set");
-    assert_ne!(l.sflags2 & SD_SFLAG2, 0, "lochness is also a 'dragon' (sflag2)");
+    assert_ne!(
+        l.sflags2 & SD_SFLAG2,
+        0,
+        "lochness is also a 'dragon' (sflag2)"
+    );
     // lochness kept sflag3 clear until it emerges a head (sflag8 grows on any dz).
     let _ = SD_SFLAG3;
 }
-

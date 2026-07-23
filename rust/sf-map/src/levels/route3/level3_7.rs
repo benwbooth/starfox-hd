@@ -18,7 +18,6 @@ pub(crate) fn build() -> Route3Level {
     // CLEN = SXspacebarlen/2 = 250/2 = 125 = SPACEBAR_UNIT_LEN
     // C: `#define MAP37_CLEN SPACEBAR_UNIT_LEN` (common::MAP37_CLEN).
 
-
     // LEVEL3_7.ASM: initlevel 3_7a,0
     // mapjsr map3_7a
     b.mapjsr("level3_7.map3_7a");
@@ -31,7 +30,8 @@ pub(crate) fn build() -> Route3Level {
     // We still emit the subroutines so labels resolve.
 
     // ---- incmap finalmap (level1_end target) ----
-    let (mapwaitboss_cantdie_ptr, mapwaitboss_cleanup_ptr) = append_finalmap_content(&mut b, "level3_7.final");
+    let (mapwaitboss_cantdie_ptr, mapwaitboss_cleanup_ptr) =
+        append_finalmap_content(&mut b, "level3_7.final", 3);
 
     // ---- MAP3_7A.ASM subroutine — Venom 3 Surface Part A (383 lines) ----
     b.label("level3_7.map3_7a");
@@ -178,7 +178,7 @@ pub(crate) fn build() -> Route3Level {
         0,
         4000,
         SH_MOTHER1,
-        STRAT_ADDR_MOTHER1,
+        STRATEGY_MOTHER1,
         crate::mothers::mother_maps().map_flypillars,
     );
 
@@ -248,11 +248,11 @@ pub(crate) fn build() -> Route3Level {
     // map_setbarshape wire for the SBtype16 sections
     b.map_setbarshape(BarShapeMode::Wire, false);
     {
-    let speed: i32 = 30;
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
-    b.map_sbtype16(5, -10, -3, 0, speed, 0);
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
-    b.map_sbtype16(5, -10, -3, 0, speed, 0);
+        let speed: i32 = 30;
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        b.map_sbtype16(5, -10, -3, 0, speed, 0);
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        b.map_sbtype16(5, -10, -3, 0, speed, 0);
     }
     b.mapwait(3000);
 
@@ -262,20 +262,20 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0x07D0, 100, 0, 4000, SH_WALL_1_PROXY, IS_WALLLEFTRIGHT);
 
     {
-    let speed: i32 = 30;
-    b.map_sbtype16(5, -10, -3, 0, speed, 0);
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        let speed: i32 = 30;
+        b.map_sbtype16(5, -10, -3, 0, speed, 0);
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
     }
     b.mapobj(0, 0, -50, 4000, SH_ITEM_7, IS_ITEM7);
 
     b.mapobj(0x05DC, -350, 0, 4000, SH_WALL_1_PROXY, IS_WALLR);
     b.mapobj(0x01F4, 350, 0, 4200, SH_WALL_1_PROXY, IS_WALLL);
     {
-    let speed: i32 = 30;
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
-    b.map_sbtype16(5, -10, -3, 0, speed, 0);
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
-    b.map_sbtype16(5, -10, -3, 0, speed, 0);
+        let speed: i32 = 30;
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        b.map_sbtype16(5, -10, -3, 0, speed, 0);
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        b.map_sbtype16(5, -10, -3, 0, speed, 0);
     }
     b.mapwait(1000);
 
@@ -283,13 +283,13 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0x05DC, 400, 0, 4200, SH_WALL_1_PROXY, IS_WALLLEFTRIGHT);
     b.mapobj(0x0320, -400, 0, 4200, SH_WALL_1_PROXY, IS_WALLLEFTRIGHT);
     {
-    let speed: i32 = 30;
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
-    b.map_sbtype16(5, -10, -3, 0, speed, 0);
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
-    b.map_sbtype16(5, -10, -3, 0, speed, 0);
-    b.map_sbtype16(0, 10, -4, 0, -speed, 0);
-    b.map_sbtype16(4, -10, -3, 0, speed, 0);
+        let speed: i32 = 30;
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        b.map_sbtype16(5, -10, -3, 0, speed, 0);
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        b.map_sbtype16(5, -10, -3, 0, speed, 0);
+        b.map_sbtype16(0, 10, -4, 0, -speed, 0);
+        b.map_sbtype16(4, -10, -3, 0, speed, 0);
     }
     b.mapobj(0x05DC, -450, 0, 4000, SH_WALL_1_PROXY, IS_WALLR);
     b.mapobj(0x05DC, 450, 0, 4200, SH_WALL_1_PROXY, IS_WALLL);
@@ -352,7 +352,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0x03E8, 50, -125, 3000, SH_R_BU_7, IS_HARD180YR);
 
     // Line 224: skillfly_bonus item_5
-    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline(); 
+    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, 200, -100, 1500, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
     b.label("level3_7.skillfly_bonus_0_skip");
@@ -398,7 +398,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0x04B0, -600, 0, 4000, SH_BU_0, IS_HARD180YR);
 
     // Line 264: skillfly_bonus item_5
-    let skillfly_bonus1_guard_ptr = b.mapcode65816_inline(); 
+    let skillfly_bonus1_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, 0, -180, 1500, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
     b.label("level3_7.skillfly_bonus_1_skip");
@@ -533,7 +533,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0, -100, -500, 0, SH_BOSS_F_4_PROXY, STRAT_ADDR_AIRSHIP);
 
     // mapwaitboss + markboss boss37
-    let mapwaitboss_trigse_ptr = b.mapcode65816_inline(); 
+    let mapwaitboss_trigse_ptr = b.mapcode65816_inline();
     b.label("level3_7.bosswait.loop");
     b.mapif_builtin(MAP_CB_CHKBOSSDEAD, "level3_7.bosswait.cont");
     b.mapgoto("level3_7.bosswait.loop");

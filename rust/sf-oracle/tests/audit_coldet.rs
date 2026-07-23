@@ -28,7 +28,16 @@ fn rom_xzdiffs(rom: &[u8], addr: u32, ax: i16, az: i16, bx: i16, bz: i16) -> i16
     bus.write16(YB + WX, bx as u16);
     bus.write16(YB + WZ, bz as u16);
     // a8i16 on entry (shorta/longi); routine does its own `a16`.
-    call(&mut bus, addr, &Entry { x: XB as u16, y: YB as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            y: YB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     bus.read16(RANGEXZ) as i16
 }
 
@@ -95,7 +104,10 @@ fn xzdiffs_vs_rom() {
     }
     eprintln!("current port: {cur_diffs} diffs vs ROM; faithful: {fix_diffs} diffs");
     assert_eq!(fix_diffs, 0, "faithful re-impl must match ROM");
-    assert!(cur_diffs > 0, "current Manhattan port deviates from ROM (documents the bug)");
+    assert!(
+        cur_diffs > 0,
+        "current Manhattan port deviates from ROM (documents the bug)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -129,16 +141,39 @@ fn init_objvars_sets_realobj() {
     bus.write8(XB + AL_COLLFLAGS, 0);
     // init_objvars_l does exg_XY; pass alien base in both X and Y so it is
     // unambiguous regardless of the swap.
-    call(&mut bus, addr, &Entry { x: XB as u16, y: XB as u16, p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            y: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     let flags = bus.read8(XB + AL_FLAGS);
     let sflags3 = bus.read8(XB + AL_SFLAGS3);
     let collflags = bus.read8(XB + AL_COLLFLAGS);
-    eprintln!("ROM init_objvars: al_flags={flags:#04x} sflags3={sflags3:#04x} collflags={collflags:#04x}");
-    eprintln!("  -> ROM sets realobj (sflags3 bit3): {}", sflags3 & ASF_REALOBJ != 0);
-    eprintln!("  -> ROM sets inviewpl (flags bit4):  {}", flags & AFINVIEWPL != 0);
+    eprintln!(
+        "ROM init_objvars: al_flags={flags:#04x} sflags3={sflags3:#04x} collflags={collflags:#04x}"
+    );
+    eprintln!(
+        "  -> ROM sets realobj (sflags3 bit3): {}",
+        sflags3 & ASF_REALOBJ != 0
+    );
+    eprintln!(
+        "  -> ROM sets inviewpl (flags bit4):  {}",
+        flags & AFINVIEWPL != 0
+    );
     eprintln!("  Rust strat_init_obj_vars sets neither (sflags3 untouched, flags untouched).");
-    assert!(sflags3 & ASF_REALOBJ != 0, "ROM init sets ASF_REALOBJ; Rust port omits it");
-    assert!(flags & AFINVIEWPL != 0, "ROM init sets AFINVIEWPL; Rust port omits it");
+    assert!(
+        sflags3 & ASF_REALOBJ != 0,
+        "ROM init sets ASF_REALOBJ; Rust port omits it"
+    );
+    assert!(
+        flags & AFINVIEWPL != 0,
+        "ROM init sets AFINVIEWPL; Rust port omits it"
+    );
     assert!(collflags != 0, "ROM sets firstframe collflag");
 }
 
@@ -167,7 +202,14 @@ fn kill_list_free_order_is_forward() {
         return;
     };
     let mut bus = SnesBus::new(rom.to_vec());
-    call(&mut bus, addr, &Entry { p: 0x00, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     let allst = bus.read16(ALLST);
     let mut node = bus.read16(ALFREELST) as u32;
     let mut order = Vec::new();
@@ -180,13 +222,24 @@ fn kill_list_free_order_is_forward() {
         node = bus.read16(node) as u32; // _next is offset 0
     }
     eprintln!("ROM kill_list_l: allst={allst:#06x} (empty active list)");
-    eprintln!("  free-list head slot = {}", order.first().copied().unwrap_or(9999));
+    eprintln!(
+        "  free-list head slot = {}",
+        order.first().copied().unwrap_or(9999)
+    );
     eprintln!("  first 6 free slots = {:?}", &order[..order.len().min(6)]);
     eprintln!("  total chained = {}", order.len());
     eprintln!("  Rust Obj_KillAll produces head=slot 69 REVERSED (69,68,...) -> DIVERGES");
     assert_eq!(allst, 0, "active list must be empty after kill_list");
-    assert_eq!(order.first().copied(), Some(0), "ROM free head is slot 0 (forward)");
+    assert_eq!(
+        order.first().copied(),
+        Some(0),
+        "ROM free head is slot 0 (forward)"
+    );
     assert_eq!(order.len() as u32, NUMBER_AL, "all 70 slots chained");
     // Forward order 0,1,2,...
-    assert_eq!(&order[..4], &[0, 1, 2, 3], "ROM chains forward 0->1->2->3...");
+    assert_eq!(
+        &order[..4],
+        &[0, 1, 2, 3],
+        "ROM chains forward 0->1->2->3..."
+    );
 }

@@ -3,13 +3,14 @@
 // offsets, reusing the SF1 engine formats. Regenerate with:
 //   nix develop --command python3 tools/sf2/extract.py
 
-//! SF2 SPC audio blob manifest (SF2_RECON.md 0xCBE1E chain).
+//! SF2 SPC audio upload-file manifest.
 //!
-//! The upload-block format is byte-identical to SF1, so sf-audio's
-//! `Booter` (rust/sf-audio/src/boot.rs) can upload each
-//! `data/sf2/snd/SF2SND##.BIN` unchanged: repeated
+//! `AUDIO_BLOBS` describes the broad terminator-delimited catalog
+//! beginning at `AUDIO_CHAIN_START`. The reset path instead passes
+//! `DRIVER_UPLOAD_START`, an embedded boundary within catalog blob 0.
+//! All exact host-selected files use the SF1-compatible repeated
 //! `[len:2 LE][dest:2 LE][data..]` blocks, `[00 00][exec:2 LE]`
-//! terminator, then jump to the driver entry ($0400).
+//! terminator, then transfer to the encoded entry point.
 
 /// One `[len][dest]` upload block inside a blob.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,140 +33,1405 @@ pub struct AudioBlob {
     pub rom_end: u32,
     /// Per-file exec word (the driver entry, $0400).
     pub exec: u16,
-    /// True for the driver blob (uploads code to $0400).
-    pub is_driver: bool,
+    /// Whether this broad region contains an upload to the driver entry.
+    pub contains_driver_code: bool,
     pub blocks: &'static [AudioBlock],
 }
 
 pub const AUDIO_CHAIN_START: u32 = 0xCBE1E;
 pub const AUDIO_CHAIN_END: u32 = 0xFFEC3;
 pub const SPC_DRIVER_ENTRY: u16 = 0x0400;
+pub const DRIVER_UPLOAD_FILE: &str = "SF2DRIVER.BIN";
+pub const DRIVER_UPLOAD_START: u32 = 0x0D0000;
+pub const DRIVER_UPLOAD_END: u32 = 0x0D2E81;
 pub const AUDIO_BLOB_COUNT: usize = 62;
 
-static BLOCKS_00: [AudioBlock; 6] = [AudioBlock { dest: 0x2593, size: 9641 }, AudioBlock { dest: 0x1D03, size: 7427 }, AudioBlock { dest: 0x0400, size: 10615 }, AudioBlock { dest: 0x4E0A, size: 182 }, AudioBlock { dest: 0x2DE8, size: 120 }, AudioBlock { dest: 0xEC00, size: 758 }];
-static BLOCKS_01: [AudioBlock; 2] = [AudioBlock { dest: 0x3000, size: 100 }, AudioBlock { dest: 0x4F00, size: 18624 }];
-static BLOCKS_02: [AudioBlock; 2] = [AudioBlock { dest: 0x3064, size: 12 }, AudioBlock { dest: 0x9800, size: 5382 }];
-static BLOCKS_03: [AudioBlock; 3] = [AudioBlock { dest: 0x2F60, size: 8 }, AudioBlock { dest: 0x2FC0, size: 8 }, AudioBlock { dest: 0xFFFE, size: 1 }];
-static BLOCKS_04: [AudioBlock; 3] = [AudioBlock { dest: 0x2F70, size: 8 }, AudioBlock { dest: 0x2FD0, size: 8 }, AudioBlock { dest: 0xFFFF, size: 1 }];
-static BLOCKS_05: [AudioBlock; 3] = [AudioBlock { dest: 0x2F60, size: 11 }, AudioBlock { dest: 0x2FC0, size: 11 }, AudioBlock { dest: 0xFFFE, size: 1 }];
-static BLOCKS_06: [AudioBlock; 3] = [AudioBlock { dest: 0x2F70, size: 11 }, AudioBlock { dest: 0x2FD0, size: 11 }, AudioBlock { dest: 0xFFFF, size: 1 }];
-static BLOCKS_07: [AudioBlock; 3] = [AudioBlock { dest: 0x2F60, size: 12 }, AudioBlock { dest: 0x2FC0, size: 12 }, AudioBlock { dest: 0xFFFE, size: 1 }];
-static BLOCKS_08: [AudioBlock; 3] = [AudioBlock { dest: 0x2F70, size: 12 }, AudioBlock { dest: 0x2FD0, size: 12 }, AudioBlock { dest: 0xFFFF, size: 1 }];
-static BLOCKS_09: [AudioBlock; 1] = [AudioBlock { dest: 0x2E60, size: 58 }];
-static BLOCKS_10: [AudioBlock; 1] = [AudioBlock { dest: 0x2E60, size: 49 }];
-static BLOCKS_11: [AudioBlock; 1] = [AudioBlock { dest: 0x2E60, size: 59 }];
-static BLOCKS_12: [AudioBlock; 1] = [AudioBlock { dest: 0x2E60, size: 127 }];
-static BLOCKS_13: [AudioBlock; 1] = [AudioBlock { dest: 0x2E60, size: 52 }];
-static BLOCKS_14: [AudioBlock; 1] = [AudioBlock { dest: 0x2E60, size: 70 }];
-static BLOCKS_15: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3280, size: 3683 }, AudioBlock { dest: 0x4EF0, size: 16 }];
-static BLOCKS_16: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3280, size: 3733 }, AudioBlock { dest: 0x4EF0, size: 16 }];
-static BLOCKS_17: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3280, size: 1850 }, AudioBlock { dest: 0x4EF0, size: 14 }];
-static BLOCKS_18: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3280, size: 432 }, AudioBlock { dest: 0x4EF0, size: 16 }];
-static BLOCKS_19: [AudioBlock; 3] = [AudioBlock { dest: 0x323E, size: 18 }, AudioBlock { dest: 0x3C00, size: 4353 }, AudioBlock { dest: 0x4EF0, size: 4 }];
-static BLOCKS_20: [AudioBlock; 3] = [AudioBlock { dest: 0x323E, size: 18 }, AudioBlock { dest: 0x3C00, size: 3376 }, AudioBlock { dest: 0x4EF0, size: 4 }];
-static BLOCKS_21: [AudioBlock; 3] = [AudioBlock { dest: 0x323E, size: 18 }, AudioBlock { dest: 0x3C00, size: 3036 }, AudioBlock { dest: 0x4EF0, size: 4 }];
-static BLOCKS_22: [AudioBlock; 3] = [AudioBlock { dest: 0x323E, size: 18 }, AudioBlock { dest: 0x3C00, size: 4438 }, AudioBlock { dest: 0x4EF0, size: 4 }];
-static BLOCKS_23: [AudioBlock; 3] = [AudioBlock { dest: 0x323E, size: 18 }, AudioBlock { dest: 0x3C00, size: 3603 }, AudioBlock { dest: 0x4EF0, size: 4 }];
-static BLOCKS_24: [AudioBlock; 3] = [AudioBlock { dest: 0x3280, size: 295 }, AudioBlock { dest: 0x3700, size: 4093 }, AudioBlock { dest: 0x4EF0, size: 12 }];
-static BLOCKS_25: [AudioBlock; 4] = [AudioBlock { dest: 0x3700, size: 3823 }, AudioBlock { dest: 0x4EF0, size: 2 }, AudioBlock { dest: 0x4EF4, size: 2 }, AudioBlock { dest: 0x4EFA, size: 2 }];
-static BLOCKS_26: [AudioBlock; 4] = [AudioBlock { dest: 0x3700, size: 2620 }, AudioBlock { dest: 0x4EF0, size: 2 }, AudioBlock { dest: 0x4EF4, size: 2 }, AudioBlock { dest: 0x4EFA, size: 2 }];
-static BLOCKS_27: [AudioBlock; 3] = [AudioBlock { dest: 0x3700, size: 5549 }, AudioBlock { dest: 0x4EF0, size: 6 }, AudioBlock { dest: 0x4EFA, size: 2 }];
-static BLOCKS_28: [AudioBlock; 3] = [AudioBlock { dest: 0x323E, size: 18 }, AudioBlock { dest: 0x3C00, size: 2284 }, AudioBlock { dest: 0x4EFE, size: 2 }];
-static BLOCKS_29: [AudioBlock; 3] = [AudioBlock { dest: 0x3700, size: 3110 }, AudioBlock { dest: 0x4EF0, size: 6 }, AudioBlock { dest: 0x4EFA, size: 2 }];
-static BLOCKS_30: [AudioBlock; 3] = [AudioBlock { dest: 0x3700, size: 1762 }, AudioBlock { dest: 0x4EF0, size: 6 }, AudioBlock { dest: 0x4EFA, size: 2 }];
-static BLOCKS_31: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3280, size: 2313 }, AudioBlock { dest: 0x4EF0, size: 16 }];
-static BLOCKS_32: [AudioBlock; 2] = [AudioBlock { dest: 0x3700, size: 4311 }, AudioBlock { dest: 0x4EF0, size: 14 }];
-static BLOCKS_33: [AudioBlock; 2] = [AudioBlock { dest: 0x3700, size: 1298 }, AudioBlock { dest: 0x4EF0, size: 14 }];
-static BLOCKS_34: [AudioBlock; 3] = [AudioBlock { dest: 0x31B4, size: 138 }, AudioBlock { dest: 0x3280, size: 6815 }, AudioBlock { dest: 0x4EF0, size: 16 }];
-static BLOCKS_35: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3280, size: 2031 }, AudioBlock { dest: 0x4EF4, size: 12 }];
-static BLOCKS_36: [AudioBlock; 2] = [AudioBlock { dest: 0x3280, size: 504 }, AudioBlock { dest: 0x4EF6, size: 4 }];
-static BLOCKS_37: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3700, size: 1714 }, AudioBlock { dest: 0x4EF0, size: 16 }];
-static BLOCKS_38: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3280, size: 2165 }, AudioBlock { dest: 0x4EF0, size: 16 }];
-static BLOCKS_39: [AudioBlock; 3] = [AudioBlock { dest: 0x31C0, size: 126 }, AudioBlock { dest: 0x3500, size: 405 }, AudioBlock { dest: 0x4EFC, size: 4 }];
-static BLOCKS_40: [AudioBlock; 4] = [AudioBlock { dest: 0x3700, size: 624 }, AudioBlock { dest: 0x4700, size: 1787 }, AudioBlock { dest: 0x4EF0, size: 6 }, AudioBlock { dest: 0x4EFA, size: 2 }];
-static BLOCKS_41: [AudioBlock; 2] = [AudioBlock { dest: 0x3080, size: 84 }, AudioBlock { dest: 0xBA00, size: 9612 }];
-static BLOCKS_42: [AudioBlock; 2] = [AudioBlock { dest: 0x30D4, size: 12 }, AudioBlock { dest: 0xDF8C, size: 2376 }];
-static BLOCKS_43: [AudioBlock; 2] = [AudioBlock { dest: 0x30D4, size: 12 }, AudioBlock { dest: 0xDF8C, size: 1881 }];
-static BLOCKS_44: [AudioBlock; 2] = [AudioBlock { dest: 0x3064, size: 24 }, AudioBlock { dest: 0x9800, size: 4482 }];
-static BLOCKS_45: [AudioBlock; 2] = [AudioBlock { dest: 0x3080, size: 84 }, AudioBlock { dest: 0xBA00, size: 12204 }];
-static BLOCKS_46: [AudioBlock; 2] = [AudioBlock { dest: 0x3078, size: 4 }, AudioBlock { dest: 0x4000, size: 3582 }];
-static BLOCKS_47: [AudioBlock; 3] = [AudioBlock { dest: 0x3064, size: 20 }, AudioBlock { dest: 0x9800, size: 4338 }, AudioBlock { dest: 0x2D80, size: 71 }];
-static BLOCKS_48: [AudioBlock; 5] = [AudioBlock { dest: 0x3064, size: 20 }, AudioBlock { dest: 0x9800, size: 7308 }, AudioBlock { dest: 0x3078, size: 4 }, AudioBlock { dest: 0x4100, size: 3312 }, AudioBlock { dest: 0x2D80, size: 101 }];
-static BLOCKS_49: [AudioBlock; 6] = [AudioBlock { dest: 0x3024, size: 88 }, AudioBlock { dest: 0x6BC0, size: 20025 }, AudioBlock { dest: 0x2D80, size: 100 }, AudioBlock { dest: 0x2E36, size: 6 }, AudioBlock { dest: 0x2E4F, size: 1 }, AudioBlock { dest: 0x2E5E, size: 1 }];
-static BLOCKS_50: [AudioBlock; 2] = [AudioBlock { dest: 0x3070, size: 12 }, AudioBlock { dest: 0xAE00, size: 1980 }];
-static BLOCKS_51: [AudioBlock; 6] = [AudioBlock { dest: 0x3070, size: 12 }, AudioBlock { dest: 0xAE00, size: 3069 }, AudioBlock { dest: 0x2E36, size: 12 }, AudioBlock { dest: 0x2E4F, size: 2 }, AudioBlock { dest: 0x2E5E, size: 2 }, AudioBlock { dest: 0x2D80, size: 27 }];
-static BLOCKS_52: [AudioBlock; 3] = [AudioBlock { dest: 0x2E36, size: 12 }, AudioBlock { dest: 0x2E4F, size: 2 }, AudioBlock { dest: 0x2E5E, size: 2 }];
-static BLOCKS_53: [AudioBlock; 5] = [AudioBlock { dest: 0x3070, size: 12 }, AudioBlock { dest: 0xAE00, size: 2979 }, AudioBlock { dest: 0x2E36, size: 12 }, AudioBlock { dest: 0x2E4F, size: 2 }, AudioBlock { dest: 0x2E5E, size: 2 }];
-static BLOCKS_54: [AudioBlock; 3] = [AudioBlock { dest: 0x2E36, size: 12 }, AudioBlock { dest: 0x2E4F, size: 2 }, AudioBlock { dest: 0x2E5E, size: 2 }];
-static BLOCKS_55: [AudioBlock; 3] = [AudioBlock { dest: 0x2E36, size: 12 }, AudioBlock { dest: 0x2E4F, size: 2 }, AudioBlock { dest: 0x2E5E, size: 2 }];
-static BLOCKS_56: [AudioBlock; 5] = [AudioBlock { dest: 0x3070, size: 12 }, AudioBlock { dest: 0xAE00, size: 2979 }, AudioBlock { dest: 0x2E36, size: 12 }, AudioBlock { dest: 0x2E4F, size: 2 }, AudioBlock { dest: 0x2E5E, size: 2 }];
-static BLOCKS_57: [AudioBlock; 4] = [AudioBlock { dest: 0x2E36, size: 12 }, AudioBlock { dest: 0x2E4F, size: 2 }, AudioBlock { dest: 0x2E5E, size: 2 }, AudioBlock { dest: 0x2FB0, size: 16 }];
-static BLOCKS_58: [AudioBlock; 2] = [AudioBlock { dest: 0x2F80, size: 8 }, AudioBlock { dest: 0x2F90, size: 48 }];
-static BLOCKS_59: [AudioBlock; 3] = [AudioBlock { dest: 0x2F80, size: 8 }, AudioBlock { dest: 0x2F90, size: 10 }, AudioBlock { dest: 0x2FB0, size: 16 }];
-static BLOCKS_60: [AudioBlock; 2] = [AudioBlock { dest: 0x2F80, size: 8 }, AudioBlock { dest: 0x2F90, size: 48 }];
-static BLOCKS_61: [AudioBlock; 3] = [AudioBlock { dest: 0x2F80, size: 13 }, AudioBlock { dest: 0xFFFE, size: 2 }, AudioBlock { dest: 0x2D80, size: 25 }];
+static BLOCKS_00: [AudioBlock; 6] = [
+    AudioBlock {
+        dest: 0x2593,
+        size: 9641,
+    },
+    AudioBlock {
+        dest: 0x1D03,
+        size: 7427,
+    },
+    AudioBlock {
+        dest: 0x0400,
+        size: 10615,
+    },
+    AudioBlock {
+        dest: 0x4E0A,
+        size: 182,
+    },
+    AudioBlock {
+        dest: 0x2DE8,
+        size: 120,
+    },
+    AudioBlock {
+        dest: 0xEC00,
+        size: 758,
+    },
+];
+static BLOCKS_01: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3000,
+        size: 100,
+    },
+    AudioBlock {
+        dest: 0x4F00,
+        size: 18624,
+    },
+];
+static BLOCKS_02: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3064,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x9800,
+        size: 5382,
+    },
+];
+static BLOCKS_03: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F60,
+        size: 8,
+    },
+    AudioBlock {
+        dest: 0x2FC0,
+        size: 8,
+    },
+    AudioBlock {
+        dest: 0xFFFE,
+        size: 1,
+    },
+];
+static BLOCKS_04: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F70,
+        size: 8,
+    },
+    AudioBlock {
+        dest: 0x2FD0,
+        size: 8,
+    },
+    AudioBlock {
+        dest: 0xFFFF,
+        size: 1,
+    },
+];
+static BLOCKS_05: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F60,
+        size: 11,
+    },
+    AudioBlock {
+        dest: 0x2FC0,
+        size: 11,
+    },
+    AudioBlock {
+        dest: 0xFFFE,
+        size: 1,
+    },
+];
+static BLOCKS_06: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F70,
+        size: 11,
+    },
+    AudioBlock {
+        dest: 0x2FD0,
+        size: 11,
+    },
+    AudioBlock {
+        dest: 0xFFFF,
+        size: 1,
+    },
+];
+static BLOCKS_07: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F60,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2FC0,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xFFFE,
+        size: 1,
+    },
+];
+static BLOCKS_08: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F70,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2FD0,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xFFFF,
+        size: 1,
+    },
+];
+static BLOCKS_09: [AudioBlock; 1] = [AudioBlock {
+    dest: 0x2E60,
+    size: 58,
+}];
+static BLOCKS_10: [AudioBlock; 1] = [AudioBlock {
+    dest: 0x2E60,
+    size: 49,
+}];
+static BLOCKS_11: [AudioBlock; 1] = [AudioBlock {
+    dest: 0x2E60,
+    size: 59,
+}];
+static BLOCKS_12: [AudioBlock; 1] = [AudioBlock {
+    dest: 0x2E60,
+    size: 127,
+}];
+static BLOCKS_13: [AudioBlock; 1] = [AudioBlock {
+    dest: 0x2E60,
+    size: 52,
+}];
+static BLOCKS_14: [AudioBlock; 1] = [AudioBlock {
+    dest: 0x2E60,
+    size: 70,
+}];
+static BLOCKS_15: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 3683,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 16,
+    },
+];
+static BLOCKS_16: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 3733,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 16,
+    },
+];
+static BLOCKS_17: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 1850,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 14,
+    },
+];
+static BLOCKS_18: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 432,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 16,
+    },
+];
+static BLOCKS_19: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x323E,
+        size: 18,
+    },
+    AudioBlock {
+        dest: 0x3C00,
+        size: 4353,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 4,
+    },
+];
+static BLOCKS_20: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x323E,
+        size: 18,
+    },
+    AudioBlock {
+        dest: 0x3C00,
+        size: 3376,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 4,
+    },
+];
+static BLOCKS_21: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x323E,
+        size: 18,
+    },
+    AudioBlock {
+        dest: 0x3C00,
+        size: 3036,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 4,
+    },
+];
+static BLOCKS_22: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x323E,
+        size: 18,
+    },
+    AudioBlock {
+        dest: 0x3C00,
+        size: 4438,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 4,
+    },
+];
+static BLOCKS_23: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x323E,
+        size: 18,
+    },
+    AudioBlock {
+        dest: 0x3C00,
+        size: 3603,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 4,
+    },
+];
+static BLOCKS_24: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x3280,
+        size: 295,
+    },
+    AudioBlock {
+        dest: 0x3700,
+        size: 4093,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 12,
+    },
+];
+static BLOCKS_25: [AudioBlock; 4] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 3823,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x4EF4,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x4EFA,
+        size: 2,
+    },
+];
+static BLOCKS_26: [AudioBlock; 4] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 2620,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x4EF4,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x4EFA,
+        size: 2,
+    },
+];
+static BLOCKS_27: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 5549,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 6,
+    },
+    AudioBlock {
+        dest: 0x4EFA,
+        size: 2,
+    },
+];
+static BLOCKS_28: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x323E,
+        size: 18,
+    },
+    AudioBlock {
+        dest: 0x3C00,
+        size: 2284,
+    },
+    AudioBlock {
+        dest: 0x4EFE,
+        size: 2,
+    },
+];
+static BLOCKS_29: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 3110,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 6,
+    },
+    AudioBlock {
+        dest: 0x4EFA,
+        size: 2,
+    },
+];
+static BLOCKS_30: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 1762,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 6,
+    },
+    AudioBlock {
+        dest: 0x4EFA,
+        size: 2,
+    },
+];
+static BLOCKS_31: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 2313,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 16,
+    },
+];
+static BLOCKS_32: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 4311,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 14,
+    },
+];
+static BLOCKS_33: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 1298,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 14,
+    },
+];
+static BLOCKS_34: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31B4,
+        size: 138,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 6815,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 16,
+    },
+];
+static BLOCKS_35: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 2031,
+    },
+    AudioBlock {
+        dest: 0x4EF4,
+        size: 12,
+    },
+];
+static BLOCKS_36: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3280,
+        size: 504,
+    },
+    AudioBlock {
+        dest: 0x4EF6,
+        size: 4,
+    },
+];
+static BLOCKS_37: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3700,
+        size: 1714,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 16,
+    },
+];
+static BLOCKS_38: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3280,
+        size: 2165,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 16,
+    },
+];
+static BLOCKS_39: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x31C0,
+        size: 126,
+    },
+    AudioBlock {
+        dest: 0x3500,
+        size: 405,
+    },
+    AudioBlock {
+        dest: 0x4EFC,
+        size: 4,
+    },
+];
+static BLOCKS_40: [AudioBlock; 4] = [
+    AudioBlock {
+        dest: 0x3700,
+        size: 624,
+    },
+    AudioBlock {
+        dest: 0x4700,
+        size: 1787,
+    },
+    AudioBlock {
+        dest: 0x4EF0,
+        size: 6,
+    },
+    AudioBlock {
+        dest: 0x4EFA,
+        size: 2,
+    },
+];
+static BLOCKS_41: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3080,
+        size: 84,
+    },
+    AudioBlock {
+        dest: 0xBA00,
+        size: 9612,
+    },
+];
+static BLOCKS_42: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x30D4,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xDF8C,
+        size: 2376,
+    },
+];
+static BLOCKS_43: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x30D4,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xDF8C,
+        size: 1881,
+    },
+];
+static BLOCKS_44: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3064,
+        size: 24,
+    },
+    AudioBlock {
+        dest: 0x9800,
+        size: 4482,
+    },
+];
+static BLOCKS_45: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3080,
+        size: 84,
+    },
+    AudioBlock {
+        dest: 0xBA00,
+        size: 12204,
+    },
+];
+static BLOCKS_46: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3078,
+        size: 4,
+    },
+    AudioBlock {
+        dest: 0x4000,
+        size: 3582,
+    },
+];
+static BLOCKS_47: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x3064,
+        size: 20,
+    },
+    AudioBlock {
+        dest: 0x9800,
+        size: 4338,
+    },
+    AudioBlock {
+        dest: 0x2D80,
+        size: 71,
+    },
+];
+static BLOCKS_48: [AudioBlock; 5] = [
+    AudioBlock {
+        dest: 0x3064,
+        size: 20,
+    },
+    AudioBlock {
+        dest: 0x9800,
+        size: 7308,
+    },
+    AudioBlock {
+        dest: 0x3078,
+        size: 4,
+    },
+    AudioBlock {
+        dest: 0x4100,
+        size: 3312,
+    },
+    AudioBlock {
+        dest: 0x2D80,
+        size: 101,
+    },
+];
+static BLOCKS_49: [AudioBlock; 6] = [
+    AudioBlock {
+        dest: 0x3024,
+        size: 88,
+    },
+    AudioBlock {
+        dest: 0x6BC0,
+        size: 20025,
+    },
+    AudioBlock {
+        dest: 0x2D80,
+        size: 100,
+    },
+    AudioBlock {
+        dest: 0x2E36,
+        size: 6,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 1,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 1,
+    },
+];
+static BLOCKS_50: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x3070,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xAE00,
+        size: 1980,
+    },
+];
+static BLOCKS_51: [AudioBlock; 6] = [
+    AudioBlock {
+        dest: 0x3070,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xAE00,
+        size: 3069,
+    },
+    AudioBlock {
+        dest: 0x2E36,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2D80,
+        size: 27,
+    },
+];
+static BLOCKS_52: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2E36,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 2,
+    },
+];
+static BLOCKS_53: [AudioBlock; 5] = [
+    AudioBlock {
+        dest: 0x3070,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xAE00,
+        size: 2979,
+    },
+    AudioBlock {
+        dest: 0x2E36,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 2,
+    },
+];
+static BLOCKS_54: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2E36,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 2,
+    },
+];
+static BLOCKS_55: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2E36,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 2,
+    },
+];
+static BLOCKS_56: [AudioBlock; 5] = [
+    AudioBlock {
+        dest: 0x3070,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0xAE00,
+        size: 2979,
+    },
+    AudioBlock {
+        dest: 0x2E36,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 2,
+    },
+];
+static BLOCKS_57: [AudioBlock; 4] = [
+    AudioBlock {
+        dest: 0x2E36,
+        size: 12,
+    },
+    AudioBlock {
+        dest: 0x2E4F,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2E5E,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2FB0,
+        size: 16,
+    },
+];
+static BLOCKS_58: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x2F80,
+        size: 8,
+    },
+    AudioBlock {
+        dest: 0x2F90,
+        size: 48,
+    },
+];
+static BLOCKS_59: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F80,
+        size: 8,
+    },
+    AudioBlock {
+        dest: 0x2F90,
+        size: 10,
+    },
+    AudioBlock {
+        dest: 0x2FB0,
+        size: 16,
+    },
+];
+static BLOCKS_60: [AudioBlock; 2] = [
+    AudioBlock {
+        dest: 0x2F80,
+        size: 8,
+    },
+    AudioBlock {
+        dest: 0x2F90,
+        size: 48,
+    },
+];
+static BLOCKS_61: [AudioBlock; 3] = [
+    AudioBlock {
+        dest: 0x2F80,
+        size: 13,
+    },
+    AudioBlock {
+        dest: 0xFFFE,
+        size: 2,
+    },
+    AudioBlock {
+        dest: 0x2D80,
+        size: 25,
+    },
+];
 
 pub static AUDIO_BLOBS: [AudioBlob; AUDIO_BLOB_COUNT] = [
-    AudioBlob { id: 0, file: "SF2SND00.BIN", rom_off: 0x0CBE1E, rom_end: 0x0D2E81, exec: 0x0400, is_driver: true, blocks: &BLOCKS_00 },
-    AudioBlob { id: 1, file: "SF2SND01.BIN", rom_off: 0x0D2E81, rom_end: 0x0D77B1, exec: 0x0400, is_driver: false, blocks: &BLOCKS_01 },
-    AudioBlob { id: 2, file: "SF2SND02.BIN", rom_off: 0x0D77B1, rom_end: 0x0D8CCF, exec: 0x0400, is_driver: false, blocks: &BLOCKS_02 },
-    AudioBlob { id: 3, file: "SF2SND03.BIN", rom_off: 0x0D8CCF, rom_end: 0x0D8CF0, exec: 0x0400, is_driver: false, blocks: &BLOCKS_03 },
-    AudioBlob { id: 4, file: "SF2SND04.BIN", rom_off: 0x0D8CF0, rom_end: 0x0D8D11, exec: 0x0400, is_driver: false, blocks: &BLOCKS_04 },
-    AudioBlob { id: 5, file: "SF2SND05.BIN", rom_off: 0x0D8D11, rom_end: 0x0D8D38, exec: 0x0400, is_driver: false, blocks: &BLOCKS_05 },
-    AudioBlob { id: 6, file: "SF2SND06.BIN", rom_off: 0x0D8D38, rom_end: 0x0D8D5F, exec: 0x0400, is_driver: false, blocks: &BLOCKS_06 },
-    AudioBlob { id: 7, file: "SF2SND07.BIN", rom_off: 0x0D8D5F, rom_end: 0x0D8D88, exec: 0x0400, is_driver: false, blocks: &BLOCKS_07 },
-    AudioBlob { id: 8, file: "SF2SND08.BIN", rom_off: 0x0D8D88, rom_end: 0x0D8DB1, exec: 0x0400, is_driver: false, blocks: &BLOCKS_08 },
-    AudioBlob { id: 9, file: "SF2SND09.BIN", rom_off: 0x0D8DB1, rom_end: 0x0D8DF3, exec: 0x0400, is_driver: false, blocks: &BLOCKS_09 },
-    AudioBlob { id: 10, file: "SF2SND10.BIN", rom_off: 0x0D8DF3, rom_end: 0x0D8E2C, exec: 0x0400, is_driver: false, blocks: &BLOCKS_10 },
-    AudioBlob { id: 11, file: "SF2SND11.BIN", rom_off: 0x0D8E2C, rom_end: 0x0D8E6F, exec: 0x0400, is_driver: false, blocks: &BLOCKS_11 },
-    AudioBlob { id: 12, file: "SF2SND12.BIN", rom_off: 0x0D8E6F, rom_end: 0x0D8EF6, exec: 0x0400, is_driver: false, blocks: &BLOCKS_12 },
-    AudioBlob { id: 13, file: "SF2SND13.BIN", rom_off: 0x0D8EF6, rom_end: 0x0D8F32, exec: 0x0400, is_driver: false, blocks: &BLOCKS_13 },
-    AudioBlob { id: 14, file: "SF2SND14.BIN", rom_off: 0x0D8F32, rom_end: 0x0D8F80, exec: 0x0400, is_driver: false, blocks: &BLOCKS_14 },
-    AudioBlob { id: 15, file: "SF2SND15.BIN", rom_off: 0x0D8F80, rom_end: 0x0D9E81, exec: 0x0800, is_driver: false, blocks: &BLOCKS_15 },
-    AudioBlob { id: 16, file: "SF2SND16.BIN", rom_off: 0x0D9E81, rom_end: 0x0DADB4, exec: 0x0400, is_driver: false, blocks: &BLOCKS_16 },
-    AudioBlob { id: 17, file: "SF2SND17.BIN", rom_off: 0x0DADB4, rom_end: 0x0DB58A, exec: 0x0800, is_driver: false, blocks: &BLOCKS_17 },
-    AudioBlob { id: 18, file: "SF2SND18.BIN", rom_off: 0x0DB58A, rom_end: 0x0DB7D8, exec: 0x0800, is_driver: false, blocks: &BLOCKS_18 },
-    AudioBlob { id: 19, file: "SF2SND19.BIN", rom_off: 0x0DB7D8, rom_end: 0x0DC8FF, exec: 0x0800, is_driver: false, blocks: &BLOCKS_19 },
-    AudioBlob { id: 20, file: "SF2SND20.BIN", rom_off: 0x0DC8FF, rom_end: 0x0DD655, exec: 0x0800, is_driver: false, blocks: &BLOCKS_20 },
-    AudioBlob { id: 21, file: "SF2SND21.BIN", rom_off: 0x0DD655, rom_end: 0x0DE257, exec: 0x0800, is_driver: false, blocks: &BLOCKS_21 },
-    AudioBlob { id: 22, file: "SF2SND22.BIN", rom_off: 0x0DE257, rom_end: 0x0DF3D3, exec: 0x0800, is_driver: false, blocks: &BLOCKS_22 },
-    AudioBlob { id: 23, file: "SF2SND23.BIN", rom_off: 0x0DF3D3, rom_end: 0x0E020C, exec: 0x0800, is_driver: false, blocks: &BLOCKS_23 },
-    AudioBlob { id: 24, file: "SF2SND24.BIN", rom_off: 0x0E020C, rom_end: 0x0E134C, exec: 0x0800, is_driver: false, blocks: &BLOCKS_24 },
-    AudioBlob { id: 25, file: "SF2SND25.BIN", rom_off: 0x0E134C, rom_end: 0x0E2255, exec: 0x0800, is_driver: false, blocks: &BLOCKS_25 },
-    AudioBlob { id: 26, file: "SF2SND26.BIN", rom_off: 0x0E2255, rom_end: 0x0E2CAB, exec: 0x0800, is_driver: false, blocks: &BLOCKS_26 },
-    AudioBlob { id: 27, file: "SF2SND27.BIN", rom_off: 0x0E2CAB, rom_end: 0x0E4270, exec: 0x0800, is_driver: false, blocks: &BLOCKS_27 },
-    AudioBlob { id: 28, file: "SF2SND28.BIN", rom_off: 0x0E4270, rom_end: 0x0E4B80, exec: 0x0400, is_driver: false, blocks: &BLOCKS_28 },
-    AudioBlob { id: 29, file: "SF2SND29.BIN", rom_off: 0x0E4B80, rom_end: 0x0E57BE, exec: 0x0800, is_driver: false, blocks: &BLOCKS_29 },
-    AudioBlob { id: 30, file: "SF2SND30.BIN", rom_off: 0x0E57BE, rom_end: 0x0E5EB8, exec: 0x0800, is_driver: false, blocks: &BLOCKS_30 },
-    AudioBlob { id: 31, file: "SF2SND31.BIN", rom_off: 0x0E5EB8, rom_end: 0x0E685F, exec: 0x0400, is_driver: false, blocks: &BLOCKS_31 },
-    AudioBlob { id: 32, file: "SF2SND32.BIN", rom_off: 0x0E685F, rom_end: 0x0E7950, exec: 0x0800, is_driver: false, blocks: &BLOCKS_32 },
-    AudioBlob { id: 33, file: "SF2SND33.BIN", rom_off: 0x0E7950, rom_end: 0x0E7E7C, exec: 0x0800, is_driver: false, blocks: &BLOCKS_33 },
-    AudioBlob { id: 34, file: "SF2SND34.BIN", rom_off: 0x0E7E7C, rom_end: 0x0E99C5, exec: 0x0800, is_driver: false, blocks: &BLOCKS_34 },
-    AudioBlob { id: 35, file: "SF2SND35.BIN", rom_off: 0x0E99C5, rom_end: 0x0EA24E, exec: 0x0800, is_driver: false, blocks: &BLOCKS_35 },
-    AudioBlob { id: 36, file: "SF2SND36.BIN", rom_off: 0x0EA24E, rom_end: 0x0EA456, exec: 0x0800, is_driver: false, blocks: &BLOCKS_36 },
-    AudioBlob { id: 37, file: "SF2SND37.BIN", rom_off: 0x0EA456, rom_end: 0x0EABA6, exec: 0x0800, is_driver: false, blocks: &BLOCKS_37 },
-    AudioBlob { id: 38, file: "SF2SND38.BIN", rom_off: 0x0EABA6, rom_end: 0x0EB4B9, exec: 0x0800, is_driver: false, blocks: &BLOCKS_38 },
-    AudioBlob { id: 39, file: "SF2SND39.BIN", rom_off: 0x0EB4B9, rom_end: 0x0EB6E0, exec: 0x0800, is_driver: false, blocks: &BLOCKS_39 },
-    AudioBlob { id: 40, file: "SF2SND40.BIN", rom_off: 0x0EB6E0, rom_end: 0x0EC067, exec: 0x0800, is_driver: false, blocks: &BLOCKS_40 },
-    AudioBlob { id: 41, file: "SF2SND41.BIN", rom_off: 0x0EC067, rom_end: 0x0EE653, exec: 0x0400, is_driver: false, blocks: &BLOCKS_41 },
-    AudioBlob { id: 42, file: "SF2SND42.BIN", rom_off: 0x0EE653, rom_end: 0x0EEFB3, exec: 0x0400, is_driver: false, blocks: &BLOCKS_42 },
-    AudioBlob { id: 43, file: "SF2SND43.BIN", rom_off: 0x0EEFB3, rom_end: 0x0EF724, exec: 0x0400, is_driver: false, blocks: &BLOCKS_43 },
-    AudioBlob { id: 44, file: "SF2SND44.BIN", rom_off: 0x0EF724, rom_end: 0x0F08CA, exec: 0x0400, is_driver: false, blocks: &BLOCKS_44 },
-    AudioBlob { id: 45, file: "SF2SND45.BIN", rom_off: 0x0F08CA, rom_end: 0x0F38D6, exec: 0x0400, is_driver: false, blocks: &BLOCKS_45 },
-    AudioBlob { id: 46, file: "SF2SND46.BIN", rom_off: 0x0F38D6, rom_end: 0x0F46E4, exec: 0x0400, is_driver: false, blocks: &BLOCKS_46 },
-    AudioBlob { id: 47, file: "SF2SND47.BIN", rom_off: 0x0F46E4, rom_end: 0x0F5841, exec: 0x0400, is_driver: false, blocks: &BLOCKS_47 },
-    AudioBlob { id: 48, file: "SF2SND48.BIN", rom_off: 0x0F5841, rom_end: 0x0F8252, exec: 0x0400, is_driver: false, blocks: &BLOCKS_48 },
-    AudioBlob { id: 49, file: "SF2SND49.BIN", rom_off: 0x0F8252, rom_end: 0x0FD16B, exec: 0x0400, is_driver: false, blocks: &BLOCKS_49 },
-    AudioBlob { id: 50, file: "SF2SND50.BIN", rom_off: 0x0FD16B, rom_end: 0x0FD93F, exec: 0x0400, is_driver: false, blocks: &BLOCKS_50 },
-    AudioBlob { id: 51, file: "SF2SND51.BIN", rom_off: 0x0FD93F, rom_end: 0x0FE58F, exec: 0x0400, is_driver: false, blocks: &BLOCKS_51 },
-    AudioBlob { id: 52, file: "SF2SND52.BIN", rom_off: 0x0FE58F, rom_end: 0x0FE5AF, exec: 0x0400, is_driver: false, blocks: &BLOCKS_52 },
-    AudioBlob { id: 53, file: "SF2SND53.BIN", rom_off: 0x0FE5AF, rom_end: 0x0FF186, exec: 0x0400, is_driver: false, blocks: &BLOCKS_53 },
-    AudioBlob { id: 54, file: "SF2SND54.BIN", rom_off: 0x0FF186, rom_end: 0x0FF1A6, exec: 0x0400, is_driver: false, blocks: &BLOCKS_54 },
-    AudioBlob { id: 55, file: "SF2SND55.BIN", rom_off: 0x0FF1A6, rom_end: 0x0FF1C6, exec: 0x0400, is_driver: false, blocks: &BLOCKS_55 },
-    AudioBlob { id: 56, file: "SF2SND56.BIN", rom_off: 0x0FF1C6, rom_end: 0x0FFD9D, exec: 0x0400, is_driver: false, blocks: &BLOCKS_56 },
-    AudioBlob { id: 57, file: "SF2SND57.BIN", rom_off: 0x0FFD9D, rom_end: 0x0FFDD1, exec: 0x0400, is_driver: false, blocks: &BLOCKS_57 },
-    AudioBlob { id: 58, file: "SF2SND58.BIN", rom_off: 0x0FFDD1, rom_end: 0x0FFE15, exec: 0x0400, is_driver: false, blocks: &BLOCKS_58 },
-    AudioBlob { id: 59, file: "SF2SND59.BIN", rom_off: 0x0FFE15, rom_end: 0x0FFE47, exec: 0x0400, is_driver: false, blocks: &BLOCKS_59 },
-    AudioBlob { id: 60, file: "SF2SND60.BIN", rom_off: 0x0FFE47, rom_end: 0x0FFE8B, exec: 0x0400, is_driver: false, blocks: &BLOCKS_60 },
-    AudioBlob { id: 61, file: "SF2SND61.BIN", rom_off: 0x0FFE8B, rom_end: 0x0FFEC3, exec: 0x0400, is_driver: false, blocks: &BLOCKS_61 },
+    AudioBlob {
+        id: 0,
+        file: "SF2SND00.BIN",
+        rom_off: 0x0CBE1E,
+        rom_end: 0x0D2E81,
+        exec: 0x0400,
+        contains_driver_code: true,
+        blocks: &BLOCKS_00,
+    },
+    AudioBlob {
+        id: 1,
+        file: "SF2SND01.BIN",
+        rom_off: 0x0D2E81,
+        rom_end: 0x0D77B1,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_01,
+    },
+    AudioBlob {
+        id: 2,
+        file: "SF2SND02.BIN",
+        rom_off: 0x0D77B1,
+        rom_end: 0x0D8CCF,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_02,
+    },
+    AudioBlob {
+        id: 3,
+        file: "SF2SND03.BIN",
+        rom_off: 0x0D8CCF,
+        rom_end: 0x0D8CF0,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_03,
+    },
+    AudioBlob {
+        id: 4,
+        file: "SF2SND04.BIN",
+        rom_off: 0x0D8CF0,
+        rom_end: 0x0D8D11,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_04,
+    },
+    AudioBlob {
+        id: 5,
+        file: "SF2SND05.BIN",
+        rom_off: 0x0D8D11,
+        rom_end: 0x0D8D38,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_05,
+    },
+    AudioBlob {
+        id: 6,
+        file: "SF2SND06.BIN",
+        rom_off: 0x0D8D38,
+        rom_end: 0x0D8D5F,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_06,
+    },
+    AudioBlob {
+        id: 7,
+        file: "SF2SND07.BIN",
+        rom_off: 0x0D8D5F,
+        rom_end: 0x0D8D88,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_07,
+    },
+    AudioBlob {
+        id: 8,
+        file: "SF2SND08.BIN",
+        rom_off: 0x0D8D88,
+        rom_end: 0x0D8DB1,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_08,
+    },
+    AudioBlob {
+        id: 9,
+        file: "SF2SND09.BIN",
+        rom_off: 0x0D8DB1,
+        rom_end: 0x0D8DF3,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_09,
+    },
+    AudioBlob {
+        id: 10,
+        file: "SF2SND10.BIN",
+        rom_off: 0x0D8DF3,
+        rom_end: 0x0D8E2C,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_10,
+    },
+    AudioBlob {
+        id: 11,
+        file: "SF2SND11.BIN",
+        rom_off: 0x0D8E2C,
+        rom_end: 0x0D8E6F,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_11,
+    },
+    AudioBlob {
+        id: 12,
+        file: "SF2SND12.BIN",
+        rom_off: 0x0D8E6F,
+        rom_end: 0x0D8EF6,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_12,
+    },
+    AudioBlob {
+        id: 13,
+        file: "SF2SND13.BIN",
+        rom_off: 0x0D8EF6,
+        rom_end: 0x0D8F32,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_13,
+    },
+    AudioBlob {
+        id: 14,
+        file: "SF2SND14.BIN",
+        rom_off: 0x0D8F32,
+        rom_end: 0x0D8F80,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_14,
+    },
+    AudioBlob {
+        id: 15,
+        file: "SF2SND15.BIN",
+        rom_off: 0x0D8F80,
+        rom_end: 0x0D9E81,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_15,
+    },
+    AudioBlob {
+        id: 16,
+        file: "SF2SND16.BIN",
+        rom_off: 0x0D9E81,
+        rom_end: 0x0DADB4,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_16,
+    },
+    AudioBlob {
+        id: 17,
+        file: "SF2SND17.BIN",
+        rom_off: 0x0DADB4,
+        rom_end: 0x0DB58A,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_17,
+    },
+    AudioBlob {
+        id: 18,
+        file: "SF2SND18.BIN",
+        rom_off: 0x0DB58A,
+        rom_end: 0x0DB7D8,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_18,
+    },
+    AudioBlob {
+        id: 19,
+        file: "SF2SND19.BIN",
+        rom_off: 0x0DB7D8,
+        rom_end: 0x0DC8FF,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_19,
+    },
+    AudioBlob {
+        id: 20,
+        file: "SF2SND20.BIN",
+        rom_off: 0x0DC8FF,
+        rom_end: 0x0DD655,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_20,
+    },
+    AudioBlob {
+        id: 21,
+        file: "SF2SND21.BIN",
+        rom_off: 0x0DD655,
+        rom_end: 0x0DE257,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_21,
+    },
+    AudioBlob {
+        id: 22,
+        file: "SF2SND22.BIN",
+        rom_off: 0x0DE257,
+        rom_end: 0x0DF3D3,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_22,
+    },
+    AudioBlob {
+        id: 23,
+        file: "SF2SND23.BIN",
+        rom_off: 0x0DF3D3,
+        rom_end: 0x0E020C,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_23,
+    },
+    AudioBlob {
+        id: 24,
+        file: "SF2SND24.BIN",
+        rom_off: 0x0E020C,
+        rom_end: 0x0E134C,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_24,
+    },
+    AudioBlob {
+        id: 25,
+        file: "SF2SND25.BIN",
+        rom_off: 0x0E134C,
+        rom_end: 0x0E2255,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_25,
+    },
+    AudioBlob {
+        id: 26,
+        file: "SF2SND26.BIN",
+        rom_off: 0x0E2255,
+        rom_end: 0x0E2CAB,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_26,
+    },
+    AudioBlob {
+        id: 27,
+        file: "SF2SND27.BIN",
+        rom_off: 0x0E2CAB,
+        rom_end: 0x0E4270,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_27,
+    },
+    AudioBlob {
+        id: 28,
+        file: "SF2SND28.BIN",
+        rom_off: 0x0E4270,
+        rom_end: 0x0E4B80,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_28,
+    },
+    AudioBlob {
+        id: 29,
+        file: "SF2SND29.BIN",
+        rom_off: 0x0E4B80,
+        rom_end: 0x0E57BE,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_29,
+    },
+    AudioBlob {
+        id: 30,
+        file: "SF2SND30.BIN",
+        rom_off: 0x0E57BE,
+        rom_end: 0x0E5EB8,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_30,
+    },
+    AudioBlob {
+        id: 31,
+        file: "SF2SND31.BIN",
+        rom_off: 0x0E5EB8,
+        rom_end: 0x0E685F,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_31,
+    },
+    AudioBlob {
+        id: 32,
+        file: "SF2SND32.BIN",
+        rom_off: 0x0E685F,
+        rom_end: 0x0E7950,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_32,
+    },
+    AudioBlob {
+        id: 33,
+        file: "SF2SND33.BIN",
+        rom_off: 0x0E7950,
+        rom_end: 0x0E7E7C,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_33,
+    },
+    AudioBlob {
+        id: 34,
+        file: "SF2SND34.BIN",
+        rom_off: 0x0E7E7C,
+        rom_end: 0x0E99C5,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_34,
+    },
+    AudioBlob {
+        id: 35,
+        file: "SF2SND35.BIN",
+        rom_off: 0x0E99C5,
+        rom_end: 0x0EA24E,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_35,
+    },
+    AudioBlob {
+        id: 36,
+        file: "SF2SND36.BIN",
+        rom_off: 0x0EA24E,
+        rom_end: 0x0EA456,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_36,
+    },
+    AudioBlob {
+        id: 37,
+        file: "SF2SND37.BIN",
+        rom_off: 0x0EA456,
+        rom_end: 0x0EABA6,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_37,
+    },
+    AudioBlob {
+        id: 38,
+        file: "SF2SND38.BIN",
+        rom_off: 0x0EABA6,
+        rom_end: 0x0EB4B9,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_38,
+    },
+    AudioBlob {
+        id: 39,
+        file: "SF2SND39.BIN",
+        rom_off: 0x0EB4B9,
+        rom_end: 0x0EB6E0,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_39,
+    },
+    AudioBlob {
+        id: 40,
+        file: "SF2SND40.BIN",
+        rom_off: 0x0EB6E0,
+        rom_end: 0x0EC067,
+        exec: 0x0800,
+        contains_driver_code: false,
+        blocks: &BLOCKS_40,
+    },
+    AudioBlob {
+        id: 41,
+        file: "SF2SND41.BIN",
+        rom_off: 0x0EC067,
+        rom_end: 0x0EE653,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_41,
+    },
+    AudioBlob {
+        id: 42,
+        file: "SF2SND42.BIN",
+        rom_off: 0x0EE653,
+        rom_end: 0x0EEFB3,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_42,
+    },
+    AudioBlob {
+        id: 43,
+        file: "SF2SND43.BIN",
+        rom_off: 0x0EEFB3,
+        rom_end: 0x0EF724,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_43,
+    },
+    AudioBlob {
+        id: 44,
+        file: "SF2SND44.BIN",
+        rom_off: 0x0EF724,
+        rom_end: 0x0F08CA,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_44,
+    },
+    AudioBlob {
+        id: 45,
+        file: "SF2SND45.BIN",
+        rom_off: 0x0F08CA,
+        rom_end: 0x0F38D6,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_45,
+    },
+    AudioBlob {
+        id: 46,
+        file: "SF2SND46.BIN",
+        rom_off: 0x0F38D6,
+        rom_end: 0x0F46E4,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_46,
+    },
+    AudioBlob {
+        id: 47,
+        file: "SF2SND47.BIN",
+        rom_off: 0x0F46E4,
+        rom_end: 0x0F5841,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_47,
+    },
+    AudioBlob {
+        id: 48,
+        file: "SF2SND48.BIN",
+        rom_off: 0x0F5841,
+        rom_end: 0x0F8252,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_48,
+    },
+    AudioBlob {
+        id: 49,
+        file: "SF2SND49.BIN",
+        rom_off: 0x0F8252,
+        rom_end: 0x0FD16B,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_49,
+    },
+    AudioBlob {
+        id: 50,
+        file: "SF2SND50.BIN",
+        rom_off: 0x0FD16B,
+        rom_end: 0x0FD93F,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_50,
+    },
+    AudioBlob {
+        id: 51,
+        file: "SF2SND51.BIN",
+        rom_off: 0x0FD93F,
+        rom_end: 0x0FE58F,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_51,
+    },
+    AudioBlob {
+        id: 52,
+        file: "SF2SND52.BIN",
+        rom_off: 0x0FE58F,
+        rom_end: 0x0FE5AF,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_52,
+    },
+    AudioBlob {
+        id: 53,
+        file: "SF2SND53.BIN",
+        rom_off: 0x0FE5AF,
+        rom_end: 0x0FF186,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_53,
+    },
+    AudioBlob {
+        id: 54,
+        file: "SF2SND54.BIN",
+        rom_off: 0x0FF186,
+        rom_end: 0x0FF1A6,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_54,
+    },
+    AudioBlob {
+        id: 55,
+        file: "SF2SND55.BIN",
+        rom_off: 0x0FF1A6,
+        rom_end: 0x0FF1C6,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_55,
+    },
+    AudioBlob {
+        id: 56,
+        file: "SF2SND56.BIN",
+        rom_off: 0x0FF1C6,
+        rom_end: 0x0FFD9D,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_56,
+    },
+    AudioBlob {
+        id: 57,
+        file: "SF2SND57.BIN",
+        rom_off: 0x0FFD9D,
+        rom_end: 0x0FFDD1,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_57,
+    },
+    AudioBlob {
+        id: 58,
+        file: "SF2SND58.BIN",
+        rom_off: 0x0FFDD1,
+        rom_end: 0x0FFE15,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_58,
+    },
+    AudioBlob {
+        id: 59,
+        file: "SF2SND59.BIN",
+        rom_off: 0x0FFE15,
+        rom_end: 0x0FFE47,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_59,
+    },
+    AudioBlob {
+        id: 60,
+        file: "SF2SND60.BIN",
+        rom_off: 0x0FFE47,
+        rom_end: 0x0FFE8B,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_60,
+    },
+    AudioBlob {
+        id: 61,
+        file: "SF2SND61.BIN",
+        rom_off: 0x0FFE8B,
+        rom_end: 0x0FFEC3,
+        exec: 0x0400,
+        contains_driver_code: false,
+        blocks: &BLOCKS_61,
+    },
 ];

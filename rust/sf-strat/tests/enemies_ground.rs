@@ -17,22 +17,22 @@ use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemies_ground;
 
 // ISTRATS.ASM def_Istrat indices (== sf-map placement).
-const IS_BAZOOKAL: usize = 158;
-const IS_BAZOOKAR: usize = 159;
-const IS_TANK2: usize = 162;
+const IS_BAZOOKAL: usize = 157;
+const IS_BAZOOKAR: usize = 158;
+const IS_TANK2: usize = 161;
 const IS_TANK1A: usize = 183;
 const IS_TANK3: usize = 186;
-const IS_WALKING: usize = 78;
-const IS_WIREMAN: usize = 88;
-const IS_WINGLAZERMAN: usize = 91;
-const IS_UPERM: usize = 160;
+const IS_WALKING: usize = 77;
+const IS_WIREMAN: usize = 87;
+const IS_WINGLAZERMAN: usize = 90;
+const IS_UPERM: usize = 159;
 const IS_ROCKHARD: usize = 192;
 
 // Mobile-family shape words (sf-map lc::SH_*).
-const SH_WIRE_MAN: u16 = 48;
-const SH_W_L: u16 = 50;
-const SH_WALKER_0: u16 = 27;
-const SH_UPER_M: u16 = 133;
+const SH_WIRE_MAN: u16 = 47;
+const SH_W_L: u16 = 49;
+const SH_WALKER_0: u16 = 26;
+const SH_UPER_M: u16 = 132;
 
 // Mobile-family constants (cited).
 const ASF_SHADOW: u8 = 0x04; // alien.rs
@@ -50,7 +50,7 @@ const DEG270: u8 = 192; // VARS.INC:18
 const COLLTYPE_ENEMY1: u8 = 0x10; // enemy_a acf_colltype2
 const COLLTYPE_ENEMYWEAP: u8 = 0x40; // acf_colltype4
 const ASF2_SFLAG1: u8 = 0x10; // STRATEQU.INC:914
-const SH_ZACO_7: u16 = 129; // route2 rc.rs
+const SH_ZACO_7: u16 = 128; // route2 rc.rs
 const TANK1_HP: u8 = 2; // KSTRATS.ASM:44
 const TANK1_AP: u8 = 16; // KSTRATS.ASM:45
 const TANK1_FIRERATE: u8 = 50; // KSTRATS.ASM:46
@@ -86,6 +86,19 @@ fn setup() -> Game {
 fn place(g: &mut Game, istrat: usize, x: i16, y: i16, z: i16, shape: u16) -> u16 {
     let idx = spawn(g, x, y, z, shape);
     g.objs.aliens[idx as usize].stratptr = g.world.istrats[istrat];
+    idx
+}
+
+fn place_direct(
+    g: &mut Game,
+    strategy: sf_map::consts::DirectStrategy,
+    x: i16,
+    y: i16,
+    z: i16,
+    shape: u16,
+) -> u16 {
+    let idx = spawn(g, x, y, z, shape);
+    g.objs.aliens[idx as usize].stratptr = g.world.find_direct_strategy(strategy);
     idx
 }
 
@@ -276,15 +289,24 @@ fn tank2_countdown_wakes_drones_and_flies_them() {
                 tick(&mut g, d);
             }
         }
-        if drones.iter().any(|&d| g.objs.aliens[d as usize].stratstate >= 1) {
+        if drones
+            .iter()
+            .any(|&d| g.objs.aliens[d as usize].stratstate >= 1)
+        {
             woke = true;
         }
-        if drones.iter().any(|&d| g.objs.aliens[d as usize].stratstate >= 2) {
+        if drones
+            .iter()
+            .any(|&d| g.objs.aliens[d as usize].stratstate >= 2)
+        {
             flew = true;
             break;
         }
     }
-    assert!(woke, "tank2 countdown woke a drone (set_childstate -> state 1)");
+    assert!(
+        woke,
+        "tank2 countdown woke a drone (set_childstate -> state 1)"
+    );
     assert!(flew, "a woken drone rose fully and detached (state 2)");
 }
 
@@ -419,7 +441,11 @@ fn wireman_grounded_pops_up() {
     let a = g.objs.aliens[wm as usize];
     // wiremanup_init resets worldy to 0, then wireman_cont2 applies one climb
     // step the same tick, so worldy ends near 0 (down from the placed 200).
-    assert!(a.worldy.abs() < 60, "worldy reset to ~0 (was 200): {}", a.worldy);
+    assert!(
+        a.worldy.abs() < 60,
+        "worldy reset to ~0 (was 200): {}",
+        a.worldy
+    );
     assert_eq!(a.rotx, 240, "rotx = -deg22");
     assert!(a.sbyte1 <= 30, "climb timer armed (<=30)");
 }
@@ -663,18 +689,17 @@ fn rockhard_init_is_static_indestructible() {
 // the break meteors (reduced to destructible + scroll + death trigger).
 // ============================================================
 
-const IS_TORPEDO_H: usize = 80;
-const IS_METEO0: usize = 195;
-const IS_BIG_METEOR: usize = 234;
-const IS_BREAK_METEOR: usize = 235;
-const IS_BREAK_METEORT: usize = 238;
-const IS_MINE0: usize = 246;
+const IS_TORPEDO_H: usize = 79;
+const IS_METEO0: usize = 194;
+const IS_BIG_METEOR: usize = 233;
+const IS_BREAK_METEOR: usize = 234;
+const IS_BREAK_METEORT: usize = 237;
 
-const SH_ASTEROID2: u16 = 195; // break-meteor placement shape
-const SH_METEO_0: u16 = 193; // meteo0 placement shape
+const SH_ASTEROID2: u16 = 194; // break-meteor placement shape
+const SH_METEO_0: u16 = 192; // meteo0 placement shape
 const SH_ASTEROID1: u16 = 275; // meteo0 death fragment
 const SH_F_FISH: u16 = 271; // torpedo surfaced shape
-const SH_TADPOLE: u16 = 228; // break_meteorT death spawn
+const SH_TADPOLE: u16 = 227; // break_meteorT death spawn
 
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs:147
 const ASF_COLLDISABLE: u8 = 0x10; // alien.rs:145
@@ -722,7 +747,11 @@ fn meteo0_grows_to_max_then_sheds_invulnerability() {
     }
     let a = g.objs.aliens[m as usize];
     assert_eq!(a.animframe, 8, "grown to full (anim 8)");
-    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "still invulnerable at anim 8 entry");
+    assert_ne!(
+        a.sflags & ASF_NOHITAFFECT,
+        0,
+        "still invulnerable at anim 8 entry"
+    );
     assert_eq!(a.sbyte1, 20, "budget untouched during growth");
     // One more tick: anim==8 -> .max clears nohitaffect and decs the budget.
     g.vars.gameframe = 1; // (gf+idx)&7 != 0 -> no fire this tick
@@ -752,9 +781,19 @@ fn meteo0_fires_homing_laser_on_notdelay_gate() {
 #[test]
 fn meteo0_death_spawns_meteor_fragment_and_explodes() {
     // .exp: make an asteroid1 fragment running meteor_Istrat, then explode.
+    // Place inside the 1000z grow band and advance anim to 8 so nohitaffect
+    // clears — init sets nohitaffect until .max (GA2STRAT.ASM:2130-2162).
     let mut g = setup();
-    let m = place(&mut g, IS_METEO0, 300, 0, 4000, SH_METEO_0);
-    tick(&mut g, m);
+    let m = place(&mut g, IS_METEO0, 300, 0, 500, SH_METEO_0);
+    tick(&mut g, m); // init + first grow tick
+    for _ in 0..8 {
+        tick(&mut g, m);
+    }
+    assert_eq!(
+        g.objs.aliens[m as usize].sflags & ASF_NOHITAFFECT,
+        0,
+        "grown meteo0 must shed nohitaffect"
+    );
     let coll = g.objs.aliens[m as usize].collstratptr.unwrap();
     g.objs.aldead = 0;
     g.call_strat(coll, m); // 2 -> 1 (flash)
@@ -792,7 +831,11 @@ fn big_meteor_is_indestructible_and_static() {
     let (x0, y0, z0) = (a.worldx, a.worldy, a.worldz);
     tick(&mut g, b);
     let a = g.objs.aliens[b as usize];
-    assert_eq!((a.worldx, a.worldy, a.worldz), (x0, y0, z0), "static no-op tick");
+    assert_eq!(
+        (a.worldx, a.worldy, a.worldz),
+        (x0, y0, z0),
+        "static no-op tick"
+    );
     // Indestructible: hitflash never kills a hardHP object.
     let coll = a.collstratptr.unwrap();
     g.objs.aldead = 0;
@@ -840,10 +883,16 @@ fn break_meteort_death_spawns_tadpole_on_the_coin() {
     g.objs.aldead = 0;
     g.call_strat(exp, b);
     assert_eq!(g.objs.aldead, 1, "break_meteorT explodes");
-    assert!(
-        find_shape(&g, SH_TADPOLE).is_some(),
-        "spawns a tadpole on the >=127 coin"
+    let tadpole = find_shape(&g, SH_TADPOLE).expect("spawns a tadpole on the >=127 coin");
+    let tadpole = &g.objs.aliens[tadpole];
+    assert!(tadpole.stratptr.is_some(), "spawned tadpole has native AI");
+    assert_eq!(
+        tadpole.sflags & ASF_COLLDISABLE,
+        0,
+        "spawned tadpole remains collidable"
     );
+    assert_eq!(tadpole.hp, 4, "native tadpole hit points");
+    assert_eq!(tadpole.ap, 10, "native tadpole attack power");
 }
 
 #[test]
@@ -872,7 +921,14 @@ fn break_meteort_death_skips_tadpole_on_the_low_coin() {
 #[test]
 fn mine0_init_static_destructible_then_explodes() {
     let mut g = setup();
-    let m = place(&mut g, IS_MINE0, 0, -150, 4000, 0);
+    let m = place_direct(
+        &mut g,
+        sf_map::consts::DirectStrategy::Mine0,
+        0,
+        -150,
+        4000,
+        0,
+    );
     let (x0, y0, z0) = {
         let a = g.objs.aliens[m as usize];
         (a.worldx, a.worldy, a.worldz)
@@ -882,7 +938,11 @@ fn mine0_init_static_destructible_then_explodes() {
     assert_eq!(a.hp, 2, "mine0HP");
     assert_eq!(a.ap, 10, "mine0AP");
     assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 collide");
-    assert_eq!((a.worldx, a.worldy, a.worldz), (x0, y0, z0), "static no-op tick");
+    assert_eq!(
+        (a.worldx, a.worldy, a.worldz),
+        (x0, y0, z0),
+        "static no-op tick"
+    );
     // Standard explosion (NOT mine2exp): two hits -> explode.
     let coll = a.collstratptr.unwrap();
     g.objs.aldead = 0;
@@ -909,7 +969,10 @@ fn torpedo_init_runs_submerged_and_tracks_yaw() {
     assert_eq!(a.shape, 0, "still submerged (nullshape)");
     assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "non-collidable underwater");
     assert_ne!(a.collflags & COLLTYPE_ZENEMY, 0, "Zenemy collide");
-    assert_ne!(a.roty, 0, "yaw turned toward the player (obj2obj_angle rate 3)");
+    assert_ne!(
+        a.roty, 0,
+        "yaw turned toward the player (obj2obj_angle rate 3)"
+    );
 }
 
 #[test]
@@ -957,16 +1020,17 @@ fn torpedo_death_explodes() {
 // sf-map placement indices (ISTRATS.ASM def rows drift +1 past ~row 162).
 // ============================================================
 
-const IS_BASE0: usize = 138;
+const IS_BASE0: usize = 137;
 const IS_MASSIVEBASE: usize = 142;
-const IS_COLONY0: usize = 170;
-const IS_COLONY1: usize = 171;
-const IS_COLONY2: usize = 172;
-const IS_COLONYEXIT: usize = 236;
+const IS_COLONY0: usize = 169;
+const IS_COLONY1: usize = 170;
+const IS_COLONY2: usize = 171;
+const IS_COLONYEXIT: usize = 235;
 
 const ATGND_M: u8 = 1; // alien.rs:165
 const DEG90: u8 = 64; // VARS.INC
-const KICHI_0: u16 = 120; // shape_data #120 / sf-map SH_KICHI_0
+const KICHI_0: u16 = 119; // shape_data #119 / sf-map SH_KICHI_0
+const KICHI_1: u16 = 120; // far-distance massive-base mesh
 const XPWIRESPACEBAR: u16 = 138; // sf-map consts.rs / shape_data #138
 const GF_STRATDONE1: u8 = 8; // vars.rs:24
 const PSF_NOCTRL: u8 = 32; // vars.rs:31
@@ -1019,7 +1083,10 @@ fn base0_close_opens_and_caps_at_8() {
     for _ in 0..20 {
         tick(&mut g, b);
     }
-    assert_eq!(g.objs.aliens[b as usize].animframe, 8, "opens fully then holds");
+    assert_eq!(
+        g.objs.aliens[b as usize].animframe, 8,
+        "opens fully then holds"
+    );
 }
 
 // ---- massivebase (D2STRATS.ASM:650-681) -------------------
@@ -1036,9 +1103,12 @@ fn massivebase_init_indestructible_static() {
     assert_eq!(a.ap, HARD_AP, "hardAP");
     assert_eq!(a.roty, DEG180, "faces deg180");
     assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
-    assert!(a.collstratptr.is_none(), "no collide handler (s_set_alptrs .strat,0,0)");
+    assert!(
+        a.collstratptr.is_none(),
+        "no collide handler (s_set_alptrs .strat,0,0)"
+    );
     assert!(a.expstratptr.is_none(), "no explode handler");
-    assert_eq!(a.shape, KICHI_0, "far LOD (kichi_1 mesh uncompiled -> kichi_0)");
+    assert_eq!(a.shape, KICHI_1, "far LOD kichi_1");
 }
 
 #[test]
@@ -1054,7 +1124,10 @@ fn massivebase_funnels_player_when_near() {
     assert_ne!(g.vars.pshipflags & PSF_NOCTRL, 0, "control disabled");
     assert_ne!(g.vars.pshipflags & PSF_NOFIRE, 0, "fire disabled");
     assert!(g.objs.aliens[0].worldx < 500, "player dragged toward x=0");
-    assert!(g.objs.aliens[0].worldy < 500, "player dragged toward y=viewcy(-60)");
+    assert!(
+        g.objs.aliens[0].worldy < 500,
+        "player dragged toward y=viewcy(-60)"
+    );
     assert_eq!(g.objs.aliens[b as usize].shape, KICHI_0, "near LOD kichi_0");
 }
 
@@ -1074,8 +1147,16 @@ fn colony0_init_flags_and_clears_stratdone() {
     assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "enemy1 collide");
     assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
     assert_eq!(a.snd2, 8, "sound2 = 8");
-    assert_eq!(g.vars.gameflags & GF_STRATDONE1, 0, "GF_STRATDONE1 cleared at init");
-    assert_eq!(count_shape(&g, XPWIRESPACEBAR), 0, "no debris while notdelay closed");
+    assert_eq!(
+        g.vars.gameflags & GF_STRATDONE1,
+        0,
+        "GF_STRATDONE1 cleared at init"
+    );
+    assert_eq!(
+        count_shape(&g, XPWIRESPACEBAR),
+        0,
+        "no debris while notdelay closed"
+    );
 }
 
 #[test]
@@ -1094,7 +1175,21 @@ fn colony0_far_spawns_debris_on_gate() {
         .find(|a| a.active && a.shape == XPWIRESPACEBAR)
         .unwrap();
     assert_eq!(dbr.roty, DEG90, "debris roty = deg90");
-    assert_ne!(dbr.sflags & ASF_COLLDISABLE, 0, "debris colldisable proxy");
+    assert!(dbr.stratptr.is_some(), "SPINspacebar Istrat installed");
+
+    let slot = g
+        .objs
+        .aliens
+        .iter()
+        .position(|a| a.active && a.shape == XPWIRESPACEBAR)
+        .unwrap();
+    let rate = g.objs.aliens[slot].sbyte1;
+    let rotz = g.objs.aliens[slot].rotz;
+    g.run_strategies(); // SPINspacebar init
+    g.run_strategies(); // exact spin tick
+    let dbr = g.objs.aliens[slot];
+    assert_eq!(dbr.rotz, rotz.wrapping_add(rate), "debris spins");
+    assert_ne!(dbr.colframe & 0x80, 0, "debris receives spacemist");
 }
 
 #[test]
@@ -1106,8 +1201,16 @@ fn colony0_latches_stratdone_when_player_passes() {
     let b = place(&mut g, IS_COLONY0, 0, 0, 100, 0);
     tick(&mut g, b);
     assert_ne!(g.vars.gameflags & GF_STRATDONE1, 0, "stratdone latched");
-    assert_ne!(g.objs.aliens[b as usize].sflags2 & ASF2_SFLAG1, 0, "sflag1 latched");
-    assert_ne!(g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE, 0, "collide off inside");
+    assert_ne!(
+        g.objs.aliens[b as usize].sflags2 & ASF2_SFLAG1,
+        0,
+        "sflag1 latched"
+    );
+    assert_ne!(
+        g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE,
+        0,
+        "collide off inside"
+    );
     assert_ne!(g.vars.pshipflags & PSF_NOCTRL, 0, "control disabled");
     assert_ne!(g.vars.pstratflags & PSTF_INSEQ, 0, "in-seq flag set");
 }
@@ -1121,9 +1224,21 @@ fn colony0_player_dead_skips_cutscene() {
     g.objs.aliens[0].worldz = 300;
     let b = place(&mut g, IS_COLONY0, 0, 0, 100, 0);
     tick(&mut g, b);
-    assert_ne!(g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE, 0, "collide off");
-    assert_eq!(g.vars.gameflags & GF_STRATDONE1, 0, "no latch while player dead");
-    assert_eq!(g.objs.aliens[b as usize].sflags2 & ASF2_SFLAG1, 0, "sflag1 not set");
+    assert_ne!(
+        g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE,
+        0,
+        "collide off"
+    );
+    assert_eq!(
+        g.vars.gameflags & GF_STRATDONE1,
+        0,
+        "no latch while player dead"
+    );
+    assert_eq!(
+        g.objs.aliens[b as usize].sflags2 & ASF2_SFLAG1,
+        0,
+        "sflag1 not set"
+    );
 }
 
 // ---- colony1 (GA2STRAT.ASM:1734-1754) ---------------------
@@ -1186,7 +1301,10 @@ fn colonyexit_opens_as_player_approaches_from_front() {
         g.objs.aliens[0].worldz = 1000;
         tick(&mut g, b);
     }
-    assert_eq!(g.objs.aliens[b as usize].animframe, 9, "opens fully then holds");
+    assert_eq!(
+        g.objs.aliens[b as usize].animframe, 9,
+        "opens fully then holds"
+    );
 }
 
 #[test]
@@ -1211,7 +1329,7 @@ fn colonyexit_snaps_shut_when_player_behind() {
 // rots_flat, SLOWELASER "smoke" jets, windexp/round0p) are never asserted.
 // ============================================================
 
-const IS_TRACKCORNER: usize = 50;
+const IS_TRACKCORNER: usize = 49;
 const IS_WINDMILL: usize = 66;
 const IS_VOLCANO: usize = 191;
 const IS_FIREPILLAR: usize = 193;
@@ -1497,7 +1615,10 @@ fn volrockdown_rises_scatters_then_falls_and_removes() {
             break;
         }
     }
-    assert!(removed, "self-removes (remove_istrat) once the bounce decays");
+    assert!(
+        removed,
+        "self-removes (remove_istrat) once the bounce decays"
+    );
 }
 
 // ============================================================
@@ -1511,11 +1632,11 @@ fn volrockdown_rises_scatters_then_falls_and_removes() {
 // misstank's ROM-correct istrat index is 51 (ISTRATS.ASM:471) — sf-map rc.rs's
 // IS_MISSTANK=50 is a mislabel that collides with trackcorner (see the port's
 // module doc). Registering at 51 keeps trackcorner (50) intact.
-const IS_MISSTANK: usize = 51;
-const IS_MISSPOD: usize = 68; // level1_5
-const IS_SZACO0: usize = 130; // level1_2
-const IS_SZACO5: usize = 156; // level1_3
-const IS_HOUDAI5F: usize = 187; // route3 level3_7
+const IS_MISSTANK: usize = 50;
+const IS_MISSPOD: usize = 67; // level1_5
+const IS_SZACO0: usize = 129; // level1_2
+const IS_SZACO5: usize = 155; // level1_3
+const IS_HOUDAI5F: usize = 187; // ISTRATS.ASM:618
 
 const MISSPOD_HP: u8 = 2; // STRATEQU.INC:112
 const MISSPOD_AP: u8 = 16; // STRATEQU.INC:113
@@ -1527,7 +1648,7 @@ const SZACO5_AP: u8 = 8; // STRATEQU.INC:163
 const HOUDAI5_HP: u8 = 4; // KSTRATS.ASM:47
 const HOUDAI5_AP: u8 = 6; // KSTRATS.ASM:48
 const ATMISSILE: u8 = 2; // alien.rs
-// (ASF_COLLDISABLE = 0x10 is already declared earlier in this test module.)
+                         // (ASF_COLLDISABLE = 0x10 is already declared earlier in this test module.)
 
 fn count_type(g: &Game, enemy: u16, tflag: u8) -> usize {
     g.objs
@@ -1617,7 +1738,10 @@ fn misstank_launches_missile_when_player_close() {
     assert_ne!(a.sflags2 & ASF2_SFLAG1, 0, "sflag1 latched after launch");
     let child = (a.ptr - 1) as usize;
     assert_eq!(g.objs.aliens[child].vel, 60, "launched missile speed 60");
-    assert!(g.objs.aliens[child].stratptr.is_some(), "child now woodsgo_strat");
+    assert!(
+        g.objs.aliens[child].stratptr.is_some(),
+        "child now woodsgo_strat"
+    );
 }
 
 #[test]
@@ -1656,7 +1780,10 @@ fn szaco0_navigates_toward_waypoint() {
     for _ in 0..4 {
         tick(&mut g, z);
     }
-    assert!(g.objs.aliens[z as usize].vel > 0, "speed_to ramps toward 40");
+    assert!(
+        g.objs.aliens[z as usize].vel > 0,
+        "speed_to ramps toward 40"
+    );
 }
 
 #[test]
@@ -1697,7 +1824,10 @@ fn szaco5_fires_and_advances_when_in_range() {
     let z = place(&mut g, IS_SZACO5, 0, 0, 1000, 129);
     tick(&mut g, z); // init falls through into state 0
     assert!(any_laser(&g), "state 0 fires RELSLOWELASER within 1500 z");
-    assert!(g.objs.aliens[z as usize].stratstate >= 1, "s_next_state advanced");
+    assert!(
+        g.objs.aliens[z as usize].stratstate >= 1,
+        "s_next_state advanced"
+    );
 }
 
 // ---------------- houdai5f (IS 187) ----------------
@@ -1760,26 +1890,26 @@ fn houdai5f_holds_fire_when_player_close() {
 // sprouty segment-chain / leaf-flower bloom for trees.
 // ============================================================
 
-const IS_WOODS: usize = 54;
-const IS_KDOOR: usize = 140;
+const IS_WOODS: usize = 53;
+const IS_KDOOR: usize = 139;
 const IS_KDOOR2: usize = 141;
-const IS_WALLLEFTRIGHT: usize = 75;
-const IS_WALLL: usize = 76;
-const IS_WALLR: usize = 77;
-const IS_TREE1: usize = 204;
-const IS_TREE2: usize = 205;
+const IS_WALLLEFTRIGHT: usize = 74;
+const IS_WALLL: usize = 75;
+const IS_WALLR: usize = 76;
+const IS_TREE1: usize = 203;
+const IS_TREE2: usize = 204;
 
-const SH_MISS_1_2: u16 = 9; // route3 common.rs SH_MISS_1_2 (woods)
-const SH_K_DOOR: u16 = 118; // rc.rs SH_K_DOOR
-const SH_STALK: u16 = 209; // route3 common.rs SH_STALK (trees)
-const SH_KICHI_0: u16 = 120; // massivebase mesh (kdoor2 removes it)
+const SH_MISS_1_2: u16 = 8; // route3 common.rs SH_MISS_1_2 (woods)
+const SH_K_DOOR: u16 = 117; // rc.rs SH_K_DOOR
+const SH_STALK: u16 = 208; // route3 common.rs SH_STALK (trees)
+const SH_KICHI_0: u16 = 119; // massivebase mesh (kdoor2 removes it)
 
 const WOODS_HP: u8 = 2; // STRATEQU.INC:148
 const WOODS_AP: u8 = 8; // STRATEQU.INC:149
 const WALL1_AP: u8 = 16; // STRATEQU.INC:210
 const TREE1_AP: u8 = 8; // DSTRATS.ASM:99
-// (HARD_AP / ASF_NOHITAFFECT / ASF_COLLDISABLE / ASF_SHADOW / PSF_NOCTRL /
-// PSF_NOFIRE are already defined earlier in this test module.)
+                        // (HARD_AP / ASF_NOHITAFFECT / ASF_COLLDISABLE / ASF_SHADOW / PSF_NOCTRL /
+                        // PSF_NOFIRE are already defined earlier in this test module.)
 const DEG22: u8 = 16; // deg360/16
 const DEG45: u8 = 32; // enemy_a DEG45
 
@@ -1859,7 +1989,11 @@ fn kdoor_opens_when_player_close_then_clamps() {
     for _ in 0..20 {
         tick(&mut g, k);
     }
-    assert_eq!(g.objs.aliens[k as usize].animframe & 0x7F, 7, "clamps at max-1 (7)");
+    assert_eq!(
+        g.objs.aliens[k as usize].animframe & 0x7F,
+        7,
+        "clamps at max-1 (7)"
+    );
 }
 
 #[test]
@@ -1875,7 +2009,11 @@ fn kdoor_closes_when_player_recedes() {
     assert!(open >= 3, "opened up first (got {open})");
     g.objs.aliens[k as usize].worldz = 3000; // recede -> |dz| >= 600
     tick(&mut g, k);
-    assert_eq!(g.objs.aliens[k as usize].animframe & 0x7F, open - 1, "closes one step");
+    assert_eq!(
+        g.objs.aliens[k as usize].animframe & 0x7F,
+        open - 1,
+        "closes one step"
+    );
 }
 
 #[test]
@@ -1894,7 +2032,10 @@ fn kdoor2_restores_control_and_removes_kichi_when_open() {
         0,
         "s_playerctrl on cleared the noctrl/nofire bits"
     );
-    assert!(!g.objs.aliens[kichi as usize].active, "kichi_0 (massivebase) removed");
+    assert!(
+        !g.objs.aliens[kichi as usize].active,
+        "kichi_0 (massivebase) removed"
+    );
 }
 
 #[test]
@@ -1908,8 +2049,15 @@ fn kdoor_plain_leaves_control_and_objects_alone() {
     for _ in 0..20 {
         tick(&mut g, door);
     }
-    assert_ne!(g.vars.pshipflags & PSF_NOCTRL, 0, "plain kdoor never restores control");
-    assert!(g.objs.aliens[kichi as usize].active, "plain kdoor removes nothing");
+    assert_ne!(
+        g.vars.pshipflags & PSF_NOCTRL,
+        0,
+        "plain kdoor never restores control"
+    );
+    assert!(
+        g.objs.aliens[kichi as usize].active,
+        "plain kdoor removes nothing"
+    );
 }
 
 // -------------------- walls (DSTRATS.ASM:968-1053) --------------------
@@ -1986,7 +2134,11 @@ fn tree1_init_is_indestructible_sprout_scenery() {
     assert_eq!(a.worldy, 60, "root lowered by sprout_maxy/2 (100 - 40)");
     assert!((1..=4).contains(&a.sbyte1), "height (rnd&3)+1 in [1,4]");
     assert_eq!(a.sword1 as u16 & 0xff, 2, "anim speed 2 (sword1 lo)");
-    assert_eq!(a.sflags & ASF_SHADOW, 0, "tree1 casts no shadow (unlike tree2)");
+    assert_eq!(
+        a.sflags & ASF_SHADOW,
+        0,
+        "tree1 casts no shadow (unlike tree2)"
+    );
 }
 
 #[test]
@@ -1998,7 +2150,11 @@ fn tree1_trunk_grows_to_full_then_holds() {
     for _ in 0..10 {
         tick(&mut g, t);
     }
-    assert_eq!(g.objs.aliens[t as usize].animframe & 0x7F, 8, "trunk grown to full and held");
+    assert_eq!(
+        g.objs.aliens[t as usize].animframe & 0x7F,
+        8,
+        "trunk grown to full and held"
+    );
 }
 
 #[test]
@@ -2011,7 +2167,11 @@ fn tree2_tilts_toward_player_and_casts_shadow() {
     let t = place(&mut g, IS_TREE2, 500, 0, 500, SH_STALK);
     tick(&mut g, t);
     let a = g.objs.aliens[t as usize];
-    assert_eq!(a.roty, 0u8.wrapping_sub(DEG45), "tilt -deg45 (right of player)");
+    assert_eq!(
+        a.roty,
+        0u8.wrapping_sub(DEG45),
+        "tilt -deg45 (right of player)"
+    );
     assert_ne!(a.sflags & ASF_SHADOW, 0, "tree2 casts a shadow");
     assert_eq!(a.sbyte2, DEG22, "sbyte2 = +deg22 overhang (not negated)");
 }
@@ -2036,19 +2196,19 @@ fn tree2_tilts_other_way_when_left_of_player() {
 // ============================================================
 
 // sf-map IS_FOO placement == sf-strat register() row (verified in the port doc).
-const IS_SHOU0: usize = 178;
-const IS_SHOU0A: usize = 179;
-const IS_IRIS: usize = 48;
-const IS_TRUCK: usize = 49;
-const IS_ITEM6: usize = 176;
+const IS_SHOU0: usize = 177;
+const IS_SHOU0A: usize = 178;
+const IS_IRIS: usize = 47;
+const IS_TRUCK: usize = 48;
+const IS_ITEM6: usize = 175;
 
-const SH_RAIL_4: u16 = 6; // sf-map SH_RAIL_4 (route3 common.rs:298)
+const SH_RAIL_4: u16 = 5; // sf-map SH_RAIL_4 (route3 common.rs:298)
 const SHOU0_HP: u8 = 2; // STRATEQU.INC:249
 const SHOU0_AP: u8 = 12; // STRATEQU.INC:250
 const TRUCK_HP: u8 = 4; // STRATEQU.INC:142
 const TRUCK_AP: u8 = 8; // STRATEQU.INC:143
-// HARD_AP / DEG90 / ASF_COLLDISABLE / ASF2_SFLAG2 / PSF2_PLAYERHP0 are already
-// defined earlier in this test module (reused here).
+                        // HARD_AP / DEG90 / ASF_COLLDISABLE / ASF2_SFLAG2 / PSF2_PLAYERHP0 are already
+                        // defined earlier in this test module (reused here).
 const ASF_COLLIDE_M: u8 = 0x20; // alien.rs ASF_COLLIDE
 const PSF2_WIRESHIP: u8 = 2; // GILESALC.INC:85
 
@@ -2120,10 +2280,7 @@ fn shou0a_sets_sflag1_and_uses_slower_gate() {
     let a = g.objs.aliens[e as usize];
     assert_ne!(a.sflags2 & ASF2_SFLAG1, 0, "shou0a sets sflag1");
     // still spun this frame (in range) but held fire on the /32 cadence.
-    assert!(
-        (a.roty, a.rotx, a.rotz) != (0, 0, 0),
-        "spun while in range"
-    );
+    assert!((a.roty, a.rotx, a.rotz) != (0, 0, 0), "spun while in range");
     assert!(!any_hplasma(&g), "shou0a holds fire on the /32 gate");
 }
 
@@ -2158,7 +2315,11 @@ fn iris_opens_when_damaged_below_threshold() {
     for _ in 0..12 {
         tick(&mut g, e);
     }
-    assert_eq!(g.objs.aliens[e as usize].animframe & 0x7F, 7, "holds fully open (max-1)");
+    assert_eq!(
+        g.objs.aliens[e as usize].animframe & 0x7F,
+        7,
+        "holds fully open (max-1)"
+    );
 }
 
 // ---- truck (GASTRATS.ASM:1575-1623) -----------------------------------------
@@ -2192,7 +2353,11 @@ fn truck_fires_one_homing_missile_in_range() {
     g.vars.gameframe = 0; // notdelay(4): 0&15==0
     tick(&mut g, e); // truck_strat -> truck_norm -> fire
     assert!(any_missile(&g), "HMISSILE1 fired in range");
-    assert_ne!(g.objs.aliens[e as usize].sflags2 & ASF2_SFLAG2, 0, "sflag2 latched");
+    assert_ne!(
+        g.objs.aliens[e as usize].sflags2 & ASF2_SFLAG2,
+        0,
+        "sflag2 latched"
+    );
     // second in-range gate: no second missile (one-shot).
     let missiles = |g: &Game| {
         use sf_game::alien::ATMISSILE;
@@ -2218,7 +2383,7 @@ fn truck_turns_on_rail_hit_and_hitflashes_otherwise() {
     tick(&mut g, e); // init
     g.objs.aliens[e as usize].sbyte1 = 0;
     g.objs.aliens[e as usize].sflags |= ASF_COLLIDE_M; // engine sets this on contact
-    // Rail partner (shape 6, sbyte1=0 -> the .not_right +deg90 branch).
+                                                       // Rail partner (shape 6, sbyte1=0 -> the .not_right +deg90 branch).
     let rail = spawn(&mut g, 500, 0, 2000, SH_RAIL_4);
     g.objs.aliens[rail as usize].sbyte1 = 0;
     g.objs.aliens[e as usize].collobjptr = rail;
@@ -2231,7 +2396,10 @@ fn truck_turns_on_rail_hit_and_hitflashes_otherwise() {
     // frame, so worldx is the snapped rail x (500) plus one step of the new
     // heading's velocity — not exactly 500. The turn + snap having happened is
     // what matters; assert it left the origin.
-    assert_ne!(a.worldx, 0, "moved off the origin after snapping to the rail");
+    assert_ne!(
+        a.worldx, 0,
+        "moved off the origin after snapping to the rail"
+    );
 
     // Non-rail collision: normal hit, no turn.
     let mut g2 = setup();
@@ -2265,12 +2433,17 @@ fn item6_init_colldisable_and_drifts() {
 #[test]
 fn item6_pickup_grants_wireship_and_removes() {
     // Player close (|dz|<120, xy<60 after the +20 drift): grant the wireframe
-    // ship bit, chime, self-remove (GASTRATS.ASM:2611-2620).
+    // ship bit, shieldup, chime, self-remove (GASTRATS.ASM:2611-2620).
     let mut g = setup();
     // z90 -> +20 drift -> 110 < 120 pickup window; xy 0 < 60.
     let e = place(&mut g, IS_ITEM6, 0, 0, 90, 160);
     tick(&mut g, e);
-    assert_ne!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0, "psf2_wireship granted");
+    assert_ne!(
+        g.vars.pshipflags2 & PSF2_WIRESHIP,
+        0,
+        "psf2_wireship granted"
+    );
+    assert_eq!(g.vars.shieldup, 1, "shieldup set for wireframe meter color");
     assert_eq!(g.objs.aldead, 1, "item removes itself on pickup");
 }
 

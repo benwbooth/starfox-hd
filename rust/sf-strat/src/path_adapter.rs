@@ -43,49 +43,113 @@
 //! Explode, ParticleExplode*, Trail, Pollen) map to their registered
 //! `StratId`s, an address-resolved strategy encodes as `External(addr)`, and
 //! any other game `StratId` (an ordinary enemy AI the path tick never
-//! dispatches, only reads position/flags of) is carried as
-//! `External(0xF0_0000|id)` so it decodes back to the exact same handle.
+//! dispatches, only reads position/flags of) is carried as a typed
+//! `StratRef::Native` handle so it decodes back to the exact same identity.
 
 use sf_game::alien::{
-    Alien as GAlien, StratId, ACF_COLLTYPE2, ASF_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW,
-    NUMBER_AL,
+    Alien as GAlien, StratId, ACF_COLLTYPE2, ASF4_TEXTOBJ, ASF_COLLDISABLE, ASF_HITFLASH,
+    ASF_SHADOW, NUMBER_AL,
 };
 use sf_game::game::Game;
 use sf_game::vars::HARD_HP;
 use sf_game::world::World;
-use sf_path::alien::{Alien as PAlien, StratRef};
+use sf_path::alien::{Alien as PAlien, StratRef, AFEXP, ASF4_NOPOLYEXP, ASF_PARTOBJ};
 use sf_path::interp::{dispatch_strat, PathHost, PathWorld};
+use sf_path::literals::InlineIps;
+use sf_path::rom_catalog_data::{ROM_DINTRO1_EXIT_IP, ROM_DINTRO1_LOOP_IP};
 
 use crate::common::{self, sf_random, strat_chase, strat_chase8, sv, StratRam};
 use crate::enemy_a;
 
-/// `al_sflags3` textobj bit (C `src/game/obj.h` ASF3_TEXTOBJ) — not yet a
-/// named const in `sf_game::alien`.
+/// Path inline-65816 callback ids (host `run_inline` dispatch).
+const CB_TOW0_SET_EXPSTRAT: u16 = 1;
+const CB_ROBEXPLODE_NOPOLYEXP: u16 = 2;
+const CB_DSMOKE_INIT_COLANIM: u16 = 3;
+const CB_DSMOKE_ADD_COLANIM: u16 = 4;
+const CB_PBOOSTON_MAKEENGINE: u16 = 5;
+const CB_PBOOSTCODE_UPDATEENGINE: u16 = 6;
+const CB_MAKEPOLLEN: u16 = 7;
+const CB_E_BIG_BIRD_TOUCH: u16 = 8;
+const CB_CHECKIFEND_BASE: u16 = 9;
+const CB_DINTRO1_ZOOM_TO_CENTRE: u16 = 16;
+const PATH_MISSING: u16 = 0xFFFF;
+
+/// DPATHDAT dintro1's signed half/clamp X chase. Returns (new X, centered).
+fn dintro1_chase_x(x: i16) -> (i16, bool) {
+    let half = x / 2; // ROM adiv2 rounds signed values toward zero.
+    let step = half.clamp(-400, 400).wrapping_neg();
+    if step == 0 {
+        // The assembly branches on the zero step before adding it, then
+        // explicitly clears worldx; this terminates cleanly from +/-1.
+        return (0, true);
+    }
+    let next = x.wrapping_add(step);
+    if next == 0 {
+        (0, true)
+    } else {
+        (next, false)
+    }
+}
+
+/// Register catalog-captured P_START65816 IPs (C `register_inline_callbacks`).
+/// ROM PATHDATA.ASM bird_touch inline (P_START65816): set LE_ENTERSPEC,
+/// nosetport3, kill engine SFX, disable collisions, startbgm $2.
+pub fn path_bird_touch(g: &mut Game) {
+    const LE_ENTERSPEC: u8 = 16;
+    g.world.levelfinished = LE_ENTERSPEC;
+    g.hooks.set_nosetport3(true);
+    g.vars.pshipflags3 &= !sf_game::vars::PSF3_ENGINESND;
+    g.vars.pshipflags3 |= sf_game::vars::PSF3_NOCOLLISIONS;
+    g.hooks.play_music(0x02);
+}
+
+fn register_path_inline_callbacks(
+    pw: &mut PathWorld,
+    ips: &InlineIps,
+    continuations: &[(u16, u16)],
+) {
+    let pairs = [
+        (ips.tow_0_set_expstrat, CB_TOW0_SET_EXPSTRAT),
+        (ips.robexplode_nopolyexp, CB_ROBEXPLODE_NOPOLYEXP),
+        (ips.dsmoke_init_colanim, CB_DSMOKE_INIT_COLANIM),
+        (ips.dsmoke_add_colanim, CB_DSMOKE_ADD_COLANIM),
+        (ips.makepollen, CB_MAKEPOLLEN),
+        (ips.e_big_bird_touch, CB_E_BIG_BIRD_TOUCH),
+        (ips.dintro1_zoom_to_centre, CB_DINTRO1_ZOOM_TO_CENTRE),
+        (ips.pbooston_makeengine, CB_PBOOSTON_MAKEENGINE),
+        (ips.pboostcode_updateengine, CB_PBOOSTCODE_UPDATEENGINE),
+        (ips.checkifend1, CB_CHECKIFEND_BASE),
+        (ips.checkifend2, CB_CHECKIFEND_BASE + 1),
+        (ips.checkifend3, CB_CHECKIFEND_BASE + 2),
+        (ips.checkifend4, CB_CHECKIFEND_BASE + 3),
+        (ips.checkifend5, CB_CHECKIFEND_BASE + 4),
+        (ips.checkifend6, CB_CHECKIFEND_BASE + 5),
+        (ips.checkifend7, CB_CHECKIFEND_BASE + 6),
+    ];
+    for &(ip, cb) in &pairs {
+        if ip != PATH_MISSING {
+            let continuation = continuations
+                .iter()
+                .find_map(|&(action, continuation)| (action == ip).then_some(continuation))
+                .expect("every native path action has generated continuation metadata");
+            pw.register_inline_code(ip, cb, continuation);
+        }
+    }
+}
+
+/// PathWorld's compatibility location for the ROM `al_sflags` textobj bit.
+/// The game pool additionally carries [`ASF4_TEXTOBJ`] as a renderer-only
+/// discriminator because its retained flag layout already assigned this bit
+/// position to lock-on behavior.
 const ASF3_TEXTOBJ: u8 = 0x40;
 
-/// External-address tag for carrying an opaque game `StratId` through a
-/// `StratRef::External` across the pool boundary. High byte 0xF0 is far above
-/// any real SNES bank (real addrs are 0x00xxxx..0x06xxxx), so it never
-/// collides with an address the path VM would try to resolve.
-const GAME_ID_TAG: u32 = 0xF0_0000;
-
-/// C `g_eroll1` / `g_ebyte3` shadow addresses (paths.c special-cases these ext
-/// reads; see `PathWorld::read_ext8`). Mirrored to/from `GameVars` WRAM.
+/// Encoded source operands for the two path latches. These exist only at the
+/// retained path-program import boundary.
 const EROLL1_ADDR: u16 = 0x2302;
 const EBYTE3_ADDR: u16 = 0x2303;
-
-/// WRAM addresses holding the path-lane strategy registry ids (id+1; 0 =
-/// unregistered), stored the same way `sf_strat::common` stashes the shared
-/// projectile ids. Block sits just past the `sv` block (ends 0x0570).
-mod psv {
-    pub const TICK: u16 = 0x0572;
-    pub const COLL: u16 = 0x0574;
-    pub const EXPLODE: u16 = 0x0576;
-    pub const PEI: u16 = 0x0578;
-    pub const PES: u16 = 0x057A;
-    pub const TRAIL: u16 = 0x057C;
-    pub const POLLEN: u16 = 0x057E;
-}
+const ROM_EROLL1_ADDR: u16 = 0xF168;
+const ROM_EBYTE3_ADDR: u16 = 0xF169;
+const CTYPE_ADDR: u16 = 0x1A13;
 
 /// Registered path-lane strategy handles, loaded once per strat call.
 #[derive(Clone, Copy)]
@@ -108,8 +172,8 @@ pub struct PathInitIds {
 }
 
 fn load_ids(g: &Game) -> Option<PathStratIds> {
-    let rd = |a: u16| {
-        let v = g.vars.read_ext16(a);
+    let rd = |index: usize| {
+        let v = g.vars.strategy_bindings.path[index];
         if v == 0 {
             None
         } else {
@@ -117,13 +181,13 @@ fn load_ids(g: &Game) -> Option<PathStratIds> {
         }
     };
     Some(PathStratIds {
-        tick: rd(psv::TICK)?,
-        coll: rd(psv::COLL)?,
-        explode: rd(psv::EXPLODE)?,
-        pei: rd(psv::PEI)?,
-        pes: rd(psv::PES)?,
-        trail: rd(psv::TRAIL)?,
-        pollen: rd(psv::POLLEN)?,
+        tick: rd(0)?,
+        coll: rd(1)?,
+        explode: rd(2)?,
+        pei: rd(3)?,
+        pes: rd(4)?,
+        trail: rd(5)?,
+        pollen: rd(6)?,
     })
 }
 
@@ -143,13 +207,15 @@ pub fn register(g: &mut Game) -> PathInitIds {
     let trail = g.world.register_strategy(pw_trail);
     let pollen = g.world.register_strategy(pw_pollen);
 
-    g.vars.write_ext16(psv::TICK, tick.0 + 1);
-    g.vars.write_ext16(psv::COLL, coll.0 + 1);
-    g.vars.write_ext16(psv::EXPLODE, explode.0 + 1);
-    g.vars.write_ext16(psv::PEI, pei.0 + 1);
-    g.vars.write_ext16(psv::PES, pes.0 + 1);
-    g.vars.write_ext16(psv::TRAIL, trail.0 + 1);
-    g.vars.write_ext16(psv::POLLEN, pollen.0 + 1);
+    g.vars.strategy_bindings.path = [
+        tick.0 + 1,
+        coll.0 + 1,
+        explode.0 + 1,
+        pei.0 + 1,
+        pes.0 + 1,
+        trail.0 + 1,
+        pollen.0 + 1,
+    ];
 
     let path_init = g.world.register_strategy(pw_path_init);
     let patht_init = g.world.register_strategy(pw_pathtext_init);
@@ -162,6 +228,9 @@ pub fn register(g: &mut Game) -> PathInitIds {
     let cat = sf_path::literals::get_catalog();
     let mut pw = PathWorld::new();
     pw.paths_load_data(cat.data.clone(), cat.offsets.clone());
+    // C Paths_RegisterInlineCode — map captured P_START65816 IPs to host
+    // callback ids (path_adapter::run_inline).
+    register_path_inline_callbacks(&mut pw, &cat.ips, &cat.inline_continuations);
     g.path = Some(pw);
 
     PathInitIds {
@@ -196,6 +265,23 @@ fn pw_path_init(g: &mut Game, idx: u16) {
     path_init_common(g, idx, ids);
 }
 
+/// Assign one native path program to an object. Direct initialization
+/// strategies use this for the same typed path cursor that map bytecode fills
+/// through its `SETPATH` operation.
+pub(crate) fn set_object_path(g: &mut Game, idx: u16, path_id: u16) {
+    let start = g
+        .path
+        .as_mut()
+        .map(|paths| paths.paths_resolve_start(path_id))
+        .unwrap_or_default();
+    g.objs.aliens[idx as usize].sword2 = start as i16;
+}
+
+/// Finish direct initialization as an ordinary path-driven object.
+pub(crate) fn initialize_path_object(g: &mut Game, idx: u16) {
+    pw_path_init(g, idx);
+}
+
 /// C `Strat_PathDha_Init` (pathdha_istrat: s_set_aldata #10,#10 ; bra path).
 fn pw_pathdha_init(g: &mut Game, idx: u16) {
     let Some(ids) = load_ids(g) else { return };
@@ -214,6 +300,7 @@ fn pw_pathtext_init(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags |= ASF_COLLDISABLE;
         al.sflags3 |= ASF3_TEXTOBJ;
+        al.sflags4 |= ASF4_TEXTOBJ;
         al.hp = 10;
         al.ap = 8; // hardAP
     }
@@ -275,12 +362,11 @@ fn sync_in(g: &mut Game, pw: &mut PathWorld, ids: PathStratIds) {
     pw.minpmove_x = g.vars.sv_i16(sv::MINPMOVEX);
     pw.maxpmove_x = g.vars.sv_i16(sv::MAXPMOVEX);
     pw.maxpmove_y = g.vars.sv_i16(sv::MAXPMOVEY);
-    pw.eroll1 = g.vars.read_ext8(EROLL1_ADDR);
-    pw.ebyte3 = g.vars.read_ext8(EBYTE3_ADDR);
-    // g_currentlevel/g_playerscore/g_friends_meter are not yet GameVars fields
-    // (unported strat/HUD-lane globals); they are only touched by rare path
-    // opcodes not exercised by SF1 path objects. The PathWorld carries its own
-    // persistent copies, left untouched here.
+    pw.eroll1 = g.vars.shared.enemy_path.roll1;
+    pw.ebyte3 = g.vars.shared.enemy_path.byte3;
+    pw.currentlevel = g.vars.shared.current_level;
+    pw.playerscore = g.vars.shared.player_score;
+    pw.friends_meter = g.vars.shared.friends_meter;
     for i in 0..pw.shapes_table.len().min(g.world.shapes_table.len()) {
         pw.shapes_table[i] = g.world.shapes_table[i];
     }
@@ -296,8 +382,10 @@ fn sync_out(g: &mut Game, pw: &PathWorld, ids: PathStratIds) {
     g.vars.bunny_hp = pw.bunny_hp;
     g.vars.falcon_hp = pw.falcon_hp;
     g.vars.frog_hp = pw.frog_hp;
-    g.vars.write_ext8(EROLL1_ADDR, pw.eroll1);
-    g.vars.write_ext8(EBYTE3_ADDR, pw.ebyte3);
+    g.vars.shared.enemy_path.roll1 = pw.eroll1;
+    g.vars.shared.enemy_path.byte3 = pw.ebyte3;
+    g.vars.shared.player_score = pw.playerscore;
+    g.vars.shared.friends_meter = pw.friends_meter;
 
     for i in 0..NUMBER_AL {
         let pa = pw.aliens[i];
@@ -315,6 +403,11 @@ fn sync_out(g: &mut Game, pw: &PathWorld, ids: PathStratIds) {
         let s4 = ref2id(pa.tempstratptr, ids, &g.world);
         let ga = &mut g.objs.aliens[i];
         copy_p2g_data(&pa, ga);
+        if pa.sflags3 & ASF3_TEXTOBJ != 0 {
+            ga.sflags4 |= ASF4_TEXTOBJ;
+        } else {
+            ga.sflags4 &= !ASF4_TEXTOBJ;
+        }
         ga.stratptr = s0;
         ga.expstratptr = s1;
         ga.collstratptr = s2;
@@ -355,7 +448,7 @@ fn id2ref(id: Option<StratId>, ids: PathStratIds) -> Option<StratRef> {
     } else if id == ids.pollen {
         StratRef::ParticlePollenStrat
     } else {
-        StratRef::External(GAME_ID_TAG | id.0 as u32)
+        StratRef::Native(id.0)
     })
 }
 
@@ -368,13 +461,8 @@ fn ref2id(sr: Option<StratRef>, ids: PathStratIds, world: &World) -> Option<Stra
         StratRef::ParticleExplodeStrat => ids.pes,
         StratRef::TrailTick => ids.trail,
         StratRef::ParticlePollenStrat => ids.pollen,
-        StratRef::External(addr) => {
-            if addr & 0xFF_0000 == GAME_ID_TAG {
-                StratId((addr & 0xFFFF) as u16)
-            } else {
-                return world.find_strategy_address(addr);
-            }
-        }
+        StratRef::Native(id) => StratId(id),
+        StratRef::External(addr) => return world.find_strategy_address(addr),
     })
 }
 
@@ -488,8 +576,6 @@ struct Adapter<'a> {
     ids: PathStratIds,
 }
 
-const TWO_PI: f32 = 2.0f32 * 3.141_592_65_f32;
-
 impl PathHost for Adapter<'_> {
     fn random(&mut self) -> u16 {
         // Shares g_rndval with every other strategy (single PRNG, like C).
@@ -530,7 +616,7 @@ impl PathHost for Adapter<'_> {
         // caught for the player) + mulslog fixed-point.
         use crate::snes_trig::{mulslog, COSTAB, SINTAB};
         let yaw = (al.roty as i8).wrapping_neg() as u8 as usize;
-        let pitch = (al.rotx as i8).wrapping_neg() as u8 as usize;
+        let pitch = al.rotx as usize;
         let vel = al.vel as i32;
         let cosx = COSTAB[pitch] as i32;
         al.vx = mulslog(mulslog(vel, SINTAB[yaw] as i32), cosx) as i16;
@@ -547,14 +633,11 @@ impl PathHost for Adapter<'_> {
     }
 
     fn angle_xz(&mut self, src: &PAlien, dst: &PAlien) -> u8 {
-        // C Strat_AngleXZ.
-        let dx = dst.worldx.wrapping_sub(src.worldx) as f32;
-        let dz = dst.worldz.wrapping_sub(src.worldz) as f32;
-        let mut angle = dx.atan2(dz);
-        if angle < 0.0 {
-            angle += TWO_PI;
-        }
-        ((angle * (256.0f32 / TWO_PI)) as i32) as u8
+        // ROM Yanglexy_l (raw; face/goto callers apply nega).
+        sf_core::aim_angle::yanglexy(
+            dst.worldx.wrapping_sub(src.worldx),
+            dst.worldz.wrapping_sub(src.worldz),
+        )
     }
 
     fn apply_velocity(&mut self, al: &mut PAlien) {
@@ -663,10 +746,143 @@ impl PathHost for Adapter<'_> {
         }
     }
 
-    fn run_inline(&mut self, _world: &mut PathWorld, _self_idx: u16, _callback: u16) {
-        // No inline-65816 callbacks are registered on the adapter's PathWorld,
-        // so P_START65816 only decodes its return value; this is never reached.
-        // (C path_literal_* callbacks are a later game-core-lane item.)
+    fn run_inline(&mut self, world: &mut PathWorld, self_idx: u16, callback: u16) {
+        let si = self_idx as usize;
+        match callback {
+            // DPATHDAT tow_0 installs its bespoke falling-top explosion.
+            CB_TOW0_SET_EXPSTRAT => {
+                world.aliens[si].expstratptr = self.find_strategy_address(0x030001);
+            }
+            // robexplode disables polygon debris before its particle burst.
+            CB_ROBEXPLODE_NOPOLYEXP => {
+                world.aliens[si].sflags4 |= ASF4_NOPOLYEXP;
+            }
+            CB_DSMOKE_INIT_COLANIM => {
+                world.aliens[si].colframe = 0;
+            }
+            CB_DSMOKE_ADD_COLANIM => {
+                if world.aliens[si].colframe < 15 {
+                    world.aliens[si].colframe += 1;
+                }
+            }
+            CB_MAKEPOLLEN => {
+                let (worldx, worldy, worldz) = {
+                    let source = &world.aliens[si];
+                    (source.worldx, source.worldy, source.worldz)
+                };
+                let Some(pollen) = self.obj_alloc(world).map(|idx| idx as usize) else {
+                    return;
+                };
+                self.init_obj_vars(&mut world.aliens[pollen]);
+                let particle = &mut world.aliens[pollen];
+                particle.shape = 0;
+                particle.expstratptr = Some(StratRef::ParticlePollenStrat);
+                particle.worldx = worldx;
+                particle.worldy = worldy.wrapping_sub(120);
+                particle.worldz = worldz;
+                particle.sflags |= ASF_COLLDISABLE | ASF_PARTOBJ;
+                particle.flags |= AFEXP;
+                particle.sbyte1 = 6;
+                particle.sbyte2 = 60;
+                particle.sbyte3 = 250;
+            }
+            CB_PBOOSTON_MAKEENGINE => {
+                // The engine helper operates on the canonical game pool. Sync
+                // its parent in, run it, then mirror parent/child back before
+                // the path VM resumes in the same tick.
+                copy_p2g_data(&world.aliens[si], &mut self.g.objs.aliens[si]);
+                if let Some(engine) = common::makeengine_srou(self.g, self_idx) {
+                    world.aliens[si] = copy_g2p(&self.g.objs.aliens[si], self.ids);
+                    world.aliens[engine as usize] =
+                        copy_g2p(&self.g.objs.aliens[engine as usize], self.ids);
+                    mirror_list(self.g, world);
+                }
+            }
+            CB_PBOOSTCODE_UPDATEENGINE => {
+                copy_p2g_data(&world.aliens[si], &mut self.g.objs.aliens[si]);
+                let raw_engine = world.aliens[si].fireobjptr;
+                if raw_engine != 0 {
+                    let engine = raw_engine.wrapping_sub(1) as usize;
+                    if engine < NUMBER_AL {
+                        copy_p2g_data(&world.aliens[engine], &mut self.g.objs.aliens[engine]);
+                    }
+                }
+                common::updateengine_srou(self.g, self_idx);
+                world.aliens[si] = copy_g2p(&self.g.objs.aliens[si], self.ids);
+                if raw_engine != 0 {
+                    let engine = raw_engine.wrapping_sub(1) as usize;
+                    if engine < NUMBER_AL {
+                        world.aliens[engine] = copy_g2p(&self.g.objs.aliens[engine], self.ids);
+                    }
+                }
+            }
+            // ROM PATHDATA.ASM:370-390 bird_touch: export levelfinished /
+            // nosetport3, kill engine SFX, disable collisions, startbgm $2,
+            // routechange 1. Catalog already set eflag1; LE_ENTERSPEC +
+            // nosetport3 live in Game/shell, not path WRAM.
+            CB_E_BIG_BIRD_TOUCH => {
+                path_bird_touch(self.g);
+                // routechange 1 is applied by Shell::warp_advance on ENTERSPEC.
+            }
+            // DPATHDAT dintro1 special achase: signed divide X by two,
+            // clamp the step to +/-400, negate it, and either loop the inline
+            // block or switch out to TRAIL OFF once centered.
+            CB_DINTRO1_ZOOM_TO_CENTRE => {
+                let (next_x, centered) = dintro1_chase_x(world.aliens[si].worldx);
+                world.aliens[si].worldx = next_x;
+                if centered {
+                    world.override_inline_return(ROM_DINTRO1_EXIT_IP);
+                } else {
+                    world.override_inline_return(ROM_DINTRO1_LOOP_IP);
+                }
+            }
+            // KPATHDAT `checkifend N`: if stage==N, c_type=201. Both are real
+            // low-WRAM cells shared with ending/map code.
+            n if (CB_CHECKIFEND_BASE..CB_CHECKIFEND_BASE + 7).contains(&n) => {
+                let expected = (n - CB_CHECKIFEND_BASE + 1) as u8;
+                if self.g.vars.shared.stage == expected {
+                    self.path_write_ext8(world, CTYPE_ADDR, 201);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn path_read_ext8(&mut self, _world: &PathWorld, addr: u16) -> u8 {
+        let canonical = match addr {
+            ROM_EROLL1_ADDR => EROLL1_ADDR,
+            ROM_EBYTE3_ADDR => EBYTE3_ADDR,
+            _ => addr,
+        };
+        self.g.vars.read_ext8(canonical)
+    }
+
+    fn path_read_ext16(&mut self, _world: &PathWorld, addr: u16) -> u16 {
+        self.g.vars.read_ext16(addr)
+    }
+
+    fn path_write_ext8(&mut self, world: &mut PathWorld, addr: u16, value: u8) {
+        match addr {
+            EROLL1_ADDR | ROM_EROLL1_ADDR => {
+                world.eroll1 = value;
+                self.g.vars.shared.enemy_path.roll1 = value;
+            }
+            EBYTE3_ADDR | ROM_EBYTE3_ADDR => {
+                world.ebyte3 = value;
+                self.g.vars.shared.enemy_path.byte3 = value;
+            }
+            _ => self.g.vars.write_ext8(addr, value),
+        }
+    }
+
+    fn path_write_ext16(&mut self, _world: &mut PathWorld, addr: u16, value: u16) {
+        self.g.vars.write_ext16(addr, value);
+    }
+
+    fn path_set_friends_meter(&mut self, world: &mut PathWorld, value: u8) {
+        world.friends_meter = value;
+        self.g.vars.shared.friends_meter = value;
+        self.g.hooks.set_friends_meter(value);
     }
 
     fn run_external_strat(&mut self, _world: &mut PathWorld, _idx: u16, _strat: StratRef) {
@@ -681,3 +897,19 @@ impl PathHost for Adapter<'_> {
 /// `sf_path::alien::ACF_FIRSTFRAME` value (0x04) — kept as a local const so
 /// `init_obj_vars` need not import the path-lane collision-flag set.
 const ACF_FIRSTFRAME_P: u8 = 0x04;
+
+#[cfg(test)]
+mod tests {
+    use super::dintro1_chase_x;
+
+    #[test]
+    fn dintro1_special_achase_matches_signed_65816_edges() {
+        assert_eq!(dintro1_chase_x(-3000), (-2600, false));
+        assert_eq!(dintro1_chase_x(3000), (2600, false));
+        assert_eq!(dintro1_chase_x(-75), (-38, false));
+        assert_eq!(dintro1_chase_x(75), (38, false));
+        assert_eq!(dintro1_chase_x(-1), (0, true));
+        assert_eq!(dintro1_chase_x(1), (0, true));
+        assert_eq!(dintro1_chase_x(0), (0, true));
+    }
+}

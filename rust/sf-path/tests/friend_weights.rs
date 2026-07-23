@@ -22,7 +22,11 @@ struct Host {
 }
 impl Host {
     fn new(seq: &[u16]) -> Self {
-        Host { seq: seq.to_vec(), idx: 0, draws: 0 }
+        Host {
+            seq: seq.to_vec(),
+            idx: 0,
+            draws: 0,
+        }
     }
 }
 impl PathHost for Host {

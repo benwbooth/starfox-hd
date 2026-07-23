@@ -15,12 +15,8 @@ use crate::levels::BuiltLevel;
 // Local constants from levels.c not yet in consts.rs.
 // TODO(consolidation): move to consts.rs
 mod lc {
-    use crate::consts::sh;
-
-    /// levels.c `#define SH_OLD_TYPE_PROXY SH_MYSHIP_4`
-    pub const SH_OLD_TYPE_PROXY: u16 = sh::MYSHIP_4;
-    /// levels.c `#define SH_DEBOSS_1_PROXY SH_NULLSHAPE`
-    pub const SH_DEBOSS_1_PROXY: u16 = sh::NULLSHAPE;
+    pub const SH_OLD_TYPE_PROXY: u16 = 323;
+    pub const SH_DEBOSS_1_PROXY: u16 = 312;
 
     /// levels.c `#define STRAT_ADDR_PLAYERDOWNINTRO 0x050019u`
     pub const STRAT_ADDR_PLAYERDOWNINTRO: u32 = 0x050019;
@@ -31,7 +27,7 @@ mod lc {
     /// levels.c `#define STRAT_ADDR_PLAYERFIREINTRO 0x05001Cu`
     pub const STRAT_ADDR_PLAYERFIREINTRO: u32 = 0x05001C;
     /// levels.c `#define STRAT_ADDR_BOSS7INTRO 0x05001Du`
-    pub const STRAT_ADDR_BOSS7INTRO: u32 = 0x05001D;
+    pub const STRAT_ADDR_BOSS7INTRO: u32 = crate::consts::is::BOSS7INTRO;
     /// levels.c `#define STRAT_ADDR_ZACOINTRO 0x05001Eu`
     pub const STRAT_ADDR_ZACOINTRO: u32 = 0x05001E;
     /// levels.c `#define STRAT_ADDR_ZACO2INTRO 0x05001Fu`
@@ -50,38 +46,84 @@ pub fn build() -> Route1Level {
     b.setbg(BG_INTRO);
     b.initbg();
 
-    // Lines 7-14: start_65816 block — clear position, disable wobble
-    b.mapcodejsl_builtin(cb::INITBLACK_L);
+    // Lines 7-14: start_65816 — reset lastplayz, pviewposz, and player Z.
+    let reset_view_ptr = b.mapcode65816_inline();
 
-    // Line 16-17: mapcode_jsl initblack_l / setvar.b stayblack,10
-    b.setvarb(wm::GSVAR_BYTE1, 10); // stayblack proxy
+    // Lines 16-17: mapcode_jsl initblack_l / setvar.b stayblack,10.
+    b.mapcodejsl_builtin(cb::INITBLACK_L);
+    b.setvarb(wm::STAYBLACK, 10);
 
     // Line 19: setfadeup quick
     b.qfadeup();
 
-    // Line 21: mapwait 800 (originally "mapwait 246 800")
-    b.mapwait(800);
+    // Line 21: literal source is `mapwait 246 800`; MAPMACS consumes its
+    // first argument and encodes WAIT2(246 >> 4), an effective distance 240.
+    b.mapwait(246);
 
     // Lines 23-33: start_65816 block — disable wobble, set noctrl+nofire
     let intro_init_ptr = b.mapcode65816_inline();
 
-    // Lines 36-37: textpath nintendo/presents — text rendering (stub)
-    // TODO: implement textpath for NINTENDO PRESENTS text when text renderer is ported
-    b.mapwait(2000);
+    // Lines 36-37: exact Nintendo Presents scaled-text paths.
+    b.textpath(0, -3000, -100, 4000, msg::NINTENDO, path::DINTRO1, 14, None);
+    b.textpath(
+        0,
+        3000,
+        100,
+        4000,
+        msg::PRESENTS,
+        path::DINTRO1,
+        14,
+        Some(-32),
+    );
 
     // Lines 41-47: player intro ships
-    b.mapnobj(0x1000, 50, -400, -700, lc::SH_OLD_TYPE_PROXY, lc::STRAT_ADDR_PLAYERDOWN2INTRO);
-    b.mapnobj(0x1000, 50, -400, -700, lc::SH_OLD_TYPE_PROXY, lc::STRAT_ADDR_PLAYERDOWN3INTRO);
-    b.mapnobj(MEDPSPEED * 5, 50, -400, -700, lc::SH_OLD_TYPE_PROXY, lc::STRAT_ADDR_PLAYERDOWNINTRO);
+    b.mapnobj(
+        0x1000,
+        50,
+        -400,
+        -700,
+        lc::SH_OLD_TYPE_PROXY,
+        lc::STRAT_ADDR_PLAYERDOWN2INTRO,
+    );
+    b.mapnobj(
+        0x1000,
+        50,
+        -400,
+        -700,
+        lc::SH_OLD_TYPE_PROXY,
+        lc::STRAT_ADDR_PLAYERDOWN3INTRO,
+    );
+    b.mapnobj(
+        MEDPSPEED * 5,
+        50,
+        -400,
+        -700,
+        lc::SH_OLD_TYPE_PROXY,
+        lc::STRAT_ADDR_PLAYERDOWNINTRO,
+    );
     b.setvarobj(wm::MAPVAR1);
-    b.mapnobj(0, 0, -400, -700, sh::NULLSHAPE, lc::STRAT_ADDR_PLAYERFIREINTRO);
+    b.mapnobj(
+        0,
+        0,
+        -400,
+        -700,
+        sh::NULLSHAPE,
+        lc::STRAT_ADDR_PLAYERFIREINTRO,
+    );
     b.setalvarptrw(al::SWORD1, wm::MAPVAR1);
 
     // Line 50: mapwait 2000
     b.mapwait(2000);
 
     // Line 52: deboss_1 boss7intro
-    b.mapnobj(0, 0, -800, -400, lc::SH_DEBOSS_1_PROXY, lc::STRAT_ADDR_BOSS7INTRO);
+    b.mapnobj(
+        0,
+        0,
+        -800,
+        -400,
+        lc::SH_DEBOSS_1_PROXY,
+        lc::STRAT_ADDR_BOSS7INTRO,
+    );
 
     // Line 54: mapwait 8000
     b.mapwait(8000);
@@ -118,6 +160,9 @@ pub fn build() -> Route1Level {
     let mut inline_regs: Vec<(u16, &'static str)> = Vec::new();
     if intro_init_ptr != 0 {
         inline_regs.push((intro_init_ptr, "intro_init_inline"));
+    }
+    if reset_view_ptr != 0 {
+        inline_regs.insert(0, (reset_view_ptr, "intro_reset_view_inline"));
     }
 
     Route1Level {

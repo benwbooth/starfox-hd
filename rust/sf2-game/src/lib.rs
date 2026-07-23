@@ -1,0 +1,47 @@
+//! Native Star Fox 2 game implementation.
+//!
+//! Shipping code is expressed as typed Rust state and systems. The optional
+//! `oracle-bridge` feature exposes the old byte-exact compatibility host only
+//! for differential verification; it is not part of [`Game`].
+
+mod native;
+
+pub use native::{
+    Angle, AnimationState, AstropolisBranch, AstropolisCoreSpike, AstropolisEye, AstropolisEyes,
+    AstropolisMissionState, AstropolisPhase, AudioOutput, Behavior, Button, Buttons, Camera,
+    CampaignState, CarrierAssaultPhase, CarrierAssaultState, CarrierReactorPanel, CollisionClass,
+    CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardMissionState, EladardPhase,
+    EndingPhase, EndingState, Error, Game, GameMode, GameState, InputState, IntroPhase,
+    MaterialSetId, MissionId, MissionPhase, MissionState, MissionVisit, Object, ObjectFlags,
+    ObjectId, ObjectKind, ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass,
+    PilotCraftProfile, PilotSelectionPhase, PilotSelectionState, PlayerBlasterState,
+    PlayerCraftForm, PlayerCraftTransformation, PlayerCraftTransformationDirection,
+    PlayerWalkerState, RandomState, RenderFlags, RenderObject, Roster, Rotation, ShapeId,
+    StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
+    StrategicMapState, StrategicMapTutorialPage, TitaniaMissionState, TitaniaPhase,
+    TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState,
+    Vector3, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, WeaponKind, OBJECT_CAPACITY,
+    STRATEGIC_MAP_ACTOR_CAPACITY,
+};
+
+#[cfg(feature = "oracle-bridge")]
+#[path = "cpu_bridge.rs"]
+mod cpu_bridge;
+#[cfg(feature = "oracle-bridge")]
+#[path = "map_host.rs"]
+mod map_host;
+#[cfg(feature = "oracle-bridge")]
+#[path = "memory.rs"]
+pub mod memory;
+#[cfg(feature = "oracle-bridge")]
+#[path = "object.rs"]
+pub mod object;
+#[cfg(feature = "oracle-bridge")]
+#[path = "path_host.rs"]
+mod path_host;
+#[cfg(feature = "oracle-bridge")]
+#[path = "strategy.rs"]
+mod strategy;
+
+#[cfg(feature = "oracle-bridge")]
+pub mod oracle_compat;

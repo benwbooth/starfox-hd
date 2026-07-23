@@ -8,7 +8,7 @@
 //! ported state machine, HP-bar model, attack cycle, split, and death routing
 //! against hand-derived ASM expectations, cited inline.
 
-use sf_game::alien::{ACF_WEAPON, NUMBER_AL};
+use sf_game::alien::{ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_WEAPON, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bossb;
@@ -70,14 +70,19 @@ fn active_count(g: &Game) -> usize {
 #[test]
 fn registers_at_istrat_indices_and_map_address() {
     let (g, _b) = setup(0, 5000);
-    // ISTRATS.ASM:539/542 (MACRO-counted): bossB=115, bossBrob=118.
-    assert_eq!(bossb::IS_BOSSB, 115);
-    assert_eq!(bossb::IS_BOSSBROB, 118);
+    // Exact ISTRATS.ASM rows: bossB=114, bossBrob=117.
+    assert_eq!(bossb::IS_BOSSB, 114);
+    assert_eq!(bossb::IS_BOSSBROB, 117);
     assert!(g.world.istrats[bossb::IS_BOSSB].is_some(), "bossB row");
-    assert!(g.world.istrats[bossb::IS_BOSSBROB].is_some(), "bossBrob row");
+    assert!(
+        g.world.istrats[bossb::IS_BOSSBROB].is_some(),
+        "bossBrob row"
+    );
     // MAP1_5.ASM places the face via synthetic STRAT_ADDR_BOSSB (0x06000F).
     assert!(
-        g.world.find_strategy_address(bossb::STRAT_ADDR_BOSSB).is_some(),
+        g.world
+            .find_strategy_address(bossb::STRAT_ADDR_BOSSB)
+            .is_some(),
         "MAP1_5 boss address resolves"
     );
 }
@@ -93,8 +98,24 @@ fn face_init_sets_bar_and_accumulates() {
     arm(&mut g, boss, bossb::IS_BOSSB);
     g.run_strategies();
     // s_set_aldata #bossBairHP + s_set_bossmaxHP #bossBairHP (GB3STRAT.ASM:1254).
-    assert_eq!(g.objs.aliens[boss as usize].hp, BOSSB_AIR_HP, "hp = bossBairHP");
-    assert_eq!(g.vars.bossmaxhp, BOSSB_AIR_HP as u16, "bossmaxHP = bossBairHP");
+    assert_eq!(
+        g.objs.aliens[boss as usize].hp, BOSSB_AIR_HP,
+        "hp = bossBairHP"
+    );
+    assert_eq!(
+        g.vars.bossmaxhp, BOSSB_AIR_HP as u16,
+        "bossmaxHP = bossBairHP"
+    );
+    assert_ne!(
+        g.objs.aliens[boss as usize].collflags & ACF_COLLTYPE3,
+        0,
+        "enemy2 collision class"
+    );
+    assert_ne!(
+        g.objs.aliens[boss as usize].collflags & ACF_COLLTYPE4,
+        0,
+        "enemy weapon collision class"
+    );
     // s_add_bossHP x,al_hp ran in bossB_cont2 -> the accumulator holds hp.
     assert_eq!(g.vars.bosshp, BOSSB_AIR_HP as u16, "m_bossHP accumulated");
 }
@@ -153,8 +174,14 @@ fn robot_init_sets_bar() {
     arm(&mut g, boss, bossb::IS_BOSSBROB);
     g.run_strategies();
     // s_set_aldata #bossBrobHP + s_set_bossmaxHP #bossBrobHP (GB3STRAT.ASM:1880).
-    assert_eq!(g.objs.aliens[boss as usize].hp, BOSSBROB_HP, "hp = bossBrobHP");
-    assert_eq!(g.vars.bossmaxhp, BOSSBROB_HP as u16, "bossmaxHP = bossBrobHP");
+    assert_eq!(
+        g.objs.aliens[boss as usize].hp, BOSSBROB_HP,
+        "hp = bossBrobHP"
+    );
+    assert_eq!(
+        g.vars.bossmaxhp, BOSSBROB_HP as u16,
+        "bossmaxHP = bossBrobHP"
+    );
     assert_eq!(g.vars.bosshp, BOSSBROB_HP as u16, "m_bossHP accumulated");
 }
 
@@ -181,10 +208,12 @@ fn robot_attack_cycle_advances_and_fires() {
     // Drive the floating form to death -> the expstrat transforms to the
     // walking form and enters the bossBrobnextstate attack rotation, which
     // fires each state.
-    let (mut g, boss) = setup(0, 1000);
+    // A 1400-unit separation matches the fight's transition corridor: the
+    // ROM morph first closes inside 1000, then swings back outside 1400.
+    let (mut g, boss) = setup(0, 1400);
     arm(&mut g, boss, bossb::IS_BOSSBROB);
     g.run_strategies(); // init (floating form)
-    // Simulate the floating form's death -> Phase-1 transform (attack cycle).
+                        // Simulate the floating form's death -> Phase-1 transform (attack cycle).
     g.objs.aliens[boss as usize].hp = 0;
     g.run_strategies();
     assert!(
@@ -194,7 +223,7 @@ fn robot_attack_cycle_advances_and_fires() {
     let start_state = g.objs.aliens[boss as usize].stratstate;
     let mut fired = false;
     let mut advanced = false;
-    for _ in 0..300 {
+    for _ in 0..800 {
         g.run_strategies();
         if weapon_count(&g) > 0 {
             fired = true;
@@ -206,26 +235,67 @@ fn robot_attack_cycle_advances_and_fires() {
             break;
         }
     }
-    assert!(advanced, "the attack cycle advanced states (bossBrobnextstate)");
+    assert!(
+        advanced,
+        "the attack cycle advanced states (bossBrobnextstate)"
+    );
     assert!(fired, "the attack cycle fired weapons");
     assert!(g.vars.bosshp > 0, "the walking-form bar accumulates");
 }
 
 #[test]
 fn robot_walking_death_explodes() {
-    // Phase 2: after transforming, a second HP0 routes through the expstrat's
-    // walking branch -> GF_BOSSDEAD + boss explosion (killable Andross).
-    let (mut g, boss) = setup(0, 1000);
+    // Phase 2 is deliberately only vulnerable during state 4, where the ROM's
+    // bossBrobsep_init installs bossBrobsepexp as the death strategy. Drive the
+    // real attack rotation there before applying the fatal hit.
+    let (mut g, boss) = setup(0, 1400);
     arm(&mut g, boss, bossb::IS_BOSSBROB);
     g.run_strategies();
     g.objs.aliens[boss as usize].hp = 0; // -> transform (phase 1)
     g.run_strategies();
-    assert_eq!(g.vars.gameflags & GF_BOSSDEAD, 0, "not dead after transform");
-    assert!(g.objs.aliens[boss as usize].hp > 0, "walking form has fresh HP");
-    // Kill the walking form.
+    assert_eq!(
+        g.vars.gameflags & GF_BOSSDEAD,
+        0,
+        "not dead after transform"
+    );
+    let mut vulnerable = false;
+    for _ in 0..2400 {
+        // The pounce deliberately waits for the continuously advancing player
+        // to pass it (`s_jmp_objinfront`). The synthetic player has no player
+        // strategy, so supply that forward travel explicitly.
+        g.objs.aliens[0].worldz = g.objs.aliens[0].worldz.wrapping_add(10);
+        g.run_strategies();
+        let al = &g.objs.aliens[boss as usize];
+        if al.stratstate == 4 && al.expstratptr.is_some() {
+            vulnerable = true;
+            break;
+        }
+    }
+    assert!(
+        vulnerable,
+        "walking form reached its vulnerable split state"
+    );
+    assert!(
+        g.objs.aliens[boss as usize].hp > 0,
+        "walking form has fresh HP"
+    );
+    // Kill the walking form and drain the sepexp countdown.
     g.objs.aliens[boss as usize].hp = 0;
     g.run_strategies();
-    assert_ne!(g.vars.gameflags & GF_BOSSDEAD, 0, "walking death set GF_BOSSDEAD");
+    // Force countdown done so we don't wait 40 frames in the unit test.
+    g.objs.aliens[boss as usize].sbyte1 = 0;
+    g.objs.aliens[boss as usize].worldy = -80 << 2; // on ground
+    for _ in 0..30 {
+        if g.vars.gameflags & GF_BOSSDEAD != 0 {
+            break;
+        }
+        g.run_strategies();
+    }
+    assert_ne!(
+        g.vars.gameflags & GF_BOSSDEAD,
+        0,
+        "walking death set GF_BOSSDEAD"
+    );
 }
 
 #[test]

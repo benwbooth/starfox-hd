@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 sf-core.workspace = true
+sf2-data.workspace = true
 wgpu = "26"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"

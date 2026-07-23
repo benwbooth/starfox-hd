@@ -10,6 +10,7 @@
 
 use sdl3::gamepad::{Axis, Button, Gamepad};
 use sdl3::keyboard::{KeyboardState, Scancode};
+use sf2_game::{Game as Sf2Game, GameMode as Sf2Mode, StrategicMapPhase};
 use sf_core::pad;
 
 /// One keyboard binding (C `key_map[]`, sf_rtl.c:25-42).
@@ -41,21 +42,30 @@ pub struct Input {
     pub frame_count: u32,
     /// SF_AUTOPLAY=1 (C AutoplayPad enable latch).
     autoplay: bool,
+    /// The SF2 native campaign needs its own verified front-end sequence.
+    sf2_autoplay: bool,
+    /// Optional verification hold on the strategic map after N sorties.
+    sf2_autoplay_pause_after_sorties: Option<u16>,
     /// All open gamepads, keyed by joystick instance id.
     pub gamepads: Vec<Gamepad>,
 }
 
 impl Input {
-    pub fn new() -> Self {
+    pub fn new(sf2_autoplay: bool) -> Self {
         let autoplay = std::env::var("SF_AUTOPLAY")
             .map(|v| v.starts_with('1'))
             .unwrap_or(false);
+        let sf2_autoplay_pause_after_sorties = std::env::var("SF2_AUTOPLAY_PAUSE_AFTER_SORTIES")
+            .ok()
+            .and_then(|value| value.parse().ok());
         Input {
             pad1: 0,
             pad1_new: 0,
             pad1_prev: 0,
             frame_count: 0,
             autoplay,
+            sf2_autoplay,
+            sf2_autoplay_pause_after_sorties,
             gamepads: Vec::new(),
         }
     }
@@ -78,7 +88,11 @@ impl Input {
         }
     }
 
-    pub fn add_gamepad(&mut self, subsystem: &sdl3::GamepadSubsystem, id: sdl3::joystick::JoystickId) {
+    pub fn add_gamepad(
+        &mut self,
+        subsystem: &sdl3::GamepadSubsystem,
+        id: sdl3::joystick::JoystickId,
+    ) {
         if self.gamepads.iter().any(|g| g.id().ok() == Some(id)) {
             return;
         }
@@ -125,8 +139,8 @@ impl Input {
     ///      B               South(bottom)
     /// ```
     /// So we map by PHYSICAL position: bottom->B, right->A, left->Y, top->X.
-    /// In Star Fox that means: Y(left)=laser, A(right)=nova bomb, B(bottom)=
-    /// brake, X(top)=boost.
+    /// Gameplay assigns the actions; the SF2 retail trace confirms that the
+    /// bottom B input fires its player laser.
     fn read_gamepads(&self) -> u16 {
         let mut pad = 0u16;
         for gp in &self.gamepads {
@@ -179,13 +193,20 @@ impl Input {
                 use std::fmt::Write as _;
                 let mut s = String::new();
                 for (b, name) in [
-                    (Button::South, "South"), (Button::East, "East"),
-                    (Button::West, "West"), (Button::North, "North"),
-                    (Button::Start, "Start"), (Button::Back, "Back"),
-                    (Button::Guide, "Guide"), (Button::LeftShoulder, "L"),
-                    (Button::RightShoulder, "R"), (Button::LeftStick, "LS"),
-                    (Button::RightStick, "RS"), (Button::DPadUp, "Up"),
-                    (Button::DPadDown, "Down"), (Button::DPadLeft, "Left"),
+                    (Button::South, "South"),
+                    (Button::East, "East"),
+                    (Button::West, "West"),
+                    (Button::North, "North"),
+                    (Button::Start, "Start"),
+                    (Button::Back, "Back"),
+                    (Button::Guide, "Guide"),
+                    (Button::LeftShoulder, "L"),
+                    (Button::RightShoulder, "R"),
+                    (Button::LeftStick, "LS"),
+                    (Button::RightStick, "RS"),
+                    (Button::DPadUp, "Up"),
+                    (Button::DPadDown, "Down"),
+                    (Button::DPadLeft, "Left"),
                     (Button::DPadRight, "Right"),
                 ] {
                     if gp.button(b) {
@@ -193,9 +214,12 @@ impl Input {
                     }
                 }
                 for (a, name) in [
-                    (Axis::LeftX, "LX"), (Axis::LeftY, "LY"),
-                    (Axis::RightX, "RX"), (Axis::RightY, "RY"),
-                    (Axis::TriggerLeft, "LT"), (Axis::TriggerRight, "RT"),
+                    (Axis::LeftX, "LX"),
+                    (Axis::LeftY, "LY"),
+                    (Axis::RightX, "RX"),
+                    (Axis::RightY, "RY"),
+                    (Axis::TriggerLeft, "LT"),
+                    (Axis::TriggerRight, "RT"),
                 ] {
                     let v = gp.axis(a);
                     if v.abs() > 6000 {
@@ -246,13 +270,62 @@ impl Input {
         pad
     }
 
-    /// C `AutoplayPad` (sf_rtl.c:123) — EXACT replica: Start taps every
-    /// 60 ticks through tick 400, then 4-on/4-off fire pulses.
-    fn autoplay_pad(&self) -> u16 {
+    /// C `AutoplayPad` (sf_rtl.c:123) for SF1, plus a separate SF2 schedule
+    /// that follows the independently traced retail campaign hierarchy.
+    fn autoplay_pad(&self, sf2_game: Option<&Sf2Game>) -> u16 {
         if !self.autoplay {
             return 0;
         }
         let t = self.frame_count;
+        if self.sf2_autoplay {
+            const FRONT_END_CONFIRM_TICKS: [u32; 6] = [850, 880, 910, 980, 1_010, 1_040];
+            const FRONT_END_START_TICKS: [u32; 4] = [0, 60, 120, 180];
+            const MISSION_INPUT_START_TICK: u32 = 1_050;
+            if FRONT_END_START_TICKS.contains(&t) {
+                return pad::START;
+            }
+            if FRONT_END_CONFIRM_TICKS.contains(&t) {
+                return pad::B;
+            }
+            if t < MISSION_INPUT_START_TICK {
+                return 0;
+            }
+            if sf2_game.is_some_and(|game| {
+                self.sf2_autoplay_pause_after_sorties
+                    .is_some_and(|sorties| {
+                        game.state().campaign.completed_campaign_visits() >= sorties
+                    })
+            }) {
+                return 0;
+            }
+            return match sf2_game.map(Sf2Game::mode) {
+                Some(Sf2Mode::StrategicMap) => sf2_game
+                    .filter(|game| game.state().strategic_map.phase == StrategicMapPhase::Planning)
+                    .map(|game| {
+                        let map = &game.state().strategic_map;
+                        let target = map.recommended_destination;
+                        let mut direction = 0;
+                        if map.destination.x < target.x {
+                            direction |= pad::RIGHT;
+                        } else if map.destination.x > target.x {
+                            direction |= pad::LEFT;
+                        }
+                        if map.destination.y < target.y {
+                            direction |= pad::DOWN;
+                        } else if map.destination.y > target.y {
+                            direction |= pad::UP;
+                        }
+                        if direction == 0 {
+                            pad::B
+                        } else {
+                            direction
+                        }
+                    })
+                    .unwrap_or(0),
+                Some(Sf2Mode::Mission) if t % 8 < 4 => pad::B,
+                _ => 0,
+            };
+        }
         if t <= 400 {
             return if t % 60 == 0 { pad::START } else { 0 };
         }
@@ -266,9 +339,9 @@ impl Input {
     /// C `SfRtl_BeginFrame` (sf_rtl.c:142): latch prev, OR the sources,
     /// edge-detect, THEN increment the frame counter (AutoplayPad reads
     /// the pre-increment count).
-    pub fn begin_frame(&mut self, keys: &KeyboardState) {
+    pub fn begin_frame(&mut self, keys: &KeyboardState, sf2_game: Option<&Sf2Game>) {
         self.pad1_prev = self.pad1;
-        self.pad1 = Self::read_keyboard(keys) | self.read_gamepads() | self.autoplay_pad();
+        self.pad1 = Self::read_keyboard(keys) | self.read_gamepads() | self.autoplay_pad(sf2_game);
         self.pad1_new = self.pad1 & !self.pad1_prev;
         self.frame_count += 1;
     }
@@ -287,19 +360,45 @@ mod tests {
             pad1_prev: 0,
             frame_count: 0,
             autoplay: true,
+            sf2_autoplay: false,
+            sf2_autoplay_pause_after_sorties: None,
             gamepads: Vec::new(),
         };
         let mut presses = Vec::new();
         for t in 0..=420u32 {
             input.frame_count = t;
-            if input.autoplay_pad() & pad::START != 0 {
+            if input.autoplay_pad(None) & pad::START != 0 {
                 presses.push(t);
             }
         }
         assert_eq!(presses, vec![0, 60, 120, 180, 240, 300, 360]);
         input.frame_count = 401;
-        assert_eq!(input.autoplay_pad(), pad::Y); // 401 % 8 == 1 < 4
+        assert_eq!(input.autoplay_pad(None), pad::Y); // 401 % 8 == 1 < 4
         input.frame_count = 404;
-        assert_eq!(input.autoplay_pad(), 0); // 404 % 8 == 4
+        assert_eq!(input.autoplay_pad(None), 0); // 404 % 8 == 4
+    }
+
+    #[test]
+    fn sf2_autoplay_schedule_reaches_the_first_sortie_inputs() {
+        let mut input = Input {
+            pad1: 0,
+            pad1_new: 0,
+            pad1_prev: 0,
+            frame_count: 0,
+            autoplay: true,
+            sf2_autoplay: true,
+            sf2_autoplay_pause_after_sorties: None,
+            gamepads: Vec::new(),
+        };
+        for tick in [0, 60, 120, 180] {
+            input.frame_count = tick;
+            assert_eq!(input.autoplay_pad(None), pad::START);
+        }
+        for tick in [850, 880, 910, 980, 1_010, 1_040] {
+            input.frame_count = tick;
+            assert_eq!(input.autoplay_pad(None), pad::B);
+        }
+        input.frame_count = 1_051;
+        assert_eq!(input.autoplay_pad(None), 0);
     }
 }

@@ -5,3 +5,7 @@ rust/target/
 *.zip
 .direnv/
 __pycache__/
+
+# Local Cursor porting-loop arm flags
+.cursor/porting-loop-on
+.cursor/skip-porting-loop

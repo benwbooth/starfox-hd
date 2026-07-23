@@ -32,7 +32,16 @@ pub fn build() -> Route2Level {
     // Lines 8-10: pathspecial / pathcspecial trio (egu6 variants)
     b.pathspecial(0, -2700, 2000, 1500, SH_S_ZACO_0, PATH_ID_EGU6_IFAL, 10, 10);
     b.pathcspecial(0, -2500, 2000, 1800, SH_ZACO_8, PATH_ID_EGU6_IRAB, 10, 10);
-    b.pathcspecial(9000, -2900, 2000, 2100, SH_ZACO_8, PATH_ID_EGU6_IFRO, 10, 10);
+    b.pathcspecial(
+        9000,
+        -2900,
+        2000,
+        2100,
+        SH_ZACO_8,
+        PATH_ID_EGU6_IFRO,
+        10,
+        10,
+    );
 
     // Lines 12-14: pathcspecial / pathspecial / pathcspecial trio (egu5)
     b.pathcspecial(400, -300, 2200, 2800, SH_BZACO_8, PATH_ID_EGU5, 10, 10);
@@ -49,10 +58,27 @@ pub fn build() -> Route2Level {
     b.pathobj(700, 200, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
     b.pathobj(700, 0, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
     b.pathobj(700, 100, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
-    b.pathobj(2500, -100, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
+    b.pathobj(
+        2500,
+        -100,
+        2000,
+        2600,
+        SH_BOSS_E_4,
+        PATH_ID_MINICAS2,
+        10,
+        10,
+    );
 
     // Lines 26-32: mapmother + cspecial uper_m group + maprem
-    b.mapmother(1000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_uperm);
+    b.mapmother(
+        1000,
+        0,
+        2000,
+        3000,
+        SH_MOTHER1,
+        STRATEGY_MOTHER2,
+        crate::mothers::mother_maps().map_uperm,
+    );
     b.cspecial(1000, 0, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, 100, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, -100, 2000, 3000, SH_UPER_M, IS_UPERM);
@@ -125,7 +151,16 @@ pub fn build() -> Route2Level {
     b.pathcspecial(0, 1200, 200, 600, SH_ZACO_B, PATH_ID_CHASE1_2, 10, 10);
     b.pathobj(700, 0, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
     b.pathobj(700, 100, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
-    b.pathobj(4000, -100, 2000, 2600, SH_BOSS_E_4, PATH_ID_MINICAS2, 10, 10);
+    b.pathobj(
+        4000,
+        -100,
+        2000,
+        2600,
+        SH_BOSS_E_4,
+        PATH_ID_MINICAS2,
+        10,
+        10,
+    );
 
     // Lines 83-84: zaco_4 egu3 pair
     b.pathcspecial(0, 800, 1300, 2000, SH_ZACO_4, PATH_ID_EGU3, 10, 10);
@@ -144,7 +179,15 @@ pub fn build() -> Route2Level {
     b.pathcspecial(8000, 300, 2200, 2300, SH_BZACO_8, PATH_ID_EGU5, 10, 10);
 
     // Lines 95-99: mapmother + cspecial uper_m group (second mother)
-    b.mapmother(1000, 0, 2000, 3000, SH_MOTHER1, STRAT_ADDR_MOTHER2, crate::mothers::mother_maps().map_uperm);
+    b.mapmother(
+        1000,
+        0,
+        2000,
+        3000,
+        SH_MOTHER1,
+        STRATEGY_MOTHER2,
+        crate::mothers::mother_maps().map_uperm,
+    );
     b.cspecial(1000, 100, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, -100, 2000, 3000, SH_UPER_M, IS_UPERM);
     b.cspecial(1000, 200, 2000, 3000, SH_UPER_M, IS_UPERM);
@@ -167,7 +210,16 @@ pub fn build() -> Route2Level {
     b.pathspecial(0, -2000, 2000, 2000, SH_S_ZACO_0, PATH_ID_EGU6, 10, 10);
     b.pathspecial(0, 2000, 2000, 2300, SH_S_ZACO_0, PATH_ID_EGU6, 10, 10);
     b.pathcspecial(0, -2000, -2000, 2600, SH_ZACO_8, PATH_ID_EGU6, 10, 10);
-    b.pathcspecial(9000, 2000, -2000, 2900, SH_ZACO_8, PATH_ID_EGU6_IFAL, 10, 10);
+    b.pathcspecial(
+        9000,
+        2000,
+        -2000,
+        2900,
+        SH_ZACO_8,
+        PATH_ID_EGU6_IFAL,
+        10,
+        10,
+    );
 
     // Lines 117-119: wire_man + bazooka pair
     b.cspecial(6000, 0, 1500, 2000, SH_WIRE_MAN, IS_WIREMAN);
@@ -179,7 +231,16 @@ pub fn build() -> Route2Level {
     b.skillfly_set(0, -100, 2500, 120);
 
     b.pathcspecial(1000, 0, -100, 2500, SH_BOSS_E_4, PATH_ID_MINICAS0, 10, 10);
-    b.pathcspecial(1000, -500, -200, 2500, SH_BOSS_E_4, PATH_ID_MINICAS0, 10, 10);
+    b.pathcspecial(
+        1000,
+        -500,
+        -200,
+        2500,
+        SH_BOSS_E_4,
+        PATH_ID_MINICAS0,
+        10,
+        10,
+    );
     b.pathcspecial(300, -300, 2200, 2800, SH_BZACO_8, PATH_ID_EGU5, 10, 10);
     b.pathspecial(300, 0, 2200, 2500, SH_S_ZACO_0, PATH_ID_EGU5, 10, 10);
 
@@ -251,11 +312,26 @@ pub fn build() -> Route2Level {
         labels,
         vec![],
         vec![
-            (level2_5_skillfly_bonus0_guard_ptr, "level2_5_skillfly_bonus0_guard"),
-            (level2_5_skillfly_bonus1_guard_ptr, "level2_5_skillfly_bonus1_guard"),
-            (level2_5_mapwaitboss_trigse_ptr, "level1_1_mapwaitboss_trigse"),
-            (level2_5_mapwaitboss_cantdie_ptr, "level1_1_mapwaitboss_cantdie"),
-            (level2_5_mapwaitboss_cleanup_ptr, "level1_1_mapwaitboss_cleanup"),
+            (
+                level2_5_skillfly_bonus0_guard_ptr,
+                "level2_5_skillfly_bonus0_guard",
+            ),
+            (
+                level2_5_skillfly_bonus1_guard_ptr,
+                "level2_5_skillfly_bonus1_guard",
+            ),
+            (
+                level2_5_mapwaitboss_trigse_ptr,
+                "level1_1_mapwaitboss_trigse",
+            ),
+            (
+                level2_5_mapwaitboss_cantdie_ptr,
+                "level1_1_mapwaitboss_cantdie",
+            ),
+            (
+                level2_5_mapwaitboss_cleanup_ptr,
+                "level1_1_mapwaitboss_cleanup",
+            ),
         ],
     )
 }

@@ -94,7 +94,11 @@ fn rom_pass(rom: &[u8], addr: u32, gameflags: u8, zmax: i16, objs: &[Obj]) -> Ro
     let mut slot = 0u32;
     for (i, o) in objs.iter().enumerate() {
         let a = OBJ[i];
-        let next = if i + 1 < objs.len() { OBJ[i + 1] as u16 } else { 0 };
+        let next = if i + 1 < objs.len() {
+            OBJ[i + 1] as u16
+        } else {
+            0
+        };
         bus.write16(a + AL_NEXT, next);
         bus.write16(a + AL_SHAPE, SHAPE_HDR as u16);
         bus.write8(a + AL_FLAGS, o.flags);
@@ -125,7 +129,9 @@ fn rom_pass(rom: &[u8], addr: u32, gameflags: u8, zmax: i16, objs: &[Obj]) -> Ro
         guard += 1;
     }
     RomOut {
-        flags: (0..objs.len()).map(|i| bus.read8(OBJ[i] as u32 + AL_FLAGS)).collect(),
+        flags: (0..objs.len())
+            .map(|i| bus.read8(OBJ[i] as u32 + AL_FLAGS))
+            .collect(),
         alive,
     }
 }
@@ -158,7 +164,17 @@ fn rust_pass(gameflags: u8, objs: &[Obj]) -> (Vec<u8>, Vec<bool>) {
     let mut out = Vec::new();
     // Extents provider mirrors the ROM fixture's shape header: sh_zmax = 100
     // (the same per-shape source coldet uses supplies the cull margin).
-    draw::build_list(&mut o, 0, 0, 0, 0, 0, gameflags, &|_| Some((100, 100, 100)), &mut out);
+    draw::build_list(
+        &mut o,
+        0,
+        0,
+        0,
+        0,
+        0,
+        gameflags,
+        &|_| Some((100, 100, 100)),
+        &mut out,
+    );
     (
         ids.iter().map(|&i| o.aliens[i as usize].flags).collect(),
         ids.iter().map(|&i| o.aliens[i as usize].active).collect(),
@@ -173,7 +189,13 @@ fn setup() -> Option<(u32, Vec<u8>)> {
 }
 
 fn obj(flags: u8, type_: u8, collflags: u8, sflags4: u8, dl: Option<(i16, i16)>) -> Obj {
-    Obj { flags, type_, collflags, sflags4, dl }
+    Obj {
+        flags,
+        type_,
+        collflags,
+        sflags4,
+        dl,
+    }
 }
 
 /// In-front objects: afinviewpl always set, afleftpl iff rotated view x < 0.
@@ -218,7 +240,10 @@ fn behind_test_uses_shape_zmax_margin() {
     // Rotated z = -50, shape zmax = 100 -> -50 + 100 (+1 carry) > 0: in front.
     let objs = [obj(AFFRONTPL, ATZREMOVE, 0, 0, Some((-500, -50)))];
     let r = rom_pass(&rom, addr, 0, 100, &objs);
-    assert!(r.alive[0], "ROM keeps z=-50 with zmax=100 (margin not crossed)");
+    assert!(
+        r.alive[0],
+        "ROM keeps z=-50 with zmax=100 (margin not crossed)"
+    );
     assert_eq!(r.flags[0], AFFRONTPL | AFINVIEWPL | AFLEFTPL);
 
     // Rust port, identity camera: same zmax margin -> kept, same flags.
@@ -238,7 +263,13 @@ fn behind_kill_conditions_and_frontpl_clear() {
     let behind = Some((300i16, -2000i16)); // -2000 + 100 << 0
 
     // (a) atzremove, no firstframe, zremove enabled -> freed.
-    let r = rom_pass(&rom, addr, 0, 100, &[obj(AFFRONTPL, ATZREMOVE, 0, 0, behind)]);
+    let r = rom_pass(
+        &rom,
+        addr,
+        0,
+        100,
+        &[obj(AFFRONTPL, ATZREMOVE, 0, 0, behind)],
+    );
     assert!(!r.alive[0], "ROM frees behind atzremove object");
 
     // (b) gf_nozremove -> survives, but affrontpl cleared, inview set.
@@ -308,7 +339,10 @@ fn invisible_objects_skip_cull_and_keep_flags() {
     ];
     let r = rom_pass(&rom, addr, 0, 100, &objs);
     assert!(r.alive[0], "ROM never z-removes invisible objects");
-    assert_eq!(r.flags[0], AFFRONTPL, "ROM leaves invisible flags untouched");
+    assert_eq!(
+        r.flags[0], AFFRONTPL,
+        "ROM leaves invisible flags untouched"
+    );
     assert!(r.alive[1]);
     assert_eq!(
         r.flags[1],
@@ -330,7 +364,17 @@ fn invisible_objects_skip_cull_and_keep_flags() {
         al.worldz = -2000;
     }
     let mut out = Vec::new();
-    draw::build_list(&mut o, 0, 0, 0, 0, 0, 0, &|_| Some((100, 100, 100)), &mut out);
+    draw::build_list(
+        &mut o,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        &|_| Some((100, 100, 100)),
+        &mut out,
+    );
     assert!(
         o.aliens[id as usize].active,
         "invisible objects skip the behind cull (ROM parity)"

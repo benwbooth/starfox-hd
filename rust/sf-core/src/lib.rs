@@ -8,6 +8,12 @@
 //! - `src/types.h`  -> [`DrawListEntry`], limits
 //! - `src/sf_rtl.h` -> [`pad`]
 
+pub mod aim_angle;
+pub mod scene;
+mod sf1_shape_words;
+pub mod shape;
+pub mod snes_trig;
+
 pub mod pad {
     //! SNES joypad bits, matching `src/sf_rtl.h` PAD_*.
     pub const B: u16 = 1 << 15;
@@ -22,6 +28,24 @@ pub mod pad {
     pub const X: u16 = 1 << 6;
     pub const TLEFT: u16 = 1 << 5;
     pub const TRIGHT: u16 = 1 << 4;
+
+    /// ROM `read_joypad_l` edge result (PLANETS.ASM:2473): held + newly pressed.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct JoypadLatch {
+        /// ROM `cont0` / `cont0l` — current held buttons.
+        pub cont: u16,
+        /// ROM `trig0` — buttons newly pressed this sample (`joy & ~prev`).
+        pub trig: u16,
+    }
+
+    /// ROM `read_joypad_l` / `read_joypadt_l` body (without HVBJOY wait):
+    /// `trig = joy & ~cont; cont = joy`.
+    pub fn read_joypad(prev_cont: u16, joy: u16) -> JoypadLatch {
+        JoypadLatch {
+            cont: joy,
+            trig: joy & !prev_cont,
+        }
+    }
 }
 
 pub const MAX_OBJECTS: usize = 128;
@@ -68,7 +92,9 @@ pub mod dl_flags {
     pub const VISIBLE: u8 = 0x01;
     pub const SHADOW: u8 = 0x02;
     pub const HIGHLIGHT: u8 = 0x04;
-    pub const WIREFRAME: u8 = 0x08;
+    /// Scaled MARIO text carrier (renderer extension; ROM keys this from
+    /// `asf_textobj` before trying to resolve a shape header).
+    pub const TEXT: u8 = 0x10;
 }
 
 /// Game tick rate: fixed 20 Hz logic, matching C `GAME_TICK_MS 50`.

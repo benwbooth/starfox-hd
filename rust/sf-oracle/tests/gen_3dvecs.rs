@@ -21,7 +21,14 @@ fn rom_vecs(rom: &[u8], addr: u32, roty: u8, rotx: u8, vel: u8) -> (i16, i16, i1
     bus.write8(TROTX, rotx);
     bus.write8(TROTY, roty);
     bus.write8(TMPZ, vel);
-    call(&mut bus, addr, &Entry { p: 0x20, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     (
         bus.read16(X1) as i16,
         bus.read16(Y1) as i16,
@@ -61,16 +68,11 @@ fn gen_3dvecs_matches_rom() {
         (10, 5, 120),
         (250, 8, 90),
     ];
-    let sign = |v: i16| v.signum();
     let mut bad = 0;
     for &(roty, rotx, vel) in &cases {
         let (x1, y1, z1) = rom_vecs(&rom, addr, roty, rotx, vel);
         let (vx, vy, vz) = rust_vecs(roty, rotx, vel);
-        let _ = sign;
-        // vx/vz are now BIT-EXACT to the ROM (fixed-point mulslog port). vy
-        // matches in magnitude; its sign is the renderer Y convention (the Rust
-        // negates pitch, the ROM does not), so |vy| == |y1|.
-        let exact = vx == x1 && vz == z1 && vy.abs() == y1.abs();
+        let exact = (vx, vy, vz) == (x1, y1, z1);
         if !exact {
             bad += 1;
         }
@@ -81,7 +83,5 @@ fn gen_3dvecs_matches_rom() {
             if exact { "EXACT" } else { "DIFF" },
         );
     }
-    // vy sign follows the renderer Y convention (ROM does not negate pitch);
-    // vx/vz and |vy| are bit-exact to the SNES hardware fixed-point.
     assert_eq!(bad, 0, "{bad}/{} cases differ from the ROM", cases.len());
 }

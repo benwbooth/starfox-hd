@@ -1,15 +1,13 @@
-//! Byte-equality of the built path catalog against the blessed snapshot.
+//! Byte-equality of the path catalog against its source oracle.
 //!
-//! The fixtures were originally dumped from the C builder
-//! (`src/path/path_literals.c`); the Rust catalog has since diverged from C
-//! ON PURPOSE where the 65816 oracle proved the C encoding wrong vs the ROM
-//! blob (P_ADDW for out-of-range world adds, P_SPAWN* coord/4 payloads,
-//! p_sound2 for the ASM P_SOUND macro, P_SET 0 -> P_ZERO — see
-//! sf-oracle/tests/audit_path.rs). The fixtures are now a snapshot of the
-//! ROM-corrected Rust output; re-bless with SF_BLESS_FIXTURES=1 after
-//! intentional data changes.
+//! When the user-owned assembled catalog is available, compare its complete
+//! PATHDATA/DPATHDAT/KPATHDAT range directly with the reference build ROM.
+//! Without that catalog, retain the old fixture check for the source-level
+//! fallback builder.
 
-use sf_path::literals;
+use sf_path::builder::PATH_MISSING_OFFSET;
+use sf_path::ids::{PATH_ID_CUTCREDS, PATH_ID_MINICASTANET, PATH_ID_MINICASTANETLR};
+use sf_path::{literals, rom_catalog_data};
 
 fn fixture_path(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -21,11 +19,53 @@ fn fixture(name: &str) -> Vec<u8> {
 }
 
 #[test]
-fn catalog_matches_c_oracle() {
+fn catalog_matches_source_oracle() {
+    let catalog = literals::get_catalog();
+
+    if catalog.data.len() == rom_catalog_data::ROM_PATH_CATALOG_SIZE {
+        let rom_path = format!("{}/../sf-oracle/data/sf.sfc", env!("CARGO_MANIFEST_DIR"));
+        let rom = std::fs::read(&rom_path).unwrap_or_else(|e| panic!("read {rom_path}: {e}"));
+        let bank = 4usize;
+        let rom_start = bank * 0x8000 + (rom_catalog_data::ROM_PATH_CPU_BASE - 0x8000);
+        let rom_end = bank * 0x8000 + (rom_catalog_data::ROM_PATH_CPU_END - 0x8000);
+
+        assert_eq!(
+            &catalog.data,
+            &rom[rom_start..rom_end],
+            "assembled path bank differs from the reference ROM",
+        );
+        assert_eq!(
+            catalog
+                .offsets
+                .iter()
+                .filter(|&&offset| offset != PATH_MISSING_OFFSET)
+                .count(),
+            rom_catalog_data::ROM_PATH_MAPPED_IDS,
+            "symbol-derived path mapping count",
+        );
+        assert_eq!(
+            catalog.offsets[PATH_ID_CUTCREDS as usize], PATH_MISSING_OFFSET,
+            "CUTCREDS is a map subroutine, not path bytecode",
+        );
+        for &offset in catalog
+            .offsets
+            .iter()
+            .filter(|&&offset| offset != PATH_MISSING_OFFSET)
+        {
+            assert!(
+                (offset as usize) < rom_catalog_data::ROM_PATH_CATALOG_SIZE,
+                "mapped path offset {offset:#06x} is outside the assembled path section",
+            );
+        }
+        return;
+    }
+
     if std::env::var("SF_BLESS_FIXTURES").is_ok() {
-        let catalog = literals::get_catalog();
-        let offsets_raw: Vec<u8> =
-            catalog.offsets.iter().flat_map(|o| o.to_le_bytes()).collect();
+        let offsets_raw: Vec<u8> = catalog
+            .offsets
+            .iter()
+            .flat_map(|o| o.to_le_bytes())
+            .collect();
         std::fs::write(fixture_path("path_blob.bin"), &catalog.data).unwrap();
         std::fs::write(fixture_path("path_offsets.bin"), &offsets_raw).unwrap();
         std::fs::write(
@@ -43,14 +83,16 @@ fn catalog_matches_c_oracle() {
     let blob_len: usize = meta_it.next().unwrap().parse().unwrap();
     let offset_count: usize = meta_it.next().unwrap().parse().unwrap();
     assert_eq!(blob_len, blob.len(), "fixture self-consistency");
-    assert_eq!(offset_count * 2, offsets_raw.len(), "fixture self-consistency");
+    assert_eq!(
+        offset_count * 2,
+        offsets_raw.len(),
+        "fixture self-consistency"
+    );
 
     let offsets: Vec<u16> = offsets_raw
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect();
-
-    let catalog = literals::get_catalog();
 
     assert_eq!(
         catalog.data.len(),
@@ -73,4 +115,57 @@ fn catalog_matches_c_oracle() {
     }
 
     assert_eq!(catalog.offsets, offsets, "path offset table");
+}
+
+#[test]
+fn fallback_minicastanet_programs_match_the_assembled_rom_bytes() {
+    let fallback = literals::build_fallback();
+    let assembled = literals::get_catalog();
+    assert_eq!(
+        assembled.data.len(),
+        rom_catalog_data::ROM_PATH_CATALOG_SIZE,
+        "this parity test needs the user-owned extracted path catalog"
+    );
+
+    let fallback_start = fallback.offsets[PATH_ID_MINICASTANET as usize] as usize;
+    let fallback_lr = fallback.offsets[PATH_ID_MINICASTANETLR as usize] as usize;
+    let assembled_start = assembled.offsets[PATH_ID_MINICASTANET as usize] as usize;
+    let assembled_lr = assembled.offsets[PATH_ID_MINICASTANETLR as usize] as usize;
+    fn assert_rebased_equal(fallback: &[u8], assembled: &[u8], delta: u16, name: &str) {
+        assert_eq!(fallback.len(), assembled.len(), "{name} byte length");
+        let mut i = 0;
+        while i < fallback.len() {
+            if fallback[i] == assembled[i] {
+                i += 1;
+                continue;
+            }
+            assert!(i + 1 < fallback.len(), "{name}: lone mismatch at {i}");
+            let f = u16::from_le_bytes([fallback[i], fallback[i + 1]]);
+            let a = u16::from_le_bytes([assembled[i], assembled[i + 1]]);
+            assert_eq!(
+                a,
+                f.wrapping_add(delta),
+                "{name}: non-fixup mismatch at byte {i}"
+            );
+            i += 2;
+        }
+    }
+
+    assert_rebased_equal(
+        &fallback.data[fallback_start..fallback_lr],
+        &assembled.data[assembled_start..assembled_lr],
+        (assembled_start as u16).wrapping_sub(fallback_start as u16),
+        "minicastanet fallback transcription",
+    );
+
+    // These two programs are appended at the end of the fallback catalog, so
+    // its remaining tail is exactly the LR program. Compare the same number
+    // of bytes from the symbol-derived ROM start (including the terminal END).
+    let lr_len = fallback.data.len() - fallback_lr;
+    assert_rebased_equal(
+        &fallback.data[fallback_lr..],
+        &assembled.data[assembled_lr..assembled_lr + lr_len],
+        (assembled_lr as u16).wrapping_sub(fallback_lr as u16),
+        "minicastanetLR fallback transcription",
+    );
 }

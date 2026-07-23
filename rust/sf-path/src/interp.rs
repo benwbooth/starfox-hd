@@ -31,10 +31,7 @@
 //!   `Obj_Alloc`, `Obj_Free`, `Obj_GetPlayer`, plus registered inline-65816
 //!   callbacks (C `PathInlineFunc`).
 //!
-//! Float math goes through the platform libm (`sinf`/`cosf`/`atan2f`/`sqrtf`/
-//! `lroundf` via FFI) so results are bit-identical with the C build on the
-//! same host — required for trace parity of `path_pitch_toward`,
-//! `path_add_rotated_offset` and P_GOTOPOS.
+//! Spawn Roffs and aim (GOTOPOS / face*) use ROM helpers in `sf_core`.
 
 use crate::alien::{
     Alien, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE4, ACF_COLLTYPE5, AFEXP,
@@ -44,40 +41,16 @@ use crate::alien::{
 };
 use crate::alien_compat;
 use crate::opcodes::*;
+use crate::rom_catalog_data;
+use sf_core::shape::resolve_shape_word;
 
-// libm FFI — must match the C build's float results exactly (same libm).
-mod cmath {
-    extern "C" {
-        pub fn sinf(x: f32) -> f32;
-        pub fn cosf(x: f32) -> f32;
-        pub fn atan2f(y: f32, x: f32) -> f32;
-        pub fn sqrtf(x: f32) -> f32;
-        pub fn lroundf(x: f32) -> core::ffi::c_long;
-    }
-}
-#[inline]
-fn sinf(x: f32) -> f32 {
-    unsafe { cmath::sinf(x) }
-}
-#[inline]
-fn cosf(x: f32) -> f32 {
-    unsafe { cmath::cosf(x) }
-}
-#[inline]
-fn atan2f(y: f32, x: f32) -> f32 {
-    unsafe { cmath::atan2f(y, x) }
-}
-#[inline]
-fn sqrtf(x: f32) -> f32 {
-    unsafe { cmath::sqrtf(x) }
-}
-#[inline]
-fn lroundf(x: f32) -> i64 {
-    unsafe { cmath::lroundf(x) as i64 }
-}
-
-/// C `WRAM_SIZE` (src/types.h) — size of `g_ram`.
-pub const WRAM_SIZE: usize = 0x20000;
+/// Encoded operands for the path globals mirrored directly by `PathWorld`.
+/// The `SOURCE_*` values are the original assembled addresses; `LEGACY_*`
+/// values occur only in the ROM-less source catalog retained for tests.
+const SOURCE_EROLL1_OPERAND: u16 = 0xF168;
+const SOURCE_EBYTE3_OPERAND: u16 = 0xF169;
+const LEGACY_EROLL1_OPERAND: u16 = 0x2302;
+const LEGACY_EBYTE3_OPERAND: u16 = 0x2303;
 
 const PATH_VM_STACK_DEPTH: usize = 64;
 const PATH_VM_TRIGGER_CAPACITY: usize = 16;
@@ -112,9 +85,6 @@ pub const PATH_TRIGGER_WHENHITBYPLAYER: u8 = 9;
 pub const PATH_TRIGGER_WHENFLAGGED: u8 = 10;
 pub const PATH_TRIGGER_WHENSHAPEDEAD: u8 = 11;
 pub const PATH_TRIGGER_WHENDEAD: u8 = 12;
-
-const PATH_EXT_EROLL1: u16 = 0x2302;
-const PATH_EXT_EBYTE3: u16 = 0x2303;
 
 /// C `PathTriggerEntry`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -160,6 +130,7 @@ impl Default for PathVmState {
 struct PathInlineCallback {
     script_ptr: u16,
     callback: Option<u16>,
+    continuation: u16,
 }
 
 /// External calls made by `src/path/paths.c`, one method per C symbol.
@@ -218,14 +189,42 @@ pub trait PathHost {
     /// `Obj_GetPlayer` (src/game/obj.h): index of the player object, if
     /// spawned (C returns NULL otherwise).
     fn player(&mut self, world: &PathWorld) -> Option<u16>;
-    /// Registered inline-65816 callback (C `PathInlineFunc` invoked from
-    /// P_START65816). `callback` is the id passed to
+    /// Registered native inline callback. `callback` is the id passed to
     /// [`PathWorld::register_inline_code`].
     fn run_inline(&mut self, world: &mut PathWorld, self_idx: u16, callback: u16);
     /// Dispatch for strategy refs not owned by this crate
     /// (`StratRef::External`, `StratRef::ParticlePollenStrat`, …) when the
     /// driver runs strategies through [`dispatch_strat`].
     fn run_external_strat(&mut self, world: &mut PathWorld, idx: u16, strat: StratRef);
+
+    /// Read/write a variable referenced by imported retail path data.
+    ///
+    /// The operand is decoded by the host into a named game-state field. The
+    /// path runtime deliberately owns no byte-addressed machine memory.
+    fn path_read_ext8(&mut self, world: &PathWorld, encoded_variable: u16) -> u8 {
+        match encoded_variable {
+            SOURCE_EROLL1_OPERAND | LEGACY_EROLL1_OPERAND => world.eroll1,
+            SOURCE_EBYTE3_OPERAND | LEGACY_EBYTE3_OPERAND => world.ebyte3,
+            _ => 0,
+        }
+    }
+    fn path_read_ext16(&mut self, _world: &PathWorld, _encoded_variable: u16) -> u16 {
+        0
+    }
+    fn path_write_ext8(&mut self, world: &mut PathWorld, encoded_variable: u16, value: u8) {
+        match encoded_variable {
+            SOURCE_EROLL1_OPERAND | LEGACY_EROLL1_OPERAND => world.eroll1 = value,
+            SOURCE_EBYTE3_OPERAND | LEGACY_EBYTE3_OPERAND => world.ebyte3 = value,
+            _ => {}
+        }
+    }
+    fn path_write_ext16(&mut self, _world: &mut PathWorld, _encoded_variable: u16, _value: u16) {}
+    /// Direct `g_friends_meter` write performed by P_MSGWITHMETER immediately
+    /// before Strings_SendMessage. Shipping hosts must publish it before the
+    /// message call because the string routine consumes the 0xFF handshake.
+    fn path_set_friends_meter(&mut self, world: &mut PathWorld, value: u8) {
+        world.friends_meter = value;
+    }
 }
 
 /// State owned by the path translation unit + the globals it touches.
@@ -238,6 +237,9 @@ pub struct PathWorld {
     pub path_data: Vec<u8>,
     /// `g_path_offsets` / `g_path_count`.
     pub path_offsets: Vec<u16>,
+    /// The assembled ROM blob stores P_SPAWN/P_QSPAWN operands as offsets
+    /// from `paths`; the legacy source builder stores stable Rust path ids.
+    path_operands_are_offsets: bool,
     /// `s_missing_path_warned[512]`.
     missing_path_warned: Vec<bool>,
     vm: Vec<PathVmState>,
@@ -251,6 +253,10 @@ pub struct PathWorld {
     become_path: u16,
     /// `s_path_inline_callbacks`.
     inline_callbacks: [PathInlineCallback; PATH_INLINE_CALLBACK_CAPACITY],
+    /// A registered callback can select a conditional continuation target.
+    /// Most actions use their generated static continuation; DINTRO1's
+    /// special X chase has two branches.
+    inline_return_override: Option<u16>,
 
     // --- globals from variables.h / game_vars.h touched by paths.c ---
     /// `g_aldead` (src/game/obj.h) — set to request removal of the alien
@@ -262,8 +268,6 @@ pub struct PathWorld {
     pub pviewvelz: i16,
     /// `g_playerscore` (game_vars.h).
     pub playerscore: u16,
-    /// `g_ram` (sf_rtl.c) — SNES WRAM image for import/export/index opcodes.
-    pub ram: Vec<u8>,
     /// `g_eroll1` (game_vars.h) — gate checkpoint latch (ext addr 0x2302).
     pub eroll1: u8,
     /// `g_ebyte3` (game_vars.h) — fog loop break latch (ext addr 0x2303).
@@ -307,6 +311,7 @@ impl PathWorld {
             active_list: None,
             path_data: Vec::new(),
             path_offsets: Vec::new(),
+            path_operands_are_offsets: false,
             missing_path_warned: vec![false; 512],
             vm: vec![PathVmState::default(); NUMBER_AL],
             link_obj: PATH_NULL_OBJ,
@@ -314,11 +319,11 @@ impl PathWorld {
             become_last_obj: PATH_NULL_OBJ,
             become_path: 0,
             inline_callbacks: [PathInlineCallback::default(); PATH_INLINE_CALLBACK_CAPACITY],
+            inline_return_override: None,
             aldead: 0,
             gameframe: 0,
             pviewvelz: 0,
             playerscore: 0,
-            ram: vec![0; WRAM_SIZE],
             eroll1: 0,
             ebyte3: 0,
             bunny_hp: 0,
@@ -340,19 +345,35 @@ impl PathWorld {
     pub fn paths_init(&mut self) {
         self.path_data = Vec::new();
         self.path_offsets = Vec::new();
+        self.path_operands_are_offsets = false;
         self.link_obj = PATH_NULL_OBJ;
         self.become_obj = PATH_NULL_OBJ;
         self.become_last_obj = PATH_NULL_OBJ;
         self.become_path = 0;
         self.vm = vec![PathVmState::default(); NUMBER_AL];
         self.inline_callbacks = [PathInlineCallback::default(); PATH_INLINE_CALLBACK_CAPACITY];
+        self.inline_return_override = None;
         self.missing_path_warned = vec![false; 512];
     }
 
     /// C `Paths_LoadData`.
     pub fn paths_load_data(&mut self, data: Vec<u8>, offsets: Vec<u16>) {
+        self.path_operands_are_offsets = data.len() == rom_catalog_data::ROM_PATH_CATALOG_SIZE;
         self.path_data = data;
         self.path_offsets = offsets;
+    }
+
+    /// Resolve a path reference embedded inside bytecode. The original ROM
+    /// writes offsets relative to the `paths` label, whereas the retained
+    /// hand-built fallback catalog writes stable Rust path ids.
+    fn paths_resolve_embedded_start(&mut self, value: u16) -> u16 {
+        if self.path_operands_are_offsets {
+            if (value as usize) < self.path_data.len() {
+                return value;
+            }
+            return 0;
+        }
+        self.paths_resolve_start(value)
     }
 
     /// C `Paths_ResolveStart`.
@@ -379,11 +400,17 @@ impl PathWorld {
         0
     }
 
+    /// Select the bytecode offset returned by the current registered action.
+    pub fn override_inline_return(&mut self, target: u16) {
+        self.inline_return_override = Some(target);
+    }
+
     /// C `Paths_RegisterInlineCode` (fn pointer → host callback id).
-    pub fn register_inline_code(&mut self, script_ptr: u16, callback: u16) {
+    pub fn register_inline_code(&mut self, script_ptr: u16, callback: u16, continuation: u16) {
         for slot in self.inline_callbacks.iter_mut() {
             if slot.callback.is_some() && slot.script_ptr == script_ptr {
                 slot.callback = Some(callback);
+                slot.continuation = continuation;
                 return;
             }
         }
@@ -391,16 +418,17 @@ impl PathWorld {
             if slot.callback.is_none() {
                 slot.script_ptr = script_ptr;
                 slot.callback = Some(callback);
+                slot.continuation = continuation;
                 return;
             }
         }
     }
 
     /// C `path_find_inline_code`.
-    fn find_inline_code(&self, script_ptr: u16) -> Option<u16> {
+    pub fn find_inline_code(&self, script_ptr: u16) -> Option<(u16, u16)> {
         for slot in self.inline_callbacks.iter() {
             if slot.callback.is_some() && slot.script_ptr == script_ptr {
-                return slot.callback;
+                return slot.callback.map(|callback| (callback, slot.continuation));
             }
         }
         None
@@ -431,90 +459,6 @@ impl PathWorld {
 
     fn pread16s(&self, ip: u16, offset: i32) -> i16 {
         self.pread16(ip, offset) as i16
-    }
-
-    /// C `path_decode_start65816_return`.
-    fn decode_start65816_return(&self, ip: u16) -> Option<u16> {
-        let start = ip as u32 + 1;
-        let len = self.path_data.len() as u32;
-        if start >= len {
-            return None;
-        }
-
-        // Inline 65816 snippets in PATH data are small macro expansions.
-        // Scan forward for an RTL (0x6B) and decode common return patterns:
-        // - P_END65816:   A9 lo hi 6B
-        // - P_SWITCHOUT:  A9 hi EB A9 lo 6B
-        let max_scan = 384u32;
-        let mut end = start + max_scan;
-        if end > len {
-            end = len;
-        }
-
-        let d = &self.path_data;
-        for p in start..end {
-            if d[p as usize] != 0x6B {
-                continue;
-            }
-
-            // a16; lda #imm16; rtl  => A9 lo hi 6B
-            if p >= start + 3 && d[(p - 3) as usize] == 0xA9 {
-                let lo = d[(p - 2) as usize];
-                let hi = d[(p - 1) as usize];
-                return Some((lo as u16) | ((hi as u16) << 8));
-            }
-
-            // lda #hi ; xba ; lda #lo ; rtl => A9 hi EB A9 lo 6B
-            if p >= start + 5
-                && d[(p - 5) as usize] == 0xA9
-                && d[(p - 3) as usize] == 0xEB
-                && d[(p - 2) as usize] == 0xA9
-            {
-                let hi = d[(p - 4) as usize];
-                let lo = d[(p - 1) as usize];
-                return Some((lo as u16) | ((hi as u16) << 8));
-            }
-        }
-
-        None
-    }
-
-    // --- External (WRAM) access (C path_read_ext8/16, path_write_ext8/16) ---
-    fn read_ext8(&self, addr: u16) -> u8 {
-        if addr == PATH_EXT_EROLL1 {
-            return self.eroll1;
-        }
-        if addr == PATH_EXT_EBYTE3 {
-            return self.ebyte3;
-        }
-        self.ram[addr as usize % WRAM_SIZE]
-    }
-
-    /// NOTE: like the C code, 16-bit external reads do NOT special-case the
-    /// eroll1/ebyte3 shadow addresses.
-    fn read_ext16(&self, addr: u16) -> u16 {
-        let a0 = addr as usize % WRAM_SIZE;
-        let a1 = (addr as u32 + 1) as usize % WRAM_SIZE;
-        (self.ram[a0] as u16) | ((self.ram[a1] as u16) << 8)
-    }
-
-    fn write_ext8(&mut self, addr: u16, value: u8) {
-        if addr == PATH_EXT_EROLL1 {
-            self.eroll1 = value;
-            return;
-        }
-        if addr == PATH_EXT_EBYTE3 {
-            self.ebyte3 = value;
-            return;
-        }
-        self.ram[addr as usize % WRAM_SIZE] = value;
-    }
-
-    fn write_ext16(&mut self, addr: u16, value: u16) {
-        let a0 = addr as usize % WRAM_SIZE;
-        let a1 = (addr as u32 + 1) as usize % WRAM_SIZE;
-        self.ram[a0] = (value & 0xFF) as u8;
-        self.ram[a1] = ((value >> 8) & 0xFF) as u8;
     }
 
     // --- VM stack (C path_vm_push / path_vm_pop) ---
@@ -603,17 +547,13 @@ fn path_get_obj_by_ptr(world: &PathWorld, ptr_index: u16) -> Option<usize> {
     Some(ptr_index as usize)
 }
 
-/// C `path_pitch_toward`.
+/// ROM `Xanglexy_l` — elevation via `xzdiffs_l` adjacent (not float hypot).
 fn path_pitch_toward(src: &Alien, dst: &Alien) -> u8 {
-    let dy = (dst.worldy as i32 - src.worldy as i32) as f32;
-    let dx = (dst.worldx as i32 - src.worldx as i32) as f32;
-    let dz = (dst.worldz as i32 - src.worldz as i32) as f32;
-    let dist = sqrtf(dx * dx + dz * dz);
-    if dist <= 1.0 {
-        return src.rotx;
-    }
-    let pitch = atan2f(dy, dist);
-    ((pitch * (256.0f32 / (2.0f32 * 3.141_592_65_f32))) as i32) as u8
+    sf_core::aim_angle::xanglexy(
+        dst.worldy.wrapping_sub(src.worldy),
+        dst.worldx.wrapping_sub(src.worldx),
+        dst.worldz.wrapping_sub(src.worldz),
+    )
 }
 
 /// C `path_find_near_shape`.
@@ -625,10 +565,11 @@ fn path_find_near_shape(
     max_z: i16,
     max_xy: i16,
 ) -> Option<usize> {
-    let mut mapped_shape = shape_id;
-    if shape_id < 256 {
-        mapped_shape = world.shapes_table[(shape_id as u8) as usize];
-    }
+    let mapped_shape = if shape_id < 256 {
+        world.shapes_table[(shape_id as u8) as usize]
+    } else {
+        resolve_shape_word(shape_id)
+    };
 
     let sself = &world.aliens[self_idx];
     let mut best: Option<usize> = None;
@@ -1064,13 +1005,9 @@ fn path_switch_context_by_ptr(world: &PathWorld, self_idx: &mut usize, ptr: u16)
     path_switch_context_to(world, self_idx, target)
 }
 
-/// C `path_add_rotated_offset` — ROM `s_add_Roffs2pos` (STRATMAC.INC:4098):
-/// rotate the offset by the source rots in Z, X, Y order (rotate_8yx,
-/// rotate_8yz, rotate_8xz), then shift each component left `scale_shift`
-/// times before adding to the position (PATHS.ASM:1790 passes 2,2,2 for the
-/// spawn opcodes — a x4 scale on the stored coord/4 payload bytes). Trig is
-/// float here; the ROM's fixed-point tables lose a few units of magnitude,
-/// which the oracle audit tolerates.
+/// C `path_add_rotated_offset` — ROM `s_add_Roffs2pos` flags 1,1,1
+/// (STRATMAC.INC:4098 / PATHS.ASM:1790): `rotate_8yx` → `rotate_8yz` →
+/// `rotate_8xz`, then `ASL` each axis `scale_shift` times (P_SPAWN uses 2).
 fn path_add_rotated_offset(
     world: &mut PathWorld,
     dst: usize,
@@ -1084,39 +1021,12 @@ fn path_add_rotated_offset(
         let s = &world.aliens[src];
         (s.rotx, s.roty, s.rotz)
     };
-
-    let x = ox as f32;
-    let y = oy as f32;
-    let z = oz as f32;
-
-    const TWO_PI_OVER_256: f32 = 2.0f32 * 3.141_592_65_f32 / 256.0f32;
-    let rx = srotx as f32 * TWO_PI_OVER_256;
-    let ry = sroty as f32 * TWO_PI_OVER_256;
-    let rz = srotz as f32 * TWO_PI_OVER_256;
-
-    let (cx, sx) = (cosf(rx), sinf(rx));
-    let (cy, sy) = (cosf(ry), sinf(ry));
-    let (cz, sz) = (cosf(rz), sinf(rz));
-
-    // Z rotation (ROM rotate_8yx)
-    let x1 = (x * cz) - (y * sz);
-    let y1 = (x * sz) + (y * cz);
-    let z1 = z;
-
-    // X rotation (ROM rotate_8yz)
-    let y2 = (y1 * cx) - (z1 * sx);
-    let z2 = (y1 * sx) + (z1 * cx);
-    let x2 = x1;
-
-    // Y rotation (ROM rotate_8xz)
-    let x3 = (x2 * cy) + (z2 * sy);
-    let z3 = (-x2 * sy) + (z2 * cy);
-    let y3 = y2;
-
+    let (dx, dy, dz) =
+        sf_core::snes_trig::strat_roffs_full_scaled(srotz, srotx, sroty, ox, oy, oz, scale_shift);
     let d = &mut world.aliens[dst];
-    d.worldx = d.worldx.wrapping_add((lroundf(x3) as i16) << scale_shift);
-    d.worldy = d.worldy.wrapping_add((lroundf(y3) as i16) << scale_shift);
-    d.worldz = d.worldz.wrapping_add((lroundf(z3) as i16) << scale_shift);
+    d.worldx = d.worldx.wrapping_add(dx);
+    d.worldy = d.worldy.wrapping_add(dy);
+    d.worldz = d.worldz.wrapping_add(dz);
 }
 
 /// C `path_trigger_condition`.
@@ -1367,7 +1277,9 @@ fn path_spawn_text_trail<H: PathHost>(world: &mut PathWorld, host: &mut H, self_
     host.init_obj_vars(&mut world.aliens[trail]);
     let (rotx, roty, rotz, worldx, worldy, worldz, coltab, tx, ty) = {
         let s = &world.aliens[self_idx];
-        (s.rotx, s.roty, s.rotz, s.worldx, s.worldy, s.worldz, s.coltab, s.tx, s.ty)
+        (
+            s.rotx, s.roty, s.rotz, s.worldx, s.worldy, s.worldz, s.coltab, s.tx, s.ty,
+        )
     };
     let t = &mut world.aliens[trail];
     t.hp = 10;
@@ -1669,10 +1581,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             // ============================================================
             P_FACEPLAYER => {
                 if let Some(pi) = host.player(world).map(|p| p as usize) {
-                    let target_yaw = host.angle_xz(&world.aliens[si], &world.aliens[pi]);
+                    // ROM s_obj2obj_3dangle: nega(Yanglexy) + Xanglexy, rate 2.
+                    let target_yaw = host
+                        .angle_xz(&world.aliens[si], &world.aliens[pi])
+                        .wrapping_neg();
                     let target_pitch = path_pitch_toward(&world.aliens[si], &world.aliens[pi]);
                     let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                    // ROM s_obj2obj_3dangle rate 2 (PATHS.ASM:573), proportional.
                     world.aliens[si].roty = path_achase8(roty, target_yaw, 2);
                     world.aliens[si].rotx = path_achase8(rotx, target_pitch, 2);
                 }
@@ -1773,11 +1687,13 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                         continue 'dispatch;
                     }
                 };
-                let target_yaw = host.angle_xz(&world.aliens[si], &world.aliens[obj]);
+                // ROM s_obj2obj_3dangle rate 3: nega(Yanglexy) + Xanglexy.
+                let target_yaw = host
+                    .angle_xz(&world.aliens[si], &world.aliens[obj])
+                    .wrapping_neg();
                 let target_pitch = path_pitch_toward(&world.aliens[si], &world.aliens[obj]);
                 let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                // ROM s_obj2obj_3dangle rate 3 (PATHS.ASM:1000); finishes only
-                // when both angles were already equal AT ENTRY.
+                // Finishes only when both angles were already equal AT ENTRY.
                 let done = roty == target_yaw && rotx == target_pitch;
                 world.aliens[si].roty = path_achase8(roty, target_yaw, 3);
                 world.aliens[si].rotx = path_achase8(rotx, target_pitch, 3);
@@ -1820,13 +1736,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 }
 
                 if world.aliens[si].sflags2 & PSFLAG1_RELZ != 0 {
-                    world.aliens[si].worldz =
-                        world.aliens[si].worldz.wrapping_add(world.pviewvelz);
+                    world.aliens[si].worldz = world.aliens[si].worldz.wrapping_add(world.pviewvelz);
                 }
 
-                let dx = (target_x as i32 - world.aliens[si].worldx as i32) as i16;
-                let dy = (target_y as i32 - world.aliens[si].worldy as i32) as i16;
-                let dz = (target_z as i32 - world.aliens[si].worldz as i32) as i16;
+                let dx = target_x.wrapping_sub(world.aliens[si].worldx);
+                let dy = target_y.wrapping_sub(world.aliens[si].worldy);
+                let dz = target_z.wrapping_sub(world.aliens[si].worldz);
                 if (dx as i32).abs() <= 4 && (dy as i32).abs() <= 4 && (dz as i32).abs() <= 4 {
                     advance = 8;
                     ip = ip.wrapping_add(advance as u16);
@@ -1834,26 +1749,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     continue 'dispatch;
                 }
 
-                let fdx = dx as f32;
-                let fdy = dy as f32;
-                let fdz = dz as f32;
-                let mut yaw_rad = atan2f(fdx, fdz);
-                if yaw_rad < 0.0 {
-                    yaw_rad += 2.0f32 * 3.141_592_65_f32;
-                }
-                let target_yaw =
-                    ((yaw_rad * (256.0f32 / (2.0f32 * 3.141_592_65_f32))) as i32) as u8;
-                let flat = sqrtf(fdx * fdx + fdz * fdz);
-                let mut target_pitch = world.aliens[si].rotx;
-                if flat > 1.0 {
-                    let pitch = atan2f(fdy, flat);
-                    target_pitch =
-                        ((pitch * (256.0f32 / (2.0f32 * 3.141_592_65_f32))) as i32) as u8;
-                }
+                // ROM s_goto_WP → s_obj2WP_angle: nega(anglexy_abs) + Xanglexabs.
+                let target_yaw = sf_core::aim_angle::yanglexy_nega(dx, dz);
+                let target_pitch = sf_core::aim_angle::xanglexabs(dy, dx, dz);
 
                 let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                // ROM s_goto_WP angle chase rate 2 (PATHS.ASM:1091 via
-                // s_obj2WP_angle -> Achase_alvar2a), proportional.
+                // ROM angle chase rate 2 (PATHS.ASM:1091).
                 world.aliens[si].roty = path_achase8(roty, target_yaw, 2);
                 world.aliens[si].rotx = path_achase8(rotx, target_pitch, 2);
                 world.aliens[si].vel = speed;
@@ -1913,7 +1814,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_DEBRIS => {
-                world.aliens[si].debrisshape = world.pread16(ip, 1);
+                world.aliens[si].debrisshape = resolve_shape_word(world.pread16(ip, 1));
                 advance = 3;
             }
 
@@ -1955,9 +1856,13 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                             // s_jmp_random .cock,40 -> 102: r<102 falcon else
                             // rabbit (PATHS.ASM:1278-1282).
                             let r = host.random() as u8;
-                            Some(if r < 102 { FRIEND_FALCON } else { FRIEND_RABBIT })
+                            Some(if r < 102 {
+                                FRIEND_FALCON
+                            } else {
+                                FRIEND_RABBIT
+                            })
                         } else {
-                            // Only falcon alive (.4060cockbunny: lda bunny;
+                            // Only falcon alive (source branch .4060cockbunny;
                             // beq .cock, PATHS.ASM:1279-1280) — no draw.
                             Some(FRIEND_FALCON)
                         }
@@ -1969,7 +1874,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                             let r = host.random() as u8;
                             Some(if r < 127 { FRIEND_FROG } else { FRIEND_RABBIT })
                         } else {
-                            // Only frog alive (.5050bunnyfrog: lda bunny;
+                            // Only frog alive (source branch .5050bunnyfrog;
                             // beq .frog, PATHS.ASM:1289-1290) — no draw.
                             Some(FRIEND_FROG)
                         }
@@ -2009,10 +1914,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].shape = if shape < 256 {
                         world.shapes_table[(shape as u8) as usize]
                     } else {
-                        shape
+                        resolve_shape_word(shape)
                     };
                     strat_path_init(&mut world.aliens[na]);
-                    let start = world.paths_resolve_start(path_start);
+                    let start = world.paths_resolve_embedded_start(path_start);
                     world.aliens[na].sword2 = start as i16;
                     let (wx, wy, wz, srotx, sroty, srotz) = {
                         let s = &world.aliens[si];
@@ -2061,10 +1966,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].shape = if shape < 256 {
                         world.shapes_table[(shape as u8) as usize]
                     } else {
-                        shape
+                        resolve_shape_word(shape)
                     };
                     strat_path_init(&mut world.aliens[na]);
-                    let start = world.paths_resolve_start(path_start);
+                    let start = world.paths_resolve_embedded_start(path_start);
                     world.aliens[na].sword2 = start as i16;
                     let mother = path_get_mother_obj(world, si).unwrap_or(si);
                     path_attach_child_to_mother(world, mother, na, child_num);
@@ -2361,20 +2266,23 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_ADDROTX => {
-                world.aliens[si].rotx =
-                    world.aliens[si].rotx.wrapping_add(world.pread8s(ip, 1) as u8);
+                world.aliens[si].rotx = world.aliens[si]
+                    .rotx
+                    .wrapping_add(world.pread8s(ip, 1) as u8);
                 advance = 2;
             }
 
             P_ADDROTY => {
-                world.aliens[si].roty =
-                    world.aliens[si].roty.wrapping_add(world.pread8s(ip, 1) as u8);
+                world.aliens[si].roty = world.aliens[si]
+                    .roty
+                    .wrapping_add(world.pread8s(ip, 1) as u8);
                 advance = 2;
             }
 
             P_ADDROTZ => {
-                world.aliens[si].rotz =
-                    world.aliens[si].rotz.wrapping_add(world.pread8s(ip, 1) as u8);
+                world.aliens[si].rotz = world.aliens[si]
+                    .rotz
+                    .wrapping_add(world.pread8s(ip, 1) as u8);
                 advance = 2;
             }
 
@@ -2425,9 +2333,8 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread16(ip, 3);
                 let mut take = false;
                 if let Some(pi) = path_get_player(world, host) {
-                    let zdist =
-                        (world.aliens[si].worldz as i32 - world.aliens[pi].worldz as i32).abs()
-                            as i16;
+                    let zdist = (world.aliens[si].worldz as i32 - world.aliens[pi].worldz as i32)
+                        .abs() as i16;
                     take = zdist < dist;
                 }
                 if invert_next_cond {
@@ -2447,9 +2354,8 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread16(ip, 3);
                 let mut take = false;
                 if let Some(obj) = path_get_obj_by_ptr(world, world.aliens[si].ptr) {
-                    let zdist =
-                        (world.aliens[si].worldz as i32 - world.aliens[obj].worldz as i32).abs()
-                            as i16;
+                    let zdist = (world.aliens[si].worldz as i32 - world.aliens[obj].worldz as i32)
+                        .abs() as i16;
                     take = zdist < dist;
                 }
                 if invert_next_cond {
@@ -2577,11 +2483,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             // ============================================================
             P_WAITFACEPLAYER => {
                 if let Some(pi) = host.player(world).map(|p| p as usize) {
-                    let target_yaw = host.angle_xz(&world.aliens[si], &world.aliens[pi]);
+                    // ROM s_obj2obj_3dangle rate 3: nega(Yanglexy) + Xanglexy.
+                    let target_yaw = host
+                        .angle_xz(&world.aliens[si], &world.aliens[pi])
+                        .wrapping_neg();
                     let target_pitch = path_pitch_toward(&world.aliens[si], &world.aliens[pi]);
                     let (roty, rotx) = (world.aliens[si].roty, world.aliens[si].rotx);
-                    // ROM s_obj2obj_3dangle rate 3 (PATHS.ASM:567); finishes
-                    // only when both angles were already equal AT ENTRY.
                     let done = roty == target_yaw && rotx == target_pitch;
                     world.aliens[si].roty = path_achase8(roty, target_yaw, 3);
                     world.aliens[si].rotx = path_achase8(rotx, target_pitch, 3);
@@ -2726,13 +2633,18 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_START65816 => {
-                if let Some(cb) = world.find_inline_code(ip) {
-                    host.run_inline(world, si as u16, cb);
-                    if world.aldead != 0 {
-                        return;
-                    }
-                }
-                if let Some(target) = world.decode_start65816_return(ip) {
+                world.inline_return_override = None;
+                let default_continuation =
+                    if let Some((cb, continuation)) = world.find_inline_code(ip) {
+                        host.run_inline(world, si as u16, cb);
+                        if world.aldead != 0 {
+                            return;
+                        }
+                        Some(continuation)
+                    } else {
+                        None
+                    };
+                if let Some(target) = world.inline_return_override.take().or(default_continuation) {
                     ip = target;
                     world.aliens[si].sword2 = ip as i16;
                     continue 'dispatch;
@@ -2896,7 +2808,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
 
             P_IFSAMEW => {
                 let offset = world.pread8(ip, 1);
-                let value = world.pread16(ip, 2);
+                let value = alien_compat::path_comparison_word(offset, world.pread16(ip, 2));
                 let target = world.pread16(ip, 4);
                 let mut take = alien_compat::path_read16(&world.aliens[si], offset)
                     .map(|cur| cur == value)
@@ -2971,7 +2883,13 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let offset = world.pread8(ip, 1);
                 let target = world.pread16(ip, 2);
                 let mut take = alien_compat::path_read8(&world.aliens[si], offset)
-                    .map(|cur| if opcode == P_IFZEROB { cur == 0 } else { cur != 0 })
+                    .map(|cur| {
+                        if opcode == P_IFZEROB {
+                            cur == 0
+                        } else {
+                            cur != 0
+                        }
+                    })
                     .unwrap_or(false);
                 if invert_next_cond {
                     take = !take;
@@ -2989,7 +2907,13 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let offset = world.pread8(ip, 1);
                 let target = world.pread16(ip, 2);
                 let mut take = alien_compat::path_read16(&world.aliens[si], offset)
-                    .map(|cur| if opcode == P_IFZEROW { cur == 0 } else { cur != 0 })
+                    .map(|cur| {
+                        if opcode == P_IFZEROW {
+                            cur == 0
+                        } else {
+                            cur != 0
+                        }
+                    })
                     .unwrap_or(false);
                 if invert_next_cond {
                     take = !take;
@@ -3017,7 +2941,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
 
             P_MSGWITHMETER => {
                 let msg_id = world.pread8(ip, 1);
-                world.friends_meter = 0xFF;
+                host.path_set_friends_meter(world, 0xFF);
                 host.send_message(msg_id);
                 advance = 2;
             }
@@ -3072,10 +2996,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].shape = if shape < 256 {
                         world.shapes_table[(shape as u8) as usize]
                     } else {
-                        shape
+                        resolve_shape_word(shape)
                     };
                     strat_path_init(&mut world.aliens[na]);
-                    let start = world.paths_resolve_start(path_start);
+                    let start = world.paths_resolve_embedded_start(path_start);
                     world.aliens[na].sword2 = start as i16;
                     let (wx, wy, wz, rx, ry, rz) = {
                         let s = &world.aliens[si];
@@ -3098,10 +3022,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let offset = world.pread8(ip, 1);
                 let addr = world.pread16(ip, 2);
                 if opcode == P_IMPORTW {
-                    let value = world.read_ext16(addr);
+                    let value = host.path_read_ext16(world, addr);
                     alien_compat::path_write16(&mut world.aliens[si], offset, value);
                 } else {
-                    let value = world.read_ext8(addr);
+                    let value = host.path_read_ext8(world, addr);
                     alien_compat::path_write8(&mut world.aliens[si], offset, value);
                 }
                 advance = 4;
@@ -3112,10 +3036,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let addr = world.pread16(ip, 2);
                 if opcode == P_EXPORTW {
                     if let Some(value) = alien_compat::path_read16(&world.aliens[si], offset) {
-                        world.write_ext16(addr, value);
+                        host.path_write_ext16(world, addr, value);
                     }
                 } else if let Some(value) = alien_compat::path_read8(&world.aliens[si], offset) {
-                    world.write_ext8(addr, value);
+                    host.path_write_ext8(world, addr, value);
                 }
                 advance = 4;
             }
@@ -3166,10 +3090,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 if let Some(index_src) = path_abs_read16(&world.aliens[si], index_abs) {
                     let idx = index_src & 0x00FF;
                     if opcode == P_INDEXW {
-                        let value = world.read_ext16(table_addr.wrapping_add(idx << 1));
+                        let value = host.path_read_ext16(world, table_addr.wrapping_add(idx << 1));
                         path_abs_write16(&mut world.aliens[si], dest_abs, value);
                     } else {
-                        let value = world.read_ext8(table_addr.wrapping_add(idx));
+                        let value = host.path_read_ext8(world, table_addr.wrapping_add(idx));
                         path_abs_write8(&mut world.aliens[si], dest_abs, value);
                     }
                 }

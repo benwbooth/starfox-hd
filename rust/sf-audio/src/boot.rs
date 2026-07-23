@@ -13,45 +13,18 @@ use crate::spc::IPL_ROM;
 use std::fmt;
 use std::path::Path;
 
-// ---------------------------------------------------------------------------
-// Track IDs matching sndtbl order in SOUND.ASM (C spc_boot.h SND_*).
-// ---------------------------------------------------------------------------
-pub const SND_INIT: u8 = 0;
-pub const SND_INTRO: u8 = 1;
-pub const SND_TITLE: u8 = 2;
-pub const SND_OPS: u8 = 3;
-pub const SND_TRAINING: u8 = 4;
-pub const SND_MAP: u8 = 5;
-pub const SND_CONTINUE: u8 = 6;
-pub const SND_BHOLE: u8 = 7;
-pub const SND_10: u8 = 8;
-pub const SND_11: u8 = 9;
-pub const SND_12: u8 = 10;
-pub const SND_13: u8 = 11;
-pub const SND_13B: u8 = 12;
-pub const SND_14: u8 = 13;
-pub const SND_15: u8 = 14;
-pub const SND_16: u8 = 15;
-pub const SND_20: u8 = 16;
-pub const SND_21: u8 = 17;
-pub const SND_22: u8 = 18;
-pub const SND_23: u8 = 19;
-pub const SND_24: u8 = 20;
-pub const SND_25: u8 = 21;
-pub const SND_26: u8 = 22;
-pub const SND_30: u8 = 23;
-pub const SND_31: u8 = 24;
-pub const SND_32: u8 = 25;
-pub const SND_33: u8 = 26;
-pub const SND_34: u8 = 27;
-pub const SND_35: u8 = 28;
-pub const SND_36: u8 = 29;
-pub const SND_37: u8 = 30;
-pub const SND_ENDSEQ: u8 = 31;
-pub const SND_STAFF: u8 = 32;
-pub const SND_GAMEOVER: u8 = 33;
-pub const SND_SPECIAL: u8 = 34;
-pub const SND_TRACK_COUNT: u8 = 35;
+// Oracle tooling and shipping playback share one typed catalog, preventing
+// the offline renderer from silently naming a cue differently from runtime.
+pub use crate::catalog::{
+    SND_10, SND_11, SND_12, SND_13, SND_13B, SND_14, SND_15, SND_16, SND_20, SND_21, SND_22,
+    SND_23, SND_24, SND_25, SND_26, SND_30, SND_31, SND_32, SND_33, SND_34, SND_35, SND_36, SND_37,
+    SND_BHOLE, SND_CONTINUE, SND_ENDSEQ, SND_GAMEOVER, SND_INIT, SND_INTRO, SND_MAP, SND_OPS,
+    SND_SPECIAL, SND_STAFF, SND_TITLE, SND_TRACK_COUNT, SND_TRAINING,
+};
+
+/// ROM `SOUND5LEN` ($009424) — byte length of `SGSOUND5.BIN` (tunnel/intro
+/// sample bank). Data symbol, not a callable; kept for ledger parity.
+pub const SOUND5_LEN: u32 = 0x009424;
 
 // ---------------------------------------------------------------------------
 // Track-to-file mapping table (C `s_track_files`, from SOUND.ASM sndtbl).
@@ -110,58 +83,10 @@ const TRACK_FILES: [&[&str]; SND_TRACK_COUNT as usize] = [
     /* SND_SPECIAL  */ &["SGSOUND3.BIN", "SGBGMP.BIN"],
 ];
 
-// ---------------------------------------------------------------------------
-// Per-track BGM start command (C `s_track_bgm_cmd`; 2nd argument of snd_data
-// in SOUND.ASM sndtbl).  After sbootapu finishes, the game's startmus loop
-// (IRQ.ASM) writes this value to APU port 0 to actually start the music.
-// ---------------------------------------------------------------------------
-#[rustfmt::skip]
-const TRACK_BGM_CMD: [u8; SND_TRACK_COUNT as usize] = [
-    /* SND_INIT     */ 0x00,
-    /* SND_INTRO    */ 0x12,
-    /* SND_TITLE    */ 0x12,
-    /* SND_OPS      */ 0x12,
-    /* SND_TRAINING */ 0x03,
-    /* SND_MAP      */ 0x01,
-    /* SND_CONTINUE */ 0x0A,
-    /* SND_BHOLE    */ 0x03,
-    /* SND_10       */ 0x10,   // snd_data 10,16 (decimal)
-    /* SND_11       */ 0x03,
-    /* SND_12       */ 0x03,
-    /* SND_13       */ 0x09,
-    /* SND_13B      */ 0x03,
-    /* SND_14       */ 0x03,
-    /* SND_15       */ 0x03,
-    /* SND_16       */ 0x03,
-    /* SND_20       */ 0x10,
-    /* SND_21       */ 0x03,
-    /* SND_22       */ 0x03,
-    /* SND_23       */ 0x03,
-    /* SND_24       */ 0x03,
-    /* SND_25       */ 0x03,
-    /* SND_26       */ 0x03,
-    /* SND_30       */ 0x10,
-    /* SND_31       */ 0x03,
-    /* SND_32       */ 0x03,
-    /* SND_33       */ 0x03,
-    /* SND_34       */ 0x03,
-    /* SND_35       */ 0x03,
-    /* SND_36       */ 0x03,
-    /* SND_37       */ 0x03,
-    /* SND_ENDSEQ   */ 0x03,
-    /* SND_STAFF    */ 0x12,
-    /* SND_GAMEOVER */ 0x0C,
-    /* SND_SPECIAL  */ 0x03,
-];
-
 /// BGM start command for a track (C `SpcBoot_TrackCommand`).
 /// Out-of-table values are raw driver commands, returned unchanged.
 pub fn track_command(track_id: u8) -> u8 {
-    if track_id < SND_TRACK_COUNT {
-        TRACK_BGM_CMD[track_id as usize]
-    } else {
-        track_id
-    }
+    crate::catalog::track_start_cue(track_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +128,8 @@ pub enum BootError {
     InvalidTrack(u8),
     /// SGSOUND0.BIN (the driver) could not be read — no audio possible.
     MissingDriver(std::io::Error),
+    /// An upload program must begin with a sound-driver file.
+    EmptyProgram,
     /// Timed out waiting for the IPL ready signal ($AA/$BB).
     ReadyTimeout,
     /// Timed out waiting for a port-0 echo of `val` during `what`.
@@ -216,11 +143,18 @@ impl fmt::Display for BootError {
         match self {
             BootError::InvalidTrack(id) => write!(f, "SPC Boot: invalid track ID {id}"),
             BootError::MissingDriver(e) => {
-                write!(f, "SPC Boot: cannot load driver SGSOUND0.BIN ({e}) — no audio")
+                write!(
+                    f,
+                    "SPC Boot: cannot load driver SGSOUND0.BIN ({e}) — no audio"
+                )
             }
+            BootError::EmptyProgram => write!(f, "SPC Boot: empty upload program"),
             BootError::ReadyTimeout => write!(f, "SPC Boot: timeout waiting for IPL ready"),
             BootError::EchoTimeout { what, val } => {
-                write!(f, "SPC Boot: timeout waiting for echo ${val:02X} during {what}")
+                write!(
+                    f,
+                    "SPC Boot: timeout waiting for echo ${val:02X} during {what}"
+                )
             }
             BootError::Malformed { file } => {
                 write!(f, "SPC Boot: sub-block overflows file {file}")
@@ -305,7 +239,8 @@ impl<'a, S: SpcEngine> Booter<'a, S> {
         // follows), block command -> port 0.  The IPL echoes the command.
         self.spc.write_port(0, 2, (dest & 0xFF) as i32);
         self.spc.write_port(0, 3, (dest >> 8) as i32);
-        self.spc.write_port(0, 1, if data.is_empty() { 0 } else { 1 });
+        self.spc
+            .write_port(0, 1, if data.is_empty() { 0 } else { 1 });
         self.spc.write_port(0, 0, *cmd as i32);
         self.wait_echo(*cmd, "block header")?;
 
@@ -399,22 +334,7 @@ pub fn load_track<S: SpcEngine>(
         return Err(BootError::InvalidTrack(track_id));
     }
 
-    // -----------------------------------------------------------------------
-    // 1. Power-cycle the SPC and let the IPL ROM come up.  (The original
-    //    instead pokes $FF at the resident driver to re-enter the IPL; a
-    //    full reset reaches the same state since we re-upload the driver.)
-    // -----------------------------------------------------------------------
-    spc.init_rom(&IPL_ROM);
-    spc.reset();
-
-    let mut b = Booter::new(spc);
-    b.wait_ready()?;
-
-    // First block is announced with the magic $CC kick (sboot_initial).
-    let mut cmd: u8 = 0xCC;
-
-    // -----------------------------------------------------------------------
-    // 2. Build the upload list: driver, resident common banks (if the track
+    // Build the upload list: driver, resident common banks (if the track
     //    needs them), then the track's own files.  Duplicates are skipped so
     //    rows that already list sound1/band don't upload twice; later files
     //    intentionally overwrite earlier ones (band over orchestra, etc.).
@@ -431,36 +351,65 @@ pub fn load_track<S: SpcEngine>(
         }
     }
 
-    for (i, &file) in upload_list.iter().enumerate() {
+    load_files(spc, &upload_list, asset_dir, SPC_DRIVER_ENTRY)
+}
+
+/// Upload an explicitly selected source-game sound program for offline
+/// verification and start its driver.
+///
+/// This is the game-neutral form of [`load_track`]. It is used by oracle
+/// tooling for Star Fox 2, whose retail host selects variable lists of upload
+/// blobs rather than SF1's fixed track table. The shipping runtime does not
+/// compile this module and only consumes rendered PCM.
+pub fn load_files<S: SpcEngine>(
+    spc: &mut S,
+    upload_list: &[&'static str],
+    asset_dir: &Path,
+    driver_entry: u16,
+) -> Result<(), BootError> {
+    if upload_list.is_empty() {
+        return Err(BootError::EmptyProgram);
+    }
+
+    // Power-cycle the sound processor and let its immutable boot program come
+    // up. The retail host re-enters that program between scene loads; a reset
+    // reaches the same upload state because this routine supplies the complete
+    // resident program explicitly.
+    spc.init_rom(&IPL_ROM);
+    spc.reset();
+
+    let mut booter = Booter::new(spc);
+    booter.wait_ready()?;
+
+    // First block is announced with the boot protocol's start token.
+    let mut command: u8 = 0xCC;
+    for (index, &file) in upload_list.iter().enumerate() {
         let data = match load_bin_file(asset_dir, file) {
             Ok(d) => d,
             Err(e) => {
-                if i == 0 {
+                if index == 0 {
                     return Err(BootError::MissingDriver(e));
                 }
                 eprintln!("SPC Boot: skipping missing file {file} ({e})");
                 continue;
             }
         };
-        b.upload_file(file, &data, &mut cmd)?;
+        booter.upload_file(file, &data, &mut command)?;
     }
 
-    // -----------------------------------------------------------------------
-    // 3. Jump to the driver entry point ($0400).
-    // -----------------------------------------------------------------------
-    b.start_exec(SPC_DRIVER_ENTRY, cmd)?;
+    booter.start_exec(driver_entry, command)?;
 
     // Let the driver run its init before any BGM/SFX commands are written.
     // On real hardware at least a frame passes before startmus (IRQ) writes
     // port 0; the driver samples the ports as its idle baseline during init,
     // so a command written too early is never seen as a change.  ~130 ms.
     for _ in 0..64 {
-        b.advance(2048);
+        booter.advance(2048);
     }
 
     // Detach the boot buffer so the emulator retains no pointer into it
     // (the next play_filtered call re-arms the output internally).
-    drop(b);
+    drop(booter);
     spc.detach_output();
 
     Ok(())
@@ -485,11 +434,31 @@ mod tests {
 
     #[test]
     fn common_banks_gate_matches_oracle() {
-        for t in [SND_INIT, SND_INTRO, SND_TITLE, SND_OPS, SND_ENDSEQ, SND_STAFF] {
+        for t in [
+            SND_INIT, SND_INTRO, SND_TITLE, SND_OPS, SND_ENDSEQ, SND_STAFF,
+        ] {
             assert!(!track_needs_common_banks(t), "track {t} is self-contained");
         }
-        for t in [SND_TRAINING, SND_MAP, SND_CONTINUE, SND_BHOLE, SND_11, SND_GAMEOVER] {
+        for t in [
+            SND_TRAINING,
+            SND_MAP,
+            SND_CONTINUE,
+            SND_BHOLE,
+            SND_11,
+            SND_GAMEOVER,
+        ] {
             assert!(track_needs_common_banks(t), "track {t} needs common banks");
+        }
+    }
+
+    #[test]
+    fn sound5_len_matches_asset() {
+        // ROM SOUND5LEN $009424 — byte length of SGSOUND5.BIN.
+        assert_eq!(SOUND5_LEN, 0x009424);
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/snd/SGSOUND5.BIN");
+        if path.is_file() {
+            let meta = std::fs::metadata(&path).expect("SGSOUND5.BIN meta");
+            assert_eq!(meta.len(), SOUND5_LEN as u64);
         }
     }
 }

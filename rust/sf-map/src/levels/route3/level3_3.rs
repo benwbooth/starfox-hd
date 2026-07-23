@@ -111,8 +111,7 @@ pub(crate) fn build() -> Route3Level {
     // Lines 59-60: .pdead2 — dead-check loop
     b.label("level3_3.pdead2");
     b.mapwait(1000);
-    // C: capture discarded — the label lookup after resolve overrides it.
-    let _pdead2_capture = b.mapcode65816_inline(); 
+    let pdead2_capture = b.mapcode65816_inline();
 
     // Line 61: mapfadetosea
     b.mapfadetosea();
@@ -123,9 +122,27 @@ pub(crate) fn build() -> Route3Level {
     b.mapwait(1000);
 
     // Lines 66-68: three flyfish pathcspecials
-    b.pathcspecial(1000, 200, 0, 4000, SH_F_FISH_PROXY, PATH_ID_E_FLYFISH, 10, 10);
+    b.pathcspecial(
+        1000,
+        200,
+        0,
+        4000,
+        SH_F_FISH_PROXY,
+        PATH_ID_E_FLYFISH,
+        10,
+        10,
+    );
     b.pathcspecial(5000, 0, 0, 4000, SH_F_FISH_PROXY, PATH_ID_E_FLYFISH, 10, 10);
-    b.pathcspecial(1000, -200, 0, 4000, SH_F_FISH_PROXY, PATH_ID_E_FLYFISH, 10, 10);
+    b.pathcspecial(
+        1000,
+        -200,
+        0,
+        4000,
+        SH_F_FISH_PROXY,
+        PATH_ID_E_FLYFISH,
+        10,
+        10,
+    );
 
     // Lines 70-72: torpedo spawners
     b.mapobj(500, 0, 0, 2000, SH_NULLSHAPE, IS_TORPEDO);
@@ -160,14 +177,14 @@ pub(crate) fn build() -> Route3Level {
     b.nessie(3000, -400, 0, 5000, 32, 40);
 
     // Line 90: mapmother — mother_snakes pattern (children spawn inert
-    // until seadragon_istrat is ported; STRAT_ADDR_SEADRAGON is reserved).
+    // until seadragon_istrat is ported; STRATEGY_SEADRAGON is reserved).
     b.mapmother(
         4000,
         0,
         0,
         3000,
         SH_MOTHER1,
-        STRAT_ADDR_MOTHER2,
+        STRATEGY_MOTHER2,
         crate::mothers::mother_maps().mother_snakes,
     );
 
@@ -195,9 +212,27 @@ pub(crate) fn build() -> Route3Level {
     b.pathcspecial(2500, -1000, -100, 0, SH_BOSS_D_4, PATH_ID_KAMOME, 10, 10);
 
     // Lines 105-107: three flyfish
-    b.pathcspecial(1000, 200, 0, 4000, SH_F_FISH_PROXY, PATH_ID_E_FLYFISH, 10, 10);
+    b.pathcspecial(
+        1000,
+        200,
+        0,
+        4000,
+        SH_F_FISH_PROXY,
+        PATH_ID_E_FLYFISH,
+        10,
+        10,
+    );
     b.pathcspecial(1000, 0, 0, 4000, SH_F_FISH_PROXY, PATH_ID_E_FLYFISH, 10, 10);
-    b.pathcspecial(3000, -200, 0, 4000, SH_F_FISH_PROXY, PATH_ID_E_FLYFISH, 10, 10);
+    b.pathcspecial(
+        3000,
+        -200,
+        0,
+        4000,
+        SH_F_FISH_PROXY,
+        PATH_ID_E_FLYFISH,
+        10,
+        10,
+    );
 
     // Lines 108-110: torpedo spawners
     b.mapobj(1000, 0, 0, 2000, SH_NULLSHAPE, IS_TORPEDO);
@@ -211,8 +246,7 @@ pub(crate) fn build() -> Route3Level {
     // Lines 115-116: .pdead — dead-check loop
     b.label("level3_3.pdead");
     b.mapwait(1000);
-    // C: capture discarded — the label lookup after resolve overrides it.
-    let _pdead_capture = b.mapcode65816_inline(); 
+    let pdead_capture = b.mapcode65816_inline();
 
     // Lines 117-120: mapfadetoground + onplanet transition
     b.mapfadetoground();
@@ -245,7 +279,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(500, 0, 0, 2500, SH_STALK, IS_TREE2);
 
     // Lines 135-136: skillfly_bonus item_5 + setalvar
-    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline(); 
+    let skillfly_bonus0_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, -250, -80, 1500, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
     b.label("level3_3.skillfly_bonus_0_skip");
@@ -301,13 +335,13 @@ pub(crate) fn build() -> Route3Level {
 
     // Lines 169-170: mapwaitboss + markboss boss33
     b.mapwait(100);
-    let mapwaitboss_trigse_ptr = b.mapcode65816_inline(); 
+    let mapwaitboss_trigse_ptr = b.mapcode65816_inline();
     b.label("level3_3.bosswait.loop");
     b.mapif_builtin(MAP_CB_CHKBOSSDEAD, "level3_3.bosswait.cont");
     b.mapgoto("level3_3.bosswait.loop");
     b.label("level3_3.bosswait.cont");
-    let mapwaitboss_cantdie_ptr = b.mapcode65816_inline(); 
-    let mapwaitboss_cleanup_ptr = b.mapcode65816_inline(); 
+    let mapwaitboss_cantdie_ptr = b.mapcode65816_inline();
+    let mapwaitboss_cleanup_ptr = b.mapcode65816_inline();
 
     // markboss boss33
     b.setbgm(BGM_FADEOUT);
@@ -390,11 +424,6 @@ pub(crate) fn build() -> Route3Level {
         b.lookup_label("level3_3.skillfly_bonus_0_skip").is_some(),
         "level3_3 skillfly bonus skip label missing"
     );
-    // C: the label lookups OVERRIDE the CODE65816 captures for pdead2/pdead
-    // (the captured script ptrs are discarded).
-    let pdead2_ptr = b.lookup_label("level3_3.pdead2").unwrap_or(0);
-    let pdead_ptr = b.lookup_label("level3_3.pdead").unwrap_or(0);
-
     let (data, labels) = b.finish();
     // C `register_level3_3_inline_callbacks()` registration-call order.
     finish_level(
@@ -402,8 +431,10 @@ pub(crate) fn build() -> Route3Level {
         labels,
         vec![
             (skillfly_bonus0_guard_ptr, "level3_3_skillfly_bonus0_guard"),
-            (pdead2_ptr, "level3_3_pdead2_check"),
-            (pdead_ptr, "level3_3_pdead_check"),
+            // Inline callbacks are keyed by the byte immediately after the
+            // CODE65816 opcode, not by the loop label before its mapwait.
+            (pdead2_capture, "level3_3_pdead2_check"),
+            (pdead_capture, "level3_3_pdead_check"),
             (mapwaitboss_trigse_ptr, "level1_1_mapwaitboss_trigse"),
             (mapwaitboss_cantdie_ptr, "level1_1_mapwaitboss_cantdie"),
             (mapwaitboss_cleanup_ptr, "level1_1_mapwaitboss_cleanup"),

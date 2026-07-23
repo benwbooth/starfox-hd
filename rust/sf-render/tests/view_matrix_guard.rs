@@ -16,7 +16,10 @@ fn opening_lookback_camera_renders_ship() {
     let config = config_from_repo_root(&root);
     let mut r = match Renderer::new_headless(1280, 720, &config) {
         Ok(r) => r,
-        Err(e) => { eprintln!("skip: {e}"); return; }
+        Err(e) => {
+            eprintln!("skip: {e}");
+            return;
+        }
     };
     // Bisect: which camera rotation component hides the target?
     // Each case: camera + a ship placed exactly along the camera's look
@@ -27,16 +30,34 @@ fn opening_lookback_camera_renders_ship() {
         ("yaw 64 (90d)  ", 0, 0, 0, 0, 64, 0, 1400, 0, 0),
         ("yaw 108       ", 0, 0, 0, 0, 108, 0, 660, 0, -1234),
         ("pitch -27     ", 0, 0, 0, -27, 0, 0, 0, 870, 1096),
-        ("opening comb  ", -831, -1411, 2832, -27, 108, 0, 0, -101, 1000),
+        (
+            "opening comb  ",
+            -831,
+            -1411,
+            2832,
+            -27,
+            108,
+            0,
+            0,
+            -101,
+            1000,
+        ),
     ];
-    let inputs = FrameInputs { game_state: GameState::Boot, ..Default::default() };
+    let inputs = FrameInputs {
+        game_state: GameState::Boot,
+        ..Default::default()
+    };
     for &(name, cx, cy, cz, rx, ry, rz, sx, sy, sz) in cases {
-        r.transform.set_camera(cx << 16, cy << 16, cz << 16, rx, ry, rz);
+        r.transform
+            .set_camera(cx << 16, cy << 16, cz << 16, rx, ry, rz);
         let e = DrawListEntry {
             shape_id: SHAPE_MYSHIP_4,
             flags: DL_FLAG_VISIBLE,
-            x: sx << 16, y: sy << 16, z: sz << 16,
-            ry: 128, obj_id: 1,
+            x: sx << 16,
+            y: sy << 16,
+            z: sz << 16,
+            ry: 128,
+            obj_id: 1,
             ..Default::default()
         };
         r.begin_frame();
@@ -57,9 +78,15 @@ fn opening_lookback_camera_renders_ship() {
         eprintln!("PROBE {name} non_bg={non_bg} centroid=({cx_px},{cy_px})");
         // Single-axis cases aim exactly at the ship -> tight center bound;
         // the combined case uses the game-trace approximate angles -> loose.
-        let tol: i64 = if name.trim() == "opening comb" { 220 } else { 60 };
-        assert!((cx_px - 640).abs() < tol && (cy_px - 360).abs() < tol,
-            "{name}: ship off-center at ({cx_px},{cy_px})");
+        let tol: i64 = if name.trim() == "opening comb" {
+            220
+        } else {
+            60
+        };
+        assert!(
+            (cx_px - 640).abs() < tol && (cy_px - 360).abs() < tol,
+            "{name}: ship off-center at ({cx_px},{cy_px})"
+        );
     }
     r.shutdown();
 }

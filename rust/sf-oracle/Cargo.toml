@@ -8,9 +8,13 @@ license.workspace = true
 # retail ROM and diffs them against the Rust port's functions.
 [dependencies]
 w65c816 = "0.1"
+sf-spc.workspace = true
 
 [dev-dependencies]
+sf-core.workspace = true
 sf-strat.workspace = true
 sf-game.workspace = true
 sf-map.workspace = true
 sf-path.workspace = true
+sf2-game = { workspace = true, features = ["oracle-bridge"] }
+sf2-path.workspace = true

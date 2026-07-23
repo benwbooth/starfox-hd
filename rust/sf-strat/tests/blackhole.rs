@@ -32,7 +32,7 @@ const LE_ENTERBHOLE: u8 = 15; // KALCS.INC:91-103
 const LE_BHOLE1: u8 = 11;
 const LE_BHOLE2: u8 = 12;
 const LE_BHOLE3: u8 = 13;
-const SH_BLACKHOLE: u16 = 194;
+const SH_BLACKHOLE: u16 = 193;
 const BH_SFLAG1: u8 = 0x10; // sflags2 relocation of ROM sflag1
 const GF_PLAYERDEAD: u8 = 64;
 
@@ -82,11 +82,11 @@ fn registration_populates_istrat_rows() {
     assert!(g.world.istrats[bosses::IS_BHOLEEXIT1].is_some());
     assert!(g.world.istrats[bosses::IS_BHOLEEXIT2].is_some());
     assert!(g.world.istrats[bosses::IS_BHOLEEXIT3].is_some());
-    // sf-map placements (levels.c numbering).
-    assert_eq!(bosses::IS_BLACKHOLE, 196);
-    assert_eq!(bosses::IS_BHOLEEXIT1, 244);
-    assert_eq!(bosses::IS_BHOLEEXIT2, 245);
-    assert_eq!(bosses::IS_BHOLEEXIT3, 246);
+    // Exact ISTRATS.ASM rows.
+    assert_eq!(bosses::IS_BLACKHOLE, 195);
+    assert_eq!(bosses::IS_BHOLEEXIT1, 243);
+    assert_eq!(bosses::IS_BHOLEEXIT2, 244);
+    assert_eq!(bosses::IS_BHOLEEXIT3, 245);
 }
 
 // ------------------------------------------------------------
@@ -176,7 +176,10 @@ fn exit_reaches_code(istrat: usize, expect: u8) {
     // Tick 1: bholeexit*_init preloads al_sbyte2 + bholecoll_strat touches the
     // ship (dz=0, |dx|+|dy|=0) -> hands to blackholeexit (next tick).
     g.run_strategies();
-    assert_eq!(g.objs.aliens[o as usize].sbyte2, expect, "gate preloads LE code");
+    assert_eq!(
+        g.objs.aliens[o as usize].sbyte2, expect,
+        "gate preloads LE code"
+    );
 
     // Tick 2: blackholeexit_init (sbyte1=8, sbyte3=10) + first .strat step.
     g.run_strategies();

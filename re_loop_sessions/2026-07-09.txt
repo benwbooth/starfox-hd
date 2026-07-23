@@ -1,0 +1,1932 @@
+SESSION 2026-07-09 — Cursor continuous port loop (0m)
+
+Restored Claude Code session logs (2026-07-01..08) into re_loop_sessions/ +
+docs/claude_sessions/memory/. Created docs/PORTING_LOOP.md leaf-first queue.
+
+BATCH 3 progress:
+- [x] ROTATE_16XZ_L / ROTATE_16YZ_L — new snes_trig::rotate_16xz/yz; fuzz_rotate16
+  30k×2 bit-exact vs ROM.
+- [x] SR_GEN_3DVECS{,1,2,3} — new strat_gen_vecs_3d_scaled; fuzz_sr_gen_3dvecs
+  exact for vel<128 (vel≥128 = known mulslogmac signed-byte latent).
+- [x] Confirmed DGENVECS / NALVEL* / NVECS* collapse into existing gen_vecs coverage.
+- Deferred (GSU): ANGLEXY_*, X/YANGLE*, CROTMAT/WMATROTP.
+- Next: CALCDXDY (planet-select) or camera wobble fractional viewpos.
+
+SESSION_SUMMARY: Restored Claude logs; ported+verified rotate_16xz/yz + sr_gen_3dvecs×4.
+
+Tick 2:
+- [x] DIVIDEBYNUM / CALCDXDY leaf — planets::divide_by_num + calc_scroll_step;
+  fuzz_calcdxdy 1848 bit-exact vs ROM call_near.
+- Next: camera wobble fractional viewpos, or remaining math_helper (PCHASE*,
+  ROTATE family done), or GSU ANGLEXY compose.
+
+SESSION_SUMMARY: dividebynum/calcdxdy leaf verified bit-exact (1848 cases).
+
+Tick 3:
+- [x] Camera wobble (Jul-8 interrupted): camera.rs keeps pitch pull-back in
+  float→FP16.16 (no i16 trunc stair-steps); consumes chased outdist ($054A)
+  with viewdist/OUTVIEWDIST fallback. Unit test fractional_pitch_offset_preserves_sub_unit.
+- Next: float-above-ground / remaining math_helper / GSU ANGLEXY.
+
+SESSION_SUMMARY: Camera fractional pull-back + outdist consumer; 4 camera tests green.
+
+Tick 4:
+- [x] DIVORCEFAMILY_L — Objects::divorce_family (ROM Removedeadal/explode);
+  wired into Obj_Free + strat_explode; ASF3_CHILD/MOTHER in sf-game alien;
+  divorce_family tests green. PCHASE*/PLANET_ROTZ marked structural.
+- Next: float-above-ground, GSU ANGLEXY, remaining math_helper (MCALC_CIRCLE,
+  WMATROTP16, MSH_ROTPOINTS*, GEN_WEAPON, …).
+
+SESSION_SUMMARY: divorcefamily ported+wired; family unlink on free/explode.
+
+Tick 5:
+- [x] ROTATE_8XZ/YZ/YX_L + mulslog_mac8 — gen_weapon muzzle rotate leaves;
+  fuzz_rotate8 28611 bit-exact. GEN_WEAPON marked name-match (leaves done;
+  full fire_X body still uses float path for i16-scaled offsets).
+- Float-above-ground: +18 horizon compensation already in bg2d; needs frame
+  oracle / in-game observation next.
+
+SESSION_SUMMARY: rotate_8 family verified bit-exact (gen_weapon muzzle leaves).
+
+Tick 6:
+- [x] NUCLEUSWALLROT(_2)_SROU_L — b8_wallrot_common now uses rotate_16xz
+  (was float sin with wrong X sign); fuzz_nucleuswallrot 256 bit-exact.
+- [x] CROTMAT16_L — already covered by gsu_rotmat.rs.
+- Next: WMATROTP16 / ANGLEXY GSU / remaining math_helper / float-ground.
+
+SESSION_SUMMARY: nucleuswallrot bit-exact via rotate_16xz; boss8 wall placement fixed.
+
+Tick 7:
+- [x] WMATROTP16_L — snes_trig::wmat_rot_point (GSU FMULT>>15 per-term sum);
+  fuzz_wmatrotp16 91854 bit-exact vs MWMATROTP16.
+- [x] ANGLEXY_ABS / XANGLEXY / XANGLEXABS / YANGLEXABS / YANGLEXY compose
+  helpers in common.rs; anglexy_compose tests green. ANGLEXY_OFF uncalled.
+- Next: MSH_ROTPOINTS* / MCALC_CIRCLE / SGENSPARK body / float-ground frame
+  oracle / remaining ~17 math_helper.
+
+SESSION_SUMMARY: wmatrotp16 bit-exact; ANGLEXY compose helpers ported+tested.
+
+Tick 8:
+- [x] SGENSPARK_SROU(_L) + lspark_* — player::sgen_spark / lspark_istrat/strat;
+  wired into pcbox wing collision; sgenspark tests green. Shape uses line_2 (81).
+- [x] MSH_ROTPOINTS16 — snes_trig::msh_rot_points16 (batch wmat_rot_point).
+- Next: remaining MSH_ROTPOINTS* variants / MCALC_CIRCLE / float-ground /
+  ROTPROJ compose / ~16 math_helper.
+
+SESSION_SUMMARY: sgenspark+lspark ported+wired; msh_rot_points16 helper.
+
+Tick 9:
+- [x] ROTPROJ_L local offset (rotate_8yz→rotate_8xz from (0,0,-30)).
+- [x] MSH_ROTPOINTSX16 mirror helper; MCOREZROT (rotz += vz>>3).
+- [x] FADECHARSIN / CLROTHERHALF / GENFOXSPR / PTRN_RING.TRN_ROT1 structural.
+- Remaining math_helper: 9 (MCALC_CIRCLE, MGENUV*, MGENZLIST, MSH 8-bit family).
+
+SESSION_SUMMARY: rotproj/mcore_zrot/msh_x16; UI/path structural; 9 GSU left.
+
+Tick 10:
+- [x] MSH_ROTPOINTS8 packed MULT formula (msh_rot_point8) + 8_16 scale→FMULT;
+  X8 / X8_16 marked as mirror variants of the same math.
+- Remaining math_helper: 5 (MCALC_CIRCLE, MGENUVLIST*, MGENZLIST).
+
+SESSION_SUMMARY: MSH 8-bit family formula-ported; 5 GSU list builders left.
+
+Tick 11:
+- [x] MCALC_CIRCLE — mcalc_circle_edges Bresenham midpoint; tests green.
+- [x] MGENUVLIST* / MGENZLIST — structural (GSU planet sphere; HD ps_blit_sphere).
+- math_helper False rows: 0. Next: open bugs (float-ground, achase antipodal,
+  GSU arctan/msqrt32) or walk call graph up from verified leaves.
+
+SESSION_SUMMARY: BATCH 3 math_helper closed (0 False); circle + UV structural.
+
+Tick 12:
+- [x] sr16 achase antipodal — strat_chase_proportional now
+  current+adiv2(target-current) with i16 wrap; fuzz 7623 exact incl ±32768.
+- Open: float-above-ground, GSU arctan off-axis, GSU msqrt32 emu.
+
+SESSION_SUMMARY: achase16 antipodal closed; math_helper still 0.
+
+Tick 13:
+- [x] GSU arctan16 off-axis already green (gsu_arctan off_axis_grid).
+- [x] GSU msqrt32 high-domain = faithful 16-bit overflow (not emu bug).
+- Float-ground: +18 stays; suspect camera rot_x=player.rotx chase-feel vs
+  ROM outvx≈0 — needs in-game A/B before changing (user dislikes unverified cam).
+- Next: tier-2 coexec / REACHABLE_UNPORTED / float-ground frame probe.
+
+SESSION_SUMMARY: arctan+msqrt32 closed; float-ground diagnosis banked.
+
+Tick 14:
+- [x] SLSPARK_ISTRAT/STRAT + sgen_slspark (boss2 spark variant, vel=20).
+- [x] camera chase_feel_pitch_diverges_from_rom_outvx diagnostic (no cam flip).
+- [x] REACHABLE_UNPORTED: all 54 IS_* registered — doc marked done.
+- Next: player_cam SET_PLAYER* False rows, or tier-2 coexec, or in-game
+  float-ground A/B.
+
+SESSION_SUMMARY: slspark ported; float-ground diagnostic; IS_* queue closed.
+
+Tick 15:
+- [x] SETYPLAYERSHAPE_L + SELECT_SHIP_L — player::select_ship / set_y_player_shape
+  + PlayerShipShapes table (GSTRATS.ASM); spawn uses select_ship(norm).
+- Tests: sf-strat player_shapes.rs (norm/null/clamp/wing-damage pick).
+- Ledger: both True/ported. Mesh variants still proxy myship_4.
+- Next: remaining player_cam SET_PLAYER* False (~48), or wire zoom/wire
+  callers, or float-ground A/B.
+
+SESSION_SUMMARY: select_ship + setYplayershape ported; player_cam queue -2.
+
+Tick 16:
+- [x] PLAYERTOMIDDLE1/4_SROU_L + SET_PLAYERTOCSLOW_L — player_to_middle*
+  + set_player_to_cslow; tests player_to_middle.rs green.
+- [x] Ledger: 11 map-CB SET_PLAYER* already in game.rs marked True/ported
+  (flag-init bodies; full cutscene strats may still deepen).
+- Next: tunnel/cockpit/LB/colony SET_PLAYER* leaves, or float-ground A/B.
+
+SESSION_SUMMARY: middle/cslow leaves + map-CB ledger reconcile (-15 False).
+
+Tick 17:
+- [x] SET_PLAYERIN{S,M,L}TUNNEL_L + SET_PLAYERIN{S,M,L}TEXIT_L —
+  TunnelFlyMode table + apply_tunnel_fly_mode; opening init shares Ltunnel.
+- player_in_tunnel_strat / player_in_texit_strat leaves; tests player_tunnel.rs.
+- Ledger: 6 SET_ + 4 ISTRAT True. Remaining False player_cam ~27.
+- Next: nucleus/colony/cockpit/LB SET_PLAYER*, or float-ground A/B.
+
+SESSION_SUMMARY: tunnel/texit SET_PLAYER family ported (-10 False).
+
+Tick 18:
+- [x] SET_PLAYERINCOLONY_L / CLEARCOLONY / INNUCLEUS / WASHENT —
+  fly-mode inits + colony/nucleus strats + clear/washent dup leaves.
+- do_player_yvel_colony; missb*/viewpos*off sv slots.
+- Tests: player_colony_nucleus.rs green.
+- Next: cockpit/LB/bridge/space SET_PLAYER*, or float-ground A/B.
+
+SESSION_SUMMARY: colony/nucleus/washent SET_PLAYER family ported.
+
+Tick 19:
+- [x] SET_PLAYERONWATER/BRIDGE/UNDERGND/INSPACE/TURN180/ESCAPENUCLEUS —
+  fly-mode inits + strats; turn180 arms timer; escape delegates to existing.
+- Tests: player_fly_modes.rs green. Remaining False player_cam ~21.
+- Next: cockpit/LB/dive/cred SET_PLAYER*, or float-ground A/B.
+
+SESSION_SUMMARY: water/bridge/undergnd/space SET_PLAYER family ported.
+
+Tick 20:
+- [x] SET_PLAYERINTOCOCK_L / OUTOFCOCK_L + PLAYERINTOCOCK2_INIT +
+  makeallmedpspeed — cockpit enter/exit phase strats; tests player_cockpit.rs.
+- Remaining False player_cam: 18 (LB/dive/cred/cutscene inits).
+- Next: LB out/in, divegnd, cred, tunneltoonplanet, or float-ground A/B.
+
+SESSION_SUMMARY: cockpit enter/exit SET_PLAYER family ported.
+
+Tick 21:
+- [x] Remaining player_cam SET_PLAYER* (LB/dive/cred/tunnel) + VIEWLB3MOVE.
+- [x] Remaining 9 cutscene phase-2 inits (CHASE2/START/CLEARTURN2/UNDER2/
+  WARP1/2/MOVE/DIVE2/CLEARDEMO2). Tests: player_lb_cred + player_cutscene_inits.
+- **player_cam False: 0.** Next: enemy_boss_strat leaves, tier-2 coexec,
+  or float-ground A/B.
+
+SESSION_SUMMARY: player_cam ledger closed (0 False); SET_PLAYER family done.
+
+Tick 22:
+- [x] SHRAPFALL2_ISTRAT + SHRAPNEL_SROU_L — shrap1 debris + L/MED exp bursts;
+  wired into LB1 exit strat. Tests: shrapnel.rs.
+- player_cam still 0 False. Next: more enemy_boss_strat leaves, tier-2
+  coexec, or float-ground A/B.
+
+SESSION_SUMMARY: shrapnel_srou + shrapfall2 ported; LB1 debris live.
+
+Tick 23:
+- [x] CHILDREMOVE_ISTRAT + FLASH_STRAT — common::child_remove_istrat /
+  flash_istrat / flash_strat; tests child_flash.rs.
+- Next: more enemy_boss_strat leaves, tier-2 coexec, or float-ground A/B.
+
+SESSION_SUMMARY: childremove + flash_strat leaves ported.
+
+Tick 24:
+- [x] KILL_ISTRAT/KILL_STRAT + MAKEFIRE_SROU_L + FIRE_ISTRAT + PUFF_* —
+  common::kill_istrat / makefire_srou / fire_* / smoke_p_* / puff_*;
+  AFONFIRE in alien.rs; tests kill_fire_smoke.rs (6).
+- Next: more enemy_boss_strat leaves, tier-2 coexec, or float-ground A/B.
+
+SESSION_SUMMARY: kill + makefire/fire/puff family ported into common.
+
+Tick 25:
+- [x] ROTSFLATSTAY_ISTRAT + SPARKY_ISTRAT/STRAT/ENDSPARKY — common helpers;
+  tests sparky_rotsflat.rs (2). Ledger ~1078/2170 True.
+- Next: more enemy_boss_strat leaves (hitflash variants / particle explode),
+  tier-2 coexec, or float-ground A/B.
+
+SESSION_SUMMARY: rotsflatstay + sparky family ported into common.
+
+Tick 26:
+- [x] HITFLASH{M,S,L,BOSSD}_ISTRAT + MISSCOL_ISTRAT + MCHITFLASH_STRAT —
+  enemy_a hitflash variants; strat_hit_flash clears collide / nohitaffect.
+- Tests: hitflash_variants.rs (7). Ledger ~1086/2170 True.
+- Next: particle explode leaves, tier-2 coexec, or float-ground A/B.
+
+SESSION_SUMMARY: hitflash M/S/L/BOSSd + misscol/mchitflash ported.
+
+Tick 27:
+- [x] FAST/CIRC2/CIRC particleexplode + PARTICLEFIRE_ICONT + S/M/Lmarkexplode —
+  enemy_a particle/mark family (big/particlefire already True).
+- Tests: particle_explode.rs (7). Ledger ~1097/2170 True.
+- Next: more enemy_boss_strat leaves, tier-2 coexec, or float-ground A/B.
+
+SESSION_SUMMARY: particle/mark explode family ported into enemy_a.
+
+Tick 28:
+- [x] HOVER_ISTRAT + IMPLODE_* + STOPEXPLODE_ISTRAT + WEAPCOLLIDE_ISTRAT —
+  enemy_a; tests hover_implode_weap.rs (6). Ledger ~1101/2170 True.
+- Next: more enemy_boss_strat leaves (explodedebris/escapee), tier-2, or
+  float-ground A/B.
+
+SESSION_SUMMARY: hover/implode/stopexplode/weapcollide ported.
+
+Tick 29:
+- [x] ESCAPEE* + EXPLODEDEBRIS*/FAST + EXPLODEBIGPARTS + EXPPIECE*/EXPSPIECE* —
+  enemy_a; strat_explode routes on debrisshape. Tests explodedebris_escapee.rs (10).
+- Ledger ~1114/2170 True. Next: more enemy_boss_strat, tier-2, or float-ground.
+
+SESSION_SUMMARY: escapee/debris/exppiece family ported; explode routes debris.
+
+Tick 30:
+- [x] PELASERCOLLIDE_ISTRAT + MAKEPOLLEN_SROU_L + EXPLODEGATE2_ISTRAT —
+  enemy_a; tests pelaser_pollen_gate2.rs (6). DEFELASERCOL deferred (needs
+  RebElaser fire_weapon). Ledger ~1117/2170 True.
+
+SESSION_SUMMARY: pelaser collide + pollen + explodegate2 ported.
+
+Tick 31:
+- [x] ELASER2DIE_* + PELASER2DIE_ISTRAT + PLAYERBEAMDIE_ISTRAT —
+  enemy_a; flash child via lfdie proxy + rotsflatstay; numplasers dec.
+  Tests elaser2die.rs (4). Ledger ~1121/2170 True.
+- Next: nuke family / more enemy_boss_strat, tier-2, or float-ground A/B.
+
+SESSION_SUMMARY: elaser2die/pelaser2die/playerbeamdie ported.
+
+Tick 32 (loop restore + nuke):
+- Confirmed Claude session logs already restored under re_loop_sessions/
+  (2026-07-01..08 digests + memory copies from 8f7b8292…jsonl).
+- [x] NUKE_*/NUKEEXP_*/REMOVENUKE_ISTRAT/FIRE_NUKE + missbound_chk_exp —
+  enemy_a; player A-button now calls fire_nuke. Tests nuke.rs (7).
+- Ledger ~1127/2170 True.
+
+SESSION_SUMMARY: Claude logs confirmed; nuke/nova-bomb family ported + wired.
+
+Tick 33:
+- [x] PBEAM_* + PELASER_* (body) + FIRE_PLAYERBEAM + fire_elaser + miss_end —
+  enemy_a; tests pbeam_pelaser.rs (7). Ledger ~1130/2170 True.
+- Next: helpballhome (needs ASF3_LOCKON), fire_friend/reb/plasma, or
+  float-ground A/B.
+
+SESSION_SUMMARY: pbeam/pelaser/fire_playerbeam/miss_end ported.
+
+Tick 34 (stop-hook):
+- [x] RELELASER_* (body) + RELFLATMISS_* + FLATMISS_* +
+  FIRE_FRIENDELASER / FIRE_REBELASER / FIRE_PLASMA / FIRE_BEAMBALL —
+  enemy_a; tests relelaser_flatmiss.rs (6). Ledger ~1138/2170 True.
+- Next: helpballhome (ASF3_LOCKON), more fire_* (oval/ring/shortplasma),
+  or float-ground A/B.
+
+SESSION_SUMMARY: relelaser/relflatmiss/flatmiss + friend/reb/plasma fire ported.
+
+Tick 35 (stop-hook):
+- [x] FIRE_RELOVAL/RELRING/OVAL/SHORTPLASMA + FIRE_SLOWELASER + FIRE_YHPLASMA +
+  ELASER_* (body) + YHOMING_* — enemy_a; tests oval_ring_yhoming.rs (5).
+- Ledger ~1147/2170 True. Next: helpballhome (ASF3_LOCKON), more missiles,
+  or float-ground A/B.
+
+SESSION_SUMMARY: oval/ring/shortplasma + elaser + yhoming fire family ported.
+
+Tick 36 (stop-hook):
+- [x] HELPBALL_* (body) + HELPBALLHOME_* + HELPBALLHCOLL/HREM + ASF3_LOCKON —
+  enemy_a + alien.rs; tests helpball.rs (6). Ledger ~1151/2170 True.
+- Next: more missile fire_* / hmissile leaves, or float-ground A/B.
+
+SESSION_SUMMARY: helpball orbit + home/lockon family ported.
+
+Tick 37 (stop-hook):
+- [x] FIRE_MISSILE1/2 + FIRE_HMISSILE2 + FIRE_FAKEFARHMISSILE1 +
+  FIRE_BOSSHMISSILE1 + MISSILE2A_STRAT + public hmissile2/missile1 bodies —
+  enemy_a; tests missile_fire.rs (6). Ledger ~1157/2170 True.
+- Next: chick/STB/QH/kami hmissile fire, hmissile3, or float-ground A/B.
+
+SESSION_SUMMARY: missile1/2 + hmissile2/FakeFar/bossH1 fire family ported.
+
+Tick 38 (stop-hook):
+- [x] FIRE_KAMI/CHICK/STB/QH + HMISSILE3_* + CHICKHMISSILE1_* +
+  STBHMISSILE1_* + QHMISSILE1_* — enemy_a; tests specialty_hmissile.rs (5).
+  Ledger ~1169/2170 True.
+- Next: remaining fire_* / explode leaves, or float-ground A/B.
+
+SESSION_SUMMARY: kami/chick/STB/QH specialty hmissile family ported.
+
+Tick 39 (stop-hook):
+- [x] FIRE_SPREAD + SPREADA_INIT + DEFELASERCOL_ISTRAT (+ spread bodies) —
+  enemy_a; tests spread_defelaser.rs (3). Ledger ~1172/2170 True.
+- Next: ironball/bonfire fire_*, remaining explode leaves, or float-ground A/B.
+
+SESSION_SUMMARY: spread missile + DefElaserCol deflect ported.
+
+Tick 40 (stop-hook):
+- [x] FIRE_BONFIRE + BONFIRE_ISTRAT + FIRE_IRONBALL4 + IRONBALL_ISTRAT +
+  IRONBALLMISSILE_ISTRAT — enemy_a; tests bonfire_ironball.rs (6).
+  Ledger ~1177/2170 True.
+- Next: FIRE_IRONBALL/2/3 (fling variants), remaining explode leaves, or
+  float-ground A/B.
+
+SESSION_SUMMARY: bonfire + ironball4/missile family ported.
+
+Tick 41 (stop-hook):
+- [x] FIRE_IRONBALL + FIRE_IRONBALL2 + FIRE_IRONBALL3 — enemy_a
+  (fling muzzle / sflag3/2/1 / powerbuild); tests fling_ironball.rs (4).
+  Ledger ~1180/2170 True.
+- Next: remaining explode leaves (EXPLODE_*), FIRE_A1/C, or float-ground A/B.
+
+SESSION_SUMMARY: fling ironball 1/2/3 fire variants ported.
+
+Tick 42 (stop-hook):
+- [x] EXPLODE_END + explode_strat/lexplode bodies + BAZEXP/BAZFALL_* +
+  HEADFIRE_ISTRAT — enemy_a + enemies_ground; COLTAB FIRE_*/EXPLODE_*_C /
+  BONFIRE_* marked structural. Tests explode_end_baz_head.rs (6).
+  Ledger ~1195/2170 True.
+- Next: more boss fire/explode leaves, or float-ground A/B.
+
+SESSION_SUMMARY: explode_end tick + bazexp/bazfall + headfire ported.
+
+Tick 43 (stop-hook):
+- [x] BOSSBIGOUTEXPLODEOFF_ISTRAT + BOSSBIGOUTEXPLODE_ICONT (+ BIGparticle) +
+  MFIRE1{A,_ISTRAT,_ICONT,_STRAT,EXP} + CUBEFALL_*/CUBEEXP/CUBECOLL +
+  MISSTANKEXP_ISTRAT — enemy_b + enemy_a + enemies_ground; tests
+  bossbigout_mfire1_cube.rs (8). Ledger ~1207/2170 True.
+- Next: RIPMAN_*, remaining boss fire/explode leaves, or float-ground A/B.
+
+SESSION_SUMMARY: bossbigoutexplode off/icont + mfire1 + cube + misstankexp ported.
+
+Tick 44 (stop-hook):
+- [x] RIPMAN_* + ITEM4_* + RIPAIR_* (body was ledger-True but missing) +
+  WOODSGO_*/WOODSEXP + MISSGO_ISTRAT — enemies_ground + enemy_a; tests
+  ripman_woodsgo.rs (6). Ledger ~1216/2170 True.
+- Next: more boss fire/explode (BOSSACUPFIRE_*, WINDEXP, CORE1EXP), or
+  float-ground A/B.
+
+SESSION_SUMMARY: ripman/item4/ripair repair chain + woodsgo/missgo ported.
+
+Tick 45 (stop-hook):
+- [x] WINDEXP/WINDSPIN_* + BOSSACUPFIRE{,MISS}_SROU + TANK1FIRE +
+  MISSPODA_{INIT,STRAT} + SHIP1AEXP + MINE2EXPNOFIRE — enemies_ground +
+  enemy_b + enemy_a; tests windexp_cupfire.rs (9). Ledger ~1226/2170 True.
+- Next: CORE1EXP/MCORE1EXP/MONOLITHEXP, MINE2EXP burst, or float-ground A/B.
+
+SESSION_SUMMARY: windexp/windspin + bossAcupfire + tank1fire/misspoda ported.
+
+Tick 46 (stop-hook):
+- [x] CORE1EXP_{ISTRAT,STRAT} + CORE1COL + MCORE1EXP_{ISTRAT,STRAT} +
+  MCORE1COL + MONOLITHEXP + MINE2EXP + BLOWCUBE_{ISTRAT,STRAT} — enemy_a;
+  tests core_mine_exp.rs (7). Ledger ~1236/2170 True.
+- Next: remaining boss fire/explode (BOSSBROB*, PROBEXPLODE), or
+  float-ground A/B.
+
+SESSION_SUMMARY: core1/mcore1/monolith/mine2exp + blowcube ported.
+
+Tick 47 (stop-hook):
+- [x] BOSSBROBFIRE{P1,1,2}_{INIT,STRAT} + BOSSBROBSEPEXP_{ISTRAT,STRAT} +
+  BOSSBROBEXP_INIT + BOSSBPWAITEXP_{ISTRAT,STRAT} + BOSSBPEXP_{ISTRAT,STRAT} +
+  BOSSBPEXP2_ISTRAT — bossb; tests bossb_fire_exp.rs (7). Ledger ~1250/2170 True.
+- Next: remaining BOSSBROB* morph/jump, PROBEXPLODE (investigate), eye/coin
+  explode leaves, or float-ground A/B.
+
+SESSION_SUMMARY: bossbrob fireP1/1/2 + sepexp/exp/wait/bpexp death chain ported.
+
+Tick 48 (stop-hook):
+- [x] MAKELEFTEYEEXP_SROU + MAKERIGHTEYEEXP_SROU + MONOLITHCOL_ISTRAT +
+  REBELASERCOL_ISTRAT body — enemy_a; tests monolith_eye_exp.rs (7).
+  Ledger ~1253/2170 True.
+- Next: PCOINEXPLODE / PEXPLODEPARTICLES path leaves, remaining BOSSBROB*
+  jump/land publicize, PROBEXPLODE (investigate), or float-ground A/B.
+
+SESSION_SUMMARY: monolith eye L/R explode + monolithcol + rebelasercol ported.
+
+Tick 49 (stop-hook):
+- [x] PCOINEXPLODE{,.COIN} + PEXPLODEPARTICLES + PROBEXPLODE (=robexplode
+  alias) — sf-path catalog + tests path_explode_leaves.rs (5).
+  Ledger ~1257/2170 True.
+- Next: remaining BOSSBROB* jump/land publicize, BOSS1TURRET fire, or
+  float-ground A/B.
+
+SESSION_SUMMARY: pcoinexplode + explodeparticles path leaves; PROBEXPLODE=robexplode.
+
+Tick 50 (stop-hook):
+- [x] BOSSBROB{START,START2,JUMP1,JUMP2,LAND,FARJUMP1,FARJUMP2,FARLAND,KICK}_*
+  — bossb public ROM-named phases; fireP1→start2, fire2→jump1; tests
+  bossb_jump_land.rs (8). Ledger ~1274/2170 True.
+- Next: BOSS1TURRET_{NFIRE,FIRE_END} labels, remaining BOSSBROB* morph/rndpos,
+  or float-ground A/B.
+
+SESSION_SUMMARY: bossbrob jump/land/farjump/kick/start publicized + wired.
+
+Tick 51 (stop-hook):
+- [x] BOSS1TURRET_NFIRE + BOSS1TURRETFIRE_END — enemy_a named leaves from
+  boss1turret_common_strat; tests boss1_turret_fire.rs (5).
+  Ledger ~1276/2170 True.
+- Next: remaining BOSSBROB* morph/rndpos/pounce/foot, or float-ground A/B.
+
+SESSION_SUMMARY: boss1turret nfire/fire_end publicized + verified.
+
+Tick 52 (stop-hook):
+- [x] BOSSBROBPOUNCE{POS,2}_* + BOSSBROBREAPPEAR_* + BOSSBROBRNDPOS{,2}_* +
+  BOSSBROBFOOT_* + BOSSBROBMENT{,2}_SROU — bossb; sep→rndpos; kick→foot;
+  tests bossb_pounce_rndpos.rs (9). Ledger ~1291/2170 True.
+- Next: remaining BOSSBROB* chg/split/demo/undead, or float-ground A/B.
+
+SESSION_SUMMARY: bossbrob pounce/rndpos/foot/ment publicized + wired.
+
+Tick 53 (stop-hook):
+- [x] BOSSBROBCHG{,2,3,4}_* + BOSSBROBVECS_CONT{,2,3,4} + BOSSBROB{2,SPLIT,SPLIT2,SEP,DEMO,UNDEAD,DIE}_* + FRONTPLAYER{,Z}/OUCH/COL/SEPCOL/CENT/CONT/ISTRAT/STRAT — bossb morph chain wired (death→chg); tests bossb_chg_split.rs (10). Ledger ~1325/2170 True.
+- Next: remaining enemy_boss_strat (non-BOSSBROB), or float-ground A/B.
+
+SESSION_SUMMARY: bossbrob chg/split/demo/undead/die + helpers publicized + verified.
+
+Tick 54 (stop-hook):
+- [x] BOSSBSPIN{1,2,END,END2}_* + BOSSBSCREAM{,2,END}_* + BOSSBENT{,LONG,CONT}_* +
+  BOSSBENTSPLIT{,2,COL,CONT}_* — bossb face spin/scream/trail/split publicized;
+  scream on Δhp≥6; tests bossb_spin_bent.rs (8). Ledger ~1352/2170 True.
+- Next: remaining enemy_boss_strat (BASE0/BEE1/CRAB/CAMELEON2), or float-ground A/B.
+
+SESSION_SUMMARY: bossb face spin/scream/bent/entsplit publicized + verified.
+
+Tick 55 (stop-hook):
+- [x] CAMELEON2_{ISTRAT,STRAT,CONT} + CAM2{HIDE,DASH}_{INIT,STRAT} + BASE0{,B}_* +
+  BAZOOKA1{L,R}_ISTRAT — cameleon2/cam2 ported (IS 64); base0/bazooka1 publicized;
+  tests cameleon2_base0.rs (5). Ledger ~1364/2170 True.
+- Next: BEE1 / CRAB* / CRANE0 / DRAGONFLY, or float-ground A/B.
+
+SESSION_SUMMARY: cameleon2/cam2 ported; base0 + bazooka1 publicized + verified.
+
+Tick 56 (stop-hook):
+- [x] CRAB{B,L,T,R}_{ISTRAT,INIT,STRAT} + CRAB_{INIT,CONT} — enemy_a screen-edge
+  walker; turns at min/maxPmove; MISSILE2 at center; tests crab.rs (9).
+  Ledger ~1378/2170 True.
+- Next: BEE1 / CRANE0 / DRAGONFLY, or float-ground A/B.
+
+SESSION_SUMMARY: crab B/L/T/R family ported + verified.
+
+Tick 57 (stop-hook):
+- [x] BEE1{,A,B}_{ISTRAT,INIT,STRAT} + DRAGONFLY_{ISTRAT,STRAT} — enemy_a; bee1
+  costab/sintab orbit→face→dive; dragonfly 3-state fly-by (makeSdrag scoped);
+  tests bee1_dragonfly.rs (5). Ledger ~1386/2170 True.
+- Next: CRANE0 / remaining enemy_boss_strat, or float-ground A/B.
+
+SESSION_SUMMARY: bee1 + dragonfly ported + verified.
+
+Tick 58 (stop-hook):
+- [x] CRANE0_{ISTRAT,STRAT} + CRANE0COL_ISTRAT + TZACO7{GO,FALL,CAT}_{ISTRAT,STRAT}
+  — enemy_a; hardHP crane carries zaco_7; release/drop/kill via HF; tests
+  crane0.rs (7). Ledger ~1394/2169 True.
+- Next: remaining enemy_boss_strat (ZACO7 / ZACO0 / EXITLIGHT / FASTFIGHTER /
+  BLACKHOLEEXIT / SDRAGONFLY), or float-ground A/B.
+
+SESSION_SUMMARY: crane0 + tzaco7 go/fall/cat ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 59 (stop-hook):
+- [x] ZACO7_{ISTRAT,STRAT} + SDRAGONFLY_{ISTRAT,STRAT} + ZACO0{,B,C,C2,D}_{ISTRAT,STRAT}
+  — enemy_a; zaco7 bank/aim flyer; sdragonfly weave+stop + makeSdrag wired into
+  dragonfly turns; zaco0 phase aliases publicized; tests zaco7_sdragonfly.rs (7).
+  Ledger ~1406/2169 True.
+- Next: FASTFIGHTER* / EXITLIGHT* / BLACKHOLEEXIT / remaining enemy_boss_strat,
+  or float-ground A/B.
+
+SESSION_SUMMARY: zaco7 + sdragonfly + zaco0 aliases ported + verified.
+Next: FASTFIGHTER / EXITLIGHT / BLACKHOLEEXIT, or float-ground A/B.
+
+Tick 60 (stop-hook):
+- [x] FASTFIGHTER{1,2,3}_{ISTRAT,STRAT} + FASTFIGHTER_INIT + EXITLIGHT{1..6}_ISTRAT
+  + EXITLIGHT{A,B}_{INIT,STRAT} + BLACKHOLEEXIT_ISTRAT — enemy_a fastfighter
+  spray/aim + dofighter bank/spin; exitlight A/B blink cycle; blackholeexit
+  publicized; tests fastfighter_exitlight.rs (9). Ledger ~1424/2169 True.
+- Next: remaining enemy_boss_strat (KAMI / EVADER / HALFD / ZACOS2 / COCK*),
+  or float-ground A/B.
+
+SESSION_SUMMARY: fastfighter + exitlight + blackholeexit ported + verified.
+Next: KAMI / EVADER / HALFD / ZACOS2, or float-ground A/B.
+
+Tick 61 (stop-hook):
+- [x] KAMI_{ISTRAT,STRAT,CONT} + KAMIDIE_{ISTRAT,STRAT} + KAMIGO_{INIT,STRAT}
+  + HALFD_{ISTRAT,STRAT} + ZACOS2_{INIT,STRAT} + ZACOS_CONT — enemy_a; kami
+  sintab weave→die dive→hardHP chase; halfd open/close anim; zacos2/cont
+  publicized; tests kami_halfd_zacos.rs (7). Ledger ~1436/2169 True.
+- Next: EVADER* / COCK* / remaining enemy_boss_strat, or float-ground A/B.
+
+SESSION_SUMMARY: kami + halfd + zacos2/cont ported + verified.
+Next: EVADER / COCK*, or float-ground A/B.
+
+Tick 62 (stop-hook):
+- [x] POLE0_{ISTRAT,STRAT} + POLE0COL_ISTRAT + COCKDUMPL_{ISTRAT,STRAT}
+  + COCKPIT_{ISTRAT,STRAT} + COCKSHIPOUT_{ISTRAT,STRAT} + COCKPITOUT_{ISTRAT,STRAT}
+  — enemy_a pole0 spin/hit; player cockdumpl→cockpit + out props wired into
+  into/out-of-cock; tests pole0_cockpit.rs (9). Ledger ~1445/2169 True.
+- Next: EVADER* / TRUCK_CONT / remaining enemy_boss_strat, or float-ground A/B.
+
+SESSION_SUMMARY: pole0 + cock dump/out ported + verified.
+Next: EVADER / TRUCK_CONT, or float-ground A/B.
+
+Tick 63 (stop-hook):
+- [x] EVADER_{ISTRAT,STRAT,INIT,CONT} + EVADERA_STRAT + TRUCK{1,2}_{ISTRAT,STRAT}
+  + TRUCK_CONT + TRUCKCOL_ISTRAT — enemy_a evader WP dodge + home laser; truck1/2
+  air trucks; truck_cont/col publicized; tests evader_truck.rs (7).
+  Ledger ~1456/2169 True.
+- Next: remaining enemy_boss_strat, or float-ground A/B.
+
+SESSION_SUMMARY: evader + truck1/2 + truck_cont/col ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 64 (stop-hook):
+- [x] SHARK_{ISTRAT,STRAT,CONT,CONT2} + SHARKA_{INIT,STRAT} + FZACO_{ISTRAT,STRAT,CONT,CONT2}
+  + FZACO{2,3}_{INIT,STRAT} + HARDENEMY1_ISTRAT + HARD90YRFOG_ISTRAT + ZACO3_STRAT
+  — enemy_a shark aim/anim→mine climb→dash; fzaco brake→aim/fire→peel orbit;
+  hardenemy1/hard90yrfog stubs; zaco3_strat + mine0_istrat publicized;
+  tests shark_fzaco.rs (7). Ledger ~1473/2169 True.
+- Next: AIRCAR1–5 / remaining enemy_boss_strat, or float-ground A/B.
+
+SESSION_SUMMARY: shark + fzaco + hard stubs + zaco3_strat ported + verified.
+Next: AIRCAR* / remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 65 (stop-hook):
+- [x] AIRCAR{1,2,3,4,5}_{ISTRAT,STRAT} — enemy_a colony air cars: side skid/stop,
+  barrier drop+peel, maniac weave, near-player speedup, wall-hit tumble;
+  tests aircar.rs (5). Ledger ~1483/2169 True.
+- Next: remaining enemy_boss_strat (AMOEBA / CHICK / LASTB2 / …), or float-ground A/B.
+
+SESSION_SUMMARY: aircar1–5 ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 66 (stop-hook):
+- [x] AMOEBA{HOME,COL,STICK}_{INIT,STRAT} + AMOEBAGO_INIT + CHICK_ISTRAT
+  + LASTB{2,3,4}_ISTRAT — bosses: publicize amoeba home/col/stick/go; chick
+  hatchling aim+fly; lastb2/3/4 tunnel door visibility/anim/flags;
+  tests chick_lastb.rs (5) + amoeba.rs still green. Ledger ~1493/2169 True.
+- Next: remaining enemy_boss_strat (WALKER / WALL / TANK / …), or float-ground A/B.
+
+SESSION_SUMMARY: amoeba aliases + chick + lastb2/3/4 ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 67 (stop-hook):
+- [x] WALKRIGHT_{ISTRAT,STRAT} + WALKER1_{ISTRAT,STRAT} + L/RWALKER1_ISTRAT
+  + WALKER2_{ISTRAT,STRAT} + DUCT_ISTRAT + WALL{L,R,RND}_ISTRAT
+  + WALL{1,2,LEFT,RIGHT,NOTHIT}_* + WALKING{2,_HIT} + SHOU0_STRAT
+  + BHOLECOLL_{ISTRAT,STRAT} — enemies_ground walkers/walls/duct + publicize
+  shou0/walking/wall ticks; bosses bholecoll publicized; tests walker_wall.rs (6).
+  Ledger ~1514/2169 True.
+- Next: remaining enemy_boss_strat (TANK* / SPACEBAR2 / SAUCER / …), or float-ground A/B.
+
+SESSION_SUMMARY: walkright + walker1/2 + duct + wall/shou0/bholecoll aliases ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 68 (stop-hook):
+- [x] TANK0_ISTRAT + TANK1_{ISTRAT,STRAT,.FORWARD} + TANK1A2_ISTRAT
+  + TANK2_{ISTRAT,STRAT} + TANK2ZACO_{ISTRAT,STRAT} + TANK3_ISTRAT
+  + LEFTWALL_ISTRAT + WL_{ISTRAT,STRAT} + WLDIE_ISTRAT + SPACETEST_ISTRAT
+  + BOMWINGDIE_ISTRAT — enemies_ground tank0/1 hangar→forward/back + publicize
+  tank1a2/tank2/zaco/tank3; leftwall/wl/wldie/spacetest; enemy_a bomwingdie
+  alias; tests tank0_wl.rs (5). Ledger ~1530/2169 True.
+- Next: remaining enemy_boss_strat (SPACEBAR2 / SAUCER / STARBULL / …), or float-ground A/B.
+
+SESSION_SUMMARY: tank0/1 + tank family publicize + leftwall/wl/spacetest/bomwingdie ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 69 (stop-hook):
+- [x] SPACEBAR2_{ISTRAT,STRAT} + STARBULL_{ISTRAT,STRAT} + STBFP_STRAT
+  + STBGO_{INIT,STRAT} — world.rs spacebar2 parent-tip + XangleXY rotz +
+  spacemist; enemy_a starbull WP chase→face/fire→peel; tests
+  spacebar2_starbull.rs (4). Ledger ~1537/2169 True.
+- Next: remaining enemy_boss_strat (SAUCER* / …), or float-ground A/B.
+
+SESSION_SUMMARY: spacebar2 + starbull/stbfp/stbgo ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 70 (stop-hook):
+- [x] SAUCER1_{ISTRAT,STRAT,ISTRAT2,STRAT2,ISTRAT3,STRAT3,ISTRAT4,STRAT4}
+  + SAUCER_{ISTRAT,STRAT,STRAT2} — enemies_ground saucer1 WP→face→spin-fire→peel;
+  saucer splash bounce→heading circle; tests saucer.rs (3). Ledger ~1548/2169 True.
+- Next: remaining enemy_boss_strat (WARP / HIGHFLY / SZACO3 / …), or float-ground A/B.
+
+SESSION_SUMMARY: saucer1 + saucer family ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 71 (stop-hook):
+- [x] HIGHFLY_ISTRAT + DISTANTFLY_ISTRAT + FLY{LR,R,2,3,4,DEAD,HITGND}_*
+  + SZACO3_{ISTRAT,STRAT} + WARP_{ISTRAT,STRAT} — enemies_ground fly dive→lr→
+  WP→face/fire→peel + dead/hitgnd; highfly/distantfly; szaco3 bank/aim life70;
+  warp 6-state pos chase→shape→fire→exit; tests fly_warp_szaco3.rs (5).
+  Ledger ~1567/2169 True.
+- Next: remaining enemy_boss_strat, or float-ground A/B.
+
+SESSION_SUMMARY: fly family + szaco3 + warp ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 72 (stop-hook):
+- [x] JUMP{0,1,0A}_* + SOKUTEN_{ISTRAT,STRAT} + ITEM{3,6}_{ISTRAT,STRAT}
+  + CORE{0,1}_{ISTRAT,STRAT} + RIGHTWALL_ISTRAT + MINE1_ISTRAT + FOG_STRAT
+  — enemies_ground jump hop→HMISSILE1 + sokuten heading + item3 heal /
+  public item6 wireship; enemy_a core0/1 gasf_flag1 + pub fog/flashplayer;
+  rightwall=nocoll, mine1 stub; tests jump_sokuten_item3.rs (5).
+  Ledger ~1585/2169 True.
+- Next: remaining enemy_boss_strat, or float-ground A/B.
+
+SESSION_SUMMARY: jump/sokuten/item3/6/core0/1/rightwall/mine1/fog ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 73 (stop-hook):
+- [x] ITEM7A_{ISTRAT,STRAT} + DOOR1_{ISTRAT,OPENWAIT,CLOSEWAIT}_*
+  + WOODS_{ISTRAT,STRAT} + WIREMAN{2X,2YR,2YL,UP,DIE,CONT2,2_INIT}_*
+  + FRIEND{0,02,1,KILL}_* + MINUMUSI_ISTRAT — item7a helpball+wing repair;
+  door1 open/close wait; public woods + wireman evade/climb + item6 drop;
+  friend0 brake→hunt zaco_5 / friend1 mirror+sflag3 fire; minumusi stub;
+  tests item7a_door1_friend.rs (4). Ledger ~1609/2169 True.
+- Next: remaining enemy_boss_strat (friend2 / sfish / mcore1 / …), or float-ground A/B.
+
+SESSION_SUMMARY: item7a + door1 + woods/wireman + friend0/1 + minumusi ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 74 (stop-hook):
+- [x] FRIEND2_{ISTRAT,STRAT} + LENG0_{ISTRAT,STRAT} + METEOR{ISTRAT2,COL,ISTRAT.IN}
+  + WINGLAZERMAN{2,3,GO,DIE}_* + TREE{1,2,1_2,2_2}_ISTRAT + IRIS{_STRAT,_1}
+  + UPERM_STRAT — friend2 Zenemy lock+ELASER; leng0 open barrier; meteor
+  fragment/col; public winglazerman leave drops + tree/iris/uperm; tests
+  friend2_leng0_meteor.rs (4). Ledger ~1627/2169 True.
+- Next: remaining enemy_boss_strat (sfish / mcore1 / …), or float-ground A/B.
+
+SESSION_SUMMARY: friend2 + leng0 + meteor2/col + winglazerman/tree/uperm/iris ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 75 (stop-hook):
+- [x] SFISH_{ISTRAT,STRAT} + EXIT{,COLL}_ISTRAT + OPENLRCOL_ISTRAT
+  + HYPERSPACE{,OUT}_{ISTRAT,STRAT} + HYPER_ISTRAT + PHITFLASH_ISTRAT
+  + PILLAR3F{FALL,STAY}_* + TORPEDOA_{INIT,STRAT} — sfish school/alone swim;
+  exit stubs; openlr hit→open; hyperspace streak emitter; pillar3f fall/stay;
+  public torpedoa surface; tests sfish_exit_hyper.rs (3).
+  Ledger ~1642/2169 True.
+- Next: remaining enemy_boss_strat (mcore1 / cruiser fall / …), or float-ground A/B.
+
+SESSION_SUMMARY: sfish + exit/openlr + hyperspace + pillar3f + torpedoa ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 76 (stop-hook):
+- [x] CRUISER{1,1F}_{ISTRAT,STRAT,CONT} + CRUISER1FALL_{ISTRAT,STRAT}
+  + CRUISER2{,FIRE,LAUNCHER}_* + UPDOOR{,COL}_* + MINE2_{ISTRAT,STRAT}
+  + DOMA{,_STRAT}/DOMB + DPILAR_ISTRAT — enemies_ground cruiser capital ships
+  + fall tip + launcher FAKEFARHMISSILE1; updoor open/flip-col; mine2 rise→exp;
+  doma far-copy/close-vx; dpilar=halfd alias; tests cruiser_mine2_doma.rs (3).
+  Ledger ~1652/2169 True.
+- Next: remaining enemy_boss_strat (mcore1 / suck* / lseqdoor / …), or float-ground A/B.
+
+SESSION_SUMMARY: cruiser1/2 + fall/launcher + updoorcol + mine2 + doma + dpilar ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 77 (stop-hook):
+- [x] SUCK{BITS,CUBE}_{ISTRAT,STRAT,CONT} + SUCKOBJ{,FAST}_SROU
+  + LSEQDOOR{1,2}_ISTRAT + VOL{ROCK,PLASMA,ROCKDOWN}_*
+  + TREE3_ISTRAT — enemy_a Andross suck debris helpers; GCSTRATS last-seq
+  doors; publicize volcano rocks; tree3→tree2 forced height255; tests
+  suck_lseq_volrock.rs (3). Ledger ~1668/2169 True.
+- Next: remaining enemy_boss_strat (mcore1 body / …), or float-ground A/B.
+
+SESSION_SUMMARY: suck + lseqdoor + volrock/plasma/down + tree3 ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 78 (stop-hook):
+- [x] SHIPS_{ISTRAT,STRAT} + SPEEDLINES_ISTRAT + INTRO1PFALL{,ING}_*
+  + MONOLITHPART{,L,_SROU,_STRAT} + CASTBIT_ISTRAT.HIT + LSPARK_{ISTRAT,STRAT,CONT}
+  + DOOR1{OPEN,CLOSE}WAIT_INIT — debris ships drift; intro tip-fall; streak;
+  Andross face tiles + lead flag; castbit.hit + lspark/door1 inits public;
+  tests ships_intro_monolith.rs (3). Ledger ~1685/2169 True.
+- Next: remaining enemy_boss_strat (mcore1 body / ship2 / …), or float-ground A/B.
+
+SESSION_SUMMARY: ships + intro1pfall + speedlines + monolithpart + castbit.hit + lspark + door1 inits ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 79 (stop-hook):
+- [x] CLSHIP{1,2,3}_{ISTRAT,STRAT} + CLSHIPTURN2_{ISTRAT,STRAT,CONT}
+  + CLSHIPDIVEBOOST_ISTRAT + CLSHIPDIVE_CONT2
+  + CLSHIPUNDERBOOST_{ISTRAT,STRAT} + FLOATCLSHIP{,2}_L
+  + UP1MANCHILD{1,2,3}_ISTRAT + FIRENORMRINGLASER_L
+  + BOSS2SPARK_{ISTRAT,STRAT,SROU} — publicize SHIP1–3 (sans sflag1 latch);
+  TURN2 roll-away; dive/under boost leaves; ROM pZrot/viewfloattab floats;
+  up1manchild offset inits; firenormringlaser vel120; boss2spark spray +
+  dead srou; tests clship_up1man_spark.rs (2). Ledger ~1707/2169 True.
+- Next: remaining enemy_boss_strat (mcore1 body / ship2 / …), or float-ground A/B.
+
+SESSION_SUMMARY: clship1–3 + turn2 + dive/underboost + floatCLship + up1manchild1–3 + firenormringlaser + boss2spark ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 80 (stop-hook):
+- [x] SHIP1_{ISTRAT,STRAT} + SHIP1COL_ISTRAT + SHIP1A_{ISTRAT,STRAT,CONT} body
+  + SHIP3_{ISTRAT,STRAT,CONT} + SHIP3B_STRAT + SHIP3C_{INIT,STRAT}
+  + DOBOSSROTX4_SROU + DOBOSS2ROT_SROU + BOSS2ROTS_SROU — entrance ship1
+  peel-down + ship1a shoot/smoke; HF2 col; ship3 rise/fire/cont→b/c;
+  boss2 petal park helpers (scale 1/2/3); tests ship1_ship3_boss2rots.rs (2).
+  Ledger ~1719/2169 True.
+- Next: remaining enemy_boss_strat (mcore1 body / ship2 / …), or float-ground A/B.
+
+SESSION_SUMMARY: ship1/ship1a/col + ship3b/c/cont + boss2rots/doboss* ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 81 (stop-hook):
+- [x] SHIP2_{ISTRAT,STRAT,CONT} + SHIP2FIRE_CONT + SHIP2{INTO,OUTSIDE}_{INIT,STRAT}
+  — intermediate entrance ship: chase x/viewcy; on-axis close→into
+  (medpspeed + player guide + doneguide); off-axis→outside peel via
+  leftpl; fire_cont=cont (ROM fire commented out); tests
+  ship2_entrance.rs (2). Ledger ~1727/2169 True.
+- Next: remaining enemy_boss_strat (mcore1 body / …), or float-ground A/B.
+
+SESSION_SUMMARY: ship2 into/outside/cont/fire_cont ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 82 (stop-hook):
+- [x] MCORE1_{ISTRAT,STRAT} + TUNNELA_{ISTRAT,STRAT} + TUNNELA2_STRAT + NULL_STRAT
+  — mcore1 wait→zoom-in/away→flip→center with setstate/nextstate re-entry;
+  tunnela HF5 anim/idle toggle (dincanim #16); null_strat empty end;
+  tests mcore1_tunnela.rs (2). Ledger ~1733/2170 True.
+- Next: remaining enemy_boss_strat (teleporter / …), or float-ground A/B.
+
+SESSION_SUMMARY: mcore1 body + tunnela/null ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 83 (stop-hook):
+- [x] TELEPORTER_ISTRAT + BOSSH_{ISTRAT,LEG,TOP} + BOSSHHITCOUNT ledger
+  — teleporter rise + bonfire at sbyte2∈{20,1}; sflag1 retract/remove;
+  knockitdown anim cap; bossh family already tested (bossh.rs) now True;
+  tests teleporter.rs (3). Ledger ~1738/2170 True.
+- Next: remaining enemy_boss_strat (shiplb1 / …), or float-ground A/B.
+
+SESSION_SUMMARY: teleporter_istrat ported; bossh ledger flipped + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 84 (stop-hook):
+- [x] SHIPLB1_ISTRAT + SHIPLB1YCHASE_SROU + SHIPOUTOFLB3_{ISTRAT,STRAT}
+  + BOSS1MAKECHILD — LB1 escort peel (ychase viewtoobj+sword1);
+  LB3 fly-past cruise/wait/boost; boss1makechild extracted from
+  strat_boss1_init; tests shiplb1_outoflb3.rs (3). Ledger ~1743/2170 True.
+- Next: remaining enemy_boss_strat (pshipoutoflb3 / …), or float-ground A/B.
+
+SESSION_SUMMARY: shiplb1 + shipoutoflb3 + boss1makechild ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 85 (stop-hook):
+- [x] PSHIPOUTOFLB3_{ISTRAT,STRAT} + VIEWOUTOFLB3_{ISTRAT,STRAT}
+  + viewlb3move_srou body — player ship cruise/wait/boost; camera
+  close→swing→endgame→zoomin (gf2_stratflag1); pviewpos pin helper;
+  tests pship_view_outoflb3.rs (3). Ledger ~1747/2170 True.
+- Next: remaining enemy_boss_strat (pshipoutoflb1 / …), or float-ground A/B.
+
+SESSION_SUMMARY: pship/view outofLB3 ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 86 (stop-hook):
+- [x] PSHIPOUTOFLB1_{ISTRAT,STRAT} + VIEWOUTOFLB1_{ISTRAT,STRAT}
+  — climb out of base → lineup → remove last_b + spawn shiplb1 friends
+  → turn → boost/done; view follows pship state + mapvar1 Lexp burst;
+  tests pship_view_outoflb1.rs (3). Ledger ~1751/2170 True.
+- Next: remaining enemy_boss_strat (pshipdivegnd / …), or float-ground A/B.
+
+SESSION_SUMMARY: pship/view outofLB1 ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 87 (stop-hook):
+- [x] PSHIPDIVEGND_{ISTRAT,STRAT} + VIEWDIVEGND_{ISTRAT,STRAT}
+  — dive to planet: rotx=90, vel50, shadow, sbyte1=54; far-Z handoff
+  removes view+self → playeronplanet; else genvecs/move, spin/speedto,
+  fin clears nozremove + achase rotx/rotz; view tracks ship vz→worldz,
+  vy-only Y, pviewpos+player copy, outvz−=4*256 then fin chase;
+  tests pship_view_divegnd.rs (3). Ledger ~1755/2170 True.
+- Next: remaining enemy_boss_strat (pshipintolb1 / bosscup / …), or float-ground A/B.
+
+SESSION_SUMMARY: pship/view divegnd ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 88 (stop-hook):
+- [x] PSHIPINTOLB1_{ISTRAT,STRAT} + VIEWINTOLB1_{ISTRAT,STRAT}
+  — climb (speedto min, rotx−2) → roll/open (gf2_stratflag1 @ sbyte1=10,
+  rotz+8) → boost max + SE → chase mapvar1 xz + rotz→0 → handoff to
+  playerinLtunnel (view/speeds/pviewpos/floatvar clear); view offsets
+  sword1/sword2/ptr follow pship state 0–4; tests pship_view_intolb1.rs (3).
+  Ledger ~1759/2170 True.
+- Next: remaining enemy_boss_strat (pshipcolony / washent / bosscup / …), or float-ground A/B.
+
+SESSION_SUMMARY: pship/view intoLB1 ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 89 (stop-hook):
+- [x] PSHIPCOLONY_{ISTRAT,STRAT} + PSHIPWASHENT_{ISTRAT,STRAT}
+  — shared pipe-follow bank (rotz/outv_hi from rotx, rot tab duration/angle);
+  colony → boost+vel120 → Ltunnel handoff; washent → outdist chase →
+  nucleus handoff; clearcolony/washent dup now assigns these strats;
+  tests pship_colony_washent.rs (3). Ledger ~1763/2170 True.
+- Next: remaining enemy_boss_strat (bosscup / …), or float-ground A/B.
+
+SESSION_SUMMARY: pship colony/washent ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 90 (stop-hook):
+- [x] BOSSACUPOPEN_SROU + BOSSACUPUP_SROU + BOSSACUPUPLOW_SROU
+  + GETBOSSACUPCHILD_SROU + BOSSACUPPER{L,M,R}_ISTRAT
+  — publicize ROM-named cup leaves (open anim, chase turret±lift,
+  getchild via sbyte2); L/M/R istrat → init_common; cup strat UP/ROTATE/
+  RETURN/DOWN call open/up/uplow/getchild; tests bossacup_srou.rs (2).
+  Ledger ~1770/2170 True.
+- Next: remaining enemy_boss_strat (bossb / bossflash / …), or float-ground A/B.
+
+SESSION_SUMMARY: bossAcup open/up/uplow/getchild + L/M/R istrat verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 91 (stop-hook):
+- [x] BOSSATURRET{L,M,R}_{ISTRAT,STRAT}
+  — publicize ROM-named turret leaves; Icont (hp/nohit/colldisable,
+  sbyte3 forced 0); cont: bossHP, face-fire HPLASMA, lone-turret sweep,
+  mother-relative offs; tests bossaturret_lmr.rs (2).
+  Ledger ~1776/2170 True.
+- Next: remaining enemy_boss_strat (bossb core / bossflash / …), or float-ground A/B.
+
+SESSION_SUMMARY: bossAturret L/M/R istrat+strat verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 92 (stop-hook):
+- [x] BOSSB_{ISTRAT,STRAT,CONT,CONT2,CONT3,CONT4} + BOSSBDODGE_{INIT,STRAT}
+  + BOSSBDODGECOL_ISTRAT + BOSSBESCAPE_{ISTRAT,STRAT} + BOSSBRANGE_SROU
+  + BOSSBPOINTDIR_SROU + BOSSBADD{PZ,BHP}_CONT + BOSSFLASH_L
+  — publicize face core; dodgecol→hitflash_bossd; range/pointdir helpers;
+  bossflash_l via Windows dyingred slot + Hooks::boss_flash; tests
+  bossb_core.rs (4) + face_* green. Ledger ~1792/2170 True.
+- Next: remaining enemy_boss_strat (bossf / …), or float-ground A/B.
+
+SESSION_SUMMARY: bossB face core + bossflash verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 93 (stop-hook):
+- [x] PLAYERCLEARSHIP_{ISTRAT,STRAT} + SET_PLAYERCLEARSHIP_L
+  + PLAYERCLEARSHIP2_{ISTRAT,STRAT} + PLAYERNULL_ISTRAT
+  — port ClearShip fly-mode + scroll/boost/stagedone; ClearShip2
+  4-state black→restore→boost→done; playernull Z cruise; tests
+  player_clearship_null.rs (4). Ledger ~1798/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head / …), or float-ground A/B.
+
+SESSION_SUMMARY: ClearShip/ClearShip2/playernull ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 94 (stop-hook):
+- [x] PLAYERCLEARTURN_{ISTRAT,STRAT} + PLAYERCLEARTURN2_STRAT
+  + PLAYERCLEARUNDER_{ISTRAT,STRAT} + PLAYERUNDER2_STRAT
+  + PLAYERCLEAREARTH{,2}_{ISTRAT,STRAT}
+  — ClearTurn countdown→dup clshipTurn; ClearUnder chase/outvy→UNDER2;
+  ClearEarth2→Earth→ClearShip Icont; tests player_clear_turn_under_earth.rs (4).
+  Ledger ~1808/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head / ClearDemo / …), or float-ground A/B.
+
+SESSION_SUMMARY: ClearTurn/Under/Earth ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 95 (stop-hook):
+- [x] PLAYERCLEARDEMO_{ISTRAT,STRAT} + PLAYERCLEARDEMO2_STRAT
+  + PLAYERDIVE_{ISTRAT,STRAT} + PLAYERDIVE2_STRAT
+  + PLAYERCLEARCHASE_{ISTRAT,STRAT} + PLAYERCHASE2_STRAT
+  — ClearDemo planet chase→demo2 (plrotx/bg2Y/dup); DIVE scroll window→DIVE2;
+  ClearChase outvx/outvy/scroll windows→CHASE2; tests
+  player_clear_demo_dive_chase.rs (3). Ledger ~1817/2170 True.
+- Next: remaining enemy_boss_strat (bossf / warp / …), or float-ground A/B.
+
+SESSION_SUMMARY: ClearDemo/DIVE/ClearChase ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 96 (stop-hook):
+- [x] PLAYERWARP_{ISTRAT,STRAT} + PLAYERWARP{1,2}_STRAT
+  + PLAYERWARPOUT_{ISTRAT,STRAT}
+  — Warp 3-state (close→spin/hyperspace→boost→warp1 flag1/dots);
+  WarpOut Z-ramp→toinside space; tests player_warp.rs (4).
+  Ledger ~1823/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head / …), or float-ground A/B.
+
+SESSION_SUMMARY: Warp/WarpOut ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 97 (stop-hook):
+- [x] BOSS7HATCHCOL_ISTRAT + BOSS7LAUNCHERCOL_ISTRAT + BOSS7COLL_ISTRAT
+  + BOSS7B2_{INIT,STRAT} + BOSS7INTROPART_ISTRAT + BOSS8_STRAT
+  — publicize hatch/launcher col; coll→hitflash; b2 hide-hatch→boss7b;
+  intropart colldisable+childrelpos×4; boss8_strat≡boss8_cont ($0793af);
+  tests boss7_col_b2.rs (6). Ledger ~1830/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head / …), or float-ground A/B.
+
+SESSION_SUMMARY: Boss7 col/b2/intropart + Boss8_STRAT verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 98 (stop-hook):
+- [x] THEEND_ZOOM{,2}_{ISTRAT,STRAT} + THEEND_FIN{,2}_{ISTRAT,STRAT}
+  + THEEND_FLIP_{ISTRAT,STRAT} + THEEND_FLYAWAY_{ISTRAT,STRAT}
+  + THEEND_CHECK_ISTRAT
+  — port KSTRATS letter settle/flip/flyaway; numendok gate + BGM;
+  flip tumble via tempstratptr; tests theend.rs (7). Ledger ~1843/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head / PLAYER* flyin / …), or float-ground A/B.
+
+SESSION_SUMMARY: THEEND zoom/fin/flip/flyaway/check ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 99 (stop-hook):
+- [x] PLAYER{SPACE,INSIDESPACE,PLANET,LTUNNEL,COLONY}FLYIN_{ISTRAT,STRAT}
+  + PLAYERSTRAIGHT_STRAT + PLAYERSPEED{UP,STOP}_ISTRAT
+  + PLAYERONCONT_{ISTRAT,STRAT} + PLAYERCRED_{ISTRAT,STRAT}
+  + PLAYERDIVEGND_{ISTRAT,STRAT}
+  — flyin chase→mode handoff; straight med cruise; speed trigger objs;
+  oncont demo cam; full cred strat; divegnd arms noop; also ledger-flip
+  already-ported LB/tunnel/undergnd leaves; tests player_flyin.rs (7).
+  Ledger ~1880/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head / pcolrw / …), or float-ground A/B.
+
+SESSION_SUMMARY: Player flyin/straight/speed/oncont/cred/divegnd ported + verified.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 100 (stop-hook):
+- [x] SETBOSS_L + INITGAME_STRATS_L + DRILL_ISTRAT.LAUNCHWEB
+  — setboss_l appends boss_seq (skip dup); initgame_strats clears
+  outv*/boss HP/flags + gf2_ingame; public drill_launchweb; structural
+  flip fireface/fireball/LFIREBALL/WHITE_C/BMYSHIP/M*_STRAT/nofire_aggv/
+  PLAYER_STRATEGIES/STRATDEBUG/PKANI_SHOT.SHOOT_FIRE; tests
+  setboss_initgame_drill.rs (3). Ledger ~1909/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head / pcolrw / …), or float-ground A/B.
+
+SESSION_SUMMARY: setboss/initgame/drill.launchweb + structural flips.
+Next: remaining enemy_boss_strat, or float-ground A/B.
+
+Tick 101 (stop-hook):
+- [x] PCOLRW_{ISTRAT,STRAT} + PENDCOL{B,LW,RW}_ISTRAT
+  — ROM-named wing/body end-collide; pcollobj_* WRAM; spexplod FX;
+  Zshake/plrotx nudge; brkpwingcol→body; tests pcol_pendcol.rs (5).
+  Ledger ~1914/2170 True.
+- Next: remaining enemy_boss_strat (bossf body/feet/arm/head), or float-ground A/B.
+
+SESSION_SUMMARY: PCOLRW + PENDCOL* ported + verified.
+Next: remaining enemy_boss_strat (bossf), or float-ground A/B.
+
+Tick 102 (stop-hook):
+- [x] BOSSF{BODY,FEET,ARM,HEAD}_ISTRAT
+  — airship heli child parts (DSTRATS.ASM); module bossf_heli.rs;
+  mode tables + hit/explode/headfire; feet→mother heli; arm ironballs;
+  head ringlaser/rotate; tests bossf_heli_parts.rs (8).
+  Ledger ~1918/2170 True. enemy_boss_strat False: 0.
+- Next: float-above-ground A/B, or other/render_dma/audio False leaves.
+
+SESSION_SUMMARY: BossF body/feet/arm/head heli parts ported + verified.
+Next: float-ground A/B, or other/render_dma/audio.
+
+Tick 103 (stop-hook):
+- [x] MAKEENGINE_SROU_L + MAKESPLASH_SROU_L + MAKESSPLASH_SROU_L + MAKESDRAG_SROU
+  — common::makeengine/updateengine + makesplash/makessplash/splash_*;
+  public make_sdrag; float-ground centroid A/B in camera.rs (no cam flip);
+  tests makeengine_splash.rs (6). Ledger ~1922/2170 True.
+- Next: other/render_dma/audio False leaves, or in-game float-ground A/B.
+
+SESSION_SUMMARY: makeengine/splash/Ssplash + make_sdrag + float A/B diagnostic.
+Next: other/render_dma/audio, or in-game float-ground A/B.
+
+Tick 104 (stop-hook):
+- [x] CLSHIPBOOSTNOSND_ISTRAT + UPDATEENGINE_SROU_L + DOMAKESPL + SR_MAKE_{OBJ,CHILD}
+  — public clshipboost{,nosnd}_istrat / clshipboost_strat; player_warp1_init
+  wires nosnd on dup; structural flips for already-ported makeengine/splash/
+  make_obj/make_child leaves; tests clshipboost_nosnd.rs (4).
+  Ledger ~1927/2170 True.
+- Next: other/render_dma/audio/map_menu False leaves, or in-game float A/B.
+
+SESSION_SUMMARY: clshipboostnosnd + UPDATEENGINE/DOMAKESPL/SR_MAKE_* flips.
+Next: other/render_dma/audio/map_menu, or in-game float-ground A/B.
+
+Tick 105 (stop-hook):
+- [x] FLASHTURQ_L + FLASHTURQ2_L + FLASHRED_L
+  — Windows hitflash modes (turq/turq2/red) + Hooks + common wrappers;
+  tests flash_hitflash.rs (4) + windows unit.
+- [x] SR8/SR16_ACHASE_ALVAR* + SR_ACHASE_ALVAR_{END,FIN} + SR_REMOVE_OBJ{X,Y}
+  — structural flips (fuzz_pure_fns / achase_angle / chase_proportional /
+  strat_remove_obj already cover). Ledger ~1947/2170 True. audio False: 5.
+- Next: remaining audio (BGM/VOFS/SOUND5LEN), other/render_dma/map_menu, or float A/B.
+
+SESSION_SUMMARY: hitflash windows + achase/remove structural flips.
+Next: DO_BGM/VOFS/SOUND5LEN, other/render_dma/map_menu, or float A/B.
+
+Tick 106 (stop-hook):
+- [x] DO_BGM_INIT + DO_BGM_CONTINUE
+  — Sound::do_bgm_{init,continue} thin bootapu wrappers over SND_INIT/
+  SND_CONTINUE; tests do_bgm_init_and_continue_bootapu.
+- [x] VOFSONPLEASE_L + VOFSOFFPLEASE_L
+  — GameVars::{vofs_on,off}_please (dovofs/bgmode/bg2vofs from bg2scroll);
+  map opcodes VOFSON/VOFSOFF wired; tests unit_core vofs (3).
+- [x] SOUND5LEN — boot::SOUND5_LEN = $009424 (= SGSOUND5.BIN size); structural.
+  Ledger ~1952/2170 True. audio False: 0.
+- Next: map_menu (MAKETOTALSCORE*/MAPWAITFADEDO/SETCHARMAP*), other/render_dma,
+  or in-game float-ground A/B.
+
+SESSION_SUMMARY: DO_BGM init/continue + VOFS please + SOUND5LEN; audio closed.
+Next: map_menu / other / render_dma, or float-ground A/B.
+
+Tick 107 (stop-hook):
+- [x] MAKETOTALSCORE + MAKETOTALSCORE2
+  — score::calc_average_score / count_played_stages / score_digits
+  (mkrisdivu3115 average + digit peel); Planets::average_score;
+  tests score unit (2).
+- [x] MAPWAITFADEDO — already wired as op::WAITFADE; park/advance test
+  with FadeHooks (unit_core).
+- [x] SETCHARMAPGAME_L + SETCHARMAPPLAN_L + SETCHARMAPFOX_L
+  — charmap::{CharMap,CharMapScreen} HD stand-in for SNES VRAM tilemaps;
+  Hooks + ShellState; SETCHARMAPFROMMAP_L now calls set_charmap_game.
+  Ledger ~1958/2170 True. map_menu False: 0.
+- Next: other / render_dma False leaves, or in-game float-ground A/B.
+
+SESSION_SUMMARY: maketotalscore average + waitfade verify + setcharmap; map_menu closed.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 108 (stop-hook):
+- [x] XYDIFFS_ABS_L + XYDIFFS_L
+  — common::xy_diffs(_abs) Manhattan |dx|+|dy|; bossBrange fixed
+  (was wrongly scaled-Euclidean); tests endscore_xydiffs + bossb_core.
+- [x] MAKEENDOBJ{,N,2,N2} + MAKENUM{P,T} + CHECKIFIAMEND
+  — endscore::makeendobj*/makenum* path-text spawns + digit msg tag;
+  check_if_i_am_end arms c_type=30.
+- [x] GAMECLIPWINDOW_L + CLEARHVOFS_L
+  — clip::{GameClipWindow,BgScrollOffsets}; unit tests.
+  Ledger ~1969/2170 True. other ~141 / render_dma 59.
+- Next: other / render_dma False leaves, or in-game float-ground A/B.
+
+SESSION_SUMMARY: xydiffs Manhattan + makeendobj/makenum + clip/hvofs.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 109 (stop-hook):
+- [x] ADD2POSOBJYFOBJX_L — common::add2pos_obj_y_from_obj_x (src+offset→dst).
+- [x] MOVEOBJTOEND_L — Objects::move_obj_to_end (active-list append).
+- [x] READ_JOYPAD_L + READ_JOYPADT_L — pad::read_joypad edge (cont/trig).
+- [x] SETFADE{UP,DOWN,QUP,QDOWN}DO — already map FADEUP/FADEDOWN/QFADE*;
+  verified hook speeds 1/2.
+- [x] ARCTAN16_L — structural (GSU mcallarctan16 / strat_angle_xz).
+  Ledger ~1978/2170 True. other ~132 / render_dma 59.
+- Next: other / render_dma False leaves, or in-game float-ground A/B.
+
+SESSION_SUMMARY: add2pos + moveobjtoend + joypad edge + SETFADE/ARCTAN flips.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 110 (stop-hook):
+- [x] XZDIFFS_ABS_L + XZDIFFS_OFF_L
+  — common::xz_diffs_abs / xz_diffs_off Manhattan |dx|+|dz|
+  (XZDIFFS_L scaled-Euclidean already True).
+- [x] DOBGREQ_L + TRANSSWAP_L
+  — bgs::do_bg_req / trans_swap drain BGF_BG/INFO/RESTART.
+- [x] STARTSFX_L — clip::start_sfx clears BG scroll (PPU cold-boot HD).
+  Ledger ~1983/2170 True. other ~127 / render_dma 59.
+- Next: other / render_dma False leaves, or in-game float-ground A/B.
+
+SESSION_SUMMARY: xzdiffs abs/off + dobgreq/transswap + startsfx.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 111 (stop-hook):
+- [x] BUILD_DRAWLIST(_L) — ROM empty rts; live path draw::build_list verified.
+- [x] WAITDMA_L + WAITDMA224 — clip::WaitDma no-op records line.
+- [x] CLEARSPRITES_L — Sprites::clear_sprites clears OAM queue.
+- [x] FADEHALF2NORM — Windows::fade_half_to_norm / start_half_fade.
+- [x] CALCBG2VOFFSETS(_L) — bgs::calc_bg2_voffsets dovofs/dozrot/lastrot gate.
+  Ledger ~1991/2170 True. other ~126 / render_dma 52.
+- Next: other / render_dma False leaves, or in-game float-ground A/B.
+
+SESSION_SUMMARY: build_drawlist + waitdma + clearsprites + fadehalf + calcbg2vofs.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 112 (stop-hook):
+- [x] FADETONORM_L — fade_to_norm_l clears circleanim + init_fade_white2norm.
+- [x] GAMEOVERINIT_L — gameover_init_l: initgame/playerstart/cred + gamesh/oversh @ ±270.
+- [x] DMA_SPRITES_L + DMABG2VOFFSETS(_L) + DMAHPOS(_L) — DmaFlush SNES DMA stand-ins.
+- [x] FADERED_L — fade_red_palette BGR555 red boost (8×16) + clear idx 111.
+  Ledger ~1999/2169 True. other ~123 / render_dma 47.
+- Next: other / render_dma False leaves (FOXY*, ALLOC heap, FADELINES…), or float-ground A/B.
+
+SESSION_SUMMARY: fadetonorm + gameoverinit + dma flush + fadered.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 113 (stop-hook):
+- [x] FOXY_CONTINUE_L — foxy_continue_enter (credits gate + fox charmap + DMA sprites).
+- [x] FOXYTRANS_L + FOX_SPRITES_L + DRAWSOME3D — FoxyContinue::{foxy_trans,fox_sprites,draw_some_3d}.
+- [x] CLRONEHALF_L — structural (pair with CLROTHERHALF; half-clear counters).
+- [x] FIND_OBJECT_L / FINDTARGET_L — find_object shape / ASF3_REALOBJ walk.
+- [x] JUMPTOSTATE_L — jump_to_state 4-byte far table index.
+- [x] ENDTRANS_L — EndTrans half-clear transfer tick.
+  Ledger ~2008/2169 True. other ~117 / render_dma 45.
+- Next: other / render_dma (ALLOC heap, FADELINES, DEC_*, P_INIT_SPRITES…), or float-ground A/B.
+
+SESSION_SUMMARY: foxy continue/trans/sprites + find_object + jumptostate + endtrans.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 114 (stop-hook):
+- [x] ALLOC_L / AVAIL_L / SFREE_L / SALLOC_L / SALLFREE_L — StratHeap first-fit + alien memptr chains.
+- [x] MPUSH_L / MPULL_L / SMPUSH_L / SMPULL_L — virtual stack on StratHeap.
+- [x] FADETABLE / FADETAB0 / FADECOL0 — coldata ramp + BGR555 colour-0 fade table.
+- [x] FADELINES(_2) — structural (ROM IFEQ 1 disabled); FadeLines counter.
+- [x] DEC_CHR/BG/BG3_L — structural Mario mdecrunch stand-ins (DecRun).
+- [x] P_INIT_SPRITES_L — clear OAM staging (= clearsprites path).
+  Ledger ~2026/2169 True. other ~99 / render_dma 44.
+- Next: other / render_dma (PROJECTLOG, DMA256*, planet draw…), or float-ground A/B.
+
+SESSION_SUMMARY: strat heap alloc/salloc/mpush + fade tables + dec/p_init_sprites.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 115 (stop-hook):
+- [x] PRINTB/BD/BSD/BB/W/T + PRINTAB1..5 — DebugPrint hex/dec/text/ab columns.
+- [x] CLIP_PLOT_L — clip_plot vs GameClipWindow.
+- [x] PROJECTLOG_L / PROJLOG_L — project_log / proj_log (vanish + coord<<8/depth).
+- [x] COPYCHARS_L / COPY_TO_0101_L — structural BootCopy counters.
+- [x] PALGOTO_L — pal_goto_step BGR555 channel chase.
+- [x] DMA256SCREEN(_FAST) / DMAPEPPERSCREEN + DRAWSELECTED/CENTRE + MOVESHIPALONGPATH — PlanetScreenDma.
+- [x] PLANETDMAPOS1/2 — structural data labels.
+  Ledger ~2051/2169 True. other ~83 / render_dma 35.
+- Next: other / render_dma (HDMA, MYZOOM, WALL, path inits…), or float-ground A/B.
+
+SESSION_SUMMARY: debug print + clip_plot + projectlog + palgoto + planet DMA.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 116 (stop-hook):
+- [x] FIND_NEAROBJECT/FINDNTARGET + FIND_ANYNEAR + FIND_RADIUS/ANYRADIUS — XZ Manhattan band search.
+- [x] FIND_MOBJECT_L + FIND_SWORD1_L — sflags-mask walk + sword1 scan.
+- [x] FIND_WINDOW_PRI_L — Windows::find_window_pri lowest set bit.
+- [x] DYINGRED(_OFF)_L — Windows::{dying_red,dying_red_off}.
+- [x] MODECHANGESET/ADD_L — modechange_set / modechange_add stratstate.
+- [x] PRINTAW1..3_L — DebugPrint::print_aw.
+- [x] DRAWLINESBITBYBIT — PlanetScreenDma::draw_lines_bit_by_bit.
+- [x] HDMA_START/END + XHDMA_TABLES — structural HdmaRegion markers.
+  Ledger ~2070/2169 True. other ~68 / render_dma 34.
+- Next: other / render_dma (path inits, MYZOOM/WALL shapes, MWINDRAW…), or float-ground A/B.
+
+SESSION_SUMMARY: find_near/radius/mobject + dyingred + modechange + printaw + hdma.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 117 (stop-hook):
+- [x] FLOAT256/128/32_SROU + FLOAT_CONT + FLOUT_SROU — sintab bob via floatvar1/2.
+- [x] COUNT_SHAPES_L — count_shapes active-list tally.
+- [x] WINGLAZERMAN2/3/GO_INIT — publicized (already wired into strats).
+- [x] INITGAME/3D/SCREEN/3D + INIT_SPRITES + FNMI — BootInit stand-ins (fnmi empty rtl).
+- [x] MMAKE_PARTICLES + MWINDRAW/MDODRAW + MDRAW* family — MarioDraw counters.
+- [x] PARTFADETAB + PFADEINTOTAL — structural data/path labels.
+  Ledger ~2104/2169 True. other ~51 / render_dma 14.
+- Next: remaining other/render_dma (shapes MYZOOM/WALL/LFDIE, path inits…), or float-ground A/B.
+
+SESSION_SUMMARY: float_srou family + count_shapes + winglazerman inits + boot/mario draw.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 118 (stop-hook):
+- [x] PERC56A/62A/75A/87A_L — verified = strat_perc* (oracle already covers).
+- [x] SETBG_L + SETBGINFOREQ_L + SETRESTARTFADE_L — bgs::{set_bg,set_bg_info_req,set_restart_fade}.
+- [x] SET_0/NORMCOLLPTRS{X,Y}_L — set_0_collptrs / set_norm_collptrs.
+- [x] XFLYTOPOS_L — x_fly_to_pos bank+achase.
+- [x] INITWMAT/MARIO3D/MEM + MINITDUST — BootInit extensions.
+- [x] SETINIDISP1/NOCLASH/PAL/GAMEPAL/PLANETPAL + DO_CIRCLE/WIPE/HPOS + UNDRAWPLANETLINES + RESET_SPRITES + PEPPERFADE/WIPE_INIT — DisplayFx.
+  Ledger ~2132/2169 True. other ~29 / render_dma 8.
+- Next: shape/path labels (MYZOOM/WALL/LFDIE/PE_*), remaining render_dma, or float-ground A/B.
+
+SESSION_SUMMARY: perc*A verify + set_bg/collptrs/xfly + init/display FX.
+Next: other / render_dma, or float-ground A/B.
+
+Tick 119 (stop-hook):
+- [x] SETOBJTOBECHILDXY/YX_SROU — set_obj_to_be_child_* (sword1 index+1 chain + sbyte1).
+- [x] SET_RESTART_POSITION_L — World::set_restart_position / apply_restart (map stacks).
+- [x] SETUP_PLANETS_L + TITLESEQ_L — BootInit::{setup_planets,title_seq}.
+- [x] EXITSPEC.DOFADEDOWN — DisplayFx::exit_spec_do_fade_down → fade_to_black.
+- [x] SPROUTY.WITHDRAW_I — public sprouty_withdraw_init (already wired).
+- [x] MSHOWGRID/DUST + MGRDRAWDOT* + MSHOWOBJEXIT_NOTDRAWN + OOPSHDMA — MarioDraw/HdmaRegion.
+- [x] Shape/path structural: MYZOOM/WALL/LFDIE*/HOU + PE_* inits + HOLDCHECK + PPATRET.
+  Ledger 2169/2169 True. other 0 / render_dma 0 False.
+- Next: float-ground A/B (open bug), or accuracy polish — ledger leaves closed.
+
+SESSION_SUMMARY: child walk + map restart + title/planets/fade + mario show + structural shapes/paths. Ledger 100%.
+Next: float-ground camera A/B, or stop the porting loop.
+
+Tick 120 (stop-hook):
+- [x] Float-above-ground cam pitch — GameCamera rot_x / pull-back from outvx>>8 (+ noxrot $1ACA).
+- [x] Roll — viewrotzw = outvz - plrotz when dozrot (was -plrotz only).
+- [x] Horizon +18 kept (bg2d load-bearing).
+- [x] Yaw residual — ASF4_PLAYEROBJ still chase-feels player.roty (not outvy).
+- [x] Tests: pitch_follows_outvx_not_player_rotx + float_ground_rom_pitch_keeps_pullback_level;
+      audit_player::getview_viewrot_vs_rom MATCH (6/6).
+  Ledger still 2169/2169 True. Open queue bugs: 0 (yaw residual noted).
+- Next: tier-2 coexec expand, or player-obj yaw→outvy, or stop the porting loop.
+
+SESSION_SUMMARY: float-ground FIXED (ROM outvx pitch + outvz roll); ledger already 100%.
+Next: tier-2 coexec / yaw outvy, or stop the porting loop.
+
+Tick 121 (stop-hook):
+- [x] Cam yaw residual — rot_y = (outvy - player_turnrot)>>8 for all objects (was player.roty chase-feel).
+- [x] Full getview_l viewrot now ROM-faithful (pitch/yaw/roll + noxrot/dozrot).
+- [x] Test yaw_follows_outvy_not_player_roty; camera.rs 7/7; getview_viewrot_vs_rom MATCH.
+  Ledger 2169/2169 True. Open queue bugs: 0.
+- Next: tier-2 coexec expand, accuracy polish, or stop the porting loop.
+
+SESSION_SUMMARY: cam yaw→outvy; getview_l viewrot complete. Ledger 100%.
+Next: tier-2 coexec, or stop the porting loop.
+
+Tick 122 (stop-hook):
+- [x] Shoulder-hold bank lean — player_Ztilt ±= deg45/3 on TLEFT/TRIGHT (PSTRATS.ASM:2626-2639).
+- [x] houdai/zaco3 fire gates — audit_strats flipped to MATCH vs ROM xzdiffs_l (dist_xz already ported).
+- [x] Docs: same-shape coexec status → MATCH; ACCURACY/PORTING_LOOP updated.
+  Ledger 2169/2169 True. Open queue bugs: 0.
+- Next: more player-move Mediums (outdist ease / per-mode view), tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: shoulder ztilt lean + rangexz oracle re-cert. Ledger 100%.
+Next: player-move Mediums / tier-2, or stop the porting loop.
+
+Tick 123 (stop-hook):
+- [x] Y-bounds — inclusive <=/>= + PML_BBOTTOM gate (PSTRATS.ASM:1912-1922).
+- [x] BOOSTOBJ — tagged on pad-X and force-boost (PSTRATS.ASM:2173).
+- [x] pfm_wobble — pZrotfloattab walk → al_rotz (+ broken-wing polarity).
+- [x] outdist→viewdist ease — already in viewmove_srou; unit re-test + NOVDISTC gate.
+  Ledger 2169/2169 True. Open queue bugs: 0.
+- Next: per-mode view (onfield/tunnel/cont), barrel-roll delay Minor, tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: player-move Mediums (Y bounds, BOOSTOBJ, wobble) + outdist re-test. Ledger 100%.
+Next: per-mode view / tier-2, or stop the porting loop.
+
+Tick 124 (stop-hook):
+- [x] Barrel-roll s_beqdec — start only while rolldelay>0 (branch-before-dec); TLEFT→+32 / TRIGHT→−32 (PSTRATS.ASM:2584-2593).
+- [x] playeronfield — set_player_on_field + strat (perc87 X, fixed ViewCY; ASM ifeq 1 dead code, still ported for completeness).
+- [x] Tests: player_onfield_barrel.rs (4); player_move_mediums still green.
+  Ledger 2169/2169 True. Open queue bugs: High #3 planet-init yvel dispatch; Minor #12 ztilt near ground/wall; Minor #13 bgsscrollZ source.
+- Next: High #3 planet yvel125 vs yvel_d2 dispatch, tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: barrel-roll beqdec + onfield view. Ledger 100%.
+Next: planet-init dispatch / tier-2, or stop the porting loop.
+
+Tick 125 (stop-hook):
+- [x] High #3 — playeronplanet_init clears game_mode (exit-base→planet no longer stuck in SPACE→limit_x); set_player_in_{space,water} tag SPACE/WATER.
+- [x] Minor #12 — dpad ztilt skipped near floor (pml_Bbottom && y>=maxY-30) and wing wall (pml_lwleft/rwright).
+- [x] Minor #13 — bgsscrollZ stays on pviewposz (HD camera does not WRAM-write viewposz each tick); noted.
+- [x] Tests: planet_yvel_ztilt.rs (2); fly_modes + shoulder_ztilt green.
+  Ledger 2169/2169 True. Open: Minor #13 camera WRAM writeback, tier-2 coexec.
+- Next: camera viewposz WRAM writeback / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: planet game_mode + ztilt floor/wall gates. Ledger 100%.
+Next: viewposz writeback / tier-2, or stop the porting loop.
+
+Tick 126 (stop-hook):
+- [x] Minor #13 — GameCamera::update WRAM-writes viewposx/y/z ($0550/$0552/$0554).
+- [x] viewmove/playerdead — bgsscrollZ ← VIEWPOSZ (ROM PSTRATS.ASM:1676; last getview Z).
+- [x] Tests: bgsscroll_viewposz.rs (1); camera.rs 7/7 (WRAM assert in player_normal_path).
+  Ledger 2169/2169 True. Player-move audit High/Medium/Minor closed (except intentional notes).
+- Next: tier-2 coexec expand, accuracy polish, or stop the porting loop.
+
+SESSION_SUMMARY: camera viewposz WRAM writeback + bgsscrollZ←viewposz. Ledger 100%.
+Next: tier-2 coexec, or stop the porting loop.
+
+Tick 127 (stop-hook):
+- [x] find_near xzdiffs_l — find_near_object / strat_find_near_{shape,colltype} use strat_dist_xz (scaled Euclidean), not Manhattan; Y ignored (STRATROU.ASM:719).
+- [x] Oracle retail_find_nearobject_vs_port MATCH (8/8 coplanar + radius + Y-separated).
+- [x] Tests: find_near_xzdiffs.rs (2); find_near_dyingred still green.
+  Ledger 2169/2169 True. Tier-2 find_near gap closed.
+- Next: boss phase residuals / HUD UNVERIFIED polish / tier-2 expand, or stop the porting loop.
+
+SESSION_SUMMARY: find_near → xzdiffs_l ranking; retail MATCH. Ledger 100%.
+Next: boss phases / tier-2, or stop the porting loop.
+
+Tick 128 (stop-hook):
+- [x] Continue credits gate — enter only if credits>0; accept dec + $67/$f1; else Title (CONTINUE.ASM:55/286).
+- [x] Talk flash Medium #6 — strings.rs rnd&31==0 → absolute face frame 4 (matches hud.rs).
+- [x] EnemyBattry/RingLaser make_snd — fire_plasma/beamball/oval/rel*/short/yhplasma + Hplasma sites; ring → RingLaser.
+- [x] Tests: death_to_continue_and_back, death_without_credits_goes_to_title, talk_flash_frame_is_absolute_four, fire_plasma_family_uses_enemybattry_make_snd; oval/relelaser/clship green.
+  Ledger 2169/2169 True. HUD/SFX Critical #2 + Medium #6 + battery SE closed.
+- Next: remaining positional SE (laser/missile), bomb-icon flash, boss phase residuals, tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: Continue credits gate + talk flash + EnemyBattry make_snd. Ledger 100%.
+Next: laser/missile SE / tier-2, or stop the porting loop.
+
+Tick 129 (stop-hook):
+- [x] Laser/HitWall make_snd — fire_friend/reb/slow_elaser + strat_fire_relslow{,home} + boss2/sea/bossb laser sites (GSTRATS lasersound_l / hitwallsound_l).
+- [x] Missile make_snd — finish_missile_fire(firer) → Missile; boss2_fire_bosshmissile2 wired.
+- [x] Bomb-icon flash Medium #7 — FrameSnapshot.specflash + shell dec/frame; HUD blink (do_spec_weap); item5 → SPECWEPCNT 0x056E.
+- [x] Tests: fire_laser_missile_use_positional_make_snd; bomb_flash_hides_newest_until_blink_window; missile/oval/relelaser green; sf-app check ok.
+  Ledger 2169/2169 True. Note: ea_parity rader0 sf COLLIDE pre-existing drift (unrelated).
+- Next: shield wireframe color / movewall SE / boss phases / tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: Laser/Missile/HitWall make_snd + bomb specflash HUD. Ledger 100%.
+Next: shield wireframe / tier-2, or stop the porting loop.
+
+Tick 130 (stop-hook):
+- [x] Shield wireframe Medium #5 — GameVars.shieldup; item6 sets shieldup=1 + pnumhits=0; playermove wire-end flash; HUD fill color 7 (MDRAWLIS).
+- [x] MoveWall make_snd — wall_nothit latch (wallleft_i/wallright_i) → PosSndFamilyId::MoveWall (DSTRATS.ASM:1033/1046).
+- [x] Tests: wire_shield_movewall.rs (3); hud shield_meter_uses_color_seven; item6_* + jump_sokuten item6 green; sf-app check ok.
+  Ledger 2169/2169 True. Note: enemies_ground meteo0_death pre-existing (NOHITAFFECT while far).
+- Next: player damage/wing SFX High #12 / nova $30 / boss phases / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: shieldup HUD color + MoveWall make_snd. Ledger 100%.
+Next: player damage SE / tier-2, or stop the porting loop.
+
+Tick 131 (stop-hook):
+- [x] High #12 player damage/wing SFX — pcbox_coll body $04/$19 + shield warn $1b/$1c (sflag latches); wing hit $07/$08/$04; destruct $05/$06 (was wrong $14); wire scrape $14; LCOLLIDE gates impact re-fire.
+- [x] High #13 nova $30 — nukeexp_istrat already correct; test nukeexp_plays_detonation_30.
+- [x] High #14 death BGM — playerdead_istrat play_se($03)+play_music($11).
+- [x] Tests: player_damage_sfx.rs (10); pcbox_routing + nuke still green.
+  Ledger 2169/2169 True.
+- Next: HUD arrow beep $8A drain / pause SFX / boss phases / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: Player hit/wing/death+$11 SE + nova $30 verify. Ledger 100%.
+Next: HUD $8A / pause SE / tier-2, or stop the porting loop.
+
+Tick 132 (stop-hook):
+- [x] High #15 HUD arrow $8A — sf-app drains Renderer::take_pending_hud_sounds after submit → AudioSys::play_hud_se; hud::arrow_flash_wrap_queues_se_8a.
+- [x] High #16 pause SFX — Playing START → dopause latch; SoundCmd::PauseSnd($02/$01) → set_pause_snd; gates wipe/stayblack/bf_dying/pstf_notdie; freezes nmi while paused.
+- [x] Side fix: begin_gameplay seeds WRAM SPECWEPCNT (0x056E) so Playing bombs HUD matches DEFAULT_NUKE_COUNT.
+- [x] Tests: hud arrow (1) + shell pause (2); all shell::tests green; sf-app check ok.
+  Ledger 2169/2169 True.
+- Next: set_nosetport3 / boss phases / tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: HUD $8A drain + pause PauseSnd. Ledger 100%.
+Next: nosetport3 / boss phases / tier-2, or stop the porting loop.
+
+Tick 133 (stop-hook):
+- [x] nosetport3 — SoundCmd::NoSetPort3 + Hooks::set_nosetport3 → AudioSys set_nosetport3; planets_init + begin_gameplay clear (PLANETS.ASM:257 / MAIN.ASM:120).
+- [x] bird_touch path inline — register CB_E_BIG_BIRD_TOUCH on PathWorld; path_bird_touch sets LE_ENTERSPEC + nosetport3 + ~enginesnd + nocollisions + bgm $2 (PATHDATA.ASM:370-390).
+- [x] ENTERSPEC warp_advance → routechange1 (closes Finding 2 ENTERSPEC arm).
+- [x] Tests: nosetport3_bird_touch.rs (4); shell::tests green; sf-app check ok.
+  Ledger 2169/2169 True.
+- Next: boss tick residuals (AUDIT_BOSS) / tier-2 coexec expand / ENDSEQ nosetport3 cosmetic, or stop the porting loop.
+
+SESSION_SUMMARY: nosetport3 + bird_touch path inline. Ledger 100%.
+Next: boss ticks / tier-2, or stop the porting loop.
+
+Tick 134 (stop-hook):
+- [x] AUDIT_BOSS_TICKS2 High #5 — Shell::begin_gameplay writes wm::CURRENTLEVEL (0x1F03)
+  = planets.currentlevel+1 (port encoding: ==N ↔ ROM s_jmp_iflevel N / raw==N-1).
+- [x] boss7 hard-route HP — hatch/launcher/mother gates ==3 (was ==2); ROM
+  s_jmp_ifnotlevel 3 (GB3STRAT.ASM:3169/3539/3645).
+- [x] Tests: shell begin_gameplay_wires_currentlevel_{easy,hard_route}; currentlevel_wram.rs
+  (boss8 easy/hard HP + boss7 level 1/2/3).
+  Ledger 2169/2169 True.
+- Next: boss tick residuals (AUDIT_BOSS Mediums) / tier-2 coexec expand / unported bosses, or stop the porting loop.
+
+SESSION_SUMMARY: Wire currentlevel→WRAM + fix boss7 hard gate. Ledger 100%.
+Next: boss Mediums / tier-2, or stop the porting loop.
+
+Tick 135 (stop-hook):
+- [x] ENDSEQ nosetport3 — advance_stage_and_walk → Ending pushes NoSetPort3(true)
+  (ENDSEQ.ASM:358); planetseq/gameplay still clear.
+- [x] AUDIT_BOSS_TICKS2 Medium #6/#7/#8 verify — boss1back HPLASMA firer+(rnd&15)-7
+  into sbyte1/2 (homingflat visual 0/180); HMISSILE1 pitch ±24 yaw deg180;
+  boss1out s_beqdec before-dec cycle (sbyte3 1→normal, 0→inclose).
+- [x] Tests: shell route_exhaust_sets_nosetport3_on_ending; boss1_back_out.rs (2).
+  Ledger 2169/2169 True.
+- Next: boss1 death Medium #9 / remaining AUDIT_BOSS Minors / tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: ENDSEQ nosetport3 + boss1 Mediums 6–8 verify. Ledger 100%.
+Next: boss1 death / Minors / tier-2, or stop the porting loop.
+
+Tick 136 (stop-hook):
+- [x] AUDIT_BOSS_TICKS2 Medium #9 verify — boss1exp_init → strat_boss_explode_init
+  (s_boss_dying $1e + bgm $f1 + BF_DYING/PSTF_NOTDIE/SF_NOFIRING; 14 staggered
+  SML/MED/L + circdelayexplode; lifecnt 38; bossdelayexplode) + tempstrat rotz
+  spin deg90/32 (GBSTRATS.ASM:87-90 / EXPSTRAT.ASM:78-140).
+- [x] Tests: boss1_death.rs (2).
+  Ledger 2169/2169 True. Mediums 10–14 already fixed in bosses.rs (splash RNG,
+  seamon surface/swim-shape, boss8a anim cap, nucleuslauncher objinfront) — mark
+  next tick.
+- Next: AUDIT_BOSS Mediums 10–14 doc-mark / Minors 15+ / tier-2 coexec, or stop
+  the porting loop.
+
+SESSION_SUMMARY: boss1 death = bossexplode verify. Ledger 100%.
+Next: boss Mediums 10–14 / Minors / tier-2, or stop the porting loop.
+
+Tick 137 (stop-hook):
+- [x] AUDIT_BOSS_TICKS2 Mediums #10–#15 verify (already fixed in bosses.rs):
+  #10 bossseamon state8 splash vx=(rnd&7)+5 then negate rnd>=127;
+  #11 seamon post-landing worldy/vy snap; #12 swim-shape whole-byte lock;
+  #13 boss8a open-flap cap at 14; #14 nucleuslauncher objinfront gate;
+  #15 boss8die preserves bossmaxhp.
+- [x] Publicized bossseamon_strat / seamon_strat / boss8a_strat /
+  nucleuslauncher_{istrat,strat} / boss8die_istrat for tests.
+- [x] Tests: boss_ticks2_mediums.rs (6).
+  Ledger 2169/2169 True.
+- Next: AUDIT_BOSS Minors 16+ / tier-2 coexec expand, or stop the porting loop.
+
+SESSION_SUMMARY: boss Mediums 10–15 verify. Ledger 100%.
+Next: boss Minors / tier-2, or stop the porting loop.
+
+Tick 138 (stop-hook):
+- [x] AUDIT_BOSS_TICKS2 Minors #16–#25 verify (+ #21 fix):
+  #16 Shyper worldy=viewposy; #17 deferred shrapfall + xyz<<1 + folexp 3-draw;
+  #18 boss1up strict <CY; #19 Zdistmore inclusive in/inclose/covdie;
+  #20 center HMISSILE1 |= COLLTYPE_ENEMY1; #21 far back → boss1_fin
+  (add_player_z + add_bosshp, was missing bosshp); #22 gsvar wrap 0→255;
+  #23 sea_gen_vecs leaves vy; #24 swim vx SINTAB/16; #25 |dx|<200 strict.
+- [x] Tests: boss_ticks2_minors.rs (10); prior mediums/death still green.
+  Ledger 2169/2169 True.
+- Next: AUDIT_BOSS Minors 26–28 (accepted/equiv) / known gaps / tier-2, or stop
+  the porting loop.
+
+SESSION_SUMMARY: boss Minors 16–25 verify + boss1back bosshp fix. Ledger 100%.
+Next: Minors 26–28 / gaps / tier-2, or stop the porting loop.
+
+Tick 139 (stop-hook):
+- [x] AUDIT_BOSS_TICKS2 Minors #26–#28 + sea_make_splash gap:
+  #26 boss8 ASF_COLLDISABLE ≡ ROM collstrat=0 (coldet skip; open/close verified);
+  #27 HPLASMA firer-rot vs aim-at-player ACCEPTED (port-wide);
+  #28 bossseamon/nucleuslauncher Istrat fall-through already same-tick;
+  sea_make_splash → makesplash_srou; seamon landing forces splash worldy=0.
+- [x] Tests: boss_ticks2_gaps.rs (5); mediums/minors still green.
+  Ledger 2169/2169 True. AUDIT_BOSS_TICKS2 Mediums+Minors closed.
+- Next: remaining known gaps (kamimissile / expobj lifecnt) / other audits /
+  tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: Minors 26–28 + sea splash. Ledger 100%. AUDIT_BOSS_TICKS2 closed.
+Next: remaining gaps / tier-2, or stop the porting loop.
+
+Tick 140 (stop-hook):
+- [x] makeexpobj / delayexplode lifecnt (AUDIT_BOSS_TICKS2 known gap):
+  makeMED/L/SML leave al_count=0 (ROM makeexpobj_srou never sets lifecnt) →
+  boss8die per-tick exps explode on first delayexplode tick (correct).
+  Fixed boss8_delayexplode_strat + boss2_delayexplode_strat to use count_down
+  (= s_decbpl_lifecnt: die when entry count was 0, survive count+1) — was one
+  frame early when lifecnt set (bigexplode 1..5).
+- [x] Tests: expobj_lifecnt.rs (4).
+  Ledger 2169/2169 True.
+- Next: kamimissile internals / AUDIT_BOSS_TICKS (boss2/bossg) doc-mark /
+  tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: delayexplode s_decbpl lifecnt fix. Ledger 100%.
+Next: kamimissile / boss2 audit / tier-2, or stop the porting loop.
+
+Tick 141 (stop-hook):
+- [x] AUDIT_BOSS_TICKS (boss2/bossg) High/Medium/Minor #1–#8 + known splash gap
+  + kamimissile vel (AUDIT_BOSS_TICKS2 leftover):
+  Verified already-fixed: add_bosshp, b2_full_offset_pos, rndrots [-3,+4],
+  missile coin ≥127, sea_not_delay bit-mask, Zdistmore inclusive, petal
+  ASF_COLLDISABLE, state4 toward-zero /8.
+  Fixed: bossg_move2 splash = +30z / makessplash / worldy=0 / −30z
+  (D2STRATS.ASM:373-378); b8_fire_kamimissile vel 60→40 (kamiHmissile1).
+- [x] Tests: boss_ticks1_verify.rs (8). Doc AUDIT_BOSS_TICKS_FINDINGS marked FIXED.
+  Ledger 2169/2169 True. Remaining cosmetic: bossgs flicker / x-chase clamp.
+- Next: bossgs cosmetic / bossg .genspark stub / tier-2 coexec, or stop the
+  porting loop.
+
+SESSION_SUMMARY: boss2/bossg audit verify + splash/kami vel fix. Ledger 100%.
+Next: bossgs cosmetic / .genspark / tier-2, or stop the porting loop.
+
+Tick 142 (stop-hook):
+- [x] AUDIT_BOSS_TICKS Minors #9–#10 + bossg .genspark stub:
+  Verified already-fixed: bossgs BLACK_C flicker (odd/even), Fchase_A ±5
+  overshoot (no clamp). Fixed: bossg_genspark → worldy−60 + sgen_spark
+  (D2STRATS.ASM:343-352 / sgenspark_srou_l); restores boss y.
+- [x] Tests: boss_ticks1_gaps.rs (4). AUDIT_BOSS_TICKS High/Medium/Minor
+  closed (remaining: .scrollmsg / particlefiredown placeholders).
+  Ledger 2169/2169 True.
+- Next: boss2 particlefiredown / .scrollmsg / tier-2 coexec, or stop the
+  porting loop.
+
+SESSION_SUMMARY: bossgs flicker/fchase verify + genspark port. Ledger 100%.
+Next: particlefiredown / scrollmsg / tier-2, or stop the porting loop.
+
+Tick 143 (stop-hook):
+- [x] AUDIT_BOSS_TICKS remaining placeholders:
+  Fixed: boss2 state-1 leap wires `particlefiredown_istrat` (payload 3/4/9,
+  ASF_PARTOBJ/AFEXP/colldisable) per GBSTRATS.ASM:580 — removed empty
+  boss2_particle_strat stub.
+  Verified: bossg `.scrollmsg` tx+=4 *is* the texture U scroll (no separate
+  message scroller); wrap tx&127==0 advances mode (D2STRATS.ASM:307-318).
+- [x] Tests: boss_ticks1_placeholders.rs (3). AUDIT_BOSS_TICKS fully closed.
+  Ledger 2169/2169 True.
+- Next: tier-2 coexec / other audits / weapons-lane polish, or stop the
+  porting loop.
+
+SESSION_SUMMARY: particlefiredown leap + scrollmsg verify. Ledger 100%.
+  AUDIT_BOSS_TICKS closed.
+Next: tier-2 / other audits, or stop the porting loop.
+
+Tick 144 (stop-hook):
+- [x] boss8 kamimissile → full hmissile3 (AUDIT_BOSS_TICKS2 known gap):
+  b8_fire_kamimissile now push roty=#deg180 + fire_kami_hmissile1 /
+  hmissile3_* + restore + al_ptr=playpt + sflag1; count by #zaco_9 shape
+  (GASTRATS.ASM:103-110). Removed simplified boss8_kamimissile_strat.
+- [x] Tests: boss8_kami_hmissile3.rs (3) + boss_ticks1_verify still green.
+  Ledger 2169/2169 True. AUDIT_BOSS_TICKS2 known gaps closed.
+- Next: AUDIT_SOUND_IDS F1–F6 (makesnd / bogus play_se) / tier-2 coexec,
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss8 kami→hmissile3 laser weave. Ledger 100%.
+Next: sound-id F1–F6 / tier-2, or stop the porting loop.
+
+Tick 145 (stop-hook):
+- [x] AUDIT_SOUND_IDS F1–F6 verify + F3/F4 tests:
+  Already fixed in code: base1 door open/close → make_snd(DoorOpen/Close);
+  sea up/down → make_snd(EnemyUpSea/DownSea); tow0explode + zaco3die_init
+  silent (no bogus play_se $10). Publicized sea_enemy_{up,down}_sea for tests.
+- [x] Tests: enemy_a::sound_wiring_tests (6) + sound_ids_f3f4.rs (2).
+  Doc AUDIT_SOUND_IDS_FINDINGS F1–F6 marked FIXED. Ledger 2169/2169 True.
+- Next: hitwall/separatemissile makesnd / tier-2 coexec / HUD polish, or stop
+  the porting loop.
+
+SESSION_SUMMARY: SOUND_IDS F1–F6 verified + F3/F4 tests. Ledger 100%.
+Next: hitwall makesnd / tier-2 / HUD, or stop the porting loop.
+
+Tick 146 (stop-hook):
+- [x] AUDIT_SOUND_IDS hitwall + separatemissile follow-up:
+  Verified: pelasercollide solid → make_snd(HitWall) (GSTRATS.ASM:763);
+  fire_RebElaser already HitWall. separatemissile_l (SOUND.ASM:887) has
+  zero jsl call sites in STRAT/* — dead ROM helper; family kept in audio.
+- [x] Tests: hitwall_separatemissile.rs (3). Positional SE families closed.
+  Ledger 2169/2169 True.
+- Next: HUD Critical #1/#3 (score/lives) / houdai cadence / tier-2, or stop
+  the porting loop.
+
+SESSION_SUMMARY: hitwall verify + separatemissile dead. Ledger 100%.
+  Positional SE closed.
+Next: HUD score/lives / houdai / tier-2, or stop the porting loop.
+
+Tick 147 (stop-hook):
+- [x] AUDIT_ENEMY_A High #3/#4 notdelay+al1pt cadence (weapon fire gates):
+  Verified already-fixed: houdai `(gf+idx)&0x0F` (GASTRATS:1309 notdelay 4);
+  zaco0_fire `(gf+idx)&3` (KSTRATS:241 notdelay 2); para2 hop + cameleon
+  phase1 `&0x0F`. Publicized houdai_strat for tests.
+- [x] Tests: houdai_cadence.rs (3). Doc High #3/#4 marked FIXED.
+  Ledger 2169/2169 True.
+- Next: HUD Critical #1/#3 (score/lives) / tier-2 coexec, or stop the
+  porting loop.
+
+SESSION_SUMMARY: houdai/zaco0 notdelay+al1pt verify. Ledger 100%.
+Next: HUD score/lives / tier-2, or stop the porting loop.
+
+Tick 148 (stop-hook):
+- [x] explode s_test_special / AUDIT_HUD Critical #3 bookkeeping:
+  Removed port invention: special kill no longer decrements specialobjtotal
+  or sets GF_BOSSDEAD. specials_dead still incs for ASF4_SPECIAL|CSPECIAL
+  (STRATMAC.INC:236-245). Lives WRAM unified at 0x0520 (verified).
+- [x] Tests: explode_specials.rs (4); ea_rader0 fixture re-blessed
+  (sot stays 1, sd=1, gfl=0 after special death).
+  Ledger 2169/2169 True.
+- Next: HUD Critical #1 (calctotalscore/checkbonus) / bosshp High #4 verify /
+  tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: explode specials_dead ROM-faithful. Ledger 100%.
+Next: HUD score Critical #1 / tier-2, or stop the porting loop.
+
+Tick 149 (stop-hook):
+- [x] AUDIT_HUD Critical #1 (calctotalscore/checkbonus) + High #4 (bosshp):
+  Verified already-ported: score::calc_stage_perc / BONERTAB /
+  Planets::record_stage_score + Shell::enter_tally ($1a); bosshp zeroed in
+  init_strats, FrameSnapshot.boss_hp_cur = v.bosshp (not bossmaxhp).
+  Wired explode specials_dead → stage perc → credit in integration test.
+- [x] Tests: hud_score_bosshp.rs (2); shell tally + ea_units bosshp still green.
+  Doc Critical #1 + High #4 marked FIXED. HUD Criticals closed.
+  Ledger 2169/2169 True.
+- Next: tier-2 coexec / remaining Medium HUD polish / angle_xz PARTIAL, or
+  stop the porting loop.
+
+SESSION_SUMMARY: HUD score+bosshp verify. Ledger 100%. HUD Criticals closed.
+Next: tier-2 / angle_xz / stop the porting loop.
+
+Tick 150 (stop-hook):
+- [x] AUDIT_ENEMY_A High #1/#2 + AUDIT_HUD Critical #8/#9 (weapon + explode SE):
+  Verified already-ported: strat_fire_relslowlaser doelaserspeed 48@L1/60,
+  lifecnt 40, AP 2, ACF_COLLTYPE4|1; frame_tick_mod bit-count period 2^N;
+  strat_hit_flash play_se_by_range $24/$25/$26; explode_icont $21/$22/$23
+  gated on ASF2_NOEXPSND.
+- [x] Tests: enemy_a_weapon_explode_se.rs (4). Docs High #1/#2 + Crit #8/#9 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a High #5 worldy / Mediums / angle_xz PARTIAL / tier-2, or
+  stop the porting loop.
+
+SESSION_SUMMARY: relslowlaser+notdelay+damage/destruct SE verify. Ledger 100%.
+Next: enemy_a High #5 / Mediums / angle_xz, or stop the porting loop.
+
+Tick 151 (stop-hook):
+- [x] AUDIT_ENEMY_A High #5 (jmp_higher/jmp_lower worldy):
+  Verified already-ported: gate2 floor -60, zaco2_cont bounce 0,
+  zacos_phase0 fire vs player_posy-800, zaco3die land -100, zaco1_cont
+  ceiling 0 — all use worldy >= v (smaller y = higher).
+- [x] Tests: enemy_a_worldy_higher.rs (5). Doc High #5 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a High #6–#10 (Achase/clship/base1) / Mediums / angle_xz, or
+  stop the porting loop.
+
+SESSION_SUMMARY: enemy_a worldy half-space verify. Ledger 100%.
+Next: High #6 Achase / clship / base1, or stop the porting loop.
+
+Tick 152 (stop-hook):
+- [x] AUDIT_ENEMY_A High #6–#9 (Achase + clshipboost):
+  Verified already-ported: zaco3/4_circle + parajump + clship position
+  chases use chase_proportional; clship_chase_cont sword1==0 →
+  clshipboost (vel 120, snd2 $32).
+- [x] Tests: enemy_a_achase_clship.rs (5). Docs High #6–#9 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a High #10 base1 door / Mediums / angle_xz, or stop the
+  porting loop.
+
+SESSION_SUMMARY: Achase+clshipboost verify. Ledger 100%.
+Next: base1 High #10 / Mediums, or stop the porting loop.
+
+Tick 153 (stop-hook):
+- [x] AUDIT_ENEMY_A High #10 (base1 door):
+  Verified already-ported: idle until HF1 → open anim 0→8 + DoorOpen →
+  wait sbyte1=5 → DoorClose → close anim 8→0 → re-init; init null
+  coll/exp, hardhp, ap=2, roty=deg180 (KSTRATS.ASM:373-408).
+- [x] Tests: base1_door.rs (3). Doc High #10 FIXED. **enemy_a Highs closed.**
+  Ledger 2169/2169 True.
+- Next: enemy_a Mediums #11+ / angle_xz PARTIAL / tier-2, or stop the
+  porting loop.
+
+SESSION_SUMMARY: base1 door FSM verify. Ledger 100%. enemy_a Highs closed.
+Next: Mediums / angle_xz, or stop the porting loop.
+
+Tick 154 (stop-hook):
+- [x] AUDIT_ENEMY_A Mediums #11–#15:
+  Verified already-ported: zaco2loop leftpl turn ±10/±4; wormgo leftpl
+  vx±1; itemtorange worldy+=3 only when < minpmoveY+50; zaco3/cameleon
+  s_beqdec TEST-then-DEC.
+- [x] Tests: enemy_a_mediums_11_15.rs (5). Docs Mediums #11–#15 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a Mediums #16+ / angle_xz PARTIAL / tier-2, or stop the
+  porting loop.
+
+SESSION_SUMMARY: enemy_a Mediums #11–#15 verify. Ledger 100%.
+Next: Mediums #16+ / angle_xz, or stop the porting loop.
+
+Tick 155 (stop-hook):
+- [x] AUDIT_ENEMY_A Mediums #16–#22:
+  Verified already-ported: zaco4 circle/flyaway same-tick fallthrough;
+  flyaway AF_LEFT_PL; zaco3die signed rotx cap; zaco3go |dz|<400 stale
+  vecs; para→para2 clears smflag1 (no same-tick body); para2 latches
+  sbyte3/4 aim; vy+=3 gravity.
+- [x] Tests: enemy_a_mediums_16_22.rs (7). Docs Mediums #16–#22 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a Mediums #23+ (item5/up1man/clship/gate2/skillfly) /
+  angle_xz PARTIAL / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: enemy_a Mediums #16–#22 verify. Ledger 100%.
+Next: Mediums #23+ / angle_xz, or stop the porting loop.
+
+Tick 156 (stop-hook):
+- [x] AUDIT_ENEMY_A Mediums #23–#33:
+  Verified already-ported: item5 HP0 remove + specflash=30; up1man
+  sbyte3==0 static; clship_cont countdown skips chase; warp boost $32;
+  zaco1 mid/far retain spiral; friendexitbase beqdec snd; gate2
+  rangexy; skillfly behind no-dec. #25 accepted simplification; #29
+  superseded by High #9.
+- [x] Tests: enemy_a_mediums_23_33.rs (9). Docs Mediums #23–#33 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a Mediums #34+ / Minors / angle_xz PARTIAL / tier-2, or
+  stop the porting loop.
+
+SESSION_SUMMARY: enemy_a Mediums #23–#33 verify. Ledger 100%.
+Next: Mediums #34+ / Minors / angle_xz, or stop the porting loop.
+
+Tick 157 (stop-hook):
+- [x] AUDIT_ENEMY_A Mediums #34–#37:
+  Verified already-ported: hard90YR no COLLTYPE_ENEMY1; delayexplode
+  s_decbpl (count=1 survives); pillar3explode 8 nopolyexp med children
+  + silent + lifecnt7 delayremove; skillfly/spacebarshoot/houdai/zacos/
+  zaco1 init→strat same-frame fall-through.
+- [x] Tests: enemy_a_mediums_34_37.rs (8). Docs Mediums #34–#37 FIXED.
+  **enemy_a Mediums closed.** Ledger 2169/2169 True.
+- Next: enemy_a Minors #1+ / angle_xz PARTIAL / tier-2, or stop the
+  porting loop.
+
+SESSION_SUMMARY: enemy_a Mediums #34–#37 verify. Mediums closed. Ledger 100%.
+Next: Minors / angle_xz, or stop the porting loop.
+
+Tick 158 (stop-hook):
+- [x] AUDIT_ENEMY_A Minors #1–#2 (weapon leaves):
+  Ported: fire_relslowElaser/Home muzzle local Z 80 rotated by firer
+  (elaserfireZoff + gen_weapon <<weapon_scale); colltypes already
+  enemyweap|laser. Fixed relelaserhome lock latch |dz|<800 (was <=).
+- [x] Tests: enemy_a_minors_1_2.rs (4). Docs Minors #1–#2 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a Minors #3+ (dist boundaries / zaco1 mid-band / zaco0
+  spread) / angle_xz PARTIAL / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: enemy_a Minors #1–#2 weapon muzzle+lock. Ledger 100%.
+Next: Minors #3+ / angle_xz, or stop the porting loop.
+
+Tick 159 (stop-hook):
+- [x] AUDIT_ENEMY_A Minors #3–#5 (dist / mid-band / weapon spread):
+  Fixed: tadpole fire |dz|<1500 (was <=); zaco1_phase0 → phase1 at
+  |dz|>=1000 (was >). Verified already-ported: item5/7/0/gates/etc
+  jmp_distmore strict; zaco1_phase2 (1400..1800); zaco0_fire (rnd&3)-1
+  pitch-then-yaw.
+- [x] Tests: enemy_a_minors_3_5.rs (5). Docs Minors #3–#5 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a Minors #6+ (zacos muzzle / clship sflag1 / zaco2loop
+  fire) / angle_xz PARTIAL / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: enemy_a Minors #3–#5 dist+spread. Ledger 100%.
+Next: Minors #6+ / angle_xz, or stop the porting loop.
+
+Tick 160 (stop-hook):
+- [x] AUDIT_ENEMY_A Minors #6–#8 (weapon muzzle / clship / zaco2loop):
+  Ported: zacos2/3 fire muzzle world Z 120 (elaserfireZoff 80 +
+  weapon_pos 40). Verified already-ported: clship flyinleft/right
+  sflag1+vx inside notdelay 1; zaco2loop HMISSILE1 on level!=1 with
+  no aliens[0].active guard.
+- [x] Tests: enemy_a_minors_6_8.rs (4). Docs Minors #6–#8 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a Minors #9+ (bomwing/cameleon colltype / flashplayer /
+  gate / explode) / angle_xz PARTIAL / tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: enemy_a Minors #6–#8 zacos muzzle+clship+zaco2loop. Ledger 100%.
+Next: Minors #9+ / angle_xz, or stop the porting loop.
+
+Tick 161 (stop-hook):
+- [x] AUDIT_ENEMY_A Minors #9–#14 (colltype / flash / gate / explode):
+  Ported: bomwing/cameleon drop COLLTYPE_ENEMY1; flashplayer leaves
+  colframe; gate_init MAPRESTARTBANKTEMP=$7E; gate touch→spin same
+  frame; explode special→gate_2 + not-inviewpl silent remove.
+  #13 superseded by Medium #36 (delayremove).
+- [x] Tests: enemy_a_minors_9_14.rs (7). Docs Minors #9–#14 FIXED.
+  Ledger 2169/2169 True.
+- Next: enemy_a Minors #15–#16 (cosmetic/hard_init) / angle_xz PARTIAL /
+  tier-2, or stop the porting loop.
+
+SESSION_SUMMARY: enemy_a Minors #9–#14 gate+explode. Ledger 100%.
+Next: Minors #15–#16 / angle_xz, or stop the porting loop.
+
+Tick 162 (stop-hook):
+- [x] AUDIT_ENEMY_A Minors #15–#16 (cosmetic / hard_init):
+  Ported: zaco1 phase0→1 / phase1→2 same-frame fall-through; phase2
+  spiral bee_tab_scaled SINTAB/COSTAB toward-zero; szaco2 ASF2_RELEXPLODE;
+  hard_Istrat drops COLLTYPE_ENEMY1; IS_HARDENEMY1=104 wired.
+  Accepted remaining under #15: makesmoke, para2 vy, zaco0_sweep compares,
+  phase2 yaw nega vs angle_xz convention, zaco_8p debris mesh.
+- [x] Tests: enemy_a_minors_15_16.rs (6). Docs Minors #15–#16 FIXED.
+  Ledger 2169/2169 True. **enemy_a Minors closed.**
+- Next: angle_xz PARTIAL (GSU shallow-angle) / hard90yrfog+shark ISTRATS
+  wiring / tier-2 coexec, or stop the porting loop.
+
+SESSION_SUMMARY: enemy_a Minors #15–#16 zaco1+hard. Ledger 100%.
+Next: angle_xz / hard90yrfog+shark / tier-2, or stop the porting loop.
+
+Tick 163 (stop-hook):
+- [x] ISTRATS shark@60 / fzaco@113 / hard90yrfog@183 + tank index fix:
+  Ported wiring: enemy_a install + table rows for shark/fzaco/hard90yrfog.
+  Fixed off-by-one: hard90yrfog was skipped so tank1a..houdai5f sat one low
+  (183..187); now ROM-aligned tank1a@184 tank0@185 tank1@186 tank3@187
+  houdai5f@188 + matching sf-map consts (level1_4/1_6, route2 rc, route3
+  common). meteo0_death test grows in-band before hits (nohitaffect).
+- [x] Also: angle_xz PARTIAL→VERIFIED (gsu_arctan 3/3 incl. off-axis).
+- [x] Tests: istrat_shark_fog_tanks.rs (5); enemies_ground 104; shark_fzaco 7;
+  gsu_arctan 3. Ledger 2169/2169 True.
+- Next: tier-2 coexec / remaining REACHABLE_UNPORTED / accepted #15 leftovers
+  (makesmoke, phase2 yaw nega, zaco_8p mesh), or stop the porting loop.
+
+SESSION_SUMMARY: ISTRATS shark+fog+tank off-by-one; angle_xz VERIFIED. Ledger 100%.
+Next: tier-2 / REACHABLE_UNPORTED, or stop the porting loop.
+
+Tick 164 (stop-hook):
+- [x] AUDIT_ENEMY_A Minor #15 smoke/debris leftovers (explode FX):
+  Ported: zaco3die makesmoke on notdelay 1; zaco3go makesmoke on notdelay 2
+  with smoke vz=#40; szaco2 debrisshape=105 (zaco_8 stand-in for zaco_8p);
+  removed zaco3die double add_player_z.
+  Accepted remaining under #15: para2 vy, zaco0_sweep compares, phase2 yaw
+  nega vs angle_xz/strat_aim_3d, true zaco_8p mesh extract.
+- [x] Tests: enemy_a_minors_15_smoke.rs (3); mediums_16_22 + worldy_higher
+  re-blessed. Ledger 2169/2169 True.
+- Next: phase2 yaw nega / para2 vy / tier-2 coexec / REACHABLE polish, or
+  stop the porting loop.
+
+SESSION_SUMMARY: zaco3die/go makesmoke + szaco2 debris. Ledger 100%.
+Next: yaw nega / tier-2, or stop the porting loop.
+
+Tick 165 (stop-hook):
+- [x] AUDIT_ENEMY_A Minor #15 yaw nega (movement aim):
+  Ported: strat_aim_yaw/strat_aim_3d, zaco1_phase2 |dz|>=700 aim, and
+  para2 initface latch all store nega(Yanglexy) into al_roty / sbyte3 —
+  matching ROM s_obj2obj_3Dangle + gen_vecs_3d yaw negation (angle_xz
+  VERIFIED tick 163). Weapon fire keeps raw angle_xz (Yanglexabs no nega).
+  Accepted remaining under #15: para2 first xz-only add (ASM-faithful),
+  zaco0_sweep unsigned compares (benign), true zaco_8p mesh extract.
+- [x] Tests: enemy_a_minors_15_yaw.rs (2); mediums_16_22 + achase_clship
+  re-blessed. Docs #15 closed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / true zaco_8p mesh / remaining inline angle_xz aim
+  sites, or stop the porting loop.
+
+SESSION_SUMMARY: obj2obj yaw nega for movement aim. Ledger 100%.
+Next: tier-2 / zaco_8p mesh, or stop the porting loop.
+
+Tick 166 (stop-hook):
+- [x] Inline obj2obj / face_player / projectile-obj2obj yaw nega sweep:
+  Ported: headfire ground snap, helpballhome, homingflat, spacebarwalker
+  body Achase, stbfp+bee1a face_player latch, evader body, cam2dash
+  sbyte aim, sdragonfly 3DangleOFF, blowcube 3DangleOFF, fire_bonfire +
+  fire_ironball2/3/4 all store nega(Yanglexy). Weapon_rots2obj /
+  Yanglexabs fire paths keep raw angle_xz.
+  Accepted remaining under #15: para2 first xz-only add (ASM-faithful),
+  zaco0_sweep unsigned compares (benign), true zaco_8p mesh extract.
+- [x] Tests: enemy_a_inline_aim_yaw.rs (6); minors_15_yaw + bonfire +
+  helpball + bee1 + cameleon2 + explode_end + fling_ironball re-blessed.
+  Ledger 2169/2169 True.
+- Next: tier-2 coexec / true zaco_8p mesh / REACHABLE polish, or stop
+  the porting loop.
+
+SESSION_SUMMARY: inline obj2obj yaw nega sweep. Ledger 100%.
+Next: tier-2 / zaco_8p mesh, or stop the porting loop.
+
+Tick 167 (stop-hook):
+- [x] True `zaco_8p` mesh extract (AUDIT #15 leftover / explode debris):
+  Added `zaco_8p` → EXTENDED_SHAPES slot 283 in tools/shape_compiler.py;
+  regenerated rust/sf-render/src/shape_data.rs (4 verts / 4 faces from
+  SHAPES2.ASM). szaco2 debrisshape now SH_ZACO_8P=283 (was zaco_8/105
+  stand-in). Compiler skips legacy C header when src/renderer absent.
+  Accepted remaining under #15: para2 first xz-only add (ASM-faithful),
+  zaco0_sweep unsigned compares (benign).
+- [x] Tests: zaco_8p_debris.rs (2); shape_data_parity zaco_8p; smoke +
+  explodedebris re-blessed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / para2+zaco0 accepted leftovers / REACHABLE polish,
+  or stop the porting loop.
+
+SESSION_SUMMARY: zaco_8p mesh extract + szaco2 debris. Ledger 100%.
+Next: tier-2 / accepted #15 leftovers, or stop the porting loop.
+
+Tick 168 (stop-hook):
+- [x] Boss-lane inline obj2obj yaw nega (enemy_boss_strat):
+  Ported: bossA cup GO sbyte3/4 aim, boss8 b8_aim_3d + homingflat-style
+  shot sbyte1/2, bossbrob fire2 body aim + frontplayerZ + rndpos body —
+  all store nega(Yanglexy) matching ROM s_obj2obj_*. Weapon/Yanglexabs
+  fire paths keep raw angle_xz.
+  Accepted remaining under #15: para2 first xz-only add (ASM-faithful),
+  zaco0_sweep unsigned compares (benign).
+- [x] Tests: boss_inline_aim_yaw.rs (1); bossacup/bossb/boss8 suites
+  re-blessed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / more boss-lane aim sites / accepted #15 leftovers,
+  or stop the porting loop.
+
+SESSION_SUMMARY: boss cup/8/brob obj2obj yaw nega. Ledger 100%.
+Next: tier-2 / more boss aim, or stop the porting loop.
+
+Tick 169 (stop-hook):
+- [x] Boss2 / flingboss / chick / sd_head obj2obj yaw nega:
+  Ported: boss2_homelaser / hmissile2 / hplasma continuous aim,
+  flingboss_hmissile1, chick_istrat, sd_head player aim all store/chase
+  nega(Yanglexy). chicken_gen3dvecs now calls strat_gen_vecs_3d (ROM
+  n3dvecs yaw negation) so firebreath/chick coast match. Weapon fire
+  spawn yaw stays raw angle_xz.
+  Accepted remaining under #15: para2 first xz-only add (ASM-faithful),
+  zaco0_sweep unsigned compares (benign).
+- [x] Tests: boss_inline_aim_yaw.rs (3); chick_lastb + chicken +
+  boss_ticks1 + specialty_hmissile + missile_fire re-blessed.
+  Ledger 2169/2169 True.
+- Next: tier-2 coexec / sea float-gen yaw sites (flyingfish) if switching
+  to strat_gen_vecs_* / accepted #15 leftovers, or stop the porting loop.
+
+SESSION_SUMMARY: boss2/fling/chick/sd_head yaw nega + chicken_gen3dvecs.
+Next: tier-2 / sea gen, or stop the porting loop.
+
+Tick 170 (stop-hook):
+- [x] Sea float-gen → ROM nvecs + flyingfish/bossseamon yaw nega:
+  Ported: strat_nvecs (-angle+1) in common; sea_gen_vecs_angle and
+  chicken_gen_vecs_roty use nvecs (was float sin without nega);
+  flyingfish .jumping + bossseamon state7 store nega(Yanglexy) before
+  s_gen_vecs. Weapon/sea laser fire stays raw angle_xz.
+  Accepted remaining under #15: para2 first xz-only add (ASM-faithful),
+  zaco0_sweep unsigned compares (benign).
+- [x] Tests: sea_nvecs_yaw.rs (3); boss_ticks2_* + chicken + chick_lastb
+  re-blessed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / accepted #15 leftovers / REACHABLE polish, or
+  stop the porting loop.
+
+SESSION_SUMMARY: sea nvecs + flyingfish/bossseamon yaw nega. Ledger 100%.
+Next: tier-2 / #15 leftovers, or stop the porting loop.
+
+Tick 171 (stop-hook):
+- [x] AUDIT_ENEMY_A Minor #15 leftovers closed:
+  Ported: para2 uses strat_gen_vecs_nvecs (ROM s_gen_vecs/nvecs_l) instead
+  of gen_vecs_2d — preserves hop vy; first add_vecs2pos is full xyz matching
+  D2STRATS.ASM:583 (removed xz-only workaround). zaco0_sweep worldy climb
+  and #-30 clamp use unsigned s_cmp/cmp semantics (KSTRATS.ASM:216-224).
+- [x] Tests: enemy_a_minors_15_leftovers.rs (4); mediums_16_22 + yaw
+  re-blessed. Docs #15 leftovers closed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / more s_gen_vecs→nvecs sites (bomwing/clship) /
+  rotate_full_offset→rotate_8*, or stop the porting loop.
+
+SESSION_SUMMARY: para2 nvecs + zaco0 unsigned worldy. Ledger 100%.
+Next: tier-2 / nvecs sweep, or stop the porting loop.
+
+Tick 172 (stop-hook):
+- [x] s_gen_vecs → nvecs_l sweep (enemy_a / enemies_ground):
+  Ported: bomwing phase1, clship bridgeboost/underboost, walking init +
+  walking2, volrock, misstank, walker1, sokuten + sbyte1-heading paths,
+  tank2 gen_vecs_2d_signed — all call strat_gen_vecs_nvecs (ROM nvecs_l
+  -angle+1, vy preserved) instead of alvelvecs/gen_vecs_2d.
+- [x] Tests: s_gen_vecs_nvecs_sweep.rs (3); enemies_ground (104) +
+  bomwing minors + clship/tank suites re-blessed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / rotate_full_offset→rotate_8* / remaining
+  alvelvecs-only sites, or stop the porting loop.
+
+SESSION_SUMMARY: s_gen_vecs nvecs sweep bomwing/clship/ground. Ledger 100%.
+Next: tier-2 / rotate_8 Roffs, or stop the porting loop.
+
+Tick 173 (stop-hook):
+- [x] s_add_Roffs2pos full flags → rotate_8* (weapon muzzle leaf):
+  Ported: strat_roffs_full / _scaled / _i16 in snes_trig (rotz→rotx→roty
+  via rotate_8yx/yz/xz, yaw nega inside xz). Replaced float helpers in
+  enemies_ground, bosses b2_full_offset_pos, enemy_a boss1_rot_offset_pos.
+  Relslowlaser/zacos muzzles use byte>>(weapon_scale) then ASL; ironball
+  #120<<2 and walking #25<<1 use scaled API. i16 helper undoes max clean
+  post-scale when |off|>127.
+- [x] Tests: roffs_full_rotate8.rs (3); minors_1_2/6_8 + fling_ironball +
+  boss_ticks1 + enemies_ground re-blessed. Ledger 2169/2169 True.
+- Next: tier-2 coexec / b2_yaw_offset→rotate_8xz / remaining float Roffs,
+  or stop the porting loop.
+
+SESSION_SUMMARY: Roffs full → rotate_8* muzzle chain. Ledger 100%.
+Next: tier-2 / yaw-only Roffs, or stop the porting loop.

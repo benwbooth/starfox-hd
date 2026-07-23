@@ -19,22 +19,30 @@
 //! order is imposed on other lanes.
 
 use crate::common::{
-    sf_random, strat_apply_velocity, strat_chase, strat_chase_proportional, strat_gen_vecs_3d,
-    strat_make_obj, strat_perc62, strat_perc75, strat_perc87, strat_remove_obj,
-    strat_spawn_projectile, strat_speed_to, sv, StratRam,
+    boost_sprite, set_boost_zoff, sf_random, strat_apply_velocity, strat_chase,
+    strat_chase_proportional, strat_gen_vecs_3d, strat_make_obj, strat_perc62, strat_perc75,
+    strat_perc87, strat_perc93, strat_remove_obj, strat_spawn_projectile, strat_speed_to, sv,
+    StratRam,
 };
+use crate::enemy_a::{
+    add_player_z, addrnd2pos_xy, fire_nuke, make_large_exp_obj, make_medium_exp_obj,
+    shiplb1_istrat, sid as ea_sid, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3, ASF4_NOPOLYEXP,
+};
+/// ROM `sflag4` — sflags2 bit 7 (STRATEQU.INC make_sflag after sflag3).
+const ASF2_SFLAG4: u8 = 0x80;
+use crate::snes_trig::{mulslog_mac8, COSTAB, SINTAB};
 use sf_core::pad;
 use sf_game::alien::{
-    StratId, ACF_COLLTYPE1, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATZREMOVE,
+    StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE,
+    ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATZREMOVE, NUMBER_AL,
 };
-use sf_game::coldet::PcboxKind;
+use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
 use sf_game::vars::{
-    GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STRATDONE1, GF_STRATDONE2, GF_VIEWROT,
-    OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE, PSF2_PLAYERHP0, PSF3_ENGINESND, PSF3_INTUNNEL,
-    PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE, PSTF_NOVDISTC,
-    SPACE_MODE, SPFM_INSIDE,
+    GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, GF_STRATDONE1, GF_STRATDONE2,
+    GF_VIEWROT, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE, PSF2_PLAYERHP0, PSF3_ENGINESND,
+    PSF3_INTUNNEL, PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE,
+    PSTF_NOVDISTC, SPACE_MODE, SPFM_INSIDE, STAY_BLACK_INACTIVE, WATER_MODE,
 };
 use sf_game::Game;
 
@@ -45,8 +53,13 @@ use sf_game::Game;
 const PSF_BRKLWING: u8 = 8;
 const PSF_BRKRWING: u8 = 16;
 const PSF_NOYCTRL: u8 = 128;
+/// ROM `psf_bodycoll` / `psf_Lwingcoll` / `psf_Rwingcoll` (GILESALC.INC).
+const PSF_BODYCOLL: u8 = 1;
+const PSF_LWINGCOLL: u8 = 2;
+const PSF_RWINGCOLL: u8 = 4;
 
 const PSF2_DOUBLASER: u8 = 1;
+const PSF2_WIRESHIP: u8 = 2;
 const PSF2_NOSPARK: u8 = 4;
 const PSF2_FORCEBOOST: u8 = 16;
 const PSF2_BOOSTING: u8 = 32;
@@ -56,9 +69,12 @@ const PSF3_FORCEBRAKE: u8 = 4;
 const PSF3_BEAMBALL: u8 = 16;
 
 const PSTF_NOVIEWMOVE: u8 = 4;
+/// `pstf_firstframeLcol` — first-frame player laser collision (GILESALC.INC).
+const PSTF_FIRSTFRAMELCOL: u8 = 16;
 
 const PFM_DIEFALL: u8 = 1;
 const PFM_DIEYROT: u8 = 2;
+const PFM_WATER: u8 = 4;
 
 const PML_LWLEFT: u8 = 1;
 const PML_RWRIGHT: u8 = 2;
@@ -80,6 +96,9 @@ const PML_ALL: u8 = PML_LWTOP
 const MB_LEFT: u8 = 1;
 const MB_RIGHT: u8 = 2;
 const MB_BOTTOM: u8 = 8;
+const MB_LBOTTOM: u8 = 16;
+const MB_LTOP: u8 = 32;
+const MB_RTOP: u8 = 64;
 
 const SPRAR_UP: u8 = 1;
 const SPRAR_DOWN: u8 = 2;
@@ -98,16 +117,156 @@ const DEG11: u8 = 8;
 const DEG5: u8 = 4;
 
 const BARREL_ROLL_DELAY: u8 = 3;
-const DEFAULT_NUKE_COUNT: u16 = 3;
 const SPECIAL_DELAY_FRMS: u8 = 50;
 const PLAYER_FIRESPEED: u8 = 2;
 
-/// C ASF2_SFLAG1 (src/game/obj.h:122).
+/// C ASF2_SFLAG1 / ASF2_SFLAG2 (src/game/obj.h:122-123).
+/// Body-box low-shield warning latches (ROM `pcolB_strat` sflag1/sflag2).
 const ASF2_SFLAG1: u8 = 0x10;
+const ASF2_SFLAG2: u8 = 0x20;
+/// Body impact SE when collider AP ≥ 8 (PSTRATS.ASM:182).
+const SE_BODY_HIT_HARD: u8 = 0x04;
+/// Body impact SE when collider AP < 8 (PSTRATS.ASM:188).
+const SE_BODY_HIT_SOFT: u8 = 0x19;
+/// Low-shield warning at ≤ playerB_HP/4 (PSTRATS.ASM:225).
+const SE_SHIELD_WARN_QUARTER: u8 = 0x1b;
+/// Critical-shield warning at ≤ playerB_HP/8 (PSTRATS.ASM:231).
+const SE_SHIELD_WARN_EIGHTH: u8 = 0x1c;
+/// Left / right wing destruct (SOUNDEQU se_wingdestructleft/right).
+const SE_WING_DESTRUCT_LEFT: u8 = 0x05;
+const SE_WING_DESTRUCT_RIGHT: u8 = 0x06;
+/// Left / right wing soft hit (PSTRATS.ASM:327/473).
+const SE_WING_HIT_LEFT: u8 = 0x07;
+const SE_WING_HIT_RIGHT: u8 = 0x08;
+/// Wire-ship wing scrape (PSTRATS.ASM:123 `pwingcol` .wirewcol).
+const SE_WIRE_WING_SCRAPE: u8 = 0x14;
+/// Player-down one-shot + death BGM (PSTRATS.ASM:3110/3115).
+const SE_PLAYER_DOWN: u8 = 0x03;
+const BGM_PLAYER_DOWN: u8 = 0x11;
 
 /// C SHAPE_MYSHIP_4 / SHAPE_ARWING (src/renderer/shapes.h:42).
 const SHAPE_MYSHIP_4: u16 = 2;
 const SHAPE_ARWING: u16 = 2;
+/// Invisible / nullshape stand-in (shape id 0 is skipped by Draw_BuildList).
+const SHAPE_NULL: u16 = 0;
+const SHAPE_LINE_SPARK: u16 = 380;
+
+// --- Player ship shape table (GSTRATS.ASM:146-170, STRATEQU.INC:790-796) ---
+/// `pshipnum_norm` — default Arwing row.
+pub const PSHIPNUM_NORM: u8 = 0;
+/// `pshipnum_wire` — wireframe flash / item7.
+pub const PSHIPNUM_WIRE: u8 = 1;
+/// `pshipnum_null` — invisible.
+pub const PSHIPNUM_NULL: u8 = 2;
+/// `pshipnum_cockship` — cockpit / my_up.
+pub const PSHIPNUM_COCKSHIP: u8 = 3;
+/// `pshipnum_tunnel` — tunnel (nullshape row).
+pub const PSHIPNUM_TUNNEL: u8 = 4;
+/// `pshipnum_black` — silhouette.
+pub const PSHIPNUM_BLACK: u8 = 5;
+/// `pshipnum_zoom` — zoom / boost silhouette.
+pub const PSHIPNUM_ZOOM: u8 = 6;
+/// `maxpships` — rows in `player_shapes`.
+pub const MAX_PSHIPS: u8 = 7;
+
+/// One `def_playership` row: intact, no-left, no-right, both-wings-gone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerShipShapes {
+    pub intact: u16,
+    pub no_left: u16,
+    pub no_right: u16,
+    pub both: u16,
+}
+
+/// ROM `player_shapes` for the retail `hipolyarwing=0` configuration.
+const PLAYER_SHAPES: [PlayerShipShapes; MAX_PSHIPS as usize] = [
+    // 0 norm: myship_4, myship_r, myship_l, myship_b
+    PlayerShipShapes {
+        intact: SHAPE_ARWING,
+        no_left: 368,  // myship_r
+        no_right: 369, // myship_l
+        both: 370,     // myship_b
+    },
+    // 1 wire: my_w, my_r_w, my_l_w, my_b_w
+    PlayerShipShapes {
+        intact: 351,   // my_w
+        no_left: 352,  // my_r_w
+        no_right: 353, // my_l_w
+        both: 354,     // my_b_w
+    },
+    // 2 null
+    PlayerShipShapes {
+        intact: SHAPE_NULL,
+        no_left: SHAPE_NULL,
+        no_right: SHAPE_NULL,
+        both: SHAPE_NULL,
+    },
+    // 3 cockship: my_up ×4
+    PlayerShipShapes {
+        intact: 371,
+        no_left: 371,
+        no_right: 371,
+        both: 371,
+    },
+    // 4 tunnel: nullshape ×4
+    PlayerShipShapes {
+        intact: SHAPE_NULL,
+        no_left: SHAPE_NULL,
+        no_right: SHAPE_NULL,
+        both: SHAPE_NULL,
+    },
+    // 5 black: Bmyship_*
+    PlayerShipShapes {
+        intact: 372,   // Bmyship_4
+        no_left: 373,  // Bmyship_r
+        no_right: 374, // Bmyship_l
+        both: 375,     // Bmyship_b
+    },
+    // 6 zoom: myzoom_*
+    PlayerShipShapes {
+        intact: 376,   // myzoom_4
+        no_left: 377,  // myzoom_r
+        no_right: 378, // myzoom_l
+        both: 379,     // myzoom_b
+    },
+];
+
+/// ROM `select_ship` (GSTRATS.ASM:224-246): load `playershape{,L,R,LR}` from
+/// `player_shapes[ship_num]`. Ship numbers ≥ `maxpships` clamp to 0.
+pub fn select_ship(g: &mut Game, ship_num: u8) {
+    let row = player_ship_row(ship_num);
+    let v = &mut g.vars;
+    v.set_sv_u16(sv::PLAYERSHAPE, row.intact);
+    v.set_sv_u16(sv::PLAYERSHAPEL, row.no_left);
+    v.set_sv_u16(sv::PLAYERSHAPER, row.no_right);
+    v.set_sv_u16(sv::PLAYERSHAPELR, row.both);
+}
+
+/// ROM `setYplayershape_l` (GSTRATS.ASM:178-203): set `al_shape` from
+/// `player_shapes[ship_num]` according to broken-wing `pshipflags`.
+pub fn set_y_player_shape(g: &mut Game, idx: u16, ship_num: u8) {
+    let row = player_ship_row(ship_num);
+    let damage = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING);
+    let shape = if damage == 0 {
+        row.intact
+    } else if damage == PSF_BRKLWING {
+        row.no_left
+    } else if damage == PSF_BRKRWING {
+        row.no_right
+    } else {
+        row.both
+    };
+    g.objs.aliens[idx as usize].shape = shape;
+}
+
+fn player_ship_row(ship_num: u8) -> PlayerShipShapes {
+    let n = if ship_num < MAX_PSHIPS {
+        ship_num as usize
+    } else {
+        0
+    };
+    PLAYER_SHAPES[n]
+}
 
 /// Visible mesh for the player's fired laser/beam bolts.
 ///
@@ -121,8 +280,9 @@ const SHAPE_ARWING: u16 = 2;
 ///
 /// sf-render now registers the faithful `elaser2` needle-bolt mesh (the ROM
 /// shape `fire_Elaser` spawns) at `SHAPE_ELASER2` (511), replacing the
-/// `largeplasma` 128x128 grey quad that rendered as a giant block. The 9-frame
-/// growth animation + `bullet_a1` color flash are follow-ups (task #39).
+/// `largeplasma` 128x128 grey quad that rendered as a giant block. The renderer
+/// resolves its exact `bullet_c` animation and Pelaser fixes geometry at frame
+/// 4, matching the ROM.
 const SHAPE_PLAYER_LASER: u16 = 511;
 
 // --- Rotation speeds (PSTRATS.ASM) ---
@@ -142,6 +302,11 @@ const MAX_PSPEED: i16 = 85;
 const PZROTFLOATTAB_LEN: u8 = 28;
 const VIEWFLOATTAB_BYTELEN: u8 = 72;
 
+/// ROM `pZrotfloattab` (PSTRATS.ASM:3635) — idle bank wobble under `pfm_wobble`.
+const PZROT_FLOAT_TAB: [i8; 28] = [
+    0, 1, 2, 3, 4, 4, 5, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -5, -4, -4, -3, -2, -1,
+];
+
 // --- Ltunnel fly mode constants (STRATEQU.INC) ---
 const LTUNNEL_VIEWCY: i16 = -60;
 const LTUNNEL_MINX: i16 = -120;
@@ -153,13 +318,160 @@ const LTUNNEL_MINY: i16 = -60 + LTUNNEL_VIEWCY;
 const LTUNNEL_MAXY: i16 = 60 + LTUNNEL_VIEWCY;
 const PLAYERB_YSTOP: i16 = -20;
 
+/// Bounds + flags for one `s_playerfly_mode` tunnel/exit row (STRATEQU.INC).
+#[derive(Clone, Copy)]
+struct TunnelFlyMode {
+    view_cy: i16,
+    min_x: i16,
+    max_x: i16,
+    mmin_x: i16,
+    mmax_x: i16,
+    min_y: i16,
+    max_y: i16,
+    mmax_y: i16,
+    /// `pfm_*` bits for this mode.
+    flymode: u8,
+    /// If true, clear `gf_viewrot`; if false and `viewrot_on`, set it.
+    viewrot_off: bool,
+    viewrot_on: bool,
+    /// Tunnel macro vs exit macro.
+    in_tunnel: bool,
+}
+
+const FLY_STUNNEL: TunnelFlyMode = TunnelFlyMode {
+    view_cy: -60,
+    min_x: -60,
+    max_x: 60,
+    mmin_x: -60,
+    mmax_x: 60,
+    min_y: -60 + -60,
+    max_y: 60 + -60,
+    mmax_y: 60 + -60,
+    flymode: PFM_DIEFALL | PFM_SHADOWS,
+    viewrot_off: true,
+    viewrot_on: false,
+    in_tunnel: true,
+};
+const FLY_MTUNNEL: TunnelFlyMode = TunnelFlyMode {
+    view_cy: -60,
+    min_x: -90,
+    max_x: 90,
+    mmin_x: -90,
+    mmax_x: 90,
+    min_y: -60 + -60,
+    max_y: 60 + -60,
+    mmax_y: 60 + -60,
+    flymode: PFM_DIEFALL | PFM_SHADOWS,
+    viewrot_off: true,
+    viewrot_on: false,
+    in_tunnel: true,
+};
+const FLY_LTUNNEL: TunnelFlyMode = TunnelFlyMode {
+    view_cy: LTUNNEL_VIEWCY,
+    min_x: LTUNNEL_MINX,
+    max_x: LTUNNEL_MAXX,
+    mmin_x: LTUNNEL_MMINX,
+    mmax_x: LTUNNEL_MMAXX,
+    min_y: LTUNNEL_MINY,
+    max_y: LTUNNEL_MAXY,
+    mmax_y: LTUNNEL_MMAXY,
+    flymode: PFM_DIEFALL | PFM_SHADOWS,
+    viewrot_off: true,
+    viewrot_on: false,
+    in_tunnel: true,
+};
+const FLY_LTEXIT: TunnelFlyMode = TunnelFlyMode {
+    view_cy: -60,
+    min_x: -70,
+    max_x: 70,
+    mmin_x: -70,
+    mmax_x: 70,
+    min_y: -100 + 60 + -60, // -100
+    max_y: -25 + 60 + -60,  // -25
+    mmax_y: -25 + 60 + -60,
+    flymode: PFM_SHADOWS,
+    viewrot_off: false,
+    viewrot_on: true,
+    in_tunnel: false,
+};
+const FLY_MTEXIT: TunnelFlyMode = TunnelFlyMode {
+    view_cy: -60,
+    min_x: -50,
+    max_x: 50,
+    mmin_x: -50,
+    mmax_x: 50,
+    min_y: -95,
+    max_y: -25,
+    mmax_y: -25,
+    flymode: PFM_SHADOWS,
+    viewrot_off: false,
+    viewrot_on: true,
+    in_tunnel: false,
+};
+const FLY_STEXIT: TunnelFlyMode = TunnelFlyMode {
+    view_cy: -60,
+    min_x: -35,
+    max_x: 35,
+    mmin_x: -35,
+    mmax_x: 35,
+    min_y: -95,
+    max_y: -25,
+    mmax_y: -25,
+    flymode: PFM_SHADOWS,
+    viewrot_off: false,
+    viewrot_on: true,
+    in_tunnel: false,
+};
+
+/// Apply `s_playerfly_mode` for a tunnel/exit row (STRATEQU.INC macros).
+fn apply_tunnel_fly_mode(g: &mut Game, idx: u16, mode: TunnelFlyMode) {
+    {
+        let v = &mut g.vars;
+        v.set_sv_i16(sv::VIEWCY, mode.view_cy);
+        v.set_sv_i16(sv::MINPMOVEX, mode.min_x);
+        v.set_sv_i16(sv::MAXPMOVEX, mode.max_x);
+        v.set_sv_i16(sv::MINMMOVEX, mode.mmin_x);
+        v.set_sv_i16(sv::MAXMMOVEX, mode.mmax_x);
+        v.set_sv_i16(sv::MAXMMOVEY, mode.mmax_y);
+        v.set_sv_i16(sv::MINPWMOVEY, mode.min_y);
+        v.set_sv_i16(sv::MAXPWMOVEY, mode.max_y + 5);
+        v.minpmove_y = mode.min_y;
+        v.set_sv_i16(sv::MAXPMOVEY, mode.max_y + PLAYERB_YSTOP);
+        v.playerflymode = mode.flymode;
+        v.set_sv_u8(sv::PMOVELIMITAND, PML_ALL);
+        v.set_sv_u8(sv::MISSBOUNDFLAGS, MB_LEFT | MB_RIGHT | MB_BOTTOM);
+        if mode.viewrot_on {
+            v.gameflags |= GF_VIEWROT;
+        }
+        if mode.viewrot_off {
+            v.gameflags &= !GF_VIEWROT;
+        }
+        v.pstratflags &= !PSTF_NOVIEWMOVE;
+        v.pshipflags3 |= PSF3_ENGINESND;
+        if mode.in_tunnel {
+            v.pshipflags2 &= !PSF2_NOSPARK;
+            v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
+            v.pshipflags3 |= PSF3_INTUNNEL;
+        } else {
+            v.pshipflags2 |= PSF2_NOSPARK;
+            v.pstratflags &= !PSTF_INSEQ;
+            v.pstratflags |= PSTF_NOTDIE;
+            v.pshipflags3 &= !PSF3_INTUNNEL;
+        }
+    }
+    if mode.in_tunnel {
+        g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
+    } else {
+        g.objs.aliens[idx as usize].sflags &= !ASF_SHADOW;
+    }
+}
+
 // --- Weapon offsets/constants (STRATEQU.INC) ---
 const PLAYER_W_X: i16 = 33;
 const PLAYER_W_Y: i16 = 13;
 const PLAYER_W_X_SCALED: i16 = PLAYER_W_X >> 2;
 const PLAYER_W_Y_SCALED: i16 = PLAYER_W_Y >> 2;
 const INVIEW_LASER_Y_OFF: i16 = 50;
-const NUKE_Z_OFFSET: i16 = 80 >> 2;
 const PLAYER_BODY_HP: u8 = 40;
 const PLAYER_HITFLASH_FRMS: u8 = 7;
 const SCREENFLASH_BODY_FRMS: u8 = 4;
@@ -185,8 +497,7 @@ const EXITBASE_MMAXY: i16 = 0;
 
 // --- Float tables (strat_player.c:64-76, PISTRATS.ASM) ---
 const SHIPINTRO_ROTZ_FLOAT: [i8; 28] = [
-    0, 1, 2, 3, 4, 4, 5, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -5, -4, -4, -3, -2,
-    -1,
+    0, 1, 2, 3, 4, 4, 5, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -5, -4, -4, -3, -2, -1,
 ];
 
 const SHIPINTRO_VIEW_FLOAT: [i16; 36] = [
@@ -228,8 +539,17 @@ const K_EXITBASE_INIT: u16 = 20;
 const K_PCBOX_BODY: u16 = 21;
 const K_PCBOX_WING: u16 = 22;
 const K_PCBOX_COLL: u16 = 23;
+/// ROM `lspark_Istrat` / `lspark_strat` (PSTRATS.ASM:54) — wing scrape spark.
+const K_LSPARK_INIT: u16 = 24;
+const K_LSPARK_STRAT: u16 = 25;
+/// ROM `slspark_Istrat` / `slspark_strat` (PSTRATS.ASM:43) — boss2 spark variant
+/// (same motion as lspark; colanim step +1 instead of +2).
+const K_SLSPARK_INIT: u16 = 26;
+const K_SLSPARK_STRAT: u16 = 27;
+/// ROM `shrapfall2_Istrat` (PCSTRATS.ASM) — LB1 debris scrap.
+const K_SHRAPFALL2: u16 = 28;
 
-const FNS: [StrategyFn; 24] = [
+const FNS: [StrategyFn; 29] = [
     strat_player,
     playercoll_istrat,
     playerdead_istrat,
@@ -254,6 +574,11 @@ const FNS: [StrategyFn; 24] = [
     pcbox_body_strat,
     pcbox_wing_strat,
     pcbox_coll_strat,
+    lspark_istrat,
+    lspark_strat,
+    slspark_istrat,
+    slspark_strat,
+    shrapfall2_istrat,
 ];
 
 fn ids_base(g: &mut Game) -> u16 {
@@ -400,8 +725,7 @@ fn shipintro_strat(g: &mut Game, idx: u16) {
             g.objs.aliens[i].sbyte1 = sbyte1;
             if sbyte1 == 0 {
                 g.objs.aliens[i].sbyte1 = 1;
-                g.objs.aliens[i].worldz =
-                    g.objs.aliens[i].worldz.wrapping_add(SHIPINTRO_BOOST_Z);
+                g.objs.aliens[i].worldz = g.objs.aliens[i].worldz.wrapping_add(SHIPINTRO_BOOST_Z);
                 shipintro_dec_lifecnt(g, idx);
             }
         }
@@ -410,6 +734,10 @@ fn shipintro_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[i].sbyte1 == 2 {
         // C player_obj_index_or_null(self) — the alien's own slot index.
         g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+        if g.vars.sv_u8(sv::BOOSTZOFF) == 0 {
+            set_boost_zoff(g, -30);
+        }
+        let _ = boost_sprite(g, None);
         g.hooks.play_se(0x32);
     }
 
@@ -422,13 +750,13 @@ fn shipintro_strat(g: &mut Game, idx: u16) {
 /// C `Strat_ShipIntro_Init` (strat_player.c:142).
 pub fn strat_ship_intro_init(g: &mut Game, idx: u16) {
     let strat = sid(g, K_SHIPINTRO_STRAT);
-    let r1 = (sf_random(&mut g.vars) & 15) as u8;
-    let r2 = (sf_random(&mut g.vars) & 7) as u8;
+    let random_yaw = (sf_random(&mut g.vars) & 15) as u8;
+    let random_pitch = (sf_random(&mut g.vars) & 7) as u8;
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(strat);
-        al.sbyte3 = r1;
-        al.sbyte4 = r2;
+        al.sbyte3 = random_yaw;
+        al.sbyte4 = random_pitch;
         al.sbyte2 <<= 1;
         al.sflags |= ASF_SHADOW;
         al.count = SHIPINTRO_LIFE;
@@ -474,12 +802,15 @@ fn player_hitflash_update(g: &mut Game, idx: u16) {
 fn playercoll_istrat(g: &mut Game, idx: u16) {
     let i = idx as usize;
     if g.vars.pshipflags3 & PSF3_NOCOLLISIONS != 0 {
+        g.objs.aliens[i].hitflags = 0;
         g.objs.aliens[i].sflags &= !ASF_COLLIDE;
-        return;
-    }
-
-    if g.objs.aliens[i].sflags & ASF_NOHITAFFECT != 0 {
-        g.objs.aliens[i].sflags &= !ASF_COLLIDE;
+        // PSTRATS.ASM `.ncoll` ends with `s_jmpto_strat`: collision handling
+        // is a prefix to the normal player strategy, not a replacement for
+        // the frame.  Returning here can pin the ship inside a tunnel wall:
+        // the player never advances, so the overlap is recreated forever.
+        if let Some(strat) = g.objs.aliens[i].stratptr {
+            g.call_strat(strat, idx);
+        }
         return;
     }
 
@@ -488,17 +819,90 @@ fn playercoll_istrat(g: &mut Game, idx: u16) {
         g.vars.set_sv_u8(sv::PNUMHITS, hits + 1);
     }
 
-    g.objs.aliens[i].sbyte1 = PLAYER_HITFLASH_FRMS;
-    g.objs.aliens[i].sflags |= ASF_HITFLASH;
-    g.objs.aliens[i].sflags |= ASF_NOHITAFFECT;
-    g.vars.set_sv_u8(sv::SCREENFLASHCNT, SCREENFLASH_BODY_FRMS);
-    g.vars.set_sv_u8(sv::SCREENFLASHTYPE, SCREENFLASH_BODY_TYPE);
-
-    if g.objs.aliens[i].hp == 0 {
-        playerdead_istrat(g, idx);
+    // Shield/wire ship collisions only proceed against hard-HP geometry.
+    // PSTRATS.ASM:3286-3293 also plays the scrape sound before the gate.
+    let partner = g.objs.aliens[i].collobjptr;
+    if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
+        g.hooks.play_se(SE_WIRE_WING_SCRAPE);
+        if partner as usize >= g.objs.aliens.len()
+            || !g.objs.aliens[partner as usize].active
+            || g.objs.aliens[partner as usize].hp != HARD_HP
+        {
+            g.objs.aliens[i].hitflags = 0;
+            g.objs.aliens[i].sflags &= !ASF_COLLIDE;
+            if let Some(strat) = g.objs.aliens[i].stratptr {
+                g.call_strat(strat, idx);
+            }
+            return;
+        }
     }
 
+    if g.objs.aliens[i].sflags & ASF_NOHITAFFECT == 0 {
+        // Barrel-roll laser deflection (PSTRATS.ASM:3297-3328).
+        if g.vars.sv_u8(sv::PLAYER_ROLLZVEL) != 0
+            && (partner as usize) < g.objs.aliens.len()
+            && g.objs.aliens[partner as usize].active
+            && g.objs.aliens[partner as usize].type_ & ATLASER != 0
+            && g.objs.aliens[partner as usize].hp != HARD_HP
+        {
+            let rotx = ((sf_random(&mut g.vars) & 63) as u8).wrapping_sub(31);
+            let mut roty = (sf_random(&mut g.vars) & 31) as u8;
+            if sf_random(&mut g.vars) & 1 == 0 {
+                roty = roty.wrapping_sub(24); // deg90 - 40
+            } else {
+                roty = roty.wrapping_add(24);
+            }
+            {
+                let shot = &mut g.objs.aliens[partner as usize];
+                shot.rotx = rotx;
+                shot.roty = roty;
+                shot.vel = 60;
+                strat_gen_vecs_3d(shot);
+                for _ in 0..4 {
+                    strat_apply_velocity(shot);
+                }
+                shot.sflags &= !ASF_COLLIDE;
+                shot.sflags |= ASF_COLLDISABLE;
+                shot.count = 30;
+            }
+            crate::enemy_a::relflatmiss_istrat(g, partner);
+            g.hooks.play_se(SE_WIRE_WING_SCRAPE);
+        } else if g.coldet.pcbox.player == Some(idx) {
+            // Exact playerB_col routing: collision detection writes HF1/HF2/HF3
+            // on the ship; these colldisable proxies receive the collision and
+            // run their own pcol strategies later in the same strategy pass.
+            let flags = g.objs.aliens[i].hitflags;
+            for (mask, slot) in [
+                (PCBOX_HF_BODY, g.coldet.pcbox.body),
+                (PCBOX_HF_LWING, g.coldet.pcbox.lwing),
+                (PCBOX_HF_RWING, g.coldet.pcbox.rwing),
+            ] {
+                if flags & mask != 0 {
+                    if let Some(slot) = slot {
+                        let proxy = &mut g.objs.aliens[slot as usize];
+                        proxy.sflags |= ASF_COLLIDE | ASF_HITFLASH;
+                        proxy.collobjptr = partner;
+                    }
+                }
+            }
+        } else {
+            // Compatibility fallback for sf-game-only/headless callers that
+            // spawn a player without the per-level MAPP pcbox objects.
+            g.objs.aliens[i].sbyte1 = PLAYER_HITFLASH_FRMS;
+            g.objs.aliens[i].sflags |= ASF_HITFLASH | ASF_NOHITAFFECT;
+            g.vars.set_sv_u8(sv::SCREENFLASHCNT, SCREENFLASH_BODY_FRMS);
+            g.vars.set_sv_u8(sv::SCREENFLASHTYPE, SCREENFLASH_BODY_TYPE);
+            if g.objs.aliens[i].hp == 0 {
+                playerdead_istrat(g, idx);
+            }
+        }
+    }
+
+    g.objs.aliens[idx as usize].hitflags = 0;
     g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    if let Some(strat) = g.objs.aliens[idx as usize].stratptr {
+        g.call_strat(strat, idx);
+    }
 }
 
 /// C `playerdead_strat` (PSTRATS.ASM:3287-3370) — the dying crash sequence:
@@ -514,8 +918,9 @@ fn playerdead_strat(g: &mut Game, idx: u16) {
         return;
     }
 
-    // s_copy_var2var W,bgsscrollZ,viewposz
-    let vpz = g.vars.sv_i16(sv::PVIEWPOSZ);
+    // s_copy_var2var W,bgsscrollZ,viewposz (PSTRATS.ASM — last frame's
+    // getview camera Z; GameCamera::update writes WRAM $0554 each tick).
+    let vpz = g.vars.sv_i16(sv::VIEWPOSZ);
     g.vars.set_sv_i16(sv::BGSSCROLLZ, vpz);
 
     g.objs.aliens[i].sflags |= ASF_COLLDISABLE;
@@ -628,6 +1033,10 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     g.vars.gameflags |= GF_PLAYERDYING;
     g.vars.gameflags &= !GF_PLAYERDEAD;
 
+    // PSTRATS.ASM:3031-3045 disables and detaches the three HP proxies.
+    let had_pcbox = g.coldet.pcbox.player == Some(idx);
+    g.pcbox_detach();
+
     let dead = sid(g, K_PLAYERDEAD_STRAT);
     let coll = sid(g, K_PLAYERCOLL);
     let exp = sid(g, K_PLAYERDEAD_INIT);
@@ -636,23 +1045,32 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     al.ap = 0;
     al.sbyte1 = 0;
     al.sflags &= !ASF_COLLIDE;
-    // The dying ship takes no further body damage. ROM `playerdead_Istrat`
-    // (PSTRATS.ASM:3031-3044) DETACHES the three pcbox proxies (clears their
-    // strat pointers + sets colldisable) so no hit can route into the ship; the
-    // ship object itself keeps colliding (as a hazard, colltype enemyweap).
-    // In the port's DIRECT model (no boxes attached) the equivalent is
-    // colldisable on the ship — without it, continued `do_coll` re-zeroed hp
-    // and the persisting ASF_COLLIDE made do_strat run playercoll instead of
-    // the crash strat, freezing the sequence. Under the pcbox layer
-    // (`Game::pcbox_attach`) the ship is ALREADY colldisable and
-    // `pcbox_coll_strat` calls `g.pcbox_detach()` before this runs, so this
-    // line is a redundant no-op there but stays correct for the direct model.
-    al.sflags |= ASF_COLLDISABLE;
+    // The normal death path explicitly re-enables the ship and changes it to
+    // colltype enemyweap (PSTRATS.ASM:3047-3104), making the crashing Arwing a
+    // harmless hazard while same-category enemy shots are filtered.
+    if had_pcbox && g.vars.splayerflymode != SPFM_INSIDE {
+        al.sflags &= !ASF_COLLDISABLE;
+    } else {
+        // Inside-cockpit death is colldisable in the ROM. Keep the same safe
+        // behavior for the isolated direct-model fallback, which has no HP
+        // proxies to prevent collision damage from re-entering the crash.
+        al.sflags |= ASF_COLLDISABLE;
+    }
+    al.collflags = (al.collflags
+        & !(sf_game::alien::ACF_COLLTYPE1
+            | sf_game::alien::ACF_COLLTYPE2
+            | sf_game::alien::ACF_COLLTYPE3
+            | sf_game::alien::ACF_COLLTYPE4
+            | sf_game::alien::ACF_COLLTYPE5))
+        | ACF_COLLTYPE4;
     al.stratptr = Some(dead);
     al.collstratptr = Some(coll);
     al.expstratptr = Some(exp);
 
-    g.hooks.play_se(0x03);
+    // ROM: trigse se_playerdown + startbgm $11 (PSTRATS.ASM:3110-3115),
+    // gated by the psf2_playerHP0 latch above so respawn re-entry is silent.
+    g.hooks.play_se(SE_PLAYER_DOWN);
+    g.hooks.play_music(BGM_PLAYER_DOWN);
 }
 
 // ============================================================
@@ -665,11 +1083,8 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
 ///
 /// `player` is the ship slot. Registers the box strats (idempotent) and hands
 /// their [`StratId`]s to the game-core [`Game::pcbox_attach`], which allocates
-/// the boxes and makes the ship `colldisable`.
-///
-/// FOLLOW-UP (game-core lane): this is not yet called by the real per-level
-/// setup — that wiring belongs in world/level init (outside this lane's two
-/// files). Until then the boxes are opt-in (tests + any future setup call).
+/// the colldisable HP proxies and leaves the ship's multi-box collider live.
+/// The real shell invokes the registry-backed equivalent at every level start.
 pub fn pcbox_attach(g: &mut Game, player: u16) -> bool {
     let body = sid(g, K_PCBOX_BODY);
     let wing = sid(g, K_PCBOX_WING);
@@ -681,15 +1096,124 @@ pub fn pcbox_attach(g: &mut Game, player: u16) -> bool {
 /// (ROM `s_add_Roffs2pos ...,0,0,1` — rotz on, rotx/roty off,
 /// PSTRATS.ASM:283/419). Z has offset 0 (playerW_z), so only X/Y rotate.
 fn rotz_offset(ox: i16, oy: i16, rotz: u8) -> (i16, i16) {
-    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
-    let a = rotz as usize;
-    let sin = SINTAB[a] as i32;
-    let cos = COSTAB[a] as i32;
-    let x = ox as i32;
-    let y = oy as i32;
-    let xr = mulslog(x, cos) - mulslog(y, sin);
-    let yr = mulslog(x, sin) + mulslog(y, cos);
-    (xr as i16, yr as i16)
+    let (x, y, _) = crate::snes_trig::strat_roffs_roll(rotz, ox as i8, oy as i8, 0);
+    (x, y)
+}
+
+/// ROM `s_gen_flatvecs` (STRATMAC.INC:3666) via `nvecs_l`: XZ speed from a
+/// negated angle (+1 table quirk), written into `vx`/`vy` (Z unused).
+fn gen_flatvecs(rotz: u8, vel: u8) -> (i16, i16) {
+    let angle = rotz.wrapping_neg().wrapping_add(1) as usize;
+    let v = vel as i8;
+    let vx = mulslog_mac8(v, SINTAB[angle]) as i16;
+    let vy = mulslog_mac8(v, COSTAB[angle]) as i16;
+    (vx, vy)
+}
+
+/// ROM `sgenspark_srou` (PSTRATS.ASM:72): spawn a short-lived scrape spark at
+/// `at`'s position unless `psf2_nospark`.
+pub fn sgen_spark(g: &mut Game, at: u16) {
+    if g.vars.pshipflags2 & PSF2_NOSPARK != 0 {
+        return;
+    }
+    let Some(spark) = strat_make_obj(g, SHAPE_LINE_SPARK) else {
+        return;
+    };
+    let src = g.objs.aliens[at as usize];
+    let rotz = (sf_random(&mut g.vars) & 0xFF) as u8;
+    let (vx, vy) = gen_flatvecs(rotz, 15);
+    let outvx = g.vars.sv_i16(sv::OUTVX);
+    let outvy = g.vars.sv_i16(sv::OUTVY);
+    let turn = (g.vars.sv_i16(sv::PLAYER_TURNROT) >> 8) as u8;
+    let strat = sid(g, K_LSPARK_INIT);
+    {
+        let al = &mut g.objs.aliens[spark as usize];
+        al.worldx = src.worldx;
+        al.worldy = src.worldy;
+        al.worldz = src.worldz;
+        al.rotz = rotz;
+        al.vel = 15;
+        al.count = 5; // s_set_lifecnt #5
+        al.vx = vx;
+        al.vy = vy;
+        al.vz = 0;
+        al.sflags |= ASF_COLLDISABLE;
+        // s_rots_flat: billboard to camera (outvy+1 negated + 180 + turn).
+        al.roty = (outvy >> 8) as u8;
+        al.roty = al.roty.wrapping_neg().wrapping_add(128).wrapping_add(turn);
+        al.rotx = (outvx >> 8) as u8;
+        al.stratptr = Some(strat);
+    }
+}
+
+/// ROM `lspark_Istrat` (PSTRATS.ASM:54).
+pub fn lspark_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].stratptr = Some(sid(g, K_LSPARK_STRAT));
+}
+
+/// ROM `lspark_strat` / `lspark_cont` (PSTRATS.ASM:59): scroll with player Z,
+/// integrate velocity, then expire.
+pub fn lspark_strat(g: &mut Game, idx: u16) {
+    // s_add_colanim x,#2,#16 — cosmetic colour cycle; HD path ignores.
+    lspark_cont(g, idx);
+}
+
+/// Shared `lspark_cont` body (PSTRATS.ASM:62).
+pub fn lspark_cont(g: &mut Game, idx: u16) {
+    let pz = g.vars.pviewvelz;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldz = al.worldz.wrapping_add(pz);
+    al.worldx = al.worldx.wrapping_add(al.vx);
+    al.worldy = al.worldy.wrapping_add(al.vy);
+    al.worldz = al.worldz.wrapping_add(al.vz);
+    if al.count > 0 {
+        al.count = al.count.wrapping_sub(1);
+    }
+    if al.count == 0 {
+        strat_remove_obj(g);
+    }
+}
+
+/// ROM `slspark_Istrat` (PSTRATS.ASM:43).
+fn slspark_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].stratptr = Some(sid(g, K_SLSPARK_STRAT));
+}
+
+/// ROM `slspark_strat` (PSTRATS.ASM:48): colanim +1 then same cont as lspark.
+fn slspark_strat(g: &mut Game, idx: u16) {
+    lspark_cont(g, idx);
+}
+
+/// ROM `boss2spark_srou` body (GBSTRATS.ASM:1028) — empty in the source, but the
+/// intended spawn used `slspark_Istrat` + speed 20. Exposed for boss2 wiring.
+pub fn sgen_slspark(g: &mut Game, at: u16) {
+    let Some(spark) = strat_make_obj(g, SHAPE_LINE_SPARK) else {
+        return;
+    };
+    let src = g.objs.aliens[at as usize];
+    let rotz = (sf_random(&mut g.vars) & 0xFF) as u8;
+    let (vx, vy) = gen_flatvecs(rotz, 20);
+    let outvx = g.vars.sv_i16(sv::OUTVX);
+    let outvy = g.vars.sv_i16(sv::OUTVY);
+    let turn = (g.vars.sv_i16(sv::PLAYER_TURNROT) >> 8) as u8;
+    let strat = sid(g, K_SLSPARK_INIT);
+    {
+        let al = &mut g.objs.aliens[spark as usize];
+        al.worldx = src.worldx;
+        al.worldy = src.worldy;
+        al.worldz = src.worldz;
+        al.rotz = rotz;
+        al.vel = 20;
+        al.count = 5;
+        al.vx = vx;
+        al.vy = vy;
+        al.vz = 0;
+        al.sflags |= ASF_COLLDISABLE;
+        al.roty = (outvy >> 8) as u8;
+        al.roty = al.roty.wrapping_neg().wrapping_add(128).wrapping_add(turn);
+        al.rotx = (outvx >> 8) as u8;
+        al.stratptr = Some(strat);
+    }
 }
 
 /// Re-park the body box on the ship every frame (ROM `pBody_strat`,
@@ -731,100 +1255,408 @@ fn pcbox_wing_strat(g: &mut Game, idx: u16) {
     al.rotz = p.rotz;
 }
 
-/// Route a box hit back onto the ship (ROM `pcolB_Istrat`/`pcolB_strat` +
-/// `pcolLW_Istrat`, PSTRATS.ASM:174-234/320-...). Runs as the box's collide-
-/// strat the frame after `chkcoll` set its collide flag and `do_coll` already
-/// docked the box's HP. Applies the ship hitflash + screenflash + hit counter,
-/// and drives death (body HP 0) / wing-break (wing HP 0).
+/// Body-hit impact SE (ROM `pcolB_Istrat` PSTRATS.ASM:178-191).
+/// Wire-ship skips the hard/soft branch (ROM `.dsn` after wireship gate).
+fn play_body_hit_se(g: &mut Game, partner: Option<u16>) {
+    if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
+        return;
+    }
+    match partner {
+        Some(y) if g.objs.aliens[y as usize].ap >= 8 => g.hooks.play_se(SE_BODY_HIT_HARD),
+        _ => g.hooks.play_se(SE_BODY_HIT_SOFT),
+    }
+}
+
+/// Low-shield warning latches on the body box (ROM `pcolB_strat` :220-233).
+/// `$1b` once when HP drops through playerB_HP/4; `$1c` through /8.
+/// Clears the latch when HP recovers above the threshold.
+fn play_body_shield_warn_se(g: &mut Game, body_idx: u16) {
+    let hp = g.objs.aliens[body_idx as usize].hp;
+    if hp == 0 {
+        return;
+    }
+    // Quarter warning.
+    if hp > PLAYER_BODY_HP / 4 {
+        g.objs.aliens[body_idx as usize].sflags2 &= !ASF2_SFLAG1;
+    } else if g.objs.aliens[body_idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        g.objs.aliens[body_idx as usize].sflags2 |= ASF2_SFLAG1;
+        g.hooks.play_se(SE_SHIELD_WARN_QUARTER);
+    }
+    // Eighth warning.
+    if hp > PLAYER_BODY_HP / 8 {
+        g.objs.aliens[body_idx as usize].sflags2 &= !ASF2_SFLAG2;
+    } else if g.objs.aliens[body_idx as usize].sflags2 & ASF2_SFLAG2 == 0 {
+        g.objs.aliens[body_idx as usize].sflags2 |= ASF2_SFLAG2;
+        g.hooks.play_se(SE_SHIELD_WARN_EIGHTH);
+    }
+}
+
+/// Shared registry trampoline for the three proxy objects. The game-core only
+/// needs one opaque strategy ID; this dispatches to the ROM-named body/left/
+/// right collide entries, and doubles as their hp==0 explosion strategy.
 fn pcbox_coll_strat(g: &mut Game, idx: u16) {
-    let kind = g.coldet.pcbox.kind_of(idx);
-    let Some(kind) = kind else {
-        // Stale collide on a detached box — just clear it.
+    let Some(kind) = g.coldet.pcbox.kind_of(idx) else {
         g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
         return;
     };
-    let Some(player) = g.coldet.pcbox.player else {
-        g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    if g.objs.aliens[idx as usize].hp != 0 {
+        match kind {
+            PcboxKind::Body => pcolb_istrat(g, idx),
+            PcboxKind::LWing => pcollw_istrat(g, idx),
+            PcboxKind::RWing => pcolrw_istrat(g, idx),
+        }
         return;
-    };
-
-    if g.vars.pshipflags3 & PSF3_NOCOLLISIONS != 0 {
-        g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
-        return;
     }
 
-    // s_inc_var pnumhits (playercoll_Istrat PSTRATS.ASM:3285).
-    let hits = g.vars.sv_u8(sv::PNUMHITS);
-    if hits < 0xFF {
-        g.vars.set_sv_u8(sv::PNUMHITS, hits + 1);
-    }
-
-    // Ship hitflash + invulnerability window (pcolB sets al_sbyte1 =
-    // player_hitflashfrms on the PLAYER, PSTRATS.ASM:200/220).
-    {
-        let p = &mut g.objs.aliens[player as usize];
-        p.sbyte1 = PLAYER_HITFLASH_FRMS;
-        p.sflags |= ASF_HITFLASH | ASF_NOHITAFFECT;
-    }
-
-    // Body vs wing screenflash (pcolB_Istrat / pcolLW_Istrat).
-    let (flash_frms, flash_type) = match kind {
-        PcboxKind::Body => (SCREENFLASH_BODY_FRMS, SCREENFLASH_BODY_TYPE),
-        _ => (SCREENFLASH_WING_FRMS, SCREENFLASH_WING_TYPE),
-    };
-    g.vars.set_sv_u8(sv::SCREENFLASHCNT, flash_frms);
-    g.vars.set_sv_u8(sv::SCREENFLASHTYPE, flash_type);
-
-    let box_hp = g.objs.aliens[idx as usize].hp;
+    // hp==0: pcolBexp_Istrat / PLWbrk_Istrat / PRWbrk_Istrat.
     match kind {
         PcboxKind::Body => {
-            // Body destroyed -> death sequence (ROM pcolBexp_Istrat ->
-            // playerdead_Istrat). Detach the boxes first so no further hit
-            // re-enters the crash.
-            if box_hp == 0 {
+            if g.vars.pshipflags & PSF_NOCTRL != 0 || g.vars.pstratflags & PSTF_NOTDIE != 0 {
+                g.objs.aliens[idx as usize].hp = 1;
+            } else if let Some(player) = g.coldet.pcbox.player {
+                // `s_kill_obj y`: the player's own exp strategy runs on its
+                // next strategy pass and performs the full detach/death init.
                 g.objs.aliens[player as usize].hp = 0;
-                g.pcbox_detach();
-                playerdead_istrat(g, player);
-                return;
             }
         }
         PcboxKind::LWing | PcboxKind::RWing => {
-            if box_hp == 0 {
-                // Wing break (ROM PLWbrk_Istrat/PRWbrk_Istrat): set the broken-
-                // wing ship flag, sound, and drop just this wing box out of the
-                // collision system.
-                let bit = if kind == PcboxKind::LWing {
-                    PSF_BRKLWING
+            if g.vars.pshipflags3 & PSF3_NOCOLLISIONS == 0 {
+                let (coll_bit, broken_bit, se) = if kind == PcboxKind::LWing {
+                    (PSF_LWINGCOLL, PSF_BRKLWING, SE_WING_DESTRUCT_LEFT)
                 } else {
-                    PSF_BRKRWING
+                    (PSF_RWINGCOLL, PSF_BRKRWING, SE_WING_DESTRUCT_RIGHT)
                 };
-                g.vars.pshipflags |= bit;
-                g.hooks.play_se(0x14);
-                {
-                    let al = &mut g.objs.aliens[idx as usize];
-                    al.sflags |= ASF_COLLDISABLE;
-                    al.sflags &= !ASF_COLLIDE;
-                    al.stratptr = None;
-                    al.collstratptr = None;
+                g.hooks.play_se(se);
+                let al = &mut g.objs.aliens[idx as usize];
+                al.hp = HARD_HP; // ROM writes -1
+                al.ap = 0;
+                g.vars.pshipflags &= !coll_bit;
+                g.vars.pshipflags |= broken_bit;
+                if let Some(body) = g.coldet.pcbox.body {
+                    g.objs.aliens[body as usize].collcount = sf_game::vars::FRAMESPERAP;
                 }
-                if kind == PcboxKind::LWing {
-                    g.coldet.pcbox.lwing = None;
+            }
+            pcbox_wing_strat(g, idx);
+        }
+    }
+}
+
+// ============================================================
+// ROM-named pcbox collide / end-collide leaves (PSTRATS.ASM)
+// ============================================================
+
+fn pcollobj_valid(ptr: i16) -> bool {
+    ptr > 0
+}
+
+fn play_wing_hit_se(g: &mut Game, partner: Option<u16>, soft_se: u8) {
+    if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
+        g.hooks.play_se(soft_se);
+        return;
+    }
+    match partner {
+        Some(y) if g.objs.aliens[y as usize].ap >= 8 => g.hooks.play_se(0x04),
+        _ => g.hooks.play_se(soft_se),
+    }
+}
+
+fn spawn_spexplod_fx(g: &mut Game, box_idx: u16) -> Option<u16> {
+    const SH_SPEXPLOD: u16 = 367;
+    let fx = strat_make_obj(g, SH_SPEXPLOD)?;
+    {
+        let al = &mut g.objs.aliens[fx as usize];
+        al.type_ &= !ATZREMOVE;
+        al.sflags |= ASF_COLLDISABLE;
+    }
+    let src = g.objs.aliens[box_idx as usize];
+    let al = &mut g.objs.aliens[fx as usize];
+    al.worldx = src.worldx;
+    al.worldy = src.worldy;
+    al.worldz = src.worldz;
+    Some(fx)
+}
+
+/// ROM `pwingcol` scrape path (PSTRATS.ASM:104) — spark + keep wing parked.
+fn pwingcol(g: &mut Game, idx: u16) {
+    // PSTRATS.ASM:104-126. At the wing cooldown boundary, also route half
+    // attacker AP to the body (quarter AP for wire ship). The wing itself
+    // takes exactly one damage per cooldown; wire ship takes none.
+    if g.objs.aliens[idx as usize].collcount == 1 {
+        let partner = g.objs.aliens[idx as usize].collobjptr;
+        if let Some(body) = g.coldet.pcbox.body {
+            g.objs.aliens[body as usize].collobjptr = partner;
+            if pcollobj_valid(partner as i16)
+                && (partner as usize) < g.objs.aliens.len()
+                && g.objs.aliens[partner as usize].active
+            {
+                let ap = g.objs.aliens[partner as usize].ap;
+                let shift = if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
+                    2
                 } else {
-                    g.coldet.pcbox.rwing = None;
-                }
-                return;
+                    1
+                };
+                g.coldet_apply_damage(body, ap, shift);
             }
         }
     }
+    if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
+        g.hooks.play_se(SE_WIRE_WING_SCRAPE);
+    } else {
+        g.coldet_apply_damage(idx, 1, 0);
+    }
 
-    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    sgen_spark(g, idx);
+    // Copy spexplod FX to box pos if sword1 holds one.
+    let sword = g.objs.aliens[idx as usize].sword1;
+    if sword > 0 {
+        let src = g.objs.aliens[idx as usize];
+        let fx = &mut g.objs.aliens[sword as usize];
+        if fx.active {
+            fx.worldx = src.worldx;
+            fx.worldy = src.worldy;
+            fx.worldz = src.worldz;
+        }
+    }
+    pcbox_wing_strat(g, idx);
+}
+
+/// ROM `brkpwingcol` (PSTRATS.ASM:91) — broken wing: bounce hit onto body box.
+fn brkpwingcol(g: &mut Game, idx: u16) {
+    if let Some(body) = g.coldet.pcbox.body {
+        let partner = g.objs.aliens[idx as usize].collobjptr;
+        g.objs.aliens[body as usize].collobjptr = partner;
+        g.objs.aliens[body as usize].sflags |= ASF_COLLIDE;
+    }
+    pcbox_wing_strat(g, idx);
+}
+
+/// ROM `pendcolB_Istrat` (PSTRATS.ASM:241).
+pub fn pendcolb_istrat(g: &mut Game, idx: u16) {
+    g.vars.set_sv_i16(sv::PCOLLOBJ_B, 0);
+    g.objs.aliens[idx as usize].collstratptr = Some(ea_sid(g, pcolb_istrat));
+    g.vars.pshipflags &= !PSF_BODYCOLL;
+    pcbox_body_strat(g, idx);
+}
+
+/// ROM `pcolB_Istrat` — body hit entry (subset used by pendcol re-arm).
+pub fn pcolb_istrat(g: &mut Game, idx: u16) {
+    let partner = {
+        let p = g.objs.aliens[idx as usize].collobjptr;
+        if pcollobj_valid(p as i16) {
+            Some(p)
+        } else {
+            None
+        }
+    };
+    play_body_hit_se(g, partner);
+    if let Some(y) = partner {
+        if (y as usize) < g.objs.aliens.len() && g.objs.aliens[y as usize].ap == 0 {
+            pcbox_body_strat(g, idx);
+            return;
+        }
+    }
+    if let Some(player) = g.coldet.pcbox.player {
+        g.objs.aliens[player as usize].sbyte1 = PLAYER_HITFLASH_FRMS;
+    }
+    g.vars.set_sv_u8(sv::SCREENFLASHCNT, SCREENFLASH_BODY_FRMS);
+    g.vars.set_sv_u8(sv::SCREENFLASHTYPE, SCREENFLASH_BODY_TYPE);
+    g.vars.pshipflags |= PSF_BODYCOLL;
+    g.vars.set_sv_i16(
+        sv::PCOLLOBJ_B,
+        g.objs.aliens[idx as usize].collobjptr as i16,
+    );
+    g.objs.aliens[idx as usize].collstratptr = Some(ea_sid(g, pcolb_strat));
+    g.objs.aliens[idx as usize].endcollstratptr = Some(ea_sid(g, pendcolb_istrat));
+    // The ROM label falls straight through into pcolB_strat.
+    pcolb_strat(g, idx);
+}
+
+/// ROM `pcolB_strat` — sustain body collide while partner live.
+pub fn pcolb_strat(g: &mut Game, idx: u16) {
+    let partner = g.vars.sv_i16(sv::PCOLLOBJ_B);
+    if partner != 0 {
+        if let Some(player) = g.coldet.pcbox.player {
+            g.objs.aliens[player as usize].sbyte1 = PLAYER_HITFLASH_FRMS;
+        }
+        if partner > 0
+            && (partner as usize) < g.objs.aliens.len()
+            && g.objs.aliens[partner as usize].active
+        {
+            let ap = g.objs.aliens[partner as usize].ap;
+            let shift = u8::from(g.vars.pshipflags2 & PSF2_WIRESHIP != 0);
+            g.coldet_apply_damage(idx, ap, shift);
+        }
+        play_body_shield_warn_se(g, idx);
+    }
+    pcbox_body_strat(g, idx);
+}
+
+/// ROM `pendcolLW_Istrat` (PSTRATS.ASM:370).
+pub fn pendcollw_istrat(g: &mut Game, idx: u16) {
+    g.vars.set_sv_i16(sv::PCOLLOBJ_LW, 0);
+    g.objs.aliens[idx as usize].collstratptr = Some(ea_sid(g, pcollw_istrat));
+    g.vars.pshipflags &= !PSF_LWINGCOLL;
+    let sword = g.objs.aliens[idx as usize].sword1;
+    if sword > 0 {
+        g.objs.aliens[idx as usize].sword1 = 0;
+        if (sword as usize) < g.objs.aliens.len() && g.objs.aliens[sword as usize].active {
+            g.objs.free(sword as u16);
+        }
+    }
+    pcbox_wing_strat(g, idx);
+}
+
+/// ROM `pcolLW_Istrat` (PSTRATS.ASM:308) — left-wing hit entry.
+pub fn pcollw_istrat(g: &mut Game, idx: u16) {
+    g.vars.set_sv_u8(sv::SCREENFLASHCNT, SCREENFLASH_WING_FRMS);
+    g.vars.set_sv_u8(sv::SCREENFLASHTYPE, SCREENFLASH_WING_TYPE);
+
+    let partner = {
+        let p = g.objs.aliens[idx as usize].collobjptr;
+        if pcollobj_valid(p as i16) {
+            Some(p)
+        } else {
+            None
+        }
+    };
+    play_wing_hit_se(g, partner, SE_WING_HIT_LEFT);
+
+    if let Some(y) = partner {
+        if g.objs.aliens[y as usize].ap == 0 {
+            pcbox_wing_strat(g, idx);
+            return;
+        }
+    }
+
+    if let Some(player) = g.coldet.pcbox.player {
+        let rotz = g.objs.aliens[player as usize].rotz as i8;
+        let player_pitch = g.vars.sv_i16(sv::PLROTX);
+        let pitch_whole = (player_pitch >> 8) as i8;
+        if rotz >= 0 {
+            // .nur: plrotx+1 += 8, nudge +X, Zshake
+            g.vars
+                .set_sv_i16(sv::PLROTX, player_pitch.wrapping_add((8i16) << 8));
+            g.objs.aliens[player as usize].worldx =
+                g.objs.aliens[player as usize].worldx.wrapping_add(10);
+            // -deg11*256
+            g.vars.set_sv_i16(sv::PLAYER_ZSHAKE, -((11i16) << 8));
+            let _ = pitch_whole;
+        } else {
+            g.vars
+                .set_sv_i16(sv::PLROTX, player_pitch.wrapping_sub((8i16) << 8));
+        }
+    }
+
+    g.objs.aliens[idx as usize].collstratptr = Some(ea_sid(g, pcollw_strat));
+    g.vars.set_sv_i16(
+        sv::PCOLLOBJ_LW,
+        g.objs.aliens[idx as usize].collobjptr as i16,
+    );
+    g.objs.aliens[idx as usize].endcollstratptr = Some(ea_sid(g, pendcollw_istrat));
+    g.vars.pshipflags |= PSF_LWINGCOLL;
+    g.objs.aliens[idx as usize].sword1 = 0;
+    if g.vars.playerflymode & PFM_WATER == 0 {
+        if let Some(fx) = spawn_spexplod_fx(g, idx) {
+            g.objs.aliens[idx as usize].sword1 = fx as i16;
+        }
+    }
+    // The ROM entry falls through into pcolLW_strat/pwingcol.
+    pcollw_strat(g, idx);
+}
+
+/// ROM `pcolLW_strat`.
+pub fn pcollw_strat(g: &mut Game, idx: u16) {
+    if g.vars.pshipflags & PSF_BRKLWING != 0 {
+        brkpwingcol(g, idx);
+    } else {
+        pwingcol(g, idx);
+    }
+}
+
+/// ROM `pendcolRW_Istrat` (PSTRATS.ASM:516).
+pub fn pendcolrw_istrat(g: &mut Game, idx: u16) {
+    g.vars.set_sv_i16(sv::PCOLLOBJ_RW, 0);
+    g.objs.aliens[idx as usize].collstratptr = Some(ea_sid(g, pcolrw_istrat));
+    g.vars.pshipflags &= !PSF_RWINGCOLL;
+    let sword = g.objs.aliens[idx as usize].sword1;
+    if sword > 0 {
+        g.objs.aliens[idx as usize].sword1 = 0;
+        if (sword as usize) < g.objs.aliens.len() && g.objs.aliens[sword as usize].active {
+            g.objs.free(sword as u16);
+        }
+    }
+    pcbox_wing_strat(g, idx);
+}
+
+/// ROM `pcolRW_Istrat` (PSTRATS.ASM:455) — right-wing hit entry.
+pub fn pcolrw_istrat(g: &mut Game, idx: u16) {
+    g.vars.set_sv_u8(sv::SCREENFLASHCNT, SCREENFLASH_WING_FRMS);
+    g.vars.set_sv_u8(sv::SCREENFLASHTYPE, SCREENFLASH_WING_TYPE);
+
+    let partner = {
+        let p = g.objs.aliens[idx as usize].collobjptr;
+        if pcollobj_valid(p as i16) {
+            Some(p)
+        } else {
+            None
+        }
+    };
+    play_wing_hit_se(g, partner, SE_WING_HIT_RIGHT);
+
+    if let Some(y) = partner {
+        if g.objs.aliens[y as usize].ap == 0 {
+            pcbox_wing_strat(g, idx);
+            return;
+        }
+    }
+
+    if let Some(player) = g.coldet.pcbox.player {
+        let rotz = g.objs.aliens[player as usize].rotz as i8;
+        let player_pitch = g.vars.sv_i16(sv::PLROTX);
+        if rotz < 0 {
+            // .nur
+            g.vars
+                .set_sv_i16(sv::PLROTX, player_pitch.wrapping_add((8i16) << 8));
+            g.objs.aliens[player as usize].worldx =
+                g.objs.aliens[player as usize].worldx.wrapping_sub(10);
+            g.vars.set_sv_i16(sv::PLAYER_ZSHAKE, (11i16) << 8); // deg11*256
+        } else {
+            g.vars
+                .set_sv_i16(sv::PLROTX, player_pitch.wrapping_sub((8i16) << 8));
+        }
+    }
+
+    g.objs.aliens[idx as usize].collstratptr = Some(ea_sid(g, pcolrw_strat));
+    g.vars.set_sv_i16(
+        sv::PCOLLOBJ_RW,
+        g.objs.aliens[idx as usize].collobjptr as i16,
+    );
+    g.objs.aliens[idx as usize].endcollstratptr = Some(ea_sid(g, pendcolrw_istrat));
+    g.vars.pshipflags |= PSF_RWINGCOLL;
+    g.objs.aliens[idx as usize].sword1 = 0;
+    if g.vars.playerflymode & PFM_WATER == 0 {
+        if let Some(fx) = spawn_spexplod_fx(g, idx) {
+            g.objs.aliens[idx as usize].sword1 = fx as i16;
+        }
+    }
+    // The ROM entry falls through into pcolRW_strat/pwingcol.
+    pcolrw_strat(g, idx);
+}
+
+/// ROM `pcolRW_strat`.
+pub fn pcolrw_strat(g: &mut Game, idx: u16) {
+    if g.vars.pshipflags & PSF_BRKRWING != 0 {
+        brkpwingcol(g, idx);
+    } else {
+        pwingcol(g, idx);
+    }
 }
 
 /// C `setcurrpshape` (strat_player.c:262).
 fn setcurrpshape(g: &mut Game, idx: u16) {
     let damage = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING);
-    let pick = |addr: u16, g: &Game| {
-        let v = g.vars.sv_u16(addr);
+    let pick = |variable: sv, g: &Game| {
+        let v = g.vars.sv_u16(variable);
         if v != 0 {
             v
         } else {
@@ -865,21 +1697,26 @@ fn barrel_roll_update(g: &mut Game, allow_start: bool) {
 
     let roll_zvel = g.vars.sv_u8(sv::PLAYER_ROLLZVEL);
     if roll_zvel as i8 == 0 {
-        let mut delay = g.vars.sv_u8(sv::PLAYER_ROLLDELAY);
-        if delay > 0 {
-            delay -= 1;
-            g.vars.set_sv_u8(sv::PLAYER_ROLLDELAY, delay);
-        }
-
-        if allow_start && delay == 0 && lr_down && !lr_prev {
-            if pad1(g) & pad::TRIGHT != 0 {
-                g.vars.set_sv_u8(sv::PLAYER_ROLLZVEL, 32);
-            } else {
-                g.vars.set_sv_u8(sv::PLAYER_ROLLZVEL, (-32i8) as u8);
+        // ROM `s_beqdec_var player_rolldelay,.lragain` (PSTRATS.ASM:2584 /
+        // STRATMAC.INC:6391): branch-if-zero BEFORE decrement. Start path runs
+        // only while the window is open (`rolldelay>0`); delay==0 skips straight
+        // to `.lragain` (reload-only). Old port decremented first then required
+        // post-dec delay==0, tightening the double-tap window by one frame
+        // (audit Minor #9).
+        let delay = g.vars.sv_u8(sv::PLAYER_ROLLDELAY);
+        if delay != 0 {
+            g.vars.set_sv_u8(sv::PLAYER_ROLLDELAY, delay - 1);
+            // Fresh shoulder edge while window open → start roll.
+            // Polarity: default −32, then `s_jmp_keyup left,.isright` keeps it
+            // when TLEFT is up; TLEFT down overrides to +32 (PSTRATS.ASM:2587-93).
+            if allow_start && lr_down && !lr_prev {
+                let zvel: i8 = if pad1(g) & pad::TLEFT != 0 { 32 } else { -32 };
+                g.vars.set_sv_u8(sv::PLAYER_ROLLZVEL, zvel as u8);
+                g.vars.set_sv_u8(sv::PLAYER_ROLLZOFF, 0);
             }
-            g.vars.set_sv_u8(sv::PLAYER_ROLLZOFF, 0);
         }
 
+        // .lragain: while either shoulder is held, reload the double-tap window.
         if lr_down {
             g.vars.set_sv_u8(sv::PLAYER_ROLLDELAY, BARREL_ROLL_DELAY);
         }
@@ -903,7 +1740,7 @@ fn barrel_roll_update(g: &mut Game, allow_start: bool) {
 }
 
 /// C `boost_brake_update` (strat_player.c:313).
-fn boost_brake_update(g: &mut Game, idx: u16) {
+pub fn boost_brake_update(g: &mut Game, idx: u16) {
     let i = idx as usize;
     if g.objs.aliens[i].sbyte2 > 0 {
         g.objs.aliens[i].sbyte2 -= 1;
@@ -916,6 +1753,7 @@ fn boost_brake_update(g: &mut Game, idx: u16) {
         g.vars.pshipflags2 &= !PSF2_FORCEBOOST;
         g.vars.pshipflags2 |= PSF2_BOOSTING;
         g.vars.set_sv_u8(sv::BOOSTCNT, 1);
+        g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
         g.objs.aliens[i].vel = MAX_PSPEED as u8;
         g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
         g.objs.aliens[i].sbyte2 = 20;
@@ -962,6 +1800,7 @@ fn boost_brake_update(g: &mut Game, idx: u16) {
     if pad1(g) & pad::X != 0 {
         g.vars.pshipflags2 |= PSF2_BOOSTING;
         g.vars.set_sv_u8(sv::BOOSTCNT, 1);
+        g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16); // PSTRATS.ASM:2173
         g.objs.aliens[i].vel = MAX_PSPEED as u8;
         g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
         g.objs.aliens[i].sbyte2 = 20;
@@ -985,6 +1824,26 @@ fn boost_brake_update(g: &mut Game, idx: u16) {
 fn playermove_srou(g: &mut Game, idx: u16) {
     let i = idx as usize;
     player_hitflash_update(g, idx);
+
+    // Wire-ship (Shield Power-up) hit check — PSTRATS.ASM:1775-1796.
+    // While psf2_wireship: if pnumhits >= 3, flash shieldup for wireendflash
+    // frames then clear the wire bit; else arm wireendflash=50.
+    if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
+        let hits = g.vars.sv_u8(sv::PNUMHITS);
+        if hits >= 3 {
+            let flash = g.vars.wireendflash;
+            if flash == 0 {
+                g.vars.shieldup = 0;
+                g.vars.pshipflags2 &= !PSF2_WIRESHIP;
+            } else {
+                g.vars.wireendflash = flash.wrapping_sub(1);
+                // Blink: shieldup on when (wireendflash & 3) != 0.
+                g.vars.shieldup = if flash & 3 != 0 { 1 } else { 0 };
+            }
+        } else {
+            g.vars.wireendflash = 50;
+        }
+    }
 
     let mut no_ctrl = g.vars.pshipflags & PSF_NOCTRL != 0
         || g.vars.sv_i8(sv::STAYBLACK) != -1
@@ -1010,7 +1869,11 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     // zero (STRATMAC.INC:712), so plrotz is `(plrotz>>7)` then toward-zero /2.
     {
         let lr_held = pad1(g) & (pad::LEFT | pad::RIGHT) != 0;
-        let ztilt_term = if lr_held { (ztilt as i8 as i16) >> 3 } else { 0 };
+        let ztilt_term = if lr_held {
+            (ztilt as i8 as i16) >> 3
+        } else {
+            0
+        };
         let s7 = plrotz >> 7;
         let plrotz_term = if s7 >= 0 { s7 >> 1 } else { -((-s7) >> 1) };
         let shove = plrotz_term.wrapping_add(ztilt_term);
@@ -1028,18 +1891,48 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     }
 
     if !no_ctrl {
+        // Dpad steer ztilt (deg45/15) — ROM gates on wing-not-against-wall
+        // (`pmovelimit` pml_lwleft/rwright) and, when `pml_Bbottom` is armed,
+        // skips the bank when `worldy >= maxPmoveY-30` (`s_jmp_lower`,
+        // PSTRATS.ASM:2320-2358). plrotz/plroty still update either way.
+        let pmove_limit = g.vars.sv_u8(sv::PMOVELIMIT);
+        let pmove_and = g.vars.sv_u8(sv::PMOVELIMITAND);
+        let max_y = g.vars.sv_i16(sv::MAXPMOVEY);
+        let near_floor =
+            pmove_and & PML_BBOTTOM != 0 && g.objs.aliens[i].worldy >= max_y.wrapping_sub(30);
+
         if pad1(g) & pad::LEFT != 0 {
             plrotz = plrotz.wrapping_add(ZROT_SPEED);
             plroty = plroty.wrapping_add(ZROT_SPEED);
-            ztilt = ((ztilt as i8) as i32 + (DEG45 as i32 / 15)) as u8;
-            if ztilt as i8 > DEG90 as i8 {
-                ztilt = DEG90;
+            if pmove_limit & PML_LWLEFT == 0 && !near_floor {
+                ztilt = ((ztilt as i8) as i32 + (DEG45 as i32 / 15)) as u8;
+                if ztilt as i8 > DEG90 as i8 {
+                    ztilt = DEG90;
+                }
             }
         }
         if pad1(g) & pad::RIGHT != 0 {
             plrotz = plrotz.wrapping_sub(ZROT_SPEED);
             plroty = plroty.wrapping_sub(ZROT_SPEED);
-            ztilt = ((ztilt as i8) as i32 - (DEG45 as i32 / 15)) as u8;
+            if pmove_limit & PML_RWRIGHT == 0 && !near_floor {
+                ztilt = ((ztilt as i8) as i32 - (DEG45 as i32 / 15)) as u8;
+                if (ztilt as i8) < -(DEG90 as i8) {
+                    ztilt = (-(DEG90 as i8)) as u8;
+                }
+            }
+        }
+
+        // Shoulder-hold bank lean (PSTRATS.ASM:2626-2639): while L/R shoulder
+        // held, `player_Ztilt ±= deg45/3`, clamp ±deg90. Distinct from the
+        // smaller dpad-steer term above (deg45/15) and from the double-tap
+        // barrel roll in [`barrel_roll_update`].
+        if pad1(g) & pad::TLEFT != 0 {
+            ztilt = ((ztilt as i8) as i32 + (DEG45 as i32 / 3)) as u8;
+            if ztilt as i8 > DEG90 as i8 {
+                ztilt = DEG90;
+            }
+        } else if pad1(g) & pad::TRIGHT != 0 {
+            ztilt = ((ztilt as i8) as i32 - (DEG45 as i32 / 3)) as u8;
             if (ztilt as i8) < -(DEG90 as i8) {
                 ztilt = (-(DEG90 as i8)) as u8;
             }
@@ -1123,6 +2016,29 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     let zstratadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD) as i8;
     let rollzoff = g.vars.sv_u8(sv::PLAYER_ROLLZOFF) as i8;
 
+    // Idle bank wobble (PSTRATS.ASM:2728-2741): under `pfm_wobble`, walk
+    // `pZrotfloattab` into `player_Zrotfloat` and add it to al_rotz. Broken
+    // wing(s) use the table as-is; intact wings negate the sample.
+    let mut zrot_float: i8 = 0;
+    if g.vars.playerflymode & PFM_WOBBLE != 0 {
+        let mut ptr = g.vars.sv_u8(sv::PLAYER_ZROTFLOATPTR);
+        if (ptr as usize) >= PZROT_FLOAT_TAB.len() {
+            ptr = 0;
+        }
+        let sample = PZROT_FLOAT_TAB[ptr as usize];
+        zrot_float = if g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING) != 0 {
+            sample
+        } else {
+            sample.wrapping_neg()
+        };
+        g.vars.set_sv_u8(sv::PLAYER_ZROTFLOAT, zrot_float as u8);
+        ptr = ptr.wrapping_add(1);
+        if ptr >= PZROTFLOATTAB_LEN {
+            ptr = 0;
+        }
+        g.vars.set_sv_u8(sv::PLAYER_ZROTFLOATPTR, ptr);
+    }
+
     let al = &mut g.objs.aliens[i];
     al.rotx = (plrotx >> 8) as u8;
     al.roty = ((plroty >> 8) as i32 + (turnrot >> 8) as i32) as u8;
@@ -1130,7 +2046,8 @@ fn playermove_srou(g: &mut Game, idx: u16) {
         + ztilt as i8 as i32
         + (zshake >> 8) as i32
         + zstratadd as i32
-        + rollzoff as i32) as u8;
+        + rollzoff as i32
+        + zrot_float as i32) as u8;
 
     // spfm_inside (PSTRATS.ASM:2749-2755): carry the ship's roll (sign-extended
     // player_Ztilt byte + full 16-bit player_Zshake) into outvz so getview_l
@@ -1176,13 +2093,16 @@ fn playerlimit_x_srou(g: &mut Game, idx: u16) {
     }
 
     // Keep vertical gameplay stable in the HD runtime.
+    // ROM playermove Y clamp is inclusive (PSTRATS.ASM:1912-1922); bottom
+    // clamp gated on `pmovelimitAND & pml_Bbottom`.
     let miny = g.vars.minpmove_y;
     let maxy = g.vars.sv_i16(sv::MAXPMOVEY);
-    if g.objs.aliens[i].worldy < miny {
+    let limit_and = g.vars.sv_u8(sv::PMOVELIMITAND);
+    if g.objs.aliens[i].worldy <= miny {
         g.objs.aliens[i].worldy = miny;
         arrows |= SPRAR_UP;
     }
-    if g.objs.aliens[i].worldy > maxy {
+    if limit_and & PML_BBOTTOM != 0 && g.objs.aliens[i].worldy >= maxy {
         g.objs.aliens[i].worldy = maxy;
         arrows |= SPRAR_DOWN;
     }
@@ -1272,14 +2192,19 @@ fn spawn_player_projectile(
     )?;
 
     if track_in_numplasers {
-        // Laser/beam bolts (Y-fire): make them visible. `strat_spawn_projectile`
-        // stubs every projectile as shape 0 + ASF_INVISIBLE, which the draw
-        // list skips; give player bolts a real shape and clear the flag so they
-        // render (the nuke, track=false, keeps the stub — its faithful shape is
-        // likewise unregistered).
+        // The beam and ordinary laser use distinct retail shapes.
         let owner_vel = g.objs.aliens[i].vel;
         let laser = &mut g.objs.aliens[shot as usize];
-        laser.shape = SHAPE_PLAYER_LASER;
+        laser.shape = if inside_beam_extra_z {
+            415 // playerbeam
+        } else {
+            SHAPE_PLAYER_LASER
+        };
+        if !inside_beam_extra_z {
+            // Pelaser_Istrat: s_init_anim x,#4. Bit 7 keeps the authored
+            // elaser2_P frame instead of following gameframe.
+            laser.animframe = 0x80 | 4;
+        }
         laser.sflags &= !ASF_INVISIBLE;
         laser.sbyte6 |= 1;
         // ROM `Pelaser_Istrat` (GSTRATS.ASM:2023) builds the bolt velocity from
@@ -1338,11 +2263,8 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
         g.vars.set_sv_u8(sv::SPECIALDELAY, SPECIAL_DELAY_FRMS);
         g.vars.set_sv_u16(sv::SPECWEPCNT, specwepcnt - 1);
 
-        let nuke =
-            spawn_player_projectile(g, idx, 0, 0, NUKE_Z_OFFSET, 56, 80, 8, false, false);
-        if let Some(nuke) = nuke {
-            g.objs.aliens[nuke as usize].sbyte4 = 2;
-        }
+        // ROM fire_nuke (GSTRATS.ASM:2333) — speed 50, life 28, hp2/ap8.
+        let _ = fire_nuke(g, idx);
         g.hooks.play_se(0x31);
     }
     if g.vars.sv_u8(sv::SPECIALDELAY) == 0 {
@@ -1507,6 +2429,29 @@ fn do_player_yvel_d2(g: &mut Game, idx: u16) {
     checkarrows_srou(g);
 }
 
+/// ROM `do_playerYvel_colony` (PSTRATS.ASM:3428): perc62 on vx, adiv2 on vy.
+fn do_player_yvel_colony(g: &mut Game, idx: u16) {
+    playermove_srou(g, idx);
+    strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vx = strat_perc62(al.vx);
+        let vy = al.vy;
+        al.vy = if vy >= 0 {
+            vy >> 1
+        } else {
+            -((-(vy as i32) >> 1) as i16)
+        };
+    }
+
+    framescalevecs(g, idx);
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+    playerlimit_x_srou(g, idx);
+    playerfire_srou(g, idx);
+    checkarrows_srou(g);
+}
+
 // ============================================================
 // viewmove (strat_player.c:653-697)
 // ============================================================
@@ -1514,26 +2459,34 @@ fn do_player_yvel_d2(g: &mut Game, idx: u16) {
 /// C `viewmove_srou` (Z chase/speed logic).
 fn viewmove_srou(g: &mut Game, idx: u16) {
     let i = idx as usize;
+
+    // PSTRATS.ASM:1616-1629. This is before the PSTF_NOVIEWMOVE gate in the
+    // ROM, so cutscene/player modes still publish the current engine pitch.
+    g.vars.player_snd_flag = 0b0000_0100;
+    if g.objs.aliens[i].sbyte2 != 0 {
+        if g.vars.pshipflags2 & PSF2_BOOSTING != 0 {
+            g.vars.player_snd_flag = 0b0000_1000;
+        } else if g.vars.pshipflags2 & PSF2_BRAKING != 0 {
+            g.vars.player_snd_flag = 0b0000_1100;
+        }
+    }
+
     if g.vars.pstratflags & PSTF_NOVIEWMOVE != 0 {
-        let z = g.vars.sv_i16(sv::PVIEWPOSZ);
+        let z = g.vars.sv_i16(sv::VIEWPOSZ);
         g.vars.set_sv_i16(sv::BGSSCROLLZ, z);
         return;
     }
 
     // View-distance ease (PSTRATS.ASM:1636-1638): unless PSTF_NOVDISTC, each
     // frame `outdist` chases `viewdist` at rate 3 so the camera pull-back eases
-    // to a new distance instead of snapping. NOTE (follow-up): the camera still
-    // reads `viewdist` directly (sf-game camera.rs) — to make the ease visible it
-    // must consume `outdist`; that consumer change is a cross-crate follow-up.
+    // to a new distance instead of snapping. `sf-game` camera.rs reads
+    // `outdist` (sv::OUTDIST) for the pull-back length.
     if g.vars.pstratflags & PSTF_NOVDISTC == 0 {
         let od = strat_chase_proportional(g.vars.sv_i16(sv::OUTDIST), g.vars.viewdist, 3);
         g.vars.set_sv_i16(sv::OUTDIST, od);
     }
 
-    let mut pviewposz = g
-        .vars
-        .sv_i16(sv::PVIEWPOSZ)
-        .wrapping_add(g.vars.pviewvelz);
+    let mut pviewposz = g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_add(g.vars.pviewvelz);
     g.vars.pviewvelz = strat_chase(g.vars.pviewvelz, g.objs.aliens[i].vz, 1);
 
     let mut z_diff = pviewposz.wrapping_sub(g.vars.player_posz);
@@ -1557,7 +2510,8 @@ fn viewmove_srou(g: &mut Game, idx: u16) {
         g.vars.set_sv_i16(sv::PVIEWPOSZ, al.worldz);
     }
 
-    let z = g.vars.sv_i16(sv::PVIEWPOSZ);
+    // PSTRATS.ASM:1676 — bgsscrollZ ← viewposz (last getview camera Z).
+    let z = g.vars.sv_i16(sv::VIEWPOSZ);
     g.vars.set_sv_i16(sv::BGSSCROLLZ, z);
 }
 
@@ -1672,6 +2626,22 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     v.set_sv_i16(sv::PVIEWPOSY, 0);
     v.set_sv_i16(sv::PVIEWPOSZ, 0);
 
+    // A fresh stage must not inherit a fixed/look-at camera installed by the
+    // previous clear sequence.  ROM playercred_Istrat resets this camera block
+    // before handing control to the stage player strategy (PSTRATS.ASM:577-593).
+    // The Rust shell preserves GameVars across stages, so leaving these slots
+    // untouched freezes viewpos at the preceding cutscene and eventually makes
+    // live objects cross the signed-Z cull seam while still ahead of the ship.
+    v.set_sv_i16(sv::VIEWPOSX, 0);
+    v.set_sv_i16(sv::VIEWPOSY, 0);
+    v.set_sv_i16(sv::VIEWPOSZ, 0);
+    v.set_sv_i16(sv::OUTVX, 0);
+    v.set_sv_i16(sv::OUTVY, 0);
+    v.set_sv_i16(sv::OUTVZ, 0);
+    v.set_sv_i16(sv::OUTDIST, 0);
+    v.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+    v.set_sv_i16(sv::VIEWTOOBJ, 0);
+
     v.set_sv_i16(sv::PLAYER_TURNROT, 0);
     v.set_sv_u8(sv::PLAYER_ZTILT, 0);
     v.set_sv_i16(sv::PLAYER_ZSHAKE, 0);
@@ -1695,13 +2665,10 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     v.minpmove_y = -210 - 45;
     v.set_sv_i16(sv::MAXPMOVEY, PLAYERB_YSTOP);
 
-    // C `g_stayblack` defaults to -1 (= "not in a screen-black sequence",
-    // normal control). The Rust WRAM slot defaults to 0, and the map VM sets
-    // a proxy byte (GSVAR_BYTE1) rather than this slot, so playermove_srou's
-    // `STAYBLACK != -1` gate read 0 and locked out ALL steering. Seed -1.
-    v.set_sv_i8(sv::STAYBLACK, -1);
+    // A stage starts on the ordinary interactive-control path.
+    v.set_sv_i8(sv::STAYBLACK, STAY_BLACK_INACTIVE);
 
-    // NOTE: outdist must stay 0 at spawn. The ROM assigns OUTVIEWDIST(120) only
+    // NOTE: outdist stays 0 at spawn. The ROM assigns OUTVIEWDIST(120) only
     // to `viewdist` (mapplayeroutdist MAPMACS.INC:1033, changeviewmode_l
     // GSTRATS.ASM:3090) — the parallel `outdist` writes are commented out. The
     // only live outdist writers are the intro fly-in (+3/frame from 0), spfm
@@ -1710,17 +2677,33 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     v.set_sv_u8(sv::FIRECNT, 3);
     v.set_sv_u8(sv::FIREDELAY, 1);
     v.set_sv_u8(sv::SPECIALDELAY, 1);
-    v.set_sv_u16(sv::SPECWEPCNT, DEFAULT_NUKE_COUNT);
     v.set_sv_u8(sv::PNUMHITS, 0);
     v.set_sv_u8(sv::ARROWS, 0);
+    v.set_sv_u8(sv::NOMAXBG2YSCROLL, 0);
 
-    v.set_sv_u16(sv::PLAYERSHAPE, SHAPE_ARWING);
-    v.set_sv_u16(sv::PLAYERSHAPEL, SHAPE_ARWING);
-    v.set_sv_u16(sv::PLAYERSHAPER, SHAPE_ARWING);
-    v.set_sv_u16(sv::PLAYERSHAPELR, SHAPE_ARWING);
-
+    v.pshipflags3 &= !(PSF3_INTUNNEL | PSF3_FORCEBRAKE | PSF3_NOCOLLISIONS);
+    v.pshipflags3 |= PSF3_ENGINESND;
     v.internal_playpt = idx as i16;
 
+    // ROM select_ship_l #pshipnum_norm — fills playershape{,L,R,LR}.
+    select_ship(g, PSHIPNUM_NORM);
+    set_y_player_shape(g, idx, PSHIPNUM_NORM);
+
+    Some(idx)
+}
+
+/// Spawn and select the source-defined initial player strategy for a loaded
+/// map. This is the application-facing equivalent of `initgame` consuming the
+/// background's player-strategy declaration.
+pub fn strat_spawn_player_for_map(g: &mut Game, map_id: u32) -> Option<u16> {
+    let idx = strat_spawn_player(g)?;
+    match map_id {
+        sf_map::catalog::map_id::M1_1
+        | sf_map::catalog::map_id::M2_1
+        | sf_map::catalog::map_id::M3_1 => strat_player_opening_init(g, idx),
+        sf_map::catalog::map_id::CREDITS => player_cred_istrat(g, idx),
+        _ => {}
+    }
     Some(idx)
 }
 
@@ -1745,7 +2728,7 @@ fn playerflymode_exitbase(g: &mut Game, idx: u16) {
     v.set_sv_u8(sv::PMOVELIMITAND, PML_LWBOTTOM | PML_RWBOTTOM | PML_BBOTTOM);
     v.set_sv_u8(sv::MISSBOUNDFLAGS, MB_BOTTOM);
     v.gameflags |= GF_VIEWROT; // exitbase_gameflagsON
-    // exitbase_macro
+                               // exitbase_macro
     v.pshipflags2 &= !PSF2_NOSPARK;
     v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
     v.pstratflags |= PSTF_NOTDIE;
@@ -1899,9 +2882,18 @@ fn player_exitbase_follow_init(g: &mut Game, idx: u16) {
 
 /// C `playeronplanet_init` (playeronplanet_Istrat, PSTRATS.ASM:751-760) —
 /// resume normal flight.
+pub fn set_player_on_planet(g: &mut Game, idx: u16) {
+    playeronplanet_init(g, idx);
+}
+
 fn playeronplanet_init(g: &mut Game, idx: u16) {
     // s_playerctrl on
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+
+    // Planet is not SPACE_MODE — map CB SET_PLAYER_ONPLANET_L sets game_mode=0.
+    // Without this, exit-base → playeronplanet_init left SPACE_MODE from spawn
+    // and `strat_player` wrongly picked do_player_limitX (High #3).
+    g.vars.game_mode = 0;
 
     // s_playerfly_mode planet (STRATEQU.INC:558-578)
     let v = &mut g.vars;
@@ -1919,7 +2911,7 @@ fn playeronplanet_init(g: &mut Game, idx: u16) {
     v.set_sv_u8(sv::PMOVELIMITAND, PML_LWBOTTOM | PML_RWBOTTOM | PML_BBOTTOM);
     v.set_sv_u8(sv::MISSBOUNDFLAGS, MB_BOTTOM);
     v.gameflags |= GF_VIEWROT; // planet_gameflagsON
-    // planet_macro
+                               // planet_macro
     v.pshipflags2 &= !PSF2_NOSPARK;
     v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
     g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
@@ -1990,7 +2982,7 @@ fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
         friendstart3_istrat(g, w);
     }
 
-    // lda #0 / sta.l alx_snd1,x — stop the hangar engine channel
+    // Stop the hangar engine channel.
     g.objs.aliens[i].snd1 = 0;
 
     // s_set_var B,nomaxbg2Yscroll,#0
@@ -2021,6 +3013,10 @@ fn friendstart3go_strat(g: &mut Game, idx: u16) {
         if g.objs.aliens[i].sflags2 & ASF2_SFLAG1 == 0 {
             g.objs.aliens[i].sflags2 |= ASF2_SFLAG1;
             g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+            if g.vars.sv_u8(sv::BOOSTZOFF) == 0 {
+                set_boost_zoff(g, -30);
+            }
+            let _ = boost_sprite(g, None);
             g.hooks.play_se(0x32);
         }
         // s_achase_alvar B,x,al_rotz,#0,4
@@ -2079,6 +3075,3300 @@ fn centoutrots(g: &mut Game) {
     g.vars.set_sv_i16(sv::OUTVY, vy);
 }
 
+/// ROM `playertomiddle1_srou_l` (PCSTRATS.ASM): chase player X→0, Y→ViewCY, shift 1.
+pub fn player_to_middle1(g: &mut Game, player: u16) {
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    let al = &mut g.objs.aliens[player as usize];
+    al.worldy = strat_chase_proportional(al.worldy, view_cy, 1);
+    al.worldx = strat_chase_proportional(al.worldx, 0, 1);
+}
+
+/// ROM `playertomiddle4_srou_l` (PCSTRATS.ASM): same as middle1 with shift 4.
+pub fn player_to_middle4(g: &mut Game, player: u16) {
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    let al = &mut g.objs.aliens[player as usize];
+    al.worldy = strat_chase_proportional(al.worldy, view_cy, 4);
+    al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+}
+
+/// ROM `playertoCslow_Istrat`: center the player, then run the strategy saved
+/// by `s_push_stratptr`.
+fn player_to_cslow_tick(g: &mut Game, player: u16) {
+    g.vars.viewdist = OUTVIEWDIST;
+    player_to_middle4(g, player);
+    if let Some(temp) = g.objs.aliens[player as usize].tempstratptr {
+        g.call_strat(temp, player);
+    }
+}
+
+/// ROM `set_playertoCslow_l` / `playertoCslow_Istrat` (PCSTRATS.ASM): push
+/// the current strategy, disable control, and install the centering wrapper.
+pub fn set_player_to_cslow(g: &mut Game, player: u16) {
+    let tick = ea_sid(g, player_to_cslow_tick);
+    let old = g.objs.aliens[player as usize].stratptr;
+    g.objs.aliens[player as usize].tempstratptr = old;
+    g.objs.aliens[player as usize].stratptr = Some(tick);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.viewdist = OUTVIEWDIST;
+    player_to_cslow_tick(g, player);
+}
+
+// ============================================================
+// Tunnel / tunnel-exit SET_PLAYER* (PSTRATS.ASM)
+// ============================================================
+
+/// ROM `playerintunnel_strat`: chase outv→0, YvelD2, pviewposx≈0.875·x, fixed Y.
+pub fn player_in_tunnel_strat(g: &mut Game, idx: u16) {
+    let ovx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), 0, 2);
+    let ovy = strat_chase_proportional(g.vars.sv_i16(sv::OUTVY), 0, 2);
+    g.vars.set_sv_i16(sv::OUTVX, ovx);
+    g.vars.set_sv_i16(sv::OUTVY, ovy);
+
+    do_player_yvel_d2(g, idx);
+
+    let wx = g.objs.aliens[idx as usize].worldx;
+    // Three signed halvings produce x/2 + x/4 + x/8 = 0.875x.
+    let pview_x = (wx >> 1).wrapping_add(wx >> 2).wrapping_add(wx >> 3);
+    g.vars.set_sv_i16(sv::PVIEWPOSX, pview_x);
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, view_cy);
+    viewmove_srou(g, idx);
+}
+
+/// ROM `playerinTexit_strat`: chase worldy→viewcy then tunnel strat.
+pub fn player_in_texit_strat(g: &mut Game, idx: u16) {
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = strat_chase_proportional(al.worldy, view_cy, 2);
+    }
+    player_in_tunnel_strat(g, idx);
+}
+
+fn set_player_in_tunnel_mode(g: &mut Game, idx: u16, mode: TunnelFlyMode) {
+    let tick = ea_sid(g, player_in_tunnel_strat);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    apply_tunnel_fly_mode(g, idx, mode);
+}
+
+/// ROM `set_playerInStunnel_l` / `playerInStunnel_Istrat`.
+pub fn set_player_in_stunnel(g: &mut Game, idx: u16) {
+    set_player_in_tunnel_mode(g, idx, FLY_STUNNEL);
+}
+
+/// ROM `set_playerInMtunnel_l` / `playerInMtunnel_Istrat`.
+pub fn set_player_in_mtunnel(g: &mut Game, idx: u16) {
+    set_player_in_tunnel_mode(g, idx, FLY_MTUNNEL);
+}
+
+/// ROM `set_playerInLtunnel_l` / `playerInLtunnel_Istrat`.
+pub fn set_player_in_ltunnel(g: &mut Game, idx: u16) {
+    set_player_in_tunnel_mode(g, idx, FLY_LTUNNEL);
+}
+
+/// ROM `set_playerInSTexit_l`.
+pub fn set_player_in_stexit(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_in_texit_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    apply_tunnel_fly_mode(g, idx, FLY_STEXIT);
+    g.vars.pshipflags |= PSF_NOYCTRL;
+}
+
+/// ROM `set_playerInMTexit_l`.
+pub fn set_player_in_mtexit(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_in_texit_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    apply_tunnel_fly_mode(g, idx, FLY_MTEXIT);
+    g.vars.pshipflags |= PSF_NOYCTRL;
+}
+
+/// ROM `set_playerInLTexit_l`.
+pub fn set_player_in_ltexit(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_in_texit_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    apply_tunnel_fly_mode(g, idx, FLY_LTEXIT);
+    g.vars.pshipflags |= PSF_NOYCTRL;
+}
+
+// ============================================================
+// Colony / nucleus SET_PLAYER* (PSTRATS.ASM / STRATEQU.INC)
+// ============================================================
+
+const BOSS8_SCALE: i32 = 3; // <<3
+const NUCLEUS_VIEWCY: i16 = -60;
+const NUCLEUS_MINX: i16 = (-110i32 << BOSS8_SCALE) as i16; // -880
+const NUCLEUS_MAXX: i16 = (110i32 << BOSS8_SCALE) as i16; // 880
+const NUCLEUS_MMINX: i16 = ((-110i32 << BOSS8_SCALE) - 1000) as i16;
+const NUCLEUS_MMAXX: i16 = ((110i32 << BOSS8_SCALE) + 1000) as i16;
+
+/// ROM `set_playerInColony_l` / colony fly-mode init.
+pub fn set_player_in_colony(g: &mut Game, idx: u16) {
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    {
+        let v = &mut g.vars;
+        v.set_sv_i16(sv::VIEWCY, -60);
+        v.set_sv_i16(sv::MINPMOVEX, -170); // -120-50
+        v.set_sv_i16(sv::MAXPMOVEX, 120);
+        v.set_sv_i16(sv::MINMMOVEX, -5000);
+        v.set_sv_i16(sv::MAXMMOVEX, 120);
+        v.set_sv_i16(sv::MAXMMOVEY, 0);
+        v.set_sv_i16(sv::MINPWMOVEY, -120);
+        v.set_sv_i16(sv::MAXPWMOVEY, 5);
+        v.minpmove_y = -120;
+        v.set_sv_i16(sv::MAXPMOVEY, PLAYERB_YSTOP);
+        v.playerflymode = PFM_DIEFALL | PFM_SHADOWS;
+        v.set_sv_u8(sv::PMOVELIMITAND, PML_RWRIGHT | PML_BBOTTOM | PML_BTOP);
+        v.set_sv_u8(sv::MISSBOUNDFLAGS, MB_RIGHT | MB_LBOTTOM | MB_LTOP);
+        v.gameflags &= !GF_VIEWROT;
+        v.pstratflags &= !PSTF_NOVIEWMOVE;
+        v.pshipflags3 |= PSF3_ENGINESND;
+        // colony_macro
+        v.pshipflags2 &= !PSF2_NOSPARK;
+        v.set_sv_i16(sv::MISSBTOPLEFT, -140);
+        v.set_sv_i16(sv::MISSBBOTLEFT, -140);
+        v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
+        v.pstratflags |= PSTF_FIRSTFRAMELCOL;
+        v.pshipflags3 |= PSF3_INTUNNEL;
+    }
+    g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
+}
+
+/// ROM `playerincolony_strat`.
+pub fn player_in_colony_strat(g: &mut Game, idx: u16) {
+    do_player_yvel_colony(g, idx);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    g.vars.set_sv_i16(sv::PVIEWPOSX, strat_perc62(wx));
+    g.vars.set_sv_i16(sv::PVIEWPOSY, -60); // Stunnel_ViewCY
+    viewmove_srou(g, idx);
+}
+
+/// ROM `set_playerInNucleus_l` / nucleus fly-mode init.
+pub fn set_player_in_nucleus(g: &mut Game, idx: u16) {
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    {
+        let v = &mut g.vars;
+        v.set_sv_i16(sv::VIEWCY, NUCLEUS_VIEWCY);
+        v.set_sv_i16(sv::MINPMOVEX, NUCLEUS_MINX);
+        v.set_sv_i16(sv::MAXPMOVEX, NUCLEUS_MAXX);
+        v.set_sv_i16(sv::MINMMOVEX, NUCLEUS_MMINX);
+        v.set_sv_i16(sv::MAXMMOVEX, NUCLEUS_MMAXX);
+        v.set_sv_i16(sv::MAXMMOVEY, 0);
+        v.set_sv_i16(sv::MINPWMOVEY, -120);
+        v.set_sv_i16(sv::MAXPWMOVEY, 5);
+        v.minpmove_y = -120;
+        v.set_sv_i16(sv::MAXPMOVEY, PLAYERB_YSTOP);
+        v.playerflymode = PFM_SHADOWS;
+        v.set_sv_u8(sv::PMOVELIMITAND, PML_LWLEFT | PML_RWRIGHT);
+        v.set_sv_u8(sv::MISSBOUNDFLAGS, MB_RIGHT | MB_LEFT);
+        v.gameflags &= !GF_VIEWROT;
+        v.pstratflags &= !PSTF_NOVIEWMOVE;
+        v.pshipflags3 |= PSF3_ENGINESND;
+        // nucleus_macro
+        v.pshipflags2 &= !PSF2_NOSPARK;
+        v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
+        v.pshipflags3 &= !PSF3_INTUNNEL;
+    }
+    g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
+    g.objs.aliens[idx as usize].worldy = NUCLEUS_VIEWCY;
+}
+
+/// ROM `playerinnucleus_strat`.
+pub fn player_in_nucleus_strat(g: &mut Game, idx: u16) {
+    // player_posx >> 7 added into player_Ztilt (byte).
+    let tilt_add = (g.vars.player_posx >> 7) as i8;
+    let ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT) as i8;
+    g.vars
+        .set_sv_u8(sv::PLAYER_ZTILT, ztilt.wrapping_add(tilt_add) as u8);
+
+    do_player_yvel_d2(g, idx);
+
+    let wx = g.objs.aliens[idx as usize].worldx;
+    let xoff = g.vars.sv_i16(sv::VIEWPOSXOFF);
+    let yoff = g.vars.sv_i16(sv::VIEWPOSYOFF);
+    g.vars
+        .set_sv_i16(sv::PVIEWPOSX, strat_perc93(wx).wrapping_add(xoff));
+    g.vars
+        .set_sv_i16(sv::PVIEWPOSY, NUCLEUS_VIEWCY.wrapping_add(yoff));
+    viewmove_srou(g, idx);
+}
+
+/// ROM `set_playerClearColony_l` / `playerclearcolony_Istrat` leaf:
+/// disable ctrl, dupplayer, assign pshipcolony cutscene strat.
+pub fn set_player_clear_colony(g: &mut Game, idx: u16) -> Option<u16> {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let tick = ea_sid(g, player_clear_colony_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    let dup = dupplayer(g, idx)?;
+    pshipcolony_istrat(g, dup);
+    Some(dup)
+}
+
+/// ROM `playerclearcolony_strat` / `playerwashent_strat` body (Z scroll only).
+pub fn player_clear_colony_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].worldz =
+        g.objs.aliens[idx as usize].worldz.wrapping_add(MED_PSPEED);
+}
+
+/// ROM `set_playerwashent_l` — dup + pshipwashent cutscene.
+pub fn set_player_washent(g: &mut Game, idx: u16) -> Option<u16> {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let tick = ea_sid(g, player_clear_colony_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    let dup = dupplayer(g, idx)?;
+    pshipwashent_istrat(g, dup);
+    Some(dup)
+}
+
+/// Strategy-shaped entry used by the map/background callback registry.
+pub fn player_washent_istrat(g: &mut Game, idx: u16) {
+    let _ = set_player_washent(g, idx);
+}
+
+/// Strategy-shaped entry used by the bg_2_6b background callback bridge.
+pub fn player_clear_colony_istrat(g: &mut Game, idx: u16) {
+    let _ = set_player_clear_colony(g, idx);
+}
+
+// ============================================================
+// ClearShip / ClearShip2 / playernull (PCSTRATS.ASM / PSTRATS.ASM)
+// ============================================================
+
+/// ROM `s_playerfly_mode ClearShip` + `ClearShip_macro` (STRATEQU.INC).
+fn apply_clearship_fly_mode(g: &mut Game, idx: u16) {
+    // Preserve INSEQ + ctrl flags — s_playerfly_mode does not touch them
+    // (unlike planet-style which re-enables control / clears INSEQ|NOTDIE).
+    let keep_inseq = g.vars.pstratflags & PSTF_INSEQ;
+    let keep_ctrl = g.vars.pshipflags & (PSF_NOCTRL | PSF_NOFIRE);
+    apply_planet_style_fly_mode(
+        g,
+        idx,
+        SPACE_VIEWCY, // ClearShip_viewCY = -60
+        -10000,
+        10000,
+        -10000,
+        10000,
+        -10000,
+        10000,
+        10000,
+        0, // ClearShip_flymode
+        0,
+        0,
+        false, // gameflagsOFF = gf_viewrot
+        false, // no shadow
+        true,  // clear intunnel (ClearShip_macro)
+    );
+    // ClearShip_macro: s_or_var B,pstratflags,#pstf_notdie
+    g.vars.pstratflags |= PSTF_NOTDIE | keep_inseq;
+    g.vars.pshipflags |= keep_ctrl;
+}
+
+/// Shared ClearShip Icont tail (PCSTRATS.ASM:337-349).
+fn player_clear_ship_icont(g: &mut Game, idx: u16) {
+    g.vars.shared.background_scroll_x = 0;
+    apply_clearship_fly_mode(g, idx);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.gameflags &= !GF_STAGEDONE;
+    g.vars.pstratflags |= PSTF_NOVDISTC;
+    g.objs.aliens[idx as usize].sbyte3 = 100;
+    g.objs.aliens[idx as usize].sflags2 &= !ASF2_SFLAG4;
+}
+
+/// ROM `set_playerClearShip_l` / `playerClearShip_Istrat`.
+pub fn set_player_clear_ship(g: &mut Game, idx: u16) {
+    player_clear_ship_istrat(g, idx);
+}
+
+/// ROM `playerClearShip_Istrat` (PCSTRATS.ASM:319-349).
+pub fn player_clear_ship_istrat(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let pview_z = g.vars.sv_i16(sv::PVIEWPOSZ);
+    let spawn_z = pview_z.wrapping_sub(200);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = 0;
+        al.worldy = SPACE_VIEWCY.wrapping_sub(40);
+        al.worldz = spawn_z;
+        al.vel = MAX_PSPEED as u8;
+        al.stratstate = 0;
+    }
+    g.vars.pstratflags |= PSTF_INSEQ;
+    player_clear_ship_icont(g, idx);
+}
+
+/// ROM `playerClearShip_strat` (PCSTRATS.ASM:352-449).
+pub fn player_clear_ship_strat(g: &mut Game, idx: u16) {
+    // Every frame: bg2scroll=#232, lastrot=0
+    g.vars.shared.background_scroll = 232;
+    g.vars.shared.last_rotation = 0;
+
+    // s_decbne_alvar B,x,al_sbyte3,.nturn
+    let sb = g.objs.aliens[idx as usize].sbyte3.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte3 = sb;
+    if sb == 0 {
+        g.objs.aliens[idx as usize].sbyte3 = 1;
+        let mut scroll = g.vars.shared.background_scroll_x as u8;
+        let mut do_maxsc = scroll == 254;
+        if !do_maxsc {
+            scroll = scroll.wrapping_add(2);
+            g.vars.shared.background_scroll_x = i16::from(scroll);
+            if scroll == 254 - 32 {
+                // Boost FX at scroll==222, then fall into .maxsc
+                g.vars.pshipflags3 &= !PSF3_ENGINESND;
+                g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+                g.hooks.play_se(0x32);
+                g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG4;
+                do_maxsc = true;
+            } else if scroll > 254 - 32 {
+                // BCC fail after cmp #222 → fall through .maxsc
+                do_maxsc = true;
+            }
+            // scroll < 222 → .donesc (skip maxsc)
+        }
+        if do_maxsc {
+            let plroty = g.vars.sv_i16(sv::PLROTY).wrapping_add(256 / 32);
+            g.vars.set_sv_i16(sv::PLROTY, plroty);
+            let plrotx = g.vars.sv_i16(sv::PLROTX).wrapping_sub(256);
+            g.vars.set_sv_i16(sv::PLROTX, plrotx);
+            g.vars.gameflags |= GF_STAGEDONE;
+            g.objs.aliens[idx as usize].worldz =
+                g.objs.aliens[idx as usize].worldz.wrapping_add(100);
+            g.objs.aliens[idx as usize].worldy =
+                g.objs.aliens[idx as usize].worldy.wrapping_add(-10);
+            g.objs.aliens[idx as usize].vel = 120;
+        }
+        // .donesc: always in turn path
+        let ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT).wrapping_sub(DEG45 / 8);
+        g.vars.set_sv_u8(sv::PLAYER_ZTILT, ztilt);
+        let outvy = g.vars.sv_i16(sv::OUTVY);
+        if (outvy >> 8) as i8 >= -(DEG11 as i8) {
+            g.vars.set_sv_i16(sv::OUTVY, outvy.wrapping_sub(32));
+        }
+    } else {
+        // .nturn: speedto med+2 every 4 frames
+        if notdelay(g, 2) {
+            strat_speed_to(&mut g.objs.aliens[idx as usize], (MED_PSPEED + 2) as u8, 1);
+        }
+    }
+
+    let od = g.vars.sv_i16(sv::OUTDIST);
+    if od >= 50 {
+        g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_sub(1));
+    }
+
+    playermove_srou(g, idx);
+
+    let pz = g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_add(MED_PSPEED);
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, pz);
+
+    strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+
+    let wz = g.objs.aliens[idx as usize].worldz;
+    let pview_z = g.vars.sv_i16(sv::PVIEWPOSZ);
+    if (wz as i32).wrapping_sub(pview_z as i32) >= 4000 {
+        g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    }
+
+    let wx = g.objs.aliens[idx as usize].worldx;
+    let pview_x = (wx >> 1).wrapping_add(wx >> 2).wrapping_add(wx >> 3);
+    g.vars.set_sv_i16(sv::PVIEWPOSX, pview_x);
+    let pview_y = strat_chase_proportional(g.vars.sv_i16(sv::PVIEWPOSY), SPACE_VIEWCY, 4);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, pview_y);
+
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `set_playerClearShip2_l` / `playerClearShip2_Istrat`.
+pub fn set_player_clear_ship2(g: &mut Game, idx: u16) {
+    player_clear_ship2_istrat(g, idx);
+}
+
+/// ROM `playerClearShip2_Istrat` (PCSTRATS.ASM:462-485).
+pub fn player_clear_ship2_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_ship2_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_INSEQ;
+    g.vars
+        .set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS | VIEWTYPE_TOOBJ);
+    g.vars.gameflags |= GF_NOZREMOVE;
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 60 + 35);
+    g.vars.psvar_word1 = g.objs.aliens[idx as usize].shape as i16;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = 0;
+        al.roty = 0;
+        al.rotz = 0;
+        al.worldx = 0;
+        al.worldy = SPACE_VIEWCY;
+        al.stratstate = 0;
+    }
+    let wz = g.objs.aliens[idx as usize].worldz;
+    g.vars.set_sv_i16(sv::VIEWPOSZ, wz.wrapping_add(1832));
+    let vx = g.vars.sv_i16(sv::VIEWPOSX).wrapping_add(-20);
+    g.vars.set_sv_i16(sv::VIEWPOSX, vx);
+    apply_clearship_fly_mode(g, idx);
+}
+
+/// ROM `playerClearShip2_strat` (PCSTRATS.ASM:487-564).
+pub fn player_clear_ship2_strat(g: &mut Game, idx: u16) {
+    // State 0: black silhouette flash
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1).wrapping_sub(1);
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1);
+        if b1 == 0 {
+            set_y_player_shape(g, idx, PSHIPNUM_BLACK);
+            g.vars.set_sv_u8(sv::PSVAR_BYTE1, 15);
+            g.objs.aliens[idx as usize].stratstate = 1;
+        }
+    }
+    // State 1: restore shape, lock scroll
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1).wrapping_sub(1);
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1);
+        if b1 == 0 {
+            g.objs.aliens[idx as usize].shape = g.vars.psvar_word1 as u16;
+            g.vars.shared.background_scroll_x = 254;
+            g.objs.aliens[idx as usize].stratstate = 2;
+            g.vars.set_sv_u8(sv::PSVAR_BYTE1, 200);
+        }
+    }
+    // State 2: viewposz nudge → boost
+    if g.objs.aliens[idx as usize].stratstate == 2 {
+        let vz = g.vars.sv_i16(sv::VIEWPOSZ).wrapping_add(10);
+        g.vars.set_sv_i16(sv::VIEWPOSZ, vz);
+        let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1).wrapping_sub(1);
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1);
+        if b1 == 0 {
+            g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG4;
+            g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS);
+            g.vars.pshipflags3 &= !PSF3_ENGINESND;
+            g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+            g.hooks.play_se(0x32);
+            g.objs.aliens[idx as usize].stratstate = 3;
+            g.vars.set_sv_u8(sv::PSVAR_BYTE1, 45 + 40);
+        }
+    }
+    // State 3: boost Z + stagedone
+    if g.objs.aliens[idx as usize].stratstate == 3 {
+        let vz = g.vars.sv_i16(sv::VIEWPOSZ).wrapping_add(10);
+        g.vars.set_sv_i16(sv::VIEWPOSZ, vz);
+        g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(100);
+        let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1).wrapping_sub(1);
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1);
+        if b1 == 0 {
+            g.vars.gameflags |= GF_STAGEDONE;
+        }
+    }
+
+    // Always: cruise Z + viewposz + viewposy floor
+    g.objs.aliens[idx as usize].worldz =
+        g.objs.aliens[idx as usize].worldz.wrapping_add(MED_PSPEED);
+    let vz = g
+        .vars
+        .sv_i16(sv::VIEWPOSZ)
+        .wrapping_add(MED_PSPEED.wrapping_sub(15));
+    g.vars.set_sv_i16(sv::VIEWPOSZ, vz);
+    let vy = g.vars.sv_i16(sv::VIEWPOSY);
+    if vy >= -200 {
+        g.vars.set_sv_i16(sv::VIEWPOSY, vy.wrapping_sub(1));
+    }
+}
+
+/// ROM `playernull_Istrat` (PSTRATS.ASM:1602-1607).
+pub fn playernull_istrat(g: &mut Game, idx: u16) {
+    g.vars.pviewvelz = MED_PSPEED;
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+        .worldz
+        .wrapping_add(g.vars.pviewvelz);
+    let pz = g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_add(g.vars.pviewvelz);
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, pz);
+}
+
+// ============================================================
+// ClearTurn / ClearUnder / ClearEarth (PCSTRATS.ASM)
+// ============================================================
+
+// Registry dispatch uses `StrategyFn = fn(&mut Game, u16)`.  Several public
+// state bodies also return a transition boolean for focused tests/callers;
+// these thin entries preserve that API while providing the ROM-style void
+// strategy pointer.
+fn player_clear_turn_tick(g: &mut Game, idx: u16) {
+    let _ = player_clear_turn_strat(g, idx);
+}
+fn player_clear_under_tick(g: &mut Game, idx: u16) {
+    let _ = player_clear_under_strat(g, idx);
+}
+fn player_clear_earth2_tick(g: &mut Game, idx: u16) {
+    let _ = player_clear_earth2_strat(g, idx);
+}
+fn player_clear_demo_tick(g: &mut Game, idx: u16) {
+    let _ = player_clear_demo_strat(g, idx);
+}
+fn player_dive_tick(g: &mut Game, idx: u16) {
+    let _ = player_dive_strat(g, idx);
+}
+fn player_clear_chase_tick(g: &mut Game, idx: u16) {
+    let _ = player_clear_chase_strat(g, idx);
+}
+fn player_warp_tick(g: &mut Game, idx: u16) {
+    let _ = player_warp_strat(g, idx);
+}
+fn player_warp_out_tick(g: &mut Game, idx: u16) {
+    let _ = player_warp_out_strat(g, idx);
+}
+fn player_into_cock_tick(g: &mut Game, idx: u16) {
+    let _ = player_into_cock_strat(g, idx);
+}
+fn player_into_cock2_tick(g: &mut Game, idx: u16) {
+    let _ = player_into_cock2_strat(g, idx);
+}
+fn player_out_of_cock_tick(g: &mut Game, idx: u16) {
+    let _ = player_out_of_cock_strat(g, idx);
+}
+
+const UNDERGND_VIEWCY: i16 = -60;
+
+/// ROM `set_playerClearTurn_l` / `playerClearTurn_Istrat`.
+pub fn set_player_clear_turn(g: &mut Game, idx: u16) {
+    player_clear_turn_istrat(g, idx);
+}
+
+/// ROM `playerClearTurn_Istrat` (PCSTRATS.ASM:577-586).
+pub fn player_clear_turn_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_turn_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.psvar_word1 = 100 + 140 + 10 + 20; // 270
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_NOVDISTC | PSTF_INSEQ;
+    g.vars.gameflags &= !GF_VIEWROT;
+    g.vars.playerflymode |= PFM_WOBBLE;
+}
+
+/// ROM `playerClearTurn_strat` (PCSTRATS.ASM:589-598).
+/// Returns `true` when phase-2 (ClearTurn2) starts this frame.
+pub fn player_clear_turn_strat(g: &mut Game, idx: u16) -> bool {
+    centoutrots(g);
+    // s_beqdec_var W: TEST-then-DEC
+    let w1 = g.vars.psvar_word1;
+    if w1 == 0 {
+        let _ = player_clear_turn2_init(g, idx);
+        player_clear_turn2_strat(g, idx);
+        return true;
+    }
+    g.vars.psvar_word1 = w1.wrapping_sub(1);
+    let od = g.vars.sv_i16(sv::OUTDIST);
+    if od >= 100 {
+        g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_sub(1));
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY.wrapping_add(20), 4);
+        al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+    }
+    player_in_space_strat(g, idx);
+    false
+}
+
+/// ROM `playerClearTurn2_strat` (PCSTRATS.ASM:607-609).
+pub fn player_clear_turn2_strat(g: &mut Game, idx: u16) {
+    player_in_space_strat(g, idx);
+}
+
+/// ROM `set_playerClearUNDER_l` / `playerclearUNDER_Istrat`.
+pub fn set_player_clear_under(g: &mut Game, idx: u16) {
+    player_clear_under_istrat(g, idx);
+}
+
+/// ROM `playerclearUNDER_Istrat` (PCSTRATS.ASM:753-769).
+pub fn player_clear_under_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_under_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.gameflags &= !GF_VIEWROT;
+    g.vars.minpmove_y = -10000;
+    g.vars.set_sv_i16(sv::MINPWMOVEY, -10000);
+    g.vars.pstratflags |= PSTF_NOVDISTC | PSTF_INSEQ;
+    g.vars.psvar_word1 = 140 + 54; // 194
+    g.vars.psvar_word2 = 0;
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
+}
+
+/// ROM `playerclearUNDER_strat` (PCSTRATS.ASM:771-785).
+/// Returns `true` when UNDER2 starts this frame.
+pub fn player_clear_under_strat(g: &mut Game, idx: u16) -> bool {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = strat_chase_proportional(al.worldy, UNDERGND_VIEWCY.wrapping_sub(20), 3);
+        al.worldx = strat_chase_proportional(al.worldx, 0, 3);
+    }
+    let od = g.vars.sv_i16(sv::OUTDIST);
+    if od <= 500 {
+        g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_add(4));
+    }
+    let outvy = g.vars.sv_i16(sv::OUTVY).wrapping_add(169);
+    g.vars.set_sv_i16(sv::OUTVY, outvy);
+
+    // s_beqdec_var W: TEST-then-DEC
+    let w1 = g.vars.psvar_word1;
+    if w1 == 0 {
+        if let Some(dup) = player_under2_init(g, idx) {
+            g.objs.aliens[dup as usize].sflags2 |= ASF2_SFLAG2;
+        }
+        player_under2_strat(g, idx);
+        return true;
+    }
+    g.vars.psvar_word1 = w1.wrapping_sub(1);
+    player_undergnd_strat(g, idx);
+    false
+}
+
+/// ROM `playerUNDER2_strat` (PCSTRATS.ASM:794-796).
+pub fn player_under2_strat(g: &mut Game, idx: u16) {
+    player_undergnd_strat(g, idx);
+}
+
+/// ROM `set_playerClearEarth_l` — enters ClearEarth2.
+pub fn set_player_clear_earth(g: &mut Game, idx: u16) {
+    player_clear_earth2_istrat(g, idx);
+}
+
+/// ROM `playerClearEarth2_Istrat` (PCSTRATS.ASM:274-279).
+pub fn player_clear_earth2_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_earth2_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 20);
+    g.vars.pstratflags |= PSTF_INSEQ;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+}
+
+/// ROM `playerClearEarth2_strat` (PCSTRATS.ASM:280-286).
+/// Returns `true` when ClearEarth phase starts this frame.
+pub fn player_clear_earth2_strat(g: &mut Game, idx: u16) -> bool {
+    centoutrots(g);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = strat_chase_proportional(al.worldx, 0, 3);
+        al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY.wrapping_sub(40), 3);
+    }
+    // s_beqdec_var B: TEST-then-DEC
+    let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1);
+    if b1 == 0 {
+        player_clear_earth_istrat(g, idx);
+        return true;
+    }
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1.wrapping_sub(1));
+    player_in_space_strat(g, idx);
+    false
+}
+
+/// ROM `playerClearEarth_Istrat` (PCSTRATS.ASM:289-296) → ClearShip Icont + strat.
+pub fn player_clear_earth_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_earth_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 40);
+    g.objs.aliens[idx as usize].vel = (MAX_PSPEED - 5) as u8;
+    g.vars.pstratflags |= PSTF_INSEQ;
+    g.vars.playerflymode |= PFM_WOBBLE;
+    // ROM brl playerClearShip_Icont (falls into ClearShip_strat same frame).
+    player_clear_ship_icont(g, idx);
+    player_clear_ship_strat(g, idx);
+}
+
+/// ROM `playerClearEarth_strat` (PCSTRATS.ASM:297-307).
+pub fn player_clear_earth_strat(g: &mut Game, idx: u16) {
+    g.vars.playerflymode |= PFM_WOBBLE;
+    let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1);
+    // s_beqdec: TEST then DEC — if was 0, skip chase; else dec and chase
+    if b1 != 0 {
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1.wrapping_sub(1));
+        centoutrots(g);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY.wrapping_sub(40), 4);
+        al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+    }
+    player_clear_ship_strat(g, idx);
+}
+
+// ============================================================
+// ClearDemo / DIVE / ClearChase (PCSTRATS.ASM)
+// ============================================================
+
+const PLANET_VIEWCY: i16 = -50;
+
+/// Planet-mode body used by ClearDemo (do_player_Yvel125 + view + viewmove).
+fn player_on_planet_body(g: &mut Game, idx: u16) {
+    do_player_yvel125(g, idx);
+    update_viewxy_for_mode(g, idx);
+    viewmove_srou(g, idx);
+}
+
+/// ROM `set_playerClearDemo_l` / `playercleardemo_Istrat`.
+pub fn set_player_clear_demo(g: &mut Game, idx: u16) {
+    player_clear_demo_istrat(g, idx);
+}
+
+/// ROM `playercleardemo_Istrat` (PCSTRATS.ASM:162-179).
+pub fn player_clear_demo_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_demo_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE2, 110);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.gameflags &= !GF_VIEWROT;
+    g.vars.minpmove_y = -10000;
+    g.vars.set_sv_i16(sv::MINPWMOVEY, -10000);
+    g.vars.pstratflags |= PSTF_NOVDISTC | PSTF_INSEQ;
+    g.vars.set_sv_u8(sv::PSVAR_BYTE3, 180);
+    g.vars.psvar_word1 = 0;
+    g.vars.psvar_word2 = 0;
+}
+
+/// ROM `playercleardemo_strat` (PCSTRATS.ASM:182-194).
+/// Returns `true` when demo2 starts this frame.
+pub fn player_clear_demo_strat(g: &mut Game, idx: u16) -> bool {
+    // s_beqdec_var B,psvar_byte2
+    let b2 = g.vars.sv_u8(sv::PSVAR_BYTE2);
+    if b2 == 0 {
+        player_clear_demo2_init(g, idx);
+        player_clear_demo2_strat(g, idx);
+        return true;
+    }
+    g.vars.set_sv_u8(sv::PSVAR_BYTE2, b2.wrapping_sub(1));
+    centoutrots(g);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = strat_chase_proportional(al.worldy, PLANET_VIEWCY, 4);
+        al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+    }
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
+    let od = g.vars.sv_i16(sv::OUTDIST);
+    if od <= 300 {
+        g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_add(4));
+    }
+    let b3 = g.vars.sv_u8(sv::PSVAR_BYTE3).wrapping_sub(1);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE3, b3);
+    player_on_planet_body(g, idx);
+    false
+}
+
+/// ROM `playercleardemo2_strat` (PCSTRATS.ASM:202-262) — full body (replaces stub).
+pub fn player_clear_demo2_strat(g: &mut Game, idx: u16) {
+    let outvy = g.vars.sv_i16(sv::OUTVY);
+    if (outvy >> 8) as i8 >= -(DEG90 as i8) {
+        g.vars.set_sv_i16(sv::OUTVY, outvy.wrapping_sub(32));
+    }
+    let b2 = g.vars.sv_u8(sv::PSVAR_BYTE2);
+    if b2 != 0 {
+        let b2n = b2.wrapping_sub(1);
+        g.vars.set_sv_u8(sv::PSVAR_BYTE2, b2n);
+        let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1);
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1.wrapping_add(b2n));
+    }
+    let od = g.vars.sv_i16(sv::OUTDIST);
+    if od <= 600 {
+        g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_add(4));
+    }
+    let plrotx = g.vars.sv_i16(sv::PLROTX).wrapping_sub(2 * 256);
+    g.vars.set_sv_i16(sv::PLROTX, plrotx);
+    let scroll = g.vars.sv_i16(sv::BG2YSCROLL).wrapping_sub(1);
+    g.vars.set_sv_i16(sv::BG2YSCROLL, scroll);
+
+    playermove_srou(g, idx);
+
+    // s_beqdec_var B,psvar_byte3,.nb — TEST-then-DEC; dup when post-dec == 1
+    let b3 = g.vars.sv_u8(sv::PSVAR_BYTE3);
+    if b3 != 0 {
+        let b3n = b3.wrapping_sub(1);
+        g.vars.set_sv_u8(sv::PSVAR_BYTE3, b3n);
+        if b3n == 1 {
+            let _ = dupplayer(g, idx);
+            // clshipboost_Istrat on dup — leaf body is enemy_a; mark engines off
+            g.vars.pshipflags3 &= !PSF3_ENGINESND;
+        }
+    }
+
+    viewmove_srou(g, idx);
+
+    let wx = g.objs.aliens[idx as usize].worldx;
+    let pview_x = (wx >> 1).wrapping_add(wx >> 2).wrapping_add(wx >> 3);
+    g.vars.set_sv_i16(sv::PVIEWPOSX, pview_x);
+    g.vars
+        .set_sv_i16(sv::PVIEWPOSY, g.objs.aliens[idx as usize].worldy);
+
+    strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `set_playerDIVE_l` / `playerDIVE_Istrat`.
+pub fn set_player_dive(g: &mut Game, idx: u16) {
+    player_dive_istrat(g, idx);
+}
+
+/// ROM `playerDIVE_Istrat` (PCSTRATS.ASM:621-632).
+pub fn player_dive_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_dive_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.psvar_word2 = 0;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_NOVDISTC;
+    g.vars.psvar_word1 = 210 + 56 + 20; // 286
+    g.vars.playerflymode |= PFM_WOBBLE;
+}
+
+/// ROM `playerDIVE_strat` (PCSTRATS.ASM:635-649).
+/// Returns `true` when DIVE2 starts this frame.
+pub fn player_dive_strat(g: &mut Game, idx: u16) -> bool {
+    centoutrots(g);
+    let w1 = g.vars.psvar_word1;
+    if w1 == 0 {
+        let _ = player_dive2_init(g, idx);
+        player_dive2_strat(g, idx);
+        return true;
+    }
+    g.vars.psvar_word1 = w1.wrapping_sub(1);
+    // After dec: if 30 < word1 <= 60, bump bg2Yscroll
+    let w1n = g.vars.psvar_word1;
+    if w1n <= 60 && w1n >= 30 {
+        let scroll = g.vars.sv_i16(sv::BG2YSCROLL).wrapping_add(1);
+        g.vars.set_sv_i16(sv::BG2YSCROLL, scroll);
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY.wrapping_add(20), 4);
+        al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+    }
+    player_in_space_strat(g, idx);
+    false
+}
+
+/// ROM `playerDIVE2_strat` (PCSTRATS.ASM:656-658).
+pub fn player_dive2_strat(g: &mut Game, idx: u16) {
+    player_in_space_strat(g, idx);
+}
+
+/// ROM `set_playerClearCHASE_l` / `playerclearCHASE_Istrat`.
+pub fn set_player_clear_chase(g: &mut Game, idx: u16) {
+    player_clear_chase_istrat(g, idx);
+}
+
+/// ROM `playerclearCHASE_Istrat` (PCSTRATS.ASM:672-696).
+pub fn player_clear_chase_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_chase_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.gameflags &= !GF_VIEWROT;
+    g.vars.minpmove_y = -10000;
+    g.vars.set_sv_i16(sv::MINPWMOVEY, -10000);
+    g.vars.pstratflags |= PSTF_NOVDISTC | PSTF_INSEQ;
+    g.vars.psvar_word1 = 246 + 54; // 300
+    g.vars.psvar_word2 = 0;
+    g.vars.psvar_word3 = 218;
+    g.vars.psvar_word4 = 5;
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
+    g.vars.gameflags |= GF_NOZREMOVE;
+    g.vars.set_sv_i16(sv::OUTVX, 0);
+    g.vars.set_sv_i16(sv::OUTVY, 0);
+}
+
+/// ROM `playerclearCHASE_strat` (PCSTRATS.ASM:698-734).
+/// Returns `true` when CHASE2 starts this frame.
+pub fn player_clear_chase_strat(g: &mut Game, idx: u16) -> bool {
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = strat_chase_proportional(al.worldy, view_cy, 3);
+        al.worldx = strat_chase_proportional(al.worldx, 0, 3);
+    }
+    let od = g.vars.sv_i16(sv::OUTDIST);
+    if od <= 500 {
+        g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_add(4));
+    }
+
+    let w1 = g.vars.psvar_word1;
+    // outvx: 120..=220 -=64; else 20..=120 +=64 (ROM MORE/LESS windows)
+    if (120..=220).contains(&w1) {
+        let vx = g.vars.sv_i16(sv::OUTVX).wrapping_sub(64);
+        g.vars.set_sv_i16(sv::OUTVX, vx);
+    } else if (20..=120).contains(&w1) {
+        let vx = g.vars.sv_i16(sv::OUTVX).wrapping_add(64);
+        g.vars.set_sv_i16(sv::OUTVX, vx);
+    }
+    // MORE #9 / #4 → act when w1 <= 9 / <= 4
+    if w1 <= 9 {
+        g.vars.psvar_word3 = g.vars.psvar_word3.wrapping_sub(21);
+    }
+    if w1 <= 4 {
+        g.vars.psvar_word4 = g.vars.psvar_word4.wrapping_sub(1);
+    }
+    let outvy = g.vars.sv_i16(sv::OUTVY).wrapping_add(g.vars.psvar_word3);
+    g.vars.set_sv_i16(sv::OUTVY, outvy);
+    if w1 <= 56 {
+        let scroll = g
+            .vars
+            .sv_i16(sv::BG2YSCROLL)
+            .wrapping_add(g.vars.psvar_word4);
+        g.vars.set_sv_i16(sv::BG2YSCROLL, scroll);
+    }
+
+    // s_beqdec_var W,psvar_word1
+    if w1 == 0 {
+        let _ = player_chase2_init(g, idx);
+        player_chase2_strat(g, idx);
+        return true;
+    }
+    g.vars.psvar_word1 = w1.wrapping_sub(1);
+    player_in_space_strat(g, idx);
+    false
+}
+
+/// ROM `playerCHASE2_strat` (PCSTRATS.ASM:741-743).
+pub fn player_chase2_strat(g: &mut Game, idx: u16) {
+    player_in_space_strat(g, idx);
+}
+
+// ============================================================
+// Warp / WarpOut (PCSTRATS.ASM / PISTRATS.ASM)
+// ============================================================
+
+const PSTF_FLAG1: u8 = 2;
+const SPFM_TOINSIDE: u8 = 2;
+
+/// ROM `set_playerWarp_l` / `playerwarp_Istrat`.
+pub fn set_player_warp(g: &mut Game, idx: u16) {
+    player_warp_istrat(g, idx);
+}
+
+/// ROM `playerwarp_Istrat` (PCSTRATS.ASM:805-823).
+pub fn player_warp_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_warp_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_NOVDISTC | PSTF_INSEQ;
+    g.vars.psvar_word2 = 0;
+    g.vars.gameflags |= GF_NOZREMOVE;
+    g.vars.gameflags &= !GF_VIEWROT;
+    g.vars.psvar_word1 = 200;
+    g.vars.playerflymode |= PFM_WOBBLE;
+    g.vars.pshipflags3 |= PSF3_NOCOLLISIONS;
+    g.objs.aliens[idx as usize].stratstate = 0;
+}
+
+/// Shared Z boost used by warp1 / warp body (PCSTRATS.ASM:playerwarp).
+fn player_warp_zboost(g: &mut Game, idx: u16) {
+    // Cap word2 growth at 400
+    if g.vars.psvar_word2 <= 400 {
+        g.vars.psvar_word2 = g.vars.psvar_word2.wrapping_add(1);
+    }
+    let add = g.vars.psvar_word2;
+    let pz = g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_add(add);
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, pz);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(add);
+    player_in_space_strat(g, idx);
+}
+
+/// ROM `playerwarp_strat` (PCSTRATS.ASM:825-897) — 3-state approach → turn → boost.
+/// Returns `true` when warp1 starts this frame.
+pub fn player_warp_strat(g: &mut Game, idx: u16) -> bool {
+    // State 0: close outdist, center, countdown → state 1
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        if notdelay(g, 2) {
+            let od = g.vars.sv_i16(sv::OUTDIST);
+            g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_sub(1));
+        }
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY.wrapping_add(20), 4);
+            al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+        }
+        centoutrots(g);
+        // s_decbne_var W: DEC then BNE — stay in state if nonzero after dec
+        let w1 = g.vars.psvar_word1.wrapping_sub(1);
+        g.vars.psvar_word1 = w1;
+        if w1 != 0 {
+            // fall through to later states only if advanced; stay in 0
+        } else {
+            g.objs.aliens[idx as usize].stratstate = 1;
+            g.vars.psvar_word1 = 256 - 30; // 226
+            g.vars.playerflymode &= !PFM_WOBBLE;
+        }
+    }
+
+    // State 1: spin outvy, open outdist, spawn hyperspace → state 2
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        if g.vars.psvar_word1 == 20 {
+            g.hooks.play_music(0xf1); // bgm_fadeout stand-in
+        }
+        let od = g.vars.sv_i16(sv::OUTDIST);
+        if od <= 500 {
+            g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_add(5));
+        }
+        let outvy = g.vars.sv_i16(sv::OUTVY).wrapping_add(256);
+        g.vars.set_sv_i16(sv::OUTVY, outvy);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY.wrapping_add(20), 4);
+            al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+        }
+        let w1 = g.vars.psvar_word1.wrapping_sub(1);
+        g.vars.psvar_word1 = w1;
+        if w1 != 0 {
+            // stay
+        } else {
+            g.objs.aliens[idx as usize].stratstate = 2;
+            if let Some(hs) = strat_make_obj(g, 0) {
+                crate::enemy_a::hyperspace_istrat(g, hs);
+            }
+            g.vars.psvar_word1 = 60;
+            g.hooks.play_music(8);
+        }
+    }
+
+    // State 2: chase outvy→0, close outdist, drop noZremove → warp1
+    if g.objs.aliens[idx as usize].stratstate == 2 {
+        let outvy = strat_chase_proportional(g.vars.sv_i16(sv::OUTVY), 0, 4);
+        g.vars.set_sv_i16(sv::OUTVY, outvy);
+        g.vars.gameflags &= !GF_NOZREMOVE;
+        let od = g.vars.sv_i16(sv::OUTDIST).wrapping_sub(9);
+        g.vars.set_sv_i16(sv::OUTDIST, od);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY.wrapping_add(80), 3);
+        }
+        // s_beqdec_var W → warp1_init
+        let w1 = g.vars.psvar_word1;
+        if w1 == 0 {
+            let _ = player_warp1_init(g, idx);
+            player_warp1_strat(g, idx);
+            return true;
+        }
+        g.vars.psvar_word1 = w1.wrapping_sub(1);
+        player_warp_zboost(g, idx);
+        return false;
+    }
+
+    // States 0/1 (and post-advance fall-through) end via space when not in state 2 boost path
+    if g.objs.aliens[idx as usize].stratstate != 2 {
+        player_in_space_strat(g, idx);
+    }
+    false
+}
+
+/// ROM `playerwarp1_strat` (PCSTRATS.ASM:920-941).
+pub fn player_warp1_strat(g: &mut Game, idx: u16) {
+    g.vars.psvar_word2 = g.vars.psvar_word2.wrapping_add(2);
+    // s_decbne_var B,psvar_byte1,playerwarp
+    let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1).wrapping_sub(1);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1);
+    if b1 != 0 {
+        player_warp_zboost(g, idx);
+        return;
+    }
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 1);
+    g.vars.pstratflags |= PSTF_FLAG1;
+    g.vars.dotsflag = 0;
+    // m_clrbitmaps = 0 — HD has no SNES bitmap clear; skip
+    // playerwarpnoadd: Z boost without word2++
+    let add = g.vars.psvar_word2;
+    let pz = g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_add(add);
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, pz);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(add);
+    player_in_space_strat(g, idx);
+}
+
+/// ROM `playerwarp2_strat` (PCSTRATS.ASM:948-951).
+pub fn player_warp2_strat(g: &mut Game, idx: u16) {
+    player_in_space_strat(g, idx);
+}
+
+/// ROM `set_playerWarpOut_l` / `playerWarpOut_Istrat` (PISTRATS.ASM:366-397).
+pub fn set_player_warp_out(g: &mut Game, idx: u16) {
+    player_warp_out_istrat(g, idx);
+}
+
+/// ROM `playerWarpOut_Istrat`.
+pub fn player_warp_out_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_warp_out_tick);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
+    g.vars.pstratflags |= PSTF_INSEQ;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_NOVDISTC;
+    if let Some(hs) = strat_make_obj(g, 0) {
+        crate::enemy_a::hyperspaceout_istrat(g, hs);
+    }
+    g.objs.aliens[idx as usize].vel = 120;
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, 120);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 64);
+    g.vars.psvar_word2 = 128;
+    g.vars.set_sv_i16(sv::OUTDIST, 400);
+    // `s_playerfly_mode space` only applies the ROM fly-mode macro.  The Rust
+    // helper also installs playerinspace_strat, so do it before the explicit
+    // `s_set_alptrs` below or the WarpOut countdown callback is lost and
+    // control remains disabled for the whole Space Armada stage.
+    set_player_in_space(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    // re-assert cutscene flags cleared by space fly-mode
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_INSEQ | PSTF_NOVDISTC | PSTF_FLAG1;
+}
+
+/// ROM `playerWarpOut_strat` (PISTRATS.ASM:399-440).
+/// Returns `true` when warp-out ends and hands off to space.
+pub fn player_warp_out_strat(g: &mut Game, idx: u16) -> bool {
+    // fadewhite2norm — window slot; HD Windows path is map-CB driven; skip leaf
+    let od = g.vars.sv_i16(sv::OUTDIST).wrapping_sub(5);
+    g.vars.set_sv_i16(sv::OUTDIST, od);
+    let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1).wrapping_sub(1);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1);
+    if b1 == 0 {
+        g.vars.pstratflags &= !PSTF_NOVDISTC;
+        g.vars.viewdist = OUTVIEWDIST;
+        g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MED_PSPEED as u8);
+        // PISTRATS.ASM `.warpoutend`: `s_set_strat x,playerinspace_strat`.
+        // Calling the body without replacing the installed WarpOut callback
+        // makes the byte countdown wrap to 255 on the next frame and applies
+        // an ever-decreasing (eventually negative) hyperspace Z delta.
+        let space_tick = ea_sid(g, player_in_space_strat);
+        g.objs.aliens[idx as usize].stratptr = Some(space_tick);
+        g.vars.splayerflymode = SPFM_TOINSIDE;
+        // `changeviewmode_l` dispatches SPFM_TOINSIDE to
+        // `set_playerintocock_l`; this transition owns the eventual control
+        // release after the cockpit zoom finishes.
+        set_player_into_cock(g, idx);
+        g.hooks.play_music(4);
+        player_in_space_strat(g, idx);
+        return true;
+    }
+    let add = g.vars.psvar_word2;
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(add);
+    let pz = g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_add(add);
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, pz);
+    g.vars.psvar_word2 = add.wrapping_sub(2);
+    player_in_space_strat(g, idx);
+    false
+}
+
+// ============================================================
+// pshipcolony / pshipwashent (GCSTRATS.ASM:1829-2021)
+// ============================================================
+
+/// `pshipcolonyrot_tab` (GCSTRATS.ASM:1897) — duration,rotx pairs; `0` duration → straight.
+const PSHIP_COLONY_ROT_TAB: &[u8] = &[
+    0x0e, 0x00, 0x04, 0x00, 0x09, 0xeb, 0x0e, 0xd6, 0x09, 0xeb, 0x09, 0x00, 0x09, 0x15, 0x09, 0x2a,
+    0x0d, 0x40, 0x09, 0x40, 0x0c, 0x2a, 0x0c, 0x15, 0x09, 0x00, 0x09, 0xeb, 0x09, 0xd6, 0x09, 0xc0,
+    0x09, 0xd6, 0x04, 0xeb, 0x09, 0x00, 0x18, 0x00, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18, 0x00, 0x18,
+    0x00, 0x18, 0x00, 0x00,
+];
+
+/// `pshipwashentrot_tab` (GCSTRATS.ASM:2001).
+const PSHIP_WASHENT_ROT_TAB: &[u8] = &[
+    0x0e, 0x00, 0x04, 0x00, 0x09, 0xeb, 0x0e, 0xd6, 0x09, 0xeb, 0x09, 0x00, 0x09, 0x15, 0x10, 0x2a,
+    0x04, 0x15, 0x09, 0x00, 0x09, 0x00, 0x09, 0x00, 0x00,
+];
+
+/// Chase high byte of a 16-bit outv toward `target_hi` (ROM `s_achase_var B,outv+1`).
+fn achase_outv_hi(g: &mut Game, variable: sv, target_hi: u8, shift: u32) {
+    let v = g.vars.sv_i16(variable) as u16;
+    let mut hi = (v >> 8) as u8;
+    crate::enemy_a::achase_angle(&mut hi, target_hi, shift);
+    g.vars
+        .set_sv_i16(variable, ((hi as u16) << 8 | (v & 0xff)) as i16);
+}
+
+fn pipe_follow_bank(g: &mut Game, idx: u16, tab: &[u8]) -> bool {
+    // Bank with rotx: rotz / outvz_hi chase (rotx<<1); outvx_hi chase −rotx.
+    let rotx = g.objs.aliens[idx as usize].rotx;
+    let bank = rotx.wrapping_mul(2); // s_scale_var B,1
+    let mut rz = g.objs.aliens[idx as usize].rotz;
+    crate::enemy_a::achase_angle(&mut rz, bank, 4);
+    g.objs.aliens[idx as usize].rotz = rz;
+    achase_outv_hi(g, sv::OUTVZ, bank, 4);
+    achase_outv_hi(g, sv::OUTVX, 0u8.wrapping_sub(rotx), 2);
+
+    let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = sb;
+    if sb == 0 {
+        let off = g.objs.aliens[idx as usize].sbyte2 as usize;
+        let dur = *tab.get(off).unwrap_or(&0);
+        let ang = *tab.get(off.wrapping_add(1)).unwrap_or(&0);
+        g.objs.aliens[idx as usize].sbyte1 = dur;
+        g.objs.aliens[idx as usize].sbyte3 = ang;
+        g.objs.aliens[idx as usize].sbyte2 = g.objs.aliens[idx as usize].sbyte2.wrapping_add(2);
+        if dur == 0 {
+            return true; // → .straight
+        }
+    }
+    let mut rx = g.objs.aliens[idx as usize].rotx;
+    let tgt = g.objs.aliens[idx as usize].sbyte3;
+    crate::enemy_a::achase_angle(&mut rx, tgt, 3);
+    g.objs.aliens[idx as usize].rotx = rx;
+    false
+}
+
+fn pipe_follow_cont(g: &mut Game, idx: u16, scroll_bg: bool) {
+    {
+        let al = &g.objs.aliens[idx as usize];
+        g.vars.set_sv_i16(sv::PVIEWPOSX, al.worldx);
+        g.vars.set_sv_i16(sv::PVIEWPOSY, al.worldy);
+        g.vars.set_sv_i16(sv::PVIEWPOSZ, al.worldz);
+    }
+    if scroll_bg {
+        let z = g.vars.sv_i16(sv::BGSSCROLLZ).wrapping_add(MED_PSPEED);
+        g.vars.set_sv_i16(sv::BGSSCROLLZ, z);
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        strat_gen_vecs_3d(al);
+        strat_apply_velocity(al);
+    }
+}
+
+/// ROM `pshipcolony_Istrat` (GCSTRATS.ASM:1829).
+pub fn pshipcolony_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, pshipcolony_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = 1;
+        al.sbyte2 = 0;
+        al.stratstate = 0;
+        al.stratptr = Some(tick);
+        al.vel = MED_PSPEED as u8;
+        al.sflags |= ASF_SHADOW;
+    }
+}
+
+/// ROM `pshipcolony_strat` (GCSTRATS.ASM:1835) — pipe weave then L-tunnel handoff.
+pub fn pshipcolony_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        if pipe_follow_bank(g, idx, PSHIP_COLONY_ROT_TAB) {
+            g.objs.aliens[idx as usize].stratstate = 1;
+            g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+            g.hooks.play_se(0x32);
+            g.objs.aliens[idx as usize].vel = 120;
+            g.objs.aliens[idx as usize].sbyte1 = 30;
+            // Fall into .straightstrat same frame (ROM).
+        } else {
+            pipe_follow_cont(g, idx, true);
+            return;
+        }
+    }
+
+    // .straightstrat
+    achase_outv_hi(g, sv::OUTVZ, 0, 4);
+    achase_outv_hi(g, sv::OUTVX, 0, 4);
+    let mut rz = g.objs.aliens[idx as usize].rotz;
+    let mut rx = g.objs.aliens[idx as usize].rotx;
+    crate::enemy_a::achase_angle(&mut rz, 0, 4);
+    crate::enemy_a::achase_angle(&mut rx, 0, 4);
+    g.objs.aliens[idx as usize].rotz = rz;
+    g.objs.aliens[idx as usize].rotx = rx;
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(150);
+    let wy = g.objs.aliens[idx as usize].worldy;
+    g.objs.aliens[idx as usize].worldy = strat_chase_proportional(wy, LTUNNEL_VIEWCY, 4);
+
+    let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = sb;
+    if sb == 0 {
+        let p = g.vars.internal_playpt;
+        if p >= 0 && (p as usize) < NUMBER_AL {
+            let pidx = p as u16;
+            set_player_in_ltunnel(g, pidx);
+            g.vars.shared.do_depth_rotation = 0;
+            g.objs.aliens[pidx as usize].sflags &= !ASF_INVISIBLE;
+            g.objs.aliens[pidx as usize].worldx = 0;
+            g.objs.aliens[pidx as usize].worldy = LTUNNEL_VIEWCY;
+            let wz = g.objs.aliens[idx as usize].worldz;
+            g.objs.aliens[pidx as usize].worldz = wz.wrapping_add(120);
+        }
+        g.objs.aldead = 1;
+    }
+    pipe_follow_cont(g, idx, true);
+}
+
+/// ROM `pshipwashent_Istrat` (GCSTRATS.ASM:1933).
+pub fn pshipwashent_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, pshipwashent_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = 1;
+        al.sbyte2 = 0;
+        al.stratstate = 0;
+        al.stratptr = Some(tick);
+        al.vel = MED_PSPEED as u8;
+        al.sflags |= ASF_SHADOW;
+    }
+}
+
+/// ROM `pshipwashent_strat` (GCSTRATS.ASM:1939) — pipe weave then nucleus handoff.
+pub fn pshipwashent_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        if pipe_follow_bank(g, idx, PSHIP_WASHENT_ROT_TAB) {
+            g.objs.aliens[idx as usize].stratstate = 1;
+            g.objs.aliens[idx as usize].sbyte1 = 30;
+            g.hooks.play_se(0x33);
+            // Fall into .straightstrat same frame.
+        } else {
+            pipe_follow_cont(g, idx, false);
+            return;
+        }
+    }
+
+    let od = g.vars.sv_i16(sv::OUTDIST);
+    g.vars
+        .set_sv_i16(sv::OUTDIST, strat_chase_proportional(od, 0, 3));
+    let wy = g.objs.aliens[idx as usize].worldy;
+    g.objs.aliens[idx as usize].worldy = strat_chase_proportional(wy, NUCLEUS_VIEWCY, 3);
+    achase_outv_hi(g, sv::OUTVZ, 0, 4);
+    achase_outv_hi(g, sv::OUTVX, 0, 4);
+    let mut rz = g.objs.aliens[idx as usize].rotz;
+    let mut rx = g.objs.aliens[idx as usize].rotx;
+    crate::enemy_a::achase_angle(&mut rz, 0, 4);
+    crate::enemy_a::achase_angle(&mut rx, 0, 4);
+    g.objs.aliens[idx as usize].rotz = rz;
+    g.objs.aliens[idx as usize].rotx = rx;
+
+    let p = g.vars.internal_playpt;
+    if p >= 0 && (p as usize) < NUMBER_AL {
+        g.objs.aliens[p as usize].worldz = g.objs.aliens[idx as usize].worldz;
+    }
+
+    let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = sb;
+    if sb == 0 {
+        if p >= 0 && (p as usize) < NUMBER_AL {
+            let pidx = p as u16;
+            set_player_in_nucleus(g, pidx);
+            g.vars.shared.do_depth_rotation = 0;
+            g.objs.aliens[pidx as usize].sflags &= !ASF_INVISIBLE;
+            g.objs.aliens[pidx as usize].worldx = 0;
+            g.objs.aliens[pidx as usize].worldz =
+                g.objs.aliens[pidx as usize].worldz.wrapping_add(MED_PSPEED);
+        }
+        g.objs.aldead = 1;
+    }
+    pipe_follow_cont(g, idx, false);
+}
+
+// ============================================================
+// Water / bridge / undergnd / space SET_PLAYER* (PSTRATS.ASM)
+// ============================================================
+
+/// Shared planet-style fly-mode apply (water/bridge/undergnd/space).
+fn apply_planet_style_fly_mode(
+    g: &mut Game,
+    idx: u16,
+    view_cy: i16,
+    min_x: i16,
+    max_x: i16,
+    mmin_x: i16,
+    mmax_x: i16,
+    min_y: i16,
+    max_y: i16,
+    mmax_y: i16,
+    flymode: u8,
+    pmove_and: u8,
+    miss_flags: u8,
+    viewrot_on: bool,
+    shadow: bool,
+    clear_intunnel: bool,
+) {
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    {
+        let v = &mut g.vars;
+        v.set_sv_i16(sv::VIEWCY, view_cy);
+        v.set_sv_i16(sv::MINPMOVEX, min_x);
+        v.set_sv_i16(sv::MAXPMOVEX, max_x);
+        v.set_sv_i16(sv::MINMMOVEX, mmin_x);
+        v.set_sv_i16(sv::MAXMMOVEX, mmax_x);
+        v.set_sv_i16(sv::MAXMMOVEY, mmax_y);
+        v.set_sv_i16(sv::MINPWMOVEY, min_y);
+        v.set_sv_i16(sv::MAXPWMOVEY, max_y + 5);
+        v.minpmove_y = min_y;
+        v.set_sv_i16(sv::MAXPMOVEY, max_y + PLAYERB_YSTOP);
+        v.playerflymode = flymode;
+        v.set_sv_u8(sv::PMOVELIMITAND, pmove_and);
+        v.set_sv_u8(sv::MISSBOUNDFLAGS, miss_flags);
+        if viewrot_on {
+            v.gameflags |= GF_VIEWROT;
+        } else {
+            v.gameflags &= !GF_VIEWROT;
+        }
+        v.pstratflags &= !PSTF_NOVIEWMOVE;
+        v.pshipflags3 |= PSF3_ENGINESND;
+        v.pshipflags2 &= !PSF2_NOSPARK;
+        v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
+        if clear_intunnel {
+            v.pshipflags3 &= !PSF3_INTUNNEL;
+        }
+    }
+    if shadow {
+        g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
+    } else {
+        g.objs.aliens[idx as usize].sflags &= !ASF_SHADOW;
+    }
+}
+
+/// ROM `set_playerOnWater_l` / water fly-mode.
+pub fn set_player_on_water(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_on_water_strat);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    g.vars.game_mode = WATER_MODE;
+    apply_planet_style_fly_mode(
+        g,
+        idx,
+        -50,
+        -500,
+        500,
+        -500,
+        500,
+        -255, // -210-45
+        0,
+        0,
+        PFM_DIEFALL | PFM_DIEYROT | PFM_WATER | PFM_SHADOWS | PFM_WOBBLE,
+        PML_LWBOTTOM | PML_RWBOTTOM | PML_BBOTTOM,
+        MB_BOTTOM,
+        true,
+        true,
+        true,
+    );
+}
+
+/// ROM `playeronwater_strat` — live path uses Yvel125 (ifeq 1 block is dead).
+pub fn player_on_water_strat(g: &mut Game, idx: u16) {
+    do_player_yvel125(g, idx);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    g.vars.set_sv_i16(sv::PVIEWPOSX, wx >> 1);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, -50); // water / planet_ViewCY style
+    viewmove_srou(g, idx);
+}
+
+/// ROM `set_playerOnBridge_l` / bridge fly-mode.
+pub fn set_player_on_bridge(g: &mut Game, idx: u16) {
+    apply_planet_style_fly_mode(
+        g,
+        idx,
+        -60,
+        -200,
+        200,
+        -200,
+        200,
+        -120,
+        0,
+        0,
+        PFM_DIEFALL | PFM_WATER | PFM_SHADOWS | PFM_WOBBLE,
+        PML_LWBOTTOM | PML_RWBOTTOM | PML_BBOTTOM,
+        MB_BOTTOM | MB_LTOP | MB_RTOP,
+        false,
+        true,
+        true,
+    );
+    g.vars.set_sv_i16(sv::MISSBTOPLEFT, -90);
+    g.vars.set_sv_i16(sv::MISSBTOPRIGHT, 90);
+}
+
+/// ROM `set_playerUnderGnd_l` / undergnd fly-mode.
+pub fn set_player_undergnd(g: &mut Game, idx: u16) {
+    apply_planet_style_fly_mode(
+        g,
+        idx,
+        -60,
+        -500,
+        500,
+        -500,
+        500,
+        -120,
+        0,
+        0,
+        PFM_DIEFALL | PFM_DIEYROT | PFM_SHADOWS | PFM_WOBBLE,
+        PML_LWBOTTOM | PML_RWBOTTOM | PML_BBOTTOM,
+        MB_BOTTOM,
+        false,
+        true,
+        true,
+    );
+}
+
+/// ROM `playerundergnd_strat`.
+pub fn player_undergnd_strat(g: &mut Game, idx: u16) {
+    do_player_yvel_d2(g, idx);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    // view X = perc87-ish / asra chain — undergnd uses same as tunnel 0.875
+    let pview_x = (wx >> 1).wrapping_add(wx >> 2).wrapping_add(wx >> 3);
+    g.vars.set_sv_i16(sv::PVIEWPOSX, pview_x);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, g.vars.sv_i16(sv::VIEWCY));
+    viewmove_srou(g, idx);
+}
+
+/// ROM `set_playerInSpace_l` / space fly-mode.
+pub fn set_player_in_space(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_in_space_strat);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    g.vars.game_mode = SPACE_MODE;
+    apply_planet_style_fly_mode(
+        g,
+        idx,
+        -60,
+        -240,
+        240,
+        -240,
+        240,
+        -190,
+        80,
+        10000,
+        PFM_DIEYROT | PFM_WOBBLE,
+        0,
+        0,
+        true,
+        false, // space_macro does not set shadow
+        true,
+    );
+}
+
+/// ROM `playerinspace_strat`.
+pub fn player_in_space_strat(g: &mut Game, idx: u16) {
+    do_player_limit_x(g, idx);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    let wy = g.objs.aliens[idx as usize].worldy;
+    // Typical space: pview tracks player (simplified; ROM uses viewmove after limitX)
+    g.vars.set_sv_i16(sv::PVIEWPOSX, wx);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, wy);
+    viewmove_srou(g, idx);
+}
+
+/// Public bridge strat (already used by clear-bridge sequence).
+pub fn player_on_bridge_strat(g: &mut Game, idx: u16) {
+    playeronbridge_strat(g, idx);
+}
+
+/// ROM `set_playerTurn180_l` — arm the 74-frame turn (body in `enemy_b`).
+pub fn set_player_turn180(g: &mut Game, idx: u16) {
+    let _ = idx;
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 64 + 10);
+}
+
+/// ROM `set_playerEscapeNucleus_l` — delegates to existing escape init.
+pub fn set_player_escape_nucleus(g: &mut Game, idx: u16) {
+    strat_player_escape_nucleus_init(g, idx);
+}
+
+// ============================================================
+// Cockpit enter / exit (PSTRATS.ASM)
+// ============================================================
+
+const INVIEWDIST: i16 = 60;
+const SPACE_VIEWCY: i16 = -60;
+
+/// ROM `makeallmedpspeed`.
+pub fn make_all_med_pspeed(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].vel = MED_PSPEED as u8;
+    g.vars.pviewvelz = MED_PSPEED;
+    g.vars.set_sv_u8(sv::PLAYER_MEDSPEED, MED_PSPEED as u8);
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MED_PSPEED as u8);
+    g.vars.playervel_z = MED_PSPEED;
+}
+
+/// ROM `set_playerintocock_l` / `playerintocock_Istrat` init.
+pub fn set_player_into_cock(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_into_cock_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_NOVDISTC;
+    make_all_med_pspeed(g, idx);
+}
+
+/// ROM `playerintocock_strat` — chase toward center; when outdist→0, phase 2.
+/// Returns `true` if phase-2 should start.
+pub fn player_into_cock_strat(g: &mut Game, idx: u16) -> bool {
+    let mut reached = false;
+    for _ in 0..2 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldx = strat_chase_proportional(al.worldx, 0, 1);
+            al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY, 1);
+        }
+        let ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT) as i8;
+        let ztilt2 = strat_chase_proportional(ztilt as i16, 0, 1) as i8;
+        g.vars.set_sv_u8(sv::PLAYER_ZTILT, ztilt2 as u8);
+        let plrotz = strat_chase_proportional(g.vars.sv_i16(sv::PLROTZ), 0, 1);
+        g.vars.set_sv_i16(sv::PLROTZ, plrotz);
+        let od = g.vars.sv_i16(sv::OUTDIST);
+        let od2 = strat_chase_proportional(od, 0, 1);
+        g.vars.set_sv_i16(sv::OUTDIST, od2);
+        if od2 == 0 {
+            reached = true;
+        }
+    }
+    if reached {
+        player_into_cock2_init(g, idx);
+        return true;
+    }
+    player_in_space_strat(g, idx);
+    false
+}
+
+/// ROM `playerintocock2_init`.
+pub fn player_into_cock2_init(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_into_cock2_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.set_sv_i16(sv::OUTDIST, 0);
+    g.vars.set_sv_i16(sv::OUTVX, 0);
+    g.vars.set_sv_i16(sv::OUTVY, 0);
+    g.vars.set_sv_i16(sv::OUTVZ, 0);
+
+    let pview_z = g.vars.sv_i16(sv::PVIEWPOSZ);
+    g.objs.aliens[idx as usize].worldz = pview_z.wrapping_add(INVIEWDIST);
+
+    if let Some(dup) = dupplayer(g, idx) {
+        set_y_player_shape(g, dup, PSHIPNUM_ZOOM);
+        // Place dup: pviewz + (worldz-pviewz)<<4
+        let wz = g.objs.aliens[idx as usize].worldz;
+        let delta = wz.wrapping_sub(pview_z);
+        g.objs.aliens[dup as usize].worldz = pview_z.wrapping_add(delta.wrapping_shl(4));
+        cockdumpl_istrat(g, dup);
+    }
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 20);
+}
+
+/// ROM `playerintocock2_strat` — countdown then enter inside view.
+pub fn player_into_cock2_strat(g: &mut Game, idx: u16) -> bool {
+    let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1);
+    if b1 != 0 {
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1 - 1);
+        // playerstraight_strat: keep chasing center via space strat
+        player_in_space_strat(g, idx);
+        return false;
+    }
+    // Enter cockpit: bigspace + spfm_inside
+    apply_planet_style_fly_mode(
+        g,
+        idx,
+        -60,
+        -600,
+        600,
+        -600,
+        600,
+        -190,
+        80,
+        10000,
+        PFM_DIEYROT | PFM_WOBBLE,
+        0,
+        0,
+        true,
+        false,
+        true,
+    );
+    g.vars.splayerflymode = SPFM_INSIDE;
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    g.vars.pstratflags &= !PSTF_NOVDISTC;
+    g.objs.aliens[idx as usize].sbyte2 = 10;
+    let tick = ea_sid(g, player_in_space_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    player_in_space_strat(g, idx);
+    true
+}
+
+// ============================================================
+// Cockpit dump / out props (PSTRATS.ASM:1424-1605)
+// ============================================================
+
+const SH_COCKPIT: u16 = 322;
+
+/// ROM `cockdumpl_Istrat` — zoom-ship trail that spawns a cockpit prop once.
+pub fn cockdumpl_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, cockdumpl_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = HARD_HP;
+        al.ap = 0;
+        al.sflags |= ASF_COLLDISABLE;
+        al.stratptr = Some(tick);
+        al.sflags2 &= !ASF2_SFLAG1;
+        al.count = 8; // lifecnt
+        al.rotx = 0;
+        al.roty = 0;
+        al.rotz = 0;
+    }
+}
+
+/// ROM `cockdumpl_strat`.
+pub fn cockdumpl_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count;
+        al.count = c.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+    }
+    add_player_z(g, idx);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(160);
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        return;
+    }
+    let p = g.vars.internal_playpt;
+    if p < 0 || (p as usize) >= g.objs.aliens.len() || !g.objs.aliens[p as usize].active {
+        return;
+    }
+    let p = p as u16;
+    let me_z = g.objs.aliens[idx as usize].worldz;
+    let pl_z = g.objs.aliens[p as usize].worldz;
+    // .docock when player in front of dump OR |dz|<50.
+    let player_in_front = pl_z >= me_z;
+    let close = (me_z as i32 - pl_z as i32).abs() < 50;
+    if !(player_in_front || close) {
+        return;
+    }
+    if let Some(cock) = strat_make_obj(g, SH_COCKPIT) {
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+        {
+            let src = g.objs.aliens[p as usize];
+            let c = &mut g.objs.aliens[cock as usize];
+            c.worldx = src.worldx;
+            c.worldy = src.worldy;
+            c.worldz = src.worldz;
+        }
+        cockpit_istrat(g, cock);
+    }
+}
+
+/// ROM `cockpit_Istrat` / `cockpit_strat`.
+pub fn cockpit_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, cockpit_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = HARD_HP;
+        al.ap = 0;
+        al.sflags |= ASF_COLLDISABLE;
+        al.stratptr = Some(tick);
+    }
+}
+
+pub fn cockpit_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count;
+        al.count = c.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+    }
+    add_player_z(g, idx);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(10);
+}
+
+/// ROM `cockshipout_Istrat` / `cockshipout_strat`.
+pub fn cockshipout_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, cockshipout_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = HARD_HP;
+        al.ap = 0;
+        al.sflags |= ASF_COLLDISABLE;
+        al.stratptr = Some(tick);
+        al.type_ &= !ATZREMOVE;
+        al.count = 19;
+        al.sword1 = 60;
+    }
+}
+
+pub fn cockshipout_strat(g: &mut Game, idx: u16) {
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        let zadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD);
+        g.objs.aliens[idx as usize].rotz = zadd;
+        if g.vars.gameframe & 1 == 0 {
+            g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+        }
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = g.vars.player_posx;
+        al.worldy = g.vars.player_posy;
+        let c = al.count;
+        al.count = c.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+    }
+    add_player_z(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(al.sword1);
+        al.sword1 = al.sword1.wrapping_add(10);
+    }
+}
+
+/// ROM `cockpitout_Istrat` / `cockpitout_strat`.
+pub fn cockpitout_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, cockpitout_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = HARD_HP;
+        al.ap = 0;
+        al.sflags |= ASF_COLLDISABLE;
+        al.stratptr = Some(tick);
+        al.type_ &= !ATZREMOVE;
+        al.count = 8;
+    }
+}
+
+pub fn cockpitout_strat(g: &mut Game, idx: u16) {
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        let zadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD);
+        g.objs.aliens[idx as usize].rotz = zadd;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = g.vars.player_posx;
+        al.worldy = g.vars.player_posy;
+        let c = al.count;
+        al.count = c.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+    }
+    add_player_z(g, idx);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(20);
+}
+
+/// ROM `set_playeroutofcock_l` / `playeroutofcock_Istrat` init.
+pub fn set_player_out_of_cock(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_out_of_cock_tick);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags &= !PSTF_NOVDISTC;
+    g.vars.viewdist = OUTVIEWDIST;
+    g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
+    g.vars.set_sv_i16(sv::OUTVX, 0);
+    g.vars.set_sv_i16(sv::OUTVY, 0);
+    g.vars.set_sv_i16(sv::OUTVZ, 0);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 23);
+    make_all_med_pspeed(g, idx);
+}
+
+/// ROM `playeroutofcock_strat` — chase center; spawn props at byte1==19; finish at 0.
+pub fn player_out_of_cock_strat(g: &mut Game, idx: u16) -> bool {
+    for _ in 0..2 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldx = strat_chase_proportional(al.worldx, 0, 1);
+            al.worldy = strat_chase_proportional(al.worldy, SPACE_VIEWCY, 1);
+        }
+        let ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT) as i8;
+        g.vars.set_sv_u8(
+            sv::PLAYER_ZTILT,
+            strat_chase_proportional(ztilt as i16, 0, 1) as i8 as u8,
+        );
+        let plrotz = strat_chase_proportional(g.vars.sv_i16(sv::PLROTZ), 0, 1);
+        g.vars.set_sv_i16(sv::PLROTZ, plrotz);
+    }
+
+    let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1);
+    if b1 == 19 {
+        // Spawn cockpit + zoom ship props with real out strats.
+        if let Some(cock) = strat_make_obj(g, SH_COCKPIT) {
+            let src = g.objs.aliens[idx as usize];
+            {
+                let c = &mut g.objs.aliens[cock as usize];
+                c.worldx = src.worldx;
+                c.worldy = src.worldy;
+                c.worldz = src.worldz.wrapping_sub(105);
+            }
+            cockpitout_istrat(g, cock);
+        }
+        if let Some(ship) = strat_make_obj(g, 0) {
+            set_y_player_shape(g, ship, PSHIPNUM_ZOOM);
+            let src = g.objs.aliens[idx as usize];
+            {
+                let s = &mut g.objs.aliens[ship as usize];
+                s.worldx = src.worldx;
+                s.worldy = src.worldy;
+                s.worldz = src.worldz.wrapping_sub(611);
+            }
+            cockshipout_istrat(g, ship);
+        }
+    }
+
+    if b1 != 0 {
+        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1 - 1);
+        player_in_space_strat(g, idx);
+        return false;
+    }
+
+    // Done: restore normal space control, leave inside mode.
+    g.vars.splayerflymode = 0; // SPFM_NORM
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    set_player_in_space(g, idx);
+    let tick = ea_sid(g, player_in_space_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    player_in_space_strat(g, idx);
+    true
+}
+
+// ============================================================
+// LB out / dive / cred / tunnel→planet (PCSTRATS / PISTRATS / PSTRATS)
+// ============================================================
+
+const DEG90_256: i16 = 64 * 256; // deg90*256
+
+/// ROM `set_playerOutOfLB1_l` / init.
+pub fn set_player_out_of_lb1(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.playerflymode &= !PFM_WOBBLE;
+    g.vars.gameflags &= !GF_STRATDONE1;
+    apply_tunnel_fly_mode(g, idx, FLY_LTUNNEL);
+    // Sequence flag after tunnel macro (which clears pstf_inseq).
+    g.vars.pstratflags |= PSTF_INSEQ;
+    g.vars.playerflymode &= !PFM_WOBBLE;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.hooks.play_se(0x1e);
+}
+
+/// ROM `playerOutofLB1_strat`.
+pub fn player_out_of_lb1_strat(g: &mut Game, idx: u16) {
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+        al.worldy = strat_chase_proportional(al.worldy, view_cy, 4);
+    }
+    // shrapnel_srou — debris + explosion bursts while exiting LB1.
+    shrapnel_srou(g, idx);
+    player_in_tunnel_strat(g, idx);
+}
+
+// ============================================================
+// Shrapnel (PCSTRATS.ASM) — LB1 debris
+// ============================================================
+
+const SHAPE_SHRAP1: u16 = 267;
+
+/// `s_jmp_notdelay N` is true when `gameframe & ((1<<N)-1) == 0`.
+fn notdelay(g: &Game, bits: u16) -> bool {
+    g.vars.gameframe & ((1u16 << bits) - 1) == 0
+}
+
+/// ROM `shrapfall2_Istrat` — scrap drifts toward camera (−30 Z/frame).
+fn shrapfall2_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(30);
+}
+
+/// ROM `shrapnel_srou` / `shrapnel_srou_l` (PCSTRATS.ASM).
+pub fn shrapnel_srou(g: &mut Game, parent: u16) {
+    // Every 8 frames: spawn shrap1 scrap.
+    if notdelay(g, 3) {
+        if let Some(y) = strat_make_obj(g, SHAPE_SHRAP1) {
+            let view_cy = g.vars.sv_i16(sv::VIEWCY);
+            let parent_z = g.objs.aliens[parent as usize].worldz;
+            {
+                let al = &mut g.objs.aliens[y as usize];
+                al.worldx = (sf_random(&mut g.vars) as u8 as i16).wrapping_sub(128);
+                al.worldy = (sf_random(&mut g.vars) as u8 as i16)
+                    .wrapping_sub(128)
+                    .wrapping_add(view_cy);
+                al.roty = sf_random(&mut g.vars) as u8;
+                al.rotx = sf_random(&mut g.vars) as u8;
+                al.worldz = parent_z.wrapping_add(2000);
+                al.sflags |= ASF_COLLDISABLE;
+            }
+            let s = sid(g, K_SHRAPFALL2);
+            g.objs.aliens[y as usize].stratptr = Some(s);
+        }
+    }
+
+    // Every 2 frames: large + medium explosion bursts.
+    if notdelay(g, 1) {
+        if let Some(y) = make_large_exp_obj(g, parent) {
+            {
+                let al = &mut g.objs.aliens[y as usize];
+                al.sflags4 |= ASF4_NOPOLYEXP;
+                al.sflags2 &= !ASF2_NOEXPSND;
+                al.vz = 150;
+                al.worldz = al.worldz.wrapping_sub(200);
+            }
+            addrnd2pos_xy(g, y);
+        }
+        if let Some(y) = make_medium_exp_obj(g, parent) {
+            {
+                let al = &mut g.objs.aliens[y as usize];
+                al.sflags4 |= ASF4_NOPOLYEXP;
+                al.sflags2 &= !ASF2_NOEXPSND;
+                al.vz = 150;
+                al.worldz = al.worldz.wrapping_sub(200);
+            }
+            addrnd2pos_xy(g, y);
+        }
+    }
+}
+
+/// Public alias for tests.
+pub fn shrapfall2_tick(g: &mut Game, idx: u16) {
+    shrapfall2_istrat(g, idx);
+}
+
+/// ROM `set_playerOutOfLB2a_l` / init.
+pub fn set_player_out_of_lb2a(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_out_of_lb2a_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+    g.objs.aliens[idx as usize].vel = MAX_PSPEED as u8;
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
+    if g.vars.sv_u8(sv::BOOSTZOFF) == 0 {
+        set_boost_zoff(g, -30);
+    }
+    let _ = boost_sprite(g, None);
+    g.hooks.play_se(0x32);
+}
+
+/// ROM `playeroutofLB2a_strat`.
+pub fn player_out_of_lb2a_strat(g: &mut Game, idx: u16) {
+    let add = g.vars.sv_u8(sv::PLAYER_ZSTRATADD) as i8;
+    g.vars
+        .set_sv_u8(sv::PLAYER_ZSTRATADD, add.wrapping_sub(4) as u8);
+    player_in_tunnel_strat(g, idx);
+}
+
+/// ROM `set_playerOutOfLB2_l` / init.
+pub fn set_player_out_of_lb2(g: &mut Game, idx: u16) {
+    g.vars.set_sv_i16(sv::OUTVX, -DEG90_256);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.playerflymode &= !PFM_WOBBLE;
+    g.vars.pstratflags |= PSTF_INSEQ;
+    playeronplanet_init(g, idx);
+    // Re-apply sequence flags after planet init cleared them.
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_INSEQ;
+    g.vars.playerflymode &= !PFM_WOBBLE;
+    g.vars.gameflags |= GF_NOZREMOVE;
+    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.vars.set_sv_i16(sv::OUTVX, -DEG90_256);
+    g.vars.set_sv_i16(sv::BG2YSCROLL, 232 - 32);
+    g.vars.gameflags &= !GF_STRATDONE1;
+}
+
+/// ROM `playerOutofLB2_strat`.
+pub fn player_out_of_lb2_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].worldz =
+        g.objs.aliens[idx as usize].worldz.wrapping_add(MED_PSPEED);
+}
+
+/// ROM `set_playerOutOfLB3_l` / init.
+pub fn set_player_out_of_lb3(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    set_player_in_space(g, idx);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pstratflags |= PSTF_INSEQ;
+    g.vars.playerflymode &= !PFM_WOBBLE;
+    g.vars.gameflags |= GF_NOZREMOVE;
+    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.vars.gameflags &= !GF_STRATDONE1;
+    g.vars.set_sv_i16(sv::BG2YSCROLL, 232 + 60);
+}
+
+/// ROM `playerOutofLB3_strat` — BG2YSCROLL ease + Z cruise (PCSTRATS player leaf).
+pub fn player_out_of_lb3_strat(g: &mut Game, idx: u16) {
+    let scroll = g.vars.sv_i16(sv::BG2YSCROLL);
+    if scroll != 232 - 60 {
+        g.vars.set_sv_i16(sv::BG2YSCROLL, scroll.wrapping_sub(1));
+    }
+    g.objs.aliens[idx as usize].worldz =
+        g.objs.aliens[idx as usize].worldz.wrapping_add(MED_PSPEED);
+}
+
+/// BG2YSCROLL chase used by the player LB3 leaf (not ROM `viewlb3move_srou`).
+pub fn view_lb3_move(g: &mut Game) {
+    let scroll = g.vars.sv_i16(sv::BG2YSCROLL);
+    if scroll != 232 - 60 {
+        g.vars.set_sv_i16(sv::BG2YSCROLL, scroll.wrapping_sub(1));
+    }
+}
+
+// ============================================================
+// pshipoutofLB3 / viewoutofLB3 (GCSTRATS.ASM:1597-1826)
+// ============================================================
+
+const GF2_STRATFLAG1: u8 = 1;
+const LE_ENDOFGAME: u8 = 6; // KALCS.INC
+const LE_ENDTOTALSCORE: u8 = 9;
+
+/// |worldz − viewposz| — HD stand-in for Zdist vs ROM `viewpt` camera.
+fn zdist_viewpt(g: &Game, idx: u16) -> i32 {
+    let wz = g.objs.aliens[idx as usize].worldz as i32;
+    let vz = g.vars.sv_i16(sv::VIEWPOSZ) as i32;
+    (wz - vz).abs()
+}
+
+/// ROM `viewlb3move_srou` (GCSTRATS.ASM:1821) — pin pviewpos to viewtoobj + Z cruise.
+pub fn viewlb3move_srou(g: &mut Game) {
+    let view = g.vars.sv_i16(sv::VIEWTOOBJ);
+    if view < 0 || (view as usize) >= NUMBER_AL {
+        return;
+    }
+    let (wx, wy, wz) = {
+        let v = &g.objs.aliens[view as usize];
+        (v.worldx, v.worldy, v.worldz)
+    };
+    g.vars.set_sv_i16(sv::PVIEWPOSX, wx);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, wy);
+    g.vars
+        .set_sv_i16(sv::PVIEWPOSZ, wz.wrapping_add(MED_PSPEED.wrapping_add(15)));
+}
+
+/// ROM `pshipoutofLB3_Istrat` (GCSTRATS.ASM:1597).
+pub fn pshipoutoflb3_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, pshipoutoflb3_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    // viewtoobj is map/caller-owned (ROM copies Y; HD leaves existing VIEWTOOBJ).
+    g.vars
+        .set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS | VIEWTYPE_TOOBJ);
+    g.vars.gameflags &= !GF_STRATDONE1;
+    g.objs.aliens[idx as usize].type_ |= ATGND;
+    g.objs.aliens[idx as usize].stratstate = 0;
+}
+
+/// ROM `pshipoutofLB3_strat` (GCSTRATS.ASM:1604).
+pub fn pshipoutoflb3_strat(g: &mut Game, idx: u16) {
+    let state = g.objs.aliens[idx as usize].stratstate;
+    match state {
+        0 => {
+            if g.vars.sv_u8(sv::VIEWTYPE) == VIEWTYPE_NORM {
+                g.objs.aliens[idx as usize].stratstate = 1;
+            } else {
+                g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                    .worldz
+                    .wrapping_add(MED_PSPEED.wrapping_add(19));
+                if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+                    if zdist_viewpt(g, idx) < 500 {
+                        g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+                    } else {
+                        g.objs.aliens[idx as usize].worldz =
+                            g.objs.aliens[idx as usize].worldz.wrapping_add(11);
+                    }
+                }
+                if zdist_viewpt(g, idx) <= 3000 {
+                    g.objs.aliens[idx as usize].worldx =
+                        g.objs.aliens[idx as usize].worldx.wrapping_add(1);
+                }
+            }
+        }
+        1 => {
+            let gf2 = g.vars.shared.game_flags2;
+            if gf2 & GF2_STRATFLAG1 != 0 {
+                g.objs.aliens[idx as usize].stratstate = 2;
+            } else {
+                g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                    .worldz
+                    .wrapping_add(MED_PSPEED.wrapping_add(19))
+                    .wrapping_add(g.objs.aliens[idx as usize].sword1);
+                g.vars.pviewvelz = MED_PSPEED.wrapping_add(19 - 3);
+                if g.objs.aliens[idx as usize].sword1 != -3 && notdelay(g, 2) {
+                    g.objs.aliens[idx as usize].sword1 =
+                        g.objs.aliens[idx as usize].sword1.wrapping_sub(1);
+                }
+            }
+        }
+        2 => {
+            g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                .worldz
+                .wrapping_add(MED_PSPEED.wrapping_add(19 - 3));
+            let sb = g.objs.aliens[idx as usize].sbyte2.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte2 = sb;
+            if sb == 0 {
+                g.vars.pshipflags3 &= !PSF3_ENGINESND;
+                g.hooks.play_music(0xf1); // bgm_fadeout stand-in
+                g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+                g.hooks.play_se(0x32);
+                g.objs.aliens[idx as usize].stratstate = 3;
+                g.objs.aliens[idx as usize].sbyte1 = 15;
+            }
+        }
+        3 => {
+            g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                .worldz
+                .wrapping_add(MED_PSPEED.wrapping_add(19 - 3));
+            strat_apply_velocity(&mut g.objs.aliens[idx as usize]);
+            if g.objs.aliens[idx as usize].vz != 150 {
+                g.objs.aliens[idx as usize].vz = g.objs.aliens[idx as usize].vz.wrapping_add(15);
+            }
+            let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte1 = sb;
+            if sb == 0 {
+                g.objs.aliens[idx as usize].sbyte1 = 1;
+                if g.objs.aliens[idx as usize].vy != -40 {
+                    g.objs.aliens[idx as usize].vy =
+                        g.objs.aliens[idx as usize].vy.wrapping_add(-5);
+                }
+                let mut rx = g.objs.aliens[idx as usize].rotx;
+                crate::enemy_a::achase_angle(&mut rx, 0u8.wrapping_sub(DEG22), 3);
+                g.objs.aliens[idx as usize].rotx = rx;
+            }
+            if zdist_viewpt(g, idx) >= 2000 {
+                g.vars.gameflags &= !GF_NOZREMOVE;
+                g.vars.gameflags |= GF_STRATDONE1;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// ROM `viewoutofLB3_Istrat` (GCSTRATS.ASM:1675).
+pub fn viewoutoflb3_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, viewoutoflb3_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.vel = MED_PSPEED as u8;
+        al.sbyte1 = 50;
+        al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+        al.stratstate = 0;
+    }
+    let gf2 = g.vars.shared.game_flags2;
+    g.vars.shared.game_flags2 = gf2 & !GF2_STRATFLAG1;
+}
+
+/// ROM `viewoutofLB3_strat` (GCSTRATS.ASM:1682) — close → swing → endgame camera.
+pub fn viewoutoflb3_strat(g: &mut Game, idx: u16) {
+    // Fall-through states (ROM ifnotstate chain).
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            strat_gen_vecs_3d(al);
+            strat_apply_velocity(al);
+        }
+        {
+            let al = &g.objs.aliens[idx as usize];
+            g.vars.set_sv_i16(sv::VIEWPOSX, al.worldx);
+            g.vars.set_sv_i16(sv::VIEWPOSY, al.worldy);
+            g.vars.set_sv_i16(sv::VIEWPOSZ, al.worldz);
+        }
+        let view = g.vars.sv_i16(sv::VIEWTOOBJ);
+        let close = if view >= 0 && (view as usize) < NUMBER_AL {
+            let me = g.objs.aliens[idx as usize];
+            let t = g.objs.aliens[view as usize];
+            (me.worldz as i32 - t.worldz as i32).abs() < 250
+        } else {
+            false
+        };
+        if close {
+            let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], MED_PSPEED as u8 + 15, 1);
+            let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte1 = sb;
+            if sb == 0 {
+                g.objs.aliens[idx as usize].stratstate = 1;
+                g.vars.set_sv_i16(sv::OUTDIST, 280);
+                g.vars
+                    .set_sv_i16(sv::OUTVY, ((-234i16).wrapping_mul(256)).wrapping_add(256));
+                g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+                g.objs.aliens[idx as usize].sword1 = 230;
+            }
+        }
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        g.objs.aliens[idx as usize].sbyte3 = g.objs.aliens[idx as usize].sbyte3.wrapping_add(1);
+        let hi = (SINTAB[g.objs.aliens[idx as usize].sbyte3 as usize] as i16) / 4; // sintab,-2
+        let target = (hi as i16) << 8;
+        let ovx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), target, 3);
+        g.vars.set_sv_i16(sv::OUTVX, ovx);
+        let ovy = g.vars.sv_i16(sv::OUTVY).wrapping_sub(256);
+        g.vars.set_sv_i16(sv::OUTVY, ovy);
+        viewlb3move_srou(g);
+        if g.objs.aliens[idx as usize].sword1 >= 100 {
+            let od = g.vars.sv_i16(sv::OUTDIST);
+            if od <= 600 {
+                g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_add(2));
+            }
+        } else {
+            let od = g.vars.sv_i16(sv::OUTDIST);
+            g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_sub(1));
+        }
+        let sw = g.objs.aliens[idx as usize].sword1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sword1 = sw;
+        if sw == 0 {
+            g.objs.aliens[idx as usize].stratstate = 2;
+            g.objs.aliens[idx as usize].sbyte1 = 70;
+        }
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 2 {
+        let ovx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), 0, 5);
+        let ovy = strat_chase_proportional(g.vars.sv_i16(sv::OUTVY), 0, 5);
+        g.vars.set_sv_i16(sv::OUTVX, ovx);
+        g.vars.set_sv_i16(sv::OUTVY, ovy);
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb == 0 {
+            g.world.levelfinished = LE_ENDOFGAME;
+            g.objs.aliens[idx as usize].stratstate = 3;
+        }
+        viewlb3move_srou(g);
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 3 {
+        let ovx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), 0, 3);
+        let ovy = strat_chase_proportional(g.vars.sv_i16(sv::OUTVY), 0, 3);
+        g.vars.set_sv_i16(sv::OUTVX, ovx);
+        g.vars.set_sv_i16(sv::OUTVY, ovy);
+        viewlb3move_srou(g);
+        if g.world.levelfinished == LE_ENDTOTALSCORE {
+            g.objs.aliens[idx as usize].stratstate = 4;
+            g.objs.aliens[idx as usize].sbyte1 = (256u16 - DEG45 as u16) as u8; // deg360-deg45
+            g.objs.aliens[idx as usize].sbyte3 = 0;
+        }
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 4 {
+        g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        let sb = g.objs.aliens[idx as usize].sbyte1;
+        if sb == DEG22 {
+            g.objs.aliens[idx as usize].stratstate = 5;
+        } else {
+            if sb == (0u8.wrapping_sub(DEG45).wrapping_sub(DEG90)) {
+                g.hooks.play_se(0x0d);
+            }
+            let od = g.vars.sv_i16(sv::OUTDIST);
+            g.vars.set_sv_i16(sv::OUTDIST, od.wrapping_add(1));
+            g.objs.aliens[idx as usize].sbyte3 = g.objs.aliens[idx as usize].sbyte3.wrapping_add(1);
+            let hi = (SINTAB[g.objs.aliens[idx as usize].sbyte3 as usize] as i16) / 4;
+            let target = hi << 8;
+            let ovx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), target, 3);
+            g.vars.set_sv_i16(sv::OUTVX, ovx);
+            let ovy = g.vars.sv_i16(sv::OUTVY).wrapping_sub(256);
+            g.vars.set_sv_i16(sv::OUTVY, ovy);
+            viewlb3move_srou(g);
+        }
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 5 {
+        g.objs.aliens[idx as usize].sbyte1 = 60;
+        g.objs.aliens[idx as usize].stratstate = 6;
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 6 {
+        let ovx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), 0, 5);
+        let ovy = strat_chase_proportional(g.vars.sv_i16(sv::OUTVY), 0, 5);
+        let od = strat_chase_proportional(g.vars.sv_i16(sv::OUTDIST), 100, 5);
+        g.vars.set_sv_i16(sv::OUTVX, ovx);
+        g.vars.set_sv_i16(sv::OUTVY, ovy);
+        g.vars.set_sv_i16(sv::OUTDIST, od);
+        viewlb3move_srou(g);
+        let vpz = g.vars.sv_i16(sv::VIEWPOSZ);
+        g.vars
+            .set_sv_i16(sv::VIEWPOSZ, vpz.wrapping_add(MED_PSPEED.wrapping_add(15)));
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb == 0 {
+            g.objs.aliens[idx as usize].sbyte1 = 1;
+            let gf2 = g.vars.shared.game_flags2;
+            g.vars.shared.game_flags2 = gf2 | GF2_STRATFLAG1;
+            g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS);
+        }
+    }
+}
+
+// ============================================================
+// pshipOutofLB1 / viewOutofLB1 (GCSTRATS.ASM:1246-1527)
+// ============================================================
+
+const SH_MY_DEMOS: u16 = 224; // my_demos
+const SH_MY_DEMO_BS: u16 = 410;
+const SH_MY_DEMO_S: u16 = 411;
+const SH_LAST_B_0: u16 = 212;
+const SH_LAST_B_3: u16 = 214;
+
+/// `((deg180+deg11+deg5)/3)+1` — turn duration after base remove.
+const PSHIP_LB1_TURN_FRAMES: u8 = ((128u16 + 8 + 4) / 3 + 1) as u8;
+
+fn find_shape_and_remove(g: &mut Game, shape: u16) {
+    for i in 0..NUMBER_AL {
+        if g.objs.aliens[i].active && g.objs.aliens[i].shape == shape {
+            g.objs.free(i as u16);
+            return;
+        }
+    }
+}
+
+fn spawn_shiplb1_friend(
+    g: &mut Game,
+    src: u16,
+    ox: i16,
+    oy: i16,
+    oz: i16,
+    sword1: i16,
+    sbyte1: u8,
+) {
+    let Some(y) = strat_make_obj(g, SH_MY_DEMOS) else {
+        return;
+    };
+    {
+        let s = g.objs.aliens[src as usize];
+        let al = &mut g.objs.aliens[y as usize];
+        al.worldx = s.worldx.wrapping_add(ox);
+        al.worldy = s.worldy.wrapping_add(oy);
+        al.worldz = s.worldz.wrapping_add(oz);
+        al.rotx = s.rotx;
+        al.roty = s.roty;
+        al.rotz = s.rotz;
+        al.vx = s.vx;
+        al.vy = s.vy;
+        al.vz = s.vz;
+        al.sword1 = sword1;
+        al.sbyte1 = sbyte1;
+        al.stratstate = 0;
+    }
+    shiplb1_istrat(g, y);
+}
+
+/// ROM `pshipOutofLB1_Istrat` (GCSTRATS.ASM:1246).
+pub fn pshipoutoflb1_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, pshipoutoflb1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sflags |= ASF_COLLDISABLE;
+        al.vel = MED_PSPEED as u8;
+        al.rotx = 0u8.wrapping_sub(DEG90);
+        al.stratstate = 0;
+    }
+    g.vars.set_sv_i16(sv::VIEWTOOBJ, idx as i16);
+    g.vars.gameflags &= !GF_STRATDONE1;
+}
+
+/// ROM `pshipOutofLB1_strat` (GCSTRATS.ASM:1254).
+pub fn pshipoutoflb1_strat(g: &mut Game, idx: u16) {
+    // Fall-through ifnotstate chain + nextstate re-entry for state 2→3.
+    'strat: loop {
+        if g.objs.aliens[idx as usize].stratstate == 0 {
+            g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_sub(4);
+            // s_jmp_lower x,#-1000,.nsup — branch away when worldy >= -1000
+            if g.objs.aliens[idx as usize].worldy < -1000 {
+                let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], MAX_PSPEED as u8, 1);
+                g.objs.aliens[idx as usize].sbyte1 = 5 + 18;
+                if g.objs.aliens[idx as usize].rotx == 0u8.wrapping_sub(DEG45) {
+                    g.hooks.play_music(0x07);
+                    g.objs.aliens[idx as usize].stratstate = 1;
+                    continue 'strat;
+                }
+                g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_add(2);
+            }
+        }
+
+        if g.objs.aliens[idx as usize].stratstate == 1 {
+            let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte1 = sb;
+            if sb == 0 {
+                g.objs.aliens[idx as usize].sbyte1 = 1;
+                g.objs.aliens[idx as usize].shape = SH_MY_DEMO_BS;
+            }
+            let mut rz = g.objs.aliens[idx as usize].rotz;
+            let mut rx = g.objs.aliens[idx as usize].rotx;
+            crate::enemy_a::achase_angle(&mut rz, 0, 3);
+            let lined_up = crate::enemy_a::achase_angle(&mut rx, 0, 5);
+            g.objs.aliens[idx as usize].rotz = rz;
+            g.objs.aliens[idx as usize].rotx = rx;
+            if lined_up {
+                g.objs.aliens[idx as usize].shape = SH_MY_DEMO_S;
+                g.objs.aliens[idx as usize].sbyte1 = 70;
+                g.objs.aliens[idx as usize].stratstate = 2;
+            }
+        }
+
+        if g.objs.aliens[idx as usize].stratstate == 2 {
+            let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte1 = sb;
+            if sb == 0 {
+                g.objs.aliens[idx as usize].stratstate = 3;
+                g.objs.aliens[idx as usize].sbyte1 = PSHIP_LB1_TURN_FRAMES;
+                // nextstate → fall into state 3 same frame after .nend? ROM brl .nend
+                // so state 3 runs next frame only. Break to .nend.
+                break 'strat;
+            }
+        }
+
+        if g.objs.aliens[idx as usize].stratstate == 3 {
+            find_shape_and_remove(g, SH_LAST_B_0);
+            find_shape_and_remove(g, SH_LAST_B_3);
+            if g.vars.frog_hp != 0 {
+                spawn_shiplb1_friend(g, idx, 450 + 400, -1000, 250, 30, 30 + 20);
+            }
+            if g.vars.falcon_hp != 0 {
+                spawn_shiplb1_friend(g, idx, 450 + 200 + 400, 50, 500, 70, 30 + 10 + 5 + 20 + 2);
+            }
+            if g.vars.bunny_hp != 0 {
+                spawn_shiplb1_friend(g, idx, 450 + 600, 1000, 400, 50, 30 + 30 + 2);
+            }
+            g.objs.aliens[idx as usize].stratstate = 4;
+        }
+
+        if g.objs.aliens[idx as usize].stratstate == 4 {
+            g.objs.aliens[idx as usize].vel = 10;
+            let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte1 = sb;
+            if sb == 0 {
+                g.objs.aliens[idx as usize].sbyte1 = 110;
+                g.objs.aliens[idx as usize].stratstate = 5;
+                continue 'strat; // nextstate
+            }
+            g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(3);
+            if g.objs.aliens[idx as usize].rotz != DEG45 && notdelay(g, 1) {
+                g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(1);
+            }
+        }
+
+        if g.objs.aliens[idx as usize].stratstate == 5 {
+            g.objs.aliens[idx as usize].vel = 15;
+            if g.objs.aliens[idx as usize].sbyte1 <= 60 && notdelay(g, 1) {
+                g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_sub(1);
+            }
+            g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS);
+            let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte1 = sb;
+            if sb == 0 {
+                g.vars.gameflags |= GF_STRATDONE1;
+            }
+        }
+
+        break;
+    }
+
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        strat_gen_vecs_3d(al);
+        strat_apply_velocity(al);
+    }
+}
+
+/// ROM `viewOutofLB1_Istrat` (GCSTRATS.ASM:1380).
+pub fn viewoutoflb1_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, viewoutoflb1_strat);
+    let outdist = g.vars.sv_i16(sv::OUTDIST);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sflags |= ASF_COLLDISABLE;
+        al.sword1 = outdist; // Z offset
+        al.sword2 = 0; // Y offset
+        al.ptr = 0; // X offset
+        al.rotx = 0u8.wrapping_sub(DEG45);
+    }
+    g.vars
+        .set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS | VIEWTYPE_TOOBJ);
+    let gf2 = g.vars.shared.game_flags2;
+    g.vars.shared.game_flags2 = gf2 & !GF2_STRATFLAG1;
+}
+
+/// ROM `viewOutofLB1_strat` (GCSTRATS.ASM:1394) — follow pship; explode mapvar1.
+pub fn viewoutoflb1_strat(g: &mut Game, idx: u16) {
+    // Explosion burst when gf2_stratflag1 and !sflag3
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG3 == 0 {
+        let gf2 = g.vars.shared.game_flags2;
+        if gf2 & GF2_STRATFLAG1 != 0 {
+            if let Some(parent) = mapvar1_obj(g) {
+                if let Some(y) = make_large_exp_obj(g, parent) {
+                    addrnd2pos_xy(g, y);
+                    g.objs.aliens[y as usize].sflags2 &= !ASF2_RELEXPLODE;
+                    g.objs.aliens[y as usize].sflags4 |= ASF4_NOPOLYEXP;
+                    g.objs.aliens[y as usize].worldy =
+                        g.objs.aliens[y as usize].worldy.wrapping_sub(400);
+                }
+                if let Some(y) = make_large_exp_obj(g, parent) {
+                    g.objs.aliens[y as usize].sflags2 &= !ASF2_RELEXPLODE;
+                    g.objs.aliens[y as usize].sflags4 |= ASF4_NOPOLYEXP;
+                    addrnd2pos_xy(g, y);
+                    g.objs.aliens[y as usize].worldy =
+                        g.objs.aliens[y as usize].worldy.wrapping_sub(800);
+                }
+            }
+        }
+    }
+
+    let view = g.vars.sv_i16(sv::VIEWTOOBJ);
+    if view >= 0 && (view as usize) < NUMBER_AL {
+        let vstate = g.objs.aliens[view as usize].stratstate;
+        match vstate {
+            0 => {
+                let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], (MAX_PSPEED - 5) as u8, 2);
+            }
+            1 => {
+                let mut rx = g.objs.aliens[idx as usize].rotx;
+                crate::enemy_a::achase_angle(&mut rx, 0, 5);
+                g.objs.aliens[idx as usize].rotx = rx;
+            }
+            4 => {
+                g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG3;
+                g.objs.aliens[idx as usize].vel = 0;
+            }
+            _ => {}
+        }
+
+        // Active ifeq 0 block: base explode when viewtoobj rises past -1000
+        if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0
+            && g.objs.aliens[view as usize].worldy < -1000
+        {
+            g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+            // circleobj / circleanim cosmetic — skip mesh; keep SE
+            g.hooks.play_se(0x1d);
+        }
+    }
+
+    {
+        let al = &g.objs.aliens[idx as usize];
+        g.vars.set_sv_i16(sv::VIEWPOSX, al.worldx);
+        g.vars.set_sv_i16(sv::VIEWPOSY, al.worldy);
+        g.vars.set_sv_i16(sv::VIEWPOSZ, al.worldz);
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        strat_gen_vecs_3d(al);
+        strat_apply_velocity(al);
+    }
+}
+
+// ============================================================
+// pshipIntoLB1 / viewIntoLB1 (GISTRATS.ASM:340-499)
+// ============================================================
+
+/// `maxpspeed - (inviewdist + maxpspeed)` = −inviewdist.
+const VIEW_INTOLB1_SWORD2_TARGET: i16 = -INVIEWDIST;
+
+/// Map object variables use the ROM/C `index + 1` encoding so zero remains
+/// the invalid/null value. `s_set_objtobevar` decodes that representation.
+fn mapvar1_obj(g: &Game) -> Option<u16> {
+    let encoded = g.vars.map.variable1 as u16;
+    let idx = encoded.checked_sub(1)?;
+    ((idx as usize) < NUMBER_AL && g.objs.aliens[idx as usize].active).then_some(idx)
+}
+
+/// ROM `pshipIntoLB1_Istrat` (GISTRATS.ASM:340).
+pub fn pshipintolb1_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, pshipintolb1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sflags |= ASF_COLLDISABLE;
+        al.vel = MED_PSPEED as u8;
+        al.sbyte1 = DEG90 / 2; // 32
+        al.stratstate = 0;
+    }
+}
+
+/// ROM `pshipIntoLB1_strat` (GISTRATS.ASM:346) — climb/roll into L-tunnel.
+pub fn pshipintolb1_strat(g: &mut Game, idx: u16) {
+    // Fall-through ifnotstate; state 2→4 handoff can complete same frame.
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], MIN_PSPEED as u8, 1);
+        g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_sub(2);
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb != 0 {
+            // stay in .nsup
+        } else {
+            g.objs.aliens[idx as usize].stratstate = 1;
+            g.objs.aliens[idx as usize].sbyte1 = DEG180 / 2; // 64
+        }
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        if g.objs.aliens[idx as usize].sbyte1 == 10 {
+            let gf2 = g.vars.shared.game_flags2;
+            g.vars.shared.game_flags2 = gf2 | GF2_STRATFLAG1;
+        }
+        g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(8);
+        let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], MIN_PSPEED as u8, 1);
+        g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_add(2);
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb == 0 {
+            g.objs.aliens[idx as usize].stratstate = 2;
+            g.objs.aliens[idx as usize].vel = MAX_PSPEED as u8;
+            g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+            g.hooks.play_se(0x32);
+            g.objs.aliens[idx as usize].sbyte1 = 40;
+        }
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 2 {
+        if let Some(mapvar) = mapvar1_obj(g) {
+            let tx = g.objs.aliens[mapvar as usize].worldx;
+            let tz = g.objs.aliens[mapvar as usize].worldz;
+            let wx = g.objs.aliens[idx as usize].worldx;
+            let wz = g.objs.aliens[idx as usize].worldz;
+            g.objs.aliens[idx as usize].worldz = strat_chase_proportional(wz, tz, 4);
+            g.objs.aliens[idx as usize].worldx = strat_chase_proportional(wx, tx, 4);
+        }
+        let mut rz = g.objs.aliens[idx as usize].rotz;
+        crate::enemy_a::achase_angle(&mut rz, 0, 3);
+        g.objs.aliens[idx as usize].rotz = rz;
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb == 0 {
+            g.objs.aliens[idx as usize].stratstate = 4;
+        }
+    }
+
+    if g.objs.aliens[idx as usize].stratstate == 4 {
+        let p = g.vars.internal_playpt;
+        if p >= 0 && (p as usize) < NUMBER_AL {
+            let pidx = p as u16;
+            set_player_in_ltunnel(g, pidx);
+            g.objs.aliens[pidx as usize].sflags &= !ASF_INVISIBLE;
+            g.vars.set_sv_i16(sv::VIEWTOOBJ, pidx as i16);
+            g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+            g.vars.pviewvelz = MAX_PSPEED;
+            g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
+            g.vars.set_sv_i16(sv::OUTDIST, INVIEWDIST);
+            g.vars.viewdist = INVIEWDIST;
+            g.vars.set_sv_u8(sv::PLAYER_MEDSPEED, MED_PSPEED as u8);
+            g.objs.aliens[pidx as usize].vel = MAX_PSPEED as u8;
+            g.objs.aliens[pidx as usize].sbyte2 = 1; // boost delay
+            g.objs.aliens[pidx as usize].worldy = LTUNNEL_VIEWCY - 5;
+            g.objs.aliens[pidx as usize].worldx = 0;
+            let wz = g.objs.aliens[pidx as usize].worldz;
+            g.vars.player_posz = wz;
+            g.vars
+                .set_sv_i16(sv::PVIEWPOSZ, wz.wrapping_sub(MAX_PSPEED));
+            g.vars.set_sv_i16(sv::PVIEWPOSY, LTUNNEL_VIEWCY);
+            g.vars.set_sv_i16(sv::PVIEWPOSX, 0);
+            g.vars.set_sv_i16(sv::OUTVX, 0);
+            g.vars.set_sv_i16(sv::OUTVY, 0);
+            g.vars.set_sv_i16(sv::OUTVZ, 0);
+            g.vars.gameflags &= !GF_NOZREMOVE;
+            g.vars.shared.float_variables = [0; 2];
+        }
+        g.objs.aldead = 1;
+        return;
+    }
+
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        strat_gen_vecs_3d(al);
+        strat_apply_velocity(al);
+    }
+}
+
+/// ROM `viewIntoLB1_Istrat` (GISTRATS.ASM:434).
+pub fn viewintolb1_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, viewintolb1_strat);
+    let outdist = g.vars.sv_i16(sv::OUTDIST);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sflags |= ASF_COLLDISABLE;
+        al.vel = MED_PSPEED as u8;
+        al.sbyte1 = DEG90 / 3; // 21
+        al.sword1 = outdist; // Z offset
+        al.sword2 = 0; // Y offset
+        al.ptr = 0; // X offset (signed via i16 cast)
+    }
+    // 50% chance set sflag1 (left/right drift).
+    if (sf_random(&mut g.vars) as u8) >= ((50u16 * 255) / 100) as u8 {
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+    }
+}
+
+/// ROM `viewIntoLB1_strat` (GISTRATS.ASM:449) — camera offsets follow pship state.
+pub fn viewintolb1_strat(g: &mut Game, idx: u16) {
+    let view = g.vars.sv_i16(sv::VIEWTOOBJ);
+    if view >= 0 && (view as usize) < NUMBER_AL {
+        let vstate = g.objs.aliens[view as usize].stratstate;
+        match vstate {
+            0 => {
+                g.objs.aliens[idx as usize].sword1 =
+                    g.objs.aliens[idx as usize].sword1.wrapping_add(4);
+                let mut px = g.objs.aliens[idx as usize].ptr as i16;
+                if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+                    px = px.wrapping_sub(2);
+                } else {
+                    px = px.wrapping_add(2);
+                }
+                g.objs.aliens[idx as usize].ptr = px as u16;
+            }
+            1 => {
+                let s1 = g.objs.aliens[idx as usize].sword1;
+                g.objs.aliens[idx as usize].sword1 = strat_chase_proportional(s1, 5, 4);
+                g.objs.aliens[idx as usize].sword2 =
+                    g.objs.aliens[idx as usize].sword2.wrapping_sub(8);
+            }
+            2 => {
+                let s2 = g.objs.aliens[idx as usize].sword2;
+                g.objs.aliens[idx as usize].sword2 =
+                    strat_chase_proportional(s2, VIEW_INTOLB1_SWORD2_TARGET, 4);
+                let mut px = g.objs.aliens[idx as usize].ptr as i16;
+                px = strat_chase_proportional(px, 0, 3);
+                g.objs.aliens[idx as usize].ptr = px as u16;
+            }
+            3 => {}
+            4 => {
+                g.objs.aldead = 1;
+                return;
+            }
+            _ => {}
+        }
+
+        let src = g.objs.aliens[view as usize];
+        let s1 = g.objs.aliens[idx as usize].sword1;
+        let s2 = g.objs.aliens[idx as usize].sword2;
+        let px = g.objs.aliens[idx as usize].ptr as i16;
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldx = src.worldx.wrapping_add(px);
+            al.worldy = src.worldy.wrapping_add(s2);
+            al.worldz = src.worldz.wrapping_sub(s1);
+        }
+    }
+
+    {
+        let al = &g.objs.aliens[idx as usize];
+        g.vars.set_sv_i16(sv::VIEWPOSX, al.worldx);
+        g.vars.set_sv_i16(sv::VIEWPOSY, al.worldy);
+        g.vars.set_sv_i16(sv::VIEWPOSZ, al.worldz);
+        g.vars.set_sv_i16(sv::BGSSCROLLZ, al.worldy);
+    }
+}
+
+// ============================================================
+// pshipDIVEGND / viewDIVEGND (GCSTRATS.ASM:1037-1190)
+// ============================================================
+
+const PLANET_VIEW_CY: i16 = -50 - 105 - 60; // STRATEQU.INC:558 = -215
+const PSHIP_DIVEGND_Y: i16 = -2853 + 105 + PLANET_VIEW_CY; // -2963
+const VIEW_DIVEGND_Y: i16 = -2692 + 105 + PLANET_VIEW_CY; // -2802
+const PSHIP_DIVEGND_COUNT: u8 = 50 - 16 + 20; // 54
+
+fn divegnd_target(g: &Game, idx: u16) -> Option<u16> {
+    let t = g.objs.aliens[idx as usize].sword1;
+    if t >= 0 && (t as usize) < NUMBER_AL && g.objs.aliens[t as usize].active {
+        Some(t as u16)
+    } else {
+        None
+    }
+}
+
+fn divegnd_zdist(a: &sf_game::alien::Alien, b: &sf_game::alien::Alien) -> i32 {
+    (a.worldz as i32 - b.worldz as i32).abs()
+}
+
+/// ROM `pshipDIVEGND_Istrat` (GCSTRATS.ASM:1037).
+pub fn pshipdivegnd_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, pshipdivegnd_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = DEG90;
+        al.stratptr = Some(tick);
+        al.vel = 50;
+        al.worldy = PSHIP_DIVEGND_Y;
+        al.sflags |= ASF_SHADOW;
+        al.type_ &= !ATZREMOVE;
+        al.sbyte1 = PSHIP_DIVEGND_COUNT;
+    }
+}
+
+/// ROM `pshipDIVEGND_strat` (GCSTRATS.ASM:1048) — dive then hand off to on-planet.
+pub fn pshipdivegnd_strat(g: &mut Game, idx: u16) {
+    if let Some(view) = divegnd_target(g, idx) {
+        let dz = {
+            let me = &g.objs.aliens[idx as usize];
+            let v = &g.objs.aliens[view as usize];
+            divegnd_zdist(me, v)
+        };
+        if dz >= OUTVIEWDIST as i32 {
+            // Far from view cam → remove both, restore player on planet.
+            g.objs.free(view);
+            g.objs.aldead = 1;
+            let p = g.vars.internal_playpt;
+            if p >= 0 && (p as usize) < NUMBER_AL {
+                let pidx = p as u16;
+                playeronplanet_init(g, pidx);
+                {
+                    let src = g.objs.aliens[idx as usize];
+                    let pl = &mut g.objs.aliens[pidx as usize];
+                    pl.worldx = src.worldx;
+                    pl.worldy = src.worldy;
+                    pl.worldz = src.worldz;
+                    pl.sflags &= !ASF_INVISIBLE;
+                    pl.vel = MED_PSPEED as u8;
+                }
+            }
+            g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+            g.vars.pviewvelz = MED_PSPEED;
+            g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MED_PSPEED as u8);
+            g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
+            g.vars.viewdist = OUTVIEWDIST;
+            g.vars.set_sv_u8(sv::PLAYER_MEDSPEED, MED_PSPEED as u8);
+            return;
+        }
+    }
+
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        strat_gen_vecs_3d(al);
+        strat_apply_velocity(al);
+    }
+
+    // s_beqdec → .fin2
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_TOOBJ);
+        divegnd_fin(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+
+    if g.objs.aliens[idx as usize].sbyte1 < 20 {
+        divegnd_fin(g, idx);
+        return;
+    }
+
+    g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_sub(8);
+    let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], 20, 1);
+}
+
+fn divegnd_fin(g: &mut Game, idx: u16) {
+    g.vars.gameflags &= !GF_NOZREMOVE;
+    let mut rx = g.objs.aliens[idx as usize].rotx;
+    crate::enemy_a::achase_angle(&mut rx, 0, 5);
+    g.objs.aliens[idx as usize].rotx = rx;
+    let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], MED_PSPEED as u8, 1);
+    let mut rz = g.objs.aliens[idx as usize].rotz;
+    crate::enemy_a::achase_angle(&mut rz, 0, 4);
+    g.objs.aliens[idx as usize].rotz = rz;
+}
+
+/// ROM `viewDIVEGND_Istrat` (GCSTRATS.ASM:1104).
+pub fn viewdivegnd_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, viewdivegnd_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.type_ &= !ATZREMOVE;
+        al.worldy = VIEW_DIVEGND_Y;
+        al.vel = 20;
+        al.rotx = DEG90;
+        al.sbyte1 = 90;
+    }
+    g.vars.set_sv_i16(sv::OUTVX, -DEG90_256);
+    g.vars.set_sv_i16(sv::OUTVZ, 0);
+}
+
+/// ROM `viewDIVEGND_strat` (GCSTRATS.ASM:1116) — camera dive tracking pship.
+pub fn viewdivegnd_strat(g: &mut Game, idx: u16) {
+    if let Some(ship) = divegnd_target(g, idx) {
+        let svz = g.objs.aliens[ship as usize].vz;
+        g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(svz);
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        strat_gen_vecs_3d(al);
+        // ROM only adds vy to worldy (not full add_vecs2pos).
+        al.worldy = al.worldy.wrapping_add(al.vy);
+    }
+    {
+        let al = &g.objs.aliens[idx as usize];
+        g.vars.set_sv_i16(sv::PVIEWPOSX, al.worldx);
+        g.vars.set_sv_i16(sv::PVIEWPOSY, al.worldy);
+        g.vars.set_sv_i16(sv::PVIEWPOSZ, al.worldz);
+    }
+    let p = g.vars.internal_playpt;
+    if p >= 0 && (p as usize) < NUMBER_AL {
+        let src = g.objs.aliens[idx as usize];
+        let pl = &mut g.objs.aliens[p as usize];
+        pl.worldx = src.worldx;
+        pl.worldy = src.worldy;
+        pl.worldz = src.worldz;
+    }
+
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(3);
+        viewdivegnd_fin(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+
+    if g.objs.aliens[idx as usize].sbyte1 < 40 {
+        viewdivegnd_fin(g, idx);
+        return;
+    }
+
+    let ovz = g.vars.sv_i16(sv::OUTVZ).wrapping_sub(4 * 256);
+    g.vars.set_sv_i16(sv::OUTVZ, ovz);
+}
+
+fn viewdivegnd_fin(g: &mut Game, idx: u16) {
+    let mut rx = g.objs.aliens[idx as usize].rotx;
+    crate::enemy_a::achase_angle(&mut rx, 0, 5);
+    g.objs.aliens[idx as usize].rotx = rx;
+    let _ = strat_speed_to(&mut g.objs.aliens[idx as usize], MED_PSPEED as u8, 1);
+    let ovz = strat_chase_proportional(g.vars.sv_i16(sv::OUTVZ), 0, 3);
+    g.vars.set_sv_i16(sv::OUTVZ, ovz);
+}
+
+/// ROM `set_playerTunneltoOnPlanet_l` / init.
+pub fn set_player_tunnel_to_on_planet(g: &mut Game, idx: u16) {
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    playeronplanet_init(g, idx);
+    g.vars.set_sv_i16(sv::VIEWCY, -60); // LTexit_viewCY
+}
+
+/// ROM `playerTunneltoOnPlanet_strat` — chase viewCY to planet; then onplanet.
+pub fn player_tunnel_to_on_planet_strat(g: &mut Game, idx: u16) -> bool {
+    let cy = g.vars.sv_i16(sv::VIEWCY);
+    let next = strat_chase_proportional(cy, -50, 4); // planet_viewCY
+    g.vars.set_sv_i16(sv::VIEWCY, next);
+    if next == -50 {
+        playeronplanet_init(g, idx);
+        return true;
+    }
+    // Continue as on-planet flight while viewCY eases.
+    strat_player(g, idx);
+    false
+}
+
+/// ROM `set_playerDIVEGND_l` / init (cutscene dive; stayblack gate).
+pub fn set_player_dive_gnd(g: &mut Game, idx: u16) {
+    let stay = g.vars.sv_i8(sv::STAYBLACK);
+    if stay > 11 {
+        playeronplanet_init(g, idx);
+        return;
+    }
+    g.vars.gameflags |= GF_NOZREMOVE;
+    playeronplanet_init(g, idx);
+    g.vars.gameflags &= !GF_VIEWROT;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    if let Some(dup) = dupplayer(g, idx) {
+        g.objs.aliens[dup as usize].worldx = 0;
+        g.objs.aliens[dup as usize].worldy = 0;
+        g.objs.aliens[dup as usize].worldz = 0;
+        g.vars.set_sv_i16(sv::VIEWTOOBJ, dup as i16);
+    }
+    g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+}
+
+/// ROM `set_playercred_l` / `playercred_Istrat` (PSTRATS.ASM:565).
+pub fn set_player_cred(g: &mut Game, idx: u16) {
+    player_cred_istrat(g, idx);
+}
+
+/// ROM `playercred_Istrat`.
+pub fn player_cred_istrat(g: &mut Game, idx: u16) {
+    g.world.lastplayz = 0;
+    g.vars.set_sv_i16(sv::VIEWPOSZ, 0);
+    g.vars.set_sv_i16(sv::PLAYER_TURNROT, 0);
+    g.vars.gameflags &= !GF_NOZREMOVE;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = 0;
+        al.worldy = 0;
+        al.worldz = 0;
+        al.sflags |= ASF_INVISIBLE;
+        al.vel = MED_PSPEED as u8;
+    }
+    g.vars.set_sv_i16(sv::OUTVX, 0);
+    g.vars.set_sv_i16(sv::OUTVY, 0);
+    g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
+    g.vars.viewdist = OUTVIEWDIST;
+    g.vars.set_sv_i16(sv::PVIEWPOSX, 0);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, 0);
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, 0);
+    g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    set_player_in_space(g, idx);
+    g.vars.playerflymode &= !PFM_WOBBLE;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.pshipflags3 &= !PSF3_ENGINESND;
+    g.vars.set_sv_u8(sv::PLAYER_MEDSPEED, MED_PSPEED as u8);
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MED_PSPEED as u8);
+    g.vars.pviewvelz = MED_PSPEED;
+    g.vars.set_sv_i16(sv::PLROTZ, 0);
+    let s = ea_sid(g, player_cred_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+}
+
+/// ROM `playercred_strat`.
+pub fn player_cred_strat(g: &mut Game, idx: u16) {
+    do_player_limit_x(g, idx);
+    viewmove_srou(g, idx);
+    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.vars.set_sv_i16(sv::OUTVZ, 0);
+    g.vars.set_sv_i16(sv::PLROTZ, 0);
+}
+
+/// ROM `set_playerIntoLB1_l` — start chase toward mapvar1 then LB1 cutscene.
+pub fn set_player_into_lb1(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_into_lb1a_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.internal_playpt = idx as i16;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+}
+
+/// ROM `playerIntoLB1a_strat` — chase center; hand off when Z-near map target.
+pub fn player_into_lb1a_strat(g: &mut Game, idx: u16) {
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = strat_chase_proportional(al.worldx, 0, 4);
+        al.worldy = strat_chase_proportional(al.worldy, view_cy, 4);
+    }
+    if let Some(target) = mapvar1_obj(g) {
+        let dz = g.objs.aliens[idx as usize].worldz as i32
+            - g.objs.aliens[target as usize].worldz as i32;
+        if dz.abs() < 1785 {
+            player_into_lb1_istrat(g, idx);
+            return;
+        }
+    }
+    strat_player(g, idx);
+}
+
+/// ROM `playerIntoLB1_Istrat` (PISTRATS.ASM:770-794): hide the real player,
+/// create the cinematic ship and camera objects, then let the real player
+/// continue scrolling while the duplicate performs the entrance maneuver.
+pub fn player_into_lb1_istrat(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_into_lb1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = None;
+        al.expstratptr = None;
+    }
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    g.vars.gameflags &= !GF_STRATDONE1;
+    g.vars.playerflymode &= !PFM_WOBBLE;
+    g.vars.pstratflags |= PSTF_INSEQ;
+
+    if let Some(ship) = dupplayer(g, idx) {
+        pshipintolb1_istrat(g, ship);
+        g.vars.set_sv_i16(sv::VIEWTOOBJ, ship as i16);
+        g.vars
+            .set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS | VIEWTYPE_TOOBJ);
+
+        if let Some(view) = strat_make_obj(g, 0) {
+            let src = g.objs.aliens[idx as usize];
+            let dst = &mut g.objs.aliens[view as usize];
+            dst.worldx = src.worldx;
+            dst.worldy = src.worldy;
+            dst.worldz = src.worldz;
+            viewintolb1_istrat(g, view);
+        }
+    }
+
+    g.vars.gameflags |= GF_NOZREMOVE;
+    player_into_lb1_strat(g, idx);
+}
+
+/// ROM `playerIntoLB1_strat`: the hidden real player remains the map-scroll
+/// anchor while its cinematic duplicate flies into the base.
+pub fn player_into_lb1_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].worldz =
+        g.objs.aliens[idx as usize].worldz.wrapping_add(MED_PSPEED);
+}
+
+// ============================================================
+// Cutscene phase-2 inits (PCSTRATS.ASM / PSTRATS.ASM)
+// ============================================================
+
+/// ROM `playerstart_init_l` — reset ship flags + select norm ship + nuke count.
+pub fn player_start_init(g: &mut Game) {
+    g.vars.reset_player_run_state();
+    select_ship(g, PSHIPNUM_NORM);
+}
+
+/// ROM `playermove_init_l` — view/play pointers + outviewdist.
+pub fn player_move_init(g: &mut Game, idx: u16) {
+    g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+    g.vars.set_sv_i16(sv::VIEWTOOBJ, idx as i16);
+    g.vars.internal_playpt = idx as i16;
+    g.vars.viewdist = OUTVIEWDIST;
+    g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
+}
+
+/// ROM `playerCHASE2_init` — dup + silence engines; continue as space.
+pub fn player_chase2_init(g: &mut Game, idx: u16) -> Option<u16> {
+    let tick = ea_sid(g, player_chase2_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags3 &= !PSF3_ENGINESND;
+    dupplayer(g, idx)
+}
+
+/// ROM `playerClearTurn2_init`.
+pub fn player_clear_turn2_init(g: &mut Game, idx: u16) -> Option<u16> {
+    let tick = ea_sid(g, player_clear_turn2_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    let dup = dupplayer(g, idx)?;
+    // clshipTurn sbyte1 = (deg180+deg45+deg22+deg11)/4 = (128+32+16+8)/4 = 46
+    g.objs.aliens[dup as usize].sbyte1 = 46;
+    g.vars.set_sv_i16(sv::OUTVY, 0);
+    Some(dup)
+}
+
+/// ROM `playerUNDER2_init`.
+pub fn player_under2_init(g: &mut Game, idx: u16) -> Option<u16> {
+    let tick = ea_sid(g, player_under2_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags3 &= !PSF3_ENGINESND;
+    dupplayer(g, idx)
+}
+
+/// ROM `playerwarp1_init` (PCSTRATS.ASM:907) — dupplayer → clshipboostnosnd.
+pub fn player_warp1_init(g: &mut Game, idx: u16) -> Option<u16> {
+    let tick = ea_sid(g, player_warp1_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.hooks.play_music(0xe);
+    let dup = dupplayer(g, idx)?;
+    g.objs.aliens[dup as usize].sbyte2 = 19;
+    crate::enemy_a::clshipboostnosnd_istrat(g, dup);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 20);
+    g.vars.pshipflags3 &= !PSF3_ENGINESND;
+    Some(dup)
+}
+
+/// ROM `playerwarp2_init` — hand off to space strat (no extra state).
+pub fn player_warp2_init(_g: &mut Game, _idx: u16) {}
+
+/// ROM `playerDIVE2_init`.
+pub fn player_dive2_init(g: &mut Game, idx: u16) -> Option<u16> {
+    let tick = ea_sid(g, player_dive2_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.pshipflags3 &= !PSF3_ENGINESND;
+    dupplayer(g, idx)
+}
+
+/// ROM `playercleardemo2_init`.
+pub fn player_clear_demo2_init(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_clear_demo2_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 0);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE2, 250);
+}
+
 /// C `dupplayer` (PSTRATS.ASM:3516-3525): copy of the player ship object;
 /// the player goes invisible, the duplicate gets colldisable+shadow.
 fn dupplayer(g: &mut Game, idx: u16) -> Option<u16> {
@@ -2123,8 +6413,8 @@ fn playerclearbridge2_init(g: &mut Game, idx: u16) {
     // dupplayer — create wingman copy for bridge boost
     if let Some(dup) = dupplayer(g, idx) {
         // s_set_strat y,clshipbridgeboost_Istrat
-        // clshipbridgeboost not yet ported; colldisable placeholder (C parity).
-        g.objs.aliens[dup as usize].sflags |= ASF_COLLDISABLE;
+        let boost = ea_sid(g, crate::enemy_a::clship_bridgeboost_istrat);
+        g.objs.aliens[dup as usize].stratptr = Some(boost);
     }
     // s_set_strat x,playerclearbridge3_strat
     let id3 = sid(g, K_CLEARBRIDGE3_STRAT);
@@ -2276,8 +6566,10 @@ fn player_escape_nucleus2_init(g: &mut Game, idx: u16) {
 
     // s_set_vartobeobj boostobj,x
     g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
-
-    // boost_sprite — visual boost effect (not yet ported, skip)
+    if g.vars.sv_u8(sv::BOOSTZOFF) == 0 {
+        set_boost_zoff(g, -30);
+    }
+    let _ = boost_sprite(g, None);
 
     player_escape_nucleus2_start(g, idx);
 }
@@ -2449,7 +6741,10 @@ fn playeropeningboost_init(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].stratptr = Some(boost_id);
     // s_set_vartobeobj boostobj,x
     g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
-    // boost_sprite — SNES sprite overlay, not applicable in HD
+    if g.vars.sv_u8(sv::BOOSTZOFF) == 0 {
+        set_boost_zoff(g, -30);
+    }
+    let _ = boost_sprite(g, None);
     // trigse $32
     g.hooks.play_se(0x32);
     // s_and_var B,pshipflags3,#~psf3_enginesnd
@@ -2502,31 +6797,7 @@ pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
 
     // s_playerfly_mode Ltunnel
-    {
-        let v = &mut g.vars;
-        v.set_sv_i16(sv::VIEWCY, LTUNNEL_VIEWCY);
-        v.set_sv_i16(sv::MINPMOVEX, LTUNNEL_MINX);
-        v.set_sv_i16(sv::MAXPMOVEX, LTUNNEL_MAXX);
-        v.set_sv_i16(sv::MINMMOVEX, LTUNNEL_MMINX);
-        v.set_sv_i16(sv::MAXMMOVEX, LTUNNEL_MMAXX);
-        v.set_sv_i16(sv::MAXMMOVEY, LTUNNEL_MMAXY);
-        v.set_sv_i16(sv::MINPWMOVEY, LTUNNEL_MINY);
-        v.set_sv_i16(sv::MAXPWMOVEY, LTUNNEL_MAXY + 5);
-        v.minpmove_y = LTUNNEL_MINY;
-        v.set_sv_i16(sv::MAXPMOVEY, LTUNNEL_MAXY + PLAYERB_YSTOP);
-        v.playerflymode = PFM_DIEFALL | PFM_SHADOWS;
-        v.set_sv_u8(sv::PMOVELIMITAND, PML_ALL);
-        v.set_sv_u8(sv::MISSBOUNDFLAGS, MB_LEFT | MB_RIGHT | MB_BOTTOM);
-        // Ltunnel_gameflagsON = 0 (no-op)
-        v.gameflags &= !GF_VIEWROT; // ~Ltunnel_gameflagsOFF
-        v.pstratflags &= !PSTF_NOVIEWMOVE;
-        v.pshipflags3 |= PSF3_ENGINESND;
-        // Ltunnel_macro
-        v.pshipflags2 &= !PSF2_NOSPARK;
-        v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
-    }
-    g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
-    g.vars.pshipflags3 |= PSF3_INTUNNEL;
+    apply_tunnel_fly_mode(g, idx, FLY_LTUNNEL);
 
     // s_set_alptrs x,playerpening_strat,0,0
     let pening_id = sid(g, K_PLAYERPENING_STRAT);
@@ -2540,7 +6811,7 @@ pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
     // stz gameframe
     g.vars.gameframe = 0;
 
-    // lda #2 / sta fadedir
+    // Select fade direction 2.
     g.vars.set_sv_i8(sv::FADEDIR, 2);
 
     // s_set_var W,outvx,#-deg11*256
@@ -2589,3 +6860,314 @@ pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
 
 // Re-export the sv module for tests and other-lane wiring convenience.
 pub use crate::common::sv as player_sv;
+
+// ============================================================
+// Fly-in / straight / speed / on-cont (PISTRATS.ASM / PSTRATS.ASM)
+// ============================================================
+
+fn flyin_med_speed_setup(g: &mut Game, idx: u16) {
+    g.vars.pviewvelz = MED_PSPEED;
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MED_PSPEED as u8);
+    g.vars.set_sv_u8(sv::PLAYER_MEDSPEED, MED_PSPEED as u8);
+    g.objs.aliens[idx as usize].vel = MED_PSPEED as u8;
+}
+
+fn flyin_chase_y_done(g: &mut Game, idx: u16, shift: u32) -> bool {
+    let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    let y = g.objs.aliens[idx as usize].worldy;
+    let ny = strat_chase_proportional(y, view_cy, shift);
+    g.objs.aliens[idx as usize].worldy = ny;
+    ny == view_cy
+}
+
+/// ROM `playerspaceflyin_Istrat` (PISTRATS.ASM:116).
+pub fn player_space_flyin_istrat(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    set_player_in_space(g, idx);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let s = ea_sid(g, player_space_flyin_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.worldx = 0;
+        al.worldy = -400;
+        al.worldz = 0;
+    }
+    g.vars.pstratflags |= PSTF_NOVDISTC;
+    flyin_med_speed_setup(g, idx);
+}
+
+/// ROM `playerspaceflyin_strat`.
+pub fn player_space_flyin_strat(g: &mut Game, idx: u16) {
+    let od = g.vars.sv_i16(sv::OUTDIST).wrapping_add(3);
+    g.vars.set_sv_i16(sv::OUTDIST, od);
+    if flyin_chase_y_done(g, idx, 3) {
+        g.vars.pstratflags &= !PSTF_NOVDISTC;
+        set_player_in_space(g, idx);
+        return;
+    }
+    player_in_space_strat(g, idx);
+}
+
+/// ROM `playerinsidespaceflyin_Istrat` (PISTRATS.ASM:139).
+pub fn player_inside_space_flyin_istrat(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    set_player_in_space(g, idx);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let s = ea_sid(g, player_inside_space_flyin_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.worldx = 0;
+        al.worldy = -400;
+        al.worldz = 0;
+    }
+    g.vars.pstratflags |= PSTF_NOVDISTC;
+    let wz = g.objs.aliens[idx as usize].worldz;
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, wz);
+    g.vars.set_sv_i16(sv::OUTDIST, INVIEWDIST);
+    g.vars.viewdist = INVIEWDIST;
+    flyin_med_speed_setup(g, idx);
+}
+
+/// ROM `playerinsidespaceflyin_strat`.
+pub fn player_inside_space_flyin_strat(g: &mut Game, idx: u16) {
+    let od = g.vars.sv_i16(sv::OUTDIST).wrapping_add(3);
+    g.vars.set_sv_i16(sv::OUTDIST, od);
+    if flyin_chase_y_done(g, idx, 3) {
+        g.vars.pstratflags &= !PSTF_NOVDISTC;
+        g.vars.splayerflymode = SPFM_TOINSIDE;
+        // changeviewmode_l — HD view swap is scoped; keep space flight.
+        player_in_space_strat(g, idx);
+        return;
+    }
+    player_in_space_strat(g, idx);
+}
+
+/// ROM `playerplanetflyin_Istrat` (PISTRATS.ASM:168).
+pub fn player_planet_flyin_istrat(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    set_player_on_planet(g, idx);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let s = ea_sid(g, player_planet_flyin_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.worldx = 0;
+        al.worldy = -400;
+        al.worldz = 0;
+    }
+    g.vars.pstratflags |= PSTF_NOVDISTC;
+    flyin_med_speed_setup(g, idx);
+}
+
+/// ROM `playerplanetflyin_strat`.
+pub fn player_planet_flyin_strat(g: &mut Game, idx: u16) {
+    let od = g.vars.sv_i16(sv::OUTDIST).wrapping_add(3);
+    g.vars.set_sv_i16(sv::OUTDIST, od);
+    if flyin_chase_y_done(g, idx, 3) {
+        g.vars.pstratflags &= !PSTF_NOVDISTC;
+        set_player_on_planet(g, idx);
+        return;
+    }
+    player_on_planet_body(g, idx);
+}
+
+/// ROM `playerLtunnelflyin_Istrat` (PISTRATS.ASM:191).
+pub fn player_ltunnel_flyin_istrat(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    set_player_in_ltunnel(g, idx);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let s = ea_sid(g, player_ltunnel_flyin_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.worldy = -120;
+        al.vel = MAX_PSPEED as u8;
+    }
+}
+
+/// ROM `playerLtunnelflyin_strat`.
+pub fn player_ltunnel_flyin_strat(g: &mut Game, idx: u16) {
+    if flyin_chase_y_done(g, idx, 3) {
+        set_player_in_ltunnel(g, idx);
+        return;
+    }
+    player_in_tunnel_strat(g, idx);
+}
+
+/// ROM `playerColonyflyin_Istrat` (PISTRATS.ASM:219).
+pub fn player_colony_flyin_istrat(g: &mut Game, idx: u16) {
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    set_player_in_colony(g, idx);
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    let s = ea_sid(g, player_colony_flyin_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.worldy = -120;
+        al.vel = MAX_PSPEED as u8;
+    }
+}
+
+/// ROM `playerColonyflyin_strat`.
+pub fn player_colony_flyin_strat(g: &mut Game, idx: u16) {
+    if flyin_chase_y_done(g, idx, 4) {
+        set_player_in_colony(g, idx);
+        return;
+    }
+    player_in_colony_strat(g, idx);
+}
+
+/// ROM `playerstraight_strat` (PSTRATS.ASM:623) — lock view/ship to med cruise.
+pub fn player_straight_strat(g: &mut Game, idx: u16) {
+    g.vars.set_sv_u8(sv::ARROWS, 0);
+    g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+    g.vars.set_sv_i16(sv::PLROTX, 0);
+    g.vars.set_sv_i16(sv::PLROTY, 0);
+    g.vars.set_sv_i16(sv::PLROTZ, 0);
+    let ovx = strat_chase_proportional(g.vars.sv_i16(sv::OUTVX), 0, 3);
+    let ovy = strat_chase_proportional(g.vars.sv_i16(sv::OUTVY), 0, 3);
+    g.vars.set_sv_i16(sv::OUTVX, ovx);
+    g.vars.set_sv_i16(sv::OUTVY, ovy);
+    g.vars.set_sv_i16(sv::OUTVZ, 0);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = 0;
+        al.roty = 0;
+        al.rotz = 0;
+        al.vel = MED_PSPEED as u8;
+        strat_gen_vecs_3d(al);
+        strat_apply_velocity(al);
+        al.worldx = 0;
+        al.worldy = g.vars.sv_i16(sv::VIEWCY);
+    }
+    g.vars.set_sv_u8(sv::VIEWSHAKEX, 0);
+    g.vars.set_sv_u8(sv::VIEWSHAKEY, 0);
+    g.vars.set_sv_u8(sv::VIEWSHAKEZ, 0);
+    g.vars.pviewvelz = MED_PSPEED;
+    g.vars.set_sv_i16(sv::PVIEWPOSX, 0);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, g.vars.sv_i16(sv::VIEWCY));
+    let pz = g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_add(MED_PSPEED);
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, pz);
+}
+
+/// ROM `playerspeedup_Istrat` (PSTRATS.ASM:1297) — boost player then remove self.
+pub fn player_speedup_istrat(g: &mut Game, idx: u16) {
+    let p = g.vars.internal_playpt;
+    if p >= 0 {
+        let p = p as u16;
+        let boost = ((MAX_PSPEED - MED_PSPEED) / 2) + MED_PSPEED;
+        g.objs.aliens[p as usize].vel = MAX_PSPEED as u8;
+        g.vars.pviewvelz = boost;
+        g.objs.aliens[p as usize].sbyte2 = 20;
+    }
+    g.objs.aldead = 1;
+    let _ = idx;
+}
+
+/// ROM `playerspeedstop_Istrat` (PSTRATS.ASM:1307).
+pub fn player_speedstop_istrat(g: &mut Game, idx: u16) {
+    g.vars.set_sv_u8(sv::PLAYER_TOSPEED, 0);
+    g.objs.aldead = 1;
+    let _ = idx;
+}
+
+/// ROM `set_playerOnfield_l` / field fly-mode (STRATEQU.INC:723-742).
+pub fn set_player_on_field(g: &mut Game, idx: u16) {
+    apply_planet_style_fly_mode(
+        g,
+        idx,
+        -60,  // field_viewCY
+        -500, // field_minX
+        500,
+        -500,
+        500,
+        -120, // field_minY
+        0,    // field_maxY
+        0,    // field_MmaxY
+        PFM_DIEFALL | PFM_DIEYROT | PFM_SHADOWS | PFM_WOBBLE,
+        PML_LWBOTTOM | PML_RWBOTTOM | PML_BBOTTOM,
+        MB_BOTTOM,
+        false, // field_gameflagsOFF = gf_viewrot
+        true,
+        true,
+    );
+}
+
+/// ROM `playeronfield_Istrat` (PSTRATS.ASM:806).
+pub fn player_on_field_istrat(g: &mut Game, idx: u16) {
+    set_player_on_field(g, idx);
+    let s = ea_sid(g, player_on_field_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    // coll/dead ptrs stay on the shared player paths from spawn.
+    player_on_field_strat(g, idx);
+}
+
+/// ROM `playeronfield_strat` (PSTRATS.ASM:816): limitX, viewX=perc87,
+/// viewY=ViewCY, viewmove. Source is under `ifeq 1` (not in retail image) but
+/// matches the live `playeronplanet` X formula; the `gf2_viewclose`→perc93
+/// branch is commented out in ASM, so always perc87.
+pub fn player_on_field_strat(g: &mut Game, idx: u16) {
+    do_player_limit_x(g, idx);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    g.vars.set_sv_i16(sv::PVIEWPOSX, strat_perc87(wx));
+    g.vars.set_sv_i16(sv::PVIEWPOSY, g.vars.sv_i16(sv::VIEWCY));
+    viewmove_srou(g, idx);
+}
+
+/// ROM `playeroncont_Istrat` (PSTRATS.ASM:722).
+pub fn player_on_cont_istrat(g: &mut Game, idx: u16) {
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    // cont fly-mode: cont_macro clears nospark/intunnel, sets notdie
+    g.vars.pshipflags2 &= !PSF2_NOSPARK;
+    g.vars.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
+    g.vars.pshipflags3 &= !PSF3_INTUNNEL;
+    g.vars.pstratflags |= PSTF_NOTDIE;
+    let s = ea_sid(g, player_on_cont_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.vars.pviewvelz = MED_PSPEED;
+    player_on_cont_strat(g, idx);
+}
+
+/// ROM `playeroncont_strat`.
+pub fn player_on_cont_strat(g: &mut Game, idx: u16) {
+    do_player_limit_x(g, idx);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    let wy = g.objs.aliens[idx as usize].worldy;
+    g.vars.set_sv_i16(sv::PVIEWPOSX, wx);
+    g.vars.set_sv_i16(sv::PVIEWPOSY, wy);
+    viewmove_srou(g, idx);
+    g.vars.set_sv_i16(sv::OUTVX, 0);
+    g.vars.set_sv_i16(sv::OUTVY, 0);
+    g.vars.set_sv_i16(sv::OUTDIST, 200);
+    g.vars.viewdist = 200;
+    g.objs.aliens[idx as usize].shape = SH_MY_DEMO_S;
+    g.vars.pshipflags3 &= !PSF3_ENGINESND;
+}
+
+/// ROM `playerDIVEGND_Istrat` — extend `set_player_dive_gnd` with stratptrs.
+pub fn player_divegnd_istrat(g: &mut Game, idx: u16) {
+    set_player_dive_gnd(g, idx);
+    let s = ea_sid(g, player_divegnd_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.world.lastplayz = 0;
+    g.vars.set_sv_i16(sv::OUTVX, 0);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = 0;
+        al.worldy = 0;
+        al.worldz = 0;
+    }
+}
+
+/// ROM `playerDIVEGND_strat` — body is mostly IFEQ'd out; keep alive.
+pub fn player_divegnd_strat(_g: &mut Game, _idx: u16) {}

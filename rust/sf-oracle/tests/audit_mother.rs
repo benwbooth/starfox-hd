@@ -96,7 +96,11 @@ fn call_bemother(bus: &mut SnesBus, bemother: u32) {
     call_near(
         bus,
         TRAMPOLINE,
-        &Entry { x: MOTHER as u16, p: 0x00, ..Default::default() },
+        &Entry {
+            x: MOTHER as u16,
+            p: 0x00,
+            ..Default::default()
+        },
     );
 }
 
@@ -197,11 +201,20 @@ fn bemother_obj_wait_goto_matches_rom() {
         rom_child,
         "child spawn (mother pos + mo_x/y/z, shape, atzremove)"
     );
-    let rust_t1 = (g.objs.aliens[m as usize].sword1, g.objs.aliens[m as usize].ptr);
+    let rust_t1 = (
+        g.objs.aliens[m as usize].sword1,
+        g.objs.aliens[m as usize].ptr,
+    );
     sf_strat::mother::bemother_on(&mut g, m, &blob);
-    let rust_t2 = (g.objs.aliens[m as usize].sword1, g.objs.aliens[m as usize].ptr);
+    let rust_t2 = (
+        g.objs.aliens[m as usize].sword1,
+        g.objs.aliens[m as usize].ptr,
+    );
     sf_strat::mother::bemother_on(&mut g, m, &blob);
-    let rust_t3 = (g.objs.aliens[m as usize].sword1, g.objs.aliens[m as usize].ptr);
+    let rust_t3 = (
+        g.objs.aliens[m as usize].sword1,
+        g.objs.aliens[m as usize].ptr,
+    );
 
     assert_eq!(rust_t1, rom_t1, "tick1 (al_sword1, al_ptr)");
     assert_eq!(rust_t2, rom_t2, "tick2 (wait only)");

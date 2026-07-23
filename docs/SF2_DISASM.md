@@ -3,7 +3,7 @@
 Companion to `docs/SF2_RECON.md`. This phase builds the *disassembly tooling* and
 uses it to locate the SF2 logic/geometry dispatchers by decoding the retail ROM's
 own machine bytes, using the SF1 opcode grammars (`reference/ultrastarfox/SF/` and
-the ported `src/`) as the Rosetta Stone.
+the Rust workspace) as the Rosetta Stone.
 
 **Provenance / clean-room:** everything here is derived from the user-owned retail
 ROM (`Star Fox 2 (USA, Europe).sfc`, 1 MB headerless LoROM, file offset == linear
@@ -67,13 +67,14 @@ in a variable, read an opcode from the `$8000,X` stream, dispatch through an
 **even-opcode word table**. Handlers begin `TYX` (restore the stream pointer from
 Y), read operands via `LDA $8001,X` / `LDA $8000,X`, `INX` to consume them, then
 either `JMP $8FD3` to re-dispatch (instant op) or store the pointer and `RTS`
-(wait/yield) — identical control-flow to `src/game/world.c:map_exec`.
+(wait/yield) — the control-flow now implemented by `rust/sf2-map`.
 
 **Table:** 83 word entries → bank-03 handlers clustered in `$98EE–$9FF2`,
-opcodes `0,2,4,…,164` (even), `0000`-terminated. Mechanically-derived handler
-classification (`sf2d_mapvm_opcodes.txt`): **62 instant "continue" opcodes, 12
-"yield/wait" opcodes, 9 unclassified** — the expected map-VM profile. Full table +
-listing in `sf2d_mapvm.asm`.
+opcodes `0,2,4,…,164` (even), `0000`-terminated. Reachability extraction from all
+25 retail roots proves **4,094 commands using 22 opcode semantics**, including 232
+object spawns and 262 inline routines. Every reachable opcode and every inline
+routine now has a typed Rust representation; unknown bytecode is rejected rather
+than guessed.
 
 ### 2.2 State-machine dispatchers — **medium confidence**
 `find_dispatch.py` surfaced several `ASL A / TAX / JMP|JSR ($tbl,X)` dispatchers
@@ -109,102 +110,126 @@ concrete GSU code offsets are gated on tracing that job table (§4).
 
 ---
 
-## 3. SF2 shape / geometry encoding — **finding: differs from SF1**
+## 3. SF2 shape / geometry encoding — **exactly extracted**
 
-The SF1 point-block grammar **does not resolve in SF2.** `probe_shapes.py`
-requires *well-formed* blocks (`04/08 <n>` followed by exactly `n·3`/`n·6`
-coordinate bytes and a `0C` terminator) and finds essentially **zero** across
-banks `0x12–0x17` (0,0,1,0,3,7 total). SF1's open, self-delimiting point/face
-format is therefore **not** how SF2 stores geometry. (`SF2_RECON.md`'s "44/6/45…"
-figure counted bare `0x04` bytes, not valid blocks.)
+The earlier bank-entropy inference was wrong. Runtime tracing and pointer
+validation locate **577 contiguous 28-byte `ShapeHdr` records** at CPU
+`$00:BC9C..$00:FB9B` (end-exclusive `$00:FB9C`). Every referenced point, face,
+and BSP stream uses the same Argonaut SHMACS grammar as SF1, including coplanar
+face lists and both BSP children. `tools/sf2/extract_shapes.py` validates every
+pointer and emits byte-derived Rust data with:
 
-Per-2KB entropy across the 3D banks splits them cleanly:
-- **Banks `0x12–0x14`: low entropy (2.8–6.4)**, visibly structured. Raw bytes at
-  `0x90000` are small nibble-aligned values (`20 20 40 30 30 …`) with recurring
-  `0x90`/`0x00` record markers — a **packed/tabular** geometry or transform
-  encoding, not SF1 open point-lists.
-- **Banks `0x15–0x17`: high entropy (7.3–7.7)** — **compressed or packed**
-  (textures / LZ-style shape blobs).
+- **11,860 vertices** and **10,524 polygon faces** across the 577 shapes;
+- **2 procedural shapes**, explicitly represented rather than mis-decoded;
+- point/face streams in ROM banks `$07`, `$0D`, and `$0F`;
+- exact landmark shape token `$EA00`: points `$0F:938D`, faces `$0F:93B6`, shift
+  4, 18 vertices, and 26 faces.
 
-The bank-01 "shape pointer index" at `0x8703` is actually a table of **evenly
-0x20-spaced** pointers into bank `0x12` (`12:8000, 12:8020, 12:8040 …`) — i.e.
-fixed **32-byte records** (consistent with 4bpp 8×8 graphics tiles or fixed-stride
-geometry cells), **not** variable-length SF1 shape headers.
-
-**Conclusion (high confidence):** SF2 uses a **different, denser geometry encoding**
-than SF1 — fixed-stride/packed in `0x12–0x14`, compressed in `0x15–0x17`. Pinning
-the exact stride and field layout requires disassembling the GSU shape-reader,
-which is gated on locating the GSU code stream (§2.3 / §4). The SF1 `shapehdr`
-pipeline in `sf-render` will **not** transfer directly; SF2 needs its own decoder.
+The table at file `0x8703` is not shape-header data: live GSU polygon-colour
+code proves it is the 211-entry, three-byte texture descriptor table. It ends
+at the 12-entry coordinate-layout pointer table at `0x897C`; the layouts occupy
+`0x8994..0x8A0B`, and the referenced packed-nibble pixels are in source banks
+`0x12`, `0x13`, and `0x14`. `rust/sf2-data` now contains all descriptors,
+layouts, texture banks, and 577 extracted meshes. `sf-render` selects these
+typed flat assets for SF2 faces, with offscreen GPU readback guarding against
+the former debug-magenta fallback.
 
 ---
 
 ## 4. Cross-reference to SF1 (opcode mapping status)
 
-### Map-VM opcode table — **structure mapped, semantics partial**
-`sf2d_mapvm_opcodes.txt` gives, per even opcode `0…164`, its handler address, its
-byte-derived operand size (INX-advance count), and its class (continue vs
-yield/wait). This is a mechanically-honest table. **SF2's numeric opcodes are
-reordered vs SF1** — e.g. SF2 opcode `0` is a *yield/return* (`03:9E6C`:
-`TYX / STX $1657 / RTS`), **not** SF1's `MAPOBJ`(spawn, op 0). A full
-SF2→SF1-semantic name mapping requires per-handler tracing (identifying the spawn,
-wait-by-distance, set-bg, JSR/loop, if/goto handlers by their side effects); that
-per-handler decode is the next increment, and is now mechanical given the located
-dispatcher + `disasm_host.py`. **No SF2↔SF1 name equivalences are asserted here
-that the bytes don't yet support.**
+### Map-VM opcode table — **all reachable semantics mapped**
+The extractor walks all 25 retail roots and emits 4,094 commands covering the 22
+opcodes actually reachable in those scripts. It preserves 232 spawn records, 50
+shape tokens, and all 262 inline 65816 routines. The inline blocks are no longer
+an arbitrary host callback: they are mechanically classified as 236 calls, 7 word
+bit operations, 4 conditional word-bit branches, 8 pilot-linked flag operations,
+and 7 GSU-program selections. `rust/sf2-map` executes these typed actions and
+validates every continuation against an extraction-proven exit.
 
-### ISTRAT strategy-pointer table — **unresolved (as `SF2_RECON.md` predicted)**
-Blind stride-4 scanning (`find_istrat.py`) yields only false positives in the
-sound bank `0x19` (SPC/BRR data coincidentally matching `[addr][bank][shape]`).
-The ×4-index-into-long-table sites in banks 02–04 (`03:B799 → 03:B875`, etc.)
-resolve to **stage/parameter tables** (values aren't valid `$8000+` code
-pointers), not ISTRAT. The ISTRAT table must be reached **from the map spawn
-handler**: identify which map opcode allocates an alien and reads its strat index,
-then follow that index's table base. That trace is the concrete unblock.
+### Spawn strategies — **map-facing targets located**
+The 232 spawns use four initializer targets: `$06:82ED` (1), `$06:82F9` (1),
+`$7F:7E00` (44), and `$7F:7E1E` (186). The bank-`$7F` copied routines map to ROM
+`$0A:8000/$0A:801E`; they install per-frame strategy `$7F:7E53` and initialize
+the retail object flags and path state. The two bank-06 targets select the player
+variant and install `$06:845C`. This supersedes the blind stride-4 ISTRAT scan.
 
-### Path-VM dispatcher — **not located in host banks (low confidence)**
-The SF1 path-VM idioms (opcode fetch `LDA $8000,X / AND #$00FF`; ×4 dispatch
-`ASL ASL TAX`; `LDA [dp],Y` long-pointer fetch) find **no** match in banks 0–7
-beyond the map VM itself. The path VM either lives in a higher bank, is folded into
-the per-object state machines of §2.2, or runs as GSU microcode. Unresolved in
-phase 1.
+### Path VM — **complete reachable graph extracted**
+`$7F:7E53` is the object path/strategy interpreter. Object field `+$2B` points
+into CPU bank `$44`; the VM fetches through `[F9]` and dispatches through copied
+vectors at `$7F:7EE8` and `$7F:82E8`. Conventional four-byte slots contain a
+16-bit `handler - 1` value for the dispatcher's `PHA; RTS`; reachable extended
+opcode `$180` proves that the real address calculation also uses a high slot
+which aliases the following handler bytes. The 70 map assignments expose 27
+unique roots. `extract_path.py` follows every handler CFG, including internal
+calls, width changes, the 18-way object-state jump, waits, dynamic pointer
+loads, and the shared advance/jump helpers. The closed result is 11,798 commands
+from 106 roots, using 274 logical opcode handlers with zero invalid records or
+unresolved dispatch targets.
 
----
+Every one of the 274 reachable dispatch handlers now has a proof-gated semantic
+identity and a typed `rust/sf2-path` implementation; no handler-level
+`RetailBridge*` operation remains. The 23 former handler bridges are covered by
+isolated exact-retail differentials, including pointer-control branches and the
+object position/rotation mutations. A semantic name is not counted as lifted
+until the reachable path runtime uses the typed operation and the retail
+comparison passes.
 
-## 5. Plan for the `sf2-map` / `sf2-strat` crates
-
-**Extractable now (map VM located):**
-1. **`sf2-map` opcode skeleton.** Emit the 83-entry table (`sf2d_mapvm_opcodes.txt`)
-   as an `Sf2MapOp { opcode, handler_addr, operand_len, kind }` table. The
-   interpreter shape (bank-switch → `$8000,X` fetch → even-opcode dispatch →
-   operand read → advance/redispatch-or-yield) is confirmed identical to
-   `src/game/world.c:map_exec`, so the shared VM *interpreter* transfers; only the
-   opcode→handler numbering is SF2-specific.
-2. **Handler-semantics pass (mechanical).** For each of the 83 handlers, flow-decode
-   with `disasm_host.py` and record its side effects (which `$1xxx` vars it writes,
-   whether it calls the object allocator, its operand layout). This produces the
-   SF2→SF1 semantic mapping and, as a by-product, **locates the ISTRAT table** (via
-   the spawn handler) and the level/`mapdef` tables (via the JSR/goto handlers).
-3. **Level-script extraction.** Once the spawn/end/wait opcodes are named, walk each
-   level's bytecode from its entry (the map-stream pointers loaded into `X` +
-   `$192E`) to dump per-level scripts, mirroring the SF1 `levels.c` port.
-
-**`sf2-strat`:** the per-object state-machine dispatchers (`04:91DE` on `$0032,X`,
-`04:8FC7` on `$0036,X`) are the strategy-tick entry points; enumerating their
-tables + the ISTRAT table (from step 2) gives the strategy roster. Depends on
-step 2.
-
-**Still needs deeper tracing (not blocked, but sequential):**
-- **ISTRAT table** → from the map spawn handler (step 2).
-- **Path-VM** → decode the object state machines / locate the fetch site (§4).
-- **GSU code + shape decoder** → trace the `$70:390C/$390E` GSU job table to get
-  code offsets, then disassemble the shape-reader with `gsu.py` to pin the
-  `0x12–0x14` fixed-stride and the `0x15–0x17` compression. This is the gate for
-  `sf2-render` geometry (the SF1 shape pipeline does **not** transfer — §3).
+That does **not** mean the path corpus is fully native yet. Opcode `$089` enters
+script-embedded blocks rather than a conventional handler payload. All 42
+reachable inline sites now have typed control flow and named operations, and no
+generic inline execution escape remains. Twenty simple inline bodies, two dynamic
+dispatch blocks, and all 20 named gameplay services are direct Rust with isolated
+retail edge differentials. Capture eligibility is also direct Rust across all
+cardinal and diagonal boundary modes. Contact classification still delegates its
+deep collision refresh to one oracle-only leaf. Thus the mechanically tracked
+path staging surface is one named oracle leaf, not zero.
+Variable IDs remain retail identifiers in this verification runtime so it can
+address SF2's parallel object arrays. None of this address-based staging state is
+in the shipping native game's dependency graph.
 
 ---
 
-## 6. Artifacts (session scratchpad, `sf2d_` prefix)
+## 5. Current implementation sequence
+
+Completed and mechanically tested:
+
+1. Exact map roots, reachable command graph, opcode semantics, spawns, shapes,
+   and typed inline actions in `sf2-data`/`sf2-map`.
+2. Exact 577-shape extraction plus shared rendering integration.
+3. Exact retail `$7E:B273` draw-record ABI (38-byte records, live count at
+   `$7E:18C6`, capacity 64) and renderer bridge.
+
+The next critical path is:
+
+1. Replace the final collision-refresh leaf with typed behavior proven by
+   isolated retail comparisons. All 20 named inline gameplay services and the
+   capture-eligibility predicate are complete.
+2. Decompile the four spawn initializers and their per-frame strategies into
+   `sf2-strat`, then validate object/draw state against isolated emulator traces.
+3. ~~Extract exact texture descriptors/materials~~ **Complete:** all reachable
+   material IDs resolve through exact descriptors/layouts/banks and render in
+   the GPU path. Continue broader pixel-level emulator frame comparisons.
+4. Recover the strategic-map, player, boss, audio, and progression state machines;
+   integrate them behind the game selector and run unattended playthrough oracles.
+
+---
+
+## 6. Artifacts
+- `tools/sf2/disasm/extract_map.py` — typed map command and inline-action extractor.
+- `tools/sf2/disasm/extract_path.py` — exact reachable path CFG and handler-effect extractor.
+- `tools/sf2/extract_shapes.py` — exact 577-shape extractor.
+- `rust/sf2-data/src/map.rs` / `path.rs` / `shape_data.rs` / `draw.rs` — generated
+  map/path and geometry data plus the retail draw ABI.
+- `rust/sf2-map` — strict map VM implementation and runtime tests.
+- `rust/sf2-path` — strict path VM with all 274 handlers and all 42 reachable
+  inline control blocks typed; only the deep collision refresh remains
+  explicitly oracle-staged.
+- `tools/sf2/run_mesen_oracle.py` — reproducible disposable-profile Mesen runner;
+  avoids Mesen's first-run GUI trap and leaves script artifacts inspectable.
+- `tools/sf2/mesen_decompress_oracle.lua` — independent six-stream GSU hash oracle.
+- `tools/sf2/mesen_gameplay_probe.lua` — isolated retail draw-list, WRAM, GSU-RAM,
+  DMA, geometry, and framebuffer oracle capture.
 - `sf2d_boot.asm` — flow disassembly from RESET (+ map-VM & GSU-launch roots).
 - `sf2d_symbols.txt` — CPU-addr → label map.
 - `sf2d_mapvm.asm` — map-VM dispatcher listing + full 83-entry jump table.

@@ -1,15 +1,12 @@
 //! MAP_ID_1_6 — Venom 1 Surface (Route 1 final level).
 //!
-//! C oracle: `src/map/levels.c` `build_level1_6_slice()`,
-//! `append_finalmap_content()` (shared with level3_7 and final) and
-//! `register_level1_6_inline_callbacks()`.
+//! Direct transcription of the original map assembly.
 //!
 //! ASM sources transcribed (via the C port):
 //! - `LEVEL1_6.ASM` — level wrapper: `initlevel 1_6a,0`, jsr map1_6a,
 //!   then `incmap finalmap`.
 //! - `FINALMAP.ASM` — Andross final tunnel & boss (`level1_6.final.*`).
-//! - `MAP1_6A.ASM`  — Venom 1 surface content (stubbed in the C build:
-//!   mapwait 2000 / maprts; to be ported in a future batch).
+//! - `MAP1_6A.ASM`  — Venom 1 surface content.
 
 use super::Route1Level;
 use crate::builder::{BarShapeMode, MapBuilder};
@@ -19,80 +16,42 @@ use crate::levels::BuiltLevel;
 // Local constants from levels.c not yet in consts.rs.
 // TODO(consolidation): move to consts.rs
 mod lc {
-    /// levels.c `#define BG_2_6C 29u`
-    pub const BG_2_6C: i32 = 29;
-    /// levels.c `#define BG_1_6C 17u`
-    pub const BG_1_6C: i32 = 17;
-    /// levels.c `#define BGM_BOSS_FINAL 0x13u`
-    pub const BGM_BOSS_FINAL: i32 = 0x13;
-    /// levels.c `#define BGM_FINAL_CONT 0x12u`
-    pub const BGM_FINAL_CONT: i32 = 0x12;
-
-    /// levels.c `#define SH_TUNNEL_0 122` (def_shape tunnel_0)
-    pub const SH_TUNNEL_0: u16 = 122;
-    /// levels.c `#define SH_WALL_2 89` (def_shape wall_2)
-    pub const SH_WALL_2: u16 = 89;
-    /// levels.c `#define SH_BOU_1_PROXY SH_NULLSHAPE`
-    pub const SH_BOU_1_PROXY: u16 = 0;
-    /// levels.c `#define SH_WALL_4_PROXY SH_NULLSHAPE`
-    pub const SH_WALL_4_PROXY: u16 = 0;
-    /// levels.c `#define SH_FACE_B_PROXY SH_NULLSHAPE`
-    pub const SH_FACE_B_PROXY: u16 = 0;
-
-    /// levels.c `#define STRAT_ADDR_TOPRIGHT1 0x050011u`
-    pub const STRAT_ADDR_TOPRIGHT1: u32 = 0x050011;
-    /// levels.c `#define STRAT_ADDR_TOPLEFT1 0x050012u`
-    pub const STRAT_ADDR_TOPLEFT1: u32 = 0x050012;
-    /// levels.c `#define STRAT_ADDR_BOTRIGHT1 0x050013u`
-    pub const STRAT_ADDR_BOTRIGHT1: u32 = 0x050013;
-    /// levels.c `#define STRAT_ADDR_BOTLEFT1 0x050014u`
-    pub const STRAT_ADDR_BOTLEFT1: u32 = 0x050014;
-    /// levels.c `#define STRAT_ADDR_MONOLITH 0x050015u`
-    pub const STRAT_ADDR_MONOLITH: u32 = 0x050015;
-
-    /// path_literals.h `PATH_ID_MES_ANDROSS1 = 342`
-    pub const PATH_ID_MES_ANDROSS1: u16 = 342;
-    /// path_literals.h `PATH_ID_MES_ANDROSS2 = 343`
-    pub const PATH_ID_MES_ANDROSS2: u16 = 343;
-
     // ---- MAP1_6A.ASM symbols (Venom 1 surface part A) ----
     // Shape ids (ISTRATS.ASM def_shape MACRO-counted numbering; verified via
     // tools/shape_compiler.py parse of ISTRATS.ASM).
     /// def_shape wall1 (ISTRATS.ASM:147) = id 25.
-    pub const SH_WALL1: u16 = 25;
+    pub const SH_WALL1: u16 = 24;
     /// def_shape r_bu_0 (ISTRATS.ASM:222) = id 96.
-    pub const SH_R_BU_0: u16 = 96;
+    pub const SH_R_BU_0: u16 = 95;
     /// def_shape r_bu_2 (ISTRATS.ASM:224) = id 98.
-    pub const SH_R_BU_2: u16 = 98;
+    pub const SH_R_BU_2: u16 = 97;
     /// def_shape hou_5 (ISTRATS.ASM:618-area) = id 169 (== rc.rs SH_HOU_5).
-    pub const SH_HOU_5: u16 = 169;
-    /// rpillar3 has no compiled mesh; proxy through pillar3 (id 28), matching
-    /// route3/common.rs `SH_RPILLAR3_PROXY`.
-    pub const SH_RPILLAR3_PROXY: u16 = 28;
+    pub const SH_HOU_5: u16 = 168;
+    pub const SH_RPILLAR3_PROXY: u16 = 439;
     /// mother1 has no ASM geometry; extended-bank alias slot 278
     /// (blackhole.rs `SH_MOTHER1`).
     pub const SH_MOTHER1: u16 = 278;
-    /// boss_b_1 (def_shape id 77) mesh is not compiled; proxy through nullshape
-    /// like level1_5.rs `SH_BOSS_B_1_PROXY`. bossBrob_init poses its own shape.
-    pub const SH_BOSS_B_1_PROXY: u16 = crate::consts::sh::NULLSHAPE;
+    /// Canonical ISTRATS.ASM `boss_b_1` def_shape row.  The generated Rust
+    /// catalog contains this mesh; the old nullshape proxy made the Andross
+    /// robot fight entirely invisible.
+    pub const SH_BOSS_B_1_PROXY: u16 = 76;
 
     // Strategy indices (must equal the index the sf-strat lane REGISTERS at; see
     // docs/istrat_index_map.tsv header — raw ASM rows are only a rough guide).
     /// walll = ISTRATS.ASM row 76; sf-strat enemies_ground::IS_WALLL = 76.
-    pub const IS_WALLL: u32 = 76;
+    pub const IS_WALLL: u32 = 75;
     /// wallr = ISTRATS.ASM row 77; sf-strat enemies_ground::IS_WALLR = 77.
-    pub const IS_WALLR: u32 = 77;
-    /// houdai5f = sf-strat enemies_ground::IS_HOUDAI5F = 187 (ROM +1 drift;
-    /// the tsv's 188 is the raw row — 187 is what sf-strat registers).
+    pub const IS_WALLR: u32 = 76;
+    /// houdai5f = ISTRATS.ASM:618 index 188 (after hard90yrfog@183 + tanks).
     pub const IS_HOUDAI5F: u32 = 187;
     /// flypillars: the C oracle aliased flypillar_istrat to IS_PILLAR3 (=79);
     /// sf-strat leaves 74 unregistered and runs pillar3 behaviour here
     /// (route3/common.rs `IS_FLYPILLARS = 79`).
-    pub const IS_FLYPILLARS: u32 = 79;
+    pub const IS_FLYPILLARS: u32 = 73;
     /// bossBrob robot = def_Istrat 118 (ISTRATS.ASM:542); sf-strat bossb.rs
     /// registers world.istrats[118] = bossbrob_init, and the address-map loop
     /// mints flat-id 0x000076 — so the compact MAPOBJ strat byte 118 resolves.
-    pub const IS_BOSSBROB: u32 = 118;
+    pub const IS_BOSSBROB: u32 = 117;
 
     // Path ids (sf-path ids.rs PATH_ID_*).
     pub const PATH_CHASE7_1: u16 = 243;
@@ -108,9 +67,6 @@ mod lc {
 pub fn build() -> Route1Level {
     let mut b = MapBuilder::new();
 
-    let mut mapwaitboss_cantdie_ptr: u16 = 0;
-    let mut mapwaitboss_cleanup_ptr: u16 = 0;
-
     // MAP1_6A boss (bossBrob) mapwaitboss inline hooks — captured below.
     let mut map1_6a_trigse_ptr: u16 = 0;
     let mut map1_6a_cantdie_ptr: u16 = 0;
@@ -121,12 +77,8 @@ pub fn build() -> Route1Level {
     b.mapjsr("level1_6.map1_6a");
 
     // level1_end: incmap finalmap — Andross final tunnel & boss
-    append_finalmap_content(
-        &mut b,
-        "level1_6.final",
-        &mut mapwaitboss_cantdie_ptr,
-        &mut mapwaitboss_cleanup_ptr,
-    );
+    let (mapwaitboss_cantdie_ptr, mapwaitboss_cleanup_ptr) =
+        crate::levels::route3::common::append_finalmap_content(&mut b, "level1_6.final", 1);
 
     // ---- MAP1_6A.ASM subroutine (Venom 1 surface part A) ----
     // Emitted AFTER the finalmap content, so the finalmap inline hooks (758/759)
@@ -368,16 +320,31 @@ fn append_map1_6a_content(
     b.map_sbtype16(0, 10, -4, 0, -lc::SPEED, 0);
     b.map_sbtype16(4, -10, -3, 0, lc::SPEED, 0);
 
-    // Lines 155-156: extend-pillars mother. map_pillars is not yet ported into
-    // mothers.rs (out of scope); use map_flypillars as a stand-in — the mother
-    // still spawns pillar objects. NOTE: divergence from ROM's map_pillars.
-    b.mapmother(3000, 0, 0, 1500, lc::SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.map_flypillars);
+    // Lines 155-156: exact extending-pillar mother stream.
+    b.mapmother(
+        3000,
+        0,
+        0,
+        1500,
+        lc::SH_MOTHER1,
+        STRATEGY_MOTHER1,
+        mm.map_pillars,
+    );
     b.mapremove(lc::SH_MOTHER1);
 
     // Lines 158-180: zaco patrols, friend (chase7), houdai emplacements.
     b.pathspecial(500, -1000, -700, 2000, sh::ZACO_A, path::PATROL, 10, 10);
     b.pathspecial(2500, -1000, -450, 2000, sh::ZACO_A, path::PATROL, 10, 10);
-    b.pathobj(0, 0, -400, -150, sh::FRIENDSHIP_4, lc::PATH_CHASE7_1, 10, 10);
+    b.pathobj(
+        0,
+        0,
+        -400,
+        -150,
+        sh::FRIENDSHIP_4,
+        lc::PATH_CHASE7_1,
+        10,
+        10,
+    );
     b.pathcspecial(2000, 0, -400, -150, sh::ZACO_A, lc::PATH_CHASE7_2, 10, 10);
     b.mapobj(1000, -400, -20, 5000, lc::SH_R_BU_0, is::HARD180YR);
     b.mapobj(1000, 600, -20, 5000, lc::SH_R_BU_0, is::HARD180YR);
@@ -413,10 +380,25 @@ fn append_map1_6a_content(
     b.mapobj(0, 150, 0, 3000, lc::SH_RPILLAR3_PROXY, lc::IS_FLYPILLARS);
     b.mapobj(400, -150, 0, 3000, lc::SH_RPILLAR3_PROXY, lc::IS_FLYPILLARS);
     b.mapobj(0, 400, 0, 3000, lc::SH_RPILLAR3_PROXY, lc::IS_FLYPILLARS);
-    b.mapobj(2000, -400, 0, 3000, lc::SH_RPILLAR3_PROXY, lc::IS_FLYPILLARS);
+    b.mapobj(
+        2000,
+        -400,
+        0,
+        3000,
+        lc::SH_RPILLAR3_PROXY,
+        lc::IS_FLYPILLARS,
+    );
 
     // Lines 200-202: fly-pillars mother.
-    b.mapmother(6000, 0, 0, 4000, lc::SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.map_flypillars);
+    b.mapmother(
+        6000,
+        0,
+        0,
+        4000,
+        lc::SH_MOTHER1,
+        STRATEGY_MOTHER1,
+        mm.map_flypillars,
+    );
     b.mapremove(lc::SH_MOTHER1);
     b.mapwait(2000);
 
@@ -475,14 +457,31 @@ fn append_map1_6a_content(
     b.setalvarb(al::SBYTE1, 1);
     b.mapobj(0, 0, -250, 3000, lc::SH_R_BU_2, is::HARD180YR);
     b.pathobj(0, 450, -350, 3000, lc::SH_R_BU_2, lc::PATH_ITADOSUN, 10, 8);
-    b.pathobj(400, -450, -250, 3000, lc::SH_R_BU_2, lc::PATH_ITADOSUN, 10, 8);
+    b.pathobj(
+        400,
+        -450,
+        -250,
+        3000,
+        lc::SH_R_BU_2,
+        lc::PATH_ITADOSUN,
+        10,
+        8,
+    );
     b.mapobj(0, 450, -250, 3000, lc::SH_R_BU_2, is::HARD180YR);
     b.mapobj(0, -450, -200, 3000, lc::SH_R_BU_2, is::HARD180YR);
     b.pathobj(1500, 0, -250, 3000, lc::SH_R_BU_2, lc::PATH_ITADOSUN, 10, 8);
     b.mapobj(3200, 0, 0, 4000, lc::SH_WALL1, lc::IS_WALLL);
 
     // Lines 279-283: final fly-pillars mother + wait.
-    b.mapmother(8000, 0, 0, 4000, lc::SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.map_flypillars);
+    b.mapmother(
+        8000,
+        0,
+        0,
+        4000,
+        lc::SH_MOTHER1,
+        STRATEGY_MOTHER1,
+        mm.map_flypillars,
+    );
     b.mapremove(lc::SH_MOTHER1);
     b.mapwait(3000);
 
@@ -510,174 +509,9 @@ fn append_map1_6a_content(
 
     // Line 294: markboss boss16.
     b.mapcodejsl_builtin(cb::MARKBOSS_L);
-    // Lines 295-300: `start_65816 / IFNE hidehudonbossdeath / m_meters=1 /
-    // end_65816` is OMITTED — it needs a bespoke inline closure (out of scope),
-    // and the mapwaitboss cleanup block already zeroes m_meters under the same
-    // hidehudonbossdeath flag. Cosmetic HUD-hide only; boss behaviour intact.
+    // Lines 295-300: the original condition is assembled only when
+    // `hidehudonbossdeath` is enabled; this build uses that enabled variant.
+    b.setvarb24(wm::M_METERS, 1);
     // Line 301: maprts.
     b.maprts();
-}
-
-// DUPLICATE: consolidate — literal copy of the C `append_finalmap_content()`
-// (levels.c), shared with build_level3_7_slice and build_final_slice. The
-// `prefix` disambiguates labels across maps. `cantdie_ptr` and `cleanup_ptr`
-// receive the inline callback offsets.
-fn append_finalmap_content(
-    b: &mut MapBuilder,
-    prefix: &str,
-    cantdie_ptr: &mut u16,
-    cleanup_ptr: &mut u16,
-) {
-    // incmap dm_lb1 — stub for level base 1 demo intro
-    b.mapwait(500);
-
-    // final_tunnel entry point
-    b.label(&format!("{prefix}.tunnel"));
-    b.mapwait(2000);
-
-    // set BG to 2_6c
-    b.setbg(lc::BG_2_6C);
-
-    // setrestart finalmap_restart
-    b.mapcodejsl_builtin(cb::SETRESTART_L);
-
-    // finalmap_cont entry point
-    b.label(&format!("{prefix}.cont"));
-    b.mapplayeroutview();
-    b.mapwait(2000);
-
-    // pathobj mes_andross1 message
-    b.pathobj(0, 0, 0, 4000, sh::NULLSHAPE, lc::PATH_ID_MES_ANDROSS1, 10, 10);
-
-    // .finalt: tunnel sections (4 iterations)
-    let finalt = format!("{prefix}.finalt");
-    b.label(&finalt);
-    b.mapnobj(0, 0x0120, -120, 4000, lc::SH_TUNNEL_0, lc::STRAT_ADDR_TOPRIGHT1);
-    b.mapnobj(0, -0x0120, -120, 4000, lc::SH_TUNNEL_0, lc::STRAT_ADDR_TOPLEFT1);
-    b.mapnobj(0, 0x0120, 0, 4000, lc::SH_TUNNEL_0, lc::STRAT_ADDR_BOTRIGHT1);
-    b.mapnobj(0x0600, -0x0120, 0, 4000, lc::SH_TUNNEL_0, lc::STRAT_ADDR_BOTLEFT1);
-    b.maploop(&finalt, 4);
-
-    // wall/gate obstacles (C `-060` is octal == -48)
-    b.mapobj(0, -0x0090, -0o60, 4000, lc::SH_WALL_2, is::HARD180YR);
-    b.mapobj(0x0500, 0x0090, -0o60, 4000, lc::SH_WALL_2, is::HARD180YR);
-    b.mapnobj(0, 0, -60, 4000, sh::GATE_0, STRAT_ADDR_GATE3);
-    b.setalvarb(al::SBYTE1, 1);
-    b.mapwait(1000);
-
-    // pillar pairs
-    b.mapnobj(0, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0800, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0800, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-
-    // item_5 + walls + pillars
-    b.mapnobj(0, 0, -60, 4000, sh::ITEM_5, is::ITEM5);
-    b.setalvarb(al::SBYTE1, 1);
-    b.mapobj(0, -0x0090, -0o60, 4000, lc::SH_WALL_2, is::HARD180YR);
-    b.mapobj(0x1000, 0x0090, -0o60, 4000, lc::SH_WALL_2, is::HARD180YR);
-    b.mapnobj(0, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0800, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0800, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-
-    // level 3 conditional pillar section (emitted unconditionally)
-    b.mapnobj(0x0600, 0, -60, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0600, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0200, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0200, 0, -40, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0600, 0, -60, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0200, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0200, 0, -80, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0600, 0, -60, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x0600, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-
-    // common pillar section
-    b.mapnobj(0, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0, 0, -100, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapnobj(0x1500, 0, -20, 4000, sh::PILLAR3, is::PILLAR3);
-
-    // level 3 half-door section
-    let level3t = format!("{prefix}.level3t");
-    b.label(&level3t);
-    b.mapobj(0, 100, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapnobj(0x1500, 0, 0, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapobj(0, -100, -0o60, 4000, lc::SH_BOU_1_PROXY, is::HARD180YR);
-    b.mapnobj(0x1500, 0, 0, 4000, sh::PILLAR3, is::PILLAR3);
-    b.maploop(&level3t, 2);
-    b.mapwait(500);
-
-    // level 1 half-door section
-    let level1t = format!("{prefix}.level1t");
-    b.label(&level1t);
-    b.mapobj(0, 110, -0o60, 4000, lc::SH_WALL_4_PROXY, is::HARD180YR);
-    b.mapnobj(0x1500, 0, 0, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapobj(0, -110, -0o60, 4000, lc::SH_WALL_4_PROXY, is::HARD180YR);
-    b.mapnobj(0x1500, 0, 0, 4000, sh::PILLAR3, is::PILLAR3);
-    b.maploop(&level1t, 2);
-    b.mapwait(500);
-
-    // final corridor: item_7 + wall_4 + halfdL/R
-    b.mapnobj(0, 0x0060, -60, 4000, sh::ITEM_7, is::ITEM7);
-    b.setalvarb(al::SBYTE1, 1);
-    b.mapobj(0, 110, -0o60, 4000, lc::SH_WALL_4_PROXY, is::HARD180YR);
-    b.mapnobj(0x2000, 0, 0, 4000, sh::PILLAR3, is::PILLAR3);
-    b.mapobj(0, -110, -0o60, 4000, lc::SH_WALL_4_PROXY, is::HARD180YR);
-    b.mapnobj(0x1000, 0, 0, 4000, sh::PILLAR3, is::PILLAR3);
-
-    // tunnel exit
-    b.mapwait(2000);
-    b.pathobj(0, 0, 0, 3000, sh::NULLSHAPE, lc::PATH_ID_MES_ANDROSS2, 10, 10);
-    b.mapwait(200);
-
-    // BG transition
-    b.mapwait(100);
-    b.setbg(lc::BG_1_6C);
-    b.initbg();
-    b.mapwait(200);
-
-    // boss final music
-    b.setbgm(lc::BGM_BOSS_FINAL);
-    b.mapwait(2000);
-
-    // face_b monolith boss
-    b.mapnobj(0x1000, 0, SPACE_VIEWCY, -200, lc::SH_FACE_B_PROXY, lc::STRAT_ADDR_MONOLITH);
-
-    // mapwaitboss nosound
-    b.mapwait(100);
-    let bosswait_loop = format!("{prefix}.bosswait.loop");
-    b.label(&bosswait_loop);
-    {
-        let contlabel = format!("{prefix}.bosswait.cont");
-        b.mapif_builtin(cb::CHKBOSSDEAD, &contlabel);
-        b.mapgoto(&bosswait_loop);
-        b.label(&contlabel);
-    }
-    *cantdie_ptr = b.mapcode65816_inline();
-    *cleanup_ptr = b.mapcode65816_inline();
-
-    // markboss bossfinal
-    b.mapcodejsl_builtin(cb::MARKBOSS_L);
-    b.mapwait(5000);
-
-    // finalmap_end: incmap dm_end — end demo (stub)
-    b.mapwait(500);
-
-    // .wait1: infinite wait
-    let wait1 = format!("{prefix}.wait1");
-    b.label(&wait1);
-    b.mapwait(1000);
-    b.mapgoto(&wait1);
-
-    // finalmap_restart: setbgm $12, goto finalmap_cont
-    b.label(&format!("{prefix}.restart"));
-    b.mapwait(1000);
-    b.setbgm(lc::BGM_FINAL_CONT);
-    {
-        let contlabel = format!("{prefix}.cont");
-        b.mapgoto(&contlabel);
-    }
 }

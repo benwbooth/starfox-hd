@@ -62,7 +62,9 @@ fn filter_silence_and_clear() {
 
     // A step input produces a decaying response; after clear, state resets so
     // an identical input yields an identical response.
-    let step: Vec<i16> = (0..512).map(|i| if i % 2 == 0 { 4000 } else { -4000 }).collect();
+    let step: Vec<i16> = (0..512)
+        .map(|i| if i % 2 == 0 { 4000 } else { -4000 })
+        .collect();
     let mut a = step.clone();
     f.clear();
     f.run(&mut a);

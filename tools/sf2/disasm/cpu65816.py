@@ -116,7 +116,7 @@ OPS = {
 0xFC:("JSR",IAX),0xFD:("SBC",ABX),0xFE:("INC",ABX),0xFF:("SBC",ABLX),
 }
 
-BRANCHES = {"BPL","BMI","BVC","BVS","BCC","BCS","BNE","BEQ","BRA"}
+BRANCHES = {"BPL","BMI","BVC","BVS","BCC","BCS","BNE","BEQ","BRA","BRL"}
 JUMPS = {"JMP","JML"}
 CALLS = {"JSR","JSL"}
 RETURNS = {"RTS","RTL","RTI"}

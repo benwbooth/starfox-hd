@@ -11,7 +11,9 @@
 //! - `Obj_Alloc` pops the free head and pushes it on the active head.
 //! - `Obj_Free` unlinks and pushes on the free head (LIFO reuse).
 
-use crate::alien::{Alien, ACF_FIRSTFRAME, ASF3_REALOBJ, ATZREMOVE, NUMBER_AL};
+use crate::alien::{
+    Alien, ACF_FIRSTFRAME, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF3_REALOBJ, ATZREMOVE, NUMBER_AL,
+};
 
 /// The alien pool plus the two intrusive lists (C `g_aliens`,
 /// `g_active_list` (allst), `g_free_list` (alfreelst), `g_aldead`).
@@ -87,6 +89,29 @@ impl Objects {
         self.active_head = Some(idx);
     }
 
+    /// Re-link an active object immediately after another active object.
+    ///
+    /// The ROM `l_add` primitive inserts after the caller's current object.
+    /// Most compatibility allocations intentionally use the simpler active-
+    /// head model, but the player MAPP order is observable: `playercoll_Istrat`
+    /// must run before its body/wing proxies so routed collide flags dispatch
+    /// in the same strategy pass. `Game::pcbox_attach` uses this helper to
+    /// reproduce the literal player -> body -> left -> right MAPP order.
+    pub(crate) fn active_move_after(&mut self, idx: u16, after: u16) {
+        if idx == after || !self.aliens[idx as usize].active || !self.aliens[after as usize].active
+        {
+            return;
+        }
+        self.unlink(idx, true);
+        let next = self.aliens[after as usize].next;
+        self.aliens[idx as usize].prev = Some(after);
+        self.aliens[idx as usize].next = next;
+        self.aliens[after as usize].next = Some(idx);
+        if let Some(next) = next {
+            self.aliens[next as usize].prev = Some(idx);
+        }
+    }
+
     // C `list_unlink` (src/game/obj.c:35). `head` selects which list head
     // to patch when the node is the head.
     fn unlink(&mut self, idx: u16, from_active: bool) {
@@ -127,12 +152,14 @@ impl Objects {
         Some(idx)
     }
 
-    /// C `Obj_Free()` (src/game/obj.c:108): unlink from active list,
-    /// return to free list. No-op if not active.
+    /// C `Obj_Free()` / ROM `Removedeadal` (STRATROU.ASM:19): divorce the
+    /// mother/child family, unlink from active list, return to free list.
+    /// No-op if not active.
     pub fn free(&mut self, idx: u16) {
         if idx as usize >= NUMBER_AL || !self.aliens[idx as usize].active {
             return;
         }
+        self.divorce_family(idx);
         self.unlink(idx, true);
         {
             let al = &mut self.aliens[idx as usize];
@@ -140,6 +167,84 @@ impl Objects {
             al.stratptr = None;
         }
         self.free_push_front(idx);
+    }
+
+    /// ROM `divorcefamily_l` (STRATROU.ASM:3000) — unlink mother/child ties
+    /// before an object leaves the active list.
+    pub fn divorce_family(&mut self, idx: u16) {
+        if (idx as usize) >= NUMBER_AL {
+            return;
+        }
+        // Child path: detach from mother list, clear child fields.
+        if self.aliens[idx as usize].sflags3 & ASF3_CHILDOBJ != 0 {
+            let mother_ptr = self.aliens[idx as usize].ptr;
+            if mother_ptr != 0 {
+                let mother = (mother_ptr as usize).wrapping_sub(1);
+                if mother < NUMBER_AL {
+                    let child_idx = idx.wrapping_add(1); // index+1 encoding
+                    let mut prev: u16 = 0;
+                    let mut cur = self.aliens[mother].sword1 as u16;
+                    let mut guard = NUMBER_AL as i32 + 1;
+                    while cur != 0 && guard > 0 {
+                        guard -= 1;
+                        let Some(it) = Self::child_from_index(cur) else {
+                            break;
+                        };
+                        let next = self.aliens[it as usize].sword1 as u16;
+                        if cur == child_idx {
+                            if prev == 0 {
+                                self.aliens[mother].sword1 = next as i16;
+                            } else if let Some(p) = Self::child_from_index(prev) {
+                                self.aliens[p as usize].sword1 = next as i16;
+                            }
+                            break;
+                        }
+                        prev = cur;
+                        cur = next;
+                    }
+                    if self.aliens[mother].sword1 as u16 == 0 {
+                        self.aliens[mother].sflags3 &= !ASF3_MOTHEROBJ;
+                    }
+                }
+            }
+            {
+                let al = &mut self.aliens[idx as usize];
+                al.sflags3 &= !ASF3_CHILDOBJ;
+                al.ptr = 0;
+                al.sword1 = 0;
+            }
+        }
+
+        // Mother path: orphan every child (clear childobj + al_ptr).
+        if self.aliens[idx as usize].sflags3 & ASF3_MOTHEROBJ != 0 {
+            self.aliens[idx as usize].sflags3 &= !ASF3_MOTHEROBJ;
+            let mut cur = self.aliens[idx as usize].sword1 as u16;
+            let mut guard = NUMBER_AL as i32 + 1;
+            while cur != 0 && guard > 0 {
+                guard -= 1;
+                let Some(child) = Self::child_from_index(cur) else {
+                    break;
+                };
+                let next = self.aliens[child as usize].sword1 as u16;
+                let al = &mut self.aliens[child as usize];
+                al.sflags3 &= !ASF3_CHILDOBJ;
+                al.ptr = 0;
+                cur = next;
+            }
+        }
+    }
+
+    #[inline]
+    fn child_from_index(raw: u16) -> Option<u16> {
+        if raw == 0 {
+            return None;
+        }
+        let idx = (raw as usize).wrapping_sub(1);
+        if idx >= NUMBER_AL {
+            None
+        } else {
+            Some(idx as u16)
+        }
     }
 
     /// C `Obj_GetByIndex()` (src/game/obj.c:120) — bounds-checked slot.
@@ -170,6 +275,36 @@ impl Objects {
             cur = self.aliens[i as usize].next;
         }
         v
+    }
+
+    /// ROM `moveobjtoend_l` (DSTRATS.ASM:4909) — unlink `idx` from the active
+    /// list and append it as the new tail (no-op if already last).
+    pub fn move_obj_to_end(&mut self, idx: u16) {
+        if (idx as usize) >= NUMBER_AL || !self.aliens[idx as usize].active {
+            return;
+        }
+        // Find current tail.
+        let mut tail = idx;
+        while let Some(n) = self.aliens[tail as usize].next {
+            tail = n;
+        }
+        if tail == idx {
+            return; // already at end
+        }
+        // Unlink from current position.
+        let prev = self.aliens[idx as usize].prev;
+        let next = self.aliens[idx as usize].next;
+        match prev {
+            Some(p) => self.aliens[p as usize].next = next,
+            None => self.active_head = next,
+        }
+        if let Some(n) = next {
+            self.aliens[n as usize].prev = prev;
+        }
+        // Append after old tail.
+        self.aliens[tail as usize].next = Some(idx);
+        self.aliens[idx as usize].prev = Some(tail);
+        self.aliens[idx as usize].next = None;
     }
 }
 

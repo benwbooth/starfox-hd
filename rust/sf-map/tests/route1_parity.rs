@@ -8,6 +8,7 @@
 //! `inline <ptr>` script ptrs in C registration-call order) — the same
 //! format as the phase-1 fixtures in `tests/fixture_parity.rs`.
 
+use sf_map::builder::MapBuilder;
 use sf_map::catalog::{self, map_id};
 use sf_map::levels::route1;
 
@@ -24,7 +25,11 @@ struct Regs {
 
 fn parse_regs(name: &str) -> Regs {
     let text = String::from_utf8(fixture(name, "regs.txt")).unwrap();
-    let mut regs = Regs { length: 0, native: Vec::new(), inline: Vec::new() };
+    let mut regs = Regs {
+        length: 0,
+        native: Vec::new(),
+        inline: Vec::new(),
+    };
     for line in text.lines() {
         let mut it = line.split_ascii_whitespace();
         match (it.next(), it.next()) {
@@ -41,16 +46,28 @@ fn parse_regs(name: &str) -> Regs {
 }
 
 fn assert_level_matches(name: &str, id: u32) {
-    let level = route1::get_full(id)
-        .unwrap_or_else(|| panic!("{name}: map id {id} not ported in route1"));
+    let level =
+        route1::get_full(id).unwrap_or_else(|| panic!("{name}: map id {id} not ported in route1"));
     // Bless mode: the C harness that dumped these fixtures is gone (RIIR), and
     // it shared the maploop count-encoding bug (builder emitted raw count; ROM
     // macro emits count-1 — see MapBuilder::maploop + sf-oracle audit_mapvm2).
-    // SF_BLESS_FIXTURES=1 rewrites the .bin from the current builder output
-    // (lengths unchanged, so .regs.txt stays valid). Regression guard.
+    // SF_BLESS_FIXTURES=1 rewrites the current regression blob and its length;
+    // callback lists remain independently checked from the original capture.
     if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
         let out = format!("{}/tests/fixtures/{name}.bin", env!("CARGO_MANIFEST_DIR"));
         std::fs::write(&out, &level.level.data).unwrap();
+        let regs_path = format!(
+            "{}/tests/fixtures/{name}.regs.txt",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let mut regs = format!("length {}\n", level.level.data.len());
+        for &(addr, _) in &level.native_regs {
+            regs.push_str(&format!("native 0x{addr:06x}\n"));
+        }
+        for &(ptr, _) in &level.inline_regs {
+            regs.push_str(&format!("inline {ptr}\n"));
+        }
+        std::fs::write(regs_path, regs).unwrap();
         return;
     }
     let blob = fixture(name, "bin");
@@ -107,6 +124,27 @@ fn level1_3_matches_c() {
 }
 
 #[test]
+fn level1_3_warpout_uses_warpout_player_mode() {
+    let level = route1::get_full(map_id::M1_3).expect("route 1 Space Armada map");
+    let start = level
+        .level
+        .label_offset("level1_3.cl_warpout")
+        .expect("CL_WARPO label") as usize;
+    let callback = sf_map::consts::cb::SET_PLAYER_WARPOUT_L;
+    let encoded = callback.wrapping_sub(1);
+    let expected = [
+        sf_map::consts::op::CODEJSL,
+        encoded as u8,
+        (encoded >> 8) as u8,
+        (callback >> 16) as u8,
+    ];
+
+    // CL_WARPO.ASM uses `mapCLplayermode WarpOut`.  The macro first emits
+    // mapplayeroutview (one CODEJSL), then set_playerWarpOut_l (this CODEJSL).
+    assert_eq!(&level.level.data[start + 4..start + 8], &expected);
+}
+
+#[test]
 fn level1_4_matches_c() {
     assert_level_matches("r1_level1_4", map_id::M1_4);
 }
@@ -129,4 +167,32 @@ fn blackhole_matches_c() {
 #[test]
 fn intro_matches_c() {
     assert_level_matches("r1_intro", map_id::INTRO);
+}
+
+#[test]
+fn intro_preserves_the_assembled_wait_and_text_paths() {
+    use sf_map::consts::{msg, op, path};
+
+    let level = route1::get_full(map_id::INTRO).expect("intro map");
+    let data = &level.level.data;
+    assert!(data
+        .windows(4)
+        .any(|window| window == [op::QFADEUP, op::WAIT2, 15, op::CODE65816]));
+
+    let mut expected = MapBuilder::new();
+    expected.textpath(0, -3000, -100, 4000, msg::NINTENDO, path::DINTRO1, 14, None);
+    expected.textpath(
+        0,
+        3000,
+        100,
+        4000,
+        msg::PRESENTS,
+        path::DINTRO1,
+        14,
+        Some(-32),
+    );
+    let (expected, _) = expected.finish();
+    assert!(data
+        .windows(expected.len())
+        .any(|window| window == expected));
 }

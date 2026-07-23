@@ -27,6 +27,17 @@ pub struct Vertex3 {
     pub pos: [f32; 3],
 }
 
+/// 3D position plus the inputs to the Super FX texture address calculation.
+/// `tex_info` is `[local_x, local_y, base_address, wrap_mask]`; keeping the
+/// address calculation in the fragment shader preserves row carry and the
+/// per-layout masks used by `MDRAWP.MC`.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct Vertex3Tex {
+    pub pos: [f32; 3],
+    pub tex_info: [f32; 4],
+}
+
 /// 2D vertex for the `overlay` pipeline (matches HUD `aPos`/`aTexCoord`).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -43,12 +54,14 @@ struct DrawUniform {
     view: [[f32; 4]; 4],
     model: [[f32; 4]; 4],
     color: [f32; 4],
-    /// x = use_texture (0 solid, 1 rgba, 2 palette); rest padding.
+    /// Pipeline-specific typed mode and compact parameters.
     mode: [u32; 4],
     palette: [[f32; 4]; 16],
 }
 // size = 3*64 + 16 + 16 + 256 = 480 bytes; dynamic offsets need 256 alignment.
 const UNIFORM_STRIDE: u64 = 512;
+const FLAT_FILL_SOLID: u32 = 0;
+const FLAT_FILL_PALETTE_PAIR: u32 = 1;
 
 fn identity() -> [[f32; 4]; 4] {
     [
@@ -77,6 +90,7 @@ pub const WHITE_TEX: TextureId = TextureId(0);
 #[derive(Clone, Copy, PartialEq)]
 enum Pipe {
     FlatTri,
+    TexturedTri,
     /// Alpha-blended, depth-tested but NOT depth-writing (ground shadows).
     FlatTriAlpha,
     /// Additive-blended, depth-tested but NOT depth-writing (particles).
@@ -91,6 +105,18 @@ struct DrawCmd {
     v_count: u32,
     uniform_index: u32,
     texture: TextureId,
+    viewport: Option<RenderViewport>,
+}
+
+/// Output rectangle captured by retained draw commands. This is presentation
+/// state rather than game state: native objects remain in one flat world while
+/// the renderer confines a source frame to its intended display area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderViewport {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 struct CachedTexture {
@@ -133,6 +159,7 @@ pub struct Gpu {
     flat_tri_alpha: wgpu::RenderPipeline,
     flat_tri_add: wgpu::RenderPipeline,
     flat_line: wgpu::RenderPipeline,
+    textured_tri: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
 
     uniform_bgl: wgpu::BindGroupLayout,
@@ -142,6 +169,8 @@ pub struct Gpu {
     // Persistent GPU buffers (grown on demand).
     vbuf3: wgpu::Buffer,
     vbuf3_cap: u64,
+    vbuf3t: wgpu::Buffer,
+    vbuf3t_cap: u64,
     vbuf2: wgpu::Buffer,
     vbuf2_cap: u64,
     ubuf: wgpu::Buffer,
@@ -152,9 +181,11 @@ pub struct Gpu {
 
     // Per-frame CPU-side accumulation.
     v3: Vec<Vertex3>,
+    v3t: Vec<Vertex3Tex>,
     v2: Vec<Vertex2>,
     uniforms: Vec<DrawUniform>,
     cmds: Vec<DrawCmd>,
+    draw_viewport: Option<RenderViewport>,
     clear: [f64; 4],
 
     pending_surface: Option<SurfaceFrame>,
@@ -347,6 +378,22 @@ impl Gpu {
                 shader_location: 0,
             }],
         };
+        let v3t_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex3Tex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x3,
+                    offset: 0,
+                    shader_location: 0,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 12,
+                    shader_location: 1,
+                },
+            ],
+        };
         let v2_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex2>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -413,9 +460,13 @@ impl Gpu {
                 cache: None,
             })
         };
-        let flat_tri = make_flat(wgpu::PrimitiveTopology::TriangleList, None, true, "flat-tri");
-        let flat_line =
-            make_flat(wgpu::PrimitiveTopology::LineList, None, true, "flat-line");
+        let flat_tri = make_flat(
+            wgpu::PrimitiveTopology::TriangleList,
+            None,
+            true,
+            "flat-tri",
+        );
+        let flat_line = make_flat(wgpu::PrimitiveTopology::LineList, None, true, "flat-line");
         // Shadows: alpha-blended, depth-tested, depth-write OFF.
         let flat_tri_alpha = make_flat(
             wgpu::PrimitiveTopology::TriangleList,
@@ -430,6 +481,40 @@ impl Gpu {
             false,
             "flat-tri-add",
         );
+
+        let textured_tri = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("textured-tri"),
+            layout: Some(&overlay_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_textured"),
+                compilation_options: Default::default(),
+                buffers: &[v3t_layout],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: depth_stencil(true, wgpu::CompareFunction::Less),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_textured"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
 
         let overlay = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("overlay"),
@@ -468,9 +553,12 @@ impl Gpu {
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("nearest"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            // SNES BG tilemaps wrap in both axes. Ordinary HUD/shape UVs stay
+            // inside [0,1], so repeat is identical for them while allowing
+            // camera skies and per-scanline black-hole HOFS to wrap exactly.
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
@@ -481,6 +569,7 @@ impl Gpu {
 
         // Initial buffers (small; grown on demand).
         let vbuf3 = make_vbuf(&device, 4096 * std::mem::size_of::<Vertex3>() as u64);
+        let vbuf3t = make_vbuf(&device, 4096 * std::mem::size_of::<Vertex3Tex>() as u64);
         let vbuf2 = make_vbuf(&device, 4096 * std::mem::size_of::<Vertex2>() as u64);
         let ubuf_cap = 256 * UNIFORM_STRIDE;
         let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -501,12 +590,15 @@ impl Gpu {
             flat_tri_alpha,
             flat_tri_add,
             flat_line,
+            textured_tri,
             overlay,
             uniform_bgl,
             texture_bgl,
             sampler,
             vbuf3,
             vbuf3_cap: 4096 * std::mem::size_of::<Vertex3>() as u64,
+            vbuf3t,
+            vbuf3t_cap: 4096 * std::mem::size_of::<Vertex3Tex>() as u64,
             vbuf2,
             vbuf2_cap: 4096 * std::mem::size_of::<Vertex2>() as u64,
             ubuf,
@@ -514,9 +606,11 @@ impl Gpu {
             uniform_bind,
             textures: Vec::new(),
             v3: Vec::new(),
+            v3t: Vec::new(),
             v2: Vec::new(),
             uniforms: Vec::new(),
             cmds: Vec::new(),
+            draw_viewport: None,
             clear: [0.0, 0.0, 0.0, 1.0],
             pending_surface: None,
         };
@@ -652,9 +746,11 @@ impl Gpu {
     /// Begin a frame: reset accumulation and acquire the surface texture.
     pub fn begin_frame(&mut self) {
         self.v3.clear();
+        self.v3t.clear();
         self.v2.clear();
         self.uniforms.clear();
         self.cmds.clear();
+        self.draw_viewport = None;
         if let Target::Surface { surface, .. } = &self.target {
             match surface.get_current_texture() {
                 Ok(surface_tex) => {
@@ -669,6 +765,12 @@ impl Gpu {
                 }
             }
         }
+    }
+
+    /// Select the viewport captured by subsequently queued commands. Passing
+    /// `None` restores the full render target for HUD and other overlays.
+    pub fn set_draw_viewport(&mut self, viewport: Option<RenderViewport>) {
+        self.draw_viewport = viewport;
     }
 
     fn push_uniform(&mut self, u: DrawUniform) -> u32 {
@@ -694,7 +796,7 @@ impl Gpu {
             view: mat4(view),
             model: mat4(model),
             color,
-            mode: [0, 0, 0, 0],
+            mode: [FLAT_FILL_SOLID, 0, 0, 0],
             palette: [[0.0; 4]; 16],
         });
         let start = self.v3.len() as u32;
@@ -705,6 +807,60 @@ impl Gpu {
             v_count: verts.len() as u32,
             uniform_index: ui,
             texture: WHITE_TEX,
+            viewport: self.draw_viewport,
+        });
+    }
+
+    /// Draw flat 3D triangles using the retail two-color checkerboard. The
+    /// pattern is evaluated in the 256x224 source raster and therefore stays
+    /// stable when the presentation viewport is enlarged.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_palette_pair_tris(
+        &mut self,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        palette: &[[f32; 4]; 16],
+        pair: [u8; 2],
+    ) {
+        self.push_palette_pair_variant(Pipe::FlatTri, verts, proj, view, model, palette, pair);
+    }
+
+    /// Draw palette-indexed Super FX texture-map triangles in 3D.  Each R8
+    /// texel stores both source CGX planes; mode 2 selects its low nibble and
+    /// mode 3 the high nibble, exactly matching the source texture selector.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_textured_tris(
+        &mut self,
+        verts: &[Vertex3Tex],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        palette: &[[f32; 4]; 16],
+        high_nibble: bool,
+        texture: TextureId,
+    ) {
+        if verts.len() < 3 {
+            return;
+        }
+        let ui = self.push_uniform(DrawUniform {
+            proj: mat4(proj),
+            view: mat4(view),
+            model: mat4(model),
+            color: [1.0; 4],
+            mode: [if high_nibble { 3 } else { 2 }, 0, 0, 0],
+            palette: *palette,
+        });
+        let start = self.v3t.len() as u32;
+        self.v3t.extend_from_slice(verts);
+        self.cmds.push(DrawCmd {
+            pipe: Pipe::TexturedTri,
+            v_start: start,
+            v_count: verts.len() as u32,
+            uniform_index: ui,
+            texture,
+            viewport: self.draw_viewport,
         });
     }
 
@@ -749,7 +905,7 @@ impl Gpu {
             view: mat4(view),
             model: mat4(model),
             color,
-            mode: [0, 0, 0, 0],
+            mode: [FLAT_FILL_SOLID, 0, 0, 0],
             palette: [[0.0; 4]; 16],
         });
         let start = self.v3.len() as u32;
@@ -760,6 +916,57 @@ impl Gpu {
             v_count: verts.len() as u32,
             uniform_index: ui,
             texture: WHITE_TEX,
+            viewport: self.draw_viewport,
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_palette_pair_variant(
+        &mut self,
+        pipe: Pipe,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        palette: &[[f32; 4]; 16],
+        pair: [u8; 2],
+    ) {
+        if verts.len() < 2 {
+            return;
+        }
+        let raster = self.draw_viewport.unwrap_or(RenderViewport {
+            x: 0,
+            y: 0,
+            width: self.depth_size.0,
+            height: self.depth_size.1,
+        });
+        let ui = self.push_uniform(DrawUniform {
+            proj: mat4(proj),
+            view: mat4(view),
+            model: mat4(model),
+            color: [
+                raster.x as f32,
+                raster.y as f32,
+                raster.width as f32,
+                raster.height as f32,
+            ],
+            mode: [
+                FLAT_FILL_PALETTE_PAIR,
+                u32::from(pair[0]),
+                u32::from(pair[1]),
+                0,
+            ],
+            palette: *palette,
+        });
+        let start = self.v3.len() as u32;
+        self.v3.extend_from_slice(verts);
+        self.cmds.push(DrawCmd {
+            pipe,
+            v_start: start,
+            v_count: verts.len() as u32,
+            uniform_index: ui,
+            texture: WHITE_TEX,
+            viewport: self.draw_viewport,
         });
     }
 
@@ -781,7 +988,7 @@ impl Gpu {
             view: mat4(view),
             model: mat4(model),
             color,
-            mode: [0, 0, 0, 0],
+            mode: [FLAT_FILL_SOLID, 0, 0, 0],
             palette: [[0.0; 4]; 16],
         });
         let start = self.v3.len() as u32;
@@ -792,7 +999,34 @@ impl Gpu {
             v_count: n as u32,
             uniform_index: ui,
             texture: WHITE_TEX,
+            viewport: self.draw_viewport,
         });
+    }
+
+    /// Draw a retail dithered two-color line in the source raster.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_palette_pair_lines(
+        &mut self,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        palette: &[[f32; 4]; 16],
+        pair: [u8; 2],
+    ) {
+        let n = verts.len() & !1;
+        if n < 2 {
+            return;
+        }
+        self.push_palette_pair_variant(
+            Pipe::FlatLine,
+            &verts[..n],
+            proj,
+            view,
+            model,
+            palette,
+            pair,
+        );
     }
 
     /// Draw 2D overlay triangles. `use_texture`: 0 solid, 1 rgba, 2 palette.
@@ -826,6 +1060,7 @@ impl Gpu {
             v_count: verts.len() as u32,
             uniform_index: ui,
             texture,
+            viewport: self.draw_viewport,
         });
     }
 
@@ -908,11 +1143,23 @@ impl Gpu {
 
             for cmd in &self.cmds {
                 let offset = (cmd.uniform_index as u64) * UNIFORM_STRIDE;
+                if let Some(viewport) = cmd.viewport {
+                    rpass.set_viewport(
+                        viewport.x as f32,
+                        viewport.y as f32,
+                        viewport.width as f32,
+                        viewport.height as f32,
+                        0.0,
+                        1.0,
+                    );
+                    rpass.set_scissor_rect(viewport.x, viewport.y, viewport.width, viewport.height);
+                } else {
+                    let (width, height) = self.depth_size;
+                    rpass.set_viewport(0.0, 0.0, width as f32, height as f32, 0.0, 1.0);
+                    rpass.set_scissor_rect(0, 0, width, height);
+                }
                 match cmd.pipe {
-                    Pipe::FlatTri
-                    | Pipe::FlatTriAlpha
-                    | Pipe::FlatTriAdd
-                    | Pipe::FlatLine => {
+                    Pipe::FlatTri | Pipe::FlatTriAlpha | Pipe::FlatTriAdd | Pipe::FlatLine => {
                         rpass.set_pipeline(match cmd.pipe {
                             Pipe::FlatTri => &self.flat_tri,
                             Pipe::FlatTriAlpha => &self.flat_tri_alpha,
@@ -921,6 +1168,13 @@ impl Gpu {
                         });
                         rpass.set_bind_group(0, &self.uniform_bind, &[offset as u32]);
                         rpass.set_vertex_buffer(0, self.vbuf3.slice(..));
+                        rpass.draw(cmd.v_start..cmd.v_start + cmd.v_count, 0..1);
+                    }
+                    Pipe::TexturedTri => {
+                        rpass.set_pipeline(&self.textured_tri);
+                        rpass.set_bind_group(0, &self.uniform_bind, &[offset as u32]);
+                        rpass.set_bind_group(1, &self.textures[cmd.texture.0].bind_group, &[]);
+                        rpass.set_vertex_buffer(0, self.vbuf3t.slice(..));
                         rpass.draw(cmd.v_start..cmd.v_start + cmd.v_count, 0..1);
                     }
                     Pipe::Overlay => {
@@ -947,6 +1201,11 @@ impl Gpu {
             self.vbuf3_cap = (need3 * 2).max(self.vbuf3_cap * 2);
             self.vbuf3 = make_vbuf(&self.device, self.vbuf3_cap);
         }
+        let need3t = (self.v3t.len() * std::mem::size_of::<Vertex3Tex>()) as u64;
+        if need3t > self.vbuf3t_cap {
+            self.vbuf3t_cap = (need3t * 2).max(self.vbuf3t_cap * 2);
+            self.vbuf3t = make_vbuf(&self.device, self.vbuf3t_cap);
+        }
         let need2 = (self.v2.len() * std::mem::size_of::<Vertex2>()) as u64;
         if need2 > self.vbuf2_cap {
             self.vbuf2_cap = (need2 * 2).max(self.vbuf2_cap * 2);
@@ -966,6 +1225,10 @@ impl Gpu {
         if !self.v3.is_empty() {
             self.queue
                 .write_buffer(&self.vbuf3, 0, bytemuck::cast_slice(&self.v3));
+        }
+        if !self.v3t.is_empty() {
+            self.queue
+                .write_buffer(&self.vbuf3t, 0, bytemuck::cast_slice(&self.v3t));
         }
         if !self.v2.is_empty() {
             self.queue
@@ -1113,6 +1376,10 @@ struct Uniforms {
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
+const FLAT_FILL_PALETTE_PAIR: u32 = 1u;
+const SOURCE_RASTER_HEIGHT: f32 = 224.0;
+const SOURCE_RASTER_CENTER_X: f32 = 128.0;
+
 struct FlatOut { @builtin(position) clip: vec4<f32> };
 
 @vertex
@@ -1124,11 +1391,69 @@ fn vs_flat(@location(0) pos: vec3<f32>) -> FlatOut {
 
 @fragment
 fn fs_flat(in: FlatOut) -> @location(0) vec4<f32> {
+    if (u.mode.x == FLAT_FILL_PALETTE_PAIR) {
+        // Preserve source-raster parity under arbitrary output scaling. The
+        // presentation rectangle is carried in color as x, y, width, height.
+        let source_scale = SOURCE_RASTER_HEIGHT / u.color.w;
+        let source_x = i32(floor(
+            (in.clip.x - u.color.x - u.color.z * 0.5) * source_scale
+                + SOURCE_RASTER_CENTER_X,
+        ));
+        let source_y = i32(floor((in.clip.y - u.color.y) * source_scale));
+        var palette_index = u.mode.y;
+        if (((source_x ^ source_y) & 1) != 0) {
+            palette_index = u.mode.z;
+        }
+        // Source color zero is transparent before depth is written.
+        if (palette_index == 0u) { discard; }
+        return u.palette[min(palette_index, 15u)];
+    }
     return u.color;
 }
 
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
+
+struct Tex3Out {
+    @builtin(position) clip: vec4<f32>,
+    // The Super FX scan converter advances texture coordinates linearly in
+    // screen space.  WGSL `linear` interpolation is the non-perspective mode.
+    @location(0) @interpolate(linear) tex_info: vec4<f32>,
+};
+
+@vertex
+fn vs_textured(
+    @location(0) pos: vec3<f32>,
+    @location(1) tex_info: vec4<f32>,
+) -> Tex3Out {
+    var o: Tex3Out;
+    o.clip = u.proj * u.view * u.model * vec4<f32>(pos, 1.0);
+    o.tex_info = tex_info;
+    return o;
+}
+
+@fragment
+fn fs_textured(in: Tex3Out) -> @location(0) vec4<f32> {
+    // MDRAWP.MC: `merge; and rmask; add rspdata; getc`.  `merge` takes the
+    // integer bytes of the 8.8 coordinates, the 16-bit mask wraps X/Y, and
+    // the result is then added to the linear sprite base address.  Performing
+    // this after interpolation is important: adding atlas UVs at vertices
+    // loses carries across 256-byte rows.
+    let mask = u32(in.tex_info.w);
+    let local_x = u32(i32(floor(in.tex_info.x)) & i32(mask & 0xffu));
+    let local_y = u32(i32(floor(in.tex_info.y)) & i32((mask >> 8u) & 0xffu));
+    let address = (u32(in.tex_info.z) + (local_y << 8u) + local_x) & 0x7fffu;
+    let texel = textureLoad(
+        tex,
+        vec2<i32>(i32(address & 0xffu), i32(address >> 8u)),
+        0,
+    ).r;
+    let packed = i32(texel * 255.0 + 0.5);
+    var idx = packed % 16;
+    if (u.mode.x == 3u) { idx = packed / 16; }
+    if (idx == 0) { discard; }
+    return u.palette[clamp(idx, 0, 15)];
+}
 
 struct OvOut {
     @builtin(position) clip: vec4<f32>,

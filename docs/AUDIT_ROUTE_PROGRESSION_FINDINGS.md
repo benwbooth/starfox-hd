@@ -9,13 +9,11 @@ death/continue restart target.
 - Rust sources: `rust/sf-game/src/{shell.rs,planets.rs,world.rs}`,
   `rust/sf-map/src/{catalog.rs,levels/*}`
 
-Verdict up front: **the route/branch *data* tables are a faithful port, but
-the level-end *dispatch* is missing entirely.** The Rust shell treats every
-non-zero `levelfinished` value identically ("advance the normal route"), so
-all six warp/branch level-end codes (`LE_BHOLE1/2/3`, `LE_SPECIAL`,
-`LE_ENTERBHOLE`, `LE_ENTERSPEC`) fall through to the normal next stage. The
-`routechange*` callbacks that rewrite the branch tree exist in Rust but are
-never invoked.
+Verdict up front: **FIXED (tick 198).** Route/branch *data* tables were already
+faithful; `shell::le` + `warp_advance` now dispatch all six warp codes (skip
+tally, fire `routechange*`), `level1_5` uses `mapend(7)`, and blackhole
+enter/exit strats set `levelfinished`. Accepted leftovers: `nebula_on` as path
+id (#4), game-over via `GF_PLAYERDEAD` (#5).
 
 ---
 
@@ -127,92 +125,20 @@ control flow that consumes it.**
 
 ## 3. Findings
 
-### FINDING 1 (CRITICAL — warp-falls-through): shell never dispatches on the `LE_*` value
+### FINDING 1 (CRITICAL — warp-falls-through): ~~shell never dispatches on the `LE_*` value~~
+**FIXED (verified tick 198):** `shell::le` constants + `gameplay_progress_tick`
+match on warp codes → `warp_advance` (skip tally); normal → `enter_tally`.
+Tests `shell::tests::{bhole_exit_codes_repoint_routes3,special_code_repoints_*,enterbhole_*,enterspec_*}`.
 
-`rust/sf-game/src/shell.rs:861` gates level completion on
-`if self.game.world.levelfinished != 0` and then unconditionally runs
-`enter_tally()` -> `advance_stage_after_tally()`
-(`shell.rs:869, 910-943`), which does `stage += 1; drawplanetlines()`. There
-is **no `match` on the value**. Consequently:
+### FINDING 2 (CRITICAL — missing-branch): ~~`routechange*` callbacks are never fired~~
+**FIXED (verified tick 198):** `warp_advance` fires `routechangebhole1/2/3`,
+`routechange1` (SPECIAL/ENTERSPEC), and `routechange2` (ENTERBHOLE). Strat
+`blackhole2_strat` sets `levelfinished=15`; shell arms P21 on dispatch.
+Tests shell warp suite + `blackhole.rs` (8).
 
-- `LE_ENTERBHOLE` (15), `LE_ENTERSPEC` (16), `LE_BHOLE1/2/3` (11-13),
-  `LE_SPECIAL` (14) all take the normal-route path instead of warping.
-- The warp codes should *skip the tally* and go straight to the map walk
-  (ROM `enterbhole`/`exitspec` jump to `planetseq_l` bypassing
-  `end_level_seq`); the port always shows the tally.
-- `LE_GAMEOVER` (10) would (if ever set via `levelfinished`) wrongly do a
-  stage-advance instead of a GAME OVER screen — but the port routes game-over
-  through `GF_PLAYERDEAD` -> `GameState::Continue` (shell.rs:840-852) instead,
-  so this is latent, not active (see Finding 5).
-
-There is no `LE_*` constant enum anywhere in the Rust port (grep of
-`sf-game`/`sf-map` finds only the `LEVELFINISHED` WRAM address, not the value
-enum), so the map builder's `mapend(N)` value is discarded past its boolean
-truthiness.
-
-- ASM ref: `MAIN.ASM:222-322`, `KALCS.INC:91-103`.
-- Rust ref: `shell.rs:857-873` (`gameplay_progress_tick`), `shell.rs:910-943`.
-- Fix: add an `LE_*` value enum (mirror KALCS.INC). In
-  `gameplay_progress_tick`, `match world.levelfinished`:
-  - `LE_BHOLE1/2/3` -> call `planets.routechangebhole1/2/3()`, then
-    `stage += 1`, re-walk (no tally), begin gameplay — this is the black-hole
-    *exit* choosing the destination.
-  - `LE_SPECIAL` -> `planets.routechange1()`, `stage += 1`, re-walk, begin.
-  - `LE_ENTERBHOLE` -> `stage += 1`, re-walk (no tally), begin (the P21 branch
-    must already be active; see Finding 2), set the `specbuf=101` /
-    black-hole-anim equivalent.
-  - `LE_ENTERSPEC` -> `stage += 1`, re-walk (no tally, fade-to-white), begin.
-  - default (1) / end codes -> current tally + advance path.
-  The existing `// TODO(C parity)` note at `shell.rs:858-860` already flags
-  this exact gap.
-
-### FINDING 2 (CRITICAL — missing-branch): `routechange*` callbacks are never fired
-
-The six `routechange*` methods (`planets.rs:275-293`) are correct but their
-own doc comment says *"Not yet reachable — the map lane has not registered
-ROUTECHANGE native callbacks in sf-map"*. In the ROM these are triggered by:
-
-- `routechange 2` inside the black-hole-approach strat, immediately before it
-  sets `levelfinished=LE_ENTERBHOLE` (`GA2STRAT.ASM:2202-2203`). This swaps
-  routes[1] P7->P21 so the walk detours into the BLACKHOLE stage.
-- `routechange bhole1/2/3` inside MAIN's `exittobhole*` handlers
-  (`MAIN.ASM:306-311`), driven by `LE_BHOLE1/2/3` from the black-hole exit
-  strats.
-- `routechange 1` inside `exittospecial` (`MAIN.ASM:312`).
-
-Because none fire, `routes[]` keeps its init defaults forever
-(`planets.rs:222-235`: routes[1]=P7, routes[0]=P12, routes[3]=P19), so **even
-if Finding 1 were fixed, `LE_ENTERBHOLE` on route 0 would still walk into
-Space Armada (P8), not the black hole**, since the P21 branch is never armed.
-
-- ASM ref: `GA2STRAT.ASM:2202-2203`, `MAIN.ASM:306-312`,
-  `PLANETS.ASM:3107-3155`.
-- Rust ref: `planets.rs:272-293` (callbacks), `shell.rs` (no caller).
-- Fix: (a) fire `routechangebhole1/2/3` and `routechange1` from the shell's
-  `LE_BHOLE*`/`LE_SPECIAL` dispatch (Finding 1); (b) wire `routechange2` (and
-  `routechange3` for the Sector-X branch) from the black-hole-approach strat
-  once sf-strat lands, mirroring the `routechange` that precedes the
-  `LE_ENTERBHOLE` store. This is blocked on sf-strat (the black-hole strats
-  `bholeexit*_istrat`, `blackholeexit_Istrat` in KSTRATS.ASM and the GA2STRAT
-  approach are unported) and on sf-path (`LE_ENTERSPEC` is set from
-  PATHDATA.ASM:375, an unported path callback).
-
-### FINDING 3 (MEDIUM — wrong value in map data): `level1_5` emits `mapend(6)` instead of 7
-
-Both ROM `LEVEL1_5.ASM:13` and `LEVEL2_5.ASM:9` use `mapend__not`, which sets
-`levelfinished = 7` (`MAPMACS.INC:1989-1990`). The port matches for 2_5
-(`rust/sf-map/src/levels/route2/level2_5.rs:19` -> `b.mapend(7)`) but **1_5
-uses the wrong code**: `rust/sf-map/src/levels/route1/level1_5.rs:82`
--> `b.mapend(6)` with a comment "sets levelfinished=6". `6` is `LE_ENDOFGAME`;
-the correct value is `7` (`LE_STARTGAME`).
-
-Currently harmless (Finding 1 makes all non-zero values equivalent), but it
-will send the Venom-1-orbital -> Venom-1-surface transition to the *ending
-sequence* the moment `LE_*` dispatch is implemented.
-
-- ASM ref: `LEVEL1_5.ASM:13`, `MAPMACS.INC:1989-1990`.
-- Rust ref: `rust/sf-map/src/levels/route1/level1_5.rs:81-82`.
-- Fix: `b.mapend(7)` (and correct the comment).
+### FINDING 3 (MEDIUM — wrong value in map data): ~~`level1_5` emits `mapend(6)`~~
+**FIXED (verified tick 198):** `b.mapend(7)` (`le_startgame`). Test
+`level1_5::tests::mapend_sets_levelfinished_le_startgame`.
 
 ### FINDING 4 (LOW — representation drift): `nebula_on` value differs from ROM
 
@@ -225,23 +151,11 @@ treats it as boolean before relying on this.
 
 - ASM ref: `PLANETS.ASM:3110-3112`.
 - Rust ref: `planets.rs:276-278`.
-- Fix: verify the `nebula_on` reader; if it compares against a specific value,
-  reconcile the representation.
+- Status: **ACCEPTED** (boolean consumer; no gameplay divergence observed).
 
 ### FINDING 5 (INFO — divergent-but-equivalent): game-over path does not use `levelfinished`
-
-ROM reaches GAME OVER via `levelfinished = LE_GAMEOVER` (10) checked at
-`MAIN.ASM:226`; the value is set on the death/continue path (CONT.ASM:220
-compares it). The Rust port instead drives game-over through the
-`GF_PLAYERDEAD` gameflag: `shell.rs:840-852` counts `DEATH_RESPAWN_TICKS`,
-then reloads the current map if `lives>0` or enters `GameState::Continue` if
-not. This is a different mechanism but reaches the same states. **Checkpoint/
-continue restart target is correct**: both death-respawn (`shell.rs:846-848`)
-and continue (`shell.rs:472-479`, refill lives) call
-`begin_gameplay_from_planet_select()`, which preserves `stage`/`whichroute`/
-`newmap` and reloads the current stage — matching the ROM's per-stage restart.
-No action required unless a map/strat is found that sets
-`levelfinished=LE_GAMEOVER` directly (none in the ported set).
+**ACCEPTED** — GF_PLAYERDEAD path is equivalent; defensive `le::GAMEOVER` arm
+also present in `gameplay_progress_tick`.
 
 ---
 
@@ -277,23 +191,13 @@ No action required unless a map/strat is found that sets
 
 ## Summary
 
-- Findings: **5** total — 2 critical (warp dispatch missing; routechange
-  callbacks never fire), 1 medium (wrong `mapend` code in 1_5), 1 low
-  (`nebula_on` representation), 1 info (game-over via gameflag, equivalent).
-- Route/branch *data* is a faithful, verified port; the *dispatch* layer that
-  consumes `LE_*` is absent. Both critical findings are the same root cause
-  and largely blocked on sf-strat/sf-path (the warp triggers are unported).
+- Findings: **5** total — Criticals #1–#2 + Medium #3 **FIXED (tick 198)**;
+  Low #4 ACCEPTED (`nebula_on` as path id); Info #5 ACCEPTED (GF_PLAYERDEAD).
+- Route/branch *data* + *LE_* dispatch + blackhole enter/exit strats are
+  verified. **AUDIT_ROUTE_PROGRESSION closed** (accepted leftovers only).
 
-**Top 3 wrong destinations (all stem from Finding 1 — every warp code falls
-through to the normal next stage):**
+**Warp destinations (now correct):**
 
-1. `LE_ENTERBHOLE` (15): should **enter the BLACK HOLE stage** (via the P21
-   branch armed by `routechange2`); instead advances to the normal next node
-   (e.g. on route 0, Asteroid Belt 1 -> Space Armada). Compounded by Finding 2
-   (P21 branch never armed).
-2. `LE_ENTERSPEC` (16): should **enter the SPECIAL stage** ("Out of This
-   Dimension", map `SPECIAL`/planet 14); instead advances normally.
-3. `LE_BHOLE1/2/3` (11-13): the black-hole *exit* should redirect routes[3] to
-   Venom 1 Orbital (P19) / Sector Y (P18) / Sector Z (P20); instead ignored,
-   so the black-hole exit destination is never selectable. `LE_SPECIAL` (14)
-   shares this failure (should point routes[0] -> P22 -> Out of This Dimension).
+1. `LE_ENTERBHOLE` (15) → BLACK HOLE via `routechange2` (P21) on dispatch.
+2. `LE_ENTERSPEC` (16) → SPECIAL via `routechange1` (P22).
+3. `LE_BHOLE1/2/3` (11-13) → routes[3] = P19/P18/P20; `LE_SPECIAL` (14) → P22.

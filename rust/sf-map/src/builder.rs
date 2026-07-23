@@ -7,8 +7,8 @@
 //! Numeric parameters are `i32` and are truncated internally with `as`
 //! casts, reproducing the implicit `int -> int16/uint16/uint8` conversions
 //! at the C call sites (e.g. `-27 << MYBASE_SCALE` passed to an `int16`
-//! parameter). Shape ids stay `u16` and strategy ids `u32` because
-//! `mapobj` picks the compact encoding based on their magnitude.
+//! parameter). Shape ids stay `u16`; strategy operands distinguish compact
+//! or compatibility encodings from typed native Rust strategies.
 
 use crate::consts::*;
 
@@ -131,36 +131,126 @@ impl MapBuilder {
 
     // ---- object spawns ----
 
-    /// mb_mapnobj: full-width NORMOBJ spawn (15 bytes).
-    pub fn mapnobj(&mut self, frame: i32, x: i32, y: i32, z: i32, shape: u16, strat: u32) {
-        self.emit8(op::NORMOBJ);
+    fn emit_full_object(
+        &mut self,
+        opcode: u8,
+        frame: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        strategy_word: u16,
+        strategy_tag: u8,
+    ) {
+        self.emit8(opcode);
         self.emit16(frame as u16);
         self.emit16s(x as i16);
         self.emit16s(y as i16);
         self.emit16s(z as i16);
         self.emit16(shape);
-        self.emit16((strat & 0xFFFF) as u16);
-        self.emit8(((strat >> 16) & 0xFF) as u8);
+        self.emit16(strategy_word);
+        self.emit8(strategy_tag);
+    }
+
+    /// Full-width object spawn. Compatibility operands retain the original
+    /// `NORMOBJ` layout; typed native strategies use `DIRECTOBJ` with the same
+    /// record width so map labels and timing remain stable.
+    pub fn mapnobj<S: Into<StrategyRef>>(
+        &mut self,
+        frame: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        strategy: S,
+    ) {
+        match strategy.into() {
+            StrategyRef::Encoded(value) => self.emit_full_object(
+                op::NORMOBJ,
+                frame,
+                x,
+                y,
+                z,
+                shape,
+                value as u16,
+                (value >> 16) as u8,
+            ),
+            StrategyRef::Direct(value) => {
+                self.emit_full_object(op::DIRECTOBJ, frame, x, y, z, shape, value.id() as u16, 0)
+            }
+        }
     }
 
     /// mb_mapobj: compact MAPOBJ when shape and strat both fit a byte,
     /// otherwise falls back to mapnobj.
-    pub fn mapobj(&mut self, frame: i32, x: i32, y: i32, z: i32, shape: u16, strat: u32) {
-        if shape <= 0xFF && strat <= 0xFF {
-            self.emit8(op::MAPOBJ);
-            self.emit16(frame as u16);
-            self.emit16s(x as i16);
-            self.emit16s(y as i16);
-            self.emit16s(z as i16);
-            self.emit8(shape as u8);
-            self.emit8(strat as u8);
-            return;
+    pub fn mapobj<S: Into<StrategyRef>>(
+        &mut self,
+        frame: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        strategy: S,
+    ) {
+        let strategy = strategy.into();
+        if let StrategyRef::Encoded(value) = strategy {
+            if shape <= u8::MAX as u16 && value <= u8::MAX as u32 {
+                self.emit8(op::MAPOBJ);
+                self.emit16(frame as u16);
+                self.emit16s(x as i16);
+                self.emit16s(y as i16);
+                self.emit16s(z as i16);
+                self.emit8(shape as u8);
+                self.emit8(value as u8);
+                return;
+            }
         }
-        self.mapnobj(frame, x, y, z, shape, strat);
+        self.mapnobj(frame, x, y, z, shape, strategy);
+    }
+
+    /// `mapobjzrot`: compact object spawn with an initial Z rotation.
+    /// The source macro is byte-sized for shape and ISTRAT, exactly like the
+    /// WORLD.ASM opcode-38 layout.
+    pub fn mapobjzrot(
+        &mut self,
+        frame: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        strat: u32,
+        zrot: i32,
+    ) {
+        assert!(
+            shape <= u8::MAX as u16,
+            "mapobjzrot shape must fit one byte"
+        );
+        assert!(
+            strat <= u8::MAX as u32,
+            "mapobjzrot ISTRAT must fit one byte"
+        );
+        self.emit8(op::OBJZROT);
+        self.emit16(frame as u16);
+        self.emit16s(x as i16);
+        self.emit16s(y as i16);
+        self.emit16s(z as i16);
+        self.emit8(shape as u8);
+        self.emit8(strat as u8);
+        self.emit8(zrot as u8);
     }
 
     /// mb_maphardrot: mapobj with IS_HARDROT + sbyte1..3 rotation speeds + wait.
-    pub fn maphardrot(&mut self, wait: i32, x: i32, y: i32, z: i32, shape: u16, rx: i32, ry: i32, rz: i32) {
+    pub fn maphardrot(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        rx: i32,
+        ry: i32,
+        rz: i32,
+    ) {
         self.mapobj(0, x, y, z, shape, is::HARDROT);
         self.setalvarb(al::SBYTE1, rx);
         self.setalvarb(al::SBYTE2, ry);
@@ -171,8 +261,22 @@ impl MapBuilder {
     // ---- flow / timing ----
 
     pub fn mapwait(&mut self, dist: i32) {
-        self.emit8(op::WAIT);
-        self.emit16(dist as u16);
+        // MAPMACS.INC:573-590. Zero emits no instruction at all. Values
+        // whose high distance byte fits use WAIT2 and are intentionally
+        // quantized to 16-unit resolution; larger values use the full word.
+        // This also preserves the important `mapwait 1` behavior: WAIT2 0
+        // yields from the VM for one update even though mapcnt remains zero.
+        if dist == 0 {
+            return;
+        }
+        let compact = dist >> 4;
+        if compact < 256 {
+            self.emit8(op::WAIT2);
+            self.emit8(compact as u8);
+        } else {
+            self.emit8(op::WAIT);
+            self.emit16(dist as u16);
+        }
     }
 
     pub fn setbgm(&mut self, music_id: i32) {
@@ -182,6 +286,11 @@ impl MapBuilder {
 
     pub fn mapplayeroutview(&mut self) {
         self.mapcodejsl_builtin(cb::PLAYER_OUTVIEW_L);
+    }
+
+    /// `mapplayercantdie`: latch `pstf_notdie` through a native map callback.
+    pub fn mapplayercantdie(&mut self) {
+        self.mapcodejsl_builtin(cb::PLAYER_CANT_DIE);
     }
 
     pub fn setbg(&mut self, bg_id: i32) {
@@ -195,6 +304,16 @@ impl MapBuilder {
 
     pub fn qfadedown(&mut self) {
         self.emit8(op::QFADEDOWN);
+    }
+
+    /// `setfadeup` without the `quick` argument.
+    pub fn fadeup(&mut self) {
+        self.emit8(op::FADEUP);
+    }
+
+    /// `setfadedown` without the `quick` argument.
+    pub fn fadedown(&mut self) {
+        self.emit8(op::FADEDOWN);
     }
 
     pub fn waitfade(&mut self) {
@@ -293,6 +412,16 @@ impl MapBuilder {
         self.emit8(0);
     }
 
+    /// Emit a byte SETVAR to its real 24-bit address. Most map-owned state
+    /// is bank-zero WRAM and uses [`Self::setvarb`]; Super FX RAM variables
+    /// such as `m_meters` live in bank $70 and require this form.
+    pub fn setvarb24(&mut self, addr24: u32, value: i32) {
+        self.emit8(op::SETVARB);
+        self.emit8(value as u8);
+        self.emit16((addr24 & 0xFFFF) as u16);
+        self.emit8((addr24 >> 16) as u8);
+    }
+
     pub fn setvarw(&mut self, extptr: u16, value: i32) {
         self.emit8(op::SETVARW);
         self.emit16(value as u16);
@@ -350,15 +479,28 @@ impl MapBuilder {
     }
 
     /// mb_mapmother: mother-ship spawn with a mother sub-map reference.
-    pub fn mapmother(&mut self, frame: i32, x: i32, y: i32, z: i32, shape: u16, strat_addr24: u32, map_ref: u16) {
-        self.emit8(op::MOTHER);
+    pub fn mapmother<S: Into<StrategyRef>>(
+        &mut self,
+        frame: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        strategy: S,
+        map_ref: u16,
+    ) {
+        let (opcode, strategy_word, strategy_tag) = match strategy.into() {
+            StrategyRef::Encoded(value) => (op::MOTHER, value as u16, (value >> 16) as u8),
+            StrategyRef::Direct(value) => (op::DIRECTMOTHER, value.id() as u16, 0),
+        };
+        self.emit8(opcode);
         self.emit16(frame as u16);
         self.emit16s(x as i16);
         self.emit16s(y as i16);
         self.emit16s(z as i16);
         self.emit16(shape);
-        self.emit16((strat_addr24 & 0xFFFF) as u16);
-        self.emit8(((strat_addr24 >> 16) & 0xFF) as u8);
+        self.emit16(strategy_word);
+        self.emit8(strategy_tag);
         self.emit16(map_ref);
     }
 
@@ -374,7 +516,17 @@ impl MapBuilder {
 
     /// mb_pathobj: path-following object; hp==10 && ap==10 uses the
     /// compact IS_PATHDHA (default hp/ap) strategy.
-    pub fn pathobj(&mut self, wait: i32, x: i32, y: i32, z: i32, shape: u16, path_id: u16, hp: i32, ap: i32) {
+    pub fn pathobj(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        path_id: u16,
+        hp: i32,
+        ap: i32,
+    ) {
         if hp == 10 && ap == 10 {
             self.mapobj(0, x, y, z, shape, is::PATHDHA);
         } else {
@@ -386,8 +538,42 @@ impl MapBuilder {
         self.mapwait(wait);
     }
 
+    /// ROM `textpath` (MAPMACS.INC:1837): spawn a `patht_istrat`
+    /// null-shape object, attach a MARIO message pointer and path, select the
+    /// text colour/size, then apply the call-site wait.
+    pub fn textpath(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        message_ptr: u16,
+        path_id: u16,
+        colour: i32,
+        size: Option<i32>,
+    ) {
+        self.mapobj(0, x, y, z, sh::NULLSHAPE, is::PATHT);
+        self.setalxvarw(alx::COLTAB, message_ptr as i32);
+        self.mapsetpath(path_id);
+        self.setalxvarb(alx::DEPTHOFFSET, colour);
+        if let Some(size) = size {
+            self.setalxvarb(alx::TX, size);
+        }
+        self.mapwait(wait);
+    }
+
     /// mb_pathspecial: pathobj + SPECIAL marker.
-    pub fn pathspecial(&mut self, wait: i32, x: i32, y: i32, z: i32, shape: u16, path_id: u16, hp: i32, ap: i32) {
+    pub fn pathspecial(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        path_id: u16,
+        hp: i32,
+        ap: i32,
+    ) {
         if hp == 10 && ap == 10 {
             self.mapobj(0, x, y, z, shape, is::PATHDHA);
         } else {
@@ -401,7 +587,17 @@ impl MapBuilder {
     }
 
     /// mb_pathcspecial: pathobj + CSPECIAL marker.
-    pub fn pathcspecial(&mut self, wait: i32, x: i32, y: i32, z: i32, shape: u16, path_id: u16, hp: i32, ap: i32) {
+    pub fn pathcspecial(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        path_id: u16,
+        hp: i32,
+        ap: i32,
+    ) {
         if hp == 10 && ap == 10 {
             self.mapobj(0, x, y, z, shape, is::PATHDHA);
         } else {
@@ -416,7 +612,17 @@ impl MapBuilder {
 
     // ---- far-ship background flights (mb_map_farships*) ----
 
-    fn map_farships_common(&mut self, shape: u16, face_around: bool, x: i32, y: i32, z: i32, x_speed: i32, y_speed: i32, depth: i32) {
+    fn map_farships_common(
+        &mut self,
+        shape: u16,
+        face_around: bool,
+        x: i32,
+        y: i32,
+        z: i32,
+        x_speed: i32,
+        y_speed: i32,
+        depth: i32,
+    ) {
         self.mapobj(300, x, SPACE_VIEWCY + y, z, shape, is::SHIPS);
         self.setalvarw(al::SWORD1, x_speed);
         self.setalvarw(al::SWORD2, y_speed);
@@ -426,15 +632,39 @@ impl MapBuilder {
         }
     }
 
-    pub fn map_farships0(&mut self, x: i32, y: i32, z: i32, x_speed: i32, y_speed: i32, depth: i32) {
+    pub fn map_farships0(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        x_speed: i32,
+        y_speed: i32,
+        depth: i32,
+    ) {
         self.map_farships_common(sh::SHIP_S_0, true, x, y, z, x_speed, y_speed, depth);
     }
 
-    pub fn map_farships1(&mut self, x: i32, y: i32, z: i32, x_speed: i32, y_speed: i32, depth: i32) {
+    pub fn map_farships1(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        x_speed: i32,
+        y_speed: i32,
+        depth: i32,
+    ) {
         self.map_farships_common(sh::SHIP_S_1, true, x, y, z, x_speed, y_speed, depth);
     }
 
-    pub fn map_farships2(&mut self, x: i32, y: i32, z: i32, x_speed: i32, y_speed: i32, depth: i32) {
+    pub fn map_farships2(
+        &mut self,
+        x: i32,
+        y: i32,
+        z: i32,
+        x_speed: i32,
+        y_speed: i32,
+        depth: i32,
+    ) {
         self.map_farships_common(sh::SHIPS, false, x, y, z, x_speed, y_speed, depth);
     }
 
@@ -499,14 +729,62 @@ impl MapBuilder {
     fn spacebar_shape_id(&self, shape: SpacebarShape) -> u16 {
         let solid = self.barshape_mode == BarShapeMode::Solid;
         match shape {
-            SpacebarShape::X => if solid { sh::XSOLIDSPACEBAR } else { sh::XWIRESPACEBAR },
-            SpacebarShape::Xp => if solid { sh::XPSOLIDSPACEBAR } else { sh::XPWIRESPACEBAR },
-            SpacebarShape::Y => if solid { sh::YSOLIDSPACEBAR } else { sh::YWIRESPACEBAR },
-            SpacebarShape::Z => if solid { sh::ZSOLIDSPACEBAR } else { sh::ZWIRESPACEBAR },
-            SpacebarShape::Sx => if solid { sh::SXSOLIDSPACEBAR } else { sh::SXWIRESPACEBAR },
-            SpacebarShape::Sxp => if solid { sh::SXPSOLIDSPACEBAR } else { sh::SXPWIRESPACEBAR },
-            SpacebarShape::Sy => if solid { sh::SYSOLIDSPACEBAR } else { sh::SYWIRESPACEBAR },
-            SpacebarShape::Sz => if solid { sh::SZSOLIDSPACEBAR } else { sh::SZWIRESPACEBAR },
+            SpacebarShape::X => {
+                if solid {
+                    sh::XSOLIDSPACEBAR
+                } else {
+                    sh::XWIRESPACEBAR
+                }
+            }
+            SpacebarShape::Xp => {
+                if solid {
+                    sh::XPSOLIDSPACEBAR
+                } else {
+                    sh::XPWIRESPACEBAR
+                }
+            }
+            SpacebarShape::Y => {
+                if solid {
+                    sh::YSOLIDSPACEBAR
+                } else {
+                    sh::YWIRESPACEBAR
+                }
+            }
+            SpacebarShape::Z => {
+                if solid {
+                    sh::ZSOLIDSPACEBAR
+                } else {
+                    sh::ZWIRESPACEBAR
+                }
+            }
+            SpacebarShape::Sx => {
+                if solid {
+                    sh::SXSOLIDSPACEBAR
+                } else {
+                    sh::SXWIRESPACEBAR
+                }
+            }
+            SpacebarShape::Sxp => {
+                if solid {
+                    sh::SXPSOLIDSPACEBAR
+                } else {
+                    sh::SXPWIRESPACEBAR
+                }
+            }
+            SpacebarShape::Sy => {
+                if solid {
+                    sh::SYSOLIDSPACEBAR
+                } else {
+                    sh::SYWIRESPACEBAR
+                }
+            }
+            SpacebarShape::Sz => {
+                if solid {
+                    sh::SZSOLIDSPACEBAR
+                } else {
+                    sh::SZWIRESPACEBAR
+                }
+            }
         }
     }
 
@@ -538,48 +816,95 @@ impl MapBuilder {
     }
 
     fn spacebar_z(&self, z: i32) -> i32 {
-        SPACEBAR_BASE_DIST + if self.barshape_autowait { 0 } else { Self::spacebar_units(z) }
+        SPACEBAR_BASE_DIST
+            + if self.barshape_autowait {
+                0
+            } else {
+                Self::spacebar_units(z)
+            }
     }
 
     pub fn map_xspacebar(&mut self, x: i32, y: i32, z: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::X);
         let zz = self.spacebar_z(z);
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR,
+        );
         self.spacebar_calcsbwait(z);
     }
 
     pub fn map_yspacebar(&mut self, x: i32, y: i32, z: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Y);
         let zz = self.spacebar_z(z);
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR,
+        );
         self.spacebar_calcsbwait(z);
     }
 
     pub fn map_zspacebar(&mut self, x: i32, y: i32, z: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Z);
         let zz = self.spacebar_z(z);
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR,
+        );
         self.spacebar_calcsbwait(z);
     }
 
     pub fn map_sxspacebar(&mut self, x: i32, y: i32, z: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Sx);
         let zz = self.spacebar_z(z);
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR,
+        );
         self.spacebar_calcsbwait(z);
     }
 
     pub fn map_syspacebar(&mut self, x: i32, y: i32, z: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Sy);
         let zz = self.spacebar_z(z);
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR,
+        );
         self.spacebar_calcsbwait(z);
     }
 
     pub fn map_szspacebar(&mut self, x: i32, y: i32, z: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Sz);
         let zz = self.spacebar_z(z);
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR,
+        );
         self.spacebar_calcsbwait(z);
     }
 
@@ -621,7 +946,14 @@ impl MapBuilder {
     pub fn map_spacebarx(&mut self, x: i32, y: i32, z: i32, init_z_rot: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Xp);
         let zz = SPACEBAR_BASE_DIST + Self::spacebar_units(z) + self.barshape_pos as i32;
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR3);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR3,
+        );
         self.setalvarb(al::ROTZ, init_z_rot * DEG45);
         self.setalvarptrw(al::PTR, wm::MAPVAR1);
     }
@@ -629,7 +961,14 @@ impl MapBuilder {
     pub fn map_spacebarsx(&mut self, x: i32, y: i32, z: i32, init_z_rot: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Sxp);
         let zz = SPACEBAR_BASE_DIST + Self::spacebar_units(z) + self.barshape_pos as i32;
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR3);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR3,
+        );
         self.setalvarb(al::ROTZ, init_z_rot * DEG45);
         self.setalvarptrw(al::PTR, wm::MAPVAR1);
     }
@@ -637,13 +976,28 @@ impl MapBuilder {
     pub fn map_spacebarsz(&mut self, x: i32, y: i32, z: i32, init_z_rot: i32) {
         let shape = self.spacebar_shape_id(SpacebarShape::Sz);
         let zz = SPACEBAR_BASE_DIST + Self::spacebar_units(z) + self.barshape_pos as i32;
-        self.mapobj(0, Self::spacebar_units(x), SPACE_VIEWCY + Self::spacebar_units(y), zz, shape, MAP_ISTRAT_SPACEBAR3);
+        self.mapobj(
+            0,
+            Self::spacebar_units(x),
+            SPACE_VIEWCY + Self::spacebar_units(y),
+            zz,
+            shape,
+            MAP_ISTRAT_SPACEBAR3,
+        );
         self.setalvarb(al::ROTZ, init_z_rot * DEG45);
         self.setalvarptrw(al::PTR, wm::MAPVAR1);
     }
 
     /// mb_map_xpspacebar: self-spinning bar.
-    pub fn map_xpspacebar(&mut self, wait: i32, x: i32, y: i32, z: i32, init_z_rot: i32, speed: i32) {
+    pub fn map_xpspacebar(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        init_z_rot: i32,
+        speed: i32,
+    ) {
         let shape = self.spacebar_shape_id(SpacebarShape::Xp);
         self.mapobj(
             0,
@@ -658,7 +1012,15 @@ impl MapBuilder {
         self.map_spacebarwait(wait);
     }
 
-    pub fn map_sxpspacebar(&mut self, wait: i32, x: i32, y: i32, z: i32, init_z_rot: i32, speed: i32) {
+    pub fn map_sxpspacebar(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        init_z_rot: i32,
+        speed: i32,
+    ) {
         let shape = self.spacebar_shape_id(SpacebarShape::Sxp);
         self.mapobj(
             0,
@@ -883,7 +1245,15 @@ impl MapBuilder {
     }
 
     /// map_SBtypeOBJ variant with a raw strat address (forces NORMOBJ).
-    pub fn map_sbtype_obj_nobj(&mut self, wait: i32, x: i32, y: i32, z: i32, shape: u16, strat_addr: u32) {
+    pub fn map_sbtype_obj_nobj(
+        &mut self,
+        wait: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        shape: u16,
+        strat_addr: u32,
+    ) {
         self.mapnobj(
             Self::spacebar_units(wait),
             Self::spacebar_units(x),

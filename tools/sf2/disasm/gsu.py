@@ -26,7 +26,7 @@ def _reg_ops():
     # 0x00-0x0F control / branches
     t[0x00]=("STOP",0); t[0x01]=("NOP",0); t[0x02]=("CACHE",0)
     t[0x03]=("LSR",0); t[0x04]=("ROL",0)
-    for op,mn in [(0x05,"BRA"),(0x06,"BLT"),(0x07,"BGE"),(0x08,"BNE"),(0x09,"BEQ"),
+    for op,mn in [(0x05,"BRA"),(0x06,"BGE"),(0x07,"BLT"),(0x08,"BNE"),(0x09,"BEQ"),
                   (0x0A,"BPL"),(0x0B,"BMI"),(0x0C,"BCC"),(0x0D,"BCS"),(0x0E,"BVC"),(0x0F,"BVS")]:
         t[op]=(mn,"branch")
     # 0x10-0x1F TO / MOVE(with B)   -- render as TO rN
@@ -34,10 +34,10 @@ def _reg_ops():
     # 0x20-0x2F WITH rN
     for n in range(16): t[0x20+n]=(f"WITH {R(n)}",0)
     # 0x30-0x3B STORE (rN)  ; 0x3C LOOP ; 0x3D/E/F ALT prefixes
-    for n in range(12): t[0x30+n]={0:(f"STW ({R(n)})",0),2:(f"STB ({R(n)})",0)}
+    for n in range(12): t[0x30+n]={0:(f"STW ({R(n)})",0),1:(f"STB ({R(n)})",0)}
     t[0x3C]=("LOOP",0); t[0x3D]=("ALT1",0); t[0x3E]=("ALT2",0); t[0x3F]=("ALT3",0)
     # 0x40-0x4B LOAD (rN) ; 0x4C PLOT/RPIX ; 0x4D SWAP ; 0x4E COLOR/CMODE ; 0x4F NOT
-    for n in range(12): t[0x40+n]={0:(f"LDW ({R(n)})",0),2:(f"LDB ({R(n)})",0)}
+    for n in range(12): t[0x40+n]={0:(f"LDW ({R(n)})",0),1:(f"LDB ({R(n)})",0)}
     t[0x4C]={0:("PLOT",0),1:("RPIX",0)}
     t[0x4D]=("SWAP",0)
     t[0x4E]={0:("COLOR",0),1:("CMODE",0)}

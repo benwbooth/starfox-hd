@@ -9,6 +9,8 @@
 //! ASM sources (reference/ultrastarfox/SF/ASM/MAIN.ASM):
 //! - `calcstageperc`   MAIN.ASM:1031-1071  -> [`calc_stage_perc`]
 //! - `calctotalscore`  MAIN.ASM:780-800    -> [`calc_total_score`]
+//! - `maketotalscore`  MAIN.ASM:639-777    -> [`calc_average_score`] (+ end-seq UI)
+//! - `maketotalscore2` MAIN.ASM:810+       -> same average math, different layout
 //! - `checkbonus`      MAIN.ASM:1367-1383  -> [`crossed_bonus_threshold`]
 //! - `bonertab`        MAIN.ASM:1383       -> [`BONERTAB`]
 //! The per-kill numerator is `specials_dead`, incremented by
@@ -27,6 +29,12 @@ pub const SPECIALS_DEAD: u16 = 0x1F0B;
 /// Bonus SFX played on the tally screen when a fresh `bonertab` threshold is
 /// crossed (ROM `trigse $1a`, MAIN.ASM:1149).
 pub const SE_BONUS: u8 = 0x1A;
+/// Per-step count sound while the stage graph advances by three points
+/// (ROM `trigse $12`, MAIN.ASM:1187-1194).
+pub const SE_TALLY_COUNT: u8 = 0x12;
+/// Stage-score commit sound after the graph's 20-step settle
+/// (ROM `trigse $11`, MAIN.ASM:1204-1217).
+pub const SE_TALLY_COMMIT: u8 = 0x11;
 
 /// ROM `bonertab` (MAIN.ASM:1383): the credit thresholds, descending. Each
 /// threshold your running total newly reaches awards one continue credit.
@@ -41,6 +49,27 @@ pub const BONERTAB: [u16; 12] = [
 /// at 100, so 101 is an unambiguous sentinel.
 pub const STAGE_SKIPPED: u8 = 101;
 
+const PERCENT_SCALE: i16 = 100;
+const TEAMMATE_BONUS_PERCENT: u16 = 5;
+const MAX_STAGE_PERCENT: u16 = 100;
+
+/// Exact hit-ratio calculation used by the original game.
+///
+/// The source value is an unsigned byte, but the original multiplication
+/// interprets that byte as signed before multiplying by 100.  The resulting
+/// 16-bit bit pattern is then divided as an unsigned value.  Counts below 128
+/// therefore behave like the ordinary `dead * 100 / total` formula, while the
+/// otherwise-unreachable high half of the byte domain preserves the retail
+/// overflow behavior for oracle parity.
+pub fn calc_hit_percentage(specials_dead: u8, total_specials: u8) -> u16 {
+    if total_specials == 0 {
+        return 0;
+    }
+
+    let signed_product = i16::from(specials_dead as i8) * PERCENT_SCALE;
+    (signed_product as u16) / u16::from(total_specials)
+}
+
 /// ROM `calcstageperc` (MAIN.ASM:1031-1071): a stage's percentage, 0..=100.
 ///
 /// Base = 5% per living teammate (Peppy `bunny`, Slippy `frog`, Falco `cock`;
@@ -50,14 +79,10 @@ pub const STAGE_SKIPPED: u8 = 101;
 /// (MAIN.ASM:1067-1070).
 pub fn calc_stage_perc(specials_dead: u8, total_specials: u8, teammates_alive: u8) -> u8 {
     // MAIN.ASM:1037-1049: +5 for each of the three teammates still alive.
-    let teammate_bonus = teammates_alive as u16 * 5;
+    let teammate_bonus = u16::from(teammates_alive) * TEAMMATE_BONUS_PERCENT;
     // MAIN.ASM:1057-1065: hit ratio only when specialobjtotal != 0.
-    let hit = if total_specials == 0 {
-        0
-    } else {
-        specials_dead as u16 * 100 / total_specials as u16
-    };
-    (hit + teammate_bonus).min(100) as u8
+    let hit = calc_hit_percentage(specials_dead, total_specials);
+    (hit + teammate_bonus).min(MAX_STAGE_PERCENT) as u8
 }
 
 /// Count of the three teammates still alive, from their HP bytes
@@ -73,6 +98,41 @@ pub fn calc_total_score(stage_scores: &[u8]) -> u16 {
         .iter()
         .map(|&s| if s == STAGE_SKIPPED { 0 } else { s as u16 })
         .sum()
+}
+
+/// Stages that actually contributed to the total (ROM `specptr - maintempalc`
+/// after `calctotalscore` tallies the 101 sentinel into `maintempalc`).
+pub fn count_played_stages(stage_scores: &[u8]) -> u16 {
+    stage_scores.iter().filter(|&&s| s != STAGE_SKIPPED).count() as u16
+}
+
+/// ROM `maketotalscore` / `maketotalscore2` average (MAIN.ASM:649-658 /
+/// 813-822): `floor(total / played)` via MARIO `mkrisdivu3115`. Zero when no
+/// stages were played (avoids the ROM's divide-by-zero edge). The end-seq
+/// digit/`makeendobj` layout is HD UI, not ported here.
+pub fn calc_average_score(stage_scores: &[u8]) -> u16 {
+    let played = count_played_stages(stage_scores);
+    if played == 0 {
+        return 0;
+    }
+    calc_total_score(stage_scores) / played
+}
+
+/// ROM digit peel used by `maketotalscore` for the TOTAL SCORE row
+/// (MAIN.ASM:686-724): hundreds / tens / ones of a 0..=999 percentage sum
+/// display value (cla2 after subtracting 100s).
+pub fn score_digits(mut value: u16) -> (u16, u16, u16) {
+    let mut hundreds = 0u16;
+    while value >= 100 {
+        value -= 100;
+        hundreds += 1;
+    }
+    let mut tens = 0u16;
+    while value >= 10 {
+        value -= 10;
+        tens += 1;
+    }
+    (hundreds, tens, value)
 }
 
 /// ROM `checkbonus` (MAIN.ASM:1367-1383): true when the *new* running total
@@ -125,6 +185,14 @@ mod tests {
     }
 
     #[test]
+    fn hit_percentage_preserves_signed_multiply_bit_pattern() {
+        assert_eq!(calc_hit_percentage(127, 1), 12_700);
+        assert_eq!(calc_hit_percentage(128, 1), 52_736);
+        assert_eq!(calc_hit_percentage(255, 1), 65_436);
+        assert_eq!(calc_hit_percentage(128, 255), 206);
+    }
+
+    #[test]
     fn teammates_alive_counts_nonzero_hp() {
         assert_eq!(teammates_alive(0, 0, 0), 0);
         assert_eq!(teammates_alive(3, 0, 0), 1);
@@ -137,6 +205,25 @@ mod tests {
         assert_eq!(calc_total_score(&[80, 100, 60]), 240);
         // 101 sentinel contributes 0.
         assert_eq!(calc_total_score(&[80, STAGE_SKIPPED, 60]), 140);
+    }
+
+    #[test]
+    fn average_score_divides_played_stages() {
+        // maketotalscore: mkrisdivu3115(tpa, specptr-maintempalc).
+        assert_eq!(calc_average_score(&[]), 0);
+        assert_eq!(calc_average_score(&[80, 100, 60]), 80); // 240/3
+        assert_eq!(calc_average_score(&[80, STAGE_SKIPPED, 60]), 70); // 140/2
+        assert_eq!(calc_average_score(&[STAGE_SKIPPED]), 0);
+        assert_eq!(count_played_stages(&[80, STAGE_SKIPPED, 60]), 2);
+    }
+
+    #[test]
+    fn score_digits_peel_matches_maketotalscore() {
+        assert_eq!(score_digits(0), (0, 0, 0));
+        assert_eq!(score_digits(7), (0, 0, 7));
+        assert_eq!(score_digits(42), (0, 4, 2));
+        assert_eq!(score_digits(240), (2, 4, 0));
+        assert_eq!(score_digits(100), (1, 0, 0));
     }
 
     #[test]

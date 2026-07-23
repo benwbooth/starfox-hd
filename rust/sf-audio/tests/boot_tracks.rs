@@ -1,3 +1,5 @@
+#![cfg(feature = "oracle-audio")]
+
 //! Offline end-to-end verification (no SDL): boot real tracks through the
 //! IPL upload path, start them via the BGM handshake, and render audio.
 //!

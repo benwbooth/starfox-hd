@@ -41,7 +41,11 @@ fn rom_init_objvars(rom: &[u8], addr: u32) -> InitResult {
     call(
         &mut bus,
         addr,
-        &Entry { y: OBJ as u16, p: 0x20, ..Default::default() },
+        &Entry {
+            y: OBJ as u16,
+            p: 0x20,
+            ..Default::default()
+        },
     );
     InitResult {
         flags: bus.read8(0x7E_0000 | (OBJ + AL_FLAGS)),
@@ -54,8 +58,7 @@ fn rom_init_objvars(rom: &[u8], addr: u32) -> InitResult {
 #[test]
 fn init_objvars_sets_inviewpl_atzremove_firstframe_realobj() {
     let syms = load_symbols();
-    let (Some(&addr), Some(rom)) = (syms.get("INIT_OBJVARS_L"), load_built_rom())
-    else {
+    let (Some(&addr), Some(rom)) = (syms.get("INIT_OBJVARS_L"), load_built_rom()) else {
         eprintln!("skip: no INIT_OBJVARS_L symbol / built ROM");
         return;
     };

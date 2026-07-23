@@ -42,7 +42,7 @@ fn achase_angle_steps_match_rom() {
     assert!(!achase_angle(&mut cur, 2, 3));
     assert_eq!(cur, 2);
     assert!(achase_angle(&mut cur, 2, 3)); // already there
-    // Wrap-around chase picks the short way (8-bit signed diff).
+                                           // Wrap-around chase picks the short way (8-bit signed diff).
     let mut cur = 250u8;
     achase_angle(&mut cur, 10, 3);
     assert!(cur > 250 || cur < 10, "cur={cur}");
@@ -50,14 +50,14 @@ fn achase_angle_steps_match_rom() {
 
 #[test]
 fn tab_scaled_matches_sin_table() {
-    // sin(DEG90)*127 = 127 -> >>4 = 7 (C strat_tab_scaled(angle, sin, -4)).
+    // SINTAB[DEG90]=127 → /16 = 7 (adiv2 ×4, toward zero).
     assert_eq!(strat_tab_scaled(64, true, -4), 7);
-    // cos(DEG0)*127 = 127 -> <<1 = 254.
+    // COSTAB[0]=127 → <<1 = 254.
     assert_eq!(strat_tab_scaled(0, false, 1), 254);
-    // sin(DEG180) ~ 0.
+    // SINTAB[DEG180]=0.
     assert_eq!(strat_tab_scaled(128, true, 0), 0);
-    // Negative half: sin(192 = DEG270) = -1 -> -127>>2 = -32 (arith shift).
-    assert_eq!(strat_tab_scaled(192, true, -2), -32);
+    // SINTAB[192]=-127 → /4 = -31 (toward zero; arith >>2 would be -32).
+    assert_eq!(strat_tab_scaled(192, true, -2), -31);
 }
 
 #[test]
@@ -65,9 +65,9 @@ fn points_positive_z_boundaries() {
     let mut al = sf_game::alien::Alien::default();
     for (roty, want) in [
         (0u8, true),
-        (32, true),   // +DEG45 inclusive
+        (32, true), // +DEG45 inclusive
         (33, false),
-        (224, true),  // -DEG45 inclusive
+        (224, true), // -DEG45 inclusive
         (223, false),
         (128, false),
     ] {
@@ -81,11 +81,17 @@ fn ea_random_is_prng_next() {
     // C PRNG_NEXT(rnd) = (rnd*91 + 0x61D7) & 0xFFFF (src/types.h:57).
     let mut g = Game::new();
     g.vars.write_ext16(wm::RNDVAL, 0x1234);
-    let r1 = enemy_a::ea_random(&mut g);
-    assert_eq!(r1, 0x1234u16.wrapping_mul(91).wrapping_add(0x61D7));
-    let r2 = enemy_a::ea_random(&mut g);
-    assert_eq!(r2, r1.wrapping_mul(91).wrapping_add(0x61D7));
-    assert_eq!(g.vars.read_ext16(wm::RNDVAL), r2);
+    let first_random = enemy_a::ea_random(&mut g);
+    assert_eq!(
+        first_random,
+        0x1234u16.wrapping_mul(91).wrapping_add(0x61D7)
+    );
+    let second_random = enemy_a::ea_random(&mut g);
+    assert_eq!(
+        second_random,
+        first_random.wrapping_mul(91).wrapping_add(0x61D7)
+    );
+    assert_eq!(g.vars.read_ext16(wm::RNDVAL), second_random);
 }
 
 // ============================================================
@@ -361,13 +367,19 @@ fn boss_hp_bar_accumulates_and_drains() {
     let boss = g.objs.alloc().unwrap();
     strat_init_obj_vars(&mut g.objs.aliens[boss as usize]);
     g.objs.aliens[boss as usize].worldz = 1500;
-    let init = g.world.register_strategy(enemy_a::strat_boss1_init as StrategyFn);
+    let init = g
+        .world
+        .register_strategy(enemy_a::strat_boss1_init as StrategyFn);
     g.objs.aliens[boss as usize].stratptr = Some(init);
 
     // First tick runs the init: bossmaxhp = mother(70) + 8 turrets * 8 = 134,
     // set ONCE (s_set_bossmaxHP + 8x s_add_bossmaxHP).
     g.run_strategies();
-    assert_eq!(g.vars.bossmaxhp, 70 + 8 * 8, "bossmaxhp seeded at boss init");
+    assert_eq!(
+        g.vars.bossmaxhp,
+        70 + 8 * 8,
+        "bossmaxhp seeded at boss init"
+    );
 
     // Let the parts settle; every frame m_bossHP is zeroed then re-summed.
     for _ in 0..4 {
@@ -407,21 +419,67 @@ fn install_registers_distinct_idempotent_ids() {
 
     // All handles distinct (each entry point is its own registry slot).
     let ids = [
-        ea.hard.0, ea.hard180yr.0, ea.hard90yr.0, ea.hard180yr_nzr.0,
-        ea.hardrot.0, ea.nocoll.0, ea.rader0.0, ea.rader1.0, ea.pillar3.0,
-        ea.skillfly.0, ea.gate3.0, ea.gate.0, ea.gate2.0, ea.boss1.0,
-        ea.tow0_explode.0, ea.wormhead.0, ea.worm.0, ea.worm2.0, ea.item5.0,
-        ea.item7.0, ea.bomwing.0, ea.tadpole.0, ea.spacebarwalker.0,
-        ea.spacebarshoot.0, ea.up1man.0, ea.zacos.0, ea.tower0.0,
-        ea.houdai_ns.0, ea.houdai.0, ea.zaco3.0, ea.zaco4.0, ea.zaco0.0,
-        ea.para.0, ea.carrier.0, ea.base1.0, ea.cameleon.0, ea.szaco2.0,
-        ea.zaco1l.0, ea.zaco1r.0, ea.friendexitbase.0, ea.clship_warpa.0,
-        ea.clship_warpb.0, ea.clship_warpc.0, ea.clship_gnda.0,
-        ea.clship_gndb.0, ea.clship_gndc.0, ea.clship_eartha.0,
-        ea.clship_earthb.0, ea.clship_earthc.0, ea.clship_chasea.0,
-        ea.clship_chaseb.0, ea.clship_chasec.0, ea.boss_delay_explode.0,
-        ea.qboss_explode.0, ea.boss_explode.0, ea.hit_flash.0, ea.explode.0,
-        gr.stayrel.0, gr.gnd.0, gr.stayrelhard180yr.0, gr.staydist.0,
+        ea.hard.0,
+        ea.hard180yr.0,
+        ea.hard90yr.0,
+        ea.hard180yr_nzr.0,
+        ea.hardrot.0,
+        ea.nocoll.0,
+        ea.rader0.0,
+        ea.rader1.0,
+        ea.pillar3.0,
+        ea.skillfly.0,
+        ea.gate3.0,
+        ea.gate.0,
+        ea.gate2.0,
+        ea.boss1.0,
+        ea.tow0_explode.0,
+        ea.wormhead.0,
+        ea.worm.0,
+        ea.worm2.0,
+        ea.item5.0,
+        ea.item7.0,
+        ea.bomwing.0,
+        ea.tadpole.0,
+        ea.spacebarwalker.0,
+        ea.spacebarshoot.0,
+        ea.up1man.0,
+        ea.zacos.0,
+        ea.tower0.0,
+        ea.houdai_ns.0,
+        ea.houdai.0,
+        ea.zaco3.0,
+        ea.zaco4.0,
+        ea.zaco0.0,
+        ea.para.0,
+        ea.carrier.0,
+        ea.base1.0,
+        ea.cameleon.0,
+        ea.szaco2.0,
+        ea.zaco1l.0,
+        ea.zaco1r.0,
+        ea.friendexitbase.0,
+        ea.clship_warpa.0,
+        ea.clship_warpb.0,
+        ea.clship_warpc.0,
+        ea.clship_gnda.0,
+        ea.clship_gndb.0,
+        ea.clship_gndc.0,
+        ea.clship_eartha.0,
+        ea.clship_earthb.0,
+        ea.clship_earthc.0,
+        ea.clship_chasea.0,
+        ea.clship_chaseb.0,
+        ea.clship_chasec.0,
+        ea.boss_delay_explode.0,
+        ea.qboss_explode.0,
+        ea.boss_explode.0,
+        ea.hit_flash.0,
+        ea.explode.0,
+        gr.stayrel.0,
+        gr.gnd.0,
+        gr.stayrelhard180yr.0,
+        gr.staydist.0,
     ];
     let mut sorted = ids.to_vec();
     sorted.sort_unstable();

@@ -16,41 +16,41 @@ use crate::levels::BuiltLevel;
 /// Level-local constants from `src/map/levels.c` #defines.
 // TODO(consolidation): move to consts.rs
 mod lc {
-    use crate::consts::sh;
-
     // Shapes (levels.c SH_* block)
     pub const SH_ROUND_0: u16 = 17;
-    pub const SH_BIG_M: u16 = 19;
-    pub const SH_W_L: u16 = 50;
-    pub const SH_BAZOOKA: u16 = 132;
-    pub const SH_UPER_M: u16 = 133;
-    pub const SH_ZACO_B: u16 = 202;
-    pub const SH_S_ZACO_0: u16 = 222;
-    pub const SH_BZACO_8: u16 = 232;
+    pub const SH_BIG_M: u16 = 18;
+    pub const SH_W_L: u16 = 49;
+    pub const SH_BAZOOKA: u16 = 131;
+    pub const SH_UPER_M: u16 = 132;
+    pub const SH_ZACO_B: u16 = 201;
+    pub const SH_BZACO_8: u16 = 231;
     pub const SH_MOTHER1: u16 = 278;
     pub const SH_MY_BIRD: u16 = 557;
     // Proxies (levels.c: unported shapes proxied to placeholders)
-    pub const SH_ZACO_1_PROXY: u16 = SH_S_ZACO_0;
-    pub const SH_WARP_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_MINE_0_PROXY: u16 = sh::NULLSHAPE;
-    pub const SH_BOSS_B_1_PROXY: u16 = sh::NULLSHAPE;
+    /// Exact ISTRATS.ASM `zaco_1` mesh (present in shape_data at row 231).
+    pub const SH_ZACO_1_PROXY: u16 = 230;
+    pub const SH_WARP_PROXY: u16 = 133;
+    pub const SH_MINE_0_PROXY: u16 = 299;
+    pub const SH_BOSS_B_1: u16 = 76;
 
     // Strategies (levels.c IS_* block)
-    pub const IS_CLSHIPDIVEA: u32 = 40;
-    pub const IS_CLSHIPDIVEB: u32 = 41;
-    pub const IS_CLSHIPDIVEC: u32 = 42;
+    pub const IS_CLSHIPDIVEA: u32 = 36;
+    pub const IS_CLSHIPDIVEB: u32 = 37;
+    pub const IS_CLSHIPDIVEC: u32 = 38;
     pub const IS_WINDMILL: u32 = 66;
-    pub const IS_MISSPOD: u32 = 68;
-    pub const IS_WINGLAZERMAN: u32 = 91;
-    pub const IS_BAZOOKAL: u32 = 158;
-    pub const IS_BAZOOKAR: u32 = 159;
-    pub const IS_UPERM: u32 = 160;
-    pub const IS_MINE0: u32 = 246;
+    pub const IS_MISSPOD: u32 = 67;
+    pub const IS_WINGLAZERMAN: u32 = 90;
+    pub const IS_BAZOOKAL: u32 = 157;
+    pub const IS_BAZOOKAR: u32 = 158;
+    pub const IS_UPERM: u32 = 159;
+    /// `mine0_istrat` is not an ISTRATS table entry; maps encode its actual
+    /// assembled 24-bit address (DSTRATS.ASM / retail ROM $09:9117).
+    pub const STRATEGY_MINE0: crate::consts::DirectStrategy = crate::consts::STRATEGY_MINE0;
 
     // Synthetic strategy addresses (levels.c STRAT_ADDR_*)
-    pub const STRAT_ADDR_MOTHER2: u32 = crate::consts::STRAT_ADDR_MOTHER2;
-    pub const STRAT_ADDR_WARP: u32 = 0x06000E;
-    pub const STRAT_ADDR_BOSSB: u32 = 0x06000F;
+    pub const STRATEGY_MOTHER2: crate::consts::DirectStrategy = crate::consts::STRATEGY_MOTHER2;
+    pub const STRAT_ADDR_WARP: u32 = crate::consts::is::WARP;
+    pub const STRAT_ADDR_BOSSB: u32 = crate::consts::is::BOSSB;
 
     // Path ids (src/path/path_literals.h)
     pub const PATH_ID_MY_BIRD: u16 = 245;
@@ -90,20 +90,100 @@ pub fn build() -> Route1Level {
     b.mapwait(3000);
 
     // Lines 15-18: pathcspecial x4
-    b.pathcspecial(0, 400, 100, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
-    b.pathcspecial(0, -400, 100, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
-    b.pathcspecial(0, 200, 500, 900, lc::SH_ZACO_1_PROXY, lc::PATH_ID_E_SHAWERR, 10, 10);
-    b.pathcspecial(4500, -200, 500, 1200, lc::SH_ZACO_1_PROXY, lc::PATH_ID_E_SHAWERR, 10, 10);
+    b.pathcspecial(
+        0,
+        400,
+        100,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        0,
+        -400,
+        100,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        0,
+        200,
+        500,
+        900,
+        lc::SH_ZACO_1_PROXY,
+        lc::PATH_ID_E_SHAWERR,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        4500,
+        -200,
+        500,
+        1200,
+        lc::SH_ZACO_1_PROXY,
+        lc::PATH_ID_E_SHAWERR,
+        10,
+        10,
+    );
 
     // Lines 20-24: friendship_4 chase2 + zaco_b chase2 + bzaco_8 patret trio
-    b.pathobj(0, -900, 0, 0, sh::FRIENDSHIP_4, lc::PATH_ID_CHASE2_1, 10, 10);
-    b.pathcspecial(5000, -900, 0, 0, lc::SH_ZACO_B, lc::PATH_ID_CHASE2_2, 10, 10);
+    b.pathobj(
+        0,
+        -900,
+        0,
+        0,
+        sh::FRIENDSHIP_4,
+        lc::PATH_ID_CHASE2_1,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        5000,
+        -900,
+        0,
+        0,
+        lc::SH_ZACO_B,
+        lc::PATH_ID_CHASE2_2,
+        10,
+        10,
+    );
     b.pathcspecial(0, 0, 200, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
-    b.pathcspecial(0, 400, -400, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
-    b.pathcspecial(5000, -400, -400, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
+    b.pathcspecial(
+        0,
+        400,
+        -400,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        5000,
+        -400,
+        -400,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET,
+        10,
+        10,
+    );
 
     // Lines 26-30: uper_missile — mapmother + cspecial loop x2
-    b.mapmother(1200, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, mm.map_uperm);
+    b.mapmother(
+        1200,
+        0,
+        2000,
+        3000,
+        lc::SH_MOTHER1,
+        lc::STRATEGY_MOTHER2,
+        mm.map_uperm,
+    );
     b.label("level1_5.uperloop");
     b.cspecial(1200, 180, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
     b.cspecial(1200, -180, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
@@ -111,14 +191,46 @@ pub fn build() -> Route1Level {
 
     // Lines 32-37: check + e_shawer pair
     b.pathobj(0, 0, -700, 1000, sh::NULLSHAPE, lc::PATH_ID_CHECK, 10, 10);
-    b.pathcspecial(0, 200, 1000, 700, lc::SH_ZACO_1_PROXY, lc::PATH_ID_E_SHAWERR, 10, 10);
-    b.pathspecial(1000, -200, 1000, 800, lc::SH_ZACO_1_PROXY, lc::PATH_ID_E_SHAWERL, 10, 10);
+    b.pathcspecial(
+        0,
+        200,
+        1000,
+        700,
+        lc::SH_ZACO_1_PROXY,
+        lc::PATH_ID_E_SHAWERR,
+        10,
+        10,
+    );
+    b.pathspecial(
+        1000,
+        -200,
+        1000,
+        800,
+        lc::SH_ZACO_1_PROXY,
+        lc::PATH_ID_E_SHAWERL,
+        10,
+        10,
+    );
 
     // Lines 39-53: maprem mother1, big_m missile, windmill
     b.mapremove(lc::SH_MOTHER1);
-    b.cspecial(2800, -100, SPACE_VIEWCY - 100, 4000, lc::SH_BIG_M, lc::IS_MISSPOD);
+    b.cspecial(
+        2800,
+        -100,
+        SPACE_VIEWCY - 100,
+        4000,
+        lc::SH_BIG_M,
+        lc::IS_MISSPOD,
+    );
     // windmill: special 0,-200,space_viewCY+1500,4000,round_0,windmill_istrat
-    b.special(0, -200, SPACE_VIEWCY + 1500, 4000, lc::SH_ROUND_0, lc::IS_WINDMILL);
+    b.special(
+        0,
+        -200,
+        SPACE_VIEWCY + 1500,
+        4000,
+        lc::SH_ROUND_0,
+        lc::IS_WINDMILL,
+    );
     b.setalvarb(al::VEL, 120);
     b.setalvarb(al::ROTY, 134);
     b.setalvarb(al::ROTX, 230);
@@ -136,7 +248,14 @@ pub fn build() -> Route1Level {
 
     // Lines 56-80: second windmill with rotation sequence
     b.mapwait(2000);
-    b.special(0, 500, SPACE_VIEWCY - 300, 1000, lc::SH_ROUND_0, lc::IS_WINDMILL);
+    b.special(
+        0,
+        500,
+        SPACE_VIEWCY - 300,
+        1000,
+        lc::SH_ROUND_0,
+        lc::IS_WINDMILL,
+    );
     b.setalvarb(al::VEL, 127);
     b.setalvarb(al::ROTY, 64);
     b.setalvarb(al::ROTX, 5);
@@ -166,27 +285,73 @@ pub fn build() -> Route1Level {
     // Lines 84-91: big_missile section
     b.pathobj(0, 0, -700, 1000, sh::NULLSHAPE, lc::PATH_ID_CHECK, 10, 10);
     b.cspecial(2000, 0, SPACE_VIEWCY, 4000, lc::SH_BIG_M, lc::IS_MISSPOD);
-    b.pathcspecial(0, 0, -300, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET_IFAL, 10, 10);
-    b.cspecial(2000, 100, SPACE_VIEWCY - 100, 4000, lc::SH_BIG_M, lc::IS_MISSPOD);
-    b.cspecial(1000, -100, SPACE_VIEWCY + 100, 4000, lc::SH_BIG_M, lc::IS_MISSPOD);
-    b.cspecial(1000, -100, SPACE_VIEWCY - 100, 4000, lc::SH_BIG_M, lc::IS_MISSPOD);
-    b.cspecial(1000, 100, SPACE_VIEWCY + 100, 4000, lc::SH_BIG_M, lc::IS_MISSPOD);
+    b.pathcspecial(
+        0,
+        0,
+        -300,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET_IFAL,
+        10,
+        10,
+    );
+    b.cspecial(
+        2000,
+        100,
+        SPACE_VIEWCY - 100,
+        4000,
+        lc::SH_BIG_M,
+        lc::IS_MISSPOD,
+    );
+    b.cspecial(
+        1000,
+        -100,
+        SPACE_VIEWCY + 100,
+        4000,
+        lc::SH_BIG_M,
+        lc::IS_MISSPOD,
+    );
+    b.cspecial(
+        1000,
+        -100,
+        SPACE_VIEWCY - 100,
+        4000,
+        lc::SH_BIG_M,
+        lc::IS_MISSPOD,
+    );
+    b.cspecial(
+        1000,
+        100,
+        SPACE_VIEWCY + 100,
+        4000,
+        lc::SH_BIG_M,
+        lc::IS_MISSPOD,
+    );
 
     // Lines 92-94: warp
-    b.pathcspecial(0, 0, -300, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET_IRAB, 10, 10);
+    b.pathcspecial(
+        0,
+        0,
+        -300,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET_IRAB,
+        10,
+        10,
+    );
     b.cspecial(3000, 0, -200, 1500, lc::SH_WARP_PROXY, lc::STRAT_ADDR_WARP);
 
     // Lines 96-112: skillfly ring section
     b.skillfly_init();
     b.skillfly_set(0, 0, 4000, 100);
-    b.mapobj(0, -150, 0, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
-    b.mapobj(0, 150, 0, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
-    b.mapobj(0, -100, 100, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
-    b.mapobj(0, -100, -100, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
-    b.mapobj(0, 100, 100, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
-    b.mapobj(0, 100, -100, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
-    b.mapobj(0, 0, 150, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
-    b.mapobj(4000, 0, -150, 4000, lc::SH_MINE_0_PROXY, lc::IS_MINE0);
+    b.mapobj(0, -150, 0, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
+    b.mapobj(0, 150, 0, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
+    b.mapobj(0, -100, 100, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
+    b.mapobj(0, -100, -100, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
+    b.mapobj(0, 100, 100, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
+    b.mapobj(0, 100, -100, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
+    b.mapobj(0, 0, 150, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
+    b.mapobj(4000, 0, -150, 4000, lc::SH_MINE_0_PROXY, lc::STRATEGY_MINE0);
     // skillfly_bonus item_5
     let skillfly_bonus0_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, 0, 0, 1500, sh::ITEM_5, is::ITEM5);
@@ -203,10 +368,25 @@ pub fn build() -> Route1Level {
 
     // Lines 115-117: bazooka + winglazerman
     b.cspecial(5000, 0, 1000, 3500, lc::SH_BAZOOKA, lc::IS_BAZOOKAR);
-    b.cspecial(1000, -400, SPACE_VIEWCY, 3000, lc::SH_W_L, lc::IS_WINGLAZERMAN);
+    b.cspecial(
+        1000,
+        -400,
+        SPACE_VIEWCY,
+        3000,
+        lc::SH_W_L,
+        lc::IS_WINGLAZERMAN,
+    );
 
     // Lines 119-130: mapmother + chase3 + uper_m group + maprem
-    b.mapmother(2000, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, mm.map_uperm);
+    b.mapmother(
+        2000,
+        0,
+        2000,
+        3000,
+        lc::SH_MOTHER1,
+        lc::STRATEGY_MOTHER2,
+        mm.map_uperm,
+    );
     b.pathobj(0, 0, 500, 0, sh::FRIENDSHIP_4, lc::PATH_ID_CHASE3_1, 10, 10);
     b.pathcspecial(6000, 0, 500, 0, lc::SH_ZACO_B, lc::PATH_ID_CHASE3_2, 10, 10);
     b.cspecial(1200, 0, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
@@ -232,25 +412,78 @@ pub fn build() -> Route1Level {
     b.cspecial(1300, 300, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
 
     // Lines 152-159: chase1 + uper_m series + mapmother + supply_bird
-    b.pathobj(0, 1200, 200, 600, sh::FRIENDSHIP_4, lc::PATH_ID_CHASE1_1, 10, 10);
-    b.pathcspecial(1000, 1200, 200, 600, lc::SH_ZACO_B, lc::PATH_ID_CHASE1_2, 10, 10);
+    b.pathobj(
+        0,
+        1200,
+        200,
+        600,
+        sh::FRIENDSHIP_4,
+        lc::PATH_ID_CHASE1_1,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        1000,
+        1200,
+        200,
+        600,
+        lc::SH_ZACO_B,
+        lc::PATH_ID_CHASE1_2,
+        10,
+        10,
+    );
     b.cspecial(1300, 100, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
     b.cspecial(1300, -200, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
     b.cspecial(1300, 200, 2000, 3000, lc::SH_UPER_M, lc::IS_UPERM);
-    b.mapmother(2500, 0, 2000, 3000, lc::SH_MOTHER1, lc::STRAT_ADDR_MOTHER2, mm.map_uperm);
+    b.mapmother(
+        2500,
+        0,
+        2000,
+        3000,
+        lc::SH_MOTHER1,
+        lc::STRATEGY_MOTHER2,
+        mm.map_uperm,
+    );
     // supply_bird
-    b.pathobj(5000, -350, -400, 0, lc::SH_MY_BIRD, lc::PATH_ID_MY_BIRD, 10, 10);
+    b.pathobj(
+        5000,
+        -350,
+        -400,
+        0,
+        lc::SH_MY_BIRD,
+        lc::PATH_ID_MY_BIRD,
+        10,
+        10,
+    );
 
     // Lines 161-168: maprem + bazooka + bzaco_8 patret pair
     b.mapremove(lc::SH_MOTHER1);
     b.cspecial(1000, 0, 1000, 3500, lc::SH_BAZOOKA, lc::IS_BAZOOKAL);
-    b.pathcspecial(1500, 400, -100, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
-    b.pathcspecial(3000, -400, -100, -100, lc::SH_BZACO_8, lc::PATH_ID_PATRET, 10, 10);
+    b.pathcspecial(
+        1500,
+        400,
+        -100,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET,
+        10,
+        10,
+    );
+    b.pathcspecial(
+        3000,
+        -400,
+        -100,
+        -100,
+        lc::SH_BZACO_8,
+        lc::PATH_ID_PATRET,
+        10,
+        10,
+    );
 
     // Lines 169-179: boss section
     b.setbgm(BGM_FADEOUT);
     b.setbgm(BGM_BOSS1);
-    b.mapobj(0, 0, 1000, 3500, lc::SH_BOSS_B_1_PROXY, lc::STRAT_ADDR_BOSSB);
+    b.mapobj(0, 0, 1000, 3500, lc::SH_BOSS_B_1, lc::STRAT_ADDR_BOSSB);
 
     // mapwaitboss / markboss boss15
     let mapwaitboss_trigse_ptr = b.mapcode65816_inline();
@@ -329,16 +562,17 @@ mod tests {
         let hi = (wm::LEVELFINISHED >> 8) as u8;
         let mut found = None;
         for i in 0..data.len().saturating_sub(4) {
-            if data[i] == op::SETVARB
-                && data[i + 2] == lo
-                && data[i + 3] == hi
-                && data[i + 4] == 0
+            if data[i] == op::SETVARB && data[i + 2] == lo && data[i + 3] == hi && data[i + 4] == 0
             {
                 found = Some(data[i + 1]);
                 break;
             }
         }
-        assert_eq!(found, Some(7), "level1_5 mapend must store le_startgame (7)");
+        assert_eq!(
+            found,
+            Some(7),
+            "level1_5 mapend must store le_startgame (7)"
+        );
     }
 }
 
@@ -361,21 +595,42 @@ fn append_cl_dive_submap(b: &mut MapBuilder) {
     b.mapgoto("cl_dive.nf");
     b.label("cl_dive.frog_alive");
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_FROG);
-    b.mapobj(CL_GND_FRIENDWAIT, 200, SPACE_VIEWCY, 50, sh::MYSHIP_4, lc::IS_CLSHIPDIVEB);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        200,
+        SPACE_VIEWCY,
+        50,
+        sh::MYSHIP_4,
+        lc::IS_CLSHIPDIVEB,
+    );
     b.label("cl_dive.nf");
 
     b.mapif_builtin(cb::BUNNY_ALIVE, "cl_dive.bunny_alive");
     b.mapgoto("cl_dive.nb");
     b.label("cl_dive.bunny_alive");
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_BUNNY);
-    b.mapobj(CL_GND_FRIENDWAIT, -200, SPACE_VIEWCY, 50, sh::MYSHIP_4, lc::IS_CLSHIPDIVEA);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        -200,
+        SPACE_VIEWCY,
+        50,
+        sh::MYSHIP_4,
+        lc::IS_CLSHIPDIVEA,
+    );
     b.label("cl_dive.nb");
 
     b.mapif_builtin(cb::COCK_ALIVE, "cl_dive.cock_alive");
     b.mapgoto("cl_dive.nc");
     b.label("cl_dive.cock_alive");
     b.mapcodejsl_builtin(cb::CLFRIENDMSG_COCK);
-    b.mapobj(CL_GND_FRIENDWAIT, 0, SPACE_VIEWCY - 40, -50, sh::MYSHIP_4, lc::IS_CLSHIPDIVEC);
+    b.mapobj(
+        CL_GND_FRIENDWAIT,
+        0,
+        SPACE_VIEWCY - 40,
+        -50,
+        sh::MYSHIP_4,
+        lc::IS_CLSHIPDIVEC,
+    );
     b.label("cl_dive.nc");
 
     b.mapwait(5000);

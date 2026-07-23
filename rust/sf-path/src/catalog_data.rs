@@ -25,6 +25,10 @@ pub const PATH_EXT_SINTAB: i32 = 0x2200;
 pub const PATH_EXT_GWORD1: i32 = 0x2300;
 pub const PATH_EXT_EROLL1: i32 = 0x2302;
 pub const PATH_EXT_EBYTE2: i32 = 0x2303;
+// The standalone path VM shadows this proxy address as `g_ebyte3`. The
+// original symbolic variables overlap in the legacy flat-address adapter;
+// keeping the semantic name here makes the Titania weather export explicit.
+pub const PATH_EXT_EBYTE3: i32 = 0x2303;
 pub const PATH_EXT_EFLAG1: i32 = 0x2304;
 pub const PATH_EXT_CTYPE: i32 = 0x2305;
 
@@ -33,37 +37,37 @@ const ON: i32 = 1;
 #[allow(dead_code)]
 const OFF: i32 = 0;
 
-// src/path/path_literals.c SH_* shape ids (flat runtime shape numbering; the
-// SH_NULLSHAPE proxies are documented gaps carried over from C).
+// Source path shapes expressed as native flat ids for the ROM-less catalog.
 const SH_NULLSHAPE: i32 = 0;
 const SH_PILLAR3: i32 = 27;
 const SH_BOM_WING: i32 = 48;
 const SH_R_BU_7: i32 = 102;
-const SH_ROBOT_0: i32 = 169;
-const SH_B_HOU_0: i32 = 164;
+const SH_ROBOT_0: i32 = 420;
+const SH_B_HOU_0: i32 = 163;
 const SH_S_HOU_0: i32 = SH_B_HOU_0;
 const SH_WALKER_2: i32 = 164;
 const SH_GATE_2: i32 = 210;
 const SH_ZACO_A: i32 = 217;
-const SH_ZACO_B: i32 = 224;
+const SH_ZACO_B: i32 = 201;
 const SH_FRIENDSHIP_4: i32 = 218;
-// `flower` still lacks a recovered flat runtime shape id (C comment).
-const SH_FLOWER: i32 = SH_NULLSHAPE;
-const SH_BOSS_7_0: i32 = 240;
-const SH_BOSS_7_1: i32 = 241;
-const SH_BOSS_7_1O: i32 = 242;
-const SH_BOSS_7_2: i32 = 243;
-const SH_BOSS_7_3: i32 = 244;
-const SH_BOSS_7_4: i32 = 245;
+const SH_FLOWER: i32 = 442;
+const SH_BOSS_7_0: i32 = 421;
+const SH_BOSS_7_1: i32 = 55;
+const SH_BOSS_7_1O: i32 = 422;
+const SH_BOSS_7_2: i32 = 423;
+const SH_BOSS_7_3: i32 = 424;
+const SH_BOSS_7_4: i32 = 425;
 const SH_ARCH_0: i32 = 228;
 const SH_TOW_0: i32 = 247;
 const SH_PILLAR3_NS: i32 = SH_PILLAR3;
+// `mediumshape` is a source collision/explosion envelope with no vertices or
+// faces; null is its exact visual representation in the native renderer.
 const SH_MEDIUMSHAPE: i32 = SH_NULLSHAPE;
-const SH_ASTEROID1: i32 = SH_NULLSHAPE;
-const SH_EGG: i32 = SH_NULLSHAPE;
-const SH_BOSS_D_8: i32 = SH_NULLSHAPE;
-const SH_BOSS_D_9: i32 = SH_NULLSHAPE;
-const SH_BIG_BIRD: i32 = SH_NULLSHAPE;
+const SH_ASTEROID1: i32 = 275;
+const SH_EGG: i32 = 386;
+const SH_BOSS_D_8: i32 = 387;
+const SH_BOSS_D_9: i32 = 388;
+const SH_BIG_BIRD: i32 = 443;
 
 // src/path/path_literals.c COLTAB_ID_1_C (renderer currently ignores coltab).
 const COLTAB_ID_1_C: i32 = 1;
@@ -86,7 +90,7 @@ const WEAPON_RELSLOWELASER: i32 = 12;
 const WEAPON_RELBEAMBALL: i32 = 56;
 
 // src/path/path_literals.c STRAT_ID_* (flat strategy table ids).
-const STRAT_ID_BREAK_METEOR: i32 = 235;
+const STRAT_ID_BREAK_METEOR: i32 = 234;
 const STRAT_ID_GATE2: i32 = 207;
 
 // src/variables.h DEG* (256-unit SNES angles).
@@ -120,7 +124,6 @@ fn path_i8(value: i32) -> i32 {
 /// Body of C `build_path_catalog()` between the builder prologue and
 /// `pb_resolve` — every path script emit sequence, in C order.
 pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
-
     // Missing/unported path scripts resolve here and immediately self-remove.
     b.emit8(P_REMOVE);
 
@@ -158,6 +161,31 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.label("e_flopen.e_flpo");
     b.emit8(P_NEXT);
     b.emit8(P_END);
+
+    // PATHDATA.ASM:198
+    b.start_path(PATH_ID_TENKI_DM, "tenki_dm");
+    b.emit8(P_COLLISIONSOFF);
+    b.emit_add(PAL_ROTY, 128);
+    b.emit8(P_END);
+
+    // PATHDATA.ASM:208
+    b.start_path(PATH_ID_TENKI_ON, "tenki_on");
+    b.emit8(P_COLLISIONSOFF);
+    b.emit8(P_ZREMOVEON);
+    b.emit_setb(PAL_PBYTE1, 0);
+    b.emit_exportb(PAL_PBYTE1, PATH_EXT_EBYTE3);
+    b.emit_add(PAL_ROTY, 128);
+    b.label("tenki_on.tenki_0");
+    b.emit8(P_WITHINRANGE);
+    b.emit16s(100);
+    b.fixup16("tenki_on.tenki_1");
+    b.emit_goto(P_GOTO, "tenki_on.tenki_0");
+    b.label("tenki_on.tenki_1");
+    b.emit_soundeffect(0x12);
+    b.emit_setb(PAL_PBYTE1, 1);
+    b.emit_exportb(PAL_PBYTE1, PATH_EXT_EBYTE3);
+    b.emit_wait(3);
+    b.emit8(P_REMOVE);
 
     // PATHDATA.ASM:229
     b.start_path(PATH_ID_BIRD_METEOR, "bird_meteor");
@@ -492,25 +520,77 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_chasew(PAL_WORLDY, -600);
     b.emit_wait(1);
     b.emit_distless(3050, "e_ufo.ufo_0");
-    b.emit_spawn(P_SPAWN, 0, 10, 0, 0, 0, 0, SH_BOM_WING, PATH_ID_PONPON, 10, 10, 0);
+    b.emit_spawn(
+        P_SPAWN,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0,
+        SH_BOM_WING,
+        PATH_ID_PONPON,
+        10,
+        10,
+        0,
+    );
     b.label("e_ufo.ufo_1");
     b.emit_chaseb(PAL_ROTZ, 8);
     b.emit_add(PAL_WORLDX, 50);
     b.emit_loop(10, "e_ufo.ufo_1");
     b.emit_wait(10);
-    b.emit_spawn(P_SPAWN, -5, 10, 0, 0, 0, 0, SH_WALKER_2, PATH_ID_KORORI, 10, 10, 0);
+    b.emit_spawn(
+        P_SPAWN,
+        -5,
+        10,
+        0,
+        0,
+        0,
+        0,
+        SH_WALKER_2,
+        PATH_ID_KORORI,
+        10,
+        10,
+        0,
+    );
     b.label("e_ufo.ufo_2");
     b.emit_chaseb(PAL_ROTZ, 0);
     b.emit_add(PAL_WORLDX, -50);
     b.emit_loop(10, "e_ufo.ufo_2");
     b.emit_wait(10);
-    b.emit_spawn(P_SPAWN, 5, 10, 0, 0, 0, 0, SH_WALKER_2, PATH_ID_KORORI, 10, 10, 0);
+    b.emit_spawn(
+        P_SPAWN,
+        5,
+        10,
+        0,
+        0,
+        0,
+        0,
+        SH_WALKER_2,
+        PATH_ID_KORORI,
+        10,
+        10,
+        0,
+    );
     b.label("e_ufo.ufo_3");
     b.emit_chaseb(PAL_ROTZ, path_u8(-4));
     b.emit_add(PAL_WORLDX, 50);
     b.emit_loop(10, "e_ufo.ufo_3");
     b.emit_wait(10);
-    b.emit_spawn(P_SPAWN, 0, 10, 0, 0, 0, 0, SH_BOM_WING, PATH_ID_PONPON, 10, 10, 0);
+    b.emit_spawn(
+        P_SPAWN,
+        0,
+        10,
+        0,
+        0,
+        0,
+        0,
+        SH_BOM_WING,
+        PATH_ID_PONPON,
+        10,
+        10,
+        0,
+    );
     b.emit8(P_ZREMOVEON);
     b.emit8(P_RELTOPLAYEROFF);
     b.label("e_ufo.ufo_6");
@@ -1190,7 +1270,19 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.start_path(PATH_ID_ROBOTWITHLOG, "robotwithlog");
     b.emit8(P_ZREMOVEOFF);
     b.emit_exportw(PAL_PWORD1, PATH_EXT_GWORD1);
-    b.emit_spawn_child(0, 0, 0, 0, 0, 0, SH_ROBOT_0, PATH_ID_ROBOTWITHLOG2, 4, 10, 2);
+    b.emit_spawn_child(
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        SH_ROBOT_0,
+        PATH_ID_ROBOTWITHLOG2,
+        4,
+        10,
+        2,
+    );
     b.emit_spawn_child(0, 0, 0, 0, 0, 0, SH_NULLSHAPE, PATH_ID_DUMMY, 4, 10, 3);
     b.emit_goto(P_IGOTO, "robotswithlog.in");
 
@@ -1219,15 +1311,63 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
 
     // DPATHDAT.ASM:1309
     b.start_path(PATH_ID_ROBOTSWITHLOG, "robotswithlog");
-    b.emit_spawn_child(0, 0, -90, 0, 0, 0, SH_ROBOT_0, PATH_ID_ROBOTWITHLOG2, 10, 10, 2);
-    b.emit_spawn_child(0, 0, 90, 0, 0, 0, SH_ROBOT_0, PATH_ID_ROBOTWITHLOG2, 10, 10, 3);
+    b.emit_spawn_child(
+        0,
+        0,
+        -90,
+        0,
+        0,
+        0,
+        SH_ROBOT_0,
+        PATH_ID_ROBOTWITHLOG2,
+        10,
+        10,
+        2,
+    );
+    b.emit_spawn_child(
+        0,
+        0,
+        90,
+        0,
+        0,
+        0,
+        SH_ROBOT_0,
+        PATH_ID_ROBOTWITHLOG2,
+        10,
+        10,
+        3,
+    );
     b.label("robotswithlog.in");
     b.emit8(P_COLLISIONSOFF);
     b.emit_ifbetweenb(PAL_ROTY, 0, 127, "robotswithlog.logoneside");
-    b.emit_spawn_child(-20, -110, -100, DEG90, 0, 0, SH_NULLSHAPE, PATH_ID_CARRIEDLOG, 10, 10, 1);
+    b.emit_spawn_child(
+        -20,
+        -110,
+        -100,
+        DEG90,
+        0,
+        0,
+        SH_NULLSHAPE,
+        PATH_ID_CARRIEDLOG,
+        10,
+        10,
+        1,
+    );
     b.emit_goto(P_IGOTO, "robotswithlog.logcreated");
     b.label("robotswithlog.logoneside");
-    b.emit_spawn_child(20, -110, -100, DEG90, 0, 0, SH_NULLSHAPE, PATH_ID_CARRIEDLOG, 10, 10, 1);
+    b.emit_spawn_child(
+        20,
+        -110,
+        -100,
+        DEG90,
+        0,
+        0,
+        SH_NULLSHAPE,
+        PATH_ID_CARRIEDLOG,
+        10,
+        10,
+        1,
+    );
     b.label("robotswithlog.logcreated");
     b.emit8(P_SETVEL);
     b.emit8(30);
@@ -1340,9 +1480,33 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_RELTOPLAYEROFF);
     b.emit8(P_INVISIBLEON);
     b.emit_spawn_child(65, 0, 0, 0, 0, 0, SH_ASTEROID1, PATH_ID_E_ASTE_B, 10, 8, 1);
-    b.emit_spawn_child(path_i8(130), 0, 0, 0, 0, 0, SH_ASTEROID1, PATH_ID_E_ASTE_B, 10, 8, 2);
+    b.emit_spawn_child(
+        path_i8(130),
+        0,
+        0,
+        0,
+        0,
+        0,
+        SH_ASTEROID1,
+        PATH_ID_E_ASTE_B,
+        10,
+        8,
+        2,
+    );
     b.emit_spawn_child(-65, 0, 0, 0, 0, 0, SH_ASTEROID1, PATH_ID_E_ASTE_B, 10, 8, 3);
-    b.emit_spawn_child(path_i8(-130), 0, 0, 0, 0, 0, SH_ASTEROID1, PATH_ID_E_ASTE_B, 10, 8, 4);
+    b.emit_spawn_child(
+        path_i8(-130),
+        0,
+        0,
+        0,
+        0,
+        0,
+        SH_ASTEROID1,
+        PATH_ID_E_ASTE_B,
+        10,
+        8,
+        4,
+    );
     b.emit_spawn_child(0, 0, 0, 0, 0, 0, SH_ASTEROID1, PATH_ID_E_BREASTE, 10, 10, 5);
     b.label("insekikun.inse_0");
     b.emit_add(PAL_ROTZ, 4);
@@ -1398,8 +1562,34 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_zero(PAL_PWORD1);
     b.emit_setb(PAL_HP, 4);
     b.emit_iflevel(2, "pyonta.pyonta_s");
-    b.emit_spawn(P_SPAWN, 0, 12, 0, 0, 0, 0, SH_ASTEROID1, PATH_ID_E_ASTE, 10, 8, 0);
-    b.emit_spawn(P_SPAWN, -100, 12, 0, 0, 0, 0, SH_ASTEROID1, PATH_ID_E_ASTE, 10, 8, 0);
+    b.emit_spawn(
+        P_SPAWN,
+        0,
+        12,
+        0,
+        0,
+        0,
+        0,
+        SH_ASTEROID1,
+        PATH_ID_E_ASTE,
+        10,
+        8,
+        0,
+    );
+    b.emit_spawn(
+        P_SPAWN,
+        -100,
+        12,
+        0,
+        0,
+        0,
+        0,
+        SH_ASTEROID1,
+        PATH_ID_E_ASTE,
+        10,
+        8,
+        0,
+    );
     b.label("pyonta.pyonta_s");
     b.emit8(P_GOSUB);
     b.fixup16("pyonta.pyonlr");
@@ -1921,7 +2111,18 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("egu6_ifal.e6i_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_RAB, 100, 1);
+    b.emit_spawn_link(
+        0,
+        -300,
+        0,
+        0,
+        128,
+        0,
+        SH_FRIENDSHIP_4,
+        PATH_ID_SEPTER_RAB,
+        100,
+        1,
+    );
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "egu6_ifal.e6i_tim");
 
@@ -1932,7 +2133,18 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("egu6_ifal.e6i_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FRO, 100, 1);
+    b.emit_spawn_link(
+        0,
+        -300,
+        0,
+        0,
+        128,
+        0,
+        SH_FRIENDSHIP_4,
+        PATH_ID_SEPTER_FRO,
+        100,
+        1,
+    );
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "egu6_ifal.e6i_tim");
 
@@ -1943,7 +2155,18 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("egu6_ifal.e6i_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FAL, 100, 1);
+    b.emit_spawn_link(
+        0,
+        -300,
+        0,
+        0,
+        128,
+        0,
+        SH_FRIENDSHIP_4,
+        PATH_ID_SEPTER_FAL,
+        100,
+        1,
+    );
     b.emit_add(PAL_WORLDZ, 1500);
 
     b.label("egu6_ifal.e6i_tim");
@@ -4027,6 +4250,26 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_add(PAL_ROTZ, DEG22);
     b.emit8(P_RETURN);
 
+    // DPATHDAT.ASM:1173 — coin-style WHENDEAD explode (patret/patcom).
+    b.start_path(PATH_ID_PCOINEXPLODE, "pcoinexplode");
+    b.emit8(P_COLLISIONSOFF);
+    b.emit_setb(PAL_HP, 10);
+    b.emit_goto(P_FORCE, "pcoinexplode.coin");
+    b.emit8(P_RETURN);
+    b.label("pcoinexplode.coin");
+    b.emit8(P_SMOKEON);
+    b.emit_trigger("pcoinexplode", -1);
+    b.emit_trigger("pcoinexplode.spinit", PATH_TRIGGER_ALWAYS_VALUE);
+    b.emit8(P_ALWAYSGENVECSOFF);
+    b.emit_setvel(0);
+    b.emit_do(5);
+    b.emit_add(PAL_WORLDY, -50);
+    b.emit8(P_NEXT);
+    b.emit8(P_EXPLODE);
+    b.label("pcoinexplode.spinit");
+    b.emit_add(PAL_ROTZ, DEG22);
+    b.emit8(P_RETURN);
+
     // DPATHDAT.ASM:1199
     b.start_path(PATH_ID_MY_BIRD, "my_bird");
     b.emit_importb(PAL_PBYTE1, PATH_EXT_EROLL1);
@@ -4186,7 +4429,18 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("patret_ifal.inter_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_RAB, 100, 1);
+    b.emit_spawn_link(
+        0,
+        -300,
+        0,
+        0,
+        128,
+        0,
+        SH_FRIENDSHIP_4,
+        PATH_ID_SEPTER_RAB,
+        100,
+        1,
+    );
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "patret_ifal.inter_tim");
 
@@ -4196,7 +4450,18 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("patret_ifal.inter_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FRO, 100, 1);
+    b.emit_spawn_link(
+        0,
+        -300,
+        0,
+        0,
+        128,
+        0,
+        SH_FRIENDSHIP_4,
+        PATH_ID_SEPTER_FRO,
+        100,
+        1,
+    );
     b.emit_add(PAL_WORLDZ, 1500);
     b.emit_goto(P_IGOTO, "patret_ifal.inter_tim");
 
@@ -4206,7 +4471,18 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_GOSUB);
     b.fixup16("patret_ifal.inter_sub");
     b.emit_add(PAL_WORLDZ, -1500);
-    b.emit_spawn_link(0, -300, 0, 0, 128, 0, SH_FRIENDSHIP_4, PATH_ID_SEPTER_FAL, 100, 1);
+    b.emit_spawn_link(
+        0,
+        -300,
+        0,
+        0,
+        128,
+        0,
+        SH_FRIENDSHIP_4,
+        PATH_ID_SEPTER_FAL,
+        100,
+        1,
+    );
     b.emit_add(PAL_WORLDZ, 1500);
 
     b.label("patret_ifal.inter_tim");
@@ -4286,17 +4562,17 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_BELOWPLAYER);
     b.fixup16("text_swoopin.swoopup");
     // above player: swoop down
-    b.emit_setb(PAL_ROTX, path_i8(-DEG90));  // -64 → 192
+    b.emit_setb(PAL_ROTX, path_i8(-DEG90)); // -64 → 192
     b.label("text_swoopin.loopround");
-    b.emit_add(PAL_ROTX, DEG5);  // +4
+    b.emit_add(PAL_ROTX, DEG5); // +4
     b.emit_ifsameb(PAL_ROTX, DEG0, "text_swoopin.leave");
     b.emit_goto(P_GOTO, "text_swoopin.loopround");
     b.label("text_swoopin.leave");
     b.emit8(P_RETURN);
     b.label("text_swoopin.swoopup");
-    b.emit_setb(PAL_ROTX, DEG90);  // 64
+    b.emit_setb(PAL_ROTX, DEG90); // 64
     b.label("text_swoopin.loopround2");
-    b.emit_add(PAL_ROTX, -DEG5);  // -4
+    b.emit_add(PAL_ROTX, -DEG5); // -4
     b.emit_ifsameb(PAL_ROTX, DEG0, "text_swoopin.leave");
     b.emit_goto(P_GOTO, "text_swoopin.loopround2");
 
@@ -4473,7 +4749,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_ZREMOVEON);
     b.emit_setvel(0);
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF
+    b.emit8(0); // OFF
     b.emit8(P_RELTOPLAYERON);
     b.emit_wait(1);
     b.emit8(P_INCW);
@@ -4494,12 +4770,12 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_RELTOPLAYERON);
     b.emit8(P_ALWAYSGENVECSON);
     b.emit8(P_ZREMOVEON);
-    b.emit_setvel(path_u8(path_i8(-120)));  // -120 = 0x88 = 136
+    b.emit_setvel(path_u8(path_i8(-120))); // -120 = 0x88 = 136
     b.emit8(P_GOSUB);
     b.fixup16("text_swoopin");
     b.emit_setvel(0);
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF
+    b.emit8(0); // OFF
     b.emit8(P_GOSUB);
     b.fixup16("kwaitchk");
     b.emit_wait(30);
@@ -4521,7 +4797,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.fixup16("text_swoopin");
     b.emit_setvel(0);
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF
+    b.emit8(0); // OFF
     b.emit8(P_GOSUB);
     b.fixup16("kwaitchk");
     b.emit_wait(40);
@@ -4543,7 +4819,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.fixup16("text_swoopin");
     b.emit_setvel(0);
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF
+    b.emit8(0); // OFF
     b.emit8(P_GOSUB);
     b.fixup16("kwaitchk");
     b.emit_wait(50);
@@ -4565,7 +4841,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.fixup16("text_swoopin");
     b.emit_setvel(0);
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF
+    b.emit8(0); // OFF
     b.emit8(P_GOSUB);
     b.fixup16("kwaitchk");
     b.emit_wait(45);
@@ -4587,12 +4863,12 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_add(PAL_WORLDZ, -100);
     b.emit_loop(15, "stage1.go");
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF
+    b.emit8(0); // OFF
     b.emit8(P_GOSUB);
     b.fixup16("kwaitchk");
     b.emit_wait(10 + ENDOFF);
     b.emit8(P_TRAIL);
-    b.emit8(7);  // colour 7
+    b.emit8(7); // colour 7
     b.emit_wait(1);
     // checkifend 1
     ips.checkifend1 = b.emit_start65816("stage1.after_chk");
@@ -4615,7 +4891,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_add(PAL_WORLDZ, -100);
     b.emit_loop(15, "stage2.go");
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF
+    b.emit8(0); // OFF
     b.emit8(P_GOSUB);
     b.fixup16("kwaitchk");
     b.emit_wait(15 + ENDOFF);
@@ -4760,7 +5036,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.fixup16("kwaitchk");
     b.emit_wait(40 + ENDOFF);
     b.emit8(P_TRAIL);
-    b.emit8(0);  // OFF (stage7 has no colour)
+    b.emit8(0); // OFF (stage7 has no colour)
     b.emit_wait(1);
     // checkifend 7
     ips.checkifend7 = b.emit_start65816("stage7.after_chk");
@@ -4803,4 +5079,106 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_REMOVE);
     b.emit8(P_END);
 
+    // DPATHDAT.ASM:1798 — particle burst then explode (also `pparticles` WHENDEAD).
+    b.start_path(PATH_ID_EXPLODEPARTICLES, "explodeparticles");
+    b.emit8(P_PARTICLE);
+    b.emit8(P_EXPLODE);
+    b.emit8(P_END);
+    b.label("pparticles");
+    b.emit8(P_PARTICLE);
+    b.emit8(P_RETURN);
+    b.label("pexplode");
+    b.emit8(P_EXPLODE);
+
+    // DPATHDAT.ASM:1962-2018 — Castanet mini-cymbal vertical-plane path.
+    b.start_path(PATH_ID_MINICASTANET, "minicastanet");
+    b.emit8(P_RELTOPLAYERON);
+    b.emit8(P_ALWAYSGENVECSON);
+    b.emit_set(PAL_ROTY, 128);
+    b.emit_goto(P_RANDOMGOTO, "minicastanet.leftpath");
+    b.emit_wait(50);
+    b.emit_setvel(30);
+    b.emit_set(PAL_ROTX, 16);
+    b.emit_wait(10);
+    b.label("minicastanet.roundtoplayer3");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTX, 6);
+    b.emit_loop(10, "minicastanet.roundtoplayer3");
+    b.label("minicastanet.roundtoplayer4");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTX, -4);
+    b.emit_loop(6, "minicastanet.roundtoplayer4");
+    b.emit_goto(P_GOTO, "minicastanet.sameasother");
+    b.label("minicastanet.leftpath");
+    b.emit_wait(50);
+    b.emit_setvel(30);
+    b.emit_set(PAL_ROTX, -16);
+    b.emit_wait(10);
+    b.label("minicastanet.roundtoplayer");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTX, -6);
+    b.emit_loop(10, "minicastanet.roundtoplayer");
+    b.label("minicastanet.roundtoplayer2");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTX, 4);
+    b.emit_loop(6, "minicastanet.roundtoplayer2");
+    b.label("minicastanet.sameasother");
+    b.emit_accel(40, 5);
+    b.label("minicastanet.andagain2");
+    b.emit_add(PAL_ROTZ, 32);
+    b.emit_distless(100, "minicastanet.enditnow");
+    b.emit8(P_FACEPLAYER);
+    b.emit_goto(P_GOTO, "minicastanet.andagain2");
+    b.label("minicastanet.enditnow");
+    b.emit_wait(1);
+    b.label("minicastanet.enditnowloop");
+    b.emit_add(PAL_ROTZ, 32);
+    b.emit_loop(20, "minicastanet.enditnowloop");
+    b.emit8(P_END);
+
+    // DPATHDAT.ASM:2021-2080 — same attack in the left/right plane.
+    b.start_path(PATH_ID_MINICASTANETLR, "minicastanetlr");
+    b.emit8(P_RELTOPLAYERON);
+    b.emit8(P_ALWAYSGENVECSON);
+    b.emit_set(PAL_ROTY, 128);
+    b.emit_goto(P_RANDOMGOTO, "minicastanetlr.leftpath");
+    b.emit_wait(50);
+    b.emit_setvel(30);
+    b.emit_set(PAL_ROTY, 80);
+    b.emit_wait(10);
+    b.label("minicastanetlr.roundtoplayer3");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTY, 6);
+    b.emit_loop(10, "minicastanetlr.roundtoplayer3");
+    b.label("minicastanetlr.roundtoplayer4");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTY, -4);
+    b.emit_loop(6, "minicastanetlr.roundtoplayer4");
+    b.emit_goto(P_GOTO, "minicastanetlr.sameasother");
+    b.label("minicastanetlr.leftpath");
+    b.emit_wait(50);
+    b.emit_setvel(30);
+    b.emit_set(PAL_ROTY, -80);
+    b.emit_wait(10);
+    b.label("minicastanetlr.roundtoplayer");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTY, -6);
+    b.emit_loop(10, "minicastanetlr.roundtoplayer");
+    b.label("minicastanetlr.roundtoplayer2");
+    b.emit_add(PAL_ROTZ, 16);
+    b.emit_add(PAL_ROTY, 4);
+    b.emit_loop(6, "minicastanetlr.roundtoplayer2");
+    b.label("minicastanetlr.sameasother");
+    b.emit_accel(40, 5);
+    b.label("minicastanetlr.andagain2");
+    b.emit_add(PAL_ROTZ, 32);
+    b.emit_distless(100, "minicastanetlr.enditnow");
+    b.emit8(P_FACEPLAYER);
+    b.emit_goto(P_GOTO, "minicastanetlr.andagain2");
+    b.label("minicastanetlr.enditnow");
+    b.emit_wait(1);
+    b.label("minicastanetlr.enditnowloop");
+    b.emit_add(PAL_ROTZ, 32);
+    b.emit_loop(20, "minicastanetlr.enditnowloop");
+    b.emit8(P_END);
 }

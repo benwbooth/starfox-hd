@@ -19,7 +19,7 @@ const WM_RNDVAL: u16 = 0x1F00;
 const WM_BOSSFLAGS: u16 = 0x1F02;
 
 // Local mirrors of the private bosses.rs constants (cited to the port).
-const SH_FLINGARM_PROXY: u16 = 274;
+const SH_FLINGARM_PROXY: u16 = 327;
 const FB_SFLAG5_SFLAGS3: u8 = 0x01; // sflags3 mother damage latch
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
 const ATMISSILE: u8 = 2; // alien.rs al_type
@@ -63,6 +63,12 @@ fn count_arms(g: &Game) -> usize {
         .count()
 }
 
+fn count_shape(g: &Game, shape: u16) -> usize {
+    (0..NUMBER_AL)
+        .filter(|&i| g.objs.aliens[i].active && g.objs.aliens[i].shape == shape)
+        .count()
+}
+
 fn count_missiles(g: &Game) -> usize {
     (0..NUMBER_AL)
         .filter(|&i| g.objs.aliens[i].active && g.objs.aliens[i].type_ & ATMISSILE != 0)
@@ -98,6 +104,22 @@ fn init_sets_bossmaxhp_and_spawns_arms() {
     assert_eq!(count_arms(&g), 2, "two arm children spawned");
 }
 
+#[test]
+fn shared_arms_grow_full_grabber_chains() {
+    let (mut g, boss) = setup(4000, 0);
+    arm_boss(&mut g, boss);
+
+    for _ in 0..180 {
+        g.run_strategies();
+        if count_shape(&g, 384) == 2 {
+            break;
+        }
+    }
+
+    assert_eq!(count_shape(&g, 384), 2, "each arm terminates in a grabber");
+    assert!(count_shape(&g, 327) >= 8, "both recursive arm chains grew");
+}
+
 // ------------------------------------------------------------
 // 2. the fling/fire cycle advances through its states + fires.
 //    Approach tumbles in on rotx (DSTRATS.ASM:2977 +deg22) until rotx==0 and
@@ -127,7 +149,10 @@ fn fling_fire_cycle_advances_states() {
         }
     }
 
-    assert!(saw_main, "boss handed off from approach into the main/fling arc");
+    assert!(
+        saw_main,
+        "boss handed off from approach into the main/fling arc"
+    );
     assert!(saw_missile, "boss fired a BOSSHMISSILE1 (triggermissile2)");
     assert!(saw_spin, "boss reached the spin state (roty left deg180)");
 }
@@ -226,7 +251,9 @@ fn death_routes_to_explode_chain() {
     assert_eq!(g.objs.aliens[boss as usize].hp, 80, "in phase 2");
 
     // Kill: fire the mother's expstrat directly (what the engine does at hp==0).
-    let exp = g.objs.aliens[boss as usize].expstratptr.expect("phase-2 expstrat");
+    let exp = g.objs.aliens[boss as usize]
+        .expstratptr
+        .expect("phase-2 expstrat");
     g.call_strat(exp, boss); // -> deadflingboss_init (sink form)
 
     // Keep the player flush so the deadflingboss sink advances, then detonates.
@@ -239,5 +266,8 @@ fn death_routes_to_explode_chain() {
             break;
         }
     }
-    assert!(detonated, "deadflingboss reached bossexplode (BF_DYING latched)");
+    assert!(
+        detonated,
+        "deadflingboss reached bossexplode (BF_DYING latched)"
+    );
 }

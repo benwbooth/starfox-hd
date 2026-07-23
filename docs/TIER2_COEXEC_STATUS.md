@@ -425,15 +425,26 @@ offsets `al_sbyte2`=$23, `al_roty`=$13.
 > timing of the `shou0`/`bazooka`/`houdai5f`/`torpedo` class are now CERTIFIED
 > (see UPDATE 8). The blockers below are narrowed to the object-SEARCH +
 > projectile-SPAWN machinery around the (now-certified) aim.
-- **`torpedo`** (GASTRATS.ASM:2007-2044): homing underwater mover — the yaw-home
-  aim (`s_obj2obj_angle` -> GSU arctan) + `s_gen_3dvecs` are certified (UPDATE 8);
-  the full per-tick body still needs the CPU `Achase` + underwater-mover glue.
-- **`shou0`/`bazooka`/`houdai5f` FULL BODY**: aim angle (GSU), aim velocity, and
-  fire-gate timing are certified (UPDATE 8); the whole tick additionally needs
-  `s_find_nearobj` (target search) + `spawn_projectile`.
-- **`volrockdown`/`mother`** (multi-draw RNG scatter): still blocked on the
-  object-`stratstate` parallel-array base (volrockdown) / public port entry.
-- **`wallleft`/`wallright`** (swing): still blocked on a public port entry point.
+- **`torpedo`** (GASTRATS.ASM:2007-2044): ~~homing underwater mover — Achase glue~~
+  **CLOSED tick 201:** public `torpedo_istrat`/`torpedo_strat`; submerged
+  `makeSsplash` every tick; surface `makesplash` + `make_snd(EnemyUpSea)`;
+  yaw `strat_aim_yaw` rate-3 (`nega(Yanglexy)`+Achase) + `torpedo_cont`
+  n3dvecs/scroll/coast; surfaced pitch Achase rate-2. Tests
+  `torpedo_achase_splash.rs` (3) + prior `enemies_ground` torpedo (3).
+- ~~**`shou0`/`bazooka`/`houdai5f` FULL BODY**~~ **CLOSED tick 202:** these aim
+  at the player (`weapon_rots2obj` / firer rots / `weapon_rot`), not
+  `find_nearobj`. Wired missing weapon SE: shou0 PLASMA → `EnemyBattry`,
+  bazooka RELSLOWELASER → `Laser`; pub `houdai5f_istrat`/`houdai5f_strat`.
+  Tests `shou0_bazooka_houdai5f_fire.rs` (4) + prior enemies_ground suites.
+  (find_nearobj + spawn primitives already MATCH UPDATE 9.)
+- ~~**`volrockdown`/`mother`** (multi-draw RNG scatter)~~ **CLOSED tick 200:**
+  `volrockdown_*` public; apex scatter `(rnd&15)-7` / `(rnd&7)-15` / `(rnd&15)-7`
+  pinned (`volrockdown_wall_swing.rs`). Mother already has public
+  `strat_mother1/2_init` + `bemother`.
+- ~~**`wallleft`/`wallright`** (swing)~~ **CLOSED tick 200:** public
+  `wallleft_strat` / `wallright_strat` / `wallleftright_istrat`; swing holds at
+  roty 192/64. Tests `volrockdown_wall_swing.rs` (4) + prior `enemies_ground` /
+  `wire_shield_movewall`.
 
 ### Remaining blockers for HARDER strats (beyond `stayrel`)
 - **RNG-driven strats** (dodge/aim jitter): need the retail RNG state global
@@ -543,51 +554,30 @@ retail/built, below the `call` param block so surgically seedable).
 | New milestone (test) | Status | What it proves |
 |------|------|------|
 | `retail_spawn_pipeline_addresses` | ✅ | Locates + cross-validates all 9 routines above (each a UNIQUE masked hit; operands read back match). `makeobj_l`'s `alfreelst`/`allst` operands independently reproduce `RETAIL_POOL`. |
-| `retail_find_nearobject_vs_port` | ✅ **MATCH (coplanar) + GAP characterized** | Runs the retail cart's OWN `find_nearobject_l` (with the real `xzdiffs_l` inside) over seeded object lists and diffs the SELECTED target vs the port `strat_find_near_shape`. **8/8 coplanar configs + the radius-band reject MATCH.** A Y-separated config DIVERGES (see below) — characterized, not a failure. |
+| `retail_find_nearobject_vs_port` | ✅ **MATCH** | Runs the retail cart's OWN `find_nearobject_l` (with the real `xzdiffs_l` inside) over seeded object lists and diffs the SELECTED target vs the port `strat_find_near_shape`. **8/8 coplanar + radius reject + Y-separated MATCH.** Port ranks by `strat_dist_xz` (scaled Euclidean), ignores Y. |
 | `retail_sr_make_obj_spawn_vs_port` | ✅ **MATCH** | Runs the retail cart's OWN `sr_make_obj` on a formatted pool (real `makeobj_l` pop + `init_objvars_l` zero + shape store) and diffs the NEW object's observable fields — `al_shape` == requested, world coords zeroed, free list shrank by one — vs the port `make_obj`. Both materialise a fresh shape=$0042 object at (0,0,0); both pop slot 0 here. |
 
-### REAL FINDING — port `find_near_shape` diverges from retail for Y-separated targets
-Retail `find_nearobject_l` ranks + gates candidates by **`xzdiffs`/`rangexz`, an
-XZ-plane octagonal-norm distance that IGNORES the Y coordinate entirely** (both
-the `[min,max)` radius band and the nearest metric). The port
-`enemy_a::strat_find_near_shape` (strat_enemy.c:4315) instead uses a **3D box
-gate (`dz≤max_z && dx≤max_xy && dy≤max_xy`) + a 3D Manhattan `dx+dy+dz` metric**
-that COUNTS Y. Consequences:
-- **Identical for coplanar targets** (targets sharing the searcher's Y-plane —
-  the overwhelming in-game case for a same-enemy-type search): certified 8/8.
-- **Can pick a DIFFERENT target when candidates differ in Y**: e.g. candidate A
-  at (dx=300, dy=7000) vs B at (dx=2000, dy=0) — retail picks A (XZ-nearest,
-  ignores Y); the port picks B (A's Y penalises its Manhattan metric). Test
-  `retail_find_nearobject_vs_port` asserts this exact divergence.
+### REAL FINDING — port `find_near_shape` used Manhattan / 3D box (FIXED tick 127)
+Retail `find_nearobject_l` ranks + gates by **`xzdiffs_l`/`rangexz`** (scaled
+Euclidean on XZ; Y ignored). The port previously used Manhattan `|dx|+|dz|` (and
+earlier a 3D box). **FIXED:** `find_near_object` / `strat_find_near_shape` /
+`strat_find_near_colltype` now call `strat_dist_xz`. Re-certified MATCH including
+Y-separated targets (`retail_find_nearobject_vs_port`, `find_near_xzdiffs.rs`).
 
-This is a genuine (minor) port-vs-cartridge fidelity gap: a homing/turret enemy
-could lock a *different* target than the retail cart when candidate enemies are
-vertically separated. FIX (sf-strat, out of scope here): replace the 3D box +
-`dx+dy+dz` in `strat_find_near_shape`/`strat_find_near_colltype` with the
-XZ-only `rangexz` octagonal band (port the `xzdiffs_l` formula) so Y is dropped.
-
-### Muzzle offset (`gen_weapon`) — certified transitively; the deferred sub-step
+### Muzzle offset (`gen_weapon`) — certified (transitive + surgical chain)
 `gen_weapon` places the shot at `firer.pos + (offset rotated rotz->rotx->roty by
 the firer's rots) << weapon_scale(=2)`. The rotation primitives `rotate_8yx/8yz/
-8xz_l` are **CPU sin/cos** — the SAME sin/cos rotation already certified bit-exact
-vs retail as `n3dvecs_l`/`arctan16` (UPDATE 8). The port paths compose exactly
-this: the common enemy-laser path passes offset **(0,0,0)** (rotation of zero is
-a no-op → shot at firer origin, trivially == retail), and the turret/boss paths
-use `enemy_a::boss1_rot_offset_pos` (same rotz->rotx->roty order, same
-`strat_sin`/`strat_cos` used by the certified `gen_vecs_3d`). So the muzzle
-offset is certified transitively. The only DEFERRED sub-step is a byte-exact
-surgical run of the retail 3-stage rotate chain: `rotate_8xz_l` etc. thread
-through a shared jump-based `mulslog` signed-multiply continuation whose x2/y2/z2
-output-scratch stores are not linearly locatable from the routine head — running
-it surgically needs that continuation traced (the primitive itself is already
-proven equivalent via `retail_gen_3dvecs_vs_port`).
+8xz_l` are **CPU sin/cos**. Port paths compose `strat_roffs_full` (same order).
+**CLOSED tick 187:** `retail_muzzle_rotate8_chain_vs_port` surgically calls the
+three retail leaves in gen_weapon order (retail z1=$90 / z2=$15C2) and diffs vs
+`strat_roffs_full` — **8/8 MATCH**.
 
 ### CERTIFIED VS RETAIL — running total: **15 named strats + AIMING + SPAWN/SEARCH**
 | Cert | Retail addr | Kind | Certified |
 |------|------|------|------|
 | target search (`find_nearobject_l`) | $1F:C870 -> `xzdiffs_l` $1F:D0AB | XZ octagonal-band nearest | selected target == port `find_near_shape` for all coplanar configs (8/8) + radius reject; Y-separated divergence characterized |
 | spawn alloc (`sr_make_obj`) | $1F:D54B -> `makeobj_l` $1F:D3A9 | pool pop + init + shape | new-object observable (shape + zeroed world pos) == port `make_obj` |
-| muzzle offset (`gen_weapon`) | rotate `$1F:CC78/CAFB/C97B` | CPU sin/cos rotate + firer pos | transitively (== certified `gen_3dvecs` sin/cos); (0,0,0) common path exact |
+| muzzle offset (`gen_weapon`) | rotate `$1F:CC78/CAFB/C97B` | CPU sin/cos rotate + firer pos | surgical chain MATCH strat_roffs_full 8/8 (tick 187); (0,0,0) common path exact |
 
 ## UPDATE 10 — the COLLISION SYSTEM certified vs retail (highest blast radius)
 
@@ -618,7 +608,7 @@ bus. The box-overlap + colltype/same-shape logic was therefore located in its
 | `retail_docoll_response_vs_port` | ✅ **MATCH** | Runs the cart's OWN `do_coll_l` ($1F:D23A) on a seeded victim over an 11-case grid of (collcount, hp, ap, tunnel) and diffs (collcount, hp) vs the port `Game::do_coll`: the DEC-then-BNE cooldown gate, hp bit-7 (>=$80) indestructible branch, underflow clamp at 0, in-tunnel hardAP halving (`asra`), and framesperAP reload — all MATCH. |
 | `retail_box_overlap_vs_port` | ✅ **MATCH** | Grid-diffs the PORT public `aabb_overlap` vs a byte-faithful transcription of the retail `COLDET` macro (16-bit two's-complement abs, Z/X/Y order, strictly-less `|d| < e1+e2`) over boundary-straddling separations on each axis + the i16 wrap edge. 0 mismatches; boundary pinned exactly (sep==sum -> no overlap, sep==sum-1 -> overlap). |
 | `retail_colltype_matrix_vs_port` | ✅ **MATCH** | Diffs the port colltype filter (`a_types & b_types != 0 -> skip`) vs the ROM rule (`cf_a & cf_b & $F8 != 0 -> skip`) over the FULL type matrix (4096 combos) + semantic spot-checks (laser vs enemy = collide; laser vs laser / enemy1 vs enemy1 = skip; typeless objects = collide — **no both-zero skip**). |
-| `retail_same_shape_skip_divergence` | ⚠️ **DIVERGENCE (characterized)** | Constructs two SAME-shape, DIFFERENT-colltype overlapping objects, runs the port collision pass, and shows the port collides them — where the cart's same-shape gate would SKIP. Pins current port behaviour with a note to flip on the sf-game fix. |
+| `retail_same_shape_skip_divergence` | ✅ **MATCH (FIXED)** | Same-shape / different-colltype pairs skipped unless both `ASF3_SAMESHAPECOLLIDE`; port `coldet_run` gate matches retail chkcoll0. |
 
 ### Box-overlap MATH — MATCH (the size source, axis order, boundary)
 - **Size source**: the retail overlap sums the per-SHAPE `cl_xmax/ymax/zmax`
@@ -670,7 +660,7 @@ port `Game::coldet_run` (coldet.rs) has **no shape gate at all**.
 | collision RESPONSE (`do_coll_l`) | $1F:D23A | hp/cooldown damage | (collcount,hp) == port `do_coll` over the full damage/cooldown/tunnel/indestructible grid |
 | box-overlap MATH (`COLDET`) | $02:A1BF (RAM copy-source) | 16-bit AABB | port `aabb_overlap` == ROM formula over the boundary grid (Z/X/Y, strictly-less, shape-table sizes) |
 | colltype ALLOW-MATRIX (`chkcoll0`) | $02:A159 | who-hits-whom | port filter == ROM `cf_a&cf_b&$F8` over all 4096 combos; no both-zero skip |
-| same-shape gate (`chkcoll0`) | $02:A199 | same-shape skip | **DIVERGENCE** — ROM skips same-shape pairs, port does not (narrow; fix noted) |
+| same-shape gate (`chkcoll0`) | $02:A199 | same-shape skip | **MATCH** — port skips same-shape pairs unless both `sameshapecollide` |
 
 ## UPDATE 11 — PLAYER MOVEMENT certified vs retail (the per-frame ship physics)
 
@@ -771,6 +761,9 @@ bit $10, `currentlevel`=$1FFD, `gsvar_byte1`=$154F.
 | `retail_boss8_addresses` | ✅ | Locates + cross-validates all three boss8 routines (each UNIQUE), reads back the three per-tick globals + the INIT constants (HP level-gate $20/$40, AP $08, `boss8wait` pointer). |
 | `retail_boss8_init_vs_port` | ✅ **MATCH** | Runs the cart's OWN `boss8_Istrat` ($07:919C) on a formatted pool (boss block popped off the free list) and diffs the boss's INIT scalar fields vs the port `strat_boss8_init` (IS_BOSS8=84): HP (level-gated), AP=$08, sbyte4 phase timer, colltype (enemy2\|enemyweap), cleared sflag1\|sflag2, `gsvar_byte1`=0, `stratptr`=boss8wait, and the init-tail `boss8_cont` worldz = 1680+player_posz — all MATCH, **both difficulty branches** (retail currentlevel 0=easy/1=hard <-> port 1/2, a level-encoding remap). **Spawn observable**: the boss makes exactly **4 children** (cover + 3 nucleus beams) — the free list shrank by 4. |
 | `retail_boss8_cont_body_vs_port` | ✅ **MATCH (GOLD)** | Runs the cart's OWN `boss8_cont` ($07:93BB) over a long horizon on a seeded boss and diffs its evolving STATE MACHINE tick-for-tick vs the port (reached through the armed `boss8wait_strat` with the beam-child sflag1 cleared so the wait routes into `boss8_cont`). Three fields: **worldz** = 1680+player_posz view-track (incl. an i16 wrap), the **sbyte4** countdown that reloads 150 and TOGGLES sflag1 at 0, and the **gsvar_byte1** speed accumulator that ramps +1 toward +5 (sflag1 clear) / -1 toward -5 (sflag1 set), gated on `gameframe & 7`. Two scenarios: a full 150-tick countdown -> sflag1 toggle -> gsvar ramps +5 then REVERSES to -5 (200 ticks); and an early toggle + worldz wrap (40 ticks). **MATCH every tick.** |
+| `retail_boss8_phase_addresses` | ✅ | Locates `boss8a_init`/$079422, `boss8a_strat`/$079451, `boss8b_init`/$079539, `boss8b_strat`/$0795A6; cross-checks wait→a jml + set_strat immediates; documents sflag4=$80 / sflag5=sflags3:$01. |
+| `retail_boss8_phase_transitions_vs_port` | ✅ **MATCH** | Phase machine wait↔a↔b vs port: all-beams-sflag1 opens (sbyte2=99, sflag4 set); beam1-clear stays wait→cont; hard a sbyte2=0 → b (sbyte2=14, sflag4 clear, beams cleared); b sbyte2=0 → wait. Port `B8_SFLAG4/5` bit fix required. |
+| `retail_boss8a_hplasma_vs_port` | ✅ **MATCH** | Easy `boss8a_strat`: `gameframe&31∈{25,30}` fires one HPLASMA (26 quiet); shot HP=1/AP=10/vel=60/life=50, yaw=firer.roty+deg180, `al_ptr=playpt` == port. |
 | `retail_plrot_accumulator_vs_port` | ✅ **MATCH** | Closes UPDATE 11's deferred player-move sub-step. Locates the `playermove_srou` plrot steering blocks — LEFT (`plrotz/plroty += $200`), RIGHT (`-= $200`), and the plrotz LIMIT (`±$600`), each a UNIQUE masked hit — and reads back the step (Zrotspeed=**$0200**), the roll clamp (**$0600**) and the `plrotz`/`plroty` addresses (**$1234/$1232** = built $12BF/$12BD − $8B) from the retail BYTES. The decay is `strat_chase_proportional` (already certified vs the cart, UPDATE 4); a grid-diff confirms the port primitive == a byte-faithful `Achase` at the plrot rates (3/4), and the composed per-frame plrot(y,z) update (accumulate ±$200, decay, clamp ±$600) is cartridge-faithful (ramp-under-hold, saturate plrotz at +$600, decay-to-0 on release, LEFT+RIGHT cancels). |
 
 ### boss8 footprint map
@@ -787,20 +780,15 @@ bit $10, `currentlevel`=$1FFD, `gsvar_byte1`=$154F.
 
 ### REMAINING BOSS GAP (precise map)
 Certified for `boss8`: INIT (+ child spawn count) + the common `boss8_cont`
-per-tick body. **Not** certified (documented gap):
-- **boss8 PHASE-TRANSITION machine** (`boss8wait` -> `boss8a` -> `boss8b` ->
-  `boss8wait`): gated on the beam CHILDREN's sflag1 (set/cleared by the nucleus
-  beams' own strats) + the `boss8a` HPLASMA fire + anim frames. Reaching the
-  transitions needs the child family's per-tick beams ticked in lockstep both
-  sides — the same "multi-child family" step deferred here. The common body all
-  phases share IS certified; the phase-select + child-flag gates are the residual.
+per-tick body + the **phase-transition machine** (`boss8wait` ↔ `boss8a` ↔
+`boss8b`, tick 229) + **boss8a HPLASMA** (tick 237). **Not** certified (documented gap):
 - **Other bosses**: `boss1` (barricader; phase strats fall through a GSU
   turret-repositioning tail `boss1rots_srou` — needs the aim/rotate GSU per tick,
-  8 turret children), `boss2`/`bossg`/`bossseamon`/`bossA`/`bossF`/`bossH`
+  8 turret children), `boss2` states 1..5 / `bossg`/`bossseamon`/`bossA`/`bossF`/`bossH`
   (each a multi-child family + several with GSU-per-tick aim). The RECIPES for all
   of them are proven (RNG, player-relative, GSU aim, spawn, collision, and now a
-  boss INIT + common-body state machine); each remaining boss is "locate by
-  masked scan + seed the children + tick the family" — mechanical, not blocked.
+  boss INIT + common-body state machine + phase gates); each remaining boss is
+  "locate by masked scan + seed the children + tick the family" — mechanical, not blocked.
 
 ### CERTIFIED VS RETAIL — running total: **15 named strats + AIMING + SPAWN/SEARCH + COLLISION + PLAYER-MOVE + BOSS8**
 | Cert | Retail addr | Kind | Certified |
@@ -854,15 +842,15 @@ Newly-located retail: `playervel_z`=$14EA (built $1575 −$8B; boss2's
   `PLAYPT`→player Z, `playervel_z`($14EA), `pviewvelz`($14F4), the child-link chain.
 
 ### REMAINING BOSS GAP (updated precise map)
-Certified: `boss8` (INIT + `boss8_cont`), `boss2` (INIT + state-0 wait body),
-`bossg`/`bossseamon`/`boss1` (INIT). **Not** certified (documented per boss):
-- **boss2 states 1..5** (leap / flip+slam / back-away / strafe-circle / topple+die):
-  each is player-relative + spawns explosions/particles/lasers (RNG) and transitions
-  on child liveness / player HP. The common state-0 body IS certified; states 1-5 +
-  the smoke/laser child spawns are the residual (all recipes proven).
-- **bossg mode table** (17-entry `s_mode_table`: scrollmsg / sf9e / runaway / appear /
-  opentrunk+launchfish ×3 …): mode 0 (wait) is certified via the fall-through;
-  the fish-launch + shadow-gen modes need the child family ticked in lockstep.
+Certified: `boss8` (INIT + `boss8_cont` + phase wait↔a↔b + HPLASMA), `boss2` (INIT +
+state-0..5 core: wait/leap/slam/back-away/circle/player-dead fall), `bossg`
+(INIT + mode-table + generateshadows/bossgs + flyingfish), `bossseamon`/`boss1` (INIT). **Not** certified (documented per boss):
+- **boss2 fire-band** — ✅ closed (tick 238): state-4 `sbyte4≤25` + even
+  `gameframe` → `RELFASTELASER` (HP=1/AP=2/vel=90/life=40); >25 / odd quiet.
+- **boss2 alive death** (state-5 player-alive exp/RNG/`boss2exp`): circle
+  non-fire + player-dead fall ARE certified (tick 231); fire-band closed 238.
+- **bossg fish AI** — ✅ closed (tick 236): flyingfish INIT/swim/flying coexec;
+  sflag bits fixed to ROM `$20`/`$40`.
 - **bossseamon** RNG-`sbyte2` + player-relative fire-loop body (states 0..5:
   dive/surface/fire `relslowElaser`): the stable scalar init is certified; the
   RNG draw (needs the firepillar param-block seeding) + the body are the residual.
@@ -877,7 +865,15 @@ Certified: `boss8` (INIT + `boss8_cont`), `boss2` (INIT + state-0 wait body),
 |------|------|------|------|
 | `boss2` INIT (`boss2_Istrat`) | $08:8BBE | boss shell init + 9-child spawn | HP/AP/lifecnt/colltype/sflags/stratptr == port; 9 children (top+4 petals+4 turrets) |
 | `boss2` state-0 (`boss2_strat`) | $08:8E3C | boss wait/idle state machine | roty+=4 + sflag4\|sflag1 + sbyte3 + worldz+=playervel_z == port, tick-for-tick |
+| `boss2` states 1–3 (`boss2_strat`) | $08:8E3C | leap / slam / back-away | state1→2 leap scalars; state2 flip+falldown; state3 achase+z drift == port (DB=$7E) |
+| `boss2` states 4–5 (`boss2_strat`) | $08:8E3C | circle / player-dead fall | non-fire sintab circle; no-top→5 vecs; dead-path falldown == port |
+| `boss2` fire-band (`boss2_strat`) | $08:8E3C | state-4 RELFASTELASER | sbyte4≤25 + even frame → HP/AP/vel/life == port; >25 / odd quiet |
 | `bossg` INIT (`bossg_istrat`) | $04:EE35 | clean sea-boss init + mode-0 tick | HP/AP/colltype/sflags/stratptr + mode-0 worldz(−40) == port |
+| `bossg` modes 0/1/11 (`bossg_strat`) | $04:EE85 | wait / scrollmsg / waitabit2 | mode0 wz−40; mode0→1; mode1 tx+=4+pviewvelz; mode11 sbyte1+move2 == port |
+| `bossg` modes 3/4→5/6→7/7/32 (`bossg_strat`) | $04:EE85 | runaway / disappear / appear / moveto600h / waitabit | +70+pvz; maptrigger|1; HP/AP reseed; wz−40; sbyte1++ == port |
+| `bossg` trunk/sf9e (`bossg_strat`) | $04:EE85 | sf9e / opentrunk / closetrunk | mode2→3; anim± + open@9→11 cascade; close@0→13 == port |
+| `bossg` generateshadows + `bossgs` | $04:EE85 / $04:F55E | mode31 spawn + shadow Fchase | 3 clones sword1±100/0; Fchase±5 + sbyte1 + pvz == port |
+| `flyingfish` INIT+body | $00:FAD6 / $00:FB03 / $00:FC29 | swim achase + flying | HP/AP/roty; ±200 chase; vy+2+addvecs == port (sflag fix) |
 | `bossseamon` INIT (`bossseamon_istrat`) | $0A:F2D1 | RNG sea-boss init (partial) | stable HP/AP/roty/colltype/stratptr == port (RNG sbyte2 + body = gap) |
 | `boss1` INIT (`boss1_istrat`) | $08:816E | 9-child barricader init | level-gated HP + AP/roty/colltype/type + 9-child spawn == port, both branches |
 
@@ -957,9 +953,95 @@ against the port through the real `do_strat_l` dispatch path.
    `straight_strat`. Next frontier: an RNG or player-relative strat — the harder
    blockers (RNG state, player-recomputed globals, GSU-in-the-tick) are itemised
    below.
-2. **Exercise the spawn VM**: hand retail `mapobjdo` ($03:F79B) / `newobjs_l`
-   ($03:EDA1) a minimal map script so retail SPAWNS objects (instead of
-   hand-seeding), then diff the spawn output vs the port map builder.
-3. **Re-certify the pure per-strat helpers vs retail** surgically (like
-   `addalvecs_l`): `gen_vecs`, `speed_to`, `perc*`, `xzdiffs` — all struct-offset/
-   pure-math, so byte-identical in retail and quick to scan + diff.
+2. ✅ **DONE (tick 218–221)** — **Exercise the spawn VM**: retail `mapobjdo` /
+   `newobjex` WRAM globals; single/multi-op spawn world MATCH; shape/stratptr
+   encoding certified (ROM `shapes[]`/`istrats[]` words vs port flat id/`StratId`,
+   index 166 = spacebar). `retail_map_*` ×5.
+3. ✅ **DONE (tick 222)** — **Re-certify pure per-strat helpers vs retail**:
+   `nvecs_l` ($1F:C177) / `alvelvecs_l` ($1F:C09F) / `perc56..93A_l` ($1F:D492+)
+   located (−$18 from built) and MATCH port `strat_nvecs` / `strat_gen_vecs_2d` /
+   `strat_perc*`. (`speed_to` / `xzdiffs_l` / `n3dvecs_l` already MATCH.)
+   Tests `retail_nvecs_*` + `retail_perc_*` (4).
+4. ✅ **DONE (tick 223)** — **Retail non-spawn map opcodes**: WAIT / WAIT2
+   (incl. zero) / END / FADETOSEA|GROUND / SETBGM HP0 guard. Derived
+   `palfade`/$1EE9, `palnum`/$1EED, `pshipflags2`/$14D7, `bgm_music`/$1F47.
+   END: retail `mapenddo` = `stx mapptr; rts` only; port sets `levelfinished=1`.
+   Tests `retail_map_wait_wait2_end` / `fadetosea_ground` / `setbgm_hp0` /
+   `nonspawn_addresses` (4).
+5. ✅ **DONE (tick 224)** — **Retail map LOOP / SETVAR / JMPVAR**: `mapaddrs`
+   /$174B, `maploops`/$1743, `nummaploops`/$1753; SETVARB/W/L ext WRAM MATCH;
+   loop stored-C → C+1 body waits; JMPVARLESS/MORE/EQ signed compare (30 cases).
+   Tests `retail_map_loop_*` / `setvar_*` / `jmpvar_*` (4).
+6. ✅ **DONE (tick 225)** — **Retail map JSR/RTS/GOTO + SETALVAR/SETVAROBJ**:
+   stack `$1703`, nummapjsr `$1730`, depth `$1732`; JSR→wait→RTS; GOTO;
+   SETALVARB/W/L + invalid-object skip; SETVAROBJ valid/invalid sentinel.
+   Tests `retail_map_jsr_*` / `setalvar_*` / `setvarobj_*` (4).
+7. ✅ **DONE (tick 226)** — **Retail map REMOVE + small state ops**: first
+   shape-match only (player exempt); SETX/Y/ZROT; ZROTON/OFF (`dozrot=$16F1`);
+   SETSTAGE (`stagecnt=$15B9`); SETBG (`currentbg=$1741`, `bgflags=$1F13`);
+   SPECIAL/CSPECIAL (`specialobjtotal=$173C`; SPECIAL sflags→sflags4 remap).
+   Tests `retail_map_remove_*` / `small_state_*` (3).
+8. ✅ **DONE (tick 227)** — **Retail map IF / CODEJSL / SETPATH**: `mapifdo`
+   /$03F3DD carry SEC→else / CLC→+6,mapcnt=1 (WRAM SEC/CLC stubs); port
+   unknown-callback ≡ SEC; `mapcodejsl`/$03EEC0 advance+WAIT; SETPATH mapptr+3
+   (retail raw sword2; port path-resolve remap). Tests `retail_map_if_*` /
+   `setpath_*` (3).
+9. ✅ **DONE (tick 228)** — **Retail map VOFS / HOFS / fade / WAITFADE**:
+   `bg2scroll`/$194D, `dohofs`/$1953, `dovofs`/$1954, `fadedir`/$18B2,
+   `fade`/$18B3, `xinidisp1`/$7E45F4. Port: HOFSON/OFF latch `dohofs`;
+   VOFSON/OFF via `vofs_*_please`; FADE*/QFADE* → `fade_from/to_black(1|2)`;
+   WAITFADE gates on `is_map_fade_active`. Tests `retail_map_vofs_*` /
+   `fade_waitfade_*` (3) + unit `op_hofson_off_latches_dohofs`.
+10. ✅ **DONE (tick 229)** — **Retail boss8 phase-transition machine**:
+    Fixed port `B8_SFLAG4`=$80 (sflags2) / `B8_SFLAG5`=$01 (sflags3) to match
+    ROM `make_sflag`. Located `boss8a_init`/$079422, `boss8a_strat`/$079451,
+    `boss8b_init`/$079539, `boss8b_strat`/$0795A6. Coexec MATCH: wait→a (all
+    beams sflag1), wait→cont (beam1 clear), a→b (sbyte2=0 hard), b→wait;
+    sflag4/sbyte2/beam clears. Tests `retail_boss8_phase_*` (2).
+11. ✅ **DONE (tick 230)** — **Retail boss2 states 1–3**: located
+    `al_stratstate`/$1CDC,x + `svar_byte5`/$1530; `call()` now applies
+    `Entry.dbr` (strats need DB=$7E for xalblks). Coexec MATCH: state-1 leap
+    entry (→2 same tick, sflag4 clear, vy/worldy), state-2 slam (flip
+    rotz=deg180 + achase + falldown), state-3 back-away (achase x→0,
+    z+=pviewvelz+30, sbyte4=25). Tests `retail_boss2_state_*` (2). States
+    4–5 (strafe laser / topple+die) remain gap.
+12. ✅ **DONE (tick 231)** — **Retail boss2 states 4–5**: circle non-fire
+    (sintab/costab vx/vz, roty+=6, sbyte2 ramp, top child held); no-top →5
+    transition vecs `#0,#10,#30` + dead-path gravity; state-5 player-dead
+    (`psf2_playerHP0`) falldown + add_playerZ. Test
+    `retail_boss2_states_4_5_vs_port`. Residual: state-4 fire-band closed
+    tick 238; state-5 alive exp/RNG path remains.
+13. ✅ **DONE (tick 232)** — **Retail bossg modes 0/1/11**: `al_stratstate`
+    /$1CDC,x ↔ port `Alien::stratmem`; `al_tx`/$1CF4,x. Coexec MATCH: mode0
+    far (wz−40/tick), mode0→1 near gate into scrollmsg same tick, mode1
+    scrollmsg (tx+=4 + add_playerZ), mode11 waitabit2 (sbyte1++ + move2;
+    odd gameframe skips splash). Test `retail_bossg_modes_vs_port`. Residual:
+    fish/shadow spawn modes + bossseamon body / boss1 GSU.
+14. ✅ **DONE (tick 233)** — **Retail bossg modes 3/4→5/6→7/7/32**: runaway
+    stay (+70+pvz, bossmaxhp=0), disappear→waitsometime (maptrigger|1;
+    retail nullshape ptr vs port flat id), appear→moveto600h (HP=120/AP=8/
+    m_bossmaxhp), moveto600h far (wz−40+pvz), waitabit (sbyte1++). Test
+    `retail_bossg_modes_more_vs_port`. Residual: fish/shadow/opentrunk spawn.
+15. ✅ **DONE (tick 234)** — **Retail bossg trunk/sf9e**: `al_animframe`
+    /$1CE7,x. Coexec MATCH: mode2→3 sf9e into runaway; mode8 opentrunk mid
+    anim++ + open@9→11 launchfish cascade (fish undiffed); mode12 closetrunk
+    mid anim−− + close@0→13. Test `retail_bossg_trunk_anim_vs_port`. Residual:
+    shadow-gen + fish AI body.
+16. ✅ **DONE (tick 235)** — **Retail bossg generateshadows + bossgs**: mode31
+    spawns 3 clones (sword1 −100/0/100, worldz−50, rots copy,
+    `bossgs_istrat@$04F55E`) then waitabit; `bossgs_strat@$04F581` Fchase
+    worldx→sword1 ±5 + sbyte1−− + add_playerZ. Test
+    `retail_bossg_genshadows_vs_port`. Residual: flyingfish AI.
+17. ✅ **DONE (tick 236)** — **Retail flyingfish**: fixed port sflag bits to
+    ROM make_sflag (landed=sflag2/$20, side=sflag3/$40; launchrightfish too).
+    Coexec MATCH: INIT ($00:FAD6) HP/AP/roty+180; swim achase ±200
+    ($00:FB03); `.flying` ($00:FC29) vy+2+addvecs+pvz. Test
+    `retail_flyingfish_vs_port`. bossg family residual closed.
+18. ✅ **DONE (tick 237)** — **Retail boss8a HPLASMA**: `gameframe&31∈{25,30}`
+    fire (26 quiet); shot HP=1/AP=10/vel=60/lifecnt=50, yaw=firer.roty+deg180,
+    `al_ptr=playpt`. Easy path (`jmp_iflevel 1` → retail lvl 0) → cont.
+    Test `retail_boss8a_hplasma_vs_port`. Residual: boss1 GSU / boss2 fire-band.
+19. ✅ **DONE (tick 238)** — **Retail boss2 fire-band**: state-4 `sbyte4≤25`
+    + even `gameframe` fires `RELFASTELASER` (HP=1/AP=`enemylaserAP`=2/vel=90/
+    life=40); `sbyte4>25` and odd frame quiet (`notdelay 1`). RNG aim undiffed.
+    Test `retail_boss2_fireband_vs_port`. Residual: boss2 alive exp / boss1 GSU.

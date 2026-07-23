@@ -46,13 +46,21 @@ fn rotmat_identity_and_axis_rotations_match_rom() {
     // Zero angles -> identity.
     let m0 = gsu_rotmat(&rom, MCROTMATZXY16, 0, 0, 0);
     eprintln!("rot(0,0,0):     {m0:?}");
-    assert_eq!(m0, [ONE, 0, 0, 0, ONE, 0, 0, 0, ONE], "zero-angle must be identity");
+    assert_eq!(
+        m0,
+        [ONE, 0, 0, 0, ONE, 0, 0, 0, ONE],
+        "zero-angle must be identity"
+    );
 
     // 16-bit angles (65536 = 360deg). A pure pitch rotates only the Y/Z sub-block
     // (row 0 stays [1,0,0]); check the ROM matrix is a valid rotation there.
     let m = gsu_rotmat(&rom, MCROTMATZXY16, 4096, 0, 0); // 4096 = 22.5deg pitch
     eprintln!("rot(4096,0,0):  {m:?}");
-    assert_eq!((m[0], m[1], m[2]), (ONE, 0, 0), "pure pitch leaves X axis fixed");
+    assert_eq!(
+        (m[0], m[1], m[2]),
+        (ONE, 0, 0),
+        "pure pitch leaves X axis fixed"
+    );
     // cos(22.5)=0.9239 -> ~30273, sin(22.5)=0.3827 -> ~12539 (fixed .15).
     let cos = m[4] as f64 / ONE as f64;
     let sin = m[5].unsigned_abs() as f64 / ONE as f64;
@@ -70,19 +78,41 @@ fn rotmat_identity_and_axis_rotations_match_rom() {
         let (sy, cy) = (a(ry)).sin_cos();
         let (sz, cz) = (-a(rz)).sin_cos();
         [
-            cy * cz, cy * sz, -sy,
-            sx * sy * cz - cx * sz, sx * sy * sz + cx * cz, sx * cy,
-            cx * sy * cz + sx * sz, cx * sy * sz - sx * cz, cx * cy,
+            cy * cz,
+            cy * sz,
+            -sy,
+            sx * sy * cz - cx * sz,
+            sx * sy * sz + cx * cz,
+            sx * cy,
+            cx * sy * cz + sx * sz,
+            cx * sy * sz - sx * cz,
+            cx * cy,
         ]
     };
     let cmp = |label: &str, rx: i16, ry: i16, rz: i16| {
         let rom = gsu_rotmat(&rom, MCROTMATZXY16, rx, ry, rz);
         let romf: Vec<f64> = rom.iter().map(|&v| v as f64 / ONE as f64).collect();
         let rust = rust_rot(rx, ry, rz);
-        let maxd = romf.iter().zip(rust.iter()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        let maxd = romf
+            .iter()
+            .zip(rust.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
         eprintln!("{label} maxΔ={maxd:.3}");
-        eprintln!("  ROM : {}", romf.iter().map(|v| format!("{v:+.3}")).collect::<Vec<_>>().join(" "));
-        eprintln!("  RUST: {}", rust.iter().map(|v| format!("{v:+.3}")).collect::<Vec<_>>().join(" "));
+        eprintln!(
+            "  ROM : {}",
+            romf.iter()
+                .map(|v| format!("{v:+.3}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        eprintln!(
+            "  RUST: {}",
+            rust.iter()
+                .map(|v| format!("{v:+.3}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
         maxd
     };
     let _ = cmp("pure yaw  (0,4096,0)", 0, 4096, 0);
@@ -114,14 +144,29 @@ fn rotmat_identity_and_axis_rotations_match_rom() {
     };
     eprintln!("--- candidate ZXY (Ry*Rx*Rz) vs ROM ---");
     let mut worst = 0.0f64;
-    for (rx, ry, rz) in [(0, 4096, 0), (4096, 0, 0), (0, 0, 4096), (-7000, 20000, 0), (5000, -12000, 8000)] {
+    for (rx, ry, rz) in [
+        (0, 4096, 0),
+        (4096, 0, 0),
+        (0, 0, 4096),
+        (-7000, 20000, 0),
+        (5000, -12000, 8000),
+    ] {
         let rom = gsu_rotmat(&rom, MCROTMATZXY16, rx, ry, rz);
         let romf: Vec<f64> = rom.iter().map(|&v| v as f64 / ONE as f64).collect();
         let cand = zxy(rx, ry, rz);
-        let d = romf.iter().zip(cand.iter()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        let d = romf
+            .iter()
+            .zip(cand.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
         worst = worst.max(d);
         eprintln!("  ({rx},{ry},{rz}) maxΔ={d:.3}");
     }
-    eprintln!("=> candidate ZXY worst Δ = {worst:.3} (near 0 => this is the correct formula to port)");
-    assert!(worst < 0.02, "ZXY = Ry*Rx*Rz should reproduce the ROM matrix");
+    eprintln!(
+        "=> candidate ZXY worst Δ = {worst:.3} (near 0 => this is the correct formula to port)"
+    );
+    assert!(
+        worst < 0.02,
+        "ZXY = Ry*Rx*Rz should reproduce the ROM matrix"
+    );
 }

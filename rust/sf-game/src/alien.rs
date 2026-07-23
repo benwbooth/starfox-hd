@@ -147,8 +147,15 @@ pub const ASF_COLLIDE: u8 = 0x20;
 pub const ASF_NOHITAFFECT: u8 = 0x40;
 pub const ASF_LCOLLIDE: u8 = 0x80;
 
-// al_sflags3 bits (C ASF3_*).
+// al_sflags3 bits (C ASF3_* / STRATEQU.INC make_sflag childobj/motherobj).
 pub const ASF3_REALOBJ: u8 = 0x08;
+/// Child in a mother/child family (`asf_childobj`).
+pub const ASF3_CHILDOBJ: u8 = 0x10;
+/// Mother of a child list (`asf_motherobj`); `al_sword1` is the child-list head.
+pub const ASF3_MOTHEROBJ: u8 = 0x20;
+/// Helpball / lock-on marker. ROM `asf_lockon` is sflags3 bit4 (0x10), but
+/// this port already uses 0x10 for [`ASF3_CHILDOBJ`]; use free bit 0x40 here.
+pub const ASF3_LOCKON: u8 = 0x40;
 /// Allow this object to collide with another of the SAME al_shape. The ROM
 /// collision detector (chkcoll0, COLDET.ASM) skips any same-shape pair UNLESS
 /// both objects set this bit (~nothing does). C `src/game/obj.h` ASF3_*.
@@ -156,14 +163,21 @@ pub const ASF3_SAMESHAPECOLLIDE: u8 = 0x80;
 
 // al_sflags4 bits (C `src/game/obj.h` ASF4_* + `src/game/world.h` markers).
 pub const ASF4_PLAYEROBJ: u8 = 0x01;
+/// HD-side render tag for a MARIO scaled-text carrier. The retained C-style
+/// flag layout places path `textobj` on `sflags3 & 0x40`, which is also used
+/// by its compatibility lock-on remap; this otherwise-unused bit keeps those
+/// two independent ROM concepts distinguishable at the draw boundary.
+pub const ASF4_TEXTOBJ: u8 = 0x08;
 pub const ASF4_SFLAG8: u8 = 0x20;
 /// Map `special` marker (C `src/game/world.h` ASF4_SPECIAL).
 pub const ASF4_SPECIAL: u8 = 0x40;
 /// Map `cspecial` marker (C `src/game/world.h` ASF4_CSPECIAL).
 pub const ASF4_CSPECIAL: u8 = 0x80;
 
-// al_flags bits (C `src/variables.h`).
+// al_flags bits (C `src/variables.h` / VARS.INC).
 pub const AFEXP: u8 = 1;
+/// Object is on fire (`afonfire`); `al_fireobjptr` holds the fire child.
+pub const AFONFIRE: u8 = 64;
 
 // al_type bits (C `src/variables.h`).
 pub const ATGND: u8 = 1;

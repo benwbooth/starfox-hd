@@ -39,27 +39,64 @@ pub(crate) fn build() -> Route3Level {
     b.pathobj(0, -900, 0, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE2_1, 10, 10);
     b.pathcspecial(1000, -900, 0, 0, SH_ZACO_B, PATH_ID_CHASE2_2, 10, 10);
     b.cspecial(1000, 0, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapnobj(500, 400, SPACE_VIEWCY - 100, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        500,
+        400,
+        SPACE_VIEWCY - 100,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.pathcspecial(500, 200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
-    b.mapnobj(1000, -400, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        1000,
+        -400,
+        SPACE_VIEWCY + 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.cspecial(1000, -200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1000, -400, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapnobj(1000, 200, SPACE_VIEWCY - 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        1000,
+        200,
+        SPACE_VIEWCY - 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.cspecial(1000, 0, 300, 4000, SH_ASTEROID2, IS_BREAK_METEORT);
     b.pathcspecial(500, 250, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.pathcspecial(500, -100, -200, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
-    b.mapnobj(1000, -300, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        1000,
+        -300,
+        SPACE_VIEWCY + 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.pathcspecial(500, 200, 100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
 
     // MAP3_2.ASM:34-45 – mother ship pattern with break meteors and big meteors.
-    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(1300, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.cspecial(1300, -350, -100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1300, 0, 0, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.mapobj(1300, -700, -300, 7000, SH_BIG_METEOR_PROXY, IS_BIG_METEOR);
     b.cspecial(1300, 450, 50, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1300, 50, -150, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1300, -350, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.pathobj(1300, 970, -100, 7000, SH_BIG_METEOR_PROXY, PATH_ID_BIRD_METEOR, 10, 10);
+    b.pathobj(
+        1300,
+        970,
+        -100,
+        7000,
+        SH_BIG_METEOR_PROXY,
+        PATH_ID_BIRD_METEOR,
+        10,
+        10,
+    );
     b.cspecial(1300, 550, 0, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1300, -250, -120, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1300, 450, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
@@ -68,15 +105,31 @@ pub(crate) fn build() -> Route3Level {
     // MAP3_2.ASM:47-52 – friend chase pair with itachi formations.
     b.pathcspecial(2000, 50, -70, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
     b.pathcspecial(3000, -50, -140, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
-    b.pathobj(0, 1200, 200, 600, SH_FRIENDSHIP_4, PATH_ID_CHASE1_1, 200, 10);
+    b.pathobj(
+        0,
+        1200,
+        200,
+        600,
+        SH_FRIENDSHIP_4,
+        PATH_ID_CHASE1_1,
+        200,
+        10,
+    );
     b.pathcspecial(1500, 1200, 200, 600, SH_ZACO_B, PATH_ID_CHASE1_2, 10, 10);
     b.pathcspecial(500, -100, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
 
     // MAP3_2.ASM:55-60 – asteroid/itachi block then mother_2.
-    b.mapnobj(1000, -300, SPACE_VIEWCY + 200, 4000, SH_ASTEROID1_PROXY, STRAT_ADDR_SLOWMETEOR);
+    b.mapnobj(
+        1000,
+        -300,
+        SPACE_VIEWCY + 200,
+        4000,
+        SH_ASTEROID1_PROXY,
+        STRATEGY_SLOWMETEOR,
+    );
     b.pathcspecial(1000, -200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.cspecial(1000, -400, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_2);
+    b.mapmother(2000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_2);
     b.pathcspecial(1000, 200, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.mapremove(SH_MOTHER1);
 
@@ -86,7 +139,7 @@ pub(crate) fn build() -> Route3Level {
     b.cspecial(0, 180, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(0, -180, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(400, 0, -200, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
     let skillfly_bonus_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, 0, SPACE_VIEWCY, 1500, SH_ITEM_5, IS_ITEM5);
@@ -99,7 +152,7 @@ pub(crate) fn build() -> Route3Level {
     b.cspecial(1500, 200, SPACE_VIEWCY - 100, 800, SH_CAMELEON, IS_CAMELEON);
 
     // MAP3_2.ASM:74-79 – meteo & launcher mother with itachi formations.
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.map_shou0);
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.map_shou0);
     b.pathcspecial(2000, 0, -130, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.pathcspecial(2000, -200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.pathcspecial(2000, 200, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
@@ -132,14 +185,14 @@ pub(crate) fn build() -> Route3Level {
     b.setvarobj(WM_MAPVAR1);
     b.mapwait(150);
     for _ in 0..5 {
-    b.cspecial(0, -200, SPACE_VIEWCY - 100, 2500, SH_D_BODY_0, IS_WORM);
-    b.setalvarptrw(AL_SWORD1, WM_MAPVAR1);
-    b.setvarobj(WM_MAPVAR1);
-    b.mapwait(150);
+        b.cspecial(0, -200, SPACE_VIEWCY - 100, 2500, SH_D_BODY_0, IS_WORM);
+        b.setalvarptrw(AL_SWORD1, WM_MAPVAR1);
+        b.setvarobj(WM_MAPVAR1);
+        b.mapwait(150);
     }
 
     // MAP3_2.ASM:113-114 – spacepilon and itachi_b formation.
-    b.mapobj(2000, 0, 100, 2000, SH_SPACEPILON, STRAT_ADDR_SPACEPILON);
+    b.mapobj(2000, 0, 100, 2000, SH_SPACEPILON, STRATEGY_SPACEPILON);
     b.pathcspecial(2000, -200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
 
     // MAP3_2.ASM:115-125 – mini_worm #2 (head + 5 body segments).
@@ -147,10 +200,10 @@ pub(crate) fn build() -> Route3Level {
     b.setvarobj(WM_MAPVAR1);
     b.mapwait(150);
     for _ in 0..5 {
-    b.cspecial(0, 200, SPACE_VIEWCY + 100, 2300, SH_D_BODY_0, IS_WORM);
-    b.setalvarptrw(AL_SWORD1, WM_MAPVAR1);
-    b.setvarobj(WM_MAPVAR1);
-    b.mapwait(150);
+        b.cspecial(0, 200, SPACE_VIEWCY + 100, 2300, SH_D_BODY_0, IS_WORM);
+        b.setalvarptrw(AL_SWORD1, WM_MAPVAR1);
+        b.setvarobj(WM_MAPVAR1);
+        b.mapwait(150);
     }
 
     // MAP3_2.ASM:126-127 – set bar shape solid, itachi_a formation.
@@ -162,12 +215,40 @@ pub(crate) fn build() -> Route3Level {
     b.pathcspecial(1000, 0, 400, 0, SH_ZACO_B, PATH_ID_CHASE3_2, 10, 10);
 
     // MAP3_2.ASM:133-134 – colony pair.
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(1600, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        1600,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // MAP3_2.ASM:136-137 – colony pair.
-    b.mapobj(0, -4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, 5000, SH_COLONY3R, IS_NOCOLL);
-    b.mapobj(2000, 4 * SPACEBAR_UNIT_LEN, SPACE_VIEWCY, 5000, SH_COLONY3L, IS_NOCOLL);
+    b.mapobj(
+        0,
+        -4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        5000,
+        SH_COLONY3R,
+        IS_NOCOLL,
+    );
+    b.mapobj(
+        2000,
+        4 * SPACEBAR_UNIT_LEN,
+        SPACE_VIEWCY,
+        5000,
+        SH_COLONY3L,
+        IS_NOCOLL,
+    );
 
     // MAP3_2.ASM:139-141 – up1man + itachi_b formation.
     b.mapobj(0, 0, 0, 5000, SH_NULLSHAPE, IS_UP1MAN);
@@ -176,7 +257,7 @@ pub(crate) fn build() -> Route3Level {
 
     // MAP3_2.ASM:143-144 – itachi_a + spacepilon.
     b.pathcspecial(2000, 0, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
-    b.mapobj(3000, 0, 200, 2000, SH_SPACEPILON, STRAT_ADDR_SPACEPILON);
+    b.mapobj(3000, 0, 200, 2000, SH_SPACEPILON, STRATEGY_SPACEPILON);
 
     // MAP3_2.ASM:146-148 – meteo_0 triple.
     b.mapobj(2250, 0, 0, 4000, SH_METEO_0, IS_METEO0);
@@ -201,20 +282,28 @@ pub(crate) fn build() -> Route3Level {
     // MAP3_2.ASM:161-164 – break meteors + mother_1.
     b.cspecial(1000, 0, 300, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
     b.cspecial(1000, -200, 100, 4000, SH_ASTEROID2, IS_BREAK_METEOR);
-    b.mapmother(400, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_1);
+    b.mapmother(400, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_1);
     b.mapremove(SH_MOTHER1);
     b.mapwait(2000);
 
     // MAP3_2.ASM:167-168 – mother_5.
-    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_5);
+    b.mapmother(4000, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_5);
     b.mapremove(SH_MOTHER1);
 
     // MAP3_2.ASM:170-171 – hider (map_meteo0 mother).
-    b.mapmother(5000, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.map_meteo0);
+    b.mapmother(
+        5000,
+        0,
+        0,
+        4000,
+        SH_MOTHER1,
+        STRATEGY_MOTHER1,
+        mm.map_meteo0,
+    );
     b.mapremove(SH_MOTHER1);
 
     // MAP3_2.ASM:173-180 – mother_5 with itachi formations.
-    b.mapmother(1500, 0, 0, 4000, SH_MOTHER1, STRAT_ADDR_MOTHER1, mm.mother_5);
+    b.mapmother(1500, 0, 0, 4000, SH_MOTHER1, STRATEGY_MOTHER1, mm.mother_5);
     b.pathcspecial(1000, 200, -200, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
     b.pathcspecial(1000, 0, -100, 4000, SH_ZACO_A, PATH_ID_ITACHI_A, 2, 4);
     b.pathcspecial(1000, -200, 0, 4000, SH_ZACO_A, PATH_ID_ITACHI_B, 2, 4);
@@ -235,13 +324,13 @@ pub(crate) fn build() -> Route3Level {
 
     // mapwaitboss
     b.mapwait(100);
-    let mapwaitboss_trigse_ptr = b.mapcode65816_inline(); 
+    let mapwaitboss_trigse_ptr = b.mapcode65816_inline();
     b.label("level3_2.map3_2.bosswait.loop");
     b.mapif_builtin(MAP_CB_CHKBOSSDEAD, "level3_2.map3_2.bosswait.cont");
     b.mapgoto("level3_2.map3_2.bosswait.loop");
     b.label("level3_2.map3_2.bosswait.cont");
-    let mapwaitboss_cantdie_ptr = b.mapcode65816_inline(); 
-    let mapwaitboss_cleanup_ptr = b.mapcode65816_inline(); 
+    let mapwaitboss_cantdie_ptr = b.mapcode65816_inline();
+    let mapwaitboss_cleanup_ptr = b.mapcode65816_inline();
 
     // markboss boss32
     b.setbgm(BGM_FADEOUT);
@@ -260,7 +349,8 @@ pub(crate) fn build() -> Route3Level {
 
     // C zeroes the skip ptr when missing; the label is emitted above.
     assert!(
-        b.lookup_label("level3_2.map3_2.skillfly_bonus_0_skip").is_some(),
+        b.lookup_label("level3_2.map3_2.skillfly_bonus_0_skip")
+            .is_some(),
         "level3_2 skillfly bonus skip label missing"
     );
 

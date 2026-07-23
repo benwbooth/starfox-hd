@@ -1,0 +1,21 @@
+# Semantic oracle evidence for the complete Astropolis objective chain.
+#
+# The source traces are retained outside the shipping runtime. Their hashes
+# make every value below traceable without carrying source-machine object
+# layouts into the Rust game state.
+# security trace SHA-256: 771ca75b08a10bb411bab2a1f7a16dbb333fa83f7d983d9aace3691303bc7a21
+# spike trace SHA-256: 0a1c9fce28aa1d8a634ec3d17a2d7f6e7f26123aca09c0e15c6c820695d37b4a
+# cube trace SHA-256: 1c04495b81d233025c645f50623947c2bd74e28ab48132190e781913ca501622
+# boss-cycle trace SHA-256: 182f05acfe697cdd21e373a7b2a115bad0a85915111230b431f72e2d9d053a0f
+# ending trace SHA-256: b40ec66081ae82504af57feaccf8dbd9a8654c5cf144339916b5e281f68fda96
+objective name=security_turret count=1 durability=1
+objective name=core_spike count=4 durability=20
+objective name=exposed_cube count=1 durability=50
+objective name=mask_eye count=2 durability=8
+objective name=final_core count=1 durability=22
+transition name=core_exposed elapsed=209138
+transition name=core_reform_trigger elapsed=209965
+transition name=core_destroyed elapsed=209200
+transition name=ending_handoff elapsed=214119
+ending_sample name=credits elapsed=216000
+ending_sample name=end_screen elapsed=224000

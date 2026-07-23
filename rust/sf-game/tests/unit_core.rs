@@ -3,15 +3,17 @@
 //! builtin spacebar strategies, collision damage rules and list-order
 //! invariants. Expected values are hand-derived from the cited C code.
 
+use sf_core::scene::PaletteFadeTarget;
 use sf_game::alien::*;
 use sf_game::alien_compat as compat;
-use sf_game::vars::{
-    HARD_AP, HARD_HP, PALFADE_GROUND, PALFADE_NIGHT, PALFADE_NUM_START, PALFADE_SEA,
-    PSF3_INTUNNEL,
-};
-use sf_game::world::op;
+use sf_game::vars::{HARD_AP, HARD_HP, PALFADE_NUM_START, PSF3_INTUNNEL};
+use sf_game::world::{op, InlineCb};
 use sf_game::Game;
+use sf_game::Hooks;
+use sf_map::consts::{sh, wm};
 use sf_map::levels::BuiltLevel;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 fn level_from_bytes(data: Vec<u8>) -> BuiltLevel {
     BuiltLevel {
@@ -28,6 +30,140 @@ fn game_with(bytes: Vec<u8>) -> Game {
     g
 }
 
+#[test]
+fn alternate_music_command_has_the_retail_two_byte_semantics() {
+    const TRACK: u8 = 42;
+
+    struct MusicHooks(Rc<RefCell<Vec<u8>>>);
+    impl Hooks for MusicHooks {
+        fn play_music(&mut self, track_id: u8) {
+            self.0.borrow_mut().push(track_id);
+        }
+    }
+
+    let played = Rc::new(RefCell::new(Vec::new()));
+    let mut game = Game::with_hooks(Box::new(MusicHooks(played.clone())));
+    game.load_level(&level_from_bytes(vec![op::SETBGM_ALIAS, TRACK, op::END]));
+    game.map_exec();
+
+    assert_eq!(*played.borrow(), vec![TRACK]);
+    assert_eq!(
+        game.vars.mapptr, 2,
+        "the command consumes its track operand"
+    );
+}
+
+#[test]
+fn typed_mapend_preserves_level_finished_code() {
+    let [lo, hi] = wm::LEVELFINISHED.to_le_bytes();
+    let mut g = game_with(vec![op::SETVARB, 6, lo, hi, 0, op::END]);
+    g.map_exec();
+    assert_eq!(g.world.levelfinished, 6);
+}
+
+#[test]
+fn banked_setvar_updates_meters_without_aliasing_typed_game_state() {
+    // MAPMACS `meters_off/on` writes the low byte of m_meters at $70:0200.
+    // The bank byte is semantically significant; this target is decoded
+    // directly to the typed meter field.
+    let mut g = game_with(vec![op::SETVARB, 1, 0x00, 0x02, 0x70, op::END]);
+    g.map_exec();
+    assert_eq!(g.vars.meters, 1);
+    assert_eq!(g.vars.map.skill_fly, 0);
+}
+
+#[test]
+fn setvar_numendok_updates_the_native_the_end_counter() {
+    let [lo, hi] = wm::NUMENDOK.to_le_bytes();
+    let mut g = game_with(vec![op::SETVARB, 0, lo, hi, 0, op::END]);
+    g.vars.numendok = 0xFF;
+    g.map_exec();
+    assert_eq!(g.vars.numendok, 0);
+}
+
+#[test]
+fn special_the_end_gate_yields_until_all_letters_finish() {
+    let level = BuiltLevel {
+        data: vec![op::CODE65816, op::WAIT2, 0],
+        labels: vec![
+            ("special.theenddead_check".to_string(), 0),
+            ("special.theenddead_cont".to_string(), 1),
+        ],
+        native_callbacks: Vec::new(),
+        inline_callbacks: Vec::new(),
+    };
+
+    let mut g = Game::new();
+    g.load_level(&level);
+    g.world
+        .register_named_callbacks(&[], &[(1, "special_theenddead_check")], &level.labels);
+    assert_eq!(
+        g.world.find_inline(1),
+        Some(InlineCb::SpecialTheEndGate {
+            loop_ptr: 0,
+            cont_ptr: 1,
+        })
+    );
+
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 0);
+    assert_eq!(g.vars.mapcnt, 1);
+
+    g.vars.numendok = 0xFF;
+    g.vars.mapcnt = 0;
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 3);
+}
+
+#[test]
+fn special_boss_cleanup_restores_player_flags_and_hides_meters() {
+    let level = BuiltLevel {
+        data: vec![op::CODE65816, op::WAIT2, 0],
+        labels: Vec::new(),
+        native_callbacks: Vec::new(),
+        inline_callbacks: Vec::new(),
+    };
+    let mut g = Game::new();
+    g.load_level(&level);
+    g.world
+        .register_named_callbacks(&[], &[(1, "special_boss_cleanup")], &[]);
+    g.vars.meters = 1;
+    g.vars.pshipflags = sf_game::vars::PSF_NOFIRE;
+    g.vars.pstratflags = sf_game::vars::PSTF_NOTDIE;
+    g.map_exec();
+    assert_eq!(g.vars.meters, 0);
+    assert_eq!(g.vars.pshipflags & sf_game::vars::PSF_NOFIRE, 0);
+    assert_eq!(g.vars.pstratflags & sf_game::vars::PSTF_NOTDIE, 0);
+}
+
+#[test]
+fn training_ring_gate_skips_or_repeats_at_fifteen_rings() {
+    // The source macro is CODE65816 followed by mapgoto .et.  Start directly
+    // on the gate; each destination parks on WAIT2 so the resulting pointer is
+    // mechanically observable after one map_exec call.
+    let level = BuiltLevel {
+        data: vec![op::WAIT2, 1, op::CODE65816, op::GOTO, 0, 0, 0, op::WAIT2, 1],
+        labels: vec![("training.eguchifly_continue".to_string(), 7)],
+        native_callbacks: Vec::new(),
+        inline_callbacks: Vec::new(),
+    };
+
+    let run = |rings: u16| {
+        let mut g = Game::new();
+        g.load_level(&level);
+        g.world
+            .register_named_callbacks(&[], &[(3, "training_eguchifly_check")], &level.labels);
+        g.vars.mapptr = 2;
+        g.vars.write_ext16(0x2300, rings);
+        g.map_exec();
+        g.vars.mapptr
+    };
+
+    assert_eq!(run(14), 9, "14 rings skips the course-repeat GOTO");
+    assert_eq!(run(15), 2, "15 rings executes the course-repeat GOTO");
+    assert_eq!(run(999), 2, "the source uses an unsigned >= 15 test");
+}
+
 // ---- palette fade opcodes ----
 
 #[test]
@@ -40,8 +176,7 @@ fn op_fadetosea_arms_walk_and_ticks_to_full() {
     let mut g = game_with(bytes);
     g.map_exec();
     assert_eq!(g.vars.mapptr, 4); // fade op (+1) then the parked mapwait (+3)
-    assert_eq!(g.vars.palfade_from, PALFADE_NIGHT);
-    assert_eq!(g.vars.palfade_target, PALFADE_SEA);
+    assert_eq!(g.vars.palfade_target, Some(PaletteFadeTarget::Sea));
     assert_eq!(g.vars.palfade_num, PALFADE_NUM_START);
     // fadepalto_l runs once per frame (TRANS.ASM:167): -2 per tick.
     for i in 1..=15u16 {
@@ -51,24 +186,115 @@ fn op_fadetosea_arms_walk_and_ticks_to_full() {
     // Fade complete; further ticks hold it there (ROM: palnum==0 -> rtl).
     g.tick();
     assert_eq!(g.vars.palfade_num, 0);
-    assert_eq!(g.vars.palfade_target, PALFADE_SEA);
+    assert_eq!(g.vars.palfade_target, Some(PaletteFadeTarget::Sea));
 }
 
 #[test]
-fn op_fadetoground_reverses_from_sea() {
+fn op_fadetoground_retargets_the_palette_walk() {
     // WORLD.ASM:384-394 fadetogrounddo: same walk toward groundpal
-    // (palfade = groundpal-seapal+30 = 62). The port records the previous
-    // target as the fade source, so sea -> ground reverses the sea fade.
+    // (palfade = groundpal-seapal+30 = 62). The renderer retains the live
+    // background row, so entries not reached by the new walk remain sea.
     let mut bytes = vec![op::FADETOSEA, op::FADETOGROUND];
     bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
     let mut g = game_with(bytes);
     g.map_exec();
     assert_eq!(g.vars.mapptr, 5); // both fade ops (+2) then the mapwait (+3)
-    assert_eq!(g.vars.palfade_from, PALFADE_SEA);
-    assert_eq!(g.vars.palfade_target, PALFADE_GROUND);
+    assert_eq!(g.vars.palfade_target, Some(PaletteFadeTarget::Ground));
     assert_eq!(g.vars.palfade_num, PALFADE_NUM_START);
     g.tick();
     assert_eq!(g.vars.palfade_num, PALFADE_NUM_START - 2);
+}
+
+#[test]
+fn op_waitfade_parks_while_fade_active() {
+    // WORLD.ASM:726-740 mapwaitfadedo: while fade active, mapcnt=1 and stay;
+    // when idle, advance past the opcode.
+    struct FadeHooks {
+        active: bool,
+    }
+    impl sf_game::Hooks for FadeHooks {
+        fn is_map_fade_active(&self) -> bool {
+            self.active
+        }
+    }
+
+    let mut bytes = vec![op::WAITFADE];
+    bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
+    let level = level_from_bytes(bytes.clone());
+
+    // Active fade: park with mapcnt=1, mapptr unchanged at WAITFADE.
+    let mut g = Game::with_hooks(Box::new(FadeHooks { active: true }));
+    g.load_level(&level);
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 0);
+    assert_eq!(g.vars.mapcnt, 1);
+
+    // Idle fade: advance past WAITFADE into the following mapwait.
+    let mut g = Game::with_hooks(Box::new(FadeHooks { active: false }));
+    g.load_level(&level_from_bytes(bytes));
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 4); // waitfade (+1) then parked mapwait (+3)
+    assert_eq!(g.vars.mapcnt, 0x03E8);
+}
+
+// ---- VOFS please (WORLD.ASM vofson/offplease) ----
+
+#[test]
+fn op_vofson_latches_bg2scroll_and_enables() {
+    // WORLD.ASM:1157-1166: bg2vofs=bg2scroll, dovofs=1, bgmode=2.
+    let mut bytes = vec![op::VOFSON];
+    bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
+    let mut g = game_with(bytes);
+    g.vars.shared.background_scroll = 232;
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 4);
+    assert_eq!(g.vars.bg2vofs, 232);
+    assert_eq!(g.vars.dovofs, 1);
+    assert_eq!(g.vars.bgmode, 2);
+}
+
+#[test]
+fn op_vofsoff_clears_dovofs_mode1() {
+    // WORLD.ASM:1180-1190: dovofs=0, bgmode=1, still latch bg2vofs.
+    let mut bytes = vec![op::VOFSON, op::VOFSOFF];
+    bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
+    let mut g = game_with(bytes);
+    g.vars.shared.background_scroll = 488;
+    g.map_exec();
+    assert_eq!(g.vars.mapptr, 5);
+    assert_eq!(g.vars.dovofs, 0);
+    assert_eq!(g.vars.bgmode, 1);
+    assert_eq!(g.vars.bg2vofs, 488);
+}
+
+#[test]
+fn vofs_please_l_direct() {
+    let mut g = Game::new();
+    g.vars.shared.background_scroll = 100;
+    g.vars.vofs_on_please();
+    assert_eq!(g.vars.dovofs, 1);
+    assert_eq!(g.vars.bgmode, 2);
+    assert_eq!(g.vars.bg2vofs, 100);
+    g.vars.shared.background_scroll = 50;
+    g.vars.vofs_off_please();
+    assert_eq!(g.vars.dovofs, 0);
+    assert_eq!(g.vars.bgmode, 1);
+    assert_eq!(g.vars.bg2vofs, 50);
+}
+
+#[test]
+fn op_hofson_off_latches_dohofs() {
+    // WORLD.ASM:1195-1206: dohofs=1 / stz dohofs.
+    let mut bytes = vec![op::HOFSON, op::HOFSOFF];
+    bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
+    let mut g = game_with(bytes);
+    g.map_exec();
+    // After HOFSON then HOFSOFF in one map_exec (both continue), dohofs=0.
+    assert_eq!(g.vars.dohofs, 0);
+    assert_eq!(g.vars.mapptr, 5);
+    let mut g = game_with(vec![op::HOFSON, op::WAIT, 0xE8, 0x03]);
+    g.map_exec();
+    assert_eq!(g.vars.dohofs, 1);
 }
 
 // ---- spawn opcodes ----
@@ -109,21 +335,22 @@ fn op_obj8_sign_extends_z() {
 
 #[test]
 fn op_mother_sets_ptr_and_zremove() {
-    // C world.c:1119: shape word resolved, al_ptr = sub-map ref,
-    // al_type = ATZREMOVE.
+    // WORLD.ASM mapmother: the flat source-catalog shape id is copied into
+    // the actor, along with the typed sub-map reference and lifetime policy.
+    const MOTHER_MAP_REF: u16 = 205;
     let mut bytes = vec![op::MOTHER];
     bytes.extend_from_slice(&0u16.to_le_bytes()); // frame
     bytes.extend_from_slice(&5i16.to_le_bytes()); // x
     bytes.extend_from_slice(&6i16.to_le_bytes()); // y
     bytes.extend_from_slice(&7i16.to_le_bytes()); // z
-    bytes.extend_from_slice(&241u16.to_le_bytes()); // raw boss_7_1 word
+    bytes.extend_from_slice(&sh::BOSS_7_1.to_le_bytes());
     bytes.extend_from_slice(&[0, 0, 0]); // strat addr24 (unregistered)
-    bytes.extend_from_slice(&0x00CDu16.to_le_bytes()); // map ref
+    bytes.extend_from_slice(&MOTHER_MAP_REF.to_le_bytes());
     let mut g = game_with(bytes);
     g.map_exec();
     let al = &g.objs.aliens[0];
-    assert_eq!(al.shape, 56); // Shapes_ResolveShapeWord(241)
-    assert_eq!(al.ptr, 0x00CD);
+    assert_eq!(al.shape, sh::BOSS_7_1);
+    assert_eq!(al.ptr, MOTHER_MAP_REF);
     assert_eq!(al.type_, ATZREMOVE);
     assert_eq!(g.vars.mapptr, 16);
 }
@@ -193,18 +420,16 @@ fn op_wait2_scales_by_16_and_pauses() {
 
 #[test]
 fn op_setvarl_literal_operand_order() {
-    // C world.c:1608: extptr @+1, lo @+4, hi @+6 (quirky order kept).
+    // Retained source-data decoder order: variable @+1, lo @+4, hi @+6.
     let mut bytes = vec![op::SETVARL];
-    bytes.extend_from_slice(&0x0400u16.to_le_bytes());
+    bytes.extend_from_slice(&wm::MAPVAR1.to_le_bytes());
     bytes.push(0); // bank
     bytes.extend_from_slice(&0xBEEFu16.to_le_bytes());
     bytes.push(0x12);
     bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
     let mut g = game_with(bytes);
     g.map_exec();
-    assert_eq!(g.vars.ram[0x0400], 0xEF);
-    assert_eq!(g.vars.ram[0x0401], 0xBE);
-    assert_eq!(g.vars.ram[0x0402], 0x12);
+    assert_eq!(g.vars.map.variable1, 0x12_BEEF);
 }
 
 #[test]
@@ -213,17 +438,17 @@ fn op_jmpvar_uses_wrapped_signed_diff() {
     // 5-250 wraps to 11 -> diff > 0, so JMPVARMORE jumps and
     // JMPVARLESS falls through.
     let mut bytes = vec![op::JMPVARLESS];
-    bytes.extend_from_slice(&0x0500u16.to_le_bytes());
+    bytes.extend_from_slice(&wm::SKILLFLY.to_le_bytes());
     bytes.push(0); // bank
     bytes.push(250); // cmp
     bytes.extend_from_slice(&100u16.to_le_bytes()); // target (not taken)
     bytes.push(op::JMPVARMORE); // offset 7
-    bytes.extend_from_slice(&0x0500u16.to_le_bytes());
+    bytes.extend_from_slice(&wm::SKILLFLY.to_le_bytes());
     bytes.push(0);
     bytes.push(250);
     bytes.extend_from_slice(&200u16.to_le_bytes()); // target (taken)
     let mut g = game_with(bytes);
-    g.vars.ram[0x0500] = 5;
+    g.vars.map.skill_fly = 5;
     g.map_exec();
     assert_eq!(g.vars.mapptr, 200);
 }
@@ -236,15 +461,15 @@ fn op_setalvarp_and_addalvarp_read_wram() {
     bytes.extend_from_slice(&[op::QOBJ, 0, 0, 0, 0, 10, 0]);
     bytes.push(op::SETALVARPW);
     bytes.extend_from_slice(&38u16.to_le_bytes()); // al_sword1 offset
-    bytes.extend_from_slice(&0x0600u16.to_le_bytes());
+    bytes.extend_from_slice(&wm::HPOSJMP.to_le_bytes());
     bytes.push(0);
     bytes.push(op::ADDALVARPW);
     bytes.extend_from_slice(&38u16.to_le_bytes());
-    bytes.extend_from_slice(&0x0600u16.to_le_bytes());
+    bytes.extend_from_slice(&wm::HPOSJMP.to_le_bytes());
     bytes.push(0);
     bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
     let mut g = game_with(bytes);
-    g.vars.write_ext16(0x0600, (-7i16) as u16);
+    g.vars.map.horizontal_position_jump = -7;
     g.map_exec();
     assert_eq!(g.objs.aliens[0].sword1, -14);
 }
@@ -254,19 +479,33 @@ fn op_setvarobj_stores_lastmapobj_encoding() {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&[op::QOBJ, 0, 0, 0, 0, 10, 0]);
     bytes.push(op::SETVAROBJ);
-    bytes.extend_from_slice(&0x0700u16.to_le_bytes());
+    bytes.extend_from_slice(&wm::BOSSMAXHP.to_le_bytes());
     bytes.push(0);
     bytes.extend_from_slice(&[op::WAIT, 0xE8, 0x03]);
     let mut g = game_with(bytes);
     g.map_exec();
     // Slot 0 spawned -> lastmapobj = idx+1 = 1 (C world.c:955).
-    assert_eq!(g.vars.read_ext16(0x0700), 1);
+    assert_eq!(g.vars.bossmaxhp, 1);
+}
+
+#[test]
+fn background_ids_publish_rom_sound_environment() {
+    let mut v = sf_game::vars::GameVars::default();
+    v.in_a_tunnel = 2;
+    v.set_sound_environment_for_bg(4); // planet
+    assert_eq!(v.in_a_tunnel, 0);
+    v.set_sound_environment_for_bg(8); // tunnel
+    assert_eq!(v.in_a_tunnel, 1);
+    v.set_sound_environment_for_bg(24); // water/colony
+    assert_eq!(v.in_a_tunnel, 2);
+    v.set_sound_environment_for_bg(2); // blink: no terminal macro
+    assert_eq!(v.in_a_tunnel, 2, "blink retains the prior environment");
 }
 
 // ---- builtin spacebar strategies (C world.c:177-325) ----
 
 #[test]
-fn spacebar_istrat_sets_hardvars_then_scrolls() {
+fn spacebar_istrat_sets_hardvars_then_spacemist() {
     // mapobj frame=0 strat=166 then END.
     let mut bytes = vec![op::MAPOBJ];
     bytes.extend_from_slice(&0u16.to_le_bytes());
@@ -287,13 +526,17 @@ fn spacebar_istrat_sets_hardvars_then_scrolls() {
     let al = &g.objs.aliens[0];
     assert_eq!(al.hp, HARD_HP);
     assert_eq!(al.ap, HARD_AP);
-    assert_ne!(al.collflags & 0x01, 0); // COLLTYPE_ENEMY1
+    assert_ne!(al.collflags & 0x10, 0); // ACF_COLLTYPE2 = ROM ENEMY1
     let z0 = al.worldz;
 
-    // Second tick scrolls by pviewvelz.
+    // Second tick: ROM spacebar_strat is spacemist only (no add_playerZ).
     g.vars.pviewvelz = 7;
     g.run_strategies();
-    assert_eq!(g.objs.aliens[0].worldz, z0 + 7);
+    assert_eq!(
+        g.objs.aliens[0].worldz, z0,
+        "must not scroll with pviewvelz"
+    );
+    assert_ne!(g.objs.aliens[0].colframe & 0x80, 0, "spacemist sets hi bit");
 }
 
 #[test]
@@ -304,17 +547,53 @@ fn spinspacebar_chases_roty_toward_zero() {
     bytes.extend_from_slice(&0i16.to_le_bytes());
     bytes.extend_from_slice(&0i16.to_le_bytes());
     bytes.push(20);
-    bytes.push(167); // MAP_ISTRAT_SPINSPACEBAR
+    bytes.push(166); // MAP_ISTRAT_SPINSPACEBAR
     bytes.push(op::END);
     let mut g = game_with(bytes);
     g.map_exec();
     g.objs.aliens[0].sbyte1 = 3;
     g.objs.aliens[0].roty = 100;
     g.run_strategies(); // init tick
+    let z0 = g.objs.aliens[0].worldz;
+    g.vars.pviewvelz = 5;
     g.run_strategies(); // spin tick: rotz += 3, roty -= 100>>3 = 12
     let al = &g.objs.aliens[0];
     assert_eq!(al.rotz, 3);
     assert_eq!(al.roty, 88);
+    assert_eq!(al.worldz, z0, "SPINspacebar has no add_playerZ");
+    assert_ne!(al.colframe & 0x80, 0);
+}
+
+#[test]
+fn achase_angle_8_antipodal_matches_rom() {
+    // cur=0 tgt=128 rate1 → ROM steps toward 192 (not 64).
+    let mut cur = 0u8;
+    assert!(!sf_core::snes_trig::achase_angle_8(&mut cur, 128, 1));
+    assert_eq!(cur, 192);
+}
+
+#[test]
+fn spacebar1_spins_rotz_and_spacemist_no_scroll() {
+    let mut bytes = vec![op::MAPOBJ];
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+    bytes.extend_from_slice(&0i16.to_le_bytes());
+    bytes.extend_from_slice(&0i16.to_le_bytes());
+    bytes.extend_from_slice(&200i16.to_le_bytes());
+    bytes.push(20);
+    bytes.push(167); // MAP_ISTRAT_SPACEBAR1
+    bytes.push(op::END);
+    let mut g = game_with(bytes);
+    g.map_exec();
+    g.objs.aliens[0].sbyte1 = 5;
+    g.objs.aliens[0].sbyte2 = 0; // keep collision enabled
+    g.run_strategies(); // init
+    let z0 = g.objs.aliens[0].worldz;
+    g.vars.pviewvelz = 9;
+    g.run_strategies(); // tick
+    let al = &g.objs.aliens[0];
+    assert_eq!(al.rotz, 5);
+    assert_eq!(al.worldz, z0);
+    assert_ne!(al.colframe & 0x80, 0);
 }
 
 // ---- collision system (C src/game/coldet.c) ----
@@ -539,14 +818,22 @@ fn do_strat_clears_firstframe_and_nuked() {
 
 #[test]
 fn do_strat_collide_without_callback_clears_flag() {
-    // C obj.c:202-209: asf_collide with no collstratptr just clears.
+    fn tick(g: &mut Game, idx: u16) {
+        g.objs.aliens[idx as usize].sbyte1 += 1;
+    }
+
+    // Do_strat_l clears a collide flag with no collstratptr, then branches to
+    // `.ns` and dispatches the ordinary stratptr in the same pass.
     let mut g = game_with(vec![op::END]);
     g.map_exec();
     let a = g.objs.alloc().unwrap();
+    let tick = g.world.register_strategy(tick);
     g.objs.aliens[a as usize].hp = 5;
     g.objs.aliens[a as usize].sflags = ASF_COLLIDE;
+    g.objs.aliens[a as usize].stratptr = Some(tick);
     g.run_strategies();
     assert_eq!(g.objs.aliens[a as usize].sflags & ASF_COLLIDE, 0);
+    assert_eq!(g.objs.aliens[a as usize].sbyte1, 1);
 }
 
 #[test]

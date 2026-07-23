@@ -6,7 +6,6 @@
 //! Path ids correspond to PATHDATA.ASM / KPATHDAT.ASM / DPATHDAT.ASM labels
 //! (see the per-constant comments carried over from the C header).
 
-
 pub const PATH_ID_E_GATE: u16 = 0;
 pub const PATH_ID_E_FLOWER: u16 = 1;
 pub const PATH_ID_E_FLOPEN: u16 = 2;
@@ -185,4 +184,16 @@ pub const PATH_ID_E_SHAWERR: u16 = 355;
 pub const PATH_ID_E_DOSUN: u16 = 356;
 pub const PATH_ID_ITADOSUN: u16 = 357;
 pub const PATH_ID_E_KURURI: u16 = 358;
-pub const PATH_DATA_COUNT_LITERAL: u16 = 359;
+/// DPATHDAT.ASM `pcoinexplode` WHENDEAD subroutine (also used by patret/patcom).
+pub const PATH_ID_PCOINEXPLODE: u16 = 359;
+/// DPATHDAT.ASM `explodeparticles` / `pparticles` particle burst.
+pub const PATH_ID_EXPLODEPARTICLES: u16 = 360;
+/// PATHDATA.ASM `kastmsg2`: immediate Space Armada wingman message (no delay).
+pub const PATH_ID_KASTMSG2: u16 = 361;
+/// DPATHDAT.ASM `dintro1`: Nintendo Presents text zoom/trail path.
+pub const PATH_ID_DINTRO1: u16 = 362;
+/// DPATHDAT.ASM Castanet mini-cymbal vertical-plane attack path.
+pub const PATH_ID_MINICASTANET: u16 = 363;
+/// DPATHDAT.ASM Castanet mini-cymbal left/right-plane attack path.
+pub const PATH_ID_MINICASTANETLR: u16 = 364;
+pub const PATH_DATA_COUNT_LITERAL: u16 = 365;

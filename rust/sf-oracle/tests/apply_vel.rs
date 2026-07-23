@@ -21,7 +21,15 @@ fn rom_apply(rom: &[u8], addr: u32, p: [i16; 6]) -> (i16, i16, i16) {
     bus.write16(XB + VX, p[3] as u16);
     bus.write16(XB + VY, p[4] as u16);
     bus.write16(XB + VZ, p[5] as u16);
-    call(&mut bus, addr, &Entry { x: XB as u16, p: 0x00, ..Default::default() });
+    call(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     (
         bus.read16(XB + WX) as i16,
         bus.read16(XB + WY) as i16,
@@ -59,7 +67,12 @@ fn apply_velocity_matches_rom() {
         if r != g {
             bad += 1;
         }
-        eprintln!("pos{:?} vel{:?} -> ROM{r:?} RUST{g:?} {}", &p[0..3], &p[3..6], if r == g { "ok" } else { "DIFF" });
+        eprintln!(
+            "pos{:?} vel{:?} -> ROM{r:?} RUST{g:?} {}",
+            &p[0..3],
+            &p[3..6],
+            if r == g { "ok" } else { "DIFF" }
+        );
     }
     assert_eq!(bad, 0, "{bad} apply_velocity cases differ");
 }

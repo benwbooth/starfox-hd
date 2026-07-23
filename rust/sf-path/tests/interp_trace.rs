@@ -1,4 +1,4 @@
-//! Trace parity of the path interpreter against the C oracle.
+//! Trace parity of the fallback path catalog against its C oracle.
 //!
 //! Fixtures (`tests/fixtures/pi_<scenario>.txt`) were dumped by a standalone
 //! harness (`pi_harness.c`, kept in the session scratchpad) that compiles
@@ -19,12 +19,13 @@
 //! of the ROM-corrected Rust output; re-bless with SF_BLESS_FIXTURES=1 after
 //! intentional behavior changes.
 
-use sf_path::alien::{Alien, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF4_NOPOLYEXP,
-    ASF_COLLDISABLE, ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL};
+use sf_path::alien::{
+    Alien, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF4_NOPOLYEXP, ASF_COLLDISABLE,
+    ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL,
+};
 use sf_path::ids::*;
 use sf_path::interp::{
-    dispatch_strat, strat_path_init, strat_pathdha_init, strat_pathtext_init, PathHost,
-    PathWorld, WRAM_SIZE,
+    dispatch_strat, strat_path_init, strat_pathdha_init, strat_pathtext_init, PathHost, PathWorld,
 };
 use sf_path::literals;
 
@@ -49,6 +50,7 @@ const CB_CHECKIFEND_BASE: u16 = 9; // 9..=15 => checkifend1..7
 
 const PATH_EXT_CTYPE: u16 = 0x2305;
 const STRAT_ADDR_TOW0EXPLODE: u32 = 0x030001;
+const ORACLE_WRAM_SIZE: usize = 131_072;
 
 // ============================================================
 // Recording host — mirrors the pi_harness.c stubs exactly.
@@ -57,6 +59,8 @@ struct RecHost {
     rng: u16,
     out: String,
     stage: u16, // C g_stage (checkifend callbacks)
+    /// Byte image retained only by this oracle-trace fixture.
+    oracle_variables: Vec<u8>,
 }
 
 impl RecHost {
@@ -65,6 +69,7 @@ impl RecHost {
             rng: 0x1234,
             out: String::new(),
             stage: 0,
+            oracle_variables: vec![0; ORACLE_WRAM_SIZE],
         }
     }
 
@@ -315,11 +320,30 @@ impl PathHost for RecHost {
             n if (CB_CHECKIFEND_BASE..CB_CHECKIFEND_BASE + 7).contains(&n) => {
                 let expected = (n - CB_CHECKIFEND_BASE + 1) as u16;
                 if self.stage == expected {
-                    world.ram[PATH_EXT_CTYPE as usize % WRAM_SIZE] = 201;
+                    self.oracle_variables[PATH_EXT_CTYPE as usize] = 201;
                 }
             }
             _ => {}
         }
+    }
+
+    fn path_read_ext8(&mut self, _world: &PathWorld, encoded_variable: u16) -> u8 {
+        self.oracle_variables[encoded_variable as usize]
+    }
+
+    fn path_read_ext16(&mut self, _world: &PathWorld, encoded_variable: u16) -> u16 {
+        let start = encoded_variable as usize;
+        u16::from(self.oracle_variables[start]) | (u16::from(self.oracle_variables[start + 1]) << 8)
+    }
+
+    fn path_write_ext8(&mut self, _world: &mut PathWorld, encoded_variable: u16, value: u8) {
+        self.oracle_variables[encoded_variable as usize] = value;
+    }
+
+    fn path_write_ext16(&mut self, _world: &mut PathWorld, encoded_variable: u16, value: u16) {
+        let start = encoded_variable as usize;
+        self.oracle_variables[start] = value as u8;
+        self.oracle_variables[start + 1] = (value >> 8) as u8;
     }
 
     fn run_external_strat(&mut self, _world: &mut PathWorld, _idx: u16, _strat: StratRef) {
@@ -353,15 +377,15 @@ fn coll_code(f: Option<StratRef>) -> char {
     }
 }
 
-fn ram_hash(world: &PathWorld) -> u32 {
+fn ram_hash(oracle_variables: &[u8]) -> u32 {
     let mut h: u32 = 2166136261;
-    for &b in world.ram.iter() {
+    for &b in oracle_variables {
         h = (h ^ b as u32).wrapping_mul(16777619);
     }
     h
 }
 
-fn dump_tick(world: &PathWorld, out: &mut String, tick: i32) {
+fn dump_tick(world: &PathWorld, oracle_variables: &[u8], out: &mut String, tick: i32) {
     out.push_str(&format!("T {tick}\n"));
     for i in 0..NUMBER_AL {
         let a = &world.aliens[i];
@@ -444,7 +468,7 @@ fn dump_tick(world: &PathWorld, out: &mut String, tick: i32) {
         world.falcon_hp,
         world.frog_hp,
         world.friends_meter,
-        ram_hash(world)
+        ram_hash(oracle_variables)
     ));
 }
 
@@ -465,21 +489,120 @@ struct Scenario {
 }
 
 const SCENARIOS: &[Scenario] = &[
-    Scenario { name: "e_gate", path_id: PATH_ID_E_GATE, nticks: 240, init_kind: 0, shape: 90, hp: 8, ap: 2, pos: (100, 0, 2500), rot: (0, 0, 0), hit_tick: 30 },
-    Scenario { name: "e_flower", path_id: PATH_ID_E_FLOWER, nticks: 300, init_kind: 0, shape: 0, hp: 8, ap: 2, pos: (-60, 0, 1800), rot: (0, 0, 0), hit_tick: -1 },
-    Scenario { name: "ponpon", path_id: PATH_ID_PONPON, nticks: 240, init_kind: 0, shape: 40, hp: 6, ap: 2, pos: (120, 0, 2200), rot: (0, 0, 0), hit_tick: 40 },
-    Scenario { name: "chase1_1", path_id: PATH_ID_CHASE1_1, nticks: 200, init_kind: 0, shape: 30, hp: 8, ap: 2, pos: (-40, 20, 2600), rot: (0, 0, 0), hit_tick: -1 },
-    Scenario { name: "tow_0", path_id: PATH_ID_TOW_0, nticks: 200, init_kind: 0, shape: 50, hp: 8, ap: 2, pos: (80, -20, 2000), rot: (0, 0, 0), hit_tick: 60 },
-    Scenario { name: "robot", path_id: PATH_ID_ROBOT, nticks: 200, init_kind: 0, shape: 60, hp: 10, ap: 4, pos: (-100, 0, 1500), rot: (0, 0, 0), hit_tick: -1 },
-    Scenario { name: "dsmoke", path_id: PATH_ID_DSMOKE, nticks: 120, init_kind: 0, shape: 20, hp: 8, ap: 2, pos: (0, -40, 1200), rot: (0, 0, 0), hit_tick: -1 },
-    Scenario { name: "falco_lv1", path_id: PATH_ID_FALCO_LV1, nticks: 300, init_kind: 0, shape: 70, hp: 20, ap: 4, pos: (40, 10, 900), rot: (0, 0, 0), hit_tick: 50 },
-    Scenario { name: "mes_message", path_id: PATH_ID_MES_MESSAGE, nticks: 120, init_kind: 2, shape: 20, hp: 8, ap: 2, pos: (0, 0, 400), rot: (0, 0, 0), hit_tick: -1 },
+    Scenario {
+        name: "e_gate",
+        path_id: PATH_ID_E_GATE,
+        nticks: 240,
+        init_kind: 0,
+        shape: 90,
+        hp: 8,
+        ap: 2,
+        pos: (100, 0, 2500),
+        rot: (0, 0, 0),
+        hit_tick: 30,
+    },
+    Scenario {
+        name: "e_flower",
+        path_id: PATH_ID_E_FLOWER,
+        nticks: 300,
+        init_kind: 0,
+        shape: 0,
+        hp: 8,
+        ap: 2,
+        pos: (-60, 0, 1800),
+        rot: (0, 0, 0),
+        hit_tick: -1,
+    },
+    Scenario {
+        name: "ponpon",
+        path_id: PATH_ID_PONPON,
+        nticks: 240,
+        init_kind: 0,
+        shape: 40,
+        hp: 6,
+        ap: 2,
+        pos: (120, 0, 2200),
+        rot: (0, 0, 0),
+        hit_tick: 40,
+    },
+    Scenario {
+        name: "chase1_1",
+        path_id: PATH_ID_CHASE1_1,
+        nticks: 200,
+        init_kind: 0,
+        shape: 30,
+        hp: 8,
+        ap: 2,
+        pos: (-40, 20, 2600),
+        rot: (0, 0, 0),
+        hit_tick: -1,
+    },
+    Scenario {
+        name: "tow_0",
+        path_id: PATH_ID_TOW_0,
+        nticks: 200,
+        init_kind: 0,
+        shape: 50,
+        hp: 8,
+        ap: 2,
+        pos: (80, -20, 2000),
+        rot: (0, 0, 0),
+        hit_tick: 60,
+    },
+    Scenario {
+        name: "robot",
+        path_id: PATH_ID_ROBOT,
+        nticks: 200,
+        init_kind: 0,
+        shape: 60,
+        hp: 10,
+        ap: 4,
+        pos: (-100, 0, 1500),
+        rot: (0, 0, 0),
+        hit_tick: -1,
+    },
+    Scenario {
+        name: "dsmoke",
+        path_id: PATH_ID_DSMOKE,
+        nticks: 120,
+        init_kind: 0,
+        shape: 20,
+        hp: 8,
+        ap: 2,
+        pos: (0, -40, 1200),
+        rot: (0, 0, 0),
+        hit_tick: -1,
+    },
+    Scenario {
+        name: "falco_lv1",
+        path_id: PATH_ID_FALCO_LV1,
+        nticks: 300,
+        init_kind: 0,
+        shape: 70,
+        hp: 20,
+        ap: 4,
+        pos: (40, 10, 900),
+        rot: (0, 0, 0),
+        hit_tick: 50,
+    },
+    Scenario {
+        name: "mes_message",
+        path_id: PATH_ID_MES_MESSAGE,
+        nticks: 120,
+        init_kind: 2,
+        shape: 20,
+        hp: 8,
+        ap: 2,
+        pos: (0, 0, 400),
+        rot: (0, 0, 0),
+        hit_tick: -1,
+    },
 ];
 
 /// C `seed_runtime_tables` (path_literals.c) — the C harness gets this from
 /// `PathLiterals_GetCatalog`; the Rust literal catalog leaves ram seeding to
 /// the game lane, so the driver replicates it here (same libm sinf).
-fn seed_runtime_tables(world: &mut PathWorld) {
+fn seed_runtime_tables(host: &mut RecHost) {
     const PATH_EXT_SINTAB: usize = 0x2200;
     const PATH_EXT_GWORD1: usize = 0x2300;
     const PATH_TWO_PI: f32 = 6.283_185_307_179_586_476_92_f32;
@@ -491,13 +614,17 @@ fn seed_runtime_tables(world: &mut PathWorld) {
         } else {
             (s - 0.5) as i32
         };
-        world.ram[(PATH_EXT_SINTAB + i) % WRAM_SIZE] = (value as i8) as u8;
+        host.oracle_variables[PATH_EXT_SINTAB + i] = (value as i8) as u8;
     }
-    world.ram[PATH_EXT_GWORD1 % WRAM_SIZE] = 0;
-    world.ram[(PATH_EXT_GWORD1 + 1) % WRAM_SIZE] = 0;
+    host.oracle_variables[PATH_EXT_GWORD1] = 0;
+    host.oracle_variables[PATH_EXT_GWORD1 + 1] = 0;
 }
 
-fn register_inline_callbacks(world: &mut PathWorld, ips: &literals::InlineIps) {
+fn register_inline_callbacks(
+    world: &mut PathWorld,
+    ips: &literals::InlineIps,
+    continuations: &[(u16, u16)],
+) {
     const MISSING: u16 = 0xFFFF;
     let regs = [
         (ips.tow_0_set_expstrat, CB_TOW0_SET_EXPSTRAT),
@@ -518,13 +645,17 @@ fn register_inline_callbacks(world: &mut PathWorld, ips: &literals::InlineIps) {
     ];
     for (ip, cb) in regs {
         if ip != MISSING {
-            world.register_inline_code(ip, cb);
+            let continuation = continuations
+                .iter()
+                .find_map(|&(action, continuation)| (action == ip).then_some(continuation))
+                .unwrap();
+            world.register_inline_code(ip, cb, continuation);
         }
     }
 }
 
 fn run_scenario(sc: &Scenario) -> String {
-    let catalog = literals::get_catalog();
+    let catalog = literals::build_fallback();
 
     let mut world = PathWorld::new();
     let mut host = RecHost::new();
@@ -543,9 +674,9 @@ fn run_scenario(sc: &Scenario) -> String {
     }
 
     world.paths_init();
-    seed_runtime_tables(&mut world);
-    world.paths_load_data(catalog.data.clone(), catalog.offsets.clone());
-    register_inline_callbacks(&mut world, &catalog.ips);
+    seed_runtime_tables(&mut host);
+    world.paths_load_data(catalog.data, catalog.offsets);
+    register_inline_callbacks(&mut world, &catalog.ips, &catalog.inline_continuations);
 
     // Player at slot 0.
     let pl = RecHost::obj_alloc_impl(&mut world).unwrap();
@@ -611,7 +742,7 @@ fn run_scenario(sc: &Scenario) -> String {
             }
         }
 
-        dump_tick(&world, &mut host.out, tick);
+        dump_tick(&world, &host.oracle_variables, &mut host.out, tick);
     }
 
     host.out
@@ -661,5 +792,9 @@ fn interp_trace_parity() {
             }
         }
     }
-    assert!(failures.is_empty(), "trace mismatches:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "trace mismatches:\n{}",
+        failures.join("\n")
+    );
 }

@@ -22,8 +22,9 @@ use crate::coldet::Coldet;
 use crate::obj::{strat_init_obj_vars, Objects};
 use crate::vars::*;
 use crate::world::{op, resolve_shape_word, InlineCb, NativeCb, World};
-use sf_map::consts::cb;
+use sf_core::scene::PaletteFadeTarget;
 use sf_map::consts::wm;
+use sf_map::consts::{cb, DirectStrategy};
 use sf_map::levels::{BuiltLevel, NativeCallback};
 
 /// Strategy function type — replaces C `StrategyFunc`
@@ -86,8 +87,14 @@ pub trait Hooks {
     fn make_snd(&mut self, _family: PosSndFamilyId, _obj_worldx: i16, _obj_worldz: i16) {}
     /// C `Strat_TrigSE` (blocksnd builtin).
     fn trig_se(&mut self, _sound_id: u8) {}
+    /// ROM `nosetport3` (SOUND.ASM:955) — when true, `play_se` is a no-op.
+    /// Path bird_touch / ENDSEQ set; planetseq / gameplay start clear.
+    fn set_nosetport3(&mut self, _disabled: bool) {}
     /// C `Strings_SendMessage` (sendmsg opcode, CLfriendmsg builtins).
     fn send_message(&mut self, _msg_id: u8) {}
+    /// Publish the `friends_meter=$FF` handshake used immediately before a
+    /// path message that should show the speaker's shield meter.
+    fn set_friends_meter(&mut self, _value: u8) {}
     /// C `Windows_FadeToBlack`.
     fn fade_to_black(&mut self, _speed: i32) {}
     /// C `Windows_FadeFromBlack`.
@@ -100,6 +107,22 @@ pub trait Hooks {
     fn init_black(&mut self) {}
     /// C `initfadewhite2norm_l`.
     fn init_fade_white2norm(&mut self) {}
+    /// ROM `bossflash_l` (WINDOWS.ASM:240) — allocate dyingred color-math flash.
+    fn boss_flash(&mut self) {}
+    /// ROM `flashturq_l` (WINDOWS.ASM:104).
+    fn flash_turq(&mut self) {}
+    /// ROM `flashturq2_l` (WINDOWS.ASM:125).
+    fn flash_turq2(&mut self) {}
+    /// ROM `flashred_l` (WINDOWS.ASM:146).
+    fn flash_red(&mut self) {}
+    /// ROM `dealloc_window hitflash`.
+    fn hitflash_off(&mut self) {}
+    /// ROM `SetCharMapgame_l` (MAIN.ASM:1769) — in-game charmap layout.
+    fn set_charmap_game(&mut self) {}
+    /// ROM `SetCharMapplan_l` (PLANETS.ASM:2936) — planet-select charmap.
+    fn set_charmap_plan(&mut self) {}
+    /// ROM `setcharmapfox_l` (CONTINUE.ASM:459) — fox continue charmap.
+    fn set_charmap_fox(&mut self) {}
     /// C `Paths_ResolveStart` (src/path/paths.c:2930) — 0 = remove-stub.
     fn resolve_path_start(&mut self, _path_id: u16) -> u16 {
         0
@@ -166,25 +189,27 @@ impl Game {
     /// tick (dostrats), controller latch, collision list + collision run.
     /// Camera/sound/HUD/draw/particle phases belong to other lanes.
     pub fn tick(&mut self) {
-        // TRANS.ASM: lda freezestrats / bit #1 / bne stratsfrozen
+        // The low freeze flag suppresses strategy updates.
         if (self.vars.freezestrats & 0x01) == 0 {
             self.run_strategies();
         }
         // Store last frame's controller state (TRANS.ASM:158-161).
         self.vars.lastcont0 = (self.vars.pad1 >> 8) as u8;
         self.vars.lastcontl0 = (self.vars.pad1 & 0xFF) as u8;
-        // fadepalto_l (TRANS.ASM:167, MAIN.ASM:2762-2777) — runs every
-        // frame, even with strats frozen: while palnum != 0, copy one
-        // sea/groundpal color into shape-palette row 4 and step
-        // palnum/palfade down by 2 (15 frames, colors 15..1). The port
-        // keeps the counter; sf-render mixes the palettes from the bridged
-        // fraction.
-        if self.vars.palfade_num != 0 {
-            self.vars.palfade_num = self.vars.palfade_num.saturating_sub(2);
-        }
+        self.step_palette_fade();
         // generate_collist_l + chkcoll.
         self.coldet_generate_list();
         self.coldet_run();
+    }
+
+    /// Advance the typed half of `fadepalto_l` once. The renderer owns the
+    /// background palette row and observes this cursor to copy exactly one
+    /// color. Kept separate because the application shell mirrors the retail
+    /// NMI ordering directly instead of calling [`Self::tick`].
+    pub fn step_palette_fade(&mut self) {
+        if self.vars.palfade_num != 0 {
+            self.vars.palfade_num = self.vars.palfade_num.saturating_sub(2);
+        }
     }
 
     /// Dispatch a registered strategy on an alien slot.
@@ -277,19 +302,22 @@ impl Game {
         if al.sflags & ASF_COLLIDE != 0 {
             if let Some(coll) = al.collstratptr {
                 self.call_strat(coll, idx);
-            } else {
-                self.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+                return;
             }
-            return;
-        }
-        if al.sflags & ASF_LCOLLIDE != 0 {
+            // Do_strat_l `.nes`: a collide flag with a null collide pointer is
+            // cleared, then execution branches to `.ns` and runs stratptr in
+            // the SAME tick.  Returning here permanently starved normal
+            // strategies on objects that overlap every frame (notably the
+            // collision-disabled boss explosion countdown).
+            self.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+        } else if al.sflags & ASF_LCOLLIDE != 0 {
             self.objs.aliens[idx as usize].sflags &= !ASF_LCOLLIDE;
             if let Some(endcoll) = al.endcollstratptr {
                 self.call_strat(endcoll, idx);
+                return;
             }
-            return;
         }
-        if let Some(strat) = al.stratptr {
+        if let Some(strat) = self.objs.aliens[idx as usize].stratptr {
             self.call_strat(strat, idx);
         }
     }
@@ -303,14 +331,14 @@ impl Game {
         }
         if let Some(player) = self.objs.player() {
             let player_z = player.worldz;
-            // lda al_worldz,x / sec / sbc lastplayz / sta lastzchange
+            // Preserve the signed depth delta from the previous map object.
             self.world.lastzchange = player_z.wrapping_sub(self.world.lastplayz);
             self.world.lastplayz = player_z;
         } else {
             // No player: fixed scroll MEDPSPEED=65 per frame.
             self.world.lastzchange = 65;
         }
-        // lda mapcnt / sec / sbc lastzchange / bmi newobjs_l
+        // Spawn the next map objects once the signed countdown crosses zero.
         let cnt = (self.vars.mapcnt as i16 as i32) - (self.world.lastzchange as i32);
         if cnt < 0 {
             self.map_exec();
@@ -332,8 +360,7 @@ impl Game {
 
     fn map_read16(&self, ptr: u16) -> u16 {
         if (ptr as usize + 1) < self.world.map.len() {
-            self.world.map[ptr as usize] as u16
-                | ((self.world.map[ptr as usize + 1] as u16) << 8)
+            self.world.map[ptr as usize] as u16 | ((self.world.map[ptr as usize + 1] as u16) << 8)
         } else {
             0
         }
@@ -383,6 +410,15 @@ impl Game {
     fn assign_strategy_addr(&mut self, idx: u16, strat_addr: u16, strat_bank: u8) {
         let key = ((strat_bank as u32) << 16) | strat_addr as u32;
         if let Some(id) = self.world.find_strategy_address(key) {
+            self.objs.aliens[idx as usize].stratptr = Some(id);
+        }
+    }
+
+    fn assign_direct_strategy(&mut self, idx: u16, strategy_id: u8) {
+        let Some(strategy) = DirectStrategy::from_id(strategy_id) else {
+            return;
+        };
+        if let Some(id) = self.world.find_direct_strategy(strategy) {
             self.objs.aliens[idx as usize].stratptr = Some(id);
         }
     }
@@ -449,9 +485,20 @@ impl Game {
             cb::SET_PLAYER_CLEAR_BRIDGE_L,
             cb::SET_PLAYER_CLEAR_TURN_L,
             cb::SET_PLAYER_WARPOUT_L,
+            cb::SET_PLAYER_ONWATER_L,
+            cb::SET_PLAYER_TOCSLOW_L,
+            cb::SET_PLAYER_INMTEXIT_L,
+            cb::SET_PLAYER_INLTEXIT_L,
+            cb::SET_PLAYER_INSPACE_L,
+            cb::SET_PLAYER_INTOLB1_L,
+            cb::SET_PLAYER_OUTOFLB2A_L,
+            cb::SET_PLAYER_ESCAPENUCLEUS_L,
+            cb::SET_PLAYER_WASHENT_L,
+            cb::SET_PLAYER_CLEAR_COLONY_L,
             cb::IS_PLAYER_DEAD,
             cb::PLAYER_OUTVIEW_L,
             cb::LEVELFINISHED_ZERO,
+            cb::PLAYER_CANT_DIE,
         ];
         if BUILTINS.contains(&addr24) {
             return Some(NativeCb::Builtin(addr24));
@@ -500,7 +547,7 @@ impl Game {
         match cbk {
             NativeCb::Level(NativeCallback::ClGroundPrintlevelfin) => {
                 // C level1_1_cl_ground_printlevelfin (levels.c:1841).
-                self.vars.write_ext8(wm::LEVELFINISHED, 3);
+                self.vars.map.level_finished = 3;
                 true
             }
             NativeCb::Level(NativeCallback::ClGroundWipeout) => {
@@ -513,6 +560,10 @@ impl Game {
             NativeCb::Level(NativeCallback::ClDiveClearEnginesnd) => {
                 // C cl_dive_clear_enginesnd (levels.c:1858).
                 self.vars.pshipflags3 &= !PSF3_ENGINESND;
+                true
+            }
+            NativeCb::Level(NativeCallback::TitaniaClearFogScene) => {
+                self.vars.set_titania_clear_scene();
                 true
             }
             NativeCb::Builtin(id) => self.dispatch_builtin(id),
@@ -554,9 +605,12 @@ impl Game {
                 self.hooks.init_black();
                 true
             }
-            // world_cb_setcharmapfrommap_l (world.c:468) — no flat-memory
-            // equivalent; returns true.
-            _ if id == cb::SETCHARMAPFROMMAP_L => true,
+            // world_cb_setcharmapfrommap_l (world.c:468) — ROM disables
+            // interrupts then jsl setcharmapgame_l; HD selects Game layout.
+            _ if id == cb::SETCHARMAPFROMMAP_L => {
+                self.hooks.set_charmap_game();
+                true
+            }
             // world_cb_initfadewhite2norm_l (world.c:475).
             _ if id == cb::INITFADEWHITE2NORM_L => {
                 self.hooks.init_fade_white2norm();
@@ -565,9 +619,7 @@ impl Game {
             // world_cb_kill_robot_l (world.c:481): first ro_0 gets sflag8.
             _ if id == cb::KILL_ROBOT_L => {
                 for idx in self.objs.active_indices() {
-                    if self.objs.aliens[idx as usize].shape
-                        == crate::world::WORLD_SHAPE_RO_0
-                    {
+                    if self.objs.aliens[idx as usize].shape == crate::world::WORLD_SHAPE_RO_0 {
                         self.objs.aliens[idx as usize].sflags4 |= ASF4_SFLAG8;
                         break;
                     }
@@ -589,8 +641,20 @@ impl Game {
                 self.vars.bgflags |= BGF_RESTART;
                 true
             }
-            // world_cb_markboss_l (world.c:515) — no-op marker.
-            _ if id == cb::MARKBOSS_L => true,
+            // Record the completed map's semantic encounter for the ending
+            // replay. The imported callback operand itself contains no useful
+            // payload after translation, so the loaded catalog identity is
+            // the typed source of truth.
+            _ if id == cb::MARKBOSS_L => {
+                let marker_ordinal = self.world.boss_marker_ordinal;
+                self.world.boss_marker_ordinal = marker_ordinal.saturating_add(1);
+                if let Some(encounter) = self.world.loaded_map_id.and_then(|map_id| {
+                    sf_map::catalog::boss_encounter_for_marker(map_id, marker_ordinal)
+                }) {
+                    self.vars.mark_boss_encounter(encounter);
+                }
+                true
+            }
             // world_cb_blocksnd_l (world.c:521): trigse $49.
             _ if id == cb::BLOCKSND_L => {
                 self.hooks.trig_se(0x49);
@@ -661,6 +725,7 @@ impl Game {
                 // water — the WATER_MODE here was a copy/paste bug.
                 self.vars.game_mode = 0;
                 self.vars.playerflymode |= PFM_SHADOWS;
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_cleardemo_l (world.c:620).
@@ -668,6 +733,7 @@ impl Game {
                 self.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
                 self.vars.pstratflags |= PSTF_INSEQ | PSTF_NOTDIE;
                 self.vars.playerflymode &= !PFM_WOBBLE;
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_warp_l (world.c:629).
@@ -679,6 +745,7 @@ impl Game {
                 self.vars.psvar_word1 = 200;
                 self.vars.playerflymode |= PFM_WOBBLE;
                 self.vars.pshipflags3 |= PSF3_NOCOLLISIONS;
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_clear_earth_l (world.c:644).
@@ -689,6 +756,7 @@ impl Game {
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
                 self.vars.viewdist = OUTVIEWDIST;
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_clear_chase_l (world.c:660).
@@ -706,6 +774,7 @@ impl Game {
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
                 self.vars.viewdist = OUTVIEWDIST;
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_clear_ship2_l (world.c:683).
@@ -715,6 +784,7 @@ impl Game {
                 self.vars.gameflags |= GF_NOZREMOVE;
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_clear_under_l (world.c:696).
@@ -724,6 +794,7 @@ impl Game {
                 self.vars.gameflags &= !GF_VIEWROT;
                 self.vars.minpmove_y = -10000;
                 self.vars.game_mode = WATER_MODE;
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_dive_l (world.c:707).
@@ -733,6 +804,7 @@ impl Game {
                 self.vars.playerflymode |= PFM_WOBBLE;
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_clear_bridge_l (world.c:720).
@@ -742,6 +814,7 @@ impl Game {
                 self.vars.minpmove_y = -10000;
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_clear_turn_l (world.c:733).
@@ -752,6 +825,7 @@ impl Game {
                 self.vars.playerflymode |= PFM_WOBBLE;
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_set_player_warpout_l (world.c:747).
@@ -760,12 +834,36 @@ impl Game {
                 self.vars.pstratflags |= PSTF_NOVDISTC | PSTF_INSEQ;
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
+                self.call_registered_player_init(id);
+                true
+            }
+            // world_cb_set_player_onwater_l (route-3 water stage).
+            _ if id == cb::SET_PLAYER_ONWATER_L => {
+                self.vars.game_mode = WATER_MODE;
+                self.call_registered_player_init(id);
+                true
+            }
+            // Remaining mapplayermode SET_PLAYER entry points. Their exact
+            // initialization and strategy installation lives in sf-strat;
+            // the callback key is the dependency-free bridge.
+            _ if matches!(
+                id,
+                cb::SET_PLAYER_TOCSLOW_L
+                    | cb::SET_PLAYER_INMTEXIT_L
+                    | cb::SET_PLAYER_INLTEXIT_L
+                    | cb::SET_PLAYER_INSPACE_L
+                    | cb::SET_PLAYER_INTOLB1_L
+                    | cb::SET_PLAYER_OUTOFLB2A_L
+                    | cb::SET_PLAYER_ESCAPENUCLEUS_L
+                    | cb::SET_PLAYER_WASHENT_L
+                    | cb::SET_PLAYER_CLEAR_COLONY_L
+            ) =>
+            {
+                self.call_registered_player_init(id);
                 true
             }
             // world_cb_is_player_dead (world.c:759).
-            _ if id == cb::IS_PLAYER_DEAD => {
-                self.vars.pshipflags2 & PSF2_PLAYERHP0 != 0
-            }
+            _ if id == cb::IS_PLAYER_DEAD => self.vars.pshipflags2 & PSF2_PLAYERHP0 != 0,
             // world_cb_set_playeroutview_l (world.c:764).
             _ if id == cb::PLAYER_OUTVIEW_L => {
                 self.vars.pstratflags |= PSTF_INSEQ;
@@ -776,15 +874,56 @@ impl Game {
             }
             // world_cb_is_levelfinished_zero (world.c:775).
             _ if id == cb::LEVELFINISHED_ZERO => self.world.levelfinished == 0,
+            _ if id == cb::PLAYER_CANT_DIE => {
+                self.vars.pstratflags |= PSTF_NOTDIE;
+                true
+            }
             _ => true,
+        }
+    }
+
+    /// Invoke an sf-strat-owned player init registered under the native map
+    /// callback's own 24-bit key.  This keeps sf-game independent of sf-strat
+    /// while preserving the ROM callback contract (`set_player*_l` installs a
+    /// new per-frame strategy, not just its associated globals).
+    fn call_registered_player_init(&mut self, key: u32) {
+        let idx = self.vars.internal_playpt;
+        let idx = if idx >= 0 && (idx as usize) < NUMBER_AL && self.objs.aliens[idx as usize].active
+        {
+            idx as u16
+        } else if self.objs.aliens[0].active {
+            0
+        } else {
+            return;
+        };
+        if let Some(sid) = self.world.find_strategy_address(key) {
+            self.call_strat(sid, idx);
         }
     }
 
     /// Run an inline CODE65816 callback (C `WorldInlineMapFunc` impls in
     /// src/map/levels.c). `mapptr` points AT the CODE65816 opcode; the
     /// callback advances it (usually by 1) or jumps to a skip target.
-    fn run_inline(&mut self, cbk: InlineCb, mapptr: &mut u16) {
+    /// Returns true when the emulated inline block performed an original
+    /// map-VM yield and the dispatcher must stop for this update.
+    fn run_inline(&mut self, cbk: InlineCb, mapptr: &mut u16) -> bool {
         match cbk {
+            InlineCb::ResetViewPlayerZ => {
+                // INTRO.ASM/CREDITS.ASM opening block. `pviewposz` is the
+                // camera scroll accumulator in the strategy record.
+                self.world.lastplayz = 0;
+                self.vars.strategy.player_view_position[2] = 0;
+                let player = self.vars.internal_playpt as usize;
+                if player < self.objs.aliens.len() && self.objs.aliens[player].active {
+                    self.objs.aliens[player].worldz = 0;
+                }
+                *mapptr = mapptr.wrapping_add(1);
+            }
+            InlineCb::DisableWobbleAndControl => {
+                self.vars.playerflymode &= !PFM_WOBBLE;
+                self.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+                *mapptr = mapptr.wrapping_add(1);
+            }
             InlineCb::LevelScrambleKeepPlayerStrat => {
                 // levels.c:1690.
                 self.vars.pshipflags3 |= PSF3_KEEPPSTRAT;
@@ -793,10 +932,162 @@ impl Game {
             }
             InlineCb::SkillflyGuard { skip_ptr } => {
                 // levels.c:1671.
-                if self.vars.read_ext8(wm::SKILLFLY) != 0 {
+                if self.vars.map.skill_fly != 0 {
                     *mapptr = skip_ptr;
                 } else {
                     *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::Stratdone1Guard { skip_ptr } => {
+                // GSTRATS.ASM `chkstratdone1`: carry when latched and consume
+                // the one-shot flag.  Otherwise continue to the following
+                // mapgoto, which retries the source loop.
+                if self.vars.gameflags & GF_STRATDONE1 != 0 {
+                    self.vars.gameflags &= !GF_STRATDONE1;
+                    *mapptr = skip_ptr;
+                } else {
+                    *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::PlayerDeadLoop { loop_ptr } => {
+                if self.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+                    *mapptr = loop_ptr;
+                } else {
+                    *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::NoctrlLoop { loop_ptr } => {
+                if self.vars.pshipflags & PSF_NOCTRL != 0 {
+                    *mapptr = loop_ptr;
+                } else {
+                    *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::HpFlymodeGate {
+                hp_loop_ptr,
+                cont_ptr,
+            } => {
+                if self.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+                    *mapptr = hp_loop_ptr;
+                } else {
+                    if self.vars.splayerflymode == SPFM_INSIDE {
+                        self.vars.splayerflymode = SPFM_TONORM;
+                    }
+                    *mapptr = cont_ptr;
+                }
+            }
+            InlineCb::FogGuard { continue_ptr } => {
+                // MAP2_3A `eguchi2fly_goto .fogout`: ebyte3 is exported by
+                // the tenki_on path at the real path external address.
+                if self.vars.shared.enemy_path.byte3 != 0 {
+                    // Continue at the mapgoto .fogout immediately following
+                    // this CODE65816 instruction.
+                    *mapptr = mapptr.wrapping_add(1);
+                } else {
+                    // Skip that mapgoto and execute mapwait/mapgoto fogagain.
+                    *mapptr = continue_ptr;
+                }
+            }
+            InlineCb::EguchiFlyGate { continue_ptr } => {
+                // TRAINING.ASM / MAPMACS.INC `eguchifly_goto`: `eword1` is
+                // exported by the `trn_ring` path after each successful ring.
+                if self.vars.shared.score_ring_count < 15 {
+                    // `switch .@` skips the mapgoto immediately following the
+                    // inline block and continues with the friend fly-by.
+                    *mapptr = continue_ptr;
+                } else {
+                    // Carry set falls through to mapgoto .et and repeats the
+                    // course (the source keeps eword1 at 15).
+                    *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::PostFog => {
+                // MAP2_3A post-fog 65816 block. The bytecode immediately
+                // before this callback writes the same palette variables;
+                // repeat them because the ROM callback owns these effects too.
+                self.vars.map.fade_palette = 33;
+                self.vars.map.palette_from = 0;
+                self.vars.map.palette_to = 0;
+                self.vars.map.palette_length = 32;
+                self.vars.map.in_fog = 0;
+                self.vars.dotsflag = 1;
+                *mapptr = mapptr.wrapping_add(1);
+            }
+            InlineCb::MapTriggerGate {
+                carryon_ptr,
+                waitabit_ptr,
+            } => {
+                // MAP2_3B: bit 1 means the boss phase is ready; bit 0 means
+                // spawn the next five-seamon wave, consuming that bit.
+                let trigger = self.vars.map.trigger;
+                if trigger & 2 != 0 {
+                    *mapptr = carryon_ptr;
+                } else if trigger & 1 == 0 {
+                    *mapptr = waitabit_ptr;
+                } else {
+                    self.vars.map.trigger = trigger & !1;
+                    *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::SeaTestLoop { loop_ptr } => {
+                if self.vars.map.global_strategy_byte != 0 {
+                    *mapptr = loop_ptr;
+                } else {
+                    *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::TruckerBikerGate { carryon_ptr } => {
+                // TRUCKER.ASM `find_y_l #air_1`: shape 80 is the canonical
+                // generated `air_1` mesh/runtime id.
+                let biker_alive = self
+                    .objs
+                    .aliens
+                    .iter()
+                    .any(|al| al.active && al.shape == 80);
+                if biker_alive {
+                    *mapptr = mapptr.wrapping_add(1);
+                } else {
+                    *mapptr = carryon_ptr;
+                }
+            }
+            InlineCb::TruckerTriggerGate {
+                rightblock_ptr,
+                continue_ptr,
+            } => {
+                // The source loads then clears maptrigger before testing it.
+                // Preserve ASM branch order: road-block bit 0 wins this tick,
+                // then death bit 1; no bits falls through to mapwait 500.
+                // Mad Trucker can raise both bits on the final swerve tick. If
+                // the wreck is already behind the player, `.skid` removes it
+                // immediately and cannot reassert bit 1; retain that pending
+                // death event while servicing the source-priority road block.
+                let trigger = self.vars.map.trigger;
+                self.vars.map.trigger = 0;
+                if trigger & 1 != 0 {
+                    self.vars.map.trigger = trigger & 2;
+                    *mapptr = rightblock_ptr;
+                } else if trigger & 2 != 0 {
+                    *mapptr = continue_ptr;
+                } else {
+                    *mapptr = mapptr.wrapping_add(1);
+                }
+            }
+            InlineCb::SpecialBossCleanup => {
+                self.vars.meters = 0;
+                self.vars.pshipflags &= !PSF_NOFIRE;
+                self.vars.pstratflags &= !PSTF_NOTDIE;
+                *mapptr = mapptr.wrapping_add(1);
+            }
+            InlineCb::SpecialTheEndGate { loop_ptr, cont_ptr } => {
+                if self.vars.numendok == 0xFF {
+                    *mapptr = cont_ptr;
+                } else {
+                    // Original `mapif theenddead,.cont` takes its false path,
+                    // sets mapcnt=1, and returns before the following mapgoto.
+                    // Point directly back at the gate for the next update.
+                    *mapptr = loop_ptr;
+                    self.vars.mapcnt = 1;
+                    return true;
                 }
             }
             InlineCb::MapwaitbossTrigse => {
@@ -828,6 +1119,7 @@ impl Game {
                 *mapptr = mapptr.wrapping_add(1);
             }
         }
+        false
     }
 
     /// Write to the last spawned map object through the SNES byte-offset
@@ -882,7 +1174,12 @@ impl Game {
                 }
                 // 2: mapend.
                 op::END => {
-                    self.world.levelfinished = 1;
+                    // Plain `mapend` means LE_NORMAL.  The typed variants
+                    // (`mapend__not`, DM_END, credits) store their LE_* code
+                    // through SETVAR before END, and END must preserve it.
+                    if self.world.levelfinished == 0 {
+                        self.world.levelfinished = 1;
+                    }
                     return;
                 }
                 // 4: maploop — addr(2),count(2).
@@ -890,8 +1187,8 @@ impl Game {
                     let loop_addr = p;
                     let target = self.map_read16(p.wrapping_add(1));
                     let count = self.map_read16(p.wrapping_add(3));
-                    let found = (0..self.world.num_loops)
-                        .find(|&i| self.world.loop_addrs[i] == loop_addr);
+                    let found =
+                        (0..self.world.num_loops).find(|&i| self.world.loop_addrs[i] == loop_addr);
                     match found {
                         None => {
                             if self.world.num_loops < crate::world::MAP_MAX_LOOPS {
@@ -903,14 +1200,12 @@ impl Game {
                             self.vars.mapptr = target;
                         }
                         Some(i) => {
-                            self.world.loop_counts[i] =
-                                self.world.loop_counts[i].wrapping_sub(1);
+                            self.world.loop_counts[i] = self.world.loop_counts[i].wrapping_sub(1);
                             if self.world.loop_counts[i] == 0 {
                                 // Compact the loop array (C world.c:1084).
                                 for j in i..self.world.num_loops - 1 {
                                     self.world.loop_addrs[j] = self.world.loop_addrs[j + 1];
-                                    self.world.loop_counts[j] =
-                                        self.world.loop_counts[j + 1];
+                                    self.world.loop_counts[j] = self.world.loop_counts[j + 1];
                                 }
                                 self.world.num_loops -= 1;
                                 self.vars.mapptr = p.wrapping_add(5);
@@ -926,7 +1221,7 @@ impl Game {
                 }
                 // 10: mapmother — frame(2),x(2),y(2),z(2),shape(2),
                 // strat(3),map(2).
-                op::MOTHER => {
+                op::MOTHER | op::DIRECTMOTHER => {
                     let frame = self.map_read16(p.wrapping_add(1));
                     let x = self.map_read16s(p.wrapping_add(3));
                     let y = self.map_read16s(p.wrapping_add(5));
@@ -938,7 +1233,11 @@ impl Game {
                     self.vars.mapcnt = frame;
                     if let Some(idx) = self.spawn_object(x, y, z) {
                         self.objs.aliens[idx as usize].shape = resolve_shape_word(shape);
-                        self.assign_strategy_addr(idx, strat_addr, strat_bank);
+                        if opcode == op::DIRECTMOTHER {
+                            self.assign_direct_strategy(idx, strat_addr as u8);
+                        } else {
+                            self.assign_strategy_addr(idx, strat_addr, strat_bank);
+                        }
                         let al = &mut self.objs.aliens[idx as usize];
                         al.ptr = map_ref; // sub-map pointer
                         al.type_ = ATZREMOVE; // remove when behind camera
@@ -984,6 +1283,8 @@ impl Game {
                 // 16: setbg — bg_index(2).
                 op::SETBG => {
                     self.vars.currentbg = self.map_read16(p.wrapping_add(1));
+                    self.vars.set_sound_environment_for_bg(self.vars.currentbg);
+                    self.vars.set_scene_style_for_bg(self.vars.currentbg);
                     self.vars.bgflags |= BGF_BG;
                     self.vars.mapptr = p.wrapping_add(3);
                 }
@@ -1001,7 +1302,7 @@ impl Game {
                 // 20: setbgm — music(1). ROM (WORLD.ASM:194-206) skips the
                 // change while the player is at HP 0 (psf2_playerHP0) so death
                 // music isn't stomped — oracle audit_mapvm2.
-                op::SETBGM => {
+                op::SETBGM | op::SETBGM_ALIAS => {
                     let music = self.map_read8(p.wrapping_add(1));
                     if self.vars.pshipflags2 & crate::vars::PSF2_PLAYERHP0 == 0 {
                         self.hooks.play_music(music);
@@ -1026,8 +1327,23 @@ impl Game {
                     self.vars.othmusic = self.map_read8(p.wrapping_add(1));
                     self.vars.mapptr = p.wrapping_add(2);
                 }
-                // 30-36: offset controls — single-byte no-ops in HD.
-                op::VOFSON | op::VOFSOFF | op::HOFSON | op::HOFSOFF => {
+                // 30/32: setvofson/off (WORLD.ASM:1149-1191) — latch BG2
+                // VOFS from bg2scroll + dovofs/bgmode. 34/36: sethofson/off
+                // (WORLD.ASM:1195-1206) — dohofs latch.
+                op::VOFSON => {
+                    self.vars.vofs_on_please();
+                    self.vars.mapptr = p.wrapping_add(1);
+                }
+                op::VOFSOFF => {
+                    self.vars.vofs_off_please();
+                    self.vars.mapptr = p.wrapping_add(1);
+                }
+                op::HOFSON => {
+                    self.vars.dohofs = 1;
+                    self.vars.mapptr = p.wrapping_add(1);
+                }
+                op::HOFSOFF => {
+                    self.vars.dohofs = 0;
                     self.vars.mapptr = p.wrapping_add(1);
                 }
                 // 38: mapobjzrot — mapobj + zrot(1).
@@ -1209,11 +1525,11 @@ impl Game {
                 // 86/88: camera z-rotation toggle (WORLD.ASM setzroton/off ->
                 // dozrot $1776); gates the view roll in getview_l.
                 op::ZROTON => {
-                    self.vars.write_ext8(0x1776, 1);
+                    self.vars.shared.do_depth_rotation = 1;
                     self.vars.mapptr = p.wrapping_add(1);
                 }
                 op::ZROTOFF => {
-                    self.vars.write_ext8(0x1776, 0);
+                    self.vars.shared.do_depth_rotation = 0;
                     self.vars.mapptr = p.wrapping_add(1);
                 }
                 // 82/84: screen on/off — no-ops.
@@ -1235,7 +1551,21 @@ impl Game {
                 op::SETVARB => {
                     let value = self.map_read8(p.wrapping_add(1));
                     let extptr = self.map_read16(p.wrapping_add(2));
-                    self.vars.write_ext8(extptr, value);
+                    let extbank = self.map_read8(p.wrapping_add(4));
+                    let extaddr = ((extbank as u32) << 16) | extptr as u32;
+                    // `levelfinished` is a native engine variable in this
+                    // port, not an ordinary WRAM byte.  Mirror the assembler
+                    // SETVAR target into World so non-normal LE_* codes reach
+                    // the shell dispatcher.
+                    if extaddr == wm::M_METERS {
+                        self.vars.meters = value as u16;
+                    } else if extbank == 0 && extptr == wm::LEVELFINISHED {
+                        self.world.levelfinished = value;
+                    } else if extbank == 0 && extptr == wm::NUMENDOK {
+                        self.vars.numendok = value;
+                    } else if extbank == 0 {
+                        self.vars.write_ext8(extptr, value);
+                    }
                     self.vars.mapptr = p.wrapping_add(5);
                 }
                 // 94: setvarw — value(2),ptr(2),bank(1).
@@ -1260,6 +1590,8 @@ impl Game {
                     self.vars.bgtransspeed = self.map_read8(p.wrapping_add(1)) as u16;
                     self.vars.bg_dmalist = self.map_read16(p.wrapping_add(2));
                     self.vars.currentbg = self.vars.bg_dmalist;
+                    self.vars.set_sound_environment_for_bg(self.vars.currentbg);
+                    self.vars.set_scene_style_for_bg(self.vars.currentbg);
                     self.vars.mapptr = p.wrapping_add(4);
                 }
                 // 100: waitsetbg.
@@ -1293,19 +1625,14 @@ impl Game {
                 // palfade = lastpalfade = 30 (seapal) / 62 (groundpal),
                 // palcnt = 2 (dead store — nothing reads palcnt), palnum =
                 // 30. fadepalto_l (MAIN.ASM:2762) then copies one
-                // sea/groundpal color per frame into shape-palette row 4;
-                // the port arms from/target and the palnum walk here and
-                // steps it in Game::tick.
+                // sea/groundpal color per frame into background-palette row
+                // 4; the port arms the typed source and cursor here and
+                // steps it once per game tick.
                 op::FADETOSEA | op::FADETOGROUND => {
-                    // ROM restarts mid-fade from the current (mixed) CGRAM
-                    // contents; the port snaps `from` to the previous
-                    // target — only visible if retargeted inside the
-                    // 15-frame window.
-                    self.vars.palfade_from = self.vars.palfade_target;
                     self.vars.palfade_target = if opcode == op::FADETOSEA {
-                        PALFADE_SEA
+                        Some(PaletteFadeTarget::Sea)
                     } else {
-                        PALFADE_GROUND
+                        Some(PaletteFadeTarget::Ground)
                     };
                     self.vars.palfade_num = PALFADE_NUM_START;
                     self.vars.mapptr = p.wrapping_add(1);
@@ -1399,8 +1726,11 @@ impl Game {
                     match self.world.find_inline(script_ptr) {
                         Some(cbk) => {
                             let mut next_ptr = p;
-                            self.run_inline(cbk, &mut next_ptr);
+                            let should_yield = self.run_inline(cbk, &mut next_ptr);
                             self.vars.mapptr = next_ptr;
+                            if should_yield {
+                                return;
+                            }
                         }
                         None => return, // C warns and stops for this frame
                     }
@@ -1472,7 +1802,7 @@ impl Game {
                 }
                 // 134: mapnormobj — full-width pointers
                 // (WORLD.ASM:1835-1887).
-                op::NORMOBJ => {
+                op::NORMOBJ | op::DIRECTOBJ => {
                     let frame = self.map_read16(p.wrapping_add(1));
                     let x = self.map_read16s(p.wrapping_add(3));
                     let y = self.map_read16s(p.wrapping_add(5));
@@ -1483,16 +1813,16 @@ impl Game {
                     self.vars.mapcnt = frame;
                     if let Some(idx) = self.spawn_object(x, y, z) {
                         self.objs.aliens[idx as usize].shape = resolve_shape_word(shape);
-                        self.assign_strategy_addr(idx, strat_addr, strat_bank);
+                        if opcode == op::DIRECTOBJ {
+                            self.assign_direct_strategy(idx, strat_addr as u8);
+                        } else {
+                            self.assign_strategy_addr(idx, strat_addr, strat_bank);
+                        }
                     }
                     self.vars.mapptr = p.wrapping_add(14);
                     if self.vars.mapcnt != 0 {
                         return;
                     }
-                }
-                // 136: reserved.
-                op::RESERVED => {
-                    self.vars.mapptr = p.wrapping_add(1);
                 }
                 // 138: mapwait2 — distance_raw(1) << 4 (WORLD.ASM:175-187).
                 // The ROM stores mapcnt and RTSes UNCONDITIONALLY — no zero

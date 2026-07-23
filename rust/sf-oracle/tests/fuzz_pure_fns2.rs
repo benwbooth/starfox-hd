@@ -80,13 +80,17 @@ fn msqrt16_is_exact_floor_sqrt() {
         if rom_r != floor {
             diff_floor += 1;
             if first.len() < 8 {
-                first.push(format!("DIVERGE floor msqrt16({x})=ROM {rom_r} floor {floor}"));
+                first.push(format!(
+                    "DIVERGE floor msqrt16({x})=ROM {rom_r} floor {floor}"
+                ));
             }
         }
         if rom_r != float_port {
             diff_float += 1;
             if first.len() < 8 {
-                first.push(format!("DIVERGE float msqrt16({x})=ROM {rom_r} f32 {float_port}"));
+                first.push(format!(
+                    "DIVERGE float msqrt16({x})=ROM {rom_r} f32 {float_port}"
+                ));
             }
         }
     }
@@ -95,7 +99,10 @@ fn msqrt16_is_exact_floor_sqrt() {
     }
     eprintln!("PROBE msqrt16: 65536 inputs; vs floor-sqrt diffs={diff_floor}, vs f32-port diffs={diff_float}");
     assert_eq!(diff_floor, 0, "msqrt16 must be exact integer floor-sqrt");
-    assert_eq!(diff_float, 0, "the f32 distance path must agree with msqrt16 bit-for-bit");
+    assert_eq!(
+        diff_float, 0,
+        "the f32 distance path must agree with msqrt16 bit-for-bit"
+    );
 }
 
 // ===========================================================================
@@ -130,8 +137,19 @@ fn msqrt32_is_exact_floor_sqrt() {
         s += if s < 512 { 1 } else { 137 };
     }
     inputs.extend([
-        0, 1, 2, 3, 0xFFFF, 0x1_0000, 0x1_0001, 0x00FF_FFFF, 0x7FFF_0000, 0x7FFF_FFFF, 0x4000_0000,
-        1_000_000, 123_456_789,
+        0,
+        1,
+        2,
+        3,
+        0xFFFF,
+        0x1_0000,
+        0x1_0001,
+        0x00FF_FFFF,
+        0x7FFF_0000,
+        0x7FFF_FFFF,
+        0x4000_0000,
+        1_000_000,
+        123_456_789,
     ]);
     inputs.retain(|&v| v <= 0x7FFF_FFFF);
     inputs.sort_unstable();
@@ -162,7 +180,9 @@ fn msqrt32_is_exact_floor_sqrt() {
                 worst_hi_err = worst_hi_err.max(err.abs());
             }
             if first.len() < 8 {
-                first.push(format!("DIVERGE msqrt32({x})=ROM {rom_r} floor {floor} err={err}"));
+                first.push(format!(
+                    "DIVERGE msqrt32({x})=ROM {rom_r} floor {floor} err={err}"
+                ));
             }
         }
     }
@@ -175,7 +195,10 @@ fn msqrt32_is_exact_floor_sqrt() {
         inputs.len()
     );
     let _ = (diffs_hi, worst_hi_err); // characterized, not asserted (see ignored reproducer)
-    assert_eq!(diffs_low, 0, "msqrt32 must be exact floor-sqrt for x < 2^28 (the realistic domain)");
+    assert_eq!(
+        diffs_low, 0,
+        "msqrt32 must be exact floor-sqrt for x < 2^28 (the realistic domain)"
+    );
 }
 
 /// A faithful, self-contained 16-bit model of the ROM's `msqrt32` (MMATHS.MC
@@ -271,13 +294,17 @@ fn msqrt32_high_domain_is_faithful_16bit_overflow() {
         if emu != narrow {
             emu_vs_model += 1;
             if first.len() < 8 {
-                first.push(format!("EMU!=MODEL msqrt32({x}) emu={emu} model16={narrow}"));
+                first.push(format!(
+                    "EMU!=MODEL msqrt32({x}) emu={emu} model16={narrow}"
+                ));
             }
         }
         if wide != floor {
             wide_vs_floor += 1;
             if first.len() < 8 {
-                first.push(format!("WIDE!=FLOOR msqrt32({x}) wide={wide} floor={floor}"));
+                first.push(format!(
+                    "WIDE!=FLOOR msqrt32({x}) wide={wide} floor={floor}"
+                ));
             }
         }
         if emu != floor {
@@ -292,18 +319,27 @@ fn msqrt32_high_domain_is_faithful_16bit_overflow() {
          wide-model==floor diffs={wide_vs_floor}; overflow-divergence present={overflow_confirmed}",
         inputs.len()
     );
-    assert_eq!(emu_vs_model, 0, "gsu.rs must be a faithful 16-bit GSU (matches the 16-bit msqrt32 model)");
-    assert_eq!(wide_vs_floor, 0, "the algorithm is exact with wide registers — width, not carry, is the cause");
-    assert!(overflow_confirmed, "the 16-bit-overflow divergence should be observable in the high domain");
+    assert_eq!(
+        emu_vs_model, 0,
+        "gsu.rs must be a faithful 16-bit GSU (matches the 16-bit msqrt32 model)"
+    );
+    assert_eq!(
+        wide_vs_floor, 0,
+        "the algorithm is exact with wide registers — width, not carry, is the cause"
+    );
+    assert!(
+        overflow_confirmed,
+        "the 16-bit-overflow divergence should be observable in the high domain"
+    );
 }
 
 // ===========================================================================
 // 3. mcalcperc  — GSU $01B6B2 (MTXTPRT.MC:355).  in: m_x1=dead, m_y1=total ;
-//    out: m_x1 = floor(dead*100 / total)  (via mcall mdivu3216).
-//    Rust equiv: the hit-ratio term of `sf_game::score::calc_stage_perc`
-//    (`specials_dead*100 / total`). Fuzz dead × total over the full byte domain
-//    the caller masks them to (calcstageperc does `and #$ff`), total>=1 (the
-//    65816 side guards total==0 upstream, so the GSU divide never sees it).
+//    The multiply treats the source byte as signed, preserves the resulting
+//    16-bit bit pattern, and the divide treats that pattern as unsigned.
+//    Rust equivalent: `sf_game::score::calc_hit_percentage`. Fuzz dead × total
+//    over the full byte domain the caller masks them to, total>=1 (the caller
+//    guards total==0 upstream, so the divide never sees it).
 // ===========================================================================
 const M_X1: usize = 0x62;
 const M_Y1: usize = 0x2C;
@@ -319,6 +355,7 @@ fn gsu_mcalcperc(g: &mut Gsu, pbr: u8, pc: u16, dead: u16, total: u16) -> u16 {
 
 #[test]
 fn mcalcperc_matches_score_hit_ratio() {
+    use sf_game::score::calc_hit_percentage;
     let syms = load_symbols();
     let (Some(&sym), Some(rom)) = (syms.get("MCALCPERC"), load_built_rom()) else {
         eprintln!("skip: no MCALCPERC / ROM");
@@ -332,13 +369,14 @@ fn mcalcperc_matches_score_hit_ratio() {
     for total in 1u16..=255 {
         for dead in 0u16..=255 {
             let rom_r = gsu_mcalcperc(&mut g, pbr, pc, dead, total);
-            // Rust: the hit-ratio term (calc_stage_perc, total>0 branch).
-            let rust = dead * 100 / total;
+            let rust = calc_hit_percentage(dead as u8, total as u8);
             checked += 1;
             if rom_r != rust {
                 diffs += 1;
                 if first.len() < 8 {
-                    first.push(format!("DIVERGE mcalcperc({dead}/{total})=ROM {rom_r} RUST {rust}"));
+                    first.push(format!(
+                        "DIVERGE mcalcperc({dead}/{total})=ROM {rom_r} RUST {rust}"
+                    ));
                 }
             }
         }
@@ -347,7 +385,7 @@ fn mcalcperc_matches_score_hit_ratio() {
         eprintln!("{l}");
     }
     eprintln!("PROBE mcalcperc: checked {checked} dead×total pairs; diffs={diffs}");
-    assert_eq!(diffs, 0, "mcalcperc diverges from floor(dead*100/total)");
+    assert_eq!(diffs, 0, "mcalcperc diverges from the native calculation");
 }
 
 // ===========================================================================
@@ -402,7 +440,10 @@ fn calc_stage_perc_matches_rom_divide_plus_wrapper() {
         eprintln!("{l}");
     }
     eprintln!("PROBE calcstageperc: checked {checked} (dead,total,teammates); diffs={diffs}");
-    assert_eq!(diffs, 0, "calc_stage_perc diverges from ROM divide + wrapper");
+    assert_eq!(
+        diffs, 0,
+        "calc_stage_perc diverges from ROM divide + wrapper"
+    );
 }
 
 // ===========================================================================
@@ -436,7 +477,15 @@ fn rom_framescale(rom: &[u8], addr: u32, vx: i8, vy: i8, fr: u8) -> (i16, i16) {
     bus.write16(XB + AL_VX, vx as i16 as u16);
     bus.write16(XB + AL_VY, vy as i16 as u16);
     bus.write8(FRAMERATE, fr);
-    call_near(&mut bus, addr, &Entry { x: XB as u16, p: 0x20, ..Default::default() });
+    call_near(
+        &mut bus,
+        addr,
+        &Entry {
+            x: XB as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     (bus.read16(XB + AL_VX) as i16, bus.read16(XB + AL_VY) as i16)
 }
 
@@ -482,8 +531,14 @@ fn framescalevecs_matches_mulslog_adiv2_spec() {
         eprintln!("{l}");
     }
     eprintln!("PROBE framescalevecs: checked {checked}; spec diffs={diffs}; identity@fr=4 mismatches={ident_bad}");
-    assert_eq!(diffs, 0, "framescalevecs diverges from mulslog(vel<<8,fr)>>3 spec");
-    assert_eq!(ident_bad, 0, "framerate=4 (base) must be identity — the no-op port is correct there");
+    assert_eq!(
+        diffs, 0,
+        "framescalevecs diverges from mulslog(vel<<8,fr)>>3 spec"
+    );
+    assert_eq!(
+        ident_bad, 0,
+        "framerate=4 (base) must be identity — the no-op port is correct there"
+    );
 }
 
 // ===========================================================================
@@ -526,7 +581,15 @@ fn addvecs0_l_vs_add_to_pos() {
                 bus.write16(Y1, vec.1 as u16);
                 bus.write16(Z1, vec.2 as u16);
                 // addvecs0_l assumes 16-bit A already (no `a16`): p=$00.
-                call(&mut bus, addr, &Entry { x: XB as u16, p: 0x00, ..Default::default() });
+                call(
+                    &mut bus,
+                    addr,
+                    &Entry {
+                        x: XB as u16,
+                        p: 0x00,
+                        ..Default::default()
+                    },
+                );
                 let rom_r = (
                     bus.read16(XB + AL_WX) as i16,
                     bus.read16(XB + AL_WY) as i16,
@@ -540,7 +603,9 @@ fn addvecs0_l_vs_add_to_pos() {
                 if rom_r != rust {
                     diffs += 1;
                     if first.len() < 8 {
-                        first.push(format!("DIVERGE pos={pos:?} vec={vec:?}: ROM={rom_r:?} RUST={rust:?}"));
+                        first.push(format!(
+                            "DIVERGE pos={pos:?} vec={vec:?}: ROM={rom_r:?} RUST={rust:?}"
+                        ));
                     }
                 }
             }
@@ -607,7 +672,7 @@ fn anglexy_axis_diagonal_matches_angle_xz() {
         for &m in &mags {
             let (dx, dz) = (ux * m, uz * m);
             let rom8 = (gsu_arctan16(&mut g, dx, dz) >> 8) as u8; // anglexy_l: high byte
-            // strat_angle_xz maps atan2(dx,dz) into 0..256 the same way.
+                                                                  // strat_angle_xz maps atan2(dx,dz) into 0..256 the same way.
             let src = Alien::default();
             let mut dst = Alien::default();
             (dst.worldx, dst.worldz) = (dx, dz);
@@ -634,5 +699,8 @@ fn anglexy_axis_diagonal_matches_angle_xz() {
     // The 8-bit truncation (ROM takes the high byte of the 16-bit angle; the
     // port truncates the float) admits at most a ±1 LSB gap at these directions;
     // anything worse is a real divergence.
-    assert_eq!(worse, 0, "strat_angle_xz diverges from ROM anglexy_l by >1 LSB at an axis/diagonal direction");
+    assert_eq!(
+        worse, 0,
+        "strat_angle_xz diverges from ROM anglexy_l by >1 LSB at an axis/diagonal direction"
+    );
 }

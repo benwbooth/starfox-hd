@@ -8,6 +8,8 @@
 //! Extra env knobs (not in the C build, used by the smoke tests):
 //! - `SF_MAX_TICKS=<n>`  exit after n game ticks
 //! - `SF_HIDDEN=1`       create the window hidden (headless-ish CI runs)
+//! - `SF_FAST_FORWARD=1` run fixed ticks without wall-clock pacing (tests)
+//! - `SF2_AUTOPLAY_PAUSE_AFTER_SORTIES=<n>` hold a reached map for capture
 //! - `SF_DUMP_PPM=<path>` write one RGB PPM frame readback (at tick
 //!   `SF_DUMP_PPM_TICK`, default 220).
 
@@ -25,16 +27,61 @@ use sdl3::video::FullscreenType;
 
 use sf_core::{DrawListEntry as CoreEntry, GAME_TICK_MS, MAX_DRAW_LIST};
 use sf_game::shell::Shell;
-use sf_render::draw_list::DrawListEntry as RenderEntry;
+use sf_render::draw_list::{
+    DrawListEntry as RenderEntry, DL_FLAG_HIGHLIGHT, DL_FLAG_SHADOW, DL_FLAG_VISIBLE,
+};
 use sf_render::renderer::{
-    FrameInputs, GameState as RenderState, Renderer, RendererConfig, WindowState,
+    EndingReplayBackdrop as RenderEndingReplayBackdrop, EndingReplayInputs, FrameInputs,
+    GameState as RenderState, Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty,
+    Sf2FrameInputs, Sf2MapPoint, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase,
+    Sf2RadarContact, Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind,
+    Sf2StrategicPhase, Sf2TitleMenuItem, Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY,
     WINDOWARRAY_SIZE,
 };
+use sf_render::shapes::Sf2PolygonPalette;
 
 use crate::audio::AudioSys;
 use crate::config::Config;
 use crate::input::Input;
 use crate::statedump::StateDump;
+
+const STAR_FOX_2_ROM_SIZE: usize = 1_048_576;
+const STAR_FOX_2_TITLE_OFFSET: usize = 32_704;
+const STAR_FOX_2_TITLE: &[u8] = b"STARFOX2";
+const WORLD_TO_RENDER_FRACTIONAL_BITS: u32 = 16;
+const STAR_FOX_2_TICKS_PER_SECOND: f64 = 15.0;
+
+/// Stable diagnostic codes for native SF2 state dumps. These describe port
+/// modes, not source-machine execution state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum Sf2DumpMode {
+    Intro = 1,
+    Title = 2,
+    Records = 3,
+    Briefing = 4,
+    StrategicMap = 5,
+    PilotSelection = 6,
+    Mission = 7,
+    Results = 8,
+    Ending = 9,
+}
+
+impl From<sf2_game::GameMode> for Sf2DumpMode {
+    fn from(mode: sf2_game::GameMode) -> Self {
+        match mode {
+            sf2_game::GameMode::Intro(_) => Self::Intro,
+            sf2_game::GameMode::Title => Self::Title,
+            sf2_game::GameMode::Records => Self::Records,
+            sf2_game::GameMode::Briefing => Self::Briefing,
+            sf2_game::GameMode::StrategicMap => Self::StrategicMap,
+            sf2_game::GameMode::PilotSelection => Self::PilotSelection,
+            sf2_game::GameMode::Mission => Self::Mission,
+            sf2_game::GameMode::Results => Self::Results,
+            sf2_game::GameMode::Ending => Self::Ending,
+        }
+    }
+}
 
 /// sf_core entry -> sf_render entry (field-identical structs; the render
 /// crate keeps its own copy so it does not depend on game types).
@@ -64,6 +111,342 @@ fn to_render_entry(e: &CoreEntry) -> RenderEntry {
     }
 }
 
+fn sf2_world_to_render(value: i16) -> i32 {
+    i32::from(value) << WORLD_TO_RENDER_FRACTIONAL_BITS
+}
+
+fn sf2_depth_to_render(value: i16) -> i32 {
+    sf2_world_to_render(value.wrapping_neg())
+}
+
+fn to_sf2_render_entry(object: &sf2_game::RenderObject) -> RenderEntry {
+    object
+        .shape
+        .catalog_entry()
+        .expect("native SF2 objects carry a validated catalog shape");
+    let mut flags = 0;
+    if object.flags.visible {
+        flags |= DL_FLAG_VISIBLE;
+    }
+    if object.flags.casts_shadow {
+        flags |= DL_FLAG_SHADOW;
+    }
+    if object.flags.highlighted {
+        flags |= DL_FLAG_HIGHLIGHT;
+    }
+    RenderEntry {
+        x: sf2_world_to_render(object.position.x),
+        y: sf2_world_to_render(object.position.y),
+        z: sf2_depth_to_render(object.position.z),
+        rx: i16::from(object.rotation.pitch.units()),
+        ry: i16::from(object.rotation.yaw.units()),
+        rz: i16::from(object.rotation.roll.units()),
+        shape_id: object.shape.flat_render_id(),
+        color_table: object.material_set.catalog_token(),
+        sort_z: object.sort_depth,
+        sflags: 0,
+        explosion_cnt: object.animation.explosion_frame,
+        anim_frame: object.animation.shape_frame,
+        col_frame: object.animation.color_frame,
+        depth_offset: object.depth_offset,
+        flags,
+        shad_x: 0,
+        shad_y: 0,
+        shad_z: 0,
+        tscroll_x: object.texture_scroll_x,
+        tscroll_y: object.texture_scroll_y,
+        obj_id: object.object.stable_render_id(),
+    }
+}
+
+fn to_sf2_pilot(pilot: sf2_game::Pilot) -> Sf2Pilot {
+    match pilot {
+        sf2_game::Pilot::Fox => Sf2Pilot::Fox,
+        sf2_game::Pilot::Falco => Sf2Pilot::Falco,
+        sf2_game::Pilot::Peppy => Sf2Pilot::Peppy,
+        sf2_game::Pilot::Slippy => Sf2Pilot::Slippy,
+        sf2_game::Pilot::Miyu => Sf2Pilot::Miyu,
+        sf2_game::Pilot::Fay => Sf2Pilot::Fay,
+    }
+}
+
+fn to_sf2_strategic_actor(actor: sf2_game::StrategicMapActor) -> Sf2StrategicActor {
+    Sf2StrategicActor {
+        kind: match actor.kind {
+            sf2_game::StrategicMapActorKind::NorthernInstallation => {
+                Sf2StrategicActorKind::NorthernInstallation
+            }
+            sf2_game::StrategicMapActorKind::SouthernInstallation => {
+                Sf2StrategicActorKind::SouthernInstallation
+            }
+            sf2_game::StrategicMapActorKind::EnemyCarrier => Sf2StrategicActorKind::EnemyCarrier,
+            sf2_game::StrategicMapActorKind::EnemyFormation => {
+                Sf2StrategicActorKind::EnemyFormation
+            }
+            sf2_game::StrategicMapActorKind::EasternInterceptor => {
+                Sf2StrategicActorKind::EasternInterceptor
+            }
+            sf2_game::StrategicMapActorKind::PatrolShip => Sf2StrategicActorKind::PatrolShip,
+            sf2_game::StrategicMapActorKind::MissileTrail => Sf2StrategicActorKind::MissileTrail,
+            sf2_game::StrategicMapActorKind::Missile => Sf2StrategicActorKind::Missile,
+            sf2_game::StrategicMapActorKind::AttackingFighter => {
+                Sf2StrategicActorKind::AttackingFighter
+            }
+            sf2_game::StrategicMapActorKind::RivalFighter => Sf2StrategicActorKind::RivalFighter,
+            sf2_game::StrategicMapActorKind::FighterProjectile => {
+                Sf2StrategicActorKind::FighterProjectile
+            }
+            sf2_game::StrategicMapActorKind::UnknownSignal => Sf2StrategicActorKind::UnknownSignal,
+            sf2_game::StrategicMapActorKind::DefensePlatform => {
+                Sf2StrategicActorKind::DefensePlatform
+            }
+        },
+        appearance: match actor.appearance {
+            sf2_game::StrategicMapAppearance::OpeningAssault => {
+                Sf2StrategicActorAppearance::OpeningAssault
+            }
+            sf2_game::StrategicMapAppearance::EscalatedAssault => {
+                Sf2StrategicActorAppearance::EscalatedAssault
+            }
+            sf2_game::StrategicMapAppearance::PostInterception => {
+                Sf2StrategicActorAppearance::PostInterception
+            }
+            sf2_game::StrategicMapAppearance::PostFighterIntercept => {
+                Sf2StrategicActorAppearance::PostFighterIntercept
+            }
+            sf2_game::StrategicMapAppearance::PostPigma => Sf2StrategicActorAppearance::PostPigma,
+            sf2_game::StrategicMapAppearance::PostEladard => {
+                Sf2StrategicActorAppearance::PostEladard
+            }
+            sf2_game::StrategicMapAppearance::PostCarrier => {
+                Sf2StrategicActorAppearance::PostCarrier
+            }
+            sf2_game::StrategicMapAppearance::PostLeon => Sf2StrategicActorAppearance::PostLeon,
+            sf2_game::StrategicMapAppearance::PostMirage => Sf2StrategicActorAppearance::PostMirage,
+        },
+        position: Sf2MapPoint {
+            x: actor.position.x,
+            y: actor.position.y,
+        },
+    }
+}
+
+fn to_sf2_polygon_palette(mission: &sf2_game::MissionState) -> Sf2PolygonPalette {
+    use sf2_game::{AstropolisPhase, EladardPhase, MissionVisit};
+
+    match mission.visit {
+        MissionVisit::EladardBase
+            if matches!(
+                mission.eladard.phase,
+                EladardPhase::SurfaceApproach
+                    | EladardPhase::SurfaceBarriers
+                    | EladardPhase::BaseEntrance
+            ) =>
+        {
+            Sf2PolygonPalette::EladardSurface
+        }
+        MissionVisit::AstropolisAssault
+            if matches!(
+                mission.astropolis.phase,
+                AstropolisPhase::ExteriorApproach | AstropolisPhase::BaseEntry
+            ) =>
+        {
+            Sf2PolygonPalette::AstropolisExterior
+        }
+        MissionVisit::OpeningEngagement
+        | MissionVisit::Reengagement
+        | MissionVisit::MissileInterception
+        | MissionVisit::FighterIntercept
+        | MissionVisit::PigmaDuel
+        | MissionVisit::EladardBase
+        | MissionVisit::TitaniaBase
+        | MissionVisit::FirstBattleCarrier
+        | MissionVisit::SecondBattleCarrier
+        | MissionVisit::LeonDuel
+        | MissionVisit::MirageDragon
+        | MissionVisit::RecurringAttackers
+        | MissionVisit::LeonPressure
+        | MissionVisit::FinalPursuer
+        | MissionVisit::WolfBlockade
+        | MissionVisit::AstropolisAssault => Sf2PolygonPalette::Standard,
+    }
+}
+
+fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdrop {
+    use sf2_game::{CarrierAssaultPhase, EladardPhase, MissionVisit};
+
+    match mission.visit {
+        MissionVisit::EladardBase => match mission.eladard.phase {
+            EladardPhase::SurfaceApproach
+            | EladardPhase::SurfaceBarriers
+            | EladardPhase::BaseEntrance
+            | EladardPhase::ReturnFlight => Sf2MissionBackdrop::EladardSurface,
+            EladardPhase::WalkerTransformation
+            | EladardPhase::PlatformSwitch
+            | EladardPhase::WallSpider
+            | EladardPhase::Generator
+            | EladardPhase::BaseDestruction => Sf2MissionBackdrop::EladardInterior,
+        },
+        MissionVisit::TitaniaBase => Sf2MissionBackdrop::TitaniaBase,
+        MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
+            match mission.carrier_assault.phase {
+                CarrierAssaultPhase::ExteriorApproach | CarrierAssaultPhase::ReturnFlight => {
+                    Sf2MissionBackdrop::DeepSpace
+                }
+                CarrierAssaultPhase::InteriorCorridor
+                | CarrierAssaultPhase::ReactorApproach
+                | CarrierAssaultPhase::ReactorCombat
+                | CarrierAssaultPhase::CoreDestruction => Sf2MissionBackdrop::CarrierInterior,
+            }
+        }
+        MissionVisit::AstropolisAssault => Sf2MissionBackdrop::AstropolisVoid,
+        MissionVisit::OpeningEngagement
+        | MissionVisit::Reengagement
+        | MissionVisit::MissileInterception
+        | MissionVisit::FighterIntercept
+        | MissionVisit::PigmaDuel
+        | MissionVisit::LeonDuel
+        | MissionVisit::MirageDragon
+        | MissionVisit::RecurringAttackers
+        | MissionVisit::LeonPressure
+        | MissionVisit::FinalPursuer
+        | MissionVisit::WolfBlockade => Sf2MissionBackdrop::DeepSpace,
+    }
+}
+
+fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
+    use sf2_game::{
+        AudioOutput, Difficulty, GameMode, ObjectKind, PilotSelectionPhase, StrategicMapPhase,
+        TitleMenuItem, TitlePage,
+    };
+
+    let state = game.state();
+    let mut radar_contacts = [None; SF2_RADAR_CONTACT_CAPACITY];
+    let mut radar_contact_count = 0;
+    let mut target_count = 0u8;
+    if let Some(player) = state
+        .mission
+        .primary_player
+        .and_then(|id| state.objects.get(id))
+    {
+        for (_, object) in state.objects.active_objects() {
+            let friendly = match object.base.kind {
+                ObjectKind::Enemy => {
+                    target_count = target_count.saturating_add(1);
+                    false
+                }
+                // Retail's active-flight radar shows the local craft at its
+                // fixed origin and enemy contacts. The co-pilot craft is not
+                // inserted as a second local marker.
+                ObjectKind::Wingmate => continue,
+                ObjectKind::Player
+                | ObjectKind::Projectile
+                | ObjectKind::Scenery
+                | ObjectKind::Effect => continue,
+            };
+            if radar_contact_count >= SF2_RADAR_CONTACT_CAPACITY {
+                continue;
+            }
+            let relative_x = object.base.position.x.wrapping_sub(player.base.position.x);
+            let relative_z = object.base.position.z.wrapping_sub(player.base.position.z);
+            let (lateral, forward) = sf_core::snes_trig::rotate_16xz(
+                player.base.yaw.units().wrapping_neg(),
+                relative_x,
+                relative_z,
+            );
+            radar_contacts[radar_contact_count] = Some(Sf2RadarContact {
+                lateral,
+                forward,
+                friendly,
+            });
+            radar_contact_count += 1;
+        }
+    }
+    Sf2FrameInputs {
+        mode: match state.mode {
+            GameMode::Intro(_) => Sf2Mode::Intro,
+            GameMode::Title => Sf2Mode::Title,
+            GameMode::Records => Sf2Mode::Records,
+            GameMode::Briefing => Sf2Mode::Briefing,
+            GameMode::StrategicMap => Sf2Mode::StrategicMap,
+            GameMode::PilotSelection => Sf2Mode::PilotSelection,
+            GameMode::Mission => Sf2Mode::Mission,
+            GameMode::Results => Sf2Mode::Results,
+            GameMode::Ending => Sf2Mode::Ending,
+        },
+        polygon_palette: to_sf2_polygon_palette(&state.mission),
+        mission_backdrop: to_sf2_mission_backdrop(&state.mission),
+        title_page: match state.title.page {
+            TitlePage::MainMenu => Sf2TitlePage::MainMenu,
+            TitlePage::Difficulty => Sf2TitlePage::Difficulty,
+        },
+        title_menu_item: match state.title.menu_item {
+            TitleMenuItem::Mission => Sf2TitleMenuItem::Mission,
+            TitleMenuItem::Records => Sf2TitleMenuItem::Records,
+            TitleMenuItem::SoundMode => Sf2TitleMenuItem::SoundMode,
+        },
+        difficulty: match state.campaign.difficulty {
+            Difficulty::Normal => Sf2Difficulty::Normal,
+            Difficulty::Hard => Sf2Difficulty::Hard,
+            Difficulty::Expert => Sf2Difficulty::Expert,
+        },
+        audio_output: match state.title.audio_output {
+            AudioOutput::Stereo => Sf2AudioOutput::Stereo,
+            AudioOutput::Mono => Sf2AudioOutput::Mono,
+        },
+        pilot_selection_phase: match state.pilot_selection.phase {
+            PilotSelectionPhase::Revealing => Sf2PilotSelectionPhase::Revealing,
+            PilotSelectionPhase::ChoosingPrimary => Sf2PilotSelectionPhase::ChoosingPrimary,
+            PilotSelectionPhase::ChoosingWingmate => Sf2PilotSelectionPhase::ChoosingWingmate,
+            PilotSelectionPhase::Ready => Sf2PilotSelectionPhase::Ready,
+            PilotSelectionPhase::Launching => Sf2PilotSelectionPhase::Launching,
+        },
+        pilot_cursor: to_sf2_pilot(state.pilot_selection.cursor),
+        primary_pilot: state.roster.selected[0].map(to_sf2_pilot),
+        wingmate: state.roster.selected[1].map(to_sf2_pilot),
+        primary_shield: state
+            .mission
+            .primary_player
+            .and_then(|id| state.objects.get(id))
+            .map(|object| object.base.hit_points)
+            .unwrap_or_default(),
+        wingmate_shield: state
+            .mission
+            .wingmate
+            .and_then(|id| state.objects.get(id))
+            .map(|object| object.base.hit_points)
+            .unwrap_or_default(),
+        item_count: state.mission.item_count,
+        target_count,
+        mission_elapsed_time_tenths: state.mission.elapsed_time_tenths,
+        radar_contacts,
+        mode_frame: state.mode_frame,
+        elapsed_campaign_frames: state.campaign.elapsed_frames,
+        corneria_damage_percent: state.campaign.corneria_damage_percent,
+        score: state.mission.score,
+        campaign_sorties_completed: state.campaign.completed_campaign_visits(),
+        strategic_phase: match state.strategic_map.phase {
+            StrategicMapPhase::OpeningOverview => Sf2StrategicPhase::Overview,
+            StrategicMapPhase::Tutorial(_) => Sf2StrategicPhase::Tutorial,
+            StrategicMapPhase::Planning => Sf2StrategicPhase::Planning,
+            StrategicMapPhase::Traveling => Sf2StrategicPhase::Traveling,
+        },
+        strategic_marker_phase: state.strategic_map.marker_phase,
+        strategic_player: Sf2MapPoint {
+            x: state.strategic_map.player_map_position.x,
+            y: state.strategic_map.player_map_position.y,
+        },
+        strategic_destination: Sf2MapPoint {
+            x: state.strategic_map.destination.x,
+            y: state.strategic_map.destination.y,
+        },
+        strategic_actors: state
+            .strategic_map
+            .actors
+            .map(|actor| actor.map(to_sf2_strategic_actor)),
+    }
+}
+
 /// Shell state code -> sf_render GameState (same boot.h ordering).
 fn to_render_state(code: u8) -> RenderState {
     match code {
@@ -73,14 +456,24 @@ fn to_render_state(code: u8) -> RenderState {
         3 => RenderState::PlanetSelect,
         4 => RenderState::Playing,
         5 => RenderState::Continue,
-        _ => RenderState::Ending,
+        6 => RenderState::Ending,
+        7 => RenderState::Tally,
+        _ => RenderState::Boot,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectedGame {
+    StarFox,
+    StarFox2,
 }
 
 struct CliArgs {
     config_path: PathBuf,
     asset_root: Option<PathBuf>,
     shader_dir: Option<PathBuf>,
+    game: SelectedGame,
+    rom_path: Option<PathBuf>,
 }
 
 fn parse_args() -> CliArgs {
@@ -88,6 +481,8 @@ fn parse_args() -> CliArgs {
         config_path: PathBuf::from("starfox.ini"),
         asset_root: None,
         shader_dir: None,
+        game: SelectedGame::StarFox,
+        rom_path: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -99,6 +494,26 @@ fn parse_args() -> CliArgs {
             }
             "--asset-root" => args.asset_root = it.next().map(PathBuf::from),
             "--shader-dir" => args.shader_dir = it.next().map(PathBuf::from),
+            "--game" => match it.next().as_deref() {
+                Some("sf1" | "starfox" | "star-fox") => args.game = SelectedGame::StarFox,
+                Some("sf2" | "starfox2" | "star-fox-2") => args.game = SelectedGame::StarFox2,
+                Some(other) => {
+                    eprintln!("Invalid --game value: {other} (expected sf1 or sf2)");
+                    std::process::exit(2);
+                }
+                None => {
+                    eprintln!("--game requires sf1 or sf2");
+                    std::process::exit(2);
+                }
+            },
+            "--sf2" => args.game = SelectedGame::StarFox2,
+            "--rom" => args.rom_path = it.next().map(PathBuf::from),
+            "--help" | "-h" => {
+                println!(
+                    "Star Fox HD\n\n  --game sf1|sf2      select game (default sf1)\n  --sf2               shorthand for --game sf2\n  --rom PATH           SF2 retail ROM path\n  --config PATH        configuration file\n  --asset-root PATH    renderer asset root\n  --shader-dir PATH    load shaders from disk"
+                );
+                std::process::exit(0);
+            }
             other => eprintln!("Unknown argument: {other}"),
         }
     }
@@ -115,9 +530,46 @@ fn write_ppm(path: &str, w: i32, h: i32, rgb: &[u8]) {
     }
 }
 
+fn load_sf2(cli: &CliArgs) -> sf2_game::Game {
+    let rom_path = cli
+        .rom_path
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("Star Fox 2 (USA, Europe).sfc"));
+    let rom = std::fs::read(&rom_path).unwrap_or_else(|error| {
+        eprintln!(
+            "Star Fox 2 ROM {} could not be read: {error}",
+            rom_path.display()
+        );
+        std::process::exit(1);
+    });
+    if rom.len() != STAR_FOX_2_ROM_SIZE {
+        eprintln!(
+            "Star Fox 2 ROM {} has {} bytes; expected the 1,048,576-byte headerless retail ROM",
+            rom_path.display(),
+            rom.len()
+        );
+        std::process::exit(1);
+    }
+    let title_end = STAR_FOX_2_TITLE_OFFSET + STAR_FOX_2_TITLE.len();
+    if rom.get(STAR_FOX_2_TITLE_OFFSET..title_end) != Some(STAR_FOX_2_TITLE) {
+        eprintln!(
+            "Star Fox 2 ROM {} does not contain the expected internal title",
+            rom_path.display()
+        );
+        std::process::exit(1);
+    }
+    drop(rom);
+    println!(
+        "Star Fox 2 native runtime loaded from {}",
+        rom_path.display()
+    );
+    sf2_game::Game::new()
+}
+
 fn main() {
     let cli = parse_args();
     let cfg = Config::load(&cli.config_path);
+    let mut sf2 = (cli.game == SelectedGame::StarFox2).then(|| load_sf2(&cli));
 
     // --- SDL init (main.c Init) ---
     let sdl = match sdl3::init() {
@@ -129,9 +581,15 @@ fn main() {
     };
     let video = sdl.video().expect("SDL video subsystem");
 
-    let hidden = std::env::var("SF_HIDDEN").map(|v| v == "1").unwrap_or(false);
+    let hidden = std::env::var("SF_HIDDEN")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let mut builder = video.window(
-        "Star Fox HD",
+        if sf2.is_some() {
+            "Star Fox 2 HD"
+        } else {
+            "Star Fox HD"
+        },
         cfg.window_width as u32,
         cfg.window_height as u32,
     );
@@ -161,10 +619,7 @@ fn main() {
     // presented to. Normal runs use the windowed surface.
     let offscreen = std::env::var_os("SF_DUMP_PPM").is_some();
     let gpu = if offscreen {
-        match sf_render::gpu::Gpu::new_headless(
-            cfg.window_width as u32,
-            cfg.window_height as u32,
-        ) {
+        match sf_render::gpu::Gpu::new_headless(cfg.window_width as u32, cfg.window_height as u32) {
             Ok(g) => g,
             Err(e) => {
                 eprintln!("wgpu headless init failed: {e}");
@@ -204,12 +659,7 @@ fn main() {
         shader_dir: cli.shader_dir.clone(),
         asset_root: cli.asset_root.clone().unwrap_or_else(|| cfg.asset_root()),
     };
-    let mut renderer = match Renderer::new(
-        gpu,
-        cfg.window_width,
-        cfg.window_height,
-        &render_cfg,
-    ) {
+    let mut renderer = match Renderer::new(gpu, cfg.window_width, cfg.window_height, &render_cfg) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("Renderer init failed: {e}");
@@ -217,10 +667,26 @@ fn main() {
         }
     };
 
-    let mut audio = AudioSys::new(&sdl, cfg.audio_asset_dir());
+    let mut audio = if sf2.is_some() {
+        match AudioSys::new_sf2(&sdl, cfg.audio_asset_dir()) {
+            Ok(audio) => audio,
+            Err(error) => {
+                eprintln!("Star Fox 2 audio asset validation failed: {error}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        match AudioSys::new(&sdl, cfg.audio_asset_dir()) {
+            Ok(audio) => audio,
+            Err(error) => {
+                eprintln!("Audio asset validation failed: {error}");
+                std::process::exit(1);
+            }
+        }
+    };
 
     let gamepad_subsystem = sdl.gamepad().ok();
-    let mut input = Input::new();
+    let mut input = Input::new(sf2.is_some());
     if let Some(gp) = &gamepad_subsystem {
         input.open_all_gamepads(gp);
     }
@@ -236,15 +702,10 @@ fn main() {
     // Player spawn at gameplay start (C Strat_SpawnPlayer +
     // Strat_PlayerOpening_Init for the scramble levels, boot.c:89-102).
     shell.set_spawn_player(Box::new(|game, newmap| {
-        if let Some(idx) = sf_strat::player::strat_spawn_player(game) {
-            if newmap == sf_map::catalog::map_id::M1_1
-                || newmap == sf_map::catalog::map_id::M2_1
-                || newmap == sf_map::catalog::map_id::M3_1
-            {
-                sf_strat::player::strat_player_opening_init(game, idx);
-            }
-        }
+        let _ = sf_strat::player::strat_spawn_player_for_map(game, newmap);
     }));
+    shell.set_ending_score_part(Box::new(sf_strat::endscore::spawn_final_score_part));
+    shell.set_ending_boss_replay(Box::new(sf_strat::endseq::spawn_replay_boss));
     // Wire real per-shape collision half-extents (C load_collision_extents)
     // from the renderer's shape meshes into the collision system. The shape
     // store is fully populated by Renderer::new (register_builtins).
@@ -265,10 +726,19 @@ fn main() {
     // matches the ROM's per-tick output — authentic (choppier) and the
     // correct basis for parity checking, since interpolation invents
     // between-tick states the ROM never computes.
-    let no_interp = std::env::var("SF_NOINTERP").map(|v| v == "1").unwrap_or(false);
+    let no_interp = std::env::var("SF_NOINTERP")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let fast_forward = std::env::var("SF_FAST_FORWARD")
+        .map(|value| value == "1")
+        .unwrap_or(false);
 
     // --- Fixed timestep game loop with interpolation (main.c:153-201) ---
-    let tick_duration = GAME_TICK_MS as f64 / 1000.0;
+    let tick_duration = if sf2.is_some() {
+        1.0 / STAR_FOX_2_TICKS_PER_SECOND
+    } else {
+        GAME_TICK_MS as f64 / 1_000.0
+    };
     let mut prev_time = Instant::now();
     let mut accumulator = 0.0f64;
 
@@ -282,7 +752,11 @@ fn main() {
 
     while running {
         let now = Instant::now();
-        let mut dt = now.duration_since(prev_time).as_secs_f64();
+        let mut dt = if fast_forward {
+            tick_duration
+        } else {
+            now.duration_since(prev_time).as_secs_f64()
+        };
         prev_time = now;
         // Cap dt to prevent spiral of death (main.c:171).
         if dt > 0.25 {
@@ -342,38 +816,83 @@ fn main() {
             prev_list.clear();
             prev_list.extend_from_slice(&curr_list);
 
-            // SfRtl_BeginFrame -> Game_Tick -> Game_GetDrawList.
-            input.begin_frame(&event_pump.keyboard_state());
-            shell.tick(input.pad1);
+            // SfRtl_BeginFrame -> selected game tick -> draw-list bridge.
+            input.begin_frame(&event_pump.keyboard_state(), sf2.as_ref());
             curr_list.clear();
-            curr_list.extend(
-                shell
-                    .draw_list()
-                    .iter()
-                    .take(MAX_DRAW_LIST)
-                    .map(to_render_entry),
-            );
-
-            frame = shell.frame();
-            audio.tick(&mut shell, &frame);
-
-            if let Some(d) = dump.as_mut() {
-                let list = shell.draw_list();
-                d.tick(
-                    input.pad1,
-                    frame.game_state_code,
-                    &list[..list.len().min(MAX_DRAW_LIST)],
+            if let Some(game) = sf2.as_mut() {
+                let previous_mode = game.mode();
+                if let Err(error) = game.tick(input.pad1) {
+                    eprintln!(
+                        "Star Fox 2 runtime failed on frame {} in {:?}: {error:?}",
+                        game.frame(),
+                        game.mode(),
+                    );
+                    running = false;
+                    accumulator = 0.0;
+                    break;
+                }
+                if game.mode() != previous_mode {
+                    println!(
+                        "[sf2-state] {previous_mode:?} -> {:?} (frame {})",
+                        game.mode(),
+                        game.frame()
+                    );
+                }
+                audio.tick_sf2(game.mode());
+                curr_list.extend(
+                    game.render_objects()
+                        .iter()
+                        .take(MAX_DRAW_LIST)
+                        .map(to_sf2_render_entry),
                 );
-            }
 
-            // Camera for the render pass (nmi.c GameCamera_Update ->
-            // Transform_SetCamera / Transform_SnapCamera).
-            let cam = frame.camera;
-            renderer
-                .transform
-                .set_camera(cam.x, cam.y, cam.z, cam.rx, cam.ry, cam.rz);
-            if cam.snap {
-                renderer.transform.snap_camera();
+                if let Some(d) = dump.as_mut() {
+                    d.tick_render(input.pad1, Sf2DumpMode::from(game.mode()) as u8, &curr_list);
+                }
+
+                // SF2 object/camera coordinates are signed world units with
+                // forward toward decreasing depth. The shared renderer uses
+                // the opposite world-depth basis before its view transform.
+                let cam = game.camera();
+                renderer.transform.set_camera(
+                    sf2_world_to_render(cam.position.x),
+                    sf2_world_to_render(cam.position.y),
+                    sf2_depth_to_render(cam.position.z),
+                    i16::from(cam.rotation.pitch.units()),
+                    i16::from(cam.rotation.yaw.units()),
+                    i16::from(cam.rotation.roll.units()),
+                );
+            } else {
+                shell.tick(input.pad1);
+                curr_list.extend(
+                    shell
+                        .draw_list()
+                        .iter()
+                        .take(MAX_DRAW_LIST)
+                        .map(to_render_entry),
+                );
+
+                frame = shell.frame();
+                audio.tick(&mut shell, &frame);
+
+                if let Some(d) = dump.as_mut() {
+                    let list = shell.draw_list();
+                    d.tick(
+                        input.pad1,
+                        frame.game_state_code,
+                        &list[..list.len().min(MAX_DRAW_LIST)],
+                    );
+                }
+
+                // Camera for the render pass (nmi.c GameCamera_Update ->
+                // Transform_SetCamera / Transform_SnapCamera).
+                let cam = frame.camera;
+                renderer
+                    .transform
+                    .set_camera(cam.x, cam.y, cam.z, cam.rx, cam.ry, cam.rz);
+                if cam.snap {
+                    renderer.transform.snap_camera();
+                }
             }
 
             accumulator -= tick_duration;
@@ -395,59 +914,101 @@ fn main() {
             (accumulator / tick_duration) as f32
         };
 
-        // Assemble FrameInputs from the shell snapshot.
-        let mut windows = [WindowState::default(); WINDOWARRAY_SIZE];
-        for (dst, src) in windows.iter_mut().zip(frame.windows.iter()) {
-            *dst = WindowState {
-                mode: src.mode,
-                wm_val: src.wm_val,
-                stayblack: src.stayblack,
-            };
-        }
-        let inputs = FrameInputs {
-            game_state: to_render_state(frame.game_state_code),
-            currentbg: frame.currentbg,
-            newmap: frame.newmap,
-            bgflags: frame.bgflags,
-            bg2_xscroll: frame.bg2_xscroll,
-            nomax_bg2_yscroll: frame.nomax_bg2_yscroll,
-            pal_from: frame.pal_from,
-            pal_target: frame.pal_target,
-            pal_fade: frame.pal_fade,
-            windowmode: frame.windowmode,
-            windows,
-            meters: frame.meters,
-            stayblack: frame.stayblack,
-            gameflags: frame.gameflags,
-            gameframe: frame.gameframe,
-            boostcnt: frame.boostcnt,
-            arrows: frame.arrows,
-            splayerflymode: frame.splayerflymode,
-            stage: frame.stage,
-            shield_cur: frame.shield_cur,
-            shield_max: frame.shield_max,
-            boss_hp_cur: frame.boss_hp_cur,
-            boss_hp_max: frame.boss_hp_max,
-            lives: frame.lives,
-            bombs: frame.bombs,
-            msg_count1: frame.msg_count1,
-            msg_count2: frame.msg_count2,
-            whichfriend: frame.whichfriend,
-            friends_meter: frame.friends_meter,
-            message_text: frame.message_text.as_deref(),
-            whichroute: frame.whichroute,
-            currentplanet: frame.currentplanet,
-            nebula_on: frame.nebula_on,
-            route_path_ids: &frame.route_path_ids,
-            score: frame.score_total,
-            credits: frame.credits,
-            tally_active: frame.tally_active,
-            tally_stage_perc: frame.tally_stage_perc,
+        // Assemble the shared render inputs from the selected game's native
+        // state.
+        let inputs = if let Some(game) = sf2.as_ref() {
+            let mut inputs = FrameInputs::default();
+            inputs.sf2 = Some(to_sf2_frame_inputs(game));
+            inputs.game_state = RenderState::Boot;
+            inputs.gameframe = game.frame() as u16;
+            inputs.stage = game
+                .mission()
+                .map(sf2_game::MissionId::catalog_index)
+                .unwrap_or_default();
+            inputs
+        } else {
+            let mut windows = [WindowState::default(); WINDOWARRAY_SIZE];
+            for (dst, src) in windows.iter_mut().zip(frame.windows.iter()) {
+                *dst = WindowState {
+                    mode: src.mode,
+                    wm_val: src.wm_val,
+                    stayblack: src.stayblack,
+                };
+            }
+            FrameInputs {
+                sf2: None,
+                game_state: to_render_state(frame.game_state_code),
+                currentbg: frame.currentbg,
+                newmap: frame.newmap,
+                bgflags: frame.bgflags,
+                bg2_xscroll: frame.bg2_xscroll,
+                nomax_bg2_yscroll: frame.nomax_bg2_yscroll,
+                scene_style: frame.scene_style,
+                pal_target: frame.pal_target,
+                palfade_num: frame.palfade_num,
+                windowmode: frame.windowmode,
+                windows,
+                meters: frame.meters,
+                stayblack: frame.stayblack,
+                gameflags: frame.gameflags,
+                gameframe: frame.gameframe,
+                boostcnt: frame.boostcnt,
+                arrows: frame.arrows,
+                splayerflymode: frame.splayerflymode,
+                stage: frame.stage,
+                shield_cur: frame.shield_cur,
+                shield_max: frame.shield_max,
+                boss_hp_cur: frame.boss_hp_cur,
+                boss_hp_max: frame.boss_hp_max,
+                lives: frame.lives,
+                bombs: frame.bombs,
+                specflash: frame.specflash,
+                shieldup: frame.shieldup,
+                msg_count1: frame.msg_count1,
+                msg_count2: frame.msg_count2,
+                whichfriend: frame.whichfriend,
+                friends_meter: frame.friends_meter,
+                message_text: frame.message_text.as_deref(),
+                whichroute: frame.whichroute,
+                currentplanet: frame.currentplanet,
+                nebula_on: frame.nebula_on,
+                route_path_ids: &frame.route_path_ids,
+                score: frame.score_total,
+                credits: frame.credits,
+                tally_active: frame.tally_active,
+                tally_stage_perc: frame.tally_stage_perc,
+                tally_current_perc: frame.tally_current_perc,
+                tally_teammate_shields: frame.tally_teammate_shields,
+                tally_bonus_visible: frame.tally_bonus_visible,
+                ending_replay: frame.ending_replay.map(|replay| EndingReplayInputs {
+                    backdrop: match replay.backdrop {
+                        sf_game::shell::EndingReplayBackdrop::RisingGradient => {
+                            RenderEndingReplayBackdrop::RisingGradient
+                        }
+                        sf_game::shell::EndingReplayBackdrop::SplitGradient => {
+                            RenderEndingReplayBackdrop::SplitGradient
+                        }
+                    },
+                    title: replay.text.title,
+                    subtitle: replay.text.subtitle,
+                    location: replay.text.location,
+                    location_second_line: replay.text.location_second_line,
+                    details: replay.text.details,
+                    detail_characters_visible: replay.detail_characters_visible,
+                }),
+            }
         };
 
         // Render interpolated frame (main.c:195-200).
         renderer.begin_frame();
         renderer.submit(&prev_list, &curr_list, alpha, &inputs);
+        // HUD do_arrows wrap queues SE $8A into Hud::pending_sounds — drain
+        // into the audio ring (SPRITES.ASM:872 trigse $8a).
+        for id in renderer.take_pending_hud_sounds() {
+            if sf2.is_none() {
+                audio.play_hud_se(&shell, id);
+            }
+        }
         renderer.end_frame(); // uploads geometry + presents the wgpu surface
 
         if ppm_pending && total_ticks >= ppm_tick {
@@ -470,6 +1031,207 @@ fn main() {
     if let Some(d) = dump.as_mut() {
         d.flush();
     }
+    audio.shutdown();
     renderer.shutdown();
     println!("Shutdown after {total_ticks} ticks");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sf1_tally_has_a_dedicated_render_state() {
+        assert_eq!(to_render_state(7), RenderState::Tally);
+    }
+
+    #[test]
+    fn sf2_bridge_converts_decreasing_world_depth_to_renderer_forward() {
+        const WORLD_DEPTH: i16 = -2_435;
+        assert_eq!(
+            sf2_depth_to_render(WORLD_DEPTH),
+            2_435i32 << WORLD_TO_RENDER_FRACTIONAL_BITS
+        );
+    }
+
+    #[test]
+    fn sf2_bridge_selects_polygon_palettes_from_typed_mission_phases() {
+        use sf2_game::{AstropolisPhase, EladardPhase, MissionState, MissionVisit};
+
+        let mut mission = MissionState {
+            visit: MissionVisit::EladardBase,
+            ..MissionState::default()
+        };
+        for phase in [
+            EladardPhase::SurfaceApproach,
+            EladardPhase::SurfaceBarriers,
+            EladardPhase::BaseEntrance,
+        ] {
+            mission.eladard.phase = phase;
+            assert_eq!(
+                to_sf2_polygon_palette(&mission),
+                Sf2PolygonPalette::EladardSurface
+            );
+        }
+        for phase in [
+            EladardPhase::WalkerTransformation,
+            EladardPhase::PlatformSwitch,
+            EladardPhase::WallSpider,
+            EladardPhase::Generator,
+            EladardPhase::BaseDestruction,
+            EladardPhase::ReturnFlight,
+        ] {
+            mission.eladard.phase = phase;
+            assert_eq!(
+                to_sf2_polygon_palette(&mission),
+                Sf2PolygonPalette::Standard
+            );
+        }
+
+        mission.visit = MissionVisit::AstropolisAssault;
+        for phase in [
+            AstropolisPhase::ExteriorApproach,
+            AstropolisPhase::BaseEntry,
+        ] {
+            mission.astropolis.phase = phase;
+            assert_eq!(
+                to_sf2_polygon_palette(&mission),
+                Sf2PolygonPalette::AstropolisExterior
+            );
+        }
+        for phase in [
+            AstropolisPhase::InteriorCorridor,
+            AstropolisPhase::SecurityTurret,
+            AstropolisPhase::BranchCorridor,
+            AstropolisPhase::CoreSpikes,
+            AstropolisPhase::ExposedCube,
+            AstropolisPhase::AndrossMask,
+            AstropolisPhase::FinalCore,
+            AstropolisPhase::MaskReforming,
+            AstropolisPhase::CoreDestruction,
+            AstropolisPhase::Escape,
+        ] {
+            mission.astropolis.phase = phase;
+            assert_eq!(
+                to_sf2_polygon_palette(&mission),
+                Sf2PolygonPalette::Standard
+            );
+        }
+
+        mission.visit = MissionVisit::TitaniaBase;
+        assert_eq!(
+            to_sf2_polygon_palette(&mission),
+            Sf2PolygonPalette::Standard
+        );
+        mission.visit = MissionVisit::SecondBattleCarrier;
+        assert_eq!(
+            to_sf2_polygon_palette(&mission),
+            Sf2PolygonPalette::Standard
+        );
+    }
+
+    #[test]
+    fn sf2_bridge_selects_oracle_backdrops_from_typed_mission_phases() {
+        use sf2_game::{
+            AstropolisPhase, CarrierAssaultPhase, EladardPhase, MissionState, MissionVisit,
+            TitaniaPhase,
+        };
+
+        let mut mission = MissionState {
+            visit: MissionVisit::EladardBase,
+            ..MissionState::default()
+        };
+        for phase in [
+            EladardPhase::SurfaceApproach,
+            EladardPhase::SurfaceBarriers,
+            EladardPhase::BaseEntrance,
+            EladardPhase::ReturnFlight,
+        ] {
+            mission.eladard.phase = phase;
+            assert_eq!(
+                to_sf2_mission_backdrop(&mission),
+                Sf2MissionBackdrop::EladardSurface
+            );
+        }
+        for phase in [
+            EladardPhase::WalkerTransformation,
+            EladardPhase::PlatformSwitch,
+            EladardPhase::WallSpider,
+            EladardPhase::Generator,
+            EladardPhase::BaseDestruction,
+        ] {
+            mission.eladard.phase = phase;
+            assert_eq!(
+                to_sf2_mission_backdrop(&mission),
+                Sf2MissionBackdrop::EladardInterior
+            );
+        }
+
+        mission.visit = MissionVisit::TitaniaBase;
+        for phase in [
+            TitaniaPhase::SurfaceApproach,
+            TitaniaPhase::SurfaceSwitches,
+            TitaniaPhase::BaseEntry,
+            TitaniaPhase::Interior,
+            TitaniaPhase::Reactor,
+            TitaniaPhase::ReturnFlight,
+        ] {
+            mission.titania.phase = phase;
+            assert_eq!(
+                to_sf2_mission_backdrop(&mission),
+                Sf2MissionBackdrop::TitaniaBase
+            );
+        }
+
+        for visit in [
+            MissionVisit::FirstBattleCarrier,
+            MissionVisit::SecondBattleCarrier,
+        ] {
+            mission.visit = visit;
+            for phase in [
+                CarrierAssaultPhase::ExteriorApproach,
+                CarrierAssaultPhase::ReturnFlight,
+            ] {
+                mission.carrier_assault.phase = phase;
+                assert_eq!(
+                    to_sf2_mission_backdrop(&mission),
+                    Sf2MissionBackdrop::DeepSpace
+                );
+            }
+            for phase in [
+                CarrierAssaultPhase::InteriorCorridor,
+                CarrierAssaultPhase::ReactorApproach,
+                CarrierAssaultPhase::ReactorCombat,
+                CarrierAssaultPhase::CoreDestruction,
+            ] {
+                mission.carrier_assault.phase = phase;
+                assert_eq!(
+                    to_sf2_mission_backdrop(&mission),
+                    Sf2MissionBackdrop::CarrierInterior
+                );
+            }
+        }
+
+        mission.visit = MissionVisit::AstropolisAssault;
+        for phase in [
+            AstropolisPhase::ExteriorApproach,
+            AstropolisPhase::BaseEntry,
+            AstropolisPhase::InteriorCorridor,
+            AstropolisPhase::SecurityTurret,
+            AstropolisPhase::BranchCorridor,
+            AstropolisPhase::CoreSpikes,
+            AstropolisPhase::ExposedCube,
+            AstropolisPhase::AndrossMask,
+            AstropolisPhase::FinalCore,
+            AstropolisPhase::MaskReforming,
+            AstropolisPhase::CoreDestruction,
+            AstropolisPhase::Escape,
+        ] {
+            mission.astropolis.phase = phase;
+            assert_eq!(
+                to_sf2_mission_backdrop(&mission),
+                Sf2MissionBackdrop::AstropolisVoid
+            );
+        }
+    }
 }

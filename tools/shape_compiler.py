@@ -2,22 +2,23 @@
 """
 Star Fox HD -- Shape Compiler
 
-Reads SNES ASM shape files (SHAPES*.ASM, USHAPES.ASM, KSHAPES.ASM, PSHAPES.ASM)
-and the shape ID registry (ISTRATS.ASM), then generates C data arrays for all
-shapes at build time.
+Reads the original shape files and shape catalog, then generates the native
+Rust mesh table used by the renderer.
 
 Usage:
     python3 tools/shape_compiler.py
 
 Output:
-    src/renderer/shape_data.h
+    rust/sf-render/src/shape_data.rs
 """
 
 from __future__ import annotations
 
 import ast
+import math
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -42,6 +43,15 @@ SHAPE_ASM_FILES = [
     "reference/ultrastarfox/SF/SHAPES/PSHAPES.ASM",
 ]
 
+# Some public labels are intentionally redefined by alternate/demo shape
+# banks. The live player catalog uses PSHAPES; choosing the first textual
+# header instead compiled SHAPES6's 36-point demo craft into runtime id 2,
+# which is why the legacy renderer had to overwrite it by hand.
+PREFERRED_HEADER_FILES = {
+    "myship_4": "PSHAPES.ASM",
+    "bmyship_4": "PSHAPES.ASM",
+}
+
 OUTPUT_PATH = os.path.join(REPO_ROOT, "src/renderer/shape_data.h")
 RUST_OUTPUT_PATH = os.path.join(REPO_ROOT, "rust/sf-render/src/shape_data.rs")
 
@@ -52,11 +62,10 @@ INC_SYMBOL_FILES = [
     "reference/ultrastarfox/SF/INC/STRATEQU.INC",
 ]
 
-# Shape IDs to skip in the output (using the "MACRO-counted" numbering
-# where def_shape MACRO is ID 0, matching g_istrat_shape_defaults).
+# Shape IDs to skip in the output. The source catalog starts with nullshape at
+# zero; it deliberately has no geometry.
 SKIP_SHAPE_IDS = {
-    0,    # macro -- MACRO definition, not a real shape
-    1,    # nullshape -- no geometry
+    0,    # nullshape -- no geometry
 }
 
 # ---------------------------------------------------------------------------
@@ -105,6 +114,219 @@ EXTENDED_SHAPES = {
     "clasteroid": 280,  # clear-demo asteroid sprite quad (USHAPES.ASM)
     "whale":      281,  # whale, animated frame 0 (SHAPES5.ASM)
     "my_bird":    282,  # training bird (SHAPES5.ASM)
+    "zaco_8p":    283,  # szaco2 debris piece (SHAPES2.ASM; not in def_shape)
+    # Map-visible meshes referenced directly by 16-bit shape words rather
+    # than through ISTRATS.ASM's def_shape table.  The old Rust maps replaced
+    # all of these with nullshape, leaving invisible tunnel walls, colony
+    # pipes, scenery and credits glyphs even though the source geometry is
+    # present and parseable.
+    "bou_1":      284,
+    "pipe_8_0":   285,
+    "pipe_8":     286,
+    "bou_1b":     287,
+    "paper_1":    288,
+    "paper_3":    289,
+    "pole_0":     290,
+    "slot_0":     291,
+    "font_t2":    292,
+    "font_h2":    293,
+    "font_e2":    294,
+    "font_e3":    295,
+    "font_n2":    296,
+    "font_d2":    297,
+    "pilon":      298,
+    "mine_0":     299,
+    # Great Commander / Transformer child meshes.  The map-visible airship
+    # (`boss_f_4`) and its feet (`boss_f_3`) already have def_shape ids 95 and
+    # 82; these remaining SHAPES4 components need stable extended slots.
+    "boss_f_1":   305,  # head
+    "boss_f_2":   306,  # torso
+    "boss_f_5":   307,  # transformed torso
+    "boss_f_6":   308,  # right arm
+    "boss_f_7":   309,  # left arm
+    # bossH is placed by a direct strategy address and its component meshes
+    # therefore never receive def_shape ids from ISTRATS.ASM.
+    "boss_h_0":   300,  # walking boss body (SHAPES.ASM)
+    "boss_h_1":   301,  # leg, normal animation range
+    "boss_h_1a":  302,  # leg, alternate animation range
+    "boss_h_2":   303,  # rotating weapon top
+    "boss_h_3":   304,  # teleport effect
+    "pipe_9_0":   310,
+    "pipe_9":     311,
+    "deboss_1":   312,
+    # WASHENT.ASM pipe-run pieces. These labels are intentionally commented
+    # out of ISTRATS.ASM's def_shape catalog but are complete meshes in
+    # SHAPES3.ASM and are referenced directly by the map macros.
+    "pipe_0":     313,
+    "pipe_1":     314,
+    "pipe_2":     315,
+    "pipe_3":     316,
+    "pipe_4":     317,
+    "pipe_5":     318,
+    "pipe_6":     319,
+    # FINALMAP.ASM's route-specific last-base obstacles. Like the pipe-run
+    # pieces above, these complete meshes are addressed directly by the map
+    # and therefore never receive an ISTRATS def_shape slot.
+    "d_pilar":    320,
+    "half_d":     321,
+    # Reachable runtime-only meshes.  These are selected directly by strategy
+    # code (rather than `def_shape` map rows), so leaving them out forced the
+    # Rust port to substitute unrelated extended shapes or nullshape.  Keep
+    # this range stable: sf-strat uses the generated SHAPE_EXT_* constants.
+    "cockpit":      322,
+    "old_type":     323,
+    "item_0":       324,
+    "r_but_2":      325,
+    "walk_4_0":     326,
+    "arm":          327,
+    "bulge":        328,
+    "boss_e_0":     329,
+    "boss_e_1":     330,
+    "boss_e_1a":    331,
+    "boss_e_3":     332,
+    "boss_e_4":     333,
+    "ringlaser":    334,
+    "snake_0":      335,
+    "snake_3":      336,
+    "snake_4":      337,
+    "smark":        338,
+    "mmark":        339,
+    "lmark":        340,
+    "escapee":      341,
+    "lfdie":        342,
+    "andross":      343,
+    "androsscube":  344,
+    "face_0_1":     345,
+    "face_1":       346,
+    "face_box":     347,
+    "sface_b":      348,
+    "sface2_b":     349,
+    "para_1":       350,
+    "my_w":         351,
+    "my_r_w":       352,
+    "my_l_w":       353,
+    "my_b_w":       354,
+    "up1_man":      355,
+    "f_dra_1":      356,
+    "fire":         357,
+    "smoke":        358,
+    "ssplash":      359,
+    "splash":       360,
+    "pexplod":      361,
+    "boostshape":   362,
+    "firebreath":   363,
+    "lsmoke":       364,
+    "folsmoke":     365,
+    "androsshole":  366,
+    "spexplod":     367,
+    # Complete retail player-shape table plus the scrape spark. The intact
+    # Arwing remains def_shape id 2; these variants are selected at runtime.
+    "myship_r":     368,
+    "myship_l":     369,
+    "myship_b":     370,
+    "my_up":        371,
+    "bmyship_4":    372,
+    "bmyship_r":    373,
+    "bmyship_l":    374,
+    "bmyship_b":    375,
+    "myzoom_4":     376,
+    "myzoom_r":     377,
+    "myzoom_l":     378,
+    "myzoom_b":     379,
+    "line":         380,
+    # Remaining reachable combat/cutscene meshes that were still represented
+    # by nullshape or by unrelated ids in the Rust strategy ports.
+    "boss_d_0":     381,
+    "boss_d_2":     382,
+    "neck":         383,
+    "grabber":      384,
+    "grabber2":     385,
+    "egg":          386,
+    "boss_d_8":     387,
+    "boss_d_9":     388,
+    "boss_d_6":     389,
+    "boss_d_7":     390,
+    "boss_9_0":     391,
+    "barrier":      392,
+    "fireface_b":   393,
+    "boss_a_3":     394,
+    "boss_a_4":     395,
+    "boss_a_5":     396,
+    "boss_b_l":     397,
+    "boss_b_r":     398,
+    "boss_b_h":     399,
+    "round0p":      400,
+    "ripair_w":     401,
+    "fireball":     402,
+    "missile":      403,
+    "ironball":     404,
+    "bouncyball":   405,
+    "shelpball":    406,
+    "nuke":         407,
+    "hyper":        408,
+    "hou_3":        409,
+    "my_demobs":    410,
+    "my_demos":     411,
+    "big_m":        412,
+    "boss_f_b":     413,
+    "walker_r":     414,
+    "playerbeam":   415,
+    "ovalbeam":     416,
+    "c_miss":       417,
+    # Black Hole's shape-shuffling object selects these two meshes directly.
+    # Neither is part of the map shape catalog, so they need stable native
+    # slots alongside the other runtime-only meshes.
+    "zaco_0":       418,
+    "zaco_7p":      419,
+    "robot_0":      420,
+    # Great Commander animated hull pieces. The renderer retains hand-tuned
+    # frame overlays for these ids, but compiling their complete source face
+    # programs here supplies exact visibility metadata instead of treating
+    # every polygon as two-sided.
+    "boss_7_0":     421,
+    "boss_7_1o":    422,
+    "boss_7_2":     423,
+    "boss_7_3":     424,
+    "boss_7_4":     425,
+    # Player laser. Keep its complete nine-frame source vertex stream and
+    # exact per-face visibility triangles in the typed runtime catalog.
+    "elaser2":      511,
+    "boss_a_6":     426,
+    "boss_f_8":     427,
+    "boss_f_9":     428,
+    "boss_f_8a":    429,
+    "boss_f_9a":    430,
+    "face_0":       431,
+    # Directly selected boss/runtime meshes that were previously assigned
+    # unrelated catalog ids in the Rust port.  These labels are real source
+    # ShapeHdrs but do not have def_shape rows, so reserve stable native slots.
+    "boss_0_0":     432,
+    "boss_0_0a":    433,
+    "boss_0_2":     434,
+    "boss_0_3":     435,
+    "boss_1_0":     436,
+    "boss_1_1":     437,
+    "amoeba1":      438,
+    "rpillar3":     439,
+    # Intro Great Commander side shells. The center shell (`deboss_1`) is a
+    # map-visible extended shape at 312; these two are native child objects
+    # created by boss7intro_Istrat and need their own stable catalog slots.
+    "deboss_0":      440,
+    "deboss_2":      441,
+    # Path-only actors selected by assembled PATHDATA operands. These are
+    # complete ShapeHdr meshes, but neither has an ISTRATS def_shape row.
+    "flower":         442,
+    "big_bird":       443,
+    "leaf":            444,
+    "walk_4_l":        445,
+    "walk_4_r":        446,
+    "tow_1":           447,
+    "slot_1":          448,
+    "slot_2":          449,
+    "slot_3":          450,
+    "slot_4":          451,
+    "pillar3_ns":      452,
+    "laserline":       453,
 }
 
 
@@ -245,7 +467,9 @@ class AsmLine:
 
 KNOWN_OPS = {
     "shapehdr", "shapehdr_s", "pointsb", "pointsw", "pointsxb", "pointsxw",
-    "pb", "pw", "pbd2", "pby2", "frames", "jumptab", "jump",
+    "pb", "pw", "pbd2", "pby2", "pipe8pb", "pipe9pb", "pipepb", "tbpb",
+    "mlaser",
+    "frames", "jumptab", "jump",
     "endpoints", "faces", "face2", "face3", "face4", "face5", "face6",
     "face7", "face8", "face9", "face10", "face11", "face12",
     "aface3", "aface4", "fend", "fendq",
@@ -411,6 +635,14 @@ class Vertex:
 class Face:
     vertex_indices: List[int]
     color_index: int
+    # Authored lighting/explosion normal from the Face record. Components are
+    # signed source bytes; the Rust emitter converts Y into GL-up coordinates.
+    normal: Tuple[int, int, int]
+    # Resolved `vizis` triangle used by the source hidden-surface test.
+    # `None` is the source selector -1: draw from either side (wire lines and
+    # deliberately two-sided polygons). Keeping the resolved indices avoids
+    # recreating the shape bytecode/BSP interpreter in the shipping renderer.
+    visibility_vertices: Optional[Tuple[int, int, int]]
 
 
 @dataclass
@@ -427,7 +659,15 @@ class ShapeData:
     shape_id: int
     name: str
     vertices: List[Vertex]
+    # Complete vertex streams selected by the Shape `Frames` bytecode for
+    # each animation frame. Static shapes leave this empty; animated shapes
+    # include frame zero as the first entry.
+    animation_frames: List[List[Vertex]]
     faces: List[Face]
+    # ShapeHdr sh_col_ptr.  Zero in a live object's al_coltab means "use
+    # this header table"; retaining it is required for sprite-textured and
+    # per-shape animated materials (asteroids, explosions, lasers, etc.).
+    color_table: str
 
 
 # ---------------------------------------------------------------------------
@@ -446,12 +686,15 @@ def parse_def_shapes(istrats_path: str) -> List[Tuple[int, str]]:
             line = strip_asm_comment(raw_line).strip()
             if not line:
                 continue
-            # Match def_shape lines (including the MACRO definition line,
-            # which gets counted as ID 0 to match the istrat table numbering
-            # used by g_istrat_shape_defaults in istrat_shapes.c).
+            # Match catalog entries, but not the `def_shape MACRO`
+            # declaration. The source counter is initialized to zero and the
+            # declaration does not invoke the macro; nullshape is therefore
+            # exactly id 0, exitlight id 1, and myship_4 id 2.
             m = re.match(r'^def_shape\s+(\w+)', line, re.IGNORECASE)
             if m:
                 name = m.group(1)
+                if name.lower() == "macro":
+                    continue
                 shapes.append((shape_id, name.lower()))
                 shape_id += 1
 
@@ -472,25 +715,65 @@ def find_label_line(af: AsmFile, label: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Parse vertices (frame 0 only for animated shapes)
+# Parse vertices and animation-frame jump tables
 # ---------------------------------------------------------------------------
 
-def parse_vertices(af: AsmFile, points_label: str, shift: int) -> List[Vertex]:
-    """Parse vertex data starting from points_label."""
+def vertex_section_bounds(af: AsmFile, points_label: str) -> Tuple[int, int]:
+    """Return the inclusive points-language range, or ``(-1, -1)``."""
     start = find_label_line(af, points_label)
+    if start < 0:
+        return -1, -1
+
+    for i in range(start, len(af.lines)):
+        if af.lines[i].op == 'endpoints':
+            return start, i
+    return -1, -1
+
+
+def animation_period(af: AsmFile, points_label: str) -> int:
+    """Return the complete period of all ``Frames`` tables in a shape.
+
+    The GSU applies the same object animation counter independently at every
+    Frames opcode and wraps it by that table's row count. Their least common
+    multiple therefore describes the complete vertex-stream period.
+    """
+    start, end = vertex_section_bounds(af, points_label)
+    if start < 0:
+        return 0
+    period = 1
+    animated = False
+    for line_index, line in enumerate(af.lines[start:end + 1], start):
+        if line.op != 'frames':
+            continue
+        declared_count = eval_in_file(af, line.args)
+        if declared_count is None or declared_count <= 0:
+            continue
+        row_count = 0
+        while (
+                line_index + 1 + row_count <= end
+                and af.lines[line_index + 1 + row_count].op == 'jumptab'
+        ):
+            row_count += 1
+        # paper_1 declares Frames 32 but contains 20 rows, and every live path
+        # explicitly clamps its counter to 0..19. Use the concrete typed rows
+        # rather than compiling the twelve following point records as offsets.
+        count = row_count if row_count > 0 else declared_count
+        animated = True
+        period = math.lcm(period, count)
+    return period if animated else 0
+
+
+def parse_vertices(
+        af: AsmFile,
+        points_label: str,
+        shift: int,
+        animation_frame: int = 0,
+) -> List[Vertex]:
+    """Parse one complete vertex stream starting from ``points_label``."""
+    start, end = vertex_section_bounds(af, points_label)
     if start < 0:
         return []
 
-    # Find the EndPoints marker
-    end = -1
-    for i in range(start, len(af.lines)):
-        if af.lines[i].op == 'endpoints':
-            end = i
-            break
-    if end < 0:
-        return []
-
-    # Check for animation frames -- if present, follow frame 0 only
     vertices: List[Vertex] = []
     pc = start
     pending_count = 0
@@ -512,7 +795,7 @@ def parse_vertices(af: AsmFile, points_label: str, shift: int) -> List[Vertex]:
             pc += 1
             continue
 
-        if line.op in ('pb', 'pw', 'pbd2', 'pby2'):
+        if line.op in ('pb', 'pw', 'pbd2', 'pby2', 'pipe8pb', 'pipe9pb', 'pipepb', 'tbpb'):
             if pending_count > 0:
                 args = split_asm_args(line.args)
                 if len(args) >= 3:
@@ -529,6 +812,22 @@ def parse_vertices(af: AsmFile, points_label: str, shift: int) -> List[Vertex]:
                         z //= 2
                     elif line.op == 'pby2':
                         y *= 2
+                    elif line.op in ('pipe8pb', 'pipe9pb'):
+                        # SHAPES2/5 local macro: pb x/8,y/8,z/8.  The
+                        # matching ShapeHdr has shift=3, so the final mesh
+                        # returns to the authored coordinates.
+                        x //= 8
+                        y //= 8
+                        z //= 8
+                    elif line.op == 'pipepb':
+                        # SHAPES3 pipe macro.
+                        y *= 2
+                        z = (z * 125) // 100
+                    elif line.op == 'tbpb':
+                        # SHAPES.ASM t_bool helper.
+                        x = (x * 125) // 100
+                        y = (y * 125) // 100
+                        z = (z * 125) // 100
 
                     vertices.append(Vertex(float(x), float(y), float(z)))
                     if pending_mirror:
@@ -538,26 +837,41 @@ def parse_vertices(af: AsmFile, points_label: str, shift: int) -> List[Vertex]:
             pc += 1
             continue
 
+        if line.op == 'mlaser':
+            # USHAPES player-laser point macro. Each selected animation row
+            # expands to a complete six-point stream and its own EndPoints.
+            args = split_asm_args(line.args)
+            values = [eval_in_file(af, arg) for arg in args]
+            if len(values) != 4 or any(value is None for value in values):
+                raise ValueError(
+                    f"invalid mlaser row at {af.path}:{pc + 1}")
+            nose, middle, tail, radius = values
+            vertices.extend([
+                Vertex(0.0, 0.0, float(tail)),
+                Vertex(float(-radius), 0.0, float(middle)),
+                Vertex(0.0, 0.0, float(nose)),
+                Vertex(float(radius), 0.0, float(middle)),
+                Vertex(0.0, -2.0, float(middle)),
+                Vertex(0.0, 2.0, float(middle)),
+            ])
+            break
+
         if line.op == 'frames':
-            # Animated shape: follow frame 0 via jumptab
-            val = eval_in_file(af, line.args)
-            frame_count = val if val is not None and val > 0 else 1
-            # Find the first jumptab after this line
+            # The GSU repeatedly subtracts the table size, i.e. selects the
+            # object animation counter modulo this Frames table's row count.
+            table: List[AsmLine] = []
             scan = pc + 1
-            while scan < end:
-                jline = af.lines[scan]
-                if jline.op == 'jumptab':
-                    # Follow this label (frame 0)
-                    jump_target = jline.args.strip().strip('<>').strip()
-                    target_line = find_label_line_range(af, jump_target, start, end)
-                    if target_line >= 0:
-                        pc = target_line
-                    else:
-                        pc = scan + 1
-                    break
+            while scan <= end and af.lines[scan].op == 'jumptab':
+                table.append(af.lines[scan])
                 scan += 1
-            else:
+            if not table:
                 pc += 1
+                continue
+            frame_count = len(table)
+            selected = animation_frame % frame_count
+            jump_target = table[selected].args.strip().strip('<>').strip()
+            target_line = find_label_line_range(af, jump_target, start, end)
+            pc = target_line if target_line >= 0 else pc + 1
             continue
 
         if line.op == 'jump':
@@ -587,6 +901,47 @@ def parse_vertices(af: AsmFile, points_label: str, shift: int) -> List[Vertex]:
     return vertices
 
 
+def parse_vertex_frames(
+        af: AsmFile,
+        points_label: str,
+        shift: int,
+) -> List[List[Vertex]]:
+    """Parse every distinct animation frame, or one stream for static data."""
+    period = animation_period(af, points_label)
+    count = period if period > 0 else 1
+    return [
+        parse_vertices(af, points_label, shift, frame)
+        for frame in range(count)
+    ]
+
+
+def validate_shape_geometry(
+        name: str,
+        vertex_frames: List[List[Vertex]],
+        faces: List[Face],
+) -> None:
+    """Reject a typed mesh whose faces cannot address every animation frame."""
+    if not vertex_frames:
+        raise ValueError(f"shape {name} has no vertex frames")
+    referenced_indices = [
+        index
+        for face in faces
+        for index in (
+            face.vertex_indices
+            + (list(face.visibility_vertices)
+               if face.visibility_vertices is not None else [])
+        )
+    ]
+    if not referenced_indices:
+        return
+    max_index = max(referenced_indices)
+    for frame_index, frame in enumerate(vertex_frames):
+        if max_index >= len(frame):
+            raise ValueError(
+                f"shape {name} frame {frame_index} has {len(frame)} vertices "
+                f"but its faces reference vertex {max_index}")
+
+
 def find_label_line_range(af: AsmFile, label: str, start: int, end: int) -> int:
     """Find a label within a range of lines."""
     target = label.lower()
@@ -612,12 +967,36 @@ def parse_faces(af: AsmFile, faces_label: str) -> List[Face]:
         return []
 
     faces: List[Face] = []
+    visibility_tests: List[Tuple[int, int, int]] = []
+    visibility_tests_remaining = 0
 
     for i in range(start, len(af.lines)):
         line = af.lines[i]
 
         if line.op == 'endshape':
             break
+
+        if line.op == 'vizis':
+            count = eval_in_file(af, line.args)
+            if count is None or count < 0:
+                raise ValueError(
+                    f"invalid visibility-test count at {af.path}:{i + 1}")
+            visibility_tests = []
+            visibility_tests_remaining = count
+            continue
+
+        if line.op == 'viz' and visibility_tests_remaining > 0:
+            args = split_asm_args(line.args)
+            if len(args) < 3:
+                raise ValueError(
+                    f"truncated visibility test at {af.path}:{i + 1}")
+            indices = tuple(eval_in_file(af, arg) for arg in args[:3])
+            if any(index is None for index in indices):
+                raise ValueError(
+                    f"unresolved visibility test at {af.path}:{i + 1}")
+            visibility_tests.append(indices)  # type: ignore[arg-type]
+            visibility_tests_remaining -= 1
+            continue
 
         # Match faceN where N >= 2. Face2 is a wireframe line segment
         # (args: color, vis, nx, ny, nz, v0, v1); it is emitted with
@@ -644,6 +1023,30 @@ def parse_faces(af: AsmFile, faces_label: str) -> List[Face]:
             color_val = eval_in_file(af, args[0])
             color_index = color_val if color_val is not None else 0
 
+            normal_values = [eval_in_file(af, arg) for arg in args[2:5]]
+            if any(value is None for value in normal_values):
+                raise ValueError(
+                    f"unresolved face normal at {af.path}:{i + 1}")
+            # Face records store each component as one signed byte.
+            normal = tuple(
+                ((int(value) & 0xFF) - 256
+                 if (int(value) & 0xFF) >= 128 else (int(value) & 0xFF))
+                for value in normal_values
+            )
+
+            visibility_val = eval_in_file(af, args[1])
+            if visibility_val is None:
+                raise ValueError(
+                    f"unresolved face visibility at {af.path}:{i + 1}")
+            if visibility_val == -1:
+                visibility_vertices = None
+            elif 0 <= visibility_val < len(visibility_tests):
+                visibility_vertices = visibility_tests[visibility_val]
+            else:
+                raise ValueError(
+                    f"face visibility {visibility_val} outside the "
+                    f"{len(visibility_tests)} tests at {af.path}:{i + 1}")
+
             # Vertex indices are the last N args
             base = len(args) - nverts
             vindices: List[int] = []
@@ -655,7 +1058,12 @@ def parse_faces(af: AsmFile, faces_label: str) -> List[Face]:
                 else:
                     vindices.append(0)
 
-            faces.append(Face(vertex_indices=vindices, color_index=color_index))
+            faces.append(Face(
+                vertex_indices=vindices,
+                color_index=color_index,
+                normal=normal,  # type: ignore[arg-type]
+                visibility_vertices=visibility_vertices,
+            ))
 
     return faces
 
@@ -760,6 +1168,10 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     out.append("    pub vertex_indices: [u16; 12],")
     out.append("    pub num_verts: u8,")
     out.append("    pub color_index: u8,")
+    out.append("    /// Authored face normal in the shared GL-up coordinate model.")
+    out.append("    pub normal: [i16; 3],")
+    out.append("    /// Source `vizis` triangle; `None` means deliberately two-sided.")
+    out.append("    pub visibility_vertices: Option<[u16; 3]>,")
     out.append("}")
     out.append("")
     out.append("/// One compiled shape, matching C `ShapeDataEntry` (shape_data.h).")
@@ -767,7 +1179,9 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     out.append("pub struct ShapeDataEntry {")
     out.append("    pub shape_id: u16,")
     out.append("    pub vertices: &'static [ShapeVertex],")
+    out.append("    pub animation_frames: &'static [&'static [ShapeVertex]],")
     out.append("    pub faces: &'static [ShapeFace],")
+    out.append("    pub default_color_table: &'static str,")
     out.append("    pub name: &'static str,")
     out.append("}")
     out.append("")
@@ -775,8 +1189,14 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     out.append("    ShapeVertex { x, y, z }")
     out.append("}")
     out.append("")
-    out.append("const fn f(vertex_indices: [u16; 12], num_verts: u8, color_index: u8) -> ShapeFace {")
-    out.append("    ShapeFace { vertex_indices, num_verts, color_index }")
+    out.append("const fn f(")
+    out.append("    vertex_indices: [u16; 12],")
+    out.append("    num_verts: u8,")
+    out.append("    color_index: u8,")
+    out.append("    normal: [i16; 3],")
+    out.append("    visibility_vertices: Option<[u16; 3]>,")
+    out.append(") -> ShapeFace {")
+    out.append("    ShapeFace { vertex_indices, num_verts, color_index, normal, visibility_vertices }")
     out.append("}")
     out.append("")
 
@@ -784,15 +1204,29 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
         out.append(f"// Shape {shape.shape_id}: {shape.name}")
 
         # Vertices -- same Y-negation / -0.0 avoidance as the C emitter.
-        out.append(
-            f"static SHAPE_{shape.shape_id}_VERTS: "
-            f"[ShapeVertex; {len(shape.vertices)}] = [")
-        for vert in shape.vertices:
-            neg_y = -vert.y if vert.y != 0.0 else 0.0
-            vx = vert.x if vert.x != 0.0 else 0.0
-            vz = vert.z if vert.z != 0.0 else 0.0
-            out.append(f"    v({vx:.1f}, {neg_y:.1f}, {vz:.1f}),")
-        out.append("];")
+        # Animated entries contain complete streams, not sparse overlays, so
+        # the renderer can select a typed frame without recreating the source
+        # shape-language VM.
+        frames = shape.animation_frames or [shape.vertices]
+        for frame_index, vertices in enumerate(frames):
+            suffix = "" if frame_index == 0 else f"_FRAME_{frame_index}"
+            out.append(
+                f"static SHAPE_{shape.shape_id}{suffix}_VERTS: "
+                f"[ShapeVertex; {len(vertices)}] = [")
+            for vert in vertices:
+                neg_y = -vert.y if vert.y != 0.0 else 0.0
+                vx = vert.x if vert.x != 0.0 else 0.0
+                vz = vert.z if vert.z != 0.0 else 0.0
+                out.append(f"    v({vx:.1f}, {neg_y:.1f}, {vz:.1f}),")
+            out.append("];")
+        if shape.animation_frames:
+            out.append(
+                f"static SHAPE_{shape.shape_id}_ANIMATION_FRAMES: "
+                f"[&[ShapeVertex]; {len(shape.animation_frames)}] = [")
+            for frame_index in range(len(shape.animation_frames)):
+                suffix = "" if frame_index == 0 else f"_FRAME_{frame_index}"
+                out.append(f"    &SHAPE_{shape.shape_id}{suffix}_VERTS,")
+            out.append("];")
 
         # Faces -- indices padded to 12, same as the C emitter.
         out.append(
@@ -801,9 +1235,15 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
         for face in shape.faces:
             padded = list(face.vertex_indices) + [0] * (12 - len(face.vertex_indices))
             indices_str = ", ".join(str(idx) for idx in padded)
+            visibility = (
+                f"Some([{', '.join(str(idx) for idx in face.visibility_vertices)}])"
+                if face.visibility_vertices is not None else "None"
+            )
+            normal = [face.normal[0], -face.normal[1], face.normal[2]]
+            normal_str = ", ".join(str(component) for component in normal)
             out.append(
                 f"    f([{indices_str}], {len(face.vertex_indices)}, "
-                f"{face.color_index}),")
+                f"{face.color_index}, [{normal_str}], {visibility}),")
         out.append("];")
         out.append("")
 
@@ -811,10 +1251,15 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     out.append("")
     out.append("pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [")
     for shape in sorted_shapes:
+        animation_frames = (
+            f"&SHAPE_{shape.shape_id}_ANIMATION_FRAMES"
+            if shape.animation_frames else "&[]")
         out.append(
             f"    ShapeDataEntry {{ shape_id: {shape.shape_id}, "
             f"vertices: &SHAPE_{shape.shape_id}_VERTS, "
+            f"animation_frames: {animation_frames}, "
             f"faces: &SHAPE_{shape.shape_id}_FACES, "
+            f'default_color_table: "{shape.color_table.lower()}", '
             f'name: "{shape.name}" }},')
     out.append("];")
     out.append("")
@@ -822,6 +1267,10 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     os.makedirs(os.path.dirname(RUST_OUTPUT_PATH), exist_ok=True)
     with open(RUST_OUTPUT_PATH, 'w') as f:
         f.write("\n".join(out))
+    subprocess.run(
+        ["rustfmt", "--edition", "2021", RUST_OUTPUT_PATH],
+        check=True,
+    )
 
     print(f"  Wrote {RUST_OUTPUT_PATH} ({len(sorted_shapes)} shapes)",
           file=sys.stderr)
@@ -884,6 +1333,9 @@ def main() -> int:
     processed_geometry: set = set()  # (file_path, points_lower, faces_lower)
 
     for hdr, af in all_headers:
+        preferred_file = PREFERRED_HEADER_FILES.get(hdr.label)
+        if preferred_file is not None and os.path.basename(af.path) != preferred_file:
+            continue
         shape_id = name_to_id.get(hdr.label)
         if shape_id is None:
             continue
@@ -903,13 +1355,16 @@ def main() -> int:
 
         # Parse vertices and faces -- try the shape's own file first,
         # then fall back to searching all loaded files (cross-file refs).
-        vertices = parse_vertices(af, hdr.points_label, hdr.shift)
+        vertex_frames = parse_vertex_frames(af, hdr.points_label, hdr.shift)
+        vertices = vertex_frames[0] if vertex_frames else []
         faces = parse_faces(af, hdr.faces_label)
 
         if not vertices:
             for other_af in asm_files:
                 if other_af is not af:
-                    vertices = parse_vertices(other_af, hdr.points_label, hdr.shift)
+                    vertex_frames = parse_vertex_frames(
+                        other_af, hdr.points_label, hdr.shift)
+                    vertices = vertex_frames[0] if vertex_frames else []
                     if vertices:
                         break
 
@@ -923,11 +1378,20 @@ def main() -> int:
         if not vertices or not faces:
             continue
 
+        if any(len(frame) != len(vertices) for frame in vertex_frames):
+            lengths = sorted({len(frame) for frame in vertex_frames})
+            raise ValueError(
+                f"animated shape {hdr.label} has inconsistent vertex counts: "
+                f"{lengths}")
+        validate_shape_geometry(hdr.label, vertex_frames, faces)
+
         compiled_shapes[shape_id] = ShapeData(
             shape_id=shape_id,
             name=hdr.label,
             vertices=vertices,
+            animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
             faces=faces,
+            color_table=hdr.color_table,
         )
         processed_geometry.add(geom_key)
 
@@ -937,6 +1401,9 @@ def main() -> int:
     # compiled into the fixed runtime slots defined by EXTENDED_SHAPES.
     ext_compiled: Dict[str, int] = {}  # name -> id (for macro emission)
     for hdr, af in all_headers:
+        preferred_file = PREFERRED_HEADER_FILES.get(hdr.label)
+        if preferred_file is not None and os.path.basename(af.path) != preferred_file:
+            continue
         ext_id = EXTENDED_SHAPES.get(hdr.label)
         if ext_id is None:
             continue
@@ -945,14 +1412,16 @@ def main() -> int:
         if hdr.points_label == '0' or hdr.faces_label == '0':
             continue  # header-only shape (no geometry)
 
-        vertices = parse_vertices(af, hdr.points_label, hdr.shift)
+        vertex_frames = parse_vertex_frames(af, hdr.points_label, hdr.shift)
+        vertices = vertex_frames[0] if vertex_frames else []
         faces = parse_faces(af, hdr.faces_label)
 
         if not vertices:
             for other_af in asm_files:
                 if other_af is not af:
-                    vertices = parse_vertices(other_af, hdr.points_label,
-                                              hdr.shift)
+                    vertex_frames = parse_vertex_frames(
+                        other_af, hdr.points_label, hdr.shift)
+                    vertices = vertex_frames[0] if vertex_frames else []
                     if vertices:
                         break
 
@@ -969,11 +1438,20 @@ def main() -> int:
                   f"faces={hdr.faces_label})", file=sys.stderr)
             continue
 
+        if any(len(frame) != len(vertices) for frame in vertex_frames):
+            lengths = sorted({len(frame) for frame in vertex_frames})
+            raise ValueError(
+                f"animated shape {hdr.label} has inconsistent vertex counts: "
+                f"{lengths}")
+        validate_shape_geometry(hdr.label, vertex_frames, faces)
+
         compiled_shapes[ext_id] = ShapeData(
             shape_id=ext_id,
             name=hdr.label,
             vertices=vertices,
+            animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
             faces=faces,
+            color_table=hdr.color_table,
         )
         ext_compiled[hdr.label] = ext_id
 
@@ -1062,12 +1540,16 @@ def main() -> int:
     out_lines.append("#endif // STARFOX_RENDERER_SHAPE_DATA_H")
     out_lines.append("")
 
-    # Write output
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    with open(OUTPUT_PATH, 'w') as f:
-        f.write("\n".join(out_lines))
-
-    print(f"  Wrote {OUTPUT_PATH} ({len(sorted_shapes)} shapes)", file=sys.stderr)
+    # C header path is legacy — the C/C++ tree was removed; Rust is the
+    # sole shape-data consumer. Keep emit for local experiments only when
+    # the destination directory already exists.
+    out_dir = os.path.dirname(OUTPUT_PATH)
+    if os.path.isdir(out_dir):
+        with open(OUTPUT_PATH, 'w') as f:
+            f.write("\n".join(out_lines))
+        print(f"  Wrote {OUTPUT_PATH} ({len(sorted_shapes)} shapes)", file=sys.stderr)
+    else:
+        print(f"  Skipped C header ({out_dir} absent; Rust-only build)", file=sys.stderr)
 
     # 6. Generate the Rust mirror (rust/sf-render/src/shape_data.rs).
     emit_rust(sorted_shapes, ext_compiled)

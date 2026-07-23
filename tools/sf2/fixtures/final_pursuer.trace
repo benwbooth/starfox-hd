@@ -1,0 +1,10 @@
+# Compact Mesen oracle evidence for the last recurring Star Wolf pursuer.
+# Raw oracle trace SHA-256: aa08aa6c14fc12849e535c9f28606f8cd3a8abb5f7625d76d2bebce1e42990d2
+# This actor occupies the same strategic slot later reused by the final Wolf
+# blockade, but retail retires it before allocating that distinct encounter.
+elapsed=133300 event=final-gate major_objectives=1 missiles=0 live_attackers=1
+elapsed=133431 event=mission-start visit=final_pursuer catalog=7 encounter_variant=10
+elapsed=133841 event=mission-complete visit=final_pursuer
+elapsed=134325 event=strategic-map-return
+elapsed=134524 event=pursuer-retired live_attackers_before=1 live_attackers_after=0
+elapsed=135307 event=final-blockade-allocated live_attackers_before=0 live_attackers_after=1

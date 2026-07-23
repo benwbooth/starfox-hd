@@ -752,6 +752,7 @@ dependencies = [
  "sf-path",
  "sf-render",
  "sf-strat",
+ "sf2-game",
  "wgpu",
 ]
 
@@ -761,6 +762,7 @@ version = "0.1.0"
 dependencies = [
  "sf-core",
  "sf-spc",
+ "sf2-data",
 ]
 
 [[package]]
@@ -794,10 +796,14 @@ dependencies = [
 name = "sf-oracle"
 version = "0.1.0"
 dependencies = [
+ "sf-core",
  "sf-game",
  "sf-map",
  "sf-path",
+ "sf-spc",
  "sf-strat",
+ "sf2-game",
+ "sf2-path",
  "w65c816",
 ]
 
@@ -816,6 +822,7 @@ dependencies = [
  "pollster",
  "raw-window-handle",
  "sf-core",
+ "sf2-data",
  "wgpu",
 ]
 
@@ -838,6 +845,31 @@ name = "sf2-data"
 version = "0.1.0"
 dependencies = [
  "sf-core",
+]
+
+[[package]]
+name = "sf2-game"
+version = "0.1.0"
+dependencies = [
+ "sf-core",
+ "sf2-data",
+ "sf2-map",
+ "sf2-path",
+ "w65c816",
+]
+
+[[package]]
+name = "sf2-map"
+version = "0.1.0"
+dependencies = [
+ "sf2-data",
+]
+
+[[package]]
+name = "sf2-path"
+version = "0.1.0"
+dependencies = [
+ "sf2-data",
 ]
 
 [[package]]

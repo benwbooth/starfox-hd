@@ -59,7 +59,10 @@ fn lorom_off(addr: u32) -> usize {
 struct Syms(HashMap<String, u32>);
 impl Syms {
     fn get(&self, name: &str) -> u32 {
-        *self.0.get(name).unwrap_or_else(|| panic!("symbol {name} missing"))
+        *self
+            .0
+            .get(name)
+            .unwrap_or_else(|| panic!("symbol {name} missing"))
     }
 }
 
@@ -96,9 +99,14 @@ impl RomPath {
         // Entered in 8-bit A / 16-bit X (Entry.p = 0x20), like dostrats.
         let istrat = syms.get("PATH_ISTRAT");
         let t = [
-            0xA9, 0x7E, // LDA #$7E
-            0x48, 0xAB, // PHA : PLB
-            0x5C, istrat as u8, (istrat >> 8) as u8, (istrat >> 16) as u8, // JML
+            0xA9,
+            0x7E, // LDA #$7E
+            0x48,
+            0xAB, // PHA : PLB
+            0x5C,
+            istrat as u8,
+            (istrat >> 8) as u8,
+            (istrat >> 16) as u8, // JML
         ];
         for (i, b) in t.iter().enumerate() {
             bus.write8(TRAMP + i as u32, *b);
@@ -112,7 +120,11 @@ impl RomPath {
         call(
             &mut self.bus,
             TRAMP,
-            &Entry { x: OBJ as u16, p: 0x20, ..Default::default() },
+            &Entry {
+                x: OBJ as u16,
+                p: 0x20,
+                ..Default::default()
+            },
         );
     }
 
@@ -231,14 +243,30 @@ fn prog(code: &[u8]) -> Vec<u8> {
 fn rom_achase8(rom: &[u8], addr: u32, cur: u8, target: u8) -> u8 {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write8(TPX, cur);
-    let exit = call(&mut bus, addr, &Entry { a: target as u16, p: 0x20, ..Default::default() });
+    let exit = call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: target as u16,
+            p: 0x20,
+            ..Default::default()
+        },
+    );
     exit.a
 }
 
 fn rom_achase16(rom: &[u8], addr: u32, cur: i16, target: i16) -> i16 {
     let mut bus = SnesBus::new(rom.to_vec());
     bus.write16(TPX, cur as u16);
-    let exit = call(&mut bus, addr, &Entry { a: target as u16, p: 0x00, ..Default::default() });
+    let exit = call(
+        &mut bus,
+        addr,
+        &Entry {
+            a: target as u16,
+            p: 0x00,
+            ..Default::default()
+        },
+    );
     exit.c as i16
 }
 
@@ -287,8 +315,16 @@ fn achase_rom_is_proportional_and_port_matches() {
             m3 = proportional8(cur, t, 3),
             m2 = proportional8(cur, t, 2),
         );
-        assert_eq!(rom3, proportional8(cur, t, 3), "proportional model mismatch (rate3)");
-        assert_eq!(rom2, proportional8(cur, t, 2), "proportional model mismatch (rate2)");
+        assert_eq!(
+            rom3,
+            proportional8(cur, t, 3),
+            "proportional model mismatch (rate3)"
+        );
+        assert_eq!(
+            rom2,
+            proportional8(cur, t, 2),
+            "proportional model mismatch (rate2)"
+        );
         assert_eq!(rom3, port3, "port path_achase8 rate 3 vs ROM");
         assert_eq!(rom2, port2, "port path_achase8 rate 2 vs ROM");
     }
@@ -302,11 +338,23 @@ fn achase_rom_is_proportional_and_port_matches() {
     // The wrap case (250 -> 10): both go UP through 255 (short way, +2).
     let wrap_rom = rom_achase8(&rom, a3, 250, 10);
     assert_eq!(wrap_rom, 252, "ROM chases angles the short way around");
-    assert_eq!(path_achase8(250, 10, 3), 252, "port takes the short way too");
+    assert_eq!(
+        path_achase8(250, 10, 3),
+        252,
+        "port takes the short way too"
+    );
     // sf-strat's fixed-step primitive is a DIFFERENT routine (strat lane) and
     // must not be confused with the path chase: it still walks the long way.
-    assert_eq!(strat_chase8(250, 10, 1), 249, "strat-lane fixed step unchanged");
-    assert_eq!(strat_chase(0, 1000, 1), 1, "strat-lane 16-bit fixed step unchanged");
+    assert_eq!(
+        strat_chase8(250, 10, 1),
+        249,
+        "strat-lane fixed step unchanged"
+    );
+    assert_eq!(
+        strat_chase(0, 1000, 1),
+        1,
+        "strat-lane 16-bit fixed step unchanged"
+    );
 }
 
 // ===========================================================================
@@ -371,11 +419,22 @@ fn accel_exact_hit_zeroes_count1_in_rom_and_port() {
             w.aliens[1].vel,
             w.aliens[1].count1
         );
-        assert_eq!(rp.r8(AL_VEL), w.aliens[1].vel, "vel ramp diverged at frame {frame}");
+        assert_eq!(
+            rp.r8(AL_VEL),
+            w.aliens[1].vel,
+            "vel ramp diverged at frame {frame}"
+        );
     }
     assert_eq!(rp.r8(AL_VEL), 40);
-    assert_eq!(rp.r8(AL_COUNT1), 0, "ROM zeroes count1 once the target is hit exactly");
-    assert_eq!(w.aliens[1].count1, 0, "port zeroes count1 on the exact hit like the ROM");
+    assert_eq!(
+        rp.r8(AL_COUNT1),
+        0,
+        "ROM zeroes count1 once the target is hit exactly"
+    );
+    assert_eq!(
+        w.aliens[1].count1, 0,
+        "port zeroes count1 on the exact hit like the ROM"
+    );
 }
 
 // ===========================================================================
@@ -414,8 +473,15 @@ fn space_flight_negative_rotz_coupling() {
             rp.r8(AL_ROTY),
             w.aliens[1].roty
         );
-        assert_eq!(rp.r8(AL_ROTY), rom_expect, "ROM adiv2 (round-toward-zero) coupling");
-        assert_eq!(w.aliens[1].roty, rust_expect, "port adiv2 (round-toward-zero) coupling");
+        assert_eq!(
+            rp.r8(AL_ROTY),
+            rom_expect,
+            "ROM adiv2 (round-toward-zero) coupling"
+        );
+        assert_eq!(
+            w.aliens[1].roty, rust_expect,
+            "port adiv2 (round-toward-zero) coupling"
+        );
     }
 }
 
@@ -455,7 +521,10 @@ fn ifbetween_lower_bound_exclusive_in_rom() {
             w.aliens[1].sword2 as u16
         );
         assert_eq!(rp.r16(AL_SWORD2), rom_expect, "ROM ip for val={val}");
-        assert_eq!(w.aliens[1].sword2 as u16, rust_expect, "port ip for val={val}");
+        assert_eq!(
+            w.aliens[1].sword2 as u16, rust_expect,
+            "port ip for val={val}"
+        );
     }
 }
 
@@ -485,8 +554,15 @@ fn childdead_without_mother_falls_through_in_rom() {
         rp.r16(AL_SWORD2),
         w.aliens[1].sword2 as u16
     );
-    assert_eq!(rp.r16(AL_SWORD2), 4, "ROM: no mother -> fall through (no jump)");
-    assert_eq!(w.aliens[1].sword2 as u16, 4, "port: no mother -> fall through");
+    assert_eq!(
+        rp.r16(AL_SWORD2),
+        4,
+        "ROM: no mother -> fall through (no jump)"
+    );
+    assert_eq!(
+        w.aliens[1].sword2 as u16, 4,
+        "port: no mother -> fall through"
+    );
 }
 
 // ===========================================================================
@@ -494,7 +570,7 @@ fn childdead_without_mother_falls_through_in_rom() {
 //    rotation (PATHS.ASM:1790 `s_add_Roffs2pos ...,2,2,2` — two ASLs;
 //    matching PATHMACS.ASM P_SPAWN which stores ({x})/4). The port now stores
 //    coord/4 in the catalog and scales x4 after a Z,X,Y-order rotation; only
-//    the ROM's fixed-point trig wobble (a few units) remains.
+//    the same fixed-point rotate_8 chain as the ROM.
 // ===========================================================================
 
 #[test]
@@ -538,20 +614,14 @@ fn spawn_offsets_scaled_by_4_in_rom() {
     let rust_y = spawned.map(|i| w.aliens[i].worldy);
 
     println!("spawn offset y=-50: ROM child worldy={rom_y}  RUST child worldy={rust_y:?}");
-    // rotate_8yx/yz/xz at angle 0 lose a little magnitude in fixed point
-    // (observed -48 pre-scale), then the two ASLs (s_add_Roffs2pos ...,2,2,2)
-    // multiply by 4: observed -192. The port's float trig is exact at angle
-    // 0, so it lands on the full -200; the fixed-point wobble (<= ~2 units
-    // pre-scale, 8 post-scale) is the accepted tolerance.
-    assert!(
-        (-208..=-184).contains(&rom_y),
-        "ROM spawns at ~payload*4 = -200 (fixed-point trig wobble), got {rom_y}"
-    );
-    assert_eq!(rust_y, Some(-200), "port spawns at payload*4 (exact float trig)");
-    let rust_y = rust_y.unwrap() as i32;
-    assert!(
-        (rom_y as i32 - rust_y).abs() <= 8,
-        "port within the fixed-point tolerance of the ROM ({rom_y} vs {rust_y})"
+    // rotate_8yx/yz/xz at angle 0 attenuate -50 to -48 because COSTAB[0] is
+    // 127, then the two ASLs produce -192. The port now uses that exact ROM
+    // fixed-point chain instead of float trig, so no tolerance is needed.
+    assert_eq!(rom_y, -192, "retail fixed-point spawn offset");
+    assert_eq!(
+        rust_y,
+        Some(rom_y),
+        "port spawn offset must match retail exactly"
     );
 }
 
@@ -565,8 +635,8 @@ fn op_shape(op: u8) -> Option<(usize, &'static [usize])> {
     Some(match op {
         P_RELTOPLAYERON | P_RELTOPLAYEROFF | P_ALWAYSGENVECSON | P_ALWAYSGENVECSOFF
         | P_FACEPLAYER | P_WAITFACEPLAYER | P_END | P_FACESHAPE | P_REMOVE | P_EXPLODE
-        | P_IMMUNE | P_SPACESHIPON | P_SPACESHIPOFF | P_HELION | P_HELIOFF | P_LINK
-        | P_DAMAGE | P_SMOKEON | P_SMOKEOFF | P_INVINCIBLEON | P_INVINCIBLEOFF | P_ZREMOVEON
+        | P_IMMUNE | P_SPACESHIPON | P_SPACESHIPOFF | P_HELION | P_HELIOFF | P_LINK | P_DAMAGE
+        | P_SMOKEON | P_SMOKEOFF | P_INVINCIBLEON | P_INVINCIBLEOFF | P_ZREMOVEON
         | P_ZREMOVEOFF | P_DEBUG | P_FIRE | P_FIRECANHIT | P_FIREATPLAYER
         | P_FIREATPLAYERCANHIT | P_FIREATSHAPE | P_FIREATSHAPECANHIT | P_FLAGSHAPE
         | P_FLAGMOTHER | P_RETURN | P_NEXT | P_INEXT | P_BREAKC | P_INVISIBLEON
@@ -612,7 +682,10 @@ fn op_shape(op: u8) -> Option<(usize, &'static [usize])> {
 }
 
 fn is_terminal(op: u8) -> bool {
-    matches!(op, P_END | P_REMOVE | P_GOTO | P_IGOTO | P_EXPLODE | P_SETSTRAT)
+    matches!(
+        op,
+        P_END | P_REMOVE | P_GOTO | P_IGOTO | P_EXPLODE | P_SETSTRAT
+    )
 }
 
 #[test]
@@ -695,14 +768,12 @@ fn path_data_matches_rom_blob() {
             // target is another known path's start, compare identities.
             for &a in addrs {
                 let rt = u16::from_le_bytes([rom_blob[rp + a], rom_blob[rp + a + 1]]) as usize;
-                let ut = u16::from_le_bytes([catalog.data[up + a], catalog.data[up + a + 1]])
-                    as usize;
-                let internal_ok = rt >= rom_start
-                    && ut >= rust_start
-                    && (rt - rom_start) == (ut - rust_start);
+                let ut =
+                    u16::from_le_bytes([catalog.data[up + a], catalog.data[up + a + 1]]) as usize;
+                let internal_ok =
+                    rt >= rom_start && ut >= rust_start && (rt - rom_start) == (ut - rust_start);
                 let cross_ok = table.iter().any(|&(_, s2, id2)| {
-                    syms.get(s2) as usize == rt
-                        && catalog.offsets[id2 as usize] as usize == ut
+                    syms.get(s2) as usize == rt && catalog.offsets[id2 as usize] as usize == ut
                 });
                 if !internal_ok && !cross_ok {
                     println!(
@@ -713,7 +784,10 @@ fn path_data_matches_rom_blob() {
                 }
             }
             if is_terminal(rop) {
-                println!("  walk ok: terminated at [{rop}] after {} bytes", rp + len - rom_start);
+                println!(
+                    "  walk ok: terminated at [{rop}] after {} bytes",
+                    rp + len - rom_start
+                );
                 break;
             }
             rp += len;
@@ -732,9 +806,7 @@ fn path_data_matches_rom_blob() {
     assert_ne!(rust_tow0, 0xFFFF, "tow_0 must be in the Rust catalog");
     let find_spawn = |blob: &[u8], start: usize| -> Option<usize> {
         (start..start + 0x40).find(|&p| {
-            (blob[p] == P_SPAWNLINK || blob[p] == P_SPAWN)
-                && blob[p + 8] == 10
-                && blob[p + 9] == 10
+            (blob[p] == P_SPAWNLINK || blob[p] == P_SPAWN) && blob[p + 8] == 10 && blob[p + 9] == 10
         })
     };
     let rs = find_spawn(rom_blob, tow0).expect("tow_0 spawnlink in ROM blob");
@@ -746,9 +818,19 @@ fn path_data_matches_rom_blob() {
         rom_y as i32 * 4,
         rust_y as i32 * 4
     );
-    assert_eq!(rom_y as i32 * 4, -200, "ROM: byte*4 = -200 (DPATHDAT.ASM:248)");
-    assert_eq!(rust_y, rom_y, "port stores the same coord/4 payload byte as the ROM");
+    assert_eq!(
+        rom_y as i32 * 4,
+        -200,
+        "ROM: byte*4 = -200 (DPATHDAT.ASM:248)"
+    );
+    assert_eq!(
+        rust_y, rom_y,
+        "port stores the same coord/4 payload byte as the ROM"
+    );
 
     println!("total non-address operand mismatches: {total_mismatch}");
-    assert_eq!(total_mismatch, 0, "catalog bytes match the ROM blob on all walked paths");
+    assert_eq!(
+        total_mismatch, 0,
+        "catalog bytes match the ROM blob on all walked paths"
+    );
 }

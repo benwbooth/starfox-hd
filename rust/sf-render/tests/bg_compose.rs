@@ -31,8 +31,8 @@ fn bg_1_1c_sky_top_row_is_corneria_blue() {
     let col = read("data/bg/BG2-D.COL");
 
     // bg_1_1c def: vofs 232, sky-coupled -> full wrapping 512x512 tilemap.
-    let (rgba, w, h) = compose_bg(&cgx, &scr, &col, None, None, 232, 0, true)
-        .expect("compose_bg failed");
+    let (rgba, w, h) =
+        compose_bg(&cgx, &scr, &col, None, None, 232, 0, true).expect("compose_bg failed");
     assert_eq!((w, h), (512, 512));
 
     // At the base scroll the screen-top row shows map row 232. The compose
@@ -57,8 +57,8 @@ fn title_compose_matches_c_golden_grid() {
     let cp_scr = read("data/title/CP.SCR");
     let col = read("data/title/CP-US.COL");
 
-    let rgba = compose_title(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col)
-        .expect("compose_title failed");
+    let rgba =
+        compose_title(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col).expect("compose_title failed");
     assert_eq!(rgba.len(), BG2D_W * BG2D_H * 4);
 
     // The compose output is bottom-up; flip to top-down for the grid.

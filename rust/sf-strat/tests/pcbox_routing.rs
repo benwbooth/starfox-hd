@@ -1,21 +1,23 @@
 //! pcbox (player collision-proxy box) routing tests.
 //!
 //! ROM model (see rust/sf-game/src/coldet.rs pcbox section + STRAT/PSTRATS.ASM):
-//! the ship does not take enemy hits on its own body; three proxy boxes
-//! (`pcboxobj_B/LW/RW`) carry the collision and route hits back to the ship.
+//! the ship owns the `playerB_col` three-box collider; three colldisable proxy
+//! objects (`pcboxobj_B/LW/RW`) carry damage state after hit-flag routing.
 //! These tests exercise the routing through the real collision tick
 //! (`Game::tick` -> coldet_generate + coldet_run -> box collide-strat).
 
-use sf_game::alien::{
-    ACF_COLLTYPE1, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT,
-};
+use sf_game::alien::{ACF_COLLTYPE1, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_game::vars::{GameVars, GF_PLAYERDYING, SPACE_MODE};
 use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{pcbox_attach, strat_spawn_player};
 
 struct NopHooks;
-impl Hooks for NopHooks {}
+impl Hooks for NopHooks {
+    fn shape_extents(&self, shape: u16) -> Option<(i16, i16, i16)> {
+        (shape == 511).then_some((1, 1, 1))
+    }
+}
 
 fn new_game() -> Game {
     let mut g = Game::with_hooks(Box::new(NopHooks));
@@ -54,29 +56,19 @@ fn spawn_shot(g: &mut Game, x: i16, y: i16, z: i16, ap: u8) -> u16 {
     al.hp = 5;
     al.ap = ap;
     al.collflags = ACF_COLLTYPE1; // enemy weapon type
-    // A real enemy shot carries a nonzero laser shape (SHAPE_ELASER2), distinct
-    // from the shape-0 pcbox collision boxes. Needed since coldet_run now applies
-    // the ROM chkcoll0 same-shape gate (equal al_shape -> skip); leaving this 0
-    // would make the shot share the boxes' shape and wrongly skip the hit.
+                                  // A real enemy shot carries a nonzero laser shape (SHAPE_ELASER2), distinct
+                                  // from the shape-0 pcbox collision boxes. Needed since coldet_run now applies
+                                  // the ROM chkcoll0 same-shape gate (equal al_shape -> skip); leaving this 0
+                                  // would make the shot share the boxes' shape and wrongly skip the hit.
     al.shape = 511; // SHAPE_ELASER2
     s
 }
 
-/// Detach the two wing boxes (colldisable -> dropped from the collision list) so
-/// a body-routing test isn't confounded by a wing also overlapping the shot. The
-/// wing strat only re-parks position, so ASF_COLLDISABLE persists.
-fn isolate_body(g: &mut Game) {
-    let lw = g.coldet.pcbox.lwing.unwrap();
-    let rw = g.coldet.pcbox.rwing.unwrap();
-    g.objs.aliens[lw as usize].sflags |= ASF_COLLDISABLE;
-    g.objs.aliens[rw as usize].sflags |= ASF_COLLDISABLE;
-}
-
 #[test]
-fn attach_makes_ship_colldisable_and_builds_three_boxes() {
+fn attach_keeps_ship_live_and_builds_three_colldisable_damage_boxes() {
     let (g, p) = spawn_with_boxes();
-    // Ship no longer self-collides.
-    assert!(g.objs.aliens[p as usize].sflags & ASF_COLLDISABLE != 0);
+    // The ship owns playerB_col; only its state proxies are colldisable.
+    assert_eq!(g.objs.aliens[p as usize].sflags & ASF_COLLDISABLE, 0);
     let pc = g.coldet.pcbox;
     assert!(pc.attached());
     assert_eq!(pc.player, Some(p));
@@ -84,20 +76,14 @@ fn attach_makes_ship_colldisable_and_builds_three_boxes() {
     // Body box carries the body HP (40); wings carry 5.
     assert_eq!(g.objs.aliens[pc.body.unwrap() as usize].hp, 40);
     assert_eq!(g.objs.aliens[pc.lwing.unwrap() as usize].hp, 5);
+    assert!(g.objs.aliens[pc.body.unwrap() as usize].sflags & ASF_COLLDISABLE != 0);
+    assert!(g.objs.aliens[pc.lwing.unwrap() as usize].sflags & ASF_COLLDISABLE != 0);
 }
 
 #[test]
 fn enemy_shot_at_body_box_routes_hit_to_player() {
     let (mut g, p) = spawn_with_boxes();
     let body = g.coldet.pcbox.body.unwrap();
-    // Isolate the body box (detach the wings) so they don't contend for the shot.
-    // In-game the thin elaser2 shot only overlaps the one box it hits; the
-    // unit-test extent map is empty so every shape gets the default-20 half-extent,
-    // which would otherwise let a centre shot also reach a wing at ±32. Since the
-    // ROM same-shape gate now correctly suppresses the box↔box collisions this
-    // test previously relied on, an un-isolated centre shot gets absorbed by a
-    // wing instead of the body.
-    isolate_body(&mut g);
     g.tick(); // position the boxes
     let (bx, by, bz) = {
         let a = &g.objs.aliens[body as usize];
@@ -107,25 +93,23 @@ fn enemy_shot_at_body_box_routes_hit_to_player() {
 
     let hits0 = g.vars.sv_u8(sv::PNUMHITS);
 
-    // Frame 1: coldet detects the overlap and docks the body box HP + sets its
-    // collide flag.
+    // Frame 1: coldet tests the ship's exact multi-box list, sets HF1 on the
+    // ship, but does not directly damage either ship or proxy.
     g.tick();
-    assert!(
-        g.objs.aliens[body as usize].hp < 40,
-        "body box should take damage (was {})",
-        g.objs.aliens[body as usize].hp
-    );
-    assert!(g.objs.aliens[body as usize].sflags & ASF_COLLIDE != 0);
+    assert_eq!(g.objs.aliens[body as usize].hp, 40);
+    assert_eq!(g.objs.aliens[p as usize].hitflags & 1, 1);
+    assert!(g.objs.aliens[p as usize].sflags & ASF_COLLIDE != 0);
 
-    // Frame 2: the box collide-strat routes the hit onto the ship.
+    // Frame 2: playercoll routes HF1 to the body proxy; pcolB applies AP.
     g.tick();
+    assert_eq!(g.objs.aliens[body as usize].hp, 37);
     assert!(
         g.vars.sv_u8(sv::PNUMHITS) > hits0,
         "hit should increment pnumhits"
     );
-    // Ship flashes + is briefly invulnerable, screenflash queued (body type 0).
-    assert!(g.objs.aliens[p as usize].sflags & ASF_HITFLASH != 0);
-    assert!(g.objs.aliens[p as usize].sflags & ASF_NOHITAFFECT != 0);
+    // pcolB arms the ship timer and queues the body screen flash. This test
+    // deliberately removes the normal player strat, so the next frame's
+    // playermove hitflash/nohitaffect toggle is not expected here.
     assert_eq!(g.objs.aliens[p as usize].sbyte1, 7); // player_hitflashfrms
     assert_eq!(g.vars.sv_u8(sv::SCREENFLASHCNT), 4);
     assert_eq!(g.vars.sv_u8(sv::SCREENFLASHTYPE), 0);
@@ -138,20 +122,29 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     let (mut g, p) = spawn_with_boxes();
     let body = g.coldet.pcbox.body.unwrap();
     let lwing = g.coldet.pcbox.lwing.unwrap();
-    // Isolate the body box (see enemy_shot_at_body_box for why), then prime it so
-    // one hit is lethal and spawn the shot AT the body box.
-    isolate_body(&mut g);
+    // Prime the body so one hit is lethal and spawn the shot at its centre.
     g.tick();
     let (bx, by, bz) = {
         let a = &g.objs.aliens[body as usize];
         (a.worldx, a.worldy, a.worldz)
     };
     g.objs.aliens[body as usize].hp = 3;
-    spawn_shot(&mut g, bx, by, bz, 3);
+    let shot = spawn_shot(&mut g, bx, by, bz, 3);
 
-    g.tick(); // detect + do_coll: body hp 3 -> 0
+    g.tick(); // detect: ship HF1
+    assert_eq!(g.objs.aliens[body as usize].hp, 3);
+    g.tick(); // route + pcolB do_coll: body hp 3 -> 0
     assert_eq!(g.objs.aliens[body as usize].hp, 0);
-    g.tick(); // route: body hp==0 -> death + detach
+    // End the sustained pair. The ROM gives end-collision callbacks priority
+    // over an explosion callback while LCOLLIDE drains, so allow those exact
+    // handoff frames before pcolBexp kills the player.
+    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    for _ in 0..8 {
+        g.tick();
+        if g.vars.gameflags & GF_PLAYERDYING != 0 {
+            break;
+        }
+    }
 
     // Death sequence engaged.
     assert_eq!(g.vars.gameflags & GF_PLAYERDYING, GF_PLAYERDYING);
@@ -177,23 +170,39 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
 fn wing_box_destroyed_breaks_wing_and_drops_from_collision() {
     let (mut g, _p) = spawn_with_boxes();
     let rwing = g.coldet.pcbox.rwing.unwrap();
-    g.objs.aliens[rwing as usize].hp = 3;
+    // ROM pwingcol applies exactly one damage to the wing per cooldown,
+    // irrespective of attacker AP.
+    g.objs.aliens[rwing as usize].hp = 1;
     // Read the right-wing box position after one positioning pass, then hit it.
     g.tick(); // positions boxes; no shot yet
     let (wx, wy, wz) = {
         let a = &g.objs.aliens[rwing as usize];
         (a.worldx, a.worldy, a.worldz)
     };
-    spawn_shot(&mut g, wx, wy, wz, 3);
-    g.tick(); // detect + do_coll on the wing box -> hp 0
+    let shot = spawn_shot(&mut g, wx, wy, wz, 3);
+    g.tick(); // detect: ship HF3
+    assert_eq!(g.objs.aliens[rwing as usize].hp, 1);
+    g.tick(); // route + pwingcol: fixed 1 wing damage -> hp 0
     assert_eq!(g.objs.aliens[rwing as usize].hp, 0);
-    g.tick(); // route -> wing break
+    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    for _ in 0..6 {
+        g.tick();
+        if g.vars.pshipflags & 16 != 0 {
+            break;
+        }
+    }
 
     const PSF_BRKRWING: u8 = 16;
-    assert!(g.vars.pshipflags & PSF_BRKRWING != 0, "right wing should break");
-    assert!(g.coldet.pcbox.rwing.is_none(), "broken wing box detached");
+    assert!(
+        g.vars.pshipflags & PSF_BRKRWING != 0,
+        "right wing should break"
+    );
+    assert_eq!(g.coldet.pcbox.rwing, Some(rwing));
+    assert_eq!(g.objs.aliens[rwing as usize].hp, 0xff);
+    assert_eq!(g.objs.aliens[rwing as usize].ap, 0);
     assert!(g.objs.aliens[rwing as usize].sflags & ASF_COLLDISABLE != 0);
-    // Body + left wing still attached.
+    // All proxy slots remain addressable; later HF3 hits follow the broken-wing
+    // bounce-to-body path in the ROM.
     assert!(g.coldet.pcbox.body.is_some());
     assert!(g.coldet.pcbox.lwing.is_some());
 }
@@ -211,4 +220,35 @@ fn unattached_keeps_direct_model() {
         0,
         "ship must remain a direct collider when no boxes are attached"
     );
+}
+
+#[test]
+fn playerb_col_uses_exact_extents_and_strict_edge() {
+    // A one-unit projectile centred at x=10 overlaps the body because
+    // |dx|=10 < 10+1; x=11 is the ROM COLDET strict miss boundary.
+    let (mut hit, p) = spawn_with_boxes();
+    hit.tick(); // clear the player's spawn-time firstframe flag
+    spawn_shot(&mut hit, 10, 0, 0, 0);
+    hit.coldet_generate_list();
+    hit.coldet_run();
+    assert_eq!(hit.objs.aliens[p as usize].hitflags, 0x01);
+
+    let (mut miss, p) = spawn_with_boxes();
+    miss.tick();
+    spawn_shot(&mut miss, 11, 0, 0, 0);
+    miss.coldet_generate_list();
+    miss.coldet_run();
+    assert_eq!(miss.objs.aliens[p as usize].hitflags, 0);
+}
+
+#[test]
+fn playerb_col_rotates_wing_offsets_by_ship_roll_only() {
+    let (mut g, p) = spawn_with_boxes();
+    g.objs.aliens[p as usize].rotz = 64; // quarter turn
+    g.tick();
+    let (dx, dy, _) = sf_core::snes_trig::strat_roffs_roll(64, 33, 13, 0);
+    spawn_shot(&mut g, dx, dy, 0, 0);
+    g.coldet_generate_list();
+    g.coldet_run();
+    assert_eq!(g.objs.aliens[p as usize].hitflags, 0x04);
 }

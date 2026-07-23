@@ -44,13 +44,11 @@ fi
 PROFILE="${SF_PROFILE:-debug}"
 BIN="rust/target/${PROFILE}/starfox-hd-rs"
 
-if [[ ! -x "$BIN" ]]; then
-    echo "Building starfox-hd-rs ($PROFILE)..." >&2
-    if [[ "$PROFILE" == "release" ]]; then
-        ( cd rust && cargo build --release -p sf-app )
-    else
-        ( cd rust && cargo build -p sf-app )
-    fi
+echo "Checking starfox-hd-rs build ($PROFILE)..." >&2
+if [[ "$PROFILE" == "release" ]]; then
+    ( cd rust && cargo build --release -p sf-app )
+else
+    ( cd rust && cargo build -p sf-app )
 fi
 
 exec "$BIN" "$@"

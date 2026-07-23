@@ -23,16 +23,19 @@
 //! strategy registry and hands back its `StratId`.
 
 use sf_game::alien::{
-    Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP,
-    ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE,
-    ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE,
-    ATZREMOVE, NUMBER_AL,
+    Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
+    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8,
+    ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT,
+    ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
+use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
-    GF_BOSSDEAD, HARD_AP, HARD_HP, PFM_SHADOWS, PSF2_PLAYERHP0, PSF3_ENGINESND, PSTF_NOTDIE,
-    SPFM_INSIDE,
+    GF_BOSSDEAD, GF_STRATDONE1, GF_STRATDONE2, HARD_AP, HARD_HP, PFM_SHADOWS, PSF2_PLAYERHP0,
+    PSF3_ENGINESND, PSF3_INTUNNEL, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE, SPFM_INSIDE,
+    SPFM_TONORM,
 };
+use sf_map::consts::sh;
 
 // ============================================================
 // Angle constants (C src/variables.h DEG*)
@@ -54,6 +57,13 @@ pub const AF_LEFT_PL: u8 = 4;
 pub const ASF2_RELEXPLODE: u8 = 0x04;
 pub const ASF2_NOEXPSND: u8 = 0x08;
 pub const ASF2_SFLAG1: u8 = 0x10;
+pub const ASF2_SFLAG2: u8 = 0x20;
+pub const ASF2_SFLAG3: u8 = 0x40;
+/// ROM `sflag5` / `sflag6` / `sflag7` live in `al_sflags3` bits 0/1/2
+/// (STRATEQU.INC make_sflag packing after sflag4).
+pub const ASF3_SFLAG5: u8 = 0x01;
+pub const ASF3_SFLAG6: u8 = 0x02;
+pub const ASF3_SFLAG7: u8 = 0x04;
 /// STRATMAC `smflag1` — the strategy-macro latch used by `s_face_player` /
 /// `s_initface_player`. Per STRATEQU.INC:910 it is sflags2 bit 0x04 (the same
 /// bit as the mislabeled ASF2_RELEXPLODE above; ROM `relexplode` is really a
@@ -61,9 +71,8 @@ pub const ASF2_SFLAG1: u8 = 0x10;
 /// relexplode). (Audit A #20/#21)
 pub const ASF2_SMFLAG1: u8 = 0x04;
 
-// al_sflags3 bits (C src/game/obj.h)
-pub const ASF3_CHILDOBJ: u8 = 0x10;
-pub const ASF3_MOTHEROBJ: u8 = 0x20;
+// al_sflags3 bits — re-export from sf-game (single source of truth).
+pub use sf_game::alien::{ASF3_CHILDOBJ, ASF3_MOTHEROBJ};
 
 // al_sflags4 bit read by the renderer (sf-game draw.rs `ASF4_NOPOLYEXP`) to
 // suppress the face/poly explosion count.
@@ -97,15 +106,9 @@ pub const COLLTYPE_ENEMYWEAP: u8 = 0x40; // acf_colltype4
 pub const COLLTYPE_ZENEMY: u8 = 0x01; // acf_colltype6
 
 // ============================================================
-// Compat WRAM slots for C globals not yet ported into GameVars.
-//
-// sf-game API GAP (do not edit sf-game from this lane): the C oracle
-// reads/writes these `game_vars.c` globals, but `sf_game::vars::GameVars`
-// does not carry them yet. Until they are promoted to GameVars fields,
-// this lane stores them in the WRAM mirror (`vars.ram`) at reserved
-// addresses — the same mechanism the map VM uses for external vars.
-// Everything below 0x0400 is a REAL SNES WRAM address from the C code
-// (WM_SKILLFLY); the 0x1Fxx block is lane-reserved scratch.
+// Encoded source-variable operands retained for oracle and integration-test
+// fixtures. Native strategy code uses the typed `GameVars` fields directly;
+// these values are not runtime storage locations.
 // ============================================================
 pub mod wm {
     /// C `RAM8(WM_SKILLFLY)` (real address, src/strat/strat_enemy.c).
@@ -115,7 +118,9 @@ pub mod wm {
     pub const RNDVAL: u16 = 0x1F00;
     /// C `g_bossflags` (u8).
     pub const BOSSFLAGS: u16 = 0x1F02;
-    /// C `g_currentlevel` (u8).
+    /// Strat difficulty byte (port encoding = ROM `currentlevel` + 1).
+    /// Shell writes this from `Planets.currentlevel` on gameplay start so
+    /// `s_jmp_iflevel N` ports as `currentlevel() == N`.
     pub const CURRENTLEVEL: u16 = 0x1F03;
     /// C `g_gasflags` (u8).
     pub const GASFLAGS: u16 = 0x1F04;
@@ -133,14 +138,10 @@ pub mod wm {
     pub const LIVES: u16 = 0x0520;
     /// C `g_specials_dead` (u8).
     pub const SPECIALS_DEAD: u16 = 0x1F0B;
-    /// C `g_maprestartbank` (u8).
-    pub const MAPRESTARTBANK: u16 = 0x1F0C;
     /// C `g_maprestart` (u16).
     pub const MAPRESTART: u16 = 0x1F0E;
     /// C `g_maprestarttemp` (u16).
     pub const MAPRESTARTTEMP: u16 = 0x1F10;
-    /// C `g_maprestartbanktemp` (u8).
-    pub const MAPRESTARTBANKTEMP: u16 = 0x1F12;
     /// C `g_restartpalfade` (u16).
     pub const RESTARTPALFADE: u16 = 0x1F14;
     /// C `g_lastpalfade` (u16).
@@ -161,10 +162,14 @@ pub mod wm {
     pub const PVIEWPOSZ: u16 = 0x1F24;
     /// C `g_pcboxobj_B` (i16 alien index).
     pub const PCBOXOBJ_B: u16 = 0x1F26;
-    /// C `g_specflash` (u8) — nova-bomb HUD flash timer. No HUD consumer is
-    /// wired yet, so the write is inert, but item5_collect must set it to stay
-    /// ROM-faithful (GASTRATS.ASM:2586). (Audit A #24)
+    /// C `g_specflash` (u8) — nova-bomb HUD flash timer (SPRITES.ASM do_spec_weap).
+    /// item5_collect sets #30; shell decrements each Playing tick and surfaces
+    /// via FrameSnapshot.specflash for the HUD blink.
     pub const SPECFLASH: u16 = 0x1F28;
+    /// ROM `powerbuild` (DSTRATS.ASM ironball2 / castanet scratch) — u8.
+    pub const POWERBUILD: u16 = 0x1F29;
+    /// ROM `locusmode` (DSTRATS.ASM castanet ring-laser pattern) — u8.
+    pub const LOCUSMODE: u16 = 0x1F2A;
     // g_numplasers: consolidated onto `crate::common::sv::NUMPLASERS`
     // (0x0313, the real WM address) — shared with the player-lane laser
     // counter exactly like the single C global.
@@ -172,36 +177,36 @@ pub mod wm {
 
 #[inline]
 pub fn bossflags(g: &Game) -> u8 {
-    g.vars.read_ext8(wm::BOSSFLAGS)
+    g.vars.shared.boss_flags
 }
 #[inline]
 pub fn set_bossflags(g: &mut Game, v: u8) {
-    g.vars.write_ext8(wm::BOSSFLAGS, v);
+    g.vars.shared.boss_flags = v;
 }
 #[inline]
 pub fn gasflags(g: &Game) -> u8 {
-    g.vars.read_ext8(wm::GASFLAGS)
+    g.vars.shared.gas_flags
 }
 #[inline]
 pub fn set_gasflags(g: &mut Game, v: u8) {
-    g.vars.write_ext8(wm::GASFLAGS, v);
+    g.vars.shared.gas_flags = v;
 }
 #[inline]
 pub fn currentlevel(g: &Game) -> u8 {
-    g.vars.read_ext8(wm::CURRENTLEVEL)
+    g.vars.shared.difficulty_level
 }
 #[inline]
 pub fn pviewposz(g: &Game) -> i16 {
-    g.vars.read_ext16(wm::PVIEWPOSZ) as i16
+    g.vars.strategy.player_view_position[2]
 }
 
 /// C `SfRtl_Random()` (src/sf_rtl.c:192): `g_rndval = rnd*91 + 0x61D7`.
 /// The RNG state lives in the compat WRAM slot so the C harness and tests
 /// can seed it identically.
 pub fn ea_random(g: &mut Game) -> u16 {
-    let v = g.vars.read_ext16(wm::RNDVAL);
+    let v = g.vars.strategy.random_seed;
     let n = v.wrapping_mul(91).wrapping_add(0x61D7);
-    g.vars.write_ext16(wm::RNDVAL, n);
+    g.vars.strategy.random_seed = n;
     n
 }
 
@@ -210,40 +215,31 @@ pub fn ea_random(g: &mut Game) -> u16 {
 //
 // The former `ea_compat` duplicate module is gone; every call site now
 // goes through the canonical common-lane ports (signatures and byte
-// behavior verified against src/strat/strat_common.c). Two deliberate
-// notes from the verification:
+// behavior verified against src/strat/strat_common.c). Notes:
 // - `speed_to`: the old duplicate used `saturating_add`; C (and
 //   `crate::common::strat_speed_to`) wrap `vel += rate` at u8 — the
 //   canonical version is the C-faithful one.
-// - `angle_xz`: stays LOCAL below. C `Strat_AngleXZ` computes
-//   `(float)(dst->worldx - src->worldx)` with int promotion (no 16-bit
-//   wrap); `crate::common::strat_angle_xz` uses `i16::wrapping_sub`,
-//   which diverges once |diff| > 32767. This lane keeps the
-//   C-int-promotion form for oracle fidelity.
+// - `angle_xz`: now `sf_core::aim_angle::yanglexy` with i16 wrapping
+//   deltas (ROM `Yanglexy_l` SBC). The old local twin used i32 promotion
+//   (C float cast); that diverged from ROM once |diff| > 32767.
 // ============================================================
 
-pub(crate) use crate::common::{
-    apply_velocity, chase_proportional, count_down, dist_xz, gen_vecs_2d, gen_vecs_3d, make_obj,
-    sf_random, spawn_projectile, speed_to,
-};
 /// Registry-shaped projectile collide strategy (C takes the address of
 /// `Strat_ProjectileOnCollide`); same slot ids as the common lane's.
 pub(crate) use crate::common::strat_projectile_on_collide as projectile_on_collide_strat;
+pub(crate) use crate::common::{
+    apply_velocity, chase_proportional, count_down, dist_xz, gen_vecs_3d, make_obj, sf_random,
+    spawn_projectile, speed_to, strat_gen_vecs_nvecs, StratRam,
+};
 
-/// C `Strat_AngleXZ` (strat_common.c:189, anglexy_l): 0-255 yaw from src
-/// toward dst. Local (not `crate::common::angle_xz`) — see header note:
-/// the C build promotes the int16 difference to int before the float
-/// cast, so no 16-bit wrap.
+/// ROM `Yanglexy_l` / `anglexy_l`: 0-255 yaw from src→dst (i16 wrapping deltas).
+#[inline]
 fn angle_xz(src: &Alien, dst: &Alien) -> u8 {
-    let dx = (dst.worldx as i32 - src.worldx as i32) as f32;
-    let dz = (dst.worldz as i32 - src.worldz as i32) as f32;
-    let mut a = dx.atan2(dz);
-    if a < 0.0 {
-        a += 2.0 * 3.141_592_65_f32;
-    }
-    ((a * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8
+    sf_core::aim_angle::yanglexy(
+        dst.worldx.wrapping_sub(src.worldx),
+        dst.worldz.wrapping_sub(src.worldz),
+    )
 }
-
 
 // ============================================================
 // Registry helper — replaces taking a C function's address.
@@ -274,18 +270,6 @@ pub(crate) fn player(g: &Game) -> Option<Alien> {
 // Sin/Cos + small shared helpers (C strat_enemy.c:28-68)
 // ============================================================
 
-/// C `strat_sin` (strat_enemy.c:28) — same f32 constant folding.
-#[inline]
-pub fn strat_sin(angle: u8) -> f32 {
-    (angle as f32 * (2.0f32 * 3.141_592_65_f32 / 256.0f32)).sin()
-}
-
-/// C `strat_cos` (strat_enemy.c:31).
-#[inline]
-pub fn strat_cos(angle: u8) -> f32 {
-    (angle as f32 * (2.0f32 * 3.141_592_65_f32 / 256.0f32)).cos()
-}
-
 /// C `achase_angle` (strat_enemy.c:41) — proportional 8-bit angle chase.
 /// ROM `Achase_var2A` (STRATMAC.INC:525, `sr8_achase_alvarN`
 /// STRATROU.ASM:2760-2795): `diff = target - current`, `nolessrange`
@@ -299,26 +283,7 @@ pub fn strat_cos(angle: u8) -> f32 {
 /// reads one tick after arrival, exactly like every `s_achase_alvar
 /// ...,label` site.
 pub fn achase_angle(current: &mut u8, target: u8, shift: u32) -> bool {
-    if *current == target {
-        return true;
-    }
-    // ROM sr8_achase_alvar (STRATMAC.INC:519-544): step = adiv2^shift(target -
-    // current), then current += step. The port computed (current - target) and
-    // SUBTRACTED, algebraically identical EXCEPT at the antipodal tie (|gap| ==
-    // 128, target exactly 180deg away): current-target and target-current are
-    // both -128 as i8, so the two formulas break the tie in opposite directions
-    // (tier-1 fuzz: cur=0 tgt=128 rate1 -> ROM 192, old 64). Match ROM exactly.
-    let diff = (target.wrapping_sub(*current) as i8) as i32;
-    let mut step = if diff >= 0 {
-        diff >> shift
-    } else {
-        -((-diff) >> shift)
-    };
-    if step == 0 {
-        step = if diff > 0 { 1 } else { -1 };
-    }
-    *current = current.wrapping_add(step as u8);
-    false
+    sf_core::snes_trig::achase_angle_8(current, target, shift)
 }
 
 /// C `add_player_z` (strat_enemy.c:55, s_add_playerZ): scroll with world.
@@ -349,15 +314,17 @@ pub(crate) fn strat_random_centered(g: &mut Game, span: u8) -> i8 {
     (rnd as i8).wrapping_sub((span / 2) as i8)
 }
 
-/// C `strat_tab_scaled` (strat_enemy.c:3737): +/-127 table value shifted.
+/// C `strat_tab_scaled` / ROM `s_set_alvar2alvartab … sintab/costab,scale`:
+/// table byte then `<< scale` or toward-zero `/ 2^|scale|` (adiv2 × N).
 pub fn strat_tab_scaled(angle: u8, use_sin: bool, shift: i32) -> i16 {
-    let value = ((if use_sin {
-        strat_sin(angle)
+    use crate::snes_trig::{COSTAB, SINTAB};
+    let value = if use_sin {
+        SINTAB[angle as usize] as i16
     } else {
-        strat_cos(angle)
-    }) * 127.0f32) as i16;
+        COSTAB[angle as usize] as i16
+    };
     if shift < 0 {
-        value >> (-shift)
+        value / (1i16 << (-shift))
     } else if shift > 0 {
         value << shift
     } else {
@@ -368,7 +335,7 @@ pub fn strat_tab_scaled(angle: u8, use_sin: bool, shift: i32) -> i16 {
 /// C `frame_tick_mod` — the `s_jmp_notdelay N` gate (STRATMAC.INC:6456-6468):
 /// fires when `gameframe & ((1<<N)-1) == 0`, i.e. period 2^N. `step` is the
 /// macro's BIT COUNT `N`, NOT a modulus. (Audit A #2)
-pub(crate) fn frame_tick_mod(g: &Game, step: u16) -> bool {
+pub fn frame_tick_mod(g: &Game, step: u16) -> bool {
     g.vars.gameframe & ((1u16 << step) - 1) == 0
 }
 
@@ -404,24 +371,21 @@ pub(crate) fn strat_obj_from_ptr(ptr: u16) -> Option<u16> {
     Some(idx as u16)
 }
 
-/// C `strat_pitch_toward` (strat_enemy.c:4366).
+/// ROM `Xanglexy_l` elevation (was C hypot; adjacent is `xzdiffs_l`).
 pub(crate) fn strat_pitch_toward(src: &Alien, dst: &Alien) -> u8 {
-    let dy = (dst.worldy as i32 - src.worldy as i32) as f32;
-    let dx = (dst.worldx as i32 - src.worldx as i32) as f32;
-    let dz = (dst.worldz as i32 - src.worldz as i32) as f32;
-    let dist = (dx * dx + dz * dz).sqrt();
-    if dist <= 1.0 {
-        return src.rotx;
-    }
-    let pitch = dy.atan2(dist);
-    ((pitch * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8
+    sf_core::aim_angle::xanglexy(
+        dst.worldy.wrapping_sub(src.worldy),
+        dst.worldx.wrapping_sub(src.worldx),
+        dst.worldz.wrapping_sub(src.worldz),
+    )
 }
 
 /// C `strat_aim_yaw` (strat_enemy.c:4389).
 pub(crate) fn strat_aim_yaw(g: &mut Game, idx: u16, target: &Alien, shift: u32) {
     let me = g.objs.aliens[idx as usize];
     let mut roty = me.roty;
-    achase_angle(&mut roty, angle_xz(&me, target), shift);
+    // ROM `s_obj2obj_angle` / Yanglexy path also `nega`s before Achase.
+    achase_angle(&mut roty, angle_xz(&me, target).wrapping_neg(), shift);
     g.objs.aliens[idx as usize].roty = roty;
 }
 
@@ -430,7 +394,11 @@ pub(crate) fn strat_aim_3d(g: &mut Game, idx: u16, target: &Alien, shift: u32) {
     let me = g.objs.aliens[idx as usize];
     let mut roty = me.roty;
     let mut rotx = me.rotx;
-    achase_angle(&mut roty, angle_xz(&me, target), shift);
+    // ROM `s_obj2obj_3Dangle` (STRATMAC.INC:2374-2377): Yanglexy then `nega`
+    // before Achase into al_roty. `gen_vecs_3d` also negates yaw when indexing
+    // sintab — storing -Yanglexy is required to fly toward the target.
+    // (Audit A Minor 15 / angle_xz VERIFIED tick 163)
+    achase_angle(&mut roty, angle_xz(&me, target).wrapping_neg(), shift);
     achase_angle(&mut rotx, strat_pitch_toward(&me, target), shift);
     let al = &mut g.objs.aliens[idx as usize];
     al.roty = roty;
@@ -449,30 +417,142 @@ pub(crate) fn strat_move3d(g: &mut Game, idx: u16, speed: u8, accel: u8) {
     apply_velocity(al);
 }
 
+/// Local Z muzzle for `fire_relslowElaser`/`Home` after gen_weapon's
+/// `<<weapon_scale(2)`: `elaserfireZoff(80)>>2` then ASL×2 → world ~80
+/// (GSTRATS.ASM:2557 / :2572 + :2795). Rotated by the firer's full rots.
+const RELSLOWELASER_MUZZLE_Z: i16 = 80;
+const RELSLOWELASER_Z_BYTE: i8 = 80 >> 2;
+const WEAPON_SCALE: u32 = 2;
+
+/// Exact ROM `fire_relslowElaser` constructor with the caller's current
+/// `s_weapon_pos` scratch bytes. The weapon routine adds its own Z=20 byte,
+/// rotates the combined byte vector by the firer's full rotations, then
+/// applies `weapon_scale`. This form is shared with King Joh's offset twin
+/// muzzles in enemy_b.
+pub(crate) fn fire_relslowlaser_weapon_pos(
+    g: &mut Game,
+    idx: u16,
+    pitch: u8,
+    yaw: u8,
+    offx: i8,
+    offy: i8,
+    offz: i8,
+) -> Option<u16> {
+    let speed = strat_relslowelaser_speed(g);
+    let shot = make_obj(g, SHAPE_ELASER2)?;
+    let me = g.objs.aliens[idx as usize];
+    let (rx, ry, rz) = crate::snes_trig::strat_roffs_full_scaled(
+        me.rotz,
+        me.rotx,
+        me.roty,
+        offx,
+        offy,
+        offz.wrapping_add(RELSLOWELASER_Z_BYTE),
+        WEAPON_SCALE,
+    );
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, elaser2die_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = me.worldx.wrapping_add(rx);
+        al.worldy = me.worldy.wrapping_add(ry);
+        al.worldz = me.worldz.wrapping_add(rz);
+        al.rotx = pitch;
+        al.roty = yaw;
+        al.rotz = 0;
+        al.sbyte1 = pitch;
+        al.sbyte2 = yaw;
+        al.sbyte3 = me.vel;
+        al.hp = 1;
+        al.ap = ENEMYLASER_AP;
+        al.vel = speed;
+        al.count = 40;
+        al.type_ |= ATLASER;
+        al.sflags &= !ASF_INVISIBLE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.immuneptr = idx;
+    }
+    g.objs.aliens[idx as usize].immuneptr = shot;
+    relelaser_istrat(g, shot);
+    make_firer_snd(g, idx, PosSndFamilyId::Laser);
+    Some(shot)
+}
+
+/// Exact ROM `fire_relfastElaser` constructor (GSTRATS.ASM:2578). It shares
+/// the relative-laser strategy and full-rotation muzzle transform with the
+/// slow variant, but uses fixed speed 90 and a Z muzzle contribution of 20
+/// (`80 >> weapon_scale`).
+fn fire_relfastelaser_weapon_pos(
+    g: &mut Game,
+    idx: u16,
+    pitch: u8,
+    yaw: u8,
+    offx: i8,
+    offy: i8,
+    offz: i8,
+) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_ELASER2)?;
+    let me = g.objs.aliens[idx as usize];
+    let (rx, ry, rz) = crate::snes_trig::strat_roffs_full_scaled(
+        me.rotz,
+        me.rotx,
+        me.roty,
+        offx,
+        offy,
+        offz.wrapping_add(80 >> WEAPON_SCALE),
+        WEAPON_SCALE,
+    );
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, elaser2die_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = me.worldx.wrapping_add(rx);
+        al.worldy = me.worldy.wrapping_add(ry);
+        al.worldz = me.worldz.wrapping_add(rz);
+        al.rotx = pitch;
+        al.roty = yaw;
+        al.rotz = 0;
+        al.sbyte1 = pitch;
+        al.sbyte2 = yaw;
+        al.sbyte3 = me.vel;
+        al.hp = 1;
+        al.ap = ENEMYLASER_AP;
+        al.vel = 90;
+        al.count = 40;
+        al.type_ |= ATLASER;
+        al.sflags &= !ASF_INVISIBLE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.immuneptr = idx;
+    }
+    g.objs.aliens[idx as usize].immuneptr = shot;
+    relelaser_istrat(g, shot);
+    make_firer_snd(g, idx, PosSndFamilyId::Laser);
+    Some(shot)
+}
+
 /// C `strat_fire_relslowlaser` — ASM `fire_relslowElaser` (GSTRATS.ASM:2548-2561):
 /// speed via `doelaserspeed` (48 at level 1, else 60, GSTRATS.ASM:2780),
-/// `s_set_lifecnt #40`, `enemylaserAP=2`, and colltypes `enemyweap`
-/// (acf_colltype4) AND `laser` (acf_colltype1). The old port hardcoded speed 52
-/// / life 55 / enemyweap-only. (Audit A #1, Minor 1)
-pub(crate) fn strat_fire_relslowlaser(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
-    let speed = strat_relslowelaser_speed(g);
-    let _ = spawn_projectile(
-        g,
-        Some(idx),
-        0,
-        0,
-        0,
-        pitch,
-        yaw,
-        speed,
-        40,
-        2,
-        ACF_COLLTYPE4 | ACF_COLLTYPE1,
-    );
+/// `s_set_lifecnt #40`, `enemylaserAP=2`, colltypes `enemyweap`+`laser`, and
+/// muzzle `elaserfireZoff>>weapon_scale` rotated by firer. (Audit A #1, Minor 1)
+pub fn strat_fire_relslowlaser(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
+    let _ = fire_relslowlaser_weapon_pos(g, idx, pitch, yaw, 0, 0, 0);
+}
+
+/// zacos2/3 fire: `s_weapon_pos #0,#0,#40>>weapon_scale` then RELSLOWELASER
+/// (GASTRATS.ASM:967,991) → muzzle world Z 120. (Audit A Minor 6)
+fn zacos_fire_relslowlaser(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
+    // s_weapon_pos #0,#0,#40>>weapon_scale stores 10; the weapon adds 20.
+    let _ = fire_relslowlaser_weapon_pos(g, idx, pitch, yaw, 0, 0, 10);
 }
 
 /// C `strat_relslowelaser_speed` (strat_enemy.c:4428).
-pub(crate) fn strat_relslowelaser_speed(g: &Game) -> u8 {
+pub fn strat_relslowelaser_speed(g: &Game) -> u8 {
     if currentlevel(g) == 1 {
         48
     } else {
@@ -480,8 +560,10 @@ pub(crate) fn strat_relslowelaser_speed(g: &Game) -> u8 {
     }
 }
 
-/// C `strat_fire_relslowlaserhome` (strat_enemy.c:4432).
-pub(crate) fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
+/// C `strat_fire_relslowlaserhome` — ASM `fire_relslowElaserHome`
+/// (GSTRATS.ASM:2563-2576): same colltypes + `#80>>weapon_scale` muzzle as
+/// the non-home helper. (Audit A Minor 1)
+pub fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
     let speed = strat_relslowelaser_speed(g);
     let Some(shot) = spawn_projectile(
         g,
@@ -494,12 +576,27 @@ pub(crate) fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw
         speed,
         RELSLOWELASERHOME_LIFE,
         RELSLOWELASERHOME_AP,
-        // ASM fire_relslowElaserHome (GSTRATS.ASM:2569-2571) sets BOTH enemyweap
-        // (acf_colltype4) and laser (acf_colltype1). (Audit A Minor 1)
         ACF_COLLTYPE4 | ACF_COLLTYPE1,
     ) else {
         return;
     };
+    let me = g.objs.aliens[idx as usize];
+    let z_byte = (RELSLOWELASER_MUZZLE_Z >> WEAPON_SCALE) as i8;
+    let (rx, ry, rz) = crate::snes_trig::strat_roffs_full_scaled(
+        me.rotz,
+        me.rotx,
+        me.roty,
+        0,
+        0,
+        z_byte,
+        WEAPON_SCALE,
+    );
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = me.worldx.wrapping_add(rx);
+        al.worldy = me.worldy.wrapping_add(ry);
+        al.worldz = me.worldz.wrapping_add(rz);
+    }
     let s_home = sid(g, relelaserhome_strat);
     let al = &mut g.objs.aliens[shot as usize];
     al.stratptr = Some(s_home);
@@ -508,10 +605,28 @@ pub(crate) fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw
     al.sbyte1 = pitch;
     al.sbyte2 = yaw;
     al.animframe = 0;
+    // ROM `jsl lasersound_l` (GSTRATS.ASM:2574).
+    make_firer_snd(g, idx, PosSndFamilyId::Laser);
+}
+
+/// Positional one-shot SE from a firer's world XZ (`makesnd` / `*sound_l`).
+#[inline]
+fn make_firer_snd(g: &mut Game, firer: u16, family: PosSndFamilyId) {
+    let (fx, fz) = {
+        let f = &g.objs.aliens[firer as usize];
+        (f.worldx, f.worldz)
+    };
+    g.hooks.make_snd(family, fx, fz);
 }
 
 /// C `strat_find_near_shape` (strat_enemy.c:4315) — nearest active alien
 /// with the given (raw or mapped) shape, walking the active list in order.
+///
+/// Ranking/gate match ROM `find_nearobject_l` (STRATROU.ASM:697):
+/// `rangexz = xzdiffs_l` ([`crate::common::strat_dist_xz`]), keep if
+/// `0 <= rangexz < max_r`. `max_z` is the max radius (callers historically
+/// passed a Z/XY box; isotropic sites use equal args). `max_xy` is unused
+/// for the radius band (kept for call-site compatibility).
 pub(crate) fn strat_find_near_shape(
     g: &Game,
     self_idx: u16,
@@ -526,8 +641,10 @@ pub(crate) fn strat_find_near_shape(
     } else {
         shape_id
     };
+    let max_r = max_z;
+    let _ = max_xy;
     let mut best: Option<u16> = None;
-    let mut best_metric: i32 = 0x7FFF_FFFF;
+    let mut best_r = max_r;
     for it in g.objs.active_indices() {
         if it == self_idx || Some(it) == exclude {
             continue;
@@ -539,27 +656,19 @@ pub(crate) fn strat_find_near_shape(
         if !(al.shape == shape_id || al.shape == mapped_shape) {
             continue;
         }
-        // ROM find_nearobject_l (STRATROU.ASM:697) ranks purely by rangexz =
-        // |dx|+|dz| (xzdiffs) — Y appears NOWHERE in the gate or the metric. The
-        // port (via the C oracle) added a dy box gate + dy in the Manhattan
-        // metric, so it could lock a DIFFERENT target than the cartridge when
-        // candidates differ in Y (tier-2 coexec-found: retail_find_nearobject
-        // _vs_port). Drop Y to match the cart.
-        let dz = (al.worldz as i32 - me.worldz as i32).abs() as i16;
-        let dx = (al.worldx as i32 - me.worldx as i32).abs() as i16;
-        if dz > max_z || dx > max_xy {
+        let r = crate::common::strat_dist_xz(&me, al);
+        // Tighten the best range only when this candidate is in bounds.
+        if r >= best_r || r < 0 {
             continue;
         }
-        let metric = dx as i32 + dz as i32;
-        if metric < best_metric {
-            best_metric = metric;
-            best = Some(it);
-        }
+        best_r = r;
+        best = Some(it);
     }
     best
 }
 
 /// C `strat_find_near_colltype` (strat_enemy.c:4993).
+/// Same XZ `xzdiffs_l` ranking as [`strat_find_near_shape`].
 pub(crate) fn strat_find_near_colltype(
     g: &Game,
     self_idx: u16,
@@ -568,8 +677,10 @@ pub(crate) fn strat_find_near_colltype(
     max_xy: i16,
 ) -> Option<u16> {
     let me = g.objs.aliens[self_idx as usize];
+    let max_r = max_z;
+    let _ = max_xy;
     let mut best: Option<u16> = None;
-    let mut best_metric: i32 = 0x7FFF_FFFF;
+    let mut best_r = max_r;
     for it in g.objs.active_indices() {
         if it == self_idx {
             continue;
@@ -578,22 +689,12 @@ pub(crate) fn strat_find_near_colltype(
         if !al.active || al.collflags & colltype_mask == 0 {
             continue;
         }
-        // ROM find_nearobject_l (STRATROU.ASM:697) ranks purely by rangexz =
-        // |dx|+|dz| (xzdiffs) — Y appears NOWHERE in the gate or the metric. The
-        // port (via the C oracle) added a dy box gate + dy in the Manhattan
-        // metric, so it could lock a DIFFERENT target than the cartridge when
-        // candidates differ in Y (tier-2 coexec-found: retail_find_nearobject
-        // _vs_port). Drop Y to match the cart.
-        let dz = (al.worldz as i32 - me.worldz as i32).abs() as i16;
-        let dx = (al.worldx as i32 - me.worldx as i32).abs() as i16;
-        if dz > max_z || dx > max_xy {
+        let r = crate::common::strat_dist_xz(&me, al);
+        if r >= best_r || r < 0 {
             continue;
         }
-        let metric = dx as i32 + dz as i32;
-        if metric < best_metric {
-            best_metric = metric;
-            best = Some(it);
-        }
+        best_r = r;
+        best = Some(it);
     }
     best
 }
@@ -625,6 +726,8 @@ const SZACO2_FIN_SHIFT: u32 = 2;
 const SZACO2_FIRE_MASK: u8 = 0x07;
 const SZACO2_ANIM_INIT: u8 = 3;
 const SZACO2_WPY_OFFSET: i16 = 150;
+/// ROM `#zaco_8p` debris mesh — `SHAPE_EXT_ZACO_8P` (tools/shape_compiler.py).
+pub const SH_ZACO_8P: u16 = 283;
 const ZACO3_HP: u8 = 2;
 const ZACO3_AP: u8 = 8;
 const ZACO0_HP: u8 = 2;
@@ -647,11 +750,11 @@ const CARRIER_HP: u8 = 16;
 const CARRIER_AP: u8 = 10;
 const CARRIER_RATE: u8 = 30;
 const SH_PILLAR3: u16 = 27;
-const SH_PARA_0: u16 = 60;
+const SH_PARA_0: u16 = 59;
 const SH_ZACO_6: u16 = 52;
 const SH_HOUDAI_0: u16 = 54;
 const SH_ITEM_5: u16 = 158;
-const SH_PARA_1_PROXY: u16 = SH_PARA_0;
+const SH_PARA_1_PROXY: u16 = 350;
 const GASF_KILLTYPE1: u8 = 0x01;
 const GASF_KILLTYPE2: u8 = 0x02;
 const GATE3_TOUCH_ZDIST: i16 = 200;
@@ -673,9 +776,6 @@ const GATE_TOUCHED_COLE: u8 = 20;
 const BOMWING_HP: u8 = 4;
 const BOMWING_AP: u8 = 8;
 const BOMWING_SPEED: u8 = 20;
-const SHORTPLASMA_SPEED: u8 = 80;
-const SHORTPLASMA_LIFE: u8 = 30;
-const SHORTPLASMA_AP: u8 = 10;
 const HOUDAI_TRACK_MIN_Z: i16 = 200;
 const HOUDAI_FIRE_GATE_Z: i16 = 800;
 const HOUDAI_TRACK_MAX_Z: i16 = 2000;
@@ -696,11 +796,11 @@ const UP1MAN_ROT_SPEED: u8 = 5;
 const UP1MAN_SFLAG1: u8 = 0x10;
 const SH_MYSHIP_4: u16 = 2;
 // Wireframe Arwing variants proxied on the player mesh (C comment).
-const SH_MY_W_PROXY: u16 = SH_MYSHIP_4;
-const SH_MY_R_W_PROXY: u16 = SH_MYSHIP_4;
-const SH_MY_L_W_PROXY: u16 = SH_MYSHIP_4;
-const SH_MY_B_W_PROXY: u16 = SH_MYSHIP_4;
-const SH_UP1_MAN_PROXY: u16 = SH_MYSHIP_4;
+const SH_MY_W_PROXY: u16 = 351;
+const SH_MY_R_W_PROXY: u16 = 352;
+const SH_MY_L_W_PROXY: u16 = 353;
+const SH_MY_B_W_PROXY: u16 = 354;
+const SH_UP1_MAN_PROXY: u16 = 355;
 const ITEM7_PICKUP_Z: i16 = 120;
 const ITEM7_PICKUP_XY: i16 = 60;
 const ITEM7_SCORE: u16 = 100;
@@ -714,7 +814,8 @@ const CLSHIP_GNDWAIT: i16 = 110;
 const CLSHIP_WARP_BTIME: i16 = 430;
 const GATE3_TOUCHED_FLAG: u8 = 0x10;
 const TADPOLE_SIDE_FLAG: u8 = 0x80;
-const RELSLOWELASERHOME_LOCK_FLAG: u8 = 0x20;
+/// ASM `sflag2` on the home laser — lock latch (GSTRATS.ASM:1914-1917).
+pub const RELSLOWELASERHOME_LOCK_FLAG: u8 = 0x20;
 const RELSLOWELASERHOME_CLOSE_Z: i16 = 800;
 const RELSLOWELASERHOME_OFFSCENE_Z: i16 = 12000;
 const RELSLOWELASERHOME_LIFE: u8 = 40;
@@ -761,9 +862,8 @@ const BOSS1_COVER_CLEAR_FRAMES_HARD: u8 = 30;
 const BOSS1_CLOSE_ZDIST: i16 = 300;
 const BOSS1_MISSILE_ZDIST: i16 = 1500;
 const BOSS1_COVER_ZOFF: i16 = -300;
-// boss_1_0/boss_1_1 raw SHAPES2 flat ids (C comment).
-const SH_BOSS_1_0: u16 = 246;
-const SH_BOSS_1_1: u16 = 247;
+const SH_BOSS_1_0: u16 = sh::BOSS_1_0;
+const SH_BOSS_1_1: u16 = sh::BOSS_1_1;
 const HMISSILE1_SPEED: u8 = 60;
 const HMISSILE1_LIFE: u8 = 100;
 const HMISSILE1_AP: u8 = 8;
@@ -778,6 +878,16 @@ const ACF_COLLTYPE4_BIT: u8 = ACF_COLLTYPE4;
 
 /// C `Strat_HitFlash` (strat_enemy.c:5895) — damage + flash + death check.
 pub fn strat_hit_flash(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT != 0 {
+        // ROM `.nocol: s_jmpto_strat`: collision handlers do not consume the
+        // object's normal update.  This matters for hard/no-hit boss bodies
+        // that overlap the player for many consecutive frames.
+        if let Some(strat) = g.objs.aliens[idx as usize].stratptr {
+            g.call_strat(strat, idx);
+        }
+        return;
+    }
     let hp = g.objs.aliens[idx as usize].hp;
     if hp != HARD_HP {
         if hp > 0 {
@@ -796,6 +906,97 @@ pub fn strat_hit_flash(g: &mut Game, idx: u16) {
     // (<1000 / <2000 / else). The port was silent.
     play_se_by_range(g, idx, 0x24, 0x25, 0x26);
     g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+    // hitflash_Istrat.Icont also ends in `s_jmpto_strat` after a non-fatal
+    // hit, so movement/state logic still runs during the collision frame.
+    if let Some(strat) = g.objs.aliens[idx as usize].stratptr {
+        g.call_strat(strat, idx);
+    }
+}
+
+/// Spawn an explosion at the collision partner (`al_collobjptr`), if any.
+fn hitflash_exp_at_collobj(
+    g: &mut Game,
+    idx: u16,
+    make: fn(&mut Game, u16) -> Option<u16>,
+) -> Option<u16> {
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    if partner == 0 || partner as usize >= NUMBER_AL || !g.objs.aliens[partner as usize].active {
+        return None;
+    }
+    make(g, partner)
+}
+
+/// ROM `hitflashBOSSd_Istrat` (GSTRATS.ASM:843) — MED exp + $80, or $24 if nohitaffect.
+pub fn hitflash_bossd_istrat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT != 0 {
+        g.hooks.play_se(0x24);
+        strat_hit_flash(g, idx);
+        return;
+    }
+    g.hooks.play_se(0x80);
+    if let Some(exp) = hitflash_exp_at_collobj(g, idx, make_medium_exp_obj) {
+        g.objs.aliens[exp as usize].sflags4 |= ASF4_NOPOLYEXP;
+    }
+    strat_hit_flash(g, idx);
+}
+
+/// ROM `hitflashMexp_Istrat` (GSTRATS.ASM:858).
+pub fn hitflash_mexp_istrat(g: &mut Game, idx: u16) {
+    let _ = hitflash_exp_at_collobj(g, idx, make_medium_exp_obj);
+    g.hooks.play_se(0x24);
+    strat_hit_flash(g, idx);
+}
+
+/// ROM `hitflashSexp_Istrat` (GSTRATS.ASM:867).
+pub fn hitflash_sexp_istrat(g: &mut Game, idx: u16) {
+    let _ = hitflash_exp_at_collobj(g, idx, make_small_exp_obj);
+    g.hooks.play_se(0x24);
+    strat_hit_flash(g, idx);
+}
+
+/// ROM `hitflashLexp_Istrat` (GSTRATS.ASM:877) — falls into `coll_Istrat`.
+pub fn hitflash_lexp_istrat(g: &mut Game, idx: u16) {
+    let _ = hitflash_exp_at_collobj(g, idx, make_large_exp_obj);
+    g.hooks.play_se(0x24);
+    strat_hit_flash(g, idx);
+}
+
+/// ROM `misscol_Istrat` (GSTRATS.ASM:930) — missile-vs-missile flash, else kill.
+pub fn misscol_istrat(g: &mut Game, idx: u16) {
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    if partner != 0
+        && (partner as usize) < NUMBER_AL
+        && g.objs.aliens[partner as usize].active
+        && g.objs.aliens[partner as usize].shape == g.objs.aliens[idx as usize].shape
+    {
+        return; // nomcol — same-shape ignore
+    }
+    // s_docoll folded into strat_hit_flash / kill path below.
+    let partner_is_missile = partner != 0
+        && (partner as usize) < NUMBER_AL
+        && g.objs.aliens[partner as usize].type_ & ATMISSILE != 0;
+    if partner_is_missile {
+        g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+        let mch = sid(g, mchitflash_strat);
+        g.objs.aliens[idx as usize].collstratptr = Some(mch);
+        return;
+    }
+    crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `mchitflash_strat` (GSTRATS.ASM:950) — one-shot flash then restore misscol.
+pub fn mchitflash_strat(g: &mut Game, idx: u16) {
+    // s_docoll — apply one more damage tick when hittable.
+    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT == 0 {
+        let hp = g.objs.aliens[idx as usize].hp;
+        if hp != HARD_HP && hp > 0 {
+            g.objs.aliens[idx as usize].hp = hp - 1;
+        }
+    }
+    let miss = sid(g, misscol_istrat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags &= !(ASF_HITFLASH | ASF_COLLIDE);
+    al.collstratptr = Some(miss);
 }
 
 /// ROM range-selected sound trigger (EXPSTRAT.ASM:855-877 / GSTRATS.ASM:905-925
@@ -821,32 +1022,54 @@ fn play_se_by_range(g: &mut Game, idx: u16, near: u8, mid: u8, far: u8) {
 
 /// C `Strat_Explode` (strat_enemy.c:5931, explode_Istrat).
 pub fn strat_explode(g: &mut Game, idx: u16) {
+    // ROM explode_Istrat (EXPSTRAT.ASM:685): divorce family before the rest.
+    if g.objs.aliens[idx as usize].sflags3 & (ASF3_CHILDOBJ | ASF3_MOTHEROBJ) != 0 {
+        divorce_family(g, idx);
+    }
+    // ROM: s_jmpNOT_alsflag special → skip; else spawn gate_2 + gate2_Istrat.
+    // (Audit A Minor 14)
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_SPECIAL != 0 {
+        if let Some(gate) = make_obj(g, SH_GATE2) {
+            {
+                let src = g.objs.aliens[idx as usize];
+                let al = &mut g.objs.aliens[gate as usize];
+                al.worldx = src.worldx;
+                al.worldy = src.worldy;
+                al.worldz = src.worldz;
+            }
+            strat_gate2_init(g, gate);
+        }
+    }
+    // ROM: s_jmp_alvarNOTZERO W,x,al_debrisshape,explodedebris_Istrat
+    if g.objs.aliens[idx as usize].debrisshape != 0 {
+        explodedebris_istrat(g, idx);
+        return;
+    }
+    explode_icont(g, idx);
+}
+
+/// ROM `explode_Icont` tail — special score + remove (full mesh swap scoped).
+fn explode_icont(g: &mut Game, idx: u16) {
     let sflags4 = g.objs.aliens[idx as usize].sflags4;
     if sflags4 & (ASF4_SPECIAL | ASF4_CSPECIAL) != 0 {
         // ROM `s_test_special` (STRATMAC.INC:236-245, run from explode_Icont):
         // increments specials_dead when the object is `special` OR `Cspecial`
-        // — the hit-% score numerator (sf-game score.rs). The port only counted
-        // CSPECIAL, undercounting the score on stages with plain-special
-        // enemies.
-        let sd = g.vars.read_ext8(wm::SPECIALS_DEAD);
-        if sd < 0xFF {
-            g.vars.write_ext8(wm::SPECIALS_DEAD, sd + 1);
+        // — the hit-% score numerator (sf-game score.rs).
+        let sd = g.vars.shared.specials_dead;
+        if sd < u8::MAX {
+            g.vars.shared.specials_dead = sd + 1;
         }
-        // NOTE (ROM fidelity): the ROM NEVER decrements specialobjtotal (it is
-        // set once per stage, WORLD.ASM inc-only, and read by calcteamdamage_l
-        // for the score denominator), and GF_BOSSDEAD is set ONLY by the boss
-        // explode chains (EXPSTRAT.ASM:56/71/169) — never by a special count.
-        // The decrement + specialobjtotal==0 -> GF_BOSSDEAD below is a port
-        // invention kept as a legacy boss-death fallback; removing it needs
-        // per-boss death-path verification (some bosses may not yet route
-        // through strat_boss_explode_init). Score correctness no longer depends
-        // on it (sf-game owns a separate non-decremented total_specials).
-        if g.world.specialobjtotal > 0 {
-            g.world.specialobjtotal -= 1;
-        }
-        if g.world.specialobjtotal == 0 {
-            g.vars.gameflags |= GF_BOSSDEAD;
-        }
+        // ROM never decrements specialobjtotal (WORLD.ASM inc-only; MAIN.ASM
+        // score denominator) and never sets GF_BOSSDEAD from special count
+        // (only boss explode chains). Removed the port invention that did both
+        // (AUDIT_HUD_SFX Critical #3 / tick 148). Score uses World::total_specials.
+    }
+    // ASM explode_Icont (EXPSTRAT.ASM:705): not inviewpl → silent remove_strat
+    // (no destruct SE / no AFEXP visual). (Audit A Minor 14)
+    use sf_game::draw::AF_INVIEW_PL;
+    if g.objs.aliens[idx as usize].flags & AF_INVIEW_PL == 0 {
+        g.objs.aldead = 1;
+        return;
     }
     // ROM explode chain (EXPSTRAT.ASM:853-877): se_destructenemynear/mid/far
     // ($21/$22/$23) by xzdiffs range to the player, gated on the noexpsnd
@@ -857,16 +1080,5567 @@ pub fn strat_explode(g: &mut Game, idx: u16) {
     g.objs.aldead = 1;
 }
 
+/// ROM `explode_end` (EXPSTRAT.ASM:902) — shared mesh-explosion tick tail.
+pub fn explode_end(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+        add_player_z(g, idx);
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let (c, c1) = {
+        let al = &g.objs.aliens[idx as usize];
+        (al.count, al.count1)
+    };
+    // s_cmp_alvars count,count1 ; s_bpl remove_strat
+    if (c as i8) >= (c1 as i8) {
+        g.objs.aldead = 1;
+    }
+}
+
+/// ROM `explode_strat` (EXPSTRAT.ASM:897) — advance colanim + count, then end.
+pub fn explode_strat(g: &mut Game, idx: u16) {
+    crate::common::add_colanim_wrap(&mut g.objs.aliens[idx as usize], 1, 8);
+    g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_add(1);
+    explode_end(g, idx);
+}
+
+/// ROM `Lexplode_strat` (EXPSTRAT.ASM:891) — half-rate colanim (notdelay 1).
+pub fn lexplode_strat(g: &mut Game, idx: u16) {
+    // s_jmp_NOTdelay 1,explode_end — skip anim when (gameframe&1)!=0
+    if g.vars.gameframe & 1 != 0 {
+        explode_end(g, idx);
+        return;
+    }
+    crate::common::add_colanim_wrap(&mut g.objs.aliens[idx as usize], 1, 8);
+    g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_add(1);
+    explode_end(g, idx);
+}
+
+// ============================================================
+// HEADFIRE (DSTRATS.ASM:8405) — boss-F severed head projectile
+// ============================================================
+
+const BOSS_F_HEAD_HP: u8 = 6;
+const BOSS_F_HEAD_AP: u8 = 10;
+const HEADFIRE_GROUND_SPEED: u8 = 120;
+const GROUND_Y: i16 = 0;
+const DEFAULT_FALL_GRAVITY: i16 = 4;
+const DEFAULT_BOUNCE_SHIFT: u32 = 2;
+const MINIMUM_BOUNCE_VELOCITY: i16 = -5;
+
+/// Source `s_falldown_Yvec`: apply gravity and bounce off a horizontal plane.
+fn fall_down_y_vector(object: &mut Alien, bounce_shift: u32, gravity: i16, ground: i16) {
+    object.vy = object.vy.wrapping_add(gravity);
+    if object.worldy < ground {
+        return;
+    }
+    object.worldy = ground;
+    let mut bounce = object.vy.wrapping_neg() >> bounce_shift;
+    if (MINIMUM_BOUNCE_VELOCITY..=0).contains(&bounce) {
+        bounce = 0;
+    }
+    object.vy = bounce;
+}
+
+/// ROM `headfire_istrat` (DSTRATS.ASM:8405) — fall to y=0, then dash at player.
+pub fn headfire_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, headfire_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = BOSS_F_HEAD_HP;
+        al.ap = BOSS_F_HEAD_AP;
+        al.sbyte1 = 0; // phase: 0 = falling, 1 = dash
+    }
+}
+
+/// Fall under gravity until worldy>=0, then aim + dash.
+pub fn headfire_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        fall_down_y_vector(
+            &mut g.objs.aliens[idx as usize],
+            DEFAULT_BOUNCE_SHIFT,
+            DEFAULT_FALL_GRAVITY,
+            GROUND_Y,
+        );
+        apply_velocity(&mut g.objs.aliens[idx as usize]);
+        if g.objs.aliens[idx as usize].worldy == GROUND_Y {
+            g.objs.aliens[idx as usize].sbyte1 = 1;
+            g.hooks.play_se(0x8f);
+            if let Some(pl) = player(g) {
+                let me = g.objs.aliens[idx as usize];
+                // ROM `dobj2obj3dangle_xy` = `s_obj2obj_3dangle` (Yanglexy+nega).
+                let yaw = angle_xz(&me, &pl).wrapping_neg();
+                let pitch = strat_pitch_toward(&me, &pl);
+                let al = &mut g.objs.aliens[idx as usize];
+                al.roty = yaw;
+                al.rotx = pitch;
+                al.vel = HEADFIRE_GROUND_SPEED;
+                crate::common::strat_gen_vecs_3d(al);
+            }
+        }
+        add_player_z(g, idx);
+        return;
+    }
+    // .strat2 — tumble pitch + coast
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = al.rotx.wrapping_add(DEG45);
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+}
+
+// ============================================================
+// PARTICLE / MARK EXPLODES (EXPSTRAT.ASM)
+// ============================================================
+
+/// ROM `s_particle_data` (STRATMAC.INC): partobj + type/amount/life in sbyte3/1/2.
+fn particle_data(al: &mut Alien, typ: u8, amount: u8, life: u8) {
+    al.sflags |= ASF_PARTOBJ;
+    al.sbyte3 = typ;
+    al.sbyte1 = amount;
+    al.sbyte2 = life;
+    al.sflags &= !ASF_SHADOW;
+}
+
+/// Clear particle payload (`s_particle_data x,0,0,0`).
+fn particle_data_clear(al: &mut Alien) {
+    particle_data(al, 0, 0, 0);
+}
+
+pub const MEDPSPEED_I16: i16 = 65;
+
+/// Shared particle-explode init: colldisable + AFEXP + expstrat + particle payload.
+fn particle_explode_init(g: &mut Game, idx: u16, tick: StrategyFn, typ: u8, amount: u8, life: u8) {
+    let s = sid(g, tick);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.expstratptr = Some(s);
+    al.sflags |= ASF_COLLDISABLE;
+    al.flags |= AFEXP;
+    particle_data(al, typ, amount, life);
+}
+
+/// ROM `particleexplode_Istrat` (EXPSTRAT.ASM:914).
+pub fn particleexplode_istrat(g: &mut Game, idx: u16) {
+    particle_explode_init(g, idx, particleexplode_strat, 6, 60, 30);
+}
+
+/// ROM `particleexplode_strat` (EXPSTRAT.ASM:922).
+pub fn particleexplode_strat(g: &mut Game, idx: u16) {
+    particle_data_clear(&mut g.objs.aliens[idx as usize]);
+    g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_add(1);
+    if g.objs.aliens[idx as usize].count == 40 {
+        g.objs.aldead = 1;
+        return;
+    }
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+        .worldz
+        .wrapping_add(MEDPSPEED_I16.wrapping_sub(30));
+}
+
+/// ROM `fastparticleexplode_Istrat` (EXPSTRAT.ASM:934).
+pub fn fastparticleexplode_istrat(g: &mut Game, idx: u16) {
+    particle_explode_init(g, idx, fastparticleexplode_strat, 7, 60, 40);
+}
+
+/// ROM `fastparticleexplode_strat` (EXPSTRAT.ASM:943) — clear payload only.
+pub fn fastparticleexplode_strat(g: &mut Game, idx: u16) {
+    particle_data_clear(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `BIGparticleexplode_Istrat` (EXPSTRAT.ASM:951).
+pub fn bigparticleexplode_istrat(g: &mut Game, idx: u16) {
+    particle_explode_init(g, idx, bigparticleexplode_strat, 4, 255, 100);
+}
+
+/// ROM `BIGparticleexplode_strat` (EXPSTRAT.ASM:959).
+pub fn bigparticleexplode_strat(g: &mut Game, idx: u16) {
+    particle_data_clear(&mut g.objs.aliens[idx as usize]);
+    g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_add(1);
+    if g.objs.aliens[idx as usize].count == 110 {
+        g.objs.aldead = 1;
+        return;
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+        add_player_z(g, idx);
+    }
+}
+
+/// ROM `CIRC2particleexplode_Istrat` (EXPSTRAT.ASM:973).
+pub fn circ2particleexplode_istrat(g: &mut Game, idx: u16) {
+    particle_explode_init(g, idx, circ2particleexplode_strat, 6, 250, 60);
+}
+
+/// ROM `CIRC2particleexplode_strat` (EXPSTRAT.ASM:981).
+pub fn circ2particleexplode_strat(g: &mut Game, idx: u16) {
+    particle_data_clear(&mut g.objs.aliens[idx as usize]);
+    g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_add(1);
+    if g.objs.aliens[idx as usize].count == 50 {
+        g.objs.aldead = 1;
+        return;
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+        add_player_z(g, idx);
+    }
+}
+
+/// ROM `CIRCparticleexplode_Istrat` / `CIRCparticleexplode_strat` — body commented out in ROM.
+pub fn circparticleexplode_istrat(_g: &mut Game, _idx: u16) {}
+pub fn circparticleexplode_strat(_g: &mut Game, _idx: u16) {}
+
+/// ROM `particlefire_Istrat` (EXPSTRAT.ASM:1011).
+pub fn particlefire_istrat(g: &mut Game, idx: u16) {
+    particle_data(&mut g.objs.aliens[idx as usize], 2, 2, 25);
+    particlefire_icont(g, idx);
+}
+
+/// ROM `particlefire_Icont` (EXPSTRAT.ASM:1014).
+pub fn particlefire_icont(g: &mut Game, idx: u16) {
+    let s = sid(g, particlefire_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.expstratptr = Some(s);
+    al.sflags |= ASF_COLLDISABLE;
+    al.flags |= AFEXP;
+}
+
+/// ROM `particlefire_strat` — empty tick.
+pub fn particlefire_strat(_g: &mut Game, _idx: u16) {}
+
+const LARGE_PLASMA_ENTRY_SCROLL: i16 = 120;
+
+/// ROM `largeplasma_Istrat` (DSTRATS.ASM:3641-3646). This is a one-shot
+/// projectile initializer: make the billboard indestructible and apply the
+/// initial forward scroll displacement. Flat billboard orientation is a
+/// renderer concern in the HD port.
+pub fn largeplasma_istrat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    set_hard_vars(al);
+    al.worldz = al.worldz.wrapping_sub(LARGE_PLASMA_ENTRY_SCROLL);
+}
+
+/// ROM `particlefiredown_Istrat` (EXPSTRAT.ASM:1025).
+pub fn particlefiredown_istrat(g: &mut Game, idx: u16) {
+    particle_data(&mut g.objs.aliens[idx as usize], 3, 4, 9);
+    particlefire_icont(g, idx);
+}
+
+const SH_SMARK_PROXY: u16 = 338;
+const SH_MMARK_PROXY: u16 = 339;
+const SH_LMARK_PROXY: u16 = 340;
+
+fn markexplode_istrat(g: &mut Game, idx: u16, shape: u16) {
+    if let Some(mark) = make_obj(g, shape) {
+        {
+            let src = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[mark as usize];
+            al.worldx = src.worldx;
+            al.worldy = 0;
+            al.worldz = src.worldz;
+            al.sflags3 &= !ASF3_REALOBJ;
+        }
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `Smarkexplode_Istrat` (EXPSTRAT.ASM:423).
+pub fn smarkexplode_istrat(g: &mut Game, idx: u16) {
+    markexplode_istrat(g, idx, SH_SMARK_PROXY);
+}
+
+/// ROM `Mmarkexplode_Istrat` (EXPSTRAT.ASM:432).
+pub fn mmarkexplode_istrat(g: &mut Game, idx: u16) {
+    markexplode_istrat(g, idx, SH_MMARK_PROXY);
+}
+
+/// ROM `Lmarkexplode_Istrat` (EXPSTRAT.ASM:441).
+pub fn lmarkexplode_istrat(g: &mut Game, idx: u16) {
+    markexplode_istrat(g, idx, SH_LMARK_PROXY);
+}
+
+/// ROM `hover_Istrat` (GSTRATS.ASM:965) — scroll with player Z, spin yaw.
+pub fn hover_istrat(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(4);
+}
+
+/// ROM `implode_Istrat` (EXPSTRAT.ASM:399) — temporary explode-look, then recover.
+pub fn implode_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, implode_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.count = 50;
+    al.expstratptr = Some(s);
+    al.flags |= AFEXP;
+    al.hp = 0;
+    al.sflags |= ASF_COLLDISABLE;
+}
+
+/// ROM `implode_strat` (EXPSTRAT.ASM:407).
+pub fn implode_strat(g: &mut Game, idx: u16) {
+    let next = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+    if next != 0 {
+        g.objs.aliens[idx as usize].count = next;
+    } else {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.flags &= !AFEXP;
+        al.hp = HARD_HP;
+        al.sflags &= !ASF_COLLDISABLE;
+        al.count = 0;
+    }
+    g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(4);
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `stopexplode_Istrat` (EXPSTRAT.ASM:667) — undo last move, zero vecs, explode.
+pub fn stopexplode_istrat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.worldx = al.worldx.wrapping_sub(al.vx);
+        al.worldy = al.worldy.wrapping_sub(al.vy);
+        al.worldz = al.worldz.wrapping_sub(al.vz);
+        al.vx = 0;
+        al.vy = 0;
+        al.vz = 0;
+        al.vel = 0;
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `weapcollide_Istrat` (GSTRATS.ASM:769) — weapon hit damage / kill / exp.
+pub fn weapcollide_istrat(g: &mut Game, idx: u16) {
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    let partner_ok =
+        partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active;
+
+    if partner_ok {
+        let pap = g.objs.aliens[partner as usize].ap;
+        if pap == 0 {
+            // s_docollAP x,#framesperAP,#1 — force 1 damage
+            let hp = g.objs.aliens[idx as usize].hp;
+            if hp != HARD_HP && hp > 0 {
+                g.objs.aliens[idx as usize].hp = hp - 1;
+            }
+        } else if g.objs.aliens[partner as usize].collflags & ACF_WEAPON == 0 {
+            crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
+            return;
+        } else {
+            // s_docoll x,#framesperAP — one AP tick
+            let hp = g.objs.aliens[idx as usize].hp;
+            if hp != HARD_HP && hp > 0 {
+                g.objs.aliens[idx as usize].hp = hp.saturating_sub(1.min(pap));
+            }
+        }
+    }
+
+    if g.objs.aliens[idx as usize].hp == 0 {
+        match g.objs.aliens[idx as usize].expstratptr {
+            Some(exp) => g.call_strat(exp, idx),
+            None => strat_explode(g, idx),
+        }
+    }
+}
+
+/// ROM `sr_make_xyvec` via `s_make_xyvec` — XY velocity from angle + speed.
+pub fn make_xyvec(al: &mut Alien, angle: u8, speed: u8) {
+    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
+    // n3dvecs with troty=deg90: vx = speed*sin(angle), vy = speed*cos(angle), vz=0
+    // (matches enemy_b::setoutexp_srou).
+    let sp = speed as i32;
+    al.vx = mulslog(sp, SINTAB[angle as usize] as i32) as i16;
+    al.vy = mulslog(sp, COSTAB[angle as usize] as i32) as i16;
+    al.vz = 0;
+}
+
+/// ROM `s_jmp_random label,pct` — branch (skip) when rnd < pct% of 255.
+fn jmp_random_pct(g: &mut Game, pct: u8) -> bool {
+    let thr = ((pct as u16) * 255) / 100;
+    (sf_random(&mut g.vars) & 0xff) < thr
+}
+
+const SH_ESCAPEE_PROXY: u16 = 341;
+
+/// ROM `escapeeexplode2_Istrat` — 10% chance to spawn escapee, then explode.
+pub fn escapeeexplode2_istrat(g: &mut Game, idx: u16) {
+    if !jmp_random_pct(g, 90) {
+        makeescapee_icont(g, idx);
+        return;
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `escapeeexplode_Istrat` — 20% chance to spawn escapee, then explode.
+pub fn escapeeexplode_istrat(g: &mut Game, idx: u16) {
+    if !jmp_random_pct(g, 80) {
+        makeescapee_icont(g, idx);
+        return;
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `ship1aexp_Istrat` (GASTRATS.ASM:604) — become invulnerable, resume tick.
+pub fn ship1aexp_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+    jmpto_strat(g, idx);
+}
+
+const SHIP1_HP: u8 = 20; // STRATEQU.INC:124
+const SHIP1_AP: u8 = 16; // STRATEQU.INC:125
+const SHIP3_HP: u8 = HARD_HP; // STRATEQU.INC:128 ship3HP equ hardHP
+const SHIP3_AP: u8 = 16;
+
+/// ROM `ship1col_Istrat` (GASTRATS.ASM:609): HF2 → Lexp on collider + hitflash;
+/// else clear collide and resume.
+pub fn ship1col_istrat(g: &mut Game, idx: u16) {
+    let hf = g.objs.aliens[idx as usize].hitflags;
+    if hf & HF2_MASK != 0 {
+        let partner = g.objs.aliens[idx as usize].collobjptr;
+        if partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active
+        {
+            if let Some(e) = make_large_exp_obj(g, partner) {
+                g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+            }
+        }
+        g.objs.aliens[idx as usize].hitflags = 0;
+        g.hooks.play_se(0x24);
+        strat_hit_flash(g, idx);
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hitflags = 0;
+        al.sflags &= !ASF_COLLIDE;
+    }
+    jmpto_strat(g, idx);
+}
+
+// ============================================================
+// shiplb1 / shipoutofLB3 — LB cutscene escort ships (GCSTRATS.ASM)
+// ============================================================
+
+/// `((deg180+deg11+deg5)-deg90)/3` — turn1 duration (GCSTRATS.ASM:1210).
+const SHIPLB1_TURN1_FRAMES: u8 =
+    ((DEG180 as u16 + DEG11 as u16 + DEG5 as u16 - DEG90 as u16) / 3) as u8;
+
+const GF2_STRATFLAG1: u8 = 1;
+
+/// ROM `shiplb1ychase_srou` (GCSTRATS.ASM:1238) — chase viewtoobj.y + sword1.
+pub fn shiplb1ychase_srou(g: &mut Game, idx: u16) {
+    let view = g.vars.sv_i16(crate::common::sv::VIEWTOOBJ);
+    if view < 0 || (view as usize) >= NUMBER_AL {
+        return;
+    }
+    let target = g.objs.aliens[view as usize]
+        .worldy
+        .wrapping_add(g.objs.aliens[idx as usize].sword1);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldy = chase_proportional(al.worldy, target, 5);
+}
+
+/// ROM `shiplb1_Istrat` (GCSTRATS.ASM:1199) — friend escort peel during LB1 exit.
+pub fn shiplb1_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    // Fall-through into the body (no separate stratptr in ROM — self-looping Istrat).
+    let s = sid(g, shiplb1_istrat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    shiplb1_body(g, idx);
+}
+
+fn shiplb1_body(g: &mut Game, idx: u16) {
+    // state 0 — start
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        g.objs.aliens[idx as usize].vel = 20;
+        shiplb1ychase_srou(g, idx);
+        g.objs.aliens[idx as usize].rotz = DEG45;
+        g.objs.aliens[idx as usize].roty = DEG90;
+        // s_decbne_alvar — DEC then BNE
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb == 0 {
+            g.objs.aliens[idx as usize].sbyte1 = SHIPLB1_TURN1_FRAMES;
+            g.objs.aliens[idx as usize].stratstate = 1;
+        }
+    }
+
+    // state 1 — turn1
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        shiplb1ychase_srou(g, idx);
+        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(3);
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb == 0 {
+            g.objs.aliens[idx as usize].sbyte1 = 40;
+            g.objs.aliens[idx as usize].stratstate = 2;
+        }
+    }
+
+    // state 2 — turn2 / climb
+    if g.objs.aliens[idx as usize].stratstate == 2 {
+        let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = sb;
+        if sb == 0 {
+            g.objs.aliens[idx as usize].sbyte1 = 1;
+            // s_jmp_notdelay 1 — skip pitch when gate closed
+            if frame_tick_mod(g, 1) {
+                g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_sub(1);
+            }
+        } else {
+            shiplb1ychase_srou(g, idx);
+        }
+    }
+
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+}
+
+/// ROM `shipoutofLB3_Istrat` (GCSTRATS.ASM:1531) — space fly-past escort.
+pub fn shipoutoflb3_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, shipoutoflb3_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.sbyte1 = 150;
+        al.type_ |= ATGND;
+        al.stratstate = 0;
+    }
+}
+
+/// ROM `shipoutofLB3_strat` (GCSTRATS.ASM:1536).
+pub fn shipoutoflb3_strat(g: &mut Game, idx: u16) {
+    let state = g.objs.aliens[idx as usize].stratstate;
+    match state {
+        0 => {
+            // s_beqdec → nextstate
+            if g.objs.aliens[idx as usize].sbyte1 == 0 {
+                g.objs.aliens[idx as usize].stratstate = 1;
+            } else {
+                g.objs.aliens[idx as usize].sbyte1 -= 1;
+                g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                    .worldz
+                    .wrapping_add(MEDPSPEED_I16.wrapping_add(35));
+            }
+        }
+        1 => {
+            g.objs.aliens[idx as usize].rotz = 0;
+            let z_off = g.objs.aliens[idx as usize].ptr as i16;
+            let viewposz = g.vars.sv_i16(crate::common::sv::VIEWPOSZ);
+            g.objs.aliens[idx as usize].worldz = z_off.wrapping_add(viewposz);
+            g.objs.aliens[idx as usize].stratstate = 2;
+        }
+        2 => {
+            let gf2 = g.vars.shared.game_flags2;
+            if gf2 & GF2_STRATFLAG1 != 0 {
+                g.objs.aliens[idx as usize].stratstate = 3;
+            } else {
+                shipoutoflb3_dowait(g, idx);
+            }
+        }
+        3 => {
+            // s_decbne → .dowait
+            let sb = g.objs.aliens[idx as usize].sbyte2.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte2 = sb;
+            if sb != 0 {
+                shipoutoflb3_dowait(g, idx);
+            } else {
+                g.vars.set_sv_i16(crate::common::sv::BOOSTOBJ, idx as i16);
+                // GCSTRATS.ASM:1569 — boost_sprite #10 then boostZoff=#-80
+                let _ = crate::common::boost_sprite(g, Some(10));
+                g.hooks.play_se(0x32);
+                crate::common::set_boost_zoff(g, -80);
+                g.objs.aliens[idx as usize].stratstate = 4;
+                g.objs.aliens[idx as usize].sbyte1 = 15;
+            }
+        }
+        4 => {
+            g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                .worldz
+                .wrapping_add(MEDPSPEED_I16.wrapping_add(15));
+            apply_velocity(&mut g.objs.aliens[idx as usize]);
+            if g.objs.aliens[idx as usize].vz <= 150 {
+                g.objs.aliens[idx as usize].vz = g.objs.aliens[idx as usize].vz.wrapping_add(15);
+            }
+            let sb = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte1 = sb;
+            if sb == 0 {
+                g.objs.aliens[idx as usize].sbyte1 = 1;
+                if g.objs.aliens[idx as usize].vy != -40 {
+                    g.objs.aliens[idx as usize].vy =
+                        g.objs.aliens[idx as usize].vy.wrapping_add(-5);
+                }
+                let mut rx = g.objs.aliens[idx as usize].rotx;
+                achase_angle(&mut rx, DEG22.wrapping_neg(), 3);
+                g.objs.aliens[idx as usize].rotx = rx;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn shipoutoflb3_dowait(g: &mut Game, idx: u16) {
+    let view = g.vars.sv_i16(crate::common::sv::VIEWTOOBJ);
+    let (vx, vy) = if view >= 0 && (view as usize) < NUMBER_AL {
+        let v = &g.objs.aliens[view as usize];
+        (v.worldx, v.worldy)
+    } else {
+        (0, 0)
+    };
+    let (ox, oy) = {
+        let al = &g.objs.aliens[idx as usize];
+        (al.sword1, al.sword2)
+    };
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = ox.wrapping_add(vx);
+    al.worldy = oy.wrapping_add(vy);
+    al.worldz = al.worldz.wrapping_add(MEDPSPEED_I16.wrapping_add(15));
+}
+
+/// ROM `ship1_Istrat` (GASTRATS.ASM:629) — come from behind and peel down.
+pub fn ship1_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, ship1_strat);
+    let s_col = sid(g, ship1col_istrat);
+    let s_exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.hp = SHIP1_HP;
+        al.ap = SHIP1_AP;
+        al.vel = 10;
+        al.count = 100;
+    }
+}
+
+/// ROM `ship1_strat` (GASTRATS.ASM:635).
+pub fn ship1_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+
+    let Some(pl) = player(g) else { return };
+    let me = g.objs.aliens[idx as usize];
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if dz < 1000 {
+        return; // .dr
+    }
+    // s_dec_lifecnt — remove when count hits 0
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.count > 0 {
+            al.count -= 1;
+        }
+        if al.count == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        speed_to(al, 60, 1);
+    }
+    let me = g.objs.aliens[idx as usize];
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if dz < 1500 {
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // pitch up toward deg45/3 unless already there
+        if al.rotx <= DEG45 / 3 {
+            al.rotx = al.rotx.wrapping_add(1);
+        }
+        match al.sbyte1 {
+            1 => al.roty = al.roty.wrapping_sub(1),
+            2 => al.roty = al.roty.wrapping_add(1),
+            _ => {}
+        }
+    }
+}
+
+/// ROM `ship1a_Istrat` (GASTRATS.ASM:541) — slow approach + shoot.
+pub fn ship1a_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, ship1a_strat);
+    let s_col = sid(g, ship1col_istrat);
+    let s_exp = sid(g, ship1aexp_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.hp = SHIP1_HP;
+        al.ap = SHIP1_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+        // This is a boss-owned child.  The map-level face is explicitly
+        // no-z-remove and the core must survive its hidden approach/reveal
+        // cycle even if the camera crosses its origin between those states.
+        al.type_ &= !ATZREMOVE;
+        gen_vecs_3d(al);
+        al.snd2 = 8;
+    }
+}
+
+/// ROM `ship1a_strat` (GASTRATS.ASM:548).
+pub fn ship1a_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].worldy = g.objs.aliens[idx as usize].worldy.wrapping_sub(1);
+
+    let Some(pl) = player(g) else {
+        ship1a_cont(g, idx);
+        return;
+    };
+    // s_jmp_objinfront y,x,.nfire — skip fire while player is in front of ship
+    let me_z = g.objs.aliens[idx as usize].worldz;
+    if pl.worldz >= me_z {
+        ship1a_cont(g, idx);
+        return;
+    }
+
+    let hp = g.objs.aliens[idx as usize].hp;
+    if hp == 0 {
+        // dying smoke / Lexp path
+        if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+            g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+            g.hooks.play_se(0x21);
+        }
+        if frame_tick_mod(g, 1) {
+            if let Some(e) = make_large_exp_obj(g, idx) {
+                addrnd2pos_xy(g, e);
+                g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+            }
+            let _ = crate::common::makesmoke_srou(g, idx);
+        }
+        ship1a_cont(g, idx);
+        return;
+    }
+
+    let fire_gate = if hp > SHIP1_HP / 2 {
+        frame_tick_mod(g, 2) // delay 2 when healthy
+    } else {
+        frame_tick_mod(g, 4) // delay 4 when damaged
+    };
+    if fire_gate {
+        let me = g.objs.aliens[idx as usize];
+        let pitch_jitter = (sf_random(&mut g.vars) & 7) as i8 - 3;
+        let yaw_jitter = (sf_random(&mut g.vars) & 7) as i8 - 3;
+        let pitch = strat_pitch_toward(&me, &pl).wrapping_add(pitch_jitter as u8);
+        let yaw = angle_xz(&me, &pl).wrapping_add(yaw_jitter as u8);
+        strat_fire_relslowlaser(g, idx, pitch, yaw);
+    }
+    ship1a_cont(g, idx);
+}
+
+/// ROM `ship1a_cont` (GASTRATS.ASM:595).
+pub fn ship1a_cont(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `ship3b_strat` (GASTRATS.ASM:456) — lock vz to -pviewvelz and drift.
+pub fn ship3b_strat(g: &mut Game, idx: u16) {
+    let vz = g.vars.pviewvelz.wrapping_neg();
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vz = vz;
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `ship3a_strat` (GASTRATS.ASM:422) — final approach into the
+/// Space Armada launch bay.  This is an internal state of `ship3_Istrat`,
+/// not the similarly named standalone `ship3a_Istrat` fly-away object.
+pub fn ship3a_strat(g: &mut Game, idx: u16) {
+    let Some(pl) = player(g) else {
+        ship3_cont(g, idx);
+        return;
+    };
+    let me = g.objs.aliens[idx as usize];
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if dz > 600 {
+        ship3_cont(g, idx);
+        return;
+    }
+
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
+        al.snd2 = 0;
+    }
+    g.vars.pshipflags &= !PSF_NOCTRL;
+    g.vars.gameflags |= GF_STRATDONE1;
+    if g.vars.splayerflymode == SPFM_INSIDE {
+        g.vars.splayerflymode = SPFM_TONORM;
+    }
+    let next = sid(g, ship3b_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(next);
+    ship3b_strat(g, idx);
+}
+
+/// ROM `ship3c_init` (GASTRATS.ASM:471).
+pub fn ship3c_init(g: &mut Game, idx: u16) {
+    let s = sid(g, ship3c_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.vx = 0;
+    al.vy = -10;
+    al.vz = 30;
+}
+
+/// ROM `ship3c_strat` (GASTRATS.ASM:474).
+pub fn ship3c_strat(g: &mut Game, idx: u16) {
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+}
+
+/// ROM `ship3_cont` (GASTRATS.ASM:434) — player-HP0 → ship3c; far → ship3b;
+/// else pull player toward space center + noctrl.
+pub fn ship3_cont(g: &mut Game, idx: u16) {
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        ship3c_init(g, idx);
+        ship3c_strat(g, idx);
+        return;
+    }
+    let Some(pl) = player(g) else { return };
+    let me = g.objs.aliens[idx as usize];
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if dz > (200i16 << 4) {
+        // ROM `s_jmp_Zdistmore ...,ship3b_strat` is a same-tick branch, not
+        // `s_set_strat`.  Keep `ship3_strat` (or `ship3a_strat`) installed so
+        // the distance gate is reevaluated as the player catches the ship.
+        ship3b_strat(g, idx);
+        return;
+    }
+    // Pull player toward space_viewCY / x=0 and lock controls.
+    let pidx = g.vars.internal_playpt;
+    if (pidx as usize) < NUMBER_AL && g.objs.aliens[pidx as usize].active {
+        let al = &mut g.objs.aliens[pidx as usize];
+        al.worldy = chase_proportional(al.worldy, SPACE_VIEWCY, 3);
+        al.worldx = chase_proportional(al.worldx, 0, 4);
+    }
+    g.vars.pshipflags |= PSF_NOCTRL;
+    g.vars.pstratflags |= PSTF_INSEQ;
+    // `ship3b_strat` is the fall-through body of ship3_cont in the ROM.
+    ship3b_strat(g, idx);
+}
+
+const SHIP2_AP: u8 = 16; // STRATEQU.INC:127
+
+/// ROM `ship2_cont` / `ship2fire_cont` (GASTRATS.ASM:294-307) — fire path is
+/// commented out in ROM; both labels fall through to vecs + playerZ.
+pub fn ship2_cont(g: &mut Game, idx: u16) {
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+}
+
+/// Public alias for the dead fire-cont label (same body as `ship2_cont`).
+pub fn ship2fire_cont(g: &mut Game, idx: u16) {
+    ship2_cont(g, idx);
+}
+
+/// ROM `ship2outside_init` (GASTRATS.ASM:310).
+pub fn ship2outside_init(g: &mut Game, idx: u16) {
+    let s = sid(g, ship2outside_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.vars.gameflags |= GF_STRATDONE2;
+}
+
+/// ROM `ship2outside_strat` (GASTRATS.ASM:313) — peel left/right of view.
+pub fn ship2outside_strat(g: &mut Game, idx: u16) {
+    let left = g.objs.aliens[idx as usize].flags & AF_LEFT_PL != 0;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if left {
+            if al.vx > -60 {
+                al.vx = al.vx.wrapping_sub(5);
+            }
+        } else if al.vx < 60 {
+            al.vx = al.vx.wrapping_add(5);
+        }
+    }
+    ship2_cont(g, idx);
+}
+
+/// ROM `ship2into_init` (GASTRATS.ASM:327).
+pub fn ship2into_init(g: &mut Game, idx: u16) {
+    let s = sid(g, ship2into_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    g.vars.pstratflags |= PSTF_NOTDIE;
+}
+
+/// ROM `ship2into_strat` (GASTRATS.ASM:330) — guide player into the hangar.
+pub fn ship2into_strat(g: &mut Game, idx: u16) {
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        ship2outside_init(g, idx);
+        ship2outside_strat(g, idx);
+        return;
+    }
+
+    // Lock player/view to medpspeed.
+    let pidx = g.vars.internal_playpt;
+    if (pidx as usize) < NUMBER_AL && g.objs.aliens[pidx as usize].active {
+        g.objs.aliens[pidx as usize].vel = MEDPSPEED_I16 as u8;
+    }
+    g.vars.pviewvelz = MEDPSPEED_I16;
+    g.vars
+        .set_sv_u8(crate::common::sv::PLAYER_MEDSPEED, MEDPSPEED_I16 as u8);
+    g.vars
+        .set_sv_u8(crate::common::sv::PLAYER_TOSPEED, MEDPSPEED_I16 as u8);
+
+    let viewcy = g.vars.sv_i16(crate::common::sv::VIEWCY);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, 0, 5);
+        al.worldy = chase_proportional(al.worldy, viewcy, 4);
+    }
+
+    let Some(pl) = player(g) else {
+        ship2_cont(g, idx);
+        return;
+    };
+    let me = g.objs.aliens[idx as usize];
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if dz < 300 {
+        // .doneguide — hand control back, latch stratdone1, fly away.
+        let s = sid(g, ship2_doneguide_strat);
+        g.objs.aliens[idx as usize].stratptr = Some(s);
+        g.vars.gameflags |= GF_STRATDONE1;
+        g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+        g.objs.aliens[idx as usize].vz = -40;
+        ship2_cont(g, idx);
+        return;
+    }
+
+    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
+    // Pull player toward space center.
+    if (pidx as usize) < NUMBER_AL && g.objs.aliens[pidx as usize].active {
+        let al = &mut g.objs.aliens[pidx as usize];
+        al.worldy = chase_proportional(al.worldy, SPACE_VIEWCY, 3);
+        al.worldx = chase_proportional(al.worldx, 0, 3);
+    }
+    g.vars.pstratflags |= PSTF_INSEQ;
+    // changeviewmode_l when inside cockpit — scoped (HD view mode).
+    ship2_cont(g, idx);
+}
+
+/// Local strat after `.doneguide` (GASTRATS.ASM:366) — keep drifting via cont.
+fn ship2_doneguide_strat(g: &mut Game, idx: u16) {
+    ship2_cont(g, idx);
+}
+
+/// ROM `ship2_Istrat` (GASTRATS.ASM:269) — intermediate entrance ship.
+pub fn ship2_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, ship2_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.hp = HARD_HP;
+        al.ap = SHIP2_AP;
+        al.roty = DEG180;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.vz = -40;
+        al.sbyte1 = 39;
+        al.type_ |= ATGND;
+        al.snd2 = 5;
+    }
+    g.vars.gameflags &= !(GF_STRATDONE1 | GF_STRATDONE2);
+}
+
+/// ROM `ship2_strat` (GASTRATS.ASM:281).
+pub fn ship2_strat(g: &mut Game, idx: u16) {
+    let viewcy = g.vars.sv_i16(crate::common::sv::VIEWCY);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, 0, 5);
+        al.worldy = chase_proportional(al.worldy, viewcy, 4);
+    }
+
+    let Some(pl) = player(g) else {
+        ship2_cont(g, idx);
+        return;
+    };
+    let me = g.objs.aliens[idx as usize];
+    let dx = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    // Xdistmore #30<<2 = 120
+    if dx >= 120 {
+        if dz < 2000 {
+            ship2outside_init(g, idx);
+            ship2outside_strat(g, idx);
+            return;
+        }
+    } else if dz < 2000 {
+        ship2into_init(g, idx);
+        ship2into_strat(g, idx);
+        return;
+    }
+    ship2fire_cont(g, idx);
+}
+
+/// ROM `ship3_Istrat` (GASTRATS.ASM:377) — last big entrance ship.
+pub fn ship3_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, ship3_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.hp = SHIP3_HP;
+        al.ap = SHIP3_AP;
+        al.roty = DEG180.wrapping_add(DEG11);
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.vy = -40;
+        al.type_ |= ATGND;
+        al.sflags |= ASF_COLLDISABLE;
+        al.rotz = DEG90;
+        al.snd2 = 8;
+    }
+}
+
+/// ROM `ship3_strat` (GASTRATS.ASM:388).
+pub fn ship3_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let mut rotz = al.rotz;
+        achase_angle(&mut rotz, 0, 6);
+        al.rotz = rotz;
+        let mut roty = al.roty;
+        achase_angle(&mut roty, DEG180, 6);
+        al.roty = roty;
+    }
+    let me = g.objs.aliens[idx as usize];
+    // s_jmp_lower x,#space_viewCY+800 — worldy > CY+800 → still rising
+    if me.worldy > SPACE_VIEWCY + 800 {
+        if g.objs.aliens[idx as usize].vy != 0 {
+            g.objs.aliens[idx as usize].vy = g.objs.aliens[idx as usize].vy.wrapping_add(1);
+        }
+    } else {
+        g.vars.pstratflags |= PSTF_NOTDIE;
+        if frame_tick_mod(g, 1) {
+            // s_weapon_rndrots2obj y,7,7: each draw is `(rnd & 7) - 3`.
+            if let Some(pl) = player(g) {
+                let me = g.objs.aliens[idx as usize];
+                let dp = ((sf_random(&mut g.vars) & 7) as i16 - 3) as u8;
+                let dy = ((sf_random(&mut g.vars) & 7) as i16 - 3) as u8;
+                let pitch = strat_pitch_toward(&me, &pl).wrapping_add(dp);
+                let yaw = angle_xz(&me, &pl).wrapping_add(dy);
+                let _ = fire_relfastelaser_weapon_pos(
+                    g, idx, pitch, yaw, 0, -120, // (-30 << 4) >> weapon_scale
+                    0,
+                );
+            }
+        }
+    }
+    let Some(pl) = player(g) else { return };
+    let me = g.objs.aliens[idx as usize];
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    // Zdistmore #(200/2)<<4 = 1600 → stay on ship3_cont; else → ship3a.
+    if dz <= (200i16 / 2) << 4 {
+        let next = sid(g, ship3a_strat);
+        g.objs.aliens[idx as usize].stratptr = Some(next);
+    }
+    ship3_cont(g, idx);
+}
+
+/// ROM `ship3a_Istrat` (GA2STRAT.ASM:1404) — standalone receding ship used
+/// by MAP1_3C.  The original ISTRAT is its own per-frame body.
+pub fn ship3a_istrat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags |= ASF_COLLDISABLE;
+    al.roty = DEG180;
+    al.worldz = al.worldz.wrapping_sub(10);
+    al.worldy = al.worldy.wrapping_add(8);
+    if al.rotx != DEG45 {
+        al.rotx = al.rotx.wrapping_add(1);
+    }
+    if al.worldy >= 10_000 {
+        g.objs.aldead = 1;
+        return;
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `ship0cdown_Istrat` (GCSTRATS.ASM:2025) — the damaged carrier/colony
+/// backdrop that pitches down while shedding explosions, then removes itself.
+pub fn ship0cdown_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, ship0cdown_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags |= ASF_COLLDISABLE;
+    al.stratptr = Some(tick);
+    al.sbyte1 = 60;
+    al.count = 60 + 35 + 20;
+}
+
+/// ROM `ship0cdown_strat` (GCSTRATS.ASM:2030).
+pub fn ship0cdown_strat(g: &mut Game, idx: u16) {
+    let life = g.objs.aliens[idx as usize].count;
+    if life <= 1 {
+        g.objs.aldead = 1;
+        return;
+    }
+    g.objs.aliens[idx as usize].count = life - 1;
+
+    let mut pitch = g.objs.aliens[idx as usize].rotx;
+    achase_angle(&mut pitch, DEG45, 5);
+    g.objs.aliens[idx as usize].rotx = pitch;
+
+    let burning = g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0;
+    if burning {
+        if let Some(e) = make_obj(g, 0) {
+            copy_pos(g, e, idx);
+            addrnd2pos_xy(g, e);
+            g.objs.aliens[e as usize].worldz = g.objs.aliens[e as usize].worldz.wrapping_add(300);
+            g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+            fastparticleexplode_istrat(g, e);
+        }
+    }
+    if let Some(e) = make_large_exp_obj(g, idx) {
+        addrnd2pos_xy(g, e);
+        g.objs.aliens[e as usize].worldz = g.objs.aliens[e as usize].worldz.wrapping_add(300);
+        g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+    }
+
+    if !burning {
+        let delay = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = delay;
+        if delay == 0 {
+            g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+            g.vars.circleanim = 1;
+            g.hooks.play_se(0x1d);
+            if let Some(e) = make_obj(g, 0) {
+                copy_pos(g, e, idx);
+                bigparticleexplode_istrat(g, e);
+            }
+        }
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(MEDPSPEED_I16 - 10);
+        al.worldy = al.worldy.wrapping_add(5);
+    }
+}
+
+fn exitopen_common_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, exitopen_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.type_ |= ATGND;
+    al.sflags4 |= 0x02; // ROM `donesnd`.
+    al.hp = HARD_HP;
+    al.ap = 0;
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.stratptr = Some(tick);
+}
+
+/// ROM `exitopen_Istrat` (GASTRATS.ASM:3786).
+pub fn exitopen_istrat(g: &mut Game, idx: u16) {
+    exitopen_common_init(g, idx);
+}
+
+/// ROM `exitopensnd_Istrat`: use positional sound family 5, then exitopen.
+pub fn exitopensnd_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].snd2 = 5;
+    exitopen_common_init(g, idx);
+}
+
+/// ROM `exitopensnd2_Istrat` / `exitopen_Istrat` (GASTRATS.ASM:3779).
+/// MAP1_3C sets `sword2` to the parent ship, `sword1` to the open distance,
+/// and `sbyte1` to the signed vertical travel per frame.
+pub fn exitopensnd2_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+    exitopen_common_init(g, idx);
+}
+
+/// ROM `exitopen_strat` (GASTRATS.ASM:3792).
+pub fn exitopen_strat(g: &mut Game, idx: u16) {
+    if let Some(parent) = strat_obj_from_ptr(g.objs.aliens[idx as usize].sword2 as u16) {
+        if g.objs.aliens[parent as usize].active {
+            let p = g.objs.aliens[parent as usize];
+            let al = &mut g.objs.aliens[idx as usize];
+            al.vx = p.vx;
+            al.vy = p.vy;
+            al.vz = p.vz;
+            add_player_z(g, idx);
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+
+    let Some(pl) = player(g) else { return };
+    let me = g.objs.aliens[idx as usize];
+    let dz = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if dz <= me.sword1 {
+        if me.sflags2 & ASF2_SFLAG1 != 0 {
+            g.objs.aliens[idx as usize].sflags2 &= !ASF2_SFLAG1;
+            g.hooks.play_se(0x55);
+        }
+        let dy = me.sbyte1 as i8 as i16;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
+        al.worldy = al.worldy.wrapping_add(dy);
+    }
+}
+
+/// ROM `mine2expnofire_Istrat` (GA2STRAT.ASM:2590) — particle shower + explode.
+pub fn mine2expnofire_istrat(g: &mut Game, idx: u16) {
+    if let Some(p) = make_obj(g, 0) {
+        copy_pos(g, p, idx);
+        particleexplode_istrat(g, p);
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `mine2exp_Istrat` (GA2STRAT.ASM:2560) — 5-way oval-beam burst, then nofire.
+pub fn mine2exp_istrat(g: &mut Game, idx: u16) {
+    let Some(pl) = player(g) else {
+        mine2expnofire_istrat(g, idx);
+        return;
+    };
+    let me = g.objs.aliens[idx as usize];
+    let base_yaw = angle_xz(&me, &pl);
+    let base_pitch = strat_pitch_toward(&me, &pl);
+    // ASM `s_weapon_rots2obj y[,#roty_off,#rotx_off]` order:
+    //   plain, #0,#deg11, #0,#-deg11, #-deg11,#0, #deg11,#0
+    for &(pitch, yaw) in &[
+        (base_pitch, base_yaw),
+        (base_pitch.wrapping_add(DEG11), base_yaw),
+        (base_pitch.wrapping_sub(DEG11), base_yaw),
+        (base_pitch, base_yaw.wrapping_sub(DEG11)),
+        (base_pitch, base_yaw.wrapping_add(DEG11)),
+    ] {
+        let _ = fire_relovalbeam_aimed(g, idx, pitch, yaw);
+    }
+    mine2expnofire_istrat(g, idx);
+}
+
+const GASF_FLAG1: u8 = 0x08; // STRATEQU.INC:964
+const CORE1_HP: u8 = 6; // STRATEQU.INC:69
+
+/// ROM `core0_Istrat` / `core0_strat` (GASTRATS.ASM:482-495) — hard shell that
+/// hitflashes when the attached core1 col sets gasf_flag1.
+pub fn core0_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, core0_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.roty = DEG180;
+        al.hp = HARD_HP;
+        al.ap = 0;
+        al.stratptr = Some(tick);
+    }
+    set_gasflags(g, gasflags(g) & !GASF_FLAG1);
+}
+
+pub fn core0_strat(g: &mut Game, idx: u16) {
+    let gf = gasflags(g);
+    if gf & GASF_FLAG1 != 0 {
+        set_gasflags(g, gf & !GASF_FLAG1);
+        g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+    }
+}
+
+/// ROM `core1_Istrat` / `core1_strat` (GASTRATS.ASM:496-510) — vulnerable core
+/// that clears nohitaffect once the player is within 1000 z, spins at roty+=8.
+pub fn core1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, core1_strat);
+    let coll = sid(g, core1col_istrat);
+    let exp = sid(g, core1exp_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = CORE1_HP;
+        al.ap = HARD_AP;
+        al.roty = DEG180;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.sflags |= ASF_NOHITAFFECT;
+    }
+    g.vars.gameflags &= !GF_STRATDONE1;
+}
+
+pub fn core1_strat(g: &mut Game, idx: u16) {
+    if let Some(pl) = player(g) {
+        let me = &g.objs.aliens[idx as usize];
+        let zdist = (me.worldz as i32 - pl.worldz as i32).abs();
+        if zdist <= 1000 {
+            g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+        }
+    }
+    g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(8);
+}
+
+/// ROM `core1col_Istrat` (GASTRATS.ASM:534) — set gasf_flag1, then hitflash.
+pub fn core1col_istrat(g: &mut Game, idx: u16) {
+    let gf = gasflags(g);
+    set_gasflags(g, gf | GASF_FLAG1);
+    strat_hit_flash(g, idx);
+}
+
+/// ROM `core1exp_Istrat` (GASTRATS.ASM:512) — Lexp flash, then shrapnel follow.
+pub fn core1exp_istrat(g: &mut Game, idx: u16) {
+    if let Some(e) = make_large_exp_obj(g, idx) {
+        let al = &mut g.objs.aliens[e as usize];
+        al.sflags2 |= ASF2_NOEXPSND;
+        al.worldy = al.worldy.wrapping_add(-60);
+    }
+    let s_exp = sid(g, core1exp_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.expstratptr = Some(s_exp);
+        al.sflags |= ASF_INVISIBLE;
+        al.count = 20;
+        al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+    }
+    g.vars.gameflags |= GF_STRATDONE1;
+    g.hooks.play_se(0x70);
+    // Fall through into the tick this frame.
+    core1exp_strat(g, idx);
+}
+
+/// ROM `core1exp_strat` — stick to player + shrapnel; lifecnt unless in tunnel.
+pub fn core1exp_strat(g: &mut Game, idx: u16) {
+    if let Some(pl) = player(g) {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = pl.worldx;
+        al.worldy = pl.worldy;
+        al.worldz = pl.worldz;
+    }
+    crate::player::shrapnel_srou(g, idx);
+    add_player_z(g, idx);
+    if g.vars.pshipflags3 & PSF3_INTUNNEL == 0 {
+        let c = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+        g.objs.aliens[idx as usize].count = c;
+        if c == 0 {
+            g.objs.aldead = 1;
+        }
+    }
+}
+
+/// ROM `monolithexp_Istrat` (GB3STRAT.ASM:4695) — instant remove.
+pub fn monolithexp_istrat(g: &mut Game, _idx: u16) {
+    g.objs.aldead = 1;
+}
+
+/// ROM `#face_0` Andross-face shape (GB3STRAT.ASM eye-offset branch).
+/// HD catalog may still proxy this; tests set the id explicitly.
+pub const SH_FACE_0: u16 = 431;
+
+/// Hit-zone flags (VARS.INC HF1/HF2/HF3) used by monolith eyes.
+const MONOLITH_HF1: u8 = 0x01; // rebelaser reflect
+const MONOLITH_HF2: u8 = 0x02; // left eye
+const MONOLITH_HF3: u8 = 0x04; // right eye
+
+/// ROM `makelefteyeexp_srou` (GB3STRAT.ASM:4701) — 15 Lexp bursts on left eye.
+pub fn makelefteyeexp_srou(g: &mut Game, idx: u16) {
+    make_eye_exp_burst(g, idx, true);
+}
+
+/// ROM `makerighteyeexp_srou` (GB3STRAT.ASM:4725) — 15 Lexp bursts on right eye.
+pub fn makerighteyeexp_srou(g: &mut Game, idx: u16) {
+    make_eye_exp_burst(g, idx, false);
+}
+
+fn make_eye_exp_burst(g: &mut Game, idx: u16, left: bool) {
+    let face0 = g.objs.aliens[idx as usize].shape == SH_FACE_0;
+    let (dx, dy) = if left {
+        if face0 {
+            (-(20i16 << 4), -(30i16 << 4))
+        } else {
+            (-(15i16 << 4), -(15i16 << 4))
+        }
+    } else if face0 {
+        (20i16 << 4, -(30i16 << 4))
+    } else {
+        (15i16 << 4, -(15i16 << 4))
+    };
+    for _ in 0..15 {
+        let Some(e) = make_large_exp_obj(g, idx) else {
+            break;
+        };
+        {
+            let al = &mut g.objs.aliens[e as usize];
+            // ROM relexplode is sflags4; HD make_exp_obj already sets ASF2_RELEXPLODE.
+            al.sflags4 |= ASF4_NOPOLYEXP;
+            al.worldz = al.worldz.wrapping_add(-20);
+            al.worldx = al.worldx.wrapping_add(dx);
+            al.worldy = al.worldy.wrapping_add(dy);
+        }
+        addrnd2pos_xy(g, e);
+        let life = (sf_random(&mut g.vars) as u8) & 15;
+        g.objs.aliens[e as usize].count = life;
+    }
+}
+
+/// ROM `RebElaserCol_Istrat` (GSTRATS.ASM:787) — rebound player laser 180° yaw.
+pub fn rebelasercol_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    let partner_ok =
+        partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active;
+    if partner_ok && g.objs.aliens[partner as usize].shape == SHAPE_ELASER2 {
+        let saved = {
+            let laser = &g.objs.aliens[partner as usize];
+            (laser.roty, laser.rotx, laser.vel, laser.immuneptr)
+        };
+        {
+            let laser = &mut g.objs.aliens[partner as usize];
+            laser.vel = 0;
+            laser.roty = laser.roty.wrapping_add(DEG180);
+            laser.rotx = laser.rotx.wrapping_neg();
+        }
+        let _ = fire_reb_elaser(g, partner);
+        {
+            let laser = &mut g.objs.aliens[partner as usize];
+            laser.roty = saved.0;
+            laser.rotx = saved.1;
+            laser.vel = saved.2;
+            laser.immuneptr = saved.3;
+        }
+    }
+    jmpto_strat(g, idx);
+}
+
+/// ROM `monolithcol_Istrat` (GB3STRAT.ASM:4671) — eye HP + HF zones + rebelaser.
+pub fn monolithcol_istrat(g: &mut Game, idx: u16) {
+    // s_jmp_alsflag sflag1,.ncoll — skip when strategy latch set.
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        g.objs.aliens[idx as usize].hitflags = 0;
+        g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+        jmpto_strat(g, idx);
+        return;
+    }
+    let hf = g.objs.aliens[idx as usize].hitflags;
+    if hf & MONOLITH_HF1 != 0 {
+        g.objs.aliens[idx as usize].hitflags = 0;
+        rebelasercol_istrat(g, idx);
+        return;
+    }
+    // Left eye (HF2): dec sbyte1 → burst when it hits 0.
+    if g.objs.aliens[idx as usize].sbyte1 != 0 && hf & MONOLITH_HF2 != 0 {
+        g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+        let left = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = left;
+        if left == 0 {
+            makelefteyeexp_srou(g, idx);
+        }
+    }
+    // Right eye (HF3): dec sbyte2 → burst when it hits 0.
+    if g.objs.aliens[idx as usize].sbyte2 != 0 && hf & MONOLITH_HF3 != 0 {
+        g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+        let right = g.objs.aliens[idx as usize].sbyte2.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte2 = right;
+        if right == 0 {
+            makerighteyeexp_srou(g, idx);
+        }
+    }
+    g.hooks.play_se(0x88);
+    g.objs.aliens[idx as usize].hitflags = 0;
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    jmpto_strat(g, idx);
+}
+
+// Monolith state numbers are literal GB3STRAT.ASM values.  Keeping them
+// explicit makes the sequential IFNOTstate fall-through below auditable
+// against the original state table.
+const MPARTOUT_I_STATE: u8 = 0;
+const MPARTOUT_E_STATE: u8 = 1;
+const MCHGFACE_I_STATE: u8 = 2;
+const MCHGFACE_STATE: u8 = 3;
+const MINITFIRE_STATE: u8 = 4;
+const MFIRE1_STATE: u8 = 5;
+const MSUCK_I_STATE: u8 = 6;
+const MSUCK_STATE: u8 = 7;
+const MSUCKSTOP_STATE: u8 = 8;
+const MGAG1_STATE: u8 = 9;
+const MGAG2_STATE: u8 = 10;
+const MGAG3_STATE: u8 = 11;
+const MGAG4_STATE: u8 = 12;
+const MBLOW_I_STATE: u8 = 13;
+const MBLOW_STATE: u8 = 14;
+const MIEXP1_STATE: u8 = 15;
+const MEXP1_STATE: u8 = 16;
+const MCORE1WAIT_STATE: u8 = 17;
+const MIMP1_STATE: u8 = 18;
+const MLION1_STATE: u8 = 19;
+const MLION2_STATE: u8 = 20;
+const MLION3_STATE: u8 = 21;
+
+const SH_FACE_B: u16 = 223;
+const SH_FACE_0_1_PROXY: u16 = 345;
+const SH_FACE_1_PROXY: u16 = 346;
+const SH_ANDROSS_CUBE_PROXY: u16 = 344;
+
+#[inline]
+fn monolith_next_state(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].stratstate = g.objs.aliens[idx as usize].stratstate.wrapping_add(1);
+}
+
+/// ROM `monolith_Istrat` (GB3STRAT.ASM:3876) — install the complete final
+/// Andross controller, initialize both eye counters, then execute state zero.
+pub fn monolith_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, monolith_strat);
+    let coll = sid(g, monolithcol_istrat);
+    let exp = sid(g, monolithexp_istrat);
+    let eye_hp = if currentlevel(g) == 1 { 16 } else { 18 };
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.shape = SH_FACE_B;
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HARD_HP;
+        al.ap = 40;
+        al.sbyte1 = eye_hp;
+        al.sbyte2 = eye_hp;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.type_ &= !ATZREMOVE;
+        al.sflags |= ASF_NOHITAFFECT | ASF_COLLDISABLE;
+        al.stratstate = MPARTOUT_I_STATE;
+    }
+    monolith_strat(g, idx);
+}
+
+/// ROM `monolith_strat` (GB3STRAT.ASM:3897-4450).  The original is a
+/// sequential state dispatcher: advancing a state can fall into the next
+/// state's initializer in the same tick, so this deliberately is not a
+/// conventional one-arm `match`.
+pub fn monolith_strat(g: &mut Game, idx: u16) {
+    // 0: fly the sixteen face tiles into place.
+    if g.objs.aliens[idx as usize].stratstate == MPARTOUT_I_STATE {
+        set_bossflags(g, 0);
+        monolithpart_srou(g, idx, 200);
+        g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+        monolith_next_state(g, idx);
+    }
+
+    // 1: the lead tile raises BF_flag1 once the assembled face is ready.
+    if g.objs.aliens[idx as usize].stratstate == MPARTOUT_E_STATE && bossflags(g) & BF_FLAG1 != 0 {
+        let restart_z = g.vars.psvar_word1;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags &= !ASF_INVISIBLE;
+        al.worldz = restart_z;
+        set_bossflags(g, bossflags(g) | BF_FLAG2);
+        g.objs.aliens[idx as usize].stratstate = MCHGFACE_I_STATE;
+    }
+
+    // 2: swap the assembled low-detail face for the animated battle face.
+    if g.objs.aliens[idx as usize].stratstate == MCHGFACE_I_STATE {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_sub(20 << 4);
+        al.worldy = al.worldy.wrapping_add(15 << 4);
+        al.shape = SH_FACE_0;
+        al.animframe = 0;
+        al.colframe = 0;
+        monolith_next_state(g, idx);
+    }
+
+    // 3: open the face and create the internal Andross cube/core.
+    if g.objs.aliens[idx as usize].stratstate == MCHGFACE_STATE {
+        if g.objs.aliens[idx as usize].colframe != 9 {
+            g.objs.aliens[idx as usize].colframe += 1;
+        }
+        let f = g.objs.aliens[idx as usize].animframe;
+        if f < 10 {
+            g.objs.aliens[idx as usize].animframe = f + 1;
+        }
+        if g.objs.aliens[idx as usize].animframe == 10 {
+            monolith_next_state(g, idx);
+            if let Some(core) = make_obj(g, SH_ANDROSS_CUBE_PROXY) {
+                copy_pos(g, core, idx);
+                g.objs.aliens[core as usize].worldy =
+                    g.objs.aliens[core as usize].worldy.wrapping_sub(15 << 4);
+                mcore1_istrat(g, core);
+                g.objs.aliens[core as usize].sflags |= ASF_INVISIBLE | ASF_COLLDISABLE;
+                g.objs.aliens[idx as usize].ptr = core.wrapping_add(1);
+            }
+        }
+    }
+
+    // 4: arm the face for eye hits.
+    if g.objs.aliens[idx as usize].stratstate == MINITFIRE_STATE {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.flags &= !AFEXP;
+        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_SFLAG1;
+        al.sbyte4 = 100;
+        monolith_next_state(g, idx);
+    }
+
+    // 5: normal face attack.  Eye HP is owned by monolithcol_Istrat.
+    if g.objs.aliens[idx as usize].stratstate == MFIRE1_STATE {
+        boss_keeprel_to_player(g, idx);
+        let f = g.objs.aliens[idx as usize].animframe;
+        g.objs.aliens[idx as usize].animframe = if f >= 20 { 11 } else { f + 1 };
+        if g.objs.aliens[idx as usize].sbyte4 == 0 {
+            monolith_next_state(g, idx);
+        } else {
+            g.objs.aliens[idx as usize].sbyte4 -= 1;
+        }
+        g.objs.aliens[idx as usize].sbyte3 = 30;
+        if g.objs.aliens[idx as usize].sbyte1 == 0 && g.objs.aliens[idx as usize].sbyte2 == 0 {
+            g.objs.aliens[idx as usize].stratstate = MIEXP1_STATE;
+        }
+    }
+
+    // 6: begin the inhale cycle.
+    if g.objs.aliens[idx as usize].stratstate == MSUCK_I_STATE {
+        g.hooks.play_se(0x9f);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte4 = 60;
+        al.shape = SH_FACE_0_1_PROXY;
+        al.animframe = 0;
+        al.sflags2 |= ASF2_SFLAG1;
+        monolith_next_state(g, idx);
+    }
+
+    // 7: suck the player and loose projectiles toward the face.
+    if g.objs.aliens[idx as usize].stratstate == MSUCK_STATE {
+        if g.objs.aliens[idx as usize].animframe < 4 {
+            g.objs.aliens[idx as usize].animframe += 1;
+        } else {
+            for _ in 0..2 {
+                if let Some(bit) = make_obj(g, 0) {
+                    let (px, py, pz) = (
+                        g.vars.player_posx,
+                        g.vars.player_posy,
+                        g.vars.sv_i16(crate::common::sv::VIEWPOSZ),
+                    );
+                    let al = &mut g.objs.aliens[bit as usize];
+                    al.worldx = px;
+                    al.worldy = py;
+                    al.worldz = pz.wrapping_add(200);
+                    suckbits_istrat(g, bit);
+                }
+            }
+            if g.objs.aliens[idx as usize].sbyte4 >= 15 && g.vars.gameframe & 3 == 0 {
+                if let Some(cube) = make_obj(g, 0) {
+                    let (px, py, pz) = (g.vars.player_posx, g.vars.player_posy, g.vars.player_posz);
+                    let al = &mut g.objs.aliens[cube as usize];
+                    al.worldx = px;
+                    al.worldy = py.wrapping_sub(1000);
+                    al.worldz = pz.wrapping_add(200);
+                    suckcube_istrat(g, cube);
+                }
+            }
+            let raw_player = g.vars.internal_playpt;
+            if raw_player >= 0
+                && (raw_player as usize) < NUMBER_AL
+                && g.objs.aliens[raw_player as usize].active
+            {
+                let pidx = raw_player as u16;
+                let source_z = g.objs.aliens[idx as usize].worldz;
+                suckobj_srou(g, pidx, source_z);
+            }
+        }
+        if g.objs.aliens[idx as usize].sbyte4 == 0 {
+            monolith_next_state(g, idx);
+            g.objs.aliens[idx as usize].sbyte4 = 20;
+        } else {
+            g.objs.aliens[idx as usize].sbyte4 -= 1;
+        }
+    }
+
+    // 8: pull back before the comic recoil sequence.
+    if g.objs.aliens[idx as usize].stratstate == MSUCKSTOP_STATE {
+        g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(100);
+        if g.objs.aliens[idx as usize].sbyte4 == 0 {
+            g.objs.aliens[idx as usize].sword1 = 0;
+            monolith_next_state(g, idx);
+        } else {
+            g.objs.aliens[idx as usize].sbyte4 -= 1;
+        }
+        if g.objs.aliens[idx as usize].animframe < 9 {
+            g.objs.aliens[idx as usize].animframe += 1;
+        }
+    }
+
+    // 9..12: four alternating head shakes, using the low signed byte of sword1.
+    for (state, delta, target) in [
+        (MGAG1_STATE, -1i8, -3i8),
+        (MGAG2_STATE, 1, 3),
+        (MGAG3_STATE, -1, -3),
+        (MGAG4_STATE, 1, 10),
+    ] {
+        if g.objs.aliens[idx as usize].stratstate == state {
+            let step = g.objs.aliens[idx as usize].sword1 as i8;
+            g.objs.aliens[idx as usize].rotx =
+                g.objs.aliens[idx as usize].rotx.wrapping_add(step as u8);
+            let next = step.wrapping_add(delta);
+            g.objs.aliens[idx as usize].sword1 = next as i16;
+            if next == target {
+                monolith_next_state(g, idx);
+            }
+        }
+    }
+
+    // 13/14: blow the swallowed cubes back out, then return to face fire.
+    if g.objs.aliens[idx as usize].stratstate == MBLOW_I_STATE {
+        g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_sub(2);
+        if g.objs.aliens[idx as usize].animframe < 13 {
+            g.objs.aliens[idx as usize].animframe += 1;
+        }
+        if g.objs.aliens[idx as usize].animframe == 13 {
+            g.objs.aliens[idx as usize].sbyte4 = 50;
+            monolith_next_state(g, idx);
+            g.hooks.play_se(0x99);
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == MBLOW_STATE {
+        let rx = g.objs.aliens[idx as usize].rotx;
+        g.objs.aliens[idx as usize].rotx = chase_proportional(rx as i8 as i16, 0, 1) as u8;
+        g.objs.aliens[idx as usize].roty = ((sf_random(&mut g.vars) as u8) & 7).wrapping_sub(3);
+        if let Some(cube) = make_obj(g, 0) {
+            copy_pos(g, cube, idx);
+            g.objs.aliens[cube as usize].worldy =
+                g.objs.aliens[cube as usize].worldy.wrapping_add(10 << 4);
+            blowcube_istrat(g, cube);
+        }
+        if g.objs.aliens[idx as usize].sbyte4 == 0 {
+            g.objs.aliens[idx as usize].stratstate = MINITFIRE_STATE;
+            g.objs.aliens[idx as usize].roty = 0;
+            g.objs.aliens[idx as usize].shape = SH_FACE_0;
+        } else {
+            g.objs.aliens[idx as usize].sbyte4 -= 1;
+        }
+    }
+
+    // 15: both eyes are destroyed; expose the core after the explosion shower.
+    if g.objs.aliens[idx as usize].stratstate == MIEXP1_STATE {
+        for _ in 0..2 {
+            if let Some(e) = make_large_exp_obj(g, idx) {
+                g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+                g.objs.aliens[e as usize].worldy =
+                    g.objs.aliens[e as usize].worldy.wrapping_sub(15 << 4);
+                addrnd2pos_xy(g, e);
+            }
+        }
+        if g.objs.aliens[idx as usize].sbyte3 == 0 {
+            for delay in [0u8, 2, 4, 6] {
+                if let Some(e) = make_fol_exp_obj(g, idx) {
+                    g.objs.aliens[e as usize].worldy =
+                        g.objs.aliens[e as usize].worldy.wrapping_sub(15 << 4);
+                    g.objs.aliens[e as usize].count = delay;
+                }
+            }
+            g.hooks.play_se(0xa0);
+            let raw = g.objs.aliens[idx as usize].ptr;
+            if raw != 0 {
+                let core = raw - 1;
+                if (core as usize) < NUMBER_AL && g.objs.aliens[core as usize].active {
+                    copy_pos(g, core, idx);
+                    let al = &mut g.objs.aliens[core as usize];
+                    al.worldy = al.worldy.wrapping_sub(15 << 4);
+                    al.sflags &= !(ASF_INVISIBLE | ASF_COLLDISABLE);
+                    al.stratstate = 0;
+                }
+            }
+            monolith_next_state(g, idx);
+        } else {
+            g.objs.aliens[idx as usize].sbyte3 -= 1;
+        }
+    }
+
+    // 16: face-poly explosion expands for thirty ticks.
+    if g.objs.aliens[idx as usize].stratstate == MEXP1_STATE {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
+        al.flags |= AFEXP;
+        al.count = al.count.wrapping_add(2);
+        al.sword1 = 130;
+        if al.count == 60 {
+            monolith_next_state(g, idx);
+        }
+    }
+
+    // 17/18: wait for the core cycle, then re-form the route-specific face.
+    if g.objs.aliens[idx as usize].stratstate == MCORE1WAIT_STATE {
+        let raw = g.objs.aliens[idx as usize].ptr;
+        let core_ok =
+            raw != 0 && (raw as usize) <= NUMBER_AL && g.objs.aliens[(raw - 1) as usize].active;
+        if !core_ok || g.vars.gameflags & GF_BOSSDEAD != 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+        if g.objs.aliens[idx as usize].sword1 == 0 {
+            monolith_next_state(g, idx);
+        } else {
+            g.objs.aliens[idx as usize].sword1 -= 1;
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == MIMP1_STATE {
+        let core = g.objs.aliens[idx as usize].ptr.wrapping_sub(1);
+        if (core as usize) >= NUMBER_AL || !g.objs.aliens[core as usize].active {
+            g.objs.aldead = 1;
+            return;
+        }
+        g.objs.aliens[core as usize].stratstate = 6;
+        g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
+        g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_sub(2);
+        if g.objs.aliens[idx as usize].count == 0 {
+            g.objs.aliens[core as usize].sflags |= ASF_INVISIBLE | ASF_COLLDISABLE;
+            g.hooks.play_se(0x87);
+            if currentlevel(g) == 3 {
+                g.objs.aliens[idx as usize].flags &= !AFEXP;
+                g.objs.aliens[idx as usize].sbyte1 = 10;
+                g.objs.aliens[idx as usize].sbyte2 = 10;
+                if g.objs.aliens[idx as usize].shape == SH_FACE_1_PROXY {
+                    g.objs.aliens[idx as usize].stratstate = MLION3_STATE;
+                } else {
+                    g.objs.aliens[idx as usize].stratstate = MLION1_STATE;
+                    g.objs.aliens[idx as usize].sbyte1 = 20;
+                    g.objs.aliens[idx as usize].sbyte2 = 20;
+                }
+            } else {
+                g.objs.aliens[idx as usize].stratstate = MINITFIRE_STATE;
+                g.objs.aliens[idx as usize].sbyte1 = 8;
+                g.objs.aliens[idx as usize].sbyte2 = 8;
+            }
+        }
+    }
+
+    // 19..21: route-3 lion-face transform and attack loop.
+    if g.objs.aliens[idx as usize].stratstate == MLION1_STATE {
+        if g.objs.aliens[idx as usize].colframe > 0 {
+            g.objs.aliens[idx as usize].colframe -= 1;
+        }
+        if g.objs.aliens[idx as usize].animframe > 0 {
+            g.objs.aliens[idx as usize].animframe -= 1;
+        }
+        if g.objs.aliens[idx as usize].animframe == 0 {
+            monolith_next_state(g, idx);
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == MLION2_STATE {
+        g.objs.aliens[idx as usize].shape = SH_FACE_1_PROXY;
+        if g.objs.aliens[idx as usize].colframe < 9 {
+            g.objs.aliens[idx as usize].colframe += 1;
+        }
+        if g.objs.aliens[idx as usize].animframe < 10 {
+            g.objs.aliens[idx as usize].animframe += 1;
+        }
+        if g.objs.aliens[idx as usize].animframe == 10 {
+            monolith_next_state(g, idx);
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == MLION3_STATE {
+        boss_keeprel_to_player(g, idx);
+        if g.vars.gameframe & 1 == 0 {
+            if let Some(cube) = make_obj(g, 0) {
+                copy_pos(g, cube, idx);
+                g.objs.aliens[cube as usize].worldy =
+                    g.objs.aliens[cube as usize].worldy.wrapping_add(10 << 4);
+                blowcube_istrat(g, cube);
+            }
+        }
+        let f = g.objs.aliens[idx as usize].animframe;
+        g.objs.aliens[idx as usize].animframe = if f >= 20 { 11 } else { f + 1 };
+        g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+        g.objs.aliens[idx as usize].sflags2 &= !ASF2_SFLAG1;
+        g.objs.aliens[idx as usize].sbyte3 = 30;
+        if g.objs.aliens[idx as usize].sbyte1 == 0 && g.objs.aliens[idx as usize].sbyte2 == 0 {
+            g.objs.aliens[idx as usize].stratstate = MIEXP1_STATE;
+        }
+    }
+
+    // Shared eye-colour flash tail.
+    let state = g.objs.aliens[idx as usize].stratstate;
+    if !matches!(
+        state,
+        MPARTOUT_I_STATE
+            | MPARTOUT_E_STATE
+            | MCHGFACE_I_STATE
+            | MCHGFACE_STATE
+            | MLION1_STATE
+            | MLION2_STATE
+    ) {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.colframe = if al.sbyte1 == 0 && al.sbyte2 == 0 {
+            16
+        } else if al.sbyte1 == 0 {
+            if al.sflags2 & ASF2_SFLAG1 != 0 {
+                17
+            } else {
+                12 + (al.colframe.wrapping_add(1) & 1)
+            }
+        } else if al.sbyte2 == 0 {
+            if al.sflags2 & ASF2_SFLAG1 != 0 {
+                18
+            } else {
+                14 + (al.colframe.wrapping_add(1) & 1)
+            }
+        } else if al.sflags2 & ASF2_SFLAG1 != 0 {
+            19
+        } else {
+            10 + (al.colframe.wrapping_add(1) & 1)
+        };
+    }
+
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+}
+
+const SH_ANDROSS_PROXY: u16 = 343;
+
+/// ROM `blowcube_Istrat` (GB3STRAT.ASM:4423) — random-aimed hard cube debris.
+pub fn blowcube_istrat(g: &mut Game, idx: u16) {
+    let s_tick = sid(g, blowcube_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s_tick);
+        al.hp = HARD_HP;
+        al.ap = 4;
+        al.collflags |= COLLTYPE_ENEMYWEAP;
+        al.vel = 80;
+    }
+    if let Some(pl) = player(g) {
+        let yaw_off = ((sf_random(&mut g.vars) as u8) & 15).wrapping_sub(7);
+        let pitch_off = ((sf_random(&mut g.vars) as u8) & 15).wrapping_sub(7);
+        let me = g.objs.aliens[idx as usize];
+        // ROM `s_obj2obj_3DangleOFF` (chase 0): -Yanglexy + offset.
+        let yaw = angle_xz(&me, &pl).wrapping_neg().wrapping_add(yaw_off);
+        let pitch = strat_pitch_toward(&me, &pl).wrapping_add(pitch_off);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = yaw;
+        al.rotx = pitch;
+        gen_vecs_3d(al);
+        // Then randomize visual spin axes (ASM after gen_3dvecs).
+        al.roty = sf_random(&mut g.vars) as u8;
+        al.rotx = sf_random(&mut g.vars) as u8;
+    }
+}
+
+/// ROM `blowcube_strat` — tumble + coast with player-Z scroll.
+pub fn blowcube_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = al.roty.wrapping_add(4);
+        al.rotx = al.rotx.wrapping_add(8);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+// ============================================================
+// SUCKBITS / SUCKCUBE / suckobj helpers (GB3STRAT.ASM:4377-4421)
+// Debris sucked toward Andross face position.
+// ============================================================
+
+const SPACE_VIEWCY: i16 = -60; // STRATEQU.INC:494
+/// `(10<<4)+180+space_viewCY` — suck target worldy.
+const SUCK_TARGET_Y: i16 = (10 << 4) + 180 + SPACE_VIEWCY;
+
+/// ROM `suckobj_srou` — chase x→0 / y→SUCK_TARGET_Y / z→caller.z.
+pub fn suckobj_srou(g: &mut Game, target_idx: u16, source_z: i16) {
+    let al = &mut g.objs.aliens[target_idx as usize];
+    al.worldx = chase_proportional(al.worldx, 0, 4);
+    al.worldy = chase_proportional(al.worldy, SUCK_TARGET_Y, 4);
+    al.worldz = chase_proportional(al.worldz, source_z, 5);
+}
+
+/// ROM `suckobjfast_srou` — zero vecs, chase xy, z+=50 + playerZ.
+pub fn suckobjfast_srou(g: &mut Game, target_idx: u16) {
+    {
+        let al = &mut g.objs.aliens[target_idx as usize];
+        al.vx = 0;
+        al.vy = 0;
+        al.vz = 0;
+        al.worldx = chase_proportional(al.worldx, 0, 4);
+        al.worldy = chase_proportional(al.worldy, SUCK_TARGET_Y, 4);
+        al.worldz = al.worldz.wrapping_add(50);
+    }
+    add_player_z(g, target_idx);
+}
+
+/// ROM `suckcube_Istrat` — life 20 cube tumble into suckbits_cont.
+pub fn suckcube_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, suckcube_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.count = 20;
+    al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+    al.stratptr = Some(tick);
+    al.sflags |= ASF_COLLDISABLE;
+}
+
+/// ROM `suckcube_strat` — rotx+=12 then suckbits_cont.
+pub fn suckcube_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_add(12);
+    suckbits_cont(g, idx);
+}
+
+/// ROM `suckbits_Istrat` — life 6 fragment into suckbits_cont.
+pub fn suckbits_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, suckbits_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.count = 6;
+    al.type_ &= !ATZREMOVE;
+    al.stratptr = Some(tick);
+    al.sflags |= ASF_COLLDISABLE;
+}
+
+/// ROM `suckbits_strat` — fall straight into cont.
+pub fn suckbits_strat(g: &mut Game, idx: u16) {
+    suckbits_cont(g, idx);
+}
+
+/// ROM `suckbits_cont` — z+=60, chase x=0 / y=SUCK_TARGET_Y, playerZ, dec life.
+pub fn suckbits_cont(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(60);
+        al.worldx = chase_proportional(al.worldx, 0, 2);
+        al.worldy = chase_proportional(al.worldy, SUCK_TARGET_Y, 2);
+    }
+    add_player_z(g, idx);
+    // s_dec_lifecnt: s_decbne_alvar B,al_count — DEC then BNE skip remove.
+    let next = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+    g.objs.aliens[idx as usize].count = next;
+    if next == 0 {
+        g.objs.aldead = 1;
+    }
+}
+
+// ============================================================
+// MONOLITHPART (GB3STRAT.ASM:4749 / 4821-4895) — Andross face debris tiles.
+// ============================================================
+
+const SH_SFACE_B: u16 = 348;
+const SH_SFACE2_B: u16 = 349;
+const DEG180_OVER_15: u8 = DEG180 / 15; // 8
+
+/// Part descriptor for `monolithpart_srou` spawn table.
+struct MonoPartSpec {
+    x_mul: i8,
+    y_mul: i8,
+    sword2: u8,
+}
+
+const MONOLITH_PARTS: [MonoPartSpec; 16] = [
+    MonoPartSpec {
+        x_mul: -3,
+        y_mul: -3,
+        sword2: 1,
+    },
+    MonoPartSpec {
+        x_mul: 1,
+        y_mul: -1,
+        sword2: 4,
+    },
+    MonoPartSpec {
+        x_mul: -3,
+        y_mul: -1,
+        sword2: 2,
+    },
+    MonoPartSpec {
+        x_mul: 3,
+        y_mul: 3,
+        sword2: 7,
+    },
+    MonoPartSpec {
+        x_mul: -1,
+        y_mul: 1,
+        sword2: 4,
+    },
+    MonoPartSpec {
+        x_mul: -3,
+        y_mul: 3,
+        sword2: 4,
+    },
+    MonoPartSpec {
+        x_mul: 1,
+        y_mul: 3,
+        sword2: 6,
+    },
+    MonoPartSpec {
+        x_mul: 1,
+        y_mul: 1,
+        sword2: 5,
+    },
+    MonoPartSpec {
+        x_mul: 1,
+        y_mul: -3,
+        sword2: 3,
+    },
+    MonoPartSpec {
+        x_mul: 3,
+        y_mul: -1,
+        sword2: 5,
+    },
+    MonoPartSpec {
+        x_mul: -3,
+        y_mul: 1,
+        sword2: 3,
+    },
+    MonoPartSpec {
+        x_mul: 3,
+        y_mul: -3,
+        sword2: 4,
+    },
+    MonoPartSpec {
+        x_mul: 3,
+        y_mul: 1,
+        sword2: 6,
+    },
+    MonoPartSpec {
+        x_mul: -1,
+        y_mul: -1,
+        sword2: 3,
+    },
+    MonoPartSpec {
+        x_mul: -1,
+        y_mul: 3,
+        sword2: 5,
+    },
+    MonoPartSpec {
+        x_mul: -1,
+        y_mul: -3,
+        sword2: 2,
+    },
+];
+
+/// ROM `monolithpart_srou` — spawn 16 face tiles; last gets monolithpartL.
+pub fn monolithpart_srou(g: &mut Game, mother: u16, vz: i16) {
+    let mut delay: u8 = 1;
+    for (i, spec) in MONOLITH_PARTS.iter().enumerate() {
+        let Some(child) = make_obj(g, SH_SFACE2_B) else {
+            delay = delay.wrapping_add(3);
+            continue;
+        };
+        copy_pos(g, child, mother);
+        {
+            let al = &mut g.objs.aliens[child as usize];
+            al.worldx = al
+                .worldx
+                .wrapping_add(((60i16 << 1) * spec.x_mul as i16) as i16);
+            al.worldy = al
+                .worldy
+                .wrapping_add(((100i16 << 1) * spec.y_mul as i16) as i16);
+            al.sbyte1 = delay;
+            al.vz = vz;
+            al.sword2 = spec.sword2 as i16;
+        }
+        if i + 1 == MONOLITH_PARTS.len() {
+            monolithpartl_istrat(g, child);
+        } else {
+            monolithpart_istrat(g, child);
+        }
+        delay = delay.wrapping_add(3);
+    }
+}
+
+/// ROM `monolithpartL_Istrat` — lead tile (sflag1 + sbyte2=10) then shared init.
+pub fn monolithpartl_istrat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags2 |= ASF2_SFLAG1;
+        al.sbyte2 = 10;
+    }
+    monolithpart_istrat(g, idx);
+}
+
+/// ROM `monolithpart_Istrat`.
+pub fn monolithpart_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, monolithpart_strat);
+    let coll = sid(g, strat_hit_flash);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = None;
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.sflags |= ASF_COLLDISABLE;
+        al.type_ &= !ATZREMOVE;
+    }
+    let r = (sf_random(&mut g.vars) as u8) & 3;
+    let (s3, s4) = match r {
+        1 => (DEG180_OVER_15, DEG180_OVER_15),
+        2 => (0u8.wrapping_sub(DEG180_OVER_15), DEG180_OVER_15),
+        3 => (DEG180_OVER_15, 0u8.wrapping_sub(DEG180_OVER_15)),
+        _ => (
+            0u8.wrapping_sub(DEG180_OVER_15),
+            0u8.wrapping_sub(DEG180_OVER_15),
+        ),
+    };
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte3 = s3;
+        al.sbyte4 = s4;
+        al.sword1 = 15; // zoom frames (byte used as W=#15)
+    }
+}
+
+/// ROM `monolithpart_strat`.
+pub fn monolithpart_strat(g: &mut Game, idx: u16) {
+    if bossflags(g) & BF_FLAG2 != 0 {
+        g.objs.aldead = 1;
+        return;
+    }
+
+    // s_decbne_alvar B,al_sbyte1,.end — DEC then BNE skip active body
+    let s1 = g.objs.aliens[idx as usize].sbyte1;
+    let next1 = s1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = next1;
+    if next1 != 0 {
+        add_player_z(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 = 1;
+
+    let zoom = g.objs.aliens[idx as usize].sword1 as u8;
+    if zoom == 1 {
+        g.hooks.play_se(0x86);
+    }
+    // s_beqdec_alvar B,al_sword1,.nzoom — TEST then DEC (sword1 as u8)
+    if zoom == 0 {
+        // .nzoom — settle into face tile
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.shape = SH_SFACE_B;
+            al.roty = 0;
+            al.rotx = 0;
+        }
+        if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+            let bf = bossflags(g);
+            set_bossflags(g, bf | BF_FLAG3);
+            if g.objs.aliens[idx as usize].sbyte2 == 10 {
+                g.hooks.play_se(0x87);
+            }
+            let s2 = g.objs.aliens[idx as usize].sbyte2;
+            let next2 = s2.wrapping_sub(1);
+            g.objs.aliens[idx as usize].sbyte2 = next2;
+            if next2 == 0 {
+                let bf = bossflags(g);
+                set_bossflags(g, bf | BF_FLAG1);
+                // The lead tile is the assembly oracle for the completed
+                // face.  The parent consumes this exact position before it
+                // creates the core; omitting it leaves the encounter near
+                // WRAM zero and the core never reaches its vulnerable flip.
+                g.vars.psvar_word1 = g.objs.aliens[idx as usize].worldz;
+            }
+        }
+    } else {
+        g.objs.aliens[idx as usize].sword1 = zoom.wrapping_sub(1) as i16;
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldz = al.worldz.wrapping_add(al.vz);
+            al.rotx = al.rotx.wrapping_add(al.sbyte3);
+            al.roty = al.roty.wrapping_add(al.sbyte4);
+        }
+    }
+
+    // .end flash path
+    if bossflags(g) & BF_FLAG3 != 0 {
+        let sw2 = g.objs.aliens[idx as usize].sword2 as u8;
+        let next = sw2.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sword2 = next as i16;
+        if next == 0 {
+            g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
+        }
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `mcore1col_Istrat` (GB3STRAT.ASM:4597) — DefElaserCol unless state 5.
+pub fn mcore1col_istrat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].stratstate != 5 {
+        defelasercol_istrat(g, idx);
+    } else {
+        strat_hit_flash(g, idx);
+    }
+}
+
+const SH_FACE_BOX_PROXY: u16 = 347;
+const MCORE1_AP: u8 = 40;
+
+/// ROM `mcore1_Istrat` (GB3STRAT.ASM:4451) — falls through into `mcore1_strat`.
+pub fn mcore1_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, mcore1_strat);
+    let s_col = sid(g, mcore1col_istrat);
+    let s_exp = sid(g, mcore1exp_istrat);
+    let level = currentlevel(g);
+    let hp = match level {
+        1 => 30,
+        2 => 50,
+        3 => 100,
+        _ => 30, // unset on ROM; keep a sane default for HD
+    };
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // The core is created as a child of the no-remove monolith and remains
+        // hidden for the entire eye phase.  Once revealed it may already be
+        // behind the ordinary object-reclamation plane, so it must inherit the
+        // parent's lifetime rather than being culled on its first visible draw.
+        al.type_ &= !ATZREMOVE;
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_col);
+        al.expstratptr = Some(s_exp);
+        al.hp = hp;
+        al.ap = MCORE1_AP;
+        // The core is made directly rather than through an ISTRATS map row;
+        // give it the enemy collision class used by its hit/deflect handlers.
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.rotx = DEG180;
+        al.roty = DEG45.wrapping_neg(); // -deg45
+        al.rotz = 0;
+        al.stratstate = 0;
+        al.sbyte1 = 0;
+        al.sbyte2 = 0;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        if level != 1 {
+            al.shape = SH_FACE_BOX_PROXY;
+            al.colframe = 0;
+        }
+    }
+    mcore1_strat(g, idx); // fall-through
+}
+
+/// ROM `mcore1_strat` (GB3STRAT.ASM:4478) — wait → zoom-in → zoom-away → flip → center.
+///
+/// States are sequential `ifnotstate` fall-throughs (0→1 and 4→5 same frame).
+/// `setstate2` / `setstate4` (STRATROU.ASM:2984+) restart from the top.
+pub fn mcore1_strat(g: &mut Game, idx: u16) {
+    let level = currentlevel(g);
+
+    'strat: loop {
+        if level != 1 {
+            let hp = g.objs.aliens[idx as usize].hp;
+            let col = if hp > 60 {
+                0
+            } else if hp > 30 {
+                1
+            } else {
+                2
+            };
+            g.objs.aliens[idx as usize].colframe = col;
+        }
+
+        if g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE != 0 {
+            add_player_z(g, idx);
+            return;
+        }
+
+        // state 0 — wait1
+        if g.objs.aliens[idx as usize].stratstate == 0 {
+            g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+            g.objs.aliens[idx as usize].sbyte1 = 20;
+            g.objs.aliens[idx as usize].stratstate = 1;
+        }
+
+        // state 1 — wait2 (beqdec → nextstate / jmptostrat)
+        if g.objs.aliens[idx as usize].stratstate == 1 {
+            if g.objs.aliens[idx as usize].sbyte1 == 0 {
+                g.objs.aliens[idx as usize].stratstate = 2;
+                continue 'strat; // nextstate
+            }
+            g.objs.aliens[idx as usize].sbyte1 -= 1;
+        }
+
+        // state 2 — zoom toward player
+        if g.objs.aliens[idx as usize].stratstate == 2 {
+            g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.sbyte2 = al.sbyte2.wrapping_add(8);
+                al.vx = bee_tab_scaled(al.sbyte2, false, -1); // sintab
+                al.vy = bee_tab_scaled(al.sbyte2, true, -1); // costab
+            }
+            if let Some(pl) = player(g) {
+                let me = g.objs.aliens[idx as usize];
+                let dz = (me.worldz as i32 - pl.worldz as i32).abs();
+                if dz < 1500 {
+                    g.objs.aliens[idx as usize].stratstate = 3;
+                    continue 'strat; // nextstate
+                }
+            }
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                let mut rz = al.rotz;
+                crate::snes_trig::mcore_zrot(&mut rz, al.vz);
+                al.rotz = rz;
+                if al.vz != -80 {
+                    al.vz = al.vz.wrapping_add(-10);
+                }
+            }
+        }
+
+        // state 3 — zoom away
+        if g.objs.aliens[idx as usize].stratstate == 3 {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.sbyte2 = al.sbyte2.wrapping_add(8);
+                al.vx = bee_tab_scaled(al.sbyte2, false, -1);
+                al.vy = bee_tab_scaled(al.sbyte2, true, -1);
+            }
+            if let Some(pl) = player(g) {
+                let me = g.objs.aliens[idx as usize];
+                let dz = (me.worldz as i32 - pl.worldz as i32).abs();
+                if dz > 6000 {
+                    g.objs.aliens[idx as usize].stratstate = 2;
+                    continue 'strat; // setstate2
+                }
+            }
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                let mut rz = al.rotz;
+                crate::snes_trig::mcore_zrot(&mut rz, al.vz);
+                al.rotz = rz;
+                if al.vz != 100 {
+                    al.vz = al.vz.wrapping_add(10);
+                }
+                al.worldx = chase_proportional(al.worldx, 0, 3);
+                al.worldy = chase_proportional(al.worldy, SPACE_VIEWCY, 3);
+                if al.vz == 0 {
+                    al.stratstate = 4;
+                    continue 'strat; // setstate4
+                }
+            }
+        }
+
+        // state 4 — flip init (falls into state 5)
+        if g.objs.aliens[idx as usize].stratstate == 4 {
+            g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+            let flip = if level == 3 { DEG180 / 2 } else { DEG180 / 4 };
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sbyte1 = flip;
+            al.vx = 0;
+            al.vy = 0;
+            al.vz = 0;
+            al.stratstate = 5;
+        }
+
+        // state 5 — flip (beqdec → setstate2)
+        if g.objs.aliens[idx as usize].stratstate == 5 {
+            if g.objs.aliens[idx as usize].sbyte1 == 0 {
+                g.objs.aliens[idx as usize].stratstate = 2;
+                continue 'strat;
+            }
+            g.objs.aliens[idx as usize].sbyte1 -= 1;
+            if level == 3 {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.worldz = al.worldz.wrapping_sub(10);
+                let mut rx = al.rotx;
+                achase_angle(&mut rx, DEG180, 3);
+                al.rotx = rx;
+                let mut ry = al.roty;
+                achase_angle(&mut ry, DEG45.wrapping_neg(), 3);
+                al.roty = ry;
+                let mut rz = al.rotz;
+                achase_angle(&mut rz, 0, 3);
+                al.rotz = rz;
+                al.sword2 = al.sword2.wrapping_add(2); // alx_tx += 2
+            } else {
+                g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_add(4);
+            }
+        }
+
+        // state 6 — center / park
+        if g.objs.aliens[idx as usize].stratstate == 6 {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                let mut rx = al.rotx;
+                achase_angle(&mut rx, DEG180, 3);
+                al.rotx = rx;
+                let mut ry = al.roty;
+                achase_angle(&mut ry, DEG45.wrapping_neg(), 3);
+                al.roty = ry;
+                let mut rz = al.rotz;
+                achase_angle(&mut rz, 0, 3);
+                al.rotz = rz;
+                al.sflags |= ASF_NOHITAFFECT;
+                al.worldx = chase_proportional(al.worldx, 0, 3);
+            }
+            let viewcy = g.vars.sv_i16(crate::common::sv::VIEWCY);
+            let target_z = g.vars.player_posz.wrapping_add(2500);
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldy = chase_proportional(al.worldy, viewcy, 3);
+            al.worldz = chase_proportional(al.worldz, target_z, 3);
+            al.vx = 0;
+            al.vy = 0;
+            al.vz = 0;
+        }
+
+        apply_velocity(&mut g.objs.aliens[idx as usize]);
+        add_player_z(g, idx);
+        break;
+    }
+}
+
+/// ROM `mcore1exp_Istrat` (GB3STRAT.ASM:4601) — BGM + SE, then tumble-to-burst.
+pub fn mcore1exp_istrat(g: &mut Game, idx: u16) {
+    g.hooks.play_music(0xf0);
+    g.hooks.play_se(0xa1);
+    let s_exp = sid(g, mcore1exp_strat);
+    g.objs.aliens[idx as usize].expstratptr = Some(s_exp);
+    mcore1exp_strat(g, idx);
+}
+
+/// ROM `mcore1exp_strat` — tumble away; past 3000z spawn cubes + qbossexplode.
+pub fn mcore1exp_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(60);
+        al.rotz = al.rotz.wrapping_add(12);
+        al.rotx = al.rotx.wrapping_add(8).wrapping_add(4);
+    }
+    add_player_z(g, idx);
+    let Some(pl) = player(g) else {
+        return;
+    };
+    let dz = (g.objs.aliens[idx as usize].worldz as i32 - pl.worldz as i32).abs();
+    if dz < 3000 {
+        return;
+    }
+    let _ = make_fol_exp_obj(g, idx);
+    let base_z = g.objs.aliens[idx as usize].worldz;
+    for i in 0..6u16 {
+        if let Some(c) = make_obj(g, SH_ANDROSS_PROXY) {
+            copy_pos(g, c, idx);
+            {
+                let al = &mut g.objs.aliens[c as usize];
+                al.worldz = base_z.wrapping_add((i as i16).wrapping_mul(100));
+                al.sflags |= ASF_COLLDISABLE;
+            }
+            blowcube_istrat(g, c);
+        }
+    }
+    strat_qboss_explode_init(g, idx);
+}
+
+/// ROM `makeescapee_Icont` (EXPSTRAT.ASM:499).
+pub fn makeescapee_icont(g: &mut Game, idx: u16) {
+    if let Some(man) = make_obj(g, SH_ESCAPEE_PROXY) {
+        let s = sid(g, escapee_istrat);
+        {
+            let src = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[man as usize];
+            al.worldx = src.worldx;
+            al.worldy = src.worldy;
+            al.worldz = src.worldz;
+            al.stratptr = Some(s);
+        }
+        g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(40);
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `escapee_Istrat` (EXPSTRAT.ASM:508) — spin rotz.
+pub fn escapee_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(8);
+}
+
+/// ROM `explodeBigParts_Istrat` (EXPSTRAT.ASM:658).
+pub fn explodebigparts_istrat(g: &mut Game, idx: u16) {
+    if let Some(p) = make_obj(g, 0) {
+        {
+            let src = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[p as usize];
+            al.worldx = src.worldx;
+            al.worldy = src.worldy;
+            al.worldz = src.worldz;
+        }
+        bigparticleexplode_istrat(g, p);
+    }
+    strat_explode(g, idx);
+}
+
+/// Debris scatter speed from shape size class (ROM sh_size thresholds).
+/// Without a shape-size table, use medium (30).
+fn debris_scatter_speed(_shape: u16) -> u8 {
+    30
+}
+
+/// ROM `explodeDebris_Istrat` (EXPSTRAT.ASM:516).
+pub fn explodedebris_istrat(g: &mut Game, idx: u16) {
+    if let Some(p) = make_obj(g, 0) {
+        {
+            let src = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[p as usize];
+            al.worldx = src.worldx;
+            al.worldy = src.worldy;
+            al.worldz = src.worldz;
+        }
+        particleexplode_istrat(g, p);
+    }
+    explodedebris_icont(g, idx);
+}
+
+/// ROM `FASTexplodeDebris_Istrat` (EXPSTRAT.ASM:483).
+pub fn fastexplodedebris_istrat(g: &mut Game, idx: u16) {
+    if let Some(p) = make_obj(g, 0) {
+        {
+            let src = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[p as usize];
+            al.worldx = src.worldx;
+            al.worldy = src.worldy;
+            al.worldz = src.worldz;
+        }
+        fastparticleexplode_istrat(g, p);
+    }
+    explodedebris_icont(g, idx);
+}
+
+// ============================================================
+// Falling cube (DSTRATS.ASM:605-630) — shadow + gravity + simple remove.
+// ============================================================
+
+const CUBE_HP: u8 = 100;
+const CUBE_AP: u8 = 16;
+
+/// Local `s_falldown_Yvec` (STRATMAC.INC:1813) for the cube tick.
+fn cube_falldown_yvec(al: &mut Alien, shift: u32, gravity: i16, ground: i16) -> bool {
+    al.vy = al.vy.wrapping_add(gravity);
+    if al.worldy < ground {
+        return false;
+    }
+    al.worldy = ground;
+    let mut v = al.vy.wrapping_neg();
+    v >>= shift;
+    if (-5..=0).contains(&v) {
+        v = 0;
+    }
+    al.vy = v;
+    v == 0
+}
+
+/// ROM `cubefall_Istrat` (DSTRATS.ASM:605).
+pub fn cubefall_istrat(g: &mut Game, idx: u16) {
+    let s_tick = sid(g, cubefall_strat);
+    let s_coll = sid(g, cubecoll_strat);
+    let s_exp = sid(g, cubeexp_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_SHADOW;
+        al.stratptr = Some(s_tick);
+        al.collstratptr = Some(s_coll);
+        al.expstratptr = Some(s_exp);
+        al.hp = CUBE_HP;
+        al.ap = CUBE_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+    }
+    // Fall through into the tick (no s_end_strat before cubefall_strat).
+    cubefall_strat(g, idx);
+}
+
+/// ROM `cubefall_strat` — billboard (cosmetic) + gravity onto y=0 + addvecs.
+pub fn cubefall_strat(g: &mut Game, idx: u16) {
+    // drotsflat_x is cosmetic billboard; HD leaves orientation as-is.
+    let _ = cube_falldown_yvec(&mut g.objs.aliens[idx as usize], 1, 1, 0);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `cubeexp_strat` — instant remove (no mesh explode).
+pub fn cubeexp_strat(g: &mut Game, idx: u16) {
+    let _ = idx;
+    g.objs.aldead = 1;
+}
+
+/// ROM `cubecoll_strat` — one AP damage tick, clear collide, resume main strat.
+pub fn cubecoll_strat(g: &mut Game, idx: u16) {
+    let hp = g.objs.aliens[idx as usize].hp;
+    if hp != HARD_HP && hp > 0 {
+        g.objs.aliens[idx as usize].hp = hp.saturating_sub(1);
+    }
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    jmpto_strat(g, idx);
+}
+
+/// ROM `explodedebris_Icont` — spawn two debris pieces, then `explode_Icont`.
+pub fn explodedebris_icont(g: &mut Game, idx: u16) {
+    let shape = g.objs.aliens[idx as usize].debrisshape;
+    let speed = debris_scatter_speed(shape);
+    let mut angle = (sf_random(&mut g.vars) & 0xff) as u8;
+    let parent_sflags = g.objs.aliens[idx as usize].sflags;
+    let parent_sflags2 = g.objs.aliens[idx as usize].sflags2;
+    let parent_rots = (
+        g.objs.aliens[idx as usize].rotx,
+        g.objs.aliens[idx as usize].roty,
+        g.objs.aliens[idx as usize].rotz,
+    );
+    let parent_pos = (
+        g.objs.aliens[idx as usize].worldx,
+        g.objs.aliens[idx as usize].worldy,
+        g.objs.aliens[idx as usize].worldz,
+    );
+
+    for i in 0..2u8 {
+        if i == 1 {
+            angle = angle.wrapping_add(85); // deg360/3
+        } else {
+            angle = angle.wrapping_add(16); // deg360/16 on first
+        }
+        if let Some(piece) = make_obj(g, shape) {
+            {
+                let al = &mut g.objs.aliens[piece as usize];
+                al.worldx = parent_pos.0;
+                al.worldy = parent_pos.1;
+                al.worldz = parent_pos.2;
+                al.rotx = parent_rots.0;
+                al.roty = parent_rots.1;
+                al.rotz = parent_rots.2;
+                al.sflags = parent_sflags;
+                al.sflags2 = parent_sflags2;
+                make_xyvec(al, angle, speed);
+            }
+            exppiece_istrat(g, piece);
+        }
+    }
+    // Clear debrisshape so explode_icont does not re-enter debris.
+    g.objs.aliens[idx as usize].debrisshape = 0;
+    explode_icont(g, idx);
+}
+
+/// ROM `expSpiece_Istrat` / `expSpiece_strat` (EXPSTRAT.ASM:597).
+pub fn expspiece_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, expspiece_strat);
+    let rotx = (sf_random(&mut g.vars) & 0xff) as u8;
+    let rotz = (sf_random(&mut g.vars) & 0xff) as u8;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.rotx = rotx;
+    al.rotz = rotz;
+    al.sflags |= ASF_COLLDISABLE;
+    al.sflags &= !ASF_HITFLASH;
+    al.count = 15;
+}
+
+pub fn expspiece_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = al.rotx.wrapping_add(16);
+        al.rotz = al.rotz.wrapping_add(6);
+        apply_velocity(al);
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+        add_player_z(g, idx);
+    }
+}
+
+/// ROM `exppiece_Istrat` / `exppiece_strat` (EXPSTRAT.ASM:618).
+pub fn exppiece_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, exppiece_strat);
+    let exp = sid(g, exppieceexp_istrat);
+    let life = ((sf_random(&mut g.vars) & 7) as u8).wrapping_add(10);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = None;
+        al.expstratptr = Some(exp);
+        al.hp = HARD_HP;
+        al.ap = 8;
+        al.sflags |= ASF_COLLDISABLE;
+        al.sflags &= !ASF_HITFLASH;
+        al.count = life;
+        apply_velocity(al);
+    }
+}
+
+pub fn exppiece_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = al.rotx.wrapping_add(8);
+        al.rotz = al.rotz.wrapping_add(4);
+        // s_dec_lifecnt x,1 → kill_obj when count hits 0
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            crate::common::kill_obj(al);
+            return;
+        }
+        al.count = c;
+        apply_velocity(al);
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+        add_player_z(g, idx);
+        g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+            .worldz
+            .wrapping_sub(MEDPSPEED_I16 / 2);
+    }
+}
+
+/// ROM `exppieceexp_Istrat` (EXPSTRAT.ASM:649).
+pub fn exppieceexp_istrat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags4 &= !(ASF4_SPECIAL | ASF4_CSPECIAL);
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `pelasercollide_Istrat` (GSTRATS.ASM:752) — player laser hit solid → wall SE + kill.
+pub fn pelasercollide_istrat(g: &mut Game, idx: u16) {
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    let solid =
+        if partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active
+        {
+            let p = &g.objs.aliens[partner as usize];
+            p.sflags & ASF_NOHITAFFECT != 0 || p.hp == HARD_HP || p.collstratptr.is_none()
+        } else {
+            true
+        };
+    if solid {
+        let me = g.objs.aliens[idx as usize];
+        g.hooks
+            .make_snd(PosSndFamilyId::HitWall, me.worldx, me.worldz);
+    }
+    crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
+    match g.objs.aliens[idx as usize].expstratptr {
+        Some(exp) => g.call_strat(exp, idx),
+        None => {}
+    }
+}
+
+/// ROM `makepollen_srou_l` (EXPSTRAT.ASM:1033).
+pub fn makepollen_srou(g: &mut Game, parent: u16) -> Option<u16> {
+    let pollen = make_obj(g, 0)?;
+    {
+        let src = g.objs.aliens[parent as usize];
+        let al = &mut g.objs.aliens[pollen as usize];
+        al.worldx = src.worldx;
+        al.worldy = src.worldy.wrapping_sub(120);
+        al.worldz = src.worldz;
+    }
+    particlepollen_istrat(g, pollen);
+    Some(pollen)
+}
+
+/// ROM `particlepollen_Istrat` (EXPSTRAT.ASM:1041).
+pub fn particlepollen_istrat(g: &mut Game, idx: u16) {
+    particle_explode_init(g, idx, particlepollen_strat, 6, 60, 250);
+}
+
+/// ROM `particlepollen_strat` (EXPSTRAT.ASM:1047).
+pub fn particlepollen_strat(g: &mut Game, idx: u16) {
+    particle_data_clear(&mut g.objs.aliens[idx as usize]);
+    g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_add(1);
+    if g.objs.aliens[idx as usize].count == 250 {
+        g.objs.aldead = 1;
+    }
+}
+
+/// ROM `#gate_2` shape id (shape_data.rs).
+const SH_GATE2: u16 = 210;
+
+/// ROM `explodegate2_Istrat` (EXPSTRAT.ASM:1058) — maybe drop gate_2, then stopexplode.
+pub fn explodegate2_istrat(g: &mut Game, idx: u16) {
+    // 20% chance to attempt gate spawn (jmp_random .badobjs,80 skips 80%).
+    if !jmp_random_pct(g, 80) {
+        let partner = g.objs.aliens[idx as usize].collobjptr;
+        let do_spawn = if partner == 0
+            || (partner as usize) >= NUMBER_AL
+            || !g.objs.aliens[partner as usize].active
+        {
+            true // s_jmp_objptrbad y,.do
+        } else {
+            g.objs.aliens[partner as usize].type_ & ATLASER != 0
+        };
+        if do_spawn {
+            if let Some(gate) = make_obj(g, SH_GATE2) {
+                {
+                    let src = g.objs.aliens[idx as usize];
+                    let al = &mut g.objs.aliens[gate as usize];
+                    al.worldx = src.worldx;
+                    al.worldy = src.worldy;
+                    al.worldz = src.worldz;
+                }
+                strat_gate2_init(g, gate);
+            }
+        }
+    }
+    stopexplode_istrat(g, idx);
+}
+
+/// Proxy for ROM `#lfdie` laser-die flash sprite.
+const SH_LFDIE_PROXY: u16 = 342;
+
+/// ROM `elaser2die_Istrat` (GSTRATS.ASM:1962) — attach flat flash child, animate out.
+pub fn elaser2die_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].ptr = 0;
+    if let Some(flash) = make_obj(g, SH_LFDIE_PROXY) {
+        crate::common::rotsflatstay_istrat(g, flash);
+        {
+            let src = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[flash as usize];
+            al.sflags3 &= !ASF3_REALOBJ;
+            al.sflags |= ASF_COLLDISABLE;
+            al.worldx = src.worldx;
+            al.worldy = src.worldy;
+            al.worldz = src.worldz;
+        }
+        g.objs.aliens[idx as usize].ptr = flash.wrapping_add(1);
+    }
+    let s = sid(g, elaser2die_strat);
+    g.objs.aliens[idx as usize].expstratptr = Some(s);
+    // Fall into first strat tick (ROM has no s_end between istrat and strat label).
+    elaser2die_strat(g, idx);
+}
+
+/// ROM `elaser2die_strat` (GSTRATS.ASM:1975).
+pub fn elaser2die_strat(g: &mut Game, idx: u16) {
+    use sf_game::vars::GF_PLAYERDYING;
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0
+        && g.vars.gameflags & GF_PLAYERDYING == 0
+    {
+        add_player_z(g, idx);
+    }
+    let frame = g.objs.aliens[idx as usize].animframe & 0x7F;
+    if frame == 8 {
+        let child = g.objs.aliens[idx as usize].ptr;
+        if child != 0 {
+            let ci = child.wrapping_sub(1);
+            if (ci as usize) < NUMBER_AL && g.objs.aliens[ci as usize].active {
+                // Mark child dead via aldead only affects current strat object;
+                // free the flash child directly.
+                g.objs.free(ci);
+            }
+            g.objs.aliens[idx as usize].ptr = 0;
+        }
+        g.objs.aldead = 1;
+        return;
+    }
+    // s_add_anim x,#2,#9
+    let mut f = frame.wrapping_add(2);
+    if f >= 9 {
+        f = f.wrapping_sub(9);
+    }
+    g.objs.aliens[idx as usize].animframe = 0x80 | f;
+}
+
+/// ROM `pelaser2die_Istrat` (GSTRATS.ASM:2051).
+pub fn pelaser2die_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].type_ &= !ATZREMOVE; // s_setnoremove_behind
+    let n = g.vars.sv_u8(crate::common::sv::NUMPLASERS);
+    if n > 0 {
+        g.vars.set_sv_u8(crate::common::sv::NUMPLASERS, n - 1);
+    }
+    elaser2die_istrat(g, idx);
+}
+
+/// ROM `playerbeamdie_Istrat` (GSTRATS.ASM:2057).
+pub fn playerbeamdie_istrat(g: &mut Game, idx: u16) {
+    let n = g.vars.sv_u8(crate::common::sv::NUMPLASERS);
+    if n > 0 {
+        g.vars.set_sv_u8(crate::common::sv::NUMPLASERS, n - 1);
+    }
+    // s_set_expstrat x,remove_Istrat
+    let rem = sid(g, |g, _| {
+        g.objs.aldead = 1;
+    });
+    g.objs.aliens[idx as usize].expstratptr = Some(rem);
+}
+
+/// ROM `miss_end` (GSTRATS.ASM:1377) — shared weapon tail: boss-dead kill or missbound.
+pub fn miss_end(g: &mut Game, idx: u16) {
+    if g.vars.gameflags & GF_BOSSDEAD != 0 || bossflags(g) & BF_DYING != 0 {
+        crate::common::kill_istrat(g, idx);
+        return;
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        missbound_chk_exp(g, idx);
+    }
+}
+
+/// `pstf_firstframeLcol` — first-frame player laser collision (GILESALC.INC).
+const PSTF_FIRSTFRAMELCOL: u8 = 16;
+
+/// Shared Pelaser/Pbeam init: copy aim from sbyte1/2, gen×4 + mother addgen, anim #4.
+fn pelaser_family_init(g: &mut Game, idx: u16, tick: StrategyFn) {
+    let s = sid(g, tick);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.rotx = al.sbyte1;
+        al.roty = al.sbyte2;
+        let mother_spd = al.sbyte3;
+        crate::common::strat_gen_vecs_3d_scaled(al, 2);
+        let (bx, by, bz) = (al.vx, al.vy, al.vz);
+        al.vel = mother_spd;
+        crate::common::strat_gen_vecs_3d(al);
+        al.vx = al.vx.wrapping_add(bx);
+        al.vy = al.vy.wrapping_add(by);
+        al.vz = al.vz.wrapping_add(bz);
+        al.vel = 66; // restore bolt speed after mother addgen
+        al.animframe = 0x80 | 4; // s_init_anim #4
+        if g.vars.pstratflags & PSTF_FIRSTFRAMELCOL == 0 {
+            al.sflags |= ASF_COLLDISABLE;
+        }
+    }
+}
+
+/// ROM `Pelaser_Istrat` (GSTRATS.ASM:2023).
+pub fn pelaser_istrat(g: &mut Game, idx: u16) {
+    pelaser_family_init(g, idx, pelaser_strat);
+}
+
+/// ROM `Pelaser_strat` (GSTRATS.ASM:2036).
+pub fn pelaser_strat(g: &mut Game, idx: u16) {
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        g.objs.aldead = 1;
+        return;
+    }
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    // s_decbne_lifecnt — remove + dec numplasers when count hits 0
+    let c = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+    if c == 0 {
+        g.objs.aliens[idx as usize].count = 0;
+        g.objs.aldead = 1;
+        let n = g.vars.sv_u8(crate::common::sv::NUMPLASERS);
+        if n > 0 {
+            g.vars.set_sv_u8(crate::common::sv::NUMPLASERS, n - 1);
+        }
+        return;
+    }
+    g.objs.aliens[idx as usize].count = c;
+    miss_end(g, idx);
+}
+
+/// ROM `Pbeam_Istrat` (GSTRATS.ASM:2000) — same init as Pelaser, different tick.
+pub fn pbeam_istrat(g: &mut Game, idx: u16) {
+    pelaser_family_init(g, idx, pbeam_strat);
+}
+
+/// ROM `Pbeam_strat` (GSTRATS.ASM:2014) — zero pitch/yaw, spin rotz, fall into pelaser.
+pub fn pbeam_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = 0;
+        al.roty = 0;
+        al.rotz = al.rotz.wrapping_add(24);
+    }
+    pelaser_strat(g, idx);
+}
+
+/// ROM `fire_playerbeam` (GSTRATS.ASM:2359).
+pub fn fire_playerbeam(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 0)?;
+    let owner_vel = g.objs.aliens[firer as usize].vel;
+    let (ox, oy, oz, rx, ry) = {
+        let o = &g.objs.aliens[firer as usize];
+        (o.worldx, o.worldy, o.worldz, o.rotx, o.roty)
+    };
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    let coll = sid(g, pelasercollide_istrat);
+    let exp = sid(g, playerbeamdie_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = ox;
+        al.worldy = oy;
+        al.worldz = oz.wrapping_add(mz);
+        al.hp = 1;
+        al.ap = 3; // playerbeamAP
+        al.vel = 66;
+        al.count = 10;
+        al.rotx = rx;
+        al.roty = ry;
+        al.sbyte1 = rx;
+        al.sbyte2 = ry;
+        al.sbyte3 = owner_vel;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
+        al.type_ |= ATLASER;
+        al.sflags &= !ASF_INVISIBLE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    pbeam_istrat(g, shot);
+    let n = g.vars.sv_u8(crate::common::sv::NUMPLASERS);
+    if n < 0xFF {
+        g.vars.set_sv_u8(crate::common::sv::NUMPLASERS, n + 1);
+    }
+    Some(shot)
+}
+
+/// ROM `fire_Elaser` (GSTRATS.ASM:2346) — player laser bolt via Pelaser.
+/// Shape 511 = HD `elaser2` stand-in (`SHAPE_ELASER2` in player.rs).
+pub fn fire_elaser(g: &mut Game, firer: u16) -> Option<u16> {
+    const SHAPE_ELASER2: u16 = 511;
+    let shot = make_obj(g, SHAPE_ELASER2)?;
+    let owner_vel = g.objs.aliens[firer as usize].vel;
+    let (ox, oy, oz, rx, ry) = {
+        let o = &g.objs.aliens[firer as usize];
+        (o.worldx, o.worldy, o.worldz, o.rotx, o.roty)
+    };
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    let coll = sid(g, pelasercollide_istrat);
+    let exp = sid(g, pelaser2die_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = ox;
+        al.worldy = oy;
+        al.worldz = oz.wrapping_add(mz);
+        al.hp = 1;
+        al.ap = 2; // elaserAP
+        al.vel = 66;
+        al.count = 10;
+        al.rotx = rx;
+        al.roty = ry;
+        al.sbyte1 = rx;
+        al.sbyte2 = ry;
+        al.sbyte3 = owner_vel;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5;
+        al.type_ |= ATLASER;
+        al.sflags &= !ASF_INVISIBLE;
+        al.shape = SHAPE_ELASER2;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    pelaser_istrat(g, shot);
+    let n = g.vars.sv_u8(crate::common::sv::NUMPLASERS);
+    if n < 0xFF {
+        g.vars.set_sv_u8(crate::common::sv::NUMPLASERS, n + 1);
+    }
+    Some(shot)
+}
+
+// ============================================================
+// RELELASER / RELFLATMISS / FLATMISS + fire_friend / fire_reb / fire_plasma
+// (GSTRATS.ASM:1773-1894, 2373-2418)
+// ============================================================
+
+const SHAPE_ELASER2: u16 = 511;
+const ELASER_AP: u8 = 2;
+const ENEMYLASER_AP: u8 = 2;
+const PLASMA_AP: u8 = 10;
+
+/// Shared: copy aim from sbyte1/2, gen×(1<<scale) + mother addgen, init anim.
+fn relelaser_family_init(g: &mut Game, idx: u16, tick: StrategyFn, scale: u32, anim0: u8) {
+    let s = sid(g, tick);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.rotx = al.sbyte1;
+        al.roty = al.sbyte2;
+        let bolt_spd = al.vel;
+        let mother_spd = al.sbyte3;
+        crate::common::strat_gen_vecs_3d_scaled(al, scale);
+        let (bx, by, bz) = (al.vx, al.vy, al.vz);
+        al.vel = mother_spd;
+        crate::common::strat_gen_vecs_3d(al);
+        al.vx = al.vx.wrapping_add(bx);
+        al.vy = al.vy.wrapping_add(by);
+        al.vz = al.vz.wrapping_add(bz);
+        al.vel = bolt_spd;
+        al.animframe = 0x80 | anim0;
+    }
+}
+
+/// ROM `relelaser_Istrat` (GSTRATS.ASM:1869) — relative laser, gen scale 1.
+pub fn relelaser_istrat(g: &mut Game, idx: u16) {
+    relelaser_family_init(g, idx, relelaser_strat, 1, 0);
+}
+
+/// ROM `relelaser_strat` (GSTRATS.ASM:1880).
+pub fn relelaser_strat(g: &mut Game, idx: u16) {
+    // s_cmp_anim #4 / s_add_anim #2,#8
+    let frame = g.objs.aliens[idx as usize].animframe & 0x7F;
+    if frame != 4 {
+        let mut f = frame.wrapping_add(2);
+        if f >= 8 {
+            f = f.wrapping_sub(8);
+        }
+        g.objs.aliens[idx as usize].animframe = 0x80 | f;
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let c = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+    if c == 0 {
+        g.objs.aliens[idx as usize].count = 0;
+        g.objs.aldead = 1;
+        return;
+    }
+    g.objs.aliens[idx as usize].count = c;
+    miss_end(g, idx);
+}
+
+/// ROM `relflatmiss_Istrat` (GSTRATS.ASM:1773) — flat missile, scrolls with player.
+pub fn relflatmiss_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, relflatmiss_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.sbyte1 = al.roty;
+        al.sbyte2 = al.rotx;
+        // gen_3dvecs from sbyte1/2 (yaw/pitch stored there)
+        al.roty = al.sbyte1;
+        al.rotx = al.sbyte2;
+        crate::common::strat_gen_vecs_3d(al);
+        al.snd2 = 6;
+    }
+}
+
+/// ROM `relflatmiss_strat` (GSTRATS.ASM:1780).
+pub fn relflatmiss_strat(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    // s_dec_lifecnt x,1 → kill_obj when count hits 0
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            crate::common::kill_obj(al);
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `flatmiss_Istrat` (GSTRATS.ASM:1790) — same as relflatmiss but no playerZ scroll.
+pub fn flatmiss_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, flatmiss_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.sbyte1 = al.roty;
+        al.sbyte2 = al.rotx;
+        al.roty = al.sbyte1;
+        al.rotx = al.sbyte2;
+        crate::common::strat_gen_vecs_3d(al);
+        al.snd2 = 6;
+    }
+}
+
+/// ROM `flatmiss_strat` (GSTRATS.ASM:1797).
+pub fn flatmiss_strat(g: &mut Game, idx: u16) {
+    // s_rots_flat — cosmetic billboard; HD leaves orientation.
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            crate::common::kill_obj(al);
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// Place a weapon at firer + muzzle Z, with aim/speed/life/coll already set by caller.
+fn place_weapon_at_firer(g: &mut Game, shot: u16, firer: u16, muzzle_z: i16) {
+    let (ox, oy, oz, rx, ry, owner_vel) = {
+        let o = &g.objs.aliens[firer as usize];
+        (o.worldx, o.worldy, o.worldz, o.rotx, o.roty, o.vel)
+    };
+    let al = &mut g.objs.aliens[shot as usize];
+    al.worldx = ox;
+    al.worldy = oy;
+    al.worldz = oz.wrapping_add(muzzle_z);
+    al.rotx = rx;
+    al.roty = ry;
+    al.sbyte1 = rx;
+    al.sbyte2 = ry;
+    al.sbyte3 = owner_vel;
+    al.sflags &= !ASF_INVISIBLE;
+    // `gen_weapon` marks every spawned shot as a weapon/first-frame object
+    // and `s_make_immune` stores the two object pointers in both directions.
+    // Object links use one-based values in `ptr`, but collision immunity is a
+    // raw slot index in this port (see `coldet::run_collision_pass`).
+    al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON;
+    al.immuneptr = firer;
+    g.objs.aliens[firer as usize].immuneptr = shot;
+}
+
+/// ROM `fire_friendElaser` (GSTRATS.ASM:2373).
+pub fn fire_friend_elaser(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_ELASER2)?;
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, elaser2die_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = ELASER_AP;
+        al.vel = 66; // 55+11
+        al.count = 10;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
+        al.type_ |= ATLASER;
+        al.shape = SHAPE_ELASER2;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    relelaser_istrat(g, shot);
+    // ROM `jsl lasersound_l` (GSTRATS.ASM:2383).
+    make_firer_snd(g, firer, PosSndFamilyId::Laser);
+    Some(shot)
+}
+
+/// ROM `fire_RebElaser` (GSTRATS.ASM:2387) — rebound / wall laser.
+pub fn fire_reb_elaser(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_ELASER2)?;
+    const WEAPON_SCALE: i16 = 2;
+    // s_add_var svar_weapZ,#80>>weapon_scale on top of default muzzle
+    let mz = (80i16 >> WEAPON_SCALE).wrapping_add(80i16 >> WEAPON_SCALE);
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, elaser2die_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = ENEMYLASER_AP;
+        al.vel = 60;
+        al.count = 40;
+        // enemyweap + laser + enemy1 + enemy2
+        al.collflags |= ACF_COLLTYPE4 | ACF_COLLTYPE1 | ACF_COLLTYPE2 | ACF_COLLTYPE3;
+        al.type_ |= ATLASER;
+        al.shape = SHAPE_ELASER2;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    relelaser_istrat(g, shot);
+    // ROM `jsl hitwallsound_l` (GSTRATS.ASM:2399).
+    make_firer_snd(g, firer, PosSndFamilyId::HitWall);
+    Some(shot)
+}
+
+/// ROM `fire_plasma` / `fire_relbeamball` (GSTRATS.ASM:2405) — relflatmiss plasma.
+pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 405)?;
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let rem = sid(g, |g, _| {
+        g.objs.aldead = 1;
+    });
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = PLASMA_AP;
+        al.vel = 80;
+        al.count = 100; // 30+70
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4; // laser + enemyweap
+        al.type_ |= ATLASER;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(rem);
+    }
+    relflatmiss_istrat(g, shot);
+    // ROM `jsl enemybattrysound_l` (GSTRATS.ASM:2417).
+    let (fx, fz) = {
+        let f = &g.objs.aliens[firer as usize];
+        (f.worldx, f.worldz)
+    };
+    g.hooks.make_snd(PosSndFamilyId::EnemyBattry, fx, fz);
+    Some(shot)
+}
+
+/// ROM `fire_beamball` (GSTRATS.ASM:2422) — flatmiss (no playerZ scroll).
+pub fn fire_beamball(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 0)?;
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let rem = sid(g, |g, _| {
+        g.objs.aldead = 1;
+    });
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = 8;
+        al.vel = 70;
+        al.count = 100;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
+        al.type_ |= ATLASER;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(rem);
+    }
+    flatmiss_istrat(g, shot);
+    // ROM `jsl enemybattrysound_l` (GSTRATS.ASM:2433).
+    let (fx, fz) = {
+        let f = &g.objs.aliens[firer as usize];
+        (f.worldx, f.worldz)
+    };
+    g.hooks.make_snd(PosSndFamilyId::EnemyBattry, fx, fz);
+    Some(shot)
+}
+
+/// Shared spawn for flat/relflat beam weapons (oval/ring/shortplasma family).
+fn fire_flat_beam(
+    g: &mut Game,
+    firer: u16,
+    shape: u16,
+    ap: u8,
+    speed: u8,
+    life: u8,
+    relative: bool,
+    family: PosSndFamilyId,
+) -> Option<u16> {
+    let shot = make_obj(g, shape)?;
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let rem = sid(g, |g, _| {
+        g.objs.aldead = 1;
+    });
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = ap;
+        al.vel = speed;
+        al.count = life;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
+        al.type_ |= ATLASER;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(rem);
+    }
+    if relative {
+        relflatmiss_istrat(g, shot);
+    } else {
+        flatmiss_istrat(g, shot);
+    }
+    let (fx, fz) = {
+        let f = &g.objs.aliens[firer as usize];
+        (f.worldx, f.worldz)
+    };
+    g.hooks.make_snd(family, fx, fz);
+    Some(shot)
+}
+
+/// ROM `fire_relovalbeam` (GSTRATS.ASM:2438).
+pub fn fire_relovalbeam(g: &mut Game, firer: u16) -> Option<u16> {
+    fire_flat_beam(g, firer, 416, 8, 70, 100, true, PosSndFamilyId::EnemyBattry)
+}
+
+/// Fire a relative oval beam aimed at `pitch`/`yaw` (mine2exp burst helper).
+fn fire_relovalbeam_aimed(g: &mut Game, firer: u16, pitch: u8, yaw: u8) -> Option<u16> {
+    let shot = fire_relovalbeam(g, firer)?;
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.rotx = pitch;
+        al.roty = yaw;
+        al.sbyte1 = pitch;
+        al.sbyte2 = yaw;
+        crate::common::strat_gen_vecs_3d(al);
+        // s_add_rnd2alvar y,al_vel,#31
+        al.vel = al.vel.wrapping_add((sf_random(&mut g.vars) as u8) & 31);
+    }
+    Some(shot)
+}
+
+/// ROM `fire_relringlaser` (GSTRATS.ASM:2454).
+pub fn fire_relringlaser(g: &mut Game, firer: u16) -> Option<u16> {
+    fire_flat_beam(g, firer, 334, 6, 70, 100, true, PosSndFamilyId::EnemyBattry)
+}
+
+/// ROM `fire_ovalbeam` (GSTRATS.ASM:2470).
+pub fn fire_ovalbeam(g: &mut Game, firer: u16) -> Option<u16> {
+    fire_flat_beam(
+        g,
+        firer,
+        416,
+        8,
+        70,
+        100,
+        false,
+        PosSndFamilyId::EnemyBattry,
+    )
+}
+
+/// ROM `fire_ringlaser` (GSTRATS.ASM:2486) — ledger already True; body for callers.
+pub fn fire_ringlaser(g: &mut Game, firer: u16) -> Option<u16> {
+    // ROM `jsl ringlasersound_l` (GSTRATS.ASM:2497).
+    fire_flat_beam(g, firer, 334, 6, 70, 100, false, PosSndFamilyId::RingLaser)
+}
+
+/// ROM `firenormringlaser_l` (DSTRATS.ASM:6339) — same as `fireringlaser_l` but
+/// `al_vel = 120` (vs 60). Uses the flat-beam path (shape/locusmode ring spread
+/// is scoped out, matching `fire_ringlaser`).
+pub fn firenormringlaser(g: &mut Game, firer: u16) -> Option<u16> {
+    fire_flat_beam(g, firer, 334, 6, 120, 100, false, PosSndFamilyId::RingLaser)
+}
+
+/// ROM `fire_shortplasma` (GSTRATS.ASM:2502) — plasmaAP, life 30.
+pub fn fire_shortplasma(g: &mut Game, firer: u16) -> Option<u16> {
+    fire_flat_beam(
+        g,
+        firer,
+        405,
+        PLASMA_AP,
+        80,
+        30,
+        true,
+        PosSndFamilyId::EnemyBattry,
+    )
+}
+
+/// ROM `homingflat_Istrat` (GSTRATS.ASM:1723): preserve the initial weapon
+/// aim in sbyte1/2, billboard the visible object, and home via the shared tick.
+pub fn homingflat_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, homingflat_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.sbyte1 = al.roty;
+    al.sbyte2 = al.rotx;
+    al.rotx = 0;
+    al.roty = DEG180;
+    al.snd2 = 6;
+}
+
+/// ROM `fire_Hplasma` (GSTRATS.ASM:2517): bouncyball mesh, AP 10, speed 60,
+/// life 50, homingflat strategy. The caller assigns the target pointer just
+/// after `s_fire_weapon`, exactly as the assembly call sites do.
+pub fn fire_hplasma(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 405)?;
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let rem = sid(g, |g, _| {
+        g.objs.aldead = 1;
+    });
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = HPLASMA_AP;
+        al.vel = 60;
+        al.count = 50;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
+        al.type_ |= ATLASER;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(rem);
+    }
+    homingflat_istrat(g, shot);
+    let (fx, fz) = {
+        let f = &g.objs.aliens[firer as usize];
+        (f.worldx, f.worldz)
+    };
+    g.hooks.make_snd(PosSndFamilyId::EnemyBattry, fx, fz);
+    Some(shot)
+}
+
+/// ROM `elaser_Istrat` (GSTRATS.ASM:1935) — non-relative laser (no mother addgen, no playerZ).
+pub fn elaser_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, elaser_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.rotx = al.sbyte1;
+        al.roty = al.sbyte2;
+        crate::common::strat_gen_vecs_3d_scaled(al, 1);
+        al.animframe = 0x80; // s_init_anim #0
+    }
+}
+
+/// ROM `elaser_strat` (GSTRATS.ASM:1946).
+pub fn elaser_strat(g: &mut Game, idx: u16) {
+    let frame = g.objs.aliens[idx as usize].animframe & 0x7F;
+    if frame != 4 {
+        let mut f = frame.wrapping_add(2);
+        if f >= 8 {
+            f = f.wrapping_sub(8);
+        }
+        g.objs.aliens[idx as usize].animframe = 0x80 | f;
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let c = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+    if c == 0 {
+        g.objs.aliens[idx as usize].count = 0;
+        g.objs.aldead = 1;
+        return;
+    }
+    g.objs.aliens[idx as usize].count = c;
+    miss_end(g, idx);
+}
+
+/// ROM `fire_slowElaser` (GSTRATS.ASM:2593).
+pub fn fire_slow_elaser(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_ELASER2)?;
+    const WEAPON_SCALE: i16 = 2;
+    let mz = (80i16 >> WEAPON_SCALE).wrapping_add(80i16 >> WEAPON_SCALE);
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, elaser2die_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = ENEMYLASER_AP;
+        al.vel = 60;
+        al.count = 40;
+        al.collflags |= ACF_COLLTYPE4 | ACF_COLLTYPE1;
+        al.type_ |= ATLASER;
+        al.shape = SHAPE_ELASER2;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    elaser_istrat(g, shot);
+    // ROM `jsl lasersound_l` (GSTRATS.ASM:2603).
+    make_firer_snd(g, firer, PosSndFamilyId::Laser);
+    Some(shot)
+}
+
+/// ROM `Yhoming_Istrat` (GSTRATS.ASM:1752) — yaw-only home toward `al_ptr`.
+pub fn yhoming_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, yhoming_strat);
+    let rnd = (sf_random(&mut g.vars) & 7) as u8;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.snd2 = 6;
+        al.animframe = 0x80 | rnd;
+    }
+}
+
+/// ROM `Yhoming_strat` (GSTRATS.ASM:1759).
+pub fn yhoming_strat(g: &mut Game, idx: u16) {
+    // s_add_anim #1,#8
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let mut f = (al.animframe & 0x7F).wrapping_add(1);
+        if f >= 8 {
+            f = f.wrapping_sub(8);
+        }
+        al.animframe = 0x80 | f;
+    }
+    // ROM: s_set_objtobealvar y,x,al_ptr (not fireobjptr).
+    let ti = {
+        let ptr = g.objs.aliens[idx as usize].ptr;
+        if ptr == 0 {
+            None
+        } else {
+            let t = ptr as i32 - 1;
+            if t >= 0 && (t as usize) < NUMBER_AL {
+                Some(t as u16)
+            } else {
+                None
+            }
+        }
+    };
+    if let Some(ti) = ti {
+        if g.objs.aliens[ti as usize].active {
+            let target = g.objs.aliens[ti as usize];
+            // s_obj2obj_angle …,0 → snap yaw (achase shift 0).
+            strat_aim_yaw(g, idx, &target, 0);
+        }
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        crate::common::strat_gen_vecs_3d(al);
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            // s_dec_lifecnt (no ,1) → remove
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `fire_YHplasma` (GSTRATS.ASM:2532).
+pub fn fire_yhplasma(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 266)?;
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    place_weapon_at_firer(g, shot, firer, mz);
+    let coll = sid(g, weapcollide_istrat);
+    let rem = sid(g, |g, _| {
+        g.objs.aldead = 1;
+    });
+    let target = nuke_player_idx(g).unwrap_or(0);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = 8;
+        al.vel = 100;
+        al.count = 50;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
+        al.type_ |= ATLASER;
+        al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.ptr = target.wrapping_add(1);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(rem);
+    }
+    yhoming_istrat(g, shot);
+    // ROM `jsl enemybattrysound_l` (GSTRATS.ASM:2544).
+    let (fx, fz) = {
+        let f = &g.objs.aliens[firer as usize];
+        (f.worldx, f.worldz)
+    };
+    g.hooks.make_snd(PosSndFamilyId::EnemyBattry, fx, fz);
+    Some(shot)
+}
+
+// ============================================================
+// HELPBALL (GSTRATS.ASM:2233-2327)
+// ============================================================
+
+const NUM_HELP_SHOTS: u8 = 10;
+const SH_HELPBALL: u16 = 226;
+/// Extended shape-catalog id for the source's distinct homing helper shot.
+const SH_SHELPBALL: u16 = 406;
+
+/// Orbit helpball around player: `s_add_Roffs2pos B,x,player,x,#0,radius,#60,0,0,1`
+/// (Z/roll only via `rotate_8yx`, angle = self.rotz).
+fn helpball_orbit_pos(g: &mut Game, idx: u16, player: u16, radius: u8) {
+    let rotz = g.objs.aliens[idx as usize].rotz;
+    let (dx, dy, dz) = crate::snes_trig::strat_roffs_roll(rotz, 0, radius as i8, 60);
+    let pl = g.objs.aliens[player as usize];
+    let al = &mut g.objs.aliens[idx as usize];
+    al.worldx = pl.worldx.wrapping_add(dx);
+    al.worldy = pl.worldy.wrapping_add(dy);
+    al.worldz = pl.worldz.wrapping_add(dz);
+}
+
+/// ROM `helpball_Istrat` (GSTRATS.ASM:2235).
+pub fn helpball_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, helpball_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.shape = SH_HELPBALL;
+        al.stratptr = Some(tick);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.sflags |= ASF_COLLDISABLE;
+        al.sbyte3 = 30;
+        al.sbyte1 = 0;
+        al.sbyte2 = 0;
+        al.sflags &= !ASF_INVISIBLE;
+    }
+}
+
+/// ROM `helpball_strat` (GSTRATS.ASM:2241).
+pub fn helpball_strat(g: &mut Game, idx: u16) {
+    use sf_game::alien::ASF3_LOCKON;
+    use sf_game::draw::AF_INVIEW_PL;
+    use sf_game::vars::HARD_HP;
+
+    let Some(player) = nuke_player_idx(g) else {
+        g.objs.aldead = 1;
+        return;
+    };
+
+    // Lifetime: after numhelpshots fired, expand radius then remove.
+    if g.objs.aliens[idx as usize].sbyte2 >= NUM_HELP_SHOTS {
+        let r = g.objs.aliens[idx as usize].sbyte3.wrapping_add(3);
+        g.objs.aliens[idx as usize].sbyte3 = r;
+        if r >= 120 {
+            g.objs.aldead = 1;
+            return;
+        }
+    }
+
+    {
+        let radius = g.objs.aliens[idx as usize].sbyte3;
+        helpball_orbit_pos(g, idx, player, radius);
+        g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(12);
+    }
+
+    // Cap concurrent homes at 3 (sbyte1).
+    if g.objs.aliens[idx as usize].sbyte1 >= 3 {
+        return;
+    }
+
+    let self_pos = {
+        let al = &g.objs.aliens[idx as usize];
+        (al.worldx, al.worldz)
+    };
+    let actives = g.objs.active_indices();
+    for &yi in &actives {
+        if yi == idx || yi == player {
+            continue;
+        }
+        if g.objs.aliens[idx as usize].sbyte1 >= 3 {
+            break;
+        }
+        let yal = g.objs.aliens[yi as usize];
+        if yal.sflags3 & ASF3_REALOBJ == 0 {
+            continue;
+        }
+        let mut probe = Alien::default();
+        probe.worldx = self_pos.0;
+        probe.worldz = self_pos.1;
+        let d = crate::common::strat_dist_xz(&probe, &yal);
+        if d < 300 || d >= 4000 {
+            continue;
+        }
+        if yal.flags & AF_INVIEW_PL == 0 {
+            continue;
+        }
+        if yal.sflags & (ASF_NOHITAFFECT | ASF_COLLDISABLE) != 0 {
+            continue;
+        }
+        if yal.collflags & ACF_COLLTYPE5 != 0 {
+            continue; // friend
+        }
+        if yal.sflags3 & ASF3_LOCKON != 0 {
+            continue;
+        }
+        if yal.hp == HARD_HP {
+            continue;
+        }
+
+        // Lock and spawn shelpball home.
+        g.objs.aliens[yi as usize].sflags3 |= ASF3_LOCKON;
+        let Some(home) = make_obj(g, SH_SHELPBALL) else {
+            g.objs.aliens[yi as usize].sflags3 &= !ASF3_LOCKON;
+            break;
+        };
+        {
+            let src = g.objs.aliens[idx as usize];
+            let al = &mut g.objs.aliens[home as usize];
+            al.worldx = src.worldx;
+            al.worldy = src.worldy;
+            al.worldz = src.worldz;
+            al.ptr = yi.wrapping_add(1);
+            al.sword1 = idx as i16; // mother helpball
+        }
+        helpballhome_istrat(g, home);
+        g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+        g.objs.aliens[idx as usize].sbyte2 = g.objs.aliens[idx as usize].sbyte2.wrapping_add(1);
+    }
+}
+
+/// ROM `helpballhome_Istrat` (GSTRATS.ASM:2285).
+pub fn helpballhome_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, helpballhome_strat);
+    let coll = sid(g, helpball_hcoll_istrat);
+    let exp = sid(g, helpball_hrem_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = 1;
+        al.ap = 20;
+        al.vel = 40;
+        al.count = 70;
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
+        al.type_ |= ATLASER;
+        al.type_ &= !ATZREMOVE;
+        al.sflags &= !ASF_INVISIBLE;
+        al.sbyte1 = al.roty;
+        al.sbyte2 = al.rotx;
+    }
+}
+
+/// ROM `helpballhome_strat` (GSTRATS.ASM:2295).
+pub fn helpballhome_strat(g: &mut Game, idx: u16) {
+    let ti = {
+        let ptr = g.objs.aliens[idx as usize].ptr;
+        if ptr == 0 {
+            None
+        } else {
+            let t = ptr as i32 - 1;
+            if t >= 0 && (t as usize) < NUMBER_AL && g.objs.aliens[t as usize].active {
+                Some(t as u16)
+            } else {
+                None
+            }
+        }
+    };
+    let Some(ti) = ti else {
+        helpball_hrem_istrat(g, idx);
+        return;
+    };
+    // s_obj2obj_3dangle into sbyte1/sbyte2 with chase 0 (snap) — Yanglexy+nega.
+    let target = g.objs.aliens[ti as usize];
+    let me = g.objs.aliens[idx as usize];
+    let mut yaw = me.sbyte1;
+    let mut pitch = me.sbyte2;
+    achase_angle(&mut yaw, angle_xz(&me, &target).wrapping_neg(), 0);
+    achase_angle(&mut pitch, strat_pitch_toward(&me, &target), 0);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = yaw;
+        al.sbyte2 = pitch;
+        al.roty = yaw;
+        al.rotx = pitch;
+        crate::common::strat_gen_vecs_3d(al);
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            crate::common::kill_obj(al);
+            return;
+        }
+        al.count = c;
+    }
+}
+
+/// ROM `helpballHcoll_Istrat` (GSTRATS.ASM:2307).
+pub fn helpball_hcoll_istrat(g: &mut Game, idx: u16) {
+    let target_ptr = g.objs.aliens[idx as usize].ptr;
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    // collobjptr is raw index (not +1) in this port.
+    let target_idx = if target_ptr == 0 {
+        None
+    } else {
+        Some(target_ptr.wrapping_sub(1))
+    };
+    if target_idx == Some(partner) {
+        // coll_Istrat → damage self; hp=1 dies into expstrat.
+        weapcollide_istrat(g, idx);
+    } else {
+        g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+        helpballhome_strat(g, idx);
+    }
+}
+
+/// ROM `helpballHrem_Istrat` (GSTRATS.ASM:2320).
+pub fn helpball_hrem_istrat(g: &mut Game, idx: u16) {
+    use sf_game::alien::ASF3_LOCKON;
+    // Clear lockon on target.
+    let ptr = g.objs.aliens[idx as usize].ptr;
+    if ptr != 0 {
+        let ti = ptr.wrapping_sub(1);
+        if (ti as usize) < NUMBER_AL {
+            g.objs.aliens[ti as usize].sflags3 &= !ASF3_LOCKON;
+        }
+    }
+    // Dec mother's active-home count (sbyte1).
+    let mother = g.objs.aliens[idx as usize].sword1 as u16;
+    if (mother as usize) < NUMBER_AL && g.objs.aliens[mother as usize].active {
+        let n = g.objs.aliens[mother as usize].sbyte1;
+        if n > 0 {
+            g.objs.aliens[mother as usize].sbyte1 = n - 1;
+        }
+    }
+    g.objs.aldead = 1;
+}
+
+// ============================================================
+// MISSILE / HMISSILE fire family (GSTRATS.ASM:1448-1865, 2609-2764)
+// ============================================================
+
+const SHAPE_MISSILE: u16 = 403;
+const HMISSILE1_HP: u8 = 2;
+const MISSILE2_HP: u8 = 2;
+const MISSILE2_AP: u8 = 4;
+const MISSILE_FIRE_SPEED: u8 = 30;
+const HMISSILE_FIRE_SPEED: u8 = 60;
+const MISSILE_FIRE_LIFE: u8 = 100;
+const HMISSILE2_STRAIGHT_FRAMES: u8 = 25;
+const HMISSILE_CLOSE_DIST: i32 = 300;
+
+/// Resolve ROM `al_ptr` (index+1); fall back to `fireobjptr` for boss helpers.
+fn missile_home_target(g: &Game, idx: u16) -> Option<u16> {
+    let al = &g.objs.aliens[idx as usize];
+    for ptr in [al.ptr, al.fireobjptr] {
+        if ptr == 0 {
+            continue;
+        }
+        let t = ptr as i32 - 1;
+        if t >= 0 && (t as usize) < NUMBER_AL && g.objs.aliens[t as usize].active {
+            return Some(t as u16);
+        }
+    }
+    None
+}
+
+/// `s_gen_3dvecs` + `s_addgen_3dvecs` with mother speed in `sbyte3`.
+fn missile_gen_with_mother(al: &mut Alien) {
+    let bolt = al.vel;
+    let mother = al.sbyte3;
+    crate::common::strat_gen_vecs_3d(al);
+    let (bx, by, bz) = (al.vx, al.vy, al.vz);
+    al.vel = mother;
+    crate::common::strat_gen_vecs_3d(al);
+    al.vx = al.vx.wrapping_add(bx);
+    al.vy = al.vy.wrapping_add(by);
+    al.vz = al.vz.wrapping_add(bz);
+    al.vel = bolt;
+}
+
+/// Shared gen_weapon-ish setup used by fire_* missile helpers.
+fn place_missile_weapon(g: &mut Game, shot: u16, firer: u16) {
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    place_weapon_at_firer(g, shot, firer, mz);
+    let firer_ptr = g.objs.aliens[firer as usize].ptr;
+    let target = if firer_ptr != 0 {
+        firer_ptr
+    } else {
+        nuke_player_idx(g).unwrap_or(0).wrapping_add(1)
+    };
+    let al = &mut g.objs.aliens[shot as usize];
+    al.rotz = 0;
+    al.ptr = target;
+    al.type_ = ATMISSILE | ATZREMOVE;
+    al.sflags &= !ASF_INVISIBLE;
+    al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4; // enemyweap
+                                                                 // Raw slot index; the reciprocal side was written by
+                                                                 // `place_weapon_at_firer`, matching ROM `s_make_immune`.
+    al.immuneptr = firer;
+}
+
+fn finish_missile_fire(g: &mut Game, firer: u16) {
+    // ROM `jsl missilesound_l` (GSTRATS.ASM:2623+).
+    make_firer_snd(g, firer, PosSndFamilyId::Missile);
+}
+
+/// ROM `hmissile1_Istrat` (GSTRATS.ASM:1448) — init for FakeFar / fire_Hmissile1.
+pub fn hmissile1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, hmissile1_rom_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ZENEMY;
+        missile_gen_with_mother(al);
+    }
+}
+
+/// ROM-faithful `hmissile1_strat` body (GSTRATS.ASM:1459) using `al_ptr`.
+/// Boss helpers keep the older `hmissile1_strat` (fireobjptr / no mother addgen).
+pub fn hmissile1_rom_strat(g: &mut Game, idx: u16) {
+    // Optional FakeFar anim when sflag3 set.
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG3 != 0 {
+        let frame = g.objs.aliens[idx as usize].animframe & 0x7F;
+        if frame != 15 {
+            let mut f = frame.wrapping_add(1);
+            if f >= 16 {
+                f = f.wrapping_sub(16);
+            }
+            g.objs.aliens[idx as usize].animframe = 0x80 | f;
+        }
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(10);
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 == 0 {
+        if let Some(t) = missile_home_target(g, idx) {
+            let me = g.objs.aliens[idx as usize];
+            let tgt = g.objs.aliens[t as usize];
+            let dist = (me.worldx as i32 - tgt.worldx as i32).abs()
+                + (me.worldy as i32 - tgt.worldy as i32).abs()
+                + (me.worldz as i32 - tgt.worldz as i32).abs();
+            if dist < HMISSILE_CLOSE_DIST {
+                g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG2;
+            } else {
+                strat_aim_3d(g, idx, &tgt, 3);
+                missile_gen_with_mother(&mut g.objs.aliens[idx as usize]);
+            }
+        }
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `hmissile2_Istrat` (GSTRATS.ASM:1500) — straight for 25 frames, then quick turn.
+pub fn hmissile2_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, hmissile2_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ZENEMY;
+        al.sbyte1 = HMISSILE2_STRAIGHT_FRAMES;
+        missile_gen_with_mother(al);
+    }
+}
+
+/// ROM `hmissile2_strat` (GSTRATS.ASM:1512).
+pub fn hmissile2_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(10);
+    }
+    // s_decbne_alvar sbyte1 — while >0 after dec, skip home (straight flight).
+    let delay = g.objs.aliens[idx as usize].sbyte1;
+    let after = delay.wrapping_sub(1);
+    if after != 0 {
+        g.objs.aliens[idx as usize].sbyte1 = after;
+    } else {
+        g.objs.aliens[idx as usize].sbyte1 = 1;
+        if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 == 0 {
+            if let Some(t) = missile_home_target(g, idx) {
+                let me = g.objs.aliens[idx as usize];
+                let tgt = g.objs.aliens[t as usize];
+                let dist = (me.worldx as i32 - tgt.worldx as i32).abs()
+                    + (me.worldy as i32 - tgt.worldy as i32).abs()
+                    + (me.worldz as i32 - tgt.worldz as i32).abs();
+                if dist < HMISSILE_CLOSE_DIST {
+                    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG2;
+                } else {
+                    strat_aim_3d(g, idx, &tgt, 1);
+                    missile_gen_with_mother(&mut g.objs.aliens[idx as usize]);
+                }
+            }
+        }
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `missile1_Istrat` (GSTRATS.ASM:1808) — chase stored aim in sbyte1/2.
+pub fn missile1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, missile1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ZENEMY;
+    }
+}
+
+/// ROM `missile1_strat` (GSTRATS.ASM:1816).
+pub fn missile1_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+        al.rotz = al.rotz.wrapping_add(10);
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        let (want_x, want_y) = {
+            let al = &g.objs.aliens[idx as usize];
+            (al.sbyte1, al.sbyte2)
+        };
+        {
+            let mut rotx = g.objs.aliens[idx as usize].rotx;
+            let mut roty = g.objs.aliens[idx as usize].roty;
+            achase_angle(&mut roty, want_y, 2);
+            achase_angle(&mut rotx, want_x, 2);
+            let al = &mut g.objs.aliens[idx as usize];
+            al.rotx = rotx;
+            al.roty = roty;
+        }
+        missile_gen_with_mother(&mut g.objs.aliens[idx as usize]);
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    miss_end(g, idx);
+}
+
+/// ROM `missile2_Istrat` (GSTRATS.ASM:1834).
+pub fn missile2_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, missile2a_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = al.sbyte1;
+        al.roty = al.sbyte2;
+        al.stratptr = Some(tick);
+        al.type_ |= ATZREMOVE; // s_setremove_behind
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ZENEMY;
+    }
+}
+
+/// ROM `missile2a_strat` (GSTRATS.ASM:1846).
+pub fn missile2a_strat(g: &mut Game, idx: u16) {
+    // Speed up toward 100 when within 600 Z of player (unless sflag2).
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 == 0 {
+        if let Some(pl) = player(g) {
+            let me = g.objs.aliens[idx as usize];
+            let dz = (me.worldz as i32 - pl.worldz as i32).abs();
+            if dz <= 600 {
+                let _ = speed_to(&mut g.objs.aliens[idx as usize], 100, 5);
+            }
+        }
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        crate::common::strat_gen_vecs_3d(al);
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    {
+        let mut rotx = g.objs.aliens[idx as usize].rotx;
+        let mut roty = g.objs.aliens[idx as usize].roty;
+        achase_angle(&mut rotx, 0, 2);
+        achase_angle(&mut roty, DEG180, 2);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = rotx;
+        al.roty = roty;
+        al.rotz = al.rotz.wrapping_add(10);
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `fire_FakeFarHmissile1` (GSTRATS.ASM:2609) — hmissile1 + sflag3 anim.
+pub fn fire_fakefar_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, stopexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = HMISSILE1_HP;
+        al.ap = HMISSILE1_AP;
+        al.vel = HMISSILE_FIRE_SPEED;
+        al.count = MISSILE_FIRE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE | ASF2_SFLAG3;
+        al.animframe = 0x80; // s_init_anim #0
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    hmissile1_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+/// ROM `fire_Hmissile2` (GSTRATS.ASM:2653).
+pub fn fire_hmissile2(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, stopexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = HMISSILE1_HP;
+        al.ap = HMISSILE1_AP;
+        al.vel = HMISSILE_FIRE_SPEED;
+        al.count = MISSILE_FIRE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    hmissile2_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+/// ROM `fire_bossHmissile1` (GSTRATS.ASM:2667) — fire_Hmissile1 + explodegate2.
+pub fn fire_boss_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = fire_hmissile1(g, firer)?;
+    let exp = sid(g, explodegate2_istrat);
+    g.objs.aliens[shot as usize].expstratptr = Some(exp);
+    Some(shot)
+}
+
+/// ROM `fire_Hmissile1` (GSTRATS.ASM:2627) — relative homing + smoke puff.
+pub fn fire_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, stopexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = HMISSILE1_HP;
+        al.ap = HMISSILE1_AP;
+        al.vel = HMISSILE_FIRE_SPEED;
+        al.count = MISSILE_FIRE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    hmissile1_istrat(g, shot);
+    // Smoke puff at missile position (ROM make_obj #smoke → puff_Istrat).
+    if let Some(puff) = make_obj(g, 358) {
+        let (px, py, pz) = {
+            let m = &g.objs.aliens[shot as usize];
+            (m.worldx, m.worldy, m.worldz)
+        };
+        {
+            let al = &mut g.objs.aliens[puff as usize];
+            al.worldx = px;
+            al.worldy = py;
+            al.worldz = pz;
+            al.sflags3 &= !ASF3_REALOBJ;
+        }
+        crate::common::puff_istrat(g, puff);
+    }
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+/// ROM `fire_missile2` (GSTRATS.ASM:2740).
+pub fn fire_missile2(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, stopexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = MISSILE2_HP;
+        al.ap = MISSILE2_AP;
+        al.vel = MISSILE_FIRE_SPEED;
+        al.count = MISSILE_FIRE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    missile2_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+/// ROM `fire_missile1` (GSTRATS.ASM:2754) — no relexplode.
+pub fn fire_missile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, stopexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = MISSILE2_HP;
+        al.ap = MISSILE2_AP;
+        al.vel = MISSILE_FIRE_SPEED;
+        al.count = MISSILE_FIRE_LIFE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    missile1_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+// ============================================================
+// Specialty hmissiles: kami / chick / STB / QH (GSTRATS.ASM:1544-1715, 2682-2735)
+// ============================================================
+
+const KAMI_HMISSILE_HP: u8 = 2;
+const KAMI_HMISSILE_AP: u8 = 8;
+const KAMI_HMISSILE_SPEED: u8 = 40;
+const CHICK_HMISSILE_AP: u8 = 40; // hmissile1AP*5
+const CHICK_HMISSILE_SPEED: u8 = 30;
+const CHICK_HMISSILE_LIFE: u8 = 30;
+const QH_MISSILE_AP: u8 = 50;
+const STB_AIM_DELAY: u8 = 20;
+const STB_CLOSE_DIST: i16 = 600;
+const CHICK_NEAR_DIST: i16 = 400;
+
+/// `s_jmp_notdelay N` — true when `(gameframe & ((1<<N)-1)) == 0` (gate open).
+fn missile_notdelay(g: &Game, bits: u32) -> bool {
+    g.vars.gameframe & ((1u16 << bits) - 1) == 0
+}
+
+/// D-pad held on cont0 (VARS.INC key_j* in low byte of pad1).
+fn any_joy_dir_down(g: &Game) -> bool {
+    use sf_core::pad;
+    g.vars.pad1 & (pad::LEFT | pad::RIGHT | pad::UP | pad::DOWN) != 0
+}
+
+/// ROM `hmissile3_Istrat` (GSTRATS.ASM:1544) — kamikaze zaco_9 that shoots lasers.
+pub fn hmissile3_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, hmissile3_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ZENEMY;
+        missile_gen_with_mother(al);
+    }
+}
+
+/// ROM `hmissile3_strat` (GSTRATS.ASM:1554).
+pub fn hmissile3_strat(g: &mut Game, idx: u16) {
+    let target = missile_home_target(g, idx);
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 == 0 {
+        if let Some(t) = target {
+            let me = g.objs.aliens[idx as usize];
+            let tgt = g.objs.aliens[t as usize];
+            let dz = (me.worldz as i32 - tgt.worldz as i32).abs();
+            // Twin RELSLOWELASER when |dz| in [1000,2000) on notdelay-3.
+            if (1000..2000).contains(&dz) && missile_notdelay(g, 3) {
+                strat_fire_relslowlaser(g, idx, 0, DEG5);
+                strat_fire_relslowlaser(g, idx, 0, 0u8.wrapping_sub(DEG5));
+            }
+            if dz < 500 {
+                g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG2;
+            } else if (500..2000).contains(&dz) {
+                strat_aim_3d(g, idx, &tgt, 0);
+                missile_gen_with_mother(&mut g.objs.aliens[idx as usize]);
+            }
+        }
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `chickhmissile1_Istrat` (GSTRATS.ASM:1595).
+pub fn chickhmissile1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, chickhmissile1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ZENEMY;
+        al.rotz = DEG180;
+    }
+}
+
+/// ROM `chickhmissile1_strat` (GSTRATS.ASM:1603) — homes on player, not al_ptr.
+pub fn chickhmissile1_strat(g: &mut Game, idx: u16) {
+    let Some(pl) = player(g) else {
+        miss_end(g, idx);
+        return;
+    };
+    // Chase world x/y toward player_pos (rate 3).
+    {
+        let px = g.vars.player_posx;
+        let py = g.vars.player_posy;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, px, 3);
+        al.worldy = chase_proportional(al.worldy, py, 3);
+    }
+    let near = g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 != 0;
+    let dist = crate::common::strat_dist_xz(&g.objs.aliens[idx as usize], &pl);
+    if near || (dist < CHICK_NEAR_DIST && !any_joy_dir_down(g)) {
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG2;
+        g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            let c = al.count.wrapping_sub(1);
+            if c == 0 {
+                g.objs.aldead = 1;
+                return;
+            }
+            al.count = c;
+        }
+        // Pitch toward/away from viewcy based on player height.
+        let viewcy = g.vars.sv_i16(crate::common::sv::VIEWCY);
+        if pl.worldy >= viewcy {
+            // player lower (or equal) → pitch down (+2)
+            g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_add(2);
+        } else {
+            g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_sub(2);
+        }
+    } else {
+        strat_aim_3d(g, idx, &pl, 0);
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        crate::common::strat_gen_vecs_3d(al);
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    miss_end(g, idx);
+}
+
+/// ROM `STBhmissile1_Istrat` (GSTRATS.ASM:1645).
+pub fn stbhmissile1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, stbhmissile1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ZENEMY;
+        al.vel = 10;
+        al.sbyte3 = STB_AIM_DELAY;
+    }
+}
+
+/// ROM `STBhmissile1_strat` (GSTRATS.ASM:1657) — vector angles in sbyte1/2.
+pub fn stbhmissile1_strat(g: &mut Game, idx: u16) {
+    {
+        let _ = speed_to(&mut g.objs.aliens[idx as usize], 60, 2);
+    }
+    if g.objs.aliens[idx as usize].vel == 60 {
+        // ROM: only spins once vel hits 60 (`.nzr` falls through when equal).
+        // Actually ASM: jmp_alvarNE vel,#60,.nzr then .nzr always adds rotz —
+        // so rotz always increments. Keep always-spin.
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(10);
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 == 0 {
+        if let Some(t) = missile_home_target(g, idx) {
+            let dist = crate::common::strat_dist_xz(
+                &g.objs.aliens[idx as usize],
+                &g.objs.aliens[t as usize],
+            );
+            if dist < STB_CLOSE_DIST {
+                g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG2;
+            } else {
+                let delay = g.objs.aliens[idx as usize].sbyte3;
+                let after = delay.wrapping_sub(1);
+                if after != 0 {
+                    g.objs.aliens[idx as usize].sbyte3 = after;
+                } else {
+                    g.objs.aliens[idx as usize].sbyte3 = 1;
+                    let tgt = g.objs.aliens[t as usize];
+                    strat_aim_3d(g, idx, &tgt, 4);
+                }
+                // Chase sbyte1/2 toward live roty/rotx (rate 3).
+                let (want_y, want_x) = {
+                    let al = &g.objs.aliens[idx as usize];
+                    (al.roty, al.rotx)
+                };
+                {
+                    let mut sb1 = g.objs.aliens[idx as usize].sbyte1;
+                    let mut sb2 = g.objs.aliens[idx as usize].sbyte2;
+                    achase_angle(&mut sb1, want_y, 3);
+                    achase_angle(&mut sb2, want_x, 3);
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sbyte1 = sb1;
+                    al.sbyte2 = sb2;
+                    // gen_3dvecs from sbyte1/sbyte2 (vector angles).
+                    let save_rx = al.rotx;
+                    let save_ry = al.roty;
+                    al.roty = al.sbyte1;
+                    al.rotx = al.sbyte2;
+                    crate::common::strat_gen_vecs_3d(al);
+                    al.rotx = save_rx;
+                    al.roty = save_ry;
+                }
+            }
+        }
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `Qhmissile1_Istrat` (GSTRATS.ASM:1697).
+pub fn qhmissile1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, qhmissile1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.snd2 = 2;
+        al.sflags |= ASF_SHADOW;
+    }
+}
+
+/// ROM `Qhmissile1_strat` (GSTRATS.ASM:1703) — snap-aim every frame.
+pub fn qhmissile1_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(10);
+    }
+    if let Some(t) = missile_home_target(g, idx) {
+        let tgt = g.objs.aliens[t as usize];
+        strat_aim_3d(g, idx, &tgt, 0);
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        crate::common::strat_gen_vecs_3d(al);
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    miss_end(g, idx);
+}
+
+/// ROM `fire_kamiHmissile1` (GSTRATS.ASM:2682).
+pub fn fire_kami_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 269)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = KAMI_HMISSILE_HP;
+        al.ap = KAMI_HMISSILE_AP;
+        al.vel = KAMI_HMISSILE_SPEED;
+        al.count = MISSILE_FIRE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    hmissile3_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+/// ROM `fire_chickHmissile1` (GSTRATS.ASM:2696).
+pub fn fire_chick_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 417)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = HARD_HP;
+        al.ap = CHICK_HMISSILE_AP;
+        al.vel = CHICK_HMISSILE_SPEED;
+        al.count = CHICK_HMISSILE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    chickhmissile1_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+/// ROM `fire_STBHmissile1` (GSTRATS.ASM:2710).
+pub fn fire_stb_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, stopexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = HMISSILE1_HP;
+        al.ap = HMISSILE1_AP;
+        // speed set in istrat (#10); life 100
+        al.count = MISSILE_FIRE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collflags |= COLLTYPE_ENEMY2; // enemy2
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    stbhmissile1_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+/// ROM `fire_QHmissile1` (GSTRATS.ASM:2724).
+pub fn fire_qh_missile1(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, stopexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = 1;
+        al.ap = QH_MISSILE_AP;
+        al.vel = HMISSILE_FIRE_SPEED;
+        al.count = MISSILE_FIRE_LIFE;
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    qhmissile1_istrat(g, shot);
+    finish_missile_fire(g, firer);
+    Some(shot)
+}
+
+// ============================================================
+// SPREAD missile + DefElaserCol (GSTRATS.ASM:814-839, 2190-2228, 2769)
+// ============================================================
+
+const SPREAD_SPEED: u8 = 40;
+const SPREAD_LIFE: u8 = 50;
+const SPREAD_ARM_FRAMES: u8 = 10;
+
+/// Resume the object's main strat after a collide handler (`s_jmpto_strat`).
+fn jmpto_strat(g: &mut Game, idx: u16) {
+    if let Some(s) = g.objs.aliens[idx as usize].stratptr {
+        g.call_strat(s, idx);
+    }
+}
+
+/// ROM `DefElaserCol_Istrat` (GSTRATS.ASM:814) — deflect player laser as RebElaser.
+pub fn defelasercol_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    let partner_ok =
+        partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active;
+    if partner_ok && g.objs.aliens[partner as usize].shape == SHAPE_ELASER2 {
+        // Fire the rebound from the laser, with yaw+90 and random pitch.
+        let saved = {
+            let laser = &g.objs.aliens[partner as usize];
+            (laser.roty, laser.rotx, laser.vel, laser.immuneptr)
+        };
+        {
+            let laser = &mut g.objs.aliens[partner as usize];
+            laser.vel = 0;
+            laser.roty = laser.roty.wrapping_add(DEG90);
+            laser.rotx = (sf_random(&mut g.vars) & 0xff) as u8;
+        }
+        let _ = fire_reb_elaser(g, partner);
+        {
+            let laser = &mut g.objs.aliens[partner as usize];
+            laser.roty = saved.0;
+            laser.rotx = saved.1;
+            laser.vel = saved.2;
+            laser.immuneptr = saved.3;
+        }
+    }
+    jmpto_strat(g, idx);
+}
+
+/// ROM `spread_Istrat` (GSTRATS.ASM:2190).
+pub fn spread_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, spread_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sbyte3 = SPREAD_ARM_FRAMES;
+        al.collflags |= ACF_COLLTYPE5 | ACF_COLLTYPE4; // friend + enemyweap
+        crate::common::strat_gen_vecs_3d(al);
+    }
+}
+
+/// ROM `spread_strat` (GSTRATS.ASM:2198) — coast then `spreada_init`.
+pub fn spread_strat(g: &mut Game, idx: u16) {
+    // s_beqdec_alvar: branch if already 0, else decrement.
+    if g.objs.aliens[idx as usize].sbyte3 == 0 {
+        spreada_init(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte3 = g.objs.aliens[idx as usize].sbyte3.wrapping_sub(1);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(8);
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        al.count = c;
+    }
+    add_player_z(g, idx);
+    miss_end(g, idx);
+}
+
+/// ROM `spreadA_init` (GSTRATS.ASM:2209) — spawn QHMISSILE1 at every valid target, then explode.
+pub fn spreada_init(g: &mut Game, idx: u16) {
+    let actives = g.objs.active_indices();
+    for &yi in &actives {
+        if yi == idx {
+            continue;
+        }
+        let yal = g.objs.aliens[yi as usize];
+        if yal.collflags & ACF_WEAPON != 0 {
+            continue;
+        }
+        if yal.sflags & ASF_COLLDISABLE != 0 {
+            continue;
+        }
+        if yal.hp == HARD_HP {
+            continue;
+        }
+        if let Some(shot) = fire_qh_missile1(g, idx) {
+            g.objs.aliens[shot as usize].ptr = yi.wrapping_add(1);
+        }
+    }
+    strat_explode(g, idx);
+}
+
+/// ROM `fire_spread` (GSTRATS.ASM:2769).
+pub fn fire_spread(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_MISSILE)?;
+    place_missile_weapon(g, shot, firer);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.hp = MISSILE2_HP;
+        al.ap = MISSILE2_AP;
+        al.vel = SPREAD_SPEED;
+        al.count = SPREAD_LIFE;
+        // fire_spread does not set relexplode
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    spread_istrat(g, shot);
+    Some(shot)
+}
+
+// ============================================================
+// BONFIRE + IRONBALL4 / IRONBALLMISSILE (D3STRATS.ASM:933-1035, DSTRATS:8184)
+// ============================================================
+
+const IRONBALL_AP: u8 = 6;
+const BALL_MISSILE_HP: u8 = 6;
+const BALL_MISSILE_AP: u8 = 16;
+const SHAPE_FIREBALL: u16 = 402;
+const SHAPE_IRONBALL: u16 = 404;
+const BONFIRE_SPEED: u8 = 120;
+const BONFIRE_TRAIL_LIFE: u8 = 10;
+const IRONBALL_BASE_VEL: u8 = 103 - 7; // + (rnd&7)
+
+/// `s_falldown_Yvec x,2,#1,#0` — gravity + ground bounce (bossh twin).
+fn ironball_falldown_yvec(al: &mut Alien) {
+    const IRONBALL_BOUNCE_GRAVITY: i16 = 1;
+    fall_down_y_vector(al, DEFAULT_BOUNCE_SHIFT, IRONBALL_BOUNCE_GRAVITY, GROUND_Y);
+}
+
+/// Chase `current` toward `target` by at most `step` (ROM `s_fchase_alvar2alvar`).
+fn fchase_i16(current: &mut i16, target: i16, step: i16) {
+    let d = target.wrapping_sub(*current);
+    if d > step {
+        *current = current.wrapping_add(step);
+    } else if d < -step {
+        *current = current.wrapping_sub(step);
+    } else {
+        *current = target;
+    }
+}
+
+/// ROM `fire_bonfire` (D3STRATS.ASM:933).
+pub fn fire_bonfire(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_FIREBALL)?;
+    {
+        let src = g.objs.aliens[firer as usize];
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = src.worldx;
+        al.worldy = 0; // s_set_alvar W,y,al_worldy,#0
+        al.worldz = src.worldz;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.shape = SHAPE_FIREBALL;
+    }
+    // Aim at the player from the newly spawned ball.
+    if let Some(pl) = player(g) {
+        let me = g.objs.aliens[shot as usize];
+        let yaw = angle_xz(&me, &pl).wrapping_neg();
+        let pitch = strat_pitch_toward(&me, &pl);
+        let al = &mut g.objs.aliens[shot as usize];
+        al.roty = yaw;
+        al.rotx = pitch;
+    }
+    bonfire_istrat(g, shot);
+    g.hooks.play_se(0x99);
+    Some(shot)
+}
+
+/// ROM `bonfire_istrat` (D3STRATS.ASM:948) — hardHP fireball + trail sparks.
+pub fn bonfire_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, bonfire_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.sflags |= ASF_NOHITAFFECT;
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.vel = BONFIRE_SPEED;
+        crate::common::strat_gen_vecs_3d(al);
+    }
+}
+
+/// ROM bonfire `.strat` (D3STRATS.ASM:957) — spawn trail, move, scroll.
+pub fn bonfire_strat(g: &mut Game, idx: u16) {
+    if let Some(trail) = make_obj(g, SHAPE_FIREBALL) {
+        let (px, py, pz) = {
+            let m = &g.objs.aliens[idx as usize];
+            (m.worldx, m.worldy, m.worldz)
+        };
+        {
+            let al = &mut g.objs.aliens[trail as usize];
+            al.worldx = px;
+            al.worldy = py;
+            al.worldz = pz;
+            al.sflags |= ASF_COLLDISABLE;
+            al.sbyte1 = 0;
+        }
+        bonfire_trail_istrat(g, trail);
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+}
+
+/// ROM bonfire `.dummdumm_strat` init (D3STRATS.ASM:967).
+fn bonfire_trail_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, bonfire_trail_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.sflags |= ASF_COLLDISABLE;
+    }
+}
+
+/// ROM bonfire trail tick — live 10 frames then remove.
+pub fn bonfire_trail_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sbyte1 >= BONFIRE_TRAIL_LIFE {
+        g.objs.aldead = 1;
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
+    add_player_z(g, idx);
+}
+
+/// ROM `fire_ironball4` (D3STRATS.ASM:981) — aim at player + random cone, sflag1.
+pub fn fire_ironball4(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_IRONBALL)?;
+    {
+        let src = g.objs.aliens[firer as usize];
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = src.worldx;
+        al.worldy = src.worldy;
+        al.worldz = src.worldz;
+        al.rotx = src.rotx;
+        al.roty = src.roty;
+        al.rotz = src.rotz;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.shape = SHAPE_IRONBALL;
+    }
+    if let Some(pl) = player(g) {
+        let me = g.objs.aliens[shot as usize];
+        // ROM `s_obj2obj_3dangle` (chase 0) — Yanglexy+nega into ball rots.
+        let yaw = angle_xz(&me, &pl).wrapping_neg();
+        let pitch = strat_pitch_toward(&me, &pl);
+        let al = &mut g.objs.aliens[shot as usize];
+        al.roty = yaw;
+        al.rotx = pitch;
+    }
+    // Random cone: rotx += (rnd&(deg22-1)) - deg11; roty += (rnd&(deg90-1)) - deg45.
+    let rx = (sf_random(&mut g.vars) as u8) & (DEG22.wrapping_sub(1));
+    let ry = (sf_random(&mut g.vars) as u8) & (DEG90.wrapping_sub(1));
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.rotx = al.rotx.wrapping_add(rx).wrapping_sub(DEG11);
+        al.roty = al.roty.wrapping_add(ry).wrapping_sub(DEG45);
+        al.sflags2 |= ASF2_SFLAG1; // sflag1 → faster
+    }
+    ironball_istrat(g, shot);
+    g.hooks.play_se(0x49);
+    Some(shot)
+}
+
+/// ROM `ironball_istrat` (DSTRATS.ASM:8184).
+pub fn ironball_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, ironball_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let rnd = (sf_random(&mut g.vars) as u8) & 7;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = HARD_HP;
+        al.ap = IRONBALL_AP;
+        al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
+        al.vel = IRONBALL_BASE_VEL.wrapping_add(rnd);
+        if al.sflags2 & ASF2_SFLAG1 != 0 {
+            al.vel = al.vel.wrapping_add(20);
+        }
+        crate::common::strat_gen_vecs_3d(al);
+    }
+}
+
+/// ROM ironball `.strat` (DSTRATS.ASM:8198) — fall / home / scroll.
+pub fn ironball_strat(g: &mut Game, idx: u16) {
+    const POWER_BUILD_THRESHOLD: u8 = 128;
+    const POWER_BUILD_RISE: i16 = 100;
+    const POWER_BUILD_MINIMUM_Y: i16 = -2000;
+    const POWER_BUILD_DEPTH_THRESHOLD: i16 = 1000;
+    const POWER_BUILD_DEPTH_STEP: i16 = 50;
+    const POWER_BUILD_JITTER_MASK: u8 = 7;
+    const POWER_BUILD_JITTER_CENTER: u8 = 4;
+    const NORMAL_X_CHASE_STEP: i16 = 1;
+    const STRONG_X_CHASE_PASSES: usize = 6;
+    const STRONG_DEPTH_STEP: i16 = 60;
+
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG2 != 0 {
+        if let Some(pl) = player(g) {
+            let depth_difference = g.objs.aliens[idx as usize].worldz.wrapping_sub(pl.worldz);
+            if depth_difference >= POWER_BUILD_DEPTH_THRESHOLD {
+                g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                    .worldz
+                    .wrapping_sub(POWER_BUILD_DEPTH_STEP);
+            }
+            if g.objs.aliens[idx as usize].worldy < POWER_BUILD_MINIMUM_Y {
+                g.objs.aliens[idx as usize].worldy = POWER_BUILD_MINIMUM_Y;
+            }
+
+            if g.vars.shared.power_build < POWER_BUILD_THRESHOLD {
+                g.objs.aliens[idx as usize].worldy = g.objs.aliens[idx as usize]
+                    .worldy
+                    .wrapping_sub(POWER_BUILD_RISE);
+                add_player_z(g, idx);
+                return;
+            }
+
+            g.vars.shared.power_build = g.vars.shared.power_build.wrapping_sub(1);
+            if g.vars.shared.power_build == POWER_BUILD_THRESHOLD {
+                g.vars.shared.power_build = 0;
+            }
+
+            strat_aim_3d(g, idx, &pl, 0);
+            let jitter = ((sf_random(&mut g.vars) as u8) & POWER_BUILD_JITTER_MASK)
+                .wrapping_sub(POWER_BUILD_JITTER_CENTER);
+            let view_pitch = (g.vars.strategy.view_pitch >> 8) as u8;
+            let view_yaw = (g.vars.strategy.view_yaw >> 8) as u8;
+            let player_turn = (g.vars.strategy.player_turn_rotation >> 8) as u8;
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.roty = al.roty.wrapping_add(jitter);
+                al.rotx = al.rotx.wrapping_add(jitter);
+                crate::common::strat_gen_vecs_3d(al);
+                al.roty = view_yaw
+                    .wrapping_neg()
+                    .wrapping_add(DEG180)
+                    .wrapping_add(player_turn);
+                al.rotx = view_pitch;
+                al.vx = al.vx.wrapping_add(al.vx);
+                al.vy = al.vy.wrapping_add(al.vy);
+                al.vz = al.vz.wrapping_add(al.vz);
+                al.sflags2 &= !ASF2_SFLAG2;
+                al.sflags2 |= ASF2_SFLAG1;
+            }
+        } else {
+            g.objs.aliens[idx as usize].worldy = g.objs.aliens[idx as usize]
+                .worldy
+                .wrapping_sub(POWER_BUILD_RISE);
+        }
+    } else if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        ironball_falldown_yvec(&mut g.objs.aliens[idx as usize]);
+        apply_velocity(&mut g.objs.aliens[idx as usize]);
+    } else {
+        fall_down_y_vector(
+            &mut g.objs.aliens[idx as usize],
+            DEFAULT_BOUNCE_SHIFT,
+            DEFAULT_FALL_GRAVITY,
+            GROUND_Y,
+        );
+        apply_velocity(&mut g.objs.aliens[idx as usize]);
+    }
+
+    if let Some(pl) = player(g) {
+        let px = pl.worldx;
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            fchase_i16(&mut al.worldx, px, NORMAL_X_CHASE_STEP);
+            if al.sflags2 & ASF2_SFLAG3 != 0 {
+                for _ in 1..STRONG_X_CHASE_PASSES {
+                    fchase_i16(&mut al.worldx, px, NORMAL_X_CHASE_STEP);
+                }
+                al.worldz = al.worldz.wrapping_sub(STRONG_DEPTH_STEP);
+            }
+        }
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `ironballmissile_istrat` (D3STRATS.ASM:1010) — wait then spray 9 ironballs.
+pub fn ironballmissile_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, ironballmissile_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = BALL_MISSILE_HP;
+        al.ap = BALL_MISSILE_AP;
+        al.sbyte1 = 0; // phase: 0 = approach, 1 = spray
+    }
+}
+
+/// Approach until |dz|<1000, then fire 9× ironball4 and die.
+pub fn ironballmissile_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        if let Some(pl) = player(g) {
+            let dz = (g.objs.aliens[idx as usize].worldz as i32 - pl.worldz as i32).abs();
+            if dz < 1000 {
+                g.objs.aliens[idx as usize].sbyte1 = 1;
+            } else {
+                return;
+            }
+        } else {
+            return;
+        }
+    }
+    for _ in 0..9 {
+        let _ = fire_ironball4(g, idx);
+    }
+    crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
+    g.objs.aldead = 1; // s_kill_obj → remove this frame
+}
+
+/// Shared spawn shell for fling `fire_ironball*` (DSTRATS.ASM:8089+):
+/// copy pos/rots, ENEMY1, shape ironball — muzzle applied by caller.
+fn spawn_ironball_shell(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, SHAPE_IRONBALL)?;
+    {
+        let src = g.objs.aliens[firer as usize];
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = src.worldx;
+        al.worldy = src.worldy;
+        al.worldz = src.worldz;
+        al.rotx = src.rotx;
+        al.roty = src.roty;
+        al.rotz = src.rotz;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.shape = SHAPE_IRONBALL;
+    }
+    Some(shot)
+}
+
+/// `fling.positional` with (x1,y1,z1)=(0,0,120) and scale 2,2,2 → world <<2.
+/// Temporarily pitches the firer by `pitch_delta` around the muzzle place
+/// (ROM does `al_rotx += -deg90` then restores).
+fn ironball_fling_muzzle(g: &mut Game, shot: u16, firer: u16, pitch_delta: u8) {
+    if pitch_delta != 0 {
+        g.objs.aliens[firer as usize].rotx =
+            g.objs.aliens[firer as usize].rotx.wrapping_add(pitch_delta);
+    }
+    let me = g.objs.aliens[firer as usize];
+    // s_add_Roffs2pos B,y,x,x,#0,#0,#120,1,1,1,2,2,2
+    let (rx, ry, rz) =
+        crate::snes_trig::strat_roffs_full_scaled(me.rotz, me.rotx, me.roty, 0, 0, 120, 2);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = me.worldx.wrapping_add(rx);
+        al.worldy = me.worldy.wrapping_add(ry);
+        al.worldz = me.worldz.wrapping_add(rz);
+    }
+    if pitch_delta != 0 {
+        g.objs.aliens[firer as usize].rotx =
+            g.objs.aliens[firer as usize].rotx.wrapping_sub(pitch_delta);
+    }
+}
+
+/// ROM `fire_ironball` (DSTRATS.ASM:8089) — muzzle + sflag3 (strong X chase).
+pub fn fire_ironball(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = spawn_ironball_shell(g, firer)?;
+    ironball_fling_muzzle(g, shot, firer, 0u8.wrapping_sub(DEG90));
+    // sintab[gameframe] >> 4 added to firer pitch (boss anim side-effect).
+    {
+        use crate::snes_trig::SINTAB;
+        let s = SINTAB[(g.vars.gameframe & 0xff) as usize] as i8;
+        let delta = (s >> 4) as u8;
+        g.objs.aliens[firer as usize].rotx = g.objs.aliens[firer as usize].rotx.wrapping_add(delta);
+    }
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_SFLAG3;
+    ironball_istrat(g, shot);
+    g.hooks.play_se(0x49);
+    Some(shot)
+}
+
+/// ROM `fire_ironball2` (DSTRATS.ASM:8115) — aim at player, sflag2 + powerbuild++.
+pub fn fire_ironball2(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = spawn_ironball_shell(g, firer)?;
+    ironball_fling_muzzle(g, shot, firer, 0u8.wrapping_sub(DEG90));
+    if let Some(pl) = player(g) {
+        let me = g.objs.aliens[shot as usize];
+        // ROM `dobj2obj3dangle_xy` — Yanglexy+nega.
+        let yaw = angle_xz(&me, &pl).wrapping_neg();
+        let pitch = strat_pitch_toward(&me, &pl);
+        let al = &mut g.objs.aliens[shot as usize];
+        al.roty = yaw;
+        al.rotx = pitch;
+    }
+    let jitter = ((sf_random(&mut g.vars) as u8) & 3).wrapping_sub(2);
+    g.objs.aliens[shot as usize].roty = g.objs.aliens[shot as usize].roty.wrapping_add(jitter);
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_SFLAG2;
+    let pb = g.vars.shared.power_build.wrapping_add(1);
+    g.vars.shared.power_build = pb;
+    ironball_istrat(g, shot);
+    g.hooks.play_se(0x49);
+    Some(shot)
+}
+
+/// ROM `fire_ironball3` (DSTRATS.ASM:8150) — aim + pitch cone, sflag1 (faster).
+pub fn fire_ironball3(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = spawn_ironball_shell(g, firer)?;
+    ironball_fling_muzzle(g, shot, firer, 0); // no pitch tilt
+    if let Some(pl) = player(g) {
+        let me = g.objs.aliens[shot as usize];
+        // ROM `dobj2obj3dangle_xy` — Yanglexy+nega.
+        let yaw = angle_xz(&me, &pl).wrapping_neg();
+        let pitch = strat_pitch_toward(&me, &pl);
+        let al = &mut g.objs.aliens[shot as usize];
+        al.roty = yaw;
+        al.rotx = pitch;
+    }
+    let rx = (sf_random(&mut g.vars) as u8) & (DEG22.wrapping_sub(1));
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.rotx = al.rotx.wrapping_add(rx).wrapping_sub(DEG11);
+        al.sflags2 |= ASF2_SFLAG1;
+    }
+    ironball_istrat(g, shot);
+    g.hooks.play_se(0x49);
+    Some(shot)
+}
+
+// ============================================================
+// NUKE / NOVA BOMB (GSTRATS.ASM:2067-2183, fire_nuke:2333)
+// ============================================================
+
+/// STRATEQU.INC nuke damage / radius ring.
+pub const NUKE_AP: u8 = 8;
+pub const NUKE_RATE: i16 = 200;
+pub const NUKE_MAX_RADIUS: i16 = 7000;
+
+/// HD stand-in for ROM `smartbomb_circle` (circletab offset); non-zero so
+/// the circle-wipe path can detect a smartbomb pulse.
+const SMARTBOMB_CIRCLE: i16 = 2;
+
+/// MB_* from GILESALC.INC (missile / weapon screen bounds).
+const MB_LEFT: u8 = 1;
+const MB_RIGHT: u8 = 2;
+const MB_TOP: u8 = 4;
+const MB_BOTTOM: u8 = 8;
+const MB_LBOTTOM: u8 = 16;
+const MB_LTOP: u8 = 32;
+const MB_RTOP: u8 = 64;
+
+/// `al_flags` front-of-player bit (VARS.INC `affrontpl`).
+const AF_FRONT_PL: u8 = 8;
+
+#[inline]
+fn nuke_player_idx(g: &Game) -> Option<u16> {
+    if g.objs.aliens[0].active {
+        Some(0)
+    } else {
+        None
+    }
+}
+
+/// ROM `missboundchkexp` (GSTRATS.ASM:1327) — kill weapon if outside miss bounds.
+pub fn missbound_chk_exp(g: &mut Game, idx: u16) {
+    use crate::common::{sv, StratRam};
+    let flags = g.vars.sv_u8(sv::MISSBOUNDFLAGS);
+    let wx = g.objs.aliens[idx as usize].worldx;
+    let wy = g.objs.aliens[idx as usize].worldy;
+    let max_mx = g.vars.sv_i16(sv::MAXMMOVEX);
+    let min_mx = g.vars.sv_i16(sv::MINMMOVEX);
+    let max_my = g.vars.sv_i16(sv::MAXMMOVEY);
+    let min_py = g.vars.minpmove_y;
+
+    let mut kill = false;
+    if flags & MB_RIGHT != 0 && wx > max_mx {
+        kill = true;
+    }
+    if !kill && flags & MB_LEFT != 0 && wx < min_mx {
+        kill = true;
+    }
+    if !kill && flags & (MB_TOP | MB_RTOP | MB_LTOP) != 0 && wy < min_py {
+        // Top edge: optional left/right player-x gates (colony/bridge).
+        let pl = nuke_player_idx(g);
+        if flags & MB_RTOP != 0 {
+            if let Some(p) = pl {
+                let miss_tr = g.vars.sv_i16(sv::MISSBTOPRIGHT);
+                if g.objs.aliens[p as usize].worldx <= miss_tr {
+                    kill = true;
+                }
+            } else {
+                kill = true;
+            }
+        } else if flags & MB_LTOP != 0 {
+            if let Some(p) = pl {
+                let miss_tl = g.vars.sv_i16(sv::MISSBTOPLEFT);
+                if g.objs.aliens[p as usize].worldx <= miss_tl {
+                    kill = true;
+                }
+            } else {
+                kill = true;
+            }
+        } else {
+            kill = true;
+        }
+    }
+    if !kill && flags & (MB_BOTTOM | MB_LBOTTOM) != 0 && wy > max_my {
+        if flags & MB_LBOTTOM != 0 {
+            if let Some(p) = nuke_player_idx(g) {
+                let miss_bl = g.vars.sv_i16(sv::MISSBBOTLEFT);
+                if g.objs.aliens[p as usize].worldx <= miss_bl {
+                    kill = true;
+                }
+            } else {
+                kill = true;
+            }
+        } else {
+            kill = true;
+        }
+    }
+    if kill {
+        crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
+    }
+}
+
+/// ROM `nuke_Istrat` (GSTRATS.ASM:2067) — relative to player speed.
+pub fn nuke_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, nuke_strat);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, nukeexp_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        // s_gen_3dvecs scale 1 (<<1) at al_vel, then addgen at mother sbyte3.
+        let nuke_spd = al.vel;
+        let mother_spd = al.sbyte3;
+        crate::common::strat_gen_vecs_3d_scaled(al, 1);
+        let (bx, by, bz) = (al.vx, al.vy, al.vz);
+        al.vel = mother_spd;
+        crate::common::strat_gen_vecs_3d(al);
+        al.vx = al.vx.wrapping_add(bx);
+        al.vy = al.vy.wrapping_add(by);
+        al.vz = al.vz.wrapping_add(bz);
+        al.vel = nuke_spd;
+        al.rotx = 0;
+        al.roty = DEG180;
+        al.snd2 = 6;
+    }
+}
+
+/// ROM `nuke_strat` (GSTRATS.ASM:2077).
+pub fn nuke_strat(g: &mut Game, idx: u16) {
+    use sf_core::pad;
+    use sf_game::vars::PSF_NOFIRE;
+
+    // s_remove_ifplayerdead
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        g.objs.aldead = 1;
+        return;
+    }
+    if g.vars.pshipflags & PSF_NOFIRE != 0 {
+        removenuke_istrat(g, idx);
+        return;
+    }
+
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    // s_dec_lifecnt x,1 → kill when count hits 0
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let c = al.count.wrapping_sub(1);
+        if c == 0 {
+            crate::common::kill_obj(al);
+            return;
+        }
+        al.count = c;
+    }
+
+    const PFM_DIEFALL: u8 = 1;
+    if g.vars.playerflymode & PFM_DIEFALL != 0 {
+        g.objs.aliens[idx as usize].vy = g.objs.aliens[idx as usize].vy.wrapping_add(2);
+    }
+
+    // A newly pressed → detonate (s_jmp_keyup / s_jmp_lastkeydown).
+    let pad_prev = ((g.vars.lastcont0 as u16) << 8) | g.vars.lastcontl0 as u16;
+    let pad_new = g.vars.pad1 & !pad_prev;
+    if pad_new & pad::A != 0 {
+        crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
+        return;
+    }
+
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        missbound_chk_exp(g, idx);
+    }
+}
+
+/// ROM `removenuke_Istrat` (GSTRATS.ASM:2107) — refund bomb, clear delay, remove.
+pub fn removenuke_istrat(g: &mut Game, idx: u16) {
+    use crate::common::{sv, StratRam};
+    // IFEQ INFBOMBS → refund
+    let n = g.vars.sv_u16(sv::SPECWEPCNT);
+    g.vars.set_sv_u16(sv::SPECWEPCNT, n.wrapping_add(1));
+    g.vars.set_sv_u8(sv::SPECIALDELAY, 1);
+    g.objs.aldead = 1;
+    let _ = idx;
+}
+
+/// ROM `nukeexp_Istrat` (GSTRATS.ASM:2121).
+pub fn nukeexp_istrat(g: &mut Game, idx: u16) {
+    use crate::common::{sv, StratRam};
+    g.objs.aliens[idx as usize].sword1 = NUKE_RATE;
+    let exp = sid(g, nukeexp_strat);
+    g.objs.aliens[idx as usize].expstratptr = Some(exp);
+    g.objs.aliens[idx as usize].shape = 0; // nullshape
+    let _ = make_medium_exp_obj(g, idx);
+    // s_set_vartobeobj circleobj,x — store index+1
+    g.vars
+        .set_sv_u16(sv::CIRCLEOBJ, (idx as u16).wrapping_add(1));
+    g.vars.circleanim = SMARTBOMB_CIRCLE;
+    g.hooks.play_se(0x30);
+    g.objs.aliens[idx as usize].snd2 = 0;
+}
+
+/// ROM `nukeexp_strat` (GSTRATS.ASM:2132) — expanding damage ring.
+pub fn nukeexp_strat(g: &mut Game, idx: u16) {
+    let radius = g.objs.aliens[idx as usize].sword1;
+    if radius >= NUKE_MAX_RADIUS {
+        g.objs.aldead = 1;
+        return;
+    }
+    add_player_z(g, idx);
+
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        return;
+    }
+
+    let r_hi = radius;
+    let r_lo = radius.wrapping_sub(NUKE_RATE);
+    let self_pos = {
+        let al = &g.objs.aliens[idx as usize];
+        (al.worldx, al.worldz)
+    };
+
+    // Walk active list; damage realobjs in the annular band [r_lo, r_hi).
+    let actives = g.objs.active_indices();
+    for &yi in &actives {
+        if yi == idx {
+            continue;
+        }
+        let yal = g.objs.aliens[yi as usize];
+        if yal.sflags3 & ASF3_REALOBJ == 0 {
+            continue;
+        }
+        // xzdiffs_l vs nuke position (self_pos as synthetic alien).
+        let mut probe = Alien::default();
+        probe.worldx = self_pos.0;
+        probe.worldz = self_pos.1;
+        let d = crate::common::strat_dist_xz(&probe, &yal);
+        if d >= r_hi || d < r_lo {
+            continue;
+        }
+        if yal.sflags & (ASF_NOHITAFFECT | ASF_COLLDISABLE) != 0 {
+            continue;
+        }
+        if yal.flags & AF_FRONT_PL == 0 {
+            continue;
+        }
+        if (yal.hp as i8) < 0 {
+            continue;
+        }
+        let nhp = yal.hp.saturating_sub(NUKE_AP);
+        let al = &mut g.objs.aliens[yi as usize];
+        al.hp = nhp;
+        al.sflags |= ASF_HITFLASH;
+        al.type_ |= ATNUKED;
+    }
+
+    g.objs.aliens[idx as usize].sword1 = radius.wrapping_add(NUKE_RATE);
+}
+
+/// ROM `fire_nuke` (GSTRATS.ASM:2333) — spawn player's special weapon.
+pub fn fire_nuke(g: &mut Game, firer: u16) -> Option<u16> {
+    let shot = make_obj(g, 407)?;
+    let owner_vel = g.objs.aliens[firer as usize].vel;
+    let (ox, oy, oz, rx, ry) = {
+        let o = &g.objs.aliens[firer as usize];
+        (o.worldx, o.worldy, o.worldz, o.rotx, o.roty)
+    };
+    // Default gen_weapon muzzle: small Z forward (player uses 80>>weapon_scale).
+    const WEAPON_SCALE: i16 = 2;
+    let mz = 80i16 >> WEAPON_SCALE;
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.worldx = ox;
+        al.worldy = oy;
+        al.worldz = oz.wrapping_add(mz);
+        al.hp = 2;
+        al.ap = 8;
+        al.vel = 50;
+        al.count = 28;
+        al.rotx = rx;
+        al.roty = ry;
+        al.sbyte1 = rx;
+        al.sbyte2 = ry;
+        al.sbyte3 = owner_vel; // mother speed for addgen
+        al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
+        al.type_ |= ATLASER;
+        al.sflags &= !ASF_INVISIBLE;
+    }
+    nuke_istrat(g, shot);
+    Some(shot)
+}
+
 // ============================================================
 // HARD OBJECT STRATEGIES (GSTRATS.ASM; C strat_enemy.c:357-416)
 // ============================================================
 
 /// C `Strat_Hard_Init` (hard_Istrat, GSTRATS.ASM:642-646).
+/// ASM has no `s_set_colltype`; only `hardenemy1_Istrat` sets enemy1. (Audit A #16)
 pub fn strat_hard_init(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
-    al.collflags |= COLLTYPE_ENEMY1;
     set_hard_vars(al);
     al.stratptr = None;
+}
+
+/// ROM `pillar2_strat` (DSTRATS.ASM:1721) — advance the 32-frame extending
+/// pillar animation once per strategy tick.
+fn pillar2_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.animframe = 0x80 | ((al.animframe & 0x7f).wrapping_add(1) % 32);
+}
+
+/// ROM `pillar2_Istrat` (DSTRATS.ASM:1715): hard object variables, animation
+/// frame zero, then the extending-pillar animation tick above.
+pub fn pillar2_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, pillar2_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    set_hard_vars(al);
+    al.stratptr = Some(tick);
+    al.animframe = 0x80;
 }
 
 /// C `Strat_Hard180yr_Init` (hard180YR_Istrat, GSTRATS.ASM:654-660).
@@ -980,27 +6754,44 @@ fn pillar3fall_strat(g: &mut Game, idx: u16) {
     }
 }
 
-/// C `pillar3_enter_fall` (strat_enemy.c:473).
+/// C `pillar3_enter_fall` / ASM `pillar3fall_i` (DSTRATS.ASM:795-810).
 fn pillar3_enter_fall(g: &mut Game, idx: u16) {
     let s = sid(g, pillar3fall_strat);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.stratptr = Some(s);
-    al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
-    al.sbyte1 = 4;
-    if al.flags & AF_LEFT_PL != 0 {
-        al.sbyte1 = (-4i8) as u8;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
+        // s_rightview_strat: leftpl clear (right of view) keeps +4; left → -4.
+        al.sbyte1 = 4;
+        if al.flags & AF_LEFT_PL != 0 {
+            al.sbyte1 = (-4i8) as u8;
+        }
+        al.sbyte2 = PILLAR3_FALL_FRAMES;
     }
-    al.sbyte2 = PILLAR3_FALL_FRAMES;
+    // ROM: s_make_obj #bouncyball; copypos; worldz-=10; alptrs explode×3; kill_obj.
+    // Shape 0 stands in for the bouncyball sprite (same as fire_plasma).
+    if let Some(ball) = make_obj(g, 0) {
+        let (px, py, pz) = {
+            let me = &g.objs.aliens[idx as usize];
+            (me.worldx, me.worldy, me.worldz.wrapping_sub(10))
+        };
+        let exp = sid(g, strat_explode);
+        let al = &mut g.objs.aliens[ball as usize];
+        al.worldx = px;
+        al.worldy = py;
+        al.worldz = pz;
+        al.stratptr = Some(exp);
+        al.collstratptr = Some(exp);
+        al.expstratptr = Some(exp);
+        crate::common::kill_obj(al);
+    }
 }
 
 /// C `pillar3_strat` (strat_enemy.c:487).
 fn pillar3_strat(g: &mut Game, idx: u16) {
     let Some(pl) = player(g) else { return };
     let me = g.objs.aliens[idx as usize];
-    if dist_xz(&me, &pl) < PILLAR3_DIST
-        || me.hp < PILLAR3_FALL_HP
-        || me.hitflags & HF2_MASK != 0
-    {
+    if dist_xz(&me, &pl) < PILLAR3_DIST || me.hp < PILLAR3_FALL_HP || me.hitflags & HF2_MASK != 0 {
         pillar3_enter_fall(g, idx);
     }
 }
@@ -1012,7 +6803,7 @@ fn pillar3_strat(g: &mut Game, idx: u16) {
 /// `delayremove_Istrat`. The ROM plays NO direct sound here (the old
 /// `play_se(0x10)` was the item-catch chime) and sets NO AFEXP on the pillar —
 /// the children ARE the explosion. (Audit A #36, Minor 13)
-fn pillar3explode_strat(g: &mut Game, idx: u16) {
+pub(crate) fn pillar3explode_strat(g: &mut Game, idx: u16) {
     use crate::snes_trig::{mulslog, COSTAB, SINTAB};
     let (rotz, sword2) = {
         let al = &g.objs.aliens[idx as usize];
@@ -1073,9 +6864,9 @@ pub fn strat_pillar3_init(g: &mut Game, idx: u16) {
 
 /// C `skillfly_remove` (strat_enemy.c:543).
 fn skillfly_remove(g: &mut Game) {
-    let v = g.vars.read_ext8(wm::SKILLFLY);
+    let v = g.vars.map.skill_fly;
     if v > 0 {
-        g.vars.write_ext8(wm::SKILLFLY, v - 1);
+        g.vars.map.skill_fly = v - 1;
     }
     g.objs.aldead = 1;
 }
@@ -1136,8 +6927,8 @@ pub fn strat_skillfly_init(g: &mut Game, idx: u16) {
         }
         al.stratptr = Some(s);
     }
-    let v = g.vars.read_ext8(wm::SKILLFLY);
-    g.vars.write_ext8(wm::SKILLFLY, v.wrapping_add(1));
+    let v = g.vars.map.skill_fly;
+    g.vars.map.skill_fly = v.wrapping_add(1);
     {
         let al = &mut g.objs.aliens[idx as usize];
         if al.sword1 == 0 {
@@ -1156,7 +6947,7 @@ pub fn strat_skillfly_init(g: &mut Game, idx: u16) {
 
 /// C `gate3_player_box` (strat_enemy.c:607): `Obj_GetByIndex(g_pcboxobj_B)`.
 fn gate3_player_box(g: &Game) -> Option<u16> {
-    let idx = g.vars.read_ext16(wm::PCBOXOBJ_B) as i16 as i32;
+    let idx = i32::from(g.vars.strategy.player_collision_objects[0]);
     if idx < 0 || idx >= NUMBER_AL as i32 {
         return None;
     }
@@ -1257,15 +7048,15 @@ fn gate_strat(g: &mut Game, idx: u16) {
         al.stratptr = Some(s);
         al.colframe = 4;
         // Checkpoint latch (C gate_strat, strat_enemy.c:715-719).
-        let temp = g.vars.read_ext16(wm::MAPRESTARTTEMP);
-        g.vars.write_ext16(wm::MAPRESTART, temp);
-        let tbank = g.vars.read_ext8(wm::MAPRESTARTBANKTEMP);
-        g.vars.write_ext8(wm::MAPRESTARTBANK, tbank);
+        let temp = g.vars.shared.map_restart_temporary;
+        g.vars.shared.map_restart = temp;
         let bg = g.vars.currentbg;
-        g.vars.write_ext16(wm::RESTARTBG, bg);
-        let lpf = g.vars.read_ext16(wm::LASTPALFADE);
-        g.vars.write_ext16(wm::RESTARTPALFADE, lpf);
-        g.vars.write_ext8(wm::EROLL1, 1);
+        g.vars.shared.restart_background = bg;
+        g.vars.shared.restart_palette_fade = g.vars.shared.last_palette_fade;
+        g.vars.shared.enemy_path.roll1 = 1;
+        // ASM falls through into `.strat2` (spin+colanim) the same frame.
+        // (Audit A Minor 12)
+        gate_spin_strat(g, idx);
         return;
     }
     let al = &mut g.objs.aliens[idx as usize];
@@ -1283,19 +7074,18 @@ pub fn strat_gate_init(g: &mut Game, idx: u16) {
         al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
         al.colframe = 0;
     }
-    g.vars.write_ext8(wm::EROLL1, 0);
+    g.vars.shared.enemy_path.roll1 = 0;
     let mp = g.vars.mapptr;
-    g.vars.write_ext16(wm::MAPRESTARTTEMP, mp);
-    g.vars.write_ext8(wm::MAPRESTARTBANKTEMP, 0);
+    g.vars.shared.map_restart_temporary = mp;
 }
 
 /// C `gate2_strat` (strat_enemy.c:741).
 fn gate2_strat(g: &mut Game, idx: u16) {
-    let maxx = g.vars.read_ext16(wm::MAXPMOVEX) as i16;
-    let minx = g.vars.read_ext16(wm::MINPMOVEX) as i16;
-    let maxy = g.vars.read_ext16(wm::MAXPMOVEY) as i16;
+    let maxx = g.vars.strategy.player_max_x;
+    let minx = g.vars.strategy.player_min_x;
+    let maxy = g.vars.strategy.player_max_y;
     let miny = g.vars.minpmove_y;
-    let viewcy = g.vars.read_ext16(wm::VIEWCY) as i16;
+    let viewcy = g.vars.strategy.view_center_y;
     {
         let me = g.objs.aliens[idx as usize];
         if me.worldx > maxx || me.worldx < minx || me.worldy > maxy || me.worldy <= miny {
@@ -1335,9 +7125,8 @@ fn gate2_strat(g: &mut Game, idx: u16) {
         if dx.wrapping_add(dy) < GATE2_TOUCH_XY
             && gate_heal_player_box(g, GATE3_SOUND, GATE2_HEAL_AMOUNT)
         {
-            let score = g.vars.read_ext16(wm::PLAYERSCORE);
-            g.vars
-                .write_ext16(wm::PLAYERSCORE, score.wrapping_add(GATE2_HEAL_SCORE));
+            let score = g.vars.shared.player_score;
+            g.vars.shared.player_score = score.wrapping_add(GATE2_HEAL_SCORE);
             let al = &mut g.objs.aliens[idx as usize];
             al.sflags2 |= GATE2_TOUCHED_FLAG;
             al.colframe = 0;
@@ -1399,6 +7188,12 @@ pub(crate) fn boss_clear_child_link(g: &mut Game, child: u16) {
     al.sword1 = 0;
 }
 
+/// ROM `divorcefamily_l` (STRATROU.ASM:3000) — see [`sf_game::obj::Objects::divorce_family`].
+/// Kept as a strat-lane entry so explode/remove call sites stay local.
+pub fn divorce_family(g: &mut Game, idx: u16) {
+    g.objs.divorce_family(idx);
+}
+
 /// C `boss_prune_family_links` (strat_enemy.c:851).
 pub(crate) fn boss_prune_family_links(g: &mut Game, mother: u16) {
     if g.objs.aliens[mother as usize].sflags3 & ASF3_MOTHEROBJ == 0 {
@@ -1415,9 +7210,8 @@ pub(crate) fn boss_prune_family_links(g: &mut Game, mother: u16) {
         };
         let raw_al = g.objs.aliens[raw as usize];
         let next_idx = raw_al.sword1 as u16;
-        let valid = raw_al.active
-            && raw_al.sflags3 & ASF3_CHILDOBJ != 0
-            && raw_al.ptr == mother_idx;
+        let valid =
+            raw_al.active && raw_al.sflags3 & ASF3_CHILDOBJ != 0 && raw_al.ptr == mother_idx;
         if !valid {
             if prev_idx == 0 {
                 g.objs.aliens[mother as usize].sword1 = next_idx as i16;
@@ -1492,12 +7286,7 @@ pub(crate) fn boss_count_children(g: &mut Game, mother: u16) -> u8 {
 }
 
 /// C `boss_attach_child_to_mother` (strat_enemy.c:973).
-pub(crate) fn boss_attach_child_to_mother(
-    g: &mut Game,
-    mother: u16,
-    child: u16,
-    child_num: u8,
-) -> bool {
+pub fn boss_attach_child_to_mother(g: &mut Game, mother: u16, child: u16, child_num: u8) -> bool {
     if mother == child
         || !g.objs.aliens[mother as usize].active
         || !g.objs.aliens[child as usize].active
@@ -1557,13 +7346,10 @@ pub(crate) fn boss_yaw_offset_pos(
     offy: i16,
     offz: i16,
 ) {
-    let s = strat_sin(mother.roty);
-    let c = strat_cos(mother.roty);
-    let rx = ((offx as f32 * c) + (offz as f32 * s)).round() as i16;
-    let rz = ((offz as f32 * c) - (offx as f32 * s)).round() as i16;
+    let (rx, ry, rz) = crate::snes_trig::strat_roffs_yaw_i16(mother.roty, offx, offy, offz);
     let al = &mut g.objs.aliens[self_idx as usize];
     al.worldx = mother.worldx.wrapping_add(rx);
-    al.worldy = mother.worldy.wrapping_add(offy);
+    al.worldy = mother.worldy.wrapping_add(ry);
     al.worldz = mother.worldz.wrapping_add(rz);
 }
 
@@ -1591,14 +7377,7 @@ pub(crate) fn boss_apply_yaw_offset(
 pub(crate) fn boss7hatchfire_srou(g: &mut Game, self_idx: u16) -> Option<u16> {
     let child = make_obj(g, SH_ZACO_6)?;
     let me = g.objs.aliens[self_idx as usize];
-    boss_apply_yaw_offset(
-        g,
-        child,
-        &me,
-        -(10 << BOSS7_SCALE),
-        7 << BOSS7_SCALE,
-        0,
-    );
+    boss_apply_yaw_offset(g, child, &me, -(10 << BOSS7_SCALE), 7 << BOSS7_SCALE, 0);
     let s = sid(g, zaco2_istrat);
     let al = &mut g.objs.aliens[child as usize];
     al.rotx = al.rotx.wrapping_add(3);
@@ -1622,15 +7401,21 @@ pub(crate) fn hmissile1_remove_strat(g: &mut Game, idx: u16) {
 
 /// C `projectile_target_obj` (strat_enemy.c:1073).
 pub(crate) fn projectile_target_obj(g: &Game, idx: u16) -> Option<u16> {
-    let ptr = g.objs.aliens[idx as usize].fireobjptr;
-    if ptr == 0 {
-        return None;
+    // C-side boss helpers used fireobjptr; the original weapon macros use
+    // al_ptr. They are the same semantic target in the two source lanes.
+    for ptr in [
+        g.objs.aliens[idx as usize].fireobjptr,
+        g.objs.aliens[idx as usize].ptr,
+    ] {
+        if ptr == 0 {
+            continue;
+        }
+        let t = ptr as i32 - 1;
+        if t >= 0 && t < NUMBER_AL as i32 {
+            return Some(t as u16);
+        }
     }
-    let t = ptr as i32 - 1;
-    if t < 0 || t >= NUMBER_AL as i32 {
-        return None;
-    }
-    Some(t as u16)
+    None
 }
 
 /// C `boss7launcher_fire_hmissile1` (strat_enemy.c:1080). Also used by
@@ -1645,14 +7430,7 @@ pub(crate) fn boss7launcher_fire_hmissile1(
     }
     let shot = make_obj(g, 0)?;
     let me = g.objs.aliens[self_idx as usize];
-    boss_apply_yaw_offset(
-        g,
-        shot,
-        &me,
-        17 << BOSS7_SCALE,
-        -(5 << BOSS7_SCALE),
-        0,
-    );
+    boss_apply_yaw_offset(g, shot, &me, 17 << BOSS7_SCALE, -(5 << BOSS7_SCALE), 0);
     let s_tick = sid(g, hmissile1_strat);
     let s_coll = sid(g, projectile_on_collide_strat);
     let al = &mut g.objs.aliens[shot as usize];
@@ -1673,6 +7451,9 @@ pub(crate) fn boss7launcher_fire_hmissile1(
     al.immuneptr = strat_obj_index_or_null(self_idx);
     al.fireobjptr = target + 1;
     gen_vecs_3d(al);
+    // ROM `s_fire_weapon x,HMISSILE1` → gen_weapon `jsl missilesound_l`.
+    g.hooks
+        .make_snd(PosSndFamilyId::Missile, me.worldx, me.worldz);
     Some(shot)
 }
 
@@ -1736,7 +7517,8 @@ pub(crate) fn homingflat_strat(g: &mut Game, idx: u16) {
         if (me.worldz as i32 - t.worldz as i32).abs() >= 500 {
             let mut sb1 = me.sbyte1;
             let mut sb2 = me.sbyte2;
-            achase_angle(&mut sb1, angle_xz(&me, &t), 4);
+            // ROM `s_obj2obj_3dangle` into sbyte1/2 — Yanglexy+nega.
+            achase_angle(&mut sb1, angle_xz(&me, &t).wrapping_neg(), 4);
             achase_angle(&mut sb2, strat_pitch_toward(&me, &t), 4);
             let al = &mut g.objs.aliens[idx as usize];
             al.sbyte1 = sb1;
@@ -1775,8 +7557,8 @@ pub(crate) fn homingflat_strat(g: &mut Game, idx: u16) {
     }
 }
 
-/// C `relelaserhome_strat` (strat_enemy.c:1251).
-pub(crate) fn relelaserhome_strat(g: &mut Game, idx: u16) {
+/// C `relelaserhome_strat` (GSTRATS.ASM:1907-1932).
+pub fn relelaserhome_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         if al.animframe < 4 {
@@ -1790,9 +7572,9 @@ pub(crate) fn relelaserhome_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].sflags2 & RELSLOWELASERHOME_LOCK_FLAG == 0 {
         if let Some(pl) = pl {
             let me = g.objs.aliens[idx as usize];
-            if ((me.worldz as i32 - pl.worldz as i32).abs() as i16)
-                <= RELSLOWELASERHOME_CLOSE_Z
-            {
+            // ASM `s_jmp_Zdistmore #800,.nmin` skips the lock when |dz|>=800,
+            // so latch only when |dz|<800. (Audit A Minor 2)
+            if ((me.worldz as i32 - pl.worldz as i32).abs() as i16) < RELSLOWELASERHOME_CLOSE_Z {
                 g.objs.aliens[idx as usize].sflags2 |= RELSLOWELASERHOME_LOCK_FLAG;
             }
             strat_aim_3d(g, idx, &pl, 1);
@@ -1920,26 +7702,19 @@ fn boss1_get_turret_offset(child_num: u8) -> Option<(i16, i16, i16)> {
 /// cover placement (dobossrot/boss1rots flags 0,1,1 = rotz+roty; boss1's rotx is
 /// always 0 so the rotx stage is identity there). POSITION ONLY — callers assign
 /// the child/shot rotations separately.
-fn boss1_rot_offset_pos(g: &mut Game, self_idx: u16, base: &Alien, offx: i16, offy: i16, offz: i16) {
-    // rotz stage (rotate_8yx): x' = x*cos - y*sin, y' = x*sin + y*cos.
-    let s = strat_sin(base.rotz);
-    let c = strat_cos(base.rotz);
-    let x1 = ((offx as f32 * c) - (offy as f32 * s)).round();
-    let y1 = ((offx as f32 * s) + (offy as f32 * c)).round();
-    // rotx stage (rotate_8yz): y' = y*cos - z*sin, z' = y*sin + z*cos.
-    let s = strat_sin(base.rotx);
-    let c = strat_cos(base.rotx);
-    let y2 = ((y1 * c) - (offz as f32 * s)).round();
-    let z2 = ((y1 * s) + (offz as f32 * c)).round();
-    // roty stage (rotate_8xz, angle negated in ROM): x' = x*cos + z*sin,
-    // z' = z*cos - x*sin.
-    let s = strat_sin(base.roty);
-    let c = strat_cos(base.roty);
-    let rx = ((x1 * c) + (z2 * s)).round() as i16;
-    let rz = ((z2 * c) - (x1 * s)).round() as i16;
+fn boss1_rot_offset_pos(
+    g: &mut Game,
+    self_idx: u16,
+    base: &Alien,
+    offx: i16,
+    offy: i16,
+    offz: i16,
+) {
+    let (rx, ry, rz) =
+        crate::snes_trig::strat_roffs_full_i16(base.rotz, base.rotx, base.roty, offx, offy, offz);
     let al = &mut g.objs.aliens[self_idx as usize];
     al.worldx = base.worldx.wrapping_add(rx);
-    al.worldy = base.worldy.wrapping_add(y2 as i16);
+    al.worldy = base.worldy.wrapping_add(ry);
     al.worldz = base.worldz.wrapping_add(rz);
 }
 
@@ -2015,6 +7790,9 @@ fn boss1_fire_hmissile1(
     al.immuneptr = strat_obj_index_or_null(self_idx);
     al.fireobjptr = target + 1;
     gen_vecs_3d(al);
+    // ROM `s_fire_weapon x,HMISSILE1` → gen_weapon `jsl missilesound_l`.
+    g.hooks
+        .make_snd(PosSndFamilyId::Missile, me.worldx, me.worldz);
     Some(shot)
 }
 
@@ -2061,6 +7839,9 @@ fn boss1_fire_hplasma(
     al.sbyte2 = pitch;
     al.rotx = 0;
     al.roty = DEG180;
+    // ROM `jsl enemybattrysound_l` (GSTRATS.ASM:2528).
+    g.hooks
+        .make_snd(PosSndFamilyId::EnemyBattry, me.worldx, me.worldz);
     Some(shot)
 }
 
@@ -2070,7 +7851,10 @@ fn boss1_fire_relslowlaser(g: &mut Game, self_idx: u16, target: Option<u16>, hom
     let mut pitch = me.rotx;
     let mut yaw = me.roty;
     if homing {
-        if let Some(t) = target.map(|t| g.objs.aliens[t as usize]).filter(|t| t.active) {
+        if let Some(t) = target
+            .map(|t| g.objs.aliens[t as usize])
+            .filter(|t| t.active)
+        {
             yaw = angle_xz(&me, &t);
             pitch = strat_pitch_toward(&me, &t);
         }
@@ -2110,6 +7894,9 @@ fn boss1_fire_relslowlaser(g: &mut Game, self_idx: u16, target: Option<u16>, hom
         al.sbyte2 = yaw;
         al.animframe = 0;
     }
+    // ROM `s_fire_weapon x,RELSLOWELASER(HOME)` → gen_weapon `jsl lasersound_l`.
+    g.hooks
+        .make_snd(PosSndFamilyId::Laser, me.worldx, me.worldz);
 }
 
 /// C `boss1_finish` (strat_enemy.c:2296).
@@ -2198,7 +7985,8 @@ fn boss1back_init(g: &mut Game, idx: u16) {
 }
 
 /// C `boss1up_strat` (strat_enemy.c:2373).
-fn boss1up_strat(g: &mut Game, idx: u16) {
+/// Public for AUDIT_BOSS_TICKS2 Minor #18 rise-boundary tests.
+pub fn boss1up_strat(g: &mut Game, idx: u16) {
     // s_jmp_higher x,#space_viewCY (GBSTRATS.ASM:138) branches STRICTLY when
     // worldy < space_viewCY (rlbmi, STRATMAC.INC:3081) — passes through ==CY.
     if g.objs.aliens[idx as usize].worldy < BOSS1_SPACE_VIEW_CY {
@@ -2230,7 +8018,8 @@ fn boss1normal_strat(g: &mut Game, idx: u16) {
 }
 
 /// C `boss1in_strat` (strat_enemy.c:2405).
-fn boss1in_strat(g: &mut Game, idx: u16) {
+/// Public for AUDIT_BOSS_TICKS2 Minor #19 Zdistmore-boundary tests.
+pub fn boss1in_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldz = al.worldz.wrapping_sub(15);
@@ -2250,7 +8039,7 @@ fn boss1in_strat(g: &mut Game, idx: u16) {
 }
 
 /// C `boss1out_strat` (strat_enemy.c:2424).
-fn boss1out_strat(g: &mut Game, idx: u16) {
+pub fn boss1out_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldz = al.worldz.wrapping_add(15);
@@ -2278,7 +8067,8 @@ fn boss1out_strat(g: &mut Game, idx: u16) {
 }
 
 /// C `boss1inclose_strat` (strat_enemy.c:2453).
-fn boss1inclose_strat(g: &mut Game, idx: u16) {
+/// Public for AUDIT_BOSS_TICKS2 Minor #19 Zdistmore-boundary tests.
+pub fn boss1inclose_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldz = al.worldz.wrapping_sub(25);
@@ -2298,7 +8088,7 @@ fn boss1inclose_strat(g: &mut Game, idx: u16) {
 }
 
 /// C `boss1back_strat` (strat_enemy.c:2472).
-fn boss1back_strat(g: &mut Game, idx: u16) {
+pub fn boss1back_strat(g: &mut Game, idx: u16) {
     // s_jmp_Zdistmore x,y,#1500,.nzi (GBSTRATS.ASM:192) is inclusive: |dz| >= 1500
     // -> .nzi (release cover, spin, bombard); |dz| < 1500 -> retreat (worldz += 15)
     // then the full boss1_end (finding #2 — the ROM branch was inverted in the port).
@@ -2341,8 +8131,12 @@ fn boss1back_strat(g: &mut Game, idx: u16) {
     // aim at player; the shot homes via its al_ptr=player target afterward.
     if g.vars.gameframe & 63 == 0 {
         let me = g.objs.aliens[idx as usize];
-        let pitch = me.rotx.wrapping_add(((sf_random(&mut g.vars) & 15) as i16 - 7) as u8);
-        let yaw = me.roty.wrapping_add(((sf_random(&mut g.vars) & 15) as i16 - 7) as u8);
+        let pitch = me
+            .rotx
+            .wrapping_add(((sf_random(&mut g.vars) & 15) as i16 - 7) as u8);
+        let yaw = me
+            .roty
+            .wrapping_add(((sf_random(&mut g.vars) & 15) as i16 - 7) as u8);
         let _ = boss1_fire_hplasma(g, idx, 0, 0, 0, 0, pitch, yaw);
     }
     // HMISSILE1 pair: `s_jmp_NOTdelay 6,.nofire,#15` (GBSTRATS.ASM:217) = fire when
@@ -2375,9 +8169,10 @@ fn boss1back_strat(g: &mut Game, idx: u16) {
             );
         }
     }
-    // .nofire -> boss1_fin (GBSTRATS.ASM:227): straight to s_add_playerZ. NO second
-    // rotz spin, no boss1rots child recount, no center-fire (finding #21).
+    // .nofire -> boss1_fin (GBSTRATS.ASM:227/272-274): s_add_playerZ + s_add_bossHP.
+    // NO second rotz spin, no boss1rots child recount, no center-fire (finding #21).
     add_player_z(g, idx);
+    add_bosshp(g, idx);
 }
 
 /// C `boss1cov_coll` (strat_enemy.c:2523).
@@ -2422,8 +8217,7 @@ fn boss1cov_strat(g: &mut Game, idx: u16) {
     }
     if g.objs.aliens[idx as usize].sbyte2 != 0 {
         g.objs.aliens[mother as usize].sflags4 |= BOSS1_PARENT_FLAG_COVER_BLOCK;
-        let side_right =
-            g.objs.aliens[mother as usize].sflags2 & BOSS1_PARENT_FLAG_SIDE_RIGHT != 0;
+        let side_right = g.objs.aliens[mother as usize].sflags2 & BOSS1_PARENT_FLAG_SIDE_RIGHT != 0;
         let al = &mut g.objs.aliens[idx as usize];
         if side_right {
             al.sbyte4 = al.sbyte4.wrapping_add(4);
@@ -2462,14 +8256,13 @@ fn boss1cov_strat(g: &mut Game, idx: u16) {
 }
 
 /// C `boss1covdie_strat` (strat_enemy.c:2598).
-fn boss1covdie_strat(g: &mut Game, idx: u16) {
+/// Public for AUDIT_BOSS_TICKS2 Minor #19 covdie remove-boundary tests.
+pub fn boss1covdie_strat(g: &mut Game, idx: u16) {
     if let Some(pl) = player(g) {
         // s_jmp_Zdistmore x,y,#1000,remove_Istrat (GBSTRATS.ASM:461) is inclusive:
         // remove when behind the player AND |dz| >= 1000 (finding #19).
         let me = g.objs.aliens[idx as usize];
-        if me.worldz < pl.worldz
-            && ((me.worldz as i32 - pl.worldz as i32).abs() as i16) >= 1000
-        {
+        if me.worldz < pl.worldz && ((me.worldz as i32 - pl.worldz as i32).abs() as i16) >= 1000 {
             g.objs.aldead = 1;
             return;
         }
@@ -2518,47 +8311,58 @@ fn boss1turret_r_init(g: &mut Game, idx: u16) {
     boss1turret_init_common(g, idx, boss1turret_r_strat);
 }
 
-/// C `boss1turret_common_strat` (strat_enemy.c:2654).
+/// C `boss1turret_common_strat` (strat_enemy.c:2654) /
+/// GBSTRATS.ASM:341-401 (`boss1turretL/R_strat` → `fire_end` / `nfire` / `end`).
 fn boss1turret_common_strat(g: &mut Game, idx: u16, right_side: bool) {
     let Some(mother) = boss_get_mother_obj(g, idx) else {
         g.objs.aldead = 1;
         return;
     };
-    // boss1turret_end: s_add_bossHP x,al_hp (GBSTRATS.ASM:400) — reached by
-    // EVERY turret path (nfire, cover-hold, fire). al_hp is constant across
-    // the tick, so accumulate once up front to cover all exits.
-    add_bosshp(g, idx);
     let m = g.objs.aliens[mother as usize];
     let side_matches = m.sflags2 & BOSS1_PARENT_FLAG_SIDE_RIGHT != 0;
+    // L: jmp_alsflag mother,sflag3,nfire — R: jmpNOT_alsflag mother,sflag3,nfire
+    // Plus fire_end gates: !sflag2 → nfire, sflag1 → nfire.
     if side_matches != right_side
         || m.sflags2 & BOSS1_PARENT_FLAG_TURRETS_OPEN == 0
         || m.sflags4 & BOSS1_PARENT_FLAG_COVER_BLOCK != 0
     {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.colframe = 0;
-        al.sflags |= ASF_NOHITAFFECT;
-        boss1_update_child_positions(g, mother);
+        boss1turret_nfire(g, idx, mother);
         return;
     }
+    boss1turretfire_end(g, idx, mother);
+}
+
+/// ROM `boss1turret_nfire` (GBSTRATS.ASM:393) — idle/closed: colanim 0 + nohitaffect.
+pub fn boss1turret_nfire(g: &mut Game, idx: u16, mother: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.colframe = al.colframe.wrapping_add(1) & 3;
+        al.colframe = 0; // s_init_colanim #4
+        al.sflags |= ASF_NOHITAFFECT;
+    }
+    boss1turret_end(g, idx, mother);
+}
+
+/// ROM `boss1turretfire_end` (GBSTRATS.ASM:353) — open: animate, maybe fire, then end.
+pub fn boss1turretfire_end(g: &mut Game, idx: u16, mother: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.colframe = al.colframe.wrapping_add(1) & 3; // s_add_colanim #1,#4
         al.sflags &= !ASF_NOHITAFFECT;
     }
     let cover = boss1_cover_obj(g, mother);
     if let Some(cover) = cover {
         if g.objs.aliens[cover as usize].sbyte3 >= 20 {
-            boss1_update_child_positions(g, mother);
+            boss1turret_end(g, idx, mother);
             return;
         }
     }
-    // Fire gates are bit-count delays with a per-turret al1pt stagger (== object
-    // index): home `s_jmp_IFdelay 4,.home,al1pt` = (gf+idx)&15==0; normal
-    // `s_jmp_IFdelay 5,.norm,al1pt` = (gf+idx)&31==0 (GBSTRATS.ASM:376/378,
-    // finding #1). bf_flag1-set + home-frame consumes the flag and fires homing;
-    // otherwise it falls through to the normal gate exactly as the ASM does.
+    // Fire gates: home (gf+idx)&15==0 with bf_flag1; else normal (gf+idx)&31==0.
     let phase = strat_phase_offset(idx) as u16;
-    let pl_idx = if g.objs.aliens[0].active { Some(0u16) } else { None };
+    let pl_idx = if g.objs.aliens[0].active {
+        Some(0u16)
+    } else {
+        None
+    };
     if bossflags(g) & BF_FLAG1 != 0
         && pl_idx.is_some()
         && (g.vars.gameframe.wrapping_add(phase)) & 15 == 0
@@ -2569,7 +8373,15 @@ fn boss1turret_common_strat(g: &mut Game, idx: u16, right_side: bool) {
     } else if (g.vars.gameframe.wrapping_add(phase)) & 31 == 0 {
         boss1_fire_relslowlaser(g, idx, pl_idx, false);
     }
+    boss1turret_end(g, idx, mother);
+}
+
+/// ROM `boss1turret_end` (GBSTRATS.ASM:397) — copy mother rotz, scroll, add boss HP.
+fn boss1turret_end(g: &mut Game, idx: u16, mother: u16) {
+    g.objs.aliens[idx as usize].rotz = g.objs.aliens[mother as usize].rotz;
     boss1_update_child_positions(g, mother);
+    add_player_z(g, idx);
+    add_bosshp(g, idx);
 }
 
 /// C `boss1turretL_strat` (strat_enemy.c:2702).
@@ -2589,7 +8401,7 @@ fn boss1turret_r_strat(g: &mut Game, idx: u16) {
 /// (finding #9). The rotz spin is carried by the pushed `boss1exp_Istrat`
 /// (s_push_stratptr, GBSTRATS.ASM:92-94); bossdelayexplode_strat runs it each
 /// countdown tick via the tempstrat slot (EXPSTRAT.ASM:60-64).
-fn boss1exp_init(g: &mut Game, idx: u16) {
+pub fn boss1exp_init(g: &mut Game, idx: u16) {
     boss1_release_children(g, idx);
     let spin = sid(g, boss1exp_spin_strat);
     g.objs.aliens[idx as usize].tempstratptr = Some(spin);
@@ -2635,8 +8447,12 @@ pub fn strat_boss1_init(g: &mut Game, idx: u16) {
     set_bossflags(g, bf & !(BF_DYING | BF_FLAG1 | BF_FLAG2 | BF_FLAG3));
     g.vars.bossmaxhp = hp as u16;
     g.vars.meters = 1;
-    // Spawn cover last (C comment: it must tick before the turrets in the
-    // head-inserted active list to drive same-frame fire gating).
+    boss1makechild(g, idx);
+    g.hooks.play_se(0x82);
+}
+
+/// ROM `boss1makechild` (GBSTRATS.ASM:113) — spawn cover + 8 turrets, seat, arm.
+pub fn boss1makechild(g: &mut Game, idx: u16) {
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_TL0, boss1turret_l_init);
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_TL1, boss1turret_l_init);
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_TL2, boss1turret_l_init);
@@ -2646,8 +8462,10 @@ pub fn strat_boss1_init(g: &mut Game, idx: u16) {
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_TR2, boss1turret_r_init);
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_TR3, boss1turret_r_init);
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_COVER, boss1cov_init);
-    boss1_update_child_positions(g, idx);
-    g.hooks.play_se(0x82);
+    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    boss1_update_child_positions(g, idx); // boss1rots_srou
+    g.objs.aliens[idx as usize].stratstate = 0;
+    g.objs.aliens[idx as usize].sbyte3 = 1;
 }
 
 // ============================================================
@@ -2698,7 +8516,7 @@ fn zaco2_reset_main(g: &mut Game, idx: u16) {
 }
 
 /// C `zaco2_Istrat` (strat_enemy.c:3595).
-pub(crate) fn zaco2_istrat(g: &mut Game, idx: u16) {
+pub fn zaco2_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.hp = ZACO2_HP;
@@ -2911,12 +8729,12 @@ fn wormheadexp_strat(g: &mut Game, idx: u16) {
 
 /// C `wormsplit_init` (strat_enemy.c:3823).
 fn wormsplit_init(g: &mut Game, idx: u16) {
-    let r1 = ((sf_random(&mut g.vars) & 63) as i16) - 32;
-    let r2 = ((sf_random(&mut g.vars) & 63) as i16) - 32;
+    let random_x_velocity = ((sf_random(&mut g.vars) & 63) as i16) - 32;
+    let random_y_velocity = ((sf_random(&mut g.vars) & 63) as i16) - 32;
     let s = sid(g, wormsplit_strat);
     let al = &mut g.objs.aliens[idx as usize];
-    al.vx = r1;
-    al.vy = r2;
+    al.vx = random_x_velocity;
+    al.vy = random_y_velocity;
     al.vz = 0;
     al.sbyte2 = 18;
     al.stratptr = Some(s);
@@ -3058,16 +8876,17 @@ pub fn strat_item5_init(g: &mut Game, idx: u16) {
 
 /// C `item5_collect` (strat_enemy.c:3975).
 fn item5_collect(g: &mut Game, idx: u16) {
-    let cnt = g.vars.read_ext16(wm::SPECWEPCNT);
+    use crate::common::{sv, StratRam};
+    // Canonical ROM `specwepcnt` (sv 0x056E) — same store player fire / removenuke use.
+    let cnt = g.vars.sv_u16(sv::SPECWEPCNT);
     if cnt < ITEM5_MAX_SPEC {
-        g.vars.write_ext16(wm::SPECWEPCNT, cnt + 1);
+        g.vars.set_sv_u16(sv::SPECWEPCNT, cnt + 1);
         // ASM GASTRATS.ASM:2586 `s_set_var B,specflash,#30` inside the
         // specwepcnt<5 block. (Audit A #24)
-        g.vars.write_ext8(wm::SPECFLASH, 30);
+        g.vars.shared.special_flash = 30;
         g.hooks.play_se(0x18);
-        let score = g.vars.read_ext16(wm::PLAYERSCORE);
-        g.vars
-            .write_ext16(wm::PLAYERSCORE, score.wrapping_add(ITEM5_SCORE));
+        let score = g.vars.shared.player_score;
+        g.vars.shared.player_score = score.wrapping_add(ITEM5_SCORE);
     }
     flashplayer_istrat(g, idx);
 }
@@ -3133,9 +8952,33 @@ fn flashplayer_wire_shape(g: &Game) -> u16 {
     }
 }
 
-/// C `Strat_Item7_Init` (strat_enemy.c:4057).
+/// C `Strat_Item7_Init` / ROM `item7_Istrat` (GASTRATS.ASM:2915-2917).
+/// No `s_end_strat` — falls into `item7_strat` the same tick.
 pub fn strat_item7_init(g: &mut Game, idx: u16) {
     let s = sid(g, item7_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.sflags |= ASF_COLLDISABLE;
+    }
+    item7_strat(g, idx);
+}
+
+// ============================================================
+// item4 + ripair (GASTRATS.ASM:3030-3124) — repair-pod pickup chain.
+// ============================================================
+
+const SH_RIPAIR_W: u16 = 401;
+const ITEM4_PICKUP_Z: i16 = 120; // 60*2
+const ITEM4_PICKUP_XY: i16 = 100; // 50*2
+const RIPAIR_CATCH_XY: i16 = 20;
+const RIPAIR_CATCH_Z: i16 = 30;
+
+/// ROM `item4_Istrat` — spinning repair pod that spawns `ripair` on pickup.
+pub fn item4_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, item4_strat);
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(s);
     al.collstratptr = None;
@@ -3143,8 +8986,131 @@ pub fn strat_item7_init(g: &mut Game, idx: u16) {
     al.sflags |= ASF_COLLDISABLE;
 }
 
-/// C `flashplayer_Istrat` (strat_enemy.c:4068).
-fn flashplayer_istrat(g: &mut Game, idx: u16) {
+/// ROM `item4_strat` — spin, float to range, spawn ripair when player close.
+pub fn item4_strat(g: &mut Game, idx: u16) {
+    let pl = player(g);
+    if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        g.objs.aldead = 1;
+        return;
+    }
+    let pl = pl.unwrap();
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = al.roty.wrapping_add(4);
+        al.rotx = al.rotx.wrapping_add(4);
+    }
+    itemtorange_srou(g, idx);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(20);
+
+    let me = g.objs.aliens[idx as usize];
+    let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if zdist >= ITEM4_PICKUP_Z {
+        return;
+    }
+    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
+    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
+    if xydist >= ITEM4_PICKUP_XY {
+        return;
+    }
+    if let Some(pod) = make_obj(g, SH_RIPAIR_W) {
+        ripair_istrat(g, pod);
+    }
+    g.objs.aldead = 1;
+}
+
+/// ROM `ripair_Istrat` — repair ship approaches from the player's right.
+pub fn ripair_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, ripair_strat);
+    let (px, py, pz) = (g.vars.player_posx, g.vars.player_posy, g.vars.player_posz);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
+        al.worldz = pz.wrapping_add(-200);
+        al.worldx = px.wrapping_add(500);
+        al.worldy = py;
+        al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+        al.vx = 0;
+        al.vy = 0;
+        al.vz = 30;
+        al.rotz = DEG90;
+        al.sbyte1 = 30;
+    }
+    g.hooks.play_se(0x8b);
+}
+
+/// ROM `ripair_strat` — chase player, then repair wings on catch.
+pub fn ripair_strat(g: &mut Game, idx: u16) {
+    let Some(pl) = player(g) else {
+        return;
+    };
+    add_player_z(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(al.vz);
+        // Soft approach chase always runs.
+        al.worldx = chase_proportional(al.worldx, g.vars.player_posx, 3);
+        al.worldy = chase_proportional(al.worldy, g.vars.player_posy, 3);
+    }
+
+    // s_decbne_alvar sbyte1,.nreccoll — while countdown remains, skip catch.
+    let next = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+    g.objs.aliens[idx as usize].sbyte1 = next;
+    if next != 0 {
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 = 1;
+
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, g.vars.player_posx, 1);
+        al.worldy = chase_proportional(al.worldy, g.vars.player_posy, 1);
+    }
+    {
+        let mut rotz = g.objs.aliens[idx as usize].rotz;
+        achase_angle(&mut rotz, pl.rotz, 1);
+        g.objs.aliens[idx as usize].rotz = rotz;
+    }
+    let zdist = (g.objs.aliens[idx as usize].worldz as i32 - pl.worldz as i32).abs() as i16;
+    if zdist < 500 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = g.vars.player_posx;
+        al.worldy = g.vars.player_posy;
+        al.rotz = pl.rotz;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vz = -40;
+        al.type_ |= ATZREMOVE; // s_setremove_behind
+    }
+
+    // Catch: XY close AND (player ahead OR Z close).
+    let me = g.objs.aliens[idx as usize];
+    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
+    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
+    if xydist >= RIPAIR_CATCH_XY {
+        return;
+    }
+    let player_ahead = pl.worldz >= me.worldz;
+    let zclose = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if !player_ahead && zclose >= RIPAIR_CATCH_Z {
+        return;
+    }
+    item_repair_player_wings(g);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = pl.worldx;
+        al.worldy = pl.worldy;
+        al.worldz = pl.worldz;
+    }
+    g.hooks.play_se(0x17);
+    flashplayer_istrat(g, idx);
+}
+
+/// C `flashplayer_Istrat` (strat_enemy.c:4068) / ROM GASTRATS item pickup flash.
+pub fn flashplayer_istrat(g: &mut Game, idx: u16) {
     if g.vars.splayerflymode == SPFM_INSIDE {
         g.objs.aldead = 1;
         return;
@@ -3153,7 +9119,8 @@ fn flashplayer_istrat(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
     al.count = 20;
     al.sflags |= ASF_COLLDISABLE;
-    al.colframe = 0;
+    // ASM flashplayer_Istrat (GASTRATS.ASM:3130-3132) does not touch colframe.
+    // (Audit A Minor 10)
     al.stratptr = Some(s);
 }
 
@@ -3191,7 +9158,9 @@ fn flashplayer_strat(g: &mut Game, idx: u16) {
     }
 }
 
-/// C `item7_strat` (strat_enemy.c:4119).
+/// C `item7_strat` (strat_enemy.c:4119) / ROM GASTRATS.ASM:2918-2956.
+/// Broken-wing pickup spawns `ripair_Istrat` (does not repair inline); intact
+/// wings take the double-laser / beamball upgrade path.
 fn item7_strat(g: &mut Game, idx: u16) {
     let pl = player(g);
     if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
@@ -3222,23 +9191,422 @@ fn item7_strat(g: &mut Game, idx: u16) {
         return;
     }
     let needs_repair = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING) != 0;
-    item_repair_player_wings(g);
     if needs_repair {
-        // C comment: ripair_Istrat effect applied inline.
-        g.hooks.play_se(0x17);
+        // GASTRATS.ASM:2934-2937: s_make_obj #ripair_w → ripair_Istrat; .cont flash.
+        // Repair + $17 happen later when ripair catches (ripair_strat .catch).
+        if let Some(pod) = make_obj(g, SH_RIPAIR_W) {
+            ripair_istrat(g, pod);
+        }
         flashplayer_istrat(g, idx);
         return;
     }
+    // .dlaser: TRIGSE $15, score, re-init wings, doublaser/beamball upgrade.
     g.hooks.play_se(0x15);
-    let score = g.vars.read_ext16(wm::PLAYERSCORE);
-    g.vars
-        .write_ext16(wm::PLAYERSCORE, score.wrapping_add(ITEM7_SCORE));
+    let score = g.vars.shared.player_score;
+    g.vars.shared.player_score = score.wrapping_add(ITEM7_SCORE);
+    item_repair_player_wings(g); // jsl pLWing_Istrat / pRWing_Istrat
     if g.vars.pshipflags2 & PSF2_DOUBLASER == 0 {
         g.vars.pshipflags2 |= PSF2_DOUBLASER;
     } else {
         g.vars.pshipflags3 |= PSF3_BEAMBALL;
     }
     flashplayer_istrat(g, idx);
+}
+
+// ============================================================
+// item7a — helpball pickup (GASTRATS.ASM:2961-2990)
+// ============================================================
+
+const ITEM7A_PICKUP_Z: i16 = 120; // 60*2
+const ITEM7A_PICKUP_XY: i16 = 60; // 30*2
+
+/// ROM `item7a_Istrat` — spinning pickup that spawns a helpball + repairs wings.
+pub fn item7a_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, item7a_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.collstratptr = None;
+    al.expstratptr = None;
+    al.sflags |= ASF_COLLDISABLE;
+}
+
+/// ROM `item7a_strat` — drift/spin; on pickup spawn helpball, repair wings, flash.
+pub fn item7a_strat(g: &mut Game, idx: u16) {
+    let pl = player(g);
+    if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        g.objs.aldead = 1;
+        return;
+    }
+    let pl = pl.unwrap();
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.sbyte1 == 0 {
+            al.worldz = al.worldz.wrapping_add(20);
+        }
+    }
+    itemtorange_srou(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = al.roty.wrapping_add(4);
+        al.rotz = al.rotz.wrapping_add(4);
+    }
+    let me = g.objs.aliens[idx as usize];
+    let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
+    if zdist >= ITEM7A_PICKUP_Z {
+        return;
+    }
+    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
+    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
+    if xydist >= ITEM7A_PICKUP_XY {
+        return;
+    }
+    // Spawn helper ball at pickup position.
+    if let Some(ball) = make_obj(g, SH_HELPBALL) {
+        let (px, py, pz) = {
+            let m = &g.objs.aliens[idx as usize];
+            (m.worldx, m.worldy, m.worldz)
+        };
+        {
+            let al = &mut g.objs.aliens[ball as usize];
+            al.worldx = px;
+            al.worldy = py;
+            al.worldz = pz;
+        }
+        helpball_istrat(g, ball);
+    }
+    g.hooks.play_se(0x10);
+    // ROM jsl pLWing_Istrat / pRWing_Istrat on pcbox wings — repair flags.
+    item_repair_player_wings(g);
+    if let Some(lw) = g.coldet.pcbox.lwing {
+        g.objs.aliens[lw as usize].hp = PCBOX_WING_HP;
+        g.objs.aliens[lw as usize].sflags |= ASF_COLLDISABLE;
+    }
+    if let Some(rw) = g.coldet.pcbox.rwing {
+        g.objs.aliens[rw as usize].hp = PCBOX_WING_HP;
+        g.objs.aliens[rw as usize].sflags |= ASF_COLLDISABLE;
+    }
+    flashplayer_istrat(g, idx);
+}
+
+// ============================================================
+// friend0 / friend1 (GASTRATS.ASM:670-760 / 877-920)
+// ============================================================
+
+const FRIEND_HP: u8 = 8; // STRATEQU.INC:171
+const FRIEND_AP: u8 = 4; // STRATEQU.INC:172
+const COLLTYPE_FRIEND: u8 = 0x80; // acf_colltype5
+const SH_ZACO_5: u16 = 53;
+
+fn friend_achase_i16(cur: i16, target: i16, shift: u32) -> i16 {
+    let d = target.wrapping_sub(cur);
+    cur.wrapping_add(d >> shift)
+}
+
+/// ROM `friend0_Istrat` — ally zaco that brakes then hunts `#zaco_5`.
+pub fn friend0_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, friend0_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = FZACO_HP;
+    al.ap = FZACO_AP;
+    al.type_ &= !ATZREMOVE;
+    al.vel = 60;
+    al.roty = DEG22;
+    al.rotx = DEG11;
+    al.worldx = al.worldx.wrapping_add(g.vars.player_posx);
+    al.worldy = al.worldy.wrapping_add(g.vars.player_posy);
+    al.collflags |= COLLTYPE_ENEMYWEAP;
+}
+
+/// ROM `friend0_strat` — speedto 30 then friend02.
+pub fn friend0_strat(g: &mut Game, idx: u16) {
+    if speed_to(&mut g.objs.aliens[idx as usize], 30, 1) {
+        friend02_init(g, idx);
+    } else {
+        friend0_cont(g, idx);
+    }
+}
+
+pub fn friend02_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, friend02_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    friend02_strat(g, idx);
+}
+
+/// ROM `friend02_strat` — aim at nearest zaco_5; chase player z+200.
+pub fn friend02_strat(g: &mut Game, idx: u16) {
+    if let Some(y) =
+        (0..NUMBER_AL).find(|&i| g.objs.aliens[i].active && g.objs.aliens[i].shape == SH_ZACO_5)
+    {
+        let tgt = g.objs.aliens[y];
+        strat_aim_3d(g, idx, &tgt, 4);
+    }
+    if let Some(pl) = player(g) {
+        let target_z = pl.worldz.wrapping_add(200);
+        let z = g.objs.aliens[idx as usize].worldz;
+        g.objs.aliens[idx as usize].worldz = friend_achase_i16(z, target_z, 4);
+    }
+    friend0_cont(g, idx);
+}
+
+pub fn friend0_cont(g: &mut Game, idx: u16) {
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `friend1_Istrat` — wingman that mirrors player + fires on player sflag3.
+pub fn friend1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, friend1_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = FRIEND_HP;
+    al.ap = FRIEND_AP;
+    al.collflags |= COLLTYPE_FRIEND;
+    al.type_ &= !ATZREMOVE;
+    al.sflags |= ASF_SHADOW;
+}
+
+pub fn friend1_strat(g: &mut Game, idx: u16) {
+    let Some(pl) = player(g) else {
+        return;
+    };
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = pl.worldz.wrapping_add(200);
+        al.worldy = friend_achase_i16(al.worldy, pl.worldy.wrapping_add(-30), 4);
+        al.worldx = friend_achase_i16(al.worldx, pl.worldx, 3);
+        al.vx = pl.vx;
+        al.vy = pl.vy;
+        al.vz = pl.vz;
+        let mut rx = al.rotx;
+        let mut ry = al.roty;
+        let mut rz = al.rotz;
+        achase_angle(&mut rx, pl.rotx, 3);
+        achase_angle(&mut ry, pl.roty, 3);
+        achase_angle(&mut rz, pl.rotz, 3);
+        al.rotx = rx;
+        al.roty = ry;
+        al.rotz = rz;
+    }
+    if pl.sflags2 & ASF2_SFLAG3 != 0 {
+        let _ = fire_elaser(g, idx);
+    }
+}
+
+/// ROM `friendkill_Istrat` (GISTRATS.ASM:308) — remove shadow then explode.
+pub fn friendkill_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags &= !ASF_SHADOW;
+    strat_explode(g, idx);
+}
+
+/// ROM `friend2_Istrat` (GASTRATS.ASM:720-730) — hard-HP wingman that locks
+/// Zenemy targets ahead of the player and fires ELASER.
+pub fn friend2_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, friend2_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = HARD_HP;
+    al.ap = FRIEND_AP;
+    al.collflags |= COLLTYPE_FRIEND;
+    al.type_ &= !ATZREMOVE;
+    al.sflags |= ASF_SHADOW;
+}
+
+/// ROM `friend2_strat` (GASTRATS.ASM:731-860).
+pub fn friend2_strat(g: &mut Game, idx: u16) {
+    use sf_game::alien::{ASF3_LOCKON, ASF_HITFLASH};
+    {
+        gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+        apply_velocity(&mut g.objs.aliens[idx as usize]);
+        if g.objs.aliens[idx as usize].worldy >= -30 {
+            // s_jmp_higher x,#-30,.ok — snap when not higher than -30
+            g.objs.aliens[idx as usize].worldy = -30;
+        }
+    }
+    let Some(pl) = player(g) else {
+        return;
+    };
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vel = pl.vel;
+        al.worldz = pl.worldz.wrapping_add(200);
+    }
+
+    // Resolve / clear locked target in sword1 (index+1 encoding).
+    let mut target: Option<u16> = None;
+    let sw = g.objs.aliens[idx as usize].sword1 as u16;
+    if sw != 0 {
+        let yi = sw.wrapping_sub(1);
+        if (yi as usize) < NUMBER_AL && g.objs.aliens[yi as usize].active {
+            let me_z = g.objs.aliens[idx as usize].worldz;
+            let tz = g.objs.aliens[yi as usize].worldz;
+            let zdist = (me_z as i32 - tz as i32).abs();
+            if zdist < 400 || g.objs.aliens[yi as usize].hp == 0 {
+                g.objs.aliens[idx as usize].sword1 = 0;
+            } else {
+                target = Some(yi);
+            }
+        } else {
+            g.objs.aliens[idx as usize].sword1 = 0;
+        }
+    }
+
+    if target.is_none() {
+        // Find Zenemy ahead of player: |dx| <= dz_from_player, dz>0, not locked.
+        let px = g.vars.player_posx;
+        let pz = g.vars.player_posz;
+        let me = g.objs.aliens[idx as usize];
+        let mut best: Option<(i32, u16)> = None;
+        for i in 0..NUMBER_AL {
+            if i == idx as usize || !g.objs.aliens[i].active {
+                continue;
+            }
+            let o = &g.objs.aliens[i];
+            if o.sflags3 & ASF3_LOCKON != 0 {
+                continue;
+            }
+            if o.collflags & COLLTYPE_ZENEMY == 0 {
+                continue;
+            }
+            let dx = (o.worldx as i32 - px as i32).abs();
+            let dz = o.worldz as i32 - pz as i32;
+            if dz < 0 || dz < dx {
+                continue;
+            }
+            let d = (o.worldx as i32 - me.worldx as i32).abs()
+                + (o.worldy as i32 - me.worldy as i32).abs()
+                + (o.worldz as i32 - me.worldz as i32).abs();
+            if d < 500 || d > 20000 {
+                continue;
+            }
+            match best {
+                Some((bd, _)) if bd <= d => {}
+                _ => best = Some((d, i as u16)),
+            }
+        }
+        if let Some((_, yi)) = best {
+            g.objs.aliens[idx as usize].sword1 = (yi + 1) as i16;
+            g.objs.aliens[yi as usize].sflags3 |= ASF3_LOCKON;
+            target = Some(yi);
+        }
+    }
+
+    if let Some(yi) = target {
+        // Fire every 4 frames (notdelay 2), then aim.
+        if g.vars.gameframe & 3 == 0 {
+            let _ = fire_elaser(g, idx);
+        }
+        g.objs.aliens[yi as usize].sflags |= ASF_HITFLASH;
+        let tgt = g.objs.aliens[yi as usize];
+        strat_aim_3d(g, idx, &tgt, 3);
+    } else {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            let mut ry = al.roty;
+            let mut rx = al.rotx;
+            achase_angle(&mut ry, 0, 5);
+            achase_angle(&mut rx, 0, 5);
+            al.roty = ry;
+            al.rotx = rx;
+            al.worldx = friend_achase_i16(al.worldx, g.vars.player_posx, 5);
+            al.worldy = friend_achase_i16(al.worldy, g.vars.player_posy, 5);
+        }
+    }
+    // rotz = roty << 2
+    let ry = g.objs.aliens[idx as usize].roty;
+    g.objs.aliens[idx as usize].rotz = ry.wrapping_shl(2);
+}
+
+// ============================================================
+// hyperspace trail + hyper streak + phitflash (PISTRATS / PSTRATS)
+// ============================================================
+
+const PSTF_FLAG1: u8 = 2; // VARS.INC pstf_flag1
+const HYPER_SHAPE: u16 = 408;
+
+/// ROM `phitflash_Istrat` — alias of hitflash.
+pub fn phitflash_istrat(g: &mut Game, idx: u16) {
+    strat_hit_flash(g, idx);
+}
+
+/// ROM `hyper_Istrat` — streak that drifts −80 z each tick.
+pub fn hyper_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(80);
+}
+
+/// ROM `hyperspace_Istrat` — emitter parked ahead of player, spawns hyper streaks.
+pub fn hyperspace_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, hyperspace_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.sword1 = HYPER_SHAPE as i16;
+}
+
+pub fn hyperspace_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].roty = DEG180;
+    if let Some(pl) = player(g) {
+        g.objs.aliens[idx as usize].worldz = pl.worldz.wrapping_add(4000);
+    }
+    let fire = (g.vars.pstratflags & PSTF_FLAG1 != 0) || (g.vars.gameframe & 1 == 0);
+    if !fire {
+        return;
+    }
+    let shape = g.objs.aliens[idx as usize].sword1 as u16;
+    if let Some(streak) = make_obj(g, shape) {
+        let (px, py, pz) = {
+            let m = &g.objs.aliens[idx as usize];
+            (m.worldx, m.worldy, m.worldz)
+        };
+        {
+            let al = &mut g.objs.aliens[streak as usize];
+            al.worldx = px;
+            al.worldy = py;
+            al.worldz = pz;
+            al.sflags |= ASF_COLLDISABLE;
+            // Random jitter like ROM rnd worldx (±512-ish)
+            al.worldx = al
+                .worldx
+                .wrapping_add(((sf_random(&mut g.vars) as i16) & 0x1FF) - 256);
+            al.worldy = al
+                .worldy
+                .wrapping_add(((sf_random(&mut g.vars) as i16) & 0x1FF) - 256);
+        }
+        hyper_istrat(g, streak);
+        let tick = sid(g, hyper_istrat);
+        g.objs.aliens[streak as usize].stratptr = Some(tick);
+    }
+}
+
+/// ROM `hyperspaceout_Istrat` — shrinking hyper table then hyperspace_strat.
+pub fn hyperspaceout_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, hyperspaceout_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.sword1 = HYPER_SHAPE as i16;
+    al.sbyte1 = 64;
+}
+
+pub fn hyperspaceout_strat(g: &mut Game, idx: u16) {
+    let sb = g.objs.aliens[idx as usize].sbyte1;
+    if sb == 0 {
+        g.objs.aldead = 1;
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 = sb - 1;
+    // Shape table step: scale sbyte1>>4 into sword1 proxy — cosmetic shape swap scoped.
+    hyperspace_strat(g, idx);
 }
 
 // ============================================================
@@ -3291,6 +9659,9 @@ fn bomwing_fire(g: &mut Game, idx: u16, player_idx: u16) {
     );
     if let Some(shot) = shot {
         g.objs.aliens[shot as usize].ptr = strat_obj_index_or_null(player_idx);
+        // ROM `s_fire_weapon x,HPLASMA` → gen_weapon `jsl enemybattrysound_l`.
+        g.hooks
+            .make_snd(PosSndFamilyId::EnemyBattry, me.worldx, me.worldz);
     }
 }
 
@@ -3305,7 +9676,7 @@ fn bomwing_phase1(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.sbyte1 -= 1;
-        gen_vecs_2d(al);
+        strat_gen_vecs_nvecs(al); // s_gen_vecs → nvecs_l (GASTRATS.ASM:2528)
         apply_velocity(al);
     }
     bomwing_move_scroll_only(g, idx);
@@ -3337,6 +9708,11 @@ fn bomwing_phase2(g: &mut Game, idx: u16) {
     bomwing_move_scroll_only(g, idx);
 }
 
+/// C `bomwing_die` / `bomwingdie_Istrat` (strat_enemy.c:4271; GASTRATS.ASM:2578).
+pub fn bomwingdie_istrat(g: &mut Game, idx: u16) {
+    bomwing_die(g, idx);
+}
+
 /// C `bomwing_die` (strat_enemy.c:4271).
 fn bomwing_die(g: &mut Game, idx: u16) {
     if let Some(drop) = make_obj(g, SH_ITEM_5) {
@@ -3360,7 +9736,8 @@ pub fn strat_bomwing_init(g: &mut Game, idx: u16) {
         al.ap = BOMWING_AP;
         al.vel = BOMWING_SPEED;
         al.roty = DEG45;
-        al.collflags |= COLLTYPE_ENEMY1;
+        // ASM bomwing_Istrat (GASTRATS.ASM:2515-2523) sets no colltype.
+        // (Audit A Minor 9)
         al.collstratptr = Some(s_coll);
         al.expstratptr = Some(s_exp);
     }
@@ -3378,24 +9755,22 @@ fn tadpole_strat(g: &mut Game, idx: u16) {
     let state = g.objs.aliens[idx as usize].stratstate;
     match state {
         0 => {
-            {
-                let al = &mut g.objs.aliens[idx as usize];
-                if al.sflags2 & TADPOLE_SIDE_FLAG != 0 {
-                    let mut roty = al.roty;
-                    achase_angle(&mut roty, DEG90, 4);
-                    al.roty = roty;
-                    al.rotx = al.rotx.wrapping_sub(2);
-                } else {
-                    let mut roty = al.roty;
-                    achase_angle(&mut roty, DEG90.wrapping_neg(), 4);
-                    al.roty = roty;
-                    al.rotx = al.rotx.wrapping_add(2);
-                }
-                if al.sbyte1 == 0 {
-                    al.stratstate += 1;
-                } else {
-                    al.sbyte1 -= 1;
-                }
+            let al = &mut g.objs.aliens[idx as usize];
+            if al.sflags2 & TADPOLE_SIDE_FLAG != 0 {
+                let mut roty = al.roty;
+                achase_angle(&mut roty, DEG90, 4);
+                al.roty = roty;
+                al.rotx = al.rotx.wrapping_sub(2);
+            } else {
+                let mut roty = al.roty;
+                achase_angle(&mut roty, DEG90.wrapping_neg(), 4);
+                al.roty = roty;
+                al.rotx = al.rotx.wrapping_add(2);
+            }
+            if al.sbyte1 == 0 {
+                al.stratstate += 1;
+            } else {
+                al.sbyte1 -= 1;
             }
         }
         1 => {
@@ -3403,8 +9778,9 @@ fn tadpole_strat(g: &mut Game, idx: u16) {
             if let Some(pl) = pl {
                 strat_aim_3d(g, idx, &pl, 3);
                 let me = g.objs.aliens[idx as usize];
-                if ((me.worldz as i32 - pl.worldz as i32).abs() as i16) <= TADPOLE_FIRE_ZDIST
-                {
+                // ASM GA2STRAT.ASM:2937 `s_jmp_zdistmore #1500,.ntopl` skips fire
+                // when |dz|>=1500 — fire only when |dz|<1500. (Audit A Minor 3)
+                if ((me.worldz as i32 - pl.worldz as i32).abs() as i16) < TADPOLE_FIRE_ZDIST {
                     let (rx, ry) = (me.rotx, me.roty);
                     strat_fire_relslowlaserhome(g, idx, rx, ry);
                     g.objs.aliens[idx as usize].stratstate += 1;
@@ -3434,22 +9810,20 @@ fn tadpole_strat(g: &mut Game, idx: u16) {
             }
         }
         _ => {
-            {
-                let al = &mut g.objs.aliens[idx as usize];
-                al.rotz = al.rotz.wrapping_add(8);
-                al.rotx = al.rotx.wrapping_sub(1);
-                if al.count > 0 {
-                    al.count -= 1;
-                    if al.count == 0 {
-                        g.objs.aldead = 1;
-                        return;
-                    }
+            let al = &mut g.objs.aliens[idx as usize];
+            al.rotz = al.rotz.wrapping_add(8);
+            al.rotx = al.rotx.wrapping_sub(1);
+            if al.count > 0 {
+                al.count -= 1;
+                if al.count == 0 {
+                    g.objs.aldead = 1;
+                    return;
                 }
-                let _ = speed_to(al, TADPOLE_ESCAPE_SPEED, 1);
-                al.roty = al.roty.wrapping_sub(2);
-                if al.sflags2 & TADPOLE_SIDE_FLAG != 0 {
-                    al.roty = al.roty.wrapping_add(4);
-                }
+            }
+            let _ = speed_to(al, TADPOLE_ESCAPE_SPEED, 1);
+            al.roty = al.roty.wrapping_sub(2);
+            if al.sflags2 & TADPOLE_SIDE_FLAG != 0 {
+                al.roty = al.roty.wrapping_add(4);
             }
         }
     }
@@ -3507,7 +9881,8 @@ fn spacebarwalker_strat(g: &mut Game, idx: u16) {
     {
         let me = g.objs.aliens[idx as usize];
         let mut roty = me.roty;
-        achase_angle(&mut roty, angle_xz(&me, &pl), 1);
+        // ROM `s_obj2obj_angle` — Yanglexy+nega into body roty.
+        achase_angle(&mut roty, angle_xz(&me, &pl).wrapping_neg(), 1);
         g.objs.aliens[idx as usize].roty = roty;
     }
     let me = g.objs.aliens[idx as usize];
@@ -3518,6 +9893,7 @@ fn spacebarwalker_strat(g: &mut Game, idx: u16) {
         return;
     }
     let fire_pitch = strat_pitch_toward(&me, &pl);
+    // `s_weapon_rots2obj` uses Yanglexabs (no nega) — keep raw for fire.
     let fire_yaw = angle_xz(&me, &pl);
     let _ = spawn_projectile(
         g,
@@ -3532,6 +9908,9 @@ fn spacebarwalker_strat(g: &mut Game, idx: u16) {
         2,
         ACF_COLLTYPE4,
     );
+    // ROM `s_fire_weapon x,RELSLOWELASER` → gen_weapon `jsl lasersound_l`.
+    g.hooks
+        .make_snd(PosSndFamilyId::Laser, me.worldx, me.worldz);
 }
 
 /// C `Strat_Spacebarwalker_Init` (strat_enemy.c:4631).
@@ -3590,6 +9969,206 @@ pub fn strat_spacebarshoot_init(g: &mut Game, idx: u16) {
 }
 
 // ============================================================
+// STARBULL (GA2STRAT.ASM:40-119) — WP chase → face/fire → peel away.
+// ============================================================
+
+const STARBULL_HP: u8 = 16; // STRATEQU.INC:107
+const STARBULL_AP: u8 = 1; // STRATEQU.INC:108
+
+/// ROM `starbull_Istrat` (GA2STRAT.ASM:40-50).
+pub fn starbull_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, starbull_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = STARBULL_HP;
+        al.ap = STARBULL_AP;
+        al.collflags |= COLLTYPE_ZENEMY;
+        al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+                                // s_set_wp x,x,1,#0,#0,#0 — WP1 = self pos
+        al.swpx1 = al.worldx;
+        al.swpy1 = al.worldy;
+        al.swpz1 = al.worldz;
+        al.stratstate = 0;
+        al.snd2 = 2;
+    }
+}
+
+/// ROM `starbull_strat` (GA2STRAT.ASM:52-61): copy player→WP1, offset, chase.
+pub fn starbull_strat(g: &mut Game, idx: u16) {
+    if let Some(pl) = player(g) {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.swpx1 = pl.worldx;
+        al.swpy1 = pl.worldy;
+        al.swpz1 = pl.worldz;
+        al.swpz1 = al.swpz1.wrapping_add(1000); // al_sWPz1 += 1000
+        al.swpy1 = al.swpy1.wrapping_add(-50); // al_sWPy1 += -50
+    }
+    let (wx, wy, wz) = {
+        let al = &g.objs.aliens[idx as usize];
+        (al.swpx1, al.swpy1, al.swpz1)
+    };
+    // s_goto_wp x,x,1,#50,1,2,0,#500,#0,starbull2
+    if starbull_goto_wp(g, idx, wx, wy, wz) {
+        starbull2(g, idx);
+        return;
+    }
+    starbullc(g, idx);
+}
+
+/// `s_goto_wp` specialised: max50/accel1/chase2/skid0/mindist500/minspeed0.
+fn starbull_goto_wp(g: &mut Game, idx: u16, wx: i16, wy: i16, wz: i16) -> bool {
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let me = g.objs.aliens[idx as usize];
+    let dx = wx.wrapping_sub(me.worldx);
+    let dy = wy.wrapping_sub(me.worldy);
+    let dz = wz.wrapping_sub(me.worldz);
+    let rxz = (dx as i32).abs() + (dz as i32).abs();
+    let hwp = (dy as i32).abs();
+    let in_range = rxz < 500 && hwp < 500;
+    let reached = if in_range {
+        speed_to(&mut g.objs.aliens[idx as usize], 0, 2)
+    } else {
+        let _ = speed_to(&mut g.objs.aliens[idx as usize], 50, 1);
+        false
+    };
+    let me = g.objs.aliens[idx as usize];
+    let mut roty = me.roty;
+    let mut rotx = me.rotx;
+    achase_angle(&mut roty, sf_core::aim_angle::yanglexy_nega(dx, dz), 2);
+    achase_angle(&mut rotx, sf_core::aim_angle::xanglexabs(dy, dx, dz), 2);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = roty;
+        al.rotx = rotx;
+        gen_vecs_3d(al);
+    }
+    reached
+}
+
+/// Shared tail (GA2STRAT.ASM:65-86): scroll, spin when on fire.
+fn starbullc(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    // s_damagesmoke — cosmetic omitted
+    if g.objs.aliens[idx as usize].flags & AFONFIRE == 0 {
+        return;
+    }
+    // s_jmp_NOTdelay 1,.nns → next_state when (gf&1)==0
+    if g.vars.gameframe & 1 == 0 {
+        let s = g.objs.aliens[idx as usize].stratstate.wrapping_add(1);
+        g.objs.aliens[idx as usize].stratstate = if s <= 2 { s } else { 1 };
+    }
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_sub(8);
+    } else {
+        g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(8);
+    }
+}
+
+/// ROM `starbull2` (GA2STRAT.ASM:86-91): enable collide, face-player phase.
+fn starbull2(g: &mut Game, idx: u16) {
+    let tick = sid(g, stbfp_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags &= !ASF_COLLDISABLE;
+        al.stratptr = Some(tick);
+        al.sbyte1 = 20;
+        al.sflags2 &= !ASF2_SMFLAG1; // s_initface_player
+    }
+    starbullc(g, idx);
+}
+
+/// ROM `stbfp_strat` (GA2STRAT.ASM:93-107): face player then shoot burst.
+pub fn stbfp_strat(g: &mut Game, idx: u16) {
+    if starbull_face_player(g, idx, 2, 3) {
+        // .stbshoot — s_beqdec_alvar sbyte1,stbgo_init
+        let sb1 = g.objs.aliens[idx as usize].sbyte1;
+        if sb1 == 0 {
+            stbgo_init(g, idx);
+            return;
+        }
+        g.objs.aliens[idx as usize].sbyte1 = sb1 - 1;
+        // s_jmp_NOTdelay 2,.nfire
+        if g.vars.gameframe & 3 == 0 {
+            let yaw_off = ((sf_random(&mut g.vars) as u8) & 7).wrapping_sub(3);
+            let me = g.objs.aliens[idx as usize];
+            strat_fire_relslowlaser(g, idx, 0, me.roty.wrapping_add(yaw_off));
+        }
+        starbullc(g, idx);
+        return;
+    }
+    starbullc(g, idx);
+}
+
+fn starbull_face_player(g: &mut Game, idx: u16, chase: u32, delay_bits: u16) -> bool {
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SMFLAG1 != 0 {
+        let me = g.objs.aliens[idx as usize];
+        let mut roty = me.roty;
+        let yaw_aligned = achase_angle(&mut roty, me.sbyte3, chase);
+        let mut rotx = me.rotx;
+        let pitch_aligned = achase_angle(&mut rotx, me.sbyte4, chase);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.roty = roty;
+            al.rotx = rotx;
+        }
+        if yaw_aligned && pitch_aligned {
+            return true;
+        }
+    }
+    let gate = g.vars.gameframe & ((1u16 << delay_bits) - 1) == 0;
+    if gate || g.objs.aliens[idx as usize].sflags2 & ASF2_SMFLAG1 == 0 {
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_SMFLAG1;
+        if let Some(pl) = player(g) {
+            let me = g.objs.aliens[idx as usize];
+            // ROM `s_face_player` latch: `s_obj2obj_3Dangle` → sbyte3/4 (nega).
+            let yaw = angle_xz(&me, &pl).wrapping_neg();
+            let pitch = strat_pitch_toward(&me, &pl);
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sbyte3 = yaw;
+            al.sbyte4 = pitch;
+        }
+    }
+    false
+}
+
+/// ROM `stbgo_init` / `stbgo_strat` (GA2STRAT.ASM:109-119): peel away.
+pub fn stbgo_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, stbgo_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    stbgo_strat(g, idx);
+}
+
+/// ROM `stbgo_strat`.
+pub fn stbgo_strat(g: &mut Game, idx: u16) {
+    // s_remove_offscn: set zremove; if not inviewpl, remove.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.type_ |= ATZREMOVE;
+        if al.flags & 0x10 == 0 {
+            // not inviewpl
+            g.objs.aldead = 1;
+            return;
+        }
+    }
+    {
+        let mut roty = g.objs.aliens[idx as usize].roty;
+        achase_angle(&mut roty, 0, 2);
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = roty;
+        al.rotx = al.rotx.wrapping_sub(2);
+    }
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 120, 5);
+    gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    starbullc(g, idx);
+}
+
+// ============================================================
 // UP1MAN + ITEM0 (C strat_enemy.c:4682-4896)
 // ============================================================
 
@@ -3645,8 +10224,8 @@ fn item0_strat(g: &mut Game, idx: u16) {
         return;
     }
     g.hooks.play_se(0x0E);
-    let lives = g.vars.read_ext8(wm::LIVES);
-    g.vars.write_ext8(wm::LIVES, lives.wrapping_add(1));
+    let lives = g.vars.strategy.lives;
+    g.vars.strategy.lives = lives.wrapping_add(1);
     let mother = boss_child_from_index_raw(me.sword1 as u16);
     if let Some(m) = mother.filter(|&m| g.objs.aliens[m as usize].active) {
         up1man_remove_child_slot(g, m, 1);
@@ -3654,6 +10233,41 @@ fn item0_strat(g: &mut Game, idx: u16) {
         up1man_remove_child_slot(g, m, 4);
     }
     g.objs.aldead = 1;
+}
+
+/// Shared body for `up1manchild{1,2,3}_Istrat` (GASTRATS.ASM:2763-2786) and the
+/// mother spawn path — sets alptrs/HP/AP/offsets then runs the child strat.
+fn up1manchild_init(g: &mut Game, idx: u16, off_x: i8, off_y: i8, rot_off: u8) {
+    let s = sid(g, up1manchild_strat);
+    let s_coll = sid(g, up1manhit_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(s_coll);
+        al.expstratptr = None;
+        al.hp = HARD_HP;
+        al.ap = UP1MAN_AP;
+        al.collflags |= COLLTYPE_ENEMYWEAP;
+        al.sbyte2 = off_x as u8;
+        al.sbyte3 = off_y as u8;
+        al.sbyte4 = rot_off;
+    }
+    up1manchild_strat(g, idx);
+}
+
+/// ROM `up1manchild1_Istrat` (GASTRATS.ASM:2763).
+pub fn up1manchild1_istrat(g: &mut Game, idx: u16) {
+    up1manchild_init(g, idx, -80, 75, DEG45.wrapping_add(DEG90));
+}
+
+/// ROM `up1manchild2_Istrat` (GASTRATS.ASM:2771).
+pub fn up1manchild2_istrat(g: &mut Game, idx: u16) {
+    up1manchild_init(g, idx, 80, 75, DEG45.wrapping_add(DEG180));
+}
+
+/// ROM `up1manchild3_Istrat` (GASTRATS.ASM:2779).
+pub fn up1manchild3_istrat(g: &mut Game, idx: u16) {
+    up1manchild_init(g, idx, 0, -90, 0);
 }
 
 /// C `up1man_spawn_child` (strat_enemy.c:4750).
@@ -3666,25 +10280,11 @@ fn up1man_spawn_child(
     rot_off: u8,
 ) -> Option<u16> {
     let child = make_obj(g, SH_UP1_MAN_PROXY)?;
-    let s = sid(g, up1manchild_strat);
-    let s_coll = sid(g, up1manhit_istrat);
-    {
-        let al = &mut g.objs.aliens[child as usize];
-        al.stratptr = Some(s);
-        al.collstratptr = Some(s_coll);
-        al.expstratptr = None;
-        al.hp = HARD_HP;
-        al.ap = UP1MAN_AP;
-        al.collflags |= COLLTYPE_ENEMYWEAP;
-        al.sbyte2 = off_x as u8;
-        al.sbyte3 = off_y as u8;
-        al.sbyte4 = rot_off;
-    }
     if !boss_attach_child_to_mother(g, mother, child, child_num) {
         g.objs.free(child);
         return None;
     }
-    up1manchild_strat(g, child);
+    up1manchild_init(g, child, off_x, off_y, rot_off);
     Some(child)
 }
 
@@ -3773,11 +10373,8 @@ fn up1manchild_strat(g: &mut Game, idx: u16) {
         return;
     };
     let m = g.objs.aliens[mother as usize];
-    let s = strat_sin(m.rotz);
-    let c = strat_cos(m.rotz);
     let me = g.objs.aliens[idx as usize];
-    let off_x = ((me.sbyte2 as i8) as f32 * c - (me.sbyte3 as i8) as f32 * s) as i16;
-    let off_y = ((me.sbyte2 as i8) as f32 * s + (me.sbyte3 as i8) as f32 * c) as i16;
+    let (off_x, off_y) = crate::snes_trig::rotate_8yx(m.rotz, me.sbyte2 as i8, me.sbyte3 as i8);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldx = m.worldx.wrapping_add(off_x);
@@ -3842,7 +10439,7 @@ fn zacos_phase0(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].worldy >= target_y {
         if g.objs.aliens[idx as usize].rotx == 0 {
             let me = g.objs.aliens[idx as usize];
-            strat_fire_relslowlaser(g, idx, me.rotx, me.roty);
+            zacos_fire_relslowlaser(g, idx, me.rotx, me.roty);
             let s = sid(g, zacos_phase1);
             g.objs.aliens[idx as usize].stratptr = Some(s);
         } else {
@@ -3889,9 +10486,9 @@ fn zacos_phase2(g: &mut Game, idx: u16) {
         g.vars.gameframe & 3 == 0 // s_jmp_notdelay 2 -> .nfire
     };
     if fire {
-        // s_weapon_rot #0,#0 -> fire forward relative to object orientation.
+        // s_weapon_rot #0,#0 + s_weapon_pos #0,#0,#40>>weapon_scale → RELSLOWELASER
         let me = g.objs.aliens[idx as usize];
-        strat_fire_relslowlaser(g, idx, me.rotx, me.roty);
+        zacos_fire_relslowlaser(g, idx, me.rotx, me.roty);
     }
     if rotx == 4u8.wrapping_neg() {
         // s_jmp_alvarEQ B,x,al_rotx,#-4,zacos4_init
@@ -3906,6 +10503,1213 @@ fn zacos_phase3(g: &mut Game, idx: u16) {
     let _ = speed_to(&mut g.objs.aliens[idx as usize], 60, 1);
     szaco2_bank_to_player(g, idx);
     zacos_move(g, idx);
+}
+
+/// ROM `zacos_Istrat` — alias of [`strat_zacos_init`].
+pub fn zacos_istrat(g: &mut Game, idx: u16) {
+    strat_zacos_init(g, idx);
+}
+
+/// ROM `zacos_strat` — climb/pitch phase.
+pub fn zacos_strat(g: &mut Game, idx: u16) {
+    zacos_phase0(g, idx);
+}
+
+/// ROM `zacos_cont` — gen_3dvecs + addvecs + playerZ.
+pub fn zacos_cont(g: &mut Game, idx: u16) {
+    zacos_move(g, idx);
+}
+
+/// ROM `zacos2_init` — fire once then cruise until |dz|<2000.
+pub fn zacos2_init(g: &mut Game, idx: u16) {
+    let me = g.objs.aliens[idx as usize];
+    zacos_fire_relslowlaser(g, idx, me.rotx, me.roty);
+    let s = sid(g, zacos_phase1);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    zacos_phase1(g, idx);
+}
+
+/// ROM `zacos2_strat`.
+pub fn zacos2_strat(g: &mut Game, idx: u16) {
+    zacos_phase1(g, idx);
+}
+
+// ============================================================
+// HALFD (GA2STRAT.ASM:3201-3218) — hardHP door that opens when player near.
+// ============================================================
+
+/// ROM `halfd_Istrat` / `halfd_strat`.
+pub fn halfd_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, halfd_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+    }
+    halfd_strat(g, idx);
+}
+
+/// ROM `dpilar_Istrat` — same entry as `halfd_Istrat` (GA2STRAT.ASM:3200).
+pub fn dpilar_istrat(g: &mut Game, idx: u16) {
+    halfd_istrat(g, idx);
+}
+
+pub fn halfd_strat(g: &mut Game, idx: u16) {
+    let far = player(g).map_or(true, |p| {
+        (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() >= 700
+    });
+    if far {
+        // .close — reset anim when player is far.
+        g.objs.aliens[idx as usize].animframe = 0;
+    } else {
+        // .open — dooropen_snd cosmetic; advance anim to 9.
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.animframe != 9 {
+            al.animframe = (al.animframe + 1) % 10;
+        }
+    }
+}
+
+// ============================================================
+// POLE0 (GA2STRAT.ASM:3221-3266) — spinning hardHP pole; laser spins it.
+// ============================================================
+
+const POLE0_HF1: u8 = 0x01;
+const POLE0_HF2: u8 = 0x02;
+const POLE0_HF3: u8 = 0x04;
+
+/// ROM `pole0_Istrat`.
+pub fn pole0_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, pole0_strat);
+    let coll = sid(g, pole0col_istrat);
+    let spin = if jmp_random_pct(g, 50) {
+        3u8
+    } else {
+        (-3i8) as u8
+    };
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = None;
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.sbyte1 = spin;
+        al.sbyte2 = 0;
+    }
+}
+
+/// ROM `pole0_strat` — scroll +Z, spin by sbyte1, debounce sbyte2.
+pub fn pole0_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(30);
+        al.rotz = al.rotz.wrapping_add(al.sbyte1);
+        // s_beqdec_alvar sbyte2 — dec when non-zero (debounce).
+        if al.sbyte2 != 0 {
+            al.sbyte2 -= 1;
+        }
+    }
+}
+
+/// ROM `pole0col_Istrat` — HF2/HF3 nudge spin; HF1 ignore; debounce 6.
+pub fn pole0col_istrat(g: &mut Game, idx: u16) {
+    let hf = g.objs.aliens[idx as usize].hitflags;
+    if hf & POLE0_HF1 == 0 && g.objs.aliens[idx as usize].sbyte2 == 0 {
+        g.objs.aliens[idx as usize].sbyte2 = 6;
+        g.hooks.play_se(0x57);
+        if hf & POLE0_HF2 != 0 {
+            let s1 = g.objs.aliens[idx as usize].sbyte1 as i8;
+            if s1 >= 0 {
+                g.objs.aliens[idx as usize].sbyte1 = s1.wrapping_add(2) as u8;
+            } else {
+                g.objs.aliens[idx as usize].sbyte1 = 0;
+            }
+        } else if hf & POLE0_HF3 != 0 {
+            let s1 = g.objs.aliens[idx as usize].sbyte1 as i8;
+            if s1 == 0 || s1 < 0 {
+                g.objs.aliens[idx as usize].sbyte1 = s1.wrapping_sub(2) as u8;
+            } else {
+                g.objs.aliens[idx as usize].sbyte1 = 0;
+            }
+        }
+    }
+    g.objs.aliens[idx as usize].hitflags = 0;
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    jmpto_strat(g, idx);
+}
+
+// ============================================================
+// GROUNDPILON (GA2STRAT.ASM:3298-3367) — falling/stacking training pillar.
+// ============================================================
+
+const GROUNDPILON_HP: u8 = 16;
+const GROUNDPILON_AP: u8 = 1;
+const GROUNDPILON_LAND_Y: i16 = -35;
+const GROUNDPILON_STACK_GAP: i16 = 70;
+
+pub fn groundpilon_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, groundpilon_strat);
+    let hit = sid(g, strat_hit_flash);
+    let explode = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(hit);
+    al.expstratptr = Some(explode);
+    al.hp = GROUNDPILON_HP;
+    al.ap = GROUNDPILON_AP;
+    al.sbyte1 = GROUNDPILON_HP;
+    groundpilon_strat(g, idx);
+}
+
+pub fn groundpilon_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].hp != g.objs.aliens[idx as usize].sbyte1 {
+        let hp = g.objs.aliens[idx as usize].hp;
+        let random_x = (sf_random(&mut g.vars) & 15) as i16 - 7;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = hp;
+        al.vx = random_x;
+        al.vy = -60;
+        al.vz = 80;
+        g.hooks.play_se(20);
+    }
+
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+
+    if g.objs.aliens[idx as usize].worldy >= GROUNDPILON_LAND_Y {
+        let had_shadow = g.objs.aliens[idx as usize].sflags & ASF_SHADOW != 0;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = 0;
+        al.rotx = 0;
+        al.vx = 0;
+        al.vy = 0;
+        al.vz = 0;
+        al.sflags &= !ASF_SHADOW;
+        if had_shadow {
+            g.hooks.play_se(134);
+        }
+        return;
+    }
+
+    g.objs.aliens[idx as usize].sflags &= !ASF_SHADOW;
+    if g.objs.aliens[idx as usize].vy >= 0 {
+        let me = g.objs.aliens[idx as usize];
+        let support = g.objs.active_indices().into_iter().find(|&other| {
+            if other == idx {
+                return false;
+            }
+            let candidate = g.objs.aliens[other as usize];
+            candidate.shape == sh::PILON
+                && candidate.worldy >= me.worldy
+                && (candidate.worldx as i32 - me.worldx as i32).abs()
+                    + (candidate.worldz as i32 - me.worldz as i32).abs()
+                    < GROUNDPILON_STACK_GAP as i32
+                && (candidate.worldy as i32 - me.worldy as i32).abs() < GROUNDPILON_STACK_GAP as i32
+        });
+        if let Some(support) = support {
+            let support_y = g.objs.aliens[support as usize].worldy;
+            let had_shadow = g.objs.aliens[idx as usize].sflags & ASF_SHADOW != 0;
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldy = support_y.wrapping_sub(GROUNDPILON_STACK_GAP);
+            al.rotx = 0;
+            al.vx = 0;
+            al.vy = 0;
+            al.vz = 0;
+            al.sflags &= !ASF_SHADOW;
+            if had_shadow {
+                g.hooks.play_se(134);
+            }
+            return;
+        }
+    }
+
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sflags |= ASF_SHADOW;
+    al.vy = al.vy.wrapping_add(5);
+    if al.vz != 0 {
+        al.rotx = al.rotx.wrapping_add(10);
+        al.roty = al.roty.wrapping_add(5);
+    }
+}
+
+// ============================================================
+// KAMI (GASTRATS.ASM:1744-1810) — weaving kamikaze → die dive → hardHP chase.
+// ============================================================
+
+const KAMI_HP: u8 = 4;
+const KAMI_AP: u8 = 8;
+
+/// ROM `kami_Istrat`.
+pub fn kami_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, kami_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, kamidie_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = KAMI_HP;
+        al.ap = KAMI_AP;
+        al.vel = 20;
+        al.sbyte1 = sf_random(&mut g.vars) as u8;
+        al.collflags |= COLLTYPE_ZENEMY;
+    }
+}
+
+/// ROM `kami_strat` — sintab weave on vx; derive yaw/roll from vx low byte.
+pub fn kami_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = al.sbyte1.wrapping_add(2);
+        al.vz = -14;
+        al.vy = 1;
+        al.vx = bee_tab_scaled(al.sbyte1, false, -3);
+        let vx_lo = al.vx as u8;
+        al.roty = vx_lo.wrapping_shl(2).wrapping_add(DEG180);
+        al.rotz = vx_lo.wrapping_shl(1).wrapping_add(DEG90);
+    }
+    kami_cont(g, idx);
+}
+
+/// ROM `kami_cont`.
+pub fn kami_cont(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `kamiDIE_Istrat` — med-exp flash then dive strat.
+pub fn kamidie_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, kamidie_strat);
+    g.objs.aliens[idx as usize].expstratptr = Some(tick);
+    // makeMEDexpobj_srou — cosmetic flash (optional).
+    let _ = make_medium_exp_obj(g, idx);
+    kamidie_strat(g, idx);
+}
+
+/// ROM `kamiDIE_strat` — smoke + dive until y>=-100 → kamigo.
+pub fn kamidie_strat(g: &mut Game, idx: u16) {
+    if g.vars.gameframe & 1 == 0 {
+        let _ = crate::common::makesmoke_srou(g, idx);
+    }
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 40, 1);
+    // s_jmp_lower x,#-100,kamigo_init — when worldy >= -100.
+    if g.objs.aliens[idx as usize].worldy >= -100 {
+        kamigo_init(g, idx);
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_jmp_alvarMORE B,x,al_rotx,#deg45,.maxx — SIGNED (STRATMAC.INC):
+        // add +4 while (i8)rotx <= deg45.
+        if (al.rotx as i8) <= DEG45 as i8 {
+            al.rotx = al.rotx.wrapping_add(4);
+        }
+        gen_vecs_3d(al);
+        al.rotz = al.rotz.wrapping_add(4);
+    }
+    kami_cont(g, idx);
+}
+
+/// ROM `kamiGO_init` / `kamiGO_strat` — hardHP chase.
+pub fn kamigo_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, kamigo_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.hp = HARD_HP;
+    }
+    kamigo_strat(g, idx);
+}
+
+pub fn kamigo_strat(g: &mut Game, idx: u16) {
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 80, 1);
+    g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(4);
+    if g.vars.gameframe & 3 == 0 {
+        let _ = crate::common::makesmoke_srou(g, idx);
+    }
+    let close = player(g).map_or(false, |p| {
+        (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() < 400
+    });
+    if close {
+        kami_cont(g, idx);
+        return;
+    }
+    if let Some(p) = player(g) {
+        strat_aim_3d(g, idx, &p, 3);
+        gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    }
+    kami_cont(g, idx);
+}
+
+// ============================================================
+// EVADER (GASTRATS.ASM:1499-1555) — dodge to random offset WPs; fire when aimed.
+// ============================================================
+
+const EVADER_HP: u8 = 8;
+const EVADER_AP: u8 = 4;
+const EVADER_X_POS: [i16; 4] = [-400, 400, -100, 100];
+const EVADER_Y_POS: [i16; 4] = [-300, -200, -100, -50];
+const EVADER_Z_POS: [i16; 4] = [1000, 800, 1600, 1200];
+
+/// ROM `evader_Istrat` — arm then pick a random offset WP.
+pub fn evader_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, evader_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = EVADER_HP;
+        al.ap = EVADER_AP;
+        al.collflags |= COLLTYPE_ZENEMY;
+    }
+    evader_new_pos(g, idx);
+}
+
+/// Pick random X/Y/Z offsets into swp*1 / sword1; switch to A phase.
+fn evader_new_pos(g: &mut Game, idx: u16) {
+    let ix = ((sf_random(&mut g.vars) as u8) & 3) as usize;
+    let iy = ((sf_random(&mut g.vars) as u8) & 3) as usize;
+    let iz = ((sf_random(&mut g.vars) as u8) & 3) as usize;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.swpx1 = EVADER_X_POS[ix];
+        al.swpy1 = EVADER_Y_POS[iy];
+        al.sword1 = EVADER_Z_POS[iz];
+    }
+    let tick = sid(g, evadera_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+}
+
+/// ROM `evaderA_strat` — fly to player_z + sword1 at (swpx1, swpy1).
+pub fn evadera_strat(g: &mut Game, idx: u16) {
+    let (wx, wy, wz) = {
+        let al = &g.objs.aliens[idx as usize];
+        let pz = player(g).map(|p| p.worldz).unwrap_or(0);
+        (al.swpx1, al.swpy1, pz.wrapping_add(al.sword1))
+    };
+    // s_goto_wp x,x,1,#50,8,3,0,#500,#0,evader_init
+    if evader_goto_wp(g, idx, wx, wy, wz) {
+        evader_init(g, idx);
+        return;
+    }
+    evader_cont(g, idx);
+}
+
+/// `s_goto_wp` specialised: max50/accel8/chase3/skid0/mindist500/minspeed0.
+/// Returns true when in range and speed reached 0 (→ evader_init).
+fn evader_goto_wp(g: &mut Game, idx: u16, wx: i16, wy: i16, wz: i16) -> bool {
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    let me = g.objs.aliens[idx as usize];
+    let dx = wx.wrapping_sub(me.worldx);
+    let dy = wy.wrapping_sub(me.worldy);
+    let dz = wz.wrapping_sub(me.worldz);
+    let rxz = (dx as i32).abs() + (dz as i32).abs();
+    let hwp = (dy as i32).abs();
+    let in_range = rxz < 500 && hwp < 500;
+    let reached = if in_range {
+        speed_to(&mut g.objs.aliens[idx as usize], 0, 2)
+    } else {
+        let _ = speed_to(&mut g.objs.aliens[idx as usize], 50, 8);
+        false
+    };
+    let me = g.objs.aliens[idx as usize];
+    let mut roty = me.roty;
+    let mut rotx = me.rotx;
+    // s_obj2WP_angle: nega(Yanglexy) + Xanglexabs
+    achase_angle(&mut roty, sf_core::aim_angle::yanglexy_nega(dx, dz), 3);
+    achase_angle(&mut rotx, sf_core::aim_angle::xanglexabs(dy, dx, dz), 3);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.roty = roty;
+        al.rotx = rotx;
+        // skid=0 → gen from roty directly.
+        gen_vecs_3d(al);
+    }
+    reached
+}
+
+/// ROM `evader_init` — switch to aim/fire strat.
+pub fn evader_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, evader_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    evader_strat(g, idx);
+}
+
+/// ROM `evader_strat` — aim at player; fire home laser when aligned.
+pub fn evader_strat(g: &mut Game, idx: u16) {
+    let aligned = if let Some(p) = player(g) {
+        let me = g.objs.aliens[idx as usize];
+        let mut roty = me.roty;
+        let mut rotx = me.rotx;
+        // ROM `s_obj2obj_3dangle` into body rots — Yanglexy+nega.
+        let yaw_aligned = achase_angle(&mut roty, angle_xz(&me, &p).wrapping_neg(), 3);
+        let pitch_aligned = achase_angle(&mut rotx, strat_pitch_toward(&me, &p), 3);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.roty = roty;
+            al.rotx = rotx;
+        }
+        yaw_aligned && pitch_aligned
+    } else {
+        false
+    };
+    if aligned && g.vars.gameframe & 7 == 0 {
+        // s_jmp_NOTdelay 3 — fire when (gf&7)==0; weapon_rot #0,#0 = object aim.
+        let me = g.objs.aliens[idx as usize];
+        strat_fire_relslowlaserhome(g, idx, me.rotx, me.roty);
+    }
+    evader_cont(g, idx);
+}
+
+/// ROM `evader_cont` — playerZ; dodge if player laser nearby.
+pub fn evader_cont(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    // s_find_nearobj y,x,#elaser2,#0,#350 → if found, pick new WP.
+    if strat_find_near_shape(g, idx, SHAPE_ELASER2, None, 350, 350).is_some() {
+        evader_new_pos(g, idx);
+    }
+}
+
+// ============================================================
+// TRUCK1 / TRUCK2 (GA2STRAT.ASM:2490-2527) — air trucks.
+// ============================================================
+
+const AIRTRUCK_HP: u8 = 16;
+const TRUCK_AP: u8 = 8;
+
+/// ROM `truck1_Istrat` / `truck1_strat` — drift toward camera.
+pub fn truck1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, truck1_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = AIRTRUCK_HP;
+        al.ap = TRUCK_AP;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.count = 60;
+        al.snd2 = 0x04;
+    }
+}
+
+pub fn truck1_strat(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(35);
+}
+
+/// ROM `truck2_Istrat` / `truck2_strat` — drunk weave via sintab.
+pub fn truck2_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, truck2_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = AIRTRUCK_HP;
+        al.ap = TRUCK_AP;
+        al.vel = 60;
+        al.sbyte1 = 50;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.snd2 = 0x04;
+    }
+}
+
+pub fn truck2_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_set_alvar2alvartab B,B,B,...,SINtab,-2 → low byte of scaled sintab.
+        al.roty = bee_tab_scaled(al.sbyte1, false, -2) as u8;
+        al.sbyte1 = al.sbyte1.wrapping_add(6);
+        let mut skidy = al.skidy;
+        achase_angle(&mut skidy, al.roty, 3);
+        al.skidy = skidy;
+        let saved = al.roty;
+        al.roty = al.skidy;
+        gen_vecs_3d(al);
+        al.roty = saved;
+        al.vz = -35;
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+// ============================================================
+// HARDENEMY1 / HARD90YRFOG (GSTRATS / KSTRATS hardvars stubs)
+// ============================================================
+
+/// ROM `hardenemy1_Istrat` (GSTRATS.ASM:639-646) — enemy1 coll + hardvars, inert.
+pub fn hardenemy1_istrat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.collflags |= COLLTYPE_ENEMY1;
+    set_hard_vars(al);
+    al.stratptr = None;
+}
+
+/// ROM `fog_strat` (KSTRATS.ASM:347-349) — `s_dofog` is a render cosmetic; no-op here.
+pub fn fog_strat(_g: &mut Game, _idx: u16) {}
+
+/// ROM `hard90YRfog_Istrat` (KSTRATS.ASM:333-338) — face 180°, hardvars, fog tick.
+pub fn hard90yrfog_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, fog_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.roty = DEG180;
+    set_hard_vars(al);
+    al.stratptr = Some(tick);
+}
+
+// ============================================================
+// SHARK (GASTRATS.ASM:1686-1745) — aim at player, anim, mine-drop climb, dash.
+// ============================================================
+
+const SHARK_HP: u8 = 4;
+const SHARK_AP: u8 = 6;
+
+/// ROM `shark_Istrat`.
+pub fn shark_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, shark_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = SHARK_HP;
+        al.ap = SHARK_AP;
+        al.collflags |= COLLTYPE_ENEMYWEAP | COLLTYPE_ENEMY1 | COLLTYPE_ZENEMY;
+        // s_set_alvar W,x,al_ptr,playpt — player slot 0.
+        al.ptr = 0;
+        al.animframe = 0;
+    }
+}
+
+/// ROM `shark_strat` — advance anim to 15; at |dz|<1100 → sharka, else aim/move.
+pub fn shark_strat(g: &mut Game, idx: u16) {
+    // s_jmp_notdelay 1,.nmax — every other frame.
+    if frame_tick_mod(g, 1) {
+        let af = g.objs.aliens[idx as usize].animframe;
+        if af != 15 {
+            // s_add_anim x,#1,#16
+            g.objs.aliens[idx as usize].animframe = af.wrapping_add(1) % 16;
+        }
+    }
+    let target = shark_target(g, idx);
+    let dz_close = target.map_or(false, |t| {
+        (g.objs.aliens[idx as usize].worldz as i32 - t.worldz as i32).abs() < 1100
+    });
+    if dz_close {
+        sharka_init(g, idx);
+        return;
+    }
+    shark_cont2(g, idx);
+}
+
+fn shark_target(g: &Game, idx: u16) -> Option<Alien> {
+    let ptr = g.objs.aliens[idx as usize].ptr as usize;
+    if ptr < NUMBER_AL && g.objs.aliens[ptr].active {
+        Some(g.objs.aliens[ptr])
+    } else {
+        player(g)
+    }
+}
+
+/// ROM `shark_cont2` — aim when |dz|>=500, then cont.
+pub fn shark_cont2(g: &mut Game, idx: u16) {
+    if let Some(t) = shark_target(g, idx) {
+        let dz = (g.objs.aliens[idx as usize].worldz as i32 - t.worldz as i32).abs();
+        if dz >= 500 {
+            strat_aim_3d(g, idx, &t, 3);
+        }
+    }
+    shark_cont(g, idx);
+}
+
+/// ROM `shark_cont` — gen 3dvecs + playerZ + addvecs.
+pub fn shark_cont(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_3d(al);
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `sharka_init` — mine-drop climb phase.
+pub fn sharka_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, sharka_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sbyte1 = 30;
+        // s_set_alvar2rnd x,al_sbyte2,#15 ; s_sub #7 → [-7,+8]
+        al.sbyte2 = ((sf_random(&mut g.vars) as u8) & 15).wrapping_sub(7);
+    }
+    sharka_strat(g, idx);
+}
+
+/// ROM `sharka_strat` — climb + drop mines; then dash.
+pub fn sharka_strat(g: &mut Game, idx: u16) {
+    // s_beqdec_alvar B,x,al_sbyte1,.dash — TEST-then-DEC.
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        // .dash
+        let _ = speed_to(&mut g.objs.aliens[idx as usize], 50, 1);
+        shark_cont2(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 40, 2);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotx = al.rotx.wrapping_sub(4);
+        al.roty = al.roty.wrapping_add(al.sbyte2);
+    }
+    // s_jmp_NOtdelay 2,.nfire,al1pt
+    if (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & 3 == 0 {
+        shark_drop_mine(g, idx);
+    }
+    shark_cont(g, idx);
+}
+
+/// Drop a `mine0` at shark position (GASTRATS.ASM:1732-1735).
+/// Inlined (enemies_ground↔enemy_a would cycle) — same fields as `mine0_init`.
+fn shark_drop_mine(g: &mut Game, shark_idx: u16) {
+    let Some(mine) = make_obj(g, 0) else {
+        return;
+    };
+    let (x, y, z) = {
+        let s = &g.objs.aliens[shark_idx as usize];
+        (s.worldx, s.worldy, s.worldz)
+    };
+    let tick = sid(g, shark_mine0_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let rotz = sf_random(&mut g.vars) as u8;
+    {
+        let al = &mut g.objs.aliens[mine as usize];
+        al.worldx = x;
+        al.worldy = y;
+        al.worldz = z;
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = 2; // mine0HP
+        al.ap = 10; // mine0AP
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.rotz = rotz;
+    }
+}
+
+fn shark_mine0_strat(_g: &mut Game, _idx: u16) {}
+
+// ============================================================
+// FZACO (GASTRATS.ASM:811-870) — friend zaco: brake → aim/fire → climb out.
+// ============================================================
+
+const FZACO_HP: u8 = 4;
+const FZACO_AP: u8 = 8;
+
+/// ROM `fzaco_Istrat`.
+pub fn fzaco_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, fzaco_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let (px, py) = (g.vars.player_posx, g.vars.player_posy);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = FZACO_HP;
+        al.ap = FZACO_AP;
+        al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+        al.vel = 50;
+        al.roty = DEG22;
+        al.rotx = 0u8.wrapping_sub(DEG5); // #-deg5
+        al.worldx = al.worldx.wrapping_add(px);
+        al.worldy = al.worldy.wrapping_add(py);
+        al.collflags |= COLLTYPE_ENEMYWEAP;
+    }
+}
+
+/// ROM `fzaco_strat` / `Fzaco_strat` — brake to 0 then fzaco2.
+pub fn fzaco_strat(g: &mut Game, idx: u16) {
+    if speed_to(&mut g.objs.aliens[idx as usize], 0, 1) {
+        fzaco2_init(g, idx);
+        return;
+    }
+    fzaco_cont(g, idx);
+}
+
+/// ROM `fzaco2_init`.
+pub fn fzaco2_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, fzaco2_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sbyte2 = 60;
+    }
+    fzaco2_strat(g, idx);
+}
+
+/// ROM `fzaco2_strat` — aim + fire when facing neg-Z; then fzaco3.
+pub fn fzaco2_strat(g: &mut Game, idx: u16) {
+    if let Some(p) = player(g) {
+        strat_aim_3d(g, idx, &p, 3);
+    }
+    // s_jmpNOT_objpointnegZ → fire only when roty in [96,160].
+    let roty = g.objs.aliens[idx as usize].roty;
+    let facing_neg_z = (DEG180 - DEG45..=DEG180 + DEG45).contains(&roty);
+    if facing_neg_z && (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & 0x0F == 0 {
+        let me = g.objs.aliens[idx as usize];
+        // s_weapon_rot #0,#0 — fire along object aim.
+        strat_fire_relslowlaser(g, idx, me.rotx, me.roty);
+    }
+    // s_beqdec_alvar B,x,al_sbyte2,fzaco3_init
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        fzaco3_init(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte2 -= 1;
+    fzaco_cont(g, idx);
+}
+
+/// ROM `fzaco3_init`.
+pub fn fzaco3_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, fzaco3_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.type_ |= ATZREMOVE; // s_setremove_behind
+    }
+    fzaco3_strat(g, idx);
+}
+
+/// ROM `fzaco3_strat` — speed up + peel when close.
+pub fn fzaco3_strat(g: &mut Game, idx: u16) {
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 50, 1);
+    if let Some(p) = player(g) {
+        let dz = (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs();
+        if dz < 500 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.rotx = al.rotx.wrapping_sub(1);
+            al.roty = al.roty.wrapping_sub(1);
+        }
+    }
+    fzaco_cont(g, idx);
+}
+
+/// ROM `fzaco_cont` — sintab/costab orbit offset then cont2.
+pub fn fzaco_cont(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let tpx = bee_tab_scaled(al.sbyte1, false, -3); // sintab,-3
+        let tpy = bee_tab_scaled(al.sbyte1, true, -3); // costab,-3
+        al.worldx = al.worldx.wrapping_add(tpx);
+        al.worldy = al.worldy.wrapping_add(tpy);
+        al.sbyte1 = al.sbyte1.wrapping_add(6);
+    }
+    fzaco_cont2(g, idx);
+}
+
+/// ROM `fzaco_cont2` — gen 3dvecs + addvecs + playerZ.
+pub fn fzaco_cont2(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+// ============================================================
+// AIRCAR1–5 (GA2STRAT.ASM:2265-2490) — colony air cars.
+// ============================================================
+
+const AIRCAR_HP: u8 = 10;
+const AIRCAR_AP: u8 = 10;
+const COLONY_MAX_X: i16 = 120; // STRATEQU.INC:675
+const AIRCAR_BARRIER_HP: u8 = 6;
+const AIRCAR_BARRIER_AP: u8 = 12;
+
+fn aircar_arm(g: &mut Game, idx: u16, tick: StrategyFn) {
+    let s = sid(g, tick);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(s);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = AIRCAR_HP;
+    al.ap = AIRCAR_AP;
+    al.collflags |= COLLTYPE_ENEMY1;
+    al.snd2 = 0x0F;
+}
+
+/// ROM `aircar1_Istrat` — side approach, skid, stop.
+pub fn aircar1_istrat(g: &mut Game, idx: u16) {
+    aircar_arm(g, idx, aircar1_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = 0u8.wrapping_sub(DEG90);
+        al.sbyte1 = 25;
+        al.roty = 1;
+        crate::common::init_colanim(al, 0);
+    }
+}
+
+/// ROM `aircar1_strat`.
+pub fn aircar1_strat(g: &mut Game, idx: u16) {
+    // s_beqdec_alvar sbyte1,.stop — TEST-then-DEC.
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            crate::common::init_colanim(al, 1);
+            let mut rz = al.rotz;
+            achase_angle(&mut rz, 0, 3);
+            al.rotz = rz;
+        }
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+    let (px, py) = (g.vars.player_posx, g.vars.player_posy);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.sbyte1 > 15 {
+            let mut rz = al.rotz;
+            achase_angle(&mut rz, 0, 3);
+            al.rotz = rz;
+        } else {
+            al.sflags |= ASF_SHADOW;
+            al.rotz = al.rotz.wrapping_add(1);
+        }
+        al.worldx = chase_proportional(al.worldx, px, 3);
+        al.worldy = chase_proportional(al.worldy, py, 3);
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `aircar2_Istrat` — from behind, stop, drop barrier, peel away.
+pub fn aircar2_istrat(g: &mut Game, idx: u16) {
+    aircar_arm(g, idx, aircar2_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = 0u8.wrapping_sub(DEG90);
+        al.sbyte1 = 50;
+        al.stratstate = 0;
+        crate::common::init_colanim(al, 0);
+    }
+}
+
+/// ROM `aircar2_strat`.
+pub fn aircar2_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        let px = g.vars.player_posx;
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            let mut rz = al.rotz;
+            achase_angle(&mut rz, 0, 4);
+            al.rotz = rz;
+            al.worldx = chase_proportional(al.worldx, px, 4);
+            al.worldz = al.worldz.wrapping_add(20);
+        }
+        add_player_z(g, idx);
+        // s_decbne_alvar sbyte1,.nsto — DEC-then-BNE: stay in state0 while !=0.
+        let s1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = s1;
+        if s1 != 0 {
+            return;
+        }
+        aircar2_drop_barrier(g, idx);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.stratstate = al.stratstate.wrapping_add(1);
+            al.vx = 0;
+            al.vy = 0;
+            al.vz = -30;
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.rotz = al.rotz.wrapping_add(1);
+            al.roty = al.roty.wrapping_add(1);
+        }
+        add_player_z(g, idx);
+        apply_velocity(&mut g.objs.aliens[idx as usize]);
+        if g.objs.aliens[idx as usize].vx != -10 {
+            g.objs.aliens[idx as usize].vx = g.objs.aliens[idx as usize].vx.wrapping_sub(1);
+        }
+    }
+}
+
+/// Drop barrier at car (inline of `barrier_istrat` — bosses↔enemy_a cycle).
+fn aircar2_drop_barrier(g: &mut Game, car: u16) {
+    let Some(b) = make_obj(g, 0) else {
+        return;
+    };
+    let (x, y, z, rx, ry, rz) = {
+        let c = &g.objs.aliens[car as usize];
+        (c.worldx, c.worldy, c.worldz, c.rotx, c.roty, c.rotz)
+    };
+    let tick = sid(g, aircar_barrier_idle);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[b as usize];
+        al.worldx = x;
+        al.worldy = y;
+        al.worldz = z;
+        al.rotx = rx;
+        al.roty = ry;
+        al.rotz = rz;
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = AIRCAR_BARRIER_HP;
+        al.ap = AIRCAR_BARRIER_AP;
+        al.collflags |= COLLTYPE_ENEMY1;
+        // s_make_immune — mutual immuneptr.
+        al.immuneptr = car;
+    }
+    g.objs.aliens[car as usize].immuneptr = b;
+}
+
+fn aircar_barrier_idle(_g: &mut Game, _idx: u16) {}
+
+/// ROM `aircar3_Istrat` — maniac weave from the left.
+pub fn aircar3_istrat(g: &mut Game, idx: u16) {
+    aircar_arm(g, idx, aircar3_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vel = 40;
+        al.sbyte1 = 50;
+        al.sflags |= ASF_SHADOW;
+        al.rotz = 0u8.wrapping_sub(DEG90);
+        al.stratstate = 0;
+        al.sword1 = 0;
+        crate::common::init_colanim(al, 0);
+    }
+}
+
+/// ROM `aircar3_strat`.
+pub fn aircar3_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            let mut rz = al.rotz;
+            achase_angle(&mut rz, 0, 4);
+            al.rotz = rz;
+            al.worldx = chase_proportional(al.worldx, 0, 4);
+        }
+        // s_decbne_alvar sbyte1,.nchp
+        let s1 = g.objs.aliens[idx as usize].sbyte1.wrapping_sub(1);
+        g.objs.aliens[idx as usize].sbyte1 = s1;
+        if s1 == 0 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.stratstate = 1;
+            al.sbyte1 = 0;
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.roty = bee_tab_scaled(al.sbyte1, false, -2) as u8;
+            al.sbyte1 = al.sbyte1.wrapping_add(5);
+            al.rotz = bee_tab_scaled(al.sbyte1, false, -3) as u8;
+            al.sword1 = al.sword1.wrapping_add(5);
+            if al.sword1 >= 256 + 64 {
+                al.stratstate = 2;
+                al.count = 40; // s_set_lifecnt #40
+            }
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == 2 {
+        let _ = speed_to(&mut g.objs.aliens[idx as usize], 50, 1);
+        aircar_dec_lifecnt(g, idx);
+        if frame_tick_mod(g, 1) {
+            g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_sub(1);
+        }
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        let mut skidy = al.skidy;
+        achase_angle(&mut skidy, al.roty, 3);
+        al.skidy = skidy;
+        let saved = al.roty;
+        al.roty = al.skidy;
+        gen_vecs_3d(al);
+        al.roty = saved;
+        al.vz = 12;
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `aircar4_Istrat` — idle then speed up when player near.
+pub fn aircar4_istrat(g: &mut Game, idx: u16) {
+    aircar_arm(g, idx, aircar4_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_SHADOW;
+        crate::common::init_colanim(al, 1);
+        al.count = 60;
+        al.sflags2 &= !ASF2_SFLAG1;
+    }
+}
+
+/// ROM `aircar4_strat`.
+pub fn aircar4_strat(g: &mut Game, idx: u16) {
+    {
+        let px = g.vars.player_posx;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = chase_proportional(al.worldx, px, 4);
+    }
+    let dz = player(g).map_or(i32::MAX, |p| {
+        (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs()
+    });
+    if dz >= 600 {
+        let py = g.vars.player_posy;
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldy = chase_proportional(al.worldy, py, 4);
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        if dz < 400 {
+            let al = &mut g.objs.aliens[idx as usize];
+            crate::common::init_colanim(al, 0);
+            al.sflags2 |= ASF2_SFLAG1;
+        }
+    }
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+        // s_speedto #medpspeed+15,5,.go — MEDPSPEED=65 → 80.
+        if speed_to(
+            &mut g.objs.aliens[idx as usize],
+            MEDPSPEED_I16 as u8 + 15,
+            5,
+        ) {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.roty = al.roty.wrapping_add(1);
+                al.rotz = al.rotz.wrapping_add(1);
+            }
+            aircar_dec_lifecnt(g, idx);
+        }
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+}
+
+/// ROM `aircar5_Istrat` — from left, hit colony wall, tumble.
+pub fn aircar5_istrat(g: &mut Game, idx: u16) {
+    aircar_arm(g, idx, aircar5_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vel = 40;
+        al.sbyte1 = 50;
+        al.sflags |= ASF_SHADOW;
+        al.rotz = DEG90;
+        al.roty = 0u8.wrapping_sub(DEG22);
+        al.stratstate = 0;
+        crate::common::init_colanim(al, 0);
+    }
+}
+
+/// ROM `aircar5_strat`.
+pub fn aircar5_strat(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].stratstate == 0 {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            let mut rz = al.rotz;
+            achase_angle(&mut rz, 0, 4);
+            al.rotz = rz;
+        }
+        // s_jmp_alvarless W,x,al_worldx,#colony_maxX-20,.nchp
+        if g.objs.aliens[idx as usize].worldx >= COLONY_MAX_X - 20 {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.stratstate = 1;
+                al.vx = -5;
+                al.vy = -10;
+                al.vz = -20;
+                al.rotz = DEG11;
+                al.sbyte1 = 16;
+            }
+            if let Some(exp) = make_small_exp_obj(g, idx) {
+                g.objs.aliens[exp as usize].worldx = COLONY_MAX_X;
+            }
+        }
+    }
+    if g.objs.aliens[idx as usize].stratstate == 1 {
+        // s_jmp_notdelay 1,.cadd ; s_beqdec sbyte1,.nd ; .cadd chase roty + add rotz
+        let do_cadd = if frame_tick_mod(g, 1) {
+            if g.objs.aliens[idx as usize].sbyte1 == 0 {
+                false
+            } else {
+                g.objs.aliens[idx as usize].sbyte1 -= 1;
+                true
+            }
+        } else {
+            true // .cadd when notdelay skips the beqdec
+        };
+        if do_cadd {
+            let al = &mut g.objs.aliens[idx as usize];
+            let mut ry = al.roty;
+            achase_angle(&mut ry, DEG22, 2);
+            al.roty = ry;
+            al.rotz = al.rotz.wrapping_add(al.sbyte1);
+        }
+        // s_falldown_Yvec x,1,#2,#-25
+        let _ = aircar_falldown_yvec(&mut g.objs.aliens[idx as usize], 1, 2, -25);
+    } else {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            gen_vecs_3d(al);
+            al.vx <<= 1; // s_scale_alvar W,x,al_vx,1
+            al.vz = 20;
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    add_player_z(g, idx);
+}
+
+fn aircar_falldown_yvec(al: &mut Alien, shift: u32, gravity: i16, ground: i16) -> bool {
+    al.vy = al.vy.wrapping_add(gravity);
+    if al.worldy < ground {
+        return false;
+    }
+    al.worldy = ground;
+    let mut v = al.vy.wrapping_neg();
+    v >>= shift;
+    if (-5..=0).contains(&v) {
+        v = 0;
+    }
+    al.vy = v;
+    v == 0
+}
+
+/// `s_dec_lifecnt` (no kill flag) — DEC count; remove when result is 0.
+fn aircar_dec_lifecnt(g: &mut Game, idx: u16) {
+    let c = g.objs.aliens[idx as usize].count.wrapping_sub(1);
+    g.objs.aliens[idx as usize].count = c;
+    if c == 0 {
+        g.objs.aldead = 1;
+    }
 }
 
 // ============================================================
@@ -3938,29 +11742,33 @@ fn houdai_target(g: &Game, idx: u16) -> Option<u16> {
 
 /// C `houdai_fire` (strat_enemy.c:5036).
 fn houdai_fire(g: &mut Game, idx: u16) {
-    let roty = g.objs.aliens[idx as usize].roty;
-    let Some(shot) = spawn_projectile(
-        g,
-        Some(idx),
-        0,
-        -62 >> 2,
-        40 >> 2,
-        DEG22.wrapping_neg(),
-        roty,
-        SHORTPLASMA_SPEED,
-        SHORTPLASMA_LIFE,
-        SHORTPLASMA_AP,
-        ACF_COLLTYPE1 | ACF_COLLTYPE4,
-    ) else {
+    let me = g.objs.aliens[idx as usize];
+    // `s_weapon_rot #-deg22,#0` is relative to the firer's copied rots.
+    g.objs.aliens[idx as usize].rotx = me.rotx.wrapping_sub(DEG22);
+    let shot = fire_shortplasma(g, idx);
+    g.objs.aliens[idx as usize].rotx = me.rotx;
+    let Some(shot) = shot else {
         return;
     };
+    // `s_weapon_pos #0,#-62>>weapon_scale,#40>>weapon_scale`, followed by
+    // gen_weapon's rotate8 chain and ASL×weapon_scale.
+    let (rx, ry, rz) = crate::snes_trig::strat_roffs_full_scaled(
+        me.rotz,
+        me.rotx,
+        me.roty,
+        0,
+        (-62i16 >> 2) as i8,
+        (40i16 >> 2) as i8,
+        2,
+    );
     let al = &mut g.objs.aliens[shot as usize];
-    al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
-    al.snd2 = 1;
+    al.worldx = me.worldx.wrapping_add(rx);
+    al.worldy = me.worldy.wrapping_add(ry);
+    al.worldz = me.worldz.wrapping_add(rz);
 }
 
-/// C `houdai_strat` (strat_enemy.c:5057).
-fn houdai_strat(g: &mut Game, idx: u16) {
+/// C `houdai_strat` (strat_enemy.c:5057). Public for Audit A #3 cadence tests.
+pub fn houdai_strat(g: &mut Game, idx: u16) {
     if let Some(target) =
         strat_find_near_colltype(g, idx, COLLTYPE_ENEMY2, HOUDAI_TRACK_MAX_Z, 10000)
     {
@@ -4065,6 +11873,15 @@ pub fn strat_zaco3_init(g: &mut Game, idx: u16) {
     al.sbyte3 = 3;
     al.collflags |= COLLTYPE_ENEMY1;
     al.snd2 = 1;
+}
+
+/// ROM `zaco3_Istrat` / `zaco3_strat` aliases.
+pub fn zaco3_istrat(g: &mut Game, idx: u16) {
+    strat_zaco3_init(g, idx);
+}
+
+pub fn zaco3_strat(g: &mut Game, idx: u16) {
+    zaco3_attack(g, idx);
 }
 
 /// C `zaco3_attack` (strat_enemy.c:5160).
@@ -4190,8 +12007,12 @@ fn zaco3die_init(g: &mut Game, idx: u16) {
     // here was a leftover placeholder. Deleted.
 }
 
-/// C `zaco3die_strat` (strat_enemy.c:5271).
+/// C `zaco3die_strat` (strat_enemy.c:5271 / KSTRATS.ASM:166-177).
 fn zaco3die_strat(g: &mut Game, idx: u16) {
+    // s_jmp_NOTdelay 1,.nsm — smoke every other frame. (Audit A Minor 15)
+    if g.vars.gameframe & 1 == 0 {
+        let _ = crate::common::makesmoke_srou(g, idx);
+    }
     let _ = speed_to(&mut g.objs.aliens[idx as usize], 40, 1);
     // ASM KSTRATS.ASM:171 `s_jmp_lower x,#-100,zaco3GO_init` branches to the land
     // path when worldy >= -100 (smaller y = higher). (Audit A #5)
@@ -4210,17 +12031,23 @@ fn zaco3die_strat(g: &mut Game, idx: u16) {
         gen_vecs_3d(al);
         al.rotz = al.rotz.wrapping_add(4);
     }
-    add_player_z(g, idx);
+    // zaco3cont: s_add_playerZ + s_add_vecs2pos (once each).
     add_player_z(g, idx);
     apply_velocity(&mut g.objs.aliens[idx as usize]);
 }
 
-/// C `zaco3go_strat` (strat_enemy.c:5293).
+/// C `zaco3go_strat` (strat_enemy.c:5293 / KSTRATS.ASM:182-200).
 fn zaco3go_strat(g: &mut Game, idx: u16) {
     let _ = speed_to(&mut g.objs.aliens[idx as usize], 60, 1);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.rotz = al.rotz.wrapping_add(4);
+    }
+    // s_jmp_NOTdelay 2,.nsm — smoke every 4th frame; smoke vz=#40. (Audit A #15)
+    if g.vars.gameframe & 3 == 0 {
+        if let Some(smoke) = crate::common::makesmoke_srou(g, idx) {
+            g.objs.aliens[smoke as usize].vz = 40;
+        }
     }
     // ASM KSTRATS.ASM:190-200: |dz|>=3000 sets rotx=0/roty=deg180 then gens vecs
     // (.far); [400,3000) aims then gens vecs; |dz|<400 `s_jmp_Zdistless x,y,#400,
@@ -4391,10 +12218,14 @@ pub fn strat_zaco0_init(g: &mut Game, idx: u16) {
 fn zaco0_sweep(g: &mut Game, idx: u16) {
     let pl = player(g);
     if let Some(pl) = pl {
-        if g.objs.aliens[idx as usize].worldy < pl.worldy {
+        // ROM `s_cmp_alvars W` + `s_bcs .noadd` — unsigned worldy compare
+        // (KSTRATS.ASM:216-217). Signed `<` matches in-band (both negative)
+        // but diverges when one side crosses into the high unsigned half.
+        if (g.objs.aliens[idx as usize].worldy as u16) < (pl.worldy as u16) {
             let al = &mut g.objs.aliens[idx as usize];
             al.worldy = al.worldy.wrapping_add(20);
-            if al.worldy > -30 {
+            // ROM `cmp #-30` / `bcc .ok` — unsigned clamp to -30.
+            if (al.worldy as u16) >= ((-30i16) as u16) {
                 al.worldy = -30;
             }
         }
@@ -4404,6 +12235,8 @@ fn zaco0_sweep(g: &mut Game, idx: u16) {
         al.worldx = al.worldx.wrapping_add(43);
     }
     if let Some(pl) = pl {
+        // ROM `s_cmp_alvars` + `s_bpl zaco0b` — signed worldx compare
+        // (N flag after CMP); keep signed here.
         if g.objs.aliens[idx as usize].worldx >= pl.worldx {
             let s = sid(g, zaco0_turn_in);
             g.objs.aliens[idx as usize].stratptr = Some(s);
@@ -4487,6 +12320,56 @@ fn zaco0_flyaway(g: &mut Game, idx: u16) {
     strat_move3d(g, idx, 50, 2);
 }
 
+/// ROM `zaco0_Istrat` — alias of [`strat_zaco0_init`].
+pub fn zaco0_istrat(g: &mut Game, idx: u16) {
+    strat_zaco0_init(g, idx);
+}
+
+/// ROM `zaco0_strat` — sweep toward player X/Y.
+pub fn zaco0_strat(g: &mut Game, idx: u16) {
+    zaco0_sweep(g, idx);
+}
+
+/// ROM `zaco0b_Istrat` / `zaco0b_strat` — turn to face player.
+pub fn zaco0b_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, zaco0_turn_in);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    zaco0_turn_in(g, idx);
+}
+
+pub fn zaco0b_strat(g: &mut Game, idx: u16) {
+    zaco0_turn_in(g, idx);
+}
+
+/// ROM `zaco0c_Istrat` — fire burst (same body as strat until c2).
+pub fn zaco0c_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, zaco0_fire);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    zaco0_fire(g, idx);
+}
+
+/// ROM `zaco0c2_Istrat` / `zaco0c_strat` — turn out.
+pub fn zaco0c2_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, zaco0_turn_out);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    zaco0_turn_out(g, idx);
+}
+
+pub fn zaco0c_strat(g: &mut Game, idx: u16) {
+    zaco0_turn_out(g, idx);
+}
+
+/// ROM `zaco0d_Istrat` / `zaco0d_strat` — fly away.
+pub fn zaco0d_istrat(g: &mut Game, idx: u16) {
+    let s = sid(g, zaco0_flyaway);
+    g.objs.aliens[idx as usize].stratptr = Some(s);
+    zaco0_flyaway(g, idx);
+}
+
+pub fn zaco0d_strat(g: &mut Game, idx: u16) {
+    zaco0_flyaway(g, idx);
+}
+
 // ============================================================
 // PARA / CARRIER (C strat_enemy.c:5555-5761)
 // ============================================================
@@ -4525,12 +12408,14 @@ fn para_strat(g: &mut Game, idx: u16) {
     }
     if g.objs.aliens[idx as usize].worldy >= 0 {
         let s = sid(g, para2_strat);
-        let shape = g.world.shapes_table[SH_PARA_1_PROXY as usize];
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s);
         al.worldy = 0;
         al.rotz = 0;
-        al.shape = shape;
+        // Extended-bank ids are already resolved renderer ids; unlike the
+        // ROM's 8-bit shape operand they must not be indexed through the
+        // 256-entry raw shape-word table.
+        al.shape = SH_PARA_1_PROXY;
         al.vel = 10;
         // ASM para2_istrat (D2STRATS.ASM:569-577) does `s_initface_player` (clears
         // smflag1 so the first para2 tick latches the aim) and ends with
@@ -4550,7 +12435,9 @@ fn para2_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].sflags2 & ASF2_SMFLAG1 == 0 {
         if let Some(pl) = pl {
             let me = g.objs.aliens[idx as usize];
-            let yaw = angle_xz(&me, &pl);
+            // ROM `s_obj2obj_3Dangle ...,0` (via s_initface_player) stores
+            // nega(Yanglexy) into the aim latch. (Audit A Minor 15)
+            let yaw = angle_xz(&me, &pl).wrapping_neg();
             let pitch = strat_pitch_toward(&me, &pl);
             let al = &mut g.objs.aliens[idx as usize];
             al.sbyte3 = yaw;
@@ -4560,20 +12447,26 @@ fn para2_strat(g: &mut Game, idx: u16) {
     } else {
         let me = g.objs.aliens[idx as usize];
         let mut roty = me.roty;
-        let r1 = achase_angle(&mut roty, me.sbyte3, 1);
+        let yaw_aligned = achase_angle(&mut roty, me.sbyte3, 1);
         let mut rotx = me.rotx;
-        let r2 = achase_angle(&mut rotx, me.sbyte4, 1);
+        let pitch_aligned = achase_angle(&mut rotx, me.sbyte4, 1);
         let al = &mut g.objs.aliens[idx as usize];
         al.roty = roty;
         al.rotx = rotx;
-        aligned = r1 && r2;
+        aligned = yaw_aligned && pitch_aligned;
     }
     if !aligned {
-        gen_vecs_2d(&mut g.objs.aliens[idx as usize]);
+        // ROM `s_gen_vecs` → `nvecs_l` (does not zero vy; -roty+1 table index).
+        // Old `gen_vecs_2d` (alvelvecs) zeroed vy and forced the first
+        // add_vecs2pos to be xz-only — that was a workaround, not ASM.
+        strat_gen_vecs_nvecs(&mut g.objs.aliens[idx as usize]);
     }
+    // First `s_add_vecs2pos` — full xyz (D2STRATS.ASM:583); hop vy from the
+    // previous frame carries through nvecs.
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldx = al.worldx.wrapping_add(al.vx);
+        al.worldy = al.worldy.wrapping_add(al.vy);
         al.worldz = al.worldz.wrapping_add(al.vz);
     }
     if let Some(pl) = pl {
@@ -4902,37 +12795,1361 @@ pub fn strat_cameleon_init(g: &mut Game, idx: u16) {
         al.hp = CAMELEON_HP;
         al.ap = CAMELEON_AP;
         al.sbyte1 = 20;
-        al.collflags |= COLLTYPE_ENEMY1;
+        // ASM cameleon_istrat (DSTRATS.ASM:1527) sets no colltype. (Audit A Minor 9)
     }
     g.hooks.play_se(0x2B);
+}
+
+// ============================================================
+// CAMELEON2 / CAM2 (GASTRATS.ASM:1440-1495)
+// ============================================================
+
+/// ROM `cam2posX_tab` / `cam2posY_tab` (GASTRATS.ASM:1492) — 6 hide positions.
+const CAM2_POS: [(i16, i16); 6] = [
+    (-300, -60),
+    (300, -60),
+    (-250, 200),
+    (0, -200),
+    (250, 200),
+    (-300, -60),
+];
+
+/// ROM `cameleon2_Istrat` (GASTRATS.ASM:1440).
+pub fn cameleon2_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, cameleon2_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = CAMELEON_HP;
+        al.ap = CAMELEON_AP;
+        al.collflags |= COLLTYPE_ZENEMY;
+        // sbyte1 indexes cam2pos tables as a byte offset into word pairs
+        // (0,2,4,...,10) — we store the slot index 0..5 and scale on lookup.
+        al.sbyte1 = 0;
+    }
+    cam2nextpos(g, idx);
+}
+
+/// ROM `cameleon2_strat` — flip to deg180, fire, then hide.
+pub fn cameleon2_strat(g: &mut Game, idx: u16) {
+    let done = achase_angle(&mut g.objs.aliens[idx as usize].rotx, DEG180, 2);
+    if !done {
+        cameleon2_cont(g, idx);
+        return;
+    }
+    g.hooks.play_se(0x2b);
+    if let Some(pl) = player(g) {
+        let me = g.objs.aliens[idx as usize];
+        let pitch = strat_pitch_toward(&me, &pl);
+        let yaw = angle_xz(&me, &pl);
+        strat_fire_relslowlaser(g, idx, pitch, yaw);
+    }
+    cam2hide_init(g, idx);
+}
+
+/// ROM `cameleon2_cont` — playerZ scroll only.
+pub fn cameleon2_cont(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+}
+
+/// ROM `cam2hide_init` (GASTRATS.ASM:1460).
+pub fn cam2hide_init(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // ROM: s_add_alvar al_sbyte1,#2 then EQ #12 → dash (byte offset into
+        // word table). Slot index: +1, dash when slot==6.
+        al.sbyte1 = al.sbyte1.wrapping_add(1);
+        if al.sbyte1 >= 6 {
+            cam2dash_init(g, idx);
+            return;
+        }
+    }
+    let tick = sid(g, cam2hide_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    cam2hide_strat(g, idx);
+}
+
+/// ROM `cam2hide_strat` — ease rotx to 0, then nextpos.
+pub fn cam2hide_strat(g: &mut Game, idx: u16) {
+    let done = achase_angle(&mut g.objs.aliens[idx as usize].rotx, 0, 4);
+    if done {
+        cam2nextpos(g, idx);
+        return;
+    }
+    cameleon2_cont(g, idx);
+}
+
+/// ROM `cam2nextpos` — teleport to next table slot, resume cameleon2_strat.
+pub fn cam2nextpos(g: &mut Game, idx: u16) {
+    let slot = (g.objs.aliens[idx as usize].sbyte1 as usize) % CAM2_POS.len();
+    let (x, y) = CAM2_POS[slot];
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = x;
+        al.worldy = y;
+    }
+    let tick = sid(g, cameleon2_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    cameleon2_strat(g, idx);
+}
+
+/// ROM `cam2dash_init` / `cam2dash_strat` (GASTRATS.ASM:1474).
+pub fn cam2dash_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, cam2dash_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    cam2dash_strat(g, idx);
+}
+
+pub fn cam2dash_strat(g: &mut Game, idx: u16) {
+    let done = achase_angle(&mut g.objs.aliens[idx as usize].rotx, DEG180, 2);
+    if !done {
+        cameleon2_cont(g, idx);
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.rotz = al.rotz.wrapping_add(4);
+        let _ = speed_to(al, 30, 1);
+    }
+    // Aim via sbyte1/sbyte2 when far; always addvecs.
+    if let Some(pl) = player(g) {
+        let dz = (g.objs.aliens[idx as usize].worldz as i32 - pl.worldz as i32).abs();
+        if dz >= 300 {
+            let me = g.objs.aliens[idx as usize];
+            // ROM `s_obj2obj_3dangle` into sbyte1/2 — Yanglexy+nega.
+            let want_y = angle_xz(&me, &pl).wrapping_neg();
+            let want_x = strat_pitch_toward(&me, &pl);
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                achase_angle(&mut al.sbyte1, want_y, 2);
+                achase_angle(&mut al.sbyte2, want_x, 2);
+                // gen_3dvecs from sbyte1/sbyte2 aim, not body rots.
+                let saved_ry = al.roty;
+                let saved_rx = al.rotx;
+                al.roty = al.sbyte1;
+                al.rotx = al.sbyte2;
+                gen_vecs_3d(al);
+                al.roty = saved_ry;
+                al.rotx = saved_rx;
+            }
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    cameleon2_cont(g, idx);
+}
+
+// ============================================================
+// CRAB (GASTRATS.ASM:1821-1946) — screen-edge walker that fires MISSILE2.
+// ============================================================
+
+const CRAB_HP: u8 = 4; // STRATEQU.INC:134
+const CRAB_AP: u8 = 4; // STRATEQU.INC:135
+const CRAB_WALK_SPEED: i16 = 8; // crabwalkspeed
+const CRAB_WALK_F_SPEED: i16 = 8; // crabwalkFspeed
+
+fn crab_min_pmove_x(g: &Game) -> i16 {
+    g.vars.sv_i16(crate::common::sv::MINPMOVEX)
+}
+fn crab_max_pmove_x(g: &Game) -> i16 {
+    g.vars.sv_i16(crate::common::sv::MAXPMOVEX)
+}
+fn crab_min_pmove_y(g: &Game) -> i16 {
+    g.vars.minpmove_y
+}
+fn crab_max_pmove_y(g: &Game) -> i16 {
+    g.vars.sv_i16(crate::common::sv::MAXPMOVEY)
+}
+
+/// Shared HP/AP/facing for all crab_*_Istrat entries.
+pub fn crab_init(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.hp = CRAB_HP;
+    al.ap = CRAB_AP;
+    al.roty = DEG180;
+    al.sbyte2 = 10;
+}
+
+fn crab_wire(g: &mut Game, idx: u16, tick: StrategyFn, sbyte1: u8) {
+    let s = sid(g, tick);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, smarkexplode_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(s);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.sbyte1 = sbyte1;
+    }
+    crab_init(g, idx);
+}
+
+/// ROM `crabB_Istrat` (GASTRATS.ASM:1824).
+pub fn crabb_istrat(g: &mut Game, idx: u16) {
+    crab_wire(g, idx, crabb_strat, 0);
+}
+
+/// ROM `crabL_Istrat` (GASTRATS.ASM:1829).
+pub fn crabl_istrat(g: &mut Game, idx: u16) {
+    crab_wire(g, idx, crabl_strat, DEG90);
+}
+
+/// ROM `crabT_Istrat` (GASTRATS.ASM:1835).
+pub fn crabt_istrat(g: &mut Game, idx: u16) {
+    crab_wire(g, idx, crabt_strat, DEG180);
+}
+
+/// ROM `crabR_Istrat` (GASTRATS.ASM:1841).
+pub fn crabr_istrat(g: &mut Game, idx: u16) {
+    crab_wire(g, idx, crabr_strat, DEG180.wrapping_add(DEG90));
+}
+
+/// ROM `crabB_init` / `crabB_strat` — walk left (−X); turn L at minX.
+pub fn crabb_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, crabb_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.sbyte1 = 0;
+    crabb_strat(g, idx);
+}
+
+pub fn crabb_strat(g: &mut Game, idx: u16) {
+    // s_weapon_rot #-deg45,#0 — pitch offset for fire (stored in rotx scratch).
+    g.objs.aliens[idx as usize].rotx = (0i8.wrapping_sub(DEG45 as i8)) as u8;
+    let dx = -CRAB_WALK_SPEED;
+    let dy = 0i16;
+    if g.objs.aliens[idx as usize].worldx < crab_min_pmove_x(g) {
+        crabl_init(g, idx);
+        return;
+    }
+    crab_cont(g, idx, dx, dy);
+}
+
+/// ROM `crabL_init` / `crabL_strat` — walk up (−Y); turn T at minY.
+pub fn crabl_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, crabl_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.sbyte1 = DEG90;
+    crabl_strat(g, idx);
+}
+
+pub fn crabl_strat(g: &mut Game, idx: u16) {
+    let dx = 0i16;
+    let dy = -CRAB_WALK_SPEED;
+    if g.objs.aliens[idx as usize].worldy < crab_min_pmove_y(g) {
+        crabt_init(g, idx);
+        return;
+    }
+    crab_cont(g, idx, dx, dy);
+}
+
+/// ROM `crabT_init` / `crabT_strat` — walk right (+X); turn R at maxX.
+pub fn crabt_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, crabt_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.sbyte1 = DEG180;
+    crabt_strat(g, idx);
+}
+
+pub fn crabt_strat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].rotx = DEG45;
+    let dx = CRAB_WALK_SPEED;
+    let dy = 0i16;
+    if g.objs.aliens[idx as usize].worldx > crab_max_pmove_x(g) {
+        crabr_init(g, idx);
+        return;
+    }
+    crab_cont(g, idx, dx, dy);
+}
+
+/// ROM `crabR_init` / `crabR_strat` — walk down (+Y); turn B at maxY.
+pub fn crabr_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, crabr_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.sbyte1 = DEG180.wrapping_add(DEG90);
+    crabr_strat(g, idx);
+}
+
+pub fn crabr_strat(g: &mut Game, idx: u16) {
+    let dx = 0i16;
+    let dy = CRAB_WALK_SPEED;
+    if g.objs.aliens[idx as usize].worldy > crab_max_pmove_y(g) {
+        crabb_init(g, idx);
+        return;
+    }
+    crab_cont(g, idx, dx, dy);
+}
+
+/// ROM `crab_cont` (GASTRATS.ASM:1853) — scroll, edge-walk, fire MISSILE2.
+pub fn crab_cont(g: &mut Game, idx: u16, dx: i16, dy: i16) {
+    add_player_z(g, idx);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldz = al.worldz.wrapping_add(CRAB_WALK_F_SPEED);
+        if al.sflags2 & ASF2_SFLAG1 == 0 {
+            al.worldx = al.worldx.wrapping_add(dx);
+            al.worldy = al.worldy.wrapping_add(dy);
+        }
+        let target = al.sbyte1;
+        achase_angle(&mut al.rotz, target, 1);
+    }
+
+    // Far (>4000z) → remove.
+    if let Some(p) = player(g) {
+        let dz = (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs();
+        if dz >= 4000 {
+            g.objs.aldead = 1;
+            return;
+        }
+        // Mid-range: rush forward extra.
+        if dz >= 1500 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldz = al.worldz.wrapping_add(CRAB_WALK_F_SPEED.wrapping_mul(2));
+            return;
+        }
+    }
+
+    // .chkfire: only fire when |worldx| <= crabwalkspeed/2.
+    let wx = g.objs.aliens[idx as usize].worldx;
+    let half = CRAB_WALK_SPEED / 2;
+    if wx < -half || wx > half {
+        g.objs.aliens[idx as usize].sflags2 &= !ASF2_SFLAG1;
+        return;
+    }
+
+    // .dfire — latch sflag1 + reload timer on first entry.
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags2 |= ASF2_SFLAG1;
+        al.sbyte2 = 10;
+    }
+
+    // s_decbne_alvar al_sbyte2 — when hits 0 clear sflag1.
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.sbyte2 != 0 {
+            al.sbyte2 -= 1;
+        }
+        if al.sbyte2 == 0 {
+            al.sflags2 &= !ASF2_SFLAG1;
+        }
+    }
+    // Fire when sbyte2 == 5.
+    if g.objs.aliens[idx as usize].sbyte2 == 5 {
+        if let Some(shot) = fire_missile2(g, idx) {
+            let al = &mut g.objs.aliens[shot as usize];
+            al.sflags2 |= ASF2_SFLAG1 | ASF2_SFLAG2;
+        }
+    }
+}
+
+// ============================================================
+// BEE1 (GASTRATS.ASM:3177-3269) — circling Zenemy that faces then dives.
+// Active path is the `ifeq 0` block (costab/sintab orbit).
+// ============================================================
+
+const BEE1_HP: u8 = 4; // STRATEQU.INC:104
+const BEE1_AP: u8 = 6; // STRATEQU.INC:105
+const BEE_SPACE_VIEWCY: i16 = -60; // STRATEQU.INC:494
+
+/// ROM `s_set_alvar2alvartab ...,costab/sintab,#scale` — sign-extend table byte,
+/// then `<< scale` (positive) or `/ 2^|scale|` toward zero (negative).
+fn bee_tab_scaled(angle: u8, use_cos: bool, scale: i32) -> i16 {
+    use crate::snes_trig::{COSTAB, SINTAB};
+    let v = if use_cos {
+        COSTAB[angle as usize] as i16
+    } else {
+        SINTAB[angle as usize] as i16
+    };
+    if scale > 0 {
+        v << scale
+    } else if scale < 0 {
+        v / (1i16 << (-scale))
+    } else {
+        v
+    }
+}
+
+fn achase_i16(cur: &mut i16, target: i16, shift: u32) -> bool {
+    let mut d = target as i32 - *cur as i32;
+    if d == 0 {
+        return true;
+    }
+    let min = 1i32 << shift;
+    if d > -min && d < min {
+        d = if d < 0 { -min } else { min };
+    }
+    *cur = cur.wrapping_add((d >> shift) as i16);
+    *cur == target
+}
+
+/// ROM `bee1_Istrat` (GASTRATS.ASM:3177).
+pub fn bee1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, bee1_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = BEE1_HP;
+        al.ap = BEE1_AP;
+        al.collflags |= COLLTYPE_ZENEMY;
+        al.vz = -40;
+        al.roty = DEG180;
+        al.sbyte1 = sf_random(&mut g.vars) as u8;
+        al.snd2 = 3;
+        al.sflags |= ASF_SHADOW;
+    }
+}
+
+/// ROM `bee1_strat` — costab/sintab orbit; close → bee1a.
+pub fn bee1_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.worldx = bee_tab_scaled(al.sbyte1, true, 1);
+        al.worldy = bee_tab_scaled(al.sbyte2, false, -1).wrapping_add(BEE_SPACE_VIEWCY);
+        al.sbyte1 = al.sbyte1.wrapping_add(2);
+        al.sbyte2 = al.sbyte2.wrapping_add(8);
+    }
+    if let Some(p) = player(g) {
+        let dz = (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs();
+        if dz < 500 {
+            bee1a_init(g, idx);
+            return;
+        }
+        if dz < 2000 {
+            let mut vz = g.objs.aliens[idx as usize].vz;
+            achase_i16(&mut vz, 0, 1);
+            g.objs.aliens[idx as usize].vz = vz;
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `bee1a_init` / `bee1a_strat` — face player, then dive.
+pub fn bee1a_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, bee1a_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sflags2 &= !ASF2_SMFLAG1; // s_initface_player
+    }
+    bee1a_strat(g, idx);
+}
+
+pub fn bee1a_strat(g: &mut Game, idx: u16) {
+    add_player_z(g, idx);
+    // s_copy_alvar2alvar al_sbyte1,al_rotx — stash pitch for bee1b gen_3dvecs.
+    g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].rotx;
+    // s_face_player x,2,5,bee1b_init
+    if bee_face_player(g, idx, 2, 5) {
+        bee1b_init(g, idx);
+    }
+}
+
+/// `s_face_player` (STRATMAC.INC:2020) — latch aim into sbyte3/4; chase; return
+/// true when both axes reached (optional label).
+fn bee_face_player(g: &mut Game, idx: u16, chase: u32, delay_bits: u16) -> bool {
+    if g.objs.aliens[idx as usize].sflags2 & ASF2_SMFLAG1 != 0 {
+        let me = g.objs.aliens[idx as usize];
+        let mut roty = me.roty;
+        let yaw_aligned = achase_angle(&mut roty, me.sbyte3, chase);
+        let mut rotx = me.rotx;
+        let pitch_aligned = achase_angle(&mut rotx, me.sbyte4, chase);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.roty = roty;
+            al.rotx = rotx;
+        }
+        if yaw_aligned && pitch_aligned {
+            return true;
+        }
+    }
+    // Re-latch on notdelay gate (or first entry when smflag1 clear).
+    let gate = g.vars.gameframe & ((1u16 << delay_bits) - 1) == 0;
+    if gate || g.objs.aliens[idx as usize].sflags2 & ASF2_SMFLAG1 == 0 {
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_SMFLAG1;
+        if let Some(pl) = player(g) {
+            let me = g.objs.aliens[idx as usize];
+            // ROM `s_face_player` latch: `s_obj2obj_3Dangle` → sbyte3/4 (nega).
+            let yaw = angle_xz(&me, &pl).wrapping_neg();
+            let pitch = strat_pitch_toward(&me, &pl);
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sbyte3 = yaw;
+            al.sbyte4 = pitch;
+        }
+    }
+    false
+}
+
+/// ROM `bee1b_init` / `bee1b_strat` — accelerate dive using stashed pitch.
+pub fn bee1b_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, bee1b_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    bee1b_strat(g, idx);
+}
+
+pub fn bee1b_strat(g: &mut Game, idx: u16) {
+    let _ = speed_to(&mut g.objs.aliens[idx as usize], 30, 1);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_gen_3dvecs x,al_roty,al_sbyte1,al_vel — pitch from sbyte1 stash.
+        let saved = al.rotx;
+        al.rotx = al.sbyte1;
+        gen_vecs_3d(al);
+        al.rotx = saved;
+        al.type_ |= ATZREMOVE; // s_setremove_behind
+    }
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_sub(1);
+}
+
+// ============================================================
+// DRAGONFLY (GA2STRAT.ASM:1418-1463) — 3-state fly-by (child spawn scoped).
+// ============================================================
+
+const DRAGONFLY_HP: u8 = 2; // STRATEQU.INC:245
+const DRAGONFLY_AP: u8 = 8; // STRATEQU.INC:246
+
+/// ROM `dragonfly_Istrat` (GA2STRAT.ASM:1418).
+pub fn dragonfly_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, dragonfly_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = DRAGONFLY_HP;
+        al.ap = DRAGONFLY_AP;
+        al.vel = 70;
+        al.roty = (0i8.wrapping_sub(DEG90 as i8)) as u8; // -deg90
+        al.count = 100; // lifecnt
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.sbyte1 = 35;
+        al.stratstate = 0;
+    }
+}
+
+/// ROM `dragonfly_strat` — down → up → away; spawn Sdragonfly children on turns.
+pub fn dragonfly_strat(g: &mut Game, idx: u16) {
+    let state = g.objs.aliens[idx as usize].stratstate;
+    match state {
+        0 => {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                achase_angle(&mut al.rotx, DEG11, 2);
+                achase_angle(&mut al.roty, (0i8.wrapping_sub(DEG90 as i8)) as u8, 2);
+            }
+            let expired = {
+                let al = &mut g.objs.aliens[idx as usize];
+                if al.sbyte1 != 0 {
+                    al.sbyte1 -= 1;
+                }
+                al.sbyte1 == 0
+            };
+            if expired {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sbyte1 = 20;
+                    al.stratstate = 1;
+                }
+                let _ = make_sdrag(g, idx);
+            }
+        }
+        1 => {
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                achase_angle(&mut al.rotx, 0, 2);
+                achase_angle(&mut al.roty, DEG90, 2);
+            }
+            let expired = {
+                let al = &mut g.objs.aliens[idx as usize];
+                if al.sbyte1 != 0 {
+                    al.sbyte1 -= 1;
+                }
+                al.sbyte1 == 0
+            };
+            if expired {
+                {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sbyte1 = 20;
+                    al.stratstate = 2;
+                }
+                let _ = make_sdrag(g, idx);
+            }
+        }
+        _ => {
+            let al = &mut g.objs.aliens[idx as usize];
+            achase_angle(&mut al.rotx, (0i8.wrapping_sub(DEG22 as i8)) as u8, 2);
+            achase_angle(&mut al.roty, (0i8.wrapping_sub(DEG45 as i8)) as u8, 2);
+        }
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        // s_dec_lifecnt — dies when the pre-decrement count was 0 (wraps).
+        let c = al.count;
+        al.count = c.wrapping_sub(1);
+        if c == 0 {
+            g.objs.aldead = 1;
+            return;
+        }
+        gen_vecs_3d(al);
+        apply_velocity(al);
+        al.vz = al.vz.wrapping_mul(2); // s_scale_alvar W,x,al_vz,1 → <<1
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `makeSdrag_srou` (GA2STRAT.ASM:1465) — spawn small dragonfly child.
+const SH_F_DRA_1_PROXY: u16 = 356;
+
+/// ROM `makeSdrag_srou` (GA2STRAT.ASM:1465) — spawn small dragonfly child.
+pub fn make_sdrag(g: &mut Game, mother: u16) -> Option<u16> {
+    let child = make_obj(g, SH_F_DRA_1_PROXY)?;
+    copy_pos(g, child, mother);
+    sdragonfly_istrat(g, child);
+    Some(child)
+}
+
+const SDRAGONFLY_HP: u8 = 2; // STRATEQU.INC:247
+const SDRAGONFLY_AP: u8 = 4; // STRATEQU.INC:248
+
+/// ROM `Sdragonfly_Istrat` (GA2STRAT.ASM:1472).
+pub fn sdragonfly_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, sdragonfly_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = SDRAGONFLY_HP;
+        al.ap = SDRAGONFLY_AP;
+        al.vel = 25;
+        al.sbyte1 = 6;
+        al.stratstate = 0;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ENEMY1;
+    }
+}
+
+/// Chase `field` toward `target + offset` (ROM `s_obj2obj_3DangleOFF` one axis).
+fn achase_angle_off(field: &mut u8, target: u8, offset: u8, shift: u32) -> bool {
+    let mut base = (*field).wrapping_sub(offset);
+    let reached = achase_angle(&mut base, target, shift);
+    *field = base.wrapping_add(offset);
+    reached
+}
+
+/// ROM `Sdragonfly_strat` (GA2STRAT.ASM:1480) — weave then stop-close.
+pub fn sdragonfly_strat(g: &mut Game, idx: u16) {
+    let dz = player(g).map_or(i32::MAX, |p| {
+        (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs()
+    });
+
+    let mut yaw_off: u8 = 0;
+    let state = g.objs.aliens[idx as usize].stratstate;
+
+    if state == 2 {
+        // Hover timer: skip aim/gen until expired, then addvecs every tick.
+        let expired = {
+            let al = &mut g.objs.aliens[idx as usize];
+            if al.sbyte1 != 0 {
+                al.sbyte1 -= 1;
+            }
+            al.sbyte1 == 0
+        };
+        if expired {
+            g.objs.aliens[idx as usize].sbyte1 = 1;
+            apply_velocity(&mut g.objs.aliens[idx as usize]);
+        }
+        add_player_z(g, idx);
+        return;
+    }
+
+    if dz >= 500 {
+        match state {
+            0 => {
+                yaw_off = (0i8.wrapping_sub(DEG45 as i8)) as u8; // -deg45
+                let expired = {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    if al.sbyte1 != 0 {
+                        al.sbyte1 -= 1;
+                    }
+                    al.sbyte1 == 0
+                };
+                if expired {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sbyte1 = 12;
+                    al.stratstate = 1;
+                }
+            }
+            1 => {
+                yaw_off = DEG45;
+                let expired = {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    if al.sbyte1 != 0 {
+                        al.sbyte1 -= 1;
+                    }
+                    al.sbyte1 == 0
+                };
+                if expired {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.sbyte1 = 12;
+                    al.stratstate = 0;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(p) = player(g) {
+        strat_aim_3d(g, idx, &p, 1);
+        if dz < 400 {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.stratstate = 2;
+            al.sbyte1 = 20;
+        }
+        let me = g.objs.aliens[idx as usize];
+        // ROM `s_obj2obj_3DangleOFF` into sbyte2/3 — Yanglexy+nega (+ yaw_off).
+        let yaw_t = angle_xz(&me, &p).wrapping_neg();
+        let pitch_t = strat_pitch_toward(&me, &p);
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            achase_angle_off(&mut al.sbyte2, yaw_t, yaw_off, 1);
+            achase_angle_off(&mut al.sbyte3, pitch_t, 0, 1);
+            // gen_3dvecs from sbyte2/sbyte3: swap into roty/rotx, gen, restore.
+            let (save_y, save_x) = (al.roty, al.rotx);
+            al.roty = al.sbyte2;
+            al.rotx = al.sbyte3;
+            gen_vecs_3d(al);
+            al.roty = save_y;
+            al.rotx = save_x;
+            apply_velocity(al);
+        }
+    }
+    add_player_z(g, idx);
+}
+
+// ============================================================
+// ZACO7 (GA2STRAT.ASM:959-985) — bank-then-aim flyer (Szaco5 HP/AP).
+// ============================================================
+
+const ZACO7_HP: u8 = 2; // Szaco5HP
+const ZACO7_AP: u8 = 8; // Szaco5AP
+
+/// ROM `zaco7_Istrat` (GA2STRAT.ASM:959).
+pub fn zaco7_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, zaco7_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = ZACO7_HP;
+        al.ap = ZACO7_AP;
+    }
+}
+
+/// ROM `zaco7_strat` — anim open; bank when far, 3d-aim when close.
+pub fn zaco7_strat(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.animframe != 9 {
+            al.animframe = (al.animframe + 1) % 10;
+        }
+    }
+    let dz = player(g).map_or(i32::MAX, |p| {
+        (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs()
+    });
+    if dz >= 600 {
+        szaco2_bank_to_player(g, idx);
+    } else if let Some(p) = player(g) {
+        strat_aim_3d(g, idx, &p, 3);
+        achase_angle(&mut g.objs.aliens[idx as usize].rotz, 0, 3);
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+// ============================================================
+// EXITLIGHT (GASTRATS.ASM:3728-3775) — staggered colanim blink cycle.
+// ============================================================
+
+/// ROM `exitlight1_Istrat` … `exitlight6_Istrat` — preload sbyte2 delay then init.
+pub fn exitlight1_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = 2;
+    exitlight_init(g, idx);
+}
+pub fn exitlight2_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = 4;
+    exitlight_init(g, idx);
+}
+pub fn exitlight3_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = 6;
+    exitlight_init(g, idx);
+}
+pub fn exitlight4_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = 8;
+    exitlight_init(g, idx);
+}
+pub fn exitlight5_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = 10;
+    exitlight_init(g, idx);
+}
+pub fn exitlight6_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte2 = 12;
+    exitlight_init(g, idx);
+}
+
+/// ROM `exitlight_init` — colldisable then fall into A phase.
+pub fn exitlight_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    exitlight_a_init(g, idx);
+}
+
+/// ROM `exitlightA_init` / `exitlightA_strat`.
+pub fn exitlight_a_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, exitlight_a_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    exitlight_a_strat(g, idx);
+}
+
+pub fn exitlight_a_strat(g: &mut Game, idx: u16) {
+    // s_beqdec_alvar sbyte2 → exitlightB_init (TEST-then-DEC).
+    if g.objs.aliens[idx as usize].sbyte2 == 0 {
+        exitlight_b_init(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte2 -= 1;
+    crate::common::init_colanim(&mut g.objs.aliens[idx as usize], 1);
+}
+
+/// ROM `exitlightB_init` / `exitlightB_strat`.
+pub fn exitlight_b_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, exitlight_b_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sbyte1 = 3;
+        crate::common::init_colanim(al, 0);
+    }
+}
+
+pub fn exitlight_b_strat(g: &mut Game, idx: u16) {
+    // s_beqdec_alvar sbyte1,.dwait
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        g.objs.aliens[idx as usize].sbyte2 = 12;
+        exitlight_a_init(g, idx);
+        return;
+    }
+    g.objs.aliens[idx as usize].sbyte1 -= 1;
+}
+
+// ============================================================
+// FASTFIGHTER 1/2/3 + dofighter (GASTRATS.ASM:3395-3523).
+// ============================================================
+
+const FIGHTER_HP: u8 = 4; // fighterHP = 2+2
+const FIGHTER_AP: u8 = 4;
+const FF_FIRE_RATE: u8 = 3; // fffirerate
+
+/// Fire SLOWELASER with absolute pitch/yaw (copies into firer then restores).
+fn fire_slow_elaser_aimed(g: &mut Game, firer: u16, pitch: u8, yaw: u8) {
+    let (save_x, save_y) = {
+        let al = &g.objs.aliens[firer as usize];
+        (al.rotx, al.roty)
+    };
+    {
+        let al = &mut g.objs.aliens[firer as usize];
+        al.rotx = pitch;
+        al.roty = yaw;
+    }
+    let _ = fire_slow_elaser(g, firer);
+    {
+        let al = &mut g.objs.aliens[firer as usize];
+        al.rotx = save_x;
+        al.roty = save_y;
+    }
+}
+
+/// `s_weapon_rndrot #px,#py` — pitch (rnd&px)-(px/2), yaw (rnd&py)-(py/2).
+fn weapon_rndrot(g: &mut Game, pitch_mask: u8, yaw_mask: u8) -> (u8, u8) {
+    let dp = ((sf_random(&mut g.vars) as u8) & pitch_mask).wrapping_sub(pitch_mask / 2);
+    let dy = ((sf_random(&mut g.vars) as u8) & yaw_mask).wrapping_sub(yaw_mask / 2);
+    (dp, dy)
+}
+
+/// ROM `fastfighter_init` (GASTRATS.ASM:3473).
+pub fn fastfighter_init(g: &mut Game, idx: u16) {
+    let _ = sf_random(&mut g.vars); // s_set_var2rnd svar_byte1 (discarded)
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.hp = FIGHTER_HP;
+        al.ap = FIGHTER_AP;
+        al.roty = DEG180;
+        al.vel = 80;
+        al.sflags |= ASF_COLLDISABLE;
+        al.snd2 = 2;
+        gen_vecs_3d(al);
+    }
+}
+
+const FIGHTER_MUZZLE_Z: i16 = 30;
+const FIGHTER_FIRE_PERIOD_MASK: u8 = 31;
+
+/// ROM `fighter_Istrat` (GASTRATS.ASM:3486-3495). Unlike the fast-fighter
+/// variants this enemy begins stationary, is an enemy-weapon collision
+/// target, and uses a random per-object firing phase.
+pub fn fighter_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, fighter_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    let firing_phase = sf_random(&mut g.vars) as u8;
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.collstratptr = Some(coll);
+    al.expstratptr = Some(exp);
+    al.hp = FIGHTER_HP;
+    al.ap = FIGHTER_AP;
+    al.roty = DEG180;
+    al.vel = 0;
+    al.sbyte1 = firing_phase;
+    al.collflags |= COLLTYPE_ENEMYWEAP;
+    gen_vecs_3d(al);
+}
+
+/// ROM `fighter_strat` (GASTRATS.ASM:3497-3505).
+pub fn fighter_strat(g: &mut Game, idx: u16) {
+    let firing_phase = g.objs.aliens[idx as usize].sbyte1;
+    if (g.vars.gameframe as u8).wrapping_add(firing_phase) & FIGHTER_FIRE_PERIOD_MASK == 0 {
+        if let Some(shot) = fire_slow_elaser(g, idx) {
+            place_weapon_at_firer(g, shot, idx, FIGHTER_MUZZLE_Z);
+        }
+    }
+    dofighter(g, idx);
+}
+
+/// ROM `fastfighter1_Istrat`.
+pub fn fastfighter1_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, fastfighter1_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.sbyte1 = 8; // shoot 4 times at target (beqdec budget)
+    }
+    fastfighter_init(g, idx);
+}
+
+/// ROM `fastfighter1_strat` — spray or aimed burst at `al_ptr`.
+pub fn fastfighter1_strat(g: &mut Game, idx: u16) {
+    let target = {
+        let p = g.objs.aliens[idx as usize].ptr;
+        if p != 0 && (p as usize) < g.objs.aliens.len() && g.objs.aliens[p as usize].active {
+            Some(p)
+        } else {
+            None
+        }
+    };
+    let close = target.map_or(false, |t| {
+        (g.objs.aliens[idx as usize].worldz as i32 - g.objs.aliens[t as usize].worldz as i32).abs()
+            < 1500
+    });
+    if !close {
+        // Spray: notdelay 3,al1pt → (gf+idx)&7==0.
+        if (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & 7 == 0 {
+            let (dp, dy) = weapon_rndrot(g, 7, 15);
+            let me = g.objs.aliens[idx as usize];
+            fire_slow_elaser_aimed(g, idx, me.rotx.wrapping_add(dp), me.roty.wrapping_add(dy));
+        }
+    } else if let Some(t) = target {
+        // Aimed: notdelay 2; skip if target in front of self; beqdec sbyte1.
+        if (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & 3 == 0 {
+            let tgt_in_front =
+                g.objs.aliens[t as usize].worldz >= g.objs.aliens[idx as usize].worldz;
+            if !tgt_in_front && g.objs.aliens[idx as usize].sbyte1 != 0 {
+                g.objs.aliens[idx as usize].sbyte1 -= 1;
+                let me = g.objs.aliens[idx as usize];
+                let target = g.objs.aliens[t as usize];
+                let pitch = strat_pitch_toward(&me, &target);
+                let yaw = angle_xz(&me, &target);
+                strat_fire_relslowlaser(g, idx, pitch, yaw);
+            }
+        }
+    }
+    dofighter(g, idx);
+}
+
+/// ROM `fastfighter3_Istrat` / `fastfighter3_strat` — timed spray then → fighter1.
+pub fn fastfighter3_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, fastfighter3_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.sbyte1 = FF_FIRE_RATE;
+    }
+    fastfighter_init(g, idx);
+}
+
+pub fn fastfighter3_strat(g: &mut Game, idx: u16) {
+    let expired = {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.sbyte1 != 0 {
+            al.sbyte1 -= 1;
+        }
+        al.sbyte1 == 0
+    };
+    if expired {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.sbyte1 = FF_FIRE_RATE;
+        }
+        let (dp, dy) = weapon_rndrot(g, 7, 15);
+        let me = g.objs.aliens[idx as usize];
+        fire_slow_elaser_aimed(g, idx, me.rotx.wrapping_add(dp), me.roty.wrapping_add(dy));
+        let tick = sid(g, fastfighter1_strat);
+        g.objs.aliens[idx as usize].stratptr = Some(tick);
+    }
+    dofighter(g, idx);
+}
+
+/// ROM `fastfighter2_Istrat` / `fastfighter2_strat` — yaw-only spray.
+pub fn fastfighter2_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, fastfighter2_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
+    fastfighter_init(g, idx);
+}
+
+pub fn fastfighter2_strat(g: &mut Game, idx: u16) {
+    // s_jmp_NOTdelay 3,.nofire,al1pt
+    if (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & 7 == 0 {
+        let dy = ((sf_random(&mut g.vars) as u8) & 7).wrapping_sub(3);
+        let me = g.objs.aliens[idx as usize];
+        fire_slow_elaser_aimed(g, idx, me.rotx, me.roty.wrapping_add(dy));
+    }
+    dofighter(g, idx);
+}
+
+/// ROM `dofighter` (GASTRATS.ASM:3507) — bank when close; damaged spin; addvecs.
+fn dofighter(g: &mut Game, idx: u16) {
+    if let Some(p) = player(g) {
+        let me = g.objs.aliens[idx as usize];
+        if dist_xz(&me, &p) < 1000 {
+            szaco2_bank_to_player(g, idx);
+        }
+    }
+    // Damaged: HP <= fighterHP-1 → alternate rotz spin via next_state #2.
+    if g.objs.aliens[idx as usize].hp <= FIGHTER_HP.saturating_sub(1) {
+        if g.vars.gameframe & 1 == 0 {
+            // s_next_state x,#2 — wrap to 1 when past max.
+            let s = g.objs.aliens[idx as usize].stratstate.wrapping_add(1);
+            g.objs.aliens[idx as usize].stratstate = if s <= 2 { s } else { 1 };
+        }
+        if g.objs.aliens[idx as usize].stratstate == 1 {
+            g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_sub(5);
+        } else {
+            g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(5);
+        }
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+// ============================================================
+// CRANE0 + TZACO7 (GA2STRAT.ASM:693-812) — hardHP crane carrying a zaco_7.
+// ============================================================
+
+const SH_ZACO_7: u16 = 128; // shape_data / route2 rc.rs
+const CRANE_CHILD_HP: u8 = 6;
+const CRANE_CHILD_AP: u8 = 8;
+const HF1: u8 = 0x01;
+const HF2: u8 = 0x02;
+
+fn copy_rots(g: &mut Game, dst: u16, src: u16) {
+    let s = g.objs.aliens[src as usize];
+    let al = &mut g.objs.aliens[dst as usize];
+    al.rotx = s.rotx;
+    al.roty = s.roty;
+    al.rotz = s.rotz;
+}
+
+/// ROM `crane0_Istrat` (GA2STRAT.ASM:693) — spawn carried zaco_7 child.
+pub fn crane0_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, crane0_strat);
+    let coll = sid(g, crane0col_istrat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = None;
+        al.hp = HARD_HP;
+        al.ap = 2;
+        al.sbyte1 = 6;
+        al.stratstate = 0;
+        al.ptr = 0;
+        al.sflags |= ASF_SHADOW;
+        al.collflags |= COLLTYPE_ENEMY1;
+    }
+    if let Some(child) = make_obj(g, SH_ZACO_7) {
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.ptr = child;
+        }
+        let c_coll = sid(g, strat_hit_flash);
+        let c_exp = sid(g, strat_explode);
+        {
+            let al = &mut g.objs.aliens[child as usize];
+            al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
+            al.stratptr = None;
+            al.collstratptr = Some(c_coll);
+            al.expstratptr = Some(c_exp);
+            al.hp = CRANE_CHILD_HP;
+            al.ap = CRANE_CHILD_AP;
+            al.animframe = 0;
+            al.collflags |= COLLTYPE_ENEMY1;
+        }
+        copy_pos(g, child, idx);
+        copy_rots(g, child, idx);
+    }
+    crane0_strat(g, idx);
+}
+
+/// ROM `crane0_strat` — 3-state slide; release child when close.
+pub fn crane0_strat(g: &mut Game, idx: u16) {
+    let state = g.objs.aliens[idx as usize].stratstate;
+    match state {
+        0 => {
+            let close = player(g).map_or(false, |p| {
+                (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() < 1500
+            });
+            if close {
+                g.objs.aliens[idx as usize].roty = DEG90;
+                g.objs.aliens[idx as usize].worldx =
+                    g.objs.aliens[idx as usize].worldx.wrapping_sub(10);
+                let expired = {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    if al.sbyte1 != 0 {
+                        al.sbyte1 -= 1;
+                    }
+                    al.sbyte1 == 0
+                };
+                if expired {
+                    let al = &mut g.objs.aliens[idx as usize];
+                    al.stratstate = 1;
+                    // 6000/(medpspeed-10); MEDPSPEED_I16=65 → 109.
+                    let den = (MEDPSPEED_I16 as i32 - 10).max(1);
+                    al.sbyte1 = (6000 / den).min(255) as u8;
+                }
+            }
+        }
+        1 => {
+            achase_angle(&mut g.objs.aliens[idx as usize].roty, DEG180, 2);
+            add_player_z(g, idx);
+            g.objs.aliens[idx as usize].worldz =
+                g.objs.aliens[idx as usize].worldz.wrapping_sub(10);
+            let expired = {
+                let al = &mut g.objs.aliens[idx as usize];
+                if al.sbyte1 != 0 {
+                    al.sbyte1 -= 1;
+                }
+                al.sbyte1 == 0
+            };
+            if expired {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.sbyte1 = 6;
+                al.stratstate = 2;
+            }
+        }
+        2 => {
+            achase_angle(&mut g.objs.aliens[idx as usize].roty, DEG90, 2);
+            g.objs.aliens[idx as usize].worldx =
+                g.objs.aliens[idx as usize].worldx.wrapping_sub(10);
+            let expired = {
+                let al = &mut g.objs.aliens[idx as usize];
+                if al.sbyte1 != 0 {
+                    al.sbyte1 -= 1;
+                }
+                al.sbyte1 == 0
+            };
+            if expired {
+                g.objs.aliens[idx as usize].stratstate = 3;
+            }
+        }
+        _ => {}
+    }
+
+    // Release child into tzaco7go when |dz| < 700.
+    if let Some(p) = player(g) {
+        let dz = (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs();
+        let child = g.objs.aliens[idx as usize].ptr;
+        if dz < 700 && child != 0 {
+            tzaco7go_istrat(g, child);
+            g.objs.aliens[idx as usize].ptr = 0;
+        }
+    }
+
+    // Carry: copy pose onto child while attached.
+    let child = g.objs.aliens[idx as usize].ptr;
+    if child != 0 && (child as usize) < g.objs.aliens.len() && g.objs.aliens[child as usize].active
+    {
+        copy_pos(g, child, idx);
+        copy_rots(g, child, idx);
+    }
+}
+
+/// ROM `crane0col_Istrat` (GA2STRAT.ASM:759) — friend laser: HF1 kill / HF2 drop.
+pub fn crane0col_istrat(g: &mut Game, idx: u16) {
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    let ok = partner != 0 && (partner as usize) < g.objs.aliens.len() && {
+        let y = &g.objs.aliens[partner as usize];
+        y.collflags & ACF_COLLTYPE1 != 0 && y.collflags & ACF_COLLTYPE5 != 0
+    };
+    if ok {
+        let child = g.objs.aliens[idx as usize].ptr;
+        let hf = g.objs.aliens[idx as usize].hitflags;
+        if child != 0 && (child as usize) < g.objs.aliens.len() {
+            if hf & HF1 != 0 {
+                crate::common::kill_obj(&mut g.objs.aliens[child as usize]);
+            } else if hf & HF2 != 0 {
+                tzaco7fall_istrat(g, child);
+                g.objs.aliens[idx as usize].ptr = 0;
+            }
+        }
+    }
+    g.objs.aliens[idx as usize].hitflags = 0;
+    jmpto_strat(g, idx);
+}
+
+/// ROM `tzaco7fall_Istrat` (GA2STRAT.ASM:781) — drop; explode at ground.
+pub fn tzaco7fall_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, tzaco7fall_istrat);
+    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    // s_jmp_lower x,#0,explode — branch when worldy >= 0.
+    if g.objs.aliens[idx as usize].worldy >= 0 {
+        strat_explode(g, idx);
+        return;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.vy = al.vy.wrapping_add(5);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+/// ROM `tzaco7go_Istrat` / `tzaco7go_strat` (GA2STRAT.ASM:789).
+pub fn tzaco7go_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, tzaco7go_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.vy = 5;
+        al.vz = -20;
+        al.sflags &= !ASF_COLLDISABLE;
+    }
+    tzaco7go_strat(g, idx);
+}
+
+pub fn tzaco7go_strat(g: &mut Game, idx: u16) {
+    let player_y = player(g).map(|p| p.worldy);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.animframe != 9 {
+            al.animframe = (al.animframe + 1) % 10;
+        }
+        if al.vy != 0 {
+            al.vy = al.vy.wrapping_sub(1);
+        } else if let Some(py) = player_y {
+            al.worldy = chase_proportional(al.worldy, py, 3);
+        }
+    }
+    // ASM: s_add_playerZ then s_add_vecs2pos.
+    add_player_z(g, idx);
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+}
+
+/// ROM `tzaco7cat_Istrat` / `tzaco7cat_strat` (GA2STRAT.ASM:857) — parked zaco_7.
+pub fn tzaco7cat_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, tzaco7cat_strat);
+    let coll = sid(g, strat_hit_flash);
+    let exp = sid(g, strat_explode);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.animframe = 0;
+        al.hp = 2;
+        al.ap = 4;
+        al.collflags |= COLLTYPE_ENEMY1;
+    }
+    tzaco7cat_strat(g, idx);
+}
+
+pub fn tzaco7cat_strat(g: &mut Game, idx: u16) {
+    let close = player(g).map_or(false, |p| {
+        (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs() < 500
+    });
+    if close {
+        let al = &mut g.objs.aliens[idx as usize];
+        if al.animframe != 9 {
+            al.animframe = (al.animframe + 1) % 10;
+        }
+    }
 }
 
 // ============================================================
 // SZACO2 (GA2STRAT.ASM; C strat_enemy.c:5958-6126)
 // ============================================================
 
-/// C `szaco2_waypoint_yaw` (strat_enemy.c:5958): negated waypoint angle.
+/// C `szaco2_waypoint_yaw` (strat_enemy.c:5958): `nega(anglexy_abs)`.
 fn szaco2_waypoint_yaw(al: &Alien) -> u8 {
-    let dx = (al.swpx1 as i32 - al.worldx as i32) as f32;
-    let dz = (al.swpz1 as i32 - al.worldz as i32) as f32;
-    let mut angle = dx.atan2(dz);
-    if angle < 0.0 {
-        angle += 2.0 * 3.141_592_65_f32;
-    }
-    (-((angle * (256.0 / (2.0 * 3.141_592_65_f32))) as i32)) as u8
+    sf_core::aim_angle::yanglexy_nega(
+        al.swpx1.wrapping_sub(al.worldx),
+        al.swpz1.wrapping_sub(al.worldz),
+    )
 }
 
-/// C `szaco2_waypoint_pitch` (strat_enemy.c:5978).
+/// C `szaco2_waypoint_pitch` — ROM `Xanglexabs_l` (Manhattan adjacent).
 fn szaco2_waypoint_pitch(al: &Alien) -> u8 {
-    let dx = (al.swpx1 as i32 - al.worldx as i32) as f32;
-    let dy = (al.swpy1 as i32 - al.worldy as i32) as f32;
-    let dz = (al.swpz1 as i32 - al.worldz as i32) as f32;
-    let dist = (dx * dx + dz * dz).sqrt();
-    if dist <= 1.0 {
-        return al.rotx;
-    }
-    let pitch = dy.atan2(dist);
-    ((pitch * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8
+    sf_core::aim_angle::xanglexabs(
+        al.swpy1.wrapping_sub(al.worldy),
+        al.swpx1.wrapping_sub(al.worldx),
+        al.swpz1.wrapping_sub(al.worldz),
+    )
 }
 
 /// C `szaco2_bank_to_player` (strat_enemy.c:6001, sr_banktoplayer).
@@ -5027,8 +14244,7 @@ fn szaco2_strat(g: &mut Game, idx: u16) {
         let me = g.objs.aliens[idx as usize];
         let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
         if zdist >= SZACO2_FIRE_NEAR_Z && zdist < SZACO2_FIRE_FAR_Z {
-            if (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx))
-                & SZACO2_FIRE_MASK
+            if (g.vars.gameframe as u8).wrapping_add(strat_phase_offset(idx)) & SZACO2_FIRE_MASK
                 != 0
             {
                 szaco2_cont(g, idx);
@@ -5054,14 +14270,14 @@ pub fn strat_szaco2_init(g: &mut Game, idx: u16) {
     al.collstratptr = Some(s_coll);
     al.expstratptr = Some(s_exp);
     al.vel = SZACO2_SPEED;
-    al.swpy1 = al
-        .swpy1
-        .wrapping_add(SZACO2_WPY_OFFSET)
-        .wrapping_add(posy);
+    al.swpy1 = al.swpy1.wrapping_add(SZACO2_WPY_OFFSET).wrapping_add(posy);
     al.animframe = 0x80 | SZACO2_ANIM_INIT;
     al.collflags |= COLLTYPE_ENEMYWEAP;
     al.snd2 = 3;
-    // relexplode/zaco_8p death debris deferred (C comment).
+    // ASM GA2STRAT.ASM:236-238 `s_set_debrisdata #zaco_8p` + `relexplode`.
+    // Extended-bank mesh `SHAPE_EXT_ZACO_8P` (283) from SHAPES2.ASM.
+    al.debrisshape = SH_ZACO_8P;
+    al.sflags2 |= ASF2_RELEXPLODE;
 }
 
 // ============================================================
@@ -5143,34 +14359,32 @@ fn zaco1_phase0(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.swpz1 = posz.wrapping_add(1500);
         // s_obj2WP_angle: chase yaw/pitch toward the waypoint.
-        let dx = (al.swpx1 as i32 - al.worldx as i32) as f32;
-        let dz = (al.swpz1 as i32 - al.worldz as i32) as f32;
-        let mut angle = dx.atan2(dz);
-        if angle < 0.0 {
-            angle += 2.0 * 3.141_592_65_f32;
-        }
-        let target_yaw = (-((angle * (256.0 / (2.0 * 3.141_592_65_f32))) as i32)) as u8;
+        let dx = al.swpx1.wrapping_sub(al.worldx);
+        let dz = al.swpz1.wrapping_sub(al.worldz);
+        let target_yaw = sf_core::aim_angle::yanglexy_nega(dx, dz);
         let mut roty = al.roty;
         achase_angle(&mut roty, target_yaw, 3);
         al.roty = roty;
-        let dy = (0i32 - al.worldy as i32) as f32;
-        let dist_xz = (dx * dx + dz * dz).sqrt();
-        if dist_xz > 1.0 {
-            let pitch = dy.atan2(dist_xz);
-            let target_pitch = ((pitch * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8;
-            let mut rotx = al.rotx;
-            achase_angle(&mut rotx, target_pitch, 3);
-            al.rotx = rotx;
-        }
+        let target_pitch = sf_core::aim_angle::xanglexabs(0i16.wrapping_sub(al.worldy), dx, dz);
+        let mut rotx = al.rotx;
+        achase_angle(&mut rotx, target_pitch, 3);
+        al.rotx = rotx;
     }
     if let Some(pl) = player(g) {
         let me = g.objs.aliens[idx as usize];
         let zdist = (me.worldz as i32 - pl.worldz as i32).abs();
-        if zdist > 1000 {
+        // ASM GASTRATS.ASM:1215 `s_jmp_Zdistmore #1000,zaco1a_init` → phase1
+        // when |dz| >= 1000 (inclusive). (Audit A Minor 3)
+        // zaco1a_init falls into zaco1a_strat same frame. (Audit A Minor 15)
+        if zdist >= 1000 {
             let s = sid(g, zaco1_phase1);
-            let al = &mut g.objs.aliens[idx as usize];
-            al.stratptr = Some(s);
-            al.type_ |= ATZREMOVE; // s_setremove_behind
+            {
+                let al = &mut g.objs.aliens[idx as usize];
+                al.stratptr = Some(s);
+                al.type_ |= ATZREMOVE; // s_setremove_behind
+            }
+            zaco1_phase1(g, idx);
+            return;
         }
     }
     zaco1_cont(g, idx);
@@ -5186,9 +14400,12 @@ fn zaco1_phase1(g: &mut Game, idx: u16) {
         al.rotx = al.rotx.wrapping_sub(1);
         reached
     };
+    // ASM Achase … zaco1b_init falls into zaco1b_strat same frame. (Audit A #15)
     if reached {
         let s = sid(g, zaco1_phase2);
         g.objs.aliens[idx as usize].stratptr = Some(s);
+        zaco1_phase2(g, idx);
+        return;
     }
     zaco1_cont(g, idx);
 }
@@ -5197,19 +14414,18 @@ fn zaco1_phase1(g: &mut Game, idx: u16) {
 fn zaco1_phase2(g: &mut Game, idx: u16) {
     let pl = player(g);
     let zdist: i32 = match pl {
-        Some(p) => {
-            (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs()
-        }
+        Some(p) => (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs(),
         None => 0,
     };
     if zdist < 1400 {
-        // .circ — spiral attack (GASTRATS.ASM:1253-1259).
+        // .circ — spiral attack (GASTRATS.ASM:1253-1259): sintab,-3 / costab,-2
+        // toward-zero (not float sin/cos + arithmetic >>). (Audit A Minor 15)
         let al = &mut g.objs.aliens[idx as usize];
         let _ = speed_to(al, 45, 1);
         al.sbyte1 = al.rotz;
         al.sbyte1 = al.sbyte1.wrapping_sub(DEG90);
-        al.sword2 = ((strat_sin(al.sbyte1) * 127.0f32) as i16) >> 3;
-        al.ptr = (((strat_cos(al.sbyte1) * 127.0f32) as i16) >> 2) as u16;
+        al.sword2 = bee_tab_scaled(al.sbyte1, false, -3);
+        al.ptr = bee_tab_scaled(al.sbyte1, true, -2) as u16;
         al.rotz = al.rotz.wrapping_add(al.sbyte2);
     } else if (1400..1800).contains(&zdist) {
         // Fire RELSLOWELASERHOME every 4th frame (s_jmp_notdelay 2 = mask 3),
@@ -5230,22 +14446,17 @@ fn zaco1_phase2(g: &mut Game, idx: u16) {
     if zdist >= 700 {
         if let Some(p) = pl {
             let me = g.objs.aliens[idx as usize];
-            let target_yaw = angle_xz(&me, &p);
+            // ROM `s_obj2obj_3dangle ...,3` negates Yanglexy into al_roty
+            // (same as zaco1_phase0 WP chase / szaco2_waypoint_yaw).
+            // (Audit A Minor 15)
+            let target_yaw = angle_xz(&me, &p).wrapping_neg();
             let mut roty = me.roty;
             achase_angle(&mut roty, target_yaw, 3);
             g.objs.aliens[idx as usize].roty = roty;
-            let dy = (p.worldy as i32 - me.worldy as i32) as f32;
-            let dx = (p.worldx as i32 - me.worldx as i32) as f32;
-            let dz = (p.worldz as i32 - me.worldz as i32) as f32;
-            let dist_xz = (dx * dx + dz * dz).sqrt();
-            if dist_xz > 1.0 {
-                let pitch = dy.atan2(dist_xz);
-                let target_pitch =
-                    ((pitch * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8;
-                let mut rotx = g.objs.aliens[idx as usize].rotx;
-                achase_angle(&mut rotx, target_pitch, 3);
-                g.objs.aliens[idx as usize].rotx = rotx;
-            }
+            let target_pitch = strat_pitch_toward(&me, &p);
+            let mut rotx = g.objs.aliens[idx as usize].rotx;
+            achase_angle(&mut rotx, target_pitch, 3);
+            g.objs.aliens[idx as usize].rotx = rotx;
         }
     }
     zaco1_cont(g, idx);
@@ -5300,8 +14511,8 @@ pub fn strat_friendexitbase_init(g: &mut Game, idx: u16) {
 // CLEAR-DEMO SHIPS (GCSTRATS.ASM; C strat_enemy.c:6440-6807)
 // ============================================================
 
-/// C `clshipboost_step` (strat_enemy.c:6440).
-fn clshipboost_step(g: &mut Game, idx: u16) {
+/// C `clshipboost_step` (strat_enemy.c:6440) — ROM `clshipboost_strat`.
+pub fn clshipboost_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         if al.sbyte2 != 0 {
@@ -5321,13 +14532,34 @@ fn clshipboost_step(g: &mut Game, idx: u16) {
 
 /// C `clshipboost_enter` (strat_enemy.c:6454).
 fn clshipboost_enter(g: &mut Game, idx: u16, play_sound: bool) {
-    let s = sid(g, clshipboost_step);
-    let al = &mut g.objs.aliens[idx as usize];
-    if play_sound {
-        al.snd2 = 0x32;
+    let s = sid(g, clshipboost_strat);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        if play_sound {
+            al.snd2 = 0x32;
+        }
+        al.stratptr = Some(s);
+        al.vel = 120;
     }
-    al.stratptr = Some(s);
-    al.vel = 120;
+    // ROM: s_set_vartobeobj boostobj,x ; boost_sprite
+    g.vars.set_sv_i16(crate::common::sv::BOOSTOBJ, idx as i16);
+    // Default flame Z if unset (PSTRATS uses #-30; GCSTRATS some paths #-80).
+    if g.vars.sv_u8(crate::common::sv::BOOSTZOFF) == 0 {
+        crate::common::set_boost_zoff(g, -30);
+    }
+    let _ = crate::common::boost_sprite(g, None);
+}
+
+/// ROM `clshipboost_Istrat` (GCSTRATS.ASM:234) — trigse $32 then boost.
+pub fn clshipboost_istrat(g: &mut Game, idx: u16) {
+    clshipboost_enter(g, idx, true);
+    clshipboost_strat(g, idx);
+}
+
+/// ROM `clshipboostnosnd_Istrat` (GCSTRATS.ASM:237) — same boost, no engine SE.
+pub fn clshipboostnosnd_istrat(g: &mut Game, idx: u16) {
+    clshipboost_enter(g, idx, false);
+    clshipboost_strat(g, idx);
 }
 
 /// C `clship_flyinleft` (strat_enemy.c:6462).
@@ -5390,7 +14622,7 @@ fn clship_warp_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
             // ASM clshipWARP_cont (GCSTRATS.ASM:143) jumps to clshipboost_Istrat
             // (:234 `trigse $32`) — the warp boost DOES play the sound. (Audit A #28)
             clshipboost_enter(g, idx, true);
-            clshipboost_step(g, idx);
+            clshipboost_strat(g, idx);
             return;
         }
         al.sword1 -= 1;
@@ -5425,7 +14657,7 @@ fn clship_gnd_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
         // s_beqdec TEST-then-DEC (was dec-then-test, one frame early).
         if al.sword1 == 0 {
             clshipboost_enter(g, idx, true);
-            clshipboost_step(g, idx);
+            clshipboost_strat(g, idx);
             return;
         }
         al.sword1 -= 1;
@@ -5557,21 +14789,64 @@ pub fn strat_clship_gndc_init(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sword1 = CLSHIP_GNDWAIT + 100 - CLSHIP_COCKWAIT;
 }
 
-/// C `s_clship_rotz_float` (strat_enemy.c:6620).
-const CLSHIP_ROTZ_FLOAT: [i8; 15] = [0, 1, 2, 2, 1, 0, -1, -2, -2, -1, 0, 1, 2, 1, 0];
+/// ROM `pZrotfloattab` (PSTRATS.ASM:3635) — 28 signed bytes.
+const CLSHIP_PZROT_FLOAT: [i8; 28] = [
+    0, 1, 2, 3, 4, 4, 5, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -5, -4, -4, -3, -2, -1,
+];
 
-/// C `s_clship_view_float` (strat_enemy.c:6624).
-const CLSHIP_VIEW_FLOAT: [i16; 7] = [0, 4, 7, 4, 0, -4, -7];
+/// ROM `viewfloattab` (GSTRATS.ASM:3140) — 36 signed words (`viewfloattab_len` = 72 bytes).
+const CLSHIP_VIEW_FLOAT: [i16; 36] = [
+    0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -6, -6,
+    -6, -5, -5, -4, -4, -3, -2, -1,
+];
 
-/// C `clship_float2` (strat_enemy.c:6628).
-fn clship_float2(g: &mut Game, idx: u16) {
+/// Advance `sbyte3` through `pZrotfloattab` (wrap at 28).
+fn clship_advance_pzrot(al: &mut sf_game::alien::Alien) -> i8 {
+    al.sbyte3 = al.sbyte3.wrapping_add(1);
+    if al.sbyte3 as usize >= CLSHIP_PZROT_FLOAT.len() {
+        al.sbyte3 = 0;
+    }
+    CLSHIP_PZROT_FLOAT[al.sbyte3 as usize]
+}
+
+/// Advance `sbyte4` through `viewfloattab` using the ROM `s_scale_alvar +1` /
+/// wrap-at-72-bytes / `s_scale_alvar -1` dance. Returns the looked-up word
+/// (before any table-scale applied by the caller).
+fn clship_advance_viewfloat(al: &mut sf_game::alien::Alien) -> i16 {
+    // s_inc; <<1; wrap at viewfloattab_len (72); lookup at byte offset; >>1.
+    let mut byte_i = al.sbyte4.wrapping_add(1);
+    byte_i = byte_i.wrapping_shl(1);
+    if byte_i as usize >= CLSHIP_VIEW_FLOAT.len() * 2 {
+        byte_i = 0;
+    }
+    let word = CLSHIP_VIEW_FLOAT[(byte_i as usize) / 2];
+    al.sbyte4 = byte_i >> 1;
+    word
+}
+
+/// ROM `floatCLship_l` (GCSTRATS.ASM:2069): *set* rotz/worldy from float tables
+/// (table scale +1 = ASL once on each looked-up value).
+pub fn float_clship(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
-    al.sbyte3 = al.sbyte3.wrapping_add(1) % 15;
-    al.rotz = al.rotz.wrapping_add(CLSHIP_ROTZ_FLOAT[al.sbyte3 as usize] as u8);
-    al.sbyte4 = al.sbyte4.wrapping_add(1) % 7;
-    al.worldy = al
-        .worldy
-        .wrapping_add(CLSHIP_VIEW_FLOAT[al.sbyte4 as usize]);
+    let rz = clship_advance_pzrot(al);
+    al.rotz = (rz as u8).wrapping_shl(1);
+    let wy = clship_advance_viewfloat(al);
+    al.worldy = wy.wrapping_shl(1);
+}
+
+/// ROM `floatCLship2_l` (GCSTRATS.ASM:2088): *add* scaled table deltas to
+/// rotz/worldy (table scale -2 = two arithmetic /2 on each looked-up value).
+pub fn float_clship2(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    let dz = clship_advance_pzrot(al) >> 2;
+    al.rotz = al.rotz.wrapping_add(dz as u8);
+    let dy = clship_advance_viewfloat(al) >> 2;
+    al.worldy = al.worldy.wrapping_add(dy);
+}
+
+/// Alias used by EARTH/TURN cont paths (same as `float_clship2`).
+fn clship_float2(g: &mut Game, idx: u16) {
+    float_clship2(g, idx);
 }
 
 /// C `clship_cont` (strat_enemy.c:6635).
@@ -5681,7 +14956,7 @@ fn clship_chase_cont(g: &mut Game, idx: u16, zoff: i16, yoff: i16) {
     // one. (Audit A #9)
     if g.objs.aliens[idx as usize].sword1 == 0 {
         clshipboost_enter(g, idx, true);
-        clshipboost_step(g, idx);
+        clshipboost_strat(g, idx);
         return;
     }
     g.objs.aliens[idx as usize].sword1 -= 1;
@@ -5740,39 +15015,39 @@ fn clship_chasec_strat(g: &mut Game, idx: u16) {
 /// C `Strat_ClshipEARTHA_Init` (strat_enemy.c:6764).
 pub fn strat_clship_eartha_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_eartha_strat);
-    let r1 = (sf_random(&mut g.vars) & 15) as u8;
-    let r2 = (sf_random(&mut g.vars) & 7) as u8;
+    let random_yaw = (sf_random(&mut g.vars) & 15) as u8;
+    let random_pitch = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sflags2 |= CLSHIP_FLAG1;
     al.sbyte1 = 10;
     al.rotz = DEG90.wrapping_neg();
-    al.sbyte3 = r1;
-    al.sbyte4 = r2;
+    al.sbyte3 = random_yaw;
+    al.sbyte4 = random_pitch;
 }
 
 /// C `Strat_ClshipEARTHB_Init` (strat_enemy.c:6773).
 pub fn strat_clship_earthb_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_earthb_strat);
-    let r1 = (sf_random(&mut g.vars) & 15) as u8;
-    let r2 = (sf_random(&mut g.vars) & 7) as u8;
+    let random_yaw = (sf_random(&mut g.vars) & 15) as u8;
+    let random_pitch = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sflags2 |= CLSHIP_FLAG1;
     al.sbyte1 = 20;
     al.rotz = DEG90.wrapping_add(DEG45);
-    al.sbyte3 = r1;
-    al.sbyte4 = r2;
+    al.sbyte3 = random_yaw;
+    al.sbyte4 = random_pitch;
 }
 
 /// C `Strat_ClshipEARTHC_Init` (strat_enemy.c:6782).
 pub fn strat_clship_earthc_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_earthc_strat);
-    let r1 = (sf_random(&mut g.vars) & 15) as u8;
-    let r2 = (sf_random(&mut g.vars) & 7) as u8;
+    let random_yaw = (sf_random(&mut g.vars) & 15) as u8;
+    let random_pitch = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sflags2 |= CLSHIP_FLAG1;
     al.sbyte1 = 30;
-    al.sbyte3 = r1;
-    al.sbyte4 = r2;
+    al.sbyte3 = random_yaw;
+    al.sbyte4 = random_pitch;
 }
 
 /// C `Strat_ClshipCHASEA_Init` (strat_enemy.c:6790).
@@ -5847,6 +15122,18 @@ pub fn strat_clship_shipa_init(g: &mut Game, idx: u16) {
     al.rotz = DEG90.wrapping_neg(); // :326 -deg90
 }
 
+/// ROM `clship1_Istrat` (GCSTRATS.ASM:322) — SHIPa without the sflag1/sbyte1
+/// space-boost latch (falls through into the same body after those two stores).
+pub fn clship1_istrat(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_shipa_strat);
+    g.objs.aliens[idx as usize].rotz = DEG90.wrapping_neg();
+}
+
+/// ROM `clship1_strat` (GCSTRATS.ASM:328).
+pub fn clship1_strat(g: &mut Game, idx: u16) {
+    clship_shipa_strat(g, idx);
+}
+
 /// Port of `clshipSHIPb_Istrat` (GCSTRATS.ASM:335).
 pub fn strat_clship_shipb_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_shipb_strat);
@@ -5856,12 +15143,33 @@ pub fn strat_clship_shipb_init(g: &mut Game, idx: u16) {
     al.rotz = DEG90; // :343
 }
 
+/// ROM `clship2_Istrat` (GCSTRATS.ASM:339).
+pub fn clship2_istrat(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_shipb_strat);
+    g.objs.aliens[idx as usize].rotz = DEG90;
+}
+
+/// ROM `clship2_strat` (GCSTRATS.ASM:345).
+pub fn clship2_strat(g: &mut Game, idx: u16) {
+    clship_shipb_strat(g, idx);
+}
+
 /// Port of `clshipSHIPc_Istrat` (GCSTRATS.ASM:354). No rotz set -> stays 0.
 pub fn strat_clship_shipc_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_shipc_strat);
     let al = &mut g.objs.aliens[idx as usize];
     al.sflags2 |= CLSHIP_FLAG1; // :356
     al.sbyte1 = 30; // :357
+}
+
+/// ROM `clship3_Istrat` (GCSTRATS.ASM:358).
+pub fn clship3_istrat(g: &mut Game, idx: u16) {
+    clship_common_init(g, idx, clship_shipc_strat);
+}
+
+/// ROM `clship3_strat` (GCSTRATS.ASM:363).
+pub fn clship3_strat(g: &mut Game, idx: u16) {
+    clship_shipc_strat(g, idx);
 }
 
 // ---- TURN family (clshipTURNa/b/c, GCSTRATS.ASM:435-560) ----
@@ -5947,6 +15255,11 @@ fn clship_turn2_enter(g: &mut Game, idx: u16) {
     al.type_ |= ATZREMOVE; // :543 s_setremove_behind
 }
 
+/// Public entry for `clshipTURN2_Istrat` (GCSTRATS.ASM:536).
+pub fn clship_turn2_istrat(g: &mut Game, idx: u16) {
+    clship_turn2_enter(g, idx);
+}
+
 /// ASM clshipTURN2_strat (GCSTRATS.ASM:544): roll up for sbyte1 frames, then
 /// settle rotz.
 fn clship_turn2_step(g: &mut Game, idx: u16) {
@@ -5961,6 +15274,21 @@ fn clship_turn2_step(g: &mut Game, idx: u16) {
             al.roty = al.roty.wrapping_add(4); // :549
         }
         // clshipTURN2_cont :556-558.
+        gen_vecs_3d(al);
+        apply_velocity(al);
+    }
+    add_player_z(g, idx);
+}
+
+/// Public entry for `clshipTURN2_strat` / `clshipTURN2_cont` (GCSTRATS.ASM:544/556).
+pub fn clship_turn2_strat(g: &mut Game, idx: u16) {
+    clship_turn2_step(g, idx);
+}
+
+/// Public alias for the shared TURN2 cont tail (vecs + playerZ).
+pub fn clship_turn2_cont(g: &mut Game, idx: u16) {
+    {
+        let al = &mut g.objs.aliens[idx as usize];
         gen_vecs_3d(al);
         apply_velocity(al);
     }
@@ -5991,44 +15319,44 @@ const CLSHIP_TURN_SBYTE1: u8 = ((DEG180 as u16 + DEG45 as u16 + DEG22 as u16) / 
 /// Port of `clshipTURNa_Istrat` (GCSTRATS.ASM:435).
 pub fn strat_clship_turna_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_turna_strat);
-    let r1 = (sf_random(&mut g.vars) & 15) as u8;
-    let r2 = (sf_random(&mut g.vars) & 7) as u8;
+    let random_yaw = (sf_random(&mut g.vars) & 15) as u8;
+    let random_pitch = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.vx = 10; // :440
     al.rotz = DEG90.wrapping_neg(); // :441 -deg90
     al.sword1 = 100 + 130 + 10 - CLSHIP_BUNNYWAIT; // :442 = 180
     al.sbyte1 = CLSHIP_TURN_SBYTE1; // :443
     al.sflags2 |= CLSHIP_FLAG2; // :444 set sflag2 (sound-only, dead)
-    al.sbyte3 = r1; // :445
-    al.sbyte4 = r2; // :446
+    al.sbyte3 = random_yaw; // :445
+    al.sbyte4 = random_pitch; // :446
 }
 
 /// Port of `clshipTURNb_Istrat` (GCSTRATS.ASM:460).
 pub fn strat_clship_turnb_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_turnb_strat);
-    let r1 = (sf_random(&mut g.vars) & 15) as u8;
-    let r2 = (sf_random(&mut g.vars) & 7) as u8;
+    let random_yaw = (sf_random(&mut g.vars) & 15) as u8;
+    let random_pitch = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.vx = -10; // :465
     al.rotz = DEG90; // :466
     al.sword1 = 100 + 120 + 10 - CLSHIP_FROGWAIT; // :467 = 200
     al.sbyte1 = CLSHIP_TURN_SBYTE1; // :468
     al.sflags2 &= !CLSHIP_FLAG2; // :469 clr sflag2
-    al.sbyte3 = r1;
-    al.sbyte4 = r2;
+    al.sbyte3 = random_yaw;
+    al.sbyte4 = random_pitch;
 }
 
 /// Port of `clshipTURNc_Istrat` (GCSTRATS.ASM:481). No vx/rotz set.
 pub fn strat_clship_turnc_init(g: &mut Game, idx: u16) {
     clship_common_init(g, idx, clship_turnc_strat);
-    let r1 = (sf_random(&mut g.vars) & 15) as u8;
-    let r2 = (sf_random(&mut g.vars) & 7) as u8;
+    let random_yaw = (sf_random(&mut g.vars) & 15) as u8;
+    let random_pitch = (sf_random(&mut g.vars) & 7) as u8;
     let al = &mut g.objs.aliens[idx as usize];
     al.sword1 = 100 + 100 + 10 - CLSHIP_COCKWAIT; // :486 = 120
     al.sbyte1 = CLSHIP_TURN_SBYTE1; // :487
     al.sflags2 |= CLSHIP_FLAG2; // :488
-    al.sbyte3 = r1;
-    al.sbyte4 = r2;
+    al.sbyte3 = random_yaw;
+    al.sbyte4 = random_pitch;
 }
 
 // ---- BRIDGE family (clshipBRIDGEa/b/c, GCSTRATS.ASM:564-669) ----
@@ -6081,6 +15409,13 @@ fn clship_bridgeboost_enter(g: &mut Game, idx: u16) {
     al.vel = 20; // :645 s_set_speed #20
 }
 
+/// Public registry entry for `clshipBridgeboost_Istrat`. The init falls
+/// through to the first boost tick in the same strategy dispatch.
+pub(crate) fn clship_bridgeboost_istrat(g: &mut Game, idx: u16) {
+    clship_bridgeboost_enter(g, idx);
+    clship_bridgeboost_step(g, idx);
+}
+
 /// ASM clshipBridgeboost_strat (GCSTRATS.ASM:646): sideways drift (vz forced
 /// to 0), slow roll, then general boost when sbyte1 expires.
 fn clship_bridgeboost_step(g: &mut Game, idx: u16) {
@@ -6088,7 +15423,7 @@ fn clship_bridgeboost_step(g: &mut Game, idx: u16) {
     let tick3 = frame_tick_mod(g, 3);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        gen_vecs_2d(al); // :649 s_gen_vecs roty,vel
+        strat_gen_vecs_nvecs(al); // :649 s_gen_vecs → nvecs_l
         al.vz = 0; // :650 s_set_alvar al_vz,#0
         apply_velocity(al); // :651
         if tick1 {
@@ -6109,7 +15444,7 @@ fn clship_bridgeboost_step(g: &mut Game, idx: u16) {
         // :664 clear engine sound, :665 brl clshipboost_Istrat (plays $32).
         g.vars.pshipflags3 &= !PSF3_ENGINESND;
         clshipboost_enter(g, idx, true);
-        clshipboost_step(g, idx);
+        clshipboost_strat(g, idx);
         return;
     }
     add_player_z(g, idx); // :668
@@ -6199,6 +15534,11 @@ fn clship_dive_cont2(g: &mut Game, idx: u16) {
     al.worldz = al.worldz.wrapping_add(w2); // :795
 }
 
+/// Public entry for `clshipDIVE_cont2` (GCSTRATS.ASM:792).
+pub fn clship_dive_cont2_pub(g: &mut Game, idx: u16) {
+    clship_dive_cont2(g, idx);
+}
+
 /// ASM clshipDIVEboost_Istrat (GCSTRATS.ASM:799): level out then general boost.
 fn clship_diveboost(g: &mut Game, idx: u16) {
     {
@@ -6207,7 +15547,12 @@ fn clship_diveboost(g: &mut Game, idx: u16) {
         al.rotx = DEG5; // :802
     }
     clshipboost_enter(g, idx, true); // :803 -> clshipboost_Istrat (trigse $32)
-    clshipboost_step(g, idx);
+    clshipboost_strat(g, idx);
+}
+
+/// Public entry for `clshipDIVEboost_Istrat` (GCSTRATS.ASM:799).
+pub fn clship_diveboost_istrat(g: &mut Game, idx: u16) {
+    clship_diveboost(g, idx);
 }
 
 fn clship_divea_strat(g: &mut Game, idx: u16) {
@@ -6236,7 +15581,7 @@ fn clship_divea_strat(g: &mut Game, idx: u16) {
         }
     }
     apply_velocity(&mut g.objs.aliens[idx as usize]); // .nvy :694
-    // :695 `s_jmp_alvarNE al_sword1,#1,.nb`: snap onto player for the fly-past.
+                                                      // :695 `s_jmp_alvarNE al_sword1,#1,.nb`: snap onto player for the fly-past.
     if sword1 == 1 && g.objs.player().is_some() {
         copy_pos(g, idx, 0); // :697 s_copy_pos x,y (player -> me)
         let al = &mut g.objs.aliens[idx as usize];
@@ -6381,6 +15726,11 @@ fn clship_underboost_enter(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].stratptr = Some(s);
 }
 
+/// Public entry for `clshipUNDERboost_Istrat` (GCSTRATS.ASM:1005).
+pub fn clship_underboost_istrat(g: &mut Game, idx: u16) {
+    clship_underboost_enter(g, idx);
+}
+
 /// ASM clshipUNDERboost_strat (GCSTRATS.ASM:1011): ramp to speed 40 and fly
 /// off along roty, banking per sbyte1 (1 = one way, 2 = the other, 0 = none).
 fn clship_underboost_step(g: &mut Game, idx: u16) {
@@ -6388,9 +15738,9 @@ fn clship_underboost_step(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         speed_to(al, 40, 1); // :1014
-        gen_vecs_2d(al); // :1015 s_gen_vecs roty,vel
+        strat_gen_vecs_nvecs(al); // :1015 s_gen_vecs → nvecs_l
         apply_velocity(al); // :1016 (vz NOT zeroed, unlike bridge)
-        // :1018 `s_jmp_alvarZERO al_sbyte1,.nnz`.
+                            // :1018 `s_jmp_alvarZERO al_sbyte1,.nnz`.
         if al.sbyte1 != 0 {
             // :1020 `s_jmp_alvarNE al_sbyte1,#1,.nl`.
             if al.sbyte1 == 1 {
@@ -6407,6 +15757,11 @@ fn clship_underboost_step(g: &mut Game, idx: u16) {
         }
     }
     add_player_z(g, idx); // :1032
+}
+
+/// Public entry for `clshipUNDERboost_strat` (GCSTRATS.ASM:1011).
+pub fn clship_underboost_strat(g: &mut Game, idx: u16) {
+    clship_underboost_step(g, idx);
 }
 
 fn clship_undera_strat(g: &mut Game, idx: u16) {
@@ -6510,21 +15865,21 @@ pub(crate) fn make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
 }
 
 /// C `make_large_exp_obj` (strat_enemy.c:6903, makeLexpobj_srou).
-pub(crate) fn make_large_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
+pub fn make_large_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_exp_obj(g, parent)?;
     g.objs.aliens[child as usize].shape = EXPSHAPE_LARGE;
     Some(child)
 }
 
 /// C `make_medium_exp_obj` (strat_enemy.c:6911, makeMEDexpobj_srou).
-pub(crate) fn make_medium_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
+pub fn make_medium_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_exp_obj(g, parent)?;
     g.objs.aliens[child as usize].shape = EXPSHAPE_MEDIUM;
     Some(child)
 }
 
 /// C `make_small_exp_obj` (strat_enemy.c:6919, makeSMLexpobj_srou).
-pub(crate) fn make_small_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
+pub fn make_small_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_exp_obj(g, parent)?;
     g.objs.aliens[child as usize].shape = EXPSHAPE_SMALL;
     Some(child)
@@ -6545,13 +15900,13 @@ pub(crate) fn boss_dying(g: &mut Game) {
         let bf = bossflags(g);
         set_bossflags(g, bf | BF_DYING);
         g.vars.pstratflags |= PSTF_NOTDIE;
-        let sf = g.vars.read_ext8(wm::STRATFLAGS);
-        g.vars.write_ext8(wm::STRATFLAGS, sf | SF_NOFIRING);
+        let sf = g.vars.shared.strategy_flags;
+        g.vars.shared.strategy_flags = sf | SF_NOFIRING;
     }
 }
 
 /// C `delayexplode_strat` (EXPSTRAT.ASM:259-268).
-pub(crate) fn delayexplode_strat(g: &mut Game, idx: u16) {
+pub fn delayexplode_strat(g: &mut Game, idx: u16) {
     // ASM EXPSTRAT.ASM:262 `s_decbpl_lifecnt x,.nd` dies when the decrement goes
     // NEGATIVE (entry count 0), surviving count+1 ticks. The old inline
     // `if count>0{--} if count==0{die}` fired one frame early. (Audit A #35)
@@ -6769,7 +16124,6 @@ pub fn strat_boss_explode_init(g: &mut Game, idx: u16) {
     strat_boss_delay_explode_init(g, idx);
 }
 
-
 // ============================================================
 // Table-lane registration (mirrors player.rs `install`).
 // ============================================================
@@ -6778,8 +16132,32 @@ pub fn strat_boss_explode_init(g: &mut Game, idx: u16) {
 /// table lane wires them onto the literal ISTRATS.ASM def_Istrat indices
 /// (C `Strat_RegisterAll`, strat_table.c). Field order follows the C file.
 pub struct EnemyAStratIds {
+    /// `exitlight3_Istrat` through `exitlight6_Istrat` (rows 4..=7).
+    pub exitlight3: StratId,
+    pub exitlight4: StratId,
+    pub exitlight5: StratId,
+    pub exitlight6: StratId,
+    /// Medium/large tunnel exit doors (rows 13 and 14).
+    pub exitopen: StratId,
+    pub exitopensnd: StratId,
     /// `hard_Istrat` (`Strat_Hard_Init`).
     pub hard: StratId,
+    /// `hardenemy1_Istrat` — hardvars + COLLTYPE_ENEMY1, inert.
+    pub hardenemy1: StratId,
+    /// `hard90yrfog_Istrat` — face 180°, hardvars, fog tick (ISTRATS 183).
+    pub hard90yrfog: StratId,
+    /// `shark_Istrat` (ISTRATS 60).
+    pub shark: StratId,
+    /// `fzaco_Istrat` (ISTRATS 113).
+    pub fzaco: StratId,
+    /// Colony highway traffic (ISTRATS 198..=202 and 213..=214).
+    pub aircar1: StratId,
+    pub aircar2: StratId,
+    pub aircar3: StratId,
+    pub aircar4: StratId,
+    pub aircar5: StratId,
+    pub truck1: StratId,
+    pub truck2: StratId,
     /// `hard180yr_Istrat` (`Strat_Hard180yr_Init`).
     pub hard180yr: StratId,
     /// `hard90yr_Istrat` (`Strat_Hard90yr_Init`).
@@ -6850,6 +16228,8 @@ pub struct EnemyAStratIds {
     pub base1: StratId,
     /// `cameleon_Istrat` (`Strat_Cameleon_Init`).
     pub cameleon: StratId,
+    /// `cameleon2_Istrat` (GASTRATS.ASM:1440).
+    pub cameleon2: StratId,
     /// `szaco2_Istrat` (`Strat_Szaco2_Init`).
     pub szaco2: StratId,
     /// `zaco1L_Istrat` (`Strat_Zaco1L_Init`).
@@ -6929,7 +16309,24 @@ pub struct EnemyAStratIds {
 /// memoizes on function identity) and return the public handles.
 pub fn install(g: &mut Game) -> EnemyAStratIds {
     EnemyAStratIds {
+        exitlight3: sid(g, exitlight3_istrat),
+        exitlight4: sid(g, exitlight4_istrat),
+        exitlight5: sid(g, exitlight5_istrat),
+        exitlight6: sid(g, exitlight6_istrat),
+        exitopen: sid(g, exitopen_istrat),
+        exitopensnd: sid(g, exitopensnd_istrat),
         hard: sid(g, strat_hard_init),
+        hardenemy1: sid(g, hardenemy1_istrat),
+        hard90yrfog: sid(g, hard90yrfog_istrat),
+        shark: sid(g, shark_istrat),
+        fzaco: sid(g, fzaco_istrat),
+        aircar1: sid(g, aircar1_istrat),
+        aircar2: sid(g, aircar2_istrat),
+        aircar3: sid(g, aircar3_istrat),
+        aircar4: sid(g, aircar4_istrat),
+        aircar5: sid(g, aircar5_istrat),
+        truck1: sid(g, truck1_istrat),
+        truck2: sid(g, truck2_istrat),
         hard180yr: sid(g, strat_hard180yr_init),
         hard90yr: sid(g, strat_hard90yr_init),
         hard180yr_nzr: sid(g, strat_hard180yr_nzr_init),
@@ -6965,6 +16362,7 @@ pub fn install(g: &mut Game) -> EnemyAStratIds {
         carrier: sid(g, strat_carrier_init),
         base1: sid(g, strat_base1_init),
         cameleon: sid(g, strat_cameleon_init),
+        cameleon2: sid(g, cameleon2_istrat),
         szaco2: sid(g, strat_szaco2_init),
         zaco1l: sid(g, strat_zaco1l_init),
         zaco1r: sid(g, strat_zaco1r_init),
@@ -7098,5 +16496,140 @@ mod sound_wiring_tests {
             "zaco3die_init plays no sound (F6); got {:?}",
             log.borrow()
         );
+    }
+
+    #[test]
+    fn fire_plasma_family_uses_enemybattry_make_snd() {
+        let (mut g, firer, log) = game_with_alien();
+        let _ = fire_plasma(&mut g, firer).expect("plasma");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::EnemyBattry, 111, 222)],
+            "fire_plasma must jsl enemybattrysound_l via make_snd"
+        );
+        log.borrow_mut().clear();
+        let _ = fire_beamball(&mut g, firer).expect("ball");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::EnemyBattry, 111, 222)]
+        );
+        log.borrow_mut().clear();
+        let _ = fire_yhplasma(&mut g, firer).expect("yh");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::EnemyBattry, 111, 222)]
+        );
+        log.borrow_mut().clear();
+        let _ = fire_ringlaser(&mut g, firer).expect("ring");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::RingLaser, 111, 222)],
+            "fire_ringlaser must jsl ringlasersound_l via make_snd"
+        );
+        log.borrow_mut().clear();
+        let _ = fire_shortplasma(&mut g, firer).expect("short");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::EnemyBattry, 111, 222)]
+        );
+    }
+
+    #[test]
+    fn fire_laser_missile_use_positional_make_snd() {
+        let (mut g, firer, log) = game_with_alien();
+        let _ = fire_friend_elaser(&mut g, firer).expect("friend");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::Laser, 111, 222)],
+            "fire_friendElaser must jsl lasersound_l via make_snd"
+        );
+        log.borrow_mut().clear();
+        let _ = fire_reb_elaser(&mut g, firer).expect("reb");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::HitWall, 111, 222)],
+            "fire_RebElaser must jsl hitwallsound_l via make_snd"
+        );
+        log.borrow_mut().clear();
+        let _ = fire_slow_elaser(&mut g, firer).expect("slow");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::Laser, 111, 222)]
+        );
+        log.borrow_mut().clear();
+        strat_fire_relslowlaser(&mut g, firer, 0, 0);
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::Laser, 111, 222)]
+        );
+        log.borrow_mut().clear();
+        let _ = fire_missile1(&mut g, firer).expect("m1");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::Missile, 111, 222)],
+            "fire_missile1 must jsl missilesound_l via make_snd"
+        );
+        log.borrow_mut().clear();
+        let _ = fire_hmissile1(&mut g, firer).expect("hm1");
+        assert_eq!(
+            *log.borrow(),
+            vec![SndEvent::MakeSnd(PosSndFamilyId::Missile, 111, 222)]
+        );
+    }
+}
+
+#[cfg(test)]
+mod ship3_flow_tests {
+    use super::*;
+
+    #[test]
+    fn distant_ship3_branch_does_not_permanently_install_ship3b() {
+        let mut g = Game::new();
+        let player = g.objs.alloc().expect("player");
+        let ship = g.objs.alloc().expect("ship");
+        assert_eq!(player, 0);
+        g.vars.internal_playpt = player as i16;
+        g.vars.pviewvelz = 65;
+        g.objs.aliens[player as usize].worldz = 0;
+        g.objs.aliens[ship as usize].worldz = 5_000;
+
+        ship3_istrat(&mut g, ship);
+        let main = g.objs.aliens[ship as usize].stratptr;
+        ship3_cont(&mut g, ship);
+        assert_eq!(
+            g.objs.aliens[ship as usize].stratptr, main,
+            "the far-distance jump runs ship3b for one tick but must retain ship3_strat"
+        );
+
+        g.objs.aliens[player as usize].worldz = 3_500;
+        ship3_strat(&mut g, ship);
+        let approach = sid(&mut g, ship3a_strat);
+        assert_eq!(g.objs.aliens[ship as usize].stratptr, Some(approach));
+
+        g.objs.aliens[player as usize].worldz =
+            g.objs.aliens[ship as usize].worldz.wrapping_sub(500);
+        ship3a_strat(&mut g, ship);
+        assert_ne!(g.vars.gameflags & GF_STRATDONE1, 0);
+        let departure = g.objs.aliens[ship as usize]
+            .stratptr
+            .expect("the final approach installs its departure strategy");
+
+        // Function addresses are not semantic identities in optimized Rust:
+        // the compiler may merge equal functions or emit multiple copies of
+        // one function. Prove that the installed handle performs ship3b's
+        // exact locked-scroll movement instead of resolving the function by
+        // its address a second time.
+        let before = g.objs.aliens[ship as usize];
+        g.objs.aliens[ship as usize].vx = 7;
+        g.objs.aliens[ship as usize].vy = -9;
+        g.objs.aliens[ship as usize].vz = 123;
+        g.call_strat(departure, ship);
+        let after = g.objs.aliens[ship as usize];
+        assert_eq!(after.vx, 7);
+        assert_eq!(after.vy, -9);
+        assert_eq!(after.vz, -g.vars.pviewvelz);
+        assert_eq!(after.worldx, before.worldx.wrapping_add(7));
+        assert_eq!(after.worldy, before.worldy.wrapping_sub(9));
+        assert_eq!(after.worldz, before.worldz);
     }
 }

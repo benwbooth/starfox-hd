@@ -40,28 +40,28 @@
 //!   the ROM.
 
 use crate::common::{
-    sf_random, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars, strat_remove_obj,
+    sf_random, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars, strat_make_obj,
+    strat_remove_obj,
 };
 use crate::enemy_a::{sid, strat_explode, strat_hit_flash, COLLTYPE_ENEMY1};
-use sf_game::alien::{StratId, ASF_COLLDISABLE, ASF_NOHITAFFECT, ATZREMOVE};
+use sf_game::alien::{StratId, ASF_COLLDISABLE, ASF_COLLIDE, ASF_NOHITAFFECT, ATZREMOVE};
 use sf_game::game::Game;
-use sf_map::consts::{
-    STRAT_ADDR_CLASTEROID, STRAT_ADDR_METEOR, STRAT_ADDR_MOTHER1, STRAT_ADDR_MOTHER2,
-    STRAT_ADDR_SEARCHMETEOR, STRAT_ADDR_SLOWMETEOR,
-};
-use sf_map::mothers::{mop, mother_maps, MO_SIZEOF, MOTH_SIZEOF};
+use sf_map::consts::DirectStrategy;
+use sf_map::mothers::{mop, mother_maps, MOTH_SIZEOF, MO_SIZEOF};
 
 // STRATEQU.INC:212-213.
 const METEOR_HP: u8 = 2;
 const METEOR_AP: u8 = 12;
+// Extended-bank meshes retained by shape_compiler.py from USHAPES.ASM.
+const SH_ASTEROID3: u16 = 276;
+const SH_ASTEROID4: u16 = 277;
 
 /// `motheraccum` (WRAM $17DA) — mothercnt/motherjump accumulator. Lives in
 /// the GameVars WRAM mirror right after the strat-lane `sv` block
 /// (common.rs uses 0x0500..0x0570).
-const MOTHERACCUM: u16 = 0x0570;
 
-/// Register the mother-system strategies at their synthetic addresses
-/// (sf-map consts STRAT_ADDR_MOTHER1/2 + the mothermap child strats).
+/// Register the typed mother-system strategies used by authored level and
+/// mother-map data.
 /// Called from `table::register_all`.
 pub fn register(g: &mut Game) {
     let m1 = sid(g, strat_mother1_init);
@@ -70,13 +70,16 @@ pub fn register(g: &mut Game) {
     let slow = sid(g, strat_slowmeteor_init);
     let search = sid(g, strat_searchmeteor_init);
     let clast = sid(g, strat_clasteroid_init);
-    g.world.register_strategy_address(STRAT_ADDR_MOTHER1, m1);
-    g.world.register_strategy_address(STRAT_ADDR_MOTHER2, m2);
-    g.world.register_strategy_address(STRAT_ADDR_METEOR, meteor);
-    g.world.register_strategy_address(STRAT_ADDR_SLOWMETEOR, slow);
-    g.world
-        .register_strategy_address(STRAT_ADDR_SEARCHMETEOR, search);
-    g.world.register_strategy_address(STRAT_ADDR_CLASTEROID, clast);
+    for (strategy, id) in [
+        (DirectStrategy::Mother1, m1),
+        (DirectStrategy::Mother2, m2),
+        (DirectStrategy::Meteor, meteor),
+        (DirectStrategy::SlowMeteor, slow),
+        (DirectStrategy::SearchMeteor, search),
+        (DirectStrategy::Clasteroid, clast),
+    ] {
+        g.world.register_direct_strategy(strategy, id);
+    }
 }
 
 // ============================================================
@@ -163,10 +166,10 @@ fn rd16(mm: &[u8], p: usize) -> u16 {
 /// Interpreter core, parameterized over the blob for tests.
 pub fn bemother_on(g: &mut Game, idx: u16, mm: &[u8]) {
     for _ in 0..MAX_OPS_PER_TICK {
-        // .nxtone: lda al_sword1,x / bmi .doobj / bne .out
+        // Negative values activate the object; positive values keep waiting.
         let sw = g.objs.aliens[idx as usize].sword1;
         if sw > 0 {
-            // .out: sec / sbc lastzchange / sta al_sword1,x
+            // Count down by the latest map-depth change.
             let lzc = g.world.lastzchange;
             g.objs.aliens[idx as usize].sword1 = sw.wrapping_sub(lzc);
             return;
@@ -175,14 +178,16 @@ pub fn bemother_on(g: &mut Game, idx: u16, mm: &[u8]) {
         if p == 0 || p >= mm.len() {
             return; // no mothermap attached (al_ptr 0 = pad byte)
         }
-        // lda.l moth_count,x -> sta al_sword1,y (the wait AFTER this entry).
+        // The following table byte becomes the next object's wait count.
         // The ROM does this before dispatch for every ctrl, including
         // motherend (whose entry is 1 byte — the read is junk but the
         // mother is removed anyway).
         g.objs.aliens[idx as usize].sword1 = rd16(mm, p + 1) as i16;
         match mm[p] {
-            mop::OBJ => mother_spawn(g, idx, mm, p, false),
-            mop::RND => mother_spawn(g, idx, mm, p, true),
+            mop::OBJ => mother_spawn(g, idx, mm, p, false, false),
+            mop::RND => mother_spawn(g, idx, mm, p, true, false),
+            mop::DIRECT_OBJ => mother_spawn(g, idx, mm, p, false, true),
+            mop::DIRECT_RND => mother_spawn(g, idx, mm, p, true, true),
             mop::LOOP => {
                 // motherloop: ml_count at +5, ml_loop at +3; al_sbyte3 is
                 // the iteration counter (cmp/bmi = 8-bit signed compare).
@@ -218,7 +223,7 @@ pub fn bemother_on(g: &mut Game, idx: u16, mm: &[u8]) {
                         accum = accum.wrapping_add(1);
                     }
                 }
-                g.vars.write_ext16(MOTHERACCUM, accum);
+                g.vars.strategy.mother_accumulator = accum;
                 g.objs.aliens[idx as usize].ptr = (p + sf_map::mothers::MC_SIZEOF) as u16;
             }
             mop::JUMP => {
@@ -228,13 +233,13 @@ pub fn bemother_on(g: &mut Game, idx: u16, mm: &[u8]) {
                 let val = rd16(mm, p + 3);
                 let addr = rd16(mm, p + 5);
                 let func = if p + 7 < mm.len() { mm[p + 7] } else { 0xFF };
-                let accum = g.vars.read_ext16(MOTHERACCUM);
+                let accum = g.vars.strategy.mother_accumulator;
                 let jump = match func {
-                    0 => accum == val,          // mj_EQ
-                    1 => accum != val,          // mj_NE
-                    2 => accum < val,           // mj_GT (bcc .jump)
-                    3 => accum >= val,          // mj_LT (bcs .jump)
-                    _ => false,                 // .nojump fallthrough
+                    0 => accum == val, // mj_EQ
+                    1 => accum != val, // mj_NE
+                    2 => accum < val,  // mj_GT (bcc .jump)
+                    3 => accum >= val, // mj_LT (bcs .jump)
+                    _ => false,        // .nojump fallthrough
                 };
                 let al = &mut g.objs.aliens[idx as usize];
                 al.ptr = if jump {
@@ -250,7 +255,7 @@ pub fn bemother_on(g: &mut Game, idx: u16, mm: &[u8]) {
 }
 
 /// motherobj / motherrnd child spawn (MOTHER.ASM:81-160 / 306-435).
-fn mother_spawn(g: &mut Game, idx: u16, mm: &[u8], p: usize, random: bool) {
+fn mother_spawn(g: &mut Game, idx: u16, mm: &[u8], p: usize, random: bool, direct: bool) {
     let mx = g.objs.aliens[idx as usize].worldx;
     let my = g.objs.aliens[idx as usize].worldy;
     let mz = g.objs.aliens[idx as usize].worldz;
@@ -271,13 +276,20 @@ fn mother_spawn(g: &mut Game, idx: u16, mm: &[u8], p: usize, random: bool) {
         oz = rd16(mm, p + 7) as i16;
     }
     let shape = rd16(mm, p + 9);
-    let strat24 = rd16(mm, p + 11) as u32 | ((*mm.get(p + 13).unwrap_or(&0) as u32) << 16);
+    let strategy_word = rd16(mm, p + 11);
+    let strategy_tag = *mm.get(p + 13).unwrap_or(&0);
 
     // l_add allst,alfreelst,.nofreeblks — on no free block, just skip the
     // entry (MOTHER.ASM:153-160).
     if let Some(ci) = g.objs.alloc() {
         strat_init_obj_vars(&mut g.objs.aliens[ci as usize]);
-        let strat = g.world.find_strategy_address(strat24);
+        let strat = if direct {
+            DirectStrategy::from_id(strategy_word as u8)
+                .and_then(|strategy| g.world.find_direct_strategy(strategy))
+        } else {
+            let encoded = ((strategy_tag as u32) << 16) | strategy_word as u32;
+            g.world.find_strategy_address(encoded)
+        };
         let al = &mut g.objs.aliens[ci as usize];
         al.worldx = mx.wrapping_add(ox);
         al.worldy = my.wrapping_add(oy);
@@ -333,8 +345,8 @@ pub fn strat_slowmeteor_init(g: &mut Game, idx: u16) {
 /// meteor_istrat `.in`..`meteor_istrat3` shared body. RNG order: vel(&7),
 /// sbyte1(&3), roty, then the 50% `s_jmp_random` byte.
 fn meteor_init_common(g: &mut Game, idx: u16) {
-    let hit = sid(g, strat_hit_flash);
-    let exp = sid(g, strat_explode);
+    let hit = sid(g, strat_meteor_coll);
+    let exp = sid(g, strat_meteor_exp);
     let tick = sid(g, strat_meteor_tick);
     let r_vel = (sf_random(&mut g.vars) & 7) as u8;
     let r_sb1 = (sf_random(&mut g.vars) & 3) as u8;
@@ -361,18 +373,72 @@ fn meteor_init_common(g: &mut Game, idx: u16) {
     strat_gen_vecs_3d(al); // s_jsr dgen3dvecs (rotx=0 pitch)
     al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,ENEMY1
     al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag x,nohitaffect
-    // ROM falls through meteor_istrat3 into meteor_strat the same frame.
+                                  // ROM falls through meteor_istrat3 into meteor_strat the same frame.
     strat_meteor_tick(g, idx);
 }
 
 /// `meteor_strat` (DSTRATS.ASM:1238): drift toward the player Z, tumble,
-/// apply velocity. (The ROM skips the Z-pull for asteroid3 fragments;
-/// asteroid3 / meteorexp splitting is not ported.)
+/// apply velocity. Asteroid3 fragments skip the explicit `worldz -= sword1`.
 fn strat_meteor_tick(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
-    al.worldz = al.worldz.wrapping_sub(al.sword1); // s_sub_alvars worldz,sword1
+    if al.shape != SH_ASTEROID3 {
+        al.worldz = al.worldz.wrapping_sub(al.sword1); // s_sub_alvars worldz,sword1
+    }
     al.rotz = al.rotz.wrapping_add(al.sbyte1); // s_add_alvars rotz,sbyte1
     strat_apply_velocity(al); // s_jsr daddvecs2pos_x
+}
+
+/// `meteorcol_Istrat` (DSTRATS.ASM:1250): `s_docoll`, then resume the normal
+/// strategy. sf-game's collision pass performs the ROM damage/cooldown before
+/// dispatching this handler, so only the collide latch + tail-call remain here.
+fn strat_meteor_coll(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
+    if let Some(tick) = g.objs.aliens[idx as usize].stratptr {
+        g.call_strat(tick, idx);
+    }
+}
+
+/// `meteor_istrat2` (DSTRATS.ASM:1210): visual asteroid3 fragment init. It
+/// deliberately does not install HP/collide/exp pointers; `s_make_obj` leaves
+/// HP zero and the fragment is display-only, exactly as the ROM routine.
+fn strat_meteor_fragment_init(g: &mut Game, idx: u16) {
+    let spin = (sf_random(&mut g.vars) & 7) as u8;
+    let roty = (sf_random(&mut g.vars) & 0xFF) as u8;
+    let vel = (sf_random(&mut g.vars) & 15) as u8;
+    let tick = sid(g, strat_meteor_tick);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sbyte1 = spin;
+        al.roty = roty;
+        al.vel = vel;
+        al.sword1 = 60;
+        al.stratptr = Some(tick);
+        al.collflags |= COLLTYPE_ENEMY1;
+        al.sflags |= ASF_NOHITAFFECT;
+    }
+    strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+    strat_meteor_tick(g, idx);
+}
+
+/// `meteorexp_Istrat` (DSTRATS.ASM:1255-1268): asteroid3/4 simply explode;
+/// every larger meteor sheds two asteroid3 fragments at its exact position.
+fn strat_meteor_exp(g: &mut Game, idx: u16) {
+    let shape = g.objs.aliens[idx as usize].shape;
+    if shape != SH_ASTEROID3 && shape != SH_ASTEROID4 {
+        let src = g.objs.aliens[idx as usize];
+        for _ in 0..2 {
+            let Some(fragment) = strat_make_obj(g, SH_ASTEROID3) else {
+                break;
+            };
+            let init = sid(g, strat_meteor_fragment_init);
+            let al = &mut g.objs.aliens[fragment as usize];
+            al.worldx = src.worldx;
+            al.worldy = src.worldy;
+            al.worldz = src.worldz;
+            al.stratptr = Some(init);
+        }
+    }
+    strat_explode(g, idx);
 }
 
 /// `searchmeteor_istrat` (DSTRATS.ASM:1167): same random setup, then the
@@ -468,7 +534,7 @@ mod tests {
     use sf_map::mothers::mop;
 
     /// Tiny mothermap: pad byte, then
-    ///   motherobj count=100 off=(10,20,30) shape=42 strat=synth hard (226)
+    ///   motherobj count=100 off=(10,20,30) shape=42 strat=synth hard (225)
     ///   mothergoto 0 -> back to the obj
     fn test_blob() -> (Vec<u8>, u16) {
         let mut v = vec![0xFF];
@@ -479,7 +545,7 @@ mod tests {
         v.extend_from_slice(&20i16.to_le_bytes());
         v.extend_from_slice(&30i16.to_le_bytes());
         v.extend_from_slice(&42u16.to_le_bytes());
-        let strat24: u32 = 0x020000 | 226;
+        let strat24: u32 = 0x020000 | sf_map::consts::is::HARD;
         v.extend_from_slice(&((strat24 & 0xFFFF) as u16).to_le_bytes());
         v.push((strat24 >> 16) as u8);
         v.push(mop::GOTO);
@@ -680,13 +746,58 @@ mod tests {
         );
     }
 
-    /// The address-collision regression: STRAT_ADDR_MOTHER1 must NOT
-    /// resolve to the same strategy as synthetic istrat 0 (the player).
     #[test]
-    fn mother_addr_does_not_collide_with_player() {
+    fn meteor_death_sheds_two_display_only_asteroid3_fragments() {
         let mut g = Game::new();
         crate::table::register_all(&mut g);
-        let mother = g.world.find_strategy_address(STRAT_ADDR_MOTHER1);
+        let meteor = g.objs.alloc().unwrap();
+        strat_init_obj_vars(&mut g.objs.aliens[meteor as usize]);
+        {
+            let al = &mut g.objs.aliens[meteor as usize];
+            al.shape = 195; // asteroid2
+            al.worldx = 123;
+            al.worldy = -45;
+            al.worldz = 2000;
+        }
+        strat_meteor_init(&mut g, meteor);
+        let death_pos = {
+            let al = g.objs.aliens[meteor as usize];
+            (al.worldx, al.worldy, al.worldz)
+        };
+
+        strat_meteor_exp(&mut g, meteor);
+        let fragments: Vec<_> = g
+            .objs
+            .active_indices()
+            .into_iter()
+            .filter(|&i| g.objs.aliens[i as usize].shape == SH_ASTEROID3)
+            .collect();
+        assert_eq!(fragments.len(), 2);
+        for &i in &fragments {
+            let al = g.objs.aliens[i as usize];
+            assert_eq!((al.worldx, al.worldy, al.worldz), death_pos);
+            assert_eq!(al.hp, 0, "meteor_istrat2 does not install HP");
+            assert!(al.stratptr.is_some());
+        }
+
+        // Run one fragment init. asteroid3 skips meteor_strat's explicit
+        // worldz-=60; only its generated velocity contributes to Z.
+        let f = fragments[0];
+        let init = g.objs.aliens[f as usize].stratptr.unwrap();
+        let z0 = g.objs.aliens[f as usize].worldz;
+        g.call_strat(init, f);
+        let al = g.objs.aliens[f as usize];
+        assert_eq!(al.worldz, z0.wrapping_add(al.vz));
+        assert_eq!(al.sword1, 60);
+    }
+
+    /// The typed mother registry is mechanically separate from the encoded
+    /// compatibility strategy table.
+    #[test]
+    fn mother_strategy_does_not_collide_with_player() {
+        let mut g = Game::new();
+        crate::table::register_all(&mut g);
+        let mother = g.world.find_direct_strategy(DirectStrategy::Mother1);
         let player = g.world.find_strategy_address(0x020000);
         assert!(mother.is_some());
         assert!(player.is_some());
