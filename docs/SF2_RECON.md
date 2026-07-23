@@ -100,6 +100,7 @@ Signatures were derived from the SF1 reconstruction and pattern-matched against 
 | Expert unlock | CPU `$0D:F777..$0D:F792`, helper `$0B:F115` | A zero-damage Hard clear sets and persists progress flag `0x10`; Normal and damaged Hard clears do not | certain |
 | Difficulty campaign profiles | CPU `$04:DFD1..$04:E014`, activation `$04:CE78`, wave data `$04:E6F2` | Normal/Hard/Expert begin with 2/3/3 occupied planets, 2/3/6 planetary-defense units, 2/4/4 opening attackers, and 1/1/2 Battle Carriers. Normal has one two-attacker opening wave; Hard and Expert have two | certain |
 | Difficulty strategic schedules | CPU `$04:EF74`, starts `$04:E04C` | Distinct Normal/Hard/Expert event streams contain 6/13/15 timed events before their terminators; verified by `tools/sf2/verify_difficulty_profiles.py` | certain |
+| Campaign world assignments | CPU `$04:EE52`, retail command-map labels | Retail labels selections 0–5 as Venom, Titania, Macbeth, Eladard, Meteor, and Fortuna. Normal selects all six pairs from the Venom/Titania/Eladard/Meteor pool; Hard and Expert select all 20 three-world combinations. Expert rows retain a full six-world permutation after the occupied prefix | certain |
 
 ### Text/message VM format (decoded)
 Strings are **uppercase ASCII, null (`0x00`) terminated**, each preceded by a **control

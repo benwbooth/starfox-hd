@@ -166,6 +166,10 @@ local forced_stage_selection = tonumber(
   os.getenv("SF2_ORACLE_STAGE_SELECTION"))
 local forced_map_target_selection = tonumber(
   os.getenv("SF2_ORACLE_MAP_TARGET_SELECTION"))
+-- Deliberately global: this large oracle has reached Lua's main-chunk local
+-- limit. Shipping Rust never receives this source selection or object layout.
+forced_occupied_selection = tonumber(
+  os.getenv("SF2_ORACLE_FORCE_OCCUPIED_SELECTION"))
 local chased_map_selection = tonumber(
   os.getenv("SF2_ORACLE_CHASE_MAP_SELECTION"))
 local chase_map_once = os.getenv("SF2_ORACLE_CHASE_ONCE") == "1"
@@ -215,6 +219,11 @@ if forced_map_target_selection then
     forced_map_target_selection >= 0
       and forced_map_target_selection <= 255,
     "SF2_ORACLE_MAP_TARGET_SELECTION must be byte-sized")
+end
+if forced_occupied_selection then
+  assert(
+    forced_occupied_selection >= 0 and forced_occupied_selection <= 5,
+    "SF2_ORACLE_FORCE_OCCUPIED_SELECTION must identify one of six planets")
 end
 if chased_map_selection then
   assert(
@@ -2685,6 +2694,23 @@ local function end_frame()
       write_work_word(player_map_actor + 14, target_y)
       write_work_word(player_map_actor + 16, target_x)
       write_work_word(player_map_actor + 18, target_y)
+    end
+  end
+  if forced_occupied_selection and work_byte(0x1B68) == 7 then
+    -- Oracle-only destination enumeration.  Apply the ordinary occupied-world
+    -- status to the selected semantic planet so retail itself renders the
+    -- destination label and owns any subsequent mission transition.
+    local map_object = work_word(0xDB67)
+    local seen_map_objects = {}
+    while map_object ~= 0 and not seen_map_objects[map_object] do
+      seen_map_objects[map_object] = true
+      if work_word(map_object + 4) == forced_occupied_selection then
+        local flags = work_word(map_object + 0x1C)
+        write_work_word(map_object + 0x1C, (flags | 0x2800) & 0xEFFF)
+        write_work_word(map_object + 0x20, 0x8000)
+        break
+      end
+      map_object = work_word(map_object)
     end
   end
   if chased_map_selection and work_byte(0x1B68) == 7 then
