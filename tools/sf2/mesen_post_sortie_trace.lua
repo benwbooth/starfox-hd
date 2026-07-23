@@ -1688,11 +1688,13 @@ function player_damage_oracle.force_impact()
   end
 end
 
-local function provide_combat_autopilot()
-  if not combat_autopilot or work_byte(0x1B68) ~= 1 then return false end
+-- Deliberately global: this large oracle has reached Lua's main-chunk local
+-- limit. Shipping Rust never receives this source-state positioning helper.
+function oracle_apply_player_teleport()
+  if not teleport_x or work_byte(0x1B68) ~= 1 then return end
   local player = work_word(0x12C3)
-  if player == 0 then return false end
-  if teleport_x and (not teleported_player or lock_teleport_horizontal) then
+  if player == 0 then return end
+  if not teleported_player or lock_teleport_horizontal then
     write_work_word(player + 12, teleport_x)
     write_work_word(player + 16, teleport_z)
     if not teleported_player or lock_teleport_vertical then
@@ -1706,7 +1708,12 @@ local function provide_combat_autopilot()
       teleported_player = teleport_frames_remaining <= 0
     end
   end
+end
 
+local function provide_combat_autopilot()
+  if not combat_autopilot or work_byte(0x1B68) ~= 1 then return false end
+  local player = work_word(0x12C3)
+  if player == 0 then return false end
   local player_x = signed_word(player + 12)
   local player_y = signed_word(player + 14)
   local player_z = signed_word(player + 16)
@@ -2504,6 +2511,10 @@ local function provide_input()
   end
 
   local elapsed = frame - armed_frame
+  -- Oracle positioning is independent of the input source. This permits a
+  -- one-time retail-state placement followed by an exact scripted control
+  -- sequence, instead of requiring the general combat pilot to remain active.
+  oracle_apply_player_teleport()
   if provide_combat_autopilot() then return end
   if input_script_text and elapsed >= resume_elapsed then
     for _, action in ipairs(scripted_inputs) do
