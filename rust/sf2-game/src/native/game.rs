@@ -11098,7 +11098,8 @@ impl Game {
                 }
                 if self.confirm_pressed() {
                     let difficulty = self.state.campaign.difficulty;
-                    self.state.campaign = CampaignState::new(difficulty);
+                    self.state.campaign =
+                        CampaignState::for_new_game(difficulty, self.state.frame);
                     self.enter_mode(GameMode::Briefing);
                 }
             }
@@ -14822,6 +14823,26 @@ mod tests {
             game.state().strategic_map.phase,
             StrategicMapPhase::OpeningOverview
         );
+    }
+
+    #[test]
+    fn fresh_campaign_uses_title_timing_for_the_retail_world_assignment() {
+        fn assignment_after_confirmation(
+            initial_frame: u64,
+        ) -> super::super::state::CampaignWorldAssignment {
+            let mut game = Game::new();
+            game.state.mode = GameMode::Title;
+            game.state.title.page = TitlePage::Difficulty;
+            game.state.campaign.difficulty = Difficulty::Normal;
+            game.state.frame = initial_frame;
+            game.tick(Button::B as u16).unwrap();
+            assert_eq!(game.mode(), GameMode::Briefing);
+            game.state.campaign.world_assignment
+        }
+
+        let first_timing = assignment_after_confirmation(0);
+        let second_timing = assignment_after_confirmation(1);
+        assert_ne!(first_timing, second_timing);
     }
 
     #[test]
@@ -21889,6 +21910,12 @@ mod tests {
     #[test]
     fn declining_continue_enters_results_then_honors_retry_and_title_choices() {
         let mut game = Game::new();
+        game.state.campaign = CampaignState::for_new_game(
+            Difficulty::Hard,
+            super::super::campaign_world_assignments::THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64
+                - 1,
+        );
+        let campaign_assignment = game.state.campaign.world_assignment;
         game.state.mode = GameMode::GameOver;
         game.state.mode_frame = u32::from(player_damage::GAME_OVER_PROMPT_RETAIL_FRAMES)
             / RETAIL_PRESENTATION_FRAMES_PER_TICK;
@@ -21993,6 +22020,7 @@ mod tests {
             PilotSelectionPhase::Revealing
         );
         assert_eq!(game.state.roster.selected, [None, None]);
+        assert_eq!(game.state.campaign.world_assignment, campaign_assignment);
     }
 
     #[test]

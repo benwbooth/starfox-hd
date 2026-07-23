@@ -9,9 +9,9 @@ mod native;
 pub use native::{
     Angle, AnimationState, AstropolisBranch, AstropolisCoreSpike, AstropolisEye, AstropolisEyes,
     AstropolisMissionState, AstropolisPhase, AudioOutput, AudioState, Behavior, Button, Buttons,
-    Camera, CampaignProgress, CampaignState, CarrierAssaultPhase, CarrierAssaultState,
-    CarrierReactorPanel, ChargeSound, CollisionClass, CorneriaDefensePhase, CorneriaDefenseState,
-    Difficulty,
+    Camera, CampaignProgress, CampaignState, CampaignWorld, CampaignWorldAssignment,
+    CarrierAssaultPhase, CarrierAssaultState, CarrierReactorPanel, ChargeSound, CollisionClass,
+    CorneriaDefensePhase, CorneriaDefenseState, Difficulty,
     EladardMissionState, EladardPhase, EndingPhase, EndingState, Error, FlightControlStyle, Game,
     GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState,
     InputState, IntroPhase, MaterialSetId, MissionId, MissionMessage, MissionMessageIrisFrame,
@@ -27,7 +27,8 @@ pub use native::{
     StrategicOpeningState, TitaniaMissionState, TitaniaPhase,
     TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState,
     Vector3, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, WeaponKind, OBJECT_CAPACITY,
-    SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
+    CAMPAIGN_WORLD_COUNT, MAX_OCCUPIED_WORLD_COUNT, SOUND_EVENT_CAPACITY,
+    STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 pub use native::{
     BattleCarrierDeployment, CampaignForceCount, DifficultyProfile, OpeningAttackerWavePattern,

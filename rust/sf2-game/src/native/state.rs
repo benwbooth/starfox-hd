@@ -2,6 +2,11 @@ use super::campaign_major_objectives::{
     BATTLE_CARRIER_MISSION_SELECTION, ELADARD_MISSION_SELECTION, TITANIA_MISSION_SELECTION,
     TITANIA_SURFACE_SWITCH_COUNT,
 };
+use super::campaign_world_assignments::{
+    CampaignWorld, MAX_OCCUPIED_WORLD_COUNT, NORMAL_CAMPAIGN_ASSIGNMENT_COUNT,
+    NORMAL_CAMPAIGN_WORLD_ASSIGNMENTS, THREE_WORLD_CAMPAIGN_ASSIGNMENTS,
+    THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT,
+};
 use super::input::InputState;
 use super::object::{Angle, ObjectId, ObjectStore};
 use super::render::Camera;
@@ -706,6 +711,53 @@ impl StrategicThreatCount {
     }
 }
 
+/// The occupied planets chosen when a retail campaign begins. This is flat,
+/// typed game state: source selection ordinals and table addresses remain in
+/// the ROM generator, while the port stores only semantic world identities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CampaignWorldAssignment {
+    occupied_worlds: [Option<CampaignWorld>; MAX_OCCUPIED_WORLD_COUNT],
+}
+
+impl CampaignWorldAssignment {
+    pub fn from_timing_entropy(difficulty: Difficulty, timing_entropy: u64) -> Self {
+        match difficulty {
+            Difficulty::Normal => {
+                let assignment = NORMAL_CAMPAIGN_WORLD_ASSIGNMENTS
+                    [(timing_entropy % NORMAL_CAMPAIGN_ASSIGNMENT_COUNT as u64) as usize];
+                Self {
+                    occupied_worlds: [Some(assignment[0]), Some(assignment[1]), None],
+                }
+            }
+            Difficulty::Hard | Difficulty::Expert => {
+                let assignment = THREE_WORLD_CAMPAIGN_ASSIGNMENTS
+                    [(timing_entropy % THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64) as usize];
+                Self {
+                    occupied_worlds: [
+                        Some(assignment[0]),
+                        Some(assignment[1]),
+                        Some(assignment[2]),
+                    ],
+                }
+            }
+        }
+    }
+
+    pub const fn occupied_worlds(self) -> [Option<CampaignWorld>; MAX_OCCUPIED_WORLD_COUNT] {
+        self.occupied_worlds
+    }
+
+    pub fn contains(self, world: CampaignWorld) -> bool {
+        self.occupied_worlds.contains(&Some(world))
+    }
+}
+
+impl Default for CampaignWorldAssignment {
+    fn default() -> Self {
+        Self::from_timing_entropy(Difficulty::Normal, 0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CampaignObjectives {
     pub eladard: PlanetObjectiveStatus,
@@ -789,6 +841,7 @@ pub struct CampaignState {
     /// action mission, just like the retail strategic simulation.
     pub corneria_defense: CorneriaDefenseState,
     pub difficulty: Difficulty,
+    pub world_assignment: CampaignWorldAssignment,
     pub active_threats: Vec<ObjectId>,
     pub route_step: CampaignRouteStep,
     pub objectives: CampaignObjectives,
@@ -796,11 +849,22 @@ pub struct CampaignState {
 
 impl CampaignState {
     pub fn new(difficulty: Difficulty) -> Self {
+        Self::for_new_game(difficulty, 0)
+    }
+
+    /// Create a fresh campaign. Retail mixes front-end timing into its choice;
+    /// the port passes that timing as a semantic input and immediately stores
+    /// the resulting world identities. Retry keeps this state unchanged.
+    pub fn for_new_game(difficulty: Difficulty, timing_entropy: u64) -> Self {
         Self {
             elapsed_frames: 0,
             corneria_damage_percent: 0,
             corneria_defense: CorneriaDefenseState::default(),
             difficulty,
+            world_assignment: CampaignWorldAssignment::from_timing_entropy(
+                difficulty,
+                timing_entropy,
+            ),
             active_threats: Vec::new(),
             route_step: CampaignRouteStep::default(),
             objectives: CampaignObjectives::for_difficulty(difficulty),
@@ -1797,6 +1861,7 @@ impl Default for GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::campaign_world_assignments::NORMAL_OCCUPIED_WORLD_COUNT;
 
     #[test]
     fn expert_unlock_requires_a_zero_damage_hard_clear() {
@@ -1949,6 +2014,67 @@ mod tests {
                 Some(OpeningAttackerWavePattern::ExpertReinforcement),
             ]
         );
+    }
+
+    #[test]
+    fn campaign_world_assignments_cover_every_retail_choice() {
+        let normal_assignments: std::collections::BTreeSet<_> =
+            (0..NORMAL_CAMPAIGN_ASSIGNMENT_COUNT as u64)
+                .map(|timing| {
+                    CampaignWorldAssignment::from_timing_entropy(Difficulty::Normal, timing)
+                        .occupied_worlds()
+                })
+                .collect();
+        assert_eq!(normal_assignments.len(), NORMAL_CAMPAIGN_ASSIGNMENT_COUNT);
+        assert!(normal_assignments.iter().all(|assignment| {
+            assignment.iter().flatten().count() == NORMAL_OCCUPIED_WORLD_COUNT
+        }));
+        assert!(normal_assignments.iter().all(|assignment| {
+            !assignment.contains(&Some(CampaignWorld::Macbeth))
+                && !assignment.contains(&Some(CampaignWorld::Fortuna))
+        }));
+
+        let hard_assignments: std::collections::BTreeSet<_> =
+            (0..THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64)
+                .map(|timing| {
+                    CampaignWorldAssignment::from_timing_entropy(Difficulty::Hard, timing)
+                        .occupied_worlds()
+                })
+                .collect();
+        let expert_assignments: std::collections::BTreeSet<_> =
+            (0..THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64)
+                .map(|timing| {
+                    CampaignWorldAssignment::from_timing_entropy(Difficulty::Expert, timing)
+                        .occupied_worlds()
+                })
+                .collect();
+        assert_eq!(hard_assignments.len(), THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT);
+        assert_eq!(expert_assignments, hard_assignments);
+        assert!(CampaignWorld::ALL.iter().all(|world| {
+            hard_assignments
+                .iter()
+                .any(|assignment| assignment.contains(&Some(*world)))
+        }));
+    }
+
+    #[test]
+    fn campaign_world_assignment_wraps_timing_without_source_ordinals() {
+        let first = CampaignWorldAssignment::from_timing_entropy(Difficulty::Normal, 0);
+        let wrapped = CampaignWorldAssignment::from_timing_entropy(
+            Difficulty::Normal,
+            NORMAL_CAMPAIGN_ASSIGNMENT_COUNT as u64,
+        );
+        assert_eq!(first, wrapped);
+        assert_eq!(
+            first.occupied_worlds(),
+            [
+                Some(CampaignWorld::Titania),
+                Some(CampaignWorld::Venom),
+                None,
+            ]
+        );
+        assert!(first.contains(CampaignWorld::Titania));
+        assert!(!first.contains(CampaignWorld::Macbeth));
     }
 
     #[test]

@@ -13,6 +13,7 @@ mod state;
 
 mod astropolis_assault;
 mod campaign_major_objectives;
+mod campaign_world_assignments;
 
 pub use game::{Error, Game};
 pub use input::{Button, Buttons, InputState};
@@ -40,7 +41,10 @@ pub use state::{
     TitleMenuItem, TitlePage, TitleState, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile,
     SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
+pub use campaign_world_assignments::{
+    CampaignWorld, CAMPAIGN_WORLD_COUNT, MAX_OCCUPIED_WORLD_COUNT,
+};
 pub use state::{
-    BattleCarrierDeployment, CampaignForceCount, DifficultyProfile, OpeningAttackerWavePattern,
-    OPENING_ATTACKER_WAVE_CAPACITY,
+    BattleCarrierDeployment, CampaignForceCount, CampaignWorldAssignment, DifficultyProfile,
+    OpeningAttackerWavePattern, OPENING_ATTACKER_WAVE_CAPACITY,
 };
