@@ -102,6 +102,7 @@ Signatures were derived from the SF1 reconstruction and pattern-matched against 
 | Difficulty strategic schedules | CPU `$04:EF74`, starts `$04:E04C` | Distinct Normal/Hard/Expert event streams contain 6/13/15 timed events before their terminators; verified by `tools/sf2/verify_difficulty_profiles.py` | certain |
 | Campaign world assignments | CPU `$04:EE52`, retail command-map labels | Retail labels selections 0–5 as Venom, Titania, Macbeth, Eladard, Meteor, and Fortuna. Normal selects all six pairs from the Venom/Titania/Eladard/Meteor pool; Hard and Expert select all 20 three-world combinations. Expert rows retain a full six-world permutation after the occupied prefix | certain |
 | Campaign world mission/audio entries | Independent saved-map replays, `tools/sf2/fixtures/campaign_world_entries.trace` | Venom, Titania, Macbeth, Eladard, Meteor, and Fortuna select distinct retail audio records `$062/$076/$08A/$09E/$0B2/$0C3`; the four newly reached worlds also enter distinct setup maps, active maps, and player spawns | certain |
+| Meteor Wall Spider encounter | Three hash-bound saved-state replays, `tools/sf2/fixtures/wall_spider.trace` | Natural right/forward movement arms the dormant core; an exact original-actor hit advances its retail damage/death paths and decrements both campaign-objective mirrors from 2 to 1; Select then performs the four-form Walker-to-Arwing transition | certain |
 
 ### Text/message VM format (decoded)
 Strings are **uppercase ASCII, null (`0x00`) terminated**, each preceded by a **control

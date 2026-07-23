@@ -61,8 +61,14 @@ for _, offset in ipairs({
 end
 local force_target_collision =
   os.getenv("SF2_ORACLE_FORCE_TARGET_COLLISION") == "1"
-local force_eladard_core_trigger =
-  os.getenv("SF2_ORACLE_FORCE_ELADARD_CORE_TRIGGER") == "1"
+local force_wall_spider_trigger =
+  os.getenv("SF2_ORACLE_FORCE_WALL_SPIDER_TRIGGER") == "1"
+-- ImportByteIndexed 0x2B reads the retail encounter latch at
+-- INDEXED_VARIABLE_TABLE + 0x2B. Keep the named oracle address global because
+-- this large script is at Lua's main-chunk local limit.
+WALL_SPIDER_TRIGGER_ADDRESS = 0xD787
+WALL_SPIDER_WAITING_PATH = 0x5F92
+WALL_SPIDER_RECHECK_PATH = 0x5F9A
 local trace_stage_writes =
   os.getenv("SF2_ORACLE_TRACE_STAGE_WRITES") == "1"
 trace_audio_programs =
@@ -128,7 +134,7 @@ local forced_target_collision_frame = nil
 local forced_target_initial_path = nil
 local forced_target_reaction_seen = false
 local forced_target_reaction_complete = false
-local forced_eladard_core_trigger_applied = false
+local forced_wall_spider_trigger_applied = false
 local forced_projectile_address = nil
 local forced_projectile_position = nil
 local observed_rival_health = {}
@@ -413,6 +419,16 @@ end
 
 local function work_word(address)
   return emu.read16(address, emu.memType.snesWorkRam, false)
+end
+
+-- Deliberately global: avoid adding another main-chunk local to this large
+-- oracle. The active core must have left both instructions in its retail
+-- trigger loop before a forced hit is representative of combat.
+function wall_spider_core_accepts_damage(object, shape)
+  if not force_wall_spider_trigger or shape ~= 0xEB6C then return true end
+  local path = work_word(object + 0x2B)
+  return path ~= WALL_SPIDER_WAITING_PATH
+    and path ~= WALL_SPIDER_RECHECK_PATH
 end
 
 local function work_long(address)
@@ -1774,6 +1790,9 @@ local function provide_combat_autopilot()
   local approaching_carrier = false
   local target_distance_squared = math.huge
   local inside_planetary_base = eladard_base_entered
+    or (work_byte(0x1BB5) == 4
+      and work_byte(0x192E) == 0x05
+      and work_word(0x1657) == 0x45B9)
     or (work_byte(0x1BB5) == 1
       and work_byte(0xD7A1) <= 1
       and (player_y < -100 or player_z > -1000))
@@ -1850,11 +1869,12 @@ local function provide_combat_autopilot()
       and not forced_target_reaction_complete
       and (not forced_target_collision_frame
         or frame - forced_target_collision_frame < 600)
-    local target_health_ready = not force_target_collision
-      or forced_target_health ~= 0
-      or (forced_target_collision_frame
-        and work_word(object + 0x2B) ~= forced_target_initial_path
-        and work_word(object + 0x2B) ~= 0x0C21)
+    local target_health_ready = wall_spider_core_accepts_damage(object, shape)
+      and (not force_target_collision
+        or forced_target_health ~= 0
+        or (forced_target_collision_frame
+          and work_word(object + 0x2B) ~= forced_target_initial_path
+          and work_word(object + 0x2B) ~= 0x0C21))
     if requested_target and target_health_ready and forced_target_health
       and work_byte(object + 0x2D) > forced_target_health then
       -- Arbitrary source actor targeting is deliberately oracle-only. It is
@@ -2057,7 +2077,8 @@ local function provide_combat_autopilot()
     end
   end
 
-  if force_projectile_hit and forced_projectile_address then
+  if force_projectile_hit and forced_projectile_address
+    and wall_spider_core_accepts_damage(target, target_shape) then
     local projectile_shape = work_word(forced_projectile_address + 4)
     if not is_player_projectile(
       forced_projectile_address,
@@ -2090,7 +2111,8 @@ local function provide_combat_autopilot()
     end
   end
 
-  if force_projectile_hit and not forced_projectile_hit_applied and target ~= 0 then
+  if force_projectile_hit and not forced_projectile_hit_applied and target ~= 0
+    and wall_spider_core_accepts_damage(target, target_shape) then
     local projectile = work_word(0x12A8)
     local projectile_seen = {}
     while projectile ~= 0 and not projectile_seen[projectile] do
@@ -2132,10 +2154,18 @@ local function provide_combat_autopilot()
     forced_target_collision_frame = frame
   end
 
-  if force_eladard_core_trigger and not forced_eladard_core_trigger_applied
+  if force_wall_spider_trigger and not forced_wall_spider_trigger_applied
     and target_shape == 0xEB6C then
-    emu.write(0xD787, 0xFF, emu.memType.snesWorkRam)
-    forced_eladard_core_trigger_applied = true
+    emu.write(
+      WALL_SPIDER_TRIGGER_ADDRESS,
+      0xFF,
+      emu.memType.snesWorkRam)
+    forced_wall_spider_trigger_applied = true
+    lines[#lines + 1] = string.format(
+      "elapsed=%d event=forced-wall-spider-trigger target=%04X address=%04X",
+      frame - armed_frame,
+      target,
+      WALL_SPIDER_TRIGGER_ADDRESS)
   end
 
   -- Short pulses produce repeated direct shots instead of holding one charge
@@ -2547,6 +2577,17 @@ local function keep_forced_projectile_on_target(address, value)
   local axis = math.floor(offset / 2) + 1
   local shift = (offset % 2) * 8
   return (forced_projectile_position[axis] >> shift) & 0xFF
+end
+
+-- Deliberately global: keep the object-relative encounter byte stable across
+-- the retail parallel-state refresh which runs after the input callback.
+function keep_forced_wall_spider_trigger(_, value)
+  if forced_target_object
+    and forced_target_object_shape == 0xEB6C
+    and work_word(forced_target_object + 4) == forced_target_object_shape then
+    return 0xFF
+  end
+  return value
 end
 
 local function provide_input()
@@ -3456,6 +3497,15 @@ if force_projectile_hit then
     emu.callbackType.write,
     0,
     0x3FFF,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if force_wall_spider_trigger and forced_target_object then
+  emu.addMemoryCallback(
+    keep_forced_wall_spider_trigger,
+    emu.callbackType.write,
+    WALL_SPIDER_TRIGGER_ADDRESS,
+    WALL_SPIDER_TRIGGER_ADDRESS,
     emu.cpuType.snes,
     emu.memType.snesWorkRam)
 end
