@@ -24,3 +24,7 @@ required-features = ["oracle-audio"]
 [[example]]
 name = "render_sf2_native_assets"
 required-features = ["oracle-audio"]
+
+[[example]]
+name = "render_sf2_native_sounds"
+required-features = ["oracle-audio"]

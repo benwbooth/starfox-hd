@@ -11,7 +11,10 @@ use std::path::PathBuf;
 
 use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStreamWithCallback};
 use sf_audio::native_player::{NativeAudioError, NativePlayer};
-use sf_audio::sf2_native_player::{Sf2MusicCue, Sf2NativePlayer};
+use sf_audio::sf2_native_player::{
+    Sf2ChargeCue, Sf2EngineCue, Sf2MusicCue, Sf2NativePlayer, Sf2SoundBank, Sf2SoundEffect,
+    Sf2SoundPilot,
+};
 use sf_audio::sound::{PosSndFamily, Sound, SoundBackend, SoundGameState, SoundObj, SoundPlayer};
 use sf_game::game::{Game, PosSndFamilyId};
 use sf_game::shell::{FrameSnapshot, GameState, Shell, SoundCmd};
@@ -75,6 +78,64 @@ fn sf2_music_cue(
         },
         GameMode::GameOver | GameMode::Results => Sf2MusicCue::GameOverAndContinue,
         GameMode::Ending => Sf2MusicCue::CreditsAndEnding,
+    }
+}
+
+fn sf2_engine_cue(mode: sf2_game::GameMode, form: sf2_game::PlayerCraftForm) -> Sf2EngineCue {
+    if mode != sf2_game::GameMode::Mission || form == sf2_game::PlayerCraftForm::Walker {
+        Sf2EngineCue::Silent
+    } else {
+        Sf2EngineCue::Flight
+    }
+}
+
+fn sf2_sound_bank(mission_visit: sf2_game::MissionVisit) -> Sf2SoundBank {
+    use sf2_game::MissionVisit;
+
+    match mission_visit {
+        MissionVisit::OpeningEngagement
+        | MissionVisit::Reengagement
+        | MissionVisit::MissileInterception => Sf2SoundBank::OpenSpaceCombat,
+        MissionVisit::FighterIntercept => Sf2SoundBank::FighterIntercept,
+        MissionVisit::TitaniaBase => Sf2SoundBank::TitaniaBase,
+        MissionVisit::EladardBase => Sf2SoundBank::EladardBase,
+        MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
+            Sf2SoundBank::BattleCarrier
+        }
+        MissionVisit::MirageDragon => Sf2SoundBank::MirageDragon,
+        MissionVisit::PigmaDuel
+        | MissionVisit::LeonDuel
+        | MissionVisit::RecurringAttackers
+        | MissionVisit::LeonPressure
+        | MissionVisit::FinalPursuer
+        | MissionVisit::WolfBlockade => Sf2SoundBank::RivalEncounter,
+        MissionVisit::AstropolisAssault => Sf2SoundBank::AstropolisAssault,
+    }
+}
+
+fn sf2_sound_pilot(pilot: sf2_game::Pilot) -> Sf2SoundPilot {
+    match pilot {
+        sf2_game::Pilot::Fox => Sf2SoundPilot::Fox,
+        sf2_game::Pilot::Falco => Sf2SoundPilot::Falco,
+        sf2_game::Pilot::Peppy => Sf2SoundPilot::Peppy,
+        sf2_game::Pilot::Slippy => Sf2SoundPilot::Slippy,
+        sf2_game::Pilot::Miyu => Sf2SoundPilot::Miyu,
+        sf2_game::Pilot::Fay => Sf2SoundPilot::Fay,
+    }
+}
+
+fn sf2_sound_effect(event: sf2_game::SoundEvent) -> Sf2SoundEffect {
+    match event {
+        sf2_game::SoundEvent::RapidLaser => Sf2SoundEffect::RapidLaser,
+        sf2_game::SoundEvent::ChargedLaser => Sf2SoundEffect::ChargedLaser,
+    }
+}
+
+fn sf2_charge_cue(sound: sf2_game::ChargeSound) -> Sf2ChargeCue {
+    match sound {
+        sf2_game::ChargeSound::Silent => Sf2ChargeCue::Silent,
+        sf2_game::ChargeSound::Building => Sf2ChargeCue::Building,
+        sf2_game::ChargeSound::Ready => Sf2ChargeCue::Ready,
     }
 }
 
@@ -158,6 +219,8 @@ pub struct AudioSys {
     sound: Sound,
     sf2_player: Option<Sf2NativePlayer>,
     sf2_music: Option<Sf2MusicCue>,
+    sf2_engine: Option<(Sf2SoundBank, Sf2SoundPilot, Sf2EngineCue)>,
+    sf2_charge: Option<(Sf2SoundBank, Sf2SoundPilot, Sf2ChargeCue)>,
 }
 
 impl AudioSys {
@@ -241,22 +304,52 @@ impl AudioSys {
             sound,
             sf2_player,
             sf2_music: None,
+            sf2_engine: None,
+            sf2_charge: None,
         }
     }
 
-    pub fn tick_sf2(&mut self, game: &sf2_game::Game) {
-        let cue = sf2_music_cue(game.mode(), game.state().mission.visit);
-        if self.sf2_music == Some(cue) {
-            return;
-        }
+    pub fn tick_sf2(&mut self, game: &mut sf2_game::Game) {
+        let mission_visit = game.state().mission.visit;
+        let cue = sf2_music_cue(game.mode(), mission_visit);
         let Some(player) = &self.sf2_player else {
             return;
         };
-        let result = player.start_music(cue);
-        if result.is_ok() {
-            self.sf2_music = Some(cue);
+
+        if self.sf2_music != Some(cue) {
+            let result = player.start_music(cue);
+            if result.is_ok() {
+                self.sf2_music = Some(cue);
+            }
+            self.backend.report(result);
         }
-        self.backend.report(result);
+
+        let bank = sf2_sound_bank(mission_visit);
+        let pilot = sf2_sound_pilot(game.active_pilot());
+        let engine = sf2_engine_cue(game.mode(), game.state().mission.player_craft_form);
+        let engine_state = (bank, pilot, engine);
+        if self.sf2_engine != Some(engine_state) {
+            let result = player.set_engine(bank, pilot, engine);
+            if result.is_ok() {
+                self.sf2_engine = Some(engine_state);
+            }
+            self.backend.report(result);
+        }
+
+        let charge = sf2_charge_cue(game.charge_sound());
+        let charge_state = (bank, pilot, charge);
+        if self.sf2_charge != Some(charge_state) {
+            let result = player.set_charge(bank, pilot, charge);
+            if result.is_ok() {
+                self.sf2_charge = Some(charge_state);
+            }
+            self.backend.report(result);
+        }
+
+        for event in game.take_sound_events().into_iter().flatten() {
+            self.backend
+                .report(player.play_effect(bank, pilot, sf2_sound_effect(event)));
+        }
     }
 
     /// Quiesce the SDL callback before its Rust userdata is freed.
@@ -516,6 +609,52 @@ mod tests {
     }
 
     #[test]
+    fn sf2_every_mission_visit_selects_its_verified_sound_bank() {
+        use sf2_game::MissionVisit::*;
+
+        let expected = [
+            (OpeningEngagement, Sf2SoundBank::OpenSpaceCombat),
+            (Reengagement, Sf2SoundBank::OpenSpaceCombat),
+            (MissileInterception, Sf2SoundBank::OpenSpaceCombat),
+            (FighterIntercept, Sf2SoundBank::FighterIntercept),
+            (PigmaDuel, Sf2SoundBank::RivalEncounter),
+            (EladardBase, Sf2SoundBank::EladardBase),
+            (TitaniaBase, Sf2SoundBank::TitaniaBase),
+            (FirstBattleCarrier, Sf2SoundBank::BattleCarrier),
+            (SecondBattleCarrier, Sf2SoundBank::BattleCarrier),
+            (LeonDuel, Sf2SoundBank::RivalEncounter),
+            (MirageDragon, Sf2SoundBank::MirageDragon),
+            (RecurringAttackers, Sf2SoundBank::RivalEncounter),
+            (LeonPressure, Sf2SoundBank::RivalEncounter),
+            (FinalPursuer, Sf2SoundBank::RivalEncounter),
+            (WolfBlockade, Sf2SoundBank::RivalEncounter),
+            (AstropolisAssault, Sf2SoundBank::AstropolisAssault),
+        ];
+
+        for (visit, bank) in expected {
+            assert_eq!(sf2_sound_bank(visit), bank);
+        }
+    }
+
+    #[test]
+    fn sf2_every_pilot_selects_its_verified_sound_variant() {
+        use sf2_game::Pilot;
+
+        let expected = [
+            (Pilot::Fox, Sf2SoundPilot::Fox),
+            (Pilot::Falco, Sf2SoundPilot::Falco),
+            (Pilot::Peppy, Sf2SoundPilot::Peppy),
+            (Pilot::Slippy, Sf2SoundPilot::Slippy),
+            (Pilot::Miyu, Sf2SoundPilot::Miyu),
+            (Pilot::Fay, Sf2SoundPilot::Fay),
+        ];
+
+        for (pilot, sound_pilot) in expected {
+            assert_eq!(sf2_sound_pilot(pilot), sound_pilot);
+        }
+    }
+
+    #[test]
     fn sf2_pilot_selection_and_results_do_not_reuse_unrelated_music() {
         use sf2_game::{GameMode, MissionVisit};
 
@@ -527,5 +666,48 @@ mod tests {
             sf2_music_cue(GameMode::Results, MissionVisit::AstropolisAssault),
             Sf2MusicCue::GameOverAndContinue,
         );
+    }
+
+    #[test]
+    fn sf2_flight_engine_stops_outside_flight_missions() {
+        use sf2_game::{GameMode, PlayerCraftForm};
+
+        assert_eq!(
+            sf2_engine_cue(GameMode::Mission, PlayerCraftForm::Flight),
+            Sf2EngineCue::Flight,
+        );
+        assert_eq!(
+            sf2_engine_cue(GameMode::Mission, PlayerCraftForm::Walker),
+            Sf2EngineCue::Silent,
+        );
+        assert_eq!(
+            sf2_engine_cue(GameMode::StrategicMap, PlayerCraftForm::Flight),
+            Sf2EngineCue::Silent,
+        );
+    }
+
+    #[test]
+    fn sf2_typed_weapon_events_route_to_native_effects() {
+        use sf2_game::SoundEvent;
+
+        let expected = [
+            (SoundEvent::RapidLaser, Sf2SoundEffect::RapidLaser),
+            (SoundEvent::ChargedLaser, Sf2SoundEffect::ChargedLaser),
+        ];
+        for (event, effect) in expected {
+            assert_eq!(sf2_sound_effect(event), effect);
+        }
+    }
+
+    #[test]
+    fn sf2_typed_charge_state_routes_to_its_dedicated_layer() {
+        use sf2_game::ChargeSound;
+
+        assert_eq!(sf2_charge_cue(ChargeSound::Silent), Sf2ChargeCue::Silent);
+        assert_eq!(
+            sf2_charge_cue(ChargeSound::Building),
+            Sf2ChargeCue::Building
+        );
+        assert_eq!(sf2_charge_cue(ChargeSound::Ready), Sf2ChargeCue::Ready);
     }
 }

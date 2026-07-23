@@ -22,7 +22,7 @@ use super::object::{
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
 use super::state::{
-    AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep,
+    AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, ChargeSound,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
     CorneriaDefensePhase, CorneriaDefenseState, EladardMissionState, EladardPhase, EndingPhase,
     EndingState, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,
@@ -30,7 +30,7 @@ use super::state::{
     Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    ResultsChoice, ResultsPhase, ResultsState, StrategicEncounter, StrategicMapActor,
+    ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
     StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
     StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaMissionState,
     TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
@@ -4584,6 +4584,36 @@ impl Game {
         &self.render_objects
     }
 
+    pub fn take_sound_events(
+        &mut self,
+    ) -> [Option<SoundEvent>; super::state::SOUND_EVENT_CAPACITY] {
+        self.state.audio.take_events()
+    }
+
+    pub fn charge_sound(&self) -> ChargeSound {
+        if self.state.mode != GameMode::Mission {
+            return ChargeSound::Silent;
+        }
+        match self.state.mission.player_blaster {
+            PlayerBlasterState::Holding {
+                held_ticks,
+                charge_orb: Some(_),
+            } if held_ticks >= self.player_charge_ready_tick() => ChargeSound::Ready,
+            PlayerBlasterState::Holding {
+                charge_orb: Some(_),
+                ..
+            } => ChargeSound::Building,
+            PlayerBlasterState::Ready
+            | PlayerBlasterState::Holding {
+                charge_orb: None, ..
+            } => ChargeSound::Silent,
+        }
+    }
+
+    pub fn active_pilot(&self) -> Pilot {
+        self.primary_pilot()
+    }
+
     fn primary_pilot(&self) -> Pilot {
         self.state.roster.selected[0].unwrap_or(DEFAULT_PRIMARY_PILOT)
     }
@@ -4686,6 +4716,7 @@ impl Game {
     }
 
     pub fn tick(&mut self, held_input: u16) -> Result<(), Error> {
+        self.state.audio.begin_tick();
         self.state.input.sample(Buttons::from_bits(held_input));
         self.state.frame = self.state.frame.wrapping_add(1);
         self.state.mode_frame = self.state.mode_frame.wrapping_add(1);
@@ -10799,18 +10830,24 @@ impl Game {
 
     fn spawn_player_rapid_laser(&mut self, player: ObjectId) -> Result<ObjectId, Error> {
         let laser = self.new_player_projectile(player, PlayerProjectileKind::Rapid);
-        self.state
+        let laser = self
+            .state
             .objects
             .allocate(laser)
-            .ok_or(Error::ObjectCapacityReached)
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.state.audio.queue(SoundEvent::RapidLaser);
+        Ok(laser)
     }
 
     fn spawn_player_charged_laser(&mut self, player: ObjectId) -> Result<ObjectId, Error> {
         let laser = self.new_player_projectile(player, PlayerProjectileKind::Charged);
-        self.state
+        let laser = self
+            .state
             .objects
             .allocate(laser)
-            .ok_or(Error::ObjectCapacityReached)
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.state.audio.queue(SoundEvent::ChargedLaser);
+        Ok(laser)
     }
 
     fn spawn_player_charge_orb(&mut self, player: ObjectId) -> Result<ObjectId, Error> {
@@ -14956,6 +14993,10 @@ mod tests {
 
         game.tick(0).unwrap();
         game.tick(Button::B as u16).unwrap();
+        assert_eq!(
+            game.take_sound_events(),
+            [Some(SoundEvent::RapidLaser), None]
+        );
         let rapid_id = game
             .state()
             .objects
@@ -15018,6 +15059,7 @@ mod tests {
             }
             state => panic!("charge orb was not created at the retail tick: {state:?}"),
         };
+        assert_eq!(game.charge_sound(), ChargeSound::Building);
         assert_eq!(
             game.state().objects.get(charge_orb).unwrap().base.shape,
             ShapeId::PLAYER_CHARGE_ORB_BUILDING
@@ -15035,12 +15077,18 @@ mod tests {
         for _ in PLAYER_CHARGE_ORB_SPAWN_TICK..FOX_FALCO_CHARGE_READY_TICK {
             game.tick(Button::B as u16).unwrap();
         }
+        assert_eq!(game.charge_sound(), ChargeSound::Ready);
         assert_eq!(
             game.state().objects.get(charge_orb).unwrap().base.shape,
             ShapeId::PLAYER_CHARGE_ORB_READY
         );
 
         game.tick(0).unwrap();
+        assert_eq!(
+            game.take_sound_events(),
+            [Some(SoundEvent::ChargedLaser), None]
+        );
+        assert_eq!(game.charge_sound(), ChargeSound::Silent);
         let charged_id = game
             .state()
             .objects
@@ -15162,6 +15210,7 @@ mod tests {
         player.base.yaw = Angle::from_units(227);
         let player_id = game.state.objects.allocate(player).unwrap();
         game.state.mission.primary_player = Some(player_id);
+        game.state.mode = GameMode::Mission;
 
         for _ in 0..EARLY_RELEASE_TICK {
             step_player_blaster(&mut game, player_id, Button::B as u16);
@@ -15173,6 +15222,7 @@ mod tests {
             } => charge_orb,
             state => panic!("early-release setup has no charge orb: {state:?}"),
         };
+        assert_eq!(game.charge_sound(), ChargeSound::Building);
 
         step_player_blaster(&mut game, player_id, 0);
         assert!(game
@@ -15189,6 +15239,7 @@ mod tests {
         }
         assert!(game.state.objects.get(charge_orb).is_none());
         assert_eq!(game.state.mission.player_blaster, PlayerBlasterState::Ready);
+        assert_eq!(game.charge_sound(), ChargeSound::Silent);
     }
 
     #[test]

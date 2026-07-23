@@ -261,10 +261,30 @@ impl NativePlayer {
     }
 
     pub fn validate_named_music(&self, files: &[&str]) -> Result<(), NativeAudioError> {
+        self.validate_named_files("music", files)
+    }
+
+    pub fn validate_named_effects(&self, files: &[&str]) -> Result<(), NativeAudioError> {
+        self.validate_named_files("effects", files)
+    }
+
+    pub fn validate_named_engine(&self, files: &[&str]) -> Result<(), NativeAudioError> {
+        self.validate_named_files("engine", files)
+    }
+
+    pub fn validate_named_ambience(&self, files: &[&str]) -> Result<(), NativeAudioError> {
+        self.validate_named_files("ambience", files)
+    }
+
+    fn validate_named_files(
+        &self,
+        directory: &str,
+        files: &[&str],
+    ) -> Result<(), NativeAudioError> {
         let state = self.inner.lock().unwrap();
         let missing = files
             .iter()
-            .map(|file| state.asset_root.join("music").join(file))
+            .map(|file| state.asset_root.join(directory).join(file))
             .filter(|path| !path.is_file())
             .collect::<Vec<_>>();
         if missing.is_empty() {
@@ -323,6 +343,17 @@ impl NativePlayer {
         Ok(())
     }
 
+    pub fn play_named_effect(&self, file: &str) -> Result<(), NativeAudioError> {
+        let mut state = self.inner.lock().unwrap();
+        let path = state.asset_root.join("effects").join(file);
+        let clip = state.load_candidates(vec![path])?;
+        if state.effects.len() == MAX_EFFECT_VOICES {
+            state.effects.remove(0);
+        }
+        state.effects.push(Voice::new(clip, false));
+        Ok(())
+    }
+
     pub fn effect_consumed(&self, effect: u8) -> bool {
         self.inner.lock().unwrap().last_effect_consumed == Some(effect)
     }
@@ -333,6 +364,34 @@ impl NativePlayer {
 
     pub fn set_engine_sound(&self, sound: u8) -> Result<(), NativeAudioError> {
         self.set_looping_channel(sound, "engine", true)
+    }
+
+    pub fn set_named_engine(&self, file: Option<&str>) -> Result<(), NativeAudioError> {
+        let mut state = self.inner.lock().unwrap();
+        state.engine = None;
+        let Some(file) = file else {
+            return Ok(());
+        };
+        let path = state.asset_root.join("engine").join(file);
+        let clip = state.load_candidates(vec![path])?;
+        state.engine = Some((0, Voice::new(clip, true)));
+        Ok(())
+    }
+
+    pub fn set_named_ambience(
+        &self,
+        file: Option<&str>,
+        looping: bool,
+    ) -> Result<(), NativeAudioError> {
+        let mut state = self.inner.lock().unwrap();
+        state.ambience = None;
+        let Some(file) = file else {
+            return Ok(());
+        };
+        let path = state.asset_root.join("ambience").join(file);
+        let clip = state.load_candidates(vec![path])?;
+        state.ambience = Some((0, Voice::new(clip, looping)));
+        Ok(())
     }
 
     pub fn set_ambient_sound(&self, sound: u8) -> Result<(), NativeAudioError> {
@@ -505,11 +564,14 @@ mod tests {
     const TEST_SAMPLE: i16 = 1_000;
     const TEST_FRAME_COUNT: usize = 4;
 
-    fn temporary_asset_dir() -> PathBuf {
-        std::env::temp_dir().join(format!("sf-audio-native-player-{}", std::process::id()))
+    fn temporary_asset_dir(test: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "sf-audio-native-player-{}-{test}",
+            std::process::id()
+        ))
     }
 
-    fn write_constant_wave(path: &Path) {
+    fn write_constant_wave(path: &Path, sample: i16) {
         const HEADER_LENGTH: usize = 44;
         const FORMAT_CHUNK_LENGTH: u32 = 16;
         const PCM_ENCODING: u16 = 1;
@@ -532,7 +594,7 @@ mod tests {
         bytes.extend_from_slice(b"data");
         bytes.extend_from_slice(&data_length.to_le_bytes());
         for _ in 0..sample_count {
-            bytes.extend_from_slice(&TEST_SAMPLE.to_le_bytes());
+            bytes.extend_from_slice(&sample.to_le_bytes());
         }
         std::fs::write(path, bytes).unwrap();
     }
@@ -549,13 +611,13 @@ mod tests {
 
     #[test]
     fn all_clear_is_music_and_fade_out_matches_oracle_duration() {
-        let asset_dir = temporary_asset_dir();
+        let asset_dir = temporary_asset_dir("music-fade");
         let music_dir = asset_dir.join("native_audio/music");
         if asset_dir.exists() {
             std::fs::remove_dir_all(&asset_dir).unwrap();
         }
         std::fs::create_dir_all(&music_dir).unwrap();
-        write_constant_wave(&music_dir.join("track_02_cue_F0.wav"));
+        write_constant_wave(&music_dir.join("track_02_cue_F0.wav"), TEST_SAMPLE);
 
         let player = NativePlayer::new(&asset_dir);
         player.load_track(TEST_TRACK);
@@ -572,5 +634,58 @@ mod tests {
         assert_eq!(&fade[fade.len() - 2..], &[0, 0]);
 
         std::fs::remove_dir_all(asset_dir).unwrap();
+    }
+
+    #[test]
+    fn named_ambience_is_nonlooping_and_replaced_atomically() {
+        const REPLACEMENT_SAMPLE: i16 = -2_000;
+
+        let asset_root = temporary_asset_dir("named-ambience");
+        let ambience_dir = asset_root.join("ambience/open_space/fox");
+        if asset_root.exists() {
+            std::fs::remove_dir_all(&asset_root).unwrap();
+        }
+        std::fs::create_dir_all(&ambience_dir).unwrap();
+        write_constant_wave(&ambience_dir.join("building.wav"), TEST_SAMPLE);
+        write_constant_wave(&ambience_dir.join("ready.wav"), REPLACEMENT_SAMPLE);
+
+        let player = NativePlayer::with_asset_root(&asset_root);
+        player
+            .validate_named_ambience(&[
+                "open_space/fox/building.wav",
+                "open_space/fox/ready.wav",
+            ])
+            .unwrap();
+
+        player
+            .set_named_ambience(Some("open_space/fox/building.wav"), false)
+            .unwrap();
+        let mut finite_output = [0i16; (TEST_FRAME_COUNT + 1) * 2];
+        player.generate(&mut finite_output);
+        assert_eq!(
+            &finite_output[..TEST_FRAME_COUNT * 2],
+            &[TEST_SAMPLE; TEST_FRAME_COUNT * 2]
+        );
+        assert_eq!(&finite_output[TEST_FRAME_COUNT * 2..], &[0, 0]);
+
+        player
+            .set_named_ambience(Some("open_space/fox/building.wav"), false)
+            .unwrap();
+        let mut started = [0i16; 2];
+        player.generate(&mut started);
+        assert_eq!(started, [TEST_SAMPLE, TEST_SAMPLE]);
+        player
+            .set_named_ambience(Some("open_space/fox/ready.wav"), false)
+            .unwrap();
+        let mut replaced = [0i16; 2];
+        player.generate(&mut replaced);
+        assert_eq!(replaced, [REPLACEMENT_SAMPLE, REPLACEMENT_SAMPLE]);
+
+        player.set_named_ambience(None, false).unwrap();
+        let mut stopped = [TEST_SAMPLE; 2];
+        player.generate(&mut stopped);
+        assert_eq!(stopped, [0, 0]);
+
+        std::fs::remove_dir_all(asset_root).unwrap();
     }
 }

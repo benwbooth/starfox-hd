@@ -8,6 +8,42 @@ use super::render::Camera;
 
 pub const SELECTED_PILOT_COUNT: usize = 2;
 pub const ROSTER_PILOT_COUNT: usize = 6;
+pub const SOUND_EVENT_CAPACITY: usize = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoundEvent {
+    RapidLaser,
+    ChargedLaser,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ChargeSound {
+    #[default]
+    Silent,
+    Building,
+    Ready,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct AudioState {
+    pending_events: [Option<SoundEvent>; SOUND_EVENT_CAPACITY],
+}
+
+impl AudioState {
+    pub fn begin_tick(&mut self) {
+        self.pending_events.fill(None);
+    }
+
+    pub fn queue(&mut self, event: SoundEvent) {
+        if let Some(slot) = self.pending_events.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(event);
+        }
+    }
+
+    pub fn take_events(&mut self) -> [Option<SoundEvent>; SOUND_EVENT_CAPACITY] {
+        std::mem::take(&mut self.pending_events)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RandomState {
@@ -1484,6 +1520,7 @@ pub struct GameState {
     pub game_over: GameOverState,
     pub results: ResultsState,
     pub ending: EndingState,
+    pub audio: AudioState,
     pub objects: ObjectStore,
     pub camera: Camera,
     pub input: InputState,
@@ -1506,6 +1543,7 @@ impl Default for GameState {
             game_over: GameOverState::default(),
             results: ResultsState::default(),
             ending: EndingState::default(),
+            audio: AudioState::default(),
             objects: ObjectStore::new(),
             camera: Camera::default(),
             input: InputState::default(),
