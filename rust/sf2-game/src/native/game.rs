@@ -11,10 +11,10 @@ use super::object::{
     FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
     FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
     FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
-    HostileProjectileFlightPhase, HostileProjectileFlightState, Object, ObjectActivity, ObjectId,
-    ObjectKind, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
-    ShapeId, Vector3, WeaponKind,
+    HostileProjectileFlightPhase, HostileProjectileFlightState, InterceptionMissileFlightState,
+    InterceptionMissileSteering, Object, ObjectActivity, ObjectId, ObjectKind,
+    PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState,
+    ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::state::{
@@ -54,6 +54,8 @@ mod mirage_dragon;
 mod mirage_dragon_segments;
 #[path = "missile_interception.rs"]
 mod missile_interception;
+#[path = "missile_interception_targets.rs"]
+mod missile_interception_targets;
 #[path = "opening_continuation.rs"]
 mod opening_continuation;
 #[path = "pigma_duel.rs"]
@@ -1025,6 +1027,9 @@ const CAPITAL_FLIGHT_HANDOFF_RETAIL_FRAME: u16 = MISSION_BASE_KEYFRAME_END_RETAI
 const MISSION_ENCOUNTER_CERTIFIED_END_RETAIL_FRAME: u16 =
     opening_continuation::ENCOUNTER_CERTIFIED_END_RETAIL_FRAME;
 const MISSION_ENCOUNTER_POSITION_SCALE: i16 = 4;
+const INTERCEPTION_MISSILE_POSITION_SCALE: i16 = 1;
+const INTERCEPTION_MISSILE_STEERING_STEP: i8 = 1;
+const INTERCEPTION_MISSILE_SPIN_STEP: i8 = 2;
 const CAPITAL_LEVEL_PITCH_UNITS: u8 = 0;
 const CAPITAL_DIVE_PITCH_UNITS: u8 = 206;
 const CAPITAL_CLIMB_PITCH_UNITS: u8 = 50;
@@ -1306,6 +1311,16 @@ enum FighterInterceptAction {
     ShiftCorridorX,
     ApproachCorridorAltitude,
     ShiftCorridorZ,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InterceptionMissileAction {
+    Present,
+    BeginLowerFlight,
+    Steer(InterceptionMissileSteering),
+    Spin,
+    Move,
+    Depart,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6957,7 +6972,8 @@ impl Game {
     }
 
     fn spawn_interception_missiles(&mut self) -> Result<(), Error> {
-        for slot in &mut self.interception_missiles {
+        for (index, slot) in self.interception_missiles.iter_mut().enumerate() {
+            let pose = missile_interception_targets::INITIAL_POSES[index];
             let mut missile = Object::new(
                 ObjectKind::Enemy,
                 ShapeId::CAMPAIGN_MISSILE,
@@ -6968,6 +6984,15 @@ impl Game {
             missile.base.flags.visible = false;
             missile.base.flags.collision_disabled = true;
             missile.base.flags.casts_shadow = false;
+            missile.base.position = pose.position;
+            missile.base.pitch = Angle::from_units(pose.pitch);
+            missile.base.yaw = Angle::from_units(pose.yaw);
+            missile.base.roll = Angle::from_units(pose.roll);
+            missile.base.speed = pose.speed;
+            missile.extension.activity =
+                ObjectActivity::InterceptionMissileFlight(InterceptionMissileFlightState {
+                    last_steering_adjustment: InterceptionMissileSteering::Straight,
+                });
             let Some(id) = self.state.objects.allocate(missile) else {
                 for allocated in &mut self.interception_missiles {
                     if let Some(object) = allocated.take() {
@@ -8397,63 +8422,27 @@ impl Game {
     }
 
     fn update_interception_missiles(&mut self, retail_frame: u16) {
-        let tracks: [&[MissionActorKeyframe]; INTERCEPTION_MISSILE_COUNT] = [
-            &missile_interception::LEAD_MISSILE_KEYFRAMES,
-            &missile_interception::UPPER_MISSILE_KEYFRAMES,
-            &missile_interception::LOWER_MISSILE_KEYFRAMES,
-        ];
-        for (index, keyframes) in tracks.into_iter().enumerate() {
-            if retail_frame < keyframes[0].retail_frame {
-                continue;
-            }
-            let (start, end) =
-                enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-            let presentation = if retail_frame >= end.retail_frame {
-                end.presentation
-            } else {
-                match (start.presentation, end.presentation) {
-                    (
-                        MissionActorPresentation::Present(start_pose),
-                        MissionActorPresentation::Present(end_pose),
-                    ) => MissionActorPresentation::Present(interpolate_encounter_pose(
-                        start_pose,
-                        end_pose,
-                        retail_frame.saturating_sub(start.retail_frame),
-                        end.retail_frame.saturating_sub(start.retail_frame),
-                    )),
-                    (presentation, _) => presentation,
+        for index in 0..INTERCEPTION_MISSILE_COUNT {
+            for &action in missile_interception_targets::actions(retail_frame, index) {
+                if action == InterceptionMissileAction::Depart {
+                    if let Some(object) = self.interception_missiles[index].take() {
+                        self.state.objects.remove(object);
+                    }
+                    break;
                 }
-            };
-            if presentation == MissionActorPresentation::Departed {
-                if let Some(object) = self.interception_missiles[index].take() {
-                    self.state.objects.remove(object);
-                }
-                continue;
-            }
-            let Some(id) = self.interception_missiles[index] else {
-                continue;
-            };
-            let Some(object) = self.state.objects.get_mut(id) else {
-                continue;
-            };
-            match presentation {
-                MissionActorPresentation::Present(pose) => {
-                    object.base.flags.active = true;
-                    object.base.flags.visible = true;
-                    object.base.flags.collision_disabled = true;
-                    object.base.position = pose.position;
-                    object.base.pitch = Angle::from_units(pose.pitch);
-                    object.base.yaw = Angle::from_units(pose.yaw);
-                    object.base.roll = Angle::from_units(pose.roll);
-                    object.base.speed = pose.speed;
-                    object.base.velocity = Vector3::default();
-                }
-                MissionActorPresentation::Inactive => {
-                    object.base.flags.active = false;
-                    object.base.flags.visible = false;
-                    object.base.flags.collision_disabled = true;
-                }
-                MissionActorPresentation::Departed => unreachable!(),
+                let Some(id) = self.interception_missiles[index] else {
+                    continue;
+                };
+                let Some(object) = self.state.objects.get_mut(id) else {
+                    continue;
+                };
+                let ObjectActivity::InterceptionMissileFlight(mut flight) =
+                    object.extension.activity
+                else {
+                    continue;
+                };
+                apply_interception_missile_action(object, &mut flight, action);
+                object.extension.activity = ObjectActivity::InterceptionMissileFlight(flight);
             }
         }
     }
@@ -10322,6 +10311,7 @@ impl Game {
                 ObjectActivity::CapitalFlight(_)
                 | ObjectActivity::ReengagementFighterFlight(_)
                 | ObjectActivity::FighterInterceptFlight(_)
+                | ObjectActivity::InterceptionMissileFlight(_)
                 | ObjectActivity::HostileProjectileFlight(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
@@ -12192,6 +12182,84 @@ fn apply_fighter_intercept_action(
         }
         FighterInterceptAction::ShiftCorridorZ => {
             object.base.position.z = object.base.position.z.wrapping_add(flight.corridor_drift_z);
+        }
+    }
+}
+
+fn apply_interception_missile_action(
+    object: &mut Object,
+    flight: &mut InterceptionMissileFlightState,
+    action: InterceptionMissileAction,
+) {
+    match action {
+        InterceptionMissileAction::Present => {
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = true;
+        }
+        InterceptionMissileAction::BeginLowerFlight => {
+            let pose = missile_interception_targets::LOWER_FLIGHT_POSE;
+            object.base.position = pose.position;
+            object.base.pitch = Angle::from_units(pose.pitch);
+            object.base.yaw = Angle::from_units(pose.yaw);
+            object.base.roll = Angle::from_units(pose.roll);
+            object.base.speed = pose.speed;
+            object.base.velocity = Vector3::default();
+            flight.last_steering_adjustment = InterceptionMissileSteering::Straight;
+        }
+        InterceptionMissileAction::Steer(steering) => {
+            flight.last_steering_adjustment = steering;
+            match steering {
+                InterceptionMissileSteering::Straight => {}
+                InterceptionMissileSteering::Climb => {
+                    object.base.pitch = object
+                        .base
+                        .pitch
+                        .wrapping_add(INTERCEPTION_MISSILE_STEERING_STEP);
+                }
+                InterceptionMissileSteering::Dive => {
+                    object.base.pitch = object
+                        .base
+                        .pitch
+                        .wrapping_add(-INTERCEPTION_MISSILE_STEERING_STEP);
+                }
+                InterceptionMissileSteering::Clockwise => {
+                    object.base.yaw = object
+                        .base
+                        .yaw
+                        .wrapping_add(INTERCEPTION_MISSILE_STEERING_STEP);
+                }
+                InterceptionMissileSteering::CounterClockwise => {
+                    object.base.yaw = object
+                        .base
+                        .yaw
+                        .wrapping_add(-INTERCEPTION_MISSILE_STEERING_STEP);
+                }
+            }
+        }
+        InterceptionMissileAction::Spin => {
+            object.base.roll = object
+                .base
+                .roll
+                .wrapping_add(INTERCEPTION_MISSILE_SPIN_STEP);
+        }
+        InterceptionMissileAction::Move => {
+            let velocity = flight_velocity(
+                object.base.pitch,
+                object.base.yaw,
+                object.base.speed,
+                INTERCEPTION_MISSILE_POSITION_SCALE,
+            );
+            object.base.velocity = velocity;
+            object.base.position.x = object.base.position.x.wrapping_add(velocity.x);
+            object.base.position.y = object.base.position.y.wrapping_add(velocity.y);
+            object.base.position.z = object.base.position.z.wrapping_add(velocity.z);
+        }
+        InterceptionMissileAction::Depart => {
+            debug_assert!(
+                false,
+                "missile departure must be handled by its owning slot"
+            );
         }
     }
 }
@@ -16704,6 +16772,83 @@ mod tests {
         )
         .unwrap();
         assert!(game.fighter_intercept_projectiles.is_empty());
+    }
+
+    #[test]
+    fn missile_interception_native_targets_match_every_certified_pose() {
+        const CERTIFIED_POSE_COUNT: usize = 1_817;
+        let tracks: [&[MissionActorKeyframe]; INTERCEPTION_MISSILE_COUNT] = [
+            &missile_interception::LEAD_MISSILE_KEYFRAMES,
+            &missile_interception::UPPER_MISSILE_KEYFRAMES,
+            &missile_interception::LOWER_MISSILE_KEYFRAMES,
+        ];
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.state.campaign.route_step = CampaignRouteStep::MissileInterception;
+        game.state.strategic_map.player_map_position = MISSILE_INTERCEPTION_DESTINATION;
+        game.begin_missile_interception_sortie().unwrap();
+
+        let mut compared = 0;
+        for retail_frame in (missile_interception_targets::START_RETAIL_FRAME
+            ..=missile_interception_targets::END_RETAIL_FRAME)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            game.update_interception_missiles(retail_frame);
+            for (index, keyframes) in tracks.into_iter().enumerate() {
+                if retail_frame >= missile_interception_targets::DEPARTURE_RETAIL_FRAMES[index] {
+                    assert!(
+                        game.interception_missiles[index].is_none(),
+                        "missile {index} remained after frame {retail_frame}"
+                    );
+                    continue;
+                }
+                let expected = keyframes
+                    .iter()
+                    .find(|keyframe| keyframe.retail_frame == retail_frame)
+                    .unwrap_or_else(|| {
+                        panic!("missing certified missile {index} pose at frame {retail_frame}")
+                    });
+                let MissionActorPresentation::Present(expected_pose) = expected.presentation else {
+                    panic!("missile {index} departed early at frame {retail_frame}");
+                };
+                let id = game.interception_missiles[index]
+                    .unwrap_or_else(|| panic!("missile {index} missing at frame {retail_frame}"));
+                let object = game.state.objects.get(id).unwrap();
+                assert_eq!(
+                    object.base.position, expected_pose.position,
+                    "missile {index} position at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.pitch.units(),
+                    expected_pose.pitch,
+                    "missile {index} pitch at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.yaw.units(),
+                    expected_pose.yaw,
+                    "missile {index} yaw at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.roll.units(),
+                    expected_pose.roll,
+                    "missile {index} roll at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.speed, expected_pose.speed,
+                    "missile {index} speed at frame {retail_frame}"
+                );
+                assert!(object.base.flags.active, "frame {retail_frame}");
+                assert!(object.base.flags.visible, "frame {retail_frame}");
+                assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                assert!(matches!(
+                    object.extension.activity,
+                    ObjectActivity::InterceptionMissileFlight(_)
+                ));
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, CERTIFIED_POSE_COUNT);
     }
 
     #[test]

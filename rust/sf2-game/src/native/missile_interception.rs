@@ -5,8 +5,12 @@
 //! tools/sf2/generate_missile_interception.py [--check]`.
 
 use super::{
-    mission_actor_departure_keyframe, mission_actor_keyframe, mission_camera_keyframe,
-    mission_player_keyframe, MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
+    MissionPlayerKeyframe,
+};
+#[cfg(test)]
+use super::{
+    mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe,
 };
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 2779;
@@ -2106,6 +2110,7 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 695] = [
     mission_player_keyframe(2776, -3_691, -3_043, -22_917, 0, 127, 4, 30),
 ];
 
+#[cfg(test)]
 pub(super) const LEAD_MISSILE_KEYFRAMES: [MissionActorKeyframe; 627] = [
     mission_actor_keyframe(64, [1_955, 4_597, 2_490, 0, 74, 2, 48]),
     mission_actor_keyframe(68, [1_955, 4_597, 2_490, 0, 74, 2, 48]),
@@ -2736,6 +2741,7 @@ pub(super) const LEAD_MISSILE_KEYFRAMES: [MissionActorKeyframe; 627] = [
     mission_actor_departure_keyframe(2568),
 ];
 
+#[cfg(test)]
 pub(super) const UPPER_MISSILE_KEYFRAMES: [MissionActorKeyframe; 590] = [
     mission_actor_keyframe(64, [955, 3_997, -2_010, 0, 74, 0, 48]),
     mission_actor_keyframe(68, [955, 3_997, -2_010, 0, 74, 2, 48]),
@@ -3329,6 +3335,7 @@ pub(super) const UPPER_MISSILE_KEYFRAMES: [MissionActorKeyframe; 590] = [
     mission_actor_departure_keyframe(2420),
 ];
 
+#[cfg(test)]
 pub(super) const LOWER_MISSILE_KEYFRAMES: [MissionActorKeyframe; 603] = [
     mission_actor_keyframe(64, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(68, [-45, 3_197, -10, 0, 74, 2, 48]),

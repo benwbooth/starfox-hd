@@ -397,6 +397,23 @@ pub struct FighterInterceptFlightState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterceptionMissileSteering {
+    Straight,
+    Climb,
+    Dive,
+    Clockwise,
+    CounterClockwise,
+}
+
+/// Flat, typed flight variables for the three strategic campaign missiles.
+/// Their world transform remains in the ordinary object fields; this records
+/// the most recent steering adjustment selected by the maneuver sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InterceptionMissileFlightState {
+    pub last_steering_adjustment: InterceptionMissileSteering,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapitalMovementPhase {
     Ready,
     HorizontalApplied,
@@ -469,6 +486,7 @@ pub enum ObjectActivity {
     FighterFlight(FighterFlightState),
     ReengagementFighterFlight(ReengagementFighterFlightState),
     FighterInterceptFlight(FighterInterceptFlightState),
+    InterceptionMissileFlight(InterceptionMissileFlightState),
     CapitalFlight(CapitalFlightState),
     HostileProjectileFlight(HostileProjectileFlightState),
     PlayerProjectile(PlayerProjectileState),
