@@ -79,6 +79,11 @@ def main() -> int:
     parser.add_argument("--profile", type=Path, help="use this empty profile directory")
     parser.add_argument("--timeout", type=int, default=30, help="Mesen timeout in seconds")
     parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="suppress emulator diagnostics while retaining script artifacts",
+    )
+    parser.add_argument(
         "--expect-exit",
         type=lambda value: int(value, 0),
         default=0,
@@ -110,13 +115,14 @@ def main() -> int:
     command = [
         str(mesen),
         "--testRunner",
-        "--enableStdout",
         "--doNotSaveSettings",
         "--debug.scriptWindow.allowIoOsAccess=true",
         f"--timeout={args.timeout}",
         str(script),
         str(rom),
     ]
+    if not args.quiet:
+        command.insert(2, "--enableStdout")
     environment = os.environ.copy()
     environment["XDG_CONFIG_HOME"] = str(profile)
     try:
@@ -125,6 +131,8 @@ def main() -> int:
             env=environment,
             timeout=args.timeout + 10,
             check=False,
+            stdout=subprocess.DEVNULL if args.quiet else None,
+            stderr=subprocess.DEVNULL if args.quiet else None,
         )
     except subprocess.TimeoutExpired:
         print("oracle exceeded the Mesen timeout plus shutdown grace", file=sys.stderr)

@@ -324,7 +324,112 @@ pub enum Difficulty {
     Expert,
 }
 
+/// An immutable semantic force count from the retail difficulty profile.
+/// Runtime systems convert these values into their own typed mutable state;
+/// source-machine counters never cross into the native game.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CampaignForceCount(u8);
+
+impl CampaignForceCount {
+    pub const fn new(count: u8) -> Self {
+        Self(count)
+    }
+
+    pub const fn count(self) -> u8 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BattleCarrierDeployment {
+    Single,
+    Pair,
+}
+
+impl BattleCarrierDeployment {
+    pub const fn count(self) -> CampaignForceCount {
+        match self {
+            Self::Single => CampaignForceCount::new(1),
+            Self::Pair => CampaignForceCount::new(2),
+        }
+    }
+
+    pub const fn deploys_second_carrier(self) -> bool {
+        matches!(self, Self::Pair)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpeningAttackerWavePattern {
+    NormalOpening,
+    HardOpening,
+    HardReinforcement,
+    ExpertOpening,
+    ExpertReinforcement,
+}
+
+pub const OPENING_ATTACKER_WAVE_CAPACITY: usize = 2;
+
+/// Retail-derived strategic setup selected by the difficulty menu. Counts
+/// express game concepts rather than the source program's storage layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DifficultyProfile {
+    pub occupied_planets: CampaignForceCount,
+    pub planetary_defense_units: CampaignForceCount,
+    pub opening_attackers: CampaignForceCount,
+    pub battle_carriers: BattleCarrierDeployment,
+    pub opening_waves: [Option<OpeningAttackerWavePattern>; OPENING_ATTACKER_WAVE_CAPACITY],
+}
+
+impl DifficultyProfile {
+    pub const NORMAL: Self = Self {
+        occupied_planets: CampaignForceCount::new(2),
+        planetary_defense_units: CampaignForceCount::new(2),
+        opening_attackers: CampaignForceCount::new(2),
+        battle_carriers: BattleCarrierDeployment::Single,
+        opening_waves: [Some(OpeningAttackerWavePattern::NormalOpening), None],
+    };
+
+    pub const HARD: Self = Self {
+        occupied_planets: CampaignForceCount::new(3),
+        planetary_defense_units: CampaignForceCount::new(3),
+        opening_attackers: CampaignForceCount::new(4),
+        battle_carriers: BattleCarrierDeployment::Single,
+        opening_waves: [
+            Some(OpeningAttackerWavePattern::HardOpening),
+            Some(OpeningAttackerWavePattern::HardReinforcement),
+        ],
+    };
+
+    pub const EXPERT: Self = Self {
+        occupied_planets: CampaignForceCount::new(3),
+        planetary_defense_units: CampaignForceCount::new(6),
+        opening_attackers: CampaignForceCount::new(4),
+        battle_carriers: BattleCarrierDeployment::Pair,
+        opening_waves: [
+            Some(OpeningAttackerWavePattern::ExpertOpening),
+            Some(OpeningAttackerWavePattern::ExpertReinforcement),
+        ],
+    };
+
+    pub const fn total_opening_threat_units(self) -> CampaignForceCount {
+        CampaignForceCount::new(
+            self.planetary_defense_units
+                .count()
+                .saturating_add(self.opening_attackers.count()),
+        )
+    }
+}
+
 impl Difficulty {
+    pub const fn profile(self) -> DifficultyProfile {
+        match self {
+            Self::Normal => DifficultyProfile::NORMAL,
+            Self::Hard => DifficultyProfile::HARD,
+            Self::Expert => DifficultyProfile::EXPERT,
+        }
+    }
+
     pub const fn previous(self, expert_unlocked: bool) -> Self {
         match (self, expert_unlocked) {
             (Self::Normal, true) => Self::Expert,
@@ -554,6 +659,7 @@ pub enum PlanetObjectiveStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CarrierObjectiveStatus {
+    NotDeployed,
     Operational,
     Destroyed,
 }
@@ -614,25 +720,41 @@ pub struct CampaignObjectives {
 
 impl Default for CampaignObjectives {
     fn default() -> Self {
+        Self::for_difficulty(Difficulty::Normal)
+    }
+}
+
+impl CampaignObjectives {
+    pub const fn for_difficulty(difficulty: Difficulty) -> Self {
+        let second_carrier = if difficulty
+            .profile()
+            .battle_carriers
+            .deploys_second_carrier()
+        {
+            CarrierObjectiveStatus::Operational
+        } else {
+            CarrierObjectiveStatus::NotDeployed
+        };
         Self {
             eladard: PlanetObjectiveStatus::Occupied,
             titania: PlanetObjectiveStatus::Occupied,
             first_carrier: CarrierObjectiveStatus::Operational,
-            second_carrier: CarrierObjectiveStatus::Operational,
+            second_carrier,
             missiles: StrategicThreatCount::INITIAL_MISSILES,
             live_attackers: StrategicThreatCount::NONE,
             wolf_blockade: WolfBlockadeStatus::Unavailable,
             astropolis: AstropolisStatus::Locked,
         }
     }
-}
 
-impl CampaignObjectives {
     pub const fn major_objectives_complete(self) -> bool {
         matches!(self.eladard, PlanetObjectiveStatus::Rescued)
             && matches!(self.titania, PlanetObjectiveStatus::Rescued)
             && matches!(self.first_carrier, CarrierObjectiveStatus::Destroyed)
-            && matches!(self.second_carrier, CarrierObjectiveStatus::Destroyed)
+            && matches!(
+                self.second_carrier,
+                CarrierObjectiveStatus::NotDeployed | CarrierObjectiveStatus::Destroyed
+            )
     }
 
     pub const fn final_gate_clear(self) -> bool {
@@ -657,7 +779,7 @@ impl CampaignObjectives {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CampaignState {
     pub elapsed_frames: u64,
     /// Damage shown by the retail strategic-map HUD, in whole percent.
@@ -673,6 +795,22 @@ pub struct CampaignState {
 }
 
 impl CampaignState {
+    pub fn new(difficulty: Difficulty) -> Self {
+        Self {
+            elapsed_frames: 0,
+            corneria_damage_percent: 0,
+            corneria_defense: CorneriaDefenseState::default(),
+            difficulty,
+            active_threats: Vec::new(),
+            route_step: CampaignRouteStep::default(),
+            objectives: CampaignObjectives::for_difficulty(difficulty),
+        }
+    }
+
+    pub const fn difficulty_profile(&self) -> DifficultyProfile {
+        self.difficulty.profile()
+    }
+
     /// Derived presentation/automation progress. The runtime stores semantic
     /// route and objective state; it does not maintain a second numeric sortie
     /// counter that can drift out of sync.
@@ -686,7 +824,8 @@ impl CampaignState {
                         PlanetObjectiveStatus::Rescued => 1,
                     }
                     + match self.objectives.second_carrier {
-                        CarrierObjectiveStatus::Operational => 0,
+                        CarrierObjectiveStatus::NotDeployed
+                        | CarrierObjectiveStatus::Operational => 0,
                         CarrierObjectiveStatus::Destroyed => 1,
                     }
             }
@@ -710,6 +849,12 @@ impl CampaignState {
             | CampaignRouteStep::MirageDragon
             | CampaignRouteStep::WolfBlockade => completed,
         }
+    }
+}
+
+impl Default for CampaignState {
+    fn default() -> Self {
+        Self::new(Difficulty::Normal)
     }
 }
 
@@ -1764,6 +1909,70 @@ mod tests {
         let mut random = RandomState::new(INITIAL);
         assert_eq!(random.next_byte(), EXPECTED_VALUE);
         assert_eq!(random.bytes(), EXPECTED_STATE);
+    }
+
+    #[test]
+    fn difficulty_profiles_keep_the_retail_strategic_force_counts_typed() {
+        const NORMAL_COUNTS: [u8; 5] = [2, 2, 2, 4, 1];
+        const HARD_COUNTS: [u8; 5] = [3, 3, 4, 7, 1];
+        const EXPERT_COUNTS: [u8; 5] = [3, 6, 4, 10, 2];
+
+        let counts = |difficulty: Difficulty| {
+            let profile = difficulty.profile();
+            [
+                profile.occupied_planets.count(),
+                profile.planetary_defense_units.count(),
+                profile.opening_attackers.count(),
+                profile.total_opening_threat_units().count(),
+                profile.battle_carriers.count().count(),
+            ]
+        };
+
+        assert_eq!(counts(Difficulty::Normal), NORMAL_COUNTS);
+        assert_eq!(counts(Difficulty::Hard), HARD_COUNTS);
+        assert_eq!(counts(Difficulty::Expert), EXPERT_COUNTS);
+        assert_eq!(
+            Difficulty::Normal.profile().opening_waves,
+            [Some(OpeningAttackerWavePattern::NormalOpening), None]
+        );
+        assert_eq!(
+            Difficulty::Hard.profile().opening_waves,
+            [
+                Some(OpeningAttackerWavePattern::HardOpening),
+                Some(OpeningAttackerWavePattern::HardReinforcement),
+            ]
+        );
+        assert_eq!(
+            Difficulty::Expert.profile().opening_waves,
+            [
+                Some(OpeningAttackerWavePattern::ExpertOpening),
+                Some(OpeningAttackerWavePattern::ExpertReinforcement),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_expert_deploys_the_second_battle_carrier() {
+        let complete_first_carrier_route = |difficulty| {
+            let mut objectives = CampaignObjectives::for_difficulty(difficulty);
+            objectives.eladard = PlanetObjectiveStatus::Rescued;
+            objectives.titania = PlanetObjectiveStatus::Rescued;
+            objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
+            objectives.missiles = StrategicThreatCount::NONE;
+            objectives.live_attackers = StrategicThreatCount::NONE;
+            objectives
+        };
+
+        let normal = complete_first_carrier_route(Difficulty::Normal);
+        let hard = complete_first_carrier_route(Difficulty::Hard);
+        let expert = complete_first_carrier_route(Difficulty::Expert);
+
+        assert_eq!(normal.second_carrier, CarrierObjectiveStatus::NotDeployed);
+        assert_eq!(hard.second_carrier, CarrierObjectiveStatus::NotDeployed);
+        assert_eq!(expert.second_carrier, CarrierObjectiveStatus::Operational);
+        assert!(normal.final_gate_clear());
+        assert!(hard.final_gate_clear());
+        assert!(!expert.final_gate_clear());
     }
 
     #[test]

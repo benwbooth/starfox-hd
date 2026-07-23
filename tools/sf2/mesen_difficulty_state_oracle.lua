@@ -21,9 +21,20 @@ local load_callback = nil
 local lines = {}
 local access_lines = {}
 local stop_frame = tonumber(os.getenv("SF2_DIFFICULTY_STOP_FRAME")) or 720
+local confirm_period = tonumber(os.getenv("SF2_DIFFICULTY_CONFIRM_PERIOD")) or 90
+local stop_on_initialization =
+  os.getenv("SF2_DIFFICULTY_STOP_ON_INITIALIZATION") == "1"
+local stop_on_opening_attackers =
+  os.getenv("SF2_DIFFICULTY_STOP_ON_OPENING_ATTACKERS") == "1"
+local stop_on_occupied_planets =
+  os.getenv("SF2_DIFFICULTY_STOP_ON_OCCUPIED_PLANETS") == "1"
+local stop_on_difficulty_forces =
+  os.getenv("SF2_DIFFICULTY_STOP_ON_DIFFICULTY_FORCES") == "1"
 local seen_reads = {}
+local captured_initialization = false
 
 assert(stop_frame >= 720, "SF2_DIFFICULTY_STOP_FRAME must be at least 720")
+assert(confirm_period >= 3, "SF2_DIFFICULTY_CONFIRM_PERIOD must be at least 3")
 
 local function work_byte(address)
   return emu.read(address, emu.memType.snesWorkRam, false)
@@ -60,7 +71,7 @@ local function provide_input()
   emu.setInput({
     start = held_for_frame(20) or held_for_frame(560),
     a = false,
-    b = pulse_from(760, 90),
+    b = pulse_from(760, confirm_period),
     x = false,
     y = false,
     l = false,
@@ -163,6 +174,66 @@ local function load_state()
   end
 end
 
+local function capture_initialization()
+  if not loaded or captured_initialization then return end
+  captured_initialization = true
+  if not stop_on_initialization then return end
+  record("initialized")
+  dump_wram("initialized")
+  capture_screen("initialized")
+  write_file(
+    string.format("sf2_difficulty_%s.txt", scenario),
+    table.concat(lines, "\n") .. "\n")
+  write_file(
+    string.format("sf2_difficulty_%s_accesses.txt", scenario),
+    table.concat(access_lines, "\n") .. "\n")
+  emu.stop(0)
+end
+
+local function capture_opening_attackers()
+  if not loaded or not captured_initialization or not stop_on_opening_attackers then return end
+  local expected_end = ({ normal = 8, hard = 12, expert = 18 })[scenario]
+  if work_word(0xDB51) ~= expected_end then return end
+  record("opening_attacker_wave")
+  dump_wram("opening_attacker_wave")
+  capture_screen("opening_attacker_wave")
+  write_file(
+    string.format("sf2_difficulty_%s.txt", scenario),
+    table.concat(lines, "\n") .. "\n")
+  write_file(
+    string.format("sf2_difficulty_%s_accesses.txt", scenario),
+    table.concat(access_lines, "\n") .. "\n")
+  emu.stop(0)
+end
+
+local function capture_occupied_planets()
+  if not loaded or not captured_initialization or not stop_on_occupied_planets then return end
+  record("occupied_planets")
+  dump_wram("occupied_planets")
+  capture_screen("occupied_planets")
+  write_file(
+    string.format("sf2_difficulty_%s.txt", scenario),
+    table.concat(lines, "\n") .. "\n")
+  write_file(
+    string.format("sf2_difficulty_%s_accesses.txt", scenario),
+    table.concat(access_lines, "\n") .. "\n")
+  emu.stop(0)
+end
+
+local function capture_difficulty_forces()
+  if not loaded or not captured_initialization or not stop_on_difficulty_forces then return end
+  record("difficulty_forces")
+  dump_wram("difficulty_forces")
+  capture_screen("difficulty_forces")
+  write_file(
+    string.format("sf2_difficulty_%s.txt", scenario),
+    table.concat(lines, "\n") .. "\n")
+  write_file(
+    string.format("sf2_difficulty_%s_accesses.txt", scenario),
+    table.concat(access_lines, "\n") .. "\n")
+  emu.stop(0)
+end
+
 local function end_frame()
   if not loaded then return end
   frame = frame + 1
@@ -186,7 +257,11 @@ local function end_frame()
     record("settled")
     dump_wram("settled")
   end
-  if frame >= stop_frame then
+  if not stop_on_initialization
+      and not stop_on_opening_attackers
+      and not stop_on_occupied_planets
+      and not stop_on_difficulty_forces
+      and frame >= stop_frame then
     if frame ~= 720 then
       record("stopped")
       dump_wram("stopped")
@@ -232,6 +307,34 @@ emu.addMemoryCallback(
   0x1BA4,
   emu.cpuType.snes,
   emu.memType.snesWorkRam)
+emu.addMemoryCallback(
+  capture_initialization,
+  emu.callbackType.exec,
+  0x04E078,
+  0x04E078,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  capture_opening_attackers,
+  emu.callbackType.exec,
+  0x04E64C,
+  0x04E64C,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  capture_occupied_planets,
+  emu.callbackType.exec,
+  0x04E2FD,
+  0x04E2FD,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  capture_difficulty_forces,
+  emu.callbackType.exec,
+  0x04E889,
+  0x04E889,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
 emu.addMemoryCallback(
   record_read,
   emu.callbackType.read,

@@ -1,4 +1,4 @@
-# Semantic oracle evidence for the campaign's four major objectives.
+# Semantic oracle evidence for the campaign's major objective mission types.
 #
 # Titania route trace SHA-256:
 # 15c2cf7d12a8a59543df75bec06e0d444f07e5c1b549628426e6c8853bba62cc
@@ -10,17 +10,16 @@
 # f5825d512632f63adcad56d1c11e0b72321e3b962d8ecb3dd31e47f878737f94
 # Eladard route trace SHA-256:
 # dae037a9105689d8eabd4d50f13c2c28962a49a1d7644ddcf3f65c644c612be5
-# Battle Carrier reuse trace SHA-256:
+# Expert Battle Carrier reuse trace SHA-256:
 # 7f753514577ffff1ca59fb9092df3525b62a45e05299d59cef8eec9b8bd2a4bc
 #
 # The carrier trace is a natural completion of the shared selection-8 mission
-# after a campaign reset. It proves the mission identity and full return path;
-# it does not pretend that the stale pre-reset save proves the second strategic
-# completion flag. The native route test verifies that the same mission can
-# retire the two carrier objectives independently.
+# after a campaign reset. It proves the mission identity and full return path.
+# The retail difficulty tables independently scope the paired deployment to
+# Expert; Normal and Hard each deploy one Battle Carrier.
 target name=titania mission_selection=1 required_visits=1
 target name=eladard mission_selection=3 required_visits=1
-target name=battle_carrier mission_selection=8 required_visits=2
+target name=battle_carrier difficulty=expert mission_selection=8 required_visits=2
 objective target=titania name=surface_switch count=2
 objective target=titania name=reactor count=1
 sample target=titania name=mission_start elapsed=95571

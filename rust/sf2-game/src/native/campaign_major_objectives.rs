@@ -7,7 +7,7 @@
 pub(super) const TITANIA_MISSION_SELECTION: u16 = 1;
 pub(super) const ELADARD_MISSION_SELECTION: u16 = 3;
 pub(super) const BATTLE_CARRIER_MISSION_SELECTION: u16 = 8;
-pub(super) const BATTLE_CARRIER_REQUIRED_VISITS: u16 = 2;
+pub(super) const EXPERT_BATTLE_CARRIER_REQUIRED_VISITS: u8 = 2;
 pub(super) const TITANIA_SURFACE_SWITCH_COUNT: usize = 2;
 pub(super) const TITANIA_REACTOR_COUNT: usize = 1;
 pub(super) const TITANIA_BASE_ENTRY_RETAIL_FRAME: u16 = 939;

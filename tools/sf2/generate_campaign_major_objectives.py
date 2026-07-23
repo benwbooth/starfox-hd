@@ -19,6 +19,7 @@ DEFAULT_OUTPUT = (
 class Target:
     mission_selection: int
     required_visits: int
+    difficulty: str | None
 
 
 def fields(line: str) -> dict[str, str]:
@@ -44,6 +45,7 @@ def load(
             targets[values["name"]] = Target(
                 mission_selection=int(values["mission_selection"]),
                 required_visits=int(values["required_visits"]),
+                difficulty=values.get("difficulty"),
             )
         elif kind == "objective":
             objectives[(values["target"], values["name"])] = int(values["count"])
@@ -72,7 +74,9 @@ def load(
     if samples.keys() != required_samples:
         raise SystemExit("campaign objective timing fixture is incomplete")
     if targets["battle_carrier"].required_visits != 2:
-        raise SystemExit("the campaign requires two distinct carrier visits")
+        raise SystemExit("the Expert campaign requires two distinct carrier visits")
+    if targets["battle_carrier"].difficulty != "expert":
+        raise SystemExit("the paired carrier evidence must be scoped to Expert")
     return targets, objectives, samples
 
 
@@ -87,7 +91,7 @@ def rust_source(
         "TITANIA_MISSION_SELECTION": targets["titania"].mission_selection,
         "ELADARD_MISSION_SELECTION": targets["eladard"].mission_selection,
         "BATTLE_CARRIER_MISSION_SELECTION": targets["battle_carrier"].mission_selection,
-        "BATTLE_CARRIER_REQUIRED_VISITS": targets["battle_carrier"].required_visits,
+        "EXPERT_BATTLE_CARRIER_REQUIRED_VISITS": targets["battle_carrier"].required_visits,
         "TITANIA_SURFACE_SWITCH_COUNT": objectives[("titania", "surface_switch")],
         "TITANIA_REACTOR_COUNT": objectives[("titania", "reactor")],
         "TITANIA_BASE_ENTRY_RETAIL_FRAME": samples[("titania", "base_entry")]
@@ -110,7 +114,12 @@ def rust_source(
         "",
     ]
     for name, value in values.items():
-        rust_type = "usize" if name.endswith("_COUNT") else "u16"
+        if name.endswith("_COUNT"):
+            rust_type = "usize"
+        elif name.endswith("_REQUIRED_VISITS"):
+            rust_type = "u8"
+        else:
+            rust_type = "u16"
         lines.append(f"pub(super) const {name}: {rust_type} = {value:_};")
     lines.append("")
     return "\n".join(lines)

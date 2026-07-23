@@ -1,8 +1,8 @@
 use super::astropolis_assault;
 use super::campaign_major_objectives::{
-    BATTLE_CARRIER_REQUIRED_VISITS, TITANIA_BASE_ENTRY_RETAIL_FRAME, TITANIA_INTERIOR_RETAIL_FRAME,
-    TITANIA_MAP_READY_RETAIL_FRAME, TITANIA_REACTOR_COUNT, TITANIA_REACTOR_RETAIL_FRAME,
-    TITANIA_RETURN_RETAIL_FRAME, TITANIA_SURFACE_SWITCH_COUNT,
+    EXPERT_BATTLE_CARRIER_REQUIRED_VISITS, TITANIA_BASE_ENTRY_RETAIL_FRAME,
+    TITANIA_INTERIOR_RETAIL_FRAME, TITANIA_MAP_READY_RETAIL_FRAME, TITANIA_REACTOR_COUNT,
+    TITANIA_REACTOR_RETAIL_FRAME, TITANIA_RETURN_RETAIL_FRAME, TITANIA_SURFACE_SWITCH_COUNT,
 };
 use super::input::{Button, Buttons};
 use super::object::{
@@ -22,11 +22,12 @@ use super::object::{
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
 use super::state::{
-    AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, ChargeSound,
+    AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
-    CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardMissionState, EladardPhase,
-    EndingPhase, EndingState, FlightControlStyle, GameMode, GameOverChoice, GameOverDestination,
-    GameOverPhase, GameOverState, GameState, IntroPhase, MapPoint, MissionId, MissionMessage,
+    ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardMissionState,
+    EladardPhase, EndingPhase, EndingState, FlightControlStyle, GameMode, GameOverChoice,
+    GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase, MapPoint, MissionId,
+    MissionMessage,
     MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
     PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm,
@@ -5770,11 +5771,30 @@ impl Game {
     }
 
     fn begin_carrier_assault(&mut self, visit: MissionVisit) -> Result<(), Error> {
-        debug_assert_eq!(BATTLE_CARRIER_REQUIRED_VISITS, 2);
         debug_assert!(matches!(
             visit,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier
         ));
+        debug_assert!(
+            visit != MissionVisit::SecondBattleCarrier
+                || self
+                    .state
+                    .campaign
+                    .difficulty_profile()
+                    .battle_carriers
+                    .deploys_second_carrier()
+        );
+        if visit == MissionVisit::SecondBattleCarrier {
+            debug_assert_eq!(
+                self.state
+                    .campaign
+                    .difficulty_profile()
+                    .battle_carriers
+                    .count()
+                    .count(),
+                EXPERT_BATTLE_CARRIER_REQUIRED_VISITS
+            );
+        }
         let primary_id = self
             .state
             .mission
@@ -11077,6 +11097,8 @@ impl Game {
                     self.state.mode_frame = 0;
                 }
                 if self.confirm_pressed() {
+                    let difficulty = self.state.campaign.difficulty;
+                    self.state.campaign = CampaignState::new(difficulty);
                     self.enter_mode(GameMode::Briefing);
                 }
             }
@@ -14790,6 +14812,10 @@ mod tests {
         );
         press(&mut game, Button::B);
         assert_eq!(game.mode(), GameMode::Briefing);
+        assert_eq!(
+            game.state().campaign.objectives.second_carrier,
+            CarrierObjectiveStatus::NotDeployed
+        );
         press(&mut game, Button::B);
         assert_eq!(game.mode(), GameMode::StrategicMap);
         assert_eq!(
@@ -14812,6 +14838,12 @@ mod tests {
         assert_eq!(game.state.campaign.difficulty, Difficulty::Normal);
         press(&mut game, Button::Up);
         assert_eq!(game.state.campaign.difficulty, Difficulty::Expert);
+        press(&mut game, Button::B);
+        assert_eq!(game.mode(), GameMode::Briefing);
+        assert_eq!(
+            game.state().campaign.objectives.second_carrier,
+            CarrierObjectiveStatus::Operational
+        );
     }
 
     #[test]
@@ -21036,6 +21068,7 @@ mod tests {
         }
 
         let mut game = Game::new();
+        game.state.campaign = CampaignState::new(Difficulty::Expert);
         game.begin_opening_sortie().unwrap();
         complete_current_mission(&mut game);
         assert_eq!(
@@ -21162,12 +21195,13 @@ mod tests {
 
     #[test]
     fn late_major_objectives_are_distinct_and_unlock_the_final_route() {
-        assert_eq!(BATTLE_CARRIER_REQUIRED_VISITS, 2);
+        assert_eq!(EXPERT_BATTLE_CARRIER_REQUIRED_VISITS, 2);
         assert_eq!(MissionId::TITANIA_BASE.catalog_index(), 1);
         assert_eq!(MissionId::ELADARD_BASE.catalog_index(), 3);
         assert_eq!(MissionId::BATTLE_CARRIER.catalog_index(), 8);
 
         let mut game = Game::new();
+        game.state.campaign = CampaignState::new(Difficulty::Expert);
         game.begin_opening_sortie().unwrap();
         game.state.mode = GameMode::StrategicMap;
         game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;

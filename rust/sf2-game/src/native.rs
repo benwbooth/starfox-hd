@@ -40,3 +40,7 @@ pub use state::{
     TitleMenuItem, TitlePage, TitleState, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile,
     SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
+pub use state::{
+    BattleCarrierDeployment, CampaignForceCount, DifficultyProfile, OpeningAttackerWavePattern,
+    OPENING_ATTACKER_WAVE_CAPACITY,
+};

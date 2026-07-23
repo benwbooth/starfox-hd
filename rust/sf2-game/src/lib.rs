@@ -29,6 +29,10 @@ pub use native::{
     Vector3, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, WeaponKind, OBJECT_CAPACITY,
     SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
+pub use native::{
+    BattleCarrierDeployment, CampaignForceCount, DifficultyProfile, OpeningAttackerWavePattern,
+    OPENING_ATTACKER_WAVE_CAPACITY,
+};
 
 #[cfg(feature = "oracle-bridge")]
 #[path = "cpu_bridge.rs"]
