@@ -39,13 +39,14 @@
 //!   Rust with isolated retail edge differentials.
 //!
 //! ## What is DEFERRED
-//! - One deep collision-refresh leaf, complete strategy semantics, and broader
-//!   native gameplay coverage are still being decompiled from the exact targets
-//!   exposed by [`map`].
+//! - Complete strategy semantics and broader native gameplay coverage are still
+//!   being decompiled from the exact targets exposed by [`map`].
 //!   `sf2-path` is verification staging, not the shipping game's state
 //!   architecture.
 
 pub mod audio;
+#[cfg(feature = "oracle-data")]
+pub mod collision_data;
 pub mod colors;
 #[cfg(feature = "oracle-data")]
 pub mod draw;

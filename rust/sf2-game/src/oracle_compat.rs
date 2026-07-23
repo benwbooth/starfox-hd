@@ -196,20 +196,31 @@ impl Game {
         }
     }
 
-    /// Verification-only predicate boundary for a reviewed helper whose
-    /// outer control flow is native Rust while its deep collision leaf still
-    /// executes against the retail oracle.
-    #[cfg(feature = "oracle-bridge")]
-    pub(crate) fn run_unported_predicate(
+    pub(crate) fn rotate_collision_probe(&mut self, yaw: u8, x: i16, z: i16) -> (i16, i16) {
+        self.cpu_bridge
+            .rotate_collision_probe(&mut self.memory, yaw, x, z)
+    }
+
+    pub(crate) fn collision_polygon_contains(
         &mut self,
-        target: u32,
-        object: u16,
-    ) -> Result<(u8, bool), Error> {
-        let result = self
-            .cpu_bridge
-            .call_routine(&mut self.memory, target, object)
-            .map_err(Error::Cpu)?;
-        Ok((result.value, result.condition))
+        source_address: u16,
+        scale: u8,
+        x: i16,
+        z: i16,
+    ) -> bool {
+        self.cpu_bridge
+            .collision_polygon_contains(&mut self.memory, source_address, scale, x, z)
+    }
+
+    pub(crate) fn project_collision_surface(
+        &mut self,
+        normal: [i8; 3],
+        plane_offset: i16,
+        x: i16,
+        z: i16,
+    ) -> i16 {
+        self.cpu_bridge
+            .project_collision_surface(&mut self.memory, normal, plane_offset, x, z)
     }
 
     /// Run one exact retail routine for differential verification. This API
@@ -218,6 +229,24 @@ impl Game {
     #[cfg(feature = "oracle-bridge")]
     pub fn run_retail_oracle_routine(&mut self, target: u32, object: u16) -> Result<(), Error> {
         self.run_unported_strategy(target, object)
+    }
+
+    /// Evaluate one retail collision plane for oracle-test seed construction.
+    #[cfg(feature = "oracle-bridge")]
+    pub fn retail_collision_surface(
+        &mut self,
+        normal: [i8; 3],
+        plane_offset: i16,
+        x: i16,
+        z: i16,
+    ) -> i16 {
+        self.project_collision_surface(normal, plane_offset, x, z)
+    }
+
+    /// Rotate one oracle-test seed through retail's collision yaw kernel.
+    #[cfg(feature = "oracle-bridge")]
+    pub fn retail_rotate_collision_probe(&mut self, yaw: u8, x: i16, z: i16) -> (i16, i16) {
+        self.rotate_collision_probe(yaw, x, z)
     }
 
     pub fn map_cursor(&self) -> MapAddress {

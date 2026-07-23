@@ -5,6 +5,10 @@
 //! runs against an independently seeded compatibility state, and the semantic
 //! fields are compared directly.
 
+use sf2_data::{
+    collision_data::{collision_profile, COLLISION_RECORD_COUNT, COMPOUND_COLLIDER_SHAPE_COUNT},
+    shape_data::SHAPE_DATA,
+};
 use sf2_game::object::*;
 use sf2_game::oracle_compat::Game;
 use sf2_path::{PathAddress, PathVm, Sf2PathHost, Sf2PathOperation};
@@ -796,7 +800,7 @@ fn seed_direct_contact(game: &mut Game, current: u16, seed: DirectContactSeed) {
 }
 
 #[test]
-fn contact_class_branches_match_retail_without_the_collision_leaf() {
+fn direct_contact_class_branches_match_retail() {
     let Some(rom) = retail_sf2() else {
         eprintln!("skip: no retail SF2 ROM");
         return;
@@ -836,6 +840,516 @@ fn contact_class_branches_match_retail_without_the_collision_leaf() {
                 typed.memory.read_byte(address),
                 exact.memory.read_byte(address),
                 "contact {seed:?} byte ${address:04X}"
+            );
+        }
+    }
+}
+
+#[test]
+fn contact_collision_projection_matches_retail_for_every_reachable_initializer_shape() {
+    const CONTACT_PATH: u16 = 0xE9A2;
+    const CONTACT_HANDLER: u32 = 0x7F_BDF8;
+    const CONTACT_HANDLER_RETURN: u32 = 0x7F_7E75;
+    const COLLIDER_SHAPE: u16 = 0xBF58;
+    const COLLIDER_CENTER_X: i16 = 1_000;
+    const COLLIDER_CENTER_Y: i16 = 1_000;
+    const COLLIDER_CENTER_Z: i16 = 2_000;
+
+    let Some(rom) = retail_sf2() else {
+        eprintln!("skip: no retail SF2 ROM");
+        return;
+    };
+
+    // These are the complete initializer-shape set for roots $E973, $EB1A,
+    // and $F084, the only reachable roots containing opcode $131.
+    for current_shape in [0xE3C4, 0xE450, 0xBF58, 0xCA64] {
+        for (current_x, current_y, current_z, expected_path) in [
+            (1_000, 519, 2_000, 0xE9AA),
+            (1_000, 520, 2_000, 0xEAA5),
+            (1_000, 1_002, 2_000, 0xEAA5),
+            (1_000, 1_003, 2_000, 0xE9AA),
+            (520, 520, 2_000, 0xE9AA),
+            (521, 520, 2_000, 0xEAA5),
+            (1_480, 520, 2_000, 0xEAA5),
+            (1_481, 520, 2_000, 0xE9AA),
+            (1_000, 520, 1_520, 0xE9AA),
+            (1_000, 520, 1_521, 0xEAA5),
+            (1_000, 520, 2_480, 0xEAA5),
+            (1_000, 520, 2_481, 0xE9AA),
+        ] {
+            let (mut exact, current) = seeded_game(rom.clone());
+            let (mut typed, _) = seeded_game(rom.clone());
+            let mut exact_target = 0;
+            let mut typed_target = 0;
+            for (game, target_slot) in [
+                (&mut exact, &mut exact_target),
+                (&mut typed, &mut typed_target),
+            ] {
+                let linked = game.memory.read_word(current + 0x06);
+                let selected = game.memory.read_word(SELECTED_OBJECT);
+                game.memory.write_byte(linked + 0x31, 0x04);
+                game.memory.write_byte(selected + 0x31, 0x04);
+
+                let target = allocate(&mut game.memory, selected).expect("contact target");
+                *target_slot = target;
+                game.memory.write_word(CURRENT_OBJECT, current);
+                game.memory.write_word(current + FIELD_SHAPE, current_shape);
+                game.memory.write_word(current + FIELD_X, current_x as u16);
+                game.memory.write_word(current + FIELD_Y, current_y as u16);
+                game.memory.write_word(current + FIELD_Z, current_z as u16);
+                game.memory.write_byte(current + 0x31, 0);
+                game.memory.write_byte(current + 0x1CEA, 0xA5);
+                game.memory.write_word(target + FIELD_SHAPE, COLLIDER_SHAPE);
+                game.memory
+                    .write_word(target + FIELD_X, COLLIDER_CENTER_X as u16);
+                game.memory
+                    .write_word(target + FIELD_Y, COLLIDER_CENTER_Y as u16);
+                game.memory
+                    .write_word(target + FIELD_Z, COLLIDER_CENTER_Z as u16);
+                game.memory.write_byte(target + 0x24, 0);
+                game.memory.write_byte(target + 0x26, 1);
+                game.memory.write_byte(target + 0x31, 0);
+                game.memory.write_byte(target + 0x2D, 1);
+                let entry = get_or_create_auxiliary_type(&mut game.memory, target, 0x0B)
+                    .expect("ordinary contact auxiliary");
+                write_auxiliary_byte(&mut game.memory, entry + 1, 0x6C);
+            }
+            assert_eq!(exact_target, typed_target);
+
+            select_retail_path(&mut exact, CONTACT_PATH, 1);
+            exact
+                .memory
+                .write_word(current + FIELD_PATH, CONTACT_PATH.wrapping_add(1));
+            run_exact(&mut exact, current, CONTACT_HANDLER, CONTACT_HANDLER_RETURN);
+            let typed_path = run_typed_path(&mut typed, CONTACT_PATH);
+
+            assert_eq!(typed_path.cursor().offset, expected_path);
+            assert_eq!(
+                typed_path.cursor().offset,
+                exact.memory.read_word(current + FIELD_PATH),
+                "shape=${current_shape:04X} current=({current_x},{current_y},{current_z}) exact_target=${:04X} exact_surface=${:04X} typed_target=${:04X} typed_surface=${:04X} exact_class={} exact_hp={} exact_flags=${:02X}",
+                exact.memory.read_word(current + 0x1CE8),
+                exact.memory.read_word(0x0008),
+                typed.memory.read_word(current + 0x1CE8),
+                typed.memory.read_word(0x0008),
+                exact.memory.read_byte(0x0002),
+                exact.memory.read_byte(exact_target + 0x2D),
+                exact.memory.read_byte(exact_target + 0x22),
+            );
+            assert_eq!(
+                typed.memory.read_byte(0x0002),
+                exact.memory.read_byte(0x0002),
+                "shape=${current_shape:04X} current=({current_x},{current_y},{current_z}) byte $0002"
+            );
+            for address in [
+                0x0008,
+                0x195D,
+                0x195F,
+                0x1961,
+                0x1A8D,
+                current + 0x1CE8,
+                current + 0x1CEA,
+            ] {
+                assert_eq!(
+                    typed.memory.read_word(address),
+                    exact.memory.read_word(address),
+                    "shape=${current_shape:04X} current=({current_x},{current_y},{current_z}) word ${address:04X}"
+                );
+            }
+            for address in [current + 0x1CEB, typed_target + 0x22, typed_target + 0x26] {
+                assert_eq!(
+                    typed.memory.read_byte(address),
+                    exact.memory.read_byte(address),
+                    "shape=${current_shape:04X} current=({current_x},{current_y},{current_z}) byte ${address:04X}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_compound_collision_record_matches_retail_contact_classification() {
+    const CONTACT_PATH: u16 = 0xE9A2;
+    const CONTACT_HANDLER: u32 = 0x7F_BDF8;
+    const CONTACT_HANDLER_RETURN: u32 = 0x7F_7E75;
+    const CURRENT_SHAPE: u16 = 0xBF58;
+    const CANDIDATE_X: i16 = 10_000;
+    const CANDIDATE_Y: i16 = 10_000;
+    const CANDIDATE_Z: i16 = 12_000;
+
+    let Some(rom) = retail_sf2() else {
+        eprintln!("skip: no retail SF2 ROM");
+        return;
+    };
+    let mut planner = Game::new(rom.clone()).expect("collision seed planner");
+    let mut checked_records = 0usize;
+    let mut catalog_records = std::collections::BTreeSet::new();
+    let mut accepted_records = std::collections::BTreeSet::new();
+    let mut compound_shapes = 0usize;
+
+    for shape in SHAPE_DATA.iter() {
+        let Some(profile) = collision_profile(shape.shape_id) else {
+            continue;
+        };
+        compound_shapes += 1;
+        for (group_index, group) in profile.groups.iter().enumerate() {
+            for (variant_index, record) in group.variants.iter().enumerate() {
+                let record_key = (profile.groups.as_ptr() as usize, group_index, variant_index);
+                catalog_records.insert(record_key);
+                let (local_x, local_z) = if let Some(polygon) = record.polygon {
+                    let mut vertices = polygon.vertices;
+                    if vertices.len() > 1 && vertices.first() == vertices.last() {
+                        vertices = &vertices[..vertices.len() - 1];
+                    }
+                    let vertex_count = i32::try_from(vertices.len()).expect("vertex count");
+                    let sum_x: i32 = vertices
+                        .iter()
+                        .map(|vertex| i32::from(vertex[0]) << polygon.scale)
+                        .sum();
+                    let sum_z: i32 = vertices
+                        .iter()
+                        .map(|vertex| i32::from(vertex[1]) << polygon.scale)
+                        .sum();
+                    ((sum_x / vertex_count) as i16, (sum_z / vertex_count) as i16)
+                } else {
+                    (record.center_x, record.center_z)
+                };
+                let surface = planner.retail_collision_surface(
+                    record.plane_normal,
+                    record.plane_offset,
+                    local_x,
+                    local_z,
+                );
+                let current_position = (
+                    CANDIDATE_X.wrapping_add(local_x),
+                    CANDIDATE_Y.wrapping_add(surface),
+                    CANDIDATE_Z.wrapping_add(local_z),
+                );
+
+                let (mut exact, current) = seeded_game(rom.clone());
+                let (mut typed, _) = seeded_game(rom.clone());
+                let mut exact_target = 0;
+                let mut typed_target = 0;
+                for (game, target_slot) in [
+                    (&mut exact, &mut exact_target),
+                    (&mut typed, &mut typed_target),
+                ] {
+                    let linked = game.memory.read_word(current + 0x06);
+                    let selected = game.memory.read_word(SELECTED_OBJECT);
+                    game.memory.write_byte(linked + 0x31, 0x04);
+                    game.memory.write_byte(selected + 0x31, 0x04);
+                    let target = allocate(&mut game.memory, selected).expect("contact target");
+                    *target_slot = target;
+
+                    game.memory.write_word(CURRENT_OBJECT, current);
+                    game.memory.write_word(current + FIELD_SHAPE, CURRENT_SHAPE);
+                    game.memory
+                        .write_word(current + FIELD_X, current_position.0 as u16);
+                    game.memory
+                        .write_word(current + FIELD_Y, current_position.1 as u16);
+                    game.memory
+                        .write_word(current + FIELD_Z, current_position.2 as u16);
+                    game.memory.write_byte(current + 0x20, 0);
+                    game.memory.write_byte(current + 0x21, 0);
+                    game.memory.write_byte(current + 0x24, 0);
+                    game.memory.write_byte(current + 0x31, 0);
+                    game.memory.write_byte(current + 0x1CEA, 0xA5);
+
+                    game.memory.write_word(target + FIELD_SHAPE, shape.shape_id);
+                    game.memory.write_word(target + FIELD_X, CANDIDATE_X as u16);
+                    game.memory.write_word(target + FIELD_Y, CANDIDATE_Y as u16);
+                    game.memory.write_word(target + FIELD_Z, CANDIDATE_Z as u16);
+                    game.memory.write_byte(target + FIELD_ROT_Y, 0);
+                    game.memory.write_byte(target + 0x24, 0);
+                    game.memory.write_byte(target + 0x26, 1);
+                    game.memory.write_byte(target + 0x2D, 1);
+                    game.memory.write_byte(target + 0x31, 0);
+                    game.memory.write_byte(
+                        target + 0x1CCB,
+                        0x80 | u8::try_from(variant_index).expect("variant index"),
+                    );
+                    let entry = get_or_create_auxiliary_type(&mut game.memory, target, 0x0B)
+                        .expect("ordinary contact auxiliary");
+                    write_auxiliary_byte(&mut game.memory, entry + 1, 0x6C);
+                }
+                assert_eq!(exact_target, typed_target);
+
+                select_retail_path(&mut exact, CONTACT_PATH, 1);
+                exact
+                    .memory
+                    .write_word(current + FIELD_PATH, CONTACT_PATH.wrapping_add(1));
+                run_exact(&mut exact, current, CONTACT_HANDLER, CONTACT_HANDLER_RETURN);
+                let typed_path = run_typed_path(&mut typed, CONTACT_PATH);
+                let context = format!(
+                    "shape=${:04X} group={group_index} variant={variant_index} local=({local_x},{local_z}) surface={surface}",
+                    shape.shape_id,
+                );
+
+                let expected_box = (profile.groups.len() - group_index) as u16;
+                if exact.memory.read_word(current + FIELD_PATH) == 0xEAA5
+                    && exact.memory.read_word(0x1961) == expected_box
+                {
+                    accepted_records.insert(record_key);
+                }
+                assert_eq!(
+                    typed_path.cursor().offset,
+                    exact.memory.read_word(current + FIELD_PATH),
+                    "path branch: {context}"
+                );
+                for address in [
+                    0x0008,
+                    0x195D,
+                    0x195F,
+                    0x1961,
+                    0x1A8D,
+                    current + 0x1CE8,
+                    current + 0x1CEA,
+                ] {
+                    assert_eq!(
+                        typed.memory.read_word(address),
+                        exact.memory.read_word(address),
+                        "word ${address:04X}: {context}"
+                    );
+                }
+                for address in [
+                    0x0002,
+                    current + 0x1CEB,
+                    typed_target + 0x22,
+                    typed_target + 0x26,
+                ] {
+                    assert_eq!(
+                        typed.memory.read_byte(address),
+                        exact.memory.read_byte(address),
+                        "byte ${address:04X}: {context}"
+                    );
+                }
+                checked_records += 1;
+            }
+        }
+    }
+
+    assert!(checked_records > 0, "compound collision catalog is empty");
+    assert_eq!(compound_shapes, COMPOUND_COLLIDER_SHAPE_COUNT);
+    assert_eq!(catalog_records.len(), COLLISION_RECORD_COUNT);
+    assert_eq!(
+        accepted_records, catalog_records,
+        "at least one compound record lacked an accepted retail seed"
+    );
+}
+
+#[test]
+fn rotated_polygon_collision_projection_matches_retail() {
+    const CONTACT_PATH: u16 = 0xE9A2;
+    const CONTACT_HANDLER: u32 = 0x7F_BDF8;
+    const CONTACT_HANDLER_RETURN: u32 = 0x7F_7E75;
+    const CURRENT_SHAPE: u16 = 0xBF58;
+    const CANDIDATE_SHAPE: u16 = 0xC3F0;
+    const CANDIDATE_X: i16 = 10_000;
+    const CANDIDATE_Y: i16 = 10_000;
+    const CANDIDATE_Z: i16 = 12_000;
+    const LOCAL_PROBE: (i16, i16) = (100, 50);
+
+    let Some(rom) = retail_sf2() else {
+        eprintln!("skip: no retail SF2 ROM");
+        return;
+    };
+    let profile = collision_profile(CANDIDATE_SHAPE).expect("compound candidate profile");
+    let record = &profile.groups[0].variants[0];
+    assert!(record.polygon.is_some(), "rotation seed requires a polygon");
+    let mut planner = Game::new(rom.clone()).expect("collision seed planner");
+
+    for yaw in [37u8, 64, 127, 192] {
+        let world_probe =
+            planner.retail_rotate_collision_probe(yaw.wrapping_neg(), LOCAL_PROBE.0, LOCAL_PROBE.1);
+        let exact_local = planner.retail_rotate_collision_probe(yaw, world_probe.0, world_probe.1);
+        let surface = planner.retail_collision_surface(
+            record.plane_normal,
+            record.plane_offset,
+            exact_local.0,
+            exact_local.1,
+        );
+        let current_position = (
+            CANDIDATE_X.wrapping_add(world_probe.0),
+            CANDIDATE_Y.wrapping_add(surface),
+            CANDIDATE_Z.wrapping_add(world_probe.1),
+        );
+        let (mut exact, current) = seeded_game(rom.clone());
+        let (mut typed, _) = seeded_game(rom.clone());
+        let mut exact_target = 0;
+        let mut typed_target = 0;
+
+        for (game, target_slot) in [
+            (&mut exact, &mut exact_target),
+            (&mut typed, &mut typed_target),
+        ] {
+            let linked = game.memory.read_word(current + 0x06);
+            let selected = game.memory.read_word(SELECTED_OBJECT);
+            game.memory.write_byte(linked + 0x31, 0x04);
+            game.memory.write_byte(selected + 0x31, 0x04);
+            let target = allocate(&mut game.memory, selected).expect("contact target");
+            *target_slot = target;
+
+            game.memory.write_word(CURRENT_OBJECT, current);
+            game.memory.write_word(current + FIELD_SHAPE, CURRENT_SHAPE);
+            game.memory
+                .write_word(current + FIELD_X, current_position.0 as u16);
+            game.memory
+                .write_word(current + FIELD_Y, current_position.1 as u16);
+            game.memory
+                .write_word(current + FIELD_Z, current_position.2 as u16);
+            game.memory.write_byte(current + 0x20, 0);
+            game.memory.write_byte(current + 0x21, 0);
+            game.memory.write_byte(current + 0x24, 0);
+            game.memory.write_byte(current + 0x31, 0);
+            game.memory.write_byte(current + 0x1CEA, 0xA5);
+
+            game.memory
+                .write_word(target + FIELD_SHAPE, CANDIDATE_SHAPE);
+            game.memory.write_word(target + FIELD_X, CANDIDATE_X as u16);
+            game.memory.write_word(target + FIELD_Y, CANDIDATE_Y as u16);
+            game.memory.write_word(target + FIELD_Z, CANDIDATE_Z as u16);
+            game.memory.write_byte(target + FIELD_ROT_Y, yaw);
+            game.memory.write_byte(target + 0x24, 0);
+            game.memory.write_byte(target + 0x26, 1);
+            game.memory.write_byte(target + 0x2D, 1);
+            game.memory.write_byte(target + 0x31, 0);
+            game.memory.write_byte(target + 0x1CCB, 0x80);
+            let entry = get_or_create_auxiliary_type(&mut game.memory, target, 0x0B)
+                .expect("ordinary contact auxiliary");
+            write_auxiliary_byte(&mut game.memory, entry + 1, 0x6C);
+        }
+        assert_eq!(exact_target, typed_target);
+
+        select_retail_path(&mut exact, CONTACT_PATH, 1);
+        exact
+            .memory
+            .write_word(current + FIELD_PATH, CONTACT_PATH.wrapping_add(1));
+        run_exact(&mut exact, current, CONTACT_HANDLER, CONTACT_HANDLER_RETURN);
+        let typed_path = run_typed_path(&mut typed, CONTACT_PATH);
+
+        assert_eq!(
+            exact.memory.read_word(current + FIELD_PATH),
+            0xEAA5,
+            "retail rotated seed did not contact at yaw {yaw}"
+        );
+        assert_eq!(
+            typed_path.cursor().offset,
+            exact.memory.read_word(current + FIELD_PATH),
+            "rotated contact branch at yaw {yaw}"
+        );
+        for address in [0x0008, current + 0x1CE8, current + 0x1CEA] {
+            assert_eq!(
+                typed.memory.read_word(address),
+                exact.memory.read_word(address),
+                "rotated word ${address:04X} at yaw {yaw}"
+            );
+        }
+        for address in [
+            0x0002,
+            current + 0x1CEB,
+            typed_target + 0x22,
+            typed_target + 0x26,
+        ] {
+            assert_eq!(
+                typed.memory.read_byte(address),
+                exact.memory.read_byte(address),
+                "rotated byte ${address:04X} at yaw {yaw}"
+            );
+        }
+    }
+}
+
+#[test]
+fn projected_non_solid_contact_falls_back_to_retail_link() {
+    const CONTACT_PATH: u16 = 0xE9A2;
+    const CONTACT_HANDLER: u32 = 0x7F_BDF8;
+    const CONTACT_HANDLER_RETURN: u32 = 0x7F_7E75;
+    const CURRENT_SHAPE: u16 = 0xBF58;
+    const CANDIDATE_SHAPE: u16 = 0xBF58;
+    const LINK_RECORD: u16 = 0x3000;
+
+    let Some(rom) = retail_sf2() else {
+        eprintln!("skip: no retail SF2 ROM");
+        return;
+    };
+
+    for (fallback_seed, expected_path) in [
+        (DirectContactSeed::NoObject, 0xEA85),
+        (DirectContactSeed::OrdinaryObject, 0xEAA5),
+        (DirectContactSeed::OtherObject, 0xEABC),
+    ] {
+        let (mut exact, current) = seeded_game(rom.clone());
+        let (mut typed, _) = seeded_game(rom.clone());
+        for game in [&mut exact, &mut typed] {
+            let linked = game.memory.read_word(current + 0x06);
+            let selected = game.memory.read_word(SELECTED_OBJECT);
+            game.memory.write_byte(linked + 0x31, 0x04);
+            game.memory.write_byte(selected + 0x31, 0x04);
+            let fallback = match fallback_seed {
+                DirectContactSeed::NoObject => 0,
+                DirectContactSeed::OrdinaryObject | DirectContactSeed::OtherObject => selected,
+            };
+            game.memory.write_word(current + 0x1E, LINK_RECORD);
+            game.memory.write_word(LINK_RECORD + 4, fallback);
+            if fallback != 0 {
+                let (flags, kind, value) = match fallback_seed {
+                    DirectContactSeed::NoObject => unreachable!(),
+                    DirectContactSeed::OrdinaryObject => (0, 0x0B, 0x6C),
+                    DirectContactSeed::OtherObject => (0x08, 0x0D, 0x92),
+                };
+                game.memory.write_byte(fallback + 0x22, flags);
+                game.memory.write_byte(fallback + 0x2D, 1);
+                let entry = get_or_create_auxiliary_type(&mut game.memory, fallback, kind)
+                    .expect("fallback contact auxiliary");
+                write_auxiliary_byte(&mut game.memory, entry + 1, value);
+            }
+
+            let candidate = allocate(&mut game.memory, selected).expect("projected candidate");
+            game.memory.write_word(CURRENT_OBJECT, current);
+            game.memory.write_word(current + FIELD_SHAPE, CURRENT_SHAPE);
+            game.memory.write_word(current + FIELD_X, 1_000);
+            game.memory.write_word(current + FIELD_Y, 520);
+            game.memory.write_word(current + FIELD_Z, 2_000);
+            game.memory.write_byte(current + 0x20, 0);
+            game.memory.write_byte(current + 0x21, 0);
+            game.memory.write_byte(current + 0x24, 0);
+            game.memory.write_byte(current + 0x31, 0);
+            game.memory.write_byte(current + 0x1CEA, 0xA5);
+
+            game.memory
+                .write_word(candidate + FIELD_SHAPE, CANDIDATE_SHAPE);
+            game.memory.write_word(candidate + FIELD_X, 1_000);
+            game.memory.write_word(candidate + FIELD_Y, 1_000);
+            game.memory.write_word(candidate + FIELD_Z, 2_000);
+            game.memory.write_byte(candidate + 0x24, 0);
+            game.memory.write_byte(candidate + 0x26, 0);
+            game.memory.write_byte(candidate + 0x2D, 1);
+            game.memory.write_byte(candidate + 0x31, 0);
+        }
+
+        select_retail_path(&mut exact, CONTACT_PATH, 1);
+        exact
+            .memory
+            .write_word(current + FIELD_PATH, CONTACT_PATH.wrapping_add(1));
+        run_exact(&mut exact, current, CONTACT_HANDLER, CONTACT_HANDLER_RETURN);
+        let typed_path = run_typed_path(&mut typed, CONTACT_PATH);
+
+        assert_eq!(typed_path.cursor().offset, expected_path);
+        assert_eq!(
+            typed_path.cursor().offset,
+            exact.memory.read_word(current + FIELD_PATH),
+            "projected fallback {fallback_seed:?}"
+        );
+        assert_eq!(
+            typed.memory.read_byte(0x0002),
+            exact.memory.read_byte(0x0002),
+            "fallback class value {fallback_seed:?}"
+        );
+        for address in [0x0008, current + 0x1CE8, current + 0x1CEA] {
+            assert_eq!(
+                typed.memory.read_word(address),
+                exact.memory.read_word(address),
+                "fallback word ${address:04X} for {fallback_seed:?}"
             );
         }
     }

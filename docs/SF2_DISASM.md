@@ -181,9 +181,14 @@ reachable inline sites now have typed control flow and named operations, and no
 generic inline execution escape remains. Twenty simple inline bodies, two dynamic
 dispatch blocks, and all 20 named gameplay services are direct Rust with isolated
 retail edge differentials. Capture eligibility is also direct Rust across all
-cardinal and diagonal boundary modes. Contact classification still delegates its
-deep collision refresh to one oracle-only leaf. Thus the mechanically tracked
-path staging surface is one named oracle leaf, not zero.
+cardinal and diagonal boundary modes. Contact classification and its downward
+collision refresh are now direct typed Rust as well: 479 ordinary ShapeHdr
+colliders use exact bounds, while all 98 compound-collider shapes resolve through
+78 extracted profiles containing 355 logical groups, 407 animation records, and
+273 convex polygon footprints. Every record has an accepted isolated retail
+differential; simple X/Y/Z edges, rotated polygon planes, and the non-solid link
+fallback have dedicated boundary proofs. No 65816 predicate leaf remains, so the
+mechanically tracked path staging surface is zero.
 Variable IDs remain retail identifiers in this verification runtime so it can
 address SF2's parallel object arrays. None of this address-based staging state is
 in the shipping native game's dependency graph.
@@ -199,18 +204,17 @@ Completed and mechanically tested:
 2. Exact 577-shape extraction plus shared rendering integration.
 3. Exact retail `$7E:B273` draw-record ABI (38-byte records, live count at
    `$7E:18C6`, capacity 64) and renderer bridge.
+4. Complete typed path collision refresh: all ordinary and compound profiles,
+   animation variants, rotated planes, polygon footprints, and contact fallbacks.
 
 The next critical path is:
 
-1. Replace the final collision-refresh leaf with typed behavior proven by
-   isolated retail comparisons. All 20 named inline gameplay services and the
-   capture-eligibility predicate are complete.
-2. Decompile the four spawn initializers and their per-frame strategies into
+1. Decompile the four spawn initializers and their per-frame strategies into
    `sf2-strat`, then validate object/draw state against isolated emulator traces.
-3. ~~Extract exact texture descriptors/materials~~ **Complete:** all reachable
+2. ~~Extract exact texture descriptors/materials~~ **Complete:** all reachable
    material IDs resolve through exact descriptors/layouts/banks and render in
    the GPU path. Continue broader pixel-level emulator frame comparisons.
-4. Recover the strategic-map, player, boss, audio, and progression state machines;
+3. Recover the strategic-map, player, boss, audio, and progression state machines;
    integrate them behind the game selector and run unattended playthrough oracles.
 
 ---
@@ -219,12 +223,12 @@ The next critical path is:
 - `tools/sf2/disasm/extract_map.py` — typed map command and inline-action extractor.
 - `tools/sf2/disasm/extract_path.py` — exact reachable path CFG and handler-effect extractor.
 - `tools/sf2/extract_shapes.py` — exact 577-shape extractor.
-- `rust/sf2-data/src/map.rs` / `path.rs` / `shape_data.rs` / `draw.rs` — generated
-  map/path and geometry data plus the retail draw ABI.
+- `tools/sf2/extract_collision.py` — exact compound collision-profile extractor.
+- `rust/sf2-data/src/map.rs` / `path.rs` / `shape_data.rs` / `collision_data.rs` /
+  `draw.rs` — generated map/path, geometry, collision, and retail draw-ABI data.
 - `rust/sf2-map` — strict map VM implementation and runtime tests.
 - `rust/sf2-path` — strict path VM with all 274 handlers and all 42 reachable
-  inline control blocks typed; only the deep collision refresh remains
-  explicitly oracle-staged.
+  inline control blocks typed; the former deep collision escape is fully lifted.
 - `tools/sf2/run_mesen_oracle.py` — reproducible disposable-profile Mesen runner;
   avoids Mesen's first-run GUI trap and leaves script artifacts inspectable.
 - `tools/sf2/mesen_decompress_oracle.lua` — independent six-stream GSU hash oracle.

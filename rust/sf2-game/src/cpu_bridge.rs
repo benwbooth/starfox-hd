@@ -18,17 +18,25 @@ const STUB_PC: u16 = 0x0200;
 const PARAM_A: u16 = 0x00F0;
 const PARAM_X: u16 = 0x00F2;
 const PARAM_Y: u16 = 0x00F4;
-const CARRY_STATUS_BIT: u8 = 0x01;
+const COLLISION_MATH_PROGRAM_BANK: u8 = 1;
+const COLLISION_ROTATE_PROGRAM: u16 = 0xFD62;
+const COLLISION_POLYGON_PROGRAM: u16 = 0xFCD7;
+const COLLISION_SURFACE_PROGRAM: u16 = 0xFA31;
+const COLLISION_ANGLE_INPUT: u16 = 0x0022;
+const COLLISION_POLYGON_POINTER: u16 = 0x0016;
+const COLLISION_X_INPUT: u16 = 0x0026;
+const COLLISION_SURFACE_VALUE: u16 = 0x0028;
+const COLLISION_Z_INPUT: u16 = 0x002A;
+const COLLISION_ROTATED_Z: u16 = 0x002E;
+const COLLISION_POLYGON_SCALE: u16 = 0x0030;
+const COLLISION_ROTATED_X: u16 = 0x0068;
+const COLLISION_PLANE_X: u16 = 0x00AA;
+const COLLISION_PLANE_Y: u16 = 0x00AC;
+const COLLISION_PLANE_Z: u16 = 0x00AE;
 // A normal per-object strategy returns in tens of thousands of bus cycles.
 // Keep the guard tight enough that a routine which has entered a retail
 // scheduler/NMI wait cannot freeze the 20 Hz host loop for several seconds.
 const MAX_STRATEGY_CYCLES: u64 = 1_000_000;
-
-/// Verification-only return state from an exact retail subroutine.
-pub(crate) struct RoutineResult {
-    pub(crate) value: u8,
-    pub(crate) condition: bool,
-}
 
 pub(crate) struct CpuBridge {
     gsu: Gsu,
@@ -55,6 +63,89 @@ impl CpuBridge {
         }
     }
 
+    fn write_collision_math_word(&mut self, address: u16, value: u16) {
+        let index = usize::from(address);
+        self.gsu.ram[index] = value as u8;
+        self.gsu.ram[index + 1] = (value >> 8) as u8;
+    }
+
+    fn read_collision_math_word(&self, address: u16) -> u16 {
+        let index = usize::from(address);
+        u16::from(self.gsu.ram[index]) | (u16::from(self.gsu.ram[index + 1]) << 8)
+    }
+
+    fn run_collision_math_job(&mut self, memory: &mut Memory, program: u16) {
+        self.gsu.ram.copy_from_slice(memory.gsu_ram());
+        self.gsu.r = self.gsu_regs;
+        self.gsu.run(COLLISION_MATH_PROGRAM_BANK, program);
+        self.gsu_regs = self.gsu.r;
+        let (program_bank, _, status) = self.gsu.execution_state();
+        self.gsu_pbr = program_bank;
+        self.gsu_sfr = status;
+        memory.gsu_ram_mut().copy_from_slice(&self.gsu.ram);
+    }
+
+    /// Rotate an X/Z contact probe into a candidate object's local yaw frame
+    /// with retail's exact fixed-point Super FX kernel.
+    pub(crate) fn rotate_collision_probe(
+        &mut self,
+        memory: &mut Memory,
+        yaw: u8,
+        x: i16,
+        z: i16,
+    ) -> (i16, i16) {
+        self.gsu.ram.copy_from_slice(memory.gsu_ram());
+        self.write_collision_math_word(COLLISION_ROTATED_X, x as u16);
+        self.write_collision_math_word(COLLISION_ROTATED_Z, z as u16);
+        self.write_collision_math_word(COLLISION_ANGLE_INPUT, u16::from(yaw).wrapping_neg());
+        memory.gsu_ram_mut().copy_from_slice(&self.gsu.ram);
+        self.run_collision_math_job(memory, COLLISION_ROTATE_PROGRAM);
+        (
+            self.read_collision_math_word(COLLISION_ROTATED_X) as i16,
+            self.read_collision_math_word(COLLISION_ROTATED_Z) as i16,
+        )
+    }
+
+    /// Test a local X/Z probe against one exact retail convex footprint.
+    pub(crate) fn collision_polygon_contains(
+        &mut self,
+        memory: &mut Memory,
+        source_address: u16,
+        scale: u8,
+        x: i16,
+        z: i16,
+    ) -> bool {
+        self.gsu.ram.copy_from_slice(memory.gsu_ram());
+        self.write_collision_math_word(COLLISION_X_INPUT, x as u16);
+        self.write_collision_math_word(COLLISION_Z_INPUT, z as u16);
+        self.write_collision_math_word(COLLISION_POLYGON_POINTER, source_address);
+        self.write_collision_math_word(COLLISION_POLYGON_SCALE, u16::from(scale));
+        memory.gsu_ram_mut().copy_from_slice(&self.gsu.ram);
+        self.run_collision_math_job(memory, COLLISION_POLYGON_PROGRAM);
+        self.read_collision_math_word(COLLISION_POLYGON_POINTER) == 0
+    }
+
+    /// Project a local X/Z probe onto one exact retail collision plane.
+    pub(crate) fn project_collision_surface(
+        &mut self,
+        memory: &mut Memory,
+        normal: [i8; 3],
+        plane_offset: i16,
+        x: i16,
+        z: i16,
+    ) -> i16 {
+        self.gsu.ram.copy_from_slice(memory.gsu_ram());
+        self.write_collision_math_word(COLLISION_X_INPUT, x as u16);
+        self.write_collision_math_word(COLLISION_Z_INPUT, z as u16);
+        self.write_collision_math_word(COLLISION_SURFACE_VALUE, plane_offset as u16);
+        self.write_collision_math_word(COLLISION_PLANE_X, u16::from(normal[0] as u8) << 8);
+        self.write_collision_math_word(COLLISION_PLANE_Y, u16::from(normal[1] as u8) << 8);
+        self.write_collision_math_word(COLLISION_PLANE_Z, u16::from(normal[2] as u8) << 8);
+        memory.gsu_ram_mut().copy_from_slice(&self.gsu.ram);
+        self.run_collision_math_job(memory, COLLISION_SURFACE_PROGRAM);
+        self.read_collision_math_word(COLLISION_SURFACE_VALUE) as i16
+    }
+
     /// Execute one retail far-call routine with 8-bit A, 16-bit X/Y and DBR
     /// `$7E`, the invariant used by SF2's strategy dispatcher.
     pub(crate) fn call_strategy(
@@ -63,18 +154,6 @@ impl CpuBridge {
         target: u32,
         object: u16,
     ) -> Result<(), String> {
-        self.call_routine(memory, target, object).map(|_| ())
-    }
-
-    /// Execute an oracle routine and retain the low return value plus the
-    /// carry condition used by reviewed predicate helpers. Shipping builds do
-    /// not compile this compatibility executor.
-    pub(crate) fn call_routine(
-        &mut self,
-        memory: &mut Memory,
-        target: u32,
-        object: u16,
-    ) -> Result<RoutineResult, String> {
         // Reset/bootstrap traffic is an oracle-harness implementation detail,
         // not retail game state. Preserve the parameter, stack and stub pages
         // while leaving the real direct-page scratch bytes visible.
@@ -158,10 +237,7 @@ impl CpuBridge {
                 cpu.pc(),
             ));
         }
-        Ok(RoutineResult {
-            value: cpu.a(),
-            condition: cpu.p() & CARRY_STATUS_BIT != 0,
-        })
+        Ok(())
     }
 }
 

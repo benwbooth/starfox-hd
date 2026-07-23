@@ -1,4 +1,4 @@
-use sf2_data::path::PathAddress;
+use sf2_data::{collision_data::collision_profile, path::PathAddress, shape_data::shape_by_id};
 use sf2_path::{
     ChildSpawn, ContextTransition, ObjectSpawn, PathContactClass, PathTrigger, PlayerTargetUpdate,
     SelectedMarkerClass, Sf2PathCondition, Sf2PathHost, Sf2PathOperation,
@@ -9,7 +9,6 @@ use crate::oracle_compat::{Error, Game, MapMarker};
 
 const COPROCESSOR_CONTROL_SHADOW: u16 = 0x005E;
 const ENABLED_CONTROL_BITS: u8 = 0xE7;
-const CONTACT_CLASSIFIER_ROUTINE: u32 = 0x0D_DF47;
 const CAPTURE_ANGLE_SCRATCH: u16 = 0x00A7;
 const CAPTURE_X_SCRATCH: u16 = 0x0002;
 const CAPTURE_Y_SCRATCH: u16 = 0x0008;
@@ -36,6 +35,25 @@ const CONTACT_ALTERNATE_CLASS_STATE: u16 = 0xD746;
 const CONTACT_FRAME_STATE: u16 = 0x1B4D;
 const CONTACT_FRAME_MASK: u8 = 0x07;
 const CONTACT_VERTICAL_MARGIN: i16 = 20;
+const COLLISION_TARGET_EXTENSION: u16 = 0x1CE8;
+const COLLISION_BOX_EXTENSION: u16 = 0x1CEA;
+const COLLISION_FLAGS_EXTENSION: u16 = 0x1CEB;
+const COLLISION_NEAREST_SURFACE: u16 = 0x195D;
+const COLLISION_NEAREST_TARGET: u16 = 0x195F;
+const COLLISION_NEAREST_BOX: u16 = 0x1961;
+const COLLISION_NEAREST_FLAGS: u16 = 0x1A8D;
+const COLLISION_ANIMATION_FRAME_EXTENSION: u16 = 0x1CCB;
+const COLLISION_GLOBAL_FRAME: u16 = 0x00C4;
+const COLLISION_FULL_SEARCH_LIMIT: u16 = 16_384;
+const COLLISION_REDUCED_SEARCH_LIMIT: u16 = 8_192;
+const COLLISION_CANDIDATE_DISABLED_FLAG_24: u8 = 0x04;
+const COLLISION_CANDIDATE_DISABLED_FLAG_31: u8 = 0x04;
+const COLLISION_REACTIVE_CURRENT_FLAGS: u8 = 0x88;
+const COLLISION_TARGET_FLAG_22: u8 = 0x02;
+const COLLISION_TARGET_FLAG_26: u8 = 0x01;
+const COLLISION_TARGET_SIDE_FLAG_26: u8 = 0x02;
+const COLLISION_TARGET_ALTERNATE_SIDE_FLAG_26: u8 = 0x04;
+const COLLISION_CURRENT_ALTERNATE_SIDE_FLAG_24: u8 = 0x80;
 const DIRECT_CONTACT_FLAG_20: u8 = 0x80;
 const DIRECT_CONTACT_FLAG_21: u8 = 0x02;
 const ALTERNATE_CONTACT_FLAG_22: u8 = 0x08;
@@ -243,6 +261,174 @@ impl Game {
         } else {
             difference as u16
         }
+    }
+
+    fn collision_axis_contains(center: u16, span: u16, point: u16) -> bool {
+        center.wrapping_add(span).wrapping_sub(point) < span.wrapping_mul(2)
+    }
+
+    fn collision_footprint_contains(center: i16, size: u16, point: i16) -> bool {
+        (size >> 1)
+            .wrapping_add(center as u16)
+            .wrapping_add(1)
+            .wrapping_sub(point as u16)
+            < size
+    }
+
+    /// Refresh the downward contact projection used by the three-way path
+    /// branch. ShapeHdr bounds cover ordinary colliders; the complete typed
+    /// compound-profile catalog covers animated, rotated, polygon-clipped
+    /// collision planes. Only the fixed-point math kernels remain in the
+    /// feature-gated retail oracle.
+    fn refresh_collision_projection(&mut self) -> Result<(), Error> {
+        let current = self.current_object()?;
+        let current_x = self.memory.read_word(current.wrapping_add(FIELD_X));
+        let current_y = self.memory.read_word(current.wrapping_add(FIELD_Y));
+        let current_z = self.memory.read_word(current.wrapping_add(FIELD_Z));
+        let reduced_search = self.memory.read_byte(CONTACT_FRAME_STATE) & CONTACT_FRAME_MASK != 0;
+        let initial_surface = if reduced_search {
+            COLLISION_REDUCED_SEARCH_LIMIT
+        } else {
+            COLLISION_FULL_SEARCH_LIMIT
+        };
+        let mut nearest_surface = initial_surface;
+        let mut nearest_target = 0;
+        let mut nearest_box = 0;
+        let mut nearest_flags = 0;
+
+        for candidate in active_objects(&self.memory) {
+            if candidate == current
+                || self.memory.read_byte(candidate.wrapping_add(0x31))
+                    & COLLISION_CANDIDATE_DISABLED_FLAG_31
+                    != 0
+                || self.memory.read_byte(candidate.wrapping_add(0x24))
+                    & COLLISION_CANDIDATE_DISABLED_FLAG_24
+                    != 0
+            {
+                continue;
+            }
+
+            let shape_id = self.memory.read_word(candidate.wrapping_add(FIELD_SHAPE));
+            let Some(shape) = shape_by_id(shape_id) else {
+                continue;
+            };
+            let [span_x, span_y, span_z] = shape.bounds;
+            if !Self::collision_axis_contains(
+                self.memory.read_word(candidate.wrapping_add(FIELD_X)),
+                span_x,
+                current_x,
+            ) || !Self::collision_axis_contains(
+                self.memory.read_word(candidate.wrapping_add(FIELD_Z)),
+                span_z,
+                current_z,
+            ) {
+                continue;
+            }
+
+            let candidate_y = self.memory.read_word(candidate.wrapping_add(FIELD_Y));
+            if let Some(profile) = collision_profile(shape_id) {
+                let relative_x = current_x
+                    .wrapping_sub(self.memory.read_word(candidate.wrapping_add(FIELD_X)))
+                    as i16;
+                let relative_z = current_z
+                    .wrapping_sub(self.memory.read_word(candidate.wrapping_add(FIELD_Z)))
+                    as i16;
+                let yaw = self.memory.read_byte(candidate.wrapping_add(FIELD_ROT_Y));
+                let (local_x, local_z) = if yaw == 0 {
+                    (relative_x, relative_z)
+                } else {
+                    self.rotate_collision_probe(yaw, relative_x, relative_z)
+                };
+                let frame_marker = self
+                    .memory
+                    .read_byte(candidate.wrapping_add(COLLISION_ANIMATION_FRAME_EXTENSION));
+                let frame = if frame_marker & 0x80 != 0 {
+                    usize::from(frame_marker & 0x7F)
+                } else {
+                    usize::from(self.memory.read_byte(COLLISION_GLOBAL_FRAME))
+                };
+
+                for (group_index, group) in profile.groups.iter().enumerate() {
+                    let record = group.variants.get(frame).unwrap_or(&group.variants[0]);
+                    if !Self::collision_footprint_contains(record.center_x, record.width, local_x)
+                        || !Self::collision_footprint_contains(
+                            record.center_z,
+                            record.depth,
+                            local_z,
+                        )
+                    {
+                        continue;
+                    }
+                    if let Some(polygon) = record.polygon {
+                        if !self.collision_polygon_contains(
+                            polygon.source_address,
+                            polygon.scale,
+                            local_x,
+                            local_z,
+                        ) {
+                            continue;
+                        }
+                    }
+
+                    let surface = candidate_y.wrapping_add(self.project_collision_surface(
+                        record.plane_normal,
+                        record.plane_offset,
+                        local_x,
+                        local_z,
+                    ) as u16);
+                    let upper_edge = surface.wrapping_add(span_y).wrapping_add(2);
+                    if (upper_edge.wrapping_sub(current_y) as i16) < 0
+                        || (surface.wrapping_sub(nearest_surface) as i16) >= 0
+                    {
+                        continue;
+                    }
+                    nearest_surface = surface;
+                    nearest_target = candidate;
+                    nearest_box = (profile.groups.len() - group_index) as u16;
+                    nearest_flags = u16::from(record.box_flags);
+                }
+            } else {
+                let surface = candidate_y.wrapping_sub(span_y);
+                let upper_edge = surface.wrapping_add(span_y).wrapping_add(2);
+                if (upper_edge.wrapping_sub(current_y) as i16) < 0
+                    || (surface.wrapping_sub(nearest_surface) as i16) >= 0
+                {
+                    continue;
+                }
+                nearest_surface = surface;
+                nearest_target = candidate;
+                nearest_box = 0;
+                nearest_flags = 0;
+            }
+        }
+
+        let projected_surface = if nearest_surface == COLLISION_REDUCED_SEARCH_LIMIT {
+            0
+        } else {
+            nearest_surface
+        };
+        self.memory
+            .write_word(CONTACT_TARGET_SCRATCH, projected_surface);
+        self.memory.write_word(
+            current.wrapping_add(COLLISION_TARGET_EXTENSION),
+            nearest_target,
+        );
+        self.memory.write_byte(
+            current.wrapping_add(COLLISION_BOX_EXTENSION),
+            nearest_box as u8,
+        );
+        self.memory.write_byte(
+            current.wrapping_add(COLLISION_FLAGS_EXTENSION),
+            nearest_flags as u8,
+        );
+        self.memory
+            .write_word(COLLISION_NEAREST_SURFACE, nearest_surface);
+        self.memory
+            .write_word(COLLISION_NEAREST_TARGET, nearest_target);
+        self.memory.write_word(COLLISION_NEAREST_BOX, nearest_box);
+        self.memory
+            .write_word(COLLISION_NEAREST_FLAGS, nearest_flags);
+        Ok(())
     }
 
     fn capture_selected_auxiliary_motion(&mut self) -> Result<(), Error> {
@@ -587,16 +773,54 @@ impl Game {
             return Ok(Some(self.classify_contact_target(0)));
         }
 
-        let (selector, contact) =
-            self.run_unported_predicate(CONTACT_CLASSIFIER_ROUTINE, current)?;
-        if !contact {
+        let saved_box = self
+            .memory
+            .read_byte(current.wrapping_add(COLLISION_BOX_EXTENSION));
+        self.refresh_collision_projection()?;
+        self.memory
+            .write_byte(current.wrapping_add(COLLISION_BOX_EXTENSION), saved_box);
+        let target = self
+            .memory
+            .read_word(current.wrapping_add(COLLISION_TARGET_EXTENSION));
+        if target == 0
+            || (self
+                .memory
+                .read_word(current.wrapping_add(FIELD_Y))
+                .wrapping_sub(self.memory.read_word(CONTACT_TARGET_SCRATCH)) as i16)
+                < 0
+        {
             return Ok(None);
         }
-        Ok(Some(match selector {
-            0 => PathContactClass::NoObject,
-            1 => PathContactClass::AuxiliaryType0b,
-            _ => PathContactClass::OtherObject,
-        }))
+
+        if self.memory.read_byte(current.wrapping_add(0x31)) & COLLISION_REACTIVE_CURRENT_FLAGS
+            == COLLISION_REACTIVE_CURRENT_FLAGS
+        {
+            let side_flag = if self.memory.read_byte(current.wrapping_add(0x24))
+                & COLLISION_CURRENT_ALTERNATE_SIDE_FLAG_24
+                != 0
+            {
+                COLLISION_TARGET_ALTERNATE_SIDE_FLAG_26
+            } else {
+                COLLISION_TARGET_SIDE_FLAG_26
+            };
+            let flags = self.memory.read_byte(target.wrapping_add(0x26)) | side_flag;
+            self.memory.write_byte(target.wrapping_add(0x26), flags);
+        }
+        if self.memory.read_byte(target.wrapping_add(0x26)) & COLLISION_TARGET_FLAG_26 == 0 {
+            let link = self
+                .memory
+                .read_word(current.wrapping_add(CONTACT_LINK_FIELD));
+            let fallback = self
+                .memory
+                .read_word(link.wrapping_add(CONTACT_LINK_TARGET_FIELD));
+            self.memory.write_word(CONTACT_TARGET_SCRATCH, fallback);
+            return Ok(Some(self.classify_contact_target(fallback)));
+        }
+
+        let flags = self.memory.read_byte(target.wrapping_add(0x22)) | COLLISION_TARGET_FLAG_22;
+        self.memory.write_byte(target.wrapping_add(0x22), flags);
+        self.memory.write_word(CONTACT_TARGET_SCRATCH, target);
+        Ok(Some(self.classify_contact_target(target)))
     }
 
     fn ease_fixed_player_yaw(&mut self) {
@@ -3132,19 +3356,7 @@ impl Sf2PathHost for Game {
     }
 
     fn refresh_collision_target(&mut self) -> Result<(), Self::Error> {
-        let current = self.current_object()?;
-        if let Some(selected) = self.selected_object() {
-            let (x, y, z) = self.object_delta(current, selected);
-            self.memory
-                .write_word(current.wrapping_add(0x1CE8), x as u16);
-            self.memory
-                .write_word(current.wrapping_add(0x1CEA), y as u16);
-            self.memory
-                .write_byte(current.wrapping_add(0x1CEB), z as u8);
-            self.memory
-                .write_word(0x0008, self.memory.read_word(selected + FIELD_Y));
-        }
-        Ok(())
+        self.refresh_collision_projection()
     }
 
     fn cancel_trigger(&mut self, path: PathAddress) -> Result<(), Self::Error> {

@@ -802,6 +802,7 @@ dependencies = [
  "sf-path",
  "sf-spc",
  "sf-strat",
+ "sf2-data",
  "sf2-game",
  "sf2-path",
  "w65c816",
