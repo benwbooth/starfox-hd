@@ -160,6 +160,11 @@ local forced_target_shape = forced_target_shape_text
 forced_target_object_text = os.getenv("SF2_ORACLE_TARGET_OBJECT")
 forced_target_object = forced_target_object_text
   and tonumber(forced_target_object_text, 16) or nil
+-- Bind an exact source-object request to the shape occupying that slot on the
+-- first resumed frame. Retail recycles object addresses immediately after an
+-- actor is removed; continuing to match the bare address would clamp and fire
+-- at an unrelated replacement actor.
+forced_target_object_shape = nil
 local forced_target_health = tonumber(os.getenv("SF2_ORACLE_TARGET_HEALTH"))
 if forced_target_shape_text then
   assert(
@@ -1820,7 +1825,18 @@ local function provide_combat_autopilot()
       emu.write(object + 0x2D, 120, emu.memType.snesWorkRam)
     end
     local requested_shape = forced_target_shape and shape == forced_target_shape
-    local requested_object = forced_target_object and object == forced_target_object
+    local requested_object_address =
+      forced_target_object and object == forced_target_object
+    if requested_object_address and forced_target_object_shape == nil then
+      forced_target_object_shape = shape
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=forced-target-object-bound object=%04X shape=%04X",
+        frame - armed_frame,
+        object,
+        shape)
+    end
+    local requested_object = requested_object_address
+      and shape == forced_target_object_shape
     local requested_target = requested_object or requested_shape
     if requested_target and forced_target_collision_applied then
       local current_path = work_word(object + 0x2B)
