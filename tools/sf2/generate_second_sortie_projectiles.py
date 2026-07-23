@@ -85,10 +85,11 @@ class LogicAction:
     kind: str
     pose: tuple[int, ...]
     target: tuple[int, ...]
+    sample_start_elapsed: int
 
     @property
     def retail_frame(self) -> int:
-        offset = self.elapsed - (RAW_SAMPLE_START_ELAPSED - 1)
+        offset = self.elapsed - (self.sample_start_elapsed - 1)
         return ((offset + RETAIL_FRAME_STEP - 1) // RETAIL_FRAME_STEP) * RETAIL_FRAME_STEP
 
 
@@ -110,7 +111,9 @@ def parse_pose(value: str) -> tuple[int, ...]:
     return pose
 
 
-def read_pose_fixture(path: Path) -> tuple[list[PoseRecord], list[ProjectileLifetime]]:
+def read_pose_fixture(
+    path: Path, expected_lifetime_count: int = 33
+) -> tuple[list[PoseRecord], list[ProjectileLifetime]]:
     records = []
     active: dict[str, list[tuple[int, tuple[int, ...]]]] = {}
     lifetimes = []
@@ -139,12 +142,17 @@ def read_pose_fixture(path: Path) -> tuple[list[PoseRecord], list[ProjectileLife
         ProjectileLifetime(source, tuple(samples)) for source, samples in active.items()
     )
     lifetimes.sort(key=lambda lifetime: lifetime.samples[0][0])
-    if len(lifetimes) != 33:
-        raise SystemExit(f"expected 33 projectile lifetimes, found {len(lifetimes)}")
+    if len(lifetimes) != expected_lifetime_count:
+        raise SystemExit(
+            f"expected {expected_lifetime_count} projectile lifetimes, "
+            f"found {len(lifetimes)}"
+        )
     return records, lifetimes
 
 
-def read_raw_actions(path: Path) -> list[LogicAction]:
+def read_raw_actions(
+    path: Path, sample_start_elapsed: int = RAW_SAMPLE_START_ELAPSED
+) -> list[LogicAction]:
     result = []
     for line in path.read_text(encoding="utf-8").splitlines():
         values = fields(line)
@@ -161,15 +169,21 @@ def read_raw_actions(path: Path) -> list[LogicAction]:
                 kind=kind,
                 pose=parse_pose(values["pose"]),
                 target=parse_pose(values["selected_pose"]),
+                sample_start_elapsed=sample_start_elapsed,
             )
         )
     return result
 
 
-def import_raw_logic(source: Path, output: Path) -> None:
-    actions = read_raw_actions(source)
+def import_raw_logic(
+    source: Path,
+    output: Path,
+    sample_start_elapsed: int = RAW_SAMPLE_START_ELAPSED,
+    encounter_name: str = "first-reengagement",
+) -> None:
+    actions = read_raw_actions(source, sample_start_elapsed)
     lines = [
-        "# Compact oracle evidence for first-reengagement hostile projectiles.",
+        f"# Compact oracle evidence for {encounter_name} hostile projectiles.",
         f"# Raw source SHA-256: {hashlib.sha256(source.read_bytes()).hexdigest()}",
         "# Source path addresses and opaque actor storage were reduced to gameplay operations.",
     ]
@@ -183,7 +197,9 @@ def import_raw_logic(source: Path, output: Path) -> None:
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def read_logic_fixture(path: Path) -> list[LogicAction]:
+def read_logic_fixture(
+    path: Path, sample_start_elapsed: int = RAW_SAMPLE_START_ELAPSED
+) -> list[LogicAction]:
     result = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.startswith("elapsed="):
@@ -196,6 +212,7 @@ def read_logic_fixture(path: Path) -> list[LogicAction]:
                 kind=values["action"],
                 pose=parse_pose(values["pose"]),
                 target=parse_pose(values["target"]),
+                sample_start_elapsed=sample_start_elapsed,
             )
         )
     if not result:
@@ -399,7 +416,7 @@ def rust_action(action: ScheduledAction) -> str:
     timing = (
         ""
         if action.target_timing is None
-        else f"(ReengagementProjectileTarget::{action.target_timing})"
+        else f"(HostileProjectileTarget::{action.target_timing})"
     )
     variants = {
         "contract": "ContractTowardTarget",
@@ -410,7 +427,7 @@ def rust_action(action: ScheduledAction) -> str:
         "advance-aim": "AdvanceAimCorrection",
         "advance-cruise": "AdvanceCruise",
     }
-    return f"ReengagementProjectileAction::{variants[action.action.kind]}{timing}"
+    return f"HostileProjectileAction::{variants[action.action.kind]}{timing}"
 
 
 def format_rust(source: str) -> str:
@@ -429,6 +446,7 @@ def format_rust(source: str) -> str:
 def rust_source(
     lifetimes: list[ProjectileLifetime],
     schedules: list[list[tuple[int, list[ScheduledAction]]]],
+    encounter_description: str = "the first retail re-engagement",
 ) -> str:
     flattened_actions = []
     tick_ranges = []
@@ -450,19 +468,19 @@ def rust_source(
         )
 
     lines = [
-        "//! Generated semantic projectile dynamics for the first retail re-engagement.",
+        f"//! Generated semantic projectile dynamics for {encounter_description}.",
         "//! Source addresses and opaque machine state remain in oracle tooling.",
         "",
         "use super::{",
-        "    mission_encounter_pose, MissionEncounterPose, ReengagementProjectileAction,",
-        "    ReengagementProjectileTarget,",
+        "    mission_encounter_pose, HostileProjectileAction, HostileProjectileTarget,",
+        "    MissionEncounterPose,",
         "};",
         "",
         f"pub(super) const PROJECTILE_COUNT: usize = {len(lifetimes)};",
         f"const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         "",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
-        "pub(super) struct ReengagementProjectileDescriptor {",
+        "pub(super) struct HostileProjectileDescriptor {",
         "    pub start_retail_frame: u16,",
         "    pub end_retail_frame: u16,",
         "    pub initial_pose: MissionEncounterPose,",
@@ -476,12 +494,12 @@ def rust_source(
         "    len: u8,",
         "}",
         "",
-        f"static DESCRIPTORS: [ReengagementProjectileDescriptor; {len(descriptors)}] = [",
+        f"static DESCRIPTORS: [HostileProjectileDescriptor; {len(descriptors)}] = [",
     ]
     for start, end, tick_offset, tick_count, pose in descriptors:
         lines.extend(
             [
-                "    ReengagementProjectileDescriptor {",
+                "    HostileProjectileDescriptor {",
                 f"        start_retail_frame: {grouped(start)},",
                 f"        end_retail_frame: {grouped(end)},",
                 f"        initial_pose: {pose_source(pose)},",
@@ -503,7 +521,7 @@ def rust_source(
         [
             "];",
             "",
-            f"static ACTIONS: [ReengagementProjectileAction; {len(flattened_actions)}] = [",
+            f"static ACTIONS: [HostileProjectileAction; {len(flattened_actions)}] = [",
         ]
     )
     lines.extend(f"    {rust_action(action)}," for action in flattened_actions)
@@ -511,11 +529,11 @@ def rust_source(
         [
             "];",
             "",
-            "pub(super) fn descriptor(track_index: usize) -> Option<&'static ReengagementProjectileDescriptor> {",
+            "pub(super) fn descriptor(track_index: usize) -> Option<&'static HostileProjectileDescriptor> {",
             "    DESCRIPTORS.get(track_index)",
             "}",
             "",
-            "pub(super) fn actions(track_index: usize, retail_frame: u16) -> &'static [ReengagementProjectileAction] {",
+            "pub(super) fn actions(track_index: usize, retail_frame: u16) -> &'static [HostileProjectileAction] {",
             "    let Some(descriptor) = descriptor(track_index) else {",
             "        return &[];",
             "    };",
@@ -539,19 +557,15 @@ def rust_source(
     return format_rust("\n".join(lines))
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
-    parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--import-raw", type=Path)
-    parser.add_argument("--check", action="store_true")
-    args = parser.parse_args()
-
-    if args.import_raw is not None:
-        import_raw_logic(args.import_raw, args.logic_fixture)
-    records, lifetimes = read_pose_fixture(args.pose_fixture)
-    actions = read_logic_fixture(args.logic_fixture)
+def generate_dynamics(
+    logic_fixture: Path,
+    pose_fixture: Path,
+    expected_lifetime_count: int,
+    sample_start_elapsed: int,
+    encounter_description: str,
+) -> tuple[str, int]:
+    records, lifetimes = read_pose_fixture(pose_fixture, expected_lifetime_count)
+    actions = read_logic_fixture(logic_fixture, sample_start_elapsed)
     replay = Replay()
     scheduled = [schedule_lifetime(replay, lifetime, actions) for lifetime in lifetimes]
     record_by_frame = {record.retail_frame: record for record in records}
@@ -572,7 +586,30 @@ def main() -> None:
         ]
         for schedule in scheduled
     ]
-    source = rust_source(lifetimes, typed_schedules)
+    return (
+        rust_source(lifetimes, typed_schedules, encounter_description),
+        sum(len(lifetime.samples) for lifetime in lifetimes),
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
+    parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--import-raw", type=Path)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+
+    if args.import_raw is not None:
+        import_raw_logic(args.import_raw, args.logic_fixture)
+    source, retained_pose_count = generate_dynamics(
+        args.logic_fixture,
+        args.pose_fixture,
+        33,
+        RAW_SAMPLE_START_ELAPSED,
+        "the first retail re-engagement",
+    )
     if args.check:
         if not args.output.exists() or args.output.read_text(encoding="utf-8") != source:
             raise SystemExit(f"generated projectile dynamics are stale: {args.output}")
@@ -581,7 +618,7 @@ def main() -> None:
         args.output.write_text(source, encoding="utf-8")
     print(
         f"second-sortie projectile replay verified: "
-        f"{sum(len(lifetime.samples) for lifetime in lifetimes)} retained pose boundaries"
+        f"{retained_pose_count} retained pose boundaries"
     )
 
 

@@ -267,9 +267,10 @@ def rust_source(
         "use super::{",
         "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,",
         "    mission_actor_keyframe, mission_camera_keyframe, mission_player_keyframe,",
-        "    mission_projectile_keyframe, MissionActorKeyframe, MissionCameraKeyframe,",
-        "    MissionPlayerKeyframe, MissionProjectileKeyframe,",
+        "    MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,",
         "};",
+        "#[cfg(test)]",
+        "use super::{mission_projectile_keyframe, MissionProjectileKeyframe};",
         "",
         f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
         f"pub(super) const MAP_READY_RETAIL_FRAME: u16 = {map_ready_frame};",
@@ -337,6 +338,7 @@ def rust_source(
         lines.extend(
             [
                 "",
+                "#[cfg(test)]",
                 f"const ENEMY_LASER_TRACK_{index}: [MissionProjectileKeyframe; "
                 f"{len(lifetime)}] = [",
             ]
@@ -348,6 +350,7 @@ def rust_source(
     lines.extend(
         [
             "",
+            "#[cfg(test)]",
             "pub(super) const ENEMY_LASER_KEYFRAME_TRACKS: "
             f"[&[MissionProjectileKeyframe]; {len(lifetimes)}] = [",
         ]

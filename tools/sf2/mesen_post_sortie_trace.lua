@@ -922,8 +922,11 @@ function sortie_actor_oracle.record(event)
   if not actor and not projectile then return end
   local trigger_list = work_word(object + 0x1CE0)
   local selected = work_word(0xCF1F)
-  local output = actor
-    and sortie_actor_oracle.lines or sortie_actor_oracle.projectile_lines
+  -- A departed fighter slot can be reused by a hostile projectile. Classify
+  -- by the current projectile shape before the slot's former actor identity
+  -- so both semantic streams remain complete.
+  local output = projectile
+    and sortie_actor_oracle.projectile_lines or sortie_actor_oracle.lines
   output[#output + 1] = string.format(
     "elapsed=%d event=%s object=%04X shape=%04X path=%04X pose=%s " ..
       "velocity=%d,%d,%d rng=%s relative_motion=%d,%d base=%s " ..

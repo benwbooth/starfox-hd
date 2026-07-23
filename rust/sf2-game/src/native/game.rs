@@ -9,11 +9,10 @@ use super::object::{
     Angle, Behavior, CapitalFlightAngles, CapitalFlightState, CapitalMovementPhase,
     CapitalWeaponPhase, CollisionClass, FighterAltitudePhase, FighterAngles,
     FighterCenteringTargetOrder, FighterFlightState, FighterLogicCadence, FighterWaveDirection,
-    FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase, Object, ObjectActivity, ObjectId,
-    ObjectKind, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
-    ReengagementProjectileFlightPhase, ReengagementProjectileFlightState, ShapeId, Vector3,
-    WeaponKind,
+    FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase, HostileProjectileFlightPhase,
+    HostileProjectileFlightState, Object, ObjectActivity, ObjectId, ObjectKind,
+    PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState,
+    ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::state::{
@@ -37,6 +36,8 @@ mod capital_continuation;
 mod fighter_continuation;
 #[path = "fighter_intercept.rs"]
 mod fighter_intercept;
+#[path = "fighter_intercept_projectiles.rs"]
+mod fighter_intercept_projectiles;
 #[path = "final_pursuer.rs"]
 mod final_pursuer;
 #[path = "leon_duel.rs"]
@@ -1296,13 +1297,13 @@ impl PlayerTargetTiming {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReengagementProjectileTarget {
+enum HostileProjectileTarget {
     Previous,
     Midpoint,
     Current,
 }
 
-impl ReengagementProjectileTarget {
+impl HostileProjectileTarget {
     fn select(self, previous: Vector3, current: Vector3) -> Vector3 {
         match self {
             Self::Previous => previous,
@@ -1323,10 +1324,10 @@ impl ReengagementProjectileTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReengagementProjectileAction {
-    ContractTowardTarget(ReengagementProjectileTarget),
-    FaceTargetImmediate(ReengagementProjectileTarget),
-    FaceTargetSmooth(ReengagementProjectileTarget),
+enum HostileProjectileAction {
+    ContractTowardTarget(HostileProjectileTarget),
+    FaceTargetImmediate(HostileProjectileTarget),
+    FaceTargetSmooth(HostileProjectileTarget),
     SetCruiseSpeed,
     AdvanceHoming,
     AdvanceAimCorrection,
@@ -3014,11 +3015,11 @@ const MISSION_PROJECTILE_TRAJECTORIES: [MissionProjectileTrajectory;
     MissionProjectileTrajectory::SecondCapitalMissionShotTwentySix,
 ];
 const ENEMY_LASER_ATTACK_POWER: u8 = 1;
-const REENGAGEMENT_ENEMY_LASER_HEALTH: u8 = 10;
-const REENGAGEMENT_ENEMY_LASER_ATTACK_POWER: u8 = 2;
-const REENGAGEMENT_PROJECTILE_CONTRACTION_DISTANCE: u16 = 127;
-const REENGAGEMENT_PROJECTILE_CRUISE_SPEED: u8 = 63;
-const REENGAGEMENT_PROJECTILE_AIM_CHASE_SHIFT: u32 = 2;
+const SF2_HOSTILE_LASER_HEALTH: u8 = 10;
+const SF2_HOSTILE_LASER_ATTACK_POWER: u8 = 2;
+const HOSTILE_PROJECTILE_CONTRACTION_DISTANCE: u16 = 127;
+const HOSTILE_PROJECTILE_CRUISE_SPEED: u8 = 63;
+const HOSTILE_PROJECTILE_AIM_CHASE_SHIFT: u32 = 2;
 const NORMALIZED_DIRECTION_SCALE: i64 = 32_767;
 const NORMALIZED_DIRECTION_FRACTION_BITS: u32 = 15;
 const MISSION_ENTRY_YAW: u8 = 56;
@@ -4152,7 +4153,7 @@ pub struct Game {
     render_objects: Vec<RenderObject>,
     title_flyby: Vec<ObjectId>,
     mission_entry_flyby: [Option<ObjectId>; MISSION_ENCOUNTER_ACTOR_COUNT],
-    previous_reengagement_player_position: Option<Vector3>,
+    previous_mission_player_position: Option<Vector3>,
     mission_projectiles: Vec<ActiveMissionProjectile>,
     reengagement_projectiles: Vec<ActiveReengagementProjectile>,
     interception_missiles: [Option<ObjectId>; INTERCEPTION_MISSILE_COUNT],
@@ -4181,7 +4182,7 @@ impl Game {
             render_objects: Vec::new(),
             title_flyby: Vec::with_capacity(TITLE_CRAFT_POSES.len() + TITLE_EFFECT_POSES.len()),
             mission_entry_flyby: [None; MISSION_ENCOUNTER_ACTOR_COUNT],
-            previous_reengagement_player_position: None,
+            previous_mission_player_position: None,
             mission_projectiles: Vec::with_capacity(MISSION_PROJECTILE_TRAJECTORY_COUNT),
             reengagement_projectiles: Vec::with_capacity(
                 second_sortie_projectiles::PROJECTILE_COUNT,
@@ -4189,7 +4190,7 @@ impl Game {
             interception_missiles: [None; INTERCEPTION_MISSILE_COUNT],
             fighter_intercept_actors: FighterInterceptActors::default(),
             fighter_intercept_projectiles: Vec::with_capacity(
-                fighter_intercept::ENEMY_LASER_KEYFRAME_TRACKS.len(),
+                fighter_intercept_projectiles::PROJECTILE_COUNT,
             ),
             pigma_rival: None,
             pigma_projectiles: Vec::with_capacity(pigma_duel::ENEMY_LASER_KEYFRAME_TRACKS.len()),
@@ -4867,7 +4868,7 @@ impl Game {
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        self.previous_reengagement_player_position = Some(first_player.position);
+        self.previous_mission_player_position = Some(first_player.position);
         if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
             apply_player_keyframe(wingmate, first_wingmate);
             wingmate.base.shape = ShapeId::EMPTY;
@@ -4923,6 +4924,8 @@ impl Game {
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
+        self.previous_mission_player_position =
+            Some(fighter_intercept::PLAYER_KEYFRAMES[0].position);
         if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
             apply_player_keyframe(wingmate, fighter_intercept::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
@@ -5494,10 +5497,8 @@ impl Game {
             .primary_player
             .and_then(|id| self.state.objects.get(id))
             .map(|object| object.base.position);
-        let previous_player_position = current_player_position.map(|current| {
-            self.previous_reengagement_player_position
-                .unwrap_or(current)
-        });
+        let previous_player_position = current_player_position
+            .map(|current| self.previous_mission_player_position.unwrap_or(current));
         self.update_reengagement_targets(retail_frame);
         if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
         {
@@ -5590,8 +5591,20 @@ impl Game {
         } else {
             self.update_fighter_intercept_presentation(retail_frame);
         }
+        let current_player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|object| object.base.position);
+        let previous_player_position = current_player_position
+            .map(|current| self.previous_mission_player_position.unwrap_or(current));
         self.update_fighter_intercept_targets(retail_frame);
-        self.update_fighter_intercept_projectiles(retail_frame)?;
+        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
+        {
+            self.update_fighter_intercept_projectiles(retail_frame, current, previous)?;
+            self.previous_mission_player_position = Some(current);
+        }
         Ok(())
     }
 
@@ -6390,7 +6403,7 @@ impl Game {
 
     fn clear_sortie_runtime(&mut self) {
         self.clear_carrier_scene();
-        self.previous_reengagement_player_position = None;
+        self.previous_mission_player_position = None;
         for projectile in self.mission_projectiles.drain(..) {
             self.state.objects.remove(projectile.object);
         }
@@ -7704,7 +7717,7 @@ impl Game {
             }
         } else if let Some(player_position) = player_position {
             let previous_player_position = self
-                .previous_reengagement_player_position
+                .previous_mission_player_position
                 .unwrap_or(player_position);
             for (actor, first) in [
                 (MissionEncounterActor::FirstCapital, true),
@@ -7748,7 +7761,7 @@ impl Game {
                 self.state.mission.objects_destroyed.saturating_add(1);
         }
         if let Some(player_position) = player_position {
-            self.previous_reengagement_player_position = Some(player_position);
+            self.previous_mission_player_position = Some(player_position);
         }
     }
 
@@ -8069,8 +8082,8 @@ impl Game {
                     Behavior::Projectile,
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.hit_points = REENGAGEMENT_ENEMY_LASER_HEALTH;
-                projectile.base.attack_power = REENGAGEMENT_ENEMY_LASER_ATTACK_POWER;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 projectile.base.position = descriptor.initial_pose.position;
@@ -8078,12 +8091,11 @@ impl Game {
                 projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
                 projectile.base.roll = Angle::from_units(descriptor.initial_pose.roll);
                 projectile.base.speed = descriptor.initial_pose.speed;
-                projectile.extension.activity = ObjectActivity::ReengagementProjectileFlight(
-                    ReengagementProjectileFlightState {
-                        phase: ReengagementProjectileFlightPhase::Homing,
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
                         motion_steps_elapsed: 0,
-                    },
-                );
+                    });
                 let projectile_id = self
                     .state
                     .objects
@@ -8098,13 +8110,13 @@ impl Game {
             };
 
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
-                let ObjectActivity::ReengagementProjectileFlight(mut flight) =
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
                     projectile.extension.activity
                 else {
                     continue;
                 };
                 for &action in second_sortie_projectiles::actions(track_index, retail_frame) {
-                    apply_reengagement_projectile_action(
+                    apply_hostile_projectile_action(
                         projectile,
                         &mut flight,
                         action,
@@ -8112,8 +8124,7 @@ impl Game {
                         previous_player_position,
                     );
                 }
-                projectile.extension.activity =
-                    ObjectActivity::ReengagementProjectileFlight(flight);
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
             }
         }
         Ok(())
@@ -8403,26 +8414,23 @@ impl Game {
         }
     }
 
-    fn update_fighter_intercept_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
-        for (track_index, keyframes) in fighter_intercept::ENEMY_LASER_KEYFRAME_TRACKS
-            .iter()
-            .copied()
-            .enumerate()
-        {
-            let start_frame = keyframes
-                .first()
-                .expect("fighter-intercept projectile trajectory is not empty")
-                .retail_frame;
-            let end_frame = keyframes
-                .last()
-                .expect("fighter-intercept projectile trajectory is not empty")
-                .retail_frame;
+    fn update_fighter_intercept_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) -> Result<(), Error> {
+        for track_index in 0..fighter_intercept_projectiles::PROJECTILE_COUNT {
+            let descriptor = fighter_intercept_projectiles::descriptor(track_index)
+                .expect("fighter-intercept projectile descriptor exists");
             let active_index = self
                 .fighter_intercept_projectiles
                 .iter()
                 .position(|projectile| projectile.track_index == track_index);
-            if retail_frame < start_frame || retail_frame > end_frame {
-                if retail_frame > end_frame {
+            if retail_frame < descriptor.start_retail_frame
+                || retail_frame > descriptor.end_retail_frame
+            {
+                if retail_frame > descriptor.end_retail_frame {
                     if let Some(index) = active_index {
                         let projectile = self.fighter_intercept_projectiles.swap_remove(index);
                         self.state.objects.remove(projectile.object);
@@ -8437,13 +8445,23 @@ impl Game {
                 let mut projectile = Object::new(
                     ObjectKind::Projectile,
                     ShapeId::ENEMY_LASER,
-                    Behavior::MissionScriptedProjectile,
+                    Behavior::Projectile,
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.hit_points = REENGAGEMENT_ENEMY_LASER_HEALTH;
-                projectile.base.attack_power = REENGAGEMENT_ENEMY_LASER_ATTACK_POWER;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.position = descriptor.initial_pose.position;
+                projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
+                projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
+                projectile.base.roll = Angle::from_units(descriptor.initial_pose.roll);
+                projectile.base.speed = descriptor.initial_pose.speed;
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
+                        motion_steps_elapsed: 0,
+                    });
                 let projectile_id = self
                     .state
                     .objects
@@ -8457,14 +8475,22 @@ impl Game {
                 projectile_id
             };
 
-            let pose = mission_projectile_pose(keyframes, retail_frame);
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
-                projectile.base.position = pose.position;
-                projectile.base.pitch = Angle::from_units(pose.pitch);
-                projectile.base.yaw = Angle::from_units(pose.yaw);
-                projectile.base.roll = Angle::from_units(pose.roll);
-                projectile.base.speed = pose.speed;
-                projectile.base.velocity = Vector3::default();
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
+                    projectile.extension.activity
+                else {
+                    continue;
+                };
+                for &action in fighter_intercept_projectiles::actions(track_index, retail_frame) {
+                    apply_hostile_projectile_action(
+                        projectile,
+                        &mut flight,
+                        action,
+                        player_position,
+                        previous_player_position,
+                    );
+                }
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
             }
         }
         Ok(())
@@ -8613,8 +8639,8 @@ impl Game {
                     Behavior::MissionScriptedProjectile,
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.hit_points = REENGAGEMENT_ENEMY_LASER_HEALTH;
-                projectile.base.attack_power = REENGAGEMENT_ENEMY_LASER_ATTACK_POWER;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 let projectile_id = self
@@ -9195,8 +9221,8 @@ impl Game {
                     Behavior::MissionScriptedProjectile,
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.hit_points = REENGAGEMENT_ENEMY_LASER_HEALTH;
-                projectile.base.attack_power = REENGAGEMENT_ENEMY_LASER_ATTACK_POWER;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 let projectile_id = self
@@ -9293,8 +9319,8 @@ impl Game {
                     Behavior::MissionScriptedProjectile,
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.hit_points = REENGAGEMENT_ENEMY_LASER_HEALTH;
-                projectile.base.attack_power = REENGAGEMENT_ENEMY_LASER_ATTACK_POWER;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 let projectile_id = state
@@ -10154,7 +10180,7 @@ impl Game {
                 }
                 ObjectActivity::CapitalFlight(_)
                 | ObjectActivity::ReengagementFighterFlight(_)
-                | ObjectActivity::ReengagementProjectileFlight(_) => continue,
+                | ObjectActivity::HostileProjectileFlight(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
             if matches!(
@@ -11211,7 +11237,7 @@ fn chase_capital_angle(current: Angle, target: Angle, divisor: i8) -> Angle {
     current.wrapping_add(adjusted / divisor)
 }
 
-fn contract_reengagement_projectile_toward(object: &mut Object, target: Vector3) {
+fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {
     let delta = [
         object.base.position.x.wrapping_sub(target.x),
         object.base.position.y.wrapping_sub(target.y),
@@ -11228,8 +11254,7 @@ fn contract_reengagement_projectile_toward(object: &mut Object, target: Vector3)
 
     let precision_shift = u32::BITS - 1 - radius.leading_zeros();
     let reciprocal = (NORMALIZED_DIRECTION_SCALE << precision_shift) / i64::from(radius);
-    let contracted_radius =
-        (radius as u16).wrapping_sub(REENGAGEMENT_PROJECTILE_CONTRACTION_DISTANCE);
+    let contracted_radius = (radius as u16).wrapping_sub(HOSTILE_PROJECTILE_CONTRACTION_DISTANCE);
     let contract_component = |component: i16, target_component: i16| {
         let direction = (i64::from(component) * reciprocal) >> precision_shift;
         let offset =
@@ -11243,7 +11268,7 @@ fn contract_reengagement_projectile_toward(object: &mut Object, target: Vector3)
     };
 }
 
-fn face_reengagement_projectile_toward(object: &mut Object, target: Vector3, smooth: bool) {
+fn face_hostile_projectile_toward(object: &mut Object, target: Vector3, smooth: bool) {
     let delta_x = target.x.wrapping_sub(object.base.position.x);
     let delta_y = target.y.wrapping_sub(object.base.position.y);
     let delta_z = target.z.wrapping_sub(object.base.position.z);
@@ -11256,12 +11281,12 @@ fn face_reengagement_projectile_toward(object: &mut Object, target: Vector3, smo
         sf_core::snes_trig::achase_angle_8(
             &mut pitch,
             target_pitch,
-            REENGAGEMENT_PROJECTILE_AIM_CHASE_SHIFT,
+            HOSTILE_PROJECTILE_AIM_CHASE_SHIFT,
         );
         sf_core::snes_trig::achase_angle_8(
             &mut yaw,
             target_yaw,
-            REENGAGEMENT_PROJECTILE_AIM_CHASE_SHIFT,
+            HOSTILE_PROJECTILE_AIM_CHASE_SHIFT,
         );
         object.base.pitch = Angle::from_units(pitch);
         object.base.yaw = Angle::from_units(yaw);
@@ -11271,10 +11296,10 @@ fn face_reengagement_projectile_toward(object: &mut Object, target: Vector3, smo
     }
 }
 
-fn advance_reengagement_projectile(
+fn advance_hostile_projectile(
     object: &mut Object,
-    flight: &mut ReengagementProjectileFlightState,
-    phase: ReengagementProjectileFlightPhase,
+    flight: &mut HostileProjectileFlightState,
+    phase: HostileProjectileFlightPhase,
 ) {
     let velocity = flight_velocity(
         object.base.pitch,
@@ -11290,49 +11315,36 @@ fn advance_reengagement_projectile(
     flight.motion_steps_elapsed = flight.motion_steps_elapsed.saturating_add(1);
 }
 
-fn apply_reengagement_projectile_action(
+fn apply_hostile_projectile_action(
     object: &mut Object,
-    flight: &mut ReengagementProjectileFlightState,
-    action: ReengagementProjectileAction,
+    flight: &mut HostileProjectileFlightState,
+    action: HostileProjectileAction,
     player_position: Vector3,
     previous_player_position: Vector3,
 ) {
-    let target = |timing: ReengagementProjectileTarget| {
-        timing.select(previous_player_position, player_position)
-    };
+    let target =
+        |timing: HostileProjectileTarget| timing.select(previous_player_position, player_position);
     match action {
-        ReengagementProjectileAction::ContractTowardTarget(timing) => {
-            contract_reengagement_projectile_toward(object, target(timing));
+        HostileProjectileAction::ContractTowardTarget(timing) => {
+            contract_hostile_projectile_toward(object, target(timing));
         }
-        ReengagementProjectileAction::FaceTargetImmediate(timing) => {
-            face_reengagement_projectile_toward(object, target(timing), false);
+        HostileProjectileAction::FaceTargetImmediate(timing) => {
+            face_hostile_projectile_toward(object, target(timing), false);
         }
-        ReengagementProjectileAction::FaceTargetSmooth(timing) => {
-            face_reengagement_projectile_toward(object, target(timing), true);
+        HostileProjectileAction::FaceTargetSmooth(timing) => {
+            face_hostile_projectile_toward(object, target(timing), true);
         }
-        ReengagementProjectileAction::SetCruiseSpeed => {
-            object.base.speed = REENGAGEMENT_PROJECTILE_CRUISE_SPEED;
+        HostileProjectileAction::SetCruiseSpeed => {
+            object.base.speed = HOSTILE_PROJECTILE_CRUISE_SPEED;
         }
-        ReengagementProjectileAction::AdvanceHoming => {
-            advance_reengagement_projectile(
-                object,
-                flight,
-                ReengagementProjectileFlightPhase::Homing,
-            );
+        HostileProjectileAction::AdvanceHoming => {
+            advance_hostile_projectile(object, flight, HostileProjectileFlightPhase::Homing);
         }
-        ReengagementProjectileAction::AdvanceAimCorrection => {
-            advance_reengagement_projectile(
-                object,
-                flight,
-                ReengagementProjectileFlightPhase::AimCorrection,
-            );
+        HostileProjectileAction::AdvanceAimCorrection => {
+            advance_hostile_projectile(object, flight, HostileProjectileFlightPhase::AimCorrection);
         }
-        ReengagementProjectileAction::AdvanceCruise => {
-            advance_reengagement_projectile(
-                object,
-                flight,
-                ReengagementProjectileFlightPhase::Cruise,
-            );
+        HostileProjectileAction::AdvanceCruise => {
+            advance_hostile_projectile(object, flight, HostileProjectileFlightPhase::Cruise);
         }
     }
 }
@@ -15882,11 +15894,8 @@ mod tests {
                 assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
                 assert_eq!(projectile.base.roll.units(), expected.pose.roll);
                 assert_eq!(projectile.base.speed, expected.pose.speed);
-                assert_eq!(projectile.base.hit_points, REENGAGEMENT_ENEMY_LASER_HEALTH);
-                assert_eq!(
-                    projectile.base.attack_power,
-                    REENGAGEMENT_ENEMY_LASER_ATTACK_POWER
-                );
+                assert_eq!(projectile.base.hit_points, SF2_HOSTILE_LASER_HEALTH);
+                assert_eq!(projectile.base.attack_power, SF2_HOSTILE_LASER_ATTACK_POWER);
                 assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
             }
         }
@@ -16130,8 +16139,8 @@ mod tests {
                 assert_eq!(projectile.base.speed, expected.pose.speed);
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
 
-                let mut expected_flight = ReengagementProjectileFlightState {
-                    phase: ReengagementProjectileFlightPhase::Homing,
+                let mut expected_flight = HostileProjectileFlightState {
+                    phase: HostileProjectileFlightPhase::Homing,
                     motion_steps_elapsed: 0,
                 };
                 let first_action_frame = first
@@ -16142,14 +16151,14 @@ mod tests {
                 {
                     for action in second_sortie_projectiles::actions(track_index, action_frame) {
                         let phase = match action {
-                            ReengagementProjectileAction::AdvanceHoming => {
-                                Some(ReengagementProjectileFlightPhase::Homing)
+                            HostileProjectileAction::AdvanceHoming => {
+                                Some(HostileProjectileFlightPhase::Homing)
                             }
-                            ReengagementProjectileAction::AdvanceAimCorrection => {
-                                Some(ReengagementProjectileFlightPhase::AimCorrection)
+                            HostileProjectileAction::AdvanceAimCorrection => {
+                                Some(HostileProjectileFlightPhase::AimCorrection)
                             }
-                            ReengagementProjectileAction::AdvanceCruise => {
-                                Some(ReengagementProjectileFlightPhase::Cruise)
+                            HostileProjectileAction::AdvanceCruise => {
+                                Some(HostileProjectileFlightPhase::Cruise)
                             }
                             _ => None,
                         };
@@ -16161,11 +16170,144 @@ mod tests {
                 }
                 assert_eq!(
                     projectile.extension.activity,
-                    ObjectActivity::ReengagementProjectileFlight(expected_flight),
+                    ObjectActivity::HostileProjectileFlight(expected_flight),
                     "projectile track {track_index} state at frame {retail_frame}"
                 );
             }
         }
+    }
+
+    #[test]
+    fn typed_fighter_intercept_projectiles_match_every_oracle_boundary() {
+        let mut game = Game::new();
+        let last_retail_frame = fighter_intercept::ENEMY_LASER_KEYFRAME_TRACKS
+            .iter()
+            .filter_map(|track| track.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("projectile oracle contains retained poses");
+
+        for retail_frame in
+            (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index =
+                usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            let previous_player_index = usize::from(
+                retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+            );
+            let player_position = fighter_intercept::PLAYER_KEYFRAMES[player_index].position;
+            let previous_player_position =
+                fighter_intercept::PLAYER_KEYFRAMES[previous_player_index].position;
+            game.update_fighter_intercept_projectiles(
+                retail_frame,
+                player_position,
+                previous_player_position,
+            )
+            .unwrap();
+
+            let expected_active = fighter_intercept::ENEMY_LASER_KEYFRAME_TRACKS
+                .iter()
+                .filter(|track| {
+                    track
+                        .first()
+                        .zip(track.last())
+                        .is_some_and(|(first, last)| {
+                            (first.retail_frame..=last.retail_frame).contains(&retail_frame)
+                        })
+                })
+                .count();
+            assert_eq!(
+                game.fighter_intercept_projectiles.len(),
+                expected_active,
+                "active projectile count at frame {retail_frame}"
+            );
+
+            for (track_index, keyframes) in fighter_intercept::ENEMY_LASER_KEYFRAME_TRACKS
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                let Some(first) = keyframes.first() else {
+                    continue;
+                };
+                let Some(last) = keyframes.last() else {
+                    continue;
+                };
+                if !(first.retail_frame..=last.retail_frame).contains(&retail_frame) {
+                    continue;
+                }
+                let keyframe_index = usize::from(
+                    (retail_frame - first.retail_frame)
+                        / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+                );
+                let expected = keyframes[keyframe_index];
+                assert_eq!(expected.retail_frame, retail_frame);
+                let active = game
+                    .fighter_intercept_projectiles
+                    .iter()
+                    .find(|projectile| projectile.track_index == track_index)
+                    .unwrap_or_else(|| {
+                        panic!("projectile track {track_index} absent at frame {retail_frame}")
+                    });
+                let projectile = game.state().objects.get(active.object).unwrap();
+                assert_eq!(
+                    projectile.base.position, expected.pose.position,
+                    "projectile track {track_index} at frame {retail_frame}"
+                );
+                assert_eq!(projectile.base.pitch.units(), expected.pose.pitch);
+                assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
+                assert_eq!(projectile.base.roll.units(), expected.pose.roll);
+                assert_eq!(projectile.base.speed, expected.pose.speed);
+                assert_eq!(projectile.base.behavior, Behavior::Projectile);
+
+                let mut expected_flight = HostileProjectileFlightState {
+                    phase: HostileProjectileFlightPhase::Homing,
+                    motion_steps_elapsed: 0,
+                };
+                let first_action_frame = first
+                    .retail_frame
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                for action_frame in (first_action_frame..=retail_frame)
+                    .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+                {
+                    for action in fighter_intercept_projectiles::actions(track_index, action_frame)
+                    {
+                        let phase = match action {
+                            HostileProjectileAction::AdvanceHoming => {
+                                Some(HostileProjectileFlightPhase::Homing)
+                            }
+                            HostileProjectileAction::AdvanceAimCorrection => {
+                                Some(HostileProjectileFlightPhase::AimCorrection)
+                            }
+                            HostileProjectileAction::AdvanceCruise => {
+                                Some(HostileProjectileFlightPhase::Cruise)
+                            }
+                            _ => None,
+                        };
+                        if let Some(phase) = phase {
+                            expected_flight.phase = phase;
+                            expected_flight.motion_steps_elapsed += 1;
+                        }
+                    }
+                }
+                assert_eq!(
+                    projectile.extension.activity,
+                    ObjectActivity::HostileProjectileFlight(expected_flight),
+                    "projectile track {track_index} state at frame {retail_frame}"
+                );
+            }
+        }
+
+        let cleanup_frame = last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        let player_index = usize::from(cleanup_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        game.update_fighter_intercept_projectiles(
+            cleanup_frame,
+            fighter_intercept::PLAYER_KEYFRAMES[player_index].position,
+            fighter_intercept::PLAYER_KEYFRAMES[player_index - 1].position,
+        )
+        .unwrap();
+        assert!(game.fighter_intercept_projectiles.is_empty());
     }
 
     #[test]
