@@ -3141,12 +3141,6 @@ struct ActivePigmaProjectile {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ActiveLeonProjectile {
-    track_index: usize,
-    object: ObjectId,
-}
-
-#[derive(Debug, Clone, Copy)]
 struct ActivePressureProjectile {
     track_index: usize,
     object: ObjectId,
@@ -4474,7 +4468,6 @@ pub struct Game {
     pigma_rival: Option<ObjectId>,
     pigma_projectiles: Vec<ActivePigmaProjectile>,
     leon_rival: Option<ObjectId>,
-    leon_projectiles: Vec<ActiveLeonProjectile>,
     pressure_fighter_actors: PressureFighterActors,
     pressure_fighter_projectiles: Vec<ActivePressureProjectile>,
     leon_pressure_projectiles: Vec<ActivePressureProjectile>,
@@ -4507,7 +4500,6 @@ impl Game {
             pigma_rival: None,
             pigma_projectiles: Vec::with_capacity(pigma_duel_projectiles::PROJECTILE_COUNT),
             leon_rival: None,
-            leon_projectiles: Vec::with_capacity(leon_duel::ENEMY_LASER_KEYFRAME_TRACKS.len()),
             pressure_fighter_actors: PressureFighterActors::default(),
             pressure_fighter_projectiles: Vec::with_capacity(
                 pressure_fighters::ENEMY_LASER_KEYFRAME_TRACKS.len(),
@@ -6027,7 +6019,6 @@ impl Game {
             self.update_leon_presentation(retail_frame);
         }
         self.update_leon_rival(retail_frame);
-        self.update_leon_projectiles(retail_frame)?;
         Ok(())
     }
 
@@ -6773,9 +6764,6 @@ impl Game {
             self.state.objects.remove(projectile.object);
         }
         for projectile in self.pigma_projectiles.drain(..) {
-            self.state.objects.remove(projectile.object);
-        }
-        for projectile in self.leon_projectiles.drain(..) {
             self.state.objects.remove(projectile.object);
         }
         for projectile in self.pressure_fighter_projectiles.drain(..) {
@@ -9613,72 +9601,6 @@ impl Game {
             }
             MissionActorPresentation::Departed => unreachable!(),
         }
-    }
-
-    fn update_leon_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
-        for (track_index, keyframes) in leon_duel::ENEMY_LASER_KEYFRAME_TRACKS
-            .iter()
-            .copied()
-            .enumerate()
-        {
-            let start_frame = keyframes
-                .first()
-                .expect("Leon projectile trajectory is not empty")
-                .retail_frame;
-            let end_frame = keyframes
-                .last()
-                .expect("Leon projectile trajectory is not empty")
-                .retail_frame;
-            let active_index = self
-                .leon_projectiles
-                .iter()
-                .position(|projectile| projectile.track_index == track_index);
-            if retail_frame < start_frame || retail_frame > end_frame {
-                if retail_frame > end_frame {
-                    if let Some(index) = active_index {
-                        let projectile = self.leon_projectiles.swap_remove(index);
-                        self.state.objects.remove(projectile.object);
-                    }
-                }
-                continue;
-            }
-
-            let projectile_id = if let Some(index) = active_index {
-                self.leon_projectiles[index].object
-            } else {
-                let mut projectile = Object::new(
-                    ObjectKind::Projectile,
-                    ShapeId::ENEMY_LASER,
-                    Behavior::MissionScriptedProjectile,
-                );
-                projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
-                projectile.base.collision_class = CollisionClass::EnemyWeapon;
-                projectile.base.flags.casts_shadow = false;
-                let projectile_id = self
-                    .state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
-                self.leon_projectiles.push(ActiveLeonProjectile {
-                    track_index,
-                    object: projectile_id,
-                });
-                projectile_id
-            };
-
-            let pose = mission_projectile_pose(keyframes, retail_frame);
-            if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
-                projectile.base.position = pose.position;
-                projectile.base.pitch = Angle::from_units(pose.pitch);
-                projectile.base.yaw = Angle::from_units(pose.yaw);
-                projectile.base.roll = Angle::from_units(pose.roll);
-                projectile.base.speed = pose.speed;
-                projectile.base.velocity = Vector3::default();
-            }
-        }
-        Ok(())
     }
 
     fn update_pressure_fighter_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
@@ -19031,6 +18953,17 @@ mod tests {
 
     #[test]
     fn leon_duel_uses_typed_rival_state_and_matches_the_eighth_return() {
+        fn hostile_laser_count(game: &Game) -> usize {
+            game.state()
+                .objects
+                .active_objects()
+                .filter(|(_, object)| {
+                    object.base.weapon == WeaponKind::EnemyLaser
+                        && object.base.collision_class == CollisionClass::EnemyWeapon
+                })
+                .count()
+        }
+
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
         game.state.mode = GameMode::StrategicMap;
@@ -19074,6 +19007,7 @@ mod tests {
         let reveal_tick = u32::from(LEON_PLAYER_REVEAL_RETAIL_FRAME)
             .div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK);
         while game.state().mode_frame < reveal_tick {
+            assert_eq!(hostile_laser_count(&game), 0);
             game.tick(0).unwrap();
         }
         let primary = game.state().mission.primary_player.unwrap();
@@ -19090,9 +19024,10 @@ mod tests {
             }
         );
         assert!(rival.base.flags.visible);
-        assert_eq!(game.leon_projectiles.len(), 1);
+        assert_eq!(hostile_laser_count(&game), 0);
 
         while game.mode() == GameMode::Mission {
+            assert_eq!(hostile_laser_count(&game), 0);
             game.tick(0).unwrap();
         }
 
@@ -19129,7 +19064,7 @@ mod tests {
             );
         }
         assert!(game.leon_rival.is_none());
-        assert!(game.leon_projectiles.is_empty());
+        assert_eq!(hostile_laser_count(&game), 0);
     }
 
     #[test]

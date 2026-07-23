@@ -2,11 +2,11 @@
 //!
 //! Source: `leon_duel.trace`.
 //! Regenerate or verify with `uv run python
-//! tools/sf2/generate_pigma_duel.py [--check]`.
+//! tools/sf2/generate_leon_duel.py [--check]`.
 
 use super::{
-    mission_camera_keyframe, mission_player_keyframe, mission_projectile_keyframe,
-    MissionCameraKeyframe, MissionPlayerKeyframe, MissionProjectileKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
+    MissionPlayerKeyframe,
 };
 
 #[cfg(test)]
@@ -837,96 +837,4 @@ pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 154] = [
     mission_actor_keyframe(656, [5_991, -4_000, 10_010, 216, 18, 244, 70]),
     mission_actor_keyframe(660, [5_931, -4_000, 10_142, 216, 18, 245, 70]),
     mission_actor_departure_keyframe(664),
-];
-
-const ENEMY_LASER_TRACK_0: [MissionProjectileKeyframe; 8] = [
-    mission_projectile_keyframe(396, [191, 0, 167, 0, 213, 252, 62]),
-    mission_projectile_keyframe(400, [711, 0, 457, 0, 213, 252, 62]),
-    mission_projectile_keyframe(404, [2_375, 0, 1_385, 0, 213, 252, 62]),
-    mission_projectile_keyframe(408, [4_039, 0, 2_313, 0, 213, 252, 62]),
-    mission_projectile_keyframe(412, [5_703, 0, 3_241, 0, 213, 252, 62]),
-    mission_projectile_keyframe(416, [7_367, 0, 4_169, 0, 213, 252, 62]),
-    mission_projectile_keyframe(420, [9_031, 0, 5_097, 0, 213, 252, 62]),
-    mission_projectile_keyframe(424, [10_695, 0, 6_025, 0, 213, 252, 62]),
-];
-
-const ENEMY_LASER_TRACK_1: [MissionProjectileKeyframe; 23] = [
-    mission_projectile_keyframe(432, [126, 0, 132, 0, 244, 17, 62]),
-    mission_projectile_keyframe(436, [286, 0, 702, 0, 244, 17, 62]),
-    mission_projectile_keyframe(440, [798, 0, 2_526, 0, 244, 17, 62]),
-    mission_projectile_keyframe(444, [1_822, 0, 6_174, 0, 244, 17, 62]),
-    mission_projectile_keyframe(448, [2_334, 0, 7_998, 0, 244, 17, 62]),
-    mission_projectile_keyframe(452, [2_846, 0, 9_822, 0, 244, 17, 62]),
-    mission_projectile_keyframe(456, [3_358, 0, 11_646, 0, 244, 17, 62]),
-    mission_projectile_keyframe(460, [149, 0, 114, 0, 7, 23, 0]),
-    mission_projectile_keyframe(464, [50, 0, 763, 0, 7, 23, 62]),
-    mission_projectile_keyframe(468, [-238, 0, 2_651, 0, 7, 23, 62]),
-    mission_projectile_keyframe(472, [-526, 0, 4_539, 0, 7, 23, 62]),
-    mission_projectile_keyframe(476, [-814, 0, 6_427, 0, 7, 23, 62]),
-    mission_projectile_keyframe(480, [-1_102, 0, 8_315, 0, 7, 23, 62]),
-    mission_projectile_keyframe(484, [-1_390, 0, 10_203, 0, 7, 23, 62]),
-    mission_projectile_keyframe(488, [-1_678, 0, 12_091, 0, 7, 23, 62]),
-    mission_projectile_keyframe(492, [67, -18, 331, 0, 28, 17, 62]),
-    mission_projectile_keyframe(496, [-303, -18, 791, 0, 28, 17, 62]),
-    mission_projectile_keyframe(500, [-1_487, -18, 2_263, 0, 28, 17, 62]),
-    mission_projectile_keyframe(504, [-2_671, -18, 3_735, 0, 28, 17, 62]),
-    mission_projectile_keyframe(508, [-3_855, -18, 5_207, 0, 28, 17, 62]),
-    mission_projectile_keyframe(512, [-5_039, -18, 6_679, 0, 28, 17, 62]),
-    mission_projectile_keyframe(516, [-7_407, -18, 9_623, 0, 28, 17, 62]),
-    mission_projectile_keyframe(520, [-7_407, -18, 9_623, 0, 28, 17, 62]),
-];
-
-const ENEMY_LASER_TRACK_2: [MissionProjectileKeyframe; 8] = [
-    mission_projectile_keyframe(528, [-493, -103, 834, 0, 37, 21, 62]),
-    mission_projectile_keyframe(532, [-963, -103, 1_194, 0, 37, 21, 62]),
-    mission_projectile_keyframe(536, [-2_467, -103, 2_346, 0, 37, 21, 62]),
-    mission_projectile_keyframe(540, [-3_971, -103, 3_498, 0, 37, 21, 62]),
-    mission_projectile_keyframe(544, [-5_475, -103, 4_650, 0, 37, 21, 62]),
-    mission_projectile_keyframe(548, [-6_979, -103, 5_802, 0, 37, 21, 62]),
-    mission_projectile_keyframe(552, [-8_483, -103, 6_954, 0, 37, 21, 62]),
-    mission_projectile_keyframe(556, [-9_987, -103, 8_106, 0, 37, 21, 62]),
-];
-
-const ENEMY_LASER_TRACK_3: [MissionProjectileKeyframe; 8] = [
-    mission_projectile_keyframe(560, [-1_083, -257, 1_315, 254, 37, 6, 62]),
-    mission_projectile_keyframe(564, [-1_553, -277, 1_675, 254, 37, 6, 62]),
-    mission_projectile_keyframe(568, [-3_057, -341, 2_827, 254, 37, 6, 62]),
-    mission_projectile_keyframe(572, [-4_561, -405, 3_979, 254, 37, 6, 62]),
-    mission_projectile_keyframe(576, [-6_065, -469, 5_131, 254, 37, 6, 62]),
-    mission_projectile_keyframe(580, [-7_569, -533, 6_283, 254, 37, 6, 62]),
-    mission_projectile_keyframe(584, [-10_577, -661, 8_587, 254, 37, 6, 62]),
-    mission_projectile_keyframe(588, [-10_577, -661, 8_587, 254, 37, 6, 62]),
-];
-
-const ENEMY_LASER_TRACK_4: [MissionProjectileKeyframe; 17] = [
-    mission_projectile_keyframe(588, [-1_676, -609, 1_798, 252, 37, 249, 62]),
-    mission_projectile_keyframe(592, [-2_146, -659, 2_158, 252, 37, 249, 62]),
-    mission_projectile_keyframe(596, [-3_650, -819, 3_310, 252, 37, 249, 62]),
-    mission_projectile_keyframe(600, [-5_154, -979, 4_462, 252, 37, 249, 62]),
-    mission_projectile_keyframe(604, [-6_658, -1_139, 5_614, 252, 37, 249, 62]),
-    mission_projectile_keyframe(608, [-8_162, -1_299, 6_766, 252, 37, 249, 62]),
-    mission_projectile_keyframe(612, [-9_666, -1_459, 7_918, 252, 37, 249, 62]),
-    mission_projectile_keyframe(616, [-11_170, -1_619, 9_070, 252, 37, 249, 62]),
-    mission_projectile_keyframe(620, [-11_170, -1_619, 9_070, 252, 37, 249, 62]),
-    mission_projectile_keyframe(624, [-2_272, -1_205, 2_279, 246, 37, 7, 62]),
-    mission_projectile_keyframe(628, [-2_732, -1_345, 2_629, 246, 37, 7, 62]),
-    mission_projectile_keyframe(632, [-4_204, -1_793, 3_749, 246, 37, 7, 62]),
-    mission_projectile_keyframe(636, [-5_676, -2_241, 4_869, 246, 37, 7, 62]),
-    mission_projectile_keyframe(640, [-7_148, -2_689, 5_989, 246, 37, 7, 62]),
-    mission_projectile_keyframe(644, [-8_620, -3_137, 7_109, 246, 37, 7, 62]),
-    mission_projectile_keyframe(648, [-10_092, -3_585, 8_229, 246, 37, 7, 62]),
-    mission_projectile_keyframe(652, [-11_564, -4_033, 9_349, 246, 37, 7, 62]),
-];
-
-const ENEMY_LASER_TRACK_5: [MissionProjectileKeyframe; 1] = [
-    mission_projectile_keyframe(656, [6_051, -4_000, 9_878, 246, 37, 2, 62]),
-];
-
-pub(super) const ENEMY_LASER_KEYFRAME_TRACKS: [&[MissionProjectileKeyframe]; 6] = [
-    &ENEMY_LASER_TRACK_0,
-    &ENEMY_LASER_TRACK_1,
-    &ENEMY_LASER_TRACK_2,
-    &ENEMY_LASER_TRACK_3,
-    &ENEMY_LASER_TRACK_4,
-    &ENEMY_LASER_TRACK_5,
 ];
