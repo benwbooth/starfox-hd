@@ -45,10 +45,10 @@ SEMANTIC_EVENTS = frozenset(
 )
 
 STEERING = {
-    (40, 2, 40): "PigmaApproachSteering::EntryClimb",
-    (-40, -2, -40): "PigmaApproachSteering::EntryDive",
-    (40, -2, -40): "PigmaApproachSteering::SecondClimb",
-    (-40, 2, 40): "PigmaApproachSteering::SecondDive",
+    (40, 2, 40): "RivalApproachSteering::EntryClimb",
+    (-40, -2, -40): "RivalApproachSteering::EntryDive",
+    (40, -2, -40): "RivalApproachSteering::SecondClimb",
+    (-40, 2, 40): "RivalApproachSteering::SecondDive",
 }
 
 # The altitude keeper is a scheduled companion behavior. These are the
@@ -316,8 +316,8 @@ def generate_rust(actions: dict[int, list[str]]) -> str:
         "//! Source addresses and opaque machine state remain in oracle tooling.",
         "",
         "use super::{",
-        "    mission_encounter_pose, MissionEncounterPose, PigmaApproachSteering,",
-        "    PigmaPlayerAltitudeTiming, PigmaRivalAction, PlayerTargetTiming,",
+        "    mission_encounter_pose, MissionEncounterPose, PigmaPlayerAltitudeTiming,",
+        "    PigmaRivalAction, PlayerTargetTiming, RivalApproachSteering,",
         "};",
         "",
         "pub(super) const PRESENTATION_START_RETAIL_FRAME: u16 = "

@@ -490,6 +490,32 @@ pub struct PigmaRivalFlightState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeonRivalFlightPhase {
+    AwaitingEntrance,
+    Approach,
+    CombatManeuver,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeonRivalMovementPhase {
+    Ready,
+    PreparedAdvance,
+}
+
+/// Flat, typed flight variables for Leon's campaign duel.
+///
+/// Position, orientation, and speed remain in the ordinary object fields;
+/// this holds only authored maneuver state that is not part of the transform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeonRivalFlightState {
+    pub phase: LeonRivalFlightPhase,
+    pub movement_phase: LeonRivalMovementPhase,
+    pub target_speed: u8,
+    pub acceleration: u8,
+    pub motion_steps_elapsed: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerProjectileKind {
     Rapid,
     Charged,
@@ -525,6 +551,7 @@ pub enum ObjectActivity {
     CapitalFlight(CapitalFlightState),
     HostileProjectileFlight(HostileProjectileFlightState),
     PigmaRivalFlight(PigmaRivalFlightState),
+    LeonRivalFlight(LeonRivalFlightState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),
 }

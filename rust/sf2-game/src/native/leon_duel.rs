@@ -1,14 +1,16 @@
 //! Generated typed path for the retail Leon duel.
 //!
-//! Source: `sf2_post_sortie_trace.txt`.
+//! Source: `leon_duel.trace`.
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_pigma_duel.py [--check]`.
 
 use super::{
-    mission_actor_departure_keyframe, mission_actor_keyframe, mission_camera_keyframe,
-    mission_player_keyframe, mission_projectile_keyframe, MissionActorKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, mission_projectile_keyframe,
     MissionCameraKeyframe, MissionPlayerKeyframe, MissionProjectileKeyframe,
 };
+
+#[cfg(test)]
+use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 876;
 pub(super) const MAP_READY_RETAIL_FRAME: u16 = 878;
@@ -679,6 +681,7 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(872, -11_669, -2_204, 9_969, 0, 36, 253, 23),
 ];
 
+#[cfg(test)]
 pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 154] = [
     mission_actor_keyframe(52, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(56, [0, 0, 0, 0, 0, 0, 0]),
@@ -915,10 +918,9 @@ const ENEMY_LASER_TRACK_4: [MissionProjectileKeyframe; 17] = [
     mission_projectile_keyframe(652, [-11_564, -4_033, 9_349, 246, 37, 7, 62]),
 ];
 
-const ENEMY_LASER_TRACK_5: [MissionProjectileKeyframe; 1] = [mission_projectile_keyframe(
-    656,
-    [6_051, -4_000, 9_878, 246, 37, 2, 62],
-)];
+const ENEMY_LASER_TRACK_5: [MissionProjectileKeyframe; 1] = [
+    mission_projectile_keyframe(656, [6_051, -4_000, 9_878, 246, 37, 2, 62]),
+];
 
 pub(super) const ENEMY_LASER_KEYFRAME_TRACKS: [&[MissionProjectileKeyframe]; 6] = [
     &ENEMY_LASER_TRACK_0,

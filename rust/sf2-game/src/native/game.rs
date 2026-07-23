@@ -12,10 +12,11 @@ use super::object::{
     FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
     FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
     HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
-    InterceptionMissileFlightState, InterceptionMissileSteering, Object, ObjectActivity, ObjectId,
-    ObjectKind, PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase,
-    PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState,
-    ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
+    InterceptionMissileFlightState, InterceptionMissileSteering, LeonRivalFlightPhase,
+    LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind,
+    PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState,
+    PlayerProjectileKind, PlayerProjectileState, ReengagementFighterFlightState,
+    ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::state::{
@@ -47,6 +48,8 @@ mod fighter_intercept_projectiles;
 mod final_pursuer;
 #[path = "leon_duel.rs"]
 mod leon_duel;
+#[path = "leon_duel_rival.rs"]
+mod leon_duel_rival;
 #[path = "leon_pressure.rs"]
 mod leon_pressure;
 #[path = "mirage_dragon.rs"]
@@ -138,20 +141,20 @@ const FIGHTER_INTERCEPT_TARGET_COUNT: usize = 3;
 const PIGMA_HEALTH: u8 = 100;
 const PIGMA_ATTACK_POWER: u8 = 4;
 const PIGMA_SCORE_AWARD: u32 = 1_000;
-const PIGMA_APPROACH_SPEED: u8 = 100;
-const PIGMA_APPROACH_ACCELERATION: u8 = 1;
-const PIGMA_MANEUVER_SPEED: u8 = 70;
-const PIGMA_MANEUVER_ACCELERATION: u8 = 5;
+const RIVAL_APPROACH_SPEED: u8 = 100;
+const RIVAL_APPROACH_ACCELERATION: u8 = 1;
+const RIVAL_MANEUVER_SPEED: u8 = 70;
+const RIVAL_MANEUVER_ACCELERATION: u8 = 5;
 const PIGMA_DECELERATION_SPEED: u8 = 40;
 const PIGMA_DECELERATION_RATE: u8 = 5;
 const PIGMA_ESCAPE_SPEED: u8 = 10;
 const PIGMA_ESCAPE_DECELERATION: u8 = 1;
-const PIGMA_COMBAT_ALTITUDE: i16 = -4_000;
+const RIVAL_COMBAT_ALTITUDE: i16 = -4_000;
 const PIGMA_SECOND_APPROACH_ALTITUDE_OFFSET: i16 = 600;
 const PIGMA_SECOND_APPROACH_INITIAL_BANK: i8 = -10;
 const PIGMA_SECOND_APPROACH_VERTICAL_STEP: i16 = -60;
 const PIGMA_ESCAPE_YAW_STEP: i8 = -2;
-const PIGMA_APPROACH_ANGLE_CHASE_SHIFT: u32 = 3;
+const RIVAL_APPROACH_ANGLE_CHASE_SHIFT: u32 = 3;
 const PIGMA_PLAYER_FACING_CHASE_SHIFT: u32 = 2;
 const PIGMA_PLAYER_PITCH_LEVEL_CHASE_SHIFT: u32 = 3;
 const PIGMA_SECOND_APPROACH_WAVE: [i8; 10] = [20, -18, 16, -14, 12, -10, 8, -6, 4, -2];
@@ -1473,14 +1476,14 @@ impl PlayerTargetTiming {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PigmaApproachSteering {
+enum RivalApproachSteering {
     EntryClimb,
     EntryDive,
     SecondClimb,
     SecondDive,
 }
 
-impl PigmaApproachSteering {
+impl RivalApproachSteering {
     const fn pitch_target(self) -> Angle {
         let target = match self {
             Self::EntryClimb | Self::SecondClimb => 40,
@@ -1534,7 +1537,7 @@ impl PigmaPlayerAltitudeTiming {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PigmaRivalAction {
     BeginApproach,
-    AdvanceApproach(PigmaApproachSteering),
+    AdvanceApproach(RivalApproachSteering),
     BeginCombatManeuver,
     BeginAttack,
     MaintainCombatAltitude,
@@ -1551,6 +1554,18 @@ enum PigmaRivalAction {
     TurnAwayAndAdvance,
     ChasePlayerAltitude(PigmaPlayerAltitudeTiming),
     ApplyEscapeWobble,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeonRivalAction {
+    BeginApproach,
+    AdvanceApproach(RivalApproachSteering),
+    PrepareApproachAdvance(RivalApproachSteering),
+    FinishPreparedApproachAdvance,
+    BeginCombatManeuver,
+    MaintainCombatAltitude,
+    ChaseRollToLevel,
+    Advance,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7243,6 +7258,13 @@ impl Game {
         rival.base.flags.visible = false;
         rival.base.flags.collision_disabled = true;
         rival.base.flags.casts_shadow = false;
+        rival.extension.activity = ObjectActivity::LeonRivalFlight(LeonRivalFlightState {
+            phase: LeonRivalFlightPhase::AwaitingEntrance,
+            movement_phase: LeonRivalMovementPhase::Ready,
+            target_speed: 0,
+            acceleration: 0,
+            motion_steps_elapsed: 0,
+        });
         self.leon_rival = Some(
             self.state
                 .objects
@@ -9209,29 +9231,10 @@ impl Game {
     }
 
     fn update_leon_rival(&mut self, retail_frame: u16) {
-        let keyframes = &leon_duel::RIVAL_KEYFRAMES;
-        if retail_frame < keyframes[0].retail_frame {
+        if retail_frame < leon_duel_rival::PRESENTATION_START_RETAIL_FRAME {
             return;
         }
-        let (start, end) =
-            enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-        let presentation = if retail_frame >= end.retail_frame {
-            end.presentation
-        } else {
-            match (start.presentation, end.presentation) {
-                (
-                    MissionActorPresentation::Present(start_pose),
-                    MissionActorPresentation::Present(end_pose),
-                ) => MissionActorPresentation::Present(interpolate_encounter_pose(
-                    start_pose,
-                    end_pose,
-                    retail_frame.saturating_sub(start.retail_frame),
-                    end.retail_frame.saturating_sub(start.retail_frame),
-                )),
-                (presentation, _) => presentation,
-            }
-        };
-        if presentation == MissionActorPresentation::Departed {
+        if retail_frame >= leon_duel_rival::DEPARTURE_RETAIL_FRAME {
             let destruction_in_progress = self
                 .leon_rival
                 .and_then(|id| self.state.objects.get(id))
@@ -9259,26 +9262,38 @@ impl Game {
         if object.base.explosion_timer > 0 || object.base.flags.exploding {
             return;
         }
-        match presentation {
-            MissionActorPresentation::Present(pose) => {
-                object.base.flags.active = true;
-                object.base.flags.visible = true;
-                object.base.flags.collision_disabled = false;
-                object.base.position = pose.position;
-                object.base.pitch = Angle::from_units(pose.pitch);
-                object.base.yaw = Angle::from_units(pose.yaw);
-                object.base.roll = Angle::from_units(pose.roll);
-                object.base.speed = pose.speed;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Inactive => {
-                object.base.flags.active = false;
-                object.base.flags.visible = false;
-                object.base.flags.collision_disabled = true;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Departed => unreachable!(),
+        let ObjectActivity::LeonRivalFlight(mut flight) = object.extension.activity else {
+            return;
+        };
+        if retail_frame == leon_duel_rival::PRESENTATION_START_RETAIL_FRAME {
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = false;
+            object.base.position = Vector3::default();
+            object.base.pitch = Angle::ZERO;
+            object.base.yaw = Angle::ZERO;
+            object.base.roll = Angle::ZERO;
+            object.base.speed = 0;
+            object.base.velocity = Vector3::default();
         }
+        if retail_frame == leon_duel_rival::FLIGHT_START_RETAIL_FRAME
+            && flight.phase == LeonRivalFlightPhase::AwaitingEntrance
+        {
+            let pose = leon_duel_rival::INITIAL_POSE;
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = false;
+            object.base.position = pose.position;
+            object.base.pitch = Angle::from_units(pose.pitch);
+            object.base.yaw = Angle::from_units(pose.yaw);
+            object.base.roll = Angle::from_units(pose.roll);
+            object.base.speed = pose.speed;
+            object.base.velocity = Vector3::default();
+        }
+        for &action in leon_duel_rival::actions(retail_frame) {
+            apply_leon_rival_action(object, &mut flight, action);
+        }
+        object.extension.activity = ObjectActivity::LeonRivalFlight(flight);
     }
 
     fn update_mirage_dragon_presentation(&mut self, retail_frame: u16) {
@@ -10467,7 +10482,8 @@ impl Game {
                 | ObjectActivity::FighterInterceptFlight(_)
                 | ObjectActivity::InterceptionMissileFlight(_)
                 | ObjectActivity::HostileProjectileFlight(_)
-                | ObjectActivity::PigmaRivalFlight(_) => continue,
+                | ObjectActivity::PigmaRivalFlight(_)
+                | ObjectActivity::LeonRivalFlight(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
             if matches!(
@@ -11607,10 +11623,42 @@ fn advance_hostile_projectile(
 }
 
 fn advance_pigma_rival(object: &mut Object, flight: &mut PigmaRivalFlightState) {
-    let difference = i16::from(flight.target_speed) - i16::from(object.base.speed);
-    let adjustment = difference
-        .unsigned_abs()
-        .min(u16::from(flight.acceleration)) as u8;
+    advance_rival(
+        object,
+        flight.target_speed,
+        flight.acceleration,
+        &mut flight.motion_steps_elapsed,
+    );
+}
+
+fn advance_leon_rival(object: &mut Object, flight: &mut LeonRivalFlightState) {
+    debug_assert_eq!(flight.movement_phase, LeonRivalMovementPhase::Ready);
+    advance_rival(
+        object,
+        flight.target_speed,
+        flight.acceleration,
+        &mut flight.motion_steps_elapsed,
+    );
+}
+
+fn advance_rival(
+    object: &mut Object,
+    target_speed: u8,
+    acceleration: u8,
+    motion_steps_elapsed: &mut u16,
+) {
+    prepare_rival_advance(object, target_speed, acceleration, motion_steps_elapsed);
+    finish_prepared_rival_advance(object);
+}
+
+fn prepare_rival_advance(
+    object: &mut Object,
+    target_speed: u8,
+    acceleration: u8,
+    motion_steps_elapsed: &mut u16,
+) {
+    let difference = i16::from(target_speed) - i16::from(object.base.speed);
+    let adjustment = difference.unsigned_abs().min(u16::from(acceleration)) as u8;
     object.base.speed = if difference > 0 {
         object.base.speed.saturating_add(adjustment)
     } else if difference < 0 {
@@ -11625,10 +11673,42 @@ fn advance_pigma_rival(object: &mut Object, flight: &mut PigmaRivalFlightState) 
         MISSION_ENCOUNTER_POSITION_SCALE,
     );
     object.base.velocity = velocity;
+    *motion_steps_elapsed = motion_steps_elapsed.saturating_add(1);
+}
+
+fn finish_prepared_rival_advance(object: &mut Object) {
+    let velocity = object.base.velocity;
     object.base.position.x = object.base.position.x.wrapping_add(velocity.x);
     object.base.position.y = object.base.position.y.wrapping_add(velocity.y);
     object.base.position.z = object.base.position.z.wrapping_add(velocity.z);
-    flight.motion_steps_elapsed = flight.motion_steps_elapsed.saturating_add(1);
+}
+
+fn apply_rival_approach_steering(object: &mut Object, steering: RivalApproachSteering) {
+    let mut roll = object.base.roll.units();
+    let mut pitch = object.base.pitch.units();
+    sf_core::snes_trig::achase_angle_8(
+        &mut roll,
+        steering.roll_target().units(),
+        RIVAL_APPROACH_ANGLE_CHASE_SHIFT,
+    );
+    sf_core::snes_trig::achase_angle_8(
+        &mut pitch,
+        steering.pitch_target().units(),
+        RIVAL_APPROACH_ANGLE_CHASE_SHIFT,
+    );
+    object.base.roll = Angle::from_units(roll);
+    object.base.pitch = Angle::from_units(pitch);
+    object.base.yaw = object.base.yaw.wrapping_add(steering.yaw_step());
+}
+
+fn chase_rival_roll_to_level(object: &mut Object) {
+    let mut roll = object.base.roll.units();
+    sf_core::snes_trig::achase_angle_8(
+        &mut roll,
+        Angle::ZERO.units(),
+        RIVAL_APPROACH_ANGLE_CHASE_SHIFT,
+    );
+    object.base.roll = Angle::from_units(roll);
 }
 
 fn chase_pigma_player_altitude(current: i16, target: i16) -> i16 {
@@ -11656,46 +11736,26 @@ fn apply_pigma_rival_action(
     match action {
         PigmaRivalAction::BeginApproach => {
             flight.phase = PigmaRivalFlightPhase::Approach;
-            flight.target_speed = PIGMA_APPROACH_SPEED;
-            flight.acceleration = PIGMA_APPROACH_ACCELERATION;
+            flight.target_speed = RIVAL_APPROACH_SPEED;
+            flight.acceleration = RIVAL_APPROACH_ACCELERATION;
         }
         PigmaRivalAction::AdvanceApproach(steering) => {
-            let mut roll = object.base.roll.units();
-            let mut pitch = object.base.pitch.units();
-            sf_core::snes_trig::achase_angle_8(
-                &mut roll,
-                steering.roll_target().units(),
-                PIGMA_APPROACH_ANGLE_CHASE_SHIFT,
-            );
-            sf_core::snes_trig::achase_angle_8(
-                &mut pitch,
-                steering.pitch_target().units(),
-                PIGMA_APPROACH_ANGLE_CHASE_SHIFT,
-            );
-            object.base.roll = Angle::from_units(roll);
-            object.base.pitch = Angle::from_units(pitch);
-            object.base.yaw = object.base.yaw.wrapping_add(steering.yaw_step());
+            apply_rival_approach_steering(object, steering);
             advance_pigma_rival(object, flight);
         }
         PigmaRivalAction::BeginCombatManeuver => {
             flight.phase = PigmaRivalFlightPhase::CombatManeuver;
-            flight.target_speed = PIGMA_MANEUVER_SPEED;
-            flight.acceleration = PIGMA_MANEUVER_ACCELERATION;
+            flight.target_speed = RIVAL_MANEUVER_SPEED;
+            flight.acceleration = RIVAL_MANEUVER_ACCELERATION;
         }
         PigmaRivalAction::BeginAttack => {
             flight.phase = PigmaRivalFlightPhase::Attack;
         }
         PigmaRivalAction::MaintainCombatAltitude => {
-            object.base.position.y = PIGMA_COMBAT_ALTITUDE;
+            object.base.position.y = RIVAL_COMBAT_ALTITUDE;
         }
         PigmaRivalAction::ChaseRollToLevel => {
-            let mut roll = object.base.roll.units();
-            sf_core::snes_trig::achase_angle_8(
-                &mut roll,
-                Angle::ZERO.units(),
-                PIGMA_APPROACH_ANGLE_CHASE_SHIFT,
-            );
-            object.base.roll = Angle::from_units(roll);
+            chase_rival_roll_to_level(object);
         }
         PigmaRivalAction::FacePlayerYawAndLevelPitch(timing) => {
             let target = timing.select(previous_player_position, player_position);
@@ -11744,8 +11804,8 @@ fn apply_pigma_rival_action(
         PigmaRivalAction::Advance => advance_pigma_rival(object, flight),
         PigmaRivalAction::BeginSecondApproach => {
             flight.phase = PigmaRivalFlightPhase::SecondApproach;
-            flight.target_speed = PIGMA_APPROACH_SPEED;
-            flight.acceleration = PIGMA_APPROACH_ACCELERATION;
+            flight.target_speed = RIVAL_APPROACH_SPEED;
+            flight.acceleration = RIVAL_APPROACH_ACCELERATION;
             flight.second_approach_wave_step = 0;
             object.base.position.y = object
                 .base
@@ -11758,7 +11818,7 @@ fn apply_pigma_rival_action(
                 .wrapping_add(PIGMA_SECOND_APPROACH_INITIAL_BANK);
         }
         PigmaRivalAction::LaunchSecondApproach => {
-            object.base.speed = PIGMA_APPROACH_SPEED;
+            object.base.speed = RIVAL_APPROACH_SPEED;
             advance_pigma_rival(object, flight);
         }
         PigmaRivalAction::ApplySecondApproachWave => {
@@ -11802,6 +11862,53 @@ fn apply_pigma_rival_action(
             object.base.roll = object.base.roll.wrapping_add(PIGMA_ESCAPE_WOBBLE[index]);
             flight.escape_wobble_step = flight.escape_wobble_step.wrapping_add(1);
         }
+    }
+}
+
+fn apply_leon_rival_action(
+    object: &mut Object,
+    flight: &mut LeonRivalFlightState,
+    action: LeonRivalAction,
+) {
+    match action {
+        LeonRivalAction::BeginApproach => {
+            flight.phase = LeonRivalFlightPhase::Approach;
+            flight.target_speed = RIVAL_APPROACH_SPEED;
+            flight.acceleration = RIVAL_APPROACH_ACCELERATION;
+        }
+        LeonRivalAction::AdvanceApproach(steering) => {
+            apply_rival_approach_steering(object, steering);
+            advance_leon_rival(object, flight);
+        }
+        LeonRivalAction::PrepareApproachAdvance(steering) => {
+            debug_assert_eq!(flight.movement_phase, LeonRivalMovementPhase::Ready);
+            apply_rival_approach_steering(object, steering);
+            prepare_rival_advance(
+                object,
+                flight.target_speed,
+                flight.acceleration,
+                &mut flight.motion_steps_elapsed,
+            );
+            flight.movement_phase = LeonRivalMovementPhase::PreparedAdvance;
+        }
+        LeonRivalAction::FinishPreparedApproachAdvance => {
+            debug_assert_eq!(
+                flight.movement_phase,
+                LeonRivalMovementPhase::PreparedAdvance
+            );
+            finish_prepared_rival_advance(object);
+            flight.movement_phase = LeonRivalMovementPhase::Ready;
+        }
+        LeonRivalAction::BeginCombatManeuver => {
+            flight.phase = LeonRivalFlightPhase::CombatManeuver;
+            flight.target_speed = RIVAL_MANEUVER_SPEED;
+            flight.acceleration = RIVAL_MANEUVER_ACCELERATION;
+        }
+        LeonRivalAction::MaintainCombatAltitude => {
+            object.base.position.y = RIVAL_COMBAT_ALTITUDE;
+        }
+        LeonRivalAction::ChaseRollToLevel => chase_rival_roll_to_level(object),
+        LeonRivalAction::Advance => advance_leon_rival(object, flight),
     }
 }
 
@@ -17377,6 +17484,70 @@ mod tests {
 
         assert_eq!(retained_poses, RETAINED_RIVAL_POSE_COUNT);
         assert_eq!(game.state().mission.score, PIGMA_SCORE_AWARD);
+        assert_eq!(game.state().mission.objects_destroyed, 1);
+    }
+
+    #[test]
+    fn typed_leon_rival_flight_matches_every_oracle_boundary() {
+        const RETAINED_RIVAL_POSE_COUNT: usize = 153;
+
+        let mut game = Game::new();
+        game.spawn_leon_rival().unwrap();
+        let rival_id = game.leon_rival.unwrap();
+        let mut retained_poses = 0;
+
+        for retail_frame in (0..=leon_duel_rival::DEPARTURE_RETAIL_FRAME)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            game.update_leon_rival(retail_frame);
+
+            let expected = leon_duel::RIVAL_KEYFRAMES
+                .iter()
+                .find(|keyframe| keyframe.retail_frame == retail_frame);
+            let Some(expected) = expected else {
+                let object = game.state().objects.get(rival_id).unwrap();
+                assert!(!object.base.flags.active, "frame {retail_frame}");
+                assert!(!object.base.flags.visible, "frame {retail_frame}");
+                assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                continue;
+            };
+            match expected.presentation {
+                MissionActorPresentation::Present(pose) => {
+                    retained_poses += 1;
+                    let object = game.state().objects.get(rival_id).unwrap_or_else(|| {
+                        panic!("Leon departed before retail frame {retail_frame}")
+                    });
+                    assert_eq!(object.base.position, pose.position, "frame {retail_frame}");
+                    assert_eq!(
+                        object.base.pitch.units(),
+                        pose.pitch,
+                        "frame {retail_frame}"
+                    );
+                    assert_eq!(object.base.yaw.units(), pose.yaw, "frame {retail_frame}");
+                    assert_eq!(object.base.roll.units(), pose.roll, "frame {retail_frame}");
+                    assert_eq!(object.base.speed, pose.speed, "frame {retail_frame}");
+                    assert!(object.base.flags.active, "frame {retail_frame}");
+                    assert!(object.base.flags.visible, "frame {retail_frame}");
+                    assert!(
+                        !object.base.flags.collision_disabled,
+                        "frame {retail_frame}"
+                    );
+                    assert!(matches!(
+                        object.extension.activity,
+                        ObjectActivity::LeonRivalFlight(_)
+                    ));
+                }
+                MissionActorPresentation::Departed => {
+                    assert!(game.leon_rival.is_none(), "frame {retail_frame}");
+                }
+                MissionActorPresentation::Inactive => {
+                    panic!("Leon oracle unexpectedly becomes inactive at frame {retail_frame}")
+                }
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_RIVAL_POSE_COUNT);
+        assert_eq!(game.state().mission.score, LEON_SCORE_AWARD);
         assert_eq!(game.state().mission.objects_destroyed, 1);
     }
 

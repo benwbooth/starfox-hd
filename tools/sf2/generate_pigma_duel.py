@@ -333,10 +333,16 @@ def rust_source(
     )
     rival_import = []
     if rival_test_only:
-        actor_helpers = [
-            "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,",
-            "    MissionPlayerKeyframe,",
-        ]
+        if any(record.projectiles for record in records) and not projectiles_test_only:
+            actor_helpers = [
+                "    mission_camera_keyframe, mission_player_keyframe, mission_projectile_keyframe,",
+                "    MissionCameraKeyframe, MissionPlayerKeyframe, MissionProjectileKeyframe,",
+            ]
+        else:
+            actor_helpers = [
+                "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,",
+                "    MissionPlayerKeyframe,",
+            ]
         rival_import = [
             "#[cfg(test)]",
             "use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};",
@@ -479,6 +485,11 @@ def main() -> None:
         type=int,
         help="ignore raw oracle records before this elapsed frame",
     )
+    parser.add_argument(
+        "--rival-test-only",
+        action="store_true",
+        help="retain rival poses only as an oracle-backed test fixture",
+    )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
@@ -517,7 +528,9 @@ def main() -> None:
         args.duel_name,
         args.generator_name,
         projectiles_test_only=args.output.resolve() == DEFAULT_OUTPUT.resolve(),
-        rival_test_only=args.output.resolve() == DEFAULT_OUTPUT.resolve(),
+        rival_test_only=(
+            args.rival_test_only or args.output.resolve() == DEFAULT_OUTPUT.resolve()
+        ),
     )
     if args.check:
         if not args.output.is_file() or args.output.read_text(encoding="utf-8") != generated:
