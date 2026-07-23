@@ -32,9 +32,9 @@ use super::state::{
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     ResultsChoice, ResultsPhase, ResultsState, StrategicEncounter, StrategicMapActor,
     StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
-    StrategicThreatCount, TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus,
-    TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion, WalkerJumpState,
-    WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
+    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaMissionState,
+    TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
+    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -102,19 +102,95 @@ const NINTENDO_LOGO_TICKS: u32 = 58;
 const FORMATION_INTRO_TICKS: u32 = 240;
 const RETAIL_PRESENTATION_FRAMES_PER_TICK: u32 = 4;
 const BRIEFING_PRESENTATION_RETAIL_FRAMES: u32 = 680;
-const STRATEGIC_OVERVIEW_RETAIL_FRAMES: u32 = 2_576;
 const PILOT_SELECTION_REVEAL_RETAIL_FRAMES: u32 = 92;
 const PILOT_READY_RETAIL_FRAMES: u32 = 172;
 const PILOT_LAUNCH_RETAIL_FRAMES: u32 = 228;
 const BRIEFING_PRESENTATION_TICKS: u32 =
     BRIEFING_PRESENTATION_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
-const STRATEGIC_OVERVIEW_TICKS: u32 =
-    STRATEGIC_OVERVIEW_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_SELECTION_REVEAL_TICKS: u32 =
     PILOT_SELECTION_REVEAL_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_READY_TICKS: u32 =
     PILOT_READY_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_LAUNCH_TICKS: u32 = PILOT_LAUNCH_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+const STRATEGIC_OPENING_COMPLETION_TICK: u16 = 940;
+const STRATEGIC_OPENING_PROMPT_COUNT: usize = 11;
+
+#[derive(Clone, Copy)]
+struct StrategicOpeningBoundary {
+    page: StrategicOpeningPage,
+    prompt_tick: u16,
+    resume_tick: u16,
+    next_page: StrategicOpeningPage,
+}
+
+const STRATEGIC_OPENING_BOUNDARIES: [StrategicOpeningBoundary; STRATEGIC_OPENING_PROMPT_COUNT] = [
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::TerribleNews,
+        prompt_tick: 131,
+        resume_tick: 161,
+        next_page: StrategicOpeningPage::AndrossReturned,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::AndrossReturned,
+        prompt_tick: 185,
+        resume_tick: 215,
+        next_page: StrategicOpeningPage::AssaultUnderway,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::AssaultUnderway,
+        prompt_tick: 239,
+        resume_tick: 269,
+        next_page: StrategicOpeningPage::BattleCarriers,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::BattleCarriers,
+        prompt_tick: 294,
+        resume_tick: 324,
+        next_page: StrategicOpeningPage::ForcesAdvancing,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::ForcesAdvancing,
+        prompt_tick: 340,
+        resume_tick: 370,
+        next_page: StrategicOpeningPage::EnemyBases,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::EnemyBases,
+        prompt_tick: 393,
+        resume_tick: 423,
+        next_page: StrategicOpeningPage::PlanetaryMissiles,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::PlanetaryMissiles,
+        prompt_tick: 447,
+        resume_tick: 477,
+        next_page: StrategicOpeningPage::RequestAssistance,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::RequestAssistance,
+        prompt_tick: 502,
+        resume_tick: 532,
+        next_page: StrategicOpeningPage::MinorDamage,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::MinorDamage,
+        prompt_tick: 555,
+        resume_tick: 585,
+        next_page: StrategicOpeningPage::TotalDamage,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::TotalDamage,
+        prompt_tick: 610,
+        resume_tick: 640,
+        next_page: StrategicOpeningPage::DefendCorneria,
+    },
+    StrategicOpeningBoundary {
+        page: StrategicOpeningPage::DefendCorneria,
+        prompt_tick: 664,
+        resume_tick: 694,
+        next_page: StrategicOpeningPage::GoodLuck,
+    },
+];
 const MISSION_STAGE_LOAD_RETAIL_FRAMES: u32 = 50;
 const MISSION_ACTIVE_RETAIL_FRAMES: u32 = 320;
 const MISSION_STAGE_LOAD_TICKS: u32 =
@@ -4782,6 +4858,7 @@ impl Game {
             GameMode::Briefing => {
                 if self.confirm_pressed() || self.state.mode_frame >= BRIEFING_PRESENTATION_TICKS {
                     self.state.strategic_map.phase = StrategicMapPhase::OpeningOverview;
+                    self.state.strategic_map.opening = StrategicOpeningState::default();
                     self.state.campaign.elapsed_frames = 0;
                     self.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
                     self.state.strategic_map.destination = INITIAL_PLAYER_MAP_POSITION;
@@ -4795,11 +4872,7 @@ impl Game {
                 self.state.strategic_map.marker_phase =
                     (self.state.strategic_map.marker_phase + 1) % MAP_MARKER_PHASE_COUNT;
                 match self.state.strategic_map.phase {
-                    StrategicMapPhase::OpeningOverview
-                        if self.state.mode_frame >= STRATEGIC_OVERVIEW_TICKS =>
-                    {
-                        self.begin_pilot_selection();
-                    }
+                    StrategicMapPhase::OpeningOverview => self.update_strategic_opening(),
                     StrategicMapPhase::Tutorial(StrategicMapTutorialPage::Movement)
                         if self.confirm_pressed() =>
                     {
@@ -4935,7 +5008,7 @@ impl Game {
                             self.begin_campaign_sortie()?;
                         }
                     }
-                    StrategicMapPhase::OpeningOverview | StrategicMapPhase::Tutorial(_) => {}
+                    StrategicMapPhase::Tutorial(_) => {}
                 }
             }
             GameMode::PilotSelection => self.update_pilot_selection(),
@@ -4946,6 +5019,36 @@ impl Game {
             GameMode::Intro(_) => {}
         }
         Ok(())
+    }
+
+    fn update_strategic_opening(&mut self) {
+        let opening = self.state.strategic_map.opening;
+        if opening.page == StrategicOpeningPage::GoodLuck {
+            if opening.presentation_tick + 1 >= STRATEGIC_OPENING_COMPLETION_TICK {
+                self.begin_pilot_selection();
+            } else {
+                self.state.strategic_map.opening.presentation_tick += 1;
+            }
+            return;
+        }
+
+        let boundary = STRATEGIC_OPENING_BOUNDARIES
+            .iter()
+            .copied()
+            .find(|boundary| boundary.page == opening.page)
+            .expect("every interactive strategic opening page has a boundary");
+        if self.confirm_pressed() {
+            if opening.presentation_tick < boundary.prompt_tick {
+                self.state.strategic_map.opening.presentation_tick = boundary.prompt_tick;
+            } else {
+                self.state.strategic_map.opening.presentation_tick = boundary.resume_tick;
+                self.state.strategic_map.opening.page = boundary.next_page;
+            }
+        } else if opening.presentation_tick + 1 >= boundary.resume_tick {
+            self.state.strategic_map.opening.presentation_tick = boundary.prompt_tick;
+        } else {
+            self.state.strategic_map.opening.presentation_tick += 1;
+        }
     }
 
     fn begin_pilot_selection(&mut self) {
@@ -13613,6 +13716,20 @@ mod tests {
         game.tick(0).unwrap();
     }
 
+    fn acknowledge_strategic_opening(game: &mut Game) {
+        for boundary in STRATEGIC_OPENING_BOUNDARIES {
+            while game.state.strategic_map.opening.presentation_tick < boundary.prompt_tick {
+                game.tick(0).unwrap();
+            }
+            assert_eq!(game.state.strategic_map.opening.page, boundary.page);
+            press(game, Button::B);
+            assert_eq!(game.state.strategic_map.opening.page, boundary.next_page);
+        }
+        while game.mode() == GameMode::StrategicMap {
+            game.tick(0).unwrap();
+        }
+    }
+
     fn leon_pursuit_input(game: &Game, combat_tick: usize, charge_ticks: usize) -> u16 {
         let player = game
             .state()
@@ -14552,6 +14669,48 @@ mod tests {
     }
 
     #[test]
+    fn strategic_opening_holds_the_retail_prompt_until_acknowledged() {
+        let first_boundary = STRATEGIC_OPENING_BOUNDARIES[0];
+        let mut game = Game::new();
+        game.state.mode = GameMode::StrategicMap;
+        game.state.strategic_map.phase = StrategicMapPhase::OpeningOverview;
+
+        for _ in 0..first_boundary.resume_tick + first_boundary.prompt_tick {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(
+            game.state.strategic_map.opening.page,
+            StrategicOpeningPage::TerribleNews
+        );
+        assert!(
+            game.state.strategic_map.opening.presentation_tick >= first_boundary.prompt_tick
+        );
+        assert!(game.state.strategic_map.opening.presentation_tick < first_boundary.resume_tick);
+
+        press(&mut game, Button::B);
+        assert_eq!(
+            game.state.strategic_map.opening.page,
+            StrategicOpeningPage::AndrossReturned
+        );
+    }
+
+    #[test]
+    fn strategic_opening_requires_all_eleven_retail_acknowledgements() {
+        let mut game = Game::new();
+        game.state.mode = GameMode::StrategicMap;
+        game.state.strategic_map.phase = StrategicMapPhase::OpeningOverview;
+
+        acknowledge_strategic_opening(&mut game);
+
+        assert_eq!(game.mode(), GameMode::PilotSelection);
+        assert_eq!(
+            game.state.pilot_selection.phase,
+            PilotSelectionPhase::Revealing
+        );
+    }
+
+    #[test]
     fn pilot_menu_exposes_retail_control_choice_and_toggles_typed_flight_style() {
         let mut game = Game::new();
         game.begin_pilot_selection();
@@ -14657,9 +14816,7 @@ mod tests {
         press(&mut game, Button::B);
         assert_eq!(game.mode(), GameMode::StrategicMap);
 
-        while game.mode() == GameMode::StrategicMap {
-            game.tick(0).unwrap();
-        }
+        acknowledge_strategic_opening(&mut game);
         assert_eq!(game.mode(), GameMode::PilotSelection);
         assert_eq!(
             game.state().pilot_selection.phase,

@@ -744,9 +744,38 @@ impl Default for StrategicMapPhase {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrategicOpeningPage {
+    TerribleNews,
+    AndrossReturned,
+    AssaultUnderway,
+    BattleCarriers,
+    ForcesAdvancing,
+    EnemyBases,
+    PlanetaryMissiles,
+    RequestAssistance,
+    MinorDamage,
+    TotalDamage,
+    DefendCorneria,
+    GoodLuck,
+}
+
+impl Default for StrategicOpeningPage {
+    fn default() -> Self {
+        Self::TerribleNews
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StrategicOpeningState {
+    pub page: StrategicOpeningPage,
+    pub presentation_tick: u16,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct StrategicMapState {
     pub phase: StrategicMapPhase,
+    pub opening: StrategicOpeningState,
     pub primary_player: Option<ObjectId>,
     pub selected_target: Option<ObjectId>,
     pub player_position: super::object::Vector3,

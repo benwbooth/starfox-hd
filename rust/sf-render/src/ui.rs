@@ -14,9 +14,9 @@ use crate::renderer::{
     Sf2Difficulty, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
     Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
     Sf2ResultsChoice, Sf2ResultsPhase,
-    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
-    Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE, WINDOW_MODE_WHITE2NORM,
-    WINDOW_MODE_WHITEFADE,
+    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
+    Sf2TitleMenuItem, Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE,
+    WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
 };
 use crate::sprites::decode_4bpp_tile;
 
@@ -815,6 +815,9 @@ pub struct Ui {
     sf2_briefing_texture: TextureId,
     sf2_briefing_presentation: crate::sf2_briefing::Presentation,
     sf2_briefing_render_frame: Option<usize>,
+    sf2_opening_overview_texture: TextureId,
+    sf2_opening_overview_presentation: crate::sf2_opening_overview::Presentation,
+    sf2_opening_overview_render_frame: Option<usize>,
     sf2_title_texture: TextureId,
     sf2_title_presentation: crate::sf2_title::Presentation,
     sf2_title_render_key: Option<Sf2TitleRenderKey>,
@@ -936,6 +939,14 @@ impl Ui {
             crate::sf2_briefing::WIDTH as u32,
             crate::sf2_briefing::HEIGHT as u32,
             &sf2_briefing_initial_rgba,
+        );
+        let mut sf2_opening_overview_presentation =
+            crate::sf2_opening_overview::Presentation::decode();
+        let sf2_opening_overview_initial_rgba = sf2_opening_overview_presentation.frame_rgba(0);
+        let sf2_opening_overview_texture = gpu.create_texture_rgba(
+            crate::sf2_opening_overview::WIDTH as u32,
+            crate::sf2_opening_overview::HEIGHT as u32,
+            &sf2_opening_overview_initial_rgba,
         );
         let mut sf2_title_presentation = crate::sf2_title::Presentation::decode();
         let sf2_title_initial_rgba =
@@ -1168,6 +1179,9 @@ impl Ui {
             sf2_briefing_texture,
             sf2_briefing_presentation,
             sf2_briefing_render_frame: None,
+            sf2_opening_overview_texture,
+            sf2_opening_overview_presentation,
+            sf2_opening_overview_render_frame: None,
             sf2_title_texture,
             sf2_title_presentation,
             sf2_title_render_key: None,
@@ -1819,7 +1833,34 @@ impl Ui {
         );
     }
 
-    fn render_sf2_strategic_map(&self, gpu: &mut Gpu, _font: &mut Font, inputs: &Sf2FrameInputs) {
+    fn render_sf2_strategic_map(
+        &mut self,
+        gpu: &mut Gpu,
+        _font: &mut Font,
+        inputs: &Sf2FrameInputs,
+    ) {
+        if inputs.strategic_phase == Sf2StrategicPhase::Overview {
+            let frame_index = crate::sf2_opening_overview::frame_at_tick(
+                inputs.strategic_opening_presentation_tick,
+            );
+            if self.sf2_opening_overview_render_frame != Some(frame_index) {
+                let rgba = self
+                    .sf2_opening_overview_presentation
+                    .frame_rgba(frame_index);
+                gpu.update_texture(self.sf2_opening_overview_texture, &rgba);
+                self.sf2_opening_overview_render_frame = Some(frame_index);
+            }
+            self.textured_quad_source_frame(
+                gpu,
+                self.sf2_opening_overview_texture,
+                0,
+                0,
+                SF2_REFERENCE_WIDTH,
+                SF2_REFERENCE_HEIGHT,
+            );
+            return;
+        }
+
         let backdrop = match inputs.campaign_sorties_completed {
             0 | 1 => self.sf2_strategic_map,
             2 => self.sf2_strategic_map_escalated,

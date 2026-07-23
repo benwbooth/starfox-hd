@@ -21,9 +21,10 @@ pub use native::{
     PlayerWalkerState, RandomState, RenderFlags, RenderObject, ResultsChoice, ResultsPhase,
     ResultsState, Roster, Rotation, ShapeId, StrategicMapActor, StrategicMapActorKind,
     StrategicMapAppearance, StrategicMapPhase, StrategicMapState, StrategicMapTutorialPage,
-    TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus,
-    TitleMenuItem, TitlePage, TitleState, Vector3, WalkerJumpMotion, WalkerJumpState,
-    WalkerMotionProfile, WeaponKind, OBJECT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
+    StrategicOpeningPage, StrategicOpeningState, TitaniaMissionState, TitaniaPhase,
+    TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState,
+    Vector3, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, WeaponKind, OBJECT_CAPACITY,
+    STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[cfg(feature = "oracle-bridge")]

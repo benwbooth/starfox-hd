@@ -264,6 +264,7 @@ pub struct Sf2FrameInputs {
     pub corneria_damage_percent: u8,
     pub score: u32,
     pub campaign_sorties_completed: u16,
+    pub strategic_opening_presentation_tick: u16,
     pub strategic_phase: Sf2StrategicPhase,
     pub strategic_marker_phase: u8,
     pub strategic_player: Sf2MapPoint,

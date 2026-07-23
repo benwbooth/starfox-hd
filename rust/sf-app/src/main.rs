@@ -504,6 +504,7 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
         corneria_damage_percent: state.campaign.corneria_damage_percent,
         score: state.mission.score,
         campaign_sorties_completed: state.campaign.completed_campaign_visits(),
+        strategic_opening_presentation_tick: state.strategic_map.opening.presentation_tick,
         strategic_phase: match state.strategic_map.phase {
             StrategicMapPhase::OpeningOverview => Sf2StrategicPhase::Overview,
             StrategicMapPhase::Tutorial(_) => Sf2StrategicPhase::Tutorial,

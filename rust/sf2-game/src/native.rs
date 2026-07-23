@@ -33,7 +33,8 @@ pub use state::{
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     PlayerWalkerState, RandomState, ResultsChoice, ResultsPhase, ResultsState, Roster,
     StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
-    StrategicMapState, StrategicMapTutorialPage, TitaniaMissionState, TitaniaPhase,
-    TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState,
-    WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, STRATEGIC_MAP_ACTOR_CAPACITY,
+    StrategicMapState, StrategicMapTutorialPage, StrategicOpeningPage, StrategicOpeningState,
+    TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus,
+    TitleMenuItem, TitlePage, TitleState, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile,
+    STRATEGIC_MAP_ACTOR_CAPACITY,
 };

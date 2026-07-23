@@ -281,11 +281,28 @@ impl Input {
             const FRONT_END_CONFIRM_TICKS: [u32; 6] = [850, 880, 910, 980, 1_010, 1_040];
             const FRONT_END_START_TICKS: [u32; 4] = [0, 60, 120, 180];
             const MISSION_INPUT_START_TICK: u32 = 1_050;
+            const DYNAMIC_CONFIRM_CADENCE_TICKS: u32 = 2;
             if FRONT_END_START_TICKS.contains(&t) {
                 return pad::START;
             }
             if FRONT_END_CONFIRM_TICKS.contains(&t) {
                 return pad::B;
+            }
+            if let Some(game) = sf2_game {
+                let dynamic_confirmation = matches!(
+                    game.mode(),
+                    Sf2Mode::Briefing | Sf2Mode::PilotSelection
+                ) || matches!(
+                    game.state().strategic_map.phase,
+                    StrategicMapPhase::OpeningOverview | StrategicMapPhase::Tutorial(_)
+                ) && game.mode() == Sf2Mode::StrategicMap;
+                if dynamic_confirmation {
+                    return if t % DYNAMIC_CONFIRM_CADENCE_TICKS == 0 {
+                        pad::B
+                    } else {
+                        0
+                    };
+                }
             }
             if t < MISSION_INPUT_START_TICK {
                 return 0;

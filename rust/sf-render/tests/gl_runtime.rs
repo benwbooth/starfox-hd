@@ -45,6 +45,7 @@ const SF2_MAP_WIDTH: i32 = 256;
 const SF2_MAP_HEIGHT: i32 = 224;
 const SF2_TITLE_MISSION_FNV1A: u32 = 0xA8CAEC13;
 const SF2_BRIEFING_MESSAGE_FNV1A: u32 = 0x86663F26;
+const SF2_OPENING_REPORT_FNV1A: u32 = 0x8D1501C7;
 const SF2_PILOT_SELECTION_FOX_FNV1A: u32 = 0xC2AC3D23;
 const DITHER_TEST_WIDTH: u32 = 512;
 const DITHER_TEST_HEIGHT: u32 = 448;
@@ -120,8 +121,37 @@ fn gl_runtime_suite() {
     check_sf1_ending_recap(&config);
     check_sf2_title_exact(&config);
     check_sf2_briefing_exact(&config);
+    check_sf2_opening_overview_exact(&config);
     check_sf2_pilot_selection_exact(&config);
     check_sf2_strategic_returns_exact(&config);
+}
+
+fn check_sf2_opening_overview_exact(config: &RendererConfig) {
+    const FIRST_REPORT_PRESENTATION_TICK: u16 = 131;
+
+    let mut renderer = match Renderer::new_headless(SF2_MAP_WIDTH, SF2_MAP_HEIGHT, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping exact SF2 opening-overview check: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    let mut inputs = sf2_inputs(Sf2Mode::StrategicMap);
+    let sf2 = inputs.sf2.as_mut().expect("SF2 strategic-map inputs");
+    sf2.strategic_phase = sf_render::renderer::Sf2StrategicPhase::Overview;
+    sf2.strategic_opening_presentation_tick = FIRST_REPORT_PRESENTATION_TICK;
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+        (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+    });
+    assert_eq!(
+        hash, SF2_OPENING_REPORT_FNV1A,
+        "SF2 opening-overview frame drifted from the retail capture"
+    );
+    renderer.shutdown();
 }
 
 fn check_sf2_briefing_exact(config: &RendererConfig) {
@@ -724,6 +754,7 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
             corneria_damage_percent: 0,
             score: 0,
             campaign_sorties_completed: 0,
+            strategic_opening_presentation_tick: 0,
             strategic_phase: sf_render::renderer::Sf2StrategicPhase::Planning,
             strategic_marker_phase: 0,
             strategic_player: sf_render::renderer::Sf2MapPoint::default(),
