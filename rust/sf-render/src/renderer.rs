@@ -237,6 +237,33 @@ pub enum Sf2MissionBackdrop {
     AstropolisVoid,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2MissionMessage {
+    FlyFasterByPressingYButton,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2MissionMessageIrisFrame {
+    ThinLine,
+    EmptyPanel,
+    SparseInterference,
+    DenseInterference,
+    FullInterference,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2MissionMessagePhase {
+    Opening(Sf2MissionMessageIrisFrame),
+    Open { portrait_talking: bool },
+    Closing(Sf2MissionMessageIrisFrame),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sf2MissionMessageInputs {
+    pub message: Sf2MissionMessage,
+    pub phase: Sf2MissionMessagePhase,
+}
+
 /// Plain typed SF2 state consumed by native UI passes. It deliberately mirrors
 /// the game-domain fields rather than a memory block or processor state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +297,7 @@ pub struct Sf2FrameInputs {
     pub item_count: u8,
     pub target_count: u8,
     pub mission_elapsed_time_tenths: u16,
+    pub mission_message: Option<Sf2MissionMessageInputs>,
     pub radar_contacts: [Option<Sf2RadarContact>; SF2_RADAR_CONTACT_CAPACITY],
     pub mode_frame: u32,
     pub elapsed_campaign_frames: u64,

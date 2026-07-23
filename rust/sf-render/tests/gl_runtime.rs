@@ -27,9 +27,10 @@ use sf_render::renderer::{
     config_from_repo_root, EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState,
     Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2EndingPhase,
     Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
-    Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
-    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
-    Sf2TitlePage, SF2_RADAR_CONTACT_CAPACITY,
+    Sf2MissionBackdrop, Sf2MissionMessage, Sf2MissionMessageInputs, Sf2MissionMessagePhase,
+    Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase, Sf2StrategicActor,
+    Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem, Sf2TitlePage,
+    SF2_RADAR_CONTACT_CAPACITY,
 };
 use sf_render::shape_data::SHAPE_EXT_ASTEROID1;
 use sf_render::shapes::{self, SHAPE_ELASER2, SHAPE_MYSHIP_4};
@@ -118,6 +119,7 @@ fn gl_runtime_suite() {
     check_sf2_texture_face(&mut renderer);
     check_sf2_native_frontend(&mut renderer);
     check_sf2_mission_backdrops(&mut renderer);
+    check_sf2_mission_message(&mut renderer);
     check_superfx_texture_face(&mut renderer);
     check_player_laser(&mut renderer);
 
@@ -847,6 +849,7 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
             item_count: 0,
             target_count: 0,
             mission_elapsed_time_tenths: SF2_TEST_MISSION_TIME_TENTHS,
+            mission_message: None,
             radar_contacts: [None; SF2_RADAR_CONTACT_CAPACITY],
             mode_frame: if mode == Sf2Mode::GameOver { 100 } else { 0 },
             elapsed_campaign_frames: 0,
@@ -932,6 +935,37 @@ fn check_sf2_mission_backdrops(renderer: &mut Renderer) {
             "SF2 {backdrop:?} did not select its own retail backdrop texture"
         );
     }
+}
+
+fn check_sf2_mission_message(renderer: &mut Renderer) {
+    const SF2_MISSION_MESSAGE_FRAME_FNV1A: u32 = 0x5004AF76;
+
+    let mut inputs = sf2_inputs(Sf2Mode::Mission);
+    inputs.sf2.as_mut().expect("SF2 mission inputs").mission_message =
+        Some(Sf2MissionMessageInputs {
+            message: Sf2MissionMessage::FlyFasterByPressingYButton,
+            phase: Sf2MissionMessagePhase::Open {
+                portrait_talking: false,
+            },
+        });
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    if let Some(path) = std::env::var_os("SF2_MISSION_MESSAGE_DUMP_PPM") {
+        let mut ppm = format!("P6\n{W} {H}\n255\n").into_bytes();
+        ppm.extend_from_slice(&pixels);
+        std::fs::write(path, ppm).expect("write requested SF2 mission message dump");
+    }
+    let hash = pixels
+        .into_iter()
+        .fold(FNV_OFFSET_BASIS, |value, byte| {
+            (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+        });
+    assert_eq!(
+        hash, SF2_MISSION_MESSAGE_FRAME_FNV1A,
+        "SF2 mission guidance presentation drifted"
+    );
 }
 
 fn check_sf2_shape(renderer: &mut Renderer) {

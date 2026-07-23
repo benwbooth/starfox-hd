@@ -26,8 +26,9 @@ use super::state::{
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
     CorneriaDefensePhase, CorneriaDefenseState, EladardMissionState, EladardPhase, EndingPhase,
     EndingState, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,
-    FlightControlStyle, GameState, IntroPhase, MapPoint, MissionId, MissionPhase, MissionVisit,
-    Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
+    FlightControlStyle, GameState, IntroPhase, MapPoint, MissionId, MissionMessage,
+    MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
+    PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
@@ -226,6 +227,26 @@ const MISSION_PLAYER_CRAFT_HIDE_RETAIL_FRAME: u16 = 350;
 const MISSION_CONTROL_HANDOFF_RETAIL_FRAME: u16 = 400;
 const MISSION_PLAYER_INPUT_START_RETAIL_FRAME: u16 = 400;
 const MISSION_PLAYER_CONTROL_START_RETAIL_FRAME: u16 = 470;
+const REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME: u16 = 3_244;
+const MISSION_MESSAGE_OPEN_CUE_RETAIL_FRAMES: u16 = 4;
+const MISSION_MESSAGE_EMPTY_PANEL_RETAIL_FRAMES: u16 = 8;
+const MISSION_MESSAGE_SPARSE_INTERFERENCE_RETAIL_FRAMES: u16 = 12;
+const MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES: u16 = 16;
+const MISSION_MESSAGE_CLOSE_CUE_RETAIL_FRAMES: u16 = 168;
+const MISSION_MESSAGE_CLOSE_START_RETAIL_FRAMES: u16 = 172;
+const MISSION_MESSAGE_EMPTY_CLOSE_RETAIL_FRAMES: u16 = 176;
+const MISSION_MESSAGE_THIN_CLOSE_RETAIL_FRAMES: u16 = 180;
+const MISSION_MESSAGE_HIDDEN_RETAIL_FRAMES: u16 = 184;
+const MISSION_MESSAGE_OPEN_TICKS: usize = ((MISSION_MESSAGE_CLOSE_START_RETAIL_FRAMES
+    - MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES)
+    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16) as usize;
+/// Slippy's authored pose at each native update while this guidance line is
+/// open, recovered from the retail presentation sequence.
+const REENGAGEMENT_GUIDANCE_PORTRAIT_TALKING: [bool; MISSION_MESSAGE_OPEN_TICKS] = [
+    true, false, true, false, true, false, false, false, false, false, false, true, true, true,
+    false, true, false, false, false, false, false, true, false, false, true, false, true, false,
+    true, true, true, false, true, true, true, false, true, false, true,
+];
 const OPENING_SORTIE_RETURN_TRIGGER_RETAIL_FRAME: u16 = 7_844;
 const OPENING_SORTIE_STRATEGIC_MAP_RETURN_RETAIL_FRAME: u16 = 8_056;
 const INITIAL_STRATEGIC_TRAVEL_TICKS: u16 = 42;
@@ -5824,6 +5845,7 @@ impl Game {
         self.state.mission.player_blaster = PlayerBlasterState::Ready;
         self.state.mission.player_damage = PlayerDamageState::Ready;
         self.state.mission.player_craft_form = PlayerCraftForm::Flight;
+        self.state.mission.message = Default::default();
         self.state.mission.player_walker = Default::default();
         self.state.mission.player_flight.pitch_accumulator = 0;
         self.state.mission.player_flight.yaw_accumulator = OPENING_FLIGHT_YAW_ACCUMULATOR;
@@ -6203,6 +6225,7 @@ impl Game {
             .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
             .min(u32::from(u16::MAX)) as u16;
         self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
+        self.update_reengagement_message(retail_frame);
 
         match self.state.mission.phase {
             MissionPhase::Loading if self.state.mode_frame >= MISSION_STAGE_LOAD_TICKS => {
@@ -6260,6 +6283,61 @@ impl Game {
             self.update_reengagement_projectiles(retail_frame, current, previous)?;
         }
         Ok(())
+    }
+
+    fn update_reengagement_message(&mut self, retail_frame: u16) {
+        if retail_frame < REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME {
+            return;
+        }
+        let elapsed = retail_frame.saturating_sub(REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME);
+        if elapsed >= MISSION_MESSAGE_HIDDEN_RETAIL_FRAMES {
+            self.state.mission.message = Default::default();
+            return;
+        }
+
+        if elapsed == MISSION_MESSAGE_OPEN_CUE_RETAIL_FRAMES {
+            self.state.audio.queue(SoundEvent::RadioMessageOpen);
+        }
+        if elapsed == MISSION_MESSAGE_CLOSE_CUE_RETAIL_FRAMES {
+            self.state.audio.queue(SoundEvent::RadioMessageClose);
+        }
+
+        let phase = if elapsed < MISSION_MESSAGE_OPEN_CUE_RETAIL_FRAMES {
+            MissionMessagePhase::Hidden
+        } else if elapsed < MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES {
+            let iris = if elapsed < MISSION_MESSAGE_EMPTY_PANEL_RETAIL_FRAMES {
+                MissionMessageIrisFrame::ThinLine
+            } else if elapsed < MISSION_MESSAGE_SPARSE_INTERFERENCE_RETAIL_FRAMES {
+                MissionMessageIrisFrame::EmptyPanel
+            } else {
+                MissionMessageIrisFrame::SparseInterference
+            };
+            MissionMessagePhase::Opening(iris)
+        } else if elapsed < MISSION_MESSAGE_CLOSE_START_RETAIL_FRAMES {
+            MissionMessagePhase::Open
+        } else {
+            let iris = if elapsed < MISSION_MESSAGE_EMPTY_CLOSE_RETAIL_FRAMES {
+                MissionMessageIrisFrame::DenseInterference
+            } else if elapsed < MISSION_MESSAGE_THIN_CLOSE_RETAIL_FRAMES {
+                MissionMessageIrisFrame::EmptyPanel
+            } else {
+                MissionMessageIrisFrame::ThinLine
+            };
+            MissionMessagePhase::Closing(iris)
+        };
+        self.state.mission.message.message =
+            Some(MissionMessage::FlyFasterByPressingYButton);
+        self.state.mission.message.phase = phase;
+        self.state.mission.message.elapsed_retail_frames = elapsed;
+        self.state.mission.message.portrait_talking = if phase == MissionMessagePhase::Open {
+            let open_tick = usize::from(
+                (elapsed - MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES)
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+            );
+            REENGAGEMENT_GUIDANCE_PORTRAIT_TALKING[open_tick]
+        } else {
+            false
+        };
     }
 
     fn update_missile_interception(&mut self) -> Result<(), Error> {
@@ -15095,7 +15173,7 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
         assert_eq!(
             game.take_sound_events(),
-            [Some(SoundEvent::RapidLaser), None, None]
+            [Some(SoundEvent::RapidLaser), None, None, None]
         );
         let rapid_id = game
             .state()
@@ -15186,7 +15264,7 @@ mod tests {
         game.tick(0).unwrap();
         assert_eq!(
             game.take_sound_events(),
-            [Some(SoundEvent::ChargedLaser), None, None]
+            [Some(SoundEvent::ChargedLaser), None, None, None]
         );
         assert_eq!(game.charge_sound(), ChargeSound::Silent);
         let charged_id = game
@@ -17575,7 +17653,7 @@ mod tests {
         }
         assert_eq!(
             game.take_sound_events(),
-            [Some(SoundEvent::HostileLaser), None, None]
+            [Some(SoundEvent::HostileLaser), None, None, None]
         );
         while game.state().mode_frame
             < SIMULTANEOUS_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
@@ -17587,6 +17665,7 @@ mod tests {
             [
                 Some(SoundEvent::HostileLaser),
                 Some(SoundEvent::HostileLaser),
+                None,
                 None,
             ]
         );
@@ -18212,6 +18291,134 @@ mod tests {
                 .hit_points,
             SECOND_RETURN_WINGMATE_SHIELD
         );
+    }
+
+    #[test]
+    fn reengagement_guidance_message_matches_the_retail_timeline_and_cues() {
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.clear_sortie_runtime();
+        game.begin_reengagement_sortie().unwrap();
+
+        let tick_before_message = REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME as u32
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK
+            - 1;
+        while game.state().mode_frame < tick_before_message {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Hidden
+        );
+
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.message.message,
+            Some(MissionMessage::FlyFasterByPressingYButton)
+        );
+        assert_eq!(game.state().mission.message.elapsed_retail_frames, 0);
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Hidden
+        );
+
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.take_sound_events(),
+            [Some(SoundEvent::RadioMessageOpen), None, None, None]
+        );
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Opening(MissionMessageIrisFrame::ThinLine)
+        );
+
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Opening(MissionMessageIrisFrame::EmptyPanel)
+        );
+
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Opening(MissionMessageIrisFrame::SparseInterference)
+        );
+
+        let fully_open_tick = (REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME as u32
+            + u32::from(MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES))
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        while game.state().mode_frame < fully_open_tick {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Open
+        );
+        assert!(game.state().mission.message.portrait_talking);
+
+        for (open_tick, portrait_talking) in REENGAGEMENT_GUIDANCE_PORTRAIT_TALKING
+            .into_iter()
+            .enumerate()
+            .skip(1)
+        {
+            let retail_frame = REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME as u32
+                + u32::from(MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES)
+                + open_tick as u32 * RETAIL_PRESENTATION_FRAMES_PER_TICK;
+            while game.state().mode_frame < retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK {
+                game.tick(0).unwrap();
+            }
+            assert_eq!(
+                game.state().mission.message.portrait_talking,
+                portrait_talking,
+                "portrait pose drifted at open tick {open_tick}"
+            );
+        }
+
+        let close_cue_tick = (REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME as u32
+            + u32::from(MISSION_MESSAGE_CLOSE_CUE_RETAIL_FRAMES))
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        while game.state().mode_frame < close_cue_tick {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Open
+        );
+        assert_eq!(
+            game.take_sound_events(),
+            [Some(SoundEvent::RadioMessageClose), None, None, None]
+        );
+
+        let close_start_tick = (REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME as u32
+            + u32::from(MISSION_MESSAGE_CLOSE_START_RETAIL_FRAMES))
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        while game.state().mode_frame < close_start_tick {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Closing(MissionMessageIrisFrame::DenseInterference)
+        );
+
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Closing(MissionMessageIrisFrame::EmptyPanel)
+        );
+
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.message.phase,
+            MissionMessagePhase::Closing(MissionMessageIrisFrame::ThinLine)
+        );
+
+        let hidden_tick = (REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME as u32
+            + u32::from(MISSION_MESSAGE_HIDDEN_RETAIL_FRAMES))
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        while game.state().mode_frame < hidden_tick {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state().mission.message, Default::default());
     }
 
     #[test]

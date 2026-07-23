@@ -19,6 +19,8 @@ const CHARGED_LASER_FIRST_COMMAND: u8 = 0xF4;
 const CHARGED_LASER_SECOND_COMMAND: u8 = 0x20;
 const HOSTILE_LASER_COMMAND: u8 = 0x72;
 const HOSTILE_LASER_PARAMETER: u8 = 0x61;
+const RADIO_MESSAGE_OPEN_COMMAND: u8 = 0x58;
+const RADIO_MESSAGE_CLOSE_COMMAND: u8 = 0x47;
 const FLIGHT_ENGINE_COMMAND: u8 = 0x04;
 const CAPITAL_ENGINE_SOUND: u8 = 0x0B;
 const PAIRED_COMMAND_DELAY_FRAMES: usize = 464;
@@ -31,7 +33,7 @@ const LOOP_COMPARISON_FRAMES: usize = 512;
 
 const SOURCE_SOUND_BANK_COUNT: usize = 8;
 const SOURCE_PILOT_COUNT: usize = 6;
-const SEMANTIC_SOUND_COUNT: usize = 18;
+const SEMANTIC_SOUND_COUNT: usize = 20;
 
 #[derive(Debug, Clone)]
 struct SourceSoundBank {
@@ -130,6 +132,8 @@ enum SemanticSound {
     ChargeReady,
     ChargedLaser,
     HostileLaser,
+    RadioMessageOpen,
+    RadioMessageClose,
     FlightEngine,
     CapitalEngine(SpatialDistance, SpatialPan),
 }
@@ -141,6 +145,8 @@ impl SemanticSound {
         Self::ChargeReady,
         Self::ChargedLaser,
         Self::HostileLaser,
+        Self::RadioMessageOpen,
+        Self::RadioMessageClose,
         Self::FlightEngine,
         Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Left),
         Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Center),
@@ -163,6 +169,8 @@ impl SemanticSound {
             Self::ChargeReady => "charge_ready",
             Self::ChargedLaser => "charged_laser",
             Self::HostileLaser => "hostile_laser",
+            Self::RadioMessageOpen => "radio_message_open",
+            Self::RadioMessageClose => "radio_message_close",
             Self::FlightEngine => "flight",
             Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Left) => {
                 "capital_engine_close_left"
@@ -219,6 +227,8 @@ impl SemanticSound {
                 (EFFECT_CHANNEL, HOSTILE_LASER_COMMAND),
                 (0, HOSTILE_LASER_PARAMETER),
             ],
+            Self::RadioMessageOpen => &[(EFFECT_CHANNEL, RADIO_MESSAGE_OPEN_COMMAND)],
+            Self::RadioMessageClose => &[(EFFECT_CHANNEL, RADIO_MESSAGE_CLOSE_COMMAND)],
             Self::FlightEngine => &[(ENGINE_CHANNEL, FLIGHT_ENGINE_COMMAND)],
             Self::CapitalEngine(_, _) => &[],
         }
@@ -231,7 +241,9 @@ impl SemanticSound {
             | Self::ChargeBuilding
             | Self::ChargeReady
             | Self::ChargedLaser
-            | Self::HostileLaser => EFFECT_DURATION_SECONDS,
+            | Self::HostileLaser
+            | Self::RadioMessageOpen
+            | Self::RadioMessageClose => EFFECT_DURATION_SECONDS,
         }
     }
 
@@ -240,7 +252,11 @@ impl SemanticSound {
             Self::FlightEngine => "engine",
             Self::CapitalEngine(_, _) => "positional",
             Self::ChargeBuilding | Self::ChargeReady => "ambience",
-            Self::RapidLaser | Self::ChargedLaser | Self::HostileLaser => "effects",
+            Self::RapidLaser
+            | Self::ChargedLaser
+            | Self::HostileLaser
+            | Self::RadioMessageOpen
+            | Self::RadioMessageClose => "effects",
         }
     }
 
@@ -251,7 +267,9 @@ impl SemanticSound {
             | Self::ChargeBuilding
             | Self::ChargeReady
             | Self::ChargedLaser
-            | Self::HostileLaser => false,
+            | Self::HostileLaser
+            | Self::RadioMessageOpen
+            | Self::RadioMessageClose => false,
         }
     }
 
@@ -264,6 +282,7 @@ impl SemanticSound {
             Self::ChargeReady => 1.0,
             Self::ChargedLaser => 0.01,
             Self::HostileLaser => 1.0,
+            Self::RadioMessageOpen | Self::RadioMessageClose => 1.0,
         }
     }
 
@@ -387,6 +406,8 @@ fn parse_selection(selection: Option<&str>) -> Result<Vec<SemanticSound>, String
             "charge-ready" => sounds.push(SemanticSound::ChargeReady),
             "charged-laser" => sounds.push(SemanticSound::ChargedLaser),
             "hostile-laser" => sounds.push(SemanticSound::HostileLaser),
+            "radio-message-open" => sounds.push(SemanticSound::RadioMessageOpen),
+            "radio-message-close" => sounds.push(SemanticSound::RadioMessageClose),
             "flight-engine" => sounds.push(SemanticSound::FlightEngine),
             "capital-engine" => {
                 for distance in SpatialDistance::ALL {
@@ -480,8 +501,11 @@ fn render_sound(player: &SpcPlayer, sound: SemanticSound) -> Vec<i16> {
             append_frames(player, &mut output, total_frames);
             return output;
         }
-        SemanticSound::RapidLaser | SemanticSound::ChargeBuilding | SemanticSound::FlightEngine => {
-        }
+        SemanticSound::RapidLaser
+        | SemanticSound::ChargeBuilding
+        | SemanticSound::RadioMessageOpen
+        | SemanticSound::RadioMessageClose
+        | SemanticSound::FlightEngine => {}
     }
     let commands = sound.commands();
     let mut output = Vec::with_capacity(total_frames * 2);

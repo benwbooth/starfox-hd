@@ -10,6 +10,13 @@ local capture_frames = tonumber(os.getenv("SF2_ORACLE_CAPTURE_FRAMES")) or 600
 local input_mode = os.getenv("SF2_ORACLE_INPUT") or "neutral"
 local release_frame = tonumber(os.getenv("SF2_ORACLE_RELEASE_FRAME")) or 540
 local trace_objects = os.getenv("SF2_ORACLE_TRACE_OBJECTS") == "1"
+local trace_queue = os.getenv("SF2_ORACLE_TRACE_QUEUE") == "1"
+local trace_messages = os.getenv("SF2_ORACLE_TRACE_MESSAGES") == "1"
+local capture_screen_frames = {}
+for value in string.gmatch(os.getenv("SF2_ORACLE_CAPTURE_SCREEN_FRAMES") or "", "[^,]+") do
+  local capture_frame = tonumber(value)
+  if capture_frame then capture_screen_frames[capture_frame] = true end
+end
 
 local state_file = assert(io.open(state_path, "r+b"))
 local state_bytes = state_file:read("*a")
@@ -21,6 +28,27 @@ local frame = 0
 local lines = {}
 local load_callback = nil
 local previous_loop_value = {}
+local previous_message_state = nil
+
+local function write_file(name, contents)
+  local file = assert(io.open(emu.getScriptDataFolder() .. "/" .. name, "w+b"))
+  file:write(contents)
+  file:close()
+end
+
+local function capture_screen()
+  local size = emu.getScreenSize()
+  local screen = emu.getScreenBuffer()
+  local output = { string.format("P6\n%d %d\n255\n", size.width, size.height) }
+  for index = 1, size.width * size.height do
+    local pixel = screen[index] or 0
+    output[#output + 1] = string.char(
+      (pixel >> 16) & 0xFF,
+      (pixel >> 8) & 0xFF,
+      pixel & 0xFF)
+  end
+  write_file(string.format("sf2_audio_%04d.ppm", frame), table.concat(output))
+end
 
 local function work_byte(address)
   return emu.read(address, emu.memType.snesWorkRam, false)
@@ -28,6 +56,10 @@ end
 
 local function work_word(address)
   return emu.read16(address, emu.memType.snesWorkRam, false)
+end
+
+local function bus_word(address)
+  return emu.read16(address, emu.memType.snesMemory, false)
 end
 
 local function signed_word(address)
@@ -138,6 +170,66 @@ local function positional_prepare(_, value)
     state["cpu.pc"] or 0)
 end
 
+local function queue_sound()
+  if not loaded or not trace_queue then return end
+  local state = emu.getState()
+  local stack = {}
+  local stack_pointer = state["cpu.s"] or state["cpu.sp"] or 0x01FF
+  for offset = 1, 12 do
+    stack[#stack + 1] = string.format(
+      "%02X",
+      emu.read(
+        (stack_pointer + offset) % 0x10000,
+        emu.memType.snesMemory,
+        false))
+  end
+  lines[#lines + 1] = string.format(
+    "queue frame=%d command=%04X object=%04X stack_pointer=%04X stack=%s source=%02X:%04X",
+    frame,
+    state["cpu.a"] or 0,
+    state["cpu.x"] or 0,
+    stack_pointer,
+    table.concat(stack),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function queue_path_sound()
+  if not loaded or not trace_queue then return end
+  local state = emu.getState()
+  lines[#lines + 1] = string.format(
+    "path_queue frame=%d command=%04X object=%04X path=%04X source=%02X:%04X",
+    frame,
+    work_word(0x1C31),
+    state["cpu.y"] or 0,
+    work_word((state["cpu.y"] or 0) + 0x2B),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+local function start_message()
+  if not loaded or not trace_messages then return end
+  local state = emu.getState()
+  local stack_pointer = state["cpu.s"] or state["cpu.sp"] or 0x01FF
+  local stack = {}
+  for offset = 1, 12 do
+    stack[#stack + 1] = string.format(
+      "%02X",
+      emu.read(
+        (stack_pointer + offset) % 0x10000,
+        emu.memType.snesMemory,
+        false))
+  end
+  lines[#lines + 1] = string.format(
+    "message_start frame=%d request=%d stack_pointer=%04X stack=%s source=%02X:%04X",
+    frame,
+    (state["cpu.a"] or 0) % 0x100,
+    stack_pointer,
+    table.concat(stack),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
 local function load_state()
   if loaded or loading then return end
   loading = true
@@ -183,6 +275,29 @@ end
 
 local function end_frame()
   if not loaded then return end
+  if trace_messages then
+    local message_id = work_byte(0xCF31)
+    local animation = work_byte(0xCF32)
+    local speaker = work_byte(0x17F6)
+    local presentation = work_byte(0x1B48)
+    local state = string.format("%02X,%02X,%02X,%02X", message_id, animation, speaker, presentation)
+    if state ~= previous_message_state or animation ~= 0 then
+      lines[#lines + 1] = string.format(
+        "message frame=%d id=%d animation=%d speaker=%d presentation=%d camera=%s text_pointer=%04X text_cursor=%04X panel_top=%d panel_side=%d",
+        frame,
+        message_id,
+        animation,
+        speaker,
+        presentation,
+        pose(0x033F),
+        bus_word(0x7000B8),
+        bus_word(0x7000AA),
+        bus_word(0x700068),
+        bus_word(0x70002C))
+      previous_message_state = state
+    end
+  end
+  if capture_screen_frames[frame] then capture_screen() end
   frame = frame + 1
   if load_callback then
     emu.removeMemoryCallback(
@@ -216,6 +331,27 @@ emu.addMemoryCallback(
   emu.callbackType.write,
   0x7E1CEC,
   0x7E1CEC,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  queue_sound,
+  emu.callbackType.exec,
+  0x7F6E09,
+  0x7F6E09,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  queue_path_sound,
+  emu.callbackType.exec,
+  0x7FA43E,
+  0x7FA43E,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  start_message,
+  emu.callbackType.exec,
+  0x0ACF04,
+  0x0ACF04,
   emu.cpuType.snes,
   emu.memType.snesMemory)
 emu.addEventCallback(provide_input, emu.eventType.inputPolled)

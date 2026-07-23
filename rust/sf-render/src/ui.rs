@@ -12,8 +12,9 @@ use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{
     EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState, Sf2AudioOutput,
     Sf2Difficulty, Sf2EndingPhase, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice,
-    Sf2GameOverPhase, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor,
-    Sf2PilotSelectionPhase, Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2GameOverPhase, Sf2MissionBackdrop, Sf2MissionMessage, Sf2MissionMessageIrisFrame,
+    Sf2MissionMessagePhase, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
+    Sf2ResultsChoice, Sf2ResultsPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
     Sf2TitleMenuItem, Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE,
     WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
@@ -853,6 +854,8 @@ pub struct Ui {
     sf2_map_post_leon_sprites: TextureId,
     sf2_map_post_mirage_sprites: TextureId,
     sf2_mission_hud: TextureId,
+    sf2_mission_message_panel: TextureId,
+    sf2_mission_message_portraits: TextureId,
     sf2_mission_overlay: TextureId,
     sf2_strategic_map: TextureId,
     sf2_strategic_map_escalated: TextureId,
@@ -1023,6 +1026,19 @@ impl Ui {
             crate::sf2_mission_hud::WIDTH as u32,
             crate::sf2_mission_hud::HEIGHT as u32,
             &sf2_mission_hud_rgba,
+        );
+        let sf2_mission_message_panel_rgba = crate::sf2_mission_message_panel::decode_rgba();
+        let sf2_mission_message_panel = gpu.create_texture_rgba(
+            crate::sf2_mission_message_panel::WIDTH as u32,
+            crate::sf2_mission_message_panel::HEIGHT as u32,
+            &sf2_mission_message_panel_rgba,
+        );
+        let sf2_mission_message_portraits_rgba =
+            crate::sf2_mission_message_portraits::decode_rgba();
+        let sf2_mission_message_portraits = gpu.create_texture_rgba(
+            crate::sf2_mission_message_portraits::WIDTH as u32,
+            crate::sf2_mission_message_portraits::HEIGHT as u32,
+            &sf2_mission_message_portraits_rgba,
         );
         let sf2_hud_glyphs_rgba = crate::sf2_hud_glyphs::decode_rgba();
         let sf2_hud_glyphs = gpu.create_texture_rgba(
@@ -1239,6 +1255,8 @@ impl Ui {
             sf2_map_post_leon_sprites,
             sf2_map_post_mirage_sprites,
             sf2_mission_hud,
+            sf2_mission_message_panel,
+            sf2_mission_message_portraits,
             sf2_mission_overlay,
             sf2_strategic_map,
             sf2_strategic_map_escalated,
@@ -3084,6 +3102,67 @@ impl Ui {
                 crate::sf2_hud_glyphs::SHIELD_PIP_LEFT,
             );
         }
+        if inputs.mission_message.is_some() {
+            self.render_sf2_mission_message(gpu, inputs);
+        }
+    }
+
+    fn render_sf2_mission_message(&self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        let Some(message) = inputs.mission_message else {
+            return;
+        };
+        if matches!(message.phase, Sf2MissionMessagePhase::Open { .. }) {
+            self.textured_quad_source_frame(
+                gpu,
+                self.sf2_mission_message_panel,
+                crate::sf2_mission_message_panel::LEFT,
+                crate::sf2_mission_message_panel::TOP,
+                crate::sf2_mission_message_panel::WIDTH as i32,
+                crate::sf2_mission_message_panel::HEIGHT as i32,
+            );
+        }
+        let iris_frame = |frame| match frame {
+            Sf2MissionMessageIrisFrame::ThinLine => {
+                crate::sf2_mission_message_portraits::THIN_LINE_FRAME
+            }
+            Sf2MissionMessageIrisFrame::EmptyPanel => {
+                crate::sf2_mission_message_portraits::EMPTY_PANEL_FRAME
+            }
+            Sf2MissionMessageIrisFrame::SparseInterference => {
+                crate::sf2_mission_message_portraits::SPARSE_INTERFERENCE_FRAME
+            }
+            Sf2MissionMessageIrisFrame::DenseInterference => {
+                crate::sf2_mission_message_portraits::DENSE_INTERFERENCE_FRAME
+            }
+            Sf2MissionMessageIrisFrame::FullInterference => {
+                crate::sf2_mission_message_portraits::FULL_INTERFERENCE_FRAME
+            }
+        };
+        let frame = match message.phase {
+            Sf2MissionMessagePhase::Opening(frame) | Sf2MissionMessagePhase::Closing(frame) => {
+                iris_frame(frame)
+            }
+            Sf2MissionMessagePhase::Open { portrait_talking } => match message.message {
+                Sf2MissionMessage::FlyFasterByPressingYButton if portrait_talking => {
+                    crate::sf2_mission_message_portraits::SLIPPY_TALKING_FRAME
+                }
+                Sf2MissionMessage::FlyFasterByPressingYButton => {
+                    crate::sf2_mission_message_portraits::SLIPPY_STILL_FRAME
+                }
+            },
+        };
+        self.textured_quad_source_region(
+            gpu,
+            self.sf2_mission_message_portraits,
+            crate::sf2_mission_message_portraits::LEFT,
+            crate::sf2_mission_message_portraits::TOP,
+            crate::sf2_mission_message_portraits::FRAME_WIDTH as i32,
+            crate::sf2_mission_message_portraits::HEIGHT as i32,
+            frame as i32 * crate::sf2_mission_message_portraits::FRAME_WIDTH as i32,
+            0,
+            crate::sf2_mission_message_portraits::WIDTH as i32,
+            crate::sf2_mission_message_portraits::HEIGHT as i32,
+        );
     }
 
     fn render_sf2_mission_radar(&self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {

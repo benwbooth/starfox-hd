@@ -28,6 +28,8 @@ const CHARGE_BUILDING_FILE: &str = "charge_building.wav";
 const CHARGE_READY_FILE: &str = "charge_ready.wav";
 const CHARGED_LASER_FILE: &str = "charged_laser.wav";
 const HOSTILE_LASER_FILE: &str = "hostile_laser.wav";
+const RADIO_MESSAGE_OPEN_FILE: &str = "radio_message_open.wav";
+const RADIO_MESSAGE_CLOSE_FILE: &str = "radio_message_close.wav";
 const FLIGHT_ENGINE_FILE: &str = "flight.wav";
 const CAPITAL_ENGINE_CLOSE_LEFT_FILE: &str = "capital_engine_close_left.wav";
 const CAPITAL_ENGINE_CLOSE_CENTER_FILE: &str = "capital_engine_close_center.wav";
@@ -42,7 +44,7 @@ const CAPITAL_ENGINE_DISTANT_LEFT_FILE: &str = "capital_engine_distant_left.wav"
 const CAPITAL_ENGINE_DISTANT_CENTER_FILE: &str = "capital_engine_distant_center.wav";
 const CAPITAL_ENGINE_DISTANT_RIGHT_FILE: &str = "capital_engine_distant_right.wav";
 const MUSIC_CUE_COUNT: usize = 15;
-const SOUND_EFFECT_COUNT: usize = 3;
+const SOUND_EFFECT_COUNT: usize = 5;
 const ENGINE_CUE_COUNT: usize = 1;
 const CHARGE_CUE_COUNT: usize = 2;
 const SPATIAL_CUE_COUNT: usize = 12;
@@ -69,6 +71,8 @@ const REQUIRED_EFFECTS: [&str; SOUND_EFFECT_COUNT] = [
     RAPID_LASER_FILE,
     CHARGED_LASER_FILE,
     HOSTILE_LASER_FILE,
+    RADIO_MESSAGE_OPEN_FILE,
+    RADIO_MESSAGE_CLOSE_FILE,
 ];
 const REQUIRED_ENGINE: [&str; ENGINE_CUE_COUNT] = [FLIGHT_ENGINE_FILE];
 const REQUIRED_AMBIENCE: [&str; CHARGE_CUE_COUNT] = [CHARGE_BUILDING_FILE, CHARGE_READY_FILE];
@@ -203,6 +207,8 @@ pub enum Sf2SoundEffect {
     RapidLaser,
     ChargedLaser,
     HostileLaser,
+    RadioMessageOpen,
+    RadioMessageClose,
 }
 
 impl Sf2SoundEffect {
@@ -211,6 +217,8 @@ impl Sf2SoundEffect {
             Self::RapidLaser => RAPID_LASER_FILE,
             Self::ChargedLaser => CHARGED_LASER_FILE,
             Self::HostileLaser => HOSTILE_LASER_FILE,
+            Self::RadioMessageOpen => RADIO_MESSAGE_OPEN_FILE,
+            Self::RadioMessageClose => RADIO_MESSAGE_CLOSE_FILE,
         }
     }
 }

@@ -129,6 +129,8 @@ fn sf2_sound_effect(event: sf2_game::SoundEvent) -> Sf2SoundEffect {
         sf2_game::SoundEvent::RapidLaser => Sf2SoundEffect::RapidLaser,
         sf2_game::SoundEvent::ChargedLaser => Sf2SoundEffect::ChargedLaser,
         sf2_game::SoundEvent::HostileLaser => Sf2SoundEffect::HostileLaser,
+        sf2_game::SoundEvent::RadioMessageOpen => Sf2SoundEffect::RadioMessageOpen,
+        sf2_game::SoundEvent::RadioMessageClose => Sf2SoundEffect::RadioMessageClose,
     }
 }
 
@@ -730,13 +732,21 @@ mod tests {
     }
 
     #[test]
-    fn sf2_typed_weapon_events_route_to_native_effects() {
+    fn sf2_typed_sound_events_route_to_native_effects() {
         use sf2_game::SoundEvent;
 
         let expected = [
             (SoundEvent::RapidLaser, Sf2SoundEffect::RapidLaser),
             (SoundEvent::ChargedLaser, Sf2SoundEffect::ChargedLaser),
             (SoundEvent::HostileLaser, Sf2SoundEffect::HostileLaser),
+            (
+                SoundEvent::RadioMessageOpen,
+                Sf2SoundEffect::RadioMessageOpen,
+            ),
+            (
+                SoundEvent::RadioMessageClose,
+                Sf2SoundEffect::RadioMessageClose,
+            ),
         ];
         for (event, effect) in expected {
             assert_eq!(sf2_sound_effect(event), effect);

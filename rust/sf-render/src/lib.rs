@@ -52,6 +52,8 @@ mod sf2_map_post_leon_sprites;
 mod sf2_map_post_mirage_sprites;
 mod sf2_map_sprites;
 mod sf2_mission_hud;
+mod sf2_mission_message_panel;
+mod sf2_mission_message_portraits;
 mod sf2_mission_overlay;
 mod sf2_strategic_map;
 mod sf2_strategic_map_escalated;

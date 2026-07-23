@@ -34,8 +34,10 @@ use sf_render::renderer::{
     EndingReplayBackdrop as RenderEndingReplayBackdrop, EndingReplayInputs, FrameInputs,
     GameState as RenderState, Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty,
     Sf2EndingPhase, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
-    Sf2MapPoint, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor,
-    Sf2PilotSelectionPhase, Sf2RadarContact, Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2MapPoint, Sf2MissionBackdrop, Sf2MissionMessage, Sf2MissionMessageInputs,
+    Sf2MissionMessageIrisFrame, Sf2MissionMessagePhase, Sf2Mode, Sf2Pilot,
+    Sf2PilotSelectionCursor, Sf2PilotSelectionPhase, Sf2RadarContact, Sf2ResultsChoice,
+    Sf2ResultsPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
     Sf2TitleMenuItem, Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
 };
@@ -172,6 +174,45 @@ fn to_sf2_pilot(pilot: sf2_game::Pilot) -> Sf2Pilot {
         sf2_game::Pilot::Miyu => Sf2Pilot::Miyu,
         sf2_game::Pilot::Fay => Sf2Pilot::Fay,
     }
+}
+
+fn to_sf2_mission_message(
+    message: sf2_game::MissionMessageState,
+) -> Option<Sf2MissionMessageInputs> {
+    let message_kind = match message.message? {
+        sf2_game::MissionMessage::FlyFasterByPressingYButton => {
+            Sf2MissionMessage::FlyFasterByPressingYButton
+        }
+    };
+    let iris_frame = |frame| match frame {
+        sf2_game::MissionMessageIrisFrame::ThinLine => Sf2MissionMessageIrisFrame::ThinLine,
+        sf2_game::MissionMessageIrisFrame::EmptyPanel => Sf2MissionMessageIrisFrame::EmptyPanel,
+        sf2_game::MissionMessageIrisFrame::SparseInterference => {
+            Sf2MissionMessageIrisFrame::SparseInterference
+        }
+        sf2_game::MissionMessageIrisFrame::DenseInterference => {
+            Sf2MissionMessageIrisFrame::DenseInterference
+        }
+        sf2_game::MissionMessageIrisFrame::FullInterference => {
+            Sf2MissionMessageIrisFrame::FullInterference
+        }
+    };
+    let phase = match message.phase {
+        sf2_game::MissionMessagePhase::Hidden => return None,
+        sf2_game::MissionMessagePhase::Opening(frame) => {
+            Sf2MissionMessagePhase::Opening(iris_frame(frame))
+        }
+        sf2_game::MissionMessagePhase::Open => Sf2MissionMessagePhase::Open {
+            portrait_talking: message.portrait_talking,
+        },
+        sf2_game::MissionMessagePhase::Closing(frame) => {
+            Sf2MissionMessagePhase::Closing(iris_frame(frame))
+        }
+    };
+    Some(Sf2MissionMessageInputs {
+        message: message_kind,
+        phase,
+    })
 }
 
 fn to_sf2_strategic_actor(actor: sf2_game::StrategicMapActor) -> Sf2StrategicActor {
@@ -512,6 +553,7 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
         item_count: state.mission.item_count,
         target_count,
         mission_elapsed_time_tenths: state.mission.elapsed_time_tenths,
+        mission_message: to_sf2_mission_message(state.mission.message),
         radar_contacts,
         mode_frame: state.mode_frame,
         elapsed_campaign_frames: state.campaign.elapsed_frames,

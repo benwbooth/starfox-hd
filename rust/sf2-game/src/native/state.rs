@@ -8,15 +8,17 @@ use super::render::Camera;
 
 pub const SELECTED_PILOT_COUNT: usize = 2;
 pub const ROSTER_PILOT_COUNT: usize = 6;
-/// Two scripted hostile shots can begin on one presentation boundary while
-/// the player fires on the same game tick.
-pub const SOUND_EVENT_CAPACITY: usize = 3;
+/// Two scripted hostile shots, the player weapon, and a mission-radio cue can
+/// begin on the same presentation boundary.
+pub const SOUND_EVENT_CAPACITY: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundEvent {
     RapidLaser,
     ChargedLaser,
     HostileLaser,
+    RadioMessageOpen,
+    RadioMessageClose,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -994,6 +996,44 @@ pub enum PlayerCraftForm {
     Walker,
 }
 
+/// Authored mission guidance selected by gameplay meaning rather than by a
+/// numeric storage index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissionMessage {
+    FlyFasterByPressingYButton,
+}
+
+/// The five interference pictures used while a mission-radio portrait opens
+/// and closes. The renderer owns their actual artwork.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissionMessageIrisFrame {
+    ThinLine,
+    EmptyPanel,
+    SparseInterference,
+    DenseInterference,
+    FullInterference,
+}
+
+/// Typed visible phase of the mission-radio presentation.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MissionMessagePhase {
+    #[default]
+    Hidden,
+    Opening(MissionMessageIrisFrame),
+    Open,
+    Closing(MissionMessageIrisFrame),
+}
+
+/// Flat mission-owned radio state. Message identity, elapsed presentation
+/// time, and portrait animation remain ordinary domain fields.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MissionMessageState {
+    pub message: Option<MissionMessage>,
+    pub phase: MissionMessagePhase,
+    pub elapsed_retail_frames: u16,
+    pub portrait_talking: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MissionState {
     pub active: bool,
@@ -1018,6 +1058,7 @@ pub struct MissionState {
     pub player_flight: PlayerFlightState,
     pub player_walker: PlayerWalkerState,
     pub player_craft_form: PlayerCraftForm,
+    pub message: MissionMessageState,
     /// Becomes true when steering leaves the certified neutral path.
     /// The port then continues from that typed pose with native flight rules.
     pub departed_certified_neutral_path: bool,
