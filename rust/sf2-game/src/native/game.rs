@@ -100,12 +100,14 @@ const BOOT_INTRO_TICKS: u32 = 5;
 const ARGONAUT_LOGO_TICKS: u32 = 34;
 const NINTENDO_LOGO_TICKS: u32 = 58;
 const FORMATION_INTRO_TICKS: u32 = 240;
-const BRIEFING_PRESENTATION_TICKS: u32 = 276;
 const RETAIL_PRESENTATION_FRAMES_PER_TICK: u32 = 4;
+const BRIEFING_PRESENTATION_RETAIL_FRAMES: u32 = 680;
 const STRATEGIC_OVERVIEW_RETAIL_FRAMES: u32 = 2_576;
 const PILOT_SELECTION_REVEAL_RETAIL_FRAMES: u32 = 92;
 const PILOT_READY_RETAIL_FRAMES: u32 = 172;
 const PILOT_LAUNCH_RETAIL_FRAMES: u32 = 228;
+const BRIEFING_PRESENTATION_TICKS: u32 =
+    BRIEFING_PRESENTATION_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const STRATEGIC_OVERVIEW_TICKS: u32 =
     STRATEGIC_OVERVIEW_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_SELECTION_REVEAL_TICKS: u32 =
@@ -14523,6 +14525,30 @@ mod tests {
             game.state().strategic_map.phase,
             StrategicMapPhase::OpeningOverview
         );
+    }
+
+    #[test]
+    fn andross_briefing_hands_off_on_the_retail_schedule() {
+        let mut game = Game::new();
+        game.state.mode = GameMode::Briefing;
+        game.state.mode_frame = 0;
+
+        for _ in 0..BRIEFING_PRESENTATION_TICKS - 1 {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Briefing);
+        assert_eq!(
+            game.state().mode_frame * RETAIL_PRESENTATION_FRAMES_PER_TICK,
+            BRIEFING_PRESENTATION_RETAIL_FRAMES - RETAIL_PRESENTATION_FRAMES_PER_TICK
+        );
+
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(
+            game.state().strategic_map.phase,
+            StrategicMapPhase::OpeningOverview
+        );
+        assert_eq!(game.state().mode_frame, 0);
     }
 
     #[test]

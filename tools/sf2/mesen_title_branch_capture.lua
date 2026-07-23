@@ -13,7 +13,12 @@ local frame_count = 0
 local loaded = false
 local load_callback = nil
 local capture_step = 4
-local stop_frame = 1000
+local stop_frame = scenario == "campaign" and 4000 or 1000
+local lines = {}
+
+local function work_byte(address)
+  return emu.read(address, emu.memType.snesWorkRam, false)
+end
 
 local function write_file(name, data)
   local file = assert(io.open(emu.getScriptDataFolder() .. "/" .. name, "w+b"))
@@ -48,6 +53,8 @@ local function provide_input()
   elseif scenario == "records" then
     down = held_for_frame(20)
     start = held_for_frame(200)
+  elseif scenario == "campaign" then
+    start = held_for_frame(20) or held_for_frame(200)
   end
   emu.setInput({
     start = start,
@@ -100,9 +107,20 @@ local function end_frame()
     load_callback = nil
   end
   if frame_count % capture_step == 0 then
+    lines[#lines + 1] = string.format(
+      "frame=%d mode=%d submode=%d phase=%d cursor=%d menu=%d",
+      frame_count,
+      work_byte(0x1B68),
+      work_byte(0x1B76),
+      work_byte(0x1BE0),
+      work_byte(0x1C20),
+      work_byte(0x1C1F))
     capture_screen()
   end
   if frame_count >= stop_frame then
+    write_file(
+      string.format("sf2_title_%s_trace.txt", scenario),
+      table.concat(lines, "\n") .. "\n")
     emu.stop(0)
   end
 end

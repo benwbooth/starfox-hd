@@ -39,11 +39,6 @@ const SF2_RESULTS_EXIT_RETAIL_FRAMES: u16 = 128;
 const SF2_RESULTS_RETRY_FADE_THIRTEEN_RETAIL_FRAME: u16 = 120;
 const SF2_RESULTS_RETRY_FADE_SEVEN_RETAIL_FRAME: u16 = 124;
 const SF2_RESULTS_TITLE_FADE_NINE_RETAIL_FRAME: u16 = 124;
-const SF2_TITLE_CENTER_X: i32 = SF2_REFERENCE_WIDTH / 2;
-const SF2_TITLE_Y: i32 = 172;
-const SF2_SUBTITLE_Y: i32 = 154;
-const SF2_MENU_LINE_HEIGHT: i32 = 16;
-const SF2_STAR_SIZE: i32 = 1;
 const SF2_MAX_SCORE: u32 = 99_999;
 const SF2_MISSION_SCORE_X: i32 = 62;
 const SF2_MISSION_SCORE_TOP: i32 = 17;
@@ -121,17 +116,6 @@ const SF2_MAP_SCORE_DIGIT_DIVISORS: [u32; 5] = [10_000, 1_000, 100, 10, 1];
 const SF2_MAP_BACKGROUND_COLOR: [f32; 4] = [24.0 / 255.0, 24.0 / 255.0, 90.0 / 255.0, 1.0];
 const SF2_MAP_DAMAGE_BACKGROUND_COLOR: [f32; 4] = [24.0 / 255.0, 24.0 / 255.0, 24.0 / 255.0, 1.0];
 const SF2_BLASTER_PALETTE_PHASE_TICKS: u32 = 2;
-const SF2_SELECTED_COLOR: [f32; 4] = [1.0, 0.38, 0.05, 1.0];
-const SF2_TEXT_COLOR: [f32; 4] = [0.82, 0.9, 1.0, 1.0];
-const SF2_SPACE_COLOR: [f32; 4] = [0.0, 0.0, 0.06, 1.0];
-const SF2_NEBULA_COLOR: [f32; 4] = [0.0, 0.03, 0.28, 0.24];
-const SF2_PLANET_COLORS: [[f32; 4]; 5] = [
-    [0.78, 0.65, 0.12, 1.0],
-    [0.1, 0.65, 0.72, 1.0],
-    [0.65, 0.18, 0.08, 1.0],
-    [0.55, 0.2, 0.75, 1.0],
-    [0.18, 0.7, 0.25, 1.0],
-];
 
 const TALLY_PORTRAIT_WIDTH: usize = 32;
 const TALLY_PORTRAIT_HEIGHT: usize = 40;
@@ -161,40 +145,6 @@ const ENDING_DETAILS_TOP: i32 = 168;
 const TALLY_PORTRAIT_PALETTE_BGR555: [u16; 16] = [
     0x0000, 0x2035, 0x357E, 0x36BF, 0x4B5F, 0x6D40, 0x7E2C, 0x7F6D, 0x7FF5, 0x24C3, 0x3989, 0x4E0E,
     0x62D3, 0x7778, 0x7FFD, 0x0220,
-];
-
-/// Deterministic native starfield positions in the retail 256x224 composition
-/// space. The HD pass redraws them as crisp geometry rather than keeping a
-/// byte-addressed tile layer in game state.
-const SF2_STARFIELD: [(i32, i32); 28] = [
-    (17, 201),
-    (38, 185),
-    (72, 211),
-    (96, 193),
-    (119, 214),
-    (145, 196),
-    (174, 210),
-    (205, 190),
-    (235, 207),
-    (26, 162),
-    (57, 146),
-    (87, 171),
-    (134, 143),
-    (162, 166),
-    (218, 151),
-    (244, 174),
-    (12, 119),
-    (47, 102),
-    (78, 128),
-    (115, 92),
-    (151, 122),
-    (184, 104),
-    (229, 130),
-    (31, 68),
-    (67, 52),
-    (126, 72),
-    (173, 58),
-    (224, 77),
 ];
 
 #[inline]
@@ -862,6 +812,9 @@ pub struct Ui {
     sf2_titania_backdrop: TextureId,
     sf2_carrier_backdrop: TextureId,
     sf2_astropolis_void_backdrop: TextureId,
+    sf2_briefing_texture: TextureId,
+    sf2_briefing_presentation: crate::sf2_briefing::Presentation,
+    sf2_briefing_render_frame: Option<usize>,
     sf2_title_texture: TextureId,
     sf2_title_presentation: crate::sf2_title::Presentation,
     sf2_title_render_key: Option<Sf2TitleRenderKey>,
@@ -977,6 +930,13 @@ impl Ui {
             &sf2_carrier_backdrop_rgba,
         );
         let sf2_astropolis_void_backdrop = gpu.create_texture_rgba(1, 1, &SF2_OPAQUE_BLACK_PIXEL);
+        let mut sf2_briefing_presentation = crate::sf2_briefing::Presentation::decode();
+        let sf2_briefing_initial_rgba = sf2_briefing_presentation.frame_rgba(0);
+        let sf2_briefing_texture = gpu.create_texture_rgba(
+            crate::sf2_briefing::WIDTH as u32,
+            crate::sf2_briefing::HEIGHT as u32,
+            &sf2_briefing_initial_rgba,
+        );
         let mut sf2_title_presentation = crate::sf2_title::Presentation::decode();
         let sf2_title_initial_rgba =
             sf2_title_presentation.frame_rgba(crate::sf2_title::Track::Mission, 0);
@@ -1205,6 +1165,9 @@ impl Ui {
             sf2_titania_backdrop,
             sf2_carrier_backdrop,
             sf2_astropolis_void_backdrop,
+            sf2_briefing_texture,
+            sf2_briefing_presentation,
+            sf2_briefing_render_frame: None,
             sf2_title_texture,
             sf2_title_presentation,
             sf2_title_render_key: None,
@@ -1579,28 +1542,6 @@ impl Ui {
         }
     }
 
-    fn render_sf2_starfield(&self, gpu: &mut Gpu) {
-        self.quad_snes(
-            gpu,
-            SF2_SPACE_COLOR,
-            0,
-            0,
-            SF2_REFERENCE_WIDTH,
-            SF2_REFERENCE_HEIGHT,
-        );
-        self.quad_snes(gpu, SF2_NEBULA_COLOR, 9, 46, 74, 132);
-        self.quad_snes(gpu, SF2_NEBULA_COLOR, 170, 84, 79, 104);
-        for (index, &(x, y)) in SF2_STARFIELD.iter().enumerate() {
-            let color = SF2_PLANET_COLORS[index % SF2_PLANET_COLORS.len()];
-            let size = if index % 7 == 0 {
-                SF2_STAR_SIZE + 1
-            } else {
-                SF2_STAR_SIZE
-            };
-            self.quad_snes(gpu, color, x, y, size, size);
-        }
-    }
-
     pub(crate) fn render_sf2_mission_background(
         &self,
         gpu: &mut Gpu,
@@ -1793,36 +1734,20 @@ impl Ui {
         );
     }
 
-    fn render_sf2_briefing(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
-        self.render_sf2_starfield(gpu);
-        let horizon_height = 54 + i32::try_from(inputs.mode_frame % 18).unwrap_or_default();
-        self.quad_snes(
+    fn render_sf2_briefing(&mut self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        let frame_index = crate::sf2_briefing::frame_at_tick(inputs.mode_frame);
+        if self.sf2_briefing_render_frame != Some(frame_index) {
+            let rgba = self.sf2_briefing_presentation.frame_rgba(frame_index);
+            gpu.update_texture(self.sf2_briefing_texture, &rgba);
+            self.sf2_briefing_render_frame = Some(frame_index);
+        }
+        self.textured_quad_source_frame(
             gpu,
-            [0.04, 0.1, 0.5, 1.0],
+            self.sf2_briefing_texture,
             0,
             0,
             SF2_REFERENCE_WIDTH,
-            horizon_height,
-        );
-        self.text_centered(
-            gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_TITLE_Y,
-            "ANDROSS",
-            SF2_SELECTED_COLOR[0],
-            SF2_SELECTED_COLOR[1],
-            SF2_SELECTED_COLOR[2],
-        );
-        self.text_centered(
-            gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_SUBTITLE_Y - SF2_MENU_LINE_HEIGHT,
-            sf2_data::text::HUD_LABELS[10].text,
-            SF2_TEXT_COLOR[0],
-            SF2_TEXT_COLOR[1],
-            SF2_TEXT_COLOR[2],
+            SF2_REFERENCE_HEIGHT,
         );
     }
 
@@ -3073,7 +2998,7 @@ impl Ui {
         match inputs.mode {
             Sf2Mode::Title => self.render_sf2_title(gpu, inputs),
             Sf2Mode::Records => self.render_sf2_records(gpu, inputs),
-            Sf2Mode::Briefing => self.render_sf2_briefing(gpu, font, inputs),
+            Sf2Mode::Briefing => self.render_sf2_briefing(gpu, inputs),
             Sf2Mode::StrategicMap => self.render_sf2_strategic_map(gpu, font, inputs),
             Sf2Mode::PilotSelection => self.render_sf2_pilot_selection(gpu, inputs),
             Sf2Mode::Mission => self.render_sf2_mission_hud(gpu, inputs),
