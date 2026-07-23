@@ -128,6 +128,7 @@ fn sf2_sound_effect(event: sf2_game::SoundEvent) -> Sf2SoundEffect {
     match event {
         sf2_game::SoundEvent::RapidLaser => Sf2SoundEffect::RapidLaser,
         sf2_game::SoundEvent::ChargedLaser => Sf2SoundEffect::ChargedLaser,
+        sf2_game::SoundEvent::HostileLaser => Sf2SoundEffect::HostileLaser,
     }
 }
 
@@ -693,6 +694,7 @@ mod tests {
         let expected = [
             (SoundEvent::RapidLaser, Sf2SoundEffect::RapidLaser),
             (SoundEvent::ChargedLaser, Sf2SoundEffect::ChargedLaser),
+            (SoundEvent::HostileLaser, Sf2SoundEffect::HostileLaser),
         ];
         for (event, effect) in expected {
             assert_eq!(sf2_sound_effect(event), effect);

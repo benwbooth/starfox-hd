@@ -9,12 +9,14 @@ local state_path = assert(
 local capture_frames = tonumber(os.getenv("SF2_ORACLE_CAPTURE_FRAMES")) or 600
 local input_mode = os.getenv("SF2_ORACLE_INPUT") or "neutral"
 local release_frame = tonumber(os.getenv("SF2_ORACLE_RELEASE_FRAME")) or 540
+local trace_objects = os.getenv("SF2_ORACLE_TRACE_OBJECTS") == "1"
 
 local state_file = assert(io.open(state_path, "r+b"))
 local state_bytes = state_file:read("*a")
 state_file:close()
 
 local loaded = false
+local loading = false
 local frame = 0
 local lines = {}
 local load_callback = nil
@@ -22,6 +24,50 @@ local previous_loop_value = {}
 
 local function work_byte(address)
   return emu.read(address, emu.memType.snesWorkRam, false)
+end
+
+local function work_word(address)
+  return emu.read16(address, emu.memType.snesWorkRam, false)
+end
+
+local function signed_word(address)
+  local value = work_word(address)
+  if value >= 0x8000 then return value - 0x10000 end
+  return value
+end
+
+local function pose(object)
+  return string.format(
+    "%d,%d,%d,%d,%d,%d,%d",
+    signed_word(object + 12),
+    signed_word(object + 14),
+    signed_word(object + 16),
+    work_byte(object + 18),
+    work_byte(object + 20),
+    work_byte(object + 22),
+    work_byte(object + 24))
+end
+
+local function active_objects()
+  local output = {}
+  local seen = {}
+  local object = work_word(0x12A8)
+  while object ~= 0 and not seen[object] and #output < 60 do
+    seen[object] = true
+    output[#output + 1] = string.format(
+      "%04X,%04X,%s,%04X,%d,%d,%d,%d,%d",
+      object,
+      work_word(object + 4),
+      pose(object),
+      work_word(object + 0x2B),
+      work_byte(object + 0x2D),
+      work_byte(object + 0x2E),
+      work_byte(object + 0x2F),
+      work_byte(object + 0x30),
+      work_byte(object + 0x31))
+    object = work_word(object)
+  end
+  return table.concat(output, ";")
 end
 
 local function audio_write(address, value)
@@ -42,12 +88,23 @@ local function audio_write(address, value)
     work_byte(0x1B76),
     state["cpu.k"] or 0,
     state["cpu.pc"] or 0)
+  if trace_objects and (channel == 2 or channel == 3) then
+    lines[#lines + 1] = string.format(
+      "objects frame=%d channel=%d value=%d player=%04X active=[%s]",
+      frame,
+      channel,
+      value,
+      work_word(0x12C3),
+      active_objects())
+  end
 end
 
 local function load_state()
-  if loaded then return end
-  loaded = true
+  if loaded or loading then return end
+  loading = true
   emu.loadSavestate(state_bytes)
+  loaded = true
+  loading = false
 end
 
 local function provide_input()

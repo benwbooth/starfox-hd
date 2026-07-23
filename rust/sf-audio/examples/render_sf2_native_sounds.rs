@@ -16,6 +16,8 @@ const CHARGE_BUILDING_COMMAND: u8 = 0x31;
 const CHARGE_READY_COMMAND: u8 = 0x35;
 const CHARGED_LASER_FIRST_COMMAND: u8 = 0xF4;
 const CHARGED_LASER_SECOND_COMMAND: u8 = 0x20;
+const HOSTILE_LASER_COMMAND: u8 = 0x72;
+const HOSTILE_LASER_PARAMETER: u8 = 0x61;
 const FLIGHT_ENGINE_COMMAND: u8 = 0x04;
 const PAIRED_COMMAND_DELAY_FRAMES: usize = 464;
 const BUILD_TO_READY_DELAY_FRAMES: usize = 16_459;
@@ -27,7 +29,7 @@ const LOOP_COMPARISON_FRAMES: usize = 512;
 
 const SOURCE_SOUND_BANK_COUNT: usize = 8;
 const SOURCE_PILOT_COUNT: usize = 6;
-const SEMANTIC_SOUND_COUNT: usize = 5;
+const SEMANTIC_SOUND_COUNT: usize = 6;
 
 #[derive(Debug, Clone)]
 struct SourceSoundBank {
@@ -85,6 +87,7 @@ enum SemanticSound {
     ChargeBuilding,
     ChargeReady,
     ChargedLaser,
+    HostileLaser,
     FlightEngine,
 }
 
@@ -94,6 +97,7 @@ impl SemanticSound {
         Self::ChargeBuilding,
         Self::ChargeReady,
         Self::ChargedLaser,
+        Self::HostileLaser,
         Self::FlightEngine,
     ];
 
@@ -103,6 +107,7 @@ impl SemanticSound {
             Self::ChargeBuilding => "charge_building",
             Self::ChargeReady => "charge_ready",
             Self::ChargedLaser => "charged_laser",
+            Self::HostileLaser => "hostile_laser",
             Self::FlightEngine => "flight",
         }
     }
@@ -119,6 +124,10 @@ impl SemanticSound {
                 (EFFECT_CHANNEL, CHARGED_LASER_FIRST_COMMAND),
                 (EFFECT_CHANNEL, CHARGED_LASER_SECOND_COMMAND),
             ],
+            Self::HostileLaser => &[
+                (EFFECT_CHANNEL, HOSTILE_LASER_COMMAND),
+                (0, HOSTILE_LASER_PARAMETER),
+            ],
             Self::FlightEngine => &[(ENGINE_CHANNEL, FLIGHT_ENGINE_COMMAND)],
         }
     }
@@ -126,9 +135,11 @@ impl SemanticSound {
     const fn duration_seconds(self) -> usize {
         match self {
             Self::FlightEngine => ENGINE_DURATION_SECONDS,
-            Self::RapidLaser | Self::ChargeBuilding | Self::ChargeReady | Self::ChargedLaser => {
-                EFFECT_DURATION_SECONDS
-            }
+            Self::RapidLaser
+            | Self::ChargeBuilding
+            | Self::ChargeReady
+            | Self::ChargedLaser
+            | Self::HostileLaser => EFFECT_DURATION_SECONDS,
         }
     }
 
@@ -136,16 +147,18 @@ impl SemanticSound {
         match self {
             Self::FlightEngine => "engine",
             Self::ChargeBuilding | Self::ChargeReady => "ambience",
-            Self::RapidLaser | Self::ChargedLaser => "effects",
+            Self::RapidLaser | Self::ChargedLaser | Self::HostileLaser => "effects",
         }
     }
 
     const fn looping(self) -> bool {
         match self {
             Self::FlightEngine => true,
-            Self::RapidLaser | Self::ChargeBuilding | Self::ChargeReady | Self::ChargedLaser => {
-                false
-            }
+            Self::RapidLaser
+            | Self::ChargeBuilding
+            | Self::ChargeReady
+            | Self::ChargedLaser
+            | Self::HostileLaser => false,
         }
     }
 
@@ -154,6 +167,7 @@ impl SemanticSound {
             Self::RapidLaser | Self::ChargeBuilding | Self::FlightEngine => 20.0,
             Self::ChargeReady => 1.0,
             Self::ChargedLaser => 0.01,
+            Self::HostileLaser => 1.0,
         }
     }
 }
@@ -266,6 +280,7 @@ fn parse_selection(selection: Option<&str>) -> Result<Vec<SemanticSound>, String
             "charge-building" => Ok(SemanticSound::ChargeBuilding),
             "charge-ready" => Ok(SemanticSound::ChargeReady),
             "charged-laser" => Ok(SemanticSound::ChargedLaser),
+            "hostile-laser" => Ok(SemanticSound::HostileLaser),
             "flight-engine" => Ok(SemanticSound::FlightEngine),
             unknown => Err(format!("unknown semantic sound {unknown}")),
         })
@@ -335,6 +350,13 @@ fn render_sound(player: &SpcPlayer, sound: SemanticSound) -> Vec<i16> {
                 &mut output,
                 total_frames - PAIRED_COMMAND_DELAY_FRAMES,
             );
+            return output;
+        }
+        SemanticSound::HostileLaser => {
+            let mut output = Vec::with_capacity(total_frames * 2);
+            player.write_port(EFFECT_CHANNEL, HOSTILE_LASER_COMMAND);
+            player.write_port(0, HOSTILE_LASER_PARAMETER);
+            append_frames(player, &mut output, total_frames);
             return output;
         }
         SemanticSound::RapidLaser | SemanticSound::ChargeBuilding | SemanticSound::FlightEngine => {

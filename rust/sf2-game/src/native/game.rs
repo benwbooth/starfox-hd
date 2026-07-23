@@ -8840,11 +8840,7 @@ impl Game {
                     .get(trajectory.firing_actor().index())
                     .copied()
                     .flatten();
-                let projectile_id = self
-                    .state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
                 self.mission_projectiles.push(ActiveMissionProjectile {
                     trajectory,
                     object: projectile_id,
@@ -8914,11 +8910,7 @@ impl Game {
                         motion_steps_elapsed: 0,
                         movement_phase: HostileProjectileMovementPhase::Ready,
                     });
-                let projectile_id = self
-                    .state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
                 self.reengagement_projectiles
                     .push(ActiveReengagementProjectile {
                         track_index,
@@ -9213,11 +9205,7 @@ impl Game {
                         motion_steps_elapsed: 0,
                         movement_phase: HostileProjectileMovementPhase::Ready,
                     });
-                let projectile_id = self
-                    .state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
                 self.fighter_intercept_projectiles
                     .push(ActiveFighterInterceptProjectile {
                         track_index,
@@ -9407,11 +9395,7 @@ impl Game {
                         motion_steps_elapsed: 0,
                         movement_phase: HostileProjectileMovementPhase::Ready,
                     });
-                let projectile_id = self
-                    .state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
                 self.pigma_projectiles.push(ActivePigmaProjectile {
                     track_index,
                     object: projectile_id,
@@ -9489,11 +9473,7 @@ impl Game {
                         motion_steps_elapsed: 0,
                         movement_phase: HostileProjectileMovementPhase::Ready,
                     });
-                let projectile_id = self
-                    .state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
                 self.leon_projectiles.push(ActiveLeonProjectile {
                     track_index,
                     object: projectile_id,
@@ -10194,11 +10174,7 @@ impl Game {
                         motion_steps_elapsed: 0,
                         movement_phase: HostileProjectileMovementPhase::Ready,
                     });
-                let projectile_id = self
-                    .state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
                 self.final_rival_projectiles.push(ActiveFinalRivalProjectile {
                     track_index,
                     object: projectile_id,
@@ -10277,10 +10253,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
-                let projectile_id = state
-                    .objects
-                    .allocate(projectile)
-                    .ok_or(Error::ObjectCapacityReached)?;
+                let projectile_id = allocate_hostile_projectile(state, projectile)?;
                 active_projectiles.push(ActivePressureProjectile {
                     track_index,
                     object: projectile_id,
@@ -11642,6 +11615,18 @@ fn hostile_projectile_hits_player(projectile: &Object, player: &Object) -> bool 
         center.z,
         extents.z,
     )
+}
+
+fn allocate_hostile_projectile(
+    state: &mut GameState,
+    projectile: Object,
+) -> Result<ObjectId, Error> {
+    let projectile = state
+        .objects
+        .allocate(projectile)
+        .ok_or(Error::ObjectCapacityReached)?;
+    state.audio.queue(SoundEvent::HostileLaser);
+    Ok(projectile)
 }
 
 fn offset_axis_overlaps(offset: i16, center: i16, extent: u16) -> bool {
@@ -14995,7 +14980,7 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
         assert_eq!(
             game.take_sound_events(),
-            [Some(SoundEvent::RapidLaser), None]
+            [Some(SoundEvent::RapidLaser), None, None]
         );
         let rapid_id = game
             .state()
@@ -15086,7 +15071,7 @@ mod tests {
         game.tick(0).unwrap();
         assert_eq!(
             game.take_sound_events(),
-            [Some(SoundEvent::ChargedLaser), None]
+            [Some(SoundEvent::ChargedLaser), None, None]
         );
         assert_eq!(game.charge_sound(), ChargeSound::Silent);
         let charged_id = game
@@ -17325,6 +17310,30 @@ mod tests {
         const CAPITAL_SHOT_FRAME: u32 = 876;
         const SECOND_CAPITAL_SHOT_FRAME: u32 = 880;
         const BASE_TRAJECTORY_END_FRAME: u32 = 900;
+        const SIMULTANEOUS_SHOT_FRAME: u32 = 1_028;
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        while game.state().mode_frame < FIRST_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.take_sound_events(),
+            [Some(SoundEvent::HostileLaser), None, None]
+        );
+        while game.state().mode_frame
+            < SIMULTANEOUS_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
+        {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.take_sound_events(),
+            [
+                Some(SoundEvent::HostileLaser),
+                Some(SoundEvent::HostileLaser),
+                None,
+            ]
+        );
 
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();

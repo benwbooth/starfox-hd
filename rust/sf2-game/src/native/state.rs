@@ -8,12 +8,15 @@ use super::render::Camera;
 
 pub const SELECTED_PILOT_COUNT: usize = 2;
 pub const ROSTER_PILOT_COUNT: usize = 6;
-pub const SOUND_EVENT_CAPACITY: usize = 2;
+/// Two scripted hostile shots can begin on one presentation boundary while
+/// the player fires on the same game tick.
+pub const SOUND_EVENT_CAPACITY: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundEvent {
     RapidLaser,
     ChargedLaser,
+    HostileLaser,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
