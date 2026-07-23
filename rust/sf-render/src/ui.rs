@@ -12,9 +12,10 @@ use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{
     EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState, Sf2AudioOutput,
     Sf2Difficulty, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MissionBackdrop,
-    Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase, Sf2StrategicActor, Sf2StrategicActorAppearance,
-    Sf2StrategicActorKind, Sf2TitleMenuItem, Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE,
-    WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
+    Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase, Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
+    Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE, WINDOW_MODE_WHITE2NORM,
+    WINDOW_MODE_WHITEFADE,
 };
 use crate::sprites::decode_4bpp_tile;
 
@@ -32,6 +33,8 @@ const SF2_GAME_OVER_FADE_FIVE_RETAIL_FRAME: u16 = 160;
 const SF2_GAME_OVER_FADE_THREE_RETAIL_FRAME: u16 = 164;
 const SF2_GAME_OVER_FADE_ONE_RETAIL_FRAME: u16 = 168;
 const SF2_GAME_OVER_FADE_BLACK_RETAIL_FRAME: u16 = 172;
+const SF2_RESULTS_DIM_RETAIL_FRAME: u16 = 124;
+const SF2_RESULTS_BLACK_RETAIL_FRAME: u16 = 128;
 const SF2_TITLE_CENTER_X: i32 = SF2_REFERENCE_WIDTH / 2;
 const SF2_TITLE_Y: i32 = 172;
 const SF2_SUBTITLE_Y: i32 = 154;
@@ -803,6 +806,11 @@ pub struct Ui {
     sf2_game_over_texture: TextureId,
     sf2_game_over_presentation: crate::sf2_game_over::Presentation,
     sf2_game_over_render_key: Option<Sf2GameOverRenderKey>,
+    sf2_results_summary: TextureId,
+    sf2_results_retry: TextureId,
+    sf2_results_retry_dim: TextureId,
+    sf2_results_title: TextureId,
+    sf2_results_title_dim: TextureId,
     sf2_aim_sight: TextureId,
     sf2_hud_glyphs: TextureId,
     sf2_map_glyphs: TextureId,
@@ -917,6 +925,44 @@ impl Ui {
             crate::sf2_game_over::WIDTH as u32,
             crate::sf2_game_over::HEIGHT as u32,
             &sf2_game_over_initial_rgba,
+        );
+        let sf2_results_summary_rgba = crate::sf2_results_summary::decode_rgba();
+        let sf2_results_summary = gpu.create_texture_rgba(
+            crate::sf2_results_summary::WIDTH as u32,
+            crate::sf2_results_summary::HEIGHT as u32,
+            &sf2_results_summary_rgba,
+        );
+        let sf2_results_retry_rgba = crate::sf2_results_retry::decode_rgba();
+        let sf2_results_retry = gpu.create_texture_rgba(
+            crate::sf2_results_retry::WIDTH as u32,
+            crate::sf2_results_retry::HEIGHT as u32,
+            &sf2_results_retry_rgba,
+        );
+        let mut sf2_results_retry_dim_rgba = sf2_results_retry_rgba.clone();
+        crate::sf2_game_over::apply_brightness(
+            &mut sf2_results_retry_dim_rgba,
+            crate::sf2_game_over::Brightness::NineFifteenths,
+        );
+        let sf2_results_retry_dim = gpu.create_texture_rgba(
+            crate::sf2_results_retry::WIDTH as u32,
+            crate::sf2_results_retry::HEIGHT as u32,
+            &sf2_results_retry_dim_rgba,
+        );
+        let sf2_results_title_rgba = crate::sf2_results_title::decode_rgba();
+        let sf2_results_title = gpu.create_texture_rgba(
+            crate::sf2_results_title::WIDTH as u32,
+            crate::sf2_results_title::HEIGHT as u32,
+            &sf2_results_title_rgba,
+        );
+        let mut sf2_results_title_dim_rgba = sf2_results_title_rgba.clone();
+        crate::sf2_game_over::apply_brightness(
+            &mut sf2_results_title_dim_rgba,
+            crate::sf2_game_over::Brightness::NineFifteenths,
+        );
+        let sf2_results_title_dim = gpu.create_texture_rgba(
+            crate::sf2_results_title::WIDTH as u32,
+            crate::sf2_results_title::HEIGHT as u32,
+            &sf2_results_title_dim_rgba,
         );
         let sf2_aim_sight_rgba = crate::sf2_aim_sight::decode_rgba();
         let sf2_aim_sight = gpu.create_texture_rgba(
@@ -1107,6 +1153,11 @@ impl Ui {
             sf2_game_over_texture,
             sf2_game_over_presentation,
             sf2_game_over_render_key: None,
+            sf2_results_summary,
+            sf2_results_retry,
+            sf2_results_retry_dim,
+            sf2_results_title,
+            sf2_results_title_dim,
             sf2_aim_sight,
             sf2_hud_glyphs,
             sf2_map_glyphs,
@@ -1702,6 +1753,39 @@ impl Ui {
         self.textured_quad_source_frame(
             gpu,
             self.sf2_game_over_texture,
+            0,
+            0,
+            SF2_REFERENCE_WIDTH,
+            SF2_REFERENCE_HEIGHT,
+        );
+    }
+
+    fn render_sf2_results(&self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        let leaving = inputs.results_phase == Sf2ResultsPhase::Leaving;
+        if leaving && inputs.results_transition_retail_frames >= SF2_RESULTS_BLACK_RETAIL_FRAME {
+            self.quad_snes(
+                gpu,
+                [0.0, 0.0, 0.0, 1.0],
+                0,
+                0,
+                SF2_REFERENCE_WIDTH,
+                SF2_REFERENCE_HEIGHT,
+            );
+            return;
+        }
+
+        let dim =
+            leaving && inputs.results_transition_retail_frames >= SF2_RESULTS_DIM_RETAIL_FRAME;
+        let texture = match (inputs.results_phase, inputs.results_choice, dim) {
+            (Sf2ResultsPhase::Revealing, _, _) => self.sf2_results_summary,
+            (_, Sf2ResultsChoice::Retry, false) => self.sf2_results_retry,
+            (_, Sf2ResultsChoice::Retry, true) => self.sf2_results_retry_dim,
+            (_, Sf2ResultsChoice::Title, false) => self.sf2_results_title,
+            (_, Sf2ResultsChoice::Title, true) => self.sf2_results_title_dim,
+        };
+        self.textured_quad_source_frame(
+            gpu,
+            texture,
             0,
             0,
             SF2_REFERENCE_WIDTH,
@@ -3078,7 +3162,8 @@ impl Ui {
             Sf2Mode::PilotSelection => self.render_sf2_pilot_selection(gpu, font, inputs),
             Sf2Mode::Mission => self.render_sf2_mission_hud(gpu, inputs),
             Sf2Mode::GameOver => self.render_sf2_game_over(gpu, font, inputs),
-            Sf2Mode::Intro | Sf2Mode::Results | Sf2Mode::Ending => {}
+            Sf2Mode::Results => self.render_sf2_results(gpu, inputs),
+            Sf2Mode::Intro | Sf2Mode::Ending => {}
         }
     }
 

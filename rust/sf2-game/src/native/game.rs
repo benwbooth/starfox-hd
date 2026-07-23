@@ -20,6 +20,7 @@ use super::object::{
     ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
+use super::results;
 use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
@@ -28,10 +29,11 @@ use super::state::{
     GameState, IntroPhase, MapPoint, MissionId, MissionPhase, MissionVisit, Pilot, PilotCraftClass,
     PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    StrategicEncounter, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
-    StrategicMapPhase, StrategicMapTutorialPage, StrategicThreatCount, TitaniaMissionState,
-    TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
-    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
+    ResultsChoice, ResultsPhase, ResultsState, StrategicEncounter, StrategicMapActor,
+    StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
+    StrategicThreatCount, TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus,
+    TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion, WalkerJumpState,
+    WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -4933,8 +4935,9 @@ impl Game {
             GameMode::PilotSelection => self.update_pilot_selection(),
             GameMode::Mission => self.update_mission()?,
             GameMode::GameOver => self.update_game_over(),
+            GameMode::Results => self.update_results(),
             GameMode::Ending => self.update_ending(),
-            GameMode::Results | GameMode::Intro(_) => {}
+            GameMode::Intro(_) => {}
         }
         Ok(())
     }
@@ -5738,7 +5741,7 @@ impl Game {
                         destination: if can_continue {
                             GameOverDestination::StrategicMap
                         } else {
-                            GameOverDestination::Title
+                            GameOverDestination::Results
                         },
                         elapsed_retail_frames: 0,
                     };
@@ -5750,7 +5753,13 @@ impl Game {
             } => {
                 let elapsed = elapsed_retail_frames
                     .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
-                if elapsed < player_damage::CONTINUE_RETURN_RETAIL_FRAMES {
+                let duration = match destination {
+                    GameOverDestination::StrategicMap => {
+                        player_damage::CONTINUE_RETURN_RETAIL_FRAMES
+                    }
+                    GameOverDestination::Results => results::GAME_OVER_RESULTS_ENTRY_RETAIL_FRAMES,
+                };
+                if elapsed < duration {
                     self.state.game_over.phase = GameOverPhase::Leaving {
                         destination,
                         elapsed_retail_frames: elapsed,
@@ -5759,7 +5768,64 @@ impl Game {
                 }
                 match destination {
                     GameOverDestination::StrategicMap => self.promote_reserve_pilot(),
-                    GameOverDestination::Title => {
+                    GameOverDestination::Results => {
+                        self.state.results = ResultsState::default();
+                        self.enter_mode(GameMode::Results);
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_results(&mut self) {
+        match self.state.results.phase {
+            ResultsPhase::Revealing => {
+                let presentation_frame = self
+                    .state
+                    .mode_frame
+                    .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                    .min(u32::from(u16::MAX)) as u16;
+                if presentation_frame >= results::CHOICE_UNLOCK_RETAIL_FRAMES
+                    && self.confirm_pressed()
+                {
+                    self.state.results.phase = ResultsPhase::Choosing(ResultsChoice::Retry);
+                }
+            }
+            ResultsPhase::Choosing(mut choice) => {
+                if self.state.input.pressed.contains(Button::Up)
+                    || self.state.input.pressed.contains(Button::Down)
+                    || self.state.input.pressed.contains(Button::Left)
+                    || self.state.input.pressed.contains(Button::Right)
+                {
+                    choice = match choice {
+                        ResultsChoice::Retry => ResultsChoice::Title,
+                        ResultsChoice::Title => ResultsChoice::Retry,
+                    };
+                    self.state.results.phase = ResultsPhase::Choosing(choice);
+                }
+                if self.confirm_pressed() {
+                    self.state.results.phase = ResultsPhase::Leaving {
+                        choice,
+                        elapsed_retail_frames: 0,
+                    };
+                }
+            }
+            ResultsPhase::Leaving {
+                choice,
+                elapsed_retail_frames,
+            } => {
+                let elapsed = elapsed_retail_frames
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                if elapsed < results::CHOICE_EXIT_RETAIL_FRAMES {
+                    self.state.results.phase = ResultsPhase::Leaving {
+                        choice,
+                        elapsed_retail_frames: elapsed,
+                    };
+                    return;
+                }
+                match choice {
+                    ResultsChoice::Retry => self.begin_pilot_selection(),
+                    ResultsChoice::Title => {
                         self.state.title.page = TitlePage::MainMenu;
                         self.enter_mode(GameMode::Title);
                     }
@@ -20922,6 +20988,90 @@ mod tests {
                 .hit_points,
             player_damage::ORACLE_RESERVE_SHIELD
         );
+    }
+
+    #[test]
+    fn declining_continue_enters_results_then_honors_retry_and_title_choices() {
+        let mut game = Game::new();
+        game.state.mode = GameMode::GameOver;
+        game.state.mode_frame = u32::from(player_damage::GAME_OVER_PROMPT_RETAIL_FRAMES)
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        game.state.game_over.phase = GameOverPhase::Choosing(GameOverChoice::ContinueWithWingmate);
+
+        game.tick(Button::Down as u16).unwrap();
+        assert_eq!(
+            game.state.game_over.phase,
+            GameOverPhase::Choosing(GameOverChoice::EndCampaign)
+        );
+        game.tick(0).unwrap();
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(
+            game.state.game_over.phase,
+            GameOverPhase::Leaving {
+                destination: GameOverDestination::Results,
+                elapsed_retail_frames: 0,
+            }
+        );
+
+        let results_entry_ticks = results::GAME_OVER_RESULTS_ENTRY_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..results_entry_ticks - 1 {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::GameOver);
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::Results);
+        assert_eq!(game.state.results.phase, ResultsPhase::Revealing);
+
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(game.state.results.phase, ResultsPhase::Revealing);
+        game.tick(0).unwrap();
+        game.state.mode_frame = u32::from(results::CHOICE_UNLOCK_RETAIL_FRAMES)
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK
+            - 1;
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(
+            game.state.results.phase,
+            ResultsPhase::Choosing(ResultsChoice::Retry)
+        );
+
+        game.tick(0).unwrap();
+        game.tick(Button::Down as u16).unwrap();
+        assert_eq!(
+            game.state.results.phase,
+            ResultsPhase::Choosing(ResultsChoice::Title)
+        );
+        game.tick(0).unwrap();
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(
+            game.state.results.phase,
+            ResultsPhase::Leaving {
+                choice: ResultsChoice::Title,
+                elapsed_retail_frames: 0,
+            }
+        );
+        let results_exit_ticks =
+            results::CHOICE_EXIT_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..results_exit_ticks - 1 {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Results);
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::Title);
+
+        game.state.mode = GameMode::Results;
+        game.state.results.phase = ResultsPhase::Leaving {
+            choice: ResultsChoice::Retry,
+            elapsed_retail_frames: results::CHOICE_EXIT_RETAIL_FRAMES
+                - RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+        };
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::PilotSelection);
+        assert_eq!(
+            game.state.pilot_selection.phase,
+            PilotSelectionPhase::Revealing
+        );
+        assert_eq!(game.state.roster.selected, [None, None]);
     }
 
     #[test]

@@ -625,6 +625,9 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
             game_over_phase: Sf2GameOverPhase::Choosing,
             game_over_choice: Sf2GameOverChoice::ContinueWithWingmate,
             game_over_transition_retail_frames: 0,
+            results_phase: sf_render::renderer::Sf2ResultsPhase::Revealing,
+            results_choice: sf_render::renderer::Sf2ResultsChoice::Retry,
+            results_transition_retail_frames: 0,
             primary_shield: 0,
             wingmate_shield: 0,
             item_count: 0,
@@ -656,6 +659,7 @@ fn check_sf2_native_frontend(renderer: &mut Renderer) {
         Sf2Mode::StrategicMap,
         Sf2Mode::Mission,
         Sf2Mode::GameOver,
+        Sf2Mode::Results,
     ] {
         let inputs = sf2_inputs(mode);
         renderer.begin_frame();

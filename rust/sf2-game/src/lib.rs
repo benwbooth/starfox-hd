@@ -17,12 +17,12 @@ pub use native::{
     ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass, PilotCraftProfile,
     PilotSelectionPhase, PilotSelectionState, PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    PlayerWalkerState, RandomState, RenderFlags, RenderObject, Roster, Rotation, ShapeId,
-    StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
-    StrategicMapState, StrategicMapTutorialPage, TitaniaMissionState, TitaniaPhase,
-    TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState,
-    Vector3, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, WeaponKind, OBJECT_CAPACITY,
-    STRATEGIC_MAP_ACTOR_CAPACITY,
+    PlayerWalkerState, RandomState, RenderFlags, RenderObject, ResultsChoice, ResultsPhase,
+    ResultsState, Roster, Rotation, ShapeId, StrategicMapActor, StrategicMapActorKind,
+    StrategicMapAppearance, StrategicMapPhase, StrategicMapState, StrategicMapTutorialPage,
+    TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus,
+    TitleMenuItem, TitlePage, TitleState, Vector3, WalkerJumpMotion, WalkerJumpState,
+    WalkerMotionProfile, WeaponKind, OBJECT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[cfg(feature = "oracle-bridge")]

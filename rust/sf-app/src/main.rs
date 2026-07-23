@@ -34,9 +34,9 @@ use sf_render::renderer::{
     EndingReplayBackdrop as RenderEndingReplayBackdrop, EndingReplayInputs, FrameInputs,
     GameState as RenderState, Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty,
     Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MapPoint, Sf2MissionBackdrop, Sf2Mode,
-    Sf2Pilot, Sf2PilotSelectionPhase, Sf2RadarContact, Sf2StrategicActor,
-    Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase, Sf2TitleMenuItem,
-    Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
+    Sf2Pilot, Sf2PilotSelectionPhase, Sf2RadarContact, Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
+    Sf2TitleMenuItem, Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
 };
 use sf_render::shapes::Sf2PolygonPalette;
 
@@ -319,7 +319,8 @@ fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdr
 fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
     use sf2_game::{
         AudioOutput, Difficulty, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-        ObjectKind, PilotSelectionPhase, StrategicMapPhase, TitleMenuItem, TitlePage,
+        ObjectKind, PilotSelectionPhase, ResultsChoice, ResultsPhase, StrategicMapPhase,
+        TitleMenuItem, TitlePage,
     };
 
     let state = game.state();
@@ -421,7 +422,7 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
             GameOverPhase::AndrossTaunt
             | GameOverPhase::Choosing(GameOverChoice::EndCampaign)
             | GameOverPhase::Leaving {
-                destination: GameOverDestination::Title,
+                destination: GameOverDestination::Results,
                 ..
             } => Sf2GameOverChoice::EndCampaign,
         },
@@ -431,6 +432,28 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
                 ..
             } => elapsed_retail_frames,
             GameOverPhase::AndrossTaunt | GameOverPhase::Choosing(_) => 0,
+        },
+        results_phase: match state.results.phase {
+            ResultsPhase::Revealing => Sf2ResultsPhase::Revealing,
+            ResultsPhase::Choosing(_) => Sf2ResultsPhase::Choosing,
+            ResultsPhase::Leaving { .. } => Sf2ResultsPhase::Leaving,
+        },
+        results_choice: match state.results.phase {
+            ResultsPhase::Revealing | ResultsPhase::Choosing(ResultsChoice::Retry) => {
+                Sf2ResultsChoice::Retry
+            }
+            ResultsPhase::Choosing(ResultsChoice::Title) => Sf2ResultsChoice::Title,
+            ResultsPhase::Leaving { choice, .. } => match choice {
+                ResultsChoice::Retry => Sf2ResultsChoice::Retry,
+                ResultsChoice::Title => Sf2ResultsChoice::Title,
+            },
+        },
+        results_transition_retail_frames: match state.results.phase {
+            ResultsPhase::Leaving {
+                elapsed_retail_frames,
+                ..
+            } => elapsed_retail_frames,
+            ResultsPhase::Revealing | ResultsPhase::Choosing(_) => 0,
         },
         primary_shield: state
             .mission

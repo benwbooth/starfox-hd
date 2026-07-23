@@ -85,6 +85,19 @@ pub enum Sf2GameOverPhase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2ResultsChoice {
+    Retry,
+    Title,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2ResultsPhase {
+    Revealing,
+    Choosing,
+    Leaving,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sf2Pilot {
     Fox,
     Falco,
@@ -222,6 +235,9 @@ pub struct Sf2FrameInputs {
     pub game_over_phase: Sf2GameOverPhase,
     pub game_over_choice: Sf2GameOverChoice,
     pub game_over_transition_retail_frames: u16,
+    pub results_phase: Sf2ResultsPhase,
+    pub results_choice: Sf2ResultsChoice,
+    pub results_transition_retail_frames: u16,
     pub primary_shield: u8,
     pub wingmate_shield: u8,
     pub item_count: u8,

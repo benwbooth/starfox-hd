@@ -8,6 +8,7 @@ mod game;
 mod input;
 mod object;
 mod render;
+mod results;
 mod state;
 
 mod astropolis_assault;
@@ -29,9 +30,9 @@ pub use state::{
     MissionPhase, MissionState, MissionVisit, Pilot, PilotCraftClass, PilotCraftProfile,
     PilotSelectionPhase, PilotSelectionState, PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    PlayerWalkerState, RandomState, Roster, StrategicMapActor, StrategicMapActorKind,
-    StrategicMapAppearance, StrategicMapPhase, StrategicMapState, StrategicMapTutorialPage,
-    TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus,
-    TitleMenuItem, TitlePage, TitleState, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile,
-    STRATEGIC_MAP_ACTOR_CAPACITY,
+    PlayerWalkerState, RandomState, ResultsChoice, ResultsPhase, ResultsState, Roster,
+    StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
+    StrategicMapState, StrategicMapTutorialPage, TitaniaMissionState, TitaniaPhase,
+    TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState,
+    WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, STRATEGIC_MAP_ACTOR_CAPACITY,
 };

@@ -796,7 +796,7 @@ pub enum GameOverChoice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameOverDestination {
     StrategicMap,
-    Title,
+    Results,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -813,6 +813,29 @@ pub enum GameOverPhase {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct GameOverState {
     pub phase: GameOverPhase,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ResultsChoice {
+    #[default]
+    Retry,
+    Title,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ResultsPhase {
+    #[default]
+    Revealing,
+    Choosing(ResultsChoice),
+    Leaving {
+        choice: ResultsChoice,
+        elapsed_retail_frames: u16,
+    },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ResultsState {
+    pub phase: ResultsPhase,
 }
 
 /// Direction of an in-progress Arwing/Walker transformation.
@@ -1372,6 +1395,7 @@ pub struct GameState {
     pub pilot_selection: PilotSelectionState,
     pub mission: MissionState,
     pub game_over: GameOverState,
+    pub results: ResultsState,
     pub ending: EndingState,
     pub objects: ObjectStore,
     pub camera: Camera,
@@ -1392,6 +1416,7 @@ impl Default for GameState {
             pilot_selection: PilotSelectionState::default(),
             mission: MissionState::default(),
             game_over: GameOverState::default(),
+            results: ResultsState::default(),
             ending: EndingState::default(),
             objects: ObjectStore::new(),
             camera: Camera::default(),

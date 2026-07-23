@@ -191,17 +191,12 @@ impl Presentation {
             self.blit_portrait(&mut indices, portrait);
         }
 
-        let level = brightness.level();
         let mut rgba = Vec::with_capacity(WIDTH * HEIGHT * CHANNELS_PER_PIXEL);
         for index in indices {
             let color = self.palette[usize::from(index)];
-            rgba.extend_from_slice(&[
-                scaled_component(color[0], level),
-                scaled_component(color[1], level),
-                scaled_component(color[2], level),
-                color[3],
-            ]);
+            rgba.extend_from_slice(&color);
         }
+        apply_brightness(&mut rgba, brightness);
         rgba
     }
 
@@ -213,6 +208,15 @@ impl Presentation {
             indices[destination_start..destination_start + PORTRAIT_WIDTH]
                 .copy_from_slice(&source[source_start..source_start + PORTRAIT_WIDTH]);
         }
+    }
+}
+
+pub fn apply_brightness(rgba: &mut [u8], brightness: Brightness) {
+    let level = brightness.level();
+    for pixel in rgba.chunks_exact_mut(CHANNELS_PER_PIXEL) {
+        pixel[0] = scaled_component(pixel[0], level);
+        pixel[1] = scaled_component(pixel[1], level);
+        pixel[2] = scaled_component(pixel[2], level);
     }
 }
 
