@@ -31,10 +31,12 @@ EXPECTED_MOVE_EVENTS = EXPECTED_LOGIC_OBJECTS * EXPECTED_MOVE_EVENTS_PER_OBJECT
 class Evidence:
     sortie_sha256: str
     actor_logic_sha256: str
+    completion_sha256: str
     objectives_before: int
     objectives_after: int
     defeat_retail_frame: int
     explosion_retail_frame: int
+    return_delay_retail_frames: int
     move_events: int
 
 
@@ -69,7 +71,66 @@ def objective_count(values: dict[str, str]) -> int:
     return mirrors[0]
 
 
-def extract(sortie_trace: Path, actor_logic_trace: Path) -> Evidence:
+def extract_completion(completion_trace: Path) -> int:
+    records = [
+        fields(line)
+        for line in completion_trace.read_text(encoding="utf-8").splitlines()
+    ]
+    completed_index, completed = next(
+        (
+            (index, record)
+            for index, record in enumerate(records)
+            if record.get("event") == "objective-remaining-forced"
+            and record.get("remaining") == "0"
+        ),
+        (None, None),
+    )
+    if completed_index is None or completed is None:
+        raise SystemExit("completion trace never clears both Meteor objectives")
+    completed_elapsed = int(completed["elapsed"])
+    prior_objectives = next(
+        (
+            record.get("objectives")
+            for record in reversed(records[:completed_index])
+            if "objectives" in record
+        ),
+        None,
+    )
+    if prior_objectives != "2,2":
+        raise SystemExit("completion trace does not begin with two Meteor objectives")
+    returned = next(
+        (
+            record
+            for record in records
+            if int(record.get("elapsed", "0")) > completed_elapsed
+            and record.get("event") == "state"
+            and record.get("mode") == "7"
+        ),
+        None,
+    )
+    if returned is None:
+        raise SystemExit("completion trace never returns to the strategic map")
+    if returned.get("map") != ACTIVE_MAP:
+        raise SystemExit("Meteor unexpectedly changes active maps before campaign return")
+    route_records = [
+        record
+        for record in records[completed_index + 1 :]
+        if int(record.get("elapsed", "0")) <= int(returned["elapsed"])
+    ]
+    if any(
+        record.get("map", ACTIVE_MAP) != ACTIVE_MAP for record in route_records
+    ):
+        raise SystemExit("Meteor changes active maps during its return flight")
+    if any(
+        record.get("input") not in {None, "script-up"} for record in route_records
+    ):
+        raise SystemExit("Meteor completion route uses unexpected oracle input")
+    return int(returned["elapsed"]) - completed_elapsed
+
+
+def extract(
+    sortie_trace: Path, actor_logic_trace: Path, completion_trace: Path
+) -> Evidence:
     samples = []
     for line in sortie_trace.read_text(encoding="utf-8").splitlines():
         values = fields(line)
@@ -149,10 +210,12 @@ def extract(sortie_trace: Path, actor_logic_trace: Path) -> Evidence:
     return Evidence(
         sortie_sha256=digest(sortie_trace),
         actor_logic_sha256=digest(actor_logic_trace),
+        completion_sha256=digest(completion_trace),
         objectives_before=objective_count(entry_values),
         objectives_after=objective_count(explosion[1]),
         defeat_retail_frame=defeat[0] - entry_elapsed,
         explosion_retail_frame=explosion[0] - entry_elapsed,
+        return_delay_retail_frames=extract_completion(completion_trace),
         move_events=len(move_records),
     )
 
@@ -163,6 +226,7 @@ def render(evidence: Evidence) -> str:
             "# Compact Mesen oracle evidence for Meteor's Queen Dragoon encounter.",
             f"# Raw sortie SHA-256: {evidence.sortie_sha256}",
             f"# Raw actor-logic SHA-256: {evidence.actor_logic_sha256}",
+            f"# Raw completion SHA-256: {evidence.completion_sha256}",
             (
                 f"mission name={MISSION_NAME} mission_selection={MISSION_SELECTION} "
                 f"active_map={ACTIVE_MAP.split(':')[1]} "
@@ -190,6 +254,12 @@ def render(evidence: Evidence) -> str:
                 f"logic traced_objects={EXPECTED_LOGIC_OBJECTS} "
                 f"move_events={evidence.move_events}"
             ),
+            (
+                "completion remaining_objectives=0 "
+                "return_input=forward "
+                f"observed_return_retail_frames={evidence.return_delay_retail_frames} "
+                "active_map_unchanged=true"
+            ),
             "",
         ]
     )
@@ -198,9 +268,9 @@ def render(evidence: Evidence) -> str:
 def validate_compact(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
-    if len(lines) != 9:
+    if len(lines) != 10:
         raise SystemExit("Queen Dragoon fixture has an unexpected record count")
-    mission, boss, *components, logic = [fields(line) for line in lines]
+    mission, boss, *components, logic, completion = [fields(line) for line in lines]
     if mission != {
         "name": MISSION_NAME,
         "mission_selection": str(MISSION_SELECTION),
@@ -235,7 +305,14 @@ def validate_compact(path: Path) -> None:
         "move_events": str(EXPECTED_MOVE_EVENTS),
     }:
         raise SystemExit("Queen Dragoon actor-logic fixture is inconsistent")
-    hashes = [line.rsplit(" ", 1)[-1] for line in content.splitlines()[1:3]]
+    if completion != {
+        "remaining_objectives": "0",
+        "return_input": "forward",
+        "observed_return_retail_frames": "833",
+        "active_map_unchanged": "true",
+    }:
+        raise SystemExit("Queen Dragoon completion fixture is inconsistent")
+    hashes = [line.rsplit(" ", 1)[-1] for line in content.splitlines()[1:4]]
     if any(
         len(value) != 64
         or any(character not in "0123456789abcdef" for character in value)
@@ -248,6 +325,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--actor-source", type=Path)
+    parser.add_argument("--completion-source", type=Path)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
@@ -255,7 +333,11 @@ def main() -> None:
     if args.source:
         if not args.actor_source:
             raise SystemExit("--actor-source is required with --source")
-        generated = render(extract(args.source, args.actor_source))
+        if not args.completion_source:
+            raise SystemExit("--completion-source is required with --source")
+        generated = render(
+            extract(args.source, args.actor_source, args.completion_source)
+        )
         if args.check:
             if not args.output.is_file() or args.output.read_text(encoding="utf-8") != generated:
                 raise SystemExit(f"compact fixture is out of date: {args.output}")
