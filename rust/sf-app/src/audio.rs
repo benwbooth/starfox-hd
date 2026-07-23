@@ -13,7 +13,7 @@ use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream, AudioStrea
 use sf_audio::native_player::{NativeAudioError, NativePlayer};
 use sf_audio::sf2_native_player::{
     Sf2ChargeCue, Sf2EngineCue, Sf2MusicCue, Sf2NativePlayer, Sf2SoundBank, Sf2SoundEffect,
-    Sf2SoundPilot,
+    Sf2SoundPilot, Sf2SpatialCue, Sf2SpatialDistance, Sf2StereoPosition,
 };
 use sf_audio::sound::{PosSndFamily, Sound, SoundBackend, SoundGameState, SoundObj, SoundPlayer};
 use sf_game::game::{Game, PosSndFamilyId};
@@ -140,6 +140,32 @@ fn sf2_charge_cue(sound: sf2_game::ChargeSound) -> Sf2ChargeCue {
     }
 }
 
+fn sf2_spatial_distance(distance: sf2_game::SpatialDistance) -> Sf2SpatialDistance {
+    match distance {
+        sf2_game::SpatialDistance::Close => Sf2SpatialDistance::Close,
+        sf2_game::SpatialDistance::Near => Sf2SpatialDistance::Near,
+        sf2_game::SpatialDistance::Far => Sf2SpatialDistance::Far,
+        sf2_game::SpatialDistance::Distant => Sf2SpatialDistance::Distant,
+    }
+}
+
+fn sf2_stereo_position(position: sf2_game::StereoPosition) -> Sf2StereoPosition {
+    match position {
+        sf2_game::StereoPosition::Left => Sf2StereoPosition::Left,
+        sf2_game::StereoPosition::Center => Sf2StereoPosition::Center,
+        sf2_game::StereoPosition::Right => Sf2StereoPosition::Right,
+    }
+}
+
+fn sf2_spatial_cue(sound: sf2_game::SpatialSound) -> Sf2SpatialCue {
+    match sound.sound {
+        sf2_game::SpatialLoop::CapitalEngine => Sf2SpatialCue::CapitalEngine {
+            distance: sf2_spatial_distance(sound.distance),
+            position: sf2_stereo_position(sound.position),
+        },
+    }
+}
+
 /// The audio-thread callback: pull samples from the selected game's native
 /// 32 kHz native source.
 struct NativeStreamCallback {
@@ -222,6 +248,7 @@ pub struct AudioSys {
     sf2_music: Option<Sf2MusicCue>,
     sf2_engine: Option<(Sf2SoundBank, Sf2SoundPilot, Sf2EngineCue)>,
     sf2_charge: Option<(Sf2SoundBank, Sf2SoundPilot, Sf2ChargeCue)>,
+    sf2_spatial: Option<(Sf2SoundBank, Sf2SoundPilot, sf2_game::SpatialSound)>,
 }
 
 impl AudioSys {
@@ -307,6 +334,7 @@ impl AudioSys {
             sf2_music: None,
             sf2_engine: None,
             sf2_charge: None,
+            sf2_spatial: None,
         }
     }
 
@@ -343,6 +371,20 @@ impl AudioSys {
             let result = player.set_charge(bank, pilot, charge);
             if result.is_ok() {
                 self.sf2_charge = Some(charge_state);
+            }
+            self.backend.report(result);
+        }
+
+        let spatial = game.spatial_sound();
+        let spatial_state = spatial.map(|sound| (bank, pilot, sound));
+        if self.sf2_spatial != spatial_state {
+            let restart = self
+                .sf2_spatial
+                .zip(spatial_state)
+                .is_some_and(|(previous, next)| previous.2.source != next.2.source);
+            let result = player.set_spatial(bank, pilot, spatial.map(sf2_spatial_cue), restart);
+            if result.is_ok() {
+                self.sf2_spatial = spatial_state;
             }
             self.backend.report(result);
         }
@@ -711,5 +753,30 @@ mod tests {
             Sf2ChargeCue::Building
         );
         assert_eq!(sf2_charge_cue(ChargeSound::Ready), Sf2ChargeCue::Ready);
+    }
+
+    #[test]
+    fn sf2_spatial_state_routes_to_the_dedicated_positional_layer() {
+        let distances = [
+            (sf2_game::SpatialDistance::Close, Sf2SpatialDistance::Close),
+            (sf2_game::SpatialDistance::Near, Sf2SpatialDistance::Near),
+            (sf2_game::SpatialDistance::Far, Sf2SpatialDistance::Far),
+            (
+                sf2_game::SpatialDistance::Distant,
+                Sf2SpatialDistance::Distant,
+            ),
+        ];
+        for (source, output) in distances {
+            assert_eq!(sf2_spatial_distance(source), output);
+        }
+
+        let positions = [
+            (sf2_game::StereoPosition::Left, Sf2StereoPosition::Left),
+            (sf2_game::StereoPosition::Center, Sf2StereoPosition::Center),
+            (sf2_game::StereoPosition::Right, Sf2StereoPosition::Right),
+        ];
+        for (source, output) in positions {
+            assert_eq!(sf2_stereo_position(source), output);
+        }
     }
 }

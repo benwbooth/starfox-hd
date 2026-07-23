@@ -48,6 +48,14 @@ local function pose(object)
     work_byte(object + 24))
 end
 
+local function byte_range(address, length)
+  local bytes = {}
+  for offset = 0, length - 1 do
+    bytes[#bytes + 1] = string.format("%02X", work_byte(address + offset))
+  end
+  return table.concat(bytes)
+end
+
 local function active_objects()
   local output = {}
   local seen = {}
@@ -55,16 +63,18 @@ local function active_objects()
   while object ~= 0 and not seen[object] and #output < 60 do
     seen[object] = true
     output[#output + 1] = string.format(
-      "%04X,%04X,%s,%04X,%d,%d,%d,%d,%d",
+      "%04X,%04X,%s,%04X,%d,%d,%d,%d,%d,%d,%d",
       object,
       work_word(object + 4),
       pose(object),
       work_word(object + 0x2B),
+      work_byte(object + 0x28),
       work_byte(object + 0x2D),
       work_byte(object + 0x2E),
       work_byte(object + 0x2F),
       work_byte(object + 0x30),
-      work_byte(object + 0x31))
+      work_byte(object + 0x31),
+      work_byte(object + 0x1CCC))
     object = work_word(object)
   end
   return table.concat(output, ";")
@@ -78,8 +88,9 @@ local function audio_write(address, value)
   end
   previous_loop_value[channel] = value
   local state = emu.getState()
+  local selected_source = work_word(0x1CE8)
   lines[#lines + 1] = string.format(
-    "frame=%d clock=%d channel=%d value=%d mode=%d submode=%d source=%02X:%04X",
+    "frame=%d clock=%d channel=%d value=%d mode=%d submode=%d source=%02X:%04X prepared=%d sound=%d selected=%04X selected_shape=%04X selected_pose=%s listener_pose=%s",
     frame,
     state["memoryManager.masterClock"] or 0,
     channel,
@@ -87,7 +98,13 @@ local function audio_write(address, value)
     work_byte(0x1B68),
     work_byte(0x1B76),
     state["cpu.k"] or 0,
-    state["cpu.pc"] or 0)
+    state["cpu.pc"] or 0,
+    work_byte(0x1CE6),
+    work_byte(0x1CE7),
+    selected_source,
+    selected_source ~= 0 and work_word(selected_source + 4) or 0,
+    pose(selected_source),
+    pose(0x033F))
   if trace_objects and (channel == 2 or channel == 3) then
     lines[#lines + 1] = string.format(
       "objects frame=%d channel=%d value=%d player=%04X active=[%s]",
@@ -97,6 +114,28 @@ local function audio_write(address, value)
       work_word(0x12C3),
       active_objects())
   end
+end
+
+local function positional_prepare(_, value)
+  if not loaded or not trace_objects then return end
+  local state = emu.getState()
+  local selected_source = work_word(0x1CEE)
+  lines[#lines + 1] = string.format(
+    "position frame=%d value=%d sound=%d selected=%04X selected_shape=%04X selected_pose=%s selected_angles=%s listener_pose=%s listener_angles=%s player_angles=%s angle=%04X listener_yaw=%d source=%02X:%04X",
+    frame,
+    value,
+    work_byte(0x1CED),
+    selected_source,
+    work_word(selected_source + 4),
+    pose(selected_source),
+    byte_range(selected_source + 0x12, 7),
+    pose(0x033F),
+    byte_range(0x033F + 0x12, 7),
+    byte_range(work_word(0x12C3) + 0x12, 7),
+    work_word(0x50),
+    work_byte(0x033F + 0x15),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
 end
 
 local function load_state()
@@ -117,6 +156,10 @@ local function provide_input()
     emu.setInput({ b = true }, 0)
   elseif input_mode == "boost" then
     emu.setInput({ x = true }, 0)
+  elseif input_mode == "left" then
+    emu.setInput({ left = true }, 0)
+  elseif input_mode == "right" then
+    emu.setInput({ right = true }, 0)
   else
     emu.setInput({}, 0)
   end
@@ -166,6 +209,13 @@ emu.addMemoryCallback(
   emu.callbackType.write,
   0x002140,
   0x002143,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  positional_prepare,
+  emu.callbackType.write,
+  0x7E1CEC,
+  0x7E1CEC,
   emu.cpuType.snes,
   emu.memType.snesMemory)
 emu.addEventCallback(provide_input, emu.eventType.inputPolled)

@@ -30,6 +30,7 @@ pub enum ChargeSound {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AudioState {
     pending_events: [Option<SoundEvent>; SOUND_EVENT_CAPACITY],
+    spatial_listener_yaw: Option<Angle>,
 }
 
 impl AudioState {
@@ -45,6 +46,18 @@ impl AudioState {
 
     pub fn take_events(&mut self) -> [Option<SoundEvent>; SOUND_EVENT_CAPACITY] {
         std::mem::take(&mut self.pending_events)
+    }
+
+    pub const fn spatial_listener_yaw(&self) -> Option<Angle> {
+        self.spatial_listener_yaw
+    }
+
+    pub fn set_spatial_listener_yaw(&mut self, yaw: Angle) {
+        self.spatial_listener_yaw = Some(yaw);
+    }
+
+    pub fn reset_spatial_listener(&mut self) {
+        self.spatial_listener_yaw = None;
     }
 }
 

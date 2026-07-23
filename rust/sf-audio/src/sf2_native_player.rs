@@ -29,10 +29,23 @@ const CHARGE_READY_FILE: &str = "charge_ready.wav";
 const CHARGED_LASER_FILE: &str = "charged_laser.wav";
 const HOSTILE_LASER_FILE: &str = "hostile_laser.wav";
 const FLIGHT_ENGINE_FILE: &str = "flight.wav";
+const CAPITAL_ENGINE_CLOSE_LEFT_FILE: &str = "capital_engine_close_left.wav";
+const CAPITAL_ENGINE_CLOSE_CENTER_FILE: &str = "capital_engine_close_center.wav";
+const CAPITAL_ENGINE_CLOSE_RIGHT_FILE: &str = "capital_engine_close_right.wav";
+const CAPITAL_ENGINE_NEAR_LEFT_FILE: &str = "capital_engine_near_left.wav";
+const CAPITAL_ENGINE_NEAR_CENTER_FILE: &str = "capital_engine_near_center.wav";
+const CAPITAL_ENGINE_NEAR_RIGHT_FILE: &str = "capital_engine_near_right.wav";
+const CAPITAL_ENGINE_FAR_LEFT_FILE: &str = "capital_engine_far_left.wav";
+const CAPITAL_ENGINE_FAR_CENTER_FILE: &str = "capital_engine_far_center.wav";
+const CAPITAL_ENGINE_FAR_RIGHT_FILE: &str = "capital_engine_far_right.wav";
+const CAPITAL_ENGINE_DISTANT_LEFT_FILE: &str = "capital_engine_distant_left.wav";
+const CAPITAL_ENGINE_DISTANT_CENTER_FILE: &str = "capital_engine_distant_center.wav";
+const CAPITAL_ENGINE_DISTANT_RIGHT_FILE: &str = "capital_engine_distant_right.wav";
 const MUSIC_CUE_COUNT: usize = 15;
 const SOUND_EFFECT_COUNT: usize = 3;
 const ENGINE_CUE_COUNT: usize = 1;
 const CHARGE_CUE_COUNT: usize = 2;
+const SPATIAL_CUE_COUNT: usize = 12;
 const SOUND_BANK_COUNT: usize = 8;
 const SOUND_PILOT_COUNT: usize = 6;
 const REQUIRED_MUSIC: [&str; MUSIC_CUE_COUNT] = [
@@ -59,6 +72,20 @@ const REQUIRED_EFFECTS: [&str; SOUND_EFFECT_COUNT] = [
 ];
 const REQUIRED_ENGINE: [&str; ENGINE_CUE_COUNT] = [FLIGHT_ENGINE_FILE];
 const REQUIRED_AMBIENCE: [&str; CHARGE_CUE_COUNT] = [CHARGE_BUILDING_FILE, CHARGE_READY_FILE];
+const REQUIRED_POSITIONAL: [&str; SPATIAL_CUE_COUNT] = [
+    CAPITAL_ENGINE_CLOSE_LEFT_FILE,
+    CAPITAL_ENGINE_CLOSE_CENTER_FILE,
+    CAPITAL_ENGINE_CLOSE_RIGHT_FILE,
+    CAPITAL_ENGINE_NEAR_LEFT_FILE,
+    CAPITAL_ENGINE_NEAR_CENTER_FILE,
+    CAPITAL_ENGINE_NEAR_RIGHT_FILE,
+    CAPITAL_ENGINE_FAR_LEFT_FILE,
+    CAPITAL_ENGINE_FAR_CENTER_FILE,
+    CAPITAL_ENGINE_FAR_RIGHT_FILE,
+    CAPITAL_ENGINE_DISTANT_LEFT_FILE,
+    CAPITAL_ENGINE_DISTANT_CENTER_FILE,
+    CAPITAL_ENGINE_DISTANT_RIGHT_FILE,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sf2MusicCue {
@@ -220,6 +247,84 @@ impl Sf2EngineCue {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2SpatialDistance {
+    Close,
+    Near,
+    Far,
+    Distant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2StereoPosition {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2SpatialCue {
+    CapitalEngine {
+        distance: Sf2SpatialDistance,
+        position: Sf2StereoPosition,
+    },
+}
+
+impl Sf2SpatialCue {
+    const fn filename(self) -> &'static str {
+        match self {
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Close,
+                position: Sf2StereoPosition::Left,
+            } => CAPITAL_ENGINE_CLOSE_LEFT_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Close,
+                position: Sf2StereoPosition::Center,
+            } => CAPITAL_ENGINE_CLOSE_CENTER_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Close,
+                position: Sf2StereoPosition::Right,
+            } => CAPITAL_ENGINE_CLOSE_RIGHT_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Near,
+                position: Sf2StereoPosition::Left,
+            } => CAPITAL_ENGINE_NEAR_LEFT_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Near,
+                position: Sf2StereoPosition::Center,
+            } => CAPITAL_ENGINE_NEAR_CENTER_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Near,
+                position: Sf2StereoPosition::Right,
+            } => CAPITAL_ENGINE_NEAR_RIGHT_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Far,
+                position: Sf2StereoPosition::Left,
+            } => CAPITAL_ENGINE_FAR_LEFT_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Far,
+                position: Sf2StereoPosition::Center,
+            } => CAPITAL_ENGINE_FAR_CENTER_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Far,
+                position: Sf2StereoPosition::Right,
+            } => CAPITAL_ENGINE_FAR_RIGHT_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Distant,
+                position: Sf2StereoPosition::Left,
+            } => CAPITAL_ENGINE_DISTANT_LEFT_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Distant,
+                position: Sf2StereoPosition::Center,
+            } => CAPITAL_ENGINE_DISTANT_CENTER_FILE,
+            Self::CapitalEngine {
+                distance: Sf2SpatialDistance::Distant,
+                position: Sf2StereoPosition::Right,
+            } => CAPITAL_ENGINE_DISTANT_RIGHT_FILE,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Sf2NativePlayer {
     mixer: NativePlayer,
@@ -237,9 +342,12 @@ impl Sf2NativePlayer {
         let effects = Self::variant_files(&REQUIRED_EFFECTS);
         let engines = Self::variant_files(&REQUIRED_ENGINE);
         let ambience = Self::variant_files(&REQUIRED_AMBIENCE);
+        let positional = Self::variant_files(&REQUIRED_POSITIONAL);
         self.mixer.validate_named_effects(&Self::file_refs(&effects))?;
         self.mixer.validate_named_engine(&Self::file_refs(&engines))?;
-        self.mixer.validate_named_ambience(&Self::file_refs(&ambience))
+        self.mixer.validate_named_ambience(&Self::file_refs(&ambience))?;
+        self.mixer
+            .validate_named_positional(&Self::file_refs(&positional))
     }
 
     pub fn start_music(&self, cue: Sf2MusicCue) -> Result<(), NativeAudioError> {
@@ -278,6 +386,17 @@ impl Sf2NativePlayer {
             .filename()
             .map(|file| Self::variant_file(bank, pilot, file));
         self.mixer.set_named_ambience(file.as_deref(), false)
+    }
+
+    pub fn set_spatial(
+        &self,
+        bank: Sf2SoundBank,
+        pilot: Sf2SoundPilot,
+        cue: Option<Sf2SpatialCue>,
+        restart: bool,
+    ) -> Result<(), NativeAudioError> {
+        let file = cue.map(|cue| Self::variant_file(bank, pilot, cue.filename()));
+        self.mixer.set_named_positional(file.as_deref(), restart)
     }
 
     pub fn generate(&self, output: &mut [i16]) {

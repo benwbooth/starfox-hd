@@ -44,6 +44,34 @@ impl ObjectId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialLoop {
+    CapitalEngine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialDistance {
+    Close,
+    Near,
+    Far,
+    Distant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StereoPosition {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpatialSound {
+    pub source: ObjectId,
+    pub sound: SpatialLoop,
+    pub distance: SpatialDistance,
+    pub position: StereoPosition,
+}
+
 /// Index into the generated, decoded shape catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ShapeId(u16);
@@ -637,6 +665,7 @@ pub struct ObjectExtension {
     pub parent: Option<ObjectId>,
     pub texture_scroll_x: u8,
     pub texture_scroll_y: u8,
+    pub spatial_loop: Option<SpatialLoop>,
     pub activity: ObjectActivity,
     pub auxiliary_links: Vec<ObjectId>,
     pub render_parameter: u8,

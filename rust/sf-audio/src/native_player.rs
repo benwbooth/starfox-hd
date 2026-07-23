@@ -97,6 +97,7 @@ struct MixerState {
     music: Option<Voice>,
     engine: Option<(u8, Voice)>,
     ambience: Option<(u8, Voice)>,
+    positional: Option<(PathBuf, Voice)>,
     effects: Vec<Voice>,
     cache: HashMap<PathBuf, Arc<PcmClip>>,
     missing: HashSet<PathBuf>,
@@ -180,6 +181,7 @@ impl NativePlayer {
                 music: None,
                 engine: None,
                 ambience: None,
+                positional: None,
                 effects: Vec::new(),
                 cache: HashMap::new(),
                 missing: HashSet::new(),
@@ -199,6 +201,7 @@ impl NativePlayer {
         state.music = None;
         state.engine = None;
         state.ambience = None;
+        state.positional = None;
         state.effects.clear();
         state.last_effect_consumed = None;
         state.music_gain = UNITY_GAIN;
@@ -274,6 +277,10 @@ impl NativePlayer {
 
     pub fn validate_named_ambience(&self, files: &[&str]) -> Result<(), NativeAudioError> {
         self.validate_named_files("ambience", files)
+    }
+
+    pub fn validate_named_positional(&self, files: &[&str]) -> Result<(), NativeAudioError> {
+        self.validate_named_files("positional", files)
     }
 
     fn validate_named_files(
@@ -394,6 +401,30 @@ impl NativePlayer {
         Ok(())
     }
 
+    pub fn set_named_positional(
+        &self,
+        file: Option<&str>,
+        restart: bool,
+    ) -> Result<(), NativeAudioError> {
+        let mut state = self.inner.lock().unwrap();
+        let Some(file) = file else {
+            state.positional = None;
+            return Ok(());
+        };
+        let path = state.asset_root.join("positional").join(file);
+        if !restart
+            && state
+                .positional
+                .as_ref()
+                .is_some_and(|(active, _)| *active == path)
+        {
+            return Ok(());
+        }
+        let clip = state.load_candidates(vec![path.clone()])?;
+        state.positional = Some((path, Voice::new(clip, true)));
+        Ok(())
+    }
+
     pub fn set_ambient_sound(&self, sound: u8) -> Result<(), NativeAudioError> {
         self.set_looping_channel(sound, "ambience", false)
     }
@@ -473,6 +504,12 @@ impl NativePlayer {
                 }
             }
             if let Some((_, voice)) = &mut state.ambience {
+                if let Some((sample_left, sample_right)) = voice.next_stereo() {
+                    left += i32::from(sample_left);
+                    right += i32::from(sample_right);
+                }
+            }
+            if let Some((_, voice)) = &mut state.positional {
                 if let Some((sample_left, sample_right)) = voice.next_stereo() {
                     left += i32::from(sample_left);
                     right += i32::from(sample_right);
@@ -682,6 +719,89 @@ mod tests {
         assert_eq!(replaced, [REPLACEMENT_SAMPLE, REPLACEMENT_SAMPLE]);
 
         player.set_named_ambience(None, false).unwrap();
+        let mut stopped = [TEST_SAMPLE; 2];
+        player.generate(&mut stopped);
+        assert_eq!(stopped, [0, 0]);
+
+        std::fs::remove_dir_all(asset_root).unwrap();
+    }
+
+    #[test]
+    fn positional_loop_mixes_independently_from_charge_ambience() {
+        const POSITIONAL_SAMPLE: i16 = 2_000;
+
+        let asset_root = temporary_asset_dir("positional-loop");
+        let ambience_dir = asset_root.join("ambience/open_space/fox");
+        let positional_dir = asset_root.join("positional/open_space/fox");
+        if asset_root.exists() {
+            std::fs::remove_dir_all(&asset_root).unwrap();
+        }
+        std::fs::create_dir_all(&ambience_dir).unwrap();
+        std::fs::create_dir_all(&positional_dir).unwrap();
+        write_constant_wave(&ambience_dir.join("charge.wav"), TEST_SAMPLE);
+        write_constant_wave(&positional_dir.join("capital.wav"), POSITIONAL_SAMPLE);
+
+        let player = NativePlayer::with_asset_root(&asset_root);
+        player
+            .validate_named_positional(&["open_space/fox/capital.wav"])
+            .unwrap();
+        player
+            .set_named_ambience(Some("open_space/fox/charge.wav"), false)
+            .unwrap();
+        player
+            .set_named_positional(Some("open_space/fox/capital.wav"), false)
+            .unwrap();
+
+        let mut combined = [0i16; 2];
+        player.generate(&mut combined);
+        assert_eq!(combined, [TEST_SAMPLE + POSITIONAL_SAMPLE; 2]);
+
+        let position_after_mix = player
+            .inner
+            .lock()
+            .unwrap()
+            .positional
+            .as_ref()
+            .unwrap()
+            .1
+            .position;
+        player
+            .set_named_positional(Some("open_space/fox/capital.wav"), false)
+            .unwrap();
+        assert_eq!(
+            player
+                .inner
+                .lock()
+                .unwrap()
+                .positional
+                .as_ref()
+                .unwrap()
+                .1
+                .position,
+            position_after_mix
+        );
+        player
+            .set_named_positional(Some("open_space/fox/capital.wav"), true)
+            .unwrap();
+        assert_eq!(
+            player
+                .inner
+                .lock()
+                .unwrap()
+                .positional
+                .as_ref()
+                .unwrap()
+                .1
+                .position,
+            0
+        );
+
+        player.set_named_ambience(None, false).unwrap();
+        let mut positional_only = [0i16; 2];
+        player.generate(&mut positional_only);
+        assert_eq!(positional_only, [POSITIONAL_SAMPLE; 2]);
+
+        player.set_named_positional(None, false).unwrap();
         let mut stopped = [TEST_SAMPLE; 2];
         player.generate(&mut stopped);
         assert_eq!(stopped, [0, 0]);

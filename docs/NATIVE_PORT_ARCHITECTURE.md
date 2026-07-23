@@ -20,12 +20,14 @@ reference results; none of that machinery may be reachable from `sf-app`.
   feature, and release dependencies must disable that feature.
 - Native code does not name or model processor registers. Oracle code and
   disassembly tools are exempt.
-- Shipping audio is a typed PCM mixer over music, engine, ambience, and effect
-  channels. The original sound-processor program is available only through the
-  `oracle-audio` feature to render and compare certified PCM assets offline;
-  `sf-app` neither enables nor depends on that execution path. Missing native
-  SF1 audio assets fail startup instead of silently activating an emulator or
-  placeholder.
+- Shipping audio is a typed PCM mixer over music, engine, ambience, positional,
+  and effect channels. Positional loops are selected from typed object fields,
+  listener orientation, distance bands, and stereo-position enums; they do not
+  read a generic byte arena or reproduce source-machine addressing. The
+  original sound-processor program is available only through the `oracle-audio`
+  feature to render and compare certified PCM assets offline; `sf-app` neither
+  enables nor depends on that execution path. Missing native SF1 or SF2 audio
+  assets fail startup instead of silently activating an emulator or placeholder.
 - Every nontrivial numeric value in handwritten port code has a meaningful
   constant, enum variant, or typed newtype. Decimal is the default notation.
   Hexadecimal is reserved for values whose meaning is inherently bit-oriented

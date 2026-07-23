@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 const SAMPLE_RATE: usize = 32_000;
 const EFFECT_CHANNEL: u8 = 3;
 const ENGINE_CHANNEL: u8 = 1;
+const POSITIONAL_CHANNEL: u8 = 2;
 const RAPID_LASER_FIRST_COMMAND: u8 = 0x13;
 const RAPID_LASER_SECOND_COMMAND: u8 = 0x16;
 const CHARGE_BUILDING_COMMAND: u8 = 0x31;
@@ -19,6 +20,7 @@ const CHARGED_LASER_SECOND_COMMAND: u8 = 0x20;
 const HOSTILE_LASER_COMMAND: u8 = 0x72;
 const HOSTILE_LASER_PARAMETER: u8 = 0x61;
 const FLIGHT_ENGINE_COMMAND: u8 = 0x04;
+const CAPITAL_ENGINE_SOUND: u8 = 0x0B;
 const PAIRED_COMMAND_DELAY_FRAMES: usize = 464;
 const BUILD_TO_READY_DELAY_FRAMES: usize = 16_459;
 const READY_TO_RELEASE_DELAY_FRAMES: usize = 27_688;
@@ -29,7 +31,7 @@ const LOOP_COMPARISON_FRAMES: usize = 512;
 
 const SOURCE_SOUND_BANK_COUNT: usize = 8;
 const SOURCE_PILOT_COUNT: usize = 6;
-const SEMANTIC_SOUND_COUNT: usize = 6;
+const SEMANTIC_SOUND_COUNT: usize = 18;
 
 #[derive(Debug, Clone)]
 struct SourceSoundBank {
@@ -82,6 +84,46 @@ const SOURCE_PILOTS: [SourcePilot; SOURCE_PILOT_COUNT] = [
 ];
 
 #[derive(Debug, Clone, Copy)]
+enum SpatialDistance {
+    Close,
+    Near,
+    Far,
+    Distant,
+}
+
+impl SpatialDistance {
+    const ALL: [Self; 4] = [Self::Close, Self::Near, Self::Far, Self::Distant];
+
+    const fn command_bits(self) -> u8 {
+        match self {
+            Self::Close => 0x00,
+            Self::Near => 0x10,
+            Self::Far => 0x20,
+            Self::Distant => 0x30,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SpatialPan {
+    Left,
+    Center,
+    Right,
+}
+
+impl SpatialPan {
+    const ALL: [Self; 3] = [Self::Left, Self::Center, Self::Right];
+
+    const fn command_bits(self) -> u8 {
+        match self {
+            Self::Left => 0x40,
+            Self::Center => 0x80,
+            Self::Right => 0xC0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 enum SemanticSound {
     RapidLaser,
     ChargeBuilding,
@@ -89,6 +131,7 @@ enum SemanticSound {
     ChargedLaser,
     HostileLaser,
     FlightEngine,
+    CapitalEngine(SpatialDistance, SpatialPan),
 }
 
 impl SemanticSound {
@@ -99,6 +142,18 @@ impl SemanticSound {
         Self::ChargedLaser,
         Self::HostileLaser,
         Self::FlightEngine,
+        Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Left),
+        Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Center),
+        Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Right),
+        Self::CapitalEngine(SpatialDistance::Near, SpatialPan::Left),
+        Self::CapitalEngine(SpatialDistance::Near, SpatialPan::Center),
+        Self::CapitalEngine(SpatialDistance::Near, SpatialPan::Right),
+        Self::CapitalEngine(SpatialDistance::Far, SpatialPan::Left),
+        Self::CapitalEngine(SpatialDistance::Far, SpatialPan::Center),
+        Self::CapitalEngine(SpatialDistance::Far, SpatialPan::Right),
+        Self::CapitalEngine(SpatialDistance::Distant, SpatialPan::Left),
+        Self::CapitalEngine(SpatialDistance::Distant, SpatialPan::Center),
+        Self::CapitalEngine(SpatialDistance::Distant, SpatialPan::Right),
     ];
 
     const fn name(self) -> &'static str {
@@ -109,6 +164,42 @@ impl SemanticSound {
             Self::ChargedLaser => "charged_laser",
             Self::HostileLaser => "hostile_laser",
             Self::FlightEngine => "flight",
+            Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Left) => {
+                "capital_engine_close_left"
+            }
+            Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Center) => {
+                "capital_engine_close_center"
+            }
+            Self::CapitalEngine(SpatialDistance::Close, SpatialPan::Right) => {
+                "capital_engine_close_right"
+            }
+            Self::CapitalEngine(SpatialDistance::Near, SpatialPan::Left) => {
+                "capital_engine_near_left"
+            }
+            Self::CapitalEngine(SpatialDistance::Near, SpatialPan::Center) => {
+                "capital_engine_near_center"
+            }
+            Self::CapitalEngine(SpatialDistance::Near, SpatialPan::Right) => {
+                "capital_engine_near_right"
+            }
+            Self::CapitalEngine(SpatialDistance::Far, SpatialPan::Left) => {
+                "capital_engine_far_left"
+            }
+            Self::CapitalEngine(SpatialDistance::Far, SpatialPan::Center) => {
+                "capital_engine_far_center"
+            }
+            Self::CapitalEngine(SpatialDistance::Far, SpatialPan::Right) => {
+                "capital_engine_far_right"
+            }
+            Self::CapitalEngine(SpatialDistance::Distant, SpatialPan::Left) => {
+                "capital_engine_distant_left"
+            }
+            Self::CapitalEngine(SpatialDistance::Distant, SpatialPan::Center) => {
+                "capital_engine_distant_center"
+            }
+            Self::CapitalEngine(SpatialDistance::Distant, SpatialPan::Right) => {
+                "capital_engine_distant_right"
+            }
         }
     }
 
@@ -129,12 +220,13 @@ impl SemanticSound {
                 (0, HOSTILE_LASER_PARAMETER),
             ],
             Self::FlightEngine => &[(ENGINE_CHANNEL, FLIGHT_ENGINE_COMMAND)],
+            Self::CapitalEngine(_, _) => &[],
         }
     }
 
     const fn duration_seconds(self) -> usize {
         match self {
-            Self::FlightEngine => ENGINE_DURATION_SECONDS,
+            Self::FlightEngine | Self::CapitalEngine(_, _) => ENGINE_DURATION_SECONDS,
             Self::RapidLaser
             | Self::ChargeBuilding
             | Self::ChargeReady
@@ -146,6 +238,7 @@ impl SemanticSound {
     const fn directory(self) -> &'static str {
         match self {
             Self::FlightEngine => "engine",
+            Self::CapitalEngine(_, _) => "positional",
             Self::ChargeBuilding | Self::ChargeReady => "ambience",
             Self::RapidLaser | Self::ChargedLaser | Self::HostileLaser => "effects",
         }
@@ -153,7 +246,7 @@ impl SemanticSound {
 
     const fn looping(self) -> bool {
         match self {
-            Self::FlightEngine => true,
+            Self::FlightEngine | Self::CapitalEngine(_, _) => true,
             Self::RapidLaser
             | Self::ChargeBuilding
             | Self::ChargeReady
@@ -164,10 +257,23 @@ impl SemanticSound {
 
     const fn minimum_rms(self) -> f64 {
         match self {
-            Self::RapidLaser | Self::ChargeBuilding | Self::FlightEngine => 20.0,
+            Self::RapidLaser
+            | Self::ChargeBuilding
+            | Self::FlightEngine
+            | Self::CapitalEngine(_, _) => 20.0,
             Self::ChargeReady => 1.0,
             Self::ChargedLaser => 0.01,
             Self::HostileLaser => 1.0,
+        }
+    }
+
+    fn commands_for_log(self) -> Vec<(u8, u8)> {
+        match self {
+            Self::CapitalEngine(distance, pan) => vec![(
+                POSITIONAL_CHANNEL,
+                CAPITAL_ENGINE_SOUND | distance.command_bits() | pan.command_bits(),
+            )],
+            _ => self.commands().to_vec(),
         }
     }
 }
@@ -224,7 +330,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pilot.name,
                     sound.name(),
                     bank.program_record,
-                    sound.commands(),
+                    sound.commands_for_log(),
                     path.display(),
                 );
             }
@@ -273,18 +379,26 @@ fn parse_selection(selection: Option<&str>) -> Result<Vec<SemanticSound>, String
     let Some(selection) = selection else {
         return Ok(SemanticSound::ALL.to_vec());
     };
-    selection
-        .split(',')
-        .map(|name| match name.trim() {
-            "rapid-laser" => Ok(SemanticSound::RapidLaser),
-            "charge-building" => Ok(SemanticSound::ChargeBuilding),
-            "charge-ready" => Ok(SemanticSound::ChargeReady),
-            "charged-laser" => Ok(SemanticSound::ChargedLaser),
-            "hostile-laser" => Ok(SemanticSound::HostileLaser),
-            "flight-engine" => Ok(SemanticSound::FlightEngine),
-            unknown => Err(format!("unknown semantic sound {unknown}")),
-        })
-        .collect()
+    let mut sounds = Vec::new();
+    for name in selection.split(',').map(str::trim) {
+        match name {
+            "rapid-laser" => sounds.push(SemanticSound::RapidLaser),
+            "charge-building" => sounds.push(SemanticSound::ChargeBuilding),
+            "charge-ready" => sounds.push(SemanticSound::ChargeReady),
+            "charged-laser" => sounds.push(SemanticSound::ChargedLaser),
+            "hostile-laser" => sounds.push(SemanticSound::HostileLaser),
+            "flight-engine" => sounds.push(SemanticSound::FlightEngine),
+            "capital-engine" => {
+                for distance in SpatialDistance::ALL {
+                    for pan in SpatialPan::ALL {
+                        sounds.push(SemanticSound::CapitalEngine(distance, pan));
+                    }
+                }
+            }
+            unknown => return Err(format!("unknown semantic sound {unknown}")),
+        }
+    }
+    Ok(sounds)
 }
 
 fn parse_number(value: &str) -> Result<u16, Box<dyn std::error::Error>> {
@@ -356,6 +470,13 @@ fn render_sound(player: &SpcPlayer, sound: SemanticSound) -> Vec<i16> {
             let mut output = Vec::with_capacity(total_frames * 2);
             player.write_port(EFFECT_CHANNEL, HOSTILE_LASER_COMMAND);
             player.write_port(0, HOSTILE_LASER_PARAMETER);
+            append_frames(player, &mut output, total_frames);
+            return output;
+        }
+        SemanticSound::CapitalEngine(distance, pan) => {
+            let mut output = Vec::with_capacity(total_frames * 2);
+            let command = CAPITAL_ENGINE_SOUND | distance.command_bits() | pan.command_bits();
+            player.write_port(POSITIONAL_CHANNEL, command);
             append_frames(player, &mut output, total_frames);
             return output;
         }

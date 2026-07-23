@@ -17,7 +17,7 @@ use super::object::{
     LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
     PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
     PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
-    ShapeId, Vector3, WeaponKind,
+    ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
@@ -1103,6 +1103,14 @@ const PLAYER_PITCH_LEAN_RATE: i8 = 2;
 const PLAYER_VISIBLE_PITCH_LEAN_SHIFT: u32 = 2;
 const FLIGHT_ACCUMULATOR_FRACTION_BITS: u32 = 8;
 const PLAYER_BANK_RATE: u8 = 4;
+const SPATIAL_LISTENER_YAW_STEP: u8 = 2;
+const SPATIAL_CLOSE_DISTANCE_LIMIT: u32 = 400;
+const SPATIAL_NEAR_DISTANCE_LIMIT: u32 = 1_000;
+const SPATIAL_FAR_DISTANCE_LIMIT: u32 = 2_000;
+const SPATIAL_RIGHT_START: u8 = 16;
+const SPATIAL_CENTER_REAR_START: u8 = 112;
+const SPATIAL_LEFT_START: u8 = 144;
+const SPATIAL_CENTER_FRONT_START: u8 = 240;
 const PLAYER_LEFT_BANK: Angle = Angle::from_units(32);
 const PLAYER_RIGHT_BANK: Angle = Angle::from_units(224);
 const PLAYER_VERTICAL_UPPER_BOUND: i16 = 3_500;
@@ -3400,6 +3408,7 @@ impl FighterInterceptActors {
 
 const MISSION_ENTRY_CRAFT_COUNT: usize = 4;
 const MISSION_ENCOUNTER_ACTOR_COUNT: usize = MISSION_ENTRY_CRAFT_COUNT;
+const MISSION_CAPITAL_CRAFT_COUNT: usize = 2;
 const MISSION_PROJECTILE_TRAJECTORY_COUNT: usize = 42;
 const MISSION_PROJECTILE_TRAJECTORIES: [MissionProjectileTrajectory;
     MISSION_PROJECTILE_TRAJECTORY_COUNT] = [
@@ -4610,6 +4619,75 @@ impl Game {
         }
     }
 
+    pub fn spatial_sound(&self) -> Option<SpatialSound> {
+        if self.state.mode != GameMode::Mission {
+            return None;
+        }
+        let listener_yaw = self.state.audio.spatial_listener_yaw()?;
+        let listener_position = self.state.camera.position;
+        let mut nearest = None;
+        for (source, object) in self.state.objects.active_objects() {
+            let Some(sound) = object.extension.spatial_loop else {
+                continue;
+            };
+            if !object.base.flags.active || object.base.flags.remove_after_tick {
+                continue;
+            }
+            let delta_x = object
+                .base
+                .position
+                .x
+                .wrapping_sub(listener_position.x);
+            let delta_z = object
+                .base
+                .position
+                .z
+                .wrapping_sub(listener_position.z);
+            let distance = spatial_xz_distance(delta_x, delta_z);
+            if nearest
+                .as_ref()
+                .is_some_and(|(_, _, _, nearest_distance)| distance >= *nearest_distance)
+            {
+                continue;
+            }
+            nearest = Some((source, sound, (delta_x, delta_z), distance));
+        }
+
+        nearest.map(|(source, sound, (delta_x, delta_z), distance)| {
+            let world_angle = (sf_core::aim_angle::sf2_atan16(delta_x, delta_z) >> 8) as u8;
+            SpatialSound {
+                source,
+                sound,
+                distance: spatial_distance(distance),
+                position: spatial_stereo_position(world_angle.wrapping_sub(listener_yaw.units())),
+            }
+        })
+    }
+
+    fn update_spatial_listener(&mut self) {
+        if self.state.mode != GameMode::Mission {
+            self.state.audio.reset_spatial_listener();
+            return;
+        }
+        let Some(target) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|player| self.state.objects.get(player))
+            .map(|player| Angle::from_units(player.base.yaw.units().wrapping_neg()))
+        else {
+            self.state.audio.reset_spatial_listener();
+            return;
+        };
+        let next = self
+            .state
+            .audio
+            .spatial_listener_yaw()
+            .map(|current| approach_angle(current, target, SPATIAL_LISTENER_YAW_STEP))
+            .unwrap_or(target);
+        self.state.audio.set_spatial_listener_yaw(next);
+    }
+
     pub fn active_pilot(&self) -> Pilot {
         self.primary_pilot()
     }
@@ -4724,6 +4802,7 @@ impl Game {
         self.update_corneria_defense();
         self.update_mode()?;
         self.update_objects();
+        self.update_spatial_listener();
         self.resolve_mission_collisions();
         self.build_render_objects()?;
         Ok(())
@@ -7535,6 +7614,9 @@ impl Game {
             object.base.hit_points = MISSION_ENCOUNTER_HEALTH;
             object.base.attack_power = MISSION_ENCOUNTER_ATTACK_POWER;
             object.base.flags.casts_shadow = false;
+            if index < MISSION_CAPITAL_CRAFT_COUNT {
+                object.extension.spatial_loop = Some(SpatialLoop::CapitalEngine);
+            }
             let Some(id) = self.state.objects.allocate(object) else {
                 for allocated_id in self.mission_entry_flyby.iter().flatten().copied() {
                     self.state.objects.remove(allocated_id);
@@ -7556,6 +7638,9 @@ impl Game {
             object.base.flags.visible = false;
             object.base.flags.collision_disabled = true;
             object.base.flags.casts_shadow = false;
+            if index < MISSION_CAPITAL_CRAFT_COUNT {
+                object.extension.spatial_loop = Some(SpatialLoop::CapitalEngine);
+            }
             let Some(id) = self.state.objects.allocate(object) else {
                 for allocated_id in self.mission_entry_flyby.iter().flatten().copied() {
                     self.state.objects.remove(allocated_id);
@@ -12114,6 +12199,32 @@ fn add_vectors(left: Vector3, right: Vector3) -> Vector3 {
     }
 }
 
+fn spatial_xz_distance(delta_x: i16, delta_z: i16) -> u32 {
+    (u32::from(delta_x.unsigned_abs()) + u32::from(delta_z.unsigned_abs())) / 2
+}
+
+fn spatial_distance(distance: u32) -> SpatialDistance {
+    if distance < SPATIAL_CLOSE_DISTANCE_LIMIT {
+        SpatialDistance::Close
+    } else if distance < SPATIAL_NEAR_DISTANCE_LIMIT {
+        SpatialDistance::Near
+    } else if distance < SPATIAL_FAR_DISTANCE_LIMIT {
+        SpatialDistance::Far
+    } else {
+        SpatialDistance::Distant
+    }
+}
+
+fn spatial_stereo_position(relative_angle: u8) -> StereoPosition {
+    if (SPATIAL_RIGHT_START..SPATIAL_CENTER_REAR_START).contains(&relative_angle) {
+        StereoPosition::Right
+    } else if (SPATIAL_LEFT_START..SPATIAL_CENTER_FRONT_START).contains(&relative_angle) {
+        StereoPosition::Left
+    } else {
+        StereoPosition::Center
+    }
+}
+
 fn approach_angle(current: Angle, target: Angle, maximum_step: u8) -> Angle {
     let delta = i16::from(target.units().wrapping_sub(current.units()) as i8);
     if delta.unsigned_abs() <= u16::from(maximum_step) {
@@ -14858,6 +14969,10 @@ mod tests {
                 MISSION_FORMATION_KEYFRAMES[0].positions[index]
             );
             assert_eq!(object.base.yaw, Angle::from_units(MISSION_ENTRY_YAW));
+            assert_eq!(
+                object.extension.spatial_loop,
+                (index < MISSION_CAPITAL_CRAFT_COUNT).then_some(SpatialLoop::CapitalEngine)
+            );
         }
 
         const FIRST_EXACT_CAMERA_TICK: u32 = 25;
@@ -17300,6 +17415,147 @@ mod tests {
             assert_eq!(object.base.roll.units(), expected.roll);
             assert_eq!(object.base.speed, expected.speed);
             assert_eq!(object.base.position, expected.position);
+        }
+    }
+
+    #[test]
+    fn capital_engine_spatial_state_matches_the_retail_selector() {
+        const ORACLE_LISTENER_POSITION: Vector3 = Vector3 {
+            x: -13_839,
+            y: 3_154,
+            z: 2_435,
+        };
+        const ORACLE_CAPITAL_POSITION: Vector3 = Vector3 {
+            x: -18_268,
+            y: 887,
+            z: -3_076,
+        };
+        const ORACLE_INITIAL_PLAYER_YAW: u8 = 64;
+        const ORACLE_LEFT_INPUT_PLAYER_YAWS: [u8; 2] = [66, 69];
+        const ORACLE_LEFT_INPUT_LISTENER_YAWS: [u8; 2] = [190, 188];
+        const CLOSER_SOURCE_OFFSET: i16 = 100;
+
+        let mut game = Game::new();
+        game.state.mode = GameMode::Mission;
+        game.state.mission.active = true;
+        game.state.camera.position = ORACLE_LISTENER_POSITION;
+
+        let mut player = Object::new(
+            ObjectKind::Player,
+            ShapeId::FOX_FALCO_FLIGHT_CRAFT,
+            Behavior::PlayerFlight,
+        );
+        player.base.yaw = Angle::from_units(ORACLE_INITIAL_PLAYER_YAW);
+        let player_id = game.state.objects.allocate(player).unwrap();
+        game.state.mission.primary_player = Some(player_id);
+
+        let mut capital = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::ENTRY_LARGE_CRAFT,
+            Behavior::EnemyFlight,
+        );
+        capital.base.position = ORACLE_CAPITAL_POSITION;
+        capital.extension.spatial_loop = Some(SpatialLoop::CapitalEngine);
+        let capital_id = game.state.objects.allocate(capital).unwrap();
+
+        game.update_spatial_listener();
+        assert_eq!(
+            game.state.audio.spatial_listener_yaw(),
+            Some(Angle::from_units(ORACLE_INITIAL_PLAYER_YAW.wrapping_neg()))
+        );
+        assert_eq!(
+            game.spatial_sound(),
+            Some(SpatialSound {
+                source: capital_id,
+                sound: SpatialLoop::CapitalEngine,
+                distance: SpatialDistance::Distant,
+                position: StereoPosition::Left,
+            })
+        );
+
+        for (player_yaw, listener_yaw) in ORACLE_LEFT_INPUT_PLAYER_YAWS
+            .into_iter()
+            .zip(ORACLE_LEFT_INPUT_LISTENER_YAWS)
+        {
+            game.state.objects.get_mut(player_id).unwrap().base.yaw =
+                Angle::from_units(player_yaw);
+            game.update_spatial_listener();
+            assert_eq!(
+                game.state.audio.spatial_listener_yaw(),
+                Some(Angle::from_units(listener_yaw))
+            );
+        }
+
+        let mut closer = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::ENTRY_LARGE_CRAFT,
+            Behavior::EnemyFlight,
+        );
+        closer.base.position = Vector3 {
+            x: game.state.camera.position.x,
+            y: game.state.camera.position.y,
+            z: game
+                .state
+                .camera
+                .position
+                .z
+                .wrapping_add(CLOSER_SOURCE_OFFSET),
+        };
+        closer.extension.spatial_loop = Some(SpatialLoop::CapitalEngine);
+        let closer_id = game.state.objects.allocate(closer).unwrap();
+        let selected = game.spatial_sound().unwrap();
+        assert_eq!(selected.source, closer_id);
+        assert_eq!(selected.distance, SpatialDistance::Close);
+    }
+
+    #[test]
+    fn spatial_distance_and_stereo_boundaries_are_explicit() {
+        assert_eq!(
+            spatial_distance(SPATIAL_CLOSE_DISTANCE_LIMIT - 1),
+            SpatialDistance::Close
+        );
+        assert_eq!(
+            spatial_distance(SPATIAL_CLOSE_DISTANCE_LIMIT),
+            SpatialDistance::Near
+        );
+        assert_eq!(
+            spatial_distance(SPATIAL_NEAR_DISTANCE_LIMIT - 1),
+            SpatialDistance::Near
+        );
+        assert_eq!(
+            spatial_distance(SPATIAL_NEAR_DISTANCE_LIMIT),
+            SpatialDistance::Far
+        );
+        assert_eq!(
+            spatial_distance(SPATIAL_FAR_DISTANCE_LIMIT - 1),
+            SpatialDistance::Far
+        );
+        assert_eq!(
+            spatial_distance(SPATIAL_FAR_DISTANCE_LIMIT),
+            SpatialDistance::Distant
+        );
+
+        for angle in [
+            0,
+            SPATIAL_RIGHT_START.wrapping_sub(1),
+            SPATIAL_CENTER_REAR_START,
+            SPATIAL_LEFT_START.wrapping_sub(1),
+            SPATIAL_CENTER_FRONT_START,
+            u8::MAX,
+        ] {
+            assert_eq!(spatial_stereo_position(angle), StereoPosition::Center);
+        }
+        for angle in [
+            SPATIAL_RIGHT_START,
+            SPATIAL_CENTER_REAR_START.wrapping_sub(1),
+        ] {
+            assert_eq!(spatial_stereo_position(angle), StereoPosition::Right);
+        }
+        for angle in [
+            SPATIAL_LEFT_START,
+            SPATIAL_CENTER_FRONT_START.wrapping_sub(1),
+        ] {
+            assert_eq!(spatial_stereo_position(angle), StereoPosition::Left);
         }
     }
 
