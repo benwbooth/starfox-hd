@@ -24,9 +24,9 @@ use super::results;
 use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, ChargeSound,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
-    CorneriaDefensePhase, CorneriaDefenseState, EladardMissionState, EladardPhase, EndingPhase,
-    EndingState, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,
-    FlightControlStyle, GameState, IntroPhase, MapPoint, MissionId, MissionMessage,
+    CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardMissionState, EladardPhase,
+    EndingPhase, EndingState, FlightControlStyle, GameMode, GameOverChoice, GameOverDestination,
+    GameOverPhase, GameOverState, GameState, IntroPhase, MapPoint, MissionId, MissionMessage,
     MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
     PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm,
@@ -4590,6 +4590,12 @@ impl Game {
         }
     }
 
+    pub fn new_with_progress(progress: super::state::CampaignProgress) -> Self {
+        let mut game = Self::new();
+        game.state.progress = progress;
+        game
+    }
+
     pub fn state(&self) -> &GameState {
         &self.state
     }
@@ -6801,6 +6807,10 @@ impl Game {
         {
             self.state.mission.astropolis.begin_escape(retail_frame);
             self.state.campaign.objectives.astropolis = AstropolisStatus::Assaulted;
+            self.state.progress.record_clear(
+                self.state.campaign.difficulty,
+                self.state.campaign.corneria_damage_percent,
+            );
             self.clear_sortie_runtime();
             self.state.ending = EndingState::default();
             self.enter_mode(GameMode::Ending);
@@ -11011,8 +11021,6 @@ impl Game {
     }
 
     fn update_title(&mut self) {
-        use super::state::Difficulty;
-
         match self.state.title.page {
             TitlePage::MainMenu => {
                 let previous_item = self.state.title.menu_item;
@@ -11052,18 +11060,18 @@ impl Game {
                 }
                 let previous_difficulty = self.state.campaign.difficulty;
                 if self.state.input.pressed.contains(Button::Up) {
-                    self.state.campaign.difficulty = match self.state.campaign.difficulty {
-                        Difficulty::Normal => Difficulty::Expert,
-                        Difficulty::Hard => Difficulty::Normal,
-                        Difficulty::Expert => Difficulty::Hard,
-                    };
+                    self.state.campaign.difficulty = self
+                        .state
+                        .campaign
+                        .difficulty
+                        .previous(self.state.progress.expert_unlocked);
                 }
                 if self.state.input.pressed.contains(Button::Down) {
-                    self.state.campaign.difficulty = match self.state.campaign.difficulty {
-                        Difficulty::Normal => Difficulty::Hard,
-                        Difficulty::Hard => Difficulty::Expert,
-                        Difficulty::Expert => Difficulty::Normal,
-                    };
+                    self.state.campaign.difficulty = self
+                        .state
+                        .campaign
+                        .difficulty
+                        .next(self.state.progress.expert_unlocked);
                 }
                 if self.state.campaign.difficulty != previous_difficulty {
                     self.state.mode_frame = 0;
@@ -14770,6 +14778,16 @@ mod tests {
             super::super::state::Difficulty::Hard
         );
         assert_eq!(game.state().mode_frame, 1);
+        press(&mut game, Button::Down);
+        assert_eq!(
+            game.state().campaign.difficulty,
+            super::super::state::Difficulty::Normal
+        );
+        press(&mut game, Button::Up);
+        assert_eq!(
+            game.state().campaign.difficulty,
+            super::super::state::Difficulty::Hard
+        );
         press(&mut game, Button::B);
         assert_eq!(game.mode(), GameMode::Briefing);
         press(&mut game, Button::B);
@@ -14778,6 +14796,22 @@ mod tests {
             game.state().strategic_map.phase,
             StrategicMapPhase::OpeningOverview
         );
+    }
+
+    #[test]
+    fn unlocked_expert_joins_the_retail_three_choice_cycle() {
+        let mut game = Game::new();
+        enter_title_menu(&mut game);
+        game.state.progress.expert_unlocked = true;
+        press(&mut game, Button::B);
+        press(&mut game, Button::Down);
+        assert_eq!(game.state.campaign.difficulty, Difficulty::Hard);
+        press(&mut game, Button::Down);
+        assert_eq!(game.state.campaign.difficulty, Difficulty::Expert);
+        press(&mut game, Button::Down);
+        assert_eq!(game.state.campaign.difficulty, Difficulty::Normal);
+        press(&mut game, Button::Up);
+        assert_eq!(game.state.campaign.difficulty, Difficulty::Expert);
     }
 
     #[test]
@@ -21401,6 +21435,8 @@ mod tests {
     fn astropolis_core_destruction_hands_off_to_the_typed_ending() {
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
+        game.state.campaign.difficulty = Difficulty::Hard;
+        game.state.campaign.corneria_damage_percent = 0;
         game.state.mode = GameMode::Mission;
         game.state.mode_frame = 0;
         game.state.mission.visit = MissionVisit::AstropolisAssault;
@@ -21422,6 +21458,7 @@ mod tests {
             AstropolisPhase::Escape
         );
         assert_eq!(game.state().ending.phase, EndingPhase::StaffRoll);
+        assert!(game.state().progress.expert_unlocked);
 
         while game.state().ending.presentation_tick < ENDING_END_SCREEN_READY_TICK {
             game.tick(0).unwrap();

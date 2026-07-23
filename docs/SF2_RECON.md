@@ -96,6 +96,8 @@ Signatures were derived from the SF1 reconstruction and pattern-matched against 
 | Text: boss/enemy display names | `0x0187D6` | space-padded, null-terminated list (`MOTH GLIDER`,`HAL BIRD`,`ANDORF`,`ANDROSS`,…) | high |
 | Text: character/rival names | `0x018941` | tight null-terminated list (`ALGY`,`PIGMA`,`LEON`,`WOLF`,…) | high |
 | Text: mission/briefing strings | `~0x001E00`–`0x003100` | ASCII (`MISSION`,`TRAINING`,dialogue fragments) | high |
+| Difficulty selection | CPU `$03:C397..$03:C3CE` | Normal/Hard use ordinals 0/1; Expert ordinal 2 is exposed only when cartridge progress flag `0x10` is set | certain |
+| Expert unlock | CPU `$0D:F777..$0D:F792`, helper `$0B:F115` | A zero-damage Hard clear sets and persists progress flag `0x10`; Normal and damaged Hard clears do not | certain |
 
 ### Text/message VM format (decoded)
 Strings are **uppercase ASCII, null (`0x00`) terminated**, each preceded by a **control
@@ -156,7 +158,7 @@ upload protocol, while the shipping runtime plays semantic PCM rendered from it.
 | **All-range (free-flight) arenas** | `sf-map` + `sf-strat` | Camera/movement changes from on-rails to 6-DoF arena; enemy `sf-strat` behaviors gain pursue/orbit instead of scripted spawn waypoints. |
 | **Walker transformation** (Arwing ↔ ground walker) | `sf2-game` typed player state + `sf-render` | Implemented as a shared flat `PlayerCraftForm`: Select drives exact class-specific two-stage meshes and retail-sampled timing in ground missions. Walker movement/fire are connected; exact turn easing and jump wind-up remain open. |
 | **Dogfight / boss AI** (homing, evasion, formation) | `sf-strat` enemy | New strategy routines; grammar is the same ISTRAT/path VM. |
-| **2-pilot select** (choose 2 of Fox/Falco/Peppy/Slippy/**Miyu/Fay**) + per-pilot stats & levelling | `sf-game` | New save/roster state + stat modifiers on player strat; menu screens (text VM + portrait tiles in graphics banks). |
+| **2-pilot select** (choose 2 of Fox/Falco/Peppy/Slippy/**Miyu/Fay**) + per-pilot stats & levelling | `sf-game` | Typed roster state + stat modifiers on player strat; menu screens (text VM + portrait tiles in graphics banks). Typed campaign progress now preserves the retail zero-damage Hard-clear Expert unlock in `starfox2.save`. |
 | **Base-defense / timed objectives** | `sf-map` + strategic layer | Objective/score conditions; ties into `mapif`/`mapjmpvar`-style VM ops. |
 | **Branching mission structure** (difficulty-scaled routes) | level table / `sf-map` | Larger, data-driven course graph vs SF1's fixed 3 paths. |
 

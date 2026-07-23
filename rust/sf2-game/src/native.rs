@@ -24,7 +24,7 @@ pub use object::{
 pub use render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 pub use state::{
     AstropolisBranch, AstropolisCoreSpike, AstropolisEye, AstropolisEyes, AstropolisMissionState,
-    AstropolisPhase, AudioOutput, AudioState, CampaignState, CarrierAssaultPhase,
+    AstropolisPhase, AudioOutput, AudioState, CampaignProgress, CampaignState, CarrierAssaultPhase,
     CarrierAssaultState, CarrierReactorPanel, ChargeSound, CorneriaDefensePhase,
     CorneriaDefenseState, Difficulty, EladardMissionState, EladardPhase, EndingPhase, EndingState,
     FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,

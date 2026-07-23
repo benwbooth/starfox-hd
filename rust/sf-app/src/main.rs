@@ -18,7 +18,7 @@ mod config;
 mod input;
 mod statedump;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use sdl3::event::{Event, WindowEvent};
@@ -51,6 +51,11 @@ use crate::statedump::StateDump;
 const STAR_FOX_2_ROM_SIZE: usize = 1_048_576;
 const STAR_FOX_2_TITLE_OFFSET: usize = 32_704;
 const STAR_FOX_2_TITLE: &[u8] = b"STARFOX2";
+const STAR_FOX_2_SAVE_MAGIC: &[u8; 5] = b"SF2HD";
+const STAR_FOX_2_SAVE_VERSION: u8 = 1;
+const STAR_FOX_2_SAVE_EXPERT_UNLOCKED_FLAG: u8 = 0x10;
+const STAR_FOX_2_SAVE_LENGTH: usize = STAR_FOX_2_SAVE_MAGIC.len() + 2;
+const DEFAULT_STAR_FOX_2_SAVE_PATH: &str = "starfox2.save";
 const WORLD_TO_RENDER_FRACTIONAL_BITS: u32 = 16;
 const STAR_FOX_2_TICKS_PER_SECOND: f64 = 15.0;
 const SF2_RETAIL_PRESENTATION_FRAMES_PER_TICK: u32 = 4;
@@ -610,6 +615,7 @@ struct CliArgs {
     shader_dir: Option<PathBuf>,
     game: SelectedGame,
     rom_path: Option<PathBuf>,
+    save_path: PathBuf,
 }
 
 fn parse_args() -> CliArgs {
@@ -619,6 +625,7 @@ fn parse_args() -> CliArgs {
         shader_dir: None,
         game: SelectedGame::StarFox,
         rom_path: None,
+        save_path: PathBuf::from(DEFAULT_STAR_FOX_2_SAVE_PATH),
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -644,9 +651,14 @@ fn parse_args() -> CliArgs {
             },
             "--sf2" => args.game = SelectedGame::StarFox2,
             "--rom" => args.rom_path = it.next().map(PathBuf::from),
+            "--save" => {
+                if let Some(value) = it.next() {
+                    args.save_path = PathBuf::from(value);
+                }
+            }
             "--help" | "-h" => {
                 println!(
-                    "Star Fox HD\n\n  --game sf1|sf2      select game (default sf1)\n  --sf2               shorthand for --game sf2\n  --rom PATH           SF2 retail ROM path\n  --config PATH        configuration file\n  --asset-root PATH    renderer asset root\n  --shader-dir PATH    load shaders from disk"
+                    "Star Fox HD\n\n  --game sf1|sf2      select game (default sf1)\n  --sf2               shorthand for --game sf2\n  --rom PATH           SF2 retail ROM path\n  --save PATH          SF2 campaign-progress file\n  --config PATH        configuration file\n  --asset-root PATH    renderer asset root\n  --shader-dir PATH    load shaders from disk"
                 );
                 std::process::exit(0);
             }
@@ -663,6 +675,73 @@ fn write_ppm(path: &str, w: i32, h: i32, rgb: &[u8]) {
         eprintln!("SF_DUMP_PPM: write {path} failed: {e}");
     } else {
         println!("SF_DUMP_PPM: wrote {path}");
+    }
+}
+
+fn encode_sf2_progress(progress: sf2_game::CampaignProgress) -> [u8; STAR_FOX_2_SAVE_LENGTH] {
+    let mut bytes = [0; STAR_FOX_2_SAVE_LENGTH];
+    bytes[..STAR_FOX_2_SAVE_MAGIC.len()].copy_from_slice(STAR_FOX_2_SAVE_MAGIC);
+    bytes[STAR_FOX_2_SAVE_MAGIC.len()] = STAR_FOX_2_SAVE_VERSION;
+    if progress.expert_unlocked {
+        bytes[STAR_FOX_2_SAVE_MAGIC.len() + 1] |= STAR_FOX_2_SAVE_EXPERT_UNLOCKED_FLAG;
+    }
+    bytes
+}
+
+fn decode_sf2_progress(bytes: &[u8]) -> Option<sf2_game::CampaignProgress> {
+    if bytes.len() != STAR_FOX_2_SAVE_LENGTH
+        || &bytes[..STAR_FOX_2_SAVE_MAGIC.len()] != STAR_FOX_2_SAVE_MAGIC
+        || bytes[STAR_FOX_2_SAVE_MAGIC.len()] != STAR_FOX_2_SAVE_VERSION
+    {
+        return None;
+    }
+    let flags = bytes[STAR_FOX_2_SAVE_MAGIC.len() + 1];
+    Some(sf2_game::CampaignProgress {
+        expert_unlocked: flags & STAR_FOX_2_SAVE_EXPERT_UNLOCKED_FLAG != 0,
+    })
+}
+
+fn load_sf2_progress(path: &Path) -> sf2_game::CampaignProgress {
+    match std::fs::read(path) {
+        Ok(bytes) => match decode_sf2_progress(&bytes) {
+            Some(progress) => {
+                println!("Star Fox 2 progress loaded from {}", path.display());
+                progress
+            }
+            None => {
+                eprintln!(
+                    "Star Fox 2 progress {} has an unsupported format; starting with locked Expert difficulty",
+                    path.display()
+                );
+                sf2_game::CampaignProgress::default()
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            sf2_game::CampaignProgress::default()
+        }
+        Err(error) => {
+            eprintln!(
+                "Star Fox 2 progress {} could not be read: {error}; starting with locked Expert difficulty",
+                path.display()
+            );
+            sf2_game::CampaignProgress::default()
+        }
+    }
+}
+
+fn save_sf2_progress(path: &Path, progress: sf2_game::CampaignProgress) -> bool {
+    match std::fs::write(path, encode_sf2_progress(progress)) {
+        Ok(()) => {
+            println!("Star Fox 2 progress saved to {}", path.display());
+            true
+        }
+        Err(error) => {
+            eprintln!(
+                "Star Fox 2 progress {} could not be written: {error}",
+                path.display()
+            );
+            false
+        }
     }
 }
 
@@ -699,13 +778,14 @@ fn load_sf2(cli: &CliArgs) -> sf2_game::Game {
         "Star Fox 2 native runtime loaded from {}",
         rom_path.display()
     );
-    sf2_game::Game::new()
+    sf2_game::Game::new_with_progress(load_sf2_progress(&cli.save_path))
 }
 
 fn main() {
     let cli = parse_args();
     let cfg = Config::load(&cli.config_path);
     let mut sf2 = (cli.game == SelectedGame::StarFox2).then(|| load_sf2(&cli));
+    let mut saved_sf2_progress = sf2.as_ref().map(|game| game.state().progress);
 
     // --- SDL init (main.c Init) ---
     let sdl = match sdl3::init() {
@@ -975,6 +1055,12 @@ fn main() {
                     );
                 }
                 audio.tick_sf2(game);
+                let progress = game.state().progress;
+                if saved_sf2_progress != Some(progress)
+                    && save_sf2_progress(&cli.save_path, progress)
+                {
+                    saved_sf2_progress = Some(progress);
+                }
                 curr_list.extend(
                     game.render_objects()
                         .iter()
@@ -1175,6 +1261,29 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sf2_progress_round_trips_typed_expert_unlock() {
+        let locked = sf2_game::CampaignProgress::default();
+        assert_eq!(
+            decode_sf2_progress(&encode_sf2_progress(locked)),
+            Some(locked)
+        );
+
+        let unlocked = sf2_game::CampaignProgress {
+            expert_unlocked: true,
+        };
+        let encoded = encode_sf2_progress(unlocked);
+        assert_eq!(
+            encoded[STAR_FOX_2_SAVE_MAGIC.len() + 1],
+            STAR_FOX_2_SAVE_EXPERT_UNLOCKED_FLAG
+        );
+        assert_eq!(
+            decode_sf2_progress(&encoded),
+            Some(unlocked)
+        );
+        assert_eq!(decode_sf2_progress(b"unsupported"), None);
+    }
 
     #[test]
     fn sf1_tally_has_a_dedicated_render_state() {

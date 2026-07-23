@@ -9,8 +9,9 @@ mod native;
 pub use native::{
     Angle, AnimationState, AstropolisBranch, AstropolisCoreSpike, AstropolisEye, AstropolisEyes,
     AstropolisMissionState, AstropolisPhase, AudioOutput, AudioState, Behavior, Button, Buttons,
-    Camera, CampaignState, CarrierAssaultPhase, CarrierAssaultState, CarrierReactorPanel,
-    ChargeSound, CollisionClass, CorneriaDefensePhase, CorneriaDefenseState, Difficulty,
+    Camera, CampaignProgress, CampaignState, CarrierAssaultPhase, CarrierAssaultState,
+    CarrierReactorPanel, ChargeSound, CollisionClass, CorneriaDefensePhase, CorneriaDefenseState,
+    Difficulty,
     EladardMissionState, EladardPhase, EndingPhase, EndingState, Error, FlightControlStyle, Game,
     GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState,
     InputState, IntroPhase, MaterialSetId, MissionId, MissionMessage, MissionMessageIrisFrame,

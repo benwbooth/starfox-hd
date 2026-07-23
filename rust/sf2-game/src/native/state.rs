@@ -324,6 +324,44 @@ pub enum Difficulty {
     Expert,
 }
 
+impl Difficulty {
+    pub const fn previous(self, expert_unlocked: bool) -> Self {
+        match (self, expert_unlocked) {
+            (Self::Normal, true) => Self::Expert,
+            (Self::Normal, false) => Self::Hard,
+            (Self::Hard, _) => Self::Normal,
+            (Self::Expert, _) => Self::Hard,
+        }
+    }
+
+    pub const fn next(self, expert_unlocked: bool) -> Self {
+        match (self, expert_unlocked) {
+            (Self::Normal, _) => Self::Hard,
+            (Self::Hard, true) => Self::Expert,
+            (Self::Hard, false) | (Self::Expert, _) => Self::Normal,
+        }
+    }
+}
+
+/// Battery-backed campaign progress represented as semantic fields. Retail
+/// exposes Expert only after a zero-damage Hard clear; the port stores that
+/// meaning directly instead of carrying the cartridge-save bitfield through
+/// gameplay.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CampaignProgress {
+    pub expert_unlocked: bool,
+}
+
+impl CampaignProgress {
+    pub fn record_clear(&mut self, difficulty: Difficulty, corneria_damage_percent: u8) -> bool {
+        let newly_unlocked = !self.expert_unlocked
+            && difficulty == Difficulty::Hard
+            && corneria_damage_percent == 0;
+        self.expert_unlocked |= newly_unlocked;
+        newly_unlocked
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitlePage {
     MainMenu,
@@ -1570,6 +1608,7 @@ pub struct GameState {
     pub intro: IntroState,
     pub title: TitleState,
     pub roster: Roster,
+    pub progress: CampaignProgress,
     pub campaign: CampaignState,
     pub strategic_map: StrategicMapState,
     pub pilot_selection: PilotSelectionState,
@@ -1593,6 +1632,7 @@ impl Default for GameState {
             intro: IntroState::default(),
             title: TitleState::default(),
             roster: Roster::default(),
+            progress: CampaignProgress::default(),
             campaign: CampaignState::default(),
             strategic_map: StrategicMapState::default(),
             pilot_selection: PilotSelectionState::default(),
@@ -1612,6 +1652,18 @@ impl Default for GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expert_unlock_requires_a_zero_damage_hard_clear() {
+        let mut progress = CampaignProgress::default();
+        assert!(!progress.record_clear(Difficulty::Normal, 0));
+        assert!(!progress.expert_unlocked);
+        assert!(!progress.record_clear(Difficulty::Hard, 1));
+        assert!(!progress.expert_unlocked);
+        assert!(progress.record_clear(Difficulty::Hard, 0));
+        assert!(progress.expert_unlocked);
+        assert!(!progress.record_clear(Difficulty::Hard, 0));
+    }
 
     #[test]
     fn astropolis_objectives_keep_independent_typed_durability() {

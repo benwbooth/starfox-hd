@@ -21,7 +21,7 @@ const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
 #[cfg(test)]
 const FNV_PRIME: u32 = 0x01000193;
 #[cfg(test)]
-const ASSET_FNV1A: u32 = 0x16E4521C;
+const ASSET_FNV1A: u32 = 0x6A04C2E0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Track {
@@ -242,7 +242,7 @@ mod tests {
             (Track::Mono, 0, 0x29C0DD0D),
             (Track::Normal, 0, 0x8441A4A1),
             (Track::Hard, 0, 0xA0008C5A),
-            (Track::Expert, 0, 0x3F3C6E0F),
+            (Track::Expert, 0, 0xD0FC8A2B),
             (Track::RecordsScreen, 0, 0x09B50842),
             (Track::RecordsScreen, 24, 0x319476EB),
             (Track::RecordsScreen, 199, 0x33F2E601),

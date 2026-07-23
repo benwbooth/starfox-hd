@@ -147,6 +147,10 @@ local function load_state()
   if loaded then return end
   loaded = true
   emu.loadSavestate(state_bytes)
+  if scenario == "difficulty" then
+    local completion_flags = emu.read(0x703916, emu.memType.snesMemory, false)
+    emu.write(0x703916, completion_flags | 0x10, emu.memType.snesMemory)
+  end
 end
 
 local function capture_screen()

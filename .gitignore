@@ -3,6 +3,7 @@ data/
 rust/target/
 *.sfc
 *.zip
+starfox2.save
 .direnv/
 __pycache__/
 
