@@ -19,14 +19,16 @@
 //!      and shield bars instead of falling through to the planet map.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use sf_render::draw_list::{DrawListEntry, DL_FLAG_VISIBLE};
 use sf_render::gpu::{Gpu, Vertex3};
 use sf_render::renderer::{
     config_from_repo_root, EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState,
-    Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2FrameInputs, Sf2MissionBackdrop,
-    Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase, Sf2StrategicActor, Sf2StrategicActorAppearance,
-    Sf2StrategicActorKind, Sf2TitleMenuItem, Sf2TitlePage, SF2_RADAR_CONTACT_CAPACITY,
+    Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2FrameInputs, Sf2GameOverChoice,
+    Sf2GameOverPhase, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase,
+    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
+    Sf2TitlePage, SF2_RADAR_CONTACT_CAPACITY,
 };
 use sf_render::shape_data::SHAPE_EXT_ASTEROID1;
 use sf_render::shapes::{self, SHAPE_ELASER2, SHAPE_MYSHIP_4};
@@ -36,6 +38,7 @@ use common::{grid_8x8, C_TITLE_GOLDEN_8X8};
 
 const W: u32 = 1280;
 const H: u32 = 720;
+static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 const SF2_TEST_MISSION_TIME_TENTHS: u16 = 11;
 const SF2_MAP_WIDTH: i32 = 256;
 const SF2_MAP_HEIGHT: i32 = 224;
@@ -84,6 +87,7 @@ fn expected_rgb8(color: [f32; 4]) -> [u8; 3] {
 
 #[test]
 fn gl_runtime_suite() {
+    let _gpu_test_guard = GPU_TEST_LOCK.lock().expect("GPU test lock poisoned");
     check_palette_pair_dither();
 
     let config = config_from_repo_root(&repo_root());
@@ -618,6 +622,8 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
             pilot_cursor: Sf2Pilot::Fox,
             primary_pilot: None,
             wingmate: None,
+            game_over_phase: Sf2GameOverPhase::Choosing,
+            game_over_choice: Sf2GameOverChoice::ContinueWithWingmate,
             primary_shield: 0,
             wingmate_shield: 0,
             item_count: 0,
@@ -648,6 +654,7 @@ fn check_sf2_native_frontend(renderer: &mut Renderer) {
         Sf2Mode::PilotSelection,
         Sf2Mode::StrategicMap,
         Sf2Mode::Mission,
+        Sf2Mode::GameOver,
     ] {
         let inputs = sf2_inputs(mode);
         renderer.begin_frame();
@@ -1027,6 +1034,7 @@ fn check_arwing(renderer: &mut Renderer) {
 /// "faces left but moves right" bug).
 #[test]
 fn positive_worldx_renders_on_right_half() {
+    let _gpu_test_guard = GPU_TEST_LOCK.lock().expect("GPU test lock poisoned");
     let config = config_from_repo_root(&repo_root());
     let mut renderer = match Renderer::new_headless(W as i32, H as i32, &config) {
         Ok(r) => r,

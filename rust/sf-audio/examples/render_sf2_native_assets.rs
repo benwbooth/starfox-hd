@@ -16,6 +16,7 @@ const LOGO_PRESENTATION_RECORD: u16 = 0x1B5;
 const FORMATION_AND_TITLE_RECORD: u16 = 0;
 const ANDROSS_BRIEFING_RECORD: u16 = 0x1C3;
 const STRATEGIC_MAP_RECORD: u16 = 0x036;
+const GAME_OVER_AND_CONTINUE_RECORD: u16 = 0x184;
 
 #[derive(Debug, Clone, Copy)]
 enum SemanticCue {
@@ -23,6 +24,7 @@ enum SemanticCue {
     FormationAndTitle,
     AndrossBriefing,
     StrategicMap,
+    GameOverAndContinue,
 }
 
 impl SemanticCue {
@@ -32,6 +34,7 @@ impl SemanticCue {
             Self::FormationAndTitle => FORMATION_AND_TITLE_RECORD,
             Self::AndrossBriefing => ANDROSS_BRIEFING_RECORD,
             Self::StrategicMap => STRATEGIC_MAP_RECORD,
+            Self::GameOverAndContinue => GAME_OVER_AND_CONTINUE_RECORD,
         }
     }
 
@@ -41,6 +44,7 @@ impl SemanticCue {
             Self::FormationAndTitle => "formation_and_title",
             Self::AndrossBriefing => "andross_briefing",
             Self::StrategicMap => "strategic_map",
+            Self::GameOverAndContinue => "game_over_and_continue",
         }
     }
 }
@@ -91,7 +95,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     SemanticCue::AndrossBriefing | SemanticCue::StrategicMap => {
                         Some(program_index_for_record(FORMATION_AND_TITLE_RECORD)?)
                     }
-                    SemanticCue::LogoPresentation | SemanticCue::FormationAndTitle => None,
+                    SemanticCue::LogoPresentation
+                    | SemanticCue::FormationAndTitle
+                    | SemanticCue::GameOverAndContinue => None,
                 };
                 (cue.filename().to_string(), true, index, resident)
             }
@@ -163,6 +169,8 @@ fn parse_selections(
                 Ok(ProgramSelection::Semantic(SemanticCue::AndrossBriefing))
             } else if value == "map" {
                 Ok(ProgramSelection::Semantic(SemanticCue::StrategicMap))
+            } else if value == "game-over" {
+                Ok(ProgramSelection::Semantic(SemanticCue::GameOverAndContinue))
             } else if let Some(offset) = value.strip_prefix('r') {
                 u16::from_str_radix(offset, 16)
                     .map(ProgramSelection::RecordOffset)

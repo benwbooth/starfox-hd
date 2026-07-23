@@ -16,17 +16,18 @@ use super::object::{
     InterceptionMissileSteering, LeonRivalFlightPhase, LeonRivalFlightState,
     LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
     PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, ReengagementFighterFlightState,
-    ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
+    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
+    ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
     CorneriaDefensePhase, CorneriaDefenseState, EladardMissionState, EladardPhase, EndingPhase,
-    EndingState, GameMode, GameState, IntroPhase, MapPoint, MissionId, MissionPhase, MissionVisit,
-    Pilot, PilotCraftClass, PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState,
-    PlayerCraftForm, PlayerCraftTransformation, PlayerCraftTransformationDirection,
+    EndingState, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,
+    GameState, IntroPhase, MapPoint, MissionId, MissionPhase, MissionVisit, Pilot, PilotCraftClass,
+    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
+    PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     StrategicEncounter, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
     StrategicMapPhase, StrategicMapTutorialPage, StrategicThreatCount, TitaniaMissionState,
     TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
@@ -75,6 +76,8 @@ mod pigma_duel;
 mod pigma_duel_projectiles;
 #[path = "pigma_duel_rival.rs"]
 mod pigma_duel_rival;
+#[path = "player_damage.rs"]
+mod player_damage;
 #[path = "pressure_fighters.rs"]
 mod pressure_fighters;
 #[path = "second_sortie.rs"]
@@ -3339,7 +3342,6 @@ const MISSION_PROJECTILE_TRAJECTORIES: [MissionProjectileTrajectory;
 ];
 const ENEMY_LASER_ATTACK_POWER: u8 = 1;
 const SF2_HOSTILE_LASER_HEALTH: u8 = 10;
-const SF2_HOSTILE_LASER_ATTACK_POWER: u8 = 2;
 const HOSTILE_PROJECTILE_CONTRACTION_DISTANCE: u16 = 127;
 const HOSTILE_PROJECTILE_CRUISE_SPEED: u8 = 63;
 const HOSTILE_PROJECTILE_AIM_CHASE_SHIFT: u32 = 2;
@@ -4930,6 +4932,7 @@ impl Game {
             }
             GameMode::PilotSelection => self.update_pilot_selection(),
             GameMode::Mission => self.update_mission()?,
+            GameMode::GameOver => self.update_game_over(),
             GameMode::Ending => self.update_ending(),
             GameMode::Results | GameMode::Intro(_) => {}
         }
@@ -5137,6 +5140,20 @@ impl Game {
     }
 
     fn begin_opening_sortie(&mut self) -> Result<(), Error> {
+        if let Some(primary_id) = self.state.mission.primary_player {
+            if let Some(primary) = self.state.objects.get_mut(primary_id) {
+                primary.base.position = OPENING_PRIMARY_POSITION;
+                primary.base.velocity = Vector3::default();
+                primary.base.flags.visible = false;
+                primary.base.flags.collision_disabled = true;
+            }
+            self.start_sortie(
+                MissionVisit::OpeningEngagement,
+                primary_id,
+                self.state.mission.wingmate,
+            );
+            return Ok(());
+        }
         let primary_pilot = self.primary_pilot();
         let wingmate_pilot = self.state.roster.selected[1].unwrap_or(DEFAULT_WINGMATE_PILOT);
         let mut primary = Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
@@ -5169,7 +5186,11 @@ impl Game {
             primary.base.linked_object = Some(wingmate_id);
         }
 
-        self.start_sortie(MissionVisit::OpeningEngagement, primary_id, wingmate_id);
+        self.start_sortie(
+            MissionVisit::OpeningEngagement,
+            primary_id,
+            Some(wingmate_id),
+        );
         Ok(())
     }
 
@@ -5179,11 +5200,7 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         let first_player = second_sortie::PLAYER_KEYFRAMES[0];
         let first_wingmate = second_sortie::WINGMATE_KEYFRAMES[0];
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
@@ -5192,7 +5209,7 @@ impl Game {
             primary.base.flags.collision_disabled = true;
         }
         self.previous_mission_player_position = Some(first_player.position);
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, first_wingmate);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5209,17 +5226,13 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, missile_interception::PLAYER_KEYFRAMES[0]);
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, missile_interception::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5236,11 +5249,7 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, fighter_intercept::PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
@@ -5249,7 +5258,7 @@ impl Game {
         }
         self.previous_mission_player_position =
             Some(fighter_intercept::PLAYER_KEYFRAMES[0].position);
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, fighter_intercept::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5268,11 +5277,7 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, pigma_duel::PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
@@ -5280,7 +5285,7 @@ impl Game {
             primary.base.flags.collision_disabled = true;
         }
         self.previous_mission_player_position = Some(pigma_duel::PLAYER_KEYFRAMES[0].position);
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, pigma_duel::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5298,18 +5303,14 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, leon_duel::PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, leon_duel::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5327,18 +5328,14 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, mirage_dragon::PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, mirage_dragon::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5356,18 +5353,14 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, pressure_fighters::PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, pressure_fighters::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5384,18 +5377,14 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, leon_pressure::PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, leon_pressure::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5436,11 +5425,7 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, player_keyframe);
             primary.base.shape = ShapeId::EMPTY;
@@ -5448,7 +5433,7 @@ impl Game {
             primary.base.flags.collision_disabled = true;
         }
         self.previous_mission_player_position = Some(player_keyframe.position);
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, wingmate_keyframe);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5465,18 +5450,14 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             apply_player_keyframe(primary, astropolis_entry::PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, astropolis_entry::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
@@ -5493,12 +5474,8 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
-        for craft in [primary_id, wingmate_id] {
+        let wingmate_id = self.state.mission.wingmate;
+        for craft in [Some(primary_id), wingmate_id].into_iter().flatten() {
             if let Some(object) = self.state.objects.get_mut(craft) {
                 object.base.position = Vector3::default();
                 object.base.velocity = Vector3::default();
@@ -5529,12 +5506,8 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
-        for craft in [primary_id, wingmate_id] {
+        let wingmate_id = self.state.mission.wingmate;
+        for craft in [Some(primary_id), wingmate_id].into_iter().flatten() {
             if let Some(object) = self.state.objects.get_mut(craft) {
                 object.base.position = Vector3::default();
                 object.base.velocity = Vector3::default();
@@ -5568,11 +5541,7 @@ impl Game {
             .mission
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
-        let wingmate_id = self
-            .state
-            .mission
-            .wingmate
-            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             primary.base.shape = ShapeId::CARRIER_ASSAULT_CRAFT;
             primary.base.position = Vector3::default();
@@ -5583,7 +5552,7 @@ impl Game {
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
-        if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             wingmate.base.position = Vector3::default();
             wingmate.base.velocity = Vector3::default();
             wingmate.base.flags.visible = false;
@@ -5609,7 +5578,12 @@ impl Game {
         Ok(())
     }
 
-    fn start_sortie(&mut self, visit: MissionVisit, primary_id: ObjectId, wingmate_id: ObjectId) {
+    fn start_sortie(
+        &mut self,
+        visit: MissionVisit,
+        primary_id: ObjectId,
+        wingmate_id: Option<ObjectId>,
+    ) {
         self.state.mission.active = true;
         self.state.mission.phase = MissionPhase::Loading;
         self.state.mission.mission = Some(match visit {
@@ -5634,8 +5608,9 @@ impl Game {
         });
         self.state.mission.visit = visit;
         self.state.mission.primary_player = Some(primary_id);
-        self.state.mission.wingmate = Some(wingmate_id);
+        self.state.mission.wingmate = wingmate_id;
         self.state.mission.player_blaster = PlayerBlasterState::Ready;
+        self.state.mission.player_damage = PlayerDamageState::Ready;
         self.state.mission.player_craft_form = PlayerCraftForm::Flight;
         self.state.mission.player_walker = Default::default();
         self.state.mission.player_flight.pitch_accumulator = 0;
@@ -5654,6 +5629,9 @@ impl Game {
     }
 
     fn update_mission(&mut self) -> Result<(), Error> {
+        if self.advance_player_damage_timeline() {
+            return Ok(());
+        }
         match self.state.mission.visit {
             MissionVisit::OpeningEngagement => self.update_opening_mission(),
             MissionVisit::Reengagement => self.update_reengagement_mission(),
@@ -5674,6 +5652,160 @@ impl Game {
                 self.update_carrier_assault()
             }
         }
+    }
+
+    /// Advances only the player craft's semantic collision response. Mission
+    /// scripts pause during destruction so a simultaneous scripted success
+    /// cannot overwrite the retail loss flow.
+    fn advance_player_damage_timeline(&mut self) -> bool {
+        match self.state.mission.player_damage {
+            PlayerDamageState::Ready => false,
+            PlayerDamageState::Recovering {
+                retail_frames_remaining,
+            } => {
+                let remaining = retail_frames_remaining
+                    .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
+                self.state.mission.player_damage = if remaining == 0 {
+                    PlayerDamageState::Ready
+                } else {
+                    PlayerDamageState::Recovering {
+                        retail_frames_remaining: remaining,
+                    }
+                };
+                false
+            }
+            PlayerDamageState::Destroying {
+                elapsed_retail_frames,
+            } => {
+                let elapsed = elapsed_retail_frames
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                if elapsed >= player_damage::PLAYER_DESTRUCTION_RETAIL_FRAMES {
+                    self.begin_game_over();
+                } else {
+                    self.state.mission.player_damage = PlayerDamageState::Destroying {
+                        elapsed_retail_frames: elapsed,
+                    };
+                }
+                true
+            }
+        }
+    }
+
+    fn begin_game_over(&mut self) {
+        self.clear_sortie_runtime();
+        self.state.game_over = GameOverState::default();
+        self.enter_mode(GameMode::GameOver);
+    }
+
+    fn update_game_over(&mut self) {
+        let presentation_frame = self
+            .state
+            .mode_frame
+            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            .min(u32::from(u16::MAX)) as u16;
+        if self.state.game_over.phase == GameOverPhase::AndrossTaunt
+            && presentation_frame >= player_damage::GAME_OVER_PROMPT_RETAIL_FRAMES
+        {
+            let choice = if self.state.roster.selected[1].is_some()
+                && self.state.mission.wingmate.is_some()
+            {
+                GameOverChoice::ContinueWithWingmate
+            } else {
+                GameOverChoice::EndCampaign
+            };
+            self.state.game_over.phase = GameOverPhase::Choosing(choice);
+        }
+
+        match self.state.game_over.phase {
+            GameOverPhase::AndrossTaunt => {}
+            GameOverPhase::Choosing(mut choice) => {
+                if self.state.input.pressed.contains(Button::Up)
+                    || self.state.input.pressed.contains(Button::Down)
+                    || self.state.input.pressed.contains(Button::Left)
+                    || self.state.input.pressed.contains(Button::Right)
+                {
+                    choice = match choice {
+                        GameOverChoice::ContinueWithWingmate => GameOverChoice::EndCampaign,
+                        GameOverChoice::EndCampaign => GameOverChoice::ContinueWithWingmate,
+                    };
+                    self.state.game_over.phase = GameOverPhase::Choosing(choice);
+                }
+                if self.confirm_pressed() {
+                    let can_continue = choice == GameOverChoice::ContinueWithWingmate
+                        && self.state.roster.selected[1].is_some()
+                        && self.state.mission.wingmate.is_some();
+                    self.state.game_over.phase = GameOverPhase::Leaving {
+                        destination: if can_continue {
+                            GameOverDestination::StrategicMap
+                        } else {
+                            GameOverDestination::Title
+                        },
+                        elapsed_retail_frames: 0,
+                    };
+                }
+            }
+            GameOverPhase::Leaving {
+                destination,
+                elapsed_retail_frames,
+            } => {
+                let elapsed = elapsed_retail_frames
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                if elapsed < player_damage::CONTINUE_RETURN_RETAIL_FRAMES {
+                    self.state.game_over.phase = GameOverPhase::Leaving {
+                        destination,
+                        elapsed_retail_frames: elapsed,
+                    };
+                    return;
+                }
+                match destination {
+                    GameOverDestination::StrategicMap => self.promote_reserve_pilot(),
+                    GameOverDestination::Title => {
+                        self.state.title.page = TitlePage::MainMenu;
+                        self.enter_mode(GameMode::Title);
+                    }
+                }
+            }
+        }
+    }
+
+    fn promote_reserve_pilot(&mut self) {
+        let Some(reserve_pilot) = self.state.roster.selected[1] else {
+            self.enter_mode(GameMode::Title);
+            return;
+        };
+        let Some(reserve_craft) = self.state.mission.wingmate else {
+            self.enter_mode(GameMode::Title);
+            return;
+        };
+
+        if let Some(destroyed_craft) = self.state.mission.primary_player {
+            if destroyed_craft != reserve_craft {
+                self.state.objects.remove(destroyed_craft);
+            }
+        }
+        if let Some(craft) = self.state.objects.get_mut(reserve_craft) {
+            craft.base.kind = ObjectKind::Player;
+            craft.base.behavior = Behavior::PlayerFlight;
+            craft.base.shape = pilot_flight_craft_shape(reserve_pilot);
+            craft.base.linked_object = None;
+            craft.base.flags.visible = false;
+            craft.base.flags.exploding = false;
+            craft.base.flags.collision_disabled = true;
+            craft.base.collision_class = CollisionClass::Player;
+        }
+
+        self.state.roster.selected = [Some(reserve_pilot), None];
+        self.state.mission.primary_player = Some(reserve_craft);
+        self.state.mission.wingmate = None;
+        self.state.mission.player_damage = PlayerDamageState::Ready;
+        self.state.strategic_map.primary_player = Some(reserve_craft);
+        self.state.strategic_map.selected_encounter = None;
+        self.state.strategic_map.destination = self.state.strategic_map.player_map_position;
+        self.state.strategic_map.travel_ticks_remaining = 0;
+        self.state.strategic_map.travel_total_ticks = 0;
+        self.state.strategic_map.phase = StrategicMapPhase::Planning;
+        self.state.camera = Camera::default();
+        self.enter_mode(GameMode::StrategicMap);
     }
 
     fn update_opening_mission(&mut self) -> Result<(), Error> {
@@ -6064,19 +6196,14 @@ impl Game {
             .map(|object| object.base.position);
         let previous_player_position = current_player_position
             .map(|current| self.previous_mission_player_position.unwrap_or(current));
-        if let (Some(current), Some(previous)) =
-            (current_player_position, previous_player_position)
+        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
         {
             self.update_leon_rival(retail_frame, current, previous);
             self.update_leon_projectiles(retail_frame, current, previous)?;
             self.previous_mission_player_position = Some(current);
         } else {
             self.update_leon_rival(retail_frame, Vector3::default(), Vector3::default());
-            self.update_leon_projectiles(
-                retail_frame,
-                Vector3::default(),
-                Vector3::default(),
-            )?;
+            self.update_leon_projectiles(retail_frame, Vector3::default(), Vector3::default())?;
         }
         Ok(())
     }
@@ -6225,18 +6352,13 @@ impl Game {
             .map(|object| object.base.position);
         let previous_player_position = current_player_position
             .map(|current| self.previous_mission_player_position.unwrap_or(current));
-        if let (Some(current), Some(previous)) =
-            (current_player_position, previous_player_position)
+        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
         {
             self.update_final_rival_actor(retail_frame, current, previous);
             self.update_final_rival_projectiles(retail_frame, current, previous)?;
             self.previous_mission_player_position = Some(current);
         } else {
-            self.update_final_rival_actor(
-                retail_frame,
-                Vector3::default(),
-                Vector3::default(),
-            );
+            self.update_final_rival_actor(retail_frame, Vector3::default(), Vector3::default());
             self.update_final_rival_projectiles(
                 retail_frame,
                 Vector3::default(),
@@ -8545,7 +8667,7 @@ impl Game {
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
                 projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 projectile.base.position = descriptor.initial_pose.position;
@@ -8844,7 +8966,7 @@ impl Game {
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
                 projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 projectile.base.position = descriptor.initial_pose.position;
@@ -9038,7 +9160,7 @@ impl Game {
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
                 projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 projectile.base.position = descriptor.initial_pose.position;
@@ -9120,7 +9242,7 @@ impl Game {
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
                 projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 projectile.base.position = descriptor.initial_pose.position;
@@ -9825,7 +9947,7 @@ impl Game {
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
                 projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 projectile.base.position = initial_pose.position;
@@ -9919,7 +10041,7 @@ impl Game {
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
                 projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 let projectile_id = state
@@ -10630,6 +10752,8 @@ impl Game {
             return;
         }
 
+        self.resolve_hostile_projectile_collisions();
+
         let player_weapons: Vec<_> = self
             .state
             .objects
@@ -10703,6 +10827,61 @@ impl Game {
                     enemy.base.hit_points -= damage;
                 }
             }
+        }
+    }
+
+    fn resolve_hostile_projectile_collisions(&mut self) {
+        if self.state.mission.player_damage != PlayerDamageState::Ready {
+            return;
+        }
+        let Some(player_id) = self.state.mission.primary_player else {
+            return;
+        };
+        let hostile_projectiles: Vec<_> = self
+            .state
+            .objects
+            .active_objects()
+            .filter_map(|(id, object)| {
+                (object.base.collision_class == CollisionClass::EnemyWeapon
+                    && !object.base.flags.collision_disabled
+                    && !object.base.flags.remove_after_tick)
+                    .then_some(id)
+            })
+            .collect();
+
+        let impact = hostile_projectiles.into_iter().find_map(|projectile_id| {
+            let player = self.state.objects.get(player_id)?;
+            let projectile = self.state.objects.get(projectile_id)?;
+            hostile_projectile_hits_player(projectile, player)
+                .then_some(projectile.base.attack_power)
+        });
+        let Some(damage) = impact else {
+            return;
+        };
+
+        let mut destroyed = false;
+        if let Some(player) = self.state.objects.get_mut(player_id) {
+            if player.base.flags.collision_disabled {
+                return;
+            }
+            player.base.flags.collided = true;
+            if player.base.hit_points == 0 {
+                player.base.flags.collision_disabled = true;
+                player.base.flags.exploding = true;
+                destroyed = true;
+            } else {
+                player.base.hit_points = player.base.hit_points.saturating_sub(damage);
+            }
+        }
+        if destroyed {
+            self.cancel_player_charge_for_transformation();
+            self.state.mission.player_damage = PlayerDamageState::Destroying {
+                elapsed_retail_frames: 0,
+            };
+        } else {
+            self.state.mission.player_damage = PlayerDamageState::Recovering {
+                retail_frames_remaining: player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
+            };
         }
     }
 
@@ -11243,6 +11422,40 @@ fn objects_overlap(first: &Object, second: &Object) -> bool {
         first_bounds.z,
         second_bounds.z,
     )
+}
+
+fn hostile_projectile_hits_player(projectile: &Object, player: &Object) -> bool {
+    let center = player_damage::HOSTILE_PROJECTILE_PLAYER_OFFSET_CENTER;
+    let extents = player_damage::HOSTILE_PROJECTILE_PLAYER_COLLISION_EXTENTS;
+    offset_axis_overlaps(
+        projectile
+            .base
+            .position
+            .x
+            .wrapping_sub(player.base.position.x),
+        center.x,
+        extents.x,
+    ) && offset_axis_overlaps(
+        projectile
+            .base
+            .position
+            .y
+            .wrapping_sub(player.base.position.y),
+        center.y,
+        extents.y,
+    ) && offset_axis_overlaps(
+        projectile
+            .base
+            .position
+            .z
+            .wrapping_sub(player.base.position.z),
+        center.z,
+        extents.z,
+    )
+}
+
+fn offset_axis_overlaps(offset: i16, center: i16, extent: u16) -> bool {
+    i32::from(offset.wrapping_sub(center)).unsigned_abs() < u32::from(extent)
 }
 
 fn axis_overlaps(first: i16, second: i16, first_extent: u16, second_extent: u16) -> bool {
@@ -11997,10 +12210,7 @@ fn apply_rival_approach_steering(object: &mut Object, steering: RivalApproachSte
     step_rival_approach_yaw(object, steering);
 }
 
-fn chase_rival_approach_pitch_and_roll(
-    object: &mut Object,
-    steering: RivalApproachSteering,
-) {
+fn chase_rival_approach_pitch_and_roll(object: &mut Object, steering: RivalApproachSteering) {
     let mut roll = object.base.roll.units();
     let mut pitch = object.base.pitch.units();
     sf_core::snes_trig::achase_angle_8(
@@ -17277,7 +17487,10 @@ mod tests {
                 assert_eq!(projectile.base.roll.units(), expected.pose.roll);
                 assert_eq!(projectile.base.speed, expected.pose.speed);
                 assert_eq!(projectile.base.hit_points, SF2_HOSTILE_LASER_HEALTH);
-                assert_eq!(projectile.base.attack_power, SF2_HOSTILE_LASER_ATTACK_POWER);
+                assert_eq!(
+                    projectile.base.attack_power,
+                    player_damage::HOSTILE_PROJECTILE_ATTACK_POWER
+                );
                 assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
             }
         }
@@ -17967,18 +18180,13 @@ mod tests {
         for retail_frame in (leon_duel_rival::FLIGHT_START_RETAIL_FRAME..=last_retail_frame)
             .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
         {
-            let player_index =
-                usize::from(retail_frame / leon_duel_rival::RETAIL_FRAME_STEP);
+            let player_index = usize::from(retail_frame / leon_duel_rival::RETAIL_FRAME_STEP);
             let previous_player_index = player_index.saturating_sub(1);
             let player_position = leon_duel_rival::PLAYER_POSES[player_index].position;
             let previous_player_position =
                 leon_duel_rival::PLAYER_POSES[previous_player_index].position;
-            game.update_leon_projectiles(
-                retail_frame,
-                player_position,
-                previous_player_position,
-            )
-            .unwrap();
+            game.update_leon_projectiles(retail_frame, player_position, previous_player_position)
+                .unwrap();
 
             let expected_active = leon_duel_projectiles::ORACLE_TRACKS
                 .iter()
@@ -18203,11 +18411,7 @@ mod tests {
                 .or_else(|| player_keyframes.last())
                 .expect("final rival oracle has player poses")
                 .position;
-            game.update_final_rival_actor(
-                retail_frame,
-                player_position,
-                previous_player_position,
-            );
+            game.update_final_rival_actor(retail_frame, player_position, previous_player_position);
 
             let expected = rival_keyframes
                 .iter()
@@ -20517,6 +20721,206 @@ mod tests {
         assert_eq!(
             game.mission_entry_flyby[MissionEncounterActor::UpperFighter.index()],
             None
+        );
+    }
+
+    #[test]
+    fn hostile_projectile_uses_the_retail_player_collision_box() {
+        const ACCEPTED_OFFSETS: [Vector3; 6] = [
+            Vector3 { x: -76, y: 0, z: 0 },
+            Vector3 { x: 58, y: 0, z: 0 },
+            Vector3 { x: 0, y: -49, z: 0 },
+            Vector3 { x: 0, y: 117, z: 0 },
+            Vector3 { x: 0, y: 0, z: -75 },
+            Vector3 { x: 0, y: 0, z: 53 },
+        ];
+        const REJECTED_OFFSETS: [Vector3; 6] = [
+            Vector3 { x: -77, y: 0, z: 0 },
+            Vector3 { x: 59, y: 0, z: 0 },
+            Vector3 { x: 0, y: -50, z: 0 },
+            Vector3 { x: 0, y: 118, z: 0 },
+            Vector3 { x: 0, y: 0, z: -76 },
+            Vector3 { x: 0, y: 0, z: 54 },
+        ];
+
+        let player = Object::new(
+            ObjectKind::Player,
+            ShapeId::FOX_FALCO_FLIGHT_CRAFT,
+            Behavior::PlayerFlight,
+        );
+        let mut projectile = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::ENEMY_LASER,
+            Behavior::Projectile,
+        );
+        for offset in ACCEPTED_OFFSETS {
+            projectile.base.position = offset;
+            assert!(hostile_projectile_hits_player(&projectile, &player));
+        }
+        for offset in REJECTED_OFFSETS {
+            projectile.base.position = offset;
+            assert!(!hostile_projectile_hits_player(&projectile, &player));
+        }
+    }
+
+    #[test]
+    fn zero_shield_survives_then_the_next_retail_hit_starts_destruction() {
+        let mut game = Game::new();
+        game.state.roster.selected = [Some(Pilot::Fox), Some(Pilot::Slippy)];
+        game.begin_opening_sortie().unwrap();
+        game.state.mode = GameMode::Mission;
+        game.state.mission.phase = MissionPhase::Active;
+        let player_id = game.state.mission.primary_player.unwrap();
+        let wingmate_id = game.state.mission.wingmate.unwrap();
+        let impact_position = Vector3::default();
+        {
+            let player = game.state.objects.get_mut(player_id).unwrap();
+            player.base.position = impact_position;
+            player.base.hit_points = 1;
+            player.base.flags.collision_disabled = false;
+        }
+        game.state
+            .objects
+            .get_mut(wingmate_id)
+            .unwrap()
+            .base
+            .hit_points = player_damage::ORACLE_RESERVE_SHIELD;
+
+        let mut hostile = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::ENEMY_LASER,
+            Behavior::Projectile,
+        );
+        hostile.base.position = impact_position;
+        hostile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+        hostile.base.collision_class = CollisionClass::EnemyWeapon;
+        let hostile_id = game.state.objects.allocate(hostile).unwrap();
+
+        game.resolve_mission_collisions();
+        assert!(player_damage::ORACLE_ZERO_SHIELD_SURVIVES);
+        assert_eq!(
+            game.state.objects.get(player_id).unwrap().base.hit_points,
+            0
+        );
+        assert_eq!(
+            game.state.mission.player_damage,
+            PlayerDamageState::Recovering {
+                retail_frames_remaining: player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
+            }
+        );
+        assert!(
+            !game
+                .state
+                .objects
+                .get(hostile_id)
+                .unwrap()
+                .base
+                .flags
+                .remove_after_tick
+        );
+
+        for _ in 0..player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u8
+        {
+            game.advance_player_damage_timeline();
+        }
+        assert_eq!(game.state.mission.player_damage, PlayerDamageState::Ready);
+
+        game.resolve_mission_collisions();
+        assert_eq!(
+            game.state.mission.player_damage,
+            PlayerDamageState::Destroying {
+                elapsed_retail_frames: 0,
+            }
+        );
+        let player = game.state.objects.get(player_id).unwrap();
+        assert!(player.base.flags.exploding);
+        assert!(player.base.flags.collision_disabled);
+    }
+
+    #[test]
+    fn retail_destruction_and_continue_flow_promotes_the_reserve_pilot() {
+        let mut game = Game::new();
+        game.state.roster.selected = [Some(Pilot::Fox), Some(Pilot::Slippy)];
+        game.begin_opening_sortie().unwrap();
+        let destroyed_craft = game.state.mission.primary_player.unwrap();
+        let reserve_craft = game.state.mission.wingmate.unwrap();
+        game.state
+            .objects
+            .get_mut(reserve_craft)
+            .unwrap()
+            .base
+            .hit_points = player_damage::ORACLE_RESERVE_SHIELD;
+        game.state.mode = GameMode::Mission;
+        game.state.mission.phase = MissionPhase::Active;
+        game.state.mission.player_damage = PlayerDamageState::Destroying {
+            elapsed_retail_frames: 0,
+        };
+        let original_route = game.state.campaign.route_step;
+
+        let destruction_ticks = player_damage::PLAYER_DESTRUCTION_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..destruction_ticks - 1 {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Mission);
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::GameOver);
+        assert_eq!(game.state.game_over.phase, GameOverPhase::AndrossTaunt);
+
+        let prompt_ticks = player_damage::GAME_OVER_PROMPT_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..prompt_ticks - 1 {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.game_over.phase, GameOverPhase::AndrossTaunt);
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.game_over.phase,
+            GameOverPhase::Choosing(GameOverChoice::ContinueWithWingmate)
+        );
+
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(
+            game.state.game_over.phase,
+            GameOverPhase::Leaving {
+                destination: GameOverDestination::StrategicMap,
+                elapsed_retail_frames: 0,
+            }
+        );
+        let return_ticks = player_damage::CONTINUE_RETURN_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..return_ticks - 1 {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::GameOver);
+        game.tick(0).unwrap();
+
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(game.state.roster.selected, [Some(Pilot::Slippy), None]);
+        assert_eq!(game.state.mission.primary_player, Some(reserve_craft));
+        assert_eq!(game.state.mission.wingmate, None);
+        assert!(game.state.objects.get(destroyed_craft).is_none());
+        let promoted = game.state.objects.get(reserve_craft).unwrap();
+        assert_eq!(promoted.base.kind, ObjectKind::Player);
+        assert_eq!(
+            promoted.base.hit_points,
+            player_damage::ORACLE_RESERVE_SHIELD
+        );
+        assert_eq!(promoted.base.shape, ShapeId::PEPPY_SLIPPY_FLIGHT_CRAFT);
+        assert_eq!(game.state.campaign.route_step, original_route);
+
+        game.begin_opening_sortie().unwrap();
+        assert_eq!(game.state.mission.primary_player, Some(reserve_craft));
+        assert_eq!(game.state.mission.wingmate, None);
+        assert_eq!(
+            game.state
+                .objects
+                .get(reserve_craft)
+                .unwrap()
+                .base
+                .hit_points,
+            player_damage::ORACLE_RESERVE_SHIELD
         );
     }
 

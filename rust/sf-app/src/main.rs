@@ -33,10 +33,10 @@ use sf_render::draw_list::{
 use sf_render::renderer::{
     EndingReplayBackdrop as RenderEndingReplayBackdrop, EndingReplayInputs, FrameInputs,
     GameState as RenderState, Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty,
-    Sf2FrameInputs, Sf2MapPoint, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase,
-    Sf2RadarContact, Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind,
-    Sf2StrategicPhase, Sf2TitleMenuItem, Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY,
-    WINDOWARRAY_SIZE,
+    Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MapPoint, Sf2MissionBackdrop, Sf2Mode,
+    Sf2Pilot, Sf2PilotSelectionPhase, Sf2RadarContact, Sf2StrategicActor,
+    Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase, Sf2TitleMenuItem,
+    Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
 };
 use sf_render::shapes::Sf2PolygonPalette;
 
@@ -65,6 +65,7 @@ enum Sf2DumpMode {
     Mission = 7,
     Results = 8,
     Ending = 9,
+    GameOver = 10,
 }
 
 impl From<sf2_game::GameMode> for Sf2DumpMode {
@@ -77,6 +78,7 @@ impl From<sf2_game::GameMode> for Sf2DumpMode {
             sf2_game::GameMode::StrategicMap => Self::StrategicMap,
             sf2_game::GameMode::PilotSelection => Self::PilotSelection,
             sf2_game::GameMode::Mission => Self::Mission,
+            sf2_game::GameMode::GameOver => Self::GameOver,
             sf2_game::GameMode::Results => Self::Results,
             sf2_game::GameMode::Ending => Self::Ending,
         }
@@ -316,8 +318,8 @@ fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdr
 
 fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
     use sf2_game::{
-        AudioOutput, Difficulty, GameMode, ObjectKind, PilotSelectionPhase, StrategicMapPhase,
-        TitleMenuItem, TitlePage,
+        AudioOutput, Difficulty, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
+        ObjectKind, PilotSelectionPhase, StrategicMapPhase, TitleMenuItem, TitlePage,
     };
 
     let state = game.state();
@@ -371,6 +373,7 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
             GameMode::StrategicMap => Sf2Mode::StrategicMap,
             GameMode::PilotSelection => Sf2Mode::PilotSelection,
             GameMode::Mission => Sf2Mode::Mission,
+            GameMode::GameOver => Sf2Mode::GameOver,
             GameMode::Results => Sf2Mode::Results,
             GameMode::Ending => Sf2Mode::Ending,
         },
@@ -404,6 +407,24 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
         pilot_cursor: to_sf2_pilot(state.pilot_selection.cursor),
         primary_pilot: state.roster.selected[0].map(to_sf2_pilot),
         wingmate: state.roster.selected[1].map(to_sf2_pilot),
+        game_over_phase: match state.game_over.phase {
+            GameOverPhase::AndrossTaunt => Sf2GameOverPhase::AndrossTaunt,
+            GameOverPhase::Choosing(_) => Sf2GameOverPhase::Choosing,
+            GameOverPhase::Leaving { .. } => Sf2GameOverPhase::Leaving,
+        },
+        game_over_choice: match state.game_over.phase {
+            GameOverPhase::Choosing(GameOverChoice::ContinueWithWingmate)
+            | GameOverPhase::Leaving {
+                destination: GameOverDestination::StrategicMap,
+                ..
+            } => Sf2GameOverChoice::ContinueWithWingmate,
+            GameOverPhase::AndrossTaunt
+            | GameOverPhase::Choosing(GameOverChoice::EndCampaign)
+            | GameOverPhase::Leaving {
+                destination: GameOverDestination::Title,
+                ..
+            } => Sf2GameOverChoice::EndCampaign,
+        },
         primary_shield: state
             .mission
             .primary_player
@@ -1043,6 +1064,15 @@ mod tests {
     #[test]
     fn sf1_tally_has_a_dedicated_render_state() {
         assert_eq!(to_render_state(7), RenderState::Tally);
+    }
+
+    #[test]
+    fn sf2_game_over_has_a_stable_diagnostic_mode() {
+        assert_eq!(
+            Sf2DumpMode::from(sf2_game::GameMode::GameOver),
+            Sf2DumpMode::GameOver
+        );
+        assert_eq!(Sf2DumpMode::GameOver as u8, 10);
     }
 
     #[test]

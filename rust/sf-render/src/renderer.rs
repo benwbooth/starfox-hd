@@ -66,8 +66,22 @@ pub enum Sf2Mode {
     StrategicMap,
     PilotSelection,
     Mission,
+    GameOver,
     Results,
     Ending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2GameOverChoice {
+    ContinueWithWingmate,
+    EndCampaign,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2GameOverPhase {
+    AndrossTaunt,
+    Choosing,
+    Leaving,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +219,8 @@ pub struct Sf2FrameInputs {
     pub pilot_cursor: Sf2Pilot,
     pub primary_pilot: Option<Sf2Pilot>,
     pub wingmate: Option<Sf2Pilot>,
+    pub game_over_phase: Sf2GameOverPhase,
+    pub game_over_choice: Sf2GameOverChoice,
     pub primary_shield: u8,
     pub wingmate_shield: u8,
     pub item_count: u8,

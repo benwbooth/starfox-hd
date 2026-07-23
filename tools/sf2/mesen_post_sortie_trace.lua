@@ -27,6 +27,37 @@ local target_spider_parent =
   os.getenv("SF2_ORACLE_TARGET_SPIDER_PARENT") == "1"
 local force_projectile_hit =
   os.getenv("SF2_ORACLE_FORCE_PROJECTILE_HIT") == "1"
+player_damage_oracle = {
+  force = os.getenv("SF2_ORACLE_FORCE_HOSTILE_PROJECTILE_HIT") == "1",
+  trace = os.getenv("SF2_ORACLE_TRACE_PLAYER_DAMAGE") == "1",
+  probe = os.getenv("SF2_ORACLE_PROBE_PLAYER_DAMAGE") == "1",
+  maximum_hits = tonumber(os.getenv("SF2_ORACLE_FORCE_HOSTILE_HITS")) or 1,
+  impact_offset_x = tonumber(
+    os.getenv("SF2_ORACLE_HOSTILE_IMPACT_OFFSET_X")) or 0,
+  impact_offset_y = tonumber(
+    os.getenv("SF2_ORACLE_HOSTILE_IMPACT_OFFSET_Y")) or 0,
+  impact_offset_z = tonumber(
+    os.getenv("SF2_ORACLE_HOSTILE_IMPACT_OFFSET_Z")) or 0,
+  projectile = nil,
+  locked_hits = 0,
+  initial_health = nil,
+  minimum_health = nil,
+  hit_elapsed = nil,
+  last_snapshot = nil,
+  lines = {},
+}
+assert(
+  player_damage_oracle.maximum_hits >= 1,
+  "SF2_ORACLE_FORCE_HOSTILE_HITS must be positive")
+for _, offset in ipairs({
+  player_damage_oracle.impact_offset_x,
+  player_damage_oracle.impact_offset_y,
+  player_damage_oracle.impact_offset_z,
+}) do
+  assert(
+    offset >= -32768 and offset <= 32767,
+    "hostile impact offsets must be signed words")
+end
 local force_target_collision =
   os.getenv("SF2_ORACLE_FORCE_TARGET_COLLISION") == "1"
 local force_eladard_core_trigger =
@@ -293,6 +324,45 @@ local function write_work_word(address, value)
   emu.write(address + 1, (encoded >> 8) & 0xFF, emu.memType.snesWorkRam)
 end
 
+function player_damage_oracle.is_hostile_projectile(object)
+  return work_word(object + 4) == 0xE3A8
+    and work_byte(object + 0x2D) == 10
+    and work_byte(object + 0x2E) == 2
+    and work_byte(object + 0x2F) == 0
+    and work_byte(object + 0x30) == 0
+    and work_byte(object + 0x31) == 90
+end
+
+function player_damage_oracle.pin_to_player(projectile, player)
+  write_work_word(
+    projectile + 12,
+    signed_word(player + 12) + player_damage_oracle.impact_offset_x)
+  write_work_word(
+    projectile + 14,
+    signed_word(player + 14) + player_damage_oracle.impact_offset_y)
+  write_work_word(
+    projectile + 16,
+    signed_word(player + 16) + player_damage_oracle.impact_offset_z)
+end
+
+function player_damage_oracle.observe_probe()
+  if not player_damage_oracle.probe or not armed then return end
+  local player = work_word(0x12C3)
+  if player == 0 or player_damage_oracle.locked_hits == 0 then return end
+  local health = work_byte(0x1DD1)
+  if player_damage_oracle.initial_health == nil then
+    player_damage_oracle.initial_health = health
+    player_damage_oracle.minimum_health = health
+  end
+  if health < player_damage_oracle.minimum_health then
+    player_damage_oracle.minimum_health = health
+  end
+  if player_damage_oracle.hit_elapsed == nil
+    and health < player_damage_oracle.initial_health then
+    player_damage_oracle.hit_elapsed = frame - armed_frame
+  end
+end
+
 local function record_craft_form_service(service)
   if not trace_craft_transition or not armed then return end
   local state = emu.getState()
@@ -365,6 +435,94 @@ function sortie_actor_oracle.bytes_hex(address, count)
     output[#output + 1] = string.format("%02X", work_byte(address + offset))
   end
   return table.concat(output)
+end
+
+function player_damage_oracle.snapshot(event)
+  if not player_damage_oracle.trace or not armed then return end
+  local player = work_word(0x12C3)
+  local object_health = player ~= 0 and work_byte(player + 0x2D) or 0
+  local object_state = player ~= 0
+    and sortie_actor_oracle.bytes_hex(player + 0x20, 7)
+      .. sortie_actor_oracle.bytes_hex(player + 0x2D, 5)
+      .. sortie_actor_oracle.bytes_hex(player + 0x38, 1) or "-"
+  local snapshot = string.format(
+    "%d,%d,%d,%04X,%04X,%04X,%d,%d,%d,%d,%d,%d,%d,%d,%s",
+    work_byte(0x1B68),
+    work_byte(0x1B76),
+    work_byte(0x1BE0),
+    work_word(0x12A8),
+    player,
+    work_word(0x12C5),
+    object_health,
+    work_byte(0x1DD1),
+    work_byte(0x1DD5),
+    work_byte(0x1DD7),
+    work_byte(0x1DDB),
+    work_byte(0xB228),
+    work_byte(0xB232),
+    work_byte(0xB260),
+    object_state)
+  if snapshot == player_damage_oracle.last_snapshot then return end
+  player_damage_oracle.last_snapshot = snapshot
+  player_damage_oracle.lines[#player_damage_oracle.lines + 1] = string.format(
+    "elapsed=%d event=%s mode=%d submode=%d phase=%d active=%04X " ..
+      "player=%04X wingmate=%04X object_health=%d hud_health=%d " ..
+      "hud_max=%d reserve_health=%d reserve_max=%d buffers=%d,%d,%d " ..
+      "object_state=%s",
+    frame - armed_frame,
+    event,
+    work_byte(0x1B68),
+    work_byte(0x1B76),
+    work_byte(0x1BE0),
+    work_word(0x12A8),
+    player,
+    work_word(0x12C5),
+    object_health,
+    work_byte(0x1DD1),
+    work_byte(0x1DD5),
+    work_byte(0x1DD7),
+    work_byte(0x1DDB),
+    work_byte(0xB228),
+    work_byte(0xB232),
+    work_byte(0xB260),
+    object_state)
+end
+
+function player_damage_oracle.record_write(address, value)
+  if not player_damage_oracle.trace or not armed then return value end
+  local player = work_word(0x12C3)
+  local fixed_field = address == 0x1B68
+    or address == 0x1B76
+    or address == 0x1BE0
+    or address == 0x12A8
+    or address == 0x12A9
+    or address == 0x12C3
+    or address == 0x12C4
+    or address == 0x12C5
+    or address == 0x12C6
+    or address == 0x1DD1
+    or address == 0x1DD5
+    or address == 0x1DD7
+    or address == 0x1DDB
+    or address == 0xB228
+    or address == 0xB232
+    or address == 0xB260
+  local object_field = player ~= 0
+    and ((address >= player + 0x20 and address <= player + 0x26)
+      or (address >= player + 0x2D and address <= player + 0x31)
+      or address == player + 0x38)
+  if not fixed_field and not object_field then return value end
+  local state = emu.getState()
+  player_damage_oracle.lines[#player_damage_oracle.lines + 1] = string.format(
+    "elapsed=%d event=write address=%05X value=%d player=%04X " ..
+      "source=%02X:%04X",
+    frame - armed_frame,
+    address,
+    value or 0,
+    player,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+  return value
 end
 
 local function record_walker_dynamics(stage)
@@ -1354,6 +1512,63 @@ local function is_player_projectile(object, shape)
     and work_byte(object + 0x2F) == 0
     and work_byte(object + 0x30) == 0
     and work_byte(object + 0x31) == 138
+end
+
+function player_damage_oracle.force_impact()
+  if not player_damage_oracle.force or work_byte(0x1B68) ~= 1 then return end
+  local player = work_word(0x12C3)
+  if player == 0 then return end
+
+  if player_damage_oracle.projectile then
+    if not player_damage_oracle.is_hostile_projectile(
+      player_damage_oracle.projectile) then
+      if player_damage_oracle.trace then
+        player_damage_oracle.lines[#player_damage_oracle.lines + 1] = string.format(
+          "elapsed=%d event=forced-hostile-projectile-consumed projectile=%04X",
+          frame - armed_frame,
+          player_damage_oracle.projectile)
+      end
+      player_damage_oracle.projectile = nil
+    else
+      player_damage_oracle.pin_to_player(
+        player_damage_oracle.projectile,
+        player)
+    end
+    return
+  end
+
+  if player_damage_oracle.locked_hits >= player_damage_oracle.maximum_hits then
+    return
+  end
+  local object = work_word(0x12A8)
+  local seen = {}
+  while object ~= 0 and not seen[object] do
+    seen[object] = true
+    if object ~= player and player_damage_oracle.is_hostile_projectile(object) then
+      player_damage_oracle.pin_to_player(object, player)
+      player_damage_oracle.projectile = object
+      player_damage_oracle.locked_hits = player_damage_oracle.locked_hits + 1
+      if player_damage_oracle.probe then
+        player_damage_oracle.initial_health = work_byte(0x1DD1)
+        player_damage_oracle.minimum_health = player_damage_oracle.initial_health
+      end
+      if player_damage_oracle.trace then
+        player_damage_oracle.lines[#player_damage_oracle.lines + 1] = string.format(
+          "elapsed=%d event=forced-hostile-projectile-locked " ..
+            "hit=%d projectile=%04X player=%04X health=%d pose=%d,%d,%d",
+          frame - armed_frame,
+          player_damage_oracle.locked_hits,
+          object,
+          player,
+          work_byte(player + 0x2D),
+          signed_word(player + 12),
+          signed_word(player + 14),
+          signed_word(player + 16))
+      end
+      break
+    end
+    object = work_word(object)
+  end
 end
 
 local function provide_combat_autopilot()
@@ -2357,6 +2572,9 @@ local function end_frame()
       end
     end
   end
+  player_damage_oracle.force_impact()
+  player_damage_oracle.observe_probe()
+  player_damage_oracle.snapshot("snapshot")
   if forced_stage_selection and work_byte(0x1B68) == 7 then
     -- Oracle-only route isolation.  Mobile pressure encounters can otherwise
     -- preempt every command-map path while identifying a newly discovered
@@ -2518,6 +2736,25 @@ local function end_frame()
       write_file(
         "sf2_walker_dynamics_trace.txt",
         table.concat(walker_dynamics_lines, "\n") .. "\n")
+    end
+    if player_damage_oracle.trace then
+      write_file(
+        "sf2_player_damage_trace.txt",
+        table.concat(player_damage_oracle.lines, "\n") .. "\n")
+    end
+    if player_damage_oracle.probe then
+      write_file(
+        "sf2_player_damage_probe.txt",
+        string.format(
+          "offset=%d,%d,%d locked=%d initial_health=%s " ..
+            "minimum_health=%s hit_elapsed=%s\n",
+          player_damage_oracle.impact_offset_x,
+          player_damage_oracle.impact_offset_y,
+          player_damage_oracle.impact_offset_z,
+          player_damage_oracle.locked_hits,
+          tostring(player_damage_oracle.initial_health),
+          tostring(player_damage_oracle.minimum_health),
+          tostring(player_damage_oracle.hit_elapsed)))
     end
     emu.stop(0)
   end
@@ -2914,6 +3151,15 @@ end
 if trace_walker_writes then
   emu.addMemoryCallback(
     record_walker_write,
+    emu.callbackType.write,
+    0,
+    0xFFFF,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if player_damage_oracle.trace then
+  emu.addMemoryCallback(
+    player_damage_oracle.record_write,
     emu.callbackType.write,
     0,
     0xFFFF,

@@ -35,6 +35,26 @@ local fighter_logic_objects = {
 }
 local current_input = "neutral"
 local input_profile = os.getenv("SF2_ORACLE_INPUT_PROFILE") or "control_sweep"
+damage_probe = {
+  enabled = os.getenv("SF2_ORACLE_PROBE_PLAYER_DAMAGE") == "1",
+  offset_x = tonumber(os.getenv("SF2_ORACLE_HOSTILE_IMPACT_OFFSET_X")) or 0,
+  offset_y = tonumber(os.getenv("SF2_ORACLE_HOSTILE_IMPACT_OFFSET_Y")) or 0,
+  offset_z = tonumber(os.getenv("SF2_ORACLE_HOSTILE_IMPACT_OFFSET_Z")) or 0,
+  projectile = nil,
+  locked = false,
+  initial_health = nil,
+  minimum_health = nil,
+  hit_elapsed = nil,
+}
+for _, offset in ipairs({
+  damage_probe.offset_x,
+  damage_probe.offset_y,
+  damage_probe.offset_z,
+}) do
+  assert(
+    offset >= -32768 and offset <= 32767,
+    "hostile impact offsets must be signed words")
+end
 local forced_charge_threshold = tonumber(os.getenv("SF2_ORACLE_CHARGE_THRESHOLD"))
 local laser_release_elapsed = tonumber(os.getenv("SF2_ORACLE_LASER_RELEASE_ELAPSED")) or 6900
 local main_layer_mask_text = os.getenv("SF2_ORACLE_MAIN_LAYER_MASK")
@@ -166,6 +186,12 @@ local function work_word(address)
   return emu.read16(address, emu.memType.snesWorkRam, false)
 end
 
+local function write_work_word(address, value)
+  local encoded = value % 65536
+  emu.write(address, encoded & 0xFF, emu.memType.snesWorkRam)
+  emu.write(address + 1, (encoded >> 8) & 0xFF, emu.memType.snesWorkRam)
+end
+
 local function work_long(address)
   return work_word(address) | (work_byte(address + 2) << 16)
 end
@@ -174,6 +200,65 @@ local function signed_word(address)
   local value = work_word(address)
   if value >= 0x8000 then return value - 0x10000 end
   return value
+end
+
+function damage_probe.is_hostile_projectile(object)
+  return work_word(object + 4) == 0xE3A8
+    and work_byte(object + 0x2D) == 10
+    and work_byte(object + 0x2E) == 2
+    and work_byte(object + 0x2F) == 0
+    and work_byte(object + 0x30) == 0
+    and work_byte(object + 0x31) == 90
+end
+
+function damage_probe.pin(projectile, player)
+  write_work_word(
+    projectile + 12,
+    signed_word(player + 12) + damage_probe.offset_x)
+  write_work_word(
+    projectile + 14,
+    signed_word(player + 14) + damage_probe.offset_y)
+  write_work_word(
+    projectile + 16,
+    signed_word(player + 16) + damage_probe.offset_z)
+end
+
+function damage_probe.update(elapsed)
+  if not damage_probe.enabled then return end
+  local player = work_word(0x12C3)
+  if player == 0 then return end
+
+  if damage_probe.projectile
+    and not damage_probe.is_hostile_projectile(damage_probe.projectile) then
+    damage_probe.projectile = nil
+  end
+  if not damage_probe.projectile and not damage_probe.locked then
+    local object = work_word(0x12A8)
+    local seen = {}
+    while object ~= 0 and not seen[object] do
+      seen[object] = true
+      if object ~= player and damage_probe.is_hostile_projectile(object) then
+        damage_probe.projectile = object
+        damage_probe.locked = true
+        damage_probe.initial_health = work_byte(0x1DD1)
+        damage_probe.minimum_health = damage_probe.initial_health
+        break
+      end
+      object = work_word(object)
+    end
+  end
+  if damage_probe.projectile then
+    damage_probe.pin(damage_probe.projectile, player)
+  end
+  if damage_probe.initial_health ~= nil then
+    local health = work_byte(0x1DD1)
+    if health < damage_probe.minimum_health then
+      damage_probe.minimum_health = health
+    end
+    if damage_probe.hit_elapsed == nil and health < damage_probe.initial_health then
+      damage_probe.hit_elapsed = elapsed
+    end
+  end
 end
 
 local function bytes_hex(address, count)
@@ -385,6 +470,7 @@ local function end_frame()
   frame = frame + 1
   if not armed then return end
   local elapsed = frame - armed_frame
+  damage_probe.update(elapsed)
   if forced_charge_threshold and elapsed >= 6700 then
     -- Oracle-only threshold substitution lets one deterministic flight replay
     -- measure all three values from the retail pilot table without changing
@@ -457,6 +543,20 @@ local function end_frame()
       write_binary(
         "sf2_active_flight_craft_forms.txt",
         table.concat(craft_form_lines, "\n") .. "\n")
+    end
+    if damage_probe.enabled then
+      write_binary(
+        "sf2_player_damage_probe.txt",
+        string.format(
+          "offset=%d,%d,%d locked=%s initial_health=%s " ..
+            "minimum_health=%s hit_elapsed=%s\n",
+          damage_probe.offset_x,
+          damage_probe.offset_y,
+          damage_probe.offset_z,
+          tostring(damage_probe.locked),
+          tostring(damage_probe.initial_health),
+          tostring(damage_probe.minimum_health),
+          tostring(damage_probe.hit_elapsed)))
     end
     emu.stop(0)
   end

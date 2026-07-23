@@ -12,11 +12,13 @@ const LOGO_PRESENTATION_FILE: &str = "logo_presentation.wav";
 const FORMATION_AND_TITLE_FILE: &str = "formation_and_title.wav";
 const ANDROSS_BRIEFING_FILE: &str = "andross_briefing.wav";
 const STRATEGIC_MAP_FILE: &str = "strategic_map.wav";
-const REQUIRED_MUSIC: [&str; 4] = [
+const GAME_OVER_AND_CONTINUE_FILE: &str = "game_over_and_continue.wav";
+const REQUIRED_MUSIC: [&str; 5] = [
     LOGO_PRESENTATION_FILE,
     FORMATION_AND_TITLE_FILE,
     ANDROSS_BRIEFING_FILE,
     STRATEGIC_MAP_FILE,
+    GAME_OVER_AND_CONTINUE_FILE,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +27,7 @@ pub enum Sf2MusicCue {
     FormationAndTitle,
     AndrossBriefing,
     StrategicMap,
+    GameOverAndContinue,
 }
 
 impl Sf2MusicCue {
@@ -34,6 +37,7 @@ impl Sf2MusicCue {
             Self::FormationAndTitle => FORMATION_AND_TITLE_FILE,
             Self::AndrossBriefing => ANDROSS_BRIEFING_FILE,
             Self::StrategicMap => STRATEGIC_MAP_FILE,
+            Self::GameOverAndContinue => GAME_OVER_AND_CONTINUE_FILE,
         }
     }
 }

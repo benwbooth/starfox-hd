@@ -10,7 +10,7 @@
 
 use sdl3::gamepad::{Axis, Button, Gamepad};
 use sdl3::keyboard::{KeyboardState, Scancode};
-use sf2_game::{Game as Sf2Game, GameMode as Sf2Mode, StrategicMapPhase};
+use sf2_game::{Game as Sf2Game, GameMode as Sf2Mode, GameOverPhase, StrategicMapPhase};
 use sf_core::pad;
 
 /// One keyboard binding (C `key_map[]`, sf_rtl.c:25-42).
@@ -323,6 +323,13 @@ impl Input {
                     })
                     .unwrap_or(0),
                 Some(Sf2Mode::Mission) if t % 8 < 4 => pad::B,
+                Some(Sf2Mode::GameOver)
+                    if sf2_game.is_some_and(|game| {
+                        matches!(game.state().game_over.phase, GameOverPhase::Choosing(_))
+                    }) =>
+                {
+                    pad::B
+                }
                 _ => 0,
             };
         }

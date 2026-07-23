@@ -1,0 +1,16 @@
+{
+  "hostile_projectile_attack_power": 2,
+  "hostile_projectile_player_offset_min": [-76, -49, -75],
+  "hostile_projectile_player_offset_max": [58, 117, 53],
+  "shield_before_first_hit": 1,
+  "shield_after_first_hit": 0,
+  "first_damage_retail_frame": 7477,
+  "recovery_complete_retail_frame": 7517,
+  "lethal_damage_retail_frame": 8019,
+  "game_over_retail_frame": 8300,
+  "continue_prompt_retail_frame": 8700,
+  "strategic_map_retail_frame": 8873,
+  "reserve_shield_before_handoff": 40,
+  "active_shield_after_handoff": 40,
+  "reserve_shield_after_handoff": 0
+}

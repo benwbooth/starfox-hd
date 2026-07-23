@@ -771,6 +771,50 @@ pub enum PlayerBlasterState {
     },
 }
 
+/// Collision response for the active player craft. Retail allows a hit that
+/// reaches zero shield to survive; only a later hit received while already at
+/// zero begins destruction.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerDamageState {
+    #[default]
+    Ready,
+    Recovering {
+        retail_frames_remaining: u8,
+    },
+    Destroying {
+        elapsed_retail_frames: u16,
+    },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum GameOverChoice {
+    #[default]
+    ContinueWithWingmate,
+    EndCampaign,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameOverDestination {
+    StrategicMap,
+    Title,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum GameOverPhase {
+    #[default]
+    AndrossTaunt,
+    Choosing(GameOverChoice),
+    Leaving {
+        destination: GameOverDestination,
+        elapsed_retail_frames: u16,
+    },
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct GameOverState {
+    pub phase: GameOverPhase,
+}
+
 /// Direction of an in-progress Arwing/Walker transformation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerCraftTransformationDirection {
@@ -814,6 +858,7 @@ pub struct MissionState {
     /// combat defeat, never a scripted disappearance.
     pub rival_defeated_retail_frame: Option<u16>,
     pub player_blaster: PlayerBlasterState,
+    pub player_damage: PlayerDamageState,
     /// Persistent analog flight response recovered from the retail player
     /// object. These are ordinary gameplay values, separate from the visible
     /// craft angles so steering remains smooth while the craft leans.
@@ -1291,6 +1336,7 @@ pub enum GameMode {
     StrategicMap,
     PilotSelection,
     Mission,
+    GameOver,
     Results,
     Ending,
 }
@@ -1325,6 +1371,7 @@ pub struct GameState {
     pub strategic_map: StrategicMapState,
     pub pilot_selection: PilotSelectionState,
     pub mission: MissionState,
+    pub game_over: GameOverState,
     pub ending: EndingState,
     pub objects: ObjectStore,
     pub camera: Camera,
@@ -1344,6 +1391,7 @@ impl Default for GameState {
             strategic_map: StrategicMapState::default(),
             pilot_selection: PilotSelectionState::default(),
             mission: MissionState::default(),
+            game_over: GameOverState::default(),
             ending: EndingState::default(),
             objects: ObjectStore::new(),
             camera: Camera::default(),

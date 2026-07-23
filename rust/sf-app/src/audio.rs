@@ -34,6 +34,23 @@ enum StreamSource {
     StarFox2(Sf2NativePlayer),
 }
 
+fn sf2_music_cue(mode: sf2_game::GameMode) -> Sf2MusicCue {
+    use sf2_game::{GameMode, IntroPhase};
+
+    match mode {
+        GameMode::Intro(IntroPhase::Boot)
+        | GameMode::Intro(IntroPhase::ArgonautLogo)
+        | GameMode::Intro(IntroPhase::NintendoLogo) => Sf2MusicCue::LogoPresentation,
+        GameMode::Intro(IntroPhase::Formation) | GameMode::Title | GameMode::Records => {
+            Sf2MusicCue::FormationAndTitle
+        }
+        GameMode::Briefing => Sf2MusicCue::AndrossBriefing,
+        GameMode::StrategicMap | GameMode::PilotSelection => Sf2MusicCue::StrategicMap,
+        GameMode::GameOver => Sf2MusicCue::GameOverAndContinue,
+        GameMode::Mission | GameMode::Results | GameMode::Ending => Sf2MusicCue::FormationAndTitle,
+    }
+}
+
 /// The audio-thread callback: pull samples from the selected game's native
 /// 32 kHz native source.
 struct NativeStreamCallback {
@@ -201,21 +218,7 @@ impl AudioSys {
     }
 
     pub fn tick_sf2(&mut self, mode: sf2_game::GameMode) {
-        use sf2_game::{GameMode, IntroPhase};
-
-        let cue = match mode {
-            GameMode::Intro(IntroPhase::Boot)
-            | GameMode::Intro(IntroPhase::ArgonautLogo)
-            | GameMode::Intro(IntroPhase::NintendoLogo) => Sf2MusicCue::LogoPresentation,
-            GameMode::Intro(IntroPhase::Formation) | GameMode::Title | GameMode::Records => {
-                Sf2MusicCue::FormationAndTitle
-            }
-            GameMode::Briefing => Sf2MusicCue::AndrossBriefing,
-            GameMode::StrategicMap | GameMode::PilotSelection => Sf2MusicCue::StrategicMap,
-            GameMode::Mission | GameMode::Results | GameMode::Ending => {
-                Sf2MusicCue::FormationAndTitle
-            }
-        };
+        let cue = sf2_music_cue(mode);
         if self.sf2_music == Some(cue) {
             return;
         }
@@ -433,5 +436,13 @@ mod tests {
         // Near-centre door-open -> $54; far -> $55.
         assert_eq!(snd.make_snd(&st, &player, 0, 50, open), Some(0x54));
         assert_eq!(snd.make_snd(&st, &player, 0, 2500, open), Some(0x55));
+    }
+
+    #[test]
+    fn sf2_game_over_selects_its_verified_music_program() {
+        assert_eq!(
+            sf2_music_cue(sf2_game::GameMode::GameOver),
+            Sf2MusicCue::GameOverAndContinue
+        );
     }
 }

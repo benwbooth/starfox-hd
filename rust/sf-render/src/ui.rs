@@ -11,10 +11,10 @@ use crate::font::Font;
 use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{
     EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState, Sf2AudioOutput,
-    Sf2Difficulty, Sf2FrameInputs, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase,
-    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
-    Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE, WINDOW_MODE_WHITE2NORM,
-    WINDOW_MODE_WHITEFADE,
+    Sf2Difficulty, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MissionBackdrop,
+    Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase, Sf2StrategicActor, Sf2StrategicActorAppearance,
+    Sf2StrategicActorKind, Sf2TitleMenuItem, Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE,
+    WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
 };
 use crate::sprites::decode_4bpp_tile;
 
@@ -32,6 +32,16 @@ const SF2_MENU_X: i32 = 104;
 const SF2_MENU_TOP_Y: i32 = 116;
 const SF2_MENU_LINE_HEIGHT: i32 = 16;
 const SF2_COPYRIGHT_Y: i32 = 18;
+const SF2_GAME_OVER_PANEL_LEFT: i32 = 28;
+const SF2_GAME_OVER_PANEL_BOTTOM: i32 = 48;
+const SF2_GAME_OVER_PANEL_WIDTH: i32 = 200;
+const SF2_GAME_OVER_PANEL_HEIGHT: i32 = 128;
+const SF2_GAME_OVER_TITLE_Y: i32 = 156;
+const SF2_GAME_OVER_MESSAGE_Y: i32 = 116;
+const SF2_GAME_OVER_CONTINUE_Y: i32 = 140;
+const SF2_GAME_OVER_OPTION_TOP_Y: i32 = 100;
+const SF2_GAME_OVER_OPTION_LINE_HEIGHT: i32 = 24;
+const SF2_GAME_OVER_PANEL_COLOR: [f32; 4] = [0.02, 0.04, 0.2, 0.94];
 const SF2_HUD_FONT_CELL: f32 = 6.0;
 const SF2_STAR_SIZE: i32 = 1;
 const SF2_MAX_SCORE: u32 = 99_999;
@@ -1605,6 +1615,75 @@ impl Ui {
         );
     }
 
+    fn render_sf2_game_over(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
+        self.render_sf2_starfield(gpu);
+        self.quad_snes(
+            gpu,
+            SF2_GAME_OVER_PANEL_COLOR,
+            SF2_GAME_OVER_PANEL_LEFT,
+            SF2_GAME_OVER_PANEL_BOTTOM,
+            SF2_GAME_OVER_PANEL_WIDTH,
+            SF2_GAME_OVER_PANEL_HEIGHT,
+        );
+        self.text_centered(
+            gpu,
+            font,
+            SF2_TITLE_CENTER_X,
+            SF2_GAME_OVER_TITLE_Y,
+            "GAME OVER",
+            SF2_SELECTED_COLOR[0],
+            SF2_SELECTED_COLOR[1],
+            SF2_SELECTED_COLOR[2],
+        );
+        if inputs.game_over_phase == Sf2GameOverPhase::AndrossTaunt {
+            self.text_centered(
+                gpu,
+                font,
+                SF2_TITLE_CENTER_X,
+                SF2_GAME_OVER_MESSAGE_Y,
+                "ANDROSS",
+                SF2_TITLE_COLOR[0],
+                SF2_TITLE_COLOR[1],
+                SF2_TITLE_COLOR[2],
+            );
+            return;
+        }
+
+        self.text_centered(
+            gpu,
+            font,
+            SF2_TITLE_CENTER_X,
+            SF2_GAME_OVER_CONTINUE_Y,
+            "CONTINUE AS WING MAN?",
+            SF2_TEXT_COLOR[0],
+            SF2_TEXT_COLOR[1],
+            SF2_TEXT_COLOR[2],
+        );
+        for (index, (choice, label)) in [
+            (Sf2GameOverChoice::ContinueWithWingmate, "YES"),
+            (Sf2GameOverChoice::EndCampaign, "NO"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let color = if inputs.game_over_choice == choice {
+                SF2_SELECTED_COLOR
+            } else {
+                SF2_TEXT_COLOR
+            };
+            self.text_centered(
+                gpu,
+                font,
+                SF2_TITLE_CENTER_X,
+                SF2_GAME_OVER_OPTION_TOP_Y - index as i32 * SF2_GAME_OVER_OPTION_LINE_HEIGHT,
+                label,
+                color[0],
+                color[1],
+                color[2],
+            );
+        }
+    }
+
     fn render_sf2_briefing(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
         self.render_sf2_starfield(gpu);
         let horizon_height = 54 + i32::try_from(inputs.mode_frame % 18).unwrap_or_default();
@@ -2973,6 +3052,7 @@ impl Ui {
             Sf2Mode::StrategicMap => self.render_sf2_strategic_map(gpu, font, inputs),
             Sf2Mode::PilotSelection => self.render_sf2_pilot_selection(gpu, font, inputs),
             Sf2Mode::Mission => self.render_sf2_mission_hud(gpu, inputs),
+            Sf2Mode::GameOver => self.render_sf2_game_over(gpu, font, inputs),
             Sf2Mode::Intro | Sf2Mode::Results | Sf2Mode::Ending => {}
         }
     }
