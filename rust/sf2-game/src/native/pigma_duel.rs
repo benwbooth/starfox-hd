@@ -6,9 +6,11 @@
 
 use super::{
     mission_actor_departure_keyframe, mission_actor_keyframe, mission_camera_keyframe,
-    mission_player_keyframe, mission_projectile_keyframe, MissionActorKeyframe,
-    MissionCameraKeyframe, MissionPlayerKeyframe, MissionProjectileKeyframe,
+    mission_player_keyframe, MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
+
+#[cfg(test)]
+use super::{mission_projectile_keyframe, MissionProjectileKeyframe};
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 1677;
 pub(super) const MAP_READY_RETAIL_FRAME: u16 = 1679;
@@ -1584,6 +1586,7 @@ pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 299] = [
     mission_actor_departure_keyframe(1228),
 ];
 
+#[cfg(test)]
 const ENEMY_LASER_TRACK_0: [MissionProjectileKeyframe; 42] = [
     mission_projectile_keyframe(772, [607, -3_868, 9_186, 7, 87, 0, 63]),
     mission_projectile_keyframe(776, [190, -3_800, 8_929, 7, 87, 0, 63]),
@@ -1629,6 +1632,7 @@ const ENEMY_LASER_TRACK_0: [MissionProjectileKeyframe; 42] = [
     mission_projectile_keyframe(936, [-11_250, -2_370, 5_870, 5, 67, 0, 63]),
 ];
 
+#[cfg(test)]
 const ENEMY_LASER_TRACK_1: [MissionProjectileKeyframe; 42] = [
     mission_projectile_keyframe(808, [-1_494, -3_553, 8_116, 6, 82, 0, 63]),
     mission_projectile_keyframe(812, [-1_494, -3_553, 8_116, 6, 82, 0, 63]),
@@ -1674,6 +1678,7 @@ const ENEMY_LASER_TRACK_1: [MissionProjectileKeyframe; 42] = [
     mission_projectile_keyframe(972, [-12_125, -2_379, 6_557, 4, 60, 0, 63]),
 ];
 
+#[cfg(test)]
 const ENEMY_LASER_TRACK_2: [MissionProjectileKeyframe; 36] = [
     mission_projectile_keyframe(848, [-3_504, -3_265, 7_441, 6, 77, 0, 63]),
     mission_projectile_keyframe(852, [-4_098, -3_192, 7_266, 6, 76, 0, 63]),
@@ -1713,6 +1718,7 @@ const ENEMY_LASER_TRACK_2: [MissionProjectileKeyframe; 36] = [
     mission_projectile_keyframe(988, [-12_297, -2_118, 6_212, 6, 68, 0, 63]),
 ];
 
+#[cfg(test)]
 pub(super) const ENEMY_LASER_KEYFRAME_TRACKS: [&[MissionProjectileKeyframe]; 3] = [
     &ENEMY_LASER_TRACK_0,
     &ENEMY_LASER_TRACK_1,

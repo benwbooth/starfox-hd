@@ -220,6 +220,43 @@ def read_logic_fixture(
     return result
 
 
+def split_target_contractions(actions: list[LogicAction]) -> list[LogicAction]:
+    """Expose retail cooperative coordinate writes as two semantic actions.
+
+    Most encounters complete target contraction between retained presentation
+    boundaries.  The Pigma duel contains a boundary after the horizontal
+    coordinate is committed but before altitude and depth are committed, so
+    that encounter opts into this expanded representation.
+    """
+
+    result = []
+    for action in actions:
+        if action.kind != "contract":
+            result.append(action)
+            continue
+        result.extend(
+            (
+                LogicAction(
+                    elapsed=action.elapsed,
+                    source=action.source,
+                    kind="begin-contract",
+                    pose=action.pose,
+                    target=action.target,
+                    sample_start_elapsed=action.sample_start_elapsed,
+                ),
+                LogicAction(
+                    elapsed=action.elapsed,
+                    source=action.source,
+                    kind="finish-contract",
+                    pose=action.pose,
+                    target=action.target,
+                    sample_start_elapsed=action.sample_start_elapsed,
+                ),
+            )
+        )
+    return result
+
+
 class Replay:
     def __init__(self) -> None:
         trig_source = TRIG_SOURCE.read_text(encoding="utf-8")
@@ -288,6 +325,12 @@ class Replay:
     def apply(self, pose: tuple[int, ...], action: LogicAction) -> tuple[int, ...]:
         if action.kind == "contract":
             return self.contract(pose, action.target)
+        if action.kind == "begin-contract":
+            contracted = self.contract(pose, action.target)
+            return (contracted[0],) + pose[1:]
+        if action.kind == "finish-contract":
+            contracted = self.contract(action.pose, action.target)
+            return pose[:1] + contracted[1:3] + pose[3:]
         if action.kind == "face-immediate":
             return self.face(pose, action.target, False)
         if action.kind == "face-smooth":
@@ -373,7 +416,7 @@ def target_timing(
     retail_frame: int,
     records: dict[int, PoseRecord],
 ) -> str | None:
-    if action.kind not in TARGET_ACTIONS:
+    if action.kind not in TARGET_ACTIONS and action.kind != "begin-contract":
         return None
     target_position = action.target[:3]
     choices = (
@@ -420,6 +463,8 @@ def rust_action(action: ScheduledAction) -> str:
     )
     variants = {
         "contract": "ContractTowardTarget",
+        "begin-contract": "BeginTargetContraction",
+        "finish-contract": "FinishTargetContraction",
         "face-immediate": "FaceTargetImmediate",
         "face-smooth": "FaceTargetSmooth",
         "set-cruise-speed": "SetCruiseSpeed",
@@ -563,9 +608,12 @@ def generate_dynamics(
     expected_lifetime_count: int,
     sample_start_elapsed: int,
     encounter_description: str,
+    allow_split_contractions: bool = False,
 ) -> tuple[str, int]:
     records, lifetimes = read_pose_fixture(pose_fixture, expected_lifetime_count)
     actions = read_logic_fixture(logic_fixture, sample_start_elapsed)
+    if allow_split_contractions:
+        actions = split_target_contractions(actions)
     replay = Replay()
     scheduled = [schedule_lifetime(replay, lifetime, actions) for lifetime in lifetimes]
     record_by_frame = {record.retail_frame: record for record in records}

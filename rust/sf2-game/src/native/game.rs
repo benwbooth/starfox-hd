@@ -11,10 +11,11 @@ use super::object::{
     FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
     FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
     FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
-    HostileProjectileFlightPhase, HostileProjectileFlightState, InterceptionMissileFlightState,
-    InterceptionMissileSteering, Object, ObjectActivity, ObjectId, ObjectKind,
-    PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState,
-    ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
+    HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
+    InterceptionMissileFlightState, InterceptionMissileSteering, Object, ObjectActivity, ObjectId,
+    ObjectKind, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
+    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
+    ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::state::{
@@ -60,6 +61,8 @@ mod missile_interception_targets;
 mod opening_continuation;
 #[path = "pigma_duel.rs"]
 mod pigma_duel;
+#[path = "pigma_duel_projectiles.rs"]
+mod pigma_duel_projectiles;
 #[path = "pressure_fighters.rs"]
 mod pressure_fighters;
 #[path = "second_sortie.rs"]
@@ -1479,6 +1482,8 @@ impl HostileProjectileTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HostileProjectileAction {
     ContractTowardTarget(HostileProjectileTarget),
+    BeginTargetContraction(HostileProjectileTarget),
+    FinishTargetContraction,
     FaceTargetImmediate(HostileProjectileTarget),
     FaceTargetSmooth(HostileProjectileTarget),
     SetCruiseSpeed,
@@ -4354,7 +4359,7 @@ impl Game {
                 fighter_intercept_projectiles::PROJECTILE_COUNT,
             ),
             pigma_rival: None,
-            pigma_projectiles: Vec::with_capacity(pigma_duel::ENEMY_LASER_KEYFRAME_TRACKS.len()),
+            pigma_projectiles: Vec::with_capacity(pigma_duel_projectiles::PROJECTILE_COUNT),
             leon_rival: None,
             leon_projectiles: Vec::with_capacity(leon_duel::ENEMY_LASER_KEYFRAME_TRACKS.len()),
             pressure_fighter_actors: PressureFighterActors::default(),
@@ -5117,6 +5122,7 @@ impl Game {
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
+        self.previous_mission_player_position = Some(pigma_duel::PLAYER_KEYFRAMES[0].position);
         if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
             apply_player_keyframe(wingmate, pigma_duel::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
@@ -5815,7 +5821,21 @@ impl Game {
             self.update_pigma_presentation(retail_frame);
         }
         self.update_pigma_rival(retail_frame);
-        self.update_pigma_projectiles(retail_frame)?;
+        let current_player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|object| object.base.position);
+        let previous_player_position = current_player_position
+            .map(|current| self.previous_mission_player_position.unwrap_or(current));
+        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
+        {
+            self.update_pigma_projectiles(retail_frame, current, previous)?;
+            self.previous_mission_player_position = Some(current);
+        } else {
+            self.update_pigma_projectiles(retail_frame, Vector3::default(), Vector3::default())?;
+        }
         Ok(())
     }
 
@@ -8293,6 +8313,7 @@ impl Game {
                     ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
                         phase: HostileProjectileFlightPhase::Homing,
                         motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
                     });
                 let projectile_id = self
                     .state
@@ -8591,6 +8612,7 @@ impl Game {
                     ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
                         phase: HostileProjectileFlightPhase::Homing,
                         motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
                     });
                 let projectile_id = self
                     .state
@@ -8732,26 +8754,23 @@ impl Game {
         }
     }
 
-    fn update_pigma_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
-        for (track_index, keyframes) in pigma_duel::ENEMY_LASER_KEYFRAME_TRACKS
-            .iter()
-            .copied()
-            .enumerate()
-        {
-            let start_frame = keyframes
-                .first()
-                .expect("Pigma projectile trajectory is not empty")
-                .retail_frame;
-            let end_frame = keyframes
-                .last()
-                .expect("Pigma projectile trajectory is not empty")
-                .retail_frame;
+    fn update_pigma_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) -> Result<(), Error> {
+        for track_index in 0..pigma_duel_projectiles::PROJECTILE_COUNT {
+            let descriptor = pigma_duel_projectiles::descriptor(track_index)
+                .expect("Pigma projectile descriptor exists");
             let active_index = self
                 .pigma_projectiles
                 .iter()
                 .position(|projectile| projectile.track_index == track_index);
-            if retail_frame < start_frame || retail_frame > end_frame {
-                if retail_frame > end_frame {
+            if retail_frame < descriptor.start_retail_frame
+                || retail_frame > descriptor.end_retail_frame
+            {
+                if retail_frame > descriptor.end_retail_frame {
                     if let Some(index) = active_index {
                         let projectile = self.pigma_projectiles.swap_remove(index);
                         self.state.objects.remove(projectile.object);
@@ -8766,13 +8785,24 @@ impl Game {
                 let mut projectile = Object::new(
                     ObjectKind::Projectile,
                     ShapeId::ENEMY_LASER,
-                    Behavior::MissionScriptedProjectile,
+                    Behavior::Projectile,
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
                 projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
                 projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.position = descriptor.initial_pose.position;
+                projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
+                projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
+                projectile.base.roll = Angle::from_units(descriptor.initial_pose.roll);
+                projectile.base.speed = descriptor.initial_pose.speed;
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
+                        motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
+                    });
                 let projectile_id = self
                     .state
                     .objects
@@ -8785,14 +8815,22 @@ impl Game {
                 projectile_id
             };
 
-            let pose = mission_projectile_pose(keyframes, retail_frame);
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
-                projectile.base.position = pose.position;
-                projectile.base.pitch = Angle::from_units(pose.pitch);
-                projectile.base.yaw = Angle::from_units(pose.yaw);
-                projectile.base.roll = Angle::from_units(pose.roll);
-                projectile.base.speed = pose.speed;
-                projectile.base.velocity = Vector3::default();
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
+                    projectile.extension.activity
+                else {
+                    continue;
+                };
+                for &action in pigma_duel_projectiles::actions(track_index, retail_frame) {
+                    apply_hostile_projectile_action(
+                        projectile,
+                        &mut flight,
+                        action,
+                        player_position,
+                        previous_player_position,
+                    );
+                }
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
             }
         }
         Ok(())
@@ -11369,11 +11407,11 @@ fn chase_capital_angle(current: Angle, target: Angle, divisor: i8) -> Angle {
     current.wrapping_add(adjusted / divisor)
 }
 
-fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {
+fn hostile_projectile_contracted_position(position: Vector3, target: Vector3) -> Vector3 {
     let delta = [
-        object.base.position.x.wrapping_sub(target.x),
-        object.base.position.y.wrapping_sub(target.y),
-        object.base.position.z.wrapping_sub(target.z),
+        position.x.wrapping_sub(target.x),
+        position.y.wrapping_sub(target.y),
+        position.z.wrapping_sub(target.z),
     ];
     let squared_radius = delta.into_iter().fold(0_u32, |sum, component| {
         let component = i32::from(component);
@@ -11381,7 +11419,7 @@ fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {
     });
     let radius = squared_radius.isqrt();
     if radius == 0 {
-        return;
+        return position;
     }
 
     let precision_shift = u32::BITS - 1 - radius.leading_zeros();
@@ -11393,11 +11431,15 @@ fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {
             (direction * i64::from(contracted_radius)) >> NORMALIZED_DIRECTION_FRACTION_BITS;
         target_component.wrapping_add(offset as i16)
     };
-    object.base.position = Vector3 {
+    Vector3 {
         x: contract_component(delta[0], target.x),
         y: contract_component(delta[1], target.y),
         z: contract_component(delta[2], target.z),
-    };
+    }
+}
+
+fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {
+    object.base.position = hostile_projectile_contracted_position(object.base.position, target);
 }
 
 fn face_hostile_projectile_toward(object: &mut Object, target: Vector3, smooth: bool) {
@@ -11459,6 +11501,29 @@ fn apply_hostile_projectile_action(
     match action {
         HostileProjectileAction::ContractTowardTarget(timing) => {
             contract_hostile_projectile_toward(object, target(timing));
+        }
+        HostileProjectileAction::BeginTargetContraction(timing) => {
+            let contracted =
+                hostile_projectile_contracted_position(object.base.position, target(timing));
+            object.base.position.x = contracted.x;
+            flight.movement_phase = HostileProjectileMovementPhase::TargetContractionPending {
+                altitude: contracted.y,
+                depth: contracted.z,
+            };
+        }
+        HostileProjectileAction::FinishTargetContraction => {
+            let HostileProjectileMovementPhase::TargetContractionPending { altitude, depth } =
+                flight.movement_phase
+            else {
+                debug_assert!(
+                    false,
+                    "projectile target contraction has no pending position"
+                );
+                return;
+            };
+            object.base.position.y = altitude;
+            object.base.position.z = depth;
+            flight.movement_phase = HostileProjectileMovementPhase::Ready;
         }
         HostileProjectileAction::FaceTargetImmediate(timing) => {
             face_hostile_projectile_toward(object, target(timing), false);
@@ -16499,6 +16564,7 @@ mod tests {
                 let mut expected_flight = HostileProjectileFlightState {
                     phase: HostileProjectileFlightPhase::Homing,
                     motion_steps_elapsed: 0,
+                    movement_phase: HostileProjectileMovementPhase::Ready,
                 };
                 let first_action_frame = first
                     .retail_frame
@@ -16728,6 +16794,7 @@ mod tests {
                 let mut expected_flight = HostileProjectileFlightState {
                     phase: HostileProjectileFlightPhase::Homing,
                     motion_steps_elapsed: 0,
+                    movement_phase: HostileProjectileMovementPhase::Ready,
                 };
                 let first_action_frame = first
                     .retail_frame
@@ -16772,6 +16839,156 @@ mod tests {
         )
         .unwrap();
         assert!(game.fighter_intercept_projectiles.is_empty());
+    }
+
+    #[test]
+    fn typed_pigma_projectiles_match_every_oracle_boundary() {
+        const RETAINED_PROJECTILE_POSE_COUNT: usize = 120;
+
+        let mut game = Game::new();
+        let last_retail_frame = pigma_duel::ENEMY_LASER_KEYFRAME_TRACKS
+            .iter()
+            .filter_map(|track| track.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("Pigma projectile oracle contains retained poses");
+        let mut retained_poses = 0;
+
+        for retail_frame in
+            (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index =
+                usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            let previous_player_index = usize::from(
+                retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+            );
+            let player_position = pigma_duel::PLAYER_KEYFRAMES[player_index].position;
+            let previous_player_position =
+                pigma_duel::PLAYER_KEYFRAMES[previous_player_index].position;
+            game.update_pigma_projectiles(retail_frame, player_position, previous_player_position)
+                .unwrap();
+
+            let expected_active = pigma_duel::ENEMY_LASER_KEYFRAME_TRACKS
+                .iter()
+                .filter(|track| {
+                    track
+                        .first()
+                        .zip(track.last())
+                        .is_some_and(|(first, last)| {
+                            (first.retail_frame..=last.retail_frame).contains(&retail_frame)
+                        })
+                })
+                .count();
+            assert_eq!(
+                game.pigma_projectiles.len(),
+                expected_active,
+                "active Pigma projectile count at frame {retail_frame}"
+            );
+
+            for (track_index, keyframes) in pigma_duel::ENEMY_LASER_KEYFRAME_TRACKS
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                let Some(first) = keyframes.first() else {
+                    continue;
+                };
+                let Some(last) = keyframes.last() else {
+                    continue;
+                };
+                if !(first.retail_frame..=last.retail_frame).contains(&retail_frame) {
+                    continue;
+                }
+                let keyframe_index = usize::from(
+                    (retail_frame - first.retail_frame)
+                        / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+                );
+                let expected = keyframes[keyframe_index];
+                assert_eq!(expected.retail_frame, retail_frame);
+                retained_poses += 1;
+
+                let active = game
+                    .pigma_projectiles
+                    .iter()
+                    .find(|projectile| projectile.track_index == track_index)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Pigma projectile track {track_index} absent at frame {retail_frame}"
+                        )
+                    });
+                let projectile = game.state().objects.get(active.object).unwrap();
+                assert_eq!(
+                    projectile.base.position, expected.pose.position,
+                    "Pigma projectile track {track_index} at frame {retail_frame}"
+                );
+                assert_eq!(projectile.base.pitch.units(), expected.pose.pitch);
+                assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
+                assert_eq!(projectile.base.roll.units(), expected.pose.roll);
+                assert_eq!(projectile.base.speed, expected.pose.speed);
+                assert_eq!(projectile.base.behavior, Behavior::Projectile);
+
+                let descriptor = pigma_duel_projectiles::descriptor(track_index).unwrap();
+                let mut expected_object = Object::new(
+                    ObjectKind::Projectile,
+                    ShapeId::ENEMY_LASER,
+                    Behavior::Projectile,
+                );
+                expected_object.base.position = descriptor.initial_pose.position;
+                expected_object.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
+                expected_object.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
+                expected_object.base.roll = Angle::from_units(descriptor.initial_pose.roll);
+                expected_object.base.speed = descriptor.initial_pose.speed;
+                let mut expected_flight = HostileProjectileFlightState {
+                    phase: HostileProjectileFlightPhase::Homing,
+                    motion_steps_elapsed: 0,
+                    movement_phase: HostileProjectileMovementPhase::Ready,
+                };
+                let first_action_frame = first
+                    .retail_frame
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                for action_frame in (first_action_frame..=retail_frame)
+                    .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+                {
+                    let action_player_index =
+                        usize::from(action_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                    let action_previous_player_index = usize::from(
+                        action_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+                    );
+                    let action_player_position =
+                        pigma_duel::PLAYER_KEYFRAMES[action_player_index].position;
+                    let action_previous_player_position =
+                        pigma_duel::PLAYER_KEYFRAMES[action_previous_player_index].position;
+                    for &action in pigma_duel_projectiles::actions(track_index, action_frame) {
+                        apply_hostile_projectile_action(
+                            &mut expected_object,
+                            &mut expected_flight,
+                            action,
+                            action_player_position,
+                            action_previous_player_position,
+                        );
+                    }
+                }
+                assert_eq!(projectile.base.velocity, expected_object.base.velocity);
+                assert_eq!(
+                    projectile.extension.activity,
+                    ObjectActivity::HostileProjectileFlight(expected_flight),
+                    "Pigma projectile track {track_index} state at frame {retail_frame}"
+                );
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_PROJECTILE_POSE_COUNT);
+        let cleanup_frame = last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        let player_index = usize::from(cleanup_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        game.update_pigma_projectiles(
+            cleanup_frame,
+            pigma_duel::PLAYER_KEYFRAMES[player_index].position,
+            pigma_duel::PLAYER_KEYFRAMES[player_index - 1].position,
+        )
+        .unwrap();
+        assert!(game.pigma_projectiles.is_empty());
     }
 
     #[test]

@@ -447,11 +447,18 @@ pub enum HostileProjectileFlightPhase {
     Cruise,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostileProjectileMovementPhase {
+    Ready,
+    TargetContractionPending { altitude: i16, depth: i16 },
+}
+
 /// Flat, typed flight variables shared by hostile mission projectiles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostileProjectileFlightState {
     pub phase: HostileProjectileFlightPhase,
     pub motion_steps_elapsed: u16,
+    pub movement_phase: HostileProjectileMovementPhase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
