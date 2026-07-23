@@ -200,6 +200,50 @@ pub enum PilotSelectionPhase {
     Launching,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PilotSelectionCursor {
+    Pilot(Pilot),
+    Control,
+}
+
+impl PilotSelectionCursor {
+    pub const fn previous(self) -> Self {
+        match self {
+            Self::Pilot(Pilot::Fox) => Self::Control,
+            Self::Pilot(pilot) => Self::Pilot(pilot.previous()),
+            Self::Control => Self::Pilot(Pilot::Fay),
+        }
+    }
+
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Pilot(Pilot::Fay) => Self::Control,
+            Self::Pilot(pilot) => Self::Pilot(pilot.next()),
+            Self::Control => Self::Pilot(Pilot::Fox),
+        }
+    }
+
+    pub const fn pilot(self) -> Option<Pilot> {
+        match self {
+            Self::Pilot(pilot) => Some(pilot),
+            Self::Control => None,
+        }
+    }
+}
+
+impl Default for PilotSelectionCursor {
+    fn default() -> Self {
+        Self::Pilot(Pilot::Fox)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FlightControlStyle {
+    #[default]
+    TypeA,
+    TypeB,
+}
+
 impl Default for PilotSelectionPhase {
     fn default() -> Self {
         Self::Revealing
@@ -209,7 +253,8 @@ impl Default for PilotSelectionPhase {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PilotSelectionState {
     pub phase: PilotSelectionPhase,
-    pub cursor: Pilot,
+    pub cursor: PilotSelectionCursor,
+    pub control_style: FlightControlStyle,
 }
 
 impl Default for Pilot {

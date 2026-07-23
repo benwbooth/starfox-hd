@@ -11,8 +11,9 @@ use crate::font::Font;
 use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{
     EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState, Sf2AudioOutput,
-    Sf2Difficulty, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MissionBackdrop,
-    Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase, Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2Difficulty, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
+    Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
+    Sf2ResultsChoice, Sf2ResultsPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
     Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE, WINDOW_MODE_WHITE2NORM,
     WINDOW_MODE_WHITEFADE,
@@ -45,28 +46,8 @@ const SF2_MENU_X: i32 = 104;
 const SF2_MENU_TOP_Y: i32 = 116;
 const SF2_MENU_LINE_HEIGHT: i32 = 16;
 const SF2_COPYRIGHT_Y: i32 = 18;
-const SF2_HUD_FONT_CELL: f32 = 6.0;
 const SF2_STAR_SIZE: i32 = 1;
 const SF2_MAX_SCORE: u32 = 99_999;
-const SF2_PILOT_PANEL_LEFT: i32 = 24;
-const SF2_PILOT_PANEL_WIDTH: i32 = 208;
-const SF2_PILOT_PANEL_HEIGHT: i32 = 56;
-const SF2_PILOT_PANEL_INSET: i32 = 3;
-const SF2_PRIMARY_PANEL_TOP: i32 = 148;
-const SF2_WINGMATE_PANEL_TOP: i32 = 50;
-const SF2_PILOT_MENU_TOP: i32 = 116;
-const SF2_PILOT_MENU_LEFT: i32 = 36;
-const SF2_PILOT_NAME_SPACING: i32 = 34;
-const SF2_PILOT_LABEL_MARGIN: i32 = 4;
-const SF2_PILOT_LABEL_WIDTH: i32 = 100;
-const SF2_PILOT_LABEL_HEIGHT: i32 = 16;
-const SF2_PILOT_NAME_BASELINE_OFFSET: i32 = 18;
-const SF2_PILOT_CURSOR_OFFSET: i32 = 23;
-const SF2_PILOT_CURSOR_WIDTH: i32 = 18;
-const SF2_PILOT_CURSOR_HEIGHT: i32 = 2;
-const SF2_PILOT_PANEL_TEXT_X_OFFSET: i32 = 12;
-const SF2_PILOT_PANEL_TEXT_Y_OFFSET: i32 = 24;
-const SF2_PILOT_READY_X_OFFSET: i32 = 32;
 const SF2_MISSION_SCORE_X: i32 = 62;
 const SF2_MISSION_SCORE_TOP: i32 = 17;
 const SF2_MISSION_TIMER_X: i32 = 163;
@@ -148,9 +129,6 @@ const SF2_TEXT_COLOR: [f32; 4] = [0.82, 0.9, 1.0, 1.0];
 const SF2_TITLE_COLOR: [f32; 4] = [1.0, 0.73, 0.08, 1.0];
 const SF2_SPACE_COLOR: [f32; 4] = [0.0, 0.0, 0.06, 1.0];
 const SF2_NEBULA_COLOR: [f32; 4] = [0.0, 0.03, 0.28, 0.24];
-const SF2_HUD_COLOR: [f32; 4] = [0.03, 0.04, 0.19, 1.0];
-const SF2_HUD_BORDER_COLOR: [f32; 4] = [0.72, 0.78, 0.86, 1.0];
-const SF2_PILOT_LABEL_COLOR: [f32; 4] = [0.08, 0.45, 0.14, 1.0];
 const SF2_PLANET_COLORS: [[f32; 4]; 5] = [
     [0.78, 0.65, 0.12, 1.0],
     [0.1, 0.65, 0.72, 1.0],
@@ -798,6 +776,12 @@ struct Sf2ResultsRenderKey {
     brightness: crate::sf2_game_over::Brightness,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Sf2PilotSelectionRenderKey {
+    screen: crate::sf2_pilot_selection::Screen,
+    frame_index: usize,
+}
+
 fn sf2_game_over_brightness(
     choice: Sf2GameOverChoice,
     elapsed_retail_frames: u16,
@@ -876,6 +860,9 @@ pub struct Ui {
     sf2_titania_backdrop: TextureId,
     sf2_carrier_backdrop: TextureId,
     sf2_astropolis_void_backdrop: TextureId,
+    sf2_pilot_selection_texture: TextureId,
+    sf2_pilot_selection_presentation: crate::sf2_pilot_selection::Presentation,
+    sf2_pilot_selection_render_key: Option<Sf2PilotSelectionRenderKey>,
     sf2_game_over_texture: TextureId,
     sf2_game_over_presentation: crate::sf2_game_over::Presentation,
     sf2_game_over_render_key: Option<Sf2GameOverRenderKey>,
@@ -985,6 +972,17 @@ impl Ui {
             &sf2_carrier_backdrop_rgba,
         );
         let sf2_astropolis_void_backdrop = gpu.create_texture_rgba(1, 1, &SF2_OPAQUE_BLACK_PIXEL);
+        let mut sf2_pilot_selection_presentation =
+            crate::sf2_pilot_selection::Presentation::decode();
+        let sf2_pilot_selection_initial_rgba = sf2_pilot_selection_presentation.frame_rgba(
+            crate::sf2_pilot_selection::Screen::Reveal,
+            0,
+        );
+        let sf2_pilot_selection_texture = gpu.create_texture_rgba(
+            crate::sf2_pilot_selection::WIDTH as u32,
+            crate::sf2_pilot_selection::HEIGHT as u32,
+            &sf2_pilot_selection_initial_rgba,
+        );
         let sf2_game_over_presentation = crate::sf2_game_over::Presentation::decode();
         let sf2_game_over_initial_rgba = sf2_game_over_presentation.frame_rgba(
             crate::sf2_game_over::Track::Taunt,
@@ -1194,6 +1192,9 @@ impl Ui {
             sf2_titania_backdrop,
             sf2_carrier_backdrop,
             sf2_astropolis_void_backdrop,
+            sf2_pilot_selection_texture,
+            sf2_pilot_selection_presentation,
+            sf2_pilot_selection_render_key: None,
             sf2_game_over_texture,
             sf2_game_over_presentation,
             sf2_game_over_render_key: None,
@@ -1551,23 +1552,6 @@ impl Ui {
         self.text_snes(gpu, font, cx - len * 4, y, s, r, g, b);
     }
 
-    fn sf2_hud_text(&self, gpu: &mut Gpu, font: &mut Font, x: i32, y: i32, text: &str) {
-        self.sf2_hud_text_color(gpu, font, x, y, text, SF2_TEXT_COLOR);
-    }
-
-    fn sf2_hud_text_color(
-        &self,
-        gpu: &mut Gpu,
-        font: &mut Font,
-        x: i32,
-        y: i32,
-        text: &str,
-        color: [f32; 4],
-    ) {
-        font.set_screen_size(self.scr_w, self.scr_h);
-        font.draw_string_sized(gpu, x + self.ox, y, text, SF2_HUD_FONT_CELL, color);
-    }
-
     /// Title screen UI: blinking "PRESS START" prompt only on the fallback
     /// backdrop (the composed SNES title layer already has "PUSH START").
     fn render_title(&self, gpu: &mut Gpu, font: &mut Font, bg2d: &Bg2d) {
@@ -1883,156 +1867,72 @@ impl Ui {
         );
     }
 
-    const fn sf2_pilot_name(pilot: Sf2Pilot) -> &'static str {
+    const fn sf2_presentation_pilot(pilot: Sf2Pilot) -> crate::sf2_pilot_selection::Pilot {
         match pilot {
-            Sf2Pilot::Fox => "FOX",
-            Sf2Pilot::Falco => "FALCO",
-            Sf2Pilot::Peppy => "PEPPY",
-            Sf2Pilot::Slippy => "SLIPPY",
-            Sf2Pilot::Miyu => "MIYU",
-            Sf2Pilot::Fay => "FAY",
+            Sf2Pilot::Fox => crate::sf2_pilot_selection::Pilot::Fox,
+            Sf2Pilot::Falco => crate::sf2_pilot_selection::Pilot::Falco,
+            Sf2Pilot::Peppy => crate::sf2_pilot_selection::Pilot::Peppy,
+            Sf2Pilot::Slippy => crate::sf2_pilot_selection::Pilot::Slippy,
+            Sf2Pilot::Miyu => crate::sf2_pilot_selection::Pilot::Miyu,
+            Sf2Pilot::Fay => crate::sf2_pilot_selection::Pilot::Fay,
         }
     }
 
-    fn render_sf2_pilot_selection(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
-        self.quad_snes(
+    fn render_sf2_pilot_selection(&mut self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        use crate::sf2_pilot_selection::{PrimaryView, Screen};
+
+        let cursor_pilot = match inputs.pilot_selection_cursor {
+            Sf2PilotSelectionCursor::Pilot(pilot) => Self::sf2_presentation_pilot(pilot),
+            Sf2PilotSelectionCursor::Control => crate::sf2_pilot_selection::Pilot::Fox,
+        };
+        let primary = inputs
+            .primary_pilot
+            .map(Self::sf2_presentation_pilot)
+            .unwrap_or(cursor_pilot);
+        let wingmate = inputs
+            .wingmate
+            .map(Self::sf2_presentation_pilot)
+            .unwrap_or(cursor_pilot);
+        let screen = match inputs.pilot_selection_phase {
+            Sf2PilotSelectionPhase::Revealing => Screen::Reveal,
+            Sf2PilotSelectionPhase::ChoosingPrimary => match inputs.pilot_selection_cursor {
+                Sf2PilotSelectionCursor::Pilot(pilot) => {
+                    Screen::Primary(PrimaryView::Pilot(Self::sf2_presentation_pilot(pilot)))
+                }
+                Sf2PilotSelectionCursor::Control => {
+                    Screen::Primary(match inputs.flight_control_style {
+                        Sf2FlightControlStyle::TypeA => PrimaryView::ControlA,
+                        Sf2FlightControlStyle::TypeB => PrimaryView::ControlB,
+                    })
+                }
+            },
+            Sf2PilotSelectionPhase::ChoosingWingmate => Screen::Wingmate {
+                primary,
+                cursor: cursor_pilot,
+            },
+            Sf2PilotSelectionPhase::Ready => Screen::Ready { primary, wingmate },
+            Sf2PilotSelectionPhase::Launching => Screen::Launch { primary, wingmate },
+        };
+        let frame_index = crate::sf2_pilot_selection::frame_at_tick(screen, inputs.mode_frame);
+        let key = Sf2PilotSelectionRenderKey {
+            screen,
+            frame_index,
+        };
+        if self.sf2_pilot_selection_render_key != Some(key) {
+            let rgba = self
+                .sf2_pilot_selection_presentation
+                .frame_rgba(screen, frame_index);
+            gpu.update_texture(self.sf2_pilot_selection_texture, &rgba);
+            self.sf2_pilot_selection_render_key = Some(key);
+        }
+        self.textured_quad_source_frame(
             gpu,
-            [0.66, 0.68, 0.62, 1.0],
+            self.sf2_pilot_selection_texture,
             0,
             0,
             SF2_REFERENCE_WIDTH,
             SF2_REFERENCE_HEIGHT,
         );
-        for top in [SF2_PRIMARY_PANEL_TOP, SF2_WINGMATE_PANEL_TOP] {
-            self.quad_snes(
-                gpu,
-                SF2_HUD_BORDER_COLOR,
-                SF2_PILOT_PANEL_LEFT,
-                top,
-                SF2_PILOT_PANEL_WIDTH,
-                SF2_PILOT_PANEL_HEIGHT,
-            );
-            self.quad_snes(
-                gpu,
-                SF2_HUD_COLOR,
-                SF2_PILOT_PANEL_LEFT + SF2_PILOT_PANEL_INSET,
-                top + SF2_PILOT_PANEL_INSET,
-                SF2_PILOT_PANEL_WIDTH - SF2_PILOT_PANEL_INSET * 2,
-                SF2_PILOT_PANEL_HEIGHT - SF2_PILOT_PANEL_INSET * 2,
-            );
-        }
-
-        self.quad_snes(
-            gpu,
-            SF2_PILOT_LABEL_COLOR,
-            SF2_PILOT_MENU_LEFT - SF2_PILOT_LABEL_MARGIN,
-            SF2_PILOT_MENU_TOP - SF2_PILOT_LABEL_MARGIN,
-            SF2_PILOT_LABEL_WIDTH,
-            SF2_PILOT_LABEL_HEIGHT,
-        );
-        self.text_snes(
-            gpu,
-            font,
-            SF2_PILOT_MENU_LEFT,
-            SF2_PILOT_MENU_TOP,
-            "SELECT PILOTS",
-            SF2_TEXT_COLOR[0],
-            SF2_TEXT_COLOR[1],
-            SF2_TEXT_COLOR[2],
-        );
-        for (index, pilot) in [
-            Sf2Pilot::Fox,
-            Sf2Pilot::Falco,
-            Sf2Pilot::Peppy,
-            Sf2Pilot::Slippy,
-            Sf2Pilot::Miyu,
-            Sf2Pilot::Fay,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let selected = inputs.pilot_cursor == pilot
-                && matches!(
-                    inputs.pilot_selection_phase,
-                    Sf2PilotSelectionPhase::ChoosingPrimary
-                        | Sf2PilotSelectionPhase::ChoosingWingmate
-                );
-            let color = if selected {
-                SF2_SELECTED_COLOR
-            } else {
-                SF2_TEXT_COLOR
-            };
-            self.sf2_hud_text(
-                gpu,
-                font,
-                SF2_PILOT_MENU_LEFT + index as i32 * SF2_PILOT_NAME_SPACING,
-                SF2_PILOT_MENU_TOP - SF2_PILOT_NAME_BASELINE_OFFSET,
-                Self::sf2_pilot_name(pilot),
-            );
-            if selected {
-                self.quad_snes(
-                    gpu,
-                    color,
-                    SF2_PILOT_MENU_LEFT + index as i32 * SF2_PILOT_NAME_SPACING,
-                    SF2_PILOT_MENU_TOP - SF2_PILOT_CURSOR_OFFSET,
-                    SF2_PILOT_CURSOR_WIDTH,
-                    SF2_PILOT_CURSOR_HEIGHT,
-                );
-            }
-        }
-
-        let primary = inputs
-            .primary_pilot
-            .map(Self::sf2_pilot_name)
-            .unwrap_or("PRIMARY PILOT");
-        let wingmate = inputs
-            .wingmate
-            .map(Self::sf2_pilot_name)
-            .unwrap_or("WING MAN");
-        self.text_snes(
-            gpu,
-            font,
-            SF2_PILOT_PANEL_LEFT + SF2_PILOT_PANEL_TEXT_X_OFFSET,
-            SF2_PRIMARY_PANEL_TOP + SF2_PILOT_PANEL_TEXT_Y_OFFSET,
-            primary,
-            SF2_TITLE_COLOR[0],
-            SF2_TITLE_COLOR[1],
-            SF2_TITLE_COLOR[2],
-        );
-        self.text_snes(
-            gpu,
-            font,
-            SF2_PILOT_PANEL_LEFT + SF2_PILOT_PANEL_TEXT_X_OFFSET,
-            SF2_WINGMATE_PANEL_TOP + SF2_PILOT_PANEL_TEXT_Y_OFFSET,
-            wingmate,
-            SF2_TITLE_COLOR[0],
-            SF2_TITLE_COLOR[1],
-            SF2_TITLE_COLOR[2],
-        );
-        if inputs.pilot_selection_phase == Sf2PilotSelectionPhase::Ready {
-            self.text_snes(
-                gpu,
-                font,
-                SF2_PILOT_PANEL_LEFT + SF2_PILOT_PANEL_WIDTH - SF2_PILOT_READY_X_OFFSET,
-                SF2_PILOT_MENU_TOP,
-                "OK",
-                SF2_SELECTED_COLOR[0],
-                SF2_SELECTED_COLOR[1],
-                SF2_SELECTED_COLOR[2],
-            );
-        }
-        if inputs.pilot_selection_phase == Sf2PilotSelectionPhase::Launching {
-            self.text_centered(
-                gpu,
-                font,
-                SF2_TITLE_CENTER_X,
-                SF2_PILOT_MENU_TOP,
-                "LAUNCHING",
-                SF2_SELECTED_COLOR[0],
-                SF2_SELECTED_COLOR[1],
-                SF2_SELECTED_COLOR[2],
-            );
-        }
     }
 
     fn render_sf2_strategic_map(&self, gpu: &mut Gpu, _font: &mut Font, inputs: &Sf2FrameInputs) {
@@ -3216,7 +3116,7 @@ impl Ui {
             Sf2Mode::Records => self.render_sf2_records(gpu, font),
             Sf2Mode::Briefing => self.render_sf2_briefing(gpu, font, inputs),
             Sf2Mode::StrategicMap => self.render_sf2_strategic_map(gpu, font, inputs),
-            Sf2Mode::PilotSelection => self.render_sf2_pilot_selection(gpu, font, inputs),
+            Sf2Mode::PilotSelection => self.render_sf2_pilot_selection(gpu, inputs),
             Sf2Mode::Mission => self.render_sf2_mission_hud(gpu, inputs),
             Sf2Mode::GameOver => self.render_sf2_game_over(gpu, font, inputs),
             Sf2Mode::Results => self.render_sf2_results(gpu, inputs),

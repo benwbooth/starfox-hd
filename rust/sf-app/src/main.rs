@@ -33,8 +33,9 @@ use sf_render::draw_list::{
 use sf_render::renderer::{
     EndingReplayBackdrop as RenderEndingReplayBackdrop, EndingReplayInputs, FrameInputs,
     GameState as RenderState, Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty,
-    Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MapPoint, Sf2MissionBackdrop, Sf2Mode,
-    Sf2Pilot, Sf2PilotSelectionPhase, Sf2RadarContact, Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MapPoint,
+    Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
+    Sf2RadarContact, Sf2ResultsChoice, Sf2ResultsPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
     Sf2TitleMenuItem, Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
 };
@@ -320,8 +321,8 @@ fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdr
 fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
     use sf2_game::{
         AudioOutput, Difficulty, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-        ObjectKind, PilotSelectionPhase, ResultsChoice, ResultsPhase, StrategicMapPhase,
-        TitleMenuItem, TitlePage,
+        FlightControlStyle, ObjectKind, PilotSelectionCursor, PilotSelectionPhase, ResultsChoice,
+        ResultsPhase, StrategicMapPhase, TitleMenuItem, TitlePage,
     };
 
     let state = game.state();
@@ -406,7 +407,16 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
             PilotSelectionPhase::Ready => Sf2PilotSelectionPhase::Ready,
             PilotSelectionPhase::Launching => Sf2PilotSelectionPhase::Launching,
         },
-        pilot_cursor: to_sf2_pilot(state.pilot_selection.cursor),
+        pilot_selection_cursor: match state.pilot_selection.cursor {
+            PilotSelectionCursor::Pilot(pilot) => {
+                Sf2PilotSelectionCursor::Pilot(to_sf2_pilot(pilot))
+            }
+            PilotSelectionCursor::Control => Sf2PilotSelectionCursor::Control,
+        },
+        flight_control_style: match state.pilot_selection.control_style {
+            FlightControlStyle::TypeA => Sf2FlightControlStyle::TypeA,
+            FlightControlStyle::TypeB => Sf2FlightControlStyle::TypeB,
+        },
         primary_pilot: state.roster.selected[0].map(to_sf2_pilot),
         wingmate: state.roster.selected[1].map(to_sf2_pilot),
         game_over_phase: match state.game_over.phase {

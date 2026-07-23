@@ -26,8 +26,9 @@ use super::state::{
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
     CorneriaDefensePhase, CorneriaDefenseState, EladardMissionState, EladardPhase, EndingPhase,
     EndingState, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,
-    GameState, IntroPhase, MapPoint, MissionId, MissionPhase, MissionVisit, Pilot, PilotCraftClass,
-    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
+    FlightControlStyle, GameState, IntroPhase, MapPoint, MissionId, MissionPhase, MissionVisit,
+    Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
+    PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     ResultsChoice, ResultsPhase, ResultsState, StrategicEncounter, StrategicMapActor,
     StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
@@ -103,11 +104,14 @@ const BRIEFING_PRESENTATION_TICKS: u32 = 276;
 const RETAIL_PRESENTATION_FRAMES_PER_TICK: u32 = 4;
 const STRATEGIC_OVERVIEW_RETAIL_FRAMES: u32 = 2_576;
 const PILOT_SELECTION_REVEAL_RETAIL_FRAMES: u32 = 92;
+const PILOT_READY_RETAIL_FRAMES: u32 = 172;
 const PILOT_LAUNCH_RETAIL_FRAMES: u32 = 228;
 const STRATEGIC_OVERVIEW_TICKS: u32 =
     STRATEGIC_OVERVIEW_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_SELECTION_REVEAL_TICKS: u32 =
     PILOT_SELECTION_REVEAL_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+const PILOT_READY_TICKS: u32 =
+    PILOT_READY_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_LAUNCH_TICKS: u32 = PILOT_LAUNCH_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const MISSION_STAGE_LOAD_RETAIL_FRAMES: u32 = 50;
 const MISSION_ACTIVE_RETAIL_FRAMES: u32 = 320;
@@ -4945,7 +4949,7 @@ impl Game {
     fn begin_pilot_selection(&mut self) {
         self.state.roster.selected = [None; super::state::SELECTED_PILOT_COUNT];
         self.state.pilot_selection.phase = PilotSelectionPhase::Revealing;
-        self.state.pilot_selection.cursor = Pilot::Fox;
+        self.state.pilot_selection.cursor = PilotSelectionCursor::Pilot(Pilot::Fox);
         self.enter_mode(GameMode::PilotSelection);
     }
 
@@ -4958,58 +4962,86 @@ impl Game {
                 self.state.mode_frame = 0;
             }
             PilotSelectionPhase::ChoosingPrimary => {
-                self.update_pilot_cursor(None);
-                if self.confirm_pressed() {
-                    let primary = self.state.pilot_selection.cursor;
+                self.update_primary_pilot_cursor();
+                if self.state.pilot_selection.cursor == PilotSelectionCursor::Control {
+                    if self.state.input.pressed.contains(Button::Up)
+                        || self.state.input.pressed.contains(Button::Down)
+                    {
+                        self.state.pilot_selection.control_style =
+                            match self.state.pilot_selection.control_style {
+                                FlightControlStyle::TypeA => FlightControlStyle::TypeB,
+                                FlightControlStyle::TypeB => FlightControlStyle::TypeA,
+                            };
+                        self.state.mode_frame = 0;
+                    }
+                } else if self.confirm_pressed() {
+                    let primary = self
+                        .state
+                        .pilot_selection
+                        .cursor
+                        .pilot()
+                        .expect("a pilot choice has a pilot");
                     self.state.roster.selected[0] = Some(primary);
-                    self.state.pilot_selection.cursor = if primary == Pilot::Slippy {
-                        Pilot::Fox
-                    } else {
-                        Pilot::Slippy
-                    };
+                    let mut wingmate = Pilot::Slippy;
+                    if wingmate == primary {
+                        wingmate = wingmate.next();
+                    }
+                    self.state.pilot_selection.cursor = PilotSelectionCursor::Pilot(wingmate);
                     self.state.pilot_selection.phase = PilotSelectionPhase::ChoosingWingmate;
                     self.state.mode_frame = 0;
                 }
             }
             PilotSelectionPhase::ChoosingWingmate => {
                 let primary = self.state.roster.selected[0];
-                self.update_pilot_cursor(primary);
+                self.update_wingmate_cursor(primary);
                 if self.cancel_pressed() {
                     self.state.roster.selected[0] = None;
-                    self.state.pilot_selection.cursor = Pilot::Fox;
+                    self.state.pilot_selection.cursor = PilotSelectionCursor::Pilot(Pilot::Fox);
                     self.state.pilot_selection.phase = PilotSelectionPhase::ChoosingPrimary;
                     self.state.mode_frame = 0;
                 } else if self.confirm_pressed() {
-                    self.state.roster.selected[1] = Some(self.state.pilot_selection.cursor);
+                    self.state.roster.selected[1] = self.state.pilot_selection.cursor.pilot();
                     self.state.pilot_selection.phase = PilotSelectionPhase::Ready;
                     self.state.mode_frame = 0;
                 }
             }
-            PilotSelectionPhase::Ready => {
-                if self.cancel_pressed() {
-                    self.state.roster.selected[1] = None;
-                    self.state.pilot_selection.phase = PilotSelectionPhase::ChoosingWingmate;
-                    self.state.mode_frame = 0;
-                } else if self.confirm_pressed() {
-                    self.state.pilot_selection.phase = PilotSelectionPhase::Launching;
-                    self.state.mode_frame = 0;
-                }
+            PilotSelectionPhase::Ready if self.state.mode_frame >= PILOT_READY_TICKS => {
+                self.state.pilot_selection.phase = PilotSelectionPhase::Launching;
+                self.state.mode_frame = 0;
             }
             PilotSelectionPhase::Launching if self.state.mode_frame >= PILOT_LAUNCH_TICKS => {
                 self.state.strategic_map.phase =
                     StrategicMapPhase::Tutorial(StrategicMapTutorialPage::Movement);
                 self.enter_mode(GameMode::StrategicMap);
             }
-            PilotSelectionPhase::Revealing | PilotSelectionPhase::Launching => {}
+            PilotSelectionPhase::Revealing
+            | PilotSelectionPhase::Ready
+            | PilotSelectionPhase::Launching => {}
         }
     }
 
-    fn update_pilot_cursor(&mut self, excluded: Option<Pilot>) {
-        let previous = self.state.input.pressed.contains(Button::Left)
-            || self.state.input.pressed.contains(Button::Up);
-        let next = self.state.input.pressed.contains(Button::Right)
-            || self.state.input.pressed.contains(Button::Down);
+    fn update_primary_pilot_cursor(&mut self) {
+        let previous = self.state.input.pressed.contains(Button::Left);
+        let next = self.state.input.pressed.contains(Button::Right);
         let mut cursor = self.state.pilot_selection.cursor;
+        if previous {
+            cursor = cursor.previous();
+        }
+        if next {
+            cursor = cursor.next();
+        }
+        if cursor != self.state.pilot_selection.cursor {
+            self.state.pilot_selection.cursor = cursor;
+            self.state.mode_frame = 0;
+        }
+    }
+
+    fn update_wingmate_cursor(&mut self, excluded: Option<Pilot>) {
+        let previous = self.state.input.pressed.contains(Button::Left);
+        let next = self.state.input.pressed.contains(Button::Right);
+        let Some(mut cursor) = self.state.pilot_selection.cursor.pilot() else {
+            return;
+        };
         if previous {
             cursor = cursor.previous();
         }
@@ -5023,7 +5055,11 @@ impl Game {
                 cursor.next()
             };
         }
-        self.state.pilot_selection.cursor = cursor;
+        let cursor = PilotSelectionCursor::Pilot(cursor);
+        if cursor != self.state.pilot_selection.cursor {
+            self.state.pilot_selection.cursor = cursor;
+            self.state.mode_frame = 0;
+        }
     }
 
     fn update_strategic_destination(&mut self) {
@@ -10163,8 +10199,12 @@ impl Game {
     ) -> Result<(), Error> {
         let left = self.state.input.held.contains(Button::Left);
         let right = self.state.input.held.contains(Button::Right);
-        let up = self.state.input.held.contains(Button::Up);
-        let down = self.state.input.held.contains(Button::Down);
+        let physical_up = self.state.input.held.contains(Button::Up);
+        let physical_down = self.state.input.held.contains(Button::Down);
+        let (up, down) = match self.state.pilot_selection.control_style {
+            FlightControlStyle::TypeA => (physical_down, physical_up),
+            FlightControlStyle::TypeB => (physical_up, physical_down),
+        };
         let Some(primary_id) = self.state.mission.primary_player else {
             return Ok(());
         };
@@ -13589,10 +13629,14 @@ mod tests {
         } else {
             0
         };
+        let (climb, dive) = match game.state.pilot_selection.control_style {
+            FlightControlStyle::TypeA => (Button::Down, Button::Up),
+            FlightControlStyle::TypeB => (Button::Up, Button::Down),
+        };
         input |= if pitch_error > LEON_PURSUIT_AIM_TOLERANCE_UNITS {
-            Button::Up as u16
+            climb as u16
         } else if pitch_error < -LEON_PURSUIT_AIM_TOLERANCE_UNITS {
-            Button::Down as u16
+            dive as u16
         } else {
             0
         };
@@ -14469,6 +14513,103 @@ mod tests {
     }
 
     #[test]
+    fn pilot_menu_exposes_retail_control_choice_and_toggles_typed_flight_style() {
+        let mut game = Game::new();
+        game.begin_pilot_selection();
+        while game.state.pilot_selection.phase == PilotSelectionPhase::Revealing {
+            game.tick(0).unwrap();
+        }
+
+        press(&mut game, Button::Left);
+        assert_eq!(
+            game.state.pilot_selection.cursor,
+            PilotSelectionCursor::Control
+        );
+        assert_eq!(
+            game.state.pilot_selection.control_style,
+            FlightControlStyle::TypeA
+        );
+        press(&mut game, Button::Down);
+        assert_eq!(
+            game.state.pilot_selection.control_style,
+            FlightControlStyle::TypeB
+        );
+        press(&mut game, Button::Up);
+        assert_eq!(
+            game.state.pilot_selection.control_style,
+            FlightControlStyle::TypeA
+        );
+        press(&mut game, Button::Right);
+        assert_eq!(
+            game.state.pilot_selection.cursor,
+            PilotSelectionCursor::Pilot(Pilot::Fox)
+        );
+    }
+
+    #[test]
+    fn retail_control_styles_apply_opposite_vertical_flight_directions() {
+        fn pitch_after_up(style: FlightControlStyle) -> i16 {
+            let mut game = Game::new();
+            game.state.roster.selected = [Some(Pilot::Fox), Some(Pilot::Slippy)];
+            game.begin_opening_sortie().unwrap();
+            game.state.mission.phase = MissionPhase::Active;
+            game.state.mission.departed_certified_neutral_path = true;
+            game.state.pilot_selection.control_style = style;
+            game.state
+                .input
+                .sample(Buttons::from_bits(Button::Up as u16));
+            game.update_active_flight(MISSION_PLAYER_CONTROL_START_RETAIL_FRAME, true)
+                .unwrap();
+            game.state.mission.player_flight.pitch_accumulator
+        }
+
+        let type_a_pitch = pitch_after_up(FlightControlStyle::TypeA);
+        let type_b_pitch = pitch_after_up(FlightControlStyle::TypeB);
+        assert!(type_a_pitch < 0);
+        assert!(type_b_pitch > 0);
+        assert_eq!(type_a_pitch, -type_b_pitch);
+    }
+
+    #[test]
+    fn second_pilot_starts_the_retail_automatic_ready_and_launch_timing() {
+        let mut game = Game::new();
+        game.begin_pilot_selection();
+        while game.state.pilot_selection.phase == PilotSelectionPhase::Revealing {
+            game.tick(0).unwrap();
+        }
+        press(&mut game, Button::B);
+        assert_eq!(
+            game.state.pilot_selection.cursor,
+            PilotSelectionCursor::Pilot(Pilot::Slippy)
+        );
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(game.state.pilot_selection.phase, PilotSelectionPhase::Ready);
+        assert_eq!(game.state.mode_frame, 0);
+
+        for _ in 0..PILOT_READY_TICKS - 1 {
+            game.tick(0).unwrap();
+            assert_eq!(game.state.pilot_selection.phase, PilotSelectionPhase::Ready);
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.pilot_selection.phase,
+            PilotSelectionPhase::Launching
+        );
+        assert_eq!(game.state.mode_frame, 0);
+
+        for _ in 0..PILOT_LAUNCH_TICKS - 1 {
+            game.tick(0).unwrap();
+            assert_eq!(game.mode(), GameMode::PilotSelection);
+        }
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(
+            game.state.strategic_map.phase,
+            StrategicMapPhase::Tutorial(StrategicMapTutorialPage::Movement)
+        );
+    }
+
+    #[test]
     fn retail_default_campaign_selects_two_pilots_and_launches_typed_players() {
         let mut game = Game::new();
         press(&mut game, Button::Start);
@@ -14499,14 +14640,16 @@ mod tests {
             game.state().pilot_selection.phase,
             PilotSelectionPhase::ChoosingWingmate
         );
-        assert_eq!(game.state().pilot_selection.cursor, Pilot::Slippy);
+        assert_eq!(
+            game.state().pilot_selection.cursor,
+            PilotSelectionCursor::Pilot(Pilot::Slippy)
+        );
         press(&mut game, Button::B);
         assert_eq!(game.state().roster.selected[1], Some(Pilot::Slippy));
         assert_eq!(
             game.state().pilot_selection.phase,
             PilotSelectionPhase::Ready
         );
-        press(&mut game, Button::B);
         while game.mode() == GameMode::PilotSelection {
             game.tick(0).unwrap();
         }

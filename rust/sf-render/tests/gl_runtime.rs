@@ -25,8 +25,9 @@ use sf_render::draw_list::{DrawListEntry, DL_FLAG_VISIBLE};
 use sf_render::gpu::{Gpu, Vertex3};
 use sf_render::renderer::{
     config_from_repo_root, EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState,
-    Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2FrameInputs, Sf2GameOverChoice,
-    Sf2GameOverPhase, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionPhase,
+    Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2FlightControlStyle,
+    Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot,
+    Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
     Sf2TitlePage, SF2_RADAR_CONTACT_CAPACITY,
 };
@@ -42,6 +43,7 @@ static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 const SF2_TEST_MISSION_TIME_TENTHS: u16 = 11;
 const SF2_MAP_WIDTH: i32 = 256;
 const SF2_MAP_HEIGHT: i32 = 224;
+const SF2_PILOT_SELECTION_FOX_FNV1A: u32 = 0xC2AC3D23;
 const DITHER_TEST_WIDTH: u32 = 512;
 const DITHER_TEST_HEIGHT: u32 = 448;
 const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
@@ -114,7 +116,31 @@ fn gl_runtime_suite() {
 
     renderer.shutdown();
     check_sf1_ending_recap(&config);
+    check_sf2_pilot_selection_exact(&config);
     check_sf2_strategic_returns_exact(&config);
+}
+
+fn check_sf2_pilot_selection_exact(config: &RendererConfig) {
+    let mut renderer = match Renderer::new_headless(SF2_MAP_WIDTH, SF2_MAP_HEIGHT, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping exact SF2 pilot-selection check: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    let inputs = sf2_inputs(Sf2Mode::PilotSelection);
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+        (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+    });
+    assert_eq!(
+        hash, SF2_PILOT_SELECTION_FOX_FNV1A,
+        "SF2 pilot-selection frame drifted from the retail capture"
+    );
+    renderer.shutdown();
 }
 
 fn check_sf1_ending_recap(config: &RendererConfig) {
@@ -619,7 +645,8 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
             difficulty: Sf2Difficulty::Normal,
             audio_output: Sf2AudioOutput::Stereo,
             pilot_selection_phase: Sf2PilotSelectionPhase::ChoosingPrimary,
-            pilot_cursor: Sf2Pilot::Fox,
+            pilot_selection_cursor: Sf2PilotSelectionCursor::Pilot(Sf2Pilot::Fox),
+            flight_control_style: Sf2FlightControlStyle::TypeA,
             primary_pilot: None,
             wingmate: (mode == Sf2Mode::GameOver).then_some(Sf2Pilot::Slippy),
             game_over_phase: Sf2GameOverPhase::Choosing,

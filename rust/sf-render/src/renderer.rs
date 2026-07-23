@@ -118,6 +118,18 @@ pub enum Sf2PilotSelectionPhase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2PilotSelectionCursor {
+    Pilot(Sf2Pilot),
+    Control,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2FlightControlStyle {
+    TypeA,
+    TypeB,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sf2TitlePage {
     MainMenu,
     Difficulty,
@@ -230,7 +242,8 @@ pub struct Sf2FrameInputs {
     pub difficulty: Sf2Difficulty,
     pub audio_output: Sf2AudioOutput,
     pub pilot_selection_phase: Sf2PilotSelectionPhase,
-    pub pilot_cursor: Sf2Pilot,
+    pub pilot_selection_cursor: Sf2PilotSelectionCursor,
+    pub flight_control_style: Sf2FlightControlStyle,
     pub primary_pilot: Option<Sf2Pilot>,
     pub wingmate: Option<Sf2Pilot>,
     pub game_over_phase: Sf2GameOverPhase,

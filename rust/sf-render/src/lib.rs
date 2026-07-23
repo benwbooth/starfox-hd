@@ -36,6 +36,7 @@ mod sf2_carrier_backdrop;
 mod sf2_eladard_interior_backdrop;
 mod sf2_eladard_surface_backdrop;
 mod sf2_game_over;
+mod sf2_pilot_selection;
 mod sf2_results;
 mod sf2_hud_glyphs;
 mod sf2_map_damage_glyphs;
