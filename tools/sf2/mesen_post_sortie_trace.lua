@@ -6,6 +6,7 @@ local resume_state_path = os.getenv("SF2_ORACLE_LOAD_STATE")
 local resume_elapsed = tonumber(os.getenv("SF2_ORACLE_RESUME_ELAPSED")) or 0
 local input_script_text = os.getenv("SF2_ORACLE_INPUT_SCRIPT")
 local combat_autopilot = os.getenv("SF2_ORACLE_COMBAT_AUTOPILOT") == "1"
+combat_hold_fire = os.getenv("SF2_ORACLE_COMBAT_HOLD_FIRE") == "1"
 local frame = resume_state_path and resume_elapsed or 0
 local armed = resume_state_path ~= nil
 local armed_frame = resume_state_path and 0 or -1
@@ -131,6 +132,15 @@ local forced_spider_parent_health = tonumber(
 local forced_rival_health = tonumber(os.getenv("SF2_ORACLE_RIVAL_HEALTH"))
 local forced_mirage_health = tonumber(os.getenv("SF2_ORACLE_MIRAGE_HEALTH"))
 local forced_fighter_health = tonumber(os.getenv("SF2_ORACLE_FIGHTER_HEALTH"))
+preserve_fighter_attackers =
+  os.getenv("SF2_ORACLE_PRESERVE_FIGHTER_ATTACKERS") == "1"
+forced_reserve_pilot_index = tonumber(
+  os.getenv("SF2_ORACLE_RESERVE_PILOT_INDEX"))
+if forced_reserve_pilot_index then
+  assert(
+    forced_reserve_pilot_index >= 0 and forced_reserve_pilot_index <= 5,
+    "SF2_ORACLE_RESERVE_PILOT_INDEX must identify one of six pilots")
+end
 local forced_target_shape_text = os.getenv("SF2_ORACLE_TARGET_SHAPE")
 local forced_target_shape = forced_target_shape_text
   and tonumber(forced_target_shape_text, 16) or nil
@@ -1655,6 +1665,11 @@ local function provide_combat_autopilot()
         forced_fighter_health % 256,
         emu.memType.snesWorkRam)
     end
+    if preserve_fighter_attackers and (shape == 0xF1C4 or shape == 0xEA00) then
+      -- Oracle-only survivability used to retain ordinary retail attackers
+      -- long enough to sample their hostile projectile and player-hit path.
+      emu.write(object + 0x2D, 120, emu.memType.snesWorkRam)
+    end
     local requested_shape = forced_target_shape and shape == forced_target_shape
     if requested_shape and forced_target_collision_applied then
       local current_path = work_word(object + 0x2B)
@@ -2349,6 +2364,7 @@ local function provide_combat_autopilot()
       input_label = "combat-autopilot-search"
     end
   end
+  if combat_hold_fire then buttons.b = nil end
   emu.setInput(buttons, 0)
   return true
 end
@@ -2524,6 +2540,13 @@ local function end_frame()
     map_chase_engaged = false
   end
   if not armed then return end
+  if forced_reserve_pilot_index then
+    -- Oracle-only presentation enumeration. These two observed selection
+    -- fields identify the reserve pilot; retail still loads the corresponding
+    -- portrait and constructs every prompt layer itself.
+    emu.write(0x1E15, forced_reserve_pilot_index, emu.memType.snesWorkRam)
+    emu.write(0x1E70, forced_reserve_pilot_index, emu.memType.snesWorkRam)
+  end
   if forced_corneria_damage then
     -- Oracle-only campaign continuation. These complementary retail fields
     -- were identified by observing the 89 -> 91 -> 100 damage sequence.

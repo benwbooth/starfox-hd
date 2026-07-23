@@ -425,6 +425,13 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
                 ..
             } => Sf2GameOverChoice::EndCampaign,
         },
+        game_over_transition_retail_frames: match state.game_over.phase {
+            GameOverPhase::Leaving {
+                elapsed_retail_frames,
+                ..
+            } => elapsed_retail_frames,
+            GameOverPhase::AndrossTaunt | GameOverPhase::Choosing(_) => 0,
+        },
         primary_shield: state
             .mission
             .primary_player

@@ -221,6 +221,7 @@ pub struct Sf2FrameInputs {
     pub wingmate: Option<Sf2Pilot>,
     pub game_over_phase: Sf2GameOverPhase,
     pub game_over_choice: Sf2GameOverChoice,
+    pub game_over_transition_retail_frames: u16,
     pub primary_shield: u8,
     pub wingmate_shield: u8,
     pub item_count: u8,

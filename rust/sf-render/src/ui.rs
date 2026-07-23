@@ -25,6 +25,13 @@ const IDENTITY: [f32; 16] = [
 const SF2_REFERENCE_WIDTH: i32 = 256;
 const SF2_REFERENCE_HEIGHT: i32 = 224;
 const SF2_OPAQUE_BLACK_PIXEL: [u8; 4] = [0, 0, 0, u8::MAX];
+const SF2_GAME_OVER_FADE_THIRTEEN_RETAIL_FRAME: u16 = 148;
+const SF2_GAME_OVER_FADE_ELEVEN_RETAIL_FRAME: u16 = 152;
+const SF2_GAME_OVER_FADE_NINE_RETAIL_FRAME: u16 = 156;
+const SF2_GAME_OVER_FADE_FIVE_RETAIL_FRAME: u16 = 160;
+const SF2_GAME_OVER_FADE_THREE_RETAIL_FRAME: u16 = 164;
+const SF2_GAME_OVER_FADE_ONE_RETAIL_FRAME: u16 = 168;
+const SF2_GAME_OVER_FADE_BLACK_RETAIL_FRAME: u16 = 172;
 const SF2_TITLE_CENTER_X: i32 = SF2_REFERENCE_WIDTH / 2;
 const SF2_TITLE_Y: i32 = 172;
 const SF2_SUBTITLE_Y: i32 = 154;
@@ -32,16 +39,6 @@ const SF2_MENU_X: i32 = 104;
 const SF2_MENU_TOP_Y: i32 = 116;
 const SF2_MENU_LINE_HEIGHT: i32 = 16;
 const SF2_COPYRIGHT_Y: i32 = 18;
-const SF2_GAME_OVER_PANEL_LEFT: i32 = 28;
-const SF2_GAME_OVER_PANEL_BOTTOM: i32 = 48;
-const SF2_GAME_OVER_PANEL_WIDTH: i32 = 200;
-const SF2_GAME_OVER_PANEL_HEIGHT: i32 = 128;
-const SF2_GAME_OVER_TITLE_Y: i32 = 156;
-const SF2_GAME_OVER_MESSAGE_Y: i32 = 116;
-const SF2_GAME_OVER_CONTINUE_Y: i32 = 140;
-const SF2_GAME_OVER_OPTION_TOP_Y: i32 = 100;
-const SF2_GAME_OVER_OPTION_LINE_HEIGHT: i32 = 24;
-const SF2_GAME_OVER_PANEL_COLOR: [f32; 4] = [0.02, 0.04, 0.2, 0.94];
 const SF2_HUD_FONT_CELL: f32 = 6.0;
 const SF2_STAR_SIZE: i32 = 1;
 const SF2_MAX_SCORE: u32 = 99_999;
@@ -780,6 +777,14 @@ impl Sf2BlasterPalettePhase {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Sf2GameOverRenderKey {
+    track: crate::sf2_game_over::Track,
+    frame_index: usize,
+    portrait: Option<crate::sf2_game_over::Portrait>,
+    brightness: crate::sf2_game_over::Brightness,
+}
+
 pub struct Ui {
     base_dir: PathBuf,
     frame: u32, // render-frame counter for blink effects
@@ -795,6 +800,9 @@ pub struct Ui {
     sf2_titania_backdrop: TextureId,
     sf2_carrier_backdrop: TextureId,
     sf2_astropolis_void_backdrop: TextureId,
+    sf2_game_over_texture: TextureId,
+    sf2_game_over_presentation: crate::sf2_game_over::Presentation,
+    sf2_game_over_render_key: Option<Sf2GameOverRenderKey>,
     sf2_aim_sight: TextureId,
     sf2_hud_glyphs: TextureId,
     sf2_map_glyphs: TextureId,
@@ -898,6 +906,18 @@ impl Ui {
             &sf2_carrier_backdrop_rgba,
         );
         let sf2_astropolis_void_backdrop = gpu.create_texture_rgba(1, 1, &SF2_OPAQUE_BLACK_PIXEL);
+        let sf2_game_over_presentation = crate::sf2_game_over::Presentation::decode();
+        let sf2_game_over_initial_rgba = sf2_game_over_presentation.frame_rgba(
+            crate::sf2_game_over::Track::Taunt,
+            0,
+            None,
+            crate::sf2_game_over::Brightness::Full,
+        );
+        let sf2_game_over_texture = gpu.create_texture_rgba(
+            crate::sf2_game_over::WIDTH as u32,
+            crate::sf2_game_over::HEIGHT as u32,
+            &sf2_game_over_initial_rgba,
+        );
         let sf2_aim_sight_rgba = crate::sf2_aim_sight::decode_rgba();
         let sf2_aim_sight = gpu.create_texture_rgba(
             crate::sf2_aim_sight::WIDTH as u32,
@@ -1084,6 +1104,9 @@ impl Ui {
             sf2_titania_backdrop,
             sf2_carrier_backdrop,
             sf2_astropolis_void_backdrop,
+            sf2_game_over_texture,
+            sf2_game_over_presentation,
+            sf2_game_over_render_key: None,
             sf2_aim_sight,
             sf2_hud_glyphs,
             sf2_map_glyphs,
@@ -1615,73 +1638,75 @@ impl Ui {
         );
     }
 
-    fn render_sf2_game_over(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
-        self.render_sf2_starfield(gpu);
-        self.quad_snes(
-            gpu,
-            SF2_GAME_OVER_PANEL_COLOR,
-            SF2_GAME_OVER_PANEL_LEFT,
-            SF2_GAME_OVER_PANEL_BOTTOM,
-            SF2_GAME_OVER_PANEL_WIDTH,
-            SF2_GAME_OVER_PANEL_HEIGHT,
-        );
-        self.text_centered(
-            gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_GAME_OVER_TITLE_Y,
-            "GAME OVER",
-            SF2_SELECTED_COLOR[0],
-            SF2_SELECTED_COLOR[1],
-            SF2_SELECTED_COLOR[2],
-        );
-        if inputs.game_over_phase == Sf2GameOverPhase::AndrossTaunt {
-            self.text_centered(
-                gpu,
-                font,
-                SF2_TITLE_CENTER_X,
-                SF2_GAME_OVER_MESSAGE_Y,
-                "ANDROSS",
-                SF2_TITLE_COLOR[0],
-                SF2_TITLE_COLOR[1],
-                SF2_TITLE_COLOR[2],
+    fn render_sf2_game_over(&mut self, gpu: &mut Gpu, _font: &mut Font, inputs: &Sf2FrameInputs) {
+        let prompt_track = match inputs.game_over_choice {
+            Sf2GameOverChoice::ContinueWithWingmate => crate::sf2_game_over::Track::PromptYes,
+            Sf2GameOverChoice::EndCampaign => crate::sf2_game_over::Track::PromptNo,
+        };
+        let (track, frame_index) =
+            crate::sf2_game_over::frame_at_mode_tick(inputs.mode_frame, prompt_track);
+        let portrait = (inputs.mode_frame >= crate::sf2_game_over::PILOT_PORTRAIT_REVEAL_TICK)
+            .then_some(match inputs.wingmate {
+                Some(Sf2Pilot::Fox) => crate::sf2_game_over::Portrait::Fox,
+                Some(Sf2Pilot::Falco) => crate::sf2_game_over::Portrait::Falco,
+                Some(Sf2Pilot::Peppy) => crate::sf2_game_over::Portrait::Peppy,
+                Some(Sf2Pilot::Slippy) => crate::sf2_game_over::Portrait::Slippy,
+                Some(Sf2Pilot::Miyu) => crate::sf2_game_over::Portrait::Miyu,
+                Some(Sf2Pilot::Fay) => crate::sf2_game_over::Portrait::Fay,
+                None => crate::sf2_game_over::Portrait::None,
+            });
+        let brightness = if inputs.game_over_phase != Sf2GameOverPhase::Leaving {
+            crate::sf2_game_over::Brightness::Full
+        } else {
+            match inputs.game_over_transition_retail_frames {
+                elapsed if elapsed >= SF2_GAME_OVER_FADE_BLACK_RETAIL_FRAME => {
+                    crate::sf2_game_over::Brightness::Black
+                }
+                elapsed if elapsed >= SF2_GAME_OVER_FADE_ONE_RETAIL_FRAME => {
+                    crate::sf2_game_over::Brightness::OneFifteenth
+                }
+                elapsed if elapsed >= SF2_GAME_OVER_FADE_THREE_RETAIL_FRAME => {
+                    crate::sf2_game_over::Brightness::ThreeFifteenths
+                }
+                elapsed if elapsed >= SF2_GAME_OVER_FADE_FIVE_RETAIL_FRAME => {
+                    crate::sf2_game_over::Brightness::FiveFifteenths
+                }
+                elapsed if elapsed >= SF2_GAME_OVER_FADE_NINE_RETAIL_FRAME => {
+                    crate::sf2_game_over::Brightness::NineFifteenths
+                }
+                elapsed if elapsed >= SF2_GAME_OVER_FADE_ELEVEN_RETAIL_FRAME => {
+                    crate::sf2_game_over::Brightness::ElevenFifteenths
+                }
+                elapsed if elapsed >= SF2_GAME_OVER_FADE_THIRTEEN_RETAIL_FRAME => {
+                    crate::sf2_game_over::Brightness::ThirteenFifteenths
+                }
+                _ => crate::sf2_game_over::Brightness::Full,
+            }
+        };
+        let key = Sf2GameOverRenderKey {
+            track,
+            frame_index,
+            portrait,
+            brightness,
+        };
+        if self.sf2_game_over_render_key != Some(key) {
+            let rgba = self.sf2_game_over_presentation.frame_rgba(
+                track,
+                frame_index,
+                portrait,
+                brightness,
             );
-            return;
+            gpu.update_texture(self.sf2_game_over_texture, &rgba);
+            self.sf2_game_over_render_key = Some(key);
         }
-
-        self.text_centered(
+        self.textured_quad_source_frame(
             gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_GAME_OVER_CONTINUE_Y,
-            "CONTINUE AS WING MAN?",
-            SF2_TEXT_COLOR[0],
-            SF2_TEXT_COLOR[1],
-            SF2_TEXT_COLOR[2],
+            self.sf2_game_over_texture,
+            0,
+            0,
+            SF2_REFERENCE_WIDTH,
+            SF2_REFERENCE_HEIGHT,
         );
-        for (index, (choice, label)) in [
-            (Sf2GameOverChoice::ContinueWithWingmate, "YES"),
-            (Sf2GameOverChoice::EndCampaign, "NO"),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let color = if inputs.game_over_choice == choice {
-                SF2_SELECTED_COLOR
-            } else {
-                SF2_TEXT_COLOR
-            };
-            self.text_centered(
-                gpu,
-                font,
-                SF2_TITLE_CENTER_X,
-                SF2_GAME_OVER_OPTION_TOP_Y - index as i32 * SF2_GAME_OVER_OPTION_LINE_HEIGHT,
-                label,
-                color[0],
-                color[1],
-                color[2],
-            );
-        }
     }
 
     fn render_sf2_briefing(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
@@ -3044,7 +3069,7 @@ impl Ui {
         );
     }
 
-    fn render_sf2(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
+    fn render_sf2(&mut self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
         match inputs.mode {
             Sf2Mode::Title => self.render_sf2_title(gpu, font, inputs),
             Sf2Mode::Records => self.render_sf2_records(gpu, font),
