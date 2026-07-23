@@ -16,6 +16,15 @@ const LOGO_PRESENTATION_RECORD: u16 = 0x1B5;
 const FORMATION_AND_TITLE_RECORD: u16 = 0;
 const ANDROSS_BRIEFING_RECORD: u16 = 0x1C3;
 const STRATEGIC_MAP_RECORD: u16 = 0x036;
+const PILOT_SELECTION_RECORD: u16 = 0x011;
+const OPEN_SPACE_COMBAT_RECORD: u16 = 0x115;
+const FIGHTER_INTERCEPT_RECORD: u16 = 0x129;
+const TITANIA_BASE_RECORD: u16 = 0x076;
+const ELADARD_BASE_RECORD: u16 = 0x09E;
+const BATTLE_CARRIER_RECORD: u16 = 0x13D;
+const MIRAGE_DRAGON_RECORD: u16 = 0x151;
+const RIVAL_ENCOUNTER_RECORD: u16 = 0x173;
+const ASTROPOLIS_ASSAULT_RECORD: u16 = 0x0E2;
 const GAME_OVER_AND_CONTINUE_RECORD: u16 = 0x184;
 const CREDITS_AND_ENDING_RECORD: u16 = 0x1DC;
 
@@ -25,6 +34,15 @@ enum SemanticCue {
     FormationAndTitle,
     AndrossBriefing,
     StrategicMap,
+    PilotSelection,
+    OpenSpaceCombat,
+    FighterIntercept,
+    TitaniaBase,
+    EladardBase,
+    BattleCarrier,
+    MirageDragon,
+    RivalEncounter,
+    AstropolisAssault,
     GameOverAndContinue,
     CreditsAndEnding,
 }
@@ -36,6 +54,15 @@ impl SemanticCue {
             Self::FormationAndTitle => FORMATION_AND_TITLE_RECORD,
             Self::AndrossBriefing => ANDROSS_BRIEFING_RECORD,
             Self::StrategicMap => STRATEGIC_MAP_RECORD,
+            Self::PilotSelection => PILOT_SELECTION_RECORD,
+            Self::OpenSpaceCombat => OPEN_SPACE_COMBAT_RECORD,
+            Self::FighterIntercept => FIGHTER_INTERCEPT_RECORD,
+            Self::TitaniaBase => TITANIA_BASE_RECORD,
+            Self::EladardBase => ELADARD_BASE_RECORD,
+            Self::BattleCarrier => BATTLE_CARRIER_RECORD,
+            Self::MirageDragon => MIRAGE_DRAGON_RECORD,
+            Self::RivalEncounter => RIVAL_ENCOUNTER_RECORD,
+            Self::AstropolisAssault => ASTROPOLIS_ASSAULT_RECORD,
             Self::GameOverAndContinue => GAME_OVER_AND_CONTINUE_RECORD,
             Self::CreditsAndEnding => CREDITS_AND_ENDING_RECORD,
         }
@@ -47,6 +74,15 @@ impl SemanticCue {
             Self::FormationAndTitle => "formation_and_title",
             Self::AndrossBriefing => "andross_briefing",
             Self::StrategicMap => "strategic_map",
+            Self::PilotSelection => "pilot_selection",
+            Self::OpenSpaceCombat => "open_space_combat",
+            Self::FighterIntercept => "fighter_intercept",
+            Self::TitaniaBase => "titania_base",
+            Self::EladardBase => "eladard_base",
+            Self::BattleCarrier => "battle_carrier",
+            Self::MirageDragon => "mirage_dragon",
+            Self::RivalEncounter => "rival_encounter",
+            Self::AstropolisAssault => "astropolis_assault",
             Self::GameOverAndContinue => "game_over_and_continue",
             Self::CreditsAndEnding => "credits_and_ending",
         }
@@ -101,6 +137,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     SemanticCue::LogoPresentation
                     | SemanticCue::FormationAndTitle
+                    | SemanticCue::PilotSelection
+                    | SemanticCue::OpenSpaceCombat
+                    | SemanticCue::FighterIntercept
+                    | SemanticCue::TitaniaBase
+                    | SemanticCue::EladardBase
+                    | SemanticCue::BattleCarrier
+                    | SemanticCue::MirageDragon
+                    | SemanticCue::RivalEncounter
+                    | SemanticCue::AstropolisAssault
                     | SemanticCue::GameOverAndContinue
                     | SemanticCue::CreditsAndEnding => None,
                 };
@@ -174,6 +219,24 @@ fn parse_selections(
                 Ok(ProgramSelection::Semantic(SemanticCue::AndrossBriefing))
             } else if value == "map" {
                 Ok(ProgramSelection::Semantic(SemanticCue::StrategicMap))
+            } else if value == "pilots" {
+                Ok(ProgramSelection::Semantic(SemanticCue::PilotSelection))
+            } else if value == "open-space" {
+                Ok(ProgramSelection::Semantic(SemanticCue::OpenSpaceCombat))
+            } else if value == "fighter-intercept" {
+                Ok(ProgramSelection::Semantic(SemanticCue::FighterIntercept))
+            } else if value == "titania" {
+                Ok(ProgramSelection::Semantic(SemanticCue::TitaniaBase))
+            } else if value == "eladard" {
+                Ok(ProgramSelection::Semantic(SemanticCue::EladardBase))
+            } else if value == "carrier" {
+                Ok(ProgramSelection::Semantic(SemanticCue::BattleCarrier))
+            } else if value == "mirage" {
+                Ok(ProgramSelection::Semantic(SemanticCue::MirageDragon))
+            } else if value == "rival" {
+                Ok(ProgramSelection::Semantic(SemanticCue::RivalEncounter))
+            } else if value == "astropolis" {
+                Ok(ProgramSelection::Semantic(SemanticCue::AstropolisAssault))
             } else if value == "game-over" {
                 Ok(ProgramSelection::Semantic(SemanticCue::GameOverAndContinue))
             } else if value == "ending" {

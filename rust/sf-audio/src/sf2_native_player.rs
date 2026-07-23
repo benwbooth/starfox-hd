@@ -12,13 +12,31 @@ const LOGO_PRESENTATION_FILE: &str = "logo_presentation.wav";
 const FORMATION_AND_TITLE_FILE: &str = "formation_and_title.wav";
 const ANDROSS_BRIEFING_FILE: &str = "andross_briefing.wav";
 const STRATEGIC_MAP_FILE: &str = "strategic_map.wav";
+const PILOT_SELECTION_FILE: &str = "pilot_selection.wav";
+const OPEN_SPACE_COMBAT_FILE: &str = "open_space_combat.wav";
+const FIGHTER_INTERCEPT_FILE: &str = "fighter_intercept.wav";
+const TITANIA_BASE_FILE: &str = "titania_base.wav";
+const ELADARD_BASE_FILE: &str = "eladard_base.wav";
+const BATTLE_CARRIER_FILE: &str = "battle_carrier.wav";
+const MIRAGE_DRAGON_FILE: &str = "mirage_dragon.wav";
+const RIVAL_ENCOUNTER_FILE: &str = "rival_encounter.wav";
+const ASTROPOLIS_ASSAULT_FILE: &str = "astropolis_assault.wav";
 const GAME_OVER_AND_CONTINUE_FILE: &str = "game_over_and_continue.wav";
 const CREDITS_AND_ENDING_FILE: &str = "credits_and_ending.wav";
-const REQUIRED_MUSIC: [&str; 6] = [
+const REQUIRED_MUSIC: [&str; 15] = [
     LOGO_PRESENTATION_FILE,
     FORMATION_AND_TITLE_FILE,
     ANDROSS_BRIEFING_FILE,
     STRATEGIC_MAP_FILE,
+    PILOT_SELECTION_FILE,
+    OPEN_SPACE_COMBAT_FILE,
+    FIGHTER_INTERCEPT_FILE,
+    TITANIA_BASE_FILE,
+    ELADARD_BASE_FILE,
+    BATTLE_CARRIER_FILE,
+    MIRAGE_DRAGON_FILE,
+    RIVAL_ENCOUNTER_FILE,
+    ASTROPOLIS_ASSAULT_FILE,
     GAME_OVER_AND_CONTINUE_FILE,
     CREDITS_AND_ENDING_FILE,
 ];
@@ -29,6 +47,15 @@ pub enum Sf2MusicCue {
     FormationAndTitle,
     AndrossBriefing,
     StrategicMap,
+    PilotSelection,
+    OpenSpaceCombat,
+    FighterIntercept,
+    TitaniaBase,
+    EladardBase,
+    BattleCarrier,
+    MirageDragon,
+    RivalEncounter,
+    AstropolisAssault,
     GameOverAndContinue,
     CreditsAndEnding,
 }
@@ -40,6 +67,15 @@ impl Sf2MusicCue {
             Self::FormationAndTitle => FORMATION_AND_TITLE_FILE,
             Self::AndrossBriefing => ANDROSS_BRIEFING_FILE,
             Self::StrategicMap => STRATEGIC_MAP_FILE,
+            Self::PilotSelection => PILOT_SELECTION_FILE,
+            Self::OpenSpaceCombat => OPEN_SPACE_COMBAT_FILE,
+            Self::FighterIntercept => FIGHTER_INTERCEPT_FILE,
+            Self::TitaniaBase => TITANIA_BASE_FILE,
+            Self::EladardBase => ELADARD_BASE_FILE,
+            Self::BattleCarrier => BATTLE_CARRIER_FILE,
+            Self::MirageDragon => MIRAGE_DRAGON_FILE,
+            Self::RivalEncounter => RIVAL_ENCOUNTER_FILE,
+            Self::AstropolisAssault => ASTROPOLIS_ASSAULT_FILE,
             Self::GameOverAndContinue => GAME_OVER_AND_CONTINUE_FILE,
             Self::CreditsAndEnding => CREDITS_AND_ENDING_FILE,
         }

@@ -932,7 +932,7 @@ fn main() {
                         game.frame()
                     );
                 }
-                audio.tick_sf2(game.mode());
+                audio.tick_sf2(game);
                 curr_list.extend(
                     game.render_objects()
                         .iter()

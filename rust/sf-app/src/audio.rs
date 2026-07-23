@@ -34,8 +34,11 @@ enum StreamSource {
     StarFox2(Sf2NativePlayer),
 }
 
-fn sf2_music_cue(mode: sf2_game::GameMode) -> Sf2MusicCue {
-    use sf2_game::{GameMode, IntroPhase};
+fn sf2_music_cue(
+    mode: sf2_game::GameMode,
+    mission_visit: sf2_game::MissionVisit,
+) -> Sf2MusicCue {
+    use sf2_game::{GameMode, IntroPhase, MissionVisit};
 
     match mode {
         GameMode::Intro(IntroPhase::Boot)
@@ -49,9 +52,28 @@ fn sf2_music_cue(mode: sf2_game::GameMode) -> Sf2MusicCue {
             Sf2MusicCue::FormationAndTitle
         }
         GameMode::Briefing => Sf2MusicCue::AndrossBriefing,
-        GameMode::StrategicMap | GameMode::PilotSelection => Sf2MusicCue::StrategicMap,
-        GameMode::GameOver => Sf2MusicCue::GameOverAndContinue,
-        GameMode::Mission | GameMode::Results => Sf2MusicCue::FormationAndTitle,
+        GameMode::StrategicMap => Sf2MusicCue::StrategicMap,
+        GameMode::PilotSelection => Sf2MusicCue::PilotSelection,
+        GameMode::Mission => match mission_visit {
+            MissionVisit::OpeningEngagement
+            | MissionVisit::Reengagement
+            | MissionVisit::MissileInterception => Sf2MusicCue::OpenSpaceCombat,
+            MissionVisit::FighterIntercept => Sf2MusicCue::FighterIntercept,
+            MissionVisit::TitaniaBase => Sf2MusicCue::TitaniaBase,
+            MissionVisit::EladardBase => Sf2MusicCue::EladardBase,
+            MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
+                Sf2MusicCue::BattleCarrier
+            }
+            MissionVisit::MirageDragon => Sf2MusicCue::MirageDragon,
+            MissionVisit::PigmaDuel
+            | MissionVisit::LeonDuel
+            | MissionVisit::RecurringAttackers
+            | MissionVisit::LeonPressure
+            | MissionVisit::FinalPursuer
+            | MissionVisit::WolfBlockade => Sf2MusicCue::RivalEncounter,
+            MissionVisit::AstropolisAssault => Sf2MusicCue::AstropolisAssault,
+        },
+        GameMode::GameOver | GameMode::Results => Sf2MusicCue::GameOverAndContinue,
         GameMode::Ending => Sf2MusicCue::CreditsAndEnding,
     }
 }
@@ -222,8 +244,8 @@ impl AudioSys {
         }
     }
 
-    pub fn tick_sf2(&mut self, mode: sf2_game::GameMode) {
-        let cue = sf2_music_cue(mode);
+    pub fn tick_sf2(&mut self, game: &sf2_game::Game) {
+        let cue = sf2_music_cue(game.mode(), game.state().mission.visit);
         if self.sf2_music == Some(cue) {
             return;
         }
@@ -446,7 +468,10 @@ mod tests {
     #[test]
     fn sf2_game_over_selects_its_verified_music_program() {
         assert_eq!(
-            sf2_music_cue(sf2_game::GameMode::GameOver),
+            sf2_music_cue(
+                sf2_game::GameMode::GameOver,
+                sf2_game::MissionVisit::OpeningEngagement,
+            ),
             Sf2MusicCue::GameOverAndContinue
         );
     }
@@ -454,8 +479,53 @@ mod tests {
     #[test]
     fn sf2_ending_selects_its_verified_staff_roll_program() {
         assert_eq!(
-            sf2_music_cue(sf2_game::GameMode::Ending),
+            sf2_music_cue(
+                sf2_game::GameMode::Ending,
+                sf2_game::MissionVisit::OpeningEngagement,
+            ),
             Sf2MusicCue::CreditsAndEnding
+        );
+    }
+
+    #[test]
+    fn sf2_every_mission_visit_selects_its_verified_music_program() {
+        use sf2_game::MissionVisit::*;
+
+        let expected = [
+            (OpeningEngagement, Sf2MusicCue::OpenSpaceCombat),
+            (Reengagement, Sf2MusicCue::OpenSpaceCombat),
+            (MissileInterception, Sf2MusicCue::OpenSpaceCombat),
+            (FighterIntercept, Sf2MusicCue::FighterIntercept),
+            (PigmaDuel, Sf2MusicCue::RivalEncounter),
+            (EladardBase, Sf2MusicCue::EladardBase),
+            (TitaniaBase, Sf2MusicCue::TitaniaBase),
+            (FirstBattleCarrier, Sf2MusicCue::BattleCarrier),
+            (SecondBattleCarrier, Sf2MusicCue::BattleCarrier),
+            (LeonDuel, Sf2MusicCue::RivalEncounter),
+            (MirageDragon, Sf2MusicCue::MirageDragon),
+            (RecurringAttackers, Sf2MusicCue::RivalEncounter),
+            (LeonPressure, Sf2MusicCue::RivalEncounter),
+            (FinalPursuer, Sf2MusicCue::RivalEncounter),
+            (WolfBlockade, Sf2MusicCue::RivalEncounter),
+            (AstropolisAssault, Sf2MusicCue::AstropolisAssault),
+        ];
+
+        for (visit, cue) in expected {
+            assert_eq!(sf2_music_cue(sf2_game::GameMode::Mission, visit), cue);
+        }
+    }
+
+    #[test]
+    fn sf2_pilot_selection_and_results_do_not_reuse_unrelated_music() {
+        use sf2_game::{GameMode, MissionVisit};
+
+        assert_eq!(
+            sf2_music_cue(GameMode::PilotSelection, MissionVisit::OpeningEngagement),
+            Sf2MusicCue::PilotSelection,
+        );
+        assert_eq!(
+            sf2_music_cue(GameMode::Results, MissionVisit::AstropolisAssault),
+            Sf2MusicCue::GameOverAndContinue,
         );
     }
 }
