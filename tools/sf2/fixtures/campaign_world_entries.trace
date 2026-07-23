@@ -1,0 +1,17 @@
+# Semantic entry evidence for the four planetary missions missing from the
+# original native campaign route. Source map cursors remain oracle-only and
+# are recorded solely to keep the independently reached retail missions
+# distinguishable.
+#
+# Venom entry trace SHA-256:
+# 0bef0eeb680248fb031481c3a69de84fbf5f3d2f12feb02cb27a1f52747c8dc5
+# Macbeth entry trace SHA-256:
+# d002c05e1ee8f11bcb570af1fc2cab8deb9555898cd39fdeeeafc8bd8d73c117
+# Meteor entry trace SHA-256:
+# 92abf140c8fbeeb4e83aa60ae92f8bffa86d9d4460c41972e6f358ab95df1ff9
+# Fortuna entry trace SHA-256:
+# 2c25146e93e2766a9e74423cb590b87ad58c2c8678766aeb7b422a93e2d152eb
+entry name=venom mission_selection=0 setup_map=00E8 active_map=03AE player=0,-300,-3500
+entry name=macbeth mission_selection=2 setup_map=2213 active_map=24D8 player=0,-800,-3072
+entry name=meteor mission_selection=4 setup_map=3D99 active_map=4012 player=0,-300,-3500
+entry name=fortuna mission_selection=5 setup_map=489E active_map=4B40 player=0,-1150,-3072

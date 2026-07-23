@@ -1,7 +1,4 @@
-use super::campaign_major_objectives::{
-    BATTLE_CARRIER_MISSION_SELECTION, ELADARD_MISSION_SELECTION, TITANIA_MISSION_SELECTION,
-    TITANIA_SURFACE_SWITCH_COUNT,
-};
+use super::campaign_major_objectives::TITANIA_SURFACE_SWITCH_COUNT;
 use super::campaign_world_assignments::{
     CampaignWorld, MAX_OCCUPIED_WORLD_COUNT, NORMAL_CAMPAIGN_ASSIGNMENT_COUNT,
     NORMAL_CAMPAIGN_WORLD_ASSIGNMENTS, THREE_WORLD_CAMPAIGN_ASSIGNMENTS,
@@ -546,57 +543,6 @@ pub struct TitleState {
 impl Default for Difficulty {
     fn default() -> Self {
         Self::Normal
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MissionId(u16);
-
-impl MissionId {
-    /// First sortie selected by the certified default retail campaign trace.
-    pub const OPENING_SORTIE: Self = Self(6);
-
-    /// Three-fighter defense reached after the missile interception. Retail
-    /// selects the same space-combat arena as the opening engagement.
-    pub const FIGHTER_INTERCEPT: Self = Self(6);
-
-    /// Star Wolf duel reached after the three-fighter defense.
-    pub const PIGMA_DUEL: Self = Self(7);
-
-    /// Star Wolf duel at Astropolis reached after the Battle Carrier assault.
-    /// Retail selects the same space-combat stage catalog entry as the first
-    /// rival duel; the campaign visit identifies Leon and his presentation.
-    pub const LEON_DUEL: Self = Self(7);
-
-    /// Titania planetary-base assault, selected independently on the command map.
-    pub const TITANIA_BASE: Self = Self(TITANIA_MISSION_SELECTION);
-
-    /// Eladard planetary-base assault reached after the Pigma duel.
-    pub const ELADARD_BASE: Self = Self(ELADARD_MISSION_SELECTION);
-
-    /// Interior assault shared by the campaign's two Battle Carriers.
-    pub const BATTLE_CARRIER: Self = Self(BATTLE_CARRIER_MISSION_SELECTION);
-
-    /// Timed defensive sortie against the three missiles approaching Corneria.
-    pub const MISSILE_INTERCEPTION: Self = Self(7);
-
-    /// All-range battle with Mirage Dragon reached from the post-Leon map.
-    pub const MIRAGE_DRAGON: Self = Self(9);
-
-    /// The last recurring Wolfen pursuer and the separately allocated final
-    /// blockade both use the retail rival-combat catalog entry.
-    pub const FINAL_PURSUER: Self = Self(7);
-    pub const WOLF_BLOCKADE: Self = Self(7);
-
-    /// Interior assault on Astropolis after the final blockade retires.
-    pub const ASTROPOLIS: Self = Self(11);
-
-    pub const fn from_catalog_index(index: u16) -> Self {
-        Self(index)
-    }
-
-    pub const fn catalog_index(self) -> u16 {
-        self.0
     }
 }
 
@@ -1285,7 +1231,6 @@ pub struct MissionMessageState {
 pub struct MissionState {
     pub active: bool,
     pub phase: MissionPhase,
-    pub mission: Option<MissionId>,
     pub visit: MissionVisit,
     pub primary_player: Option<ObjectId>,
     pub wingmate: Option<ObjectId>,

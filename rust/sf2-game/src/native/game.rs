@@ -26,7 +26,7 @@ use super::state::{
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
     ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardMissionState,
     EladardPhase, EndingPhase, EndingState, FlightControlStyle, GameMode, GameOverChoice,
-    GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase, MapPoint, MissionId,
+    GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase, MapPoint,
     MissionMessage,
     MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
     PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
@@ -4613,8 +4613,11 @@ impl Game {
         self.state.camera
     }
 
-    pub fn mission(&self) -> Option<super::state::MissionId> {
-        self.state.mission.mission
+    pub fn mission(&self) -> Option<MissionVisit> {
+        self.state
+            .mission
+            .active
+            .then_some(self.state.mission.visit)
     }
 
     pub fn render_objects(&self) -> &[RenderObject] {
@@ -5845,26 +5848,6 @@ impl Game {
     ) {
         self.state.mission.active = true;
         self.state.mission.phase = MissionPhase::Loading;
-        self.state.mission.mission = Some(match visit {
-            MissionVisit::OpeningEngagement | MissionVisit::Reengagement => {
-                MissionId::OPENING_SORTIE
-            }
-            MissionVisit::MissileInterception => MissionId::MISSILE_INTERCEPTION,
-            MissionVisit::FighterIntercept => MissionId::FIGHTER_INTERCEPT,
-            MissionVisit::PigmaDuel => MissionId::PIGMA_DUEL,
-            MissionVisit::LeonDuel => MissionId::LEON_DUEL,
-            MissionVisit::LeonPressure => MissionId::LEON_DUEL,
-            MissionVisit::MirageDragon => MissionId::MIRAGE_DRAGON,
-            MissionVisit::RecurringAttackers => MissionId::FIGHTER_INTERCEPT,
-            MissionVisit::FinalPursuer => MissionId::FINAL_PURSUER,
-            MissionVisit::WolfBlockade => MissionId::WOLF_BLOCKADE,
-            MissionVisit::AstropolisAssault => MissionId::ASTROPOLIS,
-            MissionVisit::TitaniaBase => MissionId::TITANIA_BASE,
-            MissionVisit::EladardBase => MissionId::ELADARD_BASE,
-            MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
-                MissionId::BATTLE_CARRIER
-            }
-        });
         self.state.mission.visit = visit;
         self.state.mission.primary_player = Some(primary_id);
         self.state.mission.wingmate = wingmate_id;
@@ -7436,7 +7419,6 @@ impl Game {
             }
         }
         self.state.mission.active = false;
-        self.state.mission.mission = None;
         self.state.mission.player_blaster = PlayerBlasterState::Ready;
     }
 
@@ -15099,7 +15081,7 @@ mod tests {
         }
 
         assert_eq!(game.mode(), GameMode::Mission);
-        assert_eq!(game.mission(), Some(MissionId::OPENING_SORTIE));
+        assert_eq!(game.mission(), Some(MissionVisit::OpeningEngagement));
         assert_eq!(game.camera(), Camera::default());
         assert_eq!(game.state().mission.phase, MissionPhase::Loading);
         let primary_id = game.state().mission.primary_player.unwrap();
@@ -18174,7 +18156,7 @@ mod tests {
             OPENING_ASSAULT_MAP_ACTORS
         );
         assert!(!game.state().mission.active);
-        assert_eq!(game.state().mission.mission, None);
+        assert_eq!(game.mission(), None);
         assert!(game.mission_entry_flyby.iter().all(Option::is_none));
         assert!(game.mission_projectiles.is_empty());
         assert_eq!(game.state().objects.active_objects().count(), 2);
@@ -19761,7 +19743,7 @@ mod tests {
             game.state().mission.visit,
             MissionVisit::MissileInterception
         );
-        assert_eq!(game.mission(), Some(MissionId::MISSILE_INTERCEPTION));
+        assert_eq!(game.mission(), Some(MissionVisit::MissileInterception));
         assert_eq!(game.interception_missiles.iter().flatten().count(), 3);
 
         while game.state().mode_frame
@@ -19849,7 +19831,7 @@ mod tests {
         game.begin_fighter_intercept_sortie().unwrap();
 
         assert_eq!(game.state().mission.visit, MissionVisit::FighterIntercept);
-        assert_eq!(game.mission(), Some(MissionId::FIGHTER_INTERCEPT));
+        assert_eq!(game.mission(), Some(MissionVisit::FighterIntercept));
         assert_eq!(game.state().mission.score, 0);
         assert_eq!(game.state().mission.objects_destroyed, 0);
         assert_eq!(
@@ -20006,7 +19988,7 @@ mod tests {
         game.begin_pigma_duel_sortie().unwrap();
 
         assert_eq!(game.state().mission.visit, MissionVisit::PigmaDuel);
-        assert_eq!(game.mission(), Some(MissionId::PIGMA_DUEL));
+        assert_eq!(game.mission(), Some(MissionVisit::PigmaDuel));
         assert_eq!(game.state().mission.score, 300);
         assert_eq!(game.state().mission.objects_destroyed, 0);
         let rival_id = game.pigma_rival.expect("Pigma is allocated for the duel");
@@ -20170,7 +20152,7 @@ mod tests {
         }
 
         assert_eq!(game.state().mission.visit, MissionVisit::EladardBase);
-        assert_eq!(game.mission(), Some(MissionId::ELADARD_BASE));
+        assert_eq!(game.mission(), Some(MissionVisit::EladardBase));
         assert_eq!(
             game.state().strategic_map.player_map_position,
             ELADARD_BASE_DESTINATION
@@ -20335,7 +20317,7 @@ mod tests {
         }
 
         assert_eq!(game.state().mission.visit, MissionVisit::FirstBattleCarrier);
-        assert_eq!(game.mission(), Some(MissionId::BATTLE_CARRIER));
+        assert_eq!(game.mission(), Some(MissionVisit::FirstBattleCarrier));
         assert_eq!(
             game.state().strategic_map.player_map_position,
             POST_ELADARD_RECOMMENDED_DESTINATION
@@ -20520,7 +20502,7 @@ mod tests {
         }
 
         assert_eq!(game.state().mission.visit, MissionVisit::LeonDuel);
-        assert_eq!(game.mission(), Some(MissionId::LEON_DUEL));
+        assert_eq!(game.mission(), Some(MissionVisit::LeonDuel));
         assert_eq!(
             game.state().strategic_map.player_map_position,
             LEON_DUEL_DESTINATION
@@ -20790,7 +20772,7 @@ mod tests {
         }
 
         assert_eq!(game.state().mission.visit, MissionVisit::MirageDragon);
-        assert_eq!(game.mission(), Some(MissionId::MIRAGE_DRAGON));
+        assert_eq!(game.mission(), Some(MissionVisit::MirageDragon));
         assert_eq!(
             game.state().strategic_map.player_map_position,
             MIRAGE_DRAGON_DESTINATION
@@ -20937,7 +20919,7 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
 
         assert_eq!(game.state().mission.visit, MissionVisit::RecurringAttackers);
-        assert_eq!(game.mission(), Some(MissionId::FIGHTER_INTERCEPT));
+        assert_eq!(game.mission(), Some(MissionVisit::RecurringAttackers));
         assert_eq!(
             game.state().campaign.route_step,
             CampaignRouteStep::StrategicPressure
@@ -21019,7 +21001,7 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
 
         assert_eq!(game.state().mission.visit, MissionVisit::LeonPressure);
-        assert_eq!(game.mission(), Some(MissionId::LEON_DUEL));
+        assert_eq!(game.mission(), Some(MissionVisit::LeonPressure));
         let rival_id = game.leon_rival.expect("Leon pressure rival is allocated");
         let rival = game.state().objects.get(rival_id).unwrap();
         assert_eq!(rival.base.shape, ShapeId::LEON_CRAFT);
@@ -21217,9 +21199,6 @@ mod tests {
     #[test]
     fn late_major_objectives_are_distinct_and_unlock_the_final_route() {
         assert_eq!(EXPERT_BATTLE_CARRIER_REQUIRED_VISITS, 2);
-        assert_eq!(MissionId::TITANIA_BASE.catalog_index(), 1);
-        assert_eq!(MissionId::ELADARD_BASE.catalog_index(), 3);
-        assert_eq!(MissionId::BATTLE_CARRIER.catalog_index(), 8);
 
         let mut game = Game::new();
         game.state.campaign = CampaignState::new(Difficulty::Expert);
@@ -21251,7 +21230,7 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
 
         assert_eq!(game.state().mission.visit, MissionVisit::TitaniaBase);
-        assert_eq!(game.mission(), Some(MissionId::TITANIA_BASE));
+        assert_eq!(game.mission(), Some(MissionVisit::TitaniaBase));
         assert_eq!(
             game.state().mission.titania,
             TitaniaMissionState {
@@ -21313,7 +21292,7 @@ mod tests {
             game.state().mission.visit,
             MissionVisit::SecondBattleCarrier
         );
-        assert_eq!(game.mission(), Some(MissionId::BATTLE_CARRIER));
+        assert_eq!(game.mission(), Some(MissionVisit::SecondBattleCarrier));
         while game.mode() == GameMode::Mission {
             game.tick(0).unwrap();
         }
@@ -21396,7 +21375,7 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
 
         assert_eq!(game.state().mission.visit, MissionVisit::FinalPursuer);
-        assert_eq!(game.mission(), Some(MissionId::FINAL_PURSUER));
+        assert_eq!(game.mission(), Some(MissionVisit::FinalPursuer));
         assert_eq!(
             game.state()
                 .objects
@@ -21434,7 +21413,7 @@ mod tests {
         );
         game.tick(Button::B as u16).unwrap();
         assert_eq!(game.state().mission.visit, MissionVisit::WolfBlockade);
-        assert_eq!(game.mission(), Some(MissionId::WOLF_BLOCKADE));
+        assert_eq!(game.mission(), Some(MissionVisit::WolfBlockade));
         assert_eq!(
             game.state()
                 .objects
@@ -21468,7 +21447,7 @@ mod tests {
         );
         game.tick(Button::B as u16).unwrap();
         assert_eq!(game.state().mission.visit, MissionVisit::AstropolisAssault);
-        assert_eq!(game.mission(), Some(MissionId::ASTROPOLIS));
+        assert_eq!(game.mission(), Some(MissionVisit::AstropolisAssault));
 
         while game.state().mode_frame * RETAIL_PRESENTATION_FRAMES_PER_TICK
             < u32::from(ASTROPOLIS_INTERIOR_CORRIDOR_RETAIL_FRAME)
@@ -21495,7 +21474,7 @@ mod tests {
         game.state.mode = GameMode::Mission;
         game.state.mode_frame = 0;
         game.state.mission.visit = MissionVisit::AstropolisAssault;
-        game.state.mission.mission = Some(MissionId::ASTROPOLIS);
+        game.state.mission.active = true;
         game.state.mission.phase = MissionPhase::Active;
         game.state.mission.astropolis.phase = AstropolisPhase::CoreDestruction;
         game.state.mission.astropolis.phase_started_retail_frame = 0;
@@ -21580,7 +21559,7 @@ mod tests {
             game.state().strategic_map.player_map_position,
             MISSILE_INTERCEPTION_DESTINATION
         );
-        assert_eq!(game.mission(), Some(MissionId::MISSILE_INTERCEPTION));
+        assert_eq!(game.mission(), Some(MissionVisit::MissileInterception));
     }
 
     #[test]

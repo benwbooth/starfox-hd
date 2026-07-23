@@ -14,7 +14,7 @@ pub use native::{
     CorneriaDefensePhase, CorneriaDefenseState, Difficulty,
     EladardMissionState, EladardPhase, EndingPhase, EndingState, Error, FlightControlStyle, Game,
     GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState,
-    InputState, IntroPhase, MaterialSetId, MissionId, MissionMessage, MissionMessageIrisFrame,
+    InputState, IntroPhase, MaterialSetId, MissionMessage, MissionMessageIrisFrame,
     MissionMessagePhase, MissionMessageState, MissionPhase, MissionState, MissionVisit,
     Object, ObjectFlags, ObjectId, ObjectKind, ObjectStore, PathCursor, PathId, Pilot,
     PilotCraftClass, PilotCraftProfile, PilotSelectionCursor, PilotSelectionPhase,

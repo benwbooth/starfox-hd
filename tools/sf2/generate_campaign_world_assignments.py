@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 from rom import load_rom
@@ -24,6 +25,53 @@ DEFAULT_OUTPUT = (
     / "native"
     / "campaign_world_assignments.rs"
 )
+DEFAULT_ENTRY_TRACE = Path(__file__).with_name("fixtures") / "campaign_world_entries.trace"
+
+
+@dataclass(frozen=True)
+class EntryEvidence:
+    mission_selection: int
+    setup_map: int
+    active_map: int
+    player: tuple[int, int, int]
+
+
+def fields(line: str) -> dict[str, str]:
+    return {
+        token.split("=", 1)[0]: token.split("=", 1)[1]
+        for token in line.split()
+        if "=" in token
+    }
+
+
+def load_entry_evidence(trace: Path) -> dict[str, EntryEvidence]:
+    entries: dict[str, EntryEvidence] = {}
+    for line in trace.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        if not line.startswith("entry "):
+            raise SystemExit(f"unknown campaign-world entry record: {line}")
+        values = fields(line)
+        entries[values["name"]] = EntryEvidence(
+            mission_selection=int(values["mission_selection"]),
+            setup_map=int(values["setup_map"], 16),
+            active_map=int(values["active_map"], 16),
+            player=tuple(int(value) for value in values["player"].split(",")),
+        )
+
+    expected_names = {"venom", "macbeth", "meteor", "fortuna"}
+    if entries.keys() != expected_names:
+        raise SystemExit("campaign-world entry fixture is incomplete")
+    if len({entry.setup_map for entry in entries.values()}) != len(entries):
+        raise SystemExit("campaign-world setup maps must be distinct")
+    if len({entry.active_map for entry in entries.values()}) != len(entries):
+        raise SystemExit("campaign-world active maps must be distinct")
+    for name, entry in entries.items():
+        if WORLD_NAMES_BY_SELECTION[entry.mission_selection] != name:
+            raise SystemExit(f"{name} entry disagrees with its retail map label")
+        if len(entry.player) != 3:
+            raise SystemExit(f"{name} entry has an incomplete player position")
+    return entries
 
 
 def rust_name(name: str) -> str:
@@ -40,7 +88,8 @@ def rust_row(row: tuple[int, ...]) -> str:
     return "\n".join(["    [", *(f"        {world}," for world in worlds), "    ],"])
 
 
-def rust_source(rom: bytes) -> str:
+def rust_source(rom: bytes, entry_trace: Path) -> str:
+    entry_evidence = load_entry_evidence(entry_trace)
     normal_profile = profile(rom, 0)
     hard_profile = profile(rom, 1)
     expert_profile = profile(rom, 2)
@@ -76,6 +125,7 @@ def rust_source(rom: bytes) -> str:
         "//! Generated semantic campaign-world assignments from the retail ROM.",
         "//!",
         "//! Source-machine addresses and selection ordinals remain in the generator.",
+        f"//! Missing-world entry evidence: `{entry_trace.name}` ({len(entry_evidence)} missions).",
         "//! Regenerate or verify with `uv run python",
         "//! tools/sf2/generate_campaign_world_assignments.py [--check]`.",
         "",
@@ -126,10 +176,11 @@ def rust_source(rom: bytes) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, nargs="?", default=DEFAULT_OUTPUT)
+    parser.add_argument("--entry-trace", type=Path, default=DEFAULT_ENTRY_TRACE)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    generated = rust_source(load_rom())
+    generated = rust_source(load_rom(), args.entry_trace)
     if args.check:
         if not args.output.is_file() or args.output.read_text(encoding="utf-8") != generated:
             raise SystemExit(f"generated source is out of date: {args.output}")
@@ -141,7 +192,7 @@ def main() -> None:
     print(
         f"{action} {args.output}: "
         f"{len(WORLD_NAMES_BY_SELECTION)} worlds, 6 normal assignments, "
-        "20 Hard/Expert assignments"
+        "20 Hard/Expert assignments, 4 distinct missing-world entries"
     )
 
 

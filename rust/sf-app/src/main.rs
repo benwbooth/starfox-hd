@@ -1143,10 +1143,7 @@ fn main() {
             inputs.sf2 = Some(to_sf2_frame_inputs(game));
             inputs.game_state = RenderState::Boot;
             inputs.gameframe = game.frame() as u16;
-            inputs.stage = game
-                .mission()
-                .map(sf2_game::MissionId::catalog_index)
-                .unwrap_or_default();
+            inputs.stage = u16::from(game.mission().is_some());
             inputs
         } else {
             let mut windows = [WindowState::default(); WINDOWARRAY_SIZE];

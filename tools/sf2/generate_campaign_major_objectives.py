@@ -88,9 +88,6 @@ def rust_source(
 ) -> str:
     titania_start = samples[("titania", "mission_start")]
     values = {
-        "TITANIA_MISSION_SELECTION": targets["titania"].mission_selection,
-        "ELADARD_MISSION_SELECTION": targets["eladard"].mission_selection,
-        "BATTLE_CARRIER_MISSION_SELECTION": targets["battle_carrier"].mission_selection,
         "EXPERT_BATTLE_CARRIER_REQUIRED_VISITS": targets["battle_carrier"].required_visits,
         "TITANIA_SURFACE_SWITCH_COUNT": objectives[("titania", "surface_switch")],
         "TITANIA_REACTOR_COUNT": objectives[("titania", "reactor")],

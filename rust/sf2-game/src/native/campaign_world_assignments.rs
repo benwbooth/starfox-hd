@@ -1,6 +1,7 @@
 //! Generated semantic campaign-world assignments from the retail ROM.
 //!
 //! Source-machine addresses and selection ordinals remain in the generator.
+//! Missing-world entry evidence: `campaign_world_entries.trace` (4 missions).
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_campaign_world_assignments.py [--check]`.
 
