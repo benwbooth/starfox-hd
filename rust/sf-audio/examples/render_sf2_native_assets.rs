@@ -17,6 +17,7 @@ const FORMATION_AND_TITLE_RECORD: u16 = 0;
 const ANDROSS_BRIEFING_RECORD: u16 = 0x1C3;
 const STRATEGIC_MAP_RECORD: u16 = 0x036;
 const GAME_OVER_AND_CONTINUE_RECORD: u16 = 0x184;
+const CREDITS_AND_ENDING_RECORD: u16 = 0x1DC;
 
 #[derive(Debug, Clone, Copy)]
 enum SemanticCue {
@@ -25,6 +26,7 @@ enum SemanticCue {
     AndrossBriefing,
     StrategicMap,
     GameOverAndContinue,
+    CreditsAndEnding,
 }
 
 impl SemanticCue {
@@ -35,6 +37,7 @@ impl SemanticCue {
             Self::AndrossBriefing => ANDROSS_BRIEFING_RECORD,
             Self::StrategicMap => STRATEGIC_MAP_RECORD,
             Self::GameOverAndContinue => GAME_OVER_AND_CONTINUE_RECORD,
+            Self::CreditsAndEnding => CREDITS_AND_ENDING_RECORD,
         }
     }
 
@@ -45,6 +48,7 @@ impl SemanticCue {
             Self::AndrossBriefing => "andross_briefing",
             Self::StrategicMap => "strategic_map",
             Self::GameOverAndContinue => "game_over_and_continue",
+            Self::CreditsAndEnding => "credits_and_ending",
         }
     }
 }
@@ -97,7 +101,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     SemanticCue::LogoPresentation
                     | SemanticCue::FormationAndTitle
-                    | SemanticCue::GameOverAndContinue => None,
+                    | SemanticCue::GameOverAndContinue
+                    | SemanticCue::CreditsAndEnding => None,
                 };
                 (cue.filename().to_string(), true, index, resident)
             }
@@ -171,6 +176,8 @@ fn parse_selections(
                 Ok(ProgramSelection::Semantic(SemanticCue::StrategicMap))
             } else if value == "game-over" {
                 Ok(ProgramSelection::Semantic(SemanticCue::GameOverAndContinue))
+            } else if value == "ending" {
+                Ok(ProgramSelection::Semantic(SemanticCue::CreditsAndEnding))
             } else if let Some(offset) = value.strip_prefix('r') {
                 u16::from_str_radix(offset, 16)
                     .map(ProgramSelection::RecordOffset)

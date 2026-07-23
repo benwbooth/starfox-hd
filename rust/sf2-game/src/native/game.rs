@@ -107,6 +107,8 @@ const INTRO_PRESENTATION_LAST_TICK: u16 = INTRO_PRESENTATION_FRAME_COUNT - 1;
 const NINTENDO_SKIP_FADE_TICK: u16 = 144;
 const TITLE_MENU_COUNTDOWN_TICKS: u8 = 5;
 const RETAIL_PRESENTATION_FRAMES_PER_TICK: u32 = 4;
+const ENDING_END_SCREEN_READY_TICK: u32 = 1_971;
+const ENDING_EXIT_FADE_RETAIL_FRAMES: u16 = 32;
 const BRIEFING_PRESENTATION_RETAIL_FRAMES: u32 = 680;
 const PILOT_SELECTION_REVEAL_RETAIL_FRAMES: u32 = 92;
 const PILOT_READY_RETAIL_FRAMES: u32 = 172;
@@ -6624,20 +6626,35 @@ impl Game {
     }
 
     fn update_ending(&mut self) {
-        let retail_frame = self
-            .state
-            .mode_frame
-            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
-            .min(u32::from(u16::MAX)) as u16;
-        self.state.ending.retail_frame = retail_frame;
-        self.state.ending.phase =
-            if retail_frame >= astropolis_assault::ENDING_END_SCREEN_SAMPLE_RETAIL_FRAME {
-                EndingPhase::EndScreen
-            } else if retail_frame >= astropolis_assault::ENDING_CREDITS_SAMPLE_RETAIL_FRAME {
-                EndingPhase::Credits
-            } else {
-                EndingPhase::EscapeFlash
-            };
+        self.state.ending.presentation_tick = self.state.mode_frame;
+        match self.state.ending.phase {
+            EndingPhase::Leaving {
+                elapsed_retail_frames,
+            } => {
+                let elapsed = elapsed_retail_frames
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                if elapsed >= ENDING_EXIT_FADE_RETAIL_FRAMES {
+                    self.state.results = ResultsState::default();
+                    self.enter_mode(GameMode::Results);
+                } else {
+                    self.state.ending.phase = EndingPhase::Leaving {
+                        elapsed_retail_frames: elapsed,
+                    };
+                }
+            }
+            EndingPhase::StaffRoll | EndingPhase::EndScreen => {
+                if self.state.ending.presentation_tick >= ENDING_END_SCREEN_READY_TICK {
+                    self.state.ending.phase = EndingPhase::EndScreen;
+                }
+                if self.state.ending.phase == EndingPhase::EndScreen
+                    && self.state.input.pressed.contains(Button::Start)
+                {
+                    self.state.ending.phase = EndingPhase::Leaving {
+                        elapsed_retail_frames: 0,
+                    };
+                }
+            }
+        }
     }
 
     fn update_mirage_dragon(&mut self) -> Result<(), Error> {
@@ -20881,21 +20898,37 @@ mod tests {
             game.state().mission.astropolis.phase,
             AstropolisPhase::Escape
         );
-        assert_eq!(game.state().ending.phase, EndingPhase::EscapeFlash);
+        assert_eq!(game.state().ending.phase, EndingPhase::StaffRoll);
 
-        while game.state().ending.retail_frame
-            < astropolis_assault::ENDING_CREDITS_SAMPLE_RETAIL_FRAME
-        {
-            game.tick(0).unwrap();
-        }
-        assert_eq!(game.state().ending.phase, EndingPhase::Credits);
-
-        while game.state().ending.retail_frame
-            < astropolis_assault::ENDING_END_SCREEN_SAMPLE_RETAIL_FRAME
-        {
+        while game.state().ending.presentation_tick < ENDING_END_SCREEN_READY_TICK {
             game.tick(0).unwrap();
         }
         assert_eq!(game.state().ending.phase, EndingPhase::EndScreen);
+
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(game.state().ending.phase, EndingPhase::EndScreen);
+        game.tick(0).unwrap();
+        game.tick(Button::Start as u16).unwrap();
+        assert_eq!(
+            game.state().ending.phase,
+            EndingPhase::Leaving {
+                elapsed_retail_frames: 0,
+            }
+        );
+        for expected in (RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+            ..ENDING_EXIT_FADE_RETAIL_FRAMES)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            game.tick(0).unwrap();
+            assert_eq!(
+                game.state().ending.phase,
+                EndingPhase::Leaving {
+                    elapsed_retail_frames: expected,
+                }
+            );
+        }
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::Results);
     }
 
     #[test]

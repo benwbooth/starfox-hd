@@ -33,9 +33,9 @@ use sf_render::draw_list::{
 use sf_render::renderer::{
     EndingReplayBackdrop as RenderEndingReplayBackdrop, EndingReplayInputs, FrameInputs,
     GameState as RenderState, Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty,
-    Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MapPoint,
-    Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
-    Sf2RadarContact, Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2EndingPhase, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
+    Sf2MapPoint, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor,
+    Sf2PilotSelectionPhase, Sf2RadarContact, Sf2ResultsChoice, Sf2ResultsPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
     Sf2TitleMenuItem, Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
 };
@@ -320,9 +320,9 @@ fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdr
 
 fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
     use sf2_game::{
-        AudioOutput, Difficulty, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-        FlightControlStyle, ObjectKind, PilotSelectionCursor, PilotSelectionPhase, ResultsChoice,
-        ResultsPhase, StrategicMapPhase, TitleMenuItem, TitlePage,
+        AudioOutput, Difficulty, EndingPhase, FlightControlStyle, GameMode, GameOverChoice,
+        GameOverDestination, GameOverPhase, ObjectKind, PilotSelectionCursor, PilotSelectionPhase,
+        ResultsChoice, ResultsPhase, StrategicMapPhase, TitleMenuItem, TitlePage,
     };
 
     let state = game.state();
@@ -484,6 +484,18 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
             ResultsPhase::Revealing
             | ResultsPhase::OpeningChoices { .. }
             | ResultsPhase::Choosing(_) => 0,
+        },
+        ending_phase: match state.ending.phase {
+            EndingPhase::StaffRoll => Sf2EndingPhase::StaffRoll,
+            EndingPhase::EndScreen => Sf2EndingPhase::EndScreen,
+            EndingPhase::Leaving { .. } => Sf2EndingPhase::Leaving,
+        },
+        ending_presentation_tick: state.ending.presentation_tick,
+        ending_transition_retail_frames: match state.ending.phase {
+            EndingPhase::Leaving {
+                elapsed_retail_frames,
+            } => elapsed_retail_frames,
+            EndingPhase::StaffRoll | EndingPhase::EndScreen => 0,
         },
         primary_shield: state
             .mission

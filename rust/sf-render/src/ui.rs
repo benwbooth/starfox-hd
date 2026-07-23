@@ -11,9 +11,9 @@ use crate::font::Font;
 use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{
     EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState, Sf2AudioOutput,
-    Sf2Difficulty, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
-    Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
-    Sf2ResultsChoice, Sf2ResultsPhase,
+    Sf2Difficulty, Sf2EndingPhase, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice,
+    Sf2GameOverPhase, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor,
+    Sf2PilotSelectionPhase, Sf2ResultsChoice, Sf2ResultsPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
     Sf2TitleMenuItem, Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE,
     WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
@@ -815,6 +815,9 @@ pub struct Ui {
     sf2_intro_texture: TextureId,
     sf2_intro_presentation: crate::sf2_intro::Presentation,
     sf2_intro_render_key: Option<(crate::sf2_intro::Track, usize)>,
+    sf2_ending_texture: TextureId,
+    sf2_ending_presentation: crate::sf2_ending::Presentation,
+    sf2_ending_render_key: Option<(crate::sf2_ending::Track, usize)>,
     sf2_briefing_texture: TextureId,
     sf2_briefing_presentation: crate::sf2_briefing::Presentation,
     sf2_briefing_render_frame: Option<usize>,
@@ -943,6 +946,14 @@ impl Ui {
             crate::sf2_intro::WIDTH as u32,
             crate::sf2_intro::HEIGHT as u32,
             &sf2_intro_initial_rgba,
+        );
+        let mut sf2_ending_presentation = crate::sf2_ending::Presentation::decode();
+        let sf2_ending_initial_rgba =
+            sf2_ending_presentation.frame_rgba(crate::sf2_ending::Track::StaffRoll, 0);
+        let sf2_ending_texture = gpu.create_texture_rgba(
+            crate::sf2_ending::WIDTH as u32,
+            crate::sf2_ending::HEIGHT as u32,
+            &sf2_ending_initial_rgba,
         );
         let mut sf2_briefing_presentation = crate::sf2_briefing::Presentation::decode();
         let sf2_briefing_initial_rgba = sf2_briefing_presentation.frame_rgba(0);
@@ -1190,6 +1201,9 @@ impl Ui {
             sf2_intro_texture,
             sf2_intro_presentation,
             sf2_intro_render_key: None,
+            sf2_ending_texture,
+            sf2_ending_presentation,
+            sf2_ending_render_key: None,
             sf2_briefing_texture,
             sf2_briefing_presentation,
             sf2_briefing_render_frame: None,
@@ -1799,6 +1813,35 @@ impl Ui {
         self.textured_quad_source_frame(
             gpu,
             self.sf2_intro_texture,
+            0,
+            0,
+            SF2_REFERENCE_WIDTH,
+            SF2_REFERENCE_HEIGHT,
+        );
+    }
+
+    fn render_sf2_ending(&mut self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        let (track, frame_index) = match inputs.ending_phase {
+            Sf2EndingPhase::StaffRoll | Sf2EndingPhase::EndScreen => (
+                crate::sf2_ending::Track::StaffRoll,
+                crate::sf2_ending::staff_roll_frame(inputs.ending_presentation_tick),
+            ),
+            Sf2EndingPhase::Leaving => (
+                crate::sf2_ending::Track::StartResponse,
+                crate::sf2_ending::start_response_frame(
+                    inputs.ending_transition_retail_frames,
+                ),
+            ),
+        };
+        let key = (track, frame_index);
+        if self.sf2_ending_render_key != Some(key) {
+            let rgba = self.sf2_ending_presentation.frame_rgba(track, frame_index);
+            gpu.update_texture(self.sf2_ending_texture, &rgba);
+            self.sf2_ending_render_key = Some(key);
+        }
+        self.textured_quad_source_frame(
+            gpu,
+            self.sf2_ending_texture,
             0,
             0,
             SF2_REFERENCE_WIDTH,
@@ -3087,7 +3130,7 @@ impl Ui {
             Sf2Mode::Mission => self.render_sf2_mission_hud(gpu, inputs),
             Sf2Mode::GameOver => self.render_sf2_game_over(gpu, font, inputs),
             Sf2Mode::Results => self.render_sf2_results(gpu, inputs),
-            Sf2Mode::Ending => {}
+            Sf2Mode::Ending => self.render_sf2_ending(gpu, inputs),
         }
     }
 

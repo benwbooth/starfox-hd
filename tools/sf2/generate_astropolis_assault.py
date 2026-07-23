@@ -75,12 +75,10 @@ def rust_source(
     trace: Path,
     objectives: dict[str, Objective],
     transitions: dict[str, int],
-    ending_samples: dict[str, int],
+    _ending_samples: dict[str, int],
 ) -> str:
     core_exposure = transitions["core_reform_trigger"] - transitions["core_exposed"]
     destruction = transitions["ending_handoff"] - transitions["core_destroyed"]
-    credits = ending_samples["credits"] - transitions["ending_handoff"]
-    end_screen = ending_samples["end_screen"] - transitions["ending_handoff"]
     values = {
         "SECURITY_TURRET_DURABILITY": objectives["security_turret"].durability,
         "CORE_SPIKE_COUNT": objectives["core_spike"].count,
@@ -90,8 +88,6 @@ def rust_source(
         "FINAL_CORE_DURABILITY": objectives["final_core"].durability,
         "CORE_EXPOSURE_RETAIL_FRAMES": core_exposure,
         "CORE_DESTRUCTION_RETAIL_FRAMES": destruction,
-        "ENDING_CREDITS_SAMPLE_RETAIL_FRAME": credits,
-        "ENDING_END_SCREEN_SAMPLE_RETAIL_FRAME": end_screen,
     }
     lines = [
         "//! Generated typed constants for the retail Astropolis assault.",

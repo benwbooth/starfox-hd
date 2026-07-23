@@ -51,7 +51,8 @@ fn sf2_music_cue(mode: sf2_game::GameMode) -> Sf2MusicCue {
         GameMode::Briefing => Sf2MusicCue::AndrossBriefing,
         GameMode::StrategicMap | GameMode::PilotSelection => Sf2MusicCue::StrategicMap,
         GameMode::GameOver => Sf2MusicCue::GameOverAndContinue,
-        GameMode::Mission | GameMode::Results | GameMode::Ending => Sf2MusicCue::FormationAndTitle,
+        GameMode::Mission | GameMode::Results => Sf2MusicCue::FormationAndTitle,
+        GameMode::Ending => Sf2MusicCue::CreditsAndEnding,
     }
 }
 
@@ -447,6 +448,14 @@ mod tests {
         assert_eq!(
             sf2_music_cue(sf2_game::GameMode::GameOver),
             Sf2MusicCue::GameOverAndContinue
+        );
+    }
+
+    #[test]
+    fn sf2_ending_selects_its_verified_staff_roll_program() {
+        assert_eq!(
+            sf2_music_cue(sf2_game::GameMode::Ending),
+            Sf2MusicCue::CreditsAndEnding
         );
     }
 }

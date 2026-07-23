@@ -277,6 +277,31 @@ for value in string.gmatch(os.getenv("SF2_ORACLE_CAPTURE_ELAPSED") or "", "[^,]+
   local elapsed = tonumber(value)
   if elapsed then requested_captures[elapsed] = true end
 end
+capture_screen_range = nil
+capture_range_text = os.getenv("SF2_ORACLE_CAPTURE_SCREEN_RANGE")
+if capture_range_text then
+  capture_range_first, capture_range_last, capture_range_step = string.match(
+    capture_range_text,
+    "^(%d+),(%d+),(%d+)$")
+  assert(capture_range_first and capture_range_last and capture_range_step,
+    "SF2_ORACLE_CAPTURE_SCREEN_RANGE must be first,last,step")
+  capture_screen_range = {
+    first = tonumber(capture_range_first),
+    last = tonumber(capture_range_last),
+    step = tonumber(capture_range_step),
+  }
+  assert(capture_screen_range.first <= capture_screen_range.last,
+    "SF2_ORACLE_CAPTURE_SCREEN_RANGE must not be reversed")
+  assert(capture_screen_range.step > 0,
+    "SF2_ORACLE_CAPTURE_SCREEN_RANGE step must be positive")
+end
+
+function capture_screen_range_contains(elapsed)
+  return capture_screen_range
+    and elapsed >= capture_screen_range.first
+    and elapsed <= capture_screen_range.last
+    and (elapsed - capture_screen_range.first) % capture_screen_range.step == 0
+end
 local temporarily_masked_pressure = {}
 local lines = {}
 local craft_transition_lines = {}
@@ -2715,14 +2740,17 @@ local function end_frame()
   if elapsed >= 14900 and work_byte(0x1B68) == 1 and elapsed % sortie_stride == 0 then
     record("sortie", elapsed)
   end
-  if requested_captures[elapsed]
+  local capture_screen_only = capture_screen_range_contains(elapsed)
+  if requested_captures[elapsed] or capture_screen_only
     or elapsed == 14400 or elapsed == 14460 or elapsed == 14468
     or elapsed == 14520 or elapsed == 14640 or elapsed == 14880
     or elapsed == 15120 or elapsed == 15600 or elapsed == 16560
     or elapsed == 18000 or elapsed == 20000 or elapsed == 23000
     or elapsed == 25000 then
     capture_screen(elapsed)
-    capture_work(elapsed)
+    if not capture_screen_only or requested_captures[elapsed] then
+      capture_work(elapsed)
+    end
     if capture_ppu and requested_captures[elapsed] then
       capture_ppu_state(elapsed)
     end

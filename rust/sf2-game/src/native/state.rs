@@ -1452,21 +1452,21 @@ pub enum GameMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EndingPhase {
-    EscapeFlash,
-    Credits,
+    StaffRoll,
     EndScreen,
+    Leaving { elapsed_retail_frames: u16 },
 }
 
 impl Default for EndingPhase {
     fn default() -> Self {
-        Self::EscapeFlash
+        Self::StaffRoll
     }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct EndingState {
     pub phase: EndingPhase,
-    pub retail_frame: u16,
+    pub presentation_tick: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

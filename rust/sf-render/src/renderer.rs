@@ -99,6 +99,13 @@ pub enum Sf2ResultsPhase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sf2EndingPhase {
+    StaffRoll,
+    EndScreen,
+    Leaving,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sf2Pilot {
     Fox,
     Falco,
@@ -255,6 +262,9 @@ pub struct Sf2FrameInputs {
     pub results_choice: Sf2ResultsChoice,
     pub results_presentation_retail_frames: u32,
     pub results_transition_retail_frames: u16,
+    pub ending_phase: Sf2EndingPhase,
+    pub ending_presentation_tick: u32,
+    pub ending_transition_retail_frames: u16,
     pub primary_shield: u8,
     pub wingmate_shield: u8,
     pub item_count: u8,

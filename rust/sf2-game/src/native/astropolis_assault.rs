@@ -12,5 +12,3 @@ pub(super) const MASK_EYE_DURABILITY: u16 = 8;
 pub(super) const FINAL_CORE_DURABILITY: u16 = 22;
 pub(super) const CORE_EXPOSURE_RETAIL_FRAMES: u16 = 827;
 pub(super) const CORE_DESTRUCTION_RETAIL_FRAMES: u16 = 4_919;
-pub(super) const ENDING_CREDITS_SAMPLE_RETAIL_FRAME: u16 = 1_881;
-pub(super) const ENDING_END_SCREEN_SAMPLE_RETAIL_FRAME: u16 = 9_881;

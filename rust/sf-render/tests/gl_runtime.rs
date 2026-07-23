@@ -25,9 +25,9 @@ use sf_render::draw_list::{DrawListEntry, DL_FLAG_VISIBLE};
 use sf_render::gpu::{Gpu, Vertex3};
 use sf_render::renderer::{
     config_from_repo_root, EndingReplayBackdrop, EndingReplayInputs, FrameInputs, GameState,
-    Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2FlightControlStyle,
-    Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase, Sf2MissionBackdrop, Sf2Mode, Sf2Pilot,
-    Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
+    Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty, Sf2EndingPhase,
+    Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
+    Sf2MissionBackdrop, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
     Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2TitleMenuItem,
     Sf2TitlePage, SF2_RADAR_CONTACT_CAPACITY,
 };
@@ -46,6 +46,8 @@ const SF2_MAP_HEIGHT: i32 = 224;
 const SF2_TITLE_MISSION_FNV1A: u32 = 0xA8CAEC13;
 const SF2_INTRO_TITLE_SPLASH_FNV1A: u32 = 0xE00700F2;
 const SF2_INTRO_TITLE_RESPONSE_FNV1A: u32 = 0x7B2084FE;
+const SF2_END_SCREEN_FNV1A: u32 = 0x17E2AE06;
+const SF2_END_START_RESPONSE_FNV1A: u32 = 0x6D7C2E93;
 const SF2_BRIEFING_MESSAGE_FNV1A: u32 = 0x86663F26;
 const SF2_OPENING_REPORT_FNV1A: u32 = 0x8D1501C7;
 const SF2_PILOT_SELECTION_FOX_FNV1A: u32 = 0xC2AC3D23;
@@ -121,12 +123,56 @@ fn gl_runtime_suite() {
 
     renderer.shutdown();
     check_sf2_intro_exact(&config);
+    check_sf2_ending_exact(&config);
     check_sf1_ending_recap(&config);
     check_sf2_title_exact(&config);
     check_sf2_briefing_exact(&config);
     check_sf2_opening_overview_exact(&config);
     check_sf2_pilot_selection_exact(&config);
     check_sf2_strategic_returns_exact(&config);
+}
+
+fn check_sf2_ending_exact(config: &RendererConfig) {
+    const END_SCREEN_PRESENTATION_TICK: u32 = 2_000;
+
+    let mut renderer = match Renderer::new_headless(SF2_MAP_WIDTH, SF2_MAP_HEIGHT, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping exact SF2 ending check: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    let mut inputs = sf2_inputs(Sf2Mode::Ending);
+    let sf2 = inputs.sf2.as_mut().expect("SF2 ending inputs");
+    sf2.ending_phase = Sf2EndingPhase::EndScreen;
+    sf2.ending_presentation_tick = END_SCREEN_PRESENTATION_TICK;
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+        (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+    });
+    assert_eq!(
+        hash, SF2_END_SCREEN_FNV1A,
+        "SF2 end screen drifted from the retail capture"
+    );
+
+    let sf2 = inputs.sf2.as_mut().expect("SF2 ending inputs");
+    sf2.ending_phase = Sf2EndingPhase::Leaving;
+    sf2.ending_transition_retail_frames = 0;
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+        (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+    });
+    assert_eq!(
+        hash, SF2_END_START_RESPONSE_FNV1A,
+        "SF2 accepted-Start ending response drifted from the retail capture"
+    );
+    renderer.shutdown();
 }
 
 fn check_sf2_intro_exact(config: &RendererConfig) {
@@ -793,6 +839,9 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
                 0
             },
             results_transition_retail_frames: 0,
+            ending_phase: Sf2EndingPhase::StaffRoll,
+            ending_presentation_tick: 0,
+            ending_transition_retail_frames: 0,
             primary_shield: 0,
             wingmate_shield: 0,
             item_count: 0,

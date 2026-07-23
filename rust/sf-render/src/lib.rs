@@ -36,6 +36,7 @@ mod sf2_briefing;
 mod sf2_carrier_backdrop;
 mod sf2_eladard_interior_backdrop;
 mod sf2_eladard_surface_backdrop;
+mod sf2_ending;
 mod sf2_game_over;
 mod sf2_intro;
 mod sf2_opening_overview;
