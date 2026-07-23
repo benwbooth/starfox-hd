@@ -47,6 +47,8 @@ mod fighter_intercept_fighters;
 mod fighter_intercept_projectiles;
 #[path = "final_pursuer.rs"]
 mod final_pursuer;
+#[path = "final_pursuer_projectiles.rs"]
+mod final_pursuer_projectiles;
 #[path = "final_rivals_flight.rs"]
 mod final_rivals_flight;
 #[path = "leon_duel.rs"]
@@ -83,6 +85,8 @@ mod second_sortie_fighters;
 mod second_sortie_projectiles;
 #[path = "wolf_blockade.rs"]
 mod wolf_blockade;
+#[path = "wolf_blockade_projectiles.rs"]
+mod wolf_blockade_projectiles;
 
 const BOOT_INTRO_TICKS: u32 = 5;
 const ARGONAUT_LOGO_TICKS: u32 = 34;
@@ -3148,6 +3152,12 @@ struct ActivePressureProjectile {
     object: ObjectId,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ActiveFinalRivalProjectile {
+    track_index: usize,
+    object: ObjectId,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PressureFighter {
     Vanguard,
@@ -4469,7 +4479,7 @@ pub struct Game {
     pressure_fighter_projectiles: Vec<ActivePressureProjectile>,
     leon_pressure_projectiles: Vec<ActivePressureProjectile>,
     final_rival: Option<ObjectId>,
-    final_rival_projectiles: Vec<ActivePressureProjectile>,
+    final_rival_projectiles: Vec<ActiveFinalRivalProjectile>,
     mirage_dragon: Option<ObjectId>,
     mirage_dragon_body: [Option<ObjectId>; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
     mirage_dragon_tail: Option<ObjectId>,
@@ -4507,8 +4517,8 @@ impl Game {
             ),
             final_rival: None,
             final_rival_projectiles: Vec::with_capacity(
-                final_pursuer::ENEMY_LASER_KEYFRAME_TRACKS.len()
-                    + wolf_blockade::ENEMY_LASER_KEYFRAME_TRACKS.len(),
+                final_pursuer_projectiles::PROJECTILE_COUNT
+                    + wolf_blockade_projectiles::PROJECTILE_COUNT,
             ),
             mirage_dragon: None,
             mirage_dragon_body: [None; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
@@ -6169,6 +6179,7 @@ impl Game {
             (current_player_position, previous_player_position)
         {
             self.update_final_rival_actor(retail_frame, current, previous);
+            self.update_final_rival_projectiles(retail_frame, current, previous)?;
             self.previous_mission_player_position = Some(current);
         } else {
             self.update_final_rival_actor(
@@ -6176,8 +6187,12 @@ impl Game {
                 Vector3::default(),
                 Vector3::default(),
             );
+            self.update_final_rival_projectiles(
+                retail_frame,
+                Vector3::default(),
+                Vector3::default(),
+            )?;
         }
-        self.update_final_rival_projectiles(retail_frame)?;
         Ok(())
     }
 
@@ -9684,18 +9699,118 @@ impl Game {
         )
     }
 
-    fn update_final_rival_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
-        let tracks = match self.state.mission.visit {
-            MissionVisit::FinalPursuer => final_pursuer::ENEMY_LASER_KEYFRAME_TRACKS.as_slice(),
-            MissionVisit::WolfBlockade => wolf_blockade::ENEMY_LASER_KEYFRAME_TRACKS.as_slice(),
+    fn update_final_rival_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) -> Result<(), Error> {
+        let visit = self.state.mission.visit;
+        let projectile_count = match visit {
+            MissionVisit::FinalPursuer => final_pursuer_projectiles::PROJECTILE_COUNT,
+            MissionVisit::WolfBlockade => wolf_blockade_projectiles::PROJECTILE_COUNT,
             _ => unreachable!("final rival projectiles require a final rival visit"),
         };
-        Self::update_pressure_projectile_tracks(
-            &mut self.state,
-            &mut self.final_rival_projectiles,
-            tracks,
-            retail_frame,
-        )
+        for track_index in 0..projectile_count {
+            let (start_retail_frame, end_retail_frame, initial_pose) = match visit {
+                MissionVisit::FinalPursuer => {
+                    let descriptor = final_pursuer_projectiles::descriptor(track_index)
+                        .expect("final pursuer projectile descriptor exists");
+                    (
+                        descriptor.start_retail_frame,
+                        descriptor.end_retail_frame,
+                        descriptor.initial_pose,
+                    )
+                }
+                MissionVisit::WolfBlockade => {
+                    let descriptor = wolf_blockade_projectiles::descriptor(track_index)
+                        .expect("Wolf blockade projectile descriptor exists");
+                    (
+                        descriptor.start_retail_frame,
+                        descriptor.end_retail_frame,
+                        descriptor.initial_pose,
+                    )
+                }
+                _ => unreachable!("final rival projectiles require a final rival visit"),
+            };
+            let active_index = self
+                .final_rival_projectiles
+                .iter()
+                .position(|projectile| projectile.track_index == track_index);
+            if retail_frame < start_retail_frame || retail_frame > end_retail_frame {
+                if retail_frame > end_retail_frame {
+                    if let Some(index) = active_index {
+                        let projectile = self.final_rival_projectiles.swap_remove(index);
+                        self.state.objects.remove(projectile.object);
+                    }
+                }
+                continue;
+            }
+
+            let projectile_id = if let Some(index) = active_index {
+                self.final_rival_projectiles[index].object
+            } else {
+                let mut projectile = Object::new(
+                    ObjectKind::Projectile,
+                    ShapeId::ENEMY_LASER,
+                    Behavior::Projectile,
+                );
+                projectile.base.weapon = WeaponKind::EnemyLaser;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.collision_class = CollisionClass::EnemyWeapon;
+                projectile.base.flags.casts_shadow = false;
+                projectile.base.position = initial_pose.position;
+                projectile.base.pitch = Angle::from_units(initial_pose.pitch);
+                projectile.base.yaw = Angle::from_units(initial_pose.yaw);
+                projectile.base.roll = Angle::from_units(initial_pose.roll);
+                projectile.base.speed = initial_pose.speed;
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
+                        motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
+                    });
+                let projectile_id = self
+                    .state
+                    .objects
+                    .allocate(projectile)
+                    .ok_or(Error::ObjectCapacityReached)?;
+                self.final_rival_projectiles.push(ActiveFinalRivalProjectile {
+                    track_index,
+                    object: projectile_id,
+                });
+                projectile_id
+            };
+
+            if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
+                    projectile.extension.activity
+                else {
+                    continue;
+                };
+                let actions = match visit {
+                    MissionVisit::FinalPursuer => {
+                        final_pursuer_projectiles::actions(track_index, retail_frame)
+                    }
+                    MissionVisit::WolfBlockade => {
+                        wolf_blockade_projectiles::actions(track_index, retail_frame)
+                    }
+                    _ => unreachable!("final rival projectiles require a final rival visit"),
+                };
+                for &action in actions {
+                    apply_hostile_projectile_action(
+                        projectile,
+                        &mut flight,
+                        action,
+                        player_position,
+                        previous_player_position,
+                    );
+                }
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+        }
+        Ok(())
     }
 
     fn update_pressure_projectile_tracks(
@@ -17886,6 +18001,211 @@ mod tests {
             &wolf_blockade::PLAYER_KEYFRAMES,
             &wolf_blockade::RIVAL_KEYFRAMES,
             RETAINED_RIVAL_POSE_COUNT,
+        );
+    }
+
+    fn assert_typed_final_rival_projectiles_match_every_oracle_boundary(
+        visit: MissionVisit,
+        player_keyframes: &[MissionPlayerKeyframe],
+        projectile_tracks: &[&[MissionProjectileKeyframe]],
+        projectile_count: usize,
+        retained_projectile_pose_count: usize,
+        descriptor: impl Fn(usize) -> (u16, u16, MissionEncounterPose),
+        actions: impl Fn(usize, u16) -> &'static [HostileProjectileAction],
+    ) {
+        let mut game = Game::new();
+        game.state.mission.visit = visit;
+        let last_retail_frame = projectile_tracks
+            .iter()
+            .filter_map(|track| track.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("final rival projectile oracle contains retained poses");
+        let mut retained_poses = 0;
+
+        let player_position_at = |retail_frame: u16| {
+            let player_index =
+                usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            player_keyframes
+                .get(player_index)
+                .or_else(|| player_keyframes.last())
+                .expect("final rival oracle has player poses")
+                .position
+        };
+
+        for retail_frame in
+            (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_position = player_position_at(retail_frame);
+            let previous_player_position = player_position_at(
+                retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+            );
+            game.update_final_rival_projectiles(
+                retail_frame,
+                player_position,
+                previous_player_position,
+            )
+            .unwrap();
+
+            let expected_active = projectile_tracks
+                .iter()
+                .filter(|track| {
+                    track
+                        .first()
+                        .zip(track.last())
+                        .is_some_and(|(first, last)| {
+                            (first.retail_frame..=last.retail_frame).contains(&retail_frame)
+                        })
+                })
+                .count();
+            assert_eq!(
+                game.final_rival_projectiles.len(),
+                expected_active,
+                "active final rival projectile count at frame {retail_frame}"
+            );
+
+            for (track_index, keyframes) in projectile_tracks.iter().copied().enumerate() {
+                let Some(first) = keyframes.first() else {
+                    continue;
+                };
+                let Some(last) = keyframes.last() else {
+                    continue;
+                };
+                if !(first.retail_frame..=last.retail_frame).contains(&retail_frame) {
+                    continue;
+                }
+                let keyframe_index = usize::from(
+                    (retail_frame - first.retail_frame)
+                        / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+                );
+                let expected = keyframes[keyframe_index];
+                assert_eq!(expected.retail_frame, retail_frame);
+                retained_poses += 1;
+
+                let active = game
+                    .final_rival_projectiles
+                    .iter()
+                    .find(|projectile| projectile.track_index == track_index)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "final rival projectile track {track_index} absent at frame {retail_frame}"
+                        )
+                    });
+                let projectile = game.state().objects.get(active.object).unwrap();
+                assert_eq!(
+                    projectile.base.position, expected.pose.position,
+                    "final rival projectile track {track_index} at frame {retail_frame}"
+                );
+                assert_eq!(projectile.base.pitch.units(), expected.pose.pitch);
+                assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
+                assert_eq!(projectile.base.roll.units(), expected.pose.roll);
+                assert_eq!(projectile.base.speed, expected.pose.speed);
+                assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
+
+                let (_, _, initial_pose) = descriptor(track_index);
+                let mut expected_object = Object::new(
+                    ObjectKind::Projectile,
+                    ShapeId::ENEMY_LASER,
+                    Behavior::Projectile,
+                );
+                expected_object.base.position = initial_pose.position;
+                expected_object.base.pitch = Angle::from_units(initial_pose.pitch);
+                expected_object.base.yaw = Angle::from_units(initial_pose.yaw);
+                expected_object.base.roll = Angle::from_units(initial_pose.roll);
+                expected_object.base.speed = initial_pose.speed;
+                let mut expected_flight = HostileProjectileFlightState {
+                    phase: HostileProjectileFlightPhase::Homing,
+                    motion_steps_elapsed: 0,
+                    movement_phase: HostileProjectileMovementPhase::Ready,
+                };
+                let first_action_frame = first
+                    .retail_frame
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                for action_frame in (first_action_frame..=retail_frame)
+                    .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+                {
+                    let action_player_position = player_position_at(action_frame);
+                    let action_previous_player_position = player_position_at(
+                        action_frame
+                            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                    );
+                    for &action in actions(track_index, action_frame) {
+                        apply_hostile_projectile_action(
+                            &mut expected_object,
+                            &mut expected_flight,
+                            action,
+                            action_player_position,
+                            action_previous_player_position,
+                        );
+                    }
+                }
+                assert_eq!(projectile.base.velocity, expected_object.base.velocity);
+                assert_eq!(
+                    projectile.extension.activity,
+                    ObjectActivity::HostileProjectileFlight(expected_flight),
+                    "final rival projectile track {track_index} state at frame {retail_frame}"
+                );
+            }
+        }
+
+        assert_eq!(projectile_tracks.len(), projectile_count);
+        assert_eq!(retained_poses, retained_projectile_pose_count);
+        let cleanup_frame = last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        game.update_final_rival_projectiles(
+            cleanup_frame,
+            player_position_at(cleanup_frame),
+            player_position_at(
+                cleanup_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+            ),
+        )
+        .unwrap();
+        assert!(game.final_rival_projectiles.is_empty());
+    }
+
+    #[test]
+    fn typed_final_pursuer_projectiles_match_every_oracle_boundary() {
+        const RETAINED_PROJECTILE_POSE_COUNT: usize = 49;
+
+        assert_typed_final_rival_projectiles_match_every_oracle_boundary(
+            MissionVisit::FinalPursuer,
+            &final_pursuer::PLAYER_KEYFRAMES,
+            &final_pursuer::ENEMY_LASER_KEYFRAME_TRACKS,
+            final_pursuer_projectiles::PROJECTILE_COUNT,
+            RETAINED_PROJECTILE_POSE_COUNT,
+            |track_index| {
+                let descriptor = final_pursuer_projectiles::descriptor(track_index)
+                    .expect("final pursuer projectile descriptor exists");
+                (
+                    descriptor.start_retail_frame,
+                    descriptor.end_retail_frame,
+                    descriptor.initial_pose,
+                )
+            },
+            final_pursuer_projectiles::actions,
+        );
+    }
+
+    #[test]
+    fn typed_wolf_blockade_projectiles_match_every_oracle_boundary() {
+        const RETAINED_PROJECTILE_POSE_COUNT: usize = 89;
+
+        assert_typed_final_rival_projectiles_match_every_oracle_boundary(
+            MissionVisit::WolfBlockade,
+            &wolf_blockade::PLAYER_KEYFRAMES,
+            &wolf_blockade::ENEMY_LASER_KEYFRAME_TRACKS,
+            wolf_blockade_projectiles::PROJECTILE_COUNT,
+            RETAINED_PROJECTILE_POSE_COUNT,
+            |track_index| {
+                let descriptor = wolf_blockade_projectiles::descriptor(track_index)
+                    .expect("Wolf blockade projectile descriptor exists");
+                (
+                    descriptor.start_retail_frame,
+                    descriptor.end_retail_frame,
+                    descriptor.initial_pose,
+                )
+            },
+            wolf_blockade_projectiles::actions,
         );
     }
 

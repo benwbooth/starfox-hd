@@ -180,8 +180,11 @@ def import_raw_logic(
     output: Path,
     sample_start_elapsed: int = RAW_SAMPLE_START_ELAPSED,
     encounter_name: str = "first-reengagement",
+    included_sources: frozenset[str] | None = None,
 ) -> None:
     actions = read_raw_actions(source, sample_start_elapsed)
+    if included_sources is not None:
+        actions = [action for action in actions if action.source in included_sources]
     lines = [
         f"# Compact oracle evidence for {encounter_name} hostile projectiles.",
         f"# Raw source SHA-256: {hashlib.sha256(source.read_bytes()).hexdigest()}",
