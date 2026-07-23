@@ -15,8 +15,12 @@ const STRATEGIC_MAP_FILE: &str = "strategic_map.wav";
 const PILOT_SELECTION_FILE: &str = "pilot_selection.wav";
 const OPEN_SPACE_COMBAT_FILE: &str = "open_space_combat.wav";
 const FIGHTER_INTERCEPT_FILE: &str = "fighter_intercept.wav";
+const VENOM_BASE_FILE: &str = "venom_base.wav";
 const TITANIA_BASE_FILE: &str = "titania_base.wav";
+const MACBETH_BASE_FILE: &str = "macbeth_base.wav";
 const ELADARD_BASE_FILE: &str = "eladard_base.wav";
+const METEOR_BASE_FILE: &str = "meteor_base.wav";
+const FORTUNA_BASE_FILE: &str = "fortuna_base.wav";
 const BATTLE_CARRIER_FILE: &str = "battle_carrier.wav";
 const MIRAGE_DRAGON_FILE: &str = "mirage_dragon.wav";
 const RIVAL_ENCOUNTER_FILE: &str = "rival_encounter.wav";
@@ -43,12 +47,12 @@ const CAPITAL_ENGINE_FAR_RIGHT_FILE: &str = "capital_engine_far_right.wav";
 const CAPITAL_ENGINE_DISTANT_LEFT_FILE: &str = "capital_engine_distant_left.wav";
 const CAPITAL_ENGINE_DISTANT_CENTER_FILE: &str = "capital_engine_distant_center.wav";
 const CAPITAL_ENGINE_DISTANT_RIGHT_FILE: &str = "capital_engine_distant_right.wav";
-const MUSIC_CUE_COUNT: usize = 15;
+const MUSIC_CUE_COUNT: usize = 19;
 const SOUND_EFFECT_COUNT: usize = 5;
 const ENGINE_CUE_COUNT: usize = 1;
 const CHARGE_CUE_COUNT: usize = 2;
 const SPATIAL_CUE_COUNT: usize = 12;
-const SOUND_BANK_COUNT: usize = 8;
+const SOUND_BANK_COUNT: usize = 12;
 const SOUND_PILOT_COUNT: usize = 6;
 const REQUIRED_MUSIC: [&str; MUSIC_CUE_COUNT] = [
     LOGO_PRESENTATION_FILE,
@@ -58,8 +62,12 @@ const REQUIRED_MUSIC: [&str; MUSIC_CUE_COUNT] = [
     PILOT_SELECTION_FILE,
     OPEN_SPACE_COMBAT_FILE,
     FIGHTER_INTERCEPT_FILE,
+    VENOM_BASE_FILE,
     TITANIA_BASE_FILE,
+    MACBETH_BASE_FILE,
     ELADARD_BASE_FILE,
+    METEOR_BASE_FILE,
+    FORTUNA_BASE_FILE,
     BATTLE_CARRIER_FILE,
     MIRAGE_DRAGON_FILE,
     RIVAL_ENCOUNTER_FILE,
@@ -100,8 +108,12 @@ pub enum Sf2MusicCue {
     PilotSelection,
     OpenSpaceCombat,
     FighterIntercept,
+    VenomBase,
     TitaniaBase,
+    MacbethBase,
     EladardBase,
+    MeteorBase,
+    FortunaBase,
     BattleCarrier,
     MirageDragon,
     RivalEncounter,
@@ -120,8 +132,12 @@ impl Sf2MusicCue {
             Self::PilotSelection => PILOT_SELECTION_FILE,
             Self::OpenSpaceCombat => OPEN_SPACE_COMBAT_FILE,
             Self::FighterIntercept => FIGHTER_INTERCEPT_FILE,
+            Self::VenomBase => VENOM_BASE_FILE,
             Self::TitaniaBase => TITANIA_BASE_FILE,
+            Self::MacbethBase => MACBETH_BASE_FILE,
             Self::EladardBase => ELADARD_BASE_FILE,
+            Self::MeteorBase => METEOR_BASE_FILE,
+            Self::FortunaBase => FORTUNA_BASE_FILE,
             Self::BattleCarrier => BATTLE_CARRIER_FILE,
             Self::MirageDragon => MIRAGE_DRAGON_FILE,
             Self::RivalEncounter => RIVAL_ENCOUNTER_FILE,
@@ -136,8 +152,12 @@ impl Sf2MusicCue {
 pub enum Sf2SoundBank {
     OpenSpaceCombat,
     FighterIntercept,
+    VenomBase,
     TitaniaBase,
+    MacbethBase,
     EladardBase,
+    MeteorBase,
+    FortunaBase,
     BattleCarrier,
     MirageDragon,
     RivalEncounter,
@@ -148,8 +168,12 @@ impl Sf2SoundBank {
     const ALL: [Self; SOUND_BANK_COUNT] = [
         Self::OpenSpaceCombat,
         Self::FighterIntercept,
+        Self::VenomBase,
         Self::TitaniaBase,
+        Self::MacbethBase,
         Self::EladardBase,
+        Self::MeteorBase,
+        Self::FortunaBase,
         Self::BattleCarrier,
         Self::MirageDragon,
         Self::RivalEncounter,
@@ -160,8 +184,12 @@ impl Sf2SoundBank {
         match self {
             Self::OpenSpaceCombat => "open_space",
             Self::FighterIntercept => "fighter_intercept",
+            Self::VenomBase => "venom",
             Self::TitaniaBase => "titania",
+            Self::MacbethBase => "macbeth",
             Self::EladardBase => "eladard",
+            Self::MeteorBase => "meteor",
+            Self::FortunaBase => "fortuna",
             Self::BattleCarrier => "carrier",
             Self::MirageDragon => "mirage",
             Self::RivalEncounter => "rival",
@@ -351,9 +379,12 @@ impl Sf2NativePlayer {
         let engines = Self::variant_files(&REQUIRED_ENGINE);
         let ambience = Self::variant_files(&REQUIRED_AMBIENCE);
         let positional = Self::variant_files(&REQUIRED_POSITIONAL);
-        self.mixer.validate_named_effects(&Self::file_refs(&effects))?;
-        self.mixer.validate_named_engine(&Self::file_refs(&engines))?;
-        self.mixer.validate_named_ambience(&Self::file_refs(&ambience))?;
+        self.mixer
+            .validate_named_effects(&Self::file_refs(&effects))?;
+        self.mixer
+            .validate_named_engine(&Self::file_refs(&engines))?;
+        self.mixer
+            .validate_named_ambience(&Self::file_refs(&ambience))?;
         self.mixer
             .validate_named_positional(&Self::file_refs(&positional))
     }
@@ -416,9 +447,8 @@ impl Sf2NativePlayer {
     }
 
     fn variant_files(files: &[&str]) -> Vec<String> {
-        let mut variants = Vec::with_capacity(
-            Sf2SoundBank::ALL.len() * Sf2SoundPilot::ALL.len() * files.len(),
-        );
+        let mut variants =
+            Vec::with_capacity(Sf2SoundBank::ALL.len() * Sf2SoundPilot::ALL.len() * files.len());
         for bank in Sf2SoundBank::ALL {
             for pilot in Sf2SoundPilot::ALL {
                 for file in files {
@@ -431,5 +461,59 @@ impl Sf2NativePlayer {
 
     fn file_refs(files: &[String]) -> Vec<&str> {
         files.iter().map(String::as_str).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn planetary_worlds_keep_distinct_semantic_music_and_sound_banks() {
+        let worlds = [
+            (
+                Sf2MusicCue::VenomBase,
+                VENOM_BASE_FILE,
+                Sf2SoundBank::VenomBase,
+                "venom",
+            ),
+            (
+                Sf2MusicCue::TitaniaBase,
+                TITANIA_BASE_FILE,
+                Sf2SoundBank::TitaniaBase,
+                "titania",
+            ),
+            (
+                Sf2MusicCue::MacbethBase,
+                MACBETH_BASE_FILE,
+                Sf2SoundBank::MacbethBase,
+                "macbeth",
+            ),
+            (
+                Sf2MusicCue::EladardBase,
+                ELADARD_BASE_FILE,
+                Sf2SoundBank::EladardBase,
+                "eladard",
+            ),
+            (
+                Sf2MusicCue::MeteorBase,
+                METEOR_BASE_FILE,
+                Sf2SoundBank::MeteorBase,
+                "meteor",
+            ),
+            (
+                Sf2MusicCue::FortunaBase,
+                FORTUNA_BASE_FILE,
+                Sf2SoundBank::FortunaBase,
+                "fortuna",
+            ),
+        ];
+
+        for (music, music_file, sound, sound_directory) in worlds {
+            assert_eq!(music.filename(), music_file);
+            assert!(REQUIRED_MUSIC.contains(&music_file));
+            assert_eq!(sound.directory(), sound_directory);
+            assert!(Sf2SoundBank::ALL.contains(&sound));
+        }
     }
 }

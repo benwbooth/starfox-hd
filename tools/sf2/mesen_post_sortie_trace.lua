@@ -65,6 +65,8 @@ local force_eladard_core_trigger =
   os.getenv("SF2_ORACLE_FORCE_ELADARD_CORE_TRIGGER") == "1"
 local trace_stage_writes =
   os.getenv("SF2_ORACLE_TRACE_STAGE_WRITES") == "1"
+trace_audio_programs =
+  os.getenv("SF2_ORACLE_TRACE_AUDIO_PROGRAMS") == "1"
 local trace_map_motion =
   os.getenv("SF2_ORACLE_TRACE_MAP_MOTION") == "1"
 local trace_final_gate =
@@ -313,6 +315,7 @@ function capture_screen_range_contains(elapsed)
 end
 local temporarily_masked_pressure = {}
 local lines = {}
+audio_program_lines = {}
 local craft_transition_lines = {}
 local walker_dynamics_lines = {}
 sortie_actor_oracle = {
@@ -745,6 +748,22 @@ local function trace_stage_write(address, value)
     frame - armed_frame,
     address,
     value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+function trace_audio_program_entry()
+  if not trace_audio_programs or not armed then return end
+  local state = emu.getState()
+  audio_program_lines[#audio_program_lines + 1] = string.format(
+    "elapsed=%d mode=%d submode=%d mission=%d record=%03X conditional=%d " ..
+      "host=%02X:%04X",
+    frame - armed_frame,
+    work_byte(0x1B68),
+    work_byte(0x1B76),
+    work_byte(0x1BB5),
+    work_word(0x1B6E),
+    work_byte(0x1BBB),
     state["cpu.k"] or 0,
     state["cpu.pc"] or 0)
 end
@@ -2799,6 +2818,11 @@ local function end_frame()
         "sf2_craft_transition_trace.txt",
         table.concat(craft_transition_lines, "\n") .. "\n")
     end
+    if trace_audio_programs then
+      write_file(
+        "sf2_audio_program_trace.txt",
+        table.concat(audio_program_lines, "\n") .. "\n")
+    end
     if sortie_actor_oracle.enabled then
       write_file(
         "sf2_sortie_actor_logic.txt",
@@ -3267,6 +3291,17 @@ if trace_stage_writes then
     0xE098,
     emu.cpuType.snes,
     emu.memType.snesWorkRam)
+end
+if trace_audio_programs then
+  -- Oracle-only hook at the retail audio-program dispatcher. Shipping code
+  -- receives semantic cue names, never this program record or host state.
+  emu.addMemoryCallback(
+    trace_audio_program_entry,
+    emu.callbackType.exec,
+    0x03E1E5,
+    0x03E1E5,
+    emu.cpuType.snes,
+    emu.memType.snesMemory)
 end
 if trace_final_gate then
   -- Oracle-only access trace.  The first range is the static Astropolis map

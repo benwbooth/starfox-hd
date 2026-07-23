@@ -31,7 +31,7 @@ const ENGINE_DURATION_SECONDS: usize = 4;
 const LOOP_SEARCH_START_SECONDS: usize = 1;
 const LOOP_COMPARISON_FRAMES: usize = 512;
 
-const SOURCE_SOUND_BANK_COUNT: usize = 8;
+const SOURCE_SOUND_BANK_COUNT: usize = 12;
 const SOURCE_PILOT_COUNT: usize = 6;
 const SEMANTIC_SOUND_COUNT: usize = 20;
 
@@ -44,8 +44,12 @@ struct SourceSoundBank {
 const SOURCE_SOUND_BANKS: [(&str, u16); SOURCE_SOUND_BANK_COUNT] = [
     ("open_space", 0x115),
     ("fighter_intercept", 0x129),
+    ("venom", 0x062),
     ("titania", 0x076),
+    ("macbeth", 0x08A),
     ("eladard", 0x09E),
+    ("meteor", 0x0B2),
+    ("fortuna", 0x0C3),
     ("carrier", 0x13D),
     ("mirage", 0x151),
     ("rival", 0x173),

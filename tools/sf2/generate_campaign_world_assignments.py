@@ -26,6 +26,9 @@ DEFAULT_OUTPUT = (
     / "campaign_world_assignments.rs"
 )
 DEFAULT_ENTRY_TRACE = Path(__file__).with_name("fixtures") / "campaign_world_entries.trace"
+AUDIO_PROGRAM_TABLE = 0x1E495
+AUDIO_PROGRAM_TABLE_END = 0x1E724
+WORLD_AUDIO_PROGRAM_RECORDS = (0x062, 0x076, 0x08A, 0x09E, 0x0B2, 0x0C3)
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,9 @@ class EntryEvidence:
     setup_map: int
     active_map: int
     player: tuple[int, int, int]
+    audio_program: int
+    entry_trace_sha256: str
+    audio_trace_sha256: str
 
 
 def fields(line: str) -> dict[str, str]:
@@ -44,7 +50,19 @@ def fields(line: str) -> dict[str, str]:
     }
 
 
-def load_entry_evidence(trace: Path) -> dict[str, EntryEvidence]:
+def audio_program_records(rom: bytes) -> set[int]:
+    records = set()
+    record = 0
+    while AUDIO_PROGRAM_TABLE + record < AUDIO_PROGRAM_TABLE_END:
+        records.add(record)
+        upload_count = rom[AUDIO_PROGRAM_TABLE + record]
+        record += 2 + upload_count * 3
+    if AUDIO_PROGRAM_TABLE + record != AUDIO_PROGRAM_TABLE_END:
+        raise SystemExit("retail audio program table does not end on a record boundary")
+    return records
+
+
+def load_entry_evidence(trace: Path, rom: bytes) -> dict[str, EntryEvidence]:
     entries: dict[str, EntryEvidence] = {}
     for line in trace.read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
@@ -57,6 +75,9 @@ def load_entry_evidence(trace: Path) -> dict[str, EntryEvidence]:
             setup_map=int(values["setup_map"], 16),
             active_map=int(values["active_map"], 16),
             player=tuple(int(value) for value in values["player"].split(",")),
+            audio_program=int(values["audio_program"], 16),
+            entry_trace_sha256=values["entry_trace_sha256"],
+            audio_trace_sha256=values["audio_trace_sha256"],
         )
 
     expected_names = {"venom", "macbeth", "meteor", "fortuna"}
@@ -66,11 +87,24 @@ def load_entry_evidence(trace: Path) -> dict[str, EntryEvidence]:
         raise SystemExit("campaign-world setup maps must be distinct")
     if len({entry.active_map for entry in entries.values()}) != len(entries):
         raise SystemExit("campaign-world active maps must be distinct")
+    if len({entry.audio_program for entry in entries.values()}) != len(entries):
+        raise SystemExit("campaign-world audio programs must be distinct")
+    retail_audio_programs = audio_program_records(rom)
     for name, entry in entries.items():
         if WORLD_NAMES_BY_SELECTION[entry.mission_selection] != name:
             raise SystemExit(f"{name} entry disagrees with its retail map label")
         if len(entry.player) != 3:
             raise SystemExit(f"{name} entry has an incomplete player position")
+        if entry.audio_program != WORLD_AUDIO_PROGRAM_RECORDS[entry.mission_selection]:
+            raise SystemExit(f"{name} entry disagrees with the retail world-audio sequence")
+        if entry.audio_program not in retail_audio_programs:
+            raise SystemExit(f"{name} audio program is not a retail record")
+        for digest in (entry.entry_trace_sha256, entry.audio_trace_sha256):
+            invalid_character = any(
+                character not in "0123456789abcdef" for character in digest
+            )
+            if len(digest) != 64 or invalid_character:
+                raise SystemExit(f"{name} entry has an invalid trace digest")
     return entries
 
 
@@ -89,7 +123,7 @@ def rust_row(row: tuple[int, ...]) -> str:
 
 
 def rust_source(rom: bytes, entry_trace: Path) -> str:
-    entry_evidence = load_entry_evidence(entry_trace)
+    entry_evidence = load_entry_evidence(entry_trace, rom)
     normal_profile = profile(rom, 0)
     hard_profile = profile(rom, 1)
     expert_profile = profile(rom, 2)

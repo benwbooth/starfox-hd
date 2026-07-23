@@ -3,15 +3,7 @@
 # are recorded solely to keep the independently reached retail missions
 # distinguishable.
 #
-# Venom entry trace SHA-256:
-# 0bef0eeb680248fb031481c3a69de84fbf5f3d2f12feb02cb27a1f52747c8dc5
-# Macbeth entry trace SHA-256:
-# d002c05e1ee8f11bcb570af1fc2cab8deb9555898cd39fdeeeafc8bd8d73c117
-# Meteor entry trace SHA-256:
-# 92abf140c8fbeeb4e83aa60ae92f8bffa86d9d4460c41972e6f358ab95df1ff9
-# Fortuna entry trace SHA-256:
-# 2c25146e93e2766a9e74423cb590b87ad58c2c8678766aeb7b422a93e2d152eb
-entry name=venom mission_selection=0 setup_map=00E8 active_map=03AE player=0,-300,-3500
-entry name=macbeth mission_selection=2 setup_map=2213 active_map=24D8 player=0,-800,-3072
-entry name=meteor mission_selection=4 setup_map=3D99 active_map=4012 player=0,-300,-3500
-entry name=fortuna mission_selection=5 setup_map=489E active_map=4B40 player=0,-1150,-3072
+entry name=venom mission_selection=0 setup_map=00E8 active_map=03AE player=0,-300,-3500 audio_program=062 entry_trace_sha256=0bef0eeb680248fb031481c3a69de84fbf5f3d2f12feb02cb27a1f52747c8dc5 audio_trace_sha256=f78c55f3ef1c4b90b4ded934616c5ce6fcd4a99add5e3c3569f8a4e2b1c90a9f
+entry name=macbeth mission_selection=2 setup_map=2213 active_map=24D8 player=0,-800,-3072 audio_program=08A entry_trace_sha256=d002c05e1ee8f11bcb570af1fc2cab8deb9555898cd39fdeeeafc8bd8d73c117 audio_trace_sha256=7505a59485dff24f9c295da79d033eefa523f2563725a6e9a2afdfe528853c2d
+entry name=meteor mission_selection=4 setup_map=3D99 active_map=4012 player=0,-300,-3500 audio_program=0B2 entry_trace_sha256=92abf140c8fbeeb4e83aa60ae92f8bffa86d9d4460c41972e6f358ab95df1ff9 audio_trace_sha256=c942055c7d85b896600d0e4512873212e9d14f80dd385be26dee8bcb484aaf5e
+entry name=fortuna mission_selection=5 setup_map=489E active_map=4B40 player=0,-1150,-3072 audio_program=0C3 entry_trace_sha256=2c25146e93e2766a9e74423cb590b87ad58c2c8678766aeb7b422a93e2d152eb audio_trace_sha256=3f8cd5b02295b6835d63470afffca350dc44e98c2014fa8e7c5348c85c1b5018

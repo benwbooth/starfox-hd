@@ -19,8 +19,12 @@ const STRATEGIC_MAP_RECORD: u16 = 0x036;
 const PILOT_SELECTION_RECORD: u16 = 0x011;
 const OPEN_SPACE_COMBAT_RECORD: u16 = 0x115;
 const FIGHTER_INTERCEPT_RECORD: u16 = 0x129;
+const VENOM_BASE_RECORD: u16 = 0x062;
 const TITANIA_BASE_RECORD: u16 = 0x076;
+const MACBETH_BASE_RECORD: u16 = 0x08A;
 const ELADARD_BASE_RECORD: u16 = 0x09E;
+const METEOR_BASE_RECORD: u16 = 0x0B2;
+const FORTUNA_BASE_RECORD: u16 = 0x0C3;
 const BATTLE_CARRIER_RECORD: u16 = 0x13D;
 const MIRAGE_DRAGON_RECORD: u16 = 0x151;
 const RIVAL_ENCOUNTER_RECORD: u16 = 0x173;
@@ -37,8 +41,12 @@ enum SemanticCue {
     PilotSelection,
     OpenSpaceCombat,
     FighterIntercept,
+    VenomBase,
     TitaniaBase,
+    MacbethBase,
     EladardBase,
+    MeteorBase,
+    FortunaBase,
     BattleCarrier,
     MirageDragon,
     RivalEncounter,
@@ -57,8 +65,12 @@ impl SemanticCue {
             Self::PilotSelection => PILOT_SELECTION_RECORD,
             Self::OpenSpaceCombat => OPEN_SPACE_COMBAT_RECORD,
             Self::FighterIntercept => FIGHTER_INTERCEPT_RECORD,
+            Self::VenomBase => VENOM_BASE_RECORD,
             Self::TitaniaBase => TITANIA_BASE_RECORD,
+            Self::MacbethBase => MACBETH_BASE_RECORD,
             Self::EladardBase => ELADARD_BASE_RECORD,
+            Self::MeteorBase => METEOR_BASE_RECORD,
+            Self::FortunaBase => FORTUNA_BASE_RECORD,
             Self::BattleCarrier => BATTLE_CARRIER_RECORD,
             Self::MirageDragon => MIRAGE_DRAGON_RECORD,
             Self::RivalEncounter => RIVAL_ENCOUNTER_RECORD,
@@ -77,8 +89,12 @@ impl SemanticCue {
             Self::PilotSelection => "pilot_selection",
             Self::OpenSpaceCombat => "open_space_combat",
             Self::FighterIntercept => "fighter_intercept",
+            Self::VenomBase => "venom_base",
             Self::TitaniaBase => "titania_base",
+            Self::MacbethBase => "macbeth_base",
             Self::EladardBase => "eladard_base",
+            Self::MeteorBase => "meteor_base",
+            Self::FortunaBase => "fortuna_base",
             Self::BattleCarrier => "battle_carrier",
             Self::MirageDragon => "mirage_dragon",
             Self::RivalEncounter => "rival_encounter",
@@ -107,7 +123,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let asset_dir = std::env::var_os("SF2_ASSET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/sf2"));
-    let output_dir = asset_dir.join("../native_audio_sf2/music");
+    let output_dir = std::env::var_os("SF2_NATIVE_MUSIC_OUTPUT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| asset_dir.join("../native_audio_sf2/music"));
     std::fs::create_dir_all(&output_dir)?;
 
     for selection in selections {
@@ -140,8 +158,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     | SemanticCue::PilotSelection
                     | SemanticCue::OpenSpaceCombat
                     | SemanticCue::FighterIntercept
+                    | SemanticCue::VenomBase
                     | SemanticCue::TitaniaBase
+                    | SemanticCue::MacbethBase
                     | SemanticCue::EladardBase
+                    | SemanticCue::MeteorBase
+                    | SemanticCue::FortunaBase
                     | SemanticCue::BattleCarrier
                     | SemanticCue::MirageDragon
                     | SemanticCue::RivalEncounter
@@ -225,10 +247,18 @@ fn parse_selections(
                 Ok(ProgramSelection::Semantic(SemanticCue::OpenSpaceCombat))
             } else if value == "fighter-intercept" {
                 Ok(ProgramSelection::Semantic(SemanticCue::FighterIntercept))
+            } else if value == "venom" {
+                Ok(ProgramSelection::Semantic(SemanticCue::VenomBase))
             } else if value == "titania" {
                 Ok(ProgramSelection::Semantic(SemanticCue::TitaniaBase))
+            } else if value == "macbeth" {
+                Ok(ProgramSelection::Semantic(SemanticCue::MacbethBase))
             } else if value == "eladard" {
                 Ok(ProgramSelection::Semantic(SemanticCue::EladardBase))
+            } else if value == "meteor" {
+                Ok(ProgramSelection::Semantic(SemanticCue::MeteorBase))
+            } else if value == "fortuna" {
+                Ok(ProgramSelection::Semantic(SemanticCue::FortunaBase))
             } else if value == "carrier" {
                 Ok(ProgramSelection::Semantic(SemanticCue::BattleCarrier))
             } else if value == "mirage" {
