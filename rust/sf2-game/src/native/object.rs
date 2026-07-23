@@ -369,6 +369,34 @@ pub struct ReengagementFighterFlightState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FighterInterceptMovementPhase {
+    Ready,
+    HorizontalApplied,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FighterInterceptWeaponPhase {
+    Flight,
+    Aiming { flight_pitch: Angle },
+}
+
+/// Flat, typed flight variables for the three-fighter interception. The
+/// corridor fields are ordinary world-space maneuver targets: lateral drift,
+/// altitude, and longitudinal drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FighterInterceptFlightState {
+    pub vertical_wave_phase: Angle,
+    pub cruise_target_speed: u8,
+    pub cruise_acceleration: u8,
+    pub corridor_drift_x: i16,
+    pub corridor_altitude: i16,
+    pub corridor_drift_z: i16,
+    pub pending_velocity: Vector3,
+    pub movement_phase: FighterInterceptMovementPhase,
+    pub weapon_phase: FighterInterceptWeaponPhase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapitalMovementPhase {
     Ready,
     HorizontalApplied,
@@ -440,6 +468,7 @@ pub enum ObjectActivity {
     None,
     FighterFlight(FighterFlightState),
     ReengagementFighterFlight(ReengagementFighterFlightState),
+    FighterInterceptFlight(FighterInterceptFlightState),
     CapitalFlight(CapitalFlightState),
     HostileProjectileFlight(HostileProjectileFlightState),
     PlayerProjectile(PlayerProjectileState),

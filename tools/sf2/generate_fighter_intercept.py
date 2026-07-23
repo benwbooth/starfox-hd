@@ -265,12 +265,15 @@ def rust_source(
         "//! tools/sf2/generate_fighter_intercept.py [--check]`.",
         "",
         "use super::{",
-        "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,",
-        "    mission_actor_keyframe, mission_camera_keyframe, mission_player_keyframe,",
-        "    MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,",
+        "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,",
+        "    MissionPlayerKeyframe,",
         "};",
         "#[cfg(test)]",
-        "use super::{mission_projectile_keyframe, MissionProjectileKeyframe};",
+        "use super::{",
+        "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,",
+        "    mission_actor_keyframe, mission_projectile_keyframe, MissionActorKeyframe,",
+        "    MissionProjectileKeyframe,",
+        "};",
         "",
         f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
         f"pub(super) const MAP_READY_RETAIL_FRAME: u16 = {map_ready_frame};",
@@ -315,6 +318,7 @@ def rust_source(
         lines.extend(
             [
                 "",
+                "#[cfg(test)]",
                 f"pub(super) const {constant_name}: [MissionActorKeyframe; "
                 f"{len(fighter_records) + 1}] = [",
             ]

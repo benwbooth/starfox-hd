@@ -5,12 +5,15 @@
 //! tools/sf2/generate_fighter_intercept.py [--check]`.
 
 use super::{
-    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,
-    mission_actor_keyframe, mission_camera_keyframe, mission_player_keyframe,
-    MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
+    MissionPlayerKeyframe,
 };
 #[cfg(test)]
-use super::{mission_projectile_keyframe, MissionProjectileKeyframe};
+use super::{
+    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,
+    mission_actor_keyframe, mission_projectile_keyframe, MissionActorKeyframe,
+    MissionProjectileKeyframe,
+};
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 3328;
 pub(super) const MAP_READY_RETAIL_FRAME: u16 = 3330;
@@ -2520,6 +2523,7 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 832] = [
     mission_player_keyframe(3324, -32_763, 2_271, 12_723, 0, 0, 0, 30),
 ];
 
+#[cfg(test)]
 pub(super) const LEAD_FIGHTER_KEYFRAMES: [MissionActorKeyframe; 447] = [
     mission_actor_keyframe(0, [-64, -3_167, -8, 0, 74, 0, 10]),
     mission_actor_keyframe(4, [-96, -3_152, -12, 0, 74, 0, 10]),
@@ -2970,6 +2974,7 @@ pub(super) const LEAD_FIGHTER_KEYFRAMES: [MissionActorKeyframe; 447] = [
     mission_actor_departure_keyframe(1784),
 ];
 
+#[cfg(test)]
 pub(super) const FLANK_FIGHTER_KEYFRAMES: [MissionActorKeyframe; 280] = [
     mission_actor_keyframe(0, [2_935, -1_953, -1_830, 0, 74, 0, 10]),
     mission_actor_keyframe(4, [2_903, -1_938, -1_834, 0, 74, 0, 10]),
@@ -3253,6 +3258,7 @@ pub(super) const FLANK_FIGHTER_KEYFRAMES: [MissionActorKeyframe; 280] = [
     mission_actor_departure_keyframe(1116),
 ];
 
+#[cfg(test)]
 pub(super) const REAR_FIGHTER_KEYFRAMES: [MissionActorKeyframe; 780] = [
     mission_actor_keyframe(0, [1_720, -1_953, 3_019, 0, 74, 0, 10]),
     mission_actor_keyframe(4, [1_688, -1_953, 3_015, 0, 74, 0, 10]),

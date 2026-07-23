@@ -8,11 +8,13 @@ use super::input::{Button, Buttons};
 use super::object::{
     Angle, Behavior, CapitalFlightAngles, CapitalFlightState, CapitalMovementPhase,
     CapitalWeaponPhase, CollisionClass, FighterAltitudePhase, FighterAngles,
-    FighterCenteringTargetOrder, FighterFlightState, FighterLogicCadence, FighterWaveDirection,
-    FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase, HostileProjectileFlightPhase,
-    HostileProjectileFlightState, Object, ObjectActivity, ObjectId, ObjectKind,
-    PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState,
-    ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
+    FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
+    FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
+    FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
+    HostileProjectileFlightPhase, HostileProjectileFlightState, Object, ObjectActivity, ObjectId,
+    ObjectKind, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
+    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
+    ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::state::{
@@ -36,6 +38,8 @@ mod capital_continuation;
 mod fighter_continuation;
 #[path = "fighter_intercept.rs"]
 mod fighter_intercept;
+#[path = "fighter_intercept_fighters.rs"]
+mod fighter_intercept_fighters;
 #[path = "fighter_intercept_projectiles.rs"]
 mod fighter_intercept_projectiles;
 #[path = "final_pursuer.rs"]
@@ -1077,6 +1081,12 @@ const REENGAGEMENT_FIGHTER_PITCH_TARGET_DIVISOR: i8 = 2;
 const REENGAGEMENT_FIGHTER_ALTITUDE_CENTERING_TICKS: u8 = 32;
 const REENGAGEMENT_FIGHTER_ENTRY_PHASE_STARBOARD: u8 = 64;
 const REENGAGEMENT_FIGHTER_ENTRY_PHASE_PORT: u8 = 192;
+const FIGHTER_INTERCEPT_BANK_TURN_DIVISOR: i8 = 4;
+const FIGHTER_INTERCEPT_ENTRY_WAVE_DIVISOR: i16 = 8;
+const FIGHTER_INTERCEPT_COMBAT_WAVE_DIVISOR: i16 = 2;
+const FIGHTER_INTERCEPT_WAVE_PHASE_STEP: i8 = 4;
+const FIGHTER_INTERCEPT_ALTITUDE_DIVISOR: i16 = 8;
+const FIGHTER_INTERCEPT_PLAYER_FACING_DIVISOR: i8 = 4;
 const FIGHTER_COOPERATIVE_SCHEDULE_START_RETAIL_FRAME: u16 = 644;
 const FIGHTER_COOPERATIVE_SCHEDULE_STEP: u16 = 4;
 const FIGHTER_COOPERATIVE_CONTINUATION_START_RETAIL_FRAME: u16 = 904;
@@ -1168,6 +1178,134 @@ enum ReengagementFighterAction {
     ChasePitch,
     ChaseBank,
     SetWeaponPitchTarget(ReengagementFighterPitchTarget),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FighterInterceptTurnMode {
+    Straight,
+    Banked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FighterInterceptWaveMode {
+    Entry,
+    Combat,
+}
+
+impl FighterInterceptWaveMode {
+    const fn divisor(self) -> i16 {
+        match self {
+            Self::Entry => FIGHTER_INTERCEPT_ENTRY_WAVE_DIVISOR,
+            Self::Combat => FIGHTER_INTERCEPT_COMBAT_WAVE_DIVISOR,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FighterInterceptPresentation {
+    Visible,
+    Hidden,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FighterInterceptCruise {
+    ApproachHold,
+    Approach,
+    CombatHold,
+    CombatCorrection,
+    CombatAcceleration,
+}
+
+impl FighterInterceptCruise {
+    const fn target_speed(self) -> u8 {
+        match self {
+            Self::ApproachHold | Self::Approach => 12,
+            Self::CombatHold | Self::CombatCorrection | Self::CombatAcceleration => 60,
+        }
+    }
+
+    const fn acceleration(self) -> u8 {
+        match self {
+            Self::ApproachHold | Self::CombatHold => 0,
+            Self::Approach => 1,
+            Self::CombatCorrection => 2,
+            Self::CombatAcceleration => 20,
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FighterInterceptSpeed {
+    Engagement = 30,
+}
+
+impl FighterInterceptSpeed {
+    const fn units(self) -> u8 {
+        self as u8
+    }
+}
+
+#[repr(i8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FighterInterceptBankTarget {
+    PortStrong = -28,
+    PortEntry = -24,
+    PortFourteen = -14,
+    PortTwelve = -12,
+    PortEleven = -11,
+    PortNine = -9,
+    StarboardTen = 10,
+    StarboardTwelve = 12,
+    StarboardThirteen = 13,
+    StarboardFourteen = 14,
+    StarboardTwentyFive = 25,
+    StarboardTwentySix = 26,
+    StarboardTwentyNine = 29,
+}
+
+impl FighterInterceptBankTarget {
+    const fn angle(self) -> Angle {
+        Angle::from_units(self as i8 as u8)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FighterInterceptCorridor {
+    drift_x: i16,
+    altitude: i16,
+    drift_z: i16,
+}
+
+impl FighterInterceptCorridor {
+    const fn new(drift_x: i16, altitude: i16, drift_z: i16) -> Self {
+        Self {
+            drift_x,
+            altitude,
+            drift_z,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FighterInterceptAction {
+    SetCruise(FighterInterceptCruise),
+    SetCorridor(FighterInterceptCorridor),
+    SetSpeed(FighterInterceptSpeed),
+    SetPresentation(FighterInterceptPresentation),
+    ChaseBank(FighterInterceptBankTarget),
+    ChaseRollToLevel,
+    FacePlayer(PlayerTargetTiming),
+    AimWeaponPitch(PlayerTargetTiming),
+    RestoreFlightPitch,
+    ApplyBankTurn,
+    Move(FighterInterceptTurnMode),
+    MoveHorizontal(FighterInterceptTurnMode),
+    FinishMovement,
+    ApplyVerticalWave(FighterInterceptWaveMode),
+    ShiftCorridorX,
+    ApproachCorridorAltitude,
+    ShiftCorridorZ,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2931,6 +3069,14 @@ enum FighterInterceptActor {
 
 impl FighterInterceptActor {
     const ALL: [Self; FIGHTER_INTERCEPT_TARGET_COUNT] = [Self::Lead, Self::Flank, Self::Rear];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Lead => 0,
+            Self::Flank => 1,
+            Self::Rear => 2,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -5599,11 +5745,17 @@ impl Game {
             .map(|object| object.base.position);
         let previous_player_position = current_player_position
             .map(|current| self.previous_mission_player_position.unwrap_or(current));
-        self.update_fighter_intercept_targets(retail_frame);
         if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
         {
+            self.update_fighter_intercept_targets(retail_frame, current, previous);
             self.update_fighter_intercept_projectiles(retail_frame, current, previous)?;
             self.previous_mission_player_position = Some(current);
+        } else {
+            self.update_fighter_intercept_targets(
+                retail_frame,
+                Vector3::default(),
+                Vector3::default(),
+            );
         }
         Ok(())
     }
@@ -6831,6 +6983,8 @@ impl Game {
 
     fn spawn_fighter_intercept_targets(&mut self) -> Result<(), Error> {
         for actor in FighterInterceptActor::ALL {
+            let actor_index = actor.index();
+            let pose = fighter_intercept_fighters::INITIAL_POSES[actor_index];
             let mut fighter = Object::new(
                 ObjectKind::Enemy,
                 ShapeId::INTERCEPT_FIGHTER,
@@ -6839,10 +6993,29 @@ impl Game {
             fighter.base.hit_points = MISSION_ENCOUNTER_HEALTH;
             fighter.base.attack_power = MISSION_ENCOUNTER_ATTACK_POWER;
             fighter.base.collision_class = CollisionClass::Enemy;
-            fighter.base.flags.active = false;
-            fighter.base.flags.visible = false;
-            fighter.base.flags.collision_disabled = true;
+            fighter.base.flags.active = true;
+            fighter.base.flags.visible = true;
+            fighter.base.flags.collision_disabled = false;
             fighter.base.flags.casts_shadow = false;
+            fighter.base.position = pose.position;
+            fighter.base.pitch = Angle::from_units(pose.pitch);
+            fighter.base.yaw = Angle::from_units(pose.yaw);
+            fighter.base.roll = Angle::from_units(pose.roll);
+            fighter.base.speed = pose.speed;
+            fighter.extension.activity =
+                ObjectActivity::FighterInterceptFlight(FighterInterceptFlightState {
+                    vertical_wave_phase: Angle::from_units(
+                        fighter_intercept_fighters::INITIAL_WAVE_PHASES[actor_index],
+                    ),
+                    cruise_target_speed: 0,
+                    cruise_acceleration: 0,
+                    corridor_drift_x: 0,
+                    corridor_altitude: 0,
+                    corridor_drift_z: 0,
+                    pending_velocity: Vector3::default(),
+                    movement_phase: FighterInterceptMovementPhase::Ready,
+                    weapon_phase: FighterInterceptWeaponPhase::Flight,
+                });
             let Some(id) = self.state.objects.allocate(fighter) else {
                 self.fighter_intercept_actors
                     .remove_all(&mut self.state.objects);
@@ -8322,45 +8495,15 @@ impl Game {
         }
     }
 
-    fn update_fighter_intercept_targets(&mut self, retail_frame: u16) {
-        let tracks: [(FighterInterceptActor, &'static [MissionActorKeyframe]);
-            FIGHTER_INTERCEPT_TARGET_COUNT] = [
-            (
-                FighterInterceptActor::Lead,
-                &fighter_intercept::LEAD_FIGHTER_KEYFRAMES,
-            ),
-            (
-                FighterInterceptActor::Flank,
-                &fighter_intercept::FLANK_FIGHTER_KEYFRAMES,
-            ),
-            (
-                FighterInterceptActor::Rear,
-                &fighter_intercept::REAR_FIGHTER_KEYFRAMES,
-            ),
-        ];
-        for (actor, keyframes) in tracks {
-            if retail_frame < keyframes[0].retail_frame {
-                continue;
-            }
-            let (start, end) =
-                enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-            let presentation = if retail_frame >= end.retail_frame {
-                end.presentation
-            } else {
-                match (start.presentation, end.presentation) {
-                    (
-                        MissionActorPresentation::Present(start_pose),
-                        MissionActorPresentation::Present(end_pose),
-                    ) => MissionActorPresentation::Present(interpolate_encounter_pose(
-                        start_pose,
-                        end_pose,
-                        retail_frame.saturating_sub(start.retail_frame),
-                        end.retail_frame.saturating_sub(start.retail_frame),
-                    )),
-                    (presentation, _) => presentation,
-                }
-            };
-            if presentation == MissionActorPresentation::Departed {
+    fn update_fighter_intercept_targets(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) {
+        for actor in FighterInterceptActor::ALL {
+            let actor_index = actor.index();
+            if retail_frame >= fighter_intercept_fighters::DEPARTURE_RETAIL_FRAMES[actor_index] {
                 let actor_id = *self.fighter_intercept_actors.slot_mut(actor);
                 let destruction_in_progress = actor_id
                     .and_then(|id| self.state.objects.get(id))
@@ -8391,26 +8534,24 @@ impl Game {
             if object.base.explosion_timer > 0 || object.base.flags.exploding {
                 continue;
             }
-            match presentation {
-                MissionActorPresentation::Present(pose) => {
-                    object.base.flags.active = true;
-                    object.base.flags.visible = true;
-                    object.base.flags.collision_disabled = false;
-                    object.base.position = pose.position;
-                    object.base.pitch = Angle::from_units(pose.pitch);
-                    object.base.yaw = Angle::from_units(pose.yaw);
-                    object.base.roll = Angle::from_units(pose.roll);
-                    object.base.speed = pose.speed;
-                    object.base.velocity = Vector3::default();
-                }
-                MissionActorPresentation::Inactive => {
-                    object.base.flags.active = false;
-                    object.base.flags.visible = false;
-                    object.base.flags.collision_disabled = true;
-                    object.base.velocity = Vector3::default();
-                }
-                MissionActorPresentation::Departed => unreachable!(),
+            let ObjectActivity::FighterInterceptFlight(mut flight) = object.extension.activity
+            else {
+                debug_assert!(
+                    false,
+                    "fighter-interception target lacks typed flight state"
+                );
+                continue;
+            };
+            for &action in fighter_intercept_fighters::actions(retail_frame, actor_index) {
+                apply_fighter_intercept_action(
+                    object,
+                    &mut flight,
+                    action,
+                    previous_player_position,
+                    player_position,
+                );
             }
+            object.extension.activity = ObjectActivity::FighterInterceptFlight(flight);
         }
     }
 
@@ -10180,6 +10321,7 @@ impl Game {
                 }
                 ObjectActivity::CapitalFlight(_)
                 | ObjectActivity::ReengagementFighterFlight(_)
+                | ObjectActivity::FighterInterceptFlight(_)
                 | ObjectActivity::HostileProjectileFlight(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
@@ -11903,6 +12045,153 @@ fn apply_reengagement_fighter_action(
         }
         ReengagementFighterAction::SetWeaponPitchTarget(target) => {
             flight.vertical_pitch_target = target.angle();
+        }
+    }
+}
+
+fn apply_fighter_intercept_action(
+    object: &mut Object,
+    flight: &mut FighterInterceptFlightState,
+    action: FighterInterceptAction,
+    previous_player_position: Vector3,
+    player_position: Vector3,
+) {
+    match action {
+        FighterInterceptAction::SetCruise(cruise) => {
+            flight.cruise_target_speed = cruise.target_speed();
+            flight.cruise_acceleration = cruise.acceleration();
+        }
+        FighterInterceptAction::SetCorridor(corridor) => {
+            flight.corridor_drift_x = corridor.drift_x;
+            flight.corridor_altitude = corridor.altitude;
+            flight.corridor_drift_z = corridor.drift_z;
+        }
+        FighterInterceptAction::SetSpeed(speed) => {
+            object.base.speed = speed.units();
+        }
+        FighterInterceptAction::SetPresentation(presentation) => {
+            let visible = presentation == FighterInterceptPresentation::Visible;
+            object.base.flags.active = visible;
+            object.base.flags.visible = visible;
+            object.base.flags.collision_disabled = !visible;
+        }
+        FighterInterceptAction::ChaseBank(target) => {
+            object.base.roll = chase_fighter_angle(object.base.roll, target.angle());
+        }
+        FighterInterceptAction::ChaseRollToLevel => {
+            object.base.roll = chase_fighter_angle(object.base.roll, Angle::ZERO);
+        }
+        FighterInterceptAction::FacePlayer(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let delta_x = target.x.wrapping_sub(object.base.position.x);
+            let delta_z = target.z.wrapping_sub(object.base.position.z);
+            let target_yaw =
+                Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
+            object.base.yaw = chase_capital_angle(
+                object.base.yaw,
+                target_yaw,
+                FIGHTER_INTERCEPT_PLAYER_FACING_DIVISOR,
+            );
+        }
+        FighterInterceptAction::AimWeaponPitch(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            flight.weapon_phase = FighterInterceptWeaponPhase::Aiming {
+                flight_pitch: object.base.pitch,
+            };
+            let delta_x = target.x.wrapping_sub(object.base.position.x);
+            let delta_y = target.y.wrapping_sub(object.base.position.y);
+            let delta_z = target.z.wrapping_sub(object.base.position.z);
+            let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+            object.base.pitch =
+                Angle::from_units(sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance));
+        }
+        FighterInterceptAction::RestoreFlightPitch => {
+            let FighterInterceptWeaponPhase::Aiming { flight_pitch } = flight.weapon_phase else {
+                debug_assert!(false, "fighter weapon restoration lacks saved flight pitch");
+                return;
+            };
+            object.base.pitch = flight_pitch;
+            flight.weapon_phase = FighterInterceptWeaponPhase::Flight;
+        }
+        FighterInterceptAction::ApplyBankTurn => {
+            let bank_turn = (object.base.roll.units() as i8) / FIGHTER_INTERCEPT_BANK_TURN_DIVISOR;
+            object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+        }
+        FighterInterceptAction::Move(turn_mode)
+        | FighterInterceptAction::MoveHorizontal(turn_mode) => {
+            let difference = i16::from(flight.cruise_target_speed) - i16::from(object.base.speed);
+            let adjustment = difference
+                .unsigned_abs()
+                .min(u16::from(flight.cruise_acceleration)) as u8;
+            object.base.speed = if difference > 0 {
+                object.base.speed.saturating_add(adjustment)
+            } else if difference < 0 {
+                object.base.speed.saturating_sub(adjustment)
+            } else {
+                object.base.speed
+            };
+            if turn_mode == FighterInterceptTurnMode::Banked {
+                let bank_turn =
+                    (object.base.roll.units() as i8) / FIGHTER_INTERCEPT_BANK_TURN_DIVISOR;
+                object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+            }
+            let velocity = flight_velocity(
+                object.base.pitch,
+                object.base.yaw,
+                object.base.speed,
+                MISSION_ENCOUNTER_POSITION_SCALE,
+            );
+            object.base.velocity = velocity;
+            object.base.position.x = object.base.position.x.wrapping_add(velocity.x);
+            if matches!(action, FighterInterceptAction::MoveHorizontal(_)) {
+                flight.pending_velocity = velocity;
+                flight.movement_phase = FighterInterceptMovementPhase::HorizontalApplied;
+            } else {
+                object.base.position.y = object.base.position.y.wrapping_add(velocity.y);
+                object.base.position.z = object.base.position.z.wrapping_add(velocity.z);
+                flight.pending_velocity = Vector3::default();
+                flight.movement_phase = FighterInterceptMovementPhase::Ready;
+            }
+        }
+        FighterInterceptAction::FinishMovement => {
+            debug_assert_eq!(
+                flight.movement_phase,
+                FighterInterceptMovementPhase::HorizontalApplied
+            );
+            object.base.position.y = object
+                .base
+                .position
+                .y
+                .wrapping_add(flight.pending_velocity.y);
+            object.base.position.z = object
+                .base
+                .position
+                .z
+                .wrapping_add(flight.pending_velocity.z);
+            flight.pending_velocity = Vector3::default();
+            flight.movement_phase = FighterInterceptMovementPhase::Ready;
+        }
+        FighterInterceptAction::ApplyVerticalWave(mode) => {
+            let displacement =
+                i16::from(sf_core::snes_trig::COSTAB[flight.vertical_wave_phase.units() as usize])
+                    / mode.divisor();
+            object.base.position.y = object.base.position.y.wrapping_add(displacement);
+            flight.vertical_wave_phase = flight
+                .vertical_wave_phase
+                .wrapping_add(FIGHTER_INTERCEPT_WAVE_PHASE_STEP);
+        }
+        FighterInterceptAction::ShiftCorridorX => {
+            object.base.position.x = object.base.position.x.wrapping_add(flight.corridor_drift_x);
+        }
+        FighterInterceptAction::ApproachCorridorAltitude => {
+            object.base.position.y = approach_proportional_i16(
+                object.base.position.y,
+                flight.corridor_altitude,
+                FIGHTER_INTERCEPT_ALTITUDE_DIVISOR,
+            );
+        }
+        FighterInterceptAction::ShiftCorridorZ => {
+            object.base.position.z = object.base.position.z.wrapping_add(flight.corridor_drift_z);
         }
     }
 }
@@ -16175,6 +16464,113 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn typed_fighter_intercept_flight_matches_every_oracle_boundary() {
+        const RETAINED_FIGHTER_POSE_COUNT: usize = 1_503;
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.state.campaign.route_step = CampaignRouteStep::FighterIntercept;
+        game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
+        game.begin_fighter_intercept_sortie().unwrap();
+
+        let tracks: [(FighterInterceptActor, &[MissionActorKeyframe]);
+            FIGHTER_INTERCEPT_TARGET_COUNT] = [
+            (
+                FighterInterceptActor::Lead,
+                &fighter_intercept::LEAD_FIGHTER_KEYFRAMES,
+            ),
+            (
+                FighterInterceptActor::Flank,
+                &fighter_intercept::FLANK_FIGHTER_KEYFRAMES,
+            ),
+            (
+                FighterInterceptActor::Rear,
+                &fighter_intercept::REAR_FIGHTER_KEYFRAMES,
+            ),
+        ];
+        let last_retail_frame = tracks
+            .iter()
+            .filter_map(|(_, keyframes)| keyframes.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("fighter oracle contains retained poses");
+        let mut retained_poses = 0;
+
+        for retail_frame in
+            (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            while game.state().mode_frame
+                < u32::from(retail_frame) / RETAIL_PRESENTATION_FRAMES_PER_TICK
+            {
+                game.tick(0).unwrap();
+            }
+
+            for &(actor, keyframes) in &tracks {
+                let keyframe_index =
+                    usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                let Some(expected) = keyframes.get(keyframe_index) else {
+                    continue;
+                };
+                assert_eq!(expected.retail_frame, retail_frame);
+                let actor_id = match actor {
+                    FighterInterceptActor::Lead => game.fighter_intercept_actors.lead,
+                    FighterInterceptActor::Flank => game.fighter_intercept_actors.flank,
+                    FighterInterceptActor::Rear => game.fighter_intercept_actors.rear,
+                };
+                match expected.presentation {
+                    MissionActorPresentation::Present(pose) => {
+                        retained_poses += 1;
+                        let object = game
+                            .state()
+                            .objects
+                            .get(actor_id.unwrap_or_else(|| {
+                                panic!("fighter departed before retail frame {retail_frame}")
+                            }))
+                            .unwrap();
+                        assert_eq!(object.base.position, pose.position, "frame {retail_frame}");
+                        assert_eq!(
+                            object.base.pitch.units(),
+                            pose.pitch,
+                            "frame {retail_frame}"
+                        );
+                        assert_eq!(object.base.yaw.units(), pose.yaw, "frame {retail_frame}");
+                        assert_eq!(object.base.roll.units(), pose.roll, "frame {retail_frame}");
+                        assert_eq!(object.base.speed, pose.speed, "frame {retail_frame}");
+                        assert!(object.base.flags.active, "frame {retail_frame}");
+                        assert!(object.base.flags.visible, "frame {retail_frame}");
+                        assert!(
+                            !object.base.flags.collision_disabled,
+                            "frame {retail_frame}"
+                        );
+                        assert!(matches!(
+                            object.extension.activity,
+                            ObjectActivity::FighterInterceptFlight(_)
+                        ));
+                    }
+                    MissionActorPresentation::Inactive => {
+                        let object = game.state().objects.get(actor_id.unwrap()).unwrap();
+                        assert!(!object.base.flags.active, "frame {retail_frame}");
+                        assert!(!object.base.flags.visible, "frame {retail_frame}");
+                        assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                        assert!(matches!(
+                            object.extension.activity,
+                            ObjectActivity::FighterInterceptFlight(_)
+                        ));
+                    }
+                    MissionActorPresentation::Departed => {
+                        assert!(
+                            actor_id.is_none(),
+                            "fighter remains allocated at retail frame {retail_frame}"
+                        );
+                    }
+                }
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_FIGHTER_POSE_COUNT);
     }
 
     #[test]

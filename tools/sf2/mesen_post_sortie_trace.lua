@@ -1041,6 +1041,55 @@ function sortie_actor_oracle.record_position_y_write(address, value)
     pose(object))
 end
 
+function sortie_actor_oracle.actor_for_position_address(address)
+  for object, _ in pairs(sortie_actor_oracle.objects) do
+    if address >= object + 12 and address <= object + 17 then
+      return object
+    end
+  end
+  return nil
+end
+
+function sortie_actor_oracle.record_coprocessor_position_write(address, value)
+  if not sortie_actor_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  local object = sortie_actor_oracle.actor_for_position_address(address)
+  if not object then return end
+  local state = emu.getState()
+  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+    "elapsed=%d event=coprocessor-position-write object=%04X shape=%04X " ..
+      "address=%04X value=%d coprocessor=%02X:%04X pose=%s",
+    elapsed,
+    object,
+    work_word(object + 4),
+    address,
+    value or 0,
+    state["cart.coprocessor.programBank"] or 0,
+    state["cart.coprocessor.r15"] or 0,
+    pose(object))
+end
+
+function sortie_actor_oracle.record_main_position_write(address, value)
+  if not sortie_actor_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  local object = sortie_actor_oracle.actor_for_position_address(address)
+  if not object then return end
+  local state = emu.getState()
+  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+    "elapsed=%d event=main-position-write object=%04X shape=%04X " ..
+      "address=%04X value=%d source=%02X:%04X pose=%s",
+    elapsed,
+    object,
+    work_word(object + 4),
+    address,
+    value or 0,
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0,
+    pose(object))
+end
+
 function sortie_actor_oracle.record_random_state_write(source, address, value)
   if not sortie_actor_oracle.enabled or not armed then return end
   local elapsed = frame - armed_frame
@@ -2746,6 +2795,27 @@ function sortie_actor_oracle.register_callbacks()
         emu.callbackType.write,
         range[1],
         range[2],
+        emu.cpuType.snes,
+        memory_type)
+    end
+  end
+  for object, _ in pairs(sortie_actor_oracle.objects) do
+    emu.addMemoryCallback(
+      sortie_actor_oracle.record_coprocessor_position_write,
+      emu.callbackType.write,
+      object + 12,
+      object + 17,
+      emu.cpuType.gsu,
+      emu.memType.gsuWorkRam)
+    for _, memory_type in ipairs({
+      emu.memType.gsuWorkRam,
+      emu.memType.snesWorkRam,
+    }) do
+      emu.addMemoryCallback(
+        sortie_actor_oracle.record_main_position_write,
+        emu.callbackType.write,
+        object + 12,
+        object + 17,
         emu.cpuType.snes,
         memory_type)
     end
