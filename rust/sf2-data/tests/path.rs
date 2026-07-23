@@ -7,8 +7,8 @@ use sf2_data::path::*;
 #[test]
 fn reachable_path_catalog_is_closed_and_self_consistent() {
     assert_eq!(PATH_ROOT_COUNT, 106);
-    assert_eq!(PATH_COMMAND_COUNT, 11_798);
-    assert_eq!(PATH_HANDLER_COUNT, 274);
+    assert_eq!(PATH_COMMAND_COUNT, 14_220);
+    assert_eq!(PATH_HANDLER_COUNT, 279);
 
     let handlers: BTreeSet<u16> = PATH_HANDLERS.iter().map(|handler| handler.opcode).collect();
     assert_eq!(handlers.len(), PATH_HANDLER_COUNT);
@@ -113,4 +113,34 @@ fn only_reviewed_handler_semantics_are_named() {
     assert!(named.contains(&(0x02D, PathSemantic::IfBetweenWord)));
 
     assert!(PATH_HANDLERS.iter().all(|entry| entry.semantic.is_some()));
+}
+
+#[test]
+fn force_trigger_targets_are_closed_over_the_retail_graph() {
+    let addresses: BTreeSet<u16> = PATH_COMMANDS
+        .iter()
+        .map(|command| command.address.offset)
+        .collect();
+
+    let meteor = PATH_COMMANDS
+        .iter()
+        .find(|command| command.address.offset == 0x54F2)
+        .unwrap();
+    assert_eq!(meteor.opcode, 0x04C);
+    assert_eq!(
+        meteor.successors,
+        &[
+            PathAddress { offset: 0x54F5 },
+            PathAddress { offset: 0x54F6 },
+        ]
+    );
+
+    for command in PATH_COMMANDS
+        .iter()
+        .filter(|command| command.opcode == 0x04C)
+    {
+        let operand = usize::from(command.prefix_size) + 1;
+        let target = u16::from_le_bytes([command.raw[operand], command.raw[operand + 1]]);
+        assert!(addresses.contains(&target), "missing target ${target:04X}");
+    }
 }

@@ -219,6 +219,12 @@ _REVIEWED_CONTROL_EFFECTS: dict[int, tuple[FlowEffect, ...]] = {
     # can merge an internal RTS state before recovering its caller, so retain
     # the reviewed bytecode-level effect and asynchronous path edge here.
     0x04A: (FlowEffect("advance", 4), FlowEffect("schedule", 1)),
+    # FORCE_TRIGGER_PATH installs its literal path immediately through the
+    # same trigger service.  The caller still falls through, while the target
+    # becomes a separately executing object path and must therefore be part
+    # of the closed retail graph.  Omitting this edge hid Meteor's base-opening
+    # sequence beginning at $54F6.
+    0x04C: (FlowEffect("advance", 3), FlowEffect("schedule", 1)),
     0x064: (FlowEffect("dynamic_call", 1),),
     # `$089` enters 65816 code embedded directly after the opcode.  The
     # inline block returns the next path offset in 16-bit A; decode those
@@ -245,6 +251,12 @@ _REVIEWED_RECORD_SIZES: dict[int, int] = {
 # a coincidental address.  More blocks are added as graph expansion reaches
 # them; an unknown reachable `$089` is a hard extraction error.
 _PATH_INLINE_BLOCKS: dict[int, tuple[bytes, tuple[int, ...]]] = {
+    # Set current object flag `$25` bit `$02`; continue at `$4B5A`.
+    0x4B4D: (bytes.fromhex("b52509029525c220a95a4b6b"), (0x4B5A,)),
+    # Publish the current object through `$D767`; continue at `$9E7B`.
+    0x9E71: (bytes.fromhex("8e67d7c220a97b9e6b"), (0x9E7B,)),
+    # Call the retail `$07:F880` service; continue at `$F6F1`.
+    0xF6E6: (bytes.fromhex("2280f807c220a9f1f66b"), (0xF6F1,)),
     # Native object-strategy thunks reached only by the reviewed direct path
     # installers above.  Each returns a literal continuation in 16-bit A.
     0xB8C5: (bytes.fromhex("a90222f86d7fc220a9d2b86b"), (0xB8D2,)),

@@ -159,6 +159,11 @@ pub enum Sf2PathOperation {
     InstallStrategyAndStop { strategy: u16, state: u8 },
     CaptureSelectedAuxiliaryMotion,
     LinkSpawnedObjectToCurrent,
+    ClearObjectRelativeReference,
+    PreserveCurrentPathContinuation,
+    IncrementSelectedAuxiliaryStage,
+    PreserveCurrentObjectForParent,
+    ScaleHorizontalMotion,
     InitializeLaunchedExternalObject,
     EaseFixedPlayerYaw,
     ConfigureRandomizedObjectMotion,
@@ -192,6 +197,7 @@ pub enum Sf2PathCondition {
     SelectedOrCurrentAuxState,
     SelectedAuxiliaryMapCellOccupied,
     SelectedAuxiliaryFlag04Clear,
+    SelectedAuxiliaryStateMatchesGlobal,
     PlayerOneFlag25Bit20,
 }
 
@@ -311,6 +317,10 @@ pub trait Sf2PathHost {
     fn allocate_auxiliary_type_0b(&mut self, value: u8) -> Result<(), Self::Error>;
     /// Allocate the companion retail auxiliary record type `$0D`.
     fn allocate_auxiliary_type_0d(&mut self, value: u8) -> Result<(), Self::Error>;
+    /// Advance the selected auxiliary progress toward its retail terminal
+    /// value and report whether both progress and the current phase were
+    /// already settled before this command.
+    fn advance_selected_auxiliary_progress(&mut self, step: u8) -> Result<bool, Self::Error>;
     /// Execute a reviewed operation which requires concrete object-pool or
     /// transform state.
     fn perform_path_operation(&mut self, operation: Sf2PathOperation) -> Result<(), Self::Error>;
@@ -1337,6 +1347,20 @@ impl PathVm {
                     )?;
                     self.cursor = command.successors[0];
                 }
+                0x4B4D => {
+                    set_byte_bits(
+                        host,
+                        VAR_OBJECT_FLAGS_25,
+                        INLINE_OBJECT_FLAG_25_BIT_02,
+                        true,
+                    )?;
+                    self.cursor = command.successors[0];
+                }
+                0x9E71 => {
+                    host.perform_path_operation(Sf2PathOperation::PreserveCurrentObjectForParent)
+                        .map_err(PathVmError::Host)?;
+                    self.cursor = command.successors[0];
+                }
                 0x9808 => {
                     let phase = host
                         .read_object_extension_byte(INLINE_COLOR_PHASE_EXTENSION)
@@ -1418,6 +1442,11 @@ impl PathVm {
                         INLINE_OBJECT_FLAG_25_BIT_02,
                         true,
                     )?;
+                    self.cursor = command.successors[0];
+                }
+                0xF6E6 => {
+                    host.perform_path_operation(Sf2PathOperation::ScaleHorizontalMotion)
+                        .map_err(PathVmError::Host)?;
                     self.cursor = command.successors[0];
                 }
                 0xF348 => {
@@ -2094,7 +2123,10 @@ impl PathVm {
             | SetObjectRotationTowardTarget
             | ChaseObjectRotationTowardTarget
             | RefreshOwnedPlayerAuxiliaryOrigin
-            | CaptureSelectedAuxiliaryMotion => {
+            | CaptureSelectedAuxiliaryMotion
+            | ClearObjectRelativeReference
+            | PreserveCurrentPathContinuation
+            | IncrementSelectedAuxiliaryStage => {
                 let operation = match semantic {
                     FaceSelectedSmooth => Sf2PathOperation::FaceSelectedSmooth,
                     FaceLinkedSmooth => Sf2PathOperation::FaceLinkedSmooth,
@@ -2168,11 +2200,30 @@ impl PathVm {
                     CaptureSelectedAuxiliaryMotion => {
                         Sf2PathOperation::CaptureSelectedAuxiliaryMotion
                     }
+                    ClearObjectRelativeReference => Sf2PathOperation::ClearObjectRelativeReference,
+                    PreserveCurrentPathContinuation => {
+                        Sf2PathOperation::PreserveCurrentPathContinuation
+                    }
+                    IncrementSelectedAuxiliaryStage => {
+                        Sf2PathOperation::IncrementSelectedAuxiliaryStage
+                    }
                     _ => unreachable!(),
                 };
                 host.perform_path_operation(operation)
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
+            }
+            AdvanceSelectedAuxiliaryOrGotoWhenSettled => {
+                let settled = host
+                    .advance_selected_auxiliary_progress(operand_byte(command, 1))
+                    .map_err(PathVmError::Host)?;
+                if settled {
+                    self.cursor = PathAddress {
+                        offset: operand_word(command, 2),
+                    };
+                } else {
+                    self.advance(command);
+                }
             }
             InstallStrategyAndStop => {
                 host.perform_path_operation(Sf2PathOperation::InstallStrategyAndStop {
@@ -2197,11 +2248,20 @@ impl PathVm {
                     },
                 };
             }
-            IfSelectedAuxiliaryMapCellOccupied | IfSelectedAuxiliaryFlag04Clear => {
-                let condition = if semantic == IfSelectedAuxiliaryMapCellOccupied {
-                    Sf2PathCondition::SelectedAuxiliaryMapCellOccupied
-                } else {
-                    Sf2PathCondition::SelectedAuxiliaryFlag04Clear
+            IfSelectedAuxiliaryMapCellOccupied
+            | IfSelectedAuxiliaryFlag04Clear
+            | IfSelectedAuxiliaryStateMatchesGlobal => {
+                let condition = match semantic {
+                    IfSelectedAuxiliaryMapCellOccupied => {
+                        Sf2PathCondition::SelectedAuxiliaryMapCellOccupied
+                    }
+                    IfSelectedAuxiliaryFlag04Clear => {
+                        Sf2PathCondition::SelectedAuxiliaryFlag04Clear
+                    }
+                    IfSelectedAuxiliaryStateMatchesGlobal => {
+                        Sf2PathCondition::SelectedAuxiliaryStateMatchesGlobal
+                    }
+                    _ => unreachable!(),
                 };
                 let matched = host
                     .evaluate_path_condition(condition)

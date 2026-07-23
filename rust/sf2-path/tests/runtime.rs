@@ -30,6 +30,8 @@ struct Host {
     selected_slot_low_nibble_4_calls: usize,
     allocated_auxiliary_type_0b: Vec<u8>,
     allocated_auxiliary_type_0d: Vec<u8>,
+    selected_auxiliary_progress_steps: Vec<u8>,
+    selected_auxiliary_progress_settled: bool,
     path_operations: Vec<Sf2PathOperation>,
     evaluated_conditions: Vec<Sf2PathCondition>,
     condition_result: bool,
@@ -84,6 +86,8 @@ impl Default for Host {
             selected_slot_low_nibble_4_calls: 0,
             allocated_auxiliary_type_0b: Vec::new(),
             allocated_auxiliary_type_0d: Vec::new(),
+            selected_auxiliary_progress_steps: Vec::new(),
+            selected_auxiliary_progress_settled: false,
             path_operations: Vec::new(),
             evaluated_conditions: Vec::new(),
             condition_result: false,
@@ -325,6 +329,11 @@ impl Sf2PathHost for Host {
     fn allocate_auxiliary_type_0d(&mut self, value: u8) -> Result<(), Self::Error> {
         self.allocated_auxiliary_type_0d.push(value);
         Ok(())
+    }
+
+    fn advance_selected_auxiliary_progress(&mut self, step: u8) -> Result<bool, Self::Error> {
+        self.selected_auxiliary_progress_steps.push(step);
+        Ok(self.selected_auxiliary_progress_settled)
     }
 
     fn perform_path_operation(&mut self, operation: Sf2PathOperation) -> Result<(), Self::Error> {
@@ -910,7 +919,7 @@ fn every_reachable_inline_site_has_typed_control_flow() {
         .iter()
         .filter(|command| command.opcode == 0x089)
         .collect();
-    assert_eq!(sites.len(), 42);
+    assert_eq!(sites.len(), 45);
 
     for command in sites {
         let mut host = Host::new();
@@ -948,6 +957,30 @@ fn simple_inline_blocks_use_typed_state_and_operations() {
     let mut set_flag = PathVm::new(PathAddress { offset: 0x8D62 });
     run_one(&mut set_flag, &mut host);
     assert_eq!(host.vars[VAR_OBJECT_FLAGS_24 as usize], 0x84);
+
+    host.vars[VAR_OBJECT_FLAGS_25 as usize] = 0;
+    let mut set_flag = PathVm::new(PathAddress { offset: 0x4B4D });
+    run_one(&mut set_flag, &mut host);
+    assert_eq!(host.vars[VAR_OBJECT_FLAGS_25 as usize], 0x02);
+    assert_eq!(set_flag.cursor().offset, 0x4B5A);
+
+    host.path_operations.clear();
+    let mut preserve_current = PathVm::new(PathAddress { offset: 0x9E71 });
+    run_one(&mut preserve_current, &mut host);
+    assert_eq!(
+        host.path_operations,
+        vec![Sf2PathOperation::PreserveCurrentObjectForParent]
+    );
+    assert_eq!(preserve_current.cursor().offset, 0x9E7B);
+
+    host.path_operations.clear();
+    let mut scale_motion = PathVm::new(PathAddress { offset: 0xF6E6 });
+    run_one(&mut scale_motion, &mut host);
+    assert_eq!(
+        host.path_operations,
+        vec![Sf2PathOperation::ScaleHorizontalMotion]
+    );
+    assert_eq!(scale_motion.cursor().offset, 0xF6F1);
 
     host.object_extension[0x1CCA] = 6;
     let mut color_phase = PathVm::new(PathAddress { offset: 0x9808 });
@@ -1003,6 +1036,59 @@ fn simple_inline_blocks_use_typed_state_and_operations() {
     let mut late_dispatch = PathVm::new(PathAddress { offset: 0xF668 });
     run_one(&mut late_dispatch, &mut host);
     assert_eq!(late_dispatch.cursor().offset, 0xF7C9);
+}
+
+#[test]
+fn force_trigger_expansion_handlers_use_typed_state_and_control_flow() {
+    let mut host = Host::new();
+
+    for (address, next, operation) in [
+        (
+            0x9E6C,
+            0x9E6D,
+            Sf2PathOperation::ClearObjectRelativeReference,
+        ),
+        (
+            0x1682,
+            0x1683,
+            Sf2PathOperation::PreserveCurrentPathContinuation,
+        ),
+        (
+            0x45CB,
+            0x45CD,
+            Sf2PathOperation::IncrementSelectedAuxiliaryStage,
+        ),
+    ] {
+        host.path_operations.clear();
+        let mut vm = PathVm::new(PathAddress { offset: address });
+        run_one(&mut vm, &mut host);
+        assert_eq!(host.path_operations, vec![operation]);
+        assert_eq!(vm.cursor().offset, next);
+    }
+
+    let mut progress = PathVm::new(PathAddress { offset: 0x45B2 });
+    run_one(&mut progress, &mut host);
+    assert_eq!(host.selected_auxiliary_progress_steps, vec![1]);
+    assert_eq!(progress.cursor().offset, 0x45B6);
+
+    host.selected_auxiliary_progress_settled = true;
+    progress = PathVm::new(PathAddress { offset: 0x45B2 });
+    run_one(&mut progress, &mut host);
+    assert_eq!(host.selected_auxiliary_progress_steps, vec![1, 1]);
+    assert_eq!(progress.cursor().offset, 0x455F);
+
+    let mut state = PathVm::new(PathAddress { offset: 0x73EA });
+    run_one(&mut state, &mut host);
+    assert_eq!(state.cursor().offset, 0x73ED);
+    assert_eq!(
+        host.evaluated_conditions.last(),
+        Some(&Sf2PathCondition::SelectedAuxiliaryStateMatchesGlobal)
+    );
+
+    host.condition_result = true;
+    state = PathVm::new(PathAddress { offset: 0x73EA });
+    run_one(&mut state, &mut host);
+    assert_eq!(state.cursor().offset, 0x8D53);
 }
 
 #[test]
@@ -1562,9 +1648,9 @@ fn expanded_retail_arithmetic_handlers_preserve_width_sign_and_operand_order() {
     host.vars[0x12] = 1;
     host.vars[0x14] = 2;
     host.vars[0x16] = 3;
-    run_opcode(0x071, &mut host);
-    run_opcode(0x072, &mut host);
-    run_opcode(0x073, &mut host);
+    run_one(&mut PathVm::new(PathAddress { offset: 0x1D46 }), &mut host);
+    run_one(&mut PathVm::new(PathAddress { offset: 0x0F96 }), &mut host);
+    run_one(&mut PathVm::new(PathAddress { offset: 0x038B }), &mut host);
     assert_eq!(host.vars[0x12], 0xFF);
     assert_eq!(host.vars[0x14], 0x82);
     assert_eq!(host.vars[0x16], 0xF9);
@@ -1600,7 +1686,7 @@ fn expanded_retail_arithmetic_handlers_preserve_width_sign_and_operand_order() {
     assert_eq!(host.read_external_word(0xD767).unwrap(), 16);
 
     host.vars[0x27] = 0x85;
-    run_opcode(0x154, &mut host);
+    run_one(&mut PathVm::new(PathAddress { offset: 0x8832 }), &mut host);
     assert_eq!(host.vars[0x27], 0x42);
 }
 
@@ -1641,7 +1727,6 @@ fn expanded_object_handlers_emit_typed_non_optional_engine_services() {
         (0x14C, Sf2PathOperation::CopyPositionToObject(0x033F)),
         (0x14D, Sf2PathOperation::CopyRotationToObjectFixed(0x033F)),
         (0x047, Sf2PathOperation::PopPathStackPair),
-        (0x0FE, Sf2PathOperation::ConfigurePlayerAuxiliary(0xFFF8)),
         (
             0x138,
             Sf2PathOperation::SetObjectRotationTowardTarget {
@@ -1676,6 +1761,13 @@ fn expanded_object_handlers_emit_typed_non_optional_engine_services() {
     }
 
     host.path_operations.clear();
+    run_one(&mut PathVm::new(PathAddress { offset: 0xF38E }), &mut host);
+    assert_eq!(
+        host.path_operations,
+        vec![Sf2PathOperation::ConfigurePlayerAuxiliary(0xFFF8)]
+    );
+
+    host.path_operations.clear();
     run_opcode(0x031, &mut host);
     assert_eq!(
         host.path_operations,
@@ -1690,7 +1782,7 @@ fn expanded_object_handlers_emit_typed_non_optional_engine_services() {
     );
 
     host.path_operations.clear();
-    run_opcode(0x0BF, &mut host);
+    run_one(&mut PathVm::new(PathAddress { offset: 0x5D63 }), &mut host);
     run_opcode(0x157, &mut host);
     run_opcode(0x158, &mut host);
     assert_eq!(

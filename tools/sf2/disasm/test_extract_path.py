@@ -72,8 +72,8 @@ class RetailPathExtractionTests(unittest.TestCase):
                 0xF5B4,
             ],
         )
-        self.assertEqual(len(self.result.commands), 11798)
-        self.assertEqual(len(self.result.handlers), 274)
+        self.assertEqual(len(self.result.commands), 14220)
+        self.assertEqual(len(self.result.handlers), 279)
         self.assertEqual(self.result.invalid_opcodes, [])
         self.assertEqual(self.result.unresolved_handlers, [])
 
@@ -167,6 +167,11 @@ class RetailPathExtractionTests(unittest.TestCase):
         self.assertEqual(
             overlaps,
             {
+                # The late inline dispatch enters `$040B` inside the indexed
+                # movement record at `$0407`; its resulting GOTO spans the
+                # independent `$040E` return reached by the movement path.
+                0x0407: (0x040B, 0x040C),
+                0x040C: (0x040E,),
                 0x07FD: (0x07FE, 0x07FF),
                 0x4209: (0x420A,),
                 0x532F: (0x5330,),
@@ -226,6 +231,25 @@ class RetailPathExtractionTests(unittest.TestCase):
                 successors,
             )
 
+        # FORCE_TRIGGER_PATH starts its literal target immediately while the
+        # caller continues.  Both edges are part of the retail graph; omitting
+        # the scheduled edge used to hide Meteor's controller sequence.
+        forced = self.extractor.decode_command(PathAddress(0x54F2))
+        self.assertEqual(forced.opcode, 0x04C)
+        self.assertEqual(forced.raw_hex, "4cf654")
+        self.assertEqual(
+            tuple(item.offset for item in forced.successors),
+            (0x54F5, 0x54F6),
+        )
+
+        starts = {command.address.offset for command in self.result.commands}
+        for command in self.result.commands:
+            if command.opcode == 0x04C:
+                raw = bytes.fromhex(command.raw_hex)
+                operand = command.prefix_size + 1
+                target = int.from_bytes(raw[operand:operand + 2], "little")
+                self.assertIn(target, starts)
+
     def test_handler_disassembly_preserves_width_resolved_cfg(self) -> None:
         instructions = self.extractor.handler_instructions(0x02A)
         states = {(instruction.cpu, instruction.m, instruction.x) for instruction in instructions}
@@ -235,9 +259,9 @@ class RetailPathExtractionTests(unittest.TestCase):
         self.assertTrue(any(instruction.m == 0 for instruction in instructions))
 
     def test_reviewed_semantics_are_unique_and_pinned_to_retail_handlers(self) -> None:
-        self.assertEqual(len(PATH_SEMANTICS), 274)
-        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 274)
-        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 274)
+        self.assertEqual(len(PATH_SEMANTICS), 279)
+        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 279)
+        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 279)
         for spec in PATH_SEMANTICS:
             self.assertIn(spec.opcode, self.result.handlers)
             self.assertEqual(

@@ -114,6 +114,9 @@ local finish_each_mission =
 forced_objective_remaining = tonumber(
   os.getenv("SF2_ORACLE_OBJECTIVE_REMAINING"))
 forced_objective_remaining_applied = false
+forced_base_destroyed_bits = tonumber(
+  os.getenv("SF2_ORACLE_BASE_DESTROYED_BITS"))
+forced_base_destroyed_bits_applied = false
 local skipped_surface_objectives = false
 local finished_current_mission = false
 local forced_projectile_hit_applied = false
@@ -174,6 +177,11 @@ if forced_objective_remaining then
   assert(
     forced_objective_remaining >= 0 and forced_objective_remaining <= 255,
     "SF2_ORACLE_OBJECTIVE_REMAINING must be byte-sized")
+end
+if forced_base_destroyed_bits then
+  assert(
+    forced_base_destroyed_bits >= 0 and forced_base_destroyed_bits <= 65535,
+    "SF2_ORACLE_BASE_DESTROYED_BITS must be word-sized")
 end
 if forced_player_health then
   assert(
@@ -901,14 +909,22 @@ end
 local function trace_map_control_write(address, value)
   local state = emu.getState()
   local normalized_address = address & 0x1FFFF
+  if normalized_address > 0xFFFF then return end
   lines[#lines + 1] = string.format(
     "elapsed=%d event=map-control-write address=%04X value=%d mode=%d " ..
-      "remaining=%d host=%02X:%04X",
+      "remaining=%d map=%02X:%04X objectives=%d,%d basebits=%04X " ..
+      "required=%d host=%02X:%04X",
     frame - armed_frame,
     normalized_address,
     value or 0,
     work_byte(0x1B68),
     work_word(0xDA43),
+    work_byte(0x192E),
+    work_word(0x1657),
+    work_byte(0xD7A1),
+    work_byte(0xD7F4),
+    work_word(0xD7F6),
+    traced_map_actor and work_byte(traced_map_actor + 0x27) or 0,
     state["cpu.k"] or 0,
     state["cpu.pc"] or 0)
 end
@@ -917,18 +933,26 @@ local map_control_reads = {}
 local function trace_map_control_read(address, value)
   local state = emu.getState()
   local normalized_address = address & 0x1FFFF
+  if normalized_address > 0xFFFF then return end
   local host = ((state["cpu.k"] or 0) << 16) | (state["cpu.pc"] or 0)
   local key = string.format("%04X:%06X", normalized_address, host)
   if map_control_reads[key] then return end
   map_control_reads[key] = true
   lines[#lines + 1] = string.format(
     "elapsed=%d event=map-control-read address=%04X value=%d mode=%d " ..
-      "remaining=%d host=%02X:%04X",
+      "remaining=%d map=%02X:%04X objectives=%d,%d basebits=%04X " ..
+      "required=%d host=%02X:%04X",
     frame - armed_frame,
     normalized_address,
     value,
     work_byte(0x1B68),
     work_word(0xDA43),
+    work_byte(0x192E),
+    work_word(0x1657),
+    work_byte(0xD7A1),
+    work_byte(0xD7F4),
+    work_word(0xD7F6),
+    traced_map_actor and work_byte(traced_map_actor + 0x27) or 0,
     state["cpu.k"] or 0,
     state["cpu.pc"] or 0)
 end
@@ -2894,6 +2918,18 @@ local function end_frame()
 end
 
 local function isolate_map_layers()
+  if forced_base_destroyed_bits and not forced_base_destroyed_bits_applied
+    and loaded_state and work_byte(0x1B68) == 1 then
+    -- Oracle-only base-flow isolation. Retail base controllers consume this
+    -- destruction bitfield; forcing it here proves the resulting retail map
+    -- transition without leaking its storage representation into the port.
+    write_work_word(0xD7F6, forced_base_destroyed_bits)
+    forced_base_destroyed_bits_applied = true
+    lines[#lines + 1] = string.format(
+      "elapsed=%d event=base-destroyed-bits-forced bits=%04X",
+      frame - armed_frame,
+      forced_base_destroyed_bits)
+  end
   if forced_objective_remaining and not forced_objective_remaining_applied
     and loaded_state and work_byte(0x1B68) == 1 then
     -- Oracle-only mission-flow isolation. This changes the two mirrored
@@ -3461,9 +3497,12 @@ if traced_map_actor then
 end
 if trace_map_control then
   local map_control_ranges = {
+    { 0x1655, 0x1657 },
     { 0x1B68, 0x1B68 },
     { 0x1B88, 0x1B96 },
     { 0x1BE0, 0x1BF2 },
+    { 0xD7A1, 0xD7A1 },
+    { 0xD7F4, 0xD7F7 },
     { 0xDA0F, 0xDA10 },
     { 0xDA43, 0xDA44 },
     { 0xDA57, 0xDA58 },
@@ -3485,7 +3524,10 @@ if trace_map_control_reads then
   -- Deduplication by source instruction exposes the retail state handlers
   -- without flooding the compact oracle trace.
   local map_control_read_ranges = {
+    { 0x1655, 0x1657 },
     { 0x1BF2, 0x1BF2 },
+    { 0xD7A1, 0xD7A1 },
+    { 0xD7F4, 0xD7F7 },
     { 0xDA0F, 0xDA10 },
   }
   for _, range in ipairs(map_control_read_ranges) do

@@ -4,7 +4,7 @@ use sf2_data::path::PathAddress;
 use sf2_game::object::*;
 use sf2_game::oracle_compat::Game;
 use sf2_map::Sf2MapHost;
-use sf2_path::{ChildSpawn, PlayerTargetUpdate, Sf2PathHost, Sf2PathOperation};
+use sf2_path::{ChildSpawn, PlayerTargetUpdate, Sf2PathCondition, Sf2PathHost, Sf2PathOperation};
 
 #[test]
 fn retail_object_pool_formats_all_sixty_stride_3f_records() {
@@ -626,6 +626,90 @@ fn recovered_pilot_services_write_the_retail_slot_layout() {
     assert_eq!(game.memory.read_word(SELECTED_OBJECT), 0);
     assert_eq!(game.memory.read_word(0x6BB8 + 4), current);
     assert_ne!(game.memory.read_byte(0x6BC2 + 4) & 8, 0);
+}
+
+#[test]
+fn force_trigger_expansion_services_match_retail_state_transitions() {
+    let mut game = Game::new(Vec::new()).unwrap();
+    let current = allocate(&mut game.memory, 0).unwrap();
+    let selected = allocate(&mut game.memory, current).unwrap();
+    let linked = allocate(&mut game.memory, current).unwrap();
+    game.memory.write_word(CURRENT_OBJECT, current);
+    game.memory.write_word(SELECTED_OBJECT, selected);
+    game.memory.write_word(selected + FIELD_PATH, 4);
+
+    game.memory.write_word(current + 0x1CD8, 0xCAFE);
+    Sf2PathHost::perform_path_operation(&mut game, Sf2PathOperation::ClearObjectRelativeReference)
+        .unwrap();
+    assert_eq!(game.memory.read_word(current + 0x1CD8), 0);
+
+    game.memory.write_word(current + FIELD_PATH, 0x1683);
+    game.memory.write_word(current + 0x1CE6, linked);
+    Sf2PathHost::perform_path_operation(
+        &mut game,
+        Sf2PathOperation::PreserveCurrentPathContinuation,
+    )
+    .unwrap();
+    assert_eq!(game.memory.read_word(linked + 0x0F), 0x1683);
+
+    game.memory.write_word(current + FIELD_PATH, 0x4321);
+    game.memory.write_word(current + 0x1CE6, 0);
+    Sf2PathHost::perform_path_operation(
+        &mut game,
+        Sf2PathOperation::PreserveCurrentPathContinuation,
+    )
+    .unwrap();
+    let continuation = find_auxiliary_type(&game.memory, current, 3).unwrap();
+    assert_eq!(read_auxiliary_word(&game.memory, continuation + 1), 0x4321);
+
+    game.memory.write_byte(0x6C06 + 4, 2);
+    Sf2PathHost::perform_path_operation(
+        &mut game,
+        Sf2PathOperation::IncrementSelectedAuxiliaryStage,
+    )
+    .unwrap();
+    assert_eq!(game.memory.read_byte(0x6C06 + 4), 3);
+    Sf2PathHost::perform_path_operation(
+        &mut game,
+        Sf2PathOperation::IncrementSelectedAuxiliaryStage,
+    )
+    .unwrap();
+    assert_eq!(game.memory.read_byte(0x6C06 + 4), 3);
+
+    game.memory.write_byte(0x1DD5, 7);
+    game.memory.write_byte(0x6C00 + 4, 7);
+    assert!(Sf2PathHost::evaluate_path_condition(
+        &mut game,
+        Sf2PathCondition::SelectedAuxiliaryStateMatchesGlobal,
+    )
+    .unwrap());
+
+    game.memory.write_byte(current + 0x1CE3, 5);
+    game.memory.write_byte(0x6C05 + 4, 5);
+    game.memory.write_byte(0x6C04 + 4, 0xA8);
+    game.memory.write_byte(current + FIELD_Z, 0x6B);
+    assert!(!Sf2PathHost::advance_selected_auxiliary_progress(&mut game, 1).unwrap());
+    assert_eq!(game.memory.read_byte(0x6C04 + 4), 0xA9);
+    assert_eq!(game.memory.read_byte(0x1E03), 1);
+    assert_eq!(game.memory.read_byte(0x1E05), 0x6B);
+    assert!(Sf2PathHost::advance_selected_auxiliary_progress(&mut game, 1).unwrap());
+    game.memory.write_byte(current + 0x1CE3, 6);
+    assert!(!Sf2PathHost::advance_selected_auxiliary_progress(&mut game, 1).unwrap());
+    assert_eq!(game.memory.read_byte(0x6C05 + 4), 6);
+
+    Sf2PathHost::perform_path_operation(
+        &mut game,
+        Sf2PathOperation::PreserveCurrentObjectForParent,
+    )
+    .unwrap();
+    assert_eq!(game.memory.read_word(0xD767), current);
+
+    game.memory.write_word(current + 0x32, 3);
+    game.memory.write_word(current + 0x36, 0x4001);
+    Sf2PathHost::perform_path_operation(&mut game, Sf2PathOperation::ScaleHorizontalMotion)
+        .unwrap();
+    assert_eq!(game.memory.read_word(current + 0x32), 24);
+    assert_eq!(game.memory.read_word(current + 0x36), 8);
 }
 
 #[test]

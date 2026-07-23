@@ -62,6 +62,7 @@ const OBJECT_HIT_POINTS_FIELD: u16 = 0x2D;
 const OBJECT_VERTICAL_VELOCITY_FIELD: u16 = 0x34;
 const OBJECT_HORIZONTAL_MOTION_FIELD: u16 = 0x32;
 const OBJECT_DEPTH_MOTION_FIELD: u16 = 0x36;
+const HORIZONTAL_MOTION_SCALE: u16 = 8;
 const OBJECT_LIFETIME_FIELD: u16 = 0x18;
 const OBJECT_VARIANT_FIELD: u16 = 0x2E;
 const OBJECT_AUXILIARY_BYTE_FIELD: u16 = 0x0A;
@@ -100,9 +101,23 @@ const PLAYER_AUXILIARY_REFRESH_GATE: u16 = 0x1D72;
 const PLAYER_AUXILIARY_REFRESH_OVERRIDE: u16 = 0x1E0D;
 const PLAYER_AUXILIARY_REFRESH_DISABLE: u16 = 0xD7F4;
 const PLAYER_AUXILIARY_REFRESH_FRAME: u16 = 0x1B4D;
+const SELECTED_AUXILIARY_STATE_BASE: u16 = 0x6C00;
+const SELECTED_AUXILIARY_PROGRESS_BASE: u16 = 0x6C04;
+const SELECTED_AUXILIARY_PHASE_BASE: u16 = 0x6C05;
+const SELECTED_AUXILIARY_STAGE_BASE: u16 = 0x6C06;
+const SELECTED_AUXILIARY_GLOBAL_STATE: u16 = 0x1DD5;
+const SELECTED_AUXILIARY_PROGRESS_STEP_STATE: u16 = 0x1E03;
+const SELECTED_AUXILIARY_PROGRESS_DEPTH_STATE: u16 = 0x1E05;
+const SELECTED_AUXILIARY_PROGRESS_LIMIT: u8 = 9;
+const SELECTED_AUXILIARY_PROGRESS_MASK: u8 = 0x0F;
+const SELECTED_AUXILIARY_STAGE_LIMIT: u8 = 3;
+const PATH_CONTINUATION_AUXILIARY_KIND: u8 = 3;
 const OBJECT_LINKED_OBJECT_FIELD: u16 = 0x06;
 const OBJECT_SELECTED_LINK_FLAG_EXTENSION: u16 = 0x1CDA;
 const OBJECT_RELATIVE_REFERENCE_EXTENSION: u16 = 0x1CD8;
+const OBJECT_PATH_CONTINUATION_TARGET_EXTENSION: u16 = 0x1CE6;
+const OBJECT_AUXILIARY_PHASE_EXTENSION: u16 = 0x1CE3;
+const LINKED_PATH_CONTINUATION_FIELD: u16 = 0x0F;
 const OBJECT_RELATIVE_DEPTH_SOURCE_EXTENSION: u16 = 0x1CE4;
 const OBJECT_CONDITIONAL_PHASE_EXTENSION: u16 = 0x1CC8;
 const CONDITIONAL_OBJECT_PHASE_STATE: u16 = 0x1DD1;
@@ -170,6 +185,7 @@ const LAUNCHED_EXTERNAL_OBJECT: u16 = 0x14D6;
 const LAUNCHED_EXTERNAL_STEP_COUNTER: u16 = 0x16B1;
 const LAUNCHED_EXTERNAL_POSITION_X: u16 = 0xD767;
 const LAUNCHED_EXTERNAL_POSITION_Z: u16 = 0xD769;
+const PRESERVED_CHILD_OBJECT: u16 = LAUNCHED_EXTERNAL_POSITION_X;
 const LAUNCHED_EXTERNAL_SPEED: u8 = 50;
 const LAUNCHED_EXTERNAL_CLEARANCE: u16 = 16;
 const LAUNCHED_EXTERNAL_STEP_LIMIT: u8 = 20;
@@ -2649,6 +2665,41 @@ impl Sf2PathHost for Game {
         Ok(())
     }
 
+    fn advance_selected_auxiliary_progress(&mut self, step: u8) -> Result<bool, Self::Error> {
+        let current = self.current_object()?;
+        let selected = self.memory.read_word(SELECTED_OBJECT);
+        let slot = self.memory.read_word(selected.wrapping_add(FIELD_PATH));
+
+        self.memory
+            .write_byte(SELECTED_AUXILIARY_PROGRESS_STEP_STATE, step);
+        let depth_low = self.memory.read_byte(current.wrapping_add(FIELD_Z));
+        self.memory
+            .write_byte(SELECTED_AUXILIARY_PROGRESS_DEPTH_STATE, depth_low);
+
+        let phase = self
+            .memory
+            .read_byte(current.wrapping_add(OBJECT_AUXILIARY_PHASE_EXTENSION));
+        let phase_address = SELECTED_AUXILIARY_PHASE_BASE.wrapping_add(slot);
+        let phase_was_settled = self.memory.read_byte(phase_address) == phase;
+        self.memory.write_byte(phase_address, phase);
+
+        let progress_address = SELECTED_AUXILIARY_PROGRESS_BASE.wrapping_add(slot);
+        let progress_state = self.memory.read_byte(progress_address);
+        let progress = progress_state & SELECTED_AUXILIARY_PROGRESS_MASK;
+        if progress >= SELECTED_AUXILIARY_PROGRESS_LIMIT {
+            return Ok(phase_was_settled);
+        }
+
+        let advanced = progress
+            .wrapping_add(step)
+            .min(SELECTED_AUXILIARY_PROGRESS_LIMIT);
+        self.memory.write_byte(
+            progress_address,
+            (progress_state & !SELECTED_AUXILIARY_PROGRESS_MASK) | advanced,
+        );
+        Ok(false)
+    }
+
     fn perform_path_operation(&mut self, operation: Sf2PathOperation) -> Result<(), Self::Error> {
         match operation {
             Sf2PathOperation::FaceSelectedSmooth => {
@@ -3215,6 +3266,55 @@ impl Sf2PathHost for Game {
                 self.memory
                     .write_word(spawned.wrapping_add(SPAWNED_OBJECT_OWNER_FIELD), current);
             }
+            Sf2PathOperation::ClearObjectRelativeReference => {
+                let current = self.current_object()?;
+                self.memory
+                    .write_word(current.wrapping_add(OBJECT_RELATIVE_REFERENCE_EXTENSION), 0);
+            }
+            Sf2PathOperation::PreserveCurrentPathContinuation => {
+                let current = self.current_object()?;
+                let continuation = self.memory.read_word(current.wrapping_add(FIELD_PATH));
+                let target = self
+                    .memory
+                    .read_word(current.wrapping_add(OBJECT_PATH_CONTINUATION_TARGET_EXTENSION));
+                if target != 0 {
+                    self.memory.write_word(
+                        target.wrapping_add(LINKED_PATH_CONTINUATION_FIELD),
+                        continuation,
+                    );
+                } else {
+                    let entry = get_or_create_auxiliary_type(
+                        &mut self.memory,
+                        current,
+                        PATH_CONTINUATION_AUXILIARY_KIND,
+                    )
+                    .ok_or(Error::AuxiliaryHeapExhausted)?;
+                    write_auxiliary_word(&mut self.memory, entry + 1, continuation);
+                }
+            }
+            Sf2PathOperation::IncrementSelectedAuxiliaryStage => {
+                let selected = self.memory.read_word(SELECTED_OBJECT);
+                let slot = self.memory.read_word(selected.wrapping_add(FIELD_PATH));
+                let address = SELECTED_AUXILIARY_STAGE_BASE.wrapping_add(slot);
+                let stage = self.memory.read_byte(address);
+                if stage < SELECTED_AUXILIARY_STAGE_LIMIT {
+                    self.memory.write_byte(address, stage.wrapping_add(1));
+                }
+            }
+            Sf2PathOperation::PreserveCurrentObjectForParent => {
+                let current = self.current_object()?;
+                self.memory.write_word(PRESERVED_CHILD_OBJECT, current);
+            }
+            Sf2PathOperation::ScaleHorizontalMotion => {
+                let current = self.current_object()?;
+                for field in [OBJECT_HORIZONTAL_MOTION_FIELD, OBJECT_DEPTH_MOTION_FIELD] {
+                    let motion = self.memory.read_word(current.wrapping_add(field));
+                    self.memory.write_word(
+                        current.wrapping_add(field),
+                        motion.wrapping_mul(HORIZONTAL_MOTION_SCALE),
+                    );
+                }
+            }
             Sf2PathOperation::EaseFixedPlayerYaw => self.ease_fixed_player_yaw(),
             Sf2PathOperation::ConfigureRandomizedObjectMotion => {
                 self.configure_randomized_object_motion()?;
@@ -3340,6 +3440,13 @@ impl Sf2PathHost for Game {
                 };
                 let slot = self.memory.read_word(selected + FIELD_PATH);
                 self.memory.read_byte(0x6B77u16.wrapping_add(slot)) & 0x04 == 0
+            }
+            Sf2PathCondition::SelectedAuxiliaryStateMatchesGlobal => {
+                let selected = self.memory.read_word(SELECTED_OBJECT);
+                let slot = self.memory.read_word(selected.wrapping_add(FIELD_PATH));
+                self.memory
+                    .read_byte(SELECTED_AUXILIARY_STATE_BASE.wrapping_add(slot))
+                    == self.memory.read_byte(SELECTED_AUXILIARY_GLOBAL_STATE)
             }
             Sf2PathCondition::PlayerOneFlag25Bit20 => {
                 let player = self.memory.read_word(PLAYER_ONE);
