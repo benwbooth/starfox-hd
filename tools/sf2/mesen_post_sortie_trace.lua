@@ -280,13 +280,19 @@ teleport_y = tonumber(teleport_y)
 teleport_z = tonumber(teleport_z)
 local teleport_yaw = tonumber(os.getenv("SF2_ORACLE_PLAYER_YAW"))
 local teleported_player = false
-local teleport_frames_remaining = tonumber(os.getenv("SF2_ORACLE_TELEPORT_FRAMES")) or 1
+-- A resumed placement must span enough input callbacks for the retail player,
+-- camera, and linked transform state to agree before the oracle releases it.
+-- One callback only updates the visible object coordinates, which retail
+-- movement immediately replaces from its restored state.
+local teleport_frames_remaining = tonumber(os.getenv("SF2_ORACLE_TELEPORT_FRAMES")) or 120
 local sortie_stride = tonumber(os.getenv("SF2_ORACLE_SORTIE_STRIDE")) or 4
 local save_elapsed = tonumber(os.getenv("SF2_ORACLE_SAVE_ELAPSED"))
 local pending_savestate = false
 local saved_state = false
 local save_callback_reference = nil
 local loaded_state = resume_state_path == nil
+-- Deliberately global: this oracle has reached Lua's main-chunk local limit.
+restoring_state = false
 local load_callback_reference = nil
 local resume_state = nil
 if resume_state_path then
@@ -1692,6 +1698,12 @@ end
 -- limit. Shipping Rust never receives this source-state positioning helper.
 function oracle_apply_player_teleport()
   if not teleport_x or work_byte(0x1B68) ~= 1 then return end
+  -- Mesen can request controller input while `loadSavestate` is restoring
+  -- memory. A one-shot placement made from that callback is overwritten by
+  -- the remainder of the restore, but its frame budget would already be
+  -- consumed. Wait for the first complete resumed frame so the requested
+  -- placement becomes the authoritative retail state.
+  if restoring_state or (resume_state_path and frame <= resume_elapsed) then return end
   local player = work_word(0x12C3)
   if player == 0 then return end
   if not teleported_player or lock_teleport_horizontal then
@@ -2601,7 +2613,9 @@ end
 local function load_resume_state()
   if loaded_state then return end
   loaded_state = true
+  restoring_state = true
   emu.loadSavestate(resume_state)
+  restoring_state = false
   if capture_loaded_state then
     capture_screen(resume_elapsed)
     capture_work(resume_elapsed)
