@@ -242,7 +242,10 @@ local craft_transition_lines = {}
 local walker_dynamics_lines = {}
 sortie_actor_oracle = {
   enabled = os.getenv("SF2_ORACLE_TRACE_SORTIE_ACTOR_LOGIC") == "1",
+  projectiles_enabled =
+    os.getenv("SF2_ORACLE_TRACE_SORTIE_PROJECTILE_LOGIC") == "1",
   lines = {},
+  projectile_lines = {},
   objects = {
     [0x0633] = true,
     [0x05F4] = true,
@@ -906,22 +909,29 @@ end
 -- reduces it to typed movement, steering, wave, firing, and scheduling events
 -- before anything reaches the Rust port.
 function sortie_actor_oracle.record(event)
-  if not sortie_actor_oracle.enabled or not armed then return end
+  if not sortie_actor_oracle.enabled
+    and not sortie_actor_oracle.projectiles_enabled then return end
+  if not armed then return end
   local elapsed = frame - armed_frame
   if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
   local state = emu.getState()
   local object = state["cpu.x"] or 0
-  if not sortie_actor_oracle.objects[object] then return end
+  local shape = work_word(object + 4)
+  local actor = sortie_actor_oracle.enabled and sortie_actor_oracle.objects[object]
+  local projectile = sortie_actor_oracle.projectiles_enabled and shape == 0xE3A8
+  if not actor and not projectile then return end
   local trigger_list = work_word(object + 0x1CE0)
   local selected = work_word(0xCF1F)
-  sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+  local output = actor
+    and sortie_actor_oracle.lines or sortie_actor_oracle.projectile_lines
+  output[#output + 1] = string.format(
     "elapsed=%d event=%s object=%04X shape=%04X path=%04X pose=%s " ..
       "velocity=%d,%d,%d rng=%s relative_motion=%d,%d base=%s " ..
       "extension=%s selected=%04X selected_pose=%s triggers=%s",
     elapsed,
     event,
     object,
-    work_word(object + 4),
+    shape,
     work_word(object + 0x2B),
     pose(object),
     signed_word(object + 0x32),
@@ -2447,6 +2457,11 @@ local function end_frame()
         "sf2_sortie_actor_logic.txt",
         table.concat(sortie_actor_oracle.lines, "\n") .. "\n")
     end
+    if sortie_actor_oracle.projectiles_enabled then
+      write_file(
+        "sf2_sortie_projectile_logic.txt",
+        table.concat(sortie_actor_oracle.projectile_lines, "\n") .. "\n")
+    end
     if trace_walker_dynamics or trace_walker_writes then
       write_file(
         "sf2_walker_dynamics_trace.txt",
@@ -2666,6 +2681,18 @@ function sortie_actor_oracle.register_callbacks()
     { "face-player", 0x7F878B },
     { "fire", 0x7F885E },
     { "vertical-step", 0x7F8925 },
+    -- Projectile-only detail probes. These bracket the semantic operations
+    -- used by the first re-engagement laser path so its native Rust lift can
+    -- retain the fixed-point behavior without retaining object-memory state.
+    { "projectile-distance-test", 0x7F8BEB },
+    { "projectile-orbit-pitch", 0x7FADC7 },
+    { "projectile-orbit-pitch-complete", 0x7FB05F },
+    { "projectile-face-immediate", 0x7F872C },
+    { "projectile-face-immediate-complete", 0x7F8952 },
+    { "projectile-face-smooth", 0x7F87CA },
+    { "projectile-face-smooth-complete", 0x7F8A3C },
+    { "projectile-set-speed", 0x7F854A },
+    { "projectile-set-speed-complete", 0x7F875C },
   }) do
     emu.addMemoryCallback(
       sortie_actor_oracle.callback(service[1]),
@@ -2742,7 +2769,7 @@ function sortie_actor_oracle.register_callbacks()
     emu.cpuType.gsu,
     emu.memType.gsuWorkRam)
 end
-if sortie_actor_oracle.enabled then
+if sortie_actor_oracle.enabled or sortie_actor_oracle.projectiles_enabled then
   sortie_actor_oracle.register_callbacks()
 end
 if trace_craft_transition then

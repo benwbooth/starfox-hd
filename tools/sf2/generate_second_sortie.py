@@ -289,14 +289,14 @@ def rust_source(
         "tools/sf2/generate_second_sortie.py [--check]`.",
         "",
         "use super::{",
-        "    mission_camera_keyframe, mission_player_keyframe, mission_projectile_keyframe,",
-        "    MissionCameraKeyframe, MissionPlayerKeyframe, "
-        "MissionProjectileKeyframe,",
+        "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,",
+        "    MissionPlayerKeyframe,",
         "};",
         "#[cfg(test)]",
         "use super::{",
         "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,",
-        "    mission_actor_keyframe, MissionActorKeyframe,",
+        "    mission_actor_keyframe, mission_projectile_keyframe, MissionActorKeyframe,",
+        "    MissionProjectileKeyframe,",
         "};",
         "",
         f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
@@ -384,6 +384,7 @@ def rust_source(
         lines.extend(
             [
                 "",
+                "#[cfg(test)]",
                 f"const {constant_name}: [MissionProjectileKeyframe; {len(lifetime)}] = [",
             ]
         )
@@ -394,6 +395,7 @@ def rust_source(
     lines.extend(
         [
             "",
+            "#[cfg(test)]",
             "pub(super) const ENEMY_LASER_KEYFRAME_TRACKS: "
             f"[&[MissionProjectileKeyframe]; {len(lifetimes)}] = [",
         ]

@@ -396,6 +396,21 @@ pub struct CapitalFlightState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReengagementProjectileFlightPhase {
+    Homing,
+    AimCorrection,
+    Cruise,
+}
+
+/// Flat, typed flight variables for hostile projectiles in the first
+/// strategic-map re-engagement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReengagementProjectileFlightState {
+    pub phase: ReengagementProjectileFlightPhase,
+    pub motion_steps_elapsed: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerProjectileKind {
     Rapid,
     Charged,
@@ -427,6 +442,7 @@ pub enum ObjectActivity {
     FighterFlight(FighterFlightState),
     ReengagementFighterFlight(ReengagementFighterFlightState),
     CapitalFlight(CapitalFlightState),
+    ReengagementProjectileFlight(ReengagementProjectileFlightState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),
 }
