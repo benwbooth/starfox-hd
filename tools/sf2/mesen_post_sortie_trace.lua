@@ -117,6 +117,9 @@ forced_objective_remaining_applied = false
 forced_base_destroyed_bits = tonumber(
   os.getenv("SF2_ORACLE_BASE_DESTROYED_BITS"))
 forced_base_destroyed_bits_applied = false
+forced_base_handshake_bits = tonumber(
+  os.getenv("SF2_ORACLE_BASE_HANDSHAKE_BITS"))
+forced_base_handshake_bits_applied = false
 local skipped_surface_objectives = false
 local finished_current_mission = false
 local forced_projectile_hit_applied = false
@@ -182,6 +185,11 @@ if forced_base_destroyed_bits then
   assert(
     forced_base_destroyed_bits >= 0 and forced_base_destroyed_bits <= 65535,
     "SF2_ORACLE_BASE_DESTROYED_BITS must be word-sized")
+end
+if forced_base_handshake_bits then
+  assert(
+    forced_base_handshake_bits >= 0 and forced_base_handshake_bits <= 255,
+    "SF2_ORACLE_BASE_HANDSHAKE_BITS must be byte-sized")
 end
 if forced_player_health then
   assert(
@@ -916,10 +924,12 @@ local function trace_map_control_write(address, value)
   local state = emu.getState()
   local normalized_address = address & 0x1FFFF
   if normalized_address > 0xFFFF then return end
+  local current_object = work_word(0x1651)
   lines[#lines + 1] = string.format(
     "elapsed=%d event=map-control-write address=%04X value=%d mode=%d " ..
       "remaining=%d map=%02X:%04X objectives=%d,%d basebits=%04X " ..
-      "required=%d host=%02X:%04X",
+      "required=%d scheduled=%04X shape=%04X path=%04X context=%04X,%04X " ..
+      "host=%02X:%04X",
     frame - armed_frame,
     normalized_address,
     value or 0,
@@ -931,6 +941,11 @@ local function trace_map_control_write(address, value)
     work_byte(0xD7F4),
     work_word(0xD7F6),
     traced_map_actor and work_byte(traced_map_actor + 0x27) or 0,
+    current_object,
+    current_object ~= 0 and work_word(current_object + 4) or 0,
+    current_object ~= 0 and work_word(current_object + 0x2B) or 0,
+    state["cpu.x"] or 0,
+    state["cpu.y"] or 0,
     state["cpu.k"] or 0,
     state["cpu.pc"] or 0)
 end
@@ -944,10 +959,12 @@ local function trace_map_control_read(address, value)
   local key = string.format("%04X:%06X", normalized_address, host)
   if map_control_reads[key] then return end
   map_control_reads[key] = true
+  local current_object = work_word(0x1651)
   lines[#lines + 1] = string.format(
     "elapsed=%d event=map-control-read address=%04X value=%d mode=%d " ..
       "remaining=%d map=%02X:%04X objectives=%d,%d basebits=%04X " ..
-      "required=%d host=%02X:%04X",
+      "required=%d scheduled=%04X shape=%04X path=%04X context=%04X,%04X " ..
+      "host=%02X:%04X",
     frame - armed_frame,
     normalized_address,
     value,
@@ -959,6 +976,11 @@ local function trace_map_control_read(address, value)
     work_byte(0xD7F4),
     work_word(0xD7F6),
     traced_map_actor and work_byte(traced_map_actor + 0x27) or 0,
+    current_object,
+    current_object ~= 0 and work_word(current_object + 4) or 0,
+    current_object ~= 0 and work_word(current_object + 0x2B) or 0,
+    state["cpu.x"] or 0,
+    state["cpu.y"] or 0,
     state["cpu.k"] or 0,
     state["cpu.pc"] or 0)
 end
@@ -1423,7 +1445,7 @@ local function record(event, elapsed)
       "wingmate=%04X camera=%d,%d,%d,%d,%d,%d playerpose=%s " ..
       "wingpose=%s objects=[%s] selected=%04X targetdigits=%d,%d,%d " ..
       "coretrigger=%d map=%02X:%04X mapcursor=%d,%d mapposition=%d,%d " ..
-      "objectives=%d,%d " ..
+      "objectives=%d,%d basehandshake=%02X " ..
       "corneria_remaining=%d " ..
       "corneria_damage=%d",
     elapsed,
@@ -1460,6 +1482,7 @@ local function record(event, elapsed)
     work_byte(0xDAF6),
     work_byte(0xD7A1),
     work_byte(0xD7F4),
+    work_byte(0xD78B),
     work_word(0xDB47),
     work_word(0xDB49))
 end
@@ -2955,6 +2978,38 @@ local function isolate_map_layers()
       frame - armed_frame,
       forced_base_destroyed_bits)
   end
+  if forced_base_handshake_bits and not forced_base_handshake_bits_applied
+    and forced_base_destroyed_bits_applied and loaded_state
+    and work_byte(0x1B68) == 1 then
+    local controller_waiting = false
+    local object = work_word(0x12A8)
+    local seen = {}
+    while object ~= 0 and not seen[object] do
+      seen[object] = true
+      if work_word(object + 4) == 0xD6A4
+        and work_word(object + 0x2B) == 0x8B75 then
+        controller_waiting = true
+        break
+      end
+      object = work_word(object)
+    end
+    -- Oracle-only downstream isolation. The linked approach path normally
+    -- acknowledges the completed surface controllers through this bitset.
+    -- Apply the requested acknowledgement once, after those controllers have
+    -- consumed the forced destruction state, then leave every transition and
+    -- mission-phase write under retail control.
+    if controller_waiting then
+      emu.write(
+        0xD78B,
+        work_byte(0xD78B) | forced_base_handshake_bits,
+        emu.memType.snesWorkRam)
+      forced_base_handshake_bits_applied = true
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=base-handshake-bits-forced bits=%02X",
+        frame - armed_frame,
+        forced_base_handshake_bits)
+    end
+  end
   if forced_objective_remaining and not forced_objective_remaining_applied
     and loaded_state and work_byte(0x1B68) == 1 then
     -- Oracle-only mission-flow isolation. This changes the two mirrored
@@ -3526,6 +3581,8 @@ if trace_map_control then
     { 0x1B68, 0x1B68 },
     { 0x1B88, 0x1B96 },
     { 0x1BE0, 0x1BF2 },
+    -- Indexed path variable 47 is the retail base-controller handshake.
+    { 0xD78B, 0xD78B },
     { 0xD7A1, 0xD7A1 },
     { 0xD7F4, 0xD7F7 },
     { 0xDA0F, 0xDA10 },
@@ -3551,6 +3608,7 @@ if trace_map_control_reads then
   local map_control_read_ranges = {
     { 0x1655, 0x1657 },
     { 0x1BF2, 0x1BF2 },
+    { 0xD78B, 0xD78B },
     { 0xD7A1, 0xD7A1 },
     { 0xD7F4, 0xD7F7 },
     { 0xDA0F, 0xDA10 },
