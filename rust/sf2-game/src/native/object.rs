@@ -494,6 +494,7 @@ pub enum LeonRivalFlightPhase {
     AwaitingEntrance,
     Approach,
     CombatManeuver,
+    Attack,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

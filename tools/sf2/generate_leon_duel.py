@@ -58,6 +58,7 @@ def main() -> None:
         DUEL_NAME,
         Path(__file__).name,
         rival_test_only=True,
+        timing_test_only=True,
     )
     if args.check:
         if not DEFAULT_OUTPUT.is_file() or DEFAULT_OUTPUT.read_text(encoding="utf-8") != generated:

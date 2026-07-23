@@ -809,6 +809,10 @@ pub struct MissionState {
     pub objects_destroyed: u32,
     pub item_count: u8,
     pub elapsed_time_tenths: u16,
+    /// Retail presentation boundary at which the current rival finished its
+    /// destruction sequence. Mission return timing is relative to an actual
+    /// combat defeat, never a scripted disappearance.
+    pub rival_defeated_retail_frame: Option<u16>,
     pub player_blaster: PlayerBlasterState,
     /// Persistent analog flight response recovered from the retail player
     /// object. These are ordinary gameplay values, separate from the visible

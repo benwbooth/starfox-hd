@@ -12,7 +12,9 @@ use super::{
 #[cfg(test)]
 use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};
 
+#[cfg(test)]
 pub(super) const RETURN_RETAIL_FRAME: u16 = 876;
+#[cfg(test)]
 pub(super) const MAP_READY_RETAIL_FRAME: u16 = 878;
 
 pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 219] = [

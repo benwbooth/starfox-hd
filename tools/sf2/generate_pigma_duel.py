@@ -284,6 +284,7 @@ def rust_source(
     generator_name: str,
     projectiles_test_only: bool = False,
     rival_test_only: bool = False,
+    timing_test_only: bool = False,
 ) -> str:
     present_indices = [index for index, record in enumerate(records) if record.rival is not None]
     if not present_indices:
@@ -370,7 +371,9 @@ def rust_source(
         "",
         *rival_import,
         *projectile_import,
+        *(["#[cfg(test)]"] if timing_test_only else []),
         f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
+        *(["#[cfg(test)]"] if timing_test_only else []),
         f"pub(super) const MAP_READY_RETAIL_FRAME: u16 = {map_ready_frame};",
         "",
         f"pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; {len(records)}] = [",

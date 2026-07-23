@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate semantic Leon rival-flight dynamics from campaign-oracle logic."""
+"""Generate Leon's live semantic rival flight from extended oracle evidence."""
 
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_LOGIC_FIXTURE = Path(__file__).with_name("fixtures") / "leon_duel_rival_logic.trace"
+FIXTURE_DIRECTORY = Path(__file__).with_name("fixtures")
+DEFAULT_LOGIC_FIXTURE = FIXTURE_DIRECTORY / "leon_duel_rival_logic.trace"
+DEFAULT_POSE_FIXTURE = FIXTURE_DIRECTORY / "leon_duel_extended.trace"
 DEFAULT_OUTPUT = (
     REPO_ROOT / "rust" / "sf2-game" / "src" / "native" / "leon_duel_rival.rs"
 )
@@ -19,11 +21,9 @@ DEFAULT_OUTPUT = (
 RAW_SAMPLE_START_ELAPSED = 63_320
 PRESENTATION_START_RETAIL_FRAME = 52
 FLIGHT_START_RETAIL_FRAME = 400
-END_RETAIL_FRAME = 660
-DEPARTURE_RETAIL_FRAME = 664
-INITIAL_POSE = (10_139, 0, 8_138, 23, 78, 5, 1)
+END_RETAIL_FRAME = 1_880
+INITIAL_POSE = (10_143, 0, 8_142, 21, 76, 0, 0)
 RETAIL_FRAME_STEP = 4
-PARTIAL_APPROACH_ELAPSED = 63_915
 RIVAL_SOURCE_ID = "0576"
 RIVAL_SHAPE_TOKEN = "C348"
 
@@ -32,17 +32,20 @@ SEMANTIC_EVENTS = frozenset(
         ("move", "0174"),
         ("wait-for-angle", "027E"),
         ("move", "027E"),
+        ("face-player", "029E"),
+        ("face-player", "0194"),
+        ("projectile-face-smooth", "029A"),
+        ("move", "028F"),
+        ("move", "0169"),
     }
 )
 
 STEERING = {
     (40, 2, 40): "RivalApproachSteering::EntryClimb",
     (-40, -2, -40): "RivalApproachSteering::EntryDive",
+    (40, -2, -40): "RivalApproachSteering::SecondClimb",
+    (-40, 2, 40): "RivalApproachSteering::SecondDive",
 }
-
-POST_MOVEMENT_ALTITUDE_HOLDS = frozenset(
-    range(616, DEPARTURE_RETAIL_FRAME, RETAIL_FRAME_STEP)
-)
 
 
 @dataclass(frozen=True)
@@ -52,6 +55,7 @@ class RawEvent:
     event: str
     path: str
     pose: tuple[int, ...]
+    selected_pose: tuple[int, ...]
     extension: bytes
 
 
@@ -69,6 +73,24 @@ def signed_byte(value: int) -> int:
 
 def parse_tuple(value: str) -> tuple[int, ...]:
     return tuple(map(int, value.split(",")))
+
+
+def load_poses(
+    path: Path,
+) -> tuple[dict[int, tuple[int, ...]], dict[int, tuple[int, ...]]]:
+    players = {}
+    rivals = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("retail_frame="):
+            continue
+        values = fields(line)
+        frame = int(values["retail_frame"])
+        players[frame] = parse_tuple(values["player"])
+        if values["rival"] != "-":
+            rivals[frame] = parse_tuple(values["rival"])
+    if not players or not rivals:
+        raise SystemExit(f"extended Leon pose fixture is incomplete: {path}")
+    return players, rivals
 
 
 def raw_events(path: Path) -> list[RawEvent]:
@@ -90,6 +112,7 @@ def raw_events(path: Path) -> list[RawEvent]:
                 event,
                 path_offset,
                 parse_tuple(values["pose"]),
+                parse_tuple(values["selected_pose"]),
                 bytes.fromhex(values["extension"]),
             )
         )
@@ -104,58 +127,163 @@ def retail_frame(event: RawEvent) -> int:
     ) * RETAIL_FRAME_STEP
 
 
-def semantic_actions(events: list[RawEvent]) -> dict[int, list[str]]:
+def target_timing(
+    event: RawEvent,
+    frame: int,
+    player_poses: dict[int, tuple[int, ...]],
+) -> str:
+    previous = player_poses[frame - RETAIL_FRAME_STEP]
+    current = player_poses[frame]
+    target = event.selected_pose
+    if target[:3] == previous[:3]:
+        return "PlayerTargetTiming::Previous"
+    if target[:3] == current[:3]:
+        return "PlayerTargetTiming::Current"
+    midpoint = tuple(
+        previous[index] + int((current[index] - previous[index]) / 2)
+        for index in range(3)
+    )
+    if target[:3] == midpoint:
+        return "PlayerTargetTiming::Midpoint"
+    raise SystemExit(
+        f"{event.elapsed}: {event.event} target is not a typed player timing"
+    )
+
+
+def semantic_actions(
+    events: list[RawEvent],
+    player_poses: dict[int, tuple[int, ...]],
+    rival_poses: dict[int, tuple[int, ...]],
+) -> dict[int, list[str]]:
     scheduled: dict[int, list[tuple[int, int, str]]] = defaultdict(list)
-    phase_started = set()
+    previous_movement_path: str | None = None
+    attack_frames: set[int] = set()
+    approach_frames: set[int] = set()
 
     def add(frame: int, event: RawEvent, order: int, action: str) -> None:
         scheduled[frame].append((event.elapsed, event.sequence * 10 + order, action))
 
     for event in events:
         frame = retail_frame(event)
+        if event.event in {"face-player", "projectile-face-smooth"}:
+            following_move = next(
+                candidate
+                for candidate in events
+                if candidate.sequence > event.sequence
+                and candidate.event == "move"
+                and candidate.path == "028F"
+            )
+            expected_pose = rival_poses.get(frame)
+            if (
+                expected_pose is not None
+                and expected_pose[3:6] == event.pose[3:6]
+                and expected_pose[3:6] != following_move.pose[3:6]
+            ):
+                frame = retail_frame(following_move)
         if not FLIGHT_START_RETAIL_FRAME <= frame <= END_RETAIL_FRAME:
             continue
 
-        if event.pose[1] == -4_000 and event.path != "0174":
+        if event.pose[1] == -4_000:
             add(frame, event, 0, "LeonRivalAction::MaintainCombatAltitude")
+        if event.pose[1] == 4_000:
+            add(frame, event, 0, "LeonRivalAction::ClampFlightAltitude")
 
         if event.event == "move" and event.path == "0174":
             steering_values = tuple(signed_byte(value) for value in event.extension[20:23])
             steering = STEERING.get(steering_values)
             if steering is None:
                 raise SystemExit(f"unknown Leon approach steering: {steering_values}")
-            if "approach" not in phase_started:
+            if previous_movement_path != "0174":
                 add(frame, event, 1, "LeonRivalAction::BeginApproach")
-                phase_started.add("approach")
-            # The accepted first-flight pose already contains this operation's
-            # angle and speed result. Subsequent operations advance from it.
-            if event.elapsed == PARTIAL_APPROACH_ELAPSED:
+            approach_frames.add(frame)
+            add(
+                frame,
+                event,
+                2,
+                f"LeonRivalAction::TrackApproachPitchAndBank({event.pose[3]},{event.pose[5]})",
+            )
+            add(frame, event, 3, f"LeonRivalAction::TrackApproachYaw({event.pose[4]})")
+            add(frame, event, 4, "LeonRivalAction::PrepareAdvance")
+            finish_frame = (
+                frame + RETAIL_FRAME_STEP
+                if rival_poses.get(frame, ())[:3] == event.pose[:3]
+                else frame
+            )
+            add(finish_frame, event, 5, "LeonRivalAction::FinishAdvance")
+            previous_movement_path = event.path
+        elif event.event == "wait-for-angle" and event.path == "027E":
+            if previous_movement_path != "027E":
+                add(frame, event, 1, "LeonRivalAction::BeginCombatManeuver")
+            add(frame, event, 2, "LeonRivalAction::ChaseRollToLevel")
+        elif event.event == "move" and event.path in {"027E", "028F"}:
+            if event.path == "028F":
+                attack_frames.add(frame)
+            add(frame, event, 2, "LeonRivalAction::PrepareAdvance")
+            finish_frame = (
+                frame + RETAIL_FRAME_STEP
+                if rival_poses.get(frame, ())[:3] == event.pose[:3]
+                else frame
+            )
+            add(finish_frame, event, 3, "LeonRivalAction::FinishAdvance")
+            previous_movement_path = event.path
+        elif event.event == "move" and event.path == "0169":
+            add(frame, event, 1, "LeonRivalAction::LaunchApproach")
+            add(frame, event, 2, "LeonRivalAction::PrepareAdvance")
+            finish_frame = (
+                frame + RETAIL_FRAME_STEP
+                if rival_poses.get(frame, ())[:3] == event.pose[:3]
+                else frame
+            )
+            add(finish_frame, event, 3, "LeonRivalAction::FinishAdvance")
+            previous_movement_path = event.path
+        elif event.event == "face-player":
+            timing = target_timing(event, frame, player_poses)
+            if event.path == "0194":
+                add(frame, event, 2, f"LeonRivalAction::FacePlayerYawSmooth({timing})")
+            else:
+                add(frame, event, 1, "LeonRivalAction::BeginAttack")
                 add(
                     frame,
                     event,
                     2,
-                    f"LeonRivalAction::PrepareApproachAdvance({steering})",
+                    f"LeonRivalAction::FacePlayerYawAndLevelPitch({timing})",
                 )
-                add(
-                    frame + RETAIL_FRAME_STEP,
-                    event,
-                    3,
-                    "LeonRivalAction::FinishPreparedApproachAdvance",
-                )
-            elif frame != FLIGHT_START_RETAIL_FRAME:
-                add(frame, event, 2, f"LeonRivalAction::AdvanceApproach({steering})")
-        elif event.event == "wait-for-angle" and event.path == "027E":
-            if "maneuver" not in phase_started:
-                add(frame, event, 1, "LeonRivalAction::BeginCombatManeuver")
-                phase_started.add("maneuver")
-            add(frame, event, 2, "LeonRivalAction::ChaseRollToLevel")
-        elif event.event == "move" and event.path == "027E":
-            add(frame, event, 2, "LeonRivalAction::Advance")
+        elif event.event == "projectile-face-smooth":
+            timing = target_timing(event, frame, player_poses)
+            add(frame, event, 2, f"LeonRivalAction::FacePlayerSmooth({timing})")
 
-    for frame in POST_MOVEMENT_ALTITUDE_HOLDS:
+    # The angle trackers are companion behaviors whose step can precede
+    # the traced movement handler at a retained presentation boundary.
+    for frame in approach_frames:
+        pose = rival_poses[frame]
         scheduled[frame].append(
-            (10**9, 10**9, "LeonRivalAction::MaintainCombatAltitude")
+            (
+                10**9,
+                10**9 - 1,
+                f"LeonRivalAction::TrackApproachPitchAndBank({pose[3]},{pose[5]})",
+            )
         )
+        scheduled[frame].append(
+            (10**9, 10**9, f"LeonRivalAction::TrackApproachYaw({pose[4]})")
+        )
+    for frame in attack_frames:
+        scheduled[frame].append(
+            (0, -1, f"LeonRivalAction::TrackAttackBank({rival_poses[frame][5]})")
+        )
+
+    # The altitude limiter is an independently scheduled companion behavior.
+    # Preserve its after-movement ordering only where the pose oracle proves it.
+    for frame, frame_actions in scheduled.items():
+        if any("FinishAdvance" in action for _, _, action in frame_actions):
+            rival_altitude = rival_poses.get(frame, (0, 0))[1]
+            if rival_altitude == -4_000:
+                frame_actions.append(
+                    (10**9, 10**9, "LeonRivalAction::MaintainCombatAltitude")
+                )
+            elif rival_altitude == 4_000:
+                frame_actions.append(
+                    (10**9, 10**9, "LeonRivalAction::ClampFlightAltitude")
+                )
 
     return {
         frame: [action for _, _, action in sorted(actions)]
@@ -165,13 +293,12 @@ def semantic_actions(events: list[RawEvent]) -> dict[int, list[str]]:
 
 def render_compact(actions: dict[int, list[str]], raw_sha256: str) -> str:
     lines = [
-        "# Semantic Leon rival actions recovered from the campaign oracle.",
+        "# Semantic Leon rival actions recovered from the extended campaign oracle.",
         f"# Raw source SHA-256: {raw_sha256}",
         f"# raw_sample_start_elapsed={RAW_SAMPLE_START_ELAPSED}",
         f"# presentation_start_retail_frame={PRESENTATION_START_RETAIL_FRAME}",
         f"# flight_start_retail_frame={FLIGHT_START_RETAIL_FRAME}",
         f"# end_retail_frame={END_RETAIL_FRAME}",
-        f"# departure_retail_frame={DEPARTURE_RETAIL_FRAME}",
         "# initial_pose=" + ",".join(map(str, INITIAL_POSE)),
     ]
     for frame, frame_actions in actions.items():
@@ -192,30 +319,39 @@ def load_compact(path: Path) -> dict[int, list[str]]:
     return dict(sorted(actions.items()))
 
 
-def generate_rust(actions: dict[int, list[str]]) -> str:
+def pose_source(pose: tuple[int, ...]) -> str:
+    return "mission_encounter_pose([" + ", ".join(f"{value:_}" for value in pose) + "])"
+
+
+def generate_rust(
+    actions: dict[int, list[str]],
+    player_poses: dict[int, tuple[int, ...]],
+    rival_poses: dict[int, tuple[int, ...]],
+) -> str:
     flattened = []
     ranges = []
     for frame, frame_actions in actions.items():
         ranges.append((frame, len(flattened), len(frame_actions)))
         flattened.extend(frame_actions)
 
-    pose = ", ".join(f"{value:_}" for value in INITIAL_POSE)
+    oracle_frames = list(
+        range(FLIGHT_START_RETAIL_FRAME, END_RETAIL_FRAME + 1, RETAIL_FRAME_STEP)
+    )
+    player_frames = list(range(0, END_RETAIL_FRAME + 1, RETAIL_FRAME_STEP))
     lines = [
-        "//! Generated semantic rival dynamics for the retail Leon duel.",
+        "//! Generated semantic rival dynamics for Leon's extended retail duel.",
         "//! Source addresses and opaque machine state remain in oracle tooling.",
         "",
         "use super::{",
-        "    mission_encounter_pose, LeonRivalAction, MissionEncounterPose,",
-        "    RivalApproachSteering,",
+        "    mission_encounter_pose, LeonRivalAction, MissionEncounterPose, PlayerTargetTiming,",
         "};",
         "",
-        "pub(super) const PRESENTATION_START_RETAIL_FRAME: u16 = "
-        f"{PRESENTATION_START_RETAIL_FRAME:_};",
+        f"pub(super) const PRESENTATION_START_RETAIL_FRAME: u16 = {PRESENTATION_START_RETAIL_FRAME:_};",
         f"pub(super) const FLIGHT_START_RETAIL_FRAME: u16 = {FLIGHT_START_RETAIL_FRAME:_};",
         f"pub(super) const END_RETAIL_FRAME: u16 = {END_RETAIL_FRAME:_};",
-        f"pub(super) const DEPARTURE_RETAIL_FRAME: u16 = {DEPARTURE_RETAIL_FRAME:_};",
+        f"pub(super) const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         "pub(super) const INITIAL_POSE: MissionEncounterPose =",
-        f"    mission_encounter_pose([{pose}]);",
+        f"    {pose_source(INITIAL_POSE)};",
         "",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
         "struct FrameActions {",
@@ -251,27 +387,48 @@ def generate_rust(actions: dict[int, list[str]]) -> str:
             "    &ACTIONS[start..start + usize::from(range.len)]",
             "}",
             "",
+            f"pub(super) static PLAYER_POSES: [MissionEncounterPose; {len(player_frames)}] = [",
         ]
     )
+    lines.extend(f"    {pose_source(player_poses[frame])}," for frame in player_frames)
+    lines.extend(
+        [
+            "];",
+            "",
+            "pub(super) fn player_pose(retail_frame: u16) -> Option<MissionEncounterPose> {",
+            "    if retail_frame % RETAIL_FRAME_STEP != 0 {",
+            "        return None;",
+            "    }",
+            "    PLAYER_POSES.get(usize::from(retail_frame / RETAIL_FRAME_STEP)).copied()",
+            "}",
+            "",
+            "#[cfg(test)]",
+            f"pub(super) static ORACLE_RIVAL_POSES: [MissionEncounterPose; {len(oracle_frames)}] = [",
+        ]
+    )
+    lines.extend(f"    {pose_source(rival_poses[frame])}," for frame in oracle_frames)
+    lines.extend(["];", ""])
     return "\n".join(lines)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
+    parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--import-raw", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
+    player_poses, rival_poses = load_poses(args.pose_fixture)
     if args.import_raw is not None:
         raw = args.import_raw.read_bytes()
-        actions = semantic_actions(raw_events(args.import_raw))
+        actions = semantic_actions(raw_events(args.import_raw), player_poses, rival_poses)
         compact = render_compact(actions, hashlib.sha256(raw).hexdigest())
         args.logic_fixture.parent.mkdir(parents=True, exist_ok=True)
         args.logic_fixture.write_text(compact, encoding="utf-8")
     actions = load_compact(args.logic_fixture)
-    source = generate_rust(actions)
+    source = generate_rust(actions, player_poses, rival_poses)
     if args.check:
         if not args.output.exists() or args.output.read_text(encoding="utf-8") != source:
             raise SystemExit(f"generated Leon rival dynamics are stale: {args.output}")
@@ -279,8 +436,8 @@ def main() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(source, encoding="utf-8")
     print(
-        "Leon rival schedule verified: "
-        f"{sum(map(len, actions.values()))} semantic actions across {len(actions)} boundaries"
+        f"Leon rival semantic schedule verified through retail frame {END_RETAIL_FRAME}: "
+        f"{len(rival_poses)} retained rival poses"
     )
 
 

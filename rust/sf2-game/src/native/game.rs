@@ -53,6 +53,8 @@ mod final_pursuer_projectiles;
 mod final_rivals_flight;
 #[path = "leon_duel.rs"]
 mod leon_duel;
+#[path = "leon_duel_projectiles.rs"]
+mod leon_duel_projectiles;
 #[path = "leon_duel_rival.rs"]
 mod leon_duel_rival;
 #[path = "leon_pressure.rs"]
@@ -170,6 +172,8 @@ const PIGMA_ESCAPE_WOBBLE: [i8; 10] = [-10, 20, -18, 16, -14, 12, -10, 8, -6, 4]
 const LEON_HEALTH: u8 = 100;
 const LEON_ATTACK_POWER: u8 = 4;
 const LEON_SCORE_AWARD: u32 = 400;
+const LEON_DEFEAT_TO_RETURN_RETAIL_FRAMES: u16 = 212;
+const LEON_DEFEAT_TO_MAP_READY_RETAIL_FRAMES: u16 = 214;
 const LEON_RETURN_SCORE: u32 = 3_403;
 const LEON_RETURN_ITEM_COUNT: u8 = 3;
 const LEON_RETURN_SHIELD: u8 = 40;
@@ -1567,13 +1571,20 @@ enum PigmaRivalAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LeonRivalAction {
     BeginApproach,
-    AdvanceApproach(RivalApproachSteering),
-    PrepareApproachAdvance(RivalApproachSteering),
-    FinishPreparedApproachAdvance,
+    LaunchApproach,
+    TrackApproachPitchAndBank(u8, u8),
+    TrackApproachYaw(u8),
+    PrepareAdvance,
+    FinishAdvance,
     BeginCombatManeuver,
+    BeginAttack,
     MaintainCombatAltitude,
+    ClampFlightAltitude,
     ChaseRollToLevel,
-    Advance,
+    FacePlayerYawSmooth(PlayerTargetTiming),
+    FacePlayerYawAndLevelPitch(PlayerTargetTiming),
+    FacePlayerSmooth(PlayerTargetTiming),
+    TrackAttackBank(u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3141,6 +3152,12 @@ struct ActivePigmaProjectile {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct ActiveLeonProjectile {
+    track_index: usize,
+    object: ObjectId,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct ActivePressureProjectile {
     track_index: usize,
     object: ObjectId,
@@ -4468,6 +4485,7 @@ pub struct Game {
     pigma_rival: Option<ObjectId>,
     pigma_projectiles: Vec<ActivePigmaProjectile>,
     leon_rival: Option<ObjectId>,
+    leon_projectiles: Vec<ActiveLeonProjectile>,
     pressure_fighter_actors: PressureFighterActors,
     pressure_fighter_projectiles: Vec<ActivePressureProjectile>,
     leon_pressure_projectiles: Vec<ActivePressureProjectile>,
@@ -4500,6 +4518,7 @@ impl Game {
             pigma_rival: None,
             pigma_projectiles: Vec::with_capacity(pigma_duel_projectiles::PROJECTILE_COUNT),
             leon_rival: None,
+            leon_projectiles: Vec::with_capacity(leon_duel_projectiles::PROJECTILE_COUNT),
             pressure_fighter_actors: PressureFighterActors::default(),
             pressure_fighter_projectiles: Vec::with_capacity(
                 pressure_fighters::ENEMY_LASER_KEYFRAME_TRACKS.len(),
@@ -5627,6 +5646,7 @@ impl Game {
             self.state.mission.item_count = INITIAL_ITEM_COUNT;
         }
         self.state.mission.elapsed_time_tenths = 0;
+        self.state.mission.rival_defeated_retail_frame = None;
         self.state.mission.camera_follow_offset = ACTIVE_CAMERA_FOLLOW_OFFSET;
         self.state.strategic_map.primary_player = Some(primary_id);
         self.state.camera = Camera::default();
@@ -5995,11 +6015,29 @@ impl Game {
             MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
                 self.state.mission.phase = MissionPhase::Active;
             }
-            MissionPhase::Active if retail_frame >= leon_duel::RETURN_RETAIL_FRAME => {
+            MissionPhase::Active
+                if self
+                    .state
+                    .mission
+                    .rival_defeated_retail_frame
+                    .is_some_and(|defeat_frame| {
+                        retail_frame
+                            >= defeat_frame
+                                .saturating_add(LEON_DEFEAT_TO_RETURN_RETAIL_FRAMES)
+                    }) =>
+            {
                 self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
             }
             MissionPhase::ReturningToStrategicMap
-                if retail_frame >= leon_duel::MAP_READY_RETAIL_FRAME =>
+                if self
+                    .state
+                    .mission
+                    .rival_defeated_retail_frame
+                    .is_some_and(|defeat_frame| {
+                        retail_frame
+                            >= defeat_frame
+                                .saturating_add(LEON_DEFEAT_TO_MAP_READY_RETAIL_FRAMES)
+                    }) =>
             {
                 self.finish_sortie();
                 return Ok(());
@@ -6018,7 +6056,28 @@ impl Game {
         } else {
             self.update_leon_presentation(retail_frame);
         }
-        self.update_leon_rival(retail_frame);
+        let current_player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|object| object.base.position);
+        let previous_player_position = current_player_position
+            .map(|current| self.previous_mission_player_position.unwrap_or(current));
+        if let (Some(current), Some(previous)) =
+            (current_player_position, previous_player_position)
+        {
+            self.update_leon_rival(retail_frame, current, previous);
+            self.update_leon_projectiles(retail_frame, current, previous)?;
+            self.previous_mission_player_position = Some(current);
+        } else {
+            self.update_leon_rival(retail_frame, Vector3::default(), Vector3::default());
+            self.update_leon_projectiles(
+                retail_frame,
+                Vector3::default(),
+                Vector3::default(),
+            )?;
+        }
         Ok(())
     }
 
@@ -6764,6 +6823,9 @@ impl Game {
             self.state.objects.remove(projectile.object);
         }
         for projectile in self.pigma_projectiles.drain(..) {
+            self.state.objects.remove(projectile.object);
+        }
+        for projectile in self.leon_projectiles.drain(..) {
             self.state.objects.remove(projectile.object);
         }
         for projectile in self.pressure_fighter_projectiles.drain(..) {
@@ -9023,6 +9085,88 @@ impl Game {
         Ok(())
     }
 
+    fn update_leon_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) -> Result<(), Error> {
+        for track_index in 0..leon_duel_projectiles::PROJECTILE_COUNT {
+            let descriptor = leon_duel_projectiles::descriptor(track_index)
+                .expect("Leon projectile descriptor exists");
+            let active_index = self
+                .leon_projectiles
+                .iter()
+                .position(|projectile| projectile.track_index == track_index);
+            if retail_frame < descriptor.start_retail_frame
+                || retail_frame > descriptor.end_retail_frame
+            {
+                if retail_frame > descriptor.end_retail_frame {
+                    if let Some(index) = active_index {
+                        let projectile = self.leon_projectiles.swap_remove(index);
+                        self.state.objects.remove(projectile.object);
+                    }
+                }
+                continue;
+            }
+
+            let projectile_id = if let Some(index) = active_index {
+                self.leon_projectiles[index].object
+            } else {
+                let mut projectile = Object::new(
+                    ObjectKind::Projectile,
+                    ShapeId::ENEMY_LASER,
+                    Behavior::Projectile,
+                );
+                projectile.base.weapon = WeaponKind::EnemyLaser;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = SF2_HOSTILE_LASER_ATTACK_POWER;
+                projectile.base.collision_class = CollisionClass::EnemyWeapon;
+                projectile.base.flags.casts_shadow = false;
+                projectile.base.position = descriptor.initial_pose.position;
+                projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
+                projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
+                projectile.base.roll = Angle::from_units(descriptor.initial_pose.roll);
+                projectile.base.speed = descriptor.initial_pose.speed;
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
+                        motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
+                    });
+                let projectile_id = self
+                    .state
+                    .objects
+                    .allocate(projectile)
+                    .ok_or(Error::ObjectCapacityReached)?;
+                self.leon_projectiles.push(ActiveLeonProjectile {
+                    track_index,
+                    object: projectile_id,
+                });
+                projectile_id
+            };
+
+            if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
+                    projectile.extension.activity
+                else {
+                    continue;
+                };
+                for &action in leon_duel_projectiles::actions(track_index, retail_frame) {
+                    apply_hostile_projectile_action(
+                        projectile,
+                        &mut flight,
+                        action,
+                        player_position,
+                        previous_player_position,
+                    );
+                }
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+        }
+        Ok(())
+    }
+
     fn update_leon_presentation(&mut self, retail_frame: u16) {
         let primary_flight_craft_shape = self.primary_flight_craft_shape();
         let camera = interpolated_camera_keyframe(&leon_duel::CAMERA_KEYFRAMES, retail_frame);
@@ -9031,10 +9175,20 @@ impl Game {
         self.state.camera.rotation.yaw = Angle::from_units(camera.yaw);
         self.state.camera.rotation.roll = Angle::from_units(camera.roll);
 
-        let player = interpolated_player_keyframe(&leon_duel::PLAYER_KEYFRAMES, retail_frame);
         if let Some(primary) = self.state.mission.primary_player {
             if let Some(object) = self.state.objects.get_mut(primary) {
-                apply_player_keyframe(object, player);
+                if let Some(player) = leon_duel_rival::player_pose(retail_frame) {
+                    object.base.position = player.position;
+                    object.base.pitch = Angle::from_units(player.pitch);
+                    object.base.yaw = Angle::from_units(player.yaw);
+                    object.base.roll = Angle::from_units(player.roll);
+                    object.base.speed = player.speed;
+                    object.base.velocity = Vector3::default();
+                } else {
+                    let player =
+                        interpolated_player_keyframe(&leon_duel::PLAYER_KEYFRAMES, retail_frame);
+                    apply_player_keyframe(object, player);
+                }
                 let visible = retail_frame >= LEON_PLAYER_REVEAL_RETAIL_FRAME;
                 object.base.shape = if visible {
                     primary_flight_craft_shape
@@ -9350,27 +9504,13 @@ impl Game {
         }
     }
 
-    fn update_leon_rival(&mut self, retail_frame: u16) {
+    fn update_leon_rival(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) {
         if retail_frame < leon_duel_rival::PRESENTATION_START_RETAIL_FRAME {
-            return;
-        }
-        if retail_frame >= leon_duel_rival::DEPARTURE_RETAIL_FRAME {
-            let destruction_in_progress = self
-                .leon_rival
-                .and_then(|id| self.state.objects.get(id))
-                .is_some_and(|object| {
-                    object.base.explosion_timer > 0 || object.base.flags.exploding
-                });
-            if destruction_in_progress {
-                return;
-            }
-            if let Some(rival) = self.leon_rival.take() {
-                self.state.objects.remove(rival);
-                self.state.mission.score =
-                    self.state.mission.score.saturating_add(LEON_SCORE_AWARD);
-                self.state.mission.objects_destroyed =
-                    self.state.mission.objects_destroyed.saturating_add(1);
-            }
             return;
         }
         let Some(rival) = self.leon_rival else {
@@ -9411,7 +9551,13 @@ impl Game {
             object.base.velocity = Vector3::default();
         }
         for &action in leon_duel_rival::actions(retail_frame) {
-            apply_leon_rival_action(object, &mut flight, action);
+            apply_leon_rival_action(
+                object,
+                &mut flight,
+                action,
+                player_position,
+                previous_player_position,
+            );
         }
         object.extension.activity = ObjectActivity::LeonRivalFlight(flight);
     }
@@ -9831,7 +9977,7 @@ impl Game {
             MissionVisit::MissileInterception => missile_interception::RETURN_RETAIL_FRAME,
             MissionVisit::FighterIntercept => fighter_intercept::RETURN_RETAIL_FRAME,
             MissionVisit::PigmaDuel => pigma_duel::RETURN_RETAIL_FRAME,
-            MissionVisit::LeonDuel => leon_duel::RETURN_RETAIL_FRAME,
+            MissionVisit::LeonDuel => leon_duel_rival::END_RETAIL_FRAME,
             MissionVisit::LeonPressure => leon_pressure::RETURN_RETAIL_FRAME,
             MissionVisit::MirageDragon => mirage_dragon::RETURN_RETAIL_FRAME,
             MissionVisit::RecurringAttackers => pressure_fighters::RETURN_RETAIL_FRAME,
@@ -10684,6 +10830,15 @@ impl Game {
             }
             if defeated_leon && self.state.mission.visit == MissionVisit::LeonDuel {
                 self.leon_rival = None;
+                let defeat_frame = self
+                    .state
+                    .mode_frame
+                    .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                    .min(u32::from(u16::MAX)) as u16;
+                self.state
+                    .mission
+                    .rival_defeated_retail_frame
+                    .get_or_insert(defeat_frame);
                 self.state.mission.score = self
                     .state
                     .mission
@@ -11786,16 +11941,6 @@ fn advance_pigma_rival(object: &mut Object, flight: &mut PigmaRivalFlightState) 
     );
 }
 
-fn advance_leon_rival(object: &mut Object, flight: &mut LeonRivalFlightState) {
-    debug_assert_eq!(flight.movement_phase, LeonRivalMovementPhase::Ready);
-    advance_rival(
-        object,
-        flight.target_speed,
-        flight.acceleration,
-        &mut flight.motion_steps_elapsed,
-    );
-}
-
 fn advance_final_rival(object: &mut Object, flight: &mut FinalRivalFlightState) {
     advance_rival(
         object,
@@ -11848,6 +11993,14 @@ fn finish_prepared_rival_advance(object: &mut Object) {
 }
 
 fn apply_rival_approach_steering(object: &mut Object, steering: RivalApproachSteering) {
+    chase_rival_approach_pitch_and_roll(object, steering);
+    step_rival_approach_yaw(object, steering);
+}
+
+fn chase_rival_approach_pitch_and_roll(
+    object: &mut Object,
+    steering: RivalApproachSteering,
+) {
     let mut roll = object.base.roll.units();
     let mut pitch = object.base.pitch.units();
     sf_core::snes_trig::achase_angle_8(
@@ -11862,6 +12015,9 @@ fn apply_rival_approach_steering(object: &mut Object, steering: RivalApproachSte
     );
     object.base.roll = Angle::from_units(roll);
     object.base.pitch = Angle::from_units(pitch);
+}
+
+fn step_rival_approach_yaw(object: &mut Object, steering: RivalApproachSteering) {
     object.base.yaw = object.base.yaw.wrapping_add(steering.yaw_step());
 }
 
@@ -12033,6 +12189,8 @@ fn apply_leon_rival_action(
     object: &mut Object,
     flight: &mut LeonRivalFlightState,
     action: LeonRivalAction,
+    player_position: Vector3,
+    previous_player_position: Vector3,
 ) {
     match action {
         LeonRivalAction::BeginApproach => {
@@ -12040,13 +12198,21 @@ fn apply_leon_rival_action(
             flight.target_speed = RIVAL_APPROACH_SPEED;
             flight.acceleration = RIVAL_APPROACH_ACCELERATION;
         }
-        LeonRivalAction::AdvanceApproach(steering) => {
-            apply_rival_approach_steering(object, steering);
-            advance_leon_rival(object, flight);
+        LeonRivalAction::LaunchApproach => {
+            flight.phase = LeonRivalFlightPhase::Approach;
+            flight.target_speed = RIVAL_APPROACH_SPEED;
+            flight.acceleration = RIVAL_APPROACH_ACCELERATION;
+            object.base.speed = RIVAL_APPROACH_SPEED;
         }
-        LeonRivalAction::PrepareApproachAdvance(steering) => {
+        LeonRivalAction::TrackApproachPitchAndBank(pitch, bank) => {
+            object.base.pitch = Angle::from_units(pitch);
+            object.base.roll = Angle::from_units(bank);
+        }
+        LeonRivalAction::TrackApproachYaw(yaw) => {
+            object.base.yaw = Angle::from_units(yaw);
+        }
+        LeonRivalAction::PrepareAdvance => {
             debug_assert_eq!(flight.movement_phase, LeonRivalMovementPhase::Ready);
-            apply_rival_approach_steering(object, steering);
             prepare_rival_advance(
                 object,
                 flight.target_speed,
@@ -12055,7 +12221,7 @@ fn apply_leon_rival_action(
             );
             flight.movement_phase = LeonRivalMovementPhase::PreparedAdvance;
         }
-        LeonRivalAction::FinishPreparedApproachAdvance => {
+        LeonRivalAction::FinishAdvance => {
             debug_assert_eq!(
                 flight.movement_phase,
                 LeonRivalMovementPhase::PreparedAdvance
@@ -12068,11 +12234,81 @@ fn apply_leon_rival_action(
             flight.target_speed = RIVAL_MANEUVER_SPEED;
             flight.acceleration = RIVAL_MANEUVER_ACCELERATION;
         }
+        LeonRivalAction::BeginAttack => {
+            flight.phase = LeonRivalFlightPhase::Attack;
+        }
         LeonRivalAction::MaintainCombatAltitude => {
             object.base.position.y = RIVAL_COMBAT_ALTITUDE;
         }
+        LeonRivalAction::ClampFlightAltitude => {
+            object.base.position.y = object
+                .base
+                .position
+                .y
+                .clamp(RIVAL_COMBAT_ALTITUDE, -RIVAL_COMBAT_ALTITUDE);
+        }
         LeonRivalAction::ChaseRollToLevel => chase_rival_roll_to_level(object),
-        LeonRivalAction::Advance => advance_leon_rival(object, flight),
+        LeonRivalAction::FacePlayerYawSmooth(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(
+                target.x.wrapping_sub(object.base.position.x),
+                target.z.wrapping_sub(object.base.position.z),
+            );
+            let mut yaw = object.base.yaw.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut yaw,
+                target_yaw,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
+            );
+            object.base.yaw = Angle::from_units(yaw);
+        }
+        LeonRivalAction::FacePlayerYawAndLevelPitch(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(
+                target.x.wrapping_sub(object.base.position.x),
+                target.z.wrapping_sub(object.base.position.z),
+            );
+            let mut yaw = object.base.yaw.units();
+            let mut pitch = object.base.pitch.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut yaw,
+                target_yaw,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
+            );
+            sf_core::snes_trig::achase_angle_8(
+                &mut pitch,
+                Angle::ZERO.units(),
+                PIGMA_PLAYER_PITCH_LEVEL_CHASE_SHIFT,
+            );
+            object.base.yaw = Angle::from_units(yaw);
+            object.base.pitch = Angle::from_units(pitch);
+        }
+        LeonRivalAction::FacePlayerSmooth(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let delta_x = target.x.wrapping_sub(object.base.position.x);
+            let delta_y = target.y.wrapping_sub(object.base.position.y);
+            let delta_z = target.z.wrapping_sub(object.base.position.z);
+            let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+            let target_pitch = sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance);
+            let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+            let mut pitch = object.base.pitch.units();
+            let mut yaw = object.base.yaw.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut pitch,
+                target_pitch,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
+            );
+            sf_core::snes_trig::achase_angle_8(
+                &mut yaw,
+                target_yaw,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
+            );
+            object.base.pitch = Angle::from_units(pitch);
+            object.base.yaw = Angle::from_units(yaw);
+        }
+        LeonRivalAction::TrackAttackBank(bank) => {
+            object.base.roll = Angle::from_units(bank);
+        }
     }
 }
 
@@ -13019,9 +13255,53 @@ impl Default for Game {
 mod tests {
     use super::*;
 
+    const LEON_PURSUIT_AIM_TOLERANCE_UNITS: i8 = 2;
+
     fn press(game: &mut Game, button: Button) {
         game.tick(button as u16).unwrap();
         game.tick(0).unwrap();
+    }
+
+    fn leon_pursuit_input(game: &Game, combat_tick: usize, charge_ticks: usize) -> u16 {
+        let player = game
+            .state()
+            .mission
+            .primary_player
+            .and_then(|id| game.state().objects.get(id))
+            .expect("player remains allocated during the duel");
+        let Some(rival) = game
+            .leon_rival
+            .and_then(|id| game.state().objects.get(id))
+        else {
+            return 0;
+        };
+        let delta_x = rival.base.position.x.wrapping_sub(player.base.position.x);
+        let delta_y = rival.base.position.y.wrapping_sub(player.base.position.y);
+        let delta_z = rival.base.position.z.wrapping_sub(player.base.position.z);
+        let desired_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+        let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+        let desired_pitch = sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance);
+        let yaw_error = desired_yaw.wrapping_sub(player.base.yaw.units()) as i8;
+        let pitch_error = desired_pitch.wrapping_sub(player.base.pitch.units()) as i8;
+
+        let mut input = if yaw_error > LEON_PURSUIT_AIM_TOLERANCE_UNITS {
+            Button::Left as u16
+        } else if yaw_error < -LEON_PURSUIT_AIM_TOLERANCE_UNITS {
+            Button::Right as u16
+        } else {
+            0
+        };
+        input |= if pitch_error > LEON_PURSUIT_AIM_TOLERANCE_UNITS {
+            Button::Up as u16
+        } else if pitch_error < -LEON_PURSUIT_AIM_TOLERANCE_UNITS {
+            Button::Down as u16
+        } else {
+            0
+        };
+        if combat_tick % (charge_ticks + 1) < charge_ticks {
+            input |= Button::B as u16;
+        }
+        input
     }
 
     fn assert_mission_actor_presentation(
@@ -17672,6 +17952,109 @@ mod tests {
     }
 
     #[test]
+    fn typed_leon_projectiles_match_every_oracle_boundary() {
+        const RETAINED_PROJECTILE_POSE_COUNT: usize = 132;
+
+        let mut game = Game::new();
+        let last_retail_frame = leon_duel_projectiles::ORACLE_TRACKS
+            .iter()
+            .filter_map(|track| track.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("Leon projectile oracle contains retained poses");
+        let mut retained_poses = 0;
+
+        for retail_frame in (leon_duel_rival::FLIGHT_START_RETAIL_FRAME..=last_retail_frame)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index =
+                usize::from(retail_frame / leon_duel_rival::RETAIL_FRAME_STEP);
+            let previous_player_index = player_index.saturating_sub(1);
+            let player_position = leon_duel_rival::PLAYER_POSES[player_index].position;
+            let previous_player_position =
+                leon_duel_rival::PLAYER_POSES[previous_player_index].position;
+            game.update_leon_projectiles(
+                retail_frame,
+                player_position,
+                previous_player_position,
+            )
+            .unwrap();
+
+            let expected_active = leon_duel_projectiles::ORACLE_TRACKS
+                .iter()
+                .filter(|track| {
+                    track
+                        .first()
+                        .zip(track.last())
+                        .is_some_and(|(first, last)| {
+                            (first.retail_frame..=last.retail_frame).contains(&retail_frame)
+                        })
+                })
+                .count();
+            assert_eq!(
+                game.leon_projectiles.len(),
+                expected_active,
+                "active Leon projectile count at frame {retail_frame}"
+            );
+
+            for (track_index, keyframes) in leon_duel_projectiles::ORACLE_TRACKS
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                let Some(expected) = keyframes
+                    .iter()
+                    .find(|keyframe| keyframe.retail_frame == retail_frame)
+                else {
+                    continue;
+                };
+                retained_poses += 1;
+                let active = game
+                    .leon_projectiles
+                    .iter()
+                    .find(|projectile| projectile.track_index == track_index)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Leon projectile track {track_index} absent at frame {retail_frame}"
+                        )
+                    });
+                let projectile = game.state().objects.get(active.object).unwrap();
+                assert_eq!(
+                    projectile.base.position, expected.pose.position,
+                    "Leon projectile track {track_index} at frame {retail_frame}"
+                );
+                assert_eq!(projectile.base.pitch.units(), expected.pose.pitch);
+                assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
+                assert_eq!(projectile.base.roll.units(), expected.pose.roll);
+                assert_eq!(projectile.base.speed, expected.pose.speed);
+                assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
+                assert_eq!(
+                    projectile.base.collision_class,
+                    CollisionClass::EnemyWeapon
+                );
+                assert!(matches!(
+                    projectile.extension.activity,
+                    ObjectActivity::HostileProjectileFlight(_)
+                ));
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_PROJECTILE_POSE_COUNT);
+        let cleanup_frame =
+            last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        let player_index =
+            usize::from(cleanup_frame / leon_duel_rival::RETAIL_FRAME_STEP);
+        game.update_leon_projectiles(
+            cleanup_frame,
+            leon_duel_rival::PLAYER_POSES[player_index].position,
+            leon_duel_rival::PLAYER_POSES[player_index - 1].position,
+        )
+        .unwrap();
+        assert!(game.leon_projectiles.is_empty());
+    }
+
+    #[test]
     fn typed_pigma_rival_flight_matches_every_oracle_boundary() {
         const RETAINED_RIVAL_POSE_COUNT: usize = 298;
 
@@ -17746,66 +18129,45 @@ mod tests {
 
     #[test]
     fn typed_leon_rival_flight_matches_every_oracle_boundary() {
-        const RETAINED_RIVAL_POSE_COUNT: usize = 153;
-
         let mut game = Game::new();
         game.spawn_leon_rival().unwrap();
         let rival_id = game.leon_rival.unwrap();
-        let mut retained_poses = 0;
+        let mut previous_player_position = leon_duel_rival::player_pose(
+            leon_duel_rival::FLIGHT_START_RETAIL_FRAME
+                - leon_duel_rival::RETAIL_FRAME_STEP,
+        )
+        .unwrap()
+        .position;
 
-        for retail_frame in (0..=leon_duel_rival::DEPARTURE_RETAIL_FRAME)
-            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
-        {
-            game.update_leon_rival(retail_frame);
+        for (index, &expected) in leon_duel_rival::ORACLE_RIVAL_POSES.iter().enumerate() {
+            let retail_frame = leon_duel_rival::FLIGHT_START_RETAIL_FRAME
+                + u16::try_from(index).unwrap()
+                    * leon_duel_rival::RETAIL_FRAME_STEP;
+            let player = leon_duel_rival::player_pose(retail_frame).unwrap();
+            game.update_leon_rival(retail_frame, player.position, previous_player_position);
+            previous_player_position = player.position;
 
-            let expected = leon_duel::RIVAL_KEYFRAMES
-                .iter()
-                .find(|keyframe| keyframe.retail_frame == retail_frame);
-            let Some(expected) = expected else {
-                let object = game.state().objects.get(rival_id).unwrap();
-                assert!(!object.base.flags.active, "frame {retail_frame}");
-                assert!(!object.base.flags.visible, "frame {retail_frame}");
-                assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
-                continue;
-            };
-            match expected.presentation {
-                MissionActorPresentation::Present(pose) => {
-                    retained_poses += 1;
-                    let object = game.state().objects.get(rival_id).unwrap_or_else(|| {
-                        panic!("Leon departed before retail frame {retail_frame}")
-                    });
-                    assert_eq!(object.base.position, pose.position, "frame {retail_frame}");
-                    assert_eq!(
-                        object.base.pitch.units(),
-                        pose.pitch,
-                        "frame {retail_frame}"
-                    );
-                    assert_eq!(object.base.yaw.units(), pose.yaw, "frame {retail_frame}");
-                    assert_eq!(object.base.roll.units(), pose.roll, "frame {retail_frame}");
-                    assert_eq!(object.base.speed, pose.speed, "frame {retail_frame}");
-                    assert!(object.base.flags.active, "frame {retail_frame}");
-                    assert!(object.base.flags.visible, "frame {retail_frame}");
-                    assert!(
-                        !object.base.flags.collision_disabled,
-                        "frame {retail_frame}"
-                    );
-                    assert!(matches!(
-                        object.extension.activity,
-                        ObjectActivity::LeonRivalFlight(_)
-                    ));
-                }
-                MissionActorPresentation::Departed => {
-                    assert!(game.leon_rival.is_none(), "frame {retail_frame}");
-                }
-                MissionActorPresentation::Inactive => {
-                    panic!("Leon oracle unexpectedly becomes inactive at frame {retail_frame}")
-                }
-            }
+            let object = game
+                .state()
+                .objects
+                .get(rival_id)
+                .unwrap_or_else(|| panic!("Leon absent at retail frame {retail_frame}"));
+            assert_eq!(object.base.position, expected.position, "frame {retail_frame}");
+            assert_eq!(object.base.pitch.units(), expected.pitch, "frame {retail_frame}");
+            assert_eq!(object.base.yaw.units(), expected.yaw, "frame {retail_frame}");
+            assert_eq!(object.base.roll.units(), expected.roll, "frame {retail_frame}");
+            assert_eq!(object.base.speed, expected.speed, "frame {retail_frame}");
+            assert!(object.base.flags.active, "frame {retail_frame}");
+            assert!(object.base.flags.visible, "frame {retail_frame}");
+            assert!(!object.base.flags.collision_disabled, "frame {retail_frame}");
+            assert!(matches!(
+                object.extension.activity,
+                ObjectActivity::LeonRivalFlight(_)
+            ));
         }
-
-        assert_eq!(retained_poses, RETAINED_RIVAL_POSE_COUNT);
-        assert_eq!(game.state().mission.score, LEON_SCORE_AWARD);
-        assert_eq!(game.state().mission.objects_destroyed, 1);
+        assert_eq!(game.leon_rival, Some(rival_id));
+        assert_eq!(game.state().mission.score, 0);
+        assert_eq!(game.state().mission.objects_destroyed, 0);
     }
 
     fn assert_typed_final_rival_flight_matches_every_oracle_boundary(
@@ -19018,18 +19380,70 @@ mod tests {
         assert_eq!(
             rival.base.position,
             Vector3 {
-                x: 10_139,
+                x: 10_143,
                 y: 0,
-                z: 8_138
+                z: 8_142
             }
         );
         assert!(rival.base.flags.visible);
         assert_eq!(hostile_laser_count(&game), 0);
 
-        while game.mode() == GameMode::Mission {
-            assert_eq!(hostile_laser_count(&game), 0);
-            game.tick(0).unwrap();
+        let accepted_fast_defeat_frame = leon_duel::RIVAL_KEYFRAMES
+            .last()
+            .filter(|keyframe| keyframe.presentation == MissionActorPresentation::Departed)
+            .expect("accepted fast-kill trace ends with Leon's defeat")
+            .retail_frame;
+        assert_eq!(
+            leon_duel::RETURN_RETAIL_FRAME - accepted_fast_defeat_frame,
+            LEON_DEFEAT_TO_RETURN_RETAIL_FRAMES
+        );
+        assert_eq!(
+            leon_duel::MAP_READY_RETAIL_FRAME - accepted_fast_defeat_frame,
+            LEON_DEFEAT_TO_MAP_READY_RETAIL_FRAMES
+        );
+
+        let charge_ticks = usize::from(game.player_charge_ready_tick());
+        let mut maximum_hostile_lasers = 0;
+        let mut defeat_frame = None;
+        let mut returning_frame = None;
+        let mut completion_frame = None;
+        for combat_tick in 0..3_000 {
+            if game.mode() != GameMode::Mission {
+                break;
+            }
+            maximum_hostile_lasers = maximum_hostile_lasers.max(hostile_laser_count(&game));
+            let input = leon_pursuit_input(&game, combat_tick, charge_ticks);
+            let before_tick_frame = (game.state().mode_frame
+                * RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                .min(u32::from(u16::MAX)) as u16;
+            game.tick(input).unwrap();
+            defeat_frame = defeat_frame.or(game.state().mission.rival_defeated_retail_frame);
+            if game.mode() == GameMode::Mission {
+                if game.state().mission.phase == MissionPhase::ReturningToStrategicMap {
+                    returning_frame.get_or_insert(
+                        (game.state().mode_frame * RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                            .min(u32::from(u16::MAX)) as u16,
+                    );
+                }
+            } else {
+                completion_frame.get_or_insert(
+                    before_tick_frame.saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                );
+            }
         }
+        assert_ne!(game.mode(), GameMode::Mission, "live Leon duel did not finish");
+        assert!(maximum_hostile_lasers > 0);
+        let defeat_frame = defeat_frame.expect("ordinary weapon damage defeated Leon");
+        let first_return_boundary = defeat_frame
+            .saturating_add(LEON_DEFEAT_TO_RETURN_RETAIL_FRAMES)
+            .div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+            * RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        let first_completion_boundary = defeat_frame
+            .saturating_add(LEON_DEFEAT_TO_MAP_READY_RETAIL_FRAMES)
+            .div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+            * RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        assert_eq!(returning_frame, Some(first_return_boundary));
+        assert_eq!(completion_frame, Some(first_completion_boundary));
 
         assert_eq!(
             game.state().campaign.route_step,
@@ -19472,16 +19886,24 @@ mod tests {
     }
 
     #[test]
-    fn certified_campaign_route_reaches_the_end_screen_without_state_injection() {
+    fn certified_campaign_route_reaches_the_end_screen() {
         const MAX_MISSION_TICKS: usize = 5_000;
         const MAX_STRATEGIC_TRAVEL_TICKS: usize = 1_000;
 
         fn complete_current_mission(game: &mut Game) {
-            for _ in 0..MAX_MISSION_TICKS {
+            let charge_ticks = usize::from(game.player_charge_ready_tick());
+            for mission_tick in 0..MAX_MISSION_TICKS {
                 if game.mode() != GameMode::Mission {
                     return;
                 }
-                game.tick(0).unwrap();
+                let input = if game.state().mission.visit == MissionVisit::LeonDuel
+                    && game.state().mission.phase == MissionPhase::Active
+                {
+                    leon_pursuit_input(game, mission_tick, charge_ticks)
+                } else {
+                    0
+                };
+                game.tick(input).unwrap();
             }
             panic!("mission exceeded the certified completion budget");
         }
