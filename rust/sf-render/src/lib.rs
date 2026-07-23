@@ -37,8 +37,10 @@ mod sf2_carrier_backdrop;
 mod sf2_eladard_interior_backdrop;
 mod sf2_eladard_surface_backdrop;
 mod sf2_ending;
+mod sf2_fortuna_backdrop;
 mod sf2_game_over;
 mod sf2_intro;
+mod sf2_macbeth_backdrop;
 mod sf2_opening_overview;
 mod sf2_pilot_selection;
 mod sf2_results;
@@ -51,6 +53,7 @@ mod sf2_map_post_carrier_sprites;
 mod sf2_map_post_leon_sprites;
 mod sf2_map_post_mirage_sprites;
 mod sf2_map_sprites;
+mod sf2_meteor_backdrop;
 mod sf2_mission_hud;
 mod sf2_mission_message_panel;
 mod sf2_mission_message_portraits;
@@ -66,8 +69,48 @@ mod sf2_strategic_map_post_mirage;
 mod sf2_strategic_map_post_pigma;
 mod sf2_titania_backdrop;
 mod sf2_title;
+mod sf2_venom_backdrop;
 pub mod shapes_gl;
 pub mod sprites;
 pub mod text3d;
 pub mod transform;
 pub mod ui;
+
+#[cfg(test)]
+mod campaign_world_backdrop_tests {
+    const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
+    const FNV_PRIME: u32 = 0x01000193;
+    const FIXTURE: &str =
+        include_str!("../../../tools/sf2/fixtures/campaign_world_backgrounds.trace");
+
+    fn fixture_hash(world: &str) -> u32 {
+        let line = FIXTURE
+            .lines()
+            .find(|line| line.starts_with(&format!("world name={world} ")))
+            .unwrap_or_else(|| panic!("missing {world} campaign-world backdrop fixture"));
+        let encoded = line
+            .split_whitespace()
+            .find_map(|field| field.strip_prefix("rgba_fnv1a="))
+            .unwrap_or_else(|| panic!("missing {world} RGBA hash"));
+        u32::from_str_radix(encoded, 16).expect("fixture hash must be hexadecimal")
+    }
+
+    fn rgba_hash(rgba: Vec<u8>) -> u32 {
+        rgba.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+            (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+        })
+    }
+
+    #[test]
+    fn all_missing_campaign_world_backdrops_match_retail_captures() {
+        let worlds = [
+            ("venom", super::sf2_venom_backdrop::decode_rgba()),
+            ("macbeth", super::sf2_macbeth_backdrop::decode_rgba()),
+            ("meteor", super::sf2_meteor_backdrop::decode_rgba()),
+            ("fortuna", super::sf2_fortuna_backdrop::decode_rgba()),
+        ];
+        for (world, rgba) in worlds {
+            assert_eq!(rgba_hash(rgba), fixture_hash(world), "{world}");
+        }
+    }
+}

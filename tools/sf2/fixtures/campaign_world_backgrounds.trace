@@ -1,0 +1,7 @@
+# Retail mission BG1 captures made after confirmed surface entry.
+# The SHA-256 values cover the original 256x239 Mesen PPM captures; the
+# FNV-1a values cover the cropped 256x224 RGBA textures embedded in sf-render.
+world name=venom ppm_sha256=b076a34c816bb6a926e611b056db80e11eb27eacadd62874ab982121a3c31ecb rgba_fnv1a=93370D2D
+world name=macbeth ppm_sha256=bd906754b1f9f11772f52309a73a7faa4a1035ceb6f68f4dda6b12f93595b4da rgba_fnv1a=42A64921
+world name=meteor ppm_sha256=f0c735c92adeb8408e3c8d7a23acd669fc6212572e0bcf33941d0e82a7206701 rgba_fnv1a=81F5A96C
+world name=fortuna ppm_sha256=7220c3b7a06f3c6bf8132d54a3b97ba53a50777f6fb147050869214d2b59d7d0 rgba_fnv1a=19CDA76B

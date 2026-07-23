@@ -808,9 +808,13 @@ pub struct Ui {
     ending_split_panel: TextureId,
     ending_glyphs: TextureId,
     sf2_deep_space_backdrop: TextureId,
+    sf2_venom_backdrop: TextureId,
     sf2_eladard_surface_backdrop: TextureId,
     sf2_eladard_interior_backdrop: TextureId,
     sf2_titania_backdrop: TextureId,
+    sf2_macbeth_backdrop: TextureId,
+    sf2_meteor_backdrop: TextureId,
+    sf2_fortuna_backdrop: TextureId,
     sf2_carrier_backdrop: TextureId,
     sf2_astropolis_void_backdrop: TextureId,
     sf2_intro_texture: TextureId,
@@ -916,6 +920,12 @@ impl Ui {
             crate::sf2_backdrop::HEIGHT as u32,
             &sf2_backdrop,
         );
+        let sf2_venom_backdrop_rgba = crate::sf2_venom_backdrop::decode_rgba();
+        let sf2_venom_backdrop = gpu.create_texture_rgba(
+            crate::sf2_venom_backdrop::WIDTH as u32,
+            crate::sf2_venom_backdrop::HEIGHT as u32,
+            &sf2_venom_backdrop_rgba,
+        );
         let sf2_eladard_surface_backdrop_rgba = crate::sf2_eladard_surface_backdrop::decode_rgba();
         let sf2_eladard_surface_backdrop = gpu.create_texture_rgba(
             crate::sf2_eladard_surface_backdrop::WIDTH as u32,
@@ -934,6 +944,24 @@ impl Ui {
             crate::sf2_titania_backdrop::WIDTH as u32,
             crate::sf2_titania_backdrop::HEIGHT as u32,
             &sf2_titania_backdrop_rgba,
+        );
+        let sf2_macbeth_backdrop_rgba = crate::sf2_macbeth_backdrop::decode_rgba();
+        let sf2_macbeth_backdrop = gpu.create_texture_rgba(
+            crate::sf2_macbeth_backdrop::WIDTH as u32,
+            crate::sf2_macbeth_backdrop::HEIGHT as u32,
+            &sf2_macbeth_backdrop_rgba,
+        );
+        let sf2_meteor_backdrop_rgba = crate::sf2_meteor_backdrop::decode_rgba();
+        let sf2_meteor_backdrop = gpu.create_texture_rgba(
+            crate::sf2_meteor_backdrop::WIDTH as u32,
+            crate::sf2_meteor_backdrop::HEIGHT as u32,
+            &sf2_meteor_backdrop_rgba,
+        );
+        let sf2_fortuna_backdrop_rgba = crate::sf2_fortuna_backdrop::decode_rgba();
+        let sf2_fortuna_backdrop = gpu.create_texture_rgba(
+            crate::sf2_fortuna_backdrop::WIDTH as u32,
+            crate::sf2_fortuna_backdrop::HEIGHT as u32,
+            &sf2_fortuna_backdrop_rgba,
         );
         let sf2_carrier_backdrop_rgba = crate::sf2_carrier_backdrop::decode_rgba();
         let sf2_carrier_backdrop = gpu.create_texture_rgba(
@@ -1209,9 +1237,13 @@ impl Ui {
             ending_split_panel,
             ending_glyphs,
             sf2_deep_space_backdrop,
+            sf2_venom_backdrop,
             sf2_eladard_surface_backdrop,
             sf2_eladard_interior_backdrop,
             sf2_titania_backdrop,
+            sf2_macbeth_backdrop,
+            sf2_meteor_backdrop,
+            sf2_fortuna_backdrop,
             sf2_carrier_backdrop,
             sf2_astropolis_void_backdrop,
             sf2_intro_texture,
@@ -1609,9 +1641,13 @@ impl Ui {
     ) {
         let texture = match backdrop {
             Sf2MissionBackdrop::DeepSpace => self.sf2_deep_space_backdrop,
+            Sf2MissionBackdrop::VenomSurface => self.sf2_venom_backdrop,
             Sf2MissionBackdrop::EladardSurface => self.sf2_eladard_surface_backdrop,
             Sf2MissionBackdrop::EladardInterior => self.sf2_eladard_interior_backdrop,
             Sf2MissionBackdrop::TitaniaBase => self.sf2_titania_backdrop,
+            Sf2MissionBackdrop::MacbethSurface => self.sf2_macbeth_backdrop,
+            Sf2MissionBackdrop::MeteorSurface => self.sf2_meteor_backdrop,
+            Sf2MissionBackdrop::FortunaSurface => self.sf2_fortuna_backdrop,
             Sf2MissionBackdrop::CarrierInterior => self.sf2_carrier_backdrop,
             Sf2MissionBackdrop::AstropolisVoid => self.sf2_astropolis_void_backdrop,
         };

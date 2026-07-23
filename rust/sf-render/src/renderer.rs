@@ -230,9 +230,13 @@ pub struct Sf2RadarContact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sf2MissionBackdrop {
     DeepSpace,
+    VenomSurface,
     EladardSurface,
     EladardInterior,
     TitaniaBase,
+    MacbethSurface,
+    MeteorSurface,
+    FortunaSurface,
     CarrierInterior,
     AstropolisVoid,
 }
