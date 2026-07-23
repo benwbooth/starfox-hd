@@ -60,6 +60,7 @@ def main() -> None:
             map_ready_frame,
             path.name,
             Path(__file__).name,
+            rival_test_only=True,
         )
         if args.check:
             if not path.output.is_file() or path.output.read_text(encoding="utf-8") != generated:

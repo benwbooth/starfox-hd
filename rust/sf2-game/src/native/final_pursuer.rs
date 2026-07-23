@@ -5,9 +5,14 @@
 //! tools/sf2/generate_final_rivals.py [--check]`.
 
 use super::{
-    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,
     mission_camera_keyframe, mission_player_keyframe, mission_projectile_keyframe,
-    MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe, MissionProjectileKeyframe,
+    MissionCameraKeyframe, MissionPlayerKeyframe, MissionProjectileKeyframe,
+};
+
+#[cfg(test)]
+use super::{
+    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,
+    mission_actor_keyframe, MissionActorKeyframe,
 };
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 893;
@@ -694,6 +699,7 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 224] = [
     mission_player_keyframe(892, 12_337, 0, -448, 0, 189, 0, 23),
 ];
 
+#[cfg(test)]
 pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 211] = [
     mission_actor_keyframe(56, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(60, [0, 0, 0, 0, 0, 0, 0]),

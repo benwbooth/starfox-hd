@@ -11,11 +11,12 @@ use super::object::{
     FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
     FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
     FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
-    HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
-    InterceptionMissileFlightState, InterceptionMissileSteering, LeonRivalFlightPhase,
-    LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind,
-    PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState,
-    PlayerProjectileKind, PlayerProjectileState, ReengagementFighterFlightState,
+    FinalRivalFlightPhase, FinalRivalFlightState, HostileProjectileFlightPhase,
+    HostileProjectileFlightState, HostileProjectileMovementPhase, InterceptionMissileFlightState,
+    InterceptionMissileSteering, LeonRivalFlightPhase, LeonRivalFlightState,
+    LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
+    PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
+    PlayerProjectileState, ReengagementFighterFlightState,
     ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
@@ -46,6 +47,8 @@ mod fighter_intercept_fighters;
 mod fighter_intercept_projectiles;
 #[path = "final_pursuer.rs"]
 mod final_pursuer;
+#[path = "final_rivals_flight.rs"]
+mod final_rivals_flight;
 #[path = "leon_duel.rs"]
 mod leon_duel;
 #[path = "leon_duel_rival.rs"]
@@ -155,7 +158,8 @@ const PIGMA_SECOND_APPROACH_INITIAL_BANK: i8 = -10;
 const PIGMA_SECOND_APPROACH_VERTICAL_STEP: i16 = -60;
 const PIGMA_ESCAPE_YAW_STEP: i8 = -2;
 const RIVAL_APPROACH_ANGLE_CHASE_SHIFT: u32 = 3;
-const PIGMA_PLAYER_FACING_CHASE_SHIFT: u32 = 2;
+const RIVAL_PLAYER_FACING_CHASE_SHIFT: u32 = 2;
+const FINAL_RIVAL_PITCH_LEVEL_CHASE_SHIFT: u32 = 3;
 const PIGMA_PLAYER_PITCH_LEVEL_CHASE_SHIFT: u32 = 3;
 const PIGMA_SECOND_APPROACH_WAVE: [i8; 10] = [20, -18, 16, -14, 12, -10, 8, -6, 4, -2];
 const PIGMA_ESCAPE_WOBBLE: [i8; 10] = [-10, 20, -18, 16, -14, 12, -10, 8, -6, 4];
@@ -1566,6 +1570,22 @@ enum LeonRivalAction {
     MaintainCombatAltitude,
     ChaseRollToLevel,
     Advance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FinalRivalAction {
+    BeginApproach,
+    AdvanceSteered(RivalApproachSteering),
+    BeginCombatManeuver,
+    BeginAttack,
+    MaintainCombatAltitude,
+    ClampFlightAltitude,
+    ChaseRollToLevel,
+    FacePlayerYawAndLevelPitch(PlayerTargetTiming),
+    FacePlayerSmooth(PlayerTargetTiming),
+    Advance,
+    BeginDeparture,
+    LaunchDeparture,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5406,6 +5426,7 @@ impl Game {
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
+        self.previous_mission_player_position = Some(player_keyframe.position);
         if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
             apply_player_keyframe(wingmate, wingmate_keyframe);
             wingmate.base.shape = ShapeId::EMPTY;
@@ -6136,7 +6157,26 @@ impl Game {
         } else {
             self.update_final_rival_presentation(retail_frame);
         }
-        self.update_final_rival_actor(retail_frame);
+        let current_player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|object| object.base.position);
+        let previous_player_position = current_player_position
+            .map(|current| self.previous_mission_player_position.unwrap_or(current));
+        if let (Some(current), Some(previous)) =
+            (current_player_position, previous_player_position)
+        {
+            self.update_final_rival_actor(retail_frame, current, previous);
+            self.previous_mission_player_position = Some(current);
+        } else {
+            self.update_final_rival_actor(
+                retail_frame,
+                Vector3::default(),
+                Vector3::default(),
+            );
+        }
         self.update_final_rival_projectiles(retail_frame)?;
         Ok(())
     }
@@ -7286,6 +7326,12 @@ impl Game {
         rival.base.flags.visible = false;
         rival.base.flags.collision_disabled = true;
         rival.base.flags.casts_shadow = false;
+        rival.extension.activity = ObjectActivity::FinalRivalFlight(FinalRivalFlightState {
+            phase: FinalRivalFlightPhase::AwaitingEntrance,
+            target_speed: 0,
+            acceleration: 0,
+            motion_steps_elapsed: 0,
+        });
         self.final_rival = Some(
             self.state
                 .objects
@@ -9146,18 +9192,89 @@ impl Game {
         );
     }
 
-    fn update_final_rival_actor(&mut self, retail_frame: u16) {
-        let keyframes = match self.state.mission.visit {
-            MissionVisit::FinalPursuer => final_pursuer::RIVAL_KEYFRAMES.as_slice(),
-            MissionVisit::WolfBlockade => wolf_blockade::RIVAL_KEYFRAMES.as_slice(),
+    fn update_final_rival_actor(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) {
+        let plan = match self.state.mission.visit {
+            MissionVisit::FinalPursuer => final_rivals_flight::FINAL_PURSUER,
+            MissionVisit::WolfBlockade => final_rivals_flight::WOLF_BLOCKADE,
             _ => unreachable!("final rival actor requires a final rival visit"),
         };
-        Self::update_pressure_actor(
-            &mut self.state,
-            &mut self.final_rival,
-            keyframes,
-            retail_frame,
-        );
+        if retail_frame < plan.presentation_start_retail_frame {
+            return;
+        }
+        if retail_frame >= plan.departure_retail_frame {
+            let destruction_in_progress = self
+                .final_rival
+                .and_then(|id| self.state.objects.get(id))
+                .is_some_and(|object| {
+                    object.base.explosion_timer > 0 || object.base.flags.exploding
+                });
+            if destruction_in_progress {
+                return;
+            }
+            if let Some(rival) = self.final_rival.take() {
+                self.state.objects.remove(rival);
+            }
+            return;
+        }
+        let Some(rival) = self.final_rival else {
+            return;
+        };
+        let Some(object) = self.state.objects.get_mut(rival) else {
+            return;
+        };
+        if object.base.explosion_timer > 0 || object.base.flags.exploding {
+            return;
+        }
+        let ObjectActivity::FinalRivalFlight(mut flight) = object.extension.activity else {
+            return;
+        };
+        if plan.is_hidden(retail_frame) {
+            object.base.flags.active = false;
+            object.base.flags.visible = false;
+            object.base.flags.collision_disabled = true;
+            object.base.velocity = Vector3::default();
+            return;
+        }
+        if retail_frame == plan.presentation_start_retail_frame || !object.base.flags.active {
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = false;
+            object.base.position = Vector3::default();
+            object.base.pitch = Angle::ZERO;
+            object.base.yaw = Angle::ZERO;
+            object.base.roll = Angle::ZERO;
+            object.base.speed = 0;
+            object.base.velocity = Vector3::default();
+        }
+        if retail_frame == plan.flight_start_retail_frame
+            && flight.phase == FinalRivalFlightPhase::AwaitingEntrance
+        {
+            let pose = plan.initial_pose;
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = false;
+            object.base.position = pose.position;
+            object.base.pitch = Angle::from_units(pose.pitch);
+            object.base.yaw = Angle::from_units(pose.yaw);
+            object.base.roll = Angle::from_units(pose.roll);
+            object.base.speed = pose.speed;
+            object.base.velocity = Vector3::default();
+        }
+        for &action in plan.actions(retail_frame) {
+            apply_final_rival_action(
+                object,
+                &mut flight,
+                action,
+                player_position,
+                previous_player_position,
+            );
+        }
+        object.extension.activity = ObjectActivity::FinalRivalFlight(flight);
     }
 
     fn update_pressure_actor(
@@ -10483,7 +10600,8 @@ impl Game {
                 | ObjectActivity::InterceptionMissileFlight(_)
                 | ObjectActivity::HostileProjectileFlight(_)
                 | ObjectActivity::PigmaRivalFlight(_)
-                | ObjectActivity::LeonRivalFlight(_) => continue,
+                | ObjectActivity::LeonRivalFlight(_)
+                | ObjectActivity::FinalRivalFlight(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
             if matches!(
@@ -11641,6 +11759,15 @@ fn advance_leon_rival(object: &mut Object, flight: &mut LeonRivalFlightState) {
     );
 }
 
+fn advance_final_rival(object: &mut Object, flight: &mut FinalRivalFlightState) {
+    advance_rival(
+        object,
+        flight.target_speed,
+        flight.acceleration,
+        &mut flight.motion_steps_elapsed,
+    );
+}
+
 fn advance_rival(
     object: &mut Object,
     target_speed: u8,
@@ -11768,7 +11895,7 @@ fn apply_pigma_rival_action(
             sf_core::snes_trig::achase_angle_8(
                 &mut yaw,
                 target_yaw,
-                PIGMA_PLAYER_FACING_CHASE_SHIFT,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
             );
             sf_core::snes_trig::achase_angle_8(
                 &mut pitch,
@@ -11791,12 +11918,12 @@ fn apply_pigma_rival_action(
             sf_core::snes_trig::achase_angle_8(
                 &mut pitch,
                 target_pitch,
-                PIGMA_PLAYER_FACING_CHASE_SHIFT,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
             );
             sf_core::snes_trig::achase_angle_8(
                 &mut yaw,
                 target_yaw,
-                PIGMA_PLAYER_FACING_CHASE_SHIFT,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
             );
             object.base.pitch = Angle::from_units(pitch);
             object.base.yaw = Angle::from_units(yaw);
@@ -11909,6 +12036,99 @@ fn apply_leon_rival_action(
         }
         LeonRivalAction::ChaseRollToLevel => chase_rival_roll_to_level(object),
         LeonRivalAction::Advance => advance_leon_rival(object, flight),
+    }
+}
+
+fn apply_final_rival_action(
+    object: &mut Object,
+    flight: &mut FinalRivalFlightState,
+    action: FinalRivalAction,
+    player_position: Vector3,
+    previous_player_position: Vector3,
+) {
+    match action {
+        FinalRivalAction::BeginApproach => {
+            flight.phase = FinalRivalFlightPhase::Approach;
+            flight.target_speed = RIVAL_APPROACH_SPEED;
+            flight.acceleration = RIVAL_APPROACH_ACCELERATION;
+        }
+        FinalRivalAction::AdvanceSteered(steering) => {
+            apply_rival_approach_steering(object, steering);
+            advance_final_rival(object, flight);
+        }
+        FinalRivalAction::BeginCombatManeuver => {
+            flight.phase = FinalRivalFlightPhase::CombatManeuver;
+            flight.target_speed = RIVAL_MANEUVER_SPEED;
+            flight.acceleration = RIVAL_MANEUVER_ACCELERATION;
+        }
+        FinalRivalAction::BeginAttack => {
+            flight.phase = FinalRivalFlightPhase::Attack;
+        }
+        FinalRivalAction::MaintainCombatAltitude => {
+            object.base.position.y = RIVAL_COMBAT_ALTITUDE;
+        }
+        FinalRivalAction::ClampFlightAltitude => {
+            object.base.position.y = object
+                .base
+                .position
+                .y
+                .clamp(RIVAL_COMBAT_ALTITUDE, -RIVAL_COMBAT_ALTITUDE);
+        }
+        FinalRivalAction::ChaseRollToLevel => chase_rival_roll_to_level(object),
+        FinalRivalAction::FacePlayerYawAndLevelPitch(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(
+                target.x.wrapping_sub(object.base.position.x),
+                target.z.wrapping_sub(object.base.position.z),
+            );
+            let mut yaw = object.base.yaw.units();
+            let mut pitch = object.base.pitch.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut yaw,
+                target_yaw,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
+            );
+            sf_core::snes_trig::achase_angle_8(
+                &mut pitch,
+                Angle::ZERO.units(),
+                FINAL_RIVAL_PITCH_LEVEL_CHASE_SHIFT,
+            );
+            object.base.yaw = Angle::from_units(yaw);
+            object.base.pitch = Angle::from_units(pitch);
+        }
+        FinalRivalAction::FacePlayerSmooth(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let delta_x = target.x.wrapping_sub(object.base.position.x);
+            let delta_y = target.y.wrapping_sub(object.base.position.y);
+            let delta_z = target.z.wrapping_sub(object.base.position.z);
+            let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+            let target_pitch = sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance);
+            let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+            let mut pitch = object.base.pitch.units();
+            let mut yaw = object.base.yaw.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut pitch,
+                target_pitch,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
+            );
+            sf_core::snes_trig::achase_angle_8(
+                &mut yaw,
+                target_yaw,
+                RIVAL_PLAYER_FACING_CHASE_SHIFT,
+            );
+            object.base.pitch = Angle::from_units(pitch);
+            object.base.yaw = Angle::from_units(yaw);
+        }
+        FinalRivalAction::Advance => advance_final_rival(object, flight),
+        FinalRivalAction::BeginDeparture => {
+            flight.phase = FinalRivalFlightPhase::Departure;
+            flight.target_speed = RIVAL_APPROACH_SPEED;
+            flight.acceleration = RIVAL_APPROACH_ACCELERATION;
+        }
+        FinalRivalAction::LaunchDeparture => {
+            object.base.speed = RIVAL_APPROACH_SPEED;
+            advance_final_rival(object, flight);
+        }
     }
 }
 
@@ -17549,6 +17769,124 @@ mod tests {
         assert_eq!(retained_poses, RETAINED_RIVAL_POSE_COUNT);
         assert_eq!(game.state().mission.score, LEON_SCORE_AWARD);
         assert_eq!(game.state().mission.objects_destroyed, 1);
+    }
+
+    fn assert_typed_final_rival_flight_matches_every_oracle_boundary(
+        visit: MissionVisit,
+        shape: ShapeId,
+        plan: final_rivals_flight::FinalRivalFlightPlan,
+        player_keyframes: &[MissionPlayerKeyframe],
+        rival_keyframes: &[MissionActorKeyframe],
+        retained_rival_pose_count: usize,
+    ) {
+        let mut game = Game::new();
+        game.state.mission.visit = visit;
+        game.spawn_final_rival(shape).unwrap();
+        let rival_id = game.final_rival.unwrap();
+        let mut retained_poses = 0;
+
+        for retail_frame in (0..=plan.departure_retail_frame)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index =
+                usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            let previous_player_index = usize::from(
+                retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+            );
+            let player_position = player_keyframes
+                .get(player_index)
+                .or_else(|| player_keyframes.last())
+                .expect("final rival oracle has player poses")
+                .position;
+            let previous_player_position = player_keyframes
+                .get(previous_player_index)
+                .or_else(|| player_keyframes.last())
+                .expect("final rival oracle has player poses")
+                .position;
+            game.update_final_rival_actor(
+                retail_frame,
+                player_position,
+                previous_player_position,
+            );
+
+            let expected = rival_keyframes
+                .iter()
+                .find(|keyframe| keyframe.retail_frame == retail_frame);
+            let Some(expected) = expected else {
+                let object = game.state().objects.get(rival_id).unwrap();
+                assert!(!object.base.flags.active, "frame {retail_frame}");
+                assert!(!object.base.flags.visible, "frame {retail_frame}");
+                assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                continue;
+            };
+            match expected.presentation {
+                MissionActorPresentation::Present(pose) => {
+                    retained_poses += 1;
+                    let object = game.state().objects.get(rival_id).unwrap_or_else(|| {
+                        panic!("final rival departed before retail frame {retail_frame}")
+                    });
+                    assert_eq!(object.base.position, pose.position, "frame {retail_frame}");
+                    assert_eq!(
+                        object.base.pitch.units(),
+                        pose.pitch,
+                        "frame {retail_frame}"
+                    );
+                    assert_eq!(object.base.yaw.units(), pose.yaw, "frame {retail_frame}");
+                    assert_eq!(object.base.roll.units(), pose.roll, "frame {retail_frame}");
+                    assert_eq!(object.base.speed, pose.speed, "frame {retail_frame}");
+                    assert!(object.base.flags.active, "frame {retail_frame}");
+                    assert!(object.base.flags.visible, "frame {retail_frame}");
+                    assert!(
+                        !object.base.flags.collision_disabled,
+                        "frame {retail_frame}"
+                    );
+                    assert!(matches!(
+                        object.extension.activity,
+                        ObjectActivity::FinalRivalFlight(_)
+                    ));
+                }
+                MissionActorPresentation::Departed => {
+                    assert!(game.final_rival.is_none(), "frame {retail_frame}");
+                }
+                MissionActorPresentation::Inactive => {
+                    let object = game.state().objects.get(rival_id).unwrap();
+                    assert!(!object.base.flags.active, "frame {retail_frame}");
+                    assert!(!object.base.flags.visible, "frame {retail_frame}");
+                    assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                }
+            }
+        }
+
+        assert_eq!(retained_poses, retained_rival_pose_count);
+    }
+
+    #[test]
+    fn typed_final_pursuer_flight_matches_every_oracle_boundary() {
+        const RETAINED_RIVAL_POSE_COUNT: usize = 209;
+
+        assert_typed_final_rival_flight_matches_every_oracle_boundary(
+            MissionVisit::FinalPursuer,
+            ShapeId::FINAL_PURSUER_CRAFT,
+            final_rivals_flight::FINAL_PURSUER,
+            &final_pursuer::PLAYER_KEYFRAMES,
+            &final_pursuer::RIVAL_KEYFRAMES,
+            RETAINED_RIVAL_POSE_COUNT,
+        );
+    }
+
+    #[test]
+    fn typed_wolf_blockade_flight_matches_every_oracle_boundary() {
+        const RETAINED_RIVAL_POSE_COUNT: usize = 224;
+
+        assert_typed_final_rival_flight_matches_every_oracle_boundary(
+            MissionVisit::WolfBlockade,
+            ShapeId::WOLF_BLOCKADE_CRAFT,
+            final_rivals_flight::WOLF_BLOCKADE,
+            &wolf_blockade::PLAYER_KEYFRAMES,
+            &wolf_blockade::RIVAL_KEYFRAMES,
+            RETAINED_RIVAL_POSE_COUNT,
+        );
     }
 
     #[test]

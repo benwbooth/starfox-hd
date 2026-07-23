@@ -516,6 +516,26 @@ pub struct LeonRivalFlightState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FinalRivalFlightPhase {
+    AwaitingEntrance,
+    Approach,
+    CombatManeuver,
+    Attack,
+    Departure,
+}
+
+/// Flat, typed flight variables shared by the recurring final pursuer and
+/// the upgraded Wolf blockade craft. Transform and combat values remain in
+/// the ordinary object fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FinalRivalFlightState {
+    pub phase: FinalRivalFlightPhase,
+    pub target_speed: u8,
+    pub acceleration: u8,
+    pub motion_steps_elapsed: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerProjectileKind {
     Rapid,
     Charged,
@@ -552,6 +572,7 @@ pub enum ObjectActivity {
     HostileProjectileFlight(HostileProjectileFlightState),
     PigmaRivalFlight(PigmaRivalFlightState),
     LeonRivalFlight(LeonRivalFlightState),
+    FinalRivalFlight(FinalRivalFlightState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),
 }
