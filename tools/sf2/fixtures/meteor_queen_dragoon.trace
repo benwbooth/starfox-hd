@@ -1,0 +1,12 @@
+# Compact Mesen oracle evidence for Meteor's Queen Dragoon encounter.
+# Raw sortie SHA-256: eb2c1e5b800232a58560ca1da8b415a8110884730da1c0167c900911179f77cf
+# Raw actor-logic SHA-256: f80b064d6e2a6be5c6b9d8bb38d7f1248930cd20a03a308ce850e75aec2deab3
+mission name=meteor mission_selection=4 active_map=4012 objectives_before=2 objectives_after=2
+boss name=queen_dragoon maximum_durability=80 defeat_retail_frame=23 explosion_retail_frame=43
+component role=body source_shape=FA84 count=1
+component role=linked_pair_a source_shape=FAA0 count=2
+component role=linked_pair_b source_shape=FABC count=2
+explosion role=body source_shape=BDD0 count=1
+explosion role=component_burst source_shape=BD98 count=4
+explosion role=component_debris source_shape=BDEC count=4
+logic traced_objects=5 move_events=20

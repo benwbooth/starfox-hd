@@ -111,6 +111,9 @@ local finish_current_mission =
   os.getenv("SF2_ORACLE_FINISH_CURRENT_MISSION") == "1"
 local finish_each_mission =
   os.getenv("SF2_ORACLE_FINISH_EACH_MISSION") == "1"
+forced_objective_remaining = tonumber(
+  os.getenv("SF2_ORACLE_OBJECTIVE_REMAINING"))
+forced_objective_remaining_applied = false
 local skipped_surface_objectives = false
 local finished_current_mission = false
 local forced_projectile_hit_applied = false
@@ -146,16 +149,31 @@ end
 local forced_target_shape_text = os.getenv("SF2_ORACLE_TARGET_SHAPE")
 local forced_target_shape = forced_target_shape_text
   and tonumber(forced_target_shape_text, 16) or nil
+-- Deliberately global: this large oracle has reached Lua's main-chunk local
+-- limit. Exact source-object selection is oracle instrumentation only.
+forced_target_object_text = os.getenv("SF2_ORACLE_TARGET_OBJECT")
+forced_target_object = forced_target_object_text
+  and tonumber(forced_target_object_text, 16) or nil
 local forced_target_health = tonumber(os.getenv("SF2_ORACLE_TARGET_HEALTH"))
 if forced_target_shape_text then
   assert(
     forced_target_shape and forced_target_shape <= 0xFFFF,
     "SF2_ORACLE_TARGET_SHAPE must be a four-digit hexadecimal shape token")
 end
+if forced_target_object_text then
+  assert(
+    forced_target_object and forced_target_object <= 0xFFFF,
+    "SF2_ORACLE_TARGET_OBJECT must be a four-digit hexadecimal object address")
+end
 if forced_target_health then
   assert(
     forced_target_health >= 0 and forced_target_health <= 255,
     "SF2_ORACLE_TARGET_HEALTH must be byte-sized")
+end
+if forced_objective_remaining then
+  assert(
+    forced_objective_remaining >= 0 and forced_objective_remaining <= 255,
+    "SF2_ORACLE_OBJECTIVE_REMAINING must be byte-sized")
 end
 if forced_player_health then
   assert(
@@ -331,6 +349,15 @@ sortie_actor_oracle = {
     [0x0576] = true,
   },
 }
+for trace_object_token in string.gmatch(
+  os.getenv("SF2_ORACLE_TRACE_OBJECTS") or "", "[^,]+") do
+  trace_object_address = tonumber(trace_object_token, 16)
+  assert(
+    trace_object_address and trace_object_address <= 0xFFFF,
+    "SF2_ORACLE_TRACE_OBJECTS must contain comma-separated four-digit " ..
+      "hexadecimal object addresses")
+  sortie_actor_oracle.objects[trace_object_address] = true
+end
 local walker_dynamics_before = nil
 local last_state = ""
 local input_label = "idle"
@@ -1366,6 +1393,7 @@ local function record(event, elapsed)
       "wingmate=%04X camera=%d,%d,%d,%d,%d,%d playerpose=%s " ..
       "wingpose=%s objects=[%s] selected=%04X targetdigits=%d,%d,%d " ..
       "coretrigger=%d map=%02X:%04X mapcursor=%d,%d mapposition=%d,%d " ..
+      "objectives=%d,%d " ..
       "corneria_remaining=%d " ..
       "corneria_damage=%d",
     elapsed,
@@ -1400,6 +1428,8 @@ local function record(event, elapsed)
     signed_word(0xDA92),
     work_byte(0xDAF3),
     work_byte(0xDAF6),
+    work_byte(0xD7A1),
+    work_byte(0xD7F4),
     work_word(0xDB47),
     work_word(0xDB49))
 end
@@ -1724,7 +1754,9 @@ local function provide_combat_autopilot()
       emu.write(object + 0x2D, 120, emu.memType.snesWorkRam)
     end
     local requested_shape = forced_target_shape and shape == forced_target_shape
-    if requested_shape and forced_target_collision_applied then
+    local requested_object = forced_target_object and object == forced_target_object
+    local requested_target = requested_object or requested_shape
+    if requested_target and forced_target_collision_applied then
       local current_path = work_word(object + 0x2B)
       if current_path ~= forced_target_initial_path then
         forced_target_reaction_seen = true
@@ -1732,7 +1764,7 @@ local function provide_combat_autopilot()
         forced_target_reaction_complete = true
       end
     end
-    local explicitly_requested_target = requested_shape
+    local explicitly_requested_target = requested_target
       and not forced_target_reaction_complete
       and (not forced_target_collision_frame
         or frame - forced_target_collision_frame < 600)
@@ -1741,9 +1773,9 @@ local function provide_combat_autopilot()
       or (forced_target_collision_frame
         and work_word(object + 0x2B) ~= forced_target_initial_path
         and work_word(object + 0x2B) ~= 0x0C21)
-    if requested_shape and target_health_ready and forced_target_health
+    if requested_target and target_health_ready and forced_target_health
       and work_byte(object + 0x2D) > forced_target_health then
-      -- Arbitrary source-shape targeting is deliberately oracle-only.  It is
+      -- Arbitrary source actor targeting is deliberately oracle-only. It is
       -- used to identify an unknown encounter's vulnerable actor before that
       -- actor receives a semantic name in the native port.
       emu.write(
@@ -1814,7 +1846,7 @@ local function provide_combat_autopilot()
     local fighter_collision = not forced_fighter_health and shape == 0xBEB0
       and (work_byte(object + 0x2E) == 66
         or work_byte(object + 0x2E) == 80)
-    local ordinary_candidate = not forced_target_shape
+    local ordinary_candidate = not forced_target_shape and not forced_target_object
       and (shape == 0xF1C4 or shape == 0xEA00
         or shape == 0xC348 or shape == 0xE1B0
         or eladard_barrier or eladard_room_defender
@@ -1841,7 +1873,7 @@ local function provide_combat_autopilot()
       local prefer_explicit_target = explicitly_requested_target
         and distance_squared < target_distance_squared
       if prefer_explicit_target
-        or (not forced_target_shape
+        or (not forced_target_shape and not forced_target_object
           and (prefer_left_eladard_barrier
             or prefer_wall_spider
             or prefer_astropolis_security_turret
@@ -2862,6 +2894,25 @@ local function end_frame()
 end
 
 local function isolate_map_layers()
+  if forced_objective_remaining and not forced_objective_remaining_applied
+    and loaded_state and work_byte(0x1B68) == 1 then
+    -- Oracle-only mission-flow isolation. This changes the two mirrored
+    -- retail objective counters once, then leaves all downstream host and map
+    -- transitions under retail control.
+    emu.write(
+      0xD7A1,
+      forced_objective_remaining,
+      emu.memType.snesWorkRam)
+    emu.write(
+      0xD7F4,
+      forced_objective_remaining,
+      emu.memType.snesWorkRam)
+    forced_objective_remaining_applied = true
+    lines[#lines + 1] = string.format(
+      "elapsed=%d event=objective-remaining-forced remaining=%d",
+      frame - armed_frame,
+      forced_objective_remaining)
+  end
   if finish_each_mission and work_byte(0x1B68) == 7 then
     finished_current_mission = false
   end
