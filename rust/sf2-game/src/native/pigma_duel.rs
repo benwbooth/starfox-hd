@@ -5,9 +5,12 @@
 //! tools/sf2/generate_pigma_duel.py [--check]`.
 
 use super::{
-    mission_actor_departure_keyframe, mission_actor_keyframe, mission_camera_keyframe,
-    mission_player_keyframe, MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
+    MissionPlayerKeyframe,
 };
+
+#[cfg(test)]
+use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};
 
 #[cfg(test)]
 use super::{mission_projectile_keyframe, MissionProjectileKeyframe};
@@ -1284,6 +1287,7 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 420] = [
     mission_player_keyframe(1676, 8_447, -3_603, 16_234, 0, 212, 0, 30),
 ];
 
+#[cfg(test)]
 pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 299] = [
     mission_actor_keyframe(36, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(40, [0, 0, 0, 0, 0, 0, 0]),

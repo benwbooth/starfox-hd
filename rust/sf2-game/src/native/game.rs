@@ -13,9 +13,9 @@ use super::object::{
     FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
     HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
     InterceptionMissileFlightState, InterceptionMissileSteering, Object, ObjectActivity, ObjectId,
-    ObjectKind, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
-    ShapeId, Vector3, WeaponKind,
+    ObjectKind, PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase,
+    PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState,
+    ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::state::{
@@ -63,6 +63,8 @@ mod opening_continuation;
 mod pigma_duel;
 #[path = "pigma_duel_projectiles.rs"]
 mod pigma_duel_projectiles;
+#[path = "pigma_duel_rival.rs"]
+mod pigma_duel_rival;
 #[path = "pressure_fighters.rs"]
 mod pressure_fighters;
 #[path = "second_sortie.rs"]
@@ -136,6 +138,24 @@ const FIGHTER_INTERCEPT_TARGET_COUNT: usize = 3;
 const PIGMA_HEALTH: u8 = 100;
 const PIGMA_ATTACK_POWER: u8 = 4;
 const PIGMA_SCORE_AWARD: u32 = 1_000;
+const PIGMA_APPROACH_SPEED: u8 = 100;
+const PIGMA_APPROACH_ACCELERATION: u8 = 1;
+const PIGMA_MANEUVER_SPEED: u8 = 70;
+const PIGMA_MANEUVER_ACCELERATION: u8 = 5;
+const PIGMA_DECELERATION_SPEED: u8 = 40;
+const PIGMA_DECELERATION_RATE: u8 = 5;
+const PIGMA_ESCAPE_SPEED: u8 = 10;
+const PIGMA_ESCAPE_DECELERATION: u8 = 1;
+const PIGMA_COMBAT_ALTITUDE: i16 = -4_000;
+const PIGMA_SECOND_APPROACH_ALTITUDE_OFFSET: i16 = 600;
+const PIGMA_SECOND_APPROACH_INITIAL_BANK: i8 = -10;
+const PIGMA_SECOND_APPROACH_VERTICAL_STEP: i16 = -60;
+const PIGMA_ESCAPE_YAW_STEP: i8 = -2;
+const PIGMA_APPROACH_ANGLE_CHASE_SHIFT: u32 = 3;
+const PIGMA_PLAYER_FACING_CHASE_SHIFT: u32 = 2;
+const PIGMA_PLAYER_PITCH_LEVEL_CHASE_SHIFT: u32 = 3;
+const PIGMA_SECOND_APPROACH_WAVE: [i8; 10] = [20, -18, 16, -14, 12, -10, 8, -6, 4, -2];
+const PIGMA_ESCAPE_WOBBLE: [i8; 10] = [-10, 20, -18, 16, -14, 12, -10, 8, -6, 4];
 const LEON_HEALTH: u8 = 100;
 const LEON_ATTACK_POWER: u8 = 4;
 const LEON_SCORE_AWARD: u32 = 400;
@@ -1450,6 +1470,87 @@ impl PlayerTargetTiming {
             Self::Current => current,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PigmaApproachSteering {
+    EntryClimb,
+    EntryDive,
+    SecondClimb,
+    SecondDive,
+}
+
+impl PigmaApproachSteering {
+    const fn pitch_target(self) -> Angle {
+        let target = match self {
+            Self::EntryClimb | Self::SecondClimb => 40,
+            Self::EntryDive | Self::SecondDive => -40,
+        };
+        Angle::from_units(target as i8 as u8)
+    }
+
+    const fn yaw_step(self) -> i8 {
+        match self {
+            Self::EntryClimb | Self::SecondDive => 2,
+            Self::EntryDive | Self::SecondClimb => -2,
+        }
+    }
+
+    const fn roll_target(self) -> Angle {
+        let target = match self {
+            Self::EntryClimb => 40,
+            Self::EntryDive | Self::SecondClimb => -40,
+            Self::SecondDive => 40,
+        };
+        Angle::from_units(target as i8 as u8)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PigmaPlayerAltitudeTiming {
+    Previous,
+    EarlierMidpoint,
+    EarlierMidpointWithEntryRounding,
+}
+
+impl PigmaPlayerAltitudeTiming {
+    fn select(self, earlier_player_altitude: i16, previous_player_altitude: i16) -> i16 {
+        match self {
+            Self::Previous => previous_player_altitude,
+            Self::EarlierMidpoint | Self::EarlierMidpointWithEntryRounding => {
+                let midpoint = earlier_player_altitude.wrapping_add(
+                    previous_player_altitude.wrapping_sub(earlier_player_altitude) / 2,
+                );
+                if self == Self::EarlierMidpointWithEntryRounding {
+                    midpoint.wrapping_add(2)
+                } else {
+                    midpoint
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PigmaRivalAction {
+    BeginApproach,
+    AdvanceApproach(PigmaApproachSteering),
+    BeginCombatManeuver,
+    BeginAttack,
+    MaintainCombatAltitude,
+    ChaseRollToLevel,
+    FacePlayerYawAndLevelPitch(PlayerTargetTiming),
+    FacePlayerSmooth(PlayerTargetTiming),
+    Advance,
+    BeginSecondApproach,
+    LaunchSecondApproach,
+    ApplySecondApproachWave,
+    BeginDeceleration,
+    BeginEscape,
+    TurnAway,
+    TurnAwayAndAdvance,
+    ChasePlayerAltitude(PigmaPlayerAltitudeTiming),
+    ApplyEscapeWobble,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5820,7 +5921,6 @@ impl Game {
         } else {
             self.update_pigma_presentation(retail_frame);
         }
-        self.update_pigma_rival(retail_frame);
         let current_player_position = self
             .state
             .mission
@@ -5831,9 +5931,11 @@ impl Game {
             .map(|current| self.previous_mission_player_position.unwrap_or(current));
         if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
         {
+            self.update_pigma_rival(retail_frame, current, previous);
             self.update_pigma_projectiles(retail_frame, current, previous)?;
             self.previous_mission_player_position = Some(current);
         } else {
+            self.update_pigma_rival(retail_frame, Vector3::default(), Vector3::default());
             self.update_pigma_projectiles(retail_frame, Vector3::default(), Vector3::default())?;
         }
         Ok(())
@@ -7110,6 +7212,15 @@ impl Game {
         rival.base.flags.visible = false;
         rival.base.flags.collision_disabled = true;
         rival.base.flags.casts_shadow = false;
+        rival.extension.activity = ObjectActivity::PigmaRivalFlight(PigmaRivalFlightState {
+            phase: PigmaRivalFlightPhase::AwaitingEntrance,
+            target_speed: 0,
+            acceleration: 0,
+            motion_steps_elapsed: 0,
+            second_approach_wave_step: 0,
+            escape_wobble_step: 0,
+            earlier_player_altitude: pigma_duel::PLAYER_KEYFRAMES[0].position.y,
+        });
         self.pigma_rival = Some(
             self.state
                 .objects
@@ -8681,30 +8792,16 @@ impl Game {
         }
     }
 
-    fn update_pigma_rival(&mut self, retail_frame: u16) {
-        let keyframes = &pigma_duel::RIVAL_KEYFRAMES;
-        if retail_frame < keyframes[0].retail_frame {
+    fn update_pigma_rival(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) {
+        if retail_frame < pigma_duel_rival::PRESENTATION_START_RETAIL_FRAME {
             return;
         }
-        let (start, end) =
-            enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-        let presentation = if retail_frame >= end.retail_frame {
-            end.presentation
-        } else {
-            match (start.presentation, end.presentation) {
-                (
-                    MissionActorPresentation::Present(start_pose),
-                    MissionActorPresentation::Present(end_pose),
-                ) => MissionActorPresentation::Present(interpolate_encounter_pose(
-                    start_pose,
-                    end_pose,
-                    retail_frame.saturating_sub(start.retail_frame),
-                    end.retail_frame.saturating_sub(start.retail_frame),
-                )),
-                (presentation, _) => presentation,
-            }
-        };
-        if presentation == MissionActorPresentation::Departed {
+        if retail_frame >= pigma_duel_rival::DEPARTURE_RETAIL_FRAME {
             let destruction_in_progress = self
                 .pigma_rival
                 .and_then(|id| self.state.objects.get(id))
@@ -8732,26 +8829,45 @@ impl Game {
         if object.base.explosion_timer > 0 || object.base.flags.exploding {
             return;
         }
-        match presentation {
-            MissionActorPresentation::Present(pose) => {
-                object.base.flags.active = true;
-                object.base.flags.visible = true;
-                object.base.flags.collision_disabled = false;
-                object.base.position = pose.position;
-                object.base.pitch = Angle::from_units(pose.pitch);
-                object.base.yaw = Angle::from_units(pose.yaw);
-                object.base.roll = Angle::from_units(pose.roll);
-                object.base.speed = pose.speed;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Inactive => {
-                object.base.flags.active = false;
-                object.base.flags.visible = false;
-                object.base.flags.collision_disabled = true;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Departed => unreachable!(),
+        let ObjectActivity::PigmaRivalFlight(mut flight) = object.extension.activity else {
+            return;
+        };
+        if retail_frame == pigma_duel_rival::PRESENTATION_START_RETAIL_FRAME {
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = false;
+            object.base.position = Vector3::default();
+            object.base.pitch = Angle::ZERO;
+            object.base.yaw = Angle::ZERO;
+            object.base.roll = Angle::ZERO;
+            object.base.speed = 0;
+            object.base.velocity = Vector3::default();
         }
+        if retail_frame == pigma_duel_rival::FLIGHT_START_RETAIL_FRAME
+            && flight.phase == PigmaRivalFlightPhase::AwaitingEntrance
+        {
+            let pose = pigma_duel_rival::INITIAL_POSE;
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = false;
+            object.base.position = pose.position;
+            object.base.pitch = Angle::from_units(pose.pitch);
+            object.base.yaw = Angle::from_units(pose.yaw);
+            object.base.roll = Angle::from_units(pose.roll);
+            object.base.speed = pose.speed;
+            object.base.velocity = Vector3::default();
+        }
+        for &action in pigma_duel_rival::actions(retail_frame) {
+            apply_pigma_rival_action(
+                object,
+                &mut flight,
+                action,
+                player_position,
+                previous_player_position,
+            );
+        }
+        flight.earlier_player_altitude = previous_player_position.y;
+        object.extension.activity = ObjectActivity::PigmaRivalFlight(flight);
     }
 
     fn update_pigma_projectiles(
@@ -10350,7 +10466,8 @@ impl Game {
                 | ObjectActivity::ReengagementFighterFlight(_)
                 | ObjectActivity::FighterInterceptFlight(_)
                 | ObjectActivity::InterceptionMissileFlight(_)
-                | ObjectActivity::HostileProjectileFlight(_) => continue,
+                | ObjectActivity::HostileProjectileFlight(_)
+                | ObjectActivity::PigmaRivalFlight(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
             if matches!(
@@ -11487,6 +11604,205 @@ fn advance_hostile_projectile(
     object.base.position.z = object.base.position.z.wrapping_add(velocity.z);
     flight.phase = phase;
     flight.motion_steps_elapsed = flight.motion_steps_elapsed.saturating_add(1);
+}
+
+fn advance_pigma_rival(object: &mut Object, flight: &mut PigmaRivalFlightState) {
+    let difference = i16::from(flight.target_speed) - i16::from(object.base.speed);
+    let adjustment = difference
+        .unsigned_abs()
+        .min(u16::from(flight.acceleration)) as u8;
+    object.base.speed = if difference > 0 {
+        object.base.speed.saturating_add(adjustment)
+    } else if difference < 0 {
+        object.base.speed.saturating_sub(adjustment)
+    } else {
+        object.base.speed
+    };
+    let velocity = flight_velocity(
+        object.base.pitch,
+        object.base.yaw,
+        object.base.speed,
+        MISSION_ENCOUNTER_POSITION_SCALE,
+    );
+    object.base.velocity = velocity;
+    object.base.position.x = object.base.position.x.wrapping_add(velocity.x);
+    object.base.position.y = object.base.position.y.wrapping_add(velocity.y);
+    object.base.position.z = object.base.position.z.wrapping_add(velocity.z);
+    flight.motion_steps_elapsed = flight.motion_steps_elapsed.saturating_add(1);
+}
+
+fn chase_pigma_player_altitude(current: i16, target: i16) -> i16 {
+    if current == target {
+        return current;
+    }
+    let difference = target.wrapping_sub(current);
+    let limited = if (1..8).contains(&difference) {
+        8
+    } else if (-7..0).contains(&difference) {
+        -8
+    } else {
+        difference
+    };
+    current.wrapping_add(limited / 8)
+}
+
+fn apply_pigma_rival_action(
+    object: &mut Object,
+    flight: &mut PigmaRivalFlightState,
+    action: PigmaRivalAction,
+    player_position: Vector3,
+    previous_player_position: Vector3,
+) {
+    match action {
+        PigmaRivalAction::BeginApproach => {
+            flight.phase = PigmaRivalFlightPhase::Approach;
+            flight.target_speed = PIGMA_APPROACH_SPEED;
+            flight.acceleration = PIGMA_APPROACH_ACCELERATION;
+        }
+        PigmaRivalAction::AdvanceApproach(steering) => {
+            let mut roll = object.base.roll.units();
+            let mut pitch = object.base.pitch.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut roll,
+                steering.roll_target().units(),
+                PIGMA_APPROACH_ANGLE_CHASE_SHIFT,
+            );
+            sf_core::snes_trig::achase_angle_8(
+                &mut pitch,
+                steering.pitch_target().units(),
+                PIGMA_APPROACH_ANGLE_CHASE_SHIFT,
+            );
+            object.base.roll = Angle::from_units(roll);
+            object.base.pitch = Angle::from_units(pitch);
+            object.base.yaw = object.base.yaw.wrapping_add(steering.yaw_step());
+            advance_pigma_rival(object, flight);
+        }
+        PigmaRivalAction::BeginCombatManeuver => {
+            flight.phase = PigmaRivalFlightPhase::CombatManeuver;
+            flight.target_speed = PIGMA_MANEUVER_SPEED;
+            flight.acceleration = PIGMA_MANEUVER_ACCELERATION;
+        }
+        PigmaRivalAction::BeginAttack => {
+            flight.phase = PigmaRivalFlightPhase::Attack;
+        }
+        PigmaRivalAction::MaintainCombatAltitude => {
+            object.base.position.y = PIGMA_COMBAT_ALTITUDE;
+        }
+        PigmaRivalAction::ChaseRollToLevel => {
+            let mut roll = object.base.roll.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut roll,
+                Angle::ZERO.units(),
+                PIGMA_APPROACH_ANGLE_CHASE_SHIFT,
+            );
+            object.base.roll = Angle::from_units(roll);
+        }
+        PigmaRivalAction::FacePlayerYawAndLevelPitch(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(
+                target.x.wrapping_sub(object.base.position.x),
+                target.z.wrapping_sub(object.base.position.z),
+            );
+            let mut yaw = object.base.yaw.units();
+            let mut pitch = object.base.pitch.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut yaw,
+                target_yaw,
+                PIGMA_PLAYER_FACING_CHASE_SHIFT,
+            );
+            sf_core::snes_trig::achase_angle_8(
+                &mut pitch,
+                Angle::ZERO.units(),
+                PIGMA_PLAYER_PITCH_LEVEL_CHASE_SHIFT,
+            );
+            object.base.yaw = Angle::from_units(yaw);
+            object.base.pitch = Angle::from_units(pitch);
+        }
+        PigmaRivalAction::FacePlayerSmooth(timing) => {
+            let target = timing.select(previous_player_position, player_position);
+            let delta_x = target.x.wrapping_sub(object.base.position.x);
+            let delta_y = target.y.wrapping_sub(object.base.position.y);
+            let delta_z = target.z.wrapping_sub(object.base.position.z);
+            let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+            let target_pitch = sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance);
+            let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+            let mut pitch = object.base.pitch.units();
+            let mut yaw = object.base.yaw.units();
+            sf_core::snes_trig::achase_angle_8(
+                &mut pitch,
+                target_pitch,
+                PIGMA_PLAYER_FACING_CHASE_SHIFT,
+            );
+            sf_core::snes_trig::achase_angle_8(
+                &mut yaw,
+                target_yaw,
+                PIGMA_PLAYER_FACING_CHASE_SHIFT,
+            );
+            object.base.pitch = Angle::from_units(pitch);
+            object.base.yaw = Angle::from_units(yaw);
+        }
+        PigmaRivalAction::Advance => advance_pigma_rival(object, flight),
+        PigmaRivalAction::BeginSecondApproach => {
+            flight.phase = PigmaRivalFlightPhase::SecondApproach;
+            flight.target_speed = PIGMA_APPROACH_SPEED;
+            flight.acceleration = PIGMA_APPROACH_ACCELERATION;
+            flight.second_approach_wave_step = 0;
+            object.base.position.y = object
+                .base
+                .position
+                .y
+                .wrapping_add(PIGMA_SECOND_APPROACH_ALTITUDE_OFFSET);
+            object.base.roll = object
+                .base
+                .roll
+                .wrapping_add(PIGMA_SECOND_APPROACH_INITIAL_BANK);
+        }
+        PigmaRivalAction::LaunchSecondApproach => {
+            object.base.speed = PIGMA_APPROACH_SPEED;
+            advance_pigma_rival(object, flight);
+        }
+        PigmaRivalAction::ApplySecondApproachWave => {
+            let index =
+                usize::from(flight.second_approach_wave_step) % PIGMA_SECOND_APPROACH_WAVE.len();
+            object.base.roll = object
+                .base
+                .roll
+                .wrapping_add(PIGMA_SECOND_APPROACH_WAVE[index]);
+            object.base.position.y = object
+                .base
+                .position
+                .y
+                .wrapping_add(PIGMA_SECOND_APPROACH_VERTICAL_STEP);
+            flight.second_approach_wave_step = flight.second_approach_wave_step.wrapping_add(1);
+        }
+        PigmaRivalAction::BeginDeceleration => {
+            flight.phase = PigmaRivalFlightPhase::Deceleration;
+            flight.target_speed = PIGMA_DECELERATION_SPEED;
+            flight.acceleration = PIGMA_DECELERATION_RATE;
+        }
+        PigmaRivalAction::BeginEscape => {
+            flight.phase = PigmaRivalFlightPhase::Escape;
+            flight.target_speed = PIGMA_ESCAPE_SPEED;
+            flight.acceleration = PIGMA_ESCAPE_DECELERATION;
+            flight.escape_wobble_step = 0;
+        }
+        PigmaRivalAction::TurnAway => {
+            object.base.yaw = object.base.yaw.wrapping_add(PIGMA_ESCAPE_YAW_STEP);
+        }
+        PigmaRivalAction::TurnAwayAndAdvance => {
+            object.base.yaw = object.base.yaw.wrapping_add(PIGMA_ESCAPE_YAW_STEP);
+            advance_pigma_rival(object, flight);
+        }
+        PigmaRivalAction::ChasePlayerAltitude(timing) => {
+            let target = timing.select(flight.earlier_player_altitude, previous_player_position.y);
+            object.base.position.y = chase_pigma_player_altitude(object.base.position.y, target);
+        }
+        PigmaRivalAction::ApplyEscapeWobble => {
+            let index = usize::from(flight.escape_wobble_step) % PIGMA_ESCAPE_WOBBLE.len();
+            object.base.roll = object.base.roll.wrapping_add(PIGMA_ESCAPE_WOBBLE[index]);
+            flight.escape_wobble_step = flight.escape_wobble_step.wrapping_add(1);
+        }
+    }
 }
 
 fn apply_hostile_projectile_action(
@@ -16989,6 +17305,79 @@ mod tests {
         )
         .unwrap();
         assert!(game.pigma_projectiles.is_empty());
+    }
+
+    #[test]
+    fn typed_pigma_rival_flight_matches_every_oracle_boundary() {
+        const RETAINED_RIVAL_POSE_COUNT: usize = 298;
+
+        let mut game = Game::new();
+        game.spawn_pigma_rival().unwrap();
+        let rival_id = game.pigma_rival.unwrap();
+        let mut retained_poses = 0;
+
+        for retail_frame in (0..=pigma_duel_rival::DEPARTURE_RETAIL_FRAME)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index =
+                usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            let previous_player_index = usize::from(
+                retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+            );
+            let player_position = pigma_duel::PLAYER_KEYFRAMES[player_index].position;
+            let previous_player_position =
+                pigma_duel::PLAYER_KEYFRAMES[previous_player_index].position;
+            game.update_pigma_rival(retail_frame, player_position, previous_player_position);
+
+            let expected = pigma_duel::RIVAL_KEYFRAMES
+                .iter()
+                .find(|keyframe| keyframe.retail_frame == retail_frame);
+            let Some(expected) = expected else {
+                let object = game.state().objects.get(rival_id).unwrap();
+                assert!(!object.base.flags.active, "frame {retail_frame}");
+                assert!(!object.base.flags.visible, "frame {retail_frame}");
+                assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                continue;
+            };
+            match expected.presentation {
+                MissionActorPresentation::Present(pose) => {
+                    retained_poses += 1;
+                    let object = game.state().objects.get(rival_id).unwrap_or_else(|| {
+                        panic!("Pigma departed before retail frame {retail_frame}")
+                    });
+                    assert_eq!(object.base.position, pose.position, "frame {retail_frame}");
+                    assert_eq!(
+                        object.base.pitch.units(),
+                        pose.pitch,
+                        "frame {retail_frame}"
+                    );
+                    assert_eq!(object.base.yaw.units(), pose.yaw, "frame {retail_frame}");
+                    assert_eq!(object.base.roll.units(), pose.roll, "frame {retail_frame}");
+                    assert_eq!(object.base.speed, pose.speed, "frame {retail_frame}");
+                    assert!(object.base.flags.active, "frame {retail_frame}");
+                    assert!(object.base.flags.visible, "frame {retail_frame}");
+                    assert!(
+                        !object.base.flags.collision_disabled,
+                        "frame {retail_frame}"
+                    );
+                    assert!(matches!(
+                        object.extension.activity,
+                        ObjectActivity::PigmaRivalFlight(_)
+                    ));
+                }
+                MissionActorPresentation::Departed => {
+                    assert!(game.pigma_rival.is_none(), "frame {retail_frame}");
+                }
+                MissionActorPresentation::Inactive => {
+                    panic!("Pigma oracle unexpectedly becomes inactive at frame {retail_frame}")
+                }
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_RIVAL_POSE_COUNT);
+        assert_eq!(game.state().mission.score, PIGMA_SCORE_AWARD);
+        assert_eq!(game.state().mission.objects_destroyed, 1);
     }
 
     #[test]

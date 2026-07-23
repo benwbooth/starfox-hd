@@ -283,6 +283,7 @@ def rust_source(
     duel_name: str,
     generator_name: str,
     projectiles_test_only: bool = False,
+    rival_test_only: bool = False,
 ) -> str:
     present_indices = [index for index, record in enumerate(records) if record.rival is not None]
     if not present_indices:
@@ -330,6 +331,26 @@ def rust_source(
         if projectiles_test_only
         else []
     )
+    rival_import = []
+    if rival_test_only:
+        actor_helpers = [
+            "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,",
+            "    MissionPlayerKeyframe,",
+        ]
+        rival_import = [
+            "#[cfg(test)]",
+            "use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};",
+            "",
+        ]
+        if any(record.rival is None for record in rival_records):
+            rival_import = [
+                "#[cfg(test)]",
+                "use super::{",
+                "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,",
+                "    mission_actor_keyframe, MissionActorKeyframe,",
+                "};",
+                "",
+            ]
     lines = [
         f"//! Generated typed path for the retail {duel_name} duel.",
         "//!",
@@ -341,6 +362,7 @@ def rust_source(
         *actor_helpers,
         "};",
         "",
+        *rival_import,
         *projectile_import,
         f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
         f"pub(super) const MAP_READY_RETAIL_FRAME: u16 = {map_ready_frame};",
@@ -385,6 +407,7 @@ def rust_source(
     lines.extend(
         [
             "",
+            *(["#[cfg(test)]"] if rival_test_only else []),
             f"pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; {len(rival_records) + 1}] = [",
         ]
     )
@@ -494,6 +517,7 @@ def main() -> None:
         args.duel_name,
         args.generator_name,
         projectiles_test_only=args.output.resolve() == DEFAULT_OUTPUT.resolve(),
+        rival_test_only=args.output.resolve() == DEFAULT_OUTPUT.resolve(),
     )
     if args.check:
         if not args.output.is_file() or args.output.read_text(encoding="utf-8") != generated:

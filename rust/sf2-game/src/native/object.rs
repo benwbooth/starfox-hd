@@ -462,6 +462,34 @@ pub struct HostileProjectileFlightState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PigmaRivalFlightPhase {
+    AwaitingEntrance,
+    Approach,
+    CombatManeuver,
+    Attack,
+    SecondApproach,
+    Deceleration,
+    Escape,
+}
+
+/// Flat, typed flight variables for Pigma's first Star Wolf duel.
+///
+/// The transform remains in the ordinary object fields. These values are the
+/// authored maneuver phase, speed approach, wave progress, and player-height
+/// history needed when two cooperative path steps share one presentation
+/// tick; they are not an emulated actor record or byte-addressed memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PigmaRivalFlightState {
+    pub phase: PigmaRivalFlightPhase,
+    pub target_speed: u8,
+    pub acceleration: u8,
+    pub motion_steps_elapsed: u16,
+    pub second_approach_wave_step: u8,
+    pub escape_wobble_step: u8,
+    pub earlier_player_altitude: i16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerProjectileKind {
     Rapid,
     Charged,
@@ -496,6 +524,7 @@ pub enum ObjectActivity {
     InterceptionMissileFlight(InterceptionMissileFlightState),
     CapitalFlight(CapitalFlightState),
     HostileProjectileFlight(HostileProjectileFlightState),
+    PigmaRivalFlight(PigmaRivalFlightState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),
 }
