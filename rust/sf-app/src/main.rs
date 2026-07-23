@@ -380,6 +380,8 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
             GameMode::Results => Sf2Mode::Results,
             GameMode::Ending => Sf2Mode::Ending,
         },
+        intro_presentation_tick: state.intro.presentation_tick,
+        intro_title_menu_countdown: state.intro.title_menu_countdown,
         polygon_palette: to_sf2_polygon_palette(&state.mission),
         mission_backdrop: to_sf2_mission_backdrop(&state.mission),
         title_page: match state.title.page {

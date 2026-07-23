@@ -235,6 +235,8 @@ pub enum Sf2MissionBackdrop {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sf2FrameInputs {
     pub mode: Sf2Mode,
+    pub intro_presentation_tick: u16,
+    pub intro_title_menu_countdown: Option<u8>,
     pub polygon_palette: crate::shapes::Sf2PolygonPalette,
     pub mission_backdrop: Sf2MissionBackdrop,
     pub title_page: Sf2TitlePage,

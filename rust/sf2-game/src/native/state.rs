@@ -1426,6 +1426,14 @@ pub enum IntroPhase {
     ArgonautLogo,
     NintendoLogo,
     Formation,
+    TitleReveal,
+    TitleSplash,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct IntroState {
+    pub presentation_tick: u16,
+    pub title_menu_countdown: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1466,6 +1474,7 @@ pub struct GameState {
     pub frame: u64,
     pub mode_frame: u32,
     pub mode: GameMode,
+    pub intro: IntroState,
     pub title: TitleState,
     pub roster: Roster,
     pub campaign: CampaignState,
@@ -1487,6 +1496,7 @@ impl Default for GameState {
             frame: 0,
             mode_frame: 0,
             mode: GameMode::Intro(IntroPhase::Boot),
+            intro: IntroState::default(),
             title: TitleState::default(),
             roster: Roster::default(),
             campaign: CampaignState::default(),

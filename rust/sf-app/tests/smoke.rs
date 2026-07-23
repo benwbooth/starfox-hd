@@ -207,7 +207,7 @@ fn sf2_autoplay_reaches_strategic_map_and_renders_native_ui() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     for transition in [
-        "[sf2-state] Intro(Boot) -> Title",
+        "[sf2-state] Intro(TitleSplash) -> Title",
         "[sf2-state] Title -> Briefing",
         "[sf2-state] Briefing -> StrategicMap",
     ] {
@@ -274,7 +274,7 @@ fn sf2_autoplay_launches_opening_sortie_and_renders_native_mission() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     for transition in [
-        "[sf2-state] Intro(Boot) -> Title",
+        "[sf2-state] Intro(TitleSplash) -> Title",
         "[sf2-state] Title -> Briefing",
         "[sf2-state] Briefing -> StrategicMap",
         "[sf2-state] StrategicMap -> PilotSelection",

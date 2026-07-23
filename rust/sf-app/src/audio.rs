@@ -41,7 +41,11 @@ fn sf2_music_cue(mode: sf2_game::GameMode) -> Sf2MusicCue {
         GameMode::Intro(IntroPhase::Boot)
         | GameMode::Intro(IntroPhase::ArgonautLogo)
         | GameMode::Intro(IntroPhase::NintendoLogo) => Sf2MusicCue::LogoPresentation,
-        GameMode::Intro(IntroPhase::Formation) | GameMode::Title | GameMode::Records => {
+        GameMode::Intro(
+            IntroPhase::Formation | IntroPhase::TitleReveal | IntroPhase::TitleSplash,
+        )
+        | GameMode::Title
+        | GameMode::Records => {
             Sf2MusicCue::FormationAndTitle
         }
         GameMode::Briefing => Sf2MusicCue::AndrossBriefing,

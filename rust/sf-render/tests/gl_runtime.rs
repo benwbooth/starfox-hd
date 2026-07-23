@@ -44,6 +44,8 @@ const SF2_TEST_MISSION_TIME_TENTHS: u16 = 11;
 const SF2_MAP_WIDTH: i32 = 256;
 const SF2_MAP_HEIGHT: i32 = 224;
 const SF2_TITLE_MISSION_FNV1A: u32 = 0xA8CAEC13;
+const SF2_INTRO_TITLE_SPLASH_FNV1A: u32 = 0xE00700F2;
+const SF2_INTRO_TITLE_RESPONSE_FNV1A: u32 = 0x7B2084FE;
 const SF2_BRIEFING_MESSAGE_FNV1A: u32 = 0x86663F26;
 const SF2_OPENING_REPORT_FNV1A: u32 = 0x8D1501C7;
 const SF2_PILOT_SELECTION_FOX_FNV1A: u32 = 0xC2AC3D23;
@@ -118,12 +120,58 @@ fn gl_runtime_suite() {
     check_player_laser(&mut renderer);
 
     renderer.shutdown();
+    check_sf2_intro_exact(&config);
     check_sf1_ending_recap(&config);
     check_sf2_title_exact(&config);
     check_sf2_briefing_exact(&config);
     check_sf2_opening_overview_exact(&config);
     check_sf2_pilot_selection_exact(&config);
     check_sf2_strategic_returns_exact(&config);
+}
+
+fn check_sf2_intro_exact(config: &RendererConfig) {
+    const TITLE_SPLASH_PRESENTATION_TICK: u16 = 779;
+    const TITLE_RESPONSE_COUNTDOWN: u8 = 5;
+
+    let mut renderer = match Renderer::new_headless(SF2_MAP_WIDTH, SF2_MAP_HEIGHT, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping exact SF2 intro check: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    let mut inputs = sf2_inputs(Sf2Mode::Intro);
+    let sf2 = inputs.sf2.as_mut().expect("SF2 intro inputs");
+    sf2.intro_presentation_tick = TITLE_SPLASH_PRESENTATION_TICK;
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+        (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+    });
+    assert_eq!(
+        hash, SF2_INTRO_TITLE_SPLASH_FNV1A,
+        "SF2 intro title-splash frame drifted from the retail capture"
+    );
+
+    inputs
+        .sf2
+        .as_mut()
+        .expect("SF2 intro inputs")
+        .intro_title_menu_countdown = Some(TITLE_RESPONSE_COUNTDOWN);
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+        (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+    });
+    assert_eq!(
+        hash, SF2_INTRO_TITLE_RESPONSE_FNV1A,
+        "SF2 accepted-Start response drifted from the retail capture"
+    );
+    renderer.shutdown();
 }
 
 fn check_sf2_opening_overview_exact(config: &RendererConfig) {
@@ -721,6 +769,8 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
     FrameInputs {
         sf2: Some(Sf2FrameInputs {
             mode,
+            intro_presentation_tick: 0,
+            intro_title_menu_countdown: None,
             polygon_palette: sf_render::shapes::Sf2PolygonPalette::Standard,
             mission_backdrop: sf_render::renderer::Sf2MissionBackdrop::DeepSpace,
             title_page: Sf2TitlePage::MainMenu,

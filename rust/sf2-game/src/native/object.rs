@@ -217,7 +217,6 @@ pub enum ObjectKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Behavior {
-    TitleFlyby,
     MissionEntryFlyby,
     PlayerSelection,
     PlayerFlight,

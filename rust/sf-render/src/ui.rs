@@ -812,6 +812,9 @@ pub struct Ui {
     sf2_titania_backdrop: TextureId,
     sf2_carrier_backdrop: TextureId,
     sf2_astropolis_void_backdrop: TextureId,
+    sf2_intro_texture: TextureId,
+    sf2_intro_presentation: crate::sf2_intro::Presentation,
+    sf2_intro_render_key: Option<(crate::sf2_intro::Track, usize)>,
     sf2_briefing_texture: TextureId,
     sf2_briefing_presentation: crate::sf2_briefing::Presentation,
     sf2_briefing_render_frame: Option<usize>,
@@ -933,6 +936,14 @@ impl Ui {
             &sf2_carrier_backdrop_rgba,
         );
         let sf2_astropolis_void_backdrop = gpu.create_texture_rgba(1, 1, &SF2_OPAQUE_BLACK_PIXEL);
+        let mut sf2_intro_presentation = crate::sf2_intro::Presentation::decode();
+        let sf2_intro_initial_rgba =
+            sf2_intro_presentation.frame_rgba(crate::sf2_intro::Track::Attract, 0);
+        let sf2_intro_texture = gpu.create_texture_rgba(
+            crate::sf2_intro::WIDTH as u32,
+            crate::sf2_intro::HEIGHT as u32,
+            &sf2_intro_initial_rgba,
+        );
         let mut sf2_briefing_presentation = crate::sf2_briefing::Presentation::decode();
         let sf2_briefing_initial_rgba = sf2_briefing_presentation.frame_rgba(0);
         let sf2_briefing_texture = gpu.create_texture_rgba(
@@ -1176,6 +1187,9 @@ impl Ui {
             sf2_titania_backdrop,
             sf2_carrier_backdrop,
             sf2_astropolis_void_backdrop,
+            sf2_intro_texture,
+            sf2_intro_presentation,
+            sf2_intro_render_key: None,
             sf2_briefing_texture,
             sf2_briefing_presentation,
             sf2_briefing_render_frame: None,
@@ -1758,6 +1772,33 @@ impl Ui {
         self.textured_quad_source_frame(
             gpu,
             self.sf2_briefing_texture,
+            0,
+            0,
+            SF2_REFERENCE_WIDTH,
+            SF2_REFERENCE_HEIGHT,
+        );
+    }
+
+    fn render_sf2_intro(&mut self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        let (track, frame_index) = match inputs.intro_title_menu_countdown {
+            Some(countdown) => (
+                crate::sf2_intro::Track::TitleResponse,
+                crate::sf2_intro::title_response_frame(countdown),
+            ),
+            None => (
+                crate::sf2_intro::Track::Attract,
+                crate::sf2_intro::frame_at_tick(inputs.intro_presentation_tick),
+            ),
+        };
+        let key = (track, frame_index);
+        if self.sf2_intro_render_key != Some(key) {
+            let rgba = self.sf2_intro_presentation.frame_rgba(track, frame_index);
+            gpu.update_texture(self.sf2_intro_texture, &rgba);
+            self.sf2_intro_render_key = Some(key);
+        }
+        self.textured_quad_source_frame(
+            gpu,
+            self.sf2_intro_texture,
             0,
             0,
             SF2_REFERENCE_WIDTH,
@@ -3037,6 +3078,7 @@ impl Ui {
 
     fn render_sf2(&mut self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
         match inputs.mode {
+            Sf2Mode::Intro => self.render_sf2_intro(gpu, inputs),
             Sf2Mode::Title => self.render_sf2_title(gpu, inputs),
             Sf2Mode::Records => self.render_sf2_records(gpu, inputs),
             Sf2Mode::Briefing => self.render_sf2_briefing(gpu, inputs),
@@ -3045,7 +3087,7 @@ impl Ui {
             Sf2Mode::Mission => self.render_sf2_mission_hud(gpu, inputs),
             Sf2Mode::GameOver => self.render_sf2_game_over(gpu, font, inputs),
             Sf2Mode::Results => self.render_sf2_results(gpu, inputs),
-            Sf2Mode::Intro | Sf2Mode::Ending => {}
+            Sf2Mode::Ending => {}
         }
     }
 

@@ -32,6 +32,10 @@ const KEY_MAP: &[(Scancode, u16)] = &[
 
 /// Analog stick deadzone (C `DEADZONE`, sf_rtl.c:111).
 const STICK_DEADZONE: i16 = 8000;
+const SF2_FRONT_END_CONFIRM_TICKS: [u32; 6] = [850, 880, 910, 980, 1_010, 1_040];
+const SF2_FRONT_END_START_TICKS: [u32; 4] = [0, 60, 120, 180];
+const SF2_MISSION_INPUT_START_TICK: u32 = 1_050;
+const SF2_DYNAMIC_CONFIRM_CADENCE_TICKS: u32 = 2;
 
 pub struct Input {
     /// C `g_pad1` / `g_pad1_new` / `g_pad1_prev`.
@@ -278,33 +282,29 @@ impl Input {
         }
         let t = self.frame_count;
         if self.sf2_autoplay {
-            const FRONT_END_CONFIRM_TICKS: [u32; 6] = [850, 880, 910, 980, 1_010, 1_040];
-            const FRONT_END_START_TICKS: [u32; 4] = [0, 60, 120, 180];
-            const MISSION_INPUT_START_TICK: u32 = 1_050;
-            const DYNAMIC_CONFIRM_CADENCE_TICKS: u32 = 2;
-            if FRONT_END_START_TICKS.contains(&t) {
+            if SF2_FRONT_END_START_TICKS.contains(&t) {
                 return pad::START;
             }
-            if FRONT_END_CONFIRM_TICKS.contains(&t) {
+            if SF2_FRONT_END_CONFIRM_TICKS.contains(&t) {
                 return pad::B;
             }
             if let Some(game) = sf2_game {
                 let dynamic_confirmation = matches!(
                     game.mode(),
-                    Sf2Mode::Briefing | Sf2Mode::PilotSelection
+                    Sf2Mode::Title | Sf2Mode::Briefing | Sf2Mode::PilotSelection
                 ) || matches!(
                     game.state().strategic_map.phase,
                     StrategicMapPhase::OpeningOverview | StrategicMapPhase::Tutorial(_)
                 ) && game.mode() == Sf2Mode::StrategicMap;
                 if dynamic_confirmation {
-                    return if t % DYNAMIC_CONFIRM_CADENCE_TICKS == 0 {
+                    return if t % SF2_DYNAMIC_CONFIRM_CADENCE_TICKS == 0 {
                         pad::B
                     } else {
                         0
                     };
                 }
             }
-            if t < MISSION_INPUT_START_TICK {
+            if t < SF2_MISSION_INPUT_START_TICK {
                 return 0;
             }
             if sf2_game.is_some_and(|game| {
@@ -414,15 +414,43 @@ mod tests {
             sf2_autoplay_pause_after_sorties: None,
             gamepads: Vec::new(),
         };
-        for tick in [0, 60, 120, 180] {
+        for tick in SF2_FRONT_END_START_TICKS {
             input.frame_count = tick;
             assert_eq!(input.autoplay_pad(None), pad::START);
         }
-        for tick in [850, 880, 910, 980, 1_010, 1_040] {
+        for tick in SF2_FRONT_END_CONFIRM_TICKS {
             input.frame_count = tick;
             assert_eq!(input.autoplay_pad(None), pad::B);
         }
         input.frame_count = 1_051;
         assert_eq!(input.autoplay_pad(None), 0);
+    }
+
+    #[test]
+    fn sf2_autoplay_confirms_the_retail_title_after_intro_skips() {
+        const TITLE_CONFIRM_TICK: u32 = 190;
+
+        let mut game = Sf2Game::new();
+        for tick in 0..=TITLE_CONFIRM_TICK {
+            let held = if SF2_FRONT_END_START_TICKS.contains(&tick) {
+                sf2_game::Button::Start as u16
+            } else {
+                0
+            };
+            game.tick(held).unwrap();
+        }
+        assert_eq!(game.mode(), Sf2Mode::Title);
+
+        let input = Input {
+            pad1: 0,
+            pad1_new: 0,
+            pad1_prev: 0,
+            frame_count: TITLE_CONFIRM_TICK,
+            autoplay: true,
+            sf2_autoplay: true,
+            sf2_autoplay_pause_after_sorties: None,
+            gamepads: Vec::new(),
+        };
+        assert_eq!(input.autoplay_pad(Some(&game)), pad::B);
     }
 }

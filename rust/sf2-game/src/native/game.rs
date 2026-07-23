@@ -96,10 +96,16 @@ mod wolf_blockade;
 #[path = "wolf_blockade_projectiles.rs"]
 mod wolf_blockade_projectiles;
 
-const BOOT_INTRO_TICKS: u32 = 5;
-const ARGONAUT_LOGO_TICKS: u32 = 34;
-const NINTENDO_LOGO_TICKS: u32 = 58;
-const FORMATION_INTRO_TICKS: u32 = 240;
+const INTRO_LOOP_START_TICK: u16 = 18;
+const ARGONAUT_LOGO_START_TICK: u16 = 44;
+const NINTENDO_LOGO_START_TICK: u16 = 65;
+const FORMATION_START_TICK: u16 = 155;
+const TITLE_REVEAL_START_TICK: u16 = 679;
+const TITLE_SPLASH_START_TICK: u16 = 779;
+const INTRO_PRESENTATION_FRAME_COUNT: u16 = 1_140;
+const INTRO_PRESENTATION_LAST_TICK: u16 = INTRO_PRESENTATION_FRAME_COUNT - 1;
+const NINTENDO_SKIP_FADE_TICK: u16 = 144;
+const TITLE_MENU_COUNTDOWN_TICKS: u8 = 5;
 const RETAIL_PRESENTATION_FRAMES_PER_TICK: u32 = 4;
 const BRIEFING_PRESENTATION_RETAIL_FRAMES: u32 = 680;
 const PILOT_SELECTION_REVEAL_RETAIL_FRAMES: u32 = 92;
@@ -114,6 +120,22 @@ const PILOT_READY_TICKS: u32 =
 const PILOT_LAUNCH_TICKS: u32 = PILOT_LAUNCH_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const STRATEGIC_OPENING_COMPLETION_TICK: u16 = 940;
 const STRATEGIC_OPENING_PROMPT_COUNT: usize = 11;
+
+const fn intro_phase_at_tick(presentation_tick: u16) -> IntroPhase {
+    if presentation_tick >= TITLE_SPLASH_START_TICK {
+        IntroPhase::TitleSplash
+    } else if presentation_tick >= TITLE_REVEAL_START_TICK {
+        IntroPhase::TitleReveal
+    } else if presentation_tick >= FORMATION_START_TICK {
+        IntroPhase::Formation
+    } else if presentation_tick >= NINTENDO_LOGO_START_TICK {
+        IntroPhase::NintendoLogo
+    } else if presentation_tick >= ARGONAUT_LOGO_START_TICK {
+        IntroPhase::ArgonautLogo
+    } else {
+        IntroPhase::Boot
+    }
+}
 
 #[derive(Clone, Copy)]
 struct StrategicOpeningBoundary {
@@ -3002,8 +3024,6 @@ const FIGHTER_RANDOM_CONTINUATION: [FighterRandomCadence; 172] = [
     FighterRandomCadence::ambient(1),
     FighterRandomCadence::ambient(1),
 ];
-const TITLE_CAMERA_START_Z: i16 = 760;
-const TITLE_CAMERA_VELOCITY_Z: i16 = 8;
 const TITLE_MATERIAL_FALLBACK: u16 = 0;
 const MAP_MARKER_PHASE_COUNT: u8 = 8;
 const INITIAL_ITEM_COUNT: u8 = 3;
@@ -4466,91 +4486,6 @@ const fn mission_player_keyframe(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TitleCraftPose {
-    position: Vector3,
-    velocity: Vector3,
-    pitch: u8,
-    yaw: u8,
-    roll: u8,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct TitleEffectPose {
-    position: Vector3,
-    velocity: Vector3,
-}
-
-/// Formation state at the first retail update that contains all three title
-/// craft. Positions and velocities are ordinary scene data; no source-machine
-/// storage convention reaches the native runtime.
-const TITLE_CRAFT_POSES: [TitleCraftPose; 3] = [
-    TitleCraftPose {
-        position: Vector3 {
-            x: -302,
-            y: 196,
-            z: -682,
-        },
-        velocity: Vector3 {
-            x: -2,
-            y: -4,
-            z: 18,
-        },
-        pitch: 246,
-        yaw: 8,
-        roll: 246,
-    },
-    TitleCraftPose {
-        position: Vector3 {
-            x: 299,
-            y: 95,
-            z: -788,
-        },
-        velocity: Vector3 {
-            x: -1,
-            y: -5,
-            z: 12,
-        },
-        pitch: 241,
-        yaw: 8,
-        roll: 246,
-    },
-    TitleCraftPose {
-        position: Vector3 {
-            x: 148,
-            y: 296,
-            z: -184,
-        },
-        velocity: Vector3 {
-            x: -2,
-            y: -4,
-            z: 16,
-        },
-        pitch: 246,
-        yaw: 8,
-        roll: 246,
-    },
-];
-
-const TITLE_EFFECT_POSES: [TitleEffectPose; 2] = [
-    TitleEffectPose {
-        position: Vector3 {
-            x: -1_700,
-            y: 195,
-            z: -2_282,
-        },
-        velocity: Vector3 { x: 0, y: -5, z: 18 },
-    },
-    TitleEffectPose {
-        position: Vector3 {
-            x: -250,
-            y: -400,
-            z: -724,
-        },
-        velocity: Vector3 { x: 0, y: 0, z: 15 },
-    },
-];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     ObjectCapacityReached,
@@ -4560,7 +4495,6 @@ pub enum Error {
 pub struct Game {
     state: GameState,
     render_objects: Vec<RenderObject>,
-    title_flyby: Vec<ObjectId>,
     mission_entry_flyby: [Option<ObjectId>; MISSION_ENCOUNTER_ACTOR_COUNT],
     previous_mission_player_position: Option<Vector3>,
     mission_projectiles: Vec<ActiveMissionProjectile>,
@@ -4589,7 +4523,6 @@ impl Game {
         Self {
             state: GameState::default(),
             render_objects: Vec::new(),
-            title_flyby: Vec::with_capacity(TITLE_CRAFT_POSES.len() + TITLE_EFFECT_POSES.len()),
             mission_entry_flyby: [None; MISSION_ENCOUNTER_ACTOR_COUNT],
             previous_mission_player_position: None,
             mission_projectiles: Vec::with_capacity(MISSION_PROJECTILE_TRAJECTORY_COUNT),
@@ -4817,34 +4750,8 @@ impl Game {
     }
 
     fn update_mode(&mut self) -> Result<(), Error> {
-        if self.state.input.pressed.contains(Button::Start)
-            && matches!(self.state.mode, GameMode::Intro(_))
-        {
-            self.enter_mode(GameMode::Title);
-            return Ok(());
-        }
-
         match self.state.mode {
-            GameMode::Intro(IntroPhase::Boot) if self.state.mode_frame >= BOOT_INTRO_TICKS => {
-                self.enter_mode(GameMode::Intro(IntroPhase::ArgonautLogo));
-            }
-            GameMode::Intro(IntroPhase::ArgonautLogo)
-                if self.state.mode_frame >= ARGONAUT_LOGO_TICKS =>
-            {
-                self.enter_mode(GameMode::Intro(IntroPhase::NintendoLogo));
-            }
-            GameMode::Intro(IntroPhase::NintendoLogo)
-                if self.state.mode_frame >= NINTENDO_LOGO_TICKS =>
-            {
-                self.spawn_title_flyby()?;
-                self.enter_mode(GameMode::Intro(IntroPhase::Formation));
-            }
-            GameMode::Intro(IntroPhase::Formation)
-                if self.state.mode_frame >= FORMATION_INTRO_TICKS =>
-            {
-                self.remove_title_flyby();
-                self.enter_mode(GameMode::Title);
-            }
+            GameMode::Intro(_) => self.update_intro(),
             GameMode::Title if self.state.input.pressed.contains(Button::Start) => {
                 self.update_title();
             }
@@ -5016,9 +4923,58 @@ impl Game {
             GameMode::GameOver => self.update_game_over(),
             GameMode::Results => self.update_results(),
             GameMode::Ending => self.update_ending(),
-            GameMode::Intro(_) => {}
         }
         Ok(())
+    }
+
+    fn update_intro(&mut self) {
+        if let Some(remaining) = self.state.intro.title_menu_countdown {
+            if remaining <= 1 {
+                self.state.intro.title_menu_countdown = None;
+                self.enter_mode(GameMode::Title);
+                return;
+            }
+            self.state.intro.title_menu_countdown = Some(remaining - 1);
+        }
+
+        let mut next_tick = if self.state.intro.presentation_tick
+            >= INTRO_PRESENTATION_LAST_TICK
+        {
+            INTRO_LOOP_START_TICK
+        } else {
+            self.state.intro.presentation_tick + 1
+        };
+
+        if self.state.input.pressed.contains(Button::Start) {
+            match self.state.mode {
+                GameMode::Intro(IntroPhase::Boot | IntroPhase::ArgonautLogo) => {}
+                GameMode::Intro(IntroPhase::NintendoLogo) => {
+                    next_tick = next_tick.max(NINTENDO_SKIP_FADE_TICK);
+                }
+                GameMode::Intro(IntroPhase::Formation | IntroPhase::TitleReveal) => {
+                    next_tick = TITLE_SPLASH_START_TICK;
+                    self.state.intro.title_menu_countdown = Some(TITLE_MENU_COUNTDOWN_TICKS);
+                }
+                GameMode::Intro(IntroPhase::TitleSplash) => {
+                    self.state.intro.title_menu_countdown = Some(TITLE_MENU_COUNTDOWN_TICKS);
+                }
+                GameMode::Title
+                | GameMode::Records
+                | GameMode::Briefing
+                | GameMode::StrategicMap
+                | GameMode::PilotSelection
+                | GameMode::Mission
+                | GameMode::GameOver
+                | GameMode::Results
+                | GameMode::Ending => unreachable!("intro update requires intro mode"),
+            }
+        }
+
+        self.state.intro.presentation_tick = next_tick;
+        let next_phase = intro_phase_at_tick(next_tick);
+        if self.state.mode != GameMode::Intro(next_phase) {
+            self.enter_mode(GameMode::Intro(next_phase));
+        }
     }
 
     fn update_strategic_opening(&mut self) {
@@ -10943,53 +10899,6 @@ impl Game {
         self.state.mode_frame = 0;
     }
 
-    fn spawn_title_flyby(&mut self) -> Result<(), Error> {
-        for pose in TITLE_CRAFT_POSES {
-            let mut craft = Object::new(
-                ObjectKind::Scenery,
-                ShapeId::TITLE_CRAFT,
-                Behavior::TitleFlyby,
-            );
-            craft.base.position = pose.position;
-            craft.base.velocity = pose.velocity;
-            craft.base.pitch = super::object::Angle::from_units(pose.pitch);
-            craft.base.yaw = super::object::Angle::from_units(pose.yaw);
-            craft.base.roll = super::object::Angle::from_units(pose.roll);
-            craft.base.flags.casts_shadow = false;
-            let id = self
-                .state
-                .objects
-                .allocate(craft)
-                .ok_or(Error::ObjectCapacityReached)?;
-            self.title_flyby.push(id);
-        }
-        for pose in TITLE_EFFECT_POSES {
-            let mut effect = Object::new(
-                ObjectKind::Effect,
-                ShapeId::TITLE_FORMATION_EFFECT,
-                Behavior::TitleFlyby,
-            );
-            effect.base.position = pose.position;
-            effect.base.velocity = pose.velocity;
-            effect.base.flags.casts_shadow = false;
-            let id = self
-                .state
-                .objects
-                .allocate(effect)
-                .ok_or(Error::ObjectCapacityReached)?;
-            self.title_flyby.push(id);
-        }
-        self.state.camera.position.z = TITLE_CAMERA_START_Z;
-        Ok(())
-    }
-
-    fn remove_title_flyby(&mut self) {
-        let ids = std::mem::take(&mut self.title_flyby);
-        for id in ids {
-            self.state.objects.remove(id);
-        }
-    }
-
     fn resolve_mission_collisions(&mut self) {
         if self.state.mode != GameMode::Mission || self.state.mission.phase != MissionPhase::Active
         {
@@ -11130,19 +11039,6 @@ impl Game {
     }
 
     fn update_objects(&mut self) {
-        let formation_just_started =
-            matches!(self.state.mode, GameMode::Intro(IntroPhase::Formation))
-                && self.state.mode_frame == 0;
-        if matches!(self.state.mode, GameMode::Intro(IntroPhase::Formation))
-            && !formation_just_started
-        {
-            self.state.camera.position.z = self
-                .state
-                .camera
-                .position
-                .z
-                .wrapping_add(TITLE_CAMERA_VELOCITY_Z);
-        }
         let active = self.state.objects.active_ids().to_vec();
         let scoreless_pressure_encounter = matches!(
             self.state.mission.visit,
@@ -11187,9 +11083,6 @@ impl Game {
                     }
                     _ => {}
                 }
-            }
-            if formation_just_started && object.base.behavior == Behavior::TitleFlyby {
-                continue;
             }
             match object.extension.activity {
                 ObjectActivity::PlayerProjectile(projectile) => {
@@ -11240,7 +11133,6 @@ impl Game {
             let defeated_final_rival = self.final_rival == Some(id);
             let defeated_mirage_dragon = self.mirage_dragon == Some(id);
             self.state.objects.remove(id);
-            self.title_flyby.retain(|candidate| *candidate != id);
             self.fighter_intercept_actors.forget(id);
             self.pressure_fighter_actors.forget(id);
             if defeated_pigma {
@@ -13716,6 +13608,21 @@ mod tests {
         game.tick(0).unwrap();
     }
 
+    fn enter_title_menu(game: &mut Game) {
+        while !matches!(game.mode(), GameMode::Intro(IntroPhase::NintendoLogo)) {
+            game.tick(0).unwrap();
+        }
+        press(game, Button::Start);
+        while !matches!(game.mode(), GameMode::Intro(IntroPhase::Formation)) {
+            game.tick(0).unwrap();
+        }
+        game.tick(Button::Start as u16).unwrap();
+        while matches!(game.mode(), GameMode::Intro(_)) {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Title);
+    }
+
     fn acknowledge_strategic_opening(game: &mut Game) {
         for boundary in STRATEGIC_OPENING_BOUNDARIES {
             while game.state.strategic_map.opening.presentation_tick < boundary.prompt_tick {
@@ -14612,17 +14519,18 @@ mod tests {
     }
 
     #[test]
-    fn start_skips_intro_without_executing_machine_code() {
+    fn intro_skip_path_uses_retail_gates_without_executing_machine_code() {
         let mut game = Game::new();
         press(&mut game, Button::Start);
-        assert_eq!(game.mode(), GameMode::Title);
+        assert_eq!(game.mode(), GameMode::Intro(IntroPhase::Boot));
+        enter_title_menu(&mut game);
         assert!(game.state().objects.is_empty());
     }
 
     #[test]
     fn title_menu_matches_retail_main_difficulty_and_briefing_hierarchy() {
         let mut game = Game::new();
-        press(&mut game, Button::Start);
+        enter_title_menu(&mut game);
         assert_eq!(game.state().title.page, TitlePage::MainMenu);
         press(&mut game, Button::B);
         assert_eq!(game.mode(), GameMode::Title);
@@ -14810,7 +14718,7 @@ mod tests {
     #[test]
     fn retail_default_campaign_selects_two_pilots_and_launches_typed_players() {
         let mut game = Game::new();
-        press(&mut game, Button::Start);
+        enter_title_menu(&mut game);
         press(&mut game, Button::B);
         press(&mut game, Button::B);
         press(&mut game, Button::B);
@@ -21483,7 +21391,7 @@ mod tests {
         use super::super::state::AudioOutput;
 
         let mut game = Game::new();
-        press(&mut game, Button::Start);
+        enter_title_menu(&mut game);
         press(&mut game, Button::Up);
         assert_eq!(game.state().title.menu_item, TitleMenuItem::SoundMode);
         assert_eq!(game.state().mode_frame, 1);
@@ -21500,70 +21408,75 @@ mod tests {
     }
 
     #[test]
-    fn intro_flyby_is_a_typed_object_and_builds_a_native_render_item() {
+    fn unattended_intro_follows_the_certified_retail_attract_cycle() {
         let mut game = Game::new();
-        let ticks = BOOT_INTRO_TICKS + ARGONAUT_LOGO_TICKS + NINTENDO_LOGO_TICKS;
-        for _ in 0..ticks {
+
+        for _ in 0..ARGONAUT_LOGO_START_TICK {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Intro(IntroPhase::ArgonautLogo));
+        assert_eq!(
+            game.state().intro.presentation_tick,
+            ARGONAUT_LOGO_START_TICK
+        );
+
+        for _ in ARGONAUT_LOGO_START_TICK..NINTENDO_LOGO_START_TICK {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Intro(IntroPhase::NintendoLogo));
+
+        for _ in NINTENDO_LOGO_START_TICK..FORMATION_START_TICK {
             game.tick(0).unwrap();
         }
         assert_eq!(game.mode(), GameMode::Intro(IntroPhase::Formation));
-        let expected_scene_objects = TITLE_CRAFT_POSES.len() + TITLE_EFFECT_POSES.len();
-        assert_eq!(game.state().objects.len(), expected_scene_objects);
-        assert_eq!(game.render_objects().len(), expected_scene_objects);
+
+        for _ in FORMATION_START_TICK..TITLE_REVEAL_START_TICK {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Intro(IntroPhase::TitleReveal));
+
+        for _ in TITLE_REVEAL_START_TICK..TITLE_SPLASH_START_TICK {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Intro(IntroPhase::TitleSplash));
+
+        for _ in TITLE_SPLASH_START_TICK..INTRO_PRESENTATION_FRAME_COUNT {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::Intro(IntroPhase::Boot));
         assert_eq!(
-            game.render_objects()
-                .iter()
-                .filter(|object| object.shape == ShapeId::TITLE_CRAFT)
-                .count(),
-            TITLE_CRAFT_POSES.len()
+            game.state().intro.presentation_tick,
+            INTRO_LOOP_START_TICK
         );
-        assert!(game
-            .render_objects()
-            .iter()
-            .any(|object| object.shape == ShapeId::TITLE_FORMATION_EFFECT));
-        assert_eq!(game.camera().position.z, TITLE_CAMERA_START_Z);
+        assert!(game.state().objects.is_empty());
+        assert!(game.render_objects().is_empty());
     }
 
     #[test]
-    fn formation_motion_matches_the_retail_global_frame_checkpoint() {
-        const UPDATES_TO_CHECKPOINT: u32 = 45;
-        const EXPECTED_POSITIONS: [Vector3; 3] = [
-            Vector3 {
-                x: -392,
-                y: 16,
-                z: 128,
-            },
-            Vector3 {
-                x: 254,
-                y: -130,
-                z: -248,
-            },
-            Vector3 {
-                x: 58,
-                y: 116,
-                z: 536,
-            },
-        ];
-        const EXPECTED_CAMERA_DEPTH: i16 = 1_120;
-
+    fn formation_skip_reveals_the_title_before_opening_the_menu() {
         let mut game = Game::new();
-        let intro_ticks = BOOT_INTRO_TICKS + ARGONAUT_LOGO_TICKS + NINTENDO_LOGO_TICKS;
-        for _ in 0..intro_ticks + UPDATES_TO_CHECKPOINT {
+        while !matches!(game.mode(), GameMode::Intro(IntroPhase::Formation)) {
             game.tick(0).unwrap();
         }
 
-        let actual: Vec<_> = game
-            .state()
-            .objects
-            .active_objects()
-            .filter(|(_, object)| object.base.shape == ShapeId::TITLE_CRAFT)
-            .map(|(_, object)| object.base.position)
-            .collect();
+        game.tick(Button::Start as u16).unwrap();
+        assert_eq!(game.mode(), GameMode::Intro(IntroPhase::TitleSplash));
         assert_eq!(
-            actual,
-            EXPECTED_POSITIONS.into_iter().rev().collect::<Vec<_>>()
+            game.state().intro.presentation_tick,
+            TITLE_SPLASH_START_TICK
         );
-        assert_eq!(game.camera().position.z, EXPECTED_CAMERA_DEPTH);
+        assert_eq!(
+            game.state().intro.title_menu_countdown,
+            Some(TITLE_MENU_COUNTDOWN_TICKS)
+        );
+
+        for _ in 0..TITLE_MENU_COUNTDOWN_TICKS - 1 {
+            game.tick(0).unwrap();
+            assert_eq!(game.mode(), GameMode::Intro(IntroPhase::TitleSplash));
+        }
+        game.tick(0).unwrap();
+        assert_eq!(game.mode(), GameMode::Title);
+        assert_eq!(game.state().intro.title_menu_countdown, None);
     }
 
     #[test]
