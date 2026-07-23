@@ -42,10 +42,7 @@ const SF2_RESULTS_TITLE_FADE_NINE_RETAIL_FRAME: u16 = 124;
 const SF2_TITLE_CENTER_X: i32 = SF2_REFERENCE_WIDTH / 2;
 const SF2_TITLE_Y: i32 = 172;
 const SF2_SUBTITLE_Y: i32 = 154;
-const SF2_MENU_X: i32 = 104;
-const SF2_MENU_TOP_Y: i32 = 116;
 const SF2_MENU_LINE_HEIGHT: i32 = 16;
-const SF2_COPYRIGHT_Y: i32 = 18;
 const SF2_STAR_SIZE: i32 = 1;
 const SF2_MAX_SCORE: u32 = 99_999;
 const SF2_MISSION_SCORE_X: i32 = 62;
@@ -126,7 +123,6 @@ const SF2_MAP_DAMAGE_BACKGROUND_COLOR: [f32; 4] = [24.0 / 255.0, 24.0 / 255.0, 2
 const SF2_BLASTER_PALETTE_PHASE_TICKS: u32 = 2;
 const SF2_SELECTED_COLOR: [f32; 4] = [1.0, 0.38, 0.05, 1.0];
 const SF2_TEXT_COLOR: [f32; 4] = [0.82, 0.9, 1.0, 1.0];
-const SF2_TITLE_COLOR: [f32; 4] = [1.0, 0.73, 0.08, 1.0];
 const SF2_SPACE_COLOR: [f32; 4] = [0.0, 0.0, 0.06, 1.0];
 const SF2_NEBULA_COLOR: [f32; 4] = [0.0, 0.03, 0.28, 0.24];
 const SF2_PLANET_COLORS: [[f32; 4]; 5] = [
@@ -782,6 +778,12 @@ struct Sf2PilotSelectionRenderKey {
     frame_index: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Sf2TitleRenderKey {
+    track: crate::sf2_title::Track,
+    frame_index: usize,
+}
+
 fn sf2_game_over_brightness(
     choice: Sf2GameOverChoice,
     elapsed_retail_frames: u16,
@@ -860,6 +862,9 @@ pub struct Ui {
     sf2_titania_backdrop: TextureId,
     sf2_carrier_backdrop: TextureId,
     sf2_astropolis_void_backdrop: TextureId,
+    sf2_title_texture: TextureId,
+    sf2_title_presentation: crate::sf2_title::Presentation,
+    sf2_title_render_key: Option<Sf2TitleRenderKey>,
     sf2_pilot_selection_texture: TextureId,
     sf2_pilot_selection_presentation: crate::sf2_pilot_selection::Presentation,
     sf2_pilot_selection_render_key: Option<Sf2PilotSelectionRenderKey>,
@@ -972,6 +977,14 @@ impl Ui {
             &sf2_carrier_backdrop_rgba,
         );
         let sf2_astropolis_void_backdrop = gpu.create_texture_rgba(1, 1, &SF2_OPAQUE_BLACK_PIXEL);
+        let mut sf2_title_presentation = crate::sf2_title::Presentation::decode();
+        let sf2_title_initial_rgba =
+            sf2_title_presentation.frame_rgba(crate::sf2_title::Track::Mission, 0);
+        let sf2_title_texture = gpu.create_texture_rgba(
+            crate::sf2_title::WIDTH as u32,
+            crate::sf2_title::HEIGHT as u32,
+            &sf2_title_initial_rgba,
+        );
         let mut sf2_pilot_selection_presentation =
             crate::sf2_pilot_selection::Presentation::decode();
         let sf2_pilot_selection_initial_rgba = sf2_pilot_selection_presentation.frame_rgba(
@@ -1192,6 +1205,9 @@ impl Ui {
             sf2_titania_backdrop,
             sf2_carrier_backdrop,
             sf2_astropolis_void_backdrop,
+            sf2_title_texture,
+            sf2_title_presentation,
+            sf2_title_render_key: None,
             sf2_pilot_selection_texture,
             sf2_pilot_selection_presentation,
             sf2_pilot_selection_render_key: None,
@@ -1608,110 +1624,53 @@ impl Ui {
         );
     }
 
-    fn render_sf2_title(&self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
-        self.render_sf2_starfield(gpu);
-        self.text_centered(
-            gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_TITLE_Y,
-            "STAR FOX 2",
-            SF2_TITLE_COLOR[0],
-            SF2_TITLE_COLOR[1],
-            SF2_TITLE_COLOR[2],
-        );
-        match inputs.title_page {
-            Sf2TitlePage::MainMenu => {
-                let sound_label = match inputs.audio_output {
-                    Sf2AudioOutput::Stereo => "STEREO",
-                    Sf2AudioOutput::Mono => "MONO",
-                };
-                for (index, (item, label)) in [
-                    (Sf2TitleMenuItem::Mission, "MISSION"),
-                    (Sf2TitleMenuItem::Records, "RECORD"),
-                    (Sf2TitleMenuItem::SoundMode, sound_label),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    let color = if inputs.title_menu_item == item {
-                        SF2_SELECTED_COLOR
-                    } else {
-                        SF2_TEXT_COLOR
-                    };
-                    self.text_snes(
-                        gpu,
-                        font,
-                        SF2_MENU_X,
-                        SF2_MENU_TOP_Y - index as i32 * SF2_MENU_LINE_HEIGHT,
-                        label,
-                        color[0],
-                        color[1],
-                        color[2],
-                    );
-                }
-            }
-            Sf2TitlePage::Difficulty => {
-                for (index, (difficulty, label)) in [
-                    (Sf2Difficulty::Normal, "NORMAL"),
-                    (Sf2Difficulty::Hard, "HARD"),
-                    (Sf2Difficulty::Expert, "EXPERT"),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    let color = if inputs.difficulty == difficulty {
-                        SF2_SELECTED_COLOR
-                    } else {
-                        SF2_TEXT_COLOR
-                    };
-                    self.text_snes(
-                        gpu,
-                        font,
-                        SF2_MENU_X,
-                        SF2_MENU_TOP_Y - index as i32 * SF2_MENU_LINE_HEIGHT,
-                        label,
-                        color[0],
-                        color[1],
-                        color[2],
-                    );
-                }
-            }
+    fn render_sf2_title_track(
+        &mut self,
+        gpu: &mut Gpu,
+        track: crate::sf2_title::Track,
+        mode_frame: u32,
+    ) {
+        let frame_index = crate::sf2_title::frame_at_tick(track, mode_frame);
+        let key = Sf2TitleRenderKey { track, frame_index };
+        if self.sf2_title_render_key != Some(key) {
+            let rgba = self.sf2_title_presentation.frame_rgba(track, frame_index);
+            gpu.update_texture(self.sf2_title_texture, &rgba);
+            self.sf2_title_render_key = Some(key);
         }
-
-        self.text_centered(
+        self.textured_quad_source_frame(
             gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_COPYRIGHT_Y,
-            "1996 NINTENDO",
-            SF2_TITLE_COLOR[0],
-            SF2_TITLE_COLOR[1],
-            SF2_TITLE_COLOR[2],
+            self.sf2_title_texture,
+            0,
+            0,
+            SF2_REFERENCE_WIDTH,
+            SF2_REFERENCE_HEIGHT,
         );
     }
 
-    fn render_sf2_records(&self, gpu: &mut Gpu, font: &mut Font) {
-        self.render_sf2_starfield(gpu);
-        self.text_centered(
+    fn render_sf2_title(&mut self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        let track = match inputs.title_page {
+            Sf2TitlePage::MainMenu => match inputs.title_menu_item {
+                Sf2TitleMenuItem::Mission => crate::sf2_title::Track::Mission,
+                Sf2TitleMenuItem::Records => crate::sf2_title::Track::RecordsMenu,
+                Sf2TitleMenuItem::SoundMode => match inputs.audio_output {
+                    Sf2AudioOutput::Stereo => crate::sf2_title::Track::Stereo,
+                    Sf2AudioOutput::Mono => crate::sf2_title::Track::Mono,
+                },
+            },
+            Sf2TitlePage::Difficulty => match inputs.difficulty {
+                Sf2Difficulty::Normal => crate::sf2_title::Track::Normal,
+                Sf2Difficulty::Hard => crate::sf2_title::Track::Hard,
+                Sf2Difficulty::Expert => crate::sf2_title::Track::Expert,
+            },
+        };
+        self.render_sf2_title_track(gpu, track, inputs.mode_frame);
+    }
+
+    fn render_sf2_records(&mut self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        self.render_sf2_title_track(
             gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_TITLE_Y,
-            "RECORD",
-            SF2_TITLE_COLOR[0],
-            SF2_TITLE_COLOR[1],
-            SF2_TITLE_COLOR[2],
-        );
-        self.text_centered(
-            gpu,
-            font,
-            SF2_TITLE_CENTER_X,
-            SF2_MENU_TOP_Y,
-            "SCORE 00000",
-            SF2_TEXT_COLOR[0],
-            SF2_TEXT_COLOR[1],
-            SF2_TEXT_COLOR[2],
+            crate::sf2_title::Track::RecordsScreen,
+            inputs.mode_frame,
         );
     }
 
@@ -3112,8 +3071,8 @@ impl Ui {
 
     fn render_sf2(&mut self, gpu: &mut Gpu, font: &mut Font, inputs: &Sf2FrameInputs) {
         match inputs.mode {
-            Sf2Mode::Title => self.render_sf2_title(gpu, font, inputs),
-            Sf2Mode::Records => self.render_sf2_records(gpu, font),
+            Sf2Mode::Title => self.render_sf2_title(gpu, inputs),
+            Sf2Mode::Records => self.render_sf2_records(gpu, inputs),
             Sf2Mode::Briefing => self.render_sf2_briefing(gpu, font, inputs),
             Sf2Mode::StrategicMap => self.render_sf2_strategic_map(gpu, font, inputs),
             Sf2Mode::PilotSelection => self.render_sf2_pilot_selection(gpu, inputs),

@@ -10764,23 +10764,29 @@ impl Game {
 
         match self.state.title.page {
             TitlePage::MainMenu => {
+                let previous_item = self.state.title.menu_item;
                 if self.state.input.pressed.contains(Button::Up) {
                     self.state.title.menu_item = self.state.title.menu_item.previous();
                 }
                 if self.state.input.pressed.contains(Button::Down) {
                     self.state.title.menu_item = self.state.title.menu_item.next();
                 }
+                if self.state.title.menu_item != previous_item {
+                    self.state.mode_frame = 0;
+                }
                 if self.state.title.menu_item == TitleMenuItem::SoundMode
                     && (self.state.input.pressed.contains(Button::Left)
                         || self.state.input.pressed.contains(Button::Right))
                 {
                     self.state.title.audio_output = self.state.title.audio_output.toggled();
+                    self.state.mode_frame = 0;
                 }
                 if self.confirm_pressed() {
                     match self.state.title.menu_item {
                         TitleMenuItem::Mission => {
                             self.state.title.page = TitlePage::Difficulty;
                             self.state.campaign.difficulty = Difficulty::Normal;
+                            self.state.mode_frame = 0;
                         }
                         TitleMenuItem::Records => self.enter_mode(GameMode::Records),
                         TitleMenuItem::SoundMode => {}
@@ -10790,8 +10796,10 @@ impl Game {
             TitlePage::Difficulty => {
                 if self.cancel_pressed() {
                     self.state.title.page = TitlePage::MainMenu;
+                    self.state.mode_frame = 0;
                     return;
                 }
+                let previous_difficulty = self.state.campaign.difficulty;
                 if self.state.input.pressed.contains(Button::Up) {
                     self.state.campaign.difficulty = match self.state.campaign.difficulty {
                         Difficulty::Normal => Difficulty::Expert,
@@ -10805,6 +10813,9 @@ impl Game {
                         Difficulty::Hard => Difficulty::Expert,
                         Difficulty::Expert => Difficulty::Normal,
                     };
+                }
+                if self.state.campaign.difficulty != previous_difficulty {
+                    self.state.mode_frame = 0;
                 }
                 if self.confirm_pressed() {
                     self.enter_mode(GameMode::Briefing);
@@ -14497,11 +14508,13 @@ mod tests {
         press(&mut game, Button::B);
         assert_eq!(game.mode(), GameMode::Title);
         assert_eq!(game.state().title.page, TitlePage::Difficulty);
+        assert_eq!(game.state().mode_frame, 1);
         press(&mut game, Button::Down);
         assert_eq!(
             game.state().campaign.difficulty,
             super::super::state::Difficulty::Hard
         );
+        assert_eq!(game.state().mode_frame, 1);
         press(&mut game, Button::B);
         assert_eq!(game.mode(), GameMode::Briefing);
         press(&mut game, Button::B);
@@ -21290,8 +21303,10 @@ mod tests {
         press(&mut game, Button::Start);
         press(&mut game, Button::Up);
         assert_eq!(game.state().title.menu_item, TitleMenuItem::SoundMode);
+        assert_eq!(game.state().mode_frame, 1);
         press(&mut game, Button::Right);
         assert_eq!(game.state().title.audio_output, AudioOutput::Mono);
+        assert_eq!(game.state().mode_frame, 1);
         press(&mut game, Button::Down);
         press(&mut game, Button::Down);
         assert_eq!(game.state().title.menu_item, TitleMenuItem::Records);

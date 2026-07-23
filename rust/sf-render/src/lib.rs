@@ -59,6 +59,7 @@ mod sf2_strategic_map_post_leon;
 mod sf2_strategic_map_post_mirage;
 mod sf2_strategic_map_post_pigma;
 mod sf2_titania_backdrop;
+mod sf2_title;
 pub mod shapes_gl;
 pub mod sprites;
 pub mod text3d;

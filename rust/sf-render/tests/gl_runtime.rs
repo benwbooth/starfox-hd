@@ -43,6 +43,7 @@ static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 const SF2_TEST_MISSION_TIME_TENTHS: u16 = 11;
 const SF2_MAP_WIDTH: i32 = 256;
 const SF2_MAP_HEIGHT: i32 = 224;
+const SF2_TITLE_MISSION_FNV1A: u32 = 0xA8CAEC13;
 const SF2_PILOT_SELECTION_FOX_FNV1A: u32 = 0xC2AC3D23;
 const DITHER_TEST_WIDTH: u32 = 512;
 const DITHER_TEST_HEIGHT: u32 = 448;
@@ -116,6 +117,7 @@ fn gl_runtime_suite() {
 
     renderer.shutdown();
     check_sf1_ending_recap(&config);
+    check_sf2_title_exact(&config);
     check_sf2_pilot_selection_exact(&config);
     check_sf2_strategic_returns_exact(&config);
 }
@@ -139,6 +141,29 @@ fn check_sf2_pilot_selection_exact(config: &RendererConfig) {
     assert_eq!(
         hash, SF2_PILOT_SELECTION_FOX_FNV1A,
         "SF2 pilot-selection frame drifted from the retail capture"
+    );
+    renderer.shutdown();
+}
+
+fn check_sf2_title_exact(config: &RendererConfig) {
+    let mut renderer = match Renderer::new_headless(SF2_MAP_WIDTH, SF2_MAP_HEIGHT, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping exact SF2 title check: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    let inputs = sf2_inputs(Sf2Mode::Title);
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+    let pixels = renderer.read_pixels_rgb();
+    let hash = pixels.into_iter().fold(FNV_OFFSET_BASIS, |value, byte| {
+        (value ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
+    });
+    assert_eq!(
+        hash, SF2_TITLE_MISSION_FNV1A,
+        "SF2 title frame drifted from the retail capture"
     );
     renderer.shutdown();
 }
