@@ -627,6 +627,11 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
             game_over_transition_retail_frames: 0,
             results_phase: sf_render::renderer::Sf2ResultsPhase::Revealing,
             results_choice: sf_render::renderer::Sf2ResultsChoice::Retry,
+            results_presentation_retail_frames: if mode == Sf2Mode::Results {
+                652
+            } else {
+                0
+            },
             results_transition_retail_frames: 0,
             primary_shield: 0,
             wingmate_shield: 0,

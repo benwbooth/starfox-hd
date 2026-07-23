@@ -5788,10 +5788,32 @@ impl Game {
                 if presentation_frame >= results::CHOICE_UNLOCK_RETAIL_FRAMES
                     && self.confirm_pressed()
                 {
+                    self.state.results.choice_presentation_retail_frames = 0;
+                    self.state.results.phase = ResultsPhase::OpeningChoices {
+                        elapsed_retail_frames: 0,
+                    };
+                }
+            }
+            ResultsPhase::OpeningChoices {
+                elapsed_retail_frames,
+            } => {
+                let elapsed = elapsed_retail_frames
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                self.state.results.choice_presentation_retail_frames = elapsed;
+                if elapsed < results::CHOICE_OPENING_RETAIL_FRAMES {
+                    self.state.results.phase = ResultsPhase::OpeningChoices {
+                        elapsed_retail_frames: elapsed,
+                    };
+                } else {
                     self.state.results.phase = ResultsPhase::Choosing(ResultsChoice::Retry);
                 }
             }
             ResultsPhase::Choosing(mut choice) => {
+                self.state.results.choice_presentation_retail_frames = self
+                    .state
+                    .results
+                    .choice_presentation_retail_frames
+                    .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
                 if self.state.input.pressed.contains(Button::Up)
                     || self.state.input.pressed.contains(Button::Down)
                     || self.state.input.pressed.contains(Button::Left)
@@ -21032,15 +21054,40 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
         assert_eq!(
             game.state.results.phase,
+            ResultsPhase::OpeningChoices {
+                elapsed_retail_frames: 0,
+            }
+        );
+        assert_eq!(game.state.results.choice_presentation_retail_frames, 0);
+
+        game.tick(Button::Down as u16).unwrap();
+        assert_eq!(
+            game.state.results.phase,
+            ResultsPhase::OpeningChoices {
+                elapsed_retail_frames: 4,
+            }
+        );
+        game.tick(0).unwrap();
+        game.tick(Button::B as u16).unwrap();
+        assert_eq!(
+            game.state.results.phase,
+            ResultsPhase::OpeningChoices {
+                elapsed_retail_frames: 12,
+            }
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.results.phase,
             ResultsPhase::Choosing(ResultsChoice::Retry)
         );
+        assert_eq!(game.state.results.choice_presentation_retail_frames, 16);
 
-        game.tick(0).unwrap();
         game.tick(Button::Down as u16).unwrap();
         assert_eq!(
             game.state.results.phase,
             ResultsPhase::Choosing(ResultsChoice::Title)
         );
+        assert_eq!(game.state.results.choice_presentation_retail_frames, 20);
         game.tick(0).unwrap();
         game.tick(Button::B as u16).unwrap();
         assert_eq!(

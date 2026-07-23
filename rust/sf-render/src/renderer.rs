@@ -93,6 +93,7 @@ pub enum Sf2ResultsChoice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sf2ResultsPhase {
     Revealing,
+    OpeningChoices,
     Choosing,
     Leaving,
 }
@@ -237,6 +238,7 @@ pub struct Sf2FrameInputs {
     pub game_over_transition_retail_frames: u16,
     pub results_phase: Sf2ResultsPhase,
     pub results_choice: Sf2ResultsChoice,
+    pub results_presentation_retail_frames: u32,
     pub results_transition_retail_frames: u16,
     pub primary_shield: u8,
     pub wingmate_shield: u8,

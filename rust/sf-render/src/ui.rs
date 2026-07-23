@@ -26,15 +26,18 @@ const IDENTITY: [f32; 16] = [
 const SF2_REFERENCE_WIDTH: i32 = 256;
 const SF2_REFERENCE_HEIGHT: i32 = 224;
 const SF2_OPAQUE_BLACK_PIXEL: [u8; 4] = [0, 0, 0, u8::MAX];
-const SF2_GAME_OVER_FADE_THIRTEEN_RETAIL_FRAME: u16 = 148;
-const SF2_GAME_OVER_FADE_ELEVEN_RETAIL_FRAME: u16 = 152;
-const SF2_GAME_OVER_FADE_NINE_RETAIL_FRAME: u16 = 156;
-const SF2_GAME_OVER_FADE_FIVE_RETAIL_FRAME: u16 = 160;
-const SF2_GAME_OVER_FADE_THREE_RETAIL_FRAME: u16 = 164;
-const SF2_GAME_OVER_FADE_ONE_RETAIL_FRAME: u16 = 168;
-const SF2_GAME_OVER_FADE_BLACK_RETAIL_FRAME: u16 = 172;
-const SF2_RESULTS_DIM_RETAIL_FRAME: u16 = 124;
-const SF2_RESULTS_BLACK_RETAIL_FRAME: u16 = 128;
+const SF2_GAME_OVER_CONTINUE_END_RETAIL_FRAME: u16 = 172;
+const SF2_GAME_OVER_RESULTS_END_RETAIL_FRAME: u16 = 76;
+const SF2_FADE_THIRTEEN_FRAMES_BEFORE_END: u16 = 24;
+const SF2_FADE_ELEVEN_FRAMES_BEFORE_END: u16 = 20;
+const SF2_FADE_NINE_FRAMES_BEFORE_END: u16 = 16;
+const SF2_FADE_FIVE_FRAMES_BEFORE_END: u16 = 12;
+const SF2_FADE_THREE_FRAMES_BEFORE_END: u16 = 8;
+const SF2_FADE_ONE_FRAMES_BEFORE_END: u16 = 4;
+const SF2_RESULTS_EXIT_RETAIL_FRAMES: u16 = 128;
+const SF2_RESULTS_RETRY_FADE_THIRTEEN_RETAIL_FRAME: u16 = 120;
+const SF2_RESULTS_RETRY_FADE_SEVEN_RETAIL_FRAME: u16 = 124;
+const SF2_RESULTS_TITLE_FADE_NINE_RETAIL_FRAME: u16 = 124;
 const SF2_TITLE_CENTER_X: i32 = SF2_REFERENCE_WIDTH / 2;
 const SF2_TITLE_Y: i32 = 172;
 const SF2_SUBTITLE_Y: i32 = 154;
@@ -788,6 +791,76 @@ struct Sf2GameOverRenderKey {
     brightness: crate::sf2_game_over::Brightness,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Sf2ResultsRenderKey {
+    track: crate::sf2_results::Track,
+    frame_index: usize,
+    brightness: crate::sf2_game_over::Brightness,
+}
+
+fn sf2_game_over_brightness(
+    choice: Sf2GameOverChoice,
+    elapsed_retail_frames: u16,
+) -> crate::sf2_game_over::Brightness {
+    let end = match choice {
+        Sf2GameOverChoice::ContinueWithWingmate => SF2_GAME_OVER_CONTINUE_END_RETAIL_FRAME,
+        Sf2GameOverChoice::EndCampaign => SF2_GAME_OVER_RESULTS_END_RETAIL_FRAME,
+    };
+    match elapsed_retail_frames {
+        elapsed if elapsed >= end => crate::sf2_game_over::Brightness::Black,
+        elapsed if elapsed >= end.saturating_sub(SF2_FADE_ONE_FRAMES_BEFORE_END) => {
+            crate::sf2_game_over::Brightness::OneFifteenth
+        }
+        elapsed if elapsed >= end.saturating_sub(SF2_FADE_THREE_FRAMES_BEFORE_END) => {
+            crate::sf2_game_over::Brightness::ThreeFifteenths
+        }
+        elapsed if elapsed >= end.saturating_sub(SF2_FADE_FIVE_FRAMES_BEFORE_END) => {
+            crate::sf2_game_over::Brightness::FiveFifteenths
+        }
+        elapsed if elapsed >= end.saturating_sub(SF2_FADE_NINE_FRAMES_BEFORE_END) => {
+            crate::sf2_game_over::Brightness::NineFifteenths
+        }
+        elapsed if elapsed >= end.saturating_sub(SF2_FADE_ELEVEN_FRAMES_BEFORE_END) => {
+            crate::sf2_game_over::Brightness::ElevenFifteenths
+        }
+        elapsed if elapsed >= end.saturating_sub(SF2_FADE_THIRTEEN_FRAMES_BEFORE_END) => {
+            crate::sf2_game_over::Brightness::ThirteenFifteenths
+        }
+        _ => crate::sf2_game_over::Brightness::Full,
+    }
+}
+
+fn sf2_results_brightness(
+    phase: Sf2ResultsPhase,
+    choice: Sf2ResultsChoice,
+    elapsed_retail_frames: u16,
+) -> crate::sf2_game_over::Brightness {
+    if phase != Sf2ResultsPhase::Leaving {
+        return crate::sf2_game_over::Brightness::Full;
+    }
+    match (choice, elapsed_retail_frames) {
+        (_, elapsed) if elapsed >= SF2_RESULTS_EXIT_RETAIL_FRAMES => {
+            crate::sf2_game_over::Brightness::Black
+        }
+        (Sf2ResultsChoice::Retry, elapsed)
+            if elapsed >= SF2_RESULTS_RETRY_FADE_SEVEN_RETAIL_FRAME =>
+        {
+            crate::sf2_game_over::Brightness::SevenFifteenths
+        }
+        (Sf2ResultsChoice::Retry, elapsed)
+            if elapsed >= SF2_RESULTS_RETRY_FADE_THIRTEEN_RETAIL_FRAME =>
+        {
+            crate::sf2_game_over::Brightness::ThirteenFifteenths
+        }
+        (Sf2ResultsChoice::Title, elapsed)
+            if elapsed >= SF2_RESULTS_TITLE_FADE_NINE_RETAIL_FRAME =>
+        {
+            crate::sf2_game_over::Brightness::NineFifteenths
+        }
+        _ => crate::sf2_game_over::Brightness::Full,
+    }
+}
+
 pub struct Ui {
     base_dir: PathBuf,
     frame: u32, // render-frame counter for blink effects
@@ -806,11 +879,9 @@ pub struct Ui {
     sf2_game_over_texture: TextureId,
     sf2_game_over_presentation: crate::sf2_game_over::Presentation,
     sf2_game_over_render_key: Option<Sf2GameOverRenderKey>,
-    sf2_results_summary: TextureId,
-    sf2_results_retry: TextureId,
-    sf2_results_retry_dim: TextureId,
-    sf2_results_title: TextureId,
-    sf2_results_title_dim: TextureId,
+    sf2_results_texture: TextureId,
+    sf2_results_presentation: crate::sf2_results::Presentation,
+    sf2_results_render_key: Option<Sf2ResultsRenderKey>,
     sf2_aim_sight: TextureId,
     sf2_hud_glyphs: TextureId,
     sf2_map_glyphs: TextureId,
@@ -926,43 +997,16 @@ impl Ui {
             crate::sf2_game_over::HEIGHT as u32,
             &sf2_game_over_initial_rgba,
         );
-        let sf2_results_summary_rgba = crate::sf2_results_summary::decode_rgba();
-        let sf2_results_summary = gpu.create_texture_rgba(
-            crate::sf2_results_summary::WIDTH as u32,
-            crate::sf2_results_summary::HEIGHT as u32,
-            &sf2_results_summary_rgba,
+        let mut sf2_results_presentation = crate::sf2_results::Presentation::decode();
+        let sf2_results_initial_rgba = sf2_results_presentation.frame_rgba(
+            crate::sf2_results::Track::Reveal,
+            0,
+            crate::sf2_game_over::Brightness::Full,
         );
-        let sf2_results_retry_rgba = crate::sf2_results_retry::decode_rgba();
-        let sf2_results_retry = gpu.create_texture_rgba(
-            crate::sf2_results_retry::WIDTH as u32,
-            crate::sf2_results_retry::HEIGHT as u32,
-            &sf2_results_retry_rgba,
-        );
-        let mut sf2_results_retry_dim_rgba = sf2_results_retry_rgba.clone();
-        crate::sf2_game_over::apply_brightness(
-            &mut sf2_results_retry_dim_rgba,
-            crate::sf2_game_over::Brightness::NineFifteenths,
-        );
-        let sf2_results_retry_dim = gpu.create_texture_rgba(
-            crate::sf2_results_retry::WIDTH as u32,
-            crate::sf2_results_retry::HEIGHT as u32,
-            &sf2_results_retry_dim_rgba,
-        );
-        let sf2_results_title_rgba = crate::sf2_results_title::decode_rgba();
-        let sf2_results_title = gpu.create_texture_rgba(
-            crate::sf2_results_title::WIDTH as u32,
-            crate::sf2_results_title::HEIGHT as u32,
-            &sf2_results_title_rgba,
-        );
-        let mut sf2_results_title_dim_rgba = sf2_results_title_rgba.clone();
-        crate::sf2_game_over::apply_brightness(
-            &mut sf2_results_title_dim_rgba,
-            crate::sf2_game_over::Brightness::NineFifteenths,
-        );
-        let sf2_results_title_dim = gpu.create_texture_rgba(
-            crate::sf2_results_title::WIDTH as u32,
-            crate::sf2_results_title::HEIGHT as u32,
-            &sf2_results_title_dim_rgba,
+        let sf2_results_texture = gpu.create_texture_rgba(
+            crate::sf2_results::WIDTH as u32,
+            crate::sf2_results::HEIGHT as u32,
+            &sf2_results_initial_rgba,
         );
         let sf2_aim_sight_rgba = crate::sf2_aim_sight::decode_rgba();
         let sf2_aim_sight = gpu.create_texture_rgba(
@@ -1153,11 +1197,9 @@ impl Ui {
             sf2_game_over_texture,
             sf2_game_over_presentation,
             sf2_game_over_render_key: None,
-            sf2_results_summary,
-            sf2_results_retry,
-            sf2_results_retry_dim,
-            sf2_results_title,
-            sf2_results_title_dim,
+            sf2_results_texture,
+            sf2_results_presentation,
+            sf2_results_render_key: None,
             sf2_aim_sight,
             sf2_hud_glyphs,
             sf2_map_glyphs,
@@ -1709,30 +1751,10 @@ impl Ui {
         let brightness = if inputs.game_over_phase != Sf2GameOverPhase::Leaving {
             crate::sf2_game_over::Brightness::Full
         } else {
-            match inputs.game_over_transition_retail_frames {
-                elapsed if elapsed >= SF2_GAME_OVER_FADE_BLACK_RETAIL_FRAME => {
-                    crate::sf2_game_over::Brightness::Black
-                }
-                elapsed if elapsed >= SF2_GAME_OVER_FADE_ONE_RETAIL_FRAME => {
-                    crate::sf2_game_over::Brightness::OneFifteenth
-                }
-                elapsed if elapsed >= SF2_GAME_OVER_FADE_THREE_RETAIL_FRAME => {
-                    crate::sf2_game_over::Brightness::ThreeFifteenths
-                }
-                elapsed if elapsed >= SF2_GAME_OVER_FADE_FIVE_RETAIL_FRAME => {
-                    crate::sf2_game_over::Brightness::FiveFifteenths
-                }
-                elapsed if elapsed >= SF2_GAME_OVER_FADE_NINE_RETAIL_FRAME => {
-                    crate::sf2_game_over::Brightness::NineFifteenths
-                }
-                elapsed if elapsed >= SF2_GAME_OVER_FADE_ELEVEN_RETAIL_FRAME => {
-                    crate::sf2_game_over::Brightness::ElevenFifteenths
-                }
-                elapsed if elapsed >= SF2_GAME_OVER_FADE_THIRTEEN_RETAIL_FRAME => {
-                    crate::sf2_game_over::Brightness::ThirteenFifteenths
-                }
-                _ => crate::sf2_game_over::Brightness::Full,
-            }
+            sf2_game_over_brightness(
+                inputs.game_over_choice,
+                inputs.game_over_transition_retail_frames,
+            )
         };
         let key = Sf2GameOverRenderKey {
             track,
@@ -1760,32 +1782,67 @@ impl Ui {
         );
     }
 
-    fn render_sf2_results(&self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
-        let leaving = inputs.results_phase == Sf2ResultsPhase::Leaving;
-        if leaving && inputs.results_transition_retail_frames >= SF2_RESULTS_BLACK_RETAIL_FRAME {
-            self.quad_snes(
-                gpu,
-                [0.0, 0.0, 0.0, 1.0],
-                0,
-                0,
-                SF2_REFERENCE_WIDTH,
-                SF2_REFERENCE_HEIGHT,
-            );
-            return;
-        }
-
-        let dim =
-            leaving && inputs.results_transition_retail_frames >= SF2_RESULTS_DIM_RETAIL_FRAME;
-        let texture = match (inputs.results_phase, inputs.results_choice, dim) {
-            (Sf2ResultsPhase::Revealing, _, _) => self.sf2_results_summary,
-            (_, Sf2ResultsChoice::Retry, false) => self.sf2_results_retry,
-            (_, Sf2ResultsChoice::Retry, true) => self.sf2_results_retry_dim,
-            (_, Sf2ResultsChoice::Title, false) => self.sf2_results_title,
-            (_, Sf2ResultsChoice::Title, true) => self.sf2_results_title_dim,
+    fn render_sf2_results(&mut self, gpu: &mut Gpu, inputs: &Sf2FrameInputs) {
+        let (track, frame_index) = match (inputs.results_phase, inputs.results_choice) {
+            (Sf2ResultsPhase::Revealing, _) => (
+                crate::sf2_results::Track::Reveal,
+                crate::sf2_results::reveal_frame_at_retail_frame(
+                    inputs.results_presentation_retail_frames,
+                ),
+            ),
+            (Sf2ResultsPhase::OpeningChoices, _) => (
+                crate::sf2_results::Track::Opening,
+                crate::sf2_results::opening_frame_at_retail_frame(
+                    inputs.results_presentation_retail_frames,
+                ),
+            ),
+            (Sf2ResultsPhase::Choosing, Sf2ResultsChoice::Retry) => (
+                crate::sf2_results::Track::RetryChoice,
+                crate::sf2_results::choice_frame_at_retail_frame(
+                    inputs.results_presentation_retail_frames,
+                ),
+            ),
+            (Sf2ResultsPhase::Choosing, Sf2ResultsChoice::Title) => (
+                crate::sf2_results::Track::TitleChoice,
+                crate::sf2_results::choice_frame_at_retail_frame(
+                    inputs.results_presentation_retail_frames,
+                ),
+            ),
+            (Sf2ResultsPhase::Leaving, Sf2ResultsChoice::Retry) => (
+                crate::sf2_results::Track::RetryLeaving,
+                crate::sf2_results::leaving_frame_at_retail_frame(
+                    inputs.results_presentation_retail_frames,
+                ),
+            ),
+            (Sf2ResultsPhase::Leaving, Sf2ResultsChoice::Title) => (
+                crate::sf2_results::Track::TitleLeaving,
+                crate::sf2_results::leaving_frame_at_retail_frame(
+                    inputs.results_presentation_retail_frames,
+                ),
+            ),
         };
+        let brightness = sf2_results_brightness(
+            inputs.results_phase,
+            inputs.results_choice,
+            inputs.results_transition_retail_frames,
+        );
+        let key = Sf2ResultsRenderKey {
+            track,
+            frame_index,
+            brightness,
+        };
+        if self.sf2_results_render_key != Some(key) {
+            let rgba = self.sf2_results_presentation.frame_rgba(
+                track,
+                frame_index,
+                brightness,
+            );
+            gpu.update_texture(self.sf2_results_texture, &rgba);
+            self.sf2_results_render_key = Some(key);
+        }
         self.textured_quad_source_frame(
             gpu,
-            texture,
+            self.sf2_results_texture,
             0,
             0,
             SF2_REFERENCE_WIDTH,
@@ -3691,10 +3748,58 @@ impl Ui {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{compose_tally_portrait_atlas, score_line_digits};
+    use super::{
+        compose_tally_portrait_atlas, score_line_digits, sf2_game_over_brightness,
+        sf2_results_brightness,
+    };
+    use crate::renderer::{
+        Sf2GameOverChoice, Sf2ResultsChoice, Sf2ResultsPhase,
+    };
+    use crate::sf2_game_over::Brightness;
 
     const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
     const FNV_PRIME: u32 = 0x01000193;
+
+    #[test]
+    fn campaign_loss_game_over_uses_the_short_retail_fade() {
+        let choice = Sf2GameOverChoice::EndCampaign;
+        for (elapsed, expected) in [
+            (48, Brightness::Full),
+            (52, Brightness::ThirteenFifteenths),
+            (56, Brightness::ElevenFifteenths),
+            (60, Brightness::NineFifteenths),
+            (64, Brightness::FiveFifteenths),
+            (68, Brightness::ThreeFifteenths),
+            (72, Brightness::OneFifteenth),
+            (76, Brightness::Black),
+        ] {
+            assert_eq!(sf2_game_over_brightness(choice, elapsed), expected);
+        }
+        assert_eq!(
+            sf2_game_over_brightness(Sf2GameOverChoice::ContinueWithWingmate, 148),
+            Brightness::ThirteenFifteenths
+        );
+    }
+
+    #[test]
+    fn results_destinations_use_their_certified_final_fade_frames() {
+        assert_eq!(
+            sf2_results_brightness(Sf2ResultsPhase::Leaving, Sf2ResultsChoice::Retry, 120),
+            Brightness::ThirteenFifteenths
+        );
+        assert_eq!(
+            sf2_results_brightness(Sf2ResultsPhase::Leaving, Sf2ResultsChoice::Retry, 124),
+            Brightness::SevenFifteenths
+        );
+        assert_eq!(
+            sf2_results_brightness(Sf2ResultsPhase::Leaving, Sf2ResultsChoice::Title, 124),
+            Brightness::NineFifteenths
+        );
+        assert_eq!(
+            sf2_results_brightness(Sf2ResultsPhase::Choosing, Sf2ResultsChoice::Title, 124),
+            Brightness::Full
+        );
+    }
 
     #[test]
     fn score_line_zero_is_all_zeros() {

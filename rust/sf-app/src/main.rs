@@ -50,6 +50,7 @@ const STAR_FOX_2_TITLE_OFFSET: usize = 32_704;
 const STAR_FOX_2_TITLE: &[u8] = b"STARFOX2";
 const WORLD_TO_RENDER_FRACTIONAL_BITS: u32 = 16;
 const STAR_FOX_2_TICKS_PER_SECOND: f64 = 15.0;
+const SF2_RETAIL_PRESENTATION_FRAMES_PER_TICK: u32 = 4;
 
 /// Stable diagnostic codes for native SF2 state dumps. These describe port
 /// modes, not source-machine execution state.
@@ -435,11 +436,14 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
         },
         results_phase: match state.results.phase {
             ResultsPhase::Revealing => Sf2ResultsPhase::Revealing,
+            ResultsPhase::OpeningChoices { .. } => Sf2ResultsPhase::OpeningChoices,
             ResultsPhase::Choosing(_) => Sf2ResultsPhase::Choosing,
             ResultsPhase::Leaving { .. } => Sf2ResultsPhase::Leaving,
         },
         results_choice: match state.results.phase {
-            ResultsPhase::Revealing | ResultsPhase::Choosing(ResultsChoice::Retry) => {
+            ResultsPhase::Revealing
+            | ResultsPhase::OpeningChoices { .. }
+            | ResultsPhase::Choosing(ResultsChoice::Retry) => {
                 Sf2ResultsChoice::Retry
             }
             ResultsPhase::Choosing(ResultsChoice::Title) => Sf2ResultsChoice::Title,
@@ -448,12 +452,26 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
                 ResultsChoice::Title => Sf2ResultsChoice::Title,
             },
         },
+        results_presentation_retail_frames: match state.results.phase {
+            ResultsPhase::Revealing => state
+                .mode_frame
+                .saturating_mul(SF2_RETAIL_PRESENTATION_FRAMES_PER_TICK),
+            ResultsPhase::OpeningChoices { .. } | ResultsPhase::Choosing(_) => {
+                u32::from(state.results.choice_presentation_retail_frames)
+            }
+            ResultsPhase::Leaving {
+                elapsed_retail_frames,
+                ..
+            } => u32::from(elapsed_retail_frames),
+        },
         results_transition_retail_frames: match state.results.phase {
             ResultsPhase::Leaving {
                 elapsed_retail_frames,
                 ..
             } => elapsed_retail_frames,
-            ResultsPhase::Revealing | ResultsPhase::Choosing(_) => 0,
+            ResultsPhase::Revealing
+            | ResultsPhase::OpeningChoices { .. }
+            | ResultsPhase::Choosing(_) => 0,
         },
         primary_shield: state
             .mission

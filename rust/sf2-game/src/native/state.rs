@@ -826,6 +826,9 @@ pub enum ResultsChoice {
 pub enum ResultsPhase {
     #[default]
     Revealing,
+    OpeningChoices {
+        elapsed_retail_frames: u16,
+    },
     Choosing(ResultsChoice),
     Leaving {
         choice: ResultsChoice,
@@ -836,6 +839,7 @@ pub enum ResultsPhase {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ResultsState {
     pub phase: ResultsPhase,
+    pub choice_presentation_retail_frames: u16,
 }
 
 /// Direction of an in-progress Arwing/Walker transformation.
