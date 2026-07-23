@@ -31,12 +31,12 @@ EXPECTED_MOVE_EVENTS = EXPECTED_LOGIC_OBJECTS * EXPECTED_MOVE_EVENTS_PER_OBJECT
 class Evidence:
     sortie_sha256: str
     actor_logic_sha256: str
-    completion_sha256: str
+    forced_return_sha256: str
     objectives_before: int
     objectives_after: int
     defeat_retail_frame: int
     explosion_retail_frame: int
-    return_delay_retail_frames: int
+    forced_return_delay_retail_frames: int
     move_events: int
 
 
@@ -71,10 +71,10 @@ def objective_count(values: dict[str, str]) -> int:
     return mirrors[0]
 
 
-def extract_completion(completion_trace: Path) -> int:
+def extract_forced_return(forced_return_trace: Path) -> int:
     records = [
         fields(line)
-        for line in completion_trace.read_text(encoding="utf-8").splitlines()
+        for line in forced_return_trace.read_text(encoding="utf-8").splitlines()
     ]
     completed_index, completed = next(
         (
@@ -86,7 +86,7 @@ def extract_completion(completion_trace: Path) -> int:
         (None, None),
     )
     if completed_index is None or completed is None:
-        raise SystemExit("completion trace never clears both Meteor objectives")
+        raise SystemExit("forced-return trace lacks its objective-count injection")
     completed_elapsed = int(completed["elapsed"])
     prior_objectives = next(
         (
@@ -97,7 +97,9 @@ def extract_completion(completion_trace: Path) -> int:
         None,
     )
     if prior_objectives != "2,2":
-        raise SystemExit("completion trace does not begin with two Meteor objectives")
+        raise SystemExit(
+            "forced-return trace does not begin with two Meteor objectives"
+        )
     returned = next(
         (
             record
@@ -109,27 +111,25 @@ def extract_completion(completion_trace: Path) -> int:
         None,
     )
     if returned is None:
-        raise SystemExit("completion trace never returns to the strategic map")
+        raise SystemExit("forced-return trace never reaches the strategic map")
     if returned.get("map") != ACTIVE_MAP:
-        raise SystemExit("Meteor unexpectedly changes active maps before campaign return")
+        raise SystemExit(
+            "Meteor unexpectedly changes active maps before campaign return"
+        )
     route_records = [
         record
         for record in records[completed_index + 1 :]
         if int(record.get("elapsed", "0")) <= int(returned["elapsed"])
     ]
-    if any(
-        record.get("map", ACTIVE_MAP) != ACTIVE_MAP for record in route_records
-    ):
+    if any(record.get("map", ACTIVE_MAP) != ACTIVE_MAP for record in route_records):
         raise SystemExit("Meteor changes active maps during its return flight")
-    if any(
-        record.get("input") not in {None, "script-up"} for record in route_records
-    ):
-        raise SystemExit("Meteor completion route uses unexpected oracle input")
+    if any(record.get("input") not in {None, "script-up"} for record in route_records):
+        raise SystemExit("Meteor forced-return route uses unexpected oracle input")
     return int(returned["elapsed"]) - completed_elapsed
 
 
 def extract(
-    sortie_trace: Path, actor_logic_trace: Path, completion_trace: Path
+    sortie_trace: Path, actor_logic_trace: Path, forced_return_trace: Path
 ) -> Evidence:
     samples = []
     for line in sortie_trace.read_text(encoding="utf-8").splitlines():
@@ -170,7 +170,9 @@ def extract(
             sample
             for sample in samples
             if sample[0] >= entry_elapsed
-            and any(record[1] == BODY_SHAPE and int(record[15]) == 0 for record in sample[2])
+            and any(
+                record[1] == BODY_SHAPE and int(record[15]) == 0 for record in sample[2]
+            )
         ),
         None,
     )
@@ -210,12 +212,12 @@ def extract(
     return Evidence(
         sortie_sha256=digest(sortie_trace),
         actor_logic_sha256=digest(actor_logic_trace),
-        completion_sha256=digest(completion_trace),
+        forced_return_sha256=digest(forced_return_trace),
         objectives_before=objective_count(entry_values),
         objectives_after=objective_count(explosion[1]),
         defeat_retail_frame=defeat[0] - entry_elapsed,
         explosion_retail_frame=explosion[0] - entry_elapsed,
-        return_delay_retail_frames=extract_completion(completion_trace),
+        forced_return_delay_retail_frames=extract_forced_return(forced_return_trace),
         move_events=len(move_records),
     )
 
@@ -226,7 +228,12 @@ def render(evidence: Evidence) -> str:
             "# Compact Mesen oracle evidence for Meteor's Queen Dragoon encounter.",
             f"# Raw sortie SHA-256: {evidence.sortie_sha256}",
             f"# Raw actor-logic SHA-256: {evidence.actor_logic_sha256}",
-            f"# Raw completion SHA-256: {evidence.completion_sha256}",
+            (f"# Raw forced-objective return SHA-256: {evidence.forced_return_sha256}"),
+            (
+                "# This trace deliberately injects zero remaining objectives; "
+                "it proves only the resulting return presentation, not natural "
+                "Meteor completion."
+            ),
             (
                 f"mission name={MISSION_NAME} mission_selection={MISSION_SELECTION} "
                 f"active_map={ACTIVE_MAP.split(':')[1]} "
@@ -255,9 +262,10 @@ def render(evidence: Evidence) -> str:
                 f"move_events={evidence.move_events}"
             ),
             (
-                "completion remaining_objectives=0 "
+                "forced_return injected_remaining_objectives=0 "
                 "return_input=forward "
-                f"observed_return_retail_frames={evidence.return_delay_retail_frames} "
+                "natural_completion_proven=false "
+                f"observed_return_retail_frames={evidence.forced_return_delay_retail_frames} "
                 "active_map_unchanged=true"
             ),
             "",
@@ -270,7 +278,7 @@ def validate_compact(path: Path) -> None:
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
     if len(lines) != 10:
         raise SystemExit("Queen Dragoon fixture has an unexpected record count")
-    mission, boss, *components, logic, completion = [fields(line) for line in lines]
+    mission, boss, *components, logic, forced_return = [fields(line) for line in lines]
     if mission != {
         "name": MISSION_NAME,
         "mission_selection": str(MISSION_SELECTION),
@@ -305,14 +313,21 @@ def validate_compact(path: Path) -> None:
         "move_events": str(EXPECTED_MOVE_EVENTS),
     }:
         raise SystemExit("Queen Dragoon actor-logic fixture is inconsistent")
-    if completion != {
-        "remaining_objectives": "0",
+    if forced_return != {
+        "injected_remaining_objectives": "0",
         "return_input": "forward",
+        "natural_completion_proven": "false",
         "observed_return_retail_frames": "833",
         "active_map_unchanged": "true",
     }:
-        raise SystemExit("Queen Dragoon completion fixture is inconsistent")
-    hashes = [line.rsplit(" ", 1)[-1] for line in content.splitlines()[1:4]]
+        raise SystemExit("Queen Dragoon forced-return fixture is inconsistent")
+    hashes = [
+        line.rsplit(" ", 1)[-1]
+        for line in content.splitlines()
+        if line.startswith("# Raw ")
+    ]
+    if len(hashes) != 3:
+        raise SystemExit("Queen Dragoon fixture must bind exactly three raw traces")
     if any(
         len(value) != 64
         or any(character not in "0123456789abcdef" for character in value)
@@ -325,7 +340,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--actor-source", type=Path)
-    parser.add_argument("--completion-source", type=Path)
+    parser.add_argument(
+        "--forced-return-source",
+        "--completion-source",
+        dest="forced_return_source",
+        type=Path,
+        help=(
+            "oracle trace with an explicit objective-count injection; "
+            "--completion-source remains as a compatibility alias"
+        ),
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
@@ -333,13 +357,16 @@ def main() -> None:
     if args.source:
         if not args.actor_source:
             raise SystemExit("--actor-source is required with --source")
-        if not args.completion_source:
-            raise SystemExit("--completion-source is required with --source")
+        if not args.forced_return_source:
+            raise SystemExit("--forced-return-source is required with --source")
         generated = render(
-            extract(args.source, args.actor_source, args.completion_source)
+            extract(args.source, args.actor_source, args.forced_return_source)
         )
         if args.check:
-            if not args.output.is_file() or args.output.read_text(encoding="utf-8") != generated:
+            if (
+                not args.output.is_file()
+                or args.output.read_text(encoding="utf-8") != generated
+            ):
                 raise SystemExit(f"compact fixture is out of date: {args.output}")
             action = "verified"
         else:
@@ -349,7 +376,9 @@ def main() -> None:
     else:
         validate_compact(args.output)
         action = "verified"
-    print(f"{action} {args.output}: retail Queen Dragoon body plus four linked components")
+    print(
+        f"{action} {args.output}: retail Queen Dragoon body plus four linked components"
+    )
 
 
 if __name__ == "__main__":
