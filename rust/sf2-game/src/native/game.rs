@@ -1,8 +1,8 @@
 use super::astropolis_assault;
 use super::campaign_major_objectives::{
-    EXPERT_BATTLE_CARRIER_REQUIRED_VISITS, TITANIA_BASE_ENTRY_RETAIL_FRAME,
-    TITANIA_INTERIOR_RETAIL_FRAME, TITANIA_MAP_READY_RETAIL_FRAME, TITANIA_REACTOR_COUNT,
-    TITANIA_REACTOR_RETAIL_FRAME, TITANIA_RETURN_RETAIL_FRAME, TITANIA_SURFACE_SWITCH_COUNT,
+    EXPERT_BATTLE_CARRIER_REQUIRED_VISITS, TITANIA_BASE_OPENING_RETAIL_FRAMES,
+    TITANIA_FINAL_SWITCH_COUNT, TITANIA_FINAL_SWITCH_TO_RETURN_RETAIL_FRAMES,
+    TITANIA_RETURN_TO_MAP_RETAIL_FRAMES, TITANIA_SURFACE_SWITCH_COUNT,
 };
 use super::campaign_world_assignments::CampaignWorld;
 use super::input::{Button, Buttons};
@@ -34,8 +34,8 @@ use super::state::{
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
     StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
-    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaMissionState,
-    TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
+    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus,
+    TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
     WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
@@ -625,6 +625,55 @@ const ELADARD_SURFACE_BARRIER_SCENE: [(Vector3, Angle); ELADARD_SURFACE_BARRIER_
         Angle::from_units(192),
     ),
 ];
+const TITANIA_FIRST_SWITCH_INDEX: usize = 0;
+const TITANIA_SECOND_SWITCH_INDEX: usize = 1;
+const TITANIA_SWITCH_ANIMATION_FRAME_COUNT: u16 = 8;
+const TITANIA_ROUTE_LIFT_ANIMATION_FRAME_COUNT: u16 = 5;
+const TITANIA_SURFACE_TRANSIT_MINIMUM_X: i16 = 1_200;
+const TITANIA_SURFACE_TRANSIT_MINIMUM_Z: i16 = 500;
+const TITANIA_BASE_ENTRANCE_CENTER_X: i16 = 256;
+const TITANIA_BASE_ENTRANCE_HALF_WIDTH: i16 = 256;
+const TITANIA_BASE_ENTRANCE_HALF_DEPTH: i16 = 512;
+const TITANIA_INTERIOR_FINAL_ROOM_Z: i16 = 9_000;
+const TITANIA_SURFACE_START_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -29,
+    z: -3_157,
+};
+const TITANIA_SURFACE_SWITCH_SCENE: [Vector3; TITANIA_SURFACE_SWITCH_COUNT] = [
+    Vector3 {
+        x: -1_700,
+        y: 0,
+        z: -1_000,
+    },
+    Vector3 {
+        x: 1_700,
+        y: -56,
+        z: 1_000,
+    },
+];
+const TITANIA_ROUTE_LIFT_POSITION: Vector3 = Vector3 {
+    x: -1_700,
+    y: 0,
+    z: 1_000,
+};
+const TITANIA_BASE_POSITION: Vector3 = Vector3 { x: 0, y: 0, z: 0 };
+const TITANIA_BASE_YAW: Angle = Angle::from_units(192);
+const TITANIA_INTERIOR_START_POSITION: Vector3 = Vector3 {
+    x: 256,
+    y: -120,
+    z: 43,
+};
+const TITANIA_FINAL_ROOM_START_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -96,
+    z: 0,
+};
+const TITANIA_FINAL_SWITCH_POSITION: Vector3 = Vector3 {
+    x: 1_700,
+    y: -56,
+    z: 1_000,
+};
 const SECOND_SORTIE_DEFEATED_TARGET_RETAIL_FRAME: u16 = 6_104;
 const FIRST_RETURN_PRIMARY_SHIELD: u8 = 32;
 const FIRST_RETURN_WINGMATE_SHIELD: u8 = 16;
@@ -4574,6 +4623,10 @@ pub struct Game {
     eladard_surface_barriers: [Option<ObjectId>; ELADARD_SURFACE_BARRIER_COUNT],
     eladard_generator_frame: Option<ObjectId>,
     eladard_generator_core: Option<ObjectId>,
+    titania_surface_switches: [Option<ObjectId>; TITANIA_SURFACE_SWITCH_COUNT],
+    titania_route_lift: Option<ObjectId>,
+    titania_base: Option<ObjectId>,
+    titania_final_switch: Option<ObjectId>,
     carrier_scenery: Vec<ObjectId>,
     carrier_panels: [Option<ObjectId>; 2],
 }
@@ -4616,6 +4669,10 @@ impl Game {
             eladard_surface_barriers: [None; ELADARD_SURFACE_BARRIER_COUNT],
             eladard_generator_frame: None,
             eladard_generator_core: None,
+            titania_surface_switches: [None; TITANIA_SURFACE_SWITCH_COUNT],
+            titania_route_lift: None,
+            titania_base: None,
+            titania_final_switch: None,
             carrier_scenery: Vec::with_capacity(16),
             carrier_panels: [None; 2],
         }
@@ -5782,9 +5839,11 @@ impl Game {
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
         let wingmate_id = self.state.mission.wingmate;
+        let flight_shape = self.primary_flight_craft_shape();
         for craft in [Some(primary_id), wingmate_id].into_iter().flatten() {
             if let Some(object) = self.state.objects.get_mut(craft) {
-                object.base.position = Vector3::default();
+                object.base.shape = flight_shape;
+                object.base.position = TITANIA_SURFACE_START_POSITION;
                 object.base.velocity = Vector3::default();
                 object.base.pitch = Angle::ZERO;
                 object.base.yaw = Angle::ZERO;
@@ -5793,14 +5852,15 @@ impl Game {
                 object.base.flags.collision_disabled = true;
             }
         }
-        debug_assert_eq!(TITANIA_REACTOR_COUNT, 1);
+        debug_assert_eq!(TITANIA_FINAL_SWITCH_COUNT, 1);
         self.state.mission.titania = TitaniaMissionState {
             phase: TitaniaPhase::SurfaceApproach,
             phase_started_retail_frame: 0,
             surface_switches: [TitaniaSurfaceSwitchStatus::Active; TITANIA_SURFACE_SWITCH_COUNT],
-            reactor: TitaniaReactorStatus::Shielded,
+            final_switch: TitaniaFinalSwitchStatus::Unreached,
         };
         self.state.mission.objects_destroyed = 0;
+        self.spawn_titania_surface_scene()?;
         self.start_sortie(MissionVisit::TitaniaBase, primary_id, wingmate_id);
         Ok(())
     }
@@ -7259,65 +7319,380 @@ impl Game {
             MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
                 self.state.mission.phase = MissionPhase::Active;
             }
-            MissionPhase::Active if retail_frame >= TITANIA_RETURN_RETAIL_FRAME => {
-                self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
-            }
             MissionPhase::ReturningToStrategicMap
-                if retail_frame >= TITANIA_MAP_READY_RETAIL_FRAME =>
+                if retail_frame
+                    >= self
+                        .state
+                        .mission
+                        .titania
+                        .phase_started_retail_frame
+                        .saturating_add(TITANIA_RETURN_TO_MAP_RETAIL_FRAMES) =>
             {
                 self.finish_sortie();
                 return Ok(());
             }
-            MissionPhase::Loading
-            | MissionPhase::EntryCinematic
-            | MissionPhase::Active
-            | MissionPhase::ReturningToStrategicMap => {}
+            _ => {}
         }
 
-        let next_phase = if retail_frame >= TITANIA_RETURN_RETAIL_FRAME {
-            TitaniaPhase::ReturnFlight
-        } else if retail_frame >= TITANIA_REACTOR_RETAIL_FRAME {
-            TitaniaPhase::Reactor
-        } else if retail_frame >= TITANIA_INTERIOR_RETAIL_FRAME {
-            TitaniaPhase::Interior
-        } else if retail_frame >= TITANIA_BASE_ENTRY_RETAIL_FRAME {
-            TitaniaPhase::BaseEntry
-        } else if retail_frame >= MISSION_ACTIVE_RETAIL_FRAMES as u16 {
-            TitaniaPhase::SurfaceSwitches
-        } else {
-            TitaniaPhase::SurfaceApproach
-        };
-        {
-            let titania = &mut self.state.mission.titania;
-            if titania.phase != next_phase {
-                titania.phase = next_phase;
-                titania.phase_started_retail_frame = retail_frame;
+        self.update_titania_scene_animation(retail_frame);
+        if self.state.mission.phase == MissionPhase::Active {
+            match self.state.mission.titania.phase {
+                TitaniaPhase::SurfaceApproach => {
+                    self.enter_titania_phase(TitaniaPhase::FirstSwitch, retail_frame);
+                }
+                TitaniaPhase::FirstSwitch => {
+                    if self.activate_titania_surface_switch(TITANIA_FIRST_SWITCH_INDEX) {
+                        self.enter_titania_phase(TitaniaPhase::SurfaceTransit, retail_frame);
+                    }
+                }
+                TitaniaPhase::SurfaceTransit => {
+                    if self.titania_surface_transit_complete() {
+                        self.begin_player_transformation(
+                            PlayerCraftTransformationDirection::ToWalker,
+                        );
+                        self.enter_titania_phase(TitaniaPhase::SecondSwitch, retail_frame);
+                    }
+                }
+                TitaniaPhase::SecondSwitch => {
+                    if self.activate_titania_surface_switch(TITANIA_SECOND_SWITCH_INDEX) {
+                        self.enter_titania_phase(TitaniaPhase::BaseOpening, retail_frame);
+                    }
+                }
+                TitaniaPhase::BaseOpening => {
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .titania
+                            .phase_started_retail_frame
+                            .saturating_add(TITANIA_BASE_OPENING_RETAIL_FRAMES)
+                    {
+                        self.open_titania_base();
+                        self.enter_titania_phase(TitaniaPhase::BaseEntry, retail_frame);
+                    }
+                }
+                TitaniaPhase::BaseEntry => {
+                    if self.titania_player_can_enter_base() {
+                        self.enter_titania_interior();
+                        self.enter_titania_phase(TitaniaPhase::Interior, retail_frame);
+                    }
+                }
+                TitaniaPhase::Interior => {
+                    if self.titania_player_reached_final_room() {
+                        self.enter_titania_final_room()?;
+                        self.enter_titania_phase(TitaniaPhase::FinalSwitch, retail_frame);
+                    }
+                }
+                TitaniaPhase::FinalSwitch => {
+                    if self.activate_titania_final_switch() {
+                        self.enter_titania_phase(TitaniaPhase::BaseEscape, retail_frame);
+                    }
+                }
+                TitaniaPhase::BaseEscape => {
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .titania
+                            .phase_started_retail_frame
+                            .saturating_add(TITANIA_FINAL_SWITCH_TO_RETURN_RETAIL_FRAMES)
+                    {
+                        self.enter_titania_phase(TitaniaPhase::ReturnFlight, retail_frame);
+                        self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
+                    }
+                }
+                TitaniaPhase::ReturnFlight => {}
             }
-            if retail_frame >= TITANIA_BASE_ENTRY_RETAIL_FRAME {
-                titania.surface_switches =
-                    [TitaniaSurfaceSwitchStatus::Disabled; TITANIA_SURFACE_SWITCH_COUNT];
-            }
-            titania.reactor = if retail_frame >= TITANIA_RETURN_RETAIL_FRAME {
-                TitaniaReactorStatus::Destroyed
-            } else if retail_frame >= TITANIA_REACTOR_RETAIL_FRAME {
-                TitaniaReactorStatus::Exposed
-            } else {
-                TitaniaReactorStatus::Shielded
-            };
         }
+
+        self.update_titania_player_presentation(retail_frame);
+        if self.state.mission.phase == MissionPhase::Active
+            && !matches!(
+                self.state.mission.titania.phase,
+                TitaniaPhase::BaseEscape | TitaniaPhase::ReturnFlight
+            )
+        {
+            self.update_active_flight(retail_frame, true)?;
+        }
+        Ok(())
+    }
+
+    fn enter_titania_phase(&mut self, phase: TitaniaPhase, retail_frame: u16) {
+        self.state.mission.titania.phase = phase;
+        self.state.mission.titania.phase_started_retail_frame = retail_frame;
+    }
+
+    fn update_titania_player_presentation(&mut self, retail_frame: u16) {
+        let visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
+        let collision_disabled = self.state.mission.phase != MissionPhase::Active
+            || matches!(
+                self.state.mission.titania.phase,
+                TitaniaPhase::BaseEscape | TitaniaPhase::ReturnFlight
+            );
         if let Some(primary) = self
             .state
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get_mut(id))
         {
-            primary.base.flags.visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
-            primary.base.flags.collision_disabled = true;
+            primary.base.flags.visible = visible;
+            primary.base.flags.collision_disabled = collision_disabled;
         }
-        if self.state.mission.phase == MissionPhase::Active {
-            self.update_active_flight(retail_frame, true)?;
+    }
+
+    fn update_titania_scene_animation(&mut self, retail_frame: u16) {
+        let switch_frame = ((retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+            % TITANIA_SWITCH_ANIMATION_FRAME_COUNT) as u8;
+        for switch in self.titania_surface_switches.into_iter().flatten() {
+            if let Some(object) = self.state.objects.get_mut(switch) {
+                object.extension.animation_frame = switch_frame;
+            }
         }
+        if let Some(final_switch) = self.titania_final_switch {
+            if let Some(object) = self.state.objects.get_mut(final_switch) {
+                object.extension.animation_frame = switch_frame;
+            }
+        }
+
+        let lift_frame = match self.state.mission.titania.phase {
+            TitaniaPhase::SurfaceApproach | TitaniaPhase::FirstSwitch => 0,
+            TitaniaPhase::SurfaceTransit => (retail_frame
+                .saturating_sub(self.state.mission.titania.phase_started_retail_frame)
+                / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                .min(TITANIA_ROUTE_LIFT_ANIMATION_FRAME_COUNT - 1) as u8,
+            TitaniaPhase::SecondSwitch
+            | TitaniaPhase::BaseOpening
+            | TitaniaPhase::BaseEntry
+            | TitaniaPhase::Interior
+            | TitaniaPhase::FinalSwitch
+            | TitaniaPhase::BaseEscape
+            | TitaniaPhase::ReturnFlight => (TITANIA_ROUTE_LIFT_ANIMATION_FRAME_COUNT - 1) as u8,
+        };
+        if let Some(lift) = self.titania_route_lift {
+            if let Some(object) = self.state.objects.get_mut(lift) {
+                object.extension.animation_frame = lift_frame;
+            }
+        }
+    }
+
+    fn titania_player_touches(&self, target: ObjectId) -> bool {
+        if self.state.mission.player_craft_form != PlayerCraftForm::Walker {
+            return false;
+        }
+        let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+        else {
+            return false;
+        };
+        let Some(target) = self.state.objects.get(target) else {
+            return false;
+        };
+        !player.base.flags.collision_disabled
+            && !target.base.flags.collision_disabled
+            && objects_overlap(player, target)
+    }
+
+    fn activate_titania_surface_switch(&mut self, index: usize) -> bool {
+        if self.state.mission.titania.surface_switches[index]
+            != TitaniaSurfaceSwitchStatus::Active
+        {
+            return false;
+        }
+        let Some(switch) = self.titania_surface_switches[index] else {
+            return false;
+        };
+        if !self.titania_player_touches(switch) {
+            return false;
+        }
+        self.state.mission.titania.surface_switches[index] =
+            TitaniaSurfaceSwitchStatus::Pressed;
+        if let Some(object) = self.state.objects.get_mut(switch) {
+            object.base.shape = ShapeId::TITANIA_SWITCH_PRESSED;
+            object.base.flags.collision_disabled = true;
+        }
+        true
+    }
+
+    fn titania_surface_transit_complete(&self) -> bool {
+        self.state.mission.player_craft_form == PlayerCraftForm::Flight
+            && self.titania_player_position().is_some_and(|position| {
+                position.x >= TITANIA_SURFACE_TRANSIT_MINIMUM_X
+                    && position.z >= TITANIA_SURFACE_TRANSIT_MINIMUM_Z
+            })
+    }
+
+    fn titania_player_position(&self) -> Option<Vector3> {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position)
+    }
+
+    fn open_titania_base(&mut self) {
+        if let Some(base) = self.titania_base {
+            if let Some(object) = self.state.objects.get_mut(base) {
+                object.base.shape = ShapeId::TITANIA_BASE_OPEN;
+            }
+        }
+    }
+
+    fn titania_player_can_enter_base(&self) -> bool {
+        let Some(position) = self.titania_player_position() else {
+            return false;
+        };
+        self.state.mission.player_craft_form == PlayerCraftForm::Walker
+            && position.x.abs_diff(TITANIA_BASE_ENTRANCE_CENTER_X)
+                <= TITANIA_BASE_ENTRANCE_HALF_WIDTH as u16
+            && position.z.unsigned_abs() <= TITANIA_BASE_ENTRANCE_HALF_DEPTH as u16
+    }
+
+    fn titania_player_reached_final_room(&self) -> bool {
+        self.titania_player_position()
+            .is_some_and(|position| position.z >= TITANIA_INTERIOR_FINAL_ROOM_Z)
+    }
+
+    fn clear_titania_scene(&mut self) {
+        for switch in &mut self.titania_surface_switches {
+            if let Some(id) = switch.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        if let Some(id) = self.titania_route_lift.take() {
+            self.state.objects.remove(id);
+        }
+        if let Some(id) = self.titania_base.take() {
+            self.state.objects.remove(id);
+        }
+        if let Some(id) = self.titania_final_switch.take() {
+            self.state.objects.remove(id);
+        }
+    }
+
+    fn spawn_titania_surface_scene(&mut self) -> Result<(), Error> {
+        self.clear_titania_scene();
+        for (index, position) in TITANIA_SURFACE_SWITCH_SCENE.into_iter().enumerate() {
+            let mut switch = Object::new(
+                ObjectKind::Scenery,
+                ShapeId::TITANIA_SWITCH_ACTIVE,
+                Behavior::Effect,
+            );
+            switch.base.position = position;
+            switch.base.collision_class = CollisionClass::Scenery;
+            let id = self
+                .state
+                .objects
+                .allocate(switch)
+                .ok_or(Error::ObjectCapacityReached)?;
+            self.titania_surface_switches[index] = Some(id);
+        }
+
+        let mut lift = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::TITANIA_ROUTE_LIFT,
+            Behavior::Effect,
+        );
+        lift.base.position = TITANIA_ROUTE_LIFT_POSITION;
+        lift.base.flags.collision_disabled = true;
+        self.titania_route_lift = Some(
+            self.state
+                .objects
+                .allocate(lift)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut base = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::TITANIA_BASE_CLOSED,
+            Behavior::Effect,
+        );
+        base.base.position = TITANIA_BASE_POSITION;
+        base.base.yaw = TITANIA_BASE_YAW;
+        base.base.flags.collision_disabled = true;
+        self.titania_base = Some(
+            self.state
+                .objects
+                .allocate(base)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
         Ok(())
+    }
+
+    fn enter_titania_interior(&mut self) {
+        self.clear_titania_scene();
+        self.state.mission.player_walker = Default::default();
+        for craft in [
+            self.state.mission.primary_player,
+            self.state.mission.wingmate,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(object) = self.state.objects.get_mut(craft) {
+                object.base.position = TITANIA_INTERIOR_START_POSITION;
+                object.base.velocity = Vector3::default();
+                object.base.pitch = Angle::ZERO;
+                object.base.yaw = Angle::ZERO;
+                object.base.roll = Angle::ZERO;
+            }
+        }
+    }
+
+    fn enter_titania_final_room(&mut self) -> Result<(), Error> {
+        self.clear_titania_scene();
+        self.state.mission.player_walker = Default::default();
+        for craft in [
+            self.state.mission.primary_player,
+            self.state.mission.wingmate,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(object) = self.state.objects.get_mut(craft) {
+                object.base.position = TITANIA_FINAL_ROOM_START_POSITION;
+                object.base.velocity = Vector3::default();
+                object.base.pitch = Angle::ZERO;
+                object.base.yaw = Angle::ZERO;
+                object.base.roll = Angle::ZERO;
+            }
+        }
+
+        let mut final_switch = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::TITANIA_SWITCH_ACTIVE,
+            Behavior::Effect,
+        );
+        final_switch.base.position = TITANIA_FINAL_SWITCH_POSITION;
+        final_switch.base.collision_class = CollisionClass::Scenery;
+        self.titania_final_switch = Some(
+            self.state
+                .objects
+                .allocate(final_switch)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.titania.final_switch = TitaniaFinalSwitchStatus::Active;
+        Ok(())
+    }
+
+    fn activate_titania_final_switch(&mut self) -> bool {
+        if self.state.mission.titania.final_switch != TitaniaFinalSwitchStatus::Active {
+            return false;
+        }
+        let Some(final_switch) = self.titania_final_switch else {
+            return false;
+        };
+        if !self.titania_player_touches(final_switch) {
+            return false;
+        }
+        self.state.mission.titania.final_switch = TitaniaFinalSwitchStatus::Pressed;
+        if let Some(object) = self.state.objects.get_mut(final_switch) {
+            object.base.shape = ShapeId::TITANIA_SWITCH_PRESSED;
+            object.base.flags.collision_disabled = true;
+        }
+        true
     }
 
     fn update_carrier_assault(&mut self) -> Result<(), Error> {
@@ -7769,6 +8144,7 @@ impl Game {
 
     fn clear_sortie_runtime(&mut self) {
         self.clear_eladard_scene();
+        self.clear_titania_scene();
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
         for projectile in self.mission_projectiles.drain(..) {
@@ -10935,7 +11311,7 @@ impl Game {
             MissionVisit::FinalPursuer => final_pursuer::RETURN_RETAIL_FRAME,
             MissionVisit::WolfBlockade => wolf_blockade::RETURN_RETAIL_FRAME,
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
-            MissionVisit::TitaniaBase => TITANIA_MAP_READY_RETAIL_FRAME,
+            MissionVisit::TitaniaBase => u16::MAX,
             MissionVisit::EladardBase => u16::MAX,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => u16::MAX,
         };
@@ -14268,6 +14644,69 @@ mod tests {
     fn press(game: &mut Game, button: Button) {
         game.tick(button as u16).unwrap();
         game.tick(0).unwrap();
+    }
+
+    fn set_titania_player_form(game: &mut Game, form: PlayerCraftForm) {
+        let player = game
+            .state
+            .mission
+            .primary_player
+            .expect("Titania keeps the primary craft allocated");
+        game.state.mission.player_craft_form = form;
+        let presentation = match form {
+            PlayerCraftForm::Flight => PlayerCraftPresentation::Flight,
+            PlayerCraftForm::Walker => PlayerCraftPresentation::Walker,
+            PlayerCraftForm::Transforming(_) => return,
+        };
+        game.apply_player_craft_presentation(player, presentation);
+    }
+
+    fn drive_titania_objectives(game: &mut Game) -> u16 {
+        let player = game
+            .state
+            .mission
+            .primary_player
+            .expect("Titania keeps the primary craft allocated");
+        match game.state.mission.titania.phase {
+            TitaniaPhase::SurfaceApproach => {}
+            TitaniaPhase::FirstSwitch => {
+                set_titania_player_form(game, PlayerCraftForm::Walker);
+                game.state.objects.get_mut(player).unwrap().base.position =
+                    TITANIA_SURFACE_SWITCH_SCENE[TITANIA_FIRST_SWITCH_INDEX];
+            }
+            TitaniaPhase::SurfaceTransit => {
+                set_titania_player_form(game, PlayerCraftForm::Flight);
+                game.state.objects.get_mut(player).unwrap().base.position = Vector3 {
+                    x: TITANIA_SURFACE_TRANSIT_MINIMUM_X,
+                    y: TITANIA_SURFACE_SWITCH_SCENE[TITANIA_SECOND_SWITCH_INDEX].y,
+                    z: TITANIA_SURFACE_TRANSIT_MINIMUM_Z,
+                };
+            }
+            TitaniaPhase::SecondSwitch => {
+                if game.state.mission.player_craft_form == PlayerCraftForm::Walker {
+                    game.state.objects.get_mut(player).unwrap().base.position =
+                        TITANIA_SURFACE_SWITCH_SCENE[TITANIA_SECOND_SWITCH_INDEX];
+                }
+            }
+            TitaniaPhase::BaseOpening => {}
+            TitaniaPhase::BaseEntry => {
+                game.state.objects.get_mut(player).unwrap().base.position = Vector3 {
+                    x: TITANIA_BASE_ENTRANCE_CENTER_X,
+                    y: TITANIA_INTERIOR_START_POSITION.y,
+                    z: 0,
+                };
+            }
+            TitaniaPhase::Interior => {
+                game.state.objects.get_mut(player).unwrap().base.position.z =
+                    TITANIA_INTERIOR_FINAL_ROOM_Z;
+            }
+            TitaniaPhase::FinalSwitch => {
+                game.state.objects.get_mut(player).unwrap().base.position =
+                    TITANIA_FINAL_SWITCH_POSITION;
+            }
+            TitaniaPhase::BaseEscape | TitaniaPhase::ReturnFlight => {}
+        }
+        0
     }
 
     fn enter_title_menu(game: &mut Game) {
@@ -21750,6 +22189,8 @@ mod tests {
                     leon_pursuit_input(game, mission_tick, charge_ticks)
                 } else if game.state().mission.visit == MissionVisit::EladardBase {
                     eladard_campaign_input(game)
+                } else if game.state().mission.visit == MissionVisit::TitaniaBase {
+                    drive_titania_objectives(game)
                 } else if matches!(
                     game.state().mission.visit,
                     MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier
@@ -21903,6 +22344,8 @@ mod tests {
     #[test]
     fn late_major_objectives_are_distinct_and_unlock_the_final_route() {
         const TITANIA_ELADARD_AND_METEOR_ASSIGNMENT_TIMING: u64 = 13;
+        const TITANIA_STATIONARY_REGRESSION_TICKS: usize = 1_500;
+        const TITANIA_COMPLETION_BUDGET_TICKS: usize = 1_000;
 
         assert_eq!(EXPERT_BATTLE_CARRIER_REQUIRED_VISITS, 2);
 
@@ -21951,31 +22394,100 @@ mod tests {
                 phase_started_retail_frame: 0,
                 surface_switches: [TitaniaSurfaceSwitchStatus::Active;
                     TITANIA_SURFACE_SWITCH_COUNT],
-                reactor: TitaniaReactorStatus::Shielded,
+                final_switch: TitaniaFinalSwitchStatus::Unreached,
             }
+        );
+        assert_eq!(
+            game.titania_surface_switches
+                .map(|id| game.state.objects.get(id.unwrap()).unwrap().base.shape),
+            [ShapeId::TITANIA_SWITCH_ACTIVE; TITANIA_SURFACE_SWITCH_COUNT]
+        );
+        assert_eq!(
+            game.state
+                .objects
+                .get(game.titania_base.unwrap())
+                .unwrap()
+                .base
+                .shape,
+            ShapeId::TITANIA_BASE_CLOSED
         );
 
-        let advance_to = |game: &mut Game, retail_frame: u16| {
-            let target_tick = u32::from(retail_frame).div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK);
-            while game.state().mode_frame < target_tick {
-                game.tick(0).unwrap();
-            }
-        };
-        advance_to(&mut game, TITANIA_BASE_ENTRY_RETAIL_FRAME);
-        assert_eq!(game.state().mission.titania.phase, TitaniaPhase::BaseEntry);
-        assert_eq!(
-            game.state().mission.titania.surface_switches,
-            [TitaniaSurfaceSwitchStatus::Disabled; TITANIA_SURFACE_SWITCH_COUNT]
-        );
-        advance_to(&mut game, TITANIA_REACTOR_RETAIL_FRAME);
-        assert_eq!(game.state().mission.titania.phase, TitaniaPhase::Reactor);
-        assert_eq!(
-            game.state().mission.titania.reactor,
-            TitaniaReactorStatus::Exposed
-        );
-        while game.mode() == GameMode::Mission {
+        while game.state().mission.phase != MissionPhase::Active {
             game.tick(0).unwrap();
         }
+        for _ in 0..TITANIA_STATIONARY_REGRESSION_TICKS {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mission(), Some(MissionVisit::TitaniaBase));
+        assert_eq!(game.state().mission.titania.phase, TitaniaPhase::FirstSwitch);
+        assert_eq!(
+            game.state().mission.titania.surface_switches,
+            [TitaniaSurfaceSwitchStatus::Active; TITANIA_SURFACE_SWITCH_COUNT]
+        );
+        assert_eq!(
+            game.state().mission.titania.final_switch,
+            TitaniaFinalSwitchStatus::Unreached
+        );
+
+        let first_switch = game.titania_surface_switches[TITANIA_FIRST_SWITCH_INDEX].unwrap();
+        let player = game.state.mission.primary_player.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position =
+            TITANIA_SURFACE_SWITCH_SCENE[TITANIA_FIRST_SWITCH_INDEX];
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.titania.surface_switches[TITANIA_FIRST_SWITCH_INDEX],
+            TitaniaSurfaceSwitchStatus::Active,
+            "the flight craft cannot press a Walker floor switch"
+        );
+
+        let mut laser = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+            Behavior::Projectile,
+        );
+        laser.base.position = TITANIA_SURFACE_SWITCH_SCENE[TITANIA_FIRST_SWITCH_INDEX];
+        laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+        laser.base.attack_power = PLAYER_CHARGED_LASER_ATTACK_POWER;
+        laser.base.weapon = WeaponKind::ChargedLaser;
+        laser.base.collision_class = CollisionClass::PlayerWeapon;
+        let laser = game.state.objects.allocate(laser).unwrap();
+        game.tick(0).unwrap();
+        game.state.objects.remove(laser);
+        assert_eq!(
+            game.state().mission.titania.surface_switches[TITANIA_FIRST_SWITCH_INDEX],
+            TitaniaSurfaceSwitchStatus::Active,
+            "projectiles do not substitute for retail Walker contact"
+        );
+
+        game.tick(Button::Select as u16).unwrap();
+        while matches!(
+            game.state().mission.player_craft_form,
+            PlayerCraftForm::Transforming(_)
+        ) {
+            game.tick(0).unwrap();
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.titania.surface_switches[TITANIA_FIRST_SWITCH_INDEX],
+            TitaniaSurfaceSwitchStatus::Pressed
+        );
+        assert_eq!(
+            game.state.objects.get(first_switch).unwrap().base.shape,
+            ShapeId::TITANIA_SWITCH_PRESSED
+        );
+        assert_eq!(
+            game.state().mission.titania.phase,
+            TitaniaPhase::SurfaceTransit
+        );
+
+        for _ in 0..TITANIA_COMPLETION_BUDGET_TICKS {
+            if game.mode() != GameMode::Mission {
+                break;
+            }
+            let input = drive_titania_objectives(&mut game);
+            game.tick(input).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::StrategicMap);
 
         assert_eq!(
             game.state().campaign.objectives.planets.titania,

@@ -1415,10 +1415,14 @@ mod tests {
         mission.visit = MissionVisit::TitaniaBase;
         for phase in [
             TitaniaPhase::SurfaceApproach,
-            TitaniaPhase::SurfaceSwitches,
+            TitaniaPhase::FirstSwitch,
+            TitaniaPhase::SurfaceTransit,
+            TitaniaPhase::SecondSwitch,
+            TitaniaPhase::BaseOpening,
             TitaniaPhase::BaseEntry,
             TitaniaPhase::Interior,
-            TitaniaPhase::Reactor,
+            TitaniaPhase::FinalSwitch,
+            TitaniaPhase::BaseEscape,
             TitaniaPhase::ReturnFlight,
         ] {
             mission.titania.phase = phase;

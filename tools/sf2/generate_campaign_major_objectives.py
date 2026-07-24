@@ -35,7 +35,7 @@ def load(
 ) -> tuple[dict[str, Target], dict[tuple[str, str], int], dict[tuple[str, str], int]]:
     targets: dict[str, Target] = {}
     objectives: dict[tuple[str, str], int] = {}
-    samples: dict[tuple[str, str], int] = {}
+    transitions: dict[tuple[str, str], int] = {}
     for line in trace.read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
             continue
@@ -49,8 +49,10 @@ def load(
             )
         elif kind == "objective":
             objectives[(values["target"], values["name"])] = int(values["count"])
-        elif kind == "sample":
-            samples[(values["target"], values["name"])] = int(values["elapsed"])
+        elif kind == "transition":
+            transitions[(values["target"], values["name"])] = int(
+                values["retail_frames"]
+            )
         else:
             raise SystemExit(f"unknown fixture record: {line}")
 
@@ -58,49 +60,42 @@ def load(
         raise SystemExit("campaign target fixture is incomplete")
     if objectives != {
         ("titania", "surface_switch"): 2,
-        ("titania", "reactor"): 1,
+        ("titania", "final_switch"): 1,
     }:
         raise SystemExit("Titania objective fixture is incomplete")
-    required_samples = {
-        ("titania", "mission_start"),
-        ("titania", "base_entry"),
-        ("titania", "interior"),
-        ("titania", "reactor"),
-        ("titania", "return_flight"),
-        ("titania", "map_ready"),
-        ("battle_carrier", "mission_start"),
-        ("battle_carrier", "map_ready"),
+    required_transitions = {
+        ("titania", "second_switch_to_base_open"),
+        ("titania", "final_switch_to_return"),
+        ("titania", "return_to_map"),
     }
-    if samples.keys() != required_samples:
-        raise SystemExit("campaign objective timing fixture is incomplete")
+    if transitions.keys() != required_transitions:
+        raise SystemExit("campaign objective transition fixture is incomplete")
     if targets["battle_carrier"].required_visits != 2:
         raise SystemExit("the Expert campaign requires two distinct carrier visits")
     if targets["battle_carrier"].difficulty != "expert":
         raise SystemExit("the paired carrier evidence must be scoped to Expert")
-    return targets, objectives, samples
+    return targets, objectives, transitions
 
 
 def rust_source(
     trace: Path,
     targets: dict[str, Target],
     objectives: dict[tuple[str, str], int],
-    samples: dict[tuple[str, str], int],
+    transitions: dict[tuple[str, str], int],
 ) -> str:
-    titania_start = samples[("titania", "mission_start")]
     values = {
         "EXPERT_BATTLE_CARRIER_REQUIRED_VISITS": targets["battle_carrier"].required_visits,
         "TITANIA_SURFACE_SWITCH_COUNT": objectives[("titania", "surface_switch")],
-        "TITANIA_REACTOR_COUNT": objectives[("titania", "reactor")],
-        "TITANIA_BASE_ENTRY_RETAIL_FRAME": samples[("titania", "base_entry")]
-        - titania_start,
-        "TITANIA_INTERIOR_RETAIL_FRAME": samples[("titania", "interior")]
-        - titania_start,
-        "TITANIA_REACTOR_RETAIL_FRAME": samples[("titania", "reactor")]
-        - titania_start,
-        "TITANIA_RETURN_RETAIL_FRAME": samples[("titania", "return_flight")]
-        - titania_start,
-        "TITANIA_MAP_READY_RETAIL_FRAME": samples[("titania", "map_ready")]
-        - titania_start,
+        "TITANIA_FINAL_SWITCH_COUNT": objectives[("titania", "final_switch")],
+        "TITANIA_BASE_OPENING_RETAIL_FRAMES": transitions[
+            ("titania", "second_switch_to_base_open")
+        ],
+        "TITANIA_FINAL_SWITCH_TO_RETURN_RETAIL_FRAMES": transitions[
+            ("titania", "final_switch_to_return")
+        ],
+        "TITANIA_RETURN_TO_MAP_RETAIL_FRAMES": transitions[
+            ("titania", "return_to_map")
+        ],
     }
     lines = [
         "//! Generated typed constants for the retail campaign's major objectives.",
@@ -129,8 +124,8 @@ def main() -> None:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    targets, objectives, samples = load(args.trace)
-    generated = rust_source(args.trace, targets, objectives, samples)
+    targets, objectives, transitions = load(args.trace)
+    generated = rust_source(args.trace, targets, objectives, transitions)
     if args.check:
         if not args.output.is_file() or args.output.read_text(encoding="utf-8") != generated:
             raise SystemExit(f"generated source is out of date: {args.output}")

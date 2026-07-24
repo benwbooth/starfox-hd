@@ -6,7 +6,7 @@
 # c04ce38d91570389f06acb9bb1b2e2cdab690fe452fba82454a36b5a9bec1c4b
 # Titania interior trace SHA-256:
 # b54e4374ff02d71e0ebc67ab1274c605cccd2a1f5e48becee802d117e43c4379
-# Titania reactor/return trace SHA-256:
+# Titania final-switch/return trace SHA-256:
 # f5825d512632f63adcad56d1c11e0b72321e3b962d8ecb3dd31e47f878737f94
 # Eladard route trace SHA-256:
 # dae037a9105689d8eabd4d50f13c2c28962a49a1d7644ddcf3f65c644c612be5
@@ -24,12 +24,9 @@ target name=titania mission_selection=1 required_visits=1
 target name=eladard mission_selection=3 required_visits=1
 target name=battle_carrier difficulty=expert mission_selection=8 required_visits=2
 objective target=titania name=surface_switch count=2
-objective target=titania name=reactor count=1
-sample target=titania name=mission_start elapsed=95571
-sample target=titania name=base_entry elapsed=96510
-sample target=titania name=interior elapsed=98200
-sample target=titania name=reactor elapsed=100500
-sample target=titania name=return_flight elapsed=101000
-sample target=titania name=map_ready elapsed=101038
-sample target=battle_carrier name=mission_start elapsed=111695
-sample target=battle_carrier name=map_ready elapsed=116501
+objective target=titania name=final_switch count=1
+# Objective progression is player/contact driven. Only presentation transitions
+# retain oracle-derived relative timing; there are no absolute mission timers.
+transition target=titania name=second_switch_to_base_open retail_frames=56
+transition target=titania name=final_switch_to_return retail_frames=926
+transition target=titania name=return_to_map retail_frames=38

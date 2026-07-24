@@ -40,7 +40,7 @@ pub use state::{
     ResultsState, Roster, SoundEvent,
     StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
     StrategicMapState, StrategicMapTutorialPage, StrategicOpeningPage, StrategicOpeningState,
-    TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus,
+    TitaniaFinalSwitchStatus, TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus,
     TitleMenuItem, TitlePage, TitleState, WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile,
     SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
 };

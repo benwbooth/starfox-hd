@@ -199,6 +199,20 @@ impl ShapeId {
     pub const ELADARD_GENERATOR_FRAME: Self = Self(427);
     pub const ELADARD_GENERATOR_CORE: Self = Self(428);
 
+    /// Titania's exterior and final interior pressure switches. These names
+    /// keep the shipping runtime semantic while the values select decoded
+    /// catalog entries at the data boundary.
+    pub const TITANIA_SWITCH_ACTIVE: Self = Self(464);
+    pub const TITANIA_SWITCH_PRESSED: Self = Self(465);
+
+    /// Raised transit structure between Titania's two exterior switch areas.
+    pub const TITANIA_ROUTE_LIFT: Self = Self(450);
+
+    /// Central Titania installation before and after both exterior switches
+    /// have opened its east-side entrance.
+    pub const TITANIA_BASE_CLOSED: Self = Self(238);
+    pub const TITANIA_BASE_OPEN: Self = Self(239);
+
     pub const fn from_catalog_index(index: u16) -> Self {
         Self(index)
     }

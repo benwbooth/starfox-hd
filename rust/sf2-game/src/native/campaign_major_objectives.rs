@@ -6,9 +6,7 @@
 
 pub(super) const EXPERT_BATTLE_CARRIER_REQUIRED_VISITS: u8 = 2;
 pub(super) const TITANIA_SURFACE_SWITCH_COUNT: usize = 2;
-pub(super) const TITANIA_REACTOR_COUNT: usize = 1;
-pub(super) const TITANIA_BASE_ENTRY_RETAIL_FRAME: u16 = 939;
-pub(super) const TITANIA_INTERIOR_RETAIL_FRAME: u16 = 2_629;
-pub(super) const TITANIA_REACTOR_RETAIL_FRAME: u16 = 4_929;
-pub(super) const TITANIA_RETURN_RETAIL_FRAME: u16 = 5_429;
-pub(super) const TITANIA_MAP_READY_RETAIL_FRAME: u16 = 5_467;
+pub(super) const TITANIA_FINAL_SWITCH_COUNT: usize = 1;
+pub(super) const TITANIA_BASE_OPENING_RETAIL_FRAMES: u16 = 56;
+pub(super) const TITANIA_FINAL_SWITCH_TO_RETURN_RETAIL_FRAMES: u16 = 926;
+pub(super) const TITANIA_RETURN_TO_MAP_RETAIL_FRAMES: u16 = 38;

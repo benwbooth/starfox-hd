@@ -1668,7 +1668,7 @@ pub struct EladardMissionState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitaniaSurfaceSwitchStatus {
     Active,
-    Disabled,
+    Pressed,
 }
 
 impl Default for TitaniaSurfaceSwitchStatus {
@@ -1678,25 +1678,29 @@ impl Default for TitaniaSurfaceSwitchStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TitaniaReactorStatus {
-    Shielded,
-    Exposed,
-    Destroyed,
+pub enum TitaniaFinalSwitchStatus {
+    Unreached,
+    Active,
+    Pressed,
 }
 
-impl Default for TitaniaReactorStatus {
+impl Default for TitaniaFinalSwitchStatus {
     fn default() -> Self {
-        Self::Shielded
+        Self::Unreached
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitaniaPhase {
     SurfaceApproach,
-    SurfaceSwitches,
+    FirstSwitch,
+    SurfaceTransit,
+    SecondSwitch,
+    BaseOpening,
     BaseEntry,
     Interior,
-    Reactor,
+    FinalSwitch,
+    BaseEscape,
     ReturnFlight,
 }
 
@@ -1706,15 +1710,16 @@ impl Default for TitaniaPhase {
     }
 }
 
-/// Typed objective state for Titania. The two exterior switches and reactor
-/// are the retail mission concepts; the port does not expose their original
-/// storage locations or retain a byte-addressed work area.
+/// Typed objective state for Titania. The two exterior pressure switches and
+/// final interior switch are the retail mission concepts; the port does not
+/// expose their original storage locations or retain a byte-addressed work
+/// area.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct TitaniaMissionState {
     pub phase: TitaniaPhase,
     pub phase_started_retail_frame: u16,
     pub surface_switches: [TitaniaSurfaceSwitchStatus; TITANIA_SURFACE_SWITCH_COUNT],
-    pub reactor: TitaniaReactorStatus,
+    pub final_switch: TitaniaFinalSwitchStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
