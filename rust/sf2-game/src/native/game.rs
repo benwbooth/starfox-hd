@@ -26,7 +26,8 @@ use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderOb
 use super::results;
 use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
-    CarrierAssaultPhase, CarrierAssaultState, CarrierCorridorDefenderStatus,
+    CarrierAssaultPhase, CarrierAssaultState, CarrierCorridorControlStatus,
+    CarrierCorridorDefenderStatus, CarrierCorridorGateState, CarrierCorridorPassageStatus,
     CarrierObjectiveStatus, CarrierReactorPanel, ChargeSound, CorneriaDefensePhase,
     CorneriaDefenseState, Difficulty, EladardBarrierStatus, EladardDefenderStatus,
     EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom, EladardMissionState,
@@ -41,7 +42,7 @@ use super::state::{
     StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
     TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
     WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
-    STRATEGIC_MAP_ACTOR_CAPACITY,
+    CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -372,6 +373,25 @@ const CARRIER_CORRIDOR_DEFENDER_VOLLEY_END_RETAIL_FRAME: u16 = 156;
 const CARRIER_CORRIDOR_DEFENDER_PROJECTILE_SPEED: u8 = 30;
 const CARRIER_CORRIDOR_DEFENDER_PROJECTILE_POSITION_SCALE: i16 = 4;
 const CARRIER_CORRIDOR_DEFENDER_PROJECTILE_LIFETIME_RETAIL_FRAMES: u16 = 320;
+#[cfg(test)]
+const CARRIER_MIDSHIP_GATE_INDEX: usize = 0;
+#[cfg(test)]
+const CARRIER_REACTOR_GATE_INDEX: usize = 1;
+const CARRIER_GATE_CONTROL_SCORE: u32 = 1;
+const CARRIER_CORRIDOR_STRUCTURE_INTEGRITY: u8 = 100;
+const CARRIER_GATE_CONTROL_ACTIVE_SHAPE_INDEX: usize = 0;
+const CARRIER_GATE_CONTROL_ACTIVATING_SHAPE_INDEX: usize = 1;
+const CARRIER_GATE_CONTROL_COMPLETE_SHAPE_INDEX: usize = 2;
+const CARRIER_GATE_CONTROL_LAST_ANIMATION_FRAME: u8 = 11;
+const CARRIER_GATE_PASSABLE_AFTER_RETAIL_FRAMES: u16 = 96;
+const CARRIER_GATE_PLAYER_CLEARANCE: i16 = 256;
+const CARRIER_MIDSHIP_CONTROL_ACTIVATION_RETAIL_FRAMES: u16 = 320;
+const CARRIER_REACTOR_CONTROL_ACTIVATION_RETAIL_FRAMES: u16 = 292;
+const CARRIER_ROTATING_DOOR_PORT_LEAF_INDEX: usize = 0;
+const CARRIER_ROTATING_DOOR_STARBOARD_LEAF_INDEX: usize = 1;
+const CARRIER_ROTATING_DOOR_LEAF_COUNT: usize = 2;
+const CARRIER_ROTATING_DOOR_OPENING_RETAIL_FRAMES: u16 = 52;
+const CARRIER_ROTATING_DOOR_OPEN_YAW: u8 = 64;
 const CARRIER_EXTERIOR_ENTRY_Z: i16 = -5_508;
 const CARRIER_CORRIDOR_REACTOR_TRIGGER_Z: i16 = 11_562;
 const CARRIER_CORRIDOR_LENGTH: u16 =
@@ -425,6 +445,101 @@ const CARRIER_CORRIDOR_DEFENDER_SCENE: [CarrierCorridorDefenderPlacement;
             z: 10_240,
         },
         lateral_step: -CARRIER_CORRIDOR_DEFENDER_LATERAL_STEP,
+    },
+];
+
+#[derive(Clone, Copy)]
+struct CarrierCorridorGatePlacement {
+    barrier_shape: ShapeId,
+    barrier_position: Vector3,
+    barrier_yaw: Angle,
+    control_shapes: [ShapeId; 3],
+    control_position: Vector3,
+    control_yaw: Angle,
+    activation_retail_frames: u16,
+}
+
+const CARRIER_CORRIDOR_GATE_SCENE: [CarrierCorridorGatePlacement; CARRIER_CORRIDOR_GATE_COUNT] = [
+    CarrierCorridorGatePlacement {
+        barrier_shape: ShapeId::CARRIER_MIDSHIP_BULKHEAD,
+        barrier_position: Vector3 {
+            x: 1_280,
+            y: 0,
+            z: 6_656,
+        },
+        barrier_yaw: Angle::HALF_TURN,
+        control_shapes: [
+            ShapeId::CARRIER_MIDSHIP_CONTROL_ACTIVE,
+            ShapeId::CARRIER_MIDSHIP_CONTROL_ACTIVATING,
+            ShapeId::CARRIER_MIDSHIP_CONTROL_COMPLETE,
+        ],
+        control_position: Vector3 {
+            x: 1_280,
+            y: 0,
+            z: 7_028,
+        },
+        control_yaw: Angle::HALF_TURN,
+        activation_retail_frames: CARRIER_MIDSHIP_CONTROL_ACTIVATION_RETAIL_FRAMES,
+    },
+    CarrierCorridorGatePlacement {
+        barrier_shape: ShapeId::CARRIER_REACTOR_ENTRY,
+        barrier_position: Vector3 {
+            x: 1_280,
+            y: 0,
+            z: 11_776,
+        },
+        barrier_yaw: Angle::ZERO,
+        control_shapes: [
+            ShapeId::CARRIER_REACTOR_CONTROL_ACTIVE,
+            ShapeId::CARRIER_REACTOR_CONTROL_ACTIVATING,
+            ShapeId::CARRIER_REACTOR_CONTROL_COMPLETE,
+        ],
+        control_position: Vector3 {
+            x: 1_280,
+            y: 0,
+            z: 12_148,
+        },
+        control_yaw: Angle::HALF_TURN,
+        activation_retail_frames: CARRIER_REACTOR_CONTROL_ACTIVATION_RETAIL_FRAMES,
+    },
+];
+
+#[derive(Clone, Copy)]
+struct CarrierRotatingDoorPlacement {
+    trigger_z: i16,
+    leaf_positions: [Vector3; CARRIER_ROTATING_DOOR_LEAF_COUNT],
+}
+
+const CARRIER_ROTATING_DOOR_SCENE: [CarrierRotatingDoorPlacement; CARRIER_ROTATING_DOOR_COUNT] = [
+    CarrierRotatingDoorPlacement {
+        trigger_z: 7_031,
+        leaf_positions: [
+            Vector3 {
+                x: 1_040,
+                y: 0,
+                z: 8_192,
+            },
+            Vector3 {
+                x: 1_520,
+                y: 0,
+                z: 8_192,
+            },
+        ],
+    },
+    CarrierRotatingDoorPlacement {
+        trigger_z: 7_619,
+        leaf_positions: [
+            Vector3 {
+                x: 1_040,
+                y: 0,
+                z: 9_728,
+            },
+            Vector3 {
+                x: 1_520,
+                y: 0,
+                z: 9_728,
+            },
+        ],
     },
 ];
 const CARRIER_REACTOR_APPROACH_START_POSITION: Vector3 = Vector3 {
@@ -495,13 +610,32 @@ const CARRIER_EXTERIOR_SCENE: [(ShapeId, Vector3, Angle); 5] = [
         CARRIER_HULL_YAW,
     ),
 ];
-const CARRIER_CORRIDOR_SCENE: [(ShapeId, Vector3, Angle); 7] = [
+const CARRIER_CORRIDOR_SCENE_OBJECT_COUNT: usize = 23;
+const CARRIER_CORRIDOR_SCENE: [(ShapeId, Vector3, Angle); CARRIER_CORRIDOR_SCENE_OBJECT_COUNT] = [
     (
         ShapeId::CARRIER_CORRIDOR_DOOR,
         Vector3 {
             x: 1_440,
             y: 0,
             z: 3_072,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_SIDE_DOOR,
+        Vector3 {
+            x: 1_120,
+            y: 0,
+            z: 2_048,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_SIDE_DOOR,
+        Vector3 {
+            x: 1_120,
+            y: 0,
+            z: 5_120,
         },
         Angle::HALF_TURN,
     ),
@@ -519,6 +653,24 @@ const CARRIER_CORRIDOR_SCENE: [(ShapeId, Vector3, Angle); 7] = [
         Vector3 {
             x: 512,
             y: 0,
+            z: 8_192,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_WALL,
+        Vector3 {
+            x: 512,
+            y: 0,
+            z: 10_240,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_WALL,
+        Vector3 {
+            x: 512,
+            y: 0,
             z: 3_072,
         },
         Angle::from_units(192),
@@ -556,6 +708,114 @@ const CARRIER_CORRIDOR_SCENE: [(ShapeId, Vector3, Angle); 7] = [
             x: 2_048,
             y: 0,
             z: 5_120,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_WALL,
+        Vector3 {
+            x: 2_048,
+            y: 0,
+            z: 8_192,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_WALL,
+        Vector3 {
+            x: 2_048,
+            y: 0,
+            z: 10_240,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_WALL,
+        Vector3 {
+            x: -512,
+            y: 0,
+            z: 9_216,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::CARRIER_CORRIDOR_WALL,
+        Vector3 {
+            x: 3_072,
+            y: 0,
+            z: 9_216,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_INNER_WALL,
+        Vector3 {
+            x: 512,
+            y: 0,
+            z: 6_656,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_INNER_WALL,
+        Vector3 {
+            x: 2_048,
+            y: 0,
+            z: 6_656,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_INNER_WALL,
+        Vector3 {
+            x: 512,
+            y: 0,
+            z: 11_776,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_INNER_WALL,
+        Vector3 {
+            x: 2_048,
+            y: 0,
+            z: 11_776,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_OUTER_WALL,
+        Vector3 {
+            x: -512,
+            y: 0,
+            z: 6_656,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_OUTER_WALL,
+        Vector3 {
+            x: 3_072,
+            y: 0,
+            z: 6_656,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_OUTER_WALL,
+        Vector3 {
+            x: -512,
+            y: 0,
+            z: 11_776,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::CARRIER_BULKHEAD_OUTER_WALL,
+        Vector3 {
+            x: 3_072,
+            y: 0,
+            z: 11_776,
         },
         Angle::from_units(64),
     ),
@@ -4936,6 +5196,10 @@ pub struct Game {
     carrier_scenery: Vec<ObjectId>,
     carrier_corridor_defenders: [Option<ObjectId>; CARRIER_CORRIDOR_DEFENDER_COUNT],
     carrier_corridor_projectiles: Vec<ObjectId>,
+    carrier_gate_barriers: [Option<ObjectId>; CARRIER_CORRIDOR_GATE_COUNT],
+    carrier_gate_controls: [Option<ObjectId>; CARRIER_CORRIDOR_GATE_COUNT],
+    carrier_rotating_doors:
+        [[Option<ObjectId>; CARRIER_ROTATING_DOOR_LEAF_COUNT]; CARRIER_ROTATING_DOOR_COUNT],
     carrier_panels: [Option<ObjectId>; 2],
 }
 
@@ -4987,9 +5251,13 @@ impl Game {
             titania_route_lift: None,
             titania_base: None,
             titania_final_switch: None,
-            carrier_scenery: Vec::with_capacity(16),
+            carrier_scenery: Vec::with_capacity(CARRIER_CORRIDOR_SCENE_OBJECT_COUNT),
             carrier_corridor_defenders: [None; CARRIER_CORRIDOR_DEFENDER_COUNT],
             carrier_corridor_projectiles: Vec::with_capacity(CARRIER_CORRIDOR_DEFENDER_COUNT),
+            carrier_gate_barriers: [None; CARRIER_CORRIDOR_GATE_COUNT],
+            carrier_gate_controls: [None; CARRIER_CORRIDOR_GATE_COUNT],
+            carrier_rotating_doors: [[None; CARRIER_ROTATING_DOOR_LEAF_COUNT];
+                CARRIER_ROTATING_DOOR_COUNT],
             carrier_panels: [None; 2],
         }
     }
@@ -6231,6 +6499,8 @@ impl Game {
             room_entry_transformation_started_retail_frame: None,
             corridor_defenders: [CarrierCorridorDefenderStatus::Unreached;
                 CARRIER_CORRIDOR_DEFENDER_COUNT],
+            corridor_gates: [CarrierCorridorGateState::default(); CARRIER_CORRIDOR_GATE_COUNT],
+            rotating_doors: [CarrierCorridorPassageStatus::Unreached; CARRIER_ROTATING_DOOR_COUNT],
             port_panel: CarrierReactorPanel {
                 integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                 active: true,
@@ -8480,6 +8750,14 @@ impl Game {
                 | CarrierAssaultPhase::CoreDestruction
                 | CarrierAssaultPhase::ReturnFlight => {}
             }
+            if matches!(
+                self.state.mission.carrier_assault.phase,
+                CarrierAssaultPhase::InteriorCorridor
+                    | CarrierAssaultPhase::ReactorApproach
+                    | CarrierAssaultPhase::ReactorCombat
+            ) {
+                self.update_carrier_corridor_gates();
+            }
             if self.state.mission.carrier_assault.phase == CarrierAssaultPhase::InteriorCorridor {
                 self.update_carrier_corridor_defenders()?;
             }
@@ -8585,6 +8863,12 @@ impl Game {
             .room_entry_transformation_started_retail_frame = None;
         self.state.mission.carrier_assault.corridor_defenders =
             [CarrierCorridorDefenderStatus::Unreached; CARRIER_CORRIDOR_DEFENDER_COUNT];
+        self.state.mission.carrier_assault.corridor_gates = [CarrierCorridorGateState {
+            control: CarrierCorridorControlStatus::Active,
+            passage: CarrierCorridorPassageStatus::Closed,
+        }; CARRIER_CORRIDOR_GATE_COUNT];
+        self.state.mission.carrier_assault.rotating_doors =
+            [CarrierCorridorPassageStatus::Closed; CARRIER_ROTATING_DOOR_COUNT];
         if let Some(player) = self.state.mission.primary_player {
             self.apply_player_craft_presentation(player, PlayerCraftPresentation::Flight);
             if let Some(player) = self.state.objects.get_mut(player) {
@@ -8600,6 +8884,21 @@ impl Game {
     }
 
     fn constrain_carrier_corridor_motion(&mut self) {
+        let closed_gate_stop = self
+            .state
+            .mission
+            .carrier_assault
+            .corridor_gates
+            .iter()
+            .zip(CARRIER_CORRIDOR_GATE_SCENE)
+            .find_map(|(gate, placement)| {
+                (gate.passage != CarrierCorridorPassageStatus::Open).then_some(
+                    placement
+                        .barrier_position
+                        .z
+                        .saturating_sub(CARRIER_GATE_PLAYER_CLEARANCE),
+                )
+            });
         let Some(player) = self.state.mission.primary_player else {
             return;
         };
@@ -8610,6 +8909,20 @@ impl Game {
         player.base.position.y = CARRIER_CORRIDOR_START_POSITION.y;
         player.base.velocity.x = 0;
         player.base.velocity.y = 0;
+        if let Some(stop) = closed_gate_stop {
+            if player.base.position.z >= stop {
+                player.base.position.z = stop;
+                player.base.velocity.z = 0;
+            } else if player
+                .base
+                .position
+                .z
+                .saturating_add(player.base.velocity.z)
+                > stop
+            {
+                player.base.velocity.z = stop.saturating_sub(player.base.position.z);
+            }
+        }
         let progress = i32::from(player.base.position.z)
             .saturating_sub(i32::from(CARRIER_CORRIDOR_START_POSITION.z))
             .clamp(0, i32::from(CARRIER_CORRIDOR_LENGTH)) as u16;
@@ -8623,6 +8936,139 @@ impl Game {
                 .z
                 .saturating_add(CARRIER_CORRIDOR_CAMERA_FORWARD_OFFSET),
         };
+    }
+
+    fn update_carrier_corridor_gates(&mut self) {
+        for (index, placement) in CARRIER_CORRIDOR_GATE_SCENE.into_iter().enumerate() {
+            let gate = self.state.mission.carrier_assault.corridor_gates[index];
+            let CarrierCorridorControlStatus::Activating {
+                elapsed_retail_frames,
+            } = gate.control
+            else {
+                continue;
+            };
+            let elapsed_retail_frames = elapsed_retail_frames
+                .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                .min(placement.activation_retail_frames);
+            let complete = elapsed_retail_frames >= placement.activation_retail_frames;
+            self.state.mission.carrier_assault.corridor_gates[index] = CarrierCorridorGateState {
+                control: if complete {
+                    CarrierCorridorControlStatus::Complete
+                } else {
+                    CarrierCorridorControlStatus::Activating {
+                        elapsed_retail_frames,
+                    }
+                },
+                passage: if elapsed_retail_frames >= CARRIER_GATE_PASSABLE_AFTER_RETAIL_FRAMES {
+                    CarrierCorridorPassageStatus::Open
+                } else {
+                    CarrierCorridorPassageStatus::Opening {
+                        elapsed_retail_frames,
+                    }
+                },
+            };
+            if let Some(control) = self.carrier_gate_controls[index]
+                .and_then(|control| self.state.objects.get_mut(control))
+            {
+                control.base.shape = if complete {
+                    placement.control_shapes[CARRIER_GATE_CONTROL_COMPLETE_SHAPE_INDEX]
+                } else {
+                    placement.control_shapes[CARRIER_GATE_CONTROL_ACTIVATING_SHAPE_INDEX]
+                };
+                control.extension.animation_frame = if complete {
+                    0
+                } else {
+                    interpolate_u8(
+                        0,
+                        CARRIER_GATE_CONTROL_LAST_ANIMATION_FRAME,
+                        elapsed_retail_frames,
+                        placement.activation_retail_frames,
+                    )
+                };
+            }
+        }
+
+        let Some(player_position) = self.carrier_player_position() else {
+            return;
+        };
+        for (index, placement) in CARRIER_ROTATING_DOOR_SCENE.into_iter().enumerate() {
+            let status = self.state.mission.carrier_assault.rotating_doors[index];
+            let next = match status {
+                CarrierCorridorPassageStatus::Closed
+                    if player_position.z >= placement.trigger_z =>
+                {
+                    CarrierCorridorPassageStatus::Opening {
+                        elapsed_retail_frames: 0,
+                    }
+                }
+                CarrierCorridorPassageStatus::Opening {
+                    elapsed_retail_frames,
+                } => {
+                    let elapsed_retail_frames = elapsed_retail_frames
+                        .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                        .min(CARRIER_ROTATING_DOOR_OPENING_RETAIL_FRAMES);
+                    if elapsed_retail_frames >= CARRIER_ROTATING_DOOR_OPENING_RETAIL_FRAMES {
+                        CarrierCorridorPassageStatus::Open
+                    } else {
+                        CarrierCorridorPassageStatus::Opening {
+                            elapsed_retail_frames,
+                        }
+                    }
+                }
+                CarrierCorridorPassageStatus::Unreached
+                | CarrierCorridorPassageStatus::Closed
+                | CarrierCorridorPassageStatus::Open => status,
+            };
+            self.state.mission.carrier_assault.rotating_doors[index] = next;
+            let elapsed = match next {
+                CarrierCorridorPassageStatus::Opening {
+                    elapsed_retail_frames,
+                } => elapsed_retail_frames,
+                CarrierCorridorPassageStatus::Open => CARRIER_ROTATING_DOOR_OPENING_RETAIL_FRAMES,
+                CarrierCorridorPassageStatus::Unreached | CarrierCorridorPassageStatus::Closed => 0,
+            };
+            if let Some(port_leaf) = self.carrier_rotating_doors[index]
+                [CARRIER_ROTATING_DOOR_PORT_LEAF_INDEX]
+                .and_then(|leaf| self.state.objects.get_mut(leaf))
+            {
+                port_leaf.base.yaw = Angle::from_units(interpolate_u8(
+                    0,
+                    CARRIER_ROTATING_DOOR_OPEN_YAW,
+                    elapsed,
+                    CARRIER_ROTATING_DOOR_OPENING_RETAIL_FRAMES,
+                ));
+            }
+        }
+    }
+
+    fn activate_carrier_gate_control(&mut self, index: usize) {
+        if self.state.mission.carrier_assault.corridor_gates[index].control
+            != CarrierCorridorControlStatus::Active
+        {
+            return;
+        }
+        self.state.mission.carrier_assault.corridor_gates[index] = CarrierCorridorGateState {
+            control: CarrierCorridorControlStatus::Activating {
+                elapsed_retail_frames: 0,
+            },
+            passage: CarrierCorridorPassageStatus::Opening {
+                elapsed_retail_frames: 0,
+            },
+        };
+        if let Some(control) = self.carrier_gate_controls[index]
+            .and_then(|control| self.state.objects.get_mut(control))
+        {
+            control.base.shape = CARRIER_CORRIDOR_GATE_SCENE[index].control_shapes
+                [CARRIER_GATE_CONTROL_ACTIVATING_SHAPE_INDEX];
+            control.extension.animation_frame = 0;
+            control.base.flags.collided = true;
+            control.base.flags.collision_disabled = true;
+        }
+        self.state.mission.score = self
+            .state
+            .mission
+            .score
+            .saturating_add(CARRIER_GATE_CONTROL_SCORE);
     }
 
     fn sync_carrier_corridor_defenders(&mut self) {
@@ -8988,6 +9434,23 @@ impl Game {
         for projectile in self.carrier_corridor_projectiles.drain(..) {
             self.state.objects.remove(projectile);
         }
+        for barrier in &mut self.carrier_gate_barriers {
+            if let Some(object) = barrier.take() {
+                self.state.objects.remove(object);
+            }
+        }
+        for control in &mut self.carrier_gate_controls {
+            if let Some(object) = control.take() {
+                self.state.objects.remove(object);
+            }
+        }
+        for door in &mut self.carrier_rotating_doors {
+            for leaf in door {
+                if let Some(object) = leaf.take() {
+                    self.state.objects.remove(object);
+                }
+            }
+        }
         for panel in &mut self.carrier_panels {
             if let Some(object) = panel.take() {
                 self.state.objects.remove(object);
@@ -9022,11 +9485,71 @@ impl Game {
 
     fn spawn_carrier_corridor_scene(&mut self) -> Result<(), Error> {
         self.clear_carrier_scene();
-        self.spawn_carrier_scene_objects(&CARRIER_CORRIDOR_SCENE)
+        self.spawn_carrier_scene_objects(&CARRIER_CORRIDOR_SCENE)?;
+        for (index, placement) in CARRIER_CORRIDOR_GATE_SCENE.into_iter().enumerate() {
+            let mut barrier = Object::new(
+                ObjectKind::Scenery,
+                placement.barrier_shape,
+                Behavior::Effect,
+            );
+            barrier.base.position = placement.barrier_position;
+            barrier.base.yaw = placement.barrier_yaw;
+            barrier.base.hit_points = CARRIER_CORRIDOR_STRUCTURE_INTEGRITY;
+            barrier.base.collision_class = CollisionClass::Scenery;
+            barrier.base.flags.casts_shadow = false;
+            self.carrier_gate_barriers[index] = Some(
+                self.state
+                    .objects
+                    .allocate(barrier)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+
+            let mut control = Object::new(
+                ObjectKind::Enemy,
+                placement.control_shapes[CARRIER_GATE_CONTROL_ACTIVE_SHAPE_INDEX],
+                Behavior::Effect,
+            );
+            control.base.position = placement.control_position;
+            control.base.yaw = placement.control_yaw;
+            control.base.hit_points = CARRIER_CORRIDOR_STRUCTURE_INTEGRITY;
+            control.base.collision_class = CollisionClass::Enemy;
+            control.base.flags.casts_shadow = false;
+            self.carrier_gate_controls[index] = Some(
+                self.state
+                    .objects
+                    .allocate(control)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+
+        for (door_index, placement) in CARRIER_ROTATING_DOOR_SCENE.into_iter().enumerate() {
+            for (leaf_index, position) in placement.leaf_positions.into_iter().enumerate() {
+                let mut leaf = Object::new(
+                    ObjectKind::Scenery,
+                    ShapeId::CARRIER_ROTATING_DOOR_LEAF,
+                    Behavior::Effect,
+                );
+                leaf.base.position = position;
+                leaf.base.yaw = match leaf_index {
+                    CARRIER_ROTATING_DOOR_PORT_LEAF_INDEX => Angle::ZERO,
+                    CARRIER_ROTATING_DOOR_STARBOARD_LEAF_INDEX => Angle::HALF_TURN,
+                    _ => unreachable!("carrier rotating doors have exactly two leaves"),
+                };
+                leaf.base.hit_points = CARRIER_CORRIDOR_STRUCTURE_INTEGRITY;
+                leaf.base.collision_class = CollisionClass::Scenery;
+                leaf.base.flags.casts_shadow = false;
+                self.carrier_rotating_doors[door_index][leaf_index] = Some(
+                    self.state
+                        .objects
+                        .allocate(leaf)
+                        .ok_or(Error::ObjectCapacityReached)?,
+                );
+            }
+        }
+        Ok(())
     }
 
     fn spawn_carrier_reactor_scene(&mut self) -> Result<(), Error> {
-        self.clear_carrier_scene();
         self.spawn_carrier_scene_objects(&CARRIER_REACTOR_SCENE)?;
         for (index, (position, yaw)) in CARRIER_PANEL_SCENE.into_iter().enumerate() {
             let mut panel = Object::new(
@@ -12919,11 +13442,27 @@ impl Game {
                 continue;
             }
 
+            let carrier_gate_control = (raw_damage > 0
+                && matches!(
+                    self.state.mission.visit,
+                    MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier
+                ))
+            .then(|| {
+                self.carrier_gate_controls
+                    .iter()
+                    .position(|control| *control == Some(enemy_id))
+            })
+            .flatten();
+
             if let Some(weapon) = self.state.objects.get_mut(weapon_id) {
                 weapon.base.flags.visible = false;
                 weapon.base.flags.collided = true;
                 weapon.base.flags.collision_disabled = true;
                 weapon.base.flags.remove_after_tick = true;
+            }
+            if let Some(index) = carrier_gate_control {
+                self.activate_carrier_gate_control(index);
+                continue;
             }
             let destroyed_health = if self.state.mission.visit == MissionVisit::EladardBase
                 && self.eladard_generator_core == Some(enemy_id)
@@ -22835,6 +23374,228 @@ mod tests {
     }
 
     #[test]
+    fn battle_carrier_controls_open_both_gates_and_the_rotating_doors() {
+        fn hit_control(game: &mut Game, index: usize) {
+            let control = game.carrier_gate_controls[index].unwrap();
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_RAPID_LASER_FAST,
+                Behavior::Projectile,
+            );
+            laser.base.position = game.state.objects.get(control).unwrap().base.position;
+            laser.base.attack_power = PLAYER_RAPID_LASER_ATTACK_POWER;
+            laser.base.weapon = WeaponKind::Laser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            game.state.objects.allocate(laser).unwrap();
+            game.resolve_mission_collisions();
+        }
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.begin_carrier_assault(MissionVisit::FirstBattleCarrier)
+            .unwrap();
+        game.state.mode = GameMode::Mission;
+        game.state.mode_frame = MISSION_ACTIVE_TICKS;
+        game.state.mission.phase = MissionPhase::Active;
+        game.enter_carrier_corridor(MISSION_ACTIVE_RETAIL_FRAMES as u16)
+            .unwrap();
+
+        assert_eq!(
+            game.carrier_scenery.len(),
+            CARRIER_CORRIDOR_SCENE_OBJECT_COUNT
+        );
+        for (index, placement) in CARRIER_CORRIDOR_GATE_SCENE.into_iter().enumerate() {
+            let barrier = game
+                .state
+                .objects
+                .get(game.carrier_gate_barriers[index].unwrap())
+                .unwrap();
+            assert_eq!(barrier.base.shape, placement.barrier_shape);
+            assert_eq!(barrier.base.position, placement.barrier_position);
+            assert_eq!(barrier.base.collision_class, CollisionClass::Scenery);
+            let control = game
+                .state
+                .objects
+                .get(game.carrier_gate_controls[index].unwrap())
+                .unwrap();
+            assert_eq!(
+                control.base.shape,
+                placement.control_shapes[CARRIER_GATE_CONTROL_ACTIVE_SHAPE_INDEX]
+            );
+            assert_eq!(control.base.position, placement.control_position);
+            assert_eq!(
+                control.base.hit_points,
+                CARRIER_CORRIDOR_STRUCTURE_INTEGRITY
+            );
+            assert_eq!(control.base.collision_class, CollisionClass::Enemy);
+        }
+
+        let player = game.state.mission.primary_player.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.speed = PLAYER_CRUISE_SPEED;
+        let midship_stop = CARRIER_CORRIDOR_GATE_SCENE[CARRIER_MIDSHIP_GATE_INDEX]
+            .barrier_position
+            .z
+            .saturating_sub(CARRIER_GATE_PLAYER_CLEARANCE);
+        game.state.objects.get_mut(player).unwrap().base.position.z = midship_stop;
+        const CLOSED_GATE_STALL_NATIVE_TICKS: usize = 30;
+        for _ in 0..CLOSED_GATE_STALL_NATIVE_TICKS {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position.z,
+            midship_stop
+        );
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_gates[CARRIER_MIDSHIP_GATE_INDEX],
+            CarrierCorridorGateState {
+                control: CarrierCorridorControlStatus::Active,
+                passage: CarrierCorridorPassageStatus::Closed,
+            }
+        );
+
+        let score_before_controls = game.state.mission.score;
+        hit_control(&mut game, CARRIER_MIDSHIP_GATE_INDEX);
+        assert_eq!(
+            game.state.mission.score,
+            score_before_controls + CARRIER_GATE_CONTROL_SCORE
+        );
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_gates[CARRIER_MIDSHIP_GATE_INDEX],
+            CarrierCorridorGateState {
+                control: CarrierCorridorControlStatus::Activating {
+                    elapsed_retail_frames: 0,
+                },
+                passage: CarrierCorridorPassageStatus::Opening {
+                    elapsed_retail_frames: 0,
+                },
+            }
+        );
+        let midship_control = game.carrier_gate_controls[CARRIER_MIDSHIP_GATE_INDEX].unwrap();
+        assert_eq!(
+            game.state.objects.get(midship_control).unwrap().base.shape,
+            ShapeId::CARRIER_MIDSHIP_CONTROL_ACTIVATING
+        );
+
+        const GATE_PASSABLE_NATIVE_TICKS: u16 =
+            CARRIER_GATE_PASSABLE_AFTER_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 1..GATE_PASSABLE_NATIVE_TICKS {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position.z,
+            midship_stop
+        );
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_gates[CARRIER_MIDSHIP_GATE_INDEX].passage,
+            CarrierCorridorPassageStatus::Opening {
+                elapsed_retail_frames: CARRIER_GATE_PASSABLE_AFTER_RETAIL_FRAMES
+                    - RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
+            }
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_gates[CARRIER_MIDSHIP_GATE_INDEX].passage,
+            CarrierCorridorPassageStatus::Open
+        );
+        assert!(game.state.objects.get(player).unwrap().base.position.z > midship_stop);
+
+        let remaining_midship_activation_ticks = (CARRIER_MIDSHIP_CONTROL_ACTIVATION_RETAIL_FRAMES
+            - CARRIER_GATE_PASSABLE_AFTER_RETAIL_FRAMES)
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..remaining_midship_activation_ticks {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_gates[CARRIER_MIDSHIP_GATE_INDEX].control,
+            CarrierCorridorControlStatus::Complete
+        );
+        assert_eq!(
+            game.state.objects.get(midship_control).unwrap().base.shape,
+            ShapeId::CARRIER_MIDSHIP_CONTROL_COMPLETE
+        );
+        assert_eq!(
+            game.state
+                .objects
+                .get(midship_control)
+                .unwrap()
+                .extension
+                .animation_frame,
+            0
+        );
+
+        const ROTATING_DOOR_SETTLE_NATIVE_TICKS: u16 = CARRIER_ROTATING_DOOR_OPENING_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+            + 4;
+        for _ in 0..ROTATING_DOOR_SETTLE_NATIVE_TICKS {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.carrier_assault.rotating_doors,
+            [CarrierCorridorPassageStatus::Open; CARRIER_ROTATING_DOOR_COUNT]
+        );
+        for door in game.carrier_rotating_doors {
+            let port = game
+                .state
+                .objects
+                .get(door[CARRIER_ROTATING_DOOR_PORT_LEAF_INDEX].unwrap())
+                .unwrap();
+            let starboard = game
+                .state
+                .objects
+                .get(door[CARRIER_ROTATING_DOOR_STARBOARD_LEAF_INDEX].unwrap())
+                .unwrap();
+            assert_eq!(
+                port.base.yaw,
+                Angle::from_units(CARRIER_ROTATING_DOOR_OPEN_YAW)
+            );
+            assert_eq!(starboard.base.yaw, Angle::HALF_TURN);
+        }
+
+        let reactor_stop = CARRIER_CORRIDOR_GATE_SCENE[CARRIER_REACTOR_GATE_INDEX]
+            .barrier_position
+            .z
+            .saturating_sub(CARRIER_GATE_PLAYER_CLEARANCE);
+        game.state.objects.get_mut(player).unwrap().base.position.z = reactor_stop;
+        hit_control(&mut game, CARRIER_REACTOR_GATE_INDEX);
+        assert_eq!(
+            game.state.mission.score,
+            score_before_controls + CARRIER_GATE_CONTROL_SCORE * CARRIER_CORRIDOR_GATE_COUNT as u32
+        );
+        for _ in 1..GATE_PASSABLE_NATIVE_TICKS {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position.z,
+            reactor_stop
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_gates[CARRIER_REACTOR_GATE_INDEX].passage,
+            CarrierCorridorPassageStatus::Open
+        );
+        assert!(game.state.objects.get(player).unwrap().base.position.z > reactor_stop);
+
+        const REACTOR_CONTROL_COMPLETION_LIMIT_NATIVE_TICKS: usize = 100;
+        for _ in 0..REACTOR_CONTROL_COMPLETION_LIMIT_NATIVE_TICKS {
+            if game.state.mission.carrier_assault.corridor_gates[CARRIER_REACTOR_GATE_INDEX].control
+                == CarrierCorridorControlStatus::Complete
+            {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_gates[CARRIER_REACTOR_GATE_INDEX].control,
+            CarrierCorridorControlStatus::Complete
+        );
+        let reactor_control = game.carrier_gate_controls[CARRIER_REACTOR_GATE_INDEX].unwrap();
+        assert_eq!(
+            game.state.objects.get(reactor_control).unwrap().base.shape,
+            ShapeId::CARRIER_REACTOR_CONTROL_COMPLETE
+        );
+    }
+
+    #[test]
     fn battle_carrier_corridor_matches_the_retail_rail_and_three_sentries() {
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
@@ -23033,6 +23794,9 @@ mod tests {
                 room_entry_transformation_started_retail_frame: None,
                 corridor_defenders: [CarrierCorridorDefenderStatus::Unreached;
                     CARRIER_CORRIDOR_DEFENDER_COUNT],
+                corridor_gates: [CarrierCorridorGateState::default(); CARRIER_CORRIDOR_GATE_COUNT],
+                rotating_doors: [CarrierCorridorPassageStatus::Unreached;
+                    CARRIER_ROTATING_DOOR_COUNT],
                 port_panel: CarrierReactorPanel {
                     integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                     active: true,
@@ -23920,6 +24684,36 @@ mod tests {
         }
 
         fn carrier_campaign_input(game: &mut Game) -> u16 {
+            if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::InteriorCorridor {
+                let player_z = game
+                    .state
+                    .mission
+                    .primary_player
+                    .and_then(|id| game.state.objects.get(id))
+                    .map(|player| player.base.position.z)
+                    .unwrap_or(CARRIER_CORRIDOR_START_POSITION.z);
+                let reachable_control = game
+                    .state
+                    .mission
+                    .carrier_assault
+                    .corridor_gates
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, gate)| {
+                        let firing_position = CARRIER_CORRIDOR_GATE_SCENE[index]
+                            .barrier_position
+                            .z
+                            .saturating_sub(CARRIER_GATE_PLAYER_CLEARANCE);
+                        (gate.control == CarrierCorridorControlStatus::Active
+                            && player_z >= firing_position)
+                            .then_some(game.carrier_gate_controls[index])
+                            .flatten()
+                    });
+                if let Some(target) = reachable_control {
+                    place_campaign_laser_on(game, target);
+                }
+                return Button::Y as u16;
+            }
             if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::ReactorCombat {
                 if let Some(target) = game.carrier_panels.into_iter().flatten().find(|id| {
                     game.state
@@ -24287,6 +25081,48 @@ mod tests {
             if game.mode() != GameMode::Mission {
                 break;
             }
+            let mut input = 0;
+            if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::InteriorCorridor {
+                input = Button::Y as u16;
+                let player_z = game
+                    .state
+                    .mission
+                    .primary_player
+                    .and_then(|id| game.state.objects.get(id))
+                    .map(|player| player.base.position.z)
+                    .unwrap_or(CARRIER_CORRIDOR_START_POSITION.z);
+                if let Some(target) = game
+                    .state
+                    .mission
+                    .carrier_assault
+                    .corridor_gates
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, gate)| {
+                        let firing_position = CARRIER_CORRIDOR_GATE_SCENE[index]
+                            .barrier_position
+                            .z
+                            .saturating_sub(CARRIER_GATE_PLAYER_CLEARANCE);
+                        (gate.control == CarrierCorridorControlStatus::Active
+                            && player_z >= firing_position)
+                            .then_some(game.carrier_gate_controls[index])
+                            .flatten()
+                    })
+                {
+                    let position = game.state.objects.get(target).unwrap().base.position;
+                    let mut laser = Object::new(
+                        ObjectKind::Projectile,
+                        ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                        Behavior::Projectile,
+                    );
+                    laser.base.position = position;
+                    laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+                    laser.base.attack_power = PLAYER_CHARGED_LASER_ATTACK_POWER;
+                    laser.base.weapon = WeaponKind::ChargedLaser;
+                    laser.base.collision_class = CollisionClass::PlayerWeapon;
+                    game.state.objects.allocate(laser).unwrap();
+                }
+            }
             if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::ReactorCombat {
                 if let Some(target) = game.carrier_panels.into_iter().flatten().find(|id| {
                     game.state
@@ -24308,7 +25144,7 @@ mod tests {
                     game.state.objects.allocate(laser).unwrap();
                 }
             }
-            game.tick(0).unwrap();
+            game.tick(input).unwrap();
         }
         assert_ne!(game.mode(), GameMode::Mission);
 

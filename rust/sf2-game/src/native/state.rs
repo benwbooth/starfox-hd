@@ -1814,6 +1814,42 @@ pub enum CarrierCorridorDefenderStatus {
 }
 
 pub const CARRIER_CORRIDOR_DEFENDER_COUNT: usize = 3;
+pub const CARRIER_CORRIDOR_GATE_COUNT: usize = 2;
+pub const CARRIER_ROTATING_DOOR_COUNT: usize = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarrierCorridorControlStatus {
+    Unreached,
+    Active,
+    Activating { elapsed_retail_frames: u16 },
+    Complete,
+}
+
+impl Default for CarrierCorridorControlStatus {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarrierCorridorPassageStatus {
+    Unreached,
+    Closed,
+    Opening { elapsed_retail_frames: u16 },
+    Open,
+}
+
+impl Default for CarrierCorridorPassageStatus {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CarrierCorridorGateState {
+    pub control: CarrierCorridorControlStatus,
+    pub passage: CarrierCorridorPassageStatus,
+}
 
 impl Default for CarrierCorridorDefenderStatus {
     fn default() -> Self {
@@ -1842,6 +1878,8 @@ pub struct CarrierAssaultState {
     pub reactor_room_open: bool,
     pub room_entry_transformation_started_retail_frame: Option<u16>,
     pub corridor_defenders: [CarrierCorridorDefenderStatus; CARRIER_CORRIDOR_DEFENDER_COUNT],
+    pub corridor_gates: [CarrierCorridorGateState; CARRIER_CORRIDOR_GATE_COUNT],
+    pub rotating_doors: [CarrierCorridorPassageStatus; CARRIER_ROTATING_DOOR_COUNT],
     pub port_panel: CarrierReactorPanel,
     pub starboard_panel: CarrierReactorPanel,
 }

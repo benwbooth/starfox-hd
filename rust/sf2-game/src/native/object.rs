@@ -177,6 +177,23 @@ impl ShapeId {
 
     /// Central doorway at the end of the Battle Carrier corridor.
     pub const CARRIER_CORRIDOR_DOOR: Self = Self(204);
+    pub const CARRIER_CORRIDOR_SIDE_DOOR: Self = Self(426);
+
+    /// Midship and reactor control assemblies on the Battle Carrier rail.
+    /// Each family has its own decoded active, transition, and settled mesh.
+    pub const CARRIER_MIDSHIP_CONTROL_ACTIVE: Self = Self(194);
+    pub const CARRIER_MIDSHIP_CONTROL_ACTIVATING: Self = Self(193);
+    pub const CARRIER_MIDSHIP_CONTROL_COMPLETE: Self = Self(490);
+    pub const CARRIER_REACTOR_CONTROL_ACTIVE: Self = Self(410);
+    pub const CARRIER_REACTOR_CONTROL_ACTIVATING: Self = Self(409);
+    pub const CARRIER_REACTOR_CONTROL_COMPLETE: Self = Self(230);
+
+    /// The central bulkhead, its paired rotating leaves, and the nested wall
+    /// sections visible along the carrier rail.
+    pub const CARRIER_MIDSHIP_BULKHEAD: Self = Self(506);
+    pub const CARRIER_ROTATING_DOOR_LEAF: Self = Self(205);
+    pub const CARRIER_BULKHEAD_INNER_WALL: Self = Self(151);
+    pub const CARRIER_BULKHEAD_OUTER_WALL: Self = Self(236);
 
     /// One-hit sentry that crosses the Battle Carrier's central rail before
     /// firing a three-shot volley and withdrawing into the wall.
