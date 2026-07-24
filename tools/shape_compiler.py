@@ -351,6 +351,10 @@ EXTENDED_SHAPES = {
     "expl_4":          465,
     "expl_6":          466,
     "expl_8":          467,
+    # Andross's walking kick pose and detached foot are selected directly by
+    # GB3STRAT rather than through map def_shape rows.
+    "boss_b_6":        468,
+    "boss_b_7":        469,
 }
 
 

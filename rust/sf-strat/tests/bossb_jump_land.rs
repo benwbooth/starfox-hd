@@ -8,6 +8,11 @@ use sf_strat::bossb::{
     bossbrobjump2_strat, bossbrobkick_init, bossbrobkick_strat, bossbrobland_init,
     bossbrobland_strat, bossbrobstart2_init, bossbrobstart_init, bossbrobstart_strat,
 };
+use sf_strat::common::strat_gen_vecs_nvecs;
+
+const ANDROSS_KICK_BODY_SHAPE: u16 = 468;
+const ANDROSS_KICK_FOOT_SHAPE: u16 = 469;
+const ANDROSS_WALKING_BODY_SHAPE: u16 = 75;
 
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -45,6 +50,38 @@ fn start_falls_then_enters_attack() {
 }
 
 #[test]
+fn start_integrates_once_and_keeps_the_authored_bounce() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    let idx = spawn_rob(&mut g);
+    {
+        let robot = &mut g.objs.aliens[idx as usize];
+        robot.worldx = 100;
+        robot.worldy = -400;
+        robot.worldz = 2500;
+        robot.vx = 7;
+        robot.vy = 0;
+        robot.vz = 9;
+    }
+    bossbrobstart_strat(&mut g, idx);
+    assert_eq!(g.objs.aliens[idx as usize].worldx, 107);
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -398);
+    assert_eq!(g.objs.aliens[idx as usize].worldz, 2509);
+    assert_eq!(g.objs.aliens[idx as usize].vy, 2);
+
+    {
+        let robot = &mut g.objs.aliens[idx as usize];
+        robot.worldy = -320;
+        robot.vx = 0;
+        robot.vy = 40;
+        robot.vz = 0;
+    }
+    bossbrobstart_strat(&mut g, idx);
+    assert_eq!(g.objs.aliens[idx as usize].vy, -11);
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -331);
+}
+
+#[test]
 fn start2_hands_off_to_fire1() {
     let mut g = Game::new();
     spawn_player(&mut g, 0);
@@ -64,13 +101,15 @@ fn jump1_crouch_then_jump2_launches() {
     let idx = spawn_rob(&mut g);
     g.objs.aliens[idx as usize].worldy = -500; // well above ground
     bossbrobjump1_init(&mut g, idx);
-    // init falls through into strat once → animframe 12+1.
-    assert_eq!(g.objs.aliens[idx as usize].animframe, 13);
-    assert!(g.objs.aliens[idx as usize].sbyte1 < 8);
-    // Drain crouch.
-    g.objs.aliens[idx as usize].sbyte1 = 0;
+    // The initializer falls through once: active marker + authored frame 13.
+    assert_eq!(g.objs.aliens[idx as usize].animframe, 128 | 13);
+    for _ in 0..6 {
+        bossbrobjump1_strat(&mut g, idx);
+    }
+    assert_eq!(g.objs.aliens[idx as usize].animframe, 128 | 19);
+    assert_eq!(g.objs.aliens[idx as usize].vel, 0);
     bossbrobjump1_strat(&mut g, idx);
-    // jump2 launched with upward vy.
+    // Advancing beyond frame 19 clamps and launches on that exact tick.
     assert_eq!(g.objs.aliens[idx as usize].vel, 100);
     assert!(
         g.objs.aliens[idx as usize].vy < 0,
@@ -92,11 +131,32 @@ fn jump2_lands_into_land_then_fire1() {
     bossbrobjump2_strat(&mut g, idx);
     // land_init set sbyte1=10 (then land_strat may have dec'd).
     assert!(g.objs.aliens[idx as usize].sbyte1 <= 10);
-    assert_eq!(g.objs.aliens[idx as usize].worldy, -320);
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -250);
     // Expire land → fire1.
     g.objs.aliens[idx as usize].sbyte1 = 0;
     bossbrobland_strat(&mut g, idx);
     assert!(g.objs.aliens[idx as usize].sbyte1 < 60); // fire1 armed
+}
+
+#[test]
+fn jump_launch_uses_yaw_only_for_horizontal_velocity() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    let idx = spawn_rob(&mut g);
+    {
+        let robot = &mut g.objs.aliens[idx as usize];
+        robot.worldy = -600;
+        robot.roty = 37;
+        robot.rotx = 64;
+        robot.vel = 100;
+    }
+    let mut expected = g.objs.aliens[idx as usize];
+    strat_gen_vecs_nvecs(&mut expected);
+
+    bossbrobjump2_init(&mut g, idx);
+
+    assert_eq!(g.objs.aliens[idx as usize].vx, expected.vx);
+    assert_eq!(g.objs.aliens[idx as usize].vz, expected.vz);
 }
 
 #[test]
@@ -106,6 +166,10 @@ fn farjump_sets_nohitaffect_and_lands_close() {
     let idx = spawn_rob(&mut g);
     g.objs.aliens[idx as usize].worldz = 500; // close to player
     bossbrobfarjump1_init(&mut g, idx);
+    assert_eq!(
+        g.objs.aliens[idx as usize].shape,
+        ANDROSS_WALKING_BODY_SHAPE
+    );
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
     g.objs.aliens[idx as usize].sbyte1 = 0;
     bossbrobfarjump1_strat(&mut g, idx);
@@ -113,7 +177,9 @@ fn farjump_sets_nohitaffect_and_lands_close() {
     g.objs.aliens[idx as usize].worldy = -300;
     g.objs.aliens[idx as usize].vy = 50;
     bossbrobfarjump2_strat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].worldy, -320);
+    // The landing state immediately advances to fireP1, whose first tick
+    // chases the body nine units back toward the authored ground height.
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -259);
     // Close Z → farland_end clears nohitaffect + nextstate.
     bossbrobfarland_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
@@ -126,13 +192,20 @@ fn kick_fires_midway_then_advances() {
     let idx = spawn_rob(&mut g);
     g.objs.aliens[idx as usize].worldz = 1500;
     bossbrobkick_init(&mut g, idx);
+    assert_eq!(g.objs.aliens[idx as usize].shape, ANDROSS_KICK_BODY_SHAPE);
     let before = g.objs.active_indices().len();
-    // Drive to mid-kick fire (sbyte1==10).
-    while g.objs.aliens[idx as usize].sbyte1 > 10 {
+    while g.objs.aliens[idx as usize].animframe & 127 < 14 {
         bossbrobkick_strat(&mut g, idx);
     }
-    bossbrobkick_strat(&mut g, idx); // fire at 10
-    assert!(g.objs.active_indices().len() >= before);
+    assert_eq!(g.objs.active_indices().len(), before);
+    bossbrobkick_strat(&mut g, idx);
+    let foot = g
+        .objs
+        .active_indices()
+        .into_iter()
+        .find(|slot| *slot != 0 && *slot != idx)
+        .expect("detached kick foot");
+    assert_eq!(g.objs.aliens[foot as usize].shape, ANDROSS_KICK_FOOT_SHAPE);
     // Expire.
     g.objs.aliens[idx as usize].sbyte1 = 0;
     bossbrobkick_strat(&mut g, idx);

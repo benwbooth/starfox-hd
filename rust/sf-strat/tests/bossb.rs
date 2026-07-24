@@ -2,8 +2,7 @@
 //!
 //! ASM oracle: reference/ultrastarfox/SF/STRAT/GB3STRAT.ASM:1252-3140
 //! (bossB_Istrat / bossBrob_Istrat + sub-labels). No sf-oracle differential
-//! fixture (Andross has no C-oracle port and the ROM fight depends on the
-//! scoped-out entity-image trail + multi-form transform). These tests drive
+//! fixture (Andross has no C-oracle port). These tests drive
 //! the registered istrats black-box through `run_strategies` and assert the
 //! ported state machine, HP-bar model, attack cycle, split, and death routing
 //! against hand-derived ASM expectations, cited inline.

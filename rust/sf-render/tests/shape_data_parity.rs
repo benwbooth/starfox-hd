@@ -7,8 +7,8 @@
 //! `shape_compiler.py` now emits the Rust table as the single source.)
 
 use sf_render::shape_data::{
-    SHAPE_DATA, SHAPE_DATA_COUNT, SHAPE_EXT_DEBOSS_0, SHAPE_EXT_DEBOSS_2, SHAPE_EXT_ROBOT_0,
-    SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
+    SHAPE_DATA, SHAPE_DATA_COUNT, SHAPE_EXT_BOSS_B_6, SHAPE_EXT_BOSS_B_7, SHAPE_EXT_DEBOSS_0,
+    SHAPE_EXT_DEBOSS_2, SHAPE_EXT_ROBOT_0, SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
 };
 
 const NULL_SHAPE_PROFILE_COUNT: usize = 1;
@@ -53,6 +53,26 @@ fn every_renderable_shape_has_exact_source_metrics() {
             .unwrap_or_else(|| panic!("{name} ({shape_id}) missing"));
         assert_eq!(shape.name, name);
     }
+}
+
+#[test]
+fn andross_kick_meshes_keep_the_authored_geometry() {
+    let kick = SHAPE_DATA
+        .iter()
+        .find(|shape| shape.shape_id == SHAPE_EXT_BOSS_B_6)
+        .expect("Andross kick body");
+    assert_eq!(kick.name, "boss_b_6");
+    assert_eq!(kick.vertices.len(), 23);
+    assert_eq!(kick.animation_frames.len(), 20);
+
+    let foot = SHAPE_DATA
+        .iter()
+        .find(|shape| shape.shape_id == SHAPE_EXT_BOSS_B_7)
+        .expect("Andross detached foot");
+    assert_eq!(foot.name, "boss_b_7");
+    assert_eq!(foot.vertices.len(), 6);
+    assert_eq!(foot.faces.len(), 8);
+    assert!(foot.animation_frames.is_empty());
 }
 
 #[test]
@@ -526,6 +546,8 @@ fn runtime_extended_mesh_catalog_is_complete() {
         (457, "wall_l"),
         (458, "wall_r"),
         (459, "iris_1"),
+        (468, "boss_b_6"),
+        (469, "boss_b_7"),
     ];
 
     for (shape_id, name) in expected {

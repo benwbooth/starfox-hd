@@ -3229,6 +3229,20 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         },
     ), // expl_8
     (
+        468,
+        Sf1ShapeMetrics {
+            visual_extent: 432,
+            coordinate_shift: 2,
+        },
+    ), // boss_b_6
+    (
+        469,
+        Sf1ShapeMetrics {
+            visual_extent: 520,
+            coordinate_shift: 2,
+        },
+    ), // boss_b_7
+    (
         508,
         Sf1ShapeMetrics {
             visual_extent: 512,

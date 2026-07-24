@@ -13,6 +13,8 @@ use sf_strat::bossb::{
     bossbrobvecs_cont4,
 };
 
+const ANDROSS_WALKING_BODY_SHAPE: u16 = 75;
+
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
     assert_eq!(p, 0);
@@ -88,6 +90,10 @@ fn chg4_ramps_hp_then_start() {
     g.objs.aliens[idx as usize].vel = 0;
     g.objs.aliens[idx as usize].roty = 128; // DEG180
     bossbrobchg4_init(&mut g, idx);
+    assert_eq!(
+        g.objs.aliens[idx as usize].shape,
+        ANDROSS_WALKING_BODY_SHAPE
+    );
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 29); // 30 then tick
                                                         // Force anim/HP path: already at yaw, speed 0.
     g.objs.aliens[idx as usize].vel = 0;
@@ -183,6 +189,10 @@ fn demo_undead_die() {
     spawn_player(&mut g, 0);
     let idx = spawn_rob(&mut g);
     bossbrobdemo_istrat(&mut g, idx);
+    assert_eq!(
+        g.objs.aliens[idx as usize].shape,
+        ANDROSS_WALKING_BODY_SHAPE
+    );
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_SHADOW, 0);
     assert_eq!(g.objs.aliens[idx as usize].worldy, -320);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 34); // 35 then tick
