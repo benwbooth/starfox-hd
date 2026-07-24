@@ -442,6 +442,10 @@ local astropolis_transform_requested = false
 local astropolis_walker_mode = false
 local eladard_next_recovery_frame = -1
 local eladard_base_entered = false
+-- Deliberately global: this large oracle has reached Lua's main-chunk local
+-- limit. This is a semantic observation latch, not source memory exposed to
+-- the shipping port.
+titania_base_entered = false
 local installation_core_encounter_seen = false
 
 local function work_byte(address)
@@ -1878,6 +1882,22 @@ local function provide_combat_autopilot()
   local meteor_surface = work_byte(0x1BB5) == 4
     and work_byte(0x192E) == 0x05
     and meteor_map == 0x4012
+  local titania_surface = work_byte(0x1BB5) == 1
+    and work_byte(0xD7A1) > 1
+  if work_byte(0x1BB5) == 1
+    and work_byte(0xD7A1) == 1
+    and player_y <= -110
+    and math.abs(player_x) <= 512
+    and math.abs(player_z) <= 512 then
+    -- Titania's east doorway lowers the Walker below the surface before
+    -- the interior route returns to ordinary ground height. Remember that
+    -- observed transition rather than classifying every objective-one pose
+    -- on the installation's positive-Z half as being inside the base.
+    titania_base_entered = true
+  end
+  local titania_entrance = work_byte(0x1BB5) == 1
+    and work_byte(0xD7A1) == 1
+    and not titania_base_entered
   local meteor_interior = work_byte(0x1BB5) == 4
     and work_byte(0x192E) == 0x05
     and (meteor_map == 0x45B9
@@ -1887,9 +1907,7 @@ local function provide_combat_autopilot()
     and meteor_map == 0x4893
   local inside_planetary_base = eladard_base_entered
     or meteor_interior
-    or (work_byte(0x1BB5) == 1
-      and work_byte(0xD7A1) <= 1
-      and (player_y < -100 or player_z > -1000))
+    or titania_base_entered
   local requested_object_seen = false
   local allow_ordinary_targets = not forced_target_shape
     and (not forced_target_object or forced_target_object_retired)
@@ -2018,6 +2036,8 @@ local function provide_combat_autopilot()
     local planetary_base_defender = eladard_room_defender
       or meteor_core_target
     local meteor_surface_target = meteor_surface and shape == 0xEF5C
+    local titania_switch_target = titania_surface and shape == 0xEF5C
+    local titania_route_landmark = titania_surface and shape == 0xEDD4
     local carrier_exterior_anchor = work_byte(0x1BB5) == 8
       and shape == 0xBC9C
       and work_byte(object + 0x2D) == 100
@@ -2052,7 +2072,8 @@ local function provide_combat_autopilot()
       and (shape == 0xF1C4 or shape == 0xEA00
         or shape == 0xC348 or shape == 0xE1B0
         or eladard_barrier or planetary_base_defender
-        or meteor_surface_target
+        or meteor_surface_target or titania_switch_target
+        or titania_route_landmark
         or carrier_exterior_anchor or carrier_core or fighter_collision
         or astropolis_security_turret or astropolis_target_switch
         or astropolis_core_spike or astropolis_exposed_cube
@@ -2106,6 +2127,16 @@ local function provide_combat_autopilot()
       frame - armed_frame,
       forced_target_object,
       forced_target_object_shape)
+  end
+
+  if titania_entrance and not forced_target_shape and not forced_target_object then
+    -- Once both exterior switches are pressed, retail opens a doorway on the
+    -- installation's east rim. Nearby fighters are incidental to that route;
+    -- use the fixed architectural opening until the Walker crosses its
+    -- interior floor transition.
+    target = 0
+    target_shape = 0
+    target_distance_squared = math.huge
   end
 
   local target_x = target ~= 0 and signed_word(target + 12) or 0
@@ -2350,7 +2381,8 @@ local function provide_combat_autopilot()
     local horizontal_distance = math.sqrt(delta_x * delta_x + delta_z * delta_z)
     local desired_yaw = math.floor(math.atan(delta_x, delta_z) * 128 / math.pi + 0.5) % 256
     local desired_pitch = math.floor(math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
-    local planetary_base_walker = (inside_planetary_base or meteor_surface)
+    local planetary_base_walker =
+      (inside_planetary_base or meteor_surface or titania_surface)
       and player_shape == 0xC94C
     local carrier_core_walker = fighting_carrier_core
       or fighting_astropolis_core
@@ -2393,9 +2425,9 @@ local function provide_combat_autopilot()
       elseif fighting_meteor_core then
         approach_distance_squared = 360000
       elseif activation_target then
-        -- Walk fully onto the target platform. The retail target owns the
-        -- stop/unlock transition, so an artificial stand-off distance can
-        -- only strand the oracle just outside its activation bounds.
+        -- Walk fully onto a switch. Its retail path owns activation, so an
+        -- artificial stand-off distance can only strand the oracle just
+        -- outside the relevant contact volume.
         approach_distance_squared = 0
       else
         approach_distance_squared = 1440000
@@ -2585,6 +2617,32 @@ local function provide_combat_autopilot()
       local jump_phase = frame % 120
       buttons.y = jump_phase >= 6 and jump_phase < 22
       input_label = "combat-autopilot-meteor-entrance"
+    elseif titania_entrance then
+      -- The opened Titania base is not entered through its solid centre.
+      -- Retail exposes a ramp and doorway on the east rim (x=700, z=0), then
+      -- lowers the Walker onto the interior floor. Align with the doorway
+      -- before continuing west so the original collision and transition
+      -- paths remain authoritative.
+      local doorway_x = 700
+      local doorway_z = 0
+      local doorway_tolerance = 80
+      local doorway_aligned = math.abs(player_z - doorway_z) <= doorway_tolerance
+      if player_z > doorway_z + doorway_tolerance then
+        buttons.down = true
+      elseif player_z < doorway_z - doorway_tolerance then
+        buttons.up = true
+      end
+      if doorway_aligned then
+        buttons.left = true
+      elseif player_x > doorway_x + doorway_tolerance then
+        buttons.left = true
+      elseif player_x < doorway_x - doorway_tolerance then
+        buttons.right = true
+      else
+        buttons.left = true
+      end
+      buttons.b = pulse(frame, 12, 0)
+      input_label = "combat-autopilot-titania-entrance"
     elseif inside_planetary_base then
       local route_direction = eladard_route_direction()
       if installation_core_encounter_seen then
