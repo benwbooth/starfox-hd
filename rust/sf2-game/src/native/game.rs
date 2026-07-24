@@ -8,37 +8,40 @@ use super::campaign_world_assignments::CampaignWorld;
 use super::input::{Button, Buttons};
 use super::object::{
     Angle, Behavior, CapitalFlightAngles, CapitalFlightState, CapitalMovementPhase,
-    CapitalWeaponPhase, CollisionClass, EladardDefenderPhase, EladardDefenderProjectileState,
-    EladardDefenderState, FighterAltitudePhase, FighterAngles, FighterCenteringTargetOrder,
-    FighterFlightState, FighterInterceptFlightState, FighterInterceptMovementPhase,
-    FighterInterceptWeaponPhase, FighterLogicCadence, FighterWaveDirection, FighterWaveOrder,
-    FighterWavePolarity, FighterWeaponPhase, FinalRivalFlightPhase, FinalRivalFlightState,
-    HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
-    InterceptionMissileFlightState, InterceptionMissileSteering, LeonRivalFlightPhase,
-    LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind,
-    PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState,
-    PlayerProjectileKind, PlayerProjectileState, ReengagementFighterFlightState,
-    ReengagementFighterMovementPhase, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
-    StereoPosition, Vector3, WeaponKind,
+    CapitalWeaponPhase, CarrierCorridorDefenderPhase, CarrierCorridorDefenderState,
+    CarrierCorridorProjectileState, CollisionClass, EladardDefenderPhase,
+    EladardDefenderProjectileState, EladardDefenderState, FighterAltitudePhase, FighterAngles,
+    FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
+    FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
+    FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
+    FinalRivalFlightPhase, FinalRivalFlightState, HostileProjectileFlightPhase,
+    HostileProjectileFlightState, HostileProjectileMovementPhase, InterceptionMissileFlightState,
+    InterceptionMissileSteering, LeonRivalFlightPhase, LeonRivalFlightState,
+    LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
+    PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
+    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
+    ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
 use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
-    CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
-    ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
-    EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
-    EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
-    FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-    GameOverState, GameState, IntroPhase, MapPoint, MissionMessage, MissionMessageIrisFrame,
-    MissionMessagePhase, MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor,
-    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
-    PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
-    StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
-    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus,
-    TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
-    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
+    CarrierAssaultPhase, CarrierAssaultState, CarrierCorridorDefenderStatus,
+    CarrierObjectiveStatus, CarrierReactorPanel, ChargeSound, CorneriaDefensePhase,
+    CorneriaDefenseState, Difficulty, EladardBarrierStatus, EladardDefenderStatus,
+    EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom, EladardMissionState,
+    EladardPhase, EladardSwitchStatus, EndingPhase, EndingState, FlightControlStyle, GameMode,
+    GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase,
+    MapPoint, MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionPhase,
+    MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
+    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
+    PlayerCraftTransformationDirection, PlayerDamageState, ResultsChoice, ResultsPhase,
+    ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor, StrategicMapActorKind,
+    StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage,
+    StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
+    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
+    WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
+    STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -354,6 +357,21 @@ const CARRIER_PANEL_DAMAGE_PER_HIT: u8 = 2;
 const CARRIER_REACTOR_PANEL_COUNT: u32 = 2;
 const CARRIER_PORT_PANEL_INDEX: usize = 0;
 const CARRIER_STARBOARD_PANEL_INDEX: usize = 1;
+const CARRIER_CORRIDOR_BOOST_SPEED: u8 = 40;
+const CARRIER_CORRIDOR_DEFENDER_HEALTH: u8 = 1;
+const CARRIER_CORRIDOR_DEFENDER_SCORE: u32 = 50;
+const CARRIER_CORRIDOR_DEFENDER_TRIGGER_LEAD: i16 = 2_048;
+const CARRIER_CORRIDOR_DEFENDER_LATERAL_STEP: i16 = 16;
+const CARRIER_CORRIDOR_DEFENDER_LATERAL_STEPS: u8 = 16;
+const CARRIER_CORRIDOR_DEFENDER_MOTION_STEP_RETAIL_FRAMES: u8 = 6;
+const CARRIER_CORRIDOR_DEFENDER_YAW_CHASE_SHIFT: u32 = 2;
+const CARRIER_CORRIDOR_DEFENDER_VOLLEY_SHOT_COUNT: usize = 3;
+const CARRIER_CORRIDOR_DEFENDER_VOLLEY_RETAIL_FRAMES: [u16;
+    CARRIER_CORRIDOR_DEFENDER_VOLLEY_SHOT_COUNT] = [56, 96, 128];
+const CARRIER_CORRIDOR_DEFENDER_VOLLEY_END_RETAIL_FRAME: u16 = 156;
+const CARRIER_CORRIDOR_DEFENDER_PROJECTILE_SPEED: u8 = 30;
+const CARRIER_CORRIDOR_DEFENDER_PROJECTILE_POSITION_SCALE: i16 = 4;
+const CARRIER_CORRIDOR_DEFENDER_PROJECTILE_LIFETIME_RETAIL_FRAMES: u16 = 320;
 const CARRIER_EXTERIOR_ENTRY_Z: i16 = -5_508;
 const CARRIER_CORRIDOR_REACTOR_TRIGGER_Z: i16 = 11_562;
 const CARRIER_CORRIDOR_LENGTH: u16 =
@@ -375,6 +393,40 @@ const CARRIER_CORRIDOR_START_POSITION: Vector3 = Vector3 {
     y: -120,
     z: 64,
 };
+
+#[derive(Clone, Copy)]
+struct CarrierCorridorDefenderPlacement {
+    position: Vector3,
+    lateral_step: i16,
+}
+
+const CARRIER_CORRIDOR_DEFENDER_SCENE: [CarrierCorridorDefenderPlacement;
+    CARRIER_CORRIDOR_DEFENDER_COUNT] = [
+    CarrierCorridorDefenderPlacement {
+        position: Vector3 {
+            x: 1_124,
+            y: -75,
+            z: 5_520,
+        },
+        lateral_step: CARRIER_CORRIDOR_DEFENDER_LATERAL_STEP,
+    },
+    CarrierCorridorDefenderPlacement {
+        position: Vector3 {
+            x: 1_124,
+            y: -75,
+            z: 8_704,
+        },
+        lateral_step: CARRIER_CORRIDOR_DEFENDER_LATERAL_STEP,
+    },
+    CarrierCorridorDefenderPlacement {
+        position: Vector3 {
+            x: 1_408,
+            y: -75,
+            z: 10_240,
+        },
+        lateral_step: -CARRIER_CORRIDOR_DEFENDER_LATERAL_STEP,
+    },
+];
 const CARRIER_REACTOR_APPROACH_START_POSITION: Vector3 = Vector3 {
     x: CARRIER_CORRIDOR_START_POSITION.x,
     y: CARRIER_CORRIDOR_START_POSITION.y,
@@ -4882,6 +4934,8 @@ pub struct Game {
     titania_base: Option<ObjectId>,
     titania_final_switch: Option<ObjectId>,
     carrier_scenery: Vec<ObjectId>,
+    carrier_corridor_defenders: [Option<ObjectId>; CARRIER_CORRIDOR_DEFENDER_COUNT],
+    carrier_corridor_projectiles: Vec<ObjectId>,
     carrier_panels: [Option<ObjectId>; 2],
 }
 
@@ -4934,6 +4988,8 @@ impl Game {
             titania_base: None,
             titania_final_switch: None,
             carrier_scenery: Vec::with_capacity(16),
+            carrier_corridor_defenders: [None; CARRIER_CORRIDOR_DEFENDER_COUNT],
+            carrier_corridor_projectiles: Vec::with_capacity(CARRIER_CORRIDOR_DEFENDER_COUNT),
             carrier_panels: [None; 2],
         }
     }
@@ -6173,6 +6229,8 @@ impl Game {
             corridor_progress: 0,
             reactor_room_open: false,
             room_entry_transformation_started_retail_frame: None,
+            corridor_defenders: [CarrierCorridorDefenderStatus::Unreached;
+                CARRIER_CORRIDOR_DEFENDER_COUNT],
             port_panel: CarrierReactorPanel {
                 integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                 active: true,
@@ -8395,6 +8453,7 @@ impl Game {
         }
 
         self.sync_carrier_objectives();
+        self.sync_carrier_corridor_defenders();
         if self.state.mission.phase == MissionPhase::Active {
             match self.state.mission.carrier_assault.phase {
                 CarrierAssaultPhase::ExteriorApproach
@@ -8420,6 +8479,9 @@ impl Game {
                 | CarrierAssaultPhase::ReactorCombat
                 | CarrierAssaultPhase::CoreDestruction
                 | CarrierAssaultPhase::ReturnFlight => {}
+            }
+            if self.state.mission.carrier_assault.phase == CarrierAssaultPhase::InteriorCorridor {
+                self.update_carrier_corridor_defenders()?;
             }
         }
         self.update_carrier_player_presentation(retail_frame)?;
@@ -8447,7 +8509,7 @@ impl Game {
                 self.update_active_flight(retail_frame, true)?;
             }
             CarrierAssaultPhase::InteriorCorridor => {
-                self.update_active_flight(retail_frame, true)?;
+                self.update_carrier_corridor_flight(retail_frame)?;
                 self.constrain_carrier_corridor_motion();
             }
             CarrierAssaultPhase::ReactorApproach => {
@@ -8461,6 +8523,35 @@ impl Game {
             }
             CarrierAssaultPhase::ReturnFlight => {}
         }
+        Ok(())
+    }
+
+    fn update_carrier_corridor_flight(&mut self, _retail_frame: u16) -> Result<(), Error> {
+        let Some(player_id) = self.state.mission.primary_player else {
+            return Ok(());
+        };
+        let target_speed = if self.state.input.held.contains(Button::Y) {
+            CARRIER_CORRIDOR_BOOST_SPEED
+        } else {
+            PLAYER_CRUISE_SPEED
+        };
+        self.state.mission.player_flight.pitch_accumulator = 0;
+        self.state.mission.player_flight.yaw_accumulator = 0;
+        self.state.mission.player_flight.pitch_lean = 0;
+        if let Some(player) = self.state.objects.get_mut(player_id) {
+            player.base.position.x = CARRIER_CORRIDOR_START_POSITION.x;
+            player.base.position.y = CARRIER_CORRIDOR_START_POSITION.y;
+            player.base.pitch = Angle::ZERO;
+            player.base.yaw = Angle::ZERO;
+            player.base.roll = approach_angle(player.base.roll, Angle::ZERO, PLAYER_BANK_RATE);
+            player.base.speed = approach_u8(
+                player.base.speed,
+                target_speed,
+                PLAYER_SPEED_CHANGE_PER_TICK,
+            );
+            player.base.velocity = flight_velocity(Angle::ZERO, Angle::ZERO, player.base.speed, 1);
+        }
+        self.update_player_blaster(player_id, true)?;
         Ok(())
     }
 
@@ -8492,6 +8583,8 @@ impl Game {
             .mission
             .carrier_assault
             .room_entry_transformation_started_retail_frame = None;
+        self.state.mission.carrier_assault.corridor_defenders =
+            [CarrierCorridorDefenderStatus::Unreached; CARRIER_CORRIDOR_DEFENDER_COUNT];
         if let Some(player) = self.state.mission.primary_player {
             self.apply_player_craft_presentation(player, PlayerCraftPresentation::Flight);
             if let Some(player) = self.state.objects.get_mut(player) {
@@ -8530,6 +8623,162 @@ impl Game {
                 .z
                 .saturating_add(CARRIER_CORRIDOR_CAMERA_FORWARD_OFFSET),
         };
+    }
+
+    fn sync_carrier_corridor_defenders(&mut self) {
+        for index in 0..CARRIER_CORRIDOR_DEFENDER_COUNT {
+            if self.state.mission.carrier_assault.corridor_defenders[index]
+                != CarrierCorridorDefenderStatus::Active
+            {
+                continue;
+            }
+            let Some(defender_id) = self.carrier_corridor_defenders[index] else {
+                self.state.mission.carrier_assault.corridor_defenders[index] =
+                    CarrierCorridorDefenderStatus::Destroyed;
+                continue;
+            };
+            match self.state.objects.get(defender_id) {
+                Some(defender) if defender.base.flags.collision_disabled => {
+                    self.state.mission.carrier_assault.corridor_defenders[index] =
+                        CarrierCorridorDefenderStatus::Destroyed;
+                }
+                Some(_) => {}
+                None => {
+                    self.carrier_corridor_defenders[index] = None;
+                    self.state.mission.carrier_assault.corridor_defenders[index] =
+                        CarrierCorridorDefenderStatus::Destroyed;
+                }
+            }
+        }
+    }
+
+    fn update_carrier_corridor_defenders(&mut self) -> Result<(), Error> {
+        let objects = &self.state.objects;
+        self.carrier_corridor_projectiles
+            .retain(|projectile| objects.get(*projectile).is_some());
+        let Some(player_position) = self.carrier_player_position() else {
+            return Ok(());
+        };
+
+        for (index, placement) in CARRIER_CORRIDOR_DEFENDER_SCENE.into_iter().enumerate() {
+            if self.state.mission.carrier_assault.corridor_defenders[index]
+                == CarrierCorridorDefenderStatus::Unreached
+                && player_position.z
+                    >= placement
+                        .position
+                        .z
+                        .saturating_sub(CARRIER_CORRIDOR_DEFENDER_TRIGGER_LEAD)
+            {
+                self.spawn_carrier_corridor_defender(index, placement)?;
+            }
+        }
+
+        let defenders = self.carrier_corridor_defenders;
+        for (index, defender_id) in defenders.into_iter().enumerate() {
+            let Some(defender_id) = defender_id else {
+                continue;
+            };
+            let (shots, withdrew) = self
+                .state
+                .objects
+                .get_mut(defender_id)
+                .map(|defender| advance_carrier_corridor_defender_object(defender, player_position))
+                .unwrap_or_default();
+            for _ in 0..shots {
+                let Some(position) = self
+                    .state
+                    .objects
+                    .get(defender_id)
+                    .map(|defender| defender.base.position)
+                else {
+                    break;
+                };
+                self.spawn_carrier_corridor_projectile(position, player_position)?;
+            }
+            if withdrew {
+                self.state.objects.remove(defender_id);
+                self.carrier_corridor_defenders[index] = None;
+                self.state.mission.carrier_assault.corridor_defenders[index] =
+                    CarrierCorridorDefenderStatus::Withdrawn;
+            }
+        }
+        Ok(())
+    }
+
+    fn spawn_carrier_corridor_defender(
+        &mut self,
+        index: usize,
+        placement: CarrierCorridorDefenderPlacement,
+    ) -> Result<(), Error> {
+        let mut defender = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::CARRIER_CORRIDOR_DEFENDER,
+            Behavior::EnemyFlight,
+        );
+        defender.base.position = placement.position;
+        defender.base.yaw = Angle::HALF_TURN;
+        defender.base.hit_points = CARRIER_CORRIDOR_DEFENDER_HEALTH;
+        defender.base.weapon = WeaponKind::EnemyLaser;
+        defender.base.collision_class = CollisionClass::Enemy;
+        defender.base.flags.casts_shadow = false;
+        defender.extension.activity =
+            ObjectActivity::CarrierCorridorDefender(CarrierCorridorDefenderState {
+                phase: CarrierCorridorDefenderPhase::Crossing {
+                    lateral_steps_remaining: CARRIER_CORRIDOR_DEFENDER_LATERAL_STEPS,
+                    retail_frame_accumulator: 0,
+                },
+                lateral_step: placement.lateral_step,
+            });
+        let defender = self
+            .state
+            .objects
+            .allocate(defender)
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.carrier_corridor_defenders[index] = Some(defender);
+        self.state.mission.carrier_assault.corridor_defenders[index] =
+            CarrierCorridorDefenderStatus::Active;
+        Ok(())
+    }
+
+    fn spawn_carrier_corridor_projectile(
+        &mut self,
+        position: Vector3,
+        target: Vector3,
+    ) -> Result<(), Error> {
+        let delta_x = target.x.wrapping_sub(position.x);
+        let delta_y = target.y.wrapping_sub(position.y);
+        let delta_z = target.z.wrapping_sub(position.z);
+        let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+        let pitch = Angle::from_units(sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance));
+        let yaw = Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
+
+        let mut projectile = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::ENEMY_LASER,
+            Behavior::Projectile,
+        );
+        projectile.base.position = position;
+        projectile.base.pitch = pitch;
+        projectile.base.yaw = yaw;
+        projectile.base.speed = CARRIER_CORRIDOR_DEFENDER_PROJECTILE_SPEED;
+        projectile.base.velocity = flight_velocity(
+            pitch,
+            yaw,
+            CARRIER_CORRIDOR_DEFENDER_PROJECTILE_SPEED,
+            CARRIER_CORRIDOR_DEFENDER_PROJECTILE_POSITION_SCALE,
+        );
+        projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+        projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+        projectile.base.weapon = WeaponKind::EnemyLaser;
+        projectile.base.collision_class = CollisionClass::EnemyWeapon;
+        projectile.base.flags.casts_shadow = false;
+        projectile.extension.activity =
+            ObjectActivity::CarrierCorridorProjectile(CarrierCorridorProjectileState {
+                age_retail_frames: 0,
+            });
+        let projectile = allocate_hostile_projectile(&mut self.state, projectile)?;
+        self.carrier_corridor_projectiles.push(projectile);
+        Ok(())
     }
 
     fn enter_carrier_reactor_approach(&mut self, retail_frame: u16) {
@@ -8730,6 +8979,14 @@ impl Game {
     fn clear_carrier_scene(&mut self) {
         for object in self.carrier_scenery.drain(..) {
             self.state.objects.remove(object);
+        }
+        for defender in &mut self.carrier_corridor_defenders {
+            if let Some(object) = defender.take() {
+                self.state.objects.remove(object);
+            }
+        }
+        for projectile in self.carrier_corridor_projectiles.drain(..) {
+            self.state.objects.remove(projectile);
         }
         for panel in &mut self.carrier_panels {
             if let Some(object) = panel.take() {
@@ -12776,8 +13033,15 @@ impl Game {
                 match object.base.explosion_timer {
                     ENEMY_SCORE_AWARD_TIMER => {
                         if !scoreless_pressure_encounter {
-                            score_award =
-                                score_award.saturating_add(u32::from(object.base.hit_points));
+                            let award = if matches!(
+                                object.extension.activity,
+                                ObjectActivity::CarrierCorridorDefender(_)
+                            ) {
+                                CARRIER_CORRIDOR_DEFENDER_SCORE
+                            } else {
+                                u32::from(object.base.hit_points)
+                            };
+                            score_award = score_award.saturating_add(award);
                         }
                     }
                     ENEMY_EXPLOSION_START_TIMER => {
@@ -12804,6 +13068,10 @@ impl Game {
                     update_eladard_defender_projectile_object(object, projectile);
                     continue;
                 }
+                ObjectActivity::CarrierCorridorProjectile(projectile) => {
+                    update_carrier_corridor_projectile_object(object, projectile);
+                    continue;
+                }
                 ObjectActivity::CapitalFlight(_)
                 | ObjectActivity::ReengagementFighterFlight(_)
                 | ObjectActivity::FighterInterceptFlight(_)
@@ -12812,7 +13080,8 @@ impl Game {
                 | ObjectActivity::PigmaRivalFlight(_)
                 | ObjectActivity::LeonRivalFlight(_)
                 | ObjectActivity::FinalRivalFlight(_)
-                | ObjectActivity::EladardDefender(_) => continue,
+                | ObjectActivity::EladardDefender(_)
+                | ObjectActivity::CarrierCorridorDefender(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
             if matches!(
@@ -13056,6 +13325,118 @@ fn advance_eladard_defender_object(
     launch_position
 }
 
+fn advance_carrier_corridor_defender_object(
+    object: &mut Object,
+    player_position: Vector3,
+) -> (u8, bool) {
+    if object.base.flags.collision_disabled {
+        return (0, false);
+    }
+    let ObjectActivity::CarrierCorridorDefender(mut state) = object.extension.activity else {
+        return (0, false);
+    };
+
+    let delta_x = player_position.x.wrapping_sub(object.base.position.x);
+    let delta_z = player_position.z.wrapping_sub(object.base.position.z);
+    let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+    let mut yaw = object.base.yaw.units();
+    sf_core::snes_trig::achase_angle_8(
+        &mut yaw,
+        target_yaw,
+        CARRIER_CORRIDOR_DEFENDER_YAW_CHASE_SHIFT,
+    );
+    object.base.yaw = Angle::from_units(yaw);
+
+    let mut shots = 0;
+    let mut withdrew = false;
+    state.phase = match state.phase {
+        CarrierCorridorDefenderPhase::Crossing {
+            lateral_steps_remaining,
+            retail_frame_accumulator,
+        } => {
+            let mut accumulator =
+                retail_frame_accumulator.saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
+            if accumulator < CARRIER_CORRIDOR_DEFENDER_MOTION_STEP_RETAIL_FRAMES {
+                CarrierCorridorDefenderPhase::Crossing {
+                    lateral_steps_remaining,
+                    retail_frame_accumulator: accumulator,
+                }
+            } else {
+                accumulator -= CARRIER_CORRIDOR_DEFENDER_MOTION_STEP_RETAIL_FRAMES;
+                object.base.position.x = object.base.position.x.wrapping_add(state.lateral_step);
+                let lateral_steps_remaining = lateral_steps_remaining.saturating_sub(1);
+                if lateral_steps_remaining == 0 {
+                    CarrierCorridorDefenderPhase::Volley {
+                        elapsed_retail_frames: 0,
+                        shots_fired: 0,
+                    }
+                } else {
+                    CarrierCorridorDefenderPhase::Crossing {
+                        lateral_steps_remaining,
+                        retail_frame_accumulator: accumulator,
+                    }
+                }
+            }
+        }
+        CarrierCorridorDefenderPhase::Volley {
+            elapsed_retail_frames,
+            mut shots_fired,
+        } => {
+            let elapsed_retail_frames =
+                elapsed_retail_frames.saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            while usize::from(shots_fired) < CARRIER_CORRIDOR_DEFENDER_VOLLEY_RETAIL_FRAMES.len()
+                && elapsed_retail_frames
+                    >= CARRIER_CORRIDOR_DEFENDER_VOLLEY_RETAIL_FRAMES[usize::from(shots_fired)]
+            {
+                shots_fired = shots_fired.saturating_add(1);
+                shots += 1;
+            }
+            if elapsed_retail_frames >= CARRIER_CORRIDOR_DEFENDER_VOLLEY_END_RETAIL_FRAME {
+                CarrierCorridorDefenderPhase::Withdrawing {
+                    lateral_steps_remaining: CARRIER_CORRIDOR_DEFENDER_LATERAL_STEPS,
+                    retail_frame_accumulator: 0,
+                }
+            } else {
+                CarrierCorridorDefenderPhase::Volley {
+                    elapsed_retail_frames,
+                    shots_fired,
+                }
+            }
+        }
+        CarrierCorridorDefenderPhase::Withdrawing {
+            lateral_steps_remaining,
+            retail_frame_accumulator,
+        } => {
+            let mut accumulator =
+                retail_frame_accumulator.saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
+            if accumulator < CARRIER_CORRIDOR_DEFENDER_MOTION_STEP_RETAIL_FRAMES {
+                CarrierCorridorDefenderPhase::Withdrawing {
+                    lateral_steps_remaining,
+                    retail_frame_accumulator: accumulator,
+                }
+            } else {
+                accumulator -= CARRIER_CORRIDOR_DEFENDER_MOTION_STEP_RETAIL_FRAMES;
+                object.base.position.x = object.base.position.x.wrapping_sub(state.lateral_step);
+                let lateral_steps_remaining = lateral_steps_remaining.saturating_sub(1);
+                if lateral_steps_remaining == 0 {
+                    withdrew = true;
+                    CarrierCorridorDefenderPhase::Withdrawing {
+                        lateral_steps_remaining,
+                        retail_frame_accumulator: accumulator,
+                    }
+                } else {
+                    CarrierCorridorDefenderPhase::Withdrawing {
+                        lateral_steps_remaining,
+                        retail_frame_accumulator: accumulator,
+                    }
+                }
+            }
+        }
+    };
+    object.extension.activity = ObjectActivity::CarrierCorridorDefender(state);
+    (shots, withdrew)
+}
+
 fn update_eladard_defender_projectile_object(
     object: &mut Object,
     mut state: EladardDefenderProjectileState,
@@ -13065,6 +13446,25 @@ fn update_eladard_defender_projectile_object(
         .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
     object.extension.activity = ObjectActivity::EladardDefenderProjectile(state);
     if state.age_retail_frames >= ELADARD_DEFENDER_PROJECTILE_LIFETIME_RETAIL_FRAMES {
+        object.base.flags.visible = false;
+        object.base.flags.collision_disabled = true;
+        object.base.flags.remove_after_tick = true;
+        return;
+    }
+    object.base.position.x = object.base.position.x.wrapping_add(object.base.velocity.x);
+    object.base.position.y = object.base.position.y.wrapping_add(object.base.velocity.y);
+    object.base.position.z = object.base.position.z.wrapping_add(object.base.velocity.z);
+}
+
+fn update_carrier_corridor_projectile_object(
+    object: &mut Object,
+    mut state: CarrierCorridorProjectileState,
+) {
+    state.age_retail_frames = state
+        .age_retail_frames
+        .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+    object.extension.activity = ObjectActivity::CarrierCorridorProjectile(state);
+    if state.age_retail_frames >= CARRIER_CORRIDOR_DEFENDER_PROJECTILE_LIFETIME_RETAIL_FRAMES {
         object.base.flags.visible = false;
         object.base.flags.collision_disabled = true;
         object.base.flags.remove_after_tick = true;
@@ -22435,6 +22835,164 @@ mod tests {
     }
 
     #[test]
+    fn battle_carrier_corridor_matches_the_retail_rail_and_three_sentries() {
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.begin_carrier_assault(MissionVisit::FirstBattleCarrier)
+            .unwrap();
+        game.state.mode = GameMode::Mission;
+        game.state.mode_frame = MISSION_ACTIVE_TICKS;
+        game.state.mission.phase = MissionPhase::Active;
+        game.enter_carrier_corridor(MISSION_ACTIVE_RETAIL_FRAMES as u16)
+            .unwrap();
+
+        let player = game.state.mission.primary_player.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.speed = PLAYER_CRUISE_SPEED;
+        let neutral_start = game.state.objects.get(player).unwrap().base.position.z;
+        game.tick(0).unwrap();
+        let neutral_player = game.state.objects.get(player).unwrap();
+        assert_eq!(neutral_player.base.speed, PLAYER_CRUISE_SPEED);
+        assert_eq!(
+            neutral_player.base.position.z.wrapping_sub(neutral_start),
+            flight_velocity(Angle::ZERO, Angle::ZERO, PLAYER_CRUISE_SPEED, 1).z
+        );
+        assert_eq!(
+            neutral_player.base.position.x,
+            CARRIER_CORRIDOR_START_POSITION.x
+        );
+        assert_eq!(
+            neutral_player.base.position.y,
+            CARRIER_CORRIDOR_START_POSITION.y
+        );
+        assert_eq!(neutral_player.base.pitch, Angle::ZERO);
+        assert_eq!(neutral_player.base.yaw, Angle::ZERO);
+
+        for _ in PLAYER_CRUISE_SPEED..CARRIER_CORRIDOR_BOOST_SPEED - 1 {
+            game.tick(Button::Y as u16).unwrap();
+        }
+        let boost_start = game.state.objects.get(player).unwrap().base.position.z;
+        game.tick(Button::Y as u16).unwrap();
+        let boosted_player = game.state.objects.get(player).unwrap();
+        assert_eq!(boosted_player.base.speed, CARRIER_CORRIDOR_BOOST_SPEED);
+        assert_eq!(
+            boosted_player.base.position.z.wrapping_sub(boost_start),
+            flight_velocity(Angle::ZERO, Angle::ZERO, CARRIER_CORRIDOR_BOOST_SPEED, 1,).z
+        );
+
+        let first_placement = CARRIER_CORRIDOR_DEFENDER_SCENE[0];
+        game.state.objects.get_mut(player).unwrap().base.position.z = first_placement
+            .position
+            .z
+            .saturating_sub(CARRIER_CORRIDOR_DEFENDER_TRIGGER_LEAD);
+        game.tick(0).unwrap();
+        let first = game.carrier_corridor_defenders[0].unwrap();
+        let first_object = game.state.objects.get(first).unwrap();
+        assert_eq!(first_object.base.shape, ShapeId::CARRIER_CORRIDOR_DEFENDER);
+        assert_eq!(first_object.base.position, first_placement.position);
+        assert_eq!(
+            first_object.base.hit_points,
+            CARRIER_CORRIDOR_DEFENDER_HEALTH
+        );
+        assert_eq!(first_object.base.weapon, WeaponKind::EnemyLaser);
+        assert_eq!(first_object.base.collision_class, CollisionClass::Enemy);
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_defenders[0],
+            CarrierCorridorDefenderStatus::Active
+        );
+
+        const CROSSING_NATIVE_TICKS_AFTER_SPAWN: usize = 23;
+        for _ in 0..CROSSING_NATIVE_TICKS_AFTER_SPAWN {
+            game.tick(0).unwrap();
+        }
+        let first_object = game.state.objects.get(first).unwrap();
+        assert_eq!(
+            first_object.base.position.x,
+            first_placement.position.x
+                + CARRIER_CORRIDOR_DEFENDER_LATERAL_STEP
+                    * i16::from(CARRIER_CORRIDOR_DEFENDER_LATERAL_STEPS)
+        );
+        assert_eq!(
+            first_object.extension.activity,
+            ObjectActivity::CarrierCorridorDefender(CarrierCorridorDefenderState {
+                phase: CarrierCorridorDefenderPhase::Volley {
+                    elapsed_retail_frames: 0,
+                    shots_fired: 0,
+                },
+                lateral_step: first_placement.lateral_step,
+            })
+        );
+
+        let first_shot_ticks = CARRIER_CORRIDOR_DEFENDER_VOLLEY_RETAIL_FRAMES[0]
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..first_shot_ticks {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.carrier_corridor_projectiles.len(), 1);
+        let first_projectile = game
+            .state
+            .objects
+            .get(game.carrier_corridor_projectiles[0])
+            .unwrap();
+        assert_eq!(first_projectile.base.shape, ShapeId::ENEMY_LASER);
+        assert_eq!(
+            first_projectile.base.speed,
+            CARRIER_CORRIDOR_DEFENDER_PROJECTILE_SPEED
+        );
+        assert_eq!(
+            first_projectile.base.collision_class,
+            CollisionClass::EnemyWeapon
+        );
+
+        let remaining_volley_ticks = (CARRIER_CORRIDOR_DEFENDER_VOLLEY_END_RETAIL_FRAME
+            - CARRIER_CORRIDOR_DEFENDER_VOLLEY_RETAIL_FRAMES[0])
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        for _ in 0..remaining_volley_ticks {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.carrier_corridor_projectiles.len(), 3);
+        for _ in 0..CROSSING_NATIVE_TICKS_AFTER_SPAWN + 1 {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.carrier_corridor_defenders[0], None);
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_defenders[0],
+            CarrierCorridorDefenderStatus::Withdrawn
+        );
+
+        let second_placement = CARRIER_CORRIDOR_DEFENDER_SCENE[1];
+        game.state.objects.get_mut(player).unwrap().base.position.z = second_placement
+            .position
+            .z
+            .saturating_sub(CARRIER_CORRIDOR_DEFENDER_TRIGGER_LEAD);
+        game.tick(0).unwrap();
+        let second = game.carrier_corridor_defenders[1].unwrap();
+        let mut laser = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::PLAYER_RAPID_LASER_FAST,
+            Behavior::Projectile,
+        );
+        laser.base.position = game.state.objects.get(second).unwrap().base.position;
+        laser.base.attack_power = PLAYER_RAPID_LASER_ATTACK_POWER;
+        laser.base.weapon = WeaponKind::Laser;
+        laser.base.collision_class = CollisionClass::PlayerWeapon;
+        game.state.objects.allocate(laser).unwrap();
+        game.resolve_mission_collisions();
+        game.sync_carrier_corridor_defenders();
+        assert_eq!(
+            game.state.mission.carrier_assault.corridor_defenders[1],
+            CarrierCorridorDefenderStatus::Destroyed
+        );
+        let score_before_defender = game.state.mission.score;
+        for _ in ENEMY_SCORE_AWARD_TIMER..ENEMY_DESTRUCTION_TICKS {
+            game.update_objects();
+        }
+        assert_eq!(
+            game.state.mission.score,
+            score_before_defender + CARRIER_CORRIDOR_DEFENDER_SCORE
+        );
+    }
+
+    #[test]
     fn battle_carrier_uses_typed_panels_and_matches_the_seventh_return() {
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
@@ -22473,6 +23031,8 @@ mod tests {
                 corridor_progress: 0,
                 reactor_room_open: false,
                 room_entry_transformation_started_retail_frame: None,
+                corridor_defenders: [CarrierCorridorDefenderStatus::Unreached;
+                    CARRIER_CORRIDOR_DEFENDER_COUNT],
                 port_panel: CarrierReactorPanel {
                     integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                     active: true,

@@ -178,6 +178,10 @@ impl ShapeId {
     /// Central doorway at the end of the Battle Carrier corridor.
     pub const CARRIER_CORRIDOR_DOOR: Self = Self(204);
 
+    /// One-hit sentry that crosses the Battle Carrier's central rail before
+    /// firing a three-shot volley and withdrawing into the wall.
+    pub const CARRIER_CORRIDOR_DEFENDER: Self = Self(452);
+
     /// Door and wall sections enclosing the Battle Carrier reactor room.
     pub const CARRIER_REACTOR_ENTRY: Self = Self(195);
     pub const CARRIER_REACTOR_REAR_WALL: Self = Self(235);
@@ -655,6 +659,37 @@ pub struct EladardDefenderProjectileState {
     pub age_retail_frames: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarrierCorridorDefenderPhase {
+    Crossing {
+        lateral_steps_remaining: u8,
+        retail_frame_accumulator: u8,
+    },
+    Volley {
+        elapsed_retail_frames: u16,
+        shots_fired: u8,
+    },
+    Withdrawing {
+        lateral_steps_remaining: u8,
+        retail_frame_accumulator: u8,
+    },
+}
+
+/// Flat behavior state for one Battle Carrier rail sentry. The signed lateral
+/// step is an ordinary world-space direction; no source-machine object window
+/// or strategy address is retained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CarrierCorridorDefenderState {
+    pub phase: CarrierCorridorDefenderPhase,
+    pub lateral_step: i16,
+}
+
+/// Lifetime state for a laser fired by a Battle Carrier rail sentry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CarrierCorridorProjectileState {
+    pub age_retail_frames: u16,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectActivity {
     #[default]
@@ -670,6 +705,8 @@ pub enum ObjectActivity {
     FinalRivalFlight(FinalRivalFlightState),
     EladardDefender(EladardDefenderState),
     EladardDefenderProjectile(EladardDefenderProjectileState),
+    CarrierCorridorDefender(CarrierCorridorDefenderState),
+    CarrierCorridorProjectile(CarrierCorridorProjectileState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),
 }

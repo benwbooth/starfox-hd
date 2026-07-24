@@ -1805,6 +1805,22 @@ pub struct CarrierReactorPanel {
     pub active: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarrierCorridorDefenderStatus {
+    Unreached,
+    Active,
+    Destroyed,
+    Withdrawn,
+}
+
+pub const CARRIER_CORRIDOR_DEFENDER_COUNT: usize = 3;
+
+impl Default for CarrierCorridorDefenderStatus {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
 impl Default for CarrierReactorPanel {
     fn default() -> Self {
         Self {
@@ -1825,6 +1841,7 @@ pub struct CarrierAssaultState {
     pub corridor_progress: u16,
     pub reactor_room_open: bool,
     pub room_entry_transformation_started_retail_frame: Option<u16>,
+    pub corridor_defenders: [CarrierCorridorDefenderStatus; CARRIER_CORRIDOR_DEFENDER_COUNT],
     pub port_panel: CarrierReactorPanel,
     pub starboard_panel: CarrierReactorPanel,
 }
