@@ -8056,6 +8056,7 @@ impl Game {
             defender.base.position = position;
             defender.base.yaw = Angle::HALF_TURN;
             defender.base.hit_points = ELADARD_INTERIOR_DEFENDER_HEALTH;
+            defender.base.attack_power = player_damage::ELADARD_DEFENDER_CONTACT_DAMAGE;
             defender.base.weapon = WeaponKind::EnemyLaser;
             defender.base.collision_class = CollisionClass::Enemy;
             defender.base.flags.casts_shadow = false;
@@ -13698,6 +13699,7 @@ impl Game {
         }
 
         self.resolve_hostile_projectile_collisions();
+        self.resolve_eladard_defender_body_collisions();
 
         let player_weapons: Vec<_> = self
             .state
@@ -13846,6 +13848,48 @@ impl Game {
             return;
         };
 
+        self.apply_player_damage(
+            player_id,
+            damage,
+            player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
+        );
+    }
+
+    fn resolve_eladard_defender_body_collisions(&mut self) {
+        if self.state.mission.player_damage != PlayerDamageState::Ready
+            || self.state.mission.visit != MissionVisit::EladardBase
+            || self.state.mission.player_craft_form != PlayerCraftForm::Walker
+        {
+            return;
+        }
+        let Some(player_id) = self.state.mission.primary_player else {
+            return;
+        };
+        let impact = self
+            .eladard_interior_defenders
+            .iter()
+            .flatten()
+            .copied()
+            .find_map(|defender_id| {
+                let player = self.state.objects.get(player_id)?;
+                let defender = self.state.objects.get(defender_id)?;
+                (!defender.base.flags.collision_disabled
+                    && defender.base.hit_points > 0
+                    && objects_overlap(player, defender))
+                .then_some(defender.base.attack_power)
+            });
+        let Some(damage) = impact else {
+            return;
+        };
+
+        self.apply_player_damage(
+            player_id,
+            damage,
+            player_damage::ELADARD_DEFENDER_CONTACT_RECOVERY_RETAIL_FRAMES,
+        );
+    }
+
+    fn apply_player_damage(&mut self, player_id: ObjectId, damage: u8, recovery_frames: u8) {
         let mut destroyed = false;
         if let Some(player) = self.state.objects.get_mut(player_id) {
             if player.base.flags.collision_disabled {
@@ -13867,7 +13911,7 @@ impl Game {
             };
         } else {
             self.state.mission.player_damage = PlayerDamageState::Recovering {
-                retail_frames_remaining: player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
+                retail_frames_remaining: recovery_frames,
             };
         }
     }
@@ -23220,6 +23264,99 @@ mod tests {
     }
 
     #[test]
+    fn eladard_defender_body_contact_matches_retail_damage_bounds_and_recovery() {
+        const ACCEPTED_CONTACT_OFFSETS: [Vector3; 3] = [
+            Vector3 { x: 48, y: 0, z: 0 },
+            Vector3 { x: 0, y: 60, z: 0 },
+            Vector3 { x: 0, y: 0, z: 65 },
+        ];
+        const REJECTED_CONTACT_OFFSETS: [Vector3; 3] = [
+            Vector3 { x: 49, y: 0, z: 0 },
+            Vector3 { x: 0, y: 61, z: 0 },
+            Vector3 { x: 0, y: 0, z: 66 },
+        ];
+        const RECOVERY_NATIVE_TICKS: usize =
+            player_damage::ELADARD_DEFENDER_CONTACT_RECOVERY_RETAIL_FRAMES as usize
+                / RETAIL_PRESENTATION_FRAMES_PER_TICK as usize;
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.begin_eladard_sortie().unwrap();
+        game.state.mode = GameMode::Mission;
+        game.state.mode_frame = MISSION_ACTIVE_TICKS;
+        game.state.mission.phase = MissionPhase::Active;
+        game.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        game.enter_eladard_interior().unwrap();
+        game.enter_eladard_phase(EladardPhase::InteriorPassage, 0);
+
+        let player_id = game.state.mission.primary_player.unwrap();
+        game.apply_player_craft_presentation(player_id, PlayerCraftPresentation::Walker);
+        game.state
+            .objects
+            .get_mut(player_id)
+            .unwrap()
+            .base
+            .flags
+            .collision_disabled = false;
+        let defender_id = game.eladard_interior_defenders[0].unwrap();
+        let defender = game.state.objects.get(defender_id).unwrap().clone();
+        let mut player = game.state.objects.get(player_id).unwrap().clone();
+        for offset in ACCEPTED_CONTACT_OFFSETS {
+            player.base.position = add_vectors(defender.base.position, offset);
+            assert!(objects_overlap(&player, &defender));
+        }
+        for offset in REJECTED_CONTACT_OFFSETS {
+            player.base.position = add_vectors(defender.base.position, offset);
+            assert!(!objects_overlap(&player, &defender));
+        }
+
+        let shield_before_contact = game.state.objects.get(player_id).unwrap().base.hit_points;
+        game.state.objects.get_mut(player_id).unwrap().base.position = defender.base.position;
+        game.resolve_mission_collisions();
+        assert_eq!(
+            game.state.objects.get(player_id).unwrap().base.hit_points,
+            shield_before_contact - player_damage::ELADARD_DEFENDER_CONTACT_DAMAGE
+        );
+        assert!(
+            game.state
+                .objects
+                .get(player_id)
+                .unwrap()
+                .base
+                .flags
+                .collided
+        );
+        assert_eq!(
+            game.state.mission.player_damage,
+            PlayerDamageState::Recovering {
+                retail_frames_remaining:
+                    player_damage::ELADARD_DEFENDER_CONTACT_RECOVERY_RETAIL_FRAMES,
+            }
+        );
+
+        for _ in 0..RECOVERY_NATIVE_TICKS - 1 {
+            game.advance_player_damage_timeline();
+        }
+        game.resolve_mission_collisions();
+        assert_eq!(
+            game.state.objects.get(player_id).unwrap().base.hit_points,
+            shield_before_contact - player_damage::ELADARD_DEFENDER_CONTACT_DAMAGE
+        );
+
+        game.advance_player_damage_timeline();
+        assert_eq!(game.state.mission.player_damage, PlayerDamageState::Ready);
+        game.resolve_mission_collisions();
+        assert_eq!(
+            game.state.objects.get(player_id).unwrap().base.hit_points,
+            shield_before_contact - 2 * player_damage::ELADARD_DEFENDER_CONTACT_DAMAGE
+        );
+        assert_eq!(
+            game.state.mission.eladard.interior_defenders[0],
+            EladardDefenderStatus::Active
+        );
+    }
+
+    #[test]
     fn eladard_route_uses_typed_objectives_and_matches_the_sixth_return() {
         const ELADARD_AND_VENOM_ASSIGNMENT_TIMING: u64 = 1;
         const FORMER_AUTOMATIC_RETURN_RETAIL_FRAME: u16 = 13_000;
@@ -23460,6 +23597,10 @@ mod tests {
             assert_eq!(defender.base.shape, ShapeId::ELADARD_INTERIOR_DEFENDER);
             assert_eq!(defender.base.position, position);
             assert_eq!(defender.base.hit_points, ELADARD_INTERIOR_DEFENDER_HEALTH);
+            assert_eq!(
+                defender.base.attack_power,
+                player_damage::ELADARD_DEFENDER_CONTACT_DAMAGE
+            );
             assert_eq!(defender.base.weapon, WeaponKind::EnemyLaser);
             assert_eq!(defender.base.collision_class, CollisionClass::Enemy);
             assert!(matches!(

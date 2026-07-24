@@ -19,6 +19,9 @@ def generated_source(fixture: Path) -> str:
     values = json.loads(fixture.read_text(encoding="utf-8"))
     required = {
         "hostile_projectile_attack_power",
+        "eladard_defender_contact_damage",
+        "eladard_defender_first_damage_retail_frame",
+        "eladard_defender_second_damage_retail_frame",
         "hostile_projectile_player_offset_min",
         "hostile_projectile_player_offset_max",
         "shield_before_first_hit",
@@ -38,6 +41,9 @@ def generated_source(fixture: Path) -> str:
         raise ValueError(f"fixture is missing fields: {', '.join(sorted(missing))}")
 
     attack_power = int(values["hostile_projectile_attack_power"])
+    defender_contact_damage = int(values["eladard_defender_contact_damage"])
+    defender_first_damage = int(values["eladard_defender_first_damage_retail_frame"])
+    defender_second_damage = int(values["eladard_defender_second_damage_retail_frame"])
     collision_minimum = tuple(
         int(value) for value in values["hostile_projectile_player_offset_min"]
     )
@@ -73,6 +79,7 @@ def generated_source(fixture: Path) -> str:
         collision_extents.append(maximum - center + 1)
 
     recovery_frames = recovery_complete - first_damage
+    defender_contact_recovery_frames = defender_second_damage - defender_first_damage
     # The trace records the first frame after each completed transition. The
     # native timeline advances in four-frame quanta, so the executable
     # duration ends one retail frame before the observed mode write.
@@ -81,6 +88,8 @@ def generated_source(fixture: Path) -> str:
     return_frames = strategic_map - continue_prompt - 1
     for name, value in {
         "attack power": attack_power,
+        "Eladard defender contact damage": defender_contact_damage,
+        "Eladard defender contact recovery duration": defender_contact_recovery_frames,
         "recovery duration": recovery_frames,
         "destruction duration": destruction_frames,
         "prompt duration": prompt_frames,
@@ -89,15 +98,17 @@ def generated_source(fixture: Path) -> str:
         if value <= 0:
             raise ValueError(f"{name} must be positive")
 
-    return f'''//! Generated semantic timing for hostile fire against the player craft.
+    return f'''//! Generated semantic timing for hostile contact against the player craft.
 //!
-//! Source: `player_damage.json`, reduced from a clean retail two-hit trace.
+//! Source: `player_damage.json`, reduced from clean projectile and Eladard-contact traces.
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_player_damage.py [--check]`.
 
 use super::{{CollisionBounds, Vector3}};
 
 pub(super) const HOSTILE_PROJECTILE_ATTACK_POWER: u8 = {attack_power};
+pub(super) const ELADARD_DEFENDER_CONTACT_DAMAGE: u8 = {defender_contact_damage};
+pub(super) const ELADARD_DEFENDER_CONTACT_RECOVERY_RETAIL_FRAMES: u8 = {defender_contact_recovery_frames};
 pub(super) const HOSTILE_PROJECTILE_PLAYER_OFFSET_CENTER: Vector3 = Vector3 {{
     x: {collision_centers[0]},
     y: {collision_centers[1]},

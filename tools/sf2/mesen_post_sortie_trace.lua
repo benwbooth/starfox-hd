@@ -121,6 +121,8 @@ local finished_strategic_threats = false
 local repaired_final_activation = false
 local preserve_shields =
   os.getenv("SF2_ORACLE_PRESERVE_SHIELDS") == "1"
+local preserve_shields_until_elapsed = tonumber(
+  os.getenv("SF2_ORACLE_PRESERVE_SHIELDS_UNTIL_ELAPSED"))
 local forced_player_health = tonumber(os.getenv("SF2_ORACLE_PLAYER_HEALTH"))
 local skip_surface_objectives =
   os.getenv("SF2_ORACLE_SKIP_SURFACE_OBJECTIVES") == "1"
@@ -387,7 +389,8 @@ lines[#lines + 1] = string.format(
     "target_collision=%s projectile_hit=%s hostile_projectile_hit=%s " ..
     "meteor_core_health=%s meteor_core_parent_health=%s meteor_core_trigger=%s " ..
     "objective_remaining=%s base_destroyed_bits=%s " ..
-    "base_handshake_bits=%s teleport=%s preserve_shields=%s",
+    "base_handshake_bits=%s teleport=%s preserve_shields=%s " ..
+      "preserve_shields_until=%s",
   resume_elapsed,
   forced_target_object_text or "none",
   tostring(forced_target_health),
@@ -401,7 +404,8 @@ lines[#lines + 1] = string.format(
   tostring(forced_base_destroyed_bits),
   tostring(forced_base_handshake_bits),
   tostring(teleport_text ~= nil),
-  tostring(preserve_shields))
+  tostring(preserve_shields),
+  tostring(preserve_shields_until_elapsed))
 audio_program_lines = {}
 local craft_transition_lines = {}
 local walker_dynamics_lines = {}
@@ -3089,7 +3093,11 @@ local function end_frame()
     write_work_word(0xDB47, 100 - forced_corneria_damage)
     write_work_word(0xDB49, forced_corneria_damage)
   end
-  if preserve_shields and work_byte(0x1B68) == 1 then
+  local elapsed = frame - armed_frame
+  local shield_preservation_active = preserve_shields
+    and (not preserve_shields_until_elapsed
+      or elapsed <= preserve_shields_until_elapsed)
+  if shield_preservation_active and work_byte(0x1B68) == 1 then
     -- Oracle-only survivability for long autonomous route capture.  Restore
     -- each pilot's current shield from the retail maximum; mission scripts,
     -- enemies, collision, scoring, and completion remain retail-controlled.

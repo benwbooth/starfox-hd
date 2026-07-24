@@ -1,12 +1,14 @@
-//! Generated semantic timing for hostile fire against the player craft.
+//! Generated semantic timing for hostile contact against the player craft.
 //!
-//! Source: `player_damage.json`, reduced from a clean retail two-hit trace.
+//! Source: `player_damage.json`, reduced from clean projectile and Eladard-contact traces.
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_player_damage.py [--check]`.
 
 use super::{CollisionBounds, Vector3};
 
 pub(super) const HOSTILE_PROJECTILE_ATTACK_POWER: u8 = 2;
+pub(super) const ELADARD_DEFENDER_CONTACT_DAMAGE: u8 = 4;
+pub(super) const ELADARD_DEFENDER_CONTACT_RECOVERY_RETAIL_FRAMES: u8 = 56;
 pub(super) const HOSTILE_PROJECTILE_PLAYER_OFFSET_CENTER: Vector3 = Vector3 {
     x: -9,
     y: 34,

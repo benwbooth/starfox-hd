@@ -1,5 +1,8 @@
 {
   "hostile_projectile_attack_power": 2,
+  "eladard_defender_contact_damage": 4,
+  "eladard_defender_first_damage_retail_frame": 40207,
+  "eladard_defender_second_damage_retail_frame": 40263,
   "hostile_projectile_player_offset_min": [-76, -49, -75],
   "hostile_projectile_player_offset_max": [58, 117, 53],
   "shield_before_first_hit": 1,
