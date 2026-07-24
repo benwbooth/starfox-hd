@@ -19,7 +19,10 @@ use crate::shapes_gl::ShapeStore;
 use crate::sprites::Sprites;
 use crate::transform::Transform;
 use crate::ui::Ui;
-use sf_core::scene::{PaletteFadeTarget, SceneStyle};
+use sf_core::{
+    scene::{PaletteFadeTarget, SceneStyle},
+    screen_wipe::ScreenWipeState,
+};
 
 /// Semantic presentation state shared by the native game and renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -368,6 +371,8 @@ pub struct FrameInputs<'a> {
     /// g_windowmode bitmask of allocated slots.
     pub windowmode: u8,
     pub windows: [WindowState; WINDOWARRAY_SIZE],
+    /// Native source-authored playfield reveal.
+    pub screen_wipe: ScreenWipeState,
 
     // HUD state
     /// g_meters.
@@ -455,6 +460,7 @@ impl<'a> Default for FrameInputs<'a> {
             palfade_num: 0,
             windowmode: 0,
             windows: [WindowState::default(); WINDOWARRAY_SIZE],
+            screen_wipe: ScreenWipeState::inactive(),
             meters: 0,
             stayblack: -1,
             gameflags: 0,

@@ -20,6 +20,7 @@ use crate::renderer::{
     WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
 };
 use crate::sprites::decode_4bpp_tile;
+use sf_core::screen_wipe::{SOURCE_HEIGHT, SOURCE_WIDTH};
 
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -3732,11 +3733,68 @@ impl Ui {
             }
         }
 
-        if black_a < 0.004 && white_a < 0.004 {
+        if !inputs.screen_wipe.active && black_a < 0.004 && white_a < 0.004 {
             return;
         }
 
         self.begin_2d(screen_width, screen_height);
+
+        if inputs.screen_wipe.active {
+            let spans = inputs.screen_wipe.aperture_spans();
+            let source_width = SOURCE_WIDTH as f32;
+            let source_height = SOURCE_HEIGHT as f32;
+            let output_width = screen_width as f32;
+            let output_height = screen_height as f32;
+            for (row, span) in spans.iter().enumerate() {
+                let y0 = row as f32 * output_height / source_height;
+                let y1 = (row + 1) as f32 * output_height / source_height;
+                let Some(span) = span else {
+                    self.quad_px(
+                        gpu,
+                        [0.0, 0.0, 0.0, 1.0],
+                        0.0,
+                        y0,
+                        output_width,
+                        y0,
+                        output_width,
+                        y1,
+                        0.0,
+                        y1,
+                    );
+                    continue;
+                };
+                let left = f32::from(span.left) * output_width / source_width;
+                let right = f32::from(span.right_exclusive) * output_width / source_width;
+                if left > 0.0 {
+                    self.quad_px(
+                        gpu,
+                        [0.0, 0.0, 0.0, 1.0],
+                        0.0,
+                        y0,
+                        left,
+                        y0,
+                        left,
+                        y1,
+                        0.0,
+                        y1,
+                    );
+                }
+                if right < output_width {
+                    self.quad_px(
+                        gpu,
+                        [0.0, 0.0, 0.0, 1.0],
+                        right,
+                        y0,
+                        output_width,
+                        y0,
+                        output_width,
+                        y1,
+                        right,
+                        y1,
+                    );
+                }
+            }
+        }
 
         if black_a >= 0.004 {
             self.quad_px(

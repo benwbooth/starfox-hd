@@ -10,6 +10,7 @@
 use std::sync::OnceLock;
 
 use crate::levels::{self, BuiltLevel};
+use sf_core::screen_wipe::ScreenWipeKind;
 
 /// Planet map IDs (matches PLANETS.ASM path table values; levels.h).
 pub mod map_id {
@@ -139,6 +140,48 @@ pub fn opening_background(id: u32) -> Option<u16> {
         map_id::TRAINING => Some(44),
         map_id::NONE | map_id::WAIT | map_id::PLANET => None,
         _ => None,
+    }
+}
+
+/// Source-authored screen transitions surrounding a map's opening.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OpeningWipePlan {
+    /// Reveal performed by the common `initlevel` wrapper before map content.
+    pub initial: Option<ScreenWipeKind>,
+    /// Reveal requested by a later explicit `wipein` in the map body.
+    pub on_init_black: Option<ScreenWipeKind>,
+}
+
+/// Exact `initlevel` / opening `wipein` assignment from `MAPS/*.ASM`.
+///
+/// The three Corneria routes first use `mstarwipe` around the common level
+/// initializer, then `mscramwipe` when the launch corridor hands control to
+/// the outdoor scene. Other listed maps have a single initializer wipe.
+pub fn opening_wipe_plan(id: u32) -> OpeningWipePlan {
+    use ScreenWipeKind::{HorizontalReveal, StarReveal};
+
+    match id {
+        map_id::M1_1 | map_id::M2_1 | map_id::M3_1 => OpeningWipePlan {
+            initial: Some(StarReveal),
+            on_init_black: Some(HorizontalReveal),
+        },
+        map_id::M1_2
+        | map_id::M1_5
+        | map_id::M2_2
+        | map_id::M2_4
+        | map_id::M2_5
+        | map_id::M3_2
+        | map_id::M3_4
+        | map_id::M3_6
+        | map_id::TRAINING => OpeningWipePlan {
+            initial: Some(StarReveal),
+            on_init_black: None,
+        },
+        map_id::M1_4 | map_id::M2_3 | map_id::M3_3 | map_id::M3_5 => OpeningWipePlan {
+            initial: Some(HorizontalReveal),
+            on_init_black: None,
+        },
+        _ => OpeningWipePlan::default(),
     }
 }
 

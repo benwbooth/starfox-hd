@@ -1170,6 +1170,7 @@ fn main() {
                 palfade_num: frame.palfade_num,
                 windowmode: frame.windowmode,
                 windows,
+                screen_wipe: frame.screen_wipe,
                 meters: frame.meters,
                 stayblack: frame.stayblack,
                 gameflags: frame.gameflags,

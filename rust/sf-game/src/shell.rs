@@ -24,6 +24,7 @@ use std::rc::Rc;
 use sf_core::{
     pad,
     scene::{PaletteFadeTarget, SceneStyle},
+    screen_wipe::{ScreenWipeKind, ScreenWipeState},
     DrawListEntry,
 };
 
@@ -61,6 +62,10 @@ pub const TALLY_READY_AUTO_TICKS: u16 = 60;
 /// C `DEATH_RESPAWN_TICKS` (src/game/boot.c:40) — 2.5 s after
 /// GF_PLAYERDEAD before reload.
 pub const DEATH_RESPAWN_TICKS: i32 = 50;
+/// `wipein` holds black for `mapwait 300`; the no-player map lane advances
+/// 65 source distance units per 20 Hz update, so the reveal starts after five
+/// updates (300 / 65 rounded up).
+pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 5;
 
 /// Staff-roll music package in the native audio catalog. The source ending
 /// switches to this package immediately before loading the credits map.
@@ -780,6 +785,8 @@ pub struct FrameSnapshot {
     pub palfade_num: u16,
     pub windowmode: u8,
     pub windows: [WindowSlot; 8],
+    /// Typed source-authored playfield reveal, if one is being presented.
+    pub screen_wipe: ScreenWipeState,
     pub meters: u16,
     pub stayblack: i8,
     pub gameflags: u8,
@@ -845,6 +852,16 @@ pub struct FrameSnapshot {
 /// windows.c/strings.c/sound.c exposed to world.c/levels.c).
 struct ShellState {
     windows: Windows,
+    /// Native replacement for the source `circletab` opening-wipe cursor.
+    screen_wipe: ScreenWipeState,
+    /// Remaining fully-closed presentation ticks before the aperture advances.
+    screen_wipe_hold: u8,
+    /// The Corneria launch maps request a second reveal at their explicit
+    /// `initblack_l` handoff after the scramble corridor.
+    pending_init_black_wipe: Option<ScreenWipeKind>,
+    /// A catalog-managed opening owns the first common-wrapper `initblack_l`;
+    /// suppress that duplicate black window if the builder retained it.
+    suppress_next_init_black: bool,
     strings: Strings,
     sound: Vec<SoundCmd>,
     /// Last `setcharmap*_l` layout (HD stand-in for SNES VRAM tilemap upload).
@@ -863,12 +880,56 @@ impl ShellState {
     fn new() -> Self {
         ShellState {
             windows: Windows::new(),
+            screen_wipe: ScreenWipeState::inactive(),
+            screen_wipe_hold: 0,
+            pending_init_black_wipe: None,
+            suppress_next_init_black: false,
             strings: Strings::new(),
             sound: Vec::new(),
             charmap: CharMap::new(),
             path_warned: vec![false; 512],
             shape_extents: HashMap::new(),
         }
+    }
+
+    fn begin_screen_wipe(&mut self, kind: ScreenWipeKind, black_hold: u8) {
+        self.screen_wipe.begin(kind);
+        self.screen_wipe_hold = black_hold;
+    }
+
+    fn configure_opening_wipe(&mut self, plan: sf_map::catalog::OpeningWipePlan) {
+        self.screen_wipe = ScreenWipeState::inactive();
+        self.screen_wipe_hold = 0;
+        self.pending_init_black_wipe = plan.on_init_black;
+        self.suppress_next_init_black = false;
+
+        if let Some(kind) = plan.initial {
+            let is_launch_sequence = plan.on_init_black.is_some();
+            self.begin_screen_wipe(
+                kind,
+                if is_launch_sequence {
+                    0
+                } else {
+                    OPENING_WIPE_BLACK_HOLD_TICKS
+                },
+            );
+            self.suppress_next_init_black = !is_launch_sequence;
+        }
+    }
+
+    fn step_screen_wipe(&mut self) -> bool {
+        if !self.screen_wipe.active {
+            return false;
+        }
+        if self.screen_wipe_hold > 0 {
+            self.screen_wipe_hold -= 1;
+            return true;
+        }
+        let active = self.screen_wipe.advance();
+        if !active {
+            self.suppress_next_init_black = false;
+        }
+        active
     }
 }
 
@@ -941,7 +1002,16 @@ impl Hooks for ShellHooks {
     }
 
     fn init_black(&mut self) {
-        self.state.borrow_mut().windows.init_black();
+        let mut state = self.state.borrow_mut();
+        if let Some(kind) = state.pending_init_black_wipe.take() {
+            state.begin_screen_wipe(kind, OPENING_WIPE_BLACK_HOLD_TICKS);
+            return;
+        }
+        if state.suppress_next_init_black {
+            state.suppress_next_init_black = false;
+            return;
+        }
+        state.windows.init_black();
     }
 
     fn init_fade_white2norm(&mut self) {
@@ -1145,6 +1215,19 @@ impl Shell {
     /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
     /// stored into `game.vars.pad1`.
     pub fn tick(&mut self, pad1: u16) {
+        // The frame assembled after this update presents the newly selected
+        // record. Advancing before simulation lets a wipe started by this
+        // tick's map code retain its authored frame zero for one full frame.
+        let (wipe_was_active, wipe_active) = {
+            let mut state = self.state.borrow_mut();
+            let was_active = state.screen_wipe.active;
+            (was_active, state.step_screen_wipe())
+        };
+        self.game.vars.strategy.wipe_active = u8::from(wipe_active);
+        if wipe_was_active && !wipe_active && self.game.vars.circleanim == 1 {
+            self.game.vars.circleanim = 0;
+        }
+
         let trace_state = self.game_state;
         self.pad1_new = pad1 & !self.prev_pad;
         self.prev_pad = pad1;
@@ -1241,6 +1324,18 @@ impl Shell {
         };
         self.game.vars.shared.friends_meter = friends_meter;
 
+        // Direct strategy callbacks use the source-layout `circleanim` field
+        // to request the default star wipe. Promote that request into typed
+        // presentation state; smart-bomb value 2 is a separate color/radius
+        // effect and is deliberately not mistaken for an opening aperture.
+        if self.game.vars.circleanim == 1 {
+            let mut state = self.state.borrow_mut();
+            if !state.screen_wipe.active {
+                state.begin_screen_wipe(ScreenWipeKind::StarReveal, 0);
+                self.game.vars.strategy.wipe_active = 1;
+            }
+        }
+
         // Diagnostic: report state transitions + the level entered. Low-volume
         // (a handful of transitions per session); makes a "stuck after X" report
         // pinpoint the exact state without a debugger.
@@ -1305,6 +1400,7 @@ impl Shell {
             palfade_num: v.palfade_num,
             windowmode: st.windows.windowmode,
             windows: st.windows.slots,
+            screen_wipe: st.screen_wipe,
             meters: v.meters,
             stayblack: v.strategy.stay_black,
             gameflags: v.gameflags,
@@ -1446,6 +1542,11 @@ impl Shell {
         };
         self.game.load_level(level);
         self.game.world.loaded_map_id = Some(map_id);
+
+        let opening_wipe = sf_map::catalog::opening_wipe_plan(map_id);
+        self.state.borrow_mut().configure_opening_wipe(opening_wipe);
+        self.game.vars.circleanim = if opening_wipe.initial.is_some() { 1 } else { 0 };
+        self.game.vars.strategy.wipe_active = u8::from(opening_wipe.initial.is_some());
 
         if let Some(background) = sf_map::catalog::opening_background(map_id) {
             self.game.vars.currentbg = background;
@@ -2403,7 +2504,66 @@ impl Default for Shell {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sf_core::screen_wipe::ScreenWipeKind::{HorizontalReveal, StarReveal};
     use sf_map::catalog::map_id;
+
+    fn finish_active_screen_wipe(shell: &mut Shell) {
+        const MAX_PRESENTATION_TICKS: usize = 64;
+        for _ in 0..MAX_PRESENTATION_TICKS {
+            if !shell.frame().screen_wipe.active {
+                return;
+            }
+            shell.tick(0);
+        }
+        panic!("screen wipe did not finish within its authored frame budget");
+    }
+
+    #[test]
+    fn catalog_opening_wipe_holds_black_then_presents_every_record() {
+        let mut shell = Shell::new();
+        shell.load_map(map_id::M1_2);
+        assert_eq!(shell.frame().screen_wipe.kind, StarReveal);
+        assert_eq!(shell.frame().screen_wipe.frame, 0);
+        assert!(shell.frame().screen_wipe.active);
+
+        for _ in 0..OPENING_WIPE_BLACK_HOLD_TICKS {
+            assert!(shell.state.borrow_mut().step_screen_wipe());
+            assert_eq!(shell.frame().screen_wipe.frame, 0);
+        }
+        for expected_frame in 1..StarReveal.frame_count() {
+            assert!(shell.state.borrow_mut().step_screen_wipe());
+            assert_eq!(shell.frame().screen_wipe.frame, expected_frame);
+        }
+        assert!(!shell.state.borrow_mut().step_screen_wipe());
+        assert!(!shell.frame().screen_wipe.active);
+    }
+
+    #[test]
+    fn corneria_init_black_handoff_selects_horizontal_reveal() {
+        let mut shell = Shell::new();
+        shell.load_map(map_id::M1_1);
+        assert_eq!(shell.frame().screen_wipe.kind, StarReveal);
+
+        shell.game.hooks.init_black();
+        let frame = shell.frame();
+        assert_eq!(frame.screen_wipe.kind, HorizontalReveal);
+        assert_eq!(frame.screen_wipe.frame, 0);
+        assert_eq!(shell.state.borrow().windows.windowmode, 0);
+    }
+
+    #[test]
+    fn catalog_transition_suppresses_only_its_duplicate_black_window() {
+        let mut shell = Shell::new();
+        shell.load_map(map_id::M1_4);
+        shell.game.hooks.init_black();
+        assert_eq!(shell.state.borrow().windows.windowmode, 0);
+        assert_eq!(shell.frame().screen_wipe.kind, HorizontalReveal);
+
+        shell.load_map(map_id::M1_3);
+        shell.game.hooks.init_black();
+        assert_ne!(shell.state.borrow().windows.windowmode, 0);
+        assert!(!shell.frame().screen_wipe.active);
+    }
 
     /// The make_snd hook (positional SE, findings F1-F4) routes through the
     /// shell's sound queue as a distinct SoundCmd carrying the family selector
@@ -2516,9 +2676,9 @@ mod tests {
         let _ = sh.drain_sound();
         assert_eq!(sh.state(), GameState::Playing);
         assert!(!sh.is_paused());
+        finish_active_screen_wipe(&mut sh);
 
         // Pause on.
-        sh.tick(0); // release START for edge
         sh.tick(pad::START);
         assert!(sh.is_paused());
         assert!(sh.drain_sound().contains(&SoundCmd::PauseSnd(0x02)));
@@ -2547,8 +2707,17 @@ mod tests {
         sh.tick(pad::START);
         let _ = sh.drain_sound();
 
-        sh.game.vars.strategy.stay_black = 0;
+        // The source `doingwipe` lock rejects pause during the opening reveal.
         sh.tick(0);
+        sh.tick(pad::START);
+        assert!(!sh.is_paused());
+        assert!(!sh
+            .drain_sound()
+            .iter()
+            .any(|command| matches!(command, SoundCmd::PauseSnd(_))));
+        finish_active_screen_wipe(&mut sh);
+
+        sh.game.vars.strategy.stay_black = 0;
         sh.tick(pad::START);
         assert!(!sh.is_paused());
         assert!(!sh
