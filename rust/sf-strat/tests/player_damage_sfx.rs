@@ -3,12 +3,13 @@
 //! ROM PSTRATS.ASM pcolB/LW/RW + PLWbrk/PRWbrk + playerdead_Istrat;
 //! GSTRATS.ASM nukeexp_Istrat trigse $30.
 
+use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{ACF_COLLTYPE1, ASF_COLLDISABLE};
-use sf_game::vars::{GameVars, SPACE_MODE};
+use sf_game::vars::{GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PSF2_PLAYERHP0, SPACE_MODE};
 use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{nukeexp_istrat, ASF2_SFLAG1, ASF2_SFLAG2};
-use sf_strat::player::{pcbox_attach, strat_spawn_player};
+use sf_strat::player::{pcbox_attach, strat_spawn_player, COCKPIT_EXIT_FRAMES};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -28,6 +29,9 @@ const SE_SHIELD_E: u8 = 0x1c;
 const SE_PLAYER_DOWN: u8 = 0x03;
 const BGM_PLAYER_DOWN: u8 = 0x11;
 const SE_NOVA_DET: u8 = 0x30;
+const LETHAL_BODY_HEALTH: u8 = 3;
+const LETHAL_SHOT_POWER: u8 = 3;
+const DEATH_DISPATCH_TICK_LIMIT: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Ev {
@@ -299,6 +303,73 @@ fn player_death_plays_se03_and_bgm11() {
         log.borrow().contains(&Ev::Music(BGM_PLAYER_DOWN)),
         "expected death BGM $11, got {:?}",
         log.borrow()
+    );
+}
+
+#[test]
+fn cockpit_death_finishes_the_authored_ejection_before_crashing() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let (mut g, player) = spawn_with_boxes(log.clone());
+    g.vars.player_view_mode = PlayerViewMode::Cockpit;
+    let body = g.coldet.pcbox.body.expect("body box");
+    g.tick();
+    let (body_x, body_y, body_z) = {
+        let object = &g.objs.aliens[body as usize];
+        (object.worldx, object.worldy, object.worldz)
+    };
+    g.objs.aliens[body as usize].hp = LETHAL_BODY_HEALTH;
+    let shot = spawn_shot(&mut g, body_x, body_y, body_z, LETHAL_SHOT_POWER);
+
+    log.borrow_mut().clear();
+    g.tick();
+    g.tick();
+    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    for _ in 0..DEATH_DISPATCH_TICK_LIMIT {
+        g.tick();
+        if g.vars.player_view_mode == PlayerViewMode::LeavingCockpit {
+            break;
+        }
+    }
+
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
+    assert_ne!(g.vars.pshipflags2 & PSF2_PLAYERHP0, 0);
+    assert_eq!(g.vars.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD), 0);
+    assert_ne!(g.objs.aliens[player as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), COCKPIT_EXIT_FRAMES - 1);
+    let transition = g.objs.aliens[player as usize]
+        .stratptr
+        .expect("cockpit-ejection callback");
+
+    for _ in 0..usize::from(COCKPIT_EXIT_FRAMES - 2) {
+        g.call_strat(transition, player);
+    }
+    assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), 1);
+    assert_eq!(g.vars.gameflags & GF_PLAYERDYING, 0);
+    assert_eq!(g.objs.aliens[player as usize].stratptr, Some(transition));
+
+    g.call_strat(transition, player);
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::Exterior);
+    assert_ne!(g.vars.gameflags & GF_PLAYERDYING, 0);
+    assert_eq!(g.vars.gameflags & GF_PLAYERDEAD, 0);
+    assert_eq!(g.objs.aliens[player as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[player as usize].stratptr, Some(transition));
+    assert!(g.objs.aliens[player as usize].collstratptr.is_some());
+    assert!(g.objs.aliens[player as usize].expstratptr.is_some());
+
+    let events = log.borrow();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| **event == Ev::Se(SE_PLAYER_DOWN))
+            .count(),
+        1
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| **event == Ev::Music(BGM_PLAYER_DOWN))
+            .count(),
+        1
     );
 }
 

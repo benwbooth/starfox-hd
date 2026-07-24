@@ -73,6 +73,8 @@ dist_xz, msqrt16/32, mcalcperc, calcstageperc, framescalevecs, anglexy axis/diag
 
 - [x] Cockpit enter/exit and player view cycle — typed exterior/cockpit modes and per-background cycles; exact Select edge/gates; `changeviewmode_l` dispatcher; `set_player_into_cock` / `out_of_cock` + phase strats + `make_all_med_pspeed`; scripted carrier/colony/map transitions; tests `player_view.rs`, `player_view_modes.rs`, `player_cockpit.rs`.
 
+- [x] Cockpit death/ejection handoff — lethal cockpit hits run `playeroutofcock` for the source 23-count transition before the ordinary crash; straight-flight body, count-19 props, death roll, sequence-preserving space setup, dedicated hit-flash/explosion callbacks, and one-shot audio/life accounting; tests `player_cockpit.rs`, `player_damage_sfx.rs`, and all three unattended routes.
+
 - [x] Opening `pstrat` dispatch — typed catalog for every spawned BGS background; all 27 route/special/presentation maps install the authored initializer; ground dive builds its linked duplicate ship and camera; tests `catalog`, `player_view_modes.rs`, `player_flyin.rs`, and all three unattended routes.
 
 - [x] LB out/in, divegnd, cred, tunnel→planet, VIEWLB3MOVE — tests `player_lb_cred.rs`.

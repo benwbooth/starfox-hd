@@ -6,7 +6,7 @@ use sf_game::Game;
 use sf_strat::common::StratRam;
 use sf_strat::player::{
     make_all_med_pspeed, player_into_cock2_init, player_into_cock_strat, player_out_of_cock_strat,
-    player_sv as sv, set_player_into_cock, set_player_out_of_cock,
+    player_sv as sv, set_player_into_cock, set_player_out_of_cock, COCKPIT_EXIT_FRAMES,
 };
 
 #[test]
@@ -88,12 +88,13 @@ fn out_of_cock_init_and_countdown() {
     set_player_out_of_cock(&mut g, p);
     assert_eq!(g.vars.viewdist, OUTVIEWDIST);
     assert_eq!(g.vars.sv_i16(sv::OUTDIST), OUTVIEWDIST);
-    assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), 23);
+    assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), COCKPIT_EXIT_FRAMES - 1);
     assert_eq!(g.vars.pstratflags & PSTF_NOVDISTC, 0);
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
 
     let done = player_out_of_cock_strat(&mut g, p);
     assert!(!done);
-    assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), 22);
+    assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), COCKPIT_EXIT_FRAMES - 2);
 }
 
 #[test]

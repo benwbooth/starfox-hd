@@ -54,7 +54,11 @@ fn undergnd_and_space() {
     assert_eq!(g.vars.sv_i16(sv::MAXPMOVEX), 240);
     assert!(g.vars.playerflymode & PFM_DIEYROT != 0);
     assert!(g.vars.playerflymode & PFM_WOBBLE != 0);
-    assert_eq!(g.objs.aliens[p as usize].sflags & ASF_SHADOW, 0);
+    assert_ne!(
+        g.objs.aliens[p as usize].sflags & ASF_SHADOW,
+        0,
+        "space macro preserves the source-untouched shadow state"
+    );
     assert!(g.vars.gameflags & GF_VIEWROT != 0);
 }
 

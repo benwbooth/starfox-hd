@@ -26,7 +26,8 @@ use crate::common::{
 };
 use crate::enemy_a::{
     add_player_z, addrnd2pos_xy, fire_nuke, make_large_exp_obj, make_medium_exp_obj,
-    shiplb1_istrat, sid as ea_sid, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3, ASF4_NOPOLYEXP,
+    phitflash_istrat, shiplb1_istrat, sid as ea_sid, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3,
+    ASF4_NOPOLYEXP,
 };
 /// ROM `sflag4` — sflags2 bit 7 (STRATEQU.INC make_sflag after sflag3).
 const ASF2_SFLAG4: u8 = 0x80;
@@ -144,6 +145,7 @@ const SE_WIRE_WING_SCRAPE: u8 = 0x14;
 /// Player-down one-shot + death BGM (PSTRATS.ASM:3110/3115).
 const SE_PLAYER_DOWN: u8 = 0x03;
 const BGM_PLAYER_DOWN: u8 = 0x11;
+const SE_PLAYER_EXPLOSION: u8 = 0x03;
 
 /// C SHAPE_MYSHIP_4 / SHAPE_ARWING (src/renderer/shapes.h:42).
 const SHAPE_MYSHIP_4: u16 = 2;
@@ -318,6 +320,7 @@ const LTUNNEL_MMAXY: i16 = 60 + LTUNNEL_VIEWCY;
 const LTUNNEL_MINY: i16 = -60 + LTUNNEL_VIEWCY;
 const LTUNNEL_MAXY: i16 = 60 + LTUNNEL_VIEWCY;
 const PLAYERB_YSTOP: i16 = -20;
+const PLAYER_WING_Y_PADDING: i16 = 5;
 
 /// Bounds + flags for one `s_playerfly_mode` tunnel/exit row (STRATEQU.INC).
 #[derive(Clone, Copy)]
@@ -435,7 +438,7 @@ fn apply_tunnel_fly_mode(g: &mut Game, idx: u16, mode: TunnelFlyMode) {
         v.set_sv_i16(sv::MAXMMOVEX, mode.mmax_x);
         v.set_sv_i16(sv::MAXMMOVEY, mode.mmax_y);
         v.set_sv_i16(sv::MINPWMOVEY, mode.min_y);
-        v.set_sv_i16(sv::MAXPWMOVEY, mode.max_y + 5);
+        v.set_sv_i16(sv::MAXPWMOVEY, mode.max_y + PLAYER_WING_Y_PADDING);
         v.minpmove_y = mode.min_y;
         v.set_sv_i16(sv::MAXPMOVEY, mode.max_y + PLAYERB_YSTOP);
         v.playerflymode = mode.flymode;
@@ -481,6 +484,10 @@ const SCREENFLASH_BODY_TYPE: u8 = 0;
 const SCREENFLASH_WING_FRMS: u8 = 2;
 const SCREENFLASH_WING_TYPE: u8 = 1;
 const PLAYER_DEAD_FRAMES: u8 = 60;
+const PLAYER_DEATH_FLASH_FRAMES: u8 = 15;
+const PLAYER_DEATH_ROLL_ACCELERATION: u8 = 4;
+const PLAYER_DEATH_PITCH_TARGET: i16 = 5000;
+const PLAYER_DEATH_GROUND_PITCH: i16 = -2000;
 const SHIPINTRO_LIFE: u8 = 40;
 const SHIPINTRO_BOOST_Z: i16 = 50;
 
@@ -895,6 +902,7 @@ fn playercoll_istrat(g: &mut Game, idx: u16) {
             g.vars.set_sv_u8(sv::SCREENFLASHTYPE, SCREENFLASH_BODY_TYPE);
             if g.objs.aliens[i].hp == 0 {
                 playerdead_istrat(g, idx);
+                return;
             }
         }
     }
@@ -903,6 +911,30 @@ fn playercoll_istrat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
     if let Some(strat) = g.objs.aliens[idx as usize].stratptr {
         g.call_strat(strat, idx);
+    }
+}
+
+/// ROM `pexplode_Istrat` — replace the crashing ship with its terminal
+/// explosion and hand the typed death state to the shell.
+fn player_explode_istrat(g: &mut Game, idx: u16) {
+    if g.vars.gameflags & GF_PLAYERDEAD != 0 {
+        return;
+    }
+
+    {
+        let player = &mut g.objs.aliens[idx as usize];
+        player.flags |= AFEXP;
+        player.sflags &= !ASF_SHADOW;
+        player.vx = 0;
+        player.vy = 0;
+        player.vz = 0;
+    }
+    g.hooks.play_se(SE_PLAYER_EXPLOSION);
+    g.vars.gameflags &= !GF_PLAYERDYING;
+    g.vars.gameflags |= GF_PLAYERDEAD;
+    let lives = g.vars.sv_u8(sv::LIVES);
+    if lives > 0 {
+        g.vars.set_sv_u8(sv::LIVES, lives - 1);
     }
 }
 
@@ -924,37 +956,17 @@ fn playerdead_strat(g: &mut Game, idx: u16) {
     let vpz = g.vars.sv_i16(sv::VIEWPOSZ);
     g.vars.set_sv_i16(sv::BGSSCROLLZ, vpz);
 
-    g.objs.aliens[i].sflags |= ASF_COLLDISABLE;
-
     // s_add_alvar B,x,al_sbyte1,#1 ; == 10*6 -> pexplode_Istrat
-    if g.objs.aliens[i].sbyte1 < 0xFF {
+    if g.objs.aliens[i].sbyte1 < u8::MAX {
         g.objs.aliens[i].sbyte1 += 1;
     }
     if g.objs.aliens[i].sbyte1 >= PLAYER_DEAD_FRAMES {
-        // pexplode_Istrat (PSTRATS.ASM:3379): the ship becomes the explosion
-        // (AFEXP renders the explosion sprite chain), shadow off, se 3 boom;
-        // GF_PLAYERDEAD hands the respawn/game-over flow to the shell, which
-        // owns the canonical lives count.
-        {
-            let al = &mut g.objs.aliens[i];
-            al.flags |= AFEXP;
-            al.sflags &= !ASF_SHADOW;
-            al.vx = 0;
-            al.vy = 0;
-            al.vz = 0;
-        }
-        g.hooks.play_se(0x03);
-        g.vars.gameflags &= !GF_PLAYERDYING;
-        g.vars.gameflags |= GF_PLAYERDEAD;
-        let lives = g.vars.sv_u8(sv::LIVES);
-        if lives > 0 {
-            g.vars.set_sv_u8(sv::LIVES, lives - 1);
-        }
+        player_explode_istrat(g, idx);
         return;
     }
 
     // sbyte1 < 15: blink hitflash every other frame (PSTRATS:3297-3301).
-    if g.objs.aliens[i].sbyte1 < 15 && g.vars.gameframe & 1 == 0 {
+    if g.objs.aliens[i].sbyte1 < PLAYER_DEATH_FLASH_FRAMES && g.vars.gameframe & 1 == 0 {
         g.objs.aliens[i].sflags |= ASF_HITFLASH;
     }
 
@@ -964,15 +976,22 @@ fn playerdead_strat(g: &mut Game, idx: u16) {
         if g.objs.aliens[i].worldy < 0 {
             // s_jmp_NOTdelay 1 / s_Achase_var W,plrotx,#5000,4 — nose down.
             if g.vars.gameframe & 1 == 0 {
-                let rx = strat_chase_proportional(g.vars.sv_i16(sv::PLROTX), 5000, 4);
+                let rx = strat_chase_proportional(
+                    g.vars.sv_i16(sv::PLROTX),
+                    PLAYER_DEATH_PITCH_TARGET,
+                    4,
+                );
                 g.vars.set_sv_i16(sv::PLROTX, rx);
             }
             // s_add_var B,player_Zstratadd,#4 — accelerating roll spin.
-            let zadd = g.vars.sv_u8(sv::PLAYER_ZSTRATADD).wrapping_add(4);
+            let zadd = g
+                .vars
+                .sv_u8(sv::PLAYER_ZSTRATADD)
+                .wrapping_add(PLAYER_DEATH_ROLL_ACCELERATION);
             g.vars.set_sv_u8(sv::PLAYER_ZSTRATADD, zadd);
         } else {
             // Ground slam: plrotx=-2000, pin to the deck (sparks in ROM).
-            g.vars.set_sv_i16(sv::PLROTX, -2000);
+            g.vars.set_sv_i16(sv::PLROTX, PLAYER_DEATH_GROUND_PITCH);
             g.objs.aliens[i].worldy = 0;
         }
     }
@@ -1015,63 +1034,73 @@ fn playerdead_strat(g: &mut Game, idx: u16) {
 
 /// C `playerdead_istrat` (strat_player.c:237).
 fn playerdead_istrat(g: &mut Game, idx: u16) {
-    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
-        // Already dying. do_strat routes hp==0 objects to expstratptr (this
-        // fn) INSTEAD of stratptr, so if anything re-zeroed hp the crash
-        // sequence would freeze forever (the pre-fix "collisions just stop
-        // the arwing" symptom). Keep hp nonzero so the dead strat keeps
-        // dispatching.
+    if g.vars.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0
+        || (g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0
+            && g.vars.player_view_mode == PlayerViewMode::LeavingCockpit)
+    {
+        // Keep the player on the installed transition/crash callback if an
+        // overlapping object tries to route through the death initializer
+        // again.
         if g.objs.aliens[idx as usize].hp == 0 {
             g.objs.aliens[idx as usize].hp = 10;
         }
         return;
     }
 
-    g.vars.pshipflags2 |= PSF2_PLAYERHP0;
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
     g.vars.pstratflags |= PSTF_INSEQ;
     g.vars.pshipflags3 &= !PSF3_ENGINESND;
-    g.vars.gameflags |= GF_PLAYERDYING;
     g.vars.gameflags &= !GF_PLAYERDEAD;
 
     // PSTRATS.ASM:3031-3045 disables and detaches the three HP proxies.
-    let had_pcbox = g.coldet.pcbox.player == Some(idx);
     g.pcbox_detach();
 
-    let dead = sid(g, K_PLAYERDEAD_STRAT);
-    let coll = sid(g, K_PLAYERCOLL);
-    let exp = sid(g, K_PLAYERDEAD_INIT);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.hp = 10;
-    al.ap = 0;
-    al.sbyte1 = 0;
-    al.sflags &= !ASF_COLLIDE;
-    // The normal death path explicitly re-enables the ship and changes it to
-    // colltype enemyweap (PSTRATS.ASM:3047-3104), making the crashing Arwing a
-    // harmless hazard while same-category enemy shots are filtered.
-    if had_pcbox && g.vars.player_view_mode != PlayerViewMode::Cockpit {
-        al.sflags &= !ASF_COLLDISABLE;
-    } else {
-        // Inside-cockpit death is colldisable in the ROM. Keep the same safe
-        // behavior for the isolated direct-model fallback, which has no HP
-        // proxies to prevent collision damage from re-entering the crash.
-        al.sflags |= ASF_COLLDISABLE;
+    {
+        let player = &mut g.objs.aliens[idx as usize];
+        player.hp = 10;
+        player.ap = 0;
+        player.sflags &= !ASF_COLLIDE;
+        player.collflags = (player.collflags
+            & !(sf_game::alien::ACF_COLLTYPE1
+                | sf_game::alien::ACF_COLLTYPE2
+                | sf_game::alien::ACF_COLLTYPE3
+                | sf_game::alien::ACF_COLLTYPE4
+                | sf_game::alien::ACF_COLLTYPE5))
+            | ACF_COLLTYPE4;
     }
-    al.collflags = (al.collflags
-        & !(sf_game::alien::ACF_COLLTYPE1
-            | sf_game::alien::ACF_COLLTYPE2
-            | sf_game::alien::ACF_COLLTYPE3
-            | sf_game::alien::ACF_COLLTYPE4
-            | sf_game::alien::ACF_COLLTYPE5))
-        | ACF_COLLTYPE4;
-    al.stratptr = Some(dead);
-    al.collstratptr = Some(coll);
-    al.expstratptr = Some(exp);
 
-    // ROM: trigse se_playerdown + startbgm $11 (PSTRATS.ASM:3110-3115),
-    // gated by the psf2_playerHP0 latch above so respawn re-entry is silent.
-    g.hooks.play_se(SE_PLAYER_DOWN);
-    g.hooks.play_music(BGM_PLAYER_DOWN);
+    let first_entry = g.vars.pshipflags2 & PSF2_PLAYERHP0 == 0;
+    if first_entry {
+        g.vars.pshipflags2 |= PSF2_PLAYERHP0;
+        g.hooks.play_se(SE_PLAYER_DOWN);
+        g.hooks.play_music(BGM_PLAYER_DOWN);
+    }
+
+    // `spfm_inside` does not begin the crash in place. It first installs the
+    // authored cockpit ejection and returns; that transition re-enters this
+    // initializer after its final frame.
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
+        g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+        g.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
+        set_player_out_of_cock(g, idx);
+        return;
+    }
+
+    let dead = sid(g, K_PLAYERDEAD_STRAT);
+    let coll = ea_sid(g, phitflash_istrat);
+    let exp = ea_sid(g, player_explode_istrat);
+    {
+        let player = &mut g.objs.aliens[idx as usize];
+        player.sbyte1 = 0;
+        player.sflags &= !ASF_COLLDISABLE;
+        player.stratptr = Some(dead);
+        player.collstratptr = Some(coll);
+        player.expstratptr = Some(exp);
+    }
+    g.vars.gameflags |= GF_PLAYERDYING;
+
+    // The initializer falls through into `playerdead_strat` in the source.
+    playerdead_strat(g, idx);
 }
 
 // ============================================================
@@ -2559,6 +2588,7 @@ fn update_viewxy_for_mode(g: &mut Game, idx: u16) {
 pub fn strat_player(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].hp == 0 {
         playerdead_istrat(g, idx);
+        return;
     }
 
     if g.vars.gameflags & GF_PLAYERDYING != 0 || g.vars.gameflags & GF_PLAYERDEAD != 0 {
@@ -4533,7 +4563,7 @@ fn apply_planet_style_fly_mode(
         v.set_sv_i16(sv::MAXMMOVEX, mmax_x);
         v.set_sv_i16(sv::MAXMMOVEY, mmax_y);
         v.set_sv_i16(sv::MINPWMOVEY, min_y);
-        v.set_sv_i16(sv::MAXPWMOVEY, max_y + 5);
+        v.set_sv_i16(sv::MAXPWMOVEY, max_y + PLAYER_WING_Y_PADDING);
         v.minpmove_y = min_y;
         v.set_sv_i16(sv::MAXPMOVEY, max_y + PLAYERB_YSTOP);
         v.playerflymode = flymode;
@@ -4677,25 +4707,8 @@ pub fn set_player_in_space(g: &mut Game, idx: u16) {
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
-    g.vars.game_mode = SPACE_MODE;
-    apply_planet_style_fly_mode(
-        g,
-        idx,
-        -60,
-        -240,
-        240,
-        -240,
-        240,
-        -190,
-        80,
-        10000,
-        PFM_DIEYROT | PFM_WOBBLE,
-        0,
-        0,
-        true,
-        false, // space_macro does not set shadow
-        true,
-    );
+    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    apply_space_flight_mode(g, SpaceFlightSetup::Interactive);
 }
 
 /// ROM `playerinspace_strat`.
@@ -4730,7 +4743,51 @@ pub fn set_player_escape_nucleus(g: &mut Game, idx: u16) {
 // ============================================================
 
 const SPACE_VIEWCY: i16 = -60;
+const SPACE_MIN_X: i16 = -240;
+const SPACE_MAX_X: i16 = 240;
+const SPACE_MIN_Y: i16 = -190;
+const SPACE_MAX_Y: i16 = 80;
+const SPACE_MAX_WORLD_Y: i16 = 10000;
 pub const COCKPIT_EXIT_FRAMES: u8 = 23;
+const COCKPIT_PROP_SPAWN_FRAME: u8 = 19;
+const COCKPIT_PROP_REAR_OFFSET: i16 = 105;
+const ZOOM_SHIP_REAR_OFFSET: i16 = 611;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpaceFlightSetup {
+    Interactive,
+    PreserveSequence,
+}
+
+/// Apply the common `space` flight bounds. The cockpit transition uses the
+/// source's `nomacro` form so death/sequence flags survive until its handoff.
+fn apply_space_flight_mode(g: &mut Game, setup: SpaceFlightSetup) {
+    g.vars.game_mode = SPACE_MODE;
+    g.vars.set_sv_i16(sv::VIEWCY, SPACE_VIEWCY);
+    g.vars.set_sv_i16(sv::MINPMOVEX, SPACE_MIN_X);
+    g.vars.set_sv_i16(sv::MAXPMOVEX, SPACE_MAX_X);
+    g.vars.set_sv_i16(sv::MINMMOVEX, SPACE_MIN_X);
+    g.vars.set_sv_i16(sv::MAXMMOVEX, SPACE_MAX_X);
+    g.vars.set_sv_i16(sv::MAXMMOVEY, SPACE_MAX_WORLD_Y);
+    g.vars.set_sv_i16(sv::MINPWMOVEY, SPACE_MIN_Y);
+    g.vars
+        .set_sv_i16(sv::MAXPWMOVEY, SPACE_MAX_Y + PLAYER_WING_Y_PADDING);
+    g.vars.minpmove_y = SPACE_MIN_Y;
+    g.vars
+        .set_sv_i16(sv::MAXPMOVEY, SPACE_MAX_Y + PLAYERB_YSTOP);
+    g.vars.playerflymode = PFM_DIEYROT | PFM_WOBBLE;
+    g.vars.set_sv_u8(sv::PMOVELIMITAND, 0);
+    g.vars.set_sv_u8(sv::MISSBOUNDFLAGS, 0);
+    g.vars.gameflags |= GF_VIEWROT;
+    g.vars.pstratflags &= !PSTF_NOVIEWMOVE;
+    g.vars.pshipflags3 |= PSF3_ENGINESND;
+
+    if setup == SpaceFlightSetup::Interactive {
+        g.vars.pshipflags2 &= !PSF2_NOSPARK;
+        g.vars.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
+        g.vars.pshipflags3 &= !PSF3_INTUNNEL;
+    }
+}
 
 /// ROM `makeallmedpspeed`.
 pub fn make_all_med_pspeed(g: &mut Game, idx: u16) {
@@ -5013,6 +5070,7 @@ pub fn cockpitout_strat(g: &mut Game, idx: u16) {
 pub fn set_player_out_of_cock(g: &mut Game, idx: u16) {
     let tick = ea_sid(g, player_out_of_cock_tick);
     g.objs.aliens[idx as usize].stratptr = Some(tick);
+    g.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
     g.vars.pstratflags &= !PSTF_NOVDISTC;
     g.vars.viewdist = OUTVIEWDIST;
@@ -5022,6 +5080,9 @@ pub fn set_player_out_of_cock(g: &mut Game, idx: u16) {
     g.vars.set_sv_i16(sv::OUTVZ, 0);
     g.vars.set_sv_u8(sv::PSVAR_BYTE1, COCKPIT_EXIT_FRAMES);
     make_all_med_pspeed(g, idx);
+    // The source initializer has no end marker and executes the first
+    // transition body immediately.
+    let _ = player_out_of_cock_strat(g, idx);
 }
 
 /// ROM `playeroutofcock_strat` — chase center; spawn props at byte1==19; finish at 0.
@@ -5042,7 +5103,7 @@ pub fn player_out_of_cock_strat(g: &mut Game, idx: u16) -> bool {
     }
 
     let b1 = g.vars.sv_u8(sv::PSVAR_BYTE1);
-    if b1 == 19 {
+    if b1 == COCKPIT_PROP_SPAWN_FRAME {
         // Spawn cockpit + zoom ship props with real out strats.
         if let Some(cock) = strat_make_obj(g, SH_COCKPIT) {
             let src = g.objs.aliens[idx as usize];
@@ -5050,7 +5111,7 @@ pub fn player_out_of_cock_strat(g: &mut Game, idx: u16) -> bool {
                 let c = &mut g.objs.aliens[cock as usize];
                 c.worldx = src.worldx;
                 c.worldy = src.worldy;
-                c.worldz = src.worldz.wrapping_sub(105);
+                c.worldz = src.worldz.wrapping_sub(COCKPIT_PROP_REAR_OFFSET);
             }
             cockpitout_istrat(g, cock);
         }
@@ -5061,24 +5122,52 @@ pub fn player_out_of_cock_strat(g: &mut Game, idx: u16) -> bool {
                 let s = &mut g.objs.aliens[ship as usize];
                 s.worldx = src.worldx;
                 s.worldy = src.worldy;
-                s.worldz = src.worldz.wrapping_sub(611);
+                s.worldz = src.worldz.wrapping_sub(ZOOM_SHIP_REAR_OFFSET);
             }
             cockshipout_istrat(g, ship);
         }
     }
 
-    if b1 != 0 {
-        g.vars.set_sv_u8(sv::PSVAR_BYTE1, b1 - 1);
-        player_in_space_strat(g, idx);
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        let roll = g
+            .vars
+            .sv_u8(sv::PLAYER_ZSTRATADD)
+            .wrapping_add(PLAYER_DEATH_ROLL_ACCELERATION);
+        g.vars.set_sv_u8(sv::PLAYER_ZSTRATADD, roll);
+    }
+
+    let remaining = b1.saturating_sub(1);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, remaining);
+    if remaining != 0 {
+        player_straight_strat(g, idx);
         return false;
     }
 
-    // Done: restore normal space control, leave inside mode.
+    // `s_playerfly_mode space,nomacro`: update the space bounds while
+    // preserving the transition/death flags until the branch below.
+    apply_space_flight_mode(g, SpaceFlightSetup::PreserveSequence);
+    g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
     g.vars.player_view_mode = PlayerViewMode::Exterior;
-    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
-    set_player_in_space(g, idx);
+
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        playerdead_istrat(g, idx);
+        return true;
+    }
+
     let tick = ea_sid(g, player_in_space_strat);
-    g.objs.aliens[idx as usize].stratptr = Some(tick);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
+    {
+        let player = &mut g.objs.aliens[idx as usize];
+        player.stratptr = Some(tick);
+        player.collstratptr = Some(coll);
+        player.expstratptr = Some(exp);
+        player.sflags &= !ASF_HITFLASH;
+    }
+    if g.vars.pstratflags & PSTF_INSEQ == 0 {
+        g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
+    }
+    g.vars.viewdist = OUTVIEWDIST;
     player_in_space_strat(g, idx);
     true
 }

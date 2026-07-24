@@ -107,8 +107,8 @@ fn ship2_into_and_branch() {
     assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
     assert_eq!(
         g.vars.sv_u8(sv::PSVAR_BYTE1),
-        COCKPIT_EXIT_FRAMES,
-        "ship2 guide must start the authored cockpit exit"
+        COCKPIT_EXIT_FRAMES - 1,
+        "ship2 guide must execute the cockpit exit's first fallthrough body"
     );
 
     // Close → doneguide: stratdone1, ctrl on, vz=-40

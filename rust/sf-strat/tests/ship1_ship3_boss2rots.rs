@@ -111,8 +111,8 @@ fn ship3_b_c_cont_and_boss2rots() {
     assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
     assert_eq!(
         g.vars.sv_u8(sv::PSVAR_BYTE1),
-        COCKPIT_EXIT_FRAMES,
-        "ship3 approach must start the authored cockpit exit"
+        COCKPIT_EXIT_FRAMES - 1,
+        "ship3 approach must execute the cockpit exit's first fallthrough body"
     );
 
     // ship3b locks vz = -pviewvelz

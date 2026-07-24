@@ -1222,8 +1222,8 @@ fn colony0_latches_stratdone_when_player_passes() {
     assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
     assert_eq!(
         g.vars.sv_u8(sv::PSVAR_BYTE1),
-        COCKPIT_EXIT_FRAMES,
-        "colony approach must start the authored cockpit exit"
+        COCKPIT_EXIT_FRAMES - 1,
+        "colony approach must execute the cockpit exit's first fallthrough body"
     );
 }
 
