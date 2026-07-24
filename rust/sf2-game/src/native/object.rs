@@ -204,14 +204,20 @@ impl ShapeId {
     pub const CARRIER_REACTOR_REAR_WALL: Self = Self(235);
     pub const CARRIER_REACTOR_SIDE_WALL: Self = Self(237);
 
-    /// Energy-core assembly in the Battle Carrier reactor room.
+    /// Energy-core assembly and rotating overhead coupling in the Battle
+    /// Carrier reactor room.
     pub const CARRIER_REACTOR_CORE: Self = Self(142);
+    pub const CARRIER_REACTOR_ROTATING_COUPLING: Self = Self(141);
 
     /// Intact rotating armor panel protecting the carrier core.
     pub const CARRIER_REACTOR_PANEL: Self = Self(143);
 
     /// Broken panel mesh shown after ten effective hits.
     pub const CARRIER_REACTOR_PANEL_DESTROYED: Self = Self(144);
+
+    /// Retail's invisible, short-lived collision child. Hits against this
+    /// shape are relayed to its linked armor panel.
+    pub const CARRIER_REACTOR_VULNERABILITY_PROXY: Self = Self(20);
 
     /// Paired defensive structures flanking Eladard's surface entrance.
     pub const ELADARD_SURFACE_BARRIER: Self = Self(244);

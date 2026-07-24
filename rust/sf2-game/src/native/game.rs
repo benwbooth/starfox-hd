@@ -28,20 +28,20 @@ use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
     CarrierAssaultPhase, CarrierAssaultState, CarrierCorridorControlStatus,
     CarrierCorridorDefenderStatus, CarrierCorridorGateState, CarrierCorridorPassageStatus,
-    CarrierObjectiveStatus, CarrierReactorPanel, ChargeSound, CorneriaDefensePhase,
-    CorneriaDefenseState, Difficulty, EladardBarrierStatus, EladardDefenderStatus,
-    EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom, EladardMissionState,
-    EladardPhase, EladardSwitchStatus, EndingPhase, EndingState, FlightControlStyle, GameMode,
-    GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase,
-    MapPoint, MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionPhase,
-    MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
-    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
-    PlayerCraftTransformationDirection, PlayerDamageState, ResultsChoice, ResultsPhase,
-    ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor, StrategicMapActorKind,
-    StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage,
-    StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
-    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
-    WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
+    CarrierObjectiveStatus, CarrierReactorPanel, CarrierReactorVulnerabilityStatus, ChargeSound,
+    CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
+    EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
+    EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
+    FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
+    GameOverState, GameState, IntroPhase, MapPoint, MissionMessage, MissionMessageIrisFrame,
+    MissionMessagePhase, MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor,
+    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
+    PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
+    ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
+    StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
+    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus,
+    TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
+    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
     CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
@@ -356,8 +356,23 @@ const CARRIER_PANEL_INITIAL_INTEGRITY: u8 = 100;
 const CARRIER_PANEL_DESTROYED_INTEGRITY: u8 = 90;
 const CARRIER_PANEL_DAMAGE_PER_HIT: u8 = 2;
 const CARRIER_REACTOR_PANEL_COUNT: u32 = 2;
+const CARRIER_REACTOR_PANEL_SLOT_COUNT: usize = 2;
 const CARRIER_PORT_PANEL_INDEX: usize = 0;
 const CARRIER_STARBOARD_PANEL_INDEX: usize = 1;
+const CARRIER_VULNERABILITY_PROXY_INTEGRITY: u8 = 100;
+const CARRIER_VULNERABILITY_PROXY_ATTACK_POWER: u8 = 1;
+const CARRIER_VULNERABILITY_PLAYER_YAW_RADIUS: u8 = 100;
+const CARRIER_PORT_INITIAL_VULNERABILITY_DELAY_RETAIL_FRAMES: u16 = 172;
+const CARRIER_STARBOARD_INITIAL_VULNERABILITY_DELAY_RETAIL_FRAMES: u16 = 16;
+const CARRIER_VULNERABILITY_OPENING_RETAIL_FRAMES: u16 = 32;
+const CARRIER_VULNERABILITY_EXPOSED_RETAIL_FRAMES: u16 = 84;
+const CARRIER_VULNERABILITY_PERIOD_RETAIL_FRAMES: u16 = 192;
+const CARRIER_VULNERABILITY_CLOSED_RETAIL_FRAMES: u16 = CARRIER_VULNERABILITY_PERIOD_RETAIL_FRAMES
+    - CARRIER_VULNERABILITY_OPENING_RETAIL_FRAMES
+    - CARRIER_VULNERABILITY_EXPOSED_RETAIL_FRAMES;
+const CARRIER_REACTOR_COUPLING_FIRST_STEP_RETAIL_FRAMES: u16 = 4;
+const CARRIER_REACTOR_COUPLING_STEP_INTERVAL_RETAIL_FRAMES: u16 = 8;
+const CARRIER_REACTOR_COUPLING_YAW_STEP: u16 = 8;
 const CARRIER_CORRIDOR_BOOST_SPEED: u8 = 40;
 const CARRIER_CORRIDOR_DEFENDER_HEALTH: u8 = 1;
 const CARRIER_CORRIDOR_DEFENDER_SCORE: u32 = 50;
@@ -418,6 +433,13 @@ const CARRIER_CORRIDOR_START_POSITION: Vector3 = Vector3 {
 struct CarrierCorridorDefenderPlacement {
     position: Vector3,
     lateral_step: i16,
+}
+
+#[derive(Clone, Copy)]
+struct CarrierReactorVulnerabilityPlacement {
+    position: Vector3,
+    yaw: Angle,
+    initial_delay_retail_frames: u16,
 }
 
 const CARRIER_CORRIDOR_DEFENDER_SCENE: [CarrierCorridorDefenderPlacement;
@@ -876,7 +898,7 @@ const CARRIER_REACTOR_SCENE: [(ShapeId, Vector3, Angle); 6] = [
         Angle::from_units(64),
     ),
 ];
-const CARRIER_PANEL_SCENE: [(Vector3, Angle); 2] = [
+const CARRIER_PANEL_SCENE: [(Vector3, Angle); CARRIER_REACTOR_PANEL_SLOT_COUNT] = [
     (
         Vector3 {
             x: 1_040,
@@ -893,6 +915,50 @@ const CARRIER_PANEL_SCENE: [(Vector3, Angle); 2] = [
         },
         Angle::from_units(192),
     ),
+];
+const CARRIER_REACTOR_COUPLING_POSITION: Vector3 = Vector3 {
+    x: 1_280,
+    y: -1_040,
+    z: 13_312,
+};
+const CARRIER_REACTOR_DECORATIVE_PANELS: [(Vector3, Angle); CARRIER_REACTOR_PANEL_SLOT_COUNT] = [
+    (
+        Vector3 {
+            x: 1_280,
+            y: -160,
+            z: 13_072,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        Vector3 {
+            x: 1_280,
+            y: -160,
+            z: 13_551,
+        },
+        Angle::ZERO,
+    ),
+];
+const CARRIER_REACTOR_VULNERABILITY_SCENE: [CarrierReactorVulnerabilityPlacement;
+    CARRIER_REACTOR_PANEL_SLOT_COUNT] = [
+    CarrierReactorVulnerabilityPlacement {
+        position: Vector3 {
+            x: 928,
+            y: -216,
+            z: 13_312,
+        },
+        yaw: Angle::from_units(64),
+        initial_delay_retail_frames: CARRIER_PORT_INITIAL_VULNERABILITY_DELAY_RETAIL_FRAMES,
+    },
+    CarrierReactorVulnerabilityPlacement {
+        position: Vector3 {
+            x: 1_630,
+            y: -216,
+            z: 13_312,
+        },
+        yaw: Angle::from_units(192),
+        initial_delay_retail_frames: CARRIER_STARBOARD_INITIAL_VULNERABILITY_DELAY_RETAIL_FRAMES,
+    },
 ];
 const ELADARD_ESCAPE_WALKER_SIDE_RETAIL_FRAME: u16 = 56;
 const ELADARD_ESCAPE_FLIGHT_SIDE_RETAIL_FRAME: u16 = 100;
@@ -5200,7 +5266,9 @@ pub struct Game {
     carrier_gate_controls: [Option<ObjectId>; CARRIER_CORRIDOR_GATE_COUNT],
     carrier_rotating_doors:
         [[Option<ObjectId>; CARRIER_ROTATING_DOOR_LEAF_COUNT]; CARRIER_ROTATING_DOOR_COUNT],
-    carrier_panels: [Option<ObjectId>; 2],
+    carrier_reactor_coupling: Option<ObjectId>,
+    carrier_panels: [Option<ObjectId>; CARRIER_REACTOR_PANEL_SLOT_COUNT],
+    carrier_panel_proxies: [Option<ObjectId>; CARRIER_REACTOR_PANEL_SLOT_COUNT],
 }
 
 impl Game {
@@ -5258,7 +5326,9 @@ impl Game {
             carrier_gate_controls: [None; CARRIER_CORRIDOR_GATE_COUNT],
             carrier_rotating_doors: [[None; CARRIER_ROTATING_DOOR_LEAF_COUNT];
                 CARRIER_ROTATING_DOOR_COUNT],
-            carrier_panels: [None; 2],
+            carrier_reactor_coupling: None,
+            carrier_panels: [None; CARRIER_REACTOR_PANEL_SLOT_COUNT],
+            carrier_panel_proxies: [None; CARRIER_REACTOR_PANEL_SLOT_COUNT],
         }
     }
 
@@ -6504,10 +6574,12 @@ impl Game {
             port_panel: CarrierReactorPanel {
                 integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                 active: true,
+                vulnerability: CarrierReactorVulnerabilityStatus::Inactive,
             },
             starboard_panel: CarrierReactorPanel {
                 integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                 active: true,
+                vulnerability: CarrierReactorVulnerabilityStatus::Inactive,
             },
         };
         self.state.mission.objects_destroyed = 0;
@@ -8761,6 +8833,12 @@ impl Game {
             if self.state.mission.carrier_assault.phase == CarrierAssaultPhase::InteriorCorridor {
                 self.update_carrier_corridor_defenders()?;
             }
+            if self.state.mission.carrier_assault.reactor_room_open {
+                self.update_carrier_reactor_coupling(retail_frame);
+            }
+            if self.state.mission.carrier_assault.phase == CarrierAssaultPhase::ReactorCombat {
+                self.update_carrier_reactor_vulnerabilities()?;
+            }
         }
         self.update_carrier_player_presentation(retail_frame)?;
         Ok(())
@@ -9327,11 +9405,7 @@ impl Game {
 
         if self.state.mission.player_craft_form == PlayerCraftForm::Walker {
             self.enter_carrier_phase(CarrierAssaultPhase::ReactorCombat, retail_frame);
-            for panel in self.carrier_panels.into_iter().flatten() {
-                if let Some(panel) = self.state.objects.get_mut(panel) {
-                    panel.base.flags.collision_disabled = false;
-                }
-            }
+            self.begin_carrier_reactor_vulnerabilities();
             if let Some(player) = self
                 .state
                 .mission
@@ -9379,6 +9453,187 @@ impl Game {
         }
     }
 
+    fn carrier_reactor_panel_status(&self, index: usize) -> CarrierReactorPanel {
+        match index {
+            CARRIER_PORT_PANEL_INDEX => self.state.mission.carrier_assault.port_panel,
+            CARRIER_STARBOARD_PANEL_INDEX => self.state.mission.carrier_assault.starboard_panel,
+            _ => unreachable!("carrier reactor has exactly two typed panel slots"),
+        }
+    }
+
+    fn set_carrier_reactor_panel_status(&mut self, index: usize, status: CarrierReactorPanel) {
+        match index {
+            CARRIER_PORT_PANEL_INDEX => self.state.mission.carrier_assault.port_panel = status,
+            CARRIER_STARBOARD_PANEL_INDEX => {
+                self.state.mission.carrier_assault.starboard_panel = status;
+            }
+            _ => unreachable!("carrier reactor has exactly two typed panel slots"),
+        }
+    }
+
+    fn begin_carrier_reactor_vulnerabilities(&mut self) {
+        for (index, placement) in CARRIER_REACTOR_VULNERABILITY_SCENE.into_iter().enumerate() {
+            let mut status = self.carrier_reactor_panel_status(index);
+            status.vulnerability = if status.active {
+                CarrierReactorVulnerabilityStatus::Waiting {
+                    retail_frames_remaining: placement.initial_delay_retail_frames,
+                }
+            } else {
+                CarrierReactorVulnerabilityStatus::Destroyed
+            };
+            self.set_carrier_reactor_panel_status(index, status);
+            if let Some(panel) =
+                self.carrier_panels[index].and_then(|panel| self.state.objects.get_mut(panel))
+            {
+                panel.base.flags.collision_disabled = true;
+            }
+        }
+    }
+
+    fn update_carrier_reactor_vulnerabilities(&mut self) -> Result<(), Error> {
+        for index in 0..CARRIER_REACTOR_PANEL_SLOT_COUNT {
+            let mut panel = self.carrier_reactor_panel_status(index);
+            panel.vulnerability = match panel.vulnerability {
+                CarrierReactorVulnerabilityStatus::Inactive
+                | CarrierReactorVulnerabilityStatus::Destroyed => panel.vulnerability,
+                CarrierReactorVulnerabilityStatus::Waiting {
+                    retail_frames_remaining,
+                } if retail_frames_remaining > RETAIL_PRESENTATION_FRAMES_PER_TICK as u16 => {
+                    CarrierReactorVulnerabilityStatus::Waiting {
+                        retail_frames_remaining: retail_frames_remaining
+                            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                    }
+                }
+                CarrierReactorVulnerabilityStatus::Waiting { .. }
+                    if self.carrier_panel_faces_player(index) =>
+                {
+                    self.spawn_carrier_vulnerability_proxy(index)?;
+                    CarrierReactorVulnerabilityStatus::Opening {
+                        elapsed_retail_frames: 0,
+                    }
+                }
+                CarrierReactorVulnerabilityStatus::Waiting { .. } => {
+                    CarrierReactorVulnerabilityStatus::Waiting {
+                        retail_frames_remaining: CARRIER_VULNERABILITY_PERIOD_RETAIL_FRAMES,
+                    }
+                }
+                CarrierReactorVulnerabilityStatus::Opening {
+                    elapsed_retail_frames,
+                } => {
+                    let elapsed_retail_frames = elapsed_retail_frames
+                        .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                    if elapsed_retail_frames >= CARRIER_VULNERABILITY_OPENING_RETAIL_FRAMES {
+                        if let Some(proxy) = self.carrier_panel_proxies[index]
+                            .and_then(|proxy| self.state.objects.get_mut(proxy))
+                        {
+                            proxy.base.flags.collision_disabled = false;
+                        }
+                        CarrierReactorVulnerabilityStatus::Exposed {
+                            elapsed_retail_frames: 0,
+                        }
+                    } else {
+                        CarrierReactorVulnerabilityStatus::Opening {
+                            elapsed_retail_frames,
+                        }
+                    }
+                }
+                CarrierReactorVulnerabilityStatus::Exposed {
+                    elapsed_retail_frames,
+                } => {
+                    let elapsed_retail_frames = elapsed_retail_frames
+                        .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+                    if elapsed_retail_frames >= CARRIER_VULNERABILITY_EXPOSED_RETAIL_FRAMES {
+                        self.remove_carrier_vulnerability_proxy(index);
+                        CarrierReactorVulnerabilityStatus::Waiting {
+                            retail_frames_remaining: CARRIER_VULNERABILITY_CLOSED_RETAIL_FRAMES,
+                        }
+                    } else {
+                        CarrierReactorVulnerabilityStatus::Exposed {
+                            elapsed_retail_frames,
+                        }
+                    }
+                }
+            };
+            self.set_carrier_reactor_panel_status(index, panel);
+        }
+        Ok(())
+    }
+
+    fn carrier_panel_faces_player(&self, index: usize) -> bool {
+        let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|player| self.state.objects.get(player))
+        else {
+            return false;
+        };
+        let Some(panel) =
+            self.carrier_panels[index].and_then(|panel| self.state.objects.get(panel))
+        else {
+            return false;
+        };
+        let delta_x = player.base.position.x.wrapping_sub(panel.base.position.x);
+        let delta_z = player.base.position.z.wrapping_sub(panel.base.position.z);
+        let bearing = ((sf_core::aim_angle::sf2_atan16(delta_x, delta_z) >> 8) as u8)
+            .wrapping_add(panel.base.yaw.units());
+        CARRIER_VULNERABILITY_PLAYER_YAW_RADIUS.wrapping_add(bearing)
+            < CARRIER_VULNERABILITY_PLAYER_YAW_RADIUS.wrapping_mul(2)
+    }
+
+    fn spawn_carrier_vulnerability_proxy(&mut self, index: usize) -> Result<(), Error> {
+        self.remove_carrier_vulnerability_proxy(index);
+        let placement = CARRIER_REACTOR_VULNERABILITY_SCENE[index];
+        let mut proxy = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::CARRIER_REACTOR_VULNERABILITY_PROXY,
+            Behavior::Effect,
+        );
+        proxy.base.position = placement.position;
+        proxy.base.yaw = placement.yaw;
+        proxy.base.hit_points = CARRIER_VULNERABILITY_PROXY_INTEGRITY;
+        proxy.base.attack_power = CARRIER_VULNERABILITY_PROXY_ATTACK_POWER;
+        proxy.base.collision_class = CollisionClass::Enemy;
+        proxy.base.flags.collision_disabled = true;
+        proxy.base.flags.casts_shadow = false;
+        self.carrier_panel_proxies[index] = Some(
+            self.state
+                .objects
+                .allocate(proxy)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
+    fn remove_carrier_vulnerability_proxy(&mut self, index: usize) {
+        if let Some(proxy) = self.carrier_panel_proxies[index].take() {
+            self.state.objects.remove(proxy);
+        }
+    }
+
+    fn update_carrier_reactor_coupling(&mut self, retail_frame: u16) {
+        let Some(room_entry_started) = self
+            .state
+            .mission
+            .carrier_assault
+            .room_entry_transformation_started_retail_frame
+        else {
+            return;
+        };
+        let room_opened = room_entry_started
+            .saturating_add(CARRIER_REACTOR_ROOM_OPEN_AFTER_TRANSFORMATION_RETAIL_FRAMES);
+        let elapsed = retail_frame.saturating_sub(room_opened);
+        let steps = elapsed.saturating_add(CARRIER_REACTOR_COUPLING_FIRST_STEP_RETAIL_FRAMES)
+            / CARRIER_REACTOR_COUPLING_STEP_INTERVAL_RETAIL_FRAMES;
+        let yaw = steps.wrapping_mul(CARRIER_REACTOR_COUPLING_YAW_STEP) as u8;
+        if let Some(coupling) = self
+            .carrier_reactor_coupling
+            .and_then(|coupling| self.state.objects.get_mut(coupling))
+        {
+            coupling.base.yaw = Angle::from_units(yaw);
+        }
+    }
+
     fn sync_carrier_objectives(&mut self) {
         for index in 0..self.carrier_panels.len() {
             let Some(panel_id) = self.carrier_panels[index] else {
@@ -9394,6 +9649,11 @@ impl Game {
                 continue;
             };
             let active = integrity > CARRIER_PANEL_DESTROYED_INTEGRITY;
+            let vulnerability = if active {
+                self.carrier_reactor_panel_status(index).vulnerability
+            } else {
+                CarrierReactorVulnerabilityStatus::Destroyed
+            };
             let status = CarrierReactorPanel {
                 integrity: if active {
                     integrity
@@ -9401,16 +9661,9 @@ impl Game {
                     CARRIER_PANEL_DESTROYED_INTEGRITY
                 },
                 active,
+                vulnerability,
             };
-            match index {
-                CARRIER_PORT_PANEL_INDEX => {
-                    self.state.mission.carrier_assault.port_panel = status;
-                }
-                CARRIER_STARBOARD_PANEL_INDEX => {
-                    self.state.mission.carrier_assault.starboard_panel = status;
-                }
-                _ => unreachable!("carrier panel storage has exactly two typed slots"),
-            }
+            self.set_carrier_reactor_panel_status(index, status);
             if !active {
                 self.set_carrier_panel_destroyed(index);
             }
@@ -9449,6 +9702,14 @@ impl Game {
                 if let Some(object) = leaf.take() {
                     self.state.objects.remove(object);
                 }
+            }
+        }
+        if let Some(coupling) = self.carrier_reactor_coupling.take() {
+            self.state.objects.remove(coupling);
+        }
+        for proxy in &mut self.carrier_panel_proxies {
+            if let Some(object) = proxy.take() {
+                self.state.objects.remove(object);
             }
         }
         for panel in &mut self.carrier_panels {
@@ -9551,6 +9812,37 @@ impl Game {
 
     fn spawn_carrier_reactor_scene(&mut self) -> Result<(), Error> {
         self.spawn_carrier_scene_objects(&CARRIER_REACTOR_SCENE)?;
+        for (position, yaw) in CARRIER_REACTOR_DECORATIVE_PANELS {
+            let mut panel = Object::new(
+                ObjectKind::Scenery,
+                ShapeId::CARRIER_REACTOR_PANEL_DESTROYED,
+                Behavior::Effect,
+            );
+            panel.base.position = position;
+            panel.base.yaw = yaw;
+            panel.base.flags.collision_disabled = true;
+            panel.base.flags.casts_shadow = false;
+            let id = self
+                .state
+                .objects
+                .allocate(panel)
+                .ok_or(Error::ObjectCapacityReached)?;
+            self.carrier_scenery.push(id);
+        }
+        let mut coupling = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::CARRIER_REACTOR_ROTATING_COUPLING,
+            Behavior::Effect,
+        );
+        coupling.base.position = CARRIER_REACTOR_COUPLING_POSITION;
+        coupling.base.flags.collision_disabled = true;
+        coupling.base.flags.casts_shadow = false;
+        self.carrier_reactor_coupling = Some(
+            self.state
+                .objects
+                .allocate(coupling)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
         for (index, (position, yaw)) in CARRIER_PANEL_SCENE.into_iter().enumerate() {
             let mut panel = Object::new(
                 ObjectKind::Enemy,
@@ -9561,9 +9853,9 @@ impl Game {
             panel.base.yaw = yaw;
             panel.base.hit_points = CARRIER_PANEL_INITIAL_INTEGRITY;
             panel.base.collision_class = CollisionClass::Enemy;
-            // The room is allocated while the automatic folding sequence is
-            // still in progress. Its two targets become vulnerable only when
-            // the stable Walker form is handed back to the player.
+            // The visible mesh never receives weapon collisions directly.
+            // Retail allocates a separate invisible child during each
+            // vulnerability window and relays its hits into this integrity.
             panel.base.flags.collision_disabled = true;
             panel.base.flags.casts_shadow = false;
             let id = self
@@ -9584,6 +9876,40 @@ impl Game {
             object.base.shape = ShapeId::CARRIER_REACTOR_PANEL_DESTROYED;
             object.base.hit_points = CARRIER_PANEL_DESTROYED_INTEGRITY;
             object.base.flags.collision_disabled = true;
+        }
+        self.remove_carrier_vulnerability_proxy(index);
+        let mut status = self.carrier_reactor_panel_status(index);
+        status.integrity = CARRIER_PANEL_DESTROYED_INTEGRITY;
+        status.active = false;
+        status.vulnerability = CarrierReactorVulnerabilityStatus::Destroyed;
+        self.set_carrier_reactor_panel_status(index, status);
+    }
+
+    fn damage_carrier_panel_through_proxy(&mut self, index: usize) {
+        let Some(panel) = self.carrier_panels[index] else {
+            return;
+        };
+        let Some(object) = self.state.objects.get_mut(panel) else {
+            return;
+        };
+        object.base.flags.collided = true;
+        object.base.hit_points = object
+            .base
+            .hit_points
+            .saturating_sub(CARRIER_PANEL_DAMAGE_PER_HIT)
+            .max(CARRIER_PANEL_DESTROYED_INTEGRITY);
+        let destroyed = object.base.hit_points == CARRIER_PANEL_DESTROYED_INTEGRITY;
+        let integrity = object.base.hit_points;
+
+        let mut status = self.carrier_reactor_panel_status(index);
+        status.integrity = integrity;
+        status.active = !destroyed;
+        if destroyed {
+            status.vulnerability = CarrierReactorVulnerabilityStatus::Destroyed;
+        }
+        self.set_carrier_reactor_panel_status(index, status);
+        if destroyed {
+            self.set_carrier_panel_destroyed(index);
         }
     }
 
@@ -13419,17 +13745,7 @@ impl Game {
                 .get(weapon_id)
                 .map(|weapon| weapon.base.attack_power)
                 .unwrap_or_default();
-            let damage = if raw_damage > 0
-                && matches!(
-                    self.state.mission.visit,
-                    MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier
-                )
-                && self.carrier_panels.contains(&Some(enemy_id))
-            {
-                CARRIER_PANEL_DAMAGE_PER_HIT
-            } else {
-                raw_damage
-            };
+            let damage = raw_damage;
             let weapon_can_hit = self
                 .state
                 .objects
@@ -13453,6 +13769,17 @@ impl Game {
                     .position(|control| *control == Some(enemy_id))
             })
             .flatten();
+            let carrier_panel_proxy = (raw_damage > 0
+                && matches!(
+                    self.state.mission.visit,
+                    MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier
+                ))
+            .then(|| {
+                self.carrier_panel_proxies
+                    .iter()
+                    .position(|proxy| *proxy == Some(enemy_id))
+            })
+            .flatten();
 
             if let Some(weapon) = self.state.objects.get_mut(weapon_id) {
                 weapon.base.flags.visible = false;
@@ -13462,6 +13789,10 @@ impl Game {
             }
             if let Some(index) = carrier_gate_control {
                 self.activate_carrier_gate_control(index);
+                continue;
+            }
+            if let Some(index) = carrier_panel_proxy {
+                self.damage_carrier_panel_through_proxy(index);
                 continue;
             }
             let destroyed_health = if self.state.mission.visit == MissionVisit::EladardBase
@@ -23800,10 +24131,12 @@ mod tests {
                 port_panel: CarrierReactorPanel {
                     integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                     active: true,
+                    vulnerability: CarrierReactorVulnerabilityStatus::Inactive,
                 },
                 starboard_panel: CarrierReactorPanel {
                     integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                     active: true,
+                    vulnerability: CarrierReactorVulnerabilityStatus::Inactive,
                 },
             }
         );
@@ -23874,11 +24207,47 @@ mod tests {
             assert_eq!(panel.base.shape, ShapeId::CARRIER_REACTOR_PANEL);
             assert_eq!(panel.base.hit_points, CARRIER_PANEL_INITIAL_INTEGRITY);
             assert_eq!(panel.base.collision_class, CollisionClass::Enemy);
-            assert!(!panel.base.flags.collision_disabled);
+            assert!(panel.base.flags.collision_disabled);
         }
+        let coupling = game.carrier_reactor_coupling.unwrap();
+        let coupling = game.state().objects.get(coupling).unwrap();
+        assert_eq!(
+            coupling.base.shape,
+            ShapeId::CARRIER_REACTOR_ROTATING_COUPLING
+        );
+        assert_eq!(coupling.base.position, CARRIER_REACTOR_COUPLING_POSITION);
+        assert_ne!(coupling.base.yaw, Angle::ZERO);
+        for (position, yaw) in CARRIER_REACTOR_DECORATIVE_PANELS {
+            assert!(game.state().objects.active_objects().any(|(_, object)| {
+                object.base.shape == ShapeId::CARRIER_REACTOR_PANEL_DESTROYED
+                    && object.base.position == position
+                    && object.base.yaw == yaw
+            }));
+        }
+        assert_eq!(
+            game.state()
+                .mission
+                .carrier_assault
+                .starboard_panel
+                .vulnerability,
+            CarrierReactorVulnerabilityStatus::Waiting {
+                retail_frames_remaining:
+                    CARRIER_STARBOARD_INITIAL_VULNERABILITY_DELAY_RETAIL_FRAMES,
+            }
+        );
+        assert_eq!(
+            game.state()
+                .mission
+                .carrier_assault
+                .port_panel
+                .vulnerability,
+            CarrierReactorVulnerabilityStatus::Waiting {
+                retail_frames_remaining: CARRIER_PORT_INITIAL_VULNERABILITY_DELAY_RETAIL_FRAMES,
+            }
+        );
 
-        let hit_panel = |game: &mut Game, panel: ObjectId| {
-            let position = game.state().objects.get(panel).unwrap().base.position;
+        let place_laser = |game: &mut Game, target: ObjectId| -> ObjectId {
+            let position = game.state().objects.get(target).unwrap().base.position;
             let mut laser = Object::new(
                 ObjectKind::Projectile,
                 ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
@@ -23889,23 +24258,89 @@ mod tests {
             laser.base.attack_power = PLAYER_CHARGED_LASER_ATTACK_POWER;
             laser.base.weapon = WeaponKind::ChargedLaser;
             laser.base.collision_class = CollisionClass::PlayerWeapon;
-            game.state.objects.allocate(laser).unwrap();
-            game.tick(0).unwrap();
-            game.tick(0).unwrap();
+            game.state.objects.allocate(laser).unwrap()
         };
 
         let starboard = game.carrier_panels[CARRIER_STARBOARD_PANEL_INDEX].unwrap();
-        hit_panel(&mut game, starboard);
+        let direct_laser = place_laser(&mut game, starboard);
+        game.resolve_mission_collisions();
+        assert_eq!(
+            game.state().objects.get(starboard).unwrap().base.hit_points,
+            CARRIER_PANEL_INITIAL_INTEGRITY
+        );
+        game.state.objects.remove(direct_laser);
+
+        for _ in 0..CARRIER_STARBOARD_INITIAL_VULNERABILITY_DELAY_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+        {
+            game.tick(0).unwrap();
+        }
+        let first_starboard_proxy = game.carrier_panel_proxies[CARRIER_STARBOARD_PANEL_INDEX]
+            .expect("the captured initial starboard window must allocate its relay");
+        let first_proxy = game.state().objects.get(first_starboard_proxy).unwrap();
+        assert_eq!(
+            first_proxy.base.shape,
+            ShapeId::CARRIER_REACTOR_VULNERABILITY_PROXY
+        );
+        assert_eq!(
+            first_proxy.base.position,
+            CARRIER_REACTOR_VULNERABILITY_SCENE[CARRIER_STARBOARD_PANEL_INDEX].position
+        );
+        assert_eq!(
+            first_proxy.base.yaw,
+            CARRIER_REACTOR_VULNERABILITY_SCENE[CARRIER_STARBOARD_PANEL_INDEX].yaw
+        );
+        assert_eq!(
+            first_proxy.base.hit_points,
+            CARRIER_VULNERABILITY_PROXY_INTEGRITY
+        );
+        assert!(first_proxy.base.flags.collision_disabled);
+
+        for _ in 0..CARRIER_VULNERABILITY_OPENING_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+        {
+            game.tick(0).unwrap();
+        }
+        assert!(
+            !game
+                .state()
+                .objects
+                .get(first_starboard_proxy)
+                .unwrap()
+                .base
+                .flags
+                .collision_disabled
+        );
+        for _ in 0..CARRIER_VULNERABILITY_EXPOSED_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+        {
+            game.tick(0).unwrap();
+        }
+        assert!(game.state().objects.get(first_starboard_proxy).is_none());
         assert_eq!(
             game.state()
                 .mission
                 .carrier_assault
                 .starboard_panel
                 .integrity,
-            CARRIER_PANEL_INITIAL_INTEGRITY - CARRIER_PANEL_DAMAGE_PER_HIT
+            CARRIER_PANEL_INITIAL_INTEGRITY
         );
-        for _ in 1..5 {
-            hit_panel(&mut game, starboard);
+        for _ in 0..CARRIER_VULNERABILITY_CLOSED_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+        {
+            game.tick(0).unwrap();
+        }
+        let starboard_proxy = game.carrier_panel_proxies[CARRIER_STARBOARD_PANEL_INDEX]
+            .expect("the independent starboard window must recur");
+        for _ in 0..CARRIER_VULNERABILITY_OPENING_RETAIL_FRAMES
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+        {
+            game.tick(0).unwrap();
+        }
+
+        for _ in 0..5 {
+            place_laser(&mut game, starboard_proxy);
+            game.tick(0).unwrap();
         }
         assert_eq!(
             game.state()
@@ -23917,13 +24352,40 @@ mod tests {
         );
         assert!(!game.state().mission.carrier_assault.starboard_panel.active);
         assert_eq!(
+            game.state()
+                .mission
+                .carrier_assault
+                .starboard_panel
+                .vulnerability,
+            CarrierReactorVulnerabilityStatus::Destroyed
+        );
+        assert!(game.carrier_panel_proxies[CARRIER_STARBOARD_PANEL_INDEX].is_none());
+        assert_eq!(
             game.state().objects.get(starboard).unwrap().base.shape,
             ShapeId::CARRIER_REACTOR_PANEL_DESTROYED
         );
 
         let port = game.carrier_panels[CARRIER_PORT_PANEL_INDEX].unwrap();
+        while game.carrier_panel_proxies[CARRIER_PORT_PANEL_INDEX]
+            .and_then(|proxy| game.state.objects.get(proxy))
+            .is_none_or(|proxy| proxy.base.flags.collision_disabled)
+        {
+            game.tick(0).unwrap();
+        }
+        let port_proxy = game.carrier_panel_proxies[CARRIER_PORT_PANEL_INDEX].unwrap();
         for _ in 0..5 {
-            hit_panel(&mut game, port);
+            let proxy_integrity = game
+                .state()
+                .objects
+                .get(port_proxy)
+                .unwrap()
+                .base
+                .hit_points;
+            place_laser(&mut game, port_proxy);
+            game.tick(0).unwrap();
+            if let Some(proxy) = game.state().objects.get(port_proxy) {
+                assert_eq!(proxy.base.hit_points, proxy_integrity);
+            }
         }
         assert_eq!(
             game.state().mission.carrier_assault.port_panel.integrity,
@@ -23935,6 +24397,7 @@ mod tests {
             ShapeId::CARRIER_REACTOR_PANEL_DESTROYED
         );
 
+        game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::CoreDestruction
@@ -23998,7 +24461,15 @@ mod tests {
             );
         }
         assert!(game.carrier_scenery.is_empty());
-        assert_eq!(game.carrier_panels, [None; 2]);
+        assert!(game.carrier_reactor_coupling.is_none());
+        assert_eq!(
+            game.carrier_panels,
+            [None; CARRIER_REACTOR_PANEL_SLOT_COUNT]
+        );
+        assert_eq!(
+            game.carrier_panel_proxies,
+            [None; CARRIER_REACTOR_PANEL_SLOT_COUNT]
+        );
     }
 
     #[test]
@@ -24715,11 +25186,11 @@ mod tests {
                 return Button::Y as u16;
             }
             if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::ReactorCombat {
-                if let Some(target) = game.carrier_panels.into_iter().flatten().find(|id| {
+                if let Some(target) = game.carrier_panel_proxies.into_iter().flatten().find(|id| {
                     game.state
                         .objects
                         .get(*id)
-                        .is_some_and(|panel| !panel.base.flags.collision_disabled)
+                        .is_some_and(|proxy| !proxy.base.flags.collision_disabled)
                 }) {
                     place_campaign_laser_on(game, target);
                 }
@@ -25124,11 +25595,11 @@ mod tests {
                 }
             }
             if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::ReactorCombat {
-                if let Some(target) = game.carrier_panels.into_iter().flatten().find(|id| {
+                if let Some(target) = game.carrier_panel_proxies.into_iter().flatten().find(|id| {
                     game.state
                         .objects
                         .get(*id)
-                        .is_some_and(|panel| !panel.base.flags.collision_disabled)
+                        .is_some_and(|proxy| !proxy.base.flags.collision_disabled)
                 }) {
                     let position = game.state.objects.get(target).unwrap().base.position;
                     let mut laser = Object::new(

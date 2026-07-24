@@ -1798,11 +1798,29 @@ impl Default for CarrierAssaultPhase {
 
 /// One of the two rotating armor panels protecting a Battle Carrier's energy
 /// core. Integrity follows the observed retail object field: each effective
-/// hit removes two points and the panel changes to its broken mesh at 90.
+/// proxy hit removes two points and the panel changes to its broken mesh at
+/// 90. The vulnerability window is semantic state rather than a retained
+/// object-path cursor or byte-addressed work area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CarrierReactorPanel {
     pub integrity: u8,
     pub active: bool,
+    pub vulnerability: CarrierReactorVulnerabilityStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CarrierReactorVulnerabilityStatus {
+    Inactive,
+    Waiting { retail_frames_remaining: u16 },
+    Opening { elapsed_retail_frames: u16 },
+    Exposed { elapsed_retail_frames: u16 },
+    Destroyed,
+}
+
+impl Default for CarrierReactorVulnerabilityStatus {
+    fn default() -> Self {
+        Self::Inactive
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1862,14 +1880,16 @@ impl Default for CarrierReactorPanel {
         Self {
             integrity: 100,
             active: true,
+            vulnerability: CarrierReactorVulnerabilityStatus::Inactive,
         }
     }
 }
 
 /// Typed objective state for the Battle Carrier assault. It models the
 /// player-driven exterior approach, rail corridor, automatic room-entry
-/// transformation, and two reactor panels directly; the shipping game does
-/// not retain a byte-addressed memory image.
+/// transformation, and the two reactor panels plus their transient damage
+/// relays directly; the shipping game does not retain a byte-addressed memory
+/// image.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CarrierAssaultState {
     pub phase: CarrierAssaultPhase,
