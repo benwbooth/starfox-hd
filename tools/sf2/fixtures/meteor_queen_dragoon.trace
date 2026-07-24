@@ -3,6 +3,7 @@
 # Raw actor-logic SHA-256: f80b064d6e2a6be5c6b9d8bb38d7f1248930cd20a03a308ce850e75aec2deab3
 # Raw forced-objective return SHA-256: 6543a7f58d14134b7345aec8cd693e9bec09018b180dc97242712fc4eb9ba2d0
 # Raw natural-progression SHA-256: 63929e5b1e40603a86c070e30429cdfe6986601d9b4919d95a6d270894987d9a
+# Raw natural-return SHA-256: 4f5702d61f201c4f2c4afb36b5f70b4fb5888b247b05600a736abda081621f53
 # This trace deliberately injects zero remaining objectives; it proves only the resulting return presentation, not natural Meteor completion.
 mission name=meteor mission_selection=4 active_map=4012 objectives_before=2 objectives_after=2
 boss name=queen_dragoon maximum_durability=80 defeat_retail_frame=23 explosion_retail_frame=43
@@ -14,4 +15,4 @@ explosion role=component_burst source_shape=BD98 count=4
 explosion role=component_debris source_shape=BDEC count=4
 logic traced_objects=5 move_events=20
 forced_return injected_remaining_objectives=0 return_input=forward natural_completion_proven=false observed_return_retail_frames=833 active_map_unchanged=true
-natural_progression mission_state_forced=false target_state_forced=false projectile_state_forced=false queen_retired_elapsed=98297 dropped_switch_shape=EF5C switch_targeted_elapsed=98300 pressed_switch_shape=EF78 switch_pressed_elapsed=98650 objectives_after_switch=1 base_entry_elapsed=100098 interior_map=45B9
+natural_progression mission_state_forced=false target_state_forced=false projectile_state_forced=false queen_retired_elapsed=98297 dropped_switch_shape=EF5C switch_targeted_elapsed=98300 pressed_switch_shape=EF78 switch_pressed_elapsed=98650 objectives_after_switch=1 base_entry_elapsed=100098 interior_map=45B9 sortie_exit_elapsed=107428 strategic_return_elapsed=111290 objectives_after_return=1

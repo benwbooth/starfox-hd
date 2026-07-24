@@ -36,6 +36,7 @@ class Evidence:
     actor_logic_sha256: str
     forced_return_sha256: str
     natural_progression_sha256: str
+    natural_return_sha256: str
     objectives_before: int
     objectives_after: int
     defeat_retail_frame: int
@@ -46,6 +47,8 @@ class Evidence:
     switch_targeted_elapsed: int
     switch_pressed_elapsed: int
     base_entry_elapsed: int
+    sortie_exit_elapsed: int
+    strategic_return_elapsed: int
 
 
 def fields(line: str) -> dict[str, str]:
@@ -291,11 +294,85 @@ def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int
     )
 
 
+def extract_natural_return(natural_return_trace: Path) -> tuple[int, int]:
+    records = [
+        fields(line)
+        for line in natural_return_trace.read_text(encoding="utf-8").splitlines()
+    ]
+    config = next(
+        (record for record in records if record.get("event") == "oracle-config"),
+        None,
+    )
+    expected_config = {
+        "target_object": "none",
+        "target_health": "nil",
+        "target_collision": "false",
+        "projectile_hit": "false",
+        "hostile_projectile_hit": "false",
+        "spider_health": "nil",
+        "spider_parent_health": "nil",
+        "spider_trigger": "false",
+        "objective_remaining": "nil",
+        "base_destroyed_bits": "nil",
+        "base_handshake_bits": "nil",
+        "teleport": "false",
+        "preserve_shields": "true",
+    }
+    if config is None or any(config.get(key) != value for key, value in expected_config.items()):
+        raise SystemExit(
+            "natural return trace must preserve only player shields and must "
+            "not force mission, target, projectile, or navigation state"
+        )
+    interior = next(
+        (
+            record
+            for record in records
+            if record.get("selection") == str(MISSION_SELECTION)
+            and record.get("mode") == "1"
+            and record.get("map") == INTERIOR_MAP
+            and record.get("objectives") == "1,1"
+        ),
+        None,
+    )
+    if interior is None:
+        raise SystemExit("natural return trace does not begin inside Meteor's base")
+    sortie_exit = next(
+        (
+            record
+            for record in records
+            if int(record.get("elapsed", "0")) > int(interior["elapsed"])
+            and record.get("mode") == "4"
+        ),
+        None,
+    )
+    if sortie_exit is None:
+        raise SystemExit("Queen Dragoon sortie never reaches its results sequence")
+    strategic_return = next(
+        (
+            record
+            for record in records
+            if int(record.get("elapsed", "0")) > int(sortie_exit["elapsed"])
+            and record.get("mode") == "7"
+        ),
+        None,
+    )
+    if strategic_return is None:
+        raise SystemExit("Queen Dragoon sortie never returns to the strategic map")
+    for boundary_name, boundary in (
+        ("sortie exit", sortie_exit),
+        ("strategic return", strategic_return),
+    ):
+        if boundary.get("objectives") != "1,1" or boundary.get("basehandshake") != "03":
+            raise SystemExit(f"Queen Dragoon {boundary_name} loses Meteor progression state")
+    return int(sortie_exit["elapsed"]), int(strategic_return["elapsed"])
+
+
 def extract(
     sortie_trace: Path,
     actor_logic_trace: Path,
     forced_return_trace: Path,
     natural_progression_trace: Path,
+    natural_return_trace: Path,
 ) -> Evidence:
     samples = []
     for line in sortie_trace.read_text(encoding="utf-8").splitlines():
@@ -376,11 +453,13 @@ def extract(
         raise SystemExit("actor trace contains an unexpected Queen Dragoon component")
 
     natural_progression = extract_natural_progression(natural_progression_trace)
+    natural_return = extract_natural_return(natural_return_trace)
     return Evidence(
         sortie_sha256=digest(sortie_trace),
         actor_logic_sha256=digest(actor_logic_trace),
         forced_return_sha256=digest(forced_return_trace),
         natural_progression_sha256=digest(natural_progression_trace),
+        natural_return_sha256=digest(natural_return_trace),
         objectives_before=objective_count(entry_values),
         objectives_after=objective_count(explosion[1]),
         defeat_retail_frame=defeat[0] - entry_elapsed,
@@ -391,6 +470,8 @@ def extract(
         switch_targeted_elapsed=natural_progression[1],
         switch_pressed_elapsed=natural_progression[2],
         base_entry_elapsed=natural_progression[3],
+        sortie_exit_elapsed=natural_return[0],
+        strategic_return_elapsed=natural_return[1],
     )
 
 
@@ -402,6 +483,7 @@ def render(evidence: Evidence) -> str:
             f"# Raw actor-logic SHA-256: {evidence.actor_logic_sha256}",
             (f"# Raw forced-objective return SHA-256: {evidence.forced_return_sha256}"),
             f"# Raw natural-progression SHA-256: {evidence.natural_progression_sha256}",
+            f"# Raw natural-return SHA-256: {evidence.natural_return_sha256}",
             (
                 "# This trace deliberately injects zero remaining objectives; "
                 "it proves only the resulting return presentation, not natural "
@@ -451,7 +533,10 @@ def render(evidence: Evidence) -> str:
                 f"switch_pressed_elapsed={evidence.switch_pressed_elapsed} "
                 "objectives_after_switch=1 "
                 f"base_entry_elapsed={evidence.base_entry_elapsed} "
-                f"interior_map={INTERIOR_MAP.split(':')[1]}"
+                f"interior_map={INTERIOR_MAP.split(':')[1]} "
+                f"sortie_exit_elapsed={evidence.sortie_exit_elapsed} "
+                f"strategic_return_elapsed={evidence.strategic_return_elapsed} "
+                "objectives_after_return=1"
             ),
             "",
         ]
@@ -520,6 +605,9 @@ def validate_compact(path: Path) -> None:
         "objectives_after_switch": "1",
         "base_entry_elapsed": "100098",
         "interior_map": INTERIOR_MAP.split(":")[1],
+        "sortie_exit_elapsed": "107428",
+        "strategic_return_elapsed": "111290",
+        "objectives_after_return": "1",
     }:
         raise SystemExit("Queen Dragoon natural-progression fixture is inconsistent")
     hashes = [
@@ -527,8 +615,8 @@ def validate_compact(path: Path) -> None:
         for line in content.splitlines()
         if line.startswith("# Raw ")
     ]
-    if len(hashes) != 4:
-        raise SystemExit("Queen Dragoon fixture must bind exactly four raw traces")
+    if len(hashes) != 5:
+        raise SystemExit("Queen Dragoon fixture must bind exactly five raw traces")
     if any(
         len(value) != 64
         or any(character not in "0123456789abcdef" for character in value)
@@ -556,6 +644,11 @@ def main() -> None:
         type=Path,
         help="unforced Queen defeat, dropped-switch, and Meteor base-entry trace",
     )
+    parser.add_argument(
+        "--natural-return-source",
+        type=Path,
+        help="unforced Meteor interior, results, and strategic-return trace",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
@@ -567,12 +660,15 @@ def main() -> None:
             raise SystemExit("--forced-return-source is required with --source")
         if not args.natural_source:
             raise SystemExit("--natural-source is required with --source")
+        if not args.natural_return_source:
+            raise SystemExit("--natural-return-source is required with --source")
         generated = render(
             extract(
                 args.source,
                 args.actor_source,
                 args.forced_return_source,
                 args.natural_source,
+                args.natural_return_source,
             )
         )
         if args.check:
