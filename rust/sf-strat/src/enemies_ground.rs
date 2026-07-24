@@ -4508,10 +4508,12 @@ fn kdoor_remove(g: &mut Game, idx: u16) {
 
 // ------------------------------------------------------------
 // walll / wallr (IS 76 / 77) + wallleftright (IS 75) — DSTRATS.ASM:968-1053.
-// wall_l / wall_r cosmetic mesh ids (used by the swing) are NOT def_shape'd in
-// ISTRATS.ASM and unresolvable here, so the shape swap is omitted (the swing —
-// the gameplay behaviour — is faithful). movewallsound / trigse are cosmetic.
+// wall_l / wall_r are direct strategy-selected ShapeHdrs rather than
+// ISTRATS.ASM rows; the native shape compiler assigns them stable flat ids.
 // ------------------------------------------------------------
+
+const WALL_LEFT_SHAPE: u16 = 457;
+const WALL_RIGHT_SHAPE: u16 = 458;
 
 /// `wallleftright_istrat` (DSTRATS.ASM:968-975): anim 0, tick=wall2_strat, hp=-1
 /// (indestructible), wall1AP, faces deg180, colanim 0. Falls into the tick.
@@ -4589,7 +4591,7 @@ pub fn wall2_strat(g: &mut Game, idx: u16) {
     add_colanim_wrap(&mut g.objs.aliens[idx as usize], 1, 4); // s_add_colanim x,#1,#4
                                                               // s_jmp_notdelay 4,wallnothit -> reach wallchk only on the /16 tick.
     if notdelay(g, 4) {
-        wall_chk(&mut g.objs.aliens[idx as usize]); // s_jmp wallchk
+        wall_chk(g, idx); // s_jmp wallchk
     }
     wall_nothit(g, idx);
 }
@@ -4622,14 +4624,15 @@ pub fn wall1_strat(g: &mut Game, idx: u16) {
         return;
     }
     g.objs.aliens[idx as usize].sbyte4 = 10; // s_set_alvar al_sbyte4,#10
-    wall_chk(&mut g.objs.aliens[idx as usize]); // wallchk
+    wall_chk(g, idx); // wallchk
     wall_nothit(g, idx);
 }
 
-/// `wallchk` (DSTRATS.ASM:1014-1019): toggle animframe bit 0 (lean flip); trigse
-/// $57 is cosmetic.
-fn wall_chk(al: &mut Alien) {
-    al.animframe ^= 1;
+/// `wallchk` (DSTRATS.ASM:1014-1019): toggle animframe bit 0 and play the
+/// authored wall-switch cue.
+fn wall_chk(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].animframe ^= 1;
+    g.hooks.play_se(0x57);
 }
 
 /// `wallnothit` (DSTRATS.ASM:1021-1025 + walllr_i/wallleft/wallright:1027-1053):
@@ -4652,12 +4655,16 @@ fn wall_nothit(g: &mut Game, idx: u16) {
     };
     if g.objs.aliens[idx as usize].animframe & 0x7F == 0 {
         let t = sid(g, wallright_strat);
-        g.objs.aliens[idx as usize].stratptr = Some(t); // s_set_strat x,wallright_strat
+        let wall = &mut g.objs.aliens[idx as usize];
+        wall.stratptr = Some(t); // s_set_strat x,wallright_strat
+        wall.shape = WALL_RIGHT_SHAPE;
         g.hooks.make_snd(PosSndFamilyId::MoveWall, ox, oz);
         wallright_strat(g, idx); // falls into it this frame
     } else {
         let t = sid(g, wallleft_strat);
-        g.objs.aliens[idx as usize].stratptr = Some(t); // s_set_strat x,wallleft_strat
+        let wall = &mut g.objs.aliens[idx as usize];
+        wall.stratptr = Some(t); // s_set_strat x,wallleft_strat
+        wall.shape = WALL_LEFT_SHAPE;
         g.hooks.make_snd(PosSndFamilyId::MoveWall, ox, oz);
         wallleft_strat(g, idx);
     }

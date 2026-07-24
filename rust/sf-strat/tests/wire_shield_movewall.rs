@@ -2,12 +2,14 @@
 
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_strat::common::{sv, StratRam};
-use sf_strat::enemies_ground::{item6_istrat, wallnothit};
+use sf_strat::enemies_ground::{item6_istrat, wall1_strat, walll_istrat, wallnothit};
 use sf_strat::player::{player_start_init, strat_player};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 const PSF2_WIRESHIP: u8 = 2;
+const HIT_PRIMARY: u8 = 1;
+const WALL_LEFT_SHAPE: u16 = 457;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SndEvent {
@@ -125,6 +127,7 @@ fn wall_latch_fires_movewall_make_snd() {
         al.roty = 128; // deg180
     }
     wallnothit(&mut g, w);
+    assert_eq!(g.objs.aliens[w as usize].shape, WALL_LEFT_SHAPE);
     assert!(
         log.borrow()
             .iter()
@@ -132,4 +135,20 @@ fn wall_latch_fires_movewall_make_snd() {
         "wallleft_i must jsl movewallsound_l; got {:?}",
         log.borrow()
     );
+}
+
+#[test]
+fn wall_hit_flip_plays_the_source_switch_cue() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = Game::with_hooks(Box::new(Rec(log.clone())));
+    spawn_player(&mut g);
+
+    let wall = g.objs.alloc().expect("wall");
+    g.objs.aliens[wall as usize].worldz = 2_000;
+    walll_istrat(&mut g, wall);
+    log.borrow_mut().clear();
+    g.objs.aliens[wall as usize].hitflags = HIT_PRIMARY;
+    wall1_strat(&mut g, wall);
+
+    assert!(log.borrow().contains(&SndEvent::PlaySe(0x57)));
 }
