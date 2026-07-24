@@ -476,6 +476,9 @@ fn runtime_extended_mesh_catalog_is_complete() {
         (451, "slot_4"),
         (452, "pillar3_ns"),
         (453, "laserline"),
+        (454, "warp_1"),
+        (455, "warp_2"),
+        (456, "warp_3"),
     ];
 
     for (shape_id, name) in expected {

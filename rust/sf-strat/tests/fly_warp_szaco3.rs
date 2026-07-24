@@ -9,6 +9,8 @@ use sf_strat::enemies_ground::{
 };
 use sf_strat::enemy_a::{COLLTYPE_ENEMY1, DEG180, DEG90};
 
+const EXPECTED_WARP_SHAPES: [u16; 4] = [456, 455, 454, 133];
+
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
     assert_eq!(p, 0);
@@ -133,6 +135,14 @@ fn warp_init_and_states() {
     assert_eq!(g.objs.aliens[idx as usize].sbyte4, 4);
     assert_eq!(g.objs.aliens[idx as usize].stratstate, 0);
     assert_ne!(g.objs.aliens[idx as usize].collflags & (COLLTYPE_ENEMY1), 0);
+
+    for (phase, expected_shape) in EXPECTED_WARP_SHAPES.into_iter().enumerate() {
+        g.objs.aliens[idx as usize].stratstate = 5;
+        g.objs.aliens[idx as usize].sbyte3 = (phase as u8) * 2;
+        warp_strat(&mut g, idx);
+        assert_eq!(g.objs.aliens[idx as usize].shape, expected_shape);
+    }
+    g.objs.aliens[idx as usize].stratstate = 0;
 
     warp_strat(&mut g, idx);
     // Still state 0 unless already at pos.

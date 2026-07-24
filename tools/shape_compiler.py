@@ -327,6 +327,11 @@ EXTENDED_SHAPES = {
     "slot_4":          451,
     "pillar3_ns":      452,
     "laserline":       453,
+    # GA2STRAT's warp fighter materializes through these three intermediate
+    # ShapeHdrs before reaching the catalog `warp` mesh (id 133).
+    "warp_1":          454,
+    "warp_2":          455,
+    "warp_3":          456,
 }
 
 

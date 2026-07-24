@@ -7233,6 +7233,11 @@ fn pillar3fstay_wait(_g: &mut Game, _idx: u16) {}
 
 const WARP_HP: u8 = 4; // STRATEQU.INC:241
 const WARP_AP: u8 = 8; // STRATEQU.INC:242
+const WARP_SHAPE: u16 = 133;
+const WARP_SHAPE_1: u16 = 454;
+const WARP_SHAPE_2: u16 = 455;
+const WARP_SHAPE_3: u16 = 456;
+const WARP_SHAPES: [u16; 4] = [WARP_SHAPE_3, WARP_SHAPE_2, WARP_SHAPE_1, WARP_SHAPE];
 
 /// warppostab (GA2STRAT.ASM:1244-1252): (x,y) pairs; sbyte1 is byte index.
 const WARP_POS: [(i16, i16); 8] = [
@@ -7286,7 +7291,8 @@ pub fn warp_strat(g: &mut Game, idx: u16) {
             apply_velocity(&mut g.objs.aliens[idx as usize]);
         }
     }
-    // shape morph from sbyte3 — cosmetic omitted
+    let shape_phase = (g.objs.aliens[idx as usize].sbyte3 / 2) as usize;
+    g.objs.aliens[idx as usize].shape = WARP_SHAPES[shape_phase.min(WARP_SHAPES.len() - 1)];
     add_player_z(g, idx);
 }
 
