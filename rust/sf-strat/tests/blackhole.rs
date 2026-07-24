@@ -12,14 +12,10 @@
 //!    draw-in, stores `levelfinished = al_sbyte2` (KSTRATS.ASM:730-731).
 //!
 //! These assert the game-side warp value the LE_* dispatch consumes
-//! (`g.world.levelfinished`). The EXIT codes (11/12/13) are then fully consumed
-//! by the already-wired shell warp_advance (routechangebhole1/2/3 -> routes[3]
-//! = P19/P18/P20), proven by the sf-game shell test
-//! `blackhole_exit_codes_repoint_routes3` (shell.rs). The ENTER code (15) needs
-//! the routechange2 arming, which is the single remaining sf-game follow-up
-//! (shell.rs warp_advance must fire planets.routechange2() on le::ENTERBHOLE —
-//! today a no-op with a "branch armed upstream" TODO). See the BLACKHOLE_BEGIN
-//! block note in bosses.rs.
+//! (`g.world.levelfinished`). The EXIT codes (11/12/13) are fully consumed by
+//! the shell warp dispatcher (routechangebhole1/2/3 -> routes[3] =
+//! P19/P18/P20). The ENTER code (15) is paired there with routechange2,
+//! matching the adjacent source operations.
 
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;

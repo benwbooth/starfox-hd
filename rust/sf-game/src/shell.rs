@@ -1004,11 +1004,6 @@ impl Hooks for ShellHooks {
         // half-extents from the shape meshes, injected via set_shape_extents.
         self.state.borrow().shape_extents.get(&shape).copied()
     }
-
-    fn player_exit_base(&mut self) {
-        // TODO(wave3): hangar launch chain is strat-lane
-        // (C Strat_PlayerExitBase, src/strat/strat_player.c).
-    }
 }
 
 /// The boot/frame shell around [`crate::game::Game`] — one instance per
@@ -1393,8 +1388,6 @@ impl Shell {
         // catalog is a static singleton consumed via
         // Hooks::resolve_path_start — no per-run state to reset.
         // MapExec_Init (boot.c:128): covered by World::init + load_map.
-        // TODO(wave3): sf_strat::table::register_all(&mut self.game)
-        //   (C Strat_RegisterAll, boot.c:129).
         // Sound_Init (boot.c:130) is app-side: sf-audio owns the SPC state.
         {
             let mut st = self.state.borrow_mut();
@@ -1494,8 +1487,6 @@ impl Shell {
             self.camera.init(&mut self.game.vars);
             self.game.world = World::init();
             self.reregister_strats();
-            // TODO(wave3): sf_strat::table::register_all(&mut self.game)
-            //   (C Strat_RegisterAll, boot.c:146).
             self.load_map(sf_map::catalog::map_id::TITLE);
             self.title_loaded = true;
         }
@@ -1583,8 +1574,6 @@ impl Shell {
         // Paths_Init + Paths_LoadData (boot.c:79-83): static catalog via
         // Hooks::resolve_path_start.
         // MapExec_Init (boot.c:84): covered by World::init + load_map.
-        // TODO(wave3): sf_strat::table::register_all(&mut self.game)
-        //   (C Strat_RegisterAll, boot.c:85).
         self.load_map(self.planets.newmap);
 
         // Spawn the player alien (C Strat_SpawnPlayer, boot.c:89-102). The
@@ -2925,14 +2914,13 @@ mod tests {
         assert_ne!(sh.state(), GameState::Tally);
     }
 
-    /// Finding 1: with the P21 branch armed upstream (ROM `routechange 2`,
-    /// simulated here — the real trigger is blocked on unported sf-strat),
-    /// LE_ENTERBHOLE walks straight into the BLACK HOLE stage.
+    /// Finding 1: the `routechange 2` arm paired with LE_ENTERBHOLE walks
+    /// straight into the BLACK HOLE stage.
     #[test]
     fn enterbhole_reaches_black_hole_stage() {
         let mut sh = into_gameplay();
-        // Simulate the black-hole-approach strat: routechange 2 arms the P21
-        // branch (routes[1]=P21). Route 0, stage 1 -> after inc stage 2:
+        // The black-hole approach arms the P21 branch (routes[1]=P21).
+        // Route 0, stage 1 -> after inc stage 2:
         // P6(0) -> routes[1]=P21(1) -> routes[3]=P19(2) = BLACKHOLE.
         sh.planets.routechange2();
         sh.planets.stage = 1;

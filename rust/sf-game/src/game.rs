@@ -133,9 +133,6 @@ pub trait Hooks {
     fn shape_extents(&self, _shape: u16) -> Option<(i16, i16, i16)> {
         None
     }
-    /// C `Strat_PlayerExitBase` (src/strat/strat_player.c) — the hangar
-    /// launch chain, owned by the strat lane.
-    fn player_exit_base(&mut self) {}
 }
 
 /// No-op hook set (mirrors the C trace harness stubs).
@@ -714,7 +711,6 @@ impl Game {
                         self.call_strat(sid, 0);
                     }
                 }
-                self.hooks.player_exit_base();
                 true
             }
             // world_cb_set_player_onplanet_l (world.c:610).

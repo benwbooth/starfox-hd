@@ -10,11 +10,9 @@
 //!     `route1/level1_5.rs:253` via synthetic addr `STRAT_ADDR_BOSSB`
 //!     (0x06000F). We register that address here so the map resolves it.
 //!   - `bossBrob` (robot) = def_Istrat 118 (ISTRATS.ASM:542). Placed by
-//!     `MAP1_6A.ASM:292` (`boss_b_1,bossBrob_Istrat`), which sf-map
-//!     `route1/level1_6.rs:78` currently STUBS (`map1_6a` = mapwait/maprts,
-//!     content not yet ported). So bossBrob's istrat row is populated and
-//!     resolvable by flat/synthetic id, but no live map spawns it yet — it
-//!     will light up when MAP1_6A is ported. Reported to caller.
+//!     `MAP1_6A.ASM:292` (`boss_b_1,bossBrob_Istrat`), transcribed by sf-map
+//!     `route1/level1_6.rs`. The compact map strategy row resolves directly to
+//!     this native initializer.
 //!
 //! FIDELITY / SCOPE (per task guidance — a playable, killable Andross beats a
 //! half-written exhaustive one). FULLY PORTED: init + HP bar (s_set_bossmaxHP /
@@ -2675,6 +2673,5 @@ pub fn register(world: &mut World) {
     if let Some(id) = world.istrats[IS_BOSSB] {
         world.register_strategy_address(STRAT_ADDR_BOSSB, id);
     }
-    // bossBrob (IS 117) is resolvable by flat/synthetic id once MAP1_6A is
-    // ported (currently stubbed in sf-map route1/level1_6.rs).
+    // bossBrob (IS 117) is spawned by the native MAP1_6A transcription.
 }

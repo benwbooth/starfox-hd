@@ -2488,9 +2488,8 @@ pub fn base0b_strat(g: &mut Game, idx: u16) {
 
 /// `massivebase_istrat` (D2STRATS.ASM:650-657): tick=.strat, no collide/explode
 /// (`s_set_alptrs x,.strat,0,0`), colldisable, hardHP/hardAP, faces deg180, clear
-/// the zremove type bit. `s_set_var maptrigger,#0` is unported (g_maptrigger is
-/// an unwired map-scripting global, shell.rs). No `s_end_strat` before `.strat`
-/// -> falls into the tick this same frame.
+/// the zremove type bit and clears the map trigger. No `s_end_strat` before
+/// `.strat` -> falls into the tick this same frame.
 fn massivebase_init(g: &mut Game, idx: u16) {
     let tick = sid(g, massivebase_strat);
     {
@@ -2504,6 +2503,7 @@ fn massivebase_init(g: &mut Game, idx: u16) {
         al.roty = DEG180; // s_set_alvar B,x,al_roty,#deg180
         al.type_ &= !ATZREMOVE; // s_clr_altype x,zremove
     }
+    g.vars.map.trigger = 0; // s_set_var B,maptrigger,#0
     massivebase_strat(g, idx);
 }
 
@@ -2729,9 +2729,8 @@ fn colony2_strat(g: &mut Game, idx: u16) {
 /// sets a separate tick, so this function is both the istrat and the per-frame
 /// tick). Re-asserts colldisable/gnd, then opens (anim 0->9) when the player is
 /// in front and beyond `medpspeed+10` (75) z; snaps shut (anim 0) when the player
-/// is behind it or inside 75 z. `s_nodepthcue` (a render fog-exclusion flag) and
-/// `s_dooropen_snd` are unported cosmetics. This is NOT a stage-transition — the
-/// ASM sets no LE_/levelfinished (correcting REACHABLE_UNPORTED's guess).
+/// is behind it or inside 75 z. `s_nodepthcue` is a render fog-exclusion flag.
+/// This is NOT a stage-transition — the ASM sets no LE_/levelfinished.
 fn colonyexit_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
@@ -2743,7 +2742,10 @@ fn colonyexit_strat(g: &mut Game, idx: u16) {
         g.objs.aliens[idx as usize].animframe = 0; // .close: s_init_anim x,#0
         return;
     }
-    // s_dooropen_snd 0 (cosmetic) ; s_cmp_anim #9 / s_beq .end / s_add_anim x,#1,#10.
+    // s_dooropen_snd 0 ; s_cmp_anim #9 / s_beq .end / s_add_anim x,#1,#10.
+    if g.objs.aliens[idx as usize].animframe & 0x7F == 0 {
+        door_family_sound(g, idx, PosSndFamilyId::DoorOpen);
+    }
     let al = &mut g.objs.aliens[idx as usize];
     if al.animframe != 9 {
         al.animframe = (al.animframe + 1) % 10;
@@ -4465,18 +4467,24 @@ fn kdoor_init(g: &mut Game, idx: u16) {
 }
 
 /// `.strat` (D2STRATS.ASM:696-721): open the door anim (0->8, clamp) while the
-/// player is within 600 z; else close it (8->0). Door sounds are cosmetic. When
-/// fully open, `.remove` runs (kdoor2 only): restore control + drop the kichi_0.
+/// player is within 600 z; else close it (8->0). When fully open, `.remove`
+/// runs (kdoor2 only): restore control + drop the kichi_0.
 fn kdoor_strat(g: &mut Game, idx: u16) {
     // The door opens below a depth distance of 600.
     if zdist_less(g, idx, 600) {
-        // .open: s_dooropen_snd 0 (cosmetic) ; s_add_anim x,#1,#8,.remove
+        // .open: s_dooropen_snd 0 ; s_add_anim x,#1,#8,.remove
+        if g.objs.aliens[idx as usize].animframe & 0x7F == 0 {
+            door_family_sound(g, idx, PosSndFamilyId::DoorOpen);
+        }
         if add_anim_cap(&mut g.objs.aliens[idx as usize], 1, 8) {
             kdoor_remove(g, idx);
         }
     } else {
-        // close: s_doorclose_snd 7 (cosmetic) ; s_cmp_anim #0 beq .end ;
+        // close: s_doorclose_snd 7 ; s_cmp_anim #0 beq .end ;
         // s_add_anim x,#-1,#8 (3-arg wrap; the #0 guard keeps it from wrapping).
+        if g.objs.aliens[idx as usize].animframe & 0x7F == 7 {
+            door_family_sound(g, idx, PosSndFamilyId::DoorClose);
+        }
         let al = &mut g.objs.aliens[idx as usize];
         if al.animframe & 0x7F != 0 {
             add_anim_wrap(al, 0xFF, 8); // -1

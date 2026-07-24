@@ -10864,8 +10864,8 @@ fn blackhole_exp_strat(g: &mut Game, idx: u16) {
 /// `.blackhole2_strat` (GA2STRAT.ASM:2179-2247) — the enter-warp draw-in. Once
 /// the ship is within 100 (XZ) it latches sflag1 and counts al_sbyte1 down from
 /// 70; on the tick it reaches 0 it ARMS the warp (levelfinished=le_enterbhole,
-/// preceded in ROM by `routechange 2` — the missing 1-line shell wire noted
-/// above). Every tick it also pulls the camera in + spawns trailing sprites.
+/// whose shell dispatch applies `routechange 2`). Every tick it also pulls the
+/// camera in + spawns trailing sprites.
 fn blackhole2_strat(g: &mut Game, idx: u16) {
     // s_jmp_ifplayerdead .ninto — dead player skips the whole warp, just floats.
     if g.vars.gameflags & GF_PLAYERDEAD != 0 {
@@ -10911,9 +10911,8 @@ fn blackhole2_strat(g: &mut Game, idx: u16) {
     let new_sb1 = sbyte1.wrapping_sub(1);
     g.objs.aliens[idx as usize].sbyte1 = new_sb1;
     if new_sb1 == 0 {
-        // routechange 2 (GA2STRAT.ASM:2202) — armed via the shell follow-up wire
-        // (routechange2 lives on planets, unreachable from a strat; see block
-        // note). s_set_var B,levelfinished,#le_enterbhole (GA2STRAT.ASM:2203).
+        // routechange 2 (GA2STRAT.ASM:2202) is paired with LE_ENTERBHOLE by the
+        // shell dispatch. s_set_var B,levelfinished,#le_enterbhole follows.
         g.world.levelfinished = LE_ENTERBHOLE;
     }
     // .nc — the draw-in runs every tick regardless of the trigger.
