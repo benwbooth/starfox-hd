@@ -57,7 +57,7 @@ use crate::enemy_a::{
     strat_hit_flash, strat_move3d, strat_nocoll_init, strat_obj_index_or_null, strat_phase_offset,
     strat_pitch_toward, strat_relslowelaser_speed, AF_LEFT_PL, ASF2_NOEXPSND, ASF2_RELEXPLODE,
     ASF2_SMFLAG1, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG11, DEG180, DEG45,
-    DEG90,
+    DEG90, SH_BOUNCYBALL,
 };
 use crate::snes_trig::rotate_16xz;
 
@@ -7200,12 +7200,16 @@ pub fn pillar3f_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, pillar3f_strat);
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.stratptr = Some(tick);
-    al.collstratptr = Some(coll);
-    al.expstratptr = Some(exp);
-    al.hp = PILLAR3F_HP;
-    al.ap = PILLAR3F_AP;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.hp = PILLAR3F_HP;
+        al.ap = PILLAR3F_AP;
+    }
+    // The initializer falls through to the normal strategy in the same frame.
+    pillar3f_strat(g, idx);
 }
 
 pub fn pillar3f_strat(g: &mut Game, idx: u16) {
@@ -7231,8 +7235,8 @@ fn pillar3ffall_init(g: &mut Game, idx: u16) {
         }
         al.sbyte2 = 16;
     }
-    // ROM: s_make_obj #bouncyball; copypos (no z−10); alptrs explode×3; kill_obj.
-    if let Some(ball) = make_obj(g, 0) {
+    // ROM: create bouncyball; copy position (no z offset); all strategies explode; kill object.
+    if let Some(ball) = make_obj(g, SH_BOUNCYBALL) {
         let (px, py, pz) = {
             let me = &g.objs.aliens[idx as usize];
             (me.worldx, me.worldy, me.worldz)

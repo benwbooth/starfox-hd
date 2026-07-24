@@ -4,7 +4,7 @@ use sf_game::Game;
 use sf_strat::enemy_a::{
     fire_beamball, fire_friend_elaser, fire_plasma, fire_reb_elaser, flatmiss_istrat,
     flatmiss_strat, relelaser_istrat, relelaser_strat, relflatmiss_istrat, relflatmiss_strat,
-    ASF2_RELEXPLODE, ASF2_SFLAG1,
+    ASF2_RELEXPLODE, ASF2_SFLAG1, SH_BOUNCYBALL,
 };
 
 #[test]
@@ -114,12 +114,14 @@ fn fire_plasma_and_beamball_stats() {
     g.objs.aliens[firer as usize].vel = 30;
 
     let plasma = fire_plasma(&mut g, firer).expect("plasma");
+    assert_eq!(g.objs.aliens[plasma as usize].shape, SH_BOUNCYBALL);
     assert_eq!(g.objs.aliens[plasma as usize].ap, 10);
     assert_eq!(g.objs.aliens[plasma as usize].vel, 80);
     assert_eq!(g.objs.aliens[plasma as usize].count, 100);
     assert_ne!(g.objs.aliens[plasma as usize].sflags2 & ASF2_RELEXPLODE, 0);
 
     let ball = fire_beamball(&mut g, firer).expect("ball");
+    assert_eq!(g.objs.aliens[ball as usize].shape, SH_BOUNCYBALL);
     assert_eq!(g.objs.aliens[ball as usize].ap, 8);
     assert_eq!(g.objs.aliens[ball as usize].vel, 70);
 }

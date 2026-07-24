@@ -5,8 +5,8 @@
 use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
 use sf_game::game::{Game, Hooks};
 use sf_game::obj::strat_init_obj_vars;
-use sf_strat::enemies_ground::{pillar3f_istrat, pillar3f_strat};
-use sf_strat::enemy_a::{strat_pillar3_init, AF_LEFT_PL};
+use sf_strat::enemies_ground::pillar3f_istrat;
+use sf_strat::enemy_a::{strat_pillar3_init, AF_LEFT_PL, SH_BOUNCYBALL};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -79,6 +79,7 @@ fn pillar3_fall_spawns_bouncyball_at_z_minus_10() {
     assert_eq!(child.worldx, pillar.worldx);
     assert_eq!(child.worldy, pillar.worldy);
     assert_eq!(child.worldz, pillar.worldz.wrapping_sub(10));
+    assert_eq!(child.shape, SH_BOUNCYBALL);
     assert_eq!(child.hp, 0);
     assert_ne!(child.sflags & ASF_COLLDISABLE, 0);
     assert!(child.stratptr.is_some());
@@ -164,10 +165,9 @@ fn pillar3f_fall_spawns_bouncyball_no_z_offset() {
     let mut g = Game::new();
     spawn_player(&mut g, 0, -40, 0);
     let idx = spawn_obj(&mut g, 80, -20, 400);
-    pillar3f_istrat(&mut g, idx);
-    // Zdistless #500 vs player at z=0 → |400|<500 → fall.
     let before = g.objs.aliens.iter().filter(|a| a.active).count();
-    pillar3f_strat(&mut g, idx);
+    pillar3f_istrat(&mut g, idx);
+    // Zdistless #500 vs player at z=0 → |400|<500 → same-frame fall.
     let after = g.objs.aliens.iter().filter(|a| a.active).count();
     assert_eq!(after, before + 1);
 
@@ -177,6 +177,7 @@ fn pillar3f_fall_spawns_bouncyball_no_z_offset() {
     assert_eq!(child.worldx, pillar.worldx);
     assert_eq!(child.worldy, pillar.worldy);
     assert_eq!(child.worldz, pillar.worldz, "pillar3f has no worldz−10");
+    assert_eq!(child.shape, SH_BOUNCYBALL);
     assert_eq!(pillar.sbyte1 as i8, 4); // right of view default
 
     // leftpl → −4
@@ -185,6 +186,5 @@ fn pillar3f_fall_spawns_bouncyball_no_z_offset() {
     let left = spawn_obj(&mut g, 0, 0, 100);
     g.objs.aliens[left as usize].flags |= AF_LEFT_PL;
     pillar3f_istrat(&mut g, left);
-    pillar3f_strat(&mut g, left);
     assert_eq!(g.objs.aliens[left as usize].sbyte1 as i8, -4);
 }

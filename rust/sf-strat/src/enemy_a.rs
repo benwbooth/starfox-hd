@@ -4461,6 +4461,8 @@ pub fn fire_elaser(g: &mut Game, firer: u16) -> Option<u16> {
 // ============================================================
 
 const SHAPE_ELASER2: u16 = 511;
+/// Authored ROM `bouncyball` shape used by plasma bolts and pillar impacts.
+pub const SH_BOUNCYBALL: u16 = 405;
 const ELASER_AP: u8 = 2;
 const ENEMYLASER_AP: u8 = 2;
 const PLASMA_AP: u8 = 10;
@@ -4660,7 +4662,7 @@ pub fn fire_reb_elaser(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_plasma` / `fire_relbeamball` (GSTRATS.ASM:2405) — relflatmiss plasma.
 pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, 405)?;
+    let shot = make_obj(g, SH_BOUNCYBALL)?;
     const WEAPON_SCALE: i16 = 2;
     let mz = 80i16 >> WEAPON_SCALE;
     place_weapon_at_firer(g, shot, firer, mz);
@@ -4692,7 +4694,7 @@ pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_beamball` (GSTRATS.ASM:2422) — flatmiss (no playerZ scroll).
 pub fn fire_beamball(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, 0)?;
+    let shot = make_obj(g, SH_BOUNCYBALL)?;
     const WEAPON_SCALE: i16 = 2;
     let mz = 80i16 >> WEAPON_SCALE;
     place_weapon_at_firer(g, shot, firer, mz);
@@ -4824,7 +4826,7 @@ pub fn fire_shortplasma(g: &mut Game, firer: u16) -> Option<u16> {
     fire_flat_beam(
         g,
         firer,
-        405,
+        SH_BOUNCYBALL,
         PLASMA_AP,
         80,
         30,
@@ -4850,7 +4852,7 @@ pub fn homingflat_istrat(g: &mut Game, idx: u16) {
 /// life 50, homingflat strategy. The caller assigns the target pointer just
 /// after `s_fire_weapon`, exactly as the assembly call sites do.
 pub fn fire_hplasma(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, 405)?;
+    let shot = make_obj(g, SH_BOUNCYBALL)?;
     const WEAPON_SCALE: i16 = 2;
     let mz = 80i16 >> WEAPON_SCALE;
     place_weapon_at_firer(g, shot, firer, mz);
@@ -7018,9 +7020,8 @@ fn pillar3_enter_fall(g: &mut Game, idx: u16) {
         }
         al.sbyte2 = PILLAR3_FALL_FRAMES;
     }
-    // ROM: s_make_obj #bouncyball; copypos; worldz-=10; alptrs explode×3; kill_obj.
-    // Shape 0 stands in for the bouncyball sprite (same as fire_plasma).
-    if let Some(ball) = make_obj(g, 0) {
+    // ROM: create bouncyball; copy position; worldz-=10; all strategies explode; kill object.
+    if let Some(ball) = make_obj(g, SH_BOUNCYBALL) {
         let (px, py, pz) = {
             let me = &g.objs.aliens[idx as usize];
             (me.worldx, me.worldy, me.worldz.wrapping_sub(10))

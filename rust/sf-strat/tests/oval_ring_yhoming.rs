@@ -5,7 +5,7 @@ use sf_game::Game;
 use sf_strat::enemy_a::{
     elaser_istrat, elaser_strat, fire_hplasma, fire_ovalbeam, fire_relovalbeam, fire_relringlaser,
     fire_ringlaser, fire_shortplasma, fire_slow_elaser, fire_yhplasma, yhoming_istrat,
-    yhoming_strat, ASF2_RELEXPLODE, ASF2_SFLAG1,
+    yhoming_strat, ASF2_RELEXPLODE, ASF2_SFLAG1, SH_BOUNCYBALL,
 };
 
 #[test]
@@ -33,7 +33,7 @@ fn fire_rel_and_abs_oval_ring_shortplasma() {
     assert_eq!(g.objs.aliens[d as usize].ap, 6);
 
     let e = fire_shortplasma(&mut g, firer).expect("short");
-    assert_eq!(g.objs.aliens[e as usize].shape, 405);
+    assert_eq!(g.objs.aliens[e as usize].shape, SH_BOUNCYBALL);
     assert_eq!(g.objs.aliens[e as usize].ap, 10);
     assert_eq!(g.objs.aliens[e as usize].count, 30);
     assert_ne!(g.objs.aliens[e as usize].sflags2 & ASF2_RELEXPLODE, 0);
@@ -57,7 +57,7 @@ fn fire_hplasma_exact_shape_stats_immunity_and_homing() {
         al.fireobjptr = player + 1;
     }
     let al = g.objs.aliens[shot as usize];
-    assert_eq!(al.shape, 405);
+    assert_eq!(al.shape, SH_BOUNCYBALL);
     assert_eq!(al.hp, 1);
     assert_eq!(al.ap, 10);
     assert_eq!(al.vel, 60);
