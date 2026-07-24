@@ -75,6 +75,8 @@ dist_xz, msqrt16/32, mcalcperc, calcstageperc, framescalevecs, anglexy axis/diag
 
 - [x] Cockpit death/ejection handoff — lethal cockpit hits run `playeroutofcock` for the source 23-count transition before the ordinary crash; straight-flight body, count-19 props, death roll, sequence-preserving space setup, dedicated hit-flash/explosion callbacks, and one-shot audio/life accounting; tests `player_cockpit.rs`, `player_damage_sfx.rs`, and all three unattended routes.
 
+- [x] Terminal player explosion — `pexplode_Istrat` creates the flat inert player/camera anchor and separate large-particle explosion, transfers semantic references, installs the real explosion lifecycle, preserves the dying/dead flags, decrements one life, and drives the exact typed additive-red circle through the 20-tick delay and complete black fade; strategy, shell-boundary, trace-parity, unit, and real GPU readback tests.
+
 - [x] Opening `pstrat` dispatch — typed catalog for every spawned BGS background; all 27 route/special/presentation maps install the authored initializer; ground dive builds its linked duplicate ship and camera; tests `catalog`, `player_view_modes.rs`, `player_flyin.rs`, and all three unattended routes.
 
 - [x] LB out/in, divegnd, cred, tunnel→planet, VIEWLB3MOVE — tests `player_lb_cred.rs`.

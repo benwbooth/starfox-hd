@@ -11,6 +11,7 @@
 //! their lanes (strat/render/audio/windows) come over.
 
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
+use sf_core::red_fill_circle::RedFillCircleState;
 use sf_core::scene::{DepthColors, DepthThresholds, GamePalette, PaletteFadeTarget, SceneStyle};
 
 // ============================================================
@@ -51,6 +52,9 @@ pub const PSTF_NOTDIE: u8 = 32;
 // playerflymode
 pub const PFM_SHADOWS: u8 = 8;
 pub const PFM_WOBBLE: u8 = 16;
+
+/// `timeuntilfade` installed by the terminal player explosion.
+pub const PLAYER_DEATH_FADE_DELAY_TICKS: u8 = 20;
 
 // Game modes (C `src/variables.h`)
 pub const SPACE_MODE: u8 = 1;
@@ -510,6 +514,8 @@ pub struct GameVars {
     pub freezestrats: u8,
     /// C `g_internalPLAYPT` — authoritative player alien index.
     pub internal_playpt: i16,
+    /// Source `timeuntilfade` as a named countdown rather than a memory slot.
+    pub player_death_fade_delay: u8,
     /// C `g_dummyobj` — do_strat_l skip index (STRATROU.ASM dummyobj).
     pub dummyobj: i16,
 
@@ -587,6 +593,8 @@ pub struct GameVars {
     pub meters: u16,
     /// C `g_circleanim`.
     pub circleanim: i16,
+    /// Live semantic replacement for the source red-fill command cursor.
+    pub red_fill_circle: RedFillCircleState,
     /// C `g_oncewipe`.
     pub oncewipe: u8,
 
@@ -644,6 +652,7 @@ impl Default for GameVars {
             gameframe: 0,
             freezestrats: 0,
             internal_playpt: 0,
+            player_death_fade_delay: 0,
             dummyobj: 0,
             psvar_word1: 0,
             psvar_word2: 0,
@@ -673,6 +682,7 @@ impl Default for GameVars {
             wireendflash: 0,
             meters: 0,
             circleanim: 0,
+            red_fill_circle: RedFillCircleState::inactive(),
             oncewipe: 0,
             game_mode: 0,
             frog_hp: 0,
@@ -732,6 +742,8 @@ impl GameVars {
         self.pshipflags3 = 0;
         self.shieldup = 0;
         self.wireendflash = 0;
+        self.player_death_fade_delay = 0;
+        self.red_fill_circle.clear();
     }
 
     /// Apply the terminal environment macro from a `BGS.ASM` background

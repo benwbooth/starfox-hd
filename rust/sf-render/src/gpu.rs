@@ -97,6 +97,8 @@ enum Pipe {
     FlatTriAdd,
     FlatLine,
     Overlay,
+    /// Additive two-dimensional fixed-color pass (retail color math).
+    OverlayAdd,
 }
 
 struct DrawCmd {
@@ -161,6 +163,7 @@ pub struct Gpu {
     flat_line: wgpu::RenderPipeline,
     textured_tri: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
+    overlay_add: wgpu::RenderPipeline,
 
     uniform_bgl: wgpu::BindGroupLayout,
     texture_bgl: wgpu::BindGroupLayout,
@@ -516,40 +519,44 @@ impl Gpu {
             cache: None,
         });
 
-        let overlay = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("overlay"),
-            layout: Some(&overlay_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_overlay"),
-                compilation_options: Default::default(),
-                buffers: &[v2_layout],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            // 2D overlays draw back-to-front in call order; no depth testing.
-            depth_stencil: depth_stencil(false, wgpu::CompareFunction::Always),
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_overlay"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview: None,
-            cache: None,
-        });
+        let make_overlay = |label: &str, blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&overlay_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_overlay"),
+                    compilation_options: Default::default(),
+                    buffers: &[v2_layout.clone()],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                // 2D overlays draw back-to-front in call order; no depth testing.
+                depth_stencil: depth_stencil(false, wgpu::CompareFunction::Always),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_overlay"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let overlay = make_overlay("overlay", wgpu::BlendState::ALPHA_BLENDING);
+        let overlay_add = make_overlay("overlay-add", additive_blend);
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("nearest"),
@@ -592,6 +599,7 @@ impl Gpu {
             flat_line,
             textured_tri,
             overlay,
+            overlay_add,
             uniform_bgl,
             texture_bgl,
             sampler,
@@ -1041,6 +1049,30 @@ impl Gpu {
         palette: Option<&[[f32; 4]; 16]>,
         texture: TextureId,
     ) {
+        self.push_overlay_tris_variant(
+            Pipe::Overlay,
+            verts,
+            proj,
+            model,
+            color,
+            use_texture,
+            palette,
+            texture,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_overlay_tris_variant(
+        &mut self,
+        pipe: Pipe,
+        verts: &[Vertex2],
+        proj: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+        use_texture: u32,
+        palette: Option<&[[f32; 4]; 16]>,
+        texture: TextureId,
+    ) {
         if verts.len() < 3 {
             return;
         }
@@ -1055,7 +1087,7 @@ impl Gpu {
         let start = self.v2.len() as u32;
         self.v2.extend_from_slice(verts);
         self.cmds.push(DrawCmd {
-            pipe: Pipe::Overlay,
+            pipe,
             v_start: start,
             v_count: verts.len() as u32,
             uniform_index: ui,
@@ -1087,6 +1119,35 @@ impl Gpu {
             tris.push(fan[i + 1]);
         }
         self.push_overlay_tris(&tris, proj, model, color, use_texture, palette, texture);
+    }
+
+    /// Draw a solid two-dimensional triangle fan with additive color math.
+    pub fn push_overlay_additive_fan(
+        &mut self,
+        fan: &[Vertex2],
+        proj: &[f32; 16],
+        model: &[f32; 16],
+        color: [f32; 4],
+    ) {
+        if fan.len() < 3 {
+            return;
+        }
+        let mut tris = Vec::with_capacity((fan.len() - 2) * 3);
+        for point in 1..fan.len() - 1 {
+            tris.push(fan[0]);
+            tris.push(fan[point]);
+            tris.push(fan[point + 1]);
+        }
+        self.push_overlay_tris_variant(
+            Pipe::OverlayAdd,
+            &tris,
+            proj,
+            model,
+            color,
+            0,
+            None,
+            WHITE_TEX,
+        );
     }
 
     /// Upload accumulated geometry and replay all draws in one render pass.
@@ -1177,8 +1238,12 @@ impl Gpu {
                         rpass.set_vertex_buffer(0, self.vbuf3t.slice(..));
                         rpass.draw(cmd.v_start..cmd.v_start + cmd.v_count, 0..1);
                     }
-                    Pipe::Overlay => {
-                        rpass.set_pipeline(&self.overlay);
+                    Pipe::Overlay | Pipe::OverlayAdd => {
+                        rpass.set_pipeline(if cmd.pipe == Pipe::Overlay {
+                            &self.overlay
+                        } else {
+                            &self.overlay_add
+                        });
                         rpass.set_bind_group(0, &self.uniform_bind, &[offset as u32]);
                         rpass.set_bind_group(1, &self.textures[cmd.texture.0].bind_group, &[]);
                         rpass.set_vertex_buffer(0, self.vbuf2.slice(..));

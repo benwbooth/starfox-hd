@@ -19,15 +19,15 @@
 //! order is imposed on other lanes.
 
 use crate::common::{
-    boost_sprite, set_boost_zoff, sf_random, strat_apply_velocity, strat_chase,
+    boost_sprite, kill_obj, set_boost_zoff, sf_random, strat_apply_velocity, strat_chase,
     strat_chase_proportional, strat_gen_vecs_3d, strat_make_obj, strat_perc62, strat_perc75,
     strat_perc87, strat_perc93, strat_remove_obj, strat_spawn_projectile, strat_speed_to, sv,
     StratRam,
 };
 use crate::enemy_a::{
-    add_player_z, addrnd2pos_xy, fire_nuke, make_large_exp_obj, make_medium_exp_obj,
-    phitflash_istrat, shiplb1_istrat, sid as ea_sid, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3,
-    ASF4_NOPOLYEXP,
+    add_player_z, addrnd2pos_xy, bigparticleexplode_istrat, fire_nuke, make_large_exp_obj,
+    make_medium_exp_obj, phitflash_istrat, shiplb1_istrat, sid as ea_sid, strat_explode,
+    ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3, ASF4_NOPOLYEXP,
 };
 /// ROM `sflag4` — sflags2 bit 7 (STRATEQU.INC make_sflag after sflag3).
 const ASF2_SFLAG4: u8 = 0x80;
@@ -35,16 +35,18 @@ use crate::snes_trig::{mulslog_mac8, COSTAB, SINTAB};
 use sf_core::pad;
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_game::alien::{
-    StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE,
-    ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATZREMOVE, NUMBER_AL,
+    StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
+    ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
 use sf_game::vars::{
     CLOSE_VIEW_DISTANCE, GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, GF_STRATDONE1,
-    GF_STRATDONE2, GF_VIEWROT, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE, PSF2_PLAYERHP0,
-    PSF3_ENGINESND, PSF3_INTUNNEL, PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ,
-    PSTF_NOTDIE, PSTF_NOVDISTC, SPACE_MODE, STAY_BLACK_INACTIVE, WATER_MODE,
+    GF_STRATDONE2, GF_VIEWROT, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE,
+    PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0, PSF3_ENGINESND, PSF3_INTUNNEL,
+    PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE, PSTF_NOVDISTC, SPACE_MODE,
+    STAY_BLACK_INACTIVE, WATER_MODE,
 };
 use sf_game::Game;
 
@@ -921,21 +923,57 @@ fn player_explode_istrat(g: &mut Game, idx: u16) {
         return;
     }
 
+    let ship = g.objs.aliens[idx as usize];
+    if let Some(anchor) = strat_make_obj(g, 0) {
+        {
+            let object = &mut g.objs.aliens[anchor as usize];
+            object.sflags3 &= !ASF3_REALOBJ;
+            object.sflags4 |= ASF4_PLAYEROBJ;
+            object.worldx = ship.worldx.wrapping_add(ship.vx);
+            object.worldy = ship.worldy.wrapping_add(ship.vy);
+            object.worldz = ship.worldz.wrapping_add(ship.vz);
+            object.vx = ship.vx;
+            object.vy = ship.vy;
+            object.vz = ship.vz;
+            object.stratptr = None;
+        }
+
+        // The source writes viewpt, playpt, viewtoobj, and internalPLAYPT to
+        // this same object. The flat port keeps one authoritative player
+        // object plus the independently named camera/circle targets.
+        g.vars.internal_playpt = anchor as i16;
+        g.vars.strategy.view_target_object = anchor as i16;
+        g.vars.strategy.circle_object = anchor as i16;
+        g.vars.red_fill_circle.begin();
+    }
+
+    let explode = ea_sid(g, strat_explode);
     {
         let player = &mut g.objs.aliens[idx as usize];
-        player.flags |= AFEXP;
         player.sflags &= !ASF_SHADOW;
         player.vx = 0;
         player.vy = 0;
         player.vz = 0;
+        player.stratptr = Some(explode);
+        player.collstratptr = Some(explode);
+        player.expstratptr = Some(explode);
+        kill_obj(player);
     }
+
+    if let Some(particle) = strat_make_obj(g, 0) {
+        let particle_init = ea_sid(g, bigparticleexplode_istrat);
+        let object = &mut g.objs.aliens[particle as usize];
+        object.worldx = ship.worldx;
+        object.worldy = ship.worldy;
+        object.worldz = ship.worldz;
+        object.stratptr = Some(particle_init);
+    }
+
     g.hooks.play_se(SE_PLAYER_EXPLOSION);
-    g.vars.gameflags &= !GF_PLAYERDYING;
     g.vars.gameflags |= GF_PLAYERDEAD;
     let lives = g.vars.sv_u8(sv::LIVES);
-    if lives > 0 {
-        g.vars.set_sv_u8(sv::LIVES, lives - 1);
-    }
+    g.vars.set_sv_u8(sv::LIVES, lives.wrapping_sub(1));
+    g.vars.player_death_fade_delay = PLAYER_DEATH_FADE_DELAY_TICKS;
 }
 
 /// C `playerdead_strat` (PSTRATS.ASM:3287-3370) — the dying crash sequence:

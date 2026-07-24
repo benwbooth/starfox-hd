@@ -4,8 +4,16 @@
 //! GSTRATS.ASM nukeexp_Istrat trigse $30.
 
 use sf_core::player_view::PlayerViewMode;
-use sf_game::alien::{ACF_COLLTYPE1, ASF_COLLDISABLE};
-use sf_game::vars::{GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PSF2_PLAYERHP0, SPACE_MODE};
+use sf_core::red_fill_circle::{
+    RED_FILL_INITIAL_RADIUS_SPEED, RED_FILL_INITIAL_RED, RED_FILL_RED_STEP,
+};
+use sf_game::alien::{
+    ACF_COLLTYPE1, AFEXP, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_SHADOW,
+};
+use sf_game::vars::{
+    GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0,
+    SPACE_MODE,
+};
 use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{nukeexp_istrat, ASF2_SFLAG1, ASF2_SFLAG2};
@@ -32,6 +40,9 @@ const SE_NOVA_DET: u8 = 0x30;
 const LETHAL_BODY_HEALTH: u8 = 3;
 const LETHAL_SHOT_POWER: u8 = 3;
 const DEATH_DISPATCH_TICK_LIMIT: usize = 8;
+const TERMINAL_CRASH_REMAINING_TICKS: usize = 59;
+const TERMINAL_SHIP_POSITION: [i16; 3] = [100, -50, 200];
+const TERMINAL_SHIP_VELOCITY: [i16; 3] = [7, -3, 11];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Ev {
@@ -371,6 +382,118 @@ fn cockpit_death_finishes_the_authored_ejection_before_crashing() {
             .count(),
         1
     );
+}
+
+#[test]
+fn terminal_explosion_builds_the_retail_anchor_particle_and_fade_state() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = new_game(log.clone());
+    let player = strat_spawn_player(&mut g).expect("player");
+    let death_init = g.objs.aliens[player as usize]
+        .expstratptr
+        .expect("player death initializer");
+
+    g.call_strat(death_init, player);
+    let crash = g.objs.aliens[player as usize]
+        .stratptr
+        .expect("player crash callback");
+    for _ in 1..TERMINAL_CRASH_REMAINING_TICKS {
+        g.call_strat(crash, player);
+    }
+
+    {
+        let ship = &mut g.objs.aliens[player as usize];
+        ship.worldx = TERMINAL_SHIP_POSITION[0];
+        ship.worldy = TERMINAL_SHIP_POSITION[1];
+        ship.worldz = TERMINAL_SHIP_POSITION[2];
+        ship.vx = TERMINAL_SHIP_VELOCITY[0];
+        ship.vy = TERMINAL_SHIP_VELOCITY[1];
+        ship.vz = TERMINAL_SHIP_VELOCITY[2];
+        ship.sflags |= ASF_SHADOW;
+    }
+    log.borrow_mut().clear();
+    g.call_strat(crash, player);
+
+    assert_eq!(
+        g.vars.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD),
+        GF_PLAYERDYING | GF_PLAYERDEAD
+    );
+    assert_eq!(g.vars.sv_u8(sv::LIVES), 2);
+    assert_eq!(
+        g.vars.player_death_fade_delay,
+        PLAYER_DEATH_FADE_DELAY_TICKS
+    );
+    assert!(log.borrow().contains(&Ev::Se(SE_PLAYER_DOWN)));
+
+    let anchor = g.vars.internal_playpt as u16;
+    assert_ne!(anchor, player);
+    let anchor_object = g.objs.aliens[anchor as usize];
+    assert!(anchor_object.active);
+    assert_eq!(anchor_object.sflags3 & ASF3_REALOBJ, 0);
+    assert_ne!(anchor_object.sflags4 & ASF4_PLAYEROBJ, 0);
+    assert_eq!(
+        [
+            anchor_object.worldx,
+            anchor_object.worldy,
+            anchor_object.worldz,
+        ],
+        [
+            TERMINAL_SHIP_POSITION[0] + TERMINAL_SHIP_VELOCITY[0],
+            TERMINAL_SHIP_POSITION[1] + TERMINAL_SHIP_VELOCITY[1],
+            TERMINAL_SHIP_POSITION[2] + TERMINAL_SHIP_VELOCITY[2],
+        ]
+    );
+    assert_eq!(
+        [anchor_object.vx, anchor_object.vy, anchor_object.vz],
+        TERMINAL_SHIP_VELOCITY
+    );
+    assert!(anchor_object.stratptr.is_none());
+    assert_eq!(g.vars.strategy.view_target_object, anchor as i16);
+    assert_eq!(g.vars.strategy.circle_object, anchor as i16);
+    assert!(g.vars.red_fill_circle.active);
+    assert_eq!(
+        g.vars.red_fill_circle.radius,
+        RED_FILL_INITIAL_RADIUS_SPEED as u16
+    );
+    assert_eq!(
+        g.vars.red_fill_circle.red,
+        RED_FILL_INITIAL_RED + RED_FILL_RED_STEP
+    );
+
+    let ship = g.objs.aliens[player as usize];
+    assert_eq!(ship.hp, 0);
+    assert_eq!([ship.vx, ship.vy, ship.vz], [0, 0, 0]);
+    assert_eq!(ship.sflags & ASF_SHADOW, 0);
+    assert_eq!(ship.stratptr, ship.collstratptr);
+    assert_eq!(ship.stratptr, ship.expstratptr);
+    assert!(ship.stratptr.is_some());
+
+    let particle = g
+        .objs
+        .active_indices()
+        .into_iter()
+        .find(|slot| *slot != player && *slot != anchor)
+        .expect("large particle object");
+    let particle_object = g.objs.aliens[particle as usize];
+    assert_eq!(
+        [
+            particle_object.worldx,
+            particle_object.worldy,
+            particle_object.worldz,
+        ],
+        TERMINAL_SHIP_POSITION
+    );
+    assert!(particle_object.stratptr.is_some());
+
+    g.tick();
+    assert!(!g.objs.aliens[player as usize].active);
+    assert!(g.objs.aliens[anchor as usize].active);
+    assert_ne!(g.objs.aliens[particle as usize].flags & AFEXP, 0);
+    assert_eq!(
+        g.vars.player_death_fade_delay,
+        PLAYER_DEATH_FADE_DELAY_TICKS - 1
+    );
+    assert_eq!(g.vars.sv_u8(sv::LIVES), 2);
 }
 
 #[test]

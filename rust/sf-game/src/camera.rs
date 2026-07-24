@@ -167,8 +167,15 @@ impl GameCamera {
         let outvy = strategy.view_yaw;
         let outvz = strategy.view_roll;
 
-        let player = match objs.player() {
-            Some(p) if p.active => *p,
+        let authoritative_player =
+            if vars.internal_playpt >= 0 && (vars.internal_playpt as usize) < NUMBER_AL {
+                let object = &objs.aliens[vars.internal_playpt as usize];
+                object.active.then_some(*object)
+            } else {
+                None
+            };
+        let player = match authoritative_player.or_else(|| objs.player().copied()) {
+            Some(p) => p,
             _ => {
                 // No player (e.g. title screen before any spawn) — keep the
                 // current camera transform; the C early-return path never

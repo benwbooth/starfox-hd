@@ -24,6 +24,7 @@ use std::rc::Rc;
 use sf_core::{
     pad,
     player_view::{PlayerViewMode, PlayerViewOptions},
+    red_fill_circle::RedFillCircleState,
     scene::{PaletteFadeTarget, SceneStyle},
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
     DrawListEntry,
@@ -37,10 +38,10 @@ use crate::planets::{Planets, DEFAULT_LIVES};
 use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
-    BossEncounter, GameVars, GF_PLAYERDEAD, PFM_SHADOWS, PSF2_PLAYERHP0, PSF3_ENGINESND,
-    PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, STAY_BLACK_INACTIVE,
+    BossEncounter, GameVars, GF_PLAYERDEAD, PFM_SHADOWS, PLAYER_DEATH_FADE_DELAY_TICKS,
+    PSF2_PLAYERHP0, PSF3_ENGINESND, PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, STAY_BLACK_INACTIVE,
 };
-use crate::windows::Windows;
+use crate::windows::{Windows, BLACK_FADE_MAX};
 use crate::world::World;
 use crate::{bgs, draw};
 
@@ -60,9 +61,10 @@ pub const TALLY_BONUS_DELAY_STEPS: u8 = 20;
 pub const TALLY_BONUS_AWARD_STEPS: u8 = 9;
 /// Native unattended safeguard once every retail tally operation is complete.
 pub const TALLY_READY_AUTO_TICKS: u16 = 60;
-/// C `DEATH_RESPAWN_TICKS` (src/game/boot.c:40) — 2.5 s after
-/// GF_PLAYERDEAD before reload.
-pub const DEATH_RESPAWN_TICKS: i32 = 50;
+/// Terminal explosion frame plus the retail delay and the native unit-speed
+/// black fade before respawn/game-over dispatch.
+pub const DEATH_RESPAWN_TICKS: i32 =
+    1 + PLAYER_DEATH_FADE_DELAY_TICKS as i32 + BLACK_FADE_MAX as i32;
 /// `wipein` holds black for `mapwait 300`; the no-player map lane advances
 /// 65 source distance units per 20 Hz update, so the reveal starts after five
 /// updates (300 / 65 rounded up).
@@ -788,6 +790,8 @@ pub struct FrameSnapshot {
     pub windows: [WindowSlot; 8],
     /// Typed source-authored playfield reveal, if one is being presented.
     pub screen_wipe: ScreenWipeState,
+    /// Typed retail player-death red-circle presentation.
+    pub red_fill_circle: RedFillCircleState,
     pub meters: u16,
     pub stayblack: i8,
     pub gameflags: u8,
@@ -1216,6 +1220,7 @@ impl Shell {
     /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
     /// stored into `game.vars.pad1`.
     pub fn tick(&mut self, pad1: u16) {
+        self.game.vars.red_fill_circle.advance();
         // The frame assembled after this update presents the newly selected
         // record. Advancing before simulation lets a wipe started by this
         // tick's map code retain its authored frame zero for one full frame.
@@ -1402,6 +1407,7 @@ impl Shell {
             windowmode: st.windows.windowmode,
             windows: st.windows.slots,
             screen_wipe: st.screen_wipe,
+            red_fill_circle: v.red_fill_circle,
             meters: v.meters,
             stayblack: v.strategy.stay_black,
             gameflags: v.gameflags,
@@ -1662,6 +1668,8 @@ impl Shell {
         v.map.trigger = 0;
         // g_screenflashcnt remains renderer-lane state.
         v.circleanim = 0;
+        v.player_death_fade_delay = 0;
+        v.red_fill_circle.clear();
         v.oncewipe = 0;
         v.strategy.wipe_active = 0;
         self.state.borrow_mut().windows.init(); // Windows_Init (boot.c:70)
@@ -1830,6 +1838,9 @@ impl Shell {
         if self.game.vars.gameflags & GF_PLAYERDEAD != 0 {
             self.levelclear_ticks = 0;
             self.death_ticks += 1;
+            if self.game.vars.player_death_fade_delay == 0 {
+                self.state.borrow_mut().windows.fade_to_black(1);
+            }
             if self.death_ticks < DEATH_RESPAWN_TICKS {
                 return;
             }
@@ -2886,6 +2897,46 @@ mod tests {
             sh.tick(0);
         }
         assert_eq!(sh.state().code(), 1); // GAME_STATE_TITLE
+    }
+
+    #[test]
+    fn terminal_death_waits_twenty_ticks_then_completes_the_black_fade() {
+        let mut sh = into_gameplay();
+        sh.planets.lives = 0;
+        sh.game.vars.strategy.lives = 0;
+        sh.planets.credits = 1;
+        sh.game.vars.gameflags |= GF_PLAYERDEAD | crate::vars::GF_PLAYERDYING;
+        sh.game.vars.player_death_fade_delay = PLAYER_DEATH_FADE_DELAY_TICKS;
+
+        for _ in 1..PLAYER_DEATH_FADE_DELAY_TICKS {
+            sh.tick(0);
+        }
+        assert_eq!(sh.game.vars.player_death_fade_delay, 1);
+        assert!(!sh
+            .frame()
+            .windows
+            .iter()
+            .any(|window| window.mode == crate::windows::WINDOW_MODE_MAPFADE));
+
+        sh.tick(0);
+        let fade_start = sh.frame();
+        assert_eq!(sh.game.vars.player_death_fade_delay, 0);
+        assert!(fade_start.windows.iter().any(|window| {
+            window.mode == crate::windows::WINDOW_MODE_MAPFADE && window.wm_val == 1
+        }));
+
+        for _ in 1..BLACK_FADE_MAX {
+            sh.tick(0);
+        }
+        assert_eq!(sh.state(), GameState::Playing);
+        assert!(sh.frame().windows.iter().any(|window| {
+            window.mode == crate::windows::WINDOW_MODE_MAPFADE && window.wm_val == BLACK_FADE_MAX
+        }));
+
+        sh.tick(0);
+        assert_eq!(sh.state(), GameState::Playing);
+        sh.tick(0);
+        assert_eq!(sh.state(), GameState::Continue);
     }
 
     /// Drive a game into gameplay (BOOT -> PLAYING).

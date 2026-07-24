@@ -10,6 +10,7 @@
 
 pub mod aim_angle;
 pub mod player_view;
+pub mod red_fill_circle;
 pub mod scene;
 pub mod screen_wipe;
 mod sf1_shape_words;

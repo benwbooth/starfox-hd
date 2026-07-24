@@ -26,6 +26,9 @@ pub const WINDOW_MODE_HITFLASH: u8 = 6;
 /// ROM `halffade` window (MAIN.ASM:1470 fadehalf2norm).
 pub const WINDOW_MODE_HALFFADE: u8 = 7;
 
+/// Full black intensity and the number of unit-speed fade steps.
+pub const BLACK_FADE_MAX: u8 = 30;
+
 /// `stayblack` color tag for [`WINDOW_MODE_HITFLASH`] (not a black-hold timer).
 pub const HITFLASH_TURQ: u8 = 0;
 pub const HITFLASH_TURQ2: u8 = 1;
@@ -138,8 +141,12 @@ impl Windows {
         if self.fadedir < 0 {
             let step = (-(self.fadedir as i16)) as u8;
             let next = self.slots[slot].wm_val as u16 + step as u16;
-            self.slots[slot].wm_val = if next >= 30 { 30 } else { next as u8 };
-            if self.slots[slot].wm_val >= 30 {
+            self.slots[slot].wm_val = if next >= u16::from(BLACK_FADE_MAX) {
+                BLACK_FADE_MAX
+            } else {
+                next as u8
+            };
+            if self.slots[slot].wm_val >= BLACK_FADE_MAX {
                 self.fadedir = 0;
             }
             return;
@@ -220,11 +227,11 @@ impl Windows {
         self.slots[slot].stayblack = 0;
 
         if fadedir < 0 {
-            if self.slots[slot].wm_val > 30 {
-                self.slots[slot].wm_val = 30;
+            if self.slots[slot].wm_val > BLACK_FADE_MAX {
+                self.slots[slot].wm_val = BLACK_FADE_MAX;
             }
         } else if self.slots[slot].wm_val == 0 {
-            self.slots[slot].wm_val = 30;
+            self.slots[slot].wm_val = BLACK_FADE_MAX;
         }
 
         self.fadedir = fadedir;
@@ -270,7 +277,7 @@ impl Windows {
         };
         self.slots[slot].mode = WINDOW_MODE_BLACK;
         self.slots[slot].stayblack = 40;
-        self.slots[slot].wm_val = 30;
+        self.slots[slot].wm_val = BLACK_FADE_MAX;
         // setblack_l() first step: stayblack 40 -> 39 (windows.c:51-54).
         self.slots[slot].stayblack -= 1;
     }

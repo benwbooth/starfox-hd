@@ -21,6 +21,7 @@ use crate::transform::Transform;
 use crate::ui::Ui;
 use sf_core::{
     player_view::PlayerViewMode,
+    red_fill_circle::{RedFillCircleState, RED_FILL_RED_TARGET},
     scene::{PaletteFadeTarget, SceneStyle},
     screen_wipe::ScreenWipeState,
 };
@@ -374,6 +375,8 @@ pub struct FrameInputs<'a> {
     pub windows: [WindowState; WINDOWARRAY_SIZE],
     /// Native source-authored playfield reveal.
     pub screen_wipe: ScreenWipeState,
+    /// Retail player-death expanding red color-math circle.
+    pub red_fill_circle: RedFillCircleState,
 
     // HUD state
     /// g_meters.
@@ -462,6 +465,7 @@ impl<'a> Default for FrameInputs<'a> {
             windowmode: 0,
             windows: [WindowState::default(); WINDOWARRAY_SIZE],
             screen_wipe: ScreenWipeState::inactive(),
+            red_fill_circle: RedFillCircleState::inactive(),
             meters: 0,
             stayblack: -1,
             gameflags: 0,
@@ -696,6 +700,7 @@ impl Renderer {
             &mut self.font,
         );
         self.particles.render(&mut self.gpu, &self.transform);
+        self.render_red_fill_circle(inputs.red_fill_circle);
         if sf2_mission {
             self.gpu.set_draw_viewport(None);
             self.transform.set_projection(self.width, self.height);
@@ -718,6 +723,51 @@ impl Renderer {
         );
         self.ui
             .render_fade(&mut self.gpu, inputs, self.width, self.height);
+    }
+
+    /// Present the source fixed-color addition inside the authored circle.
+    /// Coordinates are expressed in the source playfield and scaled directly
+    /// to the output; no source command pointer crosses into the renderer.
+    fn render_red_fill_circle(&mut self, state: RedFillCircleState) {
+        if !state.active || state.radius == 0 || state.red == 0 {
+            return;
+        }
+
+        const CIRCLE_SEGMENTS: usize = 64;
+        const SOURCE_HALF_WIDTH: f32 = 128.0;
+        const SOURCE_HALF_HEIGHT: f32 = 112.0;
+        const IDENTITY: [f32; 16] = [
+            1.0, 0.0, 0.0, 0.0, //
+            0.0, 1.0, 0.0, 0.0, //
+            0.0, 0.0, 1.0, 0.0, //
+            0.0, 0.0, 0.0, 1.0,
+        ];
+
+        let radius_x = f32::from(state.radius) / SOURCE_HALF_WIDTH;
+        let radius_y = f32::from(state.radius) / SOURCE_HALF_HEIGHT;
+        let mut fan = Vec::with_capacity(CIRCLE_SEGMENTS + 2);
+        fan.push(Vertex2 {
+            pos: [0.0, 0.0],
+            uv: [0.0, 0.0],
+        });
+        for point in 0..=CIRCLE_SEGMENTS {
+            let angle = std::f32::consts::TAU * point as f32 / CIRCLE_SEGMENTS as f32;
+            fan.push(Vertex2 {
+                pos: [angle.cos() * radius_x, angle.sin() * radius_y],
+                uv: [0.0, 0.0],
+            });
+        }
+        self.gpu.push_overlay_additive_fan(
+            &fan,
+            &IDENTITY,
+            &IDENTITY,
+            [
+                1.0,
+                0.0,
+                0.0,
+                f32::from(state.red) / f32::from(RED_FILL_RED_TARGET),
+            ],
+        );
     }
 
     /// Present a native SNES framebuffer as a 4:3, nearest-neighbour image.

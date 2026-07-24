@@ -320,6 +320,12 @@ impl Game {
         // part's `s_add_bossHP x,al_hp`. Done unconditionally (even with no
         // player) so a stale value never leaks into the HUD.
         self.vars.bosshp = 0;
+        if self.vars.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD)
+            == (GF_PLAYERDYING | GF_PLAYERDEAD)
+            && self.vars.player_death_fade_delay > 0
+        {
+            self.vars.player_death_fade_delay -= 1;
+        }
         let playpt = self.vars.internal_playpt;
         let mut player: Option<usize> = None;
         if playpt >= 0 && (playpt as usize) < NUMBER_AL {
@@ -400,7 +406,15 @@ impl Game {
         if !self.world.map_loaded || self.world.levelfinished != 0 {
             return;
         }
-        if let Some(player) = self.objs.player() {
+        let player = if self.vars.internal_playpt >= 0
+            && (self.vars.internal_playpt as usize) < NUMBER_AL
+            && self.objs.aliens[self.vars.internal_playpt as usize].active
+        {
+            Some(self.objs.aliens[self.vars.internal_playpt as usize])
+        } else {
+            self.objs.player().copied()
+        };
+        if let Some(player) = player {
             let player_z = player.worldz;
             // Preserve the signed depth delta from the previous map object.
             self.world.lastzchange = player_z.wrapping_sub(self.world.lastplayz);
