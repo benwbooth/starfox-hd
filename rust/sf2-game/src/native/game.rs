@@ -1507,6 +1507,28 @@ const LEON_PRESSURE_DESTINATION: MapPoint = MapPoint { x: 104, y: 113 };
 const FINAL_PURSUER_DESTINATION: MapPoint = MapPoint { x: 140, y: 64 };
 const WOLF_BLOCKADE_DESTINATION: MapPoint = MapPoint { x: 134, y: 77 };
 const ASTROPOLIS_DESTINATION: MapPoint = MapPoint { x: 236, y: 24 };
+
+const fn planetary_encounter(world: CampaignWorld) -> StrategicEncounter {
+    match world {
+        CampaignWorld::Venom => StrategicEncounter::VenomBase,
+        CampaignWorld::Titania => StrategicEncounter::TitaniaBase,
+        CampaignWorld::Macbeth => StrategicEncounter::MacbethBase,
+        CampaignWorld::Eladard => StrategicEncounter::EladardBase,
+        CampaignWorld::Meteor => StrategicEncounter::MeteorBase,
+        CampaignWorld::Fortuna => StrategicEncounter::FortunaBase,
+    }
+}
+
+const fn planetary_destination(world: CampaignWorld) -> MapPoint {
+    match world {
+        CampaignWorld::Venom => VENOM_BASE_DESTINATION,
+        CampaignWorld::Titania => TITANIA_BASE_DESTINATION,
+        CampaignWorld::Macbeth => MACBETH_BASE_DESTINATION,
+        CampaignWorld::Eladard => ELADARD_BASE_DESTINATION,
+        CampaignWorld::Meteor => METEOR_BASE_DESTINATION,
+        CampaignWorld::Fortuna => FORTUNA_BASE_DESTINATION,
+    }
+}
 const OPENING_ASSAULT_MAP_ACTORS: [Option<StrategicMapActor>; STRATEGIC_MAP_ACTOR_CAPACITY] = [
     Some(StrategicMapActor::new(
         StrategicMapActorKind::NorthernInstallation,
@@ -5975,7 +5997,9 @@ impl Game {
                                 CampaignRouteStep::Reengagement => {
                                     REENGAGEMENT_STRATEGIC_TRAVEL_TICKS
                                 }
-                                CampaignRouteStep::EladardBase => ELADARD_STRATEGIC_TRAVEL_TICKS,
+                                CampaignRouteStep::FirstPlanetaryBase => {
+                                    ELADARD_STRATEGIC_TRAVEL_TICKS
+                                }
                                 CampaignRouteStep::FirstBattleCarrier => {
                                     CARRIER_STRATEGIC_TRAVEL_TICKS
                                 }
@@ -6003,7 +6027,7 @@ impl Game {
                                     CampaignRouteStep::MissileInterception => {
                                         MISSILE_INTERCEPTION_RETURN_CORNERIA_DAMAGE_PERCENT
                                     }
-                                    CampaignRouteStep::EladardBase => {
+                                    CampaignRouteStep::FirstPlanetaryBase => {
                                         ELADARD_RETURN_CORNERIA_DAMAGE_PERCENT
                                     }
                                     _ => self.state.campaign.corneria_damage_percent,
@@ -6298,7 +6322,7 @@ impl Game {
             | CampaignRouteStep::MissileInterception
             | CampaignRouteStep::FighterIntercept
             | CampaignRouteStep::PigmaDuel
-            | CampaignRouteStep::EladardBase
+            | CampaignRouteStep::FirstPlanetaryBase
             | CampaignRouteStep::FirstBattleCarrier
             | CampaignRouteStep::LeonDuel
             | CampaignRouteStep::MirageDragon => return,
@@ -6326,6 +6350,10 @@ impl Game {
                 == PlanetObjectiveStatus::Occupied
             {
                 Some((StrategicEncounter::MacbethBase, MACBETH_BASE_DESTINATION))
+            } else if self.state.campaign.objectives.planets.eladard
+                == PlanetObjectiveStatus::Occupied
+            {
+                Some((StrategicEncounter::EladardBase, ELADARD_BASE_DESTINATION))
             } else if self.state.campaign.objectives.planets.meteor
                 == PlanetObjectiveStatus::Occupied
             {
@@ -6366,7 +6394,7 @@ impl Game {
             CampaignRouteStep::MissileInterception => self.begin_missile_interception_sortie(),
             CampaignRouteStep::FighterIntercept => self.begin_fighter_intercept_sortie(),
             CampaignRouteStep::PigmaDuel => self.begin_pigma_duel_sortie(),
-            CampaignRouteStep::EladardBase => self.begin_eladard_sortie(),
+            CampaignRouteStep::FirstPlanetaryBase => self.begin_selected_planetary_sortie(),
             CampaignRouteStep::FirstBattleCarrier => {
                 self.begin_carrier_assault(MissionVisit::FirstBattleCarrier)
             }
@@ -6377,6 +6405,7 @@ impl Game {
                     Some(StrategicEncounter::VenomBase) => self.begin_venom_sortie(),
                     Some(StrategicEncounter::TitaniaBase) => self.begin_titania_sortie(),
                     Some(StrategicEncounter::MacbethBase) => self.begin_macbeth_sortie(),
+                    Some(StrategicEncounter::EladardBase) => self.begin_eladard_sortie(),
                     Some(StrategicEncounter::MeteorBase) => self.begin_meteor_sortie(),
                     Some(StrategicEncounter::FortunaBase) => self.begin_fortuna_sortie(),
                     Some(StrategicEncounter::SecondBattleCarrier) => {
@@ -6394,6 +6423,38 @@ impl Game {
             }
             CampaignRouteStep::WolfBlockade => self.begin_wolf_blockade_encounter(),
             CampaignRouteStep::AstropolisAssault => self.begin_astropolis_assault(),
+        }
+    }
+
+    fn begin_selected_planetary_sortie(&mut self) -> Result<(), Error> {
+        let selected = self
+            .state
+            .strategic_map
+            .selected_encounter
+            .unwrap_or_else(|| {
+                planetary_encounter(
+                    self.state
+                        .campaign
+                        .world_assignment
+                        .first_occupied_world()
+                        .expect("every retail campaign assigns a first occupied world"),
+                )
+            });
+        match selected {
+            StrategicEncounter::VenomBase => self.begin_venom_sortie(),
+            StrategicEncounter::TitaniaBase => self.begin_titania_sortie(),
+            StrategicEncounter::MacbethBase => self.begin_macbeth_sortie(),
+            StrategicEncounter::EladardBase => self.begin_eladard_sortie(),
+            StrategicEncounter::MeteorBase => self.begin_meteor_sortie(),
+            StrategicEncounter::FortunaBase => self.begin_fortuna_sortie(),
+            StrategicEncounter::SecondBattleCarrier
+            | StrategicEncounter::RecurringAttackers
+            | StrategicEncounter::LeonPressure
+            | StrategicEncounter::FinalPursuer
+            | StrategicEncounter::WolfBlockade
+            | StrategicEncounter::AstropolisAssault => {
+                unreachable!("the first planetary visit must select an occupied world")
+            }
         }
     }
 
@@ -12903,7 +12964,7 @@ impl Game {
                 self.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
                 self.state.strategic_map.recommended_destination = PIGMA_DUEL_DESTINATION;
             }
-            CampaignRouteStep::EladardBase => {
+            CampaignRouteStep::FirstPlanetaryBase => {
                 self.state.campaign.elapsed_frames =
                     PIGMA_RETURN_DISPLAY_SECONDS * CAMPAIGN_TICKS_PER_DISPLAY_SECOND;
                 self.state.campaign.corneria_damage_percent =
@@ -12911,7 +12972,14 @@ impl Game {
                 self.state.mission.item_count = 2;
                 self.state.strategic_map.actors = POST_PIGMA_MAP_ACTORS;
                 self.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
-                self.state.strategic_map.recommended_destination = ELADARD_BASE_DESTINATION;
+                let first_world = self
+                    .state
+                    .campaign
+                    .world_assignment
+                    .first_occupied_world()
+                    .expect("every retail campaign assigns a first occupied world");
+                self.state.strategic_map.recommended_destination =
+                    planetary_destination(first_world);
             }
             CampaignRouteStep::FirstBattleCarrier => {
                 self.state.campaign.elapsed_frames =
@@ -12986,6 +13054,10 @@ impl Game {
                         == PlanetObjectiveStatus::Occupied
                     {
                         MACBETH_BASE_DESTINATION
+                    } else if self.state.campaign.objectives.planets.eladard
+                        == PlanetObjectiveStatus::Occupied
+                    {
+                        ELADARD_BASE_DESTINATION
                     } else if self.state.campaign.objectives.planets.meteor
                         == PlanetObjectiveStatus::Occupied
                     {
@@ -13015,6 +13087,13 @@ impl Game {
             CampaignRouteStep::OpeningEngagement => {}
         }
         let recommended_encounter = match self.state.campaign.route_step {
+            CampaignRouteStep::FirstPlanetaryBase => Some(planetary_encounter(
+                self.state
+                    .campaign
+                    .world_assignment
+                    .first_occupied_world()
+                    .expect("every retail campaign assigns a first occupied world"),
+            )),
             CampaignRouteStep::StrategicPressure
                 if self.state.campaign.objectives.planets.venom
                     == PlanetObjectiveStatus::Occupied =>
@@ -13032,6 +13111,12 @@ impl Game {
                     == PlanetObjectiveStatus::Occupied =>
             {
                 Some(StrategicEncounter::MacbethBase)
+            }
+            CampaignRouteStep::StrategicPressure
+                if self.state.campaign.objectives.planets.eladard
+                    == PlanetObjectiveStatus::Occupied =>
+            {
+                Some(StrategicEncounter::EladardBase)
             }
             CampaignRouteStep::StrategicPressure
                 if self.state.campaign.objectives.planets.meteor
@@ -13062,7 +13147,6 @@ impl Game {
             | CampaignRouteStep::MissileInterception
             | CampaignRouteStep::FighterIntercept
             | CampaignRouteStep::PigmaDuel
-            | CampaignRouteStep::EladardBase
             | CampaignRouteStep::FirstBattleCarrier
             | CampaignRouteStep::LeonDuel
             | CampaignRouteStep::MirageDragon
@@ -26029,7 +26113,7 @@ mod tests {
         }
         assert_eq!(
             game.state().campaign.route_step,
-            CampaignRouteStep::EladardBase
+            CampaignRouteStep::FirstPlanetaryBase
         );
         assert_eq!(
             game.state().campaign.elapsed_frames,
@@ -26355,7 +26439,7 @@ mod tests {
             CampaignState::for_new_game(Difficulty::Normal, ELADARD_AND_VENOM_ASSIGNMENT_TIMING);
         game.begin_opening_sortie().unwrap();
         game.state.mode = GameMode::StrategicMap;
-        game.state.campaign.route_step = CampaignRouteStep::EladardBase;
+        game.state.campaign.route_step = CampaignRouteStep::FirstPlanetaryBase;
         game.state.campaign.corneria_damage_percent =
             MISSILE_INTERCEPTION_RETURN_CORNERIA_DAMAGE_PERCENT;
         game.state.mission.score = 1_300;
@@ -28485,6 +28569,170 @@ mod tests {
             game.state().campaign.objectives.astropolis,
             AstropolisStatus::Assaulted
         );
+    }
+
+    #[test]
+    fn every_retail_world_assignment_routes_each_native_planetary_mission() {
+        const DIFFICULTIES: [Difficulty; 3] =
+            [Difficulty::Normal, Difficulty::Hard, Difficulty::Expert];
+        const NORMAL_COMPLETED_VISITS: u16 = 10;
+        const HARD_COMPLETED_VISITS: u16 = 11;
+        const EXPERT_COMPLETED_VISITS: u16 = 12;
+
+        fn assignment_count(difficulty: Difficulty) -> u64 {
+            match difficulty {
+                Difficulty::Normal => u64::try_from(
+                    super::super::campaign_world_assignments::NORMAL_CAMPAIGN_ASSIGNMENT_COUNT,
+                )
+                .unwrap(),
+                Difficulty::Hard | Difficulty::Expert => u64::try_from(
+                    super::super::campaign_world_assignments::THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT,
+                )
+                .unwrap(),
+            }
+        }
+
+        fn mission_visit(world: CampaignWorld) -> MissionVisit {
+            match world {
+                CampaignWorld::Venom => MissionVisit::VenomBase,
+                CampaignWorld::Titania => MissionVisit::TitaniaBase,
+                CampaignWorld::Macbeth => MissionVisit::MacbethBase,
+                CampaignWorld::Eladard => MissionVisit::EladardBase,
+                CampaignWorld::Meteor => MissionVisit::MeteorBase,
+                CampaignWorld::Fortuna => MissionVisit::FortunaBase,
+            }
+        }
+
+        fn next_occupied_world(game: &Game) -> Option<CampaignWorld> {
+            CampaignWorld::ALL.into_iter().find(|world| {
+                game.state.campaign.objectives.planets.status(*world)
+                    == PlanetObjectiveStatus::Occupied
+            })
+        }
+
+        for difficulty in DIFFICULTIES {
+            for timing_entropy in 0..assignment_count(difficulty) {
+                let campaign = CampaignState::for_new_game(difficulty, timing_entropy);
+                let assignment = campaign.world_assignment;
+                let first_world = assignment
+                    .first_occupied_world()
+                    .expect("every retail assignment has an occupied world");
+                let occupied_worlds = assignment.occupied_worlds();
+
+                let mut game = Game::new();
+                game.begin_opening_sortie().unwrap();
+                game.clear_sortie_runtime();
+                game.state.campaign = campaign;
+                game.state.mode = GameMode::Mission;
+                game.state.campaign.route_step = CampaignRouteStep::PigmaDuel;
+                game.state.mission.visit = MissionVisit::PigmaDuel;
+                game.finish_sortie();
+
+                assert_eq!(
+                    game.state.campaign.route_step,
+                    CampaignRouteStep::FirstPlanetaryBase,
+                    "difficulty {difficulty:?}, assignment {timing_entropy}"
+                );
+                assert_eq!(
+                    game.state.strategic_map.selected_encounter,
+                    Some(planetary_encounter(first_world))
+                );
+                assert_eq!(
+                    game.state.strategic_map.recommended_destination,
+                    planetary_destination(first_world)
+                );
+                assert_eq!(
+                    game.state.strategic_map.destination,
+                    planetary_destination(first_world)
+                );
+
+                press(&mut game, Button::B);
+                for _ in 0..usize::from(ELADARD_STRATEGIC_TRAVEL_TICKS) {
+                    if game.mode() == GameMode::Mission {
+                        break;
+                    }
+                    game.tick(0).unwrap();
+                }
+                assert_eq!(game.mode(), GameMode::Mission);
+                assert_eq!(game.mission(), Some(mission_visit(first_world)));
+                game.finish_sortie();
+                assert_eq!(
+                    game.state.campaign.objectives.planets.status(first_world),
+                    PlanetObjectiveStatus::Rescued
+                );
+                assert_eq!(
+                    game.state.campaign.route_step,
+                    CampaignRouteStep::FirstBattleCarrier
+                );
+
+                game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
+                game.state.campaign.objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
+                game.state.campaign.objectives.second_carrier = match difficulty {
+                    Difficulty::Expert => CarrierObjectiveStatus::Destroyed,
+                    Difficulty::Normal | Difficulty::Hard => CarrierObjectiveStatus::NotDeployed,
+                };
+                game.state.campaign.objectives.missiles = StrategicThreatCount::NONE;
+                game.state.campaign.objectives.live_attackers = StrategicThreatCount::new(1);
+                game.state.campaign.corneria_defense = CorneriaDefenseState::default();
+                game.state.strategic_map.phase = StrategicMapPhase::Planning;
+                game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
+                game.state.strategic_map.destination = INITIAL_PLAYER_MAP_POSITION;
+                game.state.strategic_map.recommended_destination = INITIAL_PLAYER_MAP_POSITION;
+                game.state.strategic_map.selected_encounter = None;
+                game.tick(0).unwrap();
+
+                while let Some(world) = next_occupied_world(&game) {
+                    press(&mut game, Button::Down);
+                    assert_eq!(
+                        game.state.strategic_map.selected_encounter,
+                        Some(planetary_encounter(world)),
+                        "difficulty {difficulty:?}, assignment {timing_entropy}, world {world:?}"
+                    );
+                    assert_eq!(
+                        game.state.strategic_map.destination,
+                        planetary_destination(world)
+                    );
+                    game.tick(Button::B as u16).unwrap();
+                    assert_eq!(game.mode(), GameMode::Mission);
+                    assert_eq!(game.mission(), Some(mission_visit(world)));
+                    game.finish_sortie();
+                    assert_eq!(
+                        game.state.campaign.objectives.planets.status(world),
+                        PlanetObjectiveStatus::Rescued
+                    );
+                    game.tick(0).unwrap();
+                }
+
+                for world in CampaignWorld::ALL {
+                    let expected = if occupied_worlds.contains(&Some(world)) {
+                        PlanetObjectiveStatus::Rescued
+                    } else {
+                        PlanetObjectiveStatus::Unoccupied
+                    };
+                    assert_eq!(
+                        game.state.campaign.objectives.planets.status(world),
+                        expected,
+                        "difficulty {difficulty:?}, assignment {timing_entropy}, world {world:?}"
+                    );
+                }
+                assert!(game.state.campaign.objectives.major_objectives_complete());
+                let expected_completed_visits = match difficulty {
+                    Difficulty::Normal => NORMAL_COMPLETED_VISITS,
+                    Difficulty::Hard => HARD_COMPLETED_VISITS,
+                    Difficulty::Expert => EXPERT_COMPLETED_VISITS,
+                };
+                assert_eq!(
+                    game.state.campaign.completed_campaign_visits(),
+                    expected_completed_visits
+                );
+
+                press(&mut game, Button::Up);
+                assert_eq!(
+                    game.state.strategic_map.selected_encounter,
+                    Some(StrategicEncounter::FinalPursuer)
+                );
+            }
+        }
     }
 
     #[test]

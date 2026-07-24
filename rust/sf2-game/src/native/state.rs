@@ -557,7 +557,7 @@ pub enum CampaignRouteStep {
     MissileInterception,
     FighterIntercept,
     PigmaDuel,
-    EladardBase,
+    FirstPlanetaryBase,
     FirstBattleCarrier,
     LeonDuel,
     MirageDragon,
@@ -573,8 +573,8 @@ impl CampaignRouteStep {
             Self::Reengagement => Self::MissileInterception,
             Self::MissileInterception => Self::FighterIntercept,
             Self::FighterIntercept => Self::PigmaDuel,
-            Self::PigmaDuel => Self::EladardBase,
-            Self::EladardBase => Self::FirstBattleCarrier,
+            Self::PigmaDuel => Self::FirstPlanetaryBase,
+            Self::FirstPlanetaryBase => Self::FirstBattleCarrier,
             Self::FirstBattleCarrier => Self::LeonDuel,
             Self::LeonDuel => Self::MirageDragon,
             Self::MirageDragon | Self::StrategicPressure => Self::StrategicPressure,
@@ -590,7 +590,7 @@ impl CampaignRouteStep {
             Self::MissileInterception => 2,
             Self::FighterIntercept => 3,
             Self::PigmaDuel => 4,
-            Self::EladardBase => 5,
+            Self::FirstPlanetaryBase => 5,
             Self::FirstBattleCarrier => 6,
             Self::LeonDuel => 7,
             Self::MirageDragon => 8,
@@ -697,6 +697,10 @@ impl CampaignWorldAssignment {
 
     pub const fn occupied_worlds(self) -> [Option<CampaignWorld>; MAX_OCCUPIED_WORLD_COUNT] {
         self.occupied_worlds
+    }
+
+    pub const fn first_occupied_world(self) -> Option<CampaignWorld> {
+        self.occupied_worlds[0]
     }
 
     pub fn contains(self, world: CampaignWorld) -> bool {
@@ -923,8 +927,23 @@ impl CampaignState {
         let completed = self.route_step.completed_certified_visits();
         match self.route_step {
             CampaignRouteStep::StrategicPressure => {
+                let first_planetary_rescue = match self.world_assignment.first_occupied_world() {
+                    Some(world)
+                        if matches!(
+                            self.objectives.planets.status(world),
+                            PlanetObjectiveStatus::Rescued
+                        ) =>
+                    {
+                        1
+                    }
+                    Some(_) | None => 0,
+                };
                 completed
-                    + self.objectives.planets.rescued_count()
+                    + self
+                        .objectives
+                        .planets
+                        .rescued_count()
+                        .saturating_sub(first_planetary_rescue)
                     + match self.objectives.second_carrier {
                         CarrierObjectiveStatus::NotDeployed
                         | CarrierObjectiveStatus::Operational => 0,
@@ -945,7 +964,7 @@ impl CampaignState {
             | CampaignRouteStep::MissileInterception
             | CampaignRouteStep::FighterIntercept
             | CampaignRouteStep::PigmaDuel
-            | CampaignRouteStep::EladardBase
+            | CampaignRouteStep::FirstPlanetaryBase
             | CampaignRouteStep::FirstBattleCarrier
             | CampaignRouteStep::LeonDuel
             | CampaignRouteStep::MirageDragon
@@ -1142,6 +1161,7 @@ pub enum StrategicEncounter {
     VenomBase,
     TitaniaBase,
     MacbethBase,
+    EladardBase,
     MeteorBase,
     FortunaBase,
     SecondBattleCarrier,
