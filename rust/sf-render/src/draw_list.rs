@@ -15,6 +15,7 @@ pub const DL_FLAG_VISIBLE: u8 = 0x01;
 pub const DL_FLAG_SHADOW: u8 = 0x02;
 pub const DL_FLAG_HIGHLIGHT: u8 = 0x04;
 pub const DL_FLAG_TEXT: u8 = 0x10;
+pub const DL_FLAG_SCALED_SPRITE: u8 = 0x20;
 
 /// Project the model origin through the column-major GPU matrices. Returns
 /// NDC x/y and positive camera depth (`clip.w`) for an in-front point.
@@ -112,6 +113,41 @@ fn interpolate_entry(a: &DrawListEntry, b: &DrawListEntry, alpha: f32) -> DrawLi
     out.ry = lerp_angle8(a.ry, b.ry, alpha);
     out.rz = lerp_angle8(a.rz, b.rz, alpha);
     out
+}
+
+/// Build the camera-facing basis used by MARIO's `mssprite` path, then apply
+/// its signed source-size adjustment. Scaled sprites are screen-facing visual
+/// objects, so their object rotation is intentionally ignored.
+fn apply_scaled_sprite_model(
+    model: &mut [f32; 16],
+    view: &[f32; 16],
+    shape_id: u16,
+    size_adjustment: u8,
+) {
+    // The view basis is orthonormal (including the SNES-to-GL reflection), so
+    // its transpose is the exact inverse. `view * model` therefore has an
+    // identity rotation and the source XY sprite plane always faces camera.
+    model[0] = view[0];
+    model[1] = view[4];
+    model[2] = view[8];
+    model[3] = 0.0;
+    model[4] = view[1];
+    model[5] = view[5];
+    model[6] = view[9];
+    model[7] = 0.0;
+    model[8] = view[2];
+    model[9] = view[6];
+    model[10] = view[10];
+    model[11] = 0.0;
+
+    let scale = sf_core::sf1_shape_metrics::sf1_shape_metrics(shape_id).map_or(1.0, |metrics| {
+        let adjustment = i32::from(size_adjustment as i8) << u32::from(metrics.coordinate_shift);
+        let adjusted_extent = (i32::from(metrics.visual_extent) + adjustment).max(1);
+        adjusted_extent as f32 / f32::from(metrics.visual_extent.max(1))
+    });
+    for index in [0, 1, 2, 4, 5, 6, 8, 9, 10] {
+        model[index] *= scale;
+    }
 }
 
 pub struct DrawListRenderer;
@@ -242,6 +278,10 @@ impl DrawListRenderer {
             let mut model = [0.0f32; 16];
             transform.build_model_matrix_f(&mut model, interp.x, interp.y, interp.z, frx, fry, frz);
 
+            if interp.flags & DL_FLAG_SCALED_SPRITE != 0 {
+                apply_scaled_sprite_model(&mut model, &view, interp.shape_id, interp.tscroll_x);
+            }
+
             // MARIO MDRAWLIS.MC handles ASF_TEXTOBJ before shape lookup.
             // The message pointer is in coltab, color in depth, and signed
             // size adjustment in tscrollx. `msprint` projects 127+size at
@@ -314,6 +354,20 @@ impl Default for DrawListRenderer {
 mod projection_tests {
     use super::*;
 
+    const MEDIUM_EXPLOSION_SPRITE_SHAPE: u16 = 462;
+    const PLAYER_SPRITE_SCALE_ADJUSTMENT: u8 = 253;
+    const CAMERA_PITCH: i16 = 23;
+    const CAMERA_YAW: i16 = 71;
+    const CAMERA_ROLL: i16 = 9;
+    const DESTROYED_PITCH: i16 = 41;
+    const DESTROYED_YAW: i16 = 117;
+    const DESTROYED_ROLL: i16 = 202;
+    const DESTROYED_X: i32 = 100 << 16;
+    const DESTROYED_Y: i32 = -50 << 16;
+    const DESTROYED_Z: i32 = 500 << 16;
+    const EXPECTED_PLAYER_SPRITE_SCALE: f32 = 0.25;
+    const MATRIX_EPSILON: f32 = 0.000_01;
+
     #[test]
     fn projects_model_origin_with_gpu_matrix_order() {
         let mut proj = [0.0; 16];
@@ -346,5 +400,49 @@ mod projection_tests {
         proj[15] = 0.0;
         model[14] = 4.0;
         assert!(project_model_origin(&proj, &view, &model).is_none());
+    }
+
+    #[test]
+    fn scaled_sprite_cancels_a_rotated_camera_basis() {
+        let mut transform = Transform::new();
+        transform.set_camera(0, 0, 0, CAMERA_PITCH, CAMERA_YAW, CAMERA_ROLL);
+        let view = *transform.view();
+        let mut model = [0.0; 16];
+        transform.build_model_matrix(
+            &mut model,
+            DESTROYED_X,
+            DESTROYED_Y,
+            DESTROYED_Z,
+            DESTROYED_PITCH,
+            DESTROYED_YAW,
+            DESTROYED_ROLL,
+        );
+
+        apply_scaled_sprite_model(
+            &mut model,
+            &view,
+            MEDIUM_EXPLOSION_SPRITE_SHAPE,
+            PLAYER_SPRITE_SCALE_ADJUSTMENT,
+        );
+        let mut camera_space = [0.0; 16];
+        crate::transform::multiply(&mut camera_space, &view, &model);
+
+        for (index, expected) in [
+            (0, EXPECTED_PLAYER_SPRITE_SCALE),
+            (1, 0.0),
+            (2, 0.0),
+            (4, 0.0),
+            (5, EXPECTED_PLAYER_SPRITE_SCALE),
+            (6, 0.0),
+            (8, 0.0),
+            (9, 0.0),
+            (10, EXPECTED_PLAYER_SPRITE_SCALE),
+        ] {
+            assert!(
+                (camera_space[index] - expected).abs() <= MATRIX_EPSILON,
+                "matrix[{index}]={} expected {expected}",
+                camera_space[index]
+            );
+        }
     }
 }

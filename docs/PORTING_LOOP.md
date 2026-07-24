@@ -77,6 +77,8 @@ dist_xz, msqrt16/32, mcalcperc, calcstageperc, framescalevecs, anglexy axis/diag
 
 - [x] Terminal player explosion — `pexplode_Istrat` creates the flat inert player/camera anchor and separate large-particle explosion, transfers semantic references, installs the real explosion lifecycle, preserves the dying/dead flags, decrements one life, and drives the exact typed additive-red circle through the 20-tick delay and complete black fade; strategy, shell-boundary, trace-parity, unit, and real GPU readback tests.
 
+- [x] Generic `explode_Istrat` lifecycle — generate semantic ShapeHdr metrics and the seven missing explosion meshes; classify exact small/medium/large/oversized boundaries; preserve attached-fire removal, score/sound/no-polygon behavior, independent sprite/polygon counters, random rotations, and half-rate oversized debris; replace the packed sprite flag with `ObjectVisualKind::ScaledSprite`; billboard and size-adjust in the renderer; exact lifecycle, four-class, frozen-trace, matrix, and real GPU regressions.
+
 - [x] Opening `pstrat` dispatch — typed catalog for every spawned BGS background; all 27 route/special/presentation maps install the authored initializer; ground dive builds its linked duplicate ship and camera; tests `catalog`, `player_view_modes.rs`, `player_flyin.rs`, and all three unattended routes.
 
 - [x] LB out/in, divegnd, cred, tunnel→planet, VIEWLB3MOVE — tests `player_lb_cred.rs`.

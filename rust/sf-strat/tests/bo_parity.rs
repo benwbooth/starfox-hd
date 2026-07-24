@@ -13,6 +13,11 @@
 //! line per active alien in SLOT order; the Rust replay must match the blessed
 //! ROM-verified trace byte-for-byte.
 //!
+//! The boss2 fixture from tick 22 onward includes the source `explode_Istrat`
+//! sprite/polygon split. Restoring that omitted lifecycle also restores its
+//! object-slot reuse and random draws, so all downstream slot references and
+//! random-dependent poses were re-blessed together at that source boundary.
+//!
 //! Regenerate (repo root; harness in the session scratchpad):
 //!   gcc -O1 -Isrc -o bo_harness bo_harness.c bo_stubs.c \
 //!       src/strat/strat_boss2.c src/strat/strat_boss_sea.c \
@@ -189,11 +194,11 @@ fn check(scenario: &str, fixture: &str) {
     let got = run(scenario);
     // Bless mode: the original C dump harness was deleted in the RIIR, so these
     // fixtures can no longer be regenerated from C. Set SF_BLESS_FIXTURES=1 to
-    // rewrite them from the current (ROM-verified) Rust trace. The ROM ground
-    // truth for the spawn-time init these fixtures pinned is proven separately
-    // by sf-oracle tests/audit_boss.rs (init_objvars_l -> flags=0x10 type=0x08
-    // sflags3=0x08 collflags=0x04); the boss inits were diffed against
-    // GBSTRATS/D2STRATS/GB3STRAT. So this test is now a regression guard, not a
+    // rewrite them from the current source-verified Rust trace. The ROM ground
+    // truth for spawn-time init is proven separately by sf-oracle
+    // tests/audit_boss.rs; boss inits were diffed against
+    // GBSTRATS/D2STRATS/GB3STRAT, and generic explosion allocation/lifetimes
+    // against EXPSTRAT.ASM. This test is a regression guard, not an independent
     // C-parity proof.
     if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
         std::fs::write(fixture, &got).unwrap_or_else(|e| panic!("write {fixture}: {e}"));

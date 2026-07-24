@@ -23,11 +23,13 @@
 //! strategy registry and hands back its `StratId`.
 
 use sf_core::player_view::PlayerViewMode;
+use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
-    Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8,
-    ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT,
-    ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
+    Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
+    ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF3_REALOBJ, ASF4_CSPECIAL,
+    ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE,
+    ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE,
+    NUMBER_AL,
 };
 use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -1048,7 +1050,179 @@ pub fn strat_explode(g: &mut Game, idx: u16) {
     explode_icont(g, idx);
 }
 
-/// ROM `explode_Icont` tail — special score + remove (full mesh swap scoped).
+const EXPLOSION_SMALL_THRESHOLD: u16 = 64;
+const EXPLOSION_MEDIUM_THRESHOLD: u16 = 128;
+const EXPLOSION_LARGE_THRESHOLD: u16 = 256;
+const EXPLOSION_POLYGON_TICKS: u8 = 12;
+const EXPLOSION_SMALL_SPRITE_TICKS: u8 = 4;
+const EXPLOSION_MEDIUM_SPRITE_TICKS: u8 = 6;
+const EXPLOSION_LARGE_SPRITE_TICKS: u8 = 8;
+const EXPLOSION_SMALL_ADJUSTMENT_SHIFT: u32 = 3;
+const EXPLOSION_MEDIUM_ADJUSTMENT_SHIFT: u32 = 4;
+const EXPLOSION_LARGE_ADJUSTMENT_SHIFT: u32 = 5;
+const EXPLOSION_NEAR_SOUND: u8 = 33;
+const EXPLOSION_MID_SOUND: u8 = 34;
+const EXPLOSION_FAR_SOUND: u8 = 35;
+const SH_EXPLOSION_SMALL_SPRITE: u16 = 461;
+const SH_EXPLOSION_MEDIUM_SPRITE: u16 = 462;
+const SH_EXPLOSION_LARGE_SPRITE: u16 = 463;
+const SH_EXPLOSION_OVERSIZED_SPRITE: u16 = 464;
+const SH_EXPLOSION_SMALL_POLYGONS: u16 = 465;
+const SH_EXPLOSION_MEDIUM_POLYGONS: u16 = 466;
+const SH_EXPLOSION_LARGE_POLYGONS: u16 = 467;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExplosionSizeClass {
+    Small,
+    Medium,
+    Large,
+    Oversized,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExplosionPresentation {
+    polygon_shape: u16,
+    sprite_shape: u16,
+    sprite_ticks: u8,
+    sprite_scale_adjustment: u8,
+    half_rate_polygons: bool,
+}
+
+fn explosion_presentation(shape: u16) -> Option<ExplosionPresentation> {
+    let metrics = sf1_shape_metrics(shape)?;
+    let class = if metrics.visual_extent < EXPLOSION_SMALL_THRESHOLD {
+        ExplosionSizeClass::Small
+    } else if metrics.visual_extent < EXPLOSION_MEDIUM_THRESHOLD {
+        ExplosionSizeClass::Medium
+    } else if metrics.visual_extent < EXPLOSION_LARGE_THRESHOLD {
+        ExplosionSizeClass::Large
+    } else {
+        ExplosionSizeClass::Oversized
+    };
+    let (polygon_shape, sprite_shape, sprite_ticks, ceiling, adjustment_shift) = match class {
+        ExplosionSizeClass::Small => (
+            SH_EXPLOSION_SMALL_POLYGONS,
+            SH_EXPLOSION_SMALL_SPRITE,
+            EXPLOSION_SMALL_SPRITE_TICKS,
+            EXPLOSION_SMALL_THRESHOLD,
+            EXPLOSION_SMALL_ADJUSTMENT_SHIFT,
+        ),
+        ExplosionSizeClass::Medium => (
+            SH_EXPLOSION_MEDIUM_POLYGONS,
+            SH_EXPLOSION_MEDIUM_SPRITE,
+            EXPLOSION_MEDIUM_SPRITE_TICKS,
+            EXPLOSION_MEDIUM_THRESHOLD,
+            EXPLOSION_MEDIUM_ADJUSTMENT_SHIFT,
+        ),
+        ExplosionSizeClass::Large => (
+            SH_EXPLOSION_LARGE_POLYGONS,
+            SH_EXPLOSION_LARGE_SPRITE,
+            EXPLOSION_LARGE_SPRITE_TICKS,
+            EXPLOSION_LARGE_THRESHOLD,
+            EXPLOSION_LARGE_ADJUSTMENT_SHIFT,
+        ),
+        ExplosionSizeClass::Oversized => (
+            SH_EXPLOSION_LARGE_POLYGONS,
+            SH_EXPLOSION_OVERSIZED_SPRITE,
+            EXPLOSION_LARGE_SPRITE_TICKS,
+            metrics.visual_extent,
+            0,
+        ),
+    };
+    let sprite_scale_adjustment = if class == ExplosionSizeClass::Oversized {
+        0
+    } else {
+        metrics
+            .visual_extent
+            .wrapping_sub(ceiling)
+            .wrapping_shr(u32::from(metrics.coordinate_shift))
+            .wrapping_shr(adjustment_shift) as u8
+    };
+    Some(ExplosionPresentation {
+        polygon_shape,
+        sprite_shape,
+        sprite_ticks,
+        sprite_scale_adjustment,
+        half_rate_polygons: class == ExplosionSizeClass::Oversized,
+    })
+}
+
+#[cfg(test)]
+mod explosion_presentation_tests {
+    use super::*;
+
+    const SMALL_SOURCE_SHAPE: u16 = 5;
+    const MEDIUM_SOURCE_SHAPE: u16 = 2;
+    const LARGE_SOURCE_SHAPE: u16 = 1;
+    const OVERSIZED_SOURCE_SHAPE: u16 = 11;
+    const SMALL_SOURCE_ADJUSTMENT: u8 = 255;
+    const MEDIUM_SOURCE_ADJUSTMENT: u8 = 253;
+    const LARGE_SOURCE_ADJUSTMENT: u8 = 252;
+
+    #[test]
+    fn all_source_size_classes_select_their_exact_presentations() {
+        for (source_shape, expected) in [
+            (
+                SMALL_SOURCE_SHAPE,
+                ExplosionPresentation {
+                    polygon_shape: SH_EXPLOSION_SMALL_POLYGONS,
+                    sprite_shape: SH_EXPLOSION_SMALL_SPRITE,
+                    sprite_ticks: EXPLOSION_SMALL_SPRITE_TICKS,
+                    sprite_scale_adjustment: SMALL_SOURCE_ADJUSTMENT,
+                    half_rate_polygons: false,
+                },
+            ),
+            (
+                MEDIUM_SOURCE_SHAPE,
+                ExplosionPresentation {
+                    polygon_shape: SH_EXPLOSION_MEDIUM_POLYGONS,
+                    sprite_shape: SH_EXPLOSION_MEDIUM_SPRITE,
+                    sprite_ticks: EXPLOSION_MEDIUM_SPRITE_TICKS,
+                    sprite_scale_adjustment: MEDIUM_SOURCE_ADJUSTMENT,
+                    half_rate_polygons: false,
+                },
+            ),
+            (
+                LARGE_SOURCE_SHAPE,
+                ExplosionPresentation {
+                    polygon_shape: SH_EXPLOSION_LARGE_POLYGONS,
+                    sprite_shape: SH_EXPLOSION_LARGE_SPRITE,
+                    sprite_ticks: EXPLOSION_LARGE_SPRITE_TICKS,
+                    sprite_scale_adjustment: LARGE_SOURCE_ADJUSTMENT,
+                    half_rate_polygons: false,
+                },
+            ),
+            (
+                OVERSIZED_SOURCE_SHAPE,
+                ExplosionPresentation {
+                    polygon_shape: SH_EXPLOSION_LARGE_POLYGONS,
+                    sprite_shape: SH_EXPLOSION_OVERSIZED_SPRITE,
+                    sprite_ticks: EXPLOSION_LARGE_SPRITE_TICKS,
+                    sprite_scale_adjustment: 0,
+                    half_rate_polygons: true,
+                },
+            ),
+        ] {
+            assert_eq!(explosion_presentation(source_shape), Some(expected));
+        }
+    }
+}
+
+fn remove_attached_fire(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].flags & AFONFIRE == 0 {
+        return;
+    }
+    let fire = g.objs.aliens[idx as usize].fireobjptr.wrapping_sub(1);
+    if (fire as usize) < NUMBER_AL && g.objs.aliens[fire as usize].active {
+        g.objs.free(fire);
+    }
+    let object = &mut g.objs.aliens[idx as usize];
+    object.fireobjptr = 0;
+    object.flags &= !AFONFIRE;
+}
+
+/// ROM `explode_Icont` — special score, exact size-selected mesh/sprite
+/// handoff, sound, and the two independently timed explosion lifecycles.
 fn explode_icont(g: &mut Game, idx: u16) {
     let sflags4 = g.objs.aliens[idx as usize].sflags4;
     if sflags4 & (ASF4_SPECIAL | ASF4_CSPECIAL) != 0 {
@@ -1071,13 +1245,80 @@ fn explode_icont(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     }
+    let source = g.objs.aliens[idx as usize];
+    let Some(presentation) = explosion_presentation(source.shape) else {
+        // Every retail visual shape has a generated profile. A non-catalog
+        // native id has no ShapeHdr behavior to reproduce and cannot safely
+        // enter a guessed size class.
+        g.objs.aldead = 1;
+        return;
+    };
+    let Some(sprite) = make_obj(g, 0) else {
+        g.objs.aldead = 1;
+        return;
+    };
+    remove_attached_fire(g, idx);
+
+    let explode_tick = sid(g, explode_strat);
+    let large_explode_tick = sid(g, lexplode_strat);
+    {
+        let object = &mut g.objs.aliens[idx as usize];
+        object.flags |= AFEXP;
+        object.hp = 0;
+        object.visual_kind = ObjectVisualKind::Mesh;
+        object.sflags |= ASF_COLLDISABLE;
+        object.shape = presentation.polygon_shape;
+        object.expstratptr = Some(if presentation.half_rate_polygons {
+            large_explode_tick
+        } else {
+            explode_tick
+        });
+        object.rotx = sf_random(&mut g.vars) as u8;
+        object.roty = sf_random(&mut g.vars) as u8;
+        object.count = 0;
+        object.count1 = EXPLOSION_POLYGON_TICKS;
+        crate::common::init_colanim(object, 0);
+    }
+    {
+        let object = &mut g.objs.aliens[sprite as usize];
+        object.sflags = source.sflags & !(ASF_HITFLASH | ASF_SHADOW);
+        object.sflags2 = source.sflags2;
+        object.sflags3 = source.sflags3 & !ASF3_REALOBJ;
+        object.sflags4 = source.sflags4 & !(ASF4_SPECIAL | ASF4_CSPECIAL);
+        object.visual_kind = ObjectVisualKind::ScaledSprite;
+        object.shape = presentation.sprite_shape;
+        object.tx = presentation.sprite_scale_adjustment;
+        object.worldx = source.worldx;
+        object.worldy = source.worldy;
+        object.worldz = source.worldz;
+        object.vx = source.vx;
+        object.vy = source.vy;
+        object.vz = source.vz;
+        object.stratptr = Some(explode_tick);
+        object.collstratptr = None;
+        object.expstratptr = None;
+        object.hp = HARD_HP;
+        object.ap = HARD_AP;
+        object.sflags |= ASF_COLLDISABLE;
+        object.count = 0;
+        object.count1 = presentation.sprite_ticks;
+        crate::common::init_colanim(object, 0);
+    }
     // ROM explode chain (EXPSTRAT.ASM:853-877): se_destructenemynear/mid/far
     // ($21/$22/$23) by xzdiffs range to the player, gated on the noexpsnd
     // sflag. The port played $10 (se_itemcatch, the item chime!) on every kill.
     if g.objs.aliens[idx as usize].sflags2 & ASF2_NOEXPSND == 0 {
-        play_se_by_range(g, idx, 0x21, 0x22, 0x23);
+        play_se_by_range(
+            g,
+            idx,
+            EXPLOSION_NEAR_SOUND,
+            EXPLOSION_MID_SOUND,
+            EXPLOSION_FAR_SOUND,
+        );
     }
-    g.objs.aldead = 1;
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_NOPOLYEXP != 0 {
+        g.objs.aldead = 1;
+    }
 }
 
 /// ROM `explode_end` (EXPSTRAT.ASM:902) — shared mesh-explosion tick tail.

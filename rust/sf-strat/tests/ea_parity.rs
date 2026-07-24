@@ -12,6 +12,11 @@
 //! globals and one `O` line per active alien in active-list order; the Rust
 //! replay must match the C dump byte-for-byte.
 //!
+//! The rader0, worm, and boss1 fixtures retain the source generic-explosion
+//! sprite/polygon lifetimes. Their post-destruction records were corrected as
+//! one boundary because the restored objects, slot reuse, and two explosion
+//! random draws intentionally affect later active-list and motion records.
+//!
 //! Regenerate (from the repo root, harness source in the session
 //! scratchpad; strip the Obj_Init banner line):
 //!   gcc -O2 -Isrc -o ea_harness ea_harness.c \
@@ -165,10 +170,10 @@ fn run_scenario(mut g: Game, events: impl Fn(&mut Game, i32), fixture: &str) {
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), fixture);
     // Bless mode: the scratchpad C dump harness was deleted in the RIIR, so these
     // fixtures can't be regenerated from C. SF_BLESS_FIXTURES=1 rewrites them from
-    // the current Rust trace. The spawn-time init fields (type_/realobj/animframe/
-    // colframe) are proven ROM-correct (sf-oracle audit_boss/audit_coldet), and the
-    // changed enemy strats (zaco1 homing, houdai aim/gate) were diffed against
-    // GASTRATS/KSTRATS.ASM. Regression guard, not a C-parity proof.
+    // the current source-verified Rust trace. Spawn-time init is proven ROM-correct
+    // by sf-oracle audit_boss/audit_coldet; changed enemy strategies were diffed
+    // against GASTRATS/KSTRATS.ASM, and generic explosion allocation/lifetimes
+    // against EXPSTRAT.ASM. Regression guard, not an independent C-parity proof.
     if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
         std::fs::write(&path, &out).expect("write fixture");
         return;

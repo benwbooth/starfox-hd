@@ -62,6 +62,14 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0x9928, 226),
     // shelpball
     (0x9944, 406),
+    // explosion
+    (0x9960, 461),
+    // explosion2
+    (0x997C, 462),
+    // explosion3
+    (0x9998, 463),
+    // explosion4
+    (0x99B4, 464),
     // explosion5
     (0x99D0, 274),
     // amoeba1
@@ -90,6 +98,8 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0x9B20, 380),
     // laserline
     (0x9B74, 453),
+    // elaser2
+    (0x9BC8, 511),
     // smark
     (0x9C00, 338),
     // mmark
@@ -114,6 +124,12 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0x9D5A, 24),
     // wall2
     (0x9D76, 25),
+    // wall_l
+    (0x9D92, 457),
+    // wall_r
+    (0x9DAE, 458),
+    // expl_4
+    (0x9DE6, 465),
     // d_head_0
     (0x9E60, 13),
     // d_body_0
@@ -230,6 +246,10 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xA62B, 17),
     // iris
     (0xA647, 3),
+    // expl_6
+    (0xA663, 466),
+    // expl_8
+    (0xA67F, 467),
     // boss_1_0
     (0xA69B, 436),
     // boss_1_1
@@ -396,6 +416,8 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xB0E3, 229),
     // deboss_2
     (0xB0FF, 441),
+    // iris_1
+    (0xB11B, 459),
     // pipe_9_0
     (0xB137, 310),
     // font_d
@@ -502,6 +524,8 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xB71F, 335),
     // snake_1
     (0xB73B, 200),
+    // stalk_1
+    (0xB757, 460),
     // flower_1
     (0xB7AB, 206),
     // flower_2
@@ -738,6 +762,12 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xC6DF, 132),
     // warp
     (0xC6FB, 133),
+    // warp_1
+    (0xC717, 454),
+    // warp_2
+    (0xC733, 455),
+    // warp_3
+    (0xC74F, 456),
     // tank_2
     (0xC76B, 134),
     // f_dragon

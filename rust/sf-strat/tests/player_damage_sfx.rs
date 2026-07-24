@@ -8,8 +8,10 @@ use sf_core::red_fill_circle::{
     RED_FILL_INITIAL_RADIUS_SPEED, RED_FILL_INITIAL_RED, RED_FILL_RED_STEP,
 };
 use sf_game::alien::{
-    ACF_COLLTYPE1, AFEXP, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_SHADOW,
+    ObjectVisualKind, ACF_COLLTYPE1, AFEXP, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
+    ASF_SHADOW,
 };
+use sf_game::draw::AF_INVIEW_PL;
 use sf_game::vars::{
     GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0,
     SPACE_MODE,
@@ -43,6 +45,11 @@ const DEATH_DISPATCH_TICK_LIMIT: usize = 8;
 const TERMINAL_CRASH_REMAINING_TICKS: usize = 59;
 const TERMINAL_SHIP_POSITION: [i16; 3] = [100, -50, 200];
 const TERMINAL_SHIP_VELOCITY: [i16; 3] = [7, -3, 11];
+const MEDIUM_EXPLOSION_SPRITE_SHAPE: u16 = 462;
+const MEDIUM_EXPLOSION_POLYGON_SHAPE: u16 = 466;
+const MEDIUM_EXPLOSION_SPRITE_TICKS: u8 = 6;
+const POLYGON_EXPLOSION_TICKS: u8 = 12;
+const PLAYER_SPRITE_SCALE_ADJUSTMENT: u8 = 253;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Ev {
@@ -485,15 +492,51 @@ fn terminal_explosion_builds_the_retail_anchor_particle_and_fade_state() {
     );
     assert!(particle_object.stratptr.is_some());
 
+    // The retail draw pass marks the visible ship before the following
+    // strategy sweep; that gate selects the live mesh/sprite explosion.
+    g.objs.aliens[player as usize].flags |= AF_INVIEW_PL;
     g.tick();
-    assert!(!g.objs.aliens[player as usize].active);
+    assert!(g.objs.aliens[player as usize].active);
+    assert_eq!(
+        g.objs.aliens[player as usize].shape,
+        MEDIUM_EXPLOSION_POLYGON_SHAPE
+    );
+    assert_ne!(g.objs.aliens[player as usize].flags & AFEXP, 0);
+    assert_eq!(
+        g.objs.aliens[player as usize].count1,
+        POLYGON_EXPLOSION_TICKS
+    );
     assert!(g.objs.aliens[anchor as usize].active);
     assert_ne!(g.objs.aliens[particle as usize].flags & AFEXP, 0);
+    let sprite = g
+        .objs
+        .active_indices()
+        .into_iter()
+        .find(|slot| g.objs.aliens[*slot as usize].visual_kind == ObjectVisualKind::ScaledSprite)
+        .expect("scaled terminal explosion sprite");
+    assert_eq!(
+        g.objs.aliens[sprite as usize].shape,
+        MEDIUM_EXPLOSION_SPRITE_SHAPE
+    );
+    assert_eq!(
+        g.objs.aliens[sprite as usize].tx,
+        PLAYER_SPRITE_SCALE_ADJUSTMENT
+    );
     assert_eq!(
         g.vars.player_death_fade_delay,
         PLAYER_DEATH_FADE_DELAY_TICKS - 1
     );
     assert_eq!(g.vars.sv_u8(sv::LIVES), 2);
+
+    for _ in 0..MEDIUM_EXPLOSION_SPRITE_TICKS {
+        g.tick();
+    }
+    assert!(!g.objs.aliens[sprite as usize].active);
+    assert!(g.objs.aliens[player as usize].active);
+    for _ in MEDIUM_EXPLOSION_SPRITE_TICKS..POLYGON_EXPLOSION_TICKS {
+        g.tick();
+    }
+    assert!(!g.objs.aliens[player as usize].active);
 }
 
 #[test]

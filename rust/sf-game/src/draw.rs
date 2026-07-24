@@ -10,8 +10,8 @@
 //! PFM_SHADOWS)`, and the AF_* placement-flag clears/sets on the alien.
 
 use crate::alien::{
-    ACF_FIRSTFRAME, AFEXP, ASF4_TEXTOBJ, ASF_HITFLASH, ASF_INVISIBLE, ASF_PARTOBJ, ASF_SHADOW,
-    ATGND, ATZREMOVE,
+    ObjectVisualKind, ACF_FIRSTFRAME, AFEXP, ASF4_TEXTOBJ, ASF_HITFLASH, ASF_INVISIBLE,
+    ASF_PARTOBJ, ASF_SHADOW, ATGND, ATZREMOVE,
 };
 use crate::obj::Objects;
 use crate::vars::{GF_NOZREMOVE, PFM_SHADOWS};
@@ -224,6 +224,9 @@ pub fn build_list(
         if is_text {
             entry.flags |= dl_flags::TEXT;
         }
+        if al.visual_kind == ObjectVisualKind::ScaledSprite {
+            entry.flags |= dl_flags::SCALED_SPRITE;
+        }
 
         // Drop shadow (draw.c:142-147).
         if al.sflags & ASF_SHADOW != 0 && playerflymode & PFM_SHADOWS != 0 {
@@ -332,6 +335,7 @@ mod tests {
             al.shape = 9;
             al.flags = AFEXP;
             al.sflags = ASF_PARTOBJ;
+            al.visual_kind = ObjectVisualKind::ScaledSprite;
             al.count = 12;
             al.sbyte1 = 34; // particle amount
             al.sbyte3 = 56; // type
@@ -343,6 +347,7 @@ mod tests {
         // Active list is newest-first: only slot 1 emitted.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].explosion_cnt, 12);
+        assert_ne!(out[0].flags & dl_flags::SCALED_SPRITE, 0);
         assert_eq!(out[0].shad_y, 1); // alien index
         assert_eq!(out[0].shad_x, 34);
         assert_eq!(out[0].shad_z, 56);

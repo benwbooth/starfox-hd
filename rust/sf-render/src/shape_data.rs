@@ -211,6 +211,13 @@ pub const SHAPE_EXT_WALL_L: u16 = 457;
 pub const SHAPE_EXT_WALL_R: u16 = 458;
 pub const SHAPE_EXT_IRIS_1: u16 = 459;
 pub const SHAPE_EXT_STALK_1: u16 = 460;
+pub const SHAPE_EXT_EXPLOSION: u16 = 461;
+pub const SHAPE_EXT_EXPLOSION2: u16 = 462;
+pub const SHAPE_EXT_EXPLOSION3: u16 = 463;
+pub const SHAPE_EXT_EXPLOSION4: u16 = 464;
+pub const SHAPE_EXT_EXPL_4: u16 = 465;
+pub const SHAPE_EXT_EXPL_6: u16 = 466;
+pub const SHAPE_EXT_EXPL_8: u16 = 467;
 pub const SHAPE_EXT_OP_0: u16 = 508;
 pub const SHAPE_EXT_OP_1: u16 = 509;
 pub const SHAPE_EXT_OP_2: u16 = 510;
@@ -86350,6 +86357,235 @@ static SHAPE_460_FACES: [ShapeFace; 3] = [
     ),
 ];
 
+// Shape 461: explosion
+static SHAPE_461_VERTS: [ShapeVertex; 4] = [
+    v(32.0, -32.0, 0.0),
+    v(-32.0, -32.0, 0.0),
+    v(-32.0, 32.0, 0.0),
+    v(32.0, 32.0, 0.0),
+];
+static SHAPE_461_FACES: [ShapeFace; 1] = [f(
+    [2, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    4,
+    0,
+    [0, 0, -127],
+    Some([2, 3, 0]),
+)];
+
+// Shape 462: explosion2
+static SHAPE_462_VERTS: [ShapeVertex; 4] = [
+    v(64.0, -64.0, 0.0),
+    v(-64.0, -64.0, 0.0),
+    v(-64.0, 64.0, 0.0),
+    v(64.0, 64.0, 0.0),
+];
+static SHAPE_462_FACES: [ShapeFace; 1] = [f(
+    [2, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    4,
+    0,
+    [0, 0, -127],
+    Some([2, 3, 0]),
+)];
+
+// Shape 463: explosion3
+static SHAPE_463_VERTS: [ShapeVertex; 4] = [
+    v(128.0, -128.0, 0.0),
+    v(-128.0, -128.0, 0.0),
+    v(-128.0, 128.0, 0.0),
+    v(128.0, 128.0, 0.0),
+];
+static SHAPE_463_FACES: [ShapeFace; 1] = [f(
+    [2, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    4,
+    0,
+    [0, 0, -127],
+    Some([2, 3, 0]),
+)];
+
+// Shape 464: explosion4
+static SHAPE_464_VERTS: [ShapeVertex; 4] = [
+    v(256.0, -256.0, 0.0),
+    v(-256.0, -256.0, 0.0),
+    v(-256.0, 256.0, 0.0),
+    v(256.0, 256.0, 0.0),
+];
+static SHAPE_464_FACES: [ShapeFace; 1] = [f(
+    [2, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    4,
+    0,
+    [0, 0, -127],
+    Some([2, 3, 0]),
+)];
+
+// Shape 465: expl_4
+static SHAPE_465_VERTS: [ShapeVertex; 4] = [
+    v(14.0, -15.0, -20.0),
+    v(-24.0, -15.0, -6.0),
+    v(2.0, 15.0, 6.0),
+    v(9.0, -5.0, 24.0),
+];
+static SHAPE_465_FACES: [ShapeFace; 4] = [
+    f(
+        [0, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [36, -71, -99],
+        Some([0, 2, 1]),
+    ),
+    f(
+        [3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-11, 123, 29],
+        Some([3, 0, 1]),
+    ),
+    f(
+        [3, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [87, -43, 82],
+        Some([3, 1, 2]),
+    ),
+    f(
+        [2, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-119, -45, 3],
+        Some([2, 0, 3]),
+    ),
+];
+
+// Shape 466: expl_6
+static SHAPE_466_VERTS: [ShapeVertex; 9] = [
+    v(-11.0, 13.0, -22.0),
+    v(9.0, 13.0, -16.0),
+    v(-19.0, 0.0, -5.0),
+    v(-10.0, -20.0, -3.0),
+    v(-10.0, 20.0, -3.0),
+    v(10.0, -20.0, 3.0),
+    v(10.0, 20.0, 3.0),
+    v(19.0, 0.0, 5.0),
+    v(-8.0, 0.0, 29.0),
+];
+static SHAPE_466_FACES: [ShapeFace; 6] = [
+    f(
+        [2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [34, 27, -119],
+        Some([2, 3, 1]),
+    ),
+    f(
+        [8, 6, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-79, -44, 89],
+        Some([8, 6, 7]),
+    ),
+    f(
+        [2, 4, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [112, -47, 36],
+        Some([2, 4, 8]),
+    ),
+    f(
+        [5, 3, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [20, 106, 67],
+        Some([5, 3, 8]),
+    ),
+    f(
+        [1, 5, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-99, 37, -70],
+        Some([1, 5, 7]),
+    ),
+    f(
+        [1, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [-13, -118, -44],
+        Some([1, 6, 4]),
+    ),
+];
+
+// Shape 467: expl_8
+static SHAPE_467_VERTS: [ShapeVertex; 12] = [
+    v(-10.0, 0.0, -17.0),
+    v(17.0, -8.0, -10.0),
+    v(17.0, 8.0, -10.0),
+    v(7.0, -20.0, -4.0),
+    v(7.0, 20.0, -4.0),
+    v(-7.0, -20.0, 4.0),
+    v(-7.0, 20.0, 4.0),
+    v(-17.0, -8.0, 10.0),
+    v(-17.0, 8.0, 10.0),
+    v(12.0, 7.0, 21.0),
+    v(2.0, -5.0, 24.0),
+    v(-12.0, -5.0, 32.0),
+];
+static SHAPE_467_FACES: [ShapeFace; 8] = [
+    f(
+        [10, 11, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [-47, -84, 83],
+        Some([10, 11, 6]),
+    ),
+    f(
+        [5, 9, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-47, 85, 82],
+        Some([5, 9, 3]),
+    ),
+    f(
+        [7, 8, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [45, 0, 119],
+        Some([7, 8, 9]),
+    ),
+    f(
+        [0, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-10, -63, -110],
+        Some([0, 2, 4]),
+    ),
+    f(
+        [6, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [101, -62, -45],
+        Some([6, 8, 0]),
+    ),
+    f(
+        [3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-10, 63, -110],
+        Some([3, 1, 0]),
+    ),
+    f(
+        [0, 7, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [101, 62, -45],
+        Some([0, 7, 5]),
+    ),
+    f(
+        [9, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [-125, 0, 20],
+        Some([9, 2, 1]),
+    ),
+];
+
 // Shape 508: op_0
 static SHAPE_508_VERTS: [ShapeVertex; 20] = [
     v(-120.0, 0.0, -480.0),
@@ -87025,7 +87261,7 @@ static SHAPE_511_FACES: [ShapeFace; 6] = [
     ),
 ];
 
-pub const SHAPE_DATA_COUNT: usize = 456;
+pub const SHAPE_DATA_COUNT: usize = 463;
 
 pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
     ShapeDataEntry {
@@ -90643,6 +90879,62 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         faces: &SHAPE_460_FACES,
         default_color_table: "id_0_c",
         name: "stalk_1",
+    },
+    ShapeDataEntry {
+        shape_id: 461,
+        vertices: &SHAPE_461_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_461_FACES,
+        default_color_table: "explode_c",
+        name: "explosion",
+    },
+    ShapeDataEntry {
+        shape_id: 462,
+        vertices: &SHAPE_462_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_462_FACES,
+        default_color_table: "explode2_c",
+        name: "explosion2",
+    },
+    ShapeDataEntry {
+        shape_id: 463,
+        vertices: &SHAPE_463_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_463_FACES,
+        default_color_table: "explode3_c",
+        name: "explosion3",
+    },
+    ShapeDataEntry {
+        shape_id: 464,
+        vertices: &SHAPE_464_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_464_FACES,
+        default_color_table: "explode3_c",
+        name: "explosion4",
+    },
+    ShapeDataEntry {
+        shape_id: 465,
+        vertices: &SHAPE_465_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_465_FACES,
+        default_color_table: "id_0_c",
+        name: "expl_4",
+    },
+    ShapeDataEntry {
+        shape_id: 466,
+        vertices: &SHAPE_466_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_466_FACES,
+        default_color_table: "id_0_c",
+        name: "expl_6",
+    },
+    ShapeDataEntry {
+        shape_id: 467,
+        vertices: &SHAPE_467_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_467_FACES,
+        default_color_table: "id_0_c",
+        name: "expl_8",
     },
     ShapeDataEntry {
         shape_id: 508,

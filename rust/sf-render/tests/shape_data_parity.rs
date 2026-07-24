@@ -7,9 +7,53 @@
 //! `shape_compiler.py` now emits the Rust table as the single source.)
 
 use sf_render::shape_data::{
-    SHAPE_DATA, SHAPE_EXT_DEBOSS_0, SHAPE_EXT_DEBOSS_2, SHAPE_EXT_ROBOT_0, SHAPE_EXT_ZACO_0,
-    SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
+    SHAPE_DATA, SHAPE_DATA_COUNT, SHAPE_EXT_DEBOSS_0, SHAPE_EXT_DEBOSS_2, SHAPE_EXT_ROBOT_0,
+    SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
 };
+
+const NULL_SHAPE_PROFILE_COUNT: usize = 1;
+const SMALL_EXPLOSION_SPRITE_SHAPE: u16 = 461;
+const MEDIUM_EXPLOSION_SPRITE_SHAPE: u16 = 462;
+const LARGE_EXPLOSION_SPRITE_SHAPE: u16 = 463;
+const OVERSIZED_EXPLOSION_SPRITE_SHAPE: u16 = 464;
+const SMALL_EXPLOSION_POLYGON_SHAPE: u16 = 465;
+const MEDIUM_EXPLOSION_POLYGON_SHAPE: u16 = 466;
+const LARGE_EXPLOSION_POLYGON_SHAPE: u16 = 467;
+
+#[test]
+fn every_renderable_shape_has_exact_source_metrics() {
+    use sf_core::sf1_shape_metrics::{sf1_shape_metrics, SF1_SHAPE_METRICS};
+
+    assert_eq!(SHAPE_DATA.len(), SHAPE_DATA_COUNT);
+    assert_eq!(
+        SF1_SHAPE_METRICS.len(),
+        SHAPE_DATA_COUNT + NULL_SHAPE_PROFILE_COUNT
+    );
+    for shape in &SHAPE_DATA {
+        assert!(
+            sf1_shape_metrics(shape.shape_id).is_some(),
+            "{} ({}) has no ShapeHdr metrics",
+            shape.name,
+            shape.shape_id
+        );
+    }
+
+    for (shape_id, name) in [
+        (SMALL_EXPLOSION_SPRITE_SHAPE, "explosion"),
+        (MEDIUM_EXPLOSION_SPRITE_SHAPE, "explosion2"),
+        (LARGE_EXPLOSION_SPRITE_SHAPE, "explosion3"),
+        (OVERSIZED_EXPLOSION_SPRITE_SHAPE, "explosion4"),
+        (SMALL_EXPLOSION_POLYGON_SHAPE, "expl_4"),
+        (MEDIUM_EXPLOSION_POLYGON_SHAPE, "expl_6"),
+        (LARGE_EXPLOSION_POLYGON_SHAPE, "expl_8"),
+    ] {
+        let shape = SHAPE_DATA
+            .iter()
+            .find(|shape| shape.shape_id == shape_id)
+            .unwrap_or_else(|| panic!("{name} ({shape_id}) missing"));
+        assert_eq!(shape.name, name);
+    }
+}
 
 #[test]
 fn shape_headers_retain_their_rom_color_tables() {

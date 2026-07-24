@@ -20,10 +20,20 @@ pub const NUMBER_AL: usize = 70;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StratId(pub u16);
 
-/// Alien (object) structure — every 3D entity in the game. Mirrors C `Alien`
-/// (`src/game/obj.h`) field-for-field with the same integer widths.
-/// `next`/`prev` are array indices instead of pointers (the SNES compat
-/// layer denies offsets 0..3, so the representation is free).
+/// Semantic presentation selected by strategy code. This replaces the
+/// source `ssprite` flag with a typed flat field instead of preserving its
+/// packed-machine representation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ObjectVisualKind {
+    #[default]
+    Mesh,
+    ScaledSprite,
+}
+
+/// Flat, typed object state for every 3D entity in the game. Source gameplay
+/// fields retain their original order and widths where that is meaningful;
+/// typed presentation and activity fields replace packed flags and list-only
+/// liveness. `next`/`prev` are array indices instead of pointers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Alien {
     /// Linked-list next (C `struct Alien *next`).
@@ -34,6 +44,7 @@ pub struct Alien {
     // --- al_start fields (STRUCTS.INC) ---
     /// al_shape.
     pub shape: u16,
+    pub visual_kind: ObjectVisualKind,
     /// al_ptr: attached alien "pointer" (index+1 encoding; 0 = none).
     pub ptr: u16,
     /// al_flags (AFEXP, AFHIT, ...).

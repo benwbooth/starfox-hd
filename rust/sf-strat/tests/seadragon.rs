@@ -20,7 +20,7 @@
 //! therefore does not apply — the death test instead exercises the real
 //! head-kill -> sflag5 sink path.
 
-use sf_game::alien::NUMBER_AL;
+use sf_game::alien::{ObjectVisualKind, AFEXP, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses;
@@ -39,6 +39,7 @@ const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
 const ASF4_SFLAG8: u8 = 0x20; // alien.rs (lochness "lock ness")
 const SEANECK_HP: u8 = 255; // hardHP
 const SEADRAGON_HEAD_HP: u8 = 4; // seadragonHP
+const GENERIC_EXPLOSION_POLYGON_TICKS: u8 = 12;
 
 fn spawn(g: &mut Game, x: i16, y: i16, z: i16, shape: u16) -> u16 {
     let idx = g.objs.alloc().expect("alien pool");
@@ -185,7 +186,8 @@ fn seadragon2_head_breathes_fire() {
 
 // ------------------------------------------------------------
 // 4. death mechanic: killing the head runs snake_istrat.explode, which sets
-//    the neck's sflag5 (sink) and marks the head dead (D2STRATS.ASM:810-817).
+//    the neck's sflag5 (sink) and starts the head's generic explosion
+//    (D2STRATS.ASM:810-817; EXPSTRAT.ASM:677-910).
 // ------------------------------------------------------------
 #[test]
 fn head_kill_sinks_the_neck() {
@@ -216,15 +218,30 @@ fn head_kill_sinks_the_neck() {
     g.objs.aldead = 0;
     g.call_strat(expstrat, head as u16);
 
-    // The neck was told to sink (sflag5) and the head latched dead (aldead=1,
-    // which run_strategies turns into a free of the object).
+    // The neck was told to sink (sflag5), while the head remains as the exact
+    // independently timed polygon + scaled-sprite explosion pair.
     let sunk_after = (0..NUMBER_AL)
         .any(|i| g.objs.aliens[i].active && g.objs.aliens[i].sflags3 & SD_SFLAG5_SFLAGS3 != 0);
     assert!(
         sunk_after,
         "a neck latched sflag5 (sink request) on head death"
     );
-    assert_eq!(g.objs.aldead, 1, "head death latched (explode -> aldead)");
+    let exploded_head = g.objs.aliens[head];
+    assert!(exploded_head.active, "head polygon remains alive");
+    assert_ne!(exploded_head.flags & AFEXP, 0, "head entered explosion");
+    assert_eq!(exploded_head.count, 0, "head polygon first frame");
+    assert_eq!(
+        exploded_head.count1, GENERIC_EXPLOSION_POLYGON_TICKS,
+        "head polygon lifetime"
+    );
+    assert_eq!(g.objs.aldead, 0, "head polygon is not removed immediately");
+    assert!(
+        g.objs.active_indices().into_iter().any(|slot| {
+            slot as usize != head
+                && g.objs.aliens[slot as usize].visual_kind == ObjectVisualKind::ScaledSprite
+        }),
+        "head explosion sprite exists"
+    );
     assert_eq!(g.objs.aliens[head].ptr, 0, "head unlinked from its neck");
     let _ = root;
 }

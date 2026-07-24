@@ -13,6 +13,7 @@ pub mod player_view;
 pub mod red_fill_circle;
 pub mod scene;
 pub mod screen_wipe;
+pub mod sf1_shape_metrics;
 mod sf1_shape_words;
 pub mod shape;
 pub mod snes_trig;
@@ -98,6 +99,8 @@ pub mod dl_flags {
     /// Scaled MARIO text carrier (renderer extension; ROM keys this from
     /// `asf_textobj` before trying to resolve a shape header).
     pub const TEXT: u8 = 0x10;
+    /// Typed scaled-sprite presentation selected by strategy code.
+    pub const SCALED_SPRITE: u8 = 0x20;
 }
 
 /// Game tick rate: fixed 20 Hz logic, matching C `GAME_TICK_MS 50`.

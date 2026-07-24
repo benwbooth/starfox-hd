@@ -12,7 +12,7 @@
 //! and positional sound — all cosmetic reads of global scratch RAM.
 
 use sf_core::player_view::PlayerViewMode;
-use sf_game::alien::{ATLASER, ATZREMOVE, NUMBER_AL};
+use sf_game::alien::{ObjectVisualKind, AFEXP, ATLASER, ATZREMOVE, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::common::{sv, StratRam};
@@ -61,6 +61,10 @@ const TANK2_HP: u8 = 40; // STRATEQU.INC:243
 const TANK2_AP: u8 = 32; // STRATEQU.INC:244
 const BAZOOKA_HP: u8 = 8; // STRATEQU.INC:237
 const BAZOOKA_AP: u8 = 16; // STRATEQU.INC:238
+const GENERIC_EXPLOSION_POLYGON_TICKS: u8 = 12;
+const SMALL_EXPLOSION_POLYGON_SHAPE: u16 = 465;
+const MEDIUM_EXPLOSION_POLYGON_SHAPE: u16 = 466;
+const LARGE_EXPLOSION_POLYGON_SHAPE: u16 = 467;
 
 fn spawn(g: &mut Game, x: i16, y: i16, z: i16, shape: u16) -> u16 {
     let idx = g.objs.alloc().expect("alien pool");
@@ -116,6 +120,42 @@ fn any_hplasma(g: &Game) -> bool {
         .iter()
         .enumerate()
         .any(|(i, a)| i != 0 && a.active && a.type_ & ATLASER != 0)
+}
+
+fn assert_generic_explosion_started(g: &Game, destroyed: u16, context: &str) {
+    let polygon = g.objs.aliens[destroyed as usize];
+    assert!(polygon.active, "{context}: polygon lifetime was skipped");
+    assert_ne!(polygon.flags & AFEXP, 0, "{context}: AFEXP not set");
+    assert_eq!(polygon.hp, 0, "{context}: destroyed hp");
+    assert_eq!(polygon.count, 0, "{context}: polygon first frame");
+    assert_eq!(
+        polygon.count1, GENERIC_EXPLOSION_POLYGON_TICKS,
+        "{context}: polygon lifetime"
+    );
+    assert!(
+        [
+            SMALL_EXPLOSION_POLYGON_SHAPE,
+            MEDIUM_EXPLOSION_POLYGON_SHAPE,
+            LARGE_EXPLOSION_POLYGON_SHAPE,
+        ]
+        .contains(&polygon.shape),
+        "{context}: unexpected explosion polygon {}",
+        polygon.shape
+    );
+    assert!(
+        g.objs.active_indices().into_iter().any(|slot| {
+            let sprite = g.objs.aliens[slot as usize];
+            slot != destroyed
+                && sprite.visual_kind == ObjectVisualKind::ScaledSprite
+                && [sprite.worldx, sprite.worldy, sprite.worldz]
+                    == [polygon.worldx, polygon.worldy, polygon.worldz]
+        }),
+        "{context}: scaled explosion sprite missing"
+    );
+    assert_eq!(
+        g.objs.aldead, 0,
+        "{context}: source explosion must remain live"
+    );
 }
 
 // ============================================================
@@ -178,7 +218,7 @@ fn tank1a_forward_loop_fires_hplasma() {
 
 #[test]
 fn tank1a_death_explodes() {
-    // hp=2: two hitflash hits (2->1->0) route into explode -> aldead
+    // hp=2: two hitflash hits (2->1->0) route into the generic explosion
     // (Strat_Explode, EXPSTRAT.ASM escapeeexplode). Arm first, then damage.
     let mut g = setup();
     let tank = place(&mut g, IS_TANK1A, 0, 0, 3000, 168);
@@ -189,7 +229,7 @@ fn tank1a_death_explodes() {
     assert_eq!(g.objs.aliens[tank as usize].hp, 1);
     assert_eq!(g.objs.aldead, 0, "still alive after first hit");
     g.call_strat(coll, tank); // 1 -> 0 -> explode
-    assert_eq!(g.objs.aldead, 1, "explode set aldead");
+    assert_generic_explosion_started(&g, tank, "tank1a");
 }
 
 // ============================================================
@@ -384,7 +424,7 @@ fn bazooka_death_drops_debris_and_explodes() {
     g.call_strat(exp, baz);
     let after = (0..NUMBER_AL).filter(|&i| g.objs.aliens[i].active).count();
     assert!(after > before, "a falling debris object was spawned");
-    assert_eq!(g.objs.aldead, 1, "bazooka explodes (aldead)");
+    assert_generic_explosion_started(&g, baz, "bazooka");
 }
 
 // ============================================================
@@ -455,7 +495,7 @@ fn wireman_grounded_pops_up() {
 
 #[test]
 fn wireman_death_explodes() {
-    // hp=4: four hitflash hits route through wiremandie -> explode (aldead).
+    // hp=4: four hitflash hits route through wiremandie -> explode.
     let mut g = setup();
     let wm = place(&mut g, IS_WIREMAN, 6000, -500, 6000, SH_WIRE_MAN);
     tick(&mut g, wm); // init (hp=4)
@@ -466,7 +506,7 @@ fn wireman_death_explodes() {
         assert_eq!(g.objs.aldead, 0, "alive until the 4th hit");
     }
     g.call_strat(coll, wm); // 1 -> 0 -> explode
-    assert_eq!(g.objs.aldead, 1, "wiremandie -> explode set aldead");
+    assert_generic_explosion_started(&g, wm, "wireman");
 }
 
 // ============================================================
@@ -524,7 +564,7 @@ fn winglazerman_death_explodes() {
     }
     assert_eq!(g.objs.aldead, 0, "alive until the 8th hit");
     g.call_strat(coll, wl);
-    assert_eq!(g.objs.aldead, 1, "winglazermandie -> explode");
+    assert_generic_explosion_started(&g, wl, "winglazerman");
 }
 
 // ============================================================
@@ -595,7 +635,7 @@ fn walking_death_explodes() {
     let exp = g.objs.aliens[wk as usize].expstratptr.unwrap();
     g.objs.aldead = 0;
     g.call_strat(exp, wk);
-    assert_eq!(g.objs.aldead, 1, "walking explodes");
+    assert_generic_explosion_started(&g, wk, "walking");
 }
 
 // ============================================================
@@ -658,7 +698,7 @@ fn uperm_death_explodes() {
     g.call_strat(coll, up); // 2 -> 1
     assert_eq!(g.objs.aldead, 0);
     g.call_strat(coll, up); // 1 -> 0 -> explode
-    assert_eq!(g.objs.aldead, 1, "uperm explodes");
+    assert_generic_explosion_started(&g, up, "uperm");
 }
 
 // ============================================================
@@ -802,7 +842,7 @@ fn meteo0_death_spawns_meteor_fragment_and_explodes() {
     g.call_strat(coll, m); // 2 -> 1 (flash)
     assert_eq!(g.objs.aldead, 0, "survives the first hit");
     g.call_strat(coll, m); // 1 -> 0 -> meteo0_exp
-    assert_eq!(g.objs.aldead, 1, "meteo0 explodes on the fatal hit");
+    assert_generic_explosion_started(&g, m, "meteo0");
     let frag = find_shape(&g, SH_ASTEROID1).expect("asteroid1 fragment spawned");
     assert!(
         g.objs.aliens[frag].stratptr.is_some(),
@@ -865,7 +905,7 @@ fn break_meteor_is_destructible_and_explodes_without_fragment() {
     g.objs.aldead = 0;
     g.call_strat(coll, b); // 2 -> 1
     g.call_strat(coll, b); // 1 -> 0 -> explode
-    assert_eq!(g.objs.aldead, 1, "break_meteor explodes");
+    assert_generic_explosion_started(&g, b, "break_meteor");
     assert!(
         find_shape(&g, SH_TADPOLE).is_none(),
         "break_meteor (break2) spawns no tadpole"
@@ -885,7 +925,7 @@ fn break_meteort_death_spawns_tadpole_on_the_coin() {
     g.vars.rng = [0, 0, 0, 0];
     g.objs.aldead = 0;
     g.call_strat(exp, b);
-    assert_eq!(g.objs.aldead, 1, "break_meteorT explodes");
+    assert_generic_explosion_started(&g, b, "break_meteorT high coin");
     let tadpole = find_shape(&g, SH_TADPOLE).expect("spawns a tadpole on the >=127 coin");
     let tadpole = &g.objs.aliens[tadpole];
     assert!(tadpole.stratptr.is_some(), "spawned tadpole has native AI");
@@ -910,7 +950,7 @@ fn break_meteort_death_skips_tadpole_on_the_low_coin() {
     g.vars.rng = [0, 128, 0, 0];
     g.objs.aldead = 0;
     g.call_strat(exp, b);
-    assert_eq!(g.objs.aldead, 1, "still explodes");
+    assert_generic_explosion_started(&g, b, "break_meteorT low coin");
     assert!(
         find_shape(&g, SH_TADPOLE).is_none(),
         "no tadpole on the <127 coin"
@@ -951,7 +991,7 @@ fn mine0_init_static_destructible_then_explodes() {
     g.objs.aldead = 0;
     g.call_strat(coll, m); // 2 -> 1
     g.call_strat(coll, m); // 1 -> 0 -> explode
-    assert_eq!(g.objs.aldead, 1, "mine0 explodes");
+    assert_generic_explosion_started(&g, m, "mine0");
 }
 
 // ------------------------------------------------------------
@@ -1011,7 +1051,7 @@ fn torpedo_death_explodes() {
     for _ in 0..4 {
         g.call_strat(coll, t); // hp 4 -> 0
     }
-    assert_eq!(g.objs.aldead, 1, "torpedo explodes when hp hits 0");
+    assert_generic_explosion_started(&g, t, "torpedo");
 }
 
 // ============================================================
@@ -1963,7 +2003,7 @@ fn woods_converts_to_homing_missile_when_close() {
 
 #[test]
 fn woods_death_explodes() {
-    // woodsexp_Istrat -> remove (no) child + explode -> aldead
+    // woodsexp_Istrat -> remove (no) child + generic explosion
     // (GASTRATS.ASM:1431-1435).
     let mut g = setup();
     let w = place(&mut g, IS_WOODS, 0, 0, 3000, SH_MISS_1_2);
@@ -1971,7 +2011,7 @@ fn woods_death_explodes() {
     let exp = g.objs.aliens[w as usize].expstratptr.unwrap();
     g.objs.aldead = 0;
     g.call_strat(exp, w);
-    assert_eq!(g.objs.aldead, 1, "woodsexp routes to explode");
+    assert_generic_explosion_started(&g, w, "woods");
 }
 
 // -------------------- kdoor / kdoor2 (D2STRATS.ASM:686-721) --------------------

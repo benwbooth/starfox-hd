@@ -1,6 +1,8 @@
 //! ROM fire_spread / spread_* / spreada_init + DefElaserCol.
 
-use sf_game::alien::{ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_WEAPON, ASF_COLLIDE};
+use sf_game::alien::{
+    ObjectVisualKind, ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_WEAPON, AFEXP, ASF_COLLIDE,
+};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -9,6 +11,7 @@ use sf_strat::enemy_a::{
 };
 
 const SHAPE_ELASER2: u16 = 511;
+const GENERIC_EXPLOSION_POLYGON_TICKS: u8 = 12;
 
 #[test]
 fn fire_spread_stats_and_arm_countdown() {
@@ -36,9 +39,16 @@ fn fire_spread_stats_and_arm_countdown() {
     assert_eq!(g.objs.aliens[shot as usize].sbyte3, 0);
     assert!(g.objs.aliens[shot as usize].active);
 
-    // Next tick: beqdec hits 0 → spreada_init → explode (aldead).
+    // Next tick: beqdec hits 0 -> spreada_init -> generic explosion pair.
     spread_strat(&mut g, shot);
-    assert_eq!(g.objs.aldead, 1);
+    let polygon = g.objs.aliens[shot as usize];
+    assert_ne!(polygon.flags & AFEXP, 0);
+    assert_eq!(polygon.count, 0);
+    assert_eq!(polygon.count1, GENERIC_EXPLOSION_POLYGON_TICKS);
+    assert_eq!(g.objs.aldead, 0);
+    assert!(g.objs.active_indices().into_iter().any(|slot| {
+        slot != shot && g.objs.aliens[slot as usize].visual_kind == ObjectVisualKind::ScaledSprite
+    }));
 }
 
 #[test]
