@@ -3,7 +3,7 @@
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemies_ground::{item6_istrat, wallnothit};
-use sf_strat::player::player_start_init;
+use sf_strat::player::{player_start_init, strat_player};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -48,6 +48,8 @@ fn item6_sets_shieldup_and_clears_pnumhits() {
     let log = Rc::new(RefCell::new(Vec::new()));
     let mut g = Game::with_hooks(Box::new(Rec(log.clone())));
     spawn_player(&mut g);
+    player_start_init(&mut g);
+    let normal_shape = g.vars.sv_u16(sv::PLAYERSHAPE);
     g.vars.set_sv_u8(sv::PNUMHITS, 5);
 
     let w = g.objs.alloc().expect("item");
@@ -62,8 +64,36 @@ fn item6_sets_shieldup_and_clears_pnumhits() {
     assert_ne!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0);
     assert_eq!(g.vars.shieldup, 1);
     assert_eq!(g.vars.sv_u8(sv::PNUMHITS), 0);
+    assert_ne!(g.vars.sv_u16(sv::PLAYERSHAPE), normal_shape);
     assert!(log.borrow().contains(&SndEvent::PlaySe(0x16)));
     assert_eq!(g.objs.aldead, 1);
+}
+
+#[test]
+fn wire_ship_expiration_selects_normal_mesh_before_clearing_the_powerup() {
+    let mut g = Game::new();
+    spawn_player(&mut g);
+    g.objs.aliens[0].hp = 100;
+    player_start_init(&mut g);
+    let normal_shape = g.vars.sv_u16(sv::PLAYERSHAPE);
+
+    let item = g.objs.alloc().expect("item");
+    g.objs.aliens[item as usize].worldy = -40;
+    g.objs.aliens[item as usize].worldz = 90;
+    item6_istrat(&mut g, item);
+    assert_ne!(g.vars.sv_u16(sv::PLAYERSHAPE), normal_shape);
+
+    g.vars.set_sv_u8(sv::PNUMHITS, 3);
+    g.vars.wireendflash = 1;
+    strat_player(&mut g, 0);
+
+    assert_eq!(g.vars.wireendflash, 0);
+    assert_eq!(g.vars.shieldup, 0);
+    assert_eq!(g.vars.sv_u16(sv::PLAYERSHAPE), normal_shape);
+    assert_ne!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0);
+
+    strat_player(&mut g, 0);
+    assert_eq!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0);
 }
 
 #[test]

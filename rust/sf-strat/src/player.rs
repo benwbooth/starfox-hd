@@ -1834,11 +1834,19 @@ fn playermove_srou(g: &mut Game, idx: u16) {
             let flash = g.vars.wireendflash;
             if flash == 0 {
                 g.vars.shieldup = 0;
+                select_ship(g, PSHIPNUM_NORM);
                 g.vars.pshipflags2 &= !PSF2_WIRESHIP;
             } else {
-                g.vars.wireendflash = flash.wrapping_sub(1);
+                let remaining = flash.wrapping_sub(1);
+                g.vars.wireendflash = remaining;
                 // Blink: shieldup on when (wireendflash & 3) != 0.
-                g.vars.shieldup = if flash & 3 != 0 { 1 } else { 0 };
+                if remaining & 3 != 0 {
+                    g.vars.shieldup = 1;
+                    select_ship(g, PSHIPNUM_WIRE);
+                } else {
+                    g.vars.shieldup = 0;
+                    select_ship(g, PSHIPNUM_NORM);
+                }
             }
         } else {
             g.vars.wireendflash = 50;

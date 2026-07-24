@@ -7540,11 +7540,9 @@ fn tree_strat(g: &mut Game, idx: u16) {
 //            1575-1623).
 //   item6  : wireframe-ship power-up (colldisable). Drifts +z (until sbyte1 set)
 //            and spins roty+=4; when the player closes within 120 z & 60 xy it
-//            grants the wireframe ship, chimes ($16) and removes itself. The full
-//            ship-swap (curr_ship/select_ship_l, shieldup, pnumhits) is player-
-//            progression machinery not modelled in sf-game; only the modelled
-//            pshipflags2|=psf2_wireship bit + chime + self-remove are applied
-//            here — SCOPED, see item6_strat (GASTRATS.ASM:2598-2621).
+//            selects and grants the wireframe ship, clears its hit counter,
+//            raises its shield state, chimes ($16), and removes itself
+//            (GASTRATS.ASM:2598-2621).
 // ============================================================
 
 const IS_IRIS: usize = 47;
@@ -7961,8 +7959,9 @@ fn item6_init(g: &mut Game, idx: u16) {
 
 /// `item6_strat` (GASTRATS.ASM:2602-2621): remove on player death; drift +z
 /// (until sbyte1 is set) and spin roty+=4; when the player closes within 120 z &
-/// 60 xy, grant wireframe ship (`psf2_wireship` + `shieldup=1` + `pnumhits=0`),
-/// chime `$16`, and self-remove. `curr_ship`/`select_ship_l` mesh swap is scoped.
+/// 60 xy, select the wireframe ship, grant its shield state
+/// (`psf2_wireship` + `shieldup=1` + `pnumhits=0`), chime `$16`, and
+/// self-remove.
 pub fn item6_strat(g: &mut Game, idx: u16) {
     // s_remove_ifplayerdead x (mirrors item5: removes on pshipflags2 HP0 / no player).
     let Some(pl) = player(g) else {
@@ -7993,10 +7992,10 @@ pub fn item6_strat(g: &mut Game, idx: u16) {
     if xydist >= 60 {
         return;
     }
-    // Pickup: grant the wireframe ship, set shieldup, chime, remove.
-    // ROM GASTRATS.ASM:2615-2620 — pnumhits=0, curr_ship/select_ship scoped out;
-    // modelled: psf2_wireship + shieldup=1 + $16.
+    // Pickup: select the wireframe ship, set its shield state, chime, remove.
+    // ROM GASTRATS.ASM:2615-2620.
     g.vars.set_sv_u8(sv::PNUMHITS, 0);
+    crate::player::select_ship(g, crate::player::PSHIPNUM_WIRE);
     g.vars.pshipflags2 |= PSF2_WIRESHIP; // s_or_var pshipflags2,#psf2_wireship
     g.vars.shieldup = 1; // s_set_var B,shieldup,#1
     g.hooks.play_se(0x16); // TRIGSE $16
