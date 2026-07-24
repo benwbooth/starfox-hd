@@ -31,9 +31,9 @@
 
 use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
-    Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON, ASF_COLLDISABLE,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
-    ATMISSILE, ATZREMOVE, NUMBER_AL,
+    Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON,
+    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND,
+    ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
@@ -348,7 +348,7 @@ fn fire_hplasma(g: &mut Game, idx: u16) {
     let Some(player_idx) = player_index(g) else {
         return;
     };
-    let Some(shot) = make_obj(g, 0) else {
+    let Some(shot) = make_obj(g, SH_BOUNCYBALL) else {
         return;
     };
     let me = g.objs.aliens[idx as usize];
@@ -360,8 +360,7 @@ fn fire_hplasma(g: &mut Game, idx: u16) {
     let yaw = me.roty.wrapping_add(DEG180);
     let pitch = me.rotx;
     let al = &mut g.objs.aliens[shot as usize];
-    al.shape = 0;
-    al.sflags |= ASF_INVISIBLE;
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
     al.type_ |= ATLASER | ATZREMOVE;
     al.stratptr = Some(s_tick);
     al.collstratptr = Some(s_coll);

@@ -1,6 +1,6 @@
 //! ROM oval/ring/shortplasma fire + elaser + Yhoming / fire_YHplasma.
 
-use sf_game::alien::ATZREMOVE;
+use sf_game::alien::{ObjectVisualKind, ATZREMOVE};
 use sf_game::Game;
 use sf_strat::enemy_a::{
     elaser_istrat, elaser_strat, fire_hplasma, fire_ovalbeam, fire_relovalbeam, fire_relringlaser,
@@ -19,24 +19,44 @@ fn fire_rel_and_abs_oval_ring_shortplasma() {
     assert_eq!(g.objs.aliens[a as usize].ap, 8);
     assert_eq!(g.objs.aliens[a as usize].vel, 70);
     assert_eq!(g.objs.aliens[a as usize].count, 100);
+    assert_eq!(
+        g.objs.aliens[a as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 
     let b = fire_relringlaser(&mut g, firer).expect("relring");
     assert_eq!(g.objs.aliens[b as usize].shape, 334);
     assert_eq!(g.objs.aliens[b as usize].ap, 6);
+    assert_eq!(
+        g.objs.aliens[b as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 
     let c = fire_ovalbeam(&mut g, firer).expect("oval");
     assert_eq!(g.objs.aliens[c as usize].shape, 416);
     assert_eq!(g.objs.aliens[c as usize].ap, 8);
+    assert_eq!(
+        g.objs.aliens[c as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 
     let d = fire_ringlaser(&mut g, firer).expect("ring");
     assert_eq!(g.objs.aliens[d as usize].shape, 334);
     assert_eq!(g.objs.aliens[d as usize].ap, 6);
+    assert_eq!(
+        g.objs.aliens[d as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 
     let e = fire_shortplasma(&mut g, firer).expect("short");
     assert_eq!(g.objs.aliens[e as usize].shape, SH_BOUNCYBALL);
     assert_eq!(g.objs.aliens[e as usize].ap, 10);
     assert_eq!(g.objs.aliens[e as usize].count, 30);
     assert_ne!(g.objs.aliens[e as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_eq!(
+        g.objs.aliens[e as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 }
 
 #[test]
@@ -63,6 +83,7 @@ fn fire_hplasma_exact_shape_stats_immunity_and_homing() {
     assert_eq!(al.vel, 60);
     assert_eq!(al.count, 50);
     assert_eq!(al.snd2, 6);
+    assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
     assert_eq!(al.immuneptr, firer);
     assert_eq!(g.objs.aliens[firer as usize].immuneptr, shot);
 
@@ -155,4 +176,8 @@ fn fire_yhplasma_clears_zremove_and_homes() {
     assert_eq!(g.objs.aliens[shot as usize].count, 50);
     assert_eq!(g.objs.aliens[shot as usize].type_ & ATZREMOVE, 0);
     assert_eq!(g.objs.aliens[shot as usize].ptr, 1); // player+1
+    assert_eq!(
+        g.objs.aliens[shot as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 }

@@ -4676,6 +4676,7 @@ pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = PLASMA_AP;
         al.vel = 80;
         al.count = 100; // 30+70
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4; // laser + enemyweap
         al.type_ |= ATLASER;
         al.sflags2 |= ASF2_RELEXPLODE;
@@ -4708,6 +4709,7 @@ pub fn fire_beamball(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = 8;
         al.vel = 70;
         al.count = 100;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ |= ATLASER;
         al.sflags2 |= ASF2_RELEXPLODE;
@@ -4749,6 +4751,7 @@ fn fire_flat_beam(
         al.ap = ap;
         al.vel = speed;
         al.count = life;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ |= ATLASER;
         al.sflags2 |= ASF2_RELEXPLODE;
@@ -4866,6 +4869,7 @@ pub fn fire_hplasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = HPLASMA_AP;
         al.vel = 60;
         al.count = 50;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ |= ATLASER;
         al.sflags2 |= ASF2_RELEXPLODE;
@@ -5021,6 +5025,7 @@ pub fn fire_yhplasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = 8;
         al.vel = 100;
         al.count = 50;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ |= ATLASER;
         al.type_ &= !ATZREMOVE; // s_setnoremove_behind
