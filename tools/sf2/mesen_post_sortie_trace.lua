@@ -24,8 +24,8 @@ local lock_teleport_horizontal =
   os.getenv("SF2_ORACLE_LOCK_HORIZONTAL") == "1"
 local lock_teleport_vertical =
   os.getenv("SF2_ORACLE_LOCK_VERTICAL") == "1"
-local target_spider_parent =
-  os.getenv("SF2_ORACLE_TARGET_SPIDER_PARENT") == "1"
+local target_meteor_core_parent =
+  os.getenv("SF2_ORACLE_TARGET_METEOR_CORE_PARENT") == "1"
 local force_projectile_hit =
   os.getenv("SF2_ORACLE_FORCE_PROJECTILE_HIT") == "1"
 -- Oracle-only allocation probe for the surface target created by Queen
@@ -72,14 +72,14 @@ for _, offset in ipairs({
 end
 local force_target_collision =
   os.getenv("SF2_ORACLE_FORCE_TARGET_COLLISION") == "1"
-local force_wall_spider_trigger =
-  os.getenv("SF2_ORACLE_FORCE_WALL_SPIDER_TRIGGER") == "1"
+local force_meteor_core_trigger =
+  os.getenv("SF2_ORACLE_FORCE_METEOR_CORE_TRIGGER") == "1"
 -- ImportByteIndexed 0x2B reads the retail encounter latch at
 -- INDEXED_VARIABLE_TABLE + 0x2B. Keep the named oracle address global because
 -- this large script is at Lua's main-chunk local limit.
-WALL_SPIDER_TRIGGER_ADDRESS = 0xD787
-WALL_SPIDER_WAITING_PATH = 0x5F92
-WALL_SPIDER_RECHECK_PATH = 0x5F9A
+METEOR_CORE_TRIGGER_ADDRESS = 0xD787
+METEOR_CORE_WAITING_PATH = 0x5F92
+METEOR_CORE_RECHECK_PATH = 0x5F9A
 local trace_stage_writes =
   os.getenv("SF2_ORACLE_TRACE_STAGE_WRITES") == "1"
 trace_audio_programs =
@@ -145,7 +145,7 @@ local forced_target_collision_frame = nil
 local forced_target_initial_path = nil
 local forced_target_reaction_seen = false
 local forced_target_reaction_complete = false
-local forced_wall_spider_trigger_applied = false
+local forced_meteor_core_trigger_applied = false
 local forced_projectile_address = nil
 local forced_projectile_position = nil
 local observed_rival_health = {}
@@ -153,10 +153,10 @@ local observed_astropolis_spike_health = {}
 local observed_astropolis_cube_health = {}
 local observed_astropolis_mask_health = {}
 local observed_astropolis_final_core_health = {}
-local forced_spider_health = tonumber(os.getenv("SF2_ORACLE_SPIDER_HEALTH"))
-local forced_spider_health_applied = false
-local forced_spider_parent_health = tonumber(
-  os.getenv("SF2_ORACLE_SPIDER_PARENT_HEALTH"))
+local forced_meteor_core_health = tonumber(os.getenv("SF2_ORACLE_METEOR_CORE_HEALTH"))
+local forced_meteor_core_health_applied = false
+local forced_meteor_core_parent_health = tonumber(
+  os.getenv("SF2_ORACLE_METEOR_CORE_PARENT_HEALTH"))
 local forced_rival_health = tonumber(os.getenv("SF2_ORACLE_RIVAL_HEALTH"))
 local forced_mirage_health = tonumber(os.getenv("SF2_ORACLE_MIRAGE_HEALTH"))
 local forced_fighter_health = tonumber(os.getenv("SF2_ORACLE_FIGHTER_HEALTH"))
@@ -381,7 +381,7 @@ local lines = {}
 lines[#lines + 1] = string.format(
   "elapsed=%d event=oracle-config target_object=%s target_health=%s " ..
     "target_collision=%s projectile_hit=%s hostile_projectile_hit=%s " ..
-    "spider_health=%s spider_parent_health=%s spider_trigger=%s " ..
+    "meteor_core_health=%s meteor_core_parent_health=%s meteor_core_trigger=%s " ..
     "objective_remaining=%s base_destroyed_bits=%s " ..
     "base_handshake_bits=%s teleport=%s preserve_shields=%s",
   resume_elapsed,
@@ -390,9 +390,9 @@ lines[#lines + 1] = string.format(
   tostring(force_target_collision),
   tostring(force_projectile_hit),
   tostring(player_damage_oracle.force),
-  tostring(forced_spider_health),
-  tostring(forced_spider_parent_health),
-  tostring(force_wall_spider_trigger),
+  tostring(forced_meteor_core_health),
+  tostring(forced_meteor_core_parent_health),
+  tostring(force_meteor_core_trigger),
   tostring(forced_objective_remaining),
   tostring(forced_base_destroyed_bits),
   tostring(forced_base_handshake_bits),
@@ -442,8 +442,7 @@ local astropolis_transform_requested = false
 local astropolis_walker_mode = false
 local eladard_next_recovery_frame = -1
 local eladard_base_entered = false
-local eladard_spider_charge_armed = false
-local eladard_spider_encounter_seen = false
+local installation_core_encounter_seen = false
 
 local function work_byte(address)
   return emu.read(address, emu.memType.snesWorkRam, false)
@@ -456,11 +455,11 @@ end
 -- Deliberately global: avoid adding another main-chunk local to this large
 -- oracle. The active core must have left both instructions in its retail
 -- trigger loop before a forced hit is representative of combat.
-function wall_spider_core_accepts_damage(object, shape)
-  if not force_wall_spider_trigger or shape ~= 0xEB6C then return true end
+function meteor_core_accepts_damage(object, shape)
+  if not force_meteor_core_trigger or shape ~= 0xEB6C then return true end
   local path = work_word(object + 0x2B)
-  return path ~= WALL_SPIDER_WAITING_PATH
-    and path ~= WALL_SPIDER_RECHECK_PATH
+  return path ~= METEOR_CORE_WAITING_PATH
+    and path ~= METEOR_CORE_RECHECK_PATH
 end
 
 local function work_long(address)
@@ -1884,7 +1883,7 @@ local function provide_combat_autopilot()
     and (meteor_map == 0x45B9
       or meteor_map == 0x4512
       or meteor_map == 0x4893)
-  local meteor_wall_spider_room = meteor_interior
+  local meteor_core_room = meteor_interior
     and meteor_map == 0x4893
   local inside_planetary_base = eladard_base_entered
     or meteor_interior
@@ -1968,7 +1967,7 @@ local function provide_combat_autopilot()
       and not forced_target_reaction_complete
       and (not forced_target_collision_frame
         or frame - forced_target_collision_frame < 600)
-    local target_health_ready = wall_spider_core_accepts_damage(object, shape)
+    local target_health_ready = meteor_core_accepts_damage(object, shape)
       and (not force_target_collision
         or forced_target_health ~= 0
         or (forced_target_collision_frame
@@ -1984,40 +1983,40 @@ local function provide_combat_autopilot()
         forced_target_health % 256,
         emu.memType.snesWorkRam)
     end
-    if meteor_wall_spider_room and (shape == 0xEB50 or shape == 0xEB6C) then
-      eladard_spider_encounter_seen = true
+    if meteor_core_room and (shape == 0xEB50 or shape == 0xEB6C) then
+      installation_core_encounter_seen = true
     end
-    if meteor_wall_spider_room and shape == 0xEB50
-      and forced_spider_parent_health then
+    if meteor_core_room and shape == 0xEB50
+      and forced_meteor_core_parent_health then
       emu.write(
         object + 0x2D,
-        forced_spider_parent_health % 256,
+        forced_meteor_core_parent_health % 256,
         emu.memType.snesWorkRam)
     end
     if (work_byte(0x1BB5) == 3 and shape == 0xD27C)
-      or (meteor_wall_spider_room and shape == 0xEB6C) then
+      or (meteor_core_room and shape == 0xEB6C) then
       eladard_base_entered = true
       inside_planetary_base = true
     end
     local eladard_barrier = work_byte(0x1BB5) == 3 and shape == 0xD74C
-    local meteor_wall_spider = meteor_wall_spider_room
-      and ((target_spider_parent and shape == 0xEB50)
-        or (not target_spider_parent and shape == 0xEB6C))
-      and (target_spider_parent or work_byte(object + 0x2D) > 1)
-    if meteor_wall_spider and forced_spider_health
-      and not forced_spider_health_applied then
+    local meteor_core_target = meteor_core_room
+      and ((target_meteor_core_parent and shape == 0xEB50)
+        or (not target_meteor_core_parent and shape == 0xEB6C))
+      and (target_meteor_core_parent or work_byte(object + 0x2D) > 1)
+    if meteor_core_target and forced_meteor_core_health
+      and not forced_meteor_core_health_applied then
       -- Oracle-only state forcing used to observe the retail post-defeat path
       -- independently of the navigation controller.
       emu.write(
         object + 0x2D,
-        forced_spider_health % 256,
+        forced_meteor_core_health % 256,
         emu.memType.snesWorkRam)
-      forced_spider_health_applied = true
+      forced_meteor_core_health_applied = true
     end
     local eladard_room_defender = work_byte(0x1BB5) == 3
       and (shape == 0xEE0C or shape == 0xBECC)
     local planetary_base_defender = eladard_room_defender
-      or meteor_wall_spider
+      or meteor_core_target
     local meteor_surface_target = meteor_surface and shape == 0xEF5C
     local carrier_exterior_anchor = work_byte(0x1BB5) == 8
       and shape == 0xBC9C
@@ -2068,7 +2067,7 @@ local function provide_combat_autopilot()
         and (target == 0
           or target_shape ~= 0xD74C
           or signed_word(object + 12) < signed_word(target + 12))
-      local prefer_wall_spider = meteor_wall_spider
+      local prefer_meteor_core = meteor_core_target
         and target_shape ~= 0xEB6C
       local prefer_meteor_surface_target = meteor_surface_target
         and target_shape ~= 0xEF5C
@@ -2081,7 +2080,7 @@ local function provide_combat_autopilot()
       if prefer_explicit_target
         or (allow_ordinary_targets
           and (prefer_left_eladard_barrier
-            or prefer_wall_spider
+            or prefer_meteor_core
             or prefer_meteor_surface_target
             or prefer_astropolis_security_turret
             or prefer_astropolis_target_switch
@@ -2195,7 +2194,7 @@ local function provide_combat_autopilot()
   end
 
   if force_projectile_hit and forced_projectile_address
-    and wall_spider_core_accepts_damage(target, target_shape) then
+    and meteor_core_accepts_damage(target, target_shape) then
     local projectile_shape = work_word(forced_projectile_address + 4)
     if not is_player_projectile(
       forced_projectile_address,
@@ -2229,7 +2228,7 @@ local function provide_combat_autopilot()
   end
 
   if force_projectile_hit and not forced_projectile_hit_applied and target ~= 0
-    and wall_spider_core_accepts_damage(target, target_shape) then
+    and meteor_core_accepts_damage(target, target_shape) then
     local projectile = work_word(0x12A8)
     local projectile_seen = {}
     while projectile ~= 0 and not projectile_seen[projectile] do
@@ -2271,25 +2270,25 @@ local function provide_combat_autopilot()
     forced_target_collision_frame = frame
   end
 
-  if force_wall_spider_trigger and not forced_wall_spider_trigger_applied
+  if force_meteor_core_trigger and not forced_meteor_core_trigger_applied
     and target_shape == 0xEB6C then
     emu.write(
-      WALL_SPIDER_TRIGGER_ADDRESS,
+      METEOR_CORE_TRIGGER_ADDRESS,
       0xFF,
       emu.memType.snesWorkRam)
-    forced_wall_spider_trigger_applied = true
+    forced_meteor_core_trigger_applied = true
     lines[#lines + 1] = string.format(
-      "elapsed=%d event=forced-wall-spider-trigger target=%04X address=%04X",
+      "elapsed=%d event=forced-meteor-core-trigger target=%04X address=%04X",
       frame - armed_frame,
       target,
-      WALL_SPIDER_TRIGGER_ADDRESS)
+      METEOR_CORE_TRIGGER_ADDRESS)
   end
 
   -- Short pulses produce repeated direct shots instead of holding one charge
   -- forever.
   local fighting_rival = target_shape == 0xC348
   local fighting_mirage_dragon = target_shape == 0xE1B0
-  local fighting_wall_spider = target_shape == 0xEB6C or target_shape == 0xEB50
+  local fighting_meteor_core = target_shape == 0xEB6C or target_shape == 0xEB50
   local fighting_carrier_core = work_byte(0x1BB5) == 8
     and target_shape == 0xBECC
   local fighting_astropolis_core = work_byte(0x1BB5) == 11
@@ -2334,7 +2333,7 @@ local function provide_combat_autopilot()
       -- during the much longer rival pursuit.
       buttons.x = pulse(frame, 600, 0)
     end
-  elseif fighting_wall_spider then
+  elseif fighting_meteor_core then
     -- Fire continuously through the retail jump arc so at least one Walker
     -- laser is born at the elevated weak point's height.
     buttons = { b = pulse(frame, 12, 0) }
@@ -2391,7 +2390,7 @@ local function provide_combat_autopilot()
       local approach_distance_squared
       if fighting_carrier_core then
         approach_distance_squared = math.huge
-      elseif fighting_wall_spider then
+      elseif fighting_meteor_core then
         approach_distance_squared = 360000
       elseif activation_target then
         -- Walk fully onto the target platform. The retail target owns the
@@ -2428,7 +2427,7 @@ local function provide_combat_autopilot()
       elseif inside_planetary_base then
         buttons.a = pulse(frame, 120, 0)
         local jump_phase = frame % 120
-        local acceleration_end = fighting_wall_spider and 80 or 22
+        local acceleration_end = fighting_meteor_core and 80 or 22
         buttons.y = jump_phase >= 6 and jump_phase < acceleration_end
       elseif carrier_core_walker then
         -- The reactor weak points sit above the Walker's standing muzzle.
@@ -2588,7 +2587,7 @@ local function provide_combat_autopilot()
       input_label = "combat-autopilot-meteor-entrance"
     elseif inside_planetary_base then
       local route_direction = eladard_route_direction()
-      if eladard_spider_encounter_seen then
+      if installation_core_encounter_seen then
         local exit_delta_x = 6500 - player_x
         local exit_delta_z = 5120 - player_z
         local exit_yaw = math.floor(
@@ -2602,7 +2601,7 @@ local function provide_combat_autopilot()
         elseif exit_yaw_difference < -3 then
           buttons.r = true
         end
-        route_direction = "post-spider"
+        route_direction = "post-core"
       else
         buttons.up = true
       end
@@ -2610,9 +2609,9 @@ local function provide_combat_autopilot()
       buttons.a = pulse(frame, 120, 0)
       local jump_phase = frame % 120
       buttons.y = jump_phase >= 6 and jump_phase < 22
-      if not eladard_spider_encounter_seen and route_direction == "left" then
+      if not installation_core_encounter_seen and route_direction == "left" then
         buttons.l = true
-      elseif not eladard_spider_encounter_seen and route_direction == "right" then
+      elseif not installation_core_encounter_seen and route_direction == "right" then
         buttons.r = true
       end
       input_label = "combat-autopilot-base-" .. (route_direction or "forward")
@@ -2730,7 +2729,7 @@ end
 
 -- Deliberately global: keep the object-relative encounter byte stable across
 -- the retail parallel-state refresh which runs after the input callback.
-function keep_forced_wall_spider_trigger(_, value)
+function keep_forced_meteor_core_trigger(_, value)
   if forced_target_object
     and forced_target_object_shape == 0xEB6C
     and work_word(forced_target_object + 4) == forced_target_object_shape then
@@ -3677,12 +3676,12 @@ if meteor_switch_oracle.enabled then
     emu.cpuType.snes,
     emu.memType.snesWorkRam)
 end
-if force_wall_spider_trigger and forced_target_object then
+if force_meteor_core_trigger and forced_target_object then
   emu.addMemoryCallback(
-    keep_forced_wall_spider_trigger,
+    keep_forced_meteor_core_trigger,
     emu.callbackType.write,
-    WALL_SPIDER_TRIGGER_ADDRESS,
-    WALL_SPIDER_TRIGGER_ADDRESS,
+    METEOR_CORE_TRIGGER_ADDRESS,
+    METEOR_CORE_TRIGGER_ADDRESS,
     emu.cpuType.snes,
     emu.memType.snesWorkRam)
 end

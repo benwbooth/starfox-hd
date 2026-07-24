@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compact and verify retail Wall Spider activation and defeat evidence."""
+"""Compact and verify retail Meteor installation-core encounter evidence."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_OUTPUT = Path(__file__).with_name("fixtures") / "wall_spider.trace"
+DEFAULT_OUTPUT = Path(__file__).with_name("fixtures") / "meteor_installation_core.trace"
 MISSION_SELECTION = 4
 CAMPAIGN_WORLD = "meteor"
 ENCOUNTER_MAP = "05:4893"
@@ -114,7 +114,7 @@ def mission_samples(records: list[dict[str, str]]) -> list[dict[str, str]]:
         and "objectives" in record
     ]
     if not samples:
-        raise SystemExit("oracle trace has no Wall Spider mission samples")
+        raise SystemExit("oracle trace has no Meteor installation-core samples")
     return samples
 
 
@@ -141,7 +141,9 @@ def extract_activation(path: Path) -> tuple[str, int, int, int]:
     }:
         raise SystemExit("activation trace uses unexpected input")
     if any(occupied_world_count(sample) != 2 for sample in samples):
-        raise SystemExit("Wall Spider activation changes the occupied-world counter")
+        raise SystemExit(
+            "Meteor installation core activation changes the occupied-world counter"
+        )
 
     baseline = int(samples[0]["elapsed"])
     parent = object_by_shape(samples[0], PARENT_SHAPE)
@@ -155,7 +157,9 @@ def extract_activation(path: Path) -> tuple[str, int, int, int]:
         or int(core[15]) != MAXIMUM_DURABILITY
         or samples[0].get("coretrigger") != "0"
     ):
-        raise SystemExit("activation trace lacks the dormant retail Wall Spider state")
+        raise SystemExit(
+            "activation trace lacks the dormant retail Meteor installation core state"
+        )
 
     partial = next(
         (sample for sample in samples if sample.get("coretrigger") == "254"), None
@@ -174,12 +178,14 @@ def extract_activation(path: Path) -> tuple[str, int, int, int]:
         None,
     )
     if partial is None or armed is None or active is None:
-        raise SystemExit("activation trace never arms the retail Wall Spider core")
+        raise SystemExit(
+            "activation trace never arms the retail Meteor installation core"
+        )
     partial_frame = relative_frame(partial, baseline)
     armed_frame = relative_frame(armed, baseline)
     active_frame = relative_frame(active, baseline)
     if not 0 < partial_frame < armed_frame < active_frame:
-        raise SystemExit("Wall Spider activation edges are out of order")
+        raise SystemExit("Meteor installation core activation edges are out of order")
     return digest(path), partial_frame, armed_frame, active_frame
 
 
@@ -199,7 +205,9 @@ def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
         None,
     )
     if binding is None:
-        raise SystemExit("attack trace is not bound to the original Wall Spider core")
+        raise SystemExit(
+            "attack trace is not bound to the original Meteor installation core"
+        )
 
     clamped = next(
         (
@@ -286,14 +294,18 @@ def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
         None,
     )
     if defeated is None or parent_final is None:
-        raise SystemExit("attack trace lacks the retail Wall Spider aftermath")
+        raise SystemExit(
+            "attack trace lacks the retail Meteor installation core aftermath"
+        )
 
     projectile_frame = relative_frame(projectile, baseline)
     damage_frame = relative_frame(damaged, baseline)
     decrement_frame = int(decrement_elapsed.pop()) - baseline
     parent_final_frame = relative_frame(parent_final, baseline)
     if not 0 < projectile_frame < damage_frame < decrement_frame < parent_final_frame:
-        raise SystemExit("Wall Spider attack and aftermath edges are out of order")
+        raise SystemExit(
+            "Meteor installation core attack and aftermath edges are out of order"
+        )
     return (
         digest(path),
         projectile_frame,
@@ -340,7 +352,9 @@ def extract_transformation(path: Path) -> tuple[str, int, int, int, int]:
     second_frame = relative_frame(second_intermediate, baseline)
     flight_frame = relative_frame(flight, baseline)
     if not 0 < input_frame < first_frame < second_frame < flight_frame:
-        raise SystemExit("Wall Spider post-fight transformation is out of order")
+        raise SystemExit(
+            "Meteor installation core post-fight transformation is out of order"
+        )
     return digest(path), input_frame, first_frame, second_frame, flight_frame
 
 
@@ -369,7 +383,7 @@ def extract(activation: Path, attack: Path, transformation: Path) -> Evidence:
 def render(evidence: Evidence) -> str:
     return "\n".join(
         [
-            "# Compact Mesen oracle evidence for the retail Wall Spider encounter.",
+            "# Compact Mesen oracle evidence for the retail Meteor installation core encounter.",
             f"# Natural activation SHA-256: {evidence.activation_sha256}",
             f"# Exact-core attack SHA-256: {evidence.attack_sha256}",
             f"# Post-fight transformation SHA-256: {evidence.transformation_sha256}",
@@ -429,7 +443,9 @@ def validate_compact(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
     if len(lines) != 7:
-        raise SystemExit("Wall Spider fixture has an unexpected record count")
+        raise SystemExit(
+            "Meteor installation core fixture has an unexpected record count"
+        )
     encounter, scope, activation, attack, campaign, aftermath, transformation = [
         fields(line) for line in lines
     ]
@@ -441,12 +457,12 @@ def validate_compact(path: Path) -> None:
         "core_shape": CORE_SHAPE,
         "core_maximum_durability": str(MAXIMUM_DURABILITY),
     }:
-        raise SystemExit("Wall Spider encounter fixture is inconsistent")
+        raise SystemExit("Meteor installation core encounter fixture is inconsistent")
     if scope != {
         "retail_route_certified": "false",
         "setup_acceleration": "base_flags_controller_durability_and_teleports",
     }:
-        raise SystemExit("Wall Spider route-scope fixture is inconsistent")
+        raise SystemExit("Meteor installation core route-scope fixture is inconsistent")
     if activation != {
         "input": "right_then_forward",
         "trigger_partial_retail_frame": "167",
@@ -455,7 +471,7 @@ def validate_compact(path: Path) -> None:
         "waiting_path": WAITING_PATH,
         "active_path": ACTIVE_PATH,
     }:
-        raise SystemExit("Wall Spider activation fixture is inconsistent")
+        raise SystemExit("Meteor installation core activation fixture is inconsistent")
     if attack != {
         "target_object": CORE_OBJECT,
         "oracle_acceleration": "health_clamp_and_projectile_reposition",
@@ -465,13 +481,15 @@ def validate_compact(path: Path) -> None:
         "damaged_durability": str(DAMAGED_DURABILITY),
         "damaged_path": DAMAGED_PATH,
     }:
-        raise SystemExit("Wall Spider attack fixture is inconsistent")
+        raise SystemExit("Meteor installation core attack fixture is inconsistent")
     if campaign != {
         "occupied_world_mirrors_before": "2",
         "occupied_world_mirrors_after": "1",
         "decrement_retail_frame": "116",
     }:
-        raise SystemExit("Wall Spider occupied-world fixture is inconsistent")
+        raise SystemExit(
+            "Meteor installation core occupied-world fixture is inconsistent"
+        )
     if aftermath != {
         "core_path": DEFEATED_PATH,
         "core_durability": str(DAMAGED_DURABILITY),
@@ -480,7 +498,7 @@ def validate_compact(path: Path) -> None:
         "parent_final_path": PARENT_FINAL_PATH,
         "parent_final_retail_frame": "131",
     }:
-        raise SystemExit("Wall Spider aftermath fixture is inconsistent")
+        raise SystemExit("Meteor installation core aftermath fixture is inconsistent")
     if transformation != {
         "input": "select",
         "walker_shape": WALKER_SHAPE,
@@ -492,14 +510,18 @@ def validate_compact(path: Path) -> None:
         "flight_shape": FLIGHT_SHAPE,
         "flight_retail_frame": "71",
     }:
-        raise SystemExit("Wall Spider transformation fixture is inconsistent")
+        raise SystemExit(
+            "Meteor installation core transformation fixture is inconsistent"
+        )
     hashes = [line.rsplit(" ", 1)[-1] for line in content.splitlines()[1:4]]
     if any(
         len(value) != 64
         or any(character not in "0123456789abcdef" for character in value)
         for value in hashes
     ):
-        raise SystemExit("Wall Spider fixture has an invalid source digest")
+        raise SystemExit(
+            "Meteor installation core fixture has an invalid source digest"
+        )
 
 
 def main() -> None:
@@ -535,7 +557,7 @@ def main() -> None:
         validate_compact(args.output)
         action = "verified"
     print(
-        f"{action} {args.output}: retail Wall Spider activation, defeat, and transformation"
+        f"{action} {args.output}: retail Meteor installation core activation, defeat, and transformation"
     )
 
 

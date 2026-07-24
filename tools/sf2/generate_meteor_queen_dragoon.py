@@ -59,6 +59,19 @@ def fields(line: str) -> dict[str, str]:
     }
 
 
+def normalize_oracle_config(config: dict[str, str]) -> dict[str, str]:
+    """Accept old raw traces without preserving their invented actor label."""
+    normalized = dict(config)
+    for current, legacy in (
+        ("meteor_core_health", "spider_health"),
+        ("meteor_core_parent_health", "spider_parent_health"),
+        ("meteor_core_trigger", "spider_trigger"),
+    ):
+        if current not in normalized and legacy in normalized:
+            normalized[current] = normalized[legacy]
+    return normalized
+
+
 def objects(value: str) -> list[list[str]]:
     records = []
     for record in value.removeprefix("[").removesuffix("]").split(";"):
@@ -147,15 +160,17 @@ def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int
         (record for record in records if record.get("event") == "oracle-config"),
         None,
     )
+    if config is not None:
+        config = normalize_oracle_config(config)
     expected_config = {
         "target_object": "0537",
         "target_health": "nil",
         "target_collision": "false",
         "projectile_hit": "false",
         "hostile_projectile_hit": "false",
-        "spider_health": "nil",
-        "spider_parent_health": "nil",
-        "spider_trigger": "false",
+        "meteor_core_health": "nil",
+        "meteor_core_parent_health": "nil",
+        "meteor_core_trigger": "false",
         "objective_remaining": "nil",
         "base_destroyed_bits": "nil",
         "base_handshake_bits": "nil",
@@ -314,15 +329,17 @@ def extract_natural_return(natural_return_trace: Path) -> tuple[int, int]:
         (record for record in records if record.get("event") == "oracle-config"),
         None,
     )
+    if config is not None:
+        config = normalize_oracle_config(config)
     expected_config = {
         "target_object": "none",
         "target_health": "nil",
         "target_collision": "false",
         "projectile_hit": "false",
         "hostile_projectile_hit": "false",
-        "spider_health": "nil",
-        "spider_parent_health": "nil",
-        "spider_trigger": "false",
+        "meteor_core_health": "nil",
+        "meteor_core_parent_health": "nil",
+        "meteor_core_trigger": "false",
         "objective_remaining": "nil",
         "base_destroyed_bits": "nil",
         "base_handshake_bits": "nil",
