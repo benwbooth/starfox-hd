@@ -26,17 +26,18 @@ use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
     ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
-    EladardGeneratorStatus, EladardMissionState, EladardPhase, EndingPhase, EndingState,
-    FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-    GameOverState, GameState, IntroPhase, MapPoint, MissionMessage, MissionMessageIrisFrame,
-    MissionMessagePhase, MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor,
-    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
-    PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
-    StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
-    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus,
-    TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
-    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
+    EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom, EladardMissionState,
+    EladardPhase, EladardSwitchStatus, EndingPhase, EndingState, FlightControlStyle, GameMode,
+    GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase,
+    MapPoint, MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionPhase,
+    MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
+    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
+    PlayerCraftTransformationDirection, PlayerDamageState, ResultsChoice, ResultsPhase,
+    ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor, StrategicMapActorKind,
+    StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage,
+    StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
+    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
+    WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -585,7 +586,12 @@ const ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES: u16 = 612;
 const ELADARD_MAP_RETURN_RETAIL_FRAMES: u16 = 2;
 const ELADARD_BASE_ENTRANCE_Z: i16 = 2_365;
 const ELADARD_BASE_ENTRANCE_HALF_WIDTH: i16 = 400;
-const ELADARD_GENERATOR_ROOM_ENTRANCE_Z: i16 = 2_075;
+const ELADARD_ACCESS_DOOR_OPENING_RETAIL_FRAMES: u16 = 120;
+const ELADARD_GENERATOR_DOOR_OPENING_RETAIL_FRAMES: u16 = 172;
+const ELADARD_ACCESS_DOOR_EXIT_MINIMUM_Z: i16 = 2_055;
+const ELADARD_ACCESS_DOOR_EXIT_HALF_WIDTH: i16 = 600;
+const ELADARD_GENERATOR_DOOR_APPROACH_HALF_EXTENT: i16 = 600;
+const ELADARD_GENERATOR_DOOR_EXIT_HALF_EXTENT: i16 = 200;
 const ELADARD_SURFACE_START_POSITION: Vector3 = Vector3 {
     x: 0,
     y: -180,
@@ -596,18 +602,40 @@ const ELADARD_INTERIOR_START_POSITION: Vector3 = Vector3 {
     y: -120,
     z: 43,
 };
-const ELADARD_GENERATOR_ROOM_PLAYER_POSITION: Vector3 = Vector3 {
-    x: 4_116,
-    y: -41,
-    z: 4_790,
+const ELADARD_ACCESS_SWITCH_POSITION: Vector3 = Vector3 {
+    x: 1_024,
+    y: -64,
+    z: 1_024,
 };
-const ELADARD_GENERATOR_ROOM_ENTRY_YAW: Angle = Angle::from_units(205);
+const ELADARD_ACCESS_DOOR_POSITION: Vector3 = Vector3 {
+    x: 1_536,
+    y: 0,
+    z: 2_188,
+};
+const ELADARD_GENERATOR_DOOR_POSITION: Vector3 = Vector3 {
+    x: 3_212,
+    y: 0,
+    z: 4_608,
+};
+#[cfg(test)]
+const ELADARD_GENERATOR_DOOR_RETAIL_APPROACH_POSITION: Vector3 = Vector3 {
+    x: 3_064,
+    y: -33,
+    z: 5_119,
+};
+#[cfg(test)]
+const ELADARD_GENERATOR_DOOR_RETAIL_CROSSING_POSITION: Vector3 = Vector3 {
+    x: 3_092,
+    y: -36,
+    z: 4_629,
+};
 const ELADARD_GENERATOR_POSITION: Vector3 = Vector3 {
     x: 5_120,
     y: 0,
     z: 5_120,
 };
 const ELADARD_GENERATOR_CORE_HEIGHT: i16 = -152;
+const ELADARD_INTERIOR_STATIC_OBJECT_COUNT: usize = 21;
 const ELADARD_SURFACE_BARRIER_SCENE: [(Vector3, Angle); ELADARD_SURFACE_BARRIER_COUNT] = [
     (
         Vector3 {
@@ -624,6 +652,200 @@ const ELADARD_SURFACE_BARRIER_SCENE: [(Vector3, Angle); ELADARD_SURFACE_BARRIER_
             z: 2_500,
         },
         Angle::from_units(192),
+    ),
+];
+const ELADARD_INTERIOR_STATIC_SCENE: [
+    (ShapeId, Vector3, Angle);
+    ELADARD_INTERIOR_STATIC_OBJECT_COUNT
+] = [
+    (
+        ShapeId::ELADARD_ACCESS_REAR_STRUCTURE,
+        Vector3 {
+            x: 1_024,
+            y: 0,
+            z: -512,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::ELADARD_ACCESS_WEST_WALL,
+        Vector3 {
+            x: -512,
+            y: 0,
+            z: 768,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::ELADARD_ACCESS_EAST_WALL,
+        Vector3 {
+            x: 2_560,
+            y: 0,
+            z: 1_280,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::ELADARD_ACCESS_REAR_CORNER,
+        Vector3 {
+            x: -512,
+            y: 0,
+            z: -512,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::ELADARD_ACCESS_REAR_CORNER,
+        Vector3 {
+            x: 2_560,
+            y: 0,
+            z: -512,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_CORNER_WALL,
+        Vector3 {
+            x: -512,
+            y: 0,
+            z: 2_560,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_WALL_PANEL,
+        Vector3 {
+            x: 2_560,
+            y: 0,
+            z: 2_560,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::ELADARD_ACCESS_CENTER_STRUCTURE,
+        Vector3 {
+            x: 1_024,
+            y: 0,
+            z: 1_024,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::ELADARD_TRANSIT_GATEHOUSE,
+        Vector3 {
+            x: 3_584,
+            y: 0,
+            z: 4_608,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::ELADARD_TRANSIT_CONNECTOR,
+        Vector3 {
+            x: 1_536,
+            y: 0,
+            z: 2_932,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::ELADARD_TRANSIT_GATEHOUSE,
+        Vector3 {
+            x: 1_536,
+            y: 0,
+            z: 2_560,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::ELADARD_TRANSIT_LONG_WALL,
+        Vector3 {
+            x: 512,
+            y: 0,
+            z: 3_584,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::ELADARD_TRANSIT_LONG_WALL,
+        Vector3 {
+            x: 2_560,
+            y: 0,
+            z: 5_632,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_CORNER_WALL,
+        Vector3 {
+            x: 3_584,
+            y: 0,
+            z: 2_560,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_CORNER_WALL,
+        Vector3 {
+            x: 512,
+            y: 0,
+            z: 5_632,
+        },
+        Angle::HALF_TURN,
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_WALL_PANEL,
+        Vector3 {
+            x: 512,
+            y: 0,
+            z: 2_560,
+        },
+        Angle::from_units(192),
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_WALL_PANEL,
+        Vector3 {
+            x: 3_584,
+            y: 0,
+            z: 5_632,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::ELADARD_TRANSIT_CEILING,
+        Vector3 {
+            x: 2_048,
+            y: 512,
+            z: 4_096,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::ELADARD_TRANSIT_TOWER,
+        Vector3 {
+            x: 3_072,
+            y: 0,
+            z: 3_072,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_WALL_PANEL,
+        Vector3 {
+            x: 3_072,
+            y: 0,
+            z: 2_560,
+        },
+        Angle::ZERO,
+    ),
+    (
+        ShapeId::ELADARD_INTERIOR_WALL_PANEL,
+        Vector3 {
+            x: 3_584,
+            y: 0,
+            z: 3_072,
+        },
+        Angle::ZERO,
     ),
 ];
 const TITANIA_FIRST_SWITCH_INDEX: usize = 0;
@@ -4622,6 +4844,10 @@ pub struct Game {
     mirage_dragon_body: [Option<ObjectId>; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
     mirage_dragon_tail: Option<ObjectId>,
     eladard_surface_barriers: [Option<ObjectId>; ELADARD_SURFACE_BARRIER_COUNT],
+    eladard_interior_scenery: [Option<ObjectId>; ELADARD_INTERIOR_STATIC_OBJECT_COUNT],
+    eladard_access_switch: Option<ObjectId>,
+    eladard_access_door: Option<ObjectId>,
+    eladard_generator_door: Option<ObjectId>,
     eladard_generator_frame: Option<ObjectId>,
     eladard_generator_core: Option<ObjectId>,
     titania_surface_switches: [Option<ObjectId>; TITANIA_SURFACE_SWITCH_COUNT],
@@ -4668,6 +4894,10 @@ impl Game {
             mirage_dragon_body: [None; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
             mirage_dragon_tail: None,
             eladard_surface_barriers: [None; ELADARD_SURFACE_BARRIER_COUNT],
+            eladard_interior_scenery: [None; ELADARD_INTERIOR_STATIC_OBJECT_COUNT],
+            eladard_access_switch: None,
+            eladard_access_door: None,
+            eladard_generator_door: None,
             eladard_generator_frame: None,
             eladard_generator_core: None,
             titania_surface_switches: [None; TITANIA_SURFACE_SWITCH_COUNT],
@@ -5825,6 +6055,10 @@ impl Game {
             surface_barriers: [EladardBarrierStatus::Active {
                 durability: ELADARD_SURFACE_BARRIER_DURABILITY,
             }; ELADARD_SURFACE_BARRIER_COUNT],
+            interior_room: EladardInteriorRoom::Unreached,
+            access_switch: EladardSwitchStatus::Unreached,
+            access_door: EladardDoorStatus::Unreached,
+            generator_door: EladardDoorStatus::Unreached,
             generator: EladardGeneratorStatus::Unreached,
         };
         self.state.mission.objects_destroyed = 0;
@@ -7052,12 +7286,11 @@ impl Game {
                     self.enter_eladard_phase(EladardPhase::BaseEntrance, retail_frame);
                 }
                 EladardPhase::BaseEntrance if self.eladard_player_can_enter_base() => {
-                    self.enter_eladard_interior();
+                    self.enter_eladard_interior()?;
                     self.enter_eladard_phase(EladardPhase::InteriorPassage, retail_frame);
                 }
-                EladardPhase::InteriorPassage if self.eladard_player_reached_generator_room() => {
-                    self.enter_eladard_generator_room()?;
-                    self.enter_eladard_phase(EladardPhase::GeneratorRoom, retail_frame);
+                EladardPhase::InteriorPassage => {
+                    self.update_eladard_interior(retail_frame)?;
                 }
                 EladardPhase::GeneratorRoom
                     if self.state.mission.eladard.generator
@@ -7080,7 +7313,6 @@ impl Game {
                 }
                 EladardPhase::SurfaceBarriers
                 | EladardPhase::BaseEntrance
-                | EladardPhase::InteriorPassage
                 | EladardPhase::GeneratorRoom
                 | EladardPhase::BaseDestruction
                 | EladardPhase::ReturnFlight => {}
@@ -7178,16 +7410,25 @@ impl Game {
             && position.z >= ELADARD_BASE_ENTRANCE_Z
     }
 
-    fn eladard_player_reached_generator_room(&self) -> bool {
-        self.eladard_player_position()
-            .is_some_and(|position| position.z >= ELADARD_GENERATOR_ROOM_ENTRANCE_Z)
-    }
-
     fn clear_eladard_scene(&mut self) {
         for barrier in &mut self.eladard_surface_barriers {
             if let Some(id) = barrier.take() {
                 self.state.objects.remove(id);
             }
+        }
+        for scenery in &mut self.eladard_interior_scenery {
+            if let Some(scenery) = scenery.take() {
+                self.state.objects.remove(scenery);
+            }
+        }
+        if let Some(access_switch) = self.eladard_access_switch.take() {
+            self.state.objects.remove(access_switch);
+        }
+        if let Some(access_door) = self.eladard_access_door.take() {
+            self.state.objects.remove(access_door);
+        }
+        if let Some(generator_door) = self.eladard_generator_door.take() {
+            self.state.objects.remove(generator_door);
         }
         if let Some(core) = self.eladard_generator_core.take() {
             self.state.objects.remove(core);
@@ -7220,7 +7461,7 @@ impl Game {
         Ok(())
     }
 
-    fn enter_eladard_interior(&mut self) {
+    fn enter_eladard_interior(&mut self) -> Result<(), Error> {
         self.clear_eladard_scene();
         self.state.mission.player_walker = Default::default();
         for craft in [
@@ -7238,26 +7479,225 @@ impl Game {
                 object.base.roll = Angle::ZERO;
             }
         }
+        self.spawn_eladard_interior_scene()?;
+        self.state.mission.eladard.interior_room = EladardInteriorRoom::AccessChamber;
+        self.state.mission.eladard.access_switch = EladardSwitchStatus::Active;
+        self.state.mission.eladard.access_door = EladardDoorStatus::Closed;
+        self.state.mission.eladard.generator_door = EladardDoorStatus::Closed;
+        Ok(())
+    }
+
+    fn spawn_eladard_interior_scene(&mut self) -> Result<(), Error> {
+        for (index, (shape, position, yaw)) in
+            ELADARD_INTERIOR_STATIC_SCENE.into_iter().enumerate()
+        {
+            let mut scenery = Object::new(ObjectKind::Scenery, shape, Behavior::Effect);
+            scenery.base.position = position;
+            scenery.base.yaw = yaw;
+            scenery.base.flags.collision_disabled = true;
+            scenery.base.flags.casts_shadow = false;
+            let id = self
+                .state
+                .objects
+                .allocate(scenery)
+                .ok_or(Error::ObjectCapacityReached)?;
+            self.eladard_interior_scenery[index] = Some(id);
+        }
+
+        let mut access_switch = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::ELADARD_ACCESS_SWITCH_ACTIVE,
+            Behavior::Effect,
+        );
+        access_switch.base.position = ELADARD_ACCESS_SWITCH_POSITION;
+        access_switch.base.collision_class = CollisionClass::Scenery;
+        access_switch.base.flags.casts_shadow = false;
+        self.eladard_access_switch = Some(
+            self.state
+                .objects
+                .allocate(access_switch)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        self.eladard_access_door = Some(self.spawn_eladard_door(
+            ELADARD_ACCESS_DOOR_POSITION,
+            Angle::ZERO,
+        )?);
+        self.eladard_generator_door = Some(self.spawn_eladard_door(
+            ELADARD_GENERATOR_DOOR_POSITION,
+            Angle::from_units(192),
+        )?);
+        Ok(())
+    }
+
+    fn spawn_eladard_door(&mut self, position: Vector3, yaw: Angle) -> Result<ObjectId, Error> {
+        let mut door = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::ELADARD_INTERIOR_DOOR_CLOSED,
+            Behavior::Effect,
+        );
+        door.base.position = position;
+        door.base.yaw = yaw;
+        door.base.collision_class = CollisionClass::Scenery;
+        door.base.flags.casts_shadow = false;
+        self.state
+            .objects
+            .allocate(door)
+            .ok_or(Error::ObjectCapacityReached)
+    }
+
+    fn update_eladard_interior(&mut self, retail_frame: u16) -> Result<(), Error> {
+        self.advance_eladard_access_door();
+        self.advance_eladard_generator_door();
+
+        match self.state.mission.eladard.interior_room {
+            EladardInteriorRoom::AccessChamber => {
+                self.activate_eladard_access_switch();
+                if self.state.mission.eladard.access_door == EladardDoorStatus::Open
+                    && self.eladard_player_crossed_access_door()
+                {
+                    self.state.mission.eladard.interior_room = EladardInteriorRoom::TransitChamber;
+                }
+            }
+            EladardInteriorRoom::TransitChamber => {
+                if self.state.mission.eladard.generator_door == EladardDoorStatus::Closed
+                    && self.eladard_player_approached_generator_door()
+                {
+                    self.state.mission.eladard.generator_door = EladardDoorStatus::Opening {
+                        retail_frames_remaining: ELADARD_GENERATOR_DOOR_OPENING_RETAIL_FRAMES,
+                    };
+                }
+                if self.state.mission.eladard.generator_door == EladardDoorStatus::Open
+                    && self.eladard_player_crossed_generator_door()
+                {
+                    self.enter_eladard_generator_room()?;
+                    self.enter_eladard_phase(EladardPhase::GeneratorRoom, retail_frame);
+                }
+            }
+            EladardInteriorRoom::Unreached | EladardInteriorRoom::GeneratorChamber => {}
+        }
+        Ok(())
+    }
+
+    fn activate_eladard_access_switch(&mut self) -> bool {
+        if self.state.mission.eladard.access_switch != EladardSwitchStatus::Active {
+            return false;
+        }
+        let Some(access_switch) = self.eladard_access_switch else {
+            return false;
+        };
+        if !self.eladard_player_touches(access_switch) {
+            return false;
+        }
+        self.state.mission.eladard.access_switch = EladardSwitchStatus::Pressed;
+        self.state.mission.eladard.access_door = EladardDoorStatus::Opening {
+            retail_frames_remaining: ELADARD_ACCESS_DOOR_OPENING_RETAIL_FRAMES,
+        };
+        if let Some(object) = self.state.objects.get_mut(access_switch) {
+            object.base.shape = ShapeId::ELADARD_ACCESS_SWITCH_PRESSED;
+            object.base.flags.collision_disabled = true;
+        }
+        true
+    }
+
+    fn eladard_player_touches(&self, target: ObjectId) -> bool {
+        if self.state.mission.player_craft_form != PlayerCraftForm::Walker {
+            return false;
+        }
+        let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+        else {
+            return false;
+        };
+        let Some(target) = self.state.objects.get(target) else {
+            return false;
+        };
+        !player.base.flags.collision_disabled
+            && !target.base.flags.collision_disabled
+            && objects_overlap(player, target)
+    }
+
+    fn advance_eladard_access_door(&mut self) {
+        let EladardDoorStatus::Opening {
+            retail_frames_remaining,
+        } = self.state.mission.eladard.access_door
+        else {
+            return;
+        };
+        let remaining = retail_frames_remaining
+            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        self.state.mission.eladard.access_door = if remaining == 0 {
+            if let Some(door) = self
+                .eladard_access_door
+                .and_then(|id| self.state.objects.get_mut(id))
+            {
+                door.base.shape = ShapeId::ELADARD_INTERIOR_DOOR_OPEN;
+                door.base.flags.collision_disabled = true;
+            }
+            EladardDoorStatus::Open
+        } else {
+            EladardDoorStatus::Opening {
+                retail_frames_remaining: remaining,
+            }
+        };
+    }
+
+    fn advance_eladard_generator_door(&mut self) {
+        let EladardDoorStatus::Opening {
+            retail_frames_remaining,
+        } = self.state.mission.eladard.generator_door
+        else {
+            return;
+        };
+        let remaining = retail_frames_remaining
+            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        self.state.mission.eladard.generator_door = if remaining == 0 {
+            if let Some(door) = self
+                .eladard_generator_door
+                .and_then(|id| self.state.objects.get_mut(id))
+            {
+                door.base.shape = ShapeId::ELADARD_INTERIOR_DOOR_OPEN;
+                door.base.flags.collision_disabled = true;
+            }
+            EladardDoorStatus::Open
+        } else {
+            EladardDoorStatus::Opening {
+                retail_frames_remaining: remaining,
+            }
+        };
+    }
+
+    fn eladard_player_crossed_access_door(&self) -> bool {
+        self.eladard_player_position().is_some_and(|position| {
+            position.x.abs_diff(ELADARD_ACCESS_DOOR_POSITION.x)
+                <= ELADARD_ACCESS_DOOR_EXIT_HALF_WIDTH as u16
+                && position.z >= ELADARD_ACCESS_DOOR_EXIT_MINIMUM_Z
+        })
+    }
+
+    fn eladard_player_approached_generator_door(&self) -> bool {
+        self.eladard_player_position().is_some_and(|position| {
+            position.x.abs_diff(ELADARD_GENERATOR_DOOR_POSITION.x)
+                <= ELADARD_GENERATOR_DOOR_APPROACH_HALF_EXTENT as u16
+                && position.z.abs_diff(ELADARD_GENERATOR_DOOR_POSITION.z)
+                    <= ELADARD_GENERATOR_DOOR_APPROACH_HALF_EXTENT as u16
+        })
+    }
+
+    fn eladard_player_crossed_generator_door(&self) -> bool {
+        self.eladard_player_position().is_some_and(|position| {
+            position.x.abs_diff(ELADARD_GENERATOR_DOOR_POSITION.x)
+                <= ELADARD_GENERATOR_DOOR_EXIT_HALF_EXTENT as u16
+                && position.z.abs_diff(ELADARD_GENERATOR_DOOR_POSITION.z)
+                    <= ELADARD_GENERATOR_DOOR_EXIT_HALF_EXTENT as u16
+        })
     }
 
     fn enter_eladard_generator_room(&mut self) -> Result<(), Error> {
-        self.clear_eladard_scene();
-        self.state.mission.player_walker = Default::default();
-        for craft in [
-            self.state.mission.primary_player,
-            self.state.mission.wingmate,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if let Some(object) = self.state.objects.get_mut(craft) {
-                object.base.position = ELADARD_GENERATOR_ROOM_PLAYER_POSITION;
-                object.base.velocity = Vector3::default();
-                object.base.pitch = Angle::ZERO;
-                object.base.yaw = ELADARD_GENERATOR_ROOM_ENTRY_YAW;
-                object.base.roll = Angle::ZERO;
-            }
-        }
+        self.state.mission.eladard.interior_room = EladardInteriorRoom::GeneratorChamber;
 
         let mut frame = Object::new(
             ObjectKind::Scenery,
@@ -21055,6 +21495,10 @@ mod tests {
                 surface_barriers: [EladardBarrierStatus::Active {
                     durability: ELADARD_SURFACE_BARRIER_DURABILITY,
                 }; ELADARD_SURFACE_BARRIER_COUNT],
+                interior_room: EladardInteriorRoom::Unreached,
+                access_switch: EladardSwitchStatus::Unreached,
+                access_door: EladardDoorStatus::Unreached,
+                generator_door: EladardDoorStatus::Unreached,
                 generator: EladardGeneratorStatus::Unreached,
             }
         );
@@ -21177,20 +21621,122 @@ mod tests {
             game.state().objects.get(player).unwrap().base.position,
             ELADARD_INTERIOR_START_POSITION
         );
-        while game.state().mission.eladard.phase == EladardPhase::InteriorPassage {
-            game.tick(Button::Up as u16).unwrap();
+        assert_eq!(
+            game.state().mission.eladard.interior_room,
+            EladardInteriorRoom::AccessChamber
+        );
+        assert_eq!(
+            game.state().mission.eladard.access_switch,
+            EladardSwitchStatus::Active
+        );
+        assert_eq!(
+            game.state().mission.eladard.access_door,
+            EladardDoorStatus::Closed
+        );
+        assert_eq!(
+            game.state().mission.eladard.generator_door,
+            EladardDoorStatus::Closed
+        );
+        assert!(game.eladard_interior_scenery.iter().all(Option::is_some));
+        for (object_id, (shape, position, yaw)) in game
+            .eladard_interior_scenery
+            .into_iter()
+            .zip(ELADARD_INTERIOR_STATIC_SCENE)
+        {
+            let object = game
+                .state()
+                .objects
+                .get(object_id.expect("Eladard static scene object was allocated"))
+                .unwrap();
+            assert_eq!(object.base.shape, shape);
+            assert_eq!(object.base.position, position);
+            assert_eq!(object.base.yaw, yaw);
         }
+
+        let access_switch = game.eladard_access_switch.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position =
+            ELADARD_ACCESS_SWITCH_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.eladard.access_switch,
+            EladardSwitchStatus::Pressed
+        );
+        assert_eq!(
+            game.state().objects.get(access_switch).unwrap().base.shape,
+            ShapeId::ELADARD_ACCESS_SWITCH_PRESSED
+        );
+        assert!(matches!(
+            game.state().mission.eladard.access_door,
+            EladardDoorStatus::Opening { .. }
+        ));
+        while game.state().mission.eladard.access_door != EladardDoorStatus::Open {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state()
+                .objects
+                .get(game.eladard_access_door.unwrap())
+                .unwrap()
+                .base
+                .shape,
+            ShapeId::ELADARD_INTERIOR_DOOR_OPEN
+        );
+
+        {
+            let player = game.state.objects.get_mut(player).unwrap();
+            player.base.position = Vector3 {
+                x: ELADARD_ACCESS_DOOR_POSITION.x,
+                y: ELADARD_INTERIOR_START_POSITION.y,
+                z: ELADARD_ACCESS_DOOR_EXIT_MINIMUM_Z,
+            };
+            player.base.velocity = Vector3::default();
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.eladard.interior_room,
+            EladardInteriorRoom::TransitChamber
+        );
+
+        {
+            let player = game.state.objects.get_mut(player).unwrap();
+            player.base.position = ELADARD_GENERATOR_DOOR_RETAIL_APPROACH_POSITION;
+            player.base.velocity = Vector3::default();
+        }
+        game.tick(0).unwrap();
+        assert!(matches!(
+            game.state().mission.eladard.generator_door,
+            EladardDoorStatus::Opening { .. }
+        ));
+        while game.state().mission.eladard.generator_door != EladardDoorStatus::Open {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state()
+                .objects
+                .get(game.eladard_generator_door.unwrap())
+                .unwrap()
+                .base
+                .shape,
+            ShapeId::ELADARD_INTERIOR_DOOR_OPEN
+        );
+
+        {
+            let player = game.state.objects.get_mut(player).unwrap();
+            player.base.position = ELADARD_GENERATOR_DOOR_RETAIL_CROSSING_POSITION;
+            player.base.velocity = Vector3::default();
+        }
+        game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.eladard.phase,
             EladardPhase::GeneratorRoom
         );
-        let player_object = game.state().objects.get(player).unwrap();
         assert_eq!(
-            player_object.base.position,
-            add_vectors(
-                ELADARD_GENERATOR_ROOM_PLAYER_POSITION,
-                player_object.base.velocity,
-            )
+            game.state().mission.eladard.interior_room,
+            EladardInteriorRoom::GeneratorChamber
+        );
+        assert_eq!(
+            game.state().objects.get(player).unwrap().base.position,
+            ELADARD_GENERATOR_DOOR_RETAIL_CROSSING_POSITION
         );
         let frame = game.eladard_generator_frame.unwrap();
         let core = game.eladard_generator_core.unwrap();
@@ -22163,7 +22709,49 @@ mod tests {
                     PlayerCraftForm::Walker => Button::Up as u16,
                     PlayerCraftForm::Transforming(_) => 0,
                 },
-                EladardPhase::InteriorPassage => Button::Up as u16,
+                EladardPhase::InteriorPassage => {
+                    let player = game.state.mission.primary_player.unwrap();
+                    let position = match game.state.mission.eladard.interior_room {
+                        EladardInteriorRoom::AccessChamber
+                            if game.state.mission.eladard.access_switch
+                                == EladardSwitchStatus::Active =>
+                        {
+                            Some(ELADARD_ACCESS_SWITCH_POSITION)
+                        }
+                        EladardInteriorRoom::AccessChamber
+                            if game.state.mission.eladard.access_door
+                                == EladardDoorStatus::Open =>
+                        {
+                            Some(Vector3 {
+                                x: ELADARD_ACCESS_DOOR_POSITION.x,
+                                y: ELADARD_INTERIOR_START_POSITION.y,
+                                z: ELADARD_ACCESS_DOOR_EXIT_MINIMUM_Z,
+                            })
+                        }
+                        EladardInteriorRoom::TransitChamber
+                            if game.state.mission.eladard.generator_door
+                                == EladardDoorStatus::Closed =>
+                        {
+                            Some(ELADARD_GENERATOR_DOOR_RETAIL_APPROACH_POSITION)
+                        }
+                        EladardInteriorRoom::TransitChamber
+                            if game.state.mission.eladard.generator_door
+                                == EladardDoorStatus::Open =>
+                        {
+                            Some(ELADARD_GENERATOR_DOOR_RETAIL_CROSSING_POSITION)
+                        }
+                        EladardInteriorRoom::Unreached
+                        | EladardInteriorRoom::AccessChamber
+                        | EladardInteriorRoom::TransitChamber
+                        | EladardInteriorRoom::GeneratorChamber => None,
+                    };
+                    if let Some(position) = position {
+                        let player = game.state.objects.get_mut(player).unwrap();
+                        player.base.position = position;
+                        player.base.velocity = Vector3::default();
+                    }
+                    0
+                }
                 EladardPhase::GeneratorRoom => {
                     if let Some(core) = game.eladard_generator_core {
                         place_campaign_laser_on(game, core);

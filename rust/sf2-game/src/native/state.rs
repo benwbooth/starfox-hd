@@ -1655,6 +1655,47 @@ impl Default for EladardGeneratorStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EladardInteriorRoom {
+    Unreached,
+    AccessChamber,
+    TransitChamber,
+    GeneratorChamber,
+}
+
+impl Default for EladardInteriorRoom {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EladardSwitchStatus {
+    Unreached,
+    Active,
+    Pressed,
+}
+
+impl Default for EladardSwitchStatus {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EladardDoorStatus {
+    Unreached,
+    Closed,
+    Opening { retail_frames_remaining: u16 },
+    Open,
+}
+
+impl Default for EladardDoorStatus {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
 /// Typed objective state for the Eladard base assault. These fields model the
 /// mission concepts directly; no source-machine memory window is retained.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -1662,6 +1703,10 @@ pub struct EladardMissionState {
     pub phase: EladardPhase,
     pub phase_started_retail_frame: u16,
     pub surface_barriers: [EladardBarrierStatus; 2],
+    pub interior_room: EladardInteriorRoom,
+    pub access_switch: EladardSwitchStatus,
+    pub access_door: EladardDoorStatus,
+    pub generator_door: EladardDoorStatus,
     pub generator: EladardGeneratorStatus,
 }
 

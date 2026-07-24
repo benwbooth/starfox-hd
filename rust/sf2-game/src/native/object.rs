@@ -199,6 +199,28 @@ impl ShapeId {
     pub const ELADARD_GENERATOR_FRAME: Self = Self(427);
     pub const ELADARD_GENERATOR_CORE: Self = Self(428);
 
+    /// The access-room pressure switch and its depressed mesh.
+    pub const ELADARD_ACCESS_SWITCH_ACTIVE: Self = Self(464);
+    pub const ELADARD_ACCESS_SWITCH_PRESSED: Self = Self(465);
+
+    /// Closed and open meshes shared by Eladard's two interior doors.
+    pub const ELADARD_INTERIOR_DOOR_CLOSED: Self = Self(434);
+    pub const ELADARD_INTERIOR_DOOR_OPEN: Self = Self(435);
+
+    /// Structural meshes used by Eladard's two retail interior chambers.
+    pub const ELADARD_ACCESS_REAR_STRUCTURE: Self = Self(429);
+    pub const ELADARD_ACCESS_WEST_WALL: Self = Self(234);
+    pub const ELADARD_ACCESS_EAST_WALL: Self = Self(196);
+    pub const ELADARD_ACCESS_REAR_CORNER: Self = Self(149);
+    pub const ELADARD_INTERIOR_CORNER_WALL: Self = Self(236);
+    pub const ELADARD_INTERIOR_WALL_PANEL: Self = Self(151);
+    pub const ELADARD_ACCESS_CENTER_STRUCTURE: Self = Self(200);
+    pub const ELADARD_TRANSIT_GATEHOUSE: Self = Self(191);
+    pub const ELADARD_TRANSIT_CONNECTOR: Self = Self(194);
+    pub const ELADARD_TRANSIT_LONG_WALL: Self = Self(532);
+    pub const ELADARD_TRANSIT_CEILING: Self = Self(153);
+    pub const ELADARD_TRANSIT_TOWER: Self = Self(514);
+
     /// Titania's exterior and final interior pressure switches. These names
     /// keep the shipping runtime semantic while the values select decoded
     /// catalog entries at the data boundary.
