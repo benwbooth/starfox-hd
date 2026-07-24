@@ -197,6 +197,51 @@ pub struct OpeningPlayerView {
     pub options: PlayerViewOptions,
 }
 
+/// Semantic player initializer selected by a map's opening `pstrat`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpeningPlayerStrategy {
+    HangarLaunch,
+    InteriorSpaceFlyIn,
+    HyperspaceExit,
+    PlanetFlyIn,
+    GroundDive,
+    PlanetFlight,
+    SpaceFlyIn,
+    ColonyFlyIn,
+    UndergroundFlight,
+    LongTunnelExit,
+    ContinuePresentation,
+    PassivePresentation,
+}
+
+/// Exact opening player initializer for every map that spawns a player.
+pub fn opening_player_strategy(id: u32) -> Option<OpeningPlayerStrategy> {
+    use OpeningPlayerStrategy as Strategy;
+
+    match id {
+        map_id::M1_1 | map_id::M2_1 | map_id::M3_1 => Some(Strategy::HangarLaunch),
+        map_id::M1_2
+        | map_id::M1_5
+        | map_id::M2_2
+        | map_id::M3_2
+        | map_id::M3_4
+        | map_id::M3_6
+        | map_id::SPECIAL => Some(Strategy::InteriorSpaceFlyIn),
+        map_id::M1_3 => Some(Strategy::HyperspaceExit),
+        map_id::M1_4 => Some(Strategy::PlanetFlyIn),
+        map_id::M1_6 | map_id::M3_7 => Some(Strategy::GroundDive),
+        map_id::M2_3 | map_id::M3_3 | map_id::TRAINING => Some(Strategy::PlanetFlight),
+        map_id::M2_4 | map_id::M2_5 | map_id::BLACKHOLE => Some(Strategy::SpaceFlyIn),
+        map_id::M2_6 => Some(Strategy::ColonyFlyIn),
+        map_id::M3_5 => Some(Strategy::UndergroundFlight),
+        map_id::FINAL => Some(Strategy::LongTunnelExit),
+        map_id::CONTINUE => Some(Strategy::ContinuePresentation),
+        map_id::INTRO | map_id::TITLE | map_id::CREDITS => Some(Strategy::PassivePresentation),
+        map_id::NONE | map_id::WAIT | map_id::PLANET => None,
+        _ => None,
+    }
+}
+
 /// Exact opening `pstrat` player-view declaration for every playable map.
 pub fn opening_player_view(id: u32) -> Option<OpeningPlayerView> {
     use PlayerViewMode::{CloseExterior, Exterior};
@@ -402,6 +447,8 @@ pub fn get_map_callback_regs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SPAWNED_PLAYER_MAP_COUNT: usize = 27;
     use sf_core::player_view::{PlayerViewMode as Mode, PlayerViewOptions as Options};
 
     #[test]
@@ -418,15 +465,187 @@ mod tests {
     }
 
     #[test]
+    fn every_spawned_map_has_an_authored_opening_strategy() {
+        for map in (map_id::M1_1..=map_id::CONTINUE).chain([map_id::CREDITS, map_id::TRAINING]) {
+            assert!(
+                opening_player_strategy(map).is_some(),
+                "missing opening player strategy for map {map}"
+            );
+        }
+        assert_eq!(opening_player_strategy(map_id::NONE), None);
+        assert_eq!(opening_player_strategy(map_id::WAIT), None);
+        assert_eq!(opening_player_strategy(map_id::PLANET), None);
+    }
+
+    #[test]
+    fn opening_strategy_catalog_matches_every_bgs_declaration() {
+        use OpeningPlayerStrategy as Strategy;
+
+        let source = include_str!("../../../reference/ultrastarfox/SF/ASM/BGS.ASM");
+        let cases = [
+            (
+                map_id::M1_1,
+                Strategy::HangarLaunch,
+                "pstrat\tplayeropening,a,ab",
+            ),
+            (
+                map_id::M1_2,
+                Strategy::InteriorSpaceFlyIn,
+                "pstrat\tplayerinsidespaceflyin,b,abc",
+            ),
+            (
+                map_id::M1_3,
+                Strategy::HyperspaceExit,
+                "pstrat\tplayerwarpout,a,ab",
+            ),
+            (
+                map_id::M1_4,
+                Strategy::PlanetFlyIn,
+                "pstrat\tplayerplanetflyin,b,ab",
+            ),
+            (
+                map_id::M1_5,
+                Strategy::InteriorSpaceFlyIn,
+                "pstrat\tplayerinsidespaceflyin,b,abc",
+            ),
+            (
+                map_id::M1_6,
+                Strategy::GroundDive,
+                "pstrat\tplayerdivegnd,a,ab",
+            ),
+            (
+                map_id::M2_1,
+                Strategy::HangarLaunch,
+                "pstrat\tplayeropening,a,ab",
+            ),
+            (
+                map_id::M2_2,
+                Strategy::InteriorSpaceFlyIn,
+                "pstrat\tplayerinsidespaceflyin,b,abc",
+            ),
+            (
+                map_id::M2_3,
+                Strategy::PlanetFlight,
+                "pstrat\tplayeronplanet,a,ab",
+            ),
+            (
+                map_id::M2_4,
+                Strategy::SpaceFlyIn,
+                "pstrat\tplayerspaceflyin,a,abc",
+            ),
+            (
+                map_id::M2_5,
+                Strategy::SpaceFlyIn,
+                "pstrat\tplayerspaceflyin,a,abc",
+            ),
+            (
+                map_id::M2_6,
+                Strategy::ColonyFlyIn,
+                "pstrat\tplayercolonyflyin,a,ab",
+            ),
+            (
+                map_id::M3_1,
+                Strategy::HangarLaunch,
+                "pstrat\tplayeropening,a,ab",
+            ),
+            (
+                map_id::M3_2,
+                Strategy::InteriorSpaceFlyIn,
+                "pstrat\tplayerinsidespaceflyin,b,abc",
+            ),
+            (
+                map_id::M3_3,
+                Strategy::PlanetFlight,
+                "pstrat\tplayeronplanet,b,ab",
+            ),
+            (
+                map_id::M3_4,
+                Strategy::InteriorSpaceFlyIn,
+                "pstrat\tplayerinsidespaceflyin,b,abc",
+            ),
+            (
+                map_id::M3_5,
+                Strategy::UndergroundFlight,
+                "pstrat\tplayerundergnd,b,ab",
+            ),
+            (
+                map_id::M3_6,
+                Strategy::InteriorSpaceFlyIn,
+                "pstrat\tplayerinsidespaceflyin,b,abc",
+            ),
+            (
+                map_id::M3_7,
+                Strategy::GroundDive,
+                "pstrat\tplayerdivegnd,a,ab",
+            ),
+            (
+                map_id::BLACKHOLE,
+                Strategy::SpaceFlyIn,
+                "pstrat\tplayerspaceflyin,a,abc",
+            ),
+            (
+                map_id::SPECIAL,
+                Strategy::InteriorSpaceFlyIn,
+                "pstrat\tplayerinsidespaceflyin,b,abc",
+            ),
+            (
+                map_id::FINAL,
+                Strategy::LongTunnelExit,
+                "pstrat\tplayerinLTexit,a,ab",
+            ),
+            (
+                map_id::INTRO,
+                Strategy::PassivePresentation,
+                "pstrat\tplayercred,b,abc",
+            ),
+            (
+                map_id::TITLE,
+                Strategy::PassivePresentation,
+                "pstrat\tplayercred,b,abc",
+            ),
+            (
+                map_id::CONTINUE,
+                Strategy::ContinuePresentation,
+                "pstrat\tplayeroncont,b,ab",
+            ),
+            (
+                map_id::CREDITS,
+                Strategy::PassivePresentation,
+                "pstrat\tplayercred,b,abc",
+            ),
+            (
+                map_id::TRAINING,
+                Strategy::PlanetFlight,
+                "pstrat\tplayeronplanet,a,ab",
+            ),
+        ];
+
+        assert_eq!(cases.len(), SPAWNED_PLAYER_MAP_COUNT);
+        for (map, strategy, declaration) in cases {
+            assert_eq!(opening_player_strategy(map), Some(strategy), "map {map}");
+            assert!(
+                source.contains(declaration),
+                "missing BGS declaration for map {map}: {declaration}"
+            );
+        }
+    }
+
+    #[test]
     fn representative_declarations_match_bgs_source() {
         let source = include_str!("../../../reference/ultrastarfox/SF/ASM/BGS.ASM");
         for declaration in [
             "pstrat\tplayeropening,a,ab",
             "pstrat\tplayerinsidespaceflyin,b,abc",
+            "pstrat\tplayerwarpout,a,ab",
             "pstrat\tplayerspaceflyin,a,abc",
             "pstrat\tplayerplanetflyin,b,ab",
+            "pstrat\tplayerdivegnd,a,ab",
+            "pstrat\tplayeronplanet,a,ab",
             "pstrat\tplayercolonyflyin,a,ab",
             "pstrat\tplayerundergnd,b,ab",
+            "pstrat\tplayerinLTexit,a,ab",
+            "pstrat\tplayeroncont,b,ab",
+            "pstrat\tplayercred,b,abc",
         ] {
             assert!(
                 source.contains(declaration),

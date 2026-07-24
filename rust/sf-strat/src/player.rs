@@ -2711,12 +2711,21 @@ pub fn strat_spawn_player_for_map(g: &mut Game, map_id: u32) -> Option<u16> {
         g.vars.player_view_options = view.options;
         g.apply_player_view_mode(idx);
     }
-    match map_id {
-        sf_map::catalog::map_id::M1_1
-        | sf_map::catalog::map_id::M2_1
-        | sf_map::catalog::map_id::M3_1 => strat_player_opening_init(g, idx),
-        sf_map::catalog::map_id::CREDITS => player_cred_istrat(g, idx),
-        _ => {}
+    use sf_map::catalog::OpeningPlayerStrategy as Strategy;
+    match sf_map::catalog::opening_player_strategy(map_id) {
+        Some(Strategy::HangarLaunch) => strat_player_opening_init(g, idx),
+        Some(Strategy::InteriorSpaceFlyIn) => player_inside_space_flyin_istrat(g, idx),
+        Some(Strategy::HyperspaceExit) => player_warp_out_istrat(g, idx),
+        Some(Strategy::PlanetFlyIn) => player_planet_flyin_istrat(g, idx),
+        Some(Strategy::GroundDive) => player_divegnd_istrat(g, idx),
+        Some(Strategy::PlanetFlight) => set_player_on_planet(g, idx),
+        Some(Strategy::SpaceFlyIn) => player_space_flyin_istrat(g, idx),
+        Some(Strategy::ColonyFlyIn) => player_colony_flyin_istrat(g, idx),
+        Some(Strategy::UndergroundFlight) => set_player_undergnd(g, idx),
+        Some(Strategy::LongTunnelExit) => set_player_in_ltexit(g, idx),
+        Some(Strategy::ContinuePresentation) => player_on_cont_istrat(g, idx),
+        Some(Strategy::PassivePresentation) => player_cred_istrat(g, idx),
+        None => {}
     }
     Some(idx)
 }
@@ -3225,6 +3234,9 @@ const NUCLEUS_MMAXX: i16 = ((110i32 << BOSS8_SCALE) + 1000) as i16;
 
 /// ROM `set_playerInColony_l` / colony fly-mode init.
 pub fn set_player_in_colony(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_in_colony_strat);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
     {
         let v = &mut g.vars;
@@ -3252,7 +3264,13 @@ pub fn set_player_in_colony(g: &mut Game, idx: u16) {
         v.pstratflags |= PSTF_FIRSTFRAMELCOL;
         v.pshipflags3 |= PSF3_INTUNNEL;
     }
-    g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
+    {
+        let player = &mut g.objs.aliens[idx as usize];
+        player.stratptr = Some(tick);
+        player.collstratptr = Some(coll);
+        player.expstratptr = Some(exp);
+        player.sflags |= ASF_SHADOW;
+    }
 }
 
 /// ROM `playerincolony_strat`.
@@ -3266,6 +3284,9 @@ pub fn player_in_colony_strat(g: &mut Game, idx: u16) {
 
 /// ROM `set_playerInNucleus_l` / nucleus fly-mode init.
 pub fn set_player_in_nucleus(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_in_nucleus_strat);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
     {
         let v = &mut g.vars;
@@ -3290,8 +3311,14 @@ pub fn set_player_in_nucleus(g: &mut Game, idx: u16) {
         v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
         v.pshipflags3 &= !PSF3_INTUNNEL;
     }
-    g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
-    g.objs.aliens[idx as usize].worldy = NUCLEUS_VIEWCY;
+    {
+        let player = &mut g.objs.aliens[idx as usize];
+        player.stratptr = Some(tick);
+        player.collstratptr = Some(coll);
+        player.expstratptr = Some(exp);
+        player.sflags |= ASF_SHADOW;
+        player.worldy = NUCLEUS_VIEWCY;
+    }
 }
 
 /// ROM `playerinnucleus_strat`.
@@ -4599,6 +4626,15 @@ pub fn set_player_on_bridge(g: &mut Game, idx: u16) {
 
 /// ROM `set_playerUnderGnd_l` / undergnd fly-mode.
 pub fn set_player_undergnd(g: &mut Game, idx: u16) {
+    let tick = ea_sid(g, player_undergnd_strat);
+    let coll = sid(g, K_PLAYERCOLL);
+    let exp = sid(g, K_PLAYERDEAD_INIT);
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+    }
     apply_planet_style_fly_mode(
         g,
         idx,
@@ -6175,13 +6211,37 @@ pub fn set_player_dive_gnd(g: &mut Game, idx: u16) {
     playeronplanet_init(g, idx);
     g.vars.gameflags &= !GF_VIEWROT;
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
-    if let Some(dup) = dupplayer(g, idx) {
-        g.objs.aliens[dup as usize].worldx = 0;
-        g.objs.aliens[dup as usize].worldy = 0;
-        g.objs.aliens[dup as usize].worldz = 0;
-        g.vars.set_sv_i16(sv::VIEWTOOBJ, dup as i16);
+    let player_tick = ea_sid(g, player_divegnd_strat);
+    g.objs.aliens[idx as usize].stratptr = Some(player_tick);
+
+    if let Some(ship) = dupplayer(g, idx) {
+        {
+            let duplicate = &mut g.objs.aliens[ship as usize];
+            duplicate.worldx = 0;
+            duplicate.worldy = 0;
+            duplicate.worldz = 0;
+        }
+        pshipdivegnd_istrat(g, ship);
+        g.vars.set_sv_i16(sv::VIEWTOOBJ, ship as i16);
+
+        if let Some(view) = strat_make_obj(g, 0) {
+            {
+                let camera = &mut g.objs.aliens[view as usize];
+                camera.worldx = 0;
+                camera.worldy = 0;
+                camera.worldz = 0;
+                camera.sword1 = ship as i16;
+            }
+            viewdivegnd_istrat(g, view);
+            g.objs.aliens[ship as usize].sword1 = view as i16;
+        }
     }
     g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
+    g.objs.aliens[idx as usize].worldx = 0;
+    g.objs.aliens[idx as usize].worldy = 0;
+    g.objs.aliens[idx as usize].worldz = 0;
+    g.world.lastplayz = 0;
+    g.vars.set_sv_i16(sv::OUTVX, 0);
 }
 
 /// ROM `set_playercred_l` / `playercred_Istrat` (PSTRATS.ASM:565).
@@ -7137,6 +7197,8 @@ pub fn player_on_field_strat(g: &mut Game, idx: u16) {
 }
 
 /// ROM `playeroncont_Istrat` (PSTRATS.ASM:722).
+pub const CONTINUE_VIEW_DISTANCE: i16 = 200;
+
 pub fn player_on_cont_istrat(g: &mut Game, idx: u16) {
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
     // cont fly-mode: cont_macro clears nospark/intunnel, sets notdie
@@ -7160,8 +7222,8 @@ pub fn player_on_cont_strat(g: &mut Game, idx: u16) {
     viewmove_srou(g, idx);
     g.vars.set_sv_i16(sv::OUTVX, 0);
     g.vars.set_sv_i16(sv::OUTVY, 0);
-    g.vars.set_sv_i16(sv::OUTDIST, 200);
-    g.vars.viewdist = 200;
+    g.vars.set_sv_i16(sv::OUTDIST, CONTINUE_VIEW_DISTANCE);
+    g.vars.viewdist = CONTINUE_VIEW_DISTANCE;
     g.objs.aliens[idx as usize].shape = SH_MY_DEMO_S;
     g.vars.pshipflags3 &= !PSF3_ENGINESND;
 }
@@ -7169,17 +7231,7 @@ pub fn player_on_cont_strat(g: &mut Game, idx: u16) {
 /// ROM `playerDIVEGND_Istrat` — extend `set_player_dive_gnd` with stratptrs.
 pub fn player_divegnd_istrat(g: &mut Game, idx: u16) {
     set_player_dive_gnd(g, idx);
-    let s = ea_sid(g, player_divegnd_strat);
-    g.objs.aliens[idx as usize].stratptr = Some(s);
-    g.world.lastplayz = 0;
-    g.vars.set_sv_i16(sv::OUTVX, 0);
-    {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.worldx = 0;
-        al.worldy = 0;
-        al.worldz = 0;
-    }
 }
 
-/// ROM `playerDIVEGND_strat` — body is mostly IFEQ'd out; keep alive.
+/// ROM `playerDIVEGND_strat` — the visible duplicate and camera own motion.
 pub fn player_divegnd_strat(_g: &mut Game, _idx: u16) {}

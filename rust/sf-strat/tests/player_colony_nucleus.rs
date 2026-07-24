@@ -29,6 +29,9 @@ fn colony_fly_mode_bounds_and_macro() {
     assert!(g.vars.pshipflags3 & PSF3_INTUNNEL != 0);
     assert!(g.objs.aliens[p as usize].sflags & ASF_SHADOW != 0);
     assert_eq!(g.vars.gameflags & GF_VIEWROT, 0);
+    assert!(g.objs.aliens[p as usize].stratptr.is_some());
+    assert!(g.objs.aliens[p as usize].collstratptr.is_some());
+    assert!(g.objs.aliens[p as usize].expstratptr.is_some());
 }
 
 #[test]
@@ -46,6 +49,9 @@ fn nucleus_fly_mode_scaled_bounds() {
     assert_eq!(g.objs.aliens[p as usize].worldy, -60);
     assert_eq!(g.vars.pshipflags3 & PSF3_INTUNNEL, 0);
     assert!(g.objs.aliens[p as usize].sflags & ASF_SHADOW != 0);
+    assert!(g.objs.aliens[p as usize].stratptr.is_some());
+    assert!(g.objs.aliens[p as usize].collstratptr.is_some());
+    assert!(g.objs.aliens[p as usize].expstratptr.is_some());
 }
 
 #[test]

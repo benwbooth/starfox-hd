@@ -5,6 +5,7 @@ use sf_game::alien::{ASF_COLLDISABLE, ASF_INVISIBLE};
 use sf_game::vars::{PSF3_ENGINESND, PSF_NOCTRL, PSF_NOFIRE, PSTF_NOVDISTC};
 use sf_game::Game;
 use sf_strat::common::StratRam;
+use sf_strat::enemy_a::DEG90;
 use sf_strat::player::{
     player_colony_flyin_istrat, player_colony_flyin_strat, player_cred_istrat, player_cred_strat,
     player_divegnd_istrat, player_inside_space_flyin_istrat, player_inside_space_flyin_strat,
@@ -143,11 +144,18 @@ fn on_cont_and_cred() {
 }
 
 #[test]
-fn divegnd_istrat_arms_noop_strat() {
+fn divegnd_istrat_builds_the_authored_ship_and_camera_pair() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
     g.vars.set_sv_i8(sv::STAYBLACK, -1);
     player_divegnd_istrat(&mut g, idx);
     assert!(g.objs.aliens[idx as usize].stratptr.is_some());
     assert_eq!(g.objs.aliens[idx as usize].worldx, 0);
+    let ship = g.vars.sv_i16(sv::VIEWTOOBJ) as u16;
+    let view = g.objs.aliens[ship as usize].sword1 as u16;
+    assert_ne!(ship, idx);
+    assert_ne!(view, idx);
+    assert_eq!(g.objs.aliens[view as usize].sword1, ship as i16);
+    assert_eq!(g.objs.aliens[ship as usize].rotx, DEG90);
+    assert_eq!(g.objs.aliens[view as usize].rotx, DEG90);
 }

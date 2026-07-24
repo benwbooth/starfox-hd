@@ -67,11 +67,13 @@ dist_xz, msqrt16/32, mcalcperc, calcstageperc, framescalevecs, anglexy axis/diag
 - [x] `SETYPLAYERSHAPE_L` / `SELECT_SHIP_L` — `player::select_ship` + `set_y_player_shape` + `PlayerShipShapes` table; wired into spawn; tests `player_shapes.rs`. Broken-wing/wire/zoom meshes still proxy `myship_4` until catalog has them.
 - [x] `PLAYERTOMIDDLE1/4_SROU_L` + `SET_PLAYERTOCSLOW_L` — `player_to_middle1/4` + `set_player_to_cslow`; tests `player_to_middle.rs`.
 - [x] Tunnel SET_PLAYER* — `apply_tunnel_fly_mode` + `set_player_in_{s,m,l}tunnel` / `{s,m,l}texit` + `player_in_tunnel_strat` / `player_in_texit_strat`; tests `player_tunnel.rs`. Opening init now shares Ltunnel helper.
-- [x] Colony / nucleus / washent — `set_player_in_colony` / `set_player_in_nucleus` + strats; `set_player_clear_colony` / `set_player_washent` (dupplayer leaf); tests `player_colony_nucleus.rs`.
+- [x] Colony / nucleus / washent — `set_player_in_colony` / `set_player_in_nucleus` install their authored live/collision/death handoffs; `set_player_clear_colony` / `set_player_washent` (dupplayer leaf); tests `player_colony_nucleus.rs`.
 
 - [x] Water / bridge / undergnd / space / turn180 / escape_nucleus SET_PLAYER* — fly-mode inits + strats; tests `player_fly_modes.rs`.
 
 - [x] Cockpit enter/exit and player view cycle — typed exterior/cockpit modes and per-background cycles; exact Select edge/gates; `changeviewmode_l` dispatcher; `set_player_into_cock` / `out_of_cock` + phase strats + `make_all_med_pspeed`; scripted carrier/colony/map transitions; tests `player_view.rs`, `player_view_modes.rs`, `player_cockpit.rs`.
+
+- [x] Opening `pstrat` dispatch — typed catalog for every spawned BGS background; all 27 route/special/presentation maps install the authored initializer; ground dive builds its linked duplicate ship and camera; tests `catalog`, `player_view_modes.rs`, `player_flyin.rs`, and all three unattended routes.
 
 - [x] LB out/in, divegnd, cred, tunnel→planet, VIEWLB3MOVE — tests `player_lb_cred.rs`.
 - [x] Cutscene phase-2 inits (CHASE2/START/CLEARTURN2/UNDER2/WARP1/2/MOVE/DIVE2/CLEARDEMO2) — tests `player_cutscene_inits.rs`.
