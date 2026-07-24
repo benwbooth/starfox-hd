@@ -582,7 +582,15 @@ const CARRIER_PANEL_SCENE: [(Vector3, Angle); 2] = [
         Angle::from_units(192),
     ),
 ];
-const ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES: u16 = 612;
+const ELADARD_ESCAPE_WALKER_SIDE_RETAIL_FRAME: u16 = 56;
+const ELADARD_ESCAPE_FLIGHT_SIDE_RETAIL_FRAME: u16 = 100;
+const ELADARD_ESCAPE_FLIGHT_RETAIL_FRAME: u16 = 140;
+const ELADARD_ESCAPE_PLAYER_HIDDEN_RETAIL_FRAME: u16 = 204;
+// Retail returns to the strategic map 1,337 frames after the generator
+// objective clears. The native simulation advances four retail frames per
+// tick, so entering the two-frame return handoff at 1,332 reaches the nearest
+// representable boundary (1,336 frames).
+const ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES: u16 = 1_332;
 const ELADARD_MAP_RETURN_RETAIL_FRAMES: u16 = 2;
 const ELADARD_BASE_ENTRANCE_Z: i16 = 2_365;
 const ELADARD_BASE_ENTRANCE_HALF_WIDTH: i16 = 400;
@@ -7313,8 +7321,7 @@ impl Game {
                             .mission
                             .eladard
                             .phase_started_retail_frame
-                            .saturating_add(ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES)
-                        && self.state.mission.player_craft_form == PlayerCraftForm::Flight =>
+                            .saturating_add(ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES) =>
                 {
                     self.enter_eladard_phase(EladardPhase::ReturnFlight, retail_frame);
                     self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
@@ -7334,15 +7341,105 @@ impl Game {
         {
             self.update_eladard_defenders()?;
         }
+        if self.state.mission.eladard.phase == EladardPhase::BaseDestruction {
+            self.update_eladard_escape_presentation(retail_frame);
+        }
         self.update_eladard_player_presentation(retail_frame);
-        if self.state.mission.phase == MissionPhase::Active {
+        if self.state.mission.phase == MissionPhase::Active
+            && !matches!(
+                self.state.mission.eladard.phase,
+                EladardPhase::BaseDestruction | EladardPhase::ReturnFlight
+            )
+        {
             self.update_active_flight(retail_frame, true)?;
         }
         Ok(())
     }
 
+    fn update_eladard_escape_presentation(&mut self, retail_frame: u16) {
+        let elapsed =
+            retail_frame.saturating_sub(self.state.mission.eladard.phase_started_retail_frame);
+        let Some(player) = self.state.mission.primary_player else {
+            return;
+        };
+
+        let (form, presentation) = if elapsed < ELADARD_ESCAPE_WALKER_SIDE_RETAIL_FRAME {
+            (PlayerCraftForm::Walker, PlayerCraftPresentation::Walker)
+        } else if elapsed < ELADARD_ESCAPE_FLIGHT_SIDE_RETAIL_FRAME {
+            let transformation_elapsed = scale_eladard_escape_transformation_elapsed(
+                elapsed,
+                ELADARD_ESCAPE_WALKER_SIDE_RETAIL_FRAME,
+                ELADARD_ESCAPE_FLIGHT_SIDE_RETAIL_FRAME,
+                PLAYER_TRANSFORMATION_START_RETAIL_FRAMES,
+                PLAYER_TRANSFORMATION_SECOND_STAGE_RETAIL_FRAMES,
+            );
+            (
+                PlayerCraftForm::Transforming(PlayerCraftTransformation {
+                    direction: PlayerCraftTransformationDirection::ToFlight,
+                    elapsed_retail_frames: transformation_elapsed,
+                }),
+                PlayerCraftPresentation::WalkerSideTransition {
+                    animation_frame: sampled_transformation_frame(
+                        &TO_FLIGHT_WALKER_SIDE_FRAMES,
+                        transformation_elapsed,
+                        PLAYER_TRANSFORMATION_START_RETAIL_FRAMES,
+                    ),
+                },
+            )
+        } else if elapsed < ELADARD_ESCAPE_FLIGHT_RETAIL_FRAME {
+            let transformation_elapsed = scale_eladard_escape_transformation_elapsed(
+                elapsed,
+                ELADARD_ESCAPE_FLIGHT_SIDE_RETAIL_FRAME,
+                ELADARD_ESCAPE_FLIGHT_RETAIL_FRAME,
+                PLAYER_TRANSFORMATION_SECOND_STAGE_RETAIL_FRAMES,
+                PLAYER_TRANSFORMATION_TO_FLIGHT_END_RETAIL_FRAMES,
+            );
+            (
+                PlayerCraftForm::Transforming(PlayerCraftTransformation {
+                    direction: PlayerCraftTransformationDirection::ToFlight,
+                    elapsed_retail_frames: transformation_elapsed,
+                }),
+                PlayerCraftPresentation::FlightSideTransition {
+                    animation_frame: sampled_transformation_frame(
+                        &TO_FLIGHT_FLIGHT_SIDE_FRAMES,
+                        transformation_elapsed,
+                        PLAYER_TRANSFORMATION_SECOND_STAGE_RETAIL_FRAMES,
+                    ),
+                },
+            )
+        } else {
+            (PlayerCraftForm::Flight, PlayerCraftPresentation::Flight)
+        };
+        self.state.mission.player_craft_form = form;
+        self.apply_player_craft_presentation(player, presentation);
+
+        if elapsed >= ELADARD_ESCAPE_PLAYER_HIDDEN_RETAIL_FRAME {
+            if let Some(player) = self.state.objects.get_mut(player) {
+                player.base.shape = ShapeId::EMPTY;
+                player.base.flags.visible = false;
+            }
+        }
+    }
+
     fn update_eladard_player_presentation(&mut self, retail_frame: u16) {
-        let visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
+        let escape_hides_player = match self.state.mission.eladard.phase {
+            EladardPhase::BaseDestruction => {
+                retail_frame.saturating_sub(self.state.mission.eladard.phase_started_retail_frame)
+                    >= ELADARD_ESCAPE_PLAYER_HIDDEN_RETAIL_FRAME
+            }
+            EladardPhase::ReturnFlight => true,
+            EladardPhase::SurfaceApproach
+            | EladardPhase::SurfaceBarriers
+            | EladardPhase::BaseEntrance
+            | EladardPhase::InteriorPassage
+            | EladardPhase::GeneratorRoom => false,
+        };
+        let visible =
+            retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16 && !escape_hides_player;
+        let escape_disables_collision = matches!(
+            self.state.mission.eladard.phase,
+            EladardPhase::BaseDestruction | EladardPhase::ReturnFlight
+        );
         if let Some(primary) = self
             .state
             .mission
@@ -7351,7 +7448,7 @@ impl Game {
         {
             primary.base.flags.visible = visible;
             primary.base.flags.collision_disabled =
-                self.state.mission.phase != MissionPhase::Active;
+                self.state.mission.phase != MissionPhase::Active || escape_disables_collision;
         }
     }
 
@@ -13130,6 +13227,25 @@ fn sampled_transformation_frame<const FRAME_COUNT: usize>(
             / PLAYER_TRANSFORMATION_RETAIL_FRAMES_PER_TICK,
     );
     frames[sample.min(FRAME_COUNT.saturating_sub(1))]
+}
+
+fn scale_eladard_escape_transformation_elapsed(
+    elapsed_retail_frames: u16,
+    source_start_retail_frame: u16,
+    source_end_retail_frame: u16,
+    destination_start_retail_frames: u8,
+    destination_end_retail_frames: u8,
+) -> u8 {
+    let source_elapsed = elapsed_retail_frames.saturating_sub(source_start_retail_frame);
+    let source_duration = source_end_retail_frame.saturating_sub(source_start_retail_frame);
+    let destination_duration =
+        u16::from(destination_end_retail_frames - destination_start_retail_frames);
+    let scaled = source_elapsed
+        .saturating_mul(destination_duration)
+        .checked_div(source_duration)
+        .unwrap_or(0)
+        .min(destination_duration.saturating_sub(1));
+    destination_start_retail_frames.saturating_add(scaled as u8)
 }
 
 fn transformation_presentation(
@@ -22202,10 +22318,7 @@ mod tests {
             EladardGeneratorStatus::Destroyed
         );
         let destruction_started = game.state().mission.eladard.phase_started_retail_frame;
-        advance_to(
-            &mut game,
-            destruction_started.saturating_add(ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES),
-        );
+        advance_to(&mut game, destruction_started.saturating_add(52));
         assert_eq!(
             game.state().mission.eladard.phase,
             EladardPhase::BaseDestruction
@@ -22214,12 +22327,64 @@ mod tests {
             game.state().mission.player_craft_form,
             PlayerCraftForm::Walker
         );
+        assert_eq!(
+            game.state().objects.get(player).unwrap().base.shape,
+            ShapeId::FOX_FALCO_WALKER
+        );
 
-        game.tick(Button::Select as u16).unwrap();
-        while game.state().mission.player_craft_form != PlayerCraftForm::Flight {
-            game.tick(0).unwrap();
-        }
-        game.tick(0).unwrap();
+        advance_to(
+            &mut game,
+            destruction_started.saturating_add(ELADARD_ESCAPE_WALKER_SIDE_RETAIL_FRAME),
+        );
+        assert!(matches!(
+            game.state().mission.player_craft_form,
+            PlayerCraftForm::Transforming(PlayerCraftTransformation {
+                direction: PlayerCraftTransformationDirection::ToFlight,
+                ..
+            })
+        ));
+        assert_eq!(
+            game.state().objects.get(player).unwrap().base.shape,
+            ShapeId::FOX_FALCO_WALKER_SIDE_TRANSITION
+        );
+        advance_to(
+            &mut game,
+            destruction_started.saturating_add(ELADARD_ESCAPE_FLIGHT_SIDE_RETAIL_FRAME),
+        );
+        assert_eq!(
+            game.state().objects.get(player).unwrap().base.shape,
+            ShapeId::FOX_FALCO_FLIGHT_SIDE_TRANSITION
+        );
+        advance_to(
+            &mut game,
+            destruction_started.saturating_add(ELADARD_ESCAPE_FLIGHT_RETAIL_FRAME),
+        );
+        assert_eq!(
+            game.state().mission.player_craft_form,
+            PlayerCraftForm::Flight
+        );
+        assert_eq!(
+            game.state().objects.get(player).unwrap().base.shape,
+            ShapeId::FOX_FALCO_FLIGHT_CRAFT
+        );
+        advance_to(
+            &mut game,
+            destruction_started.saturating_add(ELADARD_ESCAPE_PLAYER_HIDDEN_RETAIL_FRAME),
+        );
+        let hidden_player = game.state().objects.get(player).unwrap();
+        assert_eq!(hidden_player.base.shape, ShapeId::EMPTY);
+        assert!(!hidden_player.base.flags.visible);
+        assert!(hidden_player.base.flags.collision_disabled);
+
+        advance_to(
+            &mut game,
+            destruction_started
+                .saturating_add(ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES)
+                .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+        );
+        assert_eq!(game.state().mission.phase, MissionPhase::Active);
+        game.tick((Button::Select as u16) | (Button::Up as u16))
+            .unwrap();
         assert_eq!(
             game.state().mission.eladard.phase,
             EladardPhase::ReturnFlight
@@ -23189,10 +23354,7 @@ mod tests {
                     }
                     0
                 }
-                EladardPhase::BaseDestruction => match game.state.mission.player_craft_form {
-                    PlayerCraftForm::Walker => Button::Select as u16,
-                    PlayerCraftForm::Flight | PlayerCraftForm::Transforming(_) => 0,
-                },
+                EladardPhase::BaseDestruction => 0,
                 EladardPhase::ReturnFlight => 0,
             }
         }
