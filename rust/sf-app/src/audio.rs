@@ -64,6 +64,7 @@ fn sf2_music_cue(
             MissionVisit::FighterIntercept => Sf2MusicCue::FighterIntercept,
             MissionVisit::TitaniaBase => Sf2MusicCue::TitaniaBase,
             MissionVisit::EladardBase => Sf2MusicCue::EladardBase,
+            MissionVisit::MeteorBase => Sf2MusicCue::MeteorBase,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
                 Sf2MusicCue::BattleCarrier
             }
@@ -99,6 +100,7 @@ fn sf2_sound_bank(mission_visit: sf2_game::MissionVisit) -> Sf2SoundBank {
         MissionVisit::FighterIntercept => Sf2SoundBank::FighterIntercept,
         MissionVisit::TitaniaBase => Sf2SoundBank::TitaniaBase,
         MissionVisit::EladardBase => Sf2SoundBank::EladardBase,
+        MissionVisit::MeteorBase => Sf2SoundBank::MeteorBase,
         MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
             Sf2SoundBank::BattleCarrier
         }

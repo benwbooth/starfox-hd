@@ -10,6 +10,10 @@ from pathlib import Path
 
 
 DEFAULT_OUTPUT = Path(__file__).with_name("fixtures") / "meteor_installation_core.trace"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_RUST_OUTPUT = (
+    REPO_ROOT / "rust" / "sf2-game" / "src" / "native" / "meteor_installation_core.rs"
+)
 MISSION_SELECTION = 4
 CAMPAIGN_WORLD = "meteor"
 ENCOUNTER_MAP = "05:4893"
@@ -29,6 +33,8 @@ WALKER_SHAPE = "C94C"
 FIRST_INTERMEDIATE_SHAPE = "C2F4"
 SECOND_INTERMEDIATE_SHAPE = "C310"
 FLIGHT_SHAPE = "C268"
+PARENT_CATALOG_INDEX = 427
+CORE_CATALOG_INDEX = 428
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,8 @@ class Evidence:
     first_intermediate_retail_frame: int
     second_intermediate_retail_frame: int
     flight_retail_frame: int
+    parent_position: tuple[int, int, int]
+    core_position: tuple[int, int, int]
 
 
 def fields(line: str) -> dict[str, str]:
@@ -122,7 +130,9 @@ def relative_frame(record: dict[str, str], baseline: int) -> int:
     return int(record["elapsed"]) - baseline
 
 
-def extract_activation(path: Path) -> tuple[str, int, int, int]:
+def extract_activation(
+    path: Path,
+) -> tuple[str, int, int, int, tuple[int, int, int], tuple[int, int, int]]:
     records = read_records(path)
     unexpected_events = {
         record.get("event")
@@ -186,7 +196,14 @@ def extract_activation(path: Path) -> tuple[str, int, int, int]:
     active_frame = relative_frame(active, baseline)
     if not 0 < partial_frame < armed_frame < active_frame:
         raise SystemExit("Meteor installation core activation edges are out of order")
-    return digest(path), partial_frame, armed_frame, active_frame
+    return (
+        digest(path),
+        partial_frame,
+        armed_frame,
+        active_frame,
+        tuple(map(int, parent[2:5])),
+        tuple(map(int, core[2:5])),
+    )
 
 
 def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
@@ -377,6 +394,8 @@ def extract(activation: Path, attack: Path, transformation: Path) -> Evidence:
         first_intermediate_retail_frame=transformation_values[2],
         second_intermediate_retail_frame=transformation_values[3],
         flight_retail_frame=transformation_values[4],
+        parent_position=activation_values[4],
+        core_position=activation_values[5],
     )
 
 
@@ -395,6 +414,12 @@ def render(evidence: Evidence) -> str:
                 f"encounter world={CAMPAIGN_WORLD} mission_selection={MISSION_SELECTION} "
                 f"encounter_map={ENCOUNTER_MAP.split(':')[1]} parent_shape={PARENT_SHAPE} "
                 f"core_shape={CORE_SHAPE} core_maximum_durability={MAXIMUM_DURABILITY}"
+            ),
+            (
+                f"layout parent_catalog_index={PARENT_CATALOG_INDEX} "
+                f"parent_position={','.join(map(str, evidence.parent_position))} "
+                f"core_catalog_index={CORE_CATALOG_INDEX} "
+                f"core_position={','.join(map(str, evidence.core_position))}"
             ),
             (
                 "scope retail_route_certified=false "
@@ -442,11 +467,11 @@ def render(evidence: Evidence) -> str:
 def validate_compact(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
-    if len(lines) != 7:
+    if len(lines) != 8:
         raise SystemExit(
             "Meteor installation core fixture has an unexpected record count"
         )
-    encounter, scope, activation, attack, campaign, aftermath, transformation = [
+    encounter, layout, scope, activation, attack, campaign, aftermath, transformation = [
         fields(line) for line in lines
     ]
     if encounter != {
@@ -458,6 +483,13 @@ def validate_compact(path: Path) -> None:
         "core_maximum_durability": str(MAXIMUM_DURABILITY),
     }:
         raise SystemExit("Meteor installation core encounter fixture is inconsistent")
+    if layout != {
+        "parent_catalog_index": str(PARENT_CATALOG_INDEX),
+        "parent_position": "1536,0,7936",
+        "core_catalog_index": str(CORE_CATALOG_INDEX),
+        "core_position": "1536,-152,7936",
+    }:
+        raise SystemExit("Meteor installation core layout fixture is inconsistent")
     if scope != {
         "retail_route_certified": "false",
         "setup_acceleration": "base_flags_controller_durability_and_teleports",
@@ -524,12 +556,75 @@ def validate_compact(path: Path) -> None:
         )
 
 
+def rust_vector(values: str) -> str:
+    x, y, z = map(int, values.split(","))
+    return f"Vector3 {{ x: {x:_}, y: {y:_}, z: {z:_} }}"
+
+
+def rust_source(trace: Path) -> str:
+    validate_compact(trace)
+    records = [
+        fields(line)
+        for line in trace.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    encounter, layout, _, activation, attack, campaign, aftermath, _ = records
+    damage_frame = int(attack["damage_retail_frame"])
+    lines = [
+        "//! Generated typed mechanics for Meteor's installation core.",
+        "//!",
+        f"//! Source: `{trace.name}`.",
+        "//! Regenerate or verify with `uv run python",
+        "//! tools/sf2/generate_meteor_installation_core.py [--check]`.",
+        "",
+        "use super::{ShapeId, Vector3};",
+        "",
+        (
+            "pub(super) const PARENT_SHAPE: ShapeId = ShapeId::from_catalog_index("
+            f"{int(layout['parent_catalog_index'])});"
+        ),
+        (
+            "pub(super) const CORE_SHAPE: ShapeId = ShapeId::from_catalog_index("
+            f"{int(layout['core_catalog_index'])});"
+        ),
+        f"pub(super) const PARENT_POSITION: Vector3 = {rust_vector(layout['parent_position'])};",
+        f"pub(super) const CORE_POSITION: Vector3 = {rust_vector(layout['core_position'])};",
+        (
+            "pub(super) const MAXIMUM_DURABILITY: u8 = "
+            f"{int(encounter['core_maximum_durability']):_};"
+        ),
+        (
+            "pub(super) const TRIGGER_PARTIAL_RETAIL_FRAME: u16 = "
+            f"{int(activation['trigger_partial_retail_frame']):_};"
+        ),
+        (
+            "pub(super) const TRIGGER_ARMED_RETAIL_FRAME: u16 = "
+            f"{int(activation['trigger_armed_retail_frame']):_};"
+        ),
+        (
+            "pub(super) const ACTIVE_RETAIL_FRAME: u16 = "
+            f"{int(activation['active_retail_frame']):_};"
+        ),
+        (
+            "pub(super) const DEFEAT_TO_OBJECTIVE_RETAIL_FRAMES: u16 = "
+            f"{int(campaign['decrement_retail_frame']) - damage_frame:_};"
+        ),
+        (
+            "pub(super) const DEFEAT_TO_PARENT_FINAL_RETAIL_FRAMES: u16 = "
+            f"{int(aftermath['parent_final_retail_frame']) - damage_frame:_};"
+        ),
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--activation-source", type=Path)
     parser.add_argument("--attack-source", type=Path)
     parser.add_argument("--transformation-source", type=Path)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--rust-output", type=Path, default=DEFAULT_RUST_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
@@ -555,9 +650,20 @@ def main() -> None:
             action = "generated"
     else:
         validate_compact(args.output)
-        action = "verified"
+        action = "verified" if args.check else "generated"
+    generated_rust = rust_source(args.output)
+    if args.check:
+        if (
+            not args.rust_output.is_file()
+            or args.rust_output.read_text(encoding="utf-8") != generated_rust
+        ):
+            raise SystemExit(f"generated source is out of date: {args.rust_output}")
+    else:
+        args.rust_output.parent.mkdir(parents=True, exist_ok=True)
+        args.rust_output.write_text(generated_rust, encoding="utf-8")
     print(
-        f"{action} {args.output}: retail Meteor installation core activation, defeat, and transformation"
+        f"{action} {args.output} and {args.rust_output}: retail Meteor "
+        "installation core activation, defeat, and transformation"
     )
 
 

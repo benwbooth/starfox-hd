@@ -23,7 +23,9 @@ pub(super) struct QueenComponentPlacement {
 }
 
 pub(super) const MAXIMUM_DURABILITY: u8 = 80;
+pub(super) const COMPONENT_COUNT: usize = 4;
 pub(super) const DEFEAT_TO_EXPLOSION_RETAIL_FRAMES: u16 = 20;
+pub(super) const RETURN_PRESENTATION_RETAIL_FRAMES: u16 = 833;
 pub(super) const BODY_SHAPE: ShapeId = ShapeId::from_catalog_index(566);
 pub(super) const BODY_EXPLOSION_SHAPE: ShapeId = ShapeId::from_catalog_index(11);
 pub(super) const COMPONENT_BURST_SHAPE: ShapeId = ShapeId::from_catalog_index(9);
@@ -36,7 +38,7 @@ pub(super) const BODY_SPEED: u8 = 10;
 pub(super) const BODY_VELOCITY: Vector3 = Vector3 { x: 5, y: 0, z: -6 };
 pub(super) const MOVEMENT_CADENCE_RETAIL_FRAMES: [u8; 3] = [7, 7, 8];
 
-pub(super) const COMPONENTS: [QueenComponentPlacement; 4] = [
+pub(super) const COMPONENTS: [QueenComponentPlacement; COMPONENT_COUNT] = [
     QueenComponentPlacement {
         role: QueenComponentRole::LeadingLeft,
         shape: ShapeId::from_catalog_index(567),

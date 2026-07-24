@@ -633,6 +633,15 @@ pub struct FinalRivalFlightState {
     pub motion_steps_elapsed: u16,
 }
 
+/// Native movement scheduler for Meteor's Queen Dragoon. The visible body
+/// transform stays in [`ObjectBase`]; these fields only retain progress
+/// through the retail 7, 7, 8-frame movement cadence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueenDragoonFlightState {
+    pub retail_frame_credit: u8,
+    pub cadence_index: u8,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerProjectileKind {
     Rapid,
@@ -726,6 +735,7 @@ pub enum ObjectActivity {
     PigmaRivalFlight(PigmaRivalFlightState),
     LeonRivalFlight(LeonRivalFlightState),
     FinalRivalFlight(FinalRivalFlightState),
+    QueenDragoonFlight(QueenDragoonFlightState),
     EladardDefender(EladardDefenderState),
     EladardDefenderProjectile(EladardDefenderProjectileState),
     CarrierCorridorDefender(CarrierCorridorDefenderState),

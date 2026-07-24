@@ -868,6 +868,7 @@ def rust_source(trace: Path) -> str:
     boss = records[1]
     body = records[9]
     components = records[10:14]
+    forced_return = records[14]
     defeat_to_explosion = int(boss["explosion_retail_frame"]) - int(
         boss["defeat_retail_frame"]
     )
@@ -897,9 +898,14 @@ def rust_source(trace: Path) -> str:
         "}",
         "",
         f"pub(super) const MAXIMUM_DURABILITY: u8 = {int(boss['maximum_durability']):_};",
+        f"pub(super) const COMPONENT_COUNT: usize = {len(components)};",
         (
             "pub(super) const DEFEAT_TO_EXPLOSION_RETAIL_FRAMES: u16 = "
             f"{defeat_to_explosion:_};"
+        ),
+        (
+            "pub(super) const RETURN_PRESENTATION_RETAIL_FRAMES: u16 = "
+            f"{int(forced_return['observed_return_retail_frames']):_};"
         ),
         f"pub(super) const BODY_SHAPE: ShapeId = ShapeId::from_catalog_index({BODY_CATALOG_INDEX});",
         (
@@ -931,7 +937,7 @@ def rust_source(trace: Path) -> str:
         f"pub(super) const BODY_VELOCITY: Vector3 = {rust_vector(body['velocity'])};",
         "pub(super) const MOVEMENT_CADENCE_RETAIL_FRAMES: [u8; 3] = [7, 7, 8];",
         "",
-        "pub(super) const COMPONENTS: [QueenComponentPlacement; 4] = [",
+        "pub(super) const COMPONENTS: [QueenComponentPlacement; COMPONENT_COUNT] = [",
     ]
     role_names = {
         "leading_left": "LeadingLeft",

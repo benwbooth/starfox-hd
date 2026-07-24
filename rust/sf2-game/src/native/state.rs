@@ -1140,6 +1140,7 @@ pub struct StrategicMapState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrategicEncounter {
     TitaniaBase,
+    MeteorBase,
     SecondBattleCarrier,
     RecurringAttackers,
     LeonPressure,
@@ -1157,6 +1158,7 @@ pub enum MissionVisit {
     PigmaDuel,
     EladardBase,
     TitaniaBase,
+    MeteorBase,
     FirstBattleCarrier,
     SecondBattleCarrier,
     LeonDuel,
@@ -1349,6 +1351,7 @@ pub struct MissionState {
     pub camera_follow_offset: super::object::Vector3,
     pub eladard: EladardMissionState,
     pub titania: TitaniaMissionState,
+    pub meteor: MeteorMissionState,
     pub carrier_assault: CarrierAssaultState,
     pub astropolis: AstropolisMissionState,
 }
@@ -1778,6 +1781,49 @@ pub struct TitaniaMissionState {
     pub phase_started_retail_frame: u16,
     pub surface_switches: [TitaniaSurfaceSwitchStatus; TITANIA_SURFACE_SWITCH_COUNT],
     pub final_switch: TitaniaFinalSwitchStatus,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MeteorPhase {
+    #[default]
+    SurfaceCombat,
+    QueenDestruction,
+    DroppedSwitch,
+    BaseEntry,
+    InteriorApproach,
+    CoreArming,
+    CoreCombat,
+    CoreDestruction,
+    ReturnFlight,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MeteorSwitchStatus {
+    #[default]
+    Hidden,
+    Dropped,
+    Pressed,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MeteorCoreStatus {
+    #[default]
+    Dormant,
+    Triggered,
+    Armed,
+    Active,
+    Destroyed,
+}
+
+/// Flat objective state for Meteor's Queen Dragoon and installation route.
+/// Runtime objects hold their ordinary transforms and durability while this
+/// struct records only mission progression and authored presentation timing.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MeteorMissionState {
+    pub phase: MeteorPhase,
+    pub phase_started_retail_frame: u16,
+    pub surface_switch: MeteorSwitchStatus,
+    pub installation_core: MeteorCoreStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

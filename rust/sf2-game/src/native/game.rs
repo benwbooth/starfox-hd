@@ -20,7 +20,8 @@ use super::object::{
     LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
     PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
     PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
-    ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition, Vector3, WeaponKind,
+    QueenDragoonFlightState, ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition,
+    Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
@@ -34,8 +35,9 @@ use super::state::{
     EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
     FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
     GameOverState, GameState, IntroPhase, MapPoint, MissionMessage, MissionMessageIrisFrame,
-    MissionMessagePhase, MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor,
-    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
+    MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus, MissionMessagePhase,
+    MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
+    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
     StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
@@ -75,6 +77,10 @@ mod leon_pressure;
 mod mirage_dragon;
 #[path = "mirage_dragon_segments.rs"]
 mod mirage_dragon_segments;
+#[path = "meteor_queen_dragoon.rs"]
+mod meteor_queen_dragoon;
+#[path = "meteor_installation_core.rs"]
+mod meteor_installation_core;
 #[path = "missile_interception.rs"]
 mod missile_interception;
 #[path = "missile_interception_targets.rs"]
@@ -1300,6 +1306,27 @@ const TITANIA_FINAL_SWITCH_POSITION: Vector3 = Vector3 {
     y: -56,
     z: 1_000,
 };
+const METEOR_SURFACE_START_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -30,
+    z: -3_157,
+};
+const METEOR_SURFACE_ENTRANCE_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -30,
+    z: 2_800,
+};
+const METEOR_ENTRANCE_HALF_WIDTH: i16 = 384;
+const METEOR_ENTRANCE_HALF_DEPTH: i16 = 384;
+const METEOR_INTERIOR_START_POSITION: Vector3 = Vector3 {
+    x: 1_536,
+    y: -28,
+    z: 6_172,
+};
+const METEOR_CORE_TRIGGER_CENTER_X: i16 = 1_536;
+const METEOR_CORE_TRIGGER_HALF_WIDTH: i16 = 512;
+const METEOR_CORE_TRIGGER_MINIMUM_Z: i16 = 7_000;
+const METEOR_QUEEN_ATTACK_POWER: u8 = 18;
 const SECOND_SORTIE_DEFEATED_TARGET_RETAIL_FRAME: u16 = 6_104;
 const FIRST_RETURN_PRIMARY_SHIELD: u8 = 32;
 const FIRST_RETURN_WINGMATE_SHIELD: u8 = 16;
@@ -1313,6 +1340,7 @@ const PIGMA_DUEL_DESTINATION: MapPoint = MapPoint { x: 135, y: 119 };
 const ELADARD_BASE_DESTINATION: MapPoint = MapPoint { x: 16, y: 14 };
 const POST_ELADARD_RECOMMENDED_DESTINATION: MapPoint = MapPoint { x: 50, y: 90 };
 const TITANIA_BASE_DESTINATION: MapPoint = MapPoint { x: 208, y: 110 };
+const METEOR_BASE_DESTINATION: MapPoint = MapPoint { x: 128, y: 88 };
 const SECOND_BATTLE_CARRIER_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
 const LEON_DUEL_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
 const MIRAGE_DRAGON_DESTINATION: MapPoint = MapPoint { x: 54, y: 123 };
@@ -5246,6 +5274,14 @@ pub struct Game {
     mirage_dragon: Option<ObjectId>,
     mirage_dragon_body: [Option<ObjectId>; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
     mirage_dragon_tail: Option<ObjectId>,
+    meteor_queen_body: Option<ObjectId>,
+    meteor_queen_components:
+        [Option<ObjectId>; meteor_queen_dragoon::COMPONENT_COUNT],
+    meteor_queen_debris: [Option<ObjectId>; meteor_queen_dragoon::COMPONENT_COUNT],
+    meteor_surface_switch: Option<ObjectId>,
+    meteor_installation_parent: Option<ObjectId>,
+    meteor_installation_core: Option<ObjectId>,
+    meteor_core_cosmetic: Option<ObjectId>,
     eladard_surface_barriers: [Option<ObjectId>; ELADARD_SURFACE_BARRIER_COUNT],
     eladard_interior_scenery: [Option<ObjectId>; ELADARD_INTERIOR_STATIC_OBJECT_COUNT],
     eladard_interior_defenders: [Option<ObjectId>; ELADARD_INTERIOR_DEFENDER_COUNT],
@@ -5306,6 +5342,13 @@ impl Game {
             mirage_dragon: None,
             mirage_dragon_body: [None; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
             mirage_dragon_tail: None,
+            meteor_queen_body: None,
+            meteor_queen_components: [None; meteor_queen_dragoon::COMPONENT_COUNT],
+            meteor_queen_debris: [None; meteor_queen_dragoon::COMPONENT_COUNT],
+            meteor_surface_switch: None,
+            meteor_installation_parent: None,
+            meteor_installation_core: None,
+            meteor_core_cosmetic: None,
             eladard_surface_barriers: [None; ELADARD_SURFACE_BARRIER_COUNT],
             eladard_interior_scenery: [None; ELADARD_INTERIOR_STATIC_OBJECT_COUNT],
             eladard_interior_defenders: [None; ELADARD_INTERIOR_DEFENDER_COUNT],
@@ -5479,7 +5522,10 @@ impl Game {
     fn player_transformation_allowed(&self) -> bool {
         matches!(
             self.state.mission.visit,
-            MissionVisit::EladardBase | MissionVisit::TitaniaBase | MissionVisit::AstropolisAssault
+            MissionVisit::EladardBase
+                | MissionVisit::TitaniaBase
+                | MissionVisit::MeteorBase
+                | MissionVisit::AstropolisAssault
         ) && self.state.mission.phase == MissionPhase::Active
     }
 
@@ -6055,6 +6101,10 @@ impl Game {
                 == PlanetObjectiveStatus::Occupied
             {
                 Some((StrategicEncounter::TitaniaBase, TITANIA_BASE_DESTINATION))
+            } else if self.state.campaign.objectives.planets.meteor
+                == PlanetObjectiveStatus::Occupied
+            {
+                Some((StrategicEncounter::MeteorBase, METEOR_BASE_DESTINATION))
             } else if self.state.campaign.objectives.second_carrier
                 == CarrierObjectiveStatus::Operational
             {
@@ -6096,6 +6146,7 @@ impl Game {
             CampaignRouteStep::StrategicPressure => {
                 match self.state.strategic_map.selected_encounter {
                     Some(StrategicEncounter::TitaniaBase) => self.begin_titania_sortie(),
+                    Some(StrategicEncounter::MeteorBase) => self.begin_meteor_sortie(),
                     Some(StrategicEncounter::SecondBattleCarrier) => {
                         self.begin_carrier_assault(MissionVisit::SecondBattleCarrier)
                     }
@@ -6513,6 +6564,36 @@ impl Game {
         Ok(())
     }
 
+    fn begin_meteor_sortie(&mut self) -> Result<(), Error> {
+        let primary_id = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
+        self.state.mission.meteor = MeteorMissionState::default();
+        self.state.mission.objects_destroyed = 0;
+        self.spawn_meteor_surface_scene()?;
+        self.start_sortie(MissionVisit::MeteorBase, primary_id, wingmate_id);
+        self.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        self.apply_player_craft_presentation(primary_id, PlayerCraftPresentation::Walker);
+        if let Some(primary) = self.state.objects.get_mut(primary_id) {
+            primary.base.position = METEOR_SURFACE_START_POSITION;
+            primary.base.velocity = Vector3::default();
+            primary.base.pitch = Angle::ZERO;
+            primary.base.yaw = Angle::ZERO;
+            primary.base.roll = Angle::ZERO;
+            primary.base.speed = 0;
+            primary.base.flags.visible = false;
+            primary.base.flags.collision_disabled = true;
+        }
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
+            wingmate.base.flags.visible = false;
+            wingmate.base.flags.collision_disabled = true;
+        }
+        Ok(())
+    }
+
     fn begin_carrier_assault(&mut self, visit: MissionVisit) -> Result<(), Error> {
         debug_assert!(matches!(
             visit,
@@ -6644,6 +6725,7 @@ impl Game {
             }
             MissionVisit::AstropolisAssault => self.update_astropolis_assault(),
             MissionVisit::TitaniaBase => self.update_titania_base(),
+            MissionVisit::MeteorBase => self.update_meteor_base(),
             MissionVisit::EladardBase => self.update_eladard_base(),
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
                 self.update_carrier_assault()
@@ -8764,6 +8846,497 @@ impl Game {
         true
     }
 
+    fn update_meteor_base(&mut self) -> Result<(), Error> {
+        self.state.mission.active = true;
+        let retail_frame = self
+            .state
+            .mode_frame
+            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            .min(u32::from(u16::MAX)) as u16;
+        self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
+
+        match self.state.mission.phase {
+            MissionPhase::Loading if self.state.mode_frame >= MISSION_STAGE_LOAD_TICKS => {
+                self.state.mission.phase = MissionPhase::EntryCinematic;
+            }
+            MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
+                self.state.mission.phase = MissionPhase::Active;
+            }
+            MissionPhase::ReturningToStrategicMap
+                if retail_frame
+                    >= self
+                        .state
+                        .mission
+                        .meteor
+                        .phase_started_retail_frame
+                        .saturating_add(
+                            meteor_queen_dragoon::RETURN_PRESENTATION_RETAIL_FRAMES,
+                        ) =>
+            {
+                self.finish_sortie();
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        if self.state.mission.phase == MissionPhase::Active {
+            match self.state.mission.meteor.phase {
+                MeteorPhase::SurfaceCombat => {
+                    self.update_meteor_queen_movement();
+                    if self.meteor_queen_defeated() {
+                        self.enter_meteor_phase(
+                            MeteorPhase::QueenDestruction,
+                            retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                        );
+                    }
+                }
+                MeteorPhase::QueenDestruction
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .meteor
+                            .phase_started_retail_frame
+                            .saturating_add(
+                                meteor_queen_dragoon::DEFEAT_TO_EXPLOSION_RETAIL_FRAMES,
+                            ) =>
+                {
+                    self.finish_meteor_queen_destruction(retail_frame)?;
+                }
+                MeteorPhase::DroppedSwitch => {
+                    if self.activate_meteor_surface_switch() {
+                        self.state
+                            .campaign
+                            .objectives
+                            .planets
+                            .rescue(CampaignWorld::Meteor);
+                        self.enter_meteor_phase(MeteorPhase::BaseEntry, retail_frame);
+                    }
+                }
+                MeteorPhase::BaseEntry if self.meteor_player_can_enter_base() => {
+                    self.enter_meteor_interior(retail_frame)?;
+                }
+                MeteorPhase::InteriorApproach if self.meteor_core_trigger_reached() => {
+                    self.enter_meteor_phase(MeteorPhase::CoreArming, retail_frame);
+                }
+                MeteorPhase::CoreArming => {
+                    let elapsed = retail_frame
+                        .saturating_sub(self.state.mission.meteor.phase_started_retail_frame);
+                    self.state.mission.meteor.installation_core =
+                        if elapsed >= meteor_installation_core::ACTIVE_RETAIL_FRAME {
+                            MeteorCoreStatus::Active
+                        } else if elapsed >= meteor_installation_core::TRIGGER_ARMED_RETAIL_FRAME {
+                            MeteorCoreStatus::Armed
+                        } else if elapsed >= meteor_installation_core::TRIGGER_PARTIAL_RETAIL_FRAME {
+                            MeteorCoreStatus::Triggered
+                        } else {
+                            MeteorCoreStatus::Dormant
+                        };
+                    if self.state.mission.meteor.installation_core == MeteorCoreStatus::Active {
+                        if let Some(core) = self
+                            .meteor_installation_core
+                            .and_then(|id| self.state.objects.get_mut(id))
+                        {
+                            core.base.flags.collision_disabled = false;
+                        }
+                        self.enter_meteor_phase(MeteorPhase::CoreCombat, retail_frame);
+                    }
+                }
+                MeteorPhase::CoreCombat if self.meteor_core_defeated() => {
+                    self.enter_meteor_phase(
+                        MeteorPhase::CoreDestruction,
+                        retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                    );
+                }
+                MeteorPhase::CoreDestruction => {
+                    self.state.mission.meteor.installation_core = MeteorCoreStatus::Destroyed;
+                    let elapsed = retail_frame
+                        .saturating_sub(self.state.mission.meteor.phase_started_retail_frame);
+                    if elapsed >= meteor_installation_core::DEFEAT_TO_OBJECTIVE_RETAIL_FRAMES
+                        && self.meteor_core_cosmetic.is_none()
+                    {
+                        self.spawn_meteor_core_cosmetic()?;
+                    }
+                    if elapsed >= meteor_installation_core::DEFEAT_TO_PARENT_FINAL_RETAIL_FRAMES {
+                        self.enter_meteor_phase(MeteorPhase::ReturnFlight, retail_frame);
+                        self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
+                    }
+                }
+                MeteorPhase::QueenDestruction
+                | MeteorPhase::BaseEntry
+                | MeteorPhase::InteriorApproach
+                | MeteorPhase::CoreCombat
+                | MeteorPhase::ReturnFlight => {}
+            }
+        }
+
+        self.update_meteor_player_presentation(retail_frame);
+        if self.state.mission.phase == MissionPhase::Active
+            && self.state.mission.meteor.phase != MeteorPhase::QueenDestruction
+        {
+            self.update_active_flight(retail_frame, true)?;
+        }
+        Ok(())
+    }
+
+    fn enter_meteor_phase(&mut self, phase: MeteorPhase, retail_frame: u16) {
+        self.state.mission.meteor.phase = phase;
+        self.state.mission.meteor.phase_started_retail_frame = retail_frame;
+    }
+
+    fn update_meteor_player_presentation(&mut self, retail_frame: u16) {
+        let visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
+        let collision_disabled = self.state.mission.phase != MissionPhase::Active
+            || matches!(
+                self.state.mission.meteor.phase,
+                MeteorPhase::QueenDestruction | MeteorPhase::ReturnFlight
+            );
+        if let Some(primary) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            primary.base.flags.visible = visible;
+            primary.base.flags.collision_disabled = collision_disabled;
+        }
+    }
+
+    fn clear_meteor_scene(&mut self) {
+        for object in [
+            &mut self.meteor_queen_body,
+            &mut self.meteor_surface_switch,
+            &mut self.meteor_installation_parent,
+            &mut self.meteor_installation_core,
+            &mut self.meteor_core_cosmetic,
+        ] {
+            if let Some(id) = object.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        for slot in self
+            .meteor_queen_components
+            .iter_mut()
+            .chain(self.meteor_queen_debris.iter_mut())
+        {
+            if let Some(id) = slot.take() {
+                self.state.objects.remove(id);
+            }
+        }
+    }
+
+    fn spawn_meteor_surface_scene(&mut self) -> Result<(), Error> {
+        self.clear_meteor_scene();
+        let mut body = Object::new(
+            ObjectKind::Enemy,
+            meteor_queen_dragoon::BODY_SHAPE,
+            Behavior::EnemyFlight,
+        );
+        body.base.position = meteor_queen_dragoon::INITIAL_BODY_POSITION;
+        body.base.yaw = meteor_queen_dragoon::INITIAL_BODY_YAW;
+        body.base.speed = meteor_queen_dragoon::BODY_SPEED;
+        body.base.velocity = meteor_queen_dragoon::BODY_VELOCITY;
+        body.base.hit_points = meteor_queen_dragoon::MAXIMUM_DURABILITY;
+        body.base.attack_power = METEOR_QUEEN_ATTACK_POWER;
+        body.base.collision_class = CollisionClass::Enemy;
+        body.base.flags.casts_shadow = false;
+        body.extension.activity = ObjectActivity::QueenDragoonFlight(QueenDragoonFlightState {
+            retail_frame_credit: 0,
+            cadence_index: 0,
+        });
+        let body_id = self
+            .state
+            .objects
+            .allocate(body)
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.meteor_queen_body = Some(body_id);
+
+        for (index, placement) in meteor_queen_dragoon::COMPONENTS.into_iter().enumerate() {
+            let expected_index = match placement.role {
+                meteor_queen_dragoon::QueenComponentRole::LeadingLeft => 0,
+                meteor_queen_dragoon::QueenComponentRole::LeadingRight => 1,
+                meteor_queen_dragoon::QueenComponentRole::TrailingLeft => 2,
+                meteor_queen_dragoon::QueenComponentRole::TrailingRight => 3,
+            };
+            debug_assert_eq!(index, expected_index);
+            let mut component = Object::new(ObjectKind::Enemy, placement.shape, Behavior::Effect);
+            component.base.position = add_vectors(
+                meteor_queen_dragoon::INITIAL_BODY_POSITION,
+                placement.offset,
+            );
+            component.base.yaw = meteor_queen_dragoon::INITIAL_BODY_YAW
+                .wrapping_add(placement.yaw_offset);
+            component.base.linked_object = Some(body_id);
+            component.base.flags.collision_disabled = true;
+            component.base.flags.casts_shadow = false;
+            self.meteor_queen_components[index] = Some(
+                self.state
+                    .objects
+                    .allocate(component)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+        Ok(())
+    }
+
+    fn update_meteor_queen_movement(&mut self) {
+        let Some(body_id) = self.meteor_queen_body else {
+            return;
+        };
+        let Some(body) = self.state.objects.get_mut(body_id) else {
+            return;
+        };
+        if body.base.hit_points == 0 || body.base.flags.collision_disabled {
+            return;
+        }
+        let ObjectActivity::QueenDragoonFlight(mut flight) = body.extension.activity else {
+            return;
+        };
+        flight.retail_frame_credit = flight
+            .retail_frame_credit
+            .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
+        let cadence = meteor_queen_dragoon::MOVEMENT_CADENCE_RETAIL_FRAMES
+            [usize::from(flight.cadence_index)];
+        if flight.retail_frame_credit >= cadence {
+            flight.retail_frame_credit -= cadence;
+            flight.cadence_index = (flight.cadence_index + 1)
+                % meteor_queen_dragoon::MOVEMENT_CADENCE_RETAIL_FRAMES.len() as u8;
+            body.base.position = add_vectors(body.base.position, body.base.velocity);
+        }
+        body.extension.activity = ObjectActivity::QueenDragoonFlight(flight);
+        let body_position = body.base.position;
+        let body_yaw = body.base.yaw;
+        for (index, placement) in meteor_queen_dragoon::COMPONENTS.into_iter().enumerate() {
+            let Some(component) = self.meteor_queen_components[index]
+                .and_then(|id| self.state.objects.get_mut(id))
+            else {
+                continue;
+            };
+            component.base.position = add_vectors(body_position, placement.offset);
+            component.base.yaw = body_yaw.wrapping_add(placement.yaw_offset);
+        }
+    }
+
+    fn meteor_queen_defeated(&self) -> bool {
+        self.meteor_queen_body
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|body| body.base.hit_points == 0)
+    }
+
+    fn finish_meteor_queen_destruction(&mut self, retail_frame: u16) -> Result<(), Error> {
+        let switch_position = self
+            .meteor_queen_body
+            .and_then(|id| self.state.objects.get(id))
+            .map(|body| Vector3 {
+                x: body.base.position.x,
+                y: 0,
+                z: body.base.position.z,
+            })
+            .unwrap_or(meteor_queen_dragoon::INITIAL_BODY_POSITION);
+        if let Some(body) = self
+            .meteor_queen_body
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            body.base.shape = meteor_queen_dragoon::BODY_EXPLOSION_SHAPE;
+            body.base.kind = ObjectKind::Effect;
+            body.base.velocity = Vector3::default();
+        }
+        for index in 0..meteor_queen_dragoon::COMPONENT_COUNT {
+            let Some(component_id) = self.meteor_queen_components[index] else {
+                continue;
+            };
+            let component_position = self
+                .state
+                .objects
+                .get(component_id)
+                .map(|component| component.base.position)
+                .unwrap_or(switch_position);
+            if let Some(component) = self.state.objects.get_mut(component_id) {
+                component.base.shape = meteor_queen_dragoon::COMPONENT_BURST_SHAPE;
+                component.base.kind = ObjectKind::Effect;
+            }
+            let mut debris = Object::new(
+                ObjectKind::Effect,
+                meteor_queen_dragoon::COMPONENT_DEBRIS_SHAPE,
+                Behavior::Effect,
+            );
+            debris.base.position = component_position;
+            debris.base.flags.collision_disabled = true;
+            debris.base.flags.casts_shadow = false;
+            self.meteor_queen_debris[index] = Some(
+                self.state
+                    .objects
+                    .allocate(debris)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+        let mut surface_switch = Object::new(
+            ObjectKind::Scenery,
+            meteor_queen_dragoon::DROPPED_SWITCH_SHAPE,
+            Behavior::Effect,
+        );
+        surface_switch.base.position = switch_position;
+        surface_switch.base.collision_class = CollisionClass::Scenery;
+        self.meteor_surface_switch = Some(
+            self.state
+                .objects
+                .allocate(surface_switch)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.meteor.surface_switch = MeteorSwitchStatus::Dropped;
+        self.enter_meteor_phase(MeteorPhase::DroppedSwitch, retail_frame);
+        Ok(())
+    }
+
+    fn meteor_player_touches(&self, target: ObjectId) -> bool {
+        if self.state.mission.player_craft_form != PlayerCraftForm::Walker {
+            return false;
+        }
+        let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+        else {
+            return false;
+        };
+        let Some(target) = self.state.objects.get(target) else {
+            return false;
+        };
+        !player.base.flags.collision_disabled
+            && !target.base.flags.collision_disabled
+            && objects_overlap(player, target)
+    }
+
+    fn activate_meteor_surface_switch(&mut self) -> bool {
+        if self.state.mission.meteor.surface_switch != MeteorSwitchStatus::Dropped {
+            return false;
+        }
+        let Some(surface_switch) = self.meteor_surface_switch else {
+            return false;
+        };
+        if !self.meteor_player_touches(surface_switch) {
+            return false;
+        }
+        self.state.mission.meteor.surface_switch = MeteorSwitchStatus::Pressed;
+        if let Some(object) = self.state.objects.get_mut(surface_switch) {
+            object.base.shape = meteor_queen_dragoon::PRESSED_SWITCH_SHAPE;
+            object.base.flags.collision_disabled = true;
+        }
+        true
+    }
+
+    fn meteor_player_position(&self) -> Option<Vector3> {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position)
+    }
+
+    fn meteor_player_can_enter_base(&self) -> bool {
+        let Some(position) = self.meteor_player_position() else {
+            return false;
+        };
+        self.state.mission.meteor.surface_switch == MeteorSwitchStatus::Pressed
+            && position.x.abs_diff(METEOR_SURFACE_ENTRANCE_POSITION.x)
+                <= METEOR_ENTRANCE_HALF_WIDTH as u16
+            && position.z.abs_diff(METEOR_SURFACE_ENTRANCE_POSITION.z)
+                <= METEOR_ENTRANCE_HALF_DEPTH as u16
+    }
+
+    fn enter_meteor_interior(&mut self, retail_frame: u16) -> Result<(), Error> {
+        self.clear_meteor_scene();
+        self.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        self.state.mission.player_walker = Default::default();
+        if let Some(primary_id) = self.state.mission.primary_player {
+            self.apply_player_craft_presentation(primary_id, PlayerCraftPresentation::Walker);
+        }
+        for craft in [
+            self.state.mission.primary_player,
+            self.state.mission.wingmate,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(object) = self.state.objects.get_mut(craft) {
+                object.base.position = METEOR_INTERIOR_START_POSITION;
+                object.base.velocity = Vector3::default();
+                object.base.pitch = Angle::ZERO;
+                object.base.yaw = Angle::ZERO;
+                object.base.roll = Angle::ZERO;
+            }
+        }
+        self.spawn_meteor_installation()?;
+        self.enter_meteor_phase(MeteorPhase::InteriorApproach, retail_frame);
+        Ok(())
+    }
+
+    fn spawn_meteor_installation(&mut self) -> Result<(), Error> {
+        let mut parent = Object::new(
+            ObjectKind::Scenery,
+            meteor_installation_core::PARENT_SHAPE,
+            Behavior::Effect,
+        );
+        parent.base.position = meteor_installation_core::PARENT_POSITION;
+        parent.base.flags.collision_disabled = true;
+        self.meteor_installation_parent = Some(
+            self.state
+                .objects
+                .allocate(parent)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut core = Object::new(
+            ObjectKind::Enemy,
+            meteor_installation_core::CORE_SHAPE,
+            Behavior::Effect,
+        );
+        core.base.position = meteor_installation_core::CORE_POSITION;
+        core.base.hit_points = meteor_installation_core::MAXIMUM_DURABILITY;
+        core.base.collision_class = CollisionClass::Enemy;
+        core.base.flags.collision_disabled = true;
+        self.meteor_installation_core = Some(
+            self.state
+                .objects
+                .allocate(core)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
+    fn meteor_core_trigger_reached(&self) -> bool {
+        self.meteor_player_position().is_some_and(|position| {
+            position.x.abs_diff(METEOR_CORE_TRIGGER_CENTER_X)
+                <= METEOR_CORE_TRIGGER_HALF_WIDTH as u16
+                && position.z >= METEOR_CORE_TRIGGER_MINIMUM_Z
+        })
+    }
+
+    fn meteor_core_defeated(&self) -> bool {
+        self.meteor_installation_core
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|core| core.base.hit_points == 0)
+    }
+
+    fn spawn_meteor_core_cosmetic(&mut self) -> Result<(), Error> {
+        let mut cosmetic = Object::new(
+            ObjectKind::Effect,
+            meteor_installation_core::CORE_SHAPE,
+            Behavior::Effect,
+        );
+        cosmetic.base.position = meteor_installation_core::CORE_POSITION;
+        cosmetic.base.flags.collision_disabled = true;
+        cosmetic.base.flags.casts_shadow = false;
+        self.meteor_core_cosmetic = Some(
+            self.state
+                .objects
+                .allocate(cosmetic)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
     fn update_carrier_assault(&mut self) -> Result<(), Error> {
         self.state.mission.active = true;
         let retail_frame = self
@@ -9917,6 +10490,7 @@ impl Game {
     fn clear_sortie_runtime(&mut self) {
         self.clear_eladard_scene();
         self.clear_titania_scene();
+        self.clear_meteor_scene();
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
         for projectile in self.mission_projectiles.drain(..) {
@@ -10023,6 +10597,13 @@ impl Game {
                     .objectives
                     .planets
                     .rescue(CampaignWorld::Titania);
+            }
+            MissionVisit::MeteorBase => {
+                self.state
+                    .campaign
+                    .objectives
+                    .planets
+                    .rescue(CampaignWorld::Meteor);
             }
             MissionVisit::FirstBattleCarrier => {
                 self.state.campaign.objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
@@ -10166,6 +10747,10 @@ impl Game {
                         == PlanetObjectiveStatus::Occupied
                     {
                         TITANIA_BASE_DESTINATION
+                    } else if self.state.campaign.objectives.planets.meteor
+                        == PlanetObjectiveStatus::Occupied
+                    {
+                        METEOR_BASE_DESTINATION
                     } else if self.state.campaign.objectives.second_carrier
                         == CarrierObjectiveStatus::Operational
                     {
@@ -10192,6 +10777,12 @@ impl Game {
                     == PlanetObjectiveStatus::Occupied =>
             {
                 Some(StrategicEncounter::TitaniaBase)
+            }
+            CampaignRouteStep::StrategicPressure
+                if self.state.campaign.objectives.planets.meteor
+                    == PlanetObjectiveStatus::Occupied =>
+            {
+                Some(StrategicEncounter::MeteorBase)
             }
             CampaignRouteStep::StrategicPressure
                 if self.state.campaign.objectives.second_carrier
@@ -13084,7 +13675,7 @@ impl Game {
             MissionVisit::FinalPursuer => final_pursuer::RETURN_RETAIL_FRAME,
             MissionVisit::WolfBlockade => wolf_blockade::RETURN_RETAIL_FRAME,
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
-            MissionVisit::TitaniaBase => u16::MAX,
+            MissionVisit::TitaniaBase | MissionVisit::MeteorBase => u16::MAX,
             MissionVisit::EladardBase => u16::MAX,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => u16::MAX,
         };
@@ -13117,6 +13708,7 @@ impl Game {
                     self.update_astropolis_presentation(retail_frame)
                 }
                 MissionVisit::TitaniaBase
+                | MissionVisit::MeteorBase
                 | MissionVisit::EladardBase
                 | MissionVisit::FirstBattleCarrier
                 | MissionVisit::SecondBattleCarrier => {}
@@ -13782,6 +14374,10 @@ impl Game {
                     .position(|proxy| *proxy == Some(enemy_id))
             })
             .flatten();
+            let meteor_objective = raw_damage > 0
+                && self.state.mission.visit == MissionVisit::MeteorBase
+                && (self.meteor_queen_body == Some(enemy_id)
+                    || self.meteor_installation_core == Some(enemy_id));
 
             if let Some(weapon) = self.state.objects.get_mut(weapon_id) {
                 weapon.base.flags.visible = false;
@@ -13795,6 +14391,19 @@ impl Game {
             }
             if let Some(index) = carrier_panel_proxy {
                 self.damage_carrier_panel_through_proxy(index);
+                continue;
+            }
+            if meteor_objective {
+                if let Some(enemy) = self.state.objects.get_mut(enemy_id) {
+                    enemy.base.flags.collided = true;
+                    if damage >= enemy.base.hit_points {
+                        enemy.base.hit_points = 0;
+                        enemy.base.flags.collision_disabled = true;
+                        enemy.base.velocity = Vector3::default();
+                    } else {
+                        enemy.base.hit_points -= damage;
+                    }
+                }
                 continue;
             }
             let destroyed_health = if self.state.mission.visit == MissionVisit::EladardBase
@@ -13994,6 +14603,7 @@ impl Game {
                 | ObjectActivity::PigmaRivalFlight(_)
                 | ObjectActivity::LeonRivalFlight(_)
                 | ObjectActivity::FinalRivalFlight(_)
+                | ObjectActivity::QueenDragoonFlight(_)
                 | ObjectActivity::EladardDefender(_)
                 | ObjectActivity::CarrierCorridorDefender(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
@@ -25501,6 +26111,248 @@ mod tests {
             game.state().campaign.objectives.astropolis,
             AstropolisStatus::Assaulted
         );
+    }
+
+    #[test]
+    fn meteor_queen_switch_and_installation_core_form_one_native_visit() {
+        fn strike(game: &mut Game, target: ObjectId, damage: u8) {
+            let position = game.state.objects.get(target).unwrap().base.position;
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                Behavior::Projectile,
+            );
+            laser.base.position = position;
+            laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+            laser.base.attack_power = damage;
+            laser.base.weapon = WeaponKind::ChargedLaser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            let laser = game.state.objects.allocate(laser).unwrap();
+            game.resolve_mission_collisions();
+            game.state.objects.remove(laser);
+        }
+
+        fn current_retail_frame(game: &Game) -> u16 {
+            game.state
+                .mode_frame
+                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                .min(u32::from(u16::MAX)) as u16
+        }
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.clear_sortie_runtime();
+        game.state.mode = GameMode::StrategicMap;
+        game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
+        game.state.campaign.objectives.planets.titania = PlanetObjectiveStatus::Rescued;
+        game.state.campaign.objectives.planets.meteor = PlanetObjectiveStatus::Occupied;
+        game.state.strategic_map.phase = StrategicMapPhase::Planning;
+        game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
+        game.state.strategic_map.destination = INITIAL_PLAYER_MAP_POSITION;
+        game.tick(Button::Down as u16).unwrap();
+        assert_eq!(
+            game.state.strategic_map.selected_encounter,
+            Some(StrategicEncounter::MeteorBase)
+        );
+        assert_eq!(
+            game.state.strategic_map.destination,
+            METEOR_BASE_DESTINATION
+        );
+        game.tick(0).unwrap();
+        game.tick(Button::B as u16).unwrap();
+
+        assert_eq!(game.mission(), Some(MissionVisit::MeteorBase));
+        assert_eq!(game.state.mission.player_craft_form, PlayerCraftForm::Walker);
+        assert_eq!(game.state.mission.meteor, MeteorMissionState::default());
+        let queen = game.meteor_queen_body.expect("Queen body is allocated");
+        let body = game.state.objects.get(queen).unwrap();
+        assert_eq!(body.base.shape, meteor_queen_dragoon::BODY_SHAPE);
+        assert_eq!(body.base.position, meteor_queen_dragoon::INITIAL_BODY_POSITION);
+        assert_eq!(body.base.yaw, meteor_queen_dragoon::INITIAL_BODY_YAW);
+        assert_eq!(body.base.speed, meteor_queen_dragoon::BODY_SPEED);
+        assert_eq!(body.base.velocity, meteor_queen_dragoon::BODY_VELOCITY);
+        assert_eq!(body.base.hit_points, meteor_queen_dragoon::MAXIMUM_DURABILITY);
+        for (component, placement) in game
+            .meteor_queen_components
+            .into_iter()
+            .zip(meteor_queen_dragoon::COMPONENTS)
+        {
+            let component = game
+                .state
+                .objects
+                .get(component.expect("all linked Queen components are allocated"))
+                .unwrap();
+            assert_eq!(component.base.shape, placement.shape);
+            assert_eq!(
+                component.base.position,
+                add_vectors(meteor_queen_dragoon::INITIAL_BODY_POSITION, placement.offset)
+            );
+            assert_eq!(
+                component.base.yaw,
+                meteor_queen_dragoon::INITIAL_BODY_YAW.wrapping_add(placement.yaw_offset)
+            );
+            assert_eq!(component.base.linked_object, Some(queen));
+        }
+
+        game.state.mission.phase = MissionPhase::Active;
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.objects.get(queen).unwrap().base.position,
+            meteor_queen_dragoon::INITIAL_BODY_POSITION
+        );
+        game.tick(0).unwrap();
+        let moved_position = add_vectors(
+            meteor_queen_dragoon::INITIAL_BODY_POSITION,
+            meteor_queen_dragoon::BODY_VELOCITY,
+        );
+        assert_eq!(game.state.objects.get(queen).unwrap().base.position, moved_position);
+        for (component, placement) in game
+            .meteor_queen_components
+            .into_iter()
+            .zip(meteor_queen_dragoon::COMPONENTS)
+        {
+            assert_eq!(
+                game.state
+                    .objects
+                    .get(component.unwrap())
+                    .unwrap()
+                    .base
+                    .position,
+                add_vectors(moved_position, placement.offset)
+            );
+        }
+
+        strike(&mut game, queen, meteor_queen_dragoon::MAXIMUM_DURABILITY);
+        assert_eq!(game.state.objects.get(queen).unwrap().base.hit_points, 0);
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::QueenDestruction);
+        let destruction_start = game.state.mission.meteor.phase_started_retail_frame;
+        while current_retail_frame(&game)
+            < destruction_start
+                .saturating_add(meteor_queen_dragoon::DEFEAT_TO_EXPLOSION_RETAIL_FRAMES)
+        {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::DroppedSwitch);
+        assert_eq!(
+            game.state.objects.get(queen).unwrap().base.shape,
+            meteor_queen_dragoon::BODY_EXPLOSION_SHAPE
+        );
+        assert_eq!(
+            game.meteor_queen_components.map(|component| game
+                .state
+                .objects
+                .get(component.unwrap())
+                .unwrap()
+                .base
+                .shape),
+            [meteor_queen_dragoon::COMPONENT_BURST_SHAPE;
+                meteor_queen_dragoon::COMPONENT_COUNT]
+        );
+        assert!(game.meteor_queen_debris.iter().all(Option::is_some));
+
+        let surface_switch = game
+            .meteor_surface_switch
+            .expect("Queen destruction drops the surface switch");
+        let switch_position = game.state.objects.get(surface_switch).unwrap().base.position;
+        let player = game.state.mission.primary_player.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position = switch_position;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::BaseEntry);
+        assert_eq!(
+            game.state.mission.meteor.surface_switch,
+            MeteorSwitchStatus::Pressed
+        );
+        assert_eq!(
+            game.state.objects.get(surface_switch).unwrap().base.shape,
+            meteor_queen_dragoon::PRESSED_SWITCH_SHAPE
+        );
+        assert_eq!(
+            game.state.campaign.objectives.planets.meteor,
+            PlanetObjectiveStatus::Rescued
+        );
+
+        game.state.objects.get_mut(player).unwrap().base.position =
+            METEOR_SURFACE_ENTRANCE_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::InteriorApproach);
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            METEOR_INTERIOR_START_POSITION
+        );
+        let core = game
+            .meteor_installation_core
+            .expect("Meteor installation core is allocated");
+        assert_eq!(
+            game.state.objects.get(core).unwrap().base.hit_points,
+            meteor_installation_core::MAXIMUM_DURABILITY
+        );
+        assert!(game.state.objects.get(core).unwrap().base.flags.collision_disabled);
+
+        game.state.objects.get_mut(player).unwrap().base.position = Vector3 {
+            x: METEOR_CORE_TRIGGER_CENTER_X,
+            y: METEOR_INTERIOR_START_POSITION.y,
+            z: METEOR_CORE_TRIGGER_MINIMUM_Z,
+        };
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::CoreArming);
+        let arming_start = game.state.mission.meteor.phase_started_retail_frame;
+        while current_retail_frame(&game)
+            < arming_start.saturating_add(meteor_installation_core::TRIGGER_PARTIAL_RETAIL_FRAME)
+        {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.meteor.installation_core,
+            MeteorCoreStatus::Triggered
+        );
+        while current_retail_frame(&game)
+            < arming_start.saturating_add(meteor_installation_core::TRIGGER_ARMED_RETAIL_FRAME)
+        {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.meteor.installation_core,
+            MeteorCoreStatus::Armed
+        );
+        while game.state.mission.meteor.phase != MeteorPhase::CoreCombat {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.meteor.installation_core,
+            MeteorCoreStatus::Active
+        );
+        assert!(!game.state.objects.get(core).unwrap().base.flags.collision_disabled);
+
+        strike(
+            &mut game,
+            core,
+            meteor_installation_core::MAXIMUM_DURABILITY,
+        );
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::CoreDestruction);
+        let core_defeat_start = game.state.mission.meteor.phase_started_retail_frame;
+        while current_retail_frame(&game)
+            < core_defeat_start
+                .saturating_add(meteor_installation_core::DEFEAT_TO_OBJECTIVE_RETAIL_FRAMES)
+        {
+            game.tick(0).unwrap();
+        }
+        assert!(game.meteor_core_cosmetic.is_some());
+        while game.state.mission.phase != MissionPhase::ReturningToStrategicMap {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::ReturnFlight);
+        while game.mode() == GameMode::Mission {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(
+            game.state.campaign.objectives.planets.meteor,
+            PlanetObjectiveStatus::Rescued
+        );
+        assert!(game.meteor_queen_body.is_none());
+        assert!(game.meteor_installation_core.is_none());
     }
 
     #[test]

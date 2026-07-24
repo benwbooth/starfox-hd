@@ -4,6 +4,7 @@
 # Post-fight transformation SHA-256: 4aa7be1d9a654cb8550ee667c1808bbd5d28c64ce7c98ffb64a0e6fc99df31c0
 # Route scope: these hashes begin from an isolated saved state whose setup ancestry used forced base flags, controller durability, and teleports.
 encounter world=meteor mission_selection=4 encounter_map=4893 parent_shape=EB50 core_shape=EB6C core_maximum_durability=125
+layout parent_catalog_index=427 parent_position=1536,0,7936 core_catalog_index=428 core_position=1536,-152,7936
 scope retail_route_certified=false setup_acceleration=base_flags_controller_durability_and_teleports
 activation input=right_then_forward trigger_partial_retail_frame=167 trigger_armed_retail_frame=475 active_retail_frame=483 waiting_path=5F92 active_path=5FA5
 attack target_object=06F0 oracle_acceleration=health_clamp_and_projectile_reposition starting_durability=3 projectile_retail_frame=104 damage_retail_frame=111 damaged_durability=1 damaged_path=5FCC
