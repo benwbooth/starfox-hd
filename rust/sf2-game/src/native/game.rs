@@ -348,33 +348,19 @@ const CARRIER_RETURN_PRIMARY_SHIELD: u8 = 34;
 const CARRIER_RETURN_WINGMATE_SHIELD: u8 = 13;
 const CARRIER_PANEL_INITIAL_INTEGRITY: u8 = 100;
 const CARRIER_PANEL_DESTROYED_INTEGRITY: u8 = 90;
-const CARRIER_PANEL_AFTER_ONE_HIT: u8 = 98;
-const CARRIER_PANEL_AFTER_TWO_HITS: u8 = 96;
-const CARRIER_PANEL_AFTER_THREE_HITS: u8 = 94;
-const CARRIER_PANEL_AFTER_FOUR_HITS: u8 = 92;
+const CARRIER_PANEL_DAMAGE_PER_HIT: u8 = 2;
 const CARRIER_REACTOR_PANEL_COUNT: u32 = 2;
 const CARRIER_PORT_PANEL_INDEX: usize = 0;
 const CARRIER_STARBOARD_PANEL_INDEX: usize = 1;
-const CARRIER_EXTERIOR_END_RETAIL_FRAME: u16 = 2_084;
-const CARRIER_REACTOR_APPROACH_RETAIL_FRAME: u16 = 5_160;
-const CARRIER_REACTOR_OPEN_RETAIL_FRAME: u16 = 5_390;
-const CARRIER_STARBOARD_FIRST_HIT_RETAIL_FRAME: u16 = 5_110;
-const CARRIER_STARBOARD_THIRD_HIT_RETAIL_FRAME: u16 = 5_220;
-const CARRIER_STARBOARD_FOURTH_HIT_RETAIL_FRAME: u16 = 5_240;
-const CARRIER_STARBOARD_EIGHTH_HIT_RETAIL_FRAME: u16 = 5_405;
-const CARRIER_STARBOARD_FINAL_HIT_RETAIL_FRAME: u16 = 7_620;
-const CARRIER_STARBOARD_DESTROYED_RETAIL_FRAME: u16 = 7_635;
-const CARRIER_PORT_FIRST_HIT_RETAIL_FRAME: u16 = 5_110;
-const CARRIER_PORT_SECOND_HIT_RETAIL_FRAME: u16 = 8_530;
-const CARRIER_PORT_THIRD_HIT_RETAIL_FRAME: u16 = 8_570;
-const CARRIER_PORT_FOURTH_HIT_RETAIL_FRAME: u16 = 8_575;
-const CARRIER_PORT_FINAL_HIT_RETAIL_FRAME: u16 = 8_635;
-const CARRIER_PORT_DESTROYED_RETAIL_FRAME: u16 = 8_650;
-const CARRIER_CORE_DESTROYED_RETAIL_FRAME: u16 = 8_658;
-const CARRIER_RETURN_FLIGHT_RETAIL_FRAME: u16 = 9_200;
-const CARRIER_MAP_READY_RETAIL_FRAME: u16 = 9_822;
-const CARRIER_CORRIDOR_LENGTH: u16 = 12_441;
-const CARRIER_EXTERIOR_CAMERA_HEIGHT: i16 = -20;
+const CARRIER_EXTERIOR_ENTRY_Z: i16 = -5_508;
+const CARRIER_CORRIDOR_REACTOR_TRIGGER_Z: i16 = 11_562;
+const CARRIER_CORRIDOR_LENGTH: u16 =
+    (CARRIER_CORRIDOR_REACTOR_TRIGGER_Z - CARRIER_CORRIDOR_START_POSITION.z) as u16;
+const CARRIER_REACTOR_TRANSFORMATION_Z: i16 = 12_505;
+const CARRIER_REACTOR_ROOM_OPEN_AFTER_TRANSFORMATION_RETAIL_FRAMES: u16 = 40;
+const CARRIER_DESTRUCTION_TRANSFORMATION_DELAY_RETAIL_FRAMES: u16 = 36;
+const CARRIER_DESTRUCTION_TO_RETURN_RETAIL_FRAMES: u16 = 542;
+const CARRIER_RETURN_TO_MAP_RETAIL_FRAMES: u16 = 622;
 const CARRIER_CORRIDOR_CAMERA_HEIGHT: i16 = -160;
 const CARRIER_CORRIDOR_CAMERA_FORWARD_OFFSET: i16 = 700;
 const CARRIER_EXTERIOR_START_POSITION: Vector3 = Vector3 {
@@ -382,15 +368,20 @@ const CARRIER_EXTERIOR_START_POSITION: Vector3 = Vector3 {
     y: 0,
     z: -16_860,
 };
-const CARRIER_EXTERIOR_ENTRY_POSITION: Vector3 = Vector3 {
-    x: -1_619,
-    y: 0,
-    z: -5_508,
-};
 const CARRIER_CORRIDOR_START_POSITION: Vector3 = Vector3 {
     x: 1_280,
     y: -120,
     z: 64,
+};
+const CARRIER_REACTOR_APPROACH_START_POSITION: Vector3 = Vector3 {
+    x: CARRIER_CORRIDOR_START_POSITION.x,
+    y: CARRIER_CORRIDOR_START_POSITION.y,
+    z: CARRIER_CORRIDOR_REACTOR_TRIGGER_Z,
+};
+const CARRIER_REACTOR_TRANSFORMATION_POSITION: Vector3 = Vector3 {
+    x: CARRIER_CORRIDOR_START_POSITION.x,
+    y: CARRIER_CORRIDOR_START_POSITION.y,
+    z: CARRIER_REACTOR_TRANSFORMATION_Z,
 };
 const CARRIER_REACTOR_PLAYER_POSITION: Vector3 = Vector3 {
     x: 1_280,
@@ -5845,9 +5836,10 @@ impl Game {
             .primary_player
             .ok_or(Error::ObjectCapacityReached)?;
         let wingmate_id = self.state.mission.wingmate;
+        let flight_shape = self.primary_flight_craft_shape();
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
-            primary.base.shape = ShapeId::CARRIER_ASSAULT_CRAFT;
-            primary.base.position = Vector3::default();
+            primary.base.shape = flight_shape;
+            primary.base.position = CARRIER_EXTERIOR_START_POSITION;
             primary.base.velocity = Vector3::default();
             primary.base.pitch = Angle::ZERO;
             primary.base.yaw = Angle::ZERO;
@@ -5866,6 +5858,7 @@ impl Game {
             phase_started_retail_frame: 0,
             corridor_progress: 0,
             reactor_room_open: false,
+            room_entry_transformation_started_retail_frame: None,
             port_panel: CarrierReactorPanel {
                 integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                 active: true,
@@ -5878,6 +5871,12 @@ impl Game {
         self.state.mission.objects_destroyed = 0;
         self.spawn_carrier_exterior_scene()?;
         self.start_sortie(visit, primary_id, wingmate_id);
+        // Retail flight advances continuously during both the exterior
+        // approach and the central rail corridor. Carrier sorties therefore
+        // begin in native flight dynamics instead of the sampled neutral-path
+        // presentation used by the certified opening encounters.
+        self.state.mission.departed_certified_neutral_path = true;
+        self.state.mission.player_flight.yaw_accumulator = 0;
         Ok(())
     }
 
@@ -7337,11 +7336,14 @@ impl Game {
             MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
                 self.state.mission.phase = MissionPhase::Active;
             }
-            MissionPhase::Active if retail_frame >= CARRIER_RETURN_FLIGHT_RETAIL_FRAME => {
-                self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
-            }
             MissionPhase::ReturningToStrategicMap
-                if retail_frame >= CARRIER_MAP_READY_RETAIL_FRAME =>
+                if retail_frame
+                    >= self
+                        .state
+                        .mission
+                        .carrier_assault
+                        .phase_started_retail_frame
+                        .saturating_add(CARRIER_RETURN_TO_MAP_RETAIL_FRAMES) =>
             {
                 self.finish_sortie();
                 return Ok(());
@@ -7349,121 +7351,41 @@ impl Game {
             _ => {}
         }
 
-        let next_phase = if retail_frame >= CARRIER_RETURN_FLIGHT_RETAIL_FRAME {
-            CarrierAssaultPhase::ReturnFlight
-        } else if retail_frame >= CARRIER_CORE_DESTROYED_RETAIL_FRAME {
-            CarrierAssaultPhase::CoreDestruction
-        } else if retail_frame >= CARRIER_REACTOR_OPEN_RETAIL_FRAME {
-            CarrierAssaultPhase::ReactorCombat
-        } else if retail_frame >= CARRIER_REACTOR_APPROACH_RETAIL_FRAME {
-            CarrierAssaultPhase::ReactorApproach
-        } else if retail_frame >= CARRIER_EXTERIOR_END_RETAIL_FRAME {
-            CarrierAssaultPhase::InteriorCorridor
-        } else {
-            CarrierAssaultPhase::ExteriorApproach
-        };
-        let previous_phase = self.state.mission.carrier_assault.phase;
-        if previous_phase != next_phase {
-            match next_phase {
-                CarrierAssaultPhase::InteriorCorridor => self.spawn_carrier_corridor_scene()?,
-                CarrierAssaultPhase::ReactorCombat => {
-                    self.spawn_carrier_reactor_scene()?;
-                    self.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        self.sync_carrier_objectives();
+        if self.state.mission.phase == MissionPhase::Active {
+            match self.state.mission.carrier_assault.phase {
+                CarrierAssaultPhase::ExteriorApproach
+                    if self
+                        .carrier_player_position()
+                        .is_some_and(|position| position.z >= CARRIER_EXTERIOR_ENTRY_Z) =>
+                {
+                    self.enter_carrier_corridor(retail_frame)?;
                 }
-                CarrierAssaultPhase::ReturnFlight => {
-                    self.state.mission.player_craft_form = PlayerCraftForm::Flight;
+                CarrierAssaultPhase::InteriorCorridor
+                    if self
+                        .carrier_player_position()
+                        .is_some_and(|position| {
+                            position.z >= CARRIER_CORRIDOR_REACTOR_TRIGGER_Z
+                        }) =>
+                {
+                    self.enter_carrier_reactor_approach(retail_frame);
+                }
+                CarrierAssaultPhase::ReactorCombat if self.carrier_panels_destroyed() => {
+                    self.enter_carrier_phase(CarrierAssaultPhase::CoreDestruction, retail_frame);
                 }
                 CarrierAssaultPhase::ExteriorApproach
+                | CarrierAssaultPhase::InteriorCorridor
                 | CarrierAssaultPhase::ReactorApproach
-                | CarrierAssaultPhase::CoreDestruction => {}
+                | CarrierAssaultPhase::ReactorCombat
+                | CarrierAssaultPhase::CoreDestruction
+                | CarrierAssaultPhase::ReturnFlight => {}
             }
-            self.state.mission.carrier_assault.phase = next_phase;
-            self.state
-                .mission
-                .carrier_assault
-                .phase_started_retail_frame = retail_frame;
         }
-
-        let corridor_progress = if retail_frame <= CARRIER_EXTERIOR_END_RETAIL_FRAME {
-            0
-        } else if retail_frame >= CARRIER_REACTOR_OPEN_RETAIL_FRAME {
-            CARRIER_CORRIDOR_LENGTH
-        } else {
-            let elapsed = u32::from(retail_frame.saturating_sub(CARRIER_EXTERIOR_END_RETAIL_FRAME));
-            let duration =
-                u32::from(CARRIER_REACTOR_OPEN_RETAIL_FRAME - CARRIER_EXTERIOR_END_RETAIL_FRAME);
-            ((elapsed * u32::from(CARRIER_CORRIDOR_LENGTH)) / duration) as u16
-        };
-        let carrier = &mut self.state.mission.carrier_assault;
-        carrier.corridor_progress = corridor_progress;
-        carrier.reactor_room_open = retail_frame >= CARRIER_REACTOR_OPEN_RETAIL_FRAME;
-        carrier.starboard_panel.integrity = carrier_starboard_panel_integrity(retail_frame);
-        carrier.starboard_panel.active = retail_frame < CARRIER_STARBOARD_DESTROYED_RETAIL_FRAME;
-        carrier.port_panel.integrity = carrier_port_panel_integrity(retail_frame);
-        carrier.port_panel.active = retail_frame < CARRIER_PORT_DESTROYED_RETAIL_FRAME;
-        let starboard_panel_destroyed = !carrier.starboard_panel.active;
-        let port_panel_destroyed = !carrier.port_panel.active;
-
-        if starboard_panel_destroyed {
-            self.set_carrier_panel_destroyed(CARRIER_STARBOARD_PANEL_INDEX);
-        }
-        if port_panel_destroyed {
-            self.set_carrier_panel_destroyed(CARRIER_PORT_PANEL_INDEX);
-        }
-        self.update_carrier_player_presentation(retail_frame);
+        self.update_carrier_player_presentation(retail_frame)?;
         Ok(())
     }
 
-    fn update_carrier_player_presentation(&mut self, retail_frame: u16) {
-        let walker_shape = self.primary_walker_shape();
-        let (position, shape, camera) = if retail_frame < CARRIER_EXTERIOR_END_RETAIL_FRAME {
-            let x = interpolate_i16(
-                CARRIER_EXTERIOR_START_POSITION.x,
-                CARRIER_EXTERIOR_ENTRY_POSITION.x,
-                retail_frame,
-                CARRIER_EXTERIOR_END_RETAIL_FRAME,
-            );
-            let z = interpolate_i16(
-                CARRIER_EXTERIOR_START_POSITION.z,
-                CARRIER_EXTERIOR_ENTRY_POSITION.z,
-                retail_frame,
-                CARRIER_EXTERIOR_END_RETAIL_FRAME,
-            );
-            let position = Vector3 { x, y: 0, z };
-            (
-                position,
-                ShapeId::CARRIER_ASSAULT_CRAFT,
-                Vector3 {
-                    x,
-                    y: CARRIER_EXTERIOR_CAMERA_HEIGHT,
-                    z,
-                },
-            )
-        } else if retail_frame < CARRIER_REACTOR_OPEN_RETAIL_FRAME {
-            let progress = self.state.mission.carrier_assault.corridor_progress as i16;
-            let position = Vector3 {
-                x: CARRIER_CORRIDOR_START_POSITION.x,
-                y: CARRIER_CORRIDOR_START_POSITION.y,
-                z: CARRIER_CORRIDOR_START_POSITION.z.saturating_add(progress),
-            };
-            (
-                position,
-                ShapeId::CARRIER_ASSAULT_CRAFT,
-                Vector3 {
-                    x: position.x,
-                    y: CARRIER_CORRIDOR_CAMERA_HEIGHT,
-                    z: position
-                        .z
-                        .saturating_add(CARRIER_CORRIDOR_CAMERA_FORWARD_OFFSET),
-                },
-            )
-        } else {
-            (
-                CARRIER_REACTOR_PLAYER_POSITION,
-                walker_shape,
-                CARRIER_REACTOR_CAMERA_POSITION,
-            )
-        };
+    fn update_carrier_player_presentation(&mut self, retail_frame: u16) -> Result<(), Error> {
         let visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
         if let Some(primary) = self
             .state
@@ -7471,13 +7393,298 @@ impl Game {
             .primary_player
             .and_then(|id| self.state.objects.get_mut(id))
         {
-            primary.base.position = position;
-            primary.base.shape = shape;
             primary.base.flags.visible = visible;
-            primary.base.flags.collision_disabled = true;
-            primary.base.velocity = Vector3::default();
+            primary.base.flags.collision_disabled =
+                self.state.mission.phase != MissionPhase::Active;
         }
-        self.state.camera.position = camera;
+        if self.state.mission.phase != MissionPhase::Active {
+            return Ok(());
+        }
+
+        match self.state.mission.carrier_assault.phase {
+            CarrierAssaultPhase::ExteriorApproach => {
+                self.update_active_flight(retail_frame, true)?;
+            }
+            CarrierAssaultPhase::InteriorCorridor => {
+                self.update_active_flight(retail_frame, true)?;
+                self.constrain_carrier_corridor_motion();
+            }
+            CarrierAssaultPhase::ReactorApproach => {
+                self.update_carrier_reactor_approach(retail_frame)?;
+            }
+            CarrierAssaultPhase::ReactorCombat => {
+                self.update_active_flight(retail_frame, true)?;
+            }
+            CarrierAssaultPhase::CoreDestruction => {
+                self.update_carrier_core_destruction(retail_frame);
+            }
+            CarrierAssaultPhase::ReturnFlight => {}
+        }
+        Ok(())
+    }
+
+    fn carrier_player_position(&self) -> Option<Vector3> {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position)
+    }
+
+    fn enter_carrier_phase(&mut self, phase: CarrierAssaultPhase, retail_frame: u16) {
+        self.state.mission.carrier_assault.phase = phase;
+        self.state
+            .mission
+            .carrier_assault
+            .phase_started_retail_frame = retail_frame;
+    }
+
+    fn enter_carrier_corridor(&mut self, retail_frame: u16) -> Result<(), Error> {
+        self.spawn_carrier_corridor_scene()?;
+        self.state.mission.player_craft_form = PlayerCraftForm::Flight;
+        self.state.mission.player_flight.pitch_accumulator = 0;
+        self.state.mission.player_flight.yaw_accumulator = 0;
+        self.state.mission.player_flight.pitch_lean = 0;
+        self.state.mission.carrier_assault.corridor_progress = 0;
+        self.state.mission.carrier_assault.reactor_room_open = false;
+        self.state
+            .mission
+            .carrier_assault
+            .room_entry_transformation_started_retail_frame = None;
+        if let Some(player) = self.state.mission.primary_player {
+            self.apply_player_craft_presentation(player, PlayerCraftPresentation::Flight);
+            if let Some(player) = self.state.objects.get_mut(player) {
+                player.base.position = CARRIER_CORRIDOR_START_POSITION;
+                player.base.velocity = Vector3::default();
+                player.base.pitch = Angle::ZERO;
+                player.base.yaw = Angle::ZERO;
+                player.base.roll = Angle::ZERO;
+            }
+        }
+        self.enter_carrier_phase(CarrierAssaultPhase::InteriorCorridor, retail_frame);
+        Ok(())
+    }
+
+    fn constrain_carrier_corridor_motion(&mut self) {
+        let Some(player) = self.state.mission.primary_player else {
+            return;
+        };
+        let Some(player) = self.state.objects.get_mut(player) else {
+            return;
+        };
+        player.base.position.x = CARRIER_CORRIDOR_START_POSITION.x;
+        player.base.position.y = CARRIER_CORRIDOR_START_POSITION.y;
+        player.base.velocity.x = 0;
+        player.base.velocity.y = 0;
+        let progress = i32::from(player.base.position.z)
+            .saturating_sub(i32::from(CARRIER_CORRIDOR_START_POSITION.z))
+            .clamp(0, i32::from(CARRIER_CORRIDOR_LENGTH)) as u16;
+        self.state.mission.carrier_assault.corridor_progress = progress;
+        self.state.camera.position = Vector3 {
+            x: player.base.position.x,
+            y: CARRIER_CORRIDOR_CAMERA_HEIGHT,
+            z: player
+                .base
+                .position
+                .z
+                .saturating_add(CARRIER_CORRIDOR_CAMERA_FORWARD_OFFSET),
+        };
+    }
+
+    fn enter_carrier_reactor_approach(&mut self, retail_frame: u16) {
+        self.state.mission.carrier_assault.corridor_progress = CARRIER_CORRIDOR_LENGTH;
+        self.state
+            .mission
+            .carrier_assault
+            .room_entry_transformation_started_retail_frame = None;
+        if let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            player.base.position = CARRIER_REACTOR_APPROACH_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.pitch = Angle::ZERO;
+            player.base.yaw = Angle::ZERO;
+            player.base.roll = Angle::ZERO;
+            player.base.flags.collision_disabled = true;
+        }
+        self.enter_carrier_phase(CarrierAssaultPhase::ReactorApproach, retail_frame);
+    }
+
+    fn update_carrier_reactor_approach(&mut self, retail_frame: u16) -> Result<(), Error> {
+        let transformation_started = self
+            .state
+            .mission
+            .carrier_assault
+            .room_entry_transformation_started_retail_frame;
+        if transformation_started.is_none() {
+            let mut reached_folding_position = false;
+            if let Some(player) = self
+                .state
+                .mission
+                .primary_player
+                .and_then(|id| self.state.objects.get_mut(id))
+            {
+                let forward_step = i16::from(player.base.speed.max(PLAYER_CRUISE_SPEED));
+                player.base.position.z = player
+                    .base
+                    .position
+                    .z
+                    .saturating_add(forward_step)
+                    .min(CARRIER_REACTOR_TRANSFORMATION_Z);
+                player.base.velocity = Vector3::default();
+                player.base.flags.collision_disabled = true;
+                reached_folding_position =
+                    player.base.position.z >= CARRIER_REACTOR_TRANSFORMATION_Z;
+            }
+            if reached_folding_position {
+                self.state
+                    .mission
+                    .carrier_assault
+                    .room_entry_transformation_started_retail_frame = Some(retail_frame);
+                self.begin_player_transformation(PlayerCraftTransformationDirection::ToWalker);
+            }
+            self.state.camera.position = CARRIER_REACTOR_CAMERA_POSITION;
+            return Ok(());
+        }
+
+        let transformation_started = transformation_started.unwrap_or(retail_frame);
+        let transformation_elapsed = retail_frame.saturating_sub(transformation_started);
+        if matches!(
+            self.state.mission.player_craft_form,
+            PlayerCraftForm::Transforming(_)
+        ) {
+            if let Some(player) = self.state.mission.primary_player {
+                self.update_player_transformation(player);
+            }
+        }
+        if transformation_elapsed
+            >= CARRIER_REACTOR_ROOM_OPEN_AFTER_TRANSFORMATION_RETAIL_FRAMES
+            && !self.state.mission.carrier_assault.reactor_room_open
+        {
+            self.spawn_carrier_reactor_scene()?;
+            self.state.mission.carrier_assault.reactor_room_open = true;
+        }
+
+        let position = Vector3 {
+            x: CARRIER_REACTOR_TRANSFORMATION_POSITION.x,
+            y: interpolate_i16(
+                CARRIER_REACTOR_TRANSFORMATION_POSITION.y,
+                CARRIER_REACTOR_PLAYER_POSITION.y,
+                transformation_elapsed,
+                u16::from(PLAYER_TRANSFORMATION_TO_WALKER_END_RETAIL_FRAMES),
+            ),
+            z: CARRIER_REACTOR_TRANSFORMATION_POSITION.z,
+        };
+        if let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            player.base.position = position;
+            player.base.velocity = Vector3::default();
+            player.base.flags.collision_disabled = true;
+        }
+        self.state.camera.position = CARRIER_REACTOR_CAMERA_POSITION;
+
+        if self.state.mission.player_craft_form == PlayerCraftForm::Walker {
+            self.enter_carrier_phase(CarrierAssaultPhase::ReactorCombat, retail_frame);
+            for panel in self.carrier_panels.into_iter().flatten() {
+                if let Some(panel) = self.state.objects.get_mut(panel) {
+                    panel.base.flags.collision_disabled = false;
+                }
+            }
+            if let Some(player) = self
+                .state
+                .mission
+                .primary_player
+                .and_then(|id| self.state.objects.get_mut(id))
+            {
+                player.base.flags.collision_disabled = false;
+            }
+        }
+        Ok(())
+    }
+
+    fn update_carrier_core_destruction(&mut self, retail_frame: u16) {
+        let elapsed = retail_frame.saturating_sub(
+            self.state
+                .mission
+                .carrier_assault
+                .phase_started_retail_frame,
+        );
+        if let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            player.base.velocity = Vector3::default();
+            player.base.flags.collision_disabled = true;
+        }
+        if elapsed >= CARRIER_DESTRUCTION_TRANSFORMATION_DELAY_RETAIL_FRAMES
+            && self.state.mission.player_craft_form == PlayerCraftForm::Walker
+        {
+            self.begin_player_transformation(PlayerCraftTransformationDirection::ToFlight);
+        }
+        if matches!(
+            self.state.mission.player_craft_form,
+            PlayerCraftForm::Transforming(_)
+        ) {
+            if let Some(player) = self.state.mission.primary_player {
+                self.update_player_transformation(player);
+            }
+        }
+        if elapsed >= CARRIER_DESTRUCTION_TO_RETURN_RETAIL_FRAMES {
+            self.enter_carrier_phase(CarrierAssaultPhase::ReturnFlight, retail_frame);
+            self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
+        }
+    }
+
+    fn sync_carrier_objectives(&mut self) {
+        for index in 0..self.carrier_panels.len() {
+            let Some(panel_id) = self.carrier_panels[index] else {
+                continue;
+            };
+            let Some(integrity) = self
+                .state
+                .objects
+                .get(panel_id)
+                .map(|panel| panel.base.hit_points)
+            else {
+                self.carrier_panels[index] = None;
+                continue;
+            };
+            let active = integrity > CARRIER_PANEL_DESTROYED_INTEGRITY;
+            let status = CarrierReactorPanel {
+                integrity: if active {
+                    integrity
+                } else {
+                    CARRIER_PANEL_DESTROYED_INTEGRITY
+                },
+                active,
+            };
+            match index {
+                CARRIER_PORT_PANEL_INDEX => {
+                    self.state.mission.carrier_assault.port_panel = status;
+                }
+                CARRIER_STARBOARD_PANEL_INDEX => {
+                    self.state.mission.carrier_assault.starboard_panel = status;
+                }
+                _ => unreachable!("carrier panel storage has exactly two typed slots"),
+            }
+            if !active {
+                self.set_carrier_panel_destroyed(index);
+            }
+        }
+    }
+
+    fn carrier_panels_destroyed(&self) -> bool {
+        let carrier = self.state.mission.carrier_assault;
+        !carrier.port_panel.active && !carrier.starboard_panel.active
     }
 
     fn clear_carrier_scene(&mut self) {
@@ -7526,12 +7733,17 @@ impl Game {
         self.spawn_carrier_scene_objects(&CARRIER_REACTOR_SCENE)?;
         for (index, (position, yaw)) in CARRIER_PANEL_SCENE.into_iter().enumerate() {
             let mut panel = Object::new(
-                ObjectKind::Scenery,
+                ObjectKind::Enemy,
                 ShapeId::CARRIER_REACTOR_PANEL,
                 Behavior::Effect,
             );
             panel.base.position = position;
             panel.base.yaw = yaw;
+            panel.base.hit_points = CARRIER_PANEL_INITIAL_INTEGRITY;
+            panel.base.collision_class = CollisionClass::Enemy;
+            // The room is allocated while the automatic folding sequence is
+            // still in progress. Its two targets become vulnerable only when
+            // the stable Walker form is handed back to the player.
             panel.base.flags.collision_disabled = true;
             panel.base.flags.casts_shadow = false;
             let id = self
@@ -7550,6 +7762,8 @@ impl Game {
         };
         if let Some(object) = self.state.objects.get_mut(panel) {
             object.base.shape = ShapeId::CARRIER_REACTOR_PANEL_DESTROYED;
+            object.base.hit_points = CARRIER_PANEL_DESTROYED_INTEGRITY;
+            object.base.flags.collision_disabled = true;
         }
     }
 
@@ -10723,9 +10937,7 @@ impl Game {
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
             MissionVisit::TitaniaBase => TITANIA_MAP_READY_RETAIL_FRAME,
             MissionVisit::EladardBase => u16::MAX,
-            MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
-                CARRIER_MAP_READY_RETAIL_FRAME
-            }
+            MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => u16::MAX,
         };
         if retail_frame > certified_end {
             self.state.mission.departed_certified_neutral_path = true;
@@ -11380,12 +11592,23 @@ impl Game {
         }
 
         for (weapon_id, enemy_id) in collisions {
-            let damage = self
+            let raw_damage = self
                 .state
                 .objects
                 .get(weapon_id)
                 .map(|weapon| weapon.base.attack_power)
                 .unwrap_or_default();
+            let damage = if raw_damage > 0
+                && matches!(
+                    self.state.mission.visit,
+                    MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier
+                )
+                && self.carrier_panels.contains(&Some(enemy_id))
+            {
+                CARRIER_PANEL_DAMAGE_PER_HIT
+            } else {
+                raw_damage
+            };
             let weapon_can_hit = self
                 .state
                 .objects
@@ -12055,38 +12278,6 @@ fn interpolate_map_coordinate(
     }
     let delta = i32::from(destination) - i32::from(origin);
     (i32::from(origin) + delta * i32::from(elapsed_ticks) / i32::from(total_ticks)) as i16
-}
-
-fn carrier_starboard_panel_integrity(retail_frame: u16) -> u8 {
-    if retail_frame < CARRIER_STARBOARD_FIRST_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_INITIAL_INTEGRITY
-    } else if retail_frame < CARRIER_STARBOARD_THIRD_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_ONE_HIT
-    } else if retail_frame < CARRIER_STARBOARD_FOURTH_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_TWO_HITS
-    } else if retail_frame < CARRIER_STARBOARD_EIGHTH_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_THREE_HITS
-    } else if retail_frame < CARRIER_STARBOARD_FINAL_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_FOUR_HITS
-    } else {
-        CARRIER_PANEL_DESTROYED_INTEGRITY
-    }
-}
-
-fn carrier_port_panel_integrity(retail_frame: u16) -> u8 {
-    if retail_frame < CARRIER_PORT_FIRST_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_INITIAL_INTEGRITY
-    } else if retail_frame < CARRIER_PORT_SECOND_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_ONE_HIT
-    } else if retail_frame < CARRIER_PORT_THIRD_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_TWO_HITS
-    } else if retail_frame < CARRIER_PORT_FOURTH_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_THREE_HITS
-    } else if retail_frame < CARRIER_PORT_FINAL_HIT_RETAIL_FRAME {
-        CARRIER_PANEL_AFTER_FOUR_HITS
-    } else {
-        CARRIER_PANEL_DESTROYED_INTEGRITY
-    }
 }
 
 fn interpolate_percent(origin: u8, destination: u8, elapsed_ticks: u16, total_ticks: u16) -> u8 {
@@ -14404,9 +14595,13 @@ mod tests {
             carrier
                 .begin_carrier_assault(MissionVisit::FirstBattleCarrier)
                 .unwrap();
-            carrier.state.mode_frame = u32::from(CARRIER_REACTOR_OPEN_RETAIL_FRAME)
-                .div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK);
-            carrier.update_carrier_assault().unwrap();
+            carrier.state.mission.phase = MissionPhase::Active;
+            carrier.enter_carrier_reactor_approach(0);
+            while carrier.state.mission.carrier_assault.phase
+                != CarrierAssaultPhase::ReactorCombat
+            {
+                carrier.tick(0).unwrap();
+            }
             let player = carrier.state.mission.primary_player.unwrap();
             assert_eq!(
                 carrier.state.objects.get(player).unwrap().base.shape,
@@ -20678,6 +20873,7 @@ mod tests {
                 phase_started_retail_frame: 0,
                 corridor_progress: 0,
                 reactor_room_open: false,
+                room_entry_transformation_started_retail_frame: None,
                 port_panel: CarrierReactorPanel {
                     integrity: CARRIER_PANEL_INITIAL_INTEGRITY,
                     active: true,
@@ -20689,24 +20885,58 @@ mod tests {
             }
         );
 
-        let advance_to = |game: &mut Game, retail_frame: u16| {
-            let target_tick = u32::from(retail_frame).div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK);
-            while game.state().mode_frame < target_tick {
-                game.tick(0).unwrap();
-            }
-        };
+        while game.state().mission.phase != MissionPhase::Active {
+            game.tick(0).unwrap();
+        }
 
-        advance_to(&mut game, CARRIER_EXTERIOR_END_RETAIL_FRAME);
+        // The former implementation completed this mission at 9,822 retail
+        // frames even if the player never reached the carrier. Keep the craft
+        // parked beyond that old deadline and prove no objective changes.
+        const FORMER_AUTOMATIC_MAP_RETURN_RETAIL_FRAME: u16 = 9_822;
+        while game.state().mode_frame * RETAIL_PRESENTATION_FRAMES_PER_TICK
+            <= u32::from(FORMER_AUTOMATIC_MAP_RETURN_RETAIL_FRAME)
+        {
+            let player = game.state.mission.primary_player.unwrap();
+            let player = game.state.objects.get_mut(player).unwrap();
+            player.base.position = CARRIER_EXTERIOR_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.speed = 0;
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state().mission.carrier_assault.phase,
+            CarrierAssaultPhase::ExteriorApproach
+        );
+        assert_eq!(game.state().mission.phase, MissionPhase::Active);
+        assert_eq!(
+            game.state().campaign.objectives.first_carrier,
+            CarrierObjectiveStatus::Operational
+        );
+
+        let player = game.state.mission.primary_player.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position.z = CARRIER_EXTERIOR_ENTRY_Z;
+        game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::InteriorCorridor
         );
-        advance_to(&mut game, CARRIER_REACTOR_APPROACH_RETAIL_FRAME);
+        assert_eq!(
+            game.state().objects.get(player).unwrap().base.position.x,
+            CARRIER_CORRIDOR_START_POSITION.x
+        );
+
+        game.state.objects.get_mut(player).unwrap().base.position.z =
+            CARRIER_CORRIDOR_REACTOR_TRIGGER_Z;
+        game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::ReactorApproach
         );
-        advance_to(&mut game, CARRIER_REACTOR_OPEN_RETAIL_FRAME);
+        while game.state().mission.carrier_assault.phase
+            != CarrierAssaultPhase::ReactorCombat
+        {
+            game.tick(0).unwrap();
+        }
         assert_eq!(
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::ReactorCombat
@@ -20717,7 +20947,45 @@ mod tests {
         );
         assert!(game.state().mission.carrier_assault.reactor_room_open);
 
-        advance_to(&mut game, CARRIER_STARBOARD_DESTROYED_RETAIL_FRAME);
+        for panel in game.carrier_panels.into_iter().flatten() {
+            let panel = game.state().objects.get(panel).unwrap();
+            assert_eq!(panel.base.kind, ObjectKind::Enemy);
+            assert_eq!(panel.base.shape, ShapeId::CARRIER_REACTOR_PANEL);
+            assert_eq!(panel.base.hit_points, CARRIER_PANEL_INITIAL_INTEGRITY);
+            assert_eq!(panel.base.collision_class, CollisionClass::Enemy);
+            assert!(!panel.base.flags.collision_disabled);
+        }
+
+        let hit_panel = |game: &mut Game, panel: ObjectId| {
+            let position = game.state().objects.get(panel).unwrap().base.position;
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                Behavior::Projectile,
+            );
+            laser.base.position = position;
+            laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+            laser.base.attack_power = PLAYER_CHARGED_LASER_ATTACK_POWER;
+            laser.base.weapon = WeaponKind::ChargedLaser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            game.state.objects.allocate(laser).unwrap();
+            game.tick(0).unwrap();
+            game.tick(0).unwrap();
+        };
+
+        let starboard = game.carrier_panels[CARRIER_STARBOARD_PANEL_INDEX].unwrap();
+        hit_panel(&mut game, starboard);
+        assert_eq!(
+            game.state()
+                .mission
+                .carrier_assault
+                .starboard_panel
+                .integrity,
+            CARRIER_PANEL_INITIAL_INTEGRITY - CARRIER_PANEL_DAMAGE_PER_HIT
+        );
+        for _ in 1..5 {
+            hit_panel(&mut game, starboard);
+        }
         assert_eq!(
             game.state()
                 .mission
@@ -20727,30 +20995,34 @@ mod tests {
             CARRIER_PANEL_DESTROYED_INTEGRITY
         );
         assert!(!game.state().mission.carrier_assault.starboard_panel.active);
-        let starboard = game.carrier_panels[CARRIER_STARBOARD_PANEL_INDEX].unwrap();
         assert_eq!(
             game.state().objects.get(starboard).unwrap().base.shape,
             ShapeId::CARRIER_REACTOR_PANEL_DESTROYED
         );
 
-        advance_to(&mut game, CARRIER_PORT_DESTROYED_RETAIL_FRAME);
+        let port = game.carrier_panels[CARRIER_PORT_PANEL_INDEX].unwrap();
+        for _ in 0..5 {
+            hit_panel(&mut game, port);
+        }
         assert_eq!(
             game.state().mission.carrier_assault.port_panel.integrity,
             CARRIER_PANEL_DESTROYED_INTEGRITY
         );
         assert!(!game.state().mission.carrier_assault.port_panel.active);
-        let port = game.carrier_panels[CARRIER_PORT_PANEL_INDEX].unwrap();
         assert_eq!(
             game.state().objects.get(port).unwrap().base.shape,
             ShapeId::CARRIER_REACTOR_PANEL_DESTROYED
         );
 
-        advance_to(&mut game, CARRIER_CORE_DESTROYED_RETAIL_FRAME);
         assert_eq!(
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::CoreDestruction
         );
-        advance_to(&mut game, CARRIER_RETURN_FLIGHT_RETAIL_FRAME);
+        while game.state().mission.carrier_assault.phase
+            == CarrierAssaultPhase::CoreDestruction
+        {
+            game.tick(0).unwrap();
+        }
         assert_eq!(
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::ReturnFlight
@@ -21450,6 +21722,22 @@ mod tests {
             }
         }
 
+        fn carrier_campaign_input(game: &mut Game) -> u16 {
+            if game.state.mission.carrier_assault.phase
+                == CarrierAssaultPhase::ReactorCombat
+            {
+                if let Some(target) = game.carrier_panels.into_iter().flatten().find(|id| {
+                    game.state
+                        .objects
+                        .get(*id)
+                        .is_some_and(|panel| !panel.base.flags.collision_disabled)
+                }) {
+                    place_campaign_laser_on(game, target);
+                }
+            }
+            0
+        }
+
         fn complete_current_mission(game: &mut Game) {
             let charge_ticks = usize::from(game.player_charge_ready_tick());
             for mission_tick in 0..MAX_MISSION_TICKS {
@@ -21462,6 +21750,11 @@ mod tests {
                     leon_pursuit_input(game, mission_tick, charge_ticks)
                 } else if game.state().mission.visit == MissionVisit::EladardBase {
                     eladard_campaign_input(game)
+                } else if matches!(
+                    game.state().mission.visit,
+                    MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier
+                ) {
+                    carrier_campaign_input(game)
                 } else {
                     0
                 };
@@ -21713,9 +22006,35 @@ mod tests {
             MissionVisit::SecondBattleCarrier
         );
         assert_eq!(game.mission(), Some(MissionVisit::SecondBattleCarrier));
-        while game.mode() == GameMode::Mission {
+        const MAX_SECOND_CARRIER_TICKS: usize = 5_000;
+        for _ in 0..MAX_SECOND_CARRIER_TICKS {
+            if game.mode() != GameMode::Mission {
+                break;
+            }
+            if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::ReactorCombat {
+                if let Some(target) = game.carrier_panels.into_iter().flatten().find(|id| {
+                    game.state
+                        .objects
+                        .get(*id)
+                        .is_some_and(|panel| !panel.base.flags.collision_disabled)
+                }) {
+                    let position = game.state.objects.get(target).unwrap().base.position;
+                    let mut laser = Object::new(
+                        ObjectKind::Projectile,
+                        ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                        Behavior::Projectile,
+                    );
+                    laser.base.position = position;
+                    laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+                    laser.base.attack_power = PLAYER_CHARGED_LASER_ATTACK_POWER;
+                    laser.base.weapon = WeaponKind::ChargedLaser;
+                    laser.base.collision_class = CollisionClass::PlayerWeapon;
+                    game.state.objects.allocate(laser).unwrap();
+                }
+            }
             game.tick(0).unwrap();
         }
+        assert_ne!(game.mode(), GameMode::Mission);
 
         assert!(game.state().campaign.objectives.major_objectives_complete());
         assert_eq!(

@@ -160,9 +160,6 @@ impl ShapeId {
     pub const MIRAGE_DRAGON_BODY: Self = Self(341);
     pub const MIRAGE_DRAGON_TAIL: Self = Self(343);
 
-    /// Player craft selected by the certified Battle Carrier exterior.
-    pub const CARRIER_ASSAULT_CRAFT: Self = Self(53);
-
     /// Five large hull sections forming the exterior Battle Carrier model.
     pub const CARRIER_HULL_AFT_PORT: Self = Self(384);
     pub const CARRIER_HULL_FORWARD_PORT: Self = Self(387);

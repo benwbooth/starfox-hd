@@ -1734,8 +1734,8 @@ impl Default for CarrierAssaultPhase {
 }
 
 /// One of the two rotating armor panels protecting a Battle Carrier's energy
-/// core. Integrity follows the retail mission's ordinary combat scale: each
-/// effective laser hit removes one point and the panel breaks at 90.
+/// core. Integrity follows the observed retail object field: each effective
+/// hit removes two points and the panel changes to its broken mesh at 90.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CarrierReactorPanel {
     pub integrity: u8,
@@ -1752,14 +1752,16 @@ impl Default for CarrierReactorPanel {
 }
 
 /// Typed objective state for the Battle Carrier assault. It models the
-/// exterior approach, corridor, Walker transformation, and two reactor panels
-/// directly; the shipping game does not retain a byte-addressed memory image.
+/// player-driven exterior approach, rail corridor, automatic room-entry
+/// transformation, and two reactor panels directly; the shipping game does
+/// not retain a byte-addressed memory image.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CarrierAssaultState {
     pub phase: CarrierAssaultPhase,
     pub phase_started_retail_frame: u16,
     pub corridor_progress: u16,
     pub reactor_room_open: bool,
+    pub room_entry_transformation_started_retail_frame: Option<u16>,
     pub port_panel: CarrierReactorPanel,
     pub starboard_panel: CarrierReactorPanel,
 }
