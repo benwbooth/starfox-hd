@@ -5,7 +5,8 @@
 //! tools/sf2/generate_astropolis_entry.py [--check]`.
 
 use super::{
-    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
+    MissionPlayerKeyframe,
 };
 
 pub(super) const LAST_RETAIL_FRAME: u16 = 5590;
