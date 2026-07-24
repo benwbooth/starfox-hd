@@ -25,8 +25,9 @@ pub use object::{
 pub use render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 pub use state::{
     AstropolisBranch, AstropolisCoreSpike, AstropolisEye, AstropolisEyes, AstropolisMissionState,
-    AstropolisPhase, AudioOutput, AudioState, CampaignProgress, CampaignState, CarrierAssaultPhase,
-    CarrierAssaultState, CarrierReactorPanel, ChargeSound, CorneriaDefensePhase,
+    AstropolisPhase, AudioOutput, AudioState, CampaignObjectives, CampaignPlanetObjectives,
+    CampaignProgress, CampaignState, CarrierAssaultPhase, CarrierAssaultState,
+    CarrierReactorPanel, ChargeSound, CorneriaDefensePhase,
     CorneriaDefenseState, Difficulty, EladardMissionState, EladardPhase, EndingPhase, EndingState,
     FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,
     GameState, IntroPhase, MissionMessage, MissionMessageIrisFrame,
@@ -34,7 +35,8 @@ pub use state::{
     PilotCraftClass, PilotCraftProfile, PilotSelectionCursor, PilotSelectionPhase,
     PilotSelectionState, PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    PlayerWalkerState, RandomState, ResultsChoice, ResultsPhase, ResultsState, Roster, SoundEvent,
+    PlanetObjectiveStatus, PlayerWalkerState, RandomState, ResultsChoice, ResultsPhase,
+    ResultsState, Roster, SoundEvent,
     StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
     StrategicMapState, StrategicMapTutorialPage, StrategicOpeningPage, StrategicOpeningState,
     TitaniaMissionState, TitaniaPhase, TitaniaReactorStatus, TitaniaSurfaceSwitchStatus,

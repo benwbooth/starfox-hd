@@ -4,6 +4,7 @@ use super::campaign_major_objectives::{
     TITANIA_INTERIOR_RETAIL_FRAME, TITANIA_MAP_READY_RETAIL_FRAME, TITANIA_REACTOR_COUNT,
     TITANIA_REACTOR_RETAIL_FRAME, TITANIA_RETURN_RETAIL_FRAME, TITANIA_SURFACE_SWITCH_COUNT,
 };
+use super::campaign_world_assignments::CampaignWorld;
 use super::input::{Button, Buttons};
 use super::object::{
     Angle, Behavior, CapitalFlightAngles, CapitalFlightState, CapitalMovementPhase,
@@ -5321,7 +5322,9 @@ impl Game {
             self.state.strategic_map.recommended_destination = LEON_PRESSURE_DESTINATION;
         } else if self.state.input.pressed.contains(Button::Down) {
             let pending_major_objective =
-                if self.state.campaign.objectives.titania == PlanetObjectiveStatus::Occupied {
+                if self.state.campaign.objectives.planets.titania
+                    == PlanetObjectiveStatus::Occupied
+                {
                     Some((StrategicEncounter::TitaniaBase, TITANIA_BASE_DESTINATION))
                 } else if self.state.campaign.objectives.second_carrier
                     == CarrierObjectiveStatus::Operational
@@ -7430,10 +7433,18 @@ impl Game {
                 self.state.campaign.objectives.missiles = StrategicThreatCount::NONE;
             }
             MissionVisit::EladardBase => {
-                self.state.campaign.objectives.eladard = PlanetObjectiveStatus::Rescued;
+                self.state
+                    .campaign
+                    .objectives
+                    .planets
+                    .rescue(CampaignWorld::Eladard);
             }
             MissionVisit::TitaniaBase => {
-                self.state.campaign.objectives.titania = PlanetObjectiveStatus::Rescued;
+                self.state
+                    .campaign
+                    .objectives
+                    .planets
+                    .rescue(CampaignWorld::Titania);
             }
             MissionVisit::FirstBattleCarrier => {
                 self.state.campaign.objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
@@ -7573,7 +7584,9 @@ impl Game {
                 self.state.strategic_map.actors = POST_MIRAGE_MAP_ACTORS;
                 self.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
                 self.state.strategic_map.recommended_destination =
-                    if self.state.campaign.objectives.titania == PlanetObjectiveStatus::Occupied {
+                    if self.state.campaign.objectives.planets.titania
+                        == PlanetObjectiveStatus::Occupied
+                    {
                         TITANIA_BASE_DESTINATION
                     } else if self.state.campaign.objectives.second_carrier
                         == CarrierObjectiveStatus::Operational
@@ -7597,7 +7610,8 @@ impl Game {
         }
         let recommended_encounter = match self.state.campaign.route_step {
             CampaignRouteStep::StrategicPressure
-                if self.state.campaign.objectives.titania == PlanetObjectiveStatus::Occupied =>
+                if self.state.campaign.objectives.planets.titania
+                    == PlanetObjectiveStatus::Occupied =>
             {
                 Some(StrategicEncounter::TitaniaBase)
             }
@@ -20116,7 +20130,13 @@ mod tests {
 
     #[test]
     fn eladard_route_uses_typed_objectives_and_matches_the_sixth_return() {
+        const ELADARD_AND_VENOM_ASSIGNMENT_TIMING: u64 = 1;
+
         let mut game = Game::new();
+        game.state.campaign = CampaignState::for_new_game(
+            Difficulty::Normal,
+            ELADARD_AND_VENOM_ASSIGNMENT_TIMING,
+        );
         game.begin_opening_sortie().unwrap();
         game.state.mode = GameMode::StrategicMap;
         game.state.campaign.route_step = CampaignRouteStep::EladardBase;
@@ -20259,7 +20279,7 @@ mod tests {
             CampaignRouteStep::FirstBattleCarrier
         );
         assert_eq!(
-            game.state().campaign.objectives.eladard,
+            game.state().campaign.objectives.planets.eladard,
             PlanetObjectiveStatus::Rescued
         );
         assert_eq!(
@@ -21037,6 +21057,7 @@ mod tests {
     fn certified_campaign_route_reaches_the_end_screen() {
         const MAX_MISSION_TICKS: usize = 5_000;
         const MAX_STRATEGIC_TRAVEL_TICKS: usize = 1_000;
+        const ELADARD_AND_TITANIA_ASSIGNMENT_TIMING: u64 = 3;
 
         fn complete_current_mission(game: &mut Game) {
             let charge_ticks = usize::from(game.player_charge_ready_tick());
@@ -21071,7 +21092,13 @@ mod tests {
         }
 
         let mut game = Game::new();
-        game.state.campaign = CampaignState::new(Difficulty::Expert);
+        // This compact end-to-end replay covers the retail Normal assignment
+        // whose two occupied worlds are Eladard and Titania. Other assignment
+        // combinations are kept distinct and are certified independently.
+        game.state.campaign = CampaignState::for_new_game(
+            Difficulty::Normal,
+            ELADARD_AND_TITANIA_ASSIGNMENT_TIMING,
+        );
         game.begin_opening_sortie().unwrap();
         complete_current_mission(&mut game);
         assert_eq!(
@@ -21084,7 +21111,7 @@ mod tests {
         }
         assert_eq!(game.mode(), GameMode::StrategicMap);
         assert_eq!(
-            game.state().campaign.objectives.eladard,
+            game.state().campaign.objectives.planets.eladard,
             PlanetObjectiveStatus::Rescued
         );
         assert_eq!(
@@ -21104,17 +21131,10 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
         complete_current_mission(&mut game);
         assert_eq!(
-            game.state().campaign.objectives.titania,
+            game.state().campaign.objectives.planets.titania,
             PlanetObjectiveStatus::Rescued
         );
 
-        press(&mut game, Button::Down);
-        assert_eq!(
-            game.state().strategic_map.selected_encounter,
-            Some(StrategicEncounter::SecondBattleCarrier)
-        );
-        game.tick(Button::B as u16).unwrap();
-        complete_current_mission(&mut game);
         assert!(game.state().campaign.objectives.major_objectives_complete());
 
         press(&mut game, Button::Up);
@@ -21198,15 +21218,24 @@ mod tests {
 
     #[test]
     fn late_major_objectives_are_distinct_and_unlock_the_final_route() {
+        const TITANIA_ELADARD_AND_METEOR_ASSIGNMENT_TIMING: u64 = 13;
+
         assert_eq!(EXPERT_BATTLE_CARRIER_REQUIRED_VISITS, 2);
 
         let mut game = Game::new();
-        game.state.campaign = CampaignState::new(Difficulty::Expert);
+        // Expert assignment 13 contains Titania, Eladard, and Meteor. This
+        // focused late-route test begins after the other two world objectives
+        // have already been rescued.
+        game.state.campaign = CampaignState::for_new_game(
+            Difficulty::Expert,
+            TITANIA_ELADARD_AND_METEOR_ASSIGNMENT_TIMING,
+        );
         game.begin_opening_sortie().unwrap();
         game.state.mode = GameMode::StrategicMap;
         game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
         game.state.campaign.corneria_defense = CorneriaDefenseState::default();
-        game.state.campaign.objectives.eladard = PlanetObjectiveStatus::Rescued;
+        game.state.campaign.objectives.planets.eladard = PlanetObjectiveStatus::Rescued;
+        game.state.campaign.objectives.planets.meteor = PlanetObjectiveStatus::Rescued;
         game.state.campaign.objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
         game.state.campaign.objectives.missiles = StrategicThreatCount::NONE;
         game.state.campaign.objectives.live_attackers = StrategicThreatCount::new(1);
@@ -21265,7 +21294,7 @@ mod tests {
         }
 
         assert_eq!(
-            game.state().campaign.objectives.titania,
+            game.state().campaign.objectives.planets.titania,
             PlanetObjectiveStatus::Rescued
         );
         assert_eq!(
@@ -21349,8 +21378,14 @@ mod tests {
         game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
         game.state.campaign.corneria_defense = CorneriaDefenseState::default();
         game.state.campaign.objectives = super::super::state::CampaignObjectives {
-            eladard: PlanetObjectiveStatus::Rescued,
-            titania: PlanetObjectiveStatus::Rescued,
+            planets: super::super::state::CampaignPlanetObjectives {
+                venom: PlanetObjectiveStatus::Rescued,
+                titania: PlanetObjectiveStatus::Rescued,
+                macbeth: PlanetObjectiveStatus::Rescued,
+                eladard: PlanetObjectiveStatus::Rescued,
+                meteor: PlanetObjectiveStatus::Rescued,
+                fortuna: PlanetObjectiveStatus::Rescued,
+            },
             first_carrier: CarrierObjectiveStatus::Destroyed,
             second_carrier: CarrierObjectiveStatus::Destroyed,
             missiles: StrategicThreatCount::NONE,

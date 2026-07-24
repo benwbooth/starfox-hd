@@ -604,8 +604,15 @@ impl CampaignRouteStep {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanetObjectiveStatus {
+    Unoccupied,
     Occupied,
     Rescued,
+}
+
+impl PlanetObjectiveStatus {
+    pub const fn is_complete(self) -> bool {
+        matches!(self, Self::Unoccupied | Self::Rescued)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -704,10 +711,102 @@ impl Default for CampaignWorldAssignment {
     }
 }
 
+/// Independent objective state for every named campaign world. The retail
+/// game keeps one status per world; the port mirrors that semantic layout as
+/// ordinary fields rather than a numeric selector or byte-addressed table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CampaignPlanetObjectives {
+    pub venom: PlanetObjectiveStatus,
+    pub titania: PlanetObjectiveStatus,
+    pub macbeth: PlanetObjectiveStatus,
+    pub eladard: PlanetObjectiveStatus,
+    pub meteor: PlanetObjectiveStatus,
+    pub fortuna: PlanetObjectiveStatus,
+}
+
+impl CampaignPlanetObjectives {
+    pub fn from_assignment(assignment: CampaignWorldAssignment) -> Self {
+        let status = |world| {
+            if assignment.contains(world) {
+                PlanetObjectiveStatus::Occupied
+            } else {
+                PlanetObjectiveStatus::Unoccupied
+            }
+        };
+        Self {
+            venom: status(CampaignWorld::Venom),
+            titania: status(CampaignWorld::Titania),
+            macbeth: status(CampaignWorld::Macbeth),
+            eladard: status(CampaignWorld::Eladard),
+            meteor: status(CampaignWorld::Meteor),
+            fortuna: status(CampaignWorld::Fortuna),
+        }
+    }
+
+    pub const fn status(self, world: CampaignWorld) -> PlanetObjectiveStatus {
+        match world {
+            CampaignWorld::Venom => self.venom,
+            CampaignWorld::Titania => self.titania,
+            CampaignWorld::Macbeth => self.macbeth,
+            CampaignWorld::Eladard => self.eladard,
+            CampaignWorld::Meteor => self.meteor,
+            CampaignWorld::Fortuna => self.fortuna,
+        }
+    }
+
+    pub fn rescue(&mut self, world: CampaignWorld) {
+        let status = match world {
+            CampaignWorld::Venom => &mut self.venom,
+            CampaignWorld::Titania => &mut self.titania,
+            CampaignWorld::Macbeth => &mut self.macbeth,
+            CampaignWorld::Eladard => &mut self.eladard,
+            CampaignWorld::Meteor => &mut self.meteor,
+            CampaignWorld::Fortuna => &mut self.fortuna,
+        };
+        if *status == PlanetObjectiveStatus::Occupied {
+            *status = PlanetObjectiveStatus::Rescued;
+        }
+    }
+
+    pub const fn all_complete(self) -> bool {
+        self.venom.is_complete()
+            && self.titania.is_complete()
+            && self.macbeth.is_complete()
+            && self.eladard.is_complete()
+            && self.meteor.is_complete()
+            && self.fortuna.is_complete()
+    }
+
+    pub const fn rescued_count(self) -> u16 {
+        let worlds = [
+            self.venom,
+            self.titania,
+            self.macbeth,
+            self.eladard,
+            self.meteor,
+            self.fortuna,
+        ];
+        let mut index = 0;
+        let mut count = 0;
+        while index < worlds.len() {
+            if matches!(worlds[index], PlanetObjectiveStatus::Rescued) {
+                count += 1;
+            }
+            index += 1;
+        }
+        count
+    }
+}
+
+impl Default for CampaignPlanetObjectives {
+    fn default() -> Self {
+        Self::from_assignment(CampaignWorldAssignment::default())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CampaignObjectives {
-    pub eladard: PlanetObjectiveStatus,
-    pub titania: PlanetObjectiveStatus,
+    pub planets: CampaignPlanetObjectives,
     pub first_carrier: CarrierObjectiveStatus,
     pub second_carrier: CarrierObjectiveStatus,
     pub missiles: StrategicThreatCount,
@@ -718,12 +817,12 @@ pub struct CampaignObjectives {
 
 impl Default for CampaignObjectives {
     fn default() -> Self {
-        Self::for_difficulty(Difficulty::Normal)
+        Self::for_campaign(Difficulty::Normal, CampaignWorldAssignment::default())
     }
 }
 
 impl CampaignObjectives {
-    pub const fn for_difficulty(difficulty: Difficulty) -> Self {
+    pub fn for_campaign(difficulty: Difficulty, world_assignment: CampaignWorldAssignment) -> Self {
         let second_carrier = if difficulty
             .profile()
             .battle_carriers
@@ -734,8 +833,7 @@ impl CampaignObjectives {
             CarrierObjectiveStatus::NotDeployed
         };
         Self {
-            eladard: PlanetObjectiveStatus::Occupied,
-            titania: PlanetObjectiveStatus::Occupied,
+            planets: CampaignPlanetObjectives::from_assignment(world_assignment),
             first_carrier: CarrierObjectiveStatus::Operational,
             second_carrier,
             missiles: StrategicThreatCount::INITIAL_MISSILES,
@@ -746,8 +844,7 @@ impl CampaignObjectives {
     }
 
     pub const fn major_objectives_complete(self) -> bool {
-        matches!(self.eladard, PlanetObjectiveStatus::Rescued)
-            && matches!(self.titania, PlanetObjectiveStatus::Rescued)
+        self.planets.all_complete()
             && matches!(self.first_carrier, CarrierObjectiveStatus::Destroyed)
             && matches!(
                 self.second_carrier,
@@ -802,18 +899,17 @@ impl CampaignState {
     /// the port passes that timing as a semantic input and immediately stores
     /// the resulting world identities. Retry keeps this state unchanged.
     pub fn for_new_game(difficulty: Difficulty, timing_entropy: u64) -> Self {
+        let world_assignment =
+            CampaignWorldAssignment::from_timing_entropy(difficulty, timing_entropy);
         Self {
             elapsed_frames: 0,
             corneria_damage_percent: 0,
             corneria_defense: CorneriaDefenseState::default(),
             difficulty,
-            world_assignment: CampaignWorldAssignment::from_timing_entropy(
-                difficulty,
-                timing_entropy,
-            ),
+            world_assignment,
             active_threats: Vec::new(),
             route_step: CampaignRouteStep::default(),
-            objectives: CampaignObjectives::for_difficulty(difficulty),
+            objectives: CampaignObjectives::for_campaign(difficulty, world_assignment),
         }
     }
 
@@ -829,10 +925,7 @@ impl CampaignState {
         match self.route_step {
             CampaignRouteStep::StrategicPressure => {
                 completed
-                    + match self.objectives.titania {
-                        PlanetObjectiveStatus::Occupied => 0,
-                        PlanetObjectiveStatus::Rescued => 1,
-                    }
+                    + self.objectives.planets.rescued_count()
                     + match self.objectives.second_carrier {
                         CarrierObjectiveStatus::NotDeployed
                         | CarrierObjectiveStatus::Operational => 0,
@@ -2023,11 +2116,53 @@ mod tests {
     }
 
     #[test]
+    fn campaign_planet_objectives_preserve_all_six_world_identities() {
+        for difficulty in [Difficulty::Normal, Difficulty::Hard, Difficulty::Expert] {
+            let assignment_count = match difficulty {
+                Difficulty::Normal => NORMAL_CAMPAIGN_ASSIGNMENT_COUNT,
+                Difficulty::Hard | Difficulty::Expert => {
+                    THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT
+                }
+            };
+            for timing in 0..assignment_count {
+                let assignment = CampaignWorldAssignment::from_timing_entropy(
+                    difficulty,
+                    timing as u64,
+                );
+                let mut planets = CampaignPlanetObjectives::from_assignment(assignment);
+                for world in CampaignWorld::ALL {
+                    let expected = if assignment.contains(world) {
+                        PlanetObjectiveStatus::Occupied
+                    } else {
+                        PlanetObjectiveStatus::Unoccupied
+                    };
+                    assert_eq!(planets.status(world), expected);
+                    if expected == PlanetObjectiveStatus::Unoccupied {
+                        planets.rescue(world);
+                        assert_eq!(planets.status(world), PlanetObjectiveStatus::Unoccupied);
+                    }
+                }
+                assert!(!planets.all_complete());
+                for world in assignment.occupied_worlds().into_iter().flatten() {
+                    planets.rescue(world);
+                }
+                assert!(planets.all_complete());
+                assert_eq!(
+                    planets.rescued_count(),
+                    assignment.occupied_worlds().into_iter().flatten().count() as u16
+                );
+            }
+        }
+    }
+
+    #[test]
     fn only_expert_deploys_the_second_battle_carrier() {
         let complete_first_carrier_route = |difficulty| {
-            let mut objectives = CampaignObjectives::for_difficulty(difficulty);
-            objectives.eladard = PlanetObjectiveStatus::Rescued;
-            objectives.titania = PlanetObjectiveStatus::Rescued;
+            let assignment = CampaignWorldAssignment::from_timing_entropy(difficulty, 0);
+            let mut objectives = CampaignObjectives::for_campaign(difficulty, assignment);
+            for world in assignment.occupied_worlds().into_iter().flatten() {
+                objectives.planets.rescue(world);
+            }
             objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
             objectives.missiles = StrategicThreatCount::NONE;
             objectives.live_attackers = StrategicThreatCount::NONE;
@@ -2051,8 +2186,14 @@ mod tests {
         const ONE_LIVE_ATTACKER: StrategicThreatCount = StrategicThreatCount::new(1);
 
         let mut objectives = CampaignObjectives {
-            eladard: PlanetObjectiveStatus::Rescued,
-            titania: PlanetObjectiveStatus::Rescued,
+            planets: CampaignPlanetObjectives {
+                venom: PlanetObjectiveStatus::Rescued,
+                titania: PlanetObjectiveStatus::Rescued,
+                macbeth: PlanetObjectiveStatus::Rescued,
+                eladard: PlanetObjectiveStatus::Rescued,
+                meteor: PlanetObjectiveStatus::Rescued,
+                fortuna: PlanetObjectiveStatus::Rescued,
+            },
             first_carrier: CarrierObjectiveStatus::Destroyed,
             second_carrier: CarrierObjectiveStatus::Destroyed,
             missiles: StrategicThreatCount::NONE,
