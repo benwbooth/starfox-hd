@@ -309,6 +309,7 @@ dist_xz, msqrt16/32, mcalcperc, calcstageperc, framescalevecs, anglexy axis/diag
 - [x] retail flyingfish — fix sflag bits to ROM make_sflag (landed=$20/sflag2, side=$40/sflag3); INIT HP/AP/roty+180; swim achase ±200; `.flying` vy+2+addvecs. Test `retail_flyingfish_vs_port`. bossg mode-table closed.
 - [x] retail boss8a HPLASMA — `gameframe&31∈{25,30}` fire (26 quiet); shot HP=1/AP=10/vel=60/life=50, yaw=firer.roty+deg180, `al_ptr=playpt`. Easy path → cont. Test `retail_boss8a_hplasma_vs_port`.
 - [x] retail boss2 fire-band — state4 `sbyte4≤25` + even `gameframe` → `RELFASTELASER` (HP=1/AP=2/vel=90/life=40); `sbyte4>25` / odd frame quiet. Test `retail_boss2_fireband_vs_port`. Alive-path exp/RNG remain gap.
+- [x] SF1 Macbeth bossH full choreography — replace the condensed timer path with typed 22-mode mother and 15-mode leg machines; restore child-scale full-transform placement, raised-leg gates, impacts/smoke, protected/red leg collision phases, teleporter follow/retraction, oriented plasma fire, falling leg explosions, and coupled boss bar/death. Tests `bossh.rs` (9) + `teleporter.rs` (3) + `more_custom_weapon_se.rs` (7), full `sf-strat`, all three unattended routes, 107/107 retail coexec, workspace, and architecture gates.
 
 ## Conventions
 - Prefer `sf-oracle` differential tests over hand-reading alone.
