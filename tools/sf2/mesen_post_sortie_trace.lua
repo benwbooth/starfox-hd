@@ -2032,7 +2032,10 @@ local function provide_combat_autopilot()
       forced_meteor_core_health_applied = true
     end
     local eladard_room_defender = work_byte(0x1BB5) == 3
-      and (shape == 0xEE0C or shape == 0xBECC)
+      and (shape == 0xEE0C or shape == 0xBECC
+        -- The final-room defender alternates between these two animation
+        -- frames while retaining the same retail object and durability.
+        or shape == 0xE958 or shape == 0xE974)
     local planetary_base_defender = eladard_room_defender
       or meteor_core_target
     local meteor_surface_target = meteor_surface and shape == 0xEF5C
