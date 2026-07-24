@@ -2930,10 +2930,13 @@ fn retail_big_meteor_body_vs_port() {
 
 /// CAPSTONE (batch-3) — RETAIL `tree1_Istrat` RNG vs THE PORT (stream form).
 ///
-/// tree1 draws the runtime RNG ONCE -> `al_sbyte1 = (rnd&3)+1` (tree height).
+/// tree1 draws the runtime RNG ONCE -> `(rnd&3)+1` (tree height), then the
+/// source `s_beqdec_alvar` consumes the first generation before entering the
+/// shared growth tick. The stored post-init counter is therefore height-1.
 /// We draw one value from the retail cart's OWN `RANDOM` (carried across the
 /// param-block collision by `retail_random_next`), apply the cross-validated
-/// `(rnd&3)+1` formula, and diff against the port `tree1_init` (IS_TREE1=204)
+/// `(rnd&3)+1` formula, and diff its consumed counter against the port
+/// `tree1_init` (IS_TREE1=204)
 /// seeded with the SAME 4-byte state. Several seeds — the port's real
 /// `sf_random`-derived tree height matches the cartridge each time. (Stream form:
 /// tree1's body does GSU-less sprite/anim table reads after the draw, so the
@@ -2950,20 +2953,21 @@ fn retail_tree1_rng_vs_port() {
         let mut bus = SnesBus::new(rom.clone());
         let mut rs = seed;
         let d = retail_random_next(&mut bus, &mut rs);
-        let r_sb1 = (d & 3).wrapping_add(1); // (rnd&3)+1
+        let source_height = (d & 3).wrapping_add(1);
+        let expected_remaining = source_height - 1;
 
         let (_rotz, p_sb1, _roty, _hp, _ap, _coll, _n) = port_ground_init(IS_TREE1, seed);
         eprintln!(
-            "BATCH3 tree1 seed {seed:02X?}: retail draw={d} sbyte1={r_sb1} | port sbyte1={p_sb1}  {}",
-            if r_sb1 == p_sb1 { "MATCH" } else { "DIFF" }
+            "BATCH3 tree1 seed {seed:02X?}: retail draw={d} height={source_height} remaining={expected_remaining} | port remaining={p_sb1}  {}",
+            if expected_remaining == p_sb1 { "MATCH" } else { "DIFF" }
         );
         assert_eq!(
-            r_sb1, p_sb1,
-            "tree1 sbyte1 (rnd&3)+1 must match the retail RANDOM stream"
+            expected_remaining, p_sb1,
+            "tree1 post-init counter must consume the first retail height generation"
         );
-        assert!((1..=4).contains(&r_sb1), "tree1 height in [1,4]");
+        assert!((1..=4).contains(&source_height), "tree1 height in [1,4]");
     }
-    eprintln!("BATCH3 tree1: MATCH — port sf_random tree height == retail RANDOM (rnd&3)+1.");
+    eprintln!("BATCH3 tree1: MATCH — port sf_random tree height and consumed root generation match retail.");
 }
 
 // ============================================================================
@@ -3306,6 +3310,7 @@ fn retail_tree2_body_vs_port() {
         let mut rs = seed;
         let stream_draw = retail_random_next(&mut sbus, &mut rs);
         let expect_height = (stream_draw & 3).wrapping_add(1);
+        let expect_remaining = expect_height - 1;
 
         for (ex, px) in scenarios {
             // --- retail: run tree2_Istrat body on seeded RNG + player object. ---
@@ -3350,8 +3355,8 @@ fn retail_tree2_body_vs_port() {
             let p_roty = g.objs.aliens[e as usize].roty;
 
             eprintln!(
-                "BATCH4 tree2 seed {seed:02X?} ex={ex} px={px}: retail tilt (sb2=${r_sb2:02X} roty=${r_roty:02X}) | port (sb1={p_sb1} sb2=${p_sb2:02X} roty=${p_roty:02X}) height={expect_height}  {}",
-                if (r_sb2, r_roty) == (p_sb2, p_roty) && p_sb1 == expect_height { "MATCH" } else { "DIFF" }
+                "BATCH4 tree2 seed {seed:02X?} ex={ex} px={px}: retail tilt (sb2=${r_sb2:02X} roty=${r_roty:02X}) | port (remaining={p_sb1} sb2=${p_sb2:02X} roty=${p_roty:02X}) height={expect_height}  {}",
+                if (r_sb2, r_roty) == (p_sb2, p_roty) && p_sb1 == expect_remaining { "MATCH" } else { "DIFF" }
             );
             // Player-relative tilt: EXACT retail-body match.
             assert_eq!(
@@ -3362,12 +3367,13 @@ fn retail_tree2_body_vs_port() {
                 r_roty, p_roty,
                 "tree2 roty (+/-deg45 player tilt) must match retail body"
             );
-            // RNG height: port init == (cart RANDOM draw & 3)+1, in [1,4].
+            // RNG height is in [1,4]; s_beqdec_alvar consumes the root before
+            // the init returns, leaving height-1 generations in the field.
             assert_eq!(
-                p_sb1, expect_height,
-                "tree2 port height == (retail RANDOM draw & 3)+1"
+                p_sb1, expect_remaining,
+                "tree2 post-init counter consumes the first retail height generation"
             );
-            assert!((1..=4).contains(&p_sb1), "tree2 height in [1,4]");
+            assert!((1..=4).contains(&expect_height), "tree2 height in [1,4]");
             // Branch sanity: enemy left of player -> otherway (roty=+deg45=$20,
             // sbyte2=-deg22=$F0); enemy right -> notthatway (roty=-deg45=$E0, sbyte2=$10).
             if ex < px {
@@ -3380,7 +3386,7 @@ fn retail_tree2_body_vs_port() {
         }
     }
     eprintln!(
-        "BATCH4 tree2: MATCH — retail player-relative tilt (body) + RNG height (stream) == port."
+        "BATCH4 tree2: MATCH — retail player-relative tilt, RNG height, and consumed root generation == port."
     );
 }
 

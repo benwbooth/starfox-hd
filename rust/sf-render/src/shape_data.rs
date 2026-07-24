@@ -210,6 +210,7 @@ pub const SHAPE_EXT_WARP_3: u16 = 456;
 pub const SHAPE_EXT_WALL_L: u16 = 457;
 pub const SHAPE_EXT_WALL_R: u16 = 458;
 pub const SHAPE_EXT_IRIS_1: u16 = 459;
+pub const SHAPE_EXT_STALK_1: u16 = 460;
 pub const SHAPE_EXT_OP_0: u16 = 508;
 pub const SHAPE_EXT_OP_1: u16 = 509;
 pub const SHAPE_EXT_OP_2: u16 = 510;
@@ -86314,6 +86315,41 @@ static SHAPE_459_FACES: [ShapeFace; 8] = [
     ),
 ];
 
+// Shape 460: stalk_1
+static SHAPE_460_VERTS: [ShapeVertex; 8] = [
+    v(-10.0, -40.0, -20.0),
+    v(10.0, -40.0, -20.0),
+    v(10.0, 40.0, -20.0),
+    v(-10.0, 40.0, -20.0),
+    v(-20.0, -40.0, 0.0),
+    v(20.0, -40.0, 0.0),
+    v(-20.0, 40.0, 0.0),
+    v(20.0, 40.0, 0.0),
+];
+static SHAPE_460_FACES: [ShapeFace; 3] = [
+    f(
+        [2, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [0, 0, -127],
+        Some([2, 3, 0]),
+    ),
+    f(
+        [0, 3, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [114, 0, -57],
+        Some([0, 3, 6]),
+    ),
+    f(
+        [5, 7, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [-114, 0, -57],
+        Some([5, 7, 2]),
+    ),
+];
+
 // Shape 508: op_0
 static SHAPE_508_VERTS: [ShapeVertex; 20] = [
     v(-120.0, 0.0, -480.0),
@@ -86989,7 +87025,7 @@ static SHAPE_511_FACES: [ShapeFace; 6] = [
     ),
 ];
 
-pub const SHAPE_DATA_COUNT: usize = 455;
+pub const SHAPE_DATA_COUNT: usize = 456;
 
 pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
     ShapeDataEntry {
@@ -90599,6 +90635,14 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         faces: &SHAPE_459_FACES,
         default_color_table: "id_0_c",
         name: "iris_1",
+    },
+    ShapeDataEntry {
+        shape_id: 460,
+        vertices: &SHAPE_460_VERTS,
+        animation_frames: &[],
+        faces: &SHAPE_460_FACES,
+        default_color_table: "id_0_c",
+        name: "stalk_1",
     },
     ShapeDataEntry {
         shape_id: 508,

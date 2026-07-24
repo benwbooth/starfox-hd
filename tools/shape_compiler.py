@@ -335,6 +335,10 @@ EXTENDED_SHAPES = {
     "wall_l":          457,
     "wall_r":          458,
     "iris_1":          459,
+    # Sprouting-tree body mesh selected after each animated `stalk` head
+    # finishes growing. It is a complete source ShapeHdr but has no
+    # ISTRATS `def_shape` row of its own.
+    "stalk_1":         460,
 }
 
 

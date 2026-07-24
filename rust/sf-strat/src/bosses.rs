@@ -7673,11 +7673,10 @@ fn chicken_kill_alptr_list(g: &mut Game, start_raw: u16) {
 //    neck `.withdraw`s (shrinks + sinks) and unlinks. That is the kill.
 //
 // SCOPE / FIDELITY BOUNDARIES (honest, cited inline):
-//  * Only the SNAKE path of the shared `sprouty` machine is ported. The
-//    tree1/tree2/tree3 (sflag6), tunnel-sprouter (sflag7) and flower/leaf
-//    (`.bloom`/`leaf_istrat`) branches (DSTRATS.ASM:1970-2064, 2188-2192,
-//    2288-2311, 2398-2416) are OUT of scope — different enemies that reuse the
-//    same code. The snake-only branches are taken verbatim.
+//  * This module owns only the SNAKE path of the shared `sprouty` machine.
+//    The tree1/tree2/tree3 and flower/leaf branches are implemented in
+//    `enemies_ground`; the tunnel-sprouter remains a distinct enemy. The
+//    snake-only branches here are taken verbatim.
 //  * Distinct snake FRAMES snake_0/snake_3/snake_4 collapse to SH_SNAKE_1
 //    (201) — the renderer only models snake_1 (sf-map route3::common). Shape
 //    ids are behaviour-inert here (no branch reads them), so this is purely a
@@ -8031,7 +8030,7 @@ fn sprouty_strat3(g: &mut Game, idx: u16) {
         return;
     }
     sd_set_sword1_hi(&mut g.objs.aliens[idx as usize], hi - 1);
-    // (sflag6 tree / sflag4 leaf branch is scoped out.)
+    // The tree/leaf branch is handled by enemies_ground's tree state machine.
 }
 
 /// ROM `sprouty.withdraw_i` (DSTRATS.ASM:2252): shrink the stretch anim to 0,

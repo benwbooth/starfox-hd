@@ -4253,11 +4253,9 @@ fn next_state(g: &mut Game, idx: u16) {
 //   wallr    the player is within wall1DIST(600) xz; toggle lean on being hit.
 //   wallleftright : oscillating wall — flips its lean every 16 frames.
 //   tree1/ : indestructible (tree1HP=hardHP=-1) ENEMY1 sprouting-tree scenery.
-//   tree2    Only the base trunk GROW is modelled (grow anim 0->8, then hold);
-//            the sprouty segment-chain (.strat2/.strat3), leaf/flower bloom
-//            (.bloom/.flower/createleaf/leaf_istrat) and fall-on-death are
-//            cosmetic spawn-in visuals SCOPED OUT — exactly as bosses.rs scoped
-//            the tree branch out of its snake-only sprouty port (bosses.rs:6920).
+//   tree2    The complete sprouty tree branch is modelled: animated linked
+//            stalks, alternating leaves, tree2's bent crown, terminal flower
+//            and pollen, delayed segment retraction, and chain fall-on-death.
 // ============================================================
 
 const IS_WOODS: usize = 53;
@@ -4276,6 +4274,42 @@ const WALL1_AP: u8 = 16; // STRATEQU.INC:210 wall1AP
 const WALL1_DIST: i16 = 600; // STRATEQU.INC:211 wall1DIST
 const TREE1_AP: u8 = 8; // DSTRATS.ASM:99 tree1AP (tree1HP = hardHP = -1)
 const SPROUT_MAXY: i16 = 80; // STRATEQU.INC:980 sprout_maxy
+const TREE_ROOT_SHAPE: u16 = 208; // SHAPES3.ASM `stalk`; map shape catalog row
+const TREE_BODY_SHAPE: u16 = 460; // SHAPES3.ASM `stalk_1`; fixed native slot
+const TREE_FLOWER_SHAPE: u16 = 442; // SHAPES3.ASM `flower`; fixed native slot
+const TREE_LEAF_SHAPE: u16 = 444; // SHAPES3.ASM `leaf`; fixed native slot
+const TREE_TAIL_SHAPE: u16 = 0; // `sprouttail` is never assigned by tree init
+
+const TREE_GROW_SPEED: u8 = 2;
+const TREE_GROW_LIMIT: u8 = 8;
+const TREE_PRIMARY_HEIGHT_MASK: u8 = 3;
+const TREE_CROWN_HEIGHT_MASK: u8 = 1;
+const TREE_SEGMENT_OFFSET_Y: i16 = -(SPROUT_MAXY - 5) / 2;
+const TREE_TAIL_DELAY: u8 = 255;
+const TREE_LEAF_DELAY: u8 = 5;
+const TREE_LEAF_OFFSET_X: i16 = 20;
+const TREE_LEAF_OFFSET_Z: i16 = -10;
+const TREE_LEAF_BASE_FRAME: u8 = 4;
+const TREE_LEAF_FRAME_LIMIT_BASE: u8 = 7;
+const TREE_FLOWER_POLLEN_FRAME: u8 = 10;
+const TREE_FLOWER_FRAME_LIMIT: u8 = 13;
+const TREE_FALL_SPEED: u8 = 30;
+const TREE_FALL_INITIAL_Y_SPEED: i16 = -10;
+const TREE_FALL_GRAVITY: i16 = 3;
+const TREE_FALL_BOUNCE_SHIFT: u32 = 2;
+const TREE_FALL_ROLL_STEP: u8 = 5;
+const TREE_FALL_PITCH_STEP: u8 = 2;
+
+// Descriptive names for the source strategy-marker bits copied from parent to
+// child. Bit flags are inherently hexadecimal; gameplay quantities above are
+// decimal.
+const TREE_LEAF_SIDE_FLAG: u8 = 0x40;
+const TREE_HAS_LEAVES_FLAG: u8 = 0x80;
+const TREE_BENT_CROWN_FLAG: u8 = 0x01;
+const TREE_KIND_FLAG: u8 = 0x02;
+const TREE_END_LINK: u16 = u16::MAX;
+const TREE_ANIMATION_FRAME_MASK: u8 = 0x7f;
+const TREE_ANIMATION_ACTIVE_FLAG: u8 = 0x80;
 
 /// `s_add_anim x,#amt,#max,label` (STRATLIB.INC:178, 4-arg jmp form): advance
 /// the low-7 anim frame; when it reaches `max`, CLAMP to `max-1` (keeping the
@@ -7405,121 +7439,379 @@ fn warp_state3(g: &mut Game, idx: u16) {
 }
 
 // ------------------------------------------------------------
-// tree1 (IS 204) / tree2 (IS 205) — DSTRATS.ASM:1976-2063.
-// Indestructible (tree1HP = hardHP = -1) ENEMY1 sprouting-tree scenery. Only the
-// base-trunk grow is modelled (see the section doc for the scoped-out sprouty
-// segment-chain / leaf-flower bloom). sflag3/4/5/6 (leaf/flower/kinky markers)
-// are consumed ONLY by that scoped-out bloom code, so they are not set here.
+// tree1 / tree2 / tree3 — DSTRATS.ASM:1970-2063 plus the shared tree branch
+// of sprouty at :2107-2416. These are typed linked objects: `ptr` stores the
+// next object's index+1, while u16::MAX is the source top-of-chain sentinel.
 // ------------------------------------------------------------
 
-/// `tree1_istrat` (DSTRATS.ASM:2016-2043): flower/leaf tree — random height
-/// (rnd&3)+1, lower the root by sprout_maxy/2, anim speed 2 / tail timer 255,
-/// ENEMY1 + nohitaffect + hp=-1, anim 0. Falls into the grow tick.
+/// `tree1_istrat`: a leafy tree with `(random & 3) + 1` stalk generations.
 pub fn tree1_istrat(g: &mut Game, idx: u16) {
     tree1_init(g, idx);
 }
 
 fn tree1_init(g: &mut Game, idx: u16) {
-    let r = (sf_random(&mut g.vars) as u8) & 3; // s_set_alvar2rnd al_sbyte1,#3
-    tree_setup(g, idx, r.wrapping_add(1)); // s_inc_alvar -> [1,4]
-                                           // tree1 has no player-relative tilt (unlike tree2); s_not_alsflag sflag3 and
-                                           // the leaf/flower flags drive only the scoped-out bloom.
+    let height = ((sf_random(&mut g.vars) as u8) & TREE_PRIMARY_HEIGHT_MASK).wrapping_add(1);
+    {
+        let tree = &mut g.objs.aliens[idx as usize];
+        tree.sflags2 |= TREE_HAS_LEAVES_FLAG;
+        tree.sflags3 |= TREE_KIND_FLAG;
+    }
+    tree_root_setup(g, idx, height);
 }
 
-/// `tree2_istrat` (DSTRATS.ASM:1976-2014): as tree1 but tilts toward the player
-/// (roty ±deg45, sbyte2 = ±deg22 overhang) and casts a shadow.
+/// `tree2_istrat`: a shadow-casting tree tilted toward the player, followed by
+/// a short second crown after its first height counter expires.
 pub fn tree2_istrat(g: &mut Game, idx: u16) {
     tree2_init(g, idx);
 }
 
-/// ROM `tree3_istrat` (DSTRATS.ASM:1971) — height 255, forced into tree2 entry.
+/// `tree3_istrat`: the tree2 entry with a source height of 255. Bounds checking
+/// terminates the chain before the byte counter can expire.
 pub fn tree3_istrat(g: &mut Game, idx: u16) {
-    // s_set_alvar B,al_sbyte1,#255 ; jmp tree2.forcedentry (skip random height).
-    // Pre-set sbyte2 like tree2 before tilt; height forced to 255.
-    let mut sbyte2 = DEG22;
-    let self_x = g.objs.aliens[idx as usize].worldx;
-    let px = player(g).map(|p| p.worldx).unwrap_or(0);
-    if self_x.wrapping_sub(px) < 0 {
-        sbyte2 = sbyte2.wrapping_neg();
-        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(DEG45);
-    } else {
-        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize]
-            .roty
-            .wrapping_add(0u8.wrapping_sub(DEG45));
-    }
-    tree_setup(g, idx, 255);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.sbyte2 = sbyte2;
-    al.sflags |= ASF_SHADOW;
+    tree2_root_setup(g, idx, u8::MAX);
 }
 
-/// Alias of tree1_istrat2 / tree2_istrat2 (same body after tilt setup).
+/// Continuation assigned to a child created by tree1's shared sprout machine.
 pub fn tree1_istrat2(g: &mut Game, idx: u16) {
-    tree1_init(g, idx);
+    tree_segment_init(g, idx);
 }
+
+/// Continuation assigned to a child created by tree2's shared sprout machine.
 pub fn tree2_istrat2(g: &mut Game, idx: u16) {
-    tree2_init(g, idx);
+    tree_segment_init(g, idx);
 }
 
 fn tree2_init(g: &mut Game, idx: u16) {
-    let r = (sf_random(&mut g.vars) as u8) & 3;
-    let mut sbyte2 = DEG22; // s_set_alvar al_sbyte2,#deg22
-                            // s_cmp_alvars W,x,al_worldx,y,al_worldx ; s_bmi .otherway.
-    let self_x = g.objs.aliens[idx as usize].worldx;
-    let px = player(g).map(|p| p.worldx).unwrap_or(0);
-    if self_x.wrapping_sub(px) < 0 {
-        // .otherway: s_neg_alvar sbyte2 ; s_add_alvar al_roty,#deg45
-        sbyte2 = sbyte2.wrapping_neg();
-        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(DEG45);
-    } else {
-        // .notthatway: s_add_alvar al_roty,#-deg45
-        g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize]
-            .roty
-            .wrapping_add(0u8.wrapping_sub(DEG45));
-    }
-    tree_setup(g, idx, r.wrapping_add(1));
-    let al = &mut g.objs.aliens[idx as usize];
-    al.sbyte2 = sbyte2;
-    al.sflags |= ASF_SHADOW; // s_set_alsflag x,shadow (tree2_istrat2)
+    let height = ((sf_random(&mut g.vars) as u8) & TREE_PRIMARY_HEIGHT_MASK).wrapping_add(1);
+    tree2_root_setup(g, idx, height);
 }
 
-/// Shared tree init body (DSTRATS.ASM:1985-2043, tree-common part): sprout root
-/// lowering + destructible-scenery wiring + the grow tick. `height` = sbyte1
-/// (number of scoped-out segment generations, stored for fidelity).
-fn tree_setup(g: &mut Game, idx: u16, height: u8) {
-    let tick = sid(g, tree_strat);
-    let coll = sid(g, strat_hit_flash);
-    let exp = sid(g, strat_explode);
+fn tree2_root_setup(g: &mut Game, idx: u16, height: u8) {
+    let mut bend = DEG22;
+    let tree_x = g.objs.aliens[idx as usize].worldx;
+    let player_x = player(g).map(|p| p.worldx).unwrap_or(0);
     {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.sbyte1 = height;
-        al.worldy = al.worldy.wrapping_sub(SPROUT_MAXY / 2); // s_sub al_worldy,#sprout_maxy/2
-                                                             // al_sword1 lo = anim speed 2, hi = tail timer 255 (sword1 = 0xFF02).
-        al.sword1 = 0xFF02u16 as i16;
-        al.stratptr = Some(tick); // s_set_alptrs x,sprouty.strat,hitflash,explode
-        al.collstratptr = Some(coll);
-        al.expstratptr = Some(exp);
-        al.hp = HARDHP; // s_set_aldata sproutiHP(=tree1HP=-1),#tree1ap
-        al.ap = TREE1_AP;
-        al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag x,nohitaffect
-        al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,ENEMY1
-        al.animframe = 0x80; // s_init_anim x,#0
+        let tree = &mut g.objs.aliens[idx as usize];
+        tree.sflags3 |= TREE_KIND_FLAG | TREE_BENT_CROWN_FLAG;
+        tree.sflags |= ASF_SHADOW;
+        if tree_x.wrapping_sub(player_x) < 0 {
+            bend = bend.wrapping_neg();
+            tree.roty = tree.roty.wrapping_add(DEG45);
+        } else {
+            tree.roty = tree.roty.wrapping_sub(DEG45);
+        }
+        tree.sbyte2 = bend;
     }
-    tree_strat(g, idx); // jmp sprouty.strat (falls into the grow tick)
+    tree_root_setup(g, idx, height);
 }
 
-/// `sprouty.strat` .notsnake grow (DSTRATS.ASM:2147-2150), scoped to the base
-/// trunk: grow the anim by the anim speed (sword1 lo) toward the cap 8, then hold
-/// (the ROM's `.finished` -> `.strat2` segment spawn is the scoped-out chain).
-fn tree_strat(g: &mut Game, idx: u16) {
-    let al = &mut g.objs.aliens[idx as usize];
-    let speed = (al.sword1 as u16 & 0xff) as u8; // svar_byte1 = al_sword1 lo
-    let cur = al.animframe & 0x7F;
-    if cur != 8 {
-        // s_add_anim x,svar_byte1,#8 (clamp/hold at the cap in this scoped port).
-        let f = cur.wrapping_add(speed).min(8);
-        al.animframe = 0x80 | f;
+/// Root-only setup: lower the placed stalk by half a segment and seed its
+/// growth speed/tail delay before entering the shared child initializer.
+fn tree_root_setup(g: &mut Game, idx: u16, height: u8) {
+    let tree = &mut g.objs.aliens[idx as usize];
+    tree.sbyte1 = height;
+    tree.worldy = tree.worldy.wrapping_sub(SPROUT_MAXY / 2);
+    tree.sword1 = i16::from_le_bytes([TREE_GROW_SPEED, TREE_TAIL_DELAY]);
+    tree_segment_init(g, idx);
+}
+
+/// Shared tree child initializer. The source height macro branches when the
+/// counter is already zero; otherwise it decrements before growth begins.
+fn tree_segment_init(g: &mut Game, idx: u16) {
+    let grow = sid(g, tree_grow_tick);
+    let hit = sid(g, strat_hit_flash);
+    let explode = sid(g, tree_explode_init);
+    {
+        let segment = &mut g.objs.aliens[idx as usize];
+        segment.stratptr = Some(grow);
+        segment.collstratptr = Some(hit);
+        segment.expstratptr = Some(explode);
+        segment.hp = HARDHP;
+        segment.ap = TREE1_AP;
+        segment.sflags |= ASF_NOHITAFFECT;
+        segment.collflags |= COLLTYPE_ENEMY1;
+        segment.animframe = TREE_ANIMATION_ACTIVE_FLAG;
     }
+
+    if g.objs.aliens[idx as usize].sbyte1 == 0 {
+        tree_bloom(g, idx);
+        return;
+    }
+
+    let segment = &mut g.objs.aliens[idx as usize];
+    segment.sbyte1 -= 1;
+    if segment.sflags2 & TREE_HAS_LEAVES_FLAG != 0 {
+        segment.sflags2 ^= TREE_LEAF_SIDE_FLAG;
+    }
+    tree_grow_tick(g, idx);
+}
+
+/// Stretch a stalk toward frame 8. The labelled source form clamps at frame 7
+/// and switches to the child-allocation continuation for the following tick.
+fn tree_grow_tick(g: &mut Game, idx: u16) {
+    let speed = tree_growth_speed(&g.objs.aliens[idx as usize]);
+    if add_anim_cap(&mut g.objs.aliens[idx as usize], speed, TREE_GROW_LIMIT) {
+        let spawn_next = sid(g, tree_spawn_next);
+        g.objs.aliens[idx as usize].stratptr = Some(spawn_next);
+    }
+}
+
+/// Create and link the next `stalk` head, apply the source's two half-segment
+/// offsets around its optional bend, then turn the parent into `stalk_1`.
+fn tree_spawn_next(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].animframe = TREE_ANIMATION_ACTIVE_FLAG | TREE_GROW_LIMIT;
+    let Some(child) = make_obj(g, TREE_ROOT_SHAPE) else {
+        return;
+    };
+
+    copy_pos(g, child, idx);
+    let parent = g.objs.aliens[idx as usize];
+    {
+        let next = &mut g.objs.aliens[child as usize];
+        next.rotx = parent.rotx;
+        next.roty = parent.roty;
+        next.rotz = parent.rotz;
+        next.sbyte1 = parent.sbyte1;
+        next.sbyte2 = parent.sbyte2;
+        next.sbyte3 = parent.sbyte3;
+        next.sword1 = parent.sword1;
+        next.sflags = parent.sflags;
+        next.sflags2 = parent.sflags2;
+        next.sflags3 = parent.sflags3;
+        next.sflags4 = parent.sflags4;
+    }
+
+    tree_offset_from_self(g, child, 0, TREE_SEGMENT_OFFSET_Y, 0);
+    if parent.sflags3 & TREE_BENT_CROWN_FLAG != 0 {
+        let bend = g.objs.aliens[child as usize].sbyte2;
+        g.objs.aliens[child as usize].rotz = g.objs.aliens[child as usize].rotz.wrapping_add(bend);
+    }
+    tree_offset_from_self(g, child, 0, TREE_SEGMENT_OFFSET_Y, 0);
+
+    let child_init = sid(g, tree_segment_init);
+    g.objs.aliens[child as usize].stratptr = Some(child_init);
+    if tree_out_of_bounds(g, child) {
+        g.objs.aliens[idx as usize].ptr = TREE_END_LINK;
+        g.objs.free(child);
+    } else {
+        g.objs.aliens[idx as usize].ptr = child + 1;
+    }
+
+    let body_tick = sid(g, tree_body_tick);
+    let segment = &mut g.objs.aliens[idx as usize];
+    segment.hp = HARDHP;
+    segment.shape = TREE_BODY_SHAPE;
+    segment.stratptr = Some(body_tick);
+}
+
+fn tree_offset_from_self(g: &mut Game, idx: u16, x: i16, y: i16, z: i16) {
+    let base = g.objs.aliens[idx as usize];
+    full_offset_pos(g, idx, &base, x, y, z);
+}
+
+fn tree_out_of_bounds(g: &Game, idx: u16) -> bool {
+    g.objs.aliens[idx as usize].worldy >= 0
+}
+
+/// Turn the terminal head into a flower. Tree2 first clears its bend marker,
+/// rolls a second height in `[1, 2]`, and resumes stalk growth.
+fn tree_bloom(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].sflags3 & TREE_BENT_CROWN_FLAG != 0 {
+        g.objs.aliens[idx as usize].sflags3 &= !TREE_BENT_CROWN_FLAG;
+        g.objs.aliens[idx as usize].sbyte1 =
+            ((sf_random(&mut g.vars) as u8) & TREE_CROWN_HEIGHT_MASK).wrapping_add(1);
+        tree_grow_tick(g, idx);
+        return;
+    }
+
+    let flower_tick = sid(g, tree_flower_tick);
+    {
+        let flower = &mut g.objs.aliens[idx as usize];
+        flower.sflags &= !ASF_SHADOW;
+        flower.shape = TREE_FLOWER_SHAPE;
+        flower.stratptr = Some(flower_tick);
+    }
+    tree_flower_tick(g, idx);
+}
+
+fn tree_flower_tick(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].animframe & TREE_ANIMATION_FRAME_MASK == TREE_FLOWER_POLLEN_FRAME
+    {
+        let _ = crate::enemy_a::makepollen_srou(g, idx);
+    }
+    let _ = add_anim_cap(&mut g.objs.aliens[idx as usize], 1, TREE_FLOWER_FRAME_LIMIT);
+}
+
+/// Mature body segment: after five delay decrements, leafy trees grow one
+/// alternating side leaf. At zero the source changes to its short tail
+/// retraction. Losing the linked child starts the chain fall.
+fn tree_body_tick(g: &mut Game, idx: u16) {
+    if g.objs.aliens[idx as usize].ptr == 0 {
+        tree_fall_init(g, idx);
+        return;
+    }
+
+    let delay = tree_tail_delay(&g.objs.aliens[idx as usize]);
+    if delay == 0 {
+        tree_tail_init(g, idx);
+        return;
+    }
+    let remaining = delay - 1;
+    tree_set_tail_delay(&mut g.objs.aliens[idx as usize], remaining);
+
+    let segment = g.objs.aliens[idx as usize];
+    if segment.sflags3 & TREE_KIND_FLAG != 0
+        && segment.sflags2 & TREE_HAS_LEAVES_FLAG != 0
+        && remaining == TREE_TAIL_DELAY - TREE_LEAF_DELAY
+    {
+        tree_create_leaf(g, idx);
+    }
+}
+
+fn tree_create_leaf(g: &mut Game, parent_idx: u16) {
+    let Some(leaf_idx) = make_obj(g, TREE_ROOT_SHAPE) else {
+        return;
+    };
+    let parent = g.objs.aliens[parent_idx as usize];
+    {
+        let leaf = &mut g.objs.aliens[leaf_idx as usize];
+        leaf.rotx = parent.rotx;
+        leaf.roty = parent.roty;
+        leaf.rotz = parent.rotz;
+        leaf.sbyte1 = parent.sbyte1;
+        if parent.sflags2 & TREE_LEAF_SIDE_FLAG != 0 {
+            leaf.roty = leaf.roty.wrapping_add(DEG180);
+        }
+    }
+    let side = if parent.sflags2 & TREE_LEAF_SIDE_FLAG != 0 {
+        TREE_LEAF_OFFSET_X
+    } else {
+        -TREE_LEAF_OFFSET_X
+    };
+    full_offset_pos(g, leaf_idx, &parent, side, 0, TREE_LEAF_OFFSET_Z);
+    {
+        let leaf = &mut g.objs.aliens[leaf_idx as usize];
+        leaf.shape = TREE_LEAF_SHAPE;
+        leaf.rotz = leaf.rotz.wrapping_add(DEG45);
+    }
+    tree_leaf_init(g, leaf_idx);
+}
+
+fn tree_leaf_init(g: &mut Game, idx: u16) {
+    let leaf_tick = sid(g, tree_leaf_tick);
+    let hit = sid(g, strat_hit_flash);
+    let explode = sid(g, strat_explode);
+    let leaf = &mut g.objs.aliens[idx as usize];
+    leaf.stratptr = Some(leaf_tick);
+    leaf.collstratptr = Some(hit);
+    leaf.expstratptr = Some(explode);
+    leaf.hp = HARDHP;
+    leaf.ap = HARD_AP;
+    leaf.collflags |= COLLTYPE_ENEMY1;
+    leaf.sflags |= ASF_NOHITAFFECT | ASF_COLLDISABLE;
+    leaf.animframe = TREE_ANIMATION_ACTIVE_FLAG;
+    leaf.sbyte1 = TREE_LEAF_BASE_FRAME.wrapping_sub(leaf.sbyte1);
+}
+
+fn tree_leaf_tick(g: &mut Game, idx: u16) {
+    let limit = TREE_LEAF_FRAME_LIMIT_BASE.wrapping_sub(g.objs.aliens[idx as usize].sbyte1);
+    let _ = add_anim_cap(&mut g.objs.aliens[idx as usize], 1, limit);
+}
+
+fn tree_tail_init(g: &mut Game, idx: u16) {
+    let tail_tick = sid(g, tree_tail_tick);
+    let segment = &mut g.objs.aliens[idx as usize];
+    segment.stratptr = Some(tail_tick);
+    segment.animframe = TREE_ANIMATION_ACTIVE_FLAG.wrapping_sub(tree_growth_speed(segment));
+    segment.hp = 1;
+    tree_tail_tick(g, idx);
+}
+
+fn tree_tail_tick(g: &mut Game, idx: u16) {
+    let speed = tree_growth_speed(&g.objs.aliens[idx as usize]);
+    let segment = &mut g.objs.aliens[idx as usize];
+    segment.shape = TREE_TAIL_SHAPE;
+    segment.animframe = segment.animframe.wrapping_add(speed);
+    if segment.animframe & TREE_ANIMATION_FRAME_MASK == TREE_GROW_LIMIT {
+        g.objs.aldead = 1;
+    }
+}
+
+fn tree_explode_init(g: &mut Game, idx: u16) {
+    let mut current = Some(idx);
+    while let Some(segment_idx) = current {
+        let next = tree_linked_object(g, g.objs.aliens[segment_idx as usize].ptr);
+        tree_fall_init(g, segment_idx);
+        current = next;
+    }
+    tree_clear_inbound_links(g, idx);
+    tree_schedule_explosion(g, idx);
+}
+
+fn tree_fall_init(g: &mut Game, idx: u16) {
+    let fall_tick = sid(g, tree_fall_tick);
+    {
+        let segment = &mut g.objs.aliens[idx as usize];
+        segment.stratptr = Some(fall_tick);
+        segment.vel = TREE_FALL_SPEED;
+        segment.roty = sf_random(&mut g.vars) as u8;
+        gen_vecs_3d(segment);
+        segment.vy = TREE_FALL_INITIAL_Y_SPEED;
+    }
+    tree_clear_inbound_links(g, idx);
+}
+
+fn tree_fall_tick(g: &mut Game, idx: u16) {
+    {
+        let segment = &mut g.objs.aliens[idx as usize];
+        segment.rotz = segment.rotz.wrapping_add(TREE_FALL_ROLL_STEP);
+        segment.rotx = segment.rotx.wrapping_add(TREE_FALL_PITCH_STEP);
+    }
+    if falldown_yvec(g, idx, TREE_FALL_BOUNCE_SHIFT, TREE_FALL_GRAVITY, 0) {
+        tree_schedule_explosion(g, idx);
+        return;
+    }
+    apply_velocity(&mut g.objs.aliens[idx as usize]);
+    if tree_out_of_bounds(g, idx) {
+        tree_schedule_explosion(g, idx);
+    }
+}
+
+fn tree_schedule_explosion(g: &mut Game, idx: u16) {
+    let explode = sid(g, strat_explode);
+    let segment = &mut g.objs.aliens[idx as usize];
+    segment.expstratptr = Some(explode);
+    crate::common::kill_obj(segment);
+}
+
+fn tree_clear_inbound_links(g: &mut Game, target: u16) {
+    let encoded = target + 1;
+    for object_idx in 0..NUMBER_AL {
+        if g.objs.aliens[object_idx].active && g.objs.aliens[object_idx].ptr == encoded {
+            g.objs.aliens[object_idx].ptr = 0;
+        }
+    }
+}
+
+fn tree_linked_object(g: &Game, encoded: u16) -> Option<u16> {
+    if encoded == 0 || encoded == TREE_END_LINK {
+        return None;
+    }
+    let idx = encoded - 1;
+    ((idx as usize) < NUMBER_AL && g.objs.aliens[idx as usize].active).then_some(idx)
+}
+
+fn tree_growth_speed(segment: &Alien) -> u8 {
+    segment.sword1.to_le_bytes()[0]
+}
+
+fn tree_tail_delay(segment: &Alien) -> u8 {
+    segment.sword1.to_le_bytes()[1]
+}
+
+fn tree_set_tail_delay(segment: &mut Alien, delay: u8) {
+    let [speed, _] = segment.sword1.to_le_bytes();
+    segment.sword1 = i16::from_le_bytes([speed, delay]);
 }
 
 // ============================================================

@@ -6,10 +6,10 @@
 //! fire-breathing head `snake_istrat` (D2STRATS.ASM:732-861).
 //!
 //! No sf-oracle byte-exact differential is used: the sea dragon rides the
-//! shared `sprouty` growth primitive whose tree/tunnel/flower branches are
-//! deliberately scoped out (see the SEADRAGON SCOPE NOTE in bosses.rs), and
-//! `make_splash`/`enemyupsea`/`enemydownsea` are the sea lane's cosmetic
-//! no-ops. These tests assert the ported spine — segment growth + neck chain,
+//! shared `sprouty` growth primitive. Its tree/flower branch is tested in
+//! `sprouting_trees.rs`; this file isolates the sea-dragon branch, where
+//! `make_splash`/`enemyupsea`/`enemydownsea` follow the sea lane conventions.
+//! These tests assert the ported spine — segment growth + neck chain,
 //! head emergence + fire, and the head-kill -> neck-sink death mechanic —
 //! against hand-derived ASM expectations, cited inline.
 //!

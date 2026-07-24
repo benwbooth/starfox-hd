@@ -14,6 +14,7 @@ use sf_strat::enemy_a::{
 
 const WM_GAMEFLAGS2: u16 = 0x155C;
 const GF2_STRATFLAG1: u8 = 1;
+const TREE3_POST_ROOT_GENERATIONS: u8 = 254;
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
     assert_eq!(p, 0);
@@ -116,7 +117,12 @@ fn lseqdoor_and_tree3() {
     let t3 = spawn_obj(&mut g);
     g.objs.aliens[t3 as usize].worldx = 100; // right of player → -deg45
     tree3_istrat(&mut g, t3);
-    assert_eq!(g.objs.aliens[t3 as usize].sbyte1, 255);
+    // tree3 seeds 255, then the shared s_beqdec_alvar consumes the root
+    // generation before entering the growth tick.
+    assert_eq!(
+        g.objs.aliens[t3 as usize].sbyte1,
+        TREE3_POST_ROOT_GENERATIONS
+    );
     assert_eq!(g.objs.aliens[t3 as usize].roty, 0u8.wrapping_sub(DEG45));
 }
 
