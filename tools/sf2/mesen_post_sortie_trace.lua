@@ -153,6 +153,10 @@ local observed_astropolis_spike_health = {}
 local observed_astropolis_cube_health = {}
 local observed_astropolis_mask_health = {}
 local observed_astropolis_final_core_health = {}
+-- Deliberately global: this large oracle is at Lua's main-chunk local limit.
+-- The table records verification evidence only and is never consumed by the
+-- shipping port.
+observed_eladard_barrier_health = {}
 local forced_meteor_core_health = tonumber(os.getenv("SF2_ORACLE_METEOR_CORE_HEALTH"))
 local forced_meteor_core_health_applied = false
 local forced_meteor_core_parent_health = tonumber(
@@ -1720,6 +1724,16 @@ local function angle_difference(target, current)
   return difference
 end
 
+-- Global because this oracle is at Lua's main-chunk local limit. The three
+-- retail craft classes each have their own stable Arwing and Walker meshes.
+function is_player_walker_shape(shape)
+  return shape == 0xC914 or shape == 0xC930 or shape == 0xC94C
+end
+
+function is_player_flight_shape(shape)
+  return shape == 0xC24C or shape == 0xC268 or shape == 0xC5E8
+end
+
 local function eladard_route_direction()
   -- The planetary base maze exposes its next turn as a white edge marker.
   -- Reading that presentation cue keeps this oracle pilot independent of the
@@ -1866,10 +1880,10 @@ local function provide_combat_autopilot()
   if work_byte(0x1BB5) == 11 then
     if player_shape == 0xC310 or player_shape == 0xC2F4 then
       astropolis_transform_requested = true
-    elseif player_shape == 0xC94C then
+    elseif is_player_walker_shape(player_shape) then
       astropolis_transform_requested = false
       astropolis_walker_mode = true
-    elseif player_shape == 0xC268 then
+    elseif is_player_flight_shape(player_shape) then
       astropolis_transform_requested = false
       astropolis_walker_mode = false
     end
@@ -2174,6 +2188,19 @@ local function provide_combat_autopilot()
     end
   end
 
+  if target_shape == 0xD74C and target ~= 0 then
+    local health = work_byte(target + 0x2D)
+    if observed_eladard_barrier_health[target] ~= health then
+      observed_eladard_barrier_health[target] = health
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=eladard-barrier-health object=%04X health=%d path=%04X",
+        frame - armed_frame,
+        target,
+        health,
+        work_word(target + 0x2B))
+    end
+  end
+
   if target_shape == 0xC40C and target ~= 0 then
     local health = work_byte(target + 0x2D)
     if observed_astropolis_spike_health[target] ~= health then
@@ -2322,6 +2349,8 @@ local function provide_combat_autopilot()
   -- forever.
   local fighting_rival = target_shape == 0xC348
   local fighting_mirage_dragon = target_shape == 0xE1B0
+  local fighting_eladard_barrier = work_byte(0x1BB5) == 3
+    and target_shape == 0xD74C
   local fighting_meteor_core = target_shape == 0xEB6C or target_shape == 0xEB50
   local fighting_carrier_core = work_byte(0x1BB5) == 8
     and target_shape == 0xBECC
@@ -2332,7 +2361,7 @@ local function provide_combat_autopilot()
   local fighting_astropolis_cube = work_byte(0x1BB5) == 11
     and target_shape == 0xE808
   if fighting_astropolis_spike
-    and player_shape == 0xC94C
+    and is_player_walker_shape(player_shape)
     and not astropolis_transform_requested
     and astropolis_transform_press_until < frame then
     -- The core spikes are elevated around the chamber. Return to Arwing form
@@ -2340,7 +2369,7 @@ local function provide_combat_autopilot()
     astropolis_transform_press_until = frame + 3
     astropolis_transform_requested = true
   elseif fighting_astropolis_cube
-    and player_shape == 0xC268
+    and is_player_flight_shape(player_shape)
     and not astropolis_transform_requested
     and astropolis_transform_press_until < frame then
     -- The exposed cube is below the flight line over the chasm. Walker form
@@ -2386,13 +2415,13 @@ local function provide_combat_autopilot()
     local desired_pitch = math.floor(math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
     local planetary_base_walker =
       (inside_planetary_base or meteor_surface or titania_surface)
-      and player_shape == 0xC94C
+      and is_player_walker_shape(player_shape)
     local carrier_core_walker = fighting_carrier_core
       or fighting_astropolis_core
     local activation_target = target_shape == 0xEF5C
     if activation_target
       and target_distance_squared < 160000
-      and player_shape == 0xC268
+      and is_player_flight_shape(player_shape)
       and not astropolis_walker_mode
       and astropolis_transform_press_until < frame then
       -- Reach the fire-floor target in Walker form and retry the retail
@@ -2406,7 +2435,10 @@ local function provide_combat_autopilot()
         target_distance_squared,
         player_shape)
     end
+    local eladard_surface_walker = fighting_eladard_barrier
+      and is_player_walker_shape(player_shape)
     local ground_walker = planetary_base_walker or carrier_core_walker
+      or eladard_surface_walker
       or astropolis_transform_requested or astropolis_walker_mode
     local astropolis_interior = work_byte(0x1BB5) == 11 and player_z > 1000
     if ground_walker or approaching_carrier or astropolis_interior then
@@ -2437,15 +2469,23 @@ local function provide_combat_autopilot()
       end
       if target_distance_squared > approach_distance_squared then
         local axis_tolerance = activation_target and 0 or 128
-        if delta_x > axis_tolerance then
-          buttons.right = true
-        elseif delta_x < -axis_tolerance then
-          buttons.left = true
-        end
-        if delta_z > axis_tolerance then
-          buttons.up = true
-        elseif delta_z < -axis_tolerance then
-          buttons.down = true
+        if fighting_eladard_barrier then
+          -- Surface Walker movement is heading-relative: the shoulder
+          -- buttons turn and Up advances. Driving the two room-space axes
+          -- directly makes the landed craft run sideways away from a fixed
+          -- barrier while its aim continues to turn toward that barrier.
+          buttons.up = math.abs(yaw_difference) < 16
+        else
+          if delta_x > axis_tolerance then
+            buttons.right = true
+          elseif delta_x < -axis_tolerance then
+            buttons.left = true
+          end
+          if delta_z > axis_tolerance then
+            buttons.up = true
+          elseif delta_z < -axis_tolerance then
+            buttons.down = true
+          end
         end
       end
       if planetary_base_walker and player_z > 0 then
@@ -2494,6 +2534,12 @@ local function provide_combat_autopilot()
       elseif target_distance_squared > 16000000
         and math.abs(yaw_difference) < 24 then
         buttons.y = true
+      elseif fighting_eladard_barrier then
+        -- The surface barriers are fixed all-range targets. Brake inside the
+        -- ordinary boost threshold so the verification pilot establishes a
+        -- firing orbit instead of coasting past the installation until the
+        -- retail signed world coordinates wrap.
+        buttons.a = true
       end
     end
     if frame <= astropolis_transform_press_until then
@@ -2676,7 +2722,9 @@ local function provide_combat_autopilot()
         buttons.r = true
       end
       input_label = "combat-autopilot-base-" .. (route_direction or "forward")
-    elseif work_byte(0x1BB5) == 3 then
+    elseif work_byte(0x1BB5) == 3
+      and work_byte(0x192E) == 0x05
+      and work_word(0x1657) == 0x2E87 then
       -- Once the two surface barriers are gone, the remaining objective is
       -- the base entrance at the centre of the installation. The entrance
       -- itself stops participating in the object list while its door opens.
