@@ -207,6 +207,9 @@ impl ShapeId {
     pub const ELADARD_INTERIOR_DOOR_CLOSED: Self = Self(434);
     pub const ELADARD_INTERIOR_DOOR_OPEN: Self = Self(435);
 
+    /// Paired pop-up defenders in Eladard's first interior chamber.
+    pub const ELADARD_INTERIOR_DEFENDER: Self = Self(452);
+
     /// Structural meshes used by Eladard's two retail interior chambers.
     pub const ELADARD_ACCESS_REAR_STRUCTURE: Self = Self(429);
     pub const ELADARD_ACCESS_WEST_WALL: Self = Self(234);
@@ -628,6 +631,30 @@ pub struct PlayerChargeOrbState {
     pub age_ticks: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EladardDefenderPhase {
+    VolleyMotion {
+        next_motion_step: u8,
+        retail_frame_accumulator: u8,
+    },
+    Cooldown {
+        retail_frames_remaining: u16,
+    },
+}
+
+/// Flat behavior state for an Eladard interior defender. Position, aim, and
+/// combat values remain in the ordinary object fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EladardDefenderState {
+    pub phase: EladardDefenderPhase,
+}
+
+/// Lifetime state for a laser fired by an Eladard interior defender.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EladardDefenderProjectileState {
+    pub age_retail_frames: u8,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectActivity {
     #[default]
@@ -641,6 +668,8 @@ pub enum ObjectActivity {
     PigmaRivalFlight(PigmaRivalFlightState),
     LeonRivalFlight(LeonRivalFlightState),
     FinalRivalFlight(FinalRivalFlightState),
+    EladardDefender(EladardDefenderState),
+    EladardDefenderProjectile(EladardDefenderProjectileState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),
 }

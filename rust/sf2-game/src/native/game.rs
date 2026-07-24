@@ -8,17 +8,18 @@ use super::campaign_world_assignments::CampaignWorld;
 use super::input::{Button, Buttons};
 use super::object::{
     Angle, Behavior, CapitalFlightAngles, CapitalFlightState, CapitalMovementPhase,
-    CapitalWeaponPhase, CollisionClass, FighterAltitudePhase, FighterAngles,
-    FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
-    FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
-    FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
-    FinalRivalFlightPhase, FinalRivalFlightState, HostileProjectileFlightPhase,
-    HostileProjectileFlightState, HostileProjectileMovementPhase, InterceptionMissileFlightState,
-    InterceptionMissileSteering, LeonRivalFlightPhase, LeonRivalFlightState,
-    LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
-    PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
-    ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition, Vector3, WeaponKind,
+    CapitalWeaponPhase, CollisionClass, EladardDefenderPhase, EladardDefenderProjectileState,
+    EladardDefenderState, FighterAltitudePhase, FighterAngles, FighterCenteringTargetOrder,
+    FighterFlightState, FighterInterceptFlightState, FighterInterceptMovementPhase,
+    FighterInterceptWeaponPhase, FighterLogicCadence, FighterWaveDirection, FighterWaveOrder,
+    FighterWavePolarity, FighterWeaponPhase, FinalRivalFlightPhase, FinalRivalFlightState,
+    HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
+    InterceptionMissileFlightState, InterceptionMissileSteering, LeonRivalFlightPhase,
+    LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind,
+    PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState,
+    PlayerProjectileKind, PlayerProjectileState, ReengagementFighterFlightState,
+    ReengagementFighterMovementPhase, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
+    StereoPosition, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
@@ -26,18 +27,18 @@ use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
     ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
-    EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom, EladardMissionState,
-    EladardPhase, EladardSwitchStatus, EndingPhase, EndingState, FlightControlStyle, GameMode,
-    GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase,
-    MapPoint, MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionPhase,
-    MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
-    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
-    PlayerCraftTransformationDirection, PlayerDamageState, ResultsChoice, ResultsPhase,
-    ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor, StrategicMapActorKind,
-    StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage,
-    StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
-    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
-    WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
+    EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
+    EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
+    FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
+    GameOverState, GameState, IntroPhase, MapPoint, MissionMessage, MissionMessageIrisFrame,
+    MissionMessagePhase, MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor,
+    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
+    PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
+    ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
+    StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
+    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus,
+    TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
+    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -120,8 +121,7 @@ const BRIEFING_PRESENTATION_TICKS: u32 =
     BRIEFING_PRESENTATION_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_SELECTION_REVEAL_TICKS: u32 =
     PILOT_SELECTION_REVEAL_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
-const PILOT_READY_TICKS: u32 =
-    PILOT_READY_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+const PILOT_READY_TICKS: u32 = PILOT_READY_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const PILOT_LAUNCH_TICKS: u32 = PILOT_LAUNCH_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK;
 const STRATEGIC_OPENING_COMPLETION_TICK: u16 = 940;
 const STRATEGIC_OPENING_PROMPT_COUNT: usize = 11;
@@ -239,9 +239,9 @@ const MISSION_MESSAGE_CLOSE_START_RETAIL_FRAMES: u16 = 172;
 const MISSION_MESSAGE_EMPTY_CLOSE_RETAIL_FRAMES: u16 = 176;
 const MISSION_MESSAGE_THIN_CLOSE_RETAIL_FRAMES: u16 = 180;
 const MISSION_MESSAGE_HIDDEN_RETAIL_FRAMES: u16 = 184;
-const MISSION_MESSAGE_OPEN_TICKS: usize = ((MISSION_MESSAGE_CLOSE_START_RETAIL_FRAMES
-    - MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES)
-    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16) as usize;
+const MISSION_MESSAGE_OPEN_TICKS: usize =
+    ((MISSION_MESSAGE_CLOSE_START_RETAIL_FRAMES - MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES)
+        / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16) as usize;
 /// Slippy's authored pose at each native update while this guidance line is
 /// open, recovered from the retail presentation sequence.
 const REENGAGEMENT_GUIDANCE_PORTRAIT_TALKING: [bool; MISSION_MESSAGE_OPEN_TICKS] = [
@@ -636,6 +636,30 @@ const ELADARD_GENERATOR_POSITION: Vector3 = Vector3 {
 };
 const ELADARD_GENERATOR_CORE_HEIGHT: i16 = -152;
 const ELADARD_INTERIOR_STATIC_OBJECT_COUNT: usize = 21;
+const ELADARD_INTERIOR_DEFENDER_COUNT: usize = 2;
+const ELADARD_INTERIOR_DEFENDER_HEALTH: u8 = 1;
+const ELADARD_INTERIOR_DEFENDER_ATTACK_POWER: u8 = 20;
+const ELADARD_DEFENDER_MOTION_STEP_RETAIL_FRAMES: u8 = 6;
+const ELADARD_DEFENDER_FIRE_MOTION_STEP: usize = 6;
+const ELADARD_DEFENDER_COOLDOWN_RETAIL_FRAMES: u16 = 174;
+const ELADARD_DEFENDER_YAW_CHASE_SHIFT: u32 = 2;
+const ELADARD_DEFENDER_PROJECTILE_SPEED: u8 = 30;
+const ELADARD_DEFENDER_PROJECTILE_POSITION_SCALE: i16 = 4;
+const ELADARD_DEFENDER_PROJECTILE_LIFETIME_RETAIL_FRAMES: u8 = 88;
+const ELADARD_DEFENDER_MOTION_DELTAS: [i16; 14] =
+    [-50, -40, -32, -24, -18, -12, -4, 4, 12, 18, 24, 32, 40, 50];
+const ELADARD_INTERIOR_DEFENDER_SCENE: [Vector3; ELADARD_INTERIOR_DEFENDER_COUNT] = [
+    Vector3 {
+        x: 768,
+        y: -74,
+        z: 1_424,
+    },
+    Vector3 {
+        x: 1_280,
+        y: -74,
+        z: 1_424,
+    },
+];
 const ELADARD_SURFACE_BARRIER_SCENE: [(Vector3, Angle); ELADARD_SURFACE_BARRIER_COUNT] = [
     (
         Vector3 {
@@ -654,10 +678,8 @@ const ELADARD_SURFACE_BARRIER_SCENE: [(Vector3, Angle); ELADARD_SURFACE_BARRIER_
         Angle::from_units(192),
     ),
 ];
-const ELADARD_INTERIOR_STATIC_SCENE: [
-    (ShapeId, Vector3, Angle);
-    ELADARD_INTERIOR_STATIC_OBJECT_COUNT
-] = [
+const ELADARD_INTERIOR_STATIC_SCENE: [(ShapeId, Vector3, Angle);
+    ELADARD_INTERIOR_STATIC_OBJECT_COUNT] = [
     (
         ShapeId::ELADARD_ACCESS_REAR_STRUCTURE,
         Vector3 {
@@ -887,11 +909,7 @@ const TITANIA_INTERIOR_START_POSITION: Vector3 = Vector3 {
     y: -120,
     z: 43,
 };
-const TITANIA_FINAL_ROOM_START_POSITION: Vector3 = Vector3 {
-    x: 0,
-    y: -96,
-    z: 0,
-};
+const TITANIA_FINAL_ROOM_START_POSITION: Vector3 = Vector3 { x: 0, y: -96, z: 0 };
 const TITANIA_FINAL_SWITCH_POSITION: Vector3 = Vector3 {
     x: 1_700,
     y: -56,
@@ -4845,6 +4863,8 @@ pub struct Game {
     mirage_dragon_tail: Option<ObjectId>,
     eladard_surface_barriers: [Option<ObjectId>; ELADARD_SURFACE_BARRIER_COUNT],
     eladard_interior_scenery: [Option<ObjectId>; ELADARD_INTERIOR_STATIC_OBJECT_COUNT],
+    eladard_interior_defenders: [Option<ObjectId>; ELADARD_INTERIOR_DEFENDER_COUNT],
+    eladard_defender_projectiles: Vec<ObjectId>,
     eladard_access_switch: Option<ObjectId>,
     eladard_access_door: Option<ObjectId>,
     eladard_generator_door: Option<ObjectId>,
@@ -4895,6 +4915,8 @@ impl Game {
             mirage_dragon_tail: None,
             eladard_surface_barriers: [None; ELADARD_SURFACE_BARRIER_COUNT],
             eladard_interior_scenery: [None; ELADARD_INTERIOR_STATIC_OBJECT_COUNT],
+            eladard_interior_defenders: [None; ELADARD_INTERIOR_DEFENDER_COUNT],
+            eladard_defender_projectiles: Vec::with_capacity(ELADARD_INTERIOR_DEFENDER_COUNT),
             eladard_access_switch: None,
             eladard_access_door: None,
             eladard_generator_door: None,
@@ -4982,16 +5004,8 @@ impl Game {
             if !object.base.flags.active || object.base.flags.remove_after_tick {
                 continue;
             }
-            let delta_x = object
-                .base
-                .position
-                .x
-                .wrapping_sub(listener_position.x);
-            let delta_z = object
-                .base
-                .position
-                .z
-                .wrapping_sub(listener_position.z);
+            let delta_x = object.base.position.x.wrapping_sub(listener_position.x);
+            let delta_z = object.base.position.z.wrapping_sub(listener_position.z);
             let distance = spatial_xz_distance(delta_x, delta_z);
             if nearest
                 .as_ref()
@@ -5398,9 +5412,7 @@ impl Game {
             self.state.intro.title_menu_countdown = Some(remaining - 1);
         }
 
-        let mut next_tick = if self.state.intro.presentation_tick
-            >= INTRO_PRESENTATION_LAST_TICK
-        {
+        let mut next_tick = if self.state.intro.presentation_tick >= INTRO_PRESENTATION_LAST_TICK {
             INTRO_LOOP_START_TICK
         } else {
             self.state.intro.presentation_tick + 1
@@ -5638,21 +5650,20 @@ impl Game {
             self.state.strategic_map.destination = LEON_PRESSURE_DESTINATION;
             self.state.strategic_map.recommended_destination = LEON_PRESSURE_DESTINATION;
         } else if self.state.input.pressed.contains(Button::Down) {
-            let pending_major_objective =
-                if self.state.campaign.objectives.planets.titania
-                    == PlanetObjectiveStatus::Occupied
-                {
-                    Some((StrategicEncounter::TitaniaBase, TITANIA_BASE_DESTINATION))
-                } else if self.state.campaign.objectives.second_carrier
-                    == CarrierObjectiveStatus::Operational
-                {
-                    Some((
-                        StrategicEncounter::SecondBattleCarrier,
-                        SECOND_BATTLE_CARRIER_DESTINATION,
-                    ))
-                } else {
-                    None
-                };
+            let pending_major_objective = if self.state.campaign.objectives.planets.titania
+                == PlanetObjectiveStatus::Occupied
+            {
+                Some((StrategicEncounter::TitaniaBase, TITANIA_BASE_DESTINATION))
+            } else if self.state.campaign.objectives.second_carrier
+                == CarrierObjectiveStatus::Operational
+            {
+                Some((
+                    StrategicEncounter::SecondBattleCarrier,
+                    SECOND_BATTLE_CARRIER_DESTINATION,
+                ))
+            } else {
+                None
+            };
             if let Some((encounter, destination)) = pending_major_objective {
                 self.state.strategic_map.selected_encounter = Some(encounter);
                 self.state.strategic_map.destination = destination;
@@ -6059,6 +6070,7 @@ impl Game {
             access_switch: EladardSwitchStatus::Unreached,
             access_door: EladardDoorStatus::Unreached,
             generator_door: EladardDoorStatus::Unreached,
+            interior_defenders: [EladardDefenderStatus::Unreached; ELADARD_INTERIOR_DEFENDER_COUNT],
             generator: EladardGeneratorStatus::Unreached,
         };
         self.state.mission.objects_destroyed = 0;
@@ -6669,8 +6681,7 @@ impl Game {
             };
             MissionMessagePhase::Closing(iris)
         };
-        self.state.mission.message.message =
-            Some(MissionMessage::FlyFasterByPressingYButton);
+        self.state.mission.message.message = Some(MissionMessage::FlyFasterByPressingYButton);
         self.state.mission.message.phase = phase;
         self.state.mission.message.elapsed_retail_frames = elapsed;
         self.state.mission.message.portrait_talking = if phase == MissionMessagePhase::Open {
@@ -6873,8 +6884,7 @@ impl Game {
                     .rival_defeated_retail_frame
                     .is_some_and(|defeat_frame| {
                         retail_frame
-                            >= defeat_frame
-                                .saturating_add(LEON_DEFEAT_TO_RETURN_RETAIL_FRAMES)
+                            >= defeat_frame.saturating_add(LEON_DEFEAT_TO_RETURN_RETAIL_FRAMES)
                     }) =>
             {
                 self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
@@ -6886,8 +6896,7 @@ impl Game {
                     .rival_defeated_retail_frame
                     .is_some_and(|defeat_frame| {
                         retail_frame
-                            >= defeat_frame
-                                .saturating_add(LEON_DEFEAT_TO_MAP_READY_RETAIL_FRAMES)
+                            >= defeat_frame.saturating_add(LEON_DEFEAT_TO_MAP_READY_RETAIL_FRAMES)
                     }) =>
             {
                 self.finish_sortie();
@@ -7318,6 +7327,14 @@ impl Game {
                 | EladardPhase::ReturnFlight => {}
             }
         }
+        if self.state.mission.phase == MissionPhase::Active
+            && matches!(
+                self.state.mission.eladard.phase,
+                EladardPhase::InteriorPassage | EladardPhase::GeneratorRoom
+            )
+        {
+            self.update_eladard_defenders()?;
+        }
         self.update_eladard_player_presentation(retail_frame);
         if self.state.mission.phase == MissionPhase::Active {
             self.update_active_flight(retail_frame, true)?;
@@ -7363,6 +7380,29 @@ impl Game {
                 self.eladard_surface_barriers[index] = None;
             }
             self.state.mission.eladard.surface_barriers[index] = status;
+        }
+
+        for index in 0..ELADARD_INTERIOR_DEFENDER_COUNT {
+            if self.state.mission.eladard.interior_defenders[index]
+                == EladardDefenderStatus::Unreached
+            {
+                continue;
+            }
+            let id = self.eladard_interior_defenders[index];
+            let status = id
+                .and_then(|id| self.state.objects.get(id))
+                .map(|defender| {
+                    if defender.base.flags.collision_disabled {
+                        EladardDefenderStatus::Destroyed
+                    } else {
+                        EladardDefenderStatus::Active
+                    }
+                })
+                .unwrap_or(EladardDefenderStatus::Destroyed);
+            if id.is_some_and(|id| self.state.objects.get(id).is_none()) {
+                self.eladard_interior_defenders[index] = None;
+            }
+            self.state.mission.eladard.interior_defenders[index] = status;
         }
 
         self.state.mission.eladard.generator = match self.eladard_generator_core {
@@ -7420,6 +7460,14 @@ impl Game {
             if let Some(scenery) = scenery.take() {
                 self.state.objects.remove(scenery);
             }
+        }
+        for defender in &mut self.eladard_interior_defenders {
+            if let Some(defender) = defender.take() {
+                self.state.objects.remove(defender);
+            }
+        }
+        for projectile in self.eladard_defender_projectiles.drain(..) {
+            self.state.objects.remove(projectile);
         }
         if let Some(access_switch) = self.eladard_access_switch.take() {
             self.state.objects.remove(access_switch);
@@ -7488,8 +7536,7 @@ impl Game {
     }
 
     fn spawn_eladard_interior_scene(&mut self) -> Result<(), Error> {
-        for (index, (shape, position, yaw)) in
-            ELADARD_INTERIOR_STATIC_SCENE.into_iter().enumerate()
+        for (index, (shape, position, yaw)) in ELADARD_INTERIOR_STATIC_SCENE.into_iter().enumerate()
         {
             let mut scenery = Object::new(ObjectKind::Scenery, shape, Behavior::Effect);
             scenery.base.position = position;
@@ -7502,6 +7549,33 @@ impl Game {
                 .allocate(scenery)
                 .ok_or(Error::ObjectCapacityReached)?;
             self.eladard_interior_scenery[index] = Some(id);
+        }
+
+        for (index, position) in ELADARD_INTERIOR_DEFENDER_SCENE.into_iter().enumerate() {
+            let mut defender = Object::new(
+                ObjectKind::Enemy,
+                ShapeId::ELADARD_INTERIOR_DEFENDER,
+                Behavior::EnemyFlight,
+            );
+            defender.base.position = position;
+            defender.base.yaw = Angle::HALF_TURN;
+            defender.base.hit_points = ELADARD_INTERIOR_DEFENDER_HEALTH;
+            defender.base.attack_power = ELADARD_INTERIOR_DEFENDER_ATTACK_POWER;
+            defender.base.collision_class = CollisionClass::Enemy;
+            defender.base.flags.casts_shadow = false;
+            defender.extension.activity = ObjectActivity::EladardDefender(EladardDefenderState {
+                phase: EladardDefenderPhase::VolleyMotion {
+                    next_motion_step: 0,
+                    retail_frame_accumulator: 0,
+                },
+            });
+            let id = self
+                .state
+                .objects
+                .allocate(defender)
+                .ok_or(Error::ObjectCapacityReached)?;
+            self.eladard_interior_defenders[index] = Some(id);
+            self.state.mission.eladard.interior_defenders[index] = EladardDefenderStatus::Active;
         }
 
         let mut access_switch = Object::new(
@@ -7519,14 +7593,10 @@ impl Game {
                 .ok_or(Error::ObjectCapacityReached)?,
         );
 
-        self.eladard_access_door = Some(self.spawn_eladard_door(
-            ELADARD_ACCESS_DOOR_POSITION,
-            Angle::ZERO,
-        )?);
-        self.eladard_generator_door = Some(self.spawn_eladard_door(
-            ELADARD_GENERATOR_DOOR_POSITION,
-            Angle::from_units(192),
-        )?);
+        self.eladard_access_door =
+            Some(self.spawn_eladard_door(ELADARD_ACCESS_DOOR_POSITION, Angle::ZERO)?);
+        self.eladard_generator_door =
+            Some(self.spawn_eladard_door(ELADARD_GENERATOR_DOOR_POSITION, Angle::from_units(192))?);
         Ok(())
     }
 
@@ -7544,6 +7614,68 @@ impl Game {
             .objects
             .allocate(door)
             .ok_or(Error::ObjectCapacityReached)
+    }
+
+    fn update_eladard_defenders(&mut self) -> Result<(), Error> {
+        let objects = &self.state.objects;
+        self.eladard_defender_projectiles
+            .retain(|projectile| objects.get(*projectile).is_some());
+        let Some(player_position) = self.eladard_player_position() else {
+            return Ok(());
+        };
+        let defenders = self.eladard_interior_defenders;
+        for defender in defenders.into_iter().flatten() {
+            let launch_position = self
+                .state
+                .objects
+                .get_mut(defender)
+                .and_then(|object| advance_eladard_defender_object(object, player_position));
+            if let Some(launch_position) = launch_position {
+                self.spawn_eladard_defender_projectile(launch_position, player_position)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn spawn_eladard_defender_projectile(
+        &mut self,
+        position: Vector3,
+        target: Vector3,
+    ) -> Result<(), Error> {
+        let delta_x = target.x.wrapping_sub(position.x);
+        let delta_y = target.y.wrapping_sub(position.y);
+        let delta_z = target.z.wrapping_sub(position.z);
+        let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+        let pitch = Angle::from_units(sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance));
+        let yaw = Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
+
+        let mut projectile = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::ENEMY_LASER,
+            Behavior::Projectile,
+        );
+        projectile.base.position = position;
+        projectile.base.pitch = pitch;
+        projectile.base.yaw = yaw;
+        projectile.base.speed = ELADARD_DEFENDER_PROJECTILE_SPEED;
+        projectile.base.velocity = flight_velocity(
+            pitch,
+            yaw,
+            ELADARD_DEFENDER_PROJECTILE_SPEED,
+            ELADARD_DEFENDER_PROJECTILE_POSITION_SCALE,
+        );
+        projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+        projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+        projectile.base.weapon = WeaponKind::EnemyLaser;
+        projectile.base.collision_class = CollisionClass::EnemyWeapon;
+        projectile.base.flags.casts_shadow = false;
+        projectile.extension.activity =
+            ObjectActivity::EladardDefenderProjectile(EladardDefenderProjectileState {
+                age_retail_frames: 0,
+            });
+        let projectile = allocate_hostile_projectile(&mut self.state, projectile)?;
+        self.eladard_defender_projectiles.push(projectile);
+        Ok(())
     }
 
     fn update_eladard_interior(&mut self, retail_frame: u16) -> Result<(), Error> {
@@ -7627,8 +7759,8 @@ impl Game {
         else {
             return;
         };
-        let remaining = retail_frames_remaining
-            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        let remaining =
+            retail_frames_remaining.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
         self.state.mission.eladard.access_door = if remaining == 0 {
             if let Some(door) = self
                 .eladard_access_door
@@ -7652,8 +7784,8 @@ impl Game {
         else {
             return;
         };
-        let remaining = retail_frames_remaining
-            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        let remaining =
+            retail_frames_remaining.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
         self.state.mission.eladard.generator_door = if remaining == 0 {
             if let Some(door) = self
                 .eladard_generator_door
@@ -7897,10 +8029,11 @@ impl Game {
 
         let lift_frame = match self.state.mission.titania.phase {
             TitaniaPhase::SurfaceApproach | TitaniaPhase::FirstSwitch => 0,
-            TitaniaPhase::SurfaceTransit => (retail_frame
-                .saturating_sub(self.state.mission.titania.phase_started_retail_frame)
-                / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
-                .min(TITANIA_ROUTE_LIFT_ANIMATION_FRAME_COUNT - 1) as u8,
+            TitaniaPhase::SurfaceTransit => {
+                (retail_frame.saturating_sub(self.state.mission.titania.phase_started_retail_frame)
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+                    .min(TITANIA_ROUTE_LIFT_ANIMATION_FRAME_COUNT - 1) as u8
+            }
             TitaniaPhase::SecondSwitch
             | TitaniaPhase::BaseOpening
             | TitaniaPhase::BaseEntry
@@ -7937,8 +8070,7 @@ impl Game {
     }
 
     fn activate_titania_surface_switch(&mut self, index: usize) -> bool {
-        if self.state.mission.titania.surface_switches[index]
-            != TitaniaSurfaceSwitchStatus::Active
+        if self.state.mission.titania.surface_switches[index] != TitaniaSurfaceSwitchStatus::Active
         {
             return false;
         }
@@ -7948,8 +8080,7 @@ impl Game {
         if !self.titania_player_touches(switch) {
             return false;
         }
-        self.state.mission.titania.surface_switches[index] =
-            TitaniaSurfaceSwitchStatus::Pressed;
+        self.state.mission.titania.surface_switches[index] = TitaniaSurfaceSwitchStatus::Pressed;
         if let Some(object) = self.state.objects.get_mut(switch) {
             object.base.shape = ShapeId::TITANIA_SWITCH_PRESSED;
             object.base.flags.collision_disabled = true;
@@ -8178,11 +8309,9 @@ impl Game {
                     self.enter_carrier_corridor(retail_frame)?;
                 }
                 CarrierAssaultPhase::InteriorCorridor
-                    if self
-                        .carrier_player_position()
-                        .is_some_and(|position| {
-                            position.z >= CARRIER_CORRIDOR_REACTOR_TRIGGER_Z
-                        }) =>
+                    if self.carrier_player_position().is_some_and(|position| {
+                        position.z >= CARRIER_CORRIDOR_REACTOR_TRIGGER_Z
+                    }) =>
                 {
                     self.enter_carrier_reactor_approach(retail_frame);
                 }
@@ -8376,8 +8505,7 @@ impl Game {
                 self.update_player_transformation(player);
             }
         }
-        if transformation_elapsed
-            >= CARRIER_REACTOR_ROOM_OPEN_AFTER_TRANSFORMATION_RETAIL_FRAMES
+        if transformation_elapsed >= CARRIER_REACTOR_ROOM_OPEN_AFTER_TRANSFORMATION_RETAIL_FRAMES
             && !self.state.mission.carrier_assault.reactor_room_open
         {
             self.spawn_carrier_reactor_scene()?;
@@ -11611,10 +11739,11 @@ impl Game {
                         movement_phase: HostileProjectileMovementPhase::Ready,
                     });
                 let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
-                self.final_rival_projectiles.push(ActiveFinalRivalProjectile {
-                    track_index,
-                    object: projectile_id,
-                });
+                self.final_rival_projectiles
+                    .push(ActiveFinalRivalProjectile {
+                        track_index,
+                        object: projectile_id,
+                    });
                 projectile_id
             };
 
@@ -12339,8 +12468,7 @@ impl Game {
                 }
                 if self.confirm_pressed() {
                     let difficulty = self.state.campaign.difficulty;
-                    self.state.campaign =
-                        CampaignState::for_new_game(difficulty, self.state.frame);
+                    self.state.campaign = CampaignState::for_new_game(difficulty, self.state.frame);
                     self.enter_mode(GameMode::Briefing);
                 }
             }
@@ -12576,6 +12704,10 @@ impl Game {
                     update_player_charge_orb_object(object, orb, linked_player_pose);
                     continue;
                 }
+                ObjectActivity::EladardDefenderProjectile(projectile) => {
+                    update_eladard_defender_projectile_object(object, projectile);
+                    continue;
+                }
                 ObjectActivity::CapitalFlight(_)
                 | ObjectActivity::ReengagementFighterFlight(_)
                 | ObjectActivity::FighterInterceptFlight(_)
@@ -12583,7 +12715,8 @@ impl Game {
                 | ObjectActivity::HostileProjectileFlight(_)
                 | ObjectActivity::PigmaRivalFlight(_)
                 | ObjectActivity::LeonRivalFlight(_)
-                | ObjectActivity::FinalRivalFlight(_) => continue,
+                | ObjectActivity::FinalRivalFlight(_)
+                | ObjectActivity::EladardDefender(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
             if matches!(
@@ -12744,6 +12877,106 @@ impl Game {
         }
         Ok(())
     }
+}
+
+fn advance_eladard_defender_object(
+    object: &mut Object,
+    player_position: Vector3,
+) -> Option<Vector3> {
+    if object.base.flags.collision_disabled {
+        return None;
+    }
+    let ObjectActivity::EladardDefender(mut state) = object.extension.activity else {
+        return None;
+    };
+
+    let delta_x = player_position.x.wrapping_sub(object.base.position.x);
+    let delta_z = player_position.z.wrapping_sub(object.base.position.z);
+    let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+    let mut yaw = object.base.yaw.units();
+    sf_core::snes_trig::achase_angle_8(&mut yaw, target_yaw, ELADARD_DEFENDER_YAW_CHASE_SHIFT);
+    object.base.yaw = Angle::from_units(yaw);
+
+    let mut launch_position = None;
+    state.phase = match state.phase {
+        EladardDefenderPhase::VolleyMotion {
+            next_motion_step,
+            retail_frame_accumulator,
+        } => {
+            let mut accumulator =
+                retail_frame_accumulator.saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
+            if accumulator < ELADARD_DEFENDER_MOTION_STEP_RETAIL_FRAMES {
+                EladardDefenderPhase::VolleyMotion {
+                    next_motion_step,
+                    retail_frame_accumulator: accumulator,
+                }
+            } else {
+                accumulator -= ELADARD_DEFENDER_MOTION_STEP_RETAIL_FRAMES;
+                let motion_step = usize::from(next_motion_step);
+                debug_assert!(motion_step < ELADARD_DEFENDER_MOTION_DELTAS.len());
+                if motion_step == ELADARD_DEFENDER_FIRE_MOTION_STEP {
+                    launch_position = Some(object.base.position);
+                }
+                object.base.position.y = object
+                    .base
+                    .position
+                    .y
+                    .wrapping_add(ELADARD_DEFENDER_MOTION_DELTAS[motion_step]);
+                let next_motion_step = next_motion_step.saturating_add(1);
+                if usize::from(next_motion_step) == ELADARD_DEFENDER_MOTION_DELTAS.len() {
+                    EladardDefenderPhase::Cooldown {
+                        retail_frames_remaining: ELADARD_DEFENDER_COOLDOWN_RETAIL_FRAMES,
+                    }
+                } else {
+                    EladardDefenderPhase::VolleyMotion {
+                        next_motion_step,
+                        retail_frame_accumulator: accumulator,
+                    }
+                }
+            }
+        }
+        EladardDefenderPhase::Cooldown {
+            retail_frames_remaining,
+        } => {
+            let elapsed = RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+            if retail_frames_remaining > elapsed {
+                EladardDefenderPhase::Cooldown {
+                    retail_frames_remaining: retail_frames_remaining - elapsed,
+                }
+            } else {
+                object.base.position.y = object
+                    .base
+                    .position
+                    .y
+                    .wrapping_add(ELADARD_DEFENDER_MOTION_DELTAS[0]);
+                EladardDefenderPhase::VolleyMotion {
+                    next_motion_step: 1,
+                    retail_frame_accumulator: (elapsed - retail_frames_remaining) as u8,
+                }
+            }
+        }
+    };
+    object.extension.activity = ObjectActivity::EladardDefender(state);
+    launch_position
+}
+
+fn update_eladard_defender_projectile_object(
+    object: &mut Object,
+    mut state: EladardDefenderProjectileState,
+) {
+    state.age_retail_frames = state
+        .age_retail_frames
+        .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
+    object.extension.activity = ObjectActivity::EladardDefenderProjectile(state);
+    if state.age_retail_frames >= ELADARD_DEFENDER_PROJECTILE_LIFETIME_RETAIL_FRAMES {
+        object.base.flags.visible = false;
+        object.base.flags.collision_disabled = true;
+        object.base.flags.remove_after_tick = true;
+        return;
+    }
+    object.base.position.x = object.base.position.x.wrapping_add(object.base.velocity.x);
+    object.base.position.y = object.base.position.y.wrapping_add(object.base.velocity.y);
+    object.base.position.z = object.base.position.z.wrapping_add(object.base.velocity.z);
 }
 
 fn update_player_projectile_object(object: &mut Object, mut state: PlayerProjectileState) {
@@ -15196,10 +15429,7 @@ mod tests {
             .primary_player
             .and_then(|id| game.state().objects.get(id))
             .expect("player remains allocated during the duel");
-        let Some(rival) = game
-            .leon_rival
-            .and_then(|id| game.state().objects.get(id))
-        else {
+        let Some(rival) = game.leon_rival.and_then(|id| game.state().objects.get(id)) else {
             return 0;
         };
         let delta_x = rival.base.position.x.wrapping_sub(player.base.position.x);
@@ -15487,8 +15717,7 @@ mod tests {
                 .unwrap();
             carrier.state.mission.phase = MissionPhase::Active;
             carrier.enter_carrier_reactor_approach(0);
-            while carrier.state.mission.carrier_assault.phase
-                != CarrierAssaultPhase::ReactorCombat
+            while carrier.state.mission.carrier_assault.phase != CarrierAssaultPhase::ReactorCombat
             {
                 carrier.tick(0).unwrap();
             }
@@ -16203,9 +16432,7 @@ mod tests {
             game.state.strategic_map.opening.page,
             StrategicOpeningPage::TerribleNews
         );
-        assert!(
-            game.state.strategic_map.opening.presentation_tick >= first_boundary.prompt_tick
-        );
+        assert!(game.state.strategic_map.opening.presentation_tick >= first_boundary.prompt_tick);
         assert!(game.state.strategic_map.opening.presentation_tick < first_boundary.resume_tick);
 
         press(&mut game, Button::B);
@@ -18939,8 +19166,7 @@ mod tests {
             .into_iter()
             .zip(ORACLE_LEFT_INPUT_LISTENER_YAWS)
         {
-            game.state.objects.get_mut(player_id).unwrap().base.yaw =
-                Angle::from_units(player_yaw);
+            game.state.objects.get_mut(player_id).unwrap().base.yaw = Angle::from_units(player_yaw);
             game.update_spatial_listener();
             assert_eq!(
                 game.state.audio.spatial_listener_yaw(),
@@ -20481,9 +20707,7 @@ mod tests {
                     .iter()
                     .find(|projectile| projectile.track_index == track_index)
                     .unwrap_or_else(|| {
-                        panic!(
-                            "Leon projectile track {track_index} absent at frame {retail_frame}"
-                        )
+                        panic!("Leon projectile track {track_index} absent at frame {retail_frame}")
                     });
                 let projectile = game.state().objects.get(active.object).unwrap();
                 assert_eq!(
@@ -20496,10 +20720,7 @@ mod tests {
                 assert_eq!(projectile.base.speed, expected.pose.speed);
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
                 assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
-                assert_eq!(
-                    projectile.base.collision_class,
-                    CollisionClass::EnemyWeapon
-                );
+                assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
                 assert!(matches!(
                     projectile.extension.activity,
                     ObjectActivity::HostileProjectileFlight(_)
@@ -20508,10 +20729,8 @@ mod tests {
         }
 
         assert_eq!(retained_poses, RETAINED_PROJECTILE_POSE_COUNT);
-        let cleanup_frame =
-            last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
-        let player_index =
-            usize::from(cleanup_frame / leon_duel_rival::RETAIL_FRAME_STEP);
+        let cleanup_frame = last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        let player_index = usize::from(cleanup_frame / leon_duel_rival::RETAIL_FRAME_STEP);
         game.update_leon_projectiles(
             cleanup_frame,
             leon_duel_rival::PLAYER_POSES[player_index].position,
@@ -20600,16 +20819,14 @@ mod tests {
         game.spawn_leon_rival().unwrap();
         let rival_id = game.leon_rival.unwrap();
         let mut previous_player_position = leon_duel_rival::player_pose(
-            leon_duel_rival::FLIGHT_START_RETAIL_FRAME
-                - leon_duel_rival::RETAIL_FRAME_STEP,
+            leon_duel_rival::FLIGHT_START_RETAIL_FRAME - leon_duel_rival::RETAIL_FRAME_STEP,
         )
         .unwrap()
         .position;
 
         for (index, &expected) in leon_duel_rival::ORACLE_RIVAL_POSES.iter().enumerate() {
             let retail_frame = leon_duel_rival::FLIGHT_START_RETAIL_FRAME
-                + u16::try_from(index).unwrap()
-                    * leon_duel_rival::RETAIL_FRAME_STEP;
+                + u16::try_from(index).unwrap() * leon_duel_rival::RETAIL_FRAME_STEP;
             let player = leon_duel_rival::player_pose(retail_frame).unwrap();
             game.update_leon_rival(retail_frame, player.position, previous_player_position);
             previous_player_position = player.position;
@@ -20619,14 +20836,32 @@ mod tests {
                 .objects
                 .get(rival_id)
                 .unwrap_or_else(|| panic!("Leon absent at retail frame {retail_frame}"));
-            assert_eq!(object.base.position, expected.position, "frame {retail_frame}");
-            assert_eq!(object.base.pitch.units(), expected.pitch, "frame {retail_frame}");
-            assert_eq!(object.base.yaw.units(), expected.yaw, "frame {retail_frame}");
-            assert_eq!(object.base.roll.units(), expected.roll, "frame {retail_frame}");
+            assert_eq!(
+                object.base.position, expected.position,
+                "frame {retail_frame}"
+            );
+            assert_eq!(
+                object.base.pitch.units(),
+                expected.pitch,
+                "frame {retail_frame}"
+            );
+            assert_eq!(
+                object.base.yaw.units(),
+                expected.yaw,
+                "frame {retail_frame}"
+            );
+            assert_eq!(
+                object.base.roll.units(),
+                expected.roll,
+                "frame {retail_frame}"
+            );
             assert_eq!(object.base.speed, expected.speed, "frame {retail_frame}");
             assert!(object.base.flags.active, "frame {retail_frame}");
             assert!(object.base.flags.visible, "frame {retail_frame}");
-            assert!(!object.base.flags.collision_disabled, "frame {retail_frame}");
+            assert!(
+                !object.base.flags.collision_disabled,
+                "frame {retail_frame}"
+            );
             assert!(matches!(
                 object.extension.activity,
                 ObjectActivity::LeonRivalFlight(_)
@@ -20651,8 +20886,8 @@ mod tests {
         let rival_id = game.final_rival.unwrap();
         let mut retained_poses = 0;
 
-        for retail_frame in (0..=plan.departure_retail_frame)
-            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        for retail_frame in
+            (0..=plan.departure_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
         {
             let player_index =
                 usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
@@ -20874,8 +21109,7 @@ mod tests {
                 {
                     let action_player_position = player_position_at(action_frame);
                     let action_previous_player_position = player_position_at(
-                        action_frame
-                            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                        action_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
                     );
                     for &action in actions(track_index, action_frame) {
                         apply_hostile_projectile_action(
@@ -21430,15 +21664,185 @@ mod tests {
     }
 
     #[test]
+    fn eladard_interior_defenders_match_the_retail_motion_volley_and_durability() {
+        const RETAIL_PLAYER_POSITION: Vector3 = Vector3 {
+            x: 1_024,
+            y: -120,
+            z: 267,
+        };
+        const FIRST_VOLLEY_NATIVE_TICKS: usize = 11;
+        const FIRST_CYCLE_NATIVE_TICKS: usize = 21;
+        const PROJECTILE_REMOVAL_NATIVE_TICK: usize = 33;
+        const SECOND_CYCLE_FIRST_STEP_NATIVE_TICK: usize = 65;
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.begin_eladard_sortie().unwrap();
+        game.state.mode = GameMode::Mission;
+        game.state.mode_frame = MISSION_ACTIVE_TICKS;
+        game.state.mission.phase = MissionPhase::Active;
+        game.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        game.enter_eladard_interior().unwrap();
+        game.enter_eladard_phase(EladardPhase::InteriorPassage, 0);
+        let player = game.state.mission.primary_player.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position = RETAIL_PLAYER_POSITION;
+
+        for _ in 0..FIRST_VOLLEY_NATIVE_TICKS {
+            game.tick(0).unwrap();
+        }
+
+        assert_eq!(game.eladard_defender_projectiles.len(), 2);
+        assert_eq!(
+            game.state.audio.take_events(),
+            [
+                Some(SoundEvent::HostileLaser),
+                Some(SoundEvent::HostileLaser),
+                None,
+                None,
+            ]
+        );
+        let left = game.eladard_interior_defenders[0].unwrap();
+        let right = game.eladard_interior_defenders[1].unwrap();
+        assert_eq!(game.state.objects.get(left).unwrap().base.position.y, -254);
+        assert_eq!(game.state.objects.get(right).unwrap().base.position.y, -254);
+
+        let left_projectile = game
+            .state
+            .objects
+            .get(game.eladard_defender_projectiles[0])
+            .unwrap();
+        assert_eq!(left_projectile.base.shape, ShapeId::ENEMY_LASER);
+        assert_eq!(
+            left_projectile.base.position,
+            Vector3 {
+                x: 788,
+                y: -234,
+                z: 1_316,
+            }
+        );
+        assert_eq!(left_projectile.base.pitch, Angle::from_units(6));
+        assert_eq!(left_projectile.base.yaw, Angle::from_units(137));
+        assert_eq!(
+            left_projectile.base.velocity,
+            Vector3 {
+                x: 20,
+                y: 16,
+                z: -108,
+            }
+        );
+        assert_eq!(
+            left_projectile.base.speed,
+            ELADARD_DEFENDER_PROJECTILE_SPEED
+        );
+        assert_eq!(left_projectile.base.hit_points, SF2_HOSTILE_LASER_HEALTH);
+        assert_eq!(
+            left_projectile.base.attack_power,
+            player_damage::HOSTILE_PROJECTILE_ATTACK_POWER
+        );
+        assert_eq!(
+            left_projectile.base.collision_class,
+            CollisionClass::EnemyWeapon
+        );
+
+        let right_projectile = game
+            .state
+            .objects
+            .get(game.eladard_defender_projectiles[1])
+            .unwrap();
+        assert_eq!(
+            right_projectile.base.position,
+            Vector3 {
+                x: 1_264,
+                y: -234,
+                z: 1_312,
+            }
+        );
+        assert_eq!(right_projectile.base.pitch, Angle::from_units(6));
+        assert_eq!(right_projectile.base.yaw, Angle::from_units(120));
+        assert_eq!(
+            right_projectile.base.velocity,
+            Vector3 {
+                x: -16,
+                y: 16,
+                z: -112,
+            }
+        );
+
+        for _ in FIRST_VOLLEY_NATIVE_TICKS..FIRST_CYCLE_NATIVE_TICKS {
+            game.tick(0).unwrap();
+        }
+        for defender in [left, right] {
+            let defender = game.state.objects.get(defender).unwrap();
+            assert_eq!(defender.base.position.y, -74);
+            assert_eq!(
+                defender.extension.activity,
+                ObjectActivity::EladardDefender(EladardDefenderState {
+                    phase: EladardDefenderPhase::Cooldown {
+                        retail_frames_remaining: ELADARD_DEFENDER_COOLDOWN_RETAIL_FRAMES,
+                    },
+                })
+            );
+        }
+
+        for _ in FIRST_CYCLE_NATIVE_TICKS..PROJECTILE_REMOVAL_NATIVE_TICK {
+            game.tick(0).unwrap();
+        }
+        assert!(game.eladard_defender_projectiles.is_empty());
+        for _ in PROJECTILE_REMOVAL_NATIVE_TICK..SECOND_CYCLE_FIRST_STEP_NATIVE_TICK {
+            game.tick(0).unwrap();
+        }
+        for defender in [left, right] {
+            let defender = game.state.objects.get(defender).unwrap();
+            assert_eq!(defender.base.position.y, -124);
+            assert_eq!(
+                defender.extension.activity,
+                ObjectActivity::EladardDefender(EladardDefenderState {
+                    phase: EladardDefenderPhase::VolleyMotion {
+                        next_motion_step: 1,
+                        retail_frame_accumulator: 2,
+                    },
+                })
+            );
+        }
+
+        let destroy = |game: &mut Game, defender: ObjectId| {
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_RAPID_LASER_FAST,
+                Behavior::Projectile,
+            );
+            laser.base.position = game.state.objects.get(defender).unwrap().base.position;
+            laser.base.attack_power = PLAYER_RAPID_LASER_ATTACK_POWER;
+            laser.base.weapon = WeaponKind::Laser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            game.state.objects.allocate(laser).unwrap();
+            game.resolve_mission_collisions();
+            game.sync_eladard_objectives();
+        };
+        destroy(&mut game, left);
+        assert_eq!(
+            game.state.mission.eladard.interior_defenders,
+            [
+                EladardDefenderStatus::Destroyed,
+                EladardDefenderStatus::Active,
+            ]
+        );
+        destroy(&mut game, right);
+        assert_eq!(
+            game.state.mission.eladard.interior_defenders,
+            [EladardDefenderStatus::Destroyed; ELADARD_INTERIOR_DEFENDER_COUNT]
+        );
+    }
+
+    #[test]
     fn eladard_route_uses_typed_objectives_and_matches_the_sixth_return() {
         const ELADARD_AND_VENOM_ASSIGNMENT_TIMING: u64 = 1;
         const FORMER_AUTOMATIC_RETURN_RETAIL_FRAME: u16 = 13_000;
         const BARRIER_CHARGED_HITS: usize =
             ELADARD_SURFACE_BARRIER_DURABILITY.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) as usize;
-        const GENERATOR_CHARGED_HITS: usize = (ELADARD_GENERATOR_HEALTH
-            - ELADARD_GENERATOR_DESTROYED_HEALTH)
-            .div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER)
-            as usize;
+        const GENERATOR_CHARGED_HITS: usize =
+            (ELADARD_GENERATOR_HEALTH - ELADARD_GENERATOR_DESTROYED_HEALTH)
+                .div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) as usize;
 
         let mut game = Game::new();
         game.state.campaign =
@@ -21499,6 +21903,8 @@ mod tests {
                 access_switch: EladardSwitchStatus::Unreached,
                 access_door: EladardDoorStatus::Unreached,
                 generator_door: EladardDoorStatus::Unreached,
+                interior_defenders: [EladardDefenderStatus::Unreached;
+                    ELADARD_INTERIOR_DEFENDER_COUNT],
                 generator: EladardGeneratorStatus::Unreached,
             }
         );
@@ -21652,10 +22058,36 @@ mod tests {
             assert_eq!(object.base.position, position);
             assert_eq!(object.base.yaw, yaw);
         }
+        assert_eq!(
+            game.state().mission.eladard.interior_defenders,
+            [EladardDefenderStatus::Active; ELADARD_INTERIOR_DEFENDER_COUNT]
+        );
+        for (defender_id, position) in game
+            .eladard_interior_defenders
+            .into_iter()
+            .zip(ELADARD_INTERIOR_DEFENDER_SCENE)
+        {
+            let defender = game
+                .state()
+                .objects
+                .get(defender_id.expect("Eladard interior defender was allocated"))
+                .unwrap();
+            assert_eq!(defender.base.shape, ShapeId::ELADARD_INTERIOR_DEFENDER);
+            assert_eq!(defender.base.position, position);
+            assert_eq!(defender.base.hit_points, ELADARD_INTERIOR_DEFENDER_HEALTH);
+            assert_eq!(
+                defender.base.attack_power,
+                ELADARD_INTERIOR_DEFENDER_ATTACK_POWER
+            );
+            assert_eq!(defender.base.collision_class, CollisionClass::Enemy);
+            assert!(matches!(
+                defender.extension.activity,
+                ObjectActivity::EladardDefender(_)
+            ));
+        }
 
         let access_switch = game.eladard_access_switch.unwrap();
-        game.state.objects.get_mut(player).unwrap().base.position =
-            ELADARD_ACCESS_SWITCH_POSITION;
+        game.state.objects.get_mut(player).unwrap().base.position = ELADARD_ACCESS_SWITCH_POSITION;
         game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.eladard.access_switch,
@@ -21672,6 +22104,10 @@ mod tests {
         while game.state().mission.eladard.access_door != EladardDoorStatus::Open {
             game.tick(0).unwrap();
         }
+        assert_eq!(
+            game.state().mission.eladard.interior_defenders,
+            [EladardDefenderStatus::Active; ELADARD_INTERIOR_DEFENDER_COUNT]
+        );
         assert_eq!(
             game.state()
                 .objects
@@ -21934,9 +22370,7 @@ mod tests {
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::ReactorApproach
         );
-        while game.state().mission.carrier_assault.phase
-            != CarrierAssaultPhase::ReactorCombat
-        {
+        while game.state().mission.carrier_assault.phase != CarrierAssaultPhase::ReactorCombat {
             game.tick(0).unwrap();
         }
         assert_eq!(
@@ -22020,9 +22454,7 @@ mod tests {
             game.state().mission.carrier_assault.phase,
             CarrierAssaultPhase::CoreDestruction
         );
-        while game.state().mission.carrier_assault.phase
-            == CarrierAssaultPhase::CoreDestruction
-        {
+        while game.state().mission.carrier_assault.phase == CarrierAssaultPhase::CoreDestruction {
             game.tick(0).unwrap();
         }
         assert_eq!(
@@ -22184,8 +22616,7 @@ mod tests {
             }
             maximum_hostile_lasers = maximum_hostile_lasers.max(hostile_laser_count(&game));
             let input = leon_pursuit_input(&game, combat_tick, charge_ticks);
-            let before_tick_frame = (game.state().mode_frame
-                * RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            let before_tick_frame = (game.state().mode_frame * RETAIL_PRESENTATION_FRAMES_PER_TICK)
                 .min(u32::from(u16::MAX)) as u16;
             game.tick(input).unwrap();
             defeat_frame = defeat_frame.or(game.state().mission.rival_defeated_retail_frame);
@@ -22202,7 +22633,11 @@ mod tests {
                 );
             }
         }
-        assert_ne!(game.mode(), GameMode::Mission, "live Leon duel did not finish");
+        assert_ne!(
+            game.mode(),
+            GameMode::Mission,
+            "live Leon duel did not finish"
+        );
         assert!(maximum_hostile_lasers > 0);
         let defeat_frame = defeat_frame.expect("ordinary weapon damage defeated Leon");
         let first_return_boundary = defeat_frame
@@ -22767,9 +23202,7 @@ mod tests {
         }
 
         fn carrier_campaign_input(game: &mut Game) -> u16 {
-            if game.state.mission.carrier_assault.phase
-                == CarrierAssaultPhase::ReactorCombat
-            {
+            if game.state.mission.carrier_assault.phase == CarrierAssaultPhase::ReactorCombat {
                 if let Some(target) = game.carrier_panels.into_iter().flatten().find(|id| {
                     game.state
                         .objects
@@ -23003,8 +23436,13 @@ mod tests {
             }
         );
         assert_eq!(
-            game.titania_surface_switches
-                .map(|id| game.state.objects.get(id.unwrap()).unwrap().base.shape),
+            game.titania_surface_switches.map(|id| game
+                .state
+                .objects
+                .get(id.unwrap())
+                .unwrap()
+                .base
+                .shape),
             [ShapeId::TITANIA_SWITCH_ACTIVE; TITANIA_SURFACE_SWITCH_COUNT]
         );
         assert_eq!(
@@ -23024,7 +23462,10 @@ mod tests {
             game.tick(0).unwrap();
         }
         assert_eq!(game.mission(), Some(MissionVisit::TitaniaBase));
-        assert_eq!(game.state().mission.titania.phase, TitaniaPhase::FirstSwitch);
+        assert_eq!(
+            game.state().mission.titania.phase,
+            TitaniaPhase::FirstSwitch
+        );
         assert_eq!(
             game.state().mission.titania.surface_switches,
             [TitaniaSurfaceSwitchStatus::Active; TITANIA_SURFACE_SWITCH_COUNT]
@@ -23371,8 +23812,7 @@ mod tests {
                 elapsed_retail_frames: 0,
             }
         );
-        for expected in (RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
-            ..ENDING_EXIT_FADE_RETAIL_FRAMES)
+        for expected in (RETAIL_PRESENTATION_FRAMES_PER_TICK as u16..ENDING_EXIT_FADE_RETAIL_FRAMES)
             .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
         {
             game.tick(0).unwrap();
@@ -23940,10 +24380,7 @@ mod tests {
             game.tick(0).unwrap();
         }
         assert_eq!(game.mode(), GameMode::Intro(IntroPhase::Boot));
-        assert_eq!(
-            game.state().intro.presentation_tick,
-            INTRO_LOOP_START_TICK
-        );
+        assert_eq!(game.state().intro.presentation_tick, INTRO_LOOP_START_TICK);
         assert!(game.state().objects.is_empty());
         assert!(game.render_objects().is_empty());
     }

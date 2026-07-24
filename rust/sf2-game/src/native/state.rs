@@ -461,9 +461,8 @@ pub struct CampaignProgress {
 
 impl CampaignProgress {
     pub fn record_clear(&mut self, difficulty: Difficulty, corneria_damage_percent: u8) -> bool {
-        let newly_unlocked = !self.expert_unlocked
-            && difficulty == Difficulty::Hard
-            && corneria_damage_percent == 0;
+        let newly_unlocked =
+            !self.expert_unlocked && difficulty == Difficulty::Hard && corneria_damage_percent == 0;
         self.expert_unlocked |= newly_unlocked;
         newly_unlocked
     }
@@ -1696,6 +1695,19 @@ impl Default for EladardDoorStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EladardDefenderStatus {
+    Unreached,
+    Active,
+    Destroyed,
+}
+
+impl Default for EladardDefenderStatus {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
 /// Typed objective state for the Eladard base assault. These fields model the
 /// mission concepts directly; no source-machine memory window is retained.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -1707,6 +1719,7 @@ pub struct EladardMissionState {
     pub access_switch: EladardSwitchStatus,
     pub access_door: EladardDoorStatus,
     pub generator_door: EladardDoorStatus,
+    pub interior_defenders: [EladardDefenderStatus; 2],
     pub generator: EladardGeneratorStatus,
 }
 
@@ -1970,8 +1983,8 @@ impl Default for GameState {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::campaign_world_assignments::NORMAL_OCCUPIED_WORLD_COUNT;
+    use super::*;
 
     #[test]
     fn expert_unlock_requires_a_zero_damage_hard_clear() {
@@ -2128,13 +2141,13 @@ mod tests {
 
     #[test]
     fn campaign_world_assignments_cover_every_retail_choice() {
-        let normal_assignments: std::collections::BTreeSet<_> =
-            (0..NORMAL_CAMPAIGN_ASSIGNMENT_COUNT as u64)
-                .map(|timing| {
-                    CampaignWorldAssignment::from_timing_entropy(Difficulty::Normal, timing)
-                        .occupied_worlds()
-                })
-                .collect();
+        let normal_assignments: std::collections::BTreeSet<_> = (0
+            ..NORMAL_CAMPAIGN_ASSIGNMENT_COUNT as u64)
+            .map(|timing| {
+                CampaignWorldAssignment::from_timing_entropy(Difficulty::Normal, timing)
+                    .occupied_worlds()
+            })
+            .collect();
         assert_eq!(normal_assignments.len(), NORMAL_CAMPAIGN_ASSIGNMENT_COUNT);
         assert!(normal_assignments.iter().all(|assignment| {
             assignment.iter().flatten().count() == NORMAL_OCCUPIED_WORLD_COUNT
@@ -2144,21 +2157,24 @@ mod tests {
                 && !assignment.contains(&Some(CampaignWorld::Fortuna))
         }));
 
-        let hard_assignments: std::collections::BTreeSet<_> =
-            (0..THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64)
-                .map(|timing| {
-                    CampaignWorldAssignment::from_timing_entropy(Difficulty::Hard, timing)
-                        .occupied_worlds()
-                })
-                .collect();
-        let expert_assignments: std::collections::BTreeSet<_> =
-            (0..THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64)
-                .map(|timing| {
-                    CampaignWorldAssignment::from_timing_entropy(Difficulty::Expert, timing)
-                        .occupied_worlds()
-                })
-                .collect();
-        assert_eq!(hard_assignments.len(), THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT);
+        let hard_assignments: std::collections::BTreeSet<_> = (0
+            ..THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64)
+            .map(|timing| {
+                CampaignWorldAssignment::from_timing_entropy(Difficulty::Hard, timing)
+                    .occupied_worlds()
+            })
+            .collect();
+        let expert_assignments: std::collections::BTreeSet<_> = (0
+            ..THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT as u64)
+            .map(|timing| {
+                CampaignWorldAssignment::from_timing_entropy(Difficulty::Expert, timing)
+                    .occupied_worlds()
+            })
+            .collect();
+        assert_eq!(
+            hard_assignments.len(),
+            THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT
+        );
         assert_eq!(expert_assignments, hard_assignments);
         assert!(CampaignWorld::ALL.iter().all(|world| {
             hard_assignments
@@ -2192,15 +2208,11 @@ mod tests {
         for difficulty in [Difficulty::Normal, Difficulty::Hard, Difficulty::Expert] {
             let assignment_count = match difficulty {
                 Difficulty::Normal => NORMAL_CAMPAIGN_ASSIGNMENT_COUNT,
-                Difficulty::Hard | Difficulty::Expert => {
-                    THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT
-                }
+                Difficulty::Hard | Difficulty::Expert => THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT,
             };
             for timing in 0..assignment_count {
-                let assignment = CampaignWorldAssignment::from_timing_entropy(
-                    difficulty,
-                    timing as u64,
-                );
+                let assignment =
+                    CampaignWorldAssignment::from_timing_entropy(difficulty, timing as u64);
                 let mut planets = CampaignPlanetObjectives::from_assignment(assignment);
                 for world in CampaignWorld::ALL {
                     let expected = if assignment.contains(world) {
