@@ -1903,6 +1903,9 @@ local function provide_combat_autopilot()
     -- Reconstruct the interior classification from the observed map gates so
     -- a strict replay can be verified in independent chunks.
     eladard_base_entered = true
+    if meteor_map == 0x34DF then
+      installation_core_encounter_seen = true
+    end
   end
   local meteor_surface = work_byte(0x1BB5) == 4
     and work_byte(0x192E) == 0x05
@@ -2030,7 +2033,9 @@ local function provide_combat_autopilot()
         forced_target_health % 256,
         emu.memType.snesWorkRam)
     end
-    if meteor_core_room and (shape == 0xEB50 or shape == 0xEB6C) then
+    if (meteor_core_room
+      or (work_byte(0x1BB5) == 3 and work_word(0x1657) == 0x34DF))
+      and (shape == 0xEB50 or shape == 0xEB6C) then
       installation_core_encounter_seen = true
     end
     if meteor_core_room and shape == 0xEB50
@@ -2046,10 +2051,14 @@ local function provide_combat_autopilot()
       inside_planetary_base = true
     end
     local eladard_barrier = work_byte(0x1BB5) == 3 and shape == 0xD74C
+    local eladard_final_room = work_byte(0x1BB5) == 3
+      and work_word(0x1657) == 0x34DF
     local meteor_core_target = meteor_core_room
       and ((target_meteor_core_parent and shape == 0xEB50)
         or (not target_meteor_core_parent and shape == 0xEB6C))
       and (target_meteor_core_parent or work_byte(object + 0x2D) > 1)
+    local eladard_core_target = eladard_final_room
+      and shape == 0xEB6C and work_byte(object + 0x2D) > 1
     if meteor_core_target and forced_meteor_core_health
       and not forced_meteor_core_health_applied then
       -- Oracle-only state forcing used to observe the retail post-defeat path
@@ -2060,16 +2069,11 @@ local function provide_combat_autopilot()
         emu.memType.snesWorkRam)
       forced_meteor_core_health_applied = true
     end
-    local eladard_final_room = work_byte(0x1BB5) == 3
-      and work_word(0x1657) == 0x34DF
     local eladard_room_defender = work_byte(0x1BB5) == 3
       and (shape == 0xEE0C or (eladard_final_room
-        and (shape == 0xBECC
-        -- The final-room defender alternates between these two animation
-        -- frames while retaining the same retail object and durability.
-        or shape == 0xE958 or shape == 0xE974)))
+        and shape == 0xBECC))
     local planetary_base_defender = eladard_room_defender
-      or meteor_core_target
+      or meteor_core_target or eladard_core_target
     local eladard_target_switch = work_byte(0x1BB5) == 3
       and inside_planetary_base and shape == 0xEF5C
       and (work_byte(object + 0x26) & 0x02) == 0
@@ -2127,7 +2131,7 @@ local function provide_combat_autopilot()
         and (target == 0
           or target_shape ~= 0xD74C
           or signed_word(object + 12) < signed_word(target + 12))
-      local prefer_meteor_core = meteor_core_target
+      local prefer_planetary_core = (meteor_core_target or eladard_core_target)
         and target_shape ~= 0xEB6C
       local prefer_eladard_target_switch = eladard_target_switch
         and target_shape ~= 0xEF5C
@@ -2142,7 +2146,7 @@ local function provide_combat_autopilot()
       if prefer_explicit_target
         or (allow_ordinary_targets
           and (prefer_left_eladard_barrier
-            or prefer_meteor_core
+            or prefer_planetary_core
             or prefer_eladard_target_switch
             or prefer_meteor_surface_target
             or prefer_astropolis_security_turret
@@ -2425,9 +2429,11 @@ local function provide_combat_autopilot()
     -- Fire continuously through the retail jump arc so at least one Walker
     -- laser is born at the elevated weak point's height.
     buttons = { b = pulse(frame, 12, 0) }
-    local strafe_phase = frame % 480
-    buttons.left = strafe_phase < 240
-    buttons.right = strafe_phase >= 240
+    if target_distance_squared <= 360000 then
+      local strafe_phase = frame % 480
+      buttons.left = strafe_phase < 240
+      buttons.right = strafe_phase >= 240
+    end
   else
     buttons = { b = pulse(frame, 12, 0) }
   end

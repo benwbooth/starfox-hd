@@ -339,6 +339,7 @@ const POST_LEON_RESULTS_RETAIL_FRAME: u16 = 4_840;
 const ELADARD_SURFACE_BARRIER_COUNT: usize = 2;
 const ELADARD_SURFACE_BARRIER_DURABILITY: u8 = 100;
 const ELADARD_GENERATOR_HEALTH: u8 = 125;
+const ELADARD_GENERATOR_DESTROYED_HEALTH: u8 = 75;
 const ELADARD_RETURN_SCORE: u32 = 2_251;
 const ELADARD_RETURN_ITEM_COUNT: u8 = 3;
 const ELADARD_RETURN_SHIELD: u8 = 40;
@@ -12003,9 +12004,19 @@ impl Game {
                 weapon.base.flags.collision_disabled = true;
                 weapon.base.flags.remove_after_tick = true;
             }
+            let destroyed_health = if self.state.mission.visit == MissionVisit::EladardBase
+                && self.eladard_generator_core == Some(enemy_id)
+            {
+                ELADARD_GENERATOR_DESTROYED_HEALTH
+            } else {
+                0
+            };
             if let Some(enemy) = self.state.objects.get_mut(enemy_id) {
                 enemy.base.flags.collided = true;
-                if damage >= enemy.base.hit_points {
+                if damage >= enemy.base.hit_points.saturating_sub(destroyed_health) {
+                    if destroyed_health > 0 {
+                        enemy.base.hit_points = destroyed_health;
+                    }
                     enemy.base.flags.collision_disabled = true;
                     enemy.base.explosion_timer = ENEMY_DESTRUCTION_TICKS;
                 } else {
@@ -20984,8 +20995,10 @@ mod tests {
         const FORMER_AUTOMATIC_RETURN_RETAIL_FRAME: u16 = 13_000;
         const BARRIER_CHARGED_HITS: usize =
             ELADARD_SURFACE_BARRIER_DURABILITY.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) as usize;
-        const GENERATOR_CHARGED_HITS: usize =
-            ELADARD_GENERATOR_HEALTH.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) as usize;
+        const GENERATOR_CHARGED_HITS: usize = (ELADARD_GENERATOR_HEALTH
+            - ELADARD_GENERATOR_DESTROYED_HEALTH)
+            .div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER)
+            as usize;
 
         let mut game = Game::new();
         game.state.campaign =
@@ -21197,6 +21210,10 @@ mod tests {
         );
 
         destroy_with_charged_shots(&mut game, core, GENERATOR_CHARGED_HITS);
+        assert_eq!(
+            game.state().objects.get(core).unwrap().base.hit_points,
+            ELADARD_GENERATOR_DESTROYED_HEALTH
+        );
         game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.eladard.phase,
