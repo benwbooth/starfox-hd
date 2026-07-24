@@ -71,7 +71,7 @@ dist_xz, msqrt16/32, mcalcperc, calcstageperc, framescalevecs, anglexy axis/diag
 
 - [x] Water / bridge / undergnd / space / turn180 / escape_nucleus SET_PLAYER* — fly-mode inits + strats; tests `player_fly_modes.rs`.
 
-- [x] Cockpit enter/exit — `set_player_into_cock` / `out_of_cock` + phase strats + `make_all_med_pspeed`; tests `player_cockpit.rs`.
+- [x] Cockpit enter/exit and player view cycle — typed exterior/cockpit modes and per-background cycles; exact Select edge/gates; `changeviewmode_l` dispatcher; `set_player_into_cock` / `out_of_cock` + phase strats + `make_all_med_pspeed`; scripted carrier/colony/map transitions; tests `player_view.rs`, `player_view_modes.rs`, `player_cockpit.rs`.
 
 - [x] LB out/in, divegnd, cred, tunnel→planet, VIEWLB3MOVE — tests `player_lb_cred.rs`.
 - [x] Cutscene phase-2 inits (CHASE2/START/CLEARTURN2/UNDER2/WARP1/2/MOVE/DIVE2/CLEARDEMO2) — tests `player_cutscene_inits.rs`.

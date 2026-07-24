@@ -22,6 +22,8 @@ use crate::coldet::Coldet;
 use crate::obj::{strat_init_obj_vars, Objects};
 use crate::vars::*;
 use crate::world::{op, resolve_shape_word, InlineCb, NativeCb, World};
+use sf_core::pad;
+use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::scene::PaletteFadeTarget;
 use sf_map::consts::wm;
 use sf_map::consts::{cb, DirectStrategy};
@@ -219,6 +221,73 @@ impl Game {
         f(self, idx);
     }
 
+    /// Apply the current typed player-view mode (`changeviewmode_l`).
+    ///
+    /// The game core owns the flat domain state and the strategy crate
+    /// records the two authored transition initializers in named callback
+    /// fields, avoiding a dependency cycle or a machine-memory dispatch table.
+    pub fn apply_player_view_mode(&mut self, player_idx: u16) {
+        if player_idx as usize >= NUMBER_AL || !self.objs.aliens[player_idx as usize].active {
+            return;
+        }
+
+        let transition = match self.vars.player_view_mode {
+            PlayerViewMode::Exterior => {
+                self.vars.viewdist = OUTVIEWDIST;
+                None
+            }
+            PlayerViewMode::CloseExterior => {
+                self.vars.viewdist = CLOSE_VIEW_DISTANCE;
+                None
+            }
+            PlayerViewMode::EnteringCockpit => self.vars.strategy_bindings.enter_cockpit,
+            PlayerViewMode::Cockpit => None,
+            PlayerViewMode::LeavingCockpit => self.vars.strategy_bindings.leave_cockpit,
+        };
+        if let Some(strategy) = transition {
+            self.call_strat(StratId(strategy), player_idx);
+        }
+    }
+
+    /// Apply a BGS.ASM `pstrat` view declaration at a background boundary.
+    fn apply_background_player_view(&mut self, background: u16) {
+        let Some(view) = sf_map::catalog::background_player_view(background) else {
+            return;
+        };
+        self.vars.player_view_mode = view.mode;
+        self.vars.player_view_options = view.options;
+        let player = self.vars.internal_playpt;
+        if player >= 0 {
+            self.apply_player_view_mode(player as u16);
+        }
+    }
+
+    /// Source `init_strats_l` SELECT edge and its exact gameplay gates.
+    fn try_change_player_view(&mut self, player_idx: u16) {
+        if self.vars.pshipflags3 & PSF3_NOVIEWCHANGE != 0
+            || self.vars.viewdist != self.vars.strategy.view_distance
+            || self.vars.strategy.stay_black != STAY_BLACK_INACTIVE
+            || self.vars.pshipflags & PSF_NOCTRL != 0
+            || self.vars.pstratflags & (PSTF_NOTDIE | PSTF_INSEQ) != 0
+            || self.objs.aliens[player_idx as usize].sbyte2 != 0
+        {
+            return;
+        }
+
+        let previous_pad = (u16::from(self.vars.lastcont0) << 8) | u16::from(self.vars.lastcontl0);
+        if self.vars.pad1 & pad::SELECT == 0 || previous_pad & pad::SELECT != 0 {
+            return;
+        }
+
+        const VIEW_CHANGE_SOUND: u8 = 0x65;
+        self.hooks.play_se(VIEW_CHANGE_SOUND);
+        self.vars.player_view_mode = self
+            .vars
+            .player_view_mode
+            .next(self.vars.player_view_options);
+        self.apply_player_view_mode(player_idx);
+    }
+
     // ============================================================
     // dostrats loop (C Obj_RunStrategies, src/game/obj.c:224)
     // ============================================================
@@ -262,6 +331,7 @@ impl Game {
             player = Some(0); // Obj_GetPlayer fallback
         }
         let Some(p) = player else { return };
+        self.try_change_player_view(p as u16);
         let al = self.objs.aliens[p];
         self.vars.player_posx = al.worldx;
         self.vars.player_posy = al.worldy;
@@ -537,8 +607,8 @@ impl Game {
     /// Splayerflymode INSIDE -> TONORM transition shared by several
     /// set_player_* callbacks (world.c pattern).
     fn splayer_tonorm(&mut self) {
-        if self.vars.splayerflymode == SPFM_INSIDE {
-            self.vars.splayerflymode = SPFM_TONORM;
+        if self.vars.player_view_mode == PlayerViewMode::Cockpit {
+            self.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
         }
     }
 
@@ -870,6 +940,10 @@ impl Game {
                 self.vars.game_mode = SPACE_MODE;
                 self.splayer_tonorm();
                 self.vars.viewdist = OUTVIEWDIST;
+                let player = self.vars.internal_playpt;
+                if player >= 0 {
+                    self.apply_player_view_mode(player as u16);
+                }
                 true
             }
             // world_cb_is_levelfinished_zero (world.c:775).
@@ -970,8 +1044,13 @@ impl Game {
                 if self.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
                     *mapptr = hp_loop_ptr;
                 } else {
-                    if self.vars.splayerflymode == SPFM_INSIDE {
-                        self.vars.splayerflymode = SPFM_TONORM;
+                    if self.vars.player_view_mode == PlayerViewMode::Cockpit {
+                        self.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
+                    }
+                    self.vars.player_view_options = PlayerViewOptions::ExteriorViews;
+                    let player = self.vars.internal_playpt;
+                    if player >= 0 {
+                        self.apply_player_view_mode(player as u16);
                     }
                     *mapptr = cont_ptr;
                 }
@@ -1285,6 +1364,7 @@ impl Game {
                     self.vars.currentbg = self.map_read16(p.wrapping_add(1));
                     self.vars.set_sound_environment_for_bg(self.vars.currentbg);
                     self.vars.set_scene_style_for_bg(self.vars.currentbg);
+                    self.apply_background_player_view(self.vars.currentbg);
                     self.vars.bgflags |= BGF_BG;
                     self.vars.mapptr = p.wrapping_add(3);
                 }
@@ -1592,6 +1672,7 @@ impl Game {
                     self.vars.currentbg = self.vars.bg_dmalist;
                     self.vars.set_sound_environment_for_bg(self.vars.currentbg);
                     self.vars.set_scene_style_for_bg(self.vars.currentbg);
+                    self.apply_background_player_view(self.vars.currentbg);
                     self.vars.mapptr = p.wrapping_add(4);
                 }
                 // 100: waitsetbg.

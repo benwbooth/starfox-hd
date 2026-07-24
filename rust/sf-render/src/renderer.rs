@@ -20,6 +20,7 @@ use crate::sprites::Sprites;
 use crate::transform::Transform;
 use crate::ui::Ui;
 use sf_core::{
+    player_view::PlayerViewMode,
     scene::{PaletteFadeTarget, SceneStyle},
     screen_wipe::ScreenWipeState,
 };
@@ -387,8 +388,8 @@ pub struct FrameInputs<'a> {
     pub boostcnt: u8,
     /// g_arrows (SPRAR_*).
     pub arrows: u8,
-    /// g_splayerflymode (SPFM_*).
-    pub splayerflymode: u8,
+    /// Typed player camera mode.
+    pub player_view_mode: PlayerViewMode,
     /// g_stage.
     pub stage: u16,
     /// Hud_SetShield current value (player HP).
@@ -467,7 +468,7 @@ impl<'a> Default for FrameInputs<'a> {
             gameframe: 0,
             boostcnt: 0,
             arrows: 0,
-            splayerflymode: 0,
+            player_view_mode: PlayerViewMode::Exterior,
             stage: 0,
             shield_cur: 40,
             shield_max: 40,

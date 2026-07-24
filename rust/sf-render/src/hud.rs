@@ -69,7 +69,6 @@ const MSG_OPENING_FRAMES: u8 = 5;
 // variables.h flags used by the HUD (mirrors of the C defines).
 pub const GF_PLAYERDYING: u8 = 2;
 pub const GF_PLAYERDEAD: u8 = 64;
-pub const SPFM_INSIDE: u8 = 3;
 pub const SPRAR_UP: u8 = 1;
 pub const SPRAR_DOWN: u8 = 2;
 pub const SPRAR_LEFT: u8 = 4;
@@ -678,7 +677,7 @@ impl Hud {
 
             // Crosshair (do_crosshair): four tile-$61 corners around
             // (124,100), palette 4, cockpit view only.
-            if !tally && inputs.splayerflymode == SPFM_INSIDE {
+            if !tally && inputs.player_view_mode == sf_core::player_view::PlayerViewMode::Cockpit {
                 sprites.draw8(0x61, 124 - 8, 100 - 8, SPR_PAL_CROSS, 0);
                 sprites.draw8(0x61, 124 + 8, 100 - 8, SPR_PAL_CROSS, SPR_HFLIP);
                 sprites.draw8(0x61, 124 - 8, 100 + 8, SPR_PAL_CROSS, SPR_VFLIP);

@@ -202,13 +202,6 @@ pub(crate) mod eb_compat {
     pub const PFM_SHADOWS: u8 = 8;
     pub const PFM_WOBBLE: u8 = 16;
 
-    // splayerflymode values (variables.h:167-172)
-    pub const SPFM_NORM: u8 = 0;
-    pub const SPFM_CLOSE: u8 = 1;
-    pub const SPFM_TOINSIDE: u8 = 2;
-    pub const SPFM_INSIDE: u8 = 3;
-    pub const SPFM_TONORM: u8 = 4;
-
     // Rotation units as u8 angles (variables.h:22-41; DEG360=256 wraps 0)
     pub const DEG180: u8 = 128;
     pub const DEG90: u8 = 64;

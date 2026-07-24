@@ -11,10 +11,13 @@
 //! `s_dofog`), engine-flame sprites (`makeengine_srou`), debris/smoke meshes,
 //! and positional sound — all cosmetic reads of global scratch RAM.
 
+use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{ATLASER, ATZREMOVE, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
+use sf_strat::common::{sv, StratRam};
 use sf_strat::enemies_ground;
+use sf_strat::player::{set_player_out_of_cock, COCKPIT_EXIT_FRAMES};
 
 // ISTRATS.ASM def_Istrat indices (== sf-map placement).
 const IS_BAZOOKAL: usize = 157;
@@ -1197,6 +1200,9 @@ fn colony0_latches_stratdone_when_player_passes() {
     // Player alive, within 800 z, and PAST the colony (self.z < player.z) ->
     // objinfront false -> latch sflag1 + GF_STRATDONE1 (GA2STRAT.ASM:1708-1711).
     let mut g = setup();
+    let cockpit_exit = g.world.register_strategy(set_player_out_of_cock);
+    g.vars.strategy_bindings.leave_cockpit = Some(cockpit_exit.0);
+    g.vars.player_view_mode = PlayerViewMode::Cockpit;
     g.objs.aliens[0].worldz = 300; // player ahead of the colony.
     let b = place(&mut g, IS_COLONY0, 0, 0, 100, 0);
     tick(&mut g, b);
@@ -1213,6 +1219,12 @@ fn colony0_latches_stratdone_when_player_passes() {
     );
     assert_ne!(g.vars.pshipflags & PSF_NOCTRL, 0, "control disabled");
     assert_ne!(g.vars.pstratflags & PSTF_INSEQ, 0, "in-seq flag set");
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
+    assert_eq!(
+        g.vars.sv_u8(sv::PSVAR_BYTE1),
+        COCKPIT_EXIT_FRAMES,
+        "colony approach must start the authored cockpit exit"
+    );
 }
 
 #[test]

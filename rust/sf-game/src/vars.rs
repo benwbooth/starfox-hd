@@ -10,6 +10,7 @@
 //! pool/lists/aldead in [`crate::obj::Objects`]). The rest stay in C until
 //! their lanes (strat/render/audio/windows) come over.
 
+use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::scene::{DepthColors, DepthThresholds, GamePalette, PaletteFadeTarget, SceneStyle};
 
 // ============================================================
@@ -39,6 +40,7 @@ pub const PSF2_PLAYERHP0: u8 = 128;
 pub const PSF3_INTUNNEL: u8 = 1;
 pub const PSF3_ENGINESND: u8 = 2;
 pub const PSF3_NOCOLLISIONS: u8 = 8;
+pub const PSF3_NOVIEWCHANGE: u8 = 1 << 5;
 pub const PSF3_KEEPPSTRAT: u8 = 64;
 
 // pstratflags
@@ -49,11 +51,6 @@ pub const PSTF_NOTDIE: u8 = 32;
 // playerflymode
 pub const PFM_SHADOWS: u8 = 8;
 pub const PFM_WOBBLE: u8 = 16;
-
-// splayerflymode values
-pub const SPFM_NORM: u8 = 0;
-pub const SPFM_INSIDE: u8 = 3;
-pub const SPFM_TONORM: u8 = 4;
 
 // Game modes (C `src/variables.h`)
 pub const SPACE_MODE: u8 = 1;
@@ -70,6 +67,7 @@ pub const BGF_INFO: u8 = 0x08;
 
 // Gameplay constants (C `src/variables.h` / STRATEQU.INC)
 pub const OUTVIEWDIST: i16 = 120;
+pub const CLOSE_VIEW_DISTANCE: i16 = 60;
 pub const FRAMESPERAP: u8 = 10;
 /// Nova bombs granted when a new run starts or a continue is accepted.
 pub const DEFAULT_SPECIAL_WEAPON_COUNT: u16 = 3;
@@ -347,6 +345,8 @@ pub struct StrategyVariables {
 pub struct NativeStrategyBindings {
     pub projectile: u16,
     pub player_base: u16,
+    pub enter_cockpit: Option<u16>,
+    pub leave_cockpit: Option<u16>,
     pub fire_smoke_base: u16,
     pub puff: u16,
     pub sparky: u16,
@@ -476,8 +476,10 @@ pub struct GameVars {
     pub pstratflags: u8,
     /// C `g_playerflymode` (PFM_*).
     pub playerflymode: u8,
-    /// C `g_splayerflymode` (SPFM_* mode value).
-    pub splayerflymode: u8,
+    /// ROM `splayerflymode`, represented as typed player-camera state.
+    pub player_view_mode: PlayerViewMode,
+    /// ROM `splayerflymodeopt`, the active background's selectable cycle.
+    pub player_view_options: PlayerViewOptions,
     /// ROM `inatunnel` (ALCS.INC) — background environment mode consumed by
     /// `playersnd`: 0 normal/space, 1 tunnel, 2 water. This is deliberately
     /// separate from `PSF3_INTUNNEL`; takeoff and background transitions can
@@ -630,7 +632,8 @@ impl Default for GameVars {
             pshipflags3: 0,
             pstratflags: 0,
             playerflymode: 0,
-            splayerflymode: 0,
+            player_view_mode: PlayerViewMode::Exterior,
+            player_view_options: PlayerViewOptions::Unconfigured,
             in_a_tunnel: 0,
             player_snd_flag: 0,
             player_posx: 0,
@@ -705,7 +708,7 @@ impl GameVars {
     pub fn init() -> Self {
         GameVars {
             playerflymode: PFM_SHADOWS, // shadows on by default
-            splayerflymode: SPFM_NORM,
+            player_view_mode: PlayerViewMode::Exterior,
             minpmove_y: -60,
             game_mode: SPACE_MODE,
             frog_hp: 3,

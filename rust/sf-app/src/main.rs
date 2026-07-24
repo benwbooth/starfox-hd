@@ -1177,7 +1177,7 @@ fn main() {
                 gameframe: frame.gameframe,
                 boostcnt: frame.boostcnt,
                 arrows: frame.arrows,
-                splayerflymode: frame.splayerflymode,
+                player_view_mode: frame.player_view_mode,
                 stage: frame.stage,
                 shield_cur: frame.shield_cur,
                 shield_max: frame.shield_max,

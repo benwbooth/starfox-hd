@@ -61,7 +61,7 @@ fn dump_tick(g: &Game, tick: u32, out: &mut String) {
         v.pshipflags3,
         v.pstratflags,
         v.playerflymode,
-        v.splayerflymode,
+        v.player_view_mode as u8,
         v.psvar_word1,
         v.psvar_word2,
         v.psvar_word3,

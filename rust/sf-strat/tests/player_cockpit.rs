@@ -1,6 +1,7 @@
 //! ROM cockpit enter/exit SET_PLAYER* (PSTRATS.ASM).
 
-use sf_game::vars::{OUTVIEWDIST, PSF_NOCTRL, PSF_NOFIRE, PSTF_NOVDISTC, SPFM_INSIDE};
+use sf_core::player_view::PlayerViewMode;
+use sf_game::vars::{OUTVIEWDIST, PSF_NOCTRL, PSF_NOFIRE, PSTF_NOVDISTC};
 use sf_game::Game;
 use sf_strat::common::StratRam;
 use sf_strat::player::{
@@ -74,7 +75,7 @@ fn registered_into_cock_handoff_releases_control() {
     }
 
     assert_eq!(g.vars.pshipflags & (PSF_NOCTRL | PSF_NOFIRE), 0);
-    assert_eq!(g.vars.splayerflymode, SPFM_INSIDE);
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::Cockpit);
     assert_ne!(g.objs.aliens[p as usize].stratptr, Some(phase2));
 }
 
@@ -82,7 +83,7 @@ fn registered_into_cock_handoff_releases_control() {
 fn out_of_cock_init_and_countdown() {
     let mut g = Game::new();
     let p = g.objs.alloc().expect("slot");
-    g.vars.splayerflymode = SPFM_INSIDE;
+    g.vars.player_view_mode = PlayerViewMode::Cockpit;
 
     set_player_out_of_cock(&mut g, p);
     assert_eq!(g.vars.viewdist, OUTVIEWDIST);

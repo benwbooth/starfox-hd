@@ -29,6 +29,7 @@
 //!   bazooka : rises from the planet, aims, lobs a 3-shot RELSLOWELASER
 //!             burst, then flees up-and-away — GA2STRAT.ASM:1001-1082
 
+use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
     Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON, ASF_COLLDISABLE,
     ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
@@ -36,8 +37,7 @@ use sf_game::alien::{
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
-    GF_STRATDONE1, GF_STRATDONE2, PSF2_PLAYERHP0, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, SPFM_INSIDE,
-    SPFM_TONORM,
+    GF_STRATDONE1, GF_STRATDONE2, PSF2_PLAYERHP0, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ,
 };
 use sf_game::world::{World, MAP_ISTRAT_SPINSPACEBAR};
 
@@ -2574,13 +2574,16 @@ fn colony0_strat(g: &mut Game, idx: u16) {
     }
     // cutscene funnel: s_or_var pstratflags,#pstf_inseq
     g.vars.pstratflags |= PSTF_INSEQ;
-    // splayerflymode INSIDE -> TONORM (+ changeviewmode_l, unported view-mode swap).
-    if g.vars.splayerflymode == SPFM_INSIDE {
-        g.vars.splayerflymode = SPFM_TONORM;
+    let player_idx = player_index(g);
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
+        g.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
+        if let Some(player_idx) = player_idx {
+            g.apply_player_view_mode(player_idx);
+        }
     }
     // s_playerctrl off
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
-    if let Some(pi) = player_index(g) {
+    if let Some(pi) = player_idx {
         let viewcy = g.vars.sv_i16(sv::VIEWCY);
         let px = g.objs.aliens[pi as usize].worldx;
         g.objs.aliens[pi as usize].worldx = achase_word(px, 0, 4); // ->x=0

@@ -22,6 +22,7 @@
 //! goes through [`sid`], which memoizes the function in the sf-game
 //! strategy registry and hands back its `StratId`.
 
+use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
     Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
     ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8,
@@ -32,8 +33,7 @@ use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
     GF_BOSSDEAD, GF_STRATDONE1, GF_STRATDONE2, HARD_AP, HARD_HP, PFM_SHADOWS, PSF2_PLAYERHP0,
-    PSF3_ENGINESND, PSF3_INTUNNEL, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE, SPFM_INSIDE,
-    SPFM_TONORM,
+    PSF3_ENGINESND, PSF3_INTUNNEL, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE,
 };
 use sf_map::consts::sh;
 
@@ -1874,8 +1874,12 @@ pub fn ship3a_strat(g: &mut Game, idx: u16) {
     }
     g.vars.pshipflags &= !PSF_NOCTRL;
     g.vars.gameflags |= GF_STRATDONE1;
-    if g.vars.splayerflymode == SPFM_INSIDE {
-        g.vars.splayerflymode = SPFM_TONORM;
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
+        g.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
+        let player_idx = g.vars.internal_playpt;
+        if player_idx >= 0 {
+            g.apply_player_view_mode(player_idx as u16);
+        }
     }
     let next = sid(g, ship3b_strat);
     g.objs.aliens[idx as usize].stratptr = Some(next);
@@ -2025,7 +2029,12 @@ pub fn ship2into_strat(g: &mut Game, idx: u16) {
         al.worldx = chase_proportional(al.worldx, 0, 3);
     }
     g.vars.pstratflags |= PSTF_INSEQ;
-    // changeviewmode_l when inside cockpit — scoped (HD view mode).
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
+        g.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
+        if pidx >= 0 {
+            g.apply_player_view_mode(pidx as u16);
+        }
+    }
     ship2_cont(g, idx);
 }
 
@@ -9111,7 +9120,7 @@ pub fn ripair_strat(g: &mut Game, idx: u16) {
 
 /// C `flashplayer_Istrat` (strat_enemy.c:4068) / ROM GASTRATS item pickup flash.
 pub fn flashplayer_istrat(g: &mut Game, idx: u16) {
-    if g.vars.splayerflymode == SPFM_INSIDE {
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
         g.objs.aldead = 1;
         return;
     }

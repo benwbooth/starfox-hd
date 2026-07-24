@@ -9,6 +9,7 @@
 //! - `src/sf_rtl.h` -> [`pad`]
 
 pub mod aim_angle;
+pub mod player_view;
 pub mod scene;
 pub mod screen_wipe;
 mod sf1_shape_words;

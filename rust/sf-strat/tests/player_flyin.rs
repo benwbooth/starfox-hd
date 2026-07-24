@@ -1,5 +1,6 @@
 //! Tick 99: player fly-in / straight / speed / on-cont / cred / divegnd.
 
+use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{ASF_COLLDISABLE, ASF_INVISIBLE};
 use sf_game::vars::{PSF3_ENGINESND, PSF_NOCTRL, PSF_NOFIRE, PSTF_NOVDISTC};
 use sf_game::Game;
@@ -45,14 +46,23 @@ fn space_flyin_chases_then_hands_off() {
 #[test]
 fn inside_space_flyin_sets_inviewdist() {
     let mut g = Game::new();
+    sf_strat::table::register_all(&mut g);
     let idx = spawn(&mut g);
     g.vars.set_sv_i16(sv::VIEWCY, SPACE_VIEWCY);
     player_inside_space_flyin_istrat(&mut g, idx);
     assert_eq!(g.vars.sv_i16(sv::OUTDIST), INVIEWDIST);
     assert_eq!(g.vars.viewdist, INVIEWDIST);
+    let flyin_tick = g.objs.aliens[idx as usize]
+        .stratptr
+        .expect("inside fly-in callback");
     g.objs.aliens[idx as usize].worldy = SPACE_VIEWCY;
     player_inside_space_flyin_strat(&mut g, idx);
-    assert_eq!(g.vars.splayerflymode, 2); // SPFM_TOINSIDE
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::EnteringCockpit);
+    assert_ne!(
+        g.objs.aliens[idx as usize].stratptr,
+        Some(flyin_tick),
+        "fly-in completion must install the cockpit transition"
+    );
 }
 
 #[test]

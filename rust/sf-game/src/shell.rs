@@ -23,6 +23,7 @@ use std::rc::Rc;
 
 use sf_core::{
     pad,
+    player_view::{PlayerViewMode, PlayerViewOptions},
     scene::{PaletteFadeTarget, SceneStyle},
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
     DrawListEntry,
@@ -37,7 +38,7 @@ use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
     BossEncounter, GameVars, GF_PLAYERDEAD, PFM_SHADOWS, PSF2_PLAYERHP0, PSF3_ENGINESND,
-    PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, SPFM_NORM, STAY_BLACK_INACTIVE,
+    PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, STAY_BLACK_INACTIVE,
 };
 use crate::windows::Windows;
 use crate::world::World;
@@ -793,7 +794,7 @@ pub struct FrameSnapshot {
     pub gameframe: u16,
     pub boostcnt: u8,
     pub arrows: u8,
-    pub splayerflymode: u8,
+    pub player_view_mode: PlayerViewMode,
     pub stage: u16,
     pub shield_cur: i32,
     pub shield_max: i32,
@@ -1407,7 +1408,7 @@ impl Shell {
             gameframe: v.gameframe,
             boostcnt: v.strategy.boost_count,
             arrows: v.strategy.arrow_flags,
-            splayerflymode: v.splayerflymode,
+            player_view_mode: v.player_view_mode,
             stage: self.planets.stage,
             shield_cur,
             shield_max,
@@ -1652,7 +1653,8 @@ impl Shell {
         // must not cross the HD shell's direct tally-to-stage transition.
         v.pshipflags &= PSF_STAGE_DAMAGE;
         v.playerflymode = PFM_SHADOWS;
-        v.splayerflymode = SPFM_NORM;
+        v.player_view_mode = PlayerViewMode::Exterior;
+        v.player_view_options = PlayerViewOptions::Unconfigured;
         v.freezestrats = 0;
         v.bossmaxhp = 0;
         v.meters = 0;

@@ -1,5 +1,6 @@
 //! Tick 96: player Warp / WarpOut cutscene leaves.
 
+use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_game::alien::ASF_INVISIBLE;
 use sf_game::vars::{
     GF_NOZREMOVE, GF_VIEWROT, PFM_WOBBLE, PSF3_ENGINESND, PSF3_NOCOLLISIONS, PSF_NOCTRL,
@@ -13,7 +14,6 @@ use sf_strat::player::{
 };
 
 const PSTF_FLAG1: u8 = 2;
-const SPFM_TOINSIDE: u8 = 2;
 const OUTVIEWDIST: i16 = 120;
 
 fn spawn(g: &mut Game) -> u16 {
@@ -108,6 +108,7 @@ fn warp1_flag1_and_zboost() {
 #[test]
 fn warp_out_countdown_and_handoff() {
     let mut g = Game::new();
+    sf_strat::table::register_all(&mut g);
     let idx = spawn(&mut g);
     g.vars.set_sv_i16(sv::PVIEWPOSZ, 500);
     g.objs.aliens[idx as usize].worldz = 500;
@@ -140,7 +141,11 @@ fn warp_out_countdown_and_handoff() {
     assert!(player_warp_out_strat(&mut g, idx));
     assert_ne!(g.vars.pstratflags & PSTF_NOVDISTC, 0);
     assert_eq!(g.vars.viewdist, OUTVIEWDIST);
-    assert_eq!(g.vars.splayerflymode, SPFM_TOINSIDE);
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::EnteringCockpit);
+    assert_eq!(
+        g.vars.player_view_options,
+        PlayerViewOptions::ExteriorAndCockpit
+    );
     let cockpit_tick = g.objs.aliens[idx as usize]
         .stratptr
         .expect("cockpit callback");

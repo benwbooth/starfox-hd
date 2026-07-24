@@ -10,6 +10,7 @@
 use std::sync::OnceLock;
 
 use crate::levels::{self, BuiltLevel};
+use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::screen_wipe::ScreenWipeKind;
 
 /// Planet map IDs (matches PLANETS.ASM path table values; levels.h).
@@ -44,6 +45,46 @@ pub mod map_id {
     pub const PLANET: u32 = 27;
     pub const CREDITS: u32 = 28;
     pub const TRAINING: u32 = 29;
+}
+
+/// Flat background catalog identities from BGS.ASM / the map bytecode.
+pub mod background_id {
+    pub const THREE_ONE_OUTDOOR: u16 = 3;
+    pub const ONE_ONE_OUTDOOR: u16 = 4;
+    pub const ONE_TWO: u16 = 5;
+    pub const ONE_THREE_WARP: u16 = 6;
+    pub const ONE_THREE_SPACE: u16 = 7;
+    pub const ONE_THREE_TUNNEL: u16 = 8;
+    pub const ONE_THREE_SPACE_RETURN: u16 = 9;
+    pub const ONE_THREE_CLEAR: u16 = 12;
+    pub const ONE_FOUR: u16 = 13;
+    pub const ONE_FIVE: u16 = 14;
+    pub const ONE_SIX_DIVE: u16 = 15;
+    pub const ONE_SIX_TUNNEL: u16 = 16;
+    pub const ONE_SIX_FINAL: u16 = 17;
+    pub const TWO_TWO: u16 = 22;
+    pub const TWO_THREE_PLANET: u16 = 23;
+    pub const TWO_THREE_BRIDGE: u16 = 24;
+    pub const TWO_THREE_TUNNEL: u16 = 25;
+    pub const TWO_FOUR: u16 = 26;
+    pub const TWO_SIX_COLONY: u16 = 27;
+    pub const TWO_SIX_CLEAR: u16 = 28;
+    pub const TWO_SIX_TUNNEL: u16 = 29;
+    pub const THREE_TWO: u16 = 30;
+    pub const THREE_THREE: u16 = 31;
+    pub const THREE_FOUR_SPACE: u16 = 33;
+    pub const THREE_FOUR_TUNNEL: u16 = 34;
+    pub const THREE_FOUR_CLEAR: u16 = 35;
+    pub const THREE_FIVE: u16 = 36;
+    pub const THREE_SIX: u16 = 37;
+    pub const THREE_SEVEN: u16 = 38;
+    pub const BLACK_HOLE: u16 = 39;
+    pub const INTRO: u16 = 40;
+    pub const TITLE: u16 = 41;
+    pub const CONTINUE: u16 = 42;
+    pub const CREDITS: u16 = 43;
+    pub const TRAINING: u16 = 44;
+    pub const SPECIAL: u16 = 62;
 }
 
 /// Semantic identity recorded by each completed boss marker and consumed by
@@ -112,35 +153,129 @@ pub fn boss_encounter_for_marker(map: u32, marker_ordinal: u8) -> Option<BossEnc
 /// shell applies this typed catalog value at load time. IDs are the flat
 /// background catalog used by the Rust map data.
 pub fn opening_background(id: u32) -> Option<u16> {
+    use background_id as bg;
+
     match id {
-        map_id::M1_1 | map_id::M2_1 => Some(4),
-        map_id::M1_2 => Some(5),
-        map_id::M1_3 => Some(6),
-        map_id::M1_4 => Some(13),
-        map_id::M1_5 | map_id::M2_5 => Some(14),
-        map_id::M1_6 => Some(15),
-        map_id::M2_2 => Some(22),
-        map_id::M2_3 => Some(23),
-        map_id::M2_4 => Some(26),
-        map_id::M2_6 => Some(27),
-        map_id::M3_1 => Some(3),
-        map_id::M3_2 => Some(30),
-        map_id::M3_3 => Some(31),
-        map_id::M3_4 => Some(33),
-        map_id::M3_5 => Some(36),
-        map_id::M3_6 => Some(37),
-        map_id::M3_7 => Some(38),
-        map_id::BLACKHOLE => Some(39),
-        map_id::SPECIAL => Some(62),
-        map_id::FINAL => Some(17),
-        map_id::INTRO => Some(40),
-        map_id::TITLE => Some(41),
-        map_id::CONTINUE => Some(42),
-        map_id::CREDITS => Some(43),
-        map_id::TRAINING => Some(44),
+        map_id::M1_1 | map_id::M2_1 => Some(bg::ONE_ONE_OUTDOOR),
+        map_id::M1_2 => Some(bg::ONE_TWO),
+        map_id::M1_3 => Some(bg::ONE_THREE_WARP),
+        map_id::M1_4 => Some(bg::ONE_FOUR),
+        map_id::M1_5 | map_id::M2_5 => Some(bg::ONE_FIVE),
+        map_id::M1_6 => Some(bg::ONE_SIX_DIVE),
+        map_id::M2_2 => Some(bg::TWO_TWO),
+        map_id::M2_3 => Some(bg::TWO_THREE_PLANET),
+        map_id::M2_4 => Some(bg::TWO_FOUR),
+        map_id::M2_6 => Some(bg::TWO_SIX_COLONY),
+        map_id::M3_1 => Some(bg::THREE_ONE_OUTDOOR),
+        map_id::M3_2 => Some(bg::THREE_TWO),
+        map_id::M3_3 => Some(bg::THREE_THREE),
+        map_id::M3_4 => Some(bg::THREE_FOUR_SPACE),
+        map_id::M3_5 => Some(bg::THREE_FIVE),
+        map_id::M3_6 => Some(bg::THREE_SIX),
+        map_id::M3_7 => Some(bg::THREE_SEVEN),
+        map_id::BLACKHOLE => Some(bg::BLACK_HOLE),
+        map_id::SPECIAL => Some(bg::SPECIAL),
+        map_id::FINAL => Some(bg::ONE_SIX_FINAL),
+        map_id::INTRO => Some(bg::INTRO),
+        map_id::TITLE => Some(bg::TITLE),
+        map_id::CONTINUE => Some(bg::CONTINUE),
+        map_id::CREDITS => Some(bg::CREDITS),
+        map_id::TRAINING => Some(bg::TRAINING),
         map_id::NONE | map_id::WAIT | map_id::PLANET => None,
         _ => None,
     }
+}
+
+/// Player-view declaration attached to a map's opening background `pstrat`.
+///
+/// This is the typed counterpart of the `flymode` and `max fly mode`
+/// arguments in BGS.ASM. Backgrounds without those arguments intentionally
+/// preserve the preceding declaration and therefore do not appear here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpeningPlayerView {
+    pub mode: PlayerViewMode,
+    pub options: PlayerViewOptions,
+}
+
+/// Exact opening `pstrat` player-view declaration for every playable map.
+pub fn opening_player_view(id: u32) -> Option<OpeningPlayerView> {
+    use PlayerViewMode::{CloseExterior, Exterior};
+    use PlayerViewOptions::{ExteriorAndCockpit, ExteriorViews};
+
+    let (mode, options) = match id {
+        map_id::M1_1 | map_id::M2_1 | map_id::M3_1 | map_id::TRAINING => (Exterior, ExteriorViews),
+        map_id::M1_2
+        | map_id::M1_5
+        | map_id::M2_2
+        | map_id::M3_2
+        | map_id::M3_4
+        | map_id::M3_6
+        | map_id::SPECIAL
+        | map_id::CREDITS
+        | map_id::INTRO
+        | map_id::TITLE => (CloseExterior, ExteriorAndCockpit),
+        map_id::M1_3
+        | map_id::M1_6
+        | map_id::M2_3
+        | map_id::M2_6
+        | map_id::M3_7
+        | map_id::FINAL
+        | map_id::CONTINUE => (Exterior, ExteriorViews),
+        map_id::M1_4 | map_id::M3_3 | map_id::M3_5 => (CloseExterior, ExteriorViews),
+        map_id::M2_4 | map_id::M2_5 | map_id::BLACKHOLE => (Exterior, ExteriorAndCockpit),
+        _ => return None,
+    };
+    Some(OpeningPlayerView { mode, options })
+}
+
+/// View declaration installed when a runtime `setbg` executes a BGS.ASM
+/// background carrying `pstrat` mode arguments.
+///
+/// Corneria's outdoor backgrounds (3/4) and the parameterless clear/credits
+/// helpers deliberately return `None`: those source blocks preserve the
+/// declaration that was already active.
+pub fn background_player_view(background: u16) -> Option<OpeningPlayerView> {
+    use background_id as bg;
+    use PlayerViewMode::{CloseExterior, Exterior};
+    use PlayerViewOptions::{ExteriorAndCockpit, ExteriorViews};
+
+    let (mode, options) = match background {
+        // Exterior-only-cycle background declarations.
+        bg::ONE_THREE_WARP
+        | bg::ONE_THREE_TUNNEL
+        | bg::ONE_SIX_DIVE
+        | bg::ONE_SIX_TUNNEL
+        | bg::ONE_SIX_FINAL
+        | bg::TWO_THREE_PLANET
+        | bg::TWO_THREE_BRIDGE
+        | bg::TWO_THREE_TUNNEL
+        | bg::TWO_SIX_COLONY
+        | bg::TWO_SIX_CLEAR
+        | bg::TWO_SIX_TUNNEL
+        | bg::THREE_FOUR_TUNNEL
+        | bg::THREE_SEVEN
+        | bg::CONTINUE
+        | bg::TRAINING => (Exterior, ExteriorViews),
+        // Exterior/cockpit-cycle declarations beginning outside.
+        bg::ONE_THREE_SPACE | bg::ONE_THREE_SPACE_RETURN | bg::TWO_FOUR | bg::BLACK_HOLE => {
+            (Exterior, ExteriorAndCockpit)
+        }
+        // Exterior-only-cycle declarations beginning at the close distance.
+        bg::ONE_FOUR | bg::THREE_THREE | bg::THREE_FIVE => (CloseExterior, ExteriorViews),
+        // Exterior/cockpit-cycle declarations beginning at the close distance.
+        bg::ONE_TWO
+        | bg::ONE_FIVE
+        | bg::TWO_TWO
+        | bg::THREE_TWO
+        | bg::THREE_FOUR_SPACE
+        | bg::THREE_SIX
+        | bg::INTRO
+        | bg::TITLE
+        | bg::CREDITS
+        | bg::SPECIAL => (CloseExterior, ExteriorAndCockpit),
+        _ => return None,
+    };
+    Some(OpeningPlayerView { mode, options })
 }
 
 /// Source-authored screen transitions surrounding a map's opening.
@@ -262,4 +397,75 @@ pub fn get_map_callback_regs(
         return Some((&l.native_regs, &l.inline_regs));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sf_core::player_view::{PlayerViewMode as Mode, PlayerViewOptions as Options};
+
+    #[test]
+    fn every_source_background_with_a_spawned_player_has_a_view_declaration() {
+        for map in (map_id::M1_1..=map_id::CONTINUE).chain([map_id::CREDITS, map_id::TRAINING]) {
+            assert!(
+                opening_player_view(map).is_some(),
+                "missing opening player view for map {map}"
+            );
+        }
+        assert_eq!(opening_player_view(map_id::NONE), None);
+        assert_eq!(opening_player_view(map_id::WAIT), None);
+        assert_eq!(opening_player_view(map_id::PLANET), None);
+    }
+
+    #[test]
+    fn representative_declarations_match_bgs_source() {
+        let source = include_str!("../../../reference/ultrastarfox/SF/ASM/BGS.ASM");
+        for declaration in [
+            "pstrat\tplayeropening,a,ab",
+            "pstrat\tplayerinsidespaceflyin,b,abc",
+            "pstrat\tplayerspaceflyin,a,abc",
+            "pstrat\tplayerplanetflyin,b,ab",
+            "pstrat\tplayercolonyflyin,a,ab",
+            "pstrat\tplayerundergnd,b,ab",
+        ] {
+            assert!(
+                source.contains(declaration),
+                "missing BGS declaration: {declaration}"
+            );
+        }
+
+        assert_eq!(
+            opening_player_view(map_id::M1_2),
+            Some(OpeningPlayerView {
+                mode: Mode::CloseExterior,
+                options: Options::ExteriorAndCockpit,
+            })
+        );
+        assert_eq!(
+            opening_player_view(map_id::M2_4),
+            Some(OpeningPlayerView {
+                mode: Mode::Exterior,
+                options: Options::ExteriorAndCockpit,
+            })
+        );
+        assert_eq!(
+            opening_player_view(map_id::M3_5),
+            Some(OpeningPlayerView {
+                mode: Mode::CloseExterior,
+                options: Options::ExteriorViews,
+            })
+        );
+
+        assert_eq!(
+            background_player_view(background_id::THREE_FOUR_TUNNEL),
+            Some(OpeningPlayerView {
+                mode: Mode::Exterior,
+                options: Options::ExteriorViews,
+            })
+        );
+        assert_eq!(
+            background_player_view(background_id::THREE_FOUR_CLEAR),
+            None
+        );
+    }
 }

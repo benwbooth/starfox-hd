@@ -520,6 +520,10 @@ pub fn register_all(g: &mut Game) {
     // directly; the Rust map-VM builtin routes through this registered address.
     g.world
         .register_strategy_address(sf_game::world::STRAT_ADDR_PLAYER_EXITBASE, p.exit_base_init);
+    let enter_cockpit = enemy_a::sid(g, player::set_player_into_cock);
+    let leave_cockpit = enemy_a::sid(g, player::set_player_out_of_cock);
+    g.vars.strategy_bindings.enter_cockpit = Some(enter_cockpit.0);
+    g.vars.strategy_bindings.leave_cockpit = Some(leave_cockpit.0);
     let player_callbacks: &[(u32, sf_game::game::StrategyFn)] = &[
         (CB_SET_PLAYER_EXITBASE, player::strat_player_exit_base),
         (CB_SET_PLAYER_ONPLANET, player::set_player_on_planet),

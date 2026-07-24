@@ -1,14 +1,17 @@
 //! Tick 80: ship1/ship1a/ship1col + ship3b/c/cont + boss2rots/doboss* leaves.
 
+use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{ASF_COLLDISABLE, ASF_COLLIDE, ASF_NOHITAFFECT, ATGND};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::bosses::{boss2rots_srou, doboss2rot_srou, dobossrot_srou, dobossrotx4_srou};
+use sf_strat::common::StratRam;
 use sf_strat::enemy_a::{
     boss_attach_child_to_mother, ship1_istrat, ship1_strat, ship1a_cont, ship1a_istrat,
-    ship1a_strat, ship1col_istrat, ship3_cont, ship3_istrat, ship3_strat, ship3b_strat,
-    ship3c_init, ship3c_strat, DEG180, DEG90,
+    ship1a_strat, ship1col_istrat, ship3_cont, ship3_istrat, ship3_strat, ship3a_strat,
+    ship3b_strat, ship3c_init, ship3c_strat, DEG180, DEG90,
 };
+use sf_strat::player::{player_sv as sv, set_player_out_of_cock, COCKPIT_EXIT_FRAMES};
 
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -31,6 +34,11 @@ fn spawn_obj(g: &mut Game) -> u16 {
     g.objs.aliens[idx as usize].worldy = -100;
     g.objs.aliens[idx as usize].worldx = 100;
     idx
+}
+
+fn register_cockpit_exit(g: &mut Game) {
+    let transition = g.world.register_strategy(set_player_out_of_cock);
+    g.vars.strategy_bindings.leave_cockpit = Some(transition.0);
 }
 
 #[test]
@@ -85,6 +93,7 @@ fn ship1_ship1a_col() {
 fn ship3_b_c_cont_and_boss2rots() {
     let mut g = Game::new();
     spawn_player(&mut g, 0);
+    register_cockpit_exit(&mut g);
 
     let s3 = spawn_obj(&mut g);
     ship3_istrat(&mut g, s3);
@@ -94,6 +103,17 @@ fn ship3_b_c_cont_and_boss2rots() {
     assert_eq!(g.objs.aliens[s3 as usize].rotz, DEG90);
     assert_eq!(g.objs.aliens[s3 as usize].vy, -40);
     ship3_strat(&mut g, s3);
+
+    g.vars.player_view_mode = PlayerViewMode::Cockpit;
+    g.objs.aliens[s3 as usize].worldz = 500;
+    g.objs.aliens[0].worldz = 0;
+    ship3a_strat(&mut g, s3);
+    assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
+    assert_eq!(
+        g.vars.sv_u8(sv::PSVAR_BYTE1),
+        COCKPIT_EXIT_FRAMES,
+        "ship3 approach must start the authored cockpit exit"
+    );
 
     // ship3b locks vz = -pviewvelz
     g.vars.pviewvelz = 65;

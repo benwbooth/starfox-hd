@@ -32,6 +32,7 @@ use crate::enemy_a::{
 const ASF2_SFLAG4: u8 = 0x80;
 use crate::snes_trig::{mulslog_mac8, COSTAB, SINTAB};
 use sf_core::pad;
+use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_game::alien::{
     StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, AFEXP, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE,
     ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATZREMOVE, NUMBER_AL,
@@ -39,10 +40,10 @@ use sf_game::alien::{
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
 use sf_game::vars::{
-    GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, GF_STRATDONE1, GF_STRATDONE2,
-    GF_VIEWROT, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE, PSF2_PLAYERHP0, PSF3_ENGINESND,
-    PSF3_INTUNNEL, PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE,
-    PSTF_NOVDISTC, SPACE_MODE, SPFM_INSIDE, STAY_BLACK_INACTIVE, WATER_MODE,
+    CLOSE_VIEW_DISTANCE, GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, GF_STRATDONE1,
+    GF_STRATDONE2, GF_VIEWROT, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE, PSF2_PLAYERHP0,
+    PSF3_ENGINESND, PSF3_INTUNNEL, PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ,
+    PSTF_NOTDIE, PSTF_NOVDISTC, SPACE_MODE, STAY_BLACK_INACTIVE, WATER_MODE,
 };
 use sf_game::Game;
 
@@ -1048,7 +1049,7 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     // The normal death path explicitly re-enables the ship and changes it to
     // colltype enemyweap (PSTRATS.ASM:3047-3104), making the crashing Arwing a
     // harmless hazard while same-category enemy shots are filtered.
-    if had_pcbox && g.vars.splayerflymode != SPFM_INSIDE {
+    if had_pcbox && g.vars.player_view_mode != PlayerViewMode::Cockpit {
         al.sflags &= !ASF_COLLDISABLE;
     } else {
         // Inside-cockpit death is colldisable in the ROM. Keep the same safe
@@ -2061,7 +2062,7 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     // player_Ztilt byte + full 16-bit player_Zshake) into outvz so getview_l
     // rolls the inside-tunnel camera with the ship. Runs after the al_rot* set
     // (matching ROM order); outvz is not read again this tick.
-    if g.vars.splayerflymode == SPFM_INSIDE {
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
         let ztilt_v = g.vars.sv_u8(sv::PLAYER_ZTILT) as i8 as i16;
         let zshake_v = g.vars.sv_i16(sv::PLAYER_ZSHAKE);
         g.vars.set_sv_i16(sv::OUTVZ, ztilt_v.wrapping_add(zshake_v));
@@ -2165,7 +2166,7 @@ fn spawn_player_projectile(
     let mut dy = off_y;
     let mut dz = off_z;
 
-    if g.vars.splayerflymode == SPFM_INSIDE {
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
         let al = &g.objs.aliens[i];
         dx = dx.wrapping_add(g.vars.sv_i16(sv::PVIEWPOSX).wrapping_sub(al.worldx));
         dy = dy.wrapping_add(
@@ -2511,7 +2512,7 @@ fn viewmove_srou(g: &mut Game, idx: u16) {
     let tospeed = g.vars.sv_u8(sv::PLAYER_TOSPEED);
     strat_speed_to(&mut g.objs.aliens[i], tospeed, 2);
 
-    if g.vars.splayerflymode == SPFM_INSIDE {
+    if g.vars.player_view_mode == PlayerViewMode::Cockpit {
         let al = g.objs.aliens[i];
         g.vars.set_sv_i16(sv::PVIEWPOSX, al.worldx);
         g.vars.set_sv_i16(sv::PVIEWPOSY, al.worldy);
@@ -2528,7 +2529,7 @@ fn update_viewxy_for_mode(g: &mut Game, idx: u16) {
     let al = g.objs.aliens[idx as usize];
     let view_cy = g.vars.sv_i16(sv::VIEWCY);
     if g.vars.game_mode == SPACE_MODE {
-        if g.vars.splayerflymode == SPFM_INSIDE {
+        if g.vars.player_view_mode == PlayerViewMode::Cockpit {
             g.vars.set_sv_i16(sv::PVIEWPOSX, al.worldx);
             g.vars.set_sv_i16(sv::PVIEWPOSY, al.worldy);
             return;
@@ -2705,6 +2706,11 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
 /// background's player-strategy declaration.
 pub fn strat_spawn_player_for_map(g: &mut Game, map_id: u32) -> Option<u16> {
     let idx = strat_spawn_player(g)?;
+    if let Some(view) = sf_map::catalog::opening_player_view(map_id) {
+        g.vars.player_view_mode = view.mode;
+        g.vars.player_view_options = view.options;
+        g.apply_player_view_mode(idx);
+    }
     match map_id {
         sf_map::catalog::map_id::M1_1
         | sf_map::catalog::map_id::M2_1
@@ -4046,8 +4052,6 @@ pub fn player_chase2_strat(g: &mut Game, idx: u16) {
 // ============================================================
 
 const PSTF_FLAG1: u8 = 2;
-const SPFM_TOINSIDE: u8 = 2;
-
 /// ROM `set_playerWarp_l` / `playerwarp_Istrat`.
 pub fn set_player_warp(g: &mut Game, idx: u16) {
     player_warp_istrat(g, idx);
@@ -4244,17 +4248,17 @@ pub fn player_warp_out_strat(g: &mut Game, idx: u16) -> bool {
         g.vars.pstratflags &= !PSTF_NOVDISTC;
         g.vars.viewdist = OUTVIEWDIST;
         g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MED_PSPEED as u8);
+        g.vars.player_view_options = PlayerViewOptions::ExteriorAndCockpit;
         // PISTRATS.ASM `.warpoutend`: `s_set_strat x,playerinspace_strat`.
         // Calling the body without replacing the installed WarpOut callback
         // makes the byte countdown wrap to 255 on the next frame and applies
         // an ever-decreasing (eventually negative) hyperspace Z delta.
         let space_tick = ea_sid(g, player_in_space_strat);
         g.objs.aliens[idx as usize].stratptr = Some(space_tick);
-        g.vars.splayerflymode = SPFM_TOINSIDE;
-        // `changeviewmode_l` dispatches SPFM_TOINSIDE to
-        // `set_playerintocock_l`; this transition owns the eventual control
-        // release after the cockpit zoom finishes.
-        set_player_into_cock(g, idx);
+        g.vars.player_view_mode = PlayerViewMode::EnteringCockpit;
+        // The view dispatcher starts the authored transition, which owns the
+        // eventual control release after the cockpit zoom finishes.
+        g.apply_player_view_mode(idx);
         g.hooks.play_music(4);
         player_in_space_strat(g, idx);
         return true;
@@ -4689,8 +4693,8 @@ pub fn set_player_escape_nucleus(g: &mut Game, idx: u16) {
 // Cockpit enter / exit (PSTRATS.ASM)
 // ============================================================
 
-const INVIEWDIST: i16 = 60;
 const SPACE_VIEWCY: i16 = -60;
+pub const COCKPIT_EXIT_FRAMES: u8 = 23;
 
 /// ROM `makeallmedpspeed`.
 pub fn make_all_med_pspeed(g: &mut Game, idx: u16) {
@@ -4750,7 +4754,7 @@ pub fn player_into_cock2_init(g: &mut Game, idx: u16) {
     g.vars.set_sv_i16(sv::OUTVZ, 0);
 
     let pview_z = g.vars.sv_i16(sv::PVIEWPOSZ);
-    g.objs.aliens[idx as usize].worldz = pview_z.wrapping_add(INVIEWDIST);
+    g.objs.aliens[idx as usize].worldz = pview_z.wrapping_add(CLOSE_VIEW_DISTANCE);
 
     if let Some(dup) = dupplayer(g, idx) {
         set_y_player_shape(g, dup, PSHIPNUM_ZOOM);
@@ -4791,7 +4795,7 @@ pub fn player_into_cock2_strat(g: &mut Game, idx: u16) -> bool {
         false,
         true,
     );
-    g.vars.splayerflymode = SPFM_INSIDE;
+    g.vars.player_view_mode = PlayerViewMode::Cockpit;
     g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
     g.vars.pstratflags &= !PSTF_NOVDISTC;
@@ -4980,7 +4984,7 @@ pub fn set_player_out_of_cock(g: &mut Game, idx: u16) {
     g.vars.set_sv_i16(sv::OUTVX, 0);
     g.vars.set_sv_i16(sv::OUTVY, 0);
     g.vars.set_sv_i16(sv::OUTVZ, 0);
-    g.vars.set_sv_u8(sv::PSVAR_BYTE1, 23);
+    g.vars.set_sv_u8(sv::PSVAR_BYTE1, COCKPIT_EXIT_FRAMES);
     make_all_med_pspeed(g, idx);
 }
 
@@ -5034,7 +5038,7 @@ pub fn player_out_of_cock_strat(g: &mut Game, idx: u16) -> bool {
     }
 
     // Done: restore normal space control, leave inside mode.
-    g.vars.splayerflymode = 0; // SPFM_NORM
+    g.vars.player_view_mode = PlayerViewMode::Exterior;
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
     set_player_in_space(g, idx);
     let tick = ea_sid(g, player_in_space_strat);
@@ -5767,7 +5771,7 @@ pub fn viewoutoflb1_strat(g: &mut Game, idx: u16) {
 // ============================================================
 
 /// `maxpspeed - (inviewdist + maxpspeed)` = −inviewdist.
-const VIEW_INTOLB1_SWORD2_TARGET: i16 = -INVIEWDIST;
+const VIEW_INTOLB1_SWORD2_TARGET: i16 = -CLOSE_VIEW_DISTANCE;
 
 /// Map object variables use the ROM/C `index + 1` encoding so zero remains
 /// the invalid/null value. `s_set_objtobevar` decodes that representation.
@@ -5854,8 +5858,8 @@ pub fn pshipintolb1_strat(g: &mut Game, idx: u16) {
             g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
             g.vars.pviewvelz = MAX_PSPEED;
             g.vars.set_sv_u8(sv::PLAYER_TOSPEED, MAX_PSPEED as u8);
-            g.vars.set_sv_i16(sv::OUTDIST, INVIEWDIST);
-            g.vars.viewdist = INVIEWDIST;
+            g.vars.set_sv_i16(sv::OUTDIST, CLOSE_VIEW_DISTANCE);
+            g.vars.viewdist = CLOSE_VIEW_DISTANCE;
             g.vars.set_sv_u8(sv::PLAYER_MEDSPEED, MED_PSPEED as u8);
             g.objs.aliens[pidx as usize].vel = MAX_PSPEED as u8;
             g.objs.aliens[pidx as usize].sbyte2 = 1; // boost delay
@@ -6935,8 +6939,8 @@ pub fn player_inside_space_flyin_istrat(g: &mut Game, idx: u16) {
     g.vars.pstratflags |= PSTF_NOVDISTC;
     let wz = g.objs.aliens[idx as usize].worldz;
     g.vars.set_sv_i16(sv::PVIEWPOSZ, wz);
-    g.vars.set_sv_i16(sv::OUTDIST, INVIEWDIST);
-    g.vars.viewdist = INVIEWDIST;
+    g.vars.set_sv_i16(sv::OUTDIST, CLOSE_VIEW_DISTANCE);
+    g.vars.viewdist = CLOSE_VIEW_DISTANCE;
     flyin_med_speed_setup(g, idx);
 }
 
@@ -6946,8 +6950,8 @@ pub fn player_inside_space_flyin_strat(g: &mut Game, idx: u16) {
     g.vars.set_sv_i16(sv::OUTDIST, od);
     if flyin_chase_y_done(g, idx, 3) {
         g.vars.pstratflags &= !PSTF_NOVDISTC;
-        g.vars.splayerflymode = SPFM_TOINSIDE;
-        // changeviewmode_l — HD view swap is scoped; keep space flight.
+        g.vars.player_view_mode = PlayerViewMode::EnteringCockpit;
+        g.apply_player_view_mode(idx);
         player_in_space_strat(g, idx);
         return;
     }
