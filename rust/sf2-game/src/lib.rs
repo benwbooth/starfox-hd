@@ -30,10 +30,12 @@ pub use native::{
     StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
     StrategicMapState, StrategicMapTutorialPage, StrategicOpeningPage, StrategicOpeningState,
     TitaniaFinalSwitchStatus, TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus,
-    TitleMenuItem, TitlePage, TitleState, Vector3, WalkerJumpMotion, WalkerJumpState,
-    WalkerMotionProfile, WeaponKind, CAMPAIGN_WORLD_COUNT, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
-    FORTUNA_SURFACE_SWITCH_COUNT, MAX_OCCUPIED_WORLD_COUNT, OBJECT_CAPACITY, SOUND_EVENT_CAPACITY,
-    STRATEGIC_MAP_ACTOR_CAPACITY,
+    TitleMenuItem, TitlePage, TitleState, Vector3, VenomDefenderStatus, VenomDoorStatus,
+    VenomMissionState, VenomPhase, VenomReactorStatus, VenomSwitchStatus, WalkerJumpMotion,
+    WalkerJumpState, WalkerMotionProfile, WeaponKind, CAMPAIGN_WORLD_COUNT,
+    FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT, FORTUNA_SURFACE_SWITCH_COUNT, MAX_OCCUPIED_WORLD_COUNT,
+    OBJECT_CAPACITY, SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
+    VENOM_SURFACE_SWITCH_COUNT,
 };
 pub use native::{
     BattleCarrierDeployment, CampaignForceCount, DifficultyProfile, OpeningAttackerWavePattern,

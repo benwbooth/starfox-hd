@@ -1139,6 +1139,7 @@ pub struct StrategicMapState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrategicEncounter {
+    VenomBase,
     TitaniaBase,
     MacbethBase,
     MeteorBase,
@@ -1158,6 +1159,7 @@ pub enum MissionVisit {
     MissileInterception,
     FighterIntercept,
     PigmaDuel,
+    VenomBase,
     EladardBase,
     TitaniaBase,
     MacbethBase,
@@ -1358,6 +1360,7 @@ pub struct MissionState {
     pub macbeth: MacbethMissionState,
     pub fortuna: FortunaMissionState,
     pub meteor: MeteorMissionState,
+    pub venom: VenomMissionState,
     pub carrier_assault: CarrierAssaultState,
     pub astropolis: AstropolisMissionState,
 }
@@ -1965,6 +1968,74 @@ pub struct MeteorMissionState {
     pub phase_started_retail_frame: u16,
     pub surface_switch: MeteorSwitchStatus,
     pub installation_core: MeteorCoreStatus,
+}
+
+pub const VENOM_SURFACE_SWITCH_COUNT: usize = 2;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum VenomPhase {
+    #[default]
+    SurfaceSwitches,
+    SurfaceEntry,
+    FirstInteriorSwitch,
+    InteriorTransit,
+    ArmoredPassage,
+    ReactorArming,
+    ReactorCombat,
+    ReactorDestruction,
+    ReturnFlight,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum VenomSwitchStatus {
+    #[default]
+    Active,
+    Pressed,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum VenomDoorStatus {
+    #[default]
+    Closed,
+    Open,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum VenomDefenderStatus {
+    #[default]
+    Dormant,
+    Active {
+        durability: u8,
+    },
+    Destroyed,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum VenomReactorStatus {
+    #[default]
+    Dormant,
+    Triggered,
+    Armed,
+    Active {
+        durability: u8,
+    },
+    Destroyed,
+}
+
+/// Flat objective state for Venom's two surface activators, installation
+/// access route, armored interior pressure, and final reactor. Runtime poses
+/// and durability remain ordinary object fields; no source-machine records or
+/// byte-addressed storage enter the native mission model.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct VenomMissionState {
+    pub phase: VenomPhase,
+    pub phase_started_retail_frame: u16,
+    pub surface_switches: [VenomSwitchStatus; VENOM_SURFACE_SWITCH_COUNT],
+    pub access_switch: VenomSwitchStatus,
+    pub access_door: VenomDoorStatus,
+    pub reactor_door: VenomDoorStatus,
+    pub knight: VenomDefenderStatus,
+    pub reactor: VenomReactorStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

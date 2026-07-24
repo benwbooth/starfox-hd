@@ -297,6 +297,18 @@ impl ShapeId {
     pub const FORTUNA_CORE_TURRET: Self = Self(500);
     pub const FORTUNA_CORE: Self = Self(428);
 
+    /// Venom base mission meshes selected from the decoded flat catalog.
+    /// Shared installations deliberately reuse shared retail geometry while
+    /// retaining mission-semantic names in the native runtime.
+    pub const VENOM_SWITCH_ACTIVE: Self = Self(464);
+    pub const VENOM_SWITCH_PRESSED: Self = Self(465);
+    pub const VENOM_INSTALLATION_OPEN: Self = Self(239);
+    pub const VENOM_INTERIOR_DOOR_CLOSED: Self = Self(434);
+    pub const VENOM_INTERIOR_DOOR_OPEN: Self = Self(435);
+    pub const VENOM_KNIGHT: Self = Self(410);
+    pub const VENOM_REACTOR_PARENT: Self = Self(427);
+    pub const VENOM_REACTOR_CORE: Self = Self(428);
+
     pub const fn from_catalog_index(index: u16) -> Self {
         Self(index)
     }

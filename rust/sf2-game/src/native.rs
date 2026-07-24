@@ -45,9 +45,11 @@ pub use state::{
     Roster, SoundEvent, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
     StrategicMapPhase, StrategicMapState, StrategicMapTutorialPage, StrategicOpeningPage,
     StrategicOpeningState, TitaniaFinalSwitchStatus, TitaniaMissionState, TitaniaPhase,
-    TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState, WalkerJumpMotion,
-    WalkerJumpState, WalkerMotionProfile, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
+    TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState, VenomDefenderStatus,
+    VenomDoorStatus, VenomMissionState, VenomPhase, VenomReactorStatus, VenomSwitchStatus,
+    WalkerJumpMotion, WalkerJumpState, WalkerMotionProfile, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
     FORTUNA_SURFACE_SWITCH_COUNT, SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
+    VENOM_SURFACE_SWITCH_COUNT,
 };
 pub use state::{
     BattleCarrierDeployment, CampaignForceCount, CampaignWorldAssignment, DifficultyProfile,

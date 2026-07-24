@@ -45,10 +45,11 @@ use super::state::{
     ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor, StrategicMapActorKind,
     StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage,
     StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
-    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
-    WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
+    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, VenomDefenderStatus,
+    VenomDoorStatus, VenomMissionState, VenomPhase, VenomReactorStatus, VenomSwitchStatus,
+    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
     CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
-    FORTUNA_SURFACE_SWITCH_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
+    FORTUNA_SURFACE_SWITCH_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY, VENOM_SURFACE_SWITCH_COUNT,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -111,6 +112,8 @@ mod second_sortie_capital;
 mod second_sortie_fighters;
 #[path = "second_sortie_projectiles.rs"]
 mod second_sortie_projectiles;
+#[path = "venom_base.rs"]
+mod venom_base;
 #[path = "wolf_blockade.rs"]
 mod wolf_blockade;
 #[path = "wolf_blockade_projectiles.rs"]
@@ -1495,6 +1498,7 @@ const TITANIA_BASE_DESTINATION: MapPoint = MapPoint { x: 208, y: 110 };
 const MACBETH_BASE_DESTINATION: MapPoint = MapPoint { x: 136, y: 32 };
 const METEOR_BASE_DESTINATION: MapPoint = MapPoint { x: 128, y: 88 };
 const FORTUNA_BASE_DESTINATION: MapPoint = MapPoint { x: 144, y: 160 };
+const VENOM_BASE_DESTINATION: MapPoint = MapPoint { x: 200, y: 80 };
 const SECOND_BATTLE_CARRIER_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
 const LEON_DUEL_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
 const MIRAGE_DRAGON_DESTINATION: MapPoint = MapPoint { x: 54, y: 123 };
@@ -5469,6 +5473,14 @@ pub struct Game {
     fortuna_core_shield: Option<ObjectId>,
     fortuna_core: Option<ObjectId>,
     fortuna_projectiles: Vec<ObjectId>,
+    venom_surface_switches: [Option<ObjectId>; VENOM_SURFACE_SWITCH_COUNT],
+    venom_installation: Option<ObjectId>,
+    venom_access_switch: Option<ObjectId>,
+    venom_access_door: Option<ObjectId>,
+    venom_knight: Option<ObjectId>,
+    venom_reactor_door: Option<ObjectId>,
+    venom_reactor_parent: Option<ObjectId>,
+    venom_reactor_core: Option<ObjectId>,
     carrier_scenery: Vec<ObjectId>,
     carrier_corridor_defenders: [Option<ObjectId>; CARRIER_CORRIDOR_DEFENDER_COUNT],
     carrier_corridor_projectiles: Vec<ObjectId>,
@@ -5557,6 +5569,14 @@ impl Game {
             fortuna_core_shield: None,
             fortuna_core: None,
             fortuna_projectiles: Vec::new(),
+            venom_surface_switches: [None; VENOM_SURFACE_SWITCH_COUNT],
+            venom_installation: None,
+            venom_access_switch: None,
+            venom_access_door: None,
+            venom_knight: None,
+            venom_reactor_door: None,
+            venom_reactor_parent: None,
+            venom_reactor_core: None,
             carrier_scenery: Vec::with_capacity(CARRIER_CORRIDOR_SCENE_OBJECT_COUNT),
             carrier_corridor_defenders: [None; CARRIER_CORRIDOR_DEFENDER_COUNT],
             carrier_corridor_projectiles: Vec::with_capacity(CARRIER_CORRIDOR_DEFENDER_COUNT),
@@ -5721,6 +5741,7 @@ impl Game {
                 | MissionVisit::TitaniaBase
                 | MissionVisit::MeteorBase
                 | MissionVisit::FortunaBase
+                | MissionVisit::VenomBase
                 | MissionVisit::AstropolisAssault
         ) && self.state.mission.phase == MissionPhase::Active
     }
@@ -6293,7 +6314,11 @@ impl Game {
             self.state.strategic_map.destination = LEON_PRESSURE_DESTINATION;
             self.state.strategic_map.recommended_destination = LEON_PRESSURE_DESTINATION;
         } else if self.state.input.pressed.contains(Button::Down) {
-            let pending_major_objective = if self.state.campaign.objectives.planets.titania
+            let pending_major_objective = if self.state.campaign.objectives.planets.venom
+                == PlanetObjectiveStatus::Occupied
+            {
+                Some((StrategicEncounter::VenomBase, VENOM_BASE_DESTINATION))
+            } else if self.state.campaign.objectives.planets.titania
                 == PlanetObjectiveStatus::Occupied
             {
                 Some((StrategicEncounter::TitaniaBase, TITANIA_BASE_DESTINATION))
@@ -6349,6 +6374,7 @@ impl Game {
             CampaignRouteStep::MirageDragon => self.begin_mirage_dragon_sortie(),
             CampaignRouteStep::StrategicPressure => {
                 match self.state.strategic_map.selected_encounter {
+                    Some(StrategicEncounter::VenomBase) => self.begin_venom_sortie(),
                     Some(StrategicEncounter::TitaniaBase) => self.begin_titania_sortie(),
                     Some(StrategicEncounter::MacbethBase) => self.begin_macbeth_sortie(),
                     Some(StrategicEncounter::MeteorBase) => self.begin_meteor_sortie(),
@@ -6882,6 +6908,46 @@ impl Game {
         Ok(())
     }
 
+    fn begin_venom_sortie(&mut self) -> Result<(), Error> {
+        let primary_id = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
+        let flight_shape = self.primary_flight_craft_shape();
+        self.state.mission.venom = VenomMissionState {
+            phase: VenomPhase::SurfaceSwitches,
+            phase_started_retail_frame: 0,
+            surface_switches: [VenomSwitchStatus::Active; VENOM_SURFACE_SWITCH_COUNT],
+            access_switch: VenomSwitchStatus::Active,
+            access_door: VenomDoorStatus::Closed,
+            reactor_door: VenomDoorStatus::Closed,
+            knight: VenomDefenderStatus::Dormant,
+            reactor: VenomReactorStatus::Dormant,
+        };
+        self.state.mission.objects_destroyed = 0;
+        self.spawn_venom_surface_scene()?;
+        self.start_sortie(MissionVisit::VenomBase, primary_id, wingmate_id);
+        self.state.mission.player_craft_form = PlayerCraftForm::Flight;
+        if let Some(primary) = self.state.objects.get_mut(primary_id) {
+            primary.base.shape = flight_shape;
+            primary.base.position = venom_base::SURFACE_START_POSITION;
+            primary.base.velocity = Vector3::default();
+            primary.base.pitch = Angle::ZERO;
+            primary.base.yaw = Angle::ZERO;
+            primary.base.roll = Angle::ZERO;
+            primary.base.speed = venom_base::SURFACE_START_SPEED;
+            primary.base.flags.visible = false;
+            primary.base.flags.collision_disabled = true;
+        }
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
+            wingmate.base.flags.visible = false;
+            wingmate.base.flags.collision_disabled = true;
+        }
+        Ok(())
+    }
+
     fn begin_carrier_assault(&mut self, visit: MissionVisit) -> Result<(), Error> {
         debug_assert!(matches!(
             visit,
@@ -7016,6 +7082,7 @@ impl Game {
             MissionVisit::MacbethBase => self.update_macbeth_base(),
             MissionVisit::MeteorBase => self.update_meteor_base(),
             MissionVisit::FortunaBase => self.update_fortuna_base(),
+            MissionVisit::VenomBase => self.update_venom_base(),
             MissionVisit::EladardBase => self.update_eladard_base(),
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
                 self.update_carrier_assault()
@@ -10433,6 +10500,558 @@ impl Game {
         Ok(())
     }
 
+    fn update_venom_base(&mut self) -> Result<(), Error> {
+        self.state.mission.active = true;
+        let retail_frame = self
+            .state
+            .mode_frame
+            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            .min(u32::from(u16::MAX)) as u16;
+        self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
+
+        match self.state.mission.phase {
+            MissionPhase::Loading if self.state.mode_frame >= MISSION_STAGE_LOAD_TICKS => {
+                self.state.mission.phase = MissionPhase::EntryCinematic;
+            }
+            MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
+                self.state.mission.phase = MissionPhase::Active;
+            }
+            MissionPhase::ReturningToStrategicMap
+                if self.state.mission.venom.phase == VenomPhase::ReturnFlight
+                    && retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .venom
+                            .phase_started_retail_frame
+                            .saturating_add(venom_base::RETURN_FLIGHT_RETAIL_FRAMES) =>
+            {
+                self.finish_sortie();
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        if self.state.mission.phase == MissionPhase::Active {
+            match self.state.mission.venom.phase {
+                VenomPhase::SurfaceSwitches => {
+                    for index in 0..VENOM_SURFACE_SWITCH_COUNT {
+                        self.activate_venom_surface_switch(index);
+                    }
+                    if self
+                        .state
+                        .mission
+                        .venom
+                        .surface_switches
+                        .iter()
+                        .all(|status| *status == VenomSwitchStatus::Pressed)
+                    {
+                        self.enter_venom_phase(VenomPhase::SurfaceEntry, retail_frame);
+                    }
+                }
+                VenomPhase::SurfaceEntry if self.venom_player_at_installation() => {
+                    self.enter_venom_interior(retail_frame)?;
+                }
+                VenomPhase::FirstInteriorSwitch => {
+                    if self.activate_venom_access_switch() {
+                        self.enter_venom_phase(VenomPhase::InteriorTransit, retail_frame);
+                    }
+                }
+                VenomPhase::InteriorTransit if self.venom_player_crossed_access_door() => {
+                    self.enter_venom_armored_room(retail_frame)?;
+                }
+                VenomPhase::ArmoredPassage => {
+                    self.refresh_venom_knight_status();
+                    self.open_venom_reactor_door();
+                    if self.venom_player_crossed_reactor_door() {
+                        self.enter_venom_reactor_room(retail_frame)?;
+                    }
+                }
+                VenomPhase::ReactorArming => {
+                    let elapsed = retail_frame
+                        .saturating_sub(self.state.mission.venom.phase_started_retail_frame);
+                    if elapsed >= venom_base::REACTOR_ACTIVE_RETAIL_FRAME {
+                        if let Some(core) = self
+                            .venom_reactor_core
+                            .and_then(|id| self.state.objects.get_mut(id))
+                        {
+                            core.base.flags.collision_disabled = false;
+                        }
+                        self.state.mission.venom.reactor = VenomReactorStatus::Active {
+                            durability: venom_base::REACTOR_MAXIMUM_DURABILITY,
+                        };
+                        self.enter_venom_phase(VenomPhase::ReactorCombat, retail_frame);
+                    } else if elapsed >= venom_base::REACTOR_TRIGGER_ARMED_RETAIL_FRAME {
+                        self.state.mission.venom.reactor = VenomReactorStatus::Armed;
+                    } else if elapsed >= venom_base::REACTOR_TRIGGER_PARTIAL_RETAIL_FRAME {
+                        self.state.mission.venom.reactor = VenomReactorStatus::Triggered;
+                    }
+                }
+                VenomPhase::ReactorCombat => {
+                    self.refresh_venom_reactor_status();
+                    if self.state.mission.venom.reactor == VenomReactorStatus::Destroyed {
+                        self.enter_venom_phase(
+                            VenomPhase::ReactorDestruction,
+                            retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                        );
+                    }
+                }
+                VenomPhase::ReactorDestruction => {
+                    let elapsed = retail_frame
+                        .saturating_sub(self.state.mission.venom.phase_started_retail_frame);
+                    if elapsed >= venom_base::REACTOR_DEFEAT_TO_OBJECTIVE_RETAIL_FRAMES {
+                        self.state
+                            .campaign
+                            .objectives
+                            .planets
+                            .rescue(CampaignWorld::Venom);
+                    }
+                    if elapsed >= venom_base::REACTOR_DEFEAT_TO_PARENT_FINAL_RETAIL_FRAMES {
+                        if let Some(core) = self.venom_reactor_core.take() {
+                            self.state.objects.remove(core);
+                        }
+                        if let Some(parent) = self.venom_reactor_parent.take() {
+                            self.state.objects.remove(parent);
+                        }
+                        self.enter_venom_phase(VenomPhase::ReturnFlight, retail_frame);
+                        self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
+                    }
+                }
+                VenomPhase::SurfaceEntry
+                | VenomPhase::InteriorTransit
+                | VenomPhase::ReturnFlight => {}
+            }
+        }
+
+        self.update_venom_player_presentation(retail_frame);
+        if self.state.mission.phase == MissionPhase::Active
+            && !matches!(
+                self.state.mission.venom.phase,
+                VenomPhase::ReactorDestruction | VenomPhase::ReturnFlight
+            )
+        {
+            self.update_active_flight(retail_frame, true)?;
+        }
+        Ok(())
+    }
+
+    fn enter_venom_phase(&mut self, phase: VenomPhase, retail_frame: u16) {
+        self.state.mission.venom.phase = phase;
+        self.state.mission.venom.phase_started_retail_frame = retail_frame;
+    }
+
+    fn update_venom_player_presentation(&mut self, retail_frame: u16) {
+        let visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
+        let collision_disabled = self.state.mission.phase != MissionPhase::Active
+            || matches!(
+                self.state.mission.venom.phase,
+                VenomPhase::ReactorDestruction | VenomPhase::ReturnFlight
+            );
+        if let Some(primary) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            primary.base.flags.visible = visible;
+            primary.base.flags.collision_disabled = collision_disabled;
+        }
+    }
+
+    fn clear_venom_scene(&mut self) {
+        for object in [
+            &mut self.venom_installation,
+            &mut self.venom_access_switch,
+            &mut self.venom_access_door,
+            &mut self.venom_knight,
+            &mut self.venom_reactor_door,
+            &mut self.venom_reactor_parent,
+            &mut self.venom_reactor_core,
+        ] {
+            if let Some(id) = object.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        for surface_switch in &mut self.venom_surface_switches {
+            if let Some(id) = surface_switch.take() {
+                self.state.objects.remove(id);
+            }
+        }
+    }
+
+    fn spawn_venom_surface_scene(&mut self) -> Result<(), Error> {
+        self.clear_venom_scene();
+        for (index, position) in venom_base::SURFACE_SWITCH_POSITIONS.into_iter().enumerate() {
+            let mut surface_switch = Object::new(
+                ObjectKind::Scenery,
+                ShapeId::VENOM_SWITCH_ACTIVE,
+                Behavior::Effect,
+            );
+            surface_switch.base.position = position;
+            surface_switch.base.yaw = venom_base::SURFACE_SWITCH_YAW;
+            surface_switch.base.collision_class = CollisionClass::Scenery;
+            self.venom_surface_switches[index] = Some(
+                self.state
+                    .objects
+                    .allocate(surface_switch)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+
+        let mut installation = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::VENOM_INSTALLATION_OPEN,
+            Behavior::Effect,
+        );
+        installation.base.position = venom_base::INSTALLATION_POSITION;
+        installation.base.yaw = venom_base::INSTALLATION_YAW;
+        installation.base.collision_class = CollisionClass::Scenery;
+        self.venom_installation = Some(
+            self.state
+                .objects
+                .allocate(installation)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
+    fn activate_venom_surface_switch(&mut self, index: usize) -> bool {
+        if self.state.mission.venom.surface_switches[index] != VenomSwitchStatus::Active {
+            return false;
+        }
+        let Some(surface_switch) = self.venom_surface_switches[index] else {
+            return false;
+        };
+        let touches = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .zip(self.state.objects.get(surface_switch))
+            .is_some_and(|(player, target)| objects_overlap(player, target));
+        if !touches {
+            return false;
+        }
+        self.state.mission.venom.surface_switches[index] = VenomSwitchStatus::Pressed;
+        if let Some(object) = self.state.objects.get_mut(surface_switch) {
+            object.base.shape = ShapeId::VENOM_SWITCH_PRESSED;
+            object.base.flags.collision_disabled = true;
+        }
+        true
+    }
+
+    fn venom_player_at_installation(&self) -> bool {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|player| {
+                player
+                    .base
+                    .position
+                    .x
+                    .abs_diff(venom_base::INSTALLATION_POSITION.x)
+                    <= venom_base::INSTALLATION_ENTRY_HALF_WIDTH
+                    && player
+                        .base
+                        .position
+                        .z
+                        .abs_diff(venom_base::INSTALLATION_POSITION.z)
+                        <= venom_base::INSTALLATION_ENTRY_HALF_DEPTH
+            })
+    }
+
+    fn enter_venom_interior(&mut self, retail_frame: u16) -> Result<(), Error> {
+        for surface_switch in &mut self.venom_surface_switches {
+            if let Some(id) = surface_switch.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        if let Some(installation) = self.venom_installation.take() {
+            self.state.objects.remove(installation);
+        }
+        let primary = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        self.apply_player_craft_presentation(primary, PlayerCraftPresentation::Walker);
+        if let Some(player) = self.state.objects.get_mut(primary) {
+            player.base.position = venom_base::INTERIOR_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.pitch = Angle::ZERO;
+            player.base.yaw = Angle::ZERO;
+            player.base.roll = Angle::ZERO;
+            player.base.speed = 0;
+        }
+
+        let mut access_switch = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::VENOM_SWITCH_ACTIVE,
+            Behavior::Effect,
+        );
+        access_switch.base.position = venom_base::ACCESS_SWITCH_POSITION;
+        access_switch.base.collision_class = CollisionClass::Scenery;
+        self.venom_access_switch = Some(
+            self.state
+                .objects
+                .allocate(access_switch)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut access_door = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::VENOM_INTERIOR_DOOR_CLOSED,
+            Behavior::Effect,
+        );
+        access_door.base.position = venom_base::ACCESS_DOOR_POSITION;
+        access_door.base.collision_class = CollisionClass::Scenery;
+        self.venom_access_door = Some(
+            self.state
+                .objects
+                .allocate(access_door)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.enter_venom_phase(VenomPhase::FirstInteriorSwitch, retail_frame);
+        Ok(())
+    }
+
+    fn activate_venom_access_switch(&mut self) -> bool {
+        if self.state.mission.player_craft_form != PlayerCraftForm::Walker
+            || self.state.mission.venom.access_switch != VenomSwitchStatus::Active
+        {
+            return false;
+        }
+        let Some(access_switch) = self.venom_access_switch else {
+            return false;
+        };
+        let touches = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .zip(self.state.objects.get(access_switch))
+            .is_some_and(|(player, target)| objects_overlap(player, target));
+        if !touches {
+            return false;
+        }
+        self.state.mission.venom.access_switch = VenomSwitchStatus::Pressed;
+        self.state.mission.venom.access_door = VenomDoorStatus::Open;
+        if let Some(object) = self.state.objects.get_mut(access_switch) {
+            object.base.shape = ShapeId::VENOM_SWITCH_PRESSED;
+            object.base.flags.collision_disabled = true;
+        }
+        if let Some(door) = self
+            .venom_access_door
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            door.base.shape = ShapeId::VENOM_INTERIOR_DOOR_OPEN;
+            door.base.flags.collision_disabled = true;
+        }
+        true
+    }
+
+    fn venom_player_crossed_access_door(&self) -> bool {
+        self.state.mission.venom.access_door == VenomDoorStatus::Open
+            && self
+                .state
+                .mission
+                .primary_player
+                .and_then(|id| self.state.objects.get(id))
+                .is_some_and(|player| player.base.position.z >= venom_base::ACCESS_DOOR_TRANSIT_Z)
+    }
+
+    fn enter_venom_armored_room(&mut self, retail_frame: u16) -> Result<(), Error> {
+        for object in [&mut self.venom_access_switch, &mut self.venom_access_door] {
+            if let Some(id) = object.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        if let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            player.base.position = venom_base::ARMORED_ROOM_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.speed = 0;
+        }
+
+        let mut knight = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::VENOM_KNIGHT,
+            Behavior::EnemyFlight,
+        );
+        knight.base.position = venom_base::KNIGHT_POSITION;
+        knight.base.hit_points = venom_base::KNIGHT_DURABILITY;
+        knight.base.attack_power = venom_base::ENEMY_ATTACK_POWER;
+        knight.base.collision_class = CollisionClass::Enemy;
+        self.venom_knight = Some(
+            self.state
+                .objects
+                .allocate(knight)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut reactor_door = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::VENOM_INTERIOR_DOOR_CLOSED,
+            Behavior::Effect,
+        );
+        reactor_door.base.position = venom_base::REACTOR_DOOR_POSITION;
+        reactor_door.base.collision_class = CollisionClass::Scenery;
+        self.venom_reactor_door = Some(
+            self.state
+                .objects
+                .allocate(reactor_door)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.venom.knight = VenomDefenderStatus::Active {
+            durability: venom_base::KNIGHT_DURABILITY,
+        };
+        self.enter_venom_phase(VenomPhase::ArmoredPassage, retail_frame);
+        Ok(())
+    }
+
+    fn refresh_venom_knight_status(&mut self) {
+        self.state.mission.venom.knight = self
+            .venom_knight
+            .and_then(|id| self.state.objects.get(id))
+            .map(|knight| {
+                if knight.base.explosion_timer > 0 || knight.base.hit_points == 0 {
+                    VenomDefenderStatus::Destroyed
+                } else {
+                    VenomDefenderStatus::Active {
+                        durability: knight.base.hit_points,
+                    }
+                }
+            })
+            .unwrap_or(VenomDefenderStatus::Destroyed);
+    }
+
+    fn open_venom_reactor_door(&mut self) {
+        if self.state.mission.venom.reactor_door == VenomDoorStatus::Open {
+            return;
+        }
+        let reached = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|player| player.base.position.z >= venom_base::REACTOR_DOOR_OPENING_Z);
+        if !reached {
+            return;
+        }
+        self.state.mission.venom.reactor_door = VenomDoorStatus::Open;
+        if let Some(door) = self
+            .venom_reactor_door
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            door.base.shape = ShapeId::VENOM_INTERIOR_DOOR_OPEN;
+            door.base.flags.collision_disabled = true;
+        }
+    }
+
+    fn venom_player_crossed_reactor_door(&self) -> bool {
+        self.state.mission.venom.reactor_door == VenomDoorStatus::Open
+            && self
+                .state
+                .mission
+                .primary_player
+                .and_then(|id| self.state.objects.get(id))
+                .is_some_and(|player| player.base.position.z >= venom_base::REACTOR_ROOM_TRANSIT_Z)
+    }
+
+    fn enter_venom_reactor_room(&mut self, retail_frame: u16) -> Result<(), Error> {
+        if let Some(knight) = self.venom_knight.take() {
+            self.state.objects.remove(knight);
+        }
+        if let Some(door) = self.venom_reactor_door.take() {
+            self.state.objects.remove(door);
+        }
+        if let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            player.base.position = venom_base::REACTOR_ROOM_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.speed = 0;
+        }
+
+        let mut parent = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::VENOM_REACTOR_PARENT,
+            Behavior::Effect,
+        );
+        parent.base.position = venom_base::REACTOR_PARENT_POSITION;
+        self.venom_reactor_parent = Some(
+            self.state
+                .objects
+                .allocate(parent)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut core = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::VENOM_REACTOR_CORE,
+            Behavior::Effect,
+        );
+        core.base.position = venom_base::REACTOR_CORE_POSITION;
+        core.base.hit_points = venom_base::REACTOR_MAXIMUM_DURABILITY;
+        core.base.attack_power = venom_base::ENEMY_ATTACK_POWER;
+        core.base.collision_class = CollisionClass::Enemy;
+        core.base.flags.collision_disabled = true;
+        self.venom_reactor_core = Some(
+            self.state
+                .objects
+                .allocate(core)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.venom.reactor = VenomReactorStatus::Dormant;
+        if self.venom_player_reached_reactor() {
+            self.enter_venom_phase(VenomPhase::ReactorArming, retail_frame);
+        }
+        Ok(())
+    }
+
+    fn venom_player_reached_reactor(&self) -> bool {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|player| {
+                player
+                    .base
+                    .position
+                    .x
+                    .abs_diff(venom_base::REACTOR_CORE_POSITION.x)
+                    <= venom_base::REACTOR_TRIGGER_HALF_WIDTH
+                    && player.base.position.z >= venom_base::REACTOR_TRIGGER_MINIMUM_Z
+            })
+    }
+
+    fn refresh_venom_reactor_status(&mut self) {
+        self.state.mission.venom.reactor = self
+            .venom_reactor_core
+            .and_then(|id| self.state.objects.get(id))
+            .map(|core| {
+                if core.base.flags.collision_disabled
+                    && core.base.hit_points == venom_base::REACTOR_DESTROYED_DURABILITY
+                {
+                    VenomReactorStatus::Destroyed
+                } else {
+                    VenomReactorStatus::Active {
+                        durability: core.base.hit_points,
+                    }
+                }
+            })
+            .unwrap_or(VenomReactorStatus::Destroyed);
+    }
+
     fn update_meteor_base(&mut self) -> Result<(), Error> {
         self.state.mission.active = true;
         let retail_frame = self
@@ -12080,6 +12699,7 @@ impl Game {
         self.clear_titania_scene();
         self.clear_macbeth_scene();
         self.clear_fortuna_scene();
+        self.clear_venom_scene();
         self.clear_meteor_scene();
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
@@ -12208,6 +12828,13 @@ impl Game {
                     .objectives
                     .planets
                     .rescue(CampaignWorld::Fortuna);
+            }
+            MissionVisit::VenomBase => {
+                self.state
+                    .campaign
+                    .objectives
+                    .planets
+                    .rescue(CampaignWorld::Venom);
             }
             MissionVisit::FirstBattleCarrier => {
                 self.state.campaign.objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
@@ -12347,7 +12974,11 @@ impl Game {
                 self.state.strategic_map.actors = POST_MIRAGE_MAP_ACTORS;
                 self.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
                 self.state.strategic_map.recommended_destination =
-                    if self.state.campaign.objectives.planets.titania
+                    if self.state.campaign.objectives.planets.venom
+                        == PlanetObjectiveStatus::Occupied
+                    {
+                        VENOM_BASE_DESTINATION
+                    } else if self.state.campaign.objectives.planets.titania
                         == PlanetObjectiveStatus::Occupied
                     {
                         TITANIA_BASE_DESTINATION
@@ -12384,6 +13015,12 @@ impl Game {
             CampaignRouteStep::OpeningEngagement => {}
         }
         let recommended_encounter = match self.state.campaign.route_step {
+            CampaignRouteStep::StrategicPressure
+                if self.state.campaign.objectives.planets.venom
+                    == PlanetObjectiveStatus::Occupied =>
+            {
+                Some(StrategicEncounter::VenomBase)
+            }
             CampaignRouteStep::StrategicPressure
                 if self.state.campaign.objectives.planets.titania
                     == PlanetObjectiveStatus::Occupied =>
@@ -15302,7 +15939,8 @@ impl Game {
             MissionVisit::TitaniaBase
             | MissionVisit::MacbethBase
             | MissionVisit::MeteorBase
-            | MissionVisit::FortunaBase => u16::MAX,
+            | MissionVisit::FortunaBase
+            | MissionVisit::VenomBase => u16::MAX,
             MissionVisit::EladardBase => u16::MAX,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => u16::MAX,
         };
@@ -15338,6 +15976,7 @@ impl Game {
                 | MissionVisit::MacbethBase
                 | MissionVisit::MeteorBase
                 | MissionVisit::FortunaBase
+                | MissionVisit::VenomBase
                 | MissionVisit::EladardBase
                 | MissionVisit::FirstBattleCarrier
                 | MissionVisit::SecondBattleCarrier => {}
@@ -16010,6 +16649,9 @@ impl Game {
             let fortuna_core_objective = raw_damage > 0
                 && self.state.mission.visit == MissionVisit::FortunaBase
                 && self.fortuna_core == Some(enemy_id);
+            let venom_reactor_objective = raw_damage > 0
+                && self.state.mission.visit == MissionVisit::VenomBase
+                && self.venom_reactor_core == Some(enemy_id);
             let macbeth_knight_blocked = raw_damage > 0
                 && self.state.mission.visit == MissionVisit::MacbethBase
                 && self.macbeth_knight == Some(enemy_id)
@@ -16024,6 +16666,22 @@ impl Game {
                         let rear_boundary = i32::from(knight.base.position.z)
                             .saturating_add(i32::from(MACBETH_KNIGHT_REAR_VULNERABILITY));
                         lateral_distance < u32::from(MACBETH_KNIGHT_SIDE_VULNERABILITY)
+                            && i32::from(weapon.base.position.z) < rear_boundary
+                    });
+            let venom_knight_blocked = raw_damage > 0
+                && self.state.mission.visit == MissionVisit::VenomBase
+                && self.venom_knight == Some(enemy_id)
+                && self
+                    .state
+                    .objects
+                    .get(weapon_id)
+                    .zip(self.state.objects.get(enemy_id))
+                    .is_some_and(|(weapon, knight)| {
+                        let lateral_distance = i32::from(weapon.base.position.x)
+                            .abs_diff(i32::from(knight.base.position.x));
+                        let rear_boundary = i32::from(knight.base.position.z)
+                            .saturating_add(i32::from(venom_base::KNIGHT_REAR_VULNERABILITY));
+                        lateral_distance < u32::from(venom_base::KNIGHT_SIDE_VULNERABILITY)
                             && i32::from(weapon.base.position.z) < rear_boundary
                     });
 
@@ -16041,7 +16699,7 @@ impl Game {
                 self.damage_carrier_panel_through_proxy(index);
                 continue;
             }
-            if macbeth_knight_blocked {
+            if macbeth_knight_blocked || venom_knight_blocked {
                 if let Some(knight) = self.state.objects.get_mut(enemy_id) {
                     knight.base.flags.collided = true;
                 }
@@ -16076,6 +16734,23 @@ impl Game {
                         if core.base.hit_points < fortuna_base::CORE_INNER_PHASE_DURABILITY {
                             core.extension.material_set = Some(fortuna_base::CORE_INNER_MATERIAL);
                         }
+                    }
+                }
+                continue;
+            }
+            if venom_reactor_objective {
+                if let Some(core) = self.state.objects.get_mut(enemy_id) {
+                    core.base.flags.collided = true;
+                    let remaining_to_destruction = core
+                        .base
+                        .hit_points
+                        .saturating_sub(venom_base::REACTOR_DESTROYED_DURABILITY);
+                    if damage >= remaining_to_destruction {
+                        core.base.hit_points = venom_base::REACTOR_DESTROYED_DURABILITY;
+                        core.base.flags.collision_disabled = true;
+                        core.base.velocity = Vector3::default();
+                    } else {
+                        core.base.hit_points -= damage;
                     }
                 }
                 continue;
@@ -28100,6 +28775,285 @@ mod tests {
     }
 
     #[test]
+    fn venom_switches_interior_route_and_reactor_form_one_native_visit() {
+        const PHASE_TRANSITION_BUDGET_TICKS: usize = 1_000;
+
+        fn strike(game: &mut Game, target: ObjectId, damage: u8) {
+            let position = game.state.objects.get(target).unwrap().base.position;
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                Behavior::Projectile,
+            );
+            laser.base.position = position;
+            laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+            laser.base.attack_power = damage;
+            laser.base.weapon = WeaponKind::ChargedLaser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            let laser = game.state.objects.allocate(laser).unwrap();
+            game.resolve_mission_collisions();
+            game.state.objects.remove(laser);
+        }
+
+        fn retail_frame(game: &Game) -> u16 {
+            game.state
+                .mode_frame
+                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                .min(u32::from(u16::MAX)) as u16
+        }
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.clear_sortie_runtime();
+        game.state.mode = GameMode::StrategicMap;
+        game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
+        game.state.campaign.objectives.planets = super::super::state::CampaignPlanetObjectives {
+            venom: PlanetObjectiveStatus::Occupied,
+            titania: PlanetObjectiveStatus::Unoccupied,
+            macbeth: PlanetObjectiveStatus::Unoccupied,
+            eladard: PlanetObjectiveStatus::Unoccupied,
+            meteor: PlanetObjectiveStatus::Unoccupied,
+            fortuna: PlanetObjectiveStatus::Unoccupied,
+        };
+        game.state.campaign.objectives.second_carrier = CarrierObjectiveStatus::Destroyed;
+        game.state.strategic_map.phase = StrategicMapPhase::Planning;
+        game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
+        game.state.strategic_map.destination = INITIAL_PLAYER_MAP_POSITION;
+
+        game.tick(Button::Down as u16).unwrap();
+        assert_eq!(
+            game.state.strategic_map.selected_encounter,
+            Some(StrategicEncounter::VenomBase)
+        );
+        assert_eq!(game.state.strategic_map.destination, VENOM_BASE_DESTINATION);
+        game.tick(0).unwrap();
+        game.tick(Button::B as u16).unwrap();
+
+        assert_eq!(game.mission(), Some(MissionVisit::VenomBase));
+        assert_eq!(
+            game.state.mission.venom,
+            VenomMissionState {
+                phase: VenomPhase::SurfaceSwitches,
+                phase_started_retail_frame: 0,
+                surface_switches: [VenomSwitchStatus::Active; VENOM_SURFACE_SWITCH_COUNT],
+                access_switch: VenomSwitchStatus::Active,
+                access_door: VenomDoorStatus::Closed,
+                reactor_door: VenomDoorStatus::Closed,
+                knight: VenomDefenderStatus::Dormant,
+                reactor: VenomReactorStatus::Dormant,
+            }
+        );
+        let player = game.state.mission.primary_player.unwrap();
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            venom_base::SURFACE_START_POSITION
+        );
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.speed,
+            venom_base::SURFACE_START_SPEED
+        );
+
+        while game.state.mission.phase != MissionPhase::Active {
+            game.tick(0).unwrap();
+        }
+        game.state.objects.get_mut(player).unwrap().base.speed = 0;
+        let first_switch = game.venom_surface_switches[0].unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position =
+            venom_base::SURFACE_SWITCH_POSITIONS[0];
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.venom.surface_switches[0],
+            VenomSwitchStatus::Pressed
+        );
+        assert_eq!(
+            game.state.objects.get(first_switch).unwrap().base.shape,
+            ShapeId::VENOM_SWITCH_PRESSED
+        );
+        game.state.objects.get_mut(player).unwrap().base.position =
+            venom_base::SURFACE_SWITCH_POSITIONS[1];
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.venom.phase, VenomPhase::SurfaceEntry);
+
+        game.state.objects.get_mut(player).unwrap().base.position =
+            venom_base::INSTALLATION_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.venom.phase,
+            VenomPhase::FirstInteriorSwitch
+        );
+        assert_eq!(
+            game.state.mission.player_craft_form,
+            PlayerCraftForm::Walker
+        );
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            venom_base::INTERIOR_START_POSITION
+        );
+
+        let access_switch = game.venom_access_switch.unwrap();
+        let access_door = game.venom_access_door.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position =
+            venom_base::ACCESS_SWITCH_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.venom.access_switch,
+            VenomSwitchStatus::Pressed
+        );
+        assert_eq!(game.state.mission.venom.access_door, VenomDoorStatus::Open);
+        assert_eq!(
+            game.state.objects.get(access_switch).unwrap().base.shape,
+            ShapeId::VENOM_SWITCH_PRESSED
+        );
+        assert_eq!(
+            game.state.objects.get(access_door).unwrap().base.shape,
+            ShapeId::VENOM_INTERIOR_DOOR_OPEN
+        );
+
+        game.state.objects.get_mut(player).unwrap().base.position.z =
+            venom_base::ACCESS_DOOR_TRANSIT_Z;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.venom.phase, VenomPhase::ArmoredPassage);
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            venom_base::ARMORED_ROOM_START_POSITION
+        );
+        let knight = game.venom_knight.unwrap();
+        assert_eq!(
+            game.state.objects.get(knight).unwrap().base.hit_points,
+            venom_base::KNIGHT_DURABILITY
+        );
+        strike(&mut game, knight, PLAYER_CHARGED_LASER_ATTACK_POWER);
+        assert_eq!(
+            game.state.objects.get(knight).unwrap().base.hit_points,
+            venom_base::KNIGHT_DURABILITY,
+            "the recovered frontal armor blocks a direct shot"
+        );
+
+        game.state.objects.get_mut(player).unwrap().base.position.z =
+            venom_base::REACTOR_DOOR_OPENING_Z;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.venom.reactor_door, VenomDoorStatus::Open);
+        let reactor_door = game.venom_reactor_door.unwrap();
+        assert_eq!(
+            game.state.objects.get(reactor_door).unwrap().base.shape,
+            ShapeId::VENOM_INTERIOR_DOOR_OPEN
+        );
+        game.state.objects.get_mut(player).unwrap().base.position.z =
+            venom_base::REACTOR_ROOM_TRANSIT_Z;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.venom.phase, VenomPhase::ReactorArming);
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            venom_base::REACTOR_ROOM_START_POSITION
+        );
+        let core = game.venom_reactor_core.unwrap();
+        assert_eq!(
+            game.state.objects.get(core).unwrap().base.hit_points,
+            venom_base::REACTOR_MAXIMUM_DURABILITY
+        );
+        assert!(
+            game.state
+                .objects
+                .get(core)
+                .unwrap()
+                .base
+                .flags
+                .collision_disabled
+        );
+
+        let arming_start = game.state.mission.venom.phase_started_retail_frame;
+        while retail_frame(&game)
+            < arming_start.saturating_add(venom_base::REACTOR_TRIGGER_PARTIAL_RETAIL_FRAME)
+        {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.venom.reactor,
+            VenomReactorStatus::Triggered
+        );
+        while retail_frame(&game)
+            < arming_start.saturating_add(venom_base::REACTOR_TRIGGER_ARMED_RETAIL_FRAME)
+        {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.venom.reactor, VenomReactorStatus::Armed);
+        while game.state.mission.venom.phase != VenomPhase::ReactorCombat {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.mission.venom.reactor,
+            VenomReactorStatus::Active {
+                durability: venom_base::REACTOR_MAXIMUM_DURABILITY,
+            }
+        );
+        assert!(
+            !game
+                .state
+                .objects
+                .get(core)
+                .unwrap()
+                .base
+                .flags
+                .collision_disabled
+        );
+
+        game.state.objects.get_mut(core).unwrap().base.hit_points = 3;
+        strike(&mut game, core, 2);
+        assert_eq!(
+            game.state.objects.get(core).unwrap().base.hit_points,
+            venom_base::REACTOR_DESTROYED_DURABILITY
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.venom.phase,
+            VenomPhase::ReactorDestruction
+        );
+        let core_defeat_frame = game.state.mission.venom.phase_started_retail_frame;
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if game.state.mission.venom.phase == VenomPhase::ReturnFlight {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.venom.phase, VenomPhase::ReturnFlight);
+        assert_eq!(
+            game.state.mission.venom.phase_started_retail_frame,
+            core_defeat_frame
+                .saturating_add(venom_base::REACTOR_DEFEAT_TO_PARENT_FINAL_RETAIL_FRAMES)
+        );
+        assert_eq!(
+            game.state.campaign.objectives.planets.venom,
+            PlanetObjectiveStatus::Rescued
+        );
+        assert!(game.venom_reactor_core.is_none());
+        assert!(game.venom_reactor_parent.is_none());
+
+        let mut return_native_ticks = 0;
+        while game.mode() == GameMode::Mission {
+            game.tick(0).unwrap();
+            return_native_ticks += 1;
+        }
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(
+            return_native_ticks,
+            usize::from(
+                venom_base::RETURN_FLIGHT_RETAIL_FRAMES
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+            )
+        );
+        assert!(game.venom_installation.is_none());
+        assert!(game.venom_access_switch.is_none());
+        assert!(game.venom_access_door.is_none());
+        assert!(game.venom_knight.is_none());
+        assert!(game.venom_reactor_door.is_none());
+        assert_eq!(
+            venom_base::RETURN_FLIGHT_RETAIL_FRAMES,
+            venom_base::RETURN_TO_MAP_RETAIL_FRAMES
+                - venom_base::REACTOR_DEFEAT_TO_PARENT_FINAL_RETAIL_FRAMES
+        );
+    }
+
+    #[test]
     fn fortuna_switches_guardian_defenses_and_core_form_one_native_visit() {
         const PHASE_TRANSITION_BUDGET_TICKS: usize = 1_000;
 
@@ -28483,8 +29437,14 @@ mod tests {
         game.clear_sortie_runtime();
         game.state.mode = GameMode::StrategicMap;
         game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
-        game.state.campaign.objectives.planets.titania = PlanetObjectiveStatus::Rescued;
-        game.state.campaign.objectives.planets.meteor = PlanetObjectiveStatus::Occupied;
+        game.state.campaign.objectives.planets = super::super::state::CampaignPlanetObjectives {
+            venom: PlanetObjectiveStatus::Unoccupied,
+            titania: PlanetObjectiveStatus::Rescued,
+            macbeth: PlanetObjectiveStatus::Unoccupied,
+            eladard: PlanetObjectiveStatus::Unoccupied,
+            meteor: PlanetObjectiveStatus::Occupied,
+            fortuna: PlanetObjectiveStatus::Unoccupied,
+        };
         game.state.strategic_map.phase = StrategicMapPhase::Planning;
         game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
         game.state.strategic_map.destination = INITIAL_PLAYER_MAP_POSITION;

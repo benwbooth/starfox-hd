@@ -1985,6 +1985,7 @@ local function provide_combat_autopilot()
   local approaching_carrier = false
   local approaching_macbeth_base = false
   local approaching_fortuna_base = false
+  local approaching_venom_base = false
   local target_distance_squared = math.huge
   local meteor_map = work_word(0x1657)
   local eladard_interior = work_byte(0x1BB5) == 3
@@ -2004,6 +2005,14 @@ local function provide_combat_autopilot()
   local meteor_surface = work_byte(0x1BB5) == 4
     and work_byte(0x192E) == 0x05
     and meteor_map == 0x4012
+  local venom_surface = work_byte(0x1BB5) == 0
+    and work_byte(0x192E) == 0x05
+    and meteor_map == 0x03AE
+  local venom_interior = work_byte(0x1BB5) == 0
+    and work_byte(0x192E) == 0x05
+    and (meteor_map == 0x0A53
+      or meteor_map == 0x0ADE
+      or meteor_map == 0x0B45)
   local macbeth_surface = work_byte(0x1BB5) == 2
     and work_byte(0x192E) == 0x05
     and meteor_map == 0x24D8
@@ -2043,6 +2052,7 @@ local function provide_combat_autopilot()
     or meteor_interior
     or macbeth_interior
     or fortuna_interior
+    or venom_interior
     or titania_base_entered
   local requested_object_seen = false
   local allow_ordinary_targets = not forced_target_shape
@@ -2085,7 +2095,7 @@ local function provide_combat_autopilot()
         frame - armed_frame,
         object)
     end
-    if work_byte(0x1BB5) == 3 and shape == 0xEC30 then
+    if (work_byte(0x1BB5) == 3 or venom_interior) and shape == 0xEC30 then
       eladard_open_door = object
     end
     if shape == 0xC348 and forced_rival_health
@@ -2235,11 +2245,15 @@ local function provide_combat_autopilot()
     local meteor_surface_target = meteor_surface and shape == 0xEF5C
     local macbeth_switch_target = macbeth_surface and shape == 0xEF5C
       and (work_byte(object + 0x26) & 0x02) == 0
+    local venom_interior_switch = venom_interior and shape == 0xEF5C
+      and (work_byte(object + 0x26) & 0x02) == 0
     local macbeth_base_entrance = macbeth_surface
       and work_byte(0xD7A1) == 1 and shape == 0xD6C0
     local fortuna_base_entrance = fortuna_surface
       and work_byte(0xD7A1) == 1 and work_byte(0xD78B) == 3
       and shape == 0xD6C0
+    local venom_base_entrance = venom_surface
+      and work_byte(0xD7A1) == 1 and shape == 0xD6C0
     local titania_switch_target = titania_surface and shape == 0xEF5C
     local titania_route_landmark = titania_surface and shape == 0xEDD4
     local carrier_exterior_anchor = work_byte(0x1BB5) == 8
@@ -2278,7 +2292,9 @@ local function provide_combat_autopilot()
         or eladard_barrier or planetary_base_defender
         or eladard_target_switch
         or meteor_surface_target or macbeth_switch_target
+        or venom_interior_switch
         or macbeth_base_entrance or fortuna_base_entrance
+        or venom_base_entrance
         or titania_switch_target
         or titania_route_landmark
         or carrier_exterior_anchor or carrier_core or fighter_collision
@@ -2303,9 +2319,13 @@ local function provide_combat_autopilot()
         and target_shape ~= 0xEF5C
       local prefer_macbeth_switch_target = macbeth_switch_target
         and target_shape ~= 0xEF5C
+      local prefer_venom_interior_switch = venom_interior_switch
+        and target_shape ~= 0xEF5C
       local prefer_macbeth_base_entrance = macbeth_base_entrance
         and target_shape ~= 0xD6C0
       local prefer_fortuna_base_entrance = fortuna_base_entrance
+        and target_shape ~= 0xD6C0
+      local prefer_venom_base_entrance = venom_base_entrance
         and target_shape ~= 0xD6C0
       local prefer_astropolis_security_turret = astropolis_security_turret
         and target_shape ~= 0xF65C
@@ -2320,8 +2340,10 @@ local function provide_combat_autopilot()
             or prefer_eladard_target_switch
             or prefer_meteor_surface_target
             or prefer_macbeth_switch_target
+            or prefer_venom_interior_switch
             or prefer_macbeth_base_entrance
             or prefer_fortuna_base_entrance
+            or prefer_venom_base_entrance
             or prefer_astropolis_security_turret
             or prefer_astropolis_target_switch
             or carrier_exterior_anchor
@@ -2332,6 +2354,7 @@ local function provide_combat_autopilot()
         approaching_carrier = carrier_exterior_anchor
         approaching_macbeth_base = macbeth_base_entrance
         approaching_fortuna_base = fortuna_base_entrance
+        approaching_venom_base = venom_base_entrance
         target_distance_squared = distance_squared
       end
     end
@@ -2629,8 +2652,14 @@ local function provide_combat_autopilot()
   local fighting_macbeth_knight = work_byte(0x1BB5) == 2
     and work_word(0x1657) == 0x2889
     and target_shape == 0xE974
+  local fighting_venom_knight = work_byte(0x1BB5) == 0
+    and work_word(0x1657) == 0x0ADE
+    and target_shape == 0xE974
+  fighting_macbeth_knight = fighting_macbeth_knight or fighting_venom_knight
   if fighting_macbeth_knight
-    and math.abs(player_x) <= 128 and player_z >= 3750 then
+    and ((fighting_venom_knight and player_z >= 4800)
+      or (not fighting_venom_knight
+        and math.abs(player_x) <= 128 and player_z >= 3750)) then
     macbeth_knight_engaged = true
   end
   local fighting_astropolis_core = work_byte(0x1BB5) == 11
@@ -2639,7 +2668,7 @@ local function provide_combat_autopilot()
     and target_shape == 0xC40C
   local fighting_astropolis_cube = work_byte(0x1BB5) == 11
     and target_shape == 0xE808
-  if approaching_macbeth_base
+  if (approaching_macbeth_base or approaching_venom_base)
     and is_player_walker_shape(player_shape)
     and macbeth_transform_press_until < frame
     and macbeth_next_transform_press_frame <= frame then
@@ -2679,6 +2708,8 @@ local function provide_combat_autopilot()
   elseif approaching_macbeth_base then
     buttons = {}
   elseif approaching_fortuna_base then
+    buttons = {}
+  elseif approaching_venom_base then
     buttons = {}
   elseif fighting_rival or fighting_mirage_dragon then
     buttons = {
@@ -2724,7 +2755,7 @@ local function provide_combat_autopilot()
     local desired_pitch = math.floor(math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
     local planetary_base_walker =
       (inside_planetary_base or meteor_surface or macbeth_surface
-        or titania_surface or fortuna_surface)
+        or titania_surface or fortuna_surface or venom_surface)
       and is_player_walker_shape(player_shape)
     local fortuna_base_walker = approaching_fortuna_base
       and is_player_walker_shape(player_shape)
@@ -2881,7 +2912,8 @@ local function provide_combat_autopilot()
       end
       if approaching_carrier and math.abs(yaw_difference) < 24 then
         buttons.y = true
-      elseif approaching_macbeth_base and math.abs(yaw_difference) < 24 then
+      elseif (approaching_macbeth_base or approaching_venom_base)
+        and math.abs(yaw_difference) < 24 then
         buttons.y = true
       elseif target_distance_squared > 16000000
         and math.abs(yaw_difference) < 24 then
@@ -2903,7 +2935,8 @@ local function provide_combat_autopilot()
     input_label = string.format(
       "combat-autopilot-%s-%04X-flags%02X-yaw%d-pitch%d",
       approaching_carrier and "carrier-approach"
-        or (approaching_fortuna_base and "fortuna-entrance" or "target"),
+        or (approaching_fortuna_base and "fortuna-entrance"
+          or (approaching_venom_base and "venom-entrance" or "target")),
       target,
       work_byte(target + 0x26),
       yaw_difference,
@@ -3050,8 +3083,9 @@ local function provide_combat_autopilot()
       input_label = "combat-autopilot-titania-entrance"
     elseif inside_planetary_base then
       local route_direction = eladard_route_direction()
-      if work_byte(0x1BB5) == 3
-        and work_word(0x1657) == 0x33EC
+      if ((work_byte(0x1BB5) == 3
+          and work_word(0x1657) == 0x33EC)
+        or venom_interior)
         and eladard_open_door ~= 0 then
         -- The first interior switch changes the north door from EC14 to
         -- EC30. Align with that retail object's centre before advancing;
