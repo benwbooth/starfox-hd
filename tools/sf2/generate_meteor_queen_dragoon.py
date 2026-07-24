@@ -11,6 +11,10 @@ from pathlib import Path
 
 
 DEFAULT_OUTPUT = Path(__file__).with_name("fixtures") / "meteor_queen_dragoon.trace"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_RUST_OUTPUT = (
+    REPO_ROOT / "rust" / "sf2-game" / "src" / "native" / "meteor_queen_dragoon.rs"
+)
 MISSION_NAME = "meteor"
 MISSION_SELECTION = 4
 ACTIVE_MAP = "05:4012"
@@ -28,6 +32,22 @@ EXPECTED_LINKED_COMPONENTS = 4
 EXPECTED_LOGIC_OBJECTS = 5
 EXPECTED_MOVE_EVENTS_PER_OBJECT = 4
 EXPECTED_MOVE_EVENTS = EXPECTED_LOGIC_OBJECTS * EXPECTED_MOVE_EVENTS_PER_OBJECT
+BODY_CATALOG_INDEX = 566
+LINKED_PAIR_A_CATALOG_INDEX = 567
+LINKED_PAIR_B_CATALOG_INDEX = 568
+DROPPED_SWITCH_CATALOG_INDEX = 464
+PRESSED_SWITCH_CATALOG_INDEX = 465
+BODY_EXPLOSION_CATALOG_INDEX = 11
+COMPONENT_BURST_CATALOG_INDEX = 9
+COMPONENT_DEBRIS_CATALOG_INDEX = 12
+
+
+@dataclass(frozen=True)
+class ComponentEvidence:
+    role: str
+    catalog_index: int
+    offset: tuple[int, int, int]
+    yaw_offset: int
 
 
 @dataclass(frozen=True)
@@ -49,6 +69,12 @@ class Evidence:
     base_entry_elapsed: int
     sortie_exit_elapsed: int
     strategic_return_elapsed: int
+    body_position: tuple[int, int, int]
+    body_yaw: int
+    body_speed: int
+    body_velocity: tuple[int, int, int]
+    movement_cadence: tuple[int, ...]
+    components: tuple[ComponentEvidence, ...]
 
 
 def fields(line: str) -> dict[str, str]:
@@ -399,6 +425,109 @@ def extract_natural_return(natural_return_trace: Path) -> tuple[int, int]:
     return int(sortie_exit["elapsed"]), int(strategic_return["elapsed"])
 
 
+def signed_angle_offset(angle: int, origin: int) -> int:
+    return (angle - origin + 128) % 256 - 128
+
+
+def extract_movement(
+    move_records: list[dict[str, str]],
+) -> tuple[
+    tuple[int, int, int],
+    int,
+    int,
+    tuple[int, int, int],
+    tuple[int, ...],
+    tuple[ComponentEvidence, ...],
+]:
+    body_records = [record for record in move_records if record["shape"] == BODY_SHAPE]
+    if len(body_records) != EXPECTED_MOVE_EVENTS_PER_OBJECT:
+        raise SystemExit("actor trace lacks the complete Queen body movement sample")
+    body_poses = [tuple(map(int, record["pose"].split(","))) for record in body_records]
+    body_velocities = {
+        tuple(map(int, record["velocity"].split(","))) for record in body_records
+    }
+    if len(body_velocities) != 1:
+        raise SystemExit("Queen body velocity changes within the certified movement sample")
+    body_velocity = body_velocities.pop()
+    movement_cadence = tuple(
+        int(current["elapsed"]) - int(previous["elapsed"])
+        for previous, current in zip(body_records, body_records[1:])
+    )
+    if movement_cadence != (7, 7, 8):
+        raise SystemExit(f"unexpected Queen movement cadence: {movement_cadence}")
+
+    # The first component callback follows the body's first translation.  The
+    # post-translation body pose is also the first complete sortie sample.
+    body_position = tuple(
+        body_poses[0][axis] + body_velocity[axis] for axis in range(3)
+    )
+    body_yaw = body_poses[0][4]
+    body_speed = body_poses[0][6]
+    expected_components = {
+        (LINKED_PAIR_A_CATALOG_INDEX, (-55, 0, -153)): "leading_left",
+        (LINKED_PAIR_B_CATALOG_INDEX, (158, 0, 30)): "leading_right",
+        (LINKED_PAIR_A_CATALOG_INDEX, (-118, 0, -49)): "trailing_left",
+        (LINKED_PAIR_B_CATALOG_INDEX, (63, 0, 108)): "trailing_right",
+    }
+    shape_catalogs = {
+        LINKED_COMPONENT_SHAPES[0]: LINKED_PAIR_A_CATALOG_INDEX,
+        LINKED_COMPONENT_SHAPES[1]: LINKED_PAIR_B_CATALOG_INDEX,
+    }
+    components = []
+    component_records = [
+        record for record in move_records if record["shape"] in shape_catalogs
+    ]
+    for object_name in sorted({record["object"] for record in component_records}):
+        records = [
+            record for record in component_records if record["object"] == object_name
+        ]
+        poses = [tuple(map(int, record["pose"].split(","))) for record in records]
+        first = poses[0]
+        offset = tuple(first[axis] - body_position[axis] for axis in range(3))
+        catalog_index = shape_catalogs[records[0]["shape"]]
+        role = expected_components.get((catalog_index, offset))
+        if role is None:
+            raise SystemExit(
+                f"unclassified Queen component catalog={catalog_index} offset={offset}"
+            )
+        for index, pose in enumerate(poses):
+            translated_body = tuple(
+                body_poses[index][axis] + body_velocity[axis] for axis in range(3)
+            )
+            observed_offset = tuple(
+                pose[axis] - translated_body[axis] for axis in range(3)
+            )
+            if observed_offset != offset or pose[4] != first[4]:
+                raise SystemExit(
+                    f"Queen component {role} does not remain rigidly linked"
+                )
+        components.append(
+            ComponentEvidence(
+                role=role,
+                catalog_index=catalog_index,
+                offset=offset,
+                yaw_offset=signed_angle_offset(first[4], body_yaw),
+            )
+        )
+    role_order = {
+        "leading_left": 0,
+        "leading_right": 1,
+        "trailing_left": 2,
+        "trailing_right": 3,
+    }
+    components.sort(key=lambda component: role_order[component.role])
+    if {component.role for component in components} != set(role_order):
+        raise SystemExit("Queen actor trace lacks one or more linked component roles")
+    return (
+        body_position,
+        body_yaw,
+        body_speed,
+        body_velocity,
+        movement_cadence,
+        tuple(components),
+    )
+
+
 def extract(
     sortie_trace: Path,
     actor_logic_trace: Path,
@@ -484,6 +613,8 @@ def extract(
     }:
         raise SystemExit("actor trace contains an unexpected Queen Dragoon component")
 
+    movement = extract_movement(move_records)
+
     natural_progression = extract_natural_progression(natural_progression_trace)
     natural_return = extract_natural_return(natural_return_trace)
     return Evidence(
@@ -504,6 +635,12 @@ def extract(
         base_entry_elapsed=natural_progression[3],
         sortie_exit_elapsed=natural_return[0],
         strategic_return_elapsed=natural_return[1],
+        body_position=movement[0],
+        body_yaw=movement[1],
+        body_speed=movement[2],
+        body_velocity=movement[3],
+        movement_cadence=movement[4],
+        components=movement[5],
     )
 
 
@@ -551,6 +688,22 @@ def render(evidence: Evidence) -> str:
                 f"move_events={evidence.move_events}"
             ),
             (
+                "movement role=body "
+                f"catalog_index={BODY_CATALOG_INDEX} "
+                f"position={','.join(map(str, evidence.body_position))} "
+                f"yaw={evidence.body_yaw} speed={evidence.body_speed} "
+                f"velocity={','.join(map(str, evidence.body_velocity))} "
+                f"cadence={','.join(map(str, evidence.movement_cadence))}"
+            ),
+            *(
+                "movement "
+                f"role={component.role} "
+                f"catalog_index={component.catalog_index} "
+                f"offset={','.join(map(str, component.offset))} "
+                f"yaw_offset={component.yaw_offset}"
+                for component in evidence.components
+            ),
+            (
                 "forced_return injected_occupied_worlds=0 "
                 "return_input=forward "
                 "natural_completion_proven=false "
@@ -580,11 +733,16 @@ def render(evidence: Evidence) -> str:
 def validate_compact(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
-    if len(lines) != 11:
+    if len(lines) != 16:
         raise SystemExit("Queen Dragoon fixture has an unexpected record count")
-    mission, boss, *components, logic, forced_return, natural_progression = [
-        fields(line) for line in lines
-    ]
+    records = [fields(line) for line in lines]
+    mission = records[0]
+    boss = records[1]
+    components = records[2:8]
+    logic = records[8]
+    movement = records[9:14]
+    forced_return = records[14]
+    natural_progression = records[15]
     if mission != {
         "name": MISSION_NAME,
         "mission_selection": str(MISSION_SELECTION),
@@ -619,6 +777,42 @@ def validate_compact(path: Path) -> None:
         "move_events": str(EXPECTED_MOVE_EVENTS),
     }:
         raise SystemExit("Queen Dragoon actor-logic fixture is inconsistent")
+    if movement != [
+        {
+            "role": "body",
+            "catalog_index": str(BODY_CATALOG_INDEX),
+            "position": "2040,-350,1942",
+            "yaw": "157",
+            "speed": "10",
+            "velocity": "5,0,-6",
+            "cadence": "7,7,8",
+        },
+        {
+            "role": "leading_left",
+            "catalog_index": str(LINKED_PAIR_A_CATALOG_INDEX),
+            "offset": "-55,0,-153",
+            "yaw_offset": "15",
+        },
+        {
+            "role": "leading_right",
+            "catalog_index": str(LINKED_PAIR_B_CATALOG_INDEX),
+            "offset": "158,0,30",
+            "yaw_offset": "-15",
+        },
+        {
+            "role": "trailing_left",
+            "catalog_index": str(LINKED_PAIR_A_CATALOG_INDEX),
+            "offset": "-118,0,-49",
+            "yaw_offset": "-10",
+        },
+        {
+            "role": "trailing_right",
+            "catalog_index": str(LINKED_PAIR_B_CATALOG_INDEX),
+            "offset": "63,0,108",
+            "yaw_offset": "10",
+        },
+    ]:
+        raise SystemExit("Queen Dragoon movement fixture is inconsistent")
     if forced_return != {
         "injected_occupied_worlds": "0",
         "return_input": "forward",
@@ -659,6 +853,111 @@ def validate_compact(path: Path) -> None:
         raise SystemExit("Queen Dragoon fixture has an invalid source digest")
 
 
+def rust_vector(values: str) -> str:
+    x, y, z = map(int, values.split(","))
+    return f"Vector3 {{ x: {x:_}, y: {y:_}, z: {z:_} }}"
+
+
+def rust_source(trace: Path) -> str:
+    validate_compact(trace)
+    records = [
+        fields(line)
+        for line in trace.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    boss = records[1]
+    body = records[9]
+    components = records[10:14]
+    defeat_to_explosion = int(boss["explosion_retail_frame"]) - int(
+        boss["defeat_retail_frame"]
+    )
+    lines = [
+        "//! Generated typed mechanics for Meteor's Queen Dragoon encounter.",
+        "//!",
+        f"//! Source: `{trace.name}`.",
+        "//! Regenerate or verify with `uv run python",
+        "//! tools/sf2/generate_meteor_queen_dragoon.py [--check]`.",
+        "",
+        "use super::{Angle, ShapeId, Vector3};",
+        "",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        "pub(super) enum QueenComponentRole {",
+        "    LeadingLeft,",
+        "    LeadingRight,",
+        "    TrailingLeft,",
+        "    TrailingRight,",
+        "}",
+        "",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        "pub(super) struct QueenComponentPlacement {",
+        "    pub role: QueenComponentRole,",
+        "    pub shape: ShapeId,",
+        "    pub offset: Vector3,",
+        "    pub yaw_offset: i8,",
+        "}",
+        "",
+        f"pub(super) const MAXIMUM_DURABILITY: u8 = {int(boss['maximum_durability']):_};",
+        (
+            "pub(super) const DEFEAT_TO_EXPLOSION_RETAIL_FRAMES: u16 = "
+            f"{defeat_to_explosion:_};"
+        ),
+        f"pub(super) const BODY_SHAPE: ShapeId = ShapeId::from_catalog_index({BODY_CATALOG_INDEX});",
+        (
+            "pub(super) const BODY_EXPLOSION_SHAPE: ShapeId = "
+            f"ShapeId::from_catalog_index({BODY_EXPLOSION_CATALOG_INDEX});"
+        ),
+        (
+            "pub(super) const COMPONENT_BURST_SHAPE: ShapeId = "
+            f"ShapeId::from_catalog_index({COMPONENT_BURST_CATALOG_INDEX});"
+        ),
+        (
+            "pub(super) const COMPONENT_DEBRIS_SHAPE: ShapeId = "
+            f"ShapeId::from_catalog_index({COMPONENT_DEBRIS_CATALOG_INDEX});"
+        ),
+        (
+            "pub(super) const DROPPED_SWITCH_SHAPE: ShapeId = "
+            f"ShapeId::from_catalog_index({DROPPED_SWITCH_CATALOG_INDEX});"
+        ),
+        (
+            "pub(super) const PRESSED_SWITCH_SHAPE: ShapeId = "
+            f"ShapeId::from_catalog_index({PRESSED_SWITCH_CATALOG_INDEX});"
+        ),
+        f"pub(super) const INITIAL_BODY_POSITION: Vector3 = {rust_vector(body['position'])};",
+        (
+            "pub(super) const INITIAL_BODY_YAW: Angle = "
+            f"Angle::from_units({int(body['yaw'])});"
+        ),
+        f"pub(super) const BODY_SPEED: u8 = {int(body['speed'])};",
+        f"pub(super) const BODY_VELOCITY: Vector3 = {rust_vector(body['velocity'])};",
+        "pub(super) const MOVEMENT_CADENCE_RETAIL_FRAMES: [u8; 3] = [7, 7, 8];",
+        "",
+        "pub(super) const COMPONENTS: [QueenComponentPlacement; 4] = [",
+    ]
+    role_names = {
+        "leading_left": "LeadingLeft",
+        "leading_right": "LeadingRight",
+        "trailing_left": "TrailingLeft",
+        "trailing_right": "TrailingRight",
+    }
+    for component in components:
+        lines.extend(
+            [
+                "    QueenComponentPlacement {",
+                f"        role: QueenComponentRole::{role_names[component['role']]},",
+                (
+                    "        shape: ShapeId::from_catalog_index("
+                    f"{int(component['catalog_index'])}),"
+                ),
+                f"        offset: {rust_vector(component['offset'])},",
+                f"        yaw_offset: {int(component['yaw_offset'])},",
+                "    },",
+            ]
+        )
+    lines.extend(["];"])
+    lines.append("")
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path)
@@ -684,6 +983,7 @@ def main() -> None:
         help="unforced Meteor interior, results, and strategic-return trace",
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--rust-output", type=Path, default=DEFAULT_RUST_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
@@ -718,9 +1018,20 @@ def main() -> None:
             action = "generated"
     else:
         validate_compact(args.output)
-        action = "verified"
+        action = "verified" if args.check else "generated"
+    generated_rust = rust_source(args.output)
+    if args.check:
+        if (
+            not args.rust_output.is_file()
+            or args.rust_output.read_text(encoding="utf-8") != generated_rust
+        ):
+            raise SystemExit(f"generated source is out of date: {args.rust_output}")
+    else:
+        args.rust_output.parent.mkdir(parents=True, exist_ok=True)
+        args.rust_output.write_text(generated_rust, encoding="utf-8")
     print(
-        f"{action} {args.output}: retail Queen Dragoon, dropped switch, and base entry"
+        f"{action} {args.output} and {args.rust_output}: "
+        "retail Queen Dragoon, dropped switch, and base entry"
     )
 
 

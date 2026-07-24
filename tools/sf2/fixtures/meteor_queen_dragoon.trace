@@ -14,5 +14,10 @@ explosion role=body source_shape=BDD0 count=1
 explosion role=component_burst source_shape=BD98 count=4
 explosion role=component_debris source_shape=BDEC count=4
 logic traced_objects=5 move_events=20
+movement role=body catalog_index=566 position=2040,-350,1942 yaw=157 speed=10 velocity=5,0,-6 cadence=7,7,8
+movement role=leading_left catalog_index=567 offset=-55,0,-153 yaw_offset=15
+movement role=leading_right catalog_index=568 offset=158,0,30 yaw_offset=-15
+movement role=trailing_left catalog_index=567 offset=-118,0,-49 yaw_offset=-10
+movement role=trailing_right catalog_index=568 offset=63,0,108 yaw_offset=10
 forced_return injected_occupied_worlds=0 return_input=forward natural_completion_proven=false observed_return_retail_frames=833 active_map_unchanged=true
 natural_progression mission_state_forced=false target_state_forced=false projectile_state_forced=false queen_retired_elapsed=98297 dropped_switch_shape=EF5C switch_targeted_elapsed=98300 pressed_switch_shape=EF78 switch_pressed_elapsed=98650 occupied_worlds_after_switch=1 base_entry_elapsed=100098 interior_map=45B9 sortie_exit_elapsed=107428 strategic_return_elapsed=111290 occupied_worlds_after_return=1
