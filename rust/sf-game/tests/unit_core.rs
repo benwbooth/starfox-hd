@@ -24,6 +24,20 @@ fn level_from_bytes(data: Vec<u8>) -> BuiltLevel {
     }
 }
 
+#[test]
+fn loading_a_level_clears_both_stage_special_counters() {
+    let mut game = Game::new();
+    game.vars.shared.specials_dead = 7;
+    game.world.specialobjtotal = 9;
+    game.world.total_specials = 9;
+
+    game.load_level(&level_from_bytes(vec![op::END]));
+
+    assert_eq!(game.vars.shared.specials_dead, 0);
+    assert_eq!(game.world.specialobjtotal, 0);
+    assert_eq!(game.world.total_specials, 0);
+}
+
 fn game_with(bytes: Vec<u8>) -> Game {
     let mut g = Game::new();
     g.load_level(&level_from_bytes(bytes));

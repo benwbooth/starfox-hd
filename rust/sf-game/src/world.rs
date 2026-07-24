@@ -675,8 +675,9 @@ impl World {
         self.last_obj = None;
         self.lastmapobj = 0;
         // ROM `initlevel` resets specialobjtotal/specials_dead per stage
-        // (MAPMACS.INC:876-877); mirror that for the stable denominator so a
-        // fresh stage's hit percentage starts from zero.
+        // (MAPMACS.INC:876-877). Game::load_level owns the typed numerator;
+        // reset both denominator views here.
+        self.specialobjtotal = 0;
         self.total_specials = 0;
         self.levelfinished = 0;
         self.jsr_top = 0;

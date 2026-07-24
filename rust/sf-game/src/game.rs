@@ -178,6 +178,10 @@ impl Game {
 
     /// C `MapExec_LoadLevel` (src/map/map_exec.c:14) + `World_LoadLevel`.
     pub fn load_level(&mut self, level: &BuiltLevel) {
+        // Every gameplay `initlevel` clears the completed-special numerator
+        // together with the map-owned denominator. Keep that stage boundary
+        // here so imported wrappers cannot leak the previous tally's kills.
+        self.vars.shared.specials_dead = 0;
         let GameVars { mapptr, mapcnt, .. } = &mut self.vars;
         self.world.load_level(level, mapptr, mapcnt);
     }
