@@ -3292,6 +3292,13 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         },
     ), // bazooka2
     (
+        477,
+        Sf1ShapeMetrics {
+            visual_extent: 372,
+            coordinate_shift: 2,
+        },
+    ), // walker_l
+    (
         508,
         Sf1ShapeMetrics {
             visual_extent: 512,

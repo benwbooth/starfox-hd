@@ -88,6 +88,10 @@ pub const SH_BAZZ_1P: u16 = 473;
 pub const SH_BAZZ_1Q: u16 = 474;
 pub const SH_BAZOOKA1: u16 = 475;
 pub const SH_BAZOOKA2: u16 = 476;
+pub const SH_WALKER_RIGHT: u16 = 414;
+pub const SH_WALKER_LEFT: u16 = 477;
+pub const SH_SMALL_EXPLOSION: u16 = 461;
+pub const SH_NULL_SHAPE: u16 = 0;
 const MEDPSPEED: u8 = 65; // STRATEQU.INC:347 medPspeed
 const FOGDIST: i16 = 2000; // KSTRATS.ASM:58 fogdist
 const DEG270: u8 = 192; // VARS.INC:18 deg270 = deg180+deg90
@@ -1221,12 +1225,13 @@ fn kill_obj(al: &mut Alien) {
     al.sflags |= ASF_COLLDISABLE;
 }
 
-/// `s_make_obj #explosion,... ; s_add_Roffs2pos ... ; s_set_alptrs
+/// `s_make_obj shape,... ; s_add_Roffs2pos ... ; s_set_alptrs
 /// y,explode,explode,explode ; s_kill_obj y` — drop a self-exploding effect
-/// object at `base + rotate_full_offset(off)`. The explosion/nullshape mesh id
-/// is cosmetic (not resolvable from ported map data); shape 0 stands in.
-fn spawn_explosion_at(g: &mut Game, base_idx: u16, ox: i16, oy: i16, oz: i16) {
-    let Some(child) = make_obj(g, 0) else {
+/// object at `base + rotate_full_offset(off)`. DSTRATS deliberately uses the
+/// visible small-explosion mesh for the right/final effects and nullshape for
+/// the left-leg effect.
+fn spawn_explosion_at(g: &mut Game, base_idx: u16, shape: u16, ox: i16, oy: i16, oz: i16) {
+    let Some(child) = make_obj(g, shape) else {
         return;
     };
     let base = g.objs.aliens[base_idx as usize];
@@ -1766,18 +1771,18 @@ pub fn walking_hit(g: &mut Game, idx: u16) {
 }
 
 /// `walking_right` (DSTRATS.ASM:913-924): topple to the right — set the wobble
-/// deltas, stagger the body +25 (x2) local, drop a leg explosion, then fall.
-/// (The `walker_r` mesh swap is a cosmetic shape id not resolvable from ported
-/// map data — scoped out.)
+/// deltas, select the right-fall body, stagger it +25 (x2) local, drop a leg
+/// explosion, then fall.
 fn walking_right(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.sbyte1 = (-2i8) as u8; // s_set_alvar al_sbyte1,#-2
         al.sbyte3 = 1; // s_set_alvar al_sbyte3,#1
+        al.shape = SH_WALKER_RIGHT;
     }
     let me = g.objs.aliens[idx as usize];
     full_offset_pos_scaled(g, idx, &me, 25, 0, 0, 1); // #25,#0,#0 <<1
-    spawn_explosion_at(g, idx, -100, -80, 0); // #-50,#-40,#0 (<<1)
+    spawn_explosion_at(g, idx, SH_SMALL_EXPLOSION, -100, -80, 0); // #-50,#-40,#0 (<<1)
     walking_fall(g, idx);
 }
 
@@ -1787,10 +1792,11 @@ fn walking_left(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.sbyte1 = 2; // s_set_alvar al_sbyte1,#2
         al.sbyte3 = (-1i8) as u8; // s_set_alvar al_sbyte3,#-1
+        al.shape = SH_WALKER_LEFT;
     }
     let me = g.objs.aliens[idx as usize];
     full_offset_pos_scaled(g, idx, &me, -25, 0, 0, 1); // #-25,#0,#0 <<1
-    spawn_explosion_at(g, idx, 100, -80, 0); // #50,#-40,#0 (<<1)
+    spawn_explosion_at(g, idx, SH_NULL_SHAPE, 100, -80, 0); // #nullshape, #50,#-40,#0 (<<1)
     walking_fall(g, idx);
 }
 
@@ -1840,7 +1846,7 @@ fn fallover_strat(g: &mut Game, idx: u16) {
     let sb2 = g.objs.aliens[idx as usize].sbyte2;
     if sb2 == 0 {
         // .killit
-        spawn_explosion_at(g, idx, 0, -160, 0); // s_add_Roffs2pos #0,#-80,#0 (<<1)
+        spawn_explosion_at(g, idx, SH_SMALL_EXPLOSION, 0, -160, 0); // #0,#-80,#0 (<<1)
         kill_obj(&mut g.objs.aliens[idx as usize]); // s_kill_obj x
         return;
     }

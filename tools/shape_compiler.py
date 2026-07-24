@@ -367,6 +367,9 @@ EXTENDED_SHAPES = {
     "bazz_1q":          474,
     "bazooka1":         475,
     "bazooka2":         476,
+    # DSTRATS swaps the walking mech to this distinct left-fall body at
+    # runtime; walker_r already occupies the matching extended slot above.
+    "walker_l":         477,
 }
 
 

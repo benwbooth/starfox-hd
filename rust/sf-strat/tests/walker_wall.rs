@@ -7,7 +7,7 @@ use sf_strat::enemies_ground::{
     duct_istrat, lwalker1_istrat, move_strat, rwalker1_istrat, shou0_istrat, shou0_strat,
     walker1_istrat, walker1_strat, walker2_istrat, walker2_strat, walking2_strat, walking_hit,
     walkright_istrat, wall1_strat, walll_istrat, wallnothit, wallr_istrat, wallright_strat,
-    wallrnd_istrat,
+    wallrnd_istrat, SH_NULL_SHAPE, SH_SMALL_EXPLOSION, SH_WALKER_LEFT, SH_WALKER_RIGHT,
 };
 use sf_strat::enemy_a::{COLLTYPE_ENEMY1, DEG45, DEG90};
 
@@ -126,6 +126,93 @@ fn duct_is_nocoll_and_wall_aliases_work() {
     walking2_strat(&mut g, wk);
     let wh = spawn_obj(&mut g);
     walking_hit(&mut g, wh);
+}
+
+#[test]
+fn walking_mech_uses_authored_topple_bodies_and_asymmetric_leg_effects() {
+    const WALKER_STANDING: u16 = 26;
+    const LEFT_LEG_HIT: u8 = 1;
+    const RIGHT_LEG_HIT: u8 = 2;
+
+    let mut right_game = Game::new();
+    let right = spawn_obj(&mut right_game);
+    right_game.objs.aliens[right as usize].shape = WALKER_STANDING;
+    right_game.objs.aliens[right as usize].sbyte2 = 0;
+    right_game.objs.aliens[right as usize].hitflags = LEFT_LEG_HIT;
+    walking_hit(&mut right_game, right);
+    assert_eq!(
+        right_game.objs.aliens[right as usize].shape,
+        SH_WALKER_RIGHT
+    );
+    assert!(right_game
+        .objs
+        .aliens
+        .iter()
+        .any(|alien| { alien.active && alien.shape == SH_SMALL_EXPLOSION && alien.hp == 0 }));
+
+    let mut left_game = Game::new();
+    let left = spawn_obj(&mut left_game);
+    left_game.objs.aliens[left as usize].shape = WALKER_STANDING;
+    left_game.objs.aliens[left as usize].sbyte3 = 0;
+    left_game.objs.aliens[left as usize].hitflags = RIGHT_LEG_HIT;
+    let before = left_game.objs.active_indices().len();
+    walking_hit(&mut left_game, left);
+    assert_eq!(left_game.objs.aliens[left as usize].shape, SH_WALKER_LEFT);
+    assert_eq!(left_game.objs.active_indices().len(), before + 1);
+    assert!(left_game
+        .objs
+        .aliens
+        .iter()
+        .any(|alien| { alien.active && alien.shape == SH_NULL_SHAPE && alien.hp == 0 }));
+    assert!(!left_game
+        .objs
+        .aliens
+        .iter()
+        .any(|alien| { alien.active && alien.shape == SH_SMALL_EXPLOSION }));
+}
+
+#[test]
+fn walking_mech_final_fall_uses_authored_explosion_mesh() {
+    const WALKER_STANDING: u16 = 26;
+    const LEFT_LEG_HIT: u8 = 1;
+    const ACTIVE_HP: u8 = 1;
+    const FALL_TICKS_AFTER_TRIGGER: usize = 13;
+
+    let mut g = Game::new();
+    let walker = spawn_obj(&mut g);
+    g.objs.aliens[walker as usize].shape = WALKER_STANDING;
+    g.objs.aliens[walker as usize].hp = ACTIVE_HP;
+    g.objs.aliens[walker as usize].sbyte2 = 0;
+    g.objs.aliens[walker as usize].hitflags = LEFT_LEG_HIT;
+    walking_hit(&mut g, walker);
+    let first_effect_pos = g
+        .objs
+        .aliens
+        .iter()
+        .find(|alien| alien.active && alien.shape == SH_SMALL_EXPLOSION)
+        .map(|alien| (alien.worldx, alien.worldy, alien.worldz))
+        .expect("right-fall flash");
+    for tick_index in 0..FALL_TICKS_AFTER_TRIGGER {
+        let tick = g.objs.aliens[walker as usize]
+            .stratptr
+            .expect("walker fall strategy");
+        g.call_strat(tick, walker);
+        if tick_index + 1 < FALL_TICKS_AFTER_TRIGGER {
+            assert_ne!(g.objs.aliens[walker as usize].hp, 0);
+        }
+    }
+    assert_eq!(g.objs.aliens[walker as usize].hp, 0);
+    let effect_positions: Vec<_> = g
+        .objs
+        .aliens
+        .iter()
+        .filter(|alien| alien.active && alien.shape == SH_SMALL_EXPLOSION)
+        .map(|alien| (alien.worldx, alien.worldy, alien.worldz))
+        .collect();
+    assert!(
+        effect_positions.iter().any(|&position| position != first_effect_pos),
+        "the cleaned-up right-fall flash is replaced by a new final body explosion: first={first_effect_pos:?}, active={effect_positions:?}"
+    );
 }
 
 #[test]

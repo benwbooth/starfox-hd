@@ -10,7 +10,7 @@ use sf_render::shape_data::{
     SHAPE_DATA, SHAPE_DATA_COUNT, SHAPE_EXT_BAZOOKA1, SHAPE_EXT_BAZOOKA2, SHAPE_EXT_BAZZ_1P,
     SHAPE_EXT_BAZZ_1Q, SHAPE_EXT_BOSS_B_6, SHAPE_EXT_BOSS_B_7, SHAPE_EXT_DEBOSS_0,
     SHAPE_EXT_DEBOSS_2, SHAPE_EXT_HYPER2, SHAPE_EXT_HYPER3, SHAPE_EXT_HYPER4, SHAPE_EXT_ROBOT_0,
-    SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
+    SHAPE_EXT_WALKER_L, SHAPE_EXT_WALKER_R, SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
 };
 
 const NULL_SHAPE_PROFILE_COUNT: usize = 1;
@@ -106,6 +106,22 @@ fn bazooka_debris_meshes_keep_the_authored_geometry() {
             .iter()
             .find(|shape| shape.shape_id == shape_id)
             .unwrap_or_else(|| panic!("{name} bazooka debris mesh"));
+        assert_eq!(shape.name, name);
+        assert_eq!(shape.vertices.len(), vertices, "{name} vertices");
+        assert_eq!(shape.faces.len(), faces, "{name} faces");
+    }
+}
+
+#[test]
+fn walker_topple_meshes_keep_the_authored_geometry() {
+    for (shape_id, name, vertices, faces) in [
+        (SHAPE_EXT_WALKER_R, "walker_r", 17, 21),
+        (SHAPE_EXT_WALKER_L, "walker_l", 18, 23),
+    ] {
+        let shape = SHAPE_DATA
+            .iter()
+            .find(|shape| shape.shape_id == shape_id)
+            .unwrap_or_else(|| panic!("{name} walker topple mesh"));
         assert_eq!(shape.name, name);
         assert_eq!(shape.vertices.len(), vertices, "{name} vertices");
         assert_eq!(shape.faces.len(), faces, "{name} faces");
@@ -599,6 +615,7 @@ fn runtime_extended_mesh_catalog_is_complete() {
         (474, "bazz_1q"),
         (475, "bazooka1"),
         (476, "bazooka2"),
+        (477, "walker_l"),
     ];
 
     for (shape_id, name) in expected {
