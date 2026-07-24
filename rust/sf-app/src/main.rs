@@ -311,6 +311,7 @@ fn to_sf2_polygon_palette(mission: &sf2_game::MissionState) -> Sf2PolygonPalette
         | MissionVisit::TitaniaBase
         | MissionVisit::MacbethBase
         | MissionVisit::MeteorBase
+        | MissionVisit::FortunaBase
         | MissionVisit::FirstBattleCarrier
         | MissionVisit::SecondBattleCarrier
         | MissionVisit::LeonDuel
@@ -339,6 +340,7 @@ fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdr
         MissionVisit::TitaniaBase => Sf2MissionBackdrop::TitaniaBase,
         MissionVisit::MacbethBase => Sf2MissionBackdrop::MacbethSurface,
         MissionVisit::MeteorBase => Sf2MissionBackdrop::MeteorSurface,
+        MissionVisit::FortunaBase => Sf2MissionBackdrop::FortunaSurface,
         MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
             match mission.carrier_assault.phase {
                 CarrierAssaultPhase::ExteriorApproach | CarrierAssaultPhase::ReturnFlight => {

@@ -61,6 +61,7 @@ fn sf2_music_cue(mode: sf2_game::GameMode, mission_visit: sf2_game::MissionVisit
             MissionVisit::MacbethBase => Sf2MusicCue::MacbethBase,
             MissionVisit::EladardBase => Sf2MusicCue::EladardBase,
             MissionVisit::MeteorBase => Sf2MusicCue::MeteorBase,
+            MissionVisit::FortunaBase => Sf2MusicCue::FortunaBase,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
                 Sf2MusicCue::BattleCarrier
             }
@@ -98,6 +99,7 @@ fn sf2_sound_bank(mission_visit: sf2_game::MissionVisit) -> Sf2SoundBank {
         MissionVisit::MacbethBase => Sf2SoundBank::MacbethBase,
         MissionVisit::EladardBase => Sf2SoundBank::EladardBase,
         MissionVisit::MeteorBase => Sf2SoundBank::MeteorBase,
+        MissionVisit::FortunaBase => Sf2SoundBank::FortunaBase,
         MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
             Sf2SoundBank::BattleCarrier
         }

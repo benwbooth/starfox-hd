@@ -14,14 +14,14 @@ use super::object::{
     FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
     FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
     FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
-    FinalRivalFlightPhase, FinalRivalFlightState, HostileProjectileFlightPhase,
-    HostileProjectileFlightState, HostileProjectileMovementPhase, InterceptionMissileFlightState,
-    InterceptionMissileSteering, LeonRivalFlightPhase, LeonRivalFlightState,
-    LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
-    PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, QueenDragoonFlightState, ReengagementFighterFlightState,
-    ReengagementFighterMovementPhase, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
-    StereoPosition, Vector3, WeaponKind,
+    FinalRivalFlightPhase, FinalRivalFlightState, FortunaCoreProjectileState,
+    HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
+    InterceptionMissileFlightState, InterceptionMissileSteering, LeonRivalFlightPhase,
+    LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind,
+    PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState,
+    PlayerProjectileKind, PlayerProjectileState, QueenDragoonFlightState,
+    ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, SpatialDistance,
+    SpatialLoop, SpatialSound, StereoPosition, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
@@ -33,8 +33,9 @@ use super::state::{
     CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
     EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
     EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
-    FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-    GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
+    FlightControlStyle, FortunaCoreStatus, FortunaDefenderStatus, FortunaMissionState,
+    FortunaPhase, FortunaSwitchStatus, GameMode, GameOverChoice, GameOverDestination,
+    GameOverPhase, GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
     MacbethInstallationStatus, MacbethMissionState, MacbethPhase, MacbethSwitchStatus, MapPoint,
     MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus, MissionMessage,
     MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
@@ -46,7 +47,8 @@ use super::state::{
     StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
     TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
     WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
-    CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
+    CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
+    FORTUNA_SURFACE_SWITCH_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
 #[path = "astropolis_entry.rs"]
@@ -67,6 +69,8 @@ mod final_pursuer;
 mod final_pursuer_projectiles;
 #[path = "final_rivals_flight.rs"]
 mod final_rivals_flight;
+#[path = "fortuna_base.rs"]
+mod fortuna_base;
 #[path = "leon_duel.rs"]
 mod leon_duel;
 #[path = "leon_duel_projectiles.rs"]
@@ -1490,6 +1494,7 @@ const POST_ELADARD_RECOMMENDED_DESTINATION: MapPoint = MapPoint { x: 50, y: 90 }
 const TITANIA_BASE_DESTINATION: MapPoint = MapPoint { x: 208, y: 110 };
 const MACBETH_BASE_DESTINATION: MapPoint = MapPoint { x: 136, y: 32 };
 const METEOR_BASE_DESTINATION: MapPoint = MapPoint { x: 128, y: 88 };
+const FORTUNA_BASE_DESTINATION: MapPoint = MapPoint { x: 144, y: 160 };
 const SECOND_BATTLE_CARRIER_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
 const LEON_DUEL_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
 const MIRAGE_DRAGON_DESTINATION: MapPoint = MapPoint { x: 54, y: 123 };
@@ -5454,6 +5459,16 @@ pub struct Game {
     macbeth_core_controller: Option<ObjectId>,
     macbeth_core_shield: Option<ObjectId>,
     macbeth_core: Option<ObjectId>,
+    fortuna_surface_switches: [Option<ObjectId>; FORTUNA_SURFACE_SWITCH_COUNT],
+    fortuna_installation: Option<ObjectId>,
+    fortuna_kick_gunner: Option<ObjectId>,
+    fortuna_interior_doorway: Option<ObjectId>,
+    fortuna_core_defenders: [Option<ObjectId>; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
+    fortuna_core_defender_heads: [Option<ObjectId>; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
+    fortuna_core_controller: Option<ObjectId>,
+    fortuna_core_shield: Option<ObjectId>,
+    fortuna_core: Option<ObjectId>,
+    fortuna_projectiles: Vec<ObjectId>,
     carrier_scenery: Vec<ObjectId>,
     carrier_corridor_defenders: [Option<ObjectId>; CARRIER_CORRIDOR_DEFENDER_COUNT],
     carrier_corridor_projectiles: Vec<ObjectId>,
@@ -5532,6 +5547,16 @@ impl Game {
             macbeth_core_controller: None,
             macbeth_core_shield: None,
             macbeth_core: None,
+            fortuna_surface_switches: [None; FORTUNA_SURFACE_SWITCH_COUNT],
+            fortuna_installation: None,
+            fortuna_kick_gunner: None,
+            fortuna_interior_doorway: None,
+            fortuna_core_defenders: [None; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
+            fortuna_core_defender_heads: [None; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
+            fortuna_core_controller: None,
+            fortuna_core_shield: None,
+            fortuna_core: None,
+            fortuna_projectiles: Vec::new(),
             carrier_scenery: Vec::with_capacity(CARRIER_CORRIDOR_SCENE_OBJECT_COUNT),
             carrier_corridor_defenders: [None; CARRIER_CORRIDOR_DEFENDER_COUNT],
             carrier_corridor_projectiles: Vec::with_capacity(CARRIER_CORRIDOR_DEFENDER_COUNT),
@@ -5695,6 +5720,7 @@ impl Game {
             MissionVisit::EladardBase
                 | MissionVisit::TitaniaBase
                 | MissionVisit::MeteorBase
+                | MissionVisit::FortunaBase
                 | MissionVisit::AstropolisAssault
         ) && self.state.mission.phase == MissionPhase::Active
     }
@@ -6279,6 +6305,10 @@ impl Game {
                 == PlanetObjectiveStatus::Occupied
             {
                 Some((StrategicEncounter::MeteorBase, METEOR_BASE_DESTINATION))
+            } else if self.state.campaign.objectives.planets.fortuna
+                == PlanetObjectiveStatus::Occupied
+            {
+                Some((StrategicEncounter::FortunaBase, FORTUNA_BASE_DESTINATION))
             } else if self.state.campaign.objectives.second_carrier
                 == CarrierObjectiveStatus::Operational
             {
@@ -6322,6 +6352,7 @@ impl Game {
                     Some(StrategicEncounter::TitaniaBase) => self.begin_titania_sortie(),
                     Some(StrategicEncounter::MacbethBase) => self.begin_macbeth_sortie(),
                     Some(StrategicEncounter::MeteorBase) => self.begin_meteor_sortie(),
+                    Some(StrategicEncounter::FortunaBase) => self.begin_fortuna_sortie(),
                     Some(StrategicEncounter::SecondBattleCarrier) => {
                         self.begin_carrier_assault(MissionVisit::SecondBattleCarrier)
                     }
@@ -6809,6 +6840,48 @@ impl Game {
         Ok(())
     }
 
+    fn begin_fortuna_sortie(&mut self) -> Result<(), Error> {
+        let primary_id = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
+        let flight_shape = self.primary_flight_craft_shape();
+        self.state.mission.fortuna = FortunaMissionState {
+            phase: FortunaPhase::SurfaceSwitches,
+            phase_started_retail_frame: 0,
+            surface_switches: [FortunaSwitchStatus::Active; FORTUNA_SURFACE_SWITCH_COUNT],
+            kick_gunner: FortunaDefenderStatus::Dormant,
+            kick_gunner_motion_step: 0,
+            core_defenders: [FortunaDefenderStatus::NotInstalled;
+                FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
+            core: FortunaCoreStatus::Shielded,
+            core_emitter_index: 0,
+            core_emitter_wait_retail_frames: fortuna_base::CORE_EMITTER_WAIT_RETAIL_FRAMES,
+        };
+        self.state.mission.objects_destroyed = 0;
+        self.spawn_fortuna_surface_scene()?;
+        self.start_sortie(MissionVisit::FortunaBase, primary_id, wingmate_id);
+        self.state.mission.player_craft_form = PlayerCraftForm::Flight;
+        if let Some(primary) = self.state.objects.get_mut(primary_id) {
+            primary.base.shape = flight_shape;
+            primary.base.position = fortuna_base::SURFACE_START_POSITION;
+            primary.base.velocity = Vector3::default();
+            primary.base.pitch = Angle::ZERO;
+            primary.base.yaw = Angle::ZERO;
+            primary.base.roll = Angle::ZERO;
+            primary.base.speed = fortuna_base::SURFACE_START_SPEED;
+            primary.base.flags.visible = false;
+            primary.base.flags.collision_disabled = true;
+        }
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
+            wingmate.base.flags.visible = false;
+            wingmate.base.flags.collision_disabled = true;
+        }
+        Ok(())
+    }
+
     fn begin_carrier_assault(&mut self, visit: MissionVisit) -> Result<(), Error> {
         debug_assert!(matches!(
             visit,
@@ -6942,6 +7015,7 @@ impl Game {
             MissionVisit::TitaniaBase => self.update_titania_base(),
             MissionVisit::MacbethBase => self.update_macbeth_base(),
             MissionVisit::MeteorBase => self.update_meteor_base(),
+            MissionVisit::FortunaBase => self.update_fortuna_base(),
             MissionVisit::EladardBase => self.update_eladard_base(),
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
                 self.update_carrier_assault()
@@ -9724,6 +9798,641 @@ impl Game {
             .unwrap_or(MacbethCoreStatus::Destroyed);
     }
 
+    fn update_fortuna_base(&mut self) -> Result<(), Error> {
+        self.state.mission.active = true;
+        let retail_frame = self
+            .state
+            .mode_frame
+            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            .min(u32::from(u16::MAX)) as u16;
+        self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
+
+        match self.state.mission.phase {
+            MissionPhase::Loading if self.state.mode_frame >= MISSION_STAGE_LOAD_TICKS => {
+                self.state.mission.phase = MissionPhase::EntryCinematic;
+            }
+            MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
+                self.state.mission.phase = MissionPhase::Active;
+            }
+            MissionPhase::ReturningToStrategicMap
+                if self.state.mission.fortuna.phase == FortunaPhase::ReturnFlight
+                    && retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .fortuna
+                            .phase_started_retail_frame
+                            .saturating_add(fortuna_base::RETURN_FLIGHT_RETAIL_FRAMES) =>
+            {
+                self.finish_sortie();
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        if self.state.mission.phase == MissionPhase::Active {
+            match self.state.mission.fortuna.phase {
+                FortunaPhase::SurfaceSwitches => {
+                    for index in 0..FORTUNA_SURFACE_SWITCH_COUNT {
+                        self.activate_fortuna_surface_switch(index);
+                    }
+                    if self
+                        .state
+                        .mission
+                        .fortuna
+                        .surface_switches
+                        .iter()
+                        .all(|status| *status == FortunaSwitchStatus::Pressed)
+                    {
+                        self.enter_fortuna_phase(FortunaPhase::SurfaceEntry, retail_frame);
+                    }
+                }
+                FortunaPhase::SurfaceEntry if self.fortuna_player_at_installation() => {
+                    self.enter_fortuna_interior(retail_frame)?;
+                }
+                FortunaPhase::KickGunnerCombat => {
+                    self.update_fortuna_kick_gunner_motion(retail_frame);
+                    self.refresh_fortuna_kick_gunner_status();
+                    if self.state.mission.fortuna.kick_gunner == FortunaDefenderStatus::Destroyed {
+                        self.enter_fortuna_phase(FortunaPhase::InteriorTransit, retail_frame);
+                    }
+                }
+                FortunaPhase::InteriorTransit if self.fortuna_player_at_core_doorway() => {
+                    self.spawn_fortuna_core_room()?;
+                    self.enter_fortuna_phase(FortunaPhase::CoreDefenders, retail_frame);
+                }
+                FortunaPhase::CoreDefenders => {
+                    self.refresh_fortuna_core_defender_statuses();
+                    let defender_count = fortuna_base::core_defender_count();
+                    if self.state.mission.fortuna.core_defenders[..defender_count]
+                        .iter()
+                        .all(|status| *status == FortunaDefenderStatus::Destroyed)
+                    {
+                        self.enter_fortuna_phase(FortunaPhase::CoreShieldOpening, retail_frame);
+                    }
+                }
+                FortunaPhase::CoreShieldOpening
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .fortuna
+                            .phase_started_retail_frame
+                            .saturating_add(fortuna_base::CORE_SHIELD_OPENING_RETAIL_FRAMES) =>
+                {
+                    if let Some(shield) = self.fortuna_core_shield.take() {
+                        self.state.objects.remove(shield);
+                    }
+                    if let Some(core) = self
+                        .fortuna_core
+                        .and_then(|id| self.state.objects.get_mut(id))
+                    {
+                        core.base.flags.collision_disabled = false;
+                    }
+                    self.state.mission.fortuna.core = FortunaCoreStatus::OuterShell {
+                        durability: fortuna_base::CORE_DURABILITY,
+                    };
+                    self.state.mission.fortuna.core_emitter_wait_retail_frames =
+                        fortuna_base::CORE_EMITTER_WAIT_RETAIL_FRAMES;
+                    self.enter_fortuna_phase(FortunaPhase::CoreCombat, retail_frame);
+                }
+                FortunaPhase::CoreCombat => {
+                    self.update_fortuna_core_emitters()?;
+                    self.refresh_fortuna_core_status();
+                    if self.state.mission.fortuna.core == FortunaCoreStatus::Destroyed {
+                        self.enter_fortuna_phase(
+                            FortunaPhase::CoreDestruction,
+                            retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                        );
+                    }
+                }
+                FortunaPhase::CoreDestruction
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .fortuna
+                            .phase_started_retail_frame
+                            .saturating_add(fortuna_base::CORE_RETIRE_RETAIL_FRAMES) =>
+                {
+                    if let Some(core) = self.fortuna_core.take() {
+                        self.state.objects.remove(core);
+                    }
+                    self.clear_fortuna_projectiles();
+                    self.enter_fortuna_phase(FortunaPhase::ReturnFlight, retail_frame);
+                    self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
+                }
+                FortunaPhase::SurfaceEntry
+                | FortunaPhase::InteriorTransit
+                | FortunaPhase::CoreShieldOpening
+                | FortunaPhase::CoreDestruction
+                | FortunaPhase::ReturnFlight => {}
+            }
+        }
+
+        self.update_fortuna_player_presentation(retail_frame);
+        if self.state.mission.phase == MissionPhase::Active
+            && !matches!(
+                self.state.mission.fortuna.phase,
+                FortunaPhase::CoreDestruction | FortunaPhase::ReturnFlight
+            )
+        {
+            self.update_active_flight(retail_frame, true)?;
+        }
+        Ok(())
+    }
+
+    fn enter_fortuna_phase(&mut self, phase: FortunaPhase, retail_frame: u16) {
+        self.state.mission.fortuna.phase = phase;
+        self.state.mission.fortuna.phase_started_retail_frame = retail_frame;
+    }
+
+    fn update_fortuna_player_presentation(&mut self, retail_frame: u16) {
+        let visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
+        let collision_disabled = self.state.mission.phase != MissionPhase::Active
+            || matches!(
+                self.state.mission.fortuna.phase,
+                FortunaPhase::CoreDestruction | FortunaPhase::ReturnFlight
+            );
+        if let Some(primary) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            primary.base.flags.visible = visible;
+            primary.base.flags.collision_disabled = collision_disabled;
+        }
+    }
+
+    fn clear_fortuna_projectiles(&mut self) {
+        for projectile in self.fortuna_projectiles.drain(..) {
+            self.state.objects.remove(projectile);
+        }
+    }
+
+    fn clear_fortuna_scene(&mut self) {
+        for object in [
+            &mut self.fortuna_installation,
+            &mut self.fortuna_kick_gunner,
+            &mut self.fortuna_interior_doorway,
+            &mut self.fortuna_core_controller,
+            &mut self.fortuna_core_shield,
+            &mut self.fortuna_core,
+        ] {
+            if let Some(id) = object.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        for slot in self
+            .fortuna_surface_switches
+            .iter_mut()
+            .chain(self.fortuna_core_defenders.iter_mut())
+            .chain(self.fortuna_core_defender_heads.iter_mut())
+        {
+            if let Some(id) = slot.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        self.clear_fortuna_projectiles();
+    }
+
+    fn spawn_fortuna_surface_scene(&mut self) -> Result<(), Error> {
+        self.clear_fortuna_scene();
+        for (index, position) in fortuna_base::SURFACE_SWITCH_POSITIONS
+            .into_iter()
+            .enumerate()
+        {
+            let mut surface_switch = Object::new(
+                ObjectKind::Scenery,
+                ShapeId::FORTUNA_SWITCH_ACTIVE,
+                Behavior::Effect,
+            );
+            surface_switch.base.position = position;
+            surface_switch.base.yaw = fortuna_base::SURFACE_SWITCH_YAW;
+            surface_switch.base.collision_class = CollisionClass::Scenery;
+            self.fortuna_surface_switches[index] = Some(
+                self.state
+                    .objects
+                    .allocate(surface_switch)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+
+        let mut installation = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::FORTUNA_INSTALLATION_OPEN,
+            Behavior::Effect,
+        );
+        installation.base.position = fortuna_base::INSTALLATION_POSITION;
+        installation.base.yaw = fortuna_base::INSTALLATION_YAW;
+        installation.base.collision_class = CollisionClass::Scenery;
+        self.fortuna_installation = Some(
+            self.state
+                .objects
+                .allocate(installation)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
+    fn activate_fortuna_surface_switch(&mut self, index: usize) -> bool {
+        if self.state.mission.player_craft_form != PlayerCraftForm::Walker
+            || self.state.mission.fortuna.surface_switches[index] != FortunaSwitchStatus::Active
+        {
+            return false;
+        }
+        let Some(surface_switch) = self.fortuna_surface_switches[index] else {
+            return false;
+        };
+        let touches = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .zip(self.state.objects.get(surface_switch))
+            .is_some_and(|(player, target)| objects_overlap(player, target));
+        if !touches {
+            return false;
+        }
+        self.state.mission.fortuna.surface_switches[index] = FortunaSwitchStatus::Pressed;
+        if let Some(object) = self.state.objects.get_mut(surface_switch) {
+            object.base.shape = ShapeId::FORTUNA_SWITCH_PRESSED;
+            object.base.flags.collision_disabled = true;
+        }
+        true
+    }
+
+    fn fortuna_player_at_installation(&self) -> bool {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|player| {
+                player
+                    .base
+                    .position
+                    .x
+                    .abs_diff(fortuna_base::INSTALLATION_POSITION.x)
+                    <= fortuna_base::INSTALLATION_ENTRY_HALF_WIDTH
+                    && player
+                        .base
+                        .position
+                        .z
+                        .abs_diff(fortuna_base::INSTALLATION_POSITION.z)
+                        <= fortuna_base::INSTALLATION_ENTRY_HALF_DEPTH
+            })
+    }
+
+    fn enter_fortuna_interior(&mut self, retail_frame: u16) -> Result<(), Error> {
+        for slot in &mut self.fortuna_surface_switches {
+            if let Some(object) = slot.take() {
+                self.state.objects.remove(object);
+            }
+        }
+        if let Some(installation) = self.fortuna_installation.take() {
+            self.state.objects.remove(installation);
+        }
+        let primary = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        self.apply_player_craft_presentation(primary, PlayerCraftPresentation::Walker);
+        if let Some(player) = self.state.objects.get_mut(primary) {
+            player.base.position = fortuna_base::INTERIOR_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.pitch = Angle::ZERO;
+            player.base.yaw = Angle::ZERO;
+            player.base.roll = Angle::ZERO;
+            player.base.speed = 0;
+        }
+
+        let mut guardian = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::FORTUNA_KICK_GUNNER,
+            Behavior::EnemyFlight,
+        );
+        guardian.base.position = fortuna_base::KICK_GUNNER_INITIAL_POSITION;
+        guardian.base.hit_points = fortuna_base::KICK_GUNNER_DURABILITY;
+        guardian.base.attack_power = fortuna_base::ENEMY_ATTACK_POWER;
+        guardian.base.collision_class = CollisionClass::Enemy;
+        self.fortuna_kick_gunner = Some(
+            self.state
+                .objects
+                .allocate(guardian)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.fortuna.kick_gunner = FortunaDefenderStatus::Active {
+            durability: fortuna_base::KICK_GUNNER_DURABILITY,
+        };
+        self.state.mission.fortuna.kick_gunner_motion_step = 0;
+
+        let mut doorway = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::FORTUNA_INTERIOR_DOORWAY,
+            Behavior::Effect,
+        );
+        doorway.base.position = fortuna_base::INTERIOR_DOORWAY_POSITION;
+        doorway.base.yaw = Angle::from_units(192);
+        doorway.base.collision_class = CollisionClass::Scenery;
+        self.fortuna_interior_doorway = Some(
+            self.state
+                .objects
+                .allocate(doorway)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.enter_fortuna_phase(FortunaPhase::KickGunnerCombat, retail_frame);
+        Ok(())
+    }
+
+    fn update_fortuna_kick_gunner_motion(&mut self, retail_frame: u16) {
+        let elapsed =
+            retail_frame.saturating_sub(self.state.mission.fortuna.phase_started_retail_frame);
+        if elapsed < fortuna_base::KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES {
+            return;
+        }
+        let motion_elapsed = elapsed - fortuna_base::KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES;
+        let step = usize::from(
+            (motion_elapsed / fortuna_base::KICK_GUNNER_MOTION_SAMPLE_RETAIL_FRAMES)
+                % fortuna_base::KICK_GUNNER_MOTION.len() as u16,
+        );
+        self.state.mission.fortuna.kick_gunner_motion_step = step as u8;
+        if let Some(guardian) = self
+            .fortuna_kick_gunner
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            if guardian.base.explosion_timer > 0 || guardian.base.hit_points == 0 {
+                return;
+            }
+            guardian.base.position = fortuna_base::KICK_GUNNER_MOTION[step];
+            guardian.base.flags.collision_disabled =
+                guardian.base.position.y < fortuna_base::KICK_GUNNER_SUBMERGED_Y;
+        }
+    }
+
+    fn refresh_fortuna_kick_gunner_status(&mut self) {
+        self.state.mission.fortuna.kick_gunner = self
+            .fortuna_kick_gunner
+            .and_then(|id| self.state.objects.get(id))
+            .map(|guardian| {
+                if guardian.base.explosion_timer > 0 || guardian.base.hit_points == 0 {
+                    FortunaDefenderStatus::Destroyed
+                } else {
+                    FortunaDefenderStatus::Active {
+                        durability: guardian.base.hit_points,
+                    }
+                }
+            })
+            .unwrap_or(FortunaDefenderStatus::Destroyed);
+    }
+
+    fn fortuna_player_at_core_doorway(&self) -> bool {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|player| {
+                player
+                    .base
+                    .position
+                    .x
+                    .abs_diff(fortuna_base::INTERIOR_DOORWAY_POSITION.x)
+                    <= fortuna_base::INTERIOR_DOORWAY_HALF_WIDTH
+                    && player
+                        .base
+                        .position
+                        .z
+                        .abs_diff(fortuna_base::INTERIOR_DOORWAY_POSITION.z)
+                        <= fortuna_base::INTERIOR_DOORWAY_HALF_DEPTH
+            })
+    }
+
+    fn spawn_fortuna_core_room(&mut self) -> Result<(), Error> {
+        if let Some(guardian) = self.fortuna_kick_gunner.take() {
+            self.state.objects.remove(guardian);
+        }
+        let primary = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        if let Some(player) = self.state.objects.get_mut(primary) {
+            player.base.position = fortuna_base::CORE_ROOM_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.speed = 0;
+        }
+
+        let defender_count = fortuna_base::core_defender_count();
+        for index in 0..defender_count {
+            let position = fortuna_base::CORE_DEFENDER_POSITIONS[index];
+            let mut defender = Object::new(
+                ObjectKind::Enemy,
+                ShapeId::FORTUNA_CORE_TURRET,
+                Behavior::EnemyFlight,
+            );
+            defender.base.position = position;
+            defender.base.yaw = fortuna_base::CORE_DEFENDER_YAWS[index];
+            defender.base.hit_points = fortuna_base::CORE_DEFENDER_DURABILITY;
+            defender.base.attack_power = fortuna_base::ENEMY_ATTACK_POWER;
+            defender.base.collision_class = CollisionClass::Enemy;
+            let defender_id = self
+                .state
+                .objects
+                .allocate(defender)
+                .ok_or(Error::ObjectCapacityReached)?;
+            self.fortuna_core_defenders[index] = Some(defender_id);
+            self.state.mission.fortuna.core_defenders[index] = FortunaDefenderStatus::Active {
+                durability: fortuna_base::CORE_DEFENDER_DURABILITY,
+            };
+
+            let mut head = Object::new(
+                ObjectKind::Scenery,
+                ShapeId::FORTUNA_CORE_TURRET_HEAD,
+                Behavior::Effect,
+            );
+            head.base.position = Vector3 {
+                y: position
+                    .y
+                    .saturating_add(fortuna_base::CORE_DEFENDER_HEAD_HEIGHT),
+                ..position
+            };
+            head.base.yaw = fortuna_base::CORE_DEFENDER_YAWS[index];
+            head.base.attachment = Some(defender_id);
+            self.fortuna_core_defender_heads[index] = Some(
+                self.state
+                    .objects
+                    .allocate(head)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+
+        let mut controller = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::FORTUNA_CORE_CONTROLLER,
+            Behavior::Effect,
+        );
+        controller.base.position = Vector3 {
+            y: 0,
+            ..fortuna_base::CORE_POSITION
+        };
+        self.fortuna_core_controller = Some(
+            self.state
+                .objects
+                .allocate(controller)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut shield = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::FORTUNA_CORE_SHIELD,
+            Behavior::Effect,
+        );
+        shield.base.position = Vector3 {
+            y: 0,
+            ..fortuna_base::CORE_POSITION
+        };
+        self.fortuna_core_shield = Some(
+            self.state
+                .objects
+                .allocate(shield)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut core = Object::new(ObjectKind::Enemy, ShapeId::FORTUNA_CORE, Behavior::Effect);
+        core.base.position = fortuna_base::CORE_POSITION;
+        core.base.hit_points = fortuna_base::CORE_DURABILITY;
+        core.base.attack_power = fortuna_base::ENEMY_ATTACK_POWER;
+        core.base.collision_class = CollisionClass::Enemy;
+        core.base.flags.collision_disabled = true;
+        self.fortuna_core = Some(
+            self.state
+                .objects
+                .allocate(core)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.fortuna.core = FortunaCoreStatus::Shielded;
+        Ok(())
+    }
+
+    fn refresh_fortuna_core_defender_statuses(&mut self) {
+        let defender_count = fortuna_base::core_defender_count();
+        for index in 0..defender_count {
+            let status = self.fortuna_core_defenders[index]
+                .and_then(|id| self.state.objects.get(id))
+                .map(|defender| {
+                    if defender.base.explosion_timer > 0 || defender.base.hit_points == 0 {
+                        FortunaDefenderStatus::Destroyed
+                    } else {
+                        FortunaDefenderStatus::Active {
+                            durability: defender.base.hit_points,
+                        }
+                    }
+                })
+                .unwrap_or(FortunaDefenderStatus::Destroyed);
+            self.state.mission.fortuna.core_defenders[index] = status;
+            if status == FortunaDefenderStatus::Destroyed {
+                if let Some(head) = self.fortuna_core_defender_heads[index].take() {
+                    self.state.objects.remove(head);
+                }
+            }
+        }
+    }
+
+    fn refresh_fortuna_core_status(&mut self) {
+        self.state.mission.fortuna.core = self
+            .fortuna_core
+            .and_then(|id| self.state.objects.get(id))
+            .map(|core| {
+                if core.base.flags.collision_disabled
+                    && core.base.hit_points == fortuna_base::CORE_DESTROYED_DURABILITY
+                {
+                    FortunaCoreStatus::Destroyed
+                } else if core.base.hit_points < fortuna_base::CORE_INNER_PHASE_DURABILITY {
+                    FortunaCoreStatus::InnerCore {
+                        durability: core.base.hit_points,
+                    }
+                } else {
+                    FortunaCoreStatus::OuterShell {
+                        durability: core.base.hit_points,
+                    }
+                }
+            })
+            .unwrap_or(FortunaCoreStatus::Destroyed);
+    }
+
+    fn update_fortuna_core_emitters(&mut self) -> Result<(), Error> {
+        self.fortuna_projectiles
+            .retain(|projectile| self.state.objects.get(*projectile).is_some());
+        let elapsed = RETAIL_PRESENTATION_FRAMES_PER_TICK as u8;
+        let wait = self.state.mission.fortuna.core_emitter_wait_retail_frames;
+        if wait > elapsed {
+            self.state.mission.fortuna.core_emitter_wait_retail_frames = wait - elapsed;
+            return Ok(());
+        }
+        let emitter_index = usize::from(self.state.mission.fortuna.core_emitter_index)
+            % fortuna_base::CORE_EMITTER_OFFSETS.len();
+        let launch_position = add_vectors(
+            fortuna_base::CORE_POSITION,
+            fortuna_base::CORE_EMITTER_OFFSETS[emitter_index],
+        );
+        if let Some(target) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position)
+        {
+            self.spawn_fortuna_core_projectile(launch_position, target)?;
+        }
+        self.state.mission.fortuna.core_emitter_index =
+            ((emitter_index + 1) % fortuna_base::CORE_EMITTER_OFFSETS.len()) as u8;
+        self.state.mission.fortuna.core_emitter_wait_retail_frames =
+            fortuna_base::CORE_EMITTER_WAIT_RETAIL_FRAMES;
+        Ok(())
+    }
+
+    fn spawn_fortuna_core_projectile(
+        &mut self,
+        position: Vector3,
+        target: Vector3,
+    ) -> Result<(), Error> {
+        let delta_x = target.x.wrapping_sub(position.x);
+        let delta_y = target.y.wrapping_sub(position.y);
+        let delta_z = target.z.wrapping_sub(position.z);
+        let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+        let pitch = Angle::from_units(sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance));
+        let yaw = Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
+        let mut projectile = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::ENEMY_LASER,
+            Behavior::Projectile,
+        );
+        projectile.base.position = position;
+        projectile.base.pitch = pitch;
+        projectile.base.yaw = yaw;
+        projectile.base.speed = fortuna_base::CORE_PROJECTILE_SPEED;
+        projectile.base.velocity = flight_velocity(
+            pitch,
+            yaw,
+            fortuna_base::CORE_PROJECTILE_SPEED,
+            fortuna_base::CORE_PROJECTILE_POSITION_SCALE,
+        );
+        projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+        projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+        projectile.base.weapon = WeaponKind::EnemyLaser;
+        projectile.base.collision_class = CollisionClass::EnemyWeapon;
+        projectile.base.flags.casts_shadow = false;
+        projectile.extension.activity =
+            ObjectActivity::FortunaCoreProjectile(FortunaCoreProjectileState {
+                age_retail_frames: 0,
+            });
+        let projectile = allocate_hostile_projectile(&mut self.state, projectile)?;
+        self.fortuna_projectiles.push(projectile);
+        Ok(())
+    }
+
     fn update_meteor_base(&mut self) -> Result<(), Error> {
         self.state.mission.active = true;
         let retail_frame = self
@@ -11370,6 +12079,7 @@ impl Game {
         self.clear_eladard_scene();
         self.clear_titania_scene();
         self.clear_macbeth_scene();
+        self.clear_fortuna_scene();
         self.clear_meteor_scene();
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
@@ -11491,6 +12201,13 @@ impl Game {
                     .objectives
                     .planets
                     .rescue(CampaignWorld::Meteor);
+            }
+            MissionVisit::FortunaBase => {
+                self.state
+                    .campaign
+                    .objectives
+                    .planets
+                    .rescue(CampaignWorld::Fortuna);
             }
             MissionVisit::FirstBattleCarrier => {
                 self.state.campaign.objectives.first_carrier = CarrierObjectiveStatus::Destroyed;
@@ -11642,6 +12359,10 @@ impl Game {
                         == PlanetObjectiveStatus::Occupied
                     {
                         METEOR_BASE_DESTINATION
+                    } else if self.state.campaign.objectives.planets.fortuna
+                        == PlanetObjectiveStatus::Occupied
+                    {
+                        FORTUNA_BASE_DESTINATION
                     } else if self.state.campaign.objectives.second_carrier
                         == CarrierObjectiveStatus::Operational
                     {
@@ -11680,6 +12401,12 @@ impl Game {
                     == PlanetObjectiveStatus::Occupied =>
             {
                 Some(StrategicEncounter::MeteorBase)
+            }
+            CampaignRouteStep::StrategicPressure
+                if self.state.campaign.objectives.planets.fortuna
+                    == PlanetObjectiveStatus::Occupied =>
+            {
+                Some(StrategicEncounter::FortunaBase)
             }
             CampaignRouteStep::StrategicPressure
                 if self.state.campaign.objectives.second_carrier
@@ -14572,9 +15299,10 @@ impl Game {
             MissionVisit::FinalPursuer => final_pursuer::RETURN_RETAIL_FRAME,
             MissionVisit::WolfBlockade => wolf_blockade::RETURN_RETAIL_FRAME,
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
-            MissionVisit::TitaniaBase | MissionVisit::MacbethBase | MissionVisit::MeteorBase => {
-                u16::MAX
-            }
+            MissionVisit::TitaniaBase
+            | MissionVisit::MacbethBase
+            | MissionVisit::MeteorBase
+            | MissionVisit::FortunaBase => u16::MAX,
             MissionVisit::EladardBase => u16::MAX,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => u16::MAX,
         };
@@ -14609,6 +15337,7 @@ impl Game {
                 MissionVisit::TitaniaBase
                 | MissionVisit::MacbethBase
                 | MissionVisit::MeteorBase
+                | MissionVisit::FortunaBase
                 | MissionVisit::EladardBase
                 | MissionVisit::FirstBattleCarrier
                 | MissionVisit::SecondBattleCarrier => {}
@@ -15278,6 +16007,9 @@ impl Game {
                 && self.state.mission.visit == MissionVisit::MeteorBase
                 && (self.meteor_queen_body == Some(enemy_id)
                     || self.meteor_installation_core == Some(enemy_id));
+            let fortuna_core_objective = raw_damage > 0
+                && self.state.mission.visit == MissionVisit::FortunaBase
+                && self.fortuna_core == Some(enemy_id);
             let macbeth_knight_blocked = raw_damage > 0
                 && self.state.mission.visit == MissionVisit::MacbethBase
                 && self.macbeth_knight == Some(enemy_id)
@@ -15324,6 +16056,26 @@ impl Game {
                         enemy.base.velocity = Vector3::default();
                     } else {
                         enemy.base.hit_points -= damage;
+                    }
+                }
+                continue;
+            }
+            if fortuna_core_objective {
+                if let Some(core) = self.state.objects.get_mut(enemy_id) {
+                    core.base.flags.collided = true;
+                    let remaining_to_destruction = core
+                        .base
+                        .hit_points
+                        .saturating_sub(fortuna_base::CORE_DESTROYED_DURABILITY);
+                    if damage >= remaining_to_destruction {
+                        core.base.hit_points = fortuna_base::CORE_DESTROYED_DURABILITY;
+                        core.base.flags.collision_disabled = true;
+                        core.base.explosion_timer = ENEMY_DESTRUCTION_TICKS;
+                    } else {
+                        core.base.hit_points -= damage;
+                        if core.base.hit_points < fortuna_base::CORE_INNER_PHASE_DURABILITY {
+                            core.extension.material_set = Some(fortuna_base::CORE_INNER_MATERIAL);
+                        }
                     }
                 }
                 continue;
@@ -15513,6 +16265,10 @@ impl Game {
                 }
                 ObjectActivity::EladardDefenderProjectile(projectile) => {
                     update_eladard_defender_projectile_object(object, projectile);
+                    continue;
+                }
+                ObjectActivity::FortunaCoreProjectile(projectile) => {
+                    update_fortuna_core_projectile_object(object, projectile);
                     continue;
                 }
                 ObjectActivity::CarrierCorridorProjectile(projectile) => {
@@ -15894,6 +16650,25 @@ fn update_eladard_defender_projectile_object(
         .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
     object.extension.activity = ObjectActivity::EladardDefenderProjectile(state);
     if state.age_retail_frames >= ELADARD_DEFENDER_PROJECTILE_LIFETIME_RETAIL_FRAMES {
+        object.base.flags.visible = false;
+        object.base.flags.collision_disabled = true;
+        object.base.flags.remove_after_tick = true;
+        return;
+    }
+    object.base.position.x = object.base.position.x.wrapping_add(object.base.velocity.x);
+    object.base.position.y = object.base.position.y.wrapping_add(object.base.velocity.y);
+    object.base.position.z = object.base.position.z.wrapping_add(object.base.velocity.z);
+}
+
+fn update_fortuna_core_projectile_object(
+    object: &mut Object,
+    mut state: FortunaCoreProjectileState,
+) {
+    state.age_retail_frames = state
+        .age_retail_frames
+        .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+    object.extension.activity = ObjectActivity::FortunaCoreProjectile(state);
+    if state.age_retail_frames >= fortuna_base::CORE_PROJECTILE_LIFETIME_RETAIL_FRAMES {
         object.base.flags.visible = false;
         object.base.flags.collision_disabled = true;
         object.base.flags.remove_after_tick = true;
@@ -27322,6 +28097,359 @@ mod tests {
             MACBETH_RETURN_FLIGHT_RETAIL_FRAMES,
             MACBETH_RETURN_TO_MAP_RETAIL_FRAMES - MACBETH_CORE_RETIRE_RETAIL_FRAMES
         );
+    }
+
+    #[test]
+    fn fortuna_switches_guardian_defenses_and_core_form_one_native_visit() {
+        const PHASE_TRANSITION_BUDGET_TICKS: usize = 1_000;
+
+        fn retail_frame(game: &Game) -> u16 {
+            game.state
+                .mode_frame
+                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                .min(u32::from(u16::MAX)) as u16
+        }
+
+        fn set_player_form(game: &mut Game, form: PlayerCraftForm) {
+            let player = game
+                .state
+                .mission
+                .primary_player
+                .expect("Fortuna keeps the primary craft allocated");
+            game.state.mission.player_craft_form = form;
+            let presentation = match form {
+                PlayerCraftForm::Flight => PlayerCraftPresentation::Flight,
+                PlayerCraftForm::Walker => PlayerCraftPresentation::Walker,
+                PlayerCraftForm::Transforming(_) => return,
+            };
+            game.apply_player_craft_presentation(player, presentation);
+        }
+
+        fn strike(game: &mut Game, target: ObjectId, damage: u8) {
+            let position = game.state.objects.get(target).unwrap().base.position;
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                Behavior::Projectile,
+            );
+            laser.base.position = position;
+            laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+            laser.base.attack_power = damage;
+            laser.base.weapon = WeaponKind::ChargedLaser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            let laser = game.state.objects.allocate(laser).unwrap();
+            game.resolve_mission_collisions();
+            game.state.objects.remove(laser);
+            assert!(game.state.objects.get(target).is_some());
+        }
+
+        fn strike_until_defeated(game: &mut Game, target: ObjectId, durability: u8) {
+            for _ in 0..durability.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) {
+                strike(game, target, PLAYER_CHARGED_LASER_ATTACK_POWER);
+            }
+        }
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.clear_sortie_runtime();
+        game.state.mode = GameMode::StrategicMap;
+        game.state.campaign.difficulty = Difficulty::Hard;
+        game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
+        game.state.campaign.objectives.planets = super::super::state::CampaignPlanetObjectives {
+            venom: PlanetObjectiveStatus::Unoccupied,
+            titania: PlanetObjectiveStatus::Unoccupied,
+            macbeth: PlanetObjectiveStatus::Unoccupied,
+            eladard: PlanetObjectiveStatus::Unoccupied,
+            meteor: PlanetObjectiveStatus::Unoccupied,
+            fortuna: PlanetObjectiveStatus::Occupied,
+        };
+        game.state.campaign.objectives.second_carrier = CarrierObjectiveStatus::Destroyed;
+        game.state.strategic_map.phase = StrategicMapPhase::Planning;
+        game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
+        game.state.strategic_map.destination = INITIAL_PLAYER_MAP_POSITION;
+
+        game.tick(Button::Down as u16).unwrap();
+        assert_eq!(
+            game.state.strategic_map.selected_encounter,
+            Some(StrategicEncounter::FortunaBase)
+        );
+        assert_eq!(
+            game.state.strategic_map.destination,
+            FORTUNA_BASE_DESTINATION
+        );
+        game.tick(0).unwrap();
+        game.tick(Button::B as u16).unwrap();
+
+        assert_eq!(game.mission(), Some(MissionVisit::FortunaBase));
+        assert_eq!(
+            game.state.mission.fortuna,
+            FortunaMissionState {
+                phase: FortunaPhase::SurfaceSwitches,
+                phase_started_retail_frame: 0,
+                surface_switches: [FortunaSwitchStatus::Active; FORTUNA_SURFACE_SWITCH_COUNT],
+                kick_gunner: FortunaDefenderStatus::Dormant,
+                kick_gunner_motion_step: 0,
+                core_defenders: [FortunaDefenderStatus::NotInstalled;
+                    FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
+                core: FortunaCoreStatus::Shielded,
+                core_emitter_index: 0,
+                core_emitter_wait_retail_frames: fortuna_base::CORE_EMITTER_WAIT_RETAIL_FRAMES,
+            }
+        );
+        let player = game.state.mission.primary_player.unwrap();
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            fortuna_base::SURFACE_START_POSITION
+        );
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.speed,
+            fortuna_base::SURFACE_START_SPEED
+        );
+
+        while game.state.mission.phase != MissionPhase::Active {
+            game.tick(0).unwrap();
+        }
+        game.state.objects.get_mut(player).unwrap().base.speed = 0;
+        let first_switch = game.fortuna_surface_switches[0].unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position =
+            fortuna_base::SURFACE_SWITCH_POSITIONS[0];
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.surface_switches[0],
+            FortunaSwitchStatus::Active,
+            "the flight craft cannot press a Walker floor switch"
+        );
+
+        set_player_form(&mut game, PlayerCraftForm::Walker);
+        game.state.objects.get_mut(player).unwrap().base.position =
+            fortuna_base::SURFACE_SWITCH_POSITIONS[0];
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.surface_switches[0],
+            FortunaSwitchStatus::Pressed
+        );
+        assert_eq!(
+            game.state.objects.get(first_switch).unwrap().base.shape,
+            ShapeId::FORTUNA_SWITCH_PRESSED
+        );
+        game.state.objects.get_mut(player).unwrap().base.position =
+            fortuna_base::SURFACE_SWITCH_POSITIONS[1];
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.fortuna.phase, FortunaPhase::SurfaceEntry);
+
+        game.state.objects.get_mut(player).unwrap().base.position =
+            fortuna_base::INSTALLATION_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.phase,
+            FortunaPhase::KickGunnerCombat
+        );
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            fortuna_base::INTERIOR_START_POSITION
+        );
+        let guardian = game.fortuna_kick_gunner.unwrap();
+        assert_eq!(
+            game.state.objects.get(guardian).unwrap().base.hit_points,
+            fortuna_base::KICK_GUNNER_DURABILITY
+        );
+        let guardian_phase_start = game.state.mission.fortuna.phase_started_retail_frame;
+        while retail_frame(&game)
+            .saturating_sub(guardian_phase_start)
+            .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
+            < fortuna_base::KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES
+        {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(
+            game.state.objects.get(guardian).unwrap().base.position,
+            fortuna_base::KICK_GUNNER_INITIAL_POSITION
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.objects.get(guardian).unwrap().base.position,
+            fortuna_base::KICK_GUNNER_MOTION[0]
+        );
+        while game.state.mission.fortuna.kick_gunner_motion_step < 4 {
+            game.tick(0).unwrap();
+        }
+        assert!(
+            game.state
+                .objects
+                .get(guardian)
+                .unwrap()
+                .base
+                .flags
+                .collision_disabled,
+            "Kick Gunner cannot be hit while submerged"
+        );
+        while game
+            .state
+            .objects
+            .get(guardian)
+            .unwrap()
+            .base
+            .flags
+            .collision_disabled
+        {
+            game.tick(0).unwrap();
+        }
+        strike_until_defeated(&mut game, guardian, fortuna_base::KICK_GUNNER_DURABILITY);
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.phase,
+            FortunaPhase::InteriorTransit
+        );
+
+        game.state.objects.get_mut(player).unwrap().base.position =
+            fortuna_base::INTERIOR_DOORWAY_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.phase,
+            FortunaPhase::CoreDefenders
+        );
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            fortuna_base::CORE_ROOM_START_POSITION
+        );
+        assert_eq!(
+            game.fortuna_core_defenders.iter().flatten().count(),
+            fortuna_base::core_defender_count()
+        );
+        for defender in game.fortuna_core_defenders.into_iter().flatten() {
+            strike_until_defeated(&mut game, defender, fortuna_base::CORE_DEFENDER_DURABILITY);
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.phase,
+            FortunaPhase::CoreShieldOpening
+        );
+        assert_eq!(
+            game.fortuna_core_defender_heads,
+            [None; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT]
+        );
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if game.state.mission.fortuna.phase == FortunaPhase::CoreCombat {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.fortuna.phase, FortunaPhase::CoreCombat);
+        assert!(game.fortuna_core_shield.is_none());
+
+        for _ in 0..usize::from(
+            fortuna_base::CORE_EMITTER_WAIT_RETAIL_FRAMES
+                / RETAIL_PRESENTATION_FRAMES_PER_TICK as u8,
+        ) {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.fortuna_projectiles.len(), 1);
+        let projectile = game.state.objects.get(game.fortuna_projectiles[0]).unwrap();
+        assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+        assert!(matches!(
+            projectile.extension.activity,
+            ObjectActivity::FortunaCoreProjectile(_)
+        ));
+
+        let core = game.fortuna_core.unwrap();
+        game.state.objects.get_mut(core).unwrap().base.hit_points =
+            fortuna_base::CORE_INNER_PHASE_DURABILITY + 1;
+        strike(&mut game, core, 2);
+        assert_eq!(
+            game.state.objects.get(core).unwrap().base.hit_points,
+            fortuna_base::CORE_INNER_PHASE_DURABILITY - 1
+        );
+        assert_eq!(
+            game.state.objects.get(core).unwrap().extension.material_set,
+            Some(fortuna_base::CORE_INNER_MATERIAL)
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.core,
+            FortunaCoreStatus::InnerCore {
+                durability: fortuna_base::CORE_INNER_PHASE_DURABILITY - 1,
+            }
+        );
+
+        game.state.objects.get_mut(core).unwrap().base.hit_points =
+            fortuna_base::CORE_DESTROYED_DURABILITY + 1;
+        strike(&mut game, core, 2);
+        assert_eq!(
+            game.state.objects.get(core).unwrap().base.hit_points,
+            fortuna_base::CORE_DESTROYED_DURABILITY
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.fortuna.phase,
+            FortunaPhase::CoreDestruction
+        );
+        let core_defeat_frame = game.state.mission.fortuna.phase_started_retail_frame;
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if game.state.mission.fortuna.phase == FortunaPhase::ReturnFlight {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.fortuna.phase, FortunaPhase::ReturnFlight);
+        assert_eq!(
+            game.state.mission.fortuna.phase_started_retail_frame,
+            core_defeat_frame.saturating_add(fortuna_base::CORE_RETIRE_RETAIL_FRAMES)
+        );
+        assert!(game.fortuna_core.is_none());
+        assert!(game.fortuna_projectiles.is_empty());
+
+        let mut return_native_ticks = 0;
+        while game.mode() == GameMode::Mission {
+            game.tick(0).unwrap();
+            return_native_ticks += 1;
+        }
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(
+            return_native_ticks,
+            usize::from(
+                fortuna_base::RETURN_FLIGHT_RETAIL_FRAMES
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+            )
+        );
+        assert_eq!(
+            game.state.campaign.objectives.planets.fortuna,
+            PlanetObjectiveStatus::Rescued
+        );
+        assert!(game.fortuna_installation.is_none());
+        assert!(game.fortuna_kick_gunner.is_none());
+        assert!(game.fortuna_core_controller.is_none());
+        assert!(game.fortuna_core_shield.is_none());
+        assert_eq!(
+            fortuna_base::RETURN_FLIGHT_RETAIL_FRAMES,
+            fortuna_base::RETURN_TO_MAP_RETAIL_FRAMES - fortuna_base::CORE_RETIRE_RETAIL_FRAMES
+        );
+    }
+
+    #[test]
+    fn fortuna_expert_core_uses_verified_defender_pair() {
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.clear_sortie_runtime();
+        game.state.campaign.difficulty = Difficulty::Expert;
+        game.begin_fortuna_sortie().unwrap();
+        game.spawn_fortuna_core_room().unwrap();
+
+        assert_eq!(
+            game.fortuna_core_defenders.iter().flatten().count(),
+            fortuna_base::core_defender_count()
+        );
+        for (index, defender) in game.fortuna_core_defenders.iter().enumerate() {
+            let object = game.state.objects.get(defender.unwrap()).unwrap();
+            assert_eq!(
+                object.base.position,
+                fortuna_base::CORE_DEFENDER_POSITIONS[index]
+            );
+            assert_eq!(object.base.yaw, fortuna_base::CORE_DEFENDER_YAWS[index]);
+            assert_eq!(
+                object.base.hit_points,
+                fortuna_base::CORE_DEFENDER_DURABILITY
+            );
+        }
     }
 
     #[test]

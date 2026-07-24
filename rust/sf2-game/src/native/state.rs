@@ -1142,6 +1142,7 @@ pub enum StrategicEncounter {
     TitaniaBase,
     MacbethBase,
     MeteorBase,
+    FortunaBase,
     SecondBattleCarrier,
     RecurringAttackers,
     LeonPressure,
@@ -1161,6 +1162,7 @@ pub enum MissionVisit {
     TitaniaBase,
     MacbethBase,
     MeteorBase,
+    FortunaBase,
     FirstBattleCarrier,
     SecondBattleCarrier,
     LeonDuel,
@@ -1354,6 +1356,7 @@ pub struct MissionState {
     pub eladard: EladardMissionState,
     pub titania: TitaniaMissionState,
     pub macbeth: MacbethMissionState,
+    pub fortuna: FortunaMissionState,
     pub meteor: MeteorMissionState,
     pub carrier_assault: CarrierAssaultState,
     pub astropolis: AstropolisMissionState,
@@ -1855,6 +1858,70 @@ pub struct MacbethMissionState {
     pub knight: MacbethDefenderStatus,
     pub core_turrets: [MacbethDefenderStatus; 2],
     pub core: MacbethCoreStatus,
+}
+
+pub const FORTUNA_SURFACE_SWITCH_COUNT: usize = 2;
+pub const FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT: usize = 2;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FortunaPhase {
+    #[default]
+    SurfaceSwitches,
+    SurfaceEntry,
+    KickGunnerCombat,
+    InteriorTransit,
+    CoreDefenders,
+    CoreShieldOpening,
+    CoreCombat,
+    CoreDestruction,
+    ReturnFlight,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FortunaSwitchStatus {
+    #[default]
+    Active,
+    Pressed,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FortunaDefenderStatus {
+    #[default]
+    NotInstalled,
+    Dormant,
+    Active {
+        durability: u8,
+    },
+    Destroyed,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FortunaCoreStatus {
+    #[default]
+    Shielded,
+    OuterShell {
+        durability: u8,
+    },
+    InnerCore {
+        durability: u8,
+    },
+    Destroyed,
+}
+
+/// Flat mission-owned state for Fortuna's submerged switches, interior
+/// guardian, shield defenses, and two-threshold installation core. Source
+/// object slots and strategy storage never enter the native game state.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct FortunaMissionState {
+    pub phase: FortunaPhase,
+    pub phase_started_retail_frame: u16,
+    pub surface_switches: [FortunaSwitchStatus; FORTUNA_SURFACE_SWITCH_COUNT],
+    pub kick_gunner: FortunaDefenderStatus,
+    pub kick_gunner_motion_step: u8,
+    pub core_defenders: [FortunaDefenderStatus; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
+    pub core: FortunaCoreStatus,
+    pub core_emitter_index: u8,
+    pub core_emitter_wait_retail_frames: u8,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

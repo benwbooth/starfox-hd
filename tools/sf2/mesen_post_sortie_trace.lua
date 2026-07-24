@@ -77,6 +77,12 @@ local force_meteor_core_trigger =
 force_macbeth_core_gate =
   os.getenv("SF2_ORACLE_FORCE_MACBETH_CORE_GATE") == "1"
 force_macbeth_core_gate_applied = false
+force_fortuna_boss_gate =
+  os.getenv("SF2_ORACLE_FORCE_FORTUNA_BOSS_GATE") == "1"
+force_fortuna_boss_gate_applied = false
+force_fortuna_core_gate =
+  os.getenv("SF2_ORACLE_FORCE_FORTUNA_CORE_GATE") == "1"
+force_fortuna_core_gate_applied = false
 -- ImportByteIndexed 0x2B reads the retail encounter latch at
 -- INDEXED_VARIABLE_TABLE + 0x2B. Keep the named oracle address global because
 -- this large script is at Lua's main-chunk local limit.
@@ -193,6 +199,10 @@ forced_target_object = forced_target_object_text
 forced_target_object_shape = nil
 forced_target_object_retired = false
 local forced_target_health = tonumber(os.getenv("SF2_ORACLE_TARGET_HEALTH"))
+forced_target_path_text = os.getenv("SF2_ORACLE_TARGET_PATH")
+forced_target_path = forced_target_path_text
+  and tonumber(forced_target_path_text, 16) or nil
+forced_target_path_applied = false
 if forced_target_shape_text then
   assert(
     forced_target_shape and forced_target_shape <= 0xFFFF,
@@ -207,6 +217,11 @@ if forced_target_health then
   assert(
     forced_target_health >= 0 and forced_target_health <= 255,
     "SF2_ORACLE_TARGET_HEALTH must be byte-sized")
+end
+if forced_target_path_text then
+  assert(
+    forced_target_path and forced_target_path <= 0xFFFF,
+    "SF2_ORACLE_TARGET_PATH must be a four-digit hexadecimal path offset")
 end
 if forced_objective_remaining then
   assert(
@@ -234,6 +249,8 @@ local forced_stage_selection = tonumber(
   os.getenv("SF2_ORACLE_STAGE_SELECTION"))
 forced_difficulty_selection = tonumber(
   os.getenv("SF2_ORACLE_DIFFICULTY_SELECTION"))
+forced_active_difficulty_selection = tonumber(
+  os.getenv("SF2_ORACLE_ACTIVE_DIFFICULTY_SELECTION"))
 local forced_map_target_selection = tonumber(
   os.getenv("SF2_ORACLE_MAP_TARGET_SELECTION"))
 -- Deliberately global: this large oracle has reached Lua's main-chunk local
@@ -288,6 +305,12 @@ if forced_difficulty_selection then
   assert(
     forced_difficulty_selection >= 0 and forced_difficulty_selection <= 2,
     "SF2_ORACLE_DIFFICULTY_SELECTION must identify a retail difficulty")
+end
+if forced_active_difficulty_selection then
+  assert(
+    forced_active_difficulty_selection >= 0
+      and forced_active_difficulty_selection <= 2,
+    "SF2_ORACLE_ACTIVE_DIFFICULTY_SELECTION must identify a retail difficulty")
 end
 if forced_map_target_selection then
   assert(
@@ -1961,6 +1984,7 @@ local function provide_combat_autopilot()
   local target_shape = 0
   local approaching_carrier = false
   local approaching_macbeth_base = false
+  local approaching_fortuna_base = false
   local target_distance_squared = math.huge
   local meteor_map = work_word(0x1657)
   local eladard_interior = work_byte(0x1BB5) == 3
@@ -1983,6 +2007,9 @@ local function provide_combat_autopilot()
   local macbeth_surface = work_byte(0x1BB5) == 2
     and work_byte(0x192E) == 0x05
     and meteor_map == 0x24D8
+  local fortuna_surface = work_byte(0x1BB5) == 5
+    and work_byte(0x192E) == 0x05
+    and meteor_map == 0x4B40
   local titania_surface = work_byte(0x1BB5) == 1
     and work_byte(0xD7A1) > 1
   if work_byte(0x1BB5) == 1
@@ -2009,9 +2036,13 @@ local function provide_combat_autopilot()
   local macbeth_interior = work_byte(0x1BB5) == 2
     and work_byte(0x192E) == 0x05
     and meteor_map == 0x2889
+  local fortuna_interior = work_byte(0x1BB5) == 5
+    and work_byte(0x192E) == 0x05
+    and (meteor_map == 0x4F5B or meteor_map == 0x4FD7)
   local inside_planetary_base = eladard_base_entered
     or meteor_interior
     or macbeth_interior
+    or fortuna_interior
     or titania_base_entered
   local requested_object_seen = false
   local allow_ordinary_targets = not forced_target_shape
@@ -2035,6 +2066,22 @@ local function provide_combat_autopilot()
       force_macbeth_core_gate_applied = true
       lines[#lines + 1] = string.format(
         "elapsed=%d event=macbeth-core-gate-released controller=%04X phase=2",
+        frame - armed_frame,
+        object)
+    end
+    if force_fortuna_core_gate and not force_fortuna_core_gate_applied
+      and work_byte(0x1BB5) == 5 and work_byte(0x192E) == 0x05
+      and work_word(0x1657) == 0x4FD7 and shape == 0xF2F8
+      and work_word(object + 0x2B) == 0x5E4A then
+      -- Oracle-only fast-forward after the retail defensive emplacements are
+      -- retired. The controller compares this completed-defense count with
+      -- its required count, then performs the original shield and core
+      -- activation paths; those downstream transitions remain retail code.
+      emu.write(object + 0x1CE3, 2, emu.memType.snesWorkRam)
+      force_fortuna_core_gate_applied = true
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=fortuna-core-gate-released " ..
+          "controller=%04X completed_defenses=2",
         frame - armed_frame,
         object)
     end
@@ -2095,6 +2142,20 @@ local function provide_combat_autopilot()
       and shape == forced_target_object_shape
     if requested_object then requested_object_seen = true end
     local requested_target = requested_object or requested_shape
+    if requested_target and forced_target_path
+      and not forced_target_path_applied then
+      forced_target_initial_path = work_word(object + 0x2B)
+      write_work_word(object + 0x2B, forced_target_path)
+      forced_target_path_applied = true
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=forced-target-path object=%04X shape=%04X " ..
+          "from=%04X to=%04X",
+        frame - armed_frame,
+        object,
+        shape,
+        forced_target_initial_path,
+        forced_target_path)
+    end
     if requested_target and forced_target_collision_applied then
       local current_path = work_word(object + 0x2B)
       if current_path ~= forced_target_initial_path then
@@ -2176,6 +2237,9 @@ local function provide_combat_autopilot()
       and (work_byte(object + 0x26) & 0x02) == 0
     local macbeth_base_entrance = macbeth_surface
       and work_byte(0xD7A1) == 1 and shape == 0xD6C0
+    local fortuna_base_entrance = fortuna_surface
+      and work_byte(0xD7A1) == 1 and work_byte(0xD78B) == 3
+      and shape == 0xD6C0
     local titania_switch_target = titania_surface and shape == 0xEF5C
     local titania_route_landmark = titania_surface and shape == 0xEDD4
     local carrier_exterior_anchor = work_byte(0x1BB5) == 8
@@ -2214,7 +2278,7 @@ local function provide_combat_autopilot()
         or eladard_barrier or planetary_base_defender
         or eladard_target_switch
         or meteor_surface_target or macbeth_switch_target
-        or macbeth_base_entrance
+        or macbeth_base_entrance or fortuna_base_entrance
         or titania_switch_target
         or titania_route_landmark
         or carrier_exterior_anchor or carrier_core or fighter_collision
@@ -2241,6 +2305,8 @@ local function provide_combat_autopilot()
         and target_shape ~= 0xEF5C
       local prefer_macbeth_base_entrance = macbeth_base_entrance
         and target_shape ~= 0xD6C0
+      local prefer_fortuna_base_entrance = fortuna_base_entrance
+        and target_shape ~= 0xD6C0
       local prefer_astropolis_security_turret = astropolis_security_turret
         and target_shape ~= 0xF65C
       local prefer_astropolis_target_switch = astropolis_target_switch
@@ -2255,6 +2321,7 @@ local function provide_combat_autopilot()
             or prefer_meteor_surface_target
             or prefer_macbeth_switch_target
             or prefer_macbeth_base_entrance
+            or prefer_fortuna_base_entrance
             or prefer_astropolis_security_turret
             or prefer_astropolis_target_switch
             or carrier_exterior_anchor
@@ -2264,6 +2331,7 @@ local function provide_combat_autopilot()
         target_shape = shape
         approaching_carrier = carrier_exterior_anchor
         approaching_macbeth_base = macbeth_base_entrance
+        approaching_fortuna_base = fortuna_base_entrance
         target_distance_squared = distance_squared
       end
     end
@@ -2301,6 +2369,18 @@ local function provide_combat_autopilot()
           forced_target_object,
           forced_target_object_shape)
       end
+      if forced_target_path and not forced_target_path_applied then
+        write_work_word(forced_target_object + 0x2B, forced_target_path)
+        forced_target_path_applied = true
+        lines[#lines + 1] = string.format(
+          "elapsed=%d event=forced-target-child-path object=%04X " ..
+            "shape=%04X from=%04X to=%04X",
+          frame - armed_frame,
+          forced_target_object,
+          forced_target_object_shape,
+          forced_target_initial_path,
+          forced_target_path)
+      end
     end
   end
   if forced_target_object and forced_target_object_shape
@@ -2329,6 +2409,14 @@ local function provide_combat_autopilot()
   local target_x = target ~= 0 and signed_word(target + 12) or 0
   local target_y = target ~= 0 and signed_word(target + 14) or 0
   local target_z = target ~= 0 and signed_word(target + 16) or 0
+  if approaching_fortuna_base
+    and (player_x < -1700 or math.abs(player_z) > 96) then
+    -- The opened tunnel is on the installation's west face. Align with that
+    -- face before advancing on the centre marker; aiming at the marker from
+    -- the northwest beach intersects the cylinder's intact outer wall.
+    target_x = -1700
+    target_z = 0
+  end
   local behind_macbeth_knight = target_shape == 0xE974
     and target ~= 0 and player_z > target_z + 400
   if target_shape == 0xE974 and target ~= 0
@@ -2590,6 +2678,8 @@ local function provide_combat_autopilot()
     buttons = {}
   elseif approaching_macbeth_base then
     buttons = {}
+  elseif approaching_fortuna_base then
+    buttons = {}
   elseif fighting_rival or fighting_mirage_dragon then
     buttons = {
       -- Mobile rivals and Mirage Dragon's mouth are most reliably hit with
@@ -2634,7 +2724,9 @@ local function provide_combat_autopilot()
     local desired_pitch = math.floor(math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
     local planetary_base_walker =
       (inside_planetary_base or meteor_surface or macbeth_surface
-        or titania_surface)
+        or titania_surface or fortuna_surface)
+      and is_player_walker_shape(player_shape)
+    local fortuna_base_walker = approaching_fortuna_base
       and is_player_walker_shape(player_shape)
     local carrier_core_walker = fighting_carrier_core
       or fighting_astropolis_core
@@ -2709,6 +2801,12 @@ local function provide_combat_autopilot()
           -- circling into the arena while the boss turns toward the Walker.
           buttons.up = true
         end
+      elseif fortuna_base_walker then
+        -- Fortuna uses normal Walker steering underwater: the shoulder
+        -- buttons turn and Up advances. Its opened installation is entered
+        -- through the submerged side, so continue toward the retail shell
+        -- instead of trying to descend through the solid roof marker.
+        buttons.up = math.abs(yaw_difference) < 16
       elseif target_distance_squared > approach_distance_squared then
         local axis_tolerance = activation_target and 0 or 128
         if fighting_eladard_barrier then
@@ -2733,7 +2831,13 @@ local function provide_combat_autopilot()
       if planetary_base_walker and player_z > 0 then
         buttons.x = pulse(frame, 90, 0)
       end
-      if activation_target and not macbeth_surface then
+      if fortuna_base_walker then
+        -- Y raises the Walker and A accelerates it. Use the retail altitude as
+        -- feedback so the verification pilot stays centered on the submerged
+        -- tunnel rather than surfacing over it or sinking below it.
+        buttons.a = true
+        buttons.y = player_y < -480
+      elseif activation_target and not macbeth_surface then
         -- Activation targets can sit beyond raised terrain. Forward motion
         -- alone can stop the Walker just outside the contact volume, so use
         -- the retail jump controls while advancing onto the target. Let its
@@ -2798,7 +2902,8 @@ local function provide_combat_autopilot()
     end
     input_label = string.format(
       "combat-autopilot-%s-%04X-flags%02X-yaw%d-pitch%d",
-      approaching_carrier and "carrier-approach" or "target",
+      approaching_carrier and "carrier-approach"
+        or (approaching_fortuna_base and "fortuna-entrance" or "target"),
       target,
       work_byte(target + 0x26),
       yaw_difference,
@@ -3587,6 +3692,28 @@ local function end_frame()
 end
 
 local function isolate_map_layers()
+  if forced_active_difficulty_selection and loaded_state
+    and work_byte(0x1B68) == 1 then
+    -- Oracle-only difficulty isolation for a mission savestate. This permits
+    -- the immediately following retail phase loader to expose a difficulty
+    -- variant without reproducing the already-verified campaign approach.
+    write_work_word(0xD7F2, forced_active_difficulty_selection)
+  end
+  if force_fortuna_boss_gate and not force_fortuna_boss_gate_applied
+    and loaded_state and work_byte(0x1B68) == 1
+    and work_byte(0x1BB5) == 5 and work_byte(0x192E) == 0x05
+    and work_word(0x1657) == 0x4D4B then
+    -- Oracle-only phase isolation. The extracted retail map graph proves
+    -- this persistent jump resumes at the immediately following command.
+    -- Advancing only that gate permits retail to create and run the Fortuna
+    -- interior encounter while the missing outer-stage release is recovered.
+    write_work_word(0x1655, 0)
+    write_work_word(0x1657, 0x4D4F)
+    force_fortuna_boss_gate_applied = true
+    lines[#lines + 1] = string.format(
+      "elapsed=%d event=fortuna-boss-gate-released",
+      frame - armed_frame)
+  end
   if forced_base_destroyed_bits and not forced_base_destroyed_bits_applied
     and loaded_state and work_byte(0x1B68) == 1 then
     -- Oracle-only base-flow isolation. Retail base controllers consume this
@@ -4251,12 +4378,26 @@ if traced_map_actor then
 end
 if trace_map_control then
   local map_control_ranges = {
-    { 0x1655, 0x1657 },
+    { 0x1655, 0x1658 },
     { 0x1B68, 0x1B68 },
     { 0x1B88, 0x1B96 },
+    -- The stage-wide encounter state is copied by path 7BA0 into indexed
+    -- weak-point latches.  Trace its writer so the native fixture records
+    -- the semantic activation event instead of merely observing the copy.
+    { 0x1BBB, 0x1BBB },
     { 0x1BE0, 0x1BF2 },
+    { 0x1D72, 0x1D72 },
+    { 0x1D77, 0x1D79 },
     -- Indexed path variable 47 is the retail base-controller handshake.
     { 0xD78B, 0xD78B },
+    -- Indexed path variable 43 gates installation weak-point activation.
+    -- Trace its producer as well as the consumers already visible in object
+    -- path snapshots; oracle output keeps this source address out of Rust.
+    { 0xD787, 0xD787 },
+    -- Fortuna's installation controller counts retired defenses in its
+    -- extended state.  This oracle-only address exposes the exact retail
+    -- handshake after a legitimate projectile retirement.
+    { 0x27C3, 0x27C3 },
     { 0xD7A1, 0xD7A1 },
     { 0xD7F4, 0xD7F7 },
     { 0xDA0F, 0xDA10 },
@@ -4280,9 +4421,14 @@ if trace_map_control_reads then
   -- Deduplication by source instruction exposes the retail state handlers
   -- without flooding the compact oracle trace.
   local map_control_read_ranges = {
-    { 0x1655, 0x1657 },
+    { 0x1655, 0x1658 },
+    { 0x1BBB, 0x1BBB },
     { 0x1BF2, 0x1BF2 },
+    { 0x1D72, 0x1D72 },
+    { 0x1D77, 0x1D79 },
     { 0xD78B, 0xD78B },
+    { 0xD787, 0xD787 },
+    { 0x27C3, 0x27C3 },
     { 0xD7A1, 0xD7A1 },
     { 0xD7F4, 0xD7F7 },
     { 0xDA0F, 0xDA10 },

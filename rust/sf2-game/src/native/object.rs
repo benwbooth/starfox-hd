@@ -283,6 +283,20 @@ impl ShapeId {
     pub const MACBETH_CORE_TURRET: Self = Self(500);
     pub const MACBETH_CORE: Self = Self(428);
 
+    /// Fortuna mission meshes selected through the flat decoded catalog. The
+    /// installation shares retail geometry with other planetary bases, while
+    /// its guardian has a dedicated catalog entry.
+    pub const FORTUNA_SWITCH_ACTIVE: Self = Self(464);
+    pub const FORTUNA_SWITCH_PRESSED: Self = Self(465);
+    pub const FORTUNA_INSTALLATION_OPEN: Self = Self(239);
+    pub const FORTUNA_KICK_GUNNER: Self = Self(416);
+    pub const FORTUNA_INTERIOR_DOORWAY: Self = Self(191);
+    pub const FORTUNA_CORE_CONTROLLER: Self = Self(497);
+    pub const FORTUNA_CORE_SHIELD: Self = Self(498);
+    pub const FORTUNA_CORE_TURRET_HEAD: Self = Self(499);
+    pub const FORTUNA_CORE_TURRET: Self = Self(500);
+    pub const FORTUNA_CORE: Self = Self(428);
+
     pub const fn from_catalog_index(index: u16) -> Self {
         Self(index)
     }
@@ -709,6 +723,12 @@ pub struct EladardDefenderProjectileState {
     pub age_retail_frames: u8,
 }
 
+/// Lifetime state for a laser emitted by Fortuna's exposed core assembly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FortunaCoreProjectileState {
+    pub age_retail_frames: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CarrierCorridorDefenderPhase {
     Crossing {
@@ -756,6 +776,7 @@ pub enum ObjectActivity {
     QueenDragoonFlight(QueenDragoonFlightState),
     EladardDefender(EladardDefenderState),
     EladardDefenderProjectile(EladardDefenderProjectileState),
+    FortunaCoreProjectile(FortunaCoreProjectileState),
     CarrierCorridorDefender(CarrierCorridorDefenderState),
     CarrierCorridorProjectile(CarrierCorridorProjectileState),
     PlayerProjectile(PlayerProjectileState),

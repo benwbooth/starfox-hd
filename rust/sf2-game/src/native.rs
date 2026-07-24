@@ -32,8 +32,9 @@ pub use state::{
     CampaignProgress, CampaignState, CarrierAssaultPhase, CarrierAssaultState, CarrierReactorPanel,
     ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
     EladardDefenderStatus, EladardGeneratorStatus, EladardMissionState, EladardPhase, EndingPhase,
-    EndingState, FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-    GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
+    EndingState, FlightControlStyle, FortunaCoreStatus, FortunaDefenderStatus, FortunaMissionState,
+    FortunaPhase, FortunaSwitchStatus, GameMode, GameOverChoice, GameOverDestination,
+    GameOverPhase, GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
     MacbethInstallationStatus, MacbethMissionState, MacbethPhase, MacbethSwitchStatus,
     MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus, MissionMessage,
     MissionMessageIrisFrame, MissionMessagePhase, MissionMessageState, MissionPhase, MissionState,
@@ -45,7 +46,8 @@ pub use state::{
     StrategicMapPhase, StrategicMapState, StrategicMapTutorialPage, StrategicOpeningPage,
     StrategicOpeningState, TitaniaFinalSwitchStatus, TitaniaMissionState, TitaniaPhase,
     TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, TitleState, WalkerJumpMotion,
-    WalkerJumpState, WalkerMotionProfile, SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
+    WalkerJumpState, WalkerMotionProfile, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
+    FORTUNA_SURFACE_SWITCH_COUNT, SOUND_EVENT_CAPACITY, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 pub use state::{
     BattleCarrierDeployment, CampaignForceCount, CampaignWorldAssignment, DifficultyProfile,
