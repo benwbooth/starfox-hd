@@ -29,6 +29,7 @@ pub use state::{
     CampaignProgress, CampaignState, CarrierAssaultPhase, CarrierAssaultState,
     CarrierReactorPanel, ChargeSound, CorneriaDefensePhase,
     CorneriaDefenseState, Difficulty, EladardMissionState, EladardPhase, EndingPhase, EndingState,
+    EladardBarrierStatus, EladardGeneratorStatus,
     FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState,
     GameState, IntroPhase, MissionMessage, MissionMessageIrisFrame,
     MissionMessagePhase, MissionMessageState, MissionPhase, MissionState, MissionVisit, Pilot,

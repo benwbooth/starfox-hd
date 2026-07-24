@@ -195,6 +195,13 @@ impl ShapeId {
     /// Broken panel mesh shown after ten effective hits.
     pub const CARRIER_REACTOR_PANEL_DESTROYED: Self = Self(144);
 
+    /// Paired defensive structures flanking Eladard's surface entrance.
+    pub const ELADARD_SURFACE_BARRIER: Self = Self(244);
+
+    /// Frame and destructible core of Eladard's interior generator.
+    pub const ELADARD_GENERATOR_FRAME: Self = Self(427);
+    pub const ELADARD_GENERATOR_CORE: Self = Self(428);
+
     pub const fn from_catalog_index(index: u16) -> Self {
         Self(index)
     }

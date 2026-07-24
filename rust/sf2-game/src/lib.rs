@@ -13,6 +13,7 @@ pub use native::{
     CampaignWorld, CampaignWorldAssignment, CarrierAssaultPhase, CarrierAssaultState,
     CarrierReactorPanel, ChargeSound, CollisionClass,
     CorneriaDefensePhase, CorneriaDefenseState, Difficulty,
+    EladardBarrierStatus, EladardGeneratorStatus,
     EladardMissionState, EladardPhase, EndingPhase, EndingState, Error, FlightControlStyle, Game,
     GameMode, GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState,
     InputState, IntroPhase, MaterialSetId, MissionMessage, MissionMessageIrisFrame,

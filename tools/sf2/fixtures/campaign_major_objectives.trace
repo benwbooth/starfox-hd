@@ -17,6 +17,9 @@
 # after a campaign reset. It proves the mission identity and full return path.
 # The retail difficulty tables independently scope the paired deployment to
 # Expert; Normal and Hard each deploy one Battle Carrier.
+# The compact Eladard trace begins from a prepared campaign state. It proves
+# selection-3 mission identity and a return boundary, but it does not certify
+# natural surface, interior, generator-defeat, or mission-completion behavior.
 target name=titania mission_selection=1 required_visits=1
 target name=eladard mission_selection=3 required_visits=1
 target name=battle_carrier difficulty=expert mission_selection=8 required_visits=2

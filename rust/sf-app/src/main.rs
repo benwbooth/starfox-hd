@@ -331,10 +331,8 @@ fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdr
             | EladardPhase::SurfaceBarriers
             | EladardPhase::BaseEntrance
             | EladardPhase::ReturnFlight => Sf2MissionBackdrop::EladardSurface,
-            EladardPhase::WalkerTransformation
-            | EladardPhase::PlatformSwitch
-            | EladardPhase::WallSpider
-            | EladardPhase::Generator
+            EladardPhase::InteriorPassage
+            | EladardPhase::GeneratorRoom
             | EladardPhase::BaseDestruction => Sf2MissionBackdrop::EladardInterior,
         },
         MissionVisit::TitaniaBase => Sf2MissionBackdrop::TitaniaBase,
@@ -1325,10 +1323,8 @@ mod tests {
             );
         }
         for phase in [
-            EladardPhase::WalkerTransformation,
-            EladardPhase::PlatformSwitch,
-            EladardPhase::WallSpider,
-            EladardPhase::Generator,
+            EladardPhase::InteriorPassage,
+            EladardPhase::GeneratorRoom,
             EladardPhase::BaseDestruction,
             EladardPhase::ReturnFlight,
         ] {
@@ -1405,10 +1401,8 @@ mod tests {
             );
         }
         for phase in [
-            EladardPhase::WalkerTransformation,
-            EladardPhase::PlatformSwitch,
-            EladardPhase::WallSpider,
-            EladardPhase::Generator,
+            EladardPhase::InteriorPassage,
+            EladardPhase::GeneratorRoom,
             EladardPhase::BaseDestruction,
         ] {
             mission.eladard.phase = phase;

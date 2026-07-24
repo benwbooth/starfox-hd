@@ -25,13 +25,12 @@ use super::results;
 use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
     CarrierAssaultPhase, CarrierAssaultState, CarrierObjectiveStatus, CarrierReactorPanel,
-    ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardMissionState,
-    EladardPhase, EndingPhase, EndingState, FlightControlStyle, GameMode, GameOverChoice,
-    GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase, MapPoint,
-    MissionMessage,
-    MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
-    PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
-    PlayerBlasterState, PlayerCraftForm,
+    ChargeSound, CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
+    EladardGeneratorStatus, EladardMissionState, EladardPhase, EndingPhase, EndingState,
+    FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
+    GameOverState, GameState, IntroPhase, MapPoint, MissionMessage, MissionMessageIrisFrame,
+    MissionMessagePhase, MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor,
+    PilotSelectionPhase, PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
     PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
     ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
     StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
@@ -337,8 +336,8 @@ const POST_LEON_CARRIER_APPROACH_RETAIL_FRAME: u16 = 2_808;
 const POST_LEON_CARRIER_WARNING_RETAIL_FRAME: u16 = 3_314;
 const POST_LEON_CARRIER_CINEMATIC_RETAIL_FRAME: u16 = 3_399;
 const POST_LEON_RESULTS_RETAIL_FRAME: u16 = 4_840;
-const ELADARD_SURFACE_BARRIER_COUNT: u8 = 2;
-const ELADARD_WALL_SPIDER_HEALTH: u8 = 100;
+const ELADARD_SURFACE_BARRIER_COUNT: usize = 2;
+const ELADARD_SURFACE_BARRIER_DURABILITY: u8 = 100;
 const ELADARD_GENERATOR_HEALTH: u8 = 125;
 const ELADARD_RETURN_SCORE: u32 = 2_251;
 const ELADARD_RETURN_ITEM_COUNT: u8 = 3;
@@ -590,18 +589,51 @@ const CARRIER_PANEL_SCENE: [(Vector3, Angle); 2] = [
         Angle::from_units(192),
     ),
 ];
-const ELADARD_SURFACE_BARRIERS_RETAIL_FRAME: u16 = 1_600;
-const ELADARD_BASE_ENTRANCE_RETAIL_FRAME: u16 = 4_700;
-const ELADARD_WALKER_TRANSFORMATION_RETAIL_FRAME: u16 = 5_000;
-#[cfg(test)]
-const ELADARD_WALKER_READY_RETAIL_FRAME: u16 = ELADARD_WALKER_TRANSFORMATION_RETAIL_FRAME
-    + PLAYER_TRANSFORMATION_TO_WALKER_END_RETAIL_FRAMES as u16;
-const ELADARD_PLATFORM_SWITCH_RETAIL_FRAME: u16 = 7_000;
-const ELADARD_WALL_SPIDER_RETAIL_FRAME: u16 = 8_600;
-const ELADARD_GENERATOR_RETAIL_FRAME: u16 = 10_400;
-const ELADARD_GENERATOR_DESTROYED_RETAIL_FRAME: u16 = 11_822;
-const ELADARD_RETURN_RETAIL_FRAME: u16 = 12_434;
-const ELADARD_MAP_READY_RETAIL_FRAME: u16 = 12_436;
+const ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES: u16 = 612;
+const ELADARD_MAP_RETURN_RETAIL_FRAMES: u16 = 2;
+const ELADARD_BASE_ENTRANCE_Z: i16 = 2_365;
+const ELADARD_BASE_ENTRANCE_HALF_WIDTH: i16 = 400;
+const ELADARD_GENERATOR_ROOM_ENTRANCE_Z: i16 = 2_075;
+const ELADARD_SURFACE_START_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -180,
+    z: -3_072,
+};
+const ELADARD_INTERIOR_START_POSITION: Vector3 = Vector3 {
+    x: 1_024,
+    y: -120,
+    z: 43,
+};
+const ELADARD_GENERATOR_ROOM_PLAYER_POSITION: Vector3 = Vector3 {
+    x: 4_116,
+    y: -41,
+    z: 4_790,
+};
+const ELADARD_GENERATOR_ROOM_ENTRY_YAW: Angle = Angle::from_units(205);
+const ELADARD_GENERATOR_POSITION: Vector3 = Vector3 {
+    x: 5_120,
+    y: 0,
+    z: 5_120,
+};
+const ELADARD_GENERATOR_CORE_HEIGHT: i16 = -152;
+const ELADARD_SURFACE_BARRIER_SCENE: [(Vector3, Angle); ELADARD_SURFACE_BARRIER_COUNT] = [
+    (
+        Vector3 {
+            x: -800,
+            y: -112,
+            z: 2_500,
+        },
+        Angle::from_units(64),
+    ),
+    (
+        Vector3 {
+            x: 799,
+            y: -112,
+            z: 2_500,
+        },
+        Angle::from_units(192),
+    ),
+];
 const SECOND_SORTIE_DEFEATED_TARGET_RETAIL_FRAME: u16 = 6_104;
 const FIRST_RETURN_PRIMARY_SHIELD: u8 = 32;
 const FIRST_RETURN_WINGMATE_SHIELD: u8 = 16;
@@ -4548,6 +4580,9 @@ pub struct Game {
     mirage_dragon: Option<ObjectId>,
     mirage_dragon_body: [Option<ObjectId>; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
     mirage_dragon_tail: Option<ObjectId>,
+    eladard_surface_barriers: [Option<ObjectId>; ELADARD_SURFACE_BARRIER_COUNT],
+    eladard_generator_frame: Option<ObjectId>,
+    eladard_generator_core: Option<ObjectId>,
     carrier_scenery: Vec<ObjectId>,
     carrier_panels: [Option<ObjectId>; 2],
 }
@@ -4587,6 +4622,9 @@ impl Game {
             mirage_dragon: None,
             mirage_dragon_body: [None; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
             mirage_dragon_tail: None,
+            eladard_surface_barriers: [None; ELADARD_SURFACE_BARRIER_COUNT],
+            eladard_generator_frame: None,
+            eladard_generator_core: None,
             carrier_scenery: Vec::with_capacity(16),
             carrier_panels: [None; 2],
         }
@@ -5723,7 +5761,7 @@ impl Game {
         let wingmate_id = self.state.mission.wingmate;
         for craft in [Some(primary_id), wingmate_id].into_iter().flatten() {
             if let Some(object) = self.state.objects.get_mut(craft) {
-                object.base.position = Vector3::default();
+                object.base.position = ELADARD_SURFACE_START_POSITION;
                 object.base.velocity = Vector3::default();
                 object.base.pitch = Angle::ZERO;
                 object.base.yaw = Angle::ZERO;
@@ -5735,13 +5773,13 @@ impl Game {
         self.state.mission.eladard = EladardMissionState {
             phase: EladardPhase::SurfaceApproach,
             phase_started_retail_frame: 0,
-            surface_barriers_remaining: ELADARD_SURFACE_BARRIER_COUNT,
-            platform_switch_pressed: false,
-            wall_spider_hit_points: ELADARD_WALL_SPIDER_HEALTH,
-            generator_active: false,
-            generator_hit_points: ELADARD_GENERATOR_HEALTH,
+            surface_barriers: [EladardBarrierStatus::Active {
+                durability: ELADARD_SURFACE_BARRIER_DURABILITY,
+            }; ELADARD_SURFACE_BARRIER_COUNT],
+            generator: EladardGeneratorStatus::Unreached,
         };
         self.state.mission.objects_destroyed = 0;
+        self.spawn_eladard_surface_scene()?;
         self.start_sortie(MissionVisit::EladardBase, primary_id, wingmate_id);
         Ok(())
     }
@@ -6921,11 +6959,14 @@ impl Game {
             MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
                 self.state.mission.phase = MissionPhase::Active;
             }
-            MissionPhase::Active if retail_frame >= ELADARD_RETURN_RETAIL_FRAME => {
-                self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
-            }
             MissionPhase::ReturningToStrategicMap
-                if retail_frame >= ELADARD_MAP_READY_RETAIL_FRAME =>
+                if retail_frame
+                    >= self
+                        .state
+                        .mission
+                        .eladard
+                        .phase_started_retail_frame
+                        .saturating_add(ELADARD_MAP_RETURN_RETAIL_FRAMES) =>
             {
                 self.finish_sortie();
                 return Ok(());
@@ -6933,81 +6974,57 @@ impl Game {
             _ => {}
         }
 
-        let next_phase = if retail_frame >= ELADARD_RETURN_RETAIL_FRAME {
-            EladardPhase::ReturnFlight
-        } else if retail_frame >= ELADARD_GENERATOR_DESTROYED_RETAIL_FRAME {
-            EladardPhase::BaseDestruction
-        } else if retail_frame >= ELADARD_GENERATOR_RETAIL_FRAME {
-            EladardPhase::Generator
-        } else if retail_frame >= ELADARD_WALL_SPIDER_RETAIL_FRAME {
-            EladardPhase::WallSpider
-        } else if retail_frame >= ELADARD_PLATFORM_SWITCH_RETAIL_FRAME {
-            EladardPhase::PlatformSwitch
-        } else if retail_frame >= ELADARD_WALKER_TRANSFORMATION_RETAIL_FRAME {
-            EladardPhase::WalkerTransformation
-        } else if retail_frame >= ELADARD_BASE_ENTRANCE_RETAIL_FRAME {
-            EladardPhase::BaseEntrance
-        } else if retail_frame >= MISSION_ACTIVE_RETAIL_FRAMES as u16 {
-            EladardPhase::SurfaceBarriers
-        } else {
-            EladardPhase::SurfaceApproach
-        };
-        let previous_eladard_phase = self.state.mission.eladard.phase;
-        if previous_eladard_phase != next_phase {
-            self.state.mission.eladard.phase = next_phase;
-            self.state.mission.eladard.phase_started_retail_frame = retail_frame;
-            match next_phase {
-                EladardPhase::WalkerTransformation
-                    if self.state.mission.player_craft_form == PlayerCraftForm::Flight =>
-                {
-                    self.begin_player_transformation(PlayerCraftTransformationDirection::ToWalker);
+        self.sync_eladard_objectives();
+        if self.state.mission.phase == MissionPhase::Active {
+            match self.state.mission.eladard.phase {
+                EladardPhase::SurfaceApproach => {
+                    self.enter_eladard_phase(EladardPhase::SurfaceBarriers, retail_frame);
                 }
-                EladardPhase::ReturnFlight
-                    if self.state.mission.player_craft_form == PlayerCraftForm::Walker =>
+                EladardPhase::SurfaceBarriers
+                    if self
+                        .state
+                        .mission
+                        .eladard
+                        .surface_barriers
+                        .iter()
+                        .all(|barrier| *barrier == EladardBarrierStatus::Destroyed) =>
                 {
-                    self.begin_player_transformation(PlayerCraftTransformationDirection::ToFlight);
+                    self.enter_eladard_phase(EladardPhase::BaseEntrance, retail_frame);
                 }
-                EladardPhase::SurfaceApproach
-                | EladardPhase::SurfaceBarriers
+                EladardPhase::BaseEntrance if self.eladard_player_can_enter_base() => {
+                    self.enter_eladard_interior();
+                    self.enter_eladard_phase(EladardPhase::InteriorPassage, retail_frame);
+                }
+                EladardPhase::InteriorPassage if self.eladard_player_reached_generator_room() => {
+                    self.enter_eladard_generator_room()?;
+                    self.enter_eladard_phase(EladardPhase::GeneratorRoom, retail_frame);
+                }
+                EladardPhase::GeneratorRoom
+                    if self.state.mission.eladard.generator
+                        == EladardGeneratorStatus::Destroyed =>
+                {
+                    self.enter_eladard_phase(EladardPhase::BaseDestruction, retail_frame);
+                }
+                EladardPhase::BaseDestruction
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .eladard
+                            .phase_started_retail_frame
+                            .saturating_add(ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES)
+                        && self.state.mission.player_craft_form == PlayerCraftForm::Flight =>
+                {
+                    self.enter_eladard_phase(EladardPhase::ReturnFlight, retail_frame);
+                    self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
+                }
+                EladardPhase::SurfaceBarriers
                 | EladardPhase::BaseEntrance
-                | EladardPhase::WalkerTransformation
-                | EladardPhase::PlatformSwitch
-                | EladardPhase::WallSpider
-                | EladardPhase::Generator
+                | EladardPhase::InteriorPassage
+                | EladardPhase::GeneratorRoom
                 | EladardPhase::BaseDestruction
                 | EladardPhase::ReturnFlight => {}
             }
-        }
-
-        {
-            let eladard = &mut self.state.mission.eladard;
-            eladard.surface_barriers_remaining =
-                if retail_frame < ELADARD_SURFACE_BARRIERS_RETAIL_FRAME {
-                    ELADARD_SURFACE_BARRIER_COUNT
-                } else {
-                    0
-                };
-            eladard.platform_switch_pressed = retail_frame >= ELADARD_WALL_SPIDER_RETAIL_FRAME;
-            eladard.wall_spider_hit_points = if retail_frame < ELADARD_GENERATOR_RETAIL_FRAME {
-                ELADARD_WALL_SPIDER_HEALTH
-            } else {
-                0
-            };
-            eladard.generator_active = retail_frame >= ELADARD_GENERATOR_RETAIL_FRAME
-                && retail_frame < ELADARD_GENERATOR_DESTROYED_RETAIL_FRAME;
-            eladard.generator_hit_points = if retail_frame < ELADARD_GENERATOR_RETAIL_FRAME {
-                ELADARD_GENERATOR_HEALTH
-            } else if retail_frame >= ELADARD_GENERATOR_DESTROYED_RETAIL_FRAME {
-                0
-            } else {
-                let remaining = u32::from(
-                    ELADARD_GENERATOR_DESTROYED_RETAIL_FRAME.saturating_sub(retail_frame),
-                );
-                let duration = u32::from(
-                    ELADARD_GENERATOR_DESTROYED_RETAIL_FRAME - ELADARD_GENERATOR_RETAIL_FRAME,
-                );
-                ((remaining * u32::from(ELADARD_GENERATOR_HEALTH)).div_ceil(duration)) as u8
-            };
         }
         self.update_eladard_player_presentation(retail_frame);
         if self.state.mission.phase == MissionPhase::Active {
@@ -7025,8 +7042,206 @@ impl Game {
             .and_then(|id| self.state.objects.get_mut(id))
         {
             primary.base.flags.visible = visible;
-            primary.base.flags.collision_disabled = true;
+            primary.base.flags.collision_disabled =
+                self.state.mission.phase != MissionPhase::Active;
         }
+    }
+
+    fn enter_eladard_phase(&mut self, phase: EladardPhase, retail_frame: u16) {
+        self.state.mission.eladard.phase = phase;
+        self.state.mission.eladard.phase_started_retail_frame = retail_frame;
+    }
+
+    fn sync_eladard_objectives(&mut self) {
+        for index in 0..ELADARD_SURFACE_BARRIER_COUNT {
+            let id = self.eladard_surface_barriers[index];
+            let status = id
+                .and_then(|id| self.state.objects.get(id))
+                .map(|barrier| {
+                    if barrier.base.flags.collision_disabled && barrier.base.explosion_timer > 0 {
+                        EladardBarrierStatus::Destroyed
+                    } else {
+                        EladardBarrierStatus::Active {
+                            durability: barrier.base.hit_points,
+                        }
+                    }
+                })
+                .unwrap_or(EladardBarrierStatus::Destroyed);
+            if id.is_some_and(|id| self.state.objects.get(id).is_none()) {
+                self.eladard_surface_barriers[index] = None;
+            }
+            self.state.mission.eladard.surface_barriers[index] = status;
+        }
+
+        self.state.mission.eladard.generator = match self.eladard_generator_core {
+            Some(id) => match self.state.objects.get(id) {
+                Some(core)
+                    if !core.base.flags.collision_disabled || core.base.explosion_timer == 0 =>
+                {
+                    EladardGeneratorStatus::Active {
+                        durability: core.base.hit_points,
+                    }
+                }
+                Some(_) => EladardGeneratorStatus::Destroyed,
+                None => {
+                    self.eladard_generator_core = None;
+                    EladardGeneratorStatus::Destroyed
+                }
+            },
+            None if matches!(
+                self.state.mission.eladard.phase,
+                EladardPhase::GeneratorRoom
+                    | EladardPhase::BaseDestruction
+                    | EladardPhase::ReturnFlight
+            ) =>
+            {
+                EladardGeneratorStatus::Destroyed
+            }
+            None => EladardGeneratorStatus::Unreached,
+        };
+    }
+
+    fn eladard_player_position(&self) -> Option<Vector3> {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position)
+    }
+
+    fn eladard_player_can_enter_base(&self) -> bool {
+        let Some(position) = self.eladard_player_position() else {
+            return false;
+        };
+        self.state.mission.player_craft_form == PlayerCraftForm::Walker
+            && position.x.unsigned_abs() <= ELADARD_BASE_ENTRANCE_HALF_WIDTH as u16
+            && position.z >= ELADARD_BASE_ENTRANCE_Z
+    }
+
+    fn eladard_player_reached_generator_room(&self) -> bool {
+        self.eladard_player_position()
+            .is_some_and(|position| position.z >= ELADARD_GENERATOR_ROOM_ENTRANCE_Z)
+    }
+
+    fn clear_eladard_scene(&mut self) {
+        for barrier in &mut self.eladard_surface_barriers {
+            if let Some(id) = barrier.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        if let Some(core) = self.eladard_generator_core.take() {
+            self.state.objects.remove(core);
+        }
+        if let Some(frame) = self.eladard_generator_frame.take() {
+            self.state.objects.remove(frame);
+        }
+    }
+
+    fn spawn_eladard_surface_scene(&mut self) -> Result<(), Error> {
+        self.clear_eladard_scene();
+        for (index, (position, yaw)) in ELADARD_SURFACE_BARRIER_SCENE.into_iter().enumerate() {
+            let mut barrier = Object::new(
+                ObjectKind::Enemy,
+                ShapeId::ELADARD_SURFACE_BARRIER,
+                Behavior::Effect,
+            );
+            barrier.base.position = position;
+            barrier.base.yaw = yaw;
+            barrier.base.hit_points = ELADARD_SURFACE_BARRIER_DURABILITY;
+            barrier.base.collision_class = CollisionClass::Enemy;
+            barrier.base.flags.casts_shadow = false;
+            let id = self
+                .state
+                .objects
+                .allocate(barrier)
+                .ok_or(Error::ObjectCapacityReached)?;
+            self.eladard_surface_barriers[index] = Some(id);
+        }
+        Ok(())
+    }
+
+    fn enter_eladard_interior(&mut self) {
+        self.clear_eladard_scene();
+        self.state.mission.player_walker = Default::default();
+        for craft in [
+            self.state.mission.primary_player,
+            self.state.mission.wingmate,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(object) = self.state.objects.get_mut(craft) {
+                object.base.position = ELADARD_INTERIOR_START_POSITION;
+                object.base.velocity = Vector3::default();
+                object.base.pitch = Angle::ZERO;
+                object.base.yaw = Angle::ZERO;
+                object.base.roll = Angle::ZERO;
+            }
+        }
+    }
+
+    fn enter_eladard_generator_room(&mut self) -> Result<(), Error> {
+        self.clear_eladard_scene();
+        self.state.mission.player_walker = Default::default();
+        for craft in [
+            self.state.mission.primary_player,
+            self.state.mission.wingmate,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(object) = self.state.objects.get_mut(craft) {
+                object.base.position = ELADARD_GENERATOR_ROOM_PLAYER_POSITION;
+                object.base.velocity = Vector3::default();
+                object.base.pitch = Angle::ZERO;
+                object.base.yaw = ELADARD_GENERATOR_ROOM_ENTRY_YAW;
+                object.base.roll = Angle::ZERO;
+            }
+        }
+
+        let mut frame = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::ELADARD_GENERATOR_FRAME,
+            Behavior::Effect,
+        );
+        frame.base.position = ELADARD_GENERATOR_POSITION;
+        frame.base.flags.collision_disabled = true;
+        frame.base.flags.casts_shadow = false;
+        let frame = self
+            .state
+            .objects
+            .allocate(frame)
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.eladard_generator_frame = Some(frame);
+
+        let mut core = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::ELADARD_GENERATOR_CORE,
+            Behavior::Effect,
+        );
+        core.base.position = Vector3 {
+            y: ELADARD_GENERATOR_POSITION
+                .y
+                .saturating_add(ELADARD_GENERATOR_CORE_HEIGHT),
+            ..ELADARD_GENERATOR_POSITION
+        };
+        core.base.hit_points = ELADARD_GENERATOR_HEALTH;
+        core.base.collision_class = CollisionClass::Enemy;
+        core.base.flags.casts_shadow = false;
+        core.extension.parent = Some(frame);
+        let Some(core) = self.state.objects.allocate(core) else {
+            self.state.objects.remove(frame);
+            self.eladard_generator_frame = None;
+            return Err(Error::ObjectCapacityReached);
+        };
+        if let Some(frame_object) = self.state.objects.get_mut(frame) {
+            frame_object.base.first_child = Some(core);
+        }
+        self.eladard_generator_core = Some(core);
+        self.state.mission.eladard.generator = EladardGeneratorStatus::Active {
+            durability: ELADARD_GENERATOR_HEALTH,
+        };
+        Ok(())
     }
 
     fn update_titania_base(&mut self) -> Result<(), Error> {
@@ -7339,6 +7554,7 @@ impl Game {
     }
 
     fn clear_sortie_runtime(&mut self) {
+        self.clear_eladard_scene();
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
         for projectile in self.mission_projectiles.drain(..) {
@@ -10506,7 +10722,7 @@ impl Game {
             MissionVisit::WolfBlockade => wolf_blockade::RETURN_RETAIL_FRAME,
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
             MissionVisit::TitaniaBase => TITANIA_MAP_READY_RETAIL_FRAME,
-            MissionVisit::EladardBase => ELADARD_RETURN_RETAIL_FRAME,
+            MissionVisit::EladardBase => u16::MAX,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
                 CARRIER_MAP_READY_RETAIL_FRAME
             }
@@ -20131,12 +20347,15 @@ mod tests {
     #[test]
     fn eladard_route_uses_typed_objectives_and_matches_the_sixth_return() {
         const ELADARD_AND_VENOM_ASSIGNMENT_TIMING: u64 = 1;
+        const FORMER_AUTOMATIC_RETURN_RETAIL_FRAME: u16 = 13_000;
+        const BARRIER_CHARGED_HITS: usize =
+            ELADARD_SURFACE_BARRIER_DURABILITY.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) as usize;
+        const GENERATOR_CHARGED_HITS: usize =
+            ELADARD_GENERATOR_HEALTH.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) as usize;
 
         let mut game = Game::new();
-        game.state.campaign = CampaignState::for_new_game(
-            Difficulty::Normal,
-            ELADARD_AND_VENOM_ASSIGNMENT_TIMING,
-        );
+        game.state.campaign =
+            CampaignState::for_new_game(Difficulty::Normal, ELADARD_AND_VENOM_ASSIGNMENT_TIMING);
         game.begin_opening_sortie().unwrap();
         game.state.mode = GameMode::StrategicMap;
         game.state.campaign.route_step = CampaignRouteStep::EladardBase;
@@ -20186,13 +20405,28 @@ mod tests {
             EladardMissionState {
                 phase: EladardPhase::SurfaceApproach,
                 phase_started_retail_frame: 0,
-                surface_barriers_remaining: ELADARD_SURFACE_BARRIER_COUNT,
-                platform_switch_pressed: false,
-                wall_spider_hit_points: ELADARD_WALL_SPIDER_HEALTH,
-                generator_active: false,
-                generator_hit_points: ELADARD_GENERATOR_HEALTH,
+                surface_barriers: [EladardBarrierStatus::Active {
+                    durability: ELADARD_SURFACE_BARRIER_DURABILITY,
+                }; ELADARD_SURFACE_BARRIER_COUNT],
+                generator: EladardGeneratorStatus::Unreached,
             }
         );
+        for (barrier_id, (position, yaw)) in game
+            .eladard_surface_barriers
+            .into_iter()
+            .zip(ELADARD_SURFACE_BARRIER_SCENE)
+        {
+            let barrier = game
+                .state()
+                .objects
+                .get(barrier_id.expect("surface barrier was not allocated"))
+                .unwrap();
+            assert_eq!(barrier.base.shape, ShapeId::ELADARD_SURFACE_BARRIER);
+            assert_eq!(barrier.base.position, position);
+            assert_eq!(barrier.base.yaw, yaw);
+            assert_eq!(barrier.base.hit_points, ELADARD_SURFACE_BARRIER_DURABILITY);
+            assert_eq!(barrier.base.collision_class, CollisionClass::Enemy);
+        }
 
         let advance_to = |game: &mut Game, retail_frame: u16| {
             let target_tick = u32::from(retail_frame).div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK);
@@ -20200,68 +20434,163 @@ mod tests {
                 game.tick(0).unwrap();
             }
         };
+        let destroy_with_charged_shots = |game: &mut Game, target: ObjectId, hit_count: usize| {
+            let position = game.state.objects.get(target).unwrap().base.position;
+            for _ in 0..hit_count {
+                let mut laser = Object::new(
+                    ObjectKind::Projectile,
+                    ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                    Behavior::Projectile,
+                );
+                laser.base.position = position;
+                laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+                laser.base.attack_power = PLAYER_CHARGED_LASER_ATTACK_POWER;
+                laser.base.weapon = WeaponKind::ChargedLaser;
+                laser.base.collision_class = CollisionClass::PlayerWeapon;
+                game.state.objects.allocate(laser).unwrap();
+            }
+            game.resolve_mission_collisions();
+            let target = game.state.objects.get(target).unwrap();
+            assert!(target.base.flags.collision_disabled);
+            assert_eq!(target.base.explosion_timer, ENEMY_DESTRUCTION_TICKS);
+        };
 
-        advance_to(&mut game, ELADARD_SURFACE_BARRIERS_RETAIL_FRAME);
+        advance_to(&mut game, MISSION_ACTIVE_RETAIL_FRAMES as u16);
         assert_eq!(
             game.state().mission.eladard.phase,
             EladardPhase::SurfaceBarriers
         );
-        assert_eq!(game.state().mission.eladard.surface_barriers_remaining, 0);
+        advance_to(&mut game, FORMER_AUTOMATIC_RETURN_RETAIL_FRAME);
+        assert_eq!(
+            game.state().mission.eladard.phase,
+            EladardPhase::SurfaceBarriers
+        );
+        assert_eq!(
+            game.state().mission.eladard.surface_barriers,
+            [EladardBarrierStatus::Active {
+                durability: ELADARD_SURFACE_BARRIER_DURABILITY,
+            }; ELADARD_SURFACE_BARRIER_COUNT]
+        );
+        assert_eq!(
+            game.state().mission.eladard.generator,
+            EladardGeneratorStatus::Unreached
+        );
+        assert_eq!(game.state().mission.phase, MissionPhase::Active);
 
-        advance_to(&mut game, ELADARD_BASE_ENTRANCE_RETAIL_FRAME);
+        let first_barrier = game.eladard_surface_barriers[0].unwrap();
+        destroy_with_charged_shots(&mut game, first_barrier, BARRIER_CHARGED_HITS);
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.eladard.surface_barriers[0],
+            EladardBarrierStatus::Destroyed
+        );
+        assert_eq!(
+            game.state().mission.eladard.phase,
+            EladardPhase::SurfaceBarriers
+        );
+
+        let second_barrier = game.eladard_surface_barriers[1].unwrap();
+        destroy_with_charged_shots(&mut game, second_barrier, BARRIER_CHARGED_HITS);
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.eladard.surface_barriers,
+            [EladardBarrierStatus::Destroyed; ELADARD_SURFACE_BARRIER_COUNT]
+        );
         assert_eq!(
             game.state().mission.eladard.phase,
             EladardPhase::BaseEntrance
         );
-        advance_to(&mut game, ELADARD_WALKER_TRANSFORMATION_RETAIL_FRAME);
+
+        let player = game.state.mission.primary_player.unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position = Vector3 {
+            x: 0,
+            y: -112,
+            z: ELADARD_BASE_ENTRANCE_Z,
+        };
+        game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.eladard.phase,
-            EladardPhase::WalkerTransformation
+            EladardPhase::BaseEntrance
         );
         assert_eq!(
             game.state().mission.player_craft_form,
-            PlayerCraftForm::Transforming(PlayerCraftTransformation {
-                direction: PlayerCraftTransformationDirection::ToWalker,
-                elapsed_retail_frames: PLAYER_TRANSFORMATION_RETAIL_FRAMES_PER_TICK,
-            })
+            PlayerCraftForm::Flight
         );
-        advance_to(&mut game, ELADARD_WALKER_READY_RETAIL_FRAME);
+
+        game.tick(Button::Select as u16).unwrap();
+        while game.state().mission.player_craft_form != PlayerCraftForm::Walker {
+            game.tick(0).unwrap();
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.eladard.phase,
+            EladardPhase::InteriorPassage
+        );
+        assert_eq!(
+            game.state().objects.get(player).unwrap().base.position,
+            ELADARD_INTERIOR_START_POSITION
+        );
+        while game.state().mission.eladard.phase == EladardPhase::InteriorPassage {
+            game.tick(Button::Up as u16).unwrap();
+        }
+        assert_eq!(
+            game.state().mission.eladard.phase,
+            EladardPhase::GeneratorRoom
+        );
+        let player_object = game.state().objects.get(player).unwrap();
+        assert_eq!(
+            player_object.base.position,
+            add_vectors(
+                ELADARD_GENERATOR_ROOM_PLAYER_POSITION,
+                player_object.base.velocity,
+            )
+        );
+        let frame = game.eladard_generator_frame.unwrap();
+        let core = game.eladard_generator_core.unwrap();
+        assert_eq!(
+            game.state().objects.get(frame).unwrap().base.shape,
+            ShapeId::ELADARD_GENERATOR_FRAME
+        );
+        let core_object = game.state().objects.get(core).unwrap();
+        assert_eq!(core_object.base.shape, ShapeId::ELADARD_GENERATOR_CORE);
+        assert_eq!(core_object.base.hit_points, ELADARD_GENERATOR_HEALTH);
+        assert_eq!(core_object.extension.parent, Some(frame));
+        assert_eq!(
+            game.state().mission.eladard.generator,
+            EladardGeneratorStatus::Active {
+                durability: ELADARD_GENERATOR_HEALTH,
+            }
+        );
+
+        destroy_with_charged_shots(&mut game, core, GENERATOR_CHARGED_HITS);
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state().mission.eladard.phase,
+            EladardPhase::BaseDestruction
+        );
+        assert_eq!(
+            game.state().mission.eladard.generator,
+            EladardGeneratorStatus::Destroyed
+        );
+        let destruction_started = game.state().mission.eladard.phase_started_retail_frame;
+        advance_to(
+            &mut game,
+            destruction_started.saturating_add(ELADARD_BASE_DESTRUCTION_RETAIL_FRAMES),
+        );
+        assert_eq!(
+            game.state().mission.eladard.phase,
+            EladardPhase::BaseDestruction
+        );
         assert_eq!(
             game.state().mission.player_craft_form,
             PlayerCraftForm::Walker
         );
 
-        advance_to(&mut game, ELADARD_PLATFORM_SWITCH_RETAIL_FRAME);
-        assert_eq!(
-            game.state().mission.eladard.phase,
-            EladardPhase::PlatformSwitch
-        );
-        assert!(!game.state().mission.eladard.platform_switch_pressed);
-        advance_to(&mut game, ELADARD_WALL_SPIDER_RETAIL_FRAME);
-        assert_eq!(game.state().mission.eladard.phase, EladardPhase::WallSpider);
-        assert!(game.state().mission.eladard.platform_switch_pressed);
-        assert_eq!(
-            game.state().mission.eladard.wall_spider_hit_points,
-            ELADARD_WALL_SPIDER_HEALTH
-        );
-
-        advance_to(&mut game, ELADARD_GENERATOR_RETAIL_FRAME);
-        assert_eq!(game.state().mission.eladard.phase, EladardPhase::Generator);
-        assert_eq!(game.state().mission.eladard.wall_spider_hit_points, 0);
-        assert!(game.state().mission.eladard.generator_active);
-        assert_eq!(
-            game.state().mission.eladard.generator_hit_points,
-            ELADARD_GENERATOR_HEALTH
-        );
-        advance_to(&mut game, ELADARD_GENERATOR_DESTROYED_RETAIL_FRAME);
-        assert_eq!(
-            game.state().mission.eladard.phase,
-            EladardPhase::BaseDestruction
-        );
-        assert!(!game.state().mission.eladard.generator_active);
-        assert_eq!(game.state().mission.eladard.generator_hit_points, 0);
-
-        advance_to(&mut game, ELADARD_RETURN_RETAIL_FRAME);
+        game.tick(Button::Select as u16).unwrap();
+        while game.state().mission.player_craft_form != PlayerCraftForm::Flight {
+            game.tick(0).unwrap();
+        }
+        game.tick(0).unwrap();
         assert_eq!(
             game.state().mission.eladard.phase,
             EladardPhase::ReturnFlight
@@ -21054,10 +21383,72 @@ mod tests {
     }
 
     #[test]
-    fn certified_campaign_route_reaches_the_end_screen() {
+    fn typed_campaign_route_reaches_the_end_screen() {
         const MAX_MISSION_TICKS: usize = 5_000;
         const MAX_STRATEGIC_TRAVEL_TICKS: usize = 1_000;
         const ELADARD_AND_TITANIA_ASSIGNMENT_TIMING: u64 = 3;
+
+        fn place_campaign_laser_on(game: &mut Game, target: ObjectId) {
+            let Some(position) = game
+                .state
+                .objects
+                .get(target)
+                .filter(|target| !target.base.flags.collision_disabled)
+                .map(|target| target.base.position)
+            else {
+                return;
+            };
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                Behavior::Projectile,
+            );
+            laser.base.position = position;
+            laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+            laser.base.attack_power = PLAYER_CHARGED_LASER_ATTACK_POWER;
+            laser.base.weapon = WeaponKind::ChargedLaser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            game.state.objects.allocate(laser).unwrap();
+        }
+
+        fn eladard_campaign_input(game: &mut Game) -> u16 {
+            match game.state.mission.eladard.phase {
+                EladardPhase::SurfaceApproach => 0,
+                EladardPhase::SurfaceBarriers => {
+                    if let Some(target) =
+                        game.eladard_surface_barriers
+                            .into_iter()
+                            .flatten()
+                            .find(|id| {
+                                game.state
+                                    .objects
+                                    .get(*id)
+                                    .is_some_and(|object| !object.base.flags.collision_disabled)
+                            })
+                    {
+                        place_campaign_laser_on(game, target);
+                    }
+                    0
+                }
+                EladardPhase::BaseEntrance => match game.state.mission.player_craft_form {
+                    PlayerCraftForm::Flight => Button::Select as u16,
+                    PlayerCraftForm::Walker => Button::Up as u16,
+                    PlayerCraftForm::Transforming(_) => 0,
+                },
+                EladardPhase::InteriorPassage => Button::Up as u16,
+                EladardPhase::GeneratorRoom => {
+                    if let Some(core) = game.eladard_generator_core {
+                        place_campaign_laser_on(game, core);
+                    }
+                    0
+                }
+                EladardPhase::BaseDestruction => match game.state.mission.player_craft_form {
+                    PlayerCraftForm::Walker => Button::Select as u16,
+                    PlayerCraftForm::Flight | PlayerCraftForm::Transforming(_) => 0,
+                },
+                EladardPhase::ReturnFlight => 0,
+            }
+        }
 
         fn complete_current_mission(game: &mut Game) {
             let charge_ticks = usize::from(game.player_charge_ready_tick());
@@ -21069,6 +21460,8 @@ mod tests {
                     && game.state().mission.phase == MissionPhase::Active
                 {
                     leon_pursuit_input(game, mission_tick, charge_ticks)
+                } else if game.state().mission.visit == MissionVisit::EladardBase {
+                    eladard_campaign_input(game)
                 } else {
                     0
                 };
@@ -21094,11 +21487,9 @@ mod tests {
         let mut game = Game::new();
         // This compact end-to-end replay covers the retail Normal assignment
         // whose two occupied worlds are Eladard and Titania. Other assignment
-        // combinations are kept distinct and are certified independently.
-        game.state.campaign = CampaignState::for_new_game(
-            Difficulty::Normal,
-            ELADARD_AND_TITANIA_ASSIGNMENT_TIMING,
-        );
+        // combinations remain distinct and have separate identity coverage.
+        game.state.campaign =
+            CampaignState::for_new_game(Difficulty::Normal, ELADARD_AND_TITANIA_ASSIGNMENT_TIMING);
         game.begin_opening_sortie().unwrap();
         complete_current_mission(&mut game);
         assert_eq!(

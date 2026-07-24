@@ -1618,10 +1618,8 @@ pub enum EladardPhase {
     SurfaceApproach,
     SurfaceBarriers,
     BaseEntrance,
-    WalkerTransformation,
-    PlatformSwitch,
-    WallSpider,
-    Generator,
+    InteriorPassage,
+    GeneratorRoom,
     BaseDestruction,
     ReturnFlight,
 }
@@ -1632,17 +1630,39 @@ impl Default for EladardPhase {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EladardBarrierStatus {
+    Active { durability: u8 },
+    Destroyed,
+}
+
+impl Default for EladardBarrierStatus {
+    fn default() -> Self {
+        Self::Destroyed
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EladardGeneratorStatus {
+    Unreached,
+    Active { durability: u8 },
+    Destroyed,
+}
+
+impl Default for EladardGeneratorStatus {
+    fn default() -> Self {
+        Self::Unreached
+    }
+}
+
 /// Typed objective state for the Eladard base assault. These fields model the
 /// mission concepts directly; no source-machine memory window is retained.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct EladardMissionState {
     pub phase: EladardPhase,
     pub phase_started_retail_frame: u16,
-    pub surface_barriers_remaining: u8,
-    pub platform_switch_pressed: bool,
-    pub wall_spider_hit_points: u8,
-    pub generator_active: bool,
-    pub generator_hit_points: u8,
+    pub surface_barriers: [EladardBarrierStatus; 2],
+    pub generator: EladardGeneratorStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
