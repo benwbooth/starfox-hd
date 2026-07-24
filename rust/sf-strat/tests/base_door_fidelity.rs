@@ -10,6 +10,8 @@ use sf_strat::enemies_ground;
 const MASSIVE_BASE_STRATEGY: usize = 142;
 const PROXIMITY_DOOR_STRATEGY: usize = 139;
 const COLONY_EXIT_STRATEGY: usize = 235;
+const IRIS_STRATEGY: usize = 47;
+const IRIS_INNER_SHAPE: u16 = 459;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SoundEvent {
@@ -155,4 +157,50 @@ fn generic_door_emits_close_cues_at_both_source_frames() {
         ]
     );
     assert_eq!(game.objs.aliens[door as usize].animframe, 2);
+}
+
+#[test]
+fn iris_spawns_its_inner_mesh_and_sounds_only_when_opening_starts() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut game = setup(log.clone());
+    let iris = place(&mut game, IRIS_STRATEGY, 70, 1_000);
+    {
+        let outer = &mut game.objs.aliens[iris as usize];
+        outer.worldy = -40;
+        outer.rotx = 12;
+        outer.roty = 34;
+        outer.rotz = 56;
+    }
+
+    enemies_ground::iris_istrat(&mut game, iris);
+    let inner = game
+        .objs
+        .active_indices()
+        .into_iter()
+        .find(|&object| object != 0 && object != iris)
+        .expect("inner iris");
+    let inner_state = game.objs.aliens[inner as usize];
+    assert_eq!(inner_state.shape, IRIS_INNER_SHAPE);
+    assert_eq!(
+        (inner_state.worldx, inner_state.worldy, inner_state.worldz),
+        (70, -40, 1_100)
+    );
+    assert_eq!(
+        (inner_state.rotx, inner_state.roty, inner_state.rotz),
+        (12, 34, 56)
+    );
+
+    game.objs.aliens[iris as usize].hp = 124;
+    enemies_ground::iris_strat(&mut game, iris);
+    enemies_ground::iris_strat(&mut game, iris);
+
+    assert_eq!(
+        *log.borrow(),
+        vec![SoundEvent {
+            family: PosSndFamilyId::DoorOpen,
+            world_x: 70,
+            world_z: 1_000,
+        }]
+    );
+    assert_eq!(game.objs.aliens[iris as usize].animframe & 0x7F, 2);
 }

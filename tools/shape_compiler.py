@@ -334,6 +334,7 @@ EXTENDED_SHAPES = {
     "warp_3":          456,
     "wall_l":          457,
     "wall_r":          458,
+    "iris_1":          459,
 }
 
 

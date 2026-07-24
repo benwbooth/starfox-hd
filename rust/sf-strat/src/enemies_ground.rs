@@ -7745,11 +7745,9 @@ pub fn tunnela2_strat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].stratptr = Some(s);
 }
 
-/// `iris_istrat` (DSTRATS.ASM:1375-1391): faces deg180, wires strats/data
-/// (hp 127, hardAP), anim 0. The iris_1 inner aperture child (fling.makeobj ->
-/// iris_1_istrat, a passive colldisable no-op with an unresolvable shape) is
-/// SCOPED OUT — it has zero gameplay effect. No s_end_strat -> falls into the
-/// tick this frame.
+/// `iris_istrat` (DSTRATS.ASM:1375-1391): creates the passive inner aperture
+/// 100 units ahead, faces deg180, wires strats/data (hp 127, hardAP), and starts
+/// at animation frame 0. No s_end_strat -> falls into the tick this frame.
 pub fn iris_istrat(g: &mut Game, idx: u16) {
     iris_init(g, idx);
 }
@@ -7764,6 +7762,25 @@ pub fn iris_1_istrat(g: &mut Game, idx: u16) {
 }
 
 fn iris_init(g: &mut Game, idx: u16) {
+    const IRIS_INNER_SHAPE: u16 = 459;
+    const IRIS_INNER_DEPTH_OFFSET: i16 = 100;
+
+    if let Some(child) = make_obj(g, IRIS_INNER_SHAPE) {
+        copy_pos(g, child, idx);
+        let (rotx, roty, rotz) = {
+            let parent = &g.objs.aliens[idx as usize];
+            (parent.rotx, parent.roty, parent.rotz)
+        };
+        {
+            let inner = &mut g.objs.aliens[child as usize];
+            inner.rotx = rotx;
+            inner.roty = roty;
+            inner.rotz = rotz;
+            inner.worldz = inner.worldz.wrapping_add(IRIS_INNER_DEPTH_OFFSET);
+        }
+        iris_1_istrat(g, child);
+    }
+
     let tick = sid(g, iris_strat);
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, strat_explode);
@@ -7783,11 +7800,14 @@ fn iris_init(g: &mut Game, idx: u16) {
 /// `iris_strat` (DSTRATS.ASM:1392-1399): stays sealed while hp>=125
 /// (`s_cmp_alvar al_hp,#127-irisHP ; bcs .miss`); once damaged below that, opens
 /// the aperture anim toward 8 (dincanimjmp, the 4-arg jmp form -> clamp at the
-/// max-1 frame 7) and holds. The door-open sound is cosmetic.
+/// max-1 frame 7) and holds. The positional open cue fires at frame 0.
 pub fn iris_strat(g: &mut Game, idx: u16) {
     // s_cmp_alvar B,x,al_hp,#125 ; bcs .miss (hp>=125 == sealed).
     if g.objs.aliens[idx as usize].hp >= IRIS_OPEN_HP {
         return;
+    }
+    if g.objs.aliens[idx as usize].animframe & 0x7F == 0 {
+        door_family_sound(g, idx, PosSndFamilyId::DoorOpen);
     }
     // Advance animation toward the cap of 8, then hold.
     add_anim_cap(&mut g.objs.aliens[idx as usize], 1, 8);

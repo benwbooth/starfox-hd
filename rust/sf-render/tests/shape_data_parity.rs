@@ -481,6 +481,7 @@ fn runtime_extended_mesh_catalog_is_complete() {
         (456, "warp_3"),
         (457, "wall_l"),
         (458, "wall_r"),
+        (459, "iris_1"),
     ];
 
     for (shape_id, name) in expected {
