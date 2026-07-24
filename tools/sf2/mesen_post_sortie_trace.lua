@@ -229,6 +229,8 @@ local forced_corneria_damage = tonumber(
   os.getenv("SF2_ORACLE_CORNERIA_DAMAGE"))
 local forced_stage_selection = tonumber(
   os.getenv("SF2_ORACLE_STAGE_SELECTION"))
+forced_difficulty_selection = tonumber(
+  os.getenv("SF2_ORACLE_DIFFICULTY_SELECTION"))
 local forced_map_target_selection = tonumber(
   os.getenv("SF2_ORACLE_MAP_TARGET_SELECTION"))
 -- Deliberately global: this large oracle has reached Lua's main-chunk local
@@ -278,6 +280,11 @@ if forced_stage_selection then
   assert(
     forced_stage_selection >= 0 and forced_stage_selection <= 255,
     "SF2_ORACLE_STAGE_SELECTION must be byte-sized")
+end
+if forced_difficulty_selection then
+  assert(
+    forced_difficulty_selection >= 0 and forced_difficulty_selection <= 2,
+    "SF2_ORACLE_DIFFICULTY_SELECTION must identify a retail difficulty")
 end
 if forced_map_target_selection then
   assert(
@@ -1538,13 +1545,14 @@ end
 
 local function state_key()
   return string.format(
-    "%02X:%02X:%02X:%02X:%02X:%02X:%04X:%04X:%04X:%02X:%04X:%04X:%04X",
+    "%02X:%02X:%02X:%02X:%02X:%02X:%02X:%04X:%04X:%04X:%02X:%04X:%04X:%04X",
     work_byte(0x1B68),
     work_byte(0x1B76),
     work_byte(0x1BE0),
     work_byte(0x1C20),
     work_byte(0x1BB5),
     work_byte(0x1BA5),
+    work_byte(0xD7F2),
     work_word(0x12A8),
     work_word(0x12C3),
     work_word(0x12C5),
@@ -1559,7 +1567,8 @@ local function record(event, elapsed)
   local wingmate = work_word(0x12C5)
   lines[#lines + 1] = string.format(
     "elapsed=%d event=%s input=%s mode=%d submode=%d phase=%d " ..
-      "cursor=%d selection=%d difficulty=%d active=%04X player=%04X " ..
+      "cursor=%d selection=%d mapmode=%d difficulty=%d " ..
+      "active=%04X player=%04X " ..
       "wingmate=%04X camera=%d,%d,%d,%d,%d,%d playerpose=%s " ..
       "wingpose=%s objects=[%s] selected=%04X targetdigits=%d,%d,%d " ..
       "coretrigger=%d map=%02X:%04X mapcursor=%d,%d mapposition=%d,%d " ..
@@ -1575,6 +1584,7 @@ local function record(event, elapsed)
     work_byte(0x1C20),
     work_byte(0x1BB5),
     work_byte(0x1BA5),
+    work_byte(0xD7F2),
     work_word(0x12A8),
     player,
     wingmate,
@@ -2027,7 +2037,11 @@ local function provide_combat_autopilot()
         or (forced_target_collision_frame
           and work_word(object + 0x2B) ~= forced_target_initial_path
           and work_word(object + 0x2B) ~= 0x0C21))
-    if requested_target and target_health_ready and forced_target_health
+    local generic_target_health_probe = requested_target
+      and forced_target_health and forced_target_health > 0
+    if requested_target
+      and (target_health_ready or generic_target_health_probe)
+      and forced_target_health
       and work_byte(object + 0x2D) > forced_target_health then
       -- Arbitrary source actor targeting is deliberately oracle-only. It is
       -- used to identify an unknown encounter's vulnerable actor before that
@@ -2166,6 +2180,40 @@ local function provide_combat_autopilot()
     end
     object = work_word(object)
   end
+  if forced_target_object and not requested_object_seen
+    and not forced_target_object_retired then
+    -- Linked children are live retail objects but are not members of the
+    -- top-level object chain rooted at $12A8. An exact oracle request may
+    -- therefore name a rotating turret, nested boss part, or similar child
+    -- which the ordinary target walk cannot discover. Bind only the requested
+    -- slot while it contains a valid shape header; this source-layout escape
+    -- hatch remains strictly inside the oracle.
+    forced_target_object_shape = forced_target_object_shape
+      or work_word(forced_target_object + 4)
+    if forced_target_object_shape >= 0xBC9C
+      and forced_target_object_shape < 0xFB9C
+      and work_word(forced_target_object + 4) == forced_target_object_shape then
+      requested_object_seen = true
+      target = forced_target_object
+      target_shape = forced_target_object_shape
+      target_distance_squared = 0
+      if forced_target_health and forced_target_health > 0
+        and work_byte(forced_target_object + 0x2D) > forced_target_health then
+        emu.write(
+          forced_target_object + 0x2D,
+          forced_target_health % 256,
+          emu.memType.snesWorkRam)
+      end
+      if not forced_target_initial_path then
+        forced_target_initial_path = work_word(forced_target_object + 0x2B)
+        lines[#lines + 1] = string.format(
+          "elapsed=%d event=forced-target-child-bound object=%04X shape=%04X",
+          frame - armed_frame,
+          forced_target_object,
+          forced_target_object_shape)
+      end
+    end
+  end
   if forced_target_object and forced_target_object_shape
     and not requested_object_seen and not forced_target_object_retired then
     -- Once an exact oracle target leaves the active list, continue with the
@@ -2287,8 +2335,13 @@ local function provide_combat_autopilot()
     end
   end
 
+  local generic_target_damage_probe = forced_target_health
+    and forced_target_health > 0
+    and target == forced_target_object
+    and target_shape == forced_target_object_shape
   if force_projectile_hit and forced_projectile_address
-    and meteor_core_accepts_damage(target, target_shape) then
+    and (meteor_core_accepts_damage(target, target_shape)
+      or generic_target_damage_probe) then
     local projectile_shape = work_word(forced_projectile_address + 4)
     if not is_player_projectile(
       forced_projectile_address,
@@ -2322,7 +2375,8 @@ local function provide_combat_autopilot()
   end
 
   if force_projectile_hit and not forced_projectile_hit_applied and target ~= 0
-    and meteor_core_accepts_damage(target, target_shape) then
+    and (meteor_core_accepts_damage(target, target_shape)
+      or generic_target_damage_probe) then
     local projectile = work_word(0x12A8)
     local projectile_seen = {}
     while projectile ~= 0 and not projectile_seen[projectile] do
@@ -3151,6 +3205,12 @@ local function end_frame()
       0x1BB5,
       forced_stage_selection % 256,
       emu.memType.snesWorkRam)
+  end
+  if forced_difficulty_selection and work_byte(0x1B68) == 7 then
+    -- Oracle-only campaign isolation. The retail setup and mission loaders
+    -- continue to consume their own difficulty field; this merely permits an
+    -- existing command-map state to reach Hard/Expert-only planet variants.
+    write_work_word(0xD7F2, forced_difficulty_selection)
   end
   if finish_strategic_threats and not finished_strategic_threats
     and work_byte(0x1B68) == 7 then

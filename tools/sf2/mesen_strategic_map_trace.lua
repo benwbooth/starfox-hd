@@ -55,13 +55,14 @@ end
 
 local function state_key()
   return string.format(
-    "%02X:%02X:%02X:%02X:%02X:%02X:%04X:%04X:%04X",
+    "%02X:%02X:%02X:%02X:%02X:%02X:%02X:%04X:%04X:%04X",
     work_byte(0x1B68),
     work_byte(0x1B76),
     work_byte(0x1BE0),
     work_byte(0x1C20),
     work_byte(0x1BB5),
     work_byte(0x1BA5),
+    work_byte(0xD7F2),
     work_word(0x12A8),
     work_word(0x12C3),
     work_word(0x12C5))
@@ -71,7 +72,8 @@ local function record(label)
   local elapsed = armed and frame - armed_frame or -1
   local line = string.format(
     "SF2_MAP frame=%d elapsed=%d event=%s input=%s " ..
-      "mode=%d submode=%d phase=%d cursor=%d selection=%d difficulty=%d " ..
+      "mode=%d submode=%d phase=%d cursor=%d selection=%d mapmode=%d " ..
+      "difficulty=%d " ..
       "active=%04X player1=%04X player2=%04X map=%02X:%04X",
     frame,
     elapsed,
@@ -83,6 +85,7 @@ local function record(label)
     work_byte(0x1C20),
     work_byte(0x1BB5),
     work_byte(0x1BA5),
+    work_byte(0xD7F2),
     work_word(0x12A8),
     work_word(0x12C3),
     work_word(0x12C5),
