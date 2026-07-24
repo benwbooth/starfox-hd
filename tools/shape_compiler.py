@@ -355,6 +355,12 @@ EXTENDED_SHAPES = {
     # GB3STRAT rather than through map def_shape rows.
     "boss_b_6":        468,
     "boss_b_7":        469,
+    # PISTRATS selects these progressively smaller hyperspace streak meshes
+    # directly from hypers_tab; only the largest `hyper` mesh has a catalog
+    # def_shape row.
+    "hyper2":           470,
+    "hyper3":           471,
+    "hyper4":           472,
 }
 
 
@@ -1069,7 +1075,14 @@ def parse_faces(af: AsmFile, faces_label: str) -> List[Face]:
             if visibility_val is None:
                 raise ValueError(
                     f"unresolved face visibility at {af.path}:{i + 1}")
-            if visibility_val == -1:
+            # MOBJ.MC `mfaces` branches to `misline` as soon as the encoded
+            # point count is two, before it reads m_vistab. Some retail line
+            # shapes therefore carry deliberately unusable Viz indices (the
+            # two-point hyper4 mesh selects the shared 0,2,4 test). Preserve
+            # the actual renderer semantics: Face2 records are unconditional.
+            if nverts == 2:
+                visibility_vertices = None
+            elif visibility_val == -1:
                 visibility_vertices = None
             elif 0 <= visibility_val < len(visibility_tests):
                 visibility_vertices = visibility_tests[visibility_val]

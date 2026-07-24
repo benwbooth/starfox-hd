@@ -3243,6 +3243,27 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         },
     ), // boss_b_7
     (
+        470,
+        Sf1ShapeMetrics {
+            visual_extent: 176,
+            coordinate_shift: 3,
+        },
+    ), // hyper2
+    (
+        471,
+        Sf1ShapeMetrics {
+            visual_extent: 176,
+            coordinate_shift: 3,
+        },
+    ), // hyper3
+    (
+        472,
+        Sf1ShapeMetrics {
+            visual_extent: 176,
+            coordinate_shift: 3,
+        },
+    ), // hyper4
+    (
         508,
         Sf1ShapeMetrics {
             visual_extent: 512,

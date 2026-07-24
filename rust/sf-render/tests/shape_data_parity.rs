@@ -8,7 +8,8 @@
 
 use sf_render::shape_data::{
     SHAPE_DATA, SHAPE_DATA_COUNT, SHAPE_EXT_BOSS_B_6, SHAPE_EXT_BOSS_B_7, SHAPE_EXT_DEBOSS_0,
-    SHAPE_EXT_DEBOSS_2, SHAPE_EXT_ROBOT_0, SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
+    SHAPE_EXT_DEBOSS_2, SHAPE_EXT_HYPER2, SHAPE_EXT_HYPER3, SHAPE_EXT_HYPER4, SHAPE_EXT_ROBOT_0,
+    SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
 };
 
 const NULL_SHAPE_PROFILE_COUNT: usize = 1;
@@ -73,6 +74,23 @@ fn andross_kick_meshes_keep_the_authored_geometry() {
     assert_eq!(foot.vertices.len(), 6);
     assert_eq!(foot.faces.len(), 8);
     assert!(foot.animation_frames.is_empty());
+}
+
+#[test]
+fn hyperspace_out_meshes_keep_the_authored_shrinking_geometry() {
+    for (shape_id, name, vertices, faces) in [
+        (SHAPE_EXT_HYPER2, "hyper2", 10, 5),
+        (SHAPE_EXT_HYPER3, "hyper3", 6, 3),
+        (SHAPE_EXT_HYPER4, "hyper4", 2, 1),
+    ] {
+        let shape = SHAPE_DATA
+            .iter()
+            .find(|shape| shape.shape_id == shape_id)
+            .unwrap_or_else(|| panic!("{name} hyperspace mesh"));
+        assert_eq!(shape.name, name);
+        assert_eq!(shape.vertices.len(), vertices, "{name} vertices");
+        assert_eq!(shape.faces.len(), faces, "{name} faces");
+    }
 }
 
 #[test]
@@ -151,6 +169,13 @@ fn source_visibility_triangles_are_resolved_and_in_bounds() {
     let mut two_sided_faces = 0usize;
     for entry in &SHAPE_DATA {
         for face in entry.faces {
+            if face.num_verts == 2 {
+                assert!(
+                    face.visibility_vertices.is_none(),
+                    "{} line incorrectly retained a polygon visibility test",
+                    entry.name
+                );
+            }
             match face.visibility_vertices {
                 Some(indices) => {
                     one_sided_faces += 1;
@@ -548,6 +573,9 @@ fn runtime_extended_mesh_catalog_is_complete() {
         (459, "iris_1"),
         (468, "boss_b_6"),
         (469, "boss_b_7"),
+        (470, "hyper2"),
+        (471, "hyper3"),
+        (472, "hyper4"),
     ];
 
     for (shape_id, name) in expected {

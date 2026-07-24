@@ -8,9 +8,20 @@ use sf_strat::enemies_ground::{
     torpedoa_init, torpedoa_strat,
 };
 use sf_strat::enemy_a::{
-    hyper_istrat, hyperspace_istrat, hyperspace_strat, hyperspaceout_istrat, hyperspaceout_strat,
-    phitflash_istrat, ASF2_SFLAG1, DEG180,
+    hyper_istrat, hyperspace_istrat, hyperspaceout_istrat, hyperspaceout_strat, phitflash_istrat,
+    ASF2_SFLAG1, DEG180,
 };
+use sf_strat::{common::sf_random, snes_trig::strat_roffs_roll};
+
+const HYPER_SHAPE: u16 = 408;
+const HYPER2_SHAPE: u16 = 470;
+const HYPER3_SHAPE: u16 = 471;
+const HYPER4_SHAPE: u16 = 472;
+const HYPER_WORLD_DISTANCE: i16 = 4000;
+const HYPER_RANDOM_CENTER: i16 = 256;
+const HYPER_ROLL_Y_OFFSET: i8 = 50;
+const HYPER_Z_STEP: i16 = -80;
+const SPACE_VIEW_CENTER_Y: i16 = -60;
 
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -82,21 +93,7 @@ fn exit_openlr_hyperspace_pillar() {
     assert_ne!(g.objs.aliens[o as usize].sflags & ASF_COLLDISABLE, 0);
     assert!(g.objs.aliens[o as usize].animframe & 0x7F >= 1);
 
-    let h = spawn_obj(&mut g);
-    hyperspace_istrat(&mut g, h);
-    g.vars.gameframe = 0;
-    let before = g.objs.aliens.iter().filter(|a| a.active).count();
-    hyperspace_strat(&mut g, h);
-    let after = g.objs.aliens.iter().filter(|a| a.active).count();
-    assert!(after >= before);
-    assert_eq!(g.objs.aliens[h as usize].roty, DEG180);
-
     let ho = spawn_obj(&mut g);
-    hyperspaceout_istrat(&mut g, ho);
-    assert_eq!(g.objs.aliens[ho as usize].sbyte1, 64);
-    hyperspaceout_strat(&mut g, ho);
-    assert_eq!(g.objs.aliens[ho as usize].sbyte1, 63);
-
     phitflash_istrat(&mut g, ho);
     hyper_istrat(&mut g, ho);
 
@@ -111,6 +108,88 @@ fn exit_openlr_hyperspace_pillar() {
     // stay
     pillar3fstay_istrat(&mut g, p);
     assert_eq!(g.objs.aliens[p as usize].sflags & ASF_SHADOW, 0);
+}
+
+fn random_hyperspace_coordinate(vars: &mut sf_game::vars::GameVars) -> i16 {
+    let low = sf_random(vars) as u8;
+    let high = (sf_random(vars) as u8) & 1;
+    i16::from_le_bytes([low, high]).wrapping_sub(HYPER_RANDOM_CENTER)
+}
+
+#[test]
+fn hyperspace_initializer_emits_exact_screen_space_streak() {
+    let mut g = Game::new();
+    const PLAYER_Z: i16 = 125;
+    spawn_player(&mut g, PLAYER_Z);
+    let emitter = spawn_obj(&mut g);
+    g.objs.aliens[emitter as usize].worldx = 1200;
+    g.objs.aliens[emitter as usize].worldy = 900;
+    g.vars.gameframe = 0;
+
+    let mut expected_random = Game::new();
+    expected_random.vars.rng = g.vars.rng;
+    let random_x = random_hyperspace_coordinate(&mut expected_random.vars);
+    let random_y = random_hyperspace_coordinate(&mut expected_random.vars);
+    let roll = sf_random(&mut expected_random.vars) as u8;
+    let (roll_x, roll_y, _) = strat_roffs_roll(roll, 0, HYPER_ROLL_Y_OFFSET, 0);
+
+    hyperspace_istrat(&mut g, emitter);
+
+    let streak = emitter + 1;
+    let emitted = &g.objs.aliens[streak as usize];
+    assert!(emitted.active);
+    assert_eq!(emitted.shape, HYPER_SHAPE);
+    assert_eq!(emitted.worldx, random_x.wrapping_add(roll_x));
+    assert_eq!(
+        emitted.worldy,
+        random_y
+            .wrapping_add(roll_y)
+            .wrapping_add(SPACE_VIEW_CENTER_Y)
+    );
+    assert_eq!(emitted.worldz, PLAYER_Z + HYPER_WORLD_DISTANCE);
+    assert_eq!(emitted.rotz, roll);
+    assert_ne!(emitted.sflags & ASF_COLLDISABLE, 0);
+    assert!(emitted.stratptr.is_some());
+    assert_eq!(g.vars.rng, expected_random.vars.rng);
+    assert_eq!(g.objs.aliens[emitter as usize].roty, DEG180);
+    assert_eq!(
+        g.objs.aliens[emitter as usize].worldz,
+        PLAYER_Z + HYPER_WORLD_DISTANCE
+    );
+
+    hyper_istrat(&mut g, streak);
+    assert_eq!(
+        g.objs.aliens[streak as usize].worldz,
+        PLAYER_Z + HYPER_WORLD_DISTANCE + HYPER_Z_STEP
+    );
+}
+
+#[test]
+fn hyperspace_out_initializer_falls_through_and_selects_all_four_phases() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    g.vars.gameframe = 1;
+    let emitter = spawn_obj(&mut g);
+
+    hyperspaceout_istrat(&mut g, emitter);
+    assert_eq!(g.objs.aliens[emitter as usize].sbyte1, 63);
+    assert_eq!(g.objs.aliens[emitter as usize].sword1 as u16, HYPER_SHAPE);
+
+    for (before, after, shape) in [
+        (49, 48, HYPER_SHAPE),
+        (48, 47, HYPER2_SHAPE),
+        (32, 31, HYPER3_SHAPE),
+        (16, 15, HYPER4_SHAPE),
+    ] {
+        g.objs.aliens[emitter as usize].sbyte1 = before;
+        hyperspaceout_strat(&mut g, emitter);
+        assert_eq!(g.objs.aliens[emitter as usize].sbyte1, after);
+        assert_eq!(g.objs.aliens[emitter as usize].sword1 as u16, shape);
+    }
+
+    g.objs.aliens[emitter as usize].sbyte1 = 0;
+    hyperspaceout_strat(&mut g, emitter);
+    assert_eq!(g.objs.aldead, 1);
 }
 
 #[test]

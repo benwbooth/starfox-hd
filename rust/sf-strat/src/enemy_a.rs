@@ -9785,6 +9785,18 @@ pub fn friend2_strat(g: &mut Game, idx: u16) {
 
 const PSTF_FLAG1: u8 = 2; // VARS.INC pstf_flag1
 const HYPER_SHAPE: u16 = 408;
+const HYPER2_SHAPE: u16 = 470;
+const HYPER3_SHAPE: u16 = 471;
+const HYPER4_SHAPE: u16 = 472;
+// `(remaining >> 4) << 1` is the byte offset into the four-word hypers_tab.
+const HYPER_OUT_SHAPES: [u16; 4] = [HYPER4_SHAPE, HYPER3_SHAPE, HYPER2_SHAPE, HYPER_SHAPE];
+const HYPER_OUT_TICKS: u8 = 64;
+const HYPER_OUT_PHASE_SHIFT: u32 = 4;
+const HYPER_WORLD_DISTANCE: i16 = 4000;
+const HYPER_RANDOM_HIGH_MASK: u8 = 1;
+const HYPER_RANDOM_CENTER: i16 = 256;
+const HYPER_ROLL_Y_OFFSET: i8 = 50;
+const HYPER_Z_STEP: i16 = -80;
 
 /// ROM `phitflash_Istrat` — alias of hitflash.
 pub fn phitflash_istrat(g: &mut Game, idx: u16) {
@@ -9793,21 +9805,35 @@ pub fn phitflash_istrat(g: &mut Game, idx: u16) {
 
 /// ROM `hyper_Istrat` — streak that drifts −80 z each tick.
 pub fn hyper_istrat(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_sub(80);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+        .worldz
+        .wrapping_add(HYPER_Z_STEP);
 }
 
 /// ROM `hyperspace_Istrat` — emitter parked ahead of player, spawns hyper streaks.
 pub fn hyperspace_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, hyperspace_strat);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.stratptr = Some(tick);
-    al.sword1 = HYPER_SHAPE as i16;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sword1 = HYPER_SHAPE as i16;
+    }
+    // PISTRATS falls directly through from the initializer into the first
+    // emitter tick.
+    hyperspace_strat(g, idx);
+}
+
+/// ROM `s_set_alvar2rnd` pair used for each signed 9-bit screen coordinate.
+fn hyperspace_random_coordinate(g: &mut Game) -> i16 {
+    let low = sf_random(&mut g.vars) as u8;
+    let high = (sf_random(&mut g.vars) as u8) & HYPER_RANDOM_HIGH_MASK;
+    i16::from_le_bytes([low, high]).wrapping_sub(HYPER_RANDOM_CENTER)
 }
 
 pub fn hyperspace_strat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].roty = DEG180;
     if let Some(pl) = player(g) {
-        g.objs.aliens[idx as usize].worldz = pl.worldz.wrapping_add(4000);
+        g.objs.aliens[idx as usize].worldz = pl.worldz.wrapping_add(HYPER_WORLD_DISTANCE);
     }
     let fire = (g.vars.pstratflags & PSTF_FLAG1 != 0) || (g.vars.gameframe & 1 == 0);
     if !fire {
@@ -9815,37 +9841,37 @@ pub fn hyperspace_strat(g: &mut Game, idx: u16) {
     }
     let shape = g.objs.aliens[idx as usize].sword1 as u16;
     if let Some(streak) = make_obj(g, shape) {
-        let (px, py, pz) = {
-            let m = &g.objs.aliens[idx as usize];
-            (m.worldx, m.worldy, m.worldz)
-        };
+        let streak_tick = sid(g, hyper_istrat);
+        let emitter_z = g.objs.aliens[idx as usize].worldz;
+        let random_x = hyperspace_random_coordinate(g);
+        let random_y = hyperspace_random_coordinate(g);
+        let roll = sf_random(&mut g.vars) as u8;
+        let (roll_x, roll_y, _) =
+            crate::snes_trig::strat_roffs_roll(roll, 0, HYPER_ROLL_Y_OFFSET, 0);
         {
             let al = &mut g.objs.aliens[streak as usize];
-            al.worldx = px;
-            al.worldy = py;
-            al.worldz = pz;
+            al.worldx = random_x.wrapping_add(roll_x);
+            al.worldy = random_y.wrapping_add(roll_y).wrapping_add(SPACE_VIEWCY);
+            al.worldz = emitter_z;
+            al.rotz = roll;
             al.sflags |= ASF_COLLDISABLE;
-            // Random jitter like ROM rnd worldx (±512-ish)
-            al.worldx = al
-                .worldx
-                .wrapping_add(((sf_random(&mut g.vars) as i16) & 0x1FF) - 256);
-            al.worldy = al
-                .worldy
-                .wrapping_add(((sf_random(&mut g.vars) as i16) & 0x1FF) - 256);
+            al.stratptr = Some(streak_tick);
         }
-        hyper_istrat(g, streak);
-        let tick = sid(g, hyper_istrat);
-        g.objs.aliens[streak as usize].stratptr = Some(tick);
     }
 }
 
 /// ROM `hyperspaceout_Istrat` — shrinking hyper table then hyperspace_strat.
 pub fn hyperspaceout_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, hyperspaceout_strat);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.stratptr = Some(tick);
-    al.sword1 = HYPER_SHAPE as i16;
-    al.sbyte1 = 64;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
+        al.sword1 = HYPER_SHAPE as i16;
+        al.sbyte1 = HYPER_OUT_TICKS;
+    }
+    // The source initializer falls through into the decrement, table lookup,
+    // and first emitter tick.
+    hyperspaceout_strat(g, idx);
 }
 
 pub fn hyperspaceout_strat(g: &mut Game, idx: u16) {
@@ -9854,8 +9880,11 @@ pub fn hyperspaceout_strat(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     }
-    g.objs.aliens[idx as usize].sbyte1 = sb - 1;
-    // Shape table step: scale sbyte1>>4 into sword1 proxy — cosmetic shape swap scoped.
+    let remaining = sb - 1;
+    let phase = usize::from(remaining >> HYPER_OUT_PHASE_SHIFT);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.sbyte1 = remaining;
+    al.sword1 = HYPER_OUT_SHAPES[phase] as i16;
     hyperspace_strat(g, idx);
 }
 
