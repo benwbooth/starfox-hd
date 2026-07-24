@@ -638,7 +638,6 @@ const ELADARD_GENERATOR_CORE_HEIGHT: i16 = -152;
 const ELADARD_INTERIOR_STATIC_OBJECT_COUNT: usize = 21;
 const ELADARD_INTERIOR_DEFENDER_COUNT: usize = 2;
 const ELADARD_INTERIOR_DEFENDER_HEALTH: u8 = 1;
-const ELADARD_INTERIOR_DEFENDER_ATTACK_POWER: u8 = 20;
 const ELADARD_DEFENDER_MOTION_STEP_RETAIL_FRAMES: u8 = 6;
 const ELADARD_DEFENDER_FIRE_MOTION_STEP: usize = 6;
 const ELADARD_DEFENDER_COOLDOWN_RETAIL_FRAMES: u16 = 174;
@@ -7560,7 +7559,7 @@ impl Game {
             defender.base.position = position;
             defender.base.yaw = Angle::HALF_TURN;
             defender.base.hit_points = ELADARD_INTERIOR_DEFENDER_HEALTH;
-            defender.base.attack_power = ELADARD_INTERIOR_DEFENDER_ATTACK_POWER;
+            defender.base.weapon = WeaponKind::EnemyLaser;
             defender.base.collision_class = CollisionClass::Enemy;
             defender.base.flags.casts_shadow = false;
             defender.extension.activity = ObjectActivity::EladardDefender(EladardDefenderState {
@@ -22075,10 +22074,7 @@ mod tests {
             assert_eq!(defender.base.shape, ShapeId::ELADARD_INTERIOR_DEFENDER);
             assert_eq!(defender.base.position, position);
             assert_eq!(defender.base.hit_points, ELADARD_INTERIOR_DEFENDER_HEALTH);
-            assert_eq!(
-                defender.base.attack_power,
-                ELADARD_INTERIOR_DEFENDER_ATTACK_POWER
-            );
+            assert_eq!(defender.base.weapon, WeaponKind::EnemyLaser);
             assert_eq!(defender.base.collision_class, CollisionClass::Enemy);
             assert!(matches!(
                 defender.extension.activity,
