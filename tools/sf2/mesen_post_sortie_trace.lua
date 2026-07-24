@@ -1893,6 +1893,17 @@ local function provide_combat_autopilot()
   local approaching_carrier = false
   local target_distance_squared = math.huge
   local meteor_map = work_word(0x1657)
+  local eladard_interior = work_byte(0x1BB5) == 3
+    and work_byte(0x192E) == 0x05
+    and (meteor_map == 0x33EC
+      or meteor_map == 0x3490
+      or meteor_map == 0x34DF)
+  if eladard_interior then
+    -- Savestates reload retail state but not this Lua controller's globals.
+    -- Reconstruct the interior classification from the observed map gates so
+    -- a strict replay can be verified in independent chunks.
+    eladard_base_entered = true
+  end
   local meteor_surface = work_byte(0x1BB5) == 4
     and work_byte(0x192E) == 0x05
     and meteor_map == 0x4012
@@ -1925,6 +1936,7 @@ local function provide_combat_autopilot()
   local requested_object_seen = false
   local allow_ordinary_targets = not forced_target_shape
     and (not forced_target_object or forced_target_object_retired)
+  local eladard_open_door = 0
   local object = work_word(0x12A8)
   local seen = {}
   while object ~= 0 and not seen[object] do
@@ -1933,6 +1945,9 @@ local function provide_combat_autopilot()
     -- or a Star Wolf rival. Source-machine tokens stay confined to this
     -- oracle controller.
     local shape = work_word(object + 4)
+    if work_byte(0x1BB5) == 3 and shape == 0xEC30 then
+      eladard_open_door = object
+    end
     if shape == 0xC348 and forced_rival_health
       and work_byte(object + 0x2E) == 4
       and work_byte(object + 0x2D) > forced_rival_health then
@@ -2045,13 +2060,19 @@ local function provide_combat_autopilot()
         emu.memType.snesWorkRam)
       forced_meteor_core_health_applied = true
     end
+    local eladard_final_room = work_byte(0x1BB5) == 3
+      and work_word(0x1657) == 0x34DF
     local eladard_room_defender = work_byte(0x1BB5) == 3
-      and (shape == 0xEE0C or shape == 0xBECC
+      and (shape == 0xEE0C or (eladard_final_room
+        and (shape == 0xBECC
         -- The final-room defender alternates between these two animation
         -- frames while retaining the same retail object and durability.
-        or shape == 0xE958 or shape == 0xE974)
+        or shape == 0xE958 or shape == 0xE974)))
     local planetary_base_defender = eladard_room_defender
       or meteor_core_target
+    local eladard_target_switch = work_byte(0x1BB5) == 3
+      and inside_planetary_base and shape == 0xEF5C
+      and (work_byte(object + 0x26) & 0x02) == 0
     local meteor_surface_target = meteor_surface and shape == 0xEF5C
     local titania_switch_target = titania_surface and shape == 0xEF5C
     local titania_route_landmark = titania_surface and shape == 0xEDD4
@@ -2089,6 +2110,7 @@ local function provide_combat_autopilot()
       and (shape == 0xF1C4 or shape == 0xEA00
         or shape == 0xC348 or shape == 0xE1B0
         or eladard_barrier or planetary_base_defender
+        or eladard_target_switch
         or meteor_surface_target or titania_switch_target
         or titania_route_landmark
         or carrier_exterior_anchor or carrier_core or fighter_collision
@@ -2107,6 +2129,8 @@ local function provide_combat_autopilot()
           or signed_word(object + 12) < signed_word(target + 12))
       local prefer_meteor_core = meteor_core_target
         and target_shape ~= 0xEB6C
+      local prefer_eladard_target_switch = eladard_target_switch
+        and target_shape ~= 0xEF5C
       local prefer_meteor_surface_target = meteor_surface_target
         and target_shape ~= 0xEF5C
       local prefer_astropolis_security_turret = astropolis_security_turret
@@ -2119,6 +2143,7 @@ local function provide_combat_autopilot()
         or (allow_ordinary_targets
           and (prefer_left_eladard_barrier
             or prefer_meteor_core
+            or prefer_eladard_target_switch
             or prefer_meteor_surface_target
             or prefer_astropolis_security_turret
             or prefer_astropolis_target_switch
@@ -2694,7 +2719,41 @@ local function provide_combat_autopilot()
       input_label = "combat-autopilot-titania-entrance"
     elseif inside_planetary_base then
       local route_direction = eladard_route_direction()
-      if installation_core_encounter_seen then
+      if work_byte(0x1BB5) == 3
+        and work_word(0x1657) == 0x33EC
+        and eladard_open_door ~= 0 then
+        -- The first interior switch changes the north door from EC14 to
+        -- EC30. Align with that retail object's centre before advancing;
+        -- driving straight from the switch intersects the wall beside it.
+        local doorway_delta_x = signed_word(eladard_open_door + 12) - player_x
+        if doorway_delta_x > 80 then
+          buttons.right = true
+        elseif doorway_delta_x < -80 then
+          buttons.left = true
+        else
+          buttons.up = true
+        end
+        route_direction = "first-door"
+      elseif work_byte(0x1BB5) == 3
+        and work_word(0x1657) == 0x3490
+        and eladard_open_door ~= 0 then
+        -- The next room's open door is rotated and offset from the approach
+        -- lane. Follow its live centre on both room axes so the Walker
+        -- crosses the opening instead of pressing against the adjacent wall.
+        local doorway_delta_x = signed_word(eladard_open_door + 12) - player_x
+        local doorway_delta_z = signed_word(eladard_open_door + 16) - player_z
+        if doorway_delta_x > 48 then
+          buttons.right = true
+        elseif doorway_delta_x < -48 then
+          buttons.left = true
+        end
+        if doorway_delta_z > 48 then
+          buttons.up = true
+        elseif doorway_delta_z < -48 then
+          buttons.down = true
+        end
+        route_direction = "second-door"
+      elseif installation_core_encounter_seen then
         local exit_delta_x = 6500 - player_x
         local exit_delta_z = 5120 - player_z
         local exit_yaw = math.floor(
