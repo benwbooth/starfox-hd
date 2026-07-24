@@ -361,6 +361,12 @@ EXTENDED_SHAPES = {
     "hyper2":           470,
     "hyper3":           471,
     "hyper4":           472,
+    # GA2STRAT stores these body/barrel pairs directly in the bazooka object;
+    # none has an ISTRATS def_shape row of its own.
+    "bazz_1p":          473,
+    "bazz_1q":          474,
+    "bazooka1":         475,
+    "bazooka2":         476,
 }
 
 

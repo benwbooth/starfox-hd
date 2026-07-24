@@ -3264,6 +3264,34 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         },
     ), // hyper4
     (
+        473,
+        Sf1ShapeMetrics {
+            visual_extent: 160,
+            coordinate_shift: 2,
+        },
+    ), // bazz_1p
+    (
+        474,
+        Sf1ShapeMetrics {
+            visual_extent: 148,
+            coordinate_shift: 2,
+        },
+    ), // bazz_1q
+    (
+        475,
+        Sf1ShapeMetrics {
+            visual_extent: 140,
+            coordinate_shift: 2,
+        },
+    ), // bazooka1
+    (
+        476,
+        Sf1ShapeMetrics {
+            visual_extent: 112,
+            coordinate_shift: 2,
+        },
+    ), // bazooka2
+    (
         508,
         Sf1ShapeMetrics {
             visual_extent: 512,

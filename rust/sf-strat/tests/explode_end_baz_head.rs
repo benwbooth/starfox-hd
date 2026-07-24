@@ -2,7 +2,7 @@
 
 use sf_game::alien::ASF_COLLDISABLE;
 use sf_game::Game;
-use sf_strat::enemies_ground::{bazexp_istrat, bazfall_istrat, bazfall_strat};
+use sf_strat::enemies_ground::{bazexp_istrat, bazfall_istrat, bazfall_strat, SH_BAZOOKA2};
 use sf_strat::enemy_a::{
     explode_end, explode_strat, headfire_istrat, headfire_strat, lexplode_strat, ASF2_RELEXPLODE,
     DEG45,
@@ -72,11 +72,30 @@ fn lexplode_skips_anim_on_odd_frames() {
 fn bazexp_spawns_fall_debris() {
     let mut g = Game::new();
     let baz = g.objs.alloc().expect("b");
+    g.objs.aliens[baz as usize].worldx = 100;
+    g.objs.aliens[baz as usize].worldy = -25;
     g.objs.aliens[baz as usize].worldz = 500;
+    g.objs.aliens[baz as usize].rotx = 10;
+    g.objs.aliens[baz as usize].roty = 20;
+    g.objs.aliens[baz as usize].rotz = 30;
+    g.objs.aliens[baz as usize].sword1 = SH_BAZOOKA2 as i16;
     let before = g.objs.active_indices().len();
     bazexp_istrat(&mut g, baz);
     let after = g.objs.active_indices().len();
     assert!(after > before, "debris child spawned");
+    let barrel = g
+        .objs
+        .aliens
+        .iter()
+        .find(|alien| alien.active && alien.shape == SH_BAZOOKA2)
+        .expect("authored barrel mesh");
+    assert_eq!(
+        (barrel.worldx, barrel.worldy, barrel.worldz),
+        (100, -25, 500)
+    );
+    assert_eq!((barrel.rotx, barrel.roty, barrel.rotz), (10, 20, 30));
+    assert_eq!(barrel.count, 30);
+    assert_ne!(barrel.sflags & ASF_COLLDISABLE, 0);
     assert_eq!(g.objs.aldead, 1);
 }
 

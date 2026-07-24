@@ -84,6 +84,10 @@ const TANK2_HP: u8 = 40; // STRATEQU.INC:243 tank2HP
 const TANK2_AP: u8 = 32; // STRATEQU.INC:244 tank2AP
 const BAZOOKA_HP: u8 = 8; // STRATEQU.INC:237 bazookaHP
 const BAZOOKA_AP: u8 = 16; // STRATEQU.INC:238 bazookaAP
+pub const SH_BAZZ_1P: u16 = 473;
+pub const SH_BAZZ_1Q: u16 = 474;
+pub const SH_BAZOOKA1: u16 = 475;
+pub const SH_BAZOOKA2: u16 = 476;
 const MEDPSPEED: u8 = 65; // STRATEQU.INC:347 medPspeed
 const FOGDIST: i16 = 2000; // KSTRATS.ASM:58 fogdist
 const DEG270: u8 = 192; // VARS.INC:18 deg270 = deg180+deg90
@@ -961,25 +965,26 @@ const ASF2_SFLAG1: u8 = 0x10;
 /// sflag1 (turn left in the fire state); both share `bazooka_Icont`.
 pub fn bazooka1l_istrat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1; // s_set_alsflag x,sflag1
-    bazooka_icont(g, idx);
+    bazooka_icont(g, idx, SH_BAZZ_1P, SH_BAZZ_1Q);
 }
 
 /// ROM `bazooka1R_Istrat` / `bazookaR_Istrat` (GA2STRAT.ASM:994/1004).
 pub fn bazooka1r_istrat(g: &mut Game, idx: u16) {
-    bazooka_icont(g, idx);
+    bazooka_icont(g, idx, SH_BAZZ_1P, SH_BAZZ_1Q);
 }
 
 /// Compatibility aliases for the istrat table (IS 158/159).
 fn bazookal_init(g: &mut Game, idx: u16) {
-    bazooka1l_istrat(g, idx);
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
+    bazooka_icont(g, idx, SH_BAZOOKA1, SH_BAZOOKA2);
 }
 fn bazookar_init(g: &mut Game, idx: u16) {
-    bazooka1r_istrat(g, idx);
+    bazooka_icont(g, idx, SH_BAZOOKA1, SH_BAZOOKA2);
 }
 
 /// `bazooka_Icont` (GA2STRAT.ASM:1008-1018): common init — rise up from the
 /// planet with vy=-15, pitched straight up, facing deg180, speed 80.
-fn bazooka_icont(g: &mut Game, idx: u16) {
+fn bazooka_icont(g: &mut Game, idx: u16, debris_shape: u16, barrel_shape: u16) {
     let tick = sid(g, bazooka_strat);
     let coll = sid(g, strat_hit_flash);
     let exp = sid(g, bazexp_istrat);
@@ -990,6 +995,8 @@ fn bazooka_icont(g: &mut Game, idx: u16) {
     al.collflags |= COLLTYPE_ENEMY1;
     al.hp = BAZOOKA_HP;
     al.ap = BAZOOKA_AP;
+    al.debrisshape = debris_shape;
+    al.sword1 = barrel_shape as i16;
     al.animframe = 0;
     al.vy = -15; // s_set_alvar W,x,al_vy,#-15 (overwritten each tick by gen_3dvecs)
     al.rotx = (-(DEG90 as i8)) as u8; // s_set_alvar B,x,al_rotx,#-deg90 (== 192)
@@ -1147,9 +1154,8 @@ fn bazooka_fire(g: &mut Game, idx: u16, muzzle_x: i16) {
 /// `bazexp_Istrat` (GA2STRAT.ASM:1055-1063): on death drop a falling debris
 /// object (the barrel) then run the standard escapee explosion.
 pub fn bazexp_istrat(g: &mut Game, idx: u16) {
-    // ROM makes `al_sword1` debris; that shape is cosmetic here, so spawn a
-    // bare falling object at the bazooka's pose then explode the bazooka.
-    if let Some(child) = make_obj(g, 0) {
+    let barrel_shape = g.objs.aliens[idx as usize].sword1 as u16;
+    if let Some(child) = make_obj(g, barrel_shape) {
         copy_pos(g, child, idx);
         let src = g.objs.aliens[idx as usize];
         let tick = sid(g, bazfall_strat);

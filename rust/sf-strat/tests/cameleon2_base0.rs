@@ -2,7 +2,8 @@
 
 use sf_game::Game;
 use sf_strat::enemies_ground::{
-    base0_istrat, base0_strat, base0b_strat, bazooka1l_istrat, bazooka1r_istrat,
+    base0_istrat, base0_strat, base0b_strat, bazooka1l_istrat, bazooka1r_istrat, SH_BAZZ_1P,
+    SH_BAZZ_1Q,
 };
 use sf_strat::enemy_a::{
     cam2dash_init, cam2dash_strat, cam2hide_init, cam2hide_strat, cam2nextpos, cameleon2_cont,
@@ -51,10 +52,14 @@ fn bazooka1_l_sets_sflag1_r_does_not() {
     g.objs.aliens[l as usize].worldy = 500;
     bazooka1l_istrat(&mut g, l);
     assert_ne!(g.objs.aliens[l as usize].sflags2 & 0x10, 0);
+    assert_eq!(g.objs.aliens[l as usize].debrisshape, SH_BAZZ_1P);
+    assert_eq!(g.objs.aliens[l as usize].sword1, SH_BAZZ_1Q as i16);
     let r = spawn_obj(&mut g);
     g.objs.aliens[r as usize].worldy = 500;
     bazooka1r_istrat(&mut g, r);
     assert_eq!(g.objs.aliens[r as usize].sflags2 & 0x10, 0);
+    assert_eq!(g.objs.aliens[r as usize].debrisshape, SH_BAZZ_1P);
+    assert_eq!(g.objs.aliens[r as usize].sword1, SH_BAZZ_1Q as i16);
     assert_eq!(g.objs.aliens[r as usize].vel, 80);
 }
 

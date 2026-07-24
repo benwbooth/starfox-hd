@@ -7,7 +7,8 @@
 //! `shape_compiler.py` now emits the Rust table as the single source.)
 
 use sf_render::shape_data::{
-    SHAPE_DATA, SHAPE_DATA_COUNT, SHAPE_EXT_BOSS_B_6, SHAPE_EXT_BOSS_B_7, SHAPE_EXT_DEBOSS_0,
+    SHAPE_DATA, SHAPE_DATA_COUNT, SHAPE_EXT_BAZOOKA1, SHAPE_EXT_BAZOOKA2, SHAPE_EXT_BAZZ_1P,
+    SHAPE_EXT_BAZZ_1Q, SHAPE_EXT_BOSS_B_6, SHAPE_EXT_BOSS_B_7, SHAPE_EXT_DEBOSS_0,
     SHAPE_EXT_DEBOSS_2, SHAPE_EXT_HYPER2, SHAPE_EXT_HYPER3, SHAPE_EXT_HYPER4, SHAPE_EXT_ROBOT_0,
     SHAPE_EXT_ZACO_0, SHAPE_EXT_ZACO_7P, SHAPE_EXT_ZACO_8P,
 };
@@ -87,6 +88,24 @@ fn hyperspace_out_meshes_keep_the_authored_shrinking_geometry() {
             .iter()
             .find(|shape| shape.shape_id == shape_id)
             .unwrap_or_else(|| panic!("{name} hyperspace mesh"));
+        assert_eq!(shape.name, name);
+        assert_eq!(shape.vertices.len(), vertices, "{name} vertices");
+        assert_eq!(shape.faces.len(), faces, "{name} faces");
+    }
+}
+
+#[test]
+fn bazooka_debris_meshes_keep_the_authored_geometry() {
+    for (shape_id, name, vertices, faces) in [
+        (SHAPE_EXT_BAZZ_1P, "bazz_1p", 7, 7),
+        (SHAPE_EXT_BAZZ_1Q, "bazz_1q", 9, 12),
+        (SHAPE_EXT_BAZOOKA1, "bazooka1", 9, 8),
+        (SHAPE_EXT_BAZOOKA2, "bazooka2", 6, 7),
+    ] {
+        let shape = SHAPE_DATA
+            .iter()
+            .find(|shape| shape.shape_id == shape_id)
+            .unwrap_or_else(|| panic!("{name} bazooka debris mesh"));
         assert_eq!(shape.name, name);
         assert_eq!(shape.vertices.len(), vertices, "{name} vertices");
         assert_eq!(shape.faces.len(), faces, "{name} faces");
@@ -576,6 +595,10 @@ fn runtime_extended_mesh_catalog_is_complete() {
         (470, "hyper2"),
         (471, "hyper3"),
         (472, "hyper4"),
+        (473, "bazz_1p"),
+        (474, "bazz_1q"),
+        (475, "bazooka1"),
+        (476, "bazooka2"),
     ];
 
     for (shape_id, name) in expected {

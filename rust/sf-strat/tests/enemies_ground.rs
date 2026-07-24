@@ -372,6 +372,8 @@ fn bazookal_init_sets_left_latch_and_pose() {
     assert_eq!(a.rotx, (-(64i8)) as u8, "rotx = -deg90 (192)");
     assert_eq!(a.roty, DEG180);
     assert_eq!(a.vel, 80, "still rising at speed 80 while worldy>=440");
+    assert_eq!(a.debrisshape, enemies_ground::SH_BAZOOKA1);
+    assert_eq!(a.sword1, enemies_ground::SH_BAZOOKA2 as i16);
     assert!(a.collstratptr.is_some() && a.expstratptr.is_some());
 }
 
@@ -424,6 +426,22 @@ fn bazooka_death_drops_debris_and_explodes() {
     g.call_strat(exp, baz);
     let after = (0..NUMBER_AL).filter(|&i| g.objs.aliens[i].active).count();
     assert!(after > before, "a falling debris object was spawned");
+    assert!(
+        g.objs
+            .aliens
+            .iter()
+            .any(|alien| alien.active && alien.shape == enemies_ground::SH_BAZOOKA2),
+        "the detachable barrel uses the authored bazooka2 mesh"
+    );
+    assert_eq!(
+        g.objs
+            .aliens
+            .iter()
+            .filter(|alien| alien.active && alien.shape == enemies_ground::SH_BAZOOKA1)
+            .count(),
+        2,
+        "the source explosion sheds two bazooka1 body pieces"
+    );
     assert_generic_explosion_started(&g, baz, "bazooka");
 }
 
