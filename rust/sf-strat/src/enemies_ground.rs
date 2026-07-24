@@ -5394,6 +5394,9 @@ pub fn minumusi_istrat(_g: &mut Game, _idx: u16) {}
 // ============================================================
 
 const DOOR1_AP: u8 = 8; // STRATEQU.INC:166
+const DOOR1_CLOSED_FRAME: u8 = 9;
+const DOOR1_OPENING_CUE_FRAME: u8 = 1;
+const DOOR1_ANIMATION_FRAMES: u8 = 10;
 
 /// Radius search used by door1: first active alien within `max_d` of `idx`
 /// (excluding self / player), matching ROM `s_find_radiusobj` loosely.
@@ -5440,7 +5443,10 @@ pub fn door1openwait_init(g: &mut Game, idx: u16) {
 }
 
 pub fn door1openwait_strat(g: &mut Game, idx: u16) {
-    // Door-close SFX on frame 9 — cosmetic omitted.
+    // ROM `s_doorclose_snd 9` runs before the animation decrement.
+    if g.objs.aliens[idx as usize].animframe & 0x7F == DOOR1_CLOSED_FRAME {
+        door_family_sound(g, idx, PosSndFamilyId::DoorClose);
+    }
     {
         let anim = g.objs.aliens[idx as usize].animframe & 0x7F;
         if anim != 0 {
@@ -5466,10 +5472,14 @@ pub fn door1closewait_init(g: &mut Game, idx: u16) {
 }
 
 pub fn door1closewait_strat(g: &mut Game, idx: u16) {
+    // ROM `s_doorclose_snd 1` runs before the animation increment.
+    if g.objs.aliens[idx as usize].animframe & 0x7F == DOOR1_OPENING_CUE_FRAME {
+        door_family_sound(g, idx, PosSndFamilyId::DoorClose);
+    }
     {
         let anim = g.objs.aliens[idx as usize].animframe & 0x7F;
-        if anim != 9 {
-            g.objs.aliens[idx as usize].animframe = (anim + 1) % 10;
+        if anim != DOOR1_CLOSED_FRAME {
+            g.objs.aliens[idx as usize].animframe = (anim + 1) % DOOR1_ANIMATION_FRAMES;
         }
     }
     // Stay closed while player within 500z.

@@ -123,3 +123,36 @@ fn proximity_door_emits_open_and_close_sounds_at_source_frames() {
     );
     assert_eq!(game.objs.aliens[door as usize].animframe & 0x7F, 6);
 }
+
+#[test]
+fn generic_door_emits_close_cues_at_both_source_frames() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut game = setup(log.clone());
+    game.objs.aliens[0].worldz = 0;
+    let door = place(&mut game, PROXIMITY_DOOR_STRATEGY, 30, 2_000);
+
+    enemies_ground::door1_istrat(&mut game, door);
+    game.objs.aliens[door as usize].animframe = 9;
+    enemies_ground::door1openwait_strat(&mut game, door);
+    assert_eq!(game.objs.aliens[door as usize].animframe, 8);
+
+    game.objs.aliens[door as usize].animframe = 1;
+    enemies_ground::door1closewait_strat(&mut game, door);
+
+    assert_eq!(
+        *log.borrow(),
+        vec![
+            SoundEvent {
+                family: PosSndFamilyId::DoorClose,
+                world_x: 30,
+                world_z: 2_000,
+            },
+            SoundEvent {
+                family: PosSndFamilyId::DoorClose,
+                world_x: 30,
+                world_z: 2_000,
+            },
+        ]
+    );
+    assert_eq!(game.objs.aliens[door as usize].animframe, 2);
+}
