@@ -14,12 +14,15 @@ DEFAULT_OUTPUT = Path(__file__).with_name("fixtures") / "meteor_queen_dragoon.tr
 MISSION_NAME = "meteor"
 MISSION_SELECTION = 4
 ACTIVE_MAP = "05:4012"
+INTERIOR_MAP = "05:45B9"
 BOSS_NAME = "queen_dragoon"
 BODY_SHAPE = "FA84"
 LINKED_COMPONENT_SHAPES = ("FAA0", "FABC")
 BODY_EXPLOSION_SHAPE = "BDD0"
 COMPONENT_BURST_SHAPE = "BD98"
 COMPONENT_DEBRIS_SHAPE = "BDEC"
+DROPPED_SWITCH_SHAPE = "EF5C"
+PRESSED_SWITCH_SHAPE = "EF78"
 MAXIMUM_DURABILITY = 80
 EXPECTED_LINKED_COMPONENTS = 4
 EXPECTED_LOGIC_OBJECTS = 5
@@ -32,12 +35,17 @@ class Evidence:
     sortie_sha256: str
     actor_logic_sha256: str
     forced_return_sha256: str
+    natural_progression_sha256: str
     objectives_before: int
     objectives_after: int
     defeat_retail_frame: int
     explosion_retail_frame: int
     forced_return_delay_retail_frames: int
     move_events: int
+    queen_retired_elapsed: int
+    switch_targeted_elapsed: int
+    switch_pressed_elapsed: int
+    base_entry_elapsed: int
 
 
 def fields(line: str) -> dict[str, str]:
@@ -128,8 +136,166 @@ def extract_forced_return(forced_return_trace: Path) -> int:
     return int(returned["elapsed"]) - completed_elapsed
 
 
+def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int]:
+    records = [
+        fields(line) for line in natural_trace.read_text(encoding="utf-8").splitlines()
+    ]
+    config = next(
+        (record for record in records if record.get("event") == "oracle-config"),
+        None,
+    )
+    expected_config = {
+        "target_object": "0537",
+        "target_health": "nil",
+        "target_collision": "false",
+        "projectile_hit": "false",
+        "hostile_projectile_hit": "false",
+        "spider_health": "nil",
+        "spider_parent_health": "nil",
+        "spider_trigger": "false",
+        "objective_remaining": "nil",
+        "base_destroyed_bits": "nil",
+        "base_handshake_bits": "nil",
+        "teleport": "false",
+        "preserve_shields": "true",
+    }
+    if config is None or any(config.get(key) != value for key, value in expected_config.items()):
+        raise SystemExit(
+            "natural progression trace must preserve only player shields and "
+            "must not force mission, target, projectile, or navigation state"
+        )
+
+    bound = next(
+        (
+            record
+            for record in records
+            if record.get("event") == "forced-target-object-bound"
+            and record.get("object") == expected_config["target_object"]
+            and record.get("shape") == BODY_SHAPE
+        ),
+        None,
+    )
+    retired = next(
+        (
+            record
+            for record in records
+            if record.get("event") == "forced-target-object-retired"
+            and record.get("object") == expected_config["target_object"]
+            and record.get("shape") == BODY_SHAPE
+        ),
+        None,
+    )
+    if bound is None or retired is None:
+        raise SystemExit("natural progression trace does not retire the original Queen body")
+
+    mission_samples = [
+        (record, objects(record["objects"]))
+        for record in records
+        if record.get("selection") == str(MISSION_SELECTION)
+        and "objects" in record
+        and "objectives" in record
+    ]
+    if not mission_samples:
+        raise SystemExit("natural progression trace has no active Meteor samples")
+    if mission_samples[0][0].get("map") != ACTIVE_MAP:
+        raise SystemExit("natural progression trace does not begin on Meteor's surface")
+    if objective_count(mission_samples[0][0]) != 2:
+        raise SystemExit("natural progression trace does not begin with two objectives")
+
+    dropped = next(
+        (
+            (record, actor)
+            for record, actors in mission_samples
+            if int(record["elapsed"]) >= int(retired["elapsed"])
+            for actor in actors
+            if actor[1] == DROPPED_SWITCH_SHAPE
+        ),
+        None,
+    )
+    if dropped is None:
+        raise SystemExit("Queen Dragoon's natural death path does not drop a switch")
+    switch_object = dropped[1][0]
+    targeted = next(
+        (
+            record
+            for record, actors in mission_samples
+            if int(record["elapsed"]) >= int(retired["elapsed"])
+            and record.get("input", "").startswith(
+                f"combat-autopilot-target-{switch_object}-"
+            )
+            and any(
+                actor[0] == switch_object and actor[1] == DROPPED_SWITCH_SHAPE
+                for actor in actors
+            )
+        ),
+        None,
+    )
+    if targeted is None:
+        raise SystemExit("oracle pilot never selects Queen Dragoon's dropped switch")
+
+    pressed = next(
+        (
+            record
+            for record, actors in mission_samples
+            if int(record["elapsed"]) >= int(targeted["elapsed"])
+            and any(
+                actor[0] == switch_object and actor[1] == PRESSED_SWITCH_SHAPE
+                for actor in actors
+            )
+        ),
+        None,
+    )
+    if pressed is None:
+        raise SystemExit("natural progression trace never presses the dropped switch")
+    if objective_count(pressed) != 1 or pressed.get("basehandshake") not in {"01", "03"}:
+        raise SystemExit("pressed switch does not advance Meteor's retail objectives and door")
+
+    entered = next(
+        (
+            record
+            for record, _ in mission_samples
+            if int(record["elapsed"]) >= int(pressed["elapsed"])
+            and record.get("map") == INTERIOR_MAP
+        ),
+        None,
+    )
+    if entered is None:
+        raise SystemExit("natural progression trace never enters Meteor's base")
+    if objective_count(entered) != 1 or entered.get("basehandshake") != "03":
+        raise SystemExit("Meteor base entry loses the pressed-switch progression state")
+
+    progression_records = [
+        record
+        for record in records
+        if int(record.get("elapsed", "0")) >= int(targeted["elapsed"])
+        and int(record.get("elapsed", "0")) <= int(entered["elapsed"])
+        and "input" in record
+    ]
+    allowed_input_prefixes = (
+        "combat-autopilot-target-",
+        "combat-autopilot-meteor-entrance",
+        "combat-autopilot-search",
+        "combat-autopilot-base-",
+    )
+    if any(
+        not record["input"].startswith(allowed_input_prefixes)
+        for record in progression_records
+    ):
+        raise SystemExit("Meteor natural progression uses unexpected oracle input")
+
+    return (
+        int(retired["elapsed"]),
+        int(targeted["elapsed"]),
+        int(pressed["elapsed"]),
+        int(entered["elapsed"]),
+    )
+
+
 def extract(
-    sortie_trace: Path, actor_logic_trace: Path, forced_return_trace: Path
+    sortie_trace: Path,
+    actor_logic_trace: Path,
+    forced_return_trace: Path,
+    natural_progression_trace: Path,
 ) -> Evidence:
     samples = []
     for line in sortie_trace.read_text(encoding="utf-8").splitlines():
@@ -209,16 +375,22 @@ def extract(
     }:
         raise SystemExit("actor trace contains an unexpected Queen Dragoon component")
 
+    natural_progression = extract_natural_progression(natural_progression_trace)
     return Evidence(
         sortie_sha256=digest(sortie_trace),
         actor_logic_sha256=digest(actor_logic_trace),
         forced_return_sha256=digest(forced_return_trace),
+        natural_progression_sha256=digest(natural_progression_trace),
         objectives_before=objective_count(entry_values),
         objectives_after=objective_count(explosion[1]),
         defeat_retail_frame=defeat[0] - entry_elapsed,
         explosion_retail_frame=explosion[0] - entry_elapsed,
         forced_return_delay_retail_frames=extract_forced_return(forced_return_trace),
         move_events=len(move_records),
+        queen_retired_elapsed=natural_progression[0],
+        switch_targeted_elapsed=natural_progression[1],
+        switch_pressed_elapsed=natural_progression[2],
+        base_entry_elapsed=natural_progression[3],
     )
 
 
@@ -229,6 +401,7 @@ def render(evidence: Evidence) -> str:
             f"# Raw sortie SHA-256: {evidence.sortie_sha256}",
             f"# Raw actor-logic SHA-256: {evidence.actor_logic_sha256}",
             (f"# Raw forced-objective return SHA-256: {evidence.forced_return_sha256}"),
+            f"# Raw natural-progression SHA-256: {evidence.natural_progression_sha256}",
             (
                 "# This trace deliberately injects zero remaining objectives; "
                 "it proves only the resulting return presentation, not natural "
@@ -268,6 +441,18 @@ def render(evidence: Evidence) -> str:
                 f"observed_return_retail_frames={evidence.forced_return_delay_retail_frames} "
                 "active_map_unchanged=true"
             ),
+            (
+                "natural_progression mission_state_forced=false "
+                "target_state_forced=false projectile_state_forced=false "
+                f"queen_retired_elapsed={evidence.queen_retired_elapsed} "
+                f"dropped_switch_shape={DROPPED_SWITCH_SHAPE} "
+                f"switch_targeted_elapsed={evidence.switch_targeted_elapsed} "
+                f"pressed_switch_shape={PRESSED_SWITCH_SHAPE} "
+                f"switch_pressed_elapsed={evidence.switch_pressed_elapsed} "
+                "objectives_after_switch=1 "
+                f"base_entry_elapsed={evidence.base_entry_elapsed} "
+                f"interior_map={INTERIOR_MAP.split(':')[1]}"
+            ),
             "",
         ]
     )
@@ -276,9 +461,11 @@ def render(evidence: Evidence) -> str:
 def validate_compact(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
-    if len(lines) != 10:
+    if len(lines) != 11:
         raise SystemExit("Queen Dragoon fixture has an unexpected record count")
-    mission, boss, *components, logic, forced_return = [fields(line) for line in lines]
+    mission, boss, *components, logic, forced_return, natural_progression = [
+        fields(line) for line in lines
+    ]
     if mission != {
         "name": MISSION_NAME,
         "mission_selection": str(MISSION_SELECTION),
@@ -321,13 +508,27 @@ def validate_compact(path: Path) -> None:
         "active_map_unchanged": "true",
     }:
         raise SystemExit("Queen Dragoon forced-return fixture is inconsistent")
+    if natural_progression != {
+        "mission_state_forced": "false",
+        "target_state_forced": "false",
+        "projectile_state_forced": "false",
+        "queen_retired_elapsed": "98297",
+        "dropped_switch_shape": DROPPED_SWITCH_SHAPE,
+        "switch_targeted_elapsed": "98300",
+        "pressed_switch_shape": PRESSED_SWITCH_SHAPE,
+        "switch_pressed_elapsed": "98650",
+        "objectives_after_switch": "1",
+        "base_entry_elapsed": "100098",
+        "interior_map": INTERIOR_MAP.split(":")[1],
+    }:
+        raise SystemExit("Queen Dragoon natural-progression fixture is inconsistent")
     hashes = [
         line.rsplit(" ", 1)[-1]
         for line in content.splitlines()
         if line.startswith("# Raw ")
     ]
-    if len(hashes) != 3:
-        raise SystemExit("Queen Dragoon fixture must bind exactly three raw traces")
+    if len(hashes) != 4:
+        raise SystemExit("Queen Dragoon fixture must bind exactly four raw traces")
     if any(
         len(value) != 64
         or any(character not in "0123456789abcdef" for character in value)
@@ -350,6 +551,11 @@ def main() -> None:
             "--completion-source remains as a compatibility alias"
         ),
     )
+    parser.add_argument(
+        "--natural-source",
+        type=Path,
+        help="unforced Queen defeat, dropped-switch, and Meteor base-entry trace",
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
@@ -359,8 +565,15 @@ def main() -> None:
             raise SystemExit("--actor-source is required with --source")
         if not args.forced_return_source:
             raise SystemExit("--forced-return-source is required with --source")
+        if not args.natural_source:
+            raise SystemExit("--natural-source is required with --source")
         generated = render(
-            extract(args.source, args.actor_source, args.forced_return_source)
+            extract(
+                args.source,
+                args.actor_source,
+                args.forced_return_source,
+                args.natural_source,
+            )
         )
         if args.check:
             if (
@@ -377,7 +590,7 @@ def main() -> None:
         validate_compact(args.output)
         action = "verified"
     print(
-        f"{action} {args.output}: retail Queen Dragoon body plus four linked components"
+        f"{action} {args.output}: retail Queen Dragoon, dropped switch, and base entry"
     )
 
 

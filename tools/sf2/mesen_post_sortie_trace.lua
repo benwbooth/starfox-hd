@@ -28,6 +28,17 @@ local target_spider_parent =
   os.getenv("SF2_ORACLE_TARGET_SPIDER_PARENT") == "1"
 local force_projectile_hit =
   os.getenv("SF2_ORACLE_FORCE_PROJECTILE_HIT") == "1"
+-- Oracle-only allocation probe for the surface target created by Queen
+-- Dragoon's retail death path. This intentionally exposes source addresses;
+-- the native port consumes only the resulting semantic evidence.
+meteor_switch_oracle = {
+  enabled = os.getenv("SF2_ORACLE_TRACE_METEOR_SWITCH") == "1",
+  shape_writes =
+    os.getenv("SF2_ORACLE_METEOR_SWITCH_SHAPE_WRITES") ~= "0",
+  minimum_elapsed = tonumber(
+    os.getenv("SF2_ORACLE_METEOR_SWITCH_START_ELAPSED")) or 0,
+  lines = {},
+}
 player_damage_oracle = {
   force = os.getenv("SF2_ORACLE_FORCE_HOSTILE_PROJECTILE_HIT") == "1",
   trace = os.getenv("SF2_ORACLE_TRACE_PLAYER_DAMAGE") == "1",
@@ -171,6 +182,7 @@ forced_target_object = forced_target_object_text
 -- actor is removed; continuing to match the bare address would clamp and fire
 -- at an unrelated replacement actor.
 forced_target_object_shape = nil
+forced_target_object_retired = false
 local forced_target_health = tonumber(os.getenv("SF2_ORACLE_TARGET_HEALTH"))
 if forced_target_shape_text then
   assert(
@@ -366,6 +378,26 @@ function capture_screen_range_contains(elapsed)
 end
 local temporarily_masked_pressure = {}
 local lines = {}
+lines[#lines + 1] = string.format(
+  "elapsed=%d event=oracle-config target_object=%s target_health=%s " ..
+    "target_collision=%s projectile_hit=%s hostile_projectile_hit=%s " ..
+    "spider_health=%s spider_parent_health=%s spider_trigger=%s " ..
+    "objective_remaining=%s base_destroyed_bits=%s " ..
+    "base_handshake_bits=%s teleport=%s preserve_shields=%s",
+  resume_elapsed,
+  forced_target_object_text or "none",
+  tostring(forced_target_health),
+  tostring(force_target_collision),
+  tostring(force_projectile_hit),
+  tostring(player_damage_oracle.force),
+  tostring(forced_spider_health),
+  tostring(forced_spider_parent_health),
+  tostring(force_wall_spider_trigger),
+  tostring(forced_objective_remaining),
+  tostring(forced_base_destroyed_bits),
+  tostring(forced_base_handshake_bits),
+  tostring(teleport_text ~= nil),
+  tostring(preserve_shields))
 audio_program_lines = {}
 local craft_transition_lines = {}
 local walker_dynamics_lines = {}
@@ -543,6 +575,60 @@ end
 local function signed_byte(address)
   local value = work_byte(address)
   if value >= 0x80 then return value - 0x100 end
+  return value
+end
+
+function meteor_switch_oracle.record_stage(stage)
+  return function()
+    if not meteor_switch_oracle.enabled or not armed then return end
+    local elapsed = frame - armed_frame
+    if elapsed < meteor_switch_oracle.minimum_elapsed then return end
+    local state = emu.getState()
+    local object = state["cpu.x"] or 0
+    meteor_switch_oracle.lines[#meteor_switch_oracle.lines + 1] = string.format(
+      "elapsed=%d event=%s object=%04X shape=%04X path=%04X " ..
+        "active=%04X source=%02X:%04X",
+      elapsed,
+      stage,
+      object,
+      object ~= 0 and work_word(object + 4) or 0,
+      object ~= 0 and work_word(object + 0x2B) or 0,
+      work_word(0x12A8),
+      state["cpu.k"] or 0,
+      state["cpu.pc"] or 0)
+  end
+end
+
+function meteor_switch_oracle.record_shape_write(address, value)
+  if not meteor_switch_oracle.enabled or not meteor_switch_oracle.shape_writes
+    or not armed then return value end
+  local elapsed = frame - armed_frame
+  if elapsed < meteor_switch_oracle.minimum_elapsed then return value end
+  local local_address = address & 0xFFFF
+  local pool_offset = local_address - 0x03BD
+  if pool_offset < 0 then return value end
+  local field = pool_offset % 0x3F
+  if field ~= 4 and field ~= 5 then return value end
+  local object = local_address - field
+  local before = work_word(object + 4)
+  local after
+  if field == 4 then
+    after = (before & 0xFF00) | (value or 0)
+  else
+    after = (before & 0x00FF) | ((value or 0) << 8)
+  end
+  local state = emu.getState()
+  meteor_switch_oracle.lines[#meteor_switch_oracle.lines + 1] = string.format(
+    "elapsed=%d event=shape-write object=%04X before=%04X after=%04X " ..
+      "path=%04X active=%04X source=%02X:%04X",
+    elapsed,
+    object,
+    before,
+    after,
+    work_word(object + 0x2B),
+    work_word(0x12A8),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
   return value
 end
 
@@ -1789,13 +1875,25 @@ local function provide_combat_autopilot()
   local target_shape = 0
   local approaching_carrier = false
   local target_distance_squared = math.huge
+  local meteor_map = work_word(0x1657)
+  local meteor_surface = work_byte(0x1BB5) == 4
+    and work_byte(0x192E) == 0x05
+    and meteor_map == 0x4012
+  local meteor_interior = work_byte(0x1BB5) == 4
+    and work_byte(0x192E) == 0x05
+    and (meteor_map == 0x45B9
+      or meteor_map == 0x4512
+      or meteor_map == 0x4893)
+  local meteor_wall_spider_room = meteor_interior
+    and meteor_map == 0x4893
   local inside_planetary_base = eladard_base_entered
-    or (work_byte(0x1BB5) == 4
-      and work_byte(0x192E) == 0x05
-      and work_word(0x1657) == 0x45B9)
+    or meteor_interior
     or (work_byte(0x1BB5) == 1
       and work_byte(0xD7A1) <= 1
       and (player_y < -100 or player_z > -1000))
+  local requested_object_seen = false
+  local allow_ordinary_targets = not forced_target_shape
+    and (not forced_target_object or forced_target_object_retired)
   local object = work_word(0x12A8)
   local seen = {}
   while object ~= 0 and not seen[object] do
@@ -1856,6 +1954,7 @@ local function provide_combat_autopilot()
     end
     local requested_object = requested_object_address
       and shape == forced_target_object_shape
+    if requested_object then requested_object_seen = true end
     local requested_target = requested_object or requested_shape
     if requested_target and forced_target_collision_applied then
       local current_path = work_word(object + 0x2B)
@@ -1885,27 +1984,27 @@ local function provide_combat_autopilot()
         forced_target_health % 256,
         emu.memType.snesWorkRam)
     end
-    if work_byte(0x1BB5) == 3
-      and (shape == 0xEB50 or shape == 0xEB6C) then
+    if meteor_wall_spider_room and (shape == 0xEB50 or shape == 0xEB6C) then
       eladard_spider_encounter_seen = true
     end
-    if work_byte(0x1BB5) == 3 and shape == 0xEB50
+    if meteor_wall_spider_room and shape == 0xEB50
       and forced_spider_parent_health then
       emu.write(
         object + 0x2D,
         forced_spider_parent_health % 256,
         emu.memType.snesWorkRam)
     end
-    if work_byte(0x1BB5) == 3
-      and (shape == 0xD27C or shape == 0xEB6C) then
+    if (work_byte(0x1BB5) == 3 and shape == 0xD27C)
+      or (meteor_wall_spider_room and shape == 0xEB6C) then
       eladard_base_entered = true
       inside_planetary_base = true
     end
     local eladard_barrier = work_byte(0x1BB5) == 3 and shape == 0xD74C
-    local eladard_wall_spider = work_byte(0x1BB5) == 3
+    local meteor_wall_spider = meteor_wall_spider_room
       and ((target_spider_parent and shape == 0xEB50)
         or (not target_spider_parent and shape == 0xEB6C))
-    if eladard_wall_spider and forced_spider_health
+      and (target_spider_parent or work_byte(object + 0x2D) > 1)
+    if meteor_wall_spider and forced_spider_health
       and not forced_spider_health_applied then
       -- Oracle-only state forcing used to observe the retail post-defeat path
       -- independently of the navigation controller.
@@ -1916,8 +2015,10 @@ local function provide_combat_autopilot()
       forced_spider_health_applied = true
     end
     local eladard_room_defender = work_byte(0x1BB5) == 3
-      and (shape == 0xEE0C or shape == 0xBECC
-        or eladard_wall_spider)
+      and (shape == 0xEE0C or shape == 0xBECC)
+    local planetary_base_defender = eladard_room_defender
+      or meteor_wall_spider
+    local meteor_surface_target = meteor_surface and shape == 0xEF5C
     local carrier_exterior_anchor = work_byte(0x1BB5) == 8
       and shape == 0xBC9C
       and work_byte(object + 0x2D) == 100
@@ -1948,10 +2049,11 @@ local function provide_combat_autopilot()
     local fighter_collision = not forced_fighter_health and shape == 0xBEB0
       and (work_byte(object + 0x2E) == 66
         or work_byte(object + 0x2E) == 80)
-    local ordinary_candidate = not forced_target_shape and not forced_target_object
+    local ordinary_candidate = allow_ordinary_targets
       and (shape == 0xF1C4 or shape == 0xEA00
         or shape == 0xC348 or shape == 0xE1B0
-        or eladard_barrier or eladard_room_defender
+        or eladard_barrier or planetary_base_defender
+        or meteor_surface_target
         or carrier_exterior_anchor or carrier_core or fighter_collision
         or astropolis_security_turret or astropolis_target_switch
         or astropolis_core_spike or astropolis_exposed_cube
@@ -1966,8 +2068,10 @@ local function provide_combat_autopilot()
         and (target == 0
           or target_shape ~= 0xD74C
           or signed_word(object + 12) < signed_word(target + 12))
-      local prefer_wall_spider = eladard_wall_spider
+      local prefer_wall_spider = meteor_wall_spider
         and target_shape ~= 0xEB6C
+      local prefer_meteor_surface_target = meteor_surface_target
+        and target_shape ~= 0xEF5C
       local prefer_astropolis_security_turret = astropolis_security_turret
         and target_shape ~= 0xF65C
       local prefer_astropolis_target_switch = astropolis_target_switch
@@ -1975,9 +2079,10 @@ local function provide_combat_autopilot()
       local prefer_explicit_target = explicitly_requested_target
         and distance_squared < target_distance_squared
       if prefer_explicit_target
-        or (not forced_target_shape and not forced_target_object
+        or (allow_ordinary_targets
           and (prefer_left_eladard_barrier
             or prefer_wall_spider
+            or prefer_meteor_surface_target
             or prefer_astropolis_security_turret
             or prefer_astropolis_target_switch
             or carrier_exterior_anchor
@@ -1990,6 +2095,18 @@ local function provide_combat_autopilot()
       end
     end
     object = work_word(object)
+  end
+  if forced_target_object and forced_target_object_shape
+    and not requested_object_seen and not forced_target_object_retired then
+    -- Once an exact oracle target leaves the active list, continue with the
+    -- semantic mission targets discovered in the same retail run. Never bind
+    -- the recycled address to a different actor.
+    forced_target_object_retired = true
+    lines[#lines + 1] = string.format(
+      "elapsed=%d event=forced-target-object-retired object=%04X shape=%04X",
+      frame - armed_frame,
+      forced_target_object,
+      forced_target_object_shape)
   end
 
   local target_x = target ~= 0 and signed_word(target + 12) or 0
@@ -2234,12 +2351,12 @@ local function provide_combat_autopilot()
     local horizontal_distance = math.sqrt(delta_x * delta_x + delta_z * delta_z)
     local desired_yaw = math.floor(math.atan(delta_x, delta_z) * 128 / math.pi + 0.5) % 256
     local desired_pitch = math.floor(math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
-    local eladard_walker = (work_byte(0x1BB5) == 3 and player_z > -2000)
-      or (work_byte(0x1BB5) == 1 and inside_planetary_base)
+    local planetary_base_walker = (inside_planetary_base or meteor_surface)
+      and player_shape == 0xC94C
     local carrier_core_walker = fighting_carrier_core
       or fighting_astropolis_core
-    local astropolis_target_switch = target_shape == 0xEF5C
-    if astropolis_target_switch
+    local activation_target = target_shape == 0xEF5C
+    if activation_target
       and target_distance_squared < 160000
       and player_shape == 0xC268
       and not astropolis_walker_mode
@@ -2255,7 +2372,7 @@ local function provide_combat_autopilot()
         target_distance_squared,
         player_shape)
     end
-    local ground_walker = eladard_walker or carrier_core_walker
+    local ground_walker = planetary_base_walker or carrier_core_walker
       or astropolis_transform_requested or astropolis_walker_mode
     local astropolis_interior = work_byte(0x1BB5) == 11 and player_z > 1000
     if ground_walker or approaching_carrier or astropolis_interior then
@@ -2267,15 +2384,16 @@ local function provide_combat_autopilot()
     local yaw_difference = angle_difference(desired_yaw, work_byte(player + 20))
     local pitch_difference = angle_difference(desired_pitch, work_byte(player + 18))
     if ground_walker then
-      -- The approach corridor changes the craft to its walking form. Its
-      -- shoulder buttons turn and Up advances; flight steering would only
-      -- sidestep into the corridor wall.
+      -- In Walker form the D-pad translates along the two ground-plane axes,
+      -- while the shoulder buttons turn the aim. Keep those controls
+      -- independent so the oracle can approach an off-axis retail target
+      -- without mistaking a sidestep for flight steering.
       local approach_distance_squared
       if fighting_carrier_core then
         approach_distance_squared = math.huge
       elseif fighting_wall_spider then
         approach_distance_squared = 360000
-      elseif astropolis_target_switch then
+      elseif activation_target then
         -- Walk fully onto the target platform. The retail target owns the
         -- stop/unlock transition, so an artificial stand-off distance can
         -- only strand the oracle just outside its activation bounds.
@@ -2283,18 +2401,27 @@ local function provide_combat_autopilot()
       else
         approach_distance_squared = 1440000
       end
-      if target_distance_squared > approach_distance_squared
-        and math.abs(yaw_difference) < 16 then
-        buttons.up = true
+      if target_distance_squared > approach_distance_squared then
+        local axis_tolerance = activation_target and 0 or 128
+        if delta_x > axis_tolerance then
+          buttons.right = true
+        elseif delta_x < -axis_tolerance then
+          buttons.left = true
+        end
+        if delta_z > axis_tolerance then
+          buttons.up = true
+        elseif delta_z < -axis_tolerance then
+          buttons.down = true
+        end
       end
-      if eladard_walker and player_z > 0 then
+      if planetary_base_walker and player_z > 0 then
         buttons.x = pulse(frame, 90, 0)
       end
-      if astropolis_target_switch then
-        -- The target sits beyond the platform's raised south lip.  Forward
-        -- motion alone stops the Walker just outside the contact volume, so
-        -- use the retail jump controls while advancing onto the platform.
-        -- Let the retail target path decide when activation has completed.
+      if activation_target then
+        -- Activation targets can sit beyond raised terrain. Forward motion
+        -- alone can stop the Walker just outside the contact volume, so use
+        -- the retail jump controls while advancing onto the target. Let its
+        -- retail path decide when activation has completed.
         buttons.a = pulse(frame, 120, 0)
         local jump_phase = frame % 120
         buttons.y = jump_phase >= 6 and jump_phase < 50
@@ -2437,6 +2564,28 @@ local function provide_combat_autopilot()
         "combat-autopilot-astropolis-opening-yaw%d-pitch%d",
         yaw_difference,
         pitch_difference)
+    elseif meteor_surface and work_byte(0xD78B) ~= 0 then
+      -- The pressed Queen Dragoon switch opens the installation at the north
+      -- end of the surface. Walk to the centre of that retail entrance only
+      -- after its controller handshake changes; the retail door path owns the
+      -- actual transition into the base.
+      local entrance_delta_x = -player_x
+      local entrance_delta_z = 2800 - player_z
+      local axis_tolerance = 96
+      if entrance_delta_x > axis_tolerance then
+        buttons.right = true
+      elseif entrance_delta_x < -axis_tolerance then
+        buttons.left = true
+      end
+      if entrance_delta_z > axis_tolerance then
+        buttons.up = true
+      elseif entrance_delta_z < -axis_tolerance then
+        buttons.down = true
+      end
+      buttons.a = pulse(frame, 120, 0)
+      local jump_phase = frame % 120
+      buttons.y = jump_phase >= 6 and jump_phase < 22
+      input_label = "combat-autopilot-meteor-entrance"
     elseif inside_planetary_base then
       local route_direction = eladard_route_direction()
       if eladard_spider_encounter_seen then
@@ -3018,6 +3167,11 @@ local function end_frame()
           tostring(player_damage_oracle.minimum_health),
           tostring(player_damage_oracle.hit_elapsed)))
     end
+    if meteor_switch_oracle.enabled then
+      write_file(
+        "sf2_meteor_switch_trace.txt",
+        table.concat(meteor_switch_oracle.lines, "\n") .. "\n")
+    end
     emu.stop(0)
   end
 end
@@ -3497,6 +3651,29 @@ if force_projectile_hit then
     emu.callbackType.write,
     0,
     0x3FFF,
+    emu.cpuType.snes,
+    emu.memType.snesWorkRam)
+end
+if meteor_switch_oracle.enabled then
+  for stage, address in pairs({
+    quick_spawn_entry = 0x7F91A3,
+    quick_spawn_probe_91CB = 0x7F91CB,
+    quick_spawn_probe_91D1 = 0x7F91D1,
+    quick_spawn_probe_9224 = 0x7F9224,
+  }) do
+    emu.addMemoryCallback(
+      meteor_switch_oracle.record_stage(stage),
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
+  emu.addMemoryCallback(
+    meteor_switch_oracle.record_shape_write,
+    emu.callbackType.write,
+    0x03BD,
+    0x0FFF,
     emu.cpuType.snes,
     emu.memType.snesWorkRam)
 end
