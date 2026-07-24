@@ -35,11 +35,10 @@ use sf_render::renderer::{
     GameState as RenderState, Renderer, RendererConfig, Sf2AudioOutput, Sf2Difficulty,
     Sf2EndingPhase, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice, Sf2GameOverPhase,
     Sf2MapPoint, Sf2MissionBackdrop, Sf2MissionMessage, Sf2MissionMessageInputs,
-    Sf2MissionMessageIrisFrame, Sf2MissionMessagePhase, Sf2Mode, Sf2Pilot,
-    Sf2PilotSelectionCursor, Sf2PilotSelectionPhase, Sf2RadarContact, Sf2ResultsChoice,
-    Sf2ResultsPhase,
-    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
-    Sf2TitleMenuItem, Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
+    Sf2MissionMessageIrisFrame, Sf2MissionMessagePhase, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor,
+    Sf2PilotSelectionPhase, Sf2RadarContact, Sf2ResultsChoice, Sf2ResultsPhase, Sf2StrategicActor,
+    Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase, Sf2TitleMenuItem,
+    Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
 };
 use sf_render::shapes::Sf2PolygonPalette;
 
@@ -310,6 +309,7 @@ fn to_sf2_polygon_palette(mission: &sf2_game::MissionState) -> Sf2PolygonPalette
         | MissionVisit::PigmaDuel
         | MissionVisit::EladardBase
         | MissionVisit::TitaniaBase
+        | MissionVisit::MacbethBase
         | MissionVisit::MeteorBase
         | MissionVisit::FirstBattleCarrier
         | MissionVisit::SecondBattleCarrier
@@ -337,6 +337,7 @@ fn to_sf2_mission_backdrop(mission: &sf2_game::MissionState) -> Sf2MissionBackdr
             | EladardPhase::BaseDestruction => Sf2MissionBackdrop::EladardInterior,
         },
         MissionVisit::TitaniaBase => Sf2MissionBackdrop::TitaniaBase,
+        MissionVisit::MacbethBase => Sf2MissionBackdrop::MacbethSurface,
         MissionVisit::MeteorBase => Sf2MissionBackdrop::MeteorSurface,
         MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
             match mission.carrier_assault.phase {
@@ -501,9 +502,7 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
         results_choice: match state.results.phase {
             ResultsPhase::Revealing
             | ResultsPhase::OpeningChoices { .. }
-            | ResultsPhase::Choosing(ResultsChoice::Retry) => {
-                Sf2ResultsChoice::Retry
-            }
+            | ResultsPhase::Choosing(ResultsChoice::Retry) => Sf2ResultsChoice::Retry,
             ResultsPhase::Choosing(ResultsChoice::Title) => Sf2ResultsChoice::Title,
             ResultsPhase::Leaving { choice, .. } => match choice {
                 ResultsChoice::Retry => Sf2ResultsChoice::Retry,
@@ -1275,10 +1274,7 @@ mod tests {
             encoded[STAR_FOX_2_SAVE_MAGIC.len() + 1],
             STAR_FOX_2_SAVE_EXPERT_UNLOCKED_FLAG
         );
-        assert_eq!(
-            decode_sf2_progress(&encoded),
-            Some(unlocked)
-        );
+        assert_eq!(decode_sf2_progress(&encoded), Some(unlocked));
         assert_eq!(decode_sf2_progress(b"unsupported"), None);
     }
 
@@ -1372,6 +1368,11 @@ mod tests {
             to_sf2_polygon_palette(&mission),
             Sf2PolygonPalette::Standard
         );
+        mission.visit = MissionVisit::MacbethBase;
+        assert_eq!(
+            to_sf2_polygon_palette(&mission),
+            Sf2PolygonPalette::Standard
+        );
         mission.visit = MissionVisit::SecondBattleCarrier;
         assert_eq!(
             to_sf2_polygon_palette(&mission),
@@ -1433,6 +1434,12 @@ mod tests {
                 Sf2MissionBackdrop::TitaniaBase
             );
         }
+
+        mission.visit = MissionVisit::MacbethBase;
+        assert_eq!(
+            to_sf2_mission_backdrop(&mission),
+            Sf2MissionBackdrop::MacbethSurface
+        );
 
         for visit in [
             MissionVisit::FirstBattleCarrier,

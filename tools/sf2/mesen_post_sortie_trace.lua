@@ -74,6 +74,9 @@ local force_target_collision =
   os.getenv("SF2_ORACLE_FORCE_TARGET_COLLISION") == "1"
 local force_meteor_core_trigger =
   os.getenv("SF2_ORACLE_FORCE_METEOR_CORE_TRIGGER") == "1"
+force_macbeth_core_gate =
+  os.getenv("SF2_ORACLE_FORCE_MACBETH_CORE_GATE") == "1"
+force_macbeth_core_gate_applied = false
 -- ImportByteIndexed 0x2B reads the retail encounter latch at
 -- INDEXED_VARIABLE_TABLE + 0x2B. Keep the named oracle address global because
 -- this large script is at Lua's main-chunk local limit.
@@ -429,6 +432,7 @@ sortie_actor_oracle = {
     [0x0576] = true,
   },
 }
+explicit_trace_objects = {}
 for trace_object_token in string.gmatch(
   os.getenv("SF2_ORACLE_TRACE_OBJECTS") or "", "[^,]+") do
   trace_object_address = tonumber(trace_object_token, 16)
@@ -437,6 +441,7 @@ for trace_object_token in string.gmatch(
     "SF2_ORACLE_TRACE_OBJECTS must contain comma-separated four-digit " ..
       "hexadecimal object addresses")
   sortie_actor_oracle.objects[trace_object_address] = true
+  explicit_trace_objects[trace_object_address] = true
 end
 local walker_dynamics_before = nil
 local last_state = ""
@@ -455,6 +460,9 @@ local eladard_transform_press_until = -1
 local astropolis_transform_press_until = -1
 local astropolis_transform_requested = false
 local astropolis_walker_mode = false
+macbeth_transform_press_until = -1
+macbeth_next_transform_press_frame = -1
+macbeth_knight_engaged = false
 local eladard_next_recovery_frame = -1
 local eladard_base_entered = false
 -- Deliberately global: this large oracle has reached Lua's main-chunk local
@@ -1543,6 +1551,35 @@ function sortie_actor_oracle.record_gsu_random_state_write(address, value)
     "coprocessor-work", address, value)
 end
 
+function sortie_actor_oracle.record_explicit_object_state_write(source)
+  return function(address, value)
+    if not sortie_actor_oracle.enabled or not armed then return end
+    local object = nil
+    for candidate, _ in pairs(explicit_trace_objects) do
+      if (address >= candidate + 4 and address <= candidate + 5)
+        or (address >= candidate + 0x20 and address <= candidate + 0x31) then
+        object = candidate
+        break
+      end
+    end
+    if not object then return end
+    local state = emu.getState()
+    sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
+      "elapsed=%d event=object-state-write object=%04X shape=%04X " ..
+        "offset=%02X value=%d source=%s host=%02X:%04X coprocessor=%02X:%04X",
+      frame - armed_frame,
+      object,
+      work_word(object + 4),
+      address - object,
+      value or 0,
+      source,
+      state["cpu.k"] or 0,
+      state["cpu.pc"] or 0,
+      state["cart.coprocessor.programBank"] or 0,
+      state["cart.coprocessor.r15"] or 0)
+  end
+end
+
 local function state_key()
   return string.format(
     "%02X:%02X:%02X:%02X:%02X:%02X:%02X:%04X:%04X:%04X:%02X:%04X:%04X:%04X",
@@ -1565,12 +1602,17 @@ end
 local function record(event, elapsed)
   local player = work_word(0x12C3)
   local wingmate = work_word(0x12C5)
+  local player_slot = player ~= 0 and work_word(player + 0x2B) or 0
+  local navigation_target = player_slot ~= 0
+    and work_word((0x6BB8 + player_slot) % 0x10000) or 0
   lines[#lines + 1] = string.format(
     "elapsed=%d event=%s input=%s mode=%d submode=%d phase=%d " ..
       "cursor=%d selection=%d mapmode=%d difficulty=%d " ..
       "active=%04X player=%04X " ..
       "wingmate=%04X camera=%d,%d,%d,%d,%d,%d playerpose=%s " ..
-      "wingpose=%s objects=[%s] selected=%04X targetdigits=%d,%d,%d " ..
+      "wingpose=%s objects=[%s] selected=%04X " ..
+      "navtarget=%04X navpose=%d,%d,%d navdistance=%d navdisplay=%d,%d " ..
+      "targetdigits=%d,%d,%d " ..
       "coretrigger=%d map=%02X:%04X mapcursor=%d,%d mapposition=%d,%d " ..
       "objectives=%d,%d basehandshake=%02X " ..
       "corneria_remaining=%d " ..
@@ -1598,6 +1640,19 @@ local function record(event, elapsed)
     pose(wingmate),
     active_objects(),
     work_word(0x12C1),
+    navigation_target,
+    player_slot ~= 0
+      and signed_word((0x6BCC + player_slot) % 0x10000) or 0,
+    player_slot ~= 0
+      and signed_word((0x6BCE + player_slot) % 0x10000) or 0,
+    player_slot ~= 0
+      and signed_word((0x6BD0 + player_slot) % 0x10000) or 0,
+    player_slot ~= 0
+      and work_word((0x6BBC + player_slot) % 0x10000) or 0,
+    player_slot ~= 0
+      and work_byte((0x6BAD + player_slot) % 0x10000) or 0,
+    player_slot ~= 0
+      and work_byte((0x6BAF + player_slot) % 0x10000) or 0,
     work_byte(0xE961),
     work_byte(0xE965),
     work_byte(0xE871),
@@ -1905,6 +1960,7 @@ local function provide_combat_autopilot()
   local target = 0
   local target_shape = 0
   local approaching_carrier = false
+  local approaching_macbeth_base = false
   local target_distance_squared = math.huge
   local meteor_map = work_word(0x1657)
   local eladard_interior = work_byte(0x1BB5) == 3
@@ -1924,6 +1980,9 @@ local function provide_combat_autopilot()
   local meteor_surface = work_byte(0x1BB5) == 4
     and work_byte(0x192E) == 0x05
     and meteor_map == 0x4012
+  local macbeth_surface = work_byte(0x1BB5) == 2
+    and work_byte(0x192E) == 0x05
+    and meteor_map == 0x24D8
   local titania_surface = work_byte(0x1BB5) == 1
     and work_byte(0xD7A1) > 1
   if work_byte(0x1BB5) == 1
@@ -1947,8 +2006,12 @@ local function provide_combat_autopilot()
       or meteor_map == 0x4893)
   local meteor_core_room = meteor_interior
     and meteor_map == 0x4893
+  local macbeth_interior = work_byte(0x1BB5) == 2
+    and work_byte(0x192E) == 0x05
+    and meteor_map == 0x2889
   local inside_planetary_base = eladard_base_entered
     or meteor_interior
+    or macbeth_interior
     or titania_base_entered
   local requested_object_seen = false
   local allow_ordinary_targets = not forced_target_shape
@@ -1962,6 +2025,19 @@ local function provide_combat_autopilot()
     -- or a Star Wolf rival. Source-machine tokens stay confined to this
     -- oracle controller.
     local shape = work_word(object + 4)
+    if force_macbeth_core_gate and not force_macbeth_core_gate_applied
+      and work_byte(0x1BB5) == 2 and shape == 0xF2F8 then
+      -- Oracle-only fast-forward after the two retail corner guns have been
+      -- independently retired. The controller waits for its linked phase to
+      -- exceed one, then uses the original path to lower the shield and arm
+      -- the core; leave those downstream transitions entirely to retail.
+      emu.write(object + 0x1CE3, 2, emu.memType.snesWorkRam)
+      force_macbeth_core_gate_applied = true
+      lines[#lines + 1] = string.format(
+        "elapsed=%d event=macbeth-core-gate-released controller=%04X phase=2",
+        frame - armed_frame,
+        object)
+    end
     if work_byte(0x1BB5) == 3 and shape == 0xEC30 then
       eladard_open_door = object
     end
@@ -2038,7 +2114,7 @@ local function provide_combat_autopilot()
           and work_word(object + 0x2B) ~= forced_target_initial_path
           and work_word(object + 0x2B) ~= 0x0C21))
     local generic_target_health_probe = requested_target
-      and forced_target_health and forced_target_health > 0
+      and forced_target_health ~= nil
     if requested_target
       and (target_health_ready or generic_target_health_probe)
       and forced_target_health
@@ -2096,6 +2172,10 @@ local function provide_combat_autopilot()
       and inside_planetary_base and shape == 0xEF5C
       and (work_byte(object + 0x26) & 0x02) == 0
     local meteor_surface_target = meteor_surface and shape == 0xEF5C
+    local macbeth_switch_target = macbeth_surface and shape == 0xEF5C
+      and (work_byte(object + 0x26) & 0x02) == 0
+    local macbeth_base_entrance = macbeth_surface
+      and work_byte(0xD7A1) == 1 and shape == 0xD6C0
     local titania_switch_target = titania_surface and shape == 0xEF5C
     local titania_route_landmark = titania_surface and shape == 0xEDD4
     local carrier_exterior_anchor = work_byte(0x1BB5) == 8
@@ -2133,7 +2213,9 @@ local function provide_combat_autopilot()
         or shape == 0xC348 or shape == 0xE1B0
         or eladard_barrier or planetary_base_defender
         or eladard_target_switch
-        or meteor_surface_target or titania_switch_target
+        or meteor_surface_target or macbeth_switch_target
+        or macbeth_base_entrance
+        or titania_switch_target
         or titania_route_landmark
         or carrier_exterior_anchor or carrier_core or fighter_collision
         or astropolis_security_turret or astropolis_target_switch
@@ -2155,6 +2237,10 @@ local function provide_combat_autopilot()
         and target_shape ~= 0xEF5C
       local prefer_meteor_surface_target = meteor_surface_target
         and target_shape ~= 0xEF5C
+      local prefer_macbeth_switch_target = macbeth_switch_target
+        and target_shape ~= 0xEF5C
+      local prefer_macbeth_base_entrance = macbeth_base_entrance
+        and target_shape ~= 0xD6C0
       local prefer_astropolis_security_turret = astropolis_security_turret
         and target_shape ~= 0xF65C
       local prefer_astropolis_target_switch = astropolis_target_switch
@@ -2167,6 +2253,8 @@ local function provide_combat_autopilot()
             or prefer_planetary_core
             or prefer_eladard_target_switch
             or prefer_meteor_surface_target
+            or prefer_macbeth_switch_target
+            or prefer_macbeth_base_entrance
             or prefer_astropolis_security_turret
             or prefer_astropolis_target_switch
             or carrier_exterior_anchor
@@ -2175,6 +2263,7 @@ local function provide_combat_autopilot()
         target = object
         target_shape = shape
         approaching_carrier = carrier_exterior_anchor
+        approaching_macbeth_base = macbeth_base_entrance
         target_distance_squared = distance_squared
       end
     end
@@ -2197,7 +2286,7 @@ local function provide_combat_autopilot()
       target = forced_target_object
       target_shape = forced_target_object_shape
       target_distance_squared = 0
-      if forced_target_health and forced_target_health > 0
+      if forced_target_health ~= nil
         and work_byte(forced_target_object + 0x2D) > forced_target_health then
         emu.write(
           forced_target_object + 0x2D,
@@ -2240,6 +2329,15 @@ local function provide_combat_autopilot()
   local target_x = target ~= 0 and signed_word(target + 12) or 0
   local target_y = target ~= 0 and signed_word(target + 14) or 0
   local target_z = target ~= 0 and signed_word(target + 16) or 0
+  local behind_macbeth_knight = target_shape == 0xE974
+    and target ~= 0 and player_z > target_z + 400
+  if target_shape == 0xE974 and target ~= 0
+    and not behind_macbeth_knight then
+    -- The direct centre ray crosses Macbeth's shield and the paired gate
+    -- panels. Aim inside the boss's retail body profile on the same side as
+    -- the Walker; this is the narrow line of sight opened by the flank.
+    target_x = target_x + (player_x >= 0 and 448 or -448)
+  end
   if target_shape == 0xDF48 then
     -- The visible eye polygons are not the vulnerable volumes. The original
     -- Andross face defines two unrotated collision boxes below the broad head
@@ -2255,7 +2353,6 @@ local function provide_combat_autopilot()
     target_distance_squared =
       delta_x * delta_x + delta_y * delta_y + delta_z * delta_z
   end
-
   if target_shape == 0xC348 and target ~= 0 then
     local health = work_byte(target + 0x2D)
     if observed_rival_health[target] ~= health then
@@ -2441,12 +2538,29 @@ local function provide_combat_autopilot()
   local fighting_meteor_core = target_shape == 0xEB6C or target_shape == 0xEB50
   local fighting_carrier_core = work_byte(0x1BB5) == 8
     and target_shape == 0xBECC
+  local fighting_macbeth_knight = work_byte(0x1BB5) == 2
+    and work_word(0x1657) == 0x2889
+    and target_shape == 0xE974
+  if fighting_macbeth_knight
+    and math.abs(player_x) <= 128 and player_z >= 3750 then
+    macbeth_knight_engaged = true
+  end
   local fighting_astropolis_core = work_byte(0x1BB5) == 11
     and (target_shape == 0xC40C or target_shape == 0xE808)
   local fighting_astropolis_spike = work_byte(0x1BB5) == 11
     and target_shape == 0xC40C
   local fighting_astropolis_cube = work_byte(0x1BB5) == 11
     and target_shape == 0xE808
+  if approaching_macbeth_base
+    and is_player_walker_shape(player_shape)
+    and macbeth_transform_press_until < frame
+    and macbeth_next_transform_press_frame <= frame then
+    -- Retail admits an Arwing automatically at the opened installation.
+    -- Surface switches require the Walker, so explicitly return to flight
+    -- form before the verification pilot approaches the entrance.
+    macbeth_transform_press_until = frame + 3
+    macbeth_next_transform_press_frame = frame + 30
+  end
   if fighting_astropolis_spike
     and is_player_walker_shape(player_shape)
     and not astropolis_transform_requested
@@ -2464,11 +2578,17 @@ local function provide_combat_autopilot()
     astropolis_transform_press_until = frame + 3
     astropolis_transform_requested = true
   end
-  local buttons
+  -- Always replace the restored controller state. Passing nil when an
+  -- explicitly requested target has not spawned yet lets Mesen retain the
+  -- savestate's last input, which can steer an oracle placement away from a
+  -- mission entrance before the requested actor exists.
+  local buttons = {}
   if approaching_carrier then
     -- A battle carrier admits the craft automatically at close range. Its
     -- exterior shell is not the objective, so boost toward its stable centre
     -- anchor without wasting time firing into the armour.
+    buttons = {}
+  elseif approaching_macbeth_base then
     buttons = {}
   elseif fighting_rival or fighting_mirage_dragon then
     buttons = {
@@ -2492,6 +2612,16 @@ local function provide_combat_autopilot()
       buttons.left = strafe_phase < 240
       buttons.right = strafe_phase >= 240
     end
+  elseif fighting_macbeth_knight then
+    -- Knight Nack's separate shield fills the direct centre lane and reflects
+    -- frontal shots. Establish a retail Walker-space flank before firing
+    -- through the boss's ordinary collision path.
+    buttons = {}
+    if behind_macbeth_knight
+      or (macbeth_knight_engaged
+        and math.abs(player_x) >= 2000 and player_z >= 3750) then
+      buttons.b = pulse(frame, 12, 0)
+    end
   else
     buttons = { b = pulse(frame, 12, 0) }
   end
@@ -2503,7 +2633,8 @@ local function provide_combat_autopilot()
     local desired_yaw = math.floor(math.atan(delta_x, delta_z) * 128 / math.pi + 0.5) % 256
     local desired_pitch = math.floor(math.atan(delta_y, horizontal_distance) * 128 / math.pi + 0.5) % 256
     local planetary_base_walker =
-      (inside_planetary_base or meteor_surface or titania_surface)
+      (inside_planetary_base or meteor_surface or macbeth_surface
+        or titania_surface)
       and is_player_walker_shape(player_shape)
     local carrier_core_walker = fighting_carrier_core
       or fighting_astropolis_core
@@ -2536,6 +2667,13 @@ local function provide_combat_autopilot()
       -- and Astropolis interior use the same all-range orientation convention.
       desired_yaw = math.floor(math.atan(-delta_x, delta_z) * 128 / math.pi + 0.5) % 256
     end
+    if fighting_macbeth_knight then
+      -- This boss is approached side-on, so aim the Walker's blasters through
+      -- the ordinary world-space bearing while its D-pad continues to use the
+      -- room-space translation convention above.
+      desired_yaw = math.floor(
+        math.atan(delta_x, delta_z) * 128 / math.pi + 0.5) % 256
+    end
     local yaw_difference = angle_difference(desired_yaw, work_byte(player + 20))
     local pitch_difference = angle_difference(desired_pitch, work_byte(player + 18))
     if ground_walker then
@@ -2556,7 +2694,22 @@ local function provide_combat_autopilot()
       else
         approach_distance_squared = 1440000
       end
-      if target_distance_squared > approach_distance_squared then
+      if fighting_macbeth_knight then
+        if behind_macbeth_knight then
+          -- A rear-line oracle placement already cleared every shield and
+          -- fire-barrier volume; hold position so only retail damage remains.
+        elseif not macbeth_knight_engaged then
+          if player_z < 3800 then
+            buttons.up = true
+          end
+        elseif math.abs(player_x) < 2000 then
+          buttons.right = true
+        else
+          -- Clear the centre fire barrier from the outside lane, then keep
+          -- circling into the arena while the boss turns toward the Walker.
+          buttons.up = true
+        end
+      elseif target_distance_squared > approach_distance_squared then
         local axis_tolerance = activation_target and 0 or 128
         if fighting_eladard_barrier then
           -- Surface Walker movement is heading-relative: the shoulder
@@ -2580,7 +2733,7 @@ local function provide_combat_autopilot()
       if planetary_base_walker and player_z > 0 then
         buttons.x = pulse(frame, 90, 0)
       end
-      if activation_target then
+      if activation_target and not macbeth_surface then
         -- Activation targets can sit beyond raised terrain. Forward motion
         -- alone can stop the Walker just outside the contact volume, so use
         -- the retail jump controls while advancing onto the target. Let its
@@ -2602,10 +2755,14 @@ local function provide_combat_autopilot()
         local acceleration_end = fighting_astropolis_core and 80 or 50
         buttons.y = jump_phase >= 6 and jump_phase < acceleration_end
       end
-      if yaw_difference > 3 then
-        buttons.l = true
-      elseif yaw_difference < -3 then
-        buttons.r = true
+      local preserve_macbeth_flank_heading = fighting_macbeth_knight
+        and macbeth_knight_engaged and math.abs(player_x) < 2000
+      if not preserve_macbeth_flank_heading then
+        if yaw_difference > 3 then
+          buttons.l = true
+        elseif yaw_difference < -3 then
+          buttons.r = true
+        end
       end
     else
       if yaw_difference > 3 then
@@ -2620,6 +2777,8 @@ local function provide_combat_autopilot()
       end
       if approaching_carrier and math.abs(yaw_difference) < 24 then
         buttons.y = true
+      elseif approaching_macbeth_base and math.abs(yaw_difference) < 24 then
+        buttons.y = true
       elseif target_distance_squared > 16000000
         and math.abs(yaw_difference) < 24 then
         buttons.y = true
@@ -2632,6 +2791,9 @@ local function provide_combat_autopilot()
       end
     end
     if frame <= astropolis_transform_press_until then
+      buttons.select = true
+    end
+    if frame <= macbeth_transform_press_until then
       buttons.select = true
     end
     input_label = string.format(
@@ -2987,7 +3149,14 @@ local function provide_input()
   -- one-time retail-state placement followed by an exact scripted control
   -- sequence, instead of requiring the general combat pilot to remain active.
   oracle_apply_player_teleport()
-  if provide_combat_autopilot() then return end
+  local awaiting_macbeth_interior = combat_autopilot
+    and (forced_target_shape ~= nil or forced_target_object ~= nil)
+    and teleport_text ~= nil
+    and work_byte(0x1BB5) == 2
+    and work_byte(0x192E) == 0x05
+    and work_word(0x1657) == 0x24D8
+    and work_byte(0xD7A1) == 1
+  if not awaiting_macbeth_interior and provide_combat_autopilot() then return end
   if input_script_text and elapsed >= resume_elapsed then
     for _, action in ipairs(scripted_inputs) do
       if elapsed >= action.first and elapsed < action.last then
@@ -3777,6 +3946,27 @@ function sortie_actor_oracle.register_callbacks()
         object + 17,
         emu.cpuType.snes,
         memory_type)
+    end
+  end
+  for object, _ in pairs(explicit_trace_objects) do
+    for _, range in ipairs({
+      { object + 4, object + 5 },
+      { object + 0x20, object + 0x31 },
+    }) do
+      emu.addMemoryCallback(
+        sortie_actor_oracle.record_explicit_object_state_write("main-work"),
+        emu.callbackType.write,
+        range[1],
+        range[2],
+        emu.cpuType.snes,
+        emu.memType.snesWorkRam)
+      emu.addMemoryCallback(
+        sortie_actor_oracle.record_explicit_object_state_write("coprocessor-work"),
+        emu.callbackType.write,
+        range[1],
+        range[2],
+        emu.cpuType.gsu,
+        emu.memType.gsuWorkRam)
     end
   end
   emu.addMemoryCallback(

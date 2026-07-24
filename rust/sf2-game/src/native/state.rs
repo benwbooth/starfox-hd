@@ -1140,6 +1140,7 @@ pub struct StrategicMapState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrategicEncounter {
     TitaniaBase,
+    MacbethBase,
     MeteorBase,
     SecondBattleCarrier,
     RecurringAttackers,
@@ -1158,6 +1159,7 @@ pub enum MissionVisit {
     PigmaDuel,
     EladardBase,
     TitaniaBase,
+    MacbethBase,
     MeteorBase,
     FirstBattleCarrier,
     SecondBattleCarrier,
@@ -1351,6 +1353,7 @@ pub struct MissionState {
     pub camera_follow_offset: super::object::Vector3,
     pub eladard: EladardMissionState,
     pub titania: TitaniaMissionState,
+    pub macbeth: MacbethMissionState,
     pub meteor: MeteorMissionState,
     pub carrier_assault: CarrierAssaultState,
     pub astropolis: AstropolisMissionState,
@@ -1781,6 +1784,77 @@ pub struct TitaniaMissionState {
     pub phase_started_retail_frame: u16,
     pub surface_switches: [TitaniaSurfaceSwitchStatus; TITANIA_SURFACE_SWITCH_COUNT],
     pub final_switch: TitaniaFinalSwitchStatus,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MacbethPhase {
+    #[default]
+    FirstSurfaceSwitch,
+    TowerGuns,
+    SecondSurfaceSwitch,
+    BaseOpening,
+    BaseEntry,
+    KnightCombat,
+    KnightDestruction,
+    InteriorTransit,
+    CoreTurrets,
+    CoreShieldOpening,
+    CoreCombat,
+    CoreDestruction,
+    ReturnFlight,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MacbethSwitchStatus {
+    #[default]
+    Active,
+    Pressed,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MacbethDefenderStatus {
+    #[default]
+    Dormant,
+    Active {
+        durability: u8,
+    },
+    Destroyed,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MacbethInstallationStatus {
+    #[default]
+    Closed,
+    Opening {
+        retail_frames_remaining: u16,
+    },
+    Open,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MacbethCoreStatus {
+    #[default]
+    Shielded,
+    Exposed {
+        durability: u8,
+    },
+    Destroyed,
+}
+
+/// Flat mission-owned state for Macbeth's two surface switches, rotating
+/// defense tower, interior guardian, and shielded installation core. Runtime
+/// transforms and durability live on ordinary objects; no source addresses or
+/// machine records are retained here.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MacbethMissionState {
+    pub phase: MacbethPhase,
+    pub phase_started_retail_frame: u16,
+    pub surface_switches: [MacbethSwitchStatus; 2],
+    pub tower_guns: [MacbethDefenderStatus; 2],
+    pub installation: MacbethInstallationStatus,
+    pub knight: MacbethDefenderStatus,
+    pub core_turrets: [MacbethDefenderStatus; 2],
+    pub core: MacbethCoreStatus,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

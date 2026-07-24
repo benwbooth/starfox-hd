@@ -19,9 +19,9 @@ use super::object::{
     InterceptionMissileSteering, LeonRivalFlightPhase, LeonRivalFlightState,
     LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
     PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
-    QueenDragoonFlightState, ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition,
-    Vector3, WeaponKind,
+    PlayerProjectileState, QueenDragoonFlightState, ReengagementFighterFlightState,
+    ReengagementFighterMovementPhase, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
+    StereoPosition, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
@@ -34,16 +34,18 @@ use super::state::{
     EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
     EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
     FlightControlStyle, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
-    GameOverState, GameState, IntroPhase, MapPoint, MissionMessage, MissionMessageIrisFrame,
-    MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus, MissionMessagePhase,
-    MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
-    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm,
-    PlayerCraftTransformation, PlayerCraftTransformationDirection, PlayerDamageState,
-    ResultsChoice, ResultsPhase, ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor,
-    StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage,
-    StrategicOpeningPage, StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus,
-    TitaniaMissionState, TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage,
-    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
+    GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
+    MacbethInstallationStatus, MacbethMissionState, MacbethPhase, MacbethSwitchStatus, MapPoint,
+    MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus, MissionMessage,
+    MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
+    PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
+    PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
+    PlayerCraftTransformationDirection, PlayerDamageState, ResultsChoice, ResultsPhase,
+    ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor, StrategicMapActorKind,
+    StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage,
+    StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
+    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, WalkerJumpMotion,
+    WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
     CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
 };
 
@@ -73,14 +75,14 @@ mod leon_duel_projectiles;
 mod leon_duel_rival;
 #[path = "leon_pressure.rs"]
 mod leon_pressure;
+#[path = "meteor_installation_core.rs"]
+mod meteor_installation_core;
+#[path = "meteor_queen_dragoon.rs"]
+mod meteor_queen_dragoon;
 #[path = "mirage_dragon.rs"]
 mod mirage_dragon;
 #[path = "mirage_dragon_segments.rs"]
 mod mirage_dragon_segments;
-#[path = "meteor_queen_dragoon.rs"]
-mod meteor_queen_dragoon;
-#[path = "meteor_installation_core.rs"]
-mod meteor_installation_core;
 #[path = "missile_interception.rs"]
 mod missile_interception;
 #[path = "missile_interception_targets.rs"]
@@ -1306,6 +1308,152 @@ const TITANIA_FINAL_SWITCH_POSITION: Vector3 = Vector3 {
     y: -56,
     z: 1_000,
 };
+const MACBETH_DEFENDER_COUNT: usize = 2;
+const MACBETH_INTERIOR_SCENERY_COUNT: usize = 6;
+const MACBETH_INTERIOR_EXIT_SCENERY_START_INDEX: usize = 2;
+const MACBETH_TOWER_GUN_DURABILITY: u8 = 1;
+const MACBETH_KNIGHT_DURABILITY: u8 = 100;
+const MACBETH_CORE_TURRET_DURABILITY: u8 = 100;
+const MACBETH_CORE_DURABILITY: u8 = 125;
+const MACBETH_CORE_DESTROYED_DURABILITY: u8 = 75;
+const MACBETH_ENEMY_ATTACK_POWER: u8 = 4;
+const MACBETH_BASE_APPEAR_RETAIL_FRAME: u16 = 244;
+const MACBETH_BASE_OPENING_RETAIL_FRAMES: u16 = 464;
+const MACBETH_KNIGHT_DESTRUCTION_RETAIL_FRAMES: u16 = 4;
+const MACBETH_CORE_SHIELD_OPENING_RETAIL_FRAMES: u16 = 8;
+const MACBETH_CORE_RETIRE_RETAIL_FRAMES: u16 = 588;
+const MACBETH_RETURN_TO_MAP_RETAIL_FRAMES: u16 = 1_116;
+const MACBETH_RETURN_FLIGHT_RETAIL_FRAMES: u16 =
+    MACBETH_RETURN_TO_MAP_RETAIL_FRAMES - MACBETH_CORE_RETIRE_RETAIL_FRAMES;
+const MACBETH_FIRST_SWITCH_INDEX: usize = 0;
+const MACBETH_SECOND_SWITCH_INDEX: usize = 1;
+const MACBETH_SURFACE_START_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -800,
+    z: -3_072,
+};
+const MACBETH_SURFACE_START_SPEED: u8 = 30;
+const MACBETH_FIRST_SWITCH_POSITION: Vector3 = Vector3 {
+    x: 1_500,
+    y: -512,
+    z: 1_500,
+};
+const MACBETH_FIRST_SWITCH_YAW: Angle = Angle::from_units(1);
+const MACBETH_TOWER_POSITION: Vector3 = Vector3 {
+    x: -3_000,
+    y: 0,
+    z: -3_200,
+};
+const MACBETH_TOWER_YAW: Angle = Angle::from_units(68);
+const MACBETH_TOWER_GUN_POSITIONS: [Vector3; MACBETH_DEFENDER_COUNT] = [
+    Vector3 {
+        x: -3_537,
+        y: -620,
+        z: -2_762,
+    },
+    Vector3 {
+        x: -2_403,
+        y: -820,
+        z: -3_142,
+    },
+];
+const MACBETH_TOWER_GUN_YAWS: [Angle; MACBETH_DEFENDER_COUNT] =
+    [Angle::from_units(204), Angle::from_units(211)];
+const MACBETH_SECOND_SWITCH_POSITION: Vector3 = Vector3 {
+    x: -3_000,
+    y: -160,
+    z: -3_200,
+};
+const MACBETH_SECOND_SWITCH_YAW: Angle = Angle::from_units(170);
+const MACBETH_BASE_POSITION: Vector3 = Vector3 {
+    x: 2_800,
+    y: 0,
+    z: 2_500,
+};
+const MACBETH_BASE_OPENING_HEIGHT: i16 = 264;
+const MACBETH_BASE_ENTRANCE_HALF_WIDTH: i16 = 480;
+const MACBETH_BASE_ENTRANCE_HALF_DEPTH: i16 = 480;
+const MACBETH_INTERIOR_START_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -48,
+    z: -512,
+};
+const MACBETH_KNIGHT_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: 0,
+    z: 4_980,
+};
+const MACBETH_KNIGHT_SIDE_VULNERABILITY: u16 = 1_200;
+const MACBETH_KNIGHT_REAR_VULNERABILITY: i16 = 400;
+const MACBETH_CORE_ROOM_TRIGGER_Z: i16 = 6_000;
+const MACBETH_CORE_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: -160,
+    z: 6_144,
+};
+const MACBETH_CORE_TURRET_POSITIONS: [Vector3; MACBETH_DEFENDER_COUNT] = [
+    Vector3 {
+        x: 1_056,
+        y: -160,
+        z: 7_200,
+    },
+    Vector3 {
+        x: -1_056,
+        y: -160,
+        z: 7_200,
+    },
+];
+const MACBETH_CORE_TURRET_YAWS: [Angle; MACBETH_DEFENDER_COUNT] =
+    [Angle::from_units(64), Angle::from_units(128)];
+const MACBETH_CORE_TURRET_HEAD_HEIGHT: i16 = 159;
+const MACBETH_GATE_POSITION: Vector3 = Vector3 {
+    x: 0,
+    y: 0,
+    z: 4_608,
+};
+const MACBETH_INTERIOR_SCENERY: [(ShapeId, Vector3); MACBETH_INTERIOR_SCENERY_COUNT] = [
+    (
+        ShapeId::MACBETH_FIRE_BARRIER,
+        Vector3 {
+            x: 768,
+            y: 0,
+            z: -512,
+        },
+    ),
+    (
+        ShapeId::MACBETH_FIRE_BARRIER,
+        Vector3 {
+            x: -768,
+            y: 0,
+            z: -512,
+        },
+    ),
+    (
+        ShapeId::MACBETH_FIRE_BARRIER,
+        Vector3 {
+            x: 768,
+            y: 0,
+            z: 4_608,
+        },
+    ),
+    (
+        ShapeId::MACBETH_FIRE_BARRIER,
+        Vector3 {
+            x: -768,
+            y: 0,
+            z: 4_608,
+        },
+    ),
+    (ShapeId::MACBETH_INTERIOR_GATE, MACBETH_GATE_POSITION),
+    (
+        ShapeId::MACBETH_INTERIOR_MARKER,
+        Vector3 {
+            x: 0,
+            y: 0,
+            z: 4_236,
+        },
+    ),
+];
 const METEOR_SURFACE_START_POSITION: Vector3 = Vector3 {
     x: 0,
     y: -30,
@@ -1340,6 +1488,7 @@ const PIGMA_DUEL_DESTINATION: MapPoint = MapPoint { x: 135, y: 119 };
 const ELADARD_BASE_DESTINATION: MapPoint = MapPoint { x: 16, y: 14 };
 const POST_ELADARD_RECOMMENDED_DESTINATION: MapPoint = MapPoint { x: 50, y: 90 };
 const TITANIA_BASE_DESTINATION: MapPoint = MapPoint { x: 208, y: 110 };
+const MACBETH_BASE_DESTINATION: MapPoint = MapPoint { x: 136, y: 32 };
 const METEOR_BASE_DESTINATION: MapPoint = MapPoint { x: 128, y: 88 };
 const SECOND_BATTLE_CARRIER_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
 const LEON_DUEL_DESTINATION: MapPoint = MapPoint { x: 220, y: 7 };
@@ -5275,8 +5424,7 @@ pub struct Game {
     mirage_dragon_body: [Option<ObjectId>; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
     mirage_dragon_tail: Option<ObjectId>,
     meteor_queen_body: Option<ObjectId>,
-    meteor_queen_components:
-        [Option<ObjectId>; meteor_queen_dragoon::COMPONENT_COUNT],
+    meteor_queen_components: [Option<ObjectId>; meteor_queen_dragoon::COMPONENT_COUNT],
     meteor_queen_debris: [Option<ObjectId>; meteor_queen_dragoon::COMPONENT_COUNT],
     meteor_surface_switch: Option<ObjectId>,
     meteor_installation_parent: Option<ObjectId>,
@@ -5295,6 +5443,17 @@ pub struct Game {
     titania_route_lift: Option<ObjectId>,
     titania_base: Option<ObjectId>,
     titania_final_switch: Option<ObjectId>,
+    macbeth_surface_switches: [Option<ObjectId>; MACBETH_DEFENDER_COUNT],
+    macbeth_tower: Option<ObjectId>,
+    macbeth_tower_guns: [Option<ObjectId>; MACBETH_DEFENDER_COUNT],
+    macbeth_base: Option<ObjectId>,
+    macbeth_interior_scenery: [Option<ObjectId>; MACBETH_INTERIOR_SCENERY_COUNT],
+    macbeth_knight: Option<ObjectId>,
+    macbeth_core_turrets: [Option<ObjectId>; MACBETH_DEFENDER_COUNT],
+    macbeth_core_turret_heads: [Option<ObjectId>; MACBETH_DEFENDER_COUNT],
+    macbeth_core_controller: Option<ObjectId>,
+    macbeth_core_shield: Option<ObjectId>,
+    macbeth_core: Option<ObjectId>,
     carrier_scenery: Vec<ObjectId>,
     carrier_corridor_defenders: [Option<ObjectId>; CARRIER_CORRIDOR_DEFENDER_COUNT],
     carrier_corridor_projectiles: Vec<ObjectId>,
@@ -5362,6 +5521,17 @@ impl Game {
             titania_route_lift: None,
             titania_base: None,
             titania_final_switch: None,
+            macbeth_surface_switches: [None; MACBETH_DEFENDER_COUNT],
+            macbeth_tower: None,
+            macbeth_tower_guns: [None; MACBETH_DEFENDER_COUNT],
+            macbeth_base: None,
+            macbeth_interior_scenery: [None; MACBETH_INTERIOR_SCENERY_COUNT],
+            macbeth_knight: None,
+            macbeth_core_turrets: [None; MACBETH_DEFENDER_COUNT],
+            macbeth_core_turret_heads: [None; MACBETH_DEFENDER_COUNT],
+            macbeth_core_controller: None,
+            macbeth_core_shield: None,
+            macbeth_core: None,
             carrier_scenery: Vec::with_capacity(CARRIER_CORRIDOR_SCENE_OBJECT_COUNT),
             carrier_corridor_defenders: [None; CARRIER_CORRIDOR_DEFENDER_COUNT],
             carrier_corridor_projectiles: Vec::with_capacity(CARRIER_CORRIDOR_DEFENDER_COUNT),
@@ -6101,6 +6271,10 @@ impl Game {
                 == PlanetObjectiveStatus::Occupied
             {
                 Some((StrategicEncounter::TitaniaBase, TITANIA_BASE_DESTINATION))
+            } else if self.state.campaign.objectives.planets.macbeth
+                == PlanetObjectiveStatus::Occupied
+            {
+                Some((StrategicEncounter::MacbethBase, MACBETH_BASE_DESTINATION))
             } else if self.state.campaign.objectives.planets.meteor
                 == PlanetObjectiveStatus::Occupied
             {
@@ -6146,6 +6320,7 @@ impl Game {
             CampaignRouteStep::StrategicPressure => {
                 match self.state.strategic_map.selected_encounter {
                     Some(StrategicEncounter::TitaniaBase) => self.begin_titania_sortie(),
+                    Some(StrategicEncounter::MacbethBase) => self.begin_macbeth_sortie(),
                     Some(StrategicEncounter::MeteorBase) => self.begin_meteor_sortie(),
                     Some(StrategicEncounter::SecondBattleCarrier) => {
                         self.begin_carrier_assault(MissionVisit::SecondBattleCarrier)
@@ -6594,6 +6769,46 @@ impl Game {
         Ok(())
     }
 
+    fn begin_macbeth_sortie(&mut self) -> Result<(), Error> {
+        let primary_id = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        let wingmate_id = self.state.mission.wingmate;
+        let flight_shape = self.primary_flight_craft_shape();
+        self.state.mission.macbeth = MacbethMissionState {
+            phase: MacbethPhase::FirstSurfaceSwitch,
+            phase_started_retail_frame: 0,
+            surface_switches: [MacbethSwitchStatus::Active; MACBETH_DEFENDER_COUNT],
+            tower_guns: [MacbethDefenderStatus::Dormant; MACBETH_DEFENDER_COUNT],
+            installation: MacbethInstallationStatus::Closed,
+            knight: MacbethDefenderStatus::Dormant,
+            core_turrets: [MacbethDefenderStatus::Dormant; MACBETH_DEFENDER_COUNT],
+            core: MacbethCoreStatus::Shielded,
+        };
+        self.state.mission.objects_destroyed = 0;
+        self.spawn_macbeth_surface_scene()?;
+        self.start_sortie(MissionVisit::MacbethBase, primary_id, wingmate_id);
+        self.state.mission.player_craft_form = PlayerCraftForm::Flight;
+        if let Some(primary) = self.state.objects.get_mut(primary_id) {
+            primary.base.shape = flight_shape;
+            primary.base.position = MACBETH_SURFACE_START_POSITION;
+            primary.base.velocity = Vector3::default();
+            primary.base.pitch = Angle::ZERO;
+            primary.base.yaw = Angle::ZERO;
+            primary.base.roll = Angle::ZERO;
+            primary.base.speed = MACBETH_SURFACE_START_SPEED;
+            primary.base.flags.visible = false;
+            primary.base.flags.collision_disabled = true;
+        }
+        if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
+            wingmate.base.flags.visible = false;
+            wingmate.base.flags.collision_disabled = true;
+        }
+        Ok(())
+    }
+
     fn begin_carrier_assault(&mut self, visit: MissionVisit) -> Result<(), Error> {
         debug_assert!(matches!(
             visit,
@@ -6725,6 +6940,7 @@ impl Game {
             }
             MissionVisit::AstropolisAssault => self.update_astropolis_assault(),
             MissionVisit::TitaniaBase => self.update_titania_base(),
+            MissionVisit::MacbethBase => self.update_macbeth_base(),
             MissionVisit::MeteorBase => self.update_meteor_base(),
             MissionVisit::EladardBase => self.update_eladard_base(),
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
@@ -8846,6 +9062,668 @@ impl Game {
         true
     }
 
+    fn update_macbeth_base(&mut self) -> Result<(), Error> {
+        self.state.mission.active = true;
+        let retail_frame = self
+            .state
+            .mode_frame
+            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            .min(u32::from(u16::MAX)) as u16;
+        self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
+
+        match self.state.mission.phase {
+            MissionPhase::Loading if self.state.mode_frame >= MISSION_STAGE_LOAD_TICKS => {
+                self.state.mission.phase = MissionPhase::EntryCinematic;
+            }
+            MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
+                self.state.mission.phase = MissionPhase::Active;
+            }
+            MissionPhase::ReturningToStrategicMap
+                if self.state.mission.macbeth.phase == MacbethPhase::ReturnFlight
+                    && retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .macbeth
+                            .phase_started_retail_frame
+                            .saturating_add(MACBETH_RETURN_FLIGHT_RETAIL_FRAMES) =>
+            {
+                self.finish_sortie();
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        if self.state.mission.phase == MissionPhase::Active {
+            match self.state.mission.macbeth.phase {
+                MacbethPhase::FirstSurfaceSwitch => {
+                    if self.activate_macbeth_surface_switch(MACBETH_FIRST_SWITCH_INDEX) {
+                        self.spawn_macbeth_tower_defense()?;
+                        self.enter_macbeth_phase(MacbethPhase::TowerGuns, retail_frame);
+                    }
+                }
+                MacbethPhase::TowerGuns => {
+                    self.refresh_macbeth_defender_statuses(true);
+                    if self
+                        .state
+                        .mission
+                        .macbeth
+                        .tower_guns
+                        .iter()
+                        .all(|status| *status == MacbethDefenderStatus::Destroyed)
+                    {
+                        self.spawn_macbeth_second_switch()?;
+                        self.enter_macbeth_phase(MacbethPhase::SecondSurfaceSwitch, retail_frame);
+                    }
+                }
+                MacbethPhase::SecondSurfaceSwitch => {
+                    if self.activate_macbeth_surface_switch(MACBETH_SECOND_SWITCH_INDEX) {
+                        self.spawn_macbeth_opening_base()?;
+                        self.state.mission.macbeth.installation =
+                            MacbethInstallationStatus::Opening {
+                                retail_frames_remaining: MACBETH_BASE_OPENING_RETAIL_FRAMES,
+                            };
+                        self.enter_macbeth_phase(MacbethPhase::BaseOpening, retail_frame);
+                    }
+                }
+                MacbethPhase::BaseOpening => {
+                    self.update_macbeth_base_opening(retail_frame);
+                    if self.state.mission.macbeth.installation == MacbethInstallationStatus::Open {
+                        self.enter_macbeth_phase(MacbethPhase::BaseEntry, retail_frame);
+                    }
+                }
+                MacbethPhase::BaseEntry if self.macbeth_player_can_enter_base() => {
+                    self.enter_macbeth_interior(retail_frame)?;
+                }
+                MacbethPhase::KnightCombat => {
+                    self.refresh_macbeth_knight_status();
+                    if self.state.mission.macbeth.knight == MacbethDefenderStatus::Destroyed {
+                        self.enter_macbeth_phase(
+                            MacbethPhase::KnightDestruction,
+                            retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                        );
+                    }
+                }
+                MacbethPhase::KnightDestruction
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .macbeth
+                            .phase_started_retail_frame
+                            .saturating_add(MACBETH_KNIGHT_DESTRUCTION_RETAIL_FRAMES) =>
+                {
+                    if let Some(knight) = self.macbeth_knight.take() {
+                        self.state.objects.remove(knight);
+                    }
+                    self.open_macbeth_interior_gate();
+                    self.enter_macbeth_phase(MacbethPhase::InteriorTransit, retail_frame);
+                }
+                MacbethPhase::InteriorTransit if self.macbeth_core_room_reached() => {
+                    self.spawn_macbeth_core_room()?;
+                    self.enter_macbeth_phase(MacbethPhase::CoreTurrets, retail_frame);
+                }
+                MacbethPhase::CoreTurrets => {
+                    self.refresh_macbeth_defender_statuses(false);
+                    if self
+                        .state
+                        .mission
+                        .macbeth
+                        .core_turrets
+                        .iter()
+                        .all(|status| *status == MacbethDefenderStatus::Destroyed)
+                    {
+                        self.enter_macbeth_phase(MacbethPhase::CoreShieldOpening, retail_frame);
+                    }
+                }
+                MacbethPhase::CoreShieldOpening
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .macbeth
+                            .phase_started_retail_frame
+                            .saturating_add(MACBETH_CORE_SHIELD_OPENING_RETAIL_FRAMES) =>
+                {
+                    if let Some(shield) = self.macbeth_core_shield.take() {
+                        self.state.objects.remove(shield);
+                    }
+                    if let Some(core) = self
+                        .macbeth_core
+                        .and_then(|id| self.state.objects.get_mut(id))
+                    {
+                        core.base.flags.collision_disabled = false;
+                    }
+                    self.state.mission.macbeth.core = MacbethCoreStatus::Exposed {
+                        durability: MACBETH_CORE_DURABILITY,
+                    };
+                    self.enter_macbeth_phase(MacbethPhase::CoreCombat, retail_frame);
+                }
+                MacbethPhase::CoreCombat => {
+                    self.refresh_macbeth_core_status();
+                    if self.state.mission.macbeth.core == MacbethCoreStatus::Destroyed {
+                        self.enter_macbeth_phase(
+                            MacbethPhase::CoreDestruction,
+                            retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                        );
+                    }
+                }
+                MacbethPhase::CoreDestruction
+                    if retail_frame
+                        >= self
+                            .state
+                            .mission
+                            .macbeth
+                            .phase_started_retail_frame
+                            .saturating_add(MACBETH_CORE_RETIRE_RETAIL_FRAMES) =>
+                {
+                    if let Some(core) = self.macbeth_core.take() {
+                        self.state.objects.remove(core);
+                    }
+                    self.enter_macbeth_phase(MacbethPhase::ReturnFlight, retail_frame);
+                    self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
+                }
+                MacbethPhase::BaseEntry
+                | MacbethPhase::KnightDestruction
+                | MacbethPhase::InteriorTransit
+                | MacbethPhase::CoreShieldOpening
+                | MacbethPhase::CoreDestruction
+                | MacbethPhase::ReturnFlight => {}
+            }
+        }
+
+        self.update_macbeth_player_presentation(retail_frame);
+        if self.state.mission.phase == MissionPhase::Active
+            && !matches!(
+                self.state.mission.macbeth.phase,
+                MacbethPhase::CoreDestruction | MacbethPhase::ReturnFlight
+            )
+        {
+            self.update_active_flight(retail_frame, true)?;
+        }
+        Ok(())
+    }
+
+    fn enter_macbeth_phase(&mut self, phase: MacbethPhase, retail_frame: u16) {
+        self.state.mission.macbeth.phase = phase;
+        self.state.mission.macbeth.phase_started_retail_frame = retail_frame;
+    }
+
+    fn update_macbeth_player_presentation(&mut self, retail_frame: u16) {
+        let visible = retail_frame >= MISSION_STAGE_LOAD_RETAIL_FRAMES as u16;
+        let collision_disabled = self.state.mission.phase != MissionPhase::Active
+            || matches!(
+                self.state.mission.macbeth.phase,
+                MacbethPhase::CoreDestruction | MacbethPhase::ReturnFlight
+            );
+        if let Some(primary) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            primary.base.flags.visible = visible;
+            primary.base.flags.collision_disabled = collision_disabled;
+        }
+    }
+
+    fn clear_macbeth_scene(&mut self) {
+        for object in [
+            &mut self.macbeth_tower,
+            &mut self.macbeth_base,
+            &mut self.macbeth_knight,
+            &mut self.macbeth_core_controller,
+            &mut self.macbeth_core_shield,
+            &mut self.macbeth_core,
+        ] {
+            if let Some(id) = object.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        for slot in self
+            .macbeth_surface_switches
+            .iter_mut()
+            .chain(self.macbeth_tower_guns.iter_mut())
+            .chain(self.macbeth_interior_scenery.iter_mut())
+            .chain(self.macbeth_core_turrets.iter_mut())
+            .chain(self.macbeth_core_turret_heads.iter_mut())
+        {
+            if let Some(id) = slot.take() {
+                self.state.objects.remove(id);
+            }
+        }
+    }
+
+    fn spawn_macbeth_surface_scene(&mut self) -> Result<(), Error> {
+        self.clear_macbeth_scene();
+        let mut first_switch = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::MACBETH_SWITCH_ACTIVE,
+            Behavior::Effect,
+        );
+        first_switch.base.position = MACBETH_FIRST_SWITCH_POSITION;
+        first_switch.base.yaw = MACBETH_FIRST_SWITCH_YAW;
+        first_switch.base.collision_class = CollisionClass::Scenery;
+        self.macbeth_surface_switches[MACBETH_FIRST_SWITCH_INDEX] = Some(
+            self.state
+                .objects
+                .allocate(first_switch)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
+    fn spawn_macbeth_tower_defense(&mut self) -> Result<(), Error> {
+        let mut tower = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::MACBETH_DEFENSE_TOWER,
+            Behavior::Effect,
+        );
+        tower.base.position = MACBETH_TOWER_POSITION;
+        tower.base.yaw = MACBETH_TOWER_YAW;
+        tower.base.collision_class = CollisionClass::Scenery;
+        self.macbeth_tower = Some(
+            self.state
+                .objects
+                .allocate(tower)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        for (index, position) in MACBETH_TOWER_GUN_POSITIONS.into_iter().enumerate() {
+            let mut gun = Object::new(
+                ObjectKind::Enemy,
+                ShapeId::MACBETH_TOWER_GUN,
+                Behavior::EnemyFlight,
+            );
+            gun.base.position = position;
+            gun.base.yaw = MACBETH_TOWER_GUN_YAWS[index];
+            gun.base.hit_points = MACBETH_TOWER_GUN_DURABILITY;
+            gun.base.attack_power = MACBETH_ENEMY_ATTACK_POWER;
+            gun.base.collision_class = CollisionClass::Enemy;
+            self.macbeth_tower_guns[index] = Some(
+                self.state
+                    .objects
+                    .allocate(gun)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+            self.state.mission.macbeth.tower_guns[index] = MacbethDefenderStatus::Active {
+                durability: MACBETH_TOWER_GUN_DURABILITY,
+            };
+        }
+        Ok(())
+    }
+
+    fn spawn_macbeth_second_switch(&mut self) -> Result<(), Error> {
+        if self.macbeth_surface_switches[MACBETH_SECOND_SWITCH_INDEX].is_some() {
+            return Ok(());
+        }
+        let mut second_switch = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::MACBETH_SWITCH_ACTIVE,
+            Behavior::Effect,
+        );
+        second_switch.base.position = MACBETH_SECOND_SWITCH_POSITION;
+        second_switch.base.yaw = MACBETH_SECOND_SWITCH_YAW;
+        second_switch.base.collision_class = CollisionClass::Scenery;
+        self.macbeth_surface_switches[MACBETH_SECOND_SWITCH_INDEX] = Some(
+            self.state
+                .objects
+                .allocate(second_switch)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
+    fn activate_macbeth_surface_switch(&mut self, index: usize) -> bool {
+        if self.state.mission.player_craft_form != PlayerCraftForm::Walker
+            || self.state.mission.macbeth.surface_switches[index] != MacbethSwitchStatus::Active
+        {
+            return false;
+        }
+        let Some(switch) = self.macbeth_surface_switches[index] else {
+            return false;
+        };
+        if !self.macbeth_player_touches(switch) {
+            return false;
+        }
+        self.state.mission.macbeth.surface_switches[index] = MacbethSwitchStatus::Pressed;
+        if let Some(object) = self.state.objects.get_mut(switch) {
+            object.base.shape = ShapeId::MACBETH_SWITCH_PRESSED;
+            object.base.flags.collision_disabled = true;
+        }
+        true
+    }
+
+    fn macbeth_player_touches(&self, target: ObjectId) -> bool {
+        let Some(player) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+        else {
+            return false;
+        };
+        self.state
+            .objects
+            .get(target)
+            .is_some_and(|object| objects_overlap(player, object))
+    }
+
+    fn refresh_macbeth_defender_statuses(&mut self, surface: bool) {
+        let handles = if surface {
+            self.macbeth_tower_guns
+        } else {
+            self.macbeth_core_turrets
+        };
+        for (index, handle) in handles.into_iter().enumerate() {
+            let status = handle
+                .and_then(|id| self.state.objects.get(id))
+                .map(|object| {
+                    if object.base.flags.collision_disabled || object.base.hit_points == 0 {
+                        MacbethDefenderStatus::Destroyed
+                    } else {
+                        MacbethDefenderStatus::Active {
+                            durability: object.base.hit_points,
+                        }
+                    }
+                })
+                .unwrap_or(MacbethDefenderStatus::Destroyed);
+            if surface {
+                self.state.mission.macbeth.tower_guns[index] = status;
+            } else {
+                self.state.mission.macbeth.core_turrets[index] = status;
+                if status == MacbethDefenderStatus::Destroyed {
+                    if let Some(head) = self.macbeth_core_turret_heads[index].take() {
+                        self.state.objects.remove(head);
+                    }
+                }
+            }
+        }
+    }
+
+    fn spawn_macbeth_opening_base(&mut self) -> Result<(), Error> {
+        let mut base = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::MACBETH_INSTALLATION_OPEN,
+            Behavior::Effect,
+        );
+        base.base.position = Vector3 {
+            y: MACBETH_BASE_OPENING_HEIGHT,
+            ..MACBETH_BASE_POSITION
+        };
+        base.base.yaw = Angle::HALF_TURN;
+        base.base.flags.visible = false;
+        base.base.collision_class = CollisionClass::Scenery;
+        self.macbeth_base = Some(
+            self.state
+                .objects
+                .allocate(base)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        Ok(())
+    }
+
+    fn update_macbeth_base_opening(&mut self, retail_frame: u16) {
+        let elapsed =
+            retail_frame.saturating_sub(self.state.mission.macbeth.phase_started_retail_frame);
+        let remaining = MACBETH_BASE_OPENING_RETAIL_FRAMES.saturating_sub(elapsed);
+        self.state.mission.macbeth.installation = if remaining == 0 {
+            MacbethInstallationStatus::Open
+        } else {
+            MacbethInstallationStatus::Opening {
+                retail_frames_remaining: remaining,
+            }
+        };
+        let descent_duration =
+            MACBETH_BASE_OPENING_RETAIL_FRAMES.saturating_sub(MACBETH_BASE_APPEAR_RETAIL_FRAME);
+        let descent_elapsed = elapsed
+            .saturating_sub(MACBETH_BASE_APPEAR_RETAIL_FRAME)
+            .min(descent_duration);
+        let height = i32::from(MACBETH_BASE_OPENING_HEIGHT)
+            .saturating_mul(i32::from(descent_duration.saturating_sub(descent_elapsed)))
+            / i32::from(descent_duration);
+        if let Some(base) = self
+            .macbeth_base
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            base.base.flags.visible = elapsed >= MACBETH_BASE_APPEAR_RETAIL_FRAME;
+            base.base.position.y = height as i16;
+        }
+    }
+
+    fn macbeth_player_can_enter_base(&self) -> bool {
+        if self.state.mission.player_craft_form != PlayerCraftForm::Flight
+            || self.state.mission.macbeth.installation != MacbethInstallationStatus::Open
+        {
+            return false;
+        }
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|player| {
+                player.base.position.x.abs_diff(MACBETH_BASE_POSITION.x)
+                    <= MACBETH_BASE_ENTRANCE_HALF_WIDTH as u16
+                    && player.base.position.z.abs_diff(MACBETH_BASE_POSITION.z)
+                        <= MACBETH_BASE_ENTRANCE_HALF_DEPTH as u16
+            })
+    }
+
+    fn enter_macbeth_interior(&mut self, retail_frame: u16) -> Result<(), Error> {
+        for slot in self
+            .macbeth_surface_switches
+            .iter_mut()
+            .chain(self.macbeth_tower_guns.iter_mut())
+        {
+            if let Some(id) = slot.take() {
+                self.state.objects.remove(id);
+            }
+        }
+        for object in [&mut self.macbeth_tower, &mut self.macbeth_base] {
+            if let Some(id) = object.take() {
+                self.state.objects.remove(id);
+            }
+        }
+
+        let primary = self
+            .state
+            .mission
+            .primary_player
+            .ok_or(Error::ObjectCapacityReached)?;
+        self.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        self.apply_player_craft_presentation(primary, PlayerCraftPresentation::Walker);
+        if let Some(player) = self.state.objects.get_mut(primary) {
+            player.base.position = MACBETH_INTERIOR_START_POSITION;
+            player.base.velocity = Vector3::default();
+            player.base.pitch = Angle::ZERO;
+            player.base.yaw = Angle::ZERO;
+            player.base.roll = Angle::ZERO;
+            player.base.speed = 0;
+        }
+        self.spawn_macbeth_interior_scene()?;
+        self.enter_macbeth_phase(MacbethPhase::KnightCombat, retail_frame);
+        Ok(())
+    }
+
+    fn spawn_macbeth_interior_scene(&mut self) -> Result<(), Error> {
+        for (index, (shape, position)) in MACBETH_INTERIOR_SCENERY.into_iter().enumerate() {
+            let mut object = Object::new(ObjectKind::Scenery, shape, Behavior::Effect);
+            object.base.position = position;
+            object.base.collision_class = CollisionClass::Scenery;
+            self.macbeth_interior_scenery[index] = Some(
+                self.state
+                    .objects
+                    .allocate(object)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+
+        let mut knight = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::MACBETH_KNIGHT,
+            Behavior::EnemyFlight,
+        );
+        knight.base.position = MACBETH_KNIGHT_POSITION;
+        knight.base.yaw = Angle::HALF_TURN;
+        knight.base.hit_points = MACBETH_KNIGHT_DURABILITY;
+        knight.base.attack_power = MACBETH_ENEMY_ATTACK_POWER;
+        knight.base.collision_class = CollisionClass::Enemy;
+        self.macbeth_knight = Some(
+            self.state
+                .objects
+                .allocate(knight)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.macbeth.knight = MacbethDefenderStatus::Active {
+            durability: MACBETH_KNIGHT_DURABILITY,
+        };
+        Ok(())
+    }
+
+    fn refresh_macbeth_knight_status(&mut self) {
+        self.state.mission.macbeth.knight = self
+            .macbeth_knight
+            .and_then(|id| self.state.objects.get(id))
+            .map(|knight| {
+                if knight.base.flags.collision_disabled || knight.base.hit_points == 0 {
+                    MacbethDefenderStatus::Destroyed
+                } else {
+                    MacbethDefenderStatus::Active {
+                        durability: knight.base.hit_points,
+                    }
+                }
+            })
+            .unwrap_or(MacbethDefenderStatus::Destroyed);
+    }
+
+    fn open_macbeth_interior_gate(&mut self) {
+        for index in MACBETH_INTERIOR_EXIT_SCENERY_START_INDEX..MACBETH_INTERIOR_SCENERY_COUNT {
+            if let Some(object) = self.macbeth_interior_scenery[index].take() {
+                self.state.objects.remove(object);
+            }
+        }
+    }
+
+    fn macbeth_core_room_reached(&self) -> bool {
+        self.state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .is_some_and(|player| player.base.position.z >= MACBETH_CORE_ROOM_TRIGGER_Z)
+    }
+
+    fn spawn_macbeth_core_room(&mut self) -> Result<(), Error> {
+        for slot in &mut self.macbeth_interior_scenery {
+            if let Some(object) = slot.take() {
+                self.state.objects.remove(object);
+            }
+        }
+        for (index, position) in MACBETH_CORE_TURRET_POSITIONS.into_iter().enumerate() {
+            let mut turret = Object::new(
+                ObjectKind::Enemy,
+                ShapeId::MACBETH_CORE_TURRET,
+                Behavior::EnemyFlight,
+            );
+            turret.base.position = position;
+            turret.base.yaw = MACBETH_CORE_TURRET_YAWS[index];
+            turret.base.hit_points = MACBETH_CORE_TURRET_DURABILITY;
+            turret.base.attack_power = MACBETH_ENEMY_ATTACK_POWER;
+            turret.base.collision_class = CollisionClass::Enemy;
+            let turret_id = self
+                .state
+                .objects
+                .allocate(turret)
+                .ok_or(Error::ObjectCapacityReached)?;
+            self.macbeth_core_turrets[index] = Some(turret_id);
+            self.state.mission.macbeth.core_turrets[index] = MacbethDefenderStatus::Active {
+                durability: MACBETH_CORE_TURRET_DURABILITY,
+            };
+
+            let mut head = Object::new(
+                ObjectKind::Scenery,
+                ShapeId::MACBETH_CORE_TURRET_HEAD,
+                Behavior::Effect,
+            );
+            head.base.position = Vector3 {
+                y: position.y.saturating_add(MACBETH_CORE_TURRET_HEAD_HEIGHT),
+                ..position
+            };
+            head.base.yaw = MACBETH_CORE_TURRET_YAWS[index];
+            head.base.attachment = Some(turret_id);
+            self.macbeth_core_turret_heads[index] = Some(
+                self.state
+                    .objects
+                    .allocate(head)
+                    .ok_or(Error::ObjectCapacityReached)?,
+            );
+        }
+
+        let mut controller = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::MACBETH_CORE_CONTROLLER,
+            Behavior::Effect,
+        );
+        controller.base.position = Vector3 {
+            y: 0,
+            ..MACBETH_CORE_POSITION
+        };
+        self.macbeth_core_controller = Some(
+            self.state
+                .objects
+                .allocate(controller)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut shield = Object::new(
+            ObjectKind::Scenery,
+            ShapeId::MACBETH_CORE_SHIELD,
+            Behavior::Effect,
+        );
+        shield.base.position = Vector3 {
+            y: 0,
+            ..MACBETH_CORE_POSITION
+        };
+        self.macbeth_core_shield = Some(
+            self.state
+                .objects
+                .allocate(shield)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+
+        let mut core = Object::new(ObjectKind::Enemy, ShapeId::MACBETH_CORE, Behavior::Effect);
+        core.base.position = MACBETH_CORE_POSITION;
+        core.base.hit_points = MACBETH_CORE_DURABILITY;
+        core.base.attack_power = MACBETH_ENEMY_ATTACK_POWER;
+        core.base.collision_class = CollisionClass::Enemy;
+        core.base.flags.collision_disabled = true;
+        self.macbeth_core = Some(
+            self.state
+                .objects
+                .allocate(core)
+                .ok_or(Error::ObjectCapacityReached)?,
+        );
+        self.state.mission.macbeth.core = MacbethCoreStatus::Shielded;
+        Ok(())
+    }
+
+    fn refresh_macbeth_core_status(&mut self) {
+        self.state.mission.macbeth.core = self
+            .macbeth_core
+            .and_then(|id| self.state.objects.get(id))
+            .map(|core| {
+                if core.base.flags.collision_disabled
+                    && core.base.hit_points == MACBETH_CORE_DESTROYED_DURABILITY
+                {
+                    MacbethCoreStatus::Destroyed
+                } else {
+                    MacbethCoreStatus::Exposed {
+                        durability: core.base.hit_points,
+                    }
+                }
+            })
+            .unwrap_or(MacbethCoreStatus::Destroyed);
+    }
+
     fn update_meteor_base(&mut self) -> Result<(), Error> {
         self.state.mission.active = true;
         let retail_frame = self
@@ -8922,16 +9800,17 @@ impl Game {
                 MeteorPhase::CoreArming => {
                     let elapsed = retail_frame
                         .saturating_sub(self.state.mission.meteor.phase_started_retail_frame);
-                    self.state.mission.meteor.installation_core =
-                        if elapsed >= meteor_installation_core::ACTIVE_RETAIL_FRAME {
-                            MeteorCoreStatus::Active
-                        } else if elapsed >= meteor_installation_core::TRIGGER_ARMED_RETAIL_FRAME {
-                            MeteorCoreStatus::Armed
-                        } else if elapsed >= meteor_installation_core::TRIGGER_PARTIAL_RETAIL_FRAME {
-                            MeteorCoreStatus::Triggered
-                        } else {
-                            MeteorCoreStatus::Dormant
-                        };
+                    self.state.mission.meteor.installation_core = if elapsed
+                        >= meteor_installation_core::ACTIVE_RETAIL_FRAME
+                    {
+                        MeteorCoreStatus::Active
+                    } else if elapsed >= meteor_installation_core::TRIGGER_ARMED_RETAIL_FRAME {
+                        MeteorCoreStatus::Armed
+                    } else if elapsed >= meteor_installation_core::TRIGGER_PARTIAL_RETAIL_FRAME {
+                        MeteorCoreStatus::Triggered
+                    } else {
+                        MeteorCoreStatus::Dormant
+                    };
                     if self.state.mission.meteor.installation_core == MeteorCoreStatus::Active {
                         if let Some(core) = self
                             .meteor_installation_core
@@ -9064,8 +9943,8 @@ impl Game {
                 meteor_queen_dragoon::INITIAL_BODY_POSITION,
                 placement.offset,
             );
-            component.base.yaw = meteor_queen_dragoon::INITIAL_BODY_YAW
-                .wrapping_add(placement.yaw_offset);
+            component.base.yaw =
+                meteor_queen_dragoon::INITIAL_BODY_YAW.wrapping_add(placement.yaw_offset);
             component.base.linked_object = Some(body_id);
             component.base.flags.collision_disabled = true;
             component.base.flags.casts_shadow = false;
@@ -9095,8 +9974,8 @@ impl Game {
         flight.retail_frame_credit = flight
             .retail_frame_credit
             .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
-        let cadence = meteor_queen_dragoon::MOVEMENT_CADENCE_RETAIL_FRAMES
-            [usize::from(flight.cadence_index)];
+        let cadence =
+            meteor_queen_dragoon::MOVEMENT_CADENCE_RETAIL_FRAMES[usize::from(flight.cadence_index)];
         if flight.retail_frame_credit >= cadence {
             flight.retail_frame_credit -= cadence;
             flight.cadence_index = (flight.cadence_index + 1)
@@ -9107,8 +9986,8 @@ impl Game {
         let body_position = body.base.position;
         let body_yaw = body.base.yaw;
         for (index, placement) in meteor_queen_dragoon::COMPONENTS.into_iter().enumerate() {
-            let Some(component) = self.meteor_queen_components[index]
-                .and_then(|id| self.state.objects.get_mut(id))
+            let Some(component) =
+                self.meteor_queen_components[index].and_then(|id| self.state.objects.get_mut(id))
             else {
                 continue;
             };
@@ -10490,6 +11369,7 @@ impl Game {
     fn clear_sortie_runtime(&mut self) {
         self.clear_eladard_scene();
         self.clear_titania_scene();
+        self.clear_macbeth_scene();
         self.clear_meteor_scene();
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
@@ -10597,6 +11477,13 @@ impl Game {
                     .objectives
                     .planets
                     .rescue(CampaignWorld::Titania);
+            }
+            MissionVisit::MacbethBase => {
+                self.state
+                    .campaign
+                    .objectives
+                    .planets
+                    .rescue(CampaignWorld::Macbeth);
             }
             MissionVisit::MeteorBase => {
                 self.state
@@ -10747,6 +11634,10 @@ impl Game {
                         == PlanetObjectiveStatus::Occupied
                     {
                         TITANIA_BASE_DESTINATION
+                    } else if self.state.campaign.objectives.planets.macbeth
+                        == PlanetObjectiveStatus::Occupied
+                    {
+                        MACBETH_BASE_DESTINATION
                     } else if self.state.campaign.objectives.planets.meteor
                         == PlanetObjectiveStatus::Occupied
                     {
@@ -10777,6 +11668,12 @@ impl Game {
                     == PlanetObjectiveStatus::Occupied =>
             {
                 Some(StrategicEncounter::TitaniaBase)
+            }
+            CampaignRouteStep::StrategicPressure
+                if self.state.campaign.objectives.planets.macbeth
+                    == PlanetObjectiveStatus::Occupied =>
+            {
+                Some(StrategicEncounter::MacbethBase)
             }
             CampaignRouteStep::StrategicPressure
                 if self.state.campaign.objectives.planets.meteor
@@ -13675,7 +14572,9 @@ impl Game {
             MissionVisit::FinalPursuer => final_pursuer::RETURN_RETAIL_FRAME,
             MissionVisit::WolfBlockade => wolf_blockade::RETURN_RETAIL_FRAME,
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
-            MissionVisit::TitaniaBase | MissionVisit::MeteorBase => u16::MAX,
+            MissionVisit::TitaniaBase | MissionVisit::MacbethBase | MissionVisit::MeteorBase => {
+                u16::MAX
+            }
             MissionVisit::EladardBase => u16::MAX,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => u16::MAX,
         };
@@ -13708,6 +14607,7 @@ impl Game {
                     self.update_astropolis_presentation(retail_frame)
                 }
                 MissionVisit::TitaniaBase
+                | MissionVisit::MacbethBase
                 | MissionVisit::MeteorBase
                 | MissionVisit::EladardBase
                 | MissionVisit::FirstBattleCarrier
@@ -14378,6 +15278,22 @@ impl Game {
                 && self.state.mission.visit == MissionVisit::MeteorBase
                 && (self.meteor_queen_body == Some(enemy_id)
                     || self.meteor_installation_core == Some(enemy_id));
+            let macbeth_knight_blocked = raw_damage > 0
+                && self.state.mission.visit == MissionVisit::MacbethBase
+                && self.macbeth_knight == Some(enemy_id)
+                && self
+                    .state
+                    .objects
+                    .get(weapon_id)
+                    .zip(self.state.objects.get(enemy_id))
+                    .is_some_and(|(weapon, knight)| {
+                        let lateral_distance = i32::from(weapon.base.position.x)
+                            .abs_diff(i32::from(knight.base.position.x));
+                        let rear_boundary = i32::from(knight.base.position.z)
+                            .saturating_add(i32::from(MACBETH_KNIGHT_REAR_VULNERABILITY));
+                        lateral_distance < u32::from(MACBETH_KNIGHT_SIDE_VULNERABILITY)
+                            && i32::from(weapon.base.position.z) < rear_boundary
+                    });
 
             if let Some(weapon) = self.state.objects.get_mut(weapon_id) {
                 weapon.base.flags.visible = false;
@@ -14393,6 +15309,12 @@ impl Game {
                 self.damage_carrier_panel_through_proxy(index);
                 continue;
             }
+            if macbeth_knight_blocked {
+                if let Some(knight) = self.state.objects.get_mut(enemy_id) {
+                    knight.base.flags.collided = true;
+                }
+                continue;
+            }
             if meteor_objective {
                 if let Some(enemy) = self.state.objects.get_mut(enemy_id) {
                     enemy.base.flags.collided = true;
@@ -14406,12 +15328,14 @@ impl Game {
                 }
                 continue;
             }
-            let destroyed_health = if self.state.mission.visit == MissionVisit::EladardBase
-                && self.eladard_generator_core == Some(enemy_id)
-            {
-                ELADARD_GENERATOR_DESTROYED_HEALTH
-            } else {
-                0
+            let destroyed_health = match self.state.mission.visit {
+                MissionVisit::EladardBase if self.eladard_generator_core == Some(enemy_id) => {
+                    ELADARD_GENERATOR_DESTROYED_HEALTH
+                }
+                MissionVisit::MacbethBase if self.macbeth_core == Some(enemy_id) => {
+                    MACBETH_CORE_DESTROYED_DURABILITY
+                }
+                _ => 0,
             };
             if let Some(enemy) = self.state.objects.get_mut(enemy_id) {
                 enemy.base.flags.collided = true;
@@ -26114,6 +27038,293 @@ mod tests {
     }
 
     #[test]
+    fn macbeth_switches_defenders_and_core_form_one_native_visit() {
+        const PHASE_TRANSITION_BUDGET_TICKS: usize = 1_000;
+
+        fn set_player_form(game: &mut Game, form: PlayerCraftForm) {
+            let player = game
+                .state
+                .mission
+                .primary_player
+                .expect("Macbeth keeps the primary craft allocated");
+            game.state.mission.player_craft_form = form;
+            let presentation = match form {
+                PlayerCraftForm::Flight => PlayerCraftPresentation::Flight,
+                PlayerCraftForm::Walker => PlayerCraftPresentation::Walker,
+                PlayerCraftForm::Transforming(_) => return,
+            };
+            game.apply_player_craft_presentation(player, presentation);
+        }
+
+        fn strike_at(game: &mut Game, target: ObjectId, position: Vector3, damage: u8) {
+            let mut laser = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::PLAYER_CHARGED_LASER_ACTIVE,
+                Behavior::Projectile,
+            );
+            laser.base.position = position;
+            laser.base.hit_points = PLAYER_PROJECTILE_DURABILITY;
+            laser.base.attack_power = damage;
+            laser.base.weapon = WeaponKind::ChargedLaser;
+            laser.base.collision_class = CollisionClass::PlayerWeapon;
+            let laser = game.state.objects.allocate(laser).unwrap();
+            game.resolve_mission_collisions();
+            game.state.objects.remove(laser);
+            assert!(game.state.objects.get(target).is_some());
+        }
+
+        fn strike(game: &mut Game, target: ObjectId, damage: u8) {
+            let position = game.state.objects.get(target).unwrap().base.position;
+            strike_at(game, target, position, damage);
+        }
+
+        fn strike_until_defeated(game: &mut Game, target: ObjectId, durability: u8) {
+            for _ in 0..durability.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) {
+                strike(game, target, PLAYER_CHARGED_LASER_ATTACK_POWER);
+            }
+        }
+
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.clear_sortie_runtime();
+        game.state.mode = GameMode::StrategicMap;
+        game.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
+        game.state.campaign.objectives.planets = super::super::state::CampaignPlanetObjectives {
+            venom: PlanetObjectiveStatus::Unoccupied,
+            titania: PlanetObjectiveStatus::Unoccupied,
+            macbeth: PlanetObjectiveStatus::Occupied,
+            eladard: PlanetObjectiveStatus::Unoccupied,
+            meteor: PlanetObjectiveStatus::Unoccupied,
+            fortuna: PlanetObjectiveStatus::Unoccupied,
+        };
+        game.state.campaign.objectives.second_carrier = CarrierObjectiveStatus::Destroyed;
+        game.state.strategic_map.phase = StrategicMapPhase::Planning;
+        game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
+        game.state.strategic_map.destination = INITIAL_PLAYER_MAP_POSITION;
+
+        game.tick(Button::Down as u16).unwrap();
+        assert_eq!(
+            game.state.strategic_map.selected_encounter,
+            Some(StrategicEncounter::MacbethBase)
+        );
+        assert_eq!(
+            game.state.strategic_map.destination,
+            MACBETH_BASE_DESTINATION
+        );
+        game.tick(0).unwrap();
+        game.tick(Button::B as u16).unwrap();
+
+        assert_eq!(game.mission(), Some(MissionVisit::MacbethBase));
+        assert_eq!(
+            game.state.mission.macbeth,
+            MacbethMissionState {
+                phase: MacbethPhase::FirstSurfaceSwitch,
+                phase_started_retail_frame: 0,
+                surface_switches: [MacbethSwitchStatus::Active; MACBETH_DEFENDER_COUNT],
+                tower_guns: [MacbethDefenderStatus::Dormant; MACBETH_DEFENDER_COUNT],
+                installation: MacbethInstallationStatus::Closed,
+                knight: MacbethDefenderStatus::Dormant,
+                core_turrets: [MacbethDefenderStatus::Dormant; MACBETH_DEFENDER_COUNT],
+                core: MacbethCoreStatus::Shielded,
+            }
+        );
+        assert_eq!(
+            game.state.mission.player_craft_form,
+            PlayerCraftForm::Flight
+        );
+        let player = game.state.mission.primary_player.unwrap();
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            MACBETH_SURFACE_START_POSITION
+        );
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.speed,
+            MACBETH_SURFACE_START_SPEED
+        );
+        let first_switch = game.macbeth_surface_switches[MACBETH_FIRST_SWITCH_INDEX].unwrap();
+        assert_eq!(
+            game.state.objects.get(first_switch).unwrap().base.shape,
+            ShapeId::MACBETH_SWITCH_ACTIVE
+        );
+
+        while game.state.mission.phase != MissionPhase::Active {
+            game.tick(0).unwrap();
+        }
+        game.state.objects.get_mut(player).unwrap().base.speed = 0;
+        game.state.objects.get_mut(player).unwrap().base.position = MACBETH_FIRST_SWITCH_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.macbeth.phase,
+            MacbethPhase::FirstSurfaceSwitch,
+            "the flight craft cannot press a Walker floor switch"
+        );
+
+        set_player_form(&mut game, PlayerCraftForm::Walker);
+        game.state.objects.get_mut(player).unwrap().base.position = MACBETH_FIRST_SWITCH_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.macbeth.phase, MacbethPhase::TowerGuns);
+        assert_eq!(
+            game.state.objects.get(first_switch).unwrap().base.shape,
+            ShapeId::MACBETH_SWITCH_PRESSED
+        );
+        for gun in game.macbeth_tower_guns.into_iter().flatten() {
+            strike(&mut game, gun, MACBETH_TOWER_GUN_DURABILITY);
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.macbeth.phase,
+            MacbethPhase::SecondSurfaceSwitch
+        );
+
+        let second_switch = game.macbeth_surface_switches[MACBETH_SECOND_SWITCH_INDEX].unwrap();
+        game.state.objects.get_mut(player).unwrap().base.position = MACBETH_SECOND_SWITCH_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.macbeth.phase, MacbethPhase::BaseOpening);
+        assert_eq!(
+            game.state.objects.get(second_switch).unwrap().base.shape,
+            ShapeId::MACBETH_SWITCH_PRESSED
+        );
+        let descent_retail_frames =
+            MACBETH_BASE_OPENING_RETAIL_FRAMES.saturating_sub(MACBETH_BASE_APPEAR_RETAIL_FRAME);
+        while game.state.mission.macbeth.installation
+            != (MacbethInstallationStatus::Opening {
+                retail_frames_remaining: descent_retail_frames,
+            })
+        {
+            game.tick(0).unwrap();
+        }
+        let base = game.macbeth_base.unwrap();
+        assert!(game.state.objects.get(base).unwrap().base.flags.visible);
+        assert_eq!(
+            game.state.objects.get(base).unwrap().base.position.y,
+            MACBETH_BASE_OPENING_HEIGHT
+        );
+        while game.state.mission.macbeth.phase != MacbethPhase::BaseEntry {
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.objects.get(base).unwrap().base.position.y, 0);
+
+        set_player_form(&mut game, PlayerCraftForm::Flight);
+        game.state.objects.get_mut(player).unwrap().base.position = MACBETH_BASE_POSITION;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.macbeth.phase, MacbethPhase::KnightCombat);
+        assert_eq!(
+            game.state.mission.player_craft_form,
+            PlayerCraftForm::Walker
+        );
+        assert_eq!(
+            game.state.objects.get(player).unwrap().base.position,
+            MACBETH_INTERIOR_START_POSITION
+        );
+
+        let knight = game.macbeth_knight.unwrap();
+        strike(&mut game, knight, PLAYER_CHARGED_LASER_ATTACK_POWER);
+        assert_eq!(
+            game.state.objects.get(knight).unwrap().base.hit_points,
+            MACBETH_KNIGHT_DURABILITY,
+            "the Knight's front shield blocks a centered shot"
+        );
+        let rear_attack_position = Vector3 {
+            z: MACBETH_KNIGHT_POSITION
+                .z
+                .saturating_add(MACBETH_KNIGHT_REAR_VULNERABILITY),
+            ..MACBETH_KNIGHT_POSITION
+        };
+        for _ in 0..MACBETH_KNIGHT_DURABILITY.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) {
+            strike_at(
+                &mut game,
+                knight,
+                rear_attack_position,
+                PLAYER_CHARGED_LASER_ATTACK_POWER,
+            );
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.macbeth.phase,
+            MacbethPhase::KnightDestruction
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.macbeth.phase,
+            MacbethPhase::InteriorTransit
+        );
+        assert!(game.macbeth_knight.is_none());
+
+        game.state.objects.get_mut(player).unwrap().base.position.z = MACBETH_CORE_ROOM_TRIGGER_Z;
+        game.tick(0).unwrap();
+        assert_eq!(game.state.mission.macbeth.phase, MacbethPhase::CoreTurrets);
+        assert_eq!(game.state.mission.macbeth.core, MacbethCoreStatus::Shielded);
+        for turret in game.macbeth_core_turrets.into_iter().flatten() {
+            strike_until_defeated(&mut game, turret, MACBETH_CORE_TURRET_DURABILITY);
+        }
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.macbeth.phase,
+            MacbethPhase::CoreShieldOpening
+        );
+        assert_eq!(
+            game.macbeth_core_turret_heads,
+            [None; MACBETH_DEFENDER_COUNT]
+        );
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if game.state.mission.macbeth.phase == MacbethPhase::CoreCombat {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.macbeth.phase, MacbethPhase::CoreCombat);
+        assert!(game.macbeth_core_shield.is_none());
+
+        let core = game.macbeth_core.unwrap();
+        let core_damage = MACBETH_CORE_DURABILITY - MACBETH_CORE_DESTROYED_DURABILITY;
+        for _ in 0..core_damage.div_ceil(PLAYER_CHARGED_LASER_ATTACK_POWER) {
+            strike(&mut game, core, PLAYER_CHARGED_LASER_ATTACK_POWER);
+        }
+        assert_eq!(
+            game.state.objects.get(core).unwrap().base.hit_points,
+            MACBETH_CORE_DESTROYED_DURABILITY
+        );
+        game.tick(0).unwrap();
+        assert_eq!(
+            game.state.mission.macbeth.phase,
+            MacbethPhase::CoreDestruction
+        );
+        let core_defeat_frame = game.state.mission.macbeth.phase_started_retail_frame;
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if game.state.mission.macbeth.phase == MacbethPhase::ReturnFlight {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.state.mission.macbeth.phase, MacbethPhase::ReturnFlight);
+        assert_eq!(
+            game.state.mission.macbeth.phase_started_retail_frame,
+            core_defeat_frame.saturating_add(MACBETH_CORE_RETIRE_RETAIL_FRAMES)
+        );
+        let mut return_native_ticks = 0;
+        while game.mode() == GameMode::Mission {
+            game.tick(0).unwrap();
+            return_native_ticks += 1;
+        }
+        assert_eq!(game.mode(), GameMode::StrategicMap);
+        assert_eq!(
+            return_native_ticks,
+            usize::from(
+                MACBETH_RETURN_FLIGHT_RETAIL_FRAMES / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+            )
+        );
+        assert_eq!(
+            game.state.campaign.objectives.planets.macbeth,
+            PlanetObjectiveStatus::Rescued
+        );
+        assert!(game.macbeth_core.is_none());
+        assert_eq!(
+            MACBETH_RETURN_FLIGHT_RETAIL_FRAMES,
+            MACBETH_RETURN_TO_MAP_RETAIL_FRAMES - MACBETH_CORE_RETIRE_RETAIL_FRAMES
+        );
+    }
+
+    #[test]
     fn meteor_queen_switch_and_installation_core_form_one_native_visit() {
         fn strike(game: &mut Game, target: ObjectId, damage: u8) {
             let position = game.state.objects.get(target).unwrap().base.position;
@@ -26162,16 +27373,25 @@ mod tests {
         game.tick(Button::B as u16).unwrap();
 
         assert_eq!(game.mission(), Some(MissionVisit::MeteorBase));
-        assert_eq!(game.state.mission.player_craft_form, PlayerCraftForm::Walker);
+        assert_eq!(
+            game.state.mission.player_craft_form,
+            PlayerCraftForm::Walker
+        );
         assert_eq!(game.state.mission.meteor, MeteorMissionState::default());
         let queen = game.meteor_queen_body.expect("Queen body is allocated");
         let body = game.state.objects.get(queen).unwrap();
         assert_eq!(body.base.shape, meteor_queen_dragoon::BODY_SHAPE);
-        assert_eq!(body.base.position, meteor_queen_dragoon::INITIAL_BODY_POSITION);
+        assert_eq!(
+            body.base.position,
+            meteor_queen_dragoon::INITIAL_BODY_POSITION
+        );
         assert_eq!(body.base.yaw, meteor_queen_dragoon::INITIAL_BODY_YAW);
         assert_eq!(body.base.speed, meteor_queen_dragoon::BODY_SPEED);
         assert_eq!(body.base.velocity, meteor_queen_dragoon::BODY_VELOCITY);
-        assert_eq!(body.base.hit_points, meteor_queen_dragoon::MAXIMUM_DURABILITY);
+        assert_eq!(
+            body.base.hit_points,
+            meteor_queen_dragoon::MAXIMUM_DURABILITY
+        );
         for (component, placement) in game
             .meteor_queen_components
             .into_iter()
@@ -26185,7 +27405,10 @@ mod tests {
             assert_eq!(component.base.shape, placement.shape);
             assert_eq!(
                 component.base.position,
-                add_vectors(meteor_queen_dragoon::INITIAL_BODY_POSITION, placement.offset)
+                add_vectors(
+                    meteor_queen_dragoon::INITIAL_BODY_POSITION,
+                    placement.offset
+                )
             );
             assert_eq!(
                 component.base.yaw,
@@ -26205,7 +27428,10 @@ mod tests {
             meteor_queen_dragoon::INITIAL_BODY_POSITION,
             meteor_queen_dragoon::BODY_VELOCITY,
         );
-        assert_eq!(game.state.objects.get(queen).unwrap().base.position, moved_position);
+        assert_eq!(
+            game.state.objects.get(queen).unwrap().base.position,
+            moved_position
+        );
         for (component, placement) in game
             .meteor_queen_components
             .into_iter()
@@ -26225,7 +27451,10 @@ mod tests {
         strike(&mut game, queen, meteor_queen_dragoon::MAXIMUM_DURABILITY);
         assert_eq!(game.state.objects.get(queen).unwrap().base.hit_points, 0);
         game.tick(0).unwrap();
-        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::QueenDestruction);
+        assert_eq!(
+            game.state.mission.meteor.phase,
+            MeteorPhase::QueenDestruction
+        );
         let destruction_start = game.state.mission.meteor.phase_started_retail_frame;
         while current_retail_frame(&game)
             < destruction_start
@@ -26246,15 +27475,20 @@ mod tests {
                 .unwrap()
                 .base
                 .shape),
-            [meteor_queen_dragoon::COMPONENT_BURST_SHAPE;
-                meteor_queen_dragoon::COMPONENT_COUNT]
+            [meteor_queen_dragoon::COMPONENT_BURST_SHAPE; meteor_queen_dragoon::COMPONENT_COUNT]
         );
         assert!(game.meteor_queen_debris.iter().all(Option::is_some));
 
         let surface_switch = game
             .meteor_surface_switch
             .expect("Queen destruction drops the surface switch");
-        let switch_position = game.state.objects.get(surface_switch).unwrap().base.position;
+        let switch_position = game
+            .state
+            .objects
+            .get(surface_switch)
+            .unwrap()
+            .base
+            .position;
         let player = game.state.mission.primary_player.unwrap();
         game.state.objects.get_mut(player).unwrap().base.position = switch_position;
         game.tick(0).unwrap();
@@ -26275,7 +27509,10 @@ mod tests {
         game.state.objects.get_mut(player).unwrap().base.position =
             METEOR_SURFACE_ENTRANCE_POSITION;
         game.tick(0).unwrap();
-        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::InteriorApproach);
+        assert_eq!(
+            game.state.mission.meteor.phase,
+            MeteorPhase::InteriorApproach
+        );
         assert_eq!(
             game.state.objects.get(player).unwrap().base.position,
             METEOR_INTERIOR_START_POSITION
@@ -26287,7 +27524,15 @@ mod tests {
             game.state.objects.get(core).unwrap().base.hit_points,
             meteor_installation_core::MAXIMUM_DURABILITY
         );
-        assert!(game.state.objects.get(core).unwrap().base.flags.collision_disabled);
+        assert!(
+            game.state
+                .objects
+                .get(core)
+                .unwrap()
+                .base
+                .flags
+                .collision_disabled
+        );
 
         game.state.objects.get_mut(player).unwrap().base.position = Vector3 {
             x: METEOR_CORE_TRIGGER_CENTER_X,
@@ -26322,7 +27567,16 @@ mod tests {
             game.state.mission.meteor.installation_core,
             MeteorCoreStatus::Active
         );
-        assert!(!game.state.objects.get(core).unwrap().base.flags.collision_disabled);
+        assert!(
+            !game
+                .state
+                .objects
+                .get(core)
+                .unwrap()
+                .base
+                .flags
+                .collision_disabled
+        );
 
         strike(
             &mut game,
@@ -26330,7 +27584,10 @@ mod tests {
             meteor_installation_core::MAXIMUM_DURABILITY,
         );
         game.tick(0).unwrap();
-        assert_eq!(game.state.mission.meteor.phase, MeteorPhase::CoreDestruction);
+        assert_eq!(
+            game.state.mission.meteor.phase,
+            MeteorPhase::CoreDestruction
+        );
         let core_defeat_start = game.state.mission.meteor.phase_started_retail_frame;
         while current_retail_frame(&game)
             < core_defeat_start

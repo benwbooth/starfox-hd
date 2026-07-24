@@ -265,6 +265,24 @@ impl ShapeId {
     pub const TITANIA_BASE_CLOSED: Self = Self(238);
     pub const TITANIA_BASE_OPEN: Self = Self(239);
 
+    /// Macbeth surface objectives and installation structures. These values
+    /// are decoded shape-catalog indices; the source header addresses remain
+    /// confined to extraction and oracle tooling.
+    pub const MACBETH_SWITCH_ACTIVE: Self = Self(464);
+    pub const MACBETH_SWITCH_PRESSED: Self = Self(465);
+    pub const MACBETH_DEFENSE_TOWER: Self = Self(571);
+    pub const MACBETH_TOWER_GUN: Self = Self(564);
+    pub const MACBETH_INSTALLATION_OPEN: Self = Self(239);
+    pub const MACBETH_KNIGHT: Self = Self(410);
+    pub const MACBETH_FIRE_BARRIER: Self = Self(234);
+    pub const MACBETH_INTERIOR_GATE: Self = Self(191);
+    pub const MACBETH_INTERIOR_MARKER: Self = Self(434);
+    pub const MACBETH_CORE_CONTROLLER: Self = Self(497);
+    pub const MACBETH_CORE_SHIELD: Self = Self(498);
+    pub const MACBETH_CORE_TURRET_HEAD: Self = Self(499);
+    pub const MACBETH_CORE_TURRET: Self = Self(500);
+    pub const MACBETH_CORE: Self = Self(428);
+
     pub const fn from_catalog_index(index: u16) -> Self {
         Self(index)
     }

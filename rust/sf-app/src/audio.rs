@@ -37,10 +37,7 @@ enum StreamSource {
     StarFox2(Sf2NativePlayer),
 }
 
-fn sf2_music_cue(
-    mode: sf2_game::GameMode,
-    mission_visit: sf2_game::MissionVisit,
-) -> Sf2MusicCue {
+fn sf2_music_cue(mode: sf2_game::GameMode, mission_visit: sf2_game::MissionVisit) -> Sf2MusicCue {
     use sf2_game::{GameMode, IntroPhase, MissionVisit};
 
     match mode {
@@ -51,9 +48,7 @@ fn sf2_music_cue(
             IntroPhase::Formation | IntroPhase::TitleReveal | IntroPhase::TitleSplash,
         )
         | GameMode::Title
-        | GameMode::Records => {
-            Sf2MusicCue::FormationAndTitle
-        }
+        | GameMode::Records => Sf2MusicCue::FormationAndTitle,
         GameMode::Briefing => Sf2MusicCue::AndrossBriefing,
         GameMode::StrategicMap => Sf2MusicCue::StrategicMap,
         GameMode::PilotSelection => Sf2MusicCue::PilotSelection,
@@ -63,6 +58,7 @@ fn sf2_music_cue(
             | MissionVisit::MissileInterception => Sf2MusicCue::OpenSpaceCombat,
             MissionVisit::FighterIntercept => Sf2MusicCue::FighterIntercept,
             MissionVisit::TitaniaBase => Sf2MusicCue::TitaniaBase,
+            MissionVisit::MacbethBase => Sf2MusicCue::MacbethBase,
             MissionVisit::EladardBase => Sf2MusicCue::EladardBase,
             MissionVisit::MeteorBase => Sf2MusicCue::MeteorBase,
             MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
@@ -99,6 +95,7 @@ fn sf2_sound_bank(mission_visit: sf2_game::MissionVisit) -> Sf2SoundBank {
         | MissionVisit::MissileInterception => Sf2SoundBank::OpenSpaceCombat,
         MissionVisit::FighterIntercept => Sf2SoundBank::FighterIntercept,
         MissionVisit::TitaniaBase => Sf2SoundBank::TitaniaBase,
+        MissionVisit::MacbethBase => Sf2SoundBank::MacbethBase,
         MissionVisit::EladardBase => Sf2SoundBank::EladardBase,
         MissionVisit::MeteorBase => Sf2SoundBank::MeteorBase,
         MissionVisit::FirstBattleCarrier | MissionVisit::SecondBattleCarrier => {
@@ -639,6 +636,8 @@ mod tests {
             (PigmaDuel, Sf2MusicCue::RivalEncounter),
             (EladardBase, Sf2MusicCue::EladardBase),
             (TitaniaBase, Sf2MusicCue::TitaniaBase),
+            (MacbethBase, Sf2MusicCue::MacbethBase),
+            (MeteorBase, Sf2MusicCue::MeteorBase),
             (FirstBattleCarrier, Sf2MusicCue::BattleCarrier),
             (SecondBattleCarrier, Sf2MusicCue::BattleCarrier),
             (LeonDuel, Sf2MusicCue::RivalEncounter),
@@ -667,6 +666,8 @@ mod tests {
             (PigmaDuel, Sf2SoundBank::RivalEncounter),
             (EladardBase, Sf2SoundBank::EladardBase),
             (TitaniaBase, Sf2SoundBank::TitaniaBase),
+            (MacbethBase, Sf2SoundBank::MacbethBase),
+            (MeteorBase, Sf2SoundBank::MeteorBase),
             (FirstBattleCarrier, Sf2SoundBank::BattleCarrier),
             (SecondBattleCarrier, Sf2SoundBank::BattleCarrier),
             (LeonDuel, Sf2SoundBank::RivalEncounter),
