@@ -2,9 +2,11 @@
 # Natural activation SHA-256: a957cb3ed0f0f2d4fb4ad2a7935a76da84c41b34aae4bf10043cfa9ebaddc7c5
 # Exact-core attack SHA-256: a734216f22324ffda719342b2387c911688ec2d4affab8e8d15583211b761759
 # Post-fight transformation SHA-256: 4aa7be1d9a654cb8550ee667c1808bbd5d28c64ce7c98ffb64a0e6fc99df31c0
+# Route scope: these hashes begin from an isolated saved state whose setup ancestry used forced base flags, controller durability, and teleports.
 encounter world=meteor mission_selection=4 encounter_map=4893 parent_shape=EB50 core_shape=EB6C core_maximum_durability=125
+scope retail_route_certified=false setup_acceleration=base_flags_controller_durability_and_teleports
 activation input=right_then_forward trigger_partial_retail_frame=167 trigger_armed_retail_frame=475 active_retail_frame=483 waiting_path=5F92 active_path=5FA5
 attack target_object=06F0 oracle_acceleration=health_clamp_and_projectile_reposition starting_durability=3 projectile_retail_frame=104 damage_retail_frame=111 damaged_durability=1 damaged_path=5FCC
-campaign objective_mirrors_before=2 objective_mirrors_after=1 decrement_retail_frame=116
+campaign occupied_world_mirrors_before=2 occupied_world_mirrors_after=1 decrement_retail_frame=116
 aftermath core_path=5FF2 core_durability=1 cosmetic_shape=EB6C cosmetic_path=6002 parent_final_path=5F36 parent_final_retail_frame=131
 transformation input=select walker_shape=C94C input_retail_frame=3 first_intermediate_shape=C2F4 first_intermediate_retail_frame=15 second_intermediate_shape=C310 second_intermediate_retail_frame=47 flight_shape=C268 flight_retail_frame=71

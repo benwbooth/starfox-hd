@@ -96,10 +96,10 @@ def object_by_shape(
     )
 
 
-def objective_count(record: dict[str, str]) -> int:
+def occupied_world_count(record: dict[str, str]) -> int:
     mirrors = tuple(map(int, record["objectives"].split(",")))
     if len(mirrors) != 2 or mirrors[0] != mirrors[1]:
-        raise SystemExit(f"retail objective mirrors disagree: {mirrors}")
+        raise SystemExit(f"retail occupied-world mirrors disagree: {mirrors}")
     return mirrors[0]
 
 
@@ -140,8 +140,8 @@ def extract_activation(path: Path) -> tuple[str, int, int, int]:
         "script-up",
     }:
         raise SystemExit("activation trace uses unexpected input")
-    if any(objective_count(sample) != 2 for sample in samples):
-        raise SystemExit("Wall Spider activation changes campaign objectives")
+    if any(occupied_world_count(sample) != 2 for sample in samples):
+        raise SystemExit("Wall Spider activation changes the occupied-world counter")
 
     baseline = int(samples[0]["elapsed"])
     parent = object_by_shape(samples[0], PARENT_SHAPE)
@@ -209,7 +209,7 @@ def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
             and core[1] == CORE_SHAPE
             and core[10] == ACTIVE_PATH
             and int(core[15]) == CLAMPED_DURABILITY
-            and objective_count(sample) == 2
+            and occupied_world_count(sample) == 2
         ),
         None,
     )
@@ -234,7 +234,7 @@ def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
             and core[1] == CORE_SHAPE
             and core[10] == DAMAGED_PATH
             and int(core[15]) == DAMAGED_DURABILITY
-            and objective_count(sample) == 2
+            and occupied_world_count(sample) == 2
         ),
         None,
     )
@@ -259,7 +259,7 @@ def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
         (
             sample
             for sample in samples
-            if objective_count(sample) == 1
+            if occupied_world_count(sample) == 1
             and (core := object_by_address(sample, CORE_OBJECT)) is not None
             and core[1] == CORE_SHAPE
             and core[10] == DEFEATED_PATH
@@ -281,7 +281,7 @@ def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
             for sample in samples
             if (parent := object_by_shape(sample, PARENT_SHAPE)) is not None
             and parent[10] == PARENT_FINAL_PATH
-            and objective_count(sample) == 1
+            and occupied_world_count(sample) == 1
         ),
         None,
     )
@@ -306,8 +306,8 @@ def extract_attack(path: Path) -> tuple[str, int, int, int, int]:
 def extract_transformation(path: Path) -> tuple[str, int, int, int, int]:
     samples = mission_samples(read_records(path))
     baseline = int(samples[0]["elapsed"])
-    if any(objective_count(sample) != 1 for sample in samples):
-        raise SystemExit("transformation trace changes campaign objectives")
+    if any(occupied_world_count(sample) != 1 for sample in samples):
+        raise SystemExit("transformation trace changes the occupied-world counter")
 
     def first_player_sample(*, shape: str | None = None, input_name: str | None = None):
         return next(
@@ -374,9 +374,17 @@ def render(evidence: Evidence) -> str:
             f"# Exact-core attack SHA-256: {evidence.attack_sha256}",
             f"# Post-fight transformation SHA-256: {evidence.transformation_sha256}",
             (
+                "# Route scope: these hashes begin from an isolated saved state whose "
+                "setup ancestry used forced base flags, controller durability, and teleports."
+            ),
+            (
                 f"encounter world={CAMPAIGN_WORLD} mission_selection={MISSION_SELECTION} "
                 f"encounter_map={ENCOUNTER_MAP.split(':')[1]} parent_shape={PARENT_SHAPE} "
                 f"core_shape={CORE_SHAPE} core_maximum_durability={MAXIMUM_DURABILITY}"
+            ),
+            (
+                "scope retail_route_certified=false "
+                "setup_acceleration=base_flags_controller_durability_and_teleports"
             ),
             (
                 "activation input=right_then_forward "
@@ -394,7 +402,7 @@ def render(evidence: Evidence) -> str:
                 f"damaged_durability={DAMAGED_DURABILITY} damaged_path={DAMAGED_PATH}"
             ),
             (
-                "campaign objective_mirrors_before=2 objective_mirrors_after=1 "
+                "campaign occupied_world_mirrors_before=2 occupied_world_mirrors_after=1 "
                 f"decrement_retail_frame={evidence.objective_decrement_retail_frame}"
             ),
             (
@@ -420,9 +428,9 @@ def render(evidence: Evidence) -> str:
 def validate_compact(path: Path) -> None:
     content = path.read_text(encoding="utf-8")
     lines = [line for line in content.splitlines() if line and not line.startswith("#")]
-    if len(lines) != 6:
+    if len(lines) != 7:
         raise SystemExit("Wall Spider fixture has an unexpected record count")
-    encounter, activation, attack, campaign, aftermath, transformation = [
+    encounter, scope, activation, attack, campaign, aftermath, transformation = [
         fields(line) for line in lines
     ]
     if encounter != {
@@ -434,6 +442,11 @@ def validate_compact(path: Path) -> None:
         "core_maximum_durability": str(MAXIMUM_DURABILITY),
     }:
         raise SystemExit("Wall Spider encounter fixture is inconsistent")
+    if scope != {
+        "retail_route_certified": "false",
+        "setup_acceleration": "base_flags_controller_durability_and_teleports",
+    }:
+        raise SystemExit("Wall Spider route-scope fixture is inconsistent")
     if activation != {
         "input": "right_then_forward",
         "trigger_partial_retail_frame": "167",
@@ -454,11 +467,11 @@ def validate_compact(path: Path) -> None:
     }:
         raise SystemExit("Wall Spider attack fixture is inconsistent")
     if campaign != {
-        "objective_mirrors_before": "2",
-        "objective_mirrors_after": "1",
+        "occupied_world_mirrors_before": "2",
+        "occupied_world_mirrors_after": "1",
         "decrement_retail_frame": "116",
     }:
-        raise SystemExit("Wall Spider campaign-objective fixture is inconsistent")
+        raise SystemExit("Wall Spider occupied-world fixture is inconsistent")
     if aftermath != {
         "core_path": DEFEATED_PATH,
         "core_durability": str(DAMAGED_DURABILITY),

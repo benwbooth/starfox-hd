@@ -37,8 +37,8 @@ class Evidence:
     forced_return_sha256: str
     natural_progression_sha256: str
     natural_return_sha256: str
-    objectives_before: int
-    objectives_after: int
+    occupied_worlds_before: int
+    occupied_worlds_after: int
     defeat_retail_frame: int
     explosion_retail_frame: int
     forced_return_delay_retail_frames: int
@@ -75,10 +75,10 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def objective_count(values: dict[str, str]) -> int:
+def occupied_world_count(values: dict[str, str]) -> int:
     mirrors = tuple(map(int, values["objectives"].split(",")))
     if len(mirrors) != 2 or mirrors[0] != mirrors[1]:
-        raise SystemExit(f"retail objective mirrors disagree: {mirrors}")
+        raise SystemExit(f"retail occupied-world mirrors disagree: {mirrors}")
     return mirrors[0]
 
 
@@ -109,7 +109,7 @@ def extract_forced_return(forced_return_trace: Path) -> int:
     )
     if prior_objectives != "2,2":
         raise SystemExit(
-            "forced-return trace does not begin with two Meteor objectives"
+            "forced-return trace does not begin with two occupied campaign worlds"
         )
     returned = next(
         (
@@ -162,7 +162,9 @@ def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int
         "teleport": "false",
         "preserve_shields": "true",
     }
-    if config is None or any(config.get(key) != value for key, value in expected_config.items()):
+    if config is None or any(
+        config.get(key) != value for key, value in expected_config.items()
+    ):
         raise SystemExit(
             "natural progression trace must preserve only player shields and "
             "must not force mission, target, projectile, or navigation state"
@@ -189,7 +191,9 @@ def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int
         None,
     )
     if bound is None or retired is None:
-        raise SystemExit("natural progression trace does not retire the original Queen body")
+        raise SystemExit(
+            "natural progression trace does not retire the original Queen body"
+        )
 
     mission_samples = [
         (record, objects(record["objects"]))
@@ -202,8 +206,10 @@ def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int
         raise SystemExit("natural progression trace has no active Meteor samples")
     if mission_samples[0][0].get("map") != ACTIVE_MAP:
         raise SystemExit("natural progression trace does not begin on Meteor's surface")
-    if objective_count(mission_samples[0][0]) != 2:
-        raise SystemExit("natural progression trace does not begin with two objectives")
+    if occupied_world_count(mission_samples[0][0]) != 2:
+        raise SystemExit(
+            "natural progression trace does not begin with two occupied campaign worlds"
+        )
 
     dropped = next(
         (
@@ -250,8 +256,13 @@ def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int
     )
     if pressed is None:
         raise SystemExit("natural progression trace never presses the dropped switch")
-    if objective_count(pressed) != 1 or pressed.get("basehandshake") not in {"01", "03"}:
-        raise SystemExit("pressed switch does not advance Meteor's retail objectives and door")
+    if occupied_world_count(pressed) != 1 or pressed.get("basehandshake") not in {
+        "01",
+        "03",
+    }:
+        raise SystemExit(
+            "pressed switch does not advance the retail campaign counter and base door"
+        )
 
     entered = next(
         (
@@ -264,8 +275,8 @@ def extract_natural_progression(natural_trace: Path) -> tuple[int, int, int, int
     )
     if entered is None:
         raise SystemExit("natural progression trace never enters Meteor's base")
-    if objective_count(entered) != 1 or entered.get("basehandshake") != "03":
-        raise SystemExit("Meteor base entry loses the pressed-switch progression state")
+    if occupied_world_count(entered) != 1 or entered.get("basehandshake") != "03":
+        raise SystemExit("Meteor base entry loses the pressed-switch campaign state")
 
     progression_records = [
         record
@@ -318,7 +329,9 @@ def extract_natural_return(natural_return_trace: Path) -> tuple[int, int]:
         "teleport": "false",
         "preserve_shields": "true",
     }
-    if config is None or any(config.get(key) != value for key, value in expected_config.items()):
+    if config is None or any(
+        config.get(key) != value for key, value in expected_config.items()
+    ):
         raise SystemExit(
             "natural return trace must preserve only player shields and must "
             "not force mission, target, projectile, or navigation state"
@@ -363,7 +376,9 @@ def extract_natural_return(natural_return_trace: Path) -> tuple[int, int]:
         ("strategic return", strategic_return),
     ):
         if boundary.get("objectives") != "1,1" or boundary.get("basehandshake") != "03":
-            raise SystemExit(f"Queen Dragoon {boundary_name} loses Meteor progression state")
+            raise SystemExit(
+                f"Queen Dragoon {boundary_name} loses occupied-world campaign state"
+            )
     return int(sortie_exit["elapsed"]), int(strategic_return["elapsed"])
 
 
@@ -460,8 +475,8 @@ def extract(
         forced_return_sha256=digest(forced_return_trace),
         natural_progression_sha256=digest(natural_progression_trace),
         natural_return_sha256=digest(natural_return_trace),
-        objectives_before=objective_count(entry_values),
-        objectives_after=objective_count(explosion[1]),
+        occupied_worlds_before=occupied_world_count(entry_values),
+        occupied_worlds_after=occupied_world_count(explosion[1]),
         defeat_retail_frame=defeat[0] - entry_elapsed,
         explosion_retail_frame=explosion[0] - entry_elapsed,
         forced_return_delay_retail_frames=extract_forced_return(forced_return_trace),
@@ -481,19 +496,21 @@ def render(evidence: Evidence) -> str:
             "# Compact Mesen oracle evidence for Meteor's Queen Dragoon encounter.",
             f"# Raw sortie SHA-256: {evidence.sortie_sha256}",
             f"# Raw actor-logic SHA-256: {evidence.actor_logic_sha256}",
-            (f"# Raw forced-objective return SHA-256: {evidence.forced_return_sha256}"),
+            (
+                f"# Raw forced-campaign-counter return SHA-256: {evidence.forced_return_sha256}"
+            ),
             f"# Raw natural-progression SHA-256: {evidence.natural_progression_sha256}",
             f"# Raw natural-return SHA-256: {evidence.natural_return_sha256}",
             (
-                "# This trace deliberately injects zero remaining objectives; "
+                "# This trace deliberately injects zero occupied campaign worlds; "
                 "it proves only the resulting return presentation, not natural "
                 "Meteor completion."
             ),
             (
                 f"mission name={MISSION_NAME} mission_selection={MISSION_SELECTION} "
                 f"active_map={ACTIVE_MAP.split(':')[1]} "
-                f"objectives_before={evidence.objectives_before} "
-                f"objectives_after={evidence.objectives_after}"
+                f"occupied_worlds_before={evidence.occupied_worlds_before} "
+                f"occupied_worlds_after={evidence.occupied_worlds_after}"
             ),
             (
                 f"boss name={BOSS_NAME} maximum_durability={MAXIMUM_DURABILITY} "
@@ -517,7 +534,7 @@ def render(evidence: Evidence) -> str:
                 f"move_events={evidence.move_events}"
             ),
             (
-                "forced_return injected_remaining_objectives=0 "
+                "forced_return injected_occupied_worlds=0 "
                 "return_input=forward "
                 "natural_completion_proven=false "
                 f"observed_return_retail_frames={evidence.forced_return_delay_retail_frames} "
@@ -531,12 +548,12 @@ def render(evidence: Evidence) -> str:
                 f"switch_targeted_elapsed={evidence.switch_targeted_elapsed} "
                 f"pressed_switch_shape={PRESSED_SWITCH_SHAPE} "
                 f"switch_pressed_elapsed={evidence.switch_pressed_elapsed} "
-                "objectives_after_switch=1 "
+                "occupied_worlds_after_switch=1 "
                 f"base_entry_elapsed={evidence.base_entry_elapsed} "
                 f"interior_map={INTERIOR_MAP.split(':')[1]} "
                 f"sortie_exit_elapsed={evidence.sortie_exit_elapsed} "
                 f"strategic_return_elapsed={evidence.strategic_return_elapsed} "
-                "objectives_after_return=1"
+                "occupied_worlds_after_return=1"
             ),
             "",
         ]
@@ -555,8 +572,8 @@ def validate_compact(path: Path) -> None:
         "name": MISSION_NAME,
         "mission_selection": str(MISSION_SELECTION),
         "active_map": ACTIVE_MAP.split(":")[1],
-        "objectives_before": "2",
-        "objectives_after": "2",
+        "occupied_worlds_before": "2",
+        "occupied_worlds_after": "2",
     }:
         raise SystemExit("Queen Dragoon mission fixture is inconsistent")
     if boss != {
@@ -586,7 +603,7 @@ def validate_compact(path: Path) -> None:
     }:
         raise SystemExit("Queen Dragoon actor-logic fixture is inconsistent")
     if forced_return != {
-        "injected_remaining_objectives": "0",
+        "injected_occupied_worlds": "0",
         "return_input": "forward",
         "natural_completion_proven": "false",
         "observed_return_retail_frames": "833",
@@ -602,12 +619,12 @@ def validate_compact(path: Path) -> None:
         "switch_targeted_elapsed": "98300",
         "pressed_switch_shape": PRESSED_SWITCH_SHAPE,
         "switch_pressed_elapsed": "98650",
-        "objectives_after_switch": "1",
+        "occupied_worlds_after_switch": "1",
         "base_entry_elapsed": "100098",
         "interior_map": INTERIOR_MAP.split(":")[1],
         "sortie_exit_elapsed": "107428",
         "strategic_return_elapsed": "111290",
-        "objectives_after_return": "1",
+        "occupied_worlds_after_return": "1",
     }:
         raise SystemExit("Queen Dragoon natural-progression fixture is inconsistent")
     hashes = [
@@ -635,7 +652,7 @@ def main() -> None:
         dest="forced_return_source",
         type=Path,
         help=(
-            "oracle trace with an explicit objective-count injection; "
+            "oracle trace with an explicit occupied-world-count injection; "
             "--completion-source remains as a compatibility alias"
         ),
     )
