@@ -2185,9 +2185,9 @@ impl Default for CarrierAssaultPhase {
 
 /// One of the two rotating armor panels protecting a Battle Carrier's energy
 /// core. Integrity follows the observed retail object field: each effective
-/// proxy hit removes two points and the panel changes to its broken mesh at
-/// 90. The vulnerability window is semantic state rather than a retained
-/// object-path cursor or byte-addressed work area.
+/// vulnerability hit removes two points and the panel changes to its broken
+/// mesh at 90. The vulnerability window is semantic state rather than a
+/// retained object-path cursor or byte-addressed work area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CarrierReactorPanel {
     pub integrity: u8,

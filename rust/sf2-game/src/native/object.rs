@@ -215,10 +215,6 @@ impl ShapeId {
     /// Broken panel mesh shown after ten effective hits.
     pub const CARRIER_REACTOR_PANEL_DESTROYED: Self = Self(144);
 
-    /// Retail's invisible, short-lived collision child. Hits against this
-    /// shape are relayed to its linked armor panel.
-    pub const CARRIER_REACTOR_VULNERABILITY_PROXY: Self = Self(20);
-
     /// Paired defensive structures flanking Eladard's surface entrance.
     pub const ELADARD_SURFACE_BARRIER: Self = Self(244);
 
