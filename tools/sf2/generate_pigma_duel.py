@@ -493,6 +493,11 @@ def main() -> None:
         action="store_true",
         help="retain rival poses only as an oracle-backed test fixture",
     )
+    parser.add_argument(
+        "--omit-projectiles",
+        action="store_true",
+        help="omit projectile pose tracks after semantic dynamics have replaced them",
+    )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
@@ -525,7 +530,21 @@ def main() -> None:
         )
     generated = rust_source(
         ", ".join(trace.name for trace in traces),
-        records,
+        (
+            [
+                Record(
+                    record.retail_frame,
+                    record.camera,
+                    record.player,
+                    record.wingmate,
+                    record.rival,
+                    (),
+                )
+                for record in records
+            ]
+            if args.omit_projectiles
+            else records
+        ),
         return_frame,
         map_ready_frame,
         args.duel_name,
@@ -543,11 +562,16 @@ def main() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(generated, encoding="utf-8")
         action = "generated"
+    projectile_summary = (
+        "enemy laser tracks omitted"
+        if args.omit_projectiles
+        else f"enemy laser tracks {len(projectile_lifetimes(records))}"
+    )
     print(
         f"{action} {args.output}: {len(records)} keyframes, "
         f"retail frames {records[0].retail_frame}..{records[-1].retail_frame}, "
         f"return {return_frame}, map ready {map_ready_frame}, "
-        f"enemy laser tracks {len(projectile_lifetimes(records))}"
+        f"{projectile_summary}"
     )
 
 

@@ -365,7 +365,6 @@ pub enum Behavior {
     PlayerFlight,
     FollowPath,
     EnemyFlight,
-    MissionScriptedProjectile,
     Projectile,
     Effect,
 }

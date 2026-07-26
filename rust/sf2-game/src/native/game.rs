@@ -85,6 +85,8 @@ mod leon_duel_projectiles;
 mod leon_duel_rival;
 #[path = "leon_pressure.rs"]
 mod leon_pressure;
+#[path = "leon_pressure_projectiles.rs"]
+mod leon_pressure_projectiles;
 #[path = "meteor_installation_core.rs"]
 mod meteor_installation_core;
 #[path = "meteor_queen_dragoon.rs"]
@@ -4279,6 +4281,12 @@ struct ActivePressureProjectile {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct ActiveLeonPressureProjectile {
+    track_index: usize,
+    object: ObjectId,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct ActiveLivePressureProjectile {
     object: ObjectId,
     spawn_retail_frame: u16,
@@ -5471,7 +5479,7 @@ pub struct Game {
     pressure_fighter_actors: PressureFighterActors,
     pressure_fighter_projectiles: Vec<ActivePressureProjectile>,
     live_pressure_fighter_projectiles: Vec<ActiveLivePressureProjectile>,
-    leon_pressure_projectiles: Vec<ActivePressureProjectile>,
+    leon_pressure_projectiles: Vec<ActiveLeonPressureProjectile>,
     final_rival: Option<ObjectId>,
     final_rival_projectiles: Vec<ActiveFinalRivalProjectile>,
     mirage_dragon: Option<ObjectId>,
@@ -5567,7 +5575,7 @@ impl Game {
                 pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES,
             ),
             leon_pressure_projectiles: Vec::with_capacity(
-                leon_pressure::ENEMY_LASER_KEYFRAME_TRACKS.len(),
+                leon_pressure_projectiles::PROJECTILE_COUNT,
             ),
             final_rival: None,
             final_rival_projectiles: Vec::with_capacity(
@@ -6734,6 +6742,7 @@ impl Game {
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
+        self.previous_mission_player_position = Some(leon_pressure::PLAYER_KEYFRAMES[0].position);
         if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, leon_pressure::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
@@ -8025,7 +8034,25 @@ impl Game {
             self.update_leon_pressure_presentation(retail_frame);
         }
         self.update_leon_pressure_rival(retail_frame);
-        self.update_leon_pressure_projectiles(retail_frame)?;
+        let current_player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|object| object.base.position);
+        let previous_player_position = current_player_position
+            .map(|current| self.previous_mission_player_position.unwrap_or(current));
+        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
+        {
+            self.update_leon_pressure_projectiles(retail_frame, current, previous)?;
+            self.previous_mission_player_position = Some(current);
+        } else {
+            self.update_leon_pressure_projectiles(
+                retail_frame,
+                Vector3::default(),
+                Vector3::default(),
+            )?;
+        }
         Ok(())
     }
 
@@ -16789,13 +16816,84 @@ impl Game {
         }
     }
 
-    fn update_leon_pressure_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
-        Self::update_pressure_projectile_tracks(
-            &mut self.state,
-            &mut self.leon_pressure_projectiles,
-            &leon_pressure::ENEMY_LASER_KEYFRAME_TRACKS,
-            retail_frame,
-        )
+    fn update_leon_pressure_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) -> Result<(), Error> {
+        for track_index in 0..leon_pressure_projectiles::PROJECTILE_COUNT {
+            let descriptor = leon_pressure_projectiles::descriptor(track_index)
+                .expect("Leon-pressure projectile descriptor exists");
+            let active_index = self
+                .leon_pressure_projectiles
+                .iter()
+                .position(|projectile| projectile.track_index == track_index);
+            if retail_frame < descriptor.start_retail_frame
+                || retail_frame > descriptor.end_retail_frame
+            {
+                if retail_frame > descriptor.end_retail_frame {
+                    if let Some(index) = active_index {
+                        let projectile = self.leon_pressure_projectiles.swap_remove(index);
+                        self.state.objects.remove(projectile.object);
+                    }
+                }
+                continue;
+            }
+
+            let projectile_id = if let Some(index) = active_index {
+                self.leon_pressure_projectiles[index].object
+            } else {
+                let mut projectile = Object::new(
+                    ObjectKind::Projectile,
+                    ShapeId::ENEMY_LASER,
+                    Behavior::Projectile,
+                );
+                projectile.base.weapon = WeaponKind::EnemyLaser;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+                projectile.base.collision_class = CollisionClass::EnemyWeapon;
+                projectile.base.flags.casts_shadow = false;
+                projectile.base.position = descriptor.initial_pose.position;
+                projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
+                projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
+                projectile.base.roll = Angle::from_units(descriptor.initial_pose.roll);
+                projectile.base.speed = descriptor.initial_pose.speed;
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
+                        motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
+                    });
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
+                self.leon_pressure_projectiles
+                    .push(ActiveLeonPressureProjectile {
+                        track_index,
+                        object: projectile_id,
+                    });
+                projectile_id
+            };
+
+            if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
+                    projectile.extension.activity
+                else {
+                    continue;
+                };
+                for &action in leon_pressure_projectiles::actions(track_index, retail_frame) {
+                    apply_hostile_projectile_action(
+                        projectile,
+                        &mut flight,
+                        action,
+                        player_position,
+                        previous_player_position,
+                        previous_player_position,
+                    );
+                }
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+        }
+        Ok(())
     }
 
     fn update_final_rival_projectiles(
@@ -16905,68 +17003,6 @@ impl Game {
                     );
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
-            }
-        }
-        Ok(())
-    }
-
-    fn update_pressure_projectile_tracks(
-        state: &mut GameState,
-        active_projectiles: &mut Vec<ActivePressureProjectile>,
-        tracks: &[&[MissionProjectileKeyframe]],
-        retail_frame: u16,
-    ) -> Result<(), Error> {
-        for (track_index, keyframes) in tracks.iter().copied().enumerate() {
-            let start_frame = keyframes
-                .first()
-                .expect("pressure projectile trajectory is not empty")
-                .retail_frame;
-            let end_frame = keyframes
-                .last()
-                .expect("pressure projectile trajectory is not empty")
-                .retail_frame;
-            let active_index = active_projectiles
-                .iter()
-                .position(|projectile| projectile.track_index == track_index);
-            if retail_frame < start_frame || retail_frame > end_frame {
-                if retail_frame > end_frame {
-                    if let Some(index) = active_index {
-                        let projectile = active_projectiles.swap_remove(index);
-                        state.objects.remove(projectile.object);
-                    }
-                }
-                continue;
-            }
-
-            let projectile_id = if let Some(index) = active_index {
-                active_projectiles[index].object
-            } else {
-                let mut projectile = Object::new(
-                    ObjectKind::Projectile,
-                    ShapeId::ENEMY_LASER,
-                    Behavior::MissionScriptedProjectile,
-                );
-                projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
-                projectile.base.collision_class = CollisionClass::EnemyWeapon;
-                projectile.base.flags.casts_shadow = false;
-                let projectile_id = allocate_hostile_projectile(state, projectile)?;
-                active_projectiles.push(ActivePressureProjectile {
-                    track_index,
-                    object: projectile_id,
-                });
-                projectile_id
-            };
-
-            let pose = mission_projectile_pose(keyframes, retail_frame);
-            if let Some(projectile) = state.objects.get_mut(projectile_id) {
-                projectile.base.position = pose.position;
-                projectile.base.pitch = Angle::from_units(pose.pitch);
-                projectile.base.yaw = Angle::from_units(pose.yaw);
-                projectile.base.roll = Angle::from_units(pose.roll);
-                projectile.base.speed = pose.speed;
-                projectile.base.velocity = Vector3::default();
             }
         }
         Ok(())
@@ -18064,10 +18100,7 @@ impl Game {
                 | ObjectActivity::CarrierCorridorDefender(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
-            if matches!(
-                object.base.behavior,
-                Behavior::MissionEntryFlyby | Behavior::MissionScriptedProjectile
-            ) {
+            if object.base.behavior == Behavior::MissionEntryFlyby {
                 continue;
             }
             object.base.position.x = object.base.position.x.wrapping_add(object.base.velocity.x);
@@ -18974,28 +19007,6 @@ fn apply_player_keyframe(object: &mut Object, keyframe: MissionPlayerKeyframe) {
     object.base.roll = Angle::from_units(keyframe.roll);
     object.base.speed = keyframe.speed;
     object.base.velocity = Vector3::default();
-}
-
-fn mission_projectile_pose(
-    keyframes: &[MissionProjectileKeyframe],
-    retail_frame: u16,
-) -> MissionEncounterPose {
-    let (start, end) =
-        enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-    let numerator = retail_frame.saturating_sub(start.retail_frame);
-    let denominator = end.retail_frame.saturating_sub(start.retail_frame);
-    MissionEncounterPose {
-        position: interpolate_vector(
-            start.pose.position,
-            end.pose.position,
-            numerator,
-            denominator,
-        ),
-        pitch: interpolate_angle(start.pose.pitch, end.pose.pitch, numerator, denominator).units(),
-        yaw: interpolate_angle(start.pose.yaw, end.pose.yaw, numerator, denominator).units(),
-        roll: interpolate_angle(start.pose.roll, end.pose.roll, numerator, denominator).units(),
-        speed: interpolate_u8(start.pose.speed, end.pose.speed, numerator, denominator),
-    }
 }
 
 fn enclosing_camera_keyframes(
@@ -27492,6 +27503,105 @@ mod tests {
     }
 
     #[test]
+    fn typed_leon_pressure_projectiles_match_every_oracle_boundary() {
+        const RETAINED_PROJECTILE_POSE_COUNT: usize = 156;
+
+        let mut game = Game::new();
+        let last_retail_frame = leon_pressure_projectiles::ORACLE_TRACKS
+            .iter()
+            .filter_map(|track| track.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("Leon-pressure projectile oracle contains retained poses");
+        let mut retained_poses = 0;
+
+        for retail_frame in
+            (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index =
+                usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            let previous_player_index = player_index.saturating_sub(1);
+            let player_position =
+                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index].position;
+            let previous_player_position =
+                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[previous_player_index].position;
+            game.update_leon_pressure_projectiles(
+                retail_frame,
+                player_position,
+                previous_player_position,
+            )
+            .unwrap();
+
+            let expected_active = leon_pressure_projectiles::ORACLE_TRACKS
+                .iter()
+                .filter(|track| {
+                    track
+                        .first()
+                        .zip(track.last())
+                        .is_some_and(|(first, last)| {
+                            (first.retail_frame..=last.retail_frame).contains(&retail_frame)
+                        })
+                })
+                .count();
+            assert_eq!(
+                game.leon_pressure_projectiles.len(),
+                expected_active,
+                "active Leon-pressure projectile count at frame {retail_frame}"
+            );
+
+            for (track_index, keyframes) in leon_pressure_projectiles::ORACLE_TRACKS
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                let Some(expected) = keyframes
+                    .iter()
+                    .find(|keyframe| keyframe.retail_frame == retail_frame)
+                else {
+                    continue;
+                };
+                retained_poses += 1;
+                let active = game
+                    .leon_pressure_projectiles
+                    .iter()
+                    .find(|projectile| projectile.track_index == track_index)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Leon-pressure projectile track {track_index} absent at frame {retail_frame}"
+                        )
+                    });
+                let projectile = game.state().objects.get(active.object).unwrap();
+                assert_eq!(
+                    projectile.base.position, expected.pose.position,
+                    "Leon-pressure projectile track {track_index} at frame {retail_frame}"
+                );
+                assert_eq!(projectile.base.pitch.units(), expected.pose.pitch);
+                assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
+                assert_eq!(projectile.base.roll.units(), expected.pose.roll);
+                assert_eq!(projectile.base.speed, expected.pose.speed);
+                assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
+                assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+                assert!(matches!(
+                    projectile.extension.activity,
+                    ObjectActivity::HostileProjectileFlight(_)
+                ));
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_PROJECTILE_POSE_COUNT);
+        let cleanup_frame = last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        let player_index = usize::from(cleanup_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        game.update_leon_pressure_projectiles(
+            cleanup_frame,
+            leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index].position,
+            leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index - 1].position,
+        )
+        .unwrap();
+        assert!(game.leon_pressure_projectiles.is_empty());
+    }
+
+    #[test]
     fn typed_pigma_rival_flight_matches_every_oracle_boundary() {
         const RETAINED_RIVAL_POSE_COUNT: usize = 298;
 
@@ -32994,11 +33104,6 @@ mod tests {
         }
 
         assert!(game.mission_projectiles.is_empty());
-        assert!(game
-            .state()
-            .objects
-            .active_objects()
-            .all(|(_, object)| { object.base.behavior != Behavior::MissionScriptedProjectile }));
     }
 
     #[test]
