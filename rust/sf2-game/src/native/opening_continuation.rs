@@ -5,15 +5,19 @@
 //! Regenerate or verify with `uv run python tools/sf2/generate_opening_continuation.py [--check]`.
 
 #[cfg(test)]
-use super::mission_actor_inactive_keyframe;
 use super::{
-    mission_actor_departure_keyframe, mission_actor_keyframe, mission_camera_keyframe,
+    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,
+    mission_actor_keyframe, MissionActorKeyframe,
+};
+use super::{
+    mission_camera_keyframe,
     mission_encounter_keyframe, mission_player_keyframe, mission_projectile_keyframe,
-    mission_timer_keyframe, MissionActorKeyframe, MissionCameraKeyframe, MissionEncounterKeyframe,
+    mission_timer_keyframe, MissionCameraKeyframe, MissionEncounterKeyframe,
     MissionPlayerKeyframe, MissionProjectileKeyframe, MissionTimerKeyframe,
 };
 
 pub(super) const PLAYER_CERTIFIED_END_RETAIL_FRAME: u16 = 8052;
+#[cfg(test)]
 pub(super) const ENCOUNTER_CERTIFIED_END_RETAIL_FRAME: u16 = 2448;
 
 pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 1789] = [
@@ -7965,6 +7969,7 @@ pub(super) const SECOND_CAPITAL_MISSION_KEYFRAMES: [MissionActorKeyframe; 1357] 
     mission_actor_departure_keyframe(7876),
 ];
 
+#[cfg(test)]
 pub(super) const UPPER_FIGHTER_MISSION_KEYFRAMES: [MissionActorKeyframe; 302] = [
     mission_actor_keyframe(2452, [-4_468, -1_004, -11_864, 249, 187, 16, 63]),
     mission_actor_keyframe(2456, [-4_228, -1_548, -11_864, 243, 191, 16, 63]),
@@ -8270,6 +8275,7 @@ pub(super) const UPPER_FIGHTER_MISSION_KEYFRAMES: [MissionActorKeyframe; 302] = 
     mission_actor_departure_keyframe(3656),
 ];
 
+#[cfg(test)]
 pub(super) const LOWER_FIGHTER_MISSION_KEYFRAMES: [MissionActorKeyframe; 1] =
     [mission_actor_departure_keyframe(2452)];
 

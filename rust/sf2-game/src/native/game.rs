@@ -51,13 +51,14 @@ use super::state::{
     CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
     FORTUNA_SURFACE_SWITCH_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY, VENOM_SURFACE_SWITCH_COUNT,
 };
-
 #[path = "astropolis_entry.rs"]
 mod astropolis_entry;
 #[path = "capital_continuation.rs"]
 mod capital_continuation;
 #[path = "fighter_continuation.rs"]
 mod fighter_continuation;
+#[path = "fighter_mission_continuation.rs"]
+mod fighter_mission_continuation;
 #[path = "fighter_intercept.rs"]
 mod fighter_intercept;
 #[path = "fighter_intercept_fighters.rs"]
@@ -2110,6 +2111,7 @@ const MISSION_ENCOUNTER_START_RETAIL_FRAME: u16 = 330;
 const MISSION_FIGHTER_COMBAT_HANDOFF_RETAIL_FRAME: u16 = 480;
 const MISSION_BASE_KEYFRAME_END_RETAIL_FRAME: u16 = 900;
 const CAPITAL_FLIGHT_HANDOFF_RETAIL_FRAME: u16 = MISSION_BASE_KEYFRAME_END_RETAIL_FRAME;
+#[cfg(test)]
 const MISSION_ENCOUNTER_CERTIFIED_END_RETAIL_FRAME: u16 =
     opening_continuation::ENCOUNTER_CERTIFIED_END_RETAIL_FRAME;
 const MISSION_ENCOUNTER_POSITION_SCALE: i16 = 4;
@@ -2740,6 +2742,7 @@ enum CapitalFlightAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FighterLogicDispatch {
     Wait,
+    AdvanceCurrentMovement,
     TurnOnly,
     MovementOnly,
     MovementContinuation,
@@ -2749,6 +2752,7 @@ enum FighterLogicDispatch {
     PrepareWave,
     SplitWave,
     QuarterWave,
+    ThreeQuarterWave,
     ApplyWave,
     AltitudeCenteringOnly,
     CompleteAfterEarlyAltitude,
@@ -2769,6 +2773,7 @@ impl FighterLogicDispatch {
                 | Self::PrepareWave
                 | Self::SplitWave
                 | Self::QuarterWave
+                | Self::ThreeQuarterWave
                 | Self::CompleteAfterEarlyAltitude
                 | Self::PrepareMovement
                 | Self::FinishPreparedAndBeginMovement
@@ -2785,6 +2790,7 @@ impl FighterLogicDispatch {
                 | Self::PrepareWave
                 | Self::SplitWave
                 | Self::QuarterWave
+                | Self::ThreeQuarterWave
                 | Self::CompleteAfterEarlyAltitude
                 | Self::MovementContinuationAfterEarlyAltitude
                 | Self::SteeringAfterEarlyAltitude
@@ -2797,19 +2803,42 @@ impl FighterLogicDispatch {
 struct FighterLogicDispatchPair {
     upper: FighterLogicDispatch,
     lower: FighterLogicDispatch,
+    upper_next_slices: [Option<FighterLogicDispatch>; 2],
 }
 
 impl FighterLogicDispatchPair {
     const fn new(upper: FighterLogicDispatch, lower: FighterLogicDispatch) -> Self {
-        Self { upper, lower }
+        Self {
+            upper,
+            lower,
+            upper_next_slices: [None, None],
+        }
     }
 
-    const fn for_actor(self, actor: MissionEncounterActor) -> FighterLogicDispatch {
+    const fn with_upper_next_slice(mut self, next: FighterLogicDispatch) -> Self {
+        self.upper_next_slices[0] = Some(next);
+        self
+    }
+
+    const fn with_upper_next_slices(
+        mut self,
+        first_next: FighterLogicDispatch,
+        second_next: FighterLogicDispatch,
+    ) -> Self {
+        self.upper_next_slices = [Some(first_next), Some(second_next)];
+        self
+    }
+
+    const fn for_actor(self, actor: MissionEncounterActor) -> [Option<FighterLogicDispatch>; 3] {
         match actor {
-            MissionEncounterActor::UpperFighter => self.upper,
-            MissionEncounterActor::LowerFighter => self.lower,
+            MissionEncounterActor::UpperFighter => [
+                Some(self.upper),
+                self.upper_next_slices[0],
+                self.upper_next_slices[1],
+            ],
+            MissionEncounterActor::LowerFighter => [Some(self.lower), None, None],
             MissionEncounterActor::FirstCapital | MissionEncounterActor::SecondCapital => {
-                FighterLogicDispatch::Wait
+                [Some(FighterLogicDispatch::Wait), None, None]
             }
         }
     }
@@ -2817,6 +2846,8 @@ impl FighterLogicDispatchPair {
     const fn has_work(self) -> bool {
         !matches!(self.upper, FighterLogicDispatch::Wait)
             || !matches!(self.lower, FighterLogicDispatch::Wait)
+            || self.upper_next_slices[0].is_some()
+            || self.upper_next_slices[1].is_some()
     }
 }
 
@@ -13591,9 +13622,6 @@ impl Game {
                 } else {
                     self.update_mission_fighter_combat(retail_frame);
                 }
-                if retail_frame > MISSION_ENCOUNTER_CERTIFIED_END_RETAIL_FRAME {
-                    self.update_post_opening_mission_encounter(retail_frame);
-                }
             }
             return;
         }
@@ -13945,276 +13973,303 @@ impl Game {
             let Some(id) = self.mission_entry_flyby[actor.index()] else {
                 continue;
             };
+            let actor_dispatches = cooperative_dispatch
+                .map(|pair| pair.for_actor(actor))
+                .unwrap_or([None, None, None]);
+            let dispatch_count = if actor_dispatches[2].is_some() {
+                3
+            } else if actor_dispatches[1].is_some() {
+                2
+            } else {
+                1
+            };
 
-            let (maneuver_due, fire_due, within_fire_range) = 'fighter_update: {
-                let Some(object) = self.state.objects.get_mut(id) else {
-                    continue 'fighters;
-                };
-                if object.base.flags.collision_disabled {
-                    continue 'fighters;
-                }
-                let ObjectActivity::FighterFlight(mut fighter) = object.extension.activity else {
-                    continue 'fighters;
-                };
-
-                fighter.logic_credit += FIGHTER_LOGIC_CREDIT_PER_TICK;
-                let logic_credit_threshold = fighter_logic_credit_threshold(fighter.logic_cadence);
-                let credit_dispatch = if fighter.logic_credit < logic_credit_threshold {
-                    FighterLogicDispatch::Wait
-                } else {
-                    fighter.logic_credit -= logic_credit_threshold;
-                    FighterLogicDispatch::Complete
-                };
-                let dispatch = cooperative_dispatch
-                    .map(|pair| pair.for_actor(actor))
-                    .unwrap_or(credit_dispatch);
-                if dispatch == FighterLogicDispatch::Wait {
-                    object.base.velocity = Vector3::default();
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
-
-                if dispatch == FighterLogicDispatch::ApplyWave {
-                    object.base.velocity = Vector3::default();
-                    object.base.position.y = object
-                        .base
-                        .position
-                        .y
-                        .wrapping_add(fighter.pending_vertical_displacement);
-                    fighter.pending_vertical_displacement = 0;
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
-
-                if dispatch == FighterLogicDispatch::AltitudeCenteringOnly {
-                    object.base.velocity = Vector3::default();
-                    if matches!(
-                        fighter.altitude_phase,
-                        FighterAltitudePhase::Centering { .. }
-                    ) {
-                        object.base.position.y = chase_proportional(object.base.position.y, 0, 3);
+            'dispatches: for dispatch_index in 0..dispatch_count {
+                let (maneuver_due, fire_due, within_fire_range) = 'fighter_update: {
+                    let Some(object) = self.state.objects.get_mut(id) else {
+                        continue 'fighters;
+                    };
+                    if object.base.flags.collision_disabled {
+                        continue 'fighters;
                     }
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
+                    let ObjectActivity::FighterFlight(mut fighter) = object.extension.activity
+                    else {
+                        continue 'fighters;
+                    };
 
-                if dispatch.includes_movement()
-                    || matches!(
-                        dispatch,
-                        FighterLogicDispatch::TurnOnly | FighterLogicDispatch::AltitudeAndTurnOnly
-                    )
-                {
-                    if let FighterWeaponPhase::Restoring {
-                        flight_angles,
-                        ticks_remaining,
-                    } = fighter.weapon_phase
+                    fighter.logic_credit += FIGHTER_LOGIC_CREDIT_PER_TICK;
+                    let logic_credit_threshold =
+                        fighter_logic_credit_threshold(fighter.logic_cadence);
+                    let credit_dispatch = if fighter.logic_credit < logic_credit_threshold {
+                        FighterLogicDispatch::Wait
+                    } else {
+                        fighter.logic_credit -= logic_credit_threshold;
+                        FighterLogicDispatch::Complete
+                    };
+                    let dispatch = actor_dispatches[dispatch_index].unwrap_or(credit_dispatch);
+                    if dispatch == FighterLogicDispatch::Wait {
+                        object.base.velocity = Vector3::default();
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if dispatch == FighterLogicDispatch::AdvanceCurrentMovement {
+                        object.base.position =
+                            add_vectors(object.base.position, object.base.velocity);
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if dispatch == FighterLogicDispatch::ApplyWave {
+                        object.base.velocity = Vector3::default();
+                        object.base.position.y = object
+                            .base
+                            .position
+                            .y
+                            .wrapping_add(fighter.pending_vertical_displacement);
+                        fighter.pending_vertical_displacement = 0;
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if dispatch == FighterLogicDispatch::AltitudeCenteringOnly {
+                        object.base.velocity = Vector3::default();
+                        if matches!(
+                            fighter.altitude_phase,
+                            FighterAltitudePhase::Centering { .. }
+                        ) {
+                            object.base.position.y =
+                                chase_proportional(object.base.position.y, 0, 3);
+                        }
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if dispatch.includes_movement()
+                        || matches!(
+                            dispatch,
+                            FighterLogicDispatch::TurnOnly
+                                | FighterLogicDispatch::AltitudeAndTurnOnly
+                        )
                     {
-                        if ticks_remaining <= 1 {
-                            object.base.pitch = flight_angles.pitch;
-                            object.base.yaw = flight_angles.yaw;
-                            object.base.roll = flight_angles.roll;
-                            fighter.weapon_phase = FighterWeaponPhase::Ready;
-                        } else {
-                            fighter.weapon_phase = FighterWeaponPhase::Restoring {
-                                flight_angles,
-                                ticks_remaining: ticks_remaining - 1,
+                        if let FighterWeaponPhase::Restoring {
+                            flight_angles,
+                            ticks_remaining,
+                        } = fighter.weapon_phase
+                        {
+                            if ticks_remaining <= 1 {
+                                object.base.pitch = flight_angles.pitch;
+                                object.base.yaw = flight_angles.yaw;
+                                object.base.roll = flight_angles.roll;
+                                fighter.weapon_phase = FighterWeaponPhase::Ready;
+                            } else {
+                                fighter.weapon_phase = FighterWeaponPhase::Restoring {
+                                    flight_angles,
+                                    ticks_remaining: ticks_remaining - 1,
+                                };
+                            }
+                        }
+                    }
+
+                    if dispatch == FighterLogicDispatch::AltitudeAndTurnOnly {
+                        if matches!(
+                            fighter.altitude_phase,
+                            FighterAltitudePhase::Centering { .. }
+                        ) {
+                            object.base.position.y =
+                                chase_proportional(object.base.position.y, 0, 3);
+                        }
+                        let bank_turn = (object.base.roll.units() as i8) / 4;
+                        object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+                        fighter.pending_velocity = flight_velocity(
+                            object.base.pitch,
+                            object.base.yaw,
+                            object.base.speed,
+                            MISSION_ENCOUNTER_POSITION_SCALE,
+                        );
+                        object.base.velocity = Vector3::default();
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if dispatch == FighterLogicDispatch::PrepareMovement {
+                        if matches!(
+                            fighter.altitude_phase,
+                            FighterAltitudePhase::Centering { .. }
+                        ) {
+                            object.base.position.y =
+                                chase_proportional(object.base.position.y, 0, 3);
+                        }
+                        let bank_turn = (object.base.roll.units() as i8) / 4;
+                        let pending_yaw = object.base.yaw.wrapping_add(bank_turn);
+                        fighter.pending_velocity = flight_velocity(
+                            object.base.pitch,
+                            pending_yaw,
+                            object.base.speed,
+                            MISSION_ENCOUNTER_POSITION_SCALE,
+                        );
+                        object.base.velocity = Vector3::default();
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if dispatch == FighterLogicDispatch::FinishPreparedAndBeginMovement {
+                        let bank_turn = (object.base.roll.units() as i8) / 4;
+                        object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+                        object.base.position =
+                            add_vectors(object.base.position, fighter.pending_velocity);
+                        fighter.pending_velocity = Vector3::default();
+                        let decisions = finish_fighter_steering(
+                            object,
+                            &mut fighter,
+                            FighterLogicDispatch::SteeringAfterEarlyAltitude,
+                            player_position,
+                        );
+                        if matches!(
+                            fighter.altitude_phase,
+                            FighterAltitudePhase::Centering { .. }
+                        ) {
+                            object.base.position.y =
+                                chase_proportional(object.base.position.y, 0, 3);
+                        }
+                        let bank_turn = (object.base.roll.units() as i8) / 4;
+                        object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+                        object.base.velocity = flight_velocity(
+                            object.base.pitch,
+                            object.base.yaw,
+                            object.base.speed,
+                            MISSION_ENCOUNTER_POSITION_SCALE,
+                        );
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        break 'fighter_update decisions;
+                    }
+
+                    if dispatch == FighterLogicDispatch::TurnOnly {
+                        let bank_turn = (object.base.roll.units() as i8) / 4;
+                        object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+                        fighter.pending_velocity = flight_velocity(
+                            object.base.pitch,
+                            object.base.yaw,
+                            object.base.speed,
+                            MISSION_ENCOUNTER_POSITION_SCALE,
+                        );
+                        object.base.velocity = Vector3::default();
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if matches!(
+                        dispatch,
+                        FighterLogicDispatch::MovementContinuation
+                            | FighterLogicDispatch::MovementContinuationAfterEarlyAltitude
+                    ) {
+                        object.base.velocity = fighter.pending_velocity;
+                        fighter.pending_velocity = Vector3::default();
+                    } else if dispatch.includes_movement() {
+                        let bank_turn = (object.base.roll.units() as i8) / 4;
+                        object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+                        object.base.velocity = flight_velocity(
+                            object.base.pitch,
+                            object.base.yaw,
+                            object.base.speed,
+                            MISSION_ENCOUNTER_POSITION_SCALE,
+                        );
+                    } else {
+                        object.base.velocity = Vector3::default();
+                    }
+
+                    if dispatch == FighterLogicDispatch::MovementAndRoll {
+                        if matches!(
+                            fighter.altitude_phase,
+                            FighterAltitudePhase::Centering { .. }
+                        ) {
+                            object.base.position.y =
+                                chase_proportional(object.base.position.y, 0, 3);
+                        }
+                        object.base.roll =
+                            chase_fighter_angle(object.base.roll, fighter.maneuver_bank);
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    if !dispatch.includes_steering() {
+                        object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                        continue 'dispatches;
+                    }
+
+                    let decisions =
+                        finish_fighter_steering(object, &mut fighter, dispatch, player_position);
+                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
+                    decisions
+                };
+
+                if maneuver_due {
+                    let selection =
+                        self.state.random.next_byte() as usize % FIGHTER_MANEUVER_BANKS.len();
+                    if let Some(object) = self.state.objects.get_mut(id) {
+                        if let ObjectActivity::FighterFlight(ref mut fighter) =
+                            object.extension.activity
+                        {
+                            fighter.centering_target_order = match fighter.logic_cadence {
+                                FighterLogicCadence::EntryChase => {
+                                    FighterCenteringTargetOrder::BeforeSteering
+                                }
+                                FighterLogicCadence::Combat => {
+                                    FighterCenteringTargetOrder::AfterSteering
+                                }
+                            };
+                            fighter.maneuver_bank = FIGHTER_MANEUVER_BANKS[selection];
+                            fighter.maneuver_ticks_remaining =
+                                FIGHTER_MANEUVER_PERIOD_TICKS_REMAINING;
+                            fighter.logic_cadence = FighterLogicCadence::Combat;
+                            // The two formation fighters enter the cooperative
+                            // combat queue at different points. The upper craft
+                            // waits one slice after installing its new task; the
+                            // lower craft inherits the already credited slice.
+                            fighter.logic_credit = post_maneuver_logic_credit(actor);
+                            fighter.vertical_wave_order = FighterWaveOrder::AfterSteering;
+                            fighter.altitude_phase = FighterAltitudePhase::Centering {
+                                ticks_remaining: FIGHTER_ALTITUDE_CENTERING_TICKS,
                             };
                         }
                     }
                 }
 
-                if dispatch == FighterLogicDispatch::AltitudeAndTurnOnly {
-                    if matches!(
-                        fighter.altitude_phase,
-                        FighterAltitudePhase::Centering { .. }
-                    ) {
-                        object.base.position.y = chase_proportional(object.base.position.y, 0, 3);
-                    }
-                    let bank_turn = (object.base.roll.units() as i8) / 4;
-                    object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
-                    fighter.pending_velocity = flight_velocity(
-                        object.base.pitch,
-                        object.base.yaw,
-                        object.base.speed,
-                        MISSION_ENCOUNTER_POSITION_SCALE,
-                    );
-                    object.base.velocity = Vector3::default();
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
-
-                if dispatch == FighterLogicDispatch::PrepareMovement {
-                    if matches!(
-                        fighter.altitude_phase,
-                        FighterAltitudePhase::Centering { .. }
-                    ) {
-                        object.base.position.y = chase_proportional(object.base.position.y, 0, 3);
-                    }
-                    let bank_turn = (object.base.roll.units() as i8) / 4;
-                    let pending_yaw = object.base.yaw.wrapping_add(bank_turn);
-                    fighter.pending_velocity = flight_velocity(
-                        object.base.pitch,
-                        pending_yaw,
-                        object.base.speed,
-                        MISSION_ENCOUNTER_POSITION_SCALE,
-                    );
-                    object.base.velocity = Vector3::default();
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
-
-                if dispatch == FighterLogicDispatch::FinishPreparedAndBeginMovement {
-                    let bank_turn = (object.base.roll.units() as i8) / 4;
-                    object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
-                    object.base.position =
-                        add_vectors(object.base.position, fighter.pending_velocity);
-                    fighter.pending_velocity = Vector3::default();
-                    let decisions = finish_fighter_steering(
-                        object,
-                        &mut fighter,
-                        FighterLogicDispatch::SteeringAfterEarlyAltitude,
-                        player_position,
-                    );
-                    if matches!(
-                        fighter.altitude_phase,
-                        FighterAltitudePhase::Centering { .. }
-                    ) {
-                        object.base.position.y = chase_proportional(object.base.position.y, 0, 3);
-                    }
-                    let bank_turn = (object.base.roll.units() as i8) / 4;
-                    object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
-                    object.base.velocity = flight_velocity(
-                        object.base.pitch,
-                        object.base.yaw,
-                        object.base.speed,
-                        MISSION_ENCOUNTER_POSITION_SCALE,
-                    );
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    break 'fighter_update decisions;
-                }
-
-                if dispatch == FighterLogicDispatch::TurnOnly {
-                    let bank_turn = (object.base.roll.units() as i8) / 4;
-                    object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
-                    fighter.pending_velocity = flight_velocity(
-                        object.base.pitch,
-                        object.base.yaw,
-                        object.base.speed,
-                        MISSION_ENCOUNTER_POSITION_SCALE,
-                    );
-                    object.base.velocity = Vector3::default();
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
-
-                if matches!(
-                    dispatch,
-                    FighterLogicDispatch::MovementContinuation
-                        | FighterLogicDispatch::MovementContinuationAfterEarlyAltitude
-                ) {
-                    object.base.velocity = fighter.pending_velocity;
-                    fighter.pending_velocity = Vector3::default();
-                } else if dispatch.includes_movement() {
-                    let bank_turn = (object.base.roll.units() as i8) / 4;
-                    object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
-                    object.base.velocity = flight_velocity(
-                        object.base.pitch,
-                        object.base.yaw,
-                        object.base.speed,
-                        MISSION_ENCOUNTER_POSITION_SCALE,
-                    );
-                } else {
-                    object.base.velocity = Vector3::default();
-                }
-
-                if dispatch == FighterLogicDispatch::MovementAndRoll {
-                    if matches!(
-                        fighter.altitude_phase,
-                        FighterAltitudePhase::Centering { .. }
-                    ) {
-                        object.base.position.y = chase_proportional(object.base.position.y, 0, 3);
-                    }
-                    object.base.roll = chase_fighter_angle(object.base.roll, fighter.maneuver_bank);
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
-
-                if !dispatch.includes_steering() {
-                    object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                    continue 'fighters;
-                }
-
-                let decisions =
-                    finish_fighter_steering(object, &mut fighter, dispatch, player_position);
-                object.extension.activity = ObjectActivity::FighterFlight(fighter);
-                decisions
-            };
-
-            if maneuver_due {
-                let selection =
-                    self.state.random.next_byte() as usize % FIGHTER_MANEUVER_BANKS.len();
-                if let Some(object) = self.state.objects.get_mut(id) {
-                    if let ObjectActivity::FighterFlight(ref mut fighter) =
-                        object.extension.activity
-                    {
-                        fighter.centering_target_order = match fighter.logic_cadence {
-                            FighterLogicCadence::EntryChase => {
-                                FighterCenteringTargetOrder::BeforeSteering
-                            }
-                            FighterLogicCadence::Combat => {
-                                FighterCenteringTargetOrder::AfterSteering
-                            }
-                        };
-                        fighter.maneuver_bank = FIGHTER_MANEUVER_BANKS[selection];
-                        fighter.maneuver_ticks_remaining = FIGHTER_MANEUVER_PERIOD_TICKS_REMAINING;
-                        fighter.logic_cadence = FighterLogicCadence::Combat;
-                        // The two formation fighters enter the cooperative
-                        // combat queue at different points. The upper craft
-                        // waits one slice after installing its new task; the
-                        // lower craft inherits the already credited slice.
-                        fighter.logic_credit = post_maneuver_logic_credit(actor);
-                        fighter.vertical_wave_order = FighterWaveOrder::AfterSteering;
-                        fighter.altitude_phase = FighterAltitudePhase::Centering {
-                            ticks_remaining: FIGHTER_ALTITUDE_CENTERING_TICKS,
-                        };
-                    }
-                }
-            }
-
-            if fire_due {
-                let passes_random_check =
-                    self.state.random.next_byte() >= FIGHTER_FIRE_RANDOM_THRESHOLD;
-                let fire = passes_random_check && within_fire_range;
-                if let Some(object) = self.state.objects.get_mut(id) {
-                    if let ObjectActivity::FighterFlight(ref mut fighter) =
-                        object.extension.activity
-                    {
-                        fighter.fire_ticks_remaining = FIGHTER_FIRE_PERIOD_TICKS_REMAINING;
-                        if fire {
-                            if matches!(
-                                fighter.centering_target_order,
-                                FighterCenteringTargetOrder::BeforeSteering
-                            ) && matches!(
-                                fighter.altitude_phase,
-                                FighterAltitudePhase::Centering { .. }
-                            ) {
-                                fighter.vertical_pitch_target = fighter_fire_pitch_target(
-                                    player_position,
-                                    object.base.position,
-                                );
-                                fighter.weapon_phase = FighterWeaponPhase::Restoring {
-                                    flight_angles: FighterAngles {
-                                        pitch: object.base.pitch,
-                                        yaw: object.base.yaw,
-                                        roll: object.base.roll,
-                                    },
-                                    ticks_remaining: FIGHTER_AIM_RESTORE_TICKS,
-                                };
-                            } else {
-                                // Combat weapon aim exists only while
-                                // constructing the shot; the altitude task
-                                // retains its flight target.
-                                fighter.weapon_phase = FighterWeaponPhase::Ready;
+                if fire_due {
+                    let passes_random_check =
+                        self.state.random.next_byte() >= FIGHTER_FIRE_RANDOM_THRESHOLD;
+                    let fire = passes_random_check && within_fire_range;
+                    if let Some(object) = self.state.objects.get_mut(id) {
+                        if let ObjectActivity::FighterFlight(ref mut fighter) =
+                            object.extension.activity
+                        {
+                            fighter.fire_ticks_remaining = FIGHTER_FIRE_PERIOD_TICKS_REMAINING;
+                            if fire {
+                                if matches!(
+                                    fighter.centering_target_order,
+                                    FighterCenteringTargetOrder::BeforeSteering
+                                ) && matches!(
+                                    fighter.altitude_phase,
+                                    FighterAltitudePhase::Centering { .. }
+                                ) {
+                                    fighter.vertical_pitch_target = fighter_fire_pitch_target(
+                                        player_position,
+                                        object.base.position,
+                                    );
+                                    fighter.weapon_phase = FighterWeaponPhase::Restoring {
+                                        flight_angles: FighterAngles {
+                                            pitch: object.base.pitch,
+                                            yaw: object.base.yaw,
+                                            roll: object.base.roll,
+                                        },
+                                        ticks_remaining: FIGHTER_AIM_RESTORE_TICKS,
+                                    };
+                                } else {
+                                    // Combat weapon aim exists only while
+                                    // constructing the shot; the altitude task
+                                    // retains its flight target.
+                                    fighter.weapon_phase = FighterWeaponPhase::Ready;
+                                }
                             }
                         }
                     }
@@ -14236,20 +14291,12 @@ impl Game {
                 self.state.random = super::state::RandomState::new(resulting_state);
             }
         }
-    }
-
-    fn update_post_opening_mission_encounter(&mut self, retail_frame: u16) {
-        let tracks: [(MissionEncounterActor, &'static [MissionActorKeyframe]); 2] = [
-            (
-                MissionEncounterActor::UpperFighter,
-                &opening_continuation::UPPER_FIGHTER_MISSION_KEYFRAMES,
-            ),
-            (
-                MissionEncounterActor::LowerFighter,
-                &opening_continuation::LOWER_FIGHTER_MISSION_KEYFRAMES,
-            ),
-        ];
-        self.update_scripted_mission_actors(retail_frame, tracks);
+        if retail_frame == fighter_mission_continuation::LOWER_DEPARTURE_RETAIL_FRAME {
+            self.depart_mission_encounter_actor(MissionEncounterActor::LowerFighter);
+        }
+        if retail_frame == fighter_mission_continuation::UPPER_DEPARTURE_RETAIL_FRAME {
+            self.depart_mission_encounter_actor(MissionEncounterActor::UpperFighter);
+        }
     }
 
     fn update_reengagement_targets(&mut self, retail_frame: u16) {
@@ -14486,85 +14533,6 @@ impl Game {
         object.base.flags.active = !temporarily_inactive;
         object.base.flags.visible = !temporarily_inactive;
         object.base.flags.collision_disabled = temporarily_inactive;
-    }
-
-    fn update_scripted_mission_actors<const TRACK_COUNT: usize>(
-        &mut self,
-        retail_frame: u16,
-        tracks: [(MissionEncounterActor, &'static [MissionActorKeyframe]); TRACK_COUNT],
-    ) {
-        for (actor, keyframes) in tracks {
-            if retail_frame < keyframes[0].retail_frame {
-                continue;
-            }
-            let (start, end) =
-                enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-            let presentation = if retail_frame >= end.retail_frame {
-                end.presentation
-            } else {
-                match (start.presentation, end.presentation) {
-                    (
-                        MissionActorPresentation::Present(start_pose),
-                        MissionActorPresentation::Present(end_pose),
-                    ) => MissionActorPresentation::Present(interpolate_encounter_pose(
-                        start_pose,
-                        end_pose,
-                        retail_frame.saturating_sub(start.retail_frame),
-                        end.retail_frame.saturating_sub(start.retail_frame),
-                    )),
-                    (presentation, _) => presentation,
-                }
-            };
-            self.apply_mission_actor_presentation(actor, presentation);
-        }
-    }
-
-    fn apply_mission_actor_presentation(
-        &mut self,
-        actor: MissionEncounterActor,
-        presentation: MissionActorPresentation,
-    ) {
-        let Some(id) = self.mission_entry_flyby[actor.index()] else {
-            return;
-        };
-        if self
-            .state
-            .objects
-            .get(id)
-            .is_some_and(|object| object.base.explosion_timer > 0 || object.base.flags.exploding)
-        {
-            return;
-        }
-        if presentation == MissionActorPresentation::Departed {
-            self.depart_mission_encounter_actor(actor);
-            return;
-        }
-        let Some(object) = self.state.objects.get_mut(id) else {
-            return;
-        };
-        match presentation {
-            MissionActorPresentation::Present(pose) => {
-                object.base.flags.active = true;
-                object.base.flags.visible = true;
-                object.base.flags.collision_disabled = false;
-                object.base.kind = ObjectKind::Enemy;
-                object.base.behavior = Behavior::EnemyFlight;
-                object.base.collision_class = CollisionClass::Enemy;
-                object.base.position = pose.position;
-                object.base.pitch = Angle::from_units(pose.pitch);
-                object.base.yaw = Angle::from_units(pose.yaw);
-                object.base.roll = Angle::from_units(pose.roll);
-                object.base.speed = pose.speed;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Inactive => {
-                object.base.flags.active = false;
-                object.base.flags.visible = false;
-                object.base.flags.collision_disabled = true;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Departed => unreachable!(),
-        }
     }
 
     fn update_mission_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
@@ -19308,6 +19276,15 @@ fn finish_fighter_steering(
                     fighter.pending_vertical_displacement =
                         vertical_displacement.wrapping_sub(first_displacement);
                 }
+                FighterLogicDispatch::ThreeQuarterWave => {
+                    let pending_displacement = vertical_displacement / FIGHTER_QUARTER_WAVE_DIVISOR;
+                    object.base.position.y = object
+                        .base
+                        .position
+                        .y
+                        .wrapping_add(vertical_displacement.wrapping_sub(pending_displacement));
+                    fighter.pending_vertical_displacement = pending_displacement;
+                }
                 _ => {
                     object.base.position.y =
                         object.base.position.y.wrapping_add(vertical_displacement);
@@ -19404,6 +19381,19 @@ const fn fighter_logic_credit_threshold(cadence: FighterLogicCadence) -> u8 {
 }
 
 fn fighter_logic_dispatch(retail_frame: u16) -> Option<FighterLogicDispatchPair> {
+    if retail_frame <= fighter_mission_continuation::END_RETAIL_FRAME {
+        if let Some(offset) =
+            retail_frame.checked_sub(fighter_mission_continuation::START_RETAIL_FRAME)
+        {
+            if offset % FIGHTER_COOPERATIVE_SCHEDULE_STEP == 0 {
+                if let Some(dispatch) = fighter_mission_continuation::DISPATCH
+                    .get(usize::from(offset / FIGHTER_COOPERATIVE_SCHEDULE_STEP))
+                {
+                    return Some(*dispatch);
+                }
+            }
+        }
+    }
     if retail_frame <= fighter_continuation::END_RETAIL_FRAME {
         if let Some(offset) = retail_frame.checked_sub(fighter_continuation::START_RETAIL_FRAME) {
             if offset % FIGHTER_COOPERATIVE_SCHEDULE_STEP == 0 {
@@ -19434,6 +19424,19 @@ fn fighter_logic_dispatch(retail_frame: u16) -> Option<FighterLogicDispatchPair>
 }
 
 fn fighter_random_cadence(retail_frame: u16) -> Option<FighterRandomCadence> {
+    if retail_frame <= fighter_mission_continuation::END_RETAIL_FRAME {
+        if let Some(offset) =
+            retail_frame.checked_sub(fighter_mission_continuation::START_RETAIL_FRAME)
+        {
+            if offset % FIGHTER_COOPERATIVE_SCHEDULE_STEP == 0 {
+                if let Some(cadence) = fighter_mission_continuation::RANDOM_CADENCE
+                    .get(usize::from(offset / FIGHTER_COOPERATIVE_SCHEDULE_STEP))
+                {
+                    return Some(*cadence);
+                }
+            }
+        }
+    }
     if retail_frame <= fighter_continuation::END_RETAIL_FRAME {
         if let Some(offset) = retail_frame.checked_sub(fighter_continuation::START_RETAIL_FRAME) {
             if offset % FIGHTER_COOPERATIVE_SCHEDULE_STEP == 0 {
@@ -20067,7 +20070,8 @@ mod tests {
                     MissionEncounterActor::UpperFighter | MissionEncounterActor::LowerFighter => {
                         matches!(
                             object.extension.activity,
-                            ObjectActivity::ReengagementFighterFlight(_)
+                            ObjectActivity::FighterFlight(_)
+                                | ObjectActivity::ReengagementFighterFlight(_)
                         )
                     }
                 };
@@ -23556,6 +23560,64 @@ mod tests {
                     );
                 }
             }
+        }
+        assert_eq!(
+            fighter_mission_continuation::START_RETAIL_FRAME,
+            fighter_continuation::END_RETAIL_FRAME + FIGHTER_COOPERATIVE_SCHEDULE_STEP,
+            "the mission fighter continuation must begin at the next retail task boundary"
+        );
+        assert_eq!(
+            fighter_mission_continuation::LAST_VISIBLE_RETAIL_FRAME,
+            opening_continuation::UPPER_FIGHTER_MISSION_KEYFRAMES
+                [opening_continuation::UPPER_FIGHTER_MISSION_KEYFRAMES.len() - 2]
+                .retail_frame,
+            "typed fighter behavior must cover the last visible oracle pose"
+        );
+        assert_eq!(
+            fighter_mission_continuation::LOWER_DEPARTURE_RETAIL_FRAME,
+            opening_continuation::LOWER_FIGHTER_MISSION_KEYFRAMES[0].retail_frame
+        );
+        assert_eq!(
+            fighter_mission_continuation::UPPER_DEPARTURE_RETAIL_FRAME,
+            opening_continuation::UPPER_FIGHTER_MISSION_KEYFRAMES
+                .last()
+                .unwrap()
+                .retail_frame
+        );
+        assert_eq!(
+            fighter_mission_continuation::END_RETAIL_FRAME,
+            fighter_mission_continuation::UPPER_DEPARTURE_RETAIL_FRAME
+        );
+        for expected in opening_continuation::UPPER_FIGHTER_MISSION_KEYFRAMES {
+            let retail_frame = u32::from(expected.retail_frame);
+            while game.state().mode_frame
+                < retail_frame / u32::from(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            {
+                game.tick(Button::B as u16).unwrap();
+            }
+            if expected.retail_frame <= fighter_mission_continuation::END_RETAIL_FRAME {
+                let offset =
+                    expected.retail_frame - fighter_mission_continuation::START_RETAIL_FRAME;
+                let index = usize::from(offset / FIGHTER_COOPERATIVE_SCHEDULE_STEP);
+                assert_eq!(
+                    game.state.random.bytes(),
+                    fighter_mission_continuation::EXPECTED_RANDOM_STATES[index],
+                    "fighter random service diverged at retail frame {}",
+                    expected.retail_frame
+                );
+            }
+            assert_mission_actor_presentation(
+                &game,
+                MissionEncounterActor::UpperFighter,
+                expected.presentation,
+                expected.retail_frame,
+            );
+            assert_mission_actor_presentation(
+                &game,
+                MissionEncounterActor::LowerFighter,
+                MissionActorPresentation::Departed,
+                expected.retail_frame,
+            );
         }
         assert!(
             all_matched,
