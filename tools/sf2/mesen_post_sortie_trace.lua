@@ -1553,7 +1553,7 @@ function sortie_actor_oracle.record_random_state_write(source, address, value)
   local state = emu.getState()
   sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
     "elapsed=%d event=random-state-write source=%s address=%04X value=%d " ..
-      "host=%02X:%04X coprocessor=%02X:%04X rng=%s",
+      "host=%02X:%04X coprocessor=%02X:%04X rng=%s stack_pointer=%04X stack=%s",
     elapsed,
     source,
     address,
@@ -1562,7 +1562,23 @@ function sortie_actor_oracle.record_random_state_write(source, address, value)
     state["cpu.pc"] or 0,
     state["cart.coprocessor.programBank"] or 0,
     state["cart.coprocessor.r15"] or 0,
-    sortie_actor_oracle.bytes_hex(0x00E0, 4))
+    sortie_actor_oracle.bytes_hex(0x00E0, 4),
+    state["cpu.s"] or state["cpu.sp"] or 0x01FF,
+    sortie_actor_oracle.cpu_stack_hex(state, 12))
+end
+
+function sortie_actor_oracle.cpu_stack_hex(state, count)
+  local stack = {}
+  local stack_pointer = state["cpu.s"] or state["cpu.sp"] or 0x01FF
+  for offset = 1, count do
+    stack[#stack + 1] = string.format(
+      "%02X",
+      emu.read(
+        (stack_pointer + offset) & 0xFFFF,
+        emu.memType.snesMemory,
+        false))
+  end
+  return table.concat(stack)
 end
 
 function sortie_actor_oracle.record_main_random_state_write(address, value)

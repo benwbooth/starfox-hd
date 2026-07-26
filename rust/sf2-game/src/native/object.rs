@@ -521,17 +521,32 @@ pub enum FighterInterceptWeaponPhase {
     Aiming { flight_pitch: Angle },
 }
 
-/// Flat, typed flight variables for the three-fighter interception. The
-/// corridor fields are ordinary world-space maneuver targets: lateral drift,
-/// altitude, and longitudinal drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FighterInterceptCombatPhase {
+    ScriptedFlight,
+    StraightApproach { ticks_elapsed: u8 },
+    BankingForAttack { target_bank: Angle },
+    BankedApproach { ticks_elapsed: u8 },
+    LevelingForAttack,
+    Attacking { fire_counter: u8 },
+    BankingForDeparture { target_bank: Angle },
+    DepartureArc,
+    LevelingForApproach,
+}
+
+/// Flat, typed flight variables for fighter interception and recurring
+/// attacks. The maneuver fields are world-space drift and altitude targets;
+/// the combat phase is the craft's ordinary attack/departure state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FighterInterceptFlightState {
+    pub logic_credit: u8,
+    pub combat_phase: FighterInterceptCombatPhase,
     pub vertical_wave_phase: Angle,
     pub cruise_target_speed: u8,
     pub cruise_acceleration: u8,
-    pub corridor_drift_x: i16,
-    pub corridor_altitude: i16,
-    pub corridor_drift_z: i16,
+    pub maneuver_drift_x: i16,
+    pub maneuver_altitude_target: i16,
+    pub maneuver_drift_z: i16,
     pub pending_velocity: Vector3,
     pub movement_phase: FighterInterceptMovementPhase,
     pub weapon_phase: FighterInterceptWeaponPhase,

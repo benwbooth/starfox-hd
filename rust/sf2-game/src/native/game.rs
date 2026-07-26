@@ -11,10 +11,10 @@ use super::object::{
     CapitalWeaponPhase, CarrierCorridorDefenderPhase, CarrierCorridorDefenderState,
     CarrierCorridorProjectileState, CollisionClass, EladardDefenderPhase,
     EladardDefenderProjectileState, EladardDefenderState, FighterAltitudePhase, FighterAngles,
-    FighterCenteringTargetOrder, FighterFlightState, FighterInterceptFlightState,
-    FighterInterceptMovementPhase, FighterInterceptWeaponPhase, FighterLogicCadence,
-    FighterWaveDirection, FighterWaveOrder, FighterWavePolarity, FighterWeaponPhase,
-    FinalRivalFlightPhase, FinalRivalFlightState, FortunaCoreProjectileState,
+    FighterCenteringTargetOrder, FighterFlightState, FighterInterceptCombatPhase,
+    FighterInterceptFlightState, FighterInterceptMovementPhase, FighterInterceptWeaponPhase,
+    FighterLogicCadence, FighterWaveDirection, FighterWaveOrder, FighterWavePolarity,
+    FighterWeaponPhase, FinalRivalFlightPhase, FinalRivalFlightState, FortunaCoreProjectileState,
     HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
     InterceptionMissileFlightState, InterceptionMissileSteering, LeonRivalFlightPhase,
     LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind,
@@ -113,6 +113,9 @@ mod pressure_fighters;
 mod pressure_fighter_flight;
 #[path = "pressure_fighter_projectiles.rs"]
 mod pressure_fighter_projectiles;
+#[cfg(test)]
+#[path = "pressure_fighter_survival.rs"]
+mod pressure_fighter_survival;
 #[path = "second_sortie.rs"]
 mod second_sortie;
 #[path = "second_sortie_capital.rs"]
@@ -2186,6 +2189,30 @@ const FIGHTER_INTERCEPT_COMBAT_WAVE_DIVISOR: i16 = 2;
 const FIGHTER_INTERCEPT_WAVE_PHASE_STEP: i8 = 4;
 const FIGHTER_INTERCEPT_ALTITUDE_DIVISOR: i16 = 8;
 const FIGHTER_INTERCEPT_PLAYER_FACING_DIVISOR: i8 = 4;
+const PRESSURE_FIGHTER_LOGIC_CREDIT_PER_TICK: u8 = 32;
+const PRESSURE_FIGHTER_LOGIC_CREDIT_THRESHOLD: u8 = 25;
+const PRESSURE_FIGHTER_STRAIGHT_APPROACH_TICKS: u8 = 50;
+const PRESSURE_FIGHTER_BANKED_APPROACH_TICKS: u8 = 100;
+const PRESSURE_FIGHTER_LIVE_HANDOFF_BANKED_TICKS: u8 = 14;
+const PRESSURE_FIGHTER_ATTACK_APPROACH_DISTANCE: u16 = 9_000;
+const PRESSURE_FIGHTER_DEPARTURE_DISTANCE: u16 = 5_000;
+const PRESSURE_FIGHTER_APPROACH_YAW_RADIUS: u8 = 30;
+const PRESSURE_FIGHTER_DEPARTURE_YAW_RADIUS: u8 = 100;
+const PRESSURE_FIGHTER_FIRE_COUNTER_LIMIT: u8 = 16;
+const PRESSURE_FIGHTER_FIRE_COUNTER_BASE: u8 = 8;
+const PRESSURE_FIGHTER_FIRE_COUNTER_MASK: u8 = 7;
+const PRESSURE_FIGHTER_APPROACH_BANK_BASE: u8 = 8;
+const PRESSURE_FIGHTER_APPROACH_BANK_MASK: u8 = 7;
+const PRESSURE_FIGHTER_DEPARTURE_BANK_BASE: u8 = 16;
+const PRESSURE_FIGHTER_DEPARTURE_BANK_MASK: u8 = 15;
+const PRESSURE_FIGHTER_POSITIVE_BANK_THRESHOLD: u8 = 127;
+const PRESSURE_FIGHTER_COMBAT_SPEED: u8 = 60;
+const PRESSURE_FIGHTER_COMBAT_ACCELERATION: u8 = 2;
+const PRESSURE_FIGHTER_ALTITUDE_RANDOM_MASK: u16 = 8_191;
+const PRESSURE_FIGHTER_ALTITUDE_RANDOM_CENTER: i16 = 4_096;
+const PRESSURE_FIGHTER_DRIFT_RANDOM_CENTER: i16 = 128;
+const PRESSURE_FIGHTER_ALTITUDE_REFRESH_LOWER_EXCLUSIVE: i16 = -50;
+const PRESSURE_FIGHTER_ALTITUDE_REFRESH_UPPER_INCLUSIVE: i16 = 50;
 const FIGHTER_COOPERATIVE_SCHEDULE_START_RETAIL_FRAME: u16 = 644;
 const FIGHTER_COOPERATIVE_SCHEDULE_STEP: u16 = 4;
 const FIGHTER_COOPERATIVE_CONTINUATION_START_RETAIL_FRAME: u16 = 904;
@@ -13474,14 +13501,16 @@ impl Game {
             fighter.base.speed = pose.speed;
             fighter.extension.activity =
                 ObjectActivity::FighterInterceptFlight(FighterInterceptFlightState {
+                    logic_credit: 0,
+                    combat_phase: FighterInterceptCombatPhase::ScriptedFlight,
                     vertical_wave_phase: Angle::from_units(
                         fighter_intercept_fighters::INITIAL_WAVE_PHASES[actor_index],
                     ),
                     cruise_target_speed: 0,
                     cruise_acceleration: 0,
-                    corridor_drift_x: 0,
-                    corridor_altitude: 0,
-                    corridor_drift_z: 0,
+                    maneuver_drift_x: 0,
+                    maneuver_altitude_target: 0,
+                    maneuver_drift_z: 0,
                     pending_velocity: Vector3::default(),
                     movement_phase: FighterInterceptMovementPhase::Ready,
                     weapon_phase: FighterInterceptWeaponPhase::Flight,
@@ -13531,12 +13560,14 @@ impl Game {
                 })
             } else {
                 ObjectActivity::FighterInterceptFlight(FighterInterceptFlightState {
+                    logic_credit: 0,
+                    combat_phase: FighterInterceptCombatPhase::ScriptedFlight,
                     vertical_wave_phase: Angle::ZERO,
                     cruise_target_speed: 0,
                     cruise_acceleration: 0,
-                    corridor_drift_x: 0,
-                    corridor_altitude: 0,
-                    corridor_drift_z: 0,
+                    maneuver_drift_x: 0,
+                    maneuver_altitude_target: 0,
+                    maneuver_drift_z: 0,
                     pending_velocity: Vector3::default(),
                     movement_phase: FighterInterceptMovementPhase::Ready,
                     weapon_phase: FighterInterceptWeaponPhase::Flight,
@@ -15537,7 +15568,6 @@ impl Game {
         if retail_frame < pressure_fighter_flight::INITIAL_RETAIL_FRAME {
             return;
         }
-
         for fighter_kind in RecurringAttacker::ALL {
             let Some(id) = *self.pressure_fighter_actors.slot_mut(fighter_kind) else {
                 continue;
@@ -15600,15 +15630,40 @@ impl Game {
                     debug_assert!(false, "recurring assault fighter lacks typed flight state");
                     continue;
                 };
-                for &action in pressure_fighter_flight::assault_actions(retail_frame, assault_index)
+                if fighter_kind == RecurringAttacker::Flanker
+                    && retail_frame > pressure_fighter_flight::END_RETAIL_FRAME
                 {
-                    apply_fighter_intercept_action(
+                    let _shots_fired = update_surviving_pressure_fighter(
                         object,
                         &mut flight,
-                        action,
-                        previous_player_position,
+                        &mut self.state.random,
                         player_position,
                     );
+                } else {
+                    for &action in
+                        pressure_fighter_flight::assault_actions(retail_frame, assault_index)
+                    {
+                        apply_fighter_intercept_action(
+                            object,
+                            &mut flight,
+                            action,
+                            previous_player_position,
+                            player_position,
+                        );
+                    }
+                    if fighter_kind == RecurringAttacker::Flanker
+                        && retail_frame == pressure_fighter_flight::END_RETAIL_FRAME
+                    {
+                        flight.logic_credit = 0;
+                        flight.combat_phase = FighterInterceptCombatPhase::BankedApproach {
+                            ticks_elapsed: PRESSURE_FIGHTER_LIVE_HANDOFF_BANKED_TICKS,
+                        };
+                        flight.cruise_target_speed = PRESSURE_FIGHTER_COMBAT_SPEED;
+                        flight.cruise_acceleration = 0;
+                        flight.pending_velocity = Vector3::default();
+                        flight.movement_phase = FighterInterceptMovementPhase::Ready;
+                        flight.weapon_phase = FighterInterceptWeaponPhase::Flight;
+                    }
                 }
                 object.extension.activity = ObjectActivity::FighterInterceptFlight(flight);
             } else {
@@ -19985,9 +20040,9 @@ fn apply_fighter_intercept_action(
             flight.cruise_acceleration = cruise.acceleration();
         }
         FighterInterceptAction::SetCorridor(corridor) => {
-            flight.corridor_drift_x = corridor.drift_x;
-            flight.corridor_altitude = corridor.altitude;
-            flight.corridor_drift_z = corridor.drift_z;
+            flight.maneuver_drift_x = corridor.drift_x;
+            flight.maneuver_altitude_target = corridor.altitude;
+            flight.maneuver_drift_z = corridor.drift_z;
         }
         FighterInterceptAction::SetSpeed(speed) => {
             object.base.speed = speed.units();
@@ -20104,19 +20159,303 @@ fn apply_fighter_intercept_action(
                 .wrapping_add(FIGHTER_INTERCEPT_WAVE_PHASE_STEP);
         }
         FighterInterceptAction::ShiftCorridorX => {
-            object.base.position.x = object.base.position.x.wrapping_add(flight.corridor_drift_x);
+            object.base.position.x = object.base.position.x.wrapping_add(flight.maneuver_drift_x);
         }
         FighterInterceptAction::ApproachCorridorAltitude => {
             object.base.position.y = approach_proportional_i16(
                 object.base.position.y,
-                flight.corridor_altitude,
+                flight.maneuver_altitude_target,
                 FIGHTER_INTERCEPT_ALTITUDE_DIVISOR,
             );
         }
         FighterInterceptAction::ShiftCorridorZ => {
-            object.base.position.z = object.base.position.z.wrapping_add(flight.corridor_drift_z);
+            object.base.position.z = object.base.position.z.wrapping_add(flight.maneuver_drift_z);
         }
     }
+}
+
+fn update_surviving_pressure_fighter(
+    object: &mut Object,
+    flight: &mut FighterInterceptFlightState,
+    random: &mut super::state::RandomState,
+    player_position: Vector3,
+) -> u8 {
+    let mut shots_fired = 0;
+    flight.logic_credit = flight
+        .logic_credit
+        .saturating_add(PRESSURE_FIGHTER_LOGIC_CREDIT_PER_TICK);
+    while flight.logic_credit >= PRESSURE_FIGHTER_LOGIC_CREDIT_THRESHOLD {
+        flight.logic_credit -= PRESSURE_FIGHTER_LOGIC_CREDIT_THRESHOLD;
+        random.next_byte();
+        shots_fired +=
+            advance_surviving_pressure_fighter_slice(object, flight, random, player_position);
+    }
+    shots_fired
+}
+
+fn advance_surviving_pressure_fighter_slice(
+    object: &mut Object,
+    flight: &mut FighterInterceptFlightState,
+    random: &mut super::state::RandomState,
+    player_position: Vector3,
+) -> u8 {
+    let control = begin_surviving_pressure_fighter_slice(object, flight, random, player_position);
+    apply_surviving_pressure_fighter_movement(object, flight, control.banked_movement);
+    finish_surviving_pressure_fighter_slice(object, flight, random);
+    control.shots_fired
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PressureFighterSliceControl {
+    banked_movement: bool,
+    shots_fired: u8,
+}
+
+fn begin_surviving_pressure_fighter_slice(
+    object: &mut Object,
+    flight: &mut FighterInterceptFlightState,
+    random: &mut super::state::RandomState,
+    player_position: Vector3,
+) -> PressureFighterSliceControl {
+    let mut banked_movement = false;
+    let mut shots_fired = 0;
+    loop {
+        match flight.combat_phase {
+            FighterInterceptCombatPhase::ScriptedFlight => {
+                debug_assert!(false, "surviving fighter lacks a live combat phase");
+                break;
+            }
+            FighterInterceptCombatPhase::StraightApproach { ticks_elapsed } => {
+                let ticks_elapsed = ticks_elapsed.wrapping_add(1);
+                let distance = pressure_fighter_selected_distance(object, player_position);
+                if ticks_elapsed == PRESSURE_FIGHTER_STRAIGHT_APPROACH_TICKS
+                    || distance >= PRESSURE_FIGHTER_ATTACK_APPROACH_DISTANCE
+                {
+                    flight.combat_phase = FighterInterceptCombatPhase::BankingForAttack {
+                        target_bank: random_pressure_fighter_bank(
+                            random,
+                            PRESSURE_FIGHTER_APPROACH_BANK_MASK,
+                            PRESSURE_FIGHTER_APPROACH_BANK_BASE,
+                        ),
+                    };
+                    continue;
+                }
+                flight.combat_phase =
+                    FighterInterceptCombatPhase::StraightApproach { ticks_elapsed };
+                break;
+            }
+            FighterInterceptCombatPhase::BankingForAttack { target_bank } => {
+                banked_movement = true;
+                object.base.roll = chase_fighter_angle(object.base.roll, target_bank);
+                if object.base.roll == target_bank {
+                    flight.combat_phase =
+                        FighterInterceptCombatPhase::BankedApproach { ticks_elapsed: 0 };
+                    continue;
+                }
+                break;
+            }
+            FighterInterceptCombatPhase::BankedApproach { ticks_elapsed } => {
+                banked_movement = true;
+                let ticks_elapsed = ticks_elapsed.wrapping_add(1);
+                if ticks_elapsed == PRESSURE_FIGHTER_BANKED_APPROACH_TICKS
+                    || pressure_fighter_within_yaw_arc(
+                        object,
+                        player_position,
+                        PRESSURE_FIGHTER_APPROACH_YAW_RADIUS,
+                    )
+                {
+                    banked_movement = false;
+                    flight.combat_phase = FighterInterceptCombatPhase::LevelingForAttack;
+                    object.base.roll = chase_fighter_angle(object.base.roll, Angle::ZERO);
+                } else {
+                    flight.combat_phase =
+                        FighterInterceptCombatPhase::BankedApproach { ticks_elapsed };
+                }
+                break;
+            }
+            FighterInterceptCombatPhase::LevelingForAttack => {
+                if object.base.roll != Angle::ZERO {
+                    object.base.roll = chase_fighter_angle(object.base.roll, Angle::ZERO);
+                    break;
+                }
+                let fire_counter = (random.next_byte() & PRESSURE_FIGHTER_FIRE_COUNTER_MASK)
+                    .wrapping_add(PRESSURE_FIGHTER_FIRE_COUNTER_BASE);
+                flight.combat_phase = FighterInterceptCombatPhase::Attacking { fire_counter };
+                continue;
+            }
+            FighterInterceptCombatPhase::Attacking { fire_counter } => {
+                pressure_fighter_face_player(object, player_position);
+                let mut fire_counter = fire_counter.wrapping_add(1);
+                if fire_counter == PRESSURE_FIGHTER_FIRE_COUNTER_LIMIT {
+                    fire_counter = 0;
+                    shots_fired = 1;
+                }
+                if pressure_fighter_selected_distance(object, player_position)
+                    < PRESSURE_FIGHTER_DEPARTURE_DISTANCE
+                {
+                    flight.cruise_target_speed = PRESSURE_FIGHTER_COMBAT_SPEED;
+                    flight.cruise_acceleration = PRESSURE_FIGHTER_COMBAT_ACCELERATION;
+                    flight.combat_phase = FighterInterceptCombatPhase::BankingForDeparture {
+                        target_bank: random_pressure_fighter_bank(
+                            random,
+                            PRESSURE_FIGHTER_DEPARTURE_BANK_MASK,
+                            PRESSURE_FIGHTER_DEPARTURE_BANK_BASE,
+                        ),
+                    };
+                    continue;
+                }
+                flight.combat_phase = FighterInterceptCombatPhase::Attacking { fire_counter };
+                break;
+            }
+            FighterInterceptCombatPhase::BankingForDeparture { target_bank } => {
+                banked_movement = true;
+                object.base.roll = chase_fighter_angle(object.base.roll, target_bank);
+                if object.base.roll == target_bank {
+                    flight.combat_phase = FighterInterceptCombatPhase::DepartureArc;
+                }
+                break;
+            }
+            FighterInterceptCombatPhase::DepartureArc => {
+                banked_movement = true;
+                if !pressure_fighter_within_yaw_arc(
+                    object,
+                    player_position,
+                    PRESSURE_FIGHTER_DEPARTURE_YAW_RADIUS,
+                ) {
+                    banked_movement = false;
+                    flight.combat_phase = FighterInterceptCombatPhase::LevelingForApproach;
+                    object.base.roll = chase_fighter_angle(object.base.roll, Angle::ZERO);
+                }
+                break;
+            }
+            FighterInterceptCombatPhase::LevelingForApproach => {
+                if object.base.roll != Angle::ZERO {
+                    object.base.roll = chase_fighter_angle(object.base.roll, Angle::ZERO);
+                } else {
+                    flight.combat_phase =
+                        FighterInterceptCombatPhase::StraightApproach { ticks_elapsed: 0 };
+                }
+                break;
+            }
+        }
+    }
+    PressureFighterSliceControl {
+        banked_movement,
+        shots_fired,
+    }
+}
+
+fn apply_surviving_pressure_fighter_movement(
+    object: &mut Object,
+    flight: &mut FighterInterceptFlightState,
+    banked_movement: bool,
+) {
+    let speed_difference = i16::from(flight.cruise_target_speed) - i16::from(object.base.speed);
+    let speed_adjustment = speed_difference
+        .unsigned_abs()
+        .min(u16::from(flight.cruise_acceleration)) as u8;
+    object.base.speed = if speed_difference > 0 {
+        object.base.speed.saturating_add(speed_adjustment)
+    } else if speed_difference < 0 {
+        object.base.speed.saturating_sub(speed_adjustment)
+    } else {
+        object.base.speed
+    };
+    if banked_movement {
+        let bank_turn = (object.base.roll.units() as i8) / FIGHTER_INTERCEPT_BANK_TURN_DIVISOR;
+        object.base.yaw = object.base.yaw.wrapping_add(bank_turn);
+    }
+    object.base.velocity = flight_velocity(
+        object.base.pitch,
+        object.base.yaw,
+        object.base.speed,
+        MISSION_ENCOUNTER_POSITION_SCALE,
+    );
+    object.base.position = add_vectors(object.base.position, object.base.velocity);
+}
+
+fn finish_surviving_pressure_fighter_slice(
+    object: &mut Object,
+    flight: &mut FighterInterceptFlightState,
+    random: &mut super::state::RandomState,
+) {
+    let wave_displacement =
+        i16::from(sf_core::snes_trig::COSTAB[flight.vertical_wave_phase.units() as usize])
+            / FIGHTER_INTERCEPT_COMBAT_WAVE_DIVISOR;
+    object.base.position.y = object.base.position.y.wrapping_add(wave_displacement);
+    flight.vertical_wave_phase = flight
+        .vertical_wave_phase
+        .wrapping_add(FIGHTER_INTERCEPT_WAVE_PHASE_STEP);
+    object.base.position.x = object.base.position.x.wrapping_add(flight.maneuver_drift_x);
+    object.base.position.y = approach_proportional_i16(
+        object.base.position.y,
+        flight.maneuver_altitude_target,
+        FIGHTER_INTERCEPT_ALTITUDE_DIVISOR,
+    );
+    object.base.position.z = object.base.position.z.wrapping_add(flight.maneuver_drift_z);
+
+    let altitude_difference = flight
+        .maneuver_altitude_target
+        .wrapping_sub(object.base.position.y);
+    if altitude_difference > PRESSURE_FIGHTER_ALTITUDE_REFRESH_LOWER_EXCLUSIVE
+        && altitude_difference <= PRESSURE_FIGHTER_ALTITUDE_REFRESH_UPPER_INCLUSIVE
+    {
+        refresh_pressure_fighter_maneuver_targets(flight, random);
+    }
+}
+
+fn pressure_fighter_selected_distance(object: &Object, player_position: Vector3) -> u16 {
+    let delta_x = player_position.x.wrapping_sub(object.base.position.x);
+    let delta_z = player_position.z.wrapping_sub(object.base.position.z);
+    let squared_distance =
+        i64::from(delta_x) * i64::from(delta_x) + i64::from(delta_z) * i64::from(delta_z);
+    (squared_distance as u64).isqrt().min(u64::from(u16::MAX)) as u16
+}
+
+fn pressure_fighter_within_yaw_arc(object: &Object, player_position: Vector3, radius: u8) -> bool {
+    let delta_x = player_position.x.wrapping_sub(object.base.position.x);
+    let delta_z = player_position.z.wrapping_sub(object.base.position.z);
+    let target_yaw = Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
+    let bearing = object.base.yaw.units().wrapping_sub(target_yaw.units());
+    radius.wrapping_add(bearing) < radius.wrapping_mul(2)
+}
+
+fn pressure_fighter_face_player(object: &mut Object, player_position: Vector3) {
+    let delta_x = player_position.x.wrapping_sub(object.base.position.x);
+    let delta_z = player_position.z.wrapping_sub(object.base.position.z);
+    let target_yaw = Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
+    object.base.yaw = chase_capital_angle(
+        object.base.yaw,
+        target_yaw,
+        FIGHTER_INTERCEPT_PLAYER_FACING_DIVISOR,
+    );
+}
+
+fn random_pressure_fighter_bank(
+    random: &mut super::state::RandomState,
+    magnitude_mask: u8,
+    magnitude_base: u8,
+) -> Angle {
+    let magnitude = (random.next_byte() & magnitude_mask).wrapping_add(magnitude_base);
+    if random.next_byte() < PRESSURE_FIGHTER_POSITIVE_BANK_THRESHOLD {
+        Angle::from_units(magnitude)
+    } else {
+        Angle::from_units(0u8.wrapping_sub(magnitude))
+    }
+}
+
+fn refresh_pressure_fighter_maneuver_targets(
+    flight: &mut FighterInterceptFlightState,
+    random: &mut super::state::RandomState,
+) {
+    let altitude_random = (u16::from(random.next_byte()) << 8) | u16::from(random.next_byte());
+    flight.maneuver_altitude_target = (altitude_random & PRESSURE_FIGHTER_ALTITUDE_RANDOM_MASK)
+        as i16
+        - PRESSURE_FIGHTER_ALTITUDE_RANDOM_CENTER;
+    random.next_byte();
+    flight.maneuver_drift_x = i16::from(random.next_byte()) - PRESSURE_FIGHTER_DRIFT_RANDOM_CENTER;
+    random.next_byte();
+    flight.maneuver_drift_z = i16::from(random.next_byte()) - PRESSURE_FIGHTER_DRIFT_RANDOM_CENTER;
 }
 
 fn apply_interception_missile_action(
@@ -25770,6 +26109,184 @@ mod tests {
             retained_poses,
             pressure_fighter_flight::RETAINED_ORACLE_POSE_COUNT
         );
+    }
+
+    #[test]
+    fn surviving_pressure_fighter_state_machine_matches_each_oracle_slice() {
+        let initial_pose = pressure_fighter_survival::HANDOFF_POSE;
+        let mut object = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::INTERCEPT_FIGHTER,
+            Behavior::EnemyFlight,
+        );
+        object.base.position = Vector3 {
+            x: initial_pose.position[0],
+            y: initial_pose.position[1],
+            z: initial_pose.position[2],
+        };
+        object.base.pitch = Angle::from_units(initial_pose.pitch);
+        object.base.yaw = Angle::from_units(initial_pose.yaw);
+        object.base.roll = Angle::from_units(initial_pose.roll);
+        object.base.speed = initial_pose.speed;
+        let mut flight = FighterInterceptFlightState {
+            logic_credit: pressure_fighter_survival::HANDOFF_LOGIC_CREDIT,
+            combat_phase: FighterInterceptCombatPhase::StraightApproach {
+                ticks_elapsed: pressure_fighter_survival::HANDOFF_STRAIGHT_TICKS_ELAPSED,
+            },
+            vertical_wave_phase: Angle::from_units(
+                pressure_fighter_survival::HANDOFF_VERTICAL_WAVE_PHASE,
+            ),
+            cruise_target_speed: PRESSURE_FIGHTER_COMBAT_SPEED,
+            cruise_acceleration: 0,
+            maneuver_drift_x: pressure_fighter_survival::HANDOFF_MANEUVER_DRIFT_X,
+            maneuver_altitude_target: pressure_fighter_survival::HANDOFF_MANEUVER_ALTITUDE_TARGET,
+            maneuver_drift_z: pressure_fighter_survival::HANDOFF_MANEUVER_DRIFT_Z,
+            pending_velocity: Vector3::default(),
+            movement_phase: FighterInterceptMovementPhase::Ready,
+            weapon_phase: FighterInterceptWeaponPhase::Flight,
+        };
+        let mut retained_slices = 0;
+
+        let assert_pose = |object: &Object,
+                           expected: pressure_fighter_survival::FighterOraclePose,
+                           stage: &str,
+                           slice_index: usize| {
+            assert_eq!(
+                object.base.position,
+                Vector3 {
+                    x: expected.position[0],
+                    y: expected.position[1],
+                    z: expected.position[2],
+                },
+                "{stage} position after oracle slice {slice_index}"
+            );
+            assert_eq!(
+                object.base.pitch.units(),
+                expected.pitch,
+                "{stage} pitch after oracle slice {slice_index}"
+            );
+            assert_eq!(
+                object.base.yaw.units(),
+                expected.yaw,
+                "{stage} yaw after oracle slice {slice_index}"
+            );
+            assert_eq!(
+                object.base.roll.units(),
+                expected.roll,
+                "{stage} roll after oracle slice {slice_index}"
+            );
+            assert_eq!(
+                object.base.speed, expected.speed,
+                "{stage} speed after oracle slice {slice_index}"
+            );
+        };
+
+        for frame in pressure_fighter_survival::ORACLE_FRAMES {
+            for oracle_slice in frame.slices() {
+                let mut random = super::super::state::RandomState::new(oracle_slice.random_state);
+                let [x, y, z] = oracle_slice.player_position;
+                let control = begin_surviving_pressure_fighter_slice(
+                    &mut object,
+                    &mut flight,
+                    &mut random,
+                    Vector3 { x, y, z },
+                );
+                assert_pose(
+                    &object,
+                    oracle_slice.control_pose,
+                    "control",
+                    retained_slices,
+                );
+                apply_surviving_pressure_fighter_movement(
+                    &mut object,
+                    &mut flight,
+                    control.banked_movement,
+                );
+                assert_pose(
+                    &object,
+                    oracle_slice.movement_pose,
+                    "movement",
+                    retained_slices,
+                );
+                if let Some(refresh_random_state) = oracle_slice.refresh_random_state {
+                    random = super::super::state::RandomState::new(refresh_random_state);
+                }
+                finish_surviving_pressure_fighter_slice(&mut object, &mut flight, &mut random);
+                retained_slices += 1;
+            }
+        }
+
+        assert_eq!(
+            retained_slices,
+            pressure_fighter_survival::RETAINED_ORACLE_SLICE_COUNT
+        );
+        assert_ne!(
+            flight.combat_phase,
+            FighterInterceptCombatPhase::ScriptedFlight
+        );
+    }
+
+    #[test]
+    fn surviving_pressure_fighter_continues_live_combat_after_certified_flight() {
+        const LIVE_COMBAT_TEST_TICKS: u16 = 1_024;
+
+        let mut game = Game::new();
+        game.spawn_pressure_fighters().unwrap();
+        game.state.mission.recurring_attackers = RecurringAttackersState::deployed();
+        for (sample_index, player) in pressure_fighter_flight::ORACLE_PLAYERS
+            .iter()
+            .copied()
+            .enumerate()
+        {
+            let retail_frame = pressure_fighter_flight::INITIAL_RETAIL_FRAME
+                + u16::try_from(sample_index).unwrap() * RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+            let previous_player =
+                pressure_fighter_flight::ORACLE_PLAYERS[sample_index.saturating_sub(1)];
+            game.update_pressure_fighter_actors(
+                retail_frame,
+                player.position,
+                previous_player.position,
+            );
+        }
+
+        let fighter = game.pressure_fighter_actors.flanker.unwrap();
+        let initial_position = game.state.objects.get(fighter).unwrap().base.position;
+        let player_position = pressure_fighter_flight::ORACLE_PLAYERS
+            .last()
+            .expect("recurring-fighter oracle retains its final player pose")
+            .position;
+        let mut saw_attacking = false;
+        let mut saw_departure = false;
+        let mut saw_return_to_approach = false;
+
+        for tick in 1..=LIVE_COMBAT_TEST_TICKS {
+            let retail_frame = pressure_fighter_flight::END_RETAIL_FRAME
+                + tick * RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+            game.update_pressure_fighter_actors(retail_frame, player_position, player_position);
+            let object = game.state.objects.get(fighter).unwrap();
+            let ObjectActivity::FighterInterceptFlight(flight) = object.extension.activity else {
+                panic!("surviving recurring fighter lost its typed flight state");
+            };
+            match flight.combat_phase {
+                FighterInterceptCombatPhase::Attacking { .. } => saw_attacking = true,
+                FighterInterceptCombatPhase::BankingForDeparture { .. }
+                | FighterInterceptCombatPhase::DepartureArc
+                | FighterInterceptCombatPhase::LevelingForApproach => saw_departure = true,
+                FighterInterceptCombatPhase::StraightApproach { .. } if saw_departure => {
+                    saw_return_to_approach = true;
+                }
+                _ => {}
+            }
+        }
+
+        let object = game.state.objects.get(fighter).unwrap();
+        assert_ne!(object.base.position, initial_position);
+        assert!(saw_attacking);
+        assert!(saw_departure);
+        assert!(saw_return_to_approach);
+        assert!(object.base.flags.active);
+        assert!(object.base.flags.visible);
+        assert!(!object.base.flags.collision_disabled);
     }
 
     #[test]
