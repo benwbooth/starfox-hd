@@ -5832,6 +5832,8 @@ const CHICKEN_BODY_HP: u8 = 64; // chickenbodyHP
 const CHICKEN_BODY_AP: u8 = HARD_AP; // chickenbodyAP = hardAP
 const CHICKEN_HEAD_HP: u8 = 4; // chickenheadHP
 const CHICKEN_TAIL_HP: u8 = 2; // chickentailHP
+const CHICKEN_VULNERABLE_TIME: u8 = 56;
+const CHICKEN_VULNERABLE_COLOR_TABLE: u16 = 1; // ID_1_C
 const CHICK_ARM_AP: u8 = 10; // armAP (DSTRATS.ASM:59)
 const CHICK_ARMLENGTH: i16 = 80; // armlength (= ARMLENGTH)
 const CHICK_HPLASMA_SPEED: u8 = 60;
@@ -7527,14 +7529,28 @@ fn chicken_check_fin(g: &mut Game, idx: u16) {
     if tail_grown || both_heads {
         g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT; // vulnerable
         if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG6 == 0 {
-            g.objs.aliens[idx as usize].count = 56; // red time
+            g.objs.aliens[idx as usize].count = CHICKEN_VULNERABLE_TIME;
             g.objs.aliens[idx as usize].count1 = g.objs.aliens[idx as usize].count1.wrapping_add(1);
         }
         g.objs.aliens[idx as usize].sflags3 |= CH_SFLAG6;
     } else {
         g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT; // invulnerable
     }
-    // Red/normal coltab flash (gf&1) is cosmetic — omitted.
+
+    let color_table = if (tail_grown || both_heads) && g.vars.gameframe & 1 == 0 {
+        CHICKEN_VULNERABLE_COLOR_TABLE
+    } else {
+        0
+    };
+    let wing1 = chicken_getwing1(g, idx);
+    let wing2 = chicken_getwing2(g, idx);
+    g.objs.aliens[idx as usize].coltab = color_table;
+    if let Some(wing) = wing1 {
+        g.objs.aliens[wing as usize].coltab = color_table;
+    }
+    if let Some(wing) = wing2 {
+        g.objs.aliens[wing as usize].coltab = color_table;
+    }
 }
 
 /// `.regrownecks` (DSTRATS.ASM:4083-4123).
@@ -11541,6 +11557,57 @@ mod tests {
         assert_eq!(
             g.objs.aliens[idx as usize].hp, 1,
             "ordinary tail receives the authored one-hit durability",
+        );
+    }
+
+    #[test]
+    fn chicken_vulnerability_flashes_body_and_both_wings_together() {
+        let (mut g, body) = fresh();
+        let tail = g.objs.alloc().expect("tail");
+        let wing1 = g.objs.alloc().expect("first wing");
+        let wing2 = g.objs.alloc().expect("second wing");
+        for object in [tail, wing1, wing2] {
+            strat_init_obj_vars(&mut g.objs.aliens[object as usize]);
+        }
+        {
+            let chicken = &mut g.objs.aliens[body as usize];
+            chicken.sword2 = boss_obj_index_or_null(tail) as i16;
+            chicken.swpx1 = boss_obj_index_or_null(wing1) as i16;
+            chicken.swpy1 = boss_obj_index_or_null(wing2) as i16;
+        }
+        g.objs.aliens[tail as usize].shape = SH_CHICK_BOSS_D_2;
+
+        g.vars.gameframe = 0;
+        chicken_check_fin(&mut g, body);
+        for object in [body, wing1, wing2] {
+            assert_eq!(
+                g.objs.aliens[object as usize].coltab, CHICKEN_VULNERABLE_COLOR_TABLE,
+                "even vulnerable frame uses the authored red table",
+            );
+        }
+
+        g.vars.gameframe = 1;
+        chicken_check_fin(&mut g, body);
+        for object in [body, wing1, wing2] {
+            assert_eq!(
+                g.objs.aliens[object as usize].coltab, 0,
+                "odd vulnerable frame restores the normal table",
+            );
+        }
+
+        g.objs.aliens[tail as usize].shape = SH_CHICK_NECK;
+        g.vars.gameframe = 2;
+        chicken_check_fin(&mut g, body);
+        for object in [body, wing1, wing2] {
+            assert_eq!(
+                g.objs.aliens[object as usize].coltab, 0,
+                "closed vulnerability gate clears every linked palette",
+            );
+        }
+        assert_ne!(
+            g.objs.aliens[body as usize].sflags & ASF_NOHITAFFECT,
+            0,
+            "closed vulnerability gate restores invulnerability",
         );
     }
 
