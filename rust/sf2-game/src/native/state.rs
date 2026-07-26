@@ -2425,6 +2425,10 @@ pub struct PlayerFlightState {
     pub pitch_accumulator: i16,
     pub yaw_accumulator: i16,
     pub pitch_lean: i8,
+    /// Signed bank spring returning the craft from a scripted turn.
+    pub bank_recovery: i8,
+    /// Smaller independent bank trim used during scripted control handoffs.
+    pub bank_trim_recovery: i8,
     /// Current sample in the retail craft's subtle ambient bank wave.
     pub ambient_bank_phase: u8,
 }

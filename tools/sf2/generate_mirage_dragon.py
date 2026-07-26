@@ -29,6 +29,9 @@ DEFAULT_CAMERA_OUTPUT_TRACE = (
 CAMERA_TEMPLATE = (
     Path(__file__).with_name("templates") / "mirage_dragon_camera.rs"
 )
+PLAYER_TEMPLATE = (
+    Path(__file__).with_name("templates") / "mirage_dragon_player.rs"
+)
 DEFAULT_OUTPUT = (
     REPO_ROOT / "rust" / "sf2-game" / "src" / "native" / "mirage_dragon.rs"
 )
@@ -74,7 +77,7 @@ CAMERA_ROTATION_CHASES_PER_STEP = 2
 CAMERA_ROTATION_CHASE_DIVISIONS = 3
 CAMERA_ROTATION_CHASE_MINIMUM = 8
 CAMERA_ROTATION_TARGET = (0, 192 << 8, 0)
-PLAYER_CINEMATIC_END_RETAIL_FRAME = 400
+PLAYER_CONTROL_HANDOFF_END_RETAIL_FRAME = 400
 PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME = 404
 PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME = 872
 PLAYER_NEUTRAL_YAW = 66
@@ -120,9 +123,12 @@ SCENE_IMPORT = (
     "};\n"
 )
 TYPED_SCENE_IMPORT = (
-    "use super::{mission_player_keyframe, MissionPlayerKeyframe};\n\n"
+    "use super::{Angle, Vector3};\n\n"
     "#[cfg(test)]\n"
-    "use super::{mission_camera_keyframe, MissionCameraKeyframe};\n"
+    "use super::{\n"
+    "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,\n"
+    "    MissionPlayerKeyframe,\n"
+    "};\n"
 )
 
 
@@ -409,7 +415,7 @@ def append_camera_path(
         ).updates
         for retail_frame in range(
             CAMERA_FOLLOW_FIRST_RETAIL_FRAME,
-            PLAYER_CINEMATIC_END_RETAIL_FRAME + 1,
+            PLAYER_CONTROL_HANDOFF_END_RETAIL_FRAME + 1,
             RETAIL_FRAME_STEP,
         )
     ]
@@ -514,7 +520,7 @@ def player_neutral_flight_cadence(
     records: list[Record],
 ) -> list[tuple[int, int]]:
     poses = {record.retail_frame: record.player for record in records}
-    previous = poses.get(PLAYER_CINEMATIC_END_RETAIL_FRAME)
+    previous = poses.get(PLAYER_CONTROL_HANDOFF_END_RETAIL_FRAME)
     if previous is None:
         raise SystemExit("Mirage Dragon fixture lacks the player handoff pose")
     if (
@@ -609,27 +615,6 @@ def append_player_flight(
     records: list[Record],
     cadence: list[tuple[int, int]],
 ) -> str:
-    cinematic_records = [
-        record
-        for record in records
-        if record.retail_frame <= PLAYER_CINEMATIC_END_RETAIL_FRAME
-    ]
-
-    def keyframes(name: str, attribute: str) -> list[str]:
-        values = [
-            f"pub(super) const {name}: "
-            f"[MissionPlayerKeyframe; {len(cinematic_records)}] = ["
-        ]
-        for record in cinematic_records:
-            pose = getattr(record, attribute)
-            values.append(
-                f"    mission_player_keyframe({record.retail_frame}, "
-                + ", ".join(f"{value:_}" for value in pose)
-                + "),"
-            )
-        values.extend(["];", ""])
-        return values
-
     cadence_values = []
     for control_updates, movement_updates in cadence:
         cadence_values.extend(
@@ -646,12 +631,11 @@ def append_player_flight(
     bank_wave_tail = ", ".join(
         str(value) for value in PLAYER_NEUTRAL_BANK_WAVE[-2:]
     )
-    return source + "\n".join(
+    source += "\n".join(
         [
             "",
-            *keyframes("PLAYER_CINEMATIC_KEYFRAMES", "player"),
             "pub(super) const PLAYER_NEUTRAL_START_RETAIL_FRAME: u16 = "
-            f"{PLAYER_CINEMATIC_END_RETAIL_FRAME};",
+            f"{PLAYER_CONTROL_HANDOFF_END_RETAIL_FRAME};",
             "pub(super) const PLAYER_NEUTRAL_YAW: u8 = "
             f"{PLAYER_NEUTRAL_YAW};",
             "pub(super) const PLAYER_NEUTRAL_TARGET_SPEED: u8 = "
@@ -707,6 +691,8 @@ def append_player_flight(
             "",
         ]
     )
+    source += "\n" + PLAYER_TEMPLATE.read_text(encoding="utf-8").strip() + "\n"
+    return source
 
 
 def head_departure_cadence(records: list[Record]) -> list[tuple[int, int]]:

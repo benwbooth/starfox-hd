@@ -4,10 +4,13 @@
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_mirage_dragon.py [--check]`.
 
-use super::{mission_player_keyframe, MissionPlayerKeyframe};
+use super::{Angle, Vector3};
 
 #[cfg(test)]
-use super::{mission_camera_keyframe, MissionCameraKeyframe};
+use super::{
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
+    MissionPlayerKeyframe,
+};
 
 #[cfg(test)]
 use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};
@@ -773,110 +776,6 @@ pub(super) fn camera_tracking_head_movement_lead(retail_frame: u16, movement_upd
     u8::from(CAMERA_TRACKING_HEAD_MOVEMENT_LEADS.contains(&(retail_frame, movement_update)))
 }
 
-pub(super) const PLAYER_CINEMATIC_KEYFRAMES: [MissionPlayerKeyframe; 101] = [
-    mission_player_keyframe(0, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(4, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(8, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(12, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(16, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(20, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(24, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(28, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(32, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(36, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(40, 400, -150, 0, 0, 0, 0, 0),
-    mission_player_keyframe(44, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(48, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(52, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(56, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(60, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(64, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(68, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(72, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(76, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(80, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(84, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(88, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(92, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(96, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(100, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(104, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(108, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(112, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(116, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(120, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(124, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(128, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(132, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(136, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(140, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(144, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(148, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(152, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(156, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(160, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(164, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(168, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(172, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(176, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(180, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(184, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(188, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(192, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(196, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(200, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(204, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(208, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(212, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(216, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(220, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(224, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(228, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(232, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(236, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(240, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(244, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(248, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(252, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(256, 86, 0, 137, 0, 64, 0, 0),
-    mission_player_keyframe(260, 0, 0, 0, 0, 0, 0, 0),
-    mission_player_keyframe(264, 8_401, -1_944, 1_998, 0, 22, 40, 0),
-    mission_player_keyframe(268, 8_695, -2_092, 2_050, 0, 28, 40, 0),
-    mission_player_keyframe(272, 8_949, -2_221, 2_097, 0, 34, 40, 0),
-    mission_player_keyframe(276, 9_168, -2_331, 2_138, 0, 40, 40, 0),
-    mission_player_keyframe(280, 9_358, -2_427, 2_175, 0, 46, 40, 0),
-    mission_player_keyframe(284, 9_523, -2_508, 2_207, 0, 52, 40, 0),
-    mission_player_keyframe(288, 9_666, -2_578, 2_235, 0, 58, 40, 0),
-    mission_player_keyframe(292, 9_666, -2_578, 2_235, 0, 58, 40, 0),
-    mission_player_keyframe(296, 9_797, -2_637, 2_257, 0, 64, 74, 0),
-    mission_player_keyframe(300, 9_918, -2_688, 2_280, 0, 64, 104, 0),
-    mission_player_keyframe(304, 10_028, -2_730, 2_303, 0, 64, 131, 0),
-    mission_player_keyframe(308, 10_129, -2_765, 2_327, 0, 64, 155, 0),
-    mission_player_keyframe(312, 10_221, -2_795, 2_351, 0, 64, 176, 0),
-    mission_player_keyframe(316, 10_304, -2_819, 2_375, 0, 64, 195, 0),
-    mission_player_keyframe(320, 10_381, -2_838, 2_399, 0, 64, 212, 0),
-    mission_player_keyframe(324, 10_454, -2_854, 2_424, 0, 64, 227, 0),
-    mission_player_keyframe(328, 10_523, -2_866, 2_449, 0, 64, 241, 0),
-    mission_player_keyframe(332, 10_590, -2_875, 2_473, 0, 64, 254, 0),
-    mission_player_keyframe(336, 10_652, -2_881, 2_498, 0, 64, 10, 0),
-    mission_player_keyframe(340, 10_652, -2_881, 2_498, 5, 66, 11, 0),
-    mission_player_keyframe(344, 10_652, -2_881, 2_498, 4, 66, 8, 2),
-    mission_player_keyframe(348, 10_650, -2_881, 2_498, 3, 66, 6, 4),
-    mission_player_keyframe(352, 10_646, -2_881, 2_498, 3, 66, 4, 6),
-    mission_player_keyframe(356, 10_640, -2_881, 2_498, 2, 66, 3, 8),
-    mission_player_keyframe(360, 10_640, -2_881, 2_498, 2, 66, 3, 8),
-    mission_player_keyframe(364, 10_633, -2_881, 2_498, 2, 66, 4, 9),
-    mission_player_keyframe(368, 10_625, -2_881, 2_498, 2, 66, 4, 10),
-    mission_player_keyframe(372, 10_616, -2_881, 2_498, 1, 66, 4, 11),
-    mission_player_keyframe(376, 10_606, -2_881, 2_498, 1, 66, 4, 12),
-    mission_player_keyframe(380, 10_595, -2_881, 2_498, 1, 66, 3, 13),
-    mission_player_keyframe(384, 10_583, -2_881, 2_498, 1, 66, 3, 14),
-    mission_player_keyframe(388, 10_570, -2_881, 2_498, 1, 66, 2, 15),
-    mission_player_keyframe(392, 10_570, -2_881, 2_498, 1, 66, 2, 15),
-    mission_player_keyframe(396, 10_556, -2_881, 2_498, 1, 66, 2, 16),
-    mission_player_keyframe(400, 10_541, -2_881, 2_498, 0, 66, 1, 17),
-];
-
 pub(super) const PLAYER_NEUTRAL_START_RETAIL_FRAME: u16 = 400;
 pub(super) const PLAYER_NEUTRAL_YAW: u8 = 66;
 pub(super) const PLAYER_NEUTRAL_TARGET_SPEED: u8 = 23;
@@ -1391,6 +1290,83 @@ pub(super) fn advance_player_neutral_bank_phase(phase: u8, updates: u8) -> u8 {
 
 pub(super) fn player_neutral_bank(phase: u8) -> i8 {
     PLAYER_NEUTRAL_BANK_WAVE[usize::from(phase % PLAYER_NEUTRAL_BANK_PERIOD)]
+}
+
+/// Semantic phases of the off-screen player staging and the retail control
+/// handoff. Hidden source-machine scratch poses are deliberately not retained:
+/// the craft is placed directly at the next meaningful staging point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PlayerCinematicPhase {
+    MapDeparture,
+    FormationHold,
+    CameraApproach,
+    ControlHandoff,
+}
+
+pub(super) const PLAYER_MAP_DEPARTURE_POSITION: Vector3 = Vector3 {
+    x: 400,
+    y: -150,
+    z: 0,
+};
+pub(super) const PLAYER_FORMATION_POSITION: Vector3 = Vector3 {
+    x: 86,
+    y: 0,
+    z: 137,
+};
+pub(super) const PLAYER_CONTROL_HANDOFF_POSITION: Vector3 = Vector3 {
+    x: 10_652,
+    y: -2_881,
+    z: 2_498,
+};
+
+pub(super) const PLAYER_FORMATION_START_RETAIL_FRAME: u16 = 44;
+pub(super) const PLAYER_CAMERA_APPROACH_START_RETAIL_FRAME: u16 = 260;
+pub(super) const PLAYER_CONTROL_HANDOFF_START_RETAIL_FRAME: u16 = 340;
+pub(super) const PLAYER_FORMATION_YAW: Angle = Angle::from_units(64);
+pub(super) const PLAYER_CONTROL_HANDOFF_BANK: Angle = Angle::from_units(10);
+pub(super) const PLAYER_CONTROL_HANDOFF_PITCH_TARGET: i16 = 10_240;
+pub(super) const PLAYER_CONTROL_HANDOFF_YAW_IMPULSE: i16 = 544;
+pub(super) const PLAYER_CONTROL_HANDOFF_BANK_RECOVERY: i8 = 10;
+pub(super) const PLAYER_CONTROL_HANDOFF_BANK_TRIM: i8 = 4;
+pub(super) const PLAYER_CONTROL_HANDOFF_FAST_ACCELERATION: u8 = 2;
+pub(super) const PLAYER_CONTROL_HANDOFF_FAST_SPEED_LIMIT: u8 = 8;
+const PLAYER_CONTROL_HANDOFF_CADENCE: [u8; 16] = [1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1];
+
+pub(super) fn player_cinematic_phase(retail_frame: u16) -> PlayerCinematicPhase {
+    if retail_frame < PLAYER_FORMATION_START_RETAIL_FRAME {
+        PlayerCinematicPhase::MapDeparture
+    } else if retail_frame < PLAYER_CAMERA_APPROACH_START_RETAIL_FRAME {
+        PlayerCinematicPhase::FormationHold
+    } else if retail_frame < PLAYER_CONTROL_HANDOFF_START_RETAIL_FRAME {
+        PlayerCinematicPhase::CameraApproach
+    } else {
+        PlayerCinematicPhase::ControlHandoff
+    }
+}
+
+/// The retail controller reduces each signed bank recovery term to three
+/// quarters by summing its arithmetic half and quarter.
+pub(super) fn decay_player_bank_recovery(value: i8) -> i8 {
+    let half = value >> 1;
+    half.wrapping_add(half >> 1)
+}
+
+pub(super) fn decay_player_bank_trim(value: i8) -> i8 {
+    match value.cmp(&0) {
+        std::cmp::Ordering::Greater => value - 1,
+        std::cmp::Ordering::Less => value + 1,
+        std::cmp::Ordering::Equal => 0,
+    }
+}
+
+pub(super) fn player_control_handoff_updates(retail_frame: u16) -> Option<u8> {
+    let offset = retail_frame.checked_sub(PLAYER_CONTROL_HANDOFF_START_RETAIL_FRAME)?;
+    if retail_frame > PLAYER_NEUTRAL_START_RETAIL_FRAME || offset % PLAYER_RETAIL_FRAME_STEP != 0 {
+        return None;
+    }
+    PLAYER_CONTROL_HANDOFF_CADENCE
+        .get(usize::from(offset / PLAYER_RETAIL_FRAME_STEP))
+        .copied()
 }
 
 pub(super) const HEAD_ENTRANCE_RETAIL_FRAME: u16 = 64;

@@ -6693,7 +6693,12 @@ impl Game {
             .ok_or(Error::ObjectCapacityReached)?;
         let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
-            apply_player_keyframe(primary, mirage_dragon::PLAYER_CINEMATIC_KEYFRAMES[0]);
+            primary.base.position = mirage_dragon::PLAYER_MAP_DEPARTURE_POSITION;
+            primary.base.pitch = Angle::ZERO;
+            primary.base.yaw = Angle::ZERO;
+            primary.base.roll = Angle::ZERO;
+            primary.base.speed = 0;
+            primary.base.velocity = Vector3::default();
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
@@ -16498,21 +16503,7 @@ impl Game {
         }
 
         let primary_flight_craft_shape = self.primary_flight_craft_shape();
-        let player =
-            interpolated_player_keyframe(&mirage_dragon::PLAYER_CINEMATIC_KEYFRAMES, retail_frame);
-        if let Some(primary) = self.state.mission.primary_player {
-            if let Some(object) = self.state.objects.get_mut(primary) {
-                apply_player_keyframe(object, player);
-                let visible = retail_frame >= MIRAGE_DRAGON_PLAYER_REVEAL_RETAIL_FRAME;
-                object.base.shape = if visible {
-                    primary_flight_craft_shape
-                } else {
-                    ShapeId::EMPTY
-                };
-                object.base.flags.visible = visible;
-                object.base.flags.collision_disabled = !visible;
-            }
-        }
+        self.update_mirage_dragon_cinematic_player(retail_frame, primary_flight_craft_shape);
         if let Some(id) = self.state.mission.wingmate {
             if let Some(object) = self.state.objects.get_mut(id) {
                 object.base.shape = ShapeId::EMPTY;
@@ -16530,6 +16521,149 @@ impl Game {
             flight.ambient_bank_phase = mirage_dragon::PLAYER_NEUTRAL_START_BANK_PHASE;
         }
         self.update_mirage_dragon_camera(retail_frame);
+    }
+
+    fn update_mirage_dragon_cinematic_player(
+        &mut self,
+        retail_frame: u16,
+        flight_craft_shape: ShapeId,
+    ) {
+        let Some(primary_id) = self.state.mission.primary_player else {
+            return;
+        };
+        let phase = mirage_dragon::player_cinematic_phase(retail_frame);
+
+        if phase == mirage_dragon::PlayerCinematicPhase::ControlHandoff {
+            self.update_mirage_dragon_player_control_handoff(retail_frame);
+        } else if let Some(player) = self.state.objects.get_mut(primary_id) {
+            match phase {
+                mirage_dragon::PlayerCinematicPhase::MapDeparture => {
+                    player.base.position = mirage_dragon::PLAYER_MAP_DEPARTURE_POSITION;
+                    player.base.yaw = Angle::ZERO;
+                    player.base.roll = Angle::ZERO;
+                }
+                mirage_dragon::PlayerCinematicPhase::FormationHold => {
+                    player.base.position = mirage_dragon::PLAYER_FORMATION_POSITION;
+                    player.base.yaw = mirage_dragon::PLAYER_FORMATION_YAW;
+                    player.base.roll = Angle::ZERO;
+                }
+                mirage_dragon::PlayerCinematicPhase::CameraApproach => {
+                    player.base.position = if retail_frame
+                        == mirage_dragon::PLAYER_CAMERA_APPROACH_START_RETAIL_FRAME
+                    {
+                        Vector3::default()
+                    } else {
+                        mirage_dragon::PLAYER_CONTROL_HANDOFF_POSITION
+                    };
+                    player.base.yaw = mirage_dragon::PLAYER_FORMATION_YAW;
+                    player.base.roll = mirage_dragon::PLAYER_CONTROL_HANDOFF_BANK;
+                }
+                mirage_dragon::PlayerCinematicPhase::ControlHandoff => unreachable!(),
+            }
+            player.base.pitch = Angle::ZERO;
+            player.base.speed = 0;
+            player.base.velocity = Vector3::default();
+        }
+
+        if let Some(player) = self.state.objects.get_mut(primary_id) {
+            let visible = retail_frame >= MIRAGE_DRAGON_PLAYER_REVEAL_RETAIL_FRAME;
+            player.base.shape = if visible {
+                flight_craft_shape
+            } else {
+                ShapeId::EMPTY
+            };
+            player.base.flags.visible = visible;
+            player.base.flags.collision_disabled = !visible;
+        }
+    }
+
+    fn update_mirage_dragon_player_control_handoff(&mut self, retail_frame: u16) {
+        let Some(updates) = mirage_dragon::player_control_handoff_updates(retail_frame) else {
+            return;
+        };
+        let Some(primary_id) = self.state.mission.primary_player else {
+            return;
+        };
+        if retail_frame == mirage_dragon::PLAYER_CONTROL_HANDOFF_START_RETAIL_FRAME {
+            let flight = &mut self.state.mission.player_flight;
+            flight.pitch_accumulator = 0;
+            flight.yaw_accumulator = i16::from(mirage_dragon::PLAYER_FORMATION_YAW.units())
+                << FLIGHT_ACCUMULATOR_FRACTION_BITS;
+            flight.bank_recovery = mirage_dragon::PLAYER_CONTROL_HANDOFF_BANK_RECOVERY;
+            flight.bank_trim_recovery = mirage_dragon::PLAYER_CONTROL_HANDOFF_BANK_TRIM;
+            flight.ambient_bank_phase = 0;
+
+            if let Some(player) = self.state.objects.get_mut(primary_id) {
+                player.base.position = mirage_dragon::PLAYER_CONTROL_HANDOFF_POSITION;
+                player.base.pitch = Angle::ZERO;
+                player.base.yaw = mirage_dragon::PLAYER_FORMATION_YAW;
+                player.base.roll = mirage_dragon::PLAYER_CONTROL_HANDOFF_BANK;
+                player.base.speed = 0;
+                player.base.velocity = Vector3::default();
+            }
+        }
+
+        if updates == 0 {
+            if let Some(player) = self.state.objects.get_mut(primary_id) {
+                player.base.velocity = Vector3::default();
+            }
+            return;
+        }
+
+        for update in 0..updates {
+            let first_control_update = retail_frame
+                == mirage_dragon::PLAYER_CONTROL_HANDOFF_START_RETAIL_FRAME
+                && update == 0;
+            let flight = &mut self.state.mission.player_flight;
+            flight.pitch_accumulator = chase_proportional(
+                flight.pitch_accumulator,
+                if first_control_update {
+                    mirage_dragon::PLAYER_CONTROL_HANDOFF_PITCH_TARGET
+                } else {
+                    0
+                },
+                PLAYER_CONTROL_RESPONSE_SHIFT,
+            );
+            if first_control_update {
+                flight.yaw_accumulator = flight
+                    .yaw_accumulator
+                    .wrapping_add(mirage_dragon::PLAYER_CONTROL_HANDOFF_YAW_IMPULSE);
+            }
+            flight.bank_recovery = mirage_dragon::decay_player_bank_recovery(flight.bank_recovery);
+            flight.bank_trim_recovery =
+                mirage_dragon::decay_player_bank_trim(flight.bank_trim_recovery);
+            flight.ambient_bank_phase =
+                mirage_dragon::advance_player_neutral_bank_phase(flight.ambient_bank_phase, 1);
+
+            let pitch = accumulator_angle(flight.pitch_accumulator);
+            let yaw = accumulator_angle(flight.yaw_accumulator);
+            let roll = Angle::from_units(
+                mirage_dragon::player_neutral_bank(flight.ambient_bank_phase)
+                    .wrapping_add(flight.bank_recovery)
+                    .wrapping_add(flight.bank_trim_recovery) as u8,
+            );
+            if let Some(player) = self.state.objects.get_mut(primary_id) {
+                if !first_control_update {
+                    let acceleration = if player.base.speed
+                        < mirage_dragon::PLAYER_CONTROL_HANDOFF_FAST_SPEED_LIMIT
+                    {
+                        mirage_dragon::PLAYER_CONTROL_HANDOFF_FAST_ACCELERATION
+                    } else {
+                        PLAYER_SPEED_CHANGE_PER_TICK
+                    };
+                    player.base.speed = approach_u8(
+                        player.base.speed,
+                        mirage_dragon::PLAYER_NEUTRAL_TARGET_SPEED,
+                        acceleration,
+                    );
+                }
+                player.base.pitch = pitch;
+                player.base.yaw = yaw;
+                player.base.roll = roll;
+                player.base.velocity =
+                    flight_velocity(player.base.pitch, player.base.yaw, player.base.speed, 1);
+            }
+        }
     }
 
     fn update_mirage_dragon_camera(&mut self, retail_frame: u16) {
@@ -16560,7 +16694,7 @@ impl Game {
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get(id))
-            .map(|player| player.base.position)
+            .map(|player| add_vectors(player.base.position, player.base.velocity))
         else {
             return;
         };
@@ -34954,17 +35088,17 @@ mod tests {
     }
 
     #[test]
-    fn mirage_dragon_typed_neutral_flight_matches_retail_after_reveal() {
+    fn mirage_dragon_typed_control_handoff_and_neutral_flight_match_retail() {
         let mut game = enter_mirage_dragon_mission();
         while game.state.mode_frame * RETAIL_PRESENTATION_FRAMES_PER_TICK
-            < u32::from(MIRAGE_DRAGON_PLAYER_REVEAL_RETAIL_FRAME)
+            < u32::from(mirage_dragon::PLAYER_CONTROL_HANDOFF_START_RETAIL_FRAME)
+                - RETAIL_PRESENTATION_FRAMES_PER_TICK
         {
             game.tick(0).unwrap();
         }
-        for expected in mirage_dragon::PLAYER_KEYFRAMES
-            .iter()
-            .filter(|frame| frame.retail_frame > MIRAGE_DRAGON_PLAYER_REVEAL_RETAIL_FRAME)
-        {
+        for expected in mirage_dragon::PLAYER_KEYFRAMES.iter().filter(|frame| {
+            frame.retail_frame >= mirage_dragon::PLAYER_CONTROL_HANDOFF_START_RETAIL_FRAME
+        }) {
             game.tick(0).unwrap();
             let player = game
                 .state
@@ -34986,8 +35120,9 @@ mod tests {
                     expected.roll,
                     expected.speed,
                 ),
-                "retail frame {}",
-                expected.retail_frame
+                "retail frame {}, velocity {:?}",
+                expected.retail_frame,
+                player.base.velocity
             );
         }
     }
