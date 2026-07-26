@@ -576,6 +576,8 @@ pub enum CapitalWeaponPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapitalFlightState {
     pub vertical_wave_phase: Angle,
+    pub previous_player_position: Vector3,
+    pub two_ticks_ago_player_position: Vector3,
     pub pending_velocity: Vector3,
     pub movement_phase: CapitalMovementPhase,
     pub weapon_phase: CapitalWeaponPhase,

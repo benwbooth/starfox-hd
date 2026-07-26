@@ -2447,16 +2447,23 @@ enum CapitalBankTarget {
     StarboardLight = 8,
     StarboardModerate = 10,
     StarboardFirm = 11,
+    StarboardAssertive = 12,
     StarboardStrong = 13,
     StarboardSteep = 14,
+    StarboardVerySteep = 15,
     StarboardHard = 17,
+    StarboardVeryHard = 18,
+    StarboardSharp = 22,
+    StarboardExtreme = 26,
     PortLight = -8,
     PortShallow = -9,
     PortMedium = -11,
+    PortFirm = -12,
     PortStrong = -13,
     PortSteep = -14,
     PortVerySteep = -15,
     PortSharp = -16,
+    PortVeryHard = -17,
     PortExtreme = -26,
     PortNearMaximum = -27,
     PortHard = -28,
@@ -2510,6 +2517,8 @@ impl CapitalWaveMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlayerTargetTiming {
+    TwoTicksAgo,
+    PreviousMidpoint,
     Previous,
     Midpoint,
     Current,
@@ -2517,21 +2526,30 @@ enum PlayerTargetTiming {
 
 impl PlayerTargetTiming {
     fn select(self, previous: Vector3, current: Vector3) -> Vector3 {
+        self.select_with_history(previous, previous, current)
+    }
+
+    fn select_with_history(
+        self,
+        two_ticks_ago: Vector3,
+        previous: Vector3,
+        current: Vector3,
+    ) -> Vector3 {
         match self {
+            Self::TwoTicksAgo => two_ticks_ago,
+            Self::PreviousMidpoint => midpoint_vector(two_ticks_ago, previous),
             Self::Previous => previous,
-            Self::Midpoint => Vector3 {
-                x: previous
-                    .x
-                    .wrapping_add(current.x.wrapping_sub(previous.x) / 2),
-                y: previous
-                    .y
-                    .wrapping_add(current.y.wrapping_sub(previous.y) / 2),
-                z: previous
-                    .z
-                    .wrapping_add(current.z.wrapping_sub(previous.z) / 2),
-            },
+            Self::Midpoint => midpoint_vector(previous, current),
             Self::Current => current,
         }
+    }
+}
+
+fn midpoint_vector(start: Vector3, end: Vector3) -> Vector3 {
+    Vector3 {
+        x: start.x.wrapping_add(end.x.wrapping_sub(start.x) / 2),
+        y: start.y.wrapping_add(end.y.wrapping_sub(start.y) / 2),
+        z: start.z.wrapping_add(end.z.wrapping_sub(start.z) / 2),
     }
 }
 
@@ -13687,15 +13705,25 @@ impl Game {
     }
 
     fn initialize_mission_capital_flight(&mut self) {
+        let player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map_or(Vector3::default(), |object| object.base.position);
         let handoff_states = [
             CapitalFlightState {
                 vertical_wave_phase: Angle::from_units(FIRST_CAPITAL_VERTICAL_WAVE_PHASE),
+                previous_player_position: player_position,
+                two_ticks_ago_player_position: player_position,
                 pending_velocity: Vector3::default(),
                 movement_phase: CapitalMovementPhase::Ready,
                 weapon_phase: CapitalWeaponPhase::Ready,
             },
             CapitalFlightState {
                 vertical_wave_phase: Angle::from_units(SECOND_CAPITAL_VERTICAL_WAVE_PHASE),
+                previous_player_position: player_position,
+                two_ticks_ago_player_position: player_position,
                 pending_velocity: Vector3::default(),
                 movement_phase: CapitalMovementPhase::Ready,
                 weapon_phase: CapitalWeaponPhase::Ready,
@@ -13744,20 +13772,56 @@ impl Game {
             let Some(object) = self.state.objects.get_mut(id) else {
                 continue;
             };
+            if object.base.explosion_timer > 0 || object.base.flags.exploding {
+                continue;
+            }
             let ObjectActivity::CapitalFlight(mut flight) = object.extension.activity else {
                 continue;
             };
+            let previous_player_position = flight.previous_player_position;
+            let two_ticks_ago_player_position = flight.two_ticks_ago_player_position;
             for &action in capital_continuation::actions(retail_frame, first) {
                 apply_capital_flight_action(
                     object,
                     &mut flight,
                     action,
                     player_position,
-                    player_position,
+                    previous_player_position,
+                    two_ticks_ago_player_position,
                 );
             }
+            flight.two_ticks_ago_player_position = previous_player_position;
+            flight.previous_player_position = player_position;
             object.extension.activity = ObjectActivity::CapitalFlight(flight);
         }
+
+        if retail_frame == capital_continuation::FIRST_DEPARTURE_RETAIL_FRAME {
+            self.depart_mission_encounter_actor(MissionEncounterActor::FirstCapital);
+        }
+        if retail_frame == capital_continuation::SECOND_INACTIVE_RETAIL_FRAME {
+            self.set_mission_actor_active(MissionEncounterActor::SecondCapital, false);
+        }
+        if retail_frame == capital_continuation::SECOND_RESUME_RETAIL_FRAME {
+            self.set_mission_actor_active(MissionEncounterActor::SecondCapital, true);
+        }
+        if retail_frame == capital_continuation::SECOND_DEPARTURE_RETAIL_FRAME {
+            self.depart_mission_encounter_actor(MissionEncounterActor::SecondCapital);
+        }
+    }
+
+    fn set_mission_actor_active(&mut self, actor: MissionEncounterActor, active: bool) {
+        let Some(id) = self.mission_entry_flyby[actor.index()] else {
+            return;
+        };
+        let Some(object) = self.state.objects.get_mut(id) else {
+            return;
+        };
+        if object.base.explosion_timer > 0 || object.base.flags.exploding {
+            return;
+        }
+        object.base.flags.active = active;
+        object.base.flags.visible = active;
+        object.base.flags.collision_disabled = !active;
     }
 
     fn initialize_mission_fighter_combat(&mut self) {
@@ -14175,15 +14239,7 @@ impl Game {
     }
 
     fn update_post_opening_mission_encounter(&mut self, retail_frame: u16) {
-        let tracks: [(MissionEncounterActor, &'static [MissionActorKeyframe]); 4] = [
-            (
-                MissionEncounterActor::FirstCapital,
-                &opening_continuation::FIRST_CAPITAL_MISSION_KEYFRAMES,
-            ),
-            (
-                MissionEncounterActor::SecondCapital,
-                &opening_continuation::SECOND_CAPITAL_MISSION_KEYFRAMES,
-            ),
+        let tracks: [(MissionEncounterActor, &'static [MissionActorKeyframe]); 2] = [
             (
                 MissionEncounterActor::UpperFighter,
                 &opening_continuation::UPPER_FIGHTER_MISSION_KEYFRAMES,
@@ -14233,7 +14289,11 @@ impl Game {
             .into_iter()
             .zip(second_sortie_capital::INITIAL_POSES)
             {
-                self.initialize_reengagement_capital(actor, pose);
+                self.initialize_reengagement_capital(
+                    actor,
+                    pose,
+                    player_position.unwrap_or_default(),
+                );
             }
         } else if let Some(player_position) = player_position {
             let previous_player_position = self
@@ -14289,6 +14349,7 @@ impl Game {
         &mut self,
         actor: MissionEncounterActor,
         pose: MissionEncounterPose,
+        player_position: Vector3,
     ) {
         let Some(id) = self.mission_entry_flyby[actor.index()] else {
             return;
@@ -14313,6 +14374,8 @@ impl Game {
         object.base.velocity = Vector3::default();
         object.extension.activity = ObjectActivity::CapitalFlight(CapitalFlightState {
             vertical_wave_phase: Angle::ZERO,
+            previous_player_position: player_position,
+            two_ticks_ago_player_position: player_position,
             pending_velocity: Vector3::default(),
             movement_phase: CapitalMovementPhase::Ready,
             weapon_phase: CapitalWeaponPhase::Ready,
@@ -14403,6 +14466,7 @@ impl Game {
         let ObjectActivity::CapitalFlight(mut flight) = object.extension.activity else {
             return;
         };
+        let two_ticks_ago_player_position = flight.two_ticks_ago_player_position;
         for &action in second_sortie_capital::actions(retail_frame, first) {
             apply_capital_flight_action(
                 object,
@@ -14410,8 +14474,11 @@ impl Game {
                 action,
                 player_position,
                 previous_player_position,
+                two_ticks_ago_player_position,
             );
         }
+        flight.two_ticks_ago_player_position = previous_player_position;
+        flight.previous_player_position = player_position;
         object.extension.activity = ObjectActivity::CapitalFlight(flight);
 
         let temporarily_inactive =
@@ -19033,6 +19100,7 @@ fn apply_capital_flight_action(
     action: CapitalFlightAction,
     player_position: Vector3,
     previous_player_position: Vector3,
+    two_ticks_ago_player_position: Vector3,
 ) {
     match action {
         CapitalFlightAction::BeginPitchManeuver(direction) => {
@@ -19058,9 +19126,11 @@ fn apply_capital_flight_action(
         }
         CapitalFlightAction::FacePlayer | CapitalFlightAction::FacePlayerAt(_) => {
             let target_position = match action {
-                CapitalFlightAction::FacePlayerAt(timing) => {
-                    timing.select(previous_player_position, player_position)
-                }
+                CapitalFlightAction::FacePlayerAt(timing) => timing.select_with_history(
+                    two_ticks_ago_player_position,
+                    previous_player_position,
+                    player_position,
+                ),
                 CapitalFlightAction::FacePlayer => player_position,
                 _ => unreachable!(),
             };
@@ -19143,9 +19213,11 @@ fn apply_capital_flight_action(
         | CapitalFlightAction::AimWeaponPitch
         | CapitalFlightAction::AimWeaponAt(_) => {
             let target_position = match action {
-                CapitalFlightAction::AimWeaponAt(timing) => {
-                    timing.select(previous_player_position, player_position)
-                }
+                CapitalFlightAction::AimWeaponAt(timing) => timing.select_with_history(
+                    two_ticks_ago_player_position,
+                    previous_player_position,
+                    player_position,
+                ),
                 CapitalFlightAction::AimWeapon | CapitalFlightAction::AimWeaponPitch => {
                     player_position
                 }
@@ -23492,21 +23564,34 @@ mod tests {
     }
 
     #[test]
-    fn typed_capital_flight_matches_every_certified_oracle_frame() {
+    fn typed_capital_flight_matches_every_oracle_boundary() {
         assert_eq!(
             capital_continuation::END_RETAIL_FRAME,
-            MISSION_ENCOUNTER_CERTIFIED_END_RETAIL_FRAME,
-            "the certified opening capital-craft window must remain fully native"
+            opening_continuation::SECOND_CAPITAL_MISSION_KEYFRAMES
+                [opening_continuation::SECOND_CAPITAL_MISSION_KEYFRAMES.len() - 2]
+                .retail_frame,
+            "native capital behavior must cover the last visible oracle pose"
+        );
+        assert_eq!(
+            opening_continuation::FIRST_CAPITAL_MISSION_KEYFRAMES
+                .last()
+                .unwrap()
+                .retail_frame,
+            capital_continuation::FIRST_DEPARTURE_RETAIL_FRAME
+        );
+        assert_eq!(
+            opening_continuation::SECOND_CAPITAL_MISSION_KEYFRAMES
+                .last()
+                .unwrap()
+                .retail_frame,
+            capital_continuation::SECOND_DEPARTURE_RETAIL_FRAME
         );
 
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
         for expected_frame in opening_continuation::ENCOUNTER_KEYFRAMES
             .iter()
-            .filter(|frame| {
-                frame.retail_frame >= CAPITAL_FLIGHT_HANDOFF_RETAIL_FRAME
-                    && frame.retail_frame <= capital_continuation::END_RETAIL_FRAME
-            })
+            .filter(|frame| frame.retail_frame >= CAPITAL_FLIGHT_HANDOFF_RETAIL_FRAME)
         {
             let retail_frame = u32::from(expected_frame.retail_frame);
             while game.state().mode_frame
@@ -23519,27 +23604,44 @@ mod tests {
                 MissionEncounterActor::FirstCapital,
                 MissionEncounterActor::SecondCapital,
             ] {
-                let id = game.mission_entry_flyby[actor.index()].unwrap();
-                let object = game.state().objects.get(id).unwrap();
-                assert!(
-                    matches!(object.extension.activity, ObjectActivity::CapitalFlight(_)),
-                    "capital craft {actor:?} lacked typed flight state at retail frame {retail_frame}"
-                );
-                let actual = mission_encounter_pose([
-                    object.base.position.x,
-                    object.base.position.y,
-                    object.base.position.z,
-                    i16::from(object.base.pitch.units()),
-                    i16::from(object.base.yaw.units()),
-                    i16::from(object.base.roll.units()),
-                    i16::from(object.base.speed),
-                ]);
-                assert_eq!(
-                    actual,
-                    expected_frame.poses[actor.index()],
-                    "typed capital craft {actor:?} diverged at retail frame {retail_frame}"
+                assert_mission_actor_presentation(
+                    &game,
+                    actor,
+                    MissionActorPresentation::Present(expected_frame.poses[actor.index()]),
+                    expected_frame.retail_frame,
                 );
             }
+        }
+
+        for (index, expected_second) in opening_continuation::SECOND_CAPITAL_MISSION_KEYFRAMES
+            .iter()
+            .enumerate()
+        {
+            let retail_frame = u32::from(expected_second.retail_frame);
+            while game.state().mode_frame
+                < retail_frame / u32::from(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            {
+                game.tick(Button::B as u16).unwrap();
+            }
+
+            let expected_first = opening_continuation::FIRST_CAPITAL_MISSION_KEYFRAMES
+                .get(index)
+                .map_or(MissionActorPresentation::Departed, |keyframe| {
+                    assert_eq!(keyframe.retail_frame, expected_second.retail_frame);
+                    keyframe.presentation
+                });
+            assert_mission_actor_presentation(
+                &game,
+                MissionEncounterActor::FirstCapital,
+                expected_first,
+                expected_second.retail_frame,
+            );
+            assert_mission_actor_presentation(
+                &game,
+                MissionEncounterActor::SecondCapital,
+                expected_second.presentation,
+                expected_second.retail_frame,
+            );
         }
     }
 

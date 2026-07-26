@@ -280,15 +280,16 @@ def rust_source(
         "//! Regenerate or verify with `uv run python "
         "tools/sf2/generate_opening_continuation.py [--check]`.",
         "",
+        "#[cfg(test)]",
+        "use super::mission_actor_inactive_keyframe;",
         "use super::{",
-        "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, "
-        "mission_actor_keyframe,",
-        "    mission_camera_keyframe, mission_encounter_keyframe, "
-        "mission_player_keyframe,",
-        "    mission_projectile_keyframe, mission_timer_keyframe, "
-        "MissionActorKeyframe,",
-        "    MissionCameraKeyframe, MissionEncounterKeyframe, MissionPlayerKeyframe,",
-        "    MissionProjectileKeyframe, MissionTimerKeyframe,",
+        "    mission_actor_departure_keyframe, mission_actor_keyframe, "
+        "mission_camera_keyframe,",
+        "    mission_encounter_keyframe, mission_player_keyframe, "
+        "mission_projectile_keyframe,",
+        "    mission_timer_keyframe, MissionActorKeyframe, MissionCameraKeyframe, "
+        "MissionEncounterKeyframe,",
+        "    MissionPlayerKeyframe, MissionProjectileKeyframe, MissionTimerKeyframe,",
         "};",
         "",
         f"pub(super) const PLAYER_CERTIFIED_END_RETAIL_FRAME: u16 = {keyframes[-1][0]};",
@@ -357,6 +358,8 @@ def rust_source(
         track = later_frames[: terminal_index + 1]
         if not track:
             raise SystemExit(f"{constant_name} has no departure frame")
+        if actor_index < 2:
+            lines.append("#[cfg(test)]")
         if len(track) == 1 and track[0][1].encounter[actor_index] is None:
             lines.append(
                 f"pub(super) const {constant_name}: [MissionActorKeyframe; 1] ="

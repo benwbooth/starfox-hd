@@ -31,10 +31,12 @@ SOURCE_ACTORS = {"0633": FIRST_ACTOR, "05F4": SECOND_ACTOR}
 SOURCE_SHAPE = "F5EC"
 ANCHOR_RETAIL_FRAME = 900
 START_RETAIL_FRAME = 904
-END_RETAIL_FRAME = 2_448
+END_RETAIL_FRAME = 7_872
 RETAIL_FRAME_STEP = 4
 RAW_ANCHOR_ELAPSED = 7_311
-RAW_END_ELAPSED = 8_860
+RAW_END_ELAPSED = 14_288
+NATIVE_SCHEDULE_HANDOFF_RETAIL_FRAME = 2_448
+NATIVE_SCHEDULE_HANDOFF_ELAPSED = 8_856
 
 RELEVANT_EVENTS = {
     "wait-for-angle",
@@ -55,10 +57,20 @@ PITCH_PATHS = {
     "71D9": ("pitch", "Level"),
 }
 BANK_TARGETS = {
+    12: "StarboardAssertive",
+    13: "StarboardStrong",
     14: "StarboardSteep",
+    15: "StarboardVerySteep",
+    18: "StarboardVeryHard",
+    22: "StarboardSharp",
+    26: "StarboardExtreme",
+    -8: "PortLight",
     -9: "PortShallow",
     -11: "PortMedium",
+    -12: "PortFirm",
     -14: "PortSteep",
+    -15: "PortVerySteep",
+    -17: "PortVeryHard",
     -28: "PortHard",
 }
 
@@ -79,8 +91,8 @@ class LogicEvent:
 class PoseSample:
     retail_frame: int
     player: tuple[int, ...]
-    first: tuple[int, ...]
-    second: tuple[int, ...]
+    first: tuple[int, ...] | None
+    second: tuple[int, ...] | None
 
 
 @dataclass
@@ -101,6 +113,7 @@ class FlightState:
 
 
 Action = tuple[str, str | None]
+TraceAction = tuple[str, str | int | tuple[int, ...] | None]
 
 
 def fields(line: str) -> dict[str, str]:
@@ -202,14 +215,12 @@ def read_pose_fixture(path: Path) -> list[PoseSample]:
                 actor = SOURCE_ACTORS.get(parts[0])
                 if actor is not None:
                     actors[actor] = tuple(map(int, parts[2:9]))
-        if set(actors) != {FIRST_ACTOR, SECOND_ACTOR}:
-            break
         result.append(
             PoseSample(
                 retail_frame=retail_frame,
                 player=tuple(map(int, parsed["pose"].split(","))),
-                first=actors[FIRST_ACTOR],
-                second=actors[SECOND_ACTOR],
+                first=actors.get(FIRST_ACTOR),
+                second=actors.get(SECOND_ACTOR),
             )
         )
     expected_count = (END_RETAIL_FRAME - ANCHOR_RETAIL_FRAME) // RETAIL_FRAME_STEP + 1
@@ -228,6 +239,50 @@ def remove_action(actions: list[Action], expected: Action) -> None:
     if count != 1:
         raise SystemExit(f"timing correction expected one {expected}, found {count}: {actions}")
     actions.remove(expected)
+
+
+def target_timing(
+    target: tuple[int, ...],
+    retail_frame: int,
+    samples: dict[int, PoseSample],
+) -> str:
+    current = samples.get(retail_frame)
+    previous = samples.get(retail_frame - RETAIL_FRAME_STEP)
+    if current is None or previous is None:
+        raise SystemExit(f"capital target has no pose boundary at frame {retail_frame}")
+    candidates = [
+        ("Current", current.player[:3]),
+        (
+            "Midpoint",
+            tuple(
+                start + trunc_div(end - start, 2)
+                for start, end in zip(previous.player[:3], current.player[:3])
+            ),
+        ),
+        ("Previous", previous.player[:3]),
+    ]
+    two_ticks_ago = samples.get(retail_frame - 2 * RETAIL_FRAME_STEP)
+    if two_ticks_ago is not None:
+        candidates.extend(
+            (
+                ("TwoTicksAgo", two_ticks_ago.player[:3]),
+                (
+                    "PreviousMidpoint",
+                    tuple(
+                        start + trunc_div(end - start, 2)
+                        for start, end in zip(
+                            two_ticks_ago.player[:3], previous.player[:3]
+                        )
+                    ),
+                ),
+            )
+        )
+    for timing, position in candidates:
+        if target[:3] == position:
+            return timing
+    raise SystemExit(
+        f"untyped capital player-target timing at frame {retail_frame}: {target[:3]}"
+    )
 
 
 def build_schedule(events: list[LogicEvent]) -> dict[int, dict[str, list[Action]]]:
@@ -372,11 +427,316 @@ def xz_distance(dx: int, dz: int) -> int:
     return signed_word(half(half(value)))
 
 
+def flight_velocity(
+    state: FlightState, sine: list[int], cosine: list[int]
+) -> tuple[int, int, int]:
+    source_yaw = (-state.yaw) & 0xFF
+    pitch_cosine = cosine[state.pitch]
+    components = (
+        mulslog(mulslog(state.speed, sine[source_yaw]), pitch_cosine),
+        mulslog(state.speed, sine[state.pitch]),
+        mulslog(mulslog(state.speed, cosine[source_yaw]), pitch_cosine),
+    )
+    return tuple(signed_word(component * 4) for component in components)
+
+
+def apply_trace_action(
+    state: FlightState,
+    action: TraceAction,
+    sine: list[int],
+    cosine: list[int],
+    curve: list[int],
+) -> None:
+    kind, value = action
+    if kind == "BeginPitchManeuver":
+        state.roll = 4 if value == "Starboard" else 252
+    elif kind == "ChasePitch":
+        state.pitch = chase_power(
+            state.pitch,
+            {"Level": 0, "Dive": 206, "Climb": 50}[str(value)],
+            3,
+            8,
+            8,
+        )
+    elif kind == "ChaseRollToLevel":
+        state.roll = chase_power(state.roll, 0, 3, 8, 8)
+    elif kind == "ChaseBank":
+        state.roll = chase_power(state.roll, int(value), 3, 8, 8)
+    elif kind == "FacePlayer":
+        assert isinstance(value, tuple)
+        dx = signed_word(value[0] - state.x)
+        dz = signed_word(value[2] - state.z)
+        target = (-(sf2_atan16(dx, dz, curve) >> 8)) & 0xFF
+        state.yaw = chase_power(state.yaw, target, 2, 8, 4)
+    elif kind == "CenterAltitude":
+        state.y = signed_word(chase_power(state.y & 0xFFFF, 0, 3, 16, 8))
+    elif kind == "ApplyBankTurn":
+        state.yaw = (state.yaw + trunc_div(signed_byte(state.roll), 4)) & 0xFF
+    elif kind in {"Move", "MoveHorizontal"}:
+        if value == "Banked":
+            state.yaw = (state.yaw + trunc_div(signed_byte(state.roll), 4)) & 0xFF
+        movement = flight_velocity(state, sine, cosine)
+        state.x = signed_word(state.x + movement[0])
+        if kind == "MoveHorizontal":
+            state.pending_velocity = movement
+        else:
+            state.y = signed_word(state.y + movement[1])
+            state.z = signed_word(state.z + movement[2])
+            state.pending_velocity = (0, 0, 0)
+    elif kind == "FinishMovement":
+        state.y = signed_word(state.y + state.pending_velocity[1])
+        state.z = signed_word(state.z + state.pending_velocity[2])
+        state.pending_velocity = (0, 0, 0)
+    elif kind == "ApplyVerticalWave":
+        state.y = signed_word(state.y + cosine[state.wave_phase])
+        state.wave_phase = (state.wave_phase + 1) & 0xFF
+    elif kind in {"AimWeapon", "AimWeaponPitch"}:
+        assert isinstance(value, tuple)
+        state.saved_angles = state.pitch, state.yaw, state.roll
+        dx = signed_word(value[0] - state.x)
+        dy = signed_word(value[1] - state.y)
+        dz = signed_word(value[2] - state.z)
+        state.pitch = sf2_atan16(dy, xz_distance(dx, dz), curve) >> 8
+        if kind == "AimWeapon":
+            state.yaw = (-(sf2_atan16(dx, dz, curve) >> 8)) & 0xFF
+    elif kind == "RestoreFlightAngles":
+        if state.saved_angles is None:
+            raise SystemExit("capital flight-angle restoration has no saved state")
+        state.pitch, state.yaw, state.roll = state.saved_angles
+        state.saved_angles = None
+    else:
+        raise AssertionError(action)
+
+
+def trace_event_actions(
+    event: LogicEvent,
+    maneuver_directions: dict[tuple[str, int], str],
+) -> list[TraceAction]:
+    if event.event == "random-branch":
+        return [
+            (
+                "BeginPitchManeuver",
+                maneuver_directions[(event.actor, event.elapsed)],
+            )
+        ]
+    if event.event == "wait-for-angle":
+        field, target = PITCH_PATHS[event.path]
+        return [
+            ("ChaseRollToLevel", None)
+            if field == "roll"
+            else ("ChasePitch", target)
+        ]
+    if event.event == "chase-angle":
+        return [("ChaseBank", event.bank_target)]
+    if event.event == "face-player":
+        return [("FacePlayer", event.selected)]
+    if event.event == "move":
+        actions: list[TraceAction] = []
+        if event.path in {"714A", "719C", "71D8"}:
+            actions.extend(
+                (("CenterAltitude", None), ("ChaseRollToLevel", None))
+            )
+        if event.banked:
+            actions.append(("ApplyBankTurn", None))
+        actions.extend(
+            (
+                ("MoveHorizontal", "Straight"),
+                ("FinishMovement", None),
+            )
+        )
+        return actions
+    if event.event == "vertical-step":
+        return [("ApplyVerticalWave", None)]
+    if event.event == "fire":
+        return [("AimWeapon", event.selected)]
+    return []
+
+
+def shipping_action(
+    action: TraceAction,
+    retail_frame: int,
+    samples: dict[int, PoseSample],
+) -> Action:
+    kind, value = action
+    if kind == "ChaseBank":
+        try:
+            return kind, BANK_TARGETS[int(value)]
+        except KeyError as error:
+            raise SystemExit(f"untyped capital bank target {value}") from error
+    if kind in {"FacePlayer", "AimWeapon", "AimWeaponPitch"}:
+        assert isinstance(value, tuple)
+        return f"{kind}At", target_timing(value, retail_frame, samples)
+    assert value is None or isinstance(value, str)
+    return kind, value
+
+
+def compact_movement_actions(actions: list[Action]) -> list[Action]:
+    result: list[Action] = []
+    index = 0
+    banked = [
+        ("ApplyBankTurn", None),
+        ("MoveHorizontal", "Straight"),
+        ("FinishMovement", None),
+    ]
+    straight = [
+        ("MoveHorizontal", "Straight"),
+        ("FinishMovement", None),
+    ]
+    while index < len(actions):
+        if actions[index : index + len(banked)] == banked:
+            result.append(("Move", "Banked"))
+            index += len(banked)
+        elif actions[index : index + len(straight)] == straight:
+            result.append(("Move", "Straight"))
+            index += len(straight)
+        else:
+            result.append(actions[index])
+            index += 1
+    return result
+
+
+def extend_schedule(
+    schedule: dict[int, dict[str, list[Action]]],
+    events: list[LogicEvent],
+    samples: list[PoseSample],
+) -> None:
+    sine = rust_table("SINTAB", TRIG_SOURCE.read_text(encoding="utf-8"))
+    cosine = rust_table("COSTAB", TRIG_SOURCE.read_text(encoding="utf-8"))
+    curve = rust_table(
+        "SF2_ARCTANGENT_CURVE", ANGLE_SOURCE.read_text(encoding="utf-8")
+    )
+    if samples[0].first is None or samples[0].second is None:
+        raise SystemExit("capital pose fixture lacks both actors at the handoff")
+    states = {
+        FIRST_ACTOR: FlightState(*samples[0].first, wave_phase=104),
+        SECOND_ACTOR: FlightState(*samples[0].second, wave_phase=101),
+    }
+    sample_by_frame = {sample.retail_frame: sample for sample in samples}
+
+    for sample in samples[1:]:
+        if sample.retail_frame > NATIVE_SCHEDULE_HANDOFF_RETAIL_FRAME:
+            break
+        for actor, state in states.items():
+            for action in schedule[sample.retail_frame][actor]:
+                kind, value = action
+                trace_value: str | int | tuple[int, ...] | None = value
+                if kind == "ChaseBank":
+                    trace_value = next(
+                        units
+                        for units, name in BANK_TARGETS.items()
+                        if name == value
+                    )
+                elif kind in {"FacePlayer", "AimWeapon", "AimWeaponPitch"}:
+                    trace_value = sample.player
+                apply_trace_action(
+                    state,
+                    (kind, trace_value),
+                    sine,
+                    cosine,
+                    curve,
+                )
+            expected = sample.first if actor == FIRST_ACTOR else sample.second
+            if expected is None or state.pose() != expected:
+                raise SystemExit(
+                    f"capital native handoff diverges at frame "
+                    f"{sample.retail_frame} {actor}"
+                )
+
+    per_actor = {
+        actor: [
+            event
+            for event in events
+            if event.actor == actor
+            and event.elapsed > NATIVE_SCHEDULE_HANDOFF_ELAPSED
+        ]
+        for actor in (FIRST_ACTOR, SECOND_ACTOR)
+    }
+    maneuver_directions = {}
+    for actor, actor_events in per_actor.items():
+        for index, event in enumerate(actor_events):
+            if event.event != "random-branch":
+                continue
+            following = next(
+                candidate
+                for candidate in actor_events[index + 1 :]
+                if candidate.event == "wait-for-angle"
+                and candidate.path in {"7185", "71C1"}
+            )
+            maneuver_directions[(actor, event.elapsed)] = (
+                "Port" if signed_byte(following.pose[5]) < 0 else "Starboard"
+            )
+
+    indices = {FIRST_ACTOR: 0, SECOND_ACTOR: 0}
+    pending: dict[str, list[TraceAction]] = {
+        FIRST_ACTOR: [],
+        SECOND_ACTOR: [],
+    }
+    for sample in samples:
+        if sample.retail_frame <= NATIVE_SCHEDULE_HANDOFF_RETAIL_FRAME:
+            continue
+        for actor, state in states.items():
+            expected = sample.first if actor == FIRST_ACTOR else sample.second
+            if expected is None:
+                continue
+            assigned: list[Action] = []
+            for _ in range(64):
+                actor_events = per_actor[actor]
+                next_event = (
+                    actor_events[indices[actor]]
+                    if indices[actor] < len(actor_events)
+                    else None
+                )
+                if state.pose() == expected and (
+                    assigned
+                    or pending[actor]
+                    or next_event is None
+                    or next_event.pose == expected
+                ):
+                    break
+                if pending[actor]:
+                    action = pending[actor].pop(0)
+                    apply_trace_action(state, action, sine, cosine, curve)
+                    assigned.append(
+                        shipping_action(action, sample.retail_frame, sample_by_frame)
+                    )
+                    continue
+                if next_event is None:
+                    break
+                if state.saved_angles is not None:
+                    flight_pose = (
+                        state.x,
+                        state.y,
+                        state.z,
+                        *state.saved_angles,
+                        state.speed,
+                    )
+                    if next_event.pose == flight_pose:
+                        action = ("RestoreFlightAngles", None)
+                        apply_trace_action(state, action, sine, cosine, curve)
+                        assigned.append(action)
+                        continue
+                indices[actor] += 1
+                pending[actor] = trace_event_actions(
+                    next_event, maneuver_directions
+                )
+            if state.pose() != expected:
+                raise SystemExit(
+                    f"semantic capital extension diverges at frame "
+                    f"{sample.retail_frame} {actor}: "
+                    f"actual={state.pose()} expected={expected}"
+                )
+            schedule[sample.retail_frame][actor].extend(
+                compact_movement_actions(assigned)
+            )
+
+
 def replay(schedule: dict[int, dict[str, list[Action]]], samples: list[PoseSample]) -> None:
     trig_source = TRIG_SOURCE.read_text(encoding="utf-8")
     sine = rust_table("SINTAB", trig_source)
     cosine = rust_table("COSTAB", trig_source)
     curve = rust_table("SF2_ARCTANGENT_CURVE", ANGLE_SOURCE.read_text(encoding="utf-8"))
+    if samples[0].first is None or samples[0].second is None:
+        raise SystemExit("capital pose fixture lacks both actors at the handoff")
     states = {
         FIRST_ACTOR: FlightState(*samples[0].first, wave_phase=104),
         SECOND_ACTOR: FlightState(*samples[0].second, wave_phase=101),
@@ -392,8 +752,27 @@ def replay(schedule: dict[int, dict[str, list[Action]]], samples: list[PoseSampl
         )
         return tuple(signed_word(component * 4) for component in components)
 
-    def apply(state: FlightState, action: Action, player: tuple[int, ...]) -> None:
+    def apply(
+        state: FlightState,
+        action: Action,
+        player: tuple[int, ...],
+        previous_player: tuple[int, ...],
+        two_ticks_ago_player: tuple[int, ...],
+    ) -> None:
         kind, value = action
+        target_position = {
+            "Current": player,
+            "Midpoint": tuple(
+                start + trunc_div(end - start, 2)
+                for start, end in zip(previous_player, player)
+            ),
+            "Previous": previous_player,
+            "PreviousMidpoint": tuple(
+                start + trunc_div(end - start, 2)
+                for start, end in zip(two_ticks_ago_player, previous_player)
+            ),
+            "TwoTicksAgo": two_ticks_ago_player,
+        }.get(str(value), player)
         if kind == "BeginPitchManeuver":
             state.roll = 4 if value == "Starboard" else 252
         elif kind == "ChasePitch":
@@ -404,13 +783,15 @@ def replay(schedule: dict[int, dict[str, list[Action]]], samples: list[PoseSampl
         elif kind == "ChaseBank":
             target = next(units for units, name in BANK_TARGETS.items() if name == value) & 0xFF
             state.roll = chase_power(state.roll, target, 3, 8, 8)
-        elif kind == "FacePlayer":
-            dx = signed_word(player[0] - state.x)
-            dz = signed_word(player[2] - state.z)
+        elif kind in {"FacePlayer", "FacePlayerAt"}:
+            dx = signed_word(target_position[0] - state.x)
+            dz = signed_word(target_position[2] - state.z)
             target = (-(sf2_atan16(dx, dz, curve) >> 8)) & 0xFF
             state.yaw = chase_power(state.yaw, target, 2, 8, 4)
         elif kind == "CenterAltitude":
             state.y = signed_word(chase_power(state.y & 0xFFFF, 0, 3, 16, 8))
+        elif kind == "ApplyBankTurn":
+            state.yaw = (state.yaw + trunc_div(signed_byte(state.roll), 4)) & 0xFF
         elif kind in {"Move", "MoveHorizontal"}:
             if value == "Banked":
                 state.yaw = (state.yaw + trunc_div(signed_byte(state.roll), 4)) & 0xFF
@@ -427,11 +808,11 @@ def replay(schedule: dict[int, dict[str, list[Action]]], samples: list[PoseSampl
         elif kind == "ApplyVerticalWave":
             state.y = signed_word(state.y + cosine[state.wave_phase])
             state.wave_phase = (state.wave_phase + 1) & 0xFF
-        elif kind == "AimWeapon":
+        elif kind in {"AimWeapon", "AimWeaponAt"}:
             state.saved_angles = state.pitch, state.yaw, state.roll
-            dx = signed_word(player[0] - state.x)
-            dy = signed_word(player[1] - state.y)
-            dz = signed_word(player[2] - state.z)
+            dx = signed_word(target_position[0] - state.x)
+            dy = signed_word(target_position[1] - state.y)
+            dz = signed_word(target_position[2] - state.z)
             state.pitch = sf2_atan16(dy, xz_distance(dx, dz), curve) >> 8
             state.yaw = (-(sf2_atan16(dx, dz, curve) >> 8)) & 0xFF
         elif kind == "AimWeaponPitch":
@@ -449,13 +830,25 @@ def replay(schedule: dict[int, dict[str, list[Action]]], samples: list[PoseSampl
             raise AssertionError(action)
 
     failures = []
+    previous_player = samples[0].player
+    two_ticks_ago_player = samples[0].player
     for sample in samples[1:]:
         for actor in (FIRST_ACTOR, SECOND_ACTOR):
             for action in schedule[sample.retail_frame][actor]:
-                apply(states[actor], action, sample.player)
+                apply(
+                    states[actor],
+                    action,
+                    sample.player,
+                    previous_player,
+                    two_ticks_ago_player,
+                )
             expected = sample.first if actor == FIRST_ACTOR else sample.second
+            if expected is None:
+                continue
             if states[actor].pose() != expected:
                 failures.append((sample.retail_frame, actor, states[actor].pose(), expected))
+        two_ticks_ago_player = previous_player
+        previous_player = sample.player
     if failures:
         first = failures[0]
         raise SystemExit(
@@ -468,6 +861,12 @@ def rust_action(action: Action) -> str:
     kind, value = action
     if value is None:
         return f"CapitalFlightAction::{kind}"
+    if kind in {"FacePlayerAt", "AimWeaponAt", "AimWeaponPitchAt"}:
+        action_name = kind.removesuffix("At")
+        return (
+            f"CapitalFlightAction::{action_name}At("
+            f"PlayerTargetTiming::{value})"
+        )
     type_name = {
         "BeginPitchManeuver": "CapitalManeuverDirection",
         "ChasePitch": "CapitalPitchTarget",
@@ -482,7 +881,35 @@ def grouped_number(value: int) -> str:
     return f"{value:_}"
 
 
-def rust_source(schedule: dict[int, dict[str, list[Action]]]) -> str:
+def rust_source(
+    schedule: dict[int, dict[str, list[Action]]],
+    samples: list[PoseSample],
+) -> str:
+    first_present = [sample for sample in samples if sample.first is not None]
+    second_present = [sample for sample in samples if sample.second is not None]
+    second_inactive = [
+        sample.retail_frame
+        for sample in samples
+        if sample.second is None
+        and second_present[0].retail_frame
+        < sample.retail_frame
+        < second_present[-1].retail_frame
+    ]
+    if not first_present or not second_present or not second_inactive:
+        raise SystemExit("capital fixture lacks a complete actor lifetime")
+    if second_inactive != list(
+        range(
+            second_inactive[0],
+            second_inactive[-1] + RETAIL_FRAME_STEP,
+            RETAIL_FRAME_STEP,
+        )
+    ):
+        raise SystemExit("second capital has a non-contiguous inactive window")
+    first_departure = first_present[-1].retail_frame + RETAIL_FRAME_STEP
+    second_departure = second_present[-1].retail_frame + RETAIL_FRAME_STEP
+    second_inactive_start = second_inactive[0]
+    second_resume = second_inactive[-1] + RETAIL_FRAME_STEP
+
     flattened: list[Action] = []
     ranges = []
     for frame in range(START_RETAIL_FRAME, END_RETAIL_FRAME + 1, RETAIL_FRAME_STEP):
@@ -500,11 +927,19 @@ def rust_source(schedule: dict[int, dict[str, list[Action]]]) -> str:
         "",
         "use super::{",
         "    CapitalBankTarget, CapitalFlightAction, CapitalManeuverDirection, CapitalPitchTarget,",
-        "    CapitalTurnMode,",
+        "    CapitalTurnMode, PlayerTargetTiming,",
         "};",
         "",
         f"pub(super) const START_RETAIL_FRAME: u16 = {grouped_number(START_RETAIL_FRAME)};",
         f"pub(super) const END_RETAIL_FRAME: u16 = {grouped_number(END_RETAIL_FRAME)};",
+        "pub(super) const FIRST_DEPARTURE_RETAIL_FRAME: u16 = "
+        f"{grouped_number(first_departure)};",
+        "pub(super) const SECOND_INACTIVE_RETAIL_FRAME: u16 = "
+        f"{grouped_number(second_inactive_start)};",
+        "pub(super) const SECOND_RESUME_RETAIL_FRAME: u16 = "
+        f"{grouped_number(second_resume)};",
+        "pub(super) const SECOND_DEPARTURE_RETAIL_FRAME: u16 = "
+        f"{grouped_number(second_departure)};",
         f"const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         "",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
@@ -580,9 +1015,16 @@ def main() -> None:
         import_raw_logic(args.import_raw, args.logic_fixture)
     events = read_logic_fixture(args.logic_fixture)
     samples = read_pose_fixture(args.pose_fixture)
-    schedule = build_schedule(events)
+    schedule = build_schedule(
+        [
+            event
+            for event in events
+            if event.elapsed <= NATIVE_SCHEDULE_HANDOFF_ELAPSED
+        ]
+    )
+    extend_schedule(schedule, events, samples)
     replay(schedule, samples)
-    generated = rust_source(schedule)
+    generated = rust_source(schedule, samples)
     if args.check:
         current = args.output.read_text(encoding="utf-8") if args.output.exists() else ""
         if current != generated:
