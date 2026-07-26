@@ -51,13 +51,14 @@ use crate::common::{
 use crate::enemy_a::{
     achase_angle, add_player_z, addrnd2pos_xy, boss_attach_child_to_mother, boss_count_children,
     boss_find_child_obj, boss_get_mother_obj, copy_pos, fire_elaser, fire_fakefar_hmissile1,
-    fire_hmissile1, fire_stb_hmissile1, hmissile1_strat, homingflat_strat, make_large_exp_obj,
-    make_medium_exp_obj, make_xyvec, player, set_hard_vars, sid, speed_to, strat_aim_3d,
-    strat_aim_yaw, strat_explode, strat_fire_relslowlaser, strat_fire_relslowlaserhome,
-    strat_hit_flash, strat_move3d, strat_nocoll_init, strat_obj_index_or_null, strat_phase_offset,
-    strat_pitch_toward, strat_relslowelaser_speed, AF_LEFT_PL, ASF2_NOEXPSND, ASF2_RELEXPLODE,
-    ASF2_SMFLAG1, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG11, DEG180, DEG45,
-    DEG90, SH_BOUNCYBALL, SH_MISSILE,
+    fire_hmissile1, fire_stb_hmissile1, hmissile1_strat, homingflat_strat, init_fog_visibility,
+    make_large_exp_obj, make_medium_exp_obj, make_xyvec, player, set_hard_vars, sid, speed_to,
+    strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser,
+    strat_fire_relslowlaserhome, strat_hit_flash, strat_move3d, strat_nocoll_init,
+    strat_obj_index_or_null, strat_phase_offset, strat_pitch_toward, strat_relslowelaser_speed,
+    update_fog_visibility, AF_LEFT_PL, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SMFLAG1,
+    COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG11, DEG180, DEG45, DEG90,
+    FOG_VISIBILITY_DISTANCE, SH_BOUNCYBALL, SH_MISSILE,
 };
 use crate::snes_trig::rotate_16xz;
 
@@ -94,7 +95,6 @@ pub const SH_SMALL_EXPLOSION: u16 = 461;
 pub const SH_NULL_SHAPE: u16 = 0;
 pub const SH_SMALL_MISSILE_CARRIER: u16 = 412;
 const MEDPSPEED: u8 = 65; // STRATEQU.INC:347 medPspeed
-const FOGDIST: i16 = 2000; // KSTRATS.ASM:58 fogdist
 const DEG270: u8 = 192; // VARS.INC:18 deg270 = deg180+deg90
 const SPACE_VIEWCY: i16 = -60; // STRATEQU.INC:494 space_viewCY
 
@@ -422,6 +422,7 @@ pub fn tank1a_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.snd2 = 4; // set_sound2 x,#4
+        init_fog_visibility(al);
         al.hp = TANK1_HP; // s_set_aldata #tank1HP,#tank1AP
         al.ap = TANK1_AP;
         al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,enemy1
@@ -514,7 +515,7 @@ pub fn tank0_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.snd2 = 4; // set_sound2 x,#4
-                     // s_initfog — cosmetic no-op
+        init_fog_visibility(al);
         al.stratptr = Some(selfid);
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -581,7 +582,7 @@ pub fn tank1_goforward(g: &mut Game, idx: u16) {
         return;
     }
     tank1lr(g, idx);
-    // s_dofog — cosmetic no-op
+    update_fog_visibility(g, idx);
     tank1fire(g, idx);
     strat_move3d(g, idx, MEDPSPEED, 2);
     let al = &mut g.objs.aliens[idx as usize];
@@ -592,7 +593,7 @@ pub fn tank1_goforward(g: &mut Game, idx: u16) {
 /// (z-=7) at medpspeed — unlike tank1a's terminal idle retreat.
 fn tank1_goback(g: &mut Game, idx: u16) {
     tank1lr(g, idx);
-    // s_dofog — cosmetic no-op
+    update_fog_visibility(g, idx);
     tank1fire(g, idx);
     strat_move3d(g, idx, MEDPSPEED, 2);
     let al = &mut g.objs.aliens[idx as usize];
@@ -613,6 +614,7 @@ pub fn tank3_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.snd2 = 4;
+        init_fog_visibility(al);
         al.stratptr = Some(selfid); // s_set_alptrs x,tank3_istrat,...
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -635,13 +637,14 @@ pub fn tank3_istrat(g: &mut Game, idx: u16) {
 /// `.goforward` (KSTRATS.ASM:579-587): approach + fire, z += 25; back off when
 /// beyond fogdist+100 (2100) z.
 fn tank3_goforward(g: &mut Game, idx: u16) {
-    if zdist_more(g, idx, FOGDIST + 100) {
+    if zdist_more(g, idx, FOG_VISIBILITY_DISTANCE + 100) {
         let go = sid(g, tank3_goback);
         g.objs.aliens[idx as usize].stratptr = Some(go);
         tank3_goback(g, idx);
         return;
     }
     tank1lr(g, idx);
+    update_fog_visibility(g, idx);
     tank1fire(g, idx);
     strat_move3d(g, idx, MEDPSPEED + 20, 2);
     let al = &mut g.objs.aliens[idx as usize];
@@ -652,9 +655,10 @@ fn tank3_goforward(g: &mut Game, idx: u16) {
 /// when back inside fogdist-40 (1960) z.
 fn tank3_goback(g: &mut Game, idx: u16) {
     tank1lr(g, idx);
+    update_fog_visibility(g, idx);
     tank1fire(g, idx);
     strat_move3d(g, idx, MEDPSPEED - 20, 2); // speed 45
-    if zdist_less(g, idx, FOGDIST - 40) {
+    if zdist_less(g, idx, FOG_VISIBILITY_DISTANCE - 40) {
         let go = sid(g, tank3_goforwardb);
         g.objs.aliens[idx as usize].stratptr = Some(go);
         tank3_goforwardb(g, idx);
@@ -664,21 +668,24 @@ fn tank3_goback(g: &mut Game, idx: u16) {
 /// `.goforwardb` (KSTRATS.ASM:600-607): second approach; on pulling beyond
 /// 2100 z enter the idle end state.
 fn tank3_goforwardb(g: &mut Game, idx: u16) {
-    if zdist_more(g, idx, FOGDIST + 100) {
+    if zdist_more(g, idx, FOG_VISIBILITY_DISTANCE + 100) {
         let go = sid(g, tank3_gobackb);
         g.objs.aliens[idx as usize].stratptr = Some(go);
-        return; // .gobackb only runs fog (a no-op here) — nothing else to do.
+        return;
     }
     tank1lr(g, idx);
+    update_fog_visibility(g, idx);
     tank1fire(g, idx);
     strat_move3d(g, idx, MEDPSPEED + 20, 2);
     let al = &mut g.objs.aliens[idx as usize];
     al.worldz = al.worldz.wrapping_add(25);
 }
 
-/// `.gobackb` (KSTRATS.ASM:609-611): idle terminal (only `s_dofog`, a cosmetic
-/// no-op in this port).
-fn tank3_gobackb(_g: &mut Game, _idx: u16) {}
+/// `.gobackb` (KSTRATS.ASM:609-611): idle terminal that continues applying
+/// the source fog visibility cutoff.
+fn tank3_gobackb(g: &mut Game, idx: u16) {
+    update_fog_visibility(g, idx);
+}
 
 // ============================================================
 // tank2 (IS 162) — GA2STRAT.ASM:1266-1408. Signed al_vel body + 4 zaco_7
@@ -4174,14 +4181,16 @@ fn houdai5f_init(g: &mut Game, idx: u16) {
         al.hp = HOUDAI5_HP;
         al.ap = HOUDAI5_AP;
         al.animframe = 0x80; // s_init_anim x,#0
+        init_fog_visibility(al);
     }
     houdai5f_strat(g, idx); // fall-through
 }
 
 /// `houdai5f_strat` (KSTRATS.ASM:594-607): spin the anim (0..11), and on the
 /// `(gameframe & 31) == 0` gate — only when the player is at least 400 z away —
-/// fire a homing Hplasma. Fog is cosmetic.
+/// fire a homing Hplasma.
 pub fn houdai5f_strat(g: &mut Game, idx: u16) {
+    update_fog_visibility(g, idx);
     add_anim_wrap(&mut g.objs.aliens[idx as usize], 1, 12); // s_add_anim x,#1,#12
                                                             // s_jmp_notANDframe #31 ; s_jmp_Zdistless #400 -> fire when far, gated /32.
     if g.vars.gameframe & 31 == 0 && !zdist_less(g, idx, 400) {
@@ -7232,12 +7241,14 @@ pub fn pillar3f_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = Some(exp);
         al.hp = PILLAR3F_HP;
         al.ap = PILLAR3F_AP;
+        init_fog_visibility(al);
     }
     // The initializer falls through to the normal strategy in the same frame.
     pillar3f_strat(g, idx);
 }
 
 pub fn pillar3f_strat(g: &mut Game, idx: u16) {
+    update_fog_visibility(g, idx);
     if zdist_less(g, idx, PILLAR3F_DIST)
         || g.objs.aliens[idx as usize].hp < PILLAR3FFALL_HP
         || g.objs.aliens[idx as usize].hitflags & 0x02 != 0

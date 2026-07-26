@@ -293,7 +293,7 @@ pub fn register_all(g: &mut Game) {
     is[IS_HARD180YR] = Some(ea.hard180yr);
     is[IS_HARD180YRNZR] = Some(ea.hard180yr_nzr);
     is[IS_HARD90YR] = Some(ea.hard90yr);
-    is[IS_HARD180YRFOG] = Some(ea.hard180yr); // alias -> Strat_Hard180yr_Init
+    is[IS_HARD180YRFOG] = Some(ea.hard180yrfog);
     is[IS_HARD90YRFOG] = Some(ea.hard90yrfog);
     is[IS_HARDROT] = Some(ea.hardrot);
 
@@ -630,9 +630,9 @@ mod tests {
             g.world.istrats[IS_NOCOLL], g.world.istrats[IS_KICHI2],
             "kichi2 jumps to nocoll_istrat"
         );
-        assert_eq!(
+        assert_ne!(
             g.world.istrats[IS_HARD180YR], g.world.istrats[IS_HARD180YRFOG],
-            "Hard180yr fog alias"
+            "fog variant owns its source visibility behavior"
         );
         assert!(g.world.istrats[84].is_some(), "enemy_b bossA (IS_BOSSA=84)");
         assert!(g.world.istrats[98].is_some(), "enemy_b boss7 (IS_BOSS7=98)");

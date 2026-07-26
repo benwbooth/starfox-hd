@@ -301,6 +301,36 @@ pub(crate) fn set_hard_vars(al: &mut Alien) {
     al.ap = HARD_AP;
 }
 
+/// KSTRATS.ASM `fogdist`: fog-authored objects keep their source mesh only
+/// while they are nearer than this Z distance to the player.
+pub(crate) const FOG_VISIBILITY_DISTANCE: i16 = 2000;
+
+/// KSTRATS.ASM `s_initfog`: retain the object's ordinary flat shape identity
+/// in the source-owned `sword1` field.
+pub(crate) fn init_fog_visibility(al: &mut Alien) {
+    al.sword1 = al.shape as i16;
+}
+
+/// KSTRATS.ASM `s_dofog`: when the current map enables fog, hide objects at
+/// the inclusive distance boundary and restore their retained shape inside
+/// it. Disabling fog leaves the current shape untouched, matching the macro's
+/// early exit.
+pub(crate) fn update_fog_visibility(g: &mut Game, idx: u16) {
+    if g.vars.map.in_fog == 0 {
+        return;
+    }
+    let Some(player) = player(g) else {
+        return;
+    };
+    let object = g.objs.aliens[idx as usize];
+    let distance = player.worldz.wrapping_sub(object.worldz) as i32;
+    g.objs.aliens[idx as usize].shape = if distance.abs() >= i32::from(FOG_VISIBILITY_DISTANCE) {
+        0
+    } else {
+        object.sword1 as u16
+    };
+}
+
 /// C `strat_points_positive_z` (strat_enemy.c:302).
 pub fn strat_points_positive_z(al: &Alien) -> bool {
     let signed_yaw = al.roty as i8;
@@ -11367,8 +11397,23 @@ pub fn hardenemy1_istrat(g: &mut Game, idx: u16) {
     al.stratptr = None;
 }
 
-/// ROM `fog_strat` (KSTRATS.ASM:347-349) — `s_dofog` is a render cosmetic; no-op here.
-pub fn fog_strat(_g: &mut Game, _idx: u16) {}
+/// ROM `fog_strat` (KSTRATS.ASM:347-349).
+pub fn fog_strat(g: &mut Game, idx: u16) {
+    update_fog_visibility(g, idx);
+}
+
+/// ROM `hard180YRfog_Istrat` (KSTRATS.ASM:340-345): retain the source shape,
+/// face 180 degrees, install hard durability, and run the fog visibility tick.
+/// Unlike GSTRATS' ordinary `hard180YR`, this initializer does not assign an
+/// enemy collision class.
+pub fn hard180yrfog_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, fog_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    init_fog_visibility(al);
+    al.roty = DEG180;
+    set_hard_vars(al);
+    al.stratptr = Some(tick);
+}
 
 /// ROM `hard90YRfog_Istrat` (KSTRATS.ASM:333-338) — face 180°, hardvars, fog tick.
 pub fn hard90yrfog_istrat(g: &mut Game, idx: u16) {
@@ -16452,6 +16497,8 @@ pub struct EnemyAStratIds {
     pub hard: StratId,
     /// `hardenemy1_Istrat` — hardvars + COLLTYPE_ENEMY1, inert.
     pub hardenemy1: StratId,
+    /// `hard180YRfog_Istrat` — retained shape + hardvars + fog tick.
+    pub hard180yrfog: StratId,
     /// `hard90yrfog_Istrat` — face 180°, hardvars, fog tick (ISTRATS 183).
     pub hard90yrfog: StratId,
     /// `shark_Istrat` (ISTRATS 60).
@@ -16625,6 +16672,7 @@ pub fn install(g: &mut Game) -> EnemyAStratIds {
         exitopensnd: sid(g, exitopensnd_istrat),
         hard: sid(g, strat_hard_init),
         hardenemy1: sid(g, hardenemy1_istrat),
+        hard180yrfog: sid(g, hard180yrfog_istrat),
         hard90yrfog: sid(g, hard90yrfog_istrat),
         shark: sid(g, shark_istrat),
         fzaco: sid(g, fzaco_istrat),
