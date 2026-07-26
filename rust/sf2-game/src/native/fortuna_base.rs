@@ -47,6 +47,76 @@ pub(super) const KICK_GUNNER_INITIAL_POSITION: Vector3 = Vector3 {
 pub(super) const KICK_GUNNER_DURABILITY: u8 = 70;
 pub(super) const KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES: u16 = 236;
 pub(super) const KICK_GUNNER_SUBMERGED_Y: i16 = -480;
+pub(super) const KICK_GUNNER_ACTION_RETAIL_FRAMES: u8 = 6;
+pub(super) const KICK_GUNNER_ANIMATION_FRAME_COUNT: u8 = 12;
+pub(super) const KICK_GUNNER_FLOOR_DESCENT_STEP: i16 = -100;
+pub(super) const KICK_GUNNER_FLOOR_DESCENT_ACTION_COUNT: u8 = 2;
+pub(super) const KICK_GUNNER_LONG_DIVE_SPEED: u8 = 35;
+pub(super) const KICK_GUNNER_ATTACK_SPEED: u8 = 25;
+pub(super) const KICK_GUNNER_ATTACK_COUNT: u8 = 5;
+pub(super) const KICK_GUNNER_REST_AFTER_DIVE_ACTIONS: u8 = 11;
+pub(super) const KICK_GUNNER_ATTACK_PAUSE_ACTIONS: u8 = 4;
+pub(super) const KICK_GUNNER_POST_SPAWN_WAIT_ACTIONS: u8 = 2;
+pub(super) const KICK_GUNNER_BETWEEN_ROUTE_WAIT_RETAIL_FRAMES: u16 = 240;
+pub(super) const KICK_GUNNER_CORNER_RANDOM_MASK: u8 = 3;
+pub(super) const KICK_GUNNER_DIRECTION_RANDOM_MASK: u8 = 1;
+pub(super) const KICK_GUNNER_ROUTES_PER_CORNER: usize = 2;
+pub(super) const KICK_GUNNER_YAW_CHASE_SHIFT: u32 = 2;
+pub(super) const KICK_GUNNER_RETREAT_CHASE_SHIFT: u32 = 3;
+pub(super) const KICK_GUNNER_RETREAT_MINIMUM_STEP: i16 = 8;
+pub(super) const KICK_GUNNER_MOUNT_OFFSET: u8 = 50;
+pub(super) const KICK_GUNNER_MOUNT_DURABILITY: u8 = 10;
+pub(super) const KICK_GUNNER_MOUNT_ATTACK_POWER: u8 = 10;
+/// The mount performs its first settling action when it is created; these are
+/// the remaining actions before its one retail shot.
+pub(super) const KICK_GUNNER_MOUNT_SETTLE_ACTIONS: u8 = 9;
+pub(super) const KICK_GUNNER_PROJECTILE_SPEED: u8 = 20;
+pub(super) const KICK_GUNNER_PROJECTILE_POSITION_SCALE: i16 = 4;
+pub(super) const KICK_GUNNER_PROJECTILE_DURABILITY: u8 = 120;
+pub(super) const KICK_GUNNER_PROJECTILE_ATTACK_POWER: u8 = 4;
+pub(super) const KICK_GUNNER_PROJECTILE_LIFETIME_RETAIL_FRAMES: u16 = 220;
+pub(super) const KICK_GUNNER_SURFACE_Y: i16 = -100;
+pub(super) const KICK_GUNNER_RESTING_Y: i16 = 100;
+pub(super) const KICK_GUNNER_CORNER_POSITIONS: [Vector3; 4] = [
+    KICK_GUNNER_INITIAL_POSITION,
+    Vector3 {
+        x: 1_280,
+        y: KICK_GUNNER_RESTING_Y,
+        z: 1_280,
+    },
+    Vector3 {
+        x: -1_280,
+        y: KICK_GUNNER_RESTING_Y,
+        z: 1_280,
+    },
+    Vector3 {
+        x: -1_280,
+        y: KICK_GUNNER_RESTING_Y,
+        z: -1_280,
+    },
+];
+pub(super) const KICK_GUNNER_ROUTE_YAWS: [Angle; 8] = [
+    Angle::ZERO,
+    Angle::from_units(64),
+    Angle::HALF_TURN,
+    Angle::from_units(64),
+    Angle::from_units(192),
+    Angle::HALF_TURN,
+    Angle::from_units(192),
+    Angle::ZERO,
+];
+pub(super) const KICK_GUNNER_RETREAT_CORNERS: [usize; 8] = [1, 3, 0, 2, 1, 3, 0, 2];
+pub(super) const KICK_GUNNER_LONG_DIVE_VERTICAL_STEPS: [i16; 20] = [
+    -200, -81, -64, -49, -36, -25, -16, -9, -4, -1, 1, 4, 9, 16, 25, 36, 49, 64, 81, 200,
+];
+pub(super) const KICK_GUNNER_ATTACK_VERTICAL_STEPS: [i16; 14] =
+    [-98, -72, -50, -32, -18, -8, -2, 2, 8, 18, 32, 50, 72, 98];
+pub(super) const KICK_GUNNER_SURFACE_BOB_STEPS: [i16; 5] = [8, 12, 4, -4, -20];
+pub(super) const KICK_GUNNER_LONG_DIVE_ANIMATION_FRAMES: [u8; 20] = [
+    7, 8, 9, 9, 9, 9, 9, 9, 10, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+];
+pub(super) const KICK_GUNNER_ATTACK_ANIMATION_FRAMES: [u8; 14] =
+    [6, 7, 8, 9, 10, 8, 7, 6, 5, 4, 3, 2, 1, 0];
 pub(super) const INTERIOR_DOORWAY_POSITION: Vector3 = Vector3 {
     x: 2_560,
     y: 0,
@@ -54,223 +124,6 @@ pub(super) const INTERIOR_DOORWAY_POSITION: Vector3 = Vector3 {
 };
 pub(super) const INTERIOR_DOORWAY_HALF_WIDTH: u16 = 512;
 pub(super) const INTERIOR_DOORWAY_HALF_DEPTH: u16 = 512;
-
-/// Six-retail-frame samples from the guardian's first verified dive and leap.
-/// The sequence preserves the characteristic underwater parabola and forward
-/// advance without retaining a source path cursor.
-pub(super) const KICK_GUNNER_MOTION: [Vector3; 42] = [
-    Vector3 {
-        x: 1_280,
-        y: -100,
-        z: -1_280,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -300,
-        z: -1_247,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -381,
-        z: -1_214,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -445,
-        z: -1_181,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -494,
-        z: -1_148,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -530,
-        z: -1_115,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -555,
-        z: -1_082,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -571,
-        z: -1_049,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -580,
-        z: -1_016,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -584,
-        z: -983,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -585,
-        z: -950,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -584,
-        z: -917,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -580,
-        z: -884,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -571,
-        z: -851,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -555,
-        z: -818,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -530,
-        z: -785,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -494,
-        z: -752,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -445,
-        z: -719,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -381,
-        z: -686,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -300,
-        z: -653,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -100,
-        z: -653,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -92,
-        z: -653,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -80,
-        z: -653,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -76,
-        z: -653,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -80,
-        z: -653,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -100,
-        z: -653,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -198,
-        z: -630,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -270,
-        z: -607,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -320,
-        z: -584,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -352,
-        z: -561,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -370,
-        z: -538,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -378,
-        z: -515,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -380,
-        z: -492,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -378,
-        z: -469,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -370,
-        z: -446,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -352,
-        z: -423,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -320,
-        z: -400,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -270,
-        z: -377,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -198,
-        z: -354,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -100,
-        z: -354,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -80,
-        z: -354,
-    },
-    Vector3 {
-        x: 1_280,
-        y: -76,
-        z: -354,
-    },
-];
-pub(super) const KICK_GUNNER_MOTION_SAMPLE_RETAIL_FRAMES: u16 = 6;
 
 pub(super) const CORE_ROOM_START_POSITION: Vector3 = Vector3 {
     x: 2_065,

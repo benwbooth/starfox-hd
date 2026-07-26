@@ -5,7 +5,7 @@ use super::campaign_world_assignments::{
     THREE_WORLD_CAMPAIGN_ASSIGNMENT_COUNT,
 };
 use super::input::InputState;
-use super::object::{Angle, ObjectId, ObjectStore};
+use super::object::{Angle, ObjectId, ObjectStore, Vector3};
 use super::render::Camera;
 
 pub const SELECTED_PILOT_COUNT: usize = 2;
@@ -2040,6 +2040,67 @@ pub enum FortunaCoreStatus {
     Destroyed,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FortunaKickGunnerPhase {
+    #[default]
+    Dormant,
+    WaitingToDive {
+        retail_frames_remaining: u16,
+    },
+    DivingToFloor {
+        action_index: u8,
+    },
+    LongDive {
+        action_index: u8,
+    },
+    SurfaceBobAfterDive {
+        action_index: u8,
+    },
+    RestingAfterDive {
+        actions_remaining: u8,
+    },
+    AttackPreparationBob {
+        attack_index: u8,
+        action_index: u8,
+    },
+    AttackLeap {
+        attack_index: u8,
+        action_index: u8,
+    },
+    AttackRecoveryBob {
+        attack_index: u8,
+        action_index: u8,
+    },
+    AttackPause {
+        attack_index: u8,
+        actions_remaining: u8,
+    },
+    AttackPostSpawnWait {
+        attack_index: u8,
+        actions_remaining: u8,
+    },
+    RetreatPreparationBob {
+        action_index: u8,
+    },
+    Retreat {
+        action_index: u8,
+    },
+    WaitingBeforeRouteSelection {
+        retail_frames_remaining: u16,
+    },
+}
+
+/// Semantic state for Fortuna's interior guardian. The original strategy's
+/// movement direction and retreat destination are ordinary flat world state;
+/// no source path pointer or object-window storage is retained.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct FortunaKickGunnerMotionState {
+    pub phase: FortunaKickGunnerPhase,
+    pub movement_yaw: Angle,
+    pub retreat_target: Vector3,
+    pub action_retail_frame_accumulator: u8,
+}
+
 /// Flat mission-owned state for Fortuna's submerged switches, interior
 /// guardian, shield defenses, and two-threshold installation core. Source
 /// object slots and strategy storage never enter the native game state.
@@ -2049,7 +2110,7 @@ pub struct FortunaMissionState {
     pub phase_started_retail_frame: u16,
     pub surface_switches: [FortunaSwitchStatus; FORTUNA_SURFACE_SWITCH_COUNT],
     pub kick_gunner: FortunaDefenderStatus,
-    pub kick_gunner_motion_step: u8,
+    pub kick_gunner_motion: FortunaKickGunnerMotionState,
     pub core_defenders: [FortunaDefenderStatus; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
     pub core: FortunaCoreStatus,
     pub core_emitter_index: u8,

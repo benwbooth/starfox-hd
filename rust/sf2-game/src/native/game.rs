@@ -15,11 +15,11 @@ use super::object::{
     FighterInterceptFlightState, FighterInterceptMovementPhase, FighterInterceptWeaponPhase,
     FighterLogicCadence, FighterWaveDirection, FighterWaveOrder, FighterWavePolarity,
     FighterWeaponPhase, FinalRivalFlightPhase, FinalRivalFlightState, FortunaCoreProjectileState,
-    HostileProjectileFlightPhase, HostileProjectileFlightState, HostileProjectileMovementPhase,
-    InterceptionMissileFlightState, InterceptionMissileSteering, LeonRivalFlightPhase,
-    LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity, ObjectId, ObjectKind,
-    PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState,
-    PlayerProjectileKind, PlayerProjectileState, QueenDragoonFlightState,
+    FortunaKickGunnerProjectileState, HostileProjectileFlightPhase, HostileProjectileFlightState,
+    HostileProjectileMovementPhase, InterceptionMissileFlightState, InterceptionMissileSteering,
+    LeonRivalFlightPhase, LeonRivalFlightState, LeonRivalMovementPhase, Object, ObjectActivity,
+    ObjectId, ObjectKind, PigmaRivalFlightPhase, PigmaRivalFlightState, PlayerChargeOrbPhase,
+    PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState, QueenDragoonFlightState,
     ReengagementFighterFlightState, ReengagementFighterMovementPhase, ShapeId, SpatialDistance,
     SpatialLoop, SpatialSound, StereoPosition, Vector3, WeaponKind,
 };
@@ -35,14 +35,14 @@ use super::state::{
     CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
     EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
     EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
-    FlightControlStyle, FortunaCoreStatus, FortunaDefenderStatus, FortunaMissionState,
-    FortunaPhase, FortunaSwitchStatus, GameMode, GameOverChoice, GameOverDestination,
-    GameOverPhase, GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
-    MacbethInstallationStatus, MacbethMissionState, MacbethPhase, MacbethSwitchStatus, MapPoint,
-    MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus, MissionMessage,
-    MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
-    PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
-    PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
+    FlightControlStyle, FortunaCoreStatus, FortunaDefenderStatus, FortunaKickGunnerMotionState,
+    FortunaKickGunnerPhase, FortunaMissionState, FortunaPhase, FortunaSwitchStatus, GameMode,
+    GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase,
+    MacbethCoreStatus, MacbethDefenderStatus, MacbethInstallationStatus, MacbethMissionState,
+    MacbethPhase, MacbethSwitchStatus, MapPoint, MeteorCoreStatus, MeteorMissionState, MeteorPhase,
+    MeteorSwitchStatus, MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionPhase,
+    MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
+    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
     PlayerCraftTransformationDirection, PlayerDamageState, RecurringAttacker,
     RecurringAttackersState, ResultsChoice, ResultsPhase, ResultsState, SoundEvent,
     StrategicEncounter, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
@@ -4373,6 +4373,13 @@ struct ActiveFinalRivalProjectile {
     object: ObjectId,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ActiveFortunaKickGunnerMount {
+    object: ObjectId,
+    settle_actions_remaining: u8,
+    retail_frame_accumulator: u8,
+}
+
 const fn recurring_attacker_shape(attacker: RecurringAttacker) -> ShapeId {
     match attacker {
         RecurringAttacker::Vanguard | RecurringAttacker::HighGuard | RecurringAttacker::Flanker => {
@@ -5662,6 +5669,7 @@ pub struct Game {
     fortuna_surface_switches: [Option<ObjectId>; FORTUNA_SURFACE_SWITCH_COUNT],
     fortuna_installation: Option<ObjectId>,
     fortuna_kick_gunner: Option<ObjectId>,
+    fortuna_kick_gunner_mounts: Vec<ActiveFortunaKickGunnerMount>,
     fortuna_interior_doorway: Option<ObjectId>,
     fortuna_core_defenders: [Option<ObjectId>; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
     fortuna_core_defender_heads: [Option<ObjectId>; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
@@ -5760,6 +5768,9 @@ impl Game {
             fortuna_surface_switches: [None; FORTUNA_SURFACE_SWITCH_COUNT],
             fortuna_installation: None,
             fortuna_kick_gunner: None,
+            fortuna_kick_gunner_mounts: Vec::with_capacity(
+                fortuna_base::KICK_GUNNER_ATTACK_COUNT as usize,
+            ),
             fortuna_interior_doorway: None,
             fortuna_core_defenders: [None; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
             fortuna_core_defender_heads: [None; FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
@@ -7117,7 +7128,7 @@ impl Game {
             phase_started_retail_frame: 0,
             surface_switches: [FortunaSwitchStatus::Active; FORTUNA_SURFACE_SWITCH_COUNT],
             kick_gunner: FortunaDefenderStatus::Dormant,
-            kick_gunner_motion_step: 0,
+            kick_gunner_motion: FortunaKickGunnerMotionState::default(),
             core_defenders: [FortunaDefenderStatus::NotInstalled;
                 FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
             core: FortunaCoreStatus::Shielded,
@@ -10202,9 +10213,11 @@ impl Game {
                     self.enter_fortuna_interior(retail_frame)?;
                 }
                 FortunaPhase::KickGunnerCombat => {
-                    self.update_fortuna_kick_gunner_motion(retail_frame);
+                    self.update_fortuna_kick_gunner_motion()?;
+                    self.update_fortuna_kick_gunner_mounts()?;
                     self.refresh_fortuna_kick_gunner_status();
                     if self.state.mission.fortuna.kick_gunner == FortunaDefenderStatus::Destroyed {
+                        self.clear_fortuna_kick_gunner_mounts();
                         self.enter_fortuna_phase(FortunaPhase::InteriorTransit, retail_frame);
                     }
                 }
@@ -10322,6 +10335,18 @@ impl Game {
         }
     }
 
+    fn clear_fortuna_kick_gunner_mounts(&mut self) {
+        if let Some(guardian) = self
+            .fortuna_kick_gunner
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            guardian.base.first_child = None;
+        }
+        for mount in self.fortuna_kick_gunner_mounts.drain(..) {
+            self.state.objects.remove(mount.object);
+        }
+    }
+
     fn clear_fortuna_scene(&mut self) {
         for object in [
             &mut self.fortuna_installation,
@@ -10345,6 +10370,7 @@ impl Game {
                 self.state.objects.remove(id);
             }
         }
+        self.clear_fortuna_kick_gunner_mounts();
         self.clear_fortuna_projectiles();
     }
 
@@ -10478,7 +10504,13 @@ impl Game {
         self.state.mission.fortuna.kick_gunner = FortunaDefenderStatus::Active {
             durability: fortuna_base::KICK_GUNNER_DURABILITY,
         };
-        self.state.mission.fortuna.kick_gunner_motion_step = 0;
+        self.state.mission.fortuna.kick_gunner_motion = FortunaKickGunnerMotionState {
+            phase: FortunaKickGunnerPhase::WaitingToDive {
+                retail_frames_remaining: fortuna_base::KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES,
+            },
+            ..FortunaKickGunnerMotionState::default()
+        };
+        self.select_fortuna_kick_gunner_route();
 
         let mut doorway = Object::new(
             ObjectKind::Scenery,
@@ -10498,29 +10530,561 @@ impl Game {
         Ok(())
     }
 
-    fn update_fortuna_kick_gunner_motion(&mut self, retail_frame: u16) {
-        let elapsed =
-            retail_frame.saturating_sub(self.state.mission.fortuna.phase_started_retail_frame);
-        if elapsed < fortuna_base::KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES {
-            return;
-        }
-        let motion_elapsed = elapsed - fortuna_base::KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES;
-        let step = usize::from(
-            (motion_elapsed / fortuna_base::KICK_GUNNER_MOTION_SAMPLE_RETAIL_FRAMES)
-                % fortuna_base::KICK_GUNNER_MOTION.len() as u16,
+    fn select_fortuna_kick_gunner_route(&mut self) {
+        let corner_index = usize::from(
+            self.state.random.next_byte() & fortuna_base::KICK_GUNNER_CORNER_RANDOM_MASK,
         );
-        self.state.mission.fortuna.kick_gunner_motion_step = step as u8;
+        let direction_index = usize::from(
+            self.state.random.next_byte() & fortuna_base::KICK_GUNNER_DIRECTION_RANDOM_MASK,
+        );
+        let route_index =
+            corner_index * fortuna_base::KICK_GUNNER_ROUTES_PER_CORNER + direction_index;
+        let movement_yaw = fortuna_base::KICK_GUNNER_ROUTE_YAWS[route_index];
+        let retreat_target = fortuna_base::KICK_GUNNER_CORNER_POSITIONS
+            [fortuna_base::KICK_GUNNER_RETREAT_CORNERS[route_index]];
+        self.state.mission.fortuna.kick_gunner_motion.movement_yaw = movement_yaw;
+        self.state.mission.fortuna.kick_gunner_motion.retreat_target = retreat_target;
         if let Some(guardian) = self
             .fortuna_kick_gunner
             .and_then(|id| self.state.objects.get_mut(id))
         {
-            if guardian.base.explosion_timer > 0 || guardian.base.hit_points == 0 {
-                return;
-            }
-            guardian.base.position = fortuna_base::KICK_GUNNER_MOTION[step];
-            guardian.base.flags.collision_disabled =
-                guardian.base.position.y < fortuna_base::KICK_GUNNER_SUBMERGED_Y;
+            guardian.base.position = fortuna_base::KICK_GUNNER_CORNER_POSITIONS[corner_index];
+            guardian.base.yaw = movement_yaw;
+            guardian.base.speed = 0;
+            guardian.base.velocity = Vector3::default();
+            guardian.base.flags.collision_disabled = false;
         }
+    }
+
+    fn update_fortuna_kick_gunner_motion(&mut self) -> Result<(), Error> {
+        let Some(guardian_id) = self.fortuna_kick_gunner else {
+            return Ok(());
+        };
+        if self.state.objects.get(guardian_id).is_none_or(|guardian| {
+            guardian.base.explosion_timer > 0 || guardian.base.hit_points == 0
+        }) {
+            return Ok(());
+        }
+
+        let tick_retail_frames = RETAIL_PRESENTATION_FRAMES_PER_TICK as u8;
+        let motion = &mut self.state.mission.fortuna.kick_gunner_motion;
+        match motion.phase {
+            FortunaKickGunnerPhase::Dormant => return Ok(()),
+            FortunaKickGunnerPhase::WaitingToDive {
+                retail_frames_remaining,
+            } => {
+                if retail_frames_remaining > u16::from(tick_retail_frames) {
+                    motion.phase = FortunaKickGunnerPhase::WaitingToDive {
+                        retail_frames_remaining: retail_frames_remaining
+                            - u16::from(tick_retail_frames),
+                    };
+                    return Ok(());
+                }
+                motion.phase = FortunaKickGunnerPhase::DivingToFloor { action_index: 0 };
+                motion.action_retail_frame_accumulator =
+                    fortuna_base::KICK_GUNNER_ACTION_RETAIL_FRAMES;
+            }
+            FortunaKickGunnerPhase::WaitingBeforeRouteSelection {
+                retail_frames_remaining,
+            } => {
+                if retail_frames_remaining > u16::from(tick_retail_frames) {
+                    motion.phase = FortunaKickGunnerPhase::WaitingBeforeRouteSelection {
+                        retail_frames_remaining: retail_frames_remaining
+                            - u16::from(tick_retail_frames),
+                    };
+                    return Ok(());
+                }
+                self.select_fortuna_kick_gunner_route();
+                self.state.mission.fortuna.kick_gunner_motion.phase =
+                    FortunaKickGunnerPhase::WaitingToDive {
+                        retail_frames_remaining:
+                            fortuna_base::KICK_GUNNER_BETWEEN_ROUTE_WAIT_RETAIL_FRAMES,
+                    };
+                return Ok(());
+            }
+            _ => {
+                motion.action_retail_frame_accumulator = motion
+                    .action_retail_frame_accumulator
+                    .saturating_add(tick_retail_frames);
+            }
+        }
+
+        while self
+            .state
+            .mission
+            .fortuna
+            .kick_gunner_motion
+            .action_retail_frame_accumulator
+            >= fortuna_base::KICK_GUNNER_ACTION_RETAIL_FRAMES
+        {
+            self.state
+                .mission
+                .fortuna
+                .kick_gunner_motion
+                .action_retail_frame_accumulator -= fortuna_base::KICK_GUNNER_ACTION_RETAIL_FRAMES;
+            let spawn_mount = self.apply_fortuna_kick_gunner_action(guardian_id);
+            if spawn_mount {
+                self.spawn_fortuna_kick_gunner_mount(guardian_id)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_fortuna_kick_gunner_action(&mut self, guardian_id: ObjectId) -> bool {
+        let mut motion = self.state.mission.fortuna.kick_gunner_motion;
+        let player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position);
+        let Some(guardian) = self.state.objects.get_mut(guardian_id) else {
+            return false;
+        };
+        let mut spawn_mount = false;
+
+        motion.phase = match motion.phase {
+            FortunaKickGunnerPhase::DivingToFloor { action_index } => {
+                guardian.base.position.y = guardian
+                    .base
+                    .position
+                    .y
+                    .wrapping_add(fortuna_base::KICK_GUNNER_FLOOR_DESCENT_STEP);
+                let next_action = action_index.saturating_add(1);
+                if next_action >= fortuna_base::KICK_GUNNER_FLOOR_DESCENT_ACTION_COUNT {
+                    guardian.base.position.y = fortuna_base::KICK_GUNNER_SURFACE_Y;
+                    guardian.base.speed = fortuna_base::KICK_GUNNER_LONG_DIVE_SPEED;
+                    guardian.base.velocity = flight_velocity(
+                        Angle::ZERO,
+                        motion.movement_yaw,
+                        fortuna_base::KICK_GUNNER_LONG_DIVE_SPEED,
+                        1,
+                    );
+                    FortunaKickGunnerPhase::LongDive { action_index: 0 }
+                } else {
+                    FortunaKickGunnerPhase::DivingToFloor {
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::LongDive { action_index } => {
+                let index = usize::from(action_index);
+                if index + 1 < fortuna_base::KICK_GUNNER_LONG_DIVE_VERTICAL_STEPS.len() {
+                    guardian.base.position.x = guardian
+                        .base
+                        .position
+                        .x
+                        .wrapping_add(guardian.base.velocity.x);
+                    guardian.base.position.z = guardian
+                        .base
+                        .position
+                        .z
+                        .wrapping_add(guardian.base.velocity.z);
+                }
+                guardian.base.position.y = guardian
+                    .base
+                    .position
+                    .y
+                    .wrapping_add(fortuna_base::KICK_GUNNER_LONG_DIVE_VERTICAL_STEPS[index]);
+                guardian.extension.animation_frame =
+                    fortuna_base::KICK_GUNNER_LONG_DIVE_ANIMATION_FRAMES[index];
+                let next_action = action_index.saturating_add(1);
+                if usize::from(next_action)
+                    >= fortuna_base::KICK_GUNNER_LONG_DIVE_VERTICAL_STEPS.len()
+                {
+                    guardian.base.position.y = fortuna_base::KICK_GUNNER_SURFACE_Y;
+                    guardian.base.speed = 0;
+                    guardian.base.velocity = Vector3::default();
+                    FortunaKickGunnerPhase::SurfaceBobAfterDive { action_index: 0 }
+                } else {
+                    FortunaKickGunnerPhase::LongDive {
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::SurfaceBobAfterDive { action_index } => {
+                let next_action = apply_fortuna_kick_gunner_bob(guardian, action_index);
+                if usize::from(next_action) >= fortuna_base::KICK_GUNNER_SURFACE_BOB_STEPS.len() {
+                    FortunaKickGunnerPhase::RestingAfterDive {
+                        actions_remaining: fortuna_base::KICK_GUNNER_REST_AFTER_DIVE_ACTIONS,
+                    }
+                } else {
+                    FortunaKickGunnerPhase::SurfaceBobAfterDive {
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::RestingAfterDive { actions_remaining } => {
+                if actions_remaining > 1 {
+                    FortunaKickGunnerPhase::RestingAfterDive {
+                        actions_remaining: actions_remaining - 1,
+                    }
+                } else {
+                    FortunaKickGunnerPhase::AttackPreparationBob {
+                        attack_index: 0,
+                        action_index: 0,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::AttackPreparationBob {
+                attack_index,
+                action_index,
+            } => {
+                let next_action = apply_fortuna_kick_gunner_bob(guardian, action_index);
+                if usize::from(next_action) >= fortuna_base::KICK_GUNNER_SURFACE_BOB_STEPS.len() {
+                    guardian.base.speed = fortuna_base::KICK_GUNNER_ATTACK_SPEED;
+                    guardian.base.velocity = flight_velocity(
+                        Angle::ZERO,
+                        motion.movement_yaw,
+                        fortuna_base::KICK_GUNNER_ATTACK_SPEED,
+                        1,
+                    );
+                    FortunaKickGunnerPhase::AttackLeap {
+                        attack_index,
+                        action_index: 0,
+                    }
+                } else {
+                    FortunaKickGunnerPhase::AttackPreparationBob {
+                        attack_index,
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::AttackLeap {
+                attack_index,
+                action_index,
+            } => {
+                if let Some(target) = player_position {
+                    let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(
+                        target.x.wrapping_sub(guardian.base.position.x),
+                        target.z.wrapping_sub(guardian.base.position.z),
+                    );
+                    let mut yaw = guardian.base.yaw.units();
+                    sf_core::snes_trig::achase_angle_8(
+                        &mut yaw,
+                        target_yaw,
+                        fortuna_base::KICK_GUNNER_YAW_CHASE_SHIFT,
+                    );
+                    guardian.base.yaw = Angle::from_units(yaw);
+                }
+                let index = usize::from(action_index);
+                if index + 1 < fortuna_base::KICK_GUNNER_ATTACK_VERTICAL_STEPS.len() {
+                    guardian.base.position.x = guardian
+                        .base
+                        .position
+                        .x
+                        .wrapping_add(guardian.base.velocity.x);
+                    guardian.base.position.z = guardian
+                        .base
+                        .position
+                        .z
+                        .wrapping_add(guardian.base.velocity.z);
+                }
+                guardian.base.position.y = guardian
+                    .base
+                    .position
+                    .y
+                    .wrapping_add(fortuna_base::KICK_GUNNER_ATTACK_VERTICAL_STEPS[index]);
+                guardian.extension.animation_frame =
+                    fortuna_base::KICK_GUNNER_ATTACK_ANIMATION_FRAMES[index];
+                let next_action = action_index.saturating_add(1);
+                if usize::from(next_action) >= fortuna_base::KICK_GUNNER_ATTACK_VERTICAL_STEPS.len()
+                {
+                    guardian.base.position.y = fortuna_base::KICK_GUNNER_SURFACE_Y;
+                    guardian.base.speed = 0;
+                    guardian.base.velocity = Vector3::default();
+                    FortunaKickGunnerPhase::AttackRecoveryBob {
+                        attack_index,
+                        action_index: 0,
+                    }
+                } else {
+                    FortunaKickGunnerPhase::AttackLeap {
+                        attack_index,
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::AttackRecoveryBob {
+                attack_index,
+                action_index,
+            } => {
+                let next_action = apply_fortuna_kick_gunner_bob(guardian, action_index);
+                if usize::from(next_action) >= fortuna_base::KICK_GUNNER_SURFACE_BOB_STEPS.len() {
+                    FortunaKickGunnerPhase::AttackPause {
+                        attack_index,
+                        actions_remaining: fortuna_base::KICK_GUNNER_ATTACK_PAUSE_ACTIONS,
+                    }
+                } else {
+                    FortunaKickGunnerPhase::AttackRecoveryBob {
+                        attack_index,
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::AttackPause {
+                attack_index,
+                actions_remaining,
+            } => {
+                if actions_remaining > 1 {
+                    FortunaKickGunnerPhase::AttackPause {
+                        attack_index,
+                        actions_remaining: actions_remaining - 1,
+                    }
+                } else {
+                    spawn_mount = true;
+                    FortunaKickGunnerPhase::AttackPostSpawnWait {
+                        attack_index,
+                        actions_remaining: fortuna_base::KICK_GUNNER_POST_SPAWN_WAIT_ACTIONS,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::AttackPostSpawnWait {
+                attack_index,
+                actions_remaining,
+            } => {
+                if actions_remaining > 1 {
+                    FortunaKickGunnerPhase::AttackPostSpawnWait {
+                        attack_index,
+                        actions_remaining: actions_remaining - 1,
+                    }
+                } else {
+                    let next_attack = attack_index.saturating_add(1);
+                    if next_attack < fortuna_base::KICK_GUNNER_ATTACK_COUNT {
+                        FortunaKickGunnerPhase::AttackPreparationBob {
+                            attack_index: next_attack,
+                            action_index: 0,
+                        }
+                    } else {
+                        FortunaKickGunnerPhase::RetreatPreparationBob { action_index: 0 }
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::RetreatPreparationBob { action_index } => {
+                let next_action = apply_fortuna_kick_gunner_bob(guardian, action_index);
+                if usize::from(next_action) >= fortuna_base::KICK_GUNNER_SURFACE_BOB_STEPS.len() {
+                    FortunaKickGunnerPhase::Retreat { action_index: 0 }
+                } else {
+                    FortunaKickGunnerPhase::RetreatPreparationBob {
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::Retreat { action_index } => {
+                let index = usize::from(action_index);
+                guardian.base.position.y = guardian
+                    .base
+                    .position
+                    .y
+                    .wrapping_add(fortuna_base::KICK_GUNNER_LONG_DIVE_VERTICAL_STEPS[index]);
+                guardian.base.position.x = chase_fortuna_kick_gunner_position(
+                    guardian.base.position.x,
+                    motion.retreat_target.x,
+                );
+                guardian.base.position.z = chase_fortuna_kick_gunner_position(
+                    guardian.base.position.z,
+                    motion.retreat_target.z,
+                );
+                guardian.extension.animation_frame =
+                    fortuna_base::KICK_GUNNER_LONG_DIVE_ANIMATION_FRAMES[index];
+                let next_action = action_index.saturating_add(1);
+                if usize::from(next_action)
+                    >= fortuna_base::KICK_GUNNER_LONG_DIVE_VERTICAL_STEPS.len()
+                {
+                    guardian.base.position.y = fortuna_base::KICK_GUNNER_RESTING_Y;
+                    guardian.base.speed = 0;
+                    guardian.base.velocity = Vector3::default();
+                    FortunaKickGunnerPhase::WaitingBeforeRouteSelection {
+                        retail_frames_remaining:
+                            fortuna_base::KICK_GUNNER_BETWEEN_ROUTE_WAIT_RETAIL_FRAMES,
+                    }
+                } else {
+                    FortunaKickGunnerPhase::Retreat {
+                        action_index: next_action,
+                    }
+                }
+            }
+            FortunaKickGunnerPhase::Dormant
+            | FortunaKickGunnerPhase::WaitingToDive { .. }
+            | FortunaKickGunnerPhase::WaitingBeforeRouteSelection { .. } => motion.phase,
+        };
+        guardian.base.flags.collision_disabled =
+            guardian.base.position.y < fortuna_base::KICK_GUNNER_SUBMERGED_Y;
+        self.state.mission.fortuna.kick_gunner_motion = motion;
+        spawn_mount
+    }
+
+    fn spawn_fortuna_kick_gunner_mount(&mut self, guardian_id: ObjectId) -> Result<(), Error> {
+        let Some((guardian_position, guardian_yaw, previous_child)) =
+            self.state.objects.get(guardian_id).map(|guardian| {
+                (
+                    guardian.base.position,
+                    guardian.base.yaw,
+                    guardian.base.first_child,
+                )
+            })
+        else {
+            return Ok(());
+        };
+        let mut mount = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::FORTUNA_KICK_GUNNER_MOUNT,
+            Behavior::EnemyFlight,
+        );
+        mount.base.position = add_vectors(
+            guardian_position,
+            flight_velocity(
+                Angle::ZERO,
+                guardian_yaw,
+                fortuna_base::KICK_GUNNER_MOUNT_OFFSET,
+                1,
+            ),
+        );
+        mount.base.yaw = guardian_yaw;
+        mount.base.hit_points = fortuna_base::KICK_GUNNER_MOUNT_DURABILITY;
+        mount.base.attack_power = fortuna_base::KICK_GUNNER_MOUNT_ATTACK_POWER;
+        mount.base.collision_class = CollisionClass::Enemy;
+        mount.base.flags.visible = false;
+        mount.base.flags.casts_shadow = false;
+        mount.base.linked_object = Some(guardian_id);
+        mount.base.next_sibling = previous_child;
+        mount.extension.parent = Some(guardian_id);
+        let object = self
+            .state
+            .objects
+            .allocate(mount)
+            .ok_or(Error::ObjectCapacityReached)?;
+        if let Some(guardian) = self.state.objects.get_mut(guardian_id) {
+            guardian.base.first_child = Some(object);
+        }
+        self.fortuna_kick_gunner_mounts
+            .push(ActiveFortunaKickGunnerMount {
+                object,
+                settle_actions_remaining: fortuna_base::KICK_GUNNER_MOUNT_SETTLE_ACTIONS,
+                retail_frame_accumulator: 0,
+            });
+        Ok(())
+    }
+
+    fn update_fortuna_kick_gunner_mounts(&mut self) -> Result<(), Error> {
+        self.fortuna_projectiles
+            .retain(|object| self.state.objects.get(*object).is_some());
+        let Some((guardian_position, guardian_yaw)) = self
+            .fortuna_kick_gunner
+            .and_then(|id| self.state.objects.get(id))
+            .map(|guardian| (guardian.base.position, guardian.base.yaw))
+        else {
+            self.clear_fortuna_kick_gunner_mounts();
+            return Ok(());
+        };
+        let player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position);
+        let mount_position = add_vectors(
+            guardian_position,
+            flight_velocity(
+                Angle::ZERO,
+                guardian_yaw,
+                fortuna_base::KICK_GUNNER_MOUNT_OFFSET,
+                1,
+            ),
+        );
+        let mut launches = Vec::new();
+        let mut retiring = Vec::new();
+        for active in &mut self.fortuna_kick_gunner_mounts {
+            let Some(mount) = self.state.objects.get_mut(active.object) else {
+                retiring.push(active.object);
+                continue;
+            };
+            if mount.base.explosion_timer > 0 || mount.base.hit_points == 0 {
+                retiring.push(active.object);
+                continue;
+            }
+            mount.base.position = mount_position;
+            mount.base.yaw = guardian_yaw;
+            active.retail_frame_accumulator = active
+                .retail_frame_accumulator
+                .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u8);
+            while active.retail_frame_accumulator >= fortuna_base::KICK_GUNNER_ACTION_RETAIL_FRAMES
+                && active.settle_actions_remaining > 0
+            {
+                active.retail_frame_accumulator -= fortuna_base::KICK_GUNNER_ACTION_RETAIL_FRAMES;
+                active.settle_actions_remaining -= 1;
+            }
+            if active.settle_actions_remaining == 0 {
+                if let Some(target) = player_position {
+                    launches.push((mount.base.position, target));
+                }
+                retiring.push(active.object);
+            }
+        }
+        self.fortuna_kick_gunner_mounts
+            .retain(|active| !retiring.contains(&active.object));
+        for object in retiring {
+            self.state.objects.remove(object);
+        }
+        let active_mounts: Vec<ObjectId> = self
+            .fortuna_kick_gunner_mounts
+            .iter()
+            .map(|active| active.object)
+            .collect();
+        for (index, object) in active_mounts.iter().copied().enumerate() {
+            if let Some(mount) = self.state.objects.get_mut(object) {
+                mount.base.next_sibling = active_mounts.get(index + 1).copied();
+            }
+        }
+        if let Some(guardian) = self
+            .fortuna_kick_gunner
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            guardian.base.first_child = active_mounts.first().copied();
+        }
+        for (position, target) in launches {
+            self.spawn_fortuna_kick_gunner_projectile(position, target)?;
+        }
+        Ok(())
+    }
+
+    fn spawn_fortuna_kick_gunner_projectile(
+        &mut self,
+        position: Vector3,
+        target: Vector3,
+    ) -> Result<(), Error> {
+        let delta_x = target.x.wrapping_sub(position.x);
+        let delta_y = target.y.wrapping_sub(position.y);
+        let delta_z = target.z.wrapping_sub(position.z);
+        let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
+        let pitch = Angle::from_units(sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance));
+        let yaw = Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
+        let mut projectile = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::FORTUNA_KICK_GUNNER_PROJECTILE,
+            Behavior::Projectile,
+        );
+        projectile.base.position = position;
+        projectile.base.pitch = pitch;
+        projectile.base.yaw = yaw;
+        projectile.base.speed = fortuna_base::KICK_GUNNER_PROJECTILE_SPEED;
+        projectile.base.velocity = flight_velocity(
+            pitch,
+            yaw,
+            fortuna_base::KICK_GUNNER_PROJECTILE_SPEED,
+            fortuna_base::KICK_GUNNER_PROJECTILE_POSITION_SCALE,
+        );
+        projectile.base.hit_points = fortuna_base::KICK_GUNNER_PROJECTILE_DURABILITY;
+        projectile.base.attack_power = fortuna_base::KICK_GUNNER_PROJECTILE_ATTACK_POWER;
+        projectile.base.weapon = WeaponKind::EnemyLaser;
+        projectile.base.collision_class = CollisionClass::EnemyWeapon;
+        projectile.base.flags.casts_shadow = false;
+        projectile.extension.activity =
+            ObjectActivity::FortunaKickGunnerProjectile(FortunaKickGunnerProjectileState {
+                age_retail_frames: 0,
+            });
+        let projectile = allocate_hostile_projectile(&mut self.state, projectile)?;
+        self.fortuna_projectiles.push(projectile);
+        Ok(())
     }
 
     fn refresh_fortuna_kick_gunner_status(&mut self) {
@@ -17583,6 +18147,10 @@ impl Game {
                     update_fortuna_core_projectile_object(object, projectile);
                     continue;
                 }
+                ObjectActivity::FortunaKickGunnerProjectile(projectile) => {
+                    update_fortuna_kick_gunner_projectile_object(object, projectile);
+                    continue;
+                }
                 ObjectActivity::CarrierCorridorProjectile(projectile) => {
                     update_carrier_corridor_projectile_object(object, projectile);
                     continue;
@@ -18008,6 +18576,25 @@ fn update_fortuna_core_projectile_object(
         .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
     object.extension.activity = ObjectActivity::FortunaCoreProjectile(state);
     if state.age_retail_frames >= fortuna_base::CORE_PROJECTILE_LIFETIME_RETAIL_FRAMES {
+        object.base.flags.visible = false;
+        object.base.flags.collision_disabled = true;
+        object.base.flags.remove_after_tick = true;
+        return;
+    }
+    object.base.position.x = object.base.position.x.wrapping_add(object.base.velocity.x);
+    object.base.position.y = object.base.position.y.wrapping_add(object.base.velocity.y);
+    object.base.position.z = object.base.position.z.wrapping_add(object.base.velocity.z);
+}
+
+fn update_fortuna_kick_gunner_projectile_object(
+    object: &mut Object,
+    mut state: FortunaKickGunnerProjectileState,
+) {
+    state.age_retail_frames = state
+        .age_retail_frames
+        .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+    object.extension.activity = ObjectActivity::FortunaKickGunnerProjectile(state);
+    if state.age_retail_frames >= fortuna_base::KICK_GUNNER_PROJECTILE_LIFETIME_RETAIL_FRAMES {
         object.base.flags.visible = false;
         object.base.flags.collision_disabled = true;
         object.base.flags.remove_after_tick = true;
@@ -18870,6 +19457,33 @@ fn add_vectors(left: Vector3, right: Vector3) -> Vector3 {
         y: left.y.wrapping_add(right.y),
         z: left.z.wrapping_add(right.z),
     }
+}
+
+fn apply_fortuna_kick_gunner_bob(guardian: &mut Object, action_index: u8) -> u8 {
+    guardian.base.position.y = guardian
+        .base
+        .position
+        .y
+        .wrapping_add(fortuna_base::KICK_GUNNER_SURFACE_BOB_STEPS[usize::from(action_index)]);
+    guardian.extension.animation_frame = guardian.extension.animation_frame.wrapping_add(1)
+        % fortuna_base::KICK_GUNNER_ANIMATION_FRAME_COUNT;
+    action_index.saturating_add(1)
+}
+
+fn chase_fortuna_kick_gunner_position(current: i16, target: i16) -> i16 {
+    if current == target {
+        return current;
+    }
+    let difference = target.wrapping_sub(current);
+    let minimum = fortuna_base::KICK_GUNNER_RETREAT_MINIMUM_STEP;
+    let limited = if difference > 0 && difference < minimum {
+        minimum
+    } else if difference < 0 && difference > minimum.wrapping_neg() {
+        minimum.wrapping_neg()
+    } else {
+        difference
+    };
+    current.wrapping_add(limited / (1i16 << fortuna_base::KICK_GUNNER_RETREAT_CHASE_SHIFT))
 }
 
 fn spatial_xz_distance(delta_x: i16, delta_z: i16) -> u32 {
@@ -31454,13 +32068,6 @@ mod tests {
     fn fortuna_switches_guardian_defenses_and_core_form_one_native_visit() {
         const PHASE_TRANSITION_BUDGET_TICKS: usize = 1_000;
 
-        fn retail_frame(game: &Game) -> u16 {
-            game.state
-                .mode_frame
-                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
-                .min(u32::from(u16::MAX)) as u16
-        }
-
         fn set_player_form(game: &mut Game, form: PlayerCraftForm) {
             let player = game
                 .state
@@ -31539,7 +32146,7 @@ mod tests {
                 phase_started_retail_frame: 0,
                 surface_switches: [FortunaSwitchStatus::Active; FORTUNA_SURFACE_SWITCH_COUNT],
                 kick_gunner: FortunaDefenderStatus::Dormant,
-                kick_gunner_motion_step: 0,
+                kick_gunner_motion: FortunaKickGunnerMotionState::default(),
                 core_defenders: [FortunaDefenderStatus::NotInstalled;
                     FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT],
                 core: FortunaCoreStatus::Shielded,
@@ -31604,24 +32211,31 @@ mod tests {
             game.state.objects.get(guardian).unwrap().base.hit_points,
             fortuna_base::KICK_GUNNER_DURABILITY
         );
-        let guardian_phase_start = game.state.mission.fortuna.phase_started_retail_frame;
-        while retail_frame(&game)
-            .saturating_sub(guardian_phase_start)
-            .saturating_add(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
-            < fortuna_base::KICK_GUNNER_INITIAL_WAIT_RETAIL_FRAMES
-        {
+        let initial_guardian_position = game.state.objects.get(guardian).unwrap().base.position;
+        assert!(
+            fortuna_base::KICK_GUNNER_CORNER_POSITIONS.contains(&initial_guardian_position),
+            "the chosen route begins at one of the four retail arena corners"
+        );
+        while matches!(
+            game.state.mission.fortuna.kick_gunner_motion.phase,
+            FortunaKickGunnerPhase::WaitingToDive { .. }
+        ) {
             game.tick(0).unwrap();
         }
         assert_eq!(
-            game.state.objects.get(guardian).unwrap().base.position,
-            fortuna_base::KICK_GUNNER_INITIAL_POSITION
+            game.state.objects.get(guardian).unwrap().base.position.y,
+            0,
+            "the first floor approach action lowers the guardian by 100 world units"
         );
-        game.tick(0).unwrap();
-        assert_eq!(
-            game.state.objects.get(guardian).unwrap().base.position,
-            fortuna_base::KICK_GUNNER_MOTION[0]
-        );
-        while game.state.mission.fortuna.kick_gunner_motion_step < 4 {
+        while !game
+            .state
+            .objects
+            .get(guardian)
+            .unwrap()
+            .base
+            .flags
+            .collision_disabled
+        {
             game.tick(0).unwrap();
         }
         assert!(
@@ -31645,6 +32259,93 @@ mod tests {
         {
             game.tick(0).unwrap();
         }
+        game.state.objects.get_mut(player).unwrap().base.position = Vector3 {
+            x: 0,
+            y: 0,
+            z: 4_000,
+        };
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if !game.fortuna_projectiles.is_empty() {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert_eq!(game.fortuna_kick_gunner_mounts.len(), 0);
+        assert_eq!(game.fortuna_projectiles.len(), 1);
+        let first_guardian_projectile = game.fortuna_projectiles[0];
+        let projectile = game.state.objects.get(first_guardian_projectile).unwrap();
+        assert_eq!(
+            projectile.base.shape,
+            ShapeId::FORTUNA_KICK_GUNNER_PROJECTILE
+        );
+        assert_eq!(
+            projectile.base.hit_points,
+            fortuna_base::KICK_GUNNER_PROJECTILE_DURABILITY
+        );
+        assert_eq!(
+            projectile.base.attack_power,
+            fortuna_base::KICK_GUNNER_PROJECTILE_ATTACK_POWER
+        );
+        assert!(matches!(
+            projectile.extension.activity,
+            ObjectActivity::FortunaKickGunnerProjectile(_)
+        ));
+
+        let mut observed_shots = 1;
+        let mut previous_projectiles = game.fortuna_projectiles.clone();
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if matches!(
+                game.state.mission.fortuna.kick_gunner_motion.phase,
+                FortunaKickGunnerPhase::WaitingBeforeRouteSelection { .. }
+            ) {
+                break;
+            }
+            game.tick(0).unwrap();
+            observed_shots += game
+                .fortuna_projectiles
+                .iter()
+                .filter(|projectile| !previous_projectiles.contains(projectile))
+                .count();
+            previous_projectiles.clone_from(&game.fortuna_projectiles);
+        }
+        assert!(matches!(
+            game.state.mission.fortuna.kick_gunner_motion.phase,
+            FortunaKickGunnerPhase::WaitingBeforeRouteSelection { .. }
+        ));
+        assert_eq!(
+            observed_shots,
+            usize::from(fortuna_base::KICK_GUNNER_ATTACK_COUNT),
+            "each of the five attack leaps creates one delayed shot"
+        );
+        let guardian_after_retreat = game.state.objects.get(guardian).unwrap();
+        assert_eq!(
+            guardian_after_retreat.base.position.y,
+            fortuna_base::KICK_GUNNER_RESTING_Y
+        );
+        assert!(!guardian_after_retreat.base.flags.collision_disabled);
+        assert_ne!(
+            guardian_after_retreat.base.position, initial_guardian_position,
+            "the complete strategy retreats instead of looping the first sampled dive"
+        );
+
+        for _ in 0..PHASE_TRANSITION_BUDGET_TICKS {
+            if matches!(
+                game.state.mission.fortuna.kick_gunner_motion.phase,
+                FortunaKickGunnerPhase::WaitingToDive { .. }
+            ) {
+                break;
+            }
+            game.tick(0).unwrap();
+        }
+        assert!(matches!(
+            game.state.mission.fortuna.kick_gunner_motion.phase,
+            FortunaKickGunnerPhase::WaitingToDive { .. }
+        ));
+        assert!(
+            fortuna_base::KICK_GUNNER_CORNER_POSITIONS
+                .contains(&game.state.objects.get(guardian).unwrap().base.position),
+            "the next strategy cycle selects another retail corner route"
+        );
         strike_until_defeated(&mut game, guardian, fortuna_base::KICK_GUNNER_DURABILITY);
         game.tick(0).unwrap();
         assert_eq!(

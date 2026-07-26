@@ -286,6 +286,11 @@ impl ShapeId {
     pub const FORTUNA_SWITCH_PRESSED: Self = Self(465);
     pub const FORTUNA_INSTALLATION_OPEN: Self = Self(239);
     pub const FORTUNA_KICK_GUNNER: Self = Self(416);
+    /// The guardian's linked weapon mount and its projectile use decoded
+    /// catalog entries with no polygon geometry. They remain distinct typed
+    /// collision objects in the native game.
+    pub const FORTUNA_KICK_GUNNER_MOUNT: Self = Self(20);
+    pub const FORTUNA_KICK_GUNNER_PROJECTILE: Self = Self(44);
     pub const FORTUNA_INTERIOR_DOORWAY: Self = Self(191);
     pub const FORTUNA_CORE_CONTROLLER: Self = Self(497);
     pub const FORTUNA_CORE_SHIELD: Self = Self(498);
@@ -756,6 +761,12 @@ pub struct FortunaCoreProjectileState {
     pub age_retail_frames: u16,
 }
 
+/// Lifetime state for a shot fired by Fortuna's interior guardian.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FortunaKickGunnerProjectileState {
+    pub age_retail_frames: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CarrierCorridorDefenderPhase {
     Crossing {
@@ -804,6 +815,7 @@ pub enum ObjectActivity {
     EladardDefender(EladardDefenderState),
     EladardDefenderProjectile(EladardDefenderProjectileState),
     FortunaCoreProjectile(FortunaCoreProjectileState),
+    FortunaKickGunnerProjectile(FortunaKickGunnerProjectileState),
     CarrierCorridorDefender(CarrierCorridorDefenderState),
     CarrierCorridorProjectile(CarrierCorridorProjectileState),
     PlayerProjectile(PlayerProjectileState),
