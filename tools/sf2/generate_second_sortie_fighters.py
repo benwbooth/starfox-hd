@@ -450,6 +450,11 @@ BANK_TARGET_NAMES = {
 
 def rust_action(action: Action) -> str:
     kind, value = action
+    if kind == "EntrySetup":
+        return (
+            "ReengagementFighterAction::EntrySetup("
+            "ReengagementFighterEntryHeading::SecondSortie)"
+        )
     if kind in {"SetBankTarget", "BeginManeuver", "ChaseRoll"}:
         try:
             target = BANK_TARGET_NAMES[int(value)]
@@ -529,7 +534,8 @@ def rust_source(
         "use super::{",
         "    mission_encounter_pose, MissionEncounterPose, ReengagementFighterAcceleration,",
         "    ReengagementFighterAction, ReengagementFighterBankTarget,",
-        "    ReengagementFighterDirection, ReengagementFighterPitchTarget,",
+        "    ReengagementFighterDirection, ReengagementFighterEntryHeading,",
+        "    ReengagementFighterPitchTarget,",
         "};",
         "",
         f"pub(super) const INITIAL_RETAIL_FRAME: u16 = {anchor.retail_frame};",

@@ -4,7 +4,7 @@
 use super::{
     mission_encounter_pose, MissionEncounterPose, ReengagementFighterAcceleration,
     ReengagementFighterAction, ReengagementFighterBankTarget, ReengagementFighterDirection,
-    ReengagementFighterPitchTarget,
+    ReengagementFighterEntryHeading, ReengagementFighterPitchTarget,
 };
 
 pub(super) const INITIAL_RETAIL_FRAME: u16 = 68;
@@ -47,10 +47,10 @@ impl ActionRangePair {
 }
 
 static ACTIONS: [ReengagementFighterAction; 2156] = [
-    ReengagementFighterAction::EntrySetup,
+    ReengagementFighterAction::EntrySetup(ReengagementFighterEntryHeading::SecondSortie),
     ReengagementFighterAction::Move(ReengagementFighterAcceleration::Hold),
     ReengagementFighterAction::ApplyEntryWave,
-    ReengagementFighterAction::EntrySetup,
+    ReengagementFighterAction::EntrySetup(ReengagementFighterEntryHeading::SecondSortie),
     ReengagementFighterAction::Move(ReengagementFighterAcceleration::Hold),
     ReengagementFighterAction::ApplyEntryWave,
     ReengagementFighterAction::Move(ReengagementFighterAcceleration::Hold),

@@ -105,6 +105,8 @@ mod pigma_duel_rival;
 mod player_damage;
 #[path = "pressure_fighters.rs"]
 mod pressure_fighters;
+#[path = "pressure_fighter_flight.rs"]
+mod pressure_fighter_flight;
 #[path = "pressure_fighter_projectiles.rs"]
 mod pressure_fighter_projectiles;
 #[path = "second_sortie.rs"]
@@ -2163,7 +2165,6 @@ const FIGHTER_AIM_RESTORE_TICKS: u8 = 1;
 const FIGHTER_HANDOFF_RANDOM_STATE: [u8; 4] = [84, 34, 5, 26];
 const REENGAGEMENT_FIGHTER_ENTRY_ALTITUDE_OFFSET: i16 = -3_197;
 const REENGAGEMENT_FIGHTER_INITIAL_WAVE_PHASE: u8 = 1;
-const REENGAGEMENT_FIGHTER_ENTRY_YAW_UNITS: u8 = 38;
 const REENGAGEMENT_FIGHTER_ENTRY_SPEED: u8 = 10;
 const REENGAGEMENT_FIGHTER_ACCELERATION: u8 = 30;
 const REENGAGEMENT_FIGHTER_MAXIMUM_SPEED: u8 = 63;
@@ -2256,9 +2257,22 @@ enum ReengagementFighterAcceleration {
     Accelerate,
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReengagementFighterEntryHeading {
+    SecondSortie = 38,
+    RecurringAttackers = 56,
+}
+
+impl ReengagementFighterEntryHeading {
+    const fn angle(self) -> Angle {
+        Angle::from_units(self as u8)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReengagementFighterAction {
-    EntrySetup,
+    EntrySetup(ReengagementFighterEntryHeading),
     SetBankTarget(ReengagementFighterBankTarget),
     BeginEntryTurn(ReengagementFighterDirection),
     BeginManeuver(ReengagementFighterBankTarget),
@@ -2332,6 +2346,7 @@ impl FighterInterceptCruise {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FighterInterceptSpeed {
+    Entry = 10,
     Engagement = 30,
 }
 
@@ -2346,6 +2361,7 @@ impl FighterInterceptSpeed {
 enum FighterInterceptBankTarget {
     PortStrong = -28,
     PortEntry = -24,
+    PortTwentyOne = -21,
     PortFourteen = -14,
     PortTwelve = -12,
     PortEleven = -11,
@@ -2354,6 +2370,7 @@ enum FighterInterceptBankTarget {
     StarboardTwelve = 12,
     StarboardThirteen = 13,
     StarboardFourteen = 14,
+    StarboardTwentyFour = 24,
     StarboardTwentyFive = 25,
     StarboardTwentySix = 26,
     StarboardTwentyNine = 29,
@@ -4286,6 +4303,24 @@ impl PressureFighter {
         match self {
             Self::Vanguard | Self::HighGuard | Self::Flanker => ShapeId::PRESSURE_ASSAULT_FIGHTER,
             Self::Pursuer => ShapeId::PRESSURE_STRIKE_FIGHTER,
+        }
+    }
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Vanguard => 0,
+            Self::HighGuard => 1,
+            Self::Flanker => 2,
+            Self::Pursuer => 3,
+        }
+    }
+
+    const fn assault_index(self) -> Option<usize> {
+        match self {
+            Self::Vanguard => Some(0),
+            Self::HighGuard => Some(1),
+            Self::Flanker => Some(2),
+            Self::Pursuer => None,
         }
     }
 }
@@ -7935,7 +7970,6 @@ impl Game {
         } else {
             self.update_pressure_fighter_presentation(retail_frame);
         }
-        self.update_pressure_fighter_actors(retail_frame);
         let current_player_position = self
             .state
             .mission
@@ -7946,8 +7980,15 @@ impl Game {
             .map(|current| self.previous_mission_player_position.unwrap_or(current));
         if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
         {
+            self.update_pressure_fighter_actors(retail_frame, current, previous);
             self.update_pressure_fighter_projectiles(retail_frame, current, previous)?;
             self.previous_mission_player_position = Some(current);
+        } else {
+            self.update_pressure_fighter_actors(
+                retail_frame,
+                Vector3::default(),
+                Vector3::default(),
+            );
         }
         Ok(())
     }
@@ -13420,6 +13461,7 @@ impl Game {
         self.pressure_fighter_actors
             .remove_all(&mut self.state.objects);
         for fighter_kind in PressureFighter::ALL {
+            let pose = pressure_fighter_flight::INITIAL_POSES[fighter_kind.index()];
             let mut fighter = Object::new(
                 ObjectKind::Enemy,
                 fighter_kind.shape(),
@@ -13432,6 +13474,35 @@ impl Game {
             fighter.base.flags.visible = false;
             fighter.base.flags.collision_disabled = true;
             fighter.base.flags.casts_shadow = false;
+            fighter.base.position = pose.position;
+            fighter.base.pitch = Angle::from_units(pose.pitch);
+            fighter.base.yaw = Angle::from_units(pose.yaw);
+            fighter.base.roll = Angle::from_units(pose.roll);
+            fighter.base.speed = pose.speed;
+            fighter.extension.activity = if fighter_kind == PressureFighter::Pursuer {
+                ObjectActivity::ReengagementFighterFlight(ReengagementFighterFlightState {
+                    vertical_wave_phase: Angle::ZERO,
+                    vertical_wave_sample: 0,
+                    vertical_wave_quarters_applied: 0,
+                    vertical_pitch_target: Angle::ZERO,
+                    maneuver_bank: Angle::ZERO,
+                    altitude_phase: FighterAltitudePhase::Wave,
+                    pending_velocity: Vector3::default(),
+                    movement_phase: ReengagementFighterMovementPhase::Ready,
+                })
+            } else {
+                ObjectActivity::FighterInterceptFlight(FighterInterceptFlightState {
+                    vertical_wave_phase: Angle::ZERO,
+                    cruise_target_speed: 0,
+                    cruise_acceleration: 0,
+                    corridor_drift_x: 0,
+                    corridor_altitude: 0,
+                    corridor_drift_z: 0,
+                    pending_velocity: Vector3::default(),
+                    movement_phase: FighterInterceptMovementPhase::Ready,
+                    weapon_phase: FighterInterceptWeaponPhase::Flight,
+                })
+            };
             let Some(id) = self.state.objects.allocate(fighter) else {
                 self.pressure_fighter_actors
                     .remove_all(&mut self.state.objects);
@@ -15418,14 +15489,69 @@ impl Game {
         }
     }
 
-    fn update_pressure_fighter_actors(&mut self, retail_frame: u16) {
-        for (slot, keyframes) in self
-            .pressure_fighter_actors
-            .slots_mut()
-            .into_iter()
-            .zip(pressure_fighters::ATTACKER_KEYFRAME_TRACKS)
-        {
-            Self::update_pressure_actor(&mut self.state, slot, keyframes, retail_frame);
+    fn update_pressure_fighter_actors(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) {
+        if retail_frame < pressure_fighter_flight::INITIAL_RETAIL_FRAME {
+            return;
+        }
+
+        for fighter_kind in PressureFighter::ALL {
+            let Some(id) = *self.pressure_fighter_actors.slot_mut(fighter_kind) else {
+                continue;
+            };
+            let Some(object) = self.state.objects.get_mut(id) else {
+                continue;
+            };
+            if object.base.flags.exploding || object.base.explosion_timer > 0 {
+                continue;
+            }
+
+            if retail_frame == pressure_fighter_flight::INITIAL_RETAIL_FRAME {
+                let pose = pressure_fighter_flight::INITIAL_POSES[fighter_kind.index()];
+                object.base.position = pose.position;
+                object.base.pitch = Angle::from_units(pose.pitch);
+                object.base.yaw = Angle::from_units(pose.yaw);
+                object.base.roll = Angle::from_units(pose.roll);
+                object.base.speed = pose.speed;
+                object.base.velocity = Vector3::default();
+                object.base.flags.active = true;
+                object.base.flags.visible = true;
+                object.base.flags.collision_disabled = false;
+            }
+
+            if let Some(assault_index) = fighter_kind.assault_index() {
+                let ObjectActivity::FighterInterceptFlight(mut flight) = object.extension.activity
+                else {
+                    debug_assert!(false, "recurring assault fighter lacks typed flight state");
+                    continue;
+                };
+                for &action in pressure_fighter_flight::assault_actions(retail_frame, assault_index)
+                {
+                    apply_fighter_intercept_action(
+                        object,
+                        &mut flight,
+                        action,
+                        previous_player_position,
+                        player_position,
+                    );
+                }
+                object.extension.activity = ObjectActivity::FighterInterceptFlight(flight);
+            } else {
+                let ObjectActivity::ReengagementFighterFlight(mut flight) =
+                    object.extension.activity
+                else {
+                    debug_assert!(false, "recurring pursuer fighter lacks typed flight state");
+                    continue;
+                };
+                for &action in pressure_fighter_flight::pursuer_actions(retail_frame) {
+                    apply_reengagement_fighter_action(object, &mut flight, action);
+                }
+                object.extension.activity = ObjectActivity::ReengagementFighterFlight(flight);
+            }
         }
     }
 
@@ -19608,13 +19734,13 @@ fn apply_reengagement_fighter_action(
     action: ReengagementFighterAction,
 ) {
     match action {
-        ReengagementFighterAction::EntrySetup => {
+        ReengagementFighterAction::EntrySetup(heading) => {
             object.base.position.y = object
                 .base
                 .position
                 .y
                 .wrapping_add(REENGAGEMENT_FIGHTER_ENTRY_ALTITUDE_OFFSET);
-            object.base.yaw = Angle::from_units(REENGAGEMENT_FIGHTER_ENTRY_YAW_UNITS);
+            object.base.yaw = heading.angle();
             object.base.speed = REENGAGEMENT_FIGHTER_ENTRY_SPEED;
             flight.vertical_wave_phase = Angle::from_units(REENGAGEMENT_FIGHTER_INITIAL_WAVE_PHASE);
         }
@@ -25394,6 +25520,90 @@ mod tests {
         )
         .unwrap();
         assert!(game.pigma_projectiles.is_empty());
+    }
+
+    #[test]
+    fn typed_pressure_fighter_flight_matches_every_oracle_boundary() {
+        const RETAINED_FIGHTER_POSE_COUNT: usize = 1_960;
+
+        let mut game = Game::new();
+        game.spawn_pressure_fighters().unwrap();
+        let mut retained_poses = 0;
+
+        for (sample_index, expected_poses) in
+            pressure_fighter_flight::ORACLE_POSES.iter().enumerate()
+        {
+            let retail_frame = pressure_fighter_flight::INITIAL_RETAIL_FRAME
+                + u16::try_from(sample_index).unwrap() * RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+            let player_position = pressure_fighter_flight::ORACLE_PLAYERS[sample_index].position;
+            let previous_player_position =
+                pressure_fighter_flight::ORACLE_PLAYERS[sample_index.saturating_sub(1)].position;
+            game.update_pressure_fighter_actors(
+                retail_frame,
+                player_position,
+                previous_player_position,
+            );
+
+            for fighter_kind in PressureFighter::ALL {
+                let id = match fighter_kind {
+                    PressureFighter::Vanguard => game.pressure_fighter_actors.vanguard,
+                    PressureFighter::HighGuard => game.pressure_fighter_actors.high_guard,
+                    PressureFighter::Flanker => game.pressure_fighter_actors.flanker,
+                    PressureFighter::Pursuer => game.pressure_fighter_actors.pursuer,
+                }
+                .unwrap_or_else(|| {
+                    panic!("recurring attacker {fighter_kind:?} absent at frame {retail_frame}")
+                });
+                let object = game.state().objects.get(id).unwrap();
+                let expected = expected_poses[fighter_kind.index()];
+                retained_poses += 1;
+                assert_eq!(
+                    object.base.position, expected.position,
+                    "{fighter_kind:?} at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.pitch.units(),
+                    expected.pitch,
+                    "{fighter_kind:?} at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.yaw.units(),
+                    expected.yaw,
+                    "{fighter_kind:?} at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.roll.units(),
+                    expected.roll,
+                    "{fighter_kind:?} at frame {retail_frame}"
+                );
+                assert_eq!(
+                    object.base.speed, expected.speed,
+                    "{fighter_kind:?} at frame {retail_frame}"
+                );
+                assert_eq!(object.base.behavior, Behavior::EnemyFlight);
+                assert_eq!(object.base.shape, fighter_kind.shape());
+                assert_eq!(object.base.collision_class, CollisionClass::Enemy);
+                assert!(object.base.flags.active, "frame {retail_frame}");
+                assert!(object.base.flags.visible, "frame {retail_frame}");
+                assert!(
+                    !object.base.flags.collision_disabled,
+                    "frame {retail_frame}"
+                );
+                if fighter_kind.assault_index().is_some() {
+                    assert!(matches!(
+                        object.extension.activity,
+                        ObjectActivity::FighterInterceptFlight(_)
+                    ));
+                } else {
+                    assert!(matches!(
+                        object.extension.activity,
+                        ObjectActivity::ReengagementFighterFlight(_)
+                    ));
+                }
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_FIGHTER_POSE_COUNT);
     }
 
     #[test]

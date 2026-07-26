@@ -238,27 +238,6 @@ def write_compact(
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def projectile_lifetimes(
-    records: list[Record],
-) -> list[list[tuple[int, tuple[int, ...]]]]:
-    samples_by_source: dict[str, list[tuple[int, tuple[int, ...]]]] = {}
-    for record in records:
-        for source, pose in record.projectiles:
-            samples_by_source.setdefault(source, []).append((record.retail_frame, pose))
-    lifetimes = []
-    for samples in samples_by_source.values():
-        lifetime = []
-        for sample in samples:
-            if lifetime and sample[0] - lifetime[-1][0] > RETAIL_FRAME_STEP:
-                lifetimes.append(lifetime)
-                lifetime = []
-            lifetime.append(sample)
-        if lifetime:
-            lifetimes.append(lifetime)
-    lifetimes.sort(key=lambda lifetime: lifetime[0][0])
-    return lifetimes
-
-
 def rust_source(
     trace_names: str,
     records: list[Record],
@@ -273,9 +252,8 @@ def rust_source(
         "//! tools/sf2/generate_pressure_fighters.py [--check]`.",
         "",
         "use super::{",
-        "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,",
         "    mission_camera_keyframe, mission_player_keyframe,",
-        "    MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,",
+        "    MissionCameraKeyframe, MissionPlayerKeyframe,",
         "};",
         "",
         f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
@@ -315,51 +293,7 @@ def rust_source(
             + ", ".join(f"{value:_}" for value in record.wingmate)
             + "),"
         )
-    lines.append("];"
-    )
-
-    for actor_index in range(len(ATTACKER_IDENTITIES)):
-        present_indices = [
-            index for index, record in enumerate(records) if record.attackers[actor_index] is not None
-        ]
-        if not present_indices:
-            lines.extend(
-                [
-                    "",
-                    f"const ATTACKER_TRACK_{actor_index}: [MissionActorKeyframe; 2] = [",
-                    "    mission_actor_inactive_keyframe(0),",
-                    f"    mission_actor_departure_keyframe({RETAIL_FRAME_STEP}),",
-                    "];",
-                ]
-            )
-            continue
-        actor_records = records[present_indices[0] : present_indices[-1] + 1]
-        lines.extend(
-            [
-                "",
-                f"const ATTACKER_TRACK_{actor_index}: [MissionActorKeyframe; {len(actor_records) + 1}] = [",
-            ]
-        )
-        for record in actor_records:
-            pose = record.attackers[actor_index]
-            if pose is None:
-                lines.append(f"    mission_actor_inactive_keyframe({record.retail_frame}),")
-            else:
-                values = ", ".join(f"{value:_}" for value in pose)
-                lines.append(f"    mission_actor_keyframe({record.retail_frame}, [{values}]),")
-        departure_frame = actor_records[-1].retail_frame + RETAIL_FRAME_STEP
-        lines.extend(
-            [f"    mission_actor_departure_keyframe({departure_frame}),", "];" ]
-        )
-    lines.extend(
-        [
-            "",
-            f"pub(super) const ATTACKER_KEYFRAME_TRACKS: [&[MissionActorKeyframe]; {len(ATTACKER_IDENTITIES)}] = [",
-            *(f"    &ATTACKER_TRACK_{index}," for index in range(len(ATTACKER_IDENTITIES))),
-            "];",
-            "",
-        ]
-    )
+    lines.extend(["];", ""])
     return format_rust("\n".join(lines))
 
 
@@ -390,8 +324,7 @@ def main() -> None:
     print(
         f"{action} {args.output}: {len(records)} keyframes, "
         f"retail frames {records[0].retail_frame}..{records[-1].retail_frame}, "
-        f"return {return_frame}, map ready {map_ready_frame}, "
-        f"enemy laser tracks {len(projectile_lifetimes(records))}"
+        f"return {return_frame}, map ready {map_ready_frame}"
     )
 
 
