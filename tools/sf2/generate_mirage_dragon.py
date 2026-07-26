@@ -23,6 +23,12 @@ from generate_pigma_duel import Record, load, rust_source, write_compact
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TRACE = Path(__file__).with_name("fixtures") / "mirage_dragon.trace"
+DEFAULT_CAMERA_OUTPUT_TRACE = (
+    Path(__file__).with_name("fixtures") / "mirage_dragon_camera_output.trace"
+)
+CAMERA_TEMPLATE = (
+    Path(__file__).with_name("templates") / "mirage_dragon_camera.rs"
+)
 DEFAULT_OUTPUT = (
     REPO_ROOT / "rust" / "sf2-game" / "src" / "native" / "mirage_dragon.rs"
 )
@@ -107,18 +113,83 @@ PLAYER_NEUTRAL_BANK_WAVE = (
     -1,
 )
 
-SINGLE_LINE_SCENE_IMPORT = (
-    "    mission_camera_keyframe, mission_player_keyframe, "
-    "MissionCameraKeyframe, MissionPlayerKeyframe,\n"
-)
-MULTILINE_SCENE_IMPORT = (
+SCENE_IMPORT = (
+    "use super::{\n"
     "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,\n"
     "    MissionPlayerKeyframe,\n"
+    "};\n"
 )
+TYPED_SCENE_IMPORT = (
+    "use super::{mission_player_keyframe, MissionPlayerKeyframe};\n\n"
+    "#[cfg(test)]\n"
+    "use super::{mission_camera_keyframe, MissionCameraKeyframe};\n"
+)
+
+
+@dataclass(frozen=True)
+class CameraOutputRecord:
+    retail_frame: int
+    updates: int
+    camera: tuple[int, int, int, int, int, int]
+    fine_orientation: tuple[int, int, int]
 
 
 def signed_byte(value: int) -> int:
     return value if value < 128 else value - 256
+
+
+def load_camera_output(path: Path) -> list[CameraOutputRecord]:
+    records = []
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = {}
+        for field in line.split():
+            name, separator, value = field.partition("=")
+            if not separator:
+                raise SystemExit(f"{path}:{line_number}: malformed field {field!r}")
+            fields[name] = value
+        try:
+            retail_frame = int(fields["retail_frame"])
+            updates = int(fields["updates"])
+            camera = tuple(int(value) for value in fields["camera"].split(","))
+            fine_orientation = tuple(
+                int(value) for value in fields["fine_orientation"].split(",")
+            )
+        except (KeyError, ValueError) as error:
+            raise SystemExit(
+                f"{path}:{line_number}: malformed camera output record"
+            ) from error
+        if len(camera) != 6 or len(fine_orientation) != 3:
+            raise SystemExit(
+                f"{path}:{line_number}: camera output has the wrong arity"
+            )
+        if tuple(value & 255 for value in fine_orientation) != camera[3:]:
+            raise SystemExit(
+                f"{path}:{line_number}: fine orientation does not match visible angles"
+            )
+        records.append(
+            CameraOutputRecord(
+                retail_frame=retail_frame,
+                updates=updates,
+                camera=camera,
+                fine_orientation=fine_orientation,
+            )
+        )
+
+    frames = [record.retail_frame for record in records]
+    if (
+        not records
+        or frames != sorted(set(frames))
+        or frames[0] != CAMERA_FOLLOW_FIRST_RETAIL_FRAME
+        or frames[-1] != PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME
+    ):
+        raise SystemExit(f"{path}: incomplete or unordered camera output")
+    return records
 
 
 def fixed_rust_table(name: str, length: int, source: str) -> list[int]:
@@ -320,16 +391,27 @@ def append_camera_path(
     source: str,
     records: list[Record],
     cadence: list[int],
+    camera_output: list[CameraOutputRecord],
 ) -> str:
     source = source.replace(
         "pub(super) const CAMERA_KEYFRAMES:",
         "#[cfg(test)]\npub(super) const CAMERA_KEYFRAMES:",
         1,
     )
-    follow_records = [
-        record
-        for record in records
-        if record.retail_frame >= CAMERA_FOLLOW_FIRST_RETAIL_FRAME
+    del records
+    camera_output_by_frame = {
+        record.retail_frame: record for record in camera_output
+    }
+    follow_cadence = [
+        camera_output_by_frame.get(
+            retail_frame,
+            CameraOutputRecord(retail_frame, 0, (0, 0, 0, 0, 0, 0), (0, 0, 0)),
+        ).updates
+        for retail_frame in range(
+            CAMERA_FOLLOW_FIRST_RETAIL_FRAME,
+            PLAYER_CINEMATIC_END_RETAIL_FRAME + 1,
+            RETAIL_FRAME_STEP,
+        )
     ]
     cadence_lines = [
         "    " + ", ".join(str(updates) for updates in cadence[index : index + 32]) + ","
@@ -407,15 +489,24 @@ def append_camera_path(
         "        .copied()",
         "}",
         "",
-        "pub(super) const CAMERA_FOLLOW_KEYFRAMES: "
-        f"[MissionCameraKeyframe; {len(follow_records)}] = [",
+        f"const CAMERA_FOLLOW_CADENCE: [u8; {len(follow_cadence)}] = ["
+        + ", ".join(str(updates) for updates in follow_cadence)
+        + "];",
+        "",
+        "pub(super) fn camera_follow_updates(retail_frame: u16) -> Option<u8> {",
+        "    let offset = retail_frame.checked_sub(CAMERA_FOLLOW_FIRST_RETAIL_FRAME)?;",
+        "    if retail_frame > PLAYER_NEUTRAL_START_RETAIL_FRAME "
+        "|| offset % CAMERA_RETAIL_FRAME_STEP != 0 {",
+        "        return None;",
+        "    }",
+        "    CAMERA_FOLLOW_CADENCE",
+        "        .get(usize::from(offset / CAMERA_RETAIL_FRAME_STEP))",
+        "        .copied()",
+        "}",
+        "",
     ]
-    for record in follow_records:
-        values = ", ".join(f"{value:_}" for value in record.camera)
-        lines.append(
-            f"    mission_camera_keyframe({record.retail_frame}, {values}),"
-        )
-    lines.extend(["];", ""])
+    lines.extend(CAMERA_TEMPLATE.read_text(encoding="utf-8").strip().splitlines())
+    lines.append("")
     return source + "\n".join(lines)
 
 
@@ -773,6 +864,20 @@ def main() -> None:
     camera_cadence = camera_anchor_cadence(records)
     head_cadence = head_departure_cadence(records)
     player_cadence = player_neutral_flight_cadence(records)
+    camera_output = load_camera_output(DEFAULT_CAMERA_OUTPUT_TRACE)
+    camera_output_by_frame = {
+        record.retail_frame: record for record in camera_output
+    }
+    for index, (_, movement_updates) in enumerate(player_cadence):
+        retail_frame = (
+            PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME + index * RETAIL_FRAME_STEP
+        )
+        camera_updates = camera_output_by_frame.get(retail_frame)
+        retained_updates = 0 if camera_updates is None else camera_updates.updates
+        if retained_updates != movement_updates:
+            raise SystemExit(
+                f"camera output cadence differs from player motion at frame {retail_frame}"
+            )
     scene_source = rust_source(
         DEFAULT_TRACE.name,
         records,
@@ -786,11 +891,16 @@ def main() -> None:
         omit_wingmate=True,
     )
     scene_source = scene_source.replace(
-        MULTILINE_SCENE_IMPORT,
-        SINGLE_LINE_SCENE_IMPORT,
+        SCENE_IMPORT,
+        TYPED_SCENE_IMPORT,
         1,
     )
-    scene_source = append_camera_path(scene_source, records, camera_cadence)
+    scene_source = append_camera_path(
+        scene_source,
+        records,
+        camera_cadence,
+        camera_output,
+    )
     scene_source = append_player_flight(scene_source, records, player_cadence)
     generated = append_head_cadence(scene_source, head_cadence)
     if args.check:
@@ -810,7 +920,8 @@ def main() -> None:
         f"{sum(movement for movement, _ in head_cadence)} head movement updates, "
         f"{sum(pitch for _, pitch in head_cadence)} head pitch updates, "
         f"{sum(control for control, _ in player_cadence)} player control updates, "
-        f"{sum(movement for _, movement in player_cadence)} player movement updates"
+        f"{sum(movement for _, movement in player_cadence)} player movement updates, "
+        f"{len(camera_output)} final camera outputs"
     )
 
 

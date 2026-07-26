@@ -4,9 +4,10 @@
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_mirage_dragon.py [--check]`.
 
-use super::{
-    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
-};
+use super::{mission_player_keyframe, MissionPlayerKeyframe};
+
+#[cfg(test)]
+use super::{mission_camera_keyframe, MissionCameraKeyframe};
 
 #[cfg(test)]
 use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};
@@ -713,142 +714,64 @@ pub(super) fn camera_anchor_strategy_updates(retail_frame: u16) -> Option<u8> {
         .copied()
 }
 
-pub(super) const CAMERA_FOLLOW_KEYFRAMES: [MissionCameraKeyframe; 134] = [
-    mission_camera_keyframe(340, 10_799, -2_863, 2_491, 0, 224, 0),
-    mission_camera_keyframe(344, 10_782, -2_862, 2_499, 0, 224, 0),
-    mission_camera_keyframe(348, 10_764, -2_862, 2_499, 0, 224, 0),
-    mission_camera_keyframe(352, 10_744, -2_862, 2_499, 0, 224, 0),
-    mission_camera_keyframe(356, 10_723, -2_862, 2_499, 0, 224, 0),
-    mission_camera_keyframe(360, 10_723, -2_862, 2_499, 0, 224, 0),
-    mission_camera_keyframe(364, 10_700, -2_862, 2_499, 0, 224, 0),
-    mission_camera_keyframe(368, 10_677, -2_862, 2_499, 0, 224, 0),
-    mission_camera_keyframe(372, 10_674, -2_863, 2_499, 0, 224, 0),
-    mission_camera_keyframe(376, 10_648, -2_863, 2_498, 0, 224, 0),
-    mission_camera_keyframe(380, 10_635, -2_864, 2_498, 0, 224, 0),
-    mission_camera_keyframe(384, 10_621, -2_864, 2_498, 0, 224, 0),
-    mission_camera_keyframe(388, 10_621, -2_864, 2_498, 0, 224, 0),
-    mission_camera_keyframe(392, 10_606, -2_864, 2_498, 0, 224, 0),
-    mission_camera_keyframe(396, 10_590, -2_865, 2_498, 0, 224, 0),
-    mission_camera_keyframe(400, 10_573, -2_865, 2_498, 0, 224, 0),
-    mission_camera_keyframe(404, 10_555, -2_866, 2_498, 0, 224, 0),
-    mission_camera_keyframe(408, 10_537, -2_867, 2_498, 0, 224, 0),
-    mission_camera_keyframe(412, 10_518, -2_867, 2_498, 0, 224, 0),
-    mission_camera_keyframe(416, 10_518, -2_867, 2_498, 0, 224, 0),
-    mission_camera_keyframe(420, 10_515, -2_868, 2_498, 0, 224, 0),
-    mission_camera_keyframe(424, 10_507, -2_869, 2_499, 0, 224, 0),
-    mission_camera_keyframe(428, 10_499, -2_870, 2_500, 0, 224, 0),
-    mission_camera_keyframe(432, 10_490, -2_872, 2_501, 0, 224, 0),
-    mission_camera_keyframe(436, 10_482, -2_873, 2_502, 0, 224, 0),
-    mission_camera_keyframe(440, 10_473, -2_874, 2_503, 0, 224, 0),
-    mission_camera_keyframe(444, 10_473, -2_874, 2_503, 0, 224, 0),
-    mission_camera_keyframe(448, 10_465, -2_875, 2_504, 0, 224, 0),
-    mission_camera_keyframe(452, 10_462, -2_876, 2_505, 0, 224, 0),
-    mission_camera_keyframe(456, 10_460, -2_875, 2_506, 124, 216, 0),
-    mission_camera_keyframe(460, 10_438, -2_874, 2_506, 58, 212, 0),
-    mission_camera_keyframe(464, 10_416, -2_873, 2_506, 25, 210, 0),
-    mission_camera_keyframe(468, 10_394, -2_872, 2_506, 136, 209, 0),
-    mission_camera_keyframe(472, 10_394, -2_872, 2_506, 136, 209, 0),
-    mission_camera_keyframe(476, 10_372, -2_871, 2_506, 192, 208, 0),
-    mission_camera_keyframe(480, 10_350, -2_870, 2_506, 220, 208, 0),
-    mission_camera_keyframe(484, 10_328, -2_869, 2_506, 234, 208, 0),
-    mission_camera_keyframe(488, 10_306, -2_868, 2_506, 241, 208, 0),
-    mission_camera_keyframe(492, 10_284, -2_867, 2_506, 244, 208, 0),
-    mission_camera_keyframe(496, 10_232, -2_880, 2_506, 0, 224, 0),
-    mission_camera_keyframe(500, 10_262, -2_866, 2_506, 246, 208, 0),
-    mission_camera_keyframe(504, 10_240, -2_865, 2_506, 247, 208, 0),
-    mission_camera_keyframe(508, 10_218, -2_864, 2_506, 248, 208, 0),
-    mission_camera_keyframe(512, 10_196, -2_863, 2_506, 248, 208, 0),
-    mission_camera_keyframe(516, 10_174, -2_862, 2_506, 248, 208, 0),
-    mission_camera_keyframe(520, 10_152, -2_861, 2_506, 248, 208, 0),
-    mission_camera_keyframe(524, 10_130, -2_861, 2_509, 240, 88, 0),
-    mission_camera_keyframe(528, 10_130, -2_861, 2_509, 240, 88, 0),
-    mission_camera_keyframe(532, 10_108, -2_861, 2_509, 236, 28, 0),
-    mission_camera_keyframe(536, 10_086, -2_861, 2_509, 234, 254, 0),
-    mission_camera_keyframe(540, 10_065, -2_861, 2_509, 233, 239, 0),
-    mission_camera_keyframe(544, 10_044, -2_861, 2_509, 232, 232, 0),
-    mission_camera_keyframe(548, 10_023, -2_861, 2_509, 232, 228, 0),
-    mission_camera_keyframe(552, 10_002, -2_861, 2_509, 232, 226, 0),
-    mission_camera_keyframe(556, 9_981, -2_861, 2_509, 232, 225, 0),
-    mission_camera_keyframe(560, 9_960, -2_861, 2_509, 232, 224, 0),
-    mission_camera_keyframe(564, 9_939, -2_861, 2_509, 232, 224, 0),
-    mission_camera_keyframe(568, 9_939, -2_861, 2_509, 232, 224, 0),
-    mission_camera_keyframe(572, 9_918, -2_861, 2_512, 220, 120, 0),
-    mission_camera_keyframe(576, 9_876, -2_861, 2_512, 211, 42, 0),
-    mission_camera_keyframe(580, 9_855, -2_861, 2_512, 210, 29, 0),
-    mission_camera_keyframe(584, 9_834, -2_861, 2_512, 209, 23, 0),
-    mission_camera_keyframe(588, 9_813, -2_861, 2_512, 208, 20, 0),
-    mission_camera_keyframe(592, 9_792, -2_861, 2_512, 208, 18, 0),
-    mission_camera_keyframe(596, 9_771, -2_861, 2_512, 208, 17, 0),
-    mission_camera_keyframe(600, 9_729, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(604, 9_708, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(608, 9_687, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(612, 9_666, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(616, 9_645, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(620, 9_624, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(624, 9_582, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(628, 9_561, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(632, 9_540, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(636, 9_498, -2_861, 2_512, 208, 16, 0),
-    mission_camera_keyframe(640, 9_476, -2_861, 2_514, 200, 192, 0),
-    mission_camera_keyframe(644, 9_455, -2_861, 2_514, 196, 152, 0),
-    mission_camera_keyframe(648, 9_413, -2_861, 2_514, 193, 122, 0),
-    mission_camera_keyframe(652, 9_392, -2_861, 2_514, 192, 117, 0),
-    mission_camera_keyframe(656, 9_371, -2_861, 2_514, 192, 115, 0),
-    mission_camera_keyframe(660, 9_329, -2_861, 2_514, 192, 113, 0),
-    mission_camera_keyframe(664, 9_308, -2_861, 2_514, 192, 112, 0),
-    mission_camera_keyframe(668, 9_287, -2_861, 2_514, 192, 112, 0),
-    mission_camera_keyframe(672, 9_245, -2_861, 2_514, 192, 112, 0),
-    mission_camera_keyframe(676, 9_224, -2_861, 2_517, 184, 248, 0),
-    mission_camera_keyframe(680, 9_203, -2_861, 2_517, 180, 188, 0),
-    mission_camera_keyframe(684, 9_161, -2_861, 2_517, 177, 143, 0),
-    mission_camera_keyframe(688, 9_140, -2_861, 2_517, 176, 136, 0),
-    mission_camera_keyframe(692, 9_077, -2_884, 2_506, 0, 224, 0),
-    mission_camera_keyframe(696, 9_076, -2_861, 2_520, 176, 205, 0),
-    mission_camera_keyframe(700, 9_055, -2_861, 2_520, 176, 175, 0),
-    mission_camera_keyframe(704, 8_993, -2_883, 2_506, 0, 224, 0),
-    mission_camera_keyframe(708, 8_991, -2_861, 2_523, 176, 224, 0),
-    mission_camera_keyframe(712, 8_970, -2_861, 2_523, 176, 192, 0),
-    mission_camera_keyframe(716, 8_909, -2_880, 2_506, 0, 224, 0),
-    mission_camera_keyframe(720, 8_906, -2_861, 2_528, 149, 172, 0),
-    mission_camera_keyframe(724, 8_885, -2_861, 2_528, 150, 118, 0),
-    mission_camera_keyframe(728, 8_825, -2_879, 2_506, 0, 224, 0),
-    mission_camera_keyframe(732, 8_819, -2_861, 2_537, 42, 121, 0),
-    mission_camera_keyframe(736, 8_797, -2_861, 2_540, 169, 172, 0),
-    mission_camera_keyframe(740, 8_741, -2_880, 2_506, 0, 224, 0),
-    mission_camera_keyframe(744, 8_730, -2_861, 2_548, 185, 61, 0),
-    mission_camera_keyframe(748, 8_708, -2_861, 2_551, 232, 182, 0),
-    mission_camera_keyframe(752, 8_657, -2_881, 2_506, 0, 224, 0),
-    mission_camera_keyframe(756, 8_641, -2_861, 2_558, 84, 206, 0),
-    mission_camera_keyframe(760, 8_619, -2_861, 2_560, 106, 23, 0),
-    mission_camera_keyframe(764, 8_573, -2_884, 2_506, 0, 224, 0),
-    mission_camera_keyframe(768, 8_551, -2_861, 2_568, 171, 138, 0),
-    mission_camera_keyframe(772, 8_528, -2_861, 2_571, 185, 181, 0),
-    mission_camera_keyframe(776, 8_489, -2_885, 2_506, 0, 224, 0),
-    mission_camera_keyframe(780, 8_460, -2_861, 2_577, 220, 42, 0),
-    mission_camera_keyframe(784, 8_436, -2_861, 2_579, 234, 61, 0),
-    mission_camera_keyframe(788, 8_405, -2_884, 2_506, 0, 224, 0),
-    mission_camera_keyframe(792, 8_367, -2_861, 2_586, 11, 135, 0),
-    mission_camera_keyframe(796, 8_343, -2_861, 2_588, 21, 147, 0),
-    mission_camera_keyframe(800, 8_321, -2_883, 2_506, 0, 224, 0),
-    mission_camera_keyframe(804, 8_274, -2_861, 2_593, 52, 216, 0),
-    mission_camera_keyframe(808, 8_251, -2_861, 2_594, 58, 252, 0),
-    mission_camera_keyframe(812, 8_237, -2_880, 2_506, 0, 224, 0),
-    mission_camera_keyframe(816, 8_180, -2_861, 2_599, 75, 43, 0),
-    mission_camera_keyframe(820, 8_157, -2_861, 2_601, 77, 53, 0),
-    mission_camera_keyframe(824, 8_153, -2_879, 2_506, 0, 224, 0),
-    mission_camera_keyframe(828, 8_086, -2_861, 2_604, 101, 114, 0),
-    mission_camera_keyframe(832, 8_062, -2_861, 2_606, 106, 129, 0),
-    mission_camera_keyframe(836, 8_069, -2_880, 2_506, 0, 224, 0),
-    mission_camera_keyframe(840, 7_991, -2_861, 2_609, 123, 178, 0),
-    mission_camera_keyframe(844, 7_967, -2_861, 2_610, 129, 209, 0),
-    mission_camera_keyframe(848, 7_985, -2_881, 2_506, 0, 224, 0),
-    mission_camera_keyframe(852, 7_896, -2_861, 2_613, 149, 252, 0),
-    mission_camera_keyframe(856, 7_872, -2_861, 2_613, 150, 6, 0),
-    mission_camera_keyframe(860, 7_901, -2_884, 2_506, 0, 224, 0),
-    mission_camera_keyframe(864, 7_800, -2_861, 2_615, 165, 50, 0),
-    mission_camera_keyframe(868, 7_777, -2_861, 2_616, 166, 57, 0),
-    mission_camera_keyframe(872, 7_817, -2_885, 2_506, 0, 224, 0),
+const CAMERA_FOLLOW_CADENCE: [u8; 16] = [1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1];
+
+pub(super) fn camera_follow_updates(retail_frame: u16) -> Option<u8> {
+    let offset = retail_frame.checked_sub(CAMERA_FOLLOW_FIRST_RETAIL_FRAME)?;
+    if retail_frame > PLAYER_NEUTRAL_START_RETAIL_FRAME || offset % CAMERA_RETAIL_FRAME_STEP != 0 {
+        return None;
+    }
+    CAMERA_FOLLOW_CADENCE
+        .get(usize::from(offset / CAMERA_RETAIL_FRAME_STEP))
+        .copied()
+}
+
+pub(super) const CAMERA_TARGET_TRACKING_FIRST_RETAIL_FRAME: u16 = 456;
+pub(super) const CAMERA_FOLLOW_INITIAL_VERTICAL_OFFSET: i16 = -20;
+pub(super) const CAMERA_FOLLOW_VERTICAL_CHASE_DIVISOR: i16 = 8;
+pub(super) const CAMERA_FOLLOW_NEAR_DISTANCE: i16 = 0;
+pub(super) const CAMERA_FOLLOW_FAR_DISTANCE: i16 = -240;
+pub(super) const CAMERA_FOLLOW_DISTANCE_STEP: i16 = 30;
+pub(super) const CAMERA_FOLLOW_NEAR_HOLD_UPDATES: u8 = 10;
+pub(super) const CAMERA_FOLLOW_PITCH_SUBUNITS: u16 = 0;
+pub(super) const CAMERA_FOLLOW_YAW_SUBUNITS: u16 = (-16_928i16) as u16;
+pub(super) const CAMERA_FOLLOW_FIRST_ROLL_SUBUNITS: u16 = (-256i16) as u16;
+pub(super) const CAMERA_FOLLOW_ROLL_SUBUNITS: u16 = 0;
+pub(super) const CAMERA_FOLLOW_INITIAL_VIEW_YAW_SUBUNITS: u16 = (-16_384i16) as u16;
+pub(super) const CAMERA_CONTINUITY_TRANSLATION_DIVISOR: i16 = 16;
+pub(super) const CAMERA_CONTINUITY_ORIENTATION_STEP: i8 = 1;
+pub(super) const CAMERA_TRACKING_ORBIT_HEIGHT: i16 = 20;
+pub(super) const CAMERA_TRACKING_ORBIT_REAR_DISTANCE: i16 = -120;
+pub(super) const CAMERA_TRACKING_BEARING_HOLD_UPDATES: u8 = 15;
+pub(super) const CAMERA_TRACKING_BEARING_STEP: i8 = 1;
+pub(super) const CAMERA_TRACKING_ORIENTATION_DIVISOR: i16 = 2;
+pub(super) const MAXIMUM_CAMERA_UPDATES_PER_RETAIL_FRAME: usize = 2;
+pub(super) const CAMERA_ORIENTATION_COARSE_SHIFT: u32 = 8;
+pub(super) const CAMERA_ORIENTATION_SUBUNITS_PER_COARSE_UNIT: i16 = 256;
+pub(super) const CAMERA_TRACKING_PITCH_SCALE_SHIFT: u32 = 1;
+pub(super) const CAMERA_FOLLOW_VERTICAL_POSITION_SCALE: i16 = 2;
+pub(super) const CAMERA_FOLLOW_POSITION_SCALE_SHIFT: u32 = 1;
+
+const CAMERA_AMBIENT_HEIGHT_PERIOD: u8 = 32;
+const CAMERA_AMBIENT_HEIGHT_WAVE: [i8; 32] = [
+    1, 0, 1, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, -1, 0, -1, -1, 0, -1, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 1,
+    0, 1,
 ];
+
+pub(super) fn advance_camera_ambient_height(phase: u8, height: i16) -> (u8, i16) {
+    let phase = phase.wrapping_add(1) % CAMERA_AMBIENT_HEIGHT_PERIOD;
+    (
+        phase,
+        height.wrapping_add(i16::from(CAMERA_AMBIENT_HEIGHT_WAVE[usize::from(phase)])),
+    )
+}
+
+const CAMERA_TRACKING_HEAD_MOVEMENT_LEADS: [(u16, u8); 4] =
+    [(704, 1), (720, 0), (728, 1), (732, 0)];
+
+pub(super) fn camera_tracking_head_movement_lead(retail_frame: u16, movement_update: u8) -> u8 {
+    u8::from(CAMERA_TRACKING_HEAD_MOVEMENT_LEADS.contains(&(retail_frame, movement_update)))
+}
 
 pub(super) const PLAYER_CINEMATIC_KEYFRAMES: [MissionPlayerKeyframe; 101] = [
     mission_player_keyframe(0, 400, -150, 0, 0, 0, 0, 0),

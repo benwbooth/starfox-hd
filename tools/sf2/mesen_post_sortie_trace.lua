@@ -906,20 +906,46 @@ local function walker_motion_stage(stage)
   return function() record_walker_motion_stage(stage) end
 end
 
+function player_flight_oracle.pose(address)
+  return string.format(
+    "%d,%d,%d,%d,%d,%d,%d",
+    signed_word(address + 12),
+    signed_word(address + 14),
+    signed_word(address + 16),
+    work_byte(address + 18),
+    work_byte(address + 20),
+    work_byte(address + 22),
+    work_byte(address + 24))
+end
+
 function player_flight_oracle.record(stage)
   if not player_flight_oracle.enabled or not armed then return end
+  local state = emu.getState()
+  local executing_object = state["cpu.x"] or 0
   local object = work_word(0x12C3)
   if object == 0 then return end
   local slot = work_word(object + 0x2B)
+  local helper = work_word(0x12C5)
   local function flight_field(address)
     return (address + slot) & 0xFFFF
   end
   player_flight_oracle.lines[#player_flight_oracle.lines + 1] = string.format(
-    "elapsed=%d stage=%s object=%04X slot=%04X pose=%s " ..
+    "elapsed=%d stage=%s executing=%04X object=%04X slot=%04X pose=%s " ..
       "pitch=%d,%d yaw=%d,%d,%d,%d bank=%d,%d,%d,%d,%d,%d " ..
-      "motion=%d,%d,%d speed=%d input=%d,%d",
+      "motion=%d,%d,%d speed=%d input=%d,%d " ..
+      "camera=%s helper=%s anchor=%d,%d,%d " ..
+      "view=%d,%d,%d offset=%d,%d " ..
+      "camera_effect=%02X:%04X camera_timer=%d focus=%04X " ..
+      "camera_translation=%d,%d,%d camera_target=%d,%d,%d " ..
+      "camera_rotation_target=%d,%d,%d camera_rotation_motion=%d,%d,%d " ..
+      "camera_flags=%d follow_mode=%d,%d,%d,%d,%d " ..
+      "follow_depth=%d,%d,%d,%d follow_offset=%d,%d,%d,%d,%d,%d " ..
+      "follow_scratch=%d,%d,%d camera_orientation_words=%d,%d,%d " ..
+      "tracking_source=%d,%d,%d tracking_center=%d,%d,%d " ..
+      "aim_scratch=%d,%d",
     frame - armed_frame,
     stage,
+    executing_object,
     object,
     slot,
     string.format(
@@ -948,7 +974,63 @@ function player_flight_oracle.record(stage)
     signed_word(flight_field(0x6B0F)),
     work_byte(object + 0x18),
     signed_word(0x1E36),
-    signed_word(0x1E38))
+    signed_word(0x1E38),
+    player_flight_oracle.pose(0x033F),
+    helper ~= 0 and player_flight_oracle.pose(helper) or "-",
+    signed_word(flight_field(0x6AC1)),
+    signed_word(flight_field(0x6AC3)),
+    signed_word(flight_field(0x6AC5)),
+    signed_word(flight_field(0x6B31)),
+    signed_word(flight_field(0x6B33)),
+    signed_word(flight_field(0x6B35)),
+    signed_word(flight_field(0x6B3B)),
+    signed_word(flight_field(0x6B3D)),
+    work_byte(flight_field(0x6A9F)),
+    work_word(flight_field(0x6A9D)),
+    signed_word(0x033F + 0x1CE4),
+    work_word(flight_field(0x6BB8)),
+    signed_word(0x033F + 0x1CCF),
+    signed_word(0x033F + 0x1CD1),
+    signed_word(0x033F + 0x1CD3),
+    signed_word(0x033F + 0x39),
+    signed_word(0x033F + 0x3B),
+    signed_word(0x033F + 0x3D),
+    signed_word(0x033F + 0x1CC1),
+    signed_word(0x033F + 0x1CC3),
+    signed_word(0x033F + 0x1CC5),
+    signed_byte(0x033F + 0x1CD5),
+    signed_byte(0x033F + 0x1CD6),
+    signed_byte(0x033F + 0x1CD7),
+    work_byte(0x033F + 0x21),
+    work_byte(flight_field(0x6AA0)),
+    work_byte(flight_field(0x6B77)),
+    work_byte(flight_field(0x6B63)),
+    work_byte(flight_field(0x6BE6)),
+    work_byte(flight_field(0x6B30)),
+    signed_word(flight_field(0x6B45)),
+    signed_word(flight_field(0x6B47)),
+    signed_word(flight_field(0x6B4E)),
+    signed_word(flight_field(0x6AE2)),
+    signed_word(flight_field(0x6B4A)),
+    signed_word(flight_field(0x6B4C)),
+    signed_word(flight_field(0x6AE7)),
+    signed_word(flight_field(0x6B52)),
+    signed_word(flight_field(0x6B54)),
+    signed_word(flight_field(0x6B67)),
+    signed_word(0x1DC2),
+    signed_word(0x1DC4),
+    signed_word(0x1DC6),
+    signed_word(0x033F + 0x12),
+    signed_word(0x033F + 0x14),
+    signed_word(0x033F + 0x16),
+    signed_word(0x1E01),
+    signed_word(0x1E03),
+    signed_word(0x1E05),
+    signed_word(0xD7EC),
+    signed_word(0xD7EE),
+    signed_word(0xD7F0),
+    signed_word(0x0004),
+    signed_word(0x000A))
 end
 
 function player_flight_oracle.capture(stage)
@@ -961,6 +1043,10 @@ function player_flight_oracle.capture(stage)
         stage,
         tostring(detail))
   end
+end
+
+function player_flight_oracle.capture_stage(stage)
+  return function() player_flight_oracle.capture(stage) end
 end
 
 local walker_auxiliary_offsets = {
@@ -4306,6 +4392,40 @@ if sortie_actor_oracle.enabled
   or sortie_actor_oracle.projectiles_enabled
   or player_flight_oracle.enabled then
   sortie_actor_oracle.register_callbacks()
+end
+if player_flight_oracle.enabled then
+  for stage, address in pairs({
+    camera_control_input = 0x0784EC,
+    camera_control_after_state = 0x07850A,
+    camera_control_after_horizontal = 0x07850D,
+    camera_control_after_vertical = 0x078510,
+    camera_control_applied_a = 0x078071,
+    camera_control_applied_b = 0x078097,
+    camera_control_applied_c = 0x0780E4,
+    camera_orientation_applied_a = 0x078078,
+    camera_orientation_applied_b = 0x07809E,
+    camera_orientation_applied_c = 0x078123,
+    camera_anchor_applied_a = 0x07807B,
+    camera_anchor_applied_b = 0x0780A1,
+    camera_anchor_applied_c = 0x078126,
+    camera_output_a = 0x078087,
+    camera_output_b = 0x0780B1,
+    camera_output_c = 0x07812A,
+    target_tracking_initialized = 0x079ECD,
+    target_tracking_motion_copied = 0x079EE3,
+    target_tracking_positioned = 0x079EE6,
+    target_tracking_aimed = 0x079EE9,
+    camera_motion_input = 0x0797FB,
+    camera_motion_applied = 0x0798CE,
+  }) do
+    emu.addMemoryCallback(
+      player_flight_oracle.capture_stage(stage),
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
 end
 if trace_craft_transition then
   for service, address in pairs({

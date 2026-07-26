@@ -1461,6 +1461,16 @@ pub enum MirageDragonCameraPhase {
     Dormant,
     TrackingFocus,
     PlayerFollow,
+    TargetTracking,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MirageDragonFollowDistancePhase {
+    #[default]
+    ApproachingNear,
+    HoldingNear,
+    ApproachingFar,
+    HoldingFar,
 }
 
 /// Fine camera orientation with 65,536 subunits per turn. Keeping these
@@ -1473,9 +1483,19 @@ pub struct CameraOrientationSubunits {
     pub roll: u16,
 }
 
-/// Typed state for the Mirage Dragon intro camera. The retail scene uses a
-/// moving focus and a child anchor; the port represents those concepts
-/// directly instead of retaining either object's byte-addressed storage.
+/// Signed coarse-turn corrections used to preserve a camera transition while
+/// the new camera strategy settles.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CameraOrientationOffsets {
+    pub pitch: i8,
+    pub yaw: i8,
+    pub roll: i8,
+}
+
+/// Typed state for the Mirage Dragon camera. The retail scene changes from a
+/// moving-focus intro to player follow and target-tracking strategies; the port
+/// represents those concepts directly instead of retaining byte-addressed
+/// object storage.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct MirageDragonCameraState {
     pub phase: MirageDragonCameraPhase,
@@ -1485,6 +1505,21 @@ pub struct MirageDragonCameraState {
     pub anchor_depth_motion: i16,
     pub anchor_position: Vector3,
     pub orientation: CameraOrientationSubunits,
+    pub follow_vertical_offset: i16,
+    pub follow_rear_distance: i16,
+    pub follow_distance_phase: MirageDragonFollowDistancePhase,
+    pub follow_hold_updates_remaining: u8,
+    pub follow_view_orientation: CameraOrientationSubunits,
+    pub ambient_height_phase: u8,
+    pub ambient_height_offset: i16,
+    pub continuity_translation: Vector3,
+    pub continuity_orientation_offsets: CameraOrientationOffsets,
+    pub continuity_reset_pending: bool,
+    pub previous_output_position: Vector3,
+    pub previous_output_orientation: CameraOrientationSubunits,
+    pub follow_motion_updates_elapsed: u8,
+    pub tracking_updates_elapsed: u8,
+    pub tracking_bearing: u8,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

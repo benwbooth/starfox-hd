@@ -41,10 +41,10 @@ use super::state::{
     GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase,
     MacbethCoreStatus, MacbethDefenderStatus, MacbethInstallationStatus, MacbethMissionState,
     MacbethPhase, MacbethSwitchStatus, MapPoint, MeteorCoreStatus, MeteorMissionState, MeteorPhase,
-    MeteorSwitchStatus, MirageDragonCameraPhase, MirageDragonCameraState, MissionMessage,
-    MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
-    PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
-    PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
+    MeteorSwitchStatus, MirageDragonCameraPhase, MirageDragonCameraState,
+    MirageDragonFollowDistancePhase, MissionMessage, MissionMessageIrisFrame, MissionMessagePhase,
+    MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
+    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
     PlayerCraftTransformationDirection, PlayerDamageState, RecurringAttacker,
     RecurringAttackersState, ResultsChoice, ResultsPhase, ResultsState, SoundEvent,
     StrategicEncounter, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
@@ -16487,8 +16487,6 @@ impl Game {
     }
 
     fn update_mirage_dragon_presentation(&mut self, retail_frame: u16) {
-        self.update_mirage_dragon_camera(retail_frame);
-
         if retail_frame > mirage_dragon::PLAYER_NEUTRAL_START_RETAIL_FRAME {
             self.update_mirage_dragon_neutral_player_flight(retail_frame);
             return;
@@ -16530,6 +16528,7 @@ impl Game {
             flight.pitch_lean = 0;
             flight.ambient_bank_phase = mirage_dragon::PLAYER_NEUTRAL_START_BANK_PHASE;
         }
+        self.update_mirage_dragon_camera(retail_frame);
     }
 
     fn update_mirage_dragon_camera(&mut self, retail_frame: u16) {
@@ -16543,17 +16542,36 @@ impl Game {
             self.state.camera.rotation.pitch = Angle::from_units(camera.orientation.pitch as u8);
             self.state.camera.rotation.yaw = Angle::from_units(camera.orientation.yaw as u8);
             self.state.camera.rotation.roll = Angle::from_units(camera.orientation.roll as u8);
+            let camera = &mut self.state.mission.mirage_dragon_camera;
+            camera.previous_output_position = camera.anchor_position;
+            camera.previous_output_orientation = camera.orientation;
             return;
         }
 
-        if retail_frame >= mirage_dragon::CAMERA_FOLLOW_FIRST_RETAIL_FRAME {
-            self.state.mission.mirage_dragon_camera.phase = MirageDragonCameraPhase::PlayerFollow;
-            let camera =
-                interpolated_camera_keyframe(&mirage_dragon::CAMERA_FOLLOW_KEYFRAMES, retail_frame);
-            self.state.camera.position = camera.position;
-            self.state.camera.rotation.pitch = Angle::from_units(camera.pitch);
-            self.state.camera.rotation.yaw = Angle::from_units(camera.yaw);
-            self.state.camera.rotation.roll = Angle::from_units(camera.roll);
+        let Some(updates) = mirage_dragon::camera_follow_updates(retail_frame) else {
+            return;
+        };
+        if updates == 0 {
+            return;
+        }
+        let Some(player_position) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|player| player.base.position)
+        else {
+            return;
+        };
+        self.ensure_mirage_dragon_follow_camera_started();
+        for _ in 0..updates {
+            self.advance_mirage_dragon_camera_control();
+            self.advance_mirage_dragon_camera_motion(
+                retail_frame,
+                player_position,
+                player_position,
+                Vector3::default(),
+            );
         }
     }
 
@@ -16561,14 +16579,23 @@ impl Game {
         let Some(cadence) = mirage_dragon::player_neutral_flight_cadence(retail_frame) else {
             return;
         };
+        self.ensure_mirage_dragon_follow_camera_started();
         let primary_flight_craft_shape = self.primary_flight_craft_shape();
-        let flight = &mut self.state.mission.player_flight;
-        flight.ambient_bank_phase = mirage_dragon::advance_player_neutral_bank_phase(
-            flight.ambient_bank_phase,
+        let ambient_bank_phase = mirage_dragon::advance_player_neutral_bank_phase(
+            self.state.mission.player_flight.ambient_bank_phase,
             cadence.control_updates,
         );
+        self.state.mission.player_flight.ambient_bank_phase = ambient_bank_phase;
+        for _ in 0..cadence.control_updates {
+            self.advance_mirage_dragon_camera_control();
+        }
 
         if let Some(primary) = self.state.mission.primary_player {
+            let head_position = self
+                .mirage_dragon
+                .and_then(|head| self.state.objects.get(head))
+                .map(|head| (head.base.position, head.base.velocity))
+                .unwrap_or_default();
             if let Some(player) = self.state.objects.get_mut(primary) {
                 for _ in 0..cadence.control_updates {
                     player.base.speed = approach_u8(
@@ -16582,9 +16609,8 @@ impl Game {
                 player.base.flags.collision_disabled = false;
                 player.base.pitch = Angle::ZERO;
                 player.base.yaw = Angle::from_units(mirage_dragon::PLAYER_NEUTRAL_YAW);
-                player.base.roll = Angle::from_units(mirage_dragon::player_neutral_bank(
-                    flight.ambient_bank_phase,
-                ) as u8);
+                player.base.roll =
+                    Angle::from_units(mirage_dragon::player_neutral_bank(ambient_bank_phase) as u8);
                 let movement =
                     flight_velocity(player.base.pitch, player.base.yaw, player.base.speed, 1);
                 let movement_updates = i16::from(cadence.movement_updates);
@@ -16593,6 +16619,49 @@ impl Game {
                     y: movement.y.wrapping_mul(movement_updates),
                     z: movement.z.wrapping_mul(movement_updates),
                 };
+                let mut previous_player_position = player.base.position;
+                let mut projected_positions =
+                    [Vector3::default(); mirage_dragon::MAXIMUM_CAMERA_UPDATES_PER_RETAIL_FRAME];
+                for movement_update in 0..cadence.movement_updates {
+                    let current_player_position = add_vectors(previous_player_position, movement);
+                    projected_positions[usize::from(movement_update)] = current_player_position;
+                    previous_player_position = current_player_position;
+                }
+                let player_position_before_motion = player.base.position;
+                let _ = player;
+
+                for movement_update in 0..cadence.movement_updates {
+                    let current_player_position = projected_positions[usize::from(movement_update)];
+                    let previous_player_position = if movement_update == 0 {
+                        player_position_before_motion
+                    } else {
+                        projected_positions[usize::from(movement_update - 1)]
+                    };
+                    let head_lead = mirage_dragon::camera_tracking_head_movement_lead(
+                        retail_frame,
+                        movement_update,
+                    );
+                    let tracking_target = Vector3 {
+                        x: head_position
+                            .0
+                            .x
+                            .wrapping_add(head_position.1.x.wrapping_mul(i16::from(head_lead))),
+                        y: head_position
+                            .0
+                            .y
+                            .wrapping_add(head_position.1.y.wrapping_mul(i16::from(head_lead))),
+                        z: head_position
+                            .0
+                            .z
+                            .wrapping_add(head_position.1.z.wrapping_mul(i16::from(head_lead))),
+                    };
+                    self.advance_mirage_dragon_camera_motion(
+                        retail_frame,
+                        current_player_position,
+                        previous_player_position,
+                        tracking_target,
+                    );
+                }
             }
         }
 
@@ -16607,6 +16676,159 @@ impl Game {
             wingmate.base.flags.collision_disabled = true;
             wingmate.base.velocity = Vector3::default();
         }
+    }
+
+    fn ensure_mirage_dragon_follow_camera_started(&mut self) {
+        let camera = &mut self.state.mission.mirage_dragon_camera;
+        if camera.phase == MirageDragonCameraPhase::PlayerFollow
+            || camera.phase == MirageDragonCameraPhase::TargetTracking
+        {
+            return;
+        }
+        camera.phase = MirageDragonCameraPhase::PlayerFollow;
+        camera.strategy_step = 0;
+        camera.follow_vertical_offset = mirage_dragon::CAMERA_FOLLOW_INITIAL_VERTICAL_OFFSET;
+        camera.follow_rear_distance = mirage_dragon::CAMERA_FOLLOW_FAR_DISTANCE;
+        camera.follow_distance_phase = MirageDragonFollowDistancePhase::ApproachingNear;
+        camera.follow_hold_updates_remaining = 0;
+        camera.follow_view_orientation = super::state::CameraOrientationSubunits {
+            pitch: 0,
+            yaw: mirage_dragon::CAMERA_FOLLOW_INITIAL_VIEW_YAW_SUBUNITS,
+            roll: 0,
+        };
+        camera.ambient_height_phase = 0;
+        camera.ambient_height_offset = 0;
+        camera.continuity_reset_pending = true;
+        camera.follow_motion_updates_elapsed = 0;
+        camera.tracking_updates_elapsed = 0;
+    }
+
+    fn advance_mirage_dragon_camera_control(&mut self) {
+        let camera = &mut self.state.mission.mirage_dragon_camera;
+        let first_follow_control = camera.strategy_step == 0;
+        camera.strategy_step = camera.strategy_step.saturating_add(1);
+
+        let (phase, height) = mirage_dragon::advance_camera_ambient_height(
+            camera.ambient_height_phase,
+            camera.ambient_height_offset,
+        );
+        camera.ambient_height_phase = phase;
+        camera.ambient_height_offset = height;
+
+        if !first_follow_control {
+            camera.follow_vertical_offset = approach_proportional_i16(
+                camera.follow_vertical_offset,
+                0,
+                mirage_dragon::CAMERA_FOLLOW_VERTICAL_CHASE_DIVISOR,
+            );
+        }
+    }
+
+    fn advance_mirage_dragon_camera_motion(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+        tracking_target: Vector3,
+    ) {
+        let camera = &mut self.state.mission.mirage_dragon_camera;
+        if retail_frame >= mirage_dragon::CAMERA_TARGET_TRACKING_FIRST_RETAIL_FRAME
+            && camera.phase != MirageDragonCameraPhase::TargetTracking
+        {
+            camera.phase = MirageDragonCameraPhase::TargetTracking;
+            camera.tracking_bearing = (camera.orientation.yaw
+                >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT)
+                .wrapping_neg() as u8;
+            camera.tracking_updates_elapsed = 0;
+            camera.continuity_reset_pending = true;
+        }
+
+        let (base_position, base_orientation) =
+            if camera.phase == MirageDragonCameraPhase::TargetTracking {
+                let delta_x = tracking_target.x.wrapping_sub(player_position.x);
+                let delta_z = tracking_target.z.wrapping_sub(player_position.z);
+                let desired_bearing = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+                if camera.tracking_updates_elapsed
+                    >= mirage_dragon::CAMERA_TRACKING_BEARING_HOLD_UPDATES
+                {
+                    camera.tracking_bearing = approach_wrapped_u8(
+                        camera.tracking_bearing,
+                        desired_bearing,
+                        mirage_dragon::CAMERA_TRACKING_BEARING_STEP,
+                    );
+                }
+
+                let (offset_x, offset_z) = sf_core::snes_trig::rotate_16xz(
+                    camera.tracking_bearing,
+                    0,
+                    mirage_dragon::CAMERA_TRACKING_ORBIT_REAR_DISTANCE,
+                );
+                let position = Vector3 {
+                    x: previous_player_position.x.wrapping_add(offset_x),
+                    y: previous_player_position
+                        .y
+                        .wrapping_add(mirage_dragon::CAMERA_TRACKING_ORBIT_HEIGHT),
+                    z: previous_player_position.z.wrapping_add(offset_z),
+                };
+                let delta_x = player_position.x.wrapping_sub(position.x);
+                let delta_y = player_position.y.wrapping_sub(position.y);
+                let delta_z = player_position.z.wrapping_sub(position.z);
+                let desired_orientation = super::state::CameraOrientationSubunits {
+                    pitch: sf_core::aim_angle::sf2_atan16(
+                        delta_y,
+                        sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z),
+                    )
+                    .wrapping_neg()
+                        >> mirage_dragon::CAMERA_TRACKING_PITCH_SCALE_SHIFT,
+                    yaw: sf_core::aim_angle::sf2_atan16(delta_x, delta_z),
+                    roll: 0,
+                };
+                let orientation = super::state::CameraOrientationSubunits {
+                    pitch: chase_mirage_dragon_tracking_orientation(
+                        camera.orientation.pitch,
+                        desired_orientation.pitch,
+                    ),
+                    yaw: chase_mirage_dragon_tracking_orientation(
+                        camera.orientation.yaw,
+                        desired_orientation.yaw,
+                    ),
+                    roll: chase_mirage_dragon_tracking_orientation(
+                        camera.orientation.roll,
+                        desired_orientation.roll,
+                    ),
+                };
+                camera.tracking_updates_elapsed = camera.tracking_updates_elapsed.saturating_add(1);
+                (position, orientation)
+            } else {
+                let position = mirage_dragon_follow_camera_position(
+                    player_position,
+                    camera.follow_vertical_offset,
+                    camera.follow_rear_distance,
+                    camera.ambient_height_offset,
+                    camera.follow_view_orientation,
+                );
+                let first_motion = camera.follow_motion_updates_elapsed == 0;
+                camera.follow_motion_updates_elapsed =
+                    camera.follow_motion_updates_elapsed.saturating_add(1);
+                let orientation = super::state::CameraOrientationSubunits {
+                    pitch: mirage_dragon::CAMERA_FOLLOW_PITCH_SUBUNITS,
+                    yaw: mirage_dragon::CAMERA_FOLLOW_YAW_SUBUNITS,
+                    roll: if first_motion {
+                        mirage_dragon::CAMERA_FOLLOW_FIRST_ROLL_SUBUNITS
+                    } else {
+                        mirage_dragon::CAMERA_FOLLOW_ROLL_SUBUNITS
+                    },
+                };
+                camera.follow_view_orientation = orientation;
+                advance_mirage_dragon_camera_distance(camera);
+                (position, orientation)
+            };
+        camera.anchor_position = base_position;
+        apply_mirage_dragon_camera_continuity(camera, base_position, base_orientation);
+        self.state.camera.position = camera.previous_output_position;
+        self.state.camera.rotation.pitch = Angle::from_units(camera.orientation.pitch as u8);
+        self.state.camera.rotation.yaw = Angle::from_units(camera.orientation.yaw as u8);
+        self.state.camera.rotation.roll = Angle::from_units(camera.orientation.roll as u8);
     }
 
     fn update_mirage_dragon_head(&mut self, retail_frame: u16) {
@@ -19616,6 +19838,214 @@ fn chase_mirage_dragon_camera_orientation(current: u16, target: u16) -> u16 {
     current.wrapping_add_signed(limited)
 }
 
+fn mirage_dragon_follow_camera_position(
+    player_position: Vector3,
+    vertical_offset: i16,
+    rear_distance: i16,
+    ambient_height: i16,
+    view_orientation: super::state::CameraOrientationSubunits,
+) -> Vector3 {
+    let (offset_y, depth_after_pitch) = sf_core::snes_trig::rotate_16yz(
+        ((view_orientation.pitch >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+            .wrapping_neg(),
+        vertical_offset.wrapping_mul(mirage_dragon::CAMERA_FOLLOW_VERTICAL_POSITION_SCALE),
+        rear_distance,
+    );
+    let (offset_x, offset_z) = sf_core::snes_trig::rotate_16xz(
+        ((view_orientation.yaw >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+            .wrapping_neg(),
+        0,
+        depth_after_pitch,
+    );
+    Vector3 {
+        x: player_position
+            .x
+            .wrapping_add(offset_x >> mirage_dragon::CAMERA_FOLLOW_POSITION_SCALE_SHIFT),
+        y: player_position
+            .y
+            .wrapping_add(offset_y >> mirage_dragon::CAMERA_FOLLOW_POSITION_SCALE_SHIFT)
+            .wrapping_add(ambient_height),
+        z: player_position
+            .z
+            .wrapping_add(offset_z >> mirage_dragon::CAMERA_FOLLOW_POSITION_SCALE_SHIFT),
+    }
+}
+
+fn advance_mirage_dragon_camera_distance(camera: &mut MirageDragonCameraState) {
+    match camera.follow_distance_phase {
+        MirageDragonFollowDistancePhase::ApproachingNear => {
+            camera.follow_rear_distance = approach_i16(
+                camera.follow_rear_distance,
+                mirage_dragon::CAMERA_FOLLOW_NEAR_DISTANCE,
+                mirage_dragon::CAMERA_FOLLOW_DISTANCE_STEP,
+            );
+            if camera.follow_rear_distance == mirage_dragon::CAMERA_FOLLOW_NEAR_DISTANCE {
+                camera.follow_distance_phase = MirageDragonFollowDistancePhase::HoldingNear;
+                camera.follow_hold_updates_remaining =
+                    mirage_dragon::CAMERA_FOLLOW_NEAR_HOLD_UPDATES;
+                camera.continuity_reset_pending = true;
+            }
+        }
+        MirageDragonFollowDistancePhase::HoldingNear => {
+            camera.follow_hold_updates_remaining =
+                camera.follow_hold_updates_remaining.saturating_sub(1);
+            if camera.follow_hold_updates_remaining == 0 {
+                camera.follow_distance_phase = MirageDragonFollowDistancePhase::ApproachingFar;
+                camera.follow_rear_distance = approach_i16(
+                    camera.follow_rear_distance,
+                    mirage_dragon::CAMERA_FOLLOW_FAR_DISTANCE,
+                    mirage_dragon::CAMERA_FOLLOW_DISTANCE_STEP,
+                );
+                camera.continuity_reset_pending = true;
+            }
+        }
+        MirageDragonFollowDistancePhase::ApproachingFar => {
+            camera.follow_rear_distance = approach_i16(
+                camera.follow_rear_distance,
+                mirage_dragon::CAMERA_FOLLOW_FAR_DISTANCE,
+                mirage_dragon::CAMERA_FOLLOW_DISTANCE_STEP,
+            );
+            if camera.follow_rear_distance == mirage_dragon::CAMERA_FOLLOW_FAR_DISTANCE {
+                camera.follow_distance_phase = MirageDragonFollowDistancePhase::HoldingFar;
+                camera.continuity_reset_pending = true;
+            }
+        }
+        MirageDragonFollowDistancePhase::HoldingFar => {}
+    }
+}
+
+fn chase_mirage_dragon_tracking_orientation(current: u16, target: u16) -> u16 {
+    approach_proportional_i16(
+        current as i16,
+        target as i16,
+        mirage_dragon::CAMERA_TRACKING_ORIENTATION_DIVISOR,
+    ) as u16
+}
+
+fn approach_wrapped_u8(current: u8, target: u8, maximum_step: i8) -> u8 {
+    let difference = target.wrapping_sub(current) as i8;
+    if difference == 0 || difference.unsigned_abs() <= maximum_step.unsigned_abs() {
+        return target;
+    }
+    current.wrapping_add_signed(if difference > 0 {
+        maximum_step
+    } else {
+        maximum_step.wrapping_neg()
+    })
+}
+
+fn apply_mirage_dragon_camera_continuity(
+    camera: &mut MirageDragonCameraState,
+    base_position: Vector3,
+    base_orientation: super::state::CameraOrientationSubunits,
+) {
+    if camera.continuity_reset_pending {
+        camera.continuity_translation = Vector3 {
+            x: camera
+                .previous_output_position
+                .x
+                .wrapping_sub(base_position.x),
+            y: camera
+                .previous_output_position
+                .y
+                .wrapping_sub(base_position.y),
+            z: camera
+                .previous_output_position
+                .z
+                .wrapping_sub(base_position.z),
+        };
+        camera.continuity_orientation_offsets = super::state::CameraOrientationOffsets {
+            pitch: ((camera.previous_output_orientation.pitch
+                >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+                .wrapping_sub(
+                    (base_orientation.pitch >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT)
+                        as u8,
+                ) as i8,
+            yaw: ((camera.previous_output_orientation.yaw
+                >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+                .wrapping_sub(
+                    (base_orientation.yaw >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8,
+                ) as i8,
+            roll: ((camera.previous_output_orientation.roll
+                >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+                .wrapping_sub(
+                    (base_orientation.roll >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8,
+                ) as i8,
+        };
+        camera.continuity_reset_pending = false;
+    }
+
+    camera.continuity_translation.x = approach_proportional_i16(
+        camera.continuity_translation.x,
+        0,
+        mirage_dragon::CAMERA_CONTINUITY_TRANSLATION_DIVISOR,
+    );
+    camera.continuity_translation.y = approach_proportional_i16(
+        camera.continuity_translation.y,
+        0,
+        mirage_dragon::CAMERA_CONTINUITY_TRANSLATION_DIVISOR,
+    );
+    camera.continuity_translation.z = approach_proportional_i16(
+        camera.continuity_translation.z,
+        0,
+        mirage_dragon::CAMERA_CONTINUITY_TRANSLATION_DIVISOR,
+    );
+    camera.continuity_orientation_offsets.pitch = approach_i8(
+        camera.continuity_orientation_offsets.pitch,
+        0,
+        mirage_dragon::CAMERA_CONTINUITY_ORIENTATION_STEP,
+    );
+    camera.continuity_orientation_offsets.yaw = approach_i8(
+        camera.continuity_orientation_offsets.yaw,
+        0,
+        mirage_dragon::CAMERA_CONTINUITY_ORIENTATION_STEP,
+    );
+    camera.continuity_orientation_offsets.roll = approach_i8(
+        camera.continuity_orientation_offsets.roll,
+        0,
+        mirage_dragon::CAMERA_CONTINUITY_ORIENTATION_STEP,
+    );
+
+    let add_coarse_offset = |value: u16, offset: i8| {
+        value.wrapping_add_signed(
+            i16::from(offset)
+                .wrapping_mul(mirage_dragon::CAMERA_ORIENTATION_SUBUNITS_PER_COARSE_UNIT),
+        )
+    };
+    let orientation = super::state::CameraOrientationSubunits {
+        pitch: add_coarse_offset(
+            base_orientation.pitch,
+            camera.continuity_orientation_offsets.pitch,
+        ),
+        yaw: add_coarse_offset(
+            base_orientation.yaw,
+            camera.continuity_orientation_offsets.yaw,
+        ),
+        roll: add_coarse_offset(
+            base_orientation.roll,
+            camera.continuity_orientation_offsets.roll,
+        ),
+    };
+    let yaw_delta = ((base_orientation.yaw >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT)
+        as u8)
+        .wrapping_sub((orientation.yaw >> mirage_dragon::CAMERA_ORIENTATION_COARSE_SHIFT) as u8);
+    let (translation_x, translation_z) = sf_core::snes_trig::rotate_16xz(
+        yaw_delta,
+        camera.continuity_translation.x,
+        camera.continuity_translation.z,
+    );
+    let output_position = Vector3 {
+        x: base_position.x.wrapping_add(translation_x),
+        y: base_position
+            .y
+            .wrapping_add(camera.continuity_translation.y),
+        z: base_position.z.wrapping_add(translation_z),
+    };
+    camera.orientation = orientation;
+    camera.previous_output_position = output_position;
+    camera.previous_output_orientation = orientation;
+}
+
 fn apply_fortuna_kick_gunner_bob(guardian: &mut Object, action_index: u8) -> u8 {
     guardian.base.position.y = guardian
         .base
@@ -21687,6 +22117,10 @@ mod tests {
     const MIRAGE_DRAGON_PART_ORACLE: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../tools/sf2/fixtures/mirage_dragon_segments.trace"
+    ));
+    const MIRAGE_DRAGON_CAMERA_OUTPUT_ORACLE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tools/sf2/fixtures/mirage_dragon_camera_output.trace"
     ));
 
     fn press(game: &mut Game, button: Button) {
@@ -30937,7 +31371,12 @@ mod tests {
     #[test]
     fn mirage_dragon_typed_intro_camera_matches_every_retained_oracle_pose() {
         let mut game = enter_mirage_dragon_mission();
-        for expected in mirage_dragon::CAMERA_KEYFRAMES {
+        for expected in mirage_dragon::CAMERA_KEYFRAMES
+            .into_iter()
+            .take_while(|expected| {
+                expected.retail_frame <= mirage_dragon::CAMERA_INTRO_LAST_RETAIL_FRAME
+            })
+        {
             while game
                 .state()
                 .mode_frame
@@ -30949,8 +31388,9 @@ mod tests {
             assert_eq!(
                 game.state().camera.position,
                 expected.position,
-                "camera position at retail frame {}",
-                expected.retail_frame
+                "camera position at retail frame {}; typed state: {:?}",
+                expected.retail_frame,
+                game.state().mission.mirage_dragon_camera
             );
             assert_eq!(
                 game.state().camera.rotation.pitch.units(),
@@ -30980,10 +31420,98 @@ mod tests {
                     mirage_dragon::CAMERA_ANCHOR_TOTAL_STRATEGY_UPDATES
                 );
             }
-            if expected.retail_frame == mirage_dragon::CAMERA_FOLLOW_FIRST_RETAIL_FRAME {
+        }
+    }
+
+    #[test]
+    fn mirage_dragon_typed_follow_camera_matches_final_oracle_output() {
+        // The retail combat path changes the globally selected aim target after
+        // this frame. Positions remain camera-strategy evidence; later angles
+        // belong to combat targeting and are verified with that typed system.
+        const LAST_STABLE_AIM_RETAIL_FRAME: u16 = 728;
+
+        let mut game = enter_mirage_dragon_mission();
+        for line in MIRAGE_DRAGON_CAMERA_OUTPUT_ORACLE
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        {
+            let mut fields = line.split_whitespace();
+            let retail_frame: u16 = fields
+                .next()
+                .and_then(|field| field.strip_prefix("retail_frame="))
+                .unwrap()
+                .parse()
+                .unwrap();
+            let _updates: u8 = fields
+                .next()
+                .and_then(|field| field.strip_prefix("updates="))
+                .unwrap()
+                .parse()
+                .unwrap();
+            let camera: Vec<i16> = fields
+                .next()
+                .and_then(|field| field.strip_prefix("camera="))
+                .unwrap()
+                .split(',')
+                .map(|value| value.parse().unwrap())
+                .collect();
+            let fine_orientation: Vec<i16> = fields
+                .next()
+                .and_then(|field| field.strip_prefix("fine_orientation="))
+                .unwrap()
+                .split(',')
+                .map(|value| value.parse().unwrap())
+                .collect();
+
+            while game
+                .state()
+                .mode_frame
+                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                < u32::from(retail_frame)
+            {
+                game.tick(0).unwrap();
+            }
+            assert_eq!(
+                game.state().camera.position,
+                Vector3 {
+                    x: camera[0],
+                    y: camera[1],
+                    z: camera[2],
+                },
+                "final camera position at retail frame {retail_frame}; typed state: {:?}",
+                game.state().mission.mirage_dragon_camera
+            );
+            if retail_frame <= LAST_STABLE_AIM_RETAIL_FRAME {
+                let expected_orientation = super::super::state::CameraOrientationSubunits {
+                    pitch: fine_orientation[0] as u16,
+                    yaw: fine_orientation[1] as u16,
+                    roll: fine_orientation[2] as u16,
+                };
+                assert_eq!(
+                    game.state().mission.mirage_dragon_camera.orientation,
+                    expected_orientation,
+                    "fine camera orientation at retail frame {retail_frame}"
+                );
+                assert_eq!(
+                    [
+                        game.state().camera.rotation.pitch.units(),
+                        game.state().camera.rotation.yaw.units(),
+                        game.state().camera.rotation.roll.units(),
+                    ],
+                    [camera[3] as u8, camera[4] as u8, camera[5] as u8],
+                    "render camera orientation at retail frame {retail_frame}"
+                );
+            }
+            if retail_frame == mirage_dragon::CAMERA_FOLLOW_FIRST_RETAIL_FRAME {
                 assert_eq!(
                     game.state().mission.mirage_dragon_camera.phase,
                     MirageDragonCameraPhase::PlayerFollow
+                );
+            }
+            if retail_frame == mirage_dragon::CAMERA_TARGET_TRACKING_FIRST_RETAIL_FRAME {
+                assert_eq!(
+                    game.state().mission.mirage_dragon_camera.phase,
+                    MirageDragonCameraPhase::TargetTracking
                 );
             }
         }
