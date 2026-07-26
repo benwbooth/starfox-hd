@@ -4,8 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import ast
+import re
+from dataclasses import dataclass
 from pathlib import Path
 
+from generate_capital_continuation import (
+    ANGLE_SOURCE,
+    TRIG_SOURCE,
+    chase_power,
+    rust_table,
+    sf2_atan16,
+    signed_word,
+    xz_distance,
+)
 from generate_pigma_duel import Record, load, rust_source, write_compact
 
 
@@ -31,6 +43,31 @@ HEAD_DEPARTURE_YAW = 196
 HEAD_DEPARTURE_ROLL = 0
 HEAD_DEPARTURE_SPEED = 40
 RETAIL_FRAME_STEP = 4
+CAMERA_INTRO_FIRST_RETAIL_FRAME = 80
+CAMERA_INTRO_LAST_RETAIL_FRAME = 336
+CAMERA_FOLLOW_FIRST_RETAIL_FRAME = 340
+CAMERA_FOCUS_INITIAL_POSITION = (0, 1_628, 0)
+CAMERA_FOCUS_VELOCITY = (37, 0, 26)
+CAMERA_INITIAL_LATERAL_OFFSET = 0
+CAMERA_ACTIVE_LATERAL_OFFSET = 800
+CAMERA_INITIAL_DEPTH_OFFSET = 2_000
+CAMERA_INITIAL_DEPTH_MOTION = -70
+CAMERA_DEPTH_MOTION_FIRST_STEP = 2
+CAMERA_LATERAL_OFFSET_FIRST_STEP = 2
+CAMERA_DEPTH_ACCELERATION = -10
+CAMERA_DEPTH_TARGET = 30
+CAMERA_DEPTH_ACCELERATION_FIRST_STEP = 13
+CAMERA_DEPTH_CHASE_FIRST_STEP = 47
+CAMERA_DEPTH_CHASE_DIVISOR = 8
+CAMERA_DEPTH_CHASE_MINIMUM = 8
+CAMERA_ANCHOR_PITCH = 20
+CAMERA_ANCHOR_YAW = 64
+CAMERA_ANCHOR_ROLL = 0
+CAMERA_ROTATION_CHASE_FIRST_STEP = 47
+CAMERA_ROTATION_CHASES_PER_STEP = 2
+CAMERA_ROTATION_CHASE_DIVISIONS = 3
+CAMERA_ROTATION_CHASE_MINIMUM = 8
+CAMERA_ROTATION_TARGET = (0, 192 << 8, 0)
 PLAYER_CINEMATIC_END_RETAIL_FRAME = 400
 PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME = 404
 PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME = 872
@@ -82,6 +119,304 @@ MULTILINE_SCENE_IMPORT = (
 
 def signed_byte(value: int) -> int:
     return value if value < 128 else value - 256
+
+
+def fixed_rust_table(name: str, length: int, source: str) -> list[int]:
+    body = re.search(
+        rf"(?:pub )?(?:static|const) {name}: \[i16; {length}\] = \[(.*?)\];",
+        source,
+        re.S,
+    )
+    if body is None:
+        raise SystemExit(f"could not read {name} from Rust source")
+    return ast.literal_eval("[" + body.group(1) + "]")
+
+
+def signed_q15(value: int) -> int:
+    value &= 0xFFFF
+    return value if value < 0x8000 else value - 0x10000
+
+
+def q15_product(left: int, right: int) -> int:
+    return signed_q15((left * right) >> 15)
+
+
+def sine_q15(angle: int, quarter: list[int]) -> int:
+    angle &= 0xFF
+    if angle <= 0x40:
+        return quarter[angle]
+    if angle <= 0x7F:
+        return quarter[0x80 - angle]
+    if angle <= 0xC0:
+        return -quarter[angle - 0x80]
+    return -quarter[0x100 - angle]
+
+
+def camera_anchor_offset(
+    quarter: list[int],
+    lateral: int,
+    depth: int,
+) -> tuple[int, int, int]:
+    # `$7F:2229` builds the controller's Z-X-Y matrix before multiplying the
+    # anchor's whole relative vector. At yaw 64 and roll zero, its three live
+    # coefficients reduce to the values below. Preserve the matrix-build
+    # truncation before multiplying by depth; sequentially rotating the vector
+    # would round one unit differently from the retail GSU path.
+    cosine_pitch = sine_q15(CAMERA_ANCHOR_PITCH + 0x40, quarter)
+    sine_pitch = sine_q15(CAMERA_ANCHOR_PITCH, quarter)
+    quarter_turn = sine_q15(CAMERA_ANCHOR_YAW, quarter)
+    forward_x_coefficient = q15_product(cosine_pitch, quarter_turn)
+    return (
+        q15_product(depth, -forward_x_coefficient),
+        q15_product(depth, sine_pitch),
+        q15_product(lateral, quarter_turn),
+    )
+
+
+def chase_camera_depth_motion(current: int) -> int:
+    difference = CAMERA_DEPTH_TARGET - current
+    if 0 < difference < CAMERA_DEPTH_CHASE_MINIMUM:
+        difference = CAMERA_DEPTH_CHASE_MINIMUM
+    elif -CAMERA_DEPTH_CHASE_MINIMUM < difference < 0:
+        difference = -CAMERA_DEPTH_CHASE_MINIMUM
+    return current + int(difference / CAMERA_DEPTH_CHASE_DIVISOR)
+
+
+@dataclass
+class CameraAnchorState:
+    strategy_step: int = 0
+    focus_position: tuple[int, int, int] = CAMERA_FOCUS_INITIAL_POSITION
+    lateral_offset: int = CAMERA_INITIAL_LATERAL_OFFSET
+    depth_offset: int = CAMERA_INITIAL_DEPTH_OFFSET
+    depth_motion: int = CAMERA_INITIAL_DEPTH_MOTION
+    anchor_position: tuple[int, int, int] = (0, 0, 0)
+    rotation_fine: tuple[int, int, int] = (0, 0, 0)
+
+    def advance(self, quarter: list[int], curve: list[int]) -> None:
+        self.strategy_step += 1
+        self.focus_position = tuple(
+            position + velocity
+            for position, velocity in zip(
+                self.focus_position,
+                CAMERA_FOCUS_VELOCITY,
+                strict=True,
+            )
+        )
+        if self.strategy_step >= CAMERA_DEPTH_MOTION_FIRST_STEP:
+            self.depth_offset += self.depth_motion
+        if self.strategy_step == CAMERA_LATERAL_OFFSET_FIRST_STEP:
+            self.lateral_offset = CAMERA_ACTIVE_LATERAL_OFFSET
+        offset = camera_anchor_offset(
+            quarter,
+            self.lateral_offset,
+            self.depth_offset,
+        )
+        self.anchor_position = tuple(
+            focus + component
+            for focus, component in zip(
+                self.focus_position,
+                offset,
+                strict=True,
+            )
+        )
+        if (
+            CAMERA_DEPTH_ACCELERATION_FIRST_STEP
+            <= self.strategy_step
+            <= CAMERA_DEPTH_CHASE_FIRST_STEP
+        ):
+            self.depth_motion += CAMERA_DEPTH_ACCELERATION
+        if self.strategy_step >= CAMERA_DEPTH_CHASE_FIRST_STEP:
+            self.depth_motion = chase_camera_depth_motion(self.depth_motion)
+
+        if self.strategy_step < CAMERA_ROTATION_CHASE_FIRST_STEP:
+            self.rotation_fine = self.look_at_rotation(curve)
+        else:
+            # `$44:CC7E` runs opcode `$143` twice. Its helper at `$7F:25A3`
+            # is a signed 16-bit rate-three proportional chase.
+            for _ in range(CAMERA_ROTATION_CHASES_PER_STEP):
+                self.rotation_fine = tuple(
+                    chase_power(
+                        current,
+                        target,
+                        CAMERA_ROTATION_CHASE_DIVISIONS,
+                        16,
+                        CAMERA_ROTATION_CHASE_MINIMUM,
+                    )
+                    for current, target in zip(
+                        self.rotation_fine,
+                        CAMERA_ROTATION_TARGET,
+                        strict=True,
+                    )
+                )
+
+    def look_at_rotation(self, curve: list[int]) -> tuple[int, int, int]:
+        delta_x, delta_y, delta_z = (
+            focus - anchor
+            for focus, anchor in zip(
+                self.focus_position,
+                self.anchor_position,
+                strict=True,
+            )
+        )
+        return (
+            (-sf2_atan16(
+                delta_y,
+                xz_distance(delta_x, delta_z),
+                curve,
+            )) & 0xFFFF,
+            sf2_atan16(delta_x, delta_z, curve) & 0xFFFF,
+            CAMERA_ANCHOR_ROLL,
+        )
+
+    def camera(self) -> tuple[int, ...]:
+        return (
+            *self.anchor_position,
+            *(rotation & 0xFF for rotation in self.rotation_fine),
+        )
+
+
+def camera_anchor_cadence(records: list[Record]) -> list[int]:
+    quarter = fixed_rust_table(
+        "SINTAB16_QUARTER",
+        65,
+        TRIG_SOURCE.read_text(encoding="utf-8"),
+    )
+    curve = rust_table(
+        "SF2_ARCTANGENT_CURVE",
+        ANGLE_SOURCE.read_text(encoding="utf-8"),
+    )
+    state = CameraAnchorState()
+    cadence = []
+    intro_records = [
+        record
+        for record in records
+        if CAMERA_INTRO_FIRST_RETAIL_FRAME
+        <= record.retail_frame
+        <= CAMERA_INTRO_LAST_RETAIL_FRAME
+    ]
+    expected_count = (
+        CAMERA_INTRO_LAST_RETAIL_FRAME - CAMERA_INTRO_FIRST_RETAIL_FRAME
+    ) // RETAIL_FRAME_STEP + 1
+    if len(intro_records) != expected_count:
+        raise SystemExit("Mirage Dragon fixture lacks the complete camera intro")
+
+    for record in intro_records:
+        matched_updates = None
+        for updates in range(4):
+            if state.strategy_step > 0 and state.camera() == record.camera:
+                matched_updates = updates
+                break
+            state.advance(quarter, curve)
+        if matched_updates is None:
+            raise SystemExit(
+                f"camera anchor path does not match frame {record.retail_frame}: "
+                f"got {state.camera()}, expected {record.camera}"
+            )
+        cadence.append(matched_updates)
+    return cadence
+
+
+def append_camera_path(
+    source: str,
+    records: list[Record],
+    cadence: list[int],
+) -> str:
+    source = source.replace(
+        "pub(super) const CAMERA_KEYFRAMES:",
+        "#[cfg(test)]\npub(super) const CAMERA_KEYFRAMES:",
+        1,
+    )
+    follow_records = [
+        record
+        for record in records
+        if record.retail_frame >= CAMERA_FOLLOW_FIRST_RETAIL_FRAME
+    ]
+    cadence_lines = [
+        "    " + ", ".join(str(updates) for updates in cadence[index : index + 32]) + ","
+        for index in range(0, len(cadence), 32)
+    ]
+    lines = [
+        "",
+        "pub(super) const CAMERA_INTRO_FIRST_RETAIL_FRAME: u16 = "
+        f"{CAMERA_INTRO_FIRST_RETAIL_FRAME};",
+        "pub(super) const CAMERA_INTRO_LAST_RETAIL_FRAME: u16 = "
+        f"{CAMERA_INTRO_LAST_RETAIL_FRAME};",
+        "pub(super) const CAMERA_FOLLOW_FIRST_RETAIL_FRAME: u16 = "
+        f"{CAMERA_FOLLOW_FIRST_RETAIL_FRAME};",
+        "pub(super) const CAMERA_FOCUS_INITIAL_POSITION: [i16; 3] = "
+        f"{list(CAMERA_FOCUS_INITIAL_POSITION)};",
+        "pub(super) const CAMERA_FOCUS_VELOCITY: [i16; 3] = "
+        f"{list(CAMERA_FOCUS_VELOCITY)};",
+        "pub(super) const CAMERA_INITIAL_LATERAL_OFFSET: i16 = "
+        f"{CAMERA_INITIAL_LATERAL_OFFSET};",
+        "pub(super) const CAMERA_ACTIVE_LATERAL_OFFSET: i16 = "
+        f"{CAMERA_ACTIVE_LATERAL_OFFSET};",
+        "pub(super) const CAMERA_INITIAL_DEPTH_OFFSET: i16 = "
+        f"{CAMERA_INITIAL_DEPTH_OFFSET:_};",
+        "pub(super) const CAMERA_INITIAL_DEPTH_MOTION: i16 = "
+        f"{CAMERA_INITIAL_DEPTH_MOTION};",
+        "pub(super) const CAMERA_DEPTH_MOTION_FIRST_STEP: u8 = "
+        f"{CAMERA_DEPTH_MOTION_FIRST_STEP};",
+        "pub(super) const CAMERA_LATERAL_OFFSET_FIRST_STEP: u8 = "
+        f"{CAMERA_LATERAL_OFFSET_FIRST_STEP};",
+        "pub(super) const CAMERA_DEPTH_ACCELERATION: i16 = "
+        f"{CAMERA_DEPTH_ACCELERATION};",
+        "pub(super) const CAMERA_DEPTH_TARGET: i16 = "
+        f"{CAMERA_DEPTH_TARGET};",
+        "pub(super) const CAMERA_DEPTH_ACCELERATION_FIRST_STEP: u8 = "
+        f"{CAMERA_DEPTH_ACCELERATION_FIRST_STEP};",
+        "pub(super) const CAMERA_DEPTH_CHASE_FIRST_STEP: u8 = "
+        f"{CAMERA_DEPTH_CHASE_FIRST_STEP};",
+        "pub(super) const CAMERA_DEPTH_CHASE_DIVISOR: i16 = "
+        f"{CAMERA_DEPTH_CHASE_DIVISOR};",
+        "pub(super) const CAMERA_DEPTH_CHASE_MINIMUM: i16 = "
+        f"{CAMERA_DEPTH_CHASE_MINIMUM};",
+        "pub(super) const CAMERA_ANCHOR_PITCH: u8 = "
+        f"{CAMERA_ANCHOR_PITCH};",
+        "pub(super) const CAMERA_ANCHOR_YAW: u8 = "
+        f"{CAMERA_ANCHOR_YAW};",
+        "pub(super) const CAMERA_ANCHOR_ROLL: u8 = "
+        f"{CAMERA_ANCHOR_ROLL};",
+        "pub(super) const CAMERA_ROTATION_CHASE_FIRST_STEP: u8 = "
+        f"{CAMERA_ROTATION_CHASE_FIRST_STEP};",
+        "pub(super) const CAMERA_ROTATION_CHASES_PER_STEP: u8 = "
+        f"{CAMERA_ROTATION_CHASES_PER_STEP};",
+        "pub(super) const CAMERA_ROTATION_CHASE_DIVISIONS: u8 = "
+        f"{CAMERA_ROTATION_CHASE_DIVISIONS};",
+        "pub(super) const CAMERA_ROTATION_CHASE_MINIMUM: i16 = "
+        f"{CAMERA_ROTATION_CHASE_MINIMUM};",
+        "pub(super) const CAMERA_ROTATION_TARGET_SUBUNITS: [u16; 3] = "
+        f"{list(CAMERA_ROTATION_TARGET)};",
+        f"const CAMERA_RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
+        "",
+        f"const CAMERA_ANCHOR_CADENCE: [u8; {len(cadence)}] = [",
+        *cadence_lines,
+        "];",
+        "#[cfg(test)]",
+        "pub(super) const CAMERA_ANCHOR_TOTAL_STRATEGY_UPDATES: u8 = "
+        f"{sum(cadence)};",
+        "",
+        "pub(super) fn camera_anchor_strategy_updates(retail_frame: u16) -> Option<u8> {",
+        "    let offset = retail_frame.checked_sub(CAMERA_INTRO_FIRST_RETAIL_FRAME)?;",
+        "    if retail_frame > CAMERA_INTRO_LAST_RETAIL_FRAME "
+        "|| offset % CAMERA_RETAIL_FRAME_STEP != 0 {",
+        "        return None;",
+        "    }",
+        "    CAMERA_ANCHOR_CADENCE",
+        "        .get(usize::from(offset / CAMERA_RETAIL_FRAME_STEP))",
+        "        .copied()",
+        "}",
+        "",
+        "pub(super) const CAMERA_FOLLOW_KEYFRAMES: "
+        f"[MissionCameraKeyframe; {len(follow_records)}] = [",
+    ]
+    for record in follow_records:
+        values = ", ".join(f"{value:_}" for value in record.camera)
+        lines.append(
+            f"    mission_camera_keyframe({record.retail_frame}, {values}),"
+        )
+    lines.extend(["];", ""])
+    return source + "\n".join(lines)
 
 
 def player_neutral_flight_cadence(
@@ -435,6 +770,7 @@ def main() -> None:
             DUEL_NAME,
         )
 
+    camera_cadence = camera_anchor_cadence(records)
     head_cadence = head_departure_cadence(records)
     player_cadence = player_neutral_flight_cadence(records)
     scene_source = rust_source(
@@ -454,6 +790,7 @@ def main() -> None:
         SINGLE_LINE_SCENE_IMPORT,
         1,
     )
+    scene_source = append_camera_path(scene_source, records, camera_cadence)
     scene_source = append_player_flight(scene_source, records, player_cadence)
     generated = append_head_cadence(scene_source, head_cadence)
     if args.check:
@@ -469,6 +806,7 @@ def main() -> None:
 
     print(
         f"{action} {DEFAULT_OUTPUT}: {len(records)} scene frames, "
+        f"{sum(camera_cadence)} camera anchor updates, "
         f"{sum(movement for movement, _ in head_cadence)} head movement updates, "
         f"{sum(pitch for _, pitch in head_cadence)} head pitch updates, "
         f"{sum(control for control, _ in player_cadence)} player control updates, "

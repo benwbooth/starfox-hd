@@ -1455,6 +1455,38 @@ impl RecurringAttackersState {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MirageDragonCameraPhase {
+    #[default]
+    Dormant,
+    TrackingFocus,
+    PlayerFollow,
+}
+
+/// Fine camera orientation with 65,536 subunits per turn. Keeping these
+/// authored subunits between updates preserves the scene's gradual orientation
+/// chase without exposing processor state in the native game.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CameraOrientationSubunits {
+    pub pitch: u16,
+    pub yaw: u16,
+    pub roll: u16,
+}
+
+/// Typed state for the Mirage Dragon intro camera. The retail scene uses a
+/// moving focus and a child anchor; the port represents those concepts
+/// directly instead of retaining either object's byte-addressed storage.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MirageDragonCameraState {
+    pub phase: MirageDragonCameraPhase,
+    pub strategy_step: u8,
+    pub focus_position: Vector3,
+    pub relative_anchor_position: Vector3,
+    pub anchor_depth_motion: i16,
+    pub anchor_position: Vector3,
+    pub orientation: CameraOrientationSubunits,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MissionState {
     pub active: bool,
@@ -1477,6 +1509,7 @@ pub struct MissionState {
     /// object. These are ordinary gameplay values, separate from the visible
     /// craft angles so steering remains smooth while the craft leans.
     pub player_flight: PlayerFlightState,
+    pub mirage_dragon_camera: MirageDragonCameraState,
     pub player_walker: PlayerWalkerState,
     pub player_craft_form: PlayerCraftForm,
     pub message: MissionMessageState,
