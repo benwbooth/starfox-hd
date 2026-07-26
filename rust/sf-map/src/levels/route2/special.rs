@@ -29,13 +29,13 @@ pub fn build() -> Route2Level {
     b.mapwait(5000);
 
     // Lines 5-9: paper plane wave 1 + pole_0
-    b.pathobj(5000, 0, 0, 3000, SH_PAPER_1_PROXY, PATH_ID_PAPER_1B, 10, 10);
+    b.pathobj(5000, 0, 0, 3000, SH_PAPER_1, PATH_ID_PAPER_1B, 10, 10);
     b.pathobj(
         5000,
         0x0300,
         -0x100,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -45,7 +45,7 @@ pub fn build() -> Route2Level {
         -0x200,
         0x100,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -55,7 +55,7 @@ pub fn build() -> Route2Level {
         0x0200,
         -0x100,
         4000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -65,12 +65,12 @@ pub fn build() -> Route2Level {
         0x0100,
         -0x400,
         1500,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
     );
-    b.mapobj(8000, 0, 0, 4000, SH_POLE_0_PROXY, STRATEGY_POLE0);
+    b.mapobj(8000, 0, 0, 4000, SH_POLE_0, STRATEGY_POLE0);
 
     // Lines 12-24: paper plane wave 2 + poles
     b.pathobj(
@@ -78,7 +78,7 @@ pub fn build() -> Route2Level {
         -0x200,
         0x0200,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -88,7 +88,7 @@ pub fn build() -> Route2Level {
         0x0100,
         -0x100,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -98,7 +98,7 @@ pub fn build() -> Route2Level {
         -0x200,
         0x400,
         1500,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -108,59 +108,32 @@ pub fn build() -> Route2Level {
         -0x400,
         0x150,
         3000,
-        SH_PAPER_3_PROXY,
+        SH_PAPER_3,
         PATH_ID_PAPER_1B,
         10,
         10,
     );
-    b.mapobj(6000, 0, -0x200, 4000, SH_POLE_0_PROXY, STRATEGY_POLE0);
-    b.mapobj(6000, -0x100, 0x100, 4000, SH_POLE_0_PROXY, STRATEGY_POLE0);
-    b.pathobj(
-        6000,
-        0x0400,
-        0,
-        3000,
-        SH_PAPER_1_PROXY,
-        PATH_ID_PAPER_1B,
-        10,
-        10,
-    );
-    b.pathobj(
-        6000,
-        0,
-        -0x400,
-        1500,
-        SH_PAPER_1_PROXY,
-        PATH_ID_PAPER_1B,
-        10,
-        10,
-    );
+    b.mapobj(6000, 0, -0x200, 4000, SH_POLE_0, STRATEGY_POLE0);
+    b.mapobj(6000, -0x100, 0x100, 4000, SH_POLE_0, STRATEGY_POLE0);
+    b.pathobj(6000, 0x0400, 0, 3000, SH_PAPER_1, PATH_ID_PAPER_1B, 10, 10);
+    b.pathobj(6000, 0, -0x400, 1500, SH_PAPER_1, PATH_ID_PAPER_1B, 10, 10);
     b.pathobj(
         8000,
         0x0200,
         0x200,
         2000,
-        SH_PAPER_3_PROXY,
+        SH_PAPER_3,
         PATH_ID_PAPER_1B,
         10,
         10,
     );
-    b.pathobj(
-        1000,
-        0,
-        0x0100,
-        3000,
-        SH_PAPER_1_PROXY,
-        PATH_ID_PAPER_1B,
-        10,
-        10,
-    );
+    b.pathobj(1000, 0, 0x0100, 3000, SH_PAPER_1, PATH_ID_PAPER_1B, 10, 10);
     b.pathobj(
         1000,
         -0x300,
         0x200,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -170,39 +143,21 @@ pub fn build() -> Route2Level {
         -0x100,
         -0x400,
         1000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
     );
-    b.pathobj(
-        4000,
-        0,
-        -0x400,
-        1500,
-        SH_PAPER_1_PROXY,
-        PATH_ID_PAPER_1B,
-        10,
-        10,
-    );
+    b.pathobj(4000, 0, -0x400, 1500, SH_PAPER_1, PATH_ID_PAPER_1B, 10, 10);
 
     // Lines 26-27: paper pair
-    b.pathobj(
-        2000,
-        -0x300,
-        0,
-        3000,
-        SH_PAPER_1_PROXY,
-        PATH_ID_PAPER_1B,
-        10,
-        10,
-    );
+    b.pathobj(2000, -0x300, 0, 3000, SH_PAPER_1, PATH_ID_PAPER_1B, 10, 10);
     b.pathobj(
         2000,
         -0x300,
         0x100,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -214,27 +169,18 @@ pub fn build() -> Route2Level {
         -0x200,
         0x200,
         4000,
-        SH_PAPER_3_PROXY,
+        SH_PAPER_3,
         PATH_ID_PAPER_1B,
         10,
         10,
     );
-    b.pathobj(
-        3000,
-        0,
-        0x200,
-        4000,
-        SH_PAPER_3_PROXY,
-        PATH_ID_PAPER_1B,
-        10,
-        10,
-    );
+    b.pathobj(3000, 0, 0x200, 4000, SH_PAPER_3, PATH_ID_PAPER_1B, 10, 10);
     b.pathobj(
         10000,
         0x200,
         0x200,
         4000,
-        SH_PAPER_3_PROXY,
+        SH_PAPER_3,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -244,7 +190,7 @@ pub fn build() -> Route2Level {
         0x0300,
         0x100,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -254,7 +200,7 @@ pub fn build() -> Route2Level {
         -0x200,
         0x100,
         3000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -264,7 +210,7 @@ pub fn build() -> Route2Level {
         0x0200,
         0x100,
         4000,
-        SH_PAPER_1_PROXY,
+        SH_PAPER_1,
         PATH_ID_PAPER_1B,
         10,
         10,
@@ -275,16 +221,7 @@ pub fn build() -> Route2Level {
     b.setbgm(BGM_BOSS1);
 
     // Line 40: slot machine boss pathobj
-    b.pathobj(
-        0,
-        3000,
-        0,
-        4200,
-        SH_SLOT_0_PROXY,
-        PATH_ID_SLOTMACHINE,
-        10,
-        10,
-    );
+    b.pathobj(0, 3000, 0, 4200, SH_SLOT_0, PATH_ID_SLOTMACHINE, 10, 10);
 
     // Line 41: exact `mapwaitboss 7` expansion.
     b.mapwait(100);
@@ -315,26 +252,19 @@ pub fn build() -> Route2Level {
 
     // Lines 68-73: "THE END" letter objects
     b.label("special.theend_loop");
-    b.mapobj(0, 972, -969, 1000, SH_FONT_T2_PROXY, STRAT_ADDR_THEEND_T);
-    b.mapobj(0, -1120, 1377, 1000, SH_FONT_H2_PROXY, STRAT_ADDR_THEEND_H);
-    b.mapobj(0, -1019, -1530, 1000, SH_FONT_E2_PROXY, STRAT_ADDR_THEEND_E);
-    b.mapobj(0, 1070, -1326, 1000, SH_FONT_E3_PROXY, STRAT_ADDR_THEEND_E2);
+    b.mapobj(0, 972, -969, 1000, SH_FONT_T2, STRAT_ADDR_THEEND_T);
+    b.mapobj(0, -1120, 1377, 1000, SH_FONT_H2, STRAT_ADDR_THEEND_H);
+    b.mapobj(0, -1019, -1530, 1000, SH_FONT_E2, STRAT_ADDR_THEEND_E);
+    b.mapobj(0, 1070, -1326, 1000, SH_FONT_E3, STRAT_ADDR_THEEND_E2);
     b.mapobj(
         0,
         1550 + 29,
         1323 + 54,
         1000,
-        SH_FONT_N2_PROXY,
+        SH_FONT_N2,
         STRAT_ADDR_THEEND_N,
     );
-    b.mapobj(
-        0,
-        -1050 + 129,
-        1428,
-        1000,
-        SH_FONT_D2_PROXY,
-        STRAT_ADDR_THEEND_D,
-    );
+    b.mapobj(0, -1050 + 129, 1428, 1000, SH_FONT_D2, STRAT_ADDR_THEEND_D);
 
     // Lines 74-76: theenddead check loop
     b.label("special.theenddead_check");

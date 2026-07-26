@@ -480,6 +480,46 @@ fn source_shape_ids_select_the_named_meshes() {
     }
 }
 
+/// Route 2 map constants must select the actual generated source meshes.
+/// These were once named as proxy aliases even after the Rust compiler gained
+/// the retail geometry, which obscured the map/renderer ABI.
+#[test]
+fn route2_shape_constants_select_exact_source_meshes() {
+    use sf_map::consts::sh;
+
+    let expected = [
+        (sh::WALL_4, "wall_4"),
+        (sh::WHALE, "whale"),
+        (sh::PIPE_8_0, "pipe_8_0"),
+        (sh::PIPE_8, "pipe_8"),
+        (sh::BOU_1B, "bou_1b"),
+        (sh::PAPER_1, "paper_1"),
+        (sh::PAPER_3, "paper_3"),
+        (sh::POLE_0, "pole_0"),
+        (sh::SLOT_0, "slot_0"),
+        (sh::FONT_T2, "font_t2"),
+        (sh::FONT_H2, "font_h2"),
+        (sh::FONT_E2, "font_e2"),
+        (sh::FONT_E3, "font_e3"),
+        (sh::FONT_N2, "font_n2"),
+        (sh::FONT_D2, "font_d2"),
+        (sh::PILON, "pilon"),
+        (sh::ITEM_0, "item_0"),
+        (sh::R_BUT_2, "r_but_2"),
+        (sh::WALK_4_0, "walk_4_0"),
+    ];
+
+    for (shape_id, name) in expected {
+        let entry = SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == shape_id)
+            .unwrap_or_else(|| panic!("Route 2 shape {name} ({shape_id}) missing"));
+        assert_eq!(entry.name, name, "Route 2 shape id {shape_id} drifted");
+        assert!(!entry.vertices.is_empty(), "shape {name} has no vertices");
+        assert!(!entry.faces.is_empty(), "shape {name} has no faces");
+    }
+}
+
 /// Runtime-visible ShapeHdr records added to the stable extended bank must
 /// remain backed by real geometry. These ids are an ABI shared by sf-map,
 /// sf-strat, sf-game, and the renderer.

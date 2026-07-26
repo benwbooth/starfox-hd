@@ -22,7 +22,7 @@ pub fn build() -> Route2Level {
 
     b.mapwait(600);
 
-    b.pathobj(0, 180, -300, -200, SH_WHALE_PROXY, PATH_ID_E_WHALE, 10, 10);
+    b.pathobj(0, 180, -300, -200, SH_WHALE, PATH_ID_E_WHALE, 10, 10);
 
     b.map_sfish(2800, 0, -100, 1000, 10);
 
@@ -74,7 +74,7 @@ pub fn build() -> Route2Level {
     b.mapremove(SH_MOTHER1);
 
     b.mapobj(0, 100, -100, 4500, SH_NULLSHAPE, IS_UP1MAN);
-    b.setalvarw(AL_SWORD2, SH_ITEM_0_PROXY as i32);
+    b.setalvarw(AL_SWORD2, SH_ITEM_0 as i32);
     b.mapwait(1000);
 
     b.mapmother(

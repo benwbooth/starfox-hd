@@ -89,7 +89,7 @@ pub fn build() -> Route2Level {
     b.map_sbtype6(4 * 2, 0, 0, 0);
 
     b.mapobj(0, 100, -100, 3000, SH_NULLSHAPE, IS_UP1MAN);
-    b.setalvarw(AL_SWORD2, SH_ITEM_0_PROXY as i32);
+    b.setalvarw(AL_SWORD2, SH_ITEM_0 as i32);
     b.mapwait(2000);
 
     b.map_sbtype7(4 * 2, 1, 1, 0);

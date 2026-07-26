@@ -28,36 +28,9 @@ pub fn build() -> Route2Level {
     b.setvarb(WM_INFOG, 1);
     b.mapwait(2000);
     // -----------------------------------------------------------------------
-    b.pathobj(
-        0,
-        0x0400,
-        -120,
-        2500,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
-    b.pathobj(
-        0,
-        -0x0400,
-        -120,
-        2500,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
-    b.pathobj(
-        2000,
-        0,
-        -120,
-        2500,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_A,
-        10,
-        10,
-    );
+    b.pathobj(0, 0x0400, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(0, -0x0400, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(2000, 0, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
     b.mapobj(0, -0x0600, 0, 2000, SH_BRO_4, IS_ROCKHARD);
     b.mapobj(0x0500, 0x0600, 0, 2000, SH_BRO_5, IS_ROCKHARD);
     b.maphardrot(0, -150, -75, 2000, SH_CLISLA_M, 0, 8, 0);
@@ -108,16 +81,7 @@ pub fn build() -> Route2Level {
     b.mapobj(0x1000, 0, 0, 2000, SH_HOU_5, IS_HOUDAI5F);
     b.mapobj(0, 250, 0, 2000, SH_BRO_6, IS_HARD180YR);
     b.mapobj(0x0500, -250, 0, 2000, SH_BRO_6, IS_HARD180YR);
-    b.pathobj(
-        0x1500,
-        0,
-        -120,
-        2500,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
+    b.pathobj(0x1500, 0, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
 
     // 2-3-2
     b.mapobj(0, -300, 0, 2000, SH_BRO_6, IS_HARD180YR);
@@ -172,16 +136,7 @@ pub fn build() -> Route2Level {
         10,
         10,
     );
-    b.pathobj(
-        0,
-        250,
-        -120,
-        2500,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
+    b.pathobj(0, 250, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(
         0x0700,
         -400,
@@ -242,16 +197,7 @@ pub fn build() -> Route2Level {
     b.setalvarb(AL_ROTY, -64); // -deg90
     b.addalvarptrw(AL_WORLDX, WM_PLAYERPOSX);
 
-    b.pathobj(
-        0,
-        0x0100,
-        -120,
-        2500,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
+    b.pathobj(0, 0x0100, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
 
     // .fogagain
     b.label("level2_3.fogagain");
@@ -286,16 +232,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(3000, 200, -45, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
-    b.pathobj(
-        0x1000,
-        0,
-        -170,
-        3000,
-        SH_WALK_4_0_PROXY,
-        PATH_ID_E_KANI_0,
-        10,
-        10,
-    );
+    b.pathobj(0x1000, 0, -170, 3000, SH_WALK_4_0, PATH_ID_E_KANI_0, 10, 10);
 
     b.pathobj(
         0x0700,
@@ -353,7 +290,7 @@ pub fn build() -> Route2Level {
     b.pathobj(500, 500, 0, 4030, SH_RADER_1, PATH_ID_TENKI_DM, 10, 10);
 
     b.pathspecial(0, -0x0500, 0, 4400, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
-    b.pathobj(0, 0, -120, 4000, SH_R_BUT_2_PROXY, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(0, 0, -120, 4000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.mapobj(3500, -0x0500, 0, 4000, SH_BASE_0, IS_BASE1);
 
     // eguchi2fly_goto .fogout
@@ -384,48 +321,21 @@ pub fn build() -> Route2Level {
 
     b.pathobj(0, 0, -400, -150, SH_FRIENDSHIP_4, PATH_ID_CHASE7_1, 10, 10);
     b.pathcspecial(0x1600, 0, -400, -150, SH_ZACO_A, PATH_ID_CHASE7_2, 10, 10);
-    b.pathobj(
-        0,
-        260,
-        -120,
-        3000,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
-    b.pathobj(
-        3400,
-        -260,
-        -120,
-        3000,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
+    b.pathobj(0, 260, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(3400, -260, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(
         0x0500,
         200,
         -120,
         3000,
-        SH_R_BUT_2_PROXY,
+        SH_R_BUT_2,
         PATH_ID_PINITA_B,
         10,
         10,
     );
     b.mapobj(0, -200, -150, 3200, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
-    b.pathobj(
-        2100,
-        -200,
-        -120,
-        3000,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_A,
-        10,
-        10,
-    );
+    b.pathobj(2100, -200, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
 
     b.maphardrot(0, 300, -75, 4000, SH_CLISLA_M, 0, -8, 0);
     b.pathobj(
@@ -443,7 +353,7 @@ pub fn build() -> Route2Level {
         200,
         -170,
         4500,
-        SH_WALK_4_0_PROXY,
+        SH_WALK_4_0,
         PATH_ID_E_KANI_0,
         10,
         10,
@@ -464,7 +374,7 @@ pub fn build() -> Route2Level {
         -200,
         -170,
         4500,
-        SH_WALK_4_0_PROXY,
+        SH_WALK_4_0,
         PATH_ID_E_KANI_0,
         10,
         10,
@@ -516,22 +426,13 @@ pub fn build() -> Route2Level {
     // skillfly_init + skillfly_set
     b.skillfly_init();
     b.skillfly_set_default(0, -150, 3000);
-    b.pathobj(
-        0x1000,
-        0,
-        -120,
-        3000,
-        SH_R_BUT_2_PROXY,
-        PATH_ID_PINITA_A,
-        10,
-        10,
-    );
+    b.pathobj(0x1000, 0, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
     b.pathobj(
         0x1000,
         260,
         -120,
         3000,
-        SH_R_BUT_2_PROXY,
+        SH_R_BUT_2,
         PATH_ID_PINITA_B,
         10,
         10,
@@ -542,7 +443,7 @@ pub fn build() -> Route2Level {
         -300,
         -120,
         3000,
-        SH_R_BUT_2_PROXY,
+        SH_R_BUT_2,
         PATH_ID_PINITA_B,
         10,
         10,
@@ -552,7 +453,7 @@ pub fn build() -> Route2Level {
         0x0100,
         -120,
         3000,
-        SH_R_BUT_2_PROXY,
+        SH_R_BUT_2,
         PATH_ID_PINITA_A,
         10,
         10,

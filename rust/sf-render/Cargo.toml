@@ -13,5 +13,6 @@ pollster = "0.4"
 raw-window-handle = "0.6"
 
 [dev-dependencies]
+sf-map.workspace = true
 # Headless wgpu adapters are created straight from an Instance in tests
 # (no window/surface needed), so the offscreen tests no longer need SDL.

@@ -22,7 +22,7 @@ pub fn build() -> Route2Level {
     b.mapobj(0x2000, -0x1200, 0, 5000, SH_BU_1, IS_HARD180YR);
 
     // Line 38: pilon ground obstacle
-    b.mapobj(0, 0, 0x0500, 5000, SH_PILON_PROXY, STRATEGY_GROUNDPILON);
+    b.mapobj(0, 0, 0x0500, 5000, SH_PILON, STRATEGY_GROUNDPILON);
 
     // Lines 40-45: more building objects
     b.mapobj(0, 0x1200, 0, 5000, SH_BU_0, IS_HARD180YR);
@@ -196,19 +196,12 @@ pub fn build() -> Route2Level {
     b.maploop("training.etlop", 4);
 
     // Lines 109-114: pilon obstacles
-    b.mapobj(0, -0x0200, -70, 5000, SH_PILON_PROXY, STRATEGY_GROUNDPILON);
-    b.mapobj(0, 0, -70, 5000, SH_PILON_PROXY, STRATEGY_GROUNDPILON);
-    b.mapobj(
-        0x6000,
-        0x0200,
-        -70,
-        5000,
-        SH_PILON_PROXY,
-        STRATEGY_GROUNDPILON,
-    );
-    b.mapobj(0, 0, -70, 5000, SH_PILON_PROXY, STRATEGY_GROUNDPILON);
-    b.mapobj(0, 0, -140, 5000, SH_PILON_PROXY, STRATEGY_GROUNDPILON);
-    b.mapobj(0x8000, 0, -210, 5000, SH_PILON_PROXY, STRATEGY_GROUNDPILON);
+    b.mapobj(0, -0x0200, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(0, 0, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(0x6000, 0x0200, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(0, 0, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(0, 0, -140, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(0x8000, 0, -210, 5000, SH_PILON, STRATEGY_GROUNDPILON);
 
     // Line 116: mapgoto .et — loop back to main section
     b.mapgoto("training.et");

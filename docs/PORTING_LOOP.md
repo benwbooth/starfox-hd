@@ -318,10 +318,12 @@ dist_xz, msqrt16/32, mcalcperc, calcstageperc, framescalevecs, anglexy axis/diag
 - [x] SF1 Route 1 Andross retail recertification — restore active-bit animation, yaw-only jump generation, exact fall/bounce and countdown timing, ordinary one-based split links, parent shutdown/collision resume, zone-specific walking-form reactions, damage smoke, and the source `boss_b_0`/`boss_b_6`/`boss_b_7` meshes. Focused encounter and 468-shape parity regressions, full `sf-strat`, all three unattended routes, 107/107 retail coexec, workspace/GPU, deterministic generation, and architecture gates.
 - [x] SF1 hyperspace retail recertification — restore same-tick initializer fallthrough, exact five-draw screen-space placement and roll offset, deferred streak movement, 64-tick `hyper`→`hyper4` shrink phases, the three missing source meshes, and MOBJ's unconditional Face2 line semantics. Exact strategy/mesh regressions, deterministic 468-shape generation, full `sf-strat`, all three unattended routes, 107/107 retail coexec, workspace/app/GPU, default build, and architecture gates.
 - [x] SF1 Macbeth madtrucker route gate and escort effects — replace the erroneous `line_2` gate with the named `air_1` mesh identity; advance both shared float phases under the authored wobble gate; restore madbiker sound, typed engine child/update, hover, and wall sparks plus the wreck's rear/side scrape sparks. Exact map, oscillator, engine, hover, and spark regressions pass with Route 2 parity, complete SF1 packages, unattended routes, 107/107 retail coexec, workspace/build, and architecture gates.
+- [x] Route 2 exact mesh identities — audit all 19 stale `*_PROXY` aliases against the generated retail catalog, replace them with shared semantic constants, and prove each map identity selects the expected named nonempty mesh. The emitted map bytecode remains exact across all 11 Route 2 oracle fixtures.
 
 ## Conventions
 - Prefer `sf-oracle` differential tests over hand-reading alone.
-- One leaf (or tight family) per tick when possible; commit only when asked.
+- Keep each commit to one verified leaf or tightly coupled family, then push
+  and confirm the remote branch resolves to that exact commit.
 - Update `docs/ACCURACY_AUDIT.md` when a subsystem flips VERIFIED/FIXED.
 
 - [x] Particle/mark explodes — `particleexplode`/`fast`/`big`/`circ2`/`circ` + `particlefire*` + `S/M/Lmarkexplode`; tests `particle_explode.rs`.

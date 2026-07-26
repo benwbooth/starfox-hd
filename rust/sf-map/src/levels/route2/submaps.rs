@@ -373,8 +373,8 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
     // The Argonaut assembler's unprefixed literals are decimal even when
     // zero-padded; only `$`-prefixed literals are hexadecimal.
     b.label("level2_6.trucker.mad");
-    b.mapobj(1000, -50, -60, 4000, SH_WALL_4_PROXY, IS_HARD180YR);
-    b.mapobj(1000, -200, -60, 4000, SH_BOU_1B_PROXY, IS_HARD180YR);
+    b.mapobj(1000, -50, -60, 4000, SH_WALL_4, IS_HARD180YR);
+    b.mapobj(1000, -200, -60, 4000, SH_BOU_1B, IS_HARD180YR);
     b.maploop("level2_6.trucker.mad", 6);
 
     // Lines 8-9: more bikers
@@ -418,7 +418,7 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
     b.mapobj(0, 40, 0, 2400, SH_LINE_2, STRAT_ADDR_ROADLINE);
     b.mapobj(0, 20, 0, 3100, SH_LINE_2, STRAT_ADDR_ROADLINE);
     b.mapobj(0, 0, 0, 3400, SH_LINE_2, STRAT_ADDR_ROADLINE);
-    b.mapobj(0, 90, -60, 3600, SH_BOU_1B_PROXY, IS_HARD180YR);
+    b.mapobj(0, 90, -60, 3600, SH_BOU_1B, IS_HARD180YR);
     b.maprts();
 
     // Lines 65-73: .continue — boss defeated

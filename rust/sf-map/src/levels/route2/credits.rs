@@ -158,43 +158,16 @@ pub fn build() -> Route2Level {
     b.mapjsr("credits.actualcreds");
 
     // Lines 42-47: THE END letter pathobjs
-    b.pathobj(0, 972, -969, 1000, SH_FONT_T2_PROXY, PATH_ID_THEENDT, 6, 4);
-    b.pathobj(
-        0,
-        -1120,
-        1377,
-        1000,
-        SH_FONT_H2_PROXY,
-        PATH_ID_THEENDH,
-        6,
-        4,
-    );
-    b.pathobj(
-        0,
-        -1019,
-        -1530,
-        1000,
-        SH_FONT_E2_PROXY,
-        PATH_ID_THEENDE,
-        6,
-        4,
-    );
-    b.pathobj(
-        0,
-        1070,
-        -1326,
-        1000,
-        SH_FONT_E3_PROXY,
-        PATH_ID_THEENDE2,
-        6,
-        4,
-    );
+    b.pathobj(0, 972, -969, 1000, SH_FONT_T2, PATH_ID_THEENDT, 6, 4);
+    b.pathobj(0, -1120, 1377, 1000, SH_FONT_H2, PATH_ID_THEENDH, 6, 4);
+    b.pathobj(0, -1019, -1530, 1000, SH_FONT_E2, PATH_ID_THEENDE, 6, 4);
+    b.pathobj(0, 1070, -1326, 1000, SH_FONT_E3, PATH_ID_THEENDE2, 6, 4);
     b.pathobj(
         0,
         1550 + 29,
         1323 + 54,
         1000,
-        SH_FONT_N2_PROXY,
+        SH_FONT_N2,
         PATH_ID_THEENDN,
         6,
         4,
@@ -204,7 +177,7 @@ pub fn build() -> Route2Level {
         -1050 + 129,
         1428,
         1000,
-        SH_FONT_D2_PROXY,
+        SH_FONT_D2,
         PATH_ID_THEENDD,
         6,
         4,
