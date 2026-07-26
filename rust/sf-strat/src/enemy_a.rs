@@ -518,7 +518,7 @@ pub(crate) fn fire_relslowlaser_weapon_pos(
 /// the relative-laser strategy and full-rotation muzzle transform with the
 /// slow variant, but uses fixed speed 90 and a Z muzzle contribution of 20
 /// (`80 >> weapon_scale`).
-fn fire_relfastelaser_weapon_pos(
+pub(crate) fn fire_relfastelaser_weapon_pos(
     g: &mut Game,
     idx: u16,
     pitch: u8,

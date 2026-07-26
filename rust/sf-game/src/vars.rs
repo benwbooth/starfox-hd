@@ -343,6 +343,9 @@ pub struct StrategyVariables {
     pub circle_object: i16,
     pub player_laser_count: u8,
     pub mother_accumulator: u16,
+    /// Retail `exitintro`: the lead fighter has passed the camera and requests
+    /// the attract presentation's fade back to the title.
+    pub intro_exit_requested: bool,
 }
 
 #[derive(Debug, Clone, Default)]

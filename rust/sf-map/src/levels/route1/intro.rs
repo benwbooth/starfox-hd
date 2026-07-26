@@ -9,29 +9,19 @@
 
 use super::Route1Level;
 use crate::builder::MapBuilder;
+use crate::consts::intro_strategy_address as intro_addr;
 use crate::consts::*;
 use crate::levels::BuiltLevel;
 
 // Local constants from levels.c not yet in consts.rs.
 // TODO(consolidation): move to consts.rs
 mod lc {
-    pub const SH_OLD_TYPE_PROXY: u16 = 323;
-    pub const SH_DEBOSS_1_PROXY: u16 = 312;
+    pub const SH_OLD_TYPE: u16 = 323;
+    pub const SH_DEBOSS_1: u16 = 312;
+    pub const WING_CRAFT_ENTRY_DISTANCE: i32 = 4096;
 
-    /// levels.c `#define STRAT_ADDR_PLAYERDOWNINTRO 0x050019u`
-    pub const STRAT_ADDR_PLAYERDOWNINTRO: u32 = 0x050019;
-    /// levels.c `#define STRAT_ADDR_PLAYERDOWN2INTRO 0x05001Au`
-    pub const STRAT_ADDR_PLAYERDOWN2INTRO: u32 = 0x05001A;
-    /// levels.c `#define STRAT_ADDR_PLAYERDOWN3INTRO 0x05001Bu`
-    pub const STRAT_ADDR_PLAYERDOWN3INTRO: u32 = 0x05001B;
-    /// levels.c `#define STRAT_ADDR_PLAYERFIREINTRO 0x05001Cu`
-    pub const STRAT_ADDR_PLAYERFIREINTRO: u32 = 0x05001C;
     /// levels.c `#define STRAT_ADDR_BOSS7INTRO 0x05001Du`
     pub const STRAT_ADDR_BOSS7INTRO: u32 = crate::consts::is::BOSS7INTRO;
-    /// levels.c `#define STRAT_ADDR_ZACOINTRO 0x05001Eu`
-    pub const STRAT_ADDR_ZACOINTRO: u32 = 0x05001E;
-    /// levels.c `#define STRAT_ADDR_ZACO2INTRO 0x05001Fu`
-    pub const STRAT_ADDR_ZACO2INTRO: u32 = 0x05001F;
 }
 
 /// C `build_intro_slice()` + `register_intro_inline_callbacks()`.
@@ -78,74 +68,60 @@ pub fn build() -> Route1Level {
 
     // Lines 41-47: player intro ships
     b.mapnobj(
-        0x1000,
+        lc::WING_CRAFT_ENTRY_DISTANCE,
         50,
         -400,
         -700,
-        lc::SH_OLD_TYPE_PROXY,
-        lc::STRAT_ADDR_PLAYERDOWN2INTRO,
+        lc::SH_OLD_TYPE,
+        intro_addr::PLAYER_DOWN_LEFT,
     );
     b.mapnobj(
-        0x1000,
+        lc::WING_CRAFT_ENTRY_DISTANCE,
         50,
         -400,
         -700,
-        lc::SH_OLD_TYPE_PROXY,
-        lc::STRAT_ADDR_PLAYERDOWN3INTRO,
+        lc::SH_OLD_TYPE,
+        intro_addr::PLAYER_DOWN_RIGHT,
     );
     b.mapnobj(
         MEDPSPEED * 5,
         50,
         -400,
         -700,
-        lc::SH_OLD_TYPE_PROXY,
-        lc::STRAT_ADDR_PLAYERDOWNINTRO,
+        lc::SH_OLD_TYPE,
+        intro_addr::PLAYER_DOWN,
     );
     b.setvarobj(wm::MAPVAR1);
-    b.mapnobj(
-        0,
-        0,
-        -400,
-        -700,
-        sh::NULLSHAPE,
-        lc::STRAT_ADDR_PLAYERFIREINTRO,
-    );
+    b.mapnobj(0, 0, -400, -700, sh::NULLSHAPE, intro_addr::PLAYER_FIRE);
     b.setalvarptrw(al::SWORD1, wm::MAPVAR1);
 
     // Line 50: mapwait 2000
     b.mapwait(2000);
 
     // Line 52: deboss_1 boss7intro
-    b.mapnobj(
-        0,
-        0,
-        -800,
-        -400,
-        lc::SH_DEBOSS_1_PROXY,
-        lc::STRAT_ADDR_BOSS7INTRO,
-    );
+    b.mapnobj(0, 0, -800, -400, lc::SH_DEBOSS_1, lc::STRAT_ADDR_BOSS7INTRO);
 
     // Line 54: mapwait 8000
     b.mapwait(8000);
 
     // Lines 55-63: zaco waves
-    b.mapnobj(600, -400, -800, 2000, sh::ZACO_A, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(600, 400, -800, 2000, sh::ZACO_A, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
+    b.mapnobj(600, -400, -800, 2000, sh::ZACO_A, intro_addr::ZACO);
+    b.mapnobj(600, 400, -800, 2000, sh::ZACO_A, intro_addr::ZACO);
+    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
 
     // Line 65: zaco2intro
-    b.mapnobj(400, 0, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACO2INTRO);
+    b.mapnobj(400, 0, -800, 2000, sh::ZACO_5, intro_addr::ZACO_LEADER);
 
     // Lines 67-70: more zacos
-    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
-    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, lc::STRAT_ADDR_ZACOINTRO);
+    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, -400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
+    b.mapnobj(400, 400, -800, 2000, sh::ZACO_5, intro_addr::ZACO);
 
     // .lp: infinite wait
     b.label("intro.lp");

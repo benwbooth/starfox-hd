@@ -459,6 +459,19 @@ pub const STRATEGY_MINE0: DirectStrategy = DirectStrategy::Mine0;
 // `tit_istrat` is the title screen strategy (TITLE.ASM).
 pub const STRAT_ADDR_TIT: u32 = is::TIT;
 
+/// Direct strategy symbols used exclusively by the retail attract intro.
+///
+/// These are the stable native-map keys emitted by `INTRO.ASM`; they are not
+/// ISTRATS table rows.
+pub mod intro_strategy_address {
+    pub const PLAYER_DOWN: u32 = 0x05_0019;
+    pub const PLAYER_DOWN_LEFT: u32 = 0x05_001A;
+    pub const PLAYER_DOWN_RIGHT: u32 = 0x05_001B;
+    pub const PLAYER_FIRE: u32 = 0x05_001C;
+    pub const ZACO: u32 = 0x05_001E;
+    pub const ZACO_LEADER: u32 = 0x05_001F;
+}
+
 // Mother-system strategy addresses (registered by sf-strat::mother).
 // NOTE: the old values 0x020000/0x020001 collided with the synthetic
 // istrat forms of istrats 0/1 (the PLAYER init strat and pbody), so mother
