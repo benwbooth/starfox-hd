@@ -197,6 +197,7 @@ pub const fn inline_ips() -> InlineIps {
         makepollen: 0x0026,
         e_big_bird_touch: 0x0297,
         dintro1_zoom_to_centre: 0x4504,
+        dintro1_keep_distance: 0x455D,
         checkifend1: 0x48B8,
         checkifend2: 0x48EA,
         checkifend3: 0x491C,
@@ -209,7 +210,7 @@ pub const fn inline_ips() -> InlineIps {
 
 /// Generated native-action continuations. These replace runtime decoding of
 /// the original inline instruction blobs.
-pub const fn inline_continuations() -> [(u16, u16); 16] {
+pub const fn inline_continuations() -> [(u16, u16); 17] {
     [
         (0x3AF5, 0x3B0D),
         (0x44C8, 0x44D5),
@@ -220,6 +221,7 @@ pub const fn inline_continuations() -> [(u16, u16); 16] {
         (0x0026, 0x0031),
         (0x0297, 0x02C0),
         (0x4504, 0x453E),
+        (0x455D, 0x456E),
         (0x48B8, 0x48CB),
         (0x48EA, 0x48FD),
         (0x491C, 0x492F),

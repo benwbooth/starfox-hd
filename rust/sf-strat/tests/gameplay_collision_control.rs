@@ -15,7 +15,7 @@
 
 use sf_core::pad;
 use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE};
-use sf_game::shell::{GameState, Shell};
+use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
 use sf_game::vars::{COLLTYPE_ENEMY1, PSF3_NOCOLLISIONS, PSF_NOCTRL};
 use sf_strat::common::StratRam;
 use sf_strat::player::player_sv as sv;
@@ -35,13 +35,20 @@ fn make_shell() -> Shell {
 /// the opening sequence returns control (PSF_NOCTRL clears) or `max` frames.
 fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
     let mut sh = make_shell();
-    for _ in 0..4 {
-        if sh.state() == GameState::Title {
-            break;
-        }
+    sh.tick(0);
+    sh.tick(0);
+    while sh.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+        sh.tick(pad::A);
+    }
+    while sh.state() != GameState::Title {
         sh.tick(0);
     }
+    sh.tick(0);
+    sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     sh.tick(pad::START); // Title -> PlanetSelect
+    while sh.state() == GameState::Title {
+        sh.tick(0);
+    }
     sh.tick(0);
     for _ in 0..route_downs {
         sh.tick(pad::DOWN);

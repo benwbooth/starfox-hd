@@ -4,7 +4,7 @@
 //! projects to screen-RIGHT, so a correct LEFT press must DECREASE worldx.
 
 use sf_core::pad;
-use sf_game::shell::{GameState, Shell};
+use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
 use sf_game::vars::PSF_NOCTRL;
 
 /// Read the canonical player slot. Shape id 2 is not unique once the opening
@@ -32,13 +32,20 @@ fn make_shell() -> Shell {
 /// faithful pause latch), then wait for the hangar sequence to return control.
 fn drive_to_controllable() -> Shell {
     let mut shell = make_shell();
-    for _ in 0..4 {
-        if shell.state() == GameState::Title {
-            break;
-        }
+    shell.tick(0);
+    shell.tick(0);
+    while shell.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+        shell.tick(pad::A);
+    }
+    while shell.state() != GameState::Title {
         shell.tick(0);
     }
+    shell.tick(0);
+    shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     shell.tick(pad::START); // Title -> PlanetSelect
+    while shell.state() == GameState::Title {
+        shell.tick(0);
+    }
     shell.tick(0); // release START so the next press is an edge
     shell.tick(pad::START); // PlanetSelect -> Playing
 

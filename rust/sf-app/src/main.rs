@@ -602,6 +602,7 @@ fn to_render_state(code: u8) -> RenderState {
         5 => RenderState::Continue,
         6 => RenderState::Ending,
         7 => RenderState::Tally,
+        8 => RenderState::AttractIntro,
         _ => RenderState::Boot,
     }
 }

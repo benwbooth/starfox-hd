@@ -76,7 +76,9 @@ const CB_MAKEPOLLEN: u16 = 7;
 const CB_E_BIG_BIRD_TOUCH: u16 = 8;
 const CB_CHECKIFEND_BASE: u16 = 9;
 const CB_DINTRO1_ZOOM_TO_CENTRE: u16 = 16;
+const CB_DINTRO1_KEEP_DISTANCE: u16 = 17;
 const PATH_MISSING: u16 = 0xFFFF;
+const DINTRO1_VIEW_DISTANCE: i16 = 4000;
 
 /// DPATHDAT dintro1's signed half/clamp X chase. Returns (new X, centered).
 fn dintro1_chase_x(x: i16) -> (i16, bool) {
@@ -120,6 +122,7 @@ fn register_path_inline_callbacks(
         (ips.makepollen, CB_MAKEPOLLEN),
         (ips.e_big_bird_touch, CB_E_BIG_BIRD_TOUCH),
         (ips.dintro1_zoom_to_centre, CB_DINTRO1_ZOOM_TO_CENTRE),
+        (ips.dintro1_keep_distance, CB_DINTRO1_KEEP_DISTANCE),
         (ips.pbooston_makeengine, CB_PBOOSTON_MAKEENGINE),
         (ips.pboostcode_updateengine, CB_PBOOSTCODE_UPDATEENGINE),
         (ips.checkifend1, CB_CHECKIFEND_BASE),
@@ -847,6 +850,15 @@ impl PathHost for Adapter<'_> {
                 } else {
                     world.override_inline_return(ROM_DINTRO1_LOOP_IP);
                 }
+            }
+            // DPATHDAT dintro1 `.keep4000`: keep each text path at the
+            // authored depth in front of the moving passive-player view.
+            CB_DINTRO1_KEEP_DISTANCE => {
+                world.aliens[si].worldz = self
+                    .g
+                    .vars
+                    .sv_i16(sv::VIEWPOSZ)
+                    .wrapping_add(DINTRO1_VIEW_DISTANCE);
             }
             // KPATHDAT `checkifend N`: if stage==N, c_type=201. Both are real
             // low-WRAM cells shared with ending/map code.

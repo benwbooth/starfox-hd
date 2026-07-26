@@ -1,7 +1,9 @@
 //! Tick 133: nosetport3 gate + bird_touch path inline.
 
 use sf_game::game::{Game, Hooks};
-use sf_game::shell::{le, Shell, SoundCmd};
+use sf_game::shell::{
+    le, GameState, Shell, SoundCmd, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+};
 use sf_game::vars::{PSF3_ENGINESND, PSF3_NOCOLLISIONS};
 use sf_strat::path_adapter::path_bird_touch;
 use sf_strat::table::register_all;
@@ -56,10 +58,21 @@ fn path_register_all_registers_bird_touch_inline() {
 #[test]
 fn shell_planets_init_clears_nosetport3() {
     let mut sh = Shell::new();
-    sh.tick(0); // Boot → Title
     sh.tick(0);
+    sh.tick(0);
+    while sh.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+        sh.tick(sf_core::pad::A);
+    }
+    while sh.state() != GameState::Title {
+        sh.tick(0);
+    }
+    sh.tick(0);
+    sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     let _ = sh.drain_sound();
-    sh.tick(sf_core::pad::START); // → PlanetSelect (planets_init)
+    sh.tick(sf_core::pad::START);
+    while sh.state() == GameState::Title {
+        sh.tick(0);
+    }
     let snd = sh.drain_sound();
     assert!(
         snd.contains(&SoundCmd::NoSetPort3(false)),

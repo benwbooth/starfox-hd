@@ -14,7 +14,7 @@ use sf_game::alien::{
     ACF_COLLTYPE6, ASF3_CHILDOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_INVISIBLE,
     ASF_NOHITAFFECT,
 };
-use sf_game::shell::{GameState, Shell};
+use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
 use sf_game::vars::{
     BossEncounter, GF_PLAYERDEAD, GF_PLAYERDYING, HARD_HP, PSF2_PLAYERHP0, PSF3_NOCOLLISIONS,
     PSTF_NOTDIE,
@@ -97,9 +97,20 @@ fn configured_shell(route: u32) -> Shell {
     shell.set_ending_score_part(Box::new(sf_strat::endscore::spawn_final_score_part));
     shell.set_ending_boss_replay(Box::new(sf_strat::endseq::spawn_replay_boss));
 
-    shell.tick(0); // Boot -> Title
-    shell.tick(0); // load title
+    shell.tick(0);
+    shell.tick(0);
+    while shell.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+        shell.tick(pad::A);
+    }
+    while shell.state() != GameState::Title {
+        shell.tick(0);
+    }
+    shell.tick(0);
+    shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     shell.tick(pad::START);
+    while shell.state() == GameState::Title {
+        shell.tick(0);
+    }
     shell.tick(0);
     for _ in 0..route {
         shell.tick(pad::DOWN);

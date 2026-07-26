@@ -4295,9 +4295,9 @@ fn strat_title_tick(g: &mut Game, idx: u16) {
 ///
 /// PORT DEVIATION — display pose is rotated ~90 deg vs those raw ROM bytes.
 /// The ROM's values are calibrated for the ROM's title view; the port's
-/// title camera is pinned static at (0,0,0) (there is no player object, so
-/// `getview_l`'s outvx/outvy accumulators are zero — see camera.rs and
-/// tests/title_demo_ship.rs). Under a (0,0,0) camera the certified
+/// title camera has the source passive presentation player, whose view depth
+/// advances while its outvx/outvy orientation stays zero (see camera.rs and
+/// tests/title_demo_ship.rs). Under that fixed orientation the certified
 /// ZXY model matrix (transform.rs, Δ=0 vs ROM gsu_rotmat) renders the
 /// Arwing BROADSIDE — its nose/tail axis lies across the screen. The ROM
 /// `tit_strat` then rolls that axis (`al_rotz += 2`), so twice per
@@ -4306,8 +4306,8 @@ fn strat_title_tick(g: &mut Game, idx: u16) {
 /// tail" bug). Swapping in the true `my_demo` mesh (shape 226) does not
 /// help: it shares the same nose=-Z / tail=+Z default orientation.
 ///
-/// To reproduce the SNES look (a solid 3/4 Arwing that rolls) with the
-/// static camera we point the nose/tail (roll) axis toward the camera, so
+/// To reproduce the SNES look (a solid 3/4 Arwing that rolls) with the fixed
+/// camera orientation we point the nose/tail (roll) axis toward the camera, so
 /// the roll becomes a stable barrel roll that keeps the hull's volume at
 /// every phase instead of sweeping edge-on. rotx=48 pitches the nose up
 /// toward the viewer (the ROM's -17 pitch + ~deg90 of camera-gap

@@ -4,20 +4,25 @@
 //! [state] transition log (Shell::tick) prints which level each route enters.
 
 use sf_core::pad;
-use sf_game::shell::{GameState, Shell};
+use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
 
 fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut sh = Shell::new();
-        // Boot -> Title (a couple of ticks to settle).
-        for _ in 0..4 {
-            if sh.state() == GameState::Title {
-                break;
-            }
+        sh.tick(0);
+        sh.tick(0);
+        while sh.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+            sh.tick(pad::A);
+        }
+        while sh.state() != GameState::Title {
             sh.tick(0);
         }
-        // Title -> PlanetSelect (edge-triggered START).
+        sh.tick(0);
+        sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
         sh.tick(pad::START);
+        while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
         sh.tick(0);
         // Navigate the map: DOWN advances whichroute (0->1->2).
         for _ in 0..down_presses {
@@ -26,6 +31,7 @@ fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
         }
         // Select -> begin gameplay at this route's first level.
         sh.tick(pad::START);
+        assert_eq!(sh.state(), GameState::Playing);
         // Tick gameplay frames.
         for _ in 0..ticks {
             sh.tick(0);

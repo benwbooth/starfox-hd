@@ -70,6 +70,23 @@ pub const DEATH_RESPAWN_TICKS: i32 =
 /// updates (300 / 65 rounded up).
 pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 5;
 
+/// ENDSEQ title hold before the unattended attract intro begins.
+pub const TITLE_ATTRACT_DURATION_TICKS: u16 = 880;
+/// ENDSEQ ignores START until the title has been active for this many ticks.
+pub const TITLE_INPUT_DELAY_TICKS: u16 = 40;
+/// ENDSEQ ignores an intro skip until this many strategy ticks have elapsed.
+pub const INTRO_INPUT_DELAY_TICKS: u16 = 30;
+/// ENDSEQ title exit uses a three-level black-fade step.
+pub const TITLE_EXIT_FADE_SPEED: u8 = 3;
+/// ENDSEQ intro exit uses a two-level black-fade step.
+pub const INTRO_EXIT_FADE_SPEED: u8 = 2;
+/// ENDSEQ seeds the intro exit fade at this intensity.
+pub const INTRO_EXIT_FADE_START: u8 = 11;
+/// Native sound-catalog identity loaded by both attract-intro entry points.
+pub const MUSIC_ATTRACT_INTRO: u8 = 1;
+/// Driver cue used while leaving the title.
+pub const MUSIC_FADE_OUT: u8 = 241;
+
 /// Staff-roll music package in the native audio catalog. The source ending
 /// switches to this package immediately before loading the credits map.
 pub const MUSIC_STAFF_ROLL: u8 = 32;
@@ -143,6 +160,8 @@ pub mod le {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameState {
     Boot,
+    /// Retail boot/title attract presentation driven by `INTRO.ASM`.
+    AttractIntro,
     Title,
     Briefing,
     PlanetSelect,
@@ -162,6 +181,28 @@ enum TallyPhase {
     BonusDelay { steps_remaining: u8 },
     BonusAward { steps_remaining: u8 },
     Ready,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttractDestination {
+    Intro,
+    Title,
+    PlanetSelect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AttractSequence {
+    level_loaded: bool,
+    fade_destination: Option<AttractDestination>,
+}
+
+impl Default for AttractSequence {
+    fn default() -> Self {
+        Self {
+            level_loaded: false,
+            fade_destination: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -699,7 +740,7 @@ impl Default for TallyState {
 
 impl GameState {
     /// Numeric code in boot.h enum order (BOOT=0 .. ENDING=6), followed by
-    /// the port's semantic tally presentation state.
+    /// the port's semantic tally and attract presentation states.
     pub fn code(self) -> u8 {
         match self {
             GameState::Boot => 0,
@@ -710,6 +751,7 @@ impl GameState {
             GameState::Continue => 5,
             GameState::Ending => 6,
             GameState::Tally => 7,
+            GameState::AttractIntro => 8,
         }
     }
 }
@@ -1087,8 +1129,8 @@ pub struct Shell {
     pub game: Game,
     state: Rc<RefCell<ShellState>>,
     game_state: GameState,
-    /// C `s_title_loaded` (boot.c:50).
-    title_loaded: bool,
+    /// Typed ENDSEQ attract-level load and fade handoff state.
+    attract: AttractSequence,
     planets: Planets,
     camera: GameCamera,
     /// C `s_draw_list` (boot.c:46).
@@ -1146,7 +1188,7 @@ impl Shell {
             game: Game::with_hooks(Box::new(hooks)),
             state,
             game_state: GameState::Boot, // C g_game_state init (boot.c:33)
-            title_loaded: false,
+            attract: AttractSequence::default(),
             planets: Planets::new(),
             camera: GameCamera::new(),
             draw_list: Vec::new(),
@@ -1261,6 +1303,7 @@ impl Shell {
         // C Game_Tick state switch (boot.c:226-276).
         match self.game_state {
             GameState::Boot => self.game_init(),
+            GameState::AttractIntro => self.attract_intro_tick(),
             GameState::Title => self.title_tick(),
             GameState::Briefing => {
                 // Use start/A/B to advance into route select (boot.c:235).
@@ -1303,10 +1346,10 @@ impl Shell {
                         self.game.vars.reset_player_run_state();
                         self.begin_gameplay_from_planet_select();
                     } else {
-                        self.game_state = GameState::Title;
+                        self.enter_title();
                     }
                 } else if self.pad1_new & (pad::B | pad::SELECT) != 0 {
-                    self.game_state = GameState::Title;
+                    self.enter_title();
                 }
             }
             GameState::Ending => {
@@ -1419,7 +1462,11 @@ impl Shell {
         FrameSnapshot {
             game_state_code: self.game_state.code(),
             currentbg: v.currentbg,
-            newmap: self.planets.newmap,
+            newmap: if self.game_state == GameState::AttractIntro {
+                sf_map::catalog::map_id::INTRO
+            } else {
+                self.planets.newmap
+            },
             bgflags: v.bgflags,
             bg2_xscroll: v.shared.background_scroll_x as i32,
             nomax_bg2_yscroll: v.strategy.no_maximum_background_y != 0,
@@ -1526,8 +1573,8 @@ impl Shell {
         self.death_ticks = 0;
         self.rndval = 0; // sf_rtl.c:52
 
-        self.game_state = GameState::Title; // boot.c:135
-        self.title_loaded = false;
+        // BOOTNMI enters `intro_l` before the first `titleseq_l`.
+        self.enter_attract_intro();
 
         // DEBUG: SF_START_PLAYING skips title/briefing/planet-select and drops
         // straight into gameplay (Corneria / LEVEL1_1 by default) — for
@@ -1611,24 +1658,104 @@ impl Shell {
 
     /// C `TitleScreen_Tick()` (src/game/boot.c:141).
     fn title_tick(&mut self) {
-        if !self.title_loaded {
-            // boot.c:143-149.
-            self.game.objs = Objects::init();
-            self.camera.init(&mut self.game.vars);
-            self.game.world = World::init();
-            self.reregister_strats();
-            self.load_map(sf_map::catalog::map_id::TITLE);
-            self.title_loaded = true;
+        if !self.attract.level_loaded {
+            self.load_presentation_map(sf_map::catalog::map_id::TITLE, true);
+            self.game.vars.oncewipe = 1;
+            self.attract.level_loaded = true;
         }
 
-        // boot.c:152-155: clear list, Obj_RunStrategies directly (no
-        // freezestrats guard, no coldet), camera, draw build.
+        self.presentation_scene_tick();
+
+        if self.finish_attract_fade_if_ready() {
+            return;
+        }
+        if self.attract.fade_destination.is_some() {
+            return;
+        }
+
+        let timed_out = self.game.vars.gameframe >= TITLE_ATTRACT_DURATION_TICKS;
+        let start_pressed = self.game.vars.gameframe >= TITLE_INPUT_DELAY_TICKS
+            && self.game.vars.pad1 & pad::START != 0;
+        if !timed_out && !start_pressed {
+            return;
+        }
+
+        {
+            let mut state = self.state.borrow_mut();
+            if start_pressed {
+                state.sound.push(SoundCmd::PlaySe(16));
+            }
+            state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+        }
+        let destination = if start_pressed {
+            AttractDestination::PlanetSelect
+        } else {
+            AttractDestination::Intro
+        };
+        self.begin_attract_fade(destination, TITLE_EXIT_FADE_SPEED, 0);
+    }
+
+    /// Retail `intro_l` presentation loop.
+    fn attract_intro_tick(&mut self) {
+        if !self.attract.level_loaded {
+            self.load_presentation_map(sf_map::catalog::map_id::INTRO, true);
+            self.game.vars.oncewipe = 0;
+            self.state
+                .borrow_mut()
+                .sound
+                .push(SoundCmd::PlayMusic(MUSIC_ATTRACT_INTRO));
+            self.attract.level_loaded = true;
+        }
+
+        self.presentation_scene_tick();
+
+        if self.finish_attract_fade_if_ready() {
+            return;
+        }
+        if self.attract.fade_destination.is_some()
+            || self.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS
+        {
+            return;
+        }
+
+        if self.game.vars.strategy.intro_exit_requested || self.game.vars.pad1 != 0 {
+            self.begin_attract_fade(
+                AttractDestination::Title,
+                INTRO_EXIT_FADE_SPEED,
+                INTRO_EXIT_FADE_START,
+            );
+        }
+    }
+
+    fn load_presentation_map(&mut self, map_id: u32, spawn_player: bool) {
+        self.game.objs = Objects::init();
+        self.camera.init(&mut self.game.vars);
+        self.game.world = World::init();
+        self.reregister_strats();
+        {
+            let mut state = self.state.borrow_mut();
+            state.windows.init();
+            state.strings.init();
+            state.charmap.set_fox();
+        }
+        self.load_map(map_id);
+        if spawn_player {
+            if let Some(hook) = self.spawn_player.take() {
+                hook(&mut self.game, map_id);
+                self.spawn_player = Some(hook);
+            }
+        }
+        self.game.vars.meters = 0;
+        self.game.vars.gameframe = 0;
+        self.game.vars.strategy.intro_exit_requested = false;
+        self.game.vars.pshipflags3 &= !PSF3_ENGINESND;
+    }
+
+    fn presentation_scene_tick(&mut self) {
         self.draw_list.clear();
         self.game.run_strategies();
         self.cam_snapshot = self.camera.update(&mut self.game.vars, &self.game.objs);
-        // Cull anchors on the camera viewpos published by camera.update
-        // (ROM viewposx/z, game.c:94-98), with the coldet shape-extents
-        // table supplying the sh_zmax margin (alienflags_l MAIN.ASM:2030).
+        self.game.step_palette_fade();
         draw::build_list(
             &mut self.game.objs,
             self.game.vars.playerflymode,
@@ -1640,15 +1767,45 @@ impl Shell {
             &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
         );
+    }
 
-        // Check for Start to enter gameplay (boot.c:158-164).
-        if self.pad1_new & pad::START != 0 {
-            self.state.borrow_mut().sound.push(SoundCmd::PlaySe(0x10));
-            self.game.vars.reset_player_run_state();
-            self.planets_init();
-            self.game_state = GameState::PlanetSelect;
-            self.title_loaded = false;
+    fn begin_attract_fade(&mut self, destination: AttractDestination, speed: u8, intensity: u8) {
+        self.state
+            .borrow_mut()
+            .windows
+            .fade_to_black_from(speed, intensity);
+        self.attract.fade_destination = Some(destination);
+    }
+
+    fn finish_attract_fade_if_ready(&mut self) -> bool {
+        let Some(destination) = self.attract.fade_destination else {
+            return false;
+        };
+        if self.state.borrow().windows.is_map_fade_active() {
+            return false;
         }
+
+        match destination {
+            AttractDestination::Intro => self.enter_attract_intro(),
+            AttractDestination::Title => self.enter_title(),
+            AttractDestination::PlanetSelect => {
+                self.game.vars.reset_player_run_state();
+                self.planets_init();
+                self.game_state = GameState::PlanetSelect;
+                self.attract = AttractSequence::default();
+            }
+        }
+        true
+    }
+
+    fn enter_attract_intro(&mut self) {
+        self.game_state = GameState::AttractIntro;
+        self.attract = AttractSequence::default();
+    }
+
+    fn enter_title(&mut self) {
+        self.game_state = GameState::Title;
+        self.attract = AttractSequence::default();
     }
 
     /// C `Game_BeginGameplayFromPlanetSelect()` (src/game/boot.c:52).
@@ -1873,11 +2030,11 @@ impl Shell {
             } else {
                 self.death_ticks = 0;
                 // ROM CONTINUE.ASM:55-56 — no credits skips the continue screen.
-                self.game_state = if self.planets.credits > 0 {
-                    GameState::Continue
+                if self.planets.credits > 0 {
+                    self.game_state = GameState::Continue;
                 } else {
-                    GameState::Title
-                };
+                    self.enter_title();
+                }
             }
             return;
         }
@@ -1902,11 +2059,11 @@ impl Shell {
         if lf == le::GAMEOVER {
             self.levelclear_ticks = 0;
             self.death_ticks = 0;
-            self.game_state = if self.planets.credits > 0 {
-                GameState::Continue
+            if self.planets.credits > 0 {
+                self.game_state = GameState::Continue;
             } else {
-                GameState::Title
-            };
+                self.enter_title();
+            }
             return;
         }
 
@@ -2590,6 +2747,27 @@ mod tests {
         panic!("screen wipe did not finish within its authored frame budget");
     }
 
+    fn advance_to_loaded_title(shell: &mut Shell) {
+        const MAX_INTRO_TRANSITION_TICKS: usize = 64;
+
+        shell.tick(0);
+        assert_eq!(shell.state(), GameState::AttractIntro);
+        shell.tick(0);
+        while shell.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+            shell.tick(pad::A);
+        }
+        for _ in 0..MAX_INTRO_TRANSITION_TICKS {
+            if shell.state() == GameState::Title {
+                break;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(shell.state(), GameState::Title);
+        shell.tick(0);
+        assert_eq!(shell.game.world.loaded_map_id, Some(map_id::TITLE));
+        shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
+    }
+
     #[test]
     fn catalog_opening_wipe_holds_black_then_presents_every_record() {
         let mut shell = Shell::new();
@@ -2704,8 +2882,7 @@ mod tests {
     #[test]
     fn title_map_writes_the_typed_screen_black_counter() {
         let mut shell = Shell::new();
-        shell.tick(0); // boot
-        shell.tick(0); // load the title map and start its fade-down
+        advance_to_loaded_title(&mut shell);
         for _ in 0..40 {
             shell.tick(0);
             if shell.game.vars.strategy.stay_black == 10 {
@@ -2739,9 +2916,11 @@ mod tests {
     #[test]
     fn playing_start_toggles_pause_snd() {
         let mut sh = Shell::new();
-        sh.tick(0); // Boot → Title
-        sh.tick(0);
+        advance_to_loaded_title(&mut sh);
         sh.tick(pad::START); // → PlanetSelect
+        while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
         let _ = sh.drain_sound();
         sh.tick(0);
         sh.tick(pad::START); // → Playing
@@ -2771,9 +2950,11 @@ mod tests {
     #[test]
     fn pause_blocked_while_stayblack_or_notdie() {
         let mut sh = Shell::new();
-        sh.tick(0);
-        sh.tick(0);
+        advance_to_loaded_title(&mut sh);
         sh.tick(pad::START);
+        while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
         let _ = sh.drain_sound();
         sh.tick(0);
         sh.tick(pad::START);
@@ -2814,25 +2995,32 @@ mod tests {
         assert!(sh.drain_sound().contains(&SoundCmd::PauseSnd(0x02)));
     }
 
-    /// Scripted-pad state walk matching boot.c: BOOT tick only runs
-    /// Game_Init; START at the title enters planet select; START at planet
-    /// select launches gameplay.
+    /// Scripted-pad state walk matching BOOTNMI/ENDSEQ through intro, title,
+    /// planet select, and gameplay.
     #[test]
     fn scripted_pad_state_walk() {
         let mut sh = Shell::new();
         assert_eq!(sh.state().code(), 0); // GAME_STATE_BOOT
 
-        // The BOOT case only runs Game_Init in that tick (boot.c:227-229).
+        // BOOTNMI runs the intro before its first title sequence.
         sh.tick(0);
-        assert_eq!(sh.state().code(), 1); // GAME_STATE_TITLE
-
-        // Title lazy-load + run (no input).
+        assert_eq!(sh.state().code(), 8);
+        assert_eq!(sh.state(), GameState::AttractIntro);
+        while sh.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+            sh.tick(pad::A);
+        }
+        while sh.state() != GameState::Title {
+            sh.tick(0);
+        }
         sh.tick(0);
-        assert_eq!(sh.state().code(), 1);
-        assert!(sh.game.world.map_loaded);
+        assert_eq!(sh.game.world.loaded_map_id, Some(map_id::TITLE));
+        sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
 
-        // Tap START: SE 0x10 + Planets_Init -> planet select (boot.c:158).
+        // START fades down before the planet-select handoff.
         sh.tick(pad::START);
+        while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
         assert_eq!(sh.state().code(), 3); // GAME_STATE_PLANET_SELECT
         let sounds = sh.drain_sound();
         assert!(sounds.contains(&SoundCmd::PlaySe(0x10)));
@@ -2868,12 +3056,7 @@ mod tests {
     /// timer and advances the stage into the next route map.
     #[test]
     fn level_clear_advances_stage() {
-        let mut sh = Shell::new();
-        sh.tick(0); // boot -> title
-        sh.tick(0); // title load
-        sh.tick(pad::START); // -> planet select
-        sh.tick(0);
-        sh.tick(pad::START); // -> playing (route 0 -> MAP 1_1)
+        let mut sh = into_gameplay();
         assert_eq!(sh.state().code(), 4);
         assert_eq!(sh.frame().stage, 0);
 
@@ -2904,12 +3087,7 @@ mod tests {
     /// DEATH_RESPAWN_TICKS; accept spends one credit and refills lives.
     #[test]
     fn death_to_continue_and_back() {
-        let mut sh = Shell::new();
-        sh.tick(0);
-        sh.tick(0);
-        sh.tick(pad::START);
-        sh.tick(0);
-        sh.tick(pad::START);
+        let mut sh = into_gameplay();
         assert_eq!(sh.state().code(), 4);
 
         // Lives are unified in WRAM 0x0520 during gameplay (the shell mirrors
@@ -2940,12 +3118,7 @@ mod tests {
     /// Zero continue credits: death with no lives skips Continue → Title.
     #[test]
     fn death_without_credits_goes_to_title() {
-        let mut sh = Shell::new();
-        sh.tick(0);
-        sh.tick(0);
-        sh.tick(pad::START);
-        sh.tick(0);
-        sh.tick(pad::START);
+        let mut sh = into_gameplay();
         assert_eq!(sh.state().code(), 4);
 
         sh.planets.lives = 0;
@@ -3001,9 +3174,11 @@ mod tests {
     /// Drive a game into gameplay (BOOT -> PLAYING).
     fn into_gameplay() -> Shell {
         let mut sh = Shell::new();
-        sh.tick(0); // boot -> title
-        sh.tick(0); // title load
+        advance_to_loaded_title(&mut sh);
         sh.tick(pad::START); // -> planet select
+        while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
         sh.tick(0);
         sh.tick(pad::START); // -> playing
         assert_eq!(sh.state().code(), 4);
@@ -3026,9 +3201,11 @@ mod tests {
     #[test]
     fn begin_gameplay_wires_currentlevel_hard_route() {
         let mut sh = Shell::new();
-        sh.tick(0);
-        sh.tick(0);
+        advance_to_loaded_title(&mut sh);
         sh.tick(pad::START); // → PlanetSelect (convertroute 0→1 = easy)
+        while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
         sh.tick(0);
         sh.tick(pad::RIGHT); // whichroute 1→2 = hard
         sh.tick(0);

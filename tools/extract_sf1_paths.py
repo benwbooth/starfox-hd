@@ -133,6 +133,9 @@ def generate_metadata(
         # DPATHDAT dintro1: RELTOPLAYER(1) + TRIGGER(4) + TRAIL(2), then
         # the special signed half/clamp X chase P_START65816.
         "dintro1_zoom_to_centre": symbols["PATH_DINTRO1"] + 7,
+        # Trigger target `.keep4000`: pin the text four thousand source units
+        # ahead of the live view before returning to the path dispatcher.
+        "dintro1_keep_distance": symbols["PATH_DINTRO1"] + 0x60,
         "checkifend1": symbols["PSTAGE1"] + 21 - start,
         "checkifend2": symbols["PSTAGE2"] + 21 - start,
         "checkifend3": symbols["PSTAGE3"] + 21 - start,
@@ -152,6 +155,31 @@ def generate_metadata(
 
     inline_rows = "\n".join(
         f"        {name}: 0x{value:04X}," for name, value in inline.items()
+    )
+    continuation_by_name = {
+        "tow_0_set_expstrat": 0x3B0D,
+        "robexplode_nopolyexp": 0x44D5,
+        "dsmoke_init_colanim": 0x3B6E,
+        "dsmoke_add_colanim": 0x3B90,
+        "pbooston_makeengine": 0x473D,
+        "pboostcode_updateengine": 0x474D,
+        "makepollen": 0x0031,
+        "e_big_bird_touch": 0x02C0,
+        "dintro1_zoom_to_centre": symbols["PATH_DINTRO1"] + 0x41,
+        "dintro1_keep_distance": symbols["PATH_DINTRO1"] + 0x71,
+        "checkifend1": 0x48CB,
+        "checkifend2": 0x48FD,
+        "checkifend3": 0x492F,
+        "checkifend4": 0x4961,
+        "checkifend5": 0x4993,
+        "checkifend6": 0x49C5,
+        "checkifend7": 0x49F7,
+    }
+    if continuation_by_name.keys() != inline.keys():
+        raise RuntimeError("inline callback continuation metadata is incomplete")
+    continuation_rows = "\n".join(
+        f"        (0x{inline[name]:04X}, 0x{continuation:04X}),"
+        for name, continuation in continuation_by_name.items()
     )
     assignment_text = "\n".join(assignments)
     istrat_text = "\n".join(istrat_rows)
@@ -182,6 +210,14 @@ pub const fn inline_ips() -> InlineIps {{
     InlineIps {{
 {inline_rows}
     }}
+}}
+
+/// Generated native-action continuations. These replace runtime decoding of
+/// the original inline instruction blobs.
+pub const fn inline_continuations() -> [(u16, u16); {len(inline)}] {{
+    [
+{continuation_rows}
+    ]
 }}
 
 /// Actual 24-bit strategy addresses emitted by P_SETSTRAT in the assembled

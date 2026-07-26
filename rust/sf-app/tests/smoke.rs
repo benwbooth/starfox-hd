@@ -1,7 +1,7 @@
 //! Smoke test: run the built binary headless-ish (hidden window) under
 //! SF_AUTOPLAY for 600 ticks (~30 s of game time), dump the state trace and
-//! one frame readback, and assert the boot.h state-machine transitions:
-//! BOOT(0) -> TITLE(1) -> PLANET_SELECT(3) -> PLAYING(4).
+//! one frame readback, and assert the ENDSEQ/MAIN state-machine transitions:
+//! BOOT -> ATTRACT_INTRO -> TITLE -> PLANET_SELECT -> PLAYING.
 //!
 //! Skips (with a message) when DISPLAY is not set. The C-oracle comparison
 //! (same env against build/starfox-hd) is a separate manual/differential
@@ -13,6 +13,12 @@ use std::process::Command;
 use std::sync::Mutex;
 
 static SMOKE_LOCK: Mutex<()> = Mutex::new(());
+
+const STATE_BOOT: u8 = 0;
+const STATE_TITLE: u8 = 1;
+const STATE_PLANET_SELECT: u8 = 3;
+const STATE_PLAYING: u8 = 4;
+const STATE_ATTRACT_INTRO: u8 = 8;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -130,20 +136,30 @@ fn autoplay_reaches_gameplay() {
 
     let seq = dedup_states(&states);
     eprintln!("smoke: state sequence {seq:?}");
-    // boot.h: BOOT=0 TITLE=1 PLANET_SELECT=3 PLAYING=4. The first dumped
-    // tick already shows TITLE (Game_Init runs inside tick 0), so accept a
-    // leading 0 or 1.
-    let expected_tail: &[u8] = &[1, 3, 4];
-    let seq_no_boot: Vec<u8> = seq.iter().copied().filter(|&s| s != 0).collect();
+    // The first dumped tick already shows ATTRACT_INTRO because Game_Init
+    // runs inside tick zero. Preserve tolerance for an explicitly dumped
+    // BOOT state while requiring the complete retail attract handoff.
+    let expected_tail: &[u8] = &[
+        STATE_ATTRACT_INTRO,
+        STATE_TITLE,
+        STATE_PLANET_SELECT,
+        STATE_PLAYING,
+    ];
+    let seq_no_boot: Vec<u8> = seq
+        .iter()
+        .copied()
+        .filter(|&state| state != STATE_BOOT)
+        .collect();
     assert!(
         seq_no_boot.starts_with(expected_tail),
-        "state sequence {seq_no_boot:?} does not start with TITLE->PLANET_SELECT->PLAYING"
+        "state sequence {seq_no_boot:?} does not start with \
+         ATTRACT_INTRO->TITLE->PLANET_SELECT->PLAYING"
     );
 
     // Title screen must have produced draw entries (logo map objects).
     let title_draws: u32 = states
         .iter()
-        .filter(|(s, _)| *s == 1)
+        .filter(|(state, _)| *state == STATE_TITLE)
         .map(|(_, n)| *n)
         .max()
         .unwrap_or(0);

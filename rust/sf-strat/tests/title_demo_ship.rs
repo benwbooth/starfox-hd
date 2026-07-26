@@ -5,18 +5,20 @@
 //! 1. `strat_title_tick` spun `al_roty += 1` from a zero pose; the ROM
 //!    `tit_strat` (ENDSEQ.ASM:1805-1809) rolls `al_rotz += 2` from a tilted
 //!    init pose (`tit_istrat`, ENDSEQ.ASM:1799-1804).
-//! 2. The camera treated the title demo ship (slot 0, Obj_GetPlayer
-//!    fallback) as the player and tracked its rot; the ROM `getview_l`
-//!    (GAME.ASM:42-47) drives view rotation from the outvx/outvy
-//!    accumulators (zero at the title), so its title camera is static.
-//!    The tracking camera yawed with the ship until the behind-camera cull
-//!    freed it (~5 s in), leaving a bare title screen.
+//! 2. The camera treated the title demo ship as the player and tracked its
+//!    rotation. The retail title instead has an invisible passive player:
+//!    its view advances at a fixed rate while its orientation stays zero.
+//!    Tracking the demo ship yawed the camera until behind-camera culling
+//!    removed it.
 //!
 //! These tests drive the Shell headlessly (no SDL) and pin the ROM
-//! behavior: ship persists indefinitely, rolls Z at a constant 2/tick,
-//! keeps the tilted pose, and the camera never moves.
+//! behavior: the ship persists for the complete authored title hold, rolls Z
+//! at a constant 2/tick, keeps the tilted pose, and never rotates the camera.
 
-use sf_game::shell::Shell;
+use sf_core::pad;
+use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_ATTRACT_DURATION_TICKS};
+
+const TITLE_SHIP_SHAPE: u16 = 225;
 
 fn make_shell() -> Shell {
     let mut shell = Shell::new();
@@ -33,43 +35,67 @@ fn active_objs(shell: &Shell) -> Vec<(u16, u8, u8, u8)> {
     let mut cur = shell.game.objs.active_head;
     while let Some(i) = cur {
         let al = &shell.game.objs.aliens[i as usize];
-        out.push((i, al.rotx, al.roty, al.rotz));
+        if al.shape == TITLE_SHIP_SHAPE {
+            out.push((i, al.rotx, al.roty, al.rotz));
+        }
         cur = al.next;
     }
     out
 }
 
-#[test]
-fn title_ship_rolls_rom_faithfully_and_persists() {
-    let mut shell = make_shell();
+fn advance_to_title(shell: &mut Shell) {
+    shell.tick(0);
+    shell.tick(0);
+    while shell.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
+        shell.tick(pad::A);
+    }
+    while shell.state() != GameState::Title {
+        shell.tick(0);
+    }
+    shell.tick(0);
+}
 
-    // Boot + title load + mapwait(800): the demo ship spawns around tick 30.
+#[test]
+fn title_ship_rolls_rom_faithfully_for_the_authored_hold() {
+    let mut shell = make_shell();
+    advance_to_title(&mut shell);
+
+    // Title load + mapwait(800): the demo ship spawns around tick 30.
     for _ in 0..40 {
         shell.tick(0);
     }
     let start = active_objs(&shell);
-    assert_eq!(start.len(), 1, "title map spawns exactly one demo ship");
+    assert_eq!(
+        start.len(),
+        1,
+        "title map spawns exactly one demo ship (frame {}, map pointer {}, map count {}, loaded {:?})",
+        shell.game.vars.gameframe,
+        shell.game.vars.mapptr,
+        shell.game.vars.mapcnt,
+        shell.game.world.loaded_map_id,
+    );
     let (_, rotx0, roty0, rotz0) = start[0];
 
     // tit_istrat display pose. The ROM bytes (ENDSEQ.ASM:1800-1802) are
     // rotx=-17 (0xEF), roty=96, but they are calibrated for the ROM's title
-    // view. The port's title camera is pinned static at (0,0,0) (no player
-    // object -> getview_l accumulators zero; see title_camera_is_static
-    // below), and under that camera the certified ZXY model matrix renders
-    // the ship broadside, so the ROM roll (rotz) collapses it edge-on to a
-    // vertical spike. strat_title_init rotates the display pose ~90 deg so
-    // the roll axis points at the camera and the roll stays a solid 3/4
-    // barrel roll (see strat_title_init doc comment). rotz still advances 2
-    // per tick, verbatim from the ROM tit_strat.
-    assert_eq!(rotx0, 48, "display pitch (nose toward static title camera)");
+    // view. The source passive player advances camera depth while keeping
+    // outvx/outvy at zero, so the port's title camera orientation is fixed.
+    // Under that orientation the certified ZXY model matrix renders the ship
+    // broadside, and the ROM roll (rotz) collapses it edge-on to a vertical
+    // spike. strat_title_init rotates the display pose so the roll axis points
+    // toward the camera and remains a solid 3/4 barrel roll. rotz still
+    // advances 2 per tick, verbatim from the ROM tit_strat.
+    assert_eq!(rotx0, 48, "display pitch (nose toward fixed title camera)");
     assert_eq!(roty0, 32, "diagonal 3/4 display yaw");
 
-    // Leave the "intro" running a long time (5000 ticks = 250 s of game
-    // time). The ship must neither vanish (old behind-cull free at ~tick
-    // 99) nor change its per-tick roll rate.
+    // The ship must neither vanish (old behind-cull free at ~tick 99) nor
+    // change its per-tick roll rate before ENDSEQ's title timeout.
     let mut prev_rotz = rotz0;
-    for t in 0..5000u32 {
+    let remaining_title_ticks =
+        TITLE_ATTRACT_DURATION_TICKS.saturating_sub(shell.game.vars.gameframe + 1);
+    for t in 0..remaining_title_ticks {
         shell.tick(0);
+        assert_eq!(shell.state(), GameState::Title);
         let objs = active_objs(&shell);
         assert_eq!(objs.len(), 1, "demo ship vanished at +{t} ticks");
         let (_, rotx, roty, rotz) = objs[0];
@@ -91,22 +117,26 @@ fn title_ship_rolls_rom_faithfully_and_persists() {
 }
 
 #[test]
-fn title_camera_is_static() {
+fn title_camera_keeps_the_retail_fixed_orientation() {
     let mut shell = make_shell();
+    advance_to_title(&mut shell);
     for _ in 0..40 {
         shell.tick(0);
     }
     let cam0 = shell.frame().camera;
-    // ROM getview_l at the title: outvx/outvy = 0 -> view rotation zero,
-    // camera (0,0,-outdist). It must not rotate with the demo ship.
+    // The passive presentation player keeps outvx/outvy at zero, so the
+    // camera must not rotate with the demo ship. Its depth still advances by
+    // the fixed playercred view step.
     assert_eq!((cam0.rx, cam0.ry, cam0.rz), (0, 0, 0));
-    for _ in 0..1000 {
+    let remaining_title_ticks =
+        TITLE_ATTRACT_DURATION_TICKS.saturating_sub(shell.game.vars.gameframe + 1);
+    for _ in 0..remaining_title_ticks {
         shell.tick(0);
         let cam = shell.frame().camera;
         assert_eq!(
-            (cam.x, cam.y, cam.z, cam.rx, cam.ry, cam.rz),
-            (cam0.x, cam0.y, cam0.z, 0, 0, 0),
-            "title camera must stay fixed while the demo ship rolls"
+            (cam.x, cam.y, cam.rx, cam.ry, cam.rz),
+            (cam0.x, cam0.y, 0, 0, 0),
+            "title camera orientation must stay fixed while the demo ship rolls"
         );
     }
 }

@@ -35,6 +35,7 @@ use sf_core::{
 pub enum GameState {
     #[default]
     Boot,
+    AttractIntro,
     Title,
     Briefing,
     PlanetSelect,

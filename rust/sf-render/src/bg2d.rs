@@ -1392,7 +1392,10 @@ impl Bg2d {
                 display_id = Some(id);
             }
             _ if bg_active
-                || matches!(inputs.game_state, GameState::Playing | GameState::Tally) =>
+                || matches!(
+                    inputs.game_state,
+                    GameState::AttractIntro | GameState::Playing | GameState::Tally
+                ) =>
             {
                 // BGF_BG is transient, so also key off the playing state;
                 // g_currentbg holds the last setbg operand. Snapshot it at
@@ -1436,7 +1439,10 @@ impl Bg2d {
             return;
         }
 
-        if matches!(inputs.game_state, GameState::Playing | GameState::Tally) {
+        if matches!(
+            inputs.game_state,
+            GameState::AttractIntro | GameState::Playing | GameState::Tally
+        ) {
             if let (Some(i), Some(id)) = (idx, display_id) {
                 self.sync_palette_four(
                     gpu,

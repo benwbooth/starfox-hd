@@ -248,6 +248,23 @@ impl Windows {
         self.start_map_fade(-step);
     }
 
+    /// Begin a semantic fade-to-black from an authored starting intensity.
+    ///
+    /// The attract shell uses this for the two ENDSEQ transitions that set
+    /// the fade counter directly before entering their transfer loops. Map
+    /// opcodes continue to use [`Self::fade_to_black`], whose normal/quick
+    /// speeds are restricted to one or two intensity steps per tick.
+    pub fn fade_to_black_from(&mut self, speed: u8, intensity: u8) {
+        let Some(slot) = self.get_or_alloc(WINDOW_MODE_MAPFADE) else {
+            self.fadedir = 0;
+            return;
+        };
+        self.slots[slot].mode = WINDOW_MODE_MAPFADE;
+        self.slots[slot].stayblack = 0;
+        self.slots[slot].wm_val = intensity.min(BLACK_FADE_MAX);
+        self.fadedir = -(speed.max(1) as i8);
+    }
+
     /// C `Windows_FadeFromBlack()` (src/game/windows.c:184).
     pub fn fade_from_black(&mut self, speed: i32) {
         let step: i8 = if speed >= 2 { 2 } else { 1 };
