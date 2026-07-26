@@ -8,6 +8,8 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from generate_second_sortie_projectiles import format_rust
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TRACE = Path(__file__).with_name("fixtures") / "pressure_fighters.trace"
@@ -272,8 +274,8 @@ def rust_source(
         "",
         "use super::{",
         "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,",
-        "    mission_camera_keyframe, mission_player_keyframe, mission_projectile_keyframe,",
-        "    MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe, MissionProjectileKeyframe,",
+        "    mission_camera_keyframe, mission_player_keyframe,",
+        "    MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,",
         "};",
         "",
         f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
@@ -355,41 +357,10 @@ def rust_source(
             f"pub(super) const ATTACKER_KEYFRAME_TRACKS: [&[MissionActorKeyframe]; {len(ATTACKER_IDENTITIES)}] = [",
             *(f"    &ATTACKER_TRACK_{index}," for index in range(len(ATTACKER_IDENTITIES))),
             "];",
+            "",
         ]
     )
-
-    lifetimes = projectile_lifetimes(records)
-    for index, lifetime in enumerate(lifetimes):
-        lines.extend(
-            [
-                "",
-                f"const ENEMY_LASER_TRACK_{index}: [MissionProjectileKeyframe; {len(lifetime)}] = [",
-            ]
-        )
-        for frame, pose in lifetime:
-            values = ", ".join(f"{value:_}" for value in pose)
-            lines.append(f"    mission_projectile_keyframe({frame}, [{values}]),")
-        lines.append("];"
-        )
-    lines.append("")
-    if len(lifetimes) == 2:
-        lines.extend(
-            [
-                "pub(super) const ENEMY_LASER_KEYFRAME_TRACKS: [&[MissionProjectileKeyframe]; 2] =",
-                "    [&ENEMY_LASER_TRACK_0, &ENEMY_LASER_TRACK_1];",
-                "",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                f"pub(super) const ENEMY_LASER_KEYFRAME_TRACKS: [&[MissionProjectileKeyframe]; {len(lifetimes)}] = [",
-                *(f"    &ENEMY_LASER_TRACK_{index}," for index in range(len(lifetimes))),
-                "];",
-                "",
-            ]
-        )
-    return "\n".join(lines)
+    return format_rust("\n".join(lines))
 
 
 def main() -> None:

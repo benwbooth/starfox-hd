@@ -105,6 +105,8 @@ mod pigma_duel_rival;
 mod player_damage;
 #[path = "pressure_fighters.rs"]
 mod pressure_fighters;
+#[path = "pressure_fighter_projectiles.rs"]
+mod pressure_fighter_projectiles;
 #[path = "second_sortie.rs"]
 mod second_sortie;
 #[path = "second_sortie_capital.rs"]
@@ -5586,7 +5588,7 @@ impl Game {
             leon_projectiles: Vec::with_capacity(leon_duel_projectiles::PROJECTILE_COUNT),
             pressure_fighter_actors: PressureFighterActors::default(),
             pressure_fighter_projectiles: Vec::with_capacity(
-                pressure_fighters::ENEMY_LASER_KEYFRAME_TRACKS.len(),
+                pressure_fighter_projectiles::PROJECTILE_COUNT,
             ),
             leon_pressure_projectiles: Vec::with_capacity(
                 leon_pressure::ENEMY_LASER_KEYFRAME_TRACKS.len(),
@@ -6728,6 +6730,8 @@ impl Game {
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
+        self.previous_mission_player_position =
+            Some(pressure_fighters::PLAYER_KEYFRAMES[0].position);
         if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             apply_player_keyframe(wingmate, pressure_fighters::WINGMATE_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
@@ -7932,7 +7936,19 @@ impl Game {
             self.update_pressure_fighter_presentation(retail_frame);
         }
         self.update_pressure_fighter_actors(retail_frame);
-        self.update_pressure_fighter_projectiles(retail_frame)?;
+        let current_player_position = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|object| object.base.position);
+        let previous_player_position = current_player_position
+            .map(|current| self.previous_mission_player_position.unwrap_or(current));
+        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
+        {
+            self.update_pressure_fighter_projectiles(retail_frame, current, previous)?;
+            self.previous_mission_player_position = Some(current);
+        }
         Ok(())
     }
 
@@ -15822,13 +15838,83 @@ impl Game {
         }
     }
 
-    fn update_pressure_fighter_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
-        Self::update_pressure_projectile_tracks(
-            &mut self.state,
-            &mut self.pressure_fighter_projectiles,
-            &pressure_fighters::ENEMY_LASER_KEYFRAME_TRACKS,
-            retail_frame,
-        )
+    fn update_pressure_fighter_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) -> Result<(), Error> {
+        for track_index in 0..pressure_fighter_projectiles::PROJECTILE_COUNT {
+            let descriptor = pressure_fighter_projectiles::descriptor(track_index)
+                .expect("recurring-attacker projectile descriptor exists");
+            let active_index = self
+                .pressure_fighter_projectiles
+                .iter()
+                .position(|projectile| projectile.track_index == track_index);
+            if retail_frame < descriptor.start_retail_frame
+                || retail_frame > descriptor.end_retail_frame
+            {
+                if retail_frame > descriptor.end_retail_frame {
+                    if let Some(index) = active_index {
+                        let projectile = self.pressure_fighter_projectiles.swap_remove(index);
+                        self.state.objects.remove(projectile.object);
+                    }
+                }
+                continue;
+            }
+
+            let projectile_id = if let Some(index) = active_index {
+                self.pressure_fighter_projectiles[index].object
+            } else {
+                let mut projectile = Object::new(
+                    ObjectKind::Projectile,
+                    ShapeId::ENEMY_LASER,
+                    Behavior::Projectile,
+                );
+                projectile.base.weapon = WeaponKind::EnemyLaser;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+                projectile.base.collision_class = CollisionClass::EnemyWeapon;
+                projectile.base.flags.casts_shadow = false;
+                projectile.base.position = descriptor.initial_pose.position;
+                projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
+                projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
+                projectile.base.roll = Angle::from_units(descriptor.initial_pose.roll);
+                projectile.base.speed = descriptor.initial_pose.speed;
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
+                        motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
+                    });
+                let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
+                self.pressure_fighter_projectiles
+                    .push(ActivePressureProjectile {
+                        track_index,
+                        object: projectile_id,
+                    });
+                projectile_id
+            };
+
+            if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
+                    projectile.extension.activity
+                else {
+                    continue;
+                };
+                for &action in pressure_fighter_projectiles::actions(track_index, retail_frame) {
+                    apply_hostile_projectile_action(
+                        projectile,
+                        &mut flight,
+                        action,
+                        player_position,
+                        previous_player_position,
+                    );
+                }
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+        }
+        Ok(())
     }
 
     fn update_leon_pressure_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
@@ -25308,6 +25394,106 @@ mod tests {
         )
         .unwrap();
         assert!(game.pigma_projectiles.is_empty());
+    }
+
+    #[test]
+    fn typed_pressure_fighter_projectiles_match_every_oracle_boundary() {
+        const RETAINED_PROJECTILE_POSE_COUNT: usize = 185;
+
+        let mut game = Game::new();
+        let last_retail_frame = pressure_fighter_projectiles::ORACLE_TRACKS
+            .iter()
+            .filter_map(|track| track.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("recurring-attacker projectile oracle contains retained poses");
+        let mut retained_poses = 0;
+
+        for retail_frame in
+            (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index =
+                usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            let previous_player_index = player_index.saturating_sub(1);
+            let player_position =
+                pressure_fighter_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index].position;
+            let previous_player_position = pressure_fighter_projectiles::ORACLE_PLAYER_KEYFRAMES
+                [previous_player_index]
+                .position;
+            game.update_pressure_fighter_projectiles(
+                retail_frame,
+                player_position,
+                previous_player_position,
+            )
+            .unwrap();
+
+            let expected_active = pressure_fighter_projectiles::ORACLE_TRACKS
+                .iter()
+                .filter(|track| {
+                    track
+                        .first()
+                        .zip(track.last())
+                        .is_some_and(|(first, last)| {
+                            (first.retail_frame..=last.retail_frame).contains(&retail_frame)
+                        })
+                })
+                .count();
+            assert_eq!(
+                game.pressure_fighter_projectiles.len(),
+                expected_active,
+                "active recurring-attacker projectile count at frame {retail_frame}"
+            );
+
+            for (track_index, keyframes) in pressure_fighter_projectiles::ORACLE_TRACKS
+                .iter()
+                .copied()
+                .enumerate()
+            {
+                let Some(expected) = keyframes
+                    .iter()
+                    .find(|keyframe| keyframe.retail_frame == retail_frame)
+                else {
+                    continue;
+                };
+                retained_poses += 1;
+                let active = game
+                    .pressure_fighter_projectiles
+                    .iter()
+                    .find(|projectile| projectile.track_index == track_index)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "recurring-attacker projectile track {track_index} absent at frame {retail_frame}"
+                        )
+                    });
+                let projectile = game.state().objects.get(active.object).unwrap();
+                assert_eq!(
+                    projectile.base.position, expected.pose.position,
+                    "recurring-attacker projectile track {track_index} at frame {retail_frame}"
+                );
+                assert_eq!(projectile.base.pitch.units(), expected.pose.pitch);
+                assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
+                assert_eq!(projectile.base.roll.units(), expected.pose.roll);
+                assert_eq!(projectile.base.speed, expected.pose.speed);
+                assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
+                assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+                assert!(matches!(
+                    projectile.extension.activity,
+                    ObjectActivity::HostileProjectileFlight(_)
+                ));
+            }
+        }
+
+        assert_eq!(retained_poses, RETAINED_PROJECTILE_POSE_COUNT);
+        let cleanup_frame = last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
+        let player_index = usize::from(cleanup_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        game.update_pressure_fighter_projectiles(
+            cleanup_frame,
+            pressure_fighter_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index].position,
+            pressure_fighter_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index - 1].position,
+        )
+        .unwrap();
+        assert!(game.pressure_fighter_projectiles.is_empty());
     }
 
     #[test]
