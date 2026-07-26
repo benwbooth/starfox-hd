@@ -704,6 +704,30 @@ pub fn null_strat(_g: &mut Game, _idx: u16) {}
 const SH_FIRE: u16 = 357;
 const SH_SMOKE: u16 = 358;
 
+/// Source-authored `s_make_smoke` / `s_damagesmoke` cadence.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SmokeCadence {
+    EveryFrame,
+    EveryOtherFrame,
+    EveryFourthFrame,
+    EveryEighthFrame,
+}
+
+impl SmokeCadence {
+    fn frame_mask(self) -> u16 {
+        match self {
+            Self::EveryFrame => 0,
+            Self::EveryOtherFrame => 1,
+            Self::EveryFourthFrame => 3,
+            Self::EveryEighthFrame => 7,
+        }
+    }
+
+    pub fn is_due(self, gameframe: u16) -> bool {
+        gameframe & self.frame_mask() == 0
+    }
+}
+
 /// Live registry ids for fire/smoke strategies.
 ///
 /// The registry is rebuilt on every level load while the WRAM mirror is
@@ -774,6 +798,30 @@ pub fn makesmoke_srou(g: &mut Game, parent: u16) -> Option<u16> {
         al.worldz = p.worldz;
     }
     Some(smoke)
+}
+
+/// ROM `s_make_smoke`: emit at the selected source-authored cadence.
+pub fn make_smoke_on_cadence(g: &mut Game, parent: u16, cadence: SmokeCadence) -> Option<u16> {
+    if cadence.is_due(g.vars.gameframe) {
+        makesmoke_srou(g, parent)
+    } else {
+        None
+    }
+}
+
+/// ROM `s_damagesmoke`: arm the damaged-object presentation and emit smoke
+/// while durability is at or below the authored threshold.
+pub fn damage_smoke_srou(
+    g: &mut Game,
+    parent: u16,
+    durability_threshold: u8,
+    cadence: SmokeCadence,
+) -> Option<u16> {
+    if g.objs.aliens[parent as usize].hp > durability_threshold {
+        return None;
+    }
+    g.objs.aliens[parent as usize].flags |= AFONFIRE;
+    make_smoke_on_cadence(g, parent, cadence)
 }
 
 // ============================================================

@@ -231,8 +231,8 @@ pub fn ea_random(g: &mut Game) -> u16 {
 /// `Strat_ProjectileOnCollide`); same slot ids as the common lane's.
 pub(crate) use crate::common::strat_projectile_on_collide as projectile_on_collide_strat;
 pub(crate) use crate::common::{
-    apply_velocity, chase_proportional, count_down, dist_xz, gen_vecs_3d, make_obj, sf_random,
-    spawn_projectile, speed_to, strat_gen_vecs_nvecs, StratRam,
+    apply_velocity, chase_proportional, count_down, damage_smoke_srou, dist_xz, gen_vecs_3d,
+    make_obj, sf_random, spawn_projectile, speed_to, strat_gen_vecs_nvecs, SmokeCadence, StratRam,
 };
 
 /// ROM `Yanglexy_l` / `anglexy_l`: 0-255 yaw from src→dst (i16 wrapping deltas).
@@ -10322,6 +10322,7 @@ pub fn strat_spacebarshoot_init(g: &mut Game, idx: u16) {
 
 const STARBULL_HP: u8 = 16; // STRATEQU.INC:107
 const STARBULL_AP: u8 = 1; // STRATEQU.INC:108
+const STARBULL_DAMAGE_SMOKE_HP: u8 = STARBULL_HP - 4;
 
 /// ROM `starbull_Istrat` (GA2STRAT.ASM:40-50).
 pub fn starbull_istrat(g: &mut Game, idx: u16) {
@@ -10401,7 +10402,12 @@ fn starbull_goto_wp(g: &mut Game, idx: u16, wx: i16, wy: i16, wz: i16) -> bool {
 /// Shared tail (GA2STRAT.ASM:65-86): scroll, spin when on fire.
 fn starbullc(g: &mut Game, idx: u16) {
     add_player_z(g, idx);
-    // s_damagesmoke — cosmetic omitted
+    let _ = damage_smoke_srou(
+        g,
+        idx,
+        STARBULL_DAMAGE_SMOKE_HP,
+        SmokeCadence::EveryFourthFrame,
+    );
     if g.objs.aliens[idx as usize].flags & AFONFIRE == 0 {
         return;
     }

@@ -44,9 +44,10 @@ use sf_game::world::{World, MAP_ISTRAT_SPINSPACEBAR};
 use crate::common::{sv, StratRam};
 
 use crate::common::{
-    angle_xz, apply_velocity, dist_xz, gen_vecs_3d, make_obj, makesplash_srou, makessplash_srou,
-    projectile_strat_ids, sf_random, spawn_projectile,
-    strat_chase_proportional as chase_proportional, strat_gen_vecs_nvecs,
+    angle_xz, apply_velocity, damage_smoke_srou, dist_xz, gen_vecs_3d, make_obj,
+    make_smoke_on_cadence, makesplash_srou, makessplash_srou, projectile_strat_ids, sf_random,
+    spawn_projectile, strat_chase_proportional as chase_proportional, strat_gen_vecs_nvecs,
+    SmokeCadence,
 };
 use crate::enemy_a::{
     achase_angle, add_player_z, addrnd2pos_xy, boss_attach_child_to_mother, boss_count_children,
@@ -1202,7 +1203,7 @@ pub fn bazfall_strat(g: &mut Game, idx: u16) {
         al.roty = al.roty.wrapping_add(16); // s_add_alvar B,x,al_roty,#16
         al.vy = al.vy.wrapping_add(2); // s_add_alvar W,x,al_vy,#2 (gravity)
     }
-    // (s_make_smoke is cosmetic — omitted.)
+    let _ = make_smoke_on_cadence(g, idx, SmokeCadence::EveryOtherFrame);
     apply_velocity(&mut g.objs.aliens[idx as usize]); // s_add_vecs2pos
     add_player_z(g, idx); // s_add_playerz
     let al = &mut g.objs.aliens[idx as usize];
@@ -2814,7 +2815,7 @@ fn colonyexit_strat(g: &mut Game, idx: u16) {
 //                 gravity, self-removing when the bounce decays.
 //
 // Scoped-out cosmetics (never asserted): particlefire/particlefiredown fire
-// emitters, make_smoke trails, s_rots_flat billboard orient, the
+// emitters, s_rots_flat billboard orient, the
 // windmill's four SLOWELASER "smoke" jets (GASTRATS.ASM:3550-3569, ASM-commented
 // "smoke") and windexp's round0p blade shower (GASTRATS.ASM:3573-3599) — routed
 // through strat_explode instead.
@@ -3214,8 +3215,9 @@ fn volplasma_init(g: &mut Game, idx: u16) {
 
 /// `volplasma_strat` (GA2STRAT.ASM:1981-1999): within 500 z, 3D-home the player
 /// (rate 2) and regenerate the velocity; move, clamp worldy to <=0 (never sinks
-/// below ground), scroll, move again. make_smoke / rots_flat are cosmetic.
+/// below ground), scroll, move again. `s_rots_flat` is a billboard operation.
 pub fn volplasma_strat(g: &mut Game, idx: u16) {
+    let _ = make_smoke_on_cadence(g, idx, SmokeCadence::EveryFourthFrame);
     // s_jmp_Zdistless x,y,#500,.cont — inside 500 z home + regen vecs.
     if zdist_less(g, idx, 500) {
         if let Some(pl) = player(g) {
@@ -3271,8 +3273,9 @@ fn volrock_init(g: &mut Game, idx: u16) {
 }
 
 /// `volrock_strat` (GA2STRAT.ASM:2024-2033): gravity + bounce on the y=0 floor
-/// (never removed), then coast. make_smoke / rots_flat are cosmetic.
+/// (never removed), then coast. `s_rots_flat` is a billboard operation.
 pub fn volrock_strat(g: &mut Game, idx: u16) {
+    let _ = make_smoke_on_cadence(g, idx, SmokeCadence::EveryFourthFrame);
     let _ = falldown_yvec(g, idx, 1, 2, 0); // s_falldown_Yvec x,1,#2,#0 (no remove label)
     apply_velocity(&mut g.objs.aliens[idx as usize]); // s_Add_vecs2pos
 }
@@ -3421,8 +3424,8 @@ pub fn volrockdown_strat(g: &mut Game, idx: u16) {
 // identifier by name. Nothing to port.
 //
 // Fidelity scope-outs (cosmetic, asserted-around, never asserted):
-//   fog (s_initfog/s_dofog), engine-flame sprites (makeengine_srou), smoke
-//   (makesmoke_srou), death-debris meshes (s_set_debrisdata + relexplode),
+//   engine-flame sprites (makeengine_srou), death-debris meshes
+//   (s_set_debrisdata + relexplode),
 //   escapee/smark explosion variants (escapeeexplode2 / smarkexplode reduce to
 //   the generic explode here), and positional sound. Visual weapon meshes are
 //   shape-0 invisible like every other ported projectile.
@@ -3462,6 +3465,7 @@ const HOUDAI5F_MUZZLE_Y: i16 = ((-59i16 << 2) >> 2) << 2; // = -236
 
 /// `-deg11` misstank turret pitch (VARS.INC deg11 = deg360/32 = 8).
 const NEG_DEG11: u8 = 0u8.wrapping_sub(8);
+const WOODS_SMOKE_REVERSED_DEPTH_SCALE: i16 = 4;
 
 // ============================================================
 // missile2 — misspod's launched homing missile (fire_missile2 +
@@ -3781,9 +3785,18 @@ fn misstankexp_strat(g: &mut Game, idx: u16) {
 
 /// `woodsgo_strat` (GASTRATS.ASM:1398-1425): the launched missile — roll,
 /// accelerate to 80, and (only while still `>=400` z from the player) count
-/// `sbyte1` down and nudge its heading at the player once it wraps. Smoke trail
-/// is cosmetic (omitted).
+/// `sbyte1` down and nudge its heading at the player once it wraps.
 pub fn woodsgo_strat(g: &mut Game, idx: u16) {
+    if let Some(smoke) = make_smoke_on_cadence(g, idx, SmokeCadence::EveryFourthFrame) {
+        let source = g.objs.aliens[idx as usize];
+        let smoke = &mut g.objs.aliens[smoke as usize];
+        smoke.vx = source.vx.wrapping_neg();
+        smoke.vy = source.vy.wrapping_neg();
+        smoke.vz = source
+            .vz
+            .wrapping_neg()
+            .wrapping_mul(WOODS_SMOKE_REVERSED_DEPTH_SCALE);
+    }
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.rotz = al.rotz.wrapping_add(8); // s_add_alvar rotz,#8
@@ -4768,6 +4781,8 @@ pub fn wallrnd_istrat(g: &mut Game, idx: u16) {
 // ------------------------------------------------------------
 
 const WALKER1_HP: u8 = 5;
+const WALKER1_DAMAGE_SMOKE_HP: u8 = WALKER1_HP - 1;
+const WALKER1_DAMAGE_SMOKE_Y: i16 = -100;
 const WALKER2_HP: u8 = 10;
 const WALKER2_AP: u8 = 8;
 const MTUNNEL_MIN_X: i16 = -90;
@@ -4890,9 +4905,18 @@ fn walker1_fire_hmissile(g: &mut Game, idx: u16, player_idx: u16) {
         .make_snd(PosSndFamilyId::Missile, me.worldx, me.worldz);
 }
 
-/// ROM `move_strat` (GSTRATS.ASM:973-976) — coast; damagesmoke cosmetic omitted.
+/// ROM `move_strat` (GSTRATS.ASM:973-976) — coast and emit damage smoke.
 pub fn move_strat(g: &mut Game, idx: u16) {
     apply_velocity(&mut g.objs.aliens[idx as usize]);
+    if let Some(smoke) = damage_smoke_srou(
+        g,
+        idx,
+        WALKER1_DAMAGE_SMOKE_HP,
+        SmokeCadence::EveryEighthFrame,
+    ) {
+        let source = g.objs.aliens[idx as usize];
+        full_offset_pos(g, smoke, &source, 0, WALKER1_DAMAGE_SMOKE_Y, 0);
+    }
 }
 
 /// ROM `walker2_Istrat` / `walker2_strat` — tunnel X chase.
@@ -5867,6 +5891,7 @@ pub fn meteorcol_istrat(g: &mut Game, idx: u16) {
 const FLY_HP: u8 = 2; // STRATEQU.INC:187
 const FLY_AP: u8 = 4;
 const FLY_FC: u8 = 4;
+const FLY_DAMAGE_SMOKE_HP: u8 = 1;
 
 /// `fly_istrat` (DSTRATS.ASM:419-432).
 pub fn fly_istrat(g: &mut Game, idx: u16) {
@@ -6170,6 +6195,7 @@ pub fn fly4_strat(g: &mut Game, idx: u16) {
     }
     let _ = speed_to(&mut g.objs.aliens[idx as usize], 30, 5);
     add_player_z(g, idx);
+    let _ = damage_smoke_srou(g, idx, FLY_DAMAGE_SMOKE_HP, SmokeCadence::EveryFourthFrame);
 }
 
 /// `flydead_istrat` / `flydead_strat` (DSTRATS.ASM:572-582).
@@ -6787,12 +6813,12 @@ pub fn cruiser1fall_istrat(g: &mut Game, idx: u16) {
     cruiser1fall_strat(g, idx);
 }
 
-/// ROM `cruiser1fall_strat` — tip rotx→deg45, smoke (cosmetic), cont.
+/// ROM `cruiser1fall_strat` — tip rotx→deg45, emit smoke, then continue.
 pub fn cruiser1fall_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].rotx != DEG45 {
         g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_add(1);
     }
-    // s_make_smoke 2 — cosmetic omitted
+    let _ = make_smoke_on_cadence(g, idx, SmokeCadence::EveryFourthFrame);
     cruiser1_cont(g, idx);
 }
 
@@ -6802,6 +6828,11 @@ pub fn cruiser1fall_strat(g: &mut Game, idx: u16) {
 
 const CRUISER2_LAUNCHER_HP: u8 = 4; // STRATEQU.INC:236
 const SH_HOU_3: u16 = 409;
+const CRUISER_DESTRUCTION_SOUND_FRAME_MASK: u16 = 15;
+const CRUISER_DESTRUCTION_NEAR_SOUND_FRAME: u16 = 7;
+const CRUISER_DESTRUCTION_MID_SOUND_FRAME: u16 = 14;
+const SE_DESTRUCT_ENEMY_NEAR: u8 = 0x21;
+const SE_DESTRUCT_ENEMY_MID: u8 = 0x22;
 
 fn cruiser2_spawn_launcher(
     g: &mut Game,
@@ -6870,7 +6901,16 @@ pub fn cruiser2fire_strat(g: &mut Game, idx: u16) {
         if let Some(e) = make_medium_exp_obj(g, idx) {
             addrnd2pos_xy(g, e);
         }
-        // frame destruct SFX + make_smoke 1 — cosmetic
+        match g.vars.gameframe & CRUISER_DESTRUCTION_SOUND_FRAME_MASK {
+            CRUISER_DESTRUCTION_NEAR_SOUND_FRAME => {
+                g.hooks.play_se(SE_DESTRUCT_ENEMY_NEAR);
+            }
+            CRUISER_DESTRUCTION_MID_SOUND_FRAME => {
+                g.hooks.play_se(SE_DESTRUCT_ENEMY_MID);
+            }
+            _ => {}
+        }
+        let _ = make_smoke_on_cadence(g, idx, SmokeCadence::EveryOtherFrame);
         if g.objs.aliens[idx as usize].rotx != DEG45 {
             g.objs.aliens[idx as usize].rotx = g.objs.aliens[idx as usize].rotx.wrapping_add(1);
         }
