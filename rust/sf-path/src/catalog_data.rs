@@ -54,6 +54,8 @@ const SH_BOSS_7_3: i32 = 424;
 const SH_ARCH_0: i32 = 228;
 const SH_TOW_1: i32 = 447;
 const SH_PILLAR3_NS: i32 = 452;
+const SH_SHARK: i32 = 12;
+const SH_R_BUT_2: i32 = 325;
 // `mediumshape` is a source collision/explosion envelope with no vertices or
 // faces; null is its exact visual representation in the native renderer.
 const SH_MEDIUMSHAPE: i32 = SH_NULLSHAPE;
@@ -80,8 +82,34 @@ const WEAPON_FRIENDELASER: i32 = 6;
 const WEAPON_HPLASMA: i32 = 38;
 const WEAPON_RINGLASER: i32 = 24;
 const WEAPON_RELOVALBEAM: i32 = 50;
+const WEAPON_SLOWELASER: i32 = 8;
 const WEAPON_RELSLOWELASER: i32 = 12;
 const WEAPON_RELBEAMBALL: i32 = 56;
+
+// PATHDATA.ASM `call_fol` / `folow`.
+const SHARK_ANIMATION: i32 = 15;
+const SHARK_ENGINE_SOUND: i32 = 3;
+const SHARK_ENTRY_YAW: i32 = 72;
+const SHARK_FLIGHT_SPEED: i32 = 50;
+const SHARK_ACTIVATION_DISTANCE: i32 = 1500;
+const SHARK_CALL_LIFETIME: i32 = 200;
+const SHARK_CALL_HP: i32 = 10;
+const SHARK_FOLLOWER_HP: i32 = 40;
+const SHARK_ATTACK_POWER: i32 = 8;
+const SHARK_SPAWNED_HP: i32 = 10;
+const SHARK_SPAWNED_ATTACK_POWER: i32 = 10;
+const SHARK_FOLLOWER_WORLD_Z_STEP: i32 = 61;
+
+// PATHDATA.ASM Venom surface obstacle paths.
+const KURURI_ACTIVATION_DISTANCE: i32 = 1300;
+const DOSUN_ACTIVATION_DISTANCE: i32 = 1300;
+const ITADOSUN_ACTIVATION_DISTANCE: i32 = 1100;
+const DOSUN_GROUND_RANGE_MIN: i32 = -41;
+const DOSUN_GROUND_RANGE_MAX: i32 = 0;
+const DOSUN_DESCENT_STEP: i32 = 40;
+const DOSUN_FINAL_WORLD_Y: i32 = -50;
+const ITADOSUN_FINAL_WORLD_Y: i32 = -10;
+const DOSUN_IMPACT_SOUND: i32 = 0x49;
 
 // src/path/path_literals.c STRAT_ID_* (flat strategy table ids).
 const STRAT_ID_BREAK_METEOR: i32 = 234;
@@ -5040,34 +5068,232 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
 
     // (C: #undef ENDOFF)
 
-    // MAP3_4B (Sector Z Part B) paths — stub until full path data is ported.
+    // PATHDATA.ASM:866-1077 — Sector Z pursuing shark and spawned follower.
     b.start_path(PATH_ID_CALL_FOL, "call_fol");
     b.emit8(P_RELTOPLAYERON);
     b.emit8(P_ZREMOVEOFF);
-    b.emit_wait(200);
+    b.emit8(P_ALWAYSGENVECSON);
+    b.emit8(P_SPACESHIPON);
+    b.emit8(P_INITANIM);
+    b.emit8(SHARK_ANIMATION);
+    b.emit_sound2(SHARK_ENGINE_SOUND);
+    b.emit_zero(PAL_PWORD1);
+    b.emit_trigger("call_fol.colfol_ck", PATH_TRIGGER_ALWAYS_VALUE);
+    b.emit_set(PAL_HP, SHARK_CALL_HP);
+    b.emit_set(PAL_AP, SHARK_ATTACK_POWER);
+    b.emit8(P_LEFTOFPLAYER);
+    b.fixup16("call_fol.calfol_l");
+    b.emit_set(PAL_ROTY, SHARK_ENTRY_YAW);
+    b.emit_set(PAL_ROTX, DEG45);
+    b.emit_setvel(SHARK_FLIGHT_SPEED);
+    b.emit_goto(P_IGOTO, "call_fol.calfol_z");
+    b.label("call_fol.calfol_l");
+    b.emit_set(PAL_ROTY, DEG180 * 2 - SHARK_ENTRY_YAW);
+    b.emit_set(PAL_ROTX, DEG45);
+    b.emit_setvel(SHARK_FLIGHT_SPEED);
+    b.label("call_fol.calfol_z");
+    b.emit_wait(20);
+    b.label("call_fol.calfol_s");
+    b.emit8(P_FACEPLAYER);
+    b.emit_distless(SHARK_ACTIVATION_DISTANCE, "call_fol.calfol_w");
+    b.emit_goto(P_GOTO, "call_fol.calfol_s");
+    b.label("call_fol.calfol_w");
+    b.emit8(P_BEHINDPLAYER);
+    b.fixup16("call_fol.calfol_spaw");
+    b.emit_goto(P_GOTO, "call_fol.calfol_w");
+    b.label("call_fol.calfol_spaw");
+    b.emit_wait(5);
+    b.emit_qspawn(
+        SH_SHARK,
+        PATH_ID_FOLOW,
+        SHARK_SPAWNED_HP,
+        SHARK_SPAWNED_ATTACK_POWER,
+    );
+    b.label("call_fol.col_rem");
     b.emit8(P_REMOVE);
     b.emit8(P_END);
+    b.label("call_fol.colfol_ck");
+    b.emit_ifsamew(PAL_PWORD1, SHARK_CALL_LIFETIME, "call_fol.colfol_rem");
+    b.emit8(P_INCW);
+    b.emit8(PAL_PWORD1);
+    b.emit8(P_RETURN);
+    b.label("call_fol.colfol_rem");
+    b.emit_goto(P_FORCE, "call_fol.col_rem");
+    b.emit8(P_RETURN);
 
-    // MAP3_7A (Venom 3 Surface Part A) paths — stub until full path data is ported.
-    b.start_path(PATH_ID_E_DOSUN, "e_dosun");
-    b.emit8(P_RELTOPLAYERON);
+    b.start_path(PATH_ID_FOLOW, "folow");
     b.emit8(P_ZREMOVEOFF);
-    b.emit_wait(200);
+    b.emit_sound2(SHARK_ENGINE_SOUND);
+    b.emit8(P_WEAPON);
+    b.emit8(WEAPON_SLOWELASER);
+    b.emit8(P_ALWAYSGENVECSON);
+    b.emit8(P_INITANIM);
+    b.emit8(SHARK_ANIMATION);
+    b.emit_zero(PAL_PBYTE1);
+    b.emit_zero(PAL_PBYTE2);
+    b.emit_trigger("folow.fol_adz", PATH_TRIGGER_ALWAYS_VALUE);
+    b.emit_trigger("folow.fol_exp", PATH_TRIGGER_WHENHITBYPLAYER_VALUE);
+    b.emit_set(PAL_HP, SHARK_FOLLOWER_HP);
+    b.emit_set(PAL_AP, SHARK_ATTACK_POWER);
+    b.emit_zero(PAL_ROTX);
+    b.emit_zero(PAL_ROTY);
+    b.emit_zero(PAL_ROTZ);
+    b.emit_set(PAL_ROTX, 2);
+    b.emit8(P_FIRE);
+    b.emit_wait(10);
+    b.emit_add(PAL_ROTY, -4);
+    b.emit8(P_FIRE);
+    b.emit_wait(10);
+    b.emit_add(PAL_ROTY, 8);
+    b.emit8(P_FIRE);
+    b.emit8(P_DOQ);
+    b.emit8(2);
+    b.emit8(P_DOQ);
+    b.emit8(10);
+    b.emit8(P_FACEPLAYER);
+    b.emit8(P_NEXT);
+    b.emit8(P_FIRE);
+    b.emit8(P_DOQ);
+    b.emit8(11);
+    b.emit8(P_FACEPLAYER);
+    b.emit8(P_NEXT);
+    b.emit8(P_FIRE);
+    b.emit8(P_DOQ);
+    b.emit8(13);
+    b.emit8(P_FACEPLAYER);
+    b.emit8(P_NEXT);
+    b.emit8(P_FIRE);
+    b.emit8(P_NEXT);
+    b.emit8(P_DOQ);
+    b.emit8(4);
+    b.emit8(P_FACEPLAYER);
+    b.emit8(P_NEXT);
+    b.emit_trigger("folow.fol_adz", -1);
+    b.emit8(P_RELTOPLAYERON);
+    b.emit8(P_ALWAYSGENVECSON);
+    b.emit_ifbetweenb(PAL_ROTY, DEG90, DEG270, "folow.fol_goj");
+    b.label("folow.fol_goo");
+    b.emit_chaseb(PAL_ROTX, 0);
+    b.emit_chaseb(PAL_ROTY, 0);
+    b.emit_ifsameb(PAL_ROTY, 0, "folow.fol_gop");
+    b.emit_goto(P_GOTO, "folow.fol_goo");
+    b.label("folow.fol_gop");
+    b.emit_ifsameb(PAL_ROTX, 0, "folow.fol_goq");
+    b.emit_goto(P_GOTO, "folow.fol_goo");
+    b.label("folow.fol_goq");
+    b.emit_setvel(SHARK_FLIGHT_SPEED);
+    b.emit8(P_COLLISIONSOFF);
+    b.emit_wait(5);
+    b.emit8(P_COLLISIONSON);
+    b.emit_wait(10);
+    b.label("folow.fol_goj");
+    b.emit_setvel(0);
+    b.emit8(P_WAITFACEPLAYER);
+    b.emit8(P_FIRE);
+    b.emit8(P_ZREMOVEON);
+    b.emit_accel(SHARK_FLIGHT_SPEED, 2);
+    b.emit8(P_DOQ);
+    b.emit8(8);
+    b.emit8(P_FIRE);
+    b.emit8(P_DOQ);
+    b.emit8(8);
+    b.emit8(P_FACEPLAYER);
+    b.emit8(P_NEXT);
+    b.emit8(P_NEXT);
+    b.emit8(P_END);
+    b.label("folow.fol_adz");
+    b.emit_add(PAL_WORLDZ, SHARK_FOLLOWER_WORLD_Z_STEP);
+    b.emit8(P_RETURN);
+    b.label("folow.fol_exp");
+    b.emit_goto(P_FORCE, "folow.fol_ex");
+    b.emit8(P_RETURN);
+    b.label("folow.fol_ex");
+    b.emit8(P_EXPLODE);
+
+    // PATHDATA.ASM:3121-3230 — Venom surface obstacle paths.
+    b.start_path(PATH_ID_E_KURURI, "e_kururi");
+    b.emit8(P_INVINCIBLEON);
+    b.emit8(P_ZREMOVEON);
+    b.emit_set(PAL_ROTY, DEG180);
+    b.label("e_kururi.e_ku_0");
+    b.emit_distless(KURURI_ACTIVATION_DISTANCE, "e_kururi.e_ku_1");
+    b.emit_wait(1);
+    b.emit_goto(P_GOTO, "e_kururi.e_ku_0");
+    b.label("e_kururi.e_ku_1");
+    b.emit_add(PAL_ROTX, 5);
+    b.emit_wait(1);
+    b.emit_add(PAL_ROTX, -10);
+    b.emit_wait(1);
+    b.emit_add(PAL_ROTX, 5);
+    b.emit_loop(2, "e_kururi.e_ku_1");
+    b.label("e_kururi.e_ku_2");
+    b.emit_add(PAL_ROTX, DEG22);
+    b.emit_wait(1);
+    b.emit_loop(3, "e_kururi.e_ku_2");
+    b.label("e_kururi.e_ku_3");
+    b.emit_qspawn(SH_R_BUT_2, PATH_ID_E_KURURI2, 10, 10);
     b.emit8(P_REMOVE);
+
+    b.start_path(PATH_ID_E_KURURI2, "e_kururi2");
+    b.emit8(P_RELTOPLAYEROFF);
+    b.emit8(P_INVINCIBLEON);
+    b.emit8(P_ZREMOVEON);
+    b.label("e_kururi2.kuru2_0");
+    b.emit_wait(1);
+    b.emit_goto(P_GOTO, "e_kururi2.kuru2_0");
+
+    b.start_path(PATH_ID_E_DOSUN, "e_dosun");
+    b.emit8(P_INVINCIBLEON);
+    b.emit_set(PAL_ROTY, DEG180);
+    b.label("e_dosun.e_do_0");
+    b.emit_distless(DOSUN_ACTIVATION_DISTANCE, "e_dosun.e_do_1");
+    b.emit_goto(P_GOTO, "e_dosun.e_do_0");
+    b.label("e_dosun.e_do_1");
+    b.emit_add(PAL_WORLDX, -10);
+    b.emit_wait(2);
+    b.emit_add(PAL_WORLDX, 20);
+    b.emit_wait(2);
+    b.emit_add(PAL_WORLDX, -10);
+    b.emit_loop(2, "e_dosun.e_do_1");
+    b.label("e_dosun.e_do_2");
+    b.emit_ifbetweenw(
+        PAL_WORLDY,
+        DOSUN_GROUND_RANGE_MIN,
+        DOSUN_GROUND_RANGE_MAX,
+        "e_dosun.e_do_3",
+    );
+    b.emit_add(PAL_WORLDY, DOSUN_DESCENT_STEP);
+    b.emit_goto(P_GOTO, "e_dosun.e_do_2");
+    b.label("e_dosun.e_do_3");
+    b.emit_soundeffect(DOSUN_IMPACT_SOUND);
+    b.emit_set(PAL_WORLDY, DOSUN_FINAL_WORLD_Y);
     b.emit8(P_END);
 
     b.start_path(PATH_ID_ITADOSUN, "itadosun");
-    b.emit8(P_RELTOPLAYERON);
-    b.emit8(P_ZREMOVEOFF);
-    b.emit_wait(200);
-    b.emit8(P_REMOVE);
-    b.emit8(P_END);
-
-    b.start_path(PATH_ID_E_KURURI, "e_kururi");
-    b.emit8(P_RELTOPLAYERON);
-    b.emit8(P_ZREMOVEOFF);
-    b.emit_wait(200);
-    b.emit8(P_REMOVE);
+    b.emit8(P_INVINCIBLEON);
+    b.emit_set(PAL_ROTY, DEG180);
+    b.label("itadosun.i_do_0");
+    b.emit_distless(ITADOSUN_ACTIVATION_DISTANCE, "itadosun.i_do_1");
+    b.emit_goto(P_GOTO, "itadosun.i_do_0");
+    b.label("itadosun.i_do_1");
+    b.emit_add(PAL_WORLDX, -10);
+    b.emit_wait(2);
+    b.emit_add(PAL_WORLDX, 20);
+    b.emit_wait(2);
+    b.emit_add(PAL_WORLDX, -10);
+    b.emit_loop(2, "itadosun.i_do_1");
+    b.label("itadosun.i_do_2");
+    b.emit_ifbetweenw(
+        PAL_WORLDY,
+        DOSUN_GROUND_RANGE_MIN,
+        DOSUN_GROUND_RANGE_MAX,
+        "itadosun.i_do_3",
+    );
+    b.emit_add(PAL_WORLDY, DOSUN_DESCENT_STEP);
+    b.emit_goto(P_GOTO, "itadosun.i_do_2");
+    b.label("itadosun.i_do_3");
+    b.emit_soundeffect(DOSUN_IMPACT_SOUND);
+    b.emit_set(PAL_WORLDY, ITADOSUN_FINAL_WORLD_Y);
     b.emit8(P_END);
 
     // DPATHDAT.ASM:1798 — particle burst then explode (also `pparticles` WHENDEAD).

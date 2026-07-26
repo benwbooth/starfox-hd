@@ -11,7 +11,7 @@ pub const ROM_PATH_CATALOG_SIZE: usize = 0x4A0B;
 pub const ROM_PATH_CPU_BASE: usize = 0xA420;
 pub const ROM_PATH_CPU_END: usize = 0xEE2B;
 pub const ROM_PATH_SECTION_FNV1A: u32 = 0x2D09BAC2;
-pub const ROM_PATH_MAPPED_IDS: usize = 166;
+pub const ROM_PATH_MAPPED_IDS: usize = 168;
 pub const ROM_DINTRO1_LOOP_IP: u16 = 0x453B;
 pub const ROM_DINTRO1_EXIT_IP: u16 = 0x453E;
 
@@ -183,6 +183,8 @@ pub fn offsets() -> Vec<u16> {
     offsets[PATH_ID_DINTRO1 as usize] = 0x44FD;
     offsets[PATH_ID_MINICASTANET as usize] = 0x468C;
     offsets[PATH_ID_MINICASTANETLR as usize] = 0x46DF;
+    offsets[PATH_ID_FOLOW as usize] = 0x0652;
+    offsets[PATH_ID_E_KURURI2 as usize] = 0x12D1;
     offsets
 }
 

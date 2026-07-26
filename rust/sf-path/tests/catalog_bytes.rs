@@ -5,12 +5,14 @@
 //! Without that catalog, retain the old fixture check for the source-level
 //! fallback builder.
 
+use sf_core::shape::resolve_shape_word;
 use sf_path::builder::{PAL_SHAPE, PATH_MISSING_OFFSET};
 use sf_path::ids::{
-    PATH_ID_CARRIEDLOG, PATH_ID_CUTCREDS, PATH_ID_MINICASTANET, PATH_ID_MINICASTANETLR,
-    PATH_ID_TOW_0, PATH_ID_TOW_1,
+    PATH_ID_CALL_FOL, PATH_ID_CARRIEDLOG, PATH_ID_CUTCREDS, PATH_ID_E_DOSUN, PATH_ID_E_KURURI,
+    PATH_ID_E_KURURI2, PATH_ID_FOLOW, PATH_ID_ITADOSUN, PATH_ID_MINICASTANET,
+    PATH_ID_MINICASTANETLR, PATH_ID_TOW_0, PATH_ID_TOW_1,
 };
-use sf_path::opcodes::{P_SETW, P_SPAWNLINK};
+use sf_path::opcodes::*;
 use sf_path::{literals, rom_catalog_data};
 
 const SHAPE_TOWER_CHILD: u16 = 447;
@@ -35,6 +37,76 @@ fn fallback_path(catalog: &sf_path::catalog::PathCatalog, path_id: u16) -> &[u8]
         .min()
         .map_or(catalog.data.len(), usize::from);
     &catalog.data[start..end]
+}
+
+fn canonical_source_program(
+    catalog: &sf_path::catalog::PathCatalog,
+    path_id: u16,
+    path_operands_are_offsets: bool,
+) -> Vec<u8> {
+    let start = catalog.offsets[path_id as usize] as usize;
+    let mut program = fallback_path(catalog, path_id).to_vec();
+    let mut ip = 0usize;
+
+    while ip < program.len() {
+        let opcode = program[ip];
+        let (len, branch_operand) = match opcode {
+            P_RELTOPLAYERON | P_RELTOPLAYEROFF | P_ALWAYSGENVECSON | P_FACEPLAYER
+            | P_WAITFACEPLAYER | P_END | P_REMOVE | P_EXPLODE | P_SPACESHIPON | P_INVINCIBLEON
+            | P_ZREMOVEON | P_ZREMOVEOFF | P_FIRE | P_RETURN | P_NEXT | P_COLLISIONSON
+            | P_COLLISIONSOFF | P_WAIT1 => (1, None),
+            P_WAIT | P_SETVEL | P_INITANIM | P_ADDROTX | P_ADDROTY | P_ADDROTZ | P_ADDWORLDX
+            | P_ADDWORLDY | P_ADDWORLDZ | P_WEAPON | P_DOQ | P_SET0B | P_SET0W | P_INCW
+            | P_SOUND | P_SOUND2 => (2, None),
+            P_ADDB | P_SETB | P_ACHASEB | P_SETACCEL | P_DO => (3, None),
+            P_SETW | P_ADDW => (4, None),
+            P_GOTO | P_IGOTO | P_LEFTOFPLAYER | P_BEHINDPLAYER | P_ALWAYSOFF | P_FORCE => {
+                (3, Some(1))
+            }
+            P_ALWAYS => (4, Some(1)),
+            P_DISTLESS => (5, Some(3)),
+            P_LOOP | P_IFZEROB | P_IFZEROW => (4, Some(2)),
+            P_IFSAMEW | P_IFBETWEENB => (6, Some(4)),
+            P_IFBETWEENW => (8, Some(6)),
+            P_QSPAWN => {
+                let shape_operand = ip + 1;
+                if path_operands_are_offsets {
+                    let shape =
+                        u16::from_le_bytes([program[shape_operand], program[shape_operand + 1]]);
+                    program[shape_operand..shape_operand + 2]
+                        .copy_from_slice(&resolve_shape_word(shape).to_le_bytes());
+                }
+                let operand = ip + 3;
+                let raw = u16::from_le_bytes([program[operand], program[operand + 1]]);
+                let canonical_id = if path_operands_are_offsets {
+                    [PATH_ID_FOLOW, PATH_ID_E_KURURI2]
+                        .into_iter()
+                        .find(|&id| catalog.offsets[id as usize] == raw)
+                        .unwrap_or_else(|| panic!("unmapped assembled QSPAWN target {raw:#06x}"))
+                } else {
+                    raw
+                };
+                program[operand..operand + 2].copy_from_slice(&canonical_id.to_le_bytes());
+                (7, None)
+            }
+            _ => panic!("unhandled opcode {opcode:#04x} at byte {ip} in source path {path_id}"),
+        };
+
+        if let Some(operand_offset) = branch_operand {
+            let operand = ip + operand_offset;
+            let target = u16::from_le_bytes([program[operand], program[operand + 1]]) as usize;
+            assert!(
+                (start..start + program.len()).contains(&target),
+                "path {path_id} branch target {target:#06x} is outside its source program"
+            );
+            let relative_target = (target - start) as u16;
+            program[operand..operand + 2].copy_from_slice(&relative_target.to_le_bytes());
+        }
+
+        ip += len;
+    }
+    assert_eq!(ip, program.len(), "path {path_id} instruction boundary");
+    program
 }
 
 #[test]
@@ -219,4 +291,30 @@ fn fallback_minicastanet_programs_match_the_assembled_rom_bytes() {
         (assembled_lr as u16).wrapping_sub(fallback_lr as u16),
         "minicastanetLR fallback transcription",
     );
+}
+
+#[test]
+fn fallback_sector_z_and_venom_paths_match_the_assembled_rom_bytes() {
+    let fallback = literals::build_fallback();
+    let assembled = literals::get_catalog();
+    assert_eq!(
+        assembled.data.len(),
+        rom_catalog_data::ROM_PATH_CATALOG_SIZE,
+        "this parity test needs the user-owned extracted path catalog"
+    );
+
+    for (path_id, name) in [
+        (PATH_ID_CALL_FOL, "call_fol"),
+        (PATH_ID_FOLOW, "folow"),
+        (PATH_ID_E_KURURI, "e_kururi"),
+        (PATH_ID_E_KURURI2, "e_kururi2"),
+        (PATH_ID_E_DOSUN, "e_dosun"),
+        (PATH_ID_ITADOSUN, "itadosun"),
+    ] {
+        assert_eq!(
+            canonical_source_program(&fallback, path_id, false),
+            canonical_source_program(&assembled, path_id, true),
+            "{name} fallback transcription differs from PATHDATA.ASM"
+        );
+    }
 }

@@ -196,4 +196,8 @@ pub const PATH_ID_DINTRO1: u16 = 362;
 pub const PATH_ID_MINICASTANET: u16 = 363;
 /// DPATHDAT.ASM Castanet mini-cymbal left/right-plane attack path.
 pub const PATH_ID_MINICASTANETLR: u16 = 364;
-pub const PATH_DATA_COUNT_LITERAL: u16 = 365;
+/// PATHDATA.ASM `folow`, spawned by `call_fol`.
+pub const PATH_ID_FOLOW: u16 = 365;
+/// PATHDATA.ASM `e_kururi2`, spawned by `e_kururi`.
+pub const PATH_ID_E_KURURI2: u16 = 366;
+pub const PATH_DATA_COUNT_LITERAL: u16 = 367;
