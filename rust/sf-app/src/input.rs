@@ -32,6 +32,13 @@ const KEY_MAP: &[(Scancode, u16)] = &[
 
 /// Analog stick deadzone (C `DEADZONE`, sf_rtl.c:111).
 const STICK_DEADZONE: i16 = 8000;
+const SF1_FRONT_END_CONFIRM_CADENCE_TICKS: u32 = 60;
+const SF1_FRONT_END_LAST_ORACLE_TICK: u32 = 400;
+/// One additional test-harness confirmation is required now that the native
+/// port restores CONT.ASM's first-use training round trip before route select.
+const SF1_ROUTE_SELECT_CONFIRM_TICK: u32 = 420;
+const SF1_LASER_FIRE_CADENCE_TICKS: u32 = 8;
+const SF1_LASER_FIRE_HOLD_TICKS: u32 = 4;
 const SF2_FRONT_END_CONFIRM_TICKS: [u32; 6] = [850, 880, 910, 980, 1_010, 1_040];
 const SF2_FRONT_END_START_TICKS: [u32; 4] = [0, 60, 120, 180];
 const SF2_MISSION_INPUT_START_TICK: u32 = 1_050;
@@ -350,10 +357,17 @@ impl Input {
                 _ => 0,
             };
         }
-        if t <= 400 {
-            return if t % 60 == 0 { pad::START } else { 0 };
+        if t == SF1_ROUTE_SELECT_CONFIRM_TICK {
+            return pad::START;
         }
-        if t % 8 < 4 {
+        if t <= SF1_FRONT_END_LAST_ORACLE_TICK {
+            return if t % SF1_FRONT_END_CONFIRM_CADENCE_TICKS == 0 {
+                pad::START
+            } else {
+                0
+            };
+        }
+        if t % SF1_LASER_FIRE_CADENCE_TICKS < SF1_LASER_FIRE_HOLD_TICKS {
             pad::Y // fire lasers while flying
         } else {
             0
@@ -389,17 +403,20 @@ mod tests {
             gamepads: Vec::new(),
         };
         let mut presses = Vec::new();
-        for t in 0..=420u32 {
+        for t in 0..=SF1_ROUTE_SELECT_CONFIRM_TICK {
             input.frame_count = t;
             if input.autoplay_pad(None) & pad::START != 0 {
                 presses.push(t);
             }
         }
-        assert_eq!(presses, vec![0, 60, 120, 180, 240, 300, 360]);
-        input.frame_count = 401;
-        assert_eq!(input.autoplay_pad(None), pad::Y); // 401 % 8 == 1 < 4
-        input.frame_count = 404;
-        assert_eq!(input.autoplay_pad(None), 0); // 404 % 8 == 4
+        let expected_presses = (0..=SF1_ROUTE_SELECT_CONFIRM_TICK)
+            .step_by(SF1_FRONT_END_CONFIRM_CADENCE_TICKS as usize)
+            .collect::<Vec<_>>();
+        assert_eq!(presses, expected_presses);
+        input.frame_count = SF1_FRONT_END_LAST_ORACLE_TICK + 1;
+        assert_eq!(input.autoplay_pad(None), pad::Y);
+        input.frame_count = SF1_FRONT_END_LAST_ORACLE_TICK + SF1_LASER_FIRE_HOLD_TICKS;
+        assert_eq!(input.autoplay_pad(None), 0);
     }
 
     #[test]

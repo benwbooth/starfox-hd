@@ -27,6 +27,7 @@ use sf_core::{
     scene::{PaletteFadeTarget, SceneStyle},
     screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState},
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
+    sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
     DrawListEntry,
 };
 
@@ -86,6 +87,24 @@ pub const INTRO_EXIT_FADE_START: u8 = 11;
 pub const MUSIC_ATTRACT_INTRO: u8 = 1;
 /// Driver cue used while leaving the title.
 pub const MUSIC_FADE_OUT: u8 = 241;
+/// Native sound-catalog identity used by the controller/training screen.
+pub const MUSIC_CONTROLLER_SCREEN: u8 = 3;
+/// CONT.ASM ignores the first controller-screen START edges until this tick.
+pub const BRIEFING_INPUT_DELAY_TICKS: u16 = 16;
+/// Controller/destination selection movement cue.
+pub const BRIEFING_MOVE_SOUND: u8 = 17;
+/// Controller/destination confirmation cue.
+pub const BRIEFING_CONFIRM_SOUND: u8 = 16;
+/// Controller-screen and training exits use the source unit-speed fade.
+pub const BRIEFING_EXIT_FADE_SPEED: u8 = 1;
+/// CONT.ASM lets the training scene run for this many ticks before START exits.
+pub const TRAINING_INPUT_DELAY_TICKS: u16 = 20;
+/// Controller-screen source loadout.
+const BRIEFING_SPECIAL_WEAPON_COUNT: u16 = 3;
+/// Training mode always starts with the source single life.
+const TRAINING_LIVES: u8 = 1;
+/// Source `gf2_ingame` bit used by the training exit guard.
+const GAME_FLAG2_INGAME: u8 = 1;
 
 /// Staff-roll music package in the native audio catalog. The source ending
 /// switches to this package immediately before loading the credits map.
@@ -187,7 +206,7 @@ enum TallyPhase {
 enum AttractDestination {
     Intro,
     Title,
-    PlanetSelect,
+    Briefing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +222,38 @@ impl Default for AttractSequence {
             fade_destination: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BriefingFadeDestination {
+    Training,
+    PlanetSelect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BriefingSequence {
+    level_loaded: bool,
+    phase: BriefingPhase,
+    choice: BriefingChoice,
+    control_type: ControlType,
+    fade_destination: Option<BriefingFadeDestination>,
+}
+
+impl Default for BriefingSequence {
+    fn default() -> Self {
+        Self {
+            level_loaded: false,
+            phase: BriefingPhase::ControlType,
+            choice: BriefingChoice::Training,
+            control_type: ControlType::A,
+            fade_destination: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct TrainingSequence {
+    returning_to_briefing: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -838,6 +889,12 @@ pub struct FrameSnapshot {
     pub stayblack: i8,
     pub gameflags: u8,
     pub gameframe: u16,
+    /// Typed CONT.ASM controller-screen interaction phase.
+    pub briefing_phase: BriefingPhase,
+    /// Typed CONT.ASM TRAINING/GAME selection.
+    pub briefing_choice: BriefingChoice,
+    /// Active one of the four source controller layouts.
+    pub control_type: ControlType,
     pub boostcnt: u8,
     pub arrows: u8,
     pub player_view_mode: PlayerViewMode,
@@ -1131,6 +1188,10 @@ pub struct Shell {
     game_state: GameState,
     /// Typed ENDSEQ attract-level load and fade handoff state.
     attract: AttractSequence,
+    /// Typed CONT.ASM controller-layout and destination state.
+    briefing: BriefingSequence,
+    /// Training-mode fade and return handoff.
+    training: TrainingSequence,
     planets: Planets,
     camera: GameCamera,
     /// C `s_draw_list` (boot.c:46).
@@ -1189,6 +1250,8 @@ impl Shell {
             state,
             game_state: GameState::Boot, // C g_game_state init (boot.c:33)
             attract: AttractSequence::default(),
+            briefing: BriefingSequence::default(),
+            training: TrainingSequence::default(),
             planets: Planets::new(),
             camera: GameCamera::new(),
             draw_list: Vec::new(),
@@ -1281,6 +1344,9 @@ impl Shell {
             self.game.vars.circleanim = 0;
         }
 
+        // IRQ.ASM `getcont0` maps the physical pad through the selected
+        // controller layout before every consumer sees held/edge state.
+        let pad1 = self.briefing.control_type.map_pad(pad1);
         let trace_state = self.game_state;
         self.pad1_new = pad1 & !self.prev_pad;
         self.prev_pad = pad1;
@@ -1305,13 +1371,7 @@ impl Shell {
             GameState::Boot => self.game_init(),
             GameState::AttractIntro => self.attract_intro_tick(),
             GameState::Title => self.title_tick(),
-            GameState::Briefing => {
-                // Use start/A/B to advance into route select (boot.c:235).
-                if self.pad1_new & (pad::START | pad::A | pad::B) != 0 {
-                    self.planets_init();
-                    self.game_state = GameState::PlanetSelect;
-                }
-            }
+            GameState::Briefing => self.briefing_tick(),
             GameState::PlanetSelect => {
                 // No 3D scene on the map screen (boot.c:243-248).
                 self.draw_list.clear();
@@ -1323,11 +1383,17 @@ impl Shell {
                 }
             }
             GameState::Playing => {
-                // ROM gameloop START → dopause (MAIN.ASM:200-211 / 1386-1426).
-                self.try_toggle_pause();
-                if !self.paused {
+                if self.planets.newmap == sf_map::catalog::map_id::TRAINING {
                     self.nmi_game_tick();
-                    self.gameplay_progress_tick();
+                    self.training_progress_tick();
+                } else {
+                    // ROM gameloop START → dopause
+                    // (MAIN.ASM:200-211 / 1386-1426).
+                    self.try_toggle_pause();
+                    if !self.paused {
+                        self.nmi_game_tick();
+                        self.gameplay_progress_tick();
+                    }
                 }
             }
             GameState::Continue => {
@@ -1462,10 +1528,11 @@ impl Shell {
         FrameSnapshot {
             game_state_code: self.game_state.code(),
             currentbg: v.currentbg,
-            newmap: if self.game_state == GameState::AttractIntro {
-                sf_map::catalog::map_id::INTRO
-            } else {
-                self.planets.newmap
+            newmap: match self.game_state {
+                GameState::AttractIntro => sf_map::catalog::map_id::INTRO,
+                GameState::Title => sf_map::catalog::map_id::TITLE,
+                GameState::Briefing => sf_map::catalog::map_id::CONTINUE,
+                _ => self.planets.newmap,
             },
             bgflags: v.bgflags,
             bg2_xscroll: v.shared.background_scroll_x as i32,
@@ -1481,6 +1548,9 @@ impl Shell {
             stayblack: v.strategy.stay_black,
             gameflags: v.gameflags,
             gameframe: v.gameframe,
+            briefing_phase: self.briefing.phase,
+            briefing_choice: self.briefing.choice,
+            control_type: self.briefing.control_type,
             boostcnt: v.strategy.boost_count,
             arrows: v.strategy.arrow_flags,
             player_view_mode: v.player_view_mode,
@@ -1617,6 +1687,7 @@ impl Shell {
             }
         };
         self.game.load_level(level);
+        self.game.vars.mapptr = sf_map::catalog::map_entry_offset(map_id);
         self.game.world.loaded_map_id = Some(map_id);
 
         let opening_wipe = sf_map::catalog::opening_wipe_plan(map_id);
@@ -1688,7 +1759,7 @@ impl Shell {
             state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
         }
         let destination = if start_pressed {
-            AttractDestination::PlanetSelect
+            AttractDestination::Briefing
         } else {
             AttractDestination::Intro
         };
@@ -1724,6 +1795,163 @@ impl Shell {
                 INTRO_EXIT_FADE_SPEED,
                 INTRO_EXIT_FADE_START,
             );
+        }
+    }
+
+    /// Retail `briefing_l` controller-layout and TRAINING/GAME selection.
+    fn briefing_tick(&mut self) {
+        if !self.briefing.level_loaded {
+            self.game.vars.oncewipe = 1;
+            self.load_presentation_map(sf_map::catalog::map_id::CONTINUE, true);
+            self.game.vars.strategy.special_weapon_count = BRIEFING_SPECIAL_WEAPON_COUNT;
+            self.state
+                .borrow_mut()
+                .sound
+                .push(SoundCmd::PlayMusic(MUSIC_CONTROLLER_SCREEN));
+            self.briefing.level_loaded = true;
+        }
+
+        self.presentation_scene_tick();
+
+        if self.finish_briefing_fade_if_ready() || self.briefing.fade_destination.is_some() {
+            return;
+        }
+
+        match self.briefing.phase {
+            BriefingPhase::ControlType => {
+                if self.pad1_new & pad::SELECT != 0 {
+                    self.briefing.control_type = self.briefing.control_type.next();
+                    self.state
+                        .borrow_mut()
+                        .sound
+                        .push(SoundCmd::PlaySe(BRIEFING_MOVE_SOUND));
+                }
+                if self.game.vars.gameframe >= BRIEFING_INPUT_DELAY_TICKS
+                    && self.pad1_new & pad::START != 0
+                {
+                    self.briefing.phase = BriefingPhase::Destination;
+                    self.state
+                        .borrow_mut()
+                        .sound
+                        .push(SoundCmd::PlaySe(BRIEFING_CONFIRM_SOUND));
+                }
+            }
+            BriefingPhase::Destination => {
+                let previous_choice = self.briefing.choice;
+                if self.pad1_new & pad::SELECT != 0 {
+                    self.briefing.choice = self.briefing.choice.toggled();
+                } else if self.pad1_new & pad::UP != 0 {
+                    self.briefing.choice = BriefingChoice::Training;
+                } else if self.pad1_new & pad::DOWN != 0 {
+                    self.briefing.choice = BriefingChoice::Game;
+                }
+                if self.briefing.choice != previous_choice {
+                    self.state
+                        .borrow_mut()
+                        .sound
+                        .push(SoundCmd::PlaySe(BRIEFING_MOVE_SOUND));
+                }
+
+                if self.pad1_new & (pad::X | pad::Y) != 0 {
+                    self.briefing.phase = BriefingPhase::ControlType;
+                    return;
+                }
+
+                if self.pad1_new & (pad::START | pad::A | pad::B) != 0 {
+                    let destination = match self.briefing.choice {
+                        BriefingChoice::Training => BriefingFadeDestination::Training,
+                        BriefingChoice::Game => BriefingFadeDestination::PlanetSelect,
+                    };
+                    {
+                        let mut state = self.state.borrow_mut();
+                        state.sound.push(SoundCmd::PlaySe(BRIEFING_CONFIRM_SOUND));
+                        state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                        state
+                            .windows
+                            .fade_to_black_from(BRIEFING_EXIT_FADE_SPEED, 0);
+                    }
+                    self.briefing.fade_destination = Some(destination);
+                }
+            }
+        }
+    }
+
+    fn finish_briefing_fade_if_ready(&mut self) -> bool {
+        let Some(destination) = self.briefing.fade_destination else {
+            return false;
+        };
+        if self.state.borrow().windows.is_map_fade_active() {
+            return false;
+        }
+
+        match destination {
+            BriefingFadeDestination::Training => self.begin_training(),
+            BriefingFadeDestination::PlanetSelect => {
+                self.game.vars.reset_player_run_state();
+                self.planets_init();
+                self.game_state = GameState::PlanetSelect;
+                self.briefing.level_loaded = false;
+                self.briefing.fade_destination = None;
+            }
+        }
+        true
+    }
+
+    fn enter_briefing(&mut self, phase: BriefingPhase) {
+        self.game_state = GameState::Briefing;
+        self.attract = AttractSequence::default();
+        self.briefing.level_loaded = false;
+        self.briefing.phase = phase;
+        if phase == BriefingPhase::ControlType {
+            self.briefing.choice = BriefingChoice::Training;
+        }
+        self.briefing.fade_destination = None;
+    }
+
+    fn begin_training(&mut self) {
+        self.game.vars.reset_player_run_state();
+        self.planets.stage = 0;
+        self.planets.currentlevel = 0;
+        self.planets.currentplanet = -1;
+        self.planets.newmap = sf_map::catalog::map_id::TRAINING;
+        self.planets.lives = TRAINING_LIVES;
+        self.training = TrainingSequence::default();
+        self.begin_gameplay_from_planet_select();
+    }
+
+    /// CONT.ASM's embedded training transfer loop and return to briefing.
+    fn training_progress_tick(&mut self) {
+        if self.game.world.levelfinished == le::GAMEOVER {
+            self.briefing.choice = BriefingChoice::Training;
+            self.enter_briefing(BriefingPhase::Destination);
+            self.training = TrainingSequence::default();
+            return;
+        }
+
+        if self.training.returning_to_briefing {
+            if !self.state.borrow().windows.is_map_fade_active() {
+                self.game.vars.reset_player_run_state();
+                self.briefing.choice = BriefingChoice::Game;
+                self.enter_briefing(BriefingPhase::Destination);
+                self.training = TrainingSequence::default();
+            }
+            return;
+        }
+
+        let training_exit_enabled = self.game.vars.shared.game_flags2 & GAME_FLAG2_INGAME == 0
+            || self.game.vars.pshipflags2 & PSF2_PLAYERHP0 == 0;
+        if self.game.vars.gameframe >= TRAINING_INPUT_DELAY_TICKS
+            && training_exit_enabled
+            && self.pad1_new & pad::START != 0
+        {
+            {
+                let mut state = self.state.borrow_mut();
+                state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                state
+                    .windows
+                    .fade_to_black_from(BRIEFING_EXIT_FADE_SPEED, 0);
+            }
+            self.training.returning_to_briefing = true;
         }
     }
 
@@ -1788,12 +2016,7 @@ impl Shell {
         match destination {
             AttractDestination::Intro => self.enter_attract_intro(),
             AttractDestination::Title => self.enter_title(),
-            AttractDestination::PlanetSelect => {
-                self.game.vars.reset_player_run_state();
-                self.planets_init();
-                self.game_state = GameState::PlanetSelect;
-                self.attract = AttractSequence::default();
-            }
+            AttractDestination::Briefing => self.enter_briefing(BriefingPhase::ControlType),
         }
         true
     }
@@ -2768,6 +2991,100 @@ mod tests {
         shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     }
 
+    fn advance_to_planet_select(shell: &mut Shell) {
+        const MAX_PRESENTATION_TRANSITION_TICKS: usize = 64;
+
+        advance_to_loaded_title(shell);
+        shell.tick(pad::START);
+        for _ in 0..MAX_PRESENTATION_TRANSITION_TICKS {
+            if shell.state() == GameState::Briefing {
+                break;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(shell.state(), GameState::Briefing);
+        shell.tick(0);
+        shell.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
+        shell.tick(pad::START);
+        shell.tick(0);
+        shell.tick(pad::DOWN);
+        shell.tick(0);
+        shell.tick(pad::START);
+        for _ in 0..MAX_PRESENTATION_TRANSITION_TICKS {
+            if shell.state() == GameState::PlanetSelect {
+                break;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(shell.state(), GameState::PlanetSelect);
+    }
+
+    fn advance_to_training(shell: &mut Shell) {
+        const MAX_PRESENTATION_TRANSITION_TICKS: usize = 64;
+
+        advance_to_loaded_title(shell);
+        shell.tick(pad::START);
+        for _ in 0..MAX_PRESENTATION_TRANSITION_TICKS {
+            if shell.state() == GameState::Briefing {
+                break;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(shell.state(), GameState::Briefing);
+        shell.tick(0);
+        shell.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
+        shell.tick(pad::START);
+        assert_eq!(shell.briefing.phase, BriefingPhase::Destination);
+        shell.tick(0);
+        shell.tick(pad::START);
+        for _ in 0..MAX_PRESENTATION_TRANSITION_TICKS {
+            if shell.state() == GameState::Playing {
+                break;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(shell.state(), GameState::Playing);
+        assert_eq!(shell.planets.newmap, map_id::TRAINING);
+        assert_eq!(shell.planets.lives, 1);
+    }
+
+    #[test]
+    fn training_exit_uses_a_fresh_start_edge_and_returns_with_game_selected() {
+        const MAX_PRESENTATION_TRANSITION_TICKS: usize = 64;
+
+        let mut shell = Shell::new();
+        advance_to_training(&mut shell);
+
+        // A START edge before the source gate must not become valid merely by
+        // remaining held across the gate.
+        shell.game.vars.gameframe = TRAINING_INPUT_DELAY_TICKS - 2;
+        shell.tick(pad::START);
+        assert!(!shell.training.returning_to_briefing);
+        shell.tick(pad::START);
+        assert!(!shell.training.returning_to_briefing);
+
+        // While in the active-game lane, zero player health also blocks exit.
+        shell.tick(0);
+        shell.game.vars.shared.game_flags2 |= GAME_FLAG2_INGAME;
+        shell.game.vars.pshipflags2 |= PSF2_PLAYERHP0;
+        shell.tick(pad::START);
+        assert!(!shell.training.returning_to_briefing);
+
+        shell.tick(0);
+        shell.game.vars.pshipflags2 &= !PSF2_PLAYERHP0;
+        shell.tick(pad::START);
+        assert!(shell.training.returning_to_briefing);
+        for _ in 0..MAX_PRESENTATION_TRANSITION_TICKS {
+            if shell.state() == GameState::Briefing {
+                break;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(shell.state(), GameState::Briefing);
+        assert_eq!(shell.briefing.phase, BriefingPhase::Destination);
+        assert_eq!(shell.briefing.choice, BriefingChoice::Game);
+    }
+
     #[test]
     fn catalog_opening_wipe_holds_black_then_presents_every_record() {
         let mut shell = Shell::new();
@@ -2916,11 +3233,7 @@ mod tests {
     #[test]
     fn playing_start_toggles_pause_snd() {
         let mut sh = Shell::new();
-        advance_to_loaded_title(&mut sh);
-        sh.tick(pad::START); // → PlanetSelect
-        while sh.state() == GameState::Title {
-            sh.tick(0);
-        }
+        advance_to_planet_select(&mut sh);
         let _ = sh.drain_sound();
         sh.tick(0);
         sh.tick(pad::START); // → Playing
@@ -2950,11 +3263,7 @@ mod tests {
     #[test]
     fn pause_blocked_while_stayblack_or_notdie() {
         let mut sh = Shell::new();
-        advance_to_loaded_title(&mut sh);
-        sh.tick(pad::START);
-        while sh.state() == GameState::Title {
-            sh.tick(0);
-        }
+        advance_to_planet_select(&mut sh);
         let _ = sh.drain_sound();
         sh.tick(0);
         sh.tick(pad::START);
@@ -2995,8 +3304,8 @@ mod tests {
         assert!(sh.drain_sound().contains(&SoundCmd::PauseSnd(0x02)));
     }
 
-    /// Scripted-pad state walk matching BOOTNMI/ENDSEQ through intro, title,
-    /// planet select, and gameplay.
+    /// Scripted-pad state walk matching BOOTNMI/ENDSEQ/CONT through intro,
+    /// title, controller selection, planet select, and gameplay.
     #[test]
     fn scripted_pad_state_walk() {
         let mut sh = Shell::new();
@@ -3016,9 +3325,25 @@ mod tests {
         assert_eq!(sh.game.world.loaded_map_id, Some(map_id::TITLE));
         sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
 
-        // START fades down before the planet-select handoff.
+        // START fades down into the controller screen.
         sh.tick(pad::START);
         while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
+        assert_eq!(sh.state().code(), 2); // GAME_STATE_BRIEFING
+        sh.tick(0);
+        assert_eq!(sh.game.world.loaded_map_id, Some(map_id::CONTINUE));
+
+        // Choose the source GAME destination after the controller-layout gate.
+        sh.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
+        sh.tick(pad::START);
+        assert_eq!(sh.frame().briefing_phase, BriefingPhase::Destination);
+        sh.tick(0);
+        sh.tick(pad::DOWN);
+        assert_eq!(sh.frame().briefing_choice, BriefingChoice::Game);
+        sh.tick(0);
+        sh.tick(pad::START);
+        while sh.state() == GameState::Briefing {
             sh.tick(0);
         }
         assert_eq!(sh.state().code(), 3); // GAME_STATE_PLANET_SELECT
@@ -3174,11 +3499,7 @@ mod tests {
     /// Drive a game into gameplay (BOOT -> PLAYING).
     fn into_gameplay() -> Shell {
         let mut sh = Shell::new();
-        advance_to_loaded_title(&mut sh);
-        sh.tick(pad::START); // -> planet select
-        while sh.state() == GameState::Title {
-            sh.tick(0);
-        }
+        advance_to_planet_select(&mut sh);
         sh.tick(0);
         sh.tick(pad::START); // -> playing
         assert_eq!(sh.state().code(), 4);
@@ -3201,11 +3522,7 @@ mod tests {
     #[test]
     fn begin_gameplay_wires_currentlevel_hard_route() {
         let mut sh = Shell::new();
-        advance_to_loaded_title(&mut sh);
-        sh.tick(pad::START); // → PlanetSelect (convertroute 0→1 = easy)
-        while sh.state() == GameState::Title {
-            sh.tick(0);
-        }
+        advance_to_planet_select(&mut sh);
         sh.tick(0);
         sh.tick(pad::RIGHT); // whichroute 1→2 = hard
         sh.tick(0);

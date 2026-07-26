@@ -45,7 +45,7 @@ fn outdist_chases_viewdist_unless_novdistc() {
 }
 
 #[test]
-fn y_bounds_inclusive_and_bbottom_gate() {
+fn y_bounds_are_inclusive_and_body_collision_owns_the_floor_when_enabled() {
     let mut g = Game::new();
     let idx = ready_player(&mut g);
     g.vars.minpmove_y = -100;
@@ -57,20 +57,32 @@ fn y_bounds_inclusive_and_bbottom_gate() {
     strat_player(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].worldy, -100);
 
-    // Inclusive bottom when PML_BBOTTOM set.
-    g.vars.set_sv_u8(sv::PMOVELIMITAND, 0x80); // PML_BBOTTOM
+    // With the detailed body-bottom collision lane disabled, the ordinary
+    // lower-screen clamp owns the boundary and is inclusive.
+    g.vars.set_sv_u8(sv::PMOVELIMITAND, 0);
     g.objs.aliens[idx as usize].worldy = 50;
     strat_player(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].worldy, 50);
 
-    // Bottom gate off: worldy may sit past max without clamp from limit path.
-    g.vars.set_sv_u8(sv::PMOVELIMITAND, 0);
+    // When the body-bottom lane is enabled, detailed collision owns the floor,
+    // so this ordinary limit path must leave the position alone.
+    const BODY_BOTTOM_COLLISION: u8 = 128;
+    g.vars.set_sv_u8(sv::PMOVELIMITAND, BODY_BOTTOM_COLLISION);
     g.objs.aliens[idx as usize].worldy = 80;
     strat_player(&mut g, idx);
     assert_eq!(
         g.objs.aliens[idx as usize].worldy, 80,
-        "no PML_BBOTTOM → no bottom clamp"
+        "body-bottom collision lane must bypass the ordinary floor clamp"
     );
+
+    // Controller-demo bounds deliberately cross after the lower clamp:
+    // retail applies lower first, then upper, and therefore settles at min.
+    g.vars.minpmove_y = -50;
+    g.vars.set_sv_i16(sv::MAXPMOVEY, -70);
+    g.vars.set_sv_u8(sv::PMOVELIMITAND, 0);
+    g.objs.aliens[idx as usize].worldy = 0;
+    strat_player(&mut g, idx);
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -50);
 }
 
 #[test]

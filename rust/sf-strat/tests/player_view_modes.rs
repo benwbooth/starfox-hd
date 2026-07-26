@@ -7,10 +7,10 @@ use sf_map::catalog::{
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{
     player_colony_flyin_istrat, player_cred_istrat, player_divegnd_istrat,
-    player_inside_space_flyin_istrat, player_on_cont_istrat, player_planet_flyin_istrat,
-    player_space_flyin_istrat, player_warp_out_istrat, set_player_in_ltexit, set_player_on_planet,
-    set_player_undergnd, strat_player_opening_init, strat_spawn_player, strat_spawn_player_for_map,
-    CONTINUE_VIEW_DISTANCE,
+    player_inside_space_flyin_istrat, player_planet_flyin_istrat, player_space_flyin_istrat,
+    player_warp_out_istrat, queue_player_on_cont_istrat, set_player_in_ltexit,
+    set_player_on_planet, set_player_undergnd, strat_player_opening_init, strat_spawn_player,
+    strat_spawn_player_for_map, CONTINUE_VIEW_DISTANCE,
 };
 
 fn register_game() -> Game {
@@ -31,7 +31,7 @@ fn apply_reference_opening(game: &mut Game, player: u16, strategy: OpeningPlayer
         OpeningPlayerStrategy::ColonyFlyIn => player_colony_flyin_istrat(game, player),
         OpeningPlayerStrategy::UndergroundFlight => set_player_undergnd(game, player),
         OpeningPlayerStrategy::LongTunnelExit => set_player_in_ltexit(game, player),
-        OpeningPlayerStrategy::ContinuePresentation => player_on_cont_istrat(game, player),
+        OpeningPlayerStrategy::ContinuePresentation => queue_player_on_cont_istrat(game, player),
         OpeningPlayerStrategy::PassivePresentation => player_cred_istrat(game, player),
     }
 }
@@ -50,7 +50,10 @@ fn every_spawned_map_applies_its_source_view_declaration() {
             // close distance with outviewdist (PSTRATS.ASM:587-588).
             OpeningPlayerStrategy::PassivePresentation => OUTVIEWDIST,
             // playeroncont_strat owns its fixed presentation distance.
-            OpeningPlayerStrategy::ContinuePresentation => CONTINUE_VIEW_DISTANCE,
+            OpeningPlayerStrategy::ContinuePresentation => {
+                game.run_strategies();
+                CONTINUE_VIEW_DISTANCE
+            }
             _ => match expected.mode {
                 PlayerViewMode::CloseExterior => CLOSE_VIEW_DISTANCE,
                 PlayerViewMode::Exterior => OUTVIEWDIST,

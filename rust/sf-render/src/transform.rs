@@ -191,6 +191,40 @@ impl Transform {
         self.projection[14] = (far * near) / (near - far);
     }
 
+    /// Retain the source projection scale while moving its origin to an
+    /// authored source-frame point. CONT.ASM uses this to place the live 3D
+    /// controller demonstration at (64, 48), rather than the ordinary
+    /// centered gameplay vanishing point.
+    pub fn set_projection_source_center(
+        &mut self,
+        width: i32,
+        height: i32,
+        source_width: f32,
+        source_height: f32,
+        center_x: f32,
+        center_y: f32,
+    ) {
+        self.set_projection(width, height);
+        if width <= 0 || height <= 0 || source_width <= 0.0 || source_height <= 0.0 {
+            return;
+        }
+
+        // Match Ui::begin_2d: source height fixes the scale and the nominal
+        // source width is centered within wider output.
+        let scale = height as f32 / source_height;
+        let logical_width = width as f32 / scale;
+        let source_left = (logical_width - source_width) * 0.5;
+        let output_x = (source_left + center_x) * scale;
+        let output_y = center_y * scale;
+        let center_ndc_x = output_x * 2.0 / width as f32 - 1.0;
+        let center_ndc_y = 1.0 - output_y * 2.0 / height as f32;
+
+        // clip.w = -camera_z, so the off-axis perspective terms have the
+        // opposite sign of the desired normalized-device coordinate.
+        self.projection[8] = -center_ndc_x;
+        self.projection[9] = -center_ndc_y;
+    }
+
     pub fn projection(&self) -> &[f32; 16] {
         &self.projection
     }
@@ -429,6 +463,9 @@ impl Transform {
 mod tests {
     use super::*;
 
+    const SOURCE_WIDTH: f32 = 256.0;
+    const SOURCE_HEIGHT: f32 = 224.0;
+
     // Regression: a 1-SNES-unit-per-tick camera yaw (the common steady-turn
     // rate) must interpolate at fractional precision across a render frame.
     // The pre-fix integer path (`a8 + (int)(diff*t)`) truncated `1*t` to 0 for
@@ -465,6 +502,31 @@ mod tests {
             .map(|(m, s)| (m - s).abs())
             .sum();
         assert!(drift > 1e-4, "mid view identical to tick start -> stepping");
+    }
+
+    #[test]
+    fn source_projection_center_maps_to_the_authored_widescreen_point() {
+        const OUTPUT_WIDTH: i32 = 1280;
+        const OUTPUT_HEIGHT: i32 = 720;
+        const CENTER_X: f32 = 64.0;
+        const CENTER_Y: f32 = 48.0;
+
+        let mut transform = Transform::new();
+        transform.set_projection_source_center(
+            OUTPUT_WIDTH,
+            OUTPUT_HEIGHT,
+            SOURCE_WIDTH,
+            SOURCE_HEIGHT,
+            CENTER_X,
+            CENTER_Y,
+        );
+
+        let scale = OUTPUT_HEIGHT as f32 / SOURCE_HEIGHT;
+        let source_left = (OUTPUT_WIDTH as f32 / scale - SOURCE_WIDTH) * 0.5;
+        let expected_x = ((source_left + CENTER_X) * scale * 2.0 / OUTPUT_WIDTH as f32) - 1.0;
+        let expected_y = 1.0 - CENTER_Y * scale * 2.0 / OUTPUT_HEIGHT as f32;
+        assert!((-transform.projection()[8] - expected_x).abs() < 0.0001);
+        assert!((-transform.projection()[9] - expected_y).abs() < 0.0001);
     }
 
     // Whole-unit angles must stay bit-identical through the fractional path

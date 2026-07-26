@@ -14,7 +14,9 @@ use sf_game::alien::{
     ACF_COLLTYPE6, ASF3_CHILDOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_INVISIBLE,
     ASF_NOHITAFFECT,
 };
-use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
+use sf_game::shell::{
+    GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+};
 use sf_game::vars::{
     BossEncounter, GF_PLAYERDEAD, GF_PLAYERDYING, HARD_HP, PSF2_PLAYERHP0, PSF3_NOCOLLISIONS,
     PSTF_NOTDIE,
@@ -109,6 +111,16 @@ fn configured_shell(route: u32) -> Shell {
     shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     shell.tick(pad::START);
     while shell.state() == GameState::Title {
+        shell.tick(0);
+    }
+    shell.tick(0);
+    shell.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
+    shell.tick(pad::START);
+    shell.tick(0);
+    shell.tick(pad::DOWN);
+    shell.tick(0);
+    shell.tick(pad::START);
+    while shell.state() == GameState::Briefing {
         shell.tick(0);
     }
     shell.tick(0);

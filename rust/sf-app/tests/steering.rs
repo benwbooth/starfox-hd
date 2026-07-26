@@ -4,7 +4,9 @@
 //! projects to screen-RIGHT, so a correct LEFT press must DECREASE worldx.
 
 use sf_core::pad;
-use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
+use sf_game::shell::{
+    GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+};
 use sf_game::vars::PSF_NOCTRL;
 
 /// Read the canonical player slot. Shape id 2 is not unique once the opening
@@ -42,8 +44,18 @@ fn drive_to_controllable() -> Shell {
     }
     shell.tick(0);
     shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
-    shell.tick(pad::START); // Title -> PlanetSelect
+    shell.tick(pad::START); // Title -> controller screen
     while shell.state() == GameState::Title {
+        shell.tick(0);
+    }
+    shell.tick(0);
+    shell.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
+    shell.tick(pad::START); // controller layout -> destination
+    shell.tick(0);
+    shell.tick(pad::DOWN); // select GAME
+    shell.tick(0);
+    shell.tick(pad::START); // controller screen -> PlanetSelect
+    while shell.state() == GameState::Briefing {
         shell.tick(0);
     }
     shell.tick(0); // release START so the next press is an edge

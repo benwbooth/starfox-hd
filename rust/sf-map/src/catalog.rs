@@ -411,6 +411,23 @@ pub fn get_map_data(id: u32) -> Option<&'static BuiltLevel> {
     }
 }
 
+/// Bytecode entry selected by the source map pointer for a catalog map.
+///
+/// TITLE.ASM stores the title, controller, and inert wait programs in one
+/// contiguous blob. `Levels_GetMapData` returns the same allocation for all
+/// three while selecting a different label address as the initial map cursor.
+pub fn map_entry_offset(id: u32) -> u16 {
+    match id {
+        map_id::CONTINUE => title()
+            .label_offset("title.contmap")
+            .expect("controller map entry label"),
+        map_id::WAIT => title()
+            .label_offset("title.waitmap")
+            .expect("wait map entry label"),
+        _ => 0,
+    }
+}
+
 /// The route-lane callback registration records for a map id, as raw
 /// `(native regs, inline regs)` name-keyed pairs (C registration-call order).
 ///
@@ -462,6 +479,27 @@ mod tests {
         assert_eq!(opening_player_view(map_id::NONE), None);
         assert_eq!(opening_player_view(map_id::WAIT), None);
         assert_eq!(opening_player_view(map_id::PLANET), None);
+    }
+
+    #[test]
+    fn shared_title_blob_uses_its_authored_entry_points() {
+        let level = get_map_data(map_id::TITLE).expect("shared title level");
+        assert_eq!(map_entry_offset(map_id::TITLE), 0);
+        assert_eq!(
+            map_entry_offset(map_id::CONTINUE),
+            level
+                .label_offset("title.contmap")
+                .expect("controller entry")
+        );
+        assert_eq!(
+            map_entry_offset(map_id::WAIT),
+            level.label_offset("title.waitmap").expect("wait entry")
+        );
+        assert_ne!(map_entry_offset(map_id::CONTINUE), 0);
+        assert_ne!(
+            map_entry_offset(map_id::CONTINUE),
+            map_entry_offset(map_id::WAIT)
+        );
     }
 
     #[test]

@@ -15,7 +15,9 @@
 
 use sf_core::pad;
 use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE};
-use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
+use sf_game::shell::{
+    GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+};
 use sf_game::vars::{COLLTYPE_ENEMY1, PSF3_NOCOLLISIONS, PSF_NOCTRL};
 use sf_strat::common::StratRam;
 use sf_strat::player::player_sv as sv;
@@ -31,8 +33,9 @@ fn make_shell() -> Shell {
     shell
 }
 
-/// Drive Title -> PlanetSelect -> (DOWN x route) -> gameplay, then tick until
-/// the opening sequence returns control (PSF_NOCTRL clears) or `max` frames.
+/// Drive Title -> controller screen -> PlanetSelect -> (DOWN x route) ->
+/// gameplay, then tick until the opening sequence returns control
+/// (PSF_NOCTRL clears) or `max` frames.
 fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
     let mut sh = make_shell();
     sh.tick(0);
@@ -45,8 +48,18 @@ fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
     }
     sh.tick(0);
     sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
-    sh.tick(pad::START); // Title -> PlanetSelect
+    sh.tick(pad::START); // Title -> controller screen
     while sh.state() == GameState::Title {
+        sh.tick(0);
+    }
+    sh.tick(0);
+    sh.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
+    sh.tick(pad::START);
+    sh.tick(0);
+    sh.tick(pad::DOWN);
+    sh.tick(0);
+    sh.tick(pad::START);
+    while sh.state() == GameState::Briefing {
         sh.tick(0);
     }
     sh.tick(0);

@@ -1,7 +1,8 @@
 //! Smoke test: run the built binary headless-ish (hidden window) under
 //! SF_AUTOPLAY for 600 ticks (~30 s of game time), dump the state trace and
 //! one frame readback, and assert the ENDSEQ/MAIN state-machine transitions:
-//! BOOT -> ATTRACT_INTRO -> TITLE -> PLANET_SELECT -> PLAYING.
+//! BOOT -> ATTRACT_INTRO -> TITLE -> BRIEFING -> TRAINING -> BRIEFING ->
+//! PLANET_SELECT -> PLAYING.
 //!
 //! Skips (with a message) when DISPLAY is not set. The C-oracle comparison
 //! (same env against build/starfox-hd) is a separate manual/differential
@@ -16,6 +17,7 @@ static SMOKE_LOCK: Mutex<()> = Mutex::new(());
 
 const STATE_BOOT: u8 = 0;
 const STATE_TITLE: u8 = 1;
+const STATE_BRIEFING: u8 = 2;
 const STATE_PLANET_SELECT: u8 = 3;
 const STATE_PLAYING: u8 = 4;
 const STATE_ATTRACT_INTRO: u8 = 8;
@@ -142,6 +144,9 @@ fn autoplay_reaches_gameplay() {
     let expected_tail: &[u8] = &[
         STATE_ATTRACT_INTRO,
         STATE_TITLE,
+        STATE_BRIEFING,
+        STATE_PLAYING,
+        STATE_BRIEFING,
         STATE_PLANET_SELECT,
         STATE_PLAYING,
     ];
@@ -153,7 +158,7 @@ fn autoplay_reaches_gameplay() {
     assert!(
         seq_no_boot.starts_with(expected_tail),
         "state sequence {seq_no_boot:?} does not start with \
-         ATTRACT_INTRO->TITLE->PLANET_SELECT->PLAYING"
+         ATTRACT_INTRO->TITLE->BRIEFING->TRAINING->BRIEFING->PLANET_SELECT->PLAYING"
     );
 
     // Title screen must have produced draw entries (logo map objects).

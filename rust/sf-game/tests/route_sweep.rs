@@ -4,7 +4,9 @@
 //! [state] transition log (Shell::tick) prints which level each route enters.
 
 use sf_core::pad;
-use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS};
+use sf_game::shell::{
+    GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+};
 
 fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -21,6 +23,16 @@ fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
         sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
         sh.tick(pad::START);
         while sh.state() == GameState::Title {
+            sh.tick(0);
+        }
+        sh.tick(0);
+        sh.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
+        sh.tick(pad::START);
+        sh.tick(0);
+        sh.tick(pad::DOWN);
+        sh.tick(0);
+        sh.tick(pad::START);
+        while sh.state() == GameState::Briefing {
             sh.tick(0);
         }
         sh.tick(0);

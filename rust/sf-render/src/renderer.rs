@@ -28,6 +28,7 @@ use sf_core::{
         ScreenFillCircleCenter, ScreenFillCircleScope, ScreenFillCircleState, MAX_COLOR_LEVEL,
     },
     screen_wipe::ScreenWipeState,
+    sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
 };
 
 /// Semantic presentation state shared by the native game and renderer.
@@ -392,6 +393,12 @@ pub struct FrameInputs<'a> {
     pub gameflags: u8,
     /// g_gameframe.
     pub gameframe: u16,
+    /// Typed CONT.ASM controller-screen interaction phase.
+    pub briefing_phase: BriefingPhase,
+    /// Typed CONT.ASM TRAINING/GAME selection.
+    pub briefing_choice: BriefingChoice,
+    /// Active one of the four source controller layouts.
+    pub control_type: ControlType,
     /// g_boostcnt.
     pub boostcnt: u8,
     /// g_arrows (SPRAR_*).
@@ -475,6 +482,9 @@ impl<'a> Default for FrameInputs<'a> {
             stayblack: -1,
             gameflags: 0,
             gameframe: 0,
+            briefing_phase: BriefingPhase::ControlType,
+            briefing_choice: BriefingChoice::Training,
+            control_type: ControlType::A,
             boostcnt: 0,
             arrows: 0,
             player_view_mode: PlayerViewMode::Exterior,
@@ -688,11 +698,21 @@ impl Renderer {
             ))
         };
         let sf2_mission = inputs.sf2.is_some_and(|sf2| sf2.mode == Sf2Mode::Mission);
+        let sf1_briefing = inputs.game_state == GameState::Briefing;
         if sf2_mission {
             let viewport = source_frame_viewport(self.width, self.height);
             self.gpu.set_draw_viewport(Some(viewport));
             self.transform
                 .set_projection(viewport.width as i32, viewport.height as i32);
+        } else if sf1_briefing {
+            self.transform.set_projection_source_center(
+                self.width,
+                self.height,
+                SOURCE_FRAME_WIDTH as f32,
+                SOURCE_FRAME_HEIGHT as f32,
+                crate::sf1_briefing::VANISH_X,
+                crate::sf1_briefing::VANISH_Y,
+            );
         }
         self.draw_list.render(
             &mut self.gpu,
@@ -711,8 +731,10 @@ impl Renderer {
         if inputs.screen_fill_circle.scope == ScreenFillCircleScope::Scene {
             self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
         }
-        if sf2_mission {
-            self.gpu.set_draw_viewport(None);
+        if sf2_mission || sf1_briefing {
+            if sf2_mission {
+                self.gpu.set_draw_viewport(None);
+            }
             self.transform.set_projection(self.width, self.height);
         }
         self.hud.render(

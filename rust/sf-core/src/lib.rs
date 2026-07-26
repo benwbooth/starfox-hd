@@ -13,6 +13,7 @@ pub mod player_view;
 pub mod scene;
 pub mod screen_fill_circle;
 pub mod screen_wipe;
+pub mod sf1_controls;
 pub mod sf1_shape_metrics;
 mod sf1_shape_words;
 pub mod shape;

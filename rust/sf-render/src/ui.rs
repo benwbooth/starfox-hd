@@ -20,7 +20,10 @@ use crate::renderer::{
     WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
 };
 use crate::sprites::decode_4bpp_tile;
-use sf_core::screen_wipe::{SOURCE_HEIGHT, SOURCE_WIDTH};
+use sf_core::{
+    screen_wipe::{SOURCE_HEIGHT, SOURCE_WIDTH},
+    sf1_controls::{BriefingChoice, BriefingPhase},
+};
 
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -805,6 +808,8 @@ pub struct Ui {
     ps_tex: Option<TextureId>,
     ps_tried: bool,
     tally_portraits: Option<TextureId>,
+    sf1_training_selection: TextureId,
+    sf1_game_selection: TextureId,
     ending_rising_panel: TextureId,
     ending_split_panel: TextureId,
     ending_glyphs: TextureId,
@@ -895,6 +900,19 @@ impl Ui {
         if tally_portraits.is_none() {
             eprintln!("Ui: tally portraits missing/short (data/sprites/FACE.CGX)");
         }
+        let sf1_training_selection_rgba =
+            crate::sf1_briefing::decode_selection(BriefingChoice::Training);
+        let sf1_training_selection = gpu.create_texture_rgba(
+            crate::sf1_briefing::WIDTH as u32,
+            crate::sf1_briefing::HEIGHT as u32,
+            &sf1_training_selection_rgba,
+        );
+        let sf1_game_selection_rgba = crate::sf1_briefing::decode_selection(BriefingChoice::Game);
+        let sf1_game_selection = gpu.create_texture_rgba(
+            crate::sf1_briefing::WIDTH as u32,
+            crate::sf1_briefing::HEIGHT as u32,
+            &sf1_game_selection_rgba,
+        );
         let ending_rising_panel_rgba =
             crate::ending::decode_panel(EndingReplayBackdrop::RisingGradient);
         let ending_rising_panel = gpu.create_texture_rgba(
@@ -1234,6 +1252,8 @@ impl Ui {
             ps_tex: None,
             ps_tried: false,
             tally_portraits,
+            sf1_training_selection,
+            sf1_game_selection,
             ending_rising_panel,
             ending_split_panel,
             ending_glyphs,
@@ -1845,6 +1865,24 @@ impl Ui {
             0,
             SF2_REFERENCE_WIDTH,
             SF2_REFERENCE_HEIGHT,
+        );
+    }
+
+    fn render_sf1_briefing(&self, gpu: &mut Gpu, inputs: &FrameInputs) {
+        if inputs.briefing_phase != BriefingPhase::Destination {
+            return;
+        }
+        let texture = match inputs.briefing_choice {
+            BriefingChoice::Training => self.sf1_training_selection,
+            BriefingChoice::Game => self.sf1_game_selection,
+        };
+        self.textured_quad_source_frame(
+            gpu,
+            texture,
+            crate::sf1_briefing::SCREEN_LEFT,
+            crate::sf1_briefing::SCREEN_TOP,
+            crate::sf1_briefing::WIDTH as i32,
+            crate::sf1_briefing::HEIGHT as i32,
         );
     }
 
@@ -3687,7 +3725,10 @@ impl Ui {
             return;
         }
 
-        if inputs.game_state != GameState::Title && inputs.game_state != GameState::PlanetSelect {
+        if !matches!(
+            inputs.game_state,
+            GameState::Title | GameState::Briefing | GameState::PlanetSelect
+        ) {
             return;
         }
 
@@ -3695,6 +3736,7 @@ impl Ui {
 
         match inputs.game_state {
             GameState::Title => self.render_title(gpu, font, bg2d),
+            GameState::Briefing => self.render_sf1_briefing(gpu, inputs),
             GameState::PlanetSelect => self.render_planet_select(gpu, inputs),
             _ => {}
         }

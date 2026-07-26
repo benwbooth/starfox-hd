@@ -99,10 +99,14 @@ fn bhole_line_offsets(phase: i16) -> [i16; BG2D_H] {
 
 /// Background ids from levels.c map bytecode (setbg opcode operand).
 pub const BG2D_ID_TITLE: u8 = 41;
-/// Pseudo-id for the planet-select / briefing map screen.
+/// Source controller-layout background.
+pub const BG2D_ID_CONTINUE: u8 = 42;
+/// Pseudo-id for the planet-select map screen.
 pub const BG2D_ID_MAP: u8 = 63;
 /// Pseudo-id for bg_special (SNES id 44 clashes with the port's BG_TRAINING).
 pub const BG2D_ID_SPECIAL: u8 = 62;
+/// Width and height of each CONT-2 controller-layout quadrant.
+const CONTROLLER_PANEL_SIZE: usize = 256;
 
 /// BGS.ASM bg_* block -> data files (mirror of `s_bg_defs`).
 pub struct BgDef {
@@ -296,15 +300,17 @@ pub static BG_DEFS: &[BgDef] = &[
         24,
         true
     ),
-    // Continue / controller screen (US CONT-2; info voff)
+    // Continue / controller screen (US CONT-2). The 512-by-512 source
+    // tilemap contains four 256-by-256 controller layouts, so retain the full
+    // wrapping map and select its quadrant from typed briefing state.
     bgdef!(
-        42,
+        BG2D_ID_CONTINUE,
         "bg_cont",
         "data/bg/CONT-2.CGX",
         "data/bg/CONT-2.SCR",
         "data/bg/BG2-E.COL",
         0,
-        false
+        true
     ),
     // Credits (nebula starfield; info von,hon)
     bgdef!(
@@ -316,7 +322,7 @@ pub static BG_DEFS: &[BgDef] = &[
         232,
         true
     ),
-    // Planet select / briefing map screen (pseudo-id)
+    // Planet-select map screen (pseudo-id)
     bgdef!(
         BG2D_ID_MAP,
         "planets_map",
@@ -1301,6 +1307,11 @@ impl Bg2d {
         let mut vofs = def.vofs as f32; // bg2Yscroll base (BGS.ASM)
         let mut hofs = inputs.bg2_xscroll as f32;
 
+        if inputs.game_state == GameState::Briefing && def.id == BG2D_ID_CONTINUE {
+            hofs += (inputs.control_type.panel_column() * CONTROLLER_PANEL_SIZE) as f32;
+            vofs += (inputs.control_type.panel_row() * CONTROLLER_PANEL_SIZE) as f32;
+        }
+
         if with_camera {
             let cam = transform.render_camera();
             // Fractional signed SNES angle units (render-frame interpolated, so
@@ -1373,17 +1384,17 @@ impl Bg2d {
                 draw = true;
                 tex = self.title_tex;
             }
-            GameState::PlanetSelect | GameState::Briefing => {
+            GameState::PlanetSelect => {
                 // PLANETS.ASM map screen backdrop.
                 draw = true;
                 idx = self.layer_index_for_id(gpu, BG2D_ID_MAP);
                 display_id = Some(BG2D_ID_MAP);
             }
-            GameState::Continue => {
-                // bg_cont_1 controller screen backdrop.
+            GameState::Briefing | GameState::Continue => {
+                // CONT.ASM / bg_cont controller screen backdrop.
                 draw = true;
-                idx = self.layer_index_for_id(gpu, 42);
-                display_id = Some(42);
+                idx = self.layer_index_for_id(gpu, BG2D_ID_CONTINUE);
+                display_id = Some(BG2D_ID_CONTINUE);
             }
             GameState::Ending => {
                 draw = true;

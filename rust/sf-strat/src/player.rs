@@ -2171,19 +2171,19 @@ fn playerlimit_x_srou(g: &mut Game, idx: u16) {
         arrows |= SPRAR_RIGHT;
     }
 
-    // Keep vertical gameplay stable in the HD runtime.
-    // ROM playermove Y clamp is inclusive (PSTRATS.ASM:1912-1922); bottom
-    // clamp gated on `pmovelimitAND & pml_Bbottom`.
+    // The ROM's ordinary lower-screen clamp is active when the body-bottom
+    // collision lane is clear. When that lane is set, detailed body collision
+    // owns the floor instead (PSTRATS.ASM:1912-1922).
     let miny = g.vars.minpmove_y;
     let maxy = g.vars.sv_i16(sv::MAXPMOVEY);
     let limit_and = g.vars.sv_u8(sv::PMOVELIMITAND);
+    if limit_and & PML_BBOTTOM == 0 && g.objs.aliens[i].worldy >= maxy {
+        g.objs.aliens[i].worldy = maxy;
+        arrows |= SPRAR_DOWN;
+    }
     if g.objs.aliens[i].worldy <= miny {
         g.objs.aliens[i].worldy = miny;
         arrows |= SPRAR_UP;
-    }
-    if limit_and & PML_BBOTTOM != 0 && g.objs.aliens[i].worldy >= maxy {
-        g.objs.aliens[i].worldy = maxy;
-        arrows |= SPRAR_DOWN;
     }
 
     g.vars.set_sv_u8(sv::ARROWS, arrows);
@@ -2794,7 +2794,7 @@ pub fn strat_spawn_player_for_map(g: &mut Game, map_id: u32) -> Option<u16> {
         Some(Strategy::ColonyFlyIn) => player_colony_flyin_istrat(g, idx),
         Some(Strategy::UndergroundFlight) => set_player_undergnd(g, idx),
         Some(Strategy::LongTunnelExit) => set_player_in_ltexit(g, idx),
-        Some(Strategy::ContinuePresentation) => player_on_cont_istrat(g, idx),
+        Some(Strategy::ContinuePresentation) => queue_player_on_cont_istrat(g, idx),
         Some(Strategy::PassivePresentation) => player_cred_istrat(g, idx),
         None => {}
     }
@@ -7357,14 +7357,50 @@ pub fn player_on_field_strat(g: &mut Game, idx: u16) {
 
 /// ROM `playeroncont_Istrat` (PSTRATS.ASM:722).
 pub const CONTINUE_VIEW_DISTANCE: i16 = 200;
+const CONTINUE_VIEW_CENTER_Y: i16 = -50;
+const CONTINUE_HORIZONTAL_LIMIT: i16 = 0;
+const CONTINUE_VERTICAL_LIMIT: i16 = -50;
+
+/// Install the controller-demonstration initializer for the first strategy
+/// pass. `initgame_l` writes the source `pstrat` entry to the player object;
+/// it does not execute that initializer before the first `transfer_l`.
+pub fn queue_player_on_cont_istrat(g: &mut Game, idx: u16) {
+    let initializer = ea_sid(g, player_on_cont_istrat);
+    g.objs.aliens[idx as usize].stratptr = Some(initializer);
+}
 
 pub fn player_on_cont_istrat(g: &mut Game, idx: u16) {
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
-    // cont fly-mode: cont_macro clears nospark/intunnel, sets notdie
-    g.vars.pshipflags2 &= !PSF2_NOSPARK;
-    g.vars.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
-    g.vars.pshipflags3 &= !PSF3_INTUNNEL;
-    g.vars.pstratflags |= PSTF_NOTDIE;
+    {
+        // Exact `s_playerfly_mode cont` fields from STRATEQU.INC.
+        let vars = &mut g.vars;
+        vars.set_sv_i16(sv::VIEWCY, CONTINUE_VIEW_CENTER_Y);
+        vars.set_sv_i16(sv::MINPMOVEX, CONTINUE_HORIZONTAL_LIMIT);
+        vars.set_sv_i16(sv::MAXPMOVEX, CONTINUE_HORIZONTAL_LIMIT);
+        vars.set_sv_i16(sv::MINMMOVEX, CONTINUE_HORIZONTAL_LIMIT);
+        vars.set_sv_i16(sv::MAXMMOVEX, CONTINUE_HORIZONTAL_LIMIT);
+        vars.set_sv_i16(sv::MAXMMOVEY, CONTINUE_VERTICAL_LIMIT);
+        vars.set_sv_i16(sv::MINPWMOVEY, CONTINUE_VERTICAL_LIMIT);
+        vars.set_sv_i16(
+            sv::MAXPWMOVEY,
+            CONTINUE_VERTICAL_LIMIT + PLAYER_WING_Y_PADDING,
+        );
+        vars.minpmove_y = CONTINUE_VERTICAL_LIMIT;
+        vars.set_sv_i16(sv::MAXPMOVEY, CONTINUE_VERTICAL_LIMIT + PLAYERB_YSTOP);
+        vars.playerflymode = PFM_DIEYROT;
+        vars.set_sv_u8(sv::PMOVELIMITAND, 0);
+        vars.set_sv_u8(sv::MISSBOUNDFLAGS, 0);
+        vars.gameflags |= GF_VIEWROT;
+        vars.pstratflags &= !PSTF_NOVIEWMOVE;
+        vars.pshipflags3 |= PSF3_ENGINESND;
+
+        // `cont_macro`: clear spark/tunnel/sequence state and make the demo
+        // player immortal.
+        vars.pshipflags2 &= !PSF2_NOSPARK;
+        vars.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
+        vars.pshipflags3 &= !PSF3_INTUNNEL;
+        vars.pstratflags |= PSTF_NOTDIE;
+    }
     let s = ea_sid(g, player_on_cont_strat);
     g.objs.aliens[idx as usize].stratptr = Some(s);
     g.vars.pviewvelz = MED_PSPEED;
