@@ -2362,21 +2362,34 @@ impl FighterInterceptSpeed {
 #[repr(i8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FighterInterceptBankTarget {
+    PortTwentyNine = -29,
     PortStrong = -28,
     PortEntry = -24,
+    PortTwentyTwo = -22,
     PortTwentyOne = -21,
+    PortTwenty = -20,
+    PortFifteen = -15,
     PortFourteen = -14,
     PortTwelve = -12,
     PortEleven = -11,
+    PortTen = -10,
     PortNine = -9,
+    PortEight = -8,
     StarboardTen = 10,
     StarboardTwelve = 12,
     StarboardThirteen = 13,
     StarboardFourteen = 14,
+    StarboardFifteen = 15,
+    StarboardSeventeen = 17,
+    StarboardNineteen = 19,
+    StarboardTwentyTwo = 22,
+    StarboardTwentyThree = 23,
     StarboardTwentyFour = 24,
     StarboardTwentyFive = 25,
     StarboardTwentySix = 26,
+    StarboardTwentyEight = 28,
     StarboardTwentyNine = 29,
+    StarboardThirty = 30,
 }
 
 impl FighterInterceptBankTarget {
@@ -15529,6 +15542,38 @@ impl Game {
             let Some(id) = *self.pressure_fighter_actors.slot_mut(fighter_kind) else {
                 continue;
             };
+            let terminal_event = pressure_fighter_flight::TERMINAL_EVENTS[fighter_kind.index()];
+            if terminal_event.is_some_and(|event| retail_frame >= event.retail_frame) {
+                let terminal_event = terminal_event.expect("terminal event checked above");
+                let destruction_in_progress = self.state.objects.get(id).is_some_and(|object| {
+                    object.base.flags.exploding || object.base.explosion_timer > 0
+                });
+                if !destruction_in_progress {
+                    *self.pressure_fighter_actors.slot_mut(fighter_kind) = None;
+                    match terminal_event.outcome {
+                        pressure_fighter_flight::PressureFighterTerminalOutcome::Departed => {
+                            self.state.objects.remove(id);
+                            self.state
+                                .mission
+                                .recurring_attackers
+                                .record_departure(fighter_kind);
+                        }
+                        pressure_fighter_flight::PressureFighterTerminalOutcome::Defeated => {
+                            if let Some(object) = self.state.objects.get_mut(id) {
+                                object.base.hit_points = 0;
+                                object.base.flags.collision_disabled = true;
+                                object.base.flags.exploding = true;
+                                object.base.explosion_timer = ENEMY_DESTRUCTION_TICKS;
+                            }
+                            self.state
+                                .mission
+                                .recurring_attackers
+                                .record_defeat(fighter_kind, terminal_event.retail_frame);
+                        }
+                    }
+                }
+                continue;
+            }
             let Some(object) = self.state.objects.get_mut(id) else {
                 continue;
             };
@@ -25579,10 +25624,15 @@ mod tests {
 
     #[test]
     fn typed_pressure_fighter_flight_matches_every_oracle_boundary() {
-        const RETAINED_FIGHTER_POSE_COUNT: usize = 1_960;
-
         let mut game = Game::new();
         game.spawn_pressure_fighters().unwrap();
+        game.state.mission.recurring_attackers = RecurringAttackersState::deployed();
+        let actor_ids = [
+            game.pressure_fighter_actors.vanguard.unwrap(),
+            game.pressure_fighter_actors.high_guard.unwrap(),
+            game.pressure_fighter_actors.flanker.unwrap(),
+            game.pressure_fighter_actors.pursuer.unwrap(),
+        ];
         let mut retained_poses = 0;
 
         for (sample_index, expected_poses) in
@@ -25600,17 +25650,75 @@ mod tests {
             );
 
             for fighter_kind in RecurringAttacker::ALL {
-                let id = match fighter_kind {
+                let actor = match fighter_kind {
                     RecurringAttacker::Vanguard => game.pressure_fighter_actors.vanguard,
                     RecurringAttacker::HighGuard => game.pressure_fighter_actors.high_guard,
                     RecurringAttacker::Flanker => game.pressure_fighter_actors.flanker,
                     RecurringAttacker::Pursuer => game.pressure_fighter_actors.pursuer,
-                }
-                .unwrap_or_else(|| {
+                };
+                let Some(expected) = expected_poses[fighter_kind.index()] else {
+                    let terminal_event =
+                        pressure_fighter_flight::TERMINAL_EVENTS[fighter_kind.index()];
+                    if terminal_event.is_none_or(|event| retail_frame < event.retail_frame) {
+                        assert!(
+                            actor.is_some(),
+                            "recurring attacker {fighter_kind:?} lost before frame {}",
+                            terminal_event
+                                .map(|event| event.retail_frame)
+                                .unwrap_or(u16::MAX)
+                        );
+                        continue;
+                    }
+                    let terminal_event = terminal_event.expect("terminal event checked above");
+                    assert!(
+                        actor.is_none(),
+                        "recurring attacker {fighter_kind:?} retained after frame {retail_frame}"
+                    );
+                    let expected_status = match terminal_event.outcome {
+                        pressure_fighter_flight::PressureFighterTerminalOutcome::Departed => {
+                            RecurringAttackerStatus::Departed
+                        }
+                        pressure_fighter_flight::PressureFighterTerminalOutcome::Defeated => {
+                            RecurringAttackerStatus::Defeated
+                        }
+                    };
+                    assert_eq!(
+                        game.state.mission.recurring_attackers.status(fighter_kind),
+                        expected_status,
+                        "{fighter_kind:?} lifecycle at frame {retail_frame}"
+                    );
+                    if retail_frame == terminal_event.retail_frame {
+                        match terminal_event.outcome {
+                            pressure_fighter_flight::PressureFighterTerminalOutcome::Departed => {
+                                assert!(
+                                    game.state
+                                        .objects
+                                        .get(actor_ids[fighter_kind.index()])
+                                        .is_none(),
+                                    "{fighter_kind:?} departure retained its flight object"
+                                );
+                            }
+                            pressure_fighter_flight::PressureFighterTerminalOutcome::Defeated => {
+                                let explosion = game
+                                    .state
+                                    .objects
+                                    .get(actor_ids[fighter_kind.index()])
+                                    .unwrap_or_else(|| {
+                                        panic!(
+                                            "{fighter_kind:?} scripted defeat omitted its explosion"
+                                        )
+                                    });
+                                assert!(explosion.base.flags.exploding);
+                                assert!(explosion.base.flags.collision_disabled);
+                            }
+                        }
+                    }
+                    continue;
+                };
+                let id = actor.unwrap_or_else(|| {
                     panic!("recurring attacker {fighter_kind:?} absent at frame {retail_frame}")
                 });
                 let object = game.state().objects.get(id).unwrap();
-                let expected = expected_poses[fighter_kind.index()];
                 retained_poses += 1;
                 assert_eq!(
                     object.base.position, expected.position,
@@ -25658,7 +25766,10 @@ mod tests {
             }
         }
 
-        assert_eq!(retained_poses, RETAINED_FIGHTER_POSE_COUNT);
+        assert_eq!(
+            retained_poses,
+            pressure_fighter_flight::RETAINED_ORACLE_POSE_COUNT
+        );
     }
 
     #[test]

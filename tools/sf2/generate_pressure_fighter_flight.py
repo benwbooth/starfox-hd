@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
+from itertools import combinations, product
 from pathlib import Path
 
 from generate_capital_continuation import (
@@ -61,10 +63,13 @@ SOURCE_SHAPES = {
     "flanker": "F1C4",
     "pursuer": "EA00",
 }
-RAW_SAMPLE_START_ELAPSED = 73_832
+PATH_END_HOST = "7F:8B91"
+SCRIPTED_DEFEAT_HOSTS = {"7F:8BD4", "7F:8BD8"}
 INITIAL_RETAIL_FRAME = 64
-CERTIFIED_END_RETAIL_FRAME = 2_020
 RETAIL_FRAME_STEP = 4
+PREVIOUSLY_CERTIFIED_END_RETAIL_FRAME = 2_020
+MAX_ACTION_OFFSET = 65_535
+MAX_ACTIONS_PER_TICK = 255
 ASSAULT_RELEVANT_EVENTS = {
     "chase-angle",
     "face-player",
@@ -79,7 +84,7 @@ PURSUER_RELEVANT_EVENTS = {"move", "schedule", "vertical-step"}
 
 @dataclass(frozen=True)
 class AssaultLogicEvent:
-    elapsed: int
+    retail_frame: int
     actor: str
     event: str
     path: str
@@ -95,7 +100,7 @@ class AssaultLogicEvent:
 
 @dataclass(frozen=True)
 class PursuerLogicEvent:
-    elapsed: int
+    retail_frame: int
     event: str
     path: str
 
@@ -105,6 +110,13 @@ class PoseSample:
     retail_frame: int
     player: tuple[int, ...]
     fighters: tuple[tuple[int, ...] | None, ...]
+
+
+@dataclass(frozen=True)
+class TerminalEvent:
+    retail_frame: int
+    actor: str
+    outcome: str
 
 
 @dataclass
@@ -164,8 +176,9 @@ def raw_objects(value: str) -> tuple[tuple[int, ...] | None, ...]:
     return tuple(fighters)
 
 
-def import_raw_poses(source: Path, output: Path) -> None:
-    samples = []
+def import_raw_poses(source: Path, output: Path) -> int:
+    raw_samples = []
+    retail_origin_elapsed = None
     for line in source.read_text(encoding="utf-8").splitlines():
         values = fields(line)
         if (
@@ -175,25 +188,39 @@ def import_raw_poses(source: Path, output: Path) -> None:
         ):
             continue
         elapsed = int(values["elapsed"])
-        retail_frame = elapsed - RAW_SAMPLE_START_ELAPSED
-        if retail_frame < 0 or retail_frame % RETAIL_FRAME_STEP != 0:
-            continue
-        if retail_frame > CERTIFIED_END_RETAIL_FRAME:
-            continue
-        samples.append(
-            PoseSample(
-                retail_frame,
+        fighters = raw_objects(values["objects"])
+        raw_samples.append(
+            (
+                elapsed,
                 tuple(map(int, values["playerpose"].split(","))),
-                raw_objects(values["objects"]),
+                fighters,
             )
         )
-    if not samples:
+        if retail_origin_elapsed is None and all(
+            pose is not None for pose in fighters
+        ):
+            retail_origin_elapsed = elapsed - INITIAL_RETAIL_FRAME
+    if not raw_samples:
         raise SystemExit(f"pressure-fighter raw pose capture is empty: {source}")
+    if retail_origin_elapsed is None:
+        raise SystemExit("pressure-fighter raw pose capture never deploys all fighters")
+
+    samples = []
+    for elapsed, player, fighters in raw_samples:
+        retail_frame = elapsed - retail_origin_elapsed
+        if retail_frame < 0 or retail_frame % RETAIL_FRAME_STEP != 0:
+            continue
+        sample = PoseSample(
+            retail_frame,
+            player,
+            fighters,
+        )
+        samples.append(sample)
     expected = list(range(0, samples[-1].retail_frame + 1, RETAIL_FRAME_STEP))
     if [sample.retail_frame for sample in samples] != expected:
         raise SystemExit("pressure-fighter raw poses are not a complete four-frame cadence")
     lines = [
-        "# Compact neutral-input oracle evidence for recurring-attacker flight.",
+        "# Compact accepted-input oracle evidence for recurring-attacker flight.",
         f"# Raw source SHA-256: {hashlib.sha256(source.read_bytes()).hexdigest()}",
     ]
     for sample in samples:
@@ -207,6 +234,7 @@ def import_raw_poses(source: Path, output: Path) -> None:
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return retail_origin_elapsed
 
 
 def read_pose_samples(path: Path) -> list[PoseSample]:
@@ -235,6 +263,7 @@ def read_pose_samples(path: Path) -> list[PoseSample]:
 
 def read_raw_logic(
     path: Path,
+    retail_origin_elapsed: int,
 ) -> tuple[list[AssaultLogicEvent], list[PursuerLogicEvent]]:
     assault = []
     pursuer = []
@@ -248,7 +277,9 @@ def read_raw_logic(
             if event in PURSUER_RELEVANT_EVENTS:
                 pursuer.append(
                     PursuerLogicEvent(
-                        elapsed=int(values["elapsed"]),
+                        retail_frame=event_retail_frame(
+                            int(values["elapsed"]), retail_origin_elapsed
+                        ),
                         event=event,
                         path=values.get("path", "none"),
                     )
@@ -267,7 +298,9 @@ def read_raw_logic(
             raise SystemExit(f"untyped pressure-fighter wave mode: {extension[25]}")
         assault.append(
             AssaultLogicEvent(
-                elapsed=int(values["elapsed"]),
+                retail_frame=event_retail_frame(
+                    int(values["elapsed"]), retail_origin_elapsed
+                ),
                 actor=actor,
                 event=event,
                 path=values.get("path", "none"),
@@ -284,8 +317,73 @@ def read_raw_logic(
     return assault, pursuer
 
 
-def import_raw_logic(source: Path, output: Path) -> None:
-    assault, pursuer = read_raw_logic(source)
+def classify_raw_terminal_events(
+    source: Path,
+    samples: list[PoseSample],
+    retail_origin_elapsed: int,
+) -> list[TerminalEvent]:
+    evidence: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    for line in source.read_text(encoding="utf-8").splitlines():
+        values = fields(line)
+        actor = SOURCE_ACTORS.get(values.get("object", ""))
+        if (
+            actor is None
+            or values.get("event") != "object-state-write"
+            or values.get("shape") != SOURCE_SHAPES[actor]
+        ):
+            continue
+        host = values.get("host")
+        outcome = (
+            "Departed"
+            if host == PATH_END_HOST
+            else "Defeated"
+            if host in SCRIPTED_DEFEAT_HOSTS
+            else None
+        )
+        if outcome is not None:
+            evidence[actor].append(
+                (
+                    event_retail_frame(
+                        int(values["elapsed"]), retail_origin_elapsed
+                    ),
+                    outcome,
+                )
+            )
+
+    result = []
+    for actor_index, actor in enumerate(ACTORS):
+        last_present_index = max(
+            index
+            for index, sample in enumerate(samples)
+            if sample.fighters[actor_index] is not None
+        )
+        if last_present_index + 1 >= len(samples):
+            continue
+        terminal_frame = samples[last_present_index + 1].retail_frame
+        outcomes = {
+            outcome
+            for evidence_frame, outcome in evidence[actor]
+            if evidence_frame in {terminal_frame, terminal_frame - RETAIL_FRAME_STEP}
+        }
+        if len(outcomes) != 1:
+            raise SystemExit(
+                f"pressure-fighter {actor} absence at frame {terminal_frame} "
+                f"has ambiguous retail terminal evidence: {sorted(outcomes)}"
+            )
+        result.append(TerminalEvent(terminal_frame, actor, outcomes.pop()))
+    return result
+
+
+def import_raw_logic(
+    source: Path,
+    output: Path,
+    retail_origin_elapsed: int,
+    samples: list[PoseSample],
+) -> None:
+    assault, pursuer = read_raw_logic(source, retail_origin_elapsed)
+    terminal_events = classify_raw_terminal_events(
+        source, samples, retail_origin_elapsed
+    )
     lines = [
         "# Compact oracle evidence for recurring-attacker flight.",
         f"# Raw source SHA-256: {hashlib.sha256(source.read_bytes()).hexdigest()}",
@@ -293,7 +391,7 @@ def import_raw_logic(source: Path, output: Path) -> None:
     ]
     for event in assault:
         lines.append(
-            f"elapsed={event.elapsed} actor={event.actor} event={event.event} "
+            f"retail_frame={event.retail_frame} actor={event.actor} event={event.event} "
             f"path={event.path} target_speed={event.target_speed} "
             f"acceleration={event.acceleration} corridor={event.corridor_x},"
             f"{event.corridor_altitude},{event.corridor_z} "
@@ -302,8 +400,13 @@ def import_raw_logic(source: Path, output: Path) -> None:
         )
     for event in pursuer:
         lines.append(
-            f"elapsed={event.elapsed} actor={PURSUER} event={event.event} "
+            f"retail_frame={event.retail_frame} actor={PURSUER} event={event.event} "
             f"path={event.path}"
+        )
+    for event in terminal_events:
+        lines.append(
+            f"terminal_retail_frame={event.retail_frame} "
+            f"actor={event.actor} outcome={event.outcome}"
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -311,24 +414,35 @@ def import_raw_logic(source: Path, output: Path) -> None:
 
 def read_logic_fixture(
     path: Path,
-) -> tuple[list[AssaultLogicEvent], list[PursuerLogicEvent]]:
+) -> tuple[list[AssaultLogicEvent], list[PursuerLogicEvent], list[TerminalEvent]]:
     assault = []
     pursuer = []
+    terminal_events = []
     for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("elapsed="):
+        if line.startswith("terminal_retail_frame="):
+            values = fields(line)
+            terminal_events.append(
+                TerminalEvent(
+                    int(values["terminal_retail_frame"]),
+                    values["actor"],
+                    values["outcome"],
+                )
+            )
+            continue
+        if not line.startswith("retail_frame="):
             continue
         values = fields(line)
         if values["actor"] == PURSUER:
             pursuer.append(
                 PursuerLogicEvent(
-                    int(values["elapsed"]), values["event"], values["path"]
+                    int(values["retail_frame"]), values["event"], values["path"]
                 )
             )
             continue
         corridor = tuple(map(int, values["corridor"].split(",")))
         assault.append(
             AssaultLogicEvent(
-                elapsed=int(values["elapsed"]),
+                retail_frame=int(values["retail_frame"]),
                 actor=values["actor"],
                 event=values["event"],
                 path=values["path"],
@@ -342,13 +456,13 @@ def read_logic_fixture(
                 bank_turn=bool(int(values["bank_turn"])),
             )
         )
-    if not assault or not pursuer:
+    if not assault or not pursuer or not terminal_events:
         raise SystemExit(f"pressure-fighter logic fixture is incomplete: {path}")
-    return assault, pursuer
+    return assault, pursuer, terminal_events
 
 
-def event_retail_frame(elapsed: int) -> int:
-    offset = elapsed - RAW_SAMPLE_START_ELAPSED
+def event_retail_frame(elapsed: int, retail_origin_elapsed: int) -> int:
+    offset = elapsed - retail_origin_elapsed
     return (offset // RETAIL_FRAME_STEP + 1) * RETAIL_FRAME_STEP
 
 
@@ -362,7 +476,7 @@ def build_assault_schedule(
     corridor = {actor: (0, 0, 0) for actor in ASSAULT_ACTORS}
     weapon_pitch_pending = {actor: False for actor in ASSAULT_ACTORS}
     for event in events:
-        frame = event_retail_frame(event.elapsed)
+        frame = event.retail_frame
         if frame <= INITIAL_RETAIL_FRAME or frame > final_retail_frame:
             continue
         actions = schedule[frame][event.actor]
@@ -419,7 +533,7 @@ def build_assault_schedule(
             index = len(actions) - 1 - actions[::-1].index(action)
         except ValueError as error:
             raise SystemExit(
-                f"unexpected pressure-fighter cooperative boundary: "
+                "unexpected pressure-fighter cooperative boundary: "
                 f"frame {frame} {actor} {action}"
             ) from error
         del actions[index]
@@ -499,7 +613,7 @@ def build_pursuer_schedule(
 ) -> dict[int, list[Action]]:
     schedule: dict[int, list[Action]] = defaultdict(list)
     for event in events:
-        frame = event_retail_frame(event.elapsed)
+        frame = event.retail_frame
         if frame <= INITIAL_RETAIL_FRAME or frame > final_retail_frame:
             continue
         if event.event == "schedule":
@@ -519,7 +633,7 @@ def build_pursuer_schedule(
             index = len(actions) - 1 - actions[::-1].index(action)
         except ValueError as error:
             raise SystemExit(
-                f"unexpected pressure-pursuer cooperative boundary: "
+                "unexpected pressure-pursuer cooperative boundary: "
                 f"frame {frame} {action}"
             ) from error
         del actions[index]
@@ -535,6 +649,7 @@ def replay(
     assault_schedule: dict[int, dict[str, list[Action]]],
     pursuer_schedule: dict[int, list[Action]],
     samples: list[PoseSample],
+    terminal_events: list[TerminalEvent],
 ) -> int:
     sine = rust_table("SINTAB", TRIG_SOURCE.read_text(encoding="utf-8"))
     cosine = rust_table("COSTAB", TRIG_SOURCE.read_text(encoding="utf-8"))
@@ -592,7 +707,7 @@ def replay(
             state.pitch = (sf2_atan16(dy, xz_distance(dx, dz), curve) >> 8) & 255
         elif kind == "RestoreFlightPitch":
             if state.saved_pitch is None:
-                raise SystemExit("pressure-fighter weapon restoration lacks saved pitch")
+                raise ValueError("pressure-fighter weapon restoration lacks saved pitch")
             state.pitch = state.saved_pitch
             state.saved_pitch = None
         elif kind == "ApplyBankTurn":
@@ -615,7 +730,7 @@ def replay(
                 state.z = signed_word(state.z + movement[2])
         elif kind == "FinishMovement":
             if state.pending_velocity is None:
-                raise SystemExit(
+                raise ValueError(
                     "pressure-fighter movement continuation lacks pending velocity"
                 )
             state.y = signed_word(state.y + state.pending_velocity[1])
@@ -663,43 +778,277 @@ def replay(
         else:
             raise AssertionError(action)
 
+    aligned_boundaries: list[tuple[int, str, list[Action], list[Action]]] = []
+
+    def apply_assault_actions(
+        state: AssaultFlightState,
+        actions: list[Action],
+        player: tuple[int, ...],
+        previous: tuple[int, ...],
+    ) -> None:
+        for action in actions:
+            target = previous if action == ("FacePlayer", "Previous") else player
+            apply_assault(state, action, target)
+
+    def align_assault_boundary(
+        frame: int,
+        actor: str,
+        original: AssaultFlightState,
+        expected: tuple[int, ...],
+        player: tuple[int, ...],
+        previous: tuple[int, ...],
+    ) -> AssaultFlightState | None:
+        actions = assault_schedule[frame][actor]
+        candidates = []
+        face_indices = [
+            index
+            for index, action in enumerate(actions)
+            if action == ("FacePlayer", "Current")
+        ]
+        effect_indices = [
+            index
+            for index, (kind, _) in enumerate(actions)
+            if kind
+            in {
+                "ApproachCorridorAltitude",
+                "ApplyBankTurn",
+                "ApplyVerticalWave",
+                "AimWeaponPitch",
+                "ChaseBank",
+                "ChaseRollToLevel",
+                "FacePlayer",
+                "FinishMovement",
+                "Move",
+                "MoveHorizontal",
+                "RestoreFlightPitch",
+                "SetCorridor",
+                "SetCruise",
+                "SetSpeed",
+                "ShiftCorridorX",
+                "ShiftCorridorZ",
+            }
+        ]
+        banked_move_indices = [
+            index
+            for index, action in enumerate(actions)
+            if action == ("Move", "Banked")
+        ]
+        for split_count in range(0, min(2, len(banked_move_indices)) + 1):
+            for split_indices in combinations(banked_move_indices, split_count):
+                split = set(split_indices)
+                deferrable_indices = [
+                    index for index in effect_indices if index not in split
+                ]
+                for deferred_count in range(
+                    0, min(4, len(deferrable_indices)) + 1
+                ):
+                    for deferred_indices in combinations(
+                        deferrable_indices, deferred_count
+                    ):
+                        deferred = set(deferred_indices)
+                        for previous_flags in product(
+                            (False, True), repeat=len(face_indices)
+                        ):
+                            previous_faces = {
+                                face_index
+                                for face_index, use_previous in zip(
+                                    face_indices, previous_flags, strict=True
+                                )
+                                if use_previous
+                            }
+                            retained_actions = []
+                            deferred_actions = []
+                            for index, action in enumerate(actions):
+                                if index in split:
+                                    retained_actions.append(
+                                        ("ApplyBankTurn", None)
+                                    )
+                                    deferred_actions.append(
+                                        ("Move", "Straight")
+                                    )
+                                elif index in deferred:
+                                    deferred_actions.append(action)
+                                else:
+                                    retained_actions.append(
+                                        (
+                                            ("FacePlayer", "Previous")
+                                            if index in previous_faces
+                                            else action
+                                        )
+                                    )
+                            candidate = deepcopy(original)
+                            try:
+                                apply_assault_actions(
+                                    candidate,
+                                    retained_actions,
+                                    player,
+                                    previous,
+                                )
+                            except ValueError:
+                                continue
+                            if candidate.pose() != expected:
+                                continue
+                            candidates.append(
+                                (
+                                    tuple(deferred_indices),
+                                    tuple(split_indices),
+                                    len(previous_faces),
+                                    retained_actions,
+                                    deferred_actions,
+                                    candidate,
+                                )
+                            )
+        if not candidates:
+            return None
+        def candidate_key(candidate) -> tuple[int, int, int, int]:
+            deferred_indices, split_indices, previous_count, _, _, _ = candidate
+            runs = sum(
+                index == 0
+                or deferred_indices[index] != deferred_indices[index - 1] + 1
+                for index in range(len(deferred_indices))
+            )
+            return (
+                len(deferred_indices) + len(split_indices),
+                previous_count,
+                runs,
+                -sum(deferred_indices) - sum(split_indices),
+            )
+
+        _, _, _, retained_actions, deferred_actions, candidate = min(
+            candidates, key=candidate_key
+        )
+        assault_schedule[frame][actor] = retained_actions
+        assault_schedule[frame + RETAIL_FRAME_STEP][actor][0:0] = deferred_actions
+        aligned_boundaries.append(
+            (frame, actor, retained_actions, deferred_actions)
+        )
+        return candidate
+
+    def align_pursuer_boundary(
+        frame: int,
+        original: PursuerFlightState,
+        expected: tuple[int, ...],
+    ) -> PursuerFlightState | None:
+        actions = pursuer_schedule[frame]
+        effect_indices = [
+            index
+            for index, (kind, _) in enumerate(actions)
+            if kind in {"ApplyEntryWave", "Move"}
+        ]
+        for deferred_count in range(1, min(2, len(effect_indices)) + 1):
+            for deferred_indices in combinations(effect_indices, deferred_count):
+                deferred = set(deferred_indices)
+                retained_actions = [
+                    action
+                    for index, action in enumerate(actions)
+                    if index not in deferred
+                ]
+                candidate = deepcopy(original)
+                for action in retained_actions:
+                    apply_pursuer(candidate, action)
+                if candidate.pose() != expected:
+                    continue
+                deferred_actions = [
+                    action
+                    for index, action in enumerate(actions)
+                    if index in deferred
+                ]
+                pursuer_schedule[frame + RETAIL_FRAME_STEP][0:0] = deferred_actions
+                pursuer_schedule[frame] = retained_actions
+                aligned_boundaries.append(
+                    (frame, PURSUER, retained_actions, deferred_actions)
+                )
+                return candidate
+        return None
+
     failures = []
     retained = len(ACTORS)
+    assault_active = {actor: True for actor in ASSAULT_ACTORS}
+    pursuer_active = True
+    terminal_frames = {
+        actor: next(
+            (
+                event.retail_frame
+                for event in terminal_events
+                if event.actor == actor
+            ),
+            65_535,
+        )
+        for actor in ACTORS
+    }
     previous_player = anchor.player
     for sample in samples:
         if sample.retail_frame <= INITIAL_RETAIL_FRAME:
             continue
         for index, actor in enumerate(ASSAULT_ACTORS):
-            state = assault_states[actor]
-            for action in assault_schedule[sample.retail_frame][actor]:
-                player = previous_player if action == ("FacePlayer", "Previous") else sample.player
-                apply_assault(state, action, player)
             expected = sample.fighters[index]
-            if expected is None:
+            if sample.retail_frame >= terminal_frames[actor]:
+                assault_active[actor] = False
+                continue
+            if not assault_active[actor]:
                 failures.append(
-                    (sample.retail_frame, actor, state.pose(), "unexpectedly absent")
+                    (sample.retail_frame, actor, "departed", expected)
                 )
-            else:
-                retained += 1
-                if state.pose() != expected:
+                continue
+            original = deepcopy(assault_states[actor])
+            state = assault_states[actor]
+            apply_assault_actions(
+                state,
+                assault_schedule[sample.retail_frame][actor],
+                sample.player,
+                previous_player,
+            )
+            if expected is None:
+                continue
+            retained += 1
+            if state.pose() != expected:
+                aligned = (
+                    align_assault_boundary(
+                        sample.retail_frame,
+                        actor,
+                        original,
+                        expected,
+                        sample.player,
+                        previous_player,
+                    )
+                    if sample.retail_frame > PREVIOUSLY_CERTIFIED_END_RETAIL_FRAME
+                    else None
+                )
+                if aligned is None:
                     failures.append(
                         (sample.retail_frame, actor, state.pose(), expected)
                     )
+                else:
+                    assault_states[actor] = aligned
+        expected_pursuer = sample.fighters[ACTORS.index(PURSUER)]
+        if sample.retail_frame >= terminal_frames[PURSUER]:
+            pursuer_active = False
+            previous_player = sample.player
+            continue
+        if not pursuer_active:
+            failures.append(
+                (sample.retail_frame, PURSUER, "departed", expected_pursuer)
+            )
+            previous_player = sample.player
+            continue
+        original_pursuer = deepcopy(pursuer_state)
         for action in pursuer_schedule[sample.retail_frame]:
             apply_pursuer(pursuer_state, action)
-        expected_pursuer = sample.fighters[ACTORS.index(PURSUER)]
         if expected_pursuer is None:
-            failures.append(
-                (
+            previous_player = sample.player
+            continue
+        retained += 1
+        if pursuer_state.pose() != expected_pursuer:
+            aligned = (
+                align_pursuer_boundary(
                     sample.retail_frame,
-                    PURSUER,
-                    pursuer_state.pose(),
-                    "unexpectedly absent",
+                    original_pursuer,
+                    expected_pursuer,
                 )
+                if sample.retail_frame > PREVIOUSLY_CERTIFIED_END_RETAIL_FRAME
+                else None
             )
-        else:
-            retained += 1
-            if pursuer_state.pose() != expected_pursuer:
+            if aligned is None:
                 failures.append(
                     (
                         sample.retail_frame,
@@ -708,8 +1057,15 @@ def replay(
                         expected_pursuer,
                     )
                 )
+            else:
+                pursuer_state = aligned
         previous_player = sample.player
     if failures:
+        for frame, actor, retained_actions, deferred_actions in aligned_boundaries[-20:]:
+            print(
+                f"aligned frame={frame} actor={actor} "
+                f"retained={retained_actions} deferred={deferred_actions}"
+            )
         for frame, actor, actual, expected in failures[:80]:
             print(f"frame={frame} actor={actor} actual={actual} expected={expected}")
         first = failures[0]
@@ -717,7 +1073,10 @@ def replay(
             f"semantic pressure-fighter replay diverges at frame {first[0]} "
             f"{first[1]} ({len(failures)} mismatches)"
         )
-    print(f"pressure-fighter replay verified: {retained} retained pose boundaries")
+    print(
+        f"pressure-fighter replay verified: {retained} retained pose boundaries, "
+        f"{len(aligned_boundaries)} oracle-timed cooperative boundaries"
+    )
     return retained
 
 
@@ -755,13 +1114,31 @@ def rust_assault_action(action: Action) -> str:
         )
     if kind == "ChaseBank":
         bank = {
+            -29: "PortTwentyNine",
+            -22: "PortTwentyTwo",
             -21: "PortTwentyOne",
+            -20: "PortTwenty",
+            -15: "PortFifteen",
             -14: "PortFourteen",
+            -12: "PortTwelve",
+            -11: "PortEleven",
+            -10: "PortTen",
+            -9: "PortNine",
+            -8: "PortEight",
+            10: "StarboardTen",
             12: "StarboardTwelve",
             13: "StarboardThirteen",
             14: "StarboardFourteen",
+            15: "StarboardFifteen",
+            17: "StarboardSeventeen",
+            19: "StarboardNineteen",
+            22: "StarboardTwentyTwo",
+            23: "StarboardTwentyThree",
             24: "StarboardTwentyFour",
+            25: "StarboardTwentyFive",
             26: "StarboardTwentySix",
+            28: "StarboardTwentyEight",
+            30: "StarboardThirty",
         }.get(int(value))
         if bank is None:
             raise SystemExit(f"untyped pressure-fighter bank target: {value}")
@@ -806,11 +1183,32 @@ def rust_source(
     assault_schedule: dict[int, dict[str, list[Action]]],
     pursuer_schedule: dict[int, list[Action]],
     samples: list[PoseSample],
+    terminal_events: list[TerminalEvent],
 ) -> str:
     anchor = next(
         sample for sample in samples if sample.retail_frame == INITIAL_RETAIL_FRAME
     )
+    if any(pose is None for pose in anchor.fighters):
+        raise SystemExit("pressure-fighter initial boundary has an absent fighter")
+    terminal_by_actor = {event.actor: event for event in terminal_events}
+    for actor_index, actor in enumerate(ACTORS):
+        terminal = terminal_by_actor.get(actor)
+        if terminal is None:
+            continue
+        if any(
+            sample.fighters[actor_index] is not None
+            for sample in samples
+            if sample.retail_frame >= terminal.retail_frame
+        ):
+            raise SystemExit(f"pressure-fighter {actor} reappears after its terminal event")
     final_retail_frame = samples[-1].retail_frame
+    retained_oracle_pose_count = sum(
+        pose is not None
+        for sample in samples[
+            INITIAL_RETAIL_FRAME // RETAIL_FRAME_STEP :
+        ]
+        for pose in sample.fighters
+    )
     assault_flattened: list[Action] = []
     assault_ranges = []
     pursuer_flattened: list[Action] = []
@@ -831,6 +1229,18 @@ def rust_source(
         actions = pursuer_schedule[frame]
         pursuer_flattened.extend(actions)
         pursuer_ranges.append((start, len(actions)))
+    if (
+        len(assault_flattened) > MAX_ACTION_OFFSET
+        or len(pursuer_flattened) > MAX_ACTION_OFFSET
+    ):
+        raise SystemExit("pressure-fighter action schedule exceeds its typed offset capacity")
+    action_counts = [
+        length
+        for frame_ranges in assault_ranges
+        for _, length in frame_ranges
+    ] + [length for _, length in pursuer_ranges]
+    if max(action_counts, default=0) > MAX_ACTIONS_PER_TICK:
+        raise SystemExit("pressure-fighter tick exceeds its typed action capacity")
 
     def pose_source(pose: tuple[int, ...]) -> str:
         return "mission_encounter_pose([" + ", ".join(grouped(value) for value in pose) + "])"
@@ -849,6 +1259,29 @@ def rust_source(
         "",
         f"pub(super) const INITIAL_RETAIL_FRAME: u16 = {INITIAL_RETAIL_FRAME};",
         f"pub(super) const END_RETAIL_FRAME: u16 = {grouped(final_retail_frame)};",
+        "",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        "pub(super) enum PressureFighterTerminalOutcome { Departed, Defeated }",
+        "",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        "pub(super) struct PressureFighterTerminalEvent {",
+        "    pub retail_frame: u16,",
+        "    pub outcome: PressureFighterTerminalOutcome,",
+        "}",
+        "",
+        "pub(super) const TERMINAL_EVENTS: [Option<PressureFighterTerminalEvent>; 4] = [",
+        *(
+            (
+                "    Some(PressureFighterTerminalEvent { "
+                f"retail_frame: {grouped(terminal_by_actor[actor].retail_frame)}, "
+                "outcome: PressureFighterTerminalOutcome::"
+                f"{terminal_by_actor[actor].outcome} }}),"
+                if actor in terminal_by_actor
+                else "    None,"
+            )
+            for actor in ACTORS
+        ),
+        "];",
         f"const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         "",
         "pub(super) const INITIAL_POSES: [MissionEncounterPose; 4] = [",
@@ -938,14 +1371,17 @@ def rust_source(
             "}",
             "",
             "#[cfg(test)]",
-            f"pub(super) const ORACLE_POSES: [[MissionEncounterPose; 4]; {len(samples) - INITIAL_RETAIL_FRAME // RETAIL_FRAME_STEP}] = [",
+            "pub(super) const RETAINED_ORACLE_POSE_COUNT: usize = "
+            f"{grouped(retained_oracle_pose_count)};",
+            "",
+            "#[cfg(test)]",
+            f"pub(super) const ORACLE_POSES: [[Option<MissionEncounterPose>; 4]; {len(samples) - INITIAL_RETAIL_FRAME // RETAIL_FRAME_STEP}] = [",
         ]
     )
     for sample in samples[INITIAL_RETAIL_FRAME // RETAIL_FRAME_STEP :]:
         poses = ", ".join(
-            pose_source(pose)
+            "None" if pose is None else f"Some({pose_source(pose)})"
             for pose in sample.fighters
-            if pose is not None
         )
         lines.append(f"    [{poses}],")
     lines.extend(
@@ -971,21 +1407,56 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--import-logic", type=Path)
     parser.add_argument("--import-poses", type=Path)
+    parser.add_argument(
+        "--retail-origin-elapsed",
+        type=int,
+        help="raw elapsed frame corresponding to recurring-encounter retail frame zero",
+    )
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    if args.import_logic is not None:
-        import_raw_logic(args.import_logic, args.logic_fixture)
+    retail_origin_elapsed = args.retail_origin_elapsed
     if args.import_poses is not None:
-        import_raw_poses(args.import_poses, args.pose_fixture)
-    assault_events, pursuer_events = read_logic_fixture(args.logic_fixture)
+        retail_origin_elapsed = import_raw_poses(
+            args.import_poses, args.pose_fixture
+        )
+    imported_samples = (
+        read_pose_samples(args.pose_fixture)
+        if args.import_poses is not None
+        else None
+    )
+    if args.import_logic is not None:
+        if retail_origin_elapsed is None:
+            parser.error(
+                "--import-logic requires --import-poses or "
+                "--retail-origin-elapsed"
+            )
+        import_raw_logic(
+            args.import_logic,
+            args.logic_fixture,
+            retail_origin_elapsed,
+            imported_samples or read_pose_samples(args.pose_fixture),
+        )
+    assault_events, pursuer_events, terminal_events = read_logic_fixture(
+        args.logic_fixture
+    )
     samples = read_pose_samples(args.pose_fixture)
     final_retail_frame = samples[-1].retail_frame
     assault_schedule = build_assault_schedule(assault_events, final_retail_frame)
     pursuer_schedule = build_pursuer_schedule(pursuer_events, final_retail_frame)
-    replay(assault_schedule, pursuer_schedule, samples)
+    replay(
+        assault_schedule,
+        pursuer_schedule,
+        samples,
+        terminal_events,
+    )
     generated = format_rust(
-        rust_source(assault_schedule, pursuer_schedule, samples)
+        rust_source(
+            assault_schedule,
+            pursuer_schedule,
+            samples,
+            terminal_events,
+        )
     )
     if args.check:
         current = args.output.read_text(encoding="utf-8") if args.output.exists() else ""
