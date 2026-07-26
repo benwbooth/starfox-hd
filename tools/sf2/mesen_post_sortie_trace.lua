@@ -356,6 +356,10 @@ local teleported_player = false
 -- movement immediately replaces from its restored state.
 local teleport_frames_remaining = tonumber(os.getenv("SF2_ORACLE_TELEPORT_FRAMES")) or 120
 local sortie_stride = tonumber(os.getenv("SF2_ORACLE_SORTIE_STRIDE")) or 4
+-- Oracle-only detail for recovering Mirage Dragon's articulated-body
+-- scheduler. Shipping Rust models these values as typed segment state.
+TRACE_MIRAGE_SEGMENT_STATE =
+  os.getenv("SF2_ORACLE_TRACE_MIRAGE_SEGMENTS") == "1"
 local save_elapsed = tonumber(os.getenv("SF2_ORACLE_SAVE_ELAPSED"))
 local pending_savestate = false
 local saved_state = false
@@ -1360,6 +1364,31 @@ local function active_objects()
   return table.concat(output, ";")
 end
 
+function mirage_segment_states()
+  if not TRACE_MIRAGE_SEGMENT_STATE then return "-" end
+  local output = {}
+  local seen = {}
+  local object = work_word(0x12A8)
+  while object ~= 0 and not seen[object] and #output < 9 do
+    seen[object] = true
+    local shape = work_word(object + 4)
+    if shape == 0xE1E8 or shape == 0xE220 then
+      output[#output + 1] = string.format(
+        "%04X,%04X,%04X,%04X,%d,%d,%d,%d",
+        object,
+        shape,
+        work_word(object + 6),
+        work_word(object + 0x1C),
+        work_byte(object + 0x1CE2),
+        signed_word(object + 0x1CD3),
+        work_byte(object + 0x1CD5),
+        work_byte(object + 0x1CC8))
+    end
+    object = work_word(object)
+  end
+  return table.concat(output, ";")
+end
+
 -- Operation-level evidence for the four reusable combat slots.  This is
 -- intentionally source-machine-facing oracle instrumentation; the importer
 -- reduces it to typed movement, steering, wave, firing, and scheduling events
@@ -1597,6 +1626,7 @@ function sortie_actor_oracle.record_explicit_object_state_write(source)
     local object = nil
     for candidate, _ in pairs(explicit_trace_objects) do
       if (address >= candidate + 4 and address <= candidate + 5)
+        or (address >= candidate + 0x12 and address <= candidate + 0x16)
         or (address >= candidate + 0x20 and address <= candidate + 0x31) then
         object = candidate
         break
@@ -1650,7 +1680,7 @@ local function record(event, elapsed)
       "cursor=%d selection=%d mapmode=%d difficulty=%d " ..
       "active=%04X player=%04X " ..
       "wingmate=%04X camera=%d,%d,%d,%d,%d,%d playerpose=%s " ..
-      "wingpose=%s objects=[%s] selected=%04X " ..
+      "wingpose=%s objects=[%s] mirage=[%s] encounterflags=%04X selected=%04X " ..
       "navtarget=%04X navpose=%d,%d,%d navdistance=%d navdisplay=%d,%d " ..
       "targetdigits=%d,%d,%d " ..
       "coretrigger=%d map=%02X:%04X mapcursor=%d,%d mapposition=%d,%d " ..
@@ -1679,6 +1709,8 @@ local function record(event, elapsed)
     pose(player),
     pose(wingmate),
     active_objects(),
+    mirage_segment_states(),
+    work_word(0xD77D),
     work_word(0x12C1),
     navigation_target,
     player_slot ~= 0
@@ -4129,6 +4161,11 @@ function sortie_actor_oracle.register_callbacks()
   for object, _ in pairs(explicit_trace_objects) do
     for _, range in ipairs({
       { object + 4, object + 5 },
+      -- Rotation writes expose the semantic Achase/AddRotation work which can
+      -- run after a segment's relative-position operation but before the next
+      -- presentation frame. Shipping Rust retains only the recovered typed
+      -- angle actions, never these source-machine addresses.
+      { object + 0x12, object + 0x16 },
       { object + 0x20, object + 0x31 },
     }) do
       emu.addMemoryCallback(

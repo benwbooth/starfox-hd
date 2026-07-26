@@ -797,6 +797,24 @@ pub struct CarrierCorridorProjectileState {
     pub age_retail_frames: u16,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MirageDragonSegmentPhase {
+    AwaitingEntrance,
+    Entering,
+    Following,
+    Departing,
+}
+
+/// Flat behavior state for one articulated Mirage Dragon part. The ordinary
+/// object transform holds its live pose, `linked_object` names its stable
+/// predecessor, and `parent` names the encounter head.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MirageDragonSegmentState {
+    pub ordinal: u8,
+    pub authored_depth: i8,
+    pub phase: MirageDragonSegmentPhase,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectActivity {
     #[default]
@@ -817,6 +835,7 @@ pub enum ObjectActivity {
     FortunaKickGunnerProjectile(FortunaKickGunnerProjectileState),
     CarrierCorridorDefender(CarrierCorridorDefenderState),
     CarrierCorridorProjectile(CarrierCorridorProjectileState),
+    MirageDragonSegment(MirageDragonSegmentState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),
 }
