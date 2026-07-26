@@ -24,8 +24,8 @@ use std::rc::Rc;
 use sf_core::{
     pad,
     player_view::{PlayerViewMode, PlayerViewOptions},
-    red_fill_circle::RedFillCircleState,
     scene::{PaletteFadeTarget, SceneStyle},
+    screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState},
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
     DrawListEntry,
 };
@@ -790,8 +790,8 @@ pub struct FrameSnapshot {
     pub windows: [WindowSlot; 8],
     /// Typed source-authored playfield reveal, if one is being presented.
     pub screen_wipe: ScreenWipeState,
-    /// Typed retail player-death red-circle presentation.
-    pub red_fill_circle: RedFillCircleState,
+    /// Typed retail fixed-colour circle presentation.
+    pub screen_fill_circle: ScreenFillCircleState,
     pub meters: u16,
     pub stayblack: i8,
     pub gameflags: u8,
@@ -1220,7 +1220,7 @@ impl Shell {
     /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
     /// stored into `game.vars.pad1`.
     pub fn tick(&mut self, pad1: u16) {
-        self.game.vars.red_fill_circle.advance();
+        self.game.vars.screen_fill_circle.advance();
         // The frame assembled after this update presents the newly selected
         // record. Advancing before simulation lets a wipe started by this
         // tick's map code retain its authored frame zero for one full frame.
@@ -1394,6 +1394,23 @@ impl Shell {
             None => (NMI_PLAYER_MAX_HP, NMI_PLAYER_MAX_HP),
         };
 
+        let mut screen_fill_circle = v.screen_fill_circle;
+        if let ScreenFillCircleCenter::Object(object_id) = screen_fill_circle.center {
+            let object_index = i32::from(object_id).wrapping_sub(1);
+            if let Some(object) = self
+                .game
+                .objs
+                .get(object_index)
+                .filter(|object| object.active)
+            {
+                screen_fill_circle.center = ScreenFillCircleCenter::World {
+                    x: object.worldx,
+                    y: object.worldy,
+                    z: object.worldz,
+                };
+            }
+        }
+
         FrameSnapshot {
             game_state_code: self.game_state.code(),
             currentbg: v.currentbg,
@@ -1407,7 +1424,7 @@ impl Shell {
             windowmode: st.windows.windowmode,
             windows: st.windows.slots,
             screen_wipe: st.screen_wipe,
-            red_fill_circle: v.red_fill_circle,
+            screen_fill_circle,
             meters: v.meters,
             stayblack: v.strategy.stay_black,
             gameflags: v.gameflags,
@@ -1669,7 +1686,7 @@ impl Shell {
         // g_screenflashcnt remains renderer-lane state.
         v.circleanim = 0;
         v.player_death_fade_delay = 0;
-        v.red_fill_circle.clear();
+        v.screen_fill_circle.clear();
         v.oncewipe = 0;
         v.strategy.wipe_active = 0;
         self.state.borrow_mut().windows.init(); // Windows_Init (boot.c:70)
@@ -2519,6 +2536,43 @@ mod tests {
     use super::*;
     use sf_core::screen_wipe::ScreenWipeKind::{HorizontalReveal, StarReveal};
     use sf_map::catalog::map_id;
+
+    #[test]
+    fn frame_resolves_null_shape_circle_anchor_to_flat_world_position() {
+        const ANCHOR_POSITION: [i16; 3] = [37, -18, 640];
+
+        let mut shell = Shell::new();
+        let anchor = shell.game.objs.alloc().expect("circle anchor slot");
+        {
+            let object = &mut shell.game.objs.aliens[anchor as usize];
+            object.worldx = ANCHOR_POSITION[0];
+            object.worldy = ANCHOR_POSITION[1];
+            object.worldz = ANCHOR_POSITION[2];
+        }
+        shell
+            .game
+            .vars
+            .screen_fill_circle
+            .begin_red(ScreenFillCircleCenter::Object(anchor + 1));
+
+        assert_eq!(
+            shell.game.objs.aliens[anchor as usize].shape, 0,
+            "anchor remains intentionally invisible"
+        );
+        assert_eq!(
+            shell.frame().screen_fill_circle.center,
+            ScreenFillCircleCenter::World {
+                x: ANCHOR_POSITION[0],
+                y: ANCHOR_POSITION[1],
+                z: ANCHOR_POSITION[2],
+            }
+        );
+        assert_eq!(
+            shell.game.vars.screen_fill_circle.center,
+            ScreenFillCircleCenter::Object(anchor + 1),
+            "game state retains the semantic object identity"
+        );
+    }
 
     fn finish_active_screen_wipe(shell: &mut Shell) {
         const MAX_PRESENTATION_TICKS: usize = 64;

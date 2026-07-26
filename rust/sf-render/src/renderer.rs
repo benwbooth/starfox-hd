@@ -10,7 +10,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::bg2d::Bg2d;
-use crate::draw_list::{DrawListEntry, DrawListRenderer};
+use crate::draw_list::{
+    project_draw_object_origin, project_world_origin, DrawListEntry, DrawListRenderer,
+};
 use crate::font::Font;
 use crate::gpu::{Gpu, RenderViewport, TextureId, Vertex2};
 use crate::hud::Hud;
@@ -21,8 +23,8 @@ use crate::transform::Transform;
 use crate::ui::Ui;
 use sf_core::{
     player_view::PlayerViewMode,
-    red_fill_circle::{RedFillCircleState, RED_FILL_RED_TARGET},
     scene::{PaletteFadeTarget, SceneStyle},
+    screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState, MAX_COLOR_LEVEL},
     screen_wipe::ScreenWipeState,
 };
 
@@ -375,8 +377,8 @@ pub struct FrameInputs<'a> {
     pub windows: [WindowState; WINDOWARRAY_SIZE],
     /// Native source-authored playfield reveal.
     pub screen_wipe: ScreenWipeState,
-    /// Retail player-death expanding red color-math circle.
-    pub red_fill_circle: RedFillCircleState,
+    /// Retail fixed-colour circle presentation.
+    pub screen_fill_circle: ScreenFillCircleState,
 
     // HUD state
     /// g_meters.
@@ -465,7 +467,7 @@ impl<'a> Default for FrameInputs<'a> {
             windowmode: 0,
             windows: [WindowState::default(); WINDOWARRAY_SIZE],
             screen_wipe: ScreenWipeState::inactive(),
-            red_fill_circle: RedFillCircleState::inactive(),
+            screen_fill_circle: ScreenFillCircleState::inactive(),
             meters: 0,
             stayblack: -1,
             gameflags: 0,
@@ -700,7 +702,7 @@ impl Renderer {
             &mut self.font,
         );
         self.particles.render(&mut self.gpu, &self.transform);
-        self.render_red_fill_circle(inputs.red_fill_circle);
+        self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
         if sf2_mission {
             self.gpu.set_draw_viewport(None);
             self.transform.set_projection(self.width, self.height);
@@ -725,17 +727,27 @@ impl Renderer {
             .render_fade(&mut self.gpu, inputs, self.width, self.height);
     }
 
-    /// Present the source fixed-color addition inside the authored circle.
+    /// Present the source fixed-colour addition inside the authored circle.
     /// Coordinates are expressed in the source playfield and scaled directly
     /// to the output; no source command pointer crosses into the renderer.
-    fn render_red_fill_circle(&mut self, state: RedFillCircleState) {
-        if !state.active || state.radius == 0 || state.red == 0 {
+    fn render_screen_fill_circle(
+        &mut self,
+        state: ScreenFillCircleState,
+        prev: &[DrawListEntry],
+        curr: &[DrawListEntry],
+        alpha: f32,
+    ) {
+        if !state.is_active()
+            || state.radius == 0
+            || (state.red == 0 && state.green == 0 && state.blue == 0)
+        {
             return;
         }
 
         const CIRCLE_SEGMENTS: usize = 64;
         const SOURCE_HALF_WIDTH: f32 = 128.0;
         const SOURCE_HALF_HEIGHT: f32 = 112.0;
+        const WORLD_TO_RENDER_FIXED_SHIFT: u32 = 16;
         const IDENTITY: [f32; 16] = [
             1.0, 0.0, 0.0, 0.0, //
             0.0, 1.0, 0.0, 0.0, //
@@ -743,17 +755,34 @@ impl Renderer {
             0.0, 0.0, 0.0, 1.0,
         ];
 
+        let (center_x, center_y) = match state.center {
+            ScreenFillCircleCenter::Screen => (0.0, 0.0),
+            ScreenFillCircleCenter::Object(object_id) => {
+                project_draw_object_origin(&self.transform, prev, curr, object_id, alpha)
+                    .unwrap_or((0.0, 0.0))
+            }
+            ScreenFillCircleCenter::World { x, y, z } => project_world_origin(
+                &self.transform,
+                i32::from(x) << WORLD_TO_RENDER_FIXED_SHIFT,
+                i32::from(y) << WORLD_TO_RENDER_FIXED_SHIFT,
+                i32::from(z) << WORLD_TO_RENDER_FIXED_SHIFT,
+            )
+            .unwrap_or((0.0, 0.0)),
+        };
         let radius_x = f32::from(state.radius) / SOURCE_HALF_WIDTH;
         let radius_y = f32::from(state.radius) / SOURCE_HALF_HEIGHT;
         let mut fan = Vec::with_capacity(CIRCLE_SEGMENTS + 2);
         fan.push(Vertex2 {
-            pos: [0.0, 0.0],
+            pos: [center_x, center_y],
             uv: [0.0, 0.0],
         });
         for point in 0..=CIRCLE_SEGMENTS {
             let angle = std::f32::consts::TAU * point as f32 / CIRCLE_SEGMENTS as f32;
             fan.push(Vertex2 {
-                pos: [angle.cos() * radius_x, angle.sin() * radius_y],
+                pos: [
+                    center_x + angle.cos() * radius_x,
+                    center_y + angle.sin() * radius_y,
+                ],
                 uv: [0.0, 0.0],
             });
         }
@@ -762,10 +791,10 @@ impl Renderer {
             &IDENTITY,
             &IDENTITY,
             [
+                f32::from(state.red) / f32::from(MAX_COLOR_LEVEL),
+                f32::from(state.green) / f32::from(MAX_COLOR_LEVEL),
+                f32::from(state.blue) / f32::from(MAX_COLOR_LEVEL),
                 1.0,
-                0.0,
-                0.0,
-                f32::from(state.red) / f32::from(RED_FILL_RED_TARGET),
             ],
         );
     }

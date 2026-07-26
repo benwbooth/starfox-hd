@@ -11,8 +11,8 @@
 //! their lanes (strat/render/audio/windows) come over.
 
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
-use sf_core::red_fill_circle::RedFillCircleState;
 use sf_core::scene::{DepthColors, DepthThresholds, GamePalette, PaletteFadeTarget, SceneStyle};
+use sf_core::screen_fill_circle::ScreenFillCircleState;
 
 // ============================================================
 // Flag constants (C `src/variables.h`)
@@ -593,8 +593,8 @@ pub struct GameVars {
     pub meters: u16,
     /// C `g_circleanim`.
     pub circleanim: i16,
-    /// Live semantic replacement for the source red-fill command cursor.
-    pub red_fill_circle: RedFillCircleState,
+    /// Live semantic replacement for the source fixed-colour circle cursor.
+    pub screen_fill_circle: ScreenFillCircleState,
     /// C `g_oncewipe`.
     pub oncewipe: u8,
 
@@ -682,7 +682,7 @@ impl Default for GameVars {
             wireendflash: 0,
             meters: 0,
             circleanim: 0,
-            red_fill_circle: RedFillCircleState::inactive(),
+            screen_fill_circle: ScreenFillCircleState::inactive(),
             oncewipe: 0,
             game_mode: 0,
             frog_hp: 0,
@@ -743,7 +743,7 @@ impl GameVars {
         self.shieldup = 0;
         self.wireendflash = 0;
         self.player_death_fade_delay = 0;
-        self.red_fill_circle.clear();
+        self.screen_fill_circle.clear();
     }
 
     /// Apply the terminal environment macro from a `BGS.ASM` background

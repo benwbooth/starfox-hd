@@ -12,6 +12,10 @@
 //! damage gate, death chain, exact route gate, escort-bike engine/hover/sparks,
 //! and mine against hand-derived ASM expectations, cited inline.
 
+use sf_core::screen_fill_circle::{
+    ScreenFillCircleCenter, ScreenFillCirclePhase, COLOR_LEVEL_STEP,
+    EXPANDING_INITIAL_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
+};
 use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF_INVISIBLE, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
@@ -310,11 +314,37 @@ fn fatal_hit_runs_swerve_skid_death() {
         swerve_exp,
         "expstrat advanced from .swerveviolently to .skid"
     );
+    assert_eq!(
+        g.vars.screen_fill_circle.center,
+        ScreenFillCircleCenter::Object(boss + 1),
+        "white fill follows the wreck object"
+    );
+    assert_eq!(
+        g.vars.screen_fill_circle.phase,
+        ScreenFillCirclePhase::WhiteExpanding
+    );
+    assert_eq!(
+        g.vars.screen_fill_circle.radius,
+        EXPANDING_INITIAL_RADIUS_SPEED as u16
+    );
+    assert_eq!(
+        [
+            g.vars.screen_fill_circle.red,
+            g.vars.screen_fill_circle.green,
+            g.vars.screen_fill_circle.blue,
+        ],
+        [INITIAL_COLOR_LEVEL + COLOR_LEVEL_STEP; 3]
+    );
 
     // Player drives past the wreck (player_z >= truck_z) -> s_remove_obj.
     g.objs.aliens[0].worldz = g.objs.aliens[boss as usize].worldz + 500;
     tick_exp(&mut g, boss);
     assert_eq!(g.objs.aldead, 1, "wreck removed once passed");
+    assert_eq!(
+        g.vars.screen_fill_circle.phase,
+        ScreenFillCirclePhase::Inactive,
+        "passing the wreck clears the source circle effect"
+    );
 }
 
 // ------------------------------------------------------------

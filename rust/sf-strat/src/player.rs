@@ -944,7 +944,9 @@ fn player_explode_istrat(g: &mut Game, idx: u16) {
         g.vars.internal_playpt = anchor as i16;
         g.vars.strategy.view_target_object = anchor as i16;
         g.vars.strategy.circle_object = anchor as i16;
-        g.vars.red_fill_circle.begin();
+        g.vars.screen_fill_circle.begin_red(
+            sf_core::screen_fill_circle::ScreenFillCircleCenter::Object(anchor + 1),
+        );
     }
 
     let explode = ea_sid(g, strat_explode);

@@ -18,6 +18,7 @@
 
 #![allow(dead_code)]
 
+use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
     ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE,
@@ -9316,12 +9317,11 @@ pub fn install_bosses(g: &mut Game) -> BossStratIds {
 //    hitflags HF1 (truck body) / HF2 (mother weak spot). The Rust shape catalog
 //    and route map use the exact `boss_9_5`/`boss_9_0` meshes at their authored
 //    ids; focused strategy tests also exercise the gate directly.
-//  * Cosmetic-only ROM calls that read cross-object global scratch RAM or
-//    unported sprite/particle systems are intentional no-ops, exactly as
-//    castanet scoped its ringlaser/mini spread:
-//    `bigwhiteFOsprite`/`circleobj`/`rumble` (the white death flash,
-//    :5631-5634). Bike engine flames, hover oscillation, continuous sound, and
-//    all scrape/death sparks use the already-ported shared routines.
+//  * The white crash fill carries a typed three-phase RGB/radius state and a
+//    stable ordinary object identity rather than the source circle command
+//    cursor/pointer. Bike engine flames, hover oscillation, continuous sound,
+//    and all scrape/death sparks use the already-ported shared routines.
+//    Optional rumble remains disabled, matching the retail configuration.
 // ============================================================
 
 // DSTRATS.ASM:72-77.
@@ -9941,7 +9941,10 @@ fn madtrucker_swerve(g: &mut Game, idx: u16) {
         al.expstratptr = Some(s);
         al.sword1 = 20;
     }
-    // bigwhiteFOsprite / circleobj / rumble scoped.
+    g.vars.strategy.circle_object = idx as i16;
+    g.vars
+        .screen_fill_circle
+        .begin_white(ScreenFillCircleCenter::Object(idx + 1));
     play_se(g, MT_SE_SKID);
     madtrucker_skid(g, idx); // s_jmp .skid
 }
@@ -9953,6 +9956,8 @@ fn madtrucker_skid(g: &mut Game, idx: u16) {
     let pz = mt_player_z(g);
     let wz = g.objs.aliens[idx as usize].worldz;
     if pz.wrapping_sub(wz) >= 0 {
+        g.vars.strategy.circle_object = 0;
+        g.vars.screen_fill_circle.clear();
         // s_remove_obj x (player has driven past the wreck).
         g.objs.aldead = 1;
         return;

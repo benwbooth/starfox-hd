@@ -1171,7 +1171,7 @@ fn main() {
                 windowmode: frame.windowmode,
                 windows,
                 screen_wipe: frame.screen_wipe,
-                red_fill_circle: frame.red_fill_circle,
+                screen_fill_circle: frame.screen_fill_circle,
                 meters: frame.meters,
                 stayblack: frame.stayblack,
                 gameflags: frame.gameflags,

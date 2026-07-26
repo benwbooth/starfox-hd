@@ -41,6 +41,43 @@ fn project_model_origin(
     }
 }
 
+/// Project one stable draw-list object identity for an object-anchored
+/// presentation effect. Position interpolation follows the ordinary object
+/// pass, so the overlay remains attached between 20 Hz game ticks.
+pub(crate) fn project_draw_object_origin(
+    transform: &Transform,
+    prev: &[DrawListEntry],
+    curr: &[DrawListEntry],
+    object_id: u16,
+    alpha: f32,
+) -> Option<(f32, f32)> {
+    if object_id == 0 {
+        return None;
+    }
+    let current = curr.iter().find(|entry| entry.obj_id == object_id)?;
+    let entry = prev
+        .iter()
+        .find(|entry| entry.obj_id == object_id && entry.shape_id == current.shape_id)
+        .map_or(*current, |previous| {
+            interpolate_entry(previous, current, alpha)
+        });
+
+    project_world_origin(transform, entry.x, entry.y, entry.z)
+}
+
+/// Project one flat FP16.16 world position through the current interpolated
+/// camera.
+pub(crate) fn project_world_origin(
+    transform: &Transform,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> Option<(f32, f32)> {
+    let mut model = [0.0f32; 16];
+    transform.build_model_matrix(&mut model, x, y, z, 0, 0, 0);
+    project_model_origin(transform.projection(), transform.view(), &model).map(|(x, y, _)| (x, y))
+}
+
 /// Draw list entry — the bridge between game logic and renderer
 /// (STRUCTS.INC `dl_` structure; wider types like the C port).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

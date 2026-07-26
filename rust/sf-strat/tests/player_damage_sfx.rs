@@ -4,8 +4,9 @@
 //! GSTRATS.ASM nukeexp_Istrat trigse $30.
 
 use sf_core::player_view::PlayerViewMode;
-use sf_core::red_fill_circle::{
-    RED_FILL_INITIAL_RADIUS_SPEED, RED_FILL_INITIAL_RED, RED_FILL_RED_STEP,
+use sf_core::screen_fill_circle::{
+    ScreenFillCircleCenter, ScreenFillCirclePhase, COLOR_LEVEL_STEP,
+    EXPANDING_INITIAL_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
 };
 use sf_game::alien::{
     ObjectVisualKind, ACF_COLLTYPE1, AFEXP, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
@@ -457,14 +458,21 @@ fn terminal_explosion_builds_the_retail_anchor_particle_and_fade_state() {
     assert!(anchor_object.stratptr.is_none());
     assert_eq!(g.vars.strategy.view_target_object, anchor as i16);
     assert_eq!(g.vars.strategy.circle_object, anchor as i16);
-    assert!(g.vars.red_fill_circle.active);
     assert_eq!(
-        g.vars.red_fill_circle.radius,
-        RED_FILL_INITIAL_RADIUS_SPEED as u16
+        g.vars.screen_fill_circle.center,
+        ScreenFillCircleCenter::Object(anchor + 1)
     );
     assert_eq!(
-        g.vars.red_fill_circle.red,
-        RED_FILL_INITIAL_RED + RED_FILL_RED_STEP
+        g.vars.screen_fill_circle.phase,
+        ScreenFillCirclePhase::RedExpanding
+    );
+    assert_eq!(
+        g.vars.screen_fill_circle.radius,
+        EXPANDING_INITIAL_RADIUS_SPEED as u16
+    );
+    assert_eq!(
+        g.vars.screen_fill_circle.red,
+        INITIAL_COLOR_LEVEL + COLOR_LEVEL_STEP
     );
 
     let ship = g.objs.aliens[player as usize];
