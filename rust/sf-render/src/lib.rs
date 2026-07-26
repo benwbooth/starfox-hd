@@ -31,6 +31,7 @@ pub mod hud;
 pub mod particles;
 pub mod renderer;
 mod sf1_briefing;
+mod sf1_planets;
 mod sf2_aim_sight;
 mod sf2_backdrop;
 mod sf2_briefing;

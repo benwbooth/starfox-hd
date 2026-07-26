@@ -37,6 +37,11 @@ const SF1_FRONT_END_LAST_ORACLE_TICK: u32 = 400;
 /// One additional test-harness confirmation is required now that the native
 /// port restores CONT.ASM's first-use training round trip before route select.
 const SF1_ROUTE_SELECT_CONFIRM_TICK: u32 = 420;
+/// B pulses cover the typed General Pepper boundary without pausing gameplay
+/// if the fixed test schedule reaches flight a few ticks early.
+const SF1_PLANET_SEQUENCE_DISMISS_START_TICK: u32 = 540;
+const SF1_PLANET_SEQUENCE_DISMISS_END_TICK: u32 = 600;
+const SF1_PLANET_SEQUENCE_DISMISS_CADENCE_TICKS: u32 = 2;
 const SF1_LASER_FIRE_CADENCE_TICKS: u32 = 8;
 const SF1_LASER_FIRE_HOLD_TICKS: u32 = 4;
 const SF2_FRONT_END_CONFIRM_TICKS: [u32; 6] = [850, 880, 910, 980, 1_010, 1_040];
@@ -367,6 +372,18 @@ impl Input {
                 0
             };
         }
+        if (SF1_PLANET_SEQUENCE_DISMISS_START_TICK..SF1_PLANET_SEQUENCE_DISMISS_END_TICK)
+            .contains(&t)
+        {
+            return if (t - SF1_PLANET_SEQUENCE_DISMISS_START_TICK)
+                % SF1_PLANET_SEQUENCE_DISMISS_CADENCE_TICKS
+                == 0
+            {
+                pad::B
+            } else {
+                0
+            };
+        }
         if t % SF1_LASER_FIRE_CADENCE_TICKS < SF1_LASER_FIRE_HOLD_TICKS {
             pad::Y // fire lasers while flying
         } else {
@@ -417,6 +434,12 @@ mod tests {
         assert_eq!(input.autoplay_pad(None), pad::Y);
         input.frame_count = SF1_FRONT_END_LAST_ORACLE_TICK + SF1_LASER_FIRE_HOLD_TICKS;
         assert_eq!(input.autoplay_pad(None), 0);
+        input.frame_count = SF1_PLANET_SEQUENCE_DISMISS_START_TICK;
+        assert_eq!(input.autoplay_pad(None), pad::B);
+        input.frame_count = SF1_PLANET_SEQUENCE_DISMISS_START_TICK + 1;
+        assert_eq!(input.autoplay_pad(None), 0);
+        input.frame_count = SF1_PLANET_SEQUENCE_DISMISS_END_TICK;
+        assert_eq!(input.autoplay_pad(None), pad::Y);
     }
 
     #[test]

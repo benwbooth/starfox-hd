@@ -3,7 +3,7 @@
 //! the player's `worldx` moves. From the view/projection matrices, +worldx
 //! projects to screen-RIGHT, so a correct LEFT press must DECREASE worldx.
 
-use sf_core::pad;
+use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::shell::{
     GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
 };
@@ -59,9 +59,22 @@ fn drive_to_controllable() -> Shell {
         shell.tick(0);
     }
     shell.tick(0); // release START so the next press is an edge
-    shell.tick(pad::START); // PlanetSelect -> Playing
+    shell.tick(pad::START); // confirm route
 
-    for _ in 0..700 {
+    for _ in 0..512 {
+        if shell.frame().planet_presentation.phase == PlanetSequencePhase::Briefing {
+            break;
+        }
+        shell.tick(0);
+    }
+    assert_eq!(
+        shell.frame().planet_presentation.phase,
+        PlanetSequencePhase::Briefing
+    );
+    shell.tick(0);
+    shell.tick(pad::B); // dismiss General Pepper
+
+    for _ in 0..900 {
         if shell.state() == GameState::Playing && shell.game.vars.pshipflags & PSF_NOCTRL == 0 {
             break;
         }

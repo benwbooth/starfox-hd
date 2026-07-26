@@ -14,15 +14,20 @@ use crate::renderer::{
     Sf2Difficulty, Sf2EndingPhase, Sf2FlightControlStyle, Sf2FrameInputs, Sf2GameOverChoice,
     Sf2GameOverPhase, Sf2MissionBackdrop, Sf2MissionMessage, Sf2MissionMessageIrisFrame,
     Sf2MissionMessagePhase, Sf2Mode, Sf2Pilot, Sf2PilotSelectionCursor, Sf2PilotSelectionPhase,
-    Sf2ResultsChoice, Sf2ResultsPhase,
-    Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase,
-    Sf2TitleMenuItem, Sf2TitlePage, WINDOW_MODE_BLACK, WINDOW_MODE_MAPFADE,
-    WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
+    Sf2ResultsChoice, Sf2ResultsPhase, Sf2StrategicActor, Sf2StrategicActorAppearance,
+    Sf2StrategicActorKind, Sf2StrategicPhase, Sf2TitleMenuItem, Sf2TitlePage, WINDOW_MODE_BLACK,
+    WINDOW_MODE_MAPFADE, WINDOW_MODE_WHITE2NORM, WINDOW_MODE_WHITEFADE,
 };
 use crate::sprites::decode_4bpp_tile;
 use sf_core::{
     screen_wipe::{SOURCE_HEIGHT, SOURCE_WIDTH},
     sf1_controls::{BriefingChoice, BriefingPhase},
+    sf1_planets::{
+        briefing_text, planet_heading, post_tally_ship_position, route_path_geometry,
+        PlanetSequencePhase, RoutePathSegment, Sf1Planet, MAP_FADE_STEPS, PEPPER_REVEAL_TICKS,
+        PLANET_CENTER_TICKS, PLANET_EXIT_SOUND_HANDOFF_TICKS, PLANET_EXIT_TICKS,
+        PLANET_MAP_POSITIONS, PLANET_SHIP_START_POSITIONS, POST_TALLY_MAP_REVEAL_RETAIL_FRAMES,
+    },
 };
 
 const IDENTITY: [f32; 16] = [
@@ -177,50 +182,29 @@ fn ortho(w: f32, h: f32) -> [f32; 16] {
 // Planet-select graphics atlas
 const PS_AW: usize = 256;
 const PS_AH: usize = 96;
+const SOURCE_SCREEN_WIDTH: i32 = 256;
+const SOURCE_SCREEN_HEIGHT: i32 = 224;
+const SOURCE_TEXT_HEIGHT: i32 = 8;
+const PLANET_HEADING_BITMAP_LEFT: i32 = 8;
+const PEPPER_TEXT_BITMAP_LEFT: i32 = 32;
+const PLANET_HEADING_TOP: i32 = 48;
+const PEPPER_TEXT_TOP: i32 = 168;
+const PEPPER_TEXT_COLUMNS: usize = 24;
+const CENTERED_PLANET_LEFT: i32 = 112;
+const CENTERED_PLANET_TOP: i32 = 88;
+const PLANET_ICON_SIZE: i32 = 32;
+const PORTRAIT_SPHERE_REVEAL_TICK: u16 = 5;
+const PORTRAIT_FLAT_REVEAL_TICK: u16 = 20;
+const PORTRAIT_FADE_TICKS: u16 = 18;
+const PEPPER_SHADOW_OFFSET: i32 = 2;
+const PLANET_HEADING_COLOR: [f32; 3] = [1.0, 0.85, 0.16];
+const PLANET_HEADING_SHADOW_COLOR: [f32; 3] = [0.85, 0.05, 0.25];
+const PEPPER_TEXT_COLOR: [f32; 3] = [0.74, 0.88, 1.0];
+const PEPPER_TEXT_SHADOW_COLOR: [f32; 3] = [0.18, 0.3, 0.75];
 
 // ---------------------------------------------------------------------------
 // PLANETS.ASM literal tables
 // ---------------------------------------------------------------------------
-
-/// planetpos: top-left of each planet's 32x32 square, SNES pixels (y down).
-static PLANET_POS: [[u8; 2]; 16] = [
-    [16, 176],
-    [64, 176],
-    [56, 136],
-    [16, 128],
-    [112, 144],
-    [40, 64],
-    [128, 96],
-    [184, 144],
-    [168, 96],
-    [112, 32],
-    [80, 80],
-    [208, 96],
-    [192, 40],
-    [192, 40],
-    [136, 176],
-    [192, 40],
-];
-
-/// startplanetpos: course-line/ship anchor per planet.
-static START_POS: [[u8; 2]; 16] = [
-    [16, 176],
-    [64, 176],
-    [64, 136],
-    [16, 128],
-    [112, 144],
-    [48, 64],
-    [128, 104],
-    [184, 144],
-    [176, 96],
-    [112, 32],
-    [80, 80],
-    [208, 96],
-    [192, 40],
-    [192, 40],
-    [136, 176],
-    [192, 40],
-];
 
 /// planetsprs: which SuperFX msprites texture cell each planet uses.
 #[derive(Clone, Copy)]
@@ -255,125 +239,6 @@ static PLANET_SPRS: [PlanetSpr; 16] = [
     psr(0, 20, 0), // 13 unused        (space4)
     psr(0, 14, 0), // 14 OOTD          (starwars3)
     psr(1, 30, 1), // 15 Venom         (enemyplanet)
-];
-
-// stagepaths line geometry: 8px steps with MAP-OBJ.CGX segment tiles.
-const SEG_HIDDEN: u8 = 0;
-const SEG_DIAG_UP: u8 = 1; // tile 0        '/'  (PATHUPRIGHT)
-const SEG_DIAG_DN: u8 = 2; // tile 0 vflip  '\'  (PATHDOWNRIGHT)
-const SEG_HORIZ: u8 = 3; //   tile 1             (PATHRIGHT / PATHHIGHRIGHT)
-const SEG_VERT: u8 = 4; //    tile 2 hflip       (PATHUP / PATHDOWN)
-
-#[derive(Clone, Copy)]
-struct PathStep {
-    dx: i8,
-    dy: i8,
-    seg: u8,
-}
-
-const P_UP: PathStep = PathStep {
-    dx: 0,
-    dy: -8,
-    seg: SEG_VERT,
-};
-const P_UR: PathStep = PathStep {
-    dx: 8,
-    dy: -8,
-    seg: SEG_DIAG_UP,
-};
-const P_R: PathStep = PathStep {
-    dx: 8,
-    dy: 0,
-    seg: SEG_HORIZ,
-};
-const P_UPH: PathStep = PathStep {
-    dx: 0,
-    dy: -8,
-    seg: SEG_HIDDEN,
-};
-const P_URH: PathStep = PathStep {
-    dx: 8,
-    dy: -8,
-    seg: SEG_HIDDEN,
-};
-const P_DRH: PathStep = PathStep {
-    dx: 8,
-    dy: 8,
-    seg: SEG_HIDDEN,
-};
-const P_RH: PathStep = PathStep {
-    dx: 8,
-    dy: 0,
-    seg: SEG_HIDDEN,
-};
-
-static STEPS1: [PathStep; 1] = [P_UP];
-static STEPS2: [PathStep; 3] = [P_UP, P_UP, P_UR];
-static STEPS3: [PathStep; 5] = [P_UR, P_UR, P_UR, P_R, P_R];
-static STEPS4: [PathStep; 4] = [P_R, P_R, P_R, P_R];
-static STEPS6: [PathStep; 1] = [P_UR];
-static STEPS7: [PathStep; 5] = [P_UR, P_UR, P_UR, P_R, P_R];
-static STEPS8: [PathStep; 1] = [P_R];
-static STEPS9: [PathStep; 1] = [P_UP];
-static STEPS11: [PathStep; 2] = [P_R, P_R];
-static STEPS12: [PathStep; 2] = [P_UR, P_UR];
-static STEPS13: [PathStep; 5] = [P_R, P_R, P_R, P_R, P_R];
-static STEPS14: [PathStep; 2] = [P_UR, P_UP];
-static STEPS15: [PathStep; 1] = [P_UP];
-static STEPS17: [PathStep; 3] = [P_URH, P_URH, P_URH];
-static STEPS18: [PathStep; 2] = [P_URH, P_URH];
-static STEPS19: [PathStep; 9] = [P_RH, P_RH, P_URH, P_URH, P_RH, P_RH, P_RH, P_RH, P_RH];
-static STEPS20: [PathStep; 12] = [
-    P_DRH, P_DRH, P_DRH, P_DRH, P_RH, P_RH, P_RH, P_RH, P_RH, P_RH, P_RH, P_RH,
-];
-static STEPS21: [PathStep; 3] = [P_UPH, P_UPH, P_URH];
-static STEPS22: [PathStep; 6] = [P_RH, P_RH, P_RH, P_RH, P_RH, P_RH];
-
-struct PathGeo {
-    sx: u8, // PATHSTART x,y (8px units)
-    sy: u8,
-    steps: &'static [PathStep],
-}
-
-const fn geo(sx: u8, sy: u8, steps: &'static [PathStep]) -> PathGeo {
-    PathGeo { sx, sy, steps }
-}
-const GEO_NONE: PathGeo = PathGeo {
-    sx: 0,
-    sy: 0,
-    steps: &[],
-};
-
-/// Indexed by planets.c PATH_ID_* (1..22, then END3/END2/END1/OTHEREND).
-const UI_PATH_ID_COUNT: usize = 27;
-static PATH_GEO: [PathGeo; UI_PATH_ID_COUNT] = [
-    GEO_NONE,              //  0 invalid
-    geo(4, 20, &STEPS1),   //  1 Corneria 2
-    geo(4, 14, &STEPS2),   //  2 Sector X
-    geo(9, 8, &STEPS3),    //  3 Titania
-    geo(18, 5, &STEPS4),   //  4 Sector Y
-    GEO_NONE,              //  5 Venom 2 orbital
-    geo(6, 21, &STEPS6),   //  6 Corneria 1
-    geo(11, 17, &STEPS7),  //  7 Asteroid Belt 1
-    geo(20, 14, &STEPS8),  //  8 Space Armada
-    geo(24, 11, &STEPS9),  //  9 Meteor
-    GEO_NONE,              // 10 Venom 1 orbital
-    geo(6, 23, &STEPS11),  // 11 Corneria 3
-    geo(12, 21, &STEPS12), // 12 Asteroid Belt 3
-    geo(18, 19, &STEPS13), // 13 Fortuna
-    geo(27, 19, &STEPS14), // 14 Sector Z
-    geo(28, 11, &STEPS15), // 15 Macbeth
-    GEO_NONE,              // 16 Venom 3 orbital
-    geo(6, 15, &STEPS17),  // 17 Sector X (black hole entry)
-    geo(12, 9, &STEPS18),  // 18 Black Hole -> Sector Y
-    geo(13, 11, &STEPS19), // 19 Black Hole -> Venom 1
-    geo(11, 14, &STEPS20), // 20 Black Hole -> Sector Z
-    geo(9, 16, &STEPS21),  // 21 Asteroid 1 (black hole entry)
-    geo(12, 25, &STEPS22), // 22 Asteroid 3 (OOTD entry)
-    GEO_NONE,              // 23 end3
-    GEO_NONE,              // 24 end2
-    GEO_NONE,              // 25 end1
-    GEO_NONE,              // 26 otherend
 ];
 
 // ---------------------------------------------------------------------------
@@ -489,6 +354,7 @@ fn ps_blit_sphere(
     ntiles: usize,
     cell: u8,
     pal: &[[u8; 4]; 16],
+    longitude_offset: i32,
 ) {
     let bx = (cell as i32 & 3) * 32; // doub: cells c, c+1
     let by = (cell as i32 >> 2) * 32;
@@ -505,7 +371,7 @@ fn ps_blit_sphere(
             let nz = (1.0 - d2).sqrt();
             let lon = dx.asin();
             let lat = dy.asin();
-            let u = ((32.0 + lon * (64.0 / (2.0 * pi))) as i32).clamp(0, 63);
+            let u = ((32.0 + lon * (64.0 / (2.0 * pi))) as i32 + longitude_offset).rem_euclid(64);
             let v = ((16.0 + lat * (32.0 / pi)) as i32).clamp(0, 31);
             let t = ps_sheet_px(sheet, ntiles, bx + u, by + v) as usize;
             let shade = 0.30 + 0.70 * nz; // limb darkening
@@ -566,6 +432,18 @@ pub fn compose_planet_select_atlas(
     mcgx: &[u8],
     mcol: &[u8],
 ) -> Option<Vec<u8>> {
+    compose_planet_select_atlas_at_rotation(tex0, tex1, mo, mocol, mcgx, mcol, 0)
+}
+
+fn compose_planet_select_atlas_at_rotation(
+    tex0: &[u8],
+    tex1: &[u8],
+    mo: &[u8],
+    mocol: &[u8],
+    mcgx: &[u8],
+    mcol: &[u8],
+    rotation_tick: u16,
+) -> Option<Vec<u8>> {
     if tex0.len() < 0x4000
         || tex1.len() < 0x4000
         || mo.len() < 30 * 32
@@ -611,14 +489,32 @@ pub fn compose_planet_select_atlas(
 
     let mut atlas = vec![0u8; PS_AW * PS_AH * 4];
 
-    // Planet icons
+    const FULL_ROTATION_STEPS: i32 = 360;
+    const TEXTURE_WRAP_WIDTH: i32 = 64;
+    const PLANET_ROTATION_SPEEDS: [i16; 16] = [6, 0, 0, 0, -3, 4, 0, 0, 0, 0, 0, 3, 0, 0, 0, -5];
+
+    // Planet icons. `spinplanets` advances the six authored sphere angles;
+    // longitude is the matching wrap-texture displacement.
     for p in 0..16 {
         let ps = &PLANET_SPRS[p];
         let sheet = if ps.sheet != 0 { &t1 } else { &t0 };
         let ax = (p & 7) * 32;
         let ay = (p >> 3) * 32;
         if ps.sphere != 0 {
-            ps_blit_sphere(&mut atlas, ax, ay, sheet, 512, ps.cell, &pal_map);
+            let rotation_step = i32::from(rotation_tick % FULL_ROTATION_STEPS as u16);
+            let longitude_offset =
+                rotation_step * i32::from(PLANET_ROTATION_SPEEDS[p]) * TEXTURE_WRAP_WIDTH
+                    / FULL_ROTATION_STEPS;
+            ps_blit_sphere(
+                &mut atlas,
+                ax,
+                ay,
+                sheet,
+                512,
+                ps.cell,
+                &pal_map,
+                longitude_offset,
+            );
         } else {
             ps_blit_flat(&mut atlas, ax, ay, sheet, 512, ps.cell, &pal_map);
         }
@@ -802,14 +698,26 @@ fn sf2_results_brightness(
     }
 }
 
+struct PlanetSelectAtlasSources {
+    texture_sheet_zero: Vec<u8>,
+    texture_sheet_one: Vec<u8>,
+    object_tiles: Vec<u8>,
+    object_palette: Vec<u8>,
+    background_tiles: Vec<u8>,
+    background_palette: Vec<u8>,
+}
+
 pub struct Ui {
     base_dir: PathBuf,
     frame: u32, // render-frame counter for blink effects
     ps_tex: Option<TextureId>,
+    ps_sources: Option<PlanetSelectAtlasSources>,
+    ps_rotation_tick: Option<u16>,
     ps_tried: bool,
     tally_portraits: Option<TextureId>,
     sf1_training_selection: TextureId,
     sf1_game_selection: TextureId,
+    sf1_planet_pepper_portraits: TextureId,
     ending_rising_panel: TextureId,
     ending_split_panel: TextureId,
     ending_glyphs: TextureId,
@@ -912,6 +820,12 @@ impl Ui {
             crate::sf1_briefing::WIDTH as u32,
             crate::sf1_briefing::HEIGHT as u32,
             &sf1_game_selection_rgba,
+        );
+        let sf1_planet_pepper_portraits_rgba = crate::sf1_planets::decode_portraits();
+        let sf1_planet_pepper_portraits = gpu.create_texture_rgba(
+            crate::sf1_planets::WIDTH as u32,
+            crate::sf1_planets::HEIGHT as u32,
+            &sf1_planet_pepper_portraits_rgba,
         );
         let ending_rising_panel_rgba =
             crate::ending::decode_panel(EndingReplayBackdrop::RisingGradient);
@@ -1030,10 +944,8 @@ impl Ui {
         );
         let mut sf2_pilot_selection_presentation =
             crate::sf2_pilot_selection::Presentation::decode();
-        let sf2_pilot_selection_initial_rgba = sf2_pilot_selection_presentation.frame_rgba(
-            crate::sf2_pilot_selection::Screen::Reveal,
-            0,
-        );
+        let sf2_pilot_selection_initial_rgba = sf2_pilot_selection_presentation
+            .frame_rgba(crate::sf2_pilot_selection::Screen::Reveal, 0);
         let sf2_pilot_selection_texture = gpu.create_texture_rgba(
             crate::sf2_pilot_selection::WIDTH as u32,
             crate::sf2_pilot_selection::HEIGHT as u32,
@@ -1250,10 +1162,13 @@ impl Ui {
             base_dir: base_dir.to_path_buf(),
             frame: 0,
             ps_tex: None,
+            ps_sources: None,
+            ps_rotation_tick: None,
             ps_tried: false,
             tally_portraits,
             sf1_training_selection,
             sf1_game_selection,
+            sf1_planet_pepper_portraits,
             ending_rising_panel,
             ending_split_panel,
             ending_glyphs,
@@ -1380,6 +1295,12 @@ impl Ui {
         self.quad_px(gpu, color, x0, y0, x1, y0, x1, y1, x0, y1);
     }
 
+    fn quad_screen(&self, gpu: &mut Gpu, color: [f32; 4]) {
+        let width = self.scr_w as f32;
+        let height = self.scr_h as f32;
+        self.quad_px(gpu, color, 0.0, 0.0, width, 0.0, width, height, 0.0, height);
+    }
+
     /// Draw a top-down source-frame texture region. Native UI geometry uses a
     /// bottom-origin logical Y axis, while oracle-captured image rows and SNES
     /// screen coordinates are top-origin; keeping that conversion explicit
@@ -1392,6 +1313,28 @@ impl Ui {
         y: i32,
         width: i32,
         height: i32,
+    ) {
+        self.textured_quad_source_frame_colored(
+            gpu,
+            texture,
+            x,
+            y,
+            width,
+            height,
+            [1.0, 1.0, 1.0, 1.0],
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn textured_quad_source_frame_colored(
+        &self,
+        gpu: &mut Gpu,
+        texture: TextureId,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        color: [f32; 4],
     ) {
         let logical_bottom = SF2_REFERENCE_HEIGHT - y - height;
         let x0 = (x + self.ox) as f32 * self.scale;
@@ -1416,15 +1359,7 @@ impl Ui {
                 uv: [0.0, 0.0],
             },
         ];
-        gpu.push_overlay_fan(
-            &vertices,
-            &self.proj,
-            &IDENTITY,
-            [1.0, 1.0, 1.0, 1.0],
-            1,
-            None,
-            texture,
-        );
+        gpu.push_overlay_fan(&vertices, &self.proj, &IDENTITY, color, 1, None, texture);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1833,11 +1768,9 @@ impl Ui {
             brightness,
         };
         if self.sf2_results_render_key != Some(key) {
-            let rgba = self.sf2_results_presentation.frame_rgba(
-                track,
-                frame_index,
-                brightness,
-            );
+            let rgba = self
+                .sf2_results_presentation
+                .frame_rgba(track, frame_index, brightness);
             gpu.update_texture(self.sf2_results_texture, &rgba);
             self.sf2_results_render_key = Some(key);
         }
@@ -1921,9 +1854,7 @@ impl Ui {
             ),
             Sf2EndingPhase::Leaving => (
                 crate::sf2_ending::Track::StartResponse,
-                crate::sf2_ending::start_response_frame(
-                    inputs.ending_transition_retail_frames,
-                ),
+                crate::sf2_ending::start_response_frame(inputs.ending_transition_retail_frames),
             ),
         };
         let key = (track, frame_index);
@@ -3288,36 +3219,70 @@ impl Ui {
         }
     }
 
-    fn ensure_atlas(&mut self, gpu: &mut Gpu) -> bool {
-        if self.ps_tex.is_some() {
+    fn ensure_atlas(&mut self, gpu: &mut Gpu, rotation_tick: u16) -> bool {
+        if self.ps_tex.is_some() && self.ps_rotation_tick == Some(rotation_tick) {
             return true;
         }
-        if self.ps_tried {
+        if self.ps_tried && self.ps_sources.is_none() {
             return false;
         }
-        self.ps_tried = true;
 
-        let load = |rel: &str| std::fs::read(self.base_dir.join(rel)).ok();
-        let tex0 = load("data/map/tex_0.CGX");
-        let tex1 = load("data/map/tex_1.CGX");
-        let mo = load("data/map/MAP-OBJ.CGX");
-        let mocol = load("data/map/MAP-OBJ.COL");
-        let mcgx = load("data/bg/MAP.CGX");
-        let mcol = load("data/bg/MAP_C.COL");
-        let (Some(tex0), Some(tex1), Some(mo), Some(mocol), Some(mcgx), Some(mcol)) =
-            (tex0, tex1, mo, mocol, mcgx, mcol)
-        else {
+        if self.ps_sources.is_none() {
+            self.ps_tried = true;
+            let load = |relative_path: &str| std::fs::read(self.base_dir.join(relative_path)).ok();
+            let sources = PlanetSelectAtlasSources {
+                texture_sheet_zero: match load("data/map/tex_0.CGX") {
+                    Some(bytes) => bytes,
+                    None => return false,
+                },
+                texture_sheet_one: match load("data/map/tex_1.CGX") {
+                    Some(bytes) => bytes,
+                    None => return false,
+                },
+                object_tiles: match load("data/map/MAP-OBJ.CGX") {
+                    Some(bytes) => bytes,
+                    None => return false,
+                },
+                object_palette: match load("data/map/MAP-OBJ.COL") {
+                    Some(bytes) => bytes,
+                    None => return false,
+                },
+                background_tiles: match load("data/bg/MAP.CGX") {
+                    Some(bytes) => bytes,
+                    None => return false,
+                },
+                background_palette: match load("data/bg/MAP_C.COL") {
+                    Some(bytes) => bytes,
+                    None => return false,
+                },
+            };
+            self.ps_sources = Some(sources);
+        }
+
+        let sources = self
+            .ps_sources
+            .as_ref()
+            .expect("planet atlas sources were loaded above");
+        let Some(atlas) = compose_planet_select_atlas_at_rotation(
+            &sources.texture_sheet_zero,
+            &sources.texture_sheet_one,
+            &sources.object_tiles,
+            &sources.object_palette,
+            &sources.background_tiles,
+            &sources.background_palette,
+            rotation_tick,
+        ) else {
             eprintln!("Ui: planet select assets missing (data/map, data/bg)");
+            self.ps_sources = None;
             return false;
         };
 
-        let Some(atlas) = compose_planet_select_atlas(&tex0, &tex1, &mo, &mocol, &mcgx, &mcol)
-        else {
-            eprintln!("Ui: planet select assets missing (data/map, data/bg)");
-            return false;
-        };
-
-        self.ps_tex = Some(gpu.create_texture_rgba(PS_AW as u32, PS_AH as u32, &atlas));
+        if let Some(texture) = self.ps_tex {
+            gpu.update_texture(texture, &atlas);
+        } else {
+            self.ps_tex = Some(gpu.create_texture_rgba(PS_AW as u32, PS_AH as u32, &atlas));
+        }
+        self.ps_rotation_tick = Some(rotation_tick);
         true
     }
 
@@ -3336,26 +3301,47 @@ impl Ui {
         hflip: bool,
         vflip: bool,
     ) {
+        self.ps_draw_scaled(gpu, x, y, w, h, ax, ay, w, h, hflip, vflip);
+    }
+
+    /// Draw a planet-atlas region at an independently scaled destination.
+    #[allow(clippy::too_many_arguments)]
+    fn ps_draw_scaled(
+        &self,
+        gpu: &mut Gpu,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        atlas_x: i32,
+        atlas_y: i32,
+        atlas_width: i32,
+        atlas_height: i32,
+        horizontal_flip: bool,
+        vertical_flip: bool,
+    ) {
         let Some(ps_tex) = self.ps_tex else {
             return;
         };
-        let sx = self.scr_w as f32 / 256.0;
-        let sy = self.scr_h as f32 / 224.0;
 
-        let x0 = x as f32 * sx;
-        let x1 = (x + w) as f32 * sx;
-        let ytop = (224 - y) as f32 * sy;
-        let ybot = (224 - y - h) as f32 * sy;
+        // The route-map bitmap is an HD background pass that fills the
+        // output, so its overlaid sprites use the same independent axes.
+        let horizontal_scale = self.scr_w as f32 / SOURCE_SCREEN_WIDTH as f32;
+        let vertical_scale = self.scr_h as f32 / SOURCE_SCREEN_HEIGHT as f32;
+        let x0 = x as f32 * horizontal_scale;
+        let x1 = (x + width) as f32 * horizontal_scale;
+        let ytop = (SOURCE_SCREEN_HEIGHT - y) as f32 * vertical_scale;
+        let ybot = (SOURCE_SCREEN_HEIGHT - y - height) as f32 * vertical_scale;
 
-        let mut u0 = ax as f32 / PS_AW as f32;
-        let mut u1 = (ax + w) as f32 / PS_AW as f32;
-        let mut v0 = ay as f32 / PS_AH as f32; // atlas top
-        let mut v1 = (ay + h) as f32 / PS_AH as f32; // atlas bottom
+        let mut u0 = atlas_x as f32 / PS_AW as f32;
+        let mut u1 = (atlas_x + atlas_width) as f32 / PS_AW as f32;
+        let mut v0 = atlas_y as f32 / PS_AH as f32; // atlas top
+        let mut v1 = (atlas_y + atlas_height) as f32 / PS_AH as f32; // atlas bottom
 
-        if hflip {
+        if horizontal_flip {
             std::mem::swap(&mut u0, &mut u1);
         }
-        if vflip {
+        if vertical_flip {
             std::mem::swap(&mut v0, &mut v1);
         }
 
@@ -3388,15 +3374,105 @@ impl Ui {
         );
     }
 
-    /// Planet select route map (PLANETS.ASM planetseq).
-    fn render_planet_select(&mut self, gpu: &mut Gpu, inputs: &FrameInputs) {
-        if !self.ensure_atlas(gpu) {
+    /// Draw a route-atlas region in the native 256 by 224 presentation
+    /// viewport. Close-up planets must retain square source pixels instead of
+    /// inheriting the widescreen route background's independent axes.
+    #[allow(clippy::too_many_arguments)]
+    fn ps_draw_scaled_native(
+        &self,
+        gpu: &mut Gpu,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        atlas_x: i32,
+        atlas_y: i32,
+        atlas_width: i32,
+        atlas_height: i32,
+    ) {
+        let Some(ps_tex) = self.ps_tex else {
             return;
-        }
-        if self.ps_tex.is_none() {
-            return;
-        }
+        };
+        let x0 = (x + self.ox) as f32 * self.scale;
+        let x1 = (x + self.ox + width) as f32 * self.scale;
+        let ytop = (SOURCE_SCREEN_HEIGHT - y) as f32 * self.scale;
+        let ybot = (SOURCE_SCREEN_HEIGHT - y - height) as f32 * self.scale;
 
+        let u0 = atlas_x as f32 / PS_AW as f32;
+        let u1 = (atlas_x + atlas_width) as f32 / PS_AW as f32;
+        let v0 = atlas_y as f32 / PS_AH as f32;
+        let v1 = (atlas_y + atlas_height) as f32 / PS_AH as f32;
+
+        let verts = [
+            Vertex2 {
+                pos: [x0, ybot],
+                uv: [u0, v1],
+            },
+            Vertex2 {
+                pos: [x1, ybot],
+                uv: [u1, v1],
+            },
+            Vertex2 {
+                pos: [x1, ytop],
+                uv: [u1, v0],
+            },
+            Vertex2 {
+                pos: [x0, ytop],
+                uv: [u0, v0],
+            },
+        ];
+        gpu.push_overlay_fan(
+            &verts,
+            &self.proj,
+            &IDENTITY,
+            [1.0, 1.0, 1.0, 1.0],
+            1,
+            None,
+            ps_tex,
+        );
+    }
+
+    fn ps_draw_planet(&self, gpu: &mut Gpu, planet: Sf1Planet, left: i32, top: i32, size: i32) {
+        let index = usize::from(planet.index());
+        self.ps_draw_scaled(
+            gpu,
+            left,
+            top,
+            size,
+            size,
+            ((index & 7) * PLANET_ICON_SIZE as usize) as i32,
+            ((index >> 3) * PLANET_ICON_SIZE as usize) as i32,
+            PLANET_ICON_SIZE,
+            PLANET_ICON_SIZE,
+            false,
+            false,
+        );
+    }
+
+    fn ps_draw_planet_native(
+        &self,
+        gpu: &mut Gpu,
+        planet: Sf1Planet,
+        left: i32,
+        top: i32,
+        size: i32,
+    ) {
+        let index = usize::from(planet.index());
+        self.ps_draw_scaled_native(
+            gpu,
+            left,
+            top,
+            size,
+            size,
+            ((index & 7) * PLANET_ICON_SIZE as usize) as i32,
+            ((index >> 3) * PLANET_ICON_SIZE as usize) as i32,
+            PLANET_ICON_SIZE,
+            PLANET_ICON_SIZE,
+        );
+    }
+
+    fn render_route_map_contents(&self, gpu: &mut Gpu, inputs: &FrameInputs) {
+        let presentation = inputs.planet_presentation;
         // Planet/sector bitmaps (drawplanetsprites): all 16 slots; slot 14
         // (Out Of This Dimension) only once the nebula route is open.
         for p in 0..16usize {
@@ -3405,12 +3481,12 @@ impl Ui {
             }
             self.ps_draw(
                 gpu,
-                PLANET_POS[p][0] as i32,
-                PLANET_POS[p][1] as i32,
-                32,
-                32,
-                ((p & 7) * 32) as i32,
-                ((p >> 3) * 32) as i32,
+                i32::from(PLANET_MAP_POSITIONS[p].x),
+                i32::from(PLANET_MAP_POSITIONS[p].y),
+                PLANET_ICON_SIZE,
+                PLANET_ICON_SIZE,
+                ((p & 7) * PLANET_ICON_SIZE as usize) as i32,
+                ((p >> 3) * PLANET_ICON_SIZE as usize) as i32,
                 false,
                 false,
             );
@@ -3418,37 +3494,62 @@ impl Ui {
 
         // Course line (drawplanetlines_l): dotted 8px steps along the
         // selected route's stagepaths, blinking like the select loop.
-        let line_on = inputs.stage != 0 || (self.frame & 2) != 0;
+        let line_on = presentation.phase != PlanetSequencePhase::RouteSelection
+            || presentation.rotation_tick & 2 != 0;
         if line_on {
-            for &path_id in inputs.route_path_ids {
-                if path_id as usize >= UI_PATH_ID_COUNT {
-                    continue;
-                }
-                let geo = &PATH_GEO[path_id as usize];
-                let mut px = geo.sx as i32 * 8;
-                let mut py = geo.sy as i32 * 8;
-                for st in geo.steps {
-                    match st.seg {
-                        SEG_DIAG_UP => self.ps_draw(gpu, px, py, 8, 8, 48, 64, false, false),
-                        SEG_DIAG_DN => self.ps_draw(gpu, px, py, 8, 8, 48, 64, false, true),
-                        SEG_HORIZ => self.ps_draw(gpu, px, py, 8, 8, 56, 64, false, false),
-                        SEG_VERT => self.ps_draw(gpu, px, py, 8, 8, 64, 64, true, false),
-                        _ => {} // hidden step: move only
+            let visible_paths = if presentation.phase == PlanetSequencePhase::RouteSelection {
+                inputs.route_path_ids.len()
+            } else {
+                usize::from(inputs.stage).min(inputs.route_path_ids.len())
+            };
+            for &path_id in inputs.route_path_ids.iter().take(visible_paths) {
+                let geometry = route_path_geometry(path_id);
+                let mut px = i32::from(geometry.start_cell_x) * 8;
+                let mut py = i32::from(geometry.start_cell_y) * 8;
+                for step in geometry.steps {
+                    match step.segment {
+                        RoutePathSegment::DiagonalUp => {
+                            self.ps_draw(gpu, px, py, 8, 8, 48, 64, false, false)
+                        }
+                        RoutePathSegment::DiagonalDown => {
+                            self.ps_draw(gpu, px, py, 8, 8, 48, 64, false, true)
+                        }
+                        RoutePathSegment::Horizontal => {
+                            self.ps_draw(gpu, px, py, 8, 8, 56, 64, false, false)
+                        }
+                        RoutePathSegment::Vertical => {
+                            self.ps_draw(gpu, px, py, 8, 8, 64, 64, true, false)
+                        }
+                        RoutePathSegment::Hidden => {}
                     }
-                    px += st.dx as i32;
-                    py += st.dy as i32;
+                    px += i32::from(step.dx);
+                    py += i32::from(step.dy);
                 }
             }
         }
 
-        // Arwing cursor: 16x16 at startplanetpos + 8, initial shipangle = 1
-        // (diagonal), solid during selection.
-        if inputs.currentplanet >= 0 && inputs.currentplanet < 16 {
-            let p = inputs.currentplanet as usize;
+        // First-time route choice intentionally hides the Arwing
+        // (`currentplanet = -2`). Confirmation flashes it at Corneria.
+        let ship_visible = match presentation.phase {
+            PlanetSequencePhase::RouteSelection => false,
+            PlanetSequencePhase::ShipFlash => presentation.phase_tick & 3 < 2,
+            _ => true,
+        };
+        if ship_visible {
+            let position = if presentation.travel_path_id != 0 {
+                post_tally_ship_position(
+                    presentation.travel_path_id,
+                    presentation.previous_planet,
+                    presentation.selected_planet,
+                    presentation.travel_retail_frame,
+                )
+            } else {
+                PLANET_SHIP_START_POSITIONS[usize::from(presentation.selected_planet.index())]
+            };
             self.ps_draw(
                 gpu,
-                START_POS[p][0] as i32 + 8,
-                START_POS[p][1] as i32 + 8,
+                i32::from(position.x) + 8,
+                i32::from(position.y) + 8,
                 16,
                 16,
                 16,
@@ -3481,6 +3582,192 @@ impl Ui {
                     false,
                 );
             }
+        }
+    }
+
+    fn render_pepper_text(&self, gpu: &mut Gpu, font: &mut Font, inputs: &FrameInputs) {
+        let presentation = inputs.planet_presentation;
+        let heading = planet_heading(presentation.selected_planet);
+        let heading_visible = usize::from(presentation.planet_name_characters).min(heading.len());
+        let heading = &heading[..heading_visible];
+        let heading_bottom = SOURCE_SCREEN_HEIGHT - PLANET_HEADING_TOP - SOURCE_TEXT_HEIGHT;
+        self.text_snes(
+            gpu,
+            font,
+            PLANET_HEADING_BITMAP_LEFT + PEPPER_SHADOW_OFFSET,
+            heading_bottom - PEPPER_SHADOW_OFFSET,
+            heading,
+            PLANET_HEADING_SHADOW_COLOR[0],
+            PLANET_HEADING_SHADOW_COLOR[1],
+            PLANET_HEADING_SHADOW_COLOR[2],
+        );
+        self.text_snes(
+            gpu,
+            font,
+            PLANET_HEADING_BITMAP_LEFT,
+            heading_bottom,
+            heading,
+            PLANET_HEADING_COLOR[0],
+            PLANET_HEADING_COLOR[1],
+            PLANET_HEADING_COLOR[2],
+        );
+
+        let message = briefing_text(presentation.briefing_message);
+        let visible = usize::from(presentation.briefing_characters).min(message.len());
+        for (row, chunk) in message.as_bytes()[..visible]
+            .chunks(PEPPER_TEXT_COLUMNS)
+            .enumerate()
+        {
+            let text = std::str::from_utf8(chunk).expect("SF1 briefing text is ASCII");
+            let top = PEPPER_TEXT_TOP + row as i32 * SOURCE_TEXT_HEIGHT;
+            let bottom = SOURCE_SCREEN_HEIGHT - top - SOURCE_TEXT_HEIGHT;
+            self.text_snes(
+                gpu,
+                font,
+                PEPPER_TEXT_BITMAP_LEFT + PEPPER_SHADOW_OFFSET,
+                bottom - PEPPER_SHADOW_OFFSET,
+                text,
+                PEPPER_TEXT_SHADOW_COLOR[0],
+                PEPPER_TEXT_SHADOW_COLOR[1],
+                PEPPER_TEXT_SHADOW_COLOR[2],
+            );
+            self.text_snes(
+                gpu,
+                font,
+                PEPPER_TEXT_BITMAP_LEFT,
+                bottom,
+                text,
+                PEPPER_TEXT_COLOR[0],
+                PEPPER_TEXT_COLOR[1],
+                PEPPER_TEXT_COLOR[2],
+            );
+        }
+    }
+
+    /// Planet select route map and General Pepper sequence
+    /// (`PLANETS.ASM planetseq_l`).
+    fn render_planet_select(&mut self, gpu: &mut Gpu, font: &mut Font, inputs: &FrameInputs) {
+        if !self.ensure_atlas(gpu, inputs.planet_presentation.rotation_tick)
+            || self.ps_tex.is_none()
+        {
+            return;
+        }
+
+        let presentation = inputs.planet_presentation;
+        if presentation.phase == PlanetSequencePhase::Traveling
+            && presentation.travel_retail_frame < POST_TALLY_MAP_REVEAL_RETAIL_FRAMES
+        {
+            // Retail spends the first 57 display frames of a post-mission
+            // planet-screen entry setting up and fading in the route bitmap.
+            self.quad_screen(gpu, [0.0, 0.0, 0.0, 1.0]);
+            return;
+        }
+        if matches!(
+            presentation.phase,
+            PlanetSequencePhase::RouteSelection
+                | PlanetSequencePhase::Traveling
+                | PlanetSequencePhase::AwaitingConfirmation
+                | PlanetSequencePhase::ShipFlash
+                | PlanetSequencePhase::FadingMap
+        ) {
+            self.render_route_map_contents(gpu, inputs);
+            if presentation.phase == PlanetSequencePhase::FadingMap {
+                let fade = f32::from(presentation.map_fade_level) / f32::from(MAP_FADE_STEPS - 1);
+                self.quad_screen(gpu, [0.0, 0.0, 0.0, fade]);
+                let planet = presentation.selected_planet;
+                let index = usize::from(planet.index());
+                self.ps_draw_planet(
+                    gpu,
+                    planet,
+                    i32::from(PLANET_MAP_POSITIONS[index].x),
+                    i32::from(PLANET_MAP_POSITIONS[index].y),
+                    PLANET_ICON_SIZE,
+                );
+            }
+            return;
+        }
+
+        self.quad_screen(gpu, [0.0, 0.0, 0.0, 1.0]);
+
+        let planet = presentation.selected_planet;
+        let index = usize::from(planet.index());
+        let original_left = i32::from(PLANET_MAP_POSITIONS[index].x);
+        let original_top = i32::from(PLANET_MAP_POSITIONS[index].y);
+        let (planet_left, planet_top, planet_size) = match presentation.phase {
+            PlanetSequencePhase::IsolatingPlanet => (original_left, original_top, PLANET_ICON_SIZE),
+            PlanetSequencePhase::CenteringPlanet => {
+                let step = i32::from(presentation.phase_tick.min(PLANET_CENTER_TICKS));
+                let duration = i32::from(PLANET_CENTER_TICKS);
+                (
+                    original_left + (CENTERED_PLANET_LEFT - original_left) * step / duration,
+                    original_top + (CENTERED_PLANET_TOP - original_top) * step / duration,
+                    PLANET_ICON_SIZE,
+                )
+            }
+            _ => {
+                let radius = i32::from(presentation.planet_radius);
+                (
+                    CENTERED_PLANET_LEFT + PLANET_ICON_SIZE / 2 - radius,
+                    CENTERED_PLANET_TOP + PLANET_ICON_SIZE / 2 - radius,
+                    radius * 2,
+                )
+            }
+        };
+        self.ps_draw_planet_native(gpu, planet, planet_left, planet_top, planet_size);
+
+        let portrait_alpha = match presentation.phase {
+            PlanetSequencePhase::ZoomingPlanet => {
+                let reveal_tick = if planet.is_sphere() {
+                    PORTRAIT_SPHERE_REVEAL_TICK
+                } else {
+                    PORTRAIT_FLAT_REVEAL_TICK
+                };
+                f32::from(
+                    presentation
+                        .phase_tick
+                        .saturating_sub(reveal_tick)
+                        .min(PORTRAIT_FADE_TICKS),
+                ) / f32::from(PORTRAIT_FADE_TICKS)
+            }
+            PlanetSequencePhase::RevealingPepper => {
+                f32::from(presentation.phase_tick.min(PEPPER_REVEAL_TICKS))
+                    / f32::from(PEPPER_REVEAL_TICKS)
+            }
+            PlanetSequencePhase::RevealingPlanetName
+            | PlanetSequencePhase::Briefing
+            | PlanetSequencePhase::FadingOut => 1.0,
+            _ => 0.0,
+        };
+        if portrait_alpha > 0.0 {
+            self.textured_quad_source_frame_colored(
+                gpu,
+                self.sf1_planet_pepper_portraits,
+                0,
+                0,
+                SOURCE_SCREEN_WIDTH,
+                SOURCE_SCREEN_HEIGHT,
+                [1.0, 1.0, 1.0, portrait_alpha],
+            );
+        }
+
+        if matches!(
+            presentation.phase,
+            PlanetSequencePhase::RevealingPlanetName
+                | PlanetSequencePhase::Briefing
+                | PlanetSequencePhase::FadingOut
+        ) {
+            self.render_pepper_text(gpu, font, inputs);
+        }
+
+        if presentation.phase == PlanetSequencePhase::FadingOut {
+            let fade_ticks = PLANET_EXIT_TICKS - PLANET_EXIT_SOUND_HANDOFF_TICKS;
+            let fade = f32::from(
+                presentation
+                    .phase_tick
+                    .saturating_sub(PLANET_EXIT_SOUND_HANDOFF_TICKS)
+                    .min(fade_ticks),
+            ) / f32::from(fade_ticks);
+            self.quad_screen(gpu, [0.0, 0.0, 0.0, fade]);
         }
     }
 
@@ -3737,7 +4024,7 @@ impl Ui {
         match inputs.game_state {
             GameState::Title => self.render_title(gpu, font, bg2d),
             GameState::Briefing => self.render_sf1_briefing(gpu, inputs),
-            GameState::PlanetSelect => self.render_planet_select(gpu, inputs),
+            GameState::PlanetSelect => self.render_planet_select(gpu, font, inputs),
             _ => {}
         }
     }
@@ -3874,16 +4161,24 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        compose_tally_portrait_atlas, score_line_digits, sf2_game_over_brightness,
-        sf2_results_brightness,
+        compose_planet_select_atlas_at_rotation, compose_tally_portrait_atlas, score_line_digits,
+        sf2_game_over_brightness, sf2_results_brightness,
     };
-    use crate::renderer::{
-        Sf2GameOverChoice, Sf2ResultsChoice, Sf2ResultsPhase,
-    };
+    use crate::renderer::{Sf2GameOverChoice, Sf2ResultsChoice, Sf2ResultsPhase};
     use crate::sf2_game_over::Brightness;
 
     const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
     const FNV_PRIME: u32 = 0x01000193;
+
+    fn planet_atlas_cell(atlas: &[u8], column: usize) -> Vec<u8> {
+        const CELL_SIZE: usize = 32;
+        let mut cell = Vec::with_capacity(CELL_SIZE * CELL_SIZE * 4);
+        for row in 0..CELL_SIZE {
+            let start = (row * super::PS_AW + column * CELL_SIZE) * 4;
+            cell.extend_from_slice(&atlas[start..start + CELL_SIZE * 4]);
+        }
+        cell
+    }
 
     #[test]
     fn campaign_loss_game_over_uses_the_short_retail_fade() {
@@ -3971,6 +4266,46 @@ mod tests {
         assert_eq!(
             hash, 0x6FE11C33,
             "the inspected FACE.CGX tally atlas drifted"
+        );
+    }
+
+    #[test]
+    fn planet_rotation_animates_spheres_without_moving_flat_sprites() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let load = |relative: &str| {
+            std::fs::read(root.join(relative))
+                .unwrap_or_else(|error| panic!("read {relative}: {error}"))
+        };
+        let texture_zero = load("data/map/tex_0.CGX");
+        let texture_one = load("data/map/tex_1.CGX");
+        let object_tiles = load("data/map/MAP-OBJ.CGX");
+        let object_palette = load("data/map/MAP-OBJ.COL");
+        let background_tiles = load("data/bg/MAP.CGX");
+        let background_palette = load("data/bg/MAP_C.COL");
+        let compose = |rotation_tick| {
+            compose_planet_select_atlas_at_rotation(
+                &texture_zero,
+                &texture_one,
+                &object_tiles,
+                &object_palette,
+                &background_tiles,
+                &background_palette,
+                rotation_tick,
+            )
+            .expect("complete planet-select source assets")
+        };
+
+        let initial = compose(0);
+        let rotated = compose(30);
+        assert_ne!(
+            planet_atlas_cell(&initial, 0),
+            planet_atlas_cell(&rotated, 0),
+            "Corneria's authored sphere longitude must advance"
+        );
+        assert_eq!(
+            planet_atlas_cell(&initial, 1),
+            planet_atlas_cell(&rotated, 1),
+            "the asteroid is a flat source sprite and must remain unchanged"
         );
     }
 }

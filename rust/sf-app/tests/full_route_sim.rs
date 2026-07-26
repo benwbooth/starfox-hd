@@ -129,6 +129,17 @@ fn configured_shell(route: u32) -> Shell {
         shell.tick(0);
     }
     shell.tick(pad::START);
+    for tick in 0..1_024 {
+        if shell.state() == GameState::Playing {
+            break;
+        }
+        assert_eq!(
+            shell.state(),
+            GameState::PlanetSelect,
+            "route {route} left the authored planet sequence unexpectedly"
+        );
+        shell.tick(if tick & 1 == 0 { 0 } else { pad::START });
+    }
     assert_eq!(shell.state(), GameState::Playing);
     shell
 }

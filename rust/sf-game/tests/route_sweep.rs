@@ -41,8 +41,20 @@ fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
             sh.tick(pad::DOWN);
             sh.tick(0);
         }
-        // Select -> begin gameplay at this route's first level.
+        // Confirm the route, then traverse the authored map close-up and
+        // General Pepper briefing before gameplay begins.
         sh.tick(pad::START);
+        for tick in 0..1_024 {
+            if sh.state() == GameState::Playing {
+                break;
+            }
+            assert_eq!(
+                sh.state(),
+                GameState::PlanetSelect,
+                "route {down_presses} left the planet sequence unexpectedly"
+            );
+            sh.tick(if tick & 1 == 0 { 0 } else { pad::START });
+        }
         assert_eq!(sh.state(), GameState::Playing);
         // Tick gameplay frames.
         for _ in 0..ticks {

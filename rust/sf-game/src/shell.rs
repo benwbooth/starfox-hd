@@ -28,6 +28,13 @@ use sf_core::{
     screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState},
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
+    sf1_planets::{
+        briefing_text, planet_heading, post_tally_travel_retail_frames, PlanetPresentation,
+        PlanetSequencePhase, Sf1Planet, BRIEFING_CHARACTER_TICKS, FINAL_PLANET_RADIUS,
+        MAP_FADE_STEPS, MAP_FADE_TICKS, PEPPER_REVEAL_TICKS, PLANET_CENTER_TICKS,
+        PLANET_EXIT_TICKS, PLANET_ISOLATION_TICKS, PLANET_NAME_CHARACTER_TICKS, PLANET_ZOOM_TICKS,
+        RETAIL_VIDEO_FRAMES_PER_GAME_TICK, SHIP_FLASH_TICKS,
+    },
     DrawListEntry,
 };
 
@@ -35,7 +42,7 @@ use crate::camera::GameCamera;
 use crate::charmap::CharMap;
 use crate::game::{Game, Hooks, PosSndFamilyId};
 use crate::obj::Objects;
-use crate::planets::{Planets, DEFAULT_LIVES};
+use crate::planets::{Planets, RouteSelectionResult, DEFAULT_LIVES};
 use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
@@ -105,6 +112,19 @@ const BRIEFING_SPECIAL_WEAPON_COUNT: u16 = 3;
 const TRAINING_LIVES: u8 = 1;
 /// Source `gf2_ingame` bit used by the training exit guard.
 const GAME_FLAG2_INGAME: u8 = 1;
+
+/// Route-map music package.
+pub const MUSIC_PLANET_MAP: u8 = 1;
+/// Spherical-planet close-up music package.
+pub const MUSIC_PLANET_ZOOM: u8 = 11;
+/// Flat sector/asteroid close-up music package.
+pub const MUSIC_PLANET_ZOOM_SHORT: u8 = 13;
+/// Route-map confirmation effect.
+pub const PLANET_CONFIRM_SOUND: u8 = 16;
+/// General Pepper type-on effect.
+pub const PEPPER_CHARACTER_SOUND: u8 = 137;
+/// General Pepper dismissal effect.
+pub const PEPPER_DISMISS_SOUND: u8 = 19;
 
 /// Staff-roll music package in the native audio catalog. The source ending
 /// switches to this package immediately before loading the credits map.
@@ -918,6 +938,8 @@ pub struct FrameSnapshot {
     pub currentplanet: i16,
     pub nebula_on: u16,
     pub route_path_ids: Vec<u16>,
+    /// Typed `planetseq_l` route-map and General Pepper presentation.
+    pub planet_presentation: PlanetPresentation,
     pub camera: CameraSnapshot,
     // sound-layer inputs (sf-app feeds these to sf-audio's SoundGameState)
     pub player_dead: bool,
@@ -1193,6 +1215,8 @@ pub struct Shell {
     /// Training-mode fade and return handoff.
     training: TrainingSequence,
     planets: Planets,
+    /// Flat typed route-map and General Pepper presentation fields.
+    planet_presentation: PlanetPresentation,
     camera: GameCamera,
     /// C `s_draw_list` (boot.c:46).
     draw_list: Vec<DrawListEntry>,
@@ -1253,6 +1277,7 @@ impl Shell {
             briefing: BriefingSequence::default(),
             training: TrainingSequence::default(),
             planets: Planets::new(),
+            planet_presentation: PlanetPresentation::default(),
             camera: GameCamera::new(),
             draw_list: Vec::new(),
             cam_snapshot: CameraSnapshot::default(),
@@ -1375,12 +1400,7 @@ impl Shell {
             GameState::PlanetSelect => {
                 // No 3D scene on the map screen (boot.c:243-248).
                 self.draw_list.clear();
-                if self.planets.update(self.pad1_new) {
-                    // C Planets_Update calls
-                    // Game_BeginGameplayFromPlanetSelect directly
-                    // (planets.c:345).
-                    self.begin_gameplay_from_planet_select();
-                }
+                self.planet_sequence_tick();
             }
             GameState::Playing => {
                 if self.planets.newmap == sf_map::catalog::map_id::TRAINING {
@@ -1573,6 +1593,7 @@ impl Shell {
             currentplanet: self.planets.currentplanet,
             nebula_on: self.planets.nebula_on,
             route_path_ids: self.planets.route_path_ids(self.planets.whichroute),
+            planet_presentation: self.planet_presentation,
             camera: self.cam_snapshot,
             player_dead: v.gameflags & GF_PLAYERDEAD != 0,
             player_hp0: v.pshipflags2 & PSF2_PLAYERHP0 != 0,
@@ -1639,6 +1660,7 @@ impl Shell {
         bgs::init(&mut self.game.vars); // Bgs_Init (boot.c:132)
 
         self.planets = Planets::new(); // route/stage defaults (game_vars.c:443-458)
+        self.planet_presentation = PlanetPresentation::default();
         self.levelclear_ticks = 0;
         self.death_ticks = 0;
         self.rndval = 0; // sf_rtl.c:52
@@ -1725,6 +1747,230 @@ impl Shell {
             .borrow_mut()
             .sound
             .push(SoundCmd::NoSetPort3(false));
+    }
+
+    fn begin_initial_planet_sequence(&mut self) {
+        self.planets.begin_route_selection();
+        let selected_planet = Sf1Planet::from_index(self.planets.currentplanet.max(0) as u8);
+        self.planet_presentation = PlanetPresentation {
+            selected_planet,
+            briefing_message: self.planets.briefing_message,
+            ..PlanetPresentation::default()
+        };
+        // `planetseq_l` takes ownership of the display after its caller's
+        // transfer fade. The Rust window pass is the typed equivalent of that
+        // retired caller state, so it must not remain allocated over the map.
+        self.state.borrow_mut().windows.init();
+        self.game_state = GameState::PlanetSelect;
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlayMusic(MUSIC_PLANET_MAP));
+    }
+
+    fn begin_later_planet_sequence(&mut self, previous_planet: Sf1Planet, travel_path_id: u16) {
+        let selected_planet = Sf1Planet::from_index(self.planets.currentplanet.max(0) as u8);
+        let travel_retail_frames =
+            post_tally_travel_retail_frames(travel_path_id, previous_planet, selected_planet);
+        self.planet_presentation = PlanetPresentation {
+            phase: PlanetSequencePhase::Traveling,
+            selected_planet,
+            briefing_message: self.planets.briefing_message,
+            previous_planet,
+            travel_path_id,
+            travel_retail_frames,
+            ..PlanetPresentation::default()
+        };
+        // Post-mission `planetseq_l` likewise replaces the tally/gameplay
+        // display state. Its own authored black setup interval is represented
+        // by `travel_retail_frame`, not by a stale gameplay color window.
+        self.state.borrow_mut().windows.init();
+        self.game_state = GameState::PlanetSelect;
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlayMusic(MUSIC_PLANET_MAP));
+    }
+
+    fn set_planet_phase(&mut self, phase: PlanetSequencePhase) {
+        self.planet_presentation.phase = phase;
+        self.planet_presentation.phase_tick = 0;
+    }
+
+    fn emit_pepper_character_sound(&mut self, character: u8) {
+        if character != b' ' {
+            self.state
+                .borrow_mut()
+                .sound
+                .push(SoundCmd::PlaySe(PEPPER_CHARACTER_SOUND));
+        }
+    }
+
+    fn begin_planet_exit(&mut self) {
+        self.set_planet_phase(PlanetSequencePhase::FadingOut);
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::PlaySe(PEPPER_DISMISS_SOUND));
+    }
+
+    /// Typed `planetseq_l` presentation and input loop.
+    fn planet_sequence_tick(&mut self) {
+        self.planet_presentation.rotation_tick =
+            self.planet_presentation.rotation_tick.wrapping_add(1);
+
+        match self.planet_presentation.phase {
+            PlanetSequencePhase::RouteSelection => {
+                match self.planets.route_selection_input(self.pad1_new) {
+                    RouteSelectionResult::Idle => {}
+                    RouteSelectionResult::Changed => {
+                        self.planet_presentation.briefing_message = self.planets.briefing_message;
+                        self.state
+                            .borrow_mut()
+                            .sound
+                            .push(SoundCmd::PlaySe(BRIEFING_MOVE_SOUND));
+                    }
+                    RouteSelectionResult::Confirmed => {
+                        self.planet_presentation.selected_planet =
+                            Sf1Planet::from_index(self.planets.currentplanet.max(0) as u8);
+                        self.planet_presentation.briefing_message = self.planets.briefing_message;
+                        self.set_planet_phase(PlanetSequencePhase::ShipFlash);
+                        let mut state = self.state.borrow_mut();
+                        state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                        state.sound.push(SoundCmd::PlaySe(PLANET_CONFIRM_SOUND));
+                    }
+                }
+            }
+            PlanetSequencePhase::Traveling => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                self.planet_presentation.travel_retail_frame = self
+                    .planet_presentation
+                    .phase_tick
+                    .saturating_mul(RETAIL_VIDEO_FRAMES_PER_GAME_TICK)
+                    .min(self.planet_presentation.travel_retail_frames);
+                if self.planet_presentation.travel_retail_frame
+                    >= self.planet_presentation.travel_retail_frames
+                {
+                    self.set_planet_phase(PlanetSequencePhase::AwaitingConfirmation);
+                }
+            }
+            PlanetSequencePhase::AwaitingConfirmation => {
+                if self.pad1_new & (pad::B | pad::START | pad::Y | pad::A | pad::X) != 0 {
+                    self.set_planet_phase(PlanetSequencePhase::ShipFlash);
+                    let mut state = self.state.borrow_mut();
+                    state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                    state.sound.push(SoundCmd::PlaySe(PLANET_CONFIRM_SOUND));
+                }
+            }
+            PlanetSequencePhase::ShipFlash => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= SHIP_FLASH_TICKS {
+                    self.set_planet_phase(PlanetSequencePhase::FadingMap);
+                }
+            }
+            PlanetSequencePhase::FadingMap => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                let retail_frames = self
+                    .planet_presentation
+                    .phase_tick
+                    .saturating_mul(RETAIL_VIDEO_FRAMES_PER_GAME_TICK);
+                self.planet_presentation.map_fade_level =
+                    retail_frames.min(u16::from(MAP_FADE_STEPS - 1)) as u8;
+                if self.planet_presentation.phase_tick >= MAP_FADE_TICKS {
+                    self.planet_presentation.map_fade_level = MAP_FADE_STEPS - 1;
+                    self.set_planet_phase(PlanetSequencePhase::IsolatingPlanet);
+                }
+            }
+            PlanetSequencePhase::IsolatingPlanet => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= PLANET_ISOLATION_TICKS {
+                    self.set_planet_phase(PlanetSequencePhase::CenteringPlanet);
+                }
+            }
+            PlanetSequencePhase::CenteringPlanet => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= PLANET_CENTER_TICKS {
+                    self.set_planet_phase(PlanetSequencePhase::ZoomingPlanet);
+                    let music = if self.planet_presentation.selected_planet.is_sphere() {
+                        MUSIC_PLANET_ZOOM
+                    } else {
+                        MUSIC_PLANET_ZOOM_SHORT
+                    };
+                    self.state
+                        .borrow_mut()
+                        .sound
+                        .push(SoundCmd::PlayMusic(music));
+                }
+            }
+            PlanetSequencePhase::ZoomingPlanet => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                self.planet_presentation.planet_radius =
+                    sf_core::sf1_planets::INITIAL_PLANET_RADIUS
+                        .saturating_add(
+                            self.planet_presentation.phase_tick.min(PLANET_ZOOM_TICKS) as u8
+                        )
+                        .min(FINAL_PLANET_RADIUS);
+                if self.planet_presentation.phase_tick >= PLANET_ZOOM_TICKS {
+                    self.set_planet_phase(PlanetSequencePhase::RevealingPepper);
+                }
+            }
+            PlanetSequencePhase::RevealingPepper => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= PEPPER_REVEAL_TICKS {
+                    self.set_planet_phase(PlanetSequencePhase::RevealingPlanetName);
+                }
+            }
+            PlanetSequencePhase::RevealingPlanetName => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                let heading = planet_heading(self.planet_presentation.selected_planet);
+                let previous = self.planet_presentation.planet_name_characters;
+                let visible = (self.planet_presentation.phase_tick / PLANET_NAME_CHARACTER_TICKS)
+                    .min(heading.len() as u16) as u8;
+                self.planet_presentation.planet_name_characters = visible;
+                if visible > previous {
+                    self.emit_pepper_character_sound(heading.as_bytes()[usize::from(visible - 1)]);
+                }
+                if usize::from(visible) >= heading.len() {
+                    self.set_planet_phase(PlanetSequencePhase::Briefing);
+                }
+            }
+            PlanetSequencePhase::Briefing => {
+                if self.pad1_new & (pad::START | pad::B | pad::A) != 0 {
+                    self.begin_planet_exit();
+                    return;
+                }
+
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                let message = briefing_text(self.planet_presentation.briefing_message);
+                let previous = self.planet_presentation.briefing_characters;
+                let visible = (self.planet_presentation.phase_tick / BRIEFING_CHARACTER_TICKS)
+                    .min(message.len() as u16) as u8;
+                self.planet_presentation.briefing_characters = visible;
+                if visible > previous {
+                    self.emit_pepper_character_sound(message.as_bytes()[usize::from(visible - 1)]);
+                }
+                if usize::from(visible) >= message.len() {
+                    self.begin_planet_exit();
+                }
+            }
+            PlanetSequencePhase::FadingOut => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= PLANET_EXIT_TICKS {
+                    self.planets.finish_map_sequence();
+                    self.begin_gameplay_from_planet_select();
+                }
+            }
+        }
     }
 
     /// C `TitleScreen_Tick()` (src/game/boot.c:141).
@@ -1889,7 +2135,7 @@ impl Shell {
             BriefingFadeDestination::PlanetSelect => {
                 self.game.vars.reset_player_run_state();
                 self.planets_init();
-                self.game_state = GameState::PlanetSelect;
+                self.begin_initial_planet_sequence();
                 self.briefing.level_loaded = false;
                 self.briefing.fade_destination = None;
             }
@@ -2490,9 +2736,10 @@ impl Shell {
     }
 
     /// ROM `inc stage` (MAIN.ASM:229) + `planetseq_l` re-entry: increment the
-    /// stage, re-walk the map graph, and begin gameplay on the resolved map
-    /// (or enter the ending when the route is exhausted). Shared by the normal
-    /// post-tally advance and the warp ([`Shell::warp_advance`]) path.
+    /// stage, re-walk the map graph, and present the authored Arwing travel and
+    /// next General Pepper briefing (or enter the ending when the route is
+    /// exhausted). Shared by the normal post-tally advance and the warp
+    /// ([`Shell::warp_advance`]) path.
     ///
     /// planetseq_l calls `convertroute` on entry (PLANETS.ASM:251) and again
     /// on `.continuewithgame` before gamestart (PLANETS.ASM:1090). The map
@@ -2501,15 +2748,13 @@ impl Shell {
     /// gameplay. Without this bracket the walk used the raw gameplay route
     /// (P1 -> MAP_ID_2_2).
     fn advance_stage_and_walk(&mut self) {
+        let previous_planet = Sf1Planet::from_index(self.planets.currentplanet.max(0) as u8);
         self.planets.stage = self.planets.stage.wrapping_add(1);
         self.game.vars.shared.stage = self.planets.stage as u8;
-        self.planets.convertroute();
-        let advanced = self.planets.drawplanetlines();
-        self.planets.convertroute();
-        if advanced {
-            // Stage graph resolved the next map on this route.
-            self.begin_gameplay_from_planet_select();
+        if let Some(travel_path_id) = self.planets.begin_stage_map_walk() {
+            self.begin_later_planet_sequence(previous_planet, travel_path_id);
         } else {
+            self.planets.finish_map_sequence();
             self.levelclear_ticks = 0;
             self.begin_ending_score_parade();
         }
@@ -3235,8 +3480,7 @@ mod tests {
         let mut sh = Shell::new();
         advance_to_planet_select(&mut sh);
         let _ = sh.drain_sound();
-        sh.tick(0);
-        sh.tick(pad::START); // → Playing
+        launch_from_planet_select(&mut sh);
         let _ = sh.drain_sound();
         assert_eq!(sh.state(), GameState::Playing);
         assert!(!sh.is_paused());
@@ -3265,8 +3509,7 @@ mod tests {
         let mut sh = Shell::new();
         advance_to_planet_select(&mut sh);
         let _ = sh.drain_sound();
-        sh.tick(0);
-        sh.tick(pad::START);
+        launch_from_planet_select(&mut sh);
         let _ = sh.drain_sound();
 
         // The source `doingwipe` lock rejects pause during the opening reveal.
@@ -3350,14 +3593,14 @@ mod tests {
         let sounds = sh.drain_sound();
         assert!(sounds.contains(&SoundCmd::PlaySe(0x10)));
 
-        // One idle planet-select tick (converts route 0 -> 1 and resolves
-        // MAP_ID_1_1, planets.c:314-319). Release START first for the edge.
+        // Route selection enters with route 0 converted to source map route 1.
         sh.tick(0);
         assert_eq!(sh.state().code(), 3);
         assert_eq!(sh.frame().newmap, map_id::M1_1);
 
-        // Tap START to launch (planets.c:336-346).
-        sh.tick(pad::START);
+        // Confirm, present the authored map close-up and General Pepper
+        // briefing, then dismiss it with a fresh START edge.
+        launch_from_planet_select(&mut sh);
         assert_eq!(sh.state().code(), 4); // GAME_STATE_PLAYING
         let f = sh.frame();
         assert_eq!(f.game_state_code, 4);
@@ -3400,6 +3643,40 @@ mod tests {
                                          // Run the retail count/commit phases, then dismiss with START.
         run_tally_to_ready(&mut sh);
         sh.tick(pad::START);
+        let map_frame = sh.frame();
+        assert_eq!(map_frame.stage, 1);
+        assert_eq!(sh.state(), GameState::PlanetSelect);
+        assert_eq!(
+            map_frame.windowmode, 0,
+            "the retired tally/gameplay transition must not cover planetseq_l"
+        );
+        assert_eq!(
+            map_frame.planet_presentation.phase,
+            PlanetSequencePhase::Traveling
+        );
+        assert_eq!(map_frame.newmap, map_id::M1_2);
+        assert_eq!(
+            map_frame.planet_presentation.travel_path_id,
+            crate::planets::path_id::P6
+        );
+        let travel_ticks = map_frame
+            .planet_presentation
+            .travel_retail_frames
+            .div_ceil(RETAIL_VIDEO_FRAMES_PER_GAME_TICK);
+        for tick in 1..=travel_ticks {
+            sh.tick(0);
+            if tick < travel_ticks {
+                assert_eq!(
+                    sh.frame().planet_presentation.phase,
+                    PlanetSequencePhase::Traveling
+                );
+            }
+        }
+        assert_eq!(
+            sh.frame().planet_presentation.phase,
+            PlanetSequencePhase::AwaitingConfirmation
+        );
+        launch_from_planet_select(&mut sh);
         let f = sh.frame();
         assert_eq!(f.stage, 1);
         assert_eq!(sh.state().code(), 4);
@@ -3500,11 +3777,161 @@ mod tests {
     fn into_gameplay() -> Shell {
         let mut sh = Shell::new();
         advance_to_planet_select(&mut sh);
-        sh.tick(0);
-        sh.tick(pad::START); // -> playing
+        launch_from_planet_select(&mut sh);
         assert_eq!(sh.state().code(), 4);
         let _ = sh.drain_sound(); // clear launch SFX
         sh
+    }
+
+    fn launch_from_planet_select(shell: &mut Shell) {
+        const MAX_PLANET_SEQUENCE_TICKS: usize = 512;
+
+        shell.tick(0);
+        if shell.frame().planet_presentation.phase == PlanetSequencePhase::Traveling {
+            for _ in 0..MAX_PLANET_SEQUENCE_TICKS {
+                if shell.frame().planet_presentation.phase
+                    == PlanetSequencePhase::AwaitingConfirmation
+                {
+                    break;
+                }
+                shell.tick(0);
+            }
+            assert_eq!(
+                shell.frame().planet_presentation.phase,
+                PlanetSequencePhase::AwaitingConfirmation
+            );
+        }
+        shell.tick(pad::START);
+        assert_eq!(
+            shell.frame().planet_presentation.phase,
+            PlanetSequencePhase::ShipFlash
+        );
+
+        for _ in 0..MAX_PLANET_SEQUENCE_TICKS {
+            if shell.frame().planet_presentation.phase == PlanetSequencePhase::Briefing {
+                break;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(
+            shell.frame().planet_presentation.phase,
+            PlanetSequencePhase::Briefing
+        );
+
+        shell.tick(0);
+        shell.tick(pad::START);
+        assert_eq!(
+            shell.frame().planet_presentation.phase,
+            PlanetSequencePhase::FadingOut
+        );
+        for _ in 0..MAX_PLANET_SEQUENCE_TICKS {
+            if shell.state() == GameState::Playing {
+                return;
+            }
+            shell.tick(0);
+        }
+        panic!("planet sequence did not hand off to gameplay");
+    }
+
+    fn assert_planet_phase_duration(
+        shell: &mut Shell,
+        phase: PlanetSequencePhase,
+        ticks: u16,
+        next_phase: PlanetSequencePhase,
+    ) {
+        assert_eq!(shell.frame().planet_presentation.phase, phase);
+        for elapsed in 1..=ticks {
+            shell.tick(0);
+            if elapsed < ticks {
+                assert_eq!(shell.frame().planet_presentation.phase, phase);
+            }
+        }
+        assert_eq!(shell.frame().planet_presentation.phase, next_phase);
+    }
+
+    #[test]
+    fn initial_planet_sequence_uses_the_authored_phase_boundaries() {
+        let mut shell = Shell::new();
+        advance_to_planet_select(&mut shell);
+        let entry_sounds = shell.drain_sound();
+        assert!(entry_sounds.contains(&SoundCmd::PlayMusic(MUSIC_PLANET_MAP)));
+        assert_eq!(
+            shell.frame().windowmode,
+            0,
+            "the retired controller-screen fade must not cover planetseq_l"
+        );
+
+        shell.tick(0);
+        shell.tick(pad::START);
+        assert_eq!(shell.frame().whichroute, 1);
+        let confirmation_sounds = shell.drain_sound();
+        assert!(confirmation_sounds.contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
+        assert!(confirmation_sounds.contains(&SoundCmd::PlaySe(PLANET_CONFIRM_SOUND)));
+
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::ShipFlash,
+            SHIP_FLASH_TICKS,
+            PlanetSequencePhase::FadingMap,
+        );
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::FadingMap,
+            MAP_FADE_TICKS,
+            PlanetSequencePhase::IsolatingPlanet,
+        );
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::IsolatingPlanet,
+            PLANET_ISOLATION_TICKS,
+            PlanetSequencePhase::CenteringPlanet,
+        );
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::CenteringPlanet,
+            PLANET_CENTER_TICKS,
+            PlanetSequencePhase::ZoomingPlanet,
+        );
+        assert!(shell
+            .drain_sound()
+            .contains(&SoundCmd::PlayMusic(MUSIC_PLANET_ZOOM)));
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::ZoomingPlanet,
+            PLANET_ZOOM_TICKS,
+            PlanetSequencePhase::RevealingPepper,
+        );
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::RevealingPepper,
+            PEPPER_REVEAL_TICKS,
+            PlanetSequencePhase::RevealingPlanetName,
+        );
+        let heading_ticks = u16::try_from(planet_heading(Sf1Planet::Corneria).len())
+            .expect("planet heading fits presentation counter")
+            * PLANET_NAME_CHARACTER_TICKS;
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::RevealingPlanetName,
+            heading_ticks,
+            PlanetSequencePhase::Briefing,
+        );
+        assert_eq!(shell.frame().whichroute, 1);
+
+        shell.tick(0);
+        shell.tick(pad::B);
+        assert_eq!(
+            shell.frame().planet_presentation.phase,
+            PlanetSequencePhase::FadingOut
+        );
+        assert!(shell
+            .drain_sound()
+            .contains(&SoundCmd::PlaySe(PEPPER_DISMISS_SOUND)));
+        for _ in 0..PLANET_EXIT_TICKS {
+            shell.tick(0);
+        }
+        assert_eq!(shell.state(), GameState::Playing);
+        assert_eq!(shell.frame().whichroute, 0);
     }
 
     /// AUDIT_BOSS_TICKS2 High #5: begin_gameplay writes strat `currentlevel`
@@ -3525,8 +3952,7 @@ mod tests {
         advance_to_planet_select(&mut sh);
         sh.tick(0);
         sh.tick(pad::RIGHT); // whichroute 1→2 = hard
-        sh.tick(0);
-        sh.tick(pad::START); // → Playing
+        launch_from_planet_select(&mut sh);
         assert_eq!(sh.state(), GameState::Playing);
         assert_eq!(sh.planets.currentlevel, 2);
         assert_eq!(sh.game.vars.shared.difficulty_level, 3);
@@ -3673,6 +4099,8 @@ mod tests {
             assert_eq!(sh.planets.routes[3], expect, "LE code {lf} routes[3]");
             // Warp path skips the tally: never enters GameState::Tally.
             assert_ne!(sh.state(), GameState::Tally, "LE code {lf} showed tally");
+            assert_eq!(sh.state(), GameState::PlanetSelect);
+            launch_from_planet_select(&mut sh);
             assert_eq!(sh.state().code(), 4, "LE code {lf} back to Playing");
         }
     }
@@ -3686,7 +4114,7 @@ mod tests {
         run_settle(&mut sh, le::SPECIAL);
         assert_eq!(sh.planets.routes[0], path_id::P22);
         assert_eq!(sh.planets.nebula_on, path_id::P22);
-        assert_ne!(sh.state(), GameState::Tally);
+        assert_eq!(sh.state(), GameState::PlanetSelect);
     }
 
     /// Finding 1: the `routechange 2` arm paired with LE_ENTERBHOLE walks
@@ -3701,7 +4129,7 @@ mod tests {
         sh.planets.stage = 1;
         run_settle(&mut sh, le::ENTERBHOLE);
         assert_eq!(sh.frame().newmap, map_id::BLACKHOLE);
-        assert_ne!(sh.state(), GameState::Tally);
+        assert_eq!(sh.state(), GameState::PlanetSelect);
     }
 
     /// Finding 1: with routechange 1 applied upstream, LE_ENTERSPEC walks into
@@ -3717,7 +4145,7 @@ mod tests {
         run_settle(&mut sh, le::ENTERSPEC);
         assert_eq!(sh.frame().newmap, map_id::SPECIAL);
         assert_eq!(sh.frame().currentplanet, 14);
-        assert_ne!(sh.state(), GameState::Tally);
+        assert_eq!(sh.state(), GameState::PlanetSelect);
     }
 
     /// End-of-level tally: computes calcstageperc from specials_dead /

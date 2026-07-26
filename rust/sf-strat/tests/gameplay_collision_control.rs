@@ -13,7 +13,7 @@
 //! `level_scramble_keep_player_strat` — before the exit-base setup that hands
 //! control back. Fixed by registering those callbacks at level load.
 
-use sf_core::pad;
+use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_game::shell::{
     GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
@@ -67,7 +67,21 @@ fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
         sh.tick(pad::DOWN);
         sh.tick(0);
     }
-    sh.tick(pad::START); // select -> begin gameplay
+    sh.tick(pad::START); // confirm route
+    for _ in 0..512 {
+        if sh.frame().planet_presentation.phase == PlanetSequencePhase::Briefing {
+            break;
+        }
+        sh.tick(0);
+    }
+    assert_eq!(
+        sh.frame().planet_presentation.phase,
+        PlanetSequencePhase::Briefing,
+        "route {route_downs}: planet sequence did not reach General Pepper"
+    );
+    sh.tick(0);
+    sh.tick(pad::B); // dismiss General Pepper
+
     for _ in 0..max {
         if sh.state() == GameState::Playing && sh.game.vars.pshipflags & PSF_NOCTRL == 0 {
             break;

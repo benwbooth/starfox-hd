@@ -9,7 +9,7 @@
 //! the `Planets_Init` call site (planets.c:306).
 
 use crate::score;
-use sf_core::pad;
+use sf_core::{pad, sf1_planets::Sf1BriefingMessage};
 
 /// C `PLANET_ROUTE_CHOICES` (src/game/planets.c:9).
 pub const PLANET_ROUTE_CHOICES: u8 = 3;
@@ -19,37 +19,18 @@ pub const PLANET_ROUTE_SLOTS: usize = 4;
 /// C `DEFAULT_LIVES` (src/variables.h:303).
 pub const DEFAULT_LIVES: u8 = 3;
 
+/// Result of one first-game route-selection input sample.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteSelectionResult {
+    Idle,
+    Changed,
+    Confirmed,
+}
+
 /// C `PlanetPathId` (src/game/planets.c:40-69). PATH_ID_1..=22 are the
 /// enum's numeric values; the ends follow.
 pub mod path_id {
-    pub const INVALID: u16 = 0;
-    pub const P1: u16 = 1;
-    pub const P2: u16 = 2;
-    pub const P3: u16 = 3;
-    pub const P4: u16 = 4;
-    pub const P5: u16 = 5;
-    pub const P6: u16 = 6;
-    pub const P7: u16 = 7;
-    pub const P8: u16 = 8;
-    pub const P9: u16 = 9;
-    pub const P10: u16 = 10;
-    pub const P11: u16 = 11;
-    pub const P12: u16 = 12;
-    pub const P13: u16 = 13;
-    pub const P14: u16 = 14;
-    pub const P15: u16 = 15;
-    pub const P16: u16 = 16;
-    pub const P17: u16 = 17;
-    pub const P18: u16 = 18;
-    pub const P19: u16 = 19;
-    pub const P20: u16 = 20;
-    pub const P21: u16 = 21;
-    pub const P22: u16 = 22;
-    pub const END3: u16 = 23;
-    pub const END2: u16 = 24;
-    pub const END1: u16 = 25;
-    pub const OTHEREND: u16 = 26;
-    pub const COUNT: u16 = 27;
+    pub use sf_core::sf1_planets::route_path::*;
 }
 
 /// C `PathNextType` (src/game/planets.c:71-75).
@@ -66,7 +47,7 @@ enum NextType {
 struct StagePathNode {
     planet: u8,
     map_id: u32,
-    peppermsg: u8,
+    briefing_message: Sf1BriefingMessage,
     currentlevel: u8,
     next_type: NextType,
     choice_slot: u8,
@@ -76,7 +57,7 @@ struct StagePathNode {
 const NODE_UNUSED: StagePathNode = StagePathNode {
     planet: 0,
     map_id: 0,
-    peppermsg: 0,
+    briefing_message: Sf1BriefingMessage::None,
     currentlevel: 0,
     next_type: NextType::None,
     choice_slot: 0,
@@ -86,7 +67,7 @@ const NODE_UNUSED: StagePathNode = StagePathNode {
 const fn node(
     planet: u8,
     map_id: u32,
-    peppermsg: u8,
+    briefing_message: Sf1BriefingMessage,
     currentlevel: u8,
     next_type: NextType,
     choice_slot: u8,
@@ -95,7 +76,7 @@ const fn node(
     StagePathNode {
         planet,
         map_id,
-        peppermsg,
+        briefing_message,
         currentlevel,
         next_type,
         choice_slot,
@@ -110,34 +91,35 @@ const ROUTE_ROOTS: [u16; PLANET_ROUTE_CHOICES as usize] = [path_id::P1, path_id:
 #[rustfmt::skip]
 const STAGE_PATHS: [StagePathNode; path_id::COUNT as usize] = {
     use sf_map::catalog::map_id as m;
+    use Sf1BriefingMessage as B;
     use NextType::{Direct, None as NoneT, RouteChoice};
     let mut t = [NODE_UNUSED; path_id::COUNT as usize];
-    t[path_id::P1 as usize]  = node( 0, m::M2_1,       88, 1, RouteChoice, 2, path_id::INVALID);
-    t[path_id::P2 as usize]  = node( 3, m::M2_2,       89, 1, Direct,      0, path_id::P3);
-    t[path_id::P3 as usize]  = node( 5, m::M2_3,      106, 1, Direct,      0, path_id::P4);
-    t[path_id::P4 as usize]  = node( 9, m::M2_4,      107, 1, Direct,      0, path_id::P5);
-    t[path_id::P5 as usize]  = node(15, m::M2_5,      114, 1, Direct,      0, path_id::END2);
-    t[path_id::P6 as usize]  = node( 0, m::M1_1,       88, 0, RouteChoice, 1, path_id::INVALID);
-    t[path_id::P7 as usize]  = node( 2, m::M1_2,       89, 0, Direct,      0, path_id::P8);
-    t[path_id::P8 as usize]  = node( 6, m::M1_3,       90, 0, Direct,      0, path_id::P9);
-    t[path_id::P9 as usize]  = node( 8, m::M1_4,       91, 0, Direct,      0, path_id::P10);
-    t[path_id::P10 as usize] = node(15, m::M1_5,       92, 0, Direct,      0, path_id::END1);
-    t[path_id::P11 as usize] = node( 0, m::M3_1,      108, 2, RouteChoice, 0, path_id::INVALID);
-    t[path_id::P12 as usize] = node( 1, m::M3_2,      109, 2, Direct,      0, path_id::P13);
-    t[path_id::P13 as usize] = node( 4, m::M3_3,      110, 2, Direct,      0, path_id::P14);
-    t[path_id::P14 as usize] = node( 7, m::M3_4,      111, 2, Direct,      0, path_id::P15);
-    t[path_id::P15 as usize] = node(11, m::M3_5,      112, 2, Direct,      0, path_id::P16);
-    t[path_id::P16 as usize] = node(15, m::M3_6,      116, 2, Direct,      0, path_id::END3);
-    t[path_id::P17 as usize] = node( 3, m::M2_2,       89, 1, RouteChoice, 3, path_id::INVALID);
-    t[path_id::P18 as usize] = node(10, m::BLACKHOLE, 113, 0, Direct,      0, path_id::P4);
-    t[path_id::P19 as usize] = node(10, m::BLACKHOLE, 113, 0, Direct,      0, path_id::P10);
-    t[path_id::P20 as usize] = node(10, m::BLACKHOLE, 113, 0, Direct,      0, path_id::P14);
-    t[path_id::P21 as usize] = node( 2, m::M1_2,       89, 0, RouteChoice, 3, path_id::INVALID);
-    t[path_id::P22 as usize] = node( 1, m::M3_2,      109, 2, Direct,      0, path_id::OTHEREND);
-    t[path_id::END3 as usize]     = node(15, m::M3_7,     116, 2, NoneT, 0, path_id::INVALID);
-    t[path_id::END2 as usize]     = node(15, m::M2_6,     114, 1, NoneT, 0, path_id::INVALID);
-    t[path_id::END1 as usize]     = node(15, m::M1_6,      92, 0, NoneT, 0, path_id::INVALID);
-    t[path_id::OTHEREND as usize] = node(14, m::SPECIAL,  115, 0, NoneT, 0, path_id::INVALID);
+    t[path_id::P1 as usize]  = node( 0, m::M2_1,       B::CounterattackVenom, 1, RouteChoice, 2, path_id::INVALID);
+    t[path_id::P2 as usize]  = node( 3, m::M2_2,       B::DestroyRockCrusher, 1, Direct,      0, path_id::P3);
+    t[path_id::P3 as usize]  = node( 5, m::M2_3,       B::RetakeWeatherControl, 1, Direct,      0, path_id::P4);
+    t[path_id::P4 as usize]  = node( 9, m::M2_4,       B::EscapeAmoeba, 1, Direct,      0, path_id::P5);
+    t[path_id::P5 as usize]  = node(15, m::M2_5,       B::VenomBackDoor, 1, Direct,      0, path_id::END2);
+    t[path_id::P6 as usize]  = node( 0, m::M1_1,       B::CounterattackVenom, 0, RouteChoice, 1, path_id::INVALID);
+    t[path_id::P7 as usize]  = node( 2, m::M1_2,       B::DestroyRockCrusher, 0, Direct,      0, path_id::P8);
+    t[path_id::P8 as usize]  = node( 6, m::M1_3,       B::DestroyArmadaCores, 0, Direct,      0, path_id::P9);
+    t[path_id::P9 as usize]  = node( 8, m::M1_4,       B::UseRetros, 0, Direct,      0, path_id::P10);
+    t[path_id::P10 as usize] = node(15, m::M1_5,       B::DestroyAndrossCore, 0, Direct,      0, path_id::END1);
+    t[path_id::P11 as usize] = node( 0, m::M3_1,       B::CourseThree, 2, RouteChoice, 0, path_id::INVALID);
+    t[path_id::P12 as usize] = node( 1, m::M3_2,       B::EscapeTractorBeam, 2, Direct,      0, path_id::P13);
+    t[path_id::P13 as usize] = node( 4, m::M3_3,       B::FortunaCreatures, 2, Direct,      0, path_id::P14);
+    t[path_id::P14 as usize] = node( 7, m::M3_4,       B::ProceedToMacbeth, 2, Direct,      0, path_id::P15);
+    t[path_id::P15 as usize] = node(11, m::M3_5,       B::PreventMacbethBase, 2, Direct,      0, path_id::P16);
+    t[path_id::P16 as usize] = node(15, m::M3_6,       B::DestroyAndross, 2, Direct,      0, path_id::END3);
+    t[path_id::P17 as usize] = node( 3, m::M2_2,       B::DestroyRockCrusher, 1, RouteChoice, 3, path_id::INVALID);
+    t[path_id::P18 as usize] = node(10, m::BLACKHOLE,  B::BlackHoleWarning, 0, Direct,      0, path_id::P4);
+    t[path_id::P19 as usize] = node(10, m::BLACKHOLE,  B::BlackHoleWarning, 0, Direct,      0, path_id::P10);
+    t[path_id::P20 as usize] = node(10, m::BLACKHOLE,  B::BlackHoleWarning, 0, Direct,      0, path_id::P14);
+    t[path_id::P21 as usize] = node( 2, m::M1_2,       B::DestroyRockCrusher, 0, RouteChoice, 3, path_id::INVALID);
+    t[path_id::P22 as usize] = node( 1, m::M3_2,       B::EscapeTractorBeam, 2, Direct,      0, path_id::OTHEREND);
+    t[path_id::END3 as usize]     = node(15, m::M3_7,     B::DestroyAndross, 2, NoneT, 0, path_id::INVALID);
+    t[path_id::END2 as usize]     = node(15, m::M2_6,     B::VenomBackDoor, 1, NoneT, 0, path_id::INVALID);
+    t[path_id::END1 as usize]     = node(15, m::M1_6,     B::DestroyAndrossCore, 0, NoneT, 0, path_id::INVALID);
+    t[path_id::OTHEREND as usize] = node(14, m::SPECIAL,  B::ProtectCorneria, 0, NoneT, 0, path_id::INVALID);
     t
 };
 
@@ -178,8 +160,8 @@ pub struct Planets {
     pub mapmode: u16,
     /// C `g_newmap`.
     pub newmap: u32,
-    /// C `g_peppermsg`.
-    pub peppermsg: u8,
+    /// Source `peppermsg`, represented by its mission-domain identity.
+    pub briefing_message: Sf1BriefingMessage,
     /// C `g_nebula_on`.
     pub nebula_on: u16,
     /// C `s_route_converted` (planets.c:122).
@@ -209,7 +191,7 @@ impl Default for Planets {
             currentplanet: -1,
             mapmode: 0,
             newmap: 0,
-            peppermsg: 0,
+            briefing_message: Sf1BriefingMessage::None,
             nebula_on: 0,
             route_converted: false,
             credits: 0,
@@ -292,6 +274,81 @@ impl Planets {
         }
     }
 
+    /// Enter the first-game route-selection loop. The map sequence keeps the
+    /// converted route value until its final gameplay handoff, matching
+    /// `planetseq_l`.
+    pub fn begin_route_selection(&mut self) {
+        if !self.route_converted {
+            self.convertroute();
+            self.route_converted = true;
+        }
+        self.stage = 0;
+        let _ = self.drawplanetlines();
+    }
+
+    /// Enter a later-stage map walk and return the source stage-path identity
+    /// traversed from the previous planet. The converted route remains active
+    /// through confirmation and the General Pepper sequence.
+    pub fn begin_stage_map_walk(&mut self) -> Option<u16> {
+        if !self.route_converted {
+            self.convertroute();
+            self.route_converted = true;
+        }
+        let travel_index = usize::from(self.stage.saturating_sub(1));
+        let travel_path = self
+            .route_path_ids(self.whichroute)
+            .get(travel_index)
+            .copied();
+        if self.drawplanetlines() {
+            travel_path
+        } else {
+            None
+        }
+    }
+
+    /// Sample the source route-selection controls without skipping the
+    /// presentation that follows confirmation.
+    pub fn route_selection_input(&mut self, press: u16) -> RouteSelectionResult {
+        if press & (pad::LEFT | pad::SELECT | pad::UP) != 0 {
+            self.whichroute = normalize_route_choice(self.whichroute);
+            self.whichroute = if self.whichroute == 0 {
+                PLANET_ROUTE_CHOICES - 1
+            } else {
+                self.whichroute - 1
+            };
+            let _ = self.drawplanetlines();
+            return RouteSelectionResult::Changed;
+        }
+
+        if press & (pad::RIGHT | pad::DOWN) != 0 {
+            self.whichroute = normalize_route_choice(self.whichroute);
+            self.whichroute += 1;
+            if self.whichroute >= PLANET_ROUTE_CHOICES {
+                self.whichroute = 0;
+            }
+            let _ = self.drawplanetlines();
+            return RouteSelectionResult::Changed;
+        }
+
+        if press & (pad::START | pad::A | pad::B) != 0 {
+            self.stage = 0;
+            self.currentplanet = 0;
+            let _ = self.drawplanetlines();
+            return RouteSelectionResult::Confirmed;
+        }
+
+        RouteSelectionResult::Idle
+    }
+
+    /// Restore the gameplay route encoding at the source's final planet-map
+    /// handoff.
+    pub fn finish_map_sequence(&mut self) {
+        if self.route_converted {
+            self.convertroute();
+            self.route_converted = false;
+        }
+    }
+
     // C routechange* map callbacks (src/game/planets.c:144-167). Not yet
     // reachable — the map lane has not registered ROUTECHANGE native
     // callbacks in sf-map; exposed for that wiring.
@@ -333,7 +390,7 @@ impl Planets {
 
             self.currentplanet = n.planet as i16;
             self.newmap = n.map_id;
-            self.peppermsg = n.peppermsg;
+            self.briefing_message = n.briefing_message;
             self.currentlevel = n.currentlevel;
 
             if stage_remaining == 0 {
@@ -355,7 +412,7 @@ impl Planets {
 
         self.currentplanet = -1;
         self.newmap = sf_map::catalog::map_id::NONE;
-        self.peppermsg = 0;
+        self.briefing_message = Sf1BriefingMessage::None;
         false
     }
 
@@ -410,53 +467,6 @@ impl Planets {
         }
         out
     }
-
-    /// C `Planets_Update()` (src/game/planets.c:311). `press` is the
-    /// new-press pad word (C `g_pad1_new`). Returns true when the player
-    /// launched (C calls `Game_BeginGameplayFromPlanetSelect()` directly;
-    /// the shell does that on a true return).
-    pub fn update(&mut self, press: u16) -> bool {
-        if !self.route_converted {
-            self.convertroute();
-            self.route_converted = true;
-        }
-
-        let _ = self.drawplanetlines();
-
-        if press & (pad::LEFT | pad::SELECT | pad::UP) != 0 {
-            self.whichroute = normalize_route_choice(self.whichroute);
-            self.whichroute = if self.whichroute == 0 {
-                2
-            } else {
-                self.whichroute - 1
-            };
-            let _ = self.drawplanetlines();
-            return false;
-        }
-
-        if press & (pad::RIGHT | pad::DOWN) != 0 {
-            self.whichroute = normalize_route_choice(self.whichroute);
-            self.whichroute += 1;
-            if self.whichroute >= PLANET_ROUTE_CHOICES {
-                self.whichroute = 0;
-            }
-            let _ = self.drawplanetlines();
-            return false;
-        }
-
-        if press & (pad::START | pad::A | pad::B) != 0 {
-            self.stage = 0;
-            self.currentplanet = 0;
-            let _ = self.drawplanetlines();
-
-            // planetseq_l converts route back before entering gameplay.
-            self.convertroute();
-            self.route_converted = false;
-            return true;
-        }
-
-        false
-    }
 }
 
 #[cfg(test)]
@@ -490,14 +500,14 @@ mod tests {
         assert_eq!(p.newmap, m::M1_1);
         assert_eq!(p.currentlevel, 0);
         assert_eq!(p.currentplanet, 0);
-        assert_eq!(p.peppermsg, 88);
+        assert_eq!(p.briefing_message, Sf1BriefingMessage::CounterattackVenom);
 
         // Stage past END1 fails and resets outputs (planets.c:214-217).
         p.stage = 6;
         assert!(!p.drawplanetlines());
         assert_eq!(p.currentplanet, -1);
         assert_eq!(p.newmap, m::NONE);
-        assert_eq!(p.peppermsg, 0);
+        assert_eq!(p.briefing_message, Sf1BriefingMessage::None);
     }
 
     #[test]
@@ -530,18 +540,24 @@ mod tests {
     }
 
     #[test]
-    fn update_launch_sequence() {
+    fn route_selection_keeps_the_converted_route_until_the_map_sequence_finishes() {
         let mut p = Planets::new();
         p.init();
-        // First update converts route 0 -> 1 (planets.c:314-317).
-        assert!(!p.update(0));
+        p.begin_route_selection();
         assert_eq!(p.whichroute, 1);
         assert_eq!(p.newmap, m::M1_1);
-        // Launch: stage reset, resolve, convert back.
-        assert!(p.update(sf_core::pad::START));
-        assert_eq!(p.whichroute, 0);
+
+        assert_eq!(
+            p.route_selection_input(sf_core::pad::START),
+            RouteSelectionResult::Confirmed
+        );
+        assert_eq!(p.whichroute, 1);
         assert_eq!(p.newmap, m::M1_1);
         assert_eq!(p.stage, 0);
+
+        p.finish_map_sequence();
+        assert_eq!(p.whichroute, 0);
+        assert_eq!(p.newmap, m::M1_1);
     }
 }
 

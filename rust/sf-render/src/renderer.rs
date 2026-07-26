@@ -29,6 +29,7 @@ use sf_core::{
     },
     screen_wipe::ScreenWipeState,
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
+    sf1_planets::PlanetPresentation,
 };
 
 /// Semantic presentation state shared by the native game and renderer.
@@ -440,6 +441,8 @@ pub struct FrameInputs<'a> {
     pub nebula_on: u16,
     /// Planets_GetRoutePathIds(g_whichroute) — PATH_ID_* sequence.
     pub route_path_ids: &'a [u16],
+    /// Typed route-map and General Pepper presentation.
+    pub planet_presentation: PlanetPresentation,
 
     // Score / tally (MAIN.ASM end_level_seq; PLANETS.ASM drawroutename)
     /// Running total hit-percentage score (ROM calctotalscore/tpa). Drawn on
@@ -514,6 +517,7 @@ impl<'a> Default for FrameInputs<'a> {
             currentplanet: -1,
             nebula_on: 0,
             route_path_ids: &[],
+            planet_presentation: PlanetPresentation::default(),
         }
     }
 }
