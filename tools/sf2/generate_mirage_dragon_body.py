@@ -72,6 +72,9 @@ HEAD_ORBIT_MOVE_PATH = "F616"
 HEAD_ORIENTED_MOVE_PATHS = {"F5F5", "F602", HEAD_ORBIT_MOVE_PATH}
 HEAD_POSITION_Y_LOW = int(HEAD_OBJECT, 16) + 14
 HEAD_POSITION_Y_HIGH = HEAD_POSITION_Y_LOW + 1
+HEAD_POSITION_Z_HIGH = int(HEAD_OBJECT, 16) + 17
+HEAD_MOVEMENT_WRITE_SOURCE = "7F:2C3B"
+HEAD_ORBIT_WRITE_SOURCE = "7F:AE52"
 
 Action = tuple[str, tuple[int, ...]]
 
@@ -88,6 +91,7 @@ def import_raw(source: Path, start_elapsed: int) -> dict[int, list[Action]]:
     schedule: dict[int, list[Action]] = defaultdict(list)
     pending_head_orbit_position: tuple[int, int, int] | None = None
     pending_head_vertical: tuple[int, int] | None = None
+    pending_head_move: tuple[str, tuple[int, int, int]] | None = None
 
     def append_action(retail_frame: int, operation: str, *arguments: int) -> None:
         presentation_frame = (
@@ -177,28 +181,48 @@ def import_raw(source: Path, start_elapsed: int) -> dict[int, list[Action]]:
                         int(value) for value in values["pose"].split(",")[:3]
                     )
                 elif event == "move":
-                    if values.get("path") == HEAD_ORBIT_MOVE_PATH:
-                        if pending_head_orbit_position is None:
-                            raise SystemExit("Mirage Dragon orbit move lacks its orbit entry")
-                        position = tuple(
-                            int(value) for value in values["pose"].split(",")[:3]
-                        )
-                        append_action(
-                            retail_frame,
-                            "head-orbit",
-                            *(end - start for start, end in zip(
-                                pending_head_orbit_position, position
-                            )),
-                        )
-                        pending_head_orbit_position = None
                     if values.get("path") in HEAD_ORIENTED_MOVE_PATHS:
+                        pending_head_move = (
+                            values["path"],
+                            tuple(int(value) for value in values["velocity"].split(",")),
+                        )
+                    else:
+                        pending_head_move = (
+                            values["path"],
+                            tuple(int(value) for value in values["velocity"].split(",")),
+                        )
+                elif (
+                    event == "main-position-write"
+                    and values.get("source") == HEAD_ORBIT_WRITE_SOURCE
+                    and int(values["address"], 16) == HEAD_POSITION_Z_HIGH
+                ):
+                    if pending_head_orbit_position is None or line_position is None:
+                        raise SystemExit(
+                            "Mirage Dragon orbit completion lacks its path entry"
+                        )
+                    append_action(
+                        retail_frame,
+                        "head-orbit",
+                        *(end - start for start, end in zip(
+                            pending_head_orbit_position, line_position
+                        )),
+                    )
+                    pending_head_orbit_position = None
+                elif (
+                    event == "main-position-write"
+                    and values.get("source") == HEAD_MOVEMENT_WRITE_SOURCE
+                    and int(values["address"], 16) == HEAD_POSITION_Z_HIGH
+                ):
+                    if pending_head_move is None:
+                        raise SystemExit(
+                            "Mirage Dragon movement completion lacks its path entry"
+                        )
+                    path, velocity = pending_head_move
+                    if path in HEAD_ORIENTED_MOVE_PATHS:
                         append_action(retail_frame, "head-move")
                     else:
-                        append_action(
-                            retail_frame,
-                            "head-linear-move",
-                            *(int(value) for value in values["velocity"].split(",")),
-                        )
+                        append_action(retail_frame, "head-linear-move", *velocity)
+                    pending_head_move = None
         if source_object not in SOURCE_OBJECT_ORDINALS:
             continue
         object_address = int(source_object, 16)
@@ -234,6 +258,10 @@ def import_raw(source: Path, start_elapsed: int) -> dict[int, list[Action]]:
             continue
         append_action(retail_frame, operation, SOURCE_OBJECT_ORDINALS[source_object])
 
+    if pending_head_move is not None:
+        raise SystemExit("Mirage Dragon follow trace ends with an incomplete movement")
+    if pending_head_orbit_position is not None:
+        raise SystemExit("Mirage Dragon follow trace ends with an incomplete orbit")
     expected_frames = range(
         FOLLOW_PRESENTATION_START_RETAIL_FRAME,
         FOLLOW_PRESENTATION_END_RETAIL_FRAME + 1,
@@ -452,6 +480,7 @@ def rust_source(fixture: Path, schedule: dict[int, list[Action]]) -> str:
         f"const LAST_RETAIL_FRAME: u16 = {DEPARTURE_END_RETAIL_FRAME};",
         f"const RETAIL_FRAME_STEP: u16 = {PRESENTATION_FRAME_STEP};",
         "",
+        "#[rustfmt::skip]",
         f"static RANGES: [ActionRange; {len(ranges)}] = [",
     ]
     lines.extend(

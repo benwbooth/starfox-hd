@@ -17,12 +17,12 @@ use super::object::{
     FighterWeaponPhase, FinalRivalFlightPhase, FinalRivalFlightState, FortunaCoreProjectileState,
     FortunaKickGunnerProjectileState, HostileProjectileFlightPhase, HostileProjectileFlightState,
     HostileProjectileMovementPhase, InterceptionMissileFlightState, InterceptionMissileSteering,
-    LeonRivalFlightPhase, LeonRivalFlightState, LeonRivalMovementPhase, MirageDragonSegmentPhase,
-    MirageDragonSegmentState, Object, ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase,
-    PigmaRivalFlightState, PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind,
-    PlayerProjectileState, QueenDragoonFlightState, ReengagementFighterFlightState,
-    ReengagementFighterMovementPhase, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
-    StereoPosition, Vector3, WeaponKind,
+    LeonRivalFlightPhase, LeonRivalFlightState, LeonRivalMovementPhase, MirageDragonHeadPhase,
+    MirageDragonHeadState, MirageDragonSegmentPhase, MirageDragonSegmentState, Object,
+    ObjectActivity, ObjectId, ObjectKind, PigmaRivalFlightPhase, PigmaRivalFlightState,
+    PlayerChargeOrbPhase, PlayerChargeOrbState, PlayerProjectileKind, PlayerProjectileState,
+    QueenDragoonFlightState, ReengagementFighterFlightState, ReengagementFighterMovementPhase,
+    ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition, Vector3, WeaponKind,
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
@@ -94,6 +94,8 @@ mod meteor_installation_core;
 mod meteor_queen_dragoon;
 #[path = "mirage_dragon.rs"]
 mod mirage_dragon;
+#[path = "mirage_dragon_head.rs"]
+mod mirage_dragon_head;
 #[path = "mirage_dragon_body.rs"]
 mod mirage_dragon_body;
 #[path = "mirage_dragon_body_actions.rs"]
@@ -5487,7 +5489,6 @@ pub struct Game {
     final_rival: Option<ObjectId>,
     final_rival_projectiles: Vec<ActiveFinalRivalProjectile>,
     mirage_dragon: Option<ObjectId>,
-    mirage_dragon_follow_anchor: Option<mirage_dragon_body::PartAnchor>,
     mirage_dragon_body: [Option<ObjectId>; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
     mirage_dragon_tail: Option<ObjectId>,
     meteor_queen_body: Option<ObjectId>,
@@ -5588,7 +5589,6 @@ impl Game {
                     + wolf_blockade_projectiles::PROJECTILE_COUNT,
             ),
             mirage_dragon: None,
-            mirage_dragon_follow_anchor: None,
             mirage_dragon_body: [None; MIRAGE_DRAGON_BODY_SEGMENT_COUNT],
             mirage_dragon_tail: None,
             meteor_queen_body: None,
@@ -8279,12 +8279,8 @@ impl Game {
         } else {
             self.update_mirage_dragon_presentation(retail_frame);
         }
-        let previous_head = self
-            .mirage_dragon
-            .and_then(|id| self.state.objects.get(id))
-            .map(mirage_dragon_body::PartAnchor::from_object);
-        self.update_mirage_dragon_actor(retail_frame);
-        self.update_mirage_dragon_segments(retail_frame, previous_head);
+        self.update_mirage_dragon_head(retail_frame);
+        self.update_mirage_dragon_segments(retail_frame);
         Ok(())
     }
 
@@ -13490,7 +13486,6 @@ impl Game {
         if let Some(boss) = self.mirage_dragon.take() {
             self.state.objects.remove(boss);
         }
-        self.mirage_dragon_follow_anchor = None;
         for segment in &mut self.mirage_dragon_body {
             if let Some(object) = segment.take() {
                 self.state.objects.remove(object);
@@ -14178,7 +14173,6 @@ impl Game {
     }
 
     fn spawn_mirage_dragon(&mut self) -> Result<(), Error> {
-        self.mirage_dragon_follow_anchor = None;
         let mut boss = Object::new(
             ObjectKind::Enemy,
             ShapeId::MIRAGE_DRAGON_HEAD,
@@ -14191,6 +14185,11 @@ impl Game {
         boss.base.flags.visible = false;
         boss.base.flags.collision_disabled = true;
         boss.base.flags.casts_shadow = false;
+        boss.extension.activity = ObjectActivity::MirageDragonHead(MirageDragonHeadState {
+            phase: MirageDragonHeadPhase::AwaitingEntrance,
+            departure_motion_updates: 0,
+            departure_turn_updates: 0,
+        });
         self.mirage_dragon = Some(
             self.state
                 .objects
@@ -16503,96 +16502,70 @@ impl Game {
         }
     }
 
-    fn update_mirage_dragon_actor(&mut self, retail_frame: u16) {
-        let keyframes = &mirage_dragon::RIVAL_KEYFRAMES;
-        if retail_frame < keyframes[0].retail_frame {
-            return;
-        }
-        let (start, end) =
-            enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-        let presentation = if retail_frame >= end.retail_frame {
-            end.presentation
-        } else {
-            match (start.presentation, end.presentation) {
-                (
-                    MissionActorPresentation::Present(start_pose),
-                    MissionActorPresentation::Present(end_pose),
-                ) => MissionActorPresentation::Present(interpolate_encounter_pose(
-                    start_pose,
-                    end_pose,
-                    retail_frame.saturating_sub(start.retail_frame),
-                    end.retail_frame.saturating_sub(start.retail_frame),
-                )),
-                (presentation, _) => presentation,
-            }
-        };
-        if presentation == MissionActorPresentation::Departed {
-            let destruction_in_progress = self
-                .mirage_dragon
-                .and_then(|id| self.state.objects.get(id))
-                .is_some_and(|object| {
-                    object.base.explosion_timer > 0 || object.base.flags.exploding
-                });
-            if destruction_in_progress {
-                return;
-            }
-            if let Some(boss) = self.mirage_dragon.take() {
-                self.state.objects.remove(boss);
-                self.state.mission.score = self
-                    .state
-                    .mission
-                    .score
-                    .saturating_add(MIRAGE_DRAGON_SCORE_AWARD);
-                self.state.mission.objects_destroyed =
-                    self.state.mission.objects_destroyed.saturating_add(1);
-            }
-            return;
-        }
-        let Some(boss) = self.mirage_dragon else {
-            return;
-        };
-        let Some(object) = self.state.objects.get_mut(boss) else {
-            return;
-        };
-        if object.base.explosion_timer > 0 || object.base.flags.exploding {
-            return;
-        }
-        match presentation {
-            MissionActorPresentation::Present(pose) => {
-                object.base.flags.active = true;
-                object.base.flags.visible = true;
-                object.base.flags.collision_disabled = false;
-                object.base.position = pose.position;
-                object.base.pitch = Angle::from_units(pose.pitch);
-                object.base.yaw = Angle::from_units(pose.yaw);
-                object.base.roll = Angle::from_units(pose.roll);
-                object.base.speed = pose.speed;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Inactive => {
-                object.base.flags.active = false;
-                object.base.flags.visible = false;
-                object.base.flags.collision_disabled = true;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Departed => unreachable!(),
-        }
-    }
-
-    fn update_mirage_dragon_segments(
-        &mut self,
-        retail_frame: u16,
-        previous_head: Option<mirage_dragon_body::PartAnchor>,
-    ) {
+    fn update_mirage_dragon_head(&mut self, retail_frame: u16) {
         let Some(head_id) = self.mirage_dragon else {
             return;
         };
-        let Some(head) = self
-            .state
-            .objects
-            .get(head_id)
-            .map(mirage_dragon_body::PartAnchor::from_object)
-        else {
+        let destruction_in_progress =
+            self.state.objects.get(head_id).is_some_and(|object| {
+                object.base.explosion_timer > 0 || object.base.flags.exploding
+            });
+        if destruction_in_progress {
+            return;
+        }
+        if retail_frame >= mirage_dragon::HEAD_REMOVAL_RETAIL_FRAME {
+            self.state.objects.remove(head_id);
+            self.mirage_dragon = None;
+            self.state.mission.score = self
+                .state
+                .mission
+                .score
+                .saturating_add(MIRAGE_DRAGON_SCORE_AWARD);
+            self.state.mission.objects_destroyed =
+                self.state.mission.objects_destroyed.saturating_add(1);
+            return;
+        }
+
+        if retail_frame == mirage_dragon::HEAD_ENTRANCE_RETAIL_FRAME {
+            if let Some(object) = self.state.objects.get_mut(head_id) {
+                mirage_dragon_head::activate(object);
+            }
+        }
+        let Some(cadence) = mirage_dragon::head_departure_cadence(retail_frame) else {
+            return;
+        };
+        if retail_frame == mirage_dragon::HEAD_DEPARTURE_RETAIL_FRAME {
+            // Retail's face-player handler substitutes the fixed view object
+            // for the selected player before calculating the head's pitch and
+            // yaw. The native camera is that same world-space anchor.
+            let view_position = self.state.camera.position;
+            if let Some(object) = self.state.objects.get_mut(head_id) {
+                mirage_dragon_head::begin_departure(
+                    object,
+                    view_position,
+                    cadence.movement_updates,
+                    cadence.pitch_updates,
+                );
+            }
+        } else if let Some(object) = self.state.objects.get_mut(head_id) {
+            mirage_dragon_head::advance_departure(
+                object,
+                cadence.movement_updates,
+                cadence.pitch_updates,
+            );
+        }
+    }
+
+    fn update_mirage_dragon_segments(&mut self, retail_frame: u16) {
+        let Some(head_id) = self.mirage_dragon else {
+            return;
+        };
+        let Some((head, mut follow_velocity)) = self.state.objects.get(head_id).map(|object| {
+            (
+                mirage_dragon_body::PartAnchor::from_object(object),
+                object.base.velocity,
+            )
+        }) else {
             return;
         };
 
@@ -16663,10 +16636,7 @@ impl Game {
         if retail_frame < mirage_dragon_body::FOLLOWING_START_RETAIL_FRAME {
             return;
         }
-        let mut follow_head = self
-            .mirage_dragon_follow_anchor
-            .or(previous_head)
-            .unwrap_or(head);
+        let mut follow_head = head;
         for action in mirage_dragon_body_actions::actions(retail_frame) {
             let ordinal = match action {
                 mirage_dragon_body_actions::Action::HeadChasePitch(target) => {
@@ -16717,12 +16687,18 @@ impl Game {
                     follow_head.position.x = follow_head.position.x.wrapping_add(velocity.x);
                     follow_head.position.y = follow_head.position.y.wrapping_add(velocity.y);
                     follow_head.position.z = follow_head.position.z.wrapping_add(velocity.z);
+                    follow_velocity = velocity;
                     continue;
                 }
                 mirage_dragon_body_actions::Action::HeadLinearMove(x, y, z) => {
                     follow_head.position.x = follow_head.position.x.wrapping_add(*x);
                     follow_head.position.y = follow_head.position.y.wrapping_add(*y);
                     follow_head.position.z = follow_head.position.z.wrapping_add(*z);
+                    follow_velocity = Vector3 {
+                        x: *x,
+                        y: *y,
+                        z: *z,
+                    };
                     continue;
                 }
                 mirage_dragon_body_actions::Action::FacePitch(ordinal)
@@ -16841,7 +16817,17 @@ impl Game {
                 }
             }
         }
-        self.mirage_dragon_follow_anchor = Some(follow_head);
+        if let Some(object) = self.state.objects.get_mut(head_id) {
+            if object.base.explosion_timer == 0 && !object.base.flags.exploding {
+                mirage_dragon_head::apply_follow_pose(
+                    object,
+                    follow_head.position,
+                    follow_head.pitch,
+                    follow_head.yaw,
+                    follow_velocity,
+                );
+            }
+        }
     }
 
     fn update_pressure_fighter_projectiles(
@@ -18322,6 +18308,7 @@ impl Game {
                 | ObjectActivity::QueenDragoonFlight(_)
                 | ObjectActivity::EladardDefender(_)
                 | ObjectActivity::CarrierCorridorDefender(_)
+                | ObjectActivity::MirageDragonHead(_)
                 | ObjectActivity::MirageDragonSegment(_) => continue,
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
@@ -30718,6 +30705,83 @@ mod tests {
             game.state().campaign.corneria_defense.phase,
             CorneriaDefensePhase::Complete
         );
+    }
+
+    #[test]
+    fn mirage_dragon_live_head_matches_every_retained_oracle_pose() {
+        let mut game = enter_mirage_dragon_mission();
+        for expected in mirage_dragon::RIVAL_KEYFRAMES {
+            while game
+                .state()
+                .mode_frame
+                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                < u32::from(expected.retail_frame)
+            {
+                game.tick(0).unwrap();
+            }
+            match expected.presentation {
+                MissionActorPresentation::Present(expected_pose) => {
+                    let id = game.mirage_dragon.unwrap_or_else(|| {
+                        panic!(
+                            "Mirage Dragon head departed before frame {}",
+                            expected.retail_frame
+                        )
+                    });
+                    let object = game.state().objects.get(id).unwrap();
+                    assert_eq!(
+                        object.base.position, expected_pose.position,
+                        "head position at frame {}",
+                        expected.retail_frame
+                    );
+                    assert_eq!(
+                        object.base.pitch,
+                        Angle::from_units(expected_pose.pitch),
+                        "head pitch at frame {}",
+                        expected.retail_frame
+                    );
+                    assert_eq!(
+                        object.base.yaw,
+                        Angle::from_units(expected_pose.yaw),
+                        "head yaw at frame {}",
+                        expected.retail_frame
+                    );
+                    assert_eq!(
+                        object.base.roll,
+                        Angle::from_units(expected_pose.roll),
+                        "head roll at frame {}",
+                        expected.retail_frame
+                    );
+                    assert_eq!(
+                        object.base.speed, expected_pose.speed,
+                        "head speed at frame {}",
+                        expected.retail_frame
+                    );
+                    assert!(object.base.flags.active, "frame {}", expected.retail_frame);
+                    assert!(object.base.flags.visible, "frame {}", expected.retail_frame);
+                    if expected.retail_frame == mirage_dragon::HEAD_LAST_PRESENT_RETAIL_FRAME {
+                        assert_eq!(
+                            object.extension.activity,
+                            ObjectActivity::MirageDragonHead(MirageDragonHeadState {
+                                phase: MirageDragonHeadPhase::Departing,
+                                departure_motion_updates:
+                                    mirage_dragon::HEAD_DEPARTURE_MOVEMENT_UPDATES,
+                                departure_turn_updates: mirage_dragon::HEAD_DEPARTURE_PITCH_UPDATES,
+                            })
+                        );
+                    }
+                }
+                MissionActorPresentation::Inactive => {
+                    panic!("the compact Mirage Dragon head oracle has no inactive entries");
+                }
+                MissionActorPresentation::Departed => {
+                    assert!(
+                        game.mirage_dragon.is_none(),
+                        "Mirage Dragon head remains after frame {}",
+                        expected.retail_frame
+                    );
+                }
+            }
+        }
     }
 
     #[test]

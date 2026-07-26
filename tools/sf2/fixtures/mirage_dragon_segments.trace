@@ -1,5 +1,5 @@
 # Compact Mesen oracle evidence for the articulated Mirage Dragon body.
-# Raw source SHA-256: a52468fef9154e90ba951eb55fc1aa5b25dc580c080dc0dc0f29ec7f0cb4bda8
+# Raw source SHA-256: 8dd3bde1d2e5e4bf98f617b173bc51ccd0d89c95d30fb2a543eca80a0bcf2012
 # return_retail_frame=876
 # map_ready_retail_frame=878
 retail_frame=0 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
@@ -164,3 +164,60 @@ retail_frame=632 body_segment_1=- body_segment_2=- body_segment_3=- body_segment
 retail_frame=636 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
 retail_frame=640 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
 retail_frame=644 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=648 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=652 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=656 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=660 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=664 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=668 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=672 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=676 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=680 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=684 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=688 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=692 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=696 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=700 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=704 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=708 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=712 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=716 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=720 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=724 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=728 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=732 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=736 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=740 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=744 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=748 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=752 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=756 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=760 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=764 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=768 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=772 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=776 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=780 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=784 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=788 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=792 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=796 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=800 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=804 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=808 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=812 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=816 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=820 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=824 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=828 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=832 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=836 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=840 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=844 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=848 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=852 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=856 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=860 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=864 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=868 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-
+retail_frame=872 body_segment_1=- body_segment_2=- body_segment_3=- body_segment_4=- body_segment_5=- body_segment_6=- body_segment_7=- body_segment_8=- tail=-

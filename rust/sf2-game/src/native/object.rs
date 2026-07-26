@@ -798,6 +798,22 @@ pub struct CarrierCorridorProjectileState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MirageDragonHeadPhase {
+    AwaitingEntrance,
+    Following,
+    Departing,
+}
+
+/// Flat behavior state for Mirage Dragon's head. Its ordinary object
+/// transform and velocity hold the live path state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MirageDragonHeadState {
+    pub phase: MirageDragonHeadPhase,
+    pub departure_motion_updates: u16,
+    pub departure_turn_updates: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MirageDragonSegmentPhase {
     AwaitingEntrance,
     Entering,
@@ -835,6 +851,7 @@ pub enum ObjectActivity {
     FortunaKickGunnerProjectile(FortunaKickGunnerProjectileState),
     CarrierCorridorDefender(CarrierCorridorDefenderState),
     CarrierCorridorProjectile(CarrierCorridorProjectileState),
+    MirageDragonHead(MirageDragonHeadState),
     MirageDragonSegment(MirageDragonSegmentState),
     PlayerProjectile(PlayerProjectileState),
     PlayerChargeOrb(PlayerChargeOrbState),

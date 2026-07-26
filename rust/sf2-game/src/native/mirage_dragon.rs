@@ -2,12 +2,14 @@
 //!
 //! Source: `mirage_dragon.trace`.
 //! Regenerate or verify with `uv run python
-//! tools/sf2/generate_pigma_duel.py [--check]`.
+//! tools/sf2/generate_mirage_dragon.py [--check]`.
 
 use super::{
-    mission_actor_departure_keyframe, mission_actor_keyframe, mission_camera_keyframe,
-    mission_player_keyframe, MissionActorKeyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
+
+#[cfg(test)]
+use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 876;
 pub(super) const MAP_READY_RETAIL_FRAME: u16 = 878;
@@ -130,14 +132,14 @@ pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 219] = [
     mission_camera_keyframe(456, 10_460, -2_875, 2_506, 124, 216, 0),
     mission_camera_keyframe(460, 10_438, -2_874, 2_506, 58, 212, 0),
     mission_camera_keyframe(464, 10_416, -2_873, 2_506, 25, 210, 0),
-    mission_camera_keyframe(468, 10_416, -2_873, 2_506, 25, 210, 0),
+    mission_camera_keyframe(468, 10_394, -2_872, 2_506, 136, 209, 0),
     mission_camera_keyframe(472, 10_394, -2_872, 2_506, 136, 209, 0),
     mission_camera_keyframe(476, 10_372, -2_871, 2_506, 192, 208, 0),
     mission_camera_keyframe(480, 10_350, -2_870, 2_506, 220, 208, 0),
     mission_camera_keyframe(484, 10_328, -2_869, 2_506, 234, 208, 0),
     mission_camera_keyframe(488, 10_306, -2_868, 2_506, 241, 208, 0),
-    mission_camera_keyframe(492, 10_275, -2_861, 2_506, 241, 208, 0),
-    mission_camera_keyframe(496, 10_284, -2_867, 2_506, 244, 208, 0),
+    mission_camera_keyframe(492, 10_284, -2_867, 2_506, 244, 208, 0),
+    mission_camera_keyframe(496, 10_232, -2_880, 2_506, 0, 224, 0),
     mission_camera_keyframe(500, 10_262, -2_866, 2_506, 246, 208, 0),
     mission_camera_keyframe(504, 10_240, -2_865, 2_506, 247, 208, 0),
     mission_camera_keyframe(508, 10_218, -2_864, 2_506, 248, 208, 0),
@@ -154,16 +156,16 @@ pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 219] = [
     mission_camera_keyframe(552, 10_002, -2_861, 2_509, 232, 226, 0),
     mission_camera_keyframe(556, 9_981, -2_861, 2_509, 232, 225, 0),
     mission_camera_keyframe(560, 9_960, -2_861, 2_509, 232, 224, 0),
-    mission_camera_keyframe(564, 9_960, -2_861, 2_509, 232, 224, 0),
+    mission_camera_keyframe(564, 9_939, -2_861, 2_509, 232, 224, 0),
     mission_camera_keyframe(568, 9_939, -2_861, 2_509, 232, 224, 0),
     mission_camera_keyframe(572, 9_918, -2_861, 2_512, 220, 120, 0),
-    mission_camera_keyframe(576, 9_854, -2_885, 2_506, 0, 224, 0),
+    mission_camera_keyframe(576, 9_876, -2_861, 2_512, 211, 42, 0),
     mission_camera_keyframe(580, 9_855, -2_861, 2_512, 210, 29, 0),
     mission_camera_keyframe(584, 9_834, -2_861, 2_512, 209, 23, 0),
     mission_camera_keyframe(588, 9_813, -2_861, 2_512, 208, 20, 0),
     mission_camera_keyframe(592, 9_792, -2_861, 2_512, 208, 18, 0),
     mission_camera_keyframe(596, 9_771, -2_861, 2_512, 208, 17, 0),
-    mission_camera_keyframe(600, 9_750, -2_861, 2_512, 208, 16, 0),
+    mission_camera_keyframe(600, 9_729, -2_861, 2_512, 208, 16, 0),
     mission_camera_keyframe(604, 9_708, -2_861, 2_512, 208, 16, 0),
     mission_camera_keyframe(608, 9_687, -2_861, 2_512, 208, 16, 0),
     mission_camera_keyframe(612, 9_666, -2_861, 2_512, 208, 16, 0),
@@ -332,14 +334,14 @@ pub(super) const PLAYER_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(376, 10_606, -2_881, 2_498, 1, 66, 4, 12),
     mission_player_keyframe(380, 10_595, -2_881, 2_498, 1, 66, 3, 13),
     mission_player_keyframe(384, 10_583, -2_881, 2_498, 1, 66, 3, 14),
-    mission_player_keyframe(388, 10_583, -2_881, 2_498, 1, 66, 3, 14),
+    mission_player_keyframe(388, 10_570, -2_881, 2_498, 1, 66, 2, 15),
     mission_player_keyframe(392, 10_570, -2_881, 2_498, 1, 66, 2, 15),
     mission_player_keyframe(396, 10_556, -2_881, 2_498, 1, 66, 2, 16),
     mission_player_keyframe(400, 10_541, -2_881, 2_498, 0, 66, 1, 17),
     mission_player_keyframe(404, 10_525, -2_881, 2_498, 0, 66, 0, 18),
     mission_player_keyframe(408, 10_508, -2_881, 2_498, 0, 66, 255, 19),
     mission_player_keyframe(412, 10_490, -2_881, 2_498, 0, 66, 254, 20),
-    mission_player_keyframe(416, 10_490, -2_881, 2_498, 0, 66, 254, 20),
+    mission_player_keyframe(416, 10_490, -2_881, 2_498, 0, 66, 254, 21),
     mission_player_keyframe(420, 10_471, -2_881, 2_498, 0, 66, 254, 21),
     mission_player_keyframe(424, 10_451, -2_881, 2_498, 0, 66, 253, 22),
     mission_player_keyframe(428, 10_430, -2_881, 2_498, 0, 66, 253, 23),
@@ -359,7 +361,7 @@ pub(super) const PLAYER_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(484, 10_178, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(488, 10_157, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(492, 10_136, -2_881, 2_498, 0, 66, 3, 23),
-    mission_player_keyframe(496, 10_136, -2_881, 2_498, 0, 66, 3, 23),
+    mission_player_keyframe(496, 10_115, -2_881, 2_498, 0, 66, 3, 23),
     mission_player_keyframe(500, 10_115, -2_881, 2_498, 0, 66, 3, 23),
     mission_player_keyframe(504, 10_094, -2_881, 2_498, 0, 66, 4, 23),
     mission_player_keyframe(508, 10_073, -2_881, 2_498, 0, 66, 4, 23),
@@ -367,7 +369,7 @@ pub(super) const PLAYER_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(516, 10_031, -2_881, 2_498, 0, 66, 4, 23),
     mission_player_keyframe(520, 10_010, -2_881, 2_498, 0, 66, 3, 23),
     mission_player_keyframe(524, 9_989, -2_881, 2_498, 0, 66, 3, 23),
-    mission_player_keyframe(528, 9_989, -2_881, 2_498, 0, 66, 3, 23),
+    mission_player_keyframe(528, 9_968, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(532, 9_968, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(536, 9_947, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(540, 9_926, -2_881, 2_498, 0, 66, 1, 23),
@@ -390,10 +392,10 @@ pub(super) const PLAYER_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(608, 9_548, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(612, 9_527, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(616, 9_506, -2_881, 2_498, 0, 66, 3, 23),
-    mission_player_keyframe(620, 9_485, -2_881, 2_498, 0, 66, 3, 23),
+    mission_player_keyframe(620, 9_464, -2_881, 2_498, 0, 66, 4, 23),
     mission_player_keyframe(624, 9_443, -2_881, 2_498, 0, 66, 4, 23),
     mission_player_keyframe(628, 9_422, -2_881, 2_498, 0, 66, 4, 23),
-    mission_player_keyframe(632, 9_401, -2_881, 2_498, 0, 66, 4, 23),
+    mission_player_keyframe(632, 9_401, -2_881, 2_498, 0, 66, 3, 23),
     mission_player_keyframe(636, 9_359, -2_881, 2_498, 0, 66, 3, 23),
     mission_player_keyframe(640, 9_338, -2_881, 2_498, 0, 66, 2, 23),
     mission_player_keyframe(644, 9_296, -2_881, 2_498, 0, 66, 1, 23),
@@ -554,42 +556,42 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(376, 1_518, -2_753, 2_114, 1, 66, 0, 12),
     mission_player_keyframe(380, 1_507, -2_753, 2_114, 1, 66, 0, 13),
     mission_player_keyframe(384, 1_495, -2_753, 2_114, 1, 66, 0, 14),
-    mission_player_keyframe(388, 1_495, -2_753, 2_114, 1, 66, 0, 14),
+    mission_player_keyframe(388, 1_495, -2_753, 2_114, 1, 66, 2, 15),
     mission_player_keyframe(392, 1_482, -2_753, 2_114, 1, 66, 0, 15),
     mission_player_keyframe(396, 1_468, -2_753, 2_114, 1, 66, 0, 16),
     mission_player_keyframe(400, 1_325, -2_881, 2_114, 0, 66, 0, 17),
     mission_player_keyframe(404, 1_309, -2_881, 2_114, 0, 66, 0, 18),
     mission_player_keyframe(408, 1_292, -2_881, 2_114, 0, 66, 0, 19),
     mission_player_keyframe(412, 1_274, -2_881, 2_114, 0, 66, 0, 20),
-    mission_player_keyframe(416, 1_274, -2_881, 2_114, 0, 66, 0, 20),
+    mission_player_keyframe(416, 1_274, -2_881, 2_114, 0, 66, 254, 21),
     mission_player_keyframe(420, 1_255, -2_881, 2_114, 0, 66, 0, 21),
     mission_player_keyframe(424, 1_235, -2_881, 2_114, 0, 66, 0, 22),
     mission_player_keyframe(428, 1_214, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(432, 1_193, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(436, 1_172, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(440, 10_439, -2_885, 2_503, 0, 0, 0, 23),
+    mission_player_keyframe(440, 1_151, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(444, 1_151, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(448, 1_130, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(452, 1_109, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(456, 1_088, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(460, 1_067, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(464, 1_046, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(468, 10_358, -2_883, 2_506, 0, 66, 255, 23),
+    mission_player_keyframe(468, 10_262, -2_881, 2_498, 4, 0, 0, 23),
     mission_player_keyframe(472, 1_025, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(476, 1_004, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(480, 983, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(484, 962, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(488, 941, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(492, 10_157, -2_881, 2_498, 0, 67, 0, 23),
-    mission_player_keyframe(496, 920, -2_881, 2_114, 0, 66, 0, 23),
+    mission_player_keyframe(492, 920, -2_881, 2_114, 0, 66, 0, 23),
+    mission_player_keyframe(496, 10_136, -2_881, 2_498, 0, 67, 0, 23),
     mission_player_keyframe(500, 899, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(504, 878, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(508, 857, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(512, 836, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(516, 815, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(520, 794, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(524, 10_010, -2_881, 2_498, 4, 0, 0, 23),
-    mission_player_keyframe(528, 773, -2_881, 2_114, 0, 66, 0, 23),
+    mission_player_keyframe(524, 773, -2_881, 2_114, 0, 66, 0, 23),
+    mission_player_keyframe(528, 10_085, -2_880, 2_506, 0, 66, 2, 23),
     mission_player_keyframe(532, 752, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(536, 731, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(540, 710, -2_881, 2_114, 0, 66, 0, 23),
@@ -598,24 +600,24 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(552, 647, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(556, 626, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(560, 605, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(564, 9_917, -2_884, 2_506, 0, 66, 253, 23),
+    mission_player_keyframe(564, 9_821, -2_881, 2_498, 0, 68, 0, 23),
     mission_player_keyframe(568, 584, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(572, 563, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(576, 9_854, -2_885, 2_506, 0, 66, 252, 23),
+    mission_player_keyframe(576, 9_758, -2_881, 2_498, 0, 69, 0, 23),
     mission_player_keyframe(580, 500, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(584, 479, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(588, 458, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(592, 437, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(596, 416, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(600, 9_707, -2_884, 2_506, 0, 66, 0, 23),
-    mission_player_keyframe(604, 9_590, -2_881, 2_498, 0, 69, 0, 23),
+    mission_player_keyframe(600, 9_611, -2_881, 2_498, 0, 69, 0, 23),
+    mission_player_keyframe(604, 353, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(608, 332, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(612, 311, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(616, 290, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(620, 269, -2_881, 2_114, 0, 66, 0, 23),
+    mission_player_keyframe(620, 269, -2_881, 2_114, 0, 66, 4, 23),
     mission_player_keyframe(624, 227, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(628, 206, -2_881, 2_114, 0, 66, 0, 23),
-    mission_player_keyframe(632, 185, -2_881, 2_114, 0, 66, 0, 23),
+    mission_player_keyframe(632, 185, -2_881, 2_114, 0, 66, 3, 0),
     mission_player_keyframe(636, 143, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(640, 122, -2_881, 2_114, 0, 66, 0, 23),
     mission_player_keyframe(644, 101, -2_881, 2_114, 0, 66, 1, 23),
@@ -678,6 +680,7 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 219] = [
     mission_player_keyframe(872, 13_072, -7_756, 2_376, 0, 66, 0, 23),
 ];
 
+#[cfg(test)]
 pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 204] = [
     mission_actor_keyframe(64, [24, 1_628, 20, 254, 219, 0, 10]),
     mission_actor_keyframe(68, [24, 1_628, 20, 254, 219, 0, 10]),
@@ -779,14 +782,14 @@ pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 204] = [
     mission_actor_keyframe(452, [672, 1_044, 1_576, 150, 116, 0, 10]),
     mission_actor_keyframe(456, [672, 1_044, 1_576, 180, 116, 0, 10]),
     mission_actor_keyframe(460, [672, 1_044, 1_576, 210, 116, 0, 10]),
-    mission_actor_keyframe(464, [672, 1_044, 1_576, 210, 116, 0, 10]),
+    mission_actor_keyframe(464, [672, 1_044, 1_576, 240, 116, 0, 10]),
     mission_actor_keyframe(468, [672, 1_044, 1_576, 240, 116, 0, 10]),
     mission_actor_keyframe(472, [672, 1_044, 1_576, 14, 116, 0, 10]),
     mission_actor_keyframe(476, [672, 1_044, 1_576, 44, 116, 0, 10]),
     mission_actor_keyframe(480, [672, 1_044, 1_576, 74, 116, 0, 10]),
     mission_actor_keyframe(484, [672, 1_044, 1_576, 104, 116, 0, 10]),
     mission_actor_keyframe(488, [672, 1_044, 1_576, 134, 116, 0, 10]),
-    mission_actor_keyframe(492, [672, 1_044, 1_576, 134, 116, 0, 10]),
+    mission_actor_keyframe(492, [672, 1_044, 1_576, 164, 116, 0, 10]),
     mission_actor_keyframe(496, [672, 1_044, 1_576, 164, 116, 0, 10]),
     mission_actor_keyframe(500, [672, 1_044, 1_576, 194, 116, 0, 10]),
     mission_actor_keyframe(504, [672, 1_044, 1_576, 224, 116, 0, 10]),
@@ -794,7 +797,7 @@ pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 204] = [
     mission_actor_keyframe(512, [672, 1_044, 1_576, 28, 116, 0, 10]),
     mission_actor_keyframe(516, [672, 1_044, 1_576, 58, 116, 0, 10]),
     mission_actor_keyframe(520, [672, 1_044, 1_576, 88, 116, 0, 10]),
-    mission_actor_keyframe(524, [672, 1_044, 1_576, 88, 116, 0, 10]),
+    mission_actor_keyframe(524, [672, 1_044, 1_576, 118, 116, 0, 10]),
     mission_actor_keyframe(528, [672, 1_044, 1_576, 118, 116, 0, 10]),
     mission_actor_keyframe(532, [672, 1_044, 1_576, 148, 116, 0, 10]),
     mission_actor_keyframe(536, [672, 1_044, 1_576, 178, 116, 0, 10]),
@@ -814,7 +817,7 @@ pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 204] = [
     mission_actor_keyframe(592, [1_664, 340, 1_640, 215, 196, 0, 40]),
     mission_actor_keyframe(596, [1_788, 252, 1_648, 245, 196, 0, 40]),
     mission_actor_keyframe(600, [1_912, 164, 1_656, 19, 196, 0, 40]),
-    mission_actor_keyframe(604, [2_036, 76, 1_664, 49, 196, 0, 40]),
+    mission_actor_keyframe(604, [2_160, -12, 1_672, 79, 196, 0, 40]),
     mission_actor_keyframe(608, [2_284, -100, 1_680, 109, 196, 0, 40]),
     mission_actor_keyframe(612, [2_408, -188, 1_688, 139, 196, 0, 40]),
     mission_actor_keyframe(616, [2_532, -276, 1_696, 169, 196, 0, 40]),
@@ -884,3 +887,340 @@ pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 204] = [
     mission_actor_keyframe(872, [13_072, -7_756, 2_376, 159, 196, 0, 40]),
     mission_actor_departure_keyframe(876),
 ];
+
+pub(super) const HEAD_ENTRANCE_RETAIL_FRAME: u16 = 64;
+pub(super) const HEAD_DEPARTURE_RETAIL_FRAME: u16 = 568;
+pub(super) const HEAD_LAST_PRESENT_RETAIL_FRAME: u16 = 872;
+pub(super) const HEAD_REMOVAL_RETAIL_FRAME: u16 = 876;
+#[cfg(test)]
+pub(super) const HEAD_DEPARTURE_MOVEMENT_UPDATES: u16 = 100;
+#[cfg(test)]
+pub(super) const HEAD_DEPARTURE_PITCH_UPDATES: u16 = 100;
+const HEAD_RETAIL_FRAME_STEP: u16 = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct HeadDepartureCadence {
+    pub movement_updates: u8,
+    pub pitch_updates: u8,
+}
+
+const HEAD_DEPARTURE_CADENCE: [HeadDepartureCadence; 77] = [
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 2,
+        pitch_updates: 2,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+    HeadDepartureCadence {
+        movement_updates: 1,
+        pitch_updates: 1,
+    },
+];
+
+pub(super) fn head_departure_cadence(retail_frame: u16) -> Option<HeadDepartureCadence> {
+    let offset = retail_frame.checked_sub(HEAD_DEPARTURE_RETAIL_FRAME)?;
+    if retail_frame > HEAD_LAST_PRESENT_RETAIL_FRAME || offset % HEAD_RETAIL_FRAME_STEP != 0 {
+        return None;
+    }
+    HEAD_DEPARTURE_CADENCE
+        .get(usize::from(offset / HEAD_RETAIL_FRAME_STEP))
+        .copied()
+}

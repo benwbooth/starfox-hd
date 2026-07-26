@@ -33,6 +33,7 @@ const FIRST_RETAIL_FRAME: u16 = 76;
 const LAST_RETAIL_FRAME: u16 = 632;
 const RETAIL_FRAME_STEP: u16 = 4;
 
+#[rustfmt::skip]
 static RANGES: [ActionRange; 140] = [
     ActionRange { start: 0, len: 14 },
     ActionRange { start: 14, len: 19 },
@@ -71,8 +72,8 @@ static RANGES: [ActionRange; 140] = [
     ActionRange { start: 993, len: 31 },
     ActionRange { start: 1024, len: 31 },
     ActionRange { start: 1055, len: 35 },
-    ActionRange { start: 1090, len: 31 },
-    ActionRange { start: 1121, len: 33 },
+    ActionRange { start: 1090, len: 30 },
+    ActionRange { start: 1120, len: 34 },
     ActionRange { start: 1154, len: 34 },
     ActionRange { start: 1188, len: 35 },
     ActionRange { start: 1223, len: 34 },
@@ -83,8 +84,8 @@ static RANGES: [ActionRange; 140] = [
     ActionRange { start: 1389, len: 23 },
     ActionRange { start: 1412, len: 30 },
     ActionRange { start: 1442, len: 27 },
-    ActionRange { start: 1469, len: 29 },
-    ActionRange { start: 1498, len: 31 },
+    ActionRange { start: 1469, len: 30 },
+    ActionRange { start: 1499, len: 30 },
     ActionRange { start: 1529, len: 31 },
     ActionRange { start: 1560, len: 33 },
     ActionRange { start: 1593, len: 32 },

@@ -134,6 +134,11 @@ def raw_records(
     if return_elapsed is None:
         raise SystemExit("trace does not contain the post-duel strategic-map return")
     parsed = [record for record in parsed if record[0] < return_elapsed]
+    parsed = [
+        record
+        for record in parsed
+        if (record[0] - start_elapsed) % RETAIL_FRAME_STEP == 0
+    ]
     records = [
         Record(elapsed - start_elapsed, camera, player, wingmate, rival, projectiles)
         for elapsed, camera, player, wingmate, rival, projectiles in parsed
