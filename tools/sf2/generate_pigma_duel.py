@@ -290,6 +290,9 @@ def rust_source(
     projectiles_test_only: bool = False,
     rival_test_only: bool = False,
     timing_test_only: bool = False,
+    player_test_only: bool = False,
+    wingmate_test_only: bool = False,
+    omit_wingmate: bool = False,
 ) -> str:
     present_indices = [index for index, record in enumerate(records) if record.rival is not None]
     if not present_indices:
@@ -393,6 +396,7 @@ def rust_source(
         [
             "];",
             "",
+            *(["#[cfg(test)]"] if player_test_only else []),
             f"pub(super) const PLAYER_KEYFRAMES: [MissionPlayerKeyframe; {len(records)}] = [",
         ]
     )
@@ -402,20 +406,22 @@ def rust_source(
             + ", ".join(f"{value:_}" for value in record.player)
             + "),"
         )
-    lines.extend(
-        [
-            "];",
-            "",
-            f"pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; {len(records)}] = [",
-        ]
-    )
-    for record in records:
-        lines.append(
-            f"    mission_player_keyframe({record.retail_frame}, "
-            + ", ".join(f"{value:_}" for value in record.wingmate)
-            + "),"
-        )
     lines.append("];")
+    if not omit_wingmate:
+        lines.extend(
+            [
+                "",
+                *(["#[cfg(test)]"] if wingmate_test_only else []),
+                f"pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; {len(records)}] = [",
+            ]
+        )
+        for record in records:
+            lines.append(
+                f"    mission_player_keyframe({record.retail_frame}, "
+                + ", ".join(f"{value:_}" for value in record.wingmate)
+                + "),"
+            )
+        lines.append("];")
 
     departure_frame = rival_records[-1].retail_frame + RETAIL_FRAME_STEP
     lines.extend(

@@ -6692,13 +6692,13 @@ impl Game {
             .ok_or(Error::ObjectCapacityReached)?;
         let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
-            apply_player_keyframe(primary, mirage_dragon::PLAYER_KEYFRAMES[0]);
+            apply_player_keyframe(primary, mirage_dragon::PLAYER_CINEMATIC_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
         if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
-            apply_player_keyframe(wingmate, mirage_dragon::WINGMATE_KEYFRAMES[0]);
+            apply_player_keyframe(wingmate, mirage_dragon::WINGMATE_CINEMATIC_KEYFRAMES[0]);
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
             wingmate.base.flags.collision_disabled = true;
@@ -7155,6 +7155,7 @@ impl Game {
         self.state.mission.player_flight.pitch_accumulator = 0;
         self.state.mission.player_flight.yaw_accumulator = OPENING_FLIGHT_YAW_ACCUMULATOR;
         self.state.mission.player_flight.pitch_lean = 0;
+        self.state.mission.player_flight.ambient_bank_phase = 0;
         self.state.mission.departed_certified_neutral_path = false;
         if visit == MissionVisit::OpeningEngagement {
             self.state.mission.item_count = INITIAL_ITEM_COUNT;
@@ -16469,14 +16470,20 @@ impl Game {
     }
 
     fn update_mirage_dragon_presentation(&mut self, retail_frame: u16) {
-        let primary_flight_craft_shape = self.primary_flight_craft_shape();
         let camera = interpolated_camera_keyframe(&mirage_dragon::CAMERA_KEYFRAMES, retail_frame);
         self.state.camera.position = camera.position;
         self.state.camera.rotation.pitch = Angle::from_units(camera.pitch);
         self.state.camera.rotation.yaw = Angle::from_units(camera.yaw);
         self.state.camera.rotation.roll = Angle::from_units(camera.roll);
 
-        let player = interpolated_player_keyframe(&mirage_dragon::PLAYER_KEYFRAMES, retail_frame);
+        if retail_frame > mirage_dragon::PLAYER_NEUTRAL_START_RETAIL_FRAME {
+            self.update_mirage_dragon_neutral_player_flight(retail_frame);
+            return;
+        }
+
+        let primary_flight_craft_shape = self.primary_flight_craft_shape();
+        let player =
+            interpolated_player_keyframe(&mirage_dragon::PLAYER_CINEMATIC_KEYFRAMES, retail_frame);
         if let Some(primary) = self.state.mission.primary_player {
             if let Some(object) = self.state.objects.get_mut(primary) {
                 apply_player_keyframe(object, player);
@@ -16490,8 +16497,10 @@ impl Game {
                 object.base.flags.collision_disabled = !visible;
             }
         }
-        let wingmate =
-            interpolated_player_keyframe(&mirage_dragon::WINGMATE_KEYFRAMES, retail_frame);
+        let wingmate = interpolated_player_keyframe(
+            &mirage_dragon::WINGMATE_CINEMATIC_KEYFRAMES,
+            retail_frame,
+        );
         if let Some(id) = self.state.mission.wingmate {
             if let Some(object) = self.state.objects.get_mut(id) {
                 apply_player_keyframe(object, wingmate);
@@ -16499,6 +16508,66 @@ impl Game {
                 object.base.flags.visible = false;
                 object.base.flags.collision_disabled = true;
             }
+        }
+        if retail_frame == mirage_dragon::PLAYER_NEUTRAL_START_RETAIL_FRAME {
+            let flight = &mut self.state.mission.player_flight;
+            flight.pitch_accumulator = 0;
+            flight.yaw_accumulator =
+                i16::from(mirage_dragon::PLAYER_NEUTRAL_YAW) << FLIGHT_ACCUMULATOR_FRACTION_BITS;
+            flight.pitch_lean = 0;
+            flight.ambient_bank_phase = mirage_dragon::PLAYER_NEUTRAL_START_BANK_PHASE;
+        }
+    }
+
+    fn update_mirage_dragon_neutral_player_flight(&mut self, retail_frame: u16) {
+        let Some(cadence) = mirage_dragon::player_neutral_flight_cadence(retail_frame) else {
+            return;
+        };
+        let primary_flight_craft_shape = self.primary_flight_craft_shape();
+        let flight = &mut self.state.mission.player_flight;
+        flight.ambient_bank_phase = mirage_dragon::advance_player_neutral_bank_phase(
+            flight.ambient_bank_phase,
+            cadence.control_updates,
+        );
+
+        if let Some(primary) = self.state.mission.primary_player {
+            if let Some(player) = self.state.objects.get_mut(primary) {
+                for _ in 0..cadence.control_updates {
+                    player.base.speed = approach_u8(
+                        player.base.speed,
+                        mirage_dragon::PLAYER_NEUTRAL_TARGET_SPEED,
+                        PLAYER_SPEED_CHANGE_PER_TICK,
+                    );
+                }
+                player.base.shape = primary_flight_craft_shape;
+                player.base.flags.visible = true;
+                player.base.flags.collision_disabled = false;
+                player.base.pitch = Angle::ZERO;
+                player.base.yaw = Angle::from_units(mirage_dragon::PLAYER_NEUTRAL_YAW);
+                player.base.roll = Angle::from_units(mirage_dragon::player_neutral_bank(
+                    flight.ambient_bank_phase,
+                ) as u8);
+                let movement =
+                    flight_velocity(player.base.pitch, player.base.yaw, player.base.speed, 1);
+                let movement_updates = i16::from(cadence.movement_updates);
+                player.base.velocity = Vector3 {
+                    x: movement.x.wrapping_mul(movement_updates),
+                    y: movement.y.wrapping_mul(movement_updates),
+                    z: movement.z.wrapping_mul(movement_updates),
+                };
+            }
+        }
+
+        if let Some(wingmate) = self
+            .state
+            .mission
+            .wingmate
+            .and_then(|id| self.state.objects.get_mut(id))
+        {
+            wingmate.base.shape = ShapeId::EMPTY;
+            wingmate.base.flags.visible = false;
+            wingmate.base.flags.collision_disabled = true;
+            wingmate.base.velocity = Vector3::default();
         }
     }
 
@@ -34140,5 +34209,44 @@ mod tests {
         );
         assert_eq!(player.base.yaw.units(), FORMATION_YAW);
         assert_eq!(game.state.strategic_map.marker_phase, 1);
+    }
+
+    #[test]
+    fn mirage_dragon_typed_neutral_flight_matches_retail_after_reveal() {
+        let mut game = enter_mirage_dragon_mission();
+        while game.state.mode_frame * RETAIL_PRESENTATION_FRAMES_PER_TICK
+            < u32::from(MIRAGE_DRAGON_PLAYER_REVEAL_RETAIL_FRAME)
+        {
+            game.tick(0).unwrap();
+        }
+        for expected in mirage_dragon::PLAYER_KEYFRAMES
+            .iter()
+            .filter(|frame| frame.retail_frame > MIRAGE_DRAGON_PLAYER_REVEAL_RETAIL_FRAME)
+        {
+            game.tick(0).unwrap();
+            let player = game
+                .state
+                .objects
+                .get(game.state.mission.primary_player.unwrap())
+                .unwrap();
+            assert_eq!(
+                (
+                    player.base.position,
+                    player.base.pitch.units(),
+                    player.base.yaw.units(),
+                    player.base.roll.units(),
+                    player.base.speed,
+                ),
+                (
+                    expected.position,
+                    expected.pitch,
+                    expected.yaw,
+                    expected.roll,
+                    expected.speed,
+                ),
+                "retail frame {}",
+                expected.retail_frame
+            );
+        }
     }
 }

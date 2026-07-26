@@ -31,6 +31,44 @@ HEAD_DEPARTURE_YAW = 196
 HEAD_DEPARTURE_ROLL = 0
 HEAD_DEPARTURE_SPEED = 40
 RETAIL_FRAME_STEP = 4
+PLAYER_CINEMATIC_END_RETAIL_FRAME = 400
+PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME = 404
+PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME = 872
+PLAYER_NEUTRAL_YAW = 66
+PLAYER_NEUTRAL_TARGET_SPEED = 23
+PLAYER_NEUTRAL_START_BANK_PHASE = 14
+PLAYER_NEUTRAL_BANK_WAVE = (
+    0,
+    1,
+    2,
+    2,
+    3,
+    3,
+    4,
+    4,
+    4,
+    4,
+    3,
+    3,
+    2,
+    2,
+    1,
+    0,
+    -1,
+    -2,
+    -2,
+    -3,
+    -3,
+    -4,
+    -4,
+    -4,
+    -4,
+    -3,
+    -3,
+    -2,
+    -2,
+    -1,
+)
 
 SINGLE_LINE_SCENE_IMPORT = (
     "    mission_camera_keyframe, mission_player_keyframe, "
@@ -40,6 +78,210 @@ MULTILINE_SCENE_IMPORT = (
     "    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,\n"
     "    MissionPlayerKeyframe,\n"
 )
+
+
+def signed_byte(value: int) -> int:
+    return value if value < 128 else value - 256
+
+
+def player_neutral_flight_cadence(
+    records: list[Record],
+) -> list[tuple[int, int]]:
+    poses = {record.retail_frame: record.player for record in records}
+    previous = poses.get(PLAYER_CINEMATIC_END_RETAIL_FRAME)
+    if previous is None:
+        raise SystemExit("Mirage Dragon fixture lacks the player handoff pose")
+    if (
+        previous[3] != 0
+        or previous[4] != PLAYER_NEUTRAL_YAW
+        or signed_byte(previous[5])
+        != PLAYER_NEUTRAL_BANK_WAVE[PLAYER_NEUTRAL_START_BANK_PHASE]
+    ):
+        raise SystemExit("Mirage Dragon player handoff does not match static flight state")
+
+    phase = PLAYER_NEUTRAL_START_BANK_PHASE
+    cumulative_control = 0
+    cumulative_movement = 0
+    cadence = []
+    for retail_frame in range(
+        PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME,
+        PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME + 1,
+        RETAIL_FRAME_STEP,
+    ):
+        current = poses.get(retail_frame)
+        if current is None:
+            raise SystemExit(
+                f"Mirage Dragon fixture lacks player pose at frame {retail_frame}"
+            )
+        if (
+            current[1] != previous[1]
+            or current[2] != previous[2]
+            or current[3] != 0
+            or current[4] != PLAYER_NEUTRAL_YAW
+        ):
+            raise SystemExit(
+                f"player neutral flight axes changed at frame {retail_frame}"
+            )
+
+        # Static flight rotation at pitch 0 and yaw 66 produces this exact
+        # horizontal velocity for the observed speed range.
+        horizontal_velocity = -(current[6] - 2)
+        horizontal_delta = current[0] - previous[0]
+        if horizontal_velocity == 0 or horizontal_delta % horizontal_velocity != 0:
+            raise SystemExit(
+                f"player motion at frame {retail_frame} is not an exact flight step"
+            )
+        movement_updates = horizontal_delta // horizontal_velocity
+        if movement_updates not in (0, 1, 2):
+            raise SystemExit(
+                f"player movement cadence at frame {retail_frame} is out of range"
+            )
+
+        control_candidates = []
+        for control_updates in (0, 1, 2):
+            speed = min(
+                PLAYER_NEUTRAL_TARGET_SPEED,
+                previous[6] + control_updates,
+            )
+            next_phase = (phase + control_updates) % len(PLAYER_NEUTRAL_BANK_WAVE)
+            if (
+                speed == current[6]
+                and PLAYER_NEUTRAL_BANK_WAVE[next_phase]
+                == signed_byte(current[5])
+            ):
+                control_candidates.append(control_updates)
+        if not control_candidates:
+            raise SystemExit(
+                f"player control state at frame {retail_frame} "
+                "does not match the static neutral-flight rules"
+            )
+        control_updates = min(
+            control_candidates,
+            key=lambda updates: (
+                abs(
+                    cumulative_control
+                    + updates
+                    - cumulative_movement
+                    - movement_updates
+                ),
+                updates,
+            ),
+        )
+        phase = (phase + control_updates) % len(PLAYER_NEUTRAL_BANK_WAVE)
+        cumulative_control += control_updates
+        cumulative_movement += movement_updates
+        cadence.append((control_updates, movement_updates))
+        previous = current
+
+    if cumulative_control != cumulative_movement:
+        raise SystemExit("player control and movement pipelines do not finish aligned")
+    return cadence
+
+
+def append_player_flight(
+    source: str,
+    records: list[Record],
+    cadence: list[tuple[int, int]],
+) -> str:
+    cinematic_records = [
+        record
+        for record in records
+        if record.retail_frame <= PLAYER_CINEMATIC_END_RETAIL_FRAME
+    ]
+
+    def keyframes(name: str, attribute: str) -> list[str]:
+        values = [
+            f"pub(super) const {name}: "
+            f"[MissionPlayerKeyframe; {len(cinematic_records)}] = ["
+        ]
+        for record in cinematic_records:
+            pose = getattr(record, attribute)
+            values.append(
+                f"    mission_player_keyframe({record.retail_frame}, "
+                + ", ".join(f"{value:_}" for value in pose)
+                + "),"
+            )
+        values.extend(["];", ""])
+        return values
+
+    cadence_values = []
+    for control_updates, movement_updates in cadence:
+        cadence_values.extend(
+            [
+                "    PlayerNeutralFlightCadence {",
+                f"        control_updates: {control_updates},",
+                f"        movement_updates: {movement_updates},",
+                "    },",
+            ]
+        )
+    bank_wave_head = ", ".join(
+        str(value) for value in PLAYER_NEUTRAL_BANK_WAVE[:-2]
+    )
+    bank_wave_tail = ", ".join(
+        str(value) for value in PLAYER_NEUTRAL_BANK_WAVE[-2:]
+    )
+    return source + "\n".join(
+        [
+            "",
+            *keyframes("PLAYER_CINEMATIC_KEYFRAMES", "player"),
+            *keyframes("WINGMATE_CINEMATIC_KEYFRAMES", "wingmate"),
+            "pub(super) const PLAYER_NEUTRAL_START_RETAIL_FRAME: u16 = "
+            f"{PLAYER_CINEMATIC_END_RETAIL_FRAME};",
+            "pub(super) const PLAYER_NEUTRAL_YAW: u8 = "
+            f"{PLAYER_NEUTRAL_YAW};",
+            "pub(super) const PLAYER_NEUTRAL_TARGET_SPEED: u8 = "
+            f"{PLAYER_NEUTRAL_TARGET_SPEED};",
+            "pub(super) const PLAYER_NEUTRAL_START_BANK_PHASE: u8 = "
+            f"{PLAYER_NEUTRAL_START_BANK_PHASE};",
+            f"const PLAYER_RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
+            "const PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME: u16 = "
+            f"{PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME};",
+            "const PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME: u16 = "
+            f"{PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME};",
+            "const PLAYER_NEUTRAL_BANK_PERIOD: u8 = "
+            f"{len(PLAYER_NEUTRAL_BANK_WAVE)};",
+            "const PLAYER_NEUTRAL_BANK_WAVE: "
+            f"[i8; {len(PLAYER_NEUTRAL_BANK_WAVE)}] = [",
+            f"    {bank_wave_head},",
+            f"    {bank_wave_tail},",
+            "];",
+            "",
+            "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+            "pub(super) struct PlayerNeutralFlightCadence {",
+            "    pub control_updates: u8,",
+            "    pub movement_updates: u8,",
+            "}",
+            "",
+            "const PLAYER_NEUTRAL_FLIGHT_CADENCE: "
+            f"[PlayerNeutralFlightCadence; {len(cadence)}] = [",
+            *cadence_values,
+            "];",
+            "",
+            "pub(super) fn player_neutral_flight_cadence(",
+            "    retail_frame: u16,",
+            ") -> Option<PlayerNeutralFlightCadence> {",
+            "    let offset = "
+            "retail_frame.checked_sub(PLAYER_NEUTRAL_FIRST_UPDATE_RETAIL_FRAME)?;",
+            "    if retail_frame > PLAYER_NEUTRAL_LAST_UPDATE_RETAIL_FRAME",
+            "        || offset % PLAYER_RETAIL_FRAME_STEP != 0",
+            "    {",
+            "        return None;",
+            "    }",
+            "    PLAYER_NEUTRAL_FLIGHT_CADENCE",
+            "        .get(usize::from(offset / PLAYER_RETAIL_FRAME_STEP))",
+            "        .copied()",
+            "}",
+            "",
+            "pub(super) fn advance_player_neutral_bank_phase(phase: u8, updates: u8) -> u8 {",
+            "    phase.wrapping_add(updates) % PLAYER_NEUTRAL_BANK_PERIOD",
+            "}",
+            "",
+            "pub(super) fn player_neutral_bank(phase: u8) -> i8 {",
+            "    PLAYER_NEUTRAL_BANK_WAVE[usize::from(phase % PLAYER_NEUTRAL_BANK_PERIOD)]",
+            "}",
+            "",
+        ]
+    )
 
 
 def head_departure_cadence(records: list[Record]) -> list[tuple[int, int]]:
@@ -193,7 +435,8 @@ def main() -> None:
             DUEL_NAME,
         )
 
-    cadence = head_departure_cadence(records)
+    head_cadence = head_departure_cadence(records)
+    player_cadence = player_neutral_flight_cadence(records)
     scene_source = rust_source(
         DEFAULT_TRACE.name,
         records,
@@ -203,13 +446,16 @@ def main() -> None:
         Path(__file__).name,
         rival_test_only=True,
         timing_test_only=False,
+        player_test_only=True,
+        omit_wingmate=True,
     )
     scene_source = scene_source.replace(
         MULTILINE_SCENE_IMPORT,
         SINGLE_LINE_SCENE_IMPORT,
         1,
     )
-    generated = append_head_cadence(scene_source, cadence)
+    scene_source = append_player_flight(scene_source, records, player_cadence)
+    generated = append_head_cadence(scene_source, head_cadence)
     if args.check:
         if not DEFAULT_OUTPUT.is_file() or DEFAULT_OUTPUT.read_text(
             encoding="utf-8"
@@ -223,8 +469,10 @@ def main() -> None:
 
     print(
         f"{action} {DEFAULT_OUTPUT}: {len(records)} scene frames, "
-        f"{sum(movement for movement, _ in cadence)} movement updates, "
-        f"{sum(pitch for _, pitch in cadence)} pitch updates"
+        f"{sum(movement for movement, _ in head_cadence)} head movement updates, "
+        f"{sum(pitch for _, pitch in head_cadence)} head pitch updates, "
+        f"{sum(control for control, _ in player_cadence)} player control updates, "
+        f"{sum(movement for _, movement in player_cadence)} player movement updates"
     )
 
 

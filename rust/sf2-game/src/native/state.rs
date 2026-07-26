@@ -2357,6 +2357,8 @@ pub struct PlayerFlightState {
     pub pitch_accumulator: i16,
     pub yaw_accumulator: i16,
     pub pitch_lean: i8,
+    /// Current sample in the retail craft's subtle ambient bank wave.
+    pub ambient_bank_phase: u8,
 }
 
 /// The active retail Walker jump controller plus its local vertical motion.

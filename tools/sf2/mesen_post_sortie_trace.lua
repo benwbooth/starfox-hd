@@ -459,6 +459,13 @@ sortie_actor_oracle = {
     [0x0576] = true,
   },
 }
+-- Oracle-only visibility into the retail flight controller's indexed state.
+-- Shipping Rust consumes the recovered pitch/yaw/bank and movement semantics,
+-- never these source addresses or the indexed storage layout.
+player_flight_oracle = {
+  enabled = os.getenv("SF2_ORACLE_TRACE_PLAYER_FLIGHT_DYNAMICS") == "1",
+  lines = {},
+}
 explicit_trace_objects = {}
 for trace_object_token in string.gmatch(
   os.getenv("SF2_ORACLE_TRACE_OBJECTS") or "", "[^,]+") do
@@ -469,6 +476,10 @@ for trace_object_token in string.gmatch(
       "hexadecimal object addresses")
   sortie_actor_oracle.objects[trace_object_address] = true
   explicit_trace_objects[trace_object_address] = true
+end
+if player_flight_oracle.enabled then
+  sortie_actor_oracle.objects[0x03BD] = true
+  explicit_trace_objects[0x03BD] = true
 end
 local walker_dynamics_before = nil
 local last_state = ""
@@ -893,6 +904,63 @@ end
 
 local function walker_motion_stage(stage)
   return function() record_walker_motion_stage(stage) end
+end
+
+function player_flight_oracle.record(stage)
+  if not player_flight_oracle.enabled or not armed then return end
+  local object = work_word(0x12C3)
+  if object == 0 then return end
+  local slot = work_word(object + 0x2B)
+  local function flight_field(address)
+    return (address + slot) & 0xFFFF
+  end
+  player_flight_oracle.lines[#player_flight_oracle.lines + 1] = string.format(
+    "elapsed=%d stage=%s object=%04X slot=%04X pose=%s " ..
+      "pitch=%d,%d yaw=%d,%d,%d,%d bank=%d,%d,%d,%d,%d,%d " ..
+      "motion=%d,%d,%d speed=%d input=%d,%d",
+    frame - armed_frame,
+    stage,
+    object,
+    slot,
+    string.format(
+      "%d,%d,%d,%d,%d,%d,%d",
+      signed_word(object + 12),
+      signed_word(object + 14),
+      signed_word(object + 16),
+      work_byte(object + 18),
+      work_byte(object + 20),
+      work_byte(object + 22),
+      work_byte(object + 24)),
+    signed_byte(flight_field(0x6ABA)),
+    signed_byte(flight_field(0x6ACF)),
+    signed_byte(flight_field(0x6ABC)),
+    signed_byte(flight_field(0x6AD1)),
+    signed_byte(flight_field(0x6AD4)),
+    signed_byte(flight_field(0x6ADE)),
+    signed_byte(flight_field(0x6ABD)),
+    signed_byte(flight_field(0x6ADD)),
+    signed_byte(flight_field(0x6AD5)),
+    signed_byte(flight_field(0x6AD7)),
+    signed_byte(flight_field(0x6AD8)),
+    signed_byte(flight_field(0x6ADA)),
+    signed_word(flight_field(0x6B0B)),
+    signed_word(flight_field(0x6B0D)),
+    signed_word(flight_field(0x6B0F)),
+    work_byte(object + 0x18),
+    signed_word(0x1E36),
+    signed_word(0x1E38))
+end
+
+function player_flight_oracle.capture(stage)
+  local ok, detail = pcall(player_flight_oracle.record, stage)
+  if not ok then
+    player_flight_oracle.lines[#player_flight_oracle.lines + 1] =
+      string.format(
+        "elapsed=%d stage=error capture=%s detail=%s",
+        frame - armed_frame,
+        stage,
+        tostring(detail))
+  end
 end
 
 local walker_auxiliary_offsets = {
@@ -1557,12 +1625,20 @@ function sortie_actor_oracle.record_coprocessor_position_write(address, value)
 end
 
 function sortie_actor_oracle.record_main_position_write(address, value)
-  if not sortie_actor_oracle.enabled or not armed then return end
+  if (not sortie_actor_oracle.enabled and not player_flight_oracle.enabled)
+    or not armed then return end
   local elapsed = frame - armed_frame
   if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
   local object = sortie_actor_oracle.actor_for_position_address(address)
   if not object then return end
   local state = emu.getState()
+  if player_flight_oracle.enabled
+    and object == work_word(0x12C3)
+    and address == object + 0x10
+    and (state["cpu.pc"] or 0) == 0xEED4 then
+    player_flight_oracle.capture("after-motion")
+  end
+  if not sortie_actor_oracle.enabled then return end
   sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
     "elapsed=%d event=main-position-write object=%04X shape=%04X " ..
       "address=%04X value=%d source=%02X:%04X pose=%s",
@@ -1622,7 +1698,8 @@ end
 
 function sortie_actor_oracle.record_explicit_object_state_write(source)
   return function(address, value)
-    if not sortie_actor_oracle.enabled or not armed then return end
+    if (not sortie_actor_oracle.enabled and not player_flight_oracle.enabled)
+      or not armed then return end
     local object = nil
     for candidate, _ in pairs(explicit_trace_objects) do
       if (address >= candidate + 4 and address <= candidate + 5)
@@ -1634,6 +1711,13 @@ function sortie_actor_oracle.record_explicit_object_state_write(source)
     end
     if not object then return end
     local state = emu.getState()
+    if player_flight_oracle.enabled
+      and source == "main-work"
+      and object == work_word(0x12C3)
+      and (state["cpu.pc"] or 0) == 0xEE06 then
+      player_flight_oracle.capture("after-control")
+    end
+    if not sortie_actor_oracle.enabled then return end
     sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
       "elapsed=%d event=object-state-write object=%04X shape=%04X " ..
         "offset=%02X value=%d source=%s host=%02X:%04X coprocessor=%02X:%04X",
@@ -3746,6 +3830,11 @@ local function end_frame()
         "sf2_walker_dynamics_trace.txt",
         table.concat(walker_dynamics_lines, "\n") .. "\n")
     end
+    if player_flight_oracle.enabled then
+      write_file(
+        "sf2_player_flight_dynamics.txt",
+        table.concat(player_flight_oracle.lines, "\n") .. "\n")
+    end
     if player_damage_oracle.trace then
       write_file(
         "sf2_player_damage_trace.txt",
@@ -4176,6 +4265,13 @@ function sortie_actor_oracle.register_callbacks()
         emu.cpuType.snes,
         emu.memType.snesWorkRam)
       emu.addMemoryCallback(
+        sortie_actor_oracle.record_explicit_object_state_write("main-work"),
+        emu.callbackType.write,
+        range[1],
+        range[2],
+        emu.cpuType.snes,
+        emu.memType.gsuWorkRam)
+      emu.addMemoryCallback(
         sortie_actor_oracle.record_explicit_object_state_write("coprocessor-work"),
         emu.callbackType.write,
         range[1],
@@ -4206,7 +4302,9 @@ function sortie_actor_oracle.register_callbacks()
     emu.cpuType.gsu,
     emu.memType.gsuWorkRam)
 end
-if sortie_actor_oracle.enabled or sortie_actor_oracle.projectiles_enabled then
+if sortie_actor_oracle.enabled
+  or sortie_actor_oracle.projectiles_enabled
+  or player_flight_oracle.enabled then
   sortie_actor_oracle.register_callbacks()
 end
 if trace_craft_transition then
