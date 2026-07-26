@@ -6699,7 +6699,12 @@ impl Game {
             primary.base.flags.collision_disabled = true;
         }
         if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
-            apply_player_keyframe(wingmate, mirage_dragon::WINGMATE_CINEMATIC_KEYFRAMES[0]);
+            wingmate.base.position = Vector3::default();
+            wingmate.base.pitch = Angle::ZERO;
+            wingmate.base.yaw = Angle::ZERO;
+            wingmate.base.roll = Angle::ZERO;
+            wingmate.base.speed = 0;
+            wingmate.base.velocity = Vector3::default();
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
             wingmate.base.flags.collision_disabled = true;
@@ -16508,16 +16513,12 @@ impl Game {
                 object.base.flags.collision_disabled = !visible;
             }
         }
-        let wingmate = interpolated_player_keyframe(
-            &mirage_dragon::WINGMATE_CINEMATIC_KEYFRAMES,
-            retail_frame,
-        );
         if let Some(id) = self.state.mission.wingmate {
             if let Some(object) = self.state.objects.get_mut(id) {
-                apply_player_keyframe(object, wingmate);
                 object.base.shape = ShapeId::EMPTY;
                 object.base.flags.visible = false;
                 object.base.flags.collision_disabled = true;
+                object.base.velocity = Vector3::default();
             }
         }
         if retail_frame == mirage_dragon::PLAYER_NEUTRAL_START_RETAIL_FRAME {
@@ -34988,6 +34989,24 @@ mod tests {
                 "retail frame {}",
                 expected.retail_frame
             );
+        }
+    }
+
+    #[test]
+    fn mirage_dragon_keeps_the_nonparticipating_wingmate_out_of_the_scene() {
+        let mut game = enter_mirage_dragon_mission();
+        let wingmate_id = game.state.mission.wingmate.unwrap();
+
+        for _ in 0..=MIRAGE_DRAGON_PLAYER_REVEAL_RETAIL_FRAME
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16
+        {
+            let wingmate = game.state.objects.get(wingmate_id).unwrap();
+            assert_eq!(wingmate.base.position, Vector3::default());
+            assert_eq!(wingmate.base.velocity, Vector3::default());
+            assert_eq!(wingmate.base.shape, ShapeId::EMPTY);
+            assert!(!wingmate.base.flags.visible);
+            assert!(wingmate.base.flags.collision_disabled);
+            game.tick(0).unwrap();
         }
     }
 }

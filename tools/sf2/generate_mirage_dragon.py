@@ -650,7 +650,6 @@ def append_player_flight(
         [
             "",
             *keyframes("PLAYER_CINEMATIC_KEYFRAMES", "player"),
-            *keyframes("WINGMATE_CINEMATIC_KEYFRAMES", "wingmate"),
             "pub(super) const PLAYER_NEUTRAL_START_RETAIL_FRAME: u16 = "
             f"{PLAYER_CINEMATIC_END_RETAIL_FRAME};",
             "pub(super) const PLAYER_NEUTRAL_YAW: u8 = "
