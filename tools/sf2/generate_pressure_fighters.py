@@ -307,19 +307,6 @@ def rust_source(
             + ", ".join(f"{value:_}" for value in record.player)
             + "),"
         )
-    lines.extend(
-        [
-            "];",
-            "",
-            f"pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; {len(records)}] = [",
-        ]
-    )
-    for record in records:
-        lines.append(
-            f"    mission_player_keyframe({record.retail_frame}, "
-            + ", ".join(f"{value:_}" for value in record.wingmate)
-            + "),"
-        )
     lines.extend(["];", ""])
     return format_rust("\n".join(lines))
 

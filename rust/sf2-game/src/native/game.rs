@@ -6751,7 +6751,12 @@ impl Game {
         self.previous_mission_player_position =
             Some(pressure_fighters::PLAYER_KEYFRAMES[0].position);
         if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
-            apply_player_keyframe(wingmate, pressure_fighters::WINGMATE_KEYFRAMES[0]);
+            wingmate.base.position = Vector3::default();
+            wingmate.base.pitch = Angle::ZERO;
+            wingmate.base.yaw = Angle::ZERO;
+            wingmate.base.roll = Angle::ZERO;
+            wingmate.base.speed = 0;
+            wingmate.base.velocity = Vector3::default();
             wingmate.base.shape = ShapeId::EMPTY;
             wingmate.base.flags.visible = false;
             wingmate.base.flags.collision_disabled = true;
@@ -16029,7 +16034,7 @@ impl Game {
         self.update_pressure_player_presentation(
             &pressure_fighters::CAMERA_KEYFRAMES,
             &pressure_fighters::PLAYER_KEYFRAMES,
-            &pressure_fighters::WINGMATE_KEYFRAMES,
+            None,
             FIGHTER_INTERCEPT_PLAYER_REVEAL_RETAIL_FRAME,
             retail_frame,
         );
@@ -16039,7 +16044,7 @@ impl Game {
         self.update_pressure_player_presentation(
             &leon_pressure::CAMERA_KEYFRAMES,
             &leon_pressure::PLAYER_KEYFRAMES,
-            &leon_pressure::WINGMATE_KEYFRAMES,
+            Some(&leon_pressure::WINGMATE_KEYFRAMES),
             LEON_PLAYER_REVEAL_RETAIL_FRAME,
             retail_frame,
         );
@@ -16062,7 +16067,7 @@ impl Game {
         self.update_pressure_player_presentation(
             camera,
             player,
-            wingmate,
+            Some(wingmate),
             LEON_PLAYER_REVEAL_RETAIL_FRAME,
             retail_frame,
         );
@@ -16108,7 +16113,7 @@ impl Game {
         &mut self,
         camera_keyframes: &[MissionCameraKeyframe],
         player_keyframes: &[MissionPlayerKeyframe],
-        wingmate_keyframes: &[MissionPlayerKeyframe],
+        wingmate_keyframes: Option<&[MissionPlayerKeyframe]>,
         reveal_retail_frame: u16,
         retail_frame: u16,
     ) {
@@ -16133,10 +16138,19 @@ impl Game {
                 object.base.flags.collision_disabled = !visible;
             }
         }
-        let wingmate = interpolated_player_keyframe(wingmate_keyframes, retail_frame);
         if let Some(id) = self.state.mission.wingmate {
             if let Some(object) = self.state.objects.get_mut(id) {
-                apply_player_keyframe(object, wingmate);
+                if let Some(keyframes) = wingmate_keyframes {
+                    let wingmate = interpolated_player_keyframe(keyframes, retail_frame);
+                    apply_player_keyframe(object, wingmate);
+                } else {
+                    object.base.position = Vector3::default();
+                    object.base.pitch = Angle::ZERO;
+                    object.base.yaw = Angle::ZERO;
+                    object.base.roll = Angle::ZERO;
+                    object.base.speed = 0;
+                    object.base.velocity = Vector3::default();
+                }
                 object.base.shape = ShapeId::EMPTY;
                 object.base.flags.visible = false;
                 object.base.flags.collision_disabled = true;
@@ -32075,6 +32089,30 @@ mod tests {
             .into_iter()
             .all(|slot| slot.is_none()));
         assert!(game.pressure_fighter_projectiles.is_empty());
+    }
+
+    #[test]
+    fn recurring_attackers_keep_the_nonparticipating_wingmate_out_of_the_scene() {
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.begin_pressure_fighter_encounter().unwrap();
+        let wingmate_id = game.state.mission.wingmate.unwrap();
+
+        for retail_frame in (0..=pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            game.update_pressure_fighter_presentation(retail_frame);
+            let wingmate = game.state.objects.get(wingmate_id).unwrap();
+            assert_eq!(wingmate.base.position, Vector3::default());
+            assert_eq!(wingmate.base.velocity, Vector3::default());
+            assert_eq!(wingmate.base.pitch, Angle::ZERO);
+            assert_eq!(wingmate.base.yaw, Angle::ZERO);
+            assert_eq!(wingmate.base.roll, Angle::ZERO);
+            assert_eq!(wingmate.base.speed, 0);
+            assert_eq!(wingmate.base.shape, ShapeId::EMPTY);
+            assert!(!wingmate.base.flags.visible);
+            assert!(wingmate.base.flags.collision_disabled);
+        }
     }
 
     #[test]
