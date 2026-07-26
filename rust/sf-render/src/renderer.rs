@@ -24,7 +24,9 @@ use crate::ui::Ui;
 use sf_core::{
     player_view::PlayerViewMode,
     scene::{PaletteFadeTarget, SceneStyle},
-    screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState, MAX_COLOR_LEVEL},
+    screen_fill_circle::{
+        ScreenFillCircleCenter, ScreenFillCircleScope, ScreenFillCircleState, MAX_COLOR_LEVEL,
+    },
     screen_wipe::ScreenWipeState,
 };
 
@@ -669,6 +671,9 @@ impl Renderer {
             self.ui
                 .render_sf2_mission_background(&mut self.gpu, sf2.mission_backdrop);
         }
+        if inputs.screen_fill_circle.scope == ScreenFillCircleScope::Background {
+            self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
+        }
         self.shapes.set_scene_style(inputs.scene_style);
         // Polygon colors use the independent BGS-selected game palette.
         // FADETOSEA/FADETOGROUND changes background palette row 4 in Bg2d;
@@ -702,7 +707,9 @@ impl Renderer {
             &mut self.font,
         );
         self.particles.render(&mut self.gpu, &self.transform);
-        self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
+        if inputs.screen_fill_circle.scope == ScreenFillCircleScope::Scene {
+            self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
+        }
         if sf2_mission {
             self.gpu.set_draw_viewport(None);
             self.transform.set_projection(self.width, self.height);

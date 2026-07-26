@@ -23,6 +23,7 @@
 //! strategy registry and hands back its `StratId`.
 
 use sf_core::player_view::PlayerViewMode;
+use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
@@ -2459,6 +2460,8 @@ pub fn ship0cdown_istrat(g: &mut Game, idx: u16) {
     al.count = 60 + 35 + 20;
 }
 
+const SHIP_COUNTDOWN_CIRCLE_SOUND: u8 = 29;
+
 /// ROM `ship0cdown_strat` (GCSTRATS.ASM:2030).
 pub fn ship0cdown_strat(g: &mut Game, idx: u16) {
     let life = g.objs.aliens[idx as usize].count;
@@ -2493,8 +2496,12 @@ pub fn ship0cdown_strat(g: &mut Game, idx: u16) {
         g.objs.aliens[idx as usize].sbyte1 = delay;
         if delay == 0 {
             g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
-            g.vars.circleanim = 1;
-            g.hooks.play_se(0x1d);
+            let object_id = idx + 1;
+            g.vars.strategy.circle_object = object_id as i16;
+            g.vars
+                .screen_fill_circle
+                .begin_last_stage(ScreenFillCircleCenter::Object(object_id));
+            g.hooks.play_se(SHIP_COUNTDOWN_CIRCLE_SOUND);
             if let Some(e) = make_obj(g, 0) {
                 copy_pos(g, e, idx);
                 bigparticleexplode_istrat(g, e);
@@ -6642,9 +6649,9 @@ pub fn fire_ironball3(g: &mut Game, firer: u16) -> Option<u16> {
 pub const NUKE_AP: u8 = 8;
 pub const NUKE_RATE: i16 = 200;
 pub const NUKE_MAX_RADIUS: i16 = 7000;
+const NUKE_EXPLOSION_SOUND: u8 = 48;
 
-/// HD stand-in for ROM `smartbomb_circle` (circletab offset); non-zero so
-/// the circle-wipe path can detect a smartbomb pulse.
+/// Legacy source-layout discriminator retained for map/window transitions.
 const SMARTBOMB_CIRCLE: i16 = 2;
 
 /// MB_* from GILESALC.INC (missile / weapon screen bounds).
@@ -6825,7 +6832,10 @@ pub fn nukeexp_istrat(g: &mut Game, idx: u16) {
     g.vars
         .set_sv_u16(sv::CIRCLEOBJ, (idx as u16).wrapping_add(1));
     g.vars.circleanim = SMARTBOMB_CIRCLE;
-    g.hooks.play_se(0x30);
+    g.vars
+        .screen_fill_circle
+        .begin_smart_bomb(ScreenFillCircleCenter::Object(idx + 1));
+    g.hooks.play_se(NUKE_EXPLOSION_SOUND);
     g.objs.aliens[idx as usize].snd2 = 0;
 }
 
@@ -16309,14 +16319,38 @@ pub(crate) fn circdelayexplode_init(g: &mut Game, idx: u16) {
     al.expstratptr = None;
 }
 
+const BOSS_CIRCLE_EXPLOSION_SOUND: u8 = 29;
+
+/// Start the authored boss explosion circle around a stable, ordinary world
+/// object. Allocation failure falls back to the screen center, matching the
+/// source effect's null-object path.
+pub(crate) fn start_boss_explosion_circle(g: &mut Game, idx: u16) -> Option<u16> {
+    g.hooks.play_se(BOSS_CIRCLE_EXPLOSION_SOUND);
+    g.vars.strategy.circle_object = 0;
+
+    let center = if let Some(anchor) = make_obj(g, 0) {
+        copy_pos(g, anchor, idx);
+        crate::ground::strat_stayrel_init(g, anchor);
+        let object_id = anchor + 1;
+        g.vars.strategy.circle_object = object_id as i16;
+        ScreenFillCircleCenter::Object(object_id)
+    } else {
+        ScreenFillCircleCenter::Screen
+    };
+    g.vars.screen_fill_circle.begin_boss_explosion(center);
+
+    match center {
+        ScreenFillCircleCenter::Object(object_id) => Some(object_id - 1),
+        ScreenFillCircleCenter::Screen | ScreenFillCircleCenter::World { .. } => None,
+    }
+}
+
 /// C `circdelayexplode_strat` (EXPSTRAT.ASM:273-294 tick half).
 pub(crate) fn circdelayexplode_strat(g: &mut Game, idx: u16) {
     // ASM EXPSTRAT.ASM:280 `s_decbpl_lifecnt x,.nd` dies when the decrement goes
     // NEGATIVE (entry count 0). Old inline fired one frame early. (Audit A #35)
     if count_down(&mut g.objs.aliens[idx as usize]) {
-        // makebosscircexp_srou: circle-fill visual is renderer-side in HD;
-        // play the explosion sound (C comment).
-        g.hooks.play_se(0x1D);
+        let _ = start_boss_explosion_circle(g, idx);
         if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
             if let Some(big) = make_obj(g, 0) {
                 copy_pos(g, big, idx);

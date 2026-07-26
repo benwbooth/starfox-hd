@@ -51,9 +51,9 @@ use crate::common::{
 use crate::enemy_a::{
     achase_angle, add_player_z, addrnd2pos_xy, boss_keeprel_to_player, copy_pos,
     fire_boss_hmissile1, fire_chick_hmissile1, fire_hmissile1, fire_hplasma, make_fol_exp_obj,
-    make_large_exp_obj, make_medium_exp_obj, player, strat_aim_3d, strat_fire_relslowlaser,
-    strat_fire_relslowlaserhome, strat_hit_flash, strat_pitch_toward, strat_qboss_explode_init,
-    ASF4_NOPOLYEXP,
+    make_large_exp_obj, make_medium_exp_obj, player, start_boss_explosion_circle, strat_aim_3d,
+    strat_fire_relslowlaser, strat_fire_relslowlaserhome, strat_hit_flash, strat_pitch_toward,
+    strat_qboss_explode_init, ASF4_NOPOLYEXP,
 };
 
 // ============================================================
@@ -2771,7 +2771,7 @@ pub fn bossbpwaitexp_strat(g: &mut Game, idx: u16) {
 /// ROM `bossBpexp2_Istrat` (GB3STRAT.ASM:2929) — bossdead + circle + FOL + tumble.
 pub fn bossbpexp2_istrat(g: &mut Game, idx: u16) {
     g.vars.gameflags |= GF_BOSSDEAD;
-    // makebosscircexp_srou — circle-fill is renderer-side in HD; FOL covers the burst.
+    let _ = start_boss_explosion_circle(g, idx);
     let _ = make_fol_exp_obj(g, idx);
     let s = sid(g, bossbpexp_strat);
     g.objs.aliens[idx as usize].expstratptr = Some(s);

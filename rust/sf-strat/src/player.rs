@@ -25,15 +25,16 @@ use crate::common::{
     StratRam,
 };
 use crate::enemy_a::{
-    add_player_z, addrnd2pos_xy, bigparticleexplode_istrat, fire_nuke, make_large_exp_obj,
-    make_medium_exp_obj, phitflash_istrat, shiplb1_istrat, sid as ea_sid, strat_explode,
-    ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3, ASF4_NOPOLYEXP,
+    add_player_z, addrnd2pos_xy, bigparticleexplode_istrat, copy_pos, fire_nuke,
+    make_large_exp_obj, make_medium_exp_obj, phitflash_istrat, shiplb1_istrat, sid as ea_sid,
+    strat_explode, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3, ASF4_NOPOLYEXP,
 };
 /// ROM `sflag4` — sflags2 bit 7 (STRATEQU.INC make_sflag after sflag3).
 const ASF2_SFLAG4: u8 = 0x80;
 use crate::snes_trig::{mulslog_mac8, COSTAB, SINTAB};
 use sf_core::pad;
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
+use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
     ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
@@ -5866,6 +5867,9 @@ pub fn viewoutoflb1_istrat(g: &mut Game, idx: u16) {
 
 /// ROM `viewOutofLB1_strat` (GCSTRATS.ASM:1394) — follow pship; explode mapvar1.
 pub fn viewoutoflb1_strat(g: &mut Game, idx: u16) {
+    const LAST_STAGE_TRIGGER_HEIGHT: i16 = -1000;
+    const LAST_STAGE_CIRCLE_SOUND: u8 = 29;
+
     // Explosion burst when gf2_stratflag1 and !sflag3
     if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG3 == 0 {
         let gf2 = g.vars.shared.game_flags2;
@@ -5908,13 +5912,39 @@ pub fn viewoutoflb1_strat(g: &mut Game, idx: u16) {
             _ => {}
         }
 
-        // Active ifeq 0 block: base explode when viewtoobj rises past -1000
-        if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0
-            && g.objs.aliens[view as usize].worldy < -1000
-        {
+        // Base explosion starts once the viewed ship rises to the authored
+        // height. Its anchor begins at mapvar1 and follows this camera
+        // object's vertical velocity on every later tick.
+        let move_circle_anchor = if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
+            true
+        } else if g.objs.aliens[view as usize].worldy < LAST_STAGE_TRIGGER_HEIGHT {
+            false
+        } else {
             g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
-            // circleobj / circleanim cosmetic — skip mesh; keep SE
-            g.hooks.play_se(0x1d);
+            if let Some(parent) = mapvar1_obj(g) {
+                if let Some(anchor) = strat_make_obj(g, 0) {
+                    copy_pos(g, anchor, parent);
+                    let object_id = anchor + 1;
+                    g.vars.strategy.circle_object = object_id as i16;
+                    g.vars
+                        .screen_fill_circle
+                        .begin_last_stage(ScreenFillCircleCenter::Object(object_id));
+                    g.hooks.play_se(LAST_STAGE_CIRCLE_SOUND);
+                }
+            }
+            true
+        };
+
+        if move_circle_anchor {
+            let object_id = g.vars.strategy.circle_object;
+            if object_id > 0 {
+                let anchor = object_id as u16 - 1;
+                if (anchor as usize) < NUMBER_AL && g.objs.aliens[anchor as usize].active {
+                    let vertical_velocity = g.objs.aliens[idx as usize].vy;
+                    let object = &mut g.objs.aliens[anchor as usize];
+                    object.worldy = object.worldy.wrapping_add(vertical_velocity);
+                }
+            }
         }
     }
 

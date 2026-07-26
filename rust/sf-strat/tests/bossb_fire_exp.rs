@@ -1,5 +1,8 @@
 //! ROM bossBrob fire + death explode chain (GB3STRAT.ASM).
 
+use sf_core::screen_fill_circle::{
+    ScreenFillCircleCenter, ScreenFillCirclePhase, BOSS_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
+};
 use sf_game::alien::{ASF_COLLDISABLE, ATZREMOVE};
 use sf_game::vars::GF_BOSSDEAD;
 use sf_game::Game;
@@ -104,11 +107,42 @@ fn sepexp_falls_then_splits_into_debris() {
 
 #[test]
 fn bossbpexp2_sets_bossdead_and_tumbles() {
+    const BOSS_POSITION: [i16; 3] = [120, -40, 900];
+
     let mut g = Game::new();
     let idx = g.objs.alloc().expect("head");
+    g.objs.aliens[idx as usize].worldx = BOSS_POSITION[0];
+    g.objs.aliens[idx as usize].worldy = BOSS_POSITION[1];
+    g.objs.aliens[idx as usize].worldz = BOSS_POSITION[2];
     bossbpexp2_istrat(&mut g, idx);
     assert_ne!(g.vars.gameflags & GF_BOSSDEAD, 0);
     assert_ne!(g.objs.aliens[idx as usize].type_ & ATZREMOVE, 0);
+    let ScreenFillCircleCenter::Object(object_id) = g.vars.screen_fill_circle.center else {
+        panic!("boss circle should use its retained world anchor");
+    };
+    let anchor = object_id - 1;
+    assert_eq!(
+        [
+            g.objs.aliens[anchor as usize].worldx,
+            g.objs.aliens[anchor as usize].worldy,
+            g.objs.aliens[anchor as usize].worldz,
+        ],
+        BOSS_POSITION
+    );
+    assert!(g.objs.aliens[anchor as usize].stratptr.is_some());
+    assert_eq!(
+        g.vars.screen_fill_circle.phase,
+        ScreenFillCirclePhase::BossExpanding
+    );
+    assert_eq!(g.vars.screen_fill_circle.radius, BOSS_RADIUS_SPEED as u16);
+    assert_eq!(
+        [
+            g.vars.screen_fill_circle.red,
+            g.vars.screen_fill_circle.green,
+            g.vars.screen_fill_circle.blue,
+        ],
+        [INITIAL_COLOR_LEVEL; 3]
+    );
     let rz0 = g.objs.aliens[idx as usize].rotz;
     bossbpexp_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].rotz, rz0.wrapping_add(8));

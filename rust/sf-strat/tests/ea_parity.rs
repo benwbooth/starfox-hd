@@ -16,6 +16,9 @@
 //! sprite/polygon lifetimes. Their post-destruction records were corrected as
 //! one boundary because the restored objects, slot reuse, and two explosion
 //! random draws intentionally affect later active-list and motion records.
+//! The boss1 post-destruction records also retain the retail circle anchor
+//! created by `makebosscircexp_srou`; the retired C translation omitted that
+//! presentation object.
 //!
 //! Regenerate (from the repo root, harness source in the session
 //! scratchpad; strip the Obj_Init banner line):

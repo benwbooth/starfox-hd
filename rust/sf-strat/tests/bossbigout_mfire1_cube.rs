@@ -1,5 +1,6 @@
 //! ROM bossbigoutexplode + mfire1 + cube fall/exp + misstankexp.
 
+use sf_core::screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCirclePhase};
 use sf_game::alien::{ASF_COLLIDE, ASF_SHADOW};
 use sf_game::vars::{GF_BOSSDEAD, HARD_HP};
 use sf_game::Game;
@@ -35,6 +36,57 @@ fn bossbigoutexplode_sets_bossdead_and_delayremove() {
     assert!(
         g.objs.active_indices().len() > before,
         "circle + particle + outward sprites"
+    );
+}
+
+#[test]
+fn bossbigoutexplode_delay_starts_the_object_anchored_circle() {
+    const BOSS_WORLD_Z: i16 = 2000;
+
+    let mut g = Game::new();
+    let idx = g.objs.alloc().expect("boss");
+    g.objs.aliens[idx as usize].worldz = BOSS_WORLD_Z;
+    bossbigoutexplode_istrat(&mut g, idx);
+
+    let proxy = g
+        .objs
+        .active_indices()
+        .iter()
+        .copied()
+        .find(|candidate| {
+            *candidate != idx
+                && g.objs.aliens[*candidate as usize].shape == 0
+                && g.objs.aliens[*candidate as usize].count == 1
+                && g.objs.aliens[*candidate as usize].stratptr.is_some()
+        })
+        .expect("circle-delay proxy");
+    let tick = g.objs.aliens[proxy as usize]
+        .stratptr
+        .expect("circle-delay strategy");
+
+    g.call_strat(tick, proxy);
+    assert!(!g.vars.screen_fill_circle.is_active());
+    g.call_strat(tick, proxy);
+
+    assert_eq!(
+        g.vars.screen_fill_circle.phase,
+        ScreenFillCirclePhase::BossExpanding
+    );
+    let ScreenFillCircleCenter::Object(object_id) = g.vars.screen_fill_circle.center else {
+        panic!("delayed boss circle should retain a world anchor");
+    };
+    let anchor = object_id - 1;
+    assert_eq!(
+        [
+            g.objs.aliens[anchor as usize].worldx,
+            g.objs.aliens[anchor as usize].worldy,
+            g.objs.aliens[anchor as usize].worldz,
+        ],
+        [
+            g.objs.aliens[proxy as usize].worldx,
+            g.objs.aliens[proxy as usize].worldy,
+            g.objs.aliens[proxy as usize].worldz,
+        ]
     );
 }
 

@@ -1,5 +1,8 @@
 //! Tick 86: pshipoutoflb1 + viewoutoflb1.
 
+use sf_core::screen_fill_circle::{
+    ScreenFillCircleCenter, ScreenFillCirclePhase, ScreenFillCircleScope, BOSS_RADIUS_SPEED,
+};
 use sf_game::alien::ASF_COLLDISABLE;
 use sf_game::vars::GF_STRATDONE1;
 use sf_game::Game;
@@ -17,7 +20,11 @@ const VIEWTYPE_FPOS: u8 = 2;
 const VIEWTYPE_TOOBJ: u8 = 1;
 const WM_GAMEFLAGS2: u16 = 0x155C;
 const GF2_STRATFLAG1: u8 = 1;
+const ASF2_SFLAG1: u8 = 0x10;
 const ASF2_SFLAG3: u8 = 0x40;
+const LAST_STAGE_TRIGGER_HEIGHT: i16 = -1000;
+const LAST_STAGE_BASE_POSITION: [i16; 3] = [300, -200, 700];
+const LAST_STAGE_CAMERA_VERTICAL_VELOCITY: i16 = 6;
 
 fn spawn(g: &mut Game) -> u16 {
     let idx = g.objs.alloc().expect("obj");
@@ -139,4 +146,57 @@ fn viewoutoflb1_tracks_pship_state() {
         g.vars.sv_i16(sv::VIEWPOSX),
         g.objs.aliens[cam as usize].worldx
     );
+}
+
+#[test]
+fn viewoutoflb1_starts_last_stage_circle_at_the_rising_edge() {
+    let mut g = Game::new();
+    let ship = spawn(&mut g);
+    g.objs.aliens[ship as usize].worldy = LAST_STAGE_TRIGGER_HEIGHT - 1;
+    g.vars.set_sv_i16(sv::VIEWTOOBJ, ship as i16);
+
+    let base = spawn(&mut g);
+    g.objs.aliens[base as usize].worldx = LAST_STAGE_BASE_POSITION[0];
+    g.objs.aliens[base as usize].worldy = LAST_STAGE_BASE_POSITION[1];
+    g.objs.aliens[base as usize].worldz = LAST_STAGE_BASE_POSITION[2];
+    g.vars.map.variable1 = u32::from(base + 1);
+
+    let camera = spawn(&mut g);
+    g.objs.aliens[camera as usize].vy = LAST_STAGE_CAMERA_VERTICAL_VELOCITY;
+    viewoutoflb1_istrat(&mut g, camera);
+
+    viewoutoflb1_strat(&mut g, camera);
+    assert_eq!(g.objs.aliens[camera as usize].sflags2 & ASF2_SFLAG1, 0);
+    assert!(!g.vars.screen_fill_circle.is_active());
+
+    g.objs.aliens[ship as usize].worldy = LAST_STAGE_TRIGGER_HEIGHT;
+    let vertical_velocity = g.objs.aliens[camera as usize].vy;
+    viewoutoflb1_strat(&mut g, camera);
+
+    assert_ne!(g.objs.aliens[camera as usize].sflags2 & ASF2_SFLAG1, 0);
+    let ScreenFillCircleCenter::Object(object_id) = g.vars.screen_fill_circle.center else {
+        panic!("last-stage circle should use the copied base anchor");
+    };
+    let anchor = object_id - 1;
+    assert_eq!(
+        [
+            g.objs.aliens[anchor as usize].worldx,
+            g.objs.aliens[anchor as usize].worldy,
+            g.objs.aliens[anchor as usize].worldz,
+        ],
+        [
+            LAST_STAGE_BASE_POSITION[0],
+            LAST_STAGE_BASE_POSITION[1].wrapping_add(vertical_velocity),
+            LAST_STAGE_BASE_POSITION[2],
+        ]
+    );
+    assert_eq!(
+        g.vars.screen_fill_circle.phase,
+        ScreenFillCirclePhase::LastStageExpanding
+    );
+    assert_eq!(
+        g.vars.screen_fill_circle.scope,
+        ScreenFillCircleScope::Background
+    );
+    assert_eq!(g.vars.screen_fill_circle.radius, BOSS_RADIUS_SPEED as u16);
 }

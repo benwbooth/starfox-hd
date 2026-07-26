@@ -1220,7 +1220,12 @@ impl Shell {
     /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
     /// stored into `game.vars.pad1`.
     pub fn tick(&mut self, pad1: u16) {
+        let circle_was_active = self.game.vars.screen_fill_circle.is_active();
         self.game.vars.screen_fill_circle.advance();
+        if circle_was_active && !self.game.vars.screen_fill_circle.is_active() {
+            self.game.vars.strategy.circle_object = 0;
+            self.game.vars.circleanim = 0;
+        }
         // The frame assembled after this update presents the newly selected
         // record. Advancing before simulation lets a wipe started by this
         // tick's map code retain its authored frame zero for one full frame.

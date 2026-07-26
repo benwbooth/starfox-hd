@@ -1,5 +1,9 @@
 //! ROM `nuke` / `nukeexp` / `removenuke` / `fire_nuke` (GSTRATS.ASM).
 
+use sf_core::screen_fill_circle::{
+    ScreenFillCircleCenter, ScreenFillCirclePhase, SMART_BOMB_FLASH_RADIUS,
+    SMART_BOMB_INITIAL_COLOR_LEVEL,
+};
 use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_HITFLASH, ASF_NOHITAFFECT, ATNUKED};
 use sf_game::vars::PSF_NOFIRE;
 use sf_game::Game;
@@ -77,6 +81,23 @@ fn nukeexp_damages_front_realobjs_in_ring() {
     assert_eq!(g.objs.aliens[nuke as usize].sword1, NUKE_RATE);
     assert_eq!(g.vars.sv_u16(sv::CIRCLEOBJ), nuke.wrapping_add(1));
     assert_ne!(g.vars.circleanim, 0);
+    assert_eq!(
+        g.vars.screen_fill_circle.center,
+        ScreenFillCircleCenter::Object(nuke + 1)
+    );
+    assert_eq!(
+        g.vars.screen_fill_circle.phase,
+        ScreenFillCirclePhase::SmartBombFlash
+    );
+    assert_eq!(g.vars.screen_fill_circle.radius, SMART_BOMB_FLASH_RADIUS);
+    assert_eq!(
+        [
+            g.vars.screen_fill_circle.red,
+            g.vars.screen_fill_circle.green,
+            g.vars.screen_fill_circle.blue,
+        ],
+        [SMART_BOMB_INITIAL_COLOR_LEVEL; 3]
+    );
 
     let victim = g.objs.alloc().expect("victim");
     {
