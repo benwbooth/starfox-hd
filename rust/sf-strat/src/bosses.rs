@@ -40,8 +40,8 @@ use crate::common::strat_make_obj as make_obj;
 use crate::common::strat_spawn_projectile as spawn_projectile;
 use crate::common::strat_speed_to as speed_to;
 use crate::common::{
-    float64_srou, kill_obj, makeengine_srou, makesplash_srou, strat_angle_xz, strat_angle_yz,
-    strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars, strat_nvecs,
+    float64_srou, kill_obj, makeengine_srou, makesplash_srou, makessplash_srou, strat_angle_xz,
+    strat_angle_yz, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars, strat_nvecs,
     strat_projectile_on_collide, updateengine_srou, StratRam,
 };
 
@@ -1852,14 +1852,15 @@ fn sea_fire_relslowelaser(g: &mut Game, self_idx: u16, target: u16) {
 
 /// Public for AUDIT_BOSS_TICKS2 known-gap splash tests.
 pub fn sea_make_splash(g: &mut Game, idx: u16) {
-    let _ = makesplash_srou(g, idx);
+    if let Some(splash) = makesplash_srou(g, idx) {
+        // `s_make_splash` always snaps the returned child to the waterline.
+        g.objs.aliens[splash as usize].worldy = 0;
+    }
 }
 
 /// Seamon landing splash: makesplash + `s_set_alvar W,y,al_worldy,#0`.
 pub fn sea_make_splash_surface(g: &mut Game, idx: u16) {
-    if let Some(splash) = makesplash_srou(g, idx) {
-        g.objs.aliens[splash as usize].worldy = 0;
-    }
+    sea_make_splash(g, idx);
 }
 
 /// ASM `jsl enemyupsea_l` -> makesnd (positional, POS_ENEMYUPSEA). (F3)
@@ -7852,6 +7853,26 @@ fn sd_stopstrat(g: &mut Game, idx: u16) {
 
 // ==== sprouty growth machine (snake path) ====
 
+fn finish_sprouty_splash(g: &mut Game, splash: Option<u16>) {
+    if let Some(splash) = splash {
+        let splash = &mut g.objs.aliens[splash as usize];
+        splash.worldy = 0;
+        splash.worldz = splash.worldz.wrapping_sub(10);
+    }
+}
+
+/// `s_make_splash x,s` followed by `s_sub ... worldz,#10`.
+fn sprouty_small_surface_splash(g: &mut Game, idx: u16) {
+    let splash = makessplash_srou(g, idx);
+    finish_sprouty_splash(g, splash);
+}
+
+/// `s_make_splash x` followed by `s_sub ... worldz,#10`.
+fn sprouty_surface_splash(g: &mut Game, idx: u16) {
+    let splash = makesplash_srou(g, idx);
+    finish_sprouty_splash(g, splash);
+}
+
 /// `sprouty.strat` (DSTRATS.ASM:2107-2168) — the per-tick growth driver for a
 /// still-growing segment. Snake path only (see scope note).
 fn sprouty_strat(g: &mut Game, idx: u16) {
@@ -7863,9 +7884,9 @@ fn sprouty_strat(g: &mut Game, idx: u16) {
     let reached_grow = if sflag8 || me.sbyte2 != 0 {
         true // .lochness (jump over the distance check)
     } else if !sea_dz_less(g, idx, 1000) {
-        // .chksnake: far away — splash only (cosmetic), stay submerged.
+        // .chksnake: far away — small waterline splash, stay submerged.
         if g.vars.gameframe & 7 == 0 {
-            sea_make_splash(g, idx); // s_make_splash; y.worldz-=10 (no-op)
+            sprouty_small_surface_splash(g, idx);
         }
         return;
     } else {
@@ -7954,7 +7975,7 @@ fn sprouty_bluff_init(g: &mut Game, idx: u16) {
 }
 fn sprouty_bluff_strat(g: &mut Game, idx: u16) {
     if g.vars.gameframe & 7 == 0 {
-        sea_make_splash(g, idx);
+        sprouty_small_surface_splash(g, idx);
     }
 }
 
@@ -8036,7 +8057,7 @@ fn sprouty_strat3(g: &mut Game, idx: u16) {
     let ptr = me.ptr;
     let want_splash = ptr == 0xffff || me.sflags2 & SD_SFLAG1 != 0;
     if want_splash && g.vars.gameframe & 7 == 0 {
-        sea_make_splash(g, idx); // + child worldy=0, worldz-=10 (no-op)
+        sprouty_small_surface_splash(g, idx);
     }
     // .notsnakey: child destroyed (al_ptr==0) -> fall.
     if ptr == 0 {
@@ -8100,8 +8121,12 @@ fn sprouty_tail_init(g: &mut Game, idx: u16) {
         let lo = sd_sword1_lo(al);
         al.animframe = 0x80 | (128u8.wrapping_sub(lo) & 0x7f);
     }
-    // sflag8 splash branch (D2STRATS-style) omitted (cosmetic).
-    if g.objs.aliens[idx as usize].sflags4 & ASF4_SFLAG8 == 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_SFLAG8 != 0 {
+        let me = g.objs.aliens[idx as usize];
+        if me.ptr == 0xffff || me.sflags2 & SD_SFLAG1 != 0 {
+            sprouty_surface_splash(g, idx);
+        }
+    } else {
         g.objs.aliens[idx as usize].hp = 1; // s_set_alvar al_hp,#1
     }
     sprouty_tail_strat(g, idx);
@@ -11436,6 +11461,87 @@ mod tests {
         assert_eq!(g.objs.aliens[idx as usize].worldx, 0);
         assert_eq!(g.objs.aliens[idx as usize].worldz, 248);
         assert_eq!(g.objs.aliens[idx as usize].sbyte2, 5); // += gsvar_byte1
+    }
+
+    #[test]
+    fn sprouty_waterline_splashes_use_authored_sizes_offsets_and_tail_gates() {
+        const SMALL_SPLASH_SHAPE: u16 = 359;
+        const REGULAR_SPLASH_SHAPE: u16 = 360;
+
+        let (mut g, idx) = fresh();
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldy = -50;
+            al.worldz = 100;
+        }
+        sprouty_small_surface_splash(&mut g, idx);
+        let small = g
+            .objs
+            .active_indices()
+            .into_iter()
+            .find(|&object| g.objs.aliens[object as usize].shape == SMALL_SPLASH_SHAPE)
+            .expect("small sprouty splash");
+        assert_eq!(g.objs.aliens[small as usize].worldy, 0);
+        assert_eq!(g.objs.aliens[small as usize].worldz, 85);
+
+        let (mut g, idx) = fresh();
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.worldy = -50;
+            al.worldz = 100;
+            al.hp = 9;
+            al.ptr = 0xffff;
+            al.sflags4 |= ASF4_SFLAG8;
+        }
+        sprouty_tail_init(&mut g, idx);
+        let splash = g
+            .objs
+            .active_indices()
+            .into_iter()
+            .find(|&object| g.objs.aliens[object as usize].shape == REGULAR_SPLASH_SHAPE)
+            .expect("topmost Loch Ness tail splash");
+        assert_eq!(g.objs.aliens[splash as usize].worldy, 0);
+        assert_eq!(g.objs.aliens[splash as usize].worldz, 85);
+        assert_eq!(
+            g.objs.aliens[idx as usize].hp, 9,
+            "Loch Ness tail retains its durability",
+        );
+
+        let (mut g, idx) = fresh();
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.ptr = 1;
+            al.sflags4 |= ASF4_SFLAG8;
+        }
+        sprouty_tail_init(&mut g, idx);
+        assert!(
+            !g.objs
+                .active_indices()
+                .into_iter()
+                .any(|object| g.objs.aliens[object as usize].shape == REGULAR_SPLASH_SHAPE),
+            "linked tail without always-splash flag stays dry",
+        );
+        g.objs.aliens[idx as usize].sflags2 |= SD_SFLAG1;
+        sprouty_tail_init(&mut g, idx);
+        assert!(
+            g.objs
+                .active_indices()
+                .into_iter()
+                .any(|object| g.objs.aliens[object as usize].shape == REGULAR_SPLASH_SHAPE),
+            "linked tail with always-splash flag uses the second source gate",
+        );
+
+        let (mut g, idx) = fresh();
+        {
+            let al = &mut g.objs.aliens[idx as usize];
+            al.hp = 9;
+            al.ptr = 1;
+        }
+        sprouty_tail_init(&mut g, idx);
+        assert_eq!(
+            g.objs.aliens[idx as usize].hp, 1,
+            "ordinary tail receives the authored one-hit durability",
+        );
     }
 
     #[test]

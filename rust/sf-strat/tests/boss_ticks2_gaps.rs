@@ -45,6 +45,10 @@ fn sea_make_splash_spawns_child() {
         .expect("splash");
     assert_ne!(g.objs.aliens[splash as usize].sflags & ASF_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[splash as usize].worldz, 995);
+    assert_eq!(
+        g.objs.aliens[splash as usize].worldy, 0,
+        "s_make_splash snaps its child to the waterline",
+    );
 }
 
 /// Seamon landing forces splash worldy=0 (GASTRATS.ASM:2101).
