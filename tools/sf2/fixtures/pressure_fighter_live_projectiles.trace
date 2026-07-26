@@ -1,8 +1,9 @@
 # Oracle evidence for recurring-fighter live hostile projectiles.
-# actor_raw_sha256=3feba6cc6ebe2c16a99d6a5e748d3d6b174683d8b62bbcc78d06ae99a1842535
-# projectile_raw_sha256=fa734d3c1b173d0ca1513bcd03031980bef56059837e1d2b028a0dceb505e980
+# actor_raw_sha256=efc2999c8015c89c10e2ac99bf791dc7f03ea12a2bee5e753d5814e024614582
+# projectile_raw_sha256=a79020030b03e69e535beb6605243b2b2fb7eec80eb073e3f810d4bce9d9f279
 # movement_interval_sum=3234 movement_interval_count=966
 # reusable_allocation_count=4 maximum_concurrent_projectiles=3
+# handoff_strategy_frame=142
 # terminal=expired means the complete fifteen-step free-flight path;
 # terminal=terminated means the object vanished after its first cruise move.
 fire elapsed=81207 launch=31600,1753,-9040,8,246,0,60 target=-31116,3177,1229,0,64,2,23 distance=10649 launched=1 start_delay=1
@@ -53,39 +54,164 @@ fire elapsed=88875 launch=-19651,-1750,-6592,30,243,0,60 target=-16967,3177,1229
 fire elapsed=89242 launch=-15138,-3198,-4542,37,27,0,60 target=-19487,3177,1229,0,64,253,23 distance=7226 launched=1 start_delay=1
 fire elapsed=89618 launch=-26634,-1842,-2168,37,218,0,60 target=-22070,3177,1229,0,64,252,23 distance=5689 launched=1 start_delay=1
 fire elapsed=89961 launch=-13758,264,9639,112,92,0,60 target=-24401,3177,1229,0,64,1,23 distance=13564 launched=0 start_delay=-
-projectile start=81208 end=81328 launch=31600,1753,-9040,8,246,0,30 homing=16 aim=4 cruise=15 terminal=expired
-projectile start=81261 end=81324 launch=32448,-1701,-7234,29,249,0,30 homing=15 aim=3 cruise=1 terminal=terminated
-projectile start=81317 end=81420 launch=32508,-2183,-5182,37,249,0,30 homing=12 aim=5 cruise=15 terminal=expired
-projectile start=81843 end=81964 launch=-29991,-1411,-8079,23,21,0,30 homing=18 aim=3 cruise=15 terminal=expired
-projectile start=81896 end=81992 launch=-32542,2710,-5526,3,18,0,30 homing=11 aim=3 cruise=15 terminal=expired
-projectile start=82293 end=82368 launch=30450,1509,-10207,8,11,0,30 homing=18 aim=4 cruise=1 terminal=terminated
-projectile start=82346 end=82460 launch=29254,2510,-7427,4,11,0,30 homing=13 aim=5 cruise=15 terminal=expired
-projectile start=82401 end=82504 launch=27115,-2223,-5364,38,3,0,30 homing=13 aim=3 cruise=15 terminal=expired
-projectile start=82939 end=83065 launch=32443,595,-5609,12,39,0,30 homing=19 aim=3 cruise=15 terminal=expired
-projectile start=82992 end=83099 launch=28907,-814,-4009,25,36,0,30 homing=14 aim=3 cruise=15 terminal=expired
-projectile start=83469 end=83607 launch=9093,-3864,7240,29,171,0,30 homing=21 aim=3 cruise=15 terminal=expired
-projectile start=83525 end=83629 launch=11881,2374,4512,6,175,0,30 homing=11 aim=4 cruise=15 terminal=expired
-projectile start=83967 end=84025 launch=24132,3851,-4800,252,38,0,30 homing=15 aim=2 cruise=1 terminal=terminated
-projectile start=84021 end=84123 launch=22937,3163,-1751,0,48,0,30 homing=12 aim=3 cruise=15 terminal=expired
-projectile start=84075 end=84163 launch=21397,2662,437,5,59,0,30 homing=9 aim=3 cruise=15 terminal=expired
-projectile start=84500 end=84536 launch=9563,2698,-3559,5,234,0,30 homing=8 aim=3 cruise=1 terminal=terminated
-projectile start=84984 end=85034 launch=8107,972,8944,17,135,0,30 homing=12 aim=3 cruise=1 terminal=terminated
-projectile start=85411 end=85530 launch=12549,751,10075,13,104,0,30 homing=17 aim=3 cruise=15 terminal=expired
-projectile start=85463 end=85570 launch=9370,-307,7310,26,108,0,30 homing=11 aim=5 cruise=15 terminal=expired
-projectile start=85519 end=85619 launch=9020,-3021,5370,42,101,0,30 homing=12 aim=4 cruise=15 terminal=expired
-projectile start=85855 end=85925 launch=10514,1636,-7285,8,29,0,30 homing=17 aim=4 cruise=1 terminal=terminated
-projectile start=85907 end=86025 launch=9644,2302,-6203,5,30,0,30 homing=15 aim=4 cruise=15 terminal=expired
-projectile start=85962 end=86018 launch=8840,2758,-5267,2,31,0,30 homing=14 aim=2 cruise=1 terminal=terminated
-projectile start=86018 end=86108 launch=5272,2393,-4301,7,20,0,30 homing=9 aim=4 cruise=15 terminal=expired
-projectile start=86440 end=86550 launch=8951,1968,-347,8,58,0,30 homing=15 aim=3 cruise=15 terminal=expired
-projectile start=86493 end=86577 launch=3331,1853,-1067,15,44,0,30 homing=7 aim=4 cruise=15 terminal=expired
-projectile start=86851 end=86908 launch=-7182,943,-8019,13,240,0,30 homing=15 aim=2 cruise=1 terminal=terminated
-projectile start=86904 end=86999 launch=-4926,908,-4847,21,248,0,30 homing=9 aim=5 cruise=15 terminal=expired
-projectile start=87360 end=87457 launch=-4825,3192,-7036,0,10,0,30 homing=13 aim=2 cruise=15 terminal=expired
-projectile start=87782 end=87852 launch=-1010,-127,-5024,17,39,0,30 homing=17 aim=4 cruise=1 terminal=terminated
-projectile start=87834 end=87941 launch=-2594,-969,-2464,26,45,0,30 homing=14 aim=4 cruise=15 terminal=expired
-projectile start=88284 end=88408 launch=-11489,-2737,-8847,30,6,0,30 homing=18 aim=4 cruise=15 terminal=expired
-projectile start=88337 end=88386 launch=-12544,40,-5892,25,5,0,30 homing=12 aim=2 cruise=1 terminal=terminated
-projectile start=88876 end=88981 launch=-19651,-1750,-6592,30,243,0,30 homing=14 aim=4 cruise=15 terminal=expired
-projectile start=89243 end=89350 launch=-15138,-3198,-4542,37,27,0,30 homing=14 aim=5 cruise=15 terminal=expired
-projectile start=89619 end=89665 launch=-26634,-1842,-2168,37,218,0,30 homing=11 aim=3 cruise=1 terminal=terminated
+projectile start=81208 end=81328 launch=31600,1753,-9040,8,246,0,30 homing=16 aim=4 first_strategy_frame=228 aim_correction_mask=1 crossed_target=1 cruise=15 terminal=expired
+projectile start=81261 end=81324 launch=32448,-1701,-7234,29,249,0,30 homing=15 aim=3 first_strategy_frame=243 aim_correction_mask=2 crossed_target=1 cruise=1 terminal=terminated
+projectile start=81317 end=81420 launch=32508,-2183,-5182,37,249,0,30 homing=12 aim=5 first_strategy_frame=0 aim_correction_mask=5 crossed_target=1 cruise=15 terminal=expired
+projectile start=81843 end=81964 launch=-29991,-1411,-8079,23,21,0,30 homing=18 aim=3 first_strategy_frame=170 aim_correction_mask=1 crossed_target=1 cruise=15 terminal=expired
+projectile start=81896 end=81992 launch=-32542,2710,-5526,3,18,0,30 homing=11 aim=3 first_strategy_frame=179 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=82293 end=82368 launch=30450,1509,-10207,8,11,0,30 homing=18 aim=4 first_strategy_frame=58 aim_correction_mask=5 crossed_target=1 cruise=1 terminal=terminated
+projectile start=82346 end=82460 launch=29254,2510,-7427,4,11,0,30 homing=13 aim=5 first_strategy_frame=69 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=82401 end=82504 launch=27115,-2223,-5364,38,3,0,30 homing=13 aim=3 first_strategy_frame=85 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=82939 end=83065 launch=32443,595,-5609,12,39,0,30 homing=19 aim=3 first_strategy_frame=9 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=82992 end=83099 launch=28907,-814,-4009,25,36,0,30 homing=14 aim=3 first_strategy_frame=20 aim_correction_mask=1 crossed_target=1 cruise=15 terminal=expired
+projectile start=83469 end=83607 launch=9093,-3864,7240,29,171,0,30 homing=21 aim=3 first_strategy_frame=178 aim_correction_mask=1 crossed_target=1 cruise=15 terminal=expired
+projectile start=83525 end=83629 launch=11881,2374,4512,6,175,0,30 homing=11 aim=4 first_strategy_frame=184 aim_correction_mask=5 crossed_target=1 cruise=15 terminal=expired
+projectile start=83967 end=84025 launch=24132,3851,-4800,252,38,0,30 homing=15 aim=2 first_strategy_frame=73 aim_correction_mask=2 crossed_target=0 cruise=1 terminal=terminated
+projectile start=84021 end=84123 launch=22937,3163,-1751,0,48,0,30 homing=12 aim=3 first_strategy_frame=86 aim_correction_mask=1 crossed_target=1 cruise=15 terminal=expired
+projectile start=84075 end=84163 launch=21397,2662,437,5,59,0,30 homing=9 aim=3 first_strategy_frame=99 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=84500 end=84536 launch=9563,2698,-3559,5,234,0,30 homing=8 aim=3 first_strategy_frame=237 aim_correction_mask=2 crossed_target=1 cruise=1 terminal=terminated
+projectile start=84984 end=85034 launch=8107,972,8944,17,135,0,30 homing=12 aim=3 first_strategy_frame=141 aim_correction_mask=2 crossed_target=1 cruise=1 terminal=terminated
+projectile start=85411 end=85530 launch=12549,751,10075,13,104,0,30 homing=17 aim=3 first_strategy_frame=29 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=85463 end=85570 launch=9370,-307,7310,26,108,0,30 homing=11 aim=5 first_strategy_frame=39 aim_correction_mask=10 crossed_target=1 cruise=15 terminal=expired
+projectile start=85519 end=85619 launch=9020,-3021,5370,42,101,0,30 homing=12 aim=4 first_strategy_frame=56 aim_correction_mask=5 crossed_target=1 cruise=15 terminal=expired
+projectile start=85855 end=85925 launch=10514,1636,-7285,8,29,0,30 homing=17 aim=4 first_strategy_frame=169 aim_correction_mask=2 crossed_target=1 cruise=1 terminal=terminated
+projectile start=85907 end=86025 launch=9644,2302,-6203,5,30,0,30 homing=15 aim=4 first_strategy_frame=183 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=85962 end=86018 launch=8840,2758,-5267,2,31,0,30 homing=14 aim=2 first_strategy_frame=198 aim_correction_mask=1 crossed_target=1 cruise=1 terminal=terminated
+projectile start=86018 end=86108 launch=5272,2393,-4301,7,20,0,30 homing=9 aim=4 first_strategy_frame=209 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=86440 end=86550 launch=8951,1968,-347,8,58,0,30 homing=15 aim=3 first_strategy_frame=97 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=86493 end=86577 launch=3331,1853,-1067,15,44,0,30 homing=7 aim=4 first_strategy_frame=105 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=86851 end=86908 launch=-7182,943,-8019,13,240,0,30 homing=15 aim=2 first_strategy_frame=228 aim_correction_mask=1 crossed_target=0 cruise=1 terminal=terminated
+projectile start=86904 end=86999 launch=-4926,908,-4847,21,248,0,30 homing=9 aim=5 first_strategy_frame=238 aim_correction_mask=5 crossed_target=1 cruise=15 terminal=expired
+projectile start=87360 end=87457 launch=-4825,3192,-7036,0,10,0,30 homing=13 aim=2 first_strategy_frame=135 aim_correction_mask=0 crossed_target=1 cruise=15 terminal=expired
+projectile start=87782 end=87852 launch=-1010,-127,-5024,17,39,0,30 homing=17 aim=4 first_strategy_frame=20 aim_correction_mask=5 crossed_target=1 cruise=1 terminal=terminated
+projectile start=87834 end=87941 launch=-2594,-969,-2464,26,45,0,30 homing=14 aim=4 first_strategy_frame=33 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=88284 end=88408 launch=-11489,-2737,-8847,30,6,0,30 homing=18 aim=4 first_strategy_frame=182 aim_correction_mask=5 crossed_target=1 cruise=15 terminal=expired
+projectile start=88337 end=88386 launch=-12544,40,-5892,25,5,0,30 homing=12 aim=2 first_strategy_frame=192 aim_correction_mask=1 crossed_target=1 cruise=1 terminal=terminated
+projectile start=88876 end=88981 launch=-19651,-1750,-6592,30,243,0,30 homing=14 aim=4 first_strategy_frame=113 aim_correction_mask=2 crossed_target=1 cruise=15 terminal=expired
+projectile start=89243 end=89350 launch=-15138,-3198,-4542,37,27,0,30 homing=14 aim=5 first_strategy_frame=233 aim_correction_mask=10 crossed_target=1 cruise=15 terminal=expired
+projectile start=89619 end=89665 launch=-26634,-1842,-2168,37,218,0,30 homing=11 aim=3 first_strategy_frame=97 aim_correction_mask=2 crossed_target=1 cruise=1 terminal=terminated
+aim_step lifetime_start=81208 index=0 previous=-31608,3104,508 current=-31568,3136,744 target=-31452,3177,1229 angles_before=6,248 angles_after=5,247 strategy_frame=228 corrected=1 terminal=0
+aim_step lifetime_start=81208 index=1 previous=-31568,3136,744 current=-31520,3164,980 target=-31473,3177,1229 angles_before=5,247 angles_after=5,247 strategy_frame=229 corrected=0 terminal=0
+aim_step lifetime_start=81208 index=2 previous=-31520,3164,980 current=-31472,3192,1216 target=-31494,3177,1229 angles_before=5,247 angles_after=5,247 strategy_frame=230 corrected=0 terminal=0
+aim_step lifetime_start=81208 index=3 previous=-31472,3192,1216 current=-31424,3220,1452 target=-31515,3177,1229 angles_before=5,247 angles_after=5,247 strategy_frame=231 corrected=0 terminal=1
+aim_step lifetime_start=81261 index=0 previous=-31837,3011,641 current=-31821,3111,865 target=-31767,3177,1229 angles_before=17,252 angles_after=17,252 strategy_frame=243 corrected=0 terminal=0
+aim_step lifetime_start=81261 index=1 previous=-31821,3111,865 current=-31805,3211,1089 target=-31788,3177,1229 angles_before=17,252 angles_after=9,252 strategy_frame=244 corrected=1 terminal=0
+aim_step lifetime_start=81261 index=2 previous=-31805,3211,1089 current=-31789,3263,1325 target=-31809,3177,1229 angles_before=9,252 angles_after=9,252 strategy_frame=245 corrected=0 terminal=1
+aim_step lifetime_start=81317 index=0 previous=-32152,2714,336 current=-32132,2870,524 target=-32040,3177,1229 angles_before=28,251 angles_after=27,251 strategy_frame=0 corrected=1 terminal=0
+aim_step lifetime_start=81317 index=1 previous=-32132,2870,524 current=-32112,3022,716 target=-32061,3177,1229 angles_before=27,251 angles_after=27,251 strategy_frame=1 corrected=0 terminal=0
+aim_step lifetime_start=81317 index=2 previous=-32112,3022,716 current=-32092,3174,908 target=-32082,3177,1229 angles_before=27,251 angles_after=21,252 strategy_frame=2 corrected=1 terminal=0
+aim_step lifetime_start=81317 index=3 previous=-32092,3174,908 current=-32076,3294,1120 target=-32103,3177,1229 angles_before=21,252 angles_after=21,252 strategy_frame=3 corrected=0 terminal=0
+aim_step lifetime_start=81317 index=4 previous=-32076,3294,1120 current=-32060,3414,1332 target=-32124,3177,1229 angles_before=21,252 angles_after=21,252 strategy_frame=4 corrected=0 terminal=1
+aim_step lifetime_start=81843 index=0 previous=30293,3026,696 current=30165,3102,880 target=29926,3177,1229 angles_before=13,25 angles_after=12,25 strategy_frame=170 corrected=1 terminal=0
+aim_step lifetime_start=81843 index=1 previous=30165,3102,880 current=30033,3170,1068 target=29905,3177,1229 angles_before=12,25 angles_after=12,25 strategy_frame=171 corrected=0 terminal=0
+aim_step lifetime_start=81843 index=2 previous=30033,3170,1068 current=29901,3238,1256 target=29884,3177,1229 angles_before=12,25 angles_after=12,25 strategy_frame=172 corrected=0 terminal=1
+aim_step lifetime_start=81896 index=0 previous=30053,3136,649 current=29937,3152,861 target=29737,3177,1229 angles_before=3,21 angles_after=3,21 strategy_frame=179 corrected=0 terminal=0
+aim_step lifetime_start=81896 index=1 previous=29937,3152,861 current=29821,3168,1073 target=29716,3177,1229 angles_before=3,21 angles_after=2,22 strategy_frame=180 corrected=1 terminal=0
+aim_step lifetime_start=81896 index=2 previous=29821,3168,1073 current=29701,3176,1281 target=29695,3177,1229 angles_before=2,22 angles_after=2,22 strategy_frame=181 corrected=0 terminal=1
+aim_step lifetime_start=82293 index=0 previous=27226,3086,391 current=27142,3118,615 target=26902,3177,1229 angles_before=6,15 angles_after=5,16 strategy_frame=58 corrected=1 terminal=0
+aim_step lifetime_start=82293 index=1 previous=27142,3118,615 current=27054,3146,839 target=26881,3177,1229 angles_before=5,16 angles_after=5,16 strategy_frame=59 corrected=0 terminal=0
+aim_step lifetime_start=82293 index=2 previous=27054,3146,839 current=26966,3174,1063 target=26860,3177,1229 angles_before=5,16 angles_after=4,18 strategy_frame=60 corrected=1 terminal=0
+aim_step lifetime_start=82293 index=3 previous=26966,3174,1063 current=26866,3194,1283 target=26839,3177,1229 angles_before=4,18 angles_after=4,18 strategy_frame=61 corrected=0 terminal=1
+aim_step lifetime_start=82346 index=0 previous=26997,3112,331 current=26921,3132,559 target=26671,3177,1229 angles_before=4,14 angles_after=4,14 strategy_frame=69 corrected=0 terminal=0
+aim_step lifetime_start=82346 index=1 previous=26921,3132,559 current=26845,3152,787 target=26650,3177,1229 angles_before=4,14 angles_after=3,15 strategy_frame=70 corrected=1 terminal=0
+aim_step lifetime_start=82346 index=2 previous=26845,3152,787 current=26761,3168,1015 target=26629,3177,1229 angles_before=3,15 angles_after=3,15 strategy_frame=71 corrected=0 terminal=0
+aim_step lifetime_start=82346 index=3 previous=26761,3168,1015 current=26677,3184,1243 target=26608,3177,1229 angles_before=3,15 angles_after=3,15 strategy_frame=72 corrected=0 terminal=0
+aim_step lifetime_start=82346 index=4 previous=26677,3184,1243 current=26593,3200,1471 target=26587,3177,1229 angles_before=3,15 angles_after=3,15 strategy_frame=73 corrected=0 terminal=1
+aim_step lifetime_start=82401 index=0 previous=26449,2973,718 current=26409,3097,918 target=26335,3177,1229 angles_before=22,9 angles_after=22,9 strategy_frame=85 corrected=0 terminal=0
+aim_step lifetime_start=82401 index=1 previous=26409,3097,918 current=26369,3221,1118 target=26314,3177,1229 angles_before=22,9 angles_after=12,11 strategy_frame=86 corrected=1 terminal=0
+aim_step lifetime_start=82401 index=2 previous=26369,3221,1118 current=26309,3289,1342 target=26293,3177,1229 angles_before=12,11 angles_after=12,11 strategy_frame=87 corrected=0 terminal=1
+aim_step lifetime_start=82939 index=0 previous=22963,3118,948 current=22767,3158,1080 target=22555,3177,1229 angles_before=7,40 angles_after=7,40 strategy_frame=9 corrected=0 terminal=0
+aim_step lifetime_start=82939 index=1 previous=22767,3158,1080 current=22571,3198,1212 target=22534,3177,1229 angles_before=7,40 angles_after=255,41 strategy_frame=10 corrected=1 terminal=0
+aim_step lifetime_start=82939 index=2 previous=22571,3198,1212 current=22367,3194,1336 target=22513,3177,1229 angles_before=255,41 angles_after=255,41 strategy_frame=11 corrected=0 terminal=1
+aim_step lifetime_start=82992 index=0 previous=22810,3017,856 current=22626,3105,988 target=22324,3177,1229 angles_before=15,38 angles_after=14,37 strategy_frame=20 corrected=1 terminal=0
+aim_step lifetime_start=82992 index=1 previous=22626,3105,988 current=22446,3185,1128 target=22303,3177,1229 angles_before=14,37 angles_after=14,37 strategy_frame=21 corrected=0 terminal=0
+aim_step lifetime_start=82992 index=2 previous=22446,3185,1128 current=22266,3265,1268 target=22282,3177,1229 angles_before=14,37 angles_after=14,37 strategy_frame=22 corrected=0 terminal=1
+aim_step lifetime_start=83469 index=0 previous=18579,2985,1537 current=18751,3101,1417 target=19006,3177,1229 angles_before=20,167 angles_after=19,167 strategy_frame=178 corrected=1 terminal=0
+aim_step lifetime_start=83469 index=1 previous=18751,3101,1417 current=18927,3213,1297 target=18985,3177,1229 angles_before=19,167 angles_after=19,167 strategy_frame=179 corrected=0 terminal=0
+aim_step lifetime_start=83469 index=2 previous=18927,3213,1297 current=19103,3325,1177 target=18964,3177,1229 angles_before=19,167 angles_after=19,167 strategy_frame=180 corrected=0 terminal=1
+aim_step lifetime_start=83525 index=0 previous=18081,3094,1650 current=18297,3122,1542 target=18880,3177,1229 angles_before=5,173 angles_after=4,172 strategy_frame=184 corrected=1 terminal=0
+aim_step lifetime_start=83525 index=1 previous=18297,3122,1542 current=18513,3142,1430 target=18859,3177,1229 angles_before=4,172 angles_after=4,172 strategy_frame=185 corrected=0 terminal=0
+aim_step lifetime_start=83525 index=2 previous=18513,3142,1430 current=18729,3162,1318 target=18838,3177,1229 angles_before=4,172 angles_after=5,171 strategy_frame=186 corrected=1 terminal=0
+aim_step lifetime_start=83525 index=3 previous=18729,3162,1318 current=18941,3190,1202 target=18817,3177,1229 angles_before=5,171 angles_after=5,171 strategy_frame=187 corrected=0 terminal=1
+aim_step lifetime_start=83967 index=0 previous=16589,3209,682 current=16393,3193,818 target=15835,3177,1229 angles_before=253,39 angles_after=253,39 strategy_frame=73 corrected=0 terminal=0
+aim_step lifetime_start=83967 index=1 previous=16393,3193,818 current=16197,3177,954 target=15814,3177,1229 angles_before=253,39 angles_after=254,39 strategy_frame=74 corrected=1 terminal=1
+aim_step lifetime_start=84021 index=0 previous=16001,3169,1048 current=15773,3169,1132 target=15562,3177,1229 angles_before=0,49 angles_after=1,48 strategy_frame=86 corrected=1 terminal=0
+aim_step lifetime_start=84021 index=1 previous=15773,3169,1132 current=15549,3173,1220 target=15541,3177,1229 angles_before=1,48 angles_after=1,48 strategy_frame=87 corrected=0 terminal=0
+aim_step lifetime_start=84021 index=2 previous=15549,3173,1220 current=15325,3177,1308 target=15520,3177,1229 angles_before=1,48 angles_after=1,48 strategy_frame=88 corrected=0 terminal=1
+aim_step lifetime_start=84075 index=0 previous=15811,3144,1138 current=15571,3160,1166 target=15289,3177,1229 angles_before=3,58 angles_after=3,58 strategy_frame=99 corrected=0 terminal=0
+aim_step lifetime_start=84075 index=1 previous=15571,3160,1166 current=15331,3176,1194 target=15268,3177,1229 angles_before=3,58 angles_after=2,55 strategy_frame=100 corrected=1 terminal=0
+aim_step lifetime_start=84075 index=2 previous=15331,3176,1194 current=15095,3184,1242 target=15247,3177,1229 angles_before=2,55 angles_after=2,55 strategy_frame=101 corrected=0 terminal=1
+aim_step lifetime_start=84500 index=0 previous=12088,3130,693 current=12200,3150,909 target=12391,3177,1229 angles_before=4,236 angles_after=4,236 strategy_frame=237 corrected=0 terminal=0
+aim_step lifetime_start=84500 index=1 previous=12200,3150,909 current=12312,3170,1125 target=12370,3177,1229 angles_before=4,236 angles_after=3,236 strategy_frame=238 corrected=1 terminal=0
+aim_step lifetime_start=84500 index=2 previous=12312,3170,1125 current=12424,3186,1341 target=12349,3177,1229 angles_before=3,236 angles_after=3,236 strategy_frame=239 corrected=0 terminal=1
+aim_step lifetime_start=84984 index=0 previous=8988,3091,1823 current=9000,3143,1587 target=9031,3177,1229 angles_before=9,131 angles_after=9,131 strategy_frame=141 corrected=0 terminal=0
+aim_step lifetime_start=84984 index=1 previous=9000,3143,1587 current=9012,3195,1351 target=9010,3177,1229 angles_before=9,131 angles_after=4,130 strategy_frame=142 corrected=1 terminal=0
+aim_step lifetime_start=84984 index=2 previous=9012,3195,1351 current=9016,3215,1107 target=8989,3177,1229 angles_before=4,130 angles_after=4,130 strategy_frame=143 corrected=0 terminal=1
+aim_step lifetime_start=85411 index=0 previous=6446,3087,1726 current=6294,3131,1546 target=6007,3177,1229 angles_before=8,99 angles_after=8,99 strategy_frame=29 corrected=0 terminal=0
+aim_step lifetime_start=85411 index=1 previous=6294,3131,1546 current=6142,3175,1366 target=5986,3177,1229 angles_before=8,99 angles_after=6,98 strategy_frame=30 corrected=1 terminal=0
+aim_step lifetime_start=85411 index=2 previous=6142,3175,1366 current=5982,3207,1190 target=5965,3177,1229 angles_before=6,98 angles_after=6,98 strategy_frame=31 corrected=0 terminal=1
+aim_step lifetime_start=85463 index=0 previous=6342,2853,2035 current=6222,2957,1855 target=5797,3177,1229 angles_before=18,104 angles_after=18,104 strategy_frame=39 corrected=0 terminal=0
+aim_step lifetime_start=85463 index=1 previous=6222,2957,1855 current=6102,3061,1675 target=5776,3177,1229 angles_before=18,104 angles_after=17,103 strategy_frame=40 corrected=1 terminal=0
+aim_step lifetime_start=85463 index=2 previous=6102,3061,1675 current=5978,3161,1495 target=5755,3177,1229 angles_before=17,103 angles_after=17,103 strategy_frame=41 corrected=0 terminal=0
+aim_step lifetime_start=85463 index=3 previous=5978,3161,1495 current=5854,3261,1315 target=5734,3177,1229 angles_before=17,103 angles_after=6,100 strategy_frame=42 corrected=1 terminal=0
+aim_step lifetime_start=85463 index=4 previous=5854,3261,1315 current=5702,3293,1131 target=5713,3177,1229 angles_before=6,100 angles_after=6,100 strategy_frame=43 corrected=0 terminal=1
+aim_step lifetime_start=85519 index=0 previous=5918,2699,1712 current=5806,2875,1596 target=5440,3177,1229 angles_before=33,97 angles_after=32,97 strategy_frame=56 corrected=1 terminal=0
+aim_step lifetime_start=85519 index=1 previous=5806,2875,1596 current=5690,3047,1476 target=5419,3177,1229 angles_before=32,97 angles_after=32,97 strategy_frame=57 corrected=0 terminal=0
+aim_step lifetime_start=85519 index=2 previous=5690,3047,1476 current=5574,3219,1356 target=5398,3177,1229 angles_before=32,97 angles_after=21,96 strategy_frame=58 corrected=1 terminal=0
+aim_step lifetime_start=85519 index=3 previous=5574,3219,1356 current=5430,3339,1212 target=5377,3177,1229 angles_before=21,96 angles_after=21,96 strategy_frame=59 corrected=0 terminal=1
+aim_step lifetime_start=85855 index=0 previous=3642,3090,613 current=3478,3122,781 target=3067,3177,1229 angles_before=6,31 angles_after=6,31 strategy_frame=169 corrected=0 terminal=0
+aim_step lifetime_start=85855 index=1 previous=3478,3122,781 current=3314,3154,949 target=3046,3177,1229 angles_before=6,31 angles_after=5,32 strategy_frame=170 corrected=1 terminal=0
+aim_step lifetime_start=85855 index=2 previous=3314,3154,949 current=3146,3182,1117 target=3025,3177,1229 angles_before=5,32 angles_after=5,32 strategy_frame=171 corrected=0 terminal=0
+aim_step lifetime_start=85855 index=3 previous=3146,3182,1117 current=2978,3210,1285 target=3004,3177,1229 angles_before=5,32 angles_after=5,32 strategy_frame=172 corrected=0 terminal=1
+aim_step lifetime_start=85907 index=0 previous=3351,3111,641 current=3183,3131,809 target=2773,3177,1229 angles_before=4,32 angles_after=4,32 strategy_frame=183 corrected=0 terminal=0
+aim_step lifetime_start=85907 index=1 previous=3183,3131,809 current=3015,3151,977 target=2752,3177,1229 angles_before=4,32 angles_after=4,33 strategy_frame=184 corrected=1 terminal=0
+aim_step lifetime_start=85907 index=2 previous=3015,3151,977 current=2843,3171,1141 target=2731,3177,1229 angles_before=4,33 angles_after=4,33 strategy_frame=185 corrected=0 terminal=0
+aim_step lifetime_start=85907 index=3 previous=2843,3171,1141 current=2671,3191,1305 target=2710,3177,1229 angles_before=4,33 angles_after=4,33 strategy_frame=186 corrected=0 terminal=1
+aim_step lifetime_start=85962 index=0 previous=2784,3153,925 current=2604,3169,1085 target=2458,3177,1229 angles_before=3,34 angles_after=2,33 strategy_frame=198 corrected=1 terminal=0
+aim_step lifetime_start=85962 index=1 previous=2604,3169,1085 current=2432,3177,1249 target=2437,3177,1229 angles_before=2,33 angles_after=2,33 strategy_frame=199 corrected=0 terminal=1
+aim_step lifetime_start=86018 index=0 previous=2621,3100,579 current=2497,3132,779 target=2227,3177,1229 angles_before=6,23 angles_after=6,23 strategy_frame=209 corrected=0 terminal=0
+aim_step lifetime_start=86018 index=1 previous=2497,3132,779 current=2373,3164,979 target=2206,3177,1229 angles_before=6,23 angles_after=5,24 strategy_frame=210 corrected=1 terminal=0
+aim_step lifetime_start=86018 index=2 previous=2373,3164,979 current=2241,3192,1179 target=2185,3177,1229 angles_before=5,24 angles_after=5,24 strategy_frame=211 corrected=0 terminal=0
+aim_step lifetime_start=86018 index=3 previous=2241,3192,1179 current=2109,3220,1379 target=2164,3177,1229 angles_before=5,24 angles_after=5,24 strategy_frame=212 corrected=0 terminal=1
+aim_step lifetime_start=86440 index=0 previous=-220,3134,1111 current=-460,3154,1151 target=-797,3177,1229 angles_before=4,56 angles_after=4,56 strategy_frame=97 corrected=0 terminal=0
+aim_step lifetime_start=86440 index=1 previous=-460,3154,1151 current=-700,3174,1191 target=-818,3177,1229 angles_before=4,56 angles_after=3,55 strategy_frame=98 corrected=1 terminal=0
+aim_step lifetime_start=86440 index=2 previous=-700,3174,1191 current=-936,3190,1239 target=-839,3177,1229 angles_before=3,55 angles_after=3,55 strategy_frame=99 corrected=0 terminal=1
+aim_step lifetime_start=86493 index=0 previous=-367,3058,908 current=-575,3114,1016 target=-965,3177,1229 angles_before=10,44 angles_after=10,44 strategy_frame=105 corrected=0 terminal=0
+aim_step lifetime_start=86493 index=1 previous=-575,3114,1016 current=-783,3170,1124 target=-986,3177,1229 angles_before=10,44 angles_after=8,45 strategy_frame=106 corrected=1 terminal=0
+aim_step lifetime_start=86493 index=2 previous=-783,3170,1124 current=-995,3214,1232 target=-1007,3177,1229 angles_before=8,45 angles_after=8,45 strategy_frame=107 corrected=0 terminal=0
+aim_step lifetime_start=86493 index=3 previous=-995,3214,1232 current=-1207,3258,1340 target=-1028,3177,1229 angles_before=8,45 angles_after=8,45 strategy_frame=108 corrected=0 terminal=1
+aim_step lifetime_start=86851 index=0 previous=-3854,3043,393 current=-3778,3095,613 target=-3548,3177,1229 angles_before=9,242 angles_after=8,242 strategy_frame=228 corrected=1 terminal=0
+aim_step lifetime_start=86851 index=1 previous=-3778,3095,613 current=-3702,3139,837 target=-3569,3177,1229 angles_before=8,242 angles_after=8,242 strategy_frame=229 corrected=0 terminal=1
+aim_step lifetime_start=86904 index=0 previous=-3937,2942,257 current=-3901,3022,481 target=-3758,3177,1229 angles_before=14,249 angles_after=13,249 strategy_frame=238 corrected=1 terminal=0
+aim_step lifetime_start=86904 index=1 previous=-3901,3022,481 current=-3865,3098,709 target=-3779,3177,1229 angles_before=13,249 angles_after=13,249 strategy_frame=239 corrected=0 terminal=0
+aim_step lifetime_start=86904 index=2 previous=-3865,3098,709 current=-3829,3174,937 target=-3800,3177,1229 angles_before=13,249 angles_after=10,250 strategy_frame=240 corrected=1 terminal=0
+aim_step lifetime_start=86904 index=3 previous=-3829,3174,937 current=-3801,3230,1169 target=-3821,3177,1229 angles_before=10,250 angles_after=10,250 strategy_frame=241 corrected=0 terminal=0
+aim_step lifetime_start=86904 index=4 previous=-3801,3230,1169 current=-3773,3286,1401 target=-3842,3177,1229 angles_before=10,250 angles_after=10,250 strategy_frame=242 corrected=0 terminal=1
+aim_step lifetime_start=87360 index=0 previous=-6816,3177,808 current=-6900,3177,1036 target=-6971,3177,1229 angles_before=0,15 angles_after=0,15 strategy_frame=135 corrected=0 terminal=0
+aim_step lifetime_start=87360 index=1 previous=-6900,3177,1036 current=-6984,3177,1264 target=-6992,3177,1229 angles_before=0,15 angles_after=0,15 strategy_frame=136 corrected=0 terminal=1
+aim_step lifetime_start=87782 index=0 previous=-9229,3021,743 current=-9425,3077,871 target=-9932,3177,1229 angles_before=10,40 angles_after=9,40 strategy_frame=20 corrected=1 terminal=0
+aim_step lifetime_start=87782 index=1 previous=-9425,3077,871 current=-9621,3129,999 target=-9953,3177,1229 angles_before=9,40 angles_after=9,40 strategy_frame=21 corrected=0 terminal=0
+aim_step lifetime_start=87782 index=2 previous=-9621,3129,999 current=-9817,3181,1127 target=-9974,3177,1229 angles_before=9,40 angles_after=7,41 strategy_frame=22 corrected=1 terminal=0
+aim_step lifetime_start=87782 index=3 previous=-9817,3181,1127 current=-10017,3221,1251 target=-9995,3177,1229 angles_before=7,41 angles_after=7,41 strategy_frame=23 corrected=0 terminal=1
+aim_step lifetime_start=87834 index=0 previous=-9556,2975,908 current=-9760,3063,1000 target=-10205,3177,1229 angles_before=15,46 angles_after=15,46 strategy_frame=33 corrected=0 terminal=0
+aim_step lifetime_start=87834 index=1 previous=-9760,3063,1000 current=-9964,3151,1092 target=-10226,3177,1229 angles_before=15,46 angles_after=13,45 strategy_frame=34 corrected=1 terminal=0
+aim_step lifetime_start=87834 index=2 previous=-9964,3151,1092 current=-10168,3227,1196 target=-10247,3177,1229 angles_before=13,45 angles_after=13,45 strategy_frame=35 corrected=0 terminal=0
+aim_step lifetime_start=87834 index=3 previous=-10168,3227,1196 current=-10372,3303,1300 target=-10268,3177,1229 angles_before=13,45 angles_after=13,45 strategy_frame=36 corrected=0 terminal=1
+aim_step lifetime_start=88284 index=0 previous=-13147,2970,552 current=-13203,3070,768 target=-13334,3177,1229 angles_before=17,11 angles_after=16,12 strategy_frame=182 corrected=1 terminal=0
+aim_step lifetime_start=88284 index=1 previous=-13203,3070,768 current=-13263,3162,980 target=-13355,3177,1229 angles_before=16,12 angles_after=16,12 strategy_frame=183 corrected=0 terminal=0
+aim_step lifetime_start=88284 index=2 previous=-13263,3162,980 current=-13323,3254,1192 target=-13376,3177,1229 angles_before=16,12 angles_after=1,19 strategy_frame=184 corrected=1 terminal=0
+aim_step lifetime_start=88284 index=3 previous=-13323,3254,1192 current=-13431,3258,1408 target=-13397,3177,1229 angles_before=1,19 angles_after=1,19 strategy_frame=185 corrected=0 terminal=1
+aim_step lifetime_start=88337 index=0 previous=-13437,3096,804 current=-13489,3160,1032 target=-13544,3177,1229 angles_before=11,10 angles_after=10,11 strategy_frame=192 corrected=1 terminal=0
+aim_step lifetime_start=88337 index=1 previous=-13489,3160,1032 current=-13549,3216,1260 target=-13565,3177,1229 angles_before=10,11 angles_after=10,11 strategy_frame=193 corrected=0 terminal=1
+aim_step lifetime_start=88876 index=0 previous=-17480,2857,426 current=-17432,2977,630 target=-17261,3177,1229 angles_before=21,246 angles_after=21,246 strategy_frame=113 corrected=0 terminal=0
+aim_step lifetime_start=88876 index=1 previous=-17432,2977,630 current=-17384,3097,834 target=-17282,3177,1229 angles_before=21,246 angles_after=19,246 strategy_frame=114 corrected=1 terminal=0
+aim_step lifetime_start=88876 index=2 previous=-17384,3097,834 current=-17336,3209,1042 target=-17303,3177,1229 angles_before=19,246 angles_after=19,246 strategy_frame=115 corrected=0 terminal=0
+aim_step lifetime_start=88876 index=3 previous=-17336,3209,1042 current=-17288,3321,1250 target=-17324,3177,1229 angles_before=19,246 angles_after=19,246 strategy_frame=116 corrected=0 terminal=1
+aim_step lifetime_start=89243 index=0 previous=-19147,2638,494 current=-19267,2794,634 target=-19781,3177,1229 angles_before=28,29 angles_after=28,29 strategy_frame=233 corrected=0 terminal=0
+aim_step lifetime_start=89243 index=1 previous=-19267,2794,634 current=-19387,2950,774 target=-19802,3177,1229 angles_before=28,29 angles_after=26,30 strategy_frame=234 corrected=1 terminal=0
+aim_step lifetime_start=89243 index=2 previous=-19387,2950,774 current=-19515,3094,918 target=-19823,3177,1229 angles_before=26,30 angles_after=26,30 strategy_frame=235 corrected=0 terminal=0
+aim_step lifetime_start=89243 index=3 previous=-19515,3094,918 current=-19643,3238,1062 target=-19844,3177,1229 angles_before=26,30 angles_after=16,31 strategy_frame=236 corrected=1 terminal=0
+aim_step lifetime_start=89243 index=4 previous=-19643,3238,1062 current=-19795,3330,1222 target=-19865,3177,1229 angles_before=16,31 angles_after=16,31 strategy_frame=237 corrected=0 terminal=1
+aim_step lifetime_start=89619 index=0 previous=-22726,2843,862 current=-22586,3003,982 target=-22301,3177,1229 angles_before=29,221 angles_after=29,221 strategy_frame=97 corrected=0 terminal=0
+aim_step lifetime_start=89619 index=1 previous=-22586,3003,982 current=-22446,3163,1102 target=-22322,3177,1229 angles_before=29,221 angles_after=23,222 strategy_frame=98 corrected=1 terminal=0
+aim_step lifetime_start=89619 index=2 previous=-22446,3163,1102 current=-22294,3291,1238 target=-22343,3177,1229 angles_before=23,222 angles_after=23,222 strategy_frame=99 corrected=0 terminal=1

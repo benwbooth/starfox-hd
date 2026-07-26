@@ -26,11 +26,17 @@ pub(super) const HOMING_RADIUS: u16 = 1_024;
 /// times before it faces and advances.
 pub(super) const HOMING_CONTRACTIONS_PER_STEP: u8 = 3;
 
-/// The retail path retains a short post-homing aiming phase. It cannot leave
-/// before the second move and bounds the correction at five moves if the
-/// moving target never settles.
-pub(super) const MINIMUM_AIM_CORRECTION_STEPS: u8 = 2;
-pub(super) const MAXIMUM_AIM_CORRECTION_STEPS: u8 = 5;
+/// The retained oracle begins immediately after strategy frame 142. Keeping
+/// this semantic clock with the typed fighter state reproduces trigger phase
+/// without carrying source-machine scheduling state into the port.
+pub(super) const HANDOFF_STRATEGY_FRAME: u8 = 142;
+
+/// The post-homing loop permits forty advances. On even strategy frames its
+/// aiming trigger may apply one smooth correction when the player is inside
+/// the wrapped yaw arc; contact or crossing the target ends the loop early.
+pub(super) const MAXIMUM_AIM_CORRECTION_STEPS: u8 = 40;
+pub(super) const SMOOTH_AIM_TRIGGER_PERIOD: u8 = 2;
+pub(super) const SMOOTH_AIM_YAW_RADIUS: u8 = 32;
 
 /// A projectile that misses the player advances fifteen times in free flight
 /// before its next wait boundary retires it.

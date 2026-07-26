@@ -1384,10 +1384,11 @@ function sortie_actor_oracle.record(event)
   local output = projectile
     and sortie_actor_oracle.projectile_lines or sortie_actor_oracle.lines
   output[#output + 1] = string.format(
-    "elapsed=%d event=%s object=%04X shape=%04X path=%04X pose=%s " ..
+    "elapsed=%d strategy_frame=%d event=%s object=%04X shape=%04X path=%04X pose=%s " ..
       "velocity=%d,%d,%d rng=%s relative_motion=%d,%d base=%s " ..
       "extension=%s selected=%04X selected_pose=%s triggers=%s",
     elapsed,
+    work_byte(0x00C4),
     event,
     object,
     shape,

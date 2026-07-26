@@ -536,6 +536,8 @@ pub enum FighterInterceptCombatPhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FighterInterceptFlightState {
     pub logic_credit: u8,
+    /// Semantic strategy clock used by scheduled combat actions.
+    pub strategy_frame: u8,
     pub combat_phase: FighterInterceptCombatPhase,
     pub vertical_wave_phase: Angle,
     pub cruise_target_speed: u8,
