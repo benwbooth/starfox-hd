@@ -31323,6 +31323,13 @@ mod tests {
             venom_base::REACTOR_DOOR_OPENING_Z;
         game.tick(0).unwrap();
         assert_eq!(game.state.mission.venom.reactor_door, VenomDoorStatus::Open);
+        assert_eq!(
+            game.state.mission.venom.knight,
+            VenomDefenderStatus::Active {
+                durability: venom_base::KNIGHT_DURABILITY,
+            },
+            "retail opens the reactor route without requiring the Knight's defeat"
+        );
         let reactor_door = game.venom_reactor_door.unwrap();
         assert_eq!(
             game.state.objects.get(reactor_door).unwrap().base.shape,
