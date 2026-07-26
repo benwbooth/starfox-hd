@@ -1,0 +1,91 @@
+# Oracle evidence for recurring-fighter live hostile projectiles.
+# actor_raw_sha256=3feba6cc6ebe2c16a99d6a5e748d3d6b174683d8b62bbcc78d06ae99a1842535
+# projectile_raw_sha256=fa734d3c1b173d0ca1513bcd03031980bef56059837e1d2b028a0dceb505e980
+# movement_interval_sum=3234 movement_interval_count=966
+# reusable_allocation_count=4 maximum_concurrent_projectiles=3
+# terminal=expired means the complete fifteen-step free-flight path;
+# terminal=terminated means the object vanished after its first cruise move.
+fire elapsed=81207 launch=31600,1753,-9040,8,246,0,60 target=-31116,3177,1229,0,64,2,23 distance=10649 launched=1 start_delay=1
+fire elapsed=81260 launch=32448,-1701,-7234,29,249,0,60 target=-31452,3177,1229,0,64,253,23 distance=8619 launched=1 start_delay=1
+fire elapsed=81316 launch=32508,-2183,-5182,37,249,0,60 target=-31788,3177,1229,0,64,251,23 distance=6529 launched=1 start_delay=1
+fire elapsed=81676 launch=-29015,2124,-15361,119,13,0,60 target=31312,3177,1229,0,64,1,23 distance=17388 launched=0 start_delay=-
+fire elapsed=81733 launch=-30899,2763,-12493,125,11,0,60 target=30976,3177,1229,0,64,254,23 distance=14201 launched=0 start_delay=-
+fire elapsed=81788 launch=-30355,-532,-10139,17,16,0,60 target=30640,3177,1229,0,64,2,23 distance=12241 launched=0 start_delay=-
+fire elapsed=81843 launch=-29991,-1411,-8079,23,21,0,60 target=30304,3177,1229,0,64,253,23 distance=10682 launched=1 start_delay=0
+fire elapsed=81895 launch=-32542,2710,-5526,3,18,0,60 target=29968,3177,1229,0,64,3,23 distance=7401 launched=1 start_delay=1
+fire elapsed=82292 launch=30450,1509,-10207,8,11,0,60 target=27280,3177,1229,0,64,2,23 distance=11867 launched=1 start_delay=1
+fire elapsed=82345 launch=29254,2510,-7427,4,11,0,60 target=26944,3177,1229,0,64,255,23 distance=8958 launched=1 start_delay=1
+fire elapsed=82401 launch=27115,-2223,-5364,38,3,0,60 target=26608,3177,1229,0,64,11,23 distance=6612 launched=1 start_delay=0
+fire elapsed=82841 launch=-27037,441,-6789,107,44,0,60 target=23626,3177,1229,0,64,4,23 distance=16896 launched=0 start_delay=-
+fire elapsed=82890 launch=-30825,168,-6673,111,40,0,60 target=23290,3177,1229,0,64,252,23 distance=13888 launched=0 start_delay=-
+fire elapsed=82938 launch=32443,595,-5609,12,39,0,60 target=22954,3177,1229,0,64,4,23 distance=11696 launched=1 start_delay=1
+fire elapsed=82991 launch=28907,-814,-4009,25,36,0,60 target=22618,3177,1229,0,64,253,23 distance=8184 launched=1 start_delay=1
+fire elapsed=83419 launch=7529,-2648,8692,98,170,0,60 target=19783,3177,1229,0,64,3,23 distance=14347 launched=0 start_delay=-
+fire elapsed=83468 launch=9093,-3864,7240,29,171,0,60 target=19447,3177,1229,0,64,253,23 distance=11972 launched=1 start_delay=1
+fire elapsed=83524 launch=11881,2374,4512,6,175,0,60 target=19111,3177,1229,0,64,2,23 distance=7940 launched=1 start_delay=1
+fire elapsed=83918 launch=25056,3133,-7736,127,31,0,60 target=16486,3177,1229,0,64,254,23 distance=12402 launched=0 start_delay=-
+fire elapsed=83966 launch=24132,3851,-4800,252,38,0,60 target=16150,3177,1229,0,64,2,23 distance=10003 launched=1 start_delay=1
+fire elapsed=84020 launch=22937,3163,-1751,0,48,0,60 target=15814,3177,1229,0,64,253,23 distance=7721 launched=1 start_delay=1
+fire elapsed=84075 launch=21397,2662,437,5,59,0,60 target=15478,3177,1229,0,64,3,23 distance=5971 launched=1 start_delay=0
+fire elapsed=84499 launch=9563,2698,-3559,5,234,0,60 target=12559,3177,1229,0,64,252,23 distance=5648 launched=1 start_delay=1
+fire elapsed=84983 launch=8107,972,8944,17,135,0,60 target=9283,3177,1229,0,64,0,23 distance=7804 launched=1 start_delay=1
+fire elapsed=85410 launch=12549,751,10075,13,104,0,60 target=6364,3177,1229,0,64,253,23 distance=10793 launched=1 start_delay=1
+fire elapsed=85463 launch=9370,-307,7310,26,108,0,60 target=6028,3177,1229,0,64,3,23 distance=6938 launched=1 start_delay=0
+fire elapsed=85518 launch=9020,-3021,5370,42,101,0,60 target=5692,3177,1229,0,64,252,23 distance=5312 launched=1 start_delay=1
+fire elapsed=85854 launch=10514,1636,-7285,8,29,0,60 target=3424,3177,1229,0,64,4,23 distance=11079 launched=1 start_delay=1
+fire elapsed=85906 launch=9644,2302,-6203,5,30,0,60 target=3088,3177,1229,0,64,253,23 distance=9910 launched=1 start_delay=1
+fire elapsed=85961 launch=8840,2758,-5267,2,31,0,60 target=2752,3177,1229,0,64,249,23 distance=8902 launched=1 start_delay=1
+fire elapsed=86017 launch=5272,2393,-4301,7,20,0,60 target=2416,3177,1229,0,64,28,23 distance=6223 launched=1 start_delay=1
+fire elapsed=86439 launch=8951,1968,-347,8,58,0,60 target=-482,3177,1229,0,64,0,23 distance=9563 launched=1 start_delay=1
+fire elapsed=86492 launch=3331,1853,-1067,15,44,0,60 target=-818,3177,1229,0,64,1,23 distance=4741 launched=1 start_delay=1
+fire elapsed=86802 launch=-9346,3478,-11199,129,237,0,60 target=-2897,3177,1229,0,64,3,23 distance=14001 launched=0 start_delay=-
+fire elapsed=86850 launch=-7182,943,-8019,13,240,0,60 target=-3233,3177,1229,0,64,253,23 distance=10055 launched=1 start_delay=1
+fire elapsed=86903 launch=-4926,908,-4847,21,248,0,60 target=-3569,3177,1229,0,64,2,23 distance=6225 launched=1 start_delay=1
+fire elapsed=87359 launch=-4825,3192,-7036,0,10,0,60 target=-6698,3177,1229,0,64,3,23 distance=8474 launched=1 start_delay=1
+fire elapsed=87781 launch=-1010,-127,-5024,17,39,0,60 target=-9575,3177,1229,0,64,254,23 distance=10604 launched=1 start_delay=1
+fire elapsed=87833 launch=-2594,-969,-2464,26,45,0,60 target=-9911,3177,1229,0,64,1,23 distance=8196 launched=1 start_delay=1
+fire elapsed=88234 launch=-11103,1874,-11721,6,5,0,60 target=-12620,3177,1229,0,64,252,23 distance=13038 launched=0 start_delay=-
+fire elapsed=88283 launch=-11489,-2737,-8847,30,6,0,60 target=-12956,3177,1229,0,64,4,23 distance=10182 launched=1 start_delay=1
+fire elapsed=88336 launch=-12544,40,-5892,25,5,0,60 target=-13292,3177,1229,0,64,253,23 distance=7160 launched=1 start_delay=1
+fire elapsed=88777 launch=-18335,-32,-14798,109,251,0,60 target=-16295,3177,1229,0,64,254,23 distance=16156 launched=0 start_delay=-
+fire elapsed=88827 launch=-19867,-375,-11166,16,246,0,60 target=-16631,3177,1229,0,64,3,23 distance=12810 launched=0 start_delay=-
+fire elapsed=88875 launch=-19651,-1750,-6592,30,243,0,60 target=-16967,3177,1229,0,64,253,23 distance=8268 launched=1 start_delay=1
+fire elapsed=89242 launch=-15138,-3198,-4542,37,27,0,60 target=-19487,3177,1229,0,64,253,23 distance=7226 launched=1 start_delay=1
+fire elapsed=89618 launch=-26634,-1842,-2168,37,218,0,60 target=-22070,3177,1229,0,64,252,23 distance=5689 launched=1 start_delay=1
+fire elapsed=89961 launch=-13758,264,9639,112,92,0,60 target=-24401,3177,1229,0,64,1,23 distance=13564 launched=0 start_delay=-
+projectile start=81208 end=81328 launch=31600,1753,-9040,8,246,0,30 homing=16 aim=4 cruise=15 terminal=expired
+projectile start=81261 end=81324 launch=32448,-1701,-7234,29,249,0,30 homing=15 aim=3 cruise=1 terminal=terminated
+projectile start=81317 end=81420 launch=32508,-2183,-5182,37,249,0,30 homing=12 aim=5 cruise=15 terminal=expired
+projectile start=81843 end=81964 launch=-29991,-1411,-8079,23,21,0,30 homing=18 aim=3 cruise=15 terminal=expired
+projectile start=81896 end=81992 launch=-32542,2710,-5526,3,18,0,30 homing=11 aim=3 cruise=15 terminal=expired
+projectile start=82293 end=82368 launch=30450,1509,-10207,8,11,0,30 homing=18 aim=4 cruise=1 terminal=terminated
+projectile start=82346 end=82460 launch=29254,2510,-7427,4,11,0,30 homing=13 aim=5 cruise=15 terminal=expired
+projectile start=82401 end=82504 launch=27115,-2223,-5364,38,3,0,30 homing=13 aim=3 cruise=15 terminal=expired
+projectile start=82939 end=83065 launch=32443,595,-5609,12,39,0,30 homing=19 aim=3 cruise=15 terminal=expired
+projectile start=82992 end=83099 launch=28907,-814,-4009,25,36,0,30 homing=14 aim=3 cruise=15 terminal=expired
+projectile start=83469 end=83607 launch=9093,-3864,7240,29,171,0,30 homing=21 aim=3 cruise=15 terminal=expired
+projectile start=83525 end=83629 launch=11881,2374,4512,6,175,0,30 homing=11 aim=4 cruise=15 terminal=expired
+projectile start=83967 end=84025 launch=24132,3851,-4800,252,38,0,30 homing=15 aim=2 cruise=1 terminal=terminated
+projectile start=84021 end=84123 launch=22937,3163,-1751,0,48,0,30 homing=12 aim=3 cruise=15 terminal=expired
+projectile start=84075 end=84163 launch=21397,2662,437,5,59,0,30 homing=9 aim=3 cruise=15 terminal=expired
+projectile start=84500 end=84536 launch=9563,2698,-3559,5,234,0,30 homing=8 aim=3 cruise=1 terminal=terminated
+projectile start=84984 end=85034 launch=8107,972,8944,17,135,0,30 homing=12 aim=3 cruise=1 terminal=terminated
+projectile start=85411 end=85530 launch=12549,751,10075,13,104,0,30 homing=17 aim=3 cruise=15 terminal=expired
+projectile start=85463 end=85570 launch=9370,-307,7310,26,108,0,30 homing=11 aim=5 cruise=15 terminal=expired
+projectile start=85519 end=85619 launch=9020,-3021,5370,42,101,0,30 homing=12 aim=4 cruise=15 terminal=expired
+projectile start=85855 end=85925 launch=10514,1636,-7285,8,29,0,30 homing=17 aim=4 cruise=1 terminal=terminated
+projectile start=85907 end=86025 launch=9644,2302,-6203,5,30,0,30 homing=15 aim=4 cruise=15 terminal=expired
+projectile start=85962 end=86018 launch=8840,2758,-5267,2,31,0,30 homing=14 aim=2 cruise=1 terminal=terminated
+projectile start=86018 end=86108 launch=5272,2393,-4301,7,20,0,30 homing=9 aim=4 cruise=15 terminal=expired
+projectile start=86440 end=86550 launch=8951,1968,-347,8,58,0,30 homing=15 aim=3 cruise=15 terminal=expired
+projectile start=86493 end=86577 launch=3331,1853,-1067,15,44,0,30 homing=7 aim=4 cruise=15 terminal=expired
+projectile start=86851 end=86908 launch=-7182,943,-8019,13,240,0,30 homing=15 aim=2 cruise=1 terminal=terminated
+projectile start=86904 end=86999 launch=-4926,908,-4847,21,248,0,30 homing=9 aim=5 cruise=15 terminal=expired
+projectile start=87360 end=87457 launch=-4825,3192,-7036,0,10,0,30 homing=13 aim=2 cruise=15 terminal=expired
+projectile start=87782 end=87852 launch=-1010,-127,-5024,17,39,0,30 homing=17 aim=4 cruise=1 terminal=terminated
+projectile start=87834 end=87941 launch=-2594,-969,-2464,26,45,0,30 homing=14 aim=4 cruise=15 terminal=expired
+projectile start=88284 end=88408 launch=-11489,-2737,-8847,30,6,0,30 homing=18 aim=4 cruise=15 terminal=expired
+projectile start=88337 end=88386 launch=-12544,40,-5892,25,5,0,30 homing=12 aim=2 cruise=1 terminal=terminated
+projectile start=88876 end=88981 launch=-19651,-1750,-6592,30,243,0,30 homing=14 aim=4 cruise=15 terminal=expired
+projectile start=89243 end=89350 launch=-15138,-3198,-4542,37,27,0,30 homing=14 aim=5 cruise=15 terminal=expired
+projectile start=89619 end=89665 launch=-26634,-1842,-2168,37,218,0,30 homing=11 aim=3 cruise=1 terminal=terminated

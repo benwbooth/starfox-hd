@@ -111,6 +111,11 @@ mod player_damage;
 mod pressure_fighters;
 #[path = "pressure_fighter_flight.rs"]
 mod pressure_fighter_flight;
+#[path = "pressure_fighter_live_projectiles.rs"]
+mod pressure_fighter_live_projectiles;
+#[cfg(test)]
+#[path = "pressure_fighter_live_projectile_oracle.rs"]
+mod pressure_fighter_live_projectile_oracle;
 #[path = "pressure_fighter_projectiles.rs"]
 mod pressure_fighter_projectiles;
 #[cfg(test)]
@@ -2191,6 +2196,7 @@ const FIGHTER_INTERCEPT_ALTITUDE_DIVISOR: i16 = 8;
 const FIGHTER_INTERCEPT_PLAYER_FACING_DIVISOR: i8 = 4;
 const PRESSURE_FIGHTER_LOGIC_CREDIT_PER_TICK: u8 = 32;
 const PRESSURE_FIGHTER_LOGIC_CREDIT_THRESHOLD: u8 = 25;
+const PRESSURE_FIGHTER_LIVE_HANDOFF_LOGIC_CREDIT: u8 = 2;
 const PRESSURE_FIGHTER_STRAIGHT_APPROACH_TICKS: u8 = 50;
 const PRESSURE_FIGHTER_BANKED_APPROACH_TICKS: u8 = 100;
 const PRESSURE_FIGHTER_LIVE_HANDOFF_BANKED_TICKS: u8 = 14;
@@ -4321,6 +4327,43 @@ struct ActivePressureProjectile {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct ActiveLivePressureProjectile {
+    object: ObjectId,
+    spawn_retail_frame: u16,
+    logic_credit: u8,
+    aim_correction_steps_elapsed: u8,
+    cruise_steps_elapsed: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PressureProjectileLaunch {
+    position: Vector3,
+    pitch: Angle,
+    yaw: Angle,
+    roll: Angle,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct PressureFighterFireEvents {
+    launches: [Option<PressureProjectileLaunch>; 2],
+}
+
+impl PressureFighterFireEvents {
+    fn push(&mut self, launch: PressureProjectileLaunch) {
+        let slot = self
+            .launches
+            .iter_mut()
+            .find(|candidate| candidate.is_none())
+            .expect("a recurring fighter can fire at most once per logic slice");
+        *slot = Some(launch);
+    }
+
+    fn iter(self) -> impl Iterator<Item = PressureProjectileLaunch> {
+        self.launches.into_iter().flatten()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 struct ActiveFinalRivalProjectile {
     track_index: usize,
     object: ObjectId,
@@ -5574,6 +5617,7 @@ pub struct Game {
     leon_projectiles: Vec<ActiveLeonProjectile>,
     pressure_fighter_actors: PressureFighterActors,
     pressure_fighter_projectiles: Vec<ActivePressureProjectile>,
+    live_pressure_fighter_projectiles: Vec<ActiveLivePressureProjectile>,
     leon_pressure_projectiles: Vec<ActivePressureProjectile>,
     final_rival: Option<ObjectId>,
     final_rival_projectiles: Vec<ActiveFinalRivalProjectile>,
@@ -5664,6 +5708,9 @@ impl Game {
             pressure_fighter_actors: PressureFighterActors::default(),
             pressure_fighter_projectiles: Vec::with_capacity(
                 pressure_fighter_projectiles::PROJECTILE_COUNT,
+            ),
+            live_pressure_fighter_projectiles: Vec::with_capacity(
+                pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES,
             ),
             leon_pressure_projectiles: Vec::with_capacity(
                 leon_pressure::ENEMY_LASER_KEYFRAME_TRACKS.len(),
@@ -8046,8 +8093,10 @@ impl Game {
             .map(|current| self.previous_mission_player_position.unwrap_or(current));
         if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
         {
-            self.update_pressure_fighter_actors(retail_frame, current, previous);
+            let fire_events = self.update_pressure_fighter_actors(retail_frame, current, previous);
             self.update_pressure_fighter_projectiles(retail_frame, current, previous)?;
+            self.spawn_live_pressure_fighter_projectiles(retail_frame, current, fire_events)?;
+            self.update_live_pressure_fighter_projectiles(retail_frame, current, previous);
             self.previous_mission_player_position = Some(current);
         } else {
             self.update_pressure_fighter_actors(
@@ -12954,6 +13003,9 @@ impl Game {
         for projectile in self.pressure_fighter_projectiles.drain(..) {
             self.state.objects.remove(projectile.object);
         }
+        for projectile in self.live_pressure_fighter_projectiles.drain(..) {
+            self.state.objects.remove(projectile.object);
+        }
         for projectile in self.leon_pressure_projectiles.drain(..) {
             self.state.objects.remove(projectile.object);
         }
@@ -15564,9 +15616,10 @@ impl Game {
         retail_frame: u16,
         player_position: Vector3,
         previous_player_position: Vector3,
-    ) {
+    ) -> PressureFighterFireEvents {
+        let mut fire_events = PressureFighterFireEvents::default();
         if retail_frame < pressure_fighter_flight::INITIAL_RETAIL_FRAME {
-            return;
+            return fire_events;
         }
         for fighter_kind in RecurringAttacker::ALL {
             let Some(id) = *self.pressure_fighter_actors.slot_mut(fighter_kind) else {
@@ -15633,12 +15686,16 @@ impl Game {
                 if fighter_kind == RecurringAttacker::Flanker
                     && retail_frame > pressure_fighter_flight::END_RETAIL_FRAME
                 {
-                    let _shots_fired = update_surviving_pressure_fighter(
+                    for launch in update_surviving_pressure_fighter(
                         object,
                         &mut flight,
                         &mut self.state.random,
                         player_position,
-                    );
+                    )
+                    .iter()
+                    {
+                        fire_events.push(launch);
+                    }
                 } else {
                     for &action in
                         pressure_fighter_flight::assault_actions(retail_frame, assault_index)
@@ -15654,7 +15711,7 @@ impl Game {
                     if fighter_kind == RecurringAttacker::Flanker
                         && retail_frame == pressure_fighter_flight::END_RETAIL_FRAME
                     {
-                        flight.logic_credit = 0;
+                        flight.logic_credit = PRESSURE_FIGHTER_LIVE_HANDOFF_LOGIC_CREDIT;
                         flight.combat_phase = FighterInterceptCombatPhase::BankedApproach {
                             ticks_elapsed: PRESSURE_FIGHTER_LIVE_HANDOFF_BANKED_TICKS,
                         };
@@ -15679,6 +15736,7 @@ impl Game {
                 object.extension.activity = ObjectActivity::ReengagementFighterFlight(flight);
             }
         }
+        fire_events
     }
 
     fn update_leon_pressure_rival(&mut self, retail_frame: u16) {
@@ -16167,6 +16225,118 @@ impl Game {
             }
         }
         Ok(())
+    }
+
+    fn spawn_live_pressure_fighter_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        fire_events: PressureFighterFireEvents,
+    ) -> Result<(), Error> {
+        self.live_pressure_fighter_projectiles.retain(|projectile| {
+            self.state
+                .objects
+                .get(projectile.object)
+                .is_some_and(|object| !object.base.flags.remove_after_tick)
+        });
+
+        for launch in fire_events.iter() {
+            if pressure_fighter_horizontal_distance(launch.position, player_position)
+                >= pressure_fighter_live_projectiles::MAXIMUM_LAUNCH_DISTANCE
+            {
+                continue;
+            }
+            if self.live_pressure_fighter_projectiles.len()
+                >= pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
+            {
+                continue;
+            }
+
+            let mut projectile = Object::new(
+                ObjectKind::Projectile,
+                ShapeId::ENEMY_LASER,
+                Behavior::Projectile,
+            );
+            projectile.base.weapon = WeaponKind::EnemyLaser;
+            projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+            projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+            projectile.base.collision_class = CollisionClass::EnemyWeapon;
+            projectile.base.flags.casts_shadow = false;
+            projectile.base.position = launch.position;
+            projectile.base.pitch = launch.pitch;
+            projectile.base.yaw = launch.yaw;
+            projectile.base.roll = launch.roll;
+            projectile.base.speed = pressure_fighter_live_projectiles::INITIAL_SPEED;
+            projectile.extension.activity =
+                ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                    phase: HostileProjectileFlightPhase::Homing,
+                    motion_steps_elapsed: 0,
+                    movement_phase: HostileProjectileMovementPhase::Ready,
+                });
+            let object = allocate_hostile_projectile(&mut self.state, projectile)?;
+            self.live_pressure_fighter_projectiles
+                .push(ActiveLivePressureProjectile {
+                    object,
+                    spawn_retail_frame: retail_frame,
+                    logic_credit: pressure_fighter_live_projectiles::INITIAL_LOGIC_CREDIT,
+                    aim_correction_steps_elapsed: 0,
+                    cruise_steps_elapsed: 0,
+                });
+        }
+        Ok(())
+    }
+
+    fn update_live_pressure_fighter_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) {
+        let mut index = 0;
+        while index < self.live_pressure_fighter_projectiles.len() {
+            let mut active = self.live_pressure_fighter_projectiles[index];
+            let Some(projectile) = self.state.objects.get_mut(active.object) else {
+                self.live_pressure_fighter_projectiles.swap_remove(index);
+                continue;
+            };
+            if projectile.base.flags.remove_after_tick {
+                self.live_pressure_fighter_projectiles.swap_remove(index);
+                continue;
+            }
+            if active.spawn_retail_frame == retail_frame {
+                index += 1;
+                continue;
+            }
+
+            active.logic_credit = active
+                .logic_credit
+                .saturating_add(pressure_fighter_live_projectiles::LOGIC_CREDIT_PER_TICK);
+            let step_count =
+                active.logic_credit / pressure_fighter_live_projectiles::LOGIC_CREDIT_THRESHOLD;
+            active.logic_credit %= pressure_fighter_live_projectiles::LOGIC_CREDIT_THRESHOLD;
+
+            let mut retired = false;
+            for step_index in 0..step_count {
+                let target = match (step_count, step_index) {
+                    (2, 0) => previous_player_position,
+                    (2, _) => player_position,
+                    _ => HostileProjectileTarget::Midpoint
+                        .select(previous_player_position, player_position),
+                };
+                if advance_live_pressure_projectile_step(projectile, &mut active, target) {
+                    retired = true;
+                    break;
+                }
+            }
+
+            if retired {
+                self.state.objects.remove(active.object);
+                self.live_pressure_fighter_projectiles.swap_remove(index);
+            } else {
+                self.live_pressure_fighter_projectiles[index] = active;
+                index += 1;
+            }
+        }
     }
 
     fn update_leon_pressure_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
@@ -18855,13 +19025,23 @@ fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {
     object.base.position = hostile_projectile_contracted_position(object.base.position, target);
 }
 
-fn face_hostile_projectile_toward(object: &mut Object, target: Vector3, smooth: bool) {
+fn hostile_projectile_target_angles(object: &Object, target: Vector3) -> (u8, u8) {
     let delta_x = target.x.wrapping_sub(object.base.position.x);
     let delta_y = target.y.wrapping_sub(object.base.position.y);
     let delta_z = target.z.wrapping_sub(object.base.position.z);
     let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
     let target_pitch = sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance);
     let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
+    (target_pitch, target_yaw)
+}
+
+fn hostile_projectile_faces_target(object: &Object, target: Vector3) -> bool {
+    let (target_pitch, target_yaw) = hostile_projectile_target_angles(object, target);
+    object.base.pitch.units() == target_pitch && object.base.yaw.units() == target_yaw
+}
+
+fn face_hostile_projectile_toward(object: &mut Object, target: Vector3, smooth: bool) {
+    let (target_pitch, target_yaw) = hostile_projectile_target_angles(object, target);
     if smooth {
         let mut pitch = object.base.pitch.units();
         let mut yaw = object.base.yaw.units();
@@ -19427,6 +19607,83 @@ fn apply_hostile_projectile_action(
             advance_hostile_projectile(object, flight, HostileProjectileFlightPhase::Cruise);
         }
     }
+}
+
+fn advance_live_pressure_projectile_step(
+    object: &mut Object,
+    active: &mut ActiveLivePressureProjectile,
+    player_position: Vector3,
+) -> bool {
+    let ObjectActivity::HostileProjectileFlight(mut flight) = object.extension.activity else {
+        debug_assert!(
+            false,
+            "live recurring-fighter projectile lacks typed flight state"
+        );
+        return true;
+    };
+
+    let retired = match flight.phase {
+        HostileProjectileFlightPhase::Homing => {
+            object.base.speed = pressure_fighter_live_projectiles::CRUISE_SPEED;
+            if pressure_fighter_selected_distance(object, player_position)
+                >= pressure_fighter_live_projectiles::HOMING_RADIUS
+            {
+                for _ in 0..pressure_fighter_live_projectiles::HOMING_CONTRACTIONS_PER_STEP {
+                    contract_hostile_projectile_toward(object, player_position);
+                }
+                face_hostile_projectile_toward(object, player_position, false);
+                advance_hostile_projectile(
+                    object,
+                    &mut flight,
+                    HostileProjectileFlightPhase::Homing,
+                );
+            } else {
+                face_hostile_projectile_toward(object, player_position, false);
+                advance_hostile_projectile(
+                    object,
+                    &mut flight,
+                    HostileProjectileFlightPhase::AimCorrection,
+                );
+                active.aim_correction_steps_elapsed = 1;
+            }
+            false
+        }
+        HostileProjectileFlightPhase::AimCorrection => {
+            face_hostile_projectile_toward(object, player_position, true);
+            let aim_aligned = hostile_projectile_faces_target(object, player_position);
+            advance_hostile_projectile(
+                object,
+                &mut flight,
+                HostileProjectileFlightPhase::AimCorrection,
+            );
+            active.aim_correction_steps_elapsed =
+                active.aim_correction_steps_elapsed.saturating_add(1);
+            if (aim_aligned
+                && active.aim_correction_steps_elapsed
+                    >= pressure_fighter_live_projectiles::MINIMUM_AIM_CORRECTION_STEPS)
+                || active.aim_correction_steps_elapsed
+                    >= pressure_fighter_live_projectiles::MAXIMUM_AIM_CORRECTION_STEPS
+            {
+                flight.phase = HostileProjectileFlightPhase::Cruise;
+            }
+            false
+        }
+        HostileProjectileFlightPhase::Cruise => {
+            if active.cruise_steps_elapsed >= pressure_fighter_live_projectiles::CRUISE_STEPS {
+                true
+            } else {
+                advance_hostile_projectile(
+                    object,
+                    &mut flight,
+                    HostileProjectileFlightPhase::Cruise,
+                );
+                active.cruise_steps_elapsed = active.cruise_steps_elapsed.saturating_add(1);
+                false
+            }
+        }
+    };
+    object.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+    retired
 }
 
 fn apply_capital_flight_action(
@@ -20179,18 +20436,21 @@ fn update_surviving_pressure_fighter(
     flight: &mut FighterInterceptFlightState,
     random: &mut super::state::RandomState,
     player_position: Vector3,
-) -> u8 {
-    let mut shots_fired = 0;
+) -> PressureFighterFireEvents {
+    let mut fire_events = PressureFighterFireEvents::default();
     flight.logic_credit = flight
         .logic_credit
         .saturating_add(PRESSURE_FIGHTER_LOGIC_CREDIT_PER_TICK);
     while flight.logic_credit >= PRESSURE_FIGHTER_LOGIC_CREDIT_THRESHOLD {
         flight.logic_credit -= PRESSURE_FIGHTER_LOGIC_CREDIT_THRESHOLD;
         random.next_byte();
-        shots_fired +=
-            advance_surviving_pressure_fighter_slice(object, flight, random, player_position);
+        if let Some(launch) =
+            advance_surviving_pressure_fighter_slice(object, flight, random, player_position)
+        {
+            fire_events.push(launch);
+        }
     }
-    shots_fired
+    fire_events
 }
 
 fn advance_surviving_pressure_fighter_slice(
@@ -20198,17 +20458,23 @@ fn advance_surviving_pressure_fighter_slice(
     flight: &mut FighterInterceptFlightState,
     random: &mut super::state::RandomState,
     player_position: Vector3,
-) -> u8 {
+) -> Option<PressureProjectileLaunch> {
     let control = begin_surviving_pressure_fighter_slice(object, flight, random, player_position);
+    let launch = control.fire_projectile.then_some(PressureProjectileLaunch {
+        position: object.base.position,
+        pitch: object.base.pitch,
+        yaw: object.base.yaw,
+        roll: object.base.roll,
+    });
     apply_surviving_pressure_fighter_movement(object, flight, control.banked_movement);
     finish_surviving_pressure_fighter_slice(object, flight, random);
-    control.shots_fired
+    launch
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PressureFighterSliceControl {
     banked_movement: bool,
-    shots_fired: u8,
+    fire_projectile: bool,
 }
 
 fn begin_surviving_pressure_fighter_slice(
@@ -20218,7 +20484,7 @@ fn begin_surviving_pressure_fighter_slice(
     player_position: Vector3,
 ) -> PressureFighterSliceControl {
     let mut banked_movement = false;
-    let mut shots_fired = 0;
+    let mut fire_projectile = false;
     loop {
         match flight.combat_phase {
             FighterInterceptCombatPhase::ScriptedFlight => {
@@ -20288,7 +20554,7 @@ fn begin_surviving_pressure_fighter_slice(
                 let mut fire_counter = fire_counter.wrapping_add(1);
                 if fire_counter == PRESSURE_FIGHTER_FIRE_COUNTER_LIMIT {
                     fire_counter = 0;
-                    shots_fired = 1;
+                    fire_projectile = true;
                 }
                 if pressure_fighter_selected_distance(object, player_position)
                     < PRESSURE_FIGHTER_DEPARTURE_DISTANCE
@@ -20341,7 +20607,7 @@ fn begin_surviving_pressure_fighter_slice(
     }
     PressureFighterSliceControl {
         banked_movement,
-        shots_fired,
+        fire_projectile,
     }
 }
 
@@ -20405,8 +20671,12 @@ fn finish_surviving_pressure_fighter_slice(
 }
 
 fn pressure_fighter_selected_distance(object: &Object, player_position: Vector3) -> u16 {
-    let delta_x = player_position.x.wrapping_sub(object.base.position.x);
-    let delta_z = player_position.z.wrapping_sub(object.base.position.z);
+    pressure_fighter_horizontal_distance(object.base.position, player_position)
+}
+
+fn pressure_fighter_horizontal_distance(first_position: Vector3, second_position: Vector3) -> u16 {
+    let delta_x = second_position.x.wrapping_sub(first_position.x);
+    let delta_z = second_position.z.wrapping_sub(first_position.z);
     let squared_distance =
         i64::from(delta_x) * i64::from(delta_x) + i64::from(delta_z) * i64::from(delta_z);
     (squared_distance as u64).isqrt().min(u64::from(u16::MAX)) as u16
@@ -26197,6 +26467,10 @@ mod tests {
                     "control",
                     retained_slices,
                 );
+                assert_eq!(
+                    control.fire_projectile, oracle_slice.fire_projectile,
+                    "fire boundary after oracle slice {retained_slices}"
+                );
                 apply_surviving_pressure_fighter_movement(
                     &mut object,
                     &mut flight,
@@ -26287,6 +26561,221 @@ mod tests {
         assert!(object.base.flags.active);
         assert!(object.base.flags.visible);
         assert!(!object.base.flags.collision_disabled);
+    }
+
+    #[test]
+    fn surviving_pressure_fighter_emits_a_typed_launch_at_the_fire_boundary() {
+        let mut object = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::PRESSURE_ASSAULT_FIGHTER,
+            Behavior::EnemyFlight,
+        );
+        object.base.position = Vector3 {
+            x: 1_500,
+            y: -250,
+            z: 2_750,
+        };
+        object.base.pitch = Angle::from_units(7);
+        object.base.yaw = Angle::from_units(91);
+        object.base.roll = Angle::from_units(12);
+        object.base.speed = PRESSURE_FIGHTER_COMBAT_SPEED;
+        let mut flight = FighterInterceptFlightState {
+            logic_credit: 0,
+            combat_phase: FighterInterceptCombatPhase::Attacking {
+                fire_counter: PRESSURE_FIGHTER_FIRE_COUNTER_LIMIT - 1,
+            },
+            vertical_wave_phase: Angle::ZERO,
+            cruise_target_speed: PRESSURE_FIGHTER_COMBAT_SPEED,
+            cruise_acceleration: 0,
+            maneuver_drift_x: 0,
+            maneuver_altitude_target: object.base.position.y,
+            maneuver_drift_z: 0,
+            pending_velocity: Vector3::default(),
+            movement_phase: FighterInterceptMovementPhase::Ready,
+            weapon_phase: FighterInterceptWeaponPhase::Flight,
+        };
+        let mut random = super::super::state::RandomState::new([1, 2, 3, 4]);
+        let player_position = Vector3 {
+            x: 12_000,
+            y: 0,
+            z: 12_000,
+        };
+        let mut aimed_object = object.clone();
+        pressure_fighter_face_player(&mut aimed_object, player_position);
+        let expected_launch = PressureProjectileLaunch {
+            position: aimed_object.base.position,
+            pitch: aimed_object.base.pitch,
+            yaw: aimed_object.base.yaw,
+            roll: aimed_object.base.roll,
+        };
+
+        let launch = advance_surviving_pressure_fighter_slice(
+            &mut object,
+            &mut flight,
+            &mut random,
+            player_position,
+        );
+
+        assert_eq!(launch, Some(expected_launch));
+        assert_ne!(object.base.position, expected_launch.position);
+    }
+
+    #[test]
+    fn live_pressure_projectiles_enforce_the_retail_pool_and_expire() {
+        let mut game = Game::new();
+        let launch = PressureProjectileLaunch {
+            position: Vector3 {
+                x: 0,
+                y: 0,
+                z: 5_000,
+            },
+            pitch: Angle::ZERO,
+            yaw: Angle::ZERO,
+            roll: Angle::ZERO,
+        };
+        let mut two_shots = PressureFighterFireEvents::default();
+        two_shots.push(launch);
+        two_shots.push(launch);
+
+        game.spawn_live_pressure_fighter_projectiles(0, Vector3::default(), two_shots)
+            .unwrap();
+        game.spawn_live_pressure_fighter_projectiles(4, Vector3::default(), two_shots)
+            .unwrap();
+        game.spawn_live_pressure_fighter_projectiles(8, Vector3::default(), two_shots)
+            .unwrap();
+        assert_eq!(
+            game.live_pressure_fighter_projectiles.len(),
+            pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
+        );
+
+        let first = game.live_pressure_fighter_projectiles[0].object;
+        let projectile = game.state.objects.get(first).unwrap();
+        assert_eq!(projectile.base.position, launch.position);
+        assert_eq!(
+            projectile.base.speed,
+            pressure_fighter_live_projectiles::INITIAL_SPEED
+        );
+        assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
+        assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+
+        let mut saw_aim_correction = false;
+        let mut saw_cruise = false;
+        for retail_frame in (12..=512).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize) {
+            game.update_live_pressure_fighter_projectiles(
+                retail_frame,
+                Vector3::default(),
+                Vector3::default(),
+            );
+            for active in &game.live_pressure_fighter_projectiles {
+                let projectile = game.state.objects.get(active.object).unwrap();
+                let ObjectActivity::HostileProjectileFlight(flight) = projectile.extension.activity
+                else {
+                    panic!("live hostile projectile lost its typed flight state");
+                };
+                saw_aim_correction |= flight.phase == HostileProjectileFlightPhase::AimCorrection;
+                saw_cruise |= flight.phase == HostileProjectileFlightPhase::Cruise;
+            }
+            if game.live_pressure_fighter_projectiles.is_empty() {
+                break;
+            }
+        }
+
+        assert!(saw_aim_correction);
+        assert!(saw_cruise);
+        assert!(game.live_pressure_fighter_projectiles.is_empty());
+
+        let mut distant_shot = PressureFighterFireEvents::default();
+        distant_shot.push(PressureProjectileLaunch {
+            position: Vector3 {
+                x: 0,
+                y: 0,
+                z: i16::try_from(pressure_fighter_live_projectiles::MAXIMUM_LAUNCH_DISTANCE)
+                    .unwrap(),
+            },
+            ..launch
+        });
+        game.spawn_live_pressure_fighter_projectiles(0, Vector3::default(), distant_shot)
+            .unwrap();
+        assert!(game.live_pressure_fighter_projectiles.is_empty());
+    }
+
+    #[test]
+    fn live_pressure_projectile_rules_match_the_compact_oracle_evidence() {
+        use pressure_fighter_live_projectile_oracle as oracle;
+
+        assert_eq!(oracle::FIRE_ATTEMPT_COUNT, oracle::FIRE_ATTEMPTS.len());
+        assert_eq!(
+            oracle::ALLOCATED_PROJECTILE_COUNT,
+            oracle::PROJECTILE_LIFETIMES.len()
+        );
+        assert_eq!(
+            oracle::REUSABLE_ALLOCATION_COUNT,
+            pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
+        );
+        assert!(
+            oracle::MAXIMUM_CONCURRENT_PROJECTILES
+                <= pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
+        );
+        assert_eq!(
+            oracle::FIRE_ATTEMPTS
+                .iter()
+                .filter(|attempt| attempt.launched)
+                .count(),
+            oracle::ALLOCATED_PROJECTILE_COUNT
+        );
+        for attempt in oracle::FIRE_ATTEMPTS {
+            assert_eq!(
+                attempt.launched,
+                attempt.distance < pressure_fighter_live_projectiles::MAXIMUM_LAUNCH_DISTANCE
+            );
+            assert_eq!(attempt.start_delay.is_some(), attempt.launched);
+            assert!(attempt.start_delay.is_none_or(|delay| delay <= 1));
+        }
+
+        assert_eq!(
+            oracle::PROJECTILE_LIFETIMES
+                .iter()
+                .filter(|lifetime| lifetime.natural_expiry)
+                .count(),
+            oracle::NATURAL_EXPIRY_COUNT
+        );
+        assert_eq!(
+            oracle::PROJECTILE_LIFETIMES
+                .iter()
+                .filter(|lifetime| !lifetime.natural_expiry)
+                .count(),
+            oracle::EARLY_TERMINATION_COUNT
+        );
+        for lifetime in oracle::PROJECTILE_LIFETIMES {
+            assert!(lifetime.homing_steps > 0);
+            assert!(
+                (pressure_fighter_live_projectiles::MINIMUM_AIM_CORRECTION_STEPS
+                    ..=pressure_fighter_live_projectiles::MAXIMUM_AIM_CORRECTION_STEPS)
+                    .contains(&lifetime.aim_steps)
+            );
+            assert_eq!(
+                lifetime.cruise_steps,
+                if lifetime.natural_expiry {
+                    pressure_fighter_live_projectiles::CRUISE_STEPS
+                } else {
+                    1
+                }
+            );
+        }
+
+        let normalized_interval_numerator =
+            usize::from(pressure_fighter_live_projectiles::LOGIC_CREDIT_THRESHOLD)
+                * RETAIL_PRESENTATION_FRAMES_PER_TICK as usize;
+        let normalized_interval_denominator =
+            usize::from(pressure_fighter_live_projectiles::LOGIC_CREDIT_PER_TICK);
+        let normalized_cross_product =
+            normalized_interval_numerator * oracle::MOVEMENT_INTERVAL_COUNT;
+        let observed_cross_product =
+            oracle::MOVEMENT_INTERVAL_SUM * normalized_interval_denominator;
+        assert!(
+            normalized_cross_product.abs_diff(observed_cross_product)
+                <= oracle::MOVEMENT_INTERVAL_COUNT
+        );
     }
 
     #[test]

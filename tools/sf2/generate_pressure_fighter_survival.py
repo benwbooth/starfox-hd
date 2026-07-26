@@ -39,6 +39,7 @@ def import_raw_logic(source: Path, output: Path) -> None:
                 tuple[int, int, int],
                 tuple[int, int, int, int, int, int, int],
                 tuple[int, int, int, int, int, int, int],
+                bool,
                 tuple[int, int, int, int] | None,
             ]
         ],
@@ -50,6 +51,7 @@ def import_raw_logic(source: Path, output: Path) -> None:
         tuple[int, int, int],
         tuple[int, int, int, int, int, int, int],
         tuple[int, int, int],
+        bool,
     ] | None = None
     completed_slice: tuple[
         int,
@@ -58,11 +60,13 @@ def import_raw_logic(source: Path, output: Path) -> None:
         tuple[int, int, int, int, int, int, int],
         tuple[int, int, int, int, int, int, int],
         tuple[int, int, int],
+        bool,
     ] | None = None
     random_calls_since_vertical: list[
         tuple[tuple[int, int, int, int] | None, int]
     ] = []
     last_completed_random_state: tuple[int, int, int, int] | None = None
+    pending_fire_projectile = False
 
     def maneuver_targets(values: dict[str, str]) -> tuple[int, int, int]:
         extension = bytes.fromhex(values["extension"])
@@ -84,6 +88,7 @@ def import_raw_logic(source: Path, output: Path) -> None:
             control_pose,
             movement_pose,
             previous_targets,
+            fire_projectile,
         ) = completed_slice
         retain_slice = FIRST_LIVE_RETAIL_FRAME <= retail_frame <= CERTIFIED_END_RETAIL_FRAME
         refresh_random_state = None
@@ -118,6 +123,7 @@ def import_raw_logic(source: Path, output: Path) -> None:
                     player_position,
                     control_pose,
                     movement_pose,
+                    fire_projectile,
                     refresh_random_state,
                 )
             )
@@ -144,6 +150,9 @@ def import_raw_logic(source: Path, output: Path) -> None:
         if event == "random-value":
             pending_decision_state = tuple(bytes.fromhex(values["rng"]))
             continue
+        if event == "fire":
+            pending_fire_projectile = True
+            continue
         if event == "move":
             finalize_completed_slice(maneuver_targets(values))
             if pending_slice is not None:
@@ -162,11 +171,20 @@ def import_raw_logic(source: Path, output: Path) -> None:
                 selected_pose[:3],
                 control_pose,
                 maneuver_targets(values),
+                pending_fire_projectile,
             )
+            pending_fire_projectile = False
             continue
         if event != "vertical-step" or pending_slice is None:
             continue
-        retail_frame, state, player_position, control_pose, targets = pending_slice
+        (
+            retail_frame,
+            state,
+            player_position,
+            control_pose,
+            targets,
+            fire_projectile,
+        ) = pending_slice
         movement_pose = tuple(map(int, values["pose"].split(",")))
         pending_slice = None
         completed_slice = (
@@ -176,6 +194,7 @@ def import_raw_logic(source: Path, output: Path) -> None:
             control_pose,
             movement_pose,
             targets,
+            fire_projectile,
         )
         random_calls_since_vertical = []
 
@@ -215,6 +234,8 @@ def import_raw_logic(source: Path, output: Path) -> None:
             + ">"
             + ",".join(map(str, movement_pose))
             + ">"
+            + str(int(fire_projectile))
+            + ">"
             + (
                 "-"
                 if refresh_random_state is None
@@ -225,6 +246,7 @@ def import_raw_logic(source: Path, output: Path) -> None:
                 player_position,
                 control_pose,
                 movement_pose,
+                fire_projectile,
                 refresh_random_state,
             ) in frames[retail_frame]
         )
@@ -242,6 +264,7 @@ def read_fixture(
             tuple[int, int, int],
             tuple[int, int, int, int, int, int, int],
             tuple[int, int, int, int, int, int, int],
+            bool,
             tuple[int, int, int, int] | None,
         ]
     ]
@@ -260,8 +283,14 @@ def read_fixture(
         slices = []
         for value in values["slices"].split("/"):
             state, value = value.split("@", 1)
-            player_position, control_pose, movement_pose, refresh_state = value.split(
-                ">", 3
+            (
+                player_position,
+                control_pose,
+                movement_pose,
+                fire_projectile,
+                refresh_state,
+            ) = value.split(
+                ">", 4
             )
             slices.append(
                 (
@@ -269,6 +298,7 @@ def read_fixture(
                     tuple(map(int, player_position.split(","))),
                     tuple(map(int, control_pose.split(","))),
                     tuple(map(int, movement_pose.split(","))),
+                    bool(int(fire_projectile)),
                     (
                         None
                         if refresh_state == "-"
@@ -297,6 +327,7 @@ def read_fixture(
                 player_position,
                 control_pose,
                 movement_pose,
+                fire_projectile,
                 refresh_state,
             ) in slices
         ):
@@ -322,6 +353,7 @@ def render(
                 tuple[int, int, int],
                 tuple[int, int, int, int, int, int, int],
                 tuple[int, int, int, int, int, int, int],
+                bool,
                 tuple[int, int, int, int] | None,
             ]
         ]
@@ -364,6 +396,7 @@ def render(
         "    pub player_position: [i16; 3],",
         "    pub control_pose: FighterOraclePose,",
         "    pub movement_pose: FighterOraclePose,",
+        "    pub fire_projectile: bool,",
         "    pub refresh_random_state: Option<[u8; 4]>,",
         "}",
         "",
@@ -387,7 +420,7 @@ def render(
     for slices in frames:
         empty_pose = (0, 0, 0, 0, 0, 0, 0)
         padded = slices + [
-            ((0, 0, 0, 0), (0, 0, 0), empty_pose, empty_pose, None)
+            ((0, 0, 0, 0), (0, 0, 0), empty_pose, empty_pose, False, None)
         ] * (2 - len(slices))
         lines.extend(
             [
@@ -398,9 +431,10 @@ def render(
                 f"                player_position: [{', '.join(map(str, padded[0][1]))}],",
                 *rust_pose("                control_pose", padded[0][2]),
                 *rust_pose("                movement_pose", padded[0][3]),
+                f"                fire_projectile: {str(padded[0][4]).lower()},",
                 (
                     "                refresh_random_state: "
-                    f"{rust_optional_state(padded[0][4])},"
+                    f"{rust_optional_state(padded[0][5])},"
                 ),
                 "            },",
                 "            FighterOracleSlice {",
@@ -408,9 +442,10 @@ def render(
                 f"                player_position: [{', '.join(map(str, padded[1][1]))}],",
                 *rust_pose("                control_pose", padded[1][2]),
                 *rust_pose("                movement_pose", padded[1][3]),
+                f"                fire_projectile: {str(padded[1][4]).lower()},",
                 (
                     "                refresh_random_state: "
-                    f"{rust_optional_state(padded[1][4])},"
+                    f"{rust_optional_state(padded[1][5])},"
                 ),
                 "            },",
                 "        ],",
