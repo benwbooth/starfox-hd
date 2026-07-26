@@ -26,8 +26,11 @@ use sf_core::pad;
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::scene::PaletteFadeTarget;
 use sf_map::consts::wm;
-use sf_map::consts::{cb, DirectStrategy};
+use sf_map::consts::{cb, sh, DirectStrategy};
 use sf_map::levels::{BuiltLevel, NativeCallback};
+
+const FIRST_FLOAT_OSCILLATOR_STEP: u8 = 4;
+const SECOND_FLOAT_OSCILLATOR_STEP: u8 = 8;
 
 /// Strategy function type — replaces C `StrategyFunc`
 /// (`void (*)(Alien *self)`, src/game/obj.h). The alien is passed by slot
@@ -343,6 +346,14 @@ impl Game {
         self.vars.player_posy = al.worldy;
         self.vars.player_posz = al.worldz;
         self.vars.playervel_z = al.vz;
+        // GSTRATS.ASM init_strats float block: the two shared oscillators
+        // advance only while the active player view enables wobble.
+        if self.vars.playerflymode & PFM_WOBBLE != 0 {
+            self.vars.shared.float_variables[0] =
+                self.vars.shared.float_variables[0].wrapping_add(FIRST_FLOAT_OSCILLATOR_STEP);
+            self.vars.shared.float_variables[1] =
+                self.vars.shared.float_variables[1].wrapping_add(SECOND_FLOAT_OSCILLATOR_STEP);
+        }
     }
 
     /// C `do_strat_l` (src/game/obj.c:172, STRATROU.ASM:2189+).
@@ -1130,13 +1141,12 @@ impl Game {
                 }
             }
             InlineCb::TruckerBikerGate { carryon_ptr } => {
-                // TRUCKER.ASM `find_y_l #air_1`: shape 80 is the canonical
-                // generated `air_1` mesh/runtime id.
+                // TRUCKER.ASM `find_y_l #air_1`.
                 let biker_alive = self
                     .objs
                     .aliens
                     .iter()
-                    .any(|al| al.active && al.shape == 80);
+                    .any(|al| al.active && al.shape == sh::AIR_1);
                 if biker_alive {
                     *mapptr = mapptr.wrapping_add(1);
                 } else {
@@ -1952,5 +1962,80 @@ impl Game {
 impl Default for Game {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn game_with_player() -> Game {
+        let mut game = Game::new();
+        let player = game.objs.alloc().expect("player slot");
+        strat_init_obj_vars(&mut game.objs.aliens[player as usize]);
+        game.vars.internal_playpt = player as i16;
+        game
+    }
+
+    #[test]
+    fn wobble_view_advances_the_two_source_float_oscillators() {
+        let mut game = game_with_player();
+        game.run_strategies();
+        assert_eq!(game.vars.shared.float_variables, [0, 0]);
+
+        game.vars.playerflymode |= PFM_WOBBLE;
+        game.run_strategies();
+        assert_eq!(
+            game.vars.shared.float_variables,
+            [FIRST_FLOAT_OSCILLATOR_STEP, SECOND_FLOAT_OSCILLATOR_STEP]
+        );
+        game.run_strategies();
+        assert_eq!(
+            game.vars.shared.float_variables,
+            [
+                FIRST_FLOAT_OSCILLATOR_STEP * 2,
+                SECOND_FLOAT_OSCILLATOR_STEP * 2
+            ]
+        );
+
+        game.vars.playerflymode &= !PFM_WOBBLE;
+        game.run_strategies();
+        assert_eq!(
+            game.vars.shared.float_variables,
+            [
+                FIRST_FLOAT_OSCILLATOR_STEP * 2,
+                SECOND_FLOAT_OSCILLATOR_STEP * 2
+            ]
+        );
+    }
+
+    #[test]
+    fn trucker_biker_gate_waits_for_the_authored_air_1_shape() {
+        const INLINE_POINTER: u16 = 20;
+        const CARRY_ON_POINTER: u16 = 90;
+
+        let mut game = game_with_player();
+        let biker = game.objs.alloc().expect("biker slot");
+        strat_init_obj_vars(&mut game.objs.aliens[biker as usize]);
+        game.objs.aliens[biker as usize].shape = sh::AIR_1;
+
+        let mut pointer = INLINE_POINTER;
+        game.run_inline(
+            InlineCb::TruckerBikerGate {
+                carryon_ptr: CARRY_ON_POINTER,
+            },
+            &mut pointer,
+        );
+        assert_eq!(pointer, INLINE_POINTER + 1);
+
+        game.objs.aliens[biker as usize].active = false;
+        pointer = INLINE_POINTER;
+        game.run_inline(
+            InlineCb::TruckerBikerGate {
+                carryon_ptr: CARRY_ON_POINTER,
+            },
+            &mut pointer,
+        );
+        assert_eq!(pointer, CARRY_ON_POINTER);
     }
 }

@@ -366,8 +366,8 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
     b.label("level2_6.trucker");
 
     // Lines 2-3: initial biker pair
-    b.mapobj(1000, -400, -60, 1000, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
-    b.mapobj(1000, -300, -60, 300, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
+    b.mapobj(1000, -400, -60, 1000, SH_AIR_1, STRAT_ADDR_MADBIKER);
+    b.mapobj(1000, -300, -60, 300, SH_AIR_1, STRAT_ADDR_MADBIKER);
 
     // Lines 4-6: .mad loop — wall/boulder obstacles x6
     // The Argonaut assembler's unprefixed literals are decimal even when
@@ -378,8 +378,8 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
     b.maploop("level2_6.trucker.mad", 6);
 
     // Lines 8-9: more bikers
-    b.mapobj(0, -50, -60, -200, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
-    b.mapobj(100, 50, -10, -400, SH_AIR_1_PROXY, STRAT_ADDR_MADBIKER);
+    b.mapobj(0, -50, -60, -200, SH_AIR_1, STRAT_ADDR_MADBIKER);
+    b.mapobj(100, 50, -10, -400, SH_AIR_1, STRAT_ADDR_MADBIKER);
 
     // Lines 11-23: .loop — wait for all bikers destroyed
     b.label("level2_6.trucker.loop");
@@ -396,7 +396,7 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
     b.mapwait(3000);
 
     // Line 31: boss spawn
-    b.mapobj(0, -200, -70, -300, SH_BOSS_9_5_PROXY, STRAT_ADDR_MADTRUCKER);
+    b.mapobj(0, -200, -70, -300, SH_BOSS_9_5, STRAT_ADDR_MADTRUCKER);
 
     // Line 32: mapwait 1
     b.mapwait(1);
@@ -414,10 +414,10 @@ pub fn append_trucker_submap(b: &mut MapBuilder) -> TruckerPtrs {
 
     // Lines 56-62: .rightblock subroutine — road obstacle spawns
     b.label("level2_6.trucker.rightblock");
-    b.mapobj(0, 60, 0, 1600, SH_LINE_2_PROXY, STRAT_ADDR_ROADLINE);
-    b.mapobj(0, 40, 0, 2400, SH_LINE_2_PROXY, STRAT_ADDR_ROADLINE);
-    b.mapobj(0, 20, 0, 3100, SH_LINE_2_PROXY, STRAT_ADDR_ROADLINE);
-    b.mapobj(0, 0, 0, 3400, SH_LINE_2_PROXY, STRAT_ADDR_ROADLINE);
+    b.mapobj(0, 60, 0, 1600, SH_LINE_2, STRAT_ADDR_ROADLINE);
+    b.mapobj(0, 40, 0, 2400, SH_LINE_2, STRAT_ADDR_ROADLINE);
+    b.mapobj(0, 20, 0, 3100, SH_LINE_2, STRAT_ADDR_ROADLINE);
+    b.mapobj(0, 0, 0, 3400, SH_LINE_2, STRAT_ADDR_ROADLINE);
     b.mapobj(0, 90, -60, 3600, SH_BOU_1B_PROXY, IS_HARD180YR);
     b.maprts();
 

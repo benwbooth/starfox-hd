@@ -39,8 +39,9 @@ use crate::common::strat_make_obj as make_obj;
 use crate::common::strat_spawn_projectile as spawn_projectile;
 use crate::common::strat_speed_to as speed_to;
 use crate::common::{
-    kill_obj, makesplash_srou, strat_angle_xz, strat_angle_yz, strat_apply_velocity,
-    strat_gen_vecs_3d, strat_init_obj_vars, strat_nvecs, strat_projectile_on_collide, StratRam,
+    float64_srou, kill_obj, makeengine_srou, makesplash_srou, strat_angle_xz, strat_angle_yz,
+    strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars, strat_nvecs,
+    strat_projectile_on_collide, updateengine_srou, StratRam,
 };
 
 // Canonical strat_enemy.c helpers (crate::enemy_a pub / pub(crate) surface).
@@ -9289,8 +9290,8 @@ pub fn install_bosses(g: &mut Game) -> BossStratIds {
 // objects resolve through the synthetic 0x0500xx strategy-address table exactly
 // like the seadragon/bossg/boss8 rows below.
 //
-// STRUCTURE: the map's `boss_9_5` object is an INVISIBLE controller mother
-// (nullshape proxy, ENEMY1 collision, HP=madtruckerHP=64). `.generate`
+// STRUCTURE: the map's exact `boss_9_5` object is the controller mother
+// (ENEMY1 collision, HP=madtruckerHP=64). `.generate`
 // (DSTRATS.ASM:5506) spawns ONE visible truck-body child (`boss_9_0`,
 // `hard_istrat` = inert/invincible), linked via `al_ptr`, and repositions it on
 // the mother every tick (`.position1`, s_add_Roffs2pos flags 1,1,1 offset
@@ -9312,24 +9313,15 @@ pub fn install_bosses(g: &mut Game) -> BossStratIds {
 //    open/close vulnerability gate, HP-bar/maxHP, the bike-escort + mine spawns
 //    and the full swerve/skid/flip death chain are ported tick-for-tick.
 //  * The `.hit` damage gate (DSTRATS.ASM:5580-5603) keys off per-sub-box
-//    hitflags HF1 (truck body) / HF2 (mother weak spot) that only the REAL
-//    `boss_9_5`/`boss_9_0` collision meshes emit; the map uses SH_NULLSHAPE
-//    proxies (route2/rc.rs:112) so in-game the gate currently sees no
-//    sub-box hitflags (undamageable until the real shapes are wired — a
-//    map-proxy caveat of the same class as castanet's). The gate is ported
-//    faithfully and exercised in tests by setting hitflags directly.
+//    hitflags HF1 (truck body) / HF2 (mother weak spot). The Rust shape catalog
+//    and route map use the exact `boss_9_5`/`boss_9_0` meshes at their authored
+//    ids; focused strategy tests also exercise the gate directly.
 //  * Cosmetic-only ROM calls that read cross-object global scratch RAM or
 //    unported sprite/particle systems are intentional no-ops, exactly as
-//    castanet scoped its ringlaser/mini spread: `sgenspark`/`genspark2`
-//    (spark puffs, :5696-5716), `bigwhiteFOsprite`/`circleobj`/`rumble` (the
-//    white death flash, :5631-5634), madbiker's `makeengine`/`updateengine`
-//    (the engine-flame child, :4970/:5219) and `float64_srou` (the hover bob,
-//    :5210 — reads global floatvar1/floatvar2 oscillators). `set_sound2` audio
-//    init is likewise dropped (no audio hook in the parity harness).
-//  * The escort-bike/mine SHAPES are cosmetic proxies (SH_MT_* below); the map's
-//    nullshape `air_1`/`boss_9_5` proxies are overwritten to them on init so the
-//    `find_y #air_1` bike lookups (`.waitforbikes`/`.destroybikes`) resolve
-//    uniformly for both map-placed and truck-spawned bikes.
+//    castanet scoped its ringlaser/mini spread:
+//    `bigwhiteFOsprite`/`circleobj`/`rumble` (the white death flash,
+//    :5631-5634). Bike engine flames, hover oscillation, continuous sound, and
+//    all scrape/death sparks use the already-ported shared routines.
 // ============================================================
 
 // DSTRATS.ASM:72-77.
@@ -9339,6 +9331,15 @@ const MADBIKER_HP: u8 = 10; // madbikerHP
 const MADBIKER_AP: u8 = 4; // madbikerAP
 const BARRIER_HP: u8 = 6; // barrierHP
 const BARRIER_AP: u8 = 12; // barrierAP
+const MADBIKER_SOUND: u8 = 9;
+const MADBIKER_ENGINE_Y_OFFSET: i8 = -5;
+const MADBIKER_ENGINE_Z_OFFSET: i8 = -10;
+const MADBIKER_ENGINE_SIZE: i8 = -10;
+const MADBIKER_WALL_SPARK_X_OFFSET: i16 = 15;
+const MADTRUCKER_REAR_SPARK_Y_OFFSET: i16 = 60;
+const MADTRUCKER_REAR_SPARK_Z_OFFSET: i16 = -30;
+const MADTRUCKER_SIDE_SPARK_X_OFFSET: i16 = 50;
+const MADTRUCKER_SIDE_SPARK_Z_OFFSET: i16 = -10;
 
 /// `madtrucker_istrat` / `madbiker_istrat` synthetic addresses (sf-map
 /// route2/rc.rs:204-205). Resolved through the strat-address table, like
@@ -9346,9 +9347,9 @@ const BARRIER_AP: u8 = 12; // barrierAP
 pub const STRAT_ADDR_MADTRUCKER: u32 = sf_map::consts::is::MADTRUCKER;
 pub const STRAT_ADDR_MADBIKER: u32 = sf_map::consts::is::MADBIKER;
 
-const SH_MT_BOSS_9_0: u16 = 391;
-const SH_MT_AIR_1: u16 = 79;
-const SH_MT_BARRIER: u16 = 392;
+const SH_MT_BOSS_9_0: u16 = sh::BOSS_9_0;
+const SH_MT_AIR_1: u16 = sh::AIR_1;
+const SH_MT_BARRIER: u16 = sh::BARRIER;
 
 /// `roadline_istrat` (DSTRATS.ASM:5225): inert ground-marking geometry.
 pub fn roadline_istrat(g: &mut Game, idx: u16) {
@@ -9415,6 +9416,26 @@ fn mt_player_z(g: &Game) -> i16 {
 #[inline]
 fn mt_player_x(g: &Game) -> i16 {
     player(g).map(|p| p.worldx).unwrap_or(0)
+}
+
+/// Emit the shared scrape spark from a source-authored offset without
+/// materializing the ROM's global scratch object.
+fn mt_emit_spark(g: &mut Game, source: u16, x: i16, y: i16, z: i16) {
+    let original = {
+        let object = &g.objs.aliens[source as usize];
+        (object.worldx, object.worldy, object.worldz)
+    };
+    {
+        let object = &mut g.objs.aliens[source as usize];
+        object.worldx = object.worldx.wrapping_add(x);
+        object.worldy = object.worldy.wrapping_add(y);
+        object.worldz = object.worldz.wrapping_add(z);
+    }
+    crate::player::sgen_spark(g, source);
+    let object = &mut g.objs.aliens[source as usize];
+    object.worldx = original.0;
+    object.worldy = original.1;
+    object.worldz = original.2;
 }
 
 /// Live truck-body child (mother.al_ptr, index+1 encoding).
@@ -9901,7 +9922,13 @@ fn madtrucker_swerve(g: &mut Game, idx: u16) {
         g.objs.aliens[idx as usize].roty = v as u8;
         mt_farleftlane(g, idx);
         mt_destroybikes(g);
-        // .genspark scoped.
+        mt_emit_spark(
+            g,
+            idx,
+            0,
+            MADTRUCKER_REAR_SPARK_Y_OFFSET,
+            MADTRUCKER_REAR_SPARK_Z_OFFSET,
+        );
         mt_move(g, idx);
         return;
     }
@@ -9953,7 +9980,20 @@ fn madtrucker_skid(g: &mut Game, idx: u16) {
         }
     }
     mt_destroybikes(g);
-    // .genspark / .genspark2 scoped.
+    mt_emit_spark(
+        g,
+        idx,
+        0,
+        MADTRUCKER_REAR_SPARK_Y_OFFSET,
+        MADTRUCKER_REAR_SPARK_Z_OFFSET,
+    );
+    mt_emit_spark(
+        g,
+        idx,
+        MADTRUCKER_SIDE_SPARK_X_OFFSET,
+        MADTRUCKER_REAR_SPARK_Y_OFFSET,
+        MADTRUCKER_SIDE_SPARK_Z_OFFSET,
+    );
     mt_nomove(g, idx); // s_jmp .nomove (no world scroll here)
 }
 
@@ -10068,9 +10108,20 @@ pub fn madbiker_init(g: &mut Game, idx: u16) {
         al.sflags |= ASF_SHADOW; // s_set_alsflag shadow
         al.shape = SH_MT_AIR_1; // preserve the shape used by find_y #air_1
         al.sword2 = al.worldy; // s_copy_alvar2alvar sword2,worldy
+    }
+    if let Some(engine) = makeengine_srou(g, idx) {
+        let flame = &mut g.objs.aliens[engine as usize];
+        flame.type_ &= !ATZREMOVE;
+        flame.tx = MADBIKER_ENGINE_SIZE as u8;
+        flame.relposx = 0;
+        flame.relposy = MADBIKER_ENGINE_Y_OFFSET as u8;
+        flame.relposz = MADBIKER_ENGINE_Z_OFFSET as u8;
+    }
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.snd2 = MADBIKER_SOUND; // set_sound2 x,#9
         al.stratstate = 0; // s_mode_change #0
     }
-    // makeengine (engine-flame child) scoped.
     madbiker_strat(g, idx); // fall into .strat
 }
 
@@ -10250,11 +10301,15 @@ fn madbiker_move(g: &mut Game, idx: u16) {
         al.sword2 = gv_fchase16(al.sword2, py, 1); // s_fchase_alvar2alvar sword2,player.worldy,1
         al.worldy = al.sword2; // s_copy_alvar2alvar worldy,sword2
     }
-    // float64 hover bob scoped.
+    // The source saves and restores world X around `s_float x,64`, retaining
+    // only the oscillator's vertical component.
+    let horizontal_position = g.objs.aliens[idx as usize].worldx;
+    float64_srou(g, idx);
+    g.objs.aliens[idx as usize].worldx = horizontal_position;
     add_player_z(g, idx);
     madbiker_boundscheck(g, idx);
     g.objs.aliens[idx as usize].sflags2 &= !MT_SFLAG1; // s_clr_alsflag sflag1
-                                                       // updateengine scoped.
+    updateengine_srou(g, idx);
 }
 
 /// `.boundscheck` (DSTRATS.ASM:5166-5190): clamp against the right wall
@@ -10264,10 +10319,9 @@ fn madbiker_boundscheck(g: &mut Game, idx: u16) {
     let wx = g.objs.aliens[idx as usize].worldx;
     if wx.wrapping_add(15).wrapping_sub(maxx) >= 0 {
         // .hitwall
-        let al = &mut g.objs.aliens[idx as usize];
-        al.worldx = maxx.wrapping_sub(16);
-        // .genspark scoped.
-        al.rotz = al.rotz.wrapping_add(8);
+        g.objs.aliens[idx as usize].worldx = maxx.wrapping_sub(16);
+        mt_emit_spark(g, idx, MADBIKER_WALL_SPARK_X_OFFSET, 0, 0);
+        g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(8);
     }
 }
 

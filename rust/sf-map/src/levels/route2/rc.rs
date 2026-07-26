@@ -100,17 +100,18 @@ pub const SH_IMYSHIP_4: u16 = 554;
 pub const SH_MY_BIRD: u16 = 557;
 pub const SH_SPACEPILON: u16 = 614;
 
-// Placeholder proxies (levels.c: shapes not compiled yet -> nullshape/other).
+// Shapes that were placeholders in the removed C port. The Rust shape
+// catalog now compiles these source meshes at their exact runtime ids.
 pub const SH_ITEM_0_PROXY: u16 = 324;
 pub const SH_R_BUT_2_PROXY: u16 = 325;
 pub const SH_WALK_4_0_PROXY: u16 = 326;
 pub const SH_PIPE_8_0_PROXY: u16 = 285;
 pub const SH_PIPE_8_PROXY: u16 = 286;
-pub const SH_AIR_1_PROXY: u16 = 79;
+pub const SH_AIR_1: u16 = crate::consts::sh::AIR_1;
 pub const SH_WALL_4_PROXY: u16 = 90;
 pub const SH_BOU_1B_PROXY: u16 = 287;
-pub const SH_BOSS_9_5_PROXY: u16 = 78;
-pub const SH_LINE_2_PROXY: u16 = 80;
+pub const SH_BOSS_9_5: u16 = crate::consts::sh::BOSS_9_5;
+pub const SH_LINE_2: u16 = crate::consts::sh::LINE_2;
 pub const SH_PAPER_1_PROXY: u16 = 288;
 pub const SH_PAPER_3_PROXY: u16 = 289;
 pub const SH_POLE_0_PROXY: u16 = 290;

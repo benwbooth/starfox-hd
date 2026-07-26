@@ -194,6 +194,9 @@ pub mod sh {
     pub const BU_6: u16 = 66;
     pub const BU_7: u16 = 67;
     pub const BU_8: u16 = 68;
+    pub const BOSS_9_5: u16 = 78;
+    pub const AIR_1: u16 = 79;
+    pub const LINE_2: u16 = 80;
     pub const R_BU_1: u16 = 96;
     pub const R_BU_4: u16 = 99; // PLANET.ASM r_bu_4
     pub const R_BU_6: u16 = 101;
@@ -240,6 +243,10 @@ pub mod sh {
     pub const BIG_GATE: u16 = 233;
     pub const TOW_0: u16 = 247;
     pub const MYBASE_0: u16 = 256; // SHAPE_EXT_MYBASE_0 (extended shape catalog)
+    pub const BOOST_SHAPE: u16 = 362;
+    pub const LINE_SPARK: u16 = 380;
+    pub const BOSS_9_0: u16 = 391;
+    pub const BARRIER: u16 = 392;
     pub const BOSS_0_0: u16 = 432;
     pub const BOSS_0_0A: u16 = 433;
     pub const BOSS_0_2: u16 = 434;

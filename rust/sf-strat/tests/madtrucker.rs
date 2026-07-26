@@ -7,27 +7,28 @@
 //! STRAT_ADDR_MADBIKER.
 //!
 //! No sf-oracle differential fixture is used: the ROM boss's `.hit` gate keys
-//! off per-sub-box hitflags that only the boss_9_5 / boss_9_0 collision
-//! meshes emit, and several cosmetic ROM
-//! calls (spark/engine/float sprites) read global scratch RAM — all scoped out
-//! (see the MADTRUCKER_BEGIN scope note in bosses.rs). These tests assert the
-//! ported mother mode machine, truck-body positioning, HP bar, damage gate,
-//! death chain, the escort bikes and the mine against hand-derived ASM
-//! expectations, cited inline.
+//! off per-sub-box hitflags from the boss_9_5 / boss_9_0 collision meshes.
+//! These tests assert the mother mode machine, truck-body positioning, HP bar,
+//! damage gate, death chain, exact route gate, escort-bike engine/hover/sparks,
+//! and mine against hand-derived ASM expectations, cited inline.
 
-use sf_game::alien::NUMBER_AL;
+use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF_INVISIBLE, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
+use sf_map::consts::sh;
 use sf_strat::bosses;
+use sf_strat::snes_trig::{strat_roffs_pitch_yaw, SINTAB};
 
 // Local mirrors of the private bosses.rs constants (cited to the port / ASM).
-const SH_MT_BOSS_9_0: u16 = 391; // truck body
-const SH_MT_AIR_1: u16 = 79; // canonical `air_1` runtime shape
-const SH_MT_BARRIER: u16 = 392; // dropped mine
-const MT_SFLAG1: u8 = 0x10; // sflags2
+const SH_MT_BOSS_9_0: u16 = sh::BOSS_9_0;
+const SH_MT_AIR_1: u16 = sh::AIR_1;
+const SH_MT_BARRIER: u16 = sh::BARRIER;
+const MADBIKER_SOUND: u8 = 9;
+const MADBIKER_ENGINE_Z_OFFSET: i8 = -10;
+const NEGATIVE_FIVE_AS_BYTE: u8 = -5i8 as u8;
+const NEGATIVE_TEN_AS_BYTE: u8 = MADBIKER_ENGINE_Z_OFFSET as u8;
 const MT_HF1: u8 = 0x01;
 const MT_HF2: u8 = 0x02;
-const ASF_COLLDISABLE: u8 = 0x10; // alien.rs
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
 const ASF_SHADOW: u8 = 0x04; // alien.rs (s_set_alsflag shadow)
 const ATZREMOVE: u8 = 0x08; // alien.rs type_ zremove
@@ -286,6 +287,11 @@ fn fatal_hit_runs_swerve_skid_death() {
         g.objs.aliens[boss as usize].sbyte1, 34,
         "swerve timer armed"
     );
+    assert_ne!(
+        count_shape(&g, sh::LINE_SPARK),
+        0,
+        "swerve emits the authored rear scrape spark"
+    );
 
     // Drive the swerve down to 0 -> transition to .skid (its expstrat swaps,
     // maptrigger bit2 latches). The truck crept +1 in z during the init tick so
@@ -393,16 +399,52 @@ fn bike2_becomes_madbiker_after_eleven_ticks() {
 // ------------------------------------------------------------
 #[test]
 fn madbiker_inits_moves_and_dies() {
+    const FLOAT_PHASE: u8 = 63;
+    const PLAYER_BOUNDARY: i16 = 500;
+    const CRUISE_HEIGHT: i16 = -200;
+
     let (mut g, boss) = setup(3000, 0);
     // Re-purpose the "boss" slot as a lone madbiker for this test.
-    g.objs.aliens[boss as usize].worldy = -40;
+    g.objs.aliens[0].worldy = CRUISE_HEIGHT;
+    g.objs.aliens[boss as usize].worldy = CRUISE_HEIGHT;
+    g.vars.shared.float_variables = [FLOAT_PHASE; 2];
+    g.vars.strategy.player_max_x = PLAYER_BOUNDARY;
     bosses::madbiker_init(&mut g, boss);
 
     let b = &g.objs.aliens[boss as usize];
     assert_eq!(b.hp, MADBIKER_HP, "madbikerHP");
     assert_ne!(b.collflags & COLLTYPE_ENEMY2, 0, "ENEMY2");
-    assert_eq!(b.sword2, b.worldy, "sword2 seeded from worldy");
     assert_ne!(b.sflags & ASF_SHADOW, 0);
+    assert_eq!(b.snd2, MADBIKER_SOUND);
+    assert_ne!(b.flags & AFONFIRE, 0);
+
+    let phase = FLOAT_PHASE.wrapping_add(boss as u8);
+    let hover_offset = (SINTAB[phase as usize] as i16) / 8;
+    assert_eq!(
+        b.worldx, 0,
+        "source preserves horizontal position around float64_srou"
+    );
+    assert_eq!(
+        b.worldy,
+        b.sword2.wrapping_add(hover_offset),
+        "float64_srou y hover follows the chased base height"
+    );
+
+    let engine = b.fireobjptr.checked_sub(1).expect("engine link") as usize;
+    let flame = &g.objs.aliens[engine];
+    assert!(flame.active);
+    assert_eq!(flame.shape, sh::BOOST_SHAPE);
+    assert_eq!(flame.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(flame.tx, NEGATIVE_TEN_AS_BYTE);
+    assert_eq!(flame.relposx, 0);
+    assert_eq!(flame.relposy, NEGATIVE_FIVE_AS_BYTE);
+    assert_eq!(flame.relposz, NEGATIVE_TEN_AS_BYTE);
+    assert_eq!(flame.sflags & ASF_INVISIBLE, 0);
+    let (engine_x, engine_y, engine_z) =
+        strat_roffs_pitch_yaw(b.rotx, b.roty, 0, 0, MADBIKER_ENGINE_Z_OFFSET);
+    assert_eq!(flame.worldx, b.worldx.wrapping_add(engine_x));
+    assert_eq!(flame.worldy, b.worldy.wrapping_add(engine_y));
+    assert_eq!(flame.worldz, b.worldz.wrapping_add(engine_z));
 
     // .movealongside truck_accel chases the player-z; worldz should advance.
     let z0 = g.objs.aliens[boss as usize].worldz;
@@ -426,4 +468,21 @@ fn madbiker_inits_moves_and_dies() {
         0,
         "ENEMY2 cleared on crash"
     );
+}
+
+#[test]
+fn madbiker_wall_contact_emits_the_authored_offset_spark() {
+    const PLAYER_BOUNDARY: i16 = 100;
+    const CLAMPED_BIKE_X: i16 = PLAYER_BOUNDARY - 16;
+    const SPARK_X: i16 = CLAMPED_BIKE_X + 15;
+
+    let (mut g, bike) = setup(3000, 0);
+    g.vars.strategy.player_max_x = PLAYER_BOUNDARY;
+    g.objs.aliens[bike as usize].worldx = PLAYER_BOUNDARY;
+    bosses::madbiker_init(&mut g, bike);
+
+    assert_eq!(g.objs.aliens[bike as usize].worldx, CLAMPED_BIKE_X);
+    assert_eq!(g.objs.aliens[bike as usize].rotz, 8);
+    let spark = find_shape(&g, sh::LINE_SPARK).expect("wall scrape spark");
+    assert_eq!(g.objs.aliens[spark].worldx, SPARK_X);
 }
