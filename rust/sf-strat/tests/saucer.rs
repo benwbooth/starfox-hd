@@ -3,10 +3,12 @@
 use sf_game::alien::ASF_SHADOW;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
-    saucer1_istrat, saucer1_istrat2, saucer1_istrat3, saucer1_istrat4, saucer1_strat,
-    saucer1_strat2, saucer1_strat3, saucer1_strat4, saucer_istrat, saucer_strat, saucer_strat2,
+    saucer1_istrat, saucer1_istrat2, saucer1_istrat4, saucer1_strat, saucer1_strat2,
+    saucer1_strat3, saucer1_strat4, saucer_istrat, saucer_strat, saucer_strat2,
 };
 use sf_strat::enemy_a::ASF2_SMFLAG1;
+
+const SPLASH_SHAPE: u16 = 360;
 
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -28,6 +30,14 @@ fn spawn_obj(g: &mut Game) -> u16 {
     g.objs.aliens[idx as usize].worldz = 2000;
     g.objs.aliens[idx as usize].worldy = -100;
     idx
+}
+
+fn splash_count(g: &Game) -> usize {
+    g.objs
+        .aliens
+        .iter()
+        .filter(|alien| alien.active && alien.shape == SPLASH_SHAPE)
+        .count()
 }
 
 #[test]
@@ -98,6 +108,7 @@ fn saucer_bounces_then_circles() {
     assert_eq!(g.objs.aliens[idx as usize].ap, 4);
     assert_eq!(g.objs.aliens[idx as usize].vz, 30);
     assert_eq!(g.objs.aliens[idx as usize].vy, -20);
+    assert_eq!(splash_count(&g), 1, "initializer splash");
 
     let mut entered = false;
     for _ in 0..200 {
@@ -112,4 +123,54 @@ fn saucer_bounces_then_circles() {
     let h0 = g.objs.aliens[idx as usize].sbyte1;
     saucer_strat2(&mut g, idx);
     assert_ne!(g.objs.aliens[idx as usize].sbyte1, h0); // turned ±8
+}
+
+#[test]
+fn saucer_circle_uses_authored_splash_countdown_and_heading_arcs() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    let idx = spawn_obj(&mut g);
+
+    g.objs.aliens[idx as usize].sbyte1 = 64;
+    g.objs.aliens[idx as usize].sbyte2 = 2;
+    let before = splash_count(&g);
+    saucer_strat2(&mut g, idx);
+    assert_eq!(
+        splash_count(&g),
+        before + 1,
+        "countdown splashes until the zero edge",
+    );
+
+    g.objs.aliens[idx as usize].sbyte1 = 64;
+    g.objs.aliens[idx as usize].sbyte2 = 1;
+    let before = splash_count(&g);
+    saucer_strat2(&mut g, idx);
+    assert_eq!(
+        splash_count(&g),
+        before,
+        "zero edge suppresses the countdown splash",
+    );
+
+    const HEADING_SPLASH_BOUNDARIES: [(u8, bool); 8] = [
+        (31, true),
+        (32, false),
+        (95, false),
+        (96, true),
+        (159, true),
+        (160, false),
+        (223, false),
+        (224, true),
+    ];
+    g.objs.aliens[idx as usize].sbyte2 = 0;
+    for (post_turn_heading, should_splash) in HEADING_SPLASH_BOUNDARIES {
+        // No LEFT_PL flag means this tick adds eight before testing the arcs.
+        g.objs.aliens[idx as usize].sbyte1 = post_turn_heading.wrapping_sub(8);
+        let before = splash_count(&g);
+        saucer_strat2(&mut g, idx);
+        assert_eq!(
+            splash_count(&g) > before,
+            should_splash,
+            "post-turn heading {post_turn_heading}",
+        );
+    }
 }

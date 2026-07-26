@@ -5233,13 +5233,13 @@ pub fn saucer_istrat(g: &mut Game, idx: u16) {
         al.vz = 30;
         al.vy = -20;
         al.sflags |= ASF_SHADOW;
-        // makesplash / make_shadow — cosmetic omitted
     }
+    let _ = makesplash_srou(g, idx);
 }
 
 /// `saucer_strat` (DSTRATS.ASM:1597-1620): fall/bounce; at rest → strat2.
 pub fn saucer_strat(g: &mut Game, idx: u16) {
-    // move_shadow / drotsflat — cosmetic
+    // move_shadow / drotsflat are renderer-owned presentation.
     add_player_z(g, idx);
     apply_velocity(&mut g.objs.aliens[idx as usize]);
     let bounced = falldown_yvec(g, idx, 1, 1, 0);
@@ -5247,7 +5247,7 @@ pub fn saucer_strat(g: &mut Game, idx: u16) {
         return;
     }
     // .saucerbounce
-    // makesplash — cosmetic
+    let _ = makesplash_srou(g, idx);
     if g.objs.aliens[idx as usize].vy != 0 {
         return;
     }
@@ -5263,11 +5263,13 @@ pub fn saucer_strat(g: &mut Game, idx: u16) {
 
 /// `saucer_strat2` (DSTRATS.ASM:1621-1648): circle on heading sbyte1.
 pub fn saucer_strat2(g: &mut Game, idx: u16) {
-    // splash countdown
+    // `s_beqdec`: decrement first, then skip the splash on the zero edge.
     let sb2 = g.objs.aliens[idx as usize].sbyte2;
     if sb2 != 0 {
         g.objs.aliens[idx as usize].sbyte2 = sb2 - 1;
-        // makesplash — cosmetic
+        if sb2 > 1 {
+            let _ = makesplash_srou(g, idx);
+        }
     }
     {
         let al = &mut g.objs.aliens[idx as usize];
@@ -5282,7 +5284,15 @@ pub fn saucer_strat2(g: &mut Game, idx: u16) {
     } else {
         g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].sbyte1.wrapping_add(8);
     }
-    // splash when heading in certain arcs — cosmetic omitted
+
+    // DSTRATS.ASM:1635-1646 uses two wrapping byte comparisons. They select
+    // headings 224..=31 and 96..=159 after this frame's turn.
+    let heading = g.objs.aliens[idx as usize].sbyte1;
+    let first_arc = heading.wrapping_add(32) < 64;
+    let second_arc = heading.wrapping_add(32).wrapping_sub(128) < 64;
+    if first_arc || second_arc {
+        let _ = makesplash_srou(g, idx);
+    }
 }
 
 // ============================================================
