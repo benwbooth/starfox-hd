@@ -53,7 +53,7 @@ const LEGACY_EBYTE3_OPERAND: u16 = 0x2303;
 
 const PATH_VM_STACK_DEPTH: usize = 64;
 const PATH_VM_TRIGGER_CAPACITY: usize = 16;
-const PATH_INLINE_CALLBACK_CAPACITY: usize = 16;
+const PATH_INLINE_CALLBACK_CAPACITY: usize = rom_catalog_data::inline_continuations().len();
 const ALIEN_ABS_ALX_START: u16 = 0x100;
 /// Object "pointer" 0 means none (SNES convention).
 pub const PATH_NULL_OBJ: u16 = 0;
@@ -421,6 +421,7 @@ impl PathWorld {
                 return;
             }
         }
+        panic!("path inline callback catalog exceeds its certified capacity");
     }
 
     /// C `path_find_inline_code`.

@@ -247,6 +247,45 @@ pub fn register(g: &mut Game) -> PathInitIds {
     }
 }
 
+#[cfg(test)]
+mod registration_tests {
+    use super::*;
+
+    #[test]
+    fn every_certified_inline_path_action_is_registered() {
+        let catalog = sf_path::literals::get_catalog();
+        let mut world = PathWorld::new();
+        register_path_inline_callbacks(&mut world, &catalog.ips, &catalog.inline_continuations);
+
+        let actions = [
+            catalog.ips.tow_0_set_expstrat,
+            catalog.ips.robexplode_nopolyexp,
+            catalog.ips.dsmoke_init_colanim,
+            catalog.ips.dsmoke_add_colanim,
+            catalog.ips.makepollen,
+            catalog.ips.e_big_bird_touch,
+            catalog.ips.dintro1_zoom_to_centre,
+            catalog.ips.dintro1_keep_distance,
+            catalog.ips.pbooston_makeengine,
+            catalog.ips.pboostcode_updateengine,
+            catalog.ips.checkifend1,
+            catalog.ips.checkifend2,
+            catalog.ips.checkifend3,
+            catalog.ips.checkifend4,
+            catalog.ips.checkifend5,
+            catalog.ips.checkifend6,
+            catalog.ips.checkifend7,
+        ];
+
+        for action in actions {
+            assert!(
+                world.find_inline_code(action).is_some(),
+                "path action {action} was not registered"
+            );
+        }
+    }
+}
+
 // ============================================================
 // Init strategies (C path_init_common + the three istrat entries).
 // These operate purely on the game alien: set the shadow/collide flags and
