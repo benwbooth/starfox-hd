@@ -112,7 +112,9 @@ def parse_pose(value: str) -> tuple[int, ...]:
 
 
 def read_pose_fixture(
-    path: Path, expected_lifetime_count: int = 33
+    path: Path,
+    expected_lifetime_count: int = 33,
+    maximum_continuous_position_step: int | None = None,
 ) -> tuple[list[PoseRecord], list[ProjectileLifetime]]:
     records = []
     active: dict[str, list[tuple[int, tuple[int, ...]]]] = {}
@@ -135,6 +137,17 @@ def read_pose_fixture(
             )
         )
         for source, pose in projectiles.items():
+            existing = active.get(source)
+            if (
+                maximum_continuous_position_step is not None
+                and existing
+                and max(
+                    abs(signed_word(pose[index] - existing[-1][1][index]))
+                    for index in range(3)
+                )
+                > maximum_continuous_position_step
+            ):
+                lifetimes.append(ProjectileLifetime(source, tuple(active.pop(source))))
             active.setdefault(source, []).append((retail_frame, pose))
         for source in set(active).difference(projectiles):
             lifetimes.append(ProjectileLifetime(source, tuple(active.pop(source))))
@@ -271,10 +284,12 @@ class Replay:
 
     @staticmethod
     def xz_distance(dx: int, dz: int) -> int:
-        absolute = lambda value: (
-            (-value) & 0xFFFF if signed_word(value) < 0 else value & 0xFFFF
-        )
-        half = lambda value: (signed_word(value) >> 1) & 0xFFFF
+        def absolute(value: int) -> int:
+            return (-value) & 0xFFFF if signed_word(value) < 0 else value & 0xFFFF
+
+        def half(value: int) -> int:
+            return (signed_word(value) >> 1) & 0xFFFF
+
         x = half(absolute(dx))
         z = half(absolute(dz))
         summed = ((z + x) & 0xFFFF) << 1 & 0xFFFF
@@ -426,17 +441,23 @@ def target_timing(
         ("Current", retail_frame),
         ("Midpoint", None),
         ("Previous", retail_frame - RETAIL_FRAME_STEP),
+        ("PreviousMidpoint", None),
         ("TwoTicksAgo", retail_frame - RETAIL_FRAME_STEP * 2),
     )
     for name, frame in choices:
-        if name == "Midpoint":
-            current = records.get(retail_frame)
-            previous = records.get(retail_frame - RETAIL_FRAME_STEP)
-            if current is None or previous is None:
+        if name in ("Midpoint", "PreviousMidpoint"):
+            later_frame = (
+                retail_frame
+                if name == "Midpoint"
+                else retail_frame - RETAIL_FRAME_STEP
+            )
+            later = records.get(later_frame)
+            earlier = records.get(later_frame - RETAIL_FRAME_STEP)
+            if later is None or earlier is None:
                 continue
             position = tuple(
                 signed_word(start + trunc_div(signed_word(end - start), 2))
-                for start, end in zip(previous.player[:3], current.player[:3])
+                for start, end in zip(earlier.player[:3], later.player[:3])
             )
             if position == target_position:
                 return name
@@ -480,7 +501,15 @@ def rust_action(action: ScheduledAction) -> str:
 
 def format_rust(source: str) -> str:
     result = subprocess.run(
-        ["rustfmt", "--edition", "2021", "--emit", "stdout"],
+        [
+            "rustfmt",
+            "--edition",
+            "2021",
+            "--config",
+            "skip_children=true,reorder_modules=false",
+            "--emit",
+            "stdout",
+        ],
         input=source,
         text=True,
         capture_output=True,
@@ -495,11 +524,16 @@ def rust_source(
     lifetimes: list[ProjectileLifetime],
     schedules: list[list[tuple[int, list[ScheduledAction]]]],
     encounter_description: str = "the first retail re-engagement",
+    firing_actors: list[str] | None = None,
 ) -> str:
+    if firing_actors is not None and len(firing_actors) != len(lifetimes):
+        raise SystemExit(
+            f"expected {len(lifetimes)} firing actors, found {len(firing_actors)}"
+        )
     flattened_actions = []
     tick_ranges = []
     descriptors = []
-    for lifetime, schedule in zip(lifetimes, schedules):
+    for track_index, (lifetime, schedule) in enumerate(zip(lifetimes, schedules)):
         tick_offset = len(tick_ranges)
         for _, actions in schedule:
             action_offset = len(flattened_actions)
@@ -512,16 +546,22 @@ def rust_source(
                 tick_offset,
                 len(schedule),
                 lifetime.samples[0][1],
+                None if firing_actors is None else firing_actors[track_index],
             )
         )
 
+    actor_import = (
+        "    MissionEncounterActor, MissionEncounterPose,"
+        if firing_actors is not None
+        else "    MissionEncounterPose,"
+    )
     lines = [
         f"//! Generated semantic projectile dynamics for {encounter_description}.",
         "//! Source addresses and opaque machine state remain in oracle tooling.",
         "",
         "use super::{",
         "    mission_encounter_pose, HostileProjectileAction, HostileProjectileTarget,",
-        "    MissionEncounterPose,",
+        actor_import,
         "};",
         "",
         f"pub(super) const PROJECTILE_COUNT: usize = {len(lifetimes)};",
@@ -532,6 +572,11 @@ def rust_source(
         "    pub start_retail_frame: u16,",
         "    pub end_retail_frame: u16,",
         "    pub initial_pose: MissionEncounterPose,",
+    ]
+    if firing_actors is not None:
+        lines.append("    pub firing_actor: MissionEncounterActor,")
+    lines.extend(
+        [
         "    tick_offset: u16,",
         "    tick_count: u8,",
         "}",
@@ -543,14 +588,21 @@ def rust_source(
         "}",
         "",
         f"static DESCRIPTORS: [HostileProjectileDescriptor; {len(descriptors)}] = [",
-    ]
-    for start, end, tick_offset, tick_count, pose in descriptors:
+        ]
+    )
+    for start, end, tick_offset, tick_count, pose, firing_actor in descriptors:
         lines.extend(
             [
                 "    HostileProjectileDescriptor {",
                 f"        start_retail_frame: {grouped(start)},",
                 f"        end_retail_frame: {grouped(end)},",
                 f"        initial_pose: {pose_source(pose)},",
+            ]
+        )
+        if firing_actor is not None:
+            lines.append(f"        firing_actor: MissionEncounterActor::{firing_actor},")
+        lines.extend(
+            [
                 f"        tick_offset: {tick_offset},",
                 f"        tick_count: {tick_count},",
                 "    },",
@@ -612,8 +664,14 @@ def generate_dynamics(
     sample_start_elapsed: int,
     encounter_description: str,
     allow_split_contractions: bool = False,
+    firing_actors: list[str] | None = None,
+    maximum_continuous_position_step: int | None = None,
 ) -> tuple[str, int]:
-    records, lifetimes = read_pose_fixture(pose_fixture, expected_lifetime_count)
+    records, lifetimes = read_pose_fixture(
+        pose_fixture,
+        expected_lifetime_count,
+        maximum_continuous_position_step,
+    )
     actions = read_logic_fixture(logic_fixture, sample_start_elapsed)
     if allow_split_contractions:
         actions = split_target_contractions(actions)
@@ -638,7 +696,12 @@ def generate_dynamics(
         for schedule in scheduled
     ]
     return (
-        rust_source(lifetimes, typed_schedules, encounter_description),
+        rust_source(
+            lifetimes,
+            typed_schedules,
+            encounter_description,
+            firing_actors,
+        ),
         sum(len(lifetime.samples) for lifetime in lifetimes),
     )
 

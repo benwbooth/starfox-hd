@@ -47,63 +47,6 @@ ENCOUNTER_CONSTANT_NAMES = (
     "LOWER_FIGHTER_MISSION_KEYFRAMES",
 )
 PROJECTILE_SHAPE_TOKEN = "E3A8"
-PROJECTILE_TRACKS = {
-    "04B9": (
-        "UPPER_FIGHTER_OPENING_SHOT_TWO_KEYFRAMES",
-        "SECOND_CAPITAL_OPENING_SHOT_THREE_KEYFRAMES",
-        "UPPER_FIGHTER_OPENING_SHOT_FOUR_KEYFRAMES",
-    ),
-    "043B": ("LOWER_FIGHTER_OPENING_SHOT_KEYFRAMES",),
-    "082B": (
-        "SECOND_CAPITAL_OPENING_SHOT_ONE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_ONE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_THREE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_FIVE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_EIGHT_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_SIXTEEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_EIGHTEEN_KEYFRAMES",
-    ),
-    "047A": (
-        "UPPER_FIGHTER_OPENING_SHOT_THREE_KEYFRAMES",
-        "FIRST_CAPITAL_OPENING_SHOT_KEYFRAMES",
-        "UPPER_FIGHTER_OPENING_SHOT_FIVE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_NINE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWELVE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_FIFTEEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWENTY_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWENTY_TWO_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWENTY_THREE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWENTY_SIX_KEYFRAMES",
-    ),
-    "086A": (
-        "SECOND_CAPITAL_OPENING_SHOT_TWO_KEYFRAMES",
-        "SECOND_CAPITAL_OPENING_SHOT_FOUR_KEYFRAMES",
-        "UPPER_FIGHTER_OPENING_SHOT_SIX_KEYFRAMES",
-        "SECOND_CAPITAL_OPENING_SHOT_FIVE_KEYFRAMES",
-    ),
-    "0576": ("SECOND_CAPITAL_MISSION_SHOT_SIX_KEYFRAMES",),
-    "05B5": (
-        "SECOND_CAPITAL_MISSION_SHOT_ELEVEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_THIRTEEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_FOURTEEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_NINETEEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWENTY_ONE_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWENTY_FOUR_KEYFRAMES",
-    ),
-    "0672": (
-        "SECOND_CAPITAL_MISSION_SHOT_TEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_SEVENTEEN_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_TWENTY_FIVE_KEYFRAMES",
-    ),
-    "06B1": ("SECOND_CAPITAL_MISSION_SHOT_TWO_KEYFRAMES",),
-    "07EC": ("FIRST_CAPITAL_OPENING_SHOT_THREE_KEYFRAMES",),
-    "0966": (
-        "LOWER_FIGHTER_OPENING_SHOT_TWO_KEYFRAMES",
-        "FIRST_CAPITAL_OPENING_SHOT_TWO_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_FOUR_KEYFRAMES",
-        "SECOND_CAPITAL_MISSION_SHOT_SEVEN_KEYFRAMES",
-    ),
-}
 
 
 @dataclass(frozen=True)
@@ -287,10 +230,9 @@ def rust_source(
         "};",
         "use super::{",
         "    mission_camera_keyframe,",
-        "    mission_encounter_keyframe, mission_player_keyframe, "
-        "mission_projectile_keyframe,",
+        "    mission_encounter_keyframe, mission_player_keyframe,",
         "    mission_timer_keyframe, MissionCameraKeyframe, MissionEncounterKeyframe,",
-        "    MissionPlayerKeyframe, MissionProjectileKeyframe, MissionTimerKeyframe,",
+        "    MissionPlayerKeyframe, MissionTimerKeyframe,",
         "};",
         "",
         f"pub(super) const PLAYER_CERTIFIED_END_RETAIL_FRAME: u16 = {keyframes[-1][0]};",
@@ -338,7 +280,7 @@ def rust_source(
         ]
     )
     for frame, record in encounter_keyframes:
-        lines.append(f"    mission_encounter_keyframe(")
+        lines.append("    mission_encounter_keyframe(")
         lines.append(f"        {frame},")
         for pose in record.encounter:
             assert pose is not None
@@ -386,46 +328,6 @@ def rust_source(
                 lines.append(f"    mission_actor_departure_keyframe({frame}),")
         lines.extend(["];", ""])
 
-    for source_id, constant_names in PROJECTILE_TRACKS.items():
-        track = []
-        for frame, record in keyframes:
-            pose = dict(record.projectiles).get(source_id)
-            if pose is not None:
-                track.append((frame, pose))
-        if not track:
-            continue
-        lifetimes: list[list[tuple[int, tuple[int, ...]]]] = []
-        for frame, pose in track:
-            if not lifetimes or frame - lifetimes[-1][-1][0] > RETAIL_FRAME_STEP:
-                lifetimes.append([])
-            lifetimes[-1].append((frame, pose))
-        if len(lifetimes) > len(constant_names):
-            raise SystemExit(
-                f"projectile source {source_id} has {len(lifetimes)} lifetimes, "
-                f"but only {len(constant_names)} semantic names"
-            )
-        for constant_name, lifetime in zip(constant_names, lifetimes):
-            declaration = (
-                f"pub(super) const {constant_name}: "
-                f"[MissionProjectileKeyframe; {len(lifetime)}] = ["
-            )
-            # rustfmt's type-aware layout keeps declarations through this
-            # width on one line, then splits the array length onto the next.
-            if len(declaration) <= 102:
-                lines.append(declaration)
-            else:
-                lines.extend(
-                    [
-                        f"pub(super) const {constant_name}: "
-                        "[MissionProjectileKeyframe;",
-                        f"    {len(lifetime)}] = [",
-                    ]
-                )
-            for frame, pose in lifetime:
-                lines.append(
-                    f"    mission_projectile_keyframe({frame}, {rust_array(pose)}),"
-                )
-            lines.extend(["];", ""])
     return "\n".join(lines).rstrip() + "\n"
 
 

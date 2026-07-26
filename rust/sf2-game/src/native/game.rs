@@ -99,6 +99,8 @@ mod missile_interception;
 mod missile_interception_targets;
 #[path = "opening_continuation.rs"]
 mod opening_continuation;
+#[path = "opening_projectiles.rs"]
+mod opening_projectiles;
 #[path = "pigma_duel.rs"]
 mod pigma_duel;
 #[path = "pigma_duel_projectiles.rs"]
@@ -2737,26 +2739,20 @@ enum FinalRivalAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HostileProjectileTarget {
+    TwoTicksAgo,
+    PreviousMidpoint,
     Previous,
     Midpoint,
     Current,
 }
 
 impl HostileProjectileTarget {
-    fn select(self, previous: Vector3, current: Vector3) -> Vector3 {
+    fn select(self, two_ticks_ago: Vector3, previous: Vector3, current: Vector3) -> Vector3 {
         match self {
+            Self::TwoTicksAgo => two_ticks_ago,
+            Self::PreviousMidpoint => midpoint_vector(two_ticks_ago, previous),
             Self::Previous => previous,
-            Self::Midpoint => Vector3 {
-                x: previous
-                    .x
-                    .wrapping_add(current.x.wrapping_sub(previous.x) / 2),
-                y: previous
-                    .y
-                    .wrapping_add(current.y.wrapping_sub(previous.y) / 2),
-                z: previous
-                    .z
-                    .wrapping_add(current.z.wrapping_sub(previous.z) / 2),
-            },
+            Self::Midpoint => midpoint_vector(previous, current),
             Self::Current => current,
         }
     }
@@ -4228,52 +4224,6 @@ struct MissionProjectileKeyframe {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MissionProjectileTrajectory {
-    UpperFighterOpeningShotOne,
-    UpperFighterOpeningShotTwo,
-    LowerFighterOpeningShot,
-    SecondCapitalOpeningShotOne,
-    UpperFighterOpeningShotThree,
-    SecondCapitalOpeningShotTwo,
-    SecondCapitalOpeningShotThree,
-    FirstCapitalOpeningShot,
-    UpperFighterOpeningShotFour,
-    UpperFighterOpeningShotFive,
-    SecondCapitalOpeningShotFour,
-    UpperFighterOpeningShotSix,
-    SecondCapitalOpeningShotFive,
-    LowerFighterOpeningShotTwo,
-    FirstCapitalOpeningShotTwo,
-    FirstCapitalOpeningShotThree,
-    SecondCapitalMissionShotOne,
-    SecondCapitalMissionShotTwo,
-    SecondCapitalMissionShotThree,
-    SecondCapitalMissionShotFour,
-    SecondCapitalMissionShotFive,
-    SecondCapitalMissionShotSix,
-    SecondCapitalMissionShotSeven,
-    SecondCapitalMissionShotEight,
-    SecondCapitalMissionShotNine,
-    SecondCapitalMissionShotTen,
-    SecondCapitalMissionShotEleven,
-    SecondCapitalMissionShotTwelve,
-    SecondCapitalMissionShotThirteen,
-    SecondCapitalMissionShotFourteen,
-    SecondCapitalMissionShotFifteen,
-    SecondCapitalMissionShotSixteen,
-    SecondCapitalMissionShotSeventeen,
-    SecondCapitalMissionShotEighteen,
-    SecondCapitalMissionShotNineteen,
-    SecondCapitalMissionShotTwenty,
-    SecondCapitalMissionShotTwentyOne,
-    SecondCapitalMissionShotTwentyTwo,
-    SecondCapitalMissionShotTwentyThree,
-    SecondCapitalMissionShotTwentyFour,
-    SecondCapitalMissionShotTwentyFive,
-    SecondCapitalMissionShotTwentySix,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MissionEncounterActor {
     FirstCapital,
     SecondCapital,
@@ -4294,7 +4244,7 @@ impl MissionEncounterActor {
 
 #[derive(Debug, Clone, Copy)]
 struct ActiveMissionProjectile {
-    trajectory: MissionProjectileTrajectory,
+    track_index: usize,
     object: ObjectId,
 }
 
@@ -4518,53 +4468,6 @@ impl FighterInterceptActors {
 const MISSION_ENTRY_CRAFT_COUNT: usize = 4;
 const MISSION_ENCOUNTER_ACTOR_COUNT: usize = MISSION_ENTRY_CRAFT_COUNT;
 const MISSION_CAPITAL_CRAFT_COUNT: usize = 2;
-const MISSION_PROJECTILE_TRAJECTORY_COUNT: usize = 42;
-const MISSION_PROJECTILE_TRAJECTORIES: [MissionProjectileTrajectory;
-    MISSION_PROJECTILE_TRAJECTORY_COUNT] = [
-    MissionProjectileTrajectory::UpperFighterOpeningShotOne,
-    MissionProjectileTrajectory::UpperFighterOpeningShotTwo,
-    MissionProjectileTrajectory::LowerFighterOpeningShot,
-    MissionProjectileTrajectory::SecondCapitalOpeningShotOne,
-    MissionProjectileTrajectory::UpperFighterOpeningShotThree,
-    MissionProjectileTrajectory::SecondCapitalOpeningShotTwo,
-    MissionProjectileTrajectory::SecondCapitalOpeningShotThree,
-    MissionProjectileTrajectory::FirstCapitalOpeningShot,
-    MissionProjectileTrajectory::UpperFighterOpeningShotFour,
-    MissionProjectileTrajectory::UpperFighterOpeningShotFive,
-    MissionProjectileTrajectory::SecondCapitalOpeningShotFour,
-    MissionProjectileTrajectory::UpperFighterOpeningShotSix,
-    MissionProjectileTrajectory::SecondCapitalOpeningShotFive,
-    MissionProjectileTrajectory::LowerFighterOpeningShotTwo,
-    MissionProjectileTrajectory::FirstCapitalOpeningShotTwo,
-    MissionProjectileTrajectory::FirstCapitalOpeningShotThree,
-    MissionProjectileTrajectory::SecondCapitalMissionShotOne,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwo,
-    MissionProjectileTrajectory::SecondCapitalMissionShotThree,
-    MissionProjectileTrajectory::SecondCapitalMissionShotFour,
-    MissionProjectileTrajectory::SecondCapitalMissionShotFive,
-    MissionProjectileTrajectory::SecondCapitalMissionShotSix,
-    MissionProjectileTrajectory::SecondCapitalMissionShotSeven,
-    MissionProjectileTrajectory::SecondCapitalMissionShotEight,
-    MissionProjectileTrajectory::SecondCapitalMissionShotNine,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotEleven,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwelve,
-    MissionProjectileTrajectory::SecondCapitalMissionShotThirteen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotFourteen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotFifteen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotSixteen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotSeventeen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotEighteen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotNineteen,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwenty,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwentyOne,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwentyTwo,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwentyThree,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwentyFour,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwentyFive,
-    MissionProjectileTrajectory::SecondCapitalMissionShotTwentySix,
-];
-const ENEMY_LASER_ATTACK_POWER: u8 = 1;
 const SF2_HOSTILE_LASER_HEALTH: u8 = 10;
 const HOSTILE_PROJECTILE_CONTRACTION_DISTANCE: u16 = 127;
 const HOSTILE_PROJECTILE_CRUISE_SPEED: u8 = 63;
@@ -5390,68 +5293,6 @@ const MISSION_ENCOUNTER_KEYFRAMES: [MissionEncounterKeyframe; 58] = [
     ),
 ];
 
-/// Enemy-laser poses sampled at every native update boundary from the same
-/// retail laser-hold trace as the encounter craft. These are semantic
-/// projectile trajectories; source object addresses are not retained.
-const UPPER_FIGHTER_OPENING_SHOT_ONE_KEYFRAMES: [MissionProjectileKeyframe; 37] = [
-    mission_projectile_keyframe(588, [-361, -8_658, -2_750, 37, 79, 0, 63]),
-    mission_projectile_keyframe(592, [-775, -8_216, -2_904, 37, 79, 0, 63]),
-    mission_projectile_keyframe(596, [-1_191, -7_774, -3_058, 37, 79, 0, 63]),
-    mission_projectile_keyframe(600, [-1_607, -7_335, -3_208, 37, 78, 0, 63]),
-    mission_projectile_keyframe(604, [-1_700, -7_254, -3_242, 37, 78, 0, 63]),
-    mission_projectile_keyframe(608, [-2_030, -6_900, -3_358, 36, 78, 0, 63]),
-    mission_projectile_keyframe(612, [-2_453, -6_468, -3_508, 36, 78, 0, 63]),
-    mission_projectile_keyframe(616, [-2_879, -6_036, -3_656, 36, 78, 0, 63]),
-    mission_projectile_keyframe(620, [-3_305, -5_607, -3_803, 36, 78, 0, 63]),
-    mission_projectile_keyframe(624, [-3_738, -5_185, -3_950, 35, 78, 0, 63]),
-    mission_projectile_keyframe(628, [-4_174, -4_766, -4_097, 35, 78, 0, 63]),
-    mission_projectile_keyframe(632, [-4_174, -4_766, -4_097, 35, 78, 0, 63]),
-    mission_projectile_keyframe(636, [-4_613, -4_350, -4_244, 35, 77, 0, 63]),
-    mission_projectile_keyframe(640, [-5_063, -3_941, -4_390, 34, 77, 0, 63]),
-    mission_projectile_keyframe(644, [-5_523, -3_547, -4_534, 33, 77, 0, 63]),
-    mission_projectile_keyframe(648, [-5_993, -3_165, -4_673, 32, 76, 0, 63]),
-    mission_projectile_keyframe(652, [-6_169, -3_005, -4_721, 28, 76, 0, 63]),
-    mission_projectile_keyframe(656, [-6_349, -2_849, -4_773, 28, 76, 0, 63]),
-    mission_projectile_keyframe(660, [-6_349, -2_849, -4_773, 28, 76, 0, 63]),
-    mission_projectile_keyframe(664, [-6_529, -2_693, -4_825, 28, 76, 0, 63]),
-    mission_projectile_keyframe(668, [-6_709, -2_537, -4_877, 28, 76, 0, 63]),
-    mission_projectile_keyframe(672, [-6_889, -2_381, -4_929, 28, 76, 0, 63]),
-    mission_projectile_keyframe(676, [-7_069, -2_225, -4_981, 28, 76, 0, 63]),
-    mission_projectile_keyframe(680, [-7_249, -2_069, -5_033, 28, 76, 0, 63]),
-    mission_projectile_keyframe(684, [-7_429, -1_913, -5_085, 28, 76, 0, 63]),
-    mission_projectile_keyframe(688, [-7_609, -1_757, -5_137, 28, 76, 0, 63]),
-    mission_projectile_keyframe(692, [-7_789, -1_601, -5_189, 28, 76, 0, 63]),
-    mission_projectile_keyframe(696, [-7_969, -1_445, -5_241, 28, 76, 0, 63]),
-    mission_projectile_keyframe(700, [-7_969, -1_445, -5_241, 28, 76, 0, 63]),
-    mission_projectile_keyframe(704, [-8_149, -1_289, -5_293, 28, 76, 0, 63]),
-    mission_projectile_keyframe(708, [-8_329, -1_133, -5_345, 28, 76, 0, 63]),
-    mission_projectile_keyframe(712, [-8_509, -977, -5_397, 28, 76, 0, 63]),
-    mission_projectile_keyframe(716, [-8_689, -821, -5_449, 28, 76, 0, 63]),
-    mission_projectile_keyframe(720, [-8_869, -665, -5_501, 28, 76, 0, 63]),
-    mission_projectile_keyframe(724, [-9_049, -509, -5_553, 28, 76, 0, 63]),
-    mission_projectile_keyframe(728, [-9_229, -353, -5_605, 28, 76, 0, 63]),
-    mission_projectile_keyframe(732, [-9_229, -353, -5_605, 28, 76, 0, 63]),
-];
-
-const UPPER_FIGHTER_OPENING_SHOT_TWO_KEYFRAMES: [MissionProjectileKeyframe; 7] = [
-    mission_projectile_keyframe(876, [-7_866, 9_350, -124, 201, 151, 0, 63]),
-    mission_projectile_keyframe(880, [-7_866, 9_350, -124, 201, 151, 0, 63]),
-    mission_projectile_keyframe(884, [-7_772, 8_745, -273, 201, 152, 0, 63]),
-    mission_projectile_keyframe(888, [-7_676, 8_142, -421, 201, 152, 0, 63]),
-    mission_projectile_keyframe(892, [-7_579, 7_539, -570, 201, 152, 0, 63]),
-    mission_projectile_keyframe(896, [-7_579, 7_539, -570, 201, 152, 0, 63]),
-    mission_projectile_keyframe(900, [-7_482, 6_936, -719, 201, 153, 0, 63]),
-];
-
-const LOWER_FIGHTER_OPENING_SHOT_KEYFRAMES: [MissionProjectileKeyframe; 6] = [
-    mission_projectile_keyframe(880, [-6_359, -9_304, -4_594, 59, 226, 0, 63]),
-    mission_projectile_keyframe(884, [-6_298, -8_681, -4_526, 59, 226, 0, 63]),
-    mission_projectile_keyframe(888, [-6_230, -8_064, -4_451, 58, 226, 0, 63]),
-    mission_projectile_keyframe(892, [-6_230, -8_064, -4_451, 58, 226, 0, 63]),
-    mission_projectile_keyframe(896, [-6_159, -7_448, -4_373, 58, 226, 0, 63]),
-    mission_projectile_keyframe(900, [-6_139, -7_204, -4_349, 58, 225, 0, 63]),
-];
-
 const fn mission_camera_keyframe(
     retail_frame: u16,
     x: i16,
@@ -5617,6 +5458,7 @@ pub struct Game {
     render_objects: Vec<RenderObject>,
     mission_entry_flyby: [Option<ObjectId>; MISSION_ENCOUNTER_ACTOR_COUNT],
     previous_mission_player_position: Option<Vector3>,
+    two_ticks_ago_mission_player_position: Option<Vector3>,
     mission_projectiles: Vec<ActiveMissionProjectile>,
     reengagement_projectiles: Vec<ActiveReengagementProjectile>,
     interception_missiles: [Option<ObjectId>; INTERCEPTION_MISSILE_COUNT],
@@ -5703,7 +5545,8 @@ impl Game {
             render_objects: Vec::new(),
             mission_entry_flyby: [None; MISSION_ENCOUNTER_ACTOR_COUNT],
             previous_mission_player_position: None,
-            mission_projectiles: Vec::with_capacity(MISSION_PROJECTILE_TRAJECTORY_COUNT),
+            two_ticks_ago_mission_player_position: None,
+            mission_projectiles: Vec::with_capacity(opening_projectiles::PROJECTILE_COUNT),
             reengagement_projectiles: Vec::with_capacity(
                 second_sortie_projectiles::PROJECTILE_COUNT,
             ),
@@ -7668,7 +7511,28 @@ impl Game {
             }
         }
         self.update_mission_entry_flyby(retail_frame);
-        self.update_mission_projectiles(retail_frame)?;
+        if let Some(player_position) = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(|object| object.base.position)
+        {
+            let previous_player_position = self
+                .previous_mission_player_position
+                .unwrap_or(player_position);
+            let two_ticks_ago_player_position = self
+                .two_ticks_ago_mission_player_position
+                .unwrap_or(previous_player_position);
+            self.update_mission_projectiles(
+                retail_frame,
+                player_position,
+                previous_player_position,
+                two_ticks_ago_player_position,
+            )?;
+            self.two_ticks_ago_mission_player_position = Some(previous_player_position);
+            self.previous_mission_player_position = Some(player_position);
+        }
         Ok(())
     }
 
@@ -13535,6 +13399,7 @@ impl Game {
         self.clear_meteor_scene();
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
+        self.two_ticks_ago_mission_player_position = None;
         for projectile in self.mission_projectiles.drain(..) {
             self.state.objects.remove(projectile.object);
         }
@@ -15296,24 +15161,25 @@ impl Game {
         object.base.flags.collision_disabled = temporarily_inactive;
     }
 
-    fn update_mission_projectiles(&mut self, retail_frame: u16) -> Result<(), Error> {
-        for trajectory in MISSION_PROJECTILE_TRAJECTORIES {
-            let keyframes = trajectory.keyframes(retail_frame);
-            let start_frame = keyframes
-                .first()
-                .expect("mission projectile trajectory is not empty")
-                .retail_frame;
-            let end_frame = keyframes
-                .last()
-                .expect("mission projectile trajectory is not empty")
-                .retail_frame;
+    fn update_mission_projectiles(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+        two_ticks_ago_player_position: Vector3,
+    ) -> Result<(), Error> {
+        for track_index in 0..opening_projectiles::PROJECTILE_COUNT {
+            let descriptor = opening_projectiles::descriptor(track_index)
+                .expect("opening projectile descriptor exists");
             let active_index = self
                 .mission_projectiles
                 .iter()
-                .position(|projectile| projectile.trajectory == trajectory);
+                .position(|projectile| projectile.track_index == track_index);
 
-            if retail_frame < start_frame || retail_frame > end_frame {
-                if retail_frame > end_frame {
+            if retail_frame < descriptor.start_retail_frame
+                || retail_frame > descriptor.end_retail_frame
+            {
+                if retail_frame > descriptor.end_retail_frame {
                     if let Some(index) = active_index {
                         let projectile = self.mission_projectiles.swap_remove(index);
                         self.state.objects.remove(projectile.object);
@@ -15328,33 +15194,54 @@ impl Game {
                 let mut projectile = Object::new(
                     ObjectKind::Projectile,
                     ShapeId::ENEMY_LASER,
-                    Behavior::MissionScriptedProjectile,
+                    Behavior::Projectile,
                 );
                 projectile.base.weapon = WeaponKind::EnemyLaser;
-                projectile.base.attack_power = ENEMY_LASER_ATTACK_POWER;
+                projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
+                projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
                 projectile.base.linked_object = self
                     .mission_entry_flyby
-                    .get(trajectory.firing_actor().index())
+                    .get(descriptor.firing_actor.index())
                     .copied()
                     .flatten();
+                projectile.base.position = descriptor.initial_pose.position;
+                projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
+                projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
+                projectile.base.roll = Angle::from_units(descriptor.initial_pose.roll);
+                projectile.base.speed = descriptor.initial_pose.speed;
+                projectile.extension.activity =
+                    ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                        phase: HostileProjectileFlightPhase::Homing,
+                        motion_steps_elapsed: 0,
+                        movement_phase: HostileProjectileMovementPhase::Ready,
+                    });
                 let projectile_id = allocate_hostile_projectile(&mut self.state, projectile)?;
                 self.mission_projectiles.push(ActiveMissionProjectile {
-                    trajectory,
+                    track_index,
                     object: projectile_id,
                 });
                 projectile_id
             };
 
-            let pose = mission_projectile_pose(keyframes, retail_frame);
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
-                projectile.base.position = pose.position;
-                projectile.base.pitch = Angle::from_units(pose.pitch);
-                projectile.base.yaw = Angle::from_units(pose.yaw);
-                projectile.base.roll = Angle::from_units(pose.roll);
-                projectile.base.speed = pose.speed;
-                projectile.base.velocity = Vector3::default();
+                let ObjectActivity::HostileProjectileFlight(mut flight) =
+                    projectile.extension.activity
+                else {
+                    continue;
+                };
+                for &action in opening_projectiles::actions(track_index, retail_frame) {
+                    apply_hostile_projectile_action(
+                        projectile,
+                        &mut flight,
+                        action,
+                        player_position,
+                        previous_player_position,
+                        two_ticks_ago_player_position,
+                    );
+                }
+                projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
             }
         }
         Ok(())
@@ -15430,6 +15317,7 @@ impl Game {
                         &mut flight,
                         action,
                         player_position,
+                        previous_player_position,
                         previous_player_position,
                     );
                 }
@@ -15726,6 +15614,7 @@ impl Game {
                         action,
                         player_position,
                         previous_player_position,
+                        previous_player_position,
                     );
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
@@ -15915,6 +15804,7 @@ impl Game {
                         action,
                         player_position,
                         previous_player_position,
+                        previous_player_position,
                     );
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
@@ -15992,6 +15882,7 @@ impl Game {
                         &mut flight,
                         action,
                         player_position,
+                        previous_player_position,
                         previous_player_position,
                     );
                 }
@@ -16773,6 +16664,7 @@ impl Game {
                         action,
                         player_position,
                         previous_player_position,
+                        previous_player_position,
                     );
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
@@ -16875,8 +16767,11 @@ impl Game {
                 let target = match (step_count, step_index) {
                     (2, 0) => previous_player_position,
                     (2, _) => player_position,
-                    _ => HostileProjectileTarget::Midpoint
-                        .select(previous_player_position, player_position),
+                    _ => HostileProjectileTarget::Midpoint.select(
+                        previous_player_position,
+                        previous_player_position,
+                        player_position,
+                    ),
                 };
                 if advance_live_pressure_projectile_step(projectile, &mut active, target) {
                     retired = true;
@@ -17005,6 +16900,7 @@ impl Game {
                         &mut flight,
                         action,
                         player_position,
+                        previous_player_position,
                         previous_player_position,
                     );
                 }
@@ -19080,195 +18976,6 @@ fn apply_player_keyframe(object: &mut Object, keyframe: MissionPlayerKeyframe) {
     object.base.velocity = Vector3::default();
 }
 
-impl MissionProjectileTrajectory {
-    fn keyframes(self, retail_frame: u16) -> &'static [MissionProjectileKeyframe] {
-        match self {
-            Self::UpperFighterOpeningShotOne => &UPPER_FIGHTER_OPENING_SHOT_ONE_KEYFRAMES,
-            Self::UpperFighterOpeningShotTwo
-                if retail_frame <= MISSION_BASE_KEYFRAME_END_RETAIL_FRAME =>
-            {
-                &UPPER_FIGHTER_OPENING_SHOT_TWO_KEYFRAMES
-            }
-            Self::UpperFighterOpeningShotTwo => {
-                &opening_continuation::UPPER_FIGHTER_OPENING_SHOT_TWO_KEYFRAMES
-            }
-            Self::LowerFighterOpeningShot
-                if retail_frame <= MISSION_BASE_KEYFRAME_END_RETAIL_FRAME =>
-            {
-                &LOWER_FIGHTER_OPENING_SHOT_KEYFRAMES
-            }
-            Self::LowerFighterOpeningShot => {
-                &opening_continuation::LOWER_FIGHTER_OPENING_SHOT_KEYFRAMES
-            }
-            Self::SecondCapitalOpeningShotOne => {
-                &opening_continuation::SECOND_CAPITAL_OPENING_SHOT_ONE_KEYFRAMES
-            }
-            Self::UpperFighterOpeningShotThree => {
-                &opening_continuation::UPPER_FIGHTER_OPENING_SHOT_THREE_KEYFRAMES
-            }
-            Self::SecondCapitalOpeningShotTwo => {
-                &opening_continuation::SECOND_CAPITAL_OPENING_SHOT_TWO_KEYFRAMES
-            }
-            Self::SecondCapitalOpeningShotThree => {
-                &opening_continuation::SECOND_CAPITAL_OPENING_SHOT_THREE_KEYFRAMES
-            }
-            Self::FirstCapitalOpeningShot => {
-                &opening_continuation::FIRST_CAPITAL_OPENING_SHOT_KEYFRAMES
-            }
-            Self::UpperFighterOpeningShotFour => {
-                &opening_continuation::UPPER_FIGHTER_OPENING_SHOT_FOUR_KEYFRAMES
-            }
-            Self::UpperFighterOpeningShotFive => {
-                &opening_continuation::UPPER_FIGHTER_OPENING_SHOT_FIVE_KEYFRAMES
-            }
-            Self::SecondCapitalOpeningShotFour => {
-                &opening_continuation::SECOND_CAPITAL_OPENING_SHOT_FOUR_KEYFRAMES
-            }
-            Self::UpperFighterOpeningShotSix => {
-                &opening_continuation::UPPER_FIGHTER_OPENING_SHOT_SIX_KEYFRAMES
-            }
-            Self::SecondCapitalOpeningShotFive => {
-                &opening_continuation::SECOND_CAPITAL_OPENING_SHOT_FIVE_KEYFRAMES
-            }
-            Self::LowerFighterOpeningShotTwo => {
-                &opening_continuation::LOWER_FIGHTER_OPENING_SHOT_TWO_KEYFRAMES
-            }
-            Self::FirstCapitalOpeningShotTwo => {
-                &opening_continuation::FIRST_CAPITAL_OPENING_SHOT_TWO_KEYFRAMES
-            }
-            Self::FirstCapitalOpeningShotThree => {
-                &opening_continuation::FIRST_CAPITAL_OPENING_SHOT_THREE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotOne => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_ONE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwo => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWO_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotThree => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_THREE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotFour => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_FOUR_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotFive => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_FIVE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotSix => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_SIX_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotSeven => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_SEVEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotEight => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_EIGHT_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotNine => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_NINE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotEleven => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_ELEVEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwelve => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWELVE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotThirteen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_THIRTEEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotFourteen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_FOURTEEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotFifteen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_FIFTEEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotSixteen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_SIXTEEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotSeventeen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_SEVENTEEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotEighteen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_EIGHTEEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotNineteen => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_NINETEEN_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwenty => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWENTY_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwentyOne => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWENTY_ONE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwentyTwo => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWENTY_TWO_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwentyThree => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWENTY_THREE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwentyFour => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWENTY_FOUR_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwentyFive => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWENTY_FIVE_KEYFRAMES
-            }
-            Self::SecondCapitalMissionShotTwentySix => {
-                &opening_continuation::SECOND_CAPITAL_MISSION_SHOT_TWENTY_SIX_KEYFRAMES
-            }
-        }
-    }
-
-    const fn firing_actor(self) -> MissionEncounterActor {
-        match self {
-            Self::FirstCapitalOpeningShot
-            | Self::FirstCapitalOpeningShotTwo
-            | Self::FirstCapitalOpeningShotThree => MissionEncounterActor::FirstCapital,
-            Self::SecondCapitalOpeningShotOne
-            | Self::SecondCapitalOpeningShotTwo
-            | Self::SecondCapitalOpeningShotThree
-            | Self::SecondCapitalOpeningShotFour
-            | Self::SecondCapitalOpeningShotFive
-            | Self::SecondCapitalMissionShotOne
-            | Self::SecondCapitalMissionShotTwo
-            | Self::SecondCapitalMissionShotThree
-            | Self::SecondCapitalMissionShotFour
-            | Self::SecondCapitalMissionShotFive
-            | Self::SecondCapitalMissionShotSix
-            | Self::SecondCapitalMissionShotSeven
-            | Self::SecondCapitalMissionShotEight
-            | Self::SecondCapitalMissionShotNine
-            | Self::SecondCapitalMissionShotTen
-            | Self::SecondCapitalMissionShotEleven
-            | Self::SecondCapitalMissionShotTwelve
-            | Self::SecondCapitalMissionShotThirteen
-            | Self::SecondCapitalMissionShotFourteen
-            | Self::SecondCapitalMissionShotFifteen
-            | Self::SecondCapitalMissionShotSixteen
-            | Self::SecondCapitalMissionShotSeventeen
-            | Self::SecondCapitalMissionShotEighteen
-            | Self::SecondCapitalMissionShotNineteen
-            | Self::SecondCapitalMissionShotTwenty
-            | Self::SecondCapitalMissionShotTwentyOne
-            | Self::SecondCapitalMissionShotTwentyTwo
-            | Self::SecondCapitalMissionShotTwentyThree
-            | Self::SecondCapitalMissionShotTwentyFour
-            | Self::SecondCapitalMissionShotTwentyFive
-            | Self::SecondCapitalMissionShotTwentySix => MissionEncounterActor::SecondCapital,
-            Self::UpperFighterOpeningShotOne
-            | Self::UpperFighterOpeningShotTwo
-            | Self::UpperFighterOpeningShotThree
-            | Self::UpperFighterOpeningShotFour
-            | Self::UpperFighterOpeningShotFive
-            | Self::UpperFighterOpeningShotSix => MissionEncounterActor::UpperFighter,
-            Self::LowerFighterOpeningShot | Self::LowerFighterOpeningShotTwo => {
-                MissionEncounterActor::LowerFighter
-            }
-        }
-    }
-}
-
 fn mission_projectile_pose(
     keyframes: &[MissionProjectileKeyframe],
     retail_frame: u16,
@@ -20199,9 +19906,15 @@ fn apply_hostile_projectile_action(
     action: HostileProjectileAction,
     player_position: Vector3,
     previous_player_position: Vector3,
+    two_ticks_ago_player_position: Vector3,
 ) {
-    let target =
-        |timing: HostileProjectileTarget| timing.select(previous_player_position, player_position);
+    let target = |timing: HostileProjectileTarget| {
+        timing.select(
+            two_ticks_ago_player_position,
+            previous_player_position,
+            player_position,
+        )
+    };
     match action {
         HostileProjectileAction::ContractTowardTarget(timing) => {
             contract_hostile_projectile_toward(object, target(timing));
@@ -23132,7 +22845,14 @@ mod tests {
             game.mission_entry_flyby[MissionEncounterActor::LowerFighter.index()],
             None
         );
-        assert!(game.state().objects.get(departing_lower_fighter).is_none());
+        if let Some(reused_slot) = game.state().objects.get(departing_lower_fighter) {
+            assert_eq!(reused_slot.base.kind, ObjectKind::Projectile);
+            assert_eq!(reused_slot.base.weapon, WeaponKind::EnemyLaser);
+            assert!(game
+                .mission_projectiles
+                .iter()
+                .any(|projectile| projectile.object == departing_lower_fighter));
+        }
         assert_eq!(
             game.mission_entry_flyby.iter().flatten().count(),
             MISSION_ENCOUNTER_ACTOR_COUNT - 1
@@ -25534,17 +25254,14 @@ mod tests {
     }
 
     #[test]
-    fn encounter_enemy_lasers_follow_the_retail_typed_trajectories() {
-        const FIRST_SHOT_FRAME: u32 = 588;
-        const FIRST_SHOT_END_FRAME: u32 = 732;
-        const CAPITAL_SHOT_FRAME: u32 = 876;
-        const SECOND_CAPITAL_SHOT_FRAME: u32 = 880;
-        const BASE_TRAJECTORY_END_FRAME: u32 = 900;
-        const SIMULTANEOUS_SHOT_FRAME: u32 = 1_028;
-
+    fn opening_projectile_launches_retain_retail_sound_cues() {
+        const FIRST_SHOT_RETAIL_FRAME: u32 = 588;
+        const SIMULTANEOUS_SHOT_RETAIL_FRAME: u32 = 1_032;
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
-        while game.state().mode_frame < FIRST_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK {
+        while game.state().mode_frame
+            < FIRST_SHOT_RETAIL_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
+        {
             game.tick(0).unwrap();
         }
         assert_eq!(
@@ -25552,7 +25269,7 @@ mod tests {
             [Some(SoundEvent::HostileLaser), None, None, None]
         );
         while game.state().mode_frame
-            < SIMULTANEOUS_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
+            < SIMULTANEOUS_SHOT_RETAIL_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
         {
             game.tick(0).unwrap();
         }
@@ -25565,186 +25282,139 @@ mod tests {
                 None,
             ]
         );
+    }
 
-        let mut game = Game::new();
-        game.begin_opening_sortie().unwrap();
-        while game.state().mode_frame < FIRST_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK {
-            game.tick(Button::B as u16).unwrap();
-        }
+    #[test]
+    fn typed_opening_projectiles_match_every_oracle_boundary() {
+        const RETAINED_PROJECTILE_POSE_COUNT: usize = 1_430;
+        const RETAIL_FRAME_STEP: u16 = RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
 
-        let first = game
-            .mission_projectiles
+        let player_frames = &opening_projectiles::ORACLE_PLAYER_KEYFRAMES;
+        let projectile_tracks = &opening_projectiles::ORACLE_TRACKS;
+        let first_player_frame = player_frames
+            .first()
+            .expect("opening projectile oracle has player poses")
+            .retail_frame;
+        let last_projectile_frame = projectile_tracks
             .iter()
-            .find(|projectile| {
-                projectile.trajectory == MissionProjectileTrajectory::UpperFighterOpeningShotOne
-            })
-            .expect("first encounter fighter launched its laser");
-        let first_object = game.state().objects.get(first.object).unwrap();
-        assert_eq!(first_object.base.shape, ShapeId::ENEMY_LASER);
-        assert_eq!(first_object.base.weapon, WeaponKind::EnemyLaser);
-        assert_eq!(
-            first_object.base.collision_class,
-            CollisionClass::EnemyWeapon
-        );
-        assert_eq!(first_object.base.attack_power, ENEMY_LASER_ATTACK_POWER);
-        assert_eq!(
-            first_object.base.position,
-            Vector3 {
-                x: -361,
-                y: -8_658,
-                z: -2_750
-            }
-        );
-        assert_eq!(first_object.base.pitch, Angle::from_units(37));
-        assert_eq!(first_object.base.yaw, Angle::from_units(79));
-        assert_eq!(first_object.base.speed, 63);
-        assert_eq!(
-            first_object.base.linked_object,
-            game.mission_entry_flyby[MissionEncounterActor::UpperFighter.index()]
-        );
+            .filter_map(|track| track.last())
+            .map(|keyframe| keyframe.retail_frame)
+            .max()
+            .expect("opening projectile oracle has retained poses");
+        let player_position_at = |retail_frame: u16| {
+            let clamped = retail_frame.max(first_player_frame);
+            let index = usize::from((clamped - first_player_frame) / RETAIL_FRAME_STEP);
+            player_frames
+                .get(index)
+                .or_else(|| player_frames.last())
+                .expect("opening projectile oracle retains player history")
+                .position
+        };
 
-        while game.state().mode_frame <= FIRST_SHOT_END_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
-        {
-            game.tick(Button::B as u16).unwrap();
-        }
-        assert!(game.mission_projectiles.iter().all(|projectile| {
-            projectile.trajectory != MissionProjectileTrajectory::UpperFighterOpeningShotOne
-        }));
-
-        while game.state().mode_frame < CAPITAL_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK {
-            game.tick(Button::B as u16).unwrap();
-        }
-        assert_eq!(game.mission_projectiles.len(), 1);
-        assert_eq!(
-            game.mission_projectiles[0].trajectory,
-            MissionProjectileTrajectory::UpperFighterOpeningShotTwo
-        );
-
-        while game.state().mode_frame
-            < SECOND_CAPITAL_SHOT_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
-        {
-            game.tick(Button::B as u16).unwrap();
-        }
-        assert_eq!(game.mission_projectiles.len(), 2);
-        for projectile in &game.mission_projectiles {
-            let object = game.state().objects.get(projectile.object).unwrap();
-            assert_eq!(object.base.behavior, Behavior::MissionScriptedProjectile);
-            assert_eq!(object.base.velocity, Vector3::default());
-        }
-
-        while game.state().mode_frame
-            <= BASE_TRAJECTORY_END_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
-        {
-            game.tick(Button::B as u16).unwrap();
-        }
-        assert_eq!(game.mission_projectiles.len(), 2);
-        assert!(game.mission_projectiles.iter().any(|projectile| {
-            projectile.trajectory == MissionProjectileTrajectory::UpperFighterOpeningShotTwo
-        }));
-        assert!(game.mission_projectiles.iter().any(|projectile| {
-            projectile.trajectory == MissionProjectileTrajectory::LowerFighterOpeningShot
-        }));
-    }
-
-    #[test]
-    fn later_enemy_lasers_match_the_extended_oracle() {
-        const ORACLE_RETAIL_FRAME: u32 = 1140;
         let mut game = Game::new();
-        game.begin_opening_sortie().unwrap();
-        while game.state().mode_frame < ORACLE_RETAIL_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK {
-            game.tick(Button::B as u16).unwrap();
-        }
+        let mut retained_poses = 0;
+        for retail_frame in
+            (first_player_frame..=last_projectile_frame).step_by(usize::from(RETAIL_FRAME_STEP))
+        {
+            let player_position = player_position_at(retail_frame);
+            let previous_player_position =
+                player_position_at(retail_frame.saturating_sub(RETAIL_FRAME_STEP));
+            let two_ticks_ago_player_position =
+                player_position_at(retail_frame.saturating_sub(RETAIL_FRAME_STEP * 2));
+            game.update_mission_projectiles(
+                retail_frame,
+                player_position,
+                previous_player_position,
+                two_ticks_ago_player_position,
+            )
+            .unwrap();
 
-        let expected = [
-            (
-                MissionProjectileTrajectory::SecondCapitalOpeningShotOne,
-                *opening_continuation::SECOND_CAPITAL_OPENING_SHOT_ONE_KEYFRAMES
-                    .iter()
-                    .find(|keyframe| keyframe.retail_frame == ORACLE_RETAIL_FRAME as u16)
-                    .unwrap(),
-            ),
-            (
-                MissionProjectileTrajectory::UpperFighterOpeningShotThree,
-                opening_continuation::UPPER_FIGHTER_OPENING_SHOT_THREE_KEYFRAMES
-                    .iter()
-                    .find(|keyframe| keyframe.retail_frame == ORACLE_RETAIL_FRAME as u16)
-                    .copied()
-                    .unwrap(),
-            ),
-            (
-                MissionProjectileTrajectory::SecondCapitalOpeningShotTwo,
-                opening_continuation::SECOND_CAPITAL_OPENING_SHOT_TWO_KEYFRAMES
-                    .iter()
-                    .find(|keyframe| keyframe.retail_frame == ORACLE_RETAIL_FRAME as u16)
-                    .copied()
-                    .unwrap(),
-            ),
-        ];
-        assert_eq!(game.mission_projectiles.len(), expected.len());
-
-        for (trajectory, keyframe) in expected {
-            let projectile = game
-                .mission_projectiles
+            let expected_active = projectile_tracks
                 .iter()
-                .find(|projectile| projectile.trajectory == trajectory)
-                .expect("retail projectile remains active at the oracle checkpoint");
-            let object = game.state().objects.get(projectile.object).unwrap();
-            assert_eq!(object.base.position, keyframe.pose.position);
-            assert_eq!(object.base.pitch.units(), keyframe.pose.pitch);
-            assert_eq!(object.base.yaw.units(), keyframe.pose.yaw);
-            assert_eq!(object.base.roll.units(), keyframe.pose.roll);
-            assert_eq!(object.base.speed, keyframe.pose.speed);
+                .filter(|track| {
+                    track
+                        .first()
+                        .zip(track.last())
+                        .is_some_and(|(first, last)| {
+                            (first.retail_frame..=last.retail_frame).contains(&retail_frame)
+                        })
+                })
+                .count();
             assert_eq!(
-                object.base.linked_object,
-                game.mission_entry_flyby[trajectory.firing_actor().index()]
+                game.mission_projectiles.len(),
+                expected_active,
+                "active opening projectile count at frame {retail_frame}"
             );
+
+            for (track_index, keyframes) in projectile_tracks.iter().copied().enumerate() {
+                let Some(first) = keyframes.first() else {
+                    continue;
+                };
+                let Some(last) = keyframes.last() else {
+                    continue;
+                };
+                if !(first.retail_frame..=last.retail_frame).contains(&retail_frame) {
+                    continue;
+                }
+                let keyframe_index =
+                    usize::from((retail_frame - first.retail_frame) / RETAIL_FRAME_STEP);
+                let expected = keyframes[keyframe_index];
+                assert_eq!(expected.retail_frame, retail_frame);
+                retained_poses += 1;
+
+                let active = game
+                    .mission_projectiles
+                    .iter()
+                    .find(|projectile| projectile.track_index == track_index)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "opening projectile track {track_index} absent at frame {retail_frame}"
+                        )
+                    });
+                let projectile = game.state().objects.get(active.object).unwrap();
+                assert_eq!(
+                    projectile.base.position, expected.pose.position,
+                    "opening projectile track {track_index} at frame {retail_frame}"
+                );
+                assert_eq!(projectile.base.pitch.units(), expected.pose.pitch);
+                assert_eq!(projectile.base.yaw.units(), expected.pose.yaw);
+                assert_eq!(projectile.base.roll.units(), expected.pose.roll);
+                assert_eq!(projectile.base.speed, expected.pose.speed);
+                assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                assert_eq!(projectile.base.shape, ShapeId::ENEMY_LASER);
+                assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
+                assert_eq!(projectile.base.hit_points, SF2_HOSTILE_LASER_HEALTH);
+                assert_eq!(
+                    projectile.base.attack_power,
+                    player_damage::HOSTILE_PROJECTILE_ATTACK_POWER
+                );
+                assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+                let descriptor = opening_projectiles::descriptor(track_index).unwrap();
+                assert_eq!(
+                    projectile.base.linked_object,
+                    game.mission_entry_flyby[descriptor.firing_actor.index()]
+                );
+            }
         }
+
+        assert_eq!(
+            projectile_tracks.len(),
+            opening_projectiles::PROJECTILE_COUNT
+        );
+        assert_eq!(retained_poses, RETAINED_PROJECTILE_POSE_COUNT);
+        let cleanup_frame = last_projectile_frame + RETAIL_FRAME_STEP;
+        game.update_mission_projectiles(
+            cleanup_frame,
+            player_position_at(cleanup_frame),
+            player_position_at(cleanup_frame - RETAIL_FRAME_STEP),
+            player_position_at(cleanup_frame - RETAIL_FRAME_STEP * 2),
+        )
+        .unwrap();
+        assert!(game.mission_projectiles.is_empty());
     }
 
     #[test]
-    fn late_mission_enemy_laser_overlap_matches_the_oracle() {
-        const ORACLE_RETAIL_FRAME: u32 = 5_232;
-        const EXPECTED: [(MissionProjectileTrajectory, MissionEncounterPose); 3] = [
-            (
-                MissionProjectileTrajectory::SecondCapitalMissionShotSeventeen,
-                mission_encounter_pose([14_213, -2_078, 23_779, 9, 12, 0, 63]),
-            ),
-            (
-                MissionProjectileTrajectory::SecondCapitalMissionShotEighteen,
-                mission_encounter_pose([15_532, -2_891, 20_531, 2, 15, 0, 63]),
-            ),
-            (
-                MissionProjectileTrajectory::SecondCapitalMissionShotNineteen,
-                mission_encounter_pose([21_682, -246, 12_349, 241, 26, 0, 63]),
-            ),
-        ];
-
-        let mut game = Game::new();
-        game.begin_opening_sortie().unwrap();
-        while game.state().mode_frame < ORACLE_RETAIL_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK {
-            game.tick(0).unwrap();
-        }
-
-        assert_eq!(game.mission_projectiles.len(), EXPECTED.len());
-        let capital = game.mission_entry_flyby[MissionEncounterActor::SecondCapital.index()];
-        for (trajectory, expected) in EXPECTED {
-            let projectile = game
-                .mission_projectiles
-                .iter()
-                .find(|projectile| projectile.trajectory == trajectory)
-                .expect("late mission laser is active at the oracle checkpoint");
-            let object = game.state().objects.get(projectile.object).unwrap();
-            assert_eq!(object.base.position, expected.position);
-            assert_eq!(object.base.pitch.units(), expected.pitch);
-            assert_eq!(object.base.yaw.units(), expected.yaw);
-            assert_eq!(object.base.roll.units(), expected.roll);
-            assert_eq!(object.base.speed, expected.speed);
-            assert_eq!(object.base.linked_object, capital);
-        }
-    }
-
-    #[test]
-    fn late_opening_path_and_final_capital_shot_match_the_oracle() {
+    fn late_opening_player_camera_and_encounter_match_the_oracle() {
         const ORACLE_RETAIL_FRAME: u32 = 2_448;
         const OPENING_KEYFRAME_INDEX: usize = 387;
 
@@ -25783,19 +25453,6 @@ mod tests {
             assert_eq!(object.base.roll.units(), expected.roll);
         }
 
-        assert_eq!(game.mission_projectiles.len(), 1);
-        let projectile = game.mission_projectiles[0];
-        assert_eq!(
-            projectile.trajectory,
-            MissionProjectileTrajectory::SecondCapitalOpeningShotFive
-        );
-        let object = game.state().objects.get(projectile.object).unwrap();
-        let expected = opening_continuation::SECOND_CAPITAL_OPENING_SHOT_FIVE_KEYFRAMES[0];
-        assert_eq!(object.base.position, expected.pose.position);
-        assert_eq!(
-            object.base.linked_object,
-            game.mission_entry_flyby[MissionEncounterActor::SecondCapital.index()]
-        );
         assert!(!game.state().mission.departed_certified_neutral_path);
     }
 
@@ -26910,6 +26567,7 @@ mod tests {
                             &mut expected_flight,
                             action,
                             action_player_position,
+                            action_previous_player_position,
                             action_previous_player_position,
                         );
                     }
@@ -28210,6 +27868,7 @@ mod tests {
                             &mut expected_flight,
                             action,
                             action_player_position,
+                            action_previous_player_position,
                             action_previous_player_position,
                         );
                     }

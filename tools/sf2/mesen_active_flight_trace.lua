@@ -11,6 +11,8 @@ local capture_hud_sequence = os.getenv("SF2_ORACLE_CAPTURE_HUD_SEQUENCE") == "1"
 local capture_target_auxiliary = os.getenv("SF2_ORACLE_CAPTURE_TARGET_AUXILIARY") == "1"
 local capture_player_motion_writes = os.getenv("SF2_ORACLE_CAPTURE_PLAYER_MOTION_WRITES") == "1"
 local capture_fighter_logic = os.getenv("SF2_ORACLE_CAPTURE_FIGHTER_LOGIC") == "1"
+local capture_projectile_logic =
+  os.getenv("SF2_ORACLE_CAPTURE_PROJECTILE_LOGIC") == "1"
 local capture_mission_transition = os.getenv("SF2_ORACLE_CAPTURE_MISSION_TRANSITION") == "1"
 local capture_target_display = os.getenv("SF2_ORACLE_CAPTURE_TARGET_DISPLAY") == "1"
 local capture_craft_forms = os.getenv("SF2_ORACLE_CAPTURE_CRAFT_FORMS") == "1"
@@ -23,6 +25,7 @@ local lines = {}
 local collision_lines = {}
 local player_motion_lines = {}
 local fighter_logic_lines = {}
+local projectile_logic_lines = {}
 local mission_transition_lines = {}
 local target_display_lines = {}
 local craft_form_lines = {}
@@ -477,7 +480,8 @@ local function end_frame()
     -- shipping state or bypassing the retail weapon routine.
     emu.write(0x1DD6, forced_charge_threshold, emu.memType.snesWorkRam)
   end
-  if elapsed >= 6740 and elapsed <= stop_elapsed then
+  if not capture_projectile_logic
+    and elapsed >= 6740 and elapsed <= stop_elapsed then
     record(elapsed)
     if capture_target_display then
       target_display_lines[#target_display_lines + 1] = string.format(
@@ -528,6 +532,11 @@ local function end_frame()
     if capture_fighter_logic then
       write_binary("sf2_active_flight_fighter_logic.txt", table.concat(fighter_logic_lines, "\n") .. "\n")
       dump_bus_range("sf2_active_flight_fighter_pitch_wave.bin", 0x008E66, 256)
+    end
+    if capture_projectile_logic then
+      write_binary(
+        "sf2_active_flight_projectile_logic.txt",
+        table.concat(projectile_logic_lines, "\n") .. "\n")
     end
     if capture_mission_transition then
       write_binary(
@@ -812,6 +821,26 @@ local function record_fighter_vertical_step()
   record_fighter_logic("vertical-step")
 end
 
+local function record_projectile_logic(event)
+  if not capture_projectile_logic or not armed then return end
+  local state = emu.getState()
+  local object = state["cpu.x"] or 0
+  if work_word(object + 4) ~= 0xE3A8 then return end
+  local selected = work_word(0xCF1F)
+  projectile_logic_lines[#projectile_logic_lines + 1] = string.format(
+    "elapsed=%d event=%s object=%04X shape=E3A8 path=%04X pose=%s selected_pose=%s",
+    frame - armed_frame,
+    event,
+    object,
+    work_word(object + 0x2B),
+    pose(object),
+    pose(selected))
+end
+
+local function projectile_logic_callback(event)
+  return function() record_projectile_logic(event) end
+end
+
 local function capital_object_for_state_address(address)
   if (address >= 0x0600 and address <= 0x0605)
     or (address >= 0x0626 and address <= 0x062B) then
@@ -1073,6 +1102,21 @@ emu.addMemoryCallback(
   0x7F8925,
   emu.cpuType.snes,
   emu.memType.snesMemory)
+for _, service in ipairs({
+  { "move", 0x7F9DDE },
+  { "projectile-orbit-pitch", 0x7FADC7 },
+  { "projectile-face-immediate", 0x7F872C },
+  { "projectile-face-smooth", 0x7F87CA },
+  { "projectile-set-speed", 0x7F854A },
+}) do
+  emu.addMemoryCallback(
+    projectile_logic_callback(service[1]),
+    emu.callbackType.exec,
+    service[2],
+    service[2],
+    emu.cpuType.snes,
+    emu.memType.snesMemory)
+end
 for _, range in ipairs({
   { 0x0600, 0x0605 },
   { 0x0626, 0x062B },
