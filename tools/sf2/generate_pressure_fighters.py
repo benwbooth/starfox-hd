@@ -244,6 +244,27 @@ def rust_source(
     return_frame: int,
     map_ready_frame: int,
 ) -> str:
+    last_attacker_frame = max(
+        record.retail_frame
+        for record in records
+        if any(attacker is not None for attacker in record.attackers)
+    )
+    accepted_defeat_frame = last_attacker_frame + RETAIL_FRAME_STEP
+    accepted_defeat_record = next(
+        (record for record in records if record.retail_frame == accepted_defeat_frame),
+        None,
+    )
+    if accepted_defeat_record is None or any(
+        attacker is not None for attacker in accepted_defeat_record.attackers
+    ):
+        raise SystemExit(
+            "accepted recurring-attacker trace lacks an all-defeated boundary"
+        )
+    if return_frame < accepted_defeat_frame or map_ready_frame < accepted_defeat_frame:
+        raise SystemExit("recurring-attacker return precedes the accepted defeat")
+    defeat_to_return = return_frame - accepted_defeat_frame
+    defeat_to_map_ready = map_ready_frame - accepted_defeat_frame
+
     lines = [
         "//! Generated typed path for the retail recurring four-attacker encounter.",
         "//!",
@@ -256,8 +277,14 @@ def rust_source(
         "    MissionCameraKeyframe, MissionPlayerKeyframe,",
         "};",
         "",
-        f"pub(super) const RETURN_RETAIL_FRAME: u16 = {return_frame};",
-        f"pub(super) const MAP_READY_RETAIL_FRAME: u16 = {map_ready_frame};",
+        "pub(super) const CERTIFIED_PRESENTATION_END_RETAIL_FRAME: u16 = "
+        f"{return_frame};",
+        f"pub(super) const DEFEAT_TO_RETURN_RETAIL_FRAMES: u16 = {defeat_to_return};",
+        "pub(super) const DEFEAT_TO_MAP_READY_RETAIL_FRAMES: u16 = "
+        f"{defeat_to_map_ready};",
+        "#[cfg(test)]",
+        "pub(super) const ACCEPTED_ALL_DEFEATED_RETAIL_FRAME: u16 = "
+        f"{accepted_defeat_frame};",
         "",
         f"pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; {len(records)}] = [",
     ]

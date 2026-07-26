@@ -8,8 +8,11 @@ use super::{
     mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
 
-pub(super) const RETURN_RETAIL_FRAME: u16 = 2020;
-pub(super) const MAP_READY_RETAIL_FRAME: u16 = 2022;
+pub(super) const CERTIFIED_PRESENTATION_END_RETAIL_FRAME: u16 = 2020;
+pub(super) const DEFEAT_TO_RETURN_RETAIL_FRAMES: u16 = 212;
+pub(super) const DEFEAT_TO_MAP_READY_RETAIL_FRAMES: u16 = 214;
+#[cfg(test)]
+pub(super) const ACCEPTED_ALL_DEFEATED_RETAIL_FRAME: u16 = 1808;
 
 pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 505] = [
     mission_camera_keyframe(0, 0, 0, 0, 0, 0, 0),

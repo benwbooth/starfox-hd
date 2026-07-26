@@ -25,6 +25,8 @@ use super::object::{
 };
 use super::render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 use super::results;
+#[cfg(test)]
+use super::state::RecurringAttackerStatus;
 use super::state::{
     AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
     CarrierAssaultPhase, CarrierAssaultState, CarrierCorridorControlStatus,
@@ -41,15 +43,17 @@ use super::state::{
     MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
     PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
-    PlayerCraftTransformationDirection, PlayerDamageState, ResultsChoice, ResultsPhase,
-    ResultsState, SoundEvent, StrategicEncounter, StrategicMapActor, StrategicMapActorKind,
-    StrategicMapAppearance, StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage,
-    StrategicOpeningState, StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState,
-    TitaniaPhase, TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, VenomDefenderStatus,
-    VenomDoorStatus, VenomMissionState, VenomPhase, VenomReactorStatus, VenomSwitchStatus,
-    WalkerJumpMotion, WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
+    PlayerCraftTransformationDirection, PlayerDamageState, RecurringAttacker,
+    RecurringAttackersState, ResultsChoice, ResultsPhase, ResultsState, SoundEvent,
+    StrategicEncounter, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
+    StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage, StrategicOpeningState,
+    StrategicThreatCount, TitaniaFinalSwitchStatus, TitaniaMissionState, TitaniaPhase,
+    TitaniaSurfaceSwitchStatus, TitleMenuItem, TitlePage, VenomDefenderStatus, VenomDoorStatus,
+    VenomMissionState, VenomPhase, VenomReactorStatus, VenomSwitchStatus, WalkerJumpMotion,
+    WalkerJumpState, WolfBlockadeStatus, CARRIER_CORRIDOR_DEFENDER_COUNT,
     CARRIER_CORRIDOR_GATE_COUNT, CARRIER_ROTATING_DOOR_COUNT, FORTUNA_MAXIMUM_CORE_DEFENDER_COUNT,
-    FORTUNA_SURFACE_SWITCH_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY, VENOM_SURFACE_SWITCH_COUNT,
+    FORTUNA_SURFACE_SWITCH_COUNT, RECURRING_ATTACKER_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
+    VENOM_SURFACE_SWITCH_COUNT,
 };
 #[path = "astropolis_entry.rs"]
 mod astropolis_entry;
@@ -345,7 +349,6 @@ const MIRAGE_DRAGON_RETURN_DISPLAY_SECONDS: u64 = 80;
 const MIRAGE_DRAGON_RETURN_SCORE: u32 = 3_903;
 const MIRAGE_DRAGON_RETURN_ITEM_COUNT: u8 = 3;
 const MIRAGE_DRAGON_RETURN_SHIELD: u8 = 100;
-const PRESSURE_FIGHTER_COUNT: usize = 4;
 const PRESSURE_FIGHTER_HEALTH: u8 = 100;
 const PRESSURE_FIGHTER_ATTACK_POWER: u8 = 4;
 const LEON_PRESSURE_ELAPSED_DISPLAY_SECONDS: u64 = 2;
@@ -4283,45 +4286,31 @@ struct ActiveFinalRivalProjectile {
     object: ObjectId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PressureFighter {
-    Vanguard,
-    HighGuard,
-    Flanker,
-    Pursuer,
+const fn recurring_attacker_shape(attacker: RecurringAttacker) -> ShapeId {
+    match attacker {
+        RecurringAttacker::Vanguard | RecurringAttacker::HighGuard | RecurringAttacker::Flanker => {
+            ShapeId::PRESSURE_ASSAULT_FIGHTER
+        }
+        RecurringAttacker::Pursuer => ShapeId::PRESSURE_STRIKE_FIGHTER,
+    }
 }
 
-impl PressureFighter {
-    const ALL: [Self; PRESSURE_FIGHTER_COUNT] = [
-        Self::Vanguard,
-        Self::HighGuard,
-        Self::Flanker,
-        Self::Pursuer,
-    ];
-
-    const fn shape(self) -> ShapeId {
-        match self {
-            Self::Vanguard | Self::HighGuard | Self::Flanker => ShapeId::PRESSURE_ASSAULT_FIGHTER,
-            Self::Pursuer => ShapeId::PRESSURE_STRIKE_FIGHTER,
-        }
+const fn recurring_attacker_assault_index(attacker: RecurringAttacker) -> Option<usize> {
+    match attacker {
+        RecurringAttacker::Vanguard => Some(0),
+        RecurringAttacker::HighGuard => Some(1),
+        RecurringAttacker::Flanker => Some(2),
+        RecurringAttacker::Pursuer => None,
     }
+}
 
-    const fn index(self) -> usize {
-        match self {
-            Self::Vanguard => 0,
-            Self::HighGuard => 1,
-            Self::Flanker => 2,
-            Self::Pursuer => 3,
-        }
+impl RecurringAttacker {
+    const fn shape(self) -> ShapeId {
+        recurring_attacker_shape(self)
     }
 
     const fn assault_index(self) -> Option<usize> {
-        match self {
-            Self::Vanguard => Some(0),
-            Self::HighGuard => Some(1),
-            Self::Flanker => Some(2),
-            Self::Pursuer => None,
-        }
+        recurring_attacker_assault_index(self)
     }
 }
 
@@ -4334,22 +4323,33 @@ struct PressureFighterActors {
 }
 
 impl PressureFighterActors {
-    fn slot_mut(&mut self, fighter: PressureFighter) -> &mut Option<ObjectId> {
+    fn slot_mut(&mut self, fighter: RecurringAttacker) -> &mut Option<ObjectId> {
         match fighter {
-            PressureFighter::Vanguard => &mut self.vanguard,
-            PressureFighter::HighGuard => &mut self.high_guard,
-            PressureFighter::Flanker => &mut self.flanker,
-            PressureFighter::Pursuer => &mut self.pursuer,
+            RecurringAttacker::Vanguard => &mut self.vanguard,
+            RecurringAttacker::HighGuard => &mut self.high_guard,
+            RecurringAttacker::Flanker => &mut self.flanker,
+            RecurringAttacker::Pursuer => &mut self.pursuer,
         }
     }
 
-    fn slots_mut(&mut self) -> [&mut Option<ObjectId>; PRESSURE_FIGHTER_COUNT] {
+    fn slots_mut(&mut self) -> [&mut Option<ObjectId>; RECURRING_ATTACKER_COUNT] {
         [
             &mut self.vanguard,
             &mut self.high_guard,
             &mut self.flanker,
             &mut self.pursuer,
         ]
+    }
+
+    fn fighter_for(&self, object: ObjectId) -> Option<RecurringAttacker> {
+        RecurringAttacker::ALL.into_iter().find(|fighter| {
+            (match fighter {
+                RecurringAttacker::Vanguard => self.vanguard,
+                RecurringAttacker::HighGuard => self.high_guard,
+                RecurringAttacker::Flanker => self.flanker,
+                RecurringAttacker::Pursuer => self.pursuer,
+            }) == Some(object)
+        })
     }
 
     fn remove_all(&mut self, objects: &mut super::object::ObjectStore) {
@@ -7203,6 +7203,11 @@ impl Game {
         }
         self.state.mission.elapsed_time_tenths = 0;
         self.state.mission.rival_defeated_retail_frame = None;
+        self.state.mission.recurring_attackers = if visit == MissionVisit::RecurringAttackers {
+            RecurringAttackersState::deployed()
+        } else {
+            RecurringAttackersState::default()
+        };
         self.state.mission.camera_follow_offset = ACTIVE_CAMERA_FOLLOW_OFFSET;
         self.state.strategic_map.primary_player = Some(primary_id);
         self.state.camera = Camera::default();
@@ -7947,11 +7952,32 @@ impl Game {
             MissionPhase::EntryCinematic if self.state.mode_frame >= MISSION_ACTIVE_TICKS => {
                 self.state.mission.phase = MissionPhase::Active;
             }
-            MissionPhase::Active if retail_frame >= pressure_fighters::RETURN_RETAIL_FRAME => {
+            MissionPhase::Active
+                if self
+                    .state
+                    .mission
+                    .recurring_attackers
+                    .all_defeated_retail_frame
+                    .is_some_and(|defeat_frame| {
+                        retail_frame
+                            >= defeat_frame
+                                .saturating_add(pressure_fighters::DEFEAT_TO_RETURN_RETAIL_FRAMES)
+                    }) =>
+            {
                 self.state.mission.phase = MissionPhase::ReturningToStrategicMap;
             }
             MissionPhase::ReturningToStrategicMap
-                if retail_frame >= pressure_fighters::MAP_READY_RETAIL_FRAME =>
+                if self
+                    .state
+                    .mission
+                    .recurring_attackers
+                    .all_defeated_retail_frame
+                    .is_some_and(|defeat_frame| {
+                        retail_frame
+                            >= defeat_frame.saturating_add(
+                                pressure_fighters::DEFEAT_TO_MAP_READY_RETAIL_FRAMES,
+                            )
+                    }) =>
             {
                 self.finish_pressure_encounter(RECURRING_ATTACKERS_ELAPSED_DISPLAY_SECONDS);
                 return Ok(());
@@ -13460,7 +13486,7 @@ impl Game {
     fn spawn_pressure_fighters(&mut self) -> Result<(), Error> {
         self.pressure_fighter_actors
             .remove_all(&mut self.state.objects);
-        for fighter_kind in PressureFighter::ALL {
+        for fighter_kind in RecurringAttacker::ALL {
             let pose = pressure_fighter_flight::INITIAL_POSES[fighter_kind.index()];
             let mut fighter = Object::new(
                 ObjectKind::Enemy,
@@ -13479,7 +13505,7 @@ impl Game {
             fighter.base.yaw = Angle::from_units(pose.yaw);
             fighter.base.roll = Angle::from_units(pose.roll);
             fighter.base.speed = pose.speed;
-            fighter.extension.activity = if fighter_kind == PressureFighter::Pursuer {
+            fighter.extension.activity = if fighter_kind == RecurringAttacker::Pursuer {
                 ObjectActivity::ReengagementFighterFlight(ReengagementFighterFlightState {
                     vertical_wave_phase: Angle::ZERO,
                     vertical_wave_sample: 0,
@@ -15499,7 +15525,7 @@ impl Game {
             return;
         }
 
-        for fighter_kind in PressureFighter::ALL {
+        for fighter_kind in RecurringAttacker::ALL {
             let Some(id) = *self.pressure_fighter_actors.slot_mut(fighter_kind) else {
                 continue;
             };
@@ -16263,7 +16289,9 @@ impl Game {
             MissionVisit::LeonDuel => leon_duel_rival::END_RETAIL_FRAME,
             MissionVisit::LeonPressure => leon_pressure::RETURN_RETAIL_FRAME,
             MissionVisit::MirageDragon => mirage_dragon::RETURN_RETAIL_FRAME,
-            MissionVisit::RecurringAttackers => pressure_fighters::RETURN_RETAIL_FRAME,
+            MissionVisit::RecurringAttackers => {
+                pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME
+            }
             MissionVisit::FinalPursuer => final_pursuer::RETURN_RETAIL_FRAME,
             MissionVisit::WolfBlockade => wolf_blockade::RETURN_RETAIL_FRAME,
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
@@ -17323,9 +17351,36 @@ impl Game {
             let defeated_leon = self.leon_rival == Some(id);
             let defeated_final_rival = self.final_rival == Some(id);
             let defeated_mirage_dragon = self.mirage_dragon == Some(id);
+            let pressure_fighter = self.pressure_fighter_actors.fighter_for(id);
+            let pressure_fighter_defeated = pressure_fighter.is_some()
+                && self
+                    .state
+                    .objects
+                    .get(id)
+                    .is_some_and(|object| object.base.flags.exploding);
             self.state.objects.remove(id);
             self.fighter_intercept_actors.forget(id);
             self.pressure_fighter_actors.forget(id);
+            if self.state.mission.visit == MissionVisit::RecurringAttackers {
+                if let Some(fighter) = pressure_fighter {
+                    if pressure_fighter_defeated {
+                        let defeat_frame =
+                            self.state
+                                .mode_frame
+                                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                                .min(u32::from(u16::MAX)) as u16;
+                        self.state
+                            .mission
+                            .recurring_attackers
+                            .record_defeat(fighter, defeat_frame);
+                    } else {
+                        self.state
+                            .mission
+                            .recurring_attackers
+                            .record_departure(fighter);
+                    }
+                }
+            }
             if defeated_pigma {
                 self.pigma_rival = None;
                 self.state.mission.score = self
@@ -25544,12 +25599,12 @@ mod tests {
                 previous_player_position,
             );
 
-            for fighter_kind in PressureFighter::ALL {
+            for fighter_kind in RecurringAttacker::ALL {
                 let id = match fighter_kind {
-                    PressureFighter::Vanguard => game.pressure_fighter_actors.vanguard,
-                    PressureFighter::HighGuard => game.pressure_fighter_actors.high_guard,
-                    PressureFighter::Flanker => game.pressure_fighter_actors.flanker,
-                    PressureFighter::Pursuer => game.pressure_fighter_actors.pursuer,
+                    RecurringAttacker::Vanguard => game.pressure_fighter_actors.vanguard,
+                    RecurringAttacker::HighGuard => game.pressure_fighter_actors.high_guard,
+                    RecurringAttacker::Flanker => game.pressure_fighter_actors.flanker,
+                    RecurringAttacker::Pursuer => game.pressure_fighter_actors.pursuer,
                 }
                 .unwrap_or_else(|| {
                     panic!("recurring attacker {fighter_kind:?} absent at frame {retail_frame}")
@@ -28674,7 +28729,13 @@ mod tests {
     }
 
     #[test]
-    fn recurring_attackers_return_without_creating_a_tenth_sortie() {
+    fn recurring_attackers_return_only_after_all_four_defeats() {
+        assert_eq!(
+            pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME
+                - pressure_fighters::ACCEPTED_ALL_DEFEATED_RETAIL_FRAME,
+            pressure_fighters::DEFEAT_TO_RETURN_RETAIL_FRAMES
+        );
+
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
         game.state.mode = GameMode::StrategicMap;
@@ -28707,13 +28768,17 @@ mod tests {
             game.state().campaign.route_step,
             CampaignRouteStep::StrategicPressure
         );
+        assert_eq!(
+            game.state().mission.recurring_attackers,
+            RecurringAttackersState::deployed()
+        );
         let fighter_ids = [
             game.pressure_fighter_actors.vanguard,
             game.pressure_fighter_actors.high_guard,
             game.pressure_fighter_actors.flanker,
             game.pressure_fighter_actors.pursuer,
         ];
-        for (fighter_kind, fighter) in PressureFighter::ALL.into_iter().zip(fighter_ids) {
+        for (fighter_kind, fighter) in RecurringAttacker::ALL.into_iter().zip(fighter_ids) {
             let fighter = game
                 .state()
                 .objects
@@ -28724,17 +28789,96 @@ mod tests {
             assert_eq!(fighter.base.attack_power, PRESSURE_FIGHTER_ATTACK_POWER);
         }
 
-        while game.mode() == GameMode::Mission {
-            game.tick(0).unwrap();
-        }
+        game.state.mode_frame =
+            u32::from(pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME)
+                / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        game.state.mission.phase = MissionPhase::Active;
+        game.update_pressure_fighter_encounter().unwrap();
+        assert_eq!(
+            game.state().mission.phase,
+            MissionPhase::Active,
+            "the accepted fast-kill return frame is not an absolute mission timer"
+        );
 
+        let fighter_ids = fighter_ids.map(Option::unwrap);
+        for fighter in &fighter_ids[..RECURRING_ATTACKER_COUNT - 1] {
+            let object = game.state.objects.get_mut(*fighter).unwrap();
+            object.base.flags.collision_disabled = true;
+            object.base.flags.exploding = true;
+            object.base.explosion_timer = 1;
+        }
+        game.update_objects();
+        assert_eq!(
+            game.state().mission.recurring_attackers.vanguard,
+            RecurringAttackerStatus::Defeated
+        );
+        assert_eq!(
+            game.state().mission.recurring_attackers.high_guard,
+            RecurringAttackerStatus::Defeated
+        );
+        assert_eq!(
+            game.state().mission.recurring_attackers.flanker,
+            RecurringAttackerStatus::Defeated
+        );
+        assert_eq!(
+            game.state().mission.recurring_attackers.pursuer,
+            RecurringAttackerStatus::Active
+        );
+        assert_eq!(
+            game.state()
+                .mission
+                .recurring_attackers
+                .all_defeated_retail_frame,
+            None
+        );
+
+        game.state.mode_frame += 1;
+        let last_fighter = game.state.objects.get_mut(fighter_ids[3]).unwrap();
+        last_fighter.base.flags.collision_disabled = true;
+        last_fighter.base.flags.exploding = true;
+        last_fighter.base.explosion_timer = 1;
+        game.update_objects();
+        let all_defeated_retail_frame = game
+            .state()
+            .mission
+            .recurring_attackers
+            .all_defeated_retail_frame
+            .expect("the fourth completed destruction starts the return delay");
+        assert!(game.state().mission.recurring_attackers.all_defeated());
+
+        let before_return_retail_frame = all_defeated_retail_frame
+            .saturating_add(pressure_fighters::DEFEAT_TO_RETURN_RETAIL_FRAMES)
+            .saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        game.state.mode_frame =
+            u32::from(before_return_retail_frame) / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        game.update_pressure_fighter_encounter().unwrap();
+        assert_eq!(game.state().mission.phase, MissionPhase::Active);
+
+        let return_retail_frame = all_defeated_retail_frame
+            .saturating_add(pressure_fighters::DEFEAT_TO_RETURN_RETAIL_FRAMES);
+        game.state.mode_frame =
+            u32::from(return_retail_frame) / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        game.update_pressure_fighter_encounter().unwrap();
+        assert_eq!(
+            game.state().mission.phase,
+            MissionPhase::ReturningToStrategicMap
+        );
+
+        let first_map_ready_tick = all_defeated_retail_frame
+            .saturating_add(pressure_fighters::DEFEAT_TO_MAP_READY_RETAIL_FRAMES)
+            .div_ceil(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+        game.state.mode_frame = u32::from(first_map_ready_tick);
+        game.update_pressure_fighter_encounter().unwrap();
         assert_eq!(game.mode(), GameMode::StrategicMap);
         assert_eq!(
             game.state().campaign.route_step,
             CampaignRouteStep::StrategicPressure
         );
         assert_eq!(game.state().mission.score, MIRAGE_DRAGON_RETURN_SCORE);
-        assert_eq!(game.state().mission.objects_destroyed, 1);
+        assert_eq!(
+            game.state().mission.objects_destroyed,
+            1 + RECURRING_ATTACKER_COUNT as u32
+        );
         assert_eq!(
             game.state().campaign.elapsed_frames,
             (MIRAGE_DRAGON_RETURN_DISPLAY_SECONDS + RECURRING_ATTACKERS_ELAPSED_DISPLAY_SECONDS)
@@ -28752,6 +28896,26 @@ mod tests {
             .into_iter()
             .all(|slot| slot.is_none()));
         assert!(game.pressure_fighter_projectiles.is_empty());
+    }
+
+    #[test]
+    fn recurring_attacker_departure_does_not_satisfy_the_defeat_objective() {
+        let mut encounter = RecurringAttackersState::deployed();
+        encounter.record_departure(RecurringAttacker::Pursuer);
+        for attacker in [
+            RecurringAttacker::Vanguard,
+            RecurringAttacker::HighGuard,
+            RecurringAttacker::Flanker,
+        ] {
+            encounter.record_defeat(
+                attacker,
+                pressure_fighters::ACCEPTED_ALL_DEFEATED_RETAIL_FRAME,
+            );
+        }
+
+        assert_eq!(encounter.pursuer, RecurringAttackerStatus::Departed);
+        assert!(!encounter.all_defeated());
+        assert_eq!(encounter.all_defeated_retail_frame, None);
     }
 
     #[test]

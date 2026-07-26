@@ -1347,6 +1347,114 @@ pub struct MissionMessageState {
     pub portrait_talking: bool,
 }
 
+pub const RECURRING_ATTACKER_COUNT: usize = 4;
+
+/// Semantic identity of one craft in the recurring four-attacker encounter.
+/// Object-store identities remain runtime implementation details.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecurringAttacker {
+    Vanguard,
+    HighGuard,
+    Flanker,
+    Pursuer,
+}
+
+impl RecurringAttacker {
+    pub const ALL: [Self; RECURRING_ATTACKER_COUNT] = [
+        Self::Vanguard,
+        Self::HighGuard,
+        Self::Flanker,
+        Self::Pursuer,
+    ];
+
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Vanguard => 0,
+            Self::HighGuard => 1,
+            Self::Flanker => 2,
+            Self::Pursuer => 3,
+        }
+    }
+}
+
+/// Lifecycle of a recurring attacker. A craft that leaves the combat volume
+/// has departed, not been defeated, and therefore cannot satisfy the encounter
+/// objective.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum RecurringAttackerStatus {
+    #[default]
+    AwaitingDeployment,
+    Active,
+    Departed,
+    Defeated,
+}
+
+/// Flat, typed objective state for the recurring four-attacker encounter.
+/// Successful return timing begins only after all four destruction sequences
+/// have completed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RecurringAttackersState {
+    pub vanguard: RecurringAttackerStatus,
+    pub high_guard: RecurringAttackerStatus,
+    pub flanker: RecurringAttackerStatus,
+    pub pursuer: RecurringAttackerStatus,
+    pub all_defeated_retail_frame: Option<u16>,
+}
+
+impl RecurringAttackersState {
+    pub const fn deployed() -> Self {
+        Self {
+            vanguard: RecurringAttackerStatus::Active,
+            high_guard: RecurringAttackerStatus::Active,
+            flanker: RecurringAttackerStatus::Active,
+            pursuer: RecurringAttackerStatus::Active,
+            all_defeated_retail_frame: None,
+        }
+    }
+
+    pub fn status(&self, attacker: RecurringAttacker) -> RecurringAttackerStatus {
+        *self.status_ref(attacker)
+    }
+
+    pub fn record_departure(&mut self, attacker: RecurringAttacker) {
+        let status = self.status_mut(attacker);
+        if *status == RecurringAttackerStatus::Active {
+            *status = RecurringAttackerStatus::Departed;
+        }
+    }
+
+    pub fn record_defeat(&mut self, attacker: RecurringAttacker, retail_frame: u16) {
+        *self.status_mut(attacker) = RecurringAttackerStatus::Defeated;
+        if self.all_defeated() {
+            self.all_defeated_retail_frame.get_or_insert(retail_frame);
+        }
+    }
+
+    pub fn all_defeated(&self) -> bool {
+        RecurringAttacker::ALL
+            .into_iter()
+            .all(|attacker| self.status(attacker) == RecurringAttackerStatus::Defeated)
+    }
+
+    fn status_ref(&self, attacker: RecurringAttacker) -> &RecurringAttackerStatus {
+        match attacker {
+            RecurringAttacker::Vanguard => &self.vanguard,
+            RecurringAttacker::HighGuard => &self.high_guard,
+            RecurringAttacker::Flanker => &self.flanker,
+            RecurringAttacker::Pursuer => &self.pursuer,
+        }
+    }
+
+    fn status_mut(&mut self, attacker: RecurringAttacker) -> &mut RecurringAttackerStatus {
+        match attacker {
+            RecurringAttacker::Vanguard => &mut self.vanguard,
+            RecurringAttacker::HighGuard => &mut self.high_guard,
+            RecurringAttacker::Flanker => &mut self.flanker,
+            RecurringAttacker::Pursuer => &mut self.pursuer,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MissionState {
     pub active: bool,
@@ -1362,6 +1470,7 @@ pub struct MissionState {
     /// destruction sequence. Mission return timing is relative to an actual
     /// combat defeat, never a scripted disappearance.
     pub rival_defeated_retail_frame: Option<u16>,
+    pub recurring_attackers: RecurringAttackersState,
     pub player_blaster: PlayerBlasterState,
     pub player_damage: PlayerDamageState,
     /// Persistent analog flight response recovered from the retail player
