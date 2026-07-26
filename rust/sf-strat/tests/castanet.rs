@@ -9,7 +9,7 @@
 //! mother mode machine, HP accumulation and death routing against the cited
 //! assembly control flow.
 
-use sf_game::alien::NUMBER_AL;
+use sf_game::alien::{ObjectVisualKind, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses;
@@ -230,6 +230,10 @@ fn paired_ringlasers_converge_then_curve_on_powerbuild() {
     assert!(rings
         .iter()
         .all(|&i| { g.objs.aliens[i].sflags3 & ASF3_SAMESHAPECOLLIDE != 0 }));
+    assert!(rings.iter().all(|&i| {
+        let ring = &g.objs.aliens[i];
+        ring.visual_kind == ObjectVisualKind::ScaledSprite && ring.depthoffset == 0 && ring.tx == 0
+    }));
 
     let (a, b) = (rings[0] as u16, rings[1] as u16);
     g.objs.aliens[a as usize].worldx = 100;

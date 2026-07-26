@@ -1,6 +1,6 @@
 //! ROM suckbits/cube + lseqdoor + volrock/plasma/down + tree3 leaves.
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::{ObjectVisualKind, ASF_COLLDISABLE};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemies_ground::{
@@ -136,6 +136,12 @@ fn volrock_plasma_down_public() {
     assert_eq!(g.objs.aliens[rock as usize].hp, 2);
     assert_ne!(g.objs.aliens[rock as usize].collflags & COLLTYPE_ENEMY1, 0);
     assert!(g.objs.aliens[rock as usize].vy < 0); // upward launch
+    assert_eq!(
+        g.objs.aliens[rock as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[rock as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[rock as usize].tx, 0);
     let vy0 = g.objs.aliens[rock as usize].vy;
     volrock_strat(&mut g, rock);
     // Gravity +2 applied by falldown before move.
@@ -146,11 +152,23 @@ fn volrock_plasma_down_public() {
     assert_eq!(g.objs.aliens[plasma as usize].hp, 2);
     assert_eq!(g.objs.aliens[plasma as usize].vel, 50);
     assert_eq!(g.objs.aliens[plasma as usize].rotx, (-(DEG90 as i8)) as u8);
+    assert_eq!(
+        g.objs.aliens[plasma as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[plasma as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[plasma as usize].tx, 0);
 
     let down = spawn_obj(&mut g);
     g.objs.aliens[down as usize].worldy = -200;
     volrockdown_istrat(&mut g, down);
     assert_eq!(g.objs.aliens[down as usize].hp, 2);
+    assert_eq!(
+        g.objs.aliens[down as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[down as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[down as usize].tx, 0);
     // Force ground hit → state 1
     g.objs.aliens[down as usize].stratstate = 0;
     g.objs.aliens[down as usize].worldy = 10;

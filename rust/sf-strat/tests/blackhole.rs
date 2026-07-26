@@ -17,6 +17,7 @@
 //! P19/P18/P20). The ENTER code (15) is paired there with routechange2,
 //! matching the adjacent source operations.
 
+use sf_game::alien::ObjectVisualKind;
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses;
@@ -97,6 +98,9 @@ fn approach_init_arms_asteroid() {
     assert_eq!(al.sbyte1, 70, "al_sbyte1 = 70 draw-in counter");
     assert_eq!(al.sword1, 100, "al_sword1 = 100");
     assert!(al.expstratptr.is_some(), "exp morph strat wired");
+    assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(al.depthoffset, 0);
+    assert_eq!(al.tx, 0);
     // Not yet the black hole; still the asteroid, no warp armed.
     assert_ne!(al.shape, SH_BLACKHOLE);
     assert_eq!(g.world.levelfinished, 0);
@@ -108,6 +112,8 @@ fn approach_init_arms_asteroid() {
 // ------------------------------------------------------------
 #[test]
 fn approach_morph_then_countdown_sets_enterbhole() {
+    const FRAME_BEFORE_TRAIL_GATE: u16 = 3;
+
     let (mut g, o) = setup(bosses::IS_BLACKHOLE);
     g.run_strategies(); // init
 
@@ -116,11 +122,28 @@ fn approach_morph_then_countdown_sets_enterbhole() {
     // naming the private fn.) It morphs to #blackhole + switches to
     // .blackhole2_strat, which runs the same tick (s_jmpto_strat).
     g.objs.aliens[o as usize].stratptr = g.objs.aliens[o as usize].expstratptr;
+    // run_strategies advances the frame first; seed the tick before the
+    // source four-frame trail gate.
+    g.vars.gameframe = FRAME_BEFORE_TRAIL_GATE;
     g.run_strategies();
     assert_eq!(
         g.objs.aliens[o as usize].shape, SH_BLACKHOLE,
         ".exp_Istrat morphs shape to #blackhole"
     );
+    let active: Vec<_> = g
+        .objs
+        .active_indices()
+        .into_iter()
+        .map(|i| (i, g.objs.aliens[i as usize].shape))
+        .collect();
+    let trail = active
+        .iter()
+        .find_map(|&(i, shape)| (i != o && shape == SH_BLACKHOLE).then_some(i))
+        .unwrap_or_else(|| panic!("approach draw-in trail; active={active:?}"));
+    let trail = &g.objs.aliens[trail as usize];
+    assert_eq!(trail.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(trail.depthoffset, 0);
+    assert_eq!(trail.tx, 0);
     assert_eq!(
         g.world.levelfinished, 0,
         "no warp yet — sbyte1 still counting down from 70"
@@ -222,4 +245,27 @@ fn exit_gate_out_of_range_does_not_arm() {
         g.run_strategies();
     }
     assert_eq!(g.world.levelfinished, 0, "no touch -> no warp");
+}
+
+#[test]
+fn exit_draw_in_spawns_typed_sprite_trail() {
+    let (mut g, o) = setup(bosses::IS_BHOLEEXIT1);
+    g.run_strategies();
+    g.run_strategies();
+    {
+        let al = &mut g.objs.aliens[o as usize];
+        al.sbyte1 = 1;
+        al.sbyte3 = 2;
+    }
+    g.run_strategies();
+    let trail = g
+        .objs
+        .active_indices()
+        .into_iter()
+        .find(|&i| i != o && g.objs.aliens[i as usize].shape == SH_BLACKHOLE)
+        .expect("exit draw-in trail");
+    let trail = &g.objs.aliens[trail as usize];
+    assert_eq!(trail.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(trail.depthoffset, 0);
+    assert_eq!(trail.tx, 0);
 }

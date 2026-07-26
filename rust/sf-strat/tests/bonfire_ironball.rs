@@ -1,6 +1,6 @@
 //! ROM fire_bonfire / bonfire_* + fire_ironball4 / ironball_* / ironballmissile.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ObjectVisualKind, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
 use sf_game::vars::{HARD_AP, HARD_HP};
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -30,6 +30,9 @@ fn fire_bonfire_stats_and_trail() {
         assert_eq!(al.worldy, 0);
         assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
         assert_ne!(al.collflags & COLLTYPE_ENEMY1, 0);
+        assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+        assert_eq!(al.depthoffset, 0);
+        assert_eq!(al.tx, 0);
         // Aimed toward player (yaw nonzero when player is offset in x).
         assert_ne!(al.roty, 0);
     }
@@ -59,6 +62,12 @@ fn bonfire_trail_expires_after_10() {
             i != ball && i != firer && g.objs.aliens[i as usize].sflags & ASF_COLLDISABLE != 0
         })
         .expect("trail");
+    assert_eq!(
+        g.objs.aliens[trail as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[trail as usize].depthoffset, 1);
+    assert_eq!(g.objs.aliens[trail as usize].tx, 0);
     for _ in 0..10 {
         bonfire_trail_strat(&mut g, trail);
     }
@@ -86,6 +95,9 @@ fn fire_ironball4_faster_and_aimed() {
         // Base 96..103 + 20 for sflag1 → 116..123
         assert!(al.vel >= 116 && al.vel <= 123, "vel={}", al.vel);
         assert_ne!(al.collflags & COLLTYPE_ENEMY1, 0);
+        assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+        assert_eq!(al.depthoffset, 0);
+        assert_eq!(al.tx, 0);
     }
 }
 
@@ -127,6 +139,12 @@ fn ironballmissile_sprays_nine_when_close() {
     ironballmissile_istrat(&mut g, m);
     assert_eq!(g.objs.aliens[m as usize].hp, 6);
     assert_eq!(g.objs.aliens[m as usize].ap, 16);
+    assert_eq!(
+        g.objs.aliens[m as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[m as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[m as usize].tx, 0);
 
     let before = g.objs.active_indices().len();
     ironballmissile_strat(&mut g, m);

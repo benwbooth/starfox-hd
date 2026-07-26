@@ -17,6 +17,7 @@
 //!    means NO death/explode path — the only removal is drift-off (ATZREMOVE)
 //!    or a barrel-roll fling.
 
+use sf_game::alien::ObjectVisualKind;
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::common::{sv, StratRam};
@@ -28,7 +29,6 @@ use sf_strat::{bosses, table};
 const WM_RNDVAL: u16 = 0x1F00;
 const AMOEBA_SLIMECOUNT: u16 = 0x162b; // GILESALC.INC:296
 const SH_AMOEBA1: u16 = 438;
-const ASF3_SSPRITE: u8 = 0x80;
 const ASF_COLLDISABLE: u8 = 0x10;
 const ASF_COLLIDE: u8 = 0x20;
 const PSF_NOFIRE: u8 = 64;
@@ -85,8 +85,9 @@ fn amoeba_init_promotes_to_sprite_and_drifts_in_z() {
 
     let al = g.objs.aliens[a as usize];
     // s_sprite_obj x,#0 (STRATLIB.INC:873).
-    assert!(al.sflags3 & ASF3_SSPRITE != 0, "software sprite");
+    assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
     assert_eq!(al.depthoffset, 0);
+    assert_eq!(al.tx, 0);
     // s_set_aldata x,#hardHP,#0 — indestructible, no contact AP.
     assert_eq!(al.hp, HARD_HP);
     assert_eq!(al.ap, 0);

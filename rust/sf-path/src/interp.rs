@@ -34,10 +34,9 @@
 //! Spawn Roffs and aim (GOTOPOS / face*) use ROM helpers in `sf_core`.
 
 use crate::alien::{
-    Alien, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE4, ACF_COLLTYPE5, AFEXP,
-    ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF3_SFLAG5, ASF3_SFLAG7, ASF3_SSPRITE, ASF3_TEXTOBJ,
-    ASF4_SFLAG8, ASF_COLLDISABLE, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW,
-    ATZREMOVE, NUMBER_AL,
+    Alien, ObjectVisualKind, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE4, ACF_COLLTYPE5,
+    AFEXP, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF3_SFLAG5, ASF3_SFLAG7, ASF3_TEXTOBJ, ASF4_SFLAG8,
+    ASF_COLLDISABLE, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATZREMOVE, NUMBER_AL,
 };
 use crate::alien_compat;
 use crate::opcodes::*;
@@ -2611,7 +2610,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_SPRITE => {
-                world.aliens[si].sflags3 |= ASF3_SSPRITE;
+                world.aliens[si].visual_kind = ObjectVisualKind::ScaledSprite;
                 world.aliens[si].depthoffset = world.pread8s(ip, 1) as i16;
                 world.aliens[si].tx = world.pread8(ip, 2);
                 advance = 3;

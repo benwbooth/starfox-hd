@@ -2082,8 +2082,8 @@ fn meteo0_exp(g: &mut Game, idx: u16) {
 /// `.in` init — data, random spin (sbyte1 = rnd&3, negated when the random
 /// heading roty >= 128, then 50%-zeroed), random heading + velocity, gen 3D
 /// vecs, enemy1 collide, nohitaffect. Falls into `meteor_strat`.
-/// (`s_sprite_obj`/`drotsflat_x` are cosmetic billboard/flat-orient ops —
-/// scoped out.)
+/// The software-sprite promotion is represented by typed presentation state;
+/// only `drotsflat_x`'s display orientation remains renderer-owned.
 fn meteor_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, meteor_strat);
     let coll = sid(g, meteorcol_istrat);
@@ -2097,6 +2097,9 @@ fn meteor_istrat(g: &mut Game, idx: u16) {
         al.hp = METEOR_HP; // s_set_aldata #meteorHP,#meteorAP
         al.ap = METEOR_AP;
         al.rotz = 0; // s_set_alvar B,x,al_rotz,#0
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     // s_set_alvar2rnd x,al_vel,#7 / al_sbyte1,#3 / al_roty (full byte).
     let vel = (sf_random(&mut g.vars) as u8) & 7;
@@ -2804,7 +2807,7 @@ fn colonyexit_strat(g: &mut Game, idx: u16) {
 //                 gravity, self-removing when the bounce decays.
 //
 // Scoped-out cosmetics (never asserted): particlefire/particlefiredown fire
-// emitters, make_smoke trails, s_rots_flat billboard orient, s_sprite_obj, the
+// emitters, make_smoke trails, s_rots_flat billboard orient, the
 // windmill's four SLOWELASER "smoke" jets (GASTRATS.ASM:3550-3569, ASM-commented
 // "smoke") and windexp's round0p blade shower (GASTRATS.ASM:3573-3599) — routed
 // through strat_explode instead.
@@ -3194,6 +3197,9 @@ fn volplasma_init(g: &mut Game, idx: u16) {
         al.rotx = (-(DEG90 as i8)) as u8; // (== ROM al_sbyte2 = -deg90)
         al.vel = 50; // s_set_speed x,#50
         al.sflags |= ASF_SHADOW; // s_set_alsflag x,shadow
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     gen_vecs_3d(&mut g.objs.aliens[idx as usize]); // s_gen_3dvecs sbyte1,sbyte2,vel
     volplasma_strat(g, idx);
@@ -3246,6 +3252,9 @@ fn volrock_init(g: &mut Game, idx: u16) {
         al.sflags |= ASF_SHADOW; // s_set_alsflag x,shadow
         al.roty = heading;
         al.vel = speed;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     strat_gen_vecs_nvecs(&mut g.objs.aliens[idx as usize]); // s_gen_vecs → nvecs_l
                                                             // s_set_alvar2rnd al_vy,#15 ; vy+1=0 ; s_neg_alvar ; s_add_alvar #-30.
@@ -3338,6 +3347,9 @@ fn volrockdown_init(g: &mut Game, idx: u16) {
         al.vx = 0; // s_set_vecs x,#0,#80,#0
         al.vy = 80;
         al.vz = 0;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     volrockdown_strat(g, idx);
 }
@@ -5804,6 +5816,9 @@ fn meteor_istrat3(g: &mut Game, idx: u16) {
         if al.ap == 0 {
             al.ap = METEOR_AP;
         }
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
     g.objs.aliens[idx as usize].collflags |= COLLTYPE_ENEMY1;

@@ -1,6 +1,6 @@
 //! ROM `childremove_Istrat` / `flash_Istrat` / `flash_strat` (GSTRATS.ASM).
 
-use sf_game::alien::{ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ObjectVisualKind, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF_COLLDISABLE};
 use sf_game::Game;
 use sf_strat::common::{child_remove_istrat, flash_istrat, flash_strat};
 
@@ -38,6 +38,12 @@ fn flash_animates_then_removes() {
     assert!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE != 0);
     assert_eq!(g.objs.aliens[idx as usize].colframe & 0x7F, 0);
     assert_eq!(g.objs.aliens[idx as usize].worldz, 110);
+    assert_eq!(
+        g.objs.aliens[idx as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[idx as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[idx as usize].tx, 0);
 
     flash_strat(&mut g, idx); // frame 0 → 1
     assert_eq!(g.objs.aldead, 0);

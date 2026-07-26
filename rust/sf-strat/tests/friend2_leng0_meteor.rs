@@ -1,6 +1,6 @@
 //! ROM friend2 + leng0 + meteor2/col + winglazerman/tree/uperm/iris leaves.
 
-use sf_game::alien::{ASF3_LOCKON, ASF_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW};
+use sf_game::alien::{ObjectVisualKind, ASF3_LOCKON, ASF_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
@@ -83,6 +83,12 @@ fn meteor2_and_col_tree_iris_uperm() {
     let m = spawn_obj(&mut g);
     meteor_istrat2(&mut g, m);
     assert_eq!(g.objs.aliens[m as usize].sword1, 60);
+    assert_eq!(
+        g.objs.aliens[m as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[m as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[m as usize].tx, 0);
     // enemy1 = 0x10
     assert_ne!(g.objs.aliens[m as usize].collflags & 0x10, 0);
     g.objs.aliens[m as usize].sflags &= !sf_game::alien::ASF_NOHITAFFECT;

@@ -1,11 +1,13 @@
 //! Tick 178–179: boost_Istrat / boost_strat pitch+yaw Roffs + call-site wiring.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ASF_INVISIBLE, NUMBER_AL};
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_INVISIBLE, NUMBER_AL};
 use sf_game::Game;
 use sf_strat::common::{boost_istrat, boost_sprite, boost_strat, set_boost_zoff, sv, StratRam};
 use sf_strat::enemy_a::{shipoutoflb3_istrat, shipoutoflb3_strat};
 use sf_strat::player::set_player_out_of_lb2a;
 use sf_strat::snes_trig::strat_roffs_pitch_yaw;
+
+const BOOST_SPRITE_SIZE: u8 = 10;
 
 fn spawn(g: &mut Game) -> u16 {
     let idx = g.objs.alloc().expect("obj");
@@ -23,12 +25,19 @@ fn boost_istrat_arms_lifecnt_and_clears_invisible() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
     g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sbyte1 = BOOST_SPRITE_SIZE;
     boost_istrat(&mut g, idx);
     let al = &g.objs.aliens[idx as usize];
     assert_eq!(al.count, 10);
     assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
     assert_eq!(al.sflags & ASF_INVISIBLE, 0);
     assert!(al.stratptr.is_some());
+    assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(al.depthoffset, 0);
+    assert_eq!(
+        al.tx, BOOST_SPRITE_SIZE,
+        "source size operand is copied into al_tx"
+    );
 }
 
 #[test]
@@ -71,9 +80,12 @@ fn boost_strat_expires_after_ten_ticks() {
     let host = spawn(&mut g);
     g.vars.set_sv_i16(sv::BOOSTOBJ, host as i16);
     set_boost_zoff(&mut g, -30);
-    let flame = boost_sprite(&mut g, Some(10)).expect("flame");
-    assert_eq!(g.objs.aliens[flame as usize].sbyte1, 10);
-    for _ in 0..10 {
+    let flame = boost_sprite(&mut g, Some(BOOST_SPRITE_SIZE)).expect("flame");
+    assert_eq!(g.objs.aliens[flame as usize].sbyte1, BOOST_SPRITE_SIZE);
+    assert_eq!(g.objs.aliens[flame as usize].tx, BOOST_SPRITE_SIZE);
+    boost_strat(&mut g, flame);
+    assert_eq!(g.objs.aliens[flame as usize].tx, 9);
+    for _ in 1..10 {
         g.objs.aldead = 0;
         boost_strat(&mut g, flame);
     }
@@ -106,9 +118,14 @@ fn shipoutoflb3_boost_sets_zoff_neg80() {
     assert_eq!(g.objs.aliens[idx as usize].stratstate, 4);
     assert_eq!(g.vars.sv_u8(sv::BOOSTZOFF) as i8, -80);
     assert!(count_active(&g) > before);
-    // Flame size stand-in from boost_sprite #10
+    // Authored flame size from boost_sprite #10.
     let flame = (0..NUMBER_AL)
         .find(|&i| g.objs.aliens[i].active && i != idx as usize && i != view as usize)
         .expect("flame");
-    assert_eq!(g.objs.aliens[flame].sbyte1, 10);
+    assert_eq!(g.objs.aliens[flame].sbyte1, BOOST_SPRITE_SIZE);
+    assert_eq!(
+        g.objs.aliens[flame].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[flame].tx, BOOST_SPRITE_SIZE);
 }

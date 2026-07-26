@@ -17,6 +17,8 @@
 //! - C strategy function pointers (`stratptr`, `expstratptr`, `collstratptr`,
 //!   `endcollstratptr`, `tempstratptr`) become [`StratRef`] enum values; the
 //!   flat runtime denies byte access to them just like the C compat layer.
+//! - The packed source `ssprite` display bit becomes [`ObjectVisualKind`], so
+//!   presentation intent is a typed field instead of an emulated flag.
 
 /// Max aliens (from VARS.INC `number_al`, `src/game/obj.h` NUMBER_AL).
 pub const NUMBER_AL: usize = 70;
@@ -52,9 +54,21 @@ pub enum StratRef {
     External(u32),
 }
 
+/// Native presentation selected for an object.
+///
+/// The source stores software-sprite promotion in a packed strategy flag.
+/// The Rust port models the resulting rendering concept directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ObjectVisualKind {
+    #[default]
+    Mesh,
+    ScaledSprite,
+}
+
 /// Alien (object) structure — every 3D entity in the game: enemies, items,
-/// player wingmen, obstacles, player. Mirrors C `Alien` (`src/game/obj.h`)
-/// field-for-field with the same integer widths.
+/// player wingmen, obstacles, player. Models the source `Alien`
+/// (`src/game/obj.h`) fields one-for-one, with typed Rust fields replacing
+/// packed presentation and strategy identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Alien {
     /// Linked-list next (C `struct Alien *next`; index into the alien array).
@@ -65,6 +79,8 @@ pub struct Alien {
     // --- al_start fields (STRUCTS.INC) ---
     /// al_shape: Shape reference.
     pub shape: u16,
+    /// Typed replacement for the source `ssprite` display flag.
+    pub visual_kind: ObjectVisualKind,
     /// al_ptr: Attached alien pointer (array index; 0 = null, matching the
     /// C/SNES convention where object "pointer" 0 means none).
     pub ptr: u16,
@@ -211,7 +227,6 @@ pub const ASF3_REALOBJ: u8 = 0x08;
 pub const ASF3_CHILDOBJ: u8 = 0x10;
 pub const ASF3_MOTHEROBJ: u8 = 0x20;
 pub const ASF3_TEXTOBJ: u8 = 0x40;
-pub const ASF3_SSPRITE: u8 = 0x80;
 
 // al_sflags4 bits (C origin: src/game/obj.h ASF4_*).
 pub const ASF4_PLAYEROBJ: u8 = 0x01;

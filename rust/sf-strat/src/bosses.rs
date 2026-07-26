@@ -5105,6 +5105,9 @@ fn cast_ringlaser_init(g: &mut Game, idx: u16) {
         al.colframe = 0;
         al.sflags3 |= ASF3_SAMESHAPECOLLIDE;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
         strat_gen_vecs_3d(al);
     }
     play_se(g, 0x5c);
@@ -6191,8 +6194,12 @@ fn chicken_arm_generate(g: &mut Game, idx: u16) {
     if sword1_x != 1 {
         through_notgrabber = true;
     } else if g.objs.aliens[idx as usize].sflags3 & CH_SFLAG6 != 0 {
-        g.objs.aliens[y as usize].shape = SH_CHICK_GRABBER2;
-        g.objs.aliens[y as usize].animframe = 0;
+        let child = &mut g.objs.aliens[y as usize];
+        child.shape = SH_CHICK_GRABBER2;
+        child.animframe = 0;
+        child.visual_kind = ObjectVisualKind::ScaledSprite;
+        child.depthoffset = 0;
+        child.tx = 0;
         through_notgrabber = true;
     } else {
         let am = armmode(g);
@@ -6513,6 +6520,9 @@ pub fn chicken_firebreath2_istrat(g: &mut Game, idx: u16) {
         al.sbyte1 = FIREBREATH_ANIM_SPEED;
         al.shape = SH_CHICK_FIREBREATH;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     chicken_firebreath_backagain(g, idx);
 }
@@ -6612,6 +6622,9 @@ fn chicken_firebreath_short_istrat(g: &mut Game, idx: u16) {
         crate::common::init_colanim(al, 0);
         al.shape = SH_CHICK_FIREBREATH;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     chicken_firebreath_short_strat(g, idx);
 }
@@ -6652,6 +6665,9 @@ pub fn chicken_egg_istrat(g: &mut Game, idx: u16) {
         al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1 = acf_colltype2
         al.sflags |= ASF_SHADOW;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     chicken_egg_strat(g, idx);
 }
@@ -10362,9 +10378,6 @@ pub const IS_LASTB2: usize = 210;
 pub const IS_LASTB3: usize = 211;
 pub const IS_LASTB4: usize = 212;
 
-/// al_sflags3 software-sprite bit (obj.h; = `enemy_b::ASF3_SSPRITE`).
-const AMOEBA_ASF3_SSPRITE: u8 = 0x80;
-
 /// `g_slimecount` (GILESALC.INC:296, ROM WRAM $162b): live count of
 /// amoebas stuck to the ship, capped at 3 by amoebacol / cleared by
 /// amoebago. Distinct WRAM cell (0x162b < WRAM_SIZE, no sv/0x1F aliasing).
@@ -10415,9 +10428,10 @@ pub fn amoeba_init(g: &mut Game, idx: u16) {
     let col = sid(g, amoebacol_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        // s_sprite_obj x,#0 (STRATLIB.INC:873): ssprite + depthoffset(colour) 0.
-        al.sflags3 |= AMOEBA_ASF3_SSPRITE;
+        // s_sprite_obj x,#0 (STRATLIB.INC:873).
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
+        al.tx = 0;
         // s_set_alptrs x,amoeba_strat,amoebacol_Istrat,0
         al.stratptr = Some(tick);
         al.collstratptr = Some(col);
@@ -10800,8 +10814,6 @@ const LE_BHOLE3: u8 = 13; // black-hole exit -> Sector Z (routes[3]=P20)
 const SH_BLACKHOLE: u16 = 193;
 /// `meteorAP` (STRATEQU.INC:213) — the approach asteroid's contact AP.
 const BH_METEOR_AP: u8 = 12;
-/// al_sflags3 software-sprite bit (obj.h; = amoeba AMOEBA_ASF3_SSPRITE).
-const BH_ASF3_SSPRITE: u8 = 0x80;
 /// `sflag1` — ROM sflags byte2 0x10, relocated to Rust `sflags2` (same port
 /// convention as flingboss FB_SFLAG1 / boss2, keeping colldisable in `sflags`).
 const BH_SFLAG1: u8 = 0x10;
@@ -10828,9 +10840,10 @@ pub fn blackhole_init(g: &mut Game, idx: u16) {
     al.stratptr = Some(s_tick);
     al.collstratptr = Some(s_col);
     al.expstratptr = Some(s_exp);
-    // s_sprite_obj x,#0 (STRATLIB.INC:873): ssprite + depthoffset 0.
-    al.sflags3 |= BH_ASF3_SSPRITE;
+    // s_sprite_obj x,#0 (STRATLIB.INC:873).
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
     al.depthoffset = 0;
+    al.tx = 0;
     // s_set_aldata x,#20,#meteorAP
     al.hp = 20;
     al.ap = BH_METEOR_AP;
@@ -10964,8 +10977,9 @@ fn blackhole2_strat(g: &mut Game, idx: u16) {
             let s3 = sid(g, blackhole3_strat);
             {
                 let c = &mut g.objs.aliens[child as usize];
-                c.sflags3 |= BH_ASF3_SSPRITE; // s_sprite_obj y,#0
+                c.visual_kind = ObjectVisualKind::ScaledSprite; // s_sprite_obj y,#0
                 c.depthoffset = 0;
+                c.tx = 0;
                 c.sflags |= ASF_COLLDISABLE; // s_set_alsflag y,colldisable
                 c.worldx = ppx; // player_posx
                 c.worldy = ppy; // player_posy
@@ -11126,8 +11140,9 @@ fn blackholeexit_strat(g: &mut Game, idx: u16) {
         let ppz = g.vars.player_posz;
         let s2 = sid(g, blackholeexit_sprite_strat);
         let c = &mut g.objs.aliens[child as usize];
-        c.sflags3 |= BH_ASF3_SSPRITE; // s_sprite_obj y,#0
+        c.visual_kind = ObjectVisualKind::ScaledSprite; // s_sprite_obj y,#0
         c.depthoffset = 0;
+        c.tx = 0;
         c.sflags |= ASF_COLLDISABLE; // s_set_alsflag y,colldisable
         c.worldx = ppx; // player_posx
         c.worldy = ppy; // player_posy
@@ -11278,6 +11293,25 @@ mod tests {
         let mut cur = 250u8;
         b8_achase_angle(&mut cur, 10, 3);
         assert!(cur > 250 || cur < 10, "cur={cur}");
+    }
+
+    #[test]
+    fn generated_grabber2_uses_typed_sprite_presentation() {
+        let (mut g, parent) = fresh();
+        {
+            let object = &mut g.objs.aliens[parent as usize];
+            object.shape = SH_CHICK_GRABBER;
+            object.sword1 = 1;
+            object.sflags3 |= CH_SFLAG6;
+        }
+        chicken_arm_generate(&mut g, parent);
+        let child = g.objs.aliens[parent as usize].ptr;
+        assert_ne!(child, 0);
+        let child = &g.objs.aliens[(child - 1) as usize];
+        assert_eq!(child.shape, SH_CHICK_GRABBER2);
+        assert_eq!(child.visual_kind, ObjectVisualKind::ScaledSprite);
+        assert_eq!(child.depthoffset, 0);
+        assert_eq!(child.tx, 0);
     }
 
     #[test]

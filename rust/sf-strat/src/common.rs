@@ -15,8 +15,8 @@
 //! it is not an address namespace.
 
 use sf_game::alien::{
-    Alien, StratId, ACF_FIRSTFRAME, ACF_WEAPON, AFONFIRE, ASF3_REALOBJ, ASF_COLLDISABLE,
-    ASF_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
+    Alien, ObjectVisualKind, StratId, ACF_FIRSTFRAME, ACF_WEAPON, AFONFIRE, ASF3_REALOBJ,
+    ASF_COLLDISABLE, ASF_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
 };
 // NUMBER_AL used by updateengine_srou bounds check.
 use sf_game::vars::GameVars;
@@ -661,6 +661,9 @@ pub fn add_colanim_wrap(al: &mut Alien, amount: u8, maxframes: u8) {
 pub fn flash_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
         al.sflags |= ASF_COLLDISABLE;
         init_colanim(al, 0);
     }
@@ -799,7 +802,9 @@ fn domakesplash(g: &mut Game, parent: u16, shape: u16) -> Option<u16> {
         al.sflags3 &= !ASF3_REALOBJ;
         al.sflags |= ASF_COLLDISABLE;
         al.stratptr = Some(splash_i);
-        // s_rots_flat / s_sprite_obj — cosmetic billboard.
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     {
         let p = g.objs.aliens[parent as usize];
@@ -848,7 +853,7 @@ pub fn splash_strat(g: &mut Game, idx: u16) {
 /// ROM `makeengine_srou_l` (GSTRATS.ASM:1403) — boost/engine flame child.
 ///
 /// Shape extents default when no mesh catalog is attached; `relposz` stores
-/// `-sh_Zmax` and the sprite Y stand-in is `sh_Ymax - 24`.
+/// `-sh_Zmax` and the sprite scale is `sh_Ymax - 24`.
 pub fn makeengine_srou(g: &mut Game, parent: u16) -> Option<u16> {
     makeengine_srou_with_extents(g, parent, ENGINE_DEFAULT_YMAX, ENGINE_DEFAULT_ZMAX)
 }
@@ -867,8 +872,10 @@ pub fn makeengine_srou_with_extents(
         let al = &mut g.objs.aliens[engine as usize];
         al.sflags |= ASF_COLLDISABLE | ASF_INVISIBLE;
         al.relposz = rel_z;
-        // Sprite Y offset stand-in (ROM s_sprite_obj y,#0,svar_word1).
-        al.depthoffset = sprite_y;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        // `s_sprite_obj` stores its size operand as a byte.
+        al.tx = sprite_y as u8;
     }
     {
         let al = &mut g.objs.aliens[parent as usize];
@@ -914,7 +921,10 @@ pub fn boost_istrat(g: &mut Game, idx: u16) {
     al.sflags &= !ASF_INVISIBLE;
     al.type_ &= !ATZREMOVE; // s_setnoremove_behind
     al.stratptr = Some(tick);
-    // s_sprite_obj x,#0,svar_byte1 — sbyte1 is optional size from boost_sprite
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
+    al.depthoffset = 0;
+    // s_sprite_obj x,#0,svar_byte1 — sbyte1 is optional size from boost_sprite.
+    al.tx = al.sbyte1;
 }
 
 /// ROM `boost_strat` (GSTRATS.ASM:723): park on `boostobj` + (0,0,boostZoff)
@@ -948,7 +958,7 @@ pub fn boost_strat(g: &mut Game, idx: u16) {
 }
 
 /// ROM `boost_sprite` macro (STRATMAC.INC:7725) — spawn `#boostshape` with
-/// `boost_Istrat`. Optional `size` → `al_sbyte1` (sprite scale stand-in).
+/// `boost_Istrat`. Optional `size` → `al_sbyte1`, then the typed sprite scale.
 pub fn boost_sprite(g: &mut Game, size: Option<u8>) -> Option<u16> {
     let flame = strat_make_obj(g, SH_BOOSTSHAPE)?;
     {
@@ -997,7 +1007,9 @@ pub fn fire_strat(g: &mut Game, idx: u16) {
 pub fn smoke_p_istrat(g: &mut Game, idx: u16) {
     let (_, _, _, smoke_t) = fire_smoke_strat_ids(g);
     let al = &mut g.objs.aliens[idx as usize];
-    // s_sprite_obj — cosmetic.
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
+    al.depthoffset = 0;
+    al.tx = 0;
     al.stratptr = Some(smoke_t);
     al.collstratptr = None;
     al.expstratptr = None;
@@ -1044,7 +1056,9 @@ pub fn puff_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = None;
         al.sflags |= ASF_COLLDISABLE;
         init_colanim(al, 0);
-        // s_sprite_obj — cosmetic.
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
 }
 

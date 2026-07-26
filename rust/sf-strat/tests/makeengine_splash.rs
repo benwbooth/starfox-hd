@@ -1,12 +1,14 @@
 //! Tick 103: makeengine / makesplash / makeSsplash / makeSdrag (GSTRATS / GA2STRAT).
 
-use sf_game::alien::{AFONFIRE, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_INVISIBLE};
+use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_INVISIBLE};
 use sf_game::Game;
 use sf_strat::common::{
     makeengine_srou, makeengine_srou_with_extents, makesplash_srou, makessplash_srou, splash_strat,
     updateengine_srou,
 };
 use sf_strat::enemy_a::make_sdrag;
+
+const DEFAULT_ENGINE_SPRITE_SIZE: u8 = 24;
 
 fn spawn(g: &mut Game) -> u16 {
     let idx = g.objs.alloc().expect("obj");
@@ -26,6 +28,9 @@ fn makesplash_spawns_colldisable_child() {
     assert_eq!(al.sflags3 & ASF3_REALOBJ, 0);
     assert_eq!(al.worldz, 995); // parent z - 5
     assert!(al.stratptr.is_some());
+    assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(al.depthoffset, 0);
+    assert_eq!(al.tx, 0);
 }
 
 #[test]
@@ -34,6 +39,10 @@ fn makessplash_same_path() {
     let parent = spawn(&mut g);
     let splash = makessplash_srou(&mut g, parent).expect("small splash");
     assert_eq!(g.objs.aliens[splash as usize].shape, 359);
+    assert_eq!(
+        g.objs.aliens[splash as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 }
 
 #[test]
@@ -72,6 +81,12 @@ fn makeengine_attaches_fireobj_and_onfire() {
     assert_ne!(al.sflags & ASF_INVISIBLE, 0); // hidden until update
                                               // Default zmax=40 → relposz = -40
     assert_eq!(al.relposz as i8, -40);
+    assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(al.depthoffset, 0, "source color argument is zero");
+    assert_eq!(
+        al.tx, DEFAULT_ENGINE_SPRITE_SIZE,
+        "source size is sh_Ymax - 24"
+    );
 }
 
 #[test]
@@ -92,6 +107,7 @@ fn updateengine_places_behind_parent() {
         "expected ~-40 behind parent, dz={dz}"
     );
     assert_eq!(al.worldx, g.objs.aliens[parent as usize].worldx);
+    assert_eq!(al.tx, DEFAULT_ENGINE_SPRITE_SIZE);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! ROM `kill_Istrat` / `makefire_srou_l` / `fire_*` / `smokeP_*` / `puff_*`
 //! (GSTRATS.ASM).
 
-use sf_game::alien::{AFONFIRE, ASF3_REALOBJ, ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF3_REALOBJ, ASF_COLLDISABLE, ATZREMOVE};
 use sf_game::Game;
 use sf_strat::common::{
     fire_istrat, fire_strat, kill_istrat, makefire_srou, makesmoke_srou, puff_istrat, puff_strat,
@@ -85,6 +85,12 @@ fn smoke_p_drifts_and_expires_on_lift() {
     smoke_p_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 20);
     assert_eq!(g.objs.aliens[idx as usize].sword1, 6);
+    assert_eq!(
+        g.objs.aliens[idx as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[idx as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[idx as usize].tx, 0);
 
     smoke_p_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].worldx, -1);
@@ -123,6 +129,12 @@ fn puff_animates_then_removes() {
     g.objs.aliens[idx as usize].worldz = 100;
     puff_istrat(&mut g, idx);
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(
+        g.objs.aliens[idx as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
+    assert_eq!(g.objs.aliens[idx as usize].depthoffset, 0);
+    assert_eq!(g.objs.aliens[idx as usize].tx, 0);
 
     // Frames 0→1…→7: still alive; at frame 8 after add, remove.
     for _ in 0..8 {

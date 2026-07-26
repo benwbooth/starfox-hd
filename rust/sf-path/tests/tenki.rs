@@ -1,9 +1,10 @@
 //! Titania weather paths, transcribed from PATHDATA.ASM:198-226.
 
-use sf_path::alien::{Alien, StratRef, ASF_COLLDISABLE, ATZREMOVE};
+use sf_path::alien::{Alien, ObjectVisualKind, StratRef, ASF_COLLDISABLE, ATZREMOVE};
 use sf_path::ids::{PATH_ID_TENKI_DM, PATH_ID_TENKI_ON};
 use sf_path::interp::{strat_path_init, strat_path_tick, PathHost, PathWorld};
 use sf_path::literals;
+use sf_path::opcodes::{P_END, P_SPRITE};
 
 #[derive(Default)]
 struct Host {
@@ -120,4 +121,26 @@ fn tenki_dm_is_inert_collisionless_and_turns_away() {
     assert!(world.aliens[1].type_ & ATZREMOVE != 0);
     assert!(host.sounds.is_empty());
     assert_eq!(world.aldead, 0);
+}
+
+#[test]
+fn sprite_opcode_sets_typed_presentation_fields() {
+    const NEGATIVE_TWO_AS_BYTE: u8 = 254;
+    const SPRITE_DEPTH_COLOUR: i16 = -2;
+    const SPRITE_SIZE: u8 = 12;
+
+    let mut world = PathWorld::new();
+    world.paths_load_data(
+        vec![P_SPRITE, NEGATIVE_TWO_AS_BYTE, SPRITE_SIZE, P_END],
+        vec![0],
+    );
+    let mut host = Host::default();
+    spawn_path(&mut world, 1, 0);
+
+    strat_path_tick(&mut world, &mut host, 1);
+
+    let object = &world.aliens[1];
+    assert_eq!(object.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(object.depthoffset, SPRITE_DEPTH_COLOUR);
+    assert_eq!(object.tx, SPRITE_SIZE);
 }

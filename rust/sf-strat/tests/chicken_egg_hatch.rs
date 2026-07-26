@@ -2,7 +2,7 @@
 //! fall → hatch shell+chick / wait-to-hit / bounce→nothing (was instant
 //! `strat_explode` on land).
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ASF_SHADOW};
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_SHADOW};
 use sf_game::game::{Game, Hooks};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses::{chicken_egg_istrat, chicken_egg_strat};
@@ -70,6 +70,9 @@ fn chicken_egg_istrat_sets_hatch_hp() {
     assert_eq!(al.ap, 8);
     assert_ne!(al.sflags & ASF_SHADOW, 0);
     assert_ne!(al.collflags & 0x10, 0); // COLLTYPE_ENEMY1
+    assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(al.depthoffset, 0);
+    assert_eq!(al.tx, 0);
 }
 
 /// Far + high RNG → hatch: open egg, shell, chick, trigse $3a.

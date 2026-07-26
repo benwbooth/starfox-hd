@@ -35,25 +35,29 @@
 //!
 //! ## Alien field map
 //!
-//! Both `Alien` structs are field-for-field ports of the C `Alien`
-//! (`src/game/obj.h`) with identical widths; they differ ONLY in the five
-//! strategy slots (`StratId` vs `StratRef`). [`copy_g2p`]/[`copy_p2g_data`]
-//! copy every data field by C name; the strategy slots round-trip through
-//! [`id2ref`]/[`ref2id`]: the path-lane routines (PathTick, PathOnCollision,
-//! Explode, ParticleExplode*, Trail, Pollen) map to their registered
-//! `StratId`s, an address-resolved strategy encodes as `External(addr)`, and
-//! any other game `StratId` (an ordinary enemy AI the path tick never
-//! dispatches, only reads position/flags of) is carried as a typed
-//! `StratRef::Native` handle so it decodes back to the exact same identity.
+//! Both `Alien` structs model the C `Alien` (`src/game/obj.h`) field-for-field.
+//! Their strategy identities and visual-kind enums use crate-local nominal
+//! types, so [`copy_g2p`]/[`copy_p2g_data`] map those typed fields explicitly
+//! while copying every other data field by C name. Strategy slots round-trip
+//! through [`id2ref`]/[`ref2id`]: the path-lane routines (PathTick,
+//! PathOnCollision, Explode, ParticleExplode*, Trail, Pollen) map to their
+//! registered `StratId`s, an address-resolved strategy encodes as
+//! `External(addr)`, and any other game `StratId` (an ordinary enemy AI the
+//! path tick never dispatches, only reads position/flags of) is carried as a
+//! typed `StratRef::Native` handle so it decodes back to the exact same
+//! identity.
 
 use sf_game::alien::{
-    Alien as GAlien, StratId, ACF_COLLTYPE2, ASF4_TEXTOBJ, ASF_COLLDISABLE, ASF_HITFLASH,
-    ASF_SHADOW, NUMBER_AL,
+    Alien as GAlien, ObjectVisualKind as GObjectVisualKind, StratId, ACF_COLLTYPE2, ASF4_TEXTOBJ,
+    ASF_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW, NUMBER_AL,
 };
 use sf_game::game::Game;
 use sf_game::vars::HARD_HP;
 use sf_game::world::World;
-use sf_path::alien::{Alien as PAlien, StratRef, AFEXP, ASF4_NOPOLYEXP, ASF_PARTOBJ};
+use sf_path::alien::{
+    Alien as PAlien, ObjectVisualKind as PObjectVisualKind, StratRef, AFEXP, ASF4_NOPOLYEXP,
+    ASF_PARTOBJ,
+};
 use sf_path::interp::{dispatch_strat, PathHost, PathWorld};
 use sf_path::literals::InlineIps;
 use sf_path::rom_catalog_data::{ROM_DINTRO1_EXIT_IP, ROM_DINTRO1_LOOP_IP};
@@ -550,6 +554,10 @@ macro_rules! copy_data_fields {
 fn copy_g2p(ga: &GAlien, ids: PathStratIds) -> PAlien {
     let mut pa = PAlien::default();
     copy_data_fields!(ga, &mut pa);
+    pa.visual_kind = match ga.visual_kind {
+        GObjectVisualKind::Mesh => PObjectVisualKind::Mesh,
+        GObjectVisualKind::ScaledSprite => PObjectVisualKind::ScaledSprite,
+    };
     pa.stratptr = id2ref(ga.stratptr, ids);
     pa.expstratptr = id2ref(ga.expstratptr, ids);
     pa.collstratptr = id2ref(ga.collstratptr, ids);
@@ -564,7 +572,11 @@ fn copy_g2p(ga: &GAlien, ids: PathStratIds) -> PAlien {
 /// path `Alien` -> game `Alien` (data only; caller sets strat slots and never
 /// touches list/active).
 fn copy_p2g_data(pa: &PAlien, ga: &mut GAlien) {
-    copy_data_fields!(pa, ga);
+    copy_data_fields!(pa, &mut *ga);
+    ga.visual_kind = match pa.visual_kind {
+        PObjectVisualKind::Mesh => GObjectVisualKind::Mesh,
+        PObjectVisualKind::ScaledSprite => GObjectVisualKind::ScaledSprite,
+    };
 }
 
 // ============================================================
@@ -900,7 +912,10 @@ const ACF_FIRSTFRAME_P: u8 = 0x04;
 
 #[cfg(test)]
 mod tests {
-    use super::dintro1_chase_x;
+    use super::{
+        copy_g2p, copy_p2g_data, dintro1_chase_x, GAlien, GObjectVisualKind, PObjectVisualKind,
+        PathStratIds, StratId,
+    };
 
     #[test]
     fn dintro1_special_achase_matches_signed_65816_edges() {
@@ -911,5 +926,36 @@ mod tests {
         assert_eq!(dintro1_chase_x(-1), (0, true));
         assert_eq!(dintro1_chase_x(1), (0, true));
         assert_eq!(dintro1_chase_x(0), (0, true));
+    }
+
+    #[test]
+    fn typed_sprite_presentation_round_trips_through_path_bridge() {
+        const SPRITE_DEPTH_COLOUR: i16 = -2;
+        const SPRITE_SIZE: u8 = 12;
+
+        let ids = PathStratIds {
+            tick: StratId(0),
+            coll: StratId(1),
+            explode: StratId(2),
+            pei: StratId(3),
+            pes: StratId(4),
+            trail: StratId(5),
+            pollen: StratId(6),
+        };
+        let mut game_object = GAlien::default();
+        game_object.visual_kind = GObjectVisualKind::ScaledSprite;
+        game_object.depthoffset = SPRITE_DEPTH_COLOUR;
+        game_object.tx = SPRITE_SIZE;
+
+        let path_object = copy_g2p(&game_object, ids);
+        assert_eq!(path_object.visual_kind, PObjectVisualKind::ScaledSprite);
+        assert_eq!(path_object.depthoffset, SPRITE_DEPTH_COLOUR);
+        assert_eq!(path_object.tx, SPRITE_SIZE);
+
+        let mut round_trip = GAlien::default();
+        copy_p2g_data(&path_object, &mut round_trip);
+        assert_eq!(round_trip.visual_kind, GObjectVisualKind::ScaledSprite);
+        assert_eq!(round_trip.depthoffset, SPRITE_DEPTH_COLOUR);
+        assert_eq!(round_trip.tx, SPRITE_SIZE);
     }
 }

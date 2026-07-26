@@ -143,8 +143,6 @@ pub(crate) mod eb_compat {
     pub const ASF3_CHILDOBJ: u8 = 0x10;
     pub const ASF3_MOTHEROBJ: u8 = 0x20;
     pub const ASF3_TEXTOBJ: u8 = 0x40;
-    pub const ASF3_SSPRITE: u8 = 0x80;
-
     // al_sflags4 bits (obj.h:116-117)
     pub const ASF4_DONESND: u8 = 0x02;
     pub const ASF4_NOPOLYEXP: u8 = 0x04;

@@ -34,17 +34,18 @@
 //!   head, so children run their init one frame later and `mothercnt`
 //!   scans the whole list (no map shipped in MOTHERS.ASM relies on the
 //!   partial scan).
-//! - `s_sprite_obj` (2D sprite promotion) and the display-only
-//!   `drotsflat_x`/`dobj2obj3dangle_xy` calls in the meteor inits are not
-//!   ported (renderer lane); motion, HP/AP, collision and RNG order match
-//!   the ROM.
+//! - The display-only `drotsflat_x`/`dobj2obj3dangle_xy` calls in the meteor
+//!   inits remain renderer-owned; motion, typed sprite presentation, HP/AP,
+//!   collision and RNG order match the ROM.
 
 use crate::common::{
     sf_random, strat_apply_velocity, strat_gen_vecs_3d, strat_init_obj_vars, strat_make_obj,
     strat_remove_obj,
 };
 use crate::enemy_a::{sid, strat_explode, strat_hit_flash, COLLTYPE_ENEMY1};
-use sf_game::alien::{StratId, ASF_COLLDISABLE, ASF_COLLIDE, ASF_NOHITAFFECT, ATZREMOVE};
+use sf_game::alien::{
+    ObjectVisualKind, StratId, ASF_COLLDISABLE, ASF_COLLIDE, ASF_NOHITAFFECT, ATZREMOVE,
+};
 use sf_game::game::Game;
 use sf_map::consts::DirectStrategy;
 use sf_map::mothers::{mop, mother_maps, MOTH_SIZEOF, MO_SIZEOF};
@@ -359,6 +360,9 @@ fn meteor_init_common(g: &mut Game, idx: u16) {
     al.hp = METEOR_HP;
     al.ap = METEOR_AP;
     al.rotz = 0;
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
+    al.depthoffset = 0;
+    al.tx = 0;
     al.vel = r_vel;
     al.sbyte1 = r_sb1;
     al.roty = r_roty;
@@ -415,6 +419,9 @@ fn strat_meteor_fragment_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.collflags |= COLLTYPE_ENEMY1;
         al.sflags |= ASF_NOHITAFFECT;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
     strat_gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
     strat_meteor_tick(g, idx);
@@ -460,6 +467,9 @@ pub fn strat_searchmeteor_init(g: &mut Game, idx: u16) {
     al.vel = r_vel;
     al.sbyte1 = r_sb1;
     al.roty = r_roty;
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
+    al.depthoffset = 0;
+    al.tx = 0;
     if r_roty >= 128 {
         al.sbyte1 = al.sbyte1.wrapping_neg();
     }
@@ -516,6 +526,9 @@ pub fn strat_clasteroid_init(g: &mut Game, idx: u16) {
     al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
     al.stratptr = Some(tick);
     al.count = 70; // s_set_lifecnt x,#70
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
+    al.depthoffset = 0;
+    al.tx = 0;
     strat_clasteroid_tick(g, idx);
 }
 
@@ -760,6 +773,12 @@ mod tests {
             al.worldz = 2000;
         }
         strat_meteor_init(&mut g, meteor);
+        assert_eq!(
+            g.objs.aliens[meteor as usize].visual_kind,
+            ObjectVisualKind::ScaledSprite
+        );
+        assert_eq!(g.objs.aliens[meteor as usize].depthoffset, 0);
+        assert_eq!(g.objs.aliens[meteor as usize].tx, 0);
         let death_pos = {
             let al = g.objs.aliens[meteor as usize];
             (al.worldx, al.worldy, al.worldz)
@@ -789,6 +808,34 @@ mod tests {
         let al = g.objs.aliens[f as usize];
         assert_eq!(al.worldz, z0.wrapping_add(al.vz));
         assert_eq!(al.sword1, 60);
+        assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
+        assert_eq!(al.depthoffset, 0);
+        assert_eq!(al.tx, 0);
+    }
+
+    #[test]
+    fn searchmeteor_and_clasteroid_use_typed_sprite_presentation() {
+        let mut g = Game::new();
+        crate::table::register_all(&mut g);
+        let player = g.objs.alloc().unwrap();
+        strat_init_obj_vars(&mut g.objs.aliens[player as usize]);
+        g.vars.internal_playpt = player as i16;
+
+        let search = g.objs.alloc().unwrap();
+        strat_init_obj_vars(&mut g.objs.aliens[search as usize]);
+        strat_searchmeteor_init(&mut g, search);
+        let search = g.objs.aliens[search as usize];
+        assert_eq!(search.visual_kind, ObjectVisualKind::ScaledSprite);
+        assert_eq!(search.depthoffset, 0);
+        assert_eq!(search.tx, 0);
+
+        let cluster = g.objs.alloc().unwrap();
+        strat_init_obj_vars(&mut g.objs.aliens[cluster as usize]);
+        strat_clasteroid_init(&mut g, cluster);
+        let cluster = g.objs.aliens[cluster as usize];
+        assert_eq!(cluster.visual_kind, ObjectVisualKind::ScaledSprite);
+        assert_eq!(cluster.depthoffset, 0);
+        assert_eq!(cluster.tx, 0);
     }
 
     /// The typed mother registry is mechanically separate from the encoded

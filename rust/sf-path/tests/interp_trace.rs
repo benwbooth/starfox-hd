@@ -20,8 +20,8 @@
 //! intentional behavior changes.
 
 use sf_path::alien::{
-    Alien, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF4_NOPOLYEXP, ASF_COLLDISABLE,
-    ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL,
+    Alien, ObjectVisualKind, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF4_NOPOLYEXP,
+    ASF_COLLDISABLE, ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL,
 };
 use sf_path::ids::*;
 use sf_path::interp::{
@@ -386,6 +386,7 @@ fn ram_hash(oracle_variables: &[u8]) -> u32 {
 }
 
 fn dump_tick(world: &PathWorld, oracle_variables: &[u8], out: &mut String, tick: i32) {
+    const SOURCE_SPRITE_FLAG: u8 = 128;
     out.push_str(&format!("T {tick}\n"));
     for i in 0..NUMBER_AL {
         let a = &world.aliens[i];
@@ -417,7 +418,12 @@ fn dump_tick(world: &PathWorld, oracle_variables: &[u8], out: &mut String, tick:
             a.collobjptr,
             a.sflags,
             a.sflags2,
-            a.sflags3,
+            a.sflags3
+                | if a.visual_kind == ObjectVisualKind::ScaledSprite {
+                    SOURCE_SPRITE_FLAG
+                } else {
+                    0
+                },
             a.sflags4,
             a.skidy,
             a.sbyte1,

@@ -6248,6 +6248,9 @@ pub fn bonfire_istrat(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.vel = BONFIRE_SPEED;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
         crate::common::strat_gen_vecs_3d(al);
     }
 }
@@ -6281,6 +6284,9 @@ fn bonfire_trail_istrat(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.collflags |= COLLTYPE_ENEMY1;
         al.sflags |= ASF_COLLDISABLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 1;
+        al.tx = 0;
     }
 }
 
@@ -6346,6 +6352,9 @@ pub fn ironball_istrat(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = IRONBALL_AP;
         al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
         al.vel = IRONBALL_BASE_VEL.wrapping_add(rnd);
         if al.sflags2 & ASF2_SFLAG1 != 0 {
             al.vel = al.vel.wrapping_add(20);
@@ -6461,6 +6470,9 @@ pub fn ironballmissile_istrat(g: &mut Game, idx: u16) {
         al.hp = BALL_MISSILE_HP;
         al.ap = BALL_MISSILE_AP;
         al.sbyte1 = 0; // phase: 0 = approach, 1 = spray
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        al.tx = 0;
     }
 }
 
