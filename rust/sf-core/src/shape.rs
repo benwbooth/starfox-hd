@@ -42,6 +42,8 @@ mod tests {
     fn assembled_path_shape_words_become_flat_ids() {
         assert_eq!(resolve_shape_word(0xB6E7), 442); // flower
         assert_eq!(resolve_shape_word(0xA4BF), 443); // big_bird
+        assert_eq!(resolve_shape_word(0xA5D7), 447); // tow_1
+        assert_eq!(resolve_shape_word(0xA0E1), 452); // pillar3_ns
         assert_eq!(resolve_shape_word(0x98B8), 386); // egg
         assert_eq!(resolve_shape_word(0xA2A6), 387); // boss_d_8
         assert_eq!(resolve_shape_word(0xA2C2), 388); // boss_d_9

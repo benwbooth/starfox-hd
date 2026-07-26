@@ -32,14 +32,12 @@ pub const PATH_EXT_EBYTE3: i32 = 0x2303;
 pub const PATH_EXT_EFLAG1: i32 = 0x2304;
 pub const PATH_EXT_CTYPE: i32 = 0x2305;
 
-// src/path/path_literals.c ON/OFF trail-colour arguments.
-const ON: i32 = 1;
+// src/path/path_literals.c trail-colour argument.
 #[allow(dead_code)]
 const OFF: i32 = 0;
 
 // Source path shapes expressed as native flat ids for the ROM-less catalog.
 const SH_NULLSHAPE: i32 = 0;
-const SH_PILLAR3: i32 = 27;
 const SH_BOM_WING: i32 = 48;
 const SH_R_BU_7: i32 = 102;
 const SH_ROBOT_0: i32 = 420;
@@ -52,14 +50,10 @@ const SH_ZACO_B: i32 = 201;
 const SH_FRIENDSHIP_4: i32 = 218;
 const SH_FLOWER: i32 = 442;
 const SH_BOSS_7_0: i32 = 421;
-const SH_BOSS_7_1: i32 = 55;
-const SH_BOSS_7_1O: i32 = 422;
-const SH_BOSS_7_2: i32 = 423;
 const SH_BOSS_7_3: i32 = 424;
-const SH_BOSS_7_4: i32 = 425;
 const SH_ARCH_0: i32 = 228;
-const SH_TOW_0: i32 = 247;
-const SH_PILLAR3_NS: i32 = SH_PILLAR3;
+const SH_TOW_1: i32 = 447;
+const SH_PILLAR3_NS: i32 = 452;
 // `mediumshape` is a source collision/explosion envelope with no vertices or
 // faces; null is its exact visual representation in the native renderer.
 const SH_MEDIUMSHAPE: i32 = SH_NULLSHAPE;
@@ -1137,10 +1131,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_add(PAL_WORLDY, -160);
     ips.tow_0_set_expstrat = b.emit_start65816("tow_0.after_expstrat");
     b.label("tow_0.after_expstrat");
-    // DPATHDAT uses `tow_1` for the child shape here, but raw path-only shape
-    // symbols still lack canonical flat ids. Keep the existing shape proxy and
-    // fix the literal child offsets.
-    b.emit_spawn_link(0, -200, 5, 0, 0, 0, SH_TOW_0, PATH_ID_TOW_1, 10, 10);
+    b.emit_spawn_link(0, -200, 5, 0, 0, 0, SH_TOW_1, PATH_ID_TOW_1, 10, 10);
     b.emit_trigger("tow_0.explode", PATH_TRIGGER_WHENDEAD_VALUE);
     b.emit8(P_END);
     b.label("tow_0.explode");

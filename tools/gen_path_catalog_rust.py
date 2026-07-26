@@ -49,37 +49,35 @@ pub const PATH_EXT_SINTAB: i32 = 0x2200;
 pub const PATH_EXT_GWORD1: i32 = 0x2300;
 pub const PATH_EXT_EROLL1: i32 = 0x2302;
 pub const PATH_EXT_EBYTE2: i32 = 0x2303;
+// The standalone path VM shadows this proxy address as `g_ebyte3`. The
+// original symbolic variables overlap in the legacy flat-address adapter;
+// keeping the semantic name here makes the Titania weather export explicit.
+pub const PATH_EXT_EBYTE3: i32 = 0x2303;
 pub const PATH_EXT_EFLAG1: i32 = 0x2304;
 pub const PATH_EXT_CTYPE: i32 = 0x2305;
 
-// src/path/path_literals.c ON/OFF trail-colour arguments.
-const ON: i32 = 1;
+// src/path/path_literals.c trail-colour argument.
 #[allow(dead_code)]
 const OFF: i32 = 0;
 
 // Source path shapes expressed as native flat ids for the ROM-less catalog.
 const SH_NULLSHAPE: i32 = 0;
-const SH_PILLAR3: i32 = 27;
 const SH_BOM_WING: i32 = 48;
 const SH_R_BU_7: i32 = 102;
 const SH_ROBOT_0: i32 = 420;
-const SH_B_HOU_0: i32 = 164;
+const SH_B_HOU_0: i32 = 163;
 const SH_S_HOU_0: i32 = SH_B_HOU_0;
 const SH_WALKER_2: i32 = 164;
 const SH_GATE_2: i32 = 210;
 const SH_ZACO_A: i32 = 217;
-const SH_ZACO_B: i32 = 224;
+const SH_ZACO_B: i32 = 201;
 const SH_FRIENDSHIP_4: i32 = 218;
 const SH_FLOWER: i32 = 442;
-const SH_BOSS_7_0: i32 = 240;
-const SH_BOSS_7_1: i32 = 241;
-const SH_BOSS_7_1O: i32 = 242;
-const SH_BOSS_7_2: i32 = 243;
-const SH_BOSS_7_3: i32 = 244;
-const SH_BOSS_7_4: i32 = 245;
+const SH_BOSS_7_0: i32 = 421;
+const SH_BOSS_7_3: i32 = 424;
 const SH_ARCH_0: i32 = 228;
-const SH_TOW_0: i32 = 247;
-const SH_PILLAR3_NS: i32 = SH_PILLAR3;
+const SH_TOW_1: i32 = 447;
+const SH_PILLAR3_NS: i32 = 452;
 // `mediumshape` is a source collision/explosion envelope with no vertices or
 // faces; null is its exact visual representation in the native renderer.
 const SH_MEDIUMSHAPE: i32 = SH_NULLSHAPE;
@@ -110,7 +108,7 @@ const WEAPON_RELSLOWELASER: i32 = 12;
 const WEAPON_RELBEAMBALL: i32 = 56;
 
 // src/path/path_literals.c STRAT_ID_* (flat strategy table ids).
-const STRAT_ID_BREAK_METEOR: i32 = 235;
+const STRAT_ID_BREAK_METEOR: i32 = 234;
 const STRAT_ID_GATE2: i32 = 207;
 
 // src/variables.h DEG* (256-unit SNES angles).
@@ -168,6 +166,10 @@ def transform_stmt(stmt: str) -> str:
     args = re.sub(r'\(int8\)\(([^()]+)\)', r'path_i8(\1)', args)
     args = re.sub(r'\(int8\)(-?\w+)', r'path_i8(\1)', args)
     args = args.replace('PATH_I8(', 'path_i8(')
+    # The removed C fallback predated the native flat id for this path-only
+    # child mesh and substituted the tow_0 body. Keep generated Rust aligned
+    # with DPATHDAT.ASM and the native shape catalog.
+    args = args.replace('SH_TOW_0, PATH_ID_TOW_1', 'SH_TOW_1, PATH_ID_TOW_1')
     return f'b.{name}({args})'
 
 out = [HEADER]

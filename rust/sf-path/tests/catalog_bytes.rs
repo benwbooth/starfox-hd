@@ -5,9 +5,16 @@
 //! Without that catalog, retain the old fixture check for the source-level
 //! fallback builder.
 
-use sf_path::builder::PATH_MISSING_OFFSET;
-use sf_path::ids::{PATH_ID_CUTCREDS, PATH_ID_MINICASTANET, PATH_ID_MINICASTANETLR};
+use sf_path::builder::{PAL_SHAPE, PATH_MISSING_OFFSET};
+use sf_path::ids::{
+    PATH_ID_CARRIEDLOG, PATH_ID_CUTCREDS, PATH_ID_MINICASTANET, PATH_ID_MINICASTANETLR,
+    PATH_ID_TOW_0, PATH_ID_TOW_1,
+};
+use sf_path::opcodes::{P_SETW, P_SPAWNLINK};
 use sf_path::{literals, rom_catalog_data};
+
+const SHAPE_TOWER_CHILD: u16 = 447;
+const SHAPE_NONSOLID_PILLAR: u16 = 452;
 
 fn fixture_path(name: &str) -> String {
     format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -16,6 +23,50 @@ fn fixture_path(name: &str) -> String {
 fn fixture(name: &str) -> Vec<u8> {
     let path = fixture_path(name);
     std::fs::read(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
+}
+
+fn fallback_path(catalog: &sf_path::catalog::PathCatalog, path_id: u16) -> &[u8] {
+    let start = catalog.offsets[path_id as usize] as usize;
+    let end = catalog
+        .offsets
+        .iter()
+        .copied()
+        .filter(|&offset| offset != PATH_MISSING_OFFSET && offset as usize > start)
+        .min()
+        .map_or(catalog.data.len(), usize::from);
+    &catalog.data[start..end]
+}
+
+#[test]
+fn fallback_uses_exact_path_only_shape_meshes() {
+    let catalog = literals::build_fallback();
+
+    let tower = fallback_path(&catalog, PATH_ID_TOW_0);
+    let spawn = tower
+        .windows(13)
+        .find(|bytes| {
+            bytes[0] == P_SPAWNLINK && u16::from_le_bytes([bytes[3], bytes[4]]) == PATH_ID_TOW_1
+        })
+        .expect("tow_0 must spawn its linked tow_1 child");
+    assert_eq!(
+        u16::from_le_bytes([spawn[1], spawn[2]]),
+        SHAPE_TOWER_CHILD,
+        "tow_1 must use its own flat mesh instead of the tow_0 body",
+    );
+
+    let carried_log = fallback_path(&catalog, PATH_ID_CARRIEDLOG);
+    let set_shape = [
+        P_SETW,
+        SHAPE_NONSOLID_PILLAR as u8,
+        (SHAPE_NONSOLID_PILLAR >> 8) as u8,
+        PAL_SHAPE as u8,
+    ];
+    assert!(
+        carried_log
+            .windows(set_shape.len())
+            .any(|bytes| bytes == set_shape),
+        "carried pillar must switch to the exact non-solid pillar mesh",
+    );
 }
 
 #[test]
