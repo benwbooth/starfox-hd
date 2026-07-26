@@ -1522,6 +1522,25 @@ pub struct MirageDragonCameraState {
     pub tracking_bearing: u8,
 }
 
+/// Typed state for the ordinary flight follow camera used after a sortie's
+/// authored entry. The source object keeps these camera concepts beside the
+/// player pose; the port exposes them directly instead of retaining its
+/// byte-addressed object storage.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct FlightFollowCameraState {
+    pub active: bool,
+    pub control_updates_elapsed: u16,
+    pub rear_distance: i16,
+    pub vertical_offset: i16,
+    pub ambient_height_phase: u8,
+    pub ambient_height_offset: i16,
+    pub continuity_translation: Vector3,
+    pub continuity_reset_pending: bool,
+    pub previous_output_position: Vector3,
+    pub pending_anchor_position: Vector3,
+    pub anchor_motion_pending: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MissionState {
     pub active: bool,
@@ -1545,6 +1564,7 @@ pub struct MissionState {
     /// craft angles so steering remains smooth while the craft leans.
     pub player_flight: PlayerFlightState,
     pub mirage_dragon_camera: MirageDragonCameraState,
+    pub flight_follow_camera: FlightFollowCameraState,
     pub player_walker: PlayerWalkerState,
     pub player_craft_form: PlayerCraftForm,
     pub message: MissionMessageState,
@@ -2431,6 +2451,10 @@ pub struct PlayerFlightState {
     pub bank_trim_recovery: i8,
     /// Current sample in the retail craft's subtle ambient bank wave.
     pub ambient_bank_phase: u8,
+    /// Motion prepared by a control slice whose movement slice is scheduled
+    /// after the current presentation boundary.
+    pub pending_motion_velocity: Vector3,
+    pub control_motion_pending: bool,
 }
 
 /// The active retail Walker jump controller plus its local vertical motion.

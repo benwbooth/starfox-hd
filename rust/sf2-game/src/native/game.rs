@@ -36,15 +36,16 @@ use super::state::{
     CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
     EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
     EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
-    FlightControlStyle, FortunaCoreStatus, FortunaDefenderStatus, FortunaKickGunnerMotionState,
-    FortunaKickGunnerPhase, FortunaMissionState, FortunaPhase, FortunaSwitchStatus, GameMode,
-    GameOverChoice, GameOverDestination, GameOverPhase, GameOverState, GameState, IntroPhase,
-    MacbethCoreStatus, MacbethDefenderStatus, MacbethInstallationStatus, MacbethMissionState,
-    MacbethPhase, MacbethSwitchStatus, MapPoint, MeteorCoreStatus, MeteorMissionState, MeteorPhase,
-    MeteorSwitchStatus, MirageDragonCameraPhase, MirageDragonCameraState,
-    MirageDragonFollowDistancePhase, MissionMessage, MissionMessageIrisFrame, MissionMessagePhase,
-    MissionPhase, MissionVisit, Pilot, PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase,
-    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
+    FlightControlStyle, FlightFollowCameraState, FortunaCoreStatus, FortunaDefenderStatus,
+    FortunaKickGunnerMotionState, FortunaKickGunnerPhase, FortunaMissionState, FortunaPhase,
+    FortunaSwitchStatus, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
+    GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
+    MacbethInstallationStatus, MacbethMissionState, MacbethPhase, MacbethSwitchStatus, MapPoint,
+    MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus, MirageDragonCameraPhase,
+    MirageDragonCameraState, MirageDragonFollowDistancePhase, MissionMessage,
+    MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
+    PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
+    PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
     PlayerCraftTransformationDirection, PlayerDamageState, RecurringAttacker,
     RecurringAttackersState, ResultsChoice, ResultsPhase, ResultsState, SoundEvent,
     StrategicEncounter, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
@@ -6743,13 +6744,13 @@ impl Game {
             .ok_or(Error::ObjectCapacityReached)?;
         let wingmate_id = self.state.mission.wingmate;
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
-            apply_player_keyframe(primary, pressure_fighters::PLAYER_KEYFRAMES[0]);
+            apply_player_keyframe(primary, pressure_fighters::ENTRY_PLAYER_KEYFRAMES[0]);
             primary.base.shape = ShapeId::EMPTY;
             primary.base.flags.visible = false;
             primary.base.flags.collision_disabled = true;
         }
         self.previous_mission_player_position =
-            Some(pressure_fighters::PLAYER_KEYFRAMES[0].position);
+            Some(pressure_fighters::ENTRY_PLAYER_KEYFRAMES[0].position);
         if let Some(wingmate) = wingmate_id.and_then(|id| self.state.objects.get_mut(id)) {
             wingmate.base.position = Vector3::default();
             wingmate.base.pitch = Angle::ZERO;
@@ -7188,6 +7189,7 @@ impl Game {
         self.state.mission.player_flight.pitch_lean = 0;
         self.state.mission.player_flight.ambient_bank_phase = 0;
         self.state.mission.mirage_dragon_camera = MirageDragonCameraState::default();
+        self.state.mission.flight_follow_camera = FlightFollowCameraState::default();
         self.state.mission.departed_certified_neutral_path = false;
         if visit == MissionVisit::OpeningEngagement {
             self.state.mission.item_count = INITIAL_ITEM_COUNT;
@@ -8000,8 +8002,8 @@ impl Game {
             | MissionPhase::ReturningToStrategicMap => {}
         }
 
-        if retail_frame > MISSION_PLAYER_INPUT_START_RETAIL_FRAME {
-            self.update_active_flight(
+        if retail_frame >= pressure_fighters::LIVE_FIRST_RETAIL_FRAME {
+            self.update_pressure_fighter_flight(
                 retail_frame,
                 self.state.mission.phase == MissionPhase::Active,
             )?;
@@ -16032,12 +16034,410 @@ impl Game {
 
     fn update_pressure_fighter_presentation(&mut self, retail_frame: u16) {
         self.update_pressure_player_presentation(
-            &pressure_fighters::CAMERA_KEYFRAMES,
-            &pressure_fighters::PLAYER_KEYFRAMES,
+            &pressure_fighters::ENTRY_CAMERA_KEYFRAMES,
+            &pressure_fighters::ENTRY_PLAYER_KEYFRAMES,
             None,
             FIGHTER_INTERCEPT_PLAYER_REVEAL_RETAIL_FRAME,
             retail_frame,
         );
+    }
+
+    fn update_pressure_fighter_flight(
+        &mut self,
+        retail_frame: u16,
+        weapons_enabled: bool,
+    ) -> Result<(), Error> {
+        let left = self.state.input.held.contains(Button::Left);
+        let right = self.state.input.held.contains(Button::Right);
+        let physical_up = self.state.input.held.contains(Button::Up);
+        let physical_down = self.state.input.held.contains(Button::Down);
+        let (up, down) = match self.state.pilot_selection.control_style {
+            FlightControlStyle::TypeA => (physical_down, physical_up),
+            FlightControlStyle::TypeB => (physical_up, physical_down),
+        };
+        let Some(primary_id) = self.state.mission.primary_player else {
+            return Ok(());
+        };
+
+        if self.update_player_transformation(primary_id) {
+            return Ok(());
+        }
+        if self.state.mission.player_craft_form == PlayerCraftForm::Walker {
+            return self.update_active_walker(primary_id, retail_frame, weapons_enabled);
+        }
+        if left || right || up || down {
+            self.state.mission.departed_certified_neutral_path = true;
+        }
+
+        if retail_frame == pressure_fighters::LIVE_FIRST_RETAIL_FRAME {
+            let primary_flight_craft_shape = self.primary_flight_craft_shape();
+            let flight = &mut self.state.mission.player_flight;
+            flight.pitch_accumulator = 0;
+            flight.yaw_accumulator = i16::from(pressure_fighters::PLAYER_HANDOFF_YAW.units())
+                << FLIGHT_ACCUMULATOR_FRACTION_BITS;
+            flight.pitch_lean = 0;
+            flight.bank_recovery = pressure_fighters::PLAYER_HANDOFF_BANK_RECOVERY;
+            flight.bank_trim_recovery = 0;
+            flight.ambient_bank_phase = 0;
+            flight.pending_motion_velocity = Vector3::default();
+            flight.control_motion_pending = false;
+
+            if let Some(player) = self.state.objects.get_mut(primary_id) {
+                player.base.position = pressure_fighters::PLAYER_HANDOFF_POSITION;
+                player.base.pitch = pressure_fighters::PLAYER_HANDOFF_PITCH;
+                player.base.yaw = pressure_fighters::PLAYER_HANDOFF_YAW;
+                player.base.roll = pressure_fighters::PLAYER_HANDOFF_BANK;
+                player.base.speed = pressure_fighters::PLAYER_HANDOFF_SPEED;
+                player.base.velocity = Vector3::default();
+                player.base.shape = primary_flight_craft_shape;
+                player.base.flags.visible = true;
+                player.base.flags.collision_disabled = false;
+            }
+            self.state.mission.flight_follow_camera = FlightFollowCameraState {
+                active: true,
+                rear_distance: pressure_fighters::CAMERA_FOLLOW_INITIAL_REAR_DISTANCE,
+                previous_output_position: pressure_fighters::CAMERA_HANDOFF_POSITION,
+                continuity_reset_pending: true,
+                ..FlightFollowCameraState::default()
+            };
+            self.state.camera.position = pressure_fighters::CAMERA_HANDOFF_POSITION;
+        }
+
+        let cadence = pressure_fighters::live_flight_cadence(retail_frame).unwrap_or(
+            pressure_fighters::LiveFlightCadence {
+                player_updates: 1,
+                player_control_only: false,
+                camera_updates: 1,
+                camera_anchor_only: false,
+            },
+        );
+        let mut total_velocity = Vector3::default();
+        let mut player_updates = cadence.player_updates;
+        if player_updates > 0 && self.state.mission.player_flight.control_motion_pending {
+            let flight = &mut self.state.mission.player_flight;
+            total_velocity = flight.pending_motion_velocity;
+            flight.pending_motion_velocity = Vector3::default();
+            flight.control_motion_pending = false;
+            player_updates -= 1;
+        }
+        for _ in 0..player_updates {
+            let position = self
+                .state
+                .objects
+                .get(primary_id)
+                .map(|player| add_vectors(player.base.position, total_velocity))
+                .unwrap_or_default();
+            let Some(velocity) = self.advance_pressure_fighter_player_control(
+                primary_id, position, left, right, up, down,
+            ) else {
+                return Ok(());
+            };
+            total_velocity = add_vectors(total_velocity, velocity);
+        }
+        if cadence.player_control_only {
+            let position = self
+                .state
+                .objects
+                .get(primary_id)
+                .map(|player| add_vectors(player.base.position, total_velocity))
+                .unwrap_or_default();
+            let Some(velocity) = self.advance_pressure_fighter_player_control(
+                primary_id, position, left, right, up, down,
+            ) else {
+                return Ok(());
+            };
+            let flight = &mut self.state.mission.player_flight;
+            flight.pending_motion_velocity = velocity;
+            flight.control_motion_pending = true;
+        }
+
+        if let Some(player) = self.state.objects.get_mut(primary_id) {
+            let next_y = player.base.position.y.wrapping_add(total_velocity.y);
+            if next_y > PLAYER_VERTICAL_UPPER_BOUND {
+                total_velocity.y = PLAYER_VERTICAL_UPPER_BOUND.wrapping_sub(player.base.position.y);
+            } else if next_y < PLAYER_VERTICAL_LOWER_BOUND {
+                total_velocity.y = PLAYER_VERTICAL_LOWER_BOUND.wrapping_sub(player.base.position.y);
+            }
+            player.base.velocity = total_velocity;
+        }
+
+        let projected_player = self
+            .state
+            .objects
+            .get(primary_id)
+            .map(|player| {
+                (
+                    add_vectors(player.base.position, player.base.velocity),
+                    player.base.pitch,
+                    player.base.yaw,
+                )
+            })
+            .unwrap_or_default();
+        for _ in 0..cadence.camera_updates {
+            self.advance_pressure_fighter_follow_camera(
+                projected_player.0,
+                projected_player.1,
+                projected_player.2,
+            );
+        }
+        if cadence.camera_anchor_only {
+            self.publish_pressure_fighter_follow_camera_anchor(
+                projected_player.0,
+                projected_player.1,
+                projected_player.2,
+            );
+        }
+
+        if let Some(wingmate_id) = self.state.mission.wingmate {
+            if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+                wingmate.base.position = Vector3::default();
+                wingmate.base.pitch = Angle::ZERO;
+                wingmate.base.yaw = Angle::ZERO;
+                wingmate.base.roll = Angle::ZERO;
+                wingmate.base.speed = 0;
+                wingmate.base.velocity = Vector3::default();
+                wingmate.base.shape = ShapeId::EMPTY;
+                wingmate.base.flags.visible = false;
+                wingmate.base.flags.collision_disabled = true;
+            }
+        }
+        self.update_player_blaster(primary_id, weapons_enabled)
+    }
+
+    fn advance_pressure_fighter_player_control(
+        &mut self,
+        primary_id: ObjectId,
+        position: Vector3,
+        left: bool,
+        right: bool,
+        up: bool,
+        down: bool,
+    ) -> Option<Vector3> {
+        let at_upper_boundary = position.y >= PLAYER_VERTICAL_UPPER_BOUND;
+        let at_lower_boundary = position.y <= PLAYER_VERTICAL_LOWER_BOUND;
+        let pitch_target = if up != down {
+            if up {
+                if at_upper_boundary {
+                    PLAYER_BOUNDARY_PITCH_TARGET
+                } else {
+                    PLAYER_PITCH_TARGET
+                }
+            } else if at_lower_boundary {
+                -PLAYER_BOUNDARY_PITCH_TARGET
+            } else {
+                -PLAYER_PITCH_TARGET
+            }
+        } else {
+            0
+        };
+        let pitch_lean_target = if up != down {
+            if up {
+                if at_upper_boundary {
+                    -PLAYER_BOUNDARY_PITCH_LEAN
+                } else {
+                    -PLAYER_PITCH_LEAN_LIMIT
+                }
+            } else if at_lower_boundary {
+                PLAYER_BOUNDARY_PITCH_LEAN
+            } else {
+                PLAYER_PITCH_LEAN_LIMIT
+            }
+        } else {
+            0
+        };
+
+        let flight = &mut self.state.mission.player_flight;
+        flight.pitch_accumulator = chase_proportional(
+            flight.pitch_accumulator,
+            pitch_target,
+            PLAYER_CONTROL_RESPONSE_SHIFT,
+        );
+        flight.pitch_lean =
+            approach_i8(flight.pitch_lean, pitch_lean_target, PLAYER_PITCH_LEAN_RATE);
+        if left != right {
+            flight.yaw_accumulator = flight.yaw_accumulator.wrapping_add(if left {
+                PLAYER_YAW_ACCUMULATOR_STEP
+            } else {
+                -PLAYER_YAW_ACCUMULATOR_STEP
+            });
+        }
+        flight.ambient_bank_phase =
+            pressure_fighters::advance_player_ambient_bank_phase(flight.ambient_bank_phase, 1);
+        let movement_pitch = accumulator_angle(flight.pitch_accumulator);
+        let yaw = accumulator_angle(flight.yaw_accumulator);
+        let visual_pitch = visible_pitch_from_lean(flight.pitch_lean);
+
+        let player = self.state.objects.get_mut(primary_id)?;
+        if left != right {
+            flight.bank_recovery = 0;
+            let bank_target = if left {
+                PLAYER_LEFT_BANK
+            } else {
+                PLAYER_RIGHT_BANK
+            };
+            player.base.roll = approach_angle(player.base.roll, bank_target, PLAYER_BANK_RATE);
+        } else {
+            flight.bank_recovery =
+                pressure_fighters::decay_player_bank_recovery(flight.bank_recovery);
+            player.base.roll = Angle::from_units(
+                pressure_fighters::player_ambient_bank(flight.ambient_bank_phase)
+                    .wrapping_add(flight.bank_recovery) as u8,
+            );
+        }
+        let target_speed = if left != right {
+            PLAYER_TURN_SPEED
+        } else {
+            pressure_fighters::PLAYER_NEUTRAL_TARGET_SPEED
+        };
+        let acceleration = if player.base.speed < pressure_fighters::PLAYER_FAST_SPEED_LIMIT {
+            pressure_fighters::PLAYER_FAST_ACCELERATION
+        } else {
+            PLAYER_SPEED_CHANGE_PER_TICK
+        };
+        player.base.speed = approach_u8(player.base.speed, target_speed, acceleration);
+        player.base.pitch = visual_pitch;
+        player.base.yaw = yaw;
+        Some(flight_velocity(
+            movement_pitch,
+            player.base.yaw,
+            player.base.speed,
+            1,
+        ))
+    }
+
+    fn advance_pressure_fighter_follow_camera(
+        &mut self,
+        player_position: Vector3,
+        pitch: Angle,
+        yaw: Angle,
+    ) {
+        if !self
+            .state
+            .mission
+            .flight_follow_camera
+            .anchor_motion_pending
+        {
+            self.prepare_pressure_fighter_follow_camera_anchor(player_position);
+        }
+        let camera = &mut self.state.mission.flight_follow_camera;
+        if !camera.active {
+            return;
+        }
+        camera.continuity_translation.x = approach_proportional_i16(
+            camera.continuity_translation.x,
+            0,
+            pressure_fighters::CAMERA_CONTINUITY_TRANSLATION_DIVISOR,
+        );
+        camera.continuity_translation.y = approach_proportional_i16(
+            camera.continuity_translation.y,
+            0,
+            pressure_fighters::CAMERA_CONTINUITY_TRANSLATION_DIVISOR,
+        );
+        camera.continuity_translation.z = approach_proportional_i16(
+            camera.continuity_translation.z,
+            0,
+            pressure_fighters::CAMERA_CONTINUITY_TRANSLATION_DIVISOR,
+        );
+        let (translation_x, translation_z) = sf_core::snes_trig::rotate_16xz(
+            0,
+            camera.continuity_translation.x,
+            camera.continuity_translation.z,
+        );
+        camera.previous_output_position = Vector3 {
+            x: camera.pending_anchor_position.x.wrapping_add(translation_x),
+            y: camera
+                .pending_anchor_position
+                .y
+                .wrapping_add(camera.continuity_translation.y),
+            z: camera.pending_anchor_position.z.wrapping_add(translation_z),
+        };
+        camera.anchor_motion_pending = false;
+        self.state.camera.position = camera.previous_output_position;
+        self.state.camera.rotation = Rotation {
+            pitch: Angle::from_units(pitch.units().wrapping_neg()),
+            yaw: Angle::from_units(
+                pressure_fighters::PLAYER_HANDOFF_YAW
+                    .units()
+                    .wrapping_sub(yaw.units()),
+            ),
+            roll: Angle::ZERO,
+        };
+    }
+
+    fn prepare_pressure_fighter_follow_camera_anchor(&mut self, player_position: Vector3) {
+        let camera = &mut self.state.mission.flight_follow_camera;
+        if !camera.active {
+            return;
+        }
+        if camera.control_updates_elapsed > 0 {
+            camera.vertical_offset = pressure_fighters::CAMERA_FOLLOW_VERTICAL_OFFSET;
+        }
+        camera.control_updates_elapsed = camera.control_updates_elapsed.saturating_add(1);
+        let (ambient_phase, ambient_height) = pressure_fighters::advance_camera_ambient_height(
+            camera.ambient_height_phase,
+            camera.ambient_height_offset,
+        );
+        camera.ambient_height_phase = ambient_phase;
+        camera.ambient_height_offset = ambient_height;
+
+        camera.pending_anchor_position = pressure_fighter_follow_camera_position(
+            player_position,
+            camera.vertical_offset,
+            camera.rear_distance,
+            camera.ambient_height_offset,
+        );
+        let previous_rear_distance = camera.rear_distance;
+        camera.rear_distance = approach_i16(
+            camera.rear_distance,
+            pressure_fighters::CAMERA_FOLLOW_REAR_DISTANCE_TARGET,
+            pressure_fighters::CAMERA_FOLLOW_REAR_DISTANCE_STEP,
+        );
+        if previous_rear_distance != pressure_fighters::CAMERA_FOLLOW_REAR_DISTANCE_TARGET
+            && camera.rear_distance == pressure_fighters::CAMERA_FOLLOW_REAR_DISTANCE_TARGET
+        {
+            camera.continuity_reset_pending = true;
+        }
+        if camera.continuity_reset_pending {
+            camera.continuity_translation = Vector3 {
+                x: camera
+                    .previous_output_position
+                    .x
+                    .wrapping_sub(camera.pending_anchor_position.x),
+                y: camera
+                    .previous_output_position
+                    .y
+                    .wrapping_sub(camera.pending_anchor_position.y),
+                z: camera
+                    .previous_output_position
+                    .z
+                    .wrapping_sub(camera.pending_anchor_position.z),
+            };
+            camera.continuity_reset_pending = false;
+        }
+        camera.anchor_motion_pending = true;
+    }
+
+    fn publish_pressure_fighter_follow_camera_anchor(
+        &mut self,
+        player_position: Vector3,
+        pitch: Angle,
+        yaw: Angle,
+    ) {
+        self.prepare_pressure_fighter_follow_camera_anchor(player_position);
+        let camera = &self.state.mission.flight_follow_camera;
+        if !camera.active {
+            return;
+        }
+        self.state.camera.position = camera.pending_anchor_position;
+        self.state.camera.rotation = Rotation {
+            pitch: Angle::from_units(pitch.units().wrapping_neg()),
+            yaw: Angle::from_units(
+                pressure_fighters::PLAYER_HANDOFF_YAW
+                    .units()
+                    .wrapping_sub(yaw.units()),
+            ),
+            roll: Angle::ZERO,
+        };
     }
 
     fn update_leon_pressure_presentation(&mut self, retail_frame: u16) {
@@ -17734,9 +18134,7 @@ impl Game {
             MissionVisit::LeonDuel => leon_duel_rival::END_RETAIL_FRAME,
             MissionVisit::LeonPressure => leon_pressure::RETURN_RETAIL_FRAME,
             MissionVisit::MirageDragon => mirage_dragon::RETURN_RETAIL_FRAME,
-            MissionVisit::RecurringAttackers => {
-                pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME
-            }
+            MissionVisit::RecurringAttackers => pressure_fighters::ENTRY_LAST_RETAIL_FRAME,
             MissionVisit::FinalPursuer => final_pursuer::RETURN_RETAIL_FRAME,
             MissionVisit::WolfBlockade => wolf_blockade::RETURN_RETAIL_FRAME,
             MissionVisit::AstropolisAssault => astropolis_entry::LAST_RETAIL_FRAME,
@@ -19985,6 +20383,38 @@ fn chase_mirage_dragon_camera_orientation(current: u16, target: u16) -> u16 {
         limited /= 2;
     }
     current.wrapping_add_signed(limited)
+}
+
+fn pressure_fighter_follow_camera_position(
+    player_position: Vector3,
+    vertical_offset: i16,
+    rear_distance: i16,
+    ambient_height: i16,
+) -> Vector3 {
+    let pitch = ((pressure_fighters::CAMERA_FOLLOW_VIEW_PITCH_SUBUNITS
+        >> pressure_fighters::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+        .wrapping_neg();
+    let yaw = ((pressure_fighters::CAMERA_FOLLOW_VIEW_YAW_SUBUNITS
+        >> pressure_fighters::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+        .wrapping_neg();
+    let (offset_y, depth_after_pitch) = sf_core::snes_trig::rotate_16yz(
+        pitch,
+        vertical_offset.wrapping_mul(pressure_fighters::CAMERA_FOLLOW_VERTICAL_POSITION_SCALE),
+        rear_distance,
+    );
+    let (offset_x, offset_z) = sf_core::snes_trig::rotate_16xz(yaw, 0, depth_after_pitch);
+    Vector3 {
+        x: player_position
+            .x
+            .wrapping_add(offset_x >> pressure_fighters::CAMERA_FOLLOW_POSITION_SCALE_SHIFT),
+        y: player_position
+            .y
+            .wrapping_add(offset_y >> pressure_fighters::CAMERA_FOLLOW_POSITION_SCALE_SHIFT)
+            .wrapping_add(ambient_height),
+        z: player_position
+            .z
+            .wrapping_add(offset_z >> pressure_fighters::CAMERA_FOLLOW_POSITION_SCALE_SHIFT),
+    }
 }
 
 fn mirage_dragon_follow_camera_position(
@@ -22271,6 +22701,53 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tools/sf2/fixtures/mirage_dragon_camera_output.trace"
     ));
+    const PRESSURE_FIGHTER_NEUTRAL_ORACLE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tools/sf2/fixtures/pressure_fighter_neutral.trace"
+    ));
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct PressureFighterNeutralOracleFrame {
+        retail_frame: u16,
+        camera: [i16; 6],
+        player: [i16; 7],
+    }
+
+    fn pressure_fighter_neutral_oracle_field<'a>(line: &'a str, field: &str) -> &'a str {
+        line.split_whitespace()
+            .find_map(|token| {
+                let (name, value) = token.split_once('=')?;
+                (name == field).then_some(value)
+            })
+            .unwrap_or_else(|| panic!("neutral oracle frame is missing {field}: {line}"))
+    }
+
+    fn pressure_fighter_neutral_oracle_tuple<const LENGTH: usize>(
+        line: &str,
+        field: &str,
+    ) -> [i16; LENGTH] {
+        let values: Vec<_> = pressure_fighter_neutral_oracle_field(line, field)
+            .split(',')
+            .map(|value| value.parse::<i16>().unwrap())
+            .collect();
+        values
+            .try_into()
+            .unwrap_or_else(|_| panic!("neutral oracle {field} has the wrong tuple length"))
+    }
+
+    fn pressure_fighter_neutral_oracle_frames(
+    ) -> impl Iterator<Item = PressureFighterNeutralOracleFrame> {
+        PRESSURE_FIGHTER_NEUTRAL_ORACLE
+            .lines()
+            .filter(|line| line.starts_with("retail_frame="))
+            .map(|line| PressureFighterNeutralOracleFrame {
+                retail_frame: pressure_fighter_neutral_oracle_field(line, "retail_frame")
+                    .parse()
+                    .unwrap(),
+                camera: pressure_fighter_neutral_oracle_tuple(line, "camera"),
+                player: pressure_fighter_neutral_oracle_tuple(line, "player"),
+            })
+    }
 
     fn press(game: &mut Game, button: Button) {
         game.tick(button as u16).unwrap();
@@ -31924,7 +32401,7 @@ mod tests {
     #[test]
     fn recurring_attackers_return_only_after_all_four_defeats() {
         assert_eq!(
-            pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME
+            pressure_fighters::ACCEPTED_RETURN_RETAIL_FRAME
                 - pressure_fighters::ACCEPTED_ALL_DEFEATED_RETAIL_FRAME,
             pressure_fighters::DEFEAT_TO_RETURN_RETAIL_FRAMES
         );
@@ -31982,9 +32459,8 @@ mod tests {
             assert_eq!(fighter.base.attack_power, PRESSURE_FIGHTER_ATTACK_POWER);
         }
 
-        game.state.mode_frame =
-            u32::from(pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME)
-                / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+        game.state.mode_frame = u32::from(pressure_fighters::ACCEPTED_RETURN_RETAIL_FRAME)
+            / RETAIL_PRESENTATION_FRAMES_PER_TICK;
         game.state.mission.phase = MissionPhase::Active;
         game.update_pressure_fighter_encounter().unwrap();
         assert_eq!(
@@ -32098,7 +32574,7 @@ mod tests {
         game.begin_pressure_fighter_encounter().unwrap();
         let wingmate_id = game.state.mission.wingmate.unwrap();
 
-        for retail_frame in (0..=pressure_fighters::CERTIFIED_PRESENTATION_END_RETAIL_FRAME)
+        for retail_frame in (0..=pressure_fighters::ENTRY_LAST_RETAIL_FRAME)
             .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
         {
             game.update_pressure_fighter_presentation(retail_frame);
@@ -32112,6 +32588,63 @@ mod tests {
             assert_eq!(wingmate.base.shape, ShapeId::EMPTY);
             assert!(!wingmate.base.flags.visible);
             assert!(wingmate.base.flags.collision_disabled);
+        }
+    }
+
+    #[test]
+    fn recurring_attacker_neutral_player_and_camera_match_every_oracle_boundary() {
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        game.begin_pressure_fighter_encounter().unwrap();
+        let primary_id = game
+            .state
+            .mission
+            .primary_player
+            .expect("the recurring-attacker encounter has a primary player");
+
+        let oracle_frames: Vec<_> = pressure_fighter_neutral_oracle_frames()
+            .take_while(|frame| {
+                frame.retail_frame <= pressure_fighters::NEUTRAL_FLIGHT_LAST_RETAIL_FRAME
+            })
+            .collect();
+        assert_eq!(oracle_frames.len(), 442);
+        for expected in oracle_frames {
+            if expected.retail_frame <= pressure_fighters::ENTRY_LAST_RETAIL_FRAME {
+                game.update_pressure_fighter_presentation(expected.retail_frame);
+            } else {
+                game.update_pressure_fighter_flight(expected.retail_frame, false)
+                    .unwrap();
+                game.update_objects();
+            }
+
+            let player = game.state.objects.get(primary_id).unwrap();
+            assert_eq!(
+                [
+                    player.base.position.x,
+                    player.base.position.y,
+                    player.base.position.z,
+                    i16::from(player.base.pitch.units()),
+                    i16::from(player.base.yaw.units()),
+                    i16::from(player.base.roll.units()),
+                    i16::from(player.base.speed),
+                ],
+                expected.player,
+                "neutral player diverged at retail frame {}",
+                expected.retail_frame
+            );
+            assert_eq!(
+                [
+                    game.state.camera.position.x,
+                    game.state.camera.position.y,
+                    game.state.camera.position.z,
+                    i16::from(game.state.camera.rotation.pitch.units()),
+                    i16::from(game.state.camera.rotation.yaw.units()),
+                    i16::from(game.state.camera.rotation.roll.units()),
+                ],
+                expected.camera,
+                "neutral camera diverged at retail frame {}",
+                expected.retail_frame
+            );
         }
     }
 
