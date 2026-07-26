@@ -1,9 +1,11 @@
 //! Tick 135: boss1 Mediums 6–8 verify (back-mode fire axes + beqdec out cycle)
 //! + ENDSEQ nosetport3 covered in shell tests.
 
-use sf_game::alien::ASF3_REALOBJ;
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_INVISIBLE};
 use sf_game::Game;
-use sf_strat::enemy_a::{boss1back_strat, boss1out_strat, strat_boss1_init, wm};
+use sf_strat::enemy_a::{
+    boss1back_strat, boss1out_strat, strat_boss1_init, wm, SH_BOUNCYBALL, SH_MISSILE,
+};
 
 const DEG180: u8 = 128;
 const DEG45: u8 = 32;
@@ -94,6 +96,9 @@ fn boss1back_fires_from_firer_rots_not_aim() {
         "exactly one HPLASMA on gf&63==0, got {shots:?}"
     );
     let s = &g.objs.aliens[shots[0] as usize];
+    assert_eq!(s.shape, SH_BOUNCYBALL);
+    assert_eq!(s.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(s.visual_kind, ObjectVisualKind::ScaledSprite);
     // homingflat_Istrat (GSTRATS.ASM:1723): copy weapon rots into sbyte1/2,
     // then force visual rotx=0 / roty=deg180 for the flat sprite. Spread lives
     // in the sbytes (homingflat_strat gens vecs from them).
@@ -123,6 +128,13 @@ fn boss1back_fires_from_firer_rots_not_aim() {
         .filter(|i| !before.contains(i))
         .collect();
     assert_eq!(missiles.len(), 2, "hard route fires two HMISSILE1");
+    assert!(
+        missiles.iter().all(|&i| {
+            let missile = &g.objs.aliens[i as usize];
+            missile.shape == SH_MISSILE && missile.sflags & ASF_INVISIBLE == 0
+        }),
+        "HMISSILE1 pair must use the visible missile mesh"
+    );
 
     let pitches: Vec<u8> = missiles
         .iter()

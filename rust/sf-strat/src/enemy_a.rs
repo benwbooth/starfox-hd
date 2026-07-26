@@ -4372,9 +4372,12 @@ pub fn pbeam_strat(g: &mut Game, idx: u16) {
     pelaser_strat(g, idx);
 }
 
+/// Extended shape-catalog id for the ROM `playerbeam` sprite.
+pub const SH_PLAYER_BEAM: u16 = 415;
+
 /// ROM `fire_playerbeam` (GSTRATS.ASM:2359).
 pub fn fire_playerbeam(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, 0)?;
+    let shot = make_obj(g, SH_PLAYER_BEAM)?;
     let owner_vel = g.objs.aliens[firer as usize].vel;
     let (ox, oy, oz, rx, ry) = {
         let o = &g.objs.aliens[firer as usize];
@@ -4401,6 +4404,7 @@ pub fn fire_playerbeam(g: &mut Game, firer: u16) -> Option<u16> {
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
         al.type_ |= ATLASER;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
@@ -5049,9 +5053,9 @@ pub fn fire_yhplasma(g: &mut Game, firer: u16) -> Option<u16> {
 // ============================================================
 
 const NUM_HELP_SHOTS: u8 = 10;
-const SH_HELPBALL: u16 = 226;
+pub const SH_HELPBALL: u16 = 226;
 /// Extended shape-catalog id for the source's distinct homing helper shot.
-const SH_SHELPBALL: u16 = 406;
+pub const SH_SHELPBALL: u16 = 406;
 
 /// Orbit helpball around player: `s_add_Roffs2pos B,x,player,x,#0,radius,#60,0,0,1`
 /// (Z/roll only via `rotate_8yx`, angle = self.rotz).
@@ -5079,6 +5083,7 @@ pub fn helpball_istrat(g: &mut Game, idx: u16) {
         al.sbyte1 = 0;
         al.sbyte2 = 0;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
     }
 }
 
@@ -5192,6 +5197,7 @@ pub fn helpballhome_istrat(g: &mut Game, idx: u16) {
         al.type_ |= ATLASER;
         al.type_ &= !ATZREMOVE;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.sbyte1 = al.roty;
         al.sbyte2 = al.rotx;
     }
@@ -5289,7 +5295,7 @@ pub fn helpball_hrem_istrat(g: &mut Game, idx: u16) {
 // MISSILE / HMISSILE fire family (GSTRATS.ASM:1448-1865, 2609-2764)
 // ============================================================
 
-const SHAPE_MISSILE: u16 = 403;
+pub const SH_MISSILE: u16 = 403;
 const HMISSILE1_HP: u8 = 2;
 const MISSILE2_HP: u8 = 2;
 const MISSILE2_AP: u8 = 4;
@@ -5574,7 +5580,7 @@ pub fn missile2a_strat(g: &mut Game, idx: u16) {
 
 /// ROM `fire_FakeFarHmissile1` (GSTRATS.ASM:2609) — hmissile1 + sflag3 anim.
 pub fn fire_fakefar_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, stopexplode_istrat);
@@ -5596,7 +5602,7 @@ pub fn fire_fakefar_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_Hmissile2` (GSTRATS.ASM:2653).
 pub fn fire_hmissile2(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, stopexplode_istrat);
@@ -5625,7 +5631,7 @@ pub fn fire_boss_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_Hmissile1` (GSTRATS.ASM:2627) — relative homing + smoke puff.
 pub fn fire_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, stopexplode_istrat);
@@ -5661,7 +5667,7 @@ pub fn fire_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_missile2` (GSTRATS.ASM:2740).
 pub fn fire_missile2(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, stopexplode_istrat);
@@ -5682,7 +5688,7 @@ pub fn fire_missile2(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_missile1` (GSTRATS.ASM:2754) — no relexplode.
 pub fn fire_missile1(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, stopexplode_istrat);
@@ -6003,7 +6009,7 @@ pub fn fire_chick_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_STBHmissile1` (GSTRATS.ASM:2710).
 pub fn fire_stb_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, stopexplode_istrat);
@@ -6025,7 +6031,7 @@ pub fn fire_stb_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
 
 /// ROM `fire_QHmissile1` (GSTRATS.ASM:2724).
 pub fn fire_qh_missile1(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, stopexplode_istrat);
@@ -6153,7 +6159,7 @@ pub fn spreada_init(g: &mut Game, idx: u16) {
 
 /// ROM `fire_spread` (GSTRATS.ASM:2769).
 pub fn fire_spread(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_MISSILE)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     place_missile_weapon(g, shot, firer);
     let coll = sid(g, weapcollide_istrat);
     let exp = sid(g, strat_explode);
@@ -6838,9 +6844,12 @@ pub fn nukeexp_strat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sword1 = radius.wrapping_add(NUKE_RATE);
 }
 
+/// Extended shape-catalog id for the ROM `nuke` sprite.
+pub const SH_NUKE: u16 = 407;
+
 /// ROM `fire_nuke` (GSTRATS.ASM:2333) — spawn player's special weapon.
 pub fn fire_nuke(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, 407)?;
+    let shot = make_obj(g, SH_NUKE)?;
     let owner_vel = g.objs.aliens[firer as usize].vel;
     let (ox, oy, oz, rx, ry) = {
         let o = &g.objs.aliens[firer as usize];
@@ -6866,6 +6875,7 @@ pub fn fire_nuke(g: &mut Game, firer: u16) -> Option<u16> {
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
         al.type_ |= ATLASER;
         al.sflags &= !ASF_INVISIBLE;
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
     }
     nuke_istrat(g, shot);
     Some(shot)
@@ -7684,7 +7694,7 @@ pub(crate) fn boss7launcher_fire_hmissile1(
     if !g.objs.aliens[target as usize].active {
         return None;
     }
-    let shot = make_obj(g, 0)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     let me = g.objs.aliens[self_idx as usize];
     boss_apply_yaw_offset(g, shot, &me, 17 << BOSS7_SCALE, -(5 << BOSS7_SCALE), 0);
     let s_tick = sid(g, hmissile1_strat);
@@ -8022,7 +8032,7 @@ fn boss1_fire_hmissile1(
     if !g.objs.aliens[target as usize].active {
         return None;
     }
-    let shot = make_obj(g, 0)?;
+    let shot = make_obj(g, SH_MISSILE)?;
     let me = g.objs.aliens[self_idx as usize];
     // fire_weapon muzzle: offset rotated by the firer's full rots (flags 1,1,1).
     boss1_rot_offset_pos(g, shot, &me, offx, offy, offz);
@@ -8067,7 +8077,7 @@ fn boss1_fire_hplasma(
     if !g.objs.aliens[target as usize].active {
         return None;
     }
-    let shot = make_obj(g, 0)?;
+    let shot = make_obj(g, SH_BOUNCYBALL)?;
     let me = g.objs.aliens[self_idx as usize];
     // fire_weapon muzzle: offset rotated by the firer's full rots (flags 1,1,1).
     boss1_rot_offset_pos(g, shot, &me, offx, offy, offz);
@@ -8087,7 +8097,8 @@ fn boss1_fire_hplasma(
     al.count = HPLASMA_LIFE;
     al.snd2 = 6;
     al.type_ = ATLASER | ATZREMOVE;
-    al.sflags |= ASF_INVISIBLE;
+    al.sflags &= !ASF_INVISIBLE;
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
     al.collflags = ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4;
     al.immuneptr = strat_obj_index_or_null(self_idx);
     al.fireobjptr = target + 1;

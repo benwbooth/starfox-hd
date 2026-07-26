@@ -1,12 +1,12 @@
 //! ROM `Pbeam` / `Pelaser` / `fire_playerbeam` / `fire_Elaser` / `miss_end`.
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::{ObjectVisualKind, ASF_COLLDISABLE};
 use sf_game::vars::{GF_BOSSDEAD, HARD_HP, PSF2_PLAYERHP0};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
     fire_elaser, fire_playerbeam, miss_end, pbeam_istrat, pbeam_strat, pelaser_istrat,
-    pelaser_strat, ASF2_SFLAG1, BF_DYING,
+    pelaser_strat, ASF2_SFLAG1, BF_DYING, SH_PLAYER_BEAM,
 };
 
 #[test]
@@ -95,6 +95,11 @@ fn fire_playerbeam_and_elaser_spawn_stats() {
     assert_eq!(g.objs.aliens[beam as usize].ap, 3);
     assert_eq!(g.objs.aliens[beam as usize].vel, 66);
     assert_eq!(g.objs.aliens[beam as usize].count, 10);
+    assert_eq!(g.objs.aliens[beam as usize].shape, SH_PLAYER_BEAM);
+    assert_eq!(
+        g.objs.aliens[beam as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
     assert_eq!(g.vars.sv_u8(sv::NUMPLASERS), 1);
 
     let laser = fire_elaser(&mut g, player).expect("laser");

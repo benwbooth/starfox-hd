@@ -57,7 +57,7 @@ use crate::enemy_a::{
     strat_hit_flash, strat_move3d, strat_nocoll_init, strat_obj_index_or_null, strat_phase_offset,
     strat_pitch_toward, strat_relslowelaser_speed, AF_LEFT_PL, ASF2_NOEXPSND, ASF2_RELEXPLODE,
     ASF2_SMFLAG1, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG11, DEG180, DEG45,
-    DEG90, SH_BOUNCYBALL,
+    DEG90, SH_BOUNCYBALL, SH_MISSILE,
 };
 use crate::snes_trig::rotate_16xz;
 
@@ -92,6 +92,7 @@ pub const SH_WALKER_RIGHT: u16 = 414;
 pub const SH_WALKER_LEFT: u16 = 477;
 pub const SH_SMALL_EXPLOSION: u16 = 461;
 pub const SH_NULL_SHAPE: u16 = 0;
+pub const SH_SMALL_MISSILE_CARRIER: u16 = 412;
 const MEDPSPEED: u8 = 65; // STRATEQU.INC:347 medPspeed
 const FOGDIST: i16 = 2000; // KSTRATS.ASM:58 fogdist
 const DEG270: u8 = 192; // VARS.INC:18 deg270 = deg180+deg90
@@ -3492,14 +3493,13 @@ fn missile2a_strat(g: &mut Game, idx: u16) {
 fn misspod_spawn_missile2(g: &mut Game, owner: u16, mx: i16, my: i16, mz: i16) {
     let me = g.objs.aliens[owner as usize];
     let (rx, ry, rz) = rotate_full_offset(&me, mx, my, mz);
-    let Some(shot) = make_obj(g, 0) else {
+    let Some(shot) = make_obj(g, SH_MISSILE) else {
         return;
     };
     let tick = sid(g, missile2a_strat);
     let coll = sid(g, strat_explode);
     let al = &mut g.objs.aliens[shot as usize];
-    al.shape = 0;
-    al.sflags |= ASF_INVISIBLE | ASF_SHADOW; // missile2_Istrat s_set_alsflag shadow
+    al.sflags |= ASF_SHADOW; // missile2_Istrat s_set_alsflag shadow
     al.type_ |= ATMISSILE | ATZREMOVE; // gen_weapon ATMISSILE + setremove_behind
     al.stratptr = Some(tick);
     al.collstratptr = Some(coll);
@@ -3673,7 +3673,7 @@ fn misstank_init(g: &mut Game, idx: u16) {
         al.ap = MISSTANK_AP;
     }
     // s_make_obj #small_m ; wire child ; s_set_alvartobeobj x,al_ptr,y.
-    if let Some(child) = make_obj(g, 0) {
+    if let Some(child) = make_obj(g, SH_SMALL_MISSILE_CARRIER) {
         copy_pos(g, child, idx);
         let cal = &mut g.objs.aliens[child as usize];
         cal.rotx = NEG_DEG11; // s_set_alvar y,al_rotx,#-deg11
@@ -4111,7 +4111,7 @@ fn houdai5f_fire(g: &mut Game, idx: u16) {
     let Some(player_idx) = player_index(g) else {
         return;
     };
-    let Some(shot) = make_obj(g, 0) else {
+    let Some(shot) = make_obj(g, SH_BOUNCYBALL) else {
         return;
     };
     let me = g.objs.aliens[idx as usize];
@@ -4121,8 +4121,7 @@ fn houdai5f_fire(g: &mut Game, idx: u16) {
     let yaw = me.roty.wrapping_add(DEG180); // s_weapon_rot #0,#deg180
     let pitch = me.rotx;
     let al = &mut g.objs.aliens[shot as usize];
-    al.shape = 0;
-    al.sflags |= ASF_INVISIBLE;
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
     al.type_ |= ATLASER | ATZREMOVE;
     al.stratptr = Some(s_tick);
     al.collstratptr = Some(s_coll);
@@ -4838,7 +4837,7 @@ pub fn walker1_strat(g: &mut Game, idx: u16) {
 }
 
 fn walker1_fire_hmissile(g: &mut Game, idx: u16, player_idx: u16) {
-    let Some(shot) = make_obj(g, 0) else {
+    let Some(shot) = make_obj(g, SH_MISSILE) else {
         return;
     };
     let me = g.objs.aliens[idx as usize];
@@ -8204,7 +8203,7 @@ fn truck_fire_missile(g: &mut Game, idx: u16) {
     let Some(player_idx) = player_index(g) else {
         return;
     };
-    let Some(shot) = make_obj(g, 0) else {
+    let Some(shot) = make_obj(g, SH_MISSILE) else {
         return;
     };
     let me = g.objs.aliens[idx as usize];

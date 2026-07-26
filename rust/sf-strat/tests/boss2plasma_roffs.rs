@@ -1,6 +1,6 @@
 //! Tick 176: boss2plasma orbit uses non-uniform Roffs scales 2,0,4.
 
-use sf_game::alien::ASF3_REALOBJ;
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ};
 use sf_game::Game;
 use sf_strat::bosses::{boss2petal_strat, boss2plasma_strat, strat_boss2_init};
 use sf_strat::enemy_a::wm;
@@ -40,6 +40,10 @@ fn boss2plasma_orbit_applies_scales_2_0_4() {
     let plasma = (0..g.objs.aliens.len())
         .find(|&i| g.objs.aliens[i].active && g.objs.aliens[i].ap == BOSS2PLASMA_AP)
         .expect("plasma") as u16;
+    assert_eq!(
+        g.objs.aliens[plasma as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 
     // Freeze petal pose as the orbit base (petal_strat would re-copy mother).
     g.objs.aliens[petal as usize].worldx = 100;

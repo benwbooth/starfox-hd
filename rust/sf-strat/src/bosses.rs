@@ -19,10 +19,10 @@
 #![allow(dead_code)]
 
 use sf_game::alien::{
-    Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE6,
-    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE, ASF4_SFLAG8,
-    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND,
-    ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
+    ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE,
+    ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT,
+    ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
@@ -51,7 +51,7 @@ use crate::enemy_a::{
     boss_prune_family_links, bossflags, copy_pos, currentlevel, explodegate2_istrat,
     fire_hmissile2, fire_hplasma as fire_shared_hplasma, frame_tick_mod, pviewposz, set_bossflags,
     strat_boss_explode_init, strat_explode, strat_hit_flash, strat_pitch_toward,
-    strat_relslowelaser_speed, AF_LEFT_PL, ASF3_SFLAG6,
+    strat_relslowelaser_speed, AF_LEFT_PL, ASF3_SFLAG6, SH_MISSILE,
 };
 
 // ============================================================
@@ -1121,6 +1121,7 @@ fn boss2plasma_init(g: &mut Game, plasma: u16, petal: u16) {
     al.worldx = petal_pos.worldx;
     al.worldy = petal_pos.worldy;
     al.worldz = petal_pos.worldz;
+    al.visual_kind = ObjectVisualKind::ScaledSprite;
 }
 
 /// Public for non-uniform Roffs scale tests (GBSTRATS.ASM:920).
@@ -4098,6 +4099,7 @@ fn flingboss_fire_missile(g: &mut Game, idx: u16, wr_pitch: u8, wr_yaw: u8) {
     al.rotz = me.rotz;
     al.sflags &= !ASF_INVISIBLE;
     al.sflags |= ASF_SHADOW;
+    al.shape = SH_MISSILE;
     al.type_ = ATMISSILE | ATZREMOVE;
     al.hp = FB_HMISSILE_HP;
     al.ptr = ppt; // al_ptr = playpt (homing target)
@@ -8586,6 +8588,7 @@ fn wm_propturret_fire(g: &mut Game, idx: u16) {
     al.rotz = me.rotz;
     al.sflags &= !ASF_INVISIBLE;
     al.sflags |= ASF_SHADOW;
+    al.shape = SH_MISSILE;
     al.type_ = ATMISSILE | ATZREMOVE;
     al.hp = WM_HMISSILE_HP;
     al.ptr = ppt; // s_set_alvar al_ptr,playpt

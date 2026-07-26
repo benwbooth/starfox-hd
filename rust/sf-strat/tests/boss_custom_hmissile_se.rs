@@ -1,11 +1,11 @@
 //! Tick 205: boss custom `s_fire_weapon` HMISSILE paths must
 //! `jsl missilesound_l` via `make_snd(Missile)` (gen_weapon).
 
-use sf_game::alien::{ATMISSILE, NUMBER_AL};
+use sf_game::alien::{ASF_INVISIBLE, ATMISSILE, NUMBER_AL};
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses::{self, strat_flingboss_init, strat_webmonster_init};
-use sf_strat::enemy_a::boss1back_strat;
+use sf_strat::enemy_a::{boss1back_strat, SH_MISSILE};
 use sf_strat::enemy_b::bossaattack_strat;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -64,6 +64,18 @@ fn count_missiles(g: &Game) -> usize {
         .count()
 }
 
+fn assert_missile_presentation(g: &Game) {
+    for missile in g
+        .objs
+        .aliens
+        .iter()
+        .filter(|alien| alien.active && alien.type_ & ATMISSILE != 0)
+    {
+        assert_eq!(missile.shape, SH_MISSILE);
+        assert_eq!(missile.sflags & ASF_INVISIBLE, 0);
+    }
+}
+
 /// boss1back far bombard: (gf+15)&63==0 → boss1_fire_hmissile1 ×1/2 + Missile SE.
 #[test]
 fn boss1back_hmissile_plays_missile_se() {
@@ -84,6 +96,7 @@ fn boss1back_hmissile_plays_missile_se() {
         "one missilesound per HMISSILE1; got {:?}",
         log.borrow()
     );
+    assert_missile_presentation(&g);
 }
 
 /// bossA attack firemissiles phase: frame 20 of /64 → boss1_fire_hmissile1 + SE.
@@ -105,6 +118,7 @@ fn bossaattack_hmissile_plays_missile_se() {
         "bossA HMISSILE1 → missilesound; got {:?}",
         log.borrow()
     );
+    assert_missile_presentation(&g);
 }
 
 /// flingboss fin_body triggermissile2: gf&63==0 → BOSSHMISSILE1 + Missile SE.
@@ -142,6 +156,7 @@ fn flingboss_triggermissile2_plays_missile_se() {
         "flingboss fire → missilesound; got {:?}",
         log.borrow()
     );
+    assert_missile_presentation(&g);
 }
 
 /// webmonster propturret armed (sflag2, not spinning): one HMISSILE1 + SE.
@@ -174,4 +189,5 @@ fn webmonster_propturret_fire_plays_missile_se() {
         "propturret HMISSILE1 → missilesound; got {:?}",
         log.borrow()
     );
+    assert_missile_presentation(&g);
 }

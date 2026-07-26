@@ -2,9 +2,10 @@
 //! (closes TIER2 FULL BODY blocker — these aim at the player, not find_nearobj).
 
 use sf_core::aim_angle::{xanglexy, yanglexy};
-use sf_game::alien::{ASF_INVISIBLE, ATLASER};
+use sf_game::alien::{ObjectVisualKind, ASF_INVISIBLE, ATLASER};
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_strat::enemies_ground::{bazooka1l_istrat, houdai5f_istrat, houdai5f_strat, shou0_istrat};
+use sf_strat::enemy_a::SH_BOUNCYBALL;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -157,7 +158,9 @@ fn houdai5f_hplasma_muzzle_and_battry_se() {
     assert_eq!(shot.count, 100);
     assert_eq!(shot.roty, DEG180, "s_weapon_rot #0,#deg180");
     assert_eq!(shot.rotx, 10);
-    assert_ne!(shot.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(shot.shape, SH_BOUNCYBALL);
+    assert_eq!(shot.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(shot.sflags & ASF_INVISIBLE, 0);
     assert_eq!(shot.fireobjptr, 1, "al_ptr = playpt (slot0+1)");
     // Muzzle: firer (50,0,3000) + (0,-236,0) with roty0/rotx10 — full rotate.
     // At least Y should be below firer.

@@ -1,12 +1,12 @@
 //! ROM `nuke` / `nukeexp` / `removenuke` / `fire_nuke` (GSTRATS.ASM).
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_HITFLASH, ASF_NOHITAFFECT, ATNUKED};
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_HITFLASH, ASF_NOHITAFFECT, ATNUKED};
 use sf_game::vars::PSF_NOFIRE;
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
     fire_nuke, missbound_chk_exp, nuke_istrat, nuke_strat, nukeexp_istrat, nukeexp_strat,
-    removenuke_istrat, ASF2_SFLAG1, NUKE_AP, NUKE_MAX_RADIUS, NUKE_RATE,
+    removenuke_istrat, ASF2_SFLAG1, NUKE_AP, NUKE_MAX_RADIUS, NUKE_RATE, SH_NUKE,
 };
 
 #[test]
@@ -21,6 +21,11 @@ fn fire_nuke_spawns_with_rom_stats() {
     assert_eq!(g.objs.aliens[shot as usize].vel, 50);
     assert_eq!(g.objs.aliens[shot as usize].count, 28);
     assert_eq!(g.objs.aliens[shot as usize].sbyte3, 40);
+    assert_eq!(g.objs.aliens[shot as usize].shape, SH_NUKE);
+    assert_eq!(
+        g.objs.aliens[shot as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
     assert!(g.objs.aliens[shot as usize].stratptr.is_some());
     assert!(g.objs.aliens[shot as usize].expstratptr.is_some());
 }

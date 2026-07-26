@@ -1,12 +1,14 @@
 //! ROM `helpball` / `helpballhome` / Hcoll / Hrem (GSTRATS.ASM).
 
-use sf_game::alien::{ASF3_LOCKON, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_NOHITAFFECT};
+use sf_game::alien::{
+    ObjectVisualKind, ASF3_LOCKON, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_NOHITAFFECT,
+};
 use sf_game::draw::AF_INVIEW_PL;
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
     helpball_hcoll_istrat, helpball_hrem_istrat, helpball_istrat, helpball_strat,
-    helpballhome_istrat,
+    helpballhome_istrat, SH_HELPBALL, SH_SHELPBALL,
 };
 use sf_strat::snes_trig::strat_roffs_roll;
 
@@ -38,6 +40,11 @@ fn helpball_istrat_sets_orbit_radius_and_colldisable() {
     let idx = g.objs.alloc().expect("hb");
     helpball_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte3, 30);
+    assert_eq!(g.objs.aliens[idx as usize].shape, SH_HELPBALL);
+    assert_eq!(
+        g.objs.aliens[idx as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
     assert!(g.objs.aliens[idx as usize].stratptr.is_some());
 }
@@ -93,7 +100,11 @@ fn helpball_orbits_and_spawns_home_on_valid_target() {
     assert_eq!(g.objs.aliens[home as usize].sword1, hb as i16);
     assert_eq!(g.objs.aliens[home as usize].vel, 40);
     assert_eq!(g.objs.aliens[home as usize].count, 70);
-    assert_eq!(g.objs.aliens[home as usize].shape, 406);
+    assert_eq!(g.objs.aliens[home as usize].shape, SH_SHELPBALL);
+    assert_eq!(
+        g.objs.aliens[home as usize].visual_kind,
+        ObjectVisualKind::ScaledSprite
+    );
 }
 
 #[test]

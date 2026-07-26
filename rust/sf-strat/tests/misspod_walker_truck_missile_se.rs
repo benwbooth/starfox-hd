@@ -1,12 +1,12 @@
 //! Tick 204: misspod / walker1 / truck custom `s_fire_weapon` paths must
 //! `jsl missilesound_l` via `make_snd(Missile)` (gen_weapon), not silent spawn.
 
-use sf_game::alien::ATMISSILE;
+use sf_game::alien::{ASF_INVISIBLE, ATMISSILE};
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_strat::enemies_ground::{
     misspoda_init, misspoda_strat, truck_cont, walker1_istrat, walker1_strat,
 };
-use sf_strat::enemy_a::ASF2_SFLAG2;
+use sf_strat::enemy_a::{ASF2_SFLAG2, SH_MISSILE};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -60,6 +60,24 @@ fn count_missiles(g: &Game, skip: u16) -> usize {
         .count()
 }
 
+fn assert_missile_presentation(g: &Game, skip: u16, expected_count: usize) {
+    let missiles: Vec<_> = g
+        .objs
+        .aliens
+        .iter()
+        .enumerate()
+        .filter(|(index, alien)| {
+            *index as u16 != skip && *index != 0 && alien.active && alien.type_ & ATMISSILE != 0
+        })
+        .map(|(_, alien)| alien)
+        .collect();
+    assert_eq!(missiles.len(), expected_count);
+    assert!(missiles.iter().all(|missile| missile.shape == SH_MISSILE));
+    assert!(missiles
+        .iter()
+        .all(|missile| missile.sflags & ASF_INVISIBLE == 0));
+}
+
 fn missile_snd_count(log: &RefCell<Vec<SndEvent>>, x: i16, z: i16) -> usize {
     log.borrow()
         .iter()
@@ -78,6 +96,7 @@ fn misspoda_init_trigse49_and_five_missile_se() {
     misspoda_init(&mut g, e);
 
     assert_eq!(count_missiles(&g, e), 5, "5 missile2 shots");
+    assert_missile_presentation(&g, e, 5);
     assert!(
         log.borrow()
             .iter()
@@ -104,6 +123,7 @@ fn misspoda_strat_five_missile_se() {
     misspoda_strat(&mut g, e);
 
     assert_eq!(count_missiles(&g, e), 5);
+    assert_missile_presentation(&g, e, 5);
     assert_eq!(missile_snd_count(&log, -20, 800), 5);
     assert!(
         !log.borrow()
@@ -125,6 +145,7 @@ fn walker1_fire_plays_missile_se() {
     walker1_strat(&mut g, e);
 
     assert_eq!(count_missiles(&g, e), 1);
+    assert_missile_presentation(&g, e, 1);
     let wx = g.objs.aliens[e as usize].worldx;
     let wz = g.objs.aliens[e as usize].worldz;
     assert_eq!(
@@ -152,6 +173,7 @@ fn truck_fire_plays_missile_se() {
     truck_cont(&mut g, e);
 
     assert_eq!(count_missiles(&g, e), 1);
+    assert_missile_presentation(&g, e, 1);
     assert_eq!(
         missile_snd_count(&log, 10, 2000),
         1,

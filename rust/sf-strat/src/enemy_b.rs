@@ -117,6 +117,7 @@ pub(crate) mod eb_compat {
         strat_fire_relslowlaserhome, strat_move3d, strat_obj_from_ptr, strat_obj_index_or_null,
         strat_phase_offset, strat_pitch_toward, strat_points_positive_z, strat_qboss_explode_init,
         strat_random_centered, strat_relslowelaser_speed, strat_tab_scaled, zaco2_istrat,
+        SH_MISSILE,
     };
 
     // ---- Flag constants missing from sf-game (C src/variables.h,
@@ -470,7 +471,7 @@ fn boss1_fire_hmissile1(
     if !g.objs.aliens[target as usize].active {
         return None;
     }
-    let shot = strat_make_obj(g, 0)?;
+    let shot = strat_make_obj(g, SH_MISSILE)?;
     let me = g.objs.aliens[self_idx as usize];
     boss_apply_yaw_offset(g, shot, &me, offx, offy, offz);
     let s_tick = sid(g, hmissile1_strat);

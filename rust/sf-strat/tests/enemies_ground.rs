@@ -12,11 +12,14 @@
 //! and positional sound — all cosmetic reads of global scratch RAM.
 
 use sf_core::player_view::PlayerViewMode;
-use sf_game::alien::{ObjectVisualKind, AFEXP, ATLASER, ATZREMOVE, NUMBER_AL};
+use sf_game::alien::{
+    ObjectVisualKind, AFEXP, ASF_INVISIBLE, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::common::{sv, StratRam};
-use sf_strat::enemies_ground;
+use sf_strat::enemies_ground::{self, SH_SMALL_MISSILE_CARRIER};
+use sf_strat::enemy_a::{SH_BOUNCYBALL, SH_MISSILE};
 use sf_strat::player::{set_player_out_of_cock, COCKPIT_EXIT_FRAMES};
 
 // ISTRATS.ASM def_Istrat indices (== sf-map placement).
@@ -1717,8 +1720,7 @@ const SZACO5_HP: u8 = 2; // STRATEQU.INC:162
 const SZACO5_AP: u8 = 8; // STRATEQU.INC:163
 const HOUDAI5_HP: u8 = 4; // KSTRATS.ASM:47
 const HOUDAI5_AP: u8 = 6; // KSTRATS.ASM:48
-const ATMISSILE: u8 = 2; // alien.rs
-                         // (ASF_COLLDISABLE = 0x10 is already declared earlier in this test module.)
+                          // (ASF_COLLDISABLE = 0x10 is already declared earlier in this test module.)
 
 fn count_type(g: &Game, enemy: u16, tflag: u8) -> usize {
     g.objs
@@ -1772,6 +1774,17 @@ fn misspod_close_fires_five_missiles_and_self_destructs() {
     tick(&mut g, pod); // init
     tick(&mut g, pod); // misspod_strat -> misspoda burst
     assert_eq!(count_type(&g, pod, ATMISSILE), 5, "5x missile2 burst");
+    let missiles: Vec<_> = g
+        .objs
+        .aliens
+        .iter()
+        .filter(|alien| alien.active && alien.type_ & ATMISSILE != 0)
+        .collect();
+    assert_eq!(missiles.len(), 5);
+    assert!(missiles.iter().all(|missile| missile.shape == SH_MISSILE));
+    assert!(missiles
+        .iter()
+        .all(|missile| missile.sflags & ASF_INVISIBLE == 0));
     let a = g.objs.aliens[pod as usize];
     assert_eq!(a.hp, 0, "s_kill_obj: hp=0");
     assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "s_kill_obj: colldisable");
@@ -1794,6 +1807,11 @@ fn misstank_init_builds_carrier_and_counts_down() {
     assert_ne!(a.ptr, 0, "al_ptr holds the small_m carrier");
     let child = (a.ptr - 1) as usize;
     assert_eq!(g.objs.aliens[child].hp, 4, "carrier hp4");
+    assert_eq!(
+        g.objs.aliens[child].shape, SH_SMALL_MISSILE_CARRIER,
+        "s_make_obj #small_m"
+    );
+    assert_eq!(g.objs.aliens[child].sflags & ASF_INVISIBLE, 0);
     assert_eq!(a.sflags2 & ASF2_SFLAG1, 0, "not launched while far");
 }
 
@@ -1937,6 +1955,9 @@ fn houdai5f_fires_homing_hplasma_when_far() {
         .expect("shot");
     assert_eq!(shot.vel, 100, "s_set_speed y,#100");
     assert_eq!(shot.count, 100, "s_set_lifecnt y,#100");
+    assert_eq!(shot.shape, SH_BOUNCYBALL);
+    assert_eq!(shot.visual_kind, ObjectVisualKind::ScaledSprite);
+    assert_eq!(shot.sflags & ASF_INVISIBLE, 0);
 }
 
 #[test]
