@@ -13,7 +13,7 @@ import argparse
 import hashlib
 from pathlib import Path
 
-from generate_first_sortie_projectiles import (
+from projectile_static import (
     read_collision_eligibility,
     validate_static_collision_gate,
     validate_static_hostile_projectile_path,

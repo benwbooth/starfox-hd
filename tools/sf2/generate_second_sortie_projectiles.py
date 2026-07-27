@@ -16,6 +16,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from projectile_static import (
+    read_collision_eligibility,
+    validate_static_collision_gate,
+    validate_static_hostile_projectile_path,
+)
 from generate_capital_continuation import (
     TRIG_SOURCE,
     chase_power,
@@ -33,6 +38,10 @@ DEFAULT_LOGIC_FIXTURE = (
 )
 DEFAULT_POSE_FIXTURE = (
     Path(__file__).with_name("fixtures") / "second_sortie_reengagement.trace"
+)
+DEFAULT_COLLISION_FIXTURE = (
+    Path(__file__).with_name("fixtures")
+    / "second_sortie_projectile_collision.trace"
 )
 DEFAULT_OUTPUT = (
     REPO_ROOT
@@ -236,6 +245,113 @@ def read_logic_fixture(
     return result
 
 
+def read_natural_hits(
+    collision_fixture: Path,
+    records: list[PoseRecord],
+    lifetimes: list[ProjectileLifetime],
+) -> list[dict[str, str]]:
+    hits = [
+        fields(line)
+        for line in collision_fixture.read_text(encoding="utf-8").splitlines()
+        if line.startswith("natural_hit ")
+    ]
+    if not hits:
+        raise SystemExit(
+            "first-reengagement collision fixture must retain its natural hits"
+        )
+    expected_fields = {
+        "elapsed",
+        "collision_retail_frame",
+        "player_retail_frame",
+        "track",
+        "source_object",
+        "craft_class",
+        "damage",
+        "player_pose",
+        "projectile_pose",
+        "retained_projectile_pose",
+        "source",
+    }
+    record_by_frame = {record.retail_frame: record for record in records}
+    previous_elapsed = -1
+    seen_tracks = set()
+    for hit in hits:
+        if set(hit) != expected_fields:
+            raise SystemExit(
+                "first-reengagement natural hit fields changed: "
+                f"expected {sorted(expected_fields)}, found {sorted(hit)}"
+            )
+        elapsed = int(hit["elapsed"])
+        collision_retail_frame = int(hit["collision_retail_frame"])
+        player_retail_frame = int(hit["player_retail_frame"])
+        track_index = int(hit["track"])
+        retained_elapsed = RAW_SAMPLE_START_ELAPSED + player_retail_frame
+        if not retained_elapsed <= elapsed < retained_elapsed + RETAIL_FRAME_STEP:
+            raise SystemExit(
+                "first-reengagement natural hit is outside its retained "
+                "presentation interval"
+            )
+        if elapsed <= previous_elapsed:
+            raise SystemExit(
+                "first-reengagement natural hits are not chronological"
+            )
+        previous_elapsed = elapsed
+        if track_index in seen_tracks:
+            raise SystemExit(
+                "first-reengagement projectile hit more than once"
+            )
+        seen_tracks.add(track_index)
+        if hit["craft_class"] != "FoxFalco":
+            raise SystemExit("first-reengagement natural hit craft class changed")
+        if int(hit["damage"]) != 2:
+            raise SystemExit("first-reengagement natural hit damage changed")
+        if hit["source"] != "06:9707":
+            raise SystemExit(
+                "first-reengagement natural hit dispatch source changed"
+            )
+        if not 0 <= track_index < len(lifetimes):
+            raise SystemExit(
+                "first-reengagement natural hit track is out of range"
+            )
+        if hit["source_object"] != lifetimes[track_index].source:
+            raise SystemExit(
+                "first-reengagement natural hit source object does not match "
+                "its projectile track"
+            )
+        projectile_pose = tuple(
+            map(int, hit["retained_projectile_pose"].split(","))
+        )
+        if not any(
+            frame == player_retail_frame and pose[:3] == projectile_pose
+            for frame, pose in lifetimes[track_index].samples
+        ):
+            raise SystemExit(
+                "first-reengagement natural hit projectile pose is absent "
+                "from its track"
+            )
+        dispatch_pose = tuple(map(int, hit["projectile_pose"].split(",")))
+        if len(dispatch_pose) != 3:
+            raise SystemExit(
+                "first-reengagement natural hit dispatch pose is malformed"
+            )
+        player_pose = tuple(map(int, hit["player_pose"].split(",")))
+        record = record_by_frame.get(player_retail_frame)
+        if record is None or record.player[:3] != player_pose:
+            raise SystemExit(
+                "first-reengagement natural hit player pose is absent "
+                "from its retained boundary"
+            )
+        if collision_retail_frame not in {
+            player_retail_frame,
+            player_retail_frame + RETAIL_FRAME_STEP,
+        }:
+            raise SystemExit(
+                "first-reengagement natural hit collision tick is not adjacent "
+                "to its player pose"
+            )
+    return hits
+
+
 def split_target_contractions(actions: list[LogicAction]) -> list[LogicAction]:
     """Expose retail cooperative coordinate writes as two semantic actions.
 
@@ -434,8 +550,6 @@ def target_timing(
     retail_frame: int,
     records: dict[int, PoseRecord],
 ) -> str | None:
-    if action.kind not in TARGET_ACTIONS and action.kind != "begin-contract":
-        return None
     target_position = action.target[:3]
     choices = (
         ("Current", retail_frame),
@@ -465,10 +579,12 @@ def target_timing(
         record = records.get(frame)
         if record is not None and record.player[:3] == target_position:
             return name
-    raise SystemExit(
-        f"projectile target {target_position} at frame {retail_frame} "
-        "is not a typed player-position timing"
-    )
+    if action.kind in TARGET_ACTIONS or action.kind == "begin-contract":
+        raise SystemExit(
+            f"projectile target {target_position} at frame {retail_frame} "
+            "is not a typed player-position timing"
+        )
+    return None
 
 
 def grouped(value: int) -> str:
@@ -482,7 +598,8 @@ def pose_source(pose: tuple[int, ...]) -> str:
 def rust_action(action: ScheduledAction) -> str:
     timing = (
         ""
-        if action.target_timing is None
+        if action.action.kind not in TARGET_ACTIONS
+        and action.action.kind != "begin-contract"
         else f"(HostileProjectileTarget::{action.target_timing})"
     )
     variants = {
@@ -526,6 +643,7 @@ def rust_source(
     encounter_description: str = "the first retail re-engagement",
     firing_actors: list[str] | None = None,
     collision_eligibility: list[bool] | None = None,
+    emit_action_player_targets: bool = False,
 ) -> str:
     if firing_actors is not None and len(firing_actors) != len(lifetimes):
         raise SystemExit(
@@ -650,6 +768,22 @@ def rust_source(
         ]
     )
     lines.extend(f"    {rust_action(action)}," for action in flattened_actions)
+    if emit_action_player_targets:
+        lines.extend(
+            [
+                "];",
+                "",
+                "static ACTION_PLAYER_TARGETS: "
+                f"[Option<HostileProjectileTarget>; {len(flattened_actions)}] = [",
+            ]
+        )
+        for action in flattened_actions:
+            timing = (
+                "None"
+                if action.target_timing is None
+                else f"Some(HostileProjectileTarget::{action.target_timing})"
+            )
+            lines.append(f"    {timing},")
     lines.extend(
         [
             "];",
@@ -679,6 +813,35 @@ def rust_source(
             "",
         ]
     )
+    if emit_action_player_targets:
+        lines.extend(
+            [
+                "pub(super) fn action_player_targets(",
+                "    track_index: usize,",
+                "    retail_frame: u16,",
+                ") -> &'static [Option<HostileProjectileTarget>] {",
+                "    let Some(descriptor) = descriptor(track_index) else {",
+                "        return &[];",
+                "    };",
+                "    let Some(offset) = retail_frame",
+                "        .checked_sub(descriptor.start_retail_frame + RETAIL_FRAME_STEP)",
+                "    else {",
+                "        return &[];",
+                "    };",
+                "    if offset % RETAIL_FRAME_STEP != 0 {",
+                "        return &[];",
+                "    }",
+                "    let tick = offset / RETAIL_FRAME_STEP;",
+                "    if tick >= u16::from(descriptor.tick_count) {",
+                "        return &[];",
+                "    }",
+                "    let range = TICKS[usize::from(descriptor.tick_offset + tick)];",
+                "    let start = usize::from(range.start);",
+                "    &ACTION_PLAYER_TARGETS[start..start + usize::from(range.len)]",
+                "}",
+                "",
+            ]
+        )
     return format_rust("\n".join(lines))
 
 
@@ -692,6 +855,7 @@ def generate_dynamics(
     firing_actors: list[str] | None = None,
     maximum_continuous_position_step: int | None = None,
     collision_eligibility: list[bool] | None = None,
+    emit_action_player_targets: bool = False,
 ) -> tuple[str, int]:
     records, lifetimes = read_pose_fixture(
         pose_fixture,
@@ -721,6 +885,21 @@ def generate_dynamics(
         ]
         for schedule in scheduled
     ]
+    if emit_action_player_targets:
+        supported_collision_timings = {"Previous", "Midpoint", "Current"}
+        unsupported = {
+            action.target_timing
+            for schedule in typed_schedules
+            for _, frame_actions in schedule
+            for action in frame_actions
+            if action.target_timing is not None
+            and action.target_timing not in supported_collision_timings
+        }
+        if unsupported:
+            raise SystemExit(
+                "projectile action collision timing needs deeper player history: "
+                f"{sorted(unsupported)}"
+            )
     return (
         rust_source(
             lifetimes,
@@ -728,20 +907,49 @@ def generate_dynamics(
             encounter_description,
             firing_actors,
             collision_eligibility,
+            emit_action_player_targets,
         ),
         sum(len(lifetime.samples) for lifetime in lifetimes),
     )
+
+
+def append_test_oracle(
+    source: str,
+    pose_fixture: Path,
+    collision_fixture: Path,
+) -> str:
+    records, lifetimes = read_pose_fixture(pose_fixture)
+    natural_hits = read_natural_hits(collision_fixture, records, lifetimes)
+    lines = [
+        source,
+        "#[cfg(test)]",
+        f"pub(super) const NATURAL_HITS: "
+        f"[(u16, usize, u8); {len(natural_hits)}] = [",
+    ]
+    for hit in natural_hits:
+        lines.append(
+            "    "
+            f"({int(hit['collision_retail_frame']):_}, {int(hit['track'])}, "
+            f"{int(hit['damage'])}),"
+        )
+    lines.extend(["];", ""])
+    return format_rust("\n".join(lines))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
     parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
+    parser.add_argument(
+        "--collision-fixture", type=Path, default=DEFAULT_COLLISION_FIXTURE
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--import-raw", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
+    validate_static_hostile_projectile_path()
+    validate_static_collision_gate()
     if args.import_raw is not None:
         import_raw_logic(args.import_raw, args.logic_fixture)
     source, retained_pose_count = generate_dynamics(
@@ -750,6 +958,17 @@ def main() -> None:
         33,
         RAW_SAMPLE_START_ELAPSED,
         "the first retail re-engagement",
+        collision_eligibility=read_collision_eligibility(
+            args.collision_fixture,
+            33,
+            "first-reengagement",
+        ),
+        emit_action_player_targets=True,
+    )
+    source = append_test_oracle(
+        source,
+        args.pose_fixture,
+        args.collision_fixture,
     )
     if args.check:
         if not args.output.exists() or args.output.read_text(encoding="utf-8") != source:

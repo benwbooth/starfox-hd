@@ -7614,6 +7614,12 @@ impl Game {
             .mode_frame
             .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
             .min(u32::from(u16::MAX)) as u16;
+        self.mission_player_collision_pose = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(object_collision_pose);
         self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
         self.update_reengagement_message(retail_frame);
 
@@ -7659,17 +7665,19 @@ impl Game {
                 }
             }
         }
-        let current_player_position = self
+        let current_player_collision_pose = self
             .state
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get(id))
-            .map(|object| object.base.position);
-        let previous_player_position = current_player_position
-            .map(|current| self.previous_mission_player_position.unwrap_or(current));
+            .map(object_collision_pose);
+        let previous_player_collision_pose = current_player_collision_pose
+            .map(|current| self.mission_player_collision_pose.unwrap_or(current));
         self.update_reengagement_targets(retail_frame);
-        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
-        {
+        if let (Some(current), Some(previous)) = (
+            current_player_collision_pose,
+            previous_player_collision_pose,
+        ) {
             self.update_reengagement_projectiles(retail_frame, current, previous)?;
         }
         Ok(())
@@ -15418,9 +15426,15 @@ impl Game {
     fn update_reengagement_projectiles(
         &mut self,
         retail_frame: u16,
-        player_position: Vector3,
-        previous_player_position: Vector3,
+        player_collision_pose: ObjectCollisionPose,
+        previous_player_collision_pose: ObjectCollisionPose,
     ) -> Result<(), Error> {
+        let collision_player = self.state.mission.primary_player.and_then(|id| {
+            self.state
+                .objects
+                .get(id)
+                .map(|player| (id, player.clone()))
+        });
         for track_index in 0..second_sortie_projectiles::PROJECTILE_COUNT {
             let descriptor = second_sortie_projectiles::descriptor(track_index)
                 .expect("re-engagement projectile descriptor exists");
@@ -15453,6 +15467,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !descriptor.collision_enabled;
                 projectile.base.position = descriptor.initial_pose.position;
                 projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
                 projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
@@ -15473,23 +15488,61 @@ impl Game {
                 projectile_id
             };
 
+            let mut impact = None;
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
                 let ObjectActivity::HostileProjectileFlight(mut flight) =
                     projectile.extension.activity
                 else {
                     continue;
                 };
-                for &action in second_sortie_projectiles::actions(track_index, retail_frame) {
+                let actions = second_sortie_projectiles::actions(track_index, retail_frame);
+                let action_player_targets =
+                    second_sortie_projectiles::action_player_targets(track_index, retail_frame);
+                debug_assert_eq!(actions.len(), action_player_targets.len());
+                for (&action, &action_player_target) in actions.iter().zip(action_player_targets) {
                     apply_hostile_projectile_action(
                         projectile,
                         &mut flight,
                         action,
-                        player_position,
-                        previous_player_position,
-                        previous_player_position,
+                        player_collision_pose.position,
+                        previous_player_collision_pose.position,
+                        previous_player_collision_pose.position,
                     );
+                    let movement_completed = matches!(
+                        action,
+                        HostileProjectileAction::AdvanceHoming
+                            | HostileProjectileAction::AdvanceAimCorrection
+                            | HostileProjectileAction::AdvanceCruise
+                    );
+                    if impact.is_none()
+                        && movement_completed
+                        && self.state.mission.player_damage == PlayerDamageState::Ready
+                    {
+                        if let (Some(target), Some((player_id, player))) =
+                            (action_player_target, collision_player.as_ref())
+                        {
+                            let collision_pose = reengagement_player_collision_pose(
+                                target,
+                                previous_player_collision_pose,
+                                player_collision_pose,
+                            );
+                            if !projectile.base.flags.collision_disabled
+                                && hostile_projectile_hits_player_at_pose(
+                                    projectile,
+                                    player,
+                                    collision_pose,
+                                )
+                            {
+                                impact =
+                                    Some((projectile_id, *player_id, projectile.base.attack_power));
+                            }
+                        }
+                    }
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+            if let Some((projectile_id, player_id, damage)) = impact {
+                self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
             }
         }
         Ok(())
@@ -20356,6 +20409,26 @@ fn hostile_projectile_hits_player_at_pose(
             )
         }
     })
+}
+
+fn reengagement_player_collision_pose(
+    target: HostileProjectileTarget,
+    previous: ObjectCollisionPose,
+    current: ObjectCollisionPose,
+) -> ObjectCollisionPose {
+    match target {
+        HostileProjectileTarget::Previous => previous,
+        HostileProjectileTarget::Midpoint => ObjectCollisionPose {
+            position: midpoint_vector(previous.position, current.position),
+            pitch: interpolate_angle(previous.pitch.units(), current.pitch.units(), 1, 2),
+            yaw: interpolate_angle(previous.yaw.units(), current.yaw.units(), 1, 2),
+            roll: interpolate_angle(previous.roll.units(), current.roll.units(), 1, 2),
+        },
+        HostileProjectileTarget::Current => current,
+        HostileProjectileTarget::TwoTicksAgo | HostileProjectileTarget::PreviousMidpoint => {
+            unreachable!("re-engagement collision timing requires at most one prior pose")
+        }
+    }
 }
 
 fn oriented_collision_volume_center(
@@ -28236,6 +28309,18 @@ mod tests {
             .map(|keyframe| keyframe.retail_frame)
             .max()
             .expect("projectile oracle contains retained poses");
+        let player_id = game
+            .state()
+            .mission
+            .primary_player
+            .expect("re-engagement player exists");
+        let mut previous_player_hit_points = game
+            .state()
+            .objects
+            .get(player_id)
+            .expect("re-engagement player is allocated")
+            .base
+            .hit_points;
         for retail_frame in
             (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
         {
@@ -28299,6 +28384,19 @@ mod tests {
                 assert_eq!(projectile.base.roll.units(), expected.pose.roll);
                 assert_eq!(projectile.base.speed, expected.pose.speed);
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                let consumed_by_natural_hit = second_sortie_projectiles::NATURAL_HITS.iter().any(
+                    |&(hit_frame, hit_track_index, _)| {
+                        hit_track_index == track_index && hit_frame <= retail_frame
+                    },
+                );
+                assert_eq!(
+                    projectile.base.flags.collision_disabled,
+                    !second_sortie_projectiles::descriptor(track_index)
+                        .expect("re-engagement projectile descriptor exists")
+                        .collision_enabled
+                        || consumed_by_natural_hit,
+                    "projectile track {track_index} collision eligibility at frame {retail_frame}"
+                );
 
                 let mut expected_flight = HostileProjectileFlightState {
                     phase: HostileProjectileFlightPhase::Homing,
@@ -28336,6 +28434,24 @@ mod tests {
                     "projectile track {track_index} state at frame {retail_frame}"
                 );
             }
+            let player_hit_points = game
+                .state()
+                .objects
+                .get(player_id)
+                .expect("re-engagement player remains allocated")
+                .base
+                .hit_points;
+            for &(_, _, damage) in second_sortie_projectiles::NATURAL_HITS
+                .iter()
+                .filter(|&&(hit_frame, _, _)| hit_frame == retail_frame)
+            {
+                assert_eq!(
+                    player_hit_points,
+                    previous_player_hit_points.saturating_sub(damage),
+                    "natural projectile damage at frame {retail_frame}"
+                );
+            }
+            previous_player_hit_points = player_hit_points;
         }
     }
 

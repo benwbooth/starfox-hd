@@ -1,0 +1,50 @@
+# Semantic collision eligibility for the 33 chronological first-reengagement lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose source SHA-256: e2cc4f5c9196b71d6c7f3d3ff26ac1cbb5cf4a8ce011c8595e183fa7e3f907fe
+# Logic source SHA-256: 7956ea5e0ab64fd15f10acfb6353b0a34fdc9cdc9bedc0c7763bd0a0adb539c5
+# Collision oracle SHA-256: 1189eab39aa593efe0328e325652e8ce4b233282e8c8871f05d98a911ccc0e1f
+# Natural-contact oracle SHA-256: 6a4a8476179023071542314d8dc82a27a144ddc0f2cda00b6369bcd9f247a897
+# Every retained semantic action for each track exposed the same source flag value.
+track=0 collision_enabled=true
+track=1 collision_enabled=false
+track=2 collision_enabled=false
+track=3 collision_enabled=false
+track=4 collision_enabled=true
+track=5 collision_enabled=false
+track=6 collision_enabled=true
+track=7 collision_enabled=true
+track=8 collision_enabled=false
+track=9 collision_enabled=false
+track=10 collision_enabled=false
+track=11 collision_enabled=false
+track=12 collision_enabled=false
+track=13 collision_enabled=false
+track=14 collision_enabled=true
+track=15 collision_enabled=true
+track=16 collision_enabled=true
+track=17 collision_enabled=true
+track=18 collision_enabled=true
+track=19 collision_enabled=true
+track=20 collision_enabled=true
+track=21 collision_enabled=true
+track=22 collision_enabled=false
+track=23 collision_enabled=true
+track=24 collision_enabled=false
+track=25 collision_enabled=false
+track=26 collision_enabled=false
+track=27 collision_enabled=false
+track=28 collision_enabled=true
+track=29 collision_enabled=false
+track=30 collision_enabled=true
+track=31 collision_enabled=true
+track=32 collision_enabled=false
+natural_hit elapsed=15558 collision_retail_frame=644 player_retail_frame=644 track=0 source_object=06B1 craft_class=FoxFalco damage=2 player_pose=2653,3177,2435 projectile_pose=2718,3197,2534 retained_projectile_pose=2718,3197,2534 source=06:9707
+natural_hit elapsed=16412 collision_retail_frame=1500 player_retail_frame=1500 track=4 source_object=043B craft_class=FoxFalco damage=2 player_pose=-3563,3177,2435 projectile_pose=-3509,3192,2430 retained_projectile_pose=-3509,3192,2430 source=06:9707
+natural_hit elapsed=16737 collision_retail_frame=1824 player_retail_frame=1824 track=6 source_object=04B9 craft_class=FoxFalco damage=2 player_pose=-6251,3177,2435 projectile_pose=-6277,3144,2420 retained_projectile_pose=-6277,3144,2420 source=06:9707
+natural_hit elapsed=16796 collision_retail_frame=1884 player_retail_frame=1884 track=7 source_object=04B9 craft_class=FoxFalco damage=2 player_pose=-6727,3177,2435 projectile_pose=-6709,3180,2440 retained_projectile_pose=-6709,3180,2440 source=06:9707
+natural_hit elapsed=18062 collision_retail_frame=3152 player_retail_frame=3148 track=17 source_object=076E craft_class=FoxFalco damage=2 player_pose=-17591,3177,2435 projectile_pose=-17429,3223,2381 retained_projectile_pose=-17641,3183,2493 source=06:9707
+natural_hit elapsed=18294 collision_retail_frame=3380 player_retail_frame=3380 track=18 source_object=0672 craft_class=FoxFalco damage=2 player_pose=-19579,3177,2435 projectile_pose=-19540,3243,2389 retained_projectile_pose=-19540,3243,2389 source=06:9707
+natural_hit elapsed=18756 collision_retail_frame=3844 player_retail_frame=3844 track=20 source_object=05F4 craft_class=FoxFalco damage=2 player_pose=-23723,3177,2435 projectile_pose=-23714,3157,2473 retained_projectile_pose=-23714,3157,2473 source=06:9707
+natural_hit elapsed=18805 collision_retail_frame=3892 player_retail_frame=3892 track=21 source_object=043B craft_class=FoxFalco damage=2 player_pose=-24143,3177,2435 projectile_pose=-24109,3219,2501 retained_projectile_pose=-24109,3219,2501 source=06:9707

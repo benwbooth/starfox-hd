@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from generate_first_sortie_projectiles import validate_static_projectile_path
+from projectile_static import validate_static_hostile_projectile_path
 from generate_second_sortie_projectiles import (
     format_rust,
     generate_dynamics,
@@ -89,7 +89,7 @@ def main() -> None:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    validate_static_projectile_path()
+    validate_static_hostile_projectile_path()
     if args.import_raw_logic is not None:
         import_raw_logic(
             args.import_raw_logic,
