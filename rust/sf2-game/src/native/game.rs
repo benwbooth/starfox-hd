@@ -7789,6 +7789,12 @@ impl Game {
             .mode_frame
             .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
             .min(u32::from(u16::MAX)) as u16;
+        self.mission_player_collision_pose = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(object_collision_pose);
         self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
 
         match self.state.mission.phase {
@@ -7821,19 +7827,25 @@ impl Game {
         } else {
             self.update_fighter_intercept_presentation(retail_frame);
         }
-        let current_player_position = self
+        let current_player_collision_pose = self
             .state
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get(id))
-            .map(|object| object.base.position);
-        let previous_player_position = current_player_position
-            .map(|current| self.previous_mission_player_position.unwrap_or(current));
-        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
-        {
-            self.update_fighter_intercept_targets(retail_frame, current, previous);
+            .map(object_collision_pose);
+        let previous_player_collision_pose = current_player_collision_pose
+            .map(|current| self.mission_player_collision_pose.unwrap_or(current));
+        if let (Some(current), Some(previous)) = (
+            current_player_collision_pose,
+            previous_player_collision_pose,
+        ) {
+            self.update_fighter_intercept_targets(
+                retail_frame,
+                current.position,
+                previous.position,
+            );
             self.update_fighter_intercept_projectiles(retail_frame, current, previous)?;
-            self.previous_mission_player_position = Some(current);
+            self.previous_mission_player_position = Some(current.position);
         } else {
             self.update_fighter_intercept_targets(
                 retail_frame,
@@ -15498,48 +15510,20 @@ impl Game {
                 let actions = second_sortie_projectiles::actions(track_index, retail_frame);
                 let action_player_targets =
                     second_sortie_projectiles::action_player_targets(track_index, retail_frame);
-                debug_assert_eq!(actions.len(), action_player_targets.len());
-                for (&action, &action_player_target) in actions.iter().zip(action_player_targets) {
-                    apply_hostile_projectile_action(
-                        projectile,
-                        &mut flight,
-                        action,
-                        player_collision_pose.position,
-                        previous_player_collision_pose.position,
-                        previous_player_collision_pose.position,
-                    );
-                    let movement_completed = matches!(
-                        action,
-                        HostileProjectileAction::AdvanceHoming
-                            | HostileProjectileAction::AdvanceAimCorrection
-                            | HostileProjectileAction::AdvanceCruise
-                    );
-                    if impact.is_none()
-                        && movement_completed
-                        && self.state.mission.player_damage == PlayerDamageState::Ready
-                    {
-                        if let (Some(target), Some((player_id, player))) =
-                            (action_player_target, collision_player.as_ref())
-                        {
-                            let collision_pose = reengagement_player_collision_pose(
-                                target,
-                                previous_player_collision_pose,
-                                player_collision_pose,
-                            );
-                            if !projectile.base.flags.collision_disabled
-                                && hostile_projectile_hits_player_at_pose(
-                                    projectile,
-                                    player,
-                                    collision_pose,
-                                )
-                            {
-                                impact =
-                                    Some((projectile_id, *player_id, projectile.base.attack_power));
-                            }
-                        }
-                    }
-                }
+                let damage = apply_hostile_projectile_actions_with_collision(
+                    projectile,
+                    &mut flight,
+                    actions,
+                    action_player_targets,
+                    player_collision_pose,
+                    previous_player_collision_pose,
+                    collision_player.as_ref().map(|(_, player)| player),
+                    self.state.mission.player_damage == PlayerDamageState::Ready,
+                );
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+                if let (Some(damage), Some((player_id, _))) = (damage, collision_player.as_ref()) {
+                    impact = Some((projectile_id, *player_id, damage));
+                }
             }
             if let Some((projectile_id, player_id, damage)) = impact {
                 self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
@@ -15767,9 +15751,15 @@ impl Game {
     fn update_fighter_intercept_projectiles(
         &mut self,
         retail_frame: u16,
-        player_position: Vector3,
-        previous_player_position: Vector3,
+        player_collision_pose: ObjectCollisionPose,
+        previous_player_collision_pose: ObjectCollisionPose,
     ) -> Result<(), Error> {
+        let collision_player = self.state.mission.primary_player.and_then(|id| {
+            self.state
+                .objects
+                .get(id)
+                .map(|player| (id, player.clone()))
+        });
         for track_index in 0..fighter_intercept_projectiles::PROJECTILE_COUNT {
             let descriptor = fighter_intercept_projectiles::descriptor(track_index)
                 .expect("fighter-intercept projectile descriptor exists");
@@ -15802,6 +15792,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !descriptor.collision_enabled;
                 projectile.base.position = descriptor.initial_pose.position;
                 projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
                 projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
@@ -15822,23 +15813,33 @@ impl Game {
                 projectile_id
             };
 
+            let mut impact = None;
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
                 let ObjectActivity::HostileProjectileFlight(mut flight) =
                     projectile.extension.activity
                 else {
                     continue;
                 };
-                for &action in fighter_intercept_projectiles::actions(track_index, retail_frame) {
-                    apply_hostile_projectile_action(
-                        projectile,
-                        &mut flight,
-                        action,
-                        player_position,
-                        previous_player_position,
-                        previous_player_position,
-                    );
+                let actions = fighter_intercept_projectiles::actions(track_index, retail_frame);
+                let action_player_targets =
+                    fighter_intercept_projectiles::action_player_targets(track_index, retail_frame);
+                let damage = apply_hostile_projectile_actions_with_collision(
+                    projectile,
+                    &mut flight,
+                    actions,
+                    action_player_targets,
+                    player_collision_pose,
+                    previous_player_collision_pose,
+                    collision_player.as_ref().map(|(_, player)| player),
+                    self.state.mission.player_damage == PlayerDamageState::Ready,
+                );
+                if let (Some(damage), Some((player_id, _))) = (damage, collision_player.as_ref()) {
+                    impact = Some((projectile_id, *player_id, damage));
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+            if let Some((projectile_id, player_id, damage)) = impact {
+                self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
             }
         }
         Ok(())
@@ -20411,7 +20412,7 @@ fn hostile_projectile_hits_player_at_pose(
     })
 }
 
-fn reengagement_player_collision_pose(
+fn hostile_projectile_player_collision_pose(
     target: HostileProjectileTarget,
     previous: ObjectCollisionPose,
     current: ObjectCollisionPose,
@@ -20429,6 +20430,51 @@ fn reengagement_player_collision_pose(
             unreachable!("re-engagement collision timing requires at most one prior pose")
         }
     }
+}
+
+fn apply_hostile_projectile_actions_with_collision(
+    projectile: &mut Object,
+    flight: &mut HostileProjectileFlightState,
+    actions: &[HostileProjectileAction],
+    action_player_targets: &[Option<HostileProjectileTarget>],
+    player_collision_pose: ObjectCollisionPose,
+    previous_player_collision_pose: ObjectCollisionPose,
+    player: Option<&Object>,
+    collision_ready: bool,
+) -> Option<u8> {
+    assert_eq!(actions.len(), action_player_targets.len());
+    let mut damage = None;
+    for (&action, &action_player_target) in actions.iter().zip(action_player_targets) {
+        apply_hostile_projectile_action(
+            projectile,
+            flight,
+            action,
+            player_collision_pose.position,
+            previous_player_collision_pose.position,
+            previous_player_collision_pose.position,
+        );
+        let movement_completed = matches!(
+            action,
+            HostileProjectileAction::AdvanceHoming
+                | HostileProjectileAction::AdvanceAimCorrection
+                | HostileProjectileAction::AdvanceCruise
+        );
+        if damage.is_none() && collision_ready && movement_completed {
+            if let (Some(target), Some(player)) = (action_player_target, player) {
+                let collision_pose = hostile_projectile_player_collision_pose(
+                    target,
+                    previous_player_collision_pose,
+                    player_collision_pose,
+                );
+                if !projectile.base.flags.collision_disabled
+                    && hostile_projectile_hits_player_at_pose(projectile, player, collision_pose)
+                {
+                    damage = Some(projectile.base.attack_power);
+                }
+            }
+        }
+    }
+    damage
 }
 
 fn oriented_collision_volume_center(
@@ -20574,6 +20620,16 @@ fn apply_player_keyframe(object: &mut Object, keyframe: MissionPlayerKeyframe) {
     object.base.roll = Angle::from_units(keyframe.roll);
     object.base.speed = keyframe.speed;
     object.base.velocity = Vector3::default();
+}
+
+#[cfg(test)]
+fn mission_player_keyframe_collision_pose(keyframe: MissionPlayerKeyframe) -> ObjectCollisionPose {
+    ObjectCollisionPose {
+        position: keyframe.position,
+        pitch: Angle::from_units(keyframe.pitch),
+        yaw: Angle::from_units(keyframe.yaw),
+        roll: Angle::from_units(keyframe.roll),
+    }
 }
 
 fn enclosing_camera_keyframes(
@@ -28464,6 +28520,18 @@ mod tests {
         game.state.campaign.route_step = CampaignRouteStep::FighterIntercept;
         game.state.strategic_map.player_map_position = INITIAL_PLAYER_MAP_POSITION;
         game.begin_fighter_intercept_sortie().unwrap();
+        let player_id = game
+            .state()
+            .mission
+            .primary_player
+            .expect("fighter-interception player exists");
+        let initial_player_hit_points = game
+            .state()
+            .objects
+            .get(player_id)
+            .expect("fighter-interception player is allocated")
+            .base
+            .hit_points;
 
         let tracks: [(FighterInterceptActor, &[MissionActorKeyframe]);
             FIGHTER_INTERCEPT_TARGET_COUNT] = [
@@ -28560,6 +28628,16 @@ mod tests {
         }
 
         assert_eq!(retained_poses, RETAINED_FIGHTER_POSE_COUNT);
+        assert_eq!(
+            game.state()
+                .objects
+                .get(player_id)
+                .expect("fighter-interception player remains allocated")
+                .base
+                .hit_points,
+            initial_player_hit_points,
+            "the fully aligned neutral oracle route has no projectile contacts"
+        );
     }
 
     #[test]
@@ -28581,13 +28659,16 @@ mod tests {
                 retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16)
                     / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16,
             );
-            let player_position = fighter_intercept::PLAYER_KEYFRAMES[player_index].position;
-            let previous_player_position =
-                fighter_intercept::PLAYER_KEYFRAMES[previous_player_index].position;
+            let player_collision_pose = mission_player_keyframe_collision_pose(
+                fighter_intercept::PLAYER_KEYFRAMES[player_index],
+            );
+            let previous_player_collision_pose = mission_player_keyframe_collision_pose(
+                fighter_intercept::PLAYER_KEYFRAMES[previous_player_index],
+            );
             game.update_fighter_intercept_projectiles(
                 retail_frame,
-                player_position,
-                previous_player_position,
+                player_collision_pose,
+                previous_player_collision_pose,
             )
             .unwrap();
 
@@ -28645,6 +28726,13 @@ mod tests {
                 assert_eq!(projectile.base.roll.units(), expected.pose.roll);
                 assert_eq!(projectile.base.speed, expected.pose.speed);
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                assert_eq!(
+                    !projectile.base.flags.collision_disabled,
+                    fighter_intercept_projectiles::descriptor(track_index)
+                        .expect("fighter-intercept projectile descriptor exists")
+                        .collision_enabled,
+                    "fighter-intercept projectile collision eligibility for track {track_index}"
+                );
 
                 let mut expected_flight = HostileProjectileFlightState {
                     phase: HostileProjectileFlightPhase::Homing,
@@ -28689,8 +28777,12 @@ mod tests {
         let player_index = usize::from(cleanup_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
         game.update_fighter_intercept_projectiles(
             cleanup_frame,
-            fighter_intercept::PLAYER_KEYFRAMES[player_index].position,
-            fighter_intercept::PLAYER_KEYFRAMES[player_index - 1].position,
+            mission_player_keyframe_collision_pose(
+                fighter_intercept::PLAYER_KEYFRAMES[player_index],
+            ),
+            mission_player_keyframe_collision_pose(
+                fighter_intercept::PLAYER_KEYFRAMES[player_index - 1],
+            ),
         )
         .unwrap();
         assert!(game.fighter_intercept_projectiles.is_empty());

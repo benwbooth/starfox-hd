@@ -1,0 +1,19 @@
+# Semantic collision eligibility for the eight chronological fighter-interception lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose source SHA-256: 956e2b0ee09c88df360edea7c81d0310a06de78bb9e6da16666d0835871d601f
+# Logic source SHA-256: fc0f90e229e193f6c07f2983d119fbd9e8ec0a32c99a24007ff0140cb4b46373
+# Full aligned replay SHA-256: 49a4133f2e5fa0d04fdfe91bdc88330db14567a1f09d7392525f4879982f0648
+# Collision oracle SHA-256: 6e127a9c99b7a387defb6fee4200099715ef80a8f479deb334124079659818e9
+# Natural-contact oracle SHA-256: 6ed5438b1bd9936133eb0b995be5b6bc602c66e0f758861b6dfcf2e935c2f9b8
+# Every retained semantic action for each track exposed the same source flag value.
+# The fully aligned neutral replay produced no hostile-projectile damage dispatch.
+track=0 collision_enabled=true
+track=1 collision_enabled=false
+track=2 collision_enabled=false
+track=3 collision_enabled=false
+track=4 collision_enabled=false
+track=5 collision_enabled=false
+track=6 collision_enabled=true
+track=7 collision_enabled=true
