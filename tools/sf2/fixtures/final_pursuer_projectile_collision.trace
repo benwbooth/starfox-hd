@@ -1,0 +1,16 @@
+# Semantic collision eligibility for the three chronological final-pursuer lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose fixture SHA-256: d9e68484b0044f2a3150eb8942de84bb21e0b0112c4f1fb04fa8e9d1285e553b
+# Logic fixture SHA-256: 63ba1bd872d25fa2d86973c2755732adbe1ecc23213accf84a54e1ad68bd6be0
+# Historical raw pose oracle SHA-256: aa08aa6c14fc12849e535c9f28606f8cd3a8abb5f7625d76d2bebce1e42990d2
+# Historical raw logic oracle SHA-256: 228ee4e077820e0eebd4ba60f4348e817e96e34868b8e7cc319a56a5bbfc9853
+# Passive collision oracle SHA-256: 406c9a6b404abef24dae71f3a65fda8a3866f98a2d0af3a1865cdcbf82019f8f
+# Passive damage oracle SHA-256: 13cfe41d58185fdd32fc024712420ee5c7c27fe0ae5d38cdafed4490e2ed98ba
+# Every direct per-frame sample within each chronological lifetime exposed the
+# collision-enabled source flag. The replay admitted every track to the collision
+# list; observed contacts were deflected without hostile-projectile shield damage.
+track=0 collision_enabled=true
+track=1 collision_enabled=true
+track=2 collision_enabled=true

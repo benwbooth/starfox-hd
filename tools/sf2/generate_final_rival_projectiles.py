@@ -12,6 +12,11 @@ from generate_second_sortie_projectiles import (
     import_raw_logic,
     read_pose_fixture,
 )
+from projectile_static import (
+    read_collision_eligibility,
+    validate_static_collision_gate,
+    validate_static_hostile_projectile_path,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +30,7 @@ class ProjectileEncounter:
     raw_sample_start_elapsed: int
     logic_fixture: Path
     pose_fixture: Path
+    collision_fixture: Path
     output: Path
 
 
@@ -34,6 +40,7 @@ ENCOUNTERS = (
         133_432,
         FIXTURE_DIRECTORY / "final_pursuer_projectile_logic.trace",
         FIXTURE_DIRECTORY / "final_pursuer_path.trace",
+        FIXTURE_DIRECTORY / "final_pursuer_projectile_collision.trace",
         REPO_ROOT
         / "rust"
         / "sf2-game"
@@ -46,6 +53,7 @@ ENCOUNTERS = (
         135_728,
         FIXTURE_DIRECTORY / "wolf_blockade_projectile_logic.trace",
         FIXTURE_DIRECTORY / "wolf_blockade_path.trace",
+        FIXTURE_DIRECTORY / "wolf_blockade_projectile_collision.trace",
         REPO_ROOT
         / "rust"
         / "sf2-game"
@@ -62,6 +70,8 @@ def main() -> None:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
+    validate_static_hostile_projectile_path()
+    validate_static_collision_gate()
     for encounter in ENCOUNTERS:
         if args.import_raw is not None:
             _, lifetimes = read_pose_fixture(
@@ -81,6 +91,12 @@ def main() -> None:
             EXPECTED_PROJECTILE_LIFETIMES,
             encounter.raw_sample_start_elapsed,
             encounter.label,
+            collision_eligibility=read_collision_eligibility(
+                encounter.collision_fixture,
+                EXPECTED_PROJECTILE_LIFETIMES,
+                encounter.label,
+            ),
+            emit_action_player_targets=True,
         )
         if args.check:
             if not encounter.output.exists() or encounter.output.read_text(

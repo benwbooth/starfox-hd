@@ -1,0 +1,16 @@
+# Semantic collision eligibility for the three chronological Wolf-blockade lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose fixture SHA-256: 61d3b4e4c77066a4c64dc15f0a711454dd735deb210c3ddc87d9c50f14dd5a99
+# Logic fixture SHA-256: d13efbe5e7ad798939c2564669f869812f3c5e331e6efb02750c0dfad2a4e973
+# Historical raw pose oracle SHA-256: aa08aa6c14fc12849e535c9f28606f8cd3a8abb5f7625d76d2bebce1e42990d2
+# Historical raw logic oracle SHA-256: 228ee4e077820e0eebd4ba60f4348e817e96e34868b8e7cc319a56a5bbfc9853
+# Passive collision oracle SHA-256: 406c9a6b404abef24dae71f3a65fda8a3866f98a2d0af3a1865cdcbf82019f8f
+# Passive damage oracle SHA-256: 13cfe41d58185fdd32fc024712420ee5c7c27fe0ae5d38cdafed4490e2ed98ba
+# Direct samples and collision-list admission agree: only the first chronological
+# track is collision-enabled. Its observed contact was deflected without
+# hostile-projectile shield damage.
+track=0 collision_enabled=true
+track=1 collision_enabled=false
+track=2 collision_enabled=false

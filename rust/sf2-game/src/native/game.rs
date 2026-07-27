@@ -8210,6 +8210,12 @@ impl Game {
             .mode_frame
             .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
             .min(u32::from(u16::MAX)) as u16;
+        self.mission_player_collision_pose = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(object_collision_pose);
         self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
         let (return_frame, map_ready_frame) = match self.state.mission.visit {
             MissionVisit::FinalPursuer => (
@@ -8251,26 +8257,30 @@ impl Game {
         } else {
             self.update_final_rival_presentation(retail_frame);
         }
-        let current_player_position = self
+        let current_player_collision_pose = self
             .state
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get(id))
-            .map(|object| object.base.position);
-        let previous_player_position = current_player_position
-            .map(|current| self.previous_mission_player_position.unwrap_or(current));
-        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
-        {
-            self.update_final_rival_actor(retail_frame, current, previous);
+            .map(object_collision_pose);
+        let previous_player_collision_pose = current_player_collision_pose
+            .map(|current| self.mission_player_collision_pose.unwrap_or(current));
+        if let (Some(current), Some(previous)) = (
+            current_player_collision_pose,
+            previous_player_collision_pose,
+        ) {
+            self.update_final_rival_actor(retail_frame, current.position, previous.position);
             self.update_final_rival_projectiles(retail_frame, current, previous)?;
-            self.previous_mission_player_position = Some(current);
+            self.previous_mission_player_position = Some(current.position);
         } else {
+            let origin = ObjectCollisionPose {
+                position: Vector3::default(),
+                pitch: Angle::ZERO,
+                yaw: Angle::ZERO,
+                roll: Angle::ZERO,
+            };
             self.update_final_rival_actor(retail_frame, Vector3::default(), Vector3::default());
-            self.update_final_rival_projectiles(
-                retail_frame,
-                Vector3::default(),
-                Vector3::default(),
-            )?;
+            self.update_final_rival_projectiles(retail_frame, origin, origin)?;
         }
         Ok(())
     }
@@ -18205,37 +18215,46 @@ impl Game {
     fn update_final_rival_projectiles(
         &mut self,
         retail_frame: u16,
-        player_position: Vector3,
-        previous_player_position: Vector3,
+        player_collision_pose: ObjectCollisionPose,
+        previous_player_collision_pose: ObjectCollisionPose,
     ) -> Result<(), Error> {
         let visit = self.state.mission.visit;
+        let collision_player = self.state.mission.primary_player.and_then(|id| {
+            self.state
+                .objects
+                .get(id)
+                .map(|player| (id, player.clone()))
+        });
         let projectile_count = match visit {
             MissionVisit::FinalPursuer => final_pursuer_projectiles::PROJECTILE_COUNT,
             MissionVisit::WolfBlockade => wolf_blockade_projectiles::PROJECTILE_COUNT,
             _ => unreachable!("final rival projectiles require a final rival visit"),
         };
         for track_index in 0..projectile_count {
-            let (start_retail_frame, end_retail_frame, initial_pose) = match visit {
-                MissionVisit::FinalPursuer => {
-                    let descriptor = final_pursuer_projectiles::descriptor(track_index)
-                        .expect("final pursuer projectile descriptor exists");
-                    (
-                        descriptor.start_retail_frame,
-                        descriptor.end_retail_frame,
-                        descriptor.initial_pose,
-                    )
-                }
-                MissionVisit::WolfBlockade => {
-                    let descriptor = wolf_blockade_projectiles::descriptor(track_index)
-                        .expect("Wolf blockade projectile descriptor exists");
-                    (
-                        descriptor.start_retail_frame,
-                        descriptor.end_retail_frame,
-                        descriptor.initial_pose,
-                    )
-                }
-                _ => unreachable!("final rival projectiles require a final rival visit"),
-            };
+            let (start_retail_frame, end_retail_frame, initial_pose, collision_enabled) =
+                match visit {
+                    MissionVisit::FinalPursuer => {
+                        let descriptor = final_pursuer_projectiles::descriptor(track_index)
+                            .expect("final pursuer projectile descriptor exists");
+                        (
+                            descriptor.start_retail_frame,
+                            descriptor.end_retail_frame,
+                            descriptor.initial_pose,
+                            descriptor.collision_enabled,
+                        )
+                    }
+                    MissionVisit::WolfBlockade => {
+                        let descriptor = wolf_blockade_projectiles::descriptor(track_index)
+                            .expect("Wolf blockade projectile descriptor exists");
+                        (
+                            descriptor.start_retail_frame,
+                            descriptor.end_retail_frame,
+                            descriptor.initial_pose,
+                            descriptor.collision_enabled,
+                        )
+                    }
+                    _ => unreachable!("final rival projectiles require a final rival visit"),
+                };
             let active_index = self
                 .final_rival_projectiles
                 .iter()
@@ -18263,6 +18282,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !collision_enabled;
                 projectile.base.position = initial_pose.position;
                 projectile.base.pitch = Angle::from_units(initial_pose.pitch);
                 projectile.base.yaw = Angle::from_units(initial_pose.yaw);
@@ -18283,32 +18303,41 @@ impl Game {
                 projectile_id
             };
 
+            let mut impact = None;
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
                 let ObjectActivity::HostileProjectileFlight(mut flight) =
                     projectile.extension.activity
                 else {
                     continue;
                 };
-                let actions = match visit {
-                    MissionVisit::FinalPursuer => {
-                        final_pursuer_projectiles::actions(track_index, retail_frame)
-                    }
-                    MissionVisit::WolfBlockade => {
-                        wolf_blockade_projectiles::actions(track_index, retail_frame)
-                    }
+                let (actions, action_player_targets) = match visit {
+                    MissionVisit::FinalPursuer => (
+                        final_pursuer_projectiles::actions(track_index, retail_frame),
+                        final_pursuer_projectiles::action_player_targets(track_index, retail_frame),
+                    ),
+                    MissionVisit::WolfBlockade => (
+                        wolf_blockade_projectiles::actions(track_index, retail_frame),
+                        wolf_blockade_projectiles::action_player_targets(track_index, retail_frame),
+                    ),
                     _ => unreachable!("final rival projectiles require a final rival visit"),
                 };
-                for &action in actions {
-                    apply_hostile_projectile_action(
-                        projectile,
-                        &mut flight,
-                        action,
-                        player_position,
-                        previous_player_position,
-                        previous_player_position,
-                    );
+                let damage = apply_hostile_projectile_actions_with_collision(
+                    projectile,
+                    &mut flight,
+                    actions,
+                    action_player_targets,
+                    player_collision_pose,
+                    previous_player_collision_pose,
+                    collision_player.as_ref().map(|(_, player)| player),
+                    self.state.mission.player_damage == PlayerDamageState::Ready,
+                );
+                if let (Some(damage), Some((player_id, _))) = (damage, collision_player.as_ref()) {
+                    impact = Some((projectile_id, *player_id, damage));
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+            if let Some((projectile_id, player_id, damage)) = impact {
+                self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
             }
         }
         Ok(())
@@ -30338,8 +30367,9 @@ mod tests {
         projectile_tracks: &[&[MissionProjectileKeyframe]],
         projectile_count: usize,
         retained_projectile_pose_count: usize,
-        descriptor: impl Fn(usize) -> (u16, u16, MissionEncounterPose),
+        descriptor: impl Fn(usize) -> (u16, u16, MissionEncounterPose, bool),
         actions: impl Fn(usize, u16) -> &'static [HostileProjectileAction],
+        action_player_targets: impl Fn(usize, u16) -> &'static [Option<HostileProjectileTarget>],
     ) {
         let mut game = Game::new();
         game.state.mission.visit = visit;
@@ -30351,27 +30381,28 @@ mod tests {
             .expect("final rival projectile oracle contains retained poses");
         let mut retained_poses = 0;
 
-        let player_position_at = |retail_frame: u16| {
+        let player_collision_pose_at = |retail_frame: u16| {
             let player_index =
                 usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
-            player_keyframes
-                .get(player_index)
-                .or_else(|| player_keyframes.last())
-                .expect("final rival oracle has player poses")
-                .position
+            mission_player_keyframe_collision_pose(
+                *player_keyframes
+                    .get(player_index)
+                    .or_else(|| player_keyframes.last())
+                    .expect("final rival oracle has player poses"),
+            )
         };
 
         for retail_frame in
             (0..=last_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
         {
-            let player_position = player_position_at(retail_frame);
-            let previous_player_position = player_position_at(
+            let player_collision_pose = player_collision_pose_at(retail_frame);
+            let previous_player_collision_pose = player_collision_pose_at(
                 retail_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
             );
             game.update_final_rival_projectiles(
                 retail_frame,
-                player_position,
-                previous_player_position,
+                player_collision_pose,
+                previous_player_collision_pose,
             )
             .unwrap();
 
@@ -30431,7 +30462,11 @@ mod tests {
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
                 assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
 
-                let (_, _, initial_pose) = descriptor(track_index);
+                let (_, _, initial_pose, collision_enabled) = descriptor(track_index);
+                assert_eq!(
+                    !projectile.base.flags.collision_disabled, collision_enabled,
+                    "final rival projectile collision eligibility for track {track_index}"
+                );
                 let mut expected_object = Object::new(
                     ObjectKind::Projectile,
                     ShapeId::ENEMY_LASER,
@@ -30453,11 +30488,20 @@ mod tests {
                 for action_frame in (first_action_frame..=retail_frame)
                     .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
                 {
-                    let action_player_position = player_position_at(action_frame);
-                    let action_previous_player_position = player_position_at(
+                    let action_player_position = player_collision_pose_at(action_frame).position;
+                    let action_previous_player_position = player_collision_pose_at(
                         action_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
+                    )
+                    .position;
+                    let frame_actions = actions(track_index, action_frame);
+                    let frame_action_player_targets =
+                        action_player_targets(track_index, action_frame);
+                    assert_eq!(
+                        frame_actions.len(),
+                        frame_action_player_targets.len(),
+                        "final rival projectile track {track_index} action metadata at frame {action_frame}"
                     );
-                    for &action in actions(track_index, action_frame) {
+                    for &action in frame_actions {
                         apply_hostile_projectile_action(
                             &mut expected_object,
                             &mut expected_flight,
@@ -30482,8 +30526,8 @@ mod tests {
         let cleanup_frame = last_retail_frame + RETAIL_PRESENTATION_FRAMES_PER_TICK as u16;
         game.update_final_rival_projectiles(
             cleanup_frame,
-            player_position_at(cleanup_frame),
-            player_position_at(
+            player_collision_pose_at(cleanup_frame),
+            player_collision_pose_at(
                 cleanup_frame.saturating_sub(RETAIL_PRESENTATION_FRAMES_PER_TICK as u16),
             ),
         )
@@ -30508,9 +30552,11 @@ mod tests {
                     descriptor.start_retail_frame,
                     descriptor.end_retail_frame,
                     descriptor.initial_pose,
+                    descriptor.collision_enabled,
                 )
             },
             final_pursuer_projectiles::actions,
+            final_pursuer_projectiles::action_player_targets,
         );
     }
 
@@ -30531,9 +30577,11 @@ mod tests {
                     descriptor.start_retail_frame,
                     descriptor.end_retail_frame,
                     descriptor.initial_pose,
+                    descriptor.collision_enabled,
                 )
             },
             wolf_blockade_projectiles::actions,
+            wolf_blockade_projectiles::action_player_targets,
         );
     }
 
