@@ -15994,6 +15994,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !descriptor.collision_enabled;
                 projectile.base.position = descriptor.initial_pose.position;
                 projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
                 projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
@@ -28874,6 +28875,13 @@ mod tests {
                 assert_eq!(projectile.base.roll.units(), expected.pose.roll);
                 assert_eq!(projectile.base.speed, expected.pose.speed);
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
+                assert_eq!(
+                    !projectile.base.flags.collision_disabled,
+                    pigma_duel_projectiles::descriptor(track_index)
+                        .expect("Pigma projectile descriptor exists")
+                        .collision_enabled,
+                    "Pigma projectile collision eligibility for track {track_index}"
+                );
 
                 let descriptor = pigma_duel_projectiles::descriptor(track_index).unwrap();
                 let mut expected_object = Object::new(

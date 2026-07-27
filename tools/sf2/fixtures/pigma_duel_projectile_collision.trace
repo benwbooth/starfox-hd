@@ -1,0 +1,12 @@
+# Semantic collision eligibility for the three chronological Pigma-duel lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose source SHA-256: 4087e996b0a8e8030e5769b433959ba672d9510623bdf5a3fb6fb4d4104c2c3e
+# Logic source SHA-256: fc7b7051fd9a6bcfb1e3b4b605698039868a56b2913465e0418433cf4bdbcec4
+# Collision oracle SHA-256: 9cb3396afd3cb5a9896195f62c1a1b063c178319cb529e097d77314860f36abb
+# Every retained semantic action and every direct collision-list sample for each
+# track exposed the same source flag value.
+track=0 collision_enabled=false
+track=1 collision_enabled=false
+track=2 collision_enabled=false
