@@ -163,11 +163,11 @@ opcode `$180` proves that the real address calculation also uses a high slot
 which aliases the following handler bytes. The 70 map assignments expose 27
 unique roots. `extract_path.py` follows every handler CFG, including internal
 calls, width changes, the 18-way object-state jump, waits, dynamic pointer
-loads, and the shared advance/jump helpers. The closed result is 11,798 commands
-from 106 roots, using 274 logical opcode handlers with zero invalid records or
+loads, and the shared advance/jump helpers. The closed result is 14,220 commands
+from 106 roots, using 279 logical opcode handlers with zero invalid records or
 unresolved dispatch targets.
 
-Every one of the 274 reachable dispatch handlers now has a proof-gated semantic
+Every one of the 279 reachable dispatch handlers now has a proof-gated semantic
 identity and a typed `rust/sf2-path` implementation; no handler-level
 `RetailBridge*` operation remains. The 23 former handler bridges are covered by
 isolated exact-retail differentials, including pointer-control branches and the
@@ -227,7 +227,7 @@ The next critical path is:
 - `rust/sf2-data/src/map.rs` / `path.rs` / `shape_data.rs` / `collision_data.rs` /
   `draw.rs` — generated map/path, geometry, collision, and retail draw-ABI data.
 - `rust/sf2-map` — strict map VM implementation and runtime tests.
-- `rust/sf2-path` — strict path VM with all 274 handlers and all 42 reachable
+- `rust/sf2-path` — strict path VM with all 279 handlers and all 42 reachable
   inline control blocks typed; the former deep collision escape is fully lifted.
 - `tools/sf2/run_mesen_oracle.py` — reproducible disposable-profile Mesen runner;
   avoids Mesen's first-run GUI trap and leaves script artifacts inspectable.

@@ -90,6 +90,8 @@ mod leon_duel_rival;
 mod leon_pressure;
 #[path = "leon_pressure_projectiles.rs"]
 mod leon_pressure_projectiles;
+#[path = "leon_pressure_rival.rs"]
+mod leon_pressure_rival;
 #[path = "meteor_installation_core.rs"]
 mod meteor_installation_core;
 #[path = "meteor_queen_dragoon.rs"]
@@ -341,6 +343,9 @@ const PIGMA_DECELERATION_RATE: u8 = 5;
 const PIGMA_ESCAPE_SPEED: u8 = 10;
 const PIGMA_ESCAPE_DECELERATION: u8 = 1;
 const RIVAL_COMBAT_ALTITUDE: i16 = -4_000;
+const LEON_PRESSURE_ENTRY_TARGET_OFFSET: Vector3 = Vector3 { x: -3, y: 0, z: -3 };
+const LEON_PRESSURE_CLIMB_TARGET_OFFSET: Vector3 = Vector3 { x: 1, y: -8, z: 0 };
+const LEON_PRESSURE_CRUISE_TARGET_OFFSET: Vector3 = Vector3 { x: -2, y: 0, z: 0 };
 const PIGMA_SECOND_APPROACH_ALTITUDE_OFFSET: i16 = 600;
 const PIGMA_SECOND_APPROACH_INITIAL_BANK: i8 = -10;
 const PIGMA_SECOND_APPROACH_VERTICAL_STEP: i16 = -60;
@@ -2599,6 +2604,9 @@ enum PlayerTargetTiming {
     PreviousMidpoint,
     Previous,
     Midpoint,
+    PressureEntryMidpoint,
+    PressureClimbMidpoint,
+    PressureCruiseMidpoint,
     Current,
 }
 
@@ -2618,6 +2626,18 @@ impl PlayerTargetTiming {
             Self::PreviousMidpoint => midpoint_vector(two_ticks_ago, previous),
             Self::Previous => previous,
             Self::Midpoint => midpoint_vector(previous, current),
+            Self::PressureEntryMidpoint => add_vectors(
+                midpoint_vector(previous, current),
+                LEON_PRESSURE_ENTRY_TARGET_OFFSET,
+            ),
+            Self::PressureClimbMidpoint => add_vectors(
+                midpoint_vector(previous, current),
+                LEON_PRESSURE_CLIMB_TARGET_OFFSET,
+            ),
+            Self::PressureCruiseMidpoint => add_vectors(
+                midpoint_vector(previous, current),
+                LEON_PRESSURE_CRUISE_TARGET_OFFSET,
+            ),
             Self::Current => current,
         }
     }
@@ -4222,6 +4242,7 @@ struct MissionEncounterKeyframe {
     poses: [MissionEncounterPose; MISSION_ENCOUNTER_ACTOR_COUNT],
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MissionActorPresentation {
     Present(MissionEncounterPose),
@@ -4229,12 +4250,14 @@ enum MissionActorPresentation {
     Departed,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MissionActorKeyframe {
     retail_frame: u16,
     presentation: MissionActorPresentation,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 struct MissionProjectileKeyframe {
     retail_frame: u16,
@@ -5401,6 +5424,7 @@ const fn mission_encounter_keyframe(
     }
 }
 
+#[cfg(test)]
 const fn mission_actor_keyframe(retail_frame: u16, pose: [i16; 7]) -> MissionActorKeyframe {
     MissionActorKeyframe {
         retail_frame,
@@ -5408,6 +5432,7 @@ const fn mission_actor_keyframe(retail_frame: u16, pose: [i16; 7]) -> MissionAct
     }
 }
 
+#[cfg(test)]
 const fn mission_actor_inactive_keyframe(retail_frame: u16) -> MissionActorKeyframe {
     MissionActorKeyframe {
         retail_frame,
@@ -5415,6 +5440,7 @@ const fn mission_actor_inactive_keyframe(retail_frame: u16) -> MissionActorKeyfr
     }
 }
 
+#[cfg(test)]
 const fn mission_actor_departure_keyframe(retail_frame: u16) -> MissionActorKeyframe {
     MissionActorKeyframe {
         retail_frame,
@@ -5429,6 +5455,7 @@ const fn mission_timer_keyframe(retail_frame: u16, elapsed_tenths: u16) -> Missi
     }
 }
 
+#[cfg(test)]
 const fn mission_projectile_keyframe(
     retail_frame: u16,
     pose: [i16; 7],
@@ -8176,7 +8203,6 @@ impl Game {
         } else {
             self.update_leon_pressure_presentation(retail_frame);
         }
-        self.update_leon_pressure_rival(retail_frame);
         let current_player_collision_pose = self
             .state
             .mission
@@ -8189,9 +8215,11 @@ impl Game {
             current_player_collision_pose,
             previous_player_collision_pose,
         ) {
+            self.update_leon_pressure_rival(retail_frame, current.position, previous.position);
             self.update_leon_pressure_projectiles(retail_frame, current, previous)?;
             self.previous_mission_player_position = Some(current.position);
         } else {
+            self.update_leon_pressure_rival(retail_frame, Vector3::default(), Vector3::default());
             let origin = ObjectCollisionPose {
                 position: Vector3::default(),
                 pitch: Angle::ZERO,
@@ -16883,13 +16911,71 @@ impl Game {
         fire_events
     }
 
-    fn update_leon_pressure_rival(&mut self, retail_frame: u16) {
-        Self::update_pressure_actor(
-            &mut self.state,
-            &mut self.leon_rival,
-            &leon_pressure::RIVAL_KEYFRAMES,
-            retail_frame,
-        );
+    fn update_leon_pressure_rival(
+        &mut self,
+        retail_frame: u16,
+        player_position: Vector3,
+        previous_player_position: Vector3,
+    ) {
+        if retail_frame < leon_pressure_rival::PRESENTATION_START_RETAIL_FRAME {
+            return;
+        }
+        if retail_frame >= leon_pressure_rival::DEPARTURE_RETAIL_FRAME {
+            let destruction_in_progress = self
+                .leon_rival
+                .and_then(|id| self.state.objects.get(id))
+                .is_some_and(|object| {
+                    object.base.explosion_timer > 0 || object.base.flags.exploding
+                });
+            if destruction_in_progress {
+                return;
+            }
+            if let Some(rival) = self.leon_rival.take() {
+                self.state.objects.remove(rival);
+            }
+            return;
+        }
+        let Some(rival) = self.leon_rival else {
+            return;
+        };
+        let Some(object) = self.state.objects.get_mut(rival) else {
+            return;
+        };
+        if object.base.explosion_timer > 0 || object.base.flags.exploding {
+            return;
+        }
+        let ObjectActivity::LeonRivalFlight(mut flight) = object.extension.activity else {
+            return;
+        };
+        if retail_frame == leon_pressure_rival::PRESENTATION_START_RETAIL_FRAME {
+            object.base.flags.active = true;
+            object.base.flags.visible = true;
+            object.base.flags.collision_disabled = false;
+            object.base.position = Vector3::default();
+            object.base.pitch = Angle::ZERO;
+            object.base.yaw = Angle::ZERO;
+            object.base.roll = Angle::ZERO;
+            object.base.speed = 0;
+            object.base.velocity = Vector3::default();
+        }
+        if retail_frame == leon_pressure_rival::STAGING_RETAIL_FRAME {
+            apply_mission_encounter_pose(object, leon_pressure_rival::STAGING_POSE);
+        }
+        if retail_frame == leon_pressure_rival::FLIGHT_START_RETAIL_FRAME
+            && flight.phase == LeonRivalFlightPhase::AwaitingEntrance
+        {
+            apply_mission_encounter_pose(object, leon_pressure_rival::INITIAL_POSE);
+        }
+        for &action in leon_pressure_rival::actions(retail_frame) {
+            apply_leon_rival_action(
+                object,
+                &mut flight,
+                action,
+                player_position,
+                previous_player_position,
+            );
+        }
+        object.extension.activity = ObjectActivity::LeonRivalFlight(flight);
     }
 
     fn update_final_rival_actor(
@@ -16975,76 +17061,6 @@ impl Game {
             );
         }
         object.extension.activity = ObjectActivity::FinalRivalFlight(flight);
-    }
-
-    fn update_pressure_actor(
-        state: &mut GameState,
-        actor: &mut Option<ObjectId>,
-        keyframes: &[MissionActorKeyframe],
-        retail_frame: u16,
-    ) {
-        if retail_frame < keyframes[0].retail_frame {
-            return;
-        }
-        let (start, end) =
-            enclosing_keyframes(keyframes, retail_frame, |keyframe| keyframe.retail_frame);
-        let presentation = if retail_frame >= end.retail_frame {
-            end.presentation
-        } else {
-            match (start.presentation, end.presentation) {
-                (
-                    MissionActorPresentation::Present(start_pose),
-                    MissionActorPresentation::Present(end_pose),
-                ) => MissionActorPresentation::Present(interpolate_encounter_pose(
-                    start_pose,
-                    end_pose,
-                    retail_frame.saturating_sub(start.retail_frame),
-                    end.retail_frame.saturating_sub(start.retail_frame),
-                )),
-                (presentation, _) => presentation,
-            }
-        };
-        if presentation == MissionActorPresentation::Departed {
-            let destruction_in_progress =
-                actor
-                    .and_then(|id| state.objects.get(id))
-                    .is_some_and(|object| {
-                        object.base.explosion_timer > 0 || object.base.flags.exploding
-                    });
-            if destruction_in_progress {
-                return;
-            }
-            if let Some(object) = actor.take() {
-                state.objects.remove(object);
-            }
-            return;
-        }
-        let Some(object) = actor.and_then(|id| state.objects.get_mut(id)) else {
-            return;
-        };
-        if object.base.explosion_timer > 0 || object.base.flags.exploding {
-            return;
-        }
-        match presentation {
-            MissionActorPresentation::Present(pose) => {
-                object.base.flags.active = true;
-                object.base.flags.visible = true;
-                object.base.flags.collision_disabled = false;
-                object.base.position = pose.position;
-                object.base.pitch = Angle::from_units(pose.pitch);
-                object.base.yaw = Angle::from_units(pose.yaw);
-                object.base.roll = Angle::from_units(pose.roll);
-                object.base.speed = pose.speed;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Inactive => {
-                object.base.flags.active = false;
-                object.base.flags.visible = false;
-                object.base.flags.collision_disabled = true;
-                object.base.velocity = Vector3::default();
-            }
-            MissionActorPresentation::Departed => unreachable!(),
-        }
     }
 
     fn update_leon_rival(
@@ -20703,6 +20719,18 @@ fn apply_player_keyframe(object: &mut Object, keyframe: MissionPlayerKeyframe) {
     object.base.velocity = Vector3::default();
 }
 
+fn apply_mission_encounter_pose(object: &mut Object, pose: MissionEncounterPose) {
+    object.base.flags.active = true;
+    object.base.flags.visible = true;
+    object.base.flags.collision_disabled = false;
+    object.base.position = pose.position;
+    object.base.pitch = Angle::from_units(pose.pitch);
+    object.base.yaw = Angle::from_units(pose.yaw);
+    object.base.roll = Angle::from_units(pose.roll);
+    object.base.speed = pose.speed;
+    object.base.velocity = Vector3::default();
+}
+
 #[cfg(test)]
 fn mission_player_keyframe_collision_pose(keyframe: MissionPlayerKeyframe) -> ObjectCollisionPose {
     ObjectCollisionPose {
@@ -20822,21 +20850,6 @@ fn interpolate_vector(start: Vector3, end: Vector3, numerator: u16, denominator:
         x: interpolate_i16(start.x, end.x, numerator, denominator),
         y: interpolate_i16(start.y, end.y, numerator, denominator),
         z: interpolate_i16(start.z, end.z, numerator, denominator),
-    }
-}
-
-fn interpolate_encounter_pose(
-    start: MissionEncounterPose,
-    end: MissionEncounterPose,
-    numerator: u16,
-    denominator: u16,
-) -> MissionEncounterPose {
-    MissionEncounterPose {
-        position: interpolate_vector(start.position, end.position, numerator, denominator),
-        pitch: interpolate_angle(start.pitch, end.pitch, numerator, denominator).units(),
-        yaw: interpolate_angle(start.yaw, end.yaw, numerator, denominator).units(),
-        roll: interpolate_angle(start.roll, end.roll, numerator, denominator).units(),
-        speed: interpolate_u8(start.speed, end.speed, numerator, denominator),
     }
 }
 
@@ -30243,6 +30256,90 @@ mod tests {
             ));
         }
         assert_eq!(game.leon_rival, Some(rival_id));
+        assert_eq!(game.state().mission.score, 0);
+        assert_eq!(game.state().mission.objects_destroyed, 0);
+    }
+
+    #[test]
+    fn typed_leon_pressure_rival_flight_matches_every_oracle_boundary() {
+        let mut game = Game::new();
+        game.state.mission.visit = MissionVisit::LeonPressure;
+        game.spawn_leon_rival().unwrap();
+        let rival_id = game.leon_rival.unwrap();
+        let first_player = leon_pressure_rival::player_pose(0).unwrap();
+        let mut previous_player_position = first_player.position;
+        let mut retained_poses = 0;
+
+        for retail_frame in (0..=leon_pressure_rival::DEPARTURE_RETAIL_FRAME)
+            .step_by(usize::from(leon_pressure_rival::RETAIL_FRAME_STEP))
+        {
+            let player = leon_pressure_rival::player_pose(
+                retail_frame.min(leon_pressure_rival::END_RETAIL_FRAME),
+            )
+            .unwrap();
+            game.update_leon_pressure_rival(
+                retail_frame,
+                player.position,
+                previous_player_position,
+            );
+            previous_player_position = player.position;
+
+            let expected = leon_pressure::RIVAL_KEYFRAMES
+                .iter()
+                .find(|keyframe| keyframe.retail_frame == retail_frame);
+            let Some(expected) = expected else {
+                let object = game.state().objects.get(rival_id).unwrap();
+                assert!(!object.base.flags.active, "frame {retail_frame}");
+                assert!(!object.base.flags.visible, "frame {retail_frame}");
+                assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                continue;
+            };
+            match expected.presentation {
+                MissionActorPresentation::Present(pose) => {
+                    retained_poses += 1;
+                    let object =
+                        game.state().objects.get(rival_id).unwrap_or_else(|| {
+                            panic!("Leon absent at retail frame {retail_frame}")
+                        });
+                    assert_eq!(object.base.position, pose.position, "frame {retail_frame}");
+                    assert_eq!(
+                        object.base.pitch.units(),
+                        pose.pitch,
+                        "frame {retail_frame}"
+                    );
+                    assert_eq!(object.base.yaw.units(), pose.yaw, "frame {retail_frame}");
+                    assert_eq!(object.base.roll.units(), pose.roll, "frame {retail_frame}");
+                    assert_eq!(object.base.speed, pose.speed, "frame {retail_frame}");
+                    assert!(object.base.flags.active, "frame {retail_frame}");
+                    assert!(object.base.flags.visible, "frame {retail_frame}");
+                    assert!(
+                        !object.base.flags.collision_disabled,
+                        "frame {retail_frame}"
+                    );
+                    assert!(matches!(
+                        object.extension.activity,
+                        ObjectActivity::LeonRivalFlight(_)
+                    ));
+                }
+                MissionActorPresentation::Inactive => {
+                    let object = game.state().objects.get(rival_id).unwrap();
+                    assert!(!object.base.flags.active, "frame {retail_frame}");
+                    assert!(!object.base.flags.visible, "frame {retail_frame}");
+                    assert!(object.base.flags.collision_disabled, "frame {retail_frame}");
+                }
+                MissionActorPresentation::Departed => {
+                    assert!(game.leon_rival.is_none(), "frame {retail_frame}");
+                }
+            }
+        }
+
+        let oracle_pose_count = leon_pressure::RIVAL_KEYFRAMES
+            .iter()
+            .filter(|keyframe| {
+                matches!(keyframe.presentation, MissionActorPresentation::Present(_))
+            })
+            .count();
+        assert_eq!(retained_poses, oracle_pose_count);
         assert_eq!(game.state().mission.score, 0);
         assert_eq!(game.state().mission.objects_destroyed, 0);
     }

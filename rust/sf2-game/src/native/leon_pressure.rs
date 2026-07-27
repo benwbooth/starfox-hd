@@ -1,14 +1,17 @@
 //! Generated typed path for the retail Leon pressure encounter duel.
 //!
 //! Source: `leon_pressure.trace`.
+//! The transient frame-324 linked-list snapshot is repaired from its
+//! identical neighboring poses; the operation trace proves the rival remains live.
 //! Regenerate or verify with `uv run python
-//! tools/sf2/generate_pigma_duel.py [--check]`.
+//! tools/sf2/generate_leon_pressure.py [--check]`.
 
 use super::{
-    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,
-    mission_camera_keyframe, mission_player_keyframe, MissionActorKeyframe,
-    MissionCameraKeyframe, MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
+
+#[cfg(test)]
+use super::{mission_actor_departure_keyframe, mission_actor_keyframe, MissionActorKeyframe};
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 1737;
 pub(super) const MAP_READY_RETAIL_FRAME: u16 = 1739;
@@ -1327,6 +1330,7 @@ pub(super) const WINGMATE_KEYFRAMES: [MissionPlayerKeyframe; 435] = [
     mission_player_keyframe(1736, 7_674, -3_403, 17_642, 0, 252, 3, 23),
 ];
 
+#[cfg(test)]
 pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 366] = [
     mission_actor_keyframe(56, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(60, [0, 0, 0, 0, 0, 0, 0]),
@@ -1395,7 +1399,7 @@ pub(super) const RIVAL_KEYFRAMES: [MissionActorKeyframe; 366] = [
     mission_actor_keyframe(312, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(316, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(320, [0, 0, 0, 0, 0, 0, 0]),
-    mission_actor_inactive_keyframe(324),
+    mission_actor_keyframe(324, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(328, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(332, [0, 0, 0, 0, 0, 0, 0]),
     mission_actor_keyframe(336, [0, 0, 0, 0, 0, 0, 0]),
