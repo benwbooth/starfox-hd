@@ -3,8 +3,8 @@
 //! Source: `first_sortie_neutral.trace`.
 //! Mission timer source: `first_sortie_timer.trace`.
 //! Player dynamics source: `first_sortie_player_dynamics.trace`.
-//! Shipping player motion and the ordinary follow camera advance typed
-//! state from recovered semantic cadence; complete poses are test-only.
+//! Shipping player motion and the follow/return camera advance typed state
+//! from recovered semantic cadence; complete poses are test-only.
 //! Regenerate or verify with `uv run python tools/sf2/generate_opening_continuation.py [--check]`.
 
 #[cfg(test)]
@@ -12,13 +12,13 @@ use super::{
     mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,
     MissionActorKeyframe,
 };
-use super::{
-    mission_camera_keyframe, mission_encounter_keyframe, mission_timer_keyframe,
-    MissionCameraKeyframe, MissionEncounterKeyframe, MissionTimerKeyframe,
-};
+#[cfg(test)]
+use super::{mission_camera_keyframe, MissionCameraKeyframe};
+use super::{mission_encounter_keyframe, mission_timer_keyframe};
 #[cfg(test)]
 use super::{mission_player_keyframe, MissionPlayerKeyframe};
 use super::{Angle, Vector3};
+use super::{MissionEncounterKeyframe, MissionTimerKeyframe};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct OpeningFlightCadence {
@@ -35,7 +35,8 @@ pub(super) const ENCOUNTER_CERTIFIED_END_RETAIL_FRAME: u16 = 2448;
 pub(super) const RETAIL_FRAME_STEP: u16 = 4;
 const PLAYER_LIVE_FIRST_RETAIL_FRAME: u16 = 900;
 const PLAYER_LIVE_LAST_RETAIL_FRAME: u16 = 8052;
-pub(super) const CAMERA_TYPED_LAST_RETAIL_FRAME: u16 = 7840;
+#[cfg(test)]
+pub(super) const CAMERA_TYPED_LAST_RETAIL_FRAME: u16 = 8052;
 pub(super) const CAMERA_RETURN_FIRST_RETAIL_FRAME: u16 = 7844;
 pub(super) const PLAYER_HANDOFF_POSITION: Vector3 = Vector3 {
     x: -5_477,
@@ -59,6 +60,23 @@ pub(super) const CAMERA_FOLLOW_REAR_DISTANCE: i16 = 0;
 pub(super) const CAMERA_FOLLOW_VERTICAL_OFFSET: i16 = -20;
 pub(super) const CAMERA_AMBIENT_HEIGHT_PHASE_AT_HANDOFF: u8 = 4;
 pub(super) const CAMERA_AMBIENT_HEIGHT_AT_HANDOFF: i16 = 1;
+pub(super) const CAMERA_RETURN_REAR_DISTANCE_TARGET: i16 = -240;
+pub(super) const CAMERA_RETURN_REAR_DISTANCE_STEP: i16 = 30;
+pub(super) const CAMERA_RETURN_VERTICAL_CHASE_DIVISOR: i16 = 8;
+pub(super) const CAMERA_RETURN_ORBIT_INITIAL_DEPTH: i16 = -80;
+pub(super) const CAMERA_RETURN_ORBIT_DEPTH_STEP: i16 = 5;
+pub(super) const CAMERA_RETURN_ORBIT_VERTICAL_OFFSET: i16 = -50;
+pub(super) const CAMERA_RETURN_ORBIT_YAW_STEP: i8 = 1;
+pub(super) const CAMERA_RETURN_LEAD_TARGET: i16 = 70;
+pub(super) const CAMERA_RETURN_LEAD_SETTLE_UPDATES: u8 = 5;
+pub(super) const CAMERA_RETURN_LEAD_DECAY_DIVISOR: i16 = 16;
+pub(super) const CAMERA_RETURN_CONTINUITY_DIVISOR: i16 = 16;
+pub(super) const CAMERA_RETURN_ORIENTATION_CHASE_DIVISOR: i16 = 2;
+pub(super) const CAMERA_RETURN_ORIENTATION_CHASE_MINIMUM: i16 = 2;
+pub(super) const CAMERA_RETURN_ANGULAR_VELOCITY_STEP: i8 = 1;
+pub(super) const CAMERA_ORIENTATION_COARSE_SHIFT: u32 = 8;
+pub(super) const CAMERA_ORIENTATION_SUBUNITS_PER_COARSE_UNIT: i16 = 256;
+pub(super) const CAMERA_FOLLOW_FINE_ORIENTATION: [u16; 3] = [0, 7_424, 0];
 
 #[cfg(test)]
 pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 1789] = [
@@ -1798,62 +1816,6 @@ pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 1789] = [
     mission_camera_keyframe(7832, 30_505, -2_904, -27_210, 0, 0, 0),
     mission_camera_keyframe(7836, 30_523, -2_904, -27_189, 0, 0, 0),
     mission_camera_keyframe(7840, 30_541, -2_905, -27_168, 0, 0, 0),
-    mission_camera_keyframe(7844, 30_561, -2_904, -27_145, 0, 0, 0),
-    mission_camera_keyframe(7848, 30_602, -2_901, -27_098, 0, 0, 0),
-    mission_camera_keyframe(7852, 30_617, -2_899, -27_079, 0, 0, 0),
-    mission_camera_keyframe(7856, 30_641, -2_896, -27_053, 0, 0, 0),
-    mission_camera_keyframe(7860, 30_651, -2_895, -27_041, 0, 0, 0),
-    mission_camera_keyframe(7864, 30_658, -2_893, -27_033, 0, 0, 0),
-    mission_camera_keyframe(7868, 30_662, -2_894, -27_029, 132, 112, 0),
-    mission_camera_keyframe(7872, 30_676, -2_896, -27_008, 114, 88, 0),
-    mission_camera_keyframe(7876, 30_690, -2_898, -26_989, 65, 44, 0),
-    mission_camera_keyframe(7880, 30_716, -2_901, -26_948, 129, 67, 0),
-    mission_camera_keyframe(7884, 30_729, -2_902, -26_927, 25, 73, 0),
-    mission_camera_keyframe(7888, 30_741, -2_903, -26_906, 149, 92, 0),
-    mission_camera_keyframe(7892, 30_766, -2_905, -26_864, 112, 55, 0),
-    mission_camera_keyframe(7896, 30_779, -2_906, -26_843, 100, 11, 0),
-    mission_camera_keyframe(7900, 30_791, -2_907, -26_821, 118, 37, 0),
-    mission_camera_keyframe(7904, 30_815, -2_909, -26_779, 237, 41, 0),
-    mission_camera_keyframe(7908, 30_827, -2_910, -26_757, 54, 36, 0),
-    mission_camera_keyframe(7912, 30_838, -2_911, -26_735, 115, 66, 0),
-    mission_camera_keyframe(7916, 30_863, -2_913, -26_691, 242, 48, 0),
-    mission_camera_keyframe(7920, 30_873, -2_914, -26_668, 45, 72, 0),
-    mission_camera_keyframe(7924, 30_886, -2_915, -26_645, 82, 76, 0),
-    mission_camera_keyframe(7928, 30_910, -2_917, -26_598, 176, 83, 0),
-    mission_camera_keyframe(7932, 30_921, -2_918, -26_574, 228, 113, 0),
-    mission_camera_keyframe(7936, 30_933, -2_919, -26_550, 6, 112, 0),
-    mission_camera_keyframe(7940, 30_957, -2_921, -26_502, 75, 104, 0),
-    mission_camera_keyframe(7944, 30_970, -2_922, -26_477, 101, 84, 0),
-    mission_camera_keyframe(7948, 30_981, -2_923, -26_452, 142, 82, 0),
-    mission_camera_keyframe(7952, 31_006, -2_925, -26_401, 173, 76, 0),
-    mission_camera_keyframe(7956, 31_017, -2_926, -26_375, 194, 94, 0),
-    mission_camera_keyframe(7960, 31_030, -2_927, -26_350, 213, 79, 0),
-    mission_camera_keyframe(7964, 31_056, -2_929, -26_297, 245, 79, 0),
-    mission_camera_keyframe(7968, 31_069, -2_930, -26_270, 250, 71, 0),
-    mission_camera_keyframe(7972, 31_080, -2_931, -26_244, 13, 35, 0),
-    mission_camera_keyframe(7976, 31_109, -2_931, -26_190, 85, 220, 0),
-    mission_camera_keyframe(7980, 31_122, -2_931, -26_163, 130, 198, 0),
-    mission_camera_keyframe(7984, 31_135, -2_931, -26_135, 173, 179, 0),
-    mission_camera_keyframe(7988, 31_163, -2_931, -26_078, 19, 168, 0),
-    mission_camera_keyframe(7992, 31_176, -2_931, -26_050, 53, 164, 0),
-    mission_camera_keyframe(7996, 31_192, -2_931, -26_021, 90, 170, 0),
-    mission_camera_keyframe(8000, 31_220, -2_931, -25_963, 168, 170, 0),
-    mission_camera_keyframe(8004, 31_236, -2_931, -25_934, 204, 157, 0),
-    mission_camera_keyframe(8008, 31_252, -2_931, -25_904, 234, 150, 0),
-    mission_camera_keyframe(8012, 31_283, -2_931, -25_844, 38, 157, 0),
-    mission_camera_keyframe(8016, 31_299, -2_931, -25_813, 71, 174, 0),
-    mission_camera_keyframe(8020, 31_315, -2_931, -25_783, 95, 175, 0),
-    mission_camera_keyframe(8024, 31_350, -2_931, -25_721, 139, 195, 0),
-    mission_camera_keyframe(8028, 31_367, -2_931, -25_690, 161, 209, 0),
-    mission_camera_keyframe(8032, 31_383, -2_931, -25_661, 180, 184, 0),
-    mission_camera_keyframe(8036, 31_422, -2_931, -25_597, 207, 238, 0),
-    mission_camera_keyframe(8040, 31_438, -2_931, -25_568, 223, 199, 0),
-    mission_camera_keyframe(8044, 31_458, -2_931, -25_535, 239, 211, 0),
-    mission_camera_keyframe(8048, 31_495, -2_931, -25_473, 13, 216, 0),
-    mission_camera_keyframe(8052, 31_515, -2_931, -25_440, 26, 220, 0),
-];
-
-pub(super) const CAMERA_RETURN_KEYFRAMES: [MissionCameraKeyframe; 53] = [
     mission_camera_keyframe(7844, 30_561, -2_904, -27_145, 0, 0, 0),
     mission_camera_keyframe(7848, 30_602, -2_901, -27_098, 0, 0, 0),
     mission_camera_keyframe(7852, 30_617, -2_899, -27_079, 0, 0, 0),
@@ -3769,7 +3731,7 @@ const CAMERA_SKIPPED_UPDATE_RETAIL_FRAMES: [u16; 52] = [
     3004, 3136, 3328, 3820,
 ];
 
-const CAMERA_DOUBLE_UPDATE_RETAIL_FRAMES: [u16; 317] = [
+const CAMERA_DOUBLE_UPDATE_RETAIL_FRAMES: [u16; 335] = [
     1792, 2028, 2324, 2544, 2792, 2832, 2844, 2864, 2888, 2912, 2936, 2968, 3000, 3012, 3304, 3332,
     3384, 3412, 3436, 3460, 3484, 3504, 3524, 3544, 3564, 3584, 3604, 3620, 3640, 3660, 3672, 3684,
     3696, 3712, 3728, 3744, 3816, 3824, 3864, 3888, 3912, 3932, 3948, 3960, 3972, 3984, 3996, 4008,
@@ -3789,13 +3751,15 @@ const CAMERA_DOUBLE_UPDATE_RETAIL_FRAMES: [u16; 317] = [
     7068, 7080, 7092, 7104, 7116, 7128, 7140, 7152, 7164, 7176, 7188, 7200, 7212, 7224, 7236, 7248,
     7260, 7272, 7284, 7296, 7308, 7320, 7332, 7344, 7356, 7368, 7384, 7396, 7412, 7428, 7444, 7464,
     7480, 7496, 7516, 7532, 7548, 7560, 7568, 7580, 7592, 7604, 7616, 7628, 7640, 7652, 7664, 7676,
-    7688, 7700, 7712, 7724, 7736, 7748, 7760, 7772, 7784, 7796, 7808, 7820, 7832,
+    7688, 7700, 7712, 7724, 7736, 7748, 7760, 7772, 7784, 7796, 7808, 7820, 7832, 7844, 7856, 7868,
+    7880, 7892, 7904, 7916, 7928, 7940, 7952, 7964, 7976, 7988, 8000, 8012, 8024, 8036, 8048,
 ];
 
-const CAMERA_PREVIOUS_PLAYER_POSITION_RETAIL_FRAMES: [u16; 47] = [
+const CAMERA_PREVIOUS_PLAYER_POSITION_RETAIL_FRAMES: [u16; 63] = [
     1580, 2092, 2340, 2644, 2828, 2840, 2932, 2996, 3008, 3300, 3480, 3500, 3520, 3540, 3600, 3692,
     3708, 3860, 3928, 4288, 4320, 4700, 4728, 4772, 4884, 5020, 5088, 5104, 5144, 5200, 5304, 5368,
-    5632, 5676, 5724, 5760, 6012, 6152, 6188, 6384, 6628, 6744, 6756, 6852, 6996, 7392, 7512,
+    5632, 5676, 5724, 5760, 6012, 6152, 6188, 6384, 6628, 6744, 6756, 6852, 6996, 7392, 7512, 7852,
+    7876, 7888, 7900, 7912, 7924, 7936, 7948, 7960, 7972, 7984, 7996, 8008, 8020, 8032, 8044,
 ];
 
 #[cfg(test)]
@@ -3820,9 +3784,7 @@ pub(super) fn player_flight_cadence(retail_frame: u16) -> Option<OpeningFlightCa
     } else {
         1
     };
-    let camera_updates = if retail_frame > CAMERA_TYPED_LAST_RETAIL_FRAME
-        || CAMERA_SKIPPED_UPDATE_RETAIL_FRAMES.contains(&retail_frame)
-    {
+    let camera_updates = if CAMERA_SKIPPED_UPDATE_RETAIL_FRAMES.contains(&retail_frame) {
         0
     } else if CAMERA_DOUBLE_UPDATE_RETAIL_FRAMES.contains(&retail_frame) {
         2

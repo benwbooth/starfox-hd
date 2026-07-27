@@ -29,14 +29,15 @@ use super::results;
 #[cfg(test)]
 use super::state::RecurringAttackerStatus;
 use super::state::{
-    AstropolisMissionState, AstropolisPhase, AstropolisStatus, CampaignRouteStep, CampaignState,
-    CarrierAssaultPhase, CarrierAssaultState, CarrierCorridorControlStatus,
-    CarrierCorridorDefenderStatus, CarrierCorridorGateState, CarrierCorridorPassageStatus,
-    CarrierObjectiveStatus, CarrierReactorPanel, CarrierReactorVulnerabilityStatus, ChargeSound,
-    CorneriaDefensePhase, CorneriaDefenseState, Difficulty, EladardBarrierStatus,
-    EladardDefenderStatus, EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom,
-    EladardMissionState, EladardPhase, EladardSwitchStatus, EndingPhase, EndingState,
-    FlightControlStyle, FlightFollowCameraState, FortunaCoreStatus, FortunaDefenderStatus,
+    AstropolisMissionState, AstropolisPhase, AstropolisStatus, CameraOrientationOffsets,
+    CameraOrientationSubunits, CampaignRouteStep, CampaignState, CarrierAssaultPhase,
+    CarrierAssaultState, CarrierCorridorControlStatus, CarrierCorridorDefenderStatus,
+    CarrierCorridorGateState, CarrierCorridorPassageStatus, CarrierObjectiveStatus,
+    CarrierReactorPanel, CarrierReactorVulnerabilityStatus, ChargeSound, CorneriaDefensePhase,
+    CorneriaDefenseState, Difficulty, EladardBarrierStatus, EladardDefenderStatus,
+    EladardDoorStatus, EladardGeneratorStatus, EladardInteriorRoom, EladardMissionState,
+    EladardPhase, EladardSwitchStatus, EndingPhase, EndingState, FlightControlStyle,
+    FlightFollowCameraPhase, FlightFollowCameraState, FortunaCoreStatus, FortunaDefenderStatus,
     FortunaKickGunnerMotionState, FortunaKickGunnerPhase, FortunaMissionState, FortunaPhase,
     FortunaSwitchStatus, GameMode, GameOverChoice, GameOverDestination, GameOverPhase,
     GameOverState, GameState, IntroPhase, MacbethCoreStatus, MacbethDefenderStatus,
@@ -14444,9 +14445,7 @@ impl Game {
     }
 
     fn update_mission_camera(&mut self, retail_frame: u16) {
-        if retail_frame > MISSION_BASE_KEYFRAME_END_RETAIL_FRAME
-            && retail_frame <= opening_continuation::CAMERA_TYPED_LAST_RETAIL_FRAME
-        {
+        if retail_frame > MISSION_BASE_KEYFRAME_END_RETAIL_FRAME {
             return;
         }
         let (start, end) = enclosing_camera_keyframes(retail_frame);
@@ -16300,6 +16299,11 @@ impl Game {
                 active: true,
                 reference_yaw: pressure_fighters::PLAYER_HANDOFF_YAW,
                 rear_distance: pressure_fighters::CAMERA_FOLLOW_INITIAL_REAR_DISTANCE,
+                fine_orientation: CameraOrientationSubunits {
+                    pitch: pressure_fighters::CAMERA_FOLLOW_VIEW_PITCH_SUBUNITS,
+                    yaw: pressure_fighters::CAMERA_FOLLOW_VIEW_YAW_SUBUNITS,
+                    roll: 0,
+                },
                 previous_output_position: pressure_fighters::CAMERA_HANDOFF_POSITION,
                 continuity_reset_pending: true,
                 ..FlightFollowCameraState::default()
@@ -16584,6 +16588,243 @@ impl Game {
         };
     }
 
+    fn advance_opening_return_camera(
+        &mut self,
+        player_position: Vector3,
+        player_pitch: Angle,
+        player_yaw: Angle,
+        player_speed: u8,
+    ) {
+        let camera = &mut self.state.mission.flight_follow_camera;
+        if !camera.active || matches!(camera.phase, FlightFollowCameraPhase::Following) {
+            return;
+        }
+
+        camera.vertical_offset = approach_proportional_i16(
+            camera.vertical_offset,
+            0,
+            opening_continuation::CAMERA_RETURN_VERTICAL_CHASE_DIVISOR,
+        );
+        let (ambient_phase, ambient_height) = pressure_fighters::advance_camera_ambient_height(
+            camera.ambient_height_phase,
+            camera.ambient_height_offset,
+        );
+        camera.ambient_height_phase = ambient_phase;
+        camera.ambient_height_offset = ambient_height;
+
+        let mut base_position = flight_follow_camera_position(
+            player_position,
+            camera.vertical_offset,
+            camera.rear_distance,
+            camera.ambient_height_offset,
+            opening_follow_camera_orientation(),
+        );
+        if camera.lead_settle_updates_remaining > 0 {
+            camera.lead_settle_updates_remaining -= 1;
+            camera.lead_depth = chase_opening_return_orientation(
+                camera.lead_depth as u16,
+                opening_continuation::CAMERA_RETURN_LEAD_TARGET as u16,
+            ) as i16;
+        } else {
+            camera.lead_depth = approach_proportional_i16(
+                camera.lead_depth,
+                0,
+                opening_continuation::CAMERA_RETURN_LEAD_DECAY_DIVISOR,
+            );
+        }
+        let (lead_y, lead_depth_after_pitch) =
+            sf_core::snes_trig::rotate_16yz(player_pitch.units(), 0, camera.lead_depth);
+        let (lead_x, lead_z) =
+            sf_core::snes_trig::rotate_16xz(player_yaw.units(), 0, lead_depth_after_pitch);
+        base_position = add_vectors(
+            base_position,
+            Vector3 {
+                x: lead_x,
+                y: lead_y,
+                z: lead_z,
+            },
+        );
+
+        let mut base_orientation = opening_follow_camera_orientation();
+        let mut install_continuity = false;
+        match camera.phase {
+            FlightFollowCameraPhase::Following => unreachable!(),
+            FlightFollowCameraPhase::Returning => {
+                let previous_rear_distance = camera.rear_distance;
+                camera.rear_distance = approach_i16(
+                    camera.rear_distance,
+                    opening_continuation::CAMERA_RETURN_REAR_DISTANCE_TARGET,
+                    opening_continuation::CAMERA_RETURN_REAR_DISTANCE_STEP,
+                );
+                if previous_rear_distance != camera.rear_distance
+                    && camera.rear_distance
+                        == -opening_continuation::CAMERA_RETURN_REAR_DISTANCE_STEP
+                {
+                    camera.lead_depth = i16::from(player_speed);
+                    camera.lead_settle_updates_remaining =
+                        opening_continuation::CAMERA_RETURN_LEAD_SETTLE_UPDATES;
+                    install_continuity = true;
+                }
+                if previous_rear_distance
+                    != opening_continuation::CAMERA_RETURN_REAR_DISTANCE_TARGET
+                    && camera.rear_distance
+                        == opening_continuation::CAMERA_RETURN_REAR_DISTANCE_TARGET
+                {
+                    install_continuity = true;
+                    camera.phase = FlightFollowCameraPhase::Orbiting;
+                    camera.orbit_depth = opening_continuation::CAMERA_RETURN_ORBIT_INITIAL_DEPTH;
+                    camera.orbit_yaw = Angle::from_units(
+                        ((camera.fine_orientation.yaw
+                            >> opening_continuation::CAMERA_ORIENTATION_COARSE_SHIFT)
+                            as u8)
+                            .wrapping_neg(),
+                    );
+                    camera.orbit_updates_elapsed = 0;
+                }
+            }
+            FlightFollowCameraPhase::Orbiting => {
+                camera.orbit_depth = camera
+                    .orbit_depth
+                    .wrapping_sub(opening_continuation::CAMERA_RETURN_ORBIT_DEPTH_STEP);
+                camera.orbit_yaw = camera
+                    .orbit_yaw
+                    .wrapping_add(-opening_continuation::CAMERA_RETURN_ORBIT_YAW_STEP);
+                let (offset_x, offset_z) = sf_core::snes_trig::rotate_16xz(
+                    camera.orbit_yaw.units(),
+                    0,
+                    camera.orbit_depth,
+                );
+                base_position = Vector3 {
+                    x: player_position.x.wrapping_add(offset_x),
+                    y: player_position
+                        .y
+                        .wrapping_add(opening_continuation::CAMERA_RETURN_ORBIT_VERTICAL_OFFSET),
+                    z: player_position.z.wrapping_add(offset_z),
+                };
+                let delta_x = player_position.x.wrapping_sub(base_position.x);
+                let delta_y = player_position.y.wrapping_sub(base_position.y);
+                let delta_z = player_position.z.wrapping_sub(base_position.z);
+                let desired_pitch = (sf_core::aim_angle::sf2_atan16(
+                    delta_y,
+                    sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z),
+                ) as i16)
+                    .wrapping_neg()
+                    >> 1;
+                let desired_yaw = sf_core::aim_angle::sf2_atan16(delta_x, delta_z);
+                base_orientation = CameraOrientationSubunits {
+                    pitch: chase_opening_return_orientation(
+                        camera.fine_orientation.pitch,
+                        desired_pitch as u16,
+                    ),
+                    yaw: chase_opening_return_orientation(camera.fine_orientation.yaw, desired_yaw),
+                    roll: 0,
+                };
+                install_continuity = camera.orbit_updates_elapsed == 0;
+                camera.orbit_updates_elapsed = camera.orbit_updates_elapsed.saturating_add(1);
+            }
+        }
+
+        if install_continuity {
+            camera.continuity_translation = Vector3 {
+                x: camera
+                    .previous_output_position
+                    .x
+                    .wrapping_sub(base_position.x),
+                y: camera
+                    .previous_output_position
+                    .y
+                    .wrapping_sub(base_position.y),
+                z: camera
+                    .previous_output_position
+                    .z
+                    .wrapping_sub(base_position.z),
+            };
+            camera.continuity_orientation_offsets = CameraOrientationOffsets {
+                pitch: opening_camera_coarse_orientation(camera.fine_orientation.pitch)
+                    .wrapping_sub(opening_camera_coarse_orientation(base_orientation.pitch))
+                    as i8,
+                yaw: opening_camera_coarse_orientation(camera.fine_orientation.yaw)
+                    .wrapping_sub(opening_camera_coarse_orientation(base_orientation.yaw))
+                    as i8,
+                roll: opening_camera_coarse_orientation(camera.fine_orientation.roll)
+                    .wrapping_sub(opening_camera_coarse_orientation(base_orientation.roll))
+                    as i8,
+            };
+            camera.translation_reference_yaw =
+                Angle::from_units(opening_camera_coarse_orientation(base_orientation.yaw));
+        }
+
+        camera.continuity_translation.x = approach_proportional_i16(
+            camera.continuity_translation.x,
+            0,
+            opening_continuation::CAMERA_RETURN_CONTINUITY_DIVISOR,
+        );
+        camera.continuity_translation.y = approach_proportional_i16(
+            camera.continuity_translation.y,
+            0,
+            opening_continuation::CAMERA_RETURN_CONTINUITY_DIVISOR,
+        );
+        camera.continuity_translation.z = approach_proportional_i16(
+            camera.continuity_translation.z,
+            0,
+            opening_continuation::CAMERA_RETURN_CONTINUITY_DIVISOR,
+        );
+        camera.continuity_orientation_offsets.pitch = approach_i8(
+            camera.continuity_orientation_offsets.pitch,
+            0,
+            opening_continuation::CAMERA_RETURN_ANGULAR_VELOCITY_STEP,
+        );
+        camera.continuity_orientation_offsets.yaw = approach_i8(
+            camera.continuity_orientation_offsets.yaw,
+            0,
+            opening_continuation::CAMERA_RETURN_ANGULAR_VELOCITY_STEP,
+        );
+        camera.continuity_orientation_offsets.roll = approach_i8(
+            camera.continuity_orientation_offsets.roll,
+            0,
+            opening_continuation::CAMERA_RETURN_ANGULAR_VELOCITY_STEP,
+        );
+
+        let fine_orientation = CameraOrientationSubunits {
+            pitch: add_opening_camera_coarse_offset(
+                base_orientation.pitch,
+                camera.continuity_orientation_offsets.pitch,
+            ),
+            yaw: add_opening_camera_coarse_offset(
+                base_orientation.yaw,
+                camera.continuity_orientation_offsets.yaw,
+            ),
+            roll: add_opening_camera_coarse_offset(
+                base_orientation.roll,
+                camera.continuity_orientation_offsets.roll,
+            ),
+        };
+        let translation_yaw = camera
+            .translation_reference_yaw
+            .units()
+            .wrapping_sub(opening_camera_coarse_orientation(fine_orientation.yaw));
+        let (translation_x, translation_z) = sf_core::snes_trig::rotate_16xz(
+            translation_yaw,
+            camera.continuity_translation.x,
+            camera.continuity_translation.z,
+        );
+        let output_position = Vector3 {
+            x: base_position.x.wrapping_add(translation_x),
+            y: base_position
+                .y
+                .wrapping_add(camera.continuity_translation.y),
+            z: base_position.z.wrapping_add(translation_z),
+        };
+        camera.fine_orientation = fine_orientation;
+        camera.previous_output_position = output_position;
+        self.state.camera.position = output_position;
+        self.state.camera.rotation = Rotation {
+            pitch: Angle::from_units(fine_orientation.pitch as u8),
+            yaw: Angle::from_units(fine_orientation.yaw as u8),
+            roll: Angle::from_units(fine_orientation.roll as u8),
+        };
+    }
+
     fn prepare_flight_follow_camera_anchor(&mut self, player_position: Vector3) {
         let camera = &mut self.state.mission.flight_follow_camera;
         if !camera.active {
@@ -16605,6 +16846,7 @@ impl Game {
             camera.vertical_offset,
             camera.rear_distance,
             camera.ambient_height_offset,
+            camera.fine_orientation,
         );
         let previous_rear_distance = camera.rear_distance;
         camera.rear_distance = approach_i16(
@@ -18770,6 +19012,7 @@ impl Game {
                 vertical_offset: opening_continuation::CAMERA_FOLLOW_VERTICAL_OFFSET,
                 ambient_height_phase: opening_continuation::CAMERA_AMBIENT_HEIGHT_PHASE_AT_HANDOFF,
                 ambient_height_offset: opening_continuation::CAMERA_AMBIENT_HEIGHT_AT_HANDOFF,
+                fine_orientation: opening_follow_camera_orientation(),
                 previous_output_position: opening_continuation::CAMERA_HANDOFF_POSITION,
                 ..FlightFollowCameraState::default()
             };
@@ -18849,33 +19092,55 @@ impl Game {
             }
         }
 
-        if retail_frame <= opening_continuation::CAMERA_TYPED_LAST_RETAIL_FRAME {
-            if let Some(cadence) = opening_continuation::player_flight_cadence(retail_frame) {
-                let (mut camera_player_position, pitch, yaw) = self
-                    .state
-                    .objects
-                    .get(primary_id)
-                    .map(|player| (player.base.position, player.base.pitch, player.base.yaw))
-                    .unwrap_or_default();
-                if cadence.camera_uses_previous_player_position {
-                    camera_player_position = Vector3 {
-                        x: camera_player_position
-                            .x
-                            .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.x),
-                        y: camera_player_position
-                            .y
-                            .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.y),
-                        z: camera_player_position
-                            .z
-                            .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.z),
-                    };
+        if let Some(cadence) = opening_continuation::player_flight_cadence(retail_frame) {
+            let (camera_player_position, pitch, yaw, speed) = self
+                .state
+                .objects
+                .get(primary_id)
+                .map(|player| {
+                    (
+                        player.base.position,
+                        player.base.pitch,
+                        player.base.yaw,
+                        player.base.speed,
+                    )
+                })
+                .unwrap_or_default();
+            let previous_camera_player_position = Vector3 {
+                x: camera_player_position
+                    .x
+                    .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.x),
+                y: camera_player_position
+                    .y
+                    .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.y),
+                z: camera_player_position
+                    .z
+                    .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.z),
+            };
+            for update_index in 0..cadence.camera_updates {
+                let uses_previous_player = cadence.camera_updates == 2 && update_index == 0
+                    || cadence.camera_updates == 1 && cadence.camera_uses_previous_player_position;
+                let player_position = if uses_previous_player {
+                    previous_camera_player_position
+                } else {
+                    camera_player_position
+                };
+                let begins_return = retail_frame
+                    == opening_continuation::CAMERA_RETURN_FIRST_RETAIL_FRAME
+                    && update_index + 1 == cadence.camera_updates;
+                if begins_return {
+                    self.state.mission.flight_follow_camera.phase =
+                        FlightFollowCameraPhase::Returning;
                 }
-                for _ in 0..cadence.camera_updates {
-                    self.advance_flight_follow_camera(camera_player_position, pitch, yaw);
+                match self.state.mission.flight_follow_camera.phase {
+                    FlightFollowCameraPhase::Following => {
+                        self.advance_flight_follow_camera(player_position, pitch, yaw);
+                    }
+                    FlightFollowCameraPhase::Returning | FlightFollowCameraPhase::Orbiting => {
+                        self.advance_opening_return_camera(player_position, pitch, yaw, speed);
+                    }
                 }
             }
-        } else {
-            self.update_mission_camera(retail_frame);
         }
 
         if let Some(wingmate_id) = self.state.mission.wingmate {
@@ -20785,17 +21050,9 @@ fn enclosing_camera_keyframes(
     &'static MissionCameraKeyframe,
     &'static MissionCameraKeyframe,
 ) {
-    if retail_frame >= opening_continuation::CAMERA_RETURN_FIRST_RETAIL_FRAME {
-        enclosing_keyframes(
-            &opening_continuation::CAMERA_RETURN_KEYFRAMES,
-            retail_frame,
-            |keyframe| keyframe.retail_frame,
-        )
-    } else {
-        enclosing_keyframes(&MISSION_CAMERA_KEYFRAMES, retail_frame, |keyframe| {
-            keyframe.retail_frame
-        })
-    }
+    enclosing_keyframes(&MISSION_CAMERA_KEYFRAMES, retail_frame, |keyframe| {
+        keyframe.retail_frame
+    })
 }
 
 fn enclosing_formation_keyframes(
@@ -21049,12 +21306,12 @@ fn flight_follow_camera_position(
     vertical_offset: i16,
     rear_distance: i16,
     ambient_height: i16,
+    view_orientation: CameraOrientationSubunits,
 ) -> Vector3 {
-    let pitch = ((pressure_fighters::CAMERA_FOLLOW_VIEW_PITCH_SUBUNITS
-        >> pressure_fighters::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+    let pitch = ((view_orientation.pitch >> pressure_fighters::CAMERA_ORIENTATION_COARSE_SHIFT)
+        as u8)
         .wrapping_neg();
-    let yaw = ((pressure_fighters::CAMERA_FOLLOW_VIEW_YAW_SUBUNITS
-        >> pressure_fighters::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
+    let yaw = ((view_orientation.yaw >> pressure_fighters::CAMERA_ORIENTATION_COARSE_SHIFT) as u8)
         .wrapping_neg();
     let (offset_y, depth_after_pitch) = sf_core::snes_trig::rotate_16yz(
         pitch,
@@ -21074,6 +21331,43 @@ fn flight_follow_camera_position(
             .z
             .wrapping_add(offset_z >> pressure_fighters::CAMERA_FOLLOW_POSITION_SCALE_SHIFT),
     }
+}
+
+fn opening_follow_camera_orientation() -> CameraOrientationSubunits {
+    CameraOrientationSubunits {
+        pitch: opening_continuation::CAMERA_FOLLOW_FINE_ORIENTATION[0],
+        yaw: opening_continuation::CAMERA_FOLLOW_FINE_ORIENTATION[1],
+        roll: opening_continuation::CAMERA_FOLLOW_FINE_ORIENTATION[2],
+    }
+}
+
+fn opening_camera_coarse_orientation(fine_orientation: u16) -> u8 {
+    (fine_orientation >> opening_continuation::CAMERA_ORIENTATION_COARSE_SHIFT) as u8
+}
+
+fn add_opening_camera_coarse_offset(fine_orientation: u16, offset: i8) -> u16 {
+    fine_orientation.wrapping_add_signed(
+        i16::from(offset)
+            .wrapping_mul(opening_continuation::CAMERA_ORIENTATION_SUBUNITS_PER_COARSE_UNIT),
+    )
+}
+
+fn chase_opening_return_orientation(current: u16, target: u16) -> u16 {
+    if current == target {
+        return current;
+    }
+    let difference = target.wrapping_sub(current) as i16;
+    let minimum = opening_continuation::CAMERA_RETURN_ORIENTATION_CHASE_MINIMUM;
+    let limited = if difference > 0 && difference < minimum {
+        minimum
+    } else if difference < 0 && difference > minimum.wrapping_neg() {
+        minimum.wrapping_neg()
+    } else {
+        difference
+    };
+    current.wrapping_add_signed(
+        limited / opening_continuation::CAMERA_RETURN_ORIENTATION_CHASE_DIVISOR,
+    )
 }
 
 fn player_damage_camera_pitch(player_pitch: Angle, recoil: i16) -> Angle {
@@ -27446,6 +27740,8 @@ mod tests {
 
     #[test]
     fn live_opening_player_and_typed_camera_match_every_retail_checkpoint() {
+        const EXPECTED_RETURN_ORBIT_UPDATES: u16 = 62;
+
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
         let mut observed_hit_frames = Vec::new();
@@ -27543,6 +27839,21 @@ mod tests {
                     / opening_continuation::RETAIL_FRAME_STEP
                     + 1
             )
+        );
+        assert_eq!(
+            game.state().mission.flight_follow_camera.phase,
+            FlightFollowCameraPhase::Orbiting
+        );
+        assert_eq!(
+            game.state()
+                .mission
+                .flight_follow_camera
+                .orbit_updates_elapsed,
+            EXPECTED_RETURN_ORBIT_UPDATES
+        );
+        assert_eq!(
+            game.state().mission.flight_follow_camera.rear_distance,
+            opening_continuation::CAMERA_RETURN_REAR_DISTANCE_TARGET
         );
         assert!(!game.state().mission.departed_certified_neutral_path);
     }

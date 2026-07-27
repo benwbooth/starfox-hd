@@ -21,7 +21,8 @@ DEFAULT_OUTPUT = (
 )
 ANCHOR_RETAIL_FRAME = 900
 RETAIL_FRAME_STEP = 4
-CAMERA_TYPED_LAST_RETAIL_FRAME = 7_840
+CAMERA_FOLLOW_LAST_RETAIL_FRAME = 7_840
+CAMERA_RETURN_LAST_RETAIL_FRAME = 8_052
 PLAYER_VELOCITY = (18, 0, 21)
 PLAYER_PITCH = 0
 PLAYER_YAW = 227
@@ -46,7 +47,7 @@ class ControlEvent:
 
 
 @dataclass(frozen=True)
-class CameraAnchorEvent:
+class CameraEvent:
     elapsed: int
     camera: tuple[int, ...]
     player_pose: tuple[int, ...]
@@ -110,6 +111,7 @@ def import_raw(active_trace: Path, dynamics_trace: Path) -> list[Cadence]:
     controls = []
     movements = []
     camera_anchors = []
+    camera_motion_outputs = []
     for line in dynamics_trace.read_text(encoding="utf-8").splitlines():
         values = fields(line)
         stage = values.get("stage")
@@ -128,7 +130,15 @@ def import_raw(active_trace: Path, dynamics_trace: Path) -> list[Cadence]:
             movements.append(int(values["elapsed"]))
         elif stage == "camera_anchor_applied_b":
             camera_anchors.append(
-                CameraAnchorEvent(
+                CameraEvent(
+                    elapsed=int(values["elapsed"]),
+                    camera=parse_tuple(values["camera"], 7, "camera output")[:6],
+                    player_pose=parse_tuple(values["pose"], 7, "camera player pose"),
+                )
+            )
+        elif stage == "camera_motion_applied":
+            camera_motion_outputs.append(
+                CameraEvent(
                     elapsed=int(values["elapsed"]),
                     camera=parse_tuple(values["camera"], 7, "camera output")[:6],
                     player_pose=parse_tuple(values["pose"], 7, "camera player pose"),
@@ -148,10 +158,17 @@ def import_raw(active_trace: Path, dynamics_trace: Path) -> list[Cadence]:
         for event in camera_anchors
         if first_elapsed <= event.elapsed < last_elapsed
     ]
+    camera_motion_outputs = [
+        event
+        for event in camera_motion_outputs
+        if first_elapsed <= event.elapsed < last_elapsed
+    ]
     if not controls or not movements:
         raise SystemExit("dynamics trace has no first-sortie control and movement events")
     if not camera_anchors:
         raise SystemExit("dynamics trace has no first-sortie camera anchor events")
+    if not camera_motion_outputs:
+        raise SystemExit("dynamics trace has no first-sortie camera motion events")
     if any(
         event.velocity != PLAYER_VELOCITY or event.speed != PLAYER_SPEED
         for event in controls
@@ -167,7 +184,7 @@ def import_raw(active_trace: Path, dynamics_trace: Path) -> list[Cadence]:
         if index == 0:
             window_controls: list[ControlEvent] = []
             window_movements: list[int] = []
-            window_camera_anchors: list[CameraAnchorEvent] = []
+            window_camera_events: list[CameraEvent] = []
         else:
             window_controls = [
                 event
@@ -179,15 +196,21 @@ def import_raw(active_trace: Path, dynamics_trace: Path) -> list[Cadence]:
                 for elapsed in movements
                 if previous_elapsed <= elapsed < sample.elapsed
             ]
-            window_camera_anchors = [
+            retail_frame = ANCHOR_RETAIL_FRAME + index * RETAIL_FRAME_STEP
+            camera_events = (
+                camera_anchors
+                if retail_frame <= CAMERA_FOLLOW_LAST_RETAIL_FRAME
+                else camera_motion_outputs
+            )
+            window_camera_events = [
                 event
-                for event in camera_anchors
+                for event in camera_events
                 if previous_elapsed <= event.elapsed < sample.elapsed
             ]
 
         control_updates = len(window_controls)
         movement_updates = len(window_movements)
-        camera_updates = len(window_camera_anchors)
+        camera_updates = len(window_camera_events)
         if control_updates > 2 or movement_updates > 2 or camera_updates > 2:
             raise SystemExit(
                 f"source cadence is out of range at retail frame "
@@ -227,39 +250,48 @@ def import_raw(active_trace: Path, dynamics_trace: Path) -> list[Cadence]:
 
         retail_frame = ANCHOR_RETAIL_FRAME + index * RETAIL_FRAME_STEP
         camera_uses_previous_player_position = False
-        if retail_frame <= CAMERA_TYPED_LAST_RETAIL_FRAME:
-            if window_camera_anchors:
-                latest_anchor = window_camera_anchors[-1]
-                if latest_anchor.camera != sample.camera:
-                    raise SystemExit(
-                        f"camera anchor does not reproduce retail frame {retail_frame}: "
-                        f"expected {sample.camera}, found {latest_anchor.camera}"
-                    )
-                anchor_delta = tuple(
+        if window_camera_events:
+            latest_camera = window_camera_events[-1]
+            if latest_camera.camera != sample.camera:
+                source = (
+                    "camera anchor"
+                    if retail_frame <= CAMERA_FOLLOW_LAST_RETAIL_FRAME
+                    else "camera motion"
+                )
+                raise SystemExit(
+                    f"{source} does not reproduce retail frame {retail_frame}: "
+                    f"expected {sample.camera}, found {latest_camera.camera}"
+                )
+            event_lags = []
+            for event in window_camera_events:
+                delta = tuple(
                     signed_word(current - anchored)
                     for current, anchored in zip(
                         sample.pose[:3],
-                        latest_anchor.player_pose[:3],
+                        event.player_pose[:3],
                     )
                 )
-                if anchor_delta == (0, 0, 0):
-                    camera_uses_previous_player_position = False
-                elif anchor_delta == PLAYER_VELOCITY:
-                    camera_uses_previous_player_position = True
+                if delta == (0, 0, 0):
+                    event_lags.append(0)
+                elif delta == PLAYER_VELOCITY:
+                    event_lags.append(1)
                 else:
                     raise SystemExit(
-                        f"camera anchor uses an unsupported player position at "
-                        f"retail frame {retail_frame}: {anchor_delta}"
+                        f"camera update uses an unsupported player position at "
+                        f"retail frame {retail_frame}: {delta}"
                     )
-            elif index > 0 and sample.camera != samples[index - 1].camera:
+            expected_lags = (1, 0) if camera_updates == 2 else (event_lags[-1],)
+            if tuple(event_lags) != expected_lags:
                 raise SystemExit(
-                    f"camera changed without a completed anchor at retail frame "
-                    f"{retail_frame}"
+                    f"camera update ordering diverges at retail frame "
+                    f"{retail_frame}: {event_lags}"
                 )
-        else:
-            # The mission-return camera begins after the certified typed
-            # follow window. Its sampled tail is retained independently.
-            camera_updates = 0
+            camera_uses_previous_player_position = event_lags[-1] == 1
+        elif index > 0 and sample.camera != samples[index - 1].camera:
+            raise SystemExit(
+                f"camera changed without a completed update at retail frame "
+                f"{retail_frame}"
+            )
 
         damage_bank_impulse = 0
         for event in window_controls:
@@ -299,8 +331,10 @@ def compact_source(
         "# detailed source-machine fields remain confined to the oracle.",
         "# Static routines: player control 06:ECB0..06:EE06,",
         "# player motion 06:EE0A..06:EED4, bank recovery 06:9195,",
-        "# camera control 07:84EC and camera publication 07:8097..07:80B1.",
-        f"# camera_typed_last_retail_frame={CAMERA_TYPED_LAST_RETAIL_FRAME}",
+        "# camera control 07:84EC, publication 07:8097..07:80B1,",
+        "# return orbit 07:9F44..07:A149, motion 07:97FB..07:98CE.",
+        f"# camera_follow_last_retail_frame={CAMERA_FOLLOW_LAST_RETAIL_FRAME}",
+        f"# camera_return_last_retail_frame={CAMERA_RETURN_LAST_RETAIL_FRAME}",
         f"# Active source SHA-256: {hashlib.sha256(active_trace.read_bytes()).hexdigest()}",
         f"# Dynamics source SHA-256: {hashlib.sha256(dynamics_trace.read_bytes()).hexdigest()}",
     ]
@@ -351,14 +385,6 @@ def load_compact(source: str) -> list[Cadence]:
             and record.camera_updates == 0
         ):
             raise SystemExit("compact fixture has a camera lag without an update")
-        if (
-            record.retail_frame > CAMERA_TYPED_LAST_RETAIL_FRAME
-            and (
-                record.camera_updates != 0
-                or record.camera_uses_previous_player_position
-            )
-        ):
-            raise SystemExit("compact fixture leaks return-camera cadence")
         pending_controls += record.control_updates - record.movement_updates
         if pending_controls not in (0, 1):
             raise SystemExit("compact fixture violates control/movement ordering")
@@ -377,6 +403,8 @@ def load_compact(source: str) -> list[Cadence]:
         raise SystemExit("compact fixture has an invalid retail-frame cadence")
     if records[0] != Cadence(ANCHOR_RETAIL_FRAME, 0, 0, 0, 0, False):
         raise SystemExit("compact fixture is missing its inert frame-900 anchor")
+    if records[-1].retail_frame != CAMERA_RETURN_LAST_RETAIL_FRAME:
+        raise SystemExit("compact fixture does not cover the complete return camera")
     if pending_controls != 0:
         raise SystemExit("compact fixture ends with unmatched control motion")
     return records

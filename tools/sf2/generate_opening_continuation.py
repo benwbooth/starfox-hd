@@ -9,7 +9,9 @@ tokens are used only to classify oracle rows and are never emitted into Rust.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,12 +31,32 @@ ANCHOR_RETAIL_FRAME = 900
 # checkpoint oracle-observed; a ten-frame table required interpolation through
 # states the retail game never actually held.
 RETAIL_FRAME_STEP = 4
-CAMERA_TYPED_LAST_RETAIL_FRAME = 7_840
+CAMERA_FOLLOW_LAST_RETAIL_FRAME = 7_840
 CAMERA_RETURN_FIRST_RETAIL_FRAME = (
-    CAMERA_TYPED_LAST_RETAIL_FRAME + RETAIL_FRAME_STEP
+    CAMERA_FOLLOW_LAST_RETAIL_FRAME + RETAIL_FRAME_STEP
 )
+CAMERA_TYPED_LAST_RETAIL_FRAME = 8_052
 CAMERA_FOLLOW_REAR_DISTANCE = 0
 CAMERA_FOLLOW_VERTICAL_OFFSET = -20
+CAMERA_RETURN_REAR_DISTANCE_TARGET = -240
+CAMERA_RETURN_REAR_DISTANCE_STEP = 30
+CAMERA_RETURN_VERTICAL_CHASE_DIVISOR = 8
+CAMERA_RETURN_ORBIT_INITIAL_DEPTH = -80
+CAMERA_RETURN_ORBIT_DEPTH_STEP = 5
+CAMERA_RETURN_ORBIT_VERTICAL_OFFSET = -50
+CAMERA_RETURN_ORBIT_YAW_STEP = 1
+CAMERA_RETURN_LEAD_TARGET = 70
+CAMERA_RETURN_LEAD_SETTLE_UPDATES = 5
+CAMERA_RETURN_LEAD_DECAY_DIVISOR = 16
+CAMERA_RETURN_CONTINUITY_DIVISOR = 16
+CAMERA_RETURN_ORIENTATION_CHASE_DIVISOR = 2
+CAMERA_RETURN_ORIENTATION_CHASE_MINIMUM = 2
+CAMERA_RETURN_ANGULAR_VELOCITY_STEP = 1
+CAMERA_ORIENTATION_COARSE_SHIFT = 8
+CAMERA_ORIENTATION_SUBUNITS_PER_COARSE_UNIT = 256
+CAMERA_FOLLOW_FINE_ORIENTATION = (0, 7_424, 0)
+CAMERA_FOLLOW_POSITION_SCALE = 2
+CAMERA_FOLLOW_POSITION_SCALE_SHIFT = 1
 CAMERA_AMBIENT_HEIGHT_PHASE_AT_ANCHOR = 4
 CAMERA_AMBIENT_HEIGHT_AT_ANCHOR = 1
 CAMERA_AMBIENT_HEIGHT_WAVE = (
@@ -127,6 +149,11 @@ PLAYER_AMBIENT_BANK_WAVE = (
     -1,
 )
 PLAYER_HIT_BANK_RECOVERY_DIVISOR = 8
+PLAYER_HIT_CAMERA_RECOIL = 128
+PLAYER_HIT_CAMERA_RECOIL_STEP = 16
+PLAYER_HIT_CAMERA_RECOIL_SCALE = 2
+TRIG_SOURCE = REPO_ROOT / "rust" / "sf-core" / "src" / "snes_trig.rs"
+ANGLE_SOURCE = REPO_ROOT / "rust" / "sf-core" / "src" / "aim_angle.rs"
 
 
 @dataclass(frozen=True)
@@ -278,6 +305,166 @@ def signed_word(value: int) -> int:
     return value - 65_536 if value >= 32_768 else value
 
 
+def signed_byte(value: int) -> int:
+    value &= 255
+    return value - 256 if value >= 128 else value
+
+
+def rust_table(name: str, source: Path) -> list[int]:
+    body = re.search(
+        rf"(?:pub )?(?:static|const) {name}: \[[iu]\d+; 256\] = \[(.*?)\];",
+        source.read_text(encoding="utf-8"),
+        re.S,
+    )
+    if body is None:
+        raise SystemExit(f"could not read {name} from {source}")
+    return ast.literal_eval("[" + body.group(1) + "]")
+
+
+def trunc_div(value: int, divisor: int) -> int:
+    return int(value / divisor)
+
+
+def approach_power(
+    current: int, target: int, divisions: int, minimum: int
+) -> int:
+    if current == target:
+        return current
+    difference = signed_word(target - current)
+    if 0 < difference < minimum:
+        difference = minimum
+    elif -minimum < difference < 0:
+        difference = -minimum
+    for _ in range(divisions):
+        difference = trunc_div(difference, 2)
+    return signed_word(current + difference)
+
+
+def approach_step(current: int, target: int, step: int) -> int:
+    if current < target:
+        return min(current + step, target)
+    if current > target:
+        return max(current - step, target)
+    return current
+
+
+def mulslog16(value: int, factor: int) -> int:
+    value = signed_word(value)
+    factor = signed_byte(factor)
+    fraction = (abs(factor) << 1) & 255
+    magnitude = (abs(value) * fraction) >> 8
+    return -magnitude if (value < 0) != (factor < 0) else magnitude
+
+
+def rotate_xz(
+    angle: int, x: int, z: int, sine: list[int], cosine: list[int]
+) -> tuple[int, int]:
+    x = signed_word(x)
+    z = signed_word(z)
+    sine_value = sine[angle & 255]
+    cosine_value = cosine[angle & 255]
+    return (
+        signed_word(
+            mulslog16(x, cosine_value) - mulslog16(z, sine_value)
+        ),
+        signed_word(
+            mulslog16(x, sine_value) + mulslog16(z, cosine_value)
+        ),
+    )
+
+
+def rotate_yz(
+    angle: int, y: int, z: int, sine: list[int], cosine: list[int]
+) -> tuple[int, int]:
+    return rotate_xz((-angle) & 255, y, z, sine, cosine)
+
+
+def follow_camera_position(
+    player: tuple[int, ...],
+    vertical_offset: int,
+    rear_distance: int,
+    ambient_height: int,
+    sine: list[int],
+    cosine: list[int],
+) -> tuple[int, int, int]:
+    pitch = (-(CAMERA_FOLLOW_FINE_ORIENTATION[0] >> 8)) & 255
+    yaw = (-(CAMERA_FOLLOW_FINE_ORIENTATION[1] >> 8)) & 255
+    offset_y, depth = rotate_yz(
+        pitch,
+        vertical_offset * CAMERA_FOLLOW_POSITION_SCALE,
+        rear_distance,
+        sine,
+        cosine,
+    )
+    offset_x, offset_z = rotate_xz(yaw, 0, depth, sine, cosine)
+    return (
+        signed_word(player[0] + (offset_x >> CAMERA_FOLLOW_POSITION_SCALE_SHIFT)),
+        signed_word(
+            player[1]
+            + (offset_y >> CAMERA_FOLLOW_POSITION_SCALE_SHIFT)
+            + ambient_height
+        ),
+        signed_word(player[2] + (offset_z >> CAMERA_FOLLOW_POSITION_SCALE_SHIFT)),
+    )
+
+
+def sf2_atan16(x: int, y: int, curve: list[int]) -> int:
+    original_x = x & 65_535
+    original_y = y & 65_535
+
+    def absolute(value: int) -> int:
+        return value if signed_word(value) >= 0 else (-value) & 65_535
+
+    if original_y == 0:
+        angle = 16_384
+    else:
+        numerator = absolute(original_x)
+        denominator = absolute(original_y)
+        if numerator == denominator:
+            angle = 8_192
+        else:
+            swapped = signed_word(numerator - denominator) >= 0
+            if swapped:
+                numerator, denominator = denominator, numerator
+            ratio = (
+                32_767
+                if denominator == 0
+                else (numerator << 14) // denominator
+            )
+            sample = curve[((ratio >> 5) & 65_534) // 2]
+            angle = (16_384 - sample) & 65_535 if swapped else sample
+    if signed_word(original_x ^ original_y) < 0:
+        angle = (-angle) & 65_535
+    if signed_word(original_y) < 0:
+        angle = (angle + 32_768) & 65_535
+    return angle
+
+
+def sf2_xz_angle_distance(delta_x: int, delta_z: int) -> int:
+    def absolute(value: int) -> int:
+        return (-value) & 65_535 if signed_word(value) < 0 else value & 65_535
+
+    def signed_half(value: int) -> int:
+        return (signed_word(value) >> 1) & 65_535
+
+    x = signed_half(absolute(delta_x))
+    z = signed_half(absolute(delta_z))
+    total_range = ((z + x) & 65_535) << 1 & 65_535
+    maximum = x if signed_word(z - x) < 0 else z
+    total = (maximum + total_range) & 65_535
+    value = (signed_half(total) + total) & 65_535
+    return signed_word(signed_half(signed_half(value)))
+
+
+def chase_orientation(current: int, target: int) -> int:
+    return approach_power(
+        current,
+        target,
+        divisions=1,
+        minimum=CAMERA_RETURN_ORIENTATION_CHASE_MINIMUM,
+    )
+
+
 def recover_damage_bank(value: int) -> int:
     if value == 0:
         return 0
@@ -331,18 +518,31 @@ def verify_live_player(
 def verify_live_camera(
     keyframes: list[tuple[int, Record]], cadence: list[FlightCadence]
 ) -> None:
-    typed_pairs = [
-        (keyframe, entry)
-        for keyframe, entry in zip(keyframes, cadence)
-        if keyframe[0] <= CAMERA_TYPED_LAST_RETAIL_FRAME
-    ]
+    typed_pairs = list(zip(keyframes, cadence))
     if not typed_pairs or typed_pairs[-1][0][0] != CAMERA_TYPED_LAST_RETAIL_FRAME:
         raise SystemExit("camera dynamics do not span the typed follow window")
 
+    sine = rust_table("SINTAB", TRIG_SOURCE)
+    cosine = rust_table("COSTAB", TRIG_SOURCE)
+    angle_curve = rust_table("SF2_ARCTANGENT_CURVE", ANGLE_SOURCE)
     initial_record = typed_pairs[0][0][1]
     ambient_phase = CAMERA_AMBIENT_HEIGHT_PHASE_AT_ANCHOR
     ambient_height = CAMERA_AMBIENT_HEIGHT_AT_ANCHOR
     camera = initial_record.camera
+    vertical_offset = CAMERA_FOLLOW_VERTICAL_OFFSET
+    rear_distance = CAMERA_FOLLOW_REAR_DISTANCE
+    previous_output_position = camera[:3]
+    previous_output_orientation = list(CAMERA_FOLLOW_FINE_ORIENTATION)
+    continuity_translation = [0, 0, 0]
+    angular_velocity = [0, 0, 0]
+    translation_reference_yaw = 0
+    return_started = False
+    orbit_started = False
+    orbit_depth = CAMERA_RETURN_ORBIT_INITIAL_DEPTH
+    orbit_yaw = 0
+    lead_depth = 0
+    lead_settle_updates = 0
+    damage_camera_recoil = 0
     expected_initial_position = (
         initial_record.player[0],
         initial_record.player[1]
@@ -354,27 +554,244 @@ def verify_live_camera(
         raise SystemExit("typed camera handoff does not match the retail anchor")
 
     for (retail_frame, record), entry in typed_pairs[1:]:
-        for _ in range(entry.camera_updates):
-            ambient_phase = (ambient_phase + 1) % len(CAMERA_AMBIENT_HEIGHT_WAVE)
-            ambient_height += CAMERA_AMBIENT_HEIGHT_WAVE[ambient_phase]
-        if entry.camera_updates:
-            anchor_position = list(record.player[:3])
-            if entry.camera_uses_previous_player_position:
-                anchor_position = [
+        if entry.damage_bank_impulse != 0 and damage_camera_recoil == 0:
+            damage_camera_recoil = PLAYER_HIT_CAMERA_RECOIL
+        if entry.camera_updates == 2:
+            camera_players = [
+                tuple(
                     signed_word(position - velocity)
                     for position, velocity in zip(
-                        anchor_position,
+                        record.player[:3],
                         PLAYER_NEUTRAL_VELOCITY,
                     )
-                ]
-            camera = (
-                anchor_position[0],
-                anchor_position[1]
-                + CAMERA_FOLLOW_VERTICAL_OFFSET
-                + ambient_height,
-                anchor_position[2],
-                *record.camera[3:],
+                ),
+                record.player[:3],
+            ]
+        elif entry.camera_updates == 1:
+            camera_players = [record.player[:3]]
+            if entry.camera_uses_previous_player_position:
+                camera_players[0] = tuple(
+                    signed_word(position - velocity)
+                    for position, velocity in zip(
+                        camera_players[0],
+                        PLAYER_NEUTRAL_VELOCITY,
+                    )
+                )
+        else:
+            camera_players = []
+
+        for update_index, camera_player in enumerate(camera_players):
+            damage_camera_recoil = approach_step(
+                -damage_camera_recoil,
+                0,
+                PLAYER_HIT_CAMERA_RECOIL_STEP,
             )
+            if (
+                retail_frame == CAMERA_RETURN_FIRST_RETAIL_FRAME
+                and update_index + 1 == len(camera_players)
+            ):
+                return_started = True
+
+            ambient_phase = (ambient_phase + 1) % len(CAMERA_AMBIENT_HEIGHT_WAVE)
+            ambient_height += CAMERA_AMBIENT_HEIGHT_WAVE[ambient_phase]
+            if not return_started:
+                previous_output_position = follow_camera_position(
+                    camera_player,
+                    vertical_offset,
+                    rear_distance,
+                    ambient_height,
+                    sine,
+                    cosine,
+                )
+                previous_output_orientation = list(CAMERA_FOLLOW_FINE_ORIENTATION)
+                camera = (
+                    *previous_output_position,
+                    (
+                        damage_camera_recoil * PLAYER_HIT_CAMERA_RECOIL_SCALE
+                    )
+                    & 255,
+                    0,
+                    0,
+                )
+                continue
+
+            vertical_offset = approach_power(
+                vertical_offset,
+                0,
+                divisions=3,
+                minimum=CAMERA_RETURN_VERTICAL_CHASE_DIVISOR,
+            )
+            anchor_position = follow_camera_position(
+                camera_player,
+                vertical_offset,
+                rear_distance,
+                ambient_height,
+                sine,
+                cosine,
+            )
+            if lead_settle_updates > 0:
+                lead_settle_updates -= 1
+                lead_depth = chase_orientation(
+                    lead_depth,
+                    CAMERA_RETURN_LEAD_TARGET,
+                )
+            else:
+                lead_depth = approach_power(
+                    lead_depth,
+                    0,
+                    divisions=4,
+                    minimum=CAMERA_RETURN_LEAD_DECAY_DIVISOR,
+                )
+            lead_y, lead_depth_after_pitch = rotate_yz(
+                record.player[3],
+                0,
+                lead_depth,
+                sine,
+                cosine,
+            )
+            lead_x, lead_z = rotate_xz(
+                record.player[4],
+                0,
+                lead_depth_after_pitch,
+                sine,
+                cosine,
+            )
+            anchor_position = (
+                signed_word(anchor_position[0] + lead_x),
+                signed_word(anchor_position[1] + lead_y),
+                signed_word(anchor_position[2] + lead_z),
+            )
+            base_position = anchor_position
+            orientation = list(CAMERA_FOLLOW_FINE_ORIENTATION)
+            install_continuity = False
+
+            if rear_distance > CAMERA_RETURN_REAR_DISTANCE_TARGET:
+                rear_distance = approach_step(
+                    rear_distance,
+                    CAMERA_RETURN_REAR_DISTANCE_TARGET,
+                    CAMERA_RETURN_REAR_DISTANCE_STEP,
+                )
+                install_continuity = (
+                    rear_distance == -CAMERA_RETURN_REAR_DISTANCE_STEP
+                    or rear_distance == CAMERA_RETURN_REAR_DISTANCE_TARGET
+                )
+                if rear_distance == -CAMERA_RETURN_REAR_DISTANCE_STEP:
+                    lead_depth = record.player[6]
+                    lead_settle_updates = CAMERA_RETURN_LEAD_SETTLE_UPDATES
+            else:
+                if not orbit_started:
+                    orbit_started = True
+                    orbit_yaw = (
+                        -(CAMERA_FOLLOW_FINE_ORIENTATION[1] >> 8)
+                    ) & 255
+                    install_continuity = True
+                orbit_depth = signed_word(
+                    orbit_depth - CAMERA_RETURN_ORBIT_DEPTH_STEP
+                )
+                orbit_yaw = (
+                    orbit_yaw - CAMERA_RETURN_ORBIT_YAW_STEP
+                ) & 255
+                offset_x, offset_z = rotate_xz(
+                    orbit_yaw,
+                    0,
+                    orbit_depth,
+                    sine,
+                    cosine,
+                )
+                base_position = (
+                    signed_word(camera_player[0] + offset_x),
+                    signed_word(
+                        camera_player[1] + CAMERA_RETURN_ORBIT_VERTICAL_OFFSET
+                    ),
+                    signed_word(camera_player[2] + offset_z),
+                )
+
+                delta_x = signed_word(camera_player[0] - base_position[0])
+                delta_y = signed_word(camera_player[1] - base_position[1])
+                delta_z = signed_word(camera_player[2] - base_position[2])
+                desired_pitch = signed_word(
+                    -sf2_atan16(
+                        delta_y,
+                        sf2_xz_angle_distance(delta_x, delta_z),
+                        angle_curve,
+                    )
+                ) >> 1
+                desired_yaw = signed_word(
+                    sf2_atan16(delta_x, delta_z, angle_curve)
+                )
+                orientation = [
+                    chase_orientation(
+                        previous_output_orientation[0],
+                        desired_pitch,
+                    ),
+                    chase_orientation(
+                        previous_output_orientation[1],
+                        desired_yaw,
+                    ),
+                    0,
+                ]
+
+            if install_continuity:
+                continuity_translation = [
+                    signed_word(previous - current)
+                    for previous, current in zip(
+                        previous_output_position,
+                        base_position,
+                    )
+                ]
+                angular_velocity = [
+                    signed_byte(
+                        (previous >> 8) - (current >> 8)
+                    )
+                    for previous, current in zip(
+                        previous_output_orientation,
+                        orientation,
+                    )
+                ]
+                translation_reference_yaw = (orientation[1] >> 8) & 255
+
+            continuity_translation = [
+                approach_power(
+                    value,
+                    0,
+                    divisions=4,
+                    minimum=CAMERA_RETURN_CONTINUITY_DIVISOR,
+                )
+                for value in continuity_translation
+            ]
+            angular_velocity = [
+                approach_step(
+                    value,
+                    0,
+                    CAMERA_RETURN_ANGULAR_VELOCITY_STEP,
+                )
+                for value in angular_velocity
+            ]
+            orientation = [
+                signed_word(value + velocity * 256)
+                for value, velocity in zip(orientation, angular_velocity)
+            ]
+            translation_yaw = (
+                translation_reference_yaw - ((orientation[1] >> 8) & 255)
+            ) & 255
+            translation_x, translation_z = rotate_xz(
+                translation_yaw,
+                continuity_translation[0],
+                continuity_translation[2],
+                sine,
+                cosine,
+            )
+            previous_output_position = (
+                signed_word(base_position[0] + translation_x),
+                signed_word(base_position[1] + continuity_translation[1]),
+                signed_word(base_position[2] + translation_z),
+            )
+            previous_output_orientation = orientation
+            camera = (
+                *previous_output_position,
+                *(value & 255 for value in previous_output_orientation),
+            )
+
         if camera != record.camera:
             raise SystemExit(
                 f"typed camera rules diverge at retail frame {retail_frame}: "
@@ -463,8 +880,8 @@ def rust_source(
         f"//! Source: `{trace_name}`.",
         f"//! Mission timer source: `{timer_trace_name}`.",
         f"//! Player dynamics source: `{player_dynamics_name}`.",
-        "//! Shipping player motion and the ordinary follow camera advance typed",
-        "//! state from recovered semantic cadence; complete poses are test-only.",
+        "//! Shipping player motion and the follow/return camera advance typed state",
+        "//! from recovered semantic cadence; complete poses are test-only.",
         "//! Regenerate or verify with `uv run python "
         "tools/sf2/generate_opening_continuation.py [--check]`.",
         "",
@@ -473,13 +890,13 @@ def rust_source(
         "    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,",
         "    MissionActorKeyframe,",
         "};",
-        "use super::{",
-        "    mission_camera_keyframe, mission_encounter_keyframe, mission_timer_keyframe,",
-        "    MissionCameraKeyframe, MissionEncounterKeyframe, MissionTimerKeyframe,",
-        "};",
+        "#[cfg(test)]",
+        "use super::{mission_camera_keyframe, MissionCameraKeyframe};",
+        "use super::{mission_encounter_keyframe, mission_timer_keyframe};",
         "#[cfg(test)]",
         "use super::{mission_player_keyframe, MissionPlayerKeyframe};",
         "use super::{Angle, Vector3};",
+        "use super::{MissionEncounterKeyframe, MissionTimerKeyframe};",
         "",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
         "pub(super) struct OpeningFlightCadence {",
@@ -497,6 +914,7 @@ def rust_source(
         f"pub(super) const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         f"const PLAYER_LIVE_FIRST_RETAIL_FRAME: u16 = {keyframes[0][0]};",
         f"const PLAYER_LIVE_LAST_RETAIL_FRAME: u16 = {keyframes[-1][0]};",
+        "#[cfg(test)]",
         "pub(super) const CAMERA_TYPED_LAST_RETAIL_FRAME: u16 = "
         f"{CAMERA_TYPED_LAST_RETAIL_FRAME};",
         "pub(super) const CAMERA_RETURN_FIRST_RETAIL_FRAME: u16 = "
@@ -534,30 +952,45 @@ def rust_source(
         f"{CAMERA_AMBIENT_HEIGHT_PHASE_AT_ANCHOR};",
         "pub(super) const CAMERA_AMBIENT_HEIGHT_AT_HANDOFF: i16 = "
         f"{CAMERA_AMBIENT_HEIGHT_AT_ANCHOR};",
+        "pub(super) const CAMERA_RETURN_REAR_DISTANCE_TARGET: i16 = "
+        f"{CAMERA_RETURN_REAR_DISTANCE_TARGET};",
+        "pub(super) const CAMERA_RETURN_REAR_DISTANCE_STEP: i16 = "
+        f"{CAMERA_RETURN_REAR_DISTANCE_STEP};",
+        "pub(super) const CAMERA_RETURN_VERTICAL_CHASE_DIVISOR: i16 = "
+        f"{CAMERA_RETURN_VERTICAL_CHASE_DIVISOR};",
+        "pub(super) const CAMERA_RETURN_ORBIT_INITIAL_DEPTH: i16 = "
+        f"{CAMERA_RETURN_ORBIT_INITIAL_DEPTH};",
+        "pub(super) const CAMERA_RETURN_ORBIT_DEPTH_STEP: i16 = "
+        f"{CAMERA_RETURN_ORBIT_DEPTH_STEP};",
+        "pub(super) const CAMERA_RETURN_ORBIT_VERTICAL_OFFSET: i16 = "
+        f"{CAMERA_RETURN_ORBIT_VERTICAL_OFFSET};",
+        "pub(super) const CAMERA_RETURN_ORBIT_YAW_STEP: i8 = "
+        f"{CAMERA_RETURN_ORBIT_YAW_STEP};",
+        "pub(super) const CAMERA_RETURN_LEAD_TARGET: i16 = "
+        f"{CAMERA_RETURN_LEAD_TARGET};",
+        "pub(super) const CAMERA_RETURN_LEAD_SETTLE_UPDATES: u8 = "
+        f"{CAMERA_RETURN_LEAD_SETTLE_UPDATES};",
+        "pub(super) const CAMERA_RETURN_LEAD_DECAY_DIVISOR: i16 = "
+        f"{CAMERA_RETURN_LEAD_DECAY_DIVISOR};",
+        "pub(super) const CAMERA_RETURN_CONTINUITY_DIVISOR: i16 = "
+        f"{CAMERA_RETURN_CONTINUITY_DIVISOR};",
+        "pub(super) const CAMERA_RETURN_ORIENTATION_CHASE_DIVISOR: i16 = "
+        f"{CAMERA_RETURN_ORIENTATION_CHASE_DIVISOR};",
+        "pub(super) const CAMERA_RETURN_ORIENTATION_CHASE_MINIMUM: i16 = "
+        f"{CAMERA_RETURN_ORIENTATION_CHASE_MINIMUM};",
+        "pub(super) const CAMERA_RETURN_ANGULAR_VELOCITY_STEP: i8 = "
+        f"{CAMERA_RETURN_ANGULAR_VELOCITY_STEP};",
+        "pub(super) const CAMERA_ORIENTATION_COARSE_SHIFT: u32 = "
+        f"{CAMERA_ORIENTATION_COARSE_SHIFT};",
+        "pub(super) const CAMERA_ORIENTATION_SUBUNITS_PER_COARSE_UNIT: i16 = "
+        f"{CAMERA_ORIENTATION_SUBUNITS_PER_COARSE_UNIT};",
+        "pub(super) const CAMERA_FOLLOW_FINE_ORIENTATION: [u16; 3] = "
+        f"{rust_array(CAMERA_FOLLOW_FINE_ORIENTATION)};",
         "",
         "#[cfg(test)]",
         f"pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; {len(keyframes)}] = [",
     ]
     for frame, record in keyframes:
-        lines.append(
-            f"    mission_camera_keyframe({frame}, "
-            + ", ".join(f"{value:_}" for value in record.camera)
-            + "),"
-        )
-    return_keyframes = [
-        keyframe
-        for keyframe in keyframes
-        if keyframe[0] >= CAMERA_RETURN_FIRST_RETAIL_FRAME
-    ]
-    lines.extend(
-        [
-            "];",
-            "",
-            "pub(super) const CAMERA_RETURN_KEYFRAMES: "
-            f"[MissionCameraKeyframe; {len(return_keyframes)}] = [",
-        ]
-    )
-    for frame, record in return_keyframes:
         lines.append(
             f"    mission_camera_keyframe({frame}, "
             + ", ".join(f"{value:_}" for value in record.camera)
@@ -593,14 +1026,12 @@ def rust_source(
     skipped_camera_frames = [
         entry.retail_frame
         for entry in cadence
-        if entry.retail_frame <= CAMERA_TYPED_LAST_RETAIL_FRAME
-        and entry.camera_updates == 0
+        if entry.camera_updates == 0
     ]
     double_camera_frames = [
         entry.retail_frame
         for entry in cadence
-        if entry.retail_frame <= CAMERA_TYPED_LAST_RETAIL_FRAME
-        and entry.camera_updates == 2
+        if entry.camera_updates == 2
     ]
     previous_player_camera_frames = [
         entry.retail_frame
@@ -659,9 +1090,7 @@ def rust_source(
             "    } else {",
             "        1",
             "    };",
-            "    let camera_updates = if retail_frame > CAMERA_TYPED_LAST_RETAIL_FRAME",
-            "        || CAMERA_SKIPPED_UPDATE_RETAIL_FRAMES.contains(&retail_frame)",
-            "    {",
+            "    let camera_updates = if CAMERA_SKIPPED_UPDATE_RETAIL_FRAMES.contains(&retail_frame) {",
             "        0",
             "    } else if CAMERA_DOUBLE_UPDATE_RETAIL_FRAMES.contains(&retail_frame) {",
             "        2",

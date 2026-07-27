@@ -1527,19 +1527,36 @@ pub struct MirageDragonCameraState {
 /// player pose; the port exposes them directly instead of retaining its
 /// byte-addressed object storage.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FlightFollowCameraPhase {
+    #[default]
+    Following,
+    Returning,
+    Orbiting,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct FlightFollowCameraState {
     pub active: bool,
+    pub phase: FlightFollowCameraPhase,
     pub control_updates_elapsed: u16,
     pub reference_yaw: Angle,
     pub rear_distance: i16,
     pub vertical_offset: i16,
     pub ambient_height_phase: u8,
     pub ambient_height_offset: i16,
+    pub fine_orientation: CameraOrientationSubunits,
     pub continuity_translation: Vector3,
+    pub continuity_orientation_offsets: CameraOrientationOffsets,
+    pub translation_reference_yaw: Angle,
     pub continuity_reset_pending: bool,
     pub previous_output_position: Vector3,
     pub pending_anchor_position: Vector3,
     pub anchor_motion_pending: bool,
+    pub lead_depth: i16,
+    pub lead_settle_updates_remaining: u8,
+    pub orbit_depth: i16,
+    pub orbit_yaw: Angle,
+    pub orbit_updates_elapsed: u16,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

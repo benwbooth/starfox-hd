@@ -1151,6 +1151,7 @@ function player_flight_oracle.record(stage)
       "camera_rotation_target=%d,%d,%d camera_rotation_motion=%d,%d,%d " ..
       "camera_flags=%d follow_mode=%d,%d,%d,%d,%d " ..
       "follow_depth=%d,%d,%d,%d follow_offset=%d,%d,%d,%d,%d,%d " ..
+      "follow_smoothing=%d,%d,%d,%d,%d " ..
       "follow_scratch=%d,%d,%d camera_orientation_words=%d,%d,%d " ..
       "tracking_source=%d,%d,%d tracking_center=%d,%d,%d " ..
       "aim_scratch=%d,%d",
@@ -1228,6 +1229,11 @@ function player_flight_oracle.record(stage)
     signed_word(flight_field(0x6B52)),
     signed_word(flight_field(0x6B54)),
     signed_word(flight_field(0x6B67)),
+    signed_word(flight_field(0x6B56)),
+    work_byte(flight_field(0x6B58)),
+    signed_word(flight_field(0x6B69)),
+    signed_word(flight_field(0x6B6B)),
+    signed_word(0x1DC0),
     signed_word(0x1DC2),
     signed_word(0x1DC4),
     signed_word(0x1DC6),
