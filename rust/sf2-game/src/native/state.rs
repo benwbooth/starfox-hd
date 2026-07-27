@@ -1530,6 +1530,7 @@ pub struct MirageDragonCameraState {
 pub struct FlightFollowCameraState {
     pub active: bool,
     pub control_updates_elapsed: u16,
+    pub reference_yaw: Angle,
     pub rear_distance: i16,
     pub vertical_offset: i16,
     pub ambient_height_phase: u8,

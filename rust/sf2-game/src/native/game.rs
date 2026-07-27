@@ -14444,6 +14444,11 @@ impl Game {
     }
 
     fn update_mission_camera(&mut self, retail_frame: u16) {
+        if retail_frame > MISSION_BASE_KEYFRAME_END_RETAIL_FRAME
+            && retail_frame <= opening_continuation::CAMERA_TYPED_LAST_RETAIL_FRAME
+        {
+            return;
+        }
         let (start, end) = enclosing_camera_keyframes(retail_frame);
         self.state.camera.position = interpolate_vector(
             start.position,
@@ -16293,6 +16298,7 @@ impl Game {
             }
             self.state.mission.flight_follow_camera = FlightFollowCameraState {
                 active: true,
+                reference_yaw: pressure_fighters::PLAYER_HANDOFF_YAW,
                 rear_distance: pressure_fighters::CAMERA_FOLLOW_INITIAL_REAR_DISTANCE,
                 previous_output_position: pressure_fighters::CAMERA_HANDOFF_POSITION,
                 continuity_reset_pending: true,
@@ -16384,14 +16390,14 @@ impl Game {
             })
             .unwrap_or_default();
         for _ in 0..cadence.camera_updates {
-            self.advance_pressure_fighter_follow_camera(
+            self.advance_flight_follow_camera(
                 projected_player.0,
                 projected_player.1,
                 projected_player.2,
             );
         }
         if cadence.camera_anchor_only {
-            self.publish_pressure_fighter_follow_camera_anchor(
+            self.publish_flight_follow_camera_anchor(
                 projected_player.0,
                 projected_player.1,
                 projected_player.2,
@@ -16524,19 +16530,14 @@ impl Game {
         ))
     }
 
-    fn advance_pressure_fighter_follow_camera(
-        &mut self,
-        player_position: Vector3,
-        pitch: Angle,
-        yaw: Angle,
-    ) {
+    fn advance_flight_follow_camera(&mut self, player_position: Vector3, pitch: Angle, yaw: Angle) {
         if !self
             .state
             .mission
             .flight_follow_camera
             .anchor_motion_pending
         {
-            self.prepare_pressure_fighter_follow_camera_anchor(player_position);
+            self.prepare_flight_follow_camera_anchor(player_position);
         }
         let damage_camera_pitch_recoil = {
             let flight = &mut self.state.mission.player_flight;
@@ -16578,16 +16579,12 @@ impl Game {
         self.state.camera.position = camera.previous_output_position;
         self.state.camera.rotation = Rotation {
             pitch: player_damage_camera_pitch(pitch, damage_camera_pitch_recoil),
-            yaw: Angle::from_units(
-                pressure_fighters::PLAYER_HANDOFF_YAW
-                    .units()
-                    .wrapping_sub(yaw.units()),
-            ),
+            yaw: Angle::from_units(camera.reference_yaw.units().wrapping_sub(yaw.units())),
             roll: Angle::ZERO,
         };
     }
 
-    fn prepare_pressure_fighter_follow_camera_anchor(&mut self, player_position: Vector3) {
+    fn prepare_flight_follow_camera_anchor(&mut self, player_position: Vector3) {
         let camera = &mut self.state.mission.flight_follow_camera;
         if !camera.active {
             return;
@@ -16603,7 +16600,7 @@ impl Game {
         camera.ambient_height_phase = ambient_phase;
         camera.ambient_height_offset = ambient_height;
 
-        camera.pending_anchor_position = pressure_fighter_follow_camera_position(
+        camera.pending_anchor_position = flight_follow_camera_position(
             player_position,
             camera.vertical_offset,
             camera.rear_distance,
@@ -16640,13 +16637,13 @@ impl Game {
         camera.anchor_motion_pending = true;
     }
 
-    fn publish_pressure_fighter_follow_camera_anchor(
+    fn publish_flight_follow_camera_anchor(
         &mut self,
         player_position: Vector3,
         pitch: Angle,
         yaw: Angle,
     ) {
-        self.prepare_pressure_fighter_follow_camera_anchor(player_position);
+        self.prepare_flight_follow_camera_anchor(player_position);
         let camera = &self.state.mission.flight_follow_camera;
         if !camera.active {
             return;
@@ -16654,11 +16651,7 @@ impl Game {
         self.state.camera.position = camera.pending_anchor_position;
         self.state.camera.rotation = Rotation {
             pitch: Angle::from_units(pitch.units().wrapping_neg()),
-            yaw: Angle::from_units(
-                pressure_fighters::PLAYER_HANDOFF_YAW
-                    .units()
-                    .wrapping_sub(yaw.units()),
-            ),
+            yaw: Angle::from_units(camera.reference_yaw.units().wrapping_sub(yaw.units())),
             roll: Angle::ZERO,
         };
     }
@@ -18770,6 +18763,18 @@ impl Game {
                 player.base.speed = opening_continuation::PLAYER_HANDOFF_SPEED;
                 player.base.velocity = Vector3::default();
             }
+            self.state.mission.flight_follow_camera = FlightFollowCameraState {
+                active: true,
+                reference_yaw: opening_continuation::PLAYER_HANDOFF_YAW,
+                rear_distance: opening_continuation::CAMERA_FOLLOW_REAR_DISTANCE,
+                vertical_offset: opening_continuation::CAMERA_FOLLOW_VERTICAL_OFFSET,
+                ambient_height_phase: opening_continuation::CAMERA_AMBIENT_HEIGHT_PHASE_AT_HANDOFF,
+                ambient_height_offset: opening_continuation::CAMERA_AMBIENT_HEIGHT_AT_HANDOFF,
+                previous_output_position: opening_continuation::CAMERA_HANDOFF_POSITION,
+                ..FlightFollowCameraState::default()
+            };
+            self.state.camera.position = opening_continuation::CAMERA_HANDOFF_POSITION;
+            self.state.camera.rotation = Rotation::default();
         } else if let Some(cadence) = opening_continuation::player_flight_cadence(retail_frame) {
             let mut total_velocity = Vector3::default();
             let mut latest_velocity = None;
@@ -18844,6 +18849,35 @@ impl Game {
             }
         }
 
+        if retail_frame <= opening_continuation::CAMERA_TYPED_LAST_RETAIL_FRAME {
+            if let Some(cadence) = opening_continuation::player_flight_cadence(retail_frame) {
+                let (mut camera_player_position, pitch, yaw) = self
+                    .state
+                    .objects
+                    .get(primary_id)
+                    .map(|player| (player.base.position, player.base.pitch, player.base.yaw))
+                    .unwrap_or_default();
+                if cadence.camera_uses_previous_player_position {
+                    camera_player_position = Vector3 {
+                        x: camera_player_position
+                            .x
+                            .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.x),
+                        y: camera_player_position
+                            .y
+                            .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.y),
+                        z: camera_player_position
+                            .z
+                            .wrapping_sub(opening_continuation::PLAYER_NEUTRAL_VELOCITY.z),
+                    };
+                }
+                for _ in 0..cadence.camera_updates {
+                    self.advance_flight_follow_camera(camera_player_position, pitch, yaw);
+                }
+            }
+        } else {
+            self.update_mission_camera(retail_frame);
+        }
+
         if let Some(wingmate_id) = self.state.mission.wingmate {
             if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
                 wingmate.base.position = Vector3::default();
@@ -18857,7 +18891,6 @@ impl Game {
                 wingmate.base.flags.collision_disabled = true;
             }
         }
-        self.update_mission_camera(retail_frame);
     }
 
     fn update_active_camera(
@@ -19481,13 +19514,18 @@ impl Game {
         for _ in 0..control_updates {
             damage_bank_impulse = advance_player_damage_bank(flight).1;
         }
+        let damage_camera_pitch_recoil = advance_player_damage_camera_recoil(flight);
+        let mut player_pitch = Angle::ZERO;
         if let Some(player) = self.state.objects.get_mut(player_id) {
             player.base.roll = player
                 .base
                 .roll
                 .wrapping_add(previously_applied.wrapping_neg())
                 .wrapping_add(damage_bank_impulse);
+            player_pitch = player.base.pitch;
         }
+        self.state.camera.rotation.pitch =
+            player_damage_camera_pitch(player_pitch, damage_camera_pitch_recoil);
     }
 
     fn resolve_eladard_defender_body_collisions(&mut self) {
@@ -20747,9 +20785,9 @@ fn enclosing_camera_keyframes(
     &'static MissionCameraKeyframe,
     &'static MissionCameraKeyframe,
 ) {
-    if retail_frame > MISSION_BASE_KEYFRAME_END_RETAIL_FRAME {
+    if retail_frame >= opening_continuation::CAMERA_RETURN_FIRST_RETAIL_FRAME {
         enclosing_keyframes(
-            &opening_continuation::CAMERA_KEYFRAMES,
+            &opening_continuation::CAMERA_RETURN_KEYFRAMES,
             retail_frame,
             |keyframe| keyframe.retail_frame,
         )
@@ -21006,7 +21044,7 @@ fn chase_mirage_dragon_camera_orientation(current: u16, target: u16) -> u16 {
     current.wrapping_add_signed(limited)
 }
 
-fn pressure_fighter_follow_camera_position(
+fn flight_follow_camera_position(
     player_position: Vector3,
     vertical_offset: i16,
     rear_distance: i16,
@@ -27407,12 +27445,13 @@ mod tests {
     }
 
     #[test]
-    fn live_opening_player_matches_every_retail_checkpoint() {
+    fn live_opening_player_and_typed_camera_match_every_retail_checkpoint() {
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
         let mut observed_hit_frames = Vec::new();
+        let mut typed_camera_boundaries = 0;
 
-        for expected in &opening_continuation::PLAYER_KEYFRAMES {
+        for (index, expected) in opening_continuation::PLAYER_KEYFRAMES.iter().enumerate() {
             let oracle_tick =
                 u32::from(expected.retail_frame) / RETAIL_PRESENTATION_FRAMES_PER_TICK;
             while game.state().mode_frame < oracle_tick {
@@ -27453,6 +27492,35 @@ mod tests {
                 "player speed at retail frame {}",
                 expected.retail_frame
             );
+            if expected.retail_frame <= opening_continuation::CAMERA_TYPED_LAST_RETAIL_FRAME {
+                let expected_camera = opening_continuation::CAMERA_KEYFRAMES[index];
+                assert_eq!(expected_camera.retail_frame, expected.retail_frame);
+                assert_eq!(
+                    game.camera().position,
+                    expected_camera.position,
+                    "typed camera position at retail frame {}",
+                    expected.retail_frame
+                );
+                assert_eq!(
+                    game.camera().rotation.pitch.units(),
+                    expected_camera.pitch,
+                    "typed camera pitch at retail frame {}",
+                    expected.retail_frame
+                );
+                assert_eq!(
+                    game.camera().rotation.yaw.units(),
+                    expected_camera.yaw,
+                    "typed camera yaw at retail frame {}",
+                    expected.retail_frame
+                );
+                assert_eq!(
+                    game.camera().rotation.roll.units(),
+                    expected_camera.roll,
+                    "typed camera roll at retail frame {}",
+                    expected.retail_frame
+                );
+                typed_camera_boundaries += 1;
+            }
             if opening_continuation::NATURAL_HIT_RETAIL_FRAMES.contains(&expected.retail_frame) {
                 assert!(
                     game.state().mission.player_flight.damage_bank_impulse > 0,
@@ -27466,6 +27534,15 @@ mod tests {
         assert_eq!(
             observed_hit_frames,
             opening_continuation::NATURAL_HIT_RETAIL_FRAMES
+        );
+        assert_eq!(
+            typed_camera_boundaries,
+            usize::from(
+                (opening_continuation::CAMERA_TYPED_LAST_RETAIL_FRAME
+                    - MISSION_BASE_KEYFRAME_END_RETAIL_FRAME)
+                    / opening_continuation::RETAIL_FRAME_STEP
+                    + 1
+            )
         );
         assert!(!game.state().mission.departed_certified_neutral_path);
     }

@@ -29,6 +29,49 @@ ANCHOR_RETAIL_FRAME = 900
 # checkpoint oracle-observed; a ten-frame table required interpolation through
 # states the retail game never actually held.
 RETAIL_FRAME_STEP = 4
+CAMERA_TYPED_LAST_RETAIL_FRAME = 7_840
+CAMERA_RETURN_FIRST_RETAIL_FRAME = (
+    CAMERA_TYPED_LAST_RETAIL_FRAME + RETAIL_FRAME_STEP
+)
+CAMERA_FOLLOW_REAR_DISTANCE = 0
+CAMERA_FOLLOW_VERTICAL_OFFSET = -20
+CAMERA_AMBIENT_HEIGHT_PHASE_AT_ANCHOR = 4
+CAMERA_AMBIENT_HEIGHT_AT_ANCHOR = 1
+CAMERA_AMBIENT_HEIGHT_WAVE = (
+    1,
+    0,
+    1,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    -1,
+    0,
+    0,
+    -1,
+    0,
+    -1,
+    -1,
+    0,
+    -1,
+    0,
+    0,
+    -1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    1,
+    0,
+    1,
+)
+PLAYER_NEUTRAL_VELOCITY = (18, 0, 21)
 ANCHOR_ENCOUNTER = (
     (-21_676, 9_847, -2_152, 0, 221, 0, 60),
     (-14_884, 7_640, -14_224, 0, 198, 11, 60),
@@ -97,11 +140,13 @@ class Record:
 
 
 @dataclass(frozen=True)
-class PlayerCadence:
+class FlightCadence:
     retail_frame: int
     control_updates: int
     movement_updates: int
     damage_bank_impulse: int
+    camera_updates: int
+    camera_uses_previous_player_position: bool
 
 
 def field(line: str, start: str, end: str) -> str:
@@ -187,7 +232,7 @@ def mission_timer_keyframes(
     return result
 
 
-def player_cadence(trace: Path) -> list[PlayerCadence]:
+def player_cadence(trace: Path) -> list[FlightCadence]:
     result = []
     pending_controls = 0
     for line in trace.read_text(encoding="utf-8").splitlines():
@@ -198,16 +243,27 @@ def player_cadence(trace: Path) -> list[PlayerCadence]:
             for token in line.split()
             if "=" in token
         }
-        cadence = PlayerCadence(
+        cadence = FlightCadence(
             retail_frame=int(values["retail_frame"]),
             control_updates=int(values["control_updates"]),
             movement_updates=int(values["movement_updates"]),
             damage_bank_impulse=int(values["damage_bank_impulse"]),
+            camera_updates=int(values["camera_updates"]),
+            camera_uses_previous_player_position=bool(
+                int(values["camera_uses_previous_player_position"])
+            ),
         )
         if cadence.control_updates not in (0, 1, 2):
             raise SystemExit("player dynamics contain an invalid control count")
         if cadence.movement_updates not in (0, 1, 2):
             raise SystemExit("player dynamics contain an invalid movement count")
+        if cadence.camera_updates not in (0, 1, 2):
+            raise SystemExit("player dynamics contain an invalid camera count")
+        if (
+            cadence.camera_uses_previous_player_position
+            and cadence.camera_updates == 0
+        ):
+            raise SystemExit("camera lag requires a camera update")
         pending_controls += cadence.control_updates - cadence.movement_updates
         if pending_controls not in (0, 1):
             raise SystemExit("player dynamics violate control/movement ordering")
@@ -231,7 +287,7 @@ def recover_damage_bank(value: int) -> int:
 
 
 def verify_live_player(
-    keyframes: list[tuple[int, Record]], cadence: list[PlayerCadence]
+    keyframes: list[tuple[int, Record]], cadence: list[FlightCadence]
 ) -> None:
     if [frame for frame, _ in keyframes] != [
         entry.retail_frame for entry in cadence
@@ -270,6 +326,60 @@ def verify_live_player(
             )
     if pending_controls != 0:
         raise SystemExit("player dynamics end with unmatched control motion")
+
+
+def verify_live_camera(
+    keyframes: list[tuple[int, Record]], cadence: list[FlightCadence]
+) -> None:
+    typed_pairs = [
+        (keyframe, entry)
+        for keyframe, entry in zip(keyframes, cadence)
+        if keyframe[0] <= CAMERA_TYPED_LAST_RETAIL_FRAME
+    ]
+    if not typed_pairs or typed_pairs[-1][0][0] != CAMERA_TYPED_LAST_RETAIL_FRAME:
+        raise SystemExit("camera dynamics do not span the typed follow window")
+
+    initial_record = typed_pairs[0][0][1]
+    ambient_phase = CAMERA_AMBIENT_HEIGHT_PHASE_AT_ANCHOR
+    ambient_height = CAMERA_AMBIENT_HEIGHT_AT_ANCHOR
+    camera = initial_record.camera
+    expected_initial_position = (
+        initial_record.player[0],
+        initial_record.player[1]
+        + CAMERA_FOLLOW_VERTICAL_OFFSET
+        + CAMERA_AMBIENT_HEIGHT_AT_ANCHOR,
+        initial_record.player[2],
+    )
+    if camera[:3] != expected_initial_position or camera[3:] != (0, 0, 0):
+        raise SystemExit("typed camera handoff does not match the retail anchor")
+
+    for (retail_frame, record), entry in typed_pairs[1:]:
+        for _ in range(entry.camera_updates):
+            ambient_phase = (ambient_phase + 1) % len(CAMERA_AMBIENT_HEIGHT_WAVE)
+            ambient_height += CAMERA_AMBIENT_HEIGHT_WAVE[ambient_phase]
+        if entry.camera_updates:
+            anchor_position = list(record.player[:3])
+            if entry.camera_uses_previous_player_position:
+                anchor_position = [
+                    signed_word(position - velocity)
+                    for position, velocity in zip(
+                        anchor_position,
+                        PLAYER_NEUTRAL_VELOCITY,
+                    )
+                ]
+            camera = (
+                anchor_position[0],
+                anchor_position[1]
+                + CAMERA_FOLLOW_VERTICAL_OFFSET
+                + ambient_height,
+                anchor_position[2],
+                *record.camera[3:],
+            )
+        if camera != record.camera:
+            raise SystemExit(
+                f"typed camera rules diverge at retail frame {retail_frame}: "
+                f"expected {record.camera}, recovered {camera}"
+            )
 
 
 def source_digest(path: Path) -> str:
@@ -337,7 +447,7 @@ def rust_source(
     player_dynamics_name: str,
     keyframes: list[tuple[int, Record]],
     timer_keyframes: list[tuple[int, int]],
-    cadence: list[PlayerCadence],
+    cadence: list[FlightCadence],
 ) -> str:
     encounter_keyframes = []
     for keyframe in keyframes:
@@ -353,8 +463,8 @@ def rust_source(
         f"//! Source: `{trace_name}`.",
         f"//! Mission timer source: `{timer_trace_name}`.",
         f"//! Player dynamics source: `{player_dynamics_name}`.",
-        "//! Shipping player motion advances typed state from the recovered",
-        "//! control/movement cadence; the complete player poses are test-only.",
+        "//! Shipping player motion and the ordinary follow camera advance typed",
+        "//! state from recovered semantic cadence; complete poses are test-only.",
         "//! Regenerate or verify with `uv run python "
         "tools/sf2/generate_opening_continuation.py [--check]`.",
         "",
@@ -372,9 +482,11 @@ def rust_source(
         "use super::{Angle, Vector3};",
         "",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
-        "pub(super) struct PlayerFlightCadence {",
+        "pub(super) struct OpeningFlightCadence {",
         "    pub control_updates: u8,",
         "    pub movement_updates: u8,",
+        "    pub camera_updates: u8,",
+        "    pub camera_uses_previous_player_position: bool,",
         "}",
         "",
         f"pub(super) const PLAYER_CERTIFIED_END_RETAIL_FRAME: u16 = {keyframes[-1][0]};",
@@ -382,9 +494,13 @@ def rust_source(
         "pub(super) const ENCOUNTER_CERTIFIED_END_RETAIL_FRAME: u16 = "
         f"{encounter_keyframes[-1][0]};",
         "",
-        f"const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
+        f"pub(super) const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         f"const PLAYER_LIVE_FIRST_RETAIL_FRAME: u16 = {keyframes[0][0]};",
         f"const PLAYER_LIVE_LAST_RETAIL_FRAME: u16 = {keyframes[-1][0]};",
+        "pub(super) const CAMERA_TYPED_LAST_RETAIL_FRAME: u16 = "
+        f"{CAMERA_TYPED_LAST_RETAIL_FRAME};",
+        "pub(super) const CAMERA_RETURN_FIRST_RETAIL_FRAME: u16 = "
+        f"{CAMERA_RETURN_FIRST_RETAIL_FRAME};",
         "pub(super) const PLAYER_HANDOFF_POSITION: Vector3 = Vector3 {",
         f"    x: {keyframes[0][1].player[0]:_},",
         f"    y: {keyframes[0][1].player[1]:_},",
@@ -401,10 +517,47 @@ def rust_source(
         f"{PLAYER_AMBIENT_BANK_PHASE_AT_ANCHOR};",
         "pub(super) const PLAYER_NEUTRAL_TARGET_SPEED: u8 = "
         f"{keyframes[0][1].player[6]};",
+        "pub(super) const PLAYER_NEUTRAL_VELOCITY: Vector3 = Vector3 "
+        f"{{ x: {PLAYER_NEUTRAL_VELOCITY[0]}, y: {PLAYER_NEUTRAL_VELOCITY[1]}, "
+        f"z: {PLAYER_NEUTRAL_VELOCITY[2]} }};",
         "",
+        "pub(super) const CAMERA_HANDOFF_POSITION: Vector3 = Vector3 {",
+        f"    x: {keyframes[0][1].camera[0]:_},",
+        f"    y: {keyframes[0][1].camera[1]:_},",
+        f"    z: {keyframes[0][1].camera[2]:_},",
+        "};",
+        "pub(super) const CAMERA_FOLLOW_REAR_DISTANCE: i16 = "
+        f"{CAMERA_FOLLOW_REAR_DISTANCE};",
+        "pub(super) const CAMERA_FOLLOW_VERTICAL_OFFSET: i16 = "
+        f"{CAMERA_FOLLOW_VERTICAL_OFFSET};",
+        "pub(super) const CAMERA_AMBIENT_HEIGHT_PHASE_AT_HANDOFF: u8 = "
+        f"{CAMERA_AMBIENT_HEIGHT_PHASE_AT_ANCHOR};",
+        "pub(super) const CAMERA_AMBIENT_HEIGHT_AT_HANDOFF: i16 = "
+        f"{CAMERA_AMBIENT_HEIGHT_AT_ANCHOR};",
+        "",
+        "#[cfg(test)]",
         f"pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; {len(keyframes)}] = [",
     ]
     for frame, record in keyframes:
+        lines.append(
+            f"    mission_camera_keyframe({frame}, "
+            + ", ".join(f"{value:_}" for value in record.camera)
+            + "),"
+        )
+    return_keyframes = [
+        keyframe
+        for keyframe in keyframes
+        if keyframe[0] >= CAMERA_RETURN_FIRST_RETAIL_FRAME
+    ]
+    lines.extend(
+        [
+            "];",
+            "",
+            "pub(super) const CAMERA_RETURN_KEYFRAMES: "
+            f"[MissionCameraKeyframe; {len(return_keyframes)}] = [",
+        ]
+    )
+    for frame, record in return_keyframes:
         lines.append(
             f"    mission_camera_keyframe({frame}, "
             + ", ".join(f"{value:_}" for value in record.camera)
@@ -437,6 +590,23 @@ def rust_source(
     double_movement_frames = [
         entry.retail_frame for entry in cadence if entry.movement_updates == 2
     ]
+    skipped_camera_frames = [
+        entry.retail_frame
+        for entry in cadence
+        if entry.retail_frame <= CAMERA_TYPED_LAST_RETAIL_FRAME
+        and entry.camera_updates == 0
+    ]
+    double_camera_frames = [
+        entry.retail_frame
+        for entry in cadence
+        if entry.retail_frame <= CAMERA_TYPED_LAST_RETAIL_FRAME
+        and entry.camera_updates == 2
+    ]
+    previous_player_camera_frames = [
+        entry.retail_frame
+        for entry in cadence
+        if entry.camera_uses_previous_player_position
+    ]
     natural_hit_frames = [
         entry.retail_frame for entry in cadence if entry.damage_bank_impulse != 0
     ]
@@ -454,6 +624,12 @@ def rust_source(
     frame_array("PLAYER_DOUBLE_CONTROL_RETAIL_FRAMES", double_control_frames)
     frame_array("PLAYER_SKIPPED_MOVEMENT_RETAIL_FRAMES", skipped_movement_frames)
     frame_array("PLAYER_DOUBLE_MOVEMENT_RETAIL_FRAMES", double_movement_frames)
+    frame_array("CAMERA_SKIPPED_UPDATE_RETAIL_FRAMES", skipped_camera_frames)
+    frame_array("CAMERA_DOUBLE_UPDATE_RETAIL_FRAMES", double_camera_frames)
+    frame_array(
+        "CAMERA_PREVIOUS_PLAYER_POSITION_RETAIL_FRAMES",
+        previous_player_camera_frames,
+    )
     lines.extend(
         [
             "#[cfg(test)]",
@@ -461,7 +637,7 @@ def rust_source(
             f"[{', '.join(map(str, natural_hit_frames))}];",
             "",
             "pub(super) fn player_flight_cadence(retail_frame: u16) "
-            "-> Option<PlayerFlightCadence> {",
+            "-> Option<OpeningFlightCadence> {",
             "    let offset = retail_frame.checked_sub(PLAYER_LIVE_FIRST_RETAIL_FRAME)?;",
             "    if retail_frame > PLAYER_LIVE_LAST_RETAIL_FRAME "
             "|| offset % RETAIL_FRAME_STEP != 0 {",
@@ -483,9 +659,22 @@ def rust_source(
             "    } else {",
             "        1",
             "    };",
-            "    Some(PlayerFlightCadence {",
+            "    let camera_updates = if retail_frame > CAMERA_TYPED_LAST_RETAIL_FRAME",
+            "        || CAMERA_SKIPPED_UPDATE_RETAIL_FRAMES.contains(&retail_frame)",
+            "    {",
+            "        0",
+            "    } else if CAMERA_DOUBLE_UPDATE_RETAIL_FRAMES.contains(&retail_frame) {",
+            "        2",
+            "    } else {",
+            "        1",
+            "    };",
+            "    Some(OpeningFlightCadence {",
             "        control_updates,",
             "        movement_updates,",
+            "        camera_updates,",
+            "        camera_uses_previous_player_position: "
+            "CAMERA_PREVIOUS_PLAYER_POSITION_RETAIL_FRAMES",
+            "            .contains(&retail_frame),",
             "    })",
             "}",
             "",
@@ -589,6 +778,7 @@ def main() -> None:
     keyframes, anchor_elapsed = continuation(args.trace)
     cadence = player_cadence(args.player_dynamics)
     verify_live_player(keyframes, cadence)
+    verify_live_camera(keyframes, cadence)
     timer_keyframes = mission_timer_keyframes(
         args.timer_trace, anchor_elapsed, keyframes[-1][0]
     )
