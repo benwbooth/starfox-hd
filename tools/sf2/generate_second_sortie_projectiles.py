@@ -249,6 +249,8 @@ def read_natural_hits(
     collision_fixture: Path,
     records: list[PoseRecord],
     lifetimes: list[ProjectileLifetime],
+    sample_start_elapsed: int = RAW_SAMPLE_START_ELAPSED,
+    encounter_description: str = "first-reengagement",
 ) -> list[dict[str, str]]:
     hits = [
         fields(line)
@@ -257,7 +259,7 @@ def read_natural_hits(
     ]
     if not hits:
         raise SystemExit(
-            "first-reengagement collision fixture must retain its natural hits"
+            f"{encounter_description} collision fixture must retain its natural hits"
         )
     expected_fields = {
         "elapsed",
@@ -278,44 +280,46 @@ def read_natural_hits(
     for hit in hits:
         if set(hit) != expected_fields:
             raise SystemExit(
-                "first-reengagement natural hit fields changed: "
+                f"{encounter_description} natural hit fields changed: "
                 f"expected {sorted(expected_fields)}, found {sorted(hit)}"
             )
         elapsed = int(hit["elapsed"])
         collision_retail_frame = int(hit["collision_retail_frame"])
         player_retail_frame = int(hit["player_retail_frame"])
         track_index = int(hit["track"])
-        retained_elapsed = RAW_SAMPLE_START_ELAPSED + player_retail_frame
+        retained_elapsed = sample_start_elapsed + player_retail_frame
         if not retained_elapsed <= elapsed < retained_elapsed + RETAIL_FRAME_STEP:
             raise SystemExit(
-                "first-reengagement natural hit is outside its retained "
+                f"{encounter_description} natural hit is outside its retained "
                 "presentation interval"
             )
         if elapsed <= previous_elapsed:
             raise SystemExit(
-                "first-reengagement natural hits are not chronological"
+                f"{encounter_description} natural hits are not chronological"
             )
         previous_elapsed = elapsed
         if track_index in seen_tracks:
             raise SystemExit(
-                "first-reengagement projectile hit more than once"
+                f"{encounter_description} projectile hit more than once"
             )
         seen_tracks.add(track_index)
         if hit["craft_class"] != "FoxFalco":
-            raise SystemExit("first-reengagement natural hit craft class changed")
+            raise SystemExit(
+                f"{encounter_description} natural hit craft class changed"
+            )
         if int(hit["damage"]) != 2:
-            raise SystemExit("first-reengagement natural hit damage changed")
+            raise SystemExit(f"{encounter_description} natural hit damage changed")
         if hit["source"] != "06:9707":
             raise SystemExit(
-                "first-reengagement natural hit dispatch source changed"
+                f"{encounter_description} natural hit dispatch source changed"
             )
         if not 0 <= track_index < len(lifetimes):
             raise SystemExit(
-                "first-reengagement natural hit track is out of range"
+                f"{encounter_description} natural hit track is out of range"
             )
         if hit["source_object"] != lifetimes[track_index].source:
             raise SystemExit(
-                "first-reengagement natural hit source object does not match "
+                f"{encounter_description} natural hit source object does not match "
                 "its projectile track"
             )
         projectile_pose = tuple(
@@ -326,19 +330,19 @@ def read_natural_hits(
             for frame, pose in lifetimes[track_index].samples
         ):
             raise SystemExit(
-                "first-reengagement natural hit projectile pose is absent "
+                f"{encounter_description} natural hit projectile pose is absent "
                 "from its track"
             )
         dispatch_pose = tuple(map(int, hit["projectile_pose"].split(",")))
         if len(dispatch_pose) != 3:
             raise SystemExit(
-                "first-reengagement natural hit dispatch pose is malformed"
+                f"{encounter_description} natural hit dispatch pose is malformed"
             )
         player_pose = tuple(map(int, hit["player_pose"].split(",")))
         record = record_by_frame.get(player_retail_frame)
         if record is None or record.player[:3] != player_pose:
             raise SystemExit(
-                "first-reengagement natural hit player pose is absent "
+                f"{encounter_description} natural hit player pose is absent "
                 "from its retained boundary"
             )
         if collision_retail_frame not in {
@@ -346,7 +350,7 @@ def read_natural_hits(
             player_retail_frame + RETAIL_FRAME_STEP,
         }:
             raise SystemExit(
-                "first-reengagement natural hit collision tick is not adjacent "
+                f"{encounter_description} natural hit collision tick is not adjacent "
                 "to its player pose"
             )
     return hits

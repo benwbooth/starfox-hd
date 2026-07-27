@@ -7922,6 +7922,12 @@ impl Game {
             .mode_frame
             .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
             .min(u32::from(u16::MAX)) as u16;
+        self.mission_player_collision_pose = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(object_collision_pose);
         self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
 
         match self.state.mission.phase {
@@ -7970,22 +7976,23 @@ impl Game {
         } else {
             self.update_leon_presentation(retail_frame);
         }
-        let current_player_position = self
+        let current_player_collision_pose = self
             .state
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get(id))
-            .map(|object| object.base.position);
-        let previous_player_position = current_player_position
-            .map(|current| self.previous_mission_player_position.unwrap_or(current));
-        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
-        {
-            self.update_leon_rival(retail_frame, current, previous);
+            .map(object_collision_pose);
+        let previous_player_collision_pose = current_player_collision_pose
+            .map(|current| self.mission_player_collision_pose.unwrap_or(current));
+        if let (Some(current), Some(previous)) = (
+            current_player_collision_pose,
+            previous_player_collision_pose,
+        ) {
+            self.update_leon_rival(retail_frame, current.position, previous.position);
             self.update_leon_projectiles(retail_frame, current, previous)?;
-            self.previous_mission_player_position = Some(current);
+            self.previous_mission_player_position = Some(current.position);
         } else {
             self.update_leon_rival(retail_frame, Vector3::default(), Vector3::default());
-            self.update_leon_projectiles(retail_frame, Vector3::default(), Vector3::default())?;
         }
         Ok(())
     }
@@ -16039,9 +16046,15 @@ impl Game {
     fn update_leon_projectiles(
         &mut self,
         retail_frame: u16,
-        player_position: Vector3,
-        previous_player_position: Vector3,
+        player_collision_pose: ObjectCollisionPose,
+        previous_player_collision_pose: ObjectCollisionPose,
     ) -> Result<(), Error> {
+        let collision_player = self.state.mission.primary_player.and_then(|id| {
+            self.state
+                .objects
+                .get(id)
+                .map(|player| (id, player.clone()))
+        });
         for track_index in 0..leon_duel_projectiles::PROJECTILE_COUNT {
             let descriptor = leon_duel_projectiles::descriptor(track_index)
                 .expect("Leon projectile descriptor exists");
@@ -16074,6 +16087,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !descriptor.collision_enabled;
                 projectile.base.position = descriptor.initial_pose.position;
                 projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
                 projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
@@ -16093,23 +16107,33 @@ impl Game {
                 projectile_id
             };
 
+            let mut impact = None;
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
                 let ObjectActivity::HostileProjectileFlight(mut flight) =
                     projectile.extension.activity
                 else {
                     continue;
                 };
-                for &action in leon_duel_projectiles::actions(track_index, retail_frame) {
-                    apply_hostile_projectile_action(
-                        projectile,
-                        &mut flight,
-                        action,
-                        player_position,
-                        previous_player_position,
-                        previous_player_position,
-                    );
+                let actions = leon_duel_projectiles::actions(track_index, retail_frame);
+                let action_player_targets =
+                    leon_duel_projectiles::action_player_targets(track_index, retail_frame);
+                let damage = apply_hostile_projectile_actions_with_collision(
+                    projectile,
+                    &mut flight,
+                    actions,
+                    action_player_targets,
+                    player_collision_pose,
+                    previous_player_collision_pose,
+                    collision_player.as_ref().map(|(_, player)| player),
+                    self.state.mission.player_damage == PlayerDamageState::Ready,
+                );
+                if let (Some(damage), Some((player_id, _))) = (damage, collision_player.as_ref()) {
+                    impact = Some((projectile_id, *player_id, damage));
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+            if let Some((projectile_id, player_id, damage)) = impact {
+                self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
             }
         }
         Ok(())
@@ -29764,6 +29788,12 @@ mod tests {
         const RETAINED_PROJECTILE_POSE_COUNT: usize = 132;
 
         let mut game = Game::new();
+        let collision_pose = |pose: MissionEncounterPose| ObjectCollisionPose {
+            position: pose.position,
+            pitch: Angle::from_units(pose.pitch),
+            yaw: Angle::from_units(pose.yaw),
+            roll: Angle::from_units(pose.roll),
+        };
         let last_retail_frame = leon_duel_projectiles::ORACLE_TRACKS
             .iter()
             .filter_map(|track| track.last())
@@ -29777,11 +29807,15 @@ mod tests {
         {
             let player_index = usize::from(retail_frame / leon_duel_rival::RETAIL_FRAME_STEP);
             let previous_player_index = player_index.saturating_sub(1);
-            let player_position = leon_duel_rival::PLAYER_POSES[player_index].position;
-            let previous_player_position =
-                leon_duel_rival::PLAYER_POSES[previous_player_index].position;
-            game.update_leon_projectiles(retail_frame, player_position, previous_player_position)
-                .unwrap();
+            let player_collision_pose = collision_pose(leon_duel_rival::PLAYER_POSES[player_index]);
+            let previous_player_collision_pose =
+                collision_pose(leon_duel_rival::PLAYER_POSES[previous_player_index]);
+            game.update_leon_projectiles(
+                retail_frame,
+                player_collision_pose,
+                previous_player_collision_pose,
+            )
+            .unwrap();
 
             let expected_active = leon_duel_projectiles::ORACLE_TRACKS
                 .iter()
@@ -29831,6 +29865,11 @@ mod tests {
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
                 assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
                 assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+                let descriptor = leon_duel_projectiles::descriptor(track_index).unwrap();
+                assert_eq!(
+                    !projectile.base.flags.collision_disabled, descriptor.collision_enabled,
+                    "Leon projectile collision eligibility for track {track_index}"
+                );
                 assert!(matches!(
                     projectile.extension.activity,
                     ObjectActivity::HostileProjectileFlight(_)
@@ -29843,11 +29882,70 @@ mod tests {
         let player_index = usize::from(cleanup_frame / leon_duel_rival::RETAIL_FRAME_STEP);
         game.update_leon_projectiles(
             cleanup_frame,
-            leon_duel_rival::PLAYER_POSES[player_index].position,
-            leon_duel_rival::PLAYER_POSES[player_index - 1].position,
+            collision_pose(leon_duel_rival::PLAYER_POSES[player_index]),
+            collision_pose(leon_duel_rival::PLAYER_POSES[player_index - 1]),
         )
         .unwrap();
         assert!(game.leon_projectiles.is_empty());
+    }
+
+    #[test]
+    fn leon_projectile_natural_contact_matches_the_oracle() {
+        const ORACLE_PLAYER_SHIELD: u8 = 40;
+
+        let [(hit_retail_frame, hit_track_index, damage)] = leon_duel_projectiles::NATURAL_HITS;
+        let collision_pose = |pose: MissionEncounterPose| ObjectCollisionPose {
+            position: pose.position,
+            pitch: Angle::from_units(pose.pitch),
+            yaw: Angle::from_units(pose.yaw),
+            roll: Angle::from_units(pose.roll),
+        };
+        let mut game = Game::new();
+        let mut player = Object::new(
+            ObjectKind::Player,
+            ShapeId::FOX_FALCO_FLIGHT_CRAFT,
+            Behavior::PlayerFlight,
+        );
+        player.base.hit_points = ORACLE_PLAYER_SHIELD;
+        player.base.collision_class = CollisionClass::Player;
+        player.base.flags.collision_disabled = false;
+        let player_id = game.state.objects.allocate(player).unwrap();
+        game.state.mission.primary_player = Some(player_id);
+
+        for retail_frame in
+            (0..=hit_retail_frame).step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            let player_index = usize::from(retail_frame / leon_duel_rival::RETAIL_FRAME_STEP);
+            let previous_player_index = player_index.saturating_sub(1);
+            let player_pose = leon_duel_rival::PLAYER_POSES[player_index];
+            let previous_player_pose = leon_duel_rival::PLAYER_POSES[previous_player_index];
+            if let Some(player) = game.state.objects.get_mut(player_id) {
+                player.base.position = player_pose.position;
+                player.base.pitch = Angle::from_units(player_pose.pitch);
+                player.base.yaw = Angle::from_units(player_pose.yaw);
+                player.base.roll = Angle::from_units(player_pose.roll);
+            }
+            game.update_leon_projectiles(
+                retail_frame,
+                collision_pose(player_pose),
+                collision_pose(previous_player_pose),
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            game.state.objects.get(player_id).unwrap().base.hit_points,
+            ORACLE_PLAYER_SHIELD - damage
+        );
+        let projectile = game
+            .leon_projectiles
+            .iter()
+            .find(|projectile| projectile.track_index == hit_track_index)
+            .and_then(|projectile| game.state.objects.get(projectile.object))
+            .expect("oracle-contact Leon projectile remains allocated");
+        assert!(projectile.base.flags.collided);
+        assert!(projectile.base.flags.collision_disabled);
+        assert_eq!(projectile.base.attack_power, 0);
     }
 
     #[test]

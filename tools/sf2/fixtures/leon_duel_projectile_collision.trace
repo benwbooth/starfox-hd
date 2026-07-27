@@ -1,0 +1,19 @@
+# Semantic collision eligibility for the six chronological extended Leon-duel lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose source SHA-256: 7e02041d035bc8731d1cf52b35f44b5afc32bdc16fc58a052effa5863befd402
+# Logic source SHA-256: 9a4fe73d90bf8254bdbdfa57d2df0d098753b359443808c5ff460301383da601
+# Augmented aligned replay SHA-256: d9a3a2a9dd51a18cc22a7ba13f3838a9fb5deae711593dba486170736b15061b
+# Augmented logic oracle SHA-256: f962ed1b2ac04774141f99fe88bcd3c27de178503cfd0fc8f943d8d8406a7404
+# Collision oracle SHA-256: 686a020e4d390d0be58fcd48e20f73ba1331a7ccc2bbea02bccaeca914aa3ab1
+# Natural-contact oracle SHA-256: 7cdfbde4183861cba5095ac8e750e02b370e22bf6eae5f138f2acc343320e56f
+# Every retained semantic action and every direct collision-list sample for each
+# track exposed the same source flag value.
+track=0 collision_enabled=true
+track=1 collision_enabled=true
+track=2 collision_enabled=false
+track=3 collision_enabled=false
+track=4 collision_enabled=true
+track=5 collision_enabled=true
+natural_hit elapsed=64130 collision_retail_frame=808 player_retail_frame=808 track=0 source_object=04F8 craft_class=FoxFalco damage=2 player_pose=1765,0,1658 projectile_pose=1738,77,1606 retained_projectile_pose=1738,77,1606 source=06:9707

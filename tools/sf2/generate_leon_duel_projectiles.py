@@ -12,7 +12,13 @@ from generate_second_sortie_projectiles import (
     format_rust,
     generate_dynamics,
     import_raw_logic,
+    read_natural_hits,
     read_pose_fixture,
+)
+from projectile_static import (
+    read_collision_eligibility,
+    validate_static_collision_gate,
+    validate_static_hostile_projectile_path,
 )
 
 
@@ -22,6 +28,9 @@ DEFAULT_LOGIC_FIXTURE = (
 )
 DEFAULT_POSE_FIXTURE = (
     Path(__file__).with_name("fixtures") / "leon_duel_extended.trace"
+)
+DEFAULT_COLLISION_FIXTURE = (
+    Path(__file__).with_name("fixtures") / "leon_duel_projectile_collision.trace"
 )
 DEFAULT_OUTPUT = (
     REPO_ROOT
@@ -40,15 +49,43 @@ MISSION_SELECTION = "7"
 HOSTILE_PROJECTILE_SHAPES = frozenset(("E3A8",))
 
 
-def append_test_oracle(source: str, pose_fixture: Path) -> str:
+def append_test_oracle(
+    source: str,
+    pose_fixture: Path,
+    collision_fixture: Path,
+) -> str:
     """Embed retained poses only for exhaustive native-runtime verification."""
-    _, lifetimes = read_pose_fixture(pose_fixture, EXPECTED_PROJECTILE_LIFETIMES)
+    records, lifetimes = read_pose_fixture(
+        pose_fixture, EXPECTED_PROJECTILE_LIFETIMES
+    )
+    natural_hits = read_natural_hits(
+        collision_fixture,
+        records,
+        lifetimes,
+        RAW_SAMPLE_START_ELAPSED,
+        "Leon-duel",
+    )
     lines = [
         source,
         "#[cfg(test)]",
-        "use super::{mission_projectile_keyframe, MissionProjectileKeyframe};",
-        "",
+        f"pub(super) const NATURAL_HITS: "
+        f"[(u16, usize, u8); {len(natural_hits)}] = [",
     ]
+    for hit in natural_hits:
+        lines.append(
+            "    "
+            f"({int(hit['collision_retail_frame']):_}, {int(hit['track'])}, "
+            f"{int(hit['damage'])}),"
+        )
+    lines.extend(
+        [
+            "];",
+            "",
+            "#[cfg(test)]",
+            "use super::{mission_projectile_keyframe, MissionProjectileKeyframe};",
+            "",
+        ]
+    )
     for index, lifetime in enumerate(lifetimes):
         lines.append(
             f"#[cfg(test)] static ORACLE_TRACK_{index}: "
@@ -137,12 +174,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
     parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
+    parser.add_argument(
+        "--collision-fixture", type=Path, default=DEFAULT_COLLISION_FIXTURE
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--import-raw-pose", type=Path)
     parser.add_argument("--import-raw-logic", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
+    validate_static_hostile_projectile_path()
+    validate_static_collision_gate()
     if args.import_raw_pose is not None:
         import_raw_poses(args.import_raw_pose, args.pose_fixture)
     if args.import_raw_logic is not None:
@@ -160,8 +202,18 @@ def main() -> None:
         RAW_SAMPLE_START_ELAPSED,
         "the extended retail Leon duel",
         allow_split_contractions=True,
+        collision_eligibility=read_collision_eligibility(
+            args.collision_fixture,
+            EXPECTED_PROJECTILE_LIFETIMES,
+            "Leon-duel",
+        ),
+        emit_action_player_targets=True,
     )
-    source = append_test_oracle(source, args.pose_fixture)
+    source = append_test_oracle(
+        source,
+        args.pose_fixture,
+        args.collision_fixture,
+    )
     if args.check:
         if not args.output.exists() or args.output.read_text(encoding="utf-8") != source:
             raise SystemExit(f"generated Leon projectile dynamics are stale: {args.output}")
