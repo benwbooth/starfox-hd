@@ -13,6 +13,7 @@ pub(super) struct HostileProjectileDescriptor {
     pub start_retail_frame: u16,
     pub end_retail_frame: u16,
     pub initial_pose: MissionEncounterPose,
+    pub collision_enabled: bool,
     tick_offset: u16,
     tick_count: u8,
 }
@@ -28,6 +29,7 @@ static DESCRIPTORS: [HostileProjectileDescriptor; 5] = [
         start_retail_frame: 1_160,
         end_retail_frame: 1_296,
         initial_pose: mission_encounter_pose([3_509, 76, 5_237, 30, 100, 0, 63]),
+        collision_enabled: false,
         tick_offset: 0,
         tick_count: 34,
     },
@@ -35,6 +37,7 @@ static DESCRIPTORS: [HostileProjectileDescriptor; 5] = [
         start_retail_frame: 1_240,
         end_retail_frame: 1_400,
         initial_pose: mission_encounter_pose([8_449, 2_294, 4_944, 5, 81, 0, 63]),
+        collision_enabled: false,
         tick_offset: 34,
         tick_count: 40,
     },
@@ -42,6 +45,7 @@ static DESCRIPTORS: [HostileProjectileDescriptor; 5] = [
         start_retail_frame: 1_316,
         end_retail_frame: 1_440,
         initial_pose: mission_encounter_pose([3_883, 1_000, 3_729, 23, 85, 0, 63]),
+        collision_enabled: false,
         tick_offset: 74,
         tick_count: 31,
     },
@@ -49,6 +53,7 @@ static DESCRIPTORS: [HostileProjectileDescriptor; 5] = [
         start_retail_frame: 1_680,
         end_retail_frame: 1_844,
         initial_pose: mission_encounter_pose([6_069, -172, 5_546, 20, 84, 0, 63]),
+        collision_enabled: true,
         tick_offset: 105,
         tick_count: 41,
     },
@@ -56,6 +61,7 @@ static DESCRIPTORS: [HostileProjectileDescriptor; 5] = [
         start_retail_frame: 1_756,
         end_retail_frame: 1_892,
         initial_pose: mission_encounter_pose([2_210, 532, 4_392, 25, 88, 0, 63]),
+        collision_enabled: false,
         tick_offset: 146,
         tick_count: 34,
     },
@@ -655,6 +661,11 @@ pub(super) fn actions(track_index: usize, retail_frame: u16) -> &'static [Hostil
     let start = usize::from(range.start);
     &ACTIONS[start..start + usize::from(range.len)]
 }
+
+#[cfg(test)]
+pub(super) const NATURAL_HIT_RETAIL_FRAME: u16 = 1_768;
+#[cfg(test)]
+pub(super) const NATURAL_HIT_TRACK_INDEX: usize = 3;
 
 #[cfg(test)]
 use super::{

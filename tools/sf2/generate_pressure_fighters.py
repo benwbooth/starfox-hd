@@ -341,7 +341,6 @@ def rust_source(
     records: list[Record],
     neutral_trace_name: str,
     neutral_records: list[NeutralRecord],
-    neutral_last_retail_frame: int,
     return_frame: int,
     map_ready_frame: int,
 ) -> str:
@@ -429,9 +428,6 @@ def rust_source(
         f"pub(super) const ENTRY_LAST_RETAIL_FRAME: u16 = {ENTRY_LAST_RETAIL_FRAME};",
         f"pub(super) const LIVE_FIRST_RETAIL_FRAME: u16 = {LIVE_FIRST_RETAIL_FRAME};",
         f"pub(super) const LIVE_LAST_RETAIL_FRAME: u16 = {LIVE_LAST_RETAIL_FRAME};",
-        "#[cfg(test)]",
-        "pub(super) const FIRST_NATURAL_HIT_RETAIL_FRAME: u16 = "
-        f"{neutral_last_retail_frame + RETAIL_FRAME_STEP};",
         f"const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         "",
         "pub(super) const PLAYER_HANDOFF_POSITION: Vector3 = Vector3 {",
@@ -575,7 +571,7 @@ def main() -> None:
 
     traces = (args.trace, *args.continuation_trace)
     records, return_frame, map_ready_frame = load(traces)
-    neutral_records, neutral_last_retail_frame = load_neutral(args.neutral_trace)
+    neutral_records, _ = load_neutral(args.neutral_trace)
     if args.compact_output is not None:
         write_compact(traces, args.compact_output, records, return_frame, map_ready_frame)
     generated = rust_source(
@@ -583,7 +579,6 @@ def main() -> None:
         records,
         args.neutral_trace.name,
         neutral_records,
-        neutral_last_retail_frame,
         return_frame,
         map_ready_frame,
     )

@@ -44,6 +44,10 @@ player_damage_oracle = {
   trace = os.getenv("SF2_ORACLE_TRACE_PLAYER_DAMAGE") == "1",
   collision_pairs =
     os.getenv("SF2_ORACLE_TRACE_PLAYER_COLLISION_PAIRS") == "1",
+  minimum_collision_elapsed = tonumber(
+    os.getenv("SF2_ORACLE_PLAYER_COLLISION_START_ELAPSED")) or 7580,
+  maximum_collision_elapsed = tonumber(
+    os.getenv("SF2_ORACLE_PLAYER_COLLISION_STOP_ELAPSED")) or 7700,
   probe = os.getenv("SF2_ORACLE_PROBE_PLAYER_DAMAGE") == "1",
   maximum_hits = tonumber(os.getenv("SF2_ORACLE_FORCE_HOSTILE_HITS")) or 1,
   impact_offset_x = tonumber(
@@ -63,8 +67,20 @@ player_damage_oracle = {
 projectile_collision_oracle = {
   enabled =
     os.getenv("SF2_ORACLE_TRACE_PROJECTILE_COLLISION_ELIGIBILITY") == "1",
+  minimum_elapsed = tonumber(
+    os.getenv("SF2_ORACLE_PROJECTILE_COLLISION_START_ELAPSED")) or 6400,
+  maximum_elapsed = tonumber(
+    os.getenv("SF2_ORACLE_PROJECTILE_COLLISION_STOP_ELAPSED")) or 14500,
   lines = {},
 }
+assert(
+  player_damage_oracle.minimum_collision_elapsed
+    <= player_damage_oracle.maximum_collision_elapsed,
+  "player collision trace range must be ordered")
+assert(
+  projectile_collision_oracle.minimum_elapsed
+    <= projectile_collision_oracle.maximum_elapsed,
+  "projectile collision trace range must be ordered")
 assert(
   player_damage_oracle.maximum_hits >= 1,
   "SF2_ORACLE_FORCE_HOSTILE_HITS must be positive")
@@ -857,7 +873,10 @@ function player_damage_oracle.record_collision_pair(stage)
   if not player_damage_oracle.trace or not armed then return end
   if work_byte(0x1B68) ~= 1 then return end
   local elapsed = frame - armed_frame
-  if elapsed < 7580 or elapsed > 7700 then return end
+  if elapsed < player_damage_oracle.minimum_collision_elapsed
+    or elapsed > player_damage_oracle.maximum_collision_elapsed then
+    return
+  end
   local player = work_word(0x12C3)
   local current_object = work_word(0x007D)
   local current_list = work_word(0x007F)
@@ -923,7 +942,10 @@ function player_damage_oracle.record_collision_list_object(stage)
   if not player_damage_oracle.trace or not armed then return end
   if work_byte(0x1B68) ~= 1 then return end
   local elapsed = frame - armed_frame
-  if elapsed < 7650 or elapsed > 7700 then return end
+  if elapsed < player_damage_oracle.minimum_collision_elapsed
+    or elapsed > player_damage_oracle.maximum_collision_elapsed then
+    return
+  end
   local object = (emu.getState()["cpu.x"] or 0) & 0xFFFF
   local shape = object ~= 0 and work_word(object + 4) or 0
   if shape ~= 0xC24C and shape ~= 0xE3A8 then return end
@@ -951,7 +973,9 @@ end
 function projectile_collision_oracle.capture()
   if not projectile_collision_oracle.enabled or not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 6400 or elapsed > 14500 or work_byte(0x1B68) ~= 1 then
+  if elapsed < projectile_collision_oracle.minimum_elapsed
+    or elapsed > projectile_collision_oracle.maximum_elapsed
+    or work_byte(0x1B68) ~= 1 then
     return
   end
   local object = work_word(0x12A8)

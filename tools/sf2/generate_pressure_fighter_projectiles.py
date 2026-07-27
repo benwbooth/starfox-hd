@@ -13,6 +13,11 @@ import argparse
 import hashlib
 from pathlib import Path
 
+from generate_first_sortie_projectiles import (
+    read_collision_eligibility,
+    validate_static_collision_gate,
+    validate_static_hostile_projectile_path,
+)
 from generate_second_sortie_projectiles import (
     format_rust,
     generate_dynamics,
@@ -27,6 +32,9 @@ DEFAULT_LOGIC_FIXTURE = (
     FIXTURE_DIRECTORY / "pressure_fighter_projectile_logic.trace"
 )
 DEFAULT_POSE_FIXTURE = FIXTURE_DIRECTORY / "pressure_fighter_projectiles.trace"
+DEFAULT_COLLISION_FIXTURE = (
+    FIXTURE_DIRECTORY / "pressure_fighter_projectile_collision.trace"
+)
 DEFAULT_OUTPUT = (
     REPO_ROOT
     / "rust"
@@ -110,13 +118,89 @@ def import_raw_poses(source: Path, output: Path) -> None:
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def append_test_oracle(source: str, pose_fixture: Path) -> str:
+def read_natural_hit(
+    collision_fixture: Path,
+    records: list,
+    lifetimes: list,
+) -> dict[str, str]:
+    hits = [
+        fields(line)
+        for line in collision_fixture.read_text(encoding="utf-8").splitlines()
+        if line.startswith("natural_hit ")
+    ]
+    if len(hits) != 1:
+        raise SystemExit(
+            "recurring-attacker collision fixture must retain one natural hit"
+        )
+    hit = hits[0]
+    expected_fields = {
+        "retail_frame",
+        "track",
+        "craft_class",
+        "damage",
+        "player_pose",
+        "projectile_pose",
+        "source",
+    }
+    if set(hit) != expected_fields:
+        raise SystemExit(
+            "recurring-attacker natural hit fields changed: "
+            f"expected {sorted(expected_fields)}, found {sorted(hit)}"
+        )
+    retail_frame = int(hit["retail_frame"])
+    track_index = int(hit["track"])
+    if hit["craft_class"] != "PeppySlippy":
+        raise SystemExit("recurring-attacker natural hit craft class changed")
+    if int(hit["damage"]) != 2:
+        raise SystemExit("recurring-attacker natural hit damage changed")
+    if hit["source"] != "06:9707":
+        raise SystemExit("recurring-attacker natural hit dispatch source changed")
+    if not 0 <= track_index < len(lifetimes):
+        raise SystemExit("recurring-attacker natural hit track is out of range")
+    projectile_pose = tuple(map(int, hit["projectile_pose"].split(",")))
+    if not any(
+        frame == retail_frame and pose[:3] == projectile_pose
+        for frame, pose in lifetimes[track_index].samples
+    ):
+        raise SystemExit(
+            "recurring-attacker natural hit projectile pose is absent from its track"
+        )
+    player_pose = tuple(map(int, hit["player_pose"].split(",")))
+    previous_player = next(
+        (
+            record.player[:3]
+            for record in records
+            if record.retail_frame == retail_frame - RETAIL_FRAME_STEP
+        ),
+        None,
+    )
+    if previous_player != player_pose:
+        raise SystemExit(
+            "recurring-attacker natural hit player pose does not match "
+            "the preceding cooperative-update boundary"
+        )
+    return hit
+
+
+def append_test_oracle(
+    source: str,
+    pose_fixture: Path,
+    collision_fixture: Path,
+) -> str:
     records, lifetimes = read_pose_fixture(
         pose_fixture,
         EXPECTED_PROJECTILE_LIFETIMES,
     )
+    natural_hit = read_natural_hit(collision_fixture, records, lifetimes)
     lines = [
         source,
+        "#[cfg(test)]",
+        "pub(super) const NATURAL_HIT_RETAIL_FRAME: u16 = "
+        f"{int(natural_hit['retail_frame']):_};",
+        "#[cfg(test)]",
+        "pub(super) const NATURAL_HIT_TRACK_INDEX: usize = "
+        f"{int(natural_hit['track'])};",
+        "",
         "#[cfg(test)]",
         "use super::{",
         "    mission_player_keyframe, mission_projectile_keyframe,",
@@ -166,12 +250,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
     parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
+    parser.add_argument(
+        "--collision-fixture", type=Path, default=DEFAULT_COLLISION_FIXTURE
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--import-raw-pose", type=Path)
     parser.add_argument("--import-raw-logic", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
+    validate_static_hostile_projectile_path()
+    validate_static_collision_gate()
     if args.import_raw_pose is not None:
         import_raw_poses(args.import_raw_pose, args.pose_fixture)
     if args.import_raw_logic is not None:
@@ -195,8 +284,13 @@ def main() -> None:
         EXPECTED_PROJECTILE_LIFETIMES,
         RAW_SAMPLE_START_ELAPSED,
         "the recurring-attacker sortie",
+        collision_eligibility=read_collision_eligibility(
+            args.collision_fixture,
+            EXPECTED_PROJECTILE_LIFETIMES,
+            "recurring-attacker",
+        ),
     )
-    source = append_test_oracle(source, args.pose_fixture)
+    source = append_test_oracle(source, args.pose_fixture, args.collision_fixture)
     if args.check:
         if not args.output.exists() or args.output.read_text(encoding="utf-8") != source:
             raise SystemExit(

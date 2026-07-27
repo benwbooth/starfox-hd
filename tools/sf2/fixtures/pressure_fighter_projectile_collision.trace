@@ -1,0 +1,13 @@
+# Semantic collision eligibility for the five chronological recurring-attacker lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose source SHA-256: e3f19c2be3acf26df58c13b261ad35fb3ccd2b802016e1c6750deb7202fa01ac
+# Collision oracle SHA-256: b7f50b687bde7d9b5605ed9f6cbbb207c4c847581434718fe155b5526986ae94
+# Natural-contact oracle SHA-256: d2630d576a77ba3903600f2b5262b35ce9fb1449a00bdb40f9907bac2d31722a
+track=0 collision_enabled=false
+track=1 collision_enabled=false
+track=2 collision_enabled=false
+track=3 collision_enabled=true
+track=4 collision_enabled=false
+natural_hit retail_frame=1768 track=3 craft_class=PeppySlippy damage=2 player_pose=-2500,3177,1328 projectile_pose=-2428,3208,1339 source=06:9707

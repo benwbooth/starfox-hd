@@ -173,7 +173,7 @@ def import_raw_poses(source: Path, output: Path) -> None:
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def validate_static_projectile_path() -> None:
+def validate_static_hostile_projectile_path() -> None:
     """Require the reviewed retail bytecode behind the semantic action model."""
     extractor = PathExtractor(Path(DEFAULT_ROM).read_bytes())
     semantic_names = {spec.opcode: spec.rust_name for spec in PATH_SEMANTICS}
@@ -195,7 +195,7 @@ def validate_static_projectile_path() -> None:
         actual = (semantic_names.get(command.opcode), command.raw_hex)
         if actual != (semantic_name, raw_hex):
             raise SystemExit(
-                f"opening projectile path changed at {address:04X}: "
+                f"hostile projectile path changed at {address:04X}: "
                 f"expected {(semantic_name, raw_hex)}, found {actual}"
             )
 
@@ -209,7 +209,7 @@ def validate_static_collision_gate() -> None:
     actual_gate = rom[gate_offset : gate_offset + len(expected_gate)]
     if actual_gate != expected_gate:
         raise SystemExit(
-            "opening projectile collision-list gate changed at 7F:32CE: "
+            "hostile projectile collision-list gate changed at 7F:32CE: "
             f"expected {expected_gate.hex()}, found {actual_gate.hex()}"
         )
 
@@ -231,7 +231,11 @@ def validate_static_collision_gate() -> None:
         raise SystemExit("reference collision-disable strategy flag changed")
 
 
-def read_collision_eligibility(path: Path) -> list[bool]:
+def read_collision_eligibility(
+    path: Path,
+    expected_count: int,
+    encounter_description: str,
+) -> list[bool]:
     """Read one semantic collision decision per chronological projectile."""
     eligibility = []
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -241,19 +245,19 @@ def read_collision_eligibility(path: Path) -> list[bool]:
         expected_track = len(eligibility)
         if int(values["track"]) != expected_track:
             raise SystemExit(
-                "opening projectile collision fixture is not sequential: "
+                f"{encounter_description} projectile collision fixture is not sequential: "
                 f"expected track {expected_track}, found {values['track']}"
             )
         enabled = values.get("collision_enabled")
         if enabled not in ("true", "false"):
             raise SystemExit(
-                f"opening projectile track {expected_track} has invalid "
+                f"{encounter_description} projectile track {expected_track} has invalid "
                 f"collision_enabled={enabled}"
             )
         eligibility.append(enabled == "true")
-    if len(eligibility) != EXPECTED_PROJECTILE_LIFETIMES:
+    if len(eligibility) != expected_count:
         raise SystemExit(
-            f"expected {EXPECTED_PROJECTILE_LIFETIMES} collision entries, "
+            f"expected {expected_count} {encounter_description} collision entries, "
             f"found {len(eligibility)}"
         )
     return eligibility
@@ -321,7 +325,7 @@ def main() -> None:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    validate_static_projectile_path()
+    validate_static_hostile_projectile_path()
     validate_static_collision_gate()
     if args.import_raw_pose is not None:
         import_raw_poses(args.import_raw_pose, args.pose_fixture)
@@ -350,7 +354,11 @@ def main() -> None:
         allow_split_contractions=True,
         firing_actors=FIRING_ACTORS,
         maximum_continuous_position_step=MAXIMUM_CONTINUOUS_POSITION_STEP,
-        collision_eligibility=read_collision_eligibility(args.collision_fixture),
+        collision_eligibility=read_collision_eligibility(
+            args.collision_fixture,
+            EXPECTED_PROJECTILE_LIFETIMES,
+            "opening-sortie",
+        ),
     )
     source = append_test_oracle(source, args.pose_fixture)
     if args.check:

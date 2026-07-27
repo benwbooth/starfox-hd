@@ -8022,11 +8022,31 @@ impl Game {
             | MissionPhase::ReturningToStrategicMap => {}
         }
 
+        let player_before_flight = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| {
+                self.state
+                    .objects
+                    .get(id)
+                    .map(|player| (id, player.clone()))
+            })
+            .map(|(id, player)| {
+                (
+                    id,
+                    player,
+                    self.state.mission.player_flight,
+                    self.state.mission.flight_follow_camera,
+                    self.state.camera,
+                )
+            });
+        self.mission_player_collision_pose = player_before_flight
+            .as_ref()
+            .map(|(_, player, _, _, _)| object_collision_pose(player));
+        let weapons_enabled = self.state.mission.phase == MissionPhase::Active;
         if retail_frame >= pressure_fighters::LIVE_FIRST_RETAIL_FRAME {
-            self.update_pressure_fighter_flight(
-                retail_frame,
-                self.state.mission.phase == MissionPhase::Active,
-            )?;
+            self.update_pressure_fighter_flight(retail_frame, weapons_enabled)?;
         } else {
             self.update_pressure_fighter_presentation(retail_frame);
         }
@@ -8035,7 +8055,7 @@ impl Game {
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get(id))
-            .map(|object| object.base.position);
+            .map(|object| add_vectors(object.base.position, object.base.velocity));
         let previous_player_position = current_player_position
             .map(|current| self.previous_mission_player_position.unwrap_or(current));
         if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
@@ -8051,6 +8071,35 @@ impl Game {
                 Vector3::default(),
                 Vector3::default(),
             );
+        }
+        if weapons_enabled {
+            if let Some((projectile_id, player_id, damage)) =
+                self.find_hostile_projectile_impact(self.mission_player_collision_pose)
+            {
+                if let Some((
+                    snapshot_player_id,
+                    player,
+                    player_flight,
+                    flight_follow_camera,
+                    camera,
+                )) = player_before_flight
+                {
+                    debug_assert_eq!(snapshot_player_id, player_id);
+                    if let Some(current_player) = self.state.objects.get_mut(player_id) {
+                        *current_player = player;
+                    }
+                    self.state.mission.player_flight = player_flight;
+                    self.state.mission.flight_follow_camera = flight_follow_camera;
+                    self.state.camera = camera;
+                }
+                self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
+                if matches!(
+                    self.state.mission.player_damage,
+                    PlayerDamageState::Recovering { .. }
+                ) {
+                    self.update_pressure_fighter_flight(retail_frame, weapons_enabled)?;
+                }
+            }
         }
         Ok(())
     }
@@ -17808,6 +17857,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !descriptor.collision_enabled;
                 projectile.base.position = descriptor.initial_pose.position;
                 projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
                 projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
@@ -19182,44 +19232,46 @@ impl Game {
         }
     }
 
-    fn resolve_hostile_projectile_collisions(&mut self) {
+    fn find_hostile_projectile_impact(
+        &self,
+        player_collision_pose: Option<ObjectCollisionPose>,
+    ) -> Option<(ObjectId, ObjectId, u8)> {
         if self.state.mission.player_damage != PlayerDamageState::Ready {
-            return;
+            return None;
         }
-        let Some(player_id) = self.state.mission.primary_player else {
-            return;
-        };
-        let player_collision_pose = if self.state.mission.visit == MissionVisit::OpeningEngagement {
-            self.mission_player_collision_pose
-        } else {
-            None
-        };
-        let hostile_projectiles: Vec<_> = self
-            .state
+        let player_id = self.state.mission.primary_player?;
+        let player = self.state.objects.get(player_id)?;
+        let player_collision_pose =
+            player_collision_pose.unwrap_or_else(|| object_collision_pose(player));
+        self.state
             .objects
             .active_objects()
-            .filter_map(|(id, object)| {
-                (object.base.collision_class == CollisionClass::EnemyWeapon
-                    && !object.base.flags.collision_disabled
-                    && !object.base.flags.remove_after_tick)
-                    .then_some(id)
+            .find_map(|(projectile_id, projectile)| {
+                (projectile.base.collision_class == CollisionClass::EnemyWeapon
+                    && !projectile.base.flags.collision_disabled
+                    && !projectile.base.flags.remove_after_tick)
+                    .then(|| {
+                        hostile_projectile_hits_player_at_pose(
+                            projectile,
+                            player,
+                            player_collision_pose,
+                        )
+                        .then_some((
+                            projectile_id,
+                            player_id,
+                            projectile.base.attack_power,
+                        ))
+                    })
+                    .flatten()
             })
-            .collect();
+    }
 
-        let impact = hostile_projectiles.into_iter().find_map(|projectile_id| {
-            let player = self.state.objects.get(player_id)?;
-            let projectile = self.state.objects.get(projectile_id)?;
-            hostile_projectile_hits_player_at_pose(
-                projectile,
-                player,
-                player_collision_pose.unwrap_or_else(|| object_collision_pose(player)),
-            )
-            .then_some((projectile_id, projectile.base.attack_power))
-        });
-        let Some((projectile_id, damage)) = impact else {
-            return;
-        };
-
+    fn apply_hostile_projectile_impact(
+        &mut self,
+        projectile_id: ObjectId,
+        player_id: ObjectId,
+        damage: u8,
+    ) {
         if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
             projectile.base.flags.collided = true;
             projectile.base.flags.collision_disabled = true;
@@ -19230,6 +19282,22 @@ impl Game {
             damage,
             player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
         );
+    }
+
+    fn resolve_hostile_projectile_collisions(&mut self) {
+        let player_collision_pose = matches!(
+            self.state.mission.visit,
+            MissionVisit::OpeningEngagement | MissionVisit::RecurringAttackers
+        )
+        .then_some(self.mission_player_collision_pose)
+        .flatten();
+        let Some((projectile_id, player_id, damage)) =
+            self.find_hostile_projectile_impact(player_collision_pose)
+        else {
+            return;
+        };
+
+        self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
         if self.state.mission.visit == MissionVisit::OpeningEngagement {
             let retail_frame = self
                 .state
@@ -29451,6 +29519,11 @@ mod tests {
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
                 assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
                 assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+                let descriptor = pressure_fighter_projectiles::descriptor(track_index).unwrap();
+                assert_eq!(
+                    !projectile.base.flags.collision_disabled, descriptor.collision_enabled,
+                    "recurring-attacker projectile collision eligibility for track {track_index}"
+                );
                 assert!(matches!(
                     projectile.extension.activity,
                     ObjectActivity::HostileProjectileFlight(_)
@@ -33026,6 +33099,7 @@ mod tests {
     #[test]
     fn recurring_attacker_player_camera_and_natural_hit_match_every_oracle_boundary() {
         let mut game = Game::new();
+        game.state.roster.selected = [Some(Pilot::Peppy), Some(Pilot::Fox)];
         game.begin_opening_sortie().unwrap();
         game.begin_pressure_fighter_encounter().unwrap();
         let primary_id = game
@@ -33033,27 +33107,45 @@ mod tests {
             .mission
             .primary_player
             .expect("the recurring-attacker encounter has a primary player");
+        let initial_hit_points = game.state.objects.get(primary_id).unwrap().base.hit_points;
+        let expected_hit_points =
+            initial_hit_points - player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
 
         let oracle_frames: Vec<_> = pressure_fighter_neutral_oracle_frames().collect();
         assert_eq!(oracle_frames.len(), 505);
+        game.state.frame = 1;
         for expected in oracle_frames {
-            if expected.retail_frame <= pressure_fighters::ENTRY_LAST_RETAIL_FRAME {
-                game.update_pressure_fighter_presentation(expected.retail_frame);
-            } else {
-                if expected.retail_frame == pressure_fighters::FIRST_NATURAL_HIT_RETAIL_FRAME {
-                    game.state.frame = 1;
-                    game.apply_player_damage(
-                        primary_id,
-                        player_damage::HOSTILE_PROJECTILE_ATTACK_POWER,
-                        player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
-                    );
-                }
-                game.update_pressure_fighter_flight(expected.retail_frame, false)
-                    .unwrap();
-                game.update_objects();
+            game.state.mode_frame =
+                u32::from(expected.retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            game.update_pressure_fighter_encounter().unwrap();
+            if expected.retail_frame == pressure_fighter_projectiles::NATURAL_HIT_RETAIL_FRAME {
+                let impact = game
+                    .pressure_fighter_projectiles
+                    .iter()
+                    .find(|projectile| {
+                        projectile.track_index
+                            == pressure_fighter_projectiles::NATURAL_HIT_TRACK_INDEX
+                    })
+                    .and_then(|projectile| game.state.objects.get(projectile.object))
+                    .expect("the natural-hit projectile remains present at impact");
+                assert!(impact.base.flags.collided);
+                assert!(impact.base.flags.collision_disabled);
+                assert_eq!(impact.base.attack_power, 0);
             }
+            game.update_objects();
 
             let player = game.state.objects.get(primary_id).unwrap();
+            let expected_health =
+                if expected.retail_frame < pressure_fighter_projectiles::NATURAL_HIT_RETAIL_FRAME {
+                    initial_hit_points
+                } else {
+                    expected_hit_points
+                };
+            assert_eq!(
+                player.base.hit_points, expected_health,
+                "natural projectile damage at retail frame {}",
+                expected.retail_frame
+            );
             assert_eq!(
                 [
                     player.base.position.x,
@@ -33082,6 +33174,47 @@ mod tests {
                 expected.retail_frame
             );
         }
+    }
+
+    #[test]
+    fn recurring_attacker_natural_laser_respects_the_pilot_collision_profile() {
+        let mut game = Game::new();
+        game.state.roster.selected = [Some(Pilot::Fox), Some(Pilot::Falco)];
+        game.begin_opening_sortie().unwrap();
+        game.begin_pressure_fighter_encounter().unwrap();
+        let primary_id = game
+            .state
+            .mission
+            .primary_player
+            .expect("the recurring-attacker encounter has a primary player");
+        let initial_hit_points = game.state.objects.get(primary_id).unwrap().base.hit_points;
+
+        for retail_frame in (0..=pressure_fighter_projectiles::NATURAL_HIT_RETAIL_FRAME)
+            .step_by(RETAIL_PRESENTATION_FRAMES_PER_TICK as usize)
+        {
+            game.state.mode_frame =
+                u32::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
+            game.update_pressure_fighter_encounter().unwrap();
+            game.update_objects();
+        }
+
+        let player = game.state.objects.get(primary_id).unwrap();
+        assert_eq!(player.base.shape, ShapeId::FOX_FALCO_FLIGHT_CRAFT);
+        assert_eq!(player.base.hit_points, initial_hit_points);
+        assert_eq!(game.state.mission.player_damage, PlayerDamageState::Ready);
+        let passing_laser = game
+            .pressure_fighter_projectiles
+            .iter()
+            .find(|projectile| {
+                projectile.track_index == pressure_fighter_projectiles::NATURAL_HIT_TRACK_INDEX
+            })
+            .and_then(|projectile| game.state.objects.get(projectile.object))
+            .expect("the oracle laser remains present after passing the smaller craft");
+        assert!(!passing_laser.base.flags.collision_disabled);
+        assert_eq!(
+            passing_laser.base.attack_power,
+            player_damage::HOSTILE_PROJECTILE_ATTACK_POWER
+        );
     }
 
     #[test]
