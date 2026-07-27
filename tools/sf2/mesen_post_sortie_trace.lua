@@ -1137,6 +1137,7 @@ function player_flight_oracle.record(stage)
   if object == 0 then return end
   local slot = work_word(object + 0x2B)
   local helper = work_word(0x12C5)
+  local path_selected = work_word(0x1DFF)
   local function flight_field(address)
     return (address + slot) & 0xFFFF
   end
@@ -1144,7 +1145,8 @@ function player_flight_oracle.record(stage)
     "elapsed=%d stage=%s executing=%04X object=%04X slot=%04X pose=%s " ..
       "pitch=%d,%d yaw=%d,%d,%d,%d bank=%d,%d,%d,%d,%d,%d " ..
       "motion=%d,%d,%d speed=%d input=%d,%d " ..
-      "camera=%s helper=%s anchor=%d,%d,%d " ..
+      "camera=%s helper=%s path_selected=%04X path_selected_pose=%s " ..
+      "anchor=%d,%d,%d " ..
       "view=%d,%d,%d offset=%d,%d " ..
       "camera_effect=%02X:%04X camera_timer=%d focus=%04X " ..
       "camera_translation=%d,%d,%d camera_target=%d,%d,%d " ..
@@ -1189,6 +1191,8 @@ function player_flight_oracle.record(stage)
     signed_word(0x1E38),
     player_flight_oracle.pose(0x033F),
     helper ~= 0 and player_flight_oracle.pose(helper) or "-",
+    path_selected,
+    path_selected ~= 0 and player_flight_oracle.pose(path_selected) or "-",
     signed_word(flight_field(0x6AC1)),
     signed_word(flight_field(0x6AC3)),
     signed_word(flight_field(0x6AC5)),
@@ -4637,6 +4641,9 @@ if sortie_actor_oracle.enabled
 end
 if player_flight_oracle.enabled then
   for stage, address in pairs({
+    player_scripted_entry = 0x0684A2,
+    player_live_control = 0x069C27,
+    path_camera_aim = 0x7FBE38,
     camera_control_input = 0x0784EC,
     camera_control_after_state = 0x07850A,
     camera_control_after_horizontal = 0x07850D,
