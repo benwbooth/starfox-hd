@@ -2,23 +2,48 @@
 //!
 //! Source: `first_sortie_neutral.trace`.
 //! Mission timer source: `first_sortie_timer.trace`.
+//! Player dynamics source: `first_sortie_player_dynamics.trace`.
+//! Shipping player motion advances typed state from the recovered
+//! control/movement cadence; the complete player poses are test-only.
 //! Regenerate or verify with `uv run python tools/sf2/generate_opening_continuation.py [--check]`.
 
 #[cfg(test)]
 use super::{
-    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,
-    mission_actor_keyframe, MissionActorKeyframe,
+    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,
+    MissionActorKeyframe,
 };
 use super::{
-    mission_camera_keyframe,
-    mission_encounter_keyframe, mission_player_keyframe,
-    mission_timer_keyframe, MissionCameraKeyframe, MissionEncounterKeyframe,
-    MissionPlayerKeyframe, MissionTimerKeyframe,
+    mission_camera_keyframe, mission_encounter_keyframe, mission_timer_keyframe,
+    MissionCameraKeyframe, MissionEncounterKeyframe, MissionTimerKeyframe,
 };
+#[cfg(test)]
+use super::{mission_player_keyframe, MissionPlayerKeyframe};
+use super::{Angle, Vector3};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PlayerFlightCadence {
+    pub control_updates: u8,
+    pub movement_updates: u8,
+}
 
 pub(super) const PLAYER_CERTIFIED_END_RETAIL_FRAME: u16 = 8052;
 #[cfg(test)]
 pub(super) const ENCOUNTER_CERTIFIED_END_RETAIL_FRAME: u16 = 2448;
+
+const RETAIL_FRAME_STEP: u16 = 4;
+const PLAYER_LIVE_FIRST_RETAIL_FRAME: u16 = 900;
+const PLAYER_LIVE_LAST_RETAIL_FRAME: u16 = 8052;
+pub(super) const PLAYER_HANDOFF_POSITION: Vector3 = Vector3 {
+    x: -5_477,
+    y: -2_881,
+    z: -3_653,
+};
+pub(super) const PLAYER_HANDOFF_PITCH: Angle = Angle::from_units(0);
+pub(super) const PLAYER_HANDOFF_YAW: Angle = Angle::from_units(227);
+pub(super) const PLAYER_HANDOFF_BANK: Angle = Angle::from_units(2);
+pub(super) const PLAYER_HANDOFF_SPEED: u8 = 30;
+pub(super) const PLAYER_HANDOFF_AMBIENT_BANK_PHASE: u8 = 12;
+pub(super) const PLAYER_NEUTRAL_TARGET_SPEED: u8 = 30;
 
 pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 1789] = [
     mission_camera_keyframe(900, -5_477, -2_900, -3_653, 0, 0, 0),
@@ -1812,6 +1837,7 @@ pub(super) const CAMERA_KEYFRAMES: [MissionCameraKeyframe; 1789] = [
     mission_camera_keyframe(8052, 31_515, -2_931, -25_440, 26, 220, 0),
 ];
 
+#[cfg(test)]
 pub(super) const PLAYER_KEYFRAMES: [MissionPlayerKeyframe; 1789] = [
     mission_player_keyframe(900, -5_477, -2_881, -3_653, 0, 227, 2, 30),
     mission_player_keyframe(904, -5_459, -2_881, -3_632, 0, 227, 2, 30),
@@ -3603,6 +3629,100 @@ pub(super) const PLAYER_KEYFRAMES: [MissionPlayerKeyframe; 1789] = [
     mission_player_keyframe(8048, 31_801, -2_881, -25_698, 0, 227, 2, 30),
     mission_player_keyframe(8052, 31_819, -2_881, -25_677, 0, 227, 1, 30),
 ];
+
+const PLAYER_SKIPPED_CONTROL_RETAIL_FRAMES: [u16; 48] = [
+    900, 916, 944, 968, 996, 1028, 1044, 1064, 1088, 1108, 1132, 1148, 1184, 1188, 1204, 1228,
+    1252, 1276, 1336, 1360, 1400, 1440, 1480, 1528, 1584, 1636, 1724, 1808, 1888, 1908, 1928, 1952,
+    1972, 2032, 2096, 2172, 2196, 2228, 2268, 2316, 2344, 2448, 2488, 2620, 2648, 2836, 3136, 3260,
+];
+
+const PLAYER_DOUBLE_CONTROL_RETAIL_FRAMES: [u16; 331] = [
+    2324, 2644, 2788, 2828, 2840, 2864, 2884, 2912, 2932, 2968, 2996, 3256, 3300, 3384, 3412, 3436,
+    3460, 3480, 3500, 3520, 3540, 3564, 3580, 3600, 3620, 3640, 3660, 3672, 3684, 3692, 3708, 3728,
+    3744, 3816, 3860, 3888, 3912, 3928, 3948, 3960, 3972, 3984, 3996, 4008, 4016, 4028, 4040, 4052,
+    4064, 4076, 4088, 4100, 4112, 4124, 4136, 4148, 4160, 4172, 4184, 4200, 4220, 4236, 4268, 4288,
+    4308, 4320, 4336, 4348, 4360, 4368, 4380, 4392, 4404, 4416, 4428, 4440, 4452, 4464, 4476, 4488,
+    4500, 4512, 4524, 4536, 4548, 4560, 4572, 4584, 4596, 4608, 4620, 4632, 4644, 4656, 4672, 4688,
+    4700, 4728, 4748, 4772, 4796, 4816, 4836, 4856, 4872, 4884, 4900, 4912, 4924, 4936, 4948, 4960,
+    4972, 4988, 5004, 5020, 5040, 5056, 5072, 5088, 5104, 5120, 5144, 5160, 5176, 5200, 5220, 5248,
+    5268, 5284, 5304, 5320, 5332, 5344, 5360, 5368, 5380, 5392, 5404, 5416, 5428, 5440, 5452, 5464,
+    5476, 5488, 5500, 5512, 5524, 5536, 5548, 5560, 5572, 5584, 5596, 5616, 5632, 5648, 5676, 5708,
+    5724, 5748, 5760, 5776, 5788, 5800, 5812, 5824, 5836, 5848, 5860, 5872, 5884, 5896, 5908, 5920,
+    5932, 5944, 5956, 5972, 5988, 6000, 6012, 6028, 6040, 6052, 6064, 6088, 6108, 6128, 6140, 6152,
+    6164, 6176, 6188, 6208, 6228, 6248, 6268, 6288, 6308, 6328, 6348, 6364, 6376, 6384, 6396, 6408,
+    6420, 6432, 6444, 6456, 6468, 6480, 6496, 6512, 6524, 6548, 6576, 6628, 6664, 6680, 6700, 6724,
+    6736, 6744, 6756, 6768, 6784, 6796, 6808, 6820, 6832, 6844, 6852, 6864, 6876, 6888, 6900, 6912,
+    6924, 6936, 6948, 6960, 6972, 6984, 6996, 7008, 7020, 7032, 7044, 7056, 7068, 7080, 7092, 7104,
+    7116, 7128, 7140, 7152, 7164, 7176, 7188, 7200, 7212, 7224, 7236, 7248, 7260, 7272, 7284, 7296,
+    7308, 7320, 7332, 7344, 7356, 7368, 7384, 7392, 7412, 7428, 7444, 7460, 7480, 7496, 7512, 7532,
+    7548, 7560, 7568, 7580, 7592, 7604, 7616, 7628, 7640, 7652, 7664, 7676, 7688, 7700, 7712, 7724,
+    7736, 7748, 7760, 7772, 7784, 7796, 7808, 7820, 7832, 7844, 7852, 7868, 7876, 7888, 7900, 7912,
+    7924, 7936, 7948, 7960, 7972, 7984, 7996, 8008, 8020, 8032, 8044,
+];
+
+const PLAYER_SKIPPED_MOVEMENT_RETAIL_FRAMES: [u16; 47] = [
+    900, 916, 940, 968, 996, 1028, 1044, 1064, 1088, 1108, 1132, 1148, 1184, 1188, 1204, 1228,
+    1252, 1276, 1336, 1360, 1396, 1436, 1480, 1528, 1584, 1636, 1724, 1808, 1888, 1908, 1928, 1952,
+    1972, 2032, 2096, 2172, 2196, 2228, 2268, 2316, 2344, 2448, 2488, 2616, 2648, 2836, 3136,
+];
+
+const PLAYER_DOUBLE_MOVEMENT_RETAIL_FRAMES: [u16; 330] = [
+    2324, 2644, 2792, 2828, 2840, 2864, 2888, 2912, 2932, 2968, 2996, 3300, 3384, 3412, 3436, 3460,
+    3480, 3500, 3520, 3540, 3564, 3584, 3600, 3620, 3640, 3660, 3672, 3684, 3692, 3708, 3728, 3744,
+    3816, 3860, 3888, 3912, 3928, 3948, 3960, 3972, 3984, 3996, 4008, 4016, 4028, 4040, 4052, 4064,
+    4076, 4088, 4100, 4112, 4124, 4136, 4148, 4160, 4172, 4184, 4204, 4220, 4236, 4268, 4288, 4308,
+    4320, 4336, 4348, 4360, 4368, 4380, 4392, 4404, 4416, 4428, 4440, 4452, 4464, 4476, 4488, 4500,
+    4512, 4524, 4536, 4548, 4560, 4572, 4584, 4596, 4608, 4620, 4632, 4644, 4656, 4672, 4688, 4700,
+    4728, 4748, 4772, 4796, 4816, 4836, 4856, 4872, 4884, 4900, 4912, 4924, 4936, 4948, 4960, 4976,
+    4988, 5004, 5020, 5040, 5056, 5072, 5088, 5104, 5120, 5144, 5160, 5176, 5200, 5220, 5248, 5268,
+    5284, 5304, 5320, 5332, 5348, 5360, 5368, 5380, 5392, 5404, 5416, 5428, 5440, 5452, 5464, 5476,
+    5488, 5500, 5512, 5524, 5536, 5548, 5560, 5572, 5584, 5596, 5616, 5632, 5648, 5676, 5708, 5724,
+    5748, 5760, 5776, 5788, 5800, 5812, 5824, 5836, 5848, 5860, 5872, 5884, 5896, 5908, 5920, 5932,
+    5944, 5960, 5972, 5988, 6000, 6012, 6028, 6040, 6052, 6064, 6088, 6108, 6128, 6140, 6152, 6168,
+    6176, 6188, 6208, 6228, 6248, 6268, 6288, 6308, 6328, 6348, 6364, 6376, 6384, 6396, 6408, 6420,
+    6432, 6444, 6456, 6468, 6480, 6496, 6512, 6524, 6548, 6576, 6628, 6664, 6680, 6700, 6724, 6736,
+    6744, 6756, 6772, 6784, 6796, 6808, 6820, 6832, 6844, 6852, 6864, 6876, 6888, 6900, 6912, 6924,
+    6936, 6948, 6960, 6972, 6984, 6996, 7008, 7020, 7032, 7044, 7056, 7068, 7080, 7092, 7104, 7116,
+    7128, 7140, 7152, 7164, 7176, 7188, 7200, 7212, 7224, 7236, 7248, 7260, 7272, 7284, 7296, 7308,
+    7320, 7332, 7344, 7356, 7368, 7384, 7392, 7412, 7428, 7444, 7464, 7480, 7496, 7512, 7532, 7548,
+    7560, 7568, 7580, 7592, 7604, 7616, 7628, 7640, 7652, 7664, 7676, 7688, 7700, 7712, 7724, 7736,
+    7748, 7760, 7772, 7784, 7796, 7808, 7820, 7832, 7844, 7852, 7868, 7876, 7888, 7900, 7912, 7924,
+    7936, 7948, 7960, 7972, 7984, 7996, 8008, 8020, 8032, 8044,
+];
+
+pub(super) const NATURAL_HIT_RETAIL_FRAMES: [u16; 4] = [1208, 2508, 6660, 6720];
+const NATURAL_HIT_BANK_IMPULSE: i8 = 30;
+
+pub(super) fn player_damage_bank_impulse(retail_frame: u16) -> Option<i8> {
+    NATURAL_HIT_RETAIL_FRAMES
+        .contains(&retail_frame)
+        .then_some(NATURAL_HIT_BANK_IMPULSE)
+}
+
+pub(super) fn player_flight_cadence(retail_frame: u16) -> Option<PlayerFlightCadence> {
+    let offset = retail_frame.checked_sub(PLAYER_LIVE_FIRST_RETAIL_FRAME)?;
+    if retail_frame > PLAYER_LIVE_LAST_RETAIL_FRAME || offset % RETAIL_FRAME_STEP != 0 {
+        return None;
+    }
+    let control_updates = if PLAYER_SKIPPED_CONTROL_RETAIL_FRAMES.contains(&retail_frame) {
+        0
+    } else if PLAYER_DOUBLE_CONTROL_RETAIL_FRAMES.contains(&retail_frame) {
+        2
+    } else {
+        1
+    };
+    let movement_updates = if PLAYER_SKIPPED_MOVEMENT_RETAIL_FRAMES.contains(&retail_frame) {
+        0
+    } else if PLAYER_DOUBLE_MOVEMENT_RETAIL_FRAMES.contains(&retail_frame) {
+        2
+    } else {
+        1
+    };
+    Some(PlayerFlightCadence {
+        control_updates,
+        movement_updates,
+    })
+}
 
 pub(super) const MISSION_TIMER_KEYFRAMES: [MissionTimerKeyframe; 89] = [
     mission_timer_keyframe(328, 0),

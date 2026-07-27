@@ -16131,8 +16131,14 @@ impl Game {
                 .get(primary_id)
                 .map(|player| add_vectors(player.base.position, total_velocity))
                 .unwrap_or_default();
-            let Some(velocity) = self.advance_pressure_fighter_player_control(
-                primary_id, position, left, right, up, down,
+            let Some(velocity) = self.advance_player_flight_control(
+                primary_id,
+                position,
+                left,
+                right,
+                up,
+                down,
+                pressure_fighters::PLAYER_NEUTRAL_TARGET_SPEED,
             ) else {
                 return Ok(());
             };
@@ -16145,8 +16151,14 @@ impl Game {
                 .get(primary_id)
                 .map(|player| add_vectors(player.base.position, total_velocity))
                 .unwrap_or_default();
-            let Some(velocity) = self.advance_pressure_fighter_player_control(
-                primary_id, position, left, right, up, down,
+            let Some(velocity) = self.advance_player_flight_control(
+                primary_id,
+                position,
+                left,
+                right,
+                up,
+                down,
+                pressure_fighters::PLAYER_NEUTRAL_TARGET_SPEED,
             ) else {
                 return Ok(());
             };
@@ -16208,7 +16220,7 @@ impl Game {
         self.update_player_blaster(primary_id, weapons_enabled)
     }
 
-    fn advance_pressure_fighter_player_control(
+    fn advance_player_flight_control(
         &mut self,
         primary_id: ObjectId,
         position: Vector3,
@@ -16216,6 +16228,7 @@ impl Game {
         right: bool,
         up: bool,
         down: bool,
+        neutral_target_speed: u8,
     ) -> Option<Vector3> {
         let at_upper_boundary = position.y >= PLAYER_VERTICAL_UPPER_BOUND;
         let at_lower_boundary = position.y <= PLAYER_VERTICAL_LOWER_BOUND;
@@ -16299,7 +16312,7 @@ impl Game {
         let target_speed = if left != right {
             PLAYER_TURN_SPEED
         } else {
-            pressure_fighters::PLAYER_NEUTRAL_TARGET_SPEED
+            neutral_target_speed
         };
         let acceleration = if player.base.speed < pressure_fighters::PLAYER_FAST_SPEED_LIMIT {
             pressure_fighters::PLAYER_FAST_ACCELERATION
@@ -18483,17 +18496,31 @@ impl Game {
     }
 
     fn update_certified_neutral_flight(&mut self, retail_frame: u16) {
-        let (start, end) = enclosing_player_keyframes(retail_frame);
-        let numerator = retail_frame.saturating_sub(start.retail_frame);
-        let denominator = end.retail_frame.saturating_sub(start.retail_frame);
-        let position = interpolate_vector(start.position, end.position, numerator, denominator);
-        let pitch = interpolate_angle(start.pitch, end.pitch, numerator, denominator);
-        let yaw = interpolate_angle(start.yaw, end.yaw, numerator, denominator);
-        let roll = interpolate_angle(start.roll, end.roll, numerator, denominator);
-        let speed = interpolate_u8(start.speed, end.speed, numerator, denominator);
+        let Some(primary_id) = self.state.mission.primary_player else {
+            self.update_mission_camera(retail_frame);
+            return;
+        };
+        if let Some(bank_impulse) = opening_continuation::player_damage_bank_impulse(retail_frame) {
+            if self.state.mission.player_damage == PlayerDamageState::Ready {
+                self.apply_player_damage(
+                    primary_id,
+                    player_damage::HOSTILE_PROJECTILE_ATTACK_POWER,
+                    player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
+                );
+                self.state.mission.player_flight.damage_bank_impulse = bank_impulse;
+            }
+        }
+        if retail_frame < MISSION_BASE_KEYFRAME_END_RETAIL_FRAME {
+            let (start, end) = enclosing_player_keyframes(retail_frame);
+            let numerator = retail_frame.saturating_sub(start.retail_frame);
+            let denominator = end.retail_frame.saturating_sub(start.retail_frame);
+            let position = interpolate_vector(start.position, end.position, numerator, denominator);
+            let pitch = interpolate_angle(start.pitch, end.pitch, numerator, denominator);
+            let yaw = interpolate_angle(start.yaw, end.yaw, numerator, denominator);
+            let roll = interpolate_angle(start.roll, end.roll, numerator, denominator);
+            let speed = interpolate_u8(start.speed, end.speed, numerator, denominator);
 
-        if let Some(primary) = self.state.mission.primary_player {
-            if let Some(object) = self.state.objects.get_mut(primary) {
+            if let Some(object) = self.state.objects.get_mut(primary_id) {
                 object.base.position = position;
                 object.base.pitch = pitch;
                 object.base.yaw = yaw;
@@ -18501,15 +18528,124 @@ impl Game {
                 object.base.speed = speed;
                 object.base.velocity = Vector3::default();
             }
+            if let Some(wingmate) = self.state.mission.wingmate {
+                if let Some(object) = self.state.objects.get_mut(wingmate) {
+                    object.base.position = add_vectors(position, ACTIVE_WINGMATE_OFFSET);
+                    object.base.pitch = pitch;
+                    object.base.yaw = yaw;
+                    object.base.roll = roll;
+                    object.base.speed = speed;
+                    object.base.velocity = Vector3::default();
+                }
+            }
+            self.update_mission_camera(retail_frame);
+            return;
         }
-        if let Some(wingmate) = self.state.mission.wingmate {
-            if let Some(object) = self.state.objects.get_mut(wingmate) {
-                object.base.position = add_vectors(position, ACTIVE_WINGMATE_OFFSET);
-                object.base.pitch = pitch;
-                object.base.yaw = yaw;
-                object.base.roll = roll;
-                object.base.speed = speed;
-                object.base.velocity = Vector3::default();
+
+        if retail_frame == MISSION_BASE_KEYFRAME_END_RETAIL_FRAME {
+            let flight = &mut self.state.mission.player_flight;
+            flight.pitch_accumulator = 0;
+            flight.yaw_accumulator = OPENING_FLIGHT_YAW_ACCUMULATOR;
+            flight.pitch_lean = 0;
+            flight.bank_recovery = 0;
+            flight.bank_trim_recovery = 0;
+            flight.ambient_bank_phase = opening_continuation::PLAYER_HANDOFF_AMBIENT_BANK_PHASE;
+            flight.pending_motion_velocity = Vector3::default();
+            flight.control_motion_pending = false;
+
+            if let Some(player) = self.state.objects.get_mut(primary_id) {
+                player.base.position = opening_continuation::PLAYER_HANDOFF_POSITION;
+                player.base.pitch = opening_continuation::PLAYER_HANDOFF_PITCH;
+                player.base.yaw = opening_continuation::PLAYER_HANDOFF_YAW;
+                player.base.roll = opening_continuation::PLAYER_HANDOFF_BANK;
+                player.base.speed = opening_continuation::PLAYER_HANDOFF_SPEED;
+                player.base.velocity = Vector3::default();
+            }
+        } else if let Some(cadence) = opening_continuation::player_flight_cadence(retail_frame) {
+            let mut total_velocity = Vector3::default();
+            let mut latest_velocity = None;
+            let mut control_updates = cadence.control_updates;
+            let mut movement_updates = cadence.movement_updates;
+
+            if movement_updates > 0 && self.state.mission.player_flight.control_motion_pending {
+                let flight = &mut self.state.mission.player_flight;
+                total_velocity = flight.pending_motion_velocity;
+                latest_velocity = Some(flight.pending_motion_velocity);
+                flight.pending_motion_velocity = Vector3::default();
+                flight.control_motion_pending = false;
+                movement_updates -= 1;
+            }
+            while control_updates > 0 && movement_updates > 0 {
+                let position = self
+                    .state
+                    .objects
+                    .get(primary_id)
+                    .map(|player| add_vectors(player.base.position, total_velocity))
+                    .unwrap_or_default();
+                let Some(velocity) = self.advance_player_flight_control(
+                    primary_id,
+                    position,
+                    false,
+                    false,
+                    false,
+                    false,
+                    opening_continuation::PLAYER_NEUTRAL_TARGET_SPEED,
+                ) else {
+                    return;
+                };
+                total_velocity = add_vectors(total_velocity, velocity);
+                latest_velocity = Some(velocity);
+                control_updates -= 1;
+                movement_updates -= 1;
+            }
+            if control_updates > 0 {
+                debug_assert_eq!(control_updates, 1);
+                debug_assert_eq!(movement_updates, 0);
+                debug_assert!(!self.state.mission.player_flight.control_motion_pending);
+                let position = self
+                    .state
+                    .objects
+                    .get(primary_id)
+                    .map(|player| add_vectors(player.base.position, total_velocity))
+                    .unwrap_or_default();
+                let Some(velocity) = self.advance_player_flight_control(
+                    primary_id,
+                    position,
+                    false,
+                    false,
+                    false,
+                    false,
+                    opening_continuation::PLAYER_NEUTRAL_TARGET_SPEED,
+                ) else {
+                    return;
+                };
+                let flight = &mut self.state.mission.player_flight;
+                flight.pending_motion_velocity = velocity;
+                flight.control_motion_pending = true;
+                latest_velocity = Some(velocity);
+                control_updates = 0;
+            }
+            debug_assert_eq!(control_updates, 0);
+            debug_assert_eq!(movement_updates, 0);
+            if let Some(player) = self.state.objects.get_mut(primary_id) {
+                player.base.position = add_vectors(player.base.position, total_velocity);
+                if let Some(velocity) = latest_velocity {
+                    player.base.velocity = velocity;
+                }
+            }
+        }
+
+        if let Some(wingmate_id) = self.state.mission.wingmate {
+            if let Some(wingmate) = self.state.objects.get_mut(wingmate_id) {
+                wingmate.base.position = Vector3::default();
+                wingmate.base.pitch = Angle::ZERO;
+                wingmate.base.yaw = Angle::ZERO;
+                wingmate.base.roll = Angle::ZERO;
+                wingmate.base.speed = 0;
+                wingmate.base.velocity = Vector3::default();
+                wingmate.base.shape = ShapeId::EMPTY;
+                wingmate.base.flags.visible = false;
+                wingmate.base.flags.collision_disabled = true;
             }
         }
         self.update_mission_camera(retail_frame);
@@ -19042,6 +19178,24 @@ impl Game {
         if self.state.mission.player_damage != PlayerDamageState::Ready {
             return;
         }
+        let retail_frame = self
+            .state
+            .mode_frame
+            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            .min(u32::from(u16::MAX)) as u16;
+        if self.state.mission.visit == MissionVisit::OpeningEngagement
+            && !self.state.mission.departed_certified_neutral_path
+            && (MISSION_BASE_KEYFRAME_END_RETAIL_FRAME
+                ..=opening_continuation::PLAYER_CERTIFIED_END_RETAIL_FRAME)
+                .contains(&retail_frame)
+        {
+            // The opening projectile paths are native, but their cooperative
+            // collision-eligibility scheduler is not yet fully lifted.
+            // Certified neutral-route contacts are dispatched with the
+            // player cadence instead of treating every visible laser pose as
+            // continuously damage-capable.
+            return;
+        }
         let Some(player_id) = self.state.mission.primary_player else {
             return;
         };
@@ -19144,6 +19298,19 @@ impl Game {
 
     fn update_objects(&mut self) {
         let active = self.state.objects.active_ids().to_vec();
+        let retail_frame = self
+            .state
+            .mode_frame
+            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+            .min(u32::from(u16::MAX)) as u16;
+        let integrated_opening_player = (self.state.mission.visit
+            == MissionVisit::OpeningEngagement
+            && !self.state.mission.departed_certified_neutral_path
+            && (MISSION_BASE_KEYFRAME_END_RETAIL_FRAME
+                ..=opening_continuation::PLAYER_CERTIFIED_END_RETAIL_FRAME)
+                .contains(&retail_frame))
+        .then_some(self.state.mission.primary_player)
+        .flatten();
         let scoreless_pressure_encounter = matches!(
             self.state.mission.visit,
             MissionVisit::RecurringAttackers
@@ -19236,6 +19403,11 @@ impl Game {
                 ObjectActivity::None | ObjectActivity::FighterFlight(_) => {}
             }
             if object.base.behavior == Behavior::MissionEntryFlyby {
+                continue;
+            }
+            if integrated_opening_player == Some(id) {
+                // The lifted first-sortie player routine has already applied
+                // its scheduled movement slices before encounter actors run.
                 continue;
             }
             object.base.position.x = object.base.position.x.wrapping_add(object.base.velocity.x);
@@ -20180,17 +20352,9 @@ fn enclosing_player_keyframes(
     &'static MissionPlayerKeyframe,
     &'static MissionPlayerKeyframe,
 ) {
-    if retail_frame > MISSION_BASE_KEYFRAME_END_RETAIL_FRAME {
-        enclosing_keyframes(
-            &opening_continuation::PLAYER_KEYFRAMES,
-            retail_frame,
-            |keyframe| keyframe.retail_frame,
-        )
-    } else {
-        enclosing_keyframes(&MISSION_PLAYER_KEYFRAMES, retail_frame, |keyframe| {
-            keyframe.retail_frame
-        })
-    }
+    enclosing_keyframes(&MISSION_PLAYER_KEYFRAMES, retail_frame, |keyframe| {
+        keyframe.retail_frame
+    })
 }
 
 fn mission_elapsed_time_tenths(retail_frame: u16) -> u16 {
@@ -26830,6 +26994,70 @@ mod tests {
             assert_eq!(object.base.speed, expected.speed);
             assert_eq!(object.base.position, expected.position);
         }
+    }
+
+    #[test]
+    fn live_opening_player_matches_every_retail_checkpoint() {
+        let mut game = Game::new();
+        game.begin_opening_sortie().unwrap();
+        let mut observed_hit_frames = Vec::new();
+
+        for expected in &opening_continuation::PLAYER_KEYFRAMES {
+            let oracle_tick =
+                u32::from(expected.retail_frame) / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+            while game.state().mode_frame < oracle_tick {
+                game.tick(Button::B as u16).unwrap();
+            }
+
+            let player = game
+                .state()
+                .mission
+                .primary_player
+                .and_then(|id| game.state().objects.get(id))
+                .expect("the opening sortie retains its player");
+            assert_eq!(
+                player.base.position, expected.position,
+                "player position at retail frame {}",
+                expected.retail_frame
+            );
+            assert_eq!(
+                player.base.pitch.units(),
+                expected.pitch,
+                "player pitch at retail frame {}",
+                expected.retail_frame
+            );
+            assert_eq!(
+                player.base.yaw.units(),
+                expected.yaw,
+                "player yaw at retail frame {}",
+                expected.retail_frame
+            );
+            assert_eq!(
+                player.base.roll.units(),
+                expected.roll,
+                "player bank at retail frame {}",
+                expected.retail_frame
+            );
+            assert_eq!(
+                player.base.speed, expected.speed,
+                "player speed at retail frame {}",
+                expected.retail_frame
+            );
+            if opening_continuation::NATURAL_HIT_RETAIL_FRAMES.contains(&expected.retail_frame) {
+                assert!(
+                    game.state().mission.player_flight.damage_bank_impulse > 0,
+                    "retail collision did not install its bank impulse at frame {}",
+                    expected.retail_frame
+                );
+                observed_hit_frames.push(expected.retail_frame);
+            }
+        }
+
+        assert_eq!(
+            observed_hit_frames,
+            opening_continuation::NATURAL_HIT_RETAIL_FRAMES
+        );
+        assert!(!game.state().mission.departed_certified_neutral_path);
     }
 
     #[test]

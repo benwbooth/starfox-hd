@@ -450,6 +450,8 @@ sortie_actor_oracle = {
   enabled = os.getenv("SF2_ORACLE_TRACE_SORTIE_ACTOR_LOGIC") == "1",
   projectiles_enabled =
     os.getenv("SF2_ORACLE_TRACE_SORTIE_PROJECTILE_LOGIC") == "1",
+  minimum_elapsed = tonumber(
+    os.getenv("SF2_ORACLE_SORTIE_ACTOR_START_ELAPSED")) or 14900,
   lines = {},
   projectile_lines = {},
   objects = {
@@ -464,6 +466,8 @@ sortie_actor_oracle = {
 -- never these source addresses or the indexed storage layout.
 player_flight_oracle = {
   enabled = os.getenv("SF2_ORACLE_TRACE_PLAYER_FLIGHT_DYNAMICS") == "1",
+  minimum_elapsed = tonumber(
+    os.getenv("SF2_ORACLE_PLAYER_FLIGHT_START_ELAPSED")) or 0,
   lines = {},
 }
 explicit_trace_objects = {}
@@ -1552,7 +1556,8 @@ function sortie_actor_oracle.record(event)
     and not sortie_actor_oracle.projectiles_enabled then return end
   if not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  if elapsed < sortie_actor_oracle.minimum_elapsed
+    or work_byte(0x1B68) ~= 1 then return end
   local state = emu.getState()
   local object = state["cpu.x"] or 0
   local shape = work_word(object + 4)
@@ -1610,7 +1615,8 @@ end
 function sortie_actor_oracle.record_capital_state_write(source, address, value)
   if not sortie_actor_oracle.enabled or not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  if elapsed < sortie_actor_oracle.minimum_elapsed
+    or work_byte(0x1B68) ~= 1 then return end
   local object = sortie_actor_oracle.capital_for_state_address(address)
   if not object then return end
   local state = emu.getState()
@@ -1646,7 +1652,8 @@ end
 function sortie_actor_oracle.record_pitch_target_write(address, value)
   if not sortie_actor_oracle.enabled or not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  if elapsed < sortie_actor_oracle.minimum_elapsed
+    or work_byte(0x1B68) ~= 1 then return end
   local state = emu.getState()
   local object = state["cpu.x"] or 0
   if not sortie_actor_oracle.objects[object] then return end
@@ -1664,7 +1671,8 @@ end
 function sortie_actor_oracle.record_position_y_write(address, value)
   if not sortie_actor_oracle.enabled or not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  if elapsed < sortie_actor_oracle.minimum_elapsed
+    or work_byte(0x1B68) ~= 1 then return end
   local state = emu.getState()
   local object = state["cpu.x"] or 0
   if not sortie_actor_oracle.objects[object] then return end
@@ -1693,7 +1701,8 @@ end
 function sortie_actor_oracle.record_coprocessor_position_write(address, value)
   if not sortie_actor_oracle.enabled or not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  if elapsed < sortie_actor_oracle.minimum_elapsed
+    or work_byte(0x1B68) ~= 1 then return end
   local object = sortie_actor_oracle.actor_for_position_address(address)
   if not object then return end
   local state = emu.getState()
@@ -1714,17 +1723,19 @@ function sortie_actor_oracle.record_main_position_write(address, value)
   if (not sortie_actor_oracle.enabled and not player_flight_oracle.enabled)
     or not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  if work_byte(0x1B68) ~= 1 then return end
   local object = sortie_actor_oracle.actor_for_position_address(address)
   if not object then return end
   local state = emu.getState()
   if player_flight_oracle.enabled
+    and elapsed >= player_flight_oracle.minimum_elapsed
     and object == work_word(0x12C3)
     and address == object + 0x10
     and (state["cpu.pc"] or 0) == 0xEED4 then
     player_flight_oracle.capture("after-motion")
   end
-  if not sortie_actor_oracle.enabled then return end
+  if not sortie_actor_oracle.enabled
+    or elapsed < sortie_actor_oracle.minimum_elapsed then return end
   sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
     "elapsed=%d event=main-position-write object=%04X shape=%04X " ..
       "address=%04X value=%d source=%02X:%04X pose=%s",
@@ -1741,7 +1752,8 @@ end
 function sortie_actor_oracle.record_random_state_write(source, address, value)
   if not sortie_actor_oracle.enabled or not armed then return end
   local elapsed = frame - armed_frame
-  if elapsed < 14900 or work_byte(0x1B68) ~= 1 then return end
+  if elapsed < sortie_actor_oracle.minimum_elapsed
+    or work_byte(0x1B68) ~= 1 then return end
   local state = emu.getState()
   sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
     "elapsed=%d event=random-state-write source=%s address=%04X value=%d " ..
@@ -1798,12 +1810,15 @@ function sortie_actor_oracle.record_explicit_object_state_write(source)
     if not object then return end
     local state = emu.getState()
     if player_flight_oracle.enabled
+      and frame - armed_frame >= player_flight_oracle.minimum_elapsed
       and source == "main-work"
       and object == work_word(0x12C3)
       and (state["cpu.pc"] or 0) == 0xEE06 then
       player_flight_oracle.capture("after-control")
     end
-    if not sortie_actor_oracle.enabled then return end
+    if not sortie_actor_oracle.enabled
+      or frame - armed_frame < sortie_actor_oracle.minimum_elapsed
+      or work_byte(0x1B68) ~= 1 then return end
     sortie_actor_oracle.lines[#sortie_actor_oracle.lines + 1] = string.format(
       "elapsed=%d event=object-state-write object=%04X shape=%04X " ..
         "offset=%02X value=%d source=%s host=%02X:%04X coprocessor=%02X:%04X",
