@@ -8138,6 +8138,12 @@ impl Game {
             .mode_frame
             .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
             .min(u32::from(u16::MAX)) as u16;
+        self.mission_player_collision_pose = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(object_collision_pose);
         self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
 
         match self.state.mission.phase {
@@ -8171,24 +8177,28 @@ impl Game {
             self.update_leon_pressure_presentation(retail_frame);
         }
         self.update_leon_pressure_rival(retail_frame);
-        let current_player_position = self
+        let current_player_collision_pose = self
             .state
             .mission
             .primary_player
             .and_then(|id| self.state.objects.get(id))
-            .map(|object| object.base.position);
-        let previous_player_position = current_player_position
-            .map(|current| self.previous_mission_player_position.unwrap_or(current));
-        if let (Some(current), Some(previous)) = (current_player_position, previous_player_position)
-        {
+            .map(object_collision_pose);
+        let previous_player_collision_pose = current_player_collision_pose
+            .map(|current| self.mission_player_collision_pose.unwrap_or(current));
+        if let (Some(current), Some(previous)) = (
+            current_player_collision_pose,
+            previous_player_collision_pose,
+        ) {
             self.update_leon_pressure_projectiles(retail_frame, current, previous)?;
-            self.previous_mission_player_position = Some(current);
+            self.previous_mission_player_position = Some(current.position);
         } else {
-            self.update_leon_pressure_projectiles(
-                retail_frame,
-                Vector3::default(),
-                Vector3::default(),
-            )?;
+            let origin = ObjectCollisionPose {
+                position: Vector3::default(),
+                pitch: Angle::ZERO,
+                yaw: Angle::ZERO,
+                roll: Angle::ZERO,
+            };
+            self.update_leon_pressure_projectiles(retail_frame, origin, origin)?;
         }
         Ok(())
     }
@@ -18098,9 +18108,15 @@ impl Game {
     fn update_leon_pressure_projectiles(
         &mut self,
         retail_frame: u16,
-        player_position: Vector3,
-        previous_player_position: Vector3,
+        player_collision_pose: ObjectCollisionPose,
+        previous_player_collision_pose: ObjectCollisionPose,
     ) -> Result<(), Error> {
+        let collision_player = self.state.mission.primary_player.and_then(|id| {
+            self.state
+                .objects
+                .get(id)
+                .map(|player| (id, player.clone()))
+        });
         for track_index in 0..leon_pressure_projectiles::PROJECTILE_COUNT {
             let descriptor = leon_pressure_projectiles::descriptor(track_index)
                 .expect("Leon-pressure projectile descriptor exists");
@@ -18133,6 +18149,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !descriptor.collision_enabled;
                 projectile.base.position = descriptor.initial_pose.position;
                 projectile.base.pitch = Angle::from_units(descriptor.initial_pose.pitch);
                 projectile.base.yaw = Angle::from_units(descriptor.initial_pose.yaw);
@@ -18153,23 +18170,33 @@ impl Game {
                 projectile_id
             };
 
+            let mut impact = None;
             if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
                 let ObjectActivity::HostileProjectileFlight(mut flight) =
                     projectile.extension.activity
                 else {
                     continue;
                 };
-                for &action in leon_pressure_projectiles::actions(track_index, retail_frame) {
-                    apply_hostile_projectile_action(
-                        projectile,
-                        &mut flight,
-                        action,
-                        player_position,
-                        previous_player_position,
-                        previous_player_position,
-                    );
+                let actions = leon_pressure_projectiles::actions(track_index, retail_frame);
+                let action_player_targets =
+                    leon_pressure_projectiles::action_player_targets(track_index, retail_frame);
+                let damage = apply_hostile_projectile_actions_with_collision(
+                    projectile,
+                    &mut flight,
+                    actions,
+                    action_player_targets,
+                    player_collision_pose,
+                    previous_player_collision_pose,
+                    collision_player.as_ref().map(|(_, player)| player),
+                    self.state.mission.player_damage == PlayerDamageState::Ready,
+                );
+                if let (Some(damage), Some((player_id, _))) = (damage, collision_player.as_ref()) {
+                    impact = Some((projectile_id, *player_id, damage));
                 }
                 projectile.extension.activity = ObjectActivity::HostileProjectileFlight(flight);
+            }
+            if let Some((projectile_id, player_id, damage)) = impact {
+                self.apply_hostile_projectile_impact(projectile_id, player_id, damage);
             }
         }
         Ok(())
@@ -29967,14 +29994,16 @@ mod tests {
             let player_index =
                 usize::from(retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
             let previous_player_index = player_index.saturating_sub(1);
-            let player_position =
-                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index].position;
-            let previous_player_position =
-                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[previous_player_index].position;
+            let player_collision_pose = mission_player_keyframe_collision_pose(
+                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index],
+            );
+            let previous_player_collision_pose = mission_player_keyframe_collision_pose(
+                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[previous_player_index],
+            );
             game.update_leon_pressure_projectiles(
                 retail_frame,
-                player_position,
-                previous_player_position,
+                player_collision_pose,
+                previous_player_collision_pose,
             )
             .unwrap();
 
@@ -30028,6 +30057,12 @@ mod tests {
                 assert_eq!(projectile.base.behavior, Behavior::Projectile);
                 assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
                 assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+                assert_eq!(
+                    !projectile.base.flags.collision_disabled,
+                    leon_pressure_projectiles::descriptor(track_index)
+                        .expect("Leon-pressure projectile descriptor exists")
+                        .collision_enabled,
+                );
                 assert!(matches!(
                     projectile.extension.activity,
                     ObjectActivity::HostileProjectileFlight(_)
@@ -30040,8 +30075,12 @@ mod tests {
         let player_index = usize::from(cleanup_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK as u16);
         game.update_leon_pressure_projectiles(
             cleanup_frame,
-            leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index].position,
-            leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index - 1].position,
+            mission_player_keyframe_collision_pose(
+                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index],
+            ),
+            mission_player_keyframe_collision_pose(
+                leon_pressure_projectiles::ORACLE_PLAYER_KEYFRAMES[player_index - 1],
+            ),
         )
         .unwrap();
         assert!(game.leon_pressure_projectiles.is_empty());

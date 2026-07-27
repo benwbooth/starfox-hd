@@ -1,0 +1,17 @@
+# Semantic collision eligibility for the five chronological Leon-pressure lasers.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Pose fixture SHA-256: 5d688cf4640cbe8fe8b9ac0cb1f192db29f14f541edde22685037c6a1dc82631
+# Logic fixture SHA-256: a3afee39bdb061f336f843061e3261b9c121904290c22d1fff82d07875d5d669
+# Historical raw pose oracle SHA-256: a7b9451968a7fde50620caff182589ff1ba7b719bf513872615a973aabad5407
+# Historical raw logic oracle SHA-256: 7d3cd1804e55447f0456eb359eba8a96b87a039073e53812223f5a46ade49bd4
+# Passive collision oracle SHA-256: 19c2bbe9dc3f38980acca022cdc64051ec0135a769837e1c5755ac2ecb6d1a4d
+# Adding the passive collision probe left both historical raw oracle files byte-equal.
+# Every direct per-frame sample within each chronological lifetime exposed the same
+# source flag value: 113, 97, 137, 137, and 125 samples respectively.
+track=0 collision_enabled=false
+track=1 collision_enabled=false
+track=2 collision_enabled=false
+track=3 collision_enabled=false
+track=4 collision_enabled=true

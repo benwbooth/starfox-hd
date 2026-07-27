@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from projectile_static import validate_static_hostile_projectile_path
 from generate_second_sortie_projectiles import (
     format_rust,
     generate_dynamics,
     import_raw_logic,
     read_pose_fixture,
+)
+from projectile_static import (
+    read_collision_eligibility,
+    validate_static_collision_gate,
+    validate_static_hostile_projectile_path,
 )
 
 
@@ -19,6 +23,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_DIRECTORY = Path(__file__).with_name("fixtures")
 DEFAULT_LOGIC_FIXTURE = FIXTURE_DIRECTORY / "leon_pressure_projectile_logic.trace"
 DEFAULT_POSE_FIXTURE = FIXTURE_DIRECTORY / "leon_pressure.trace"
+DEFAULT_COLLISION_FIXTURE = (
+    FIXTURE_DIRECTORY / "leon_pressure_projectile_collision.trace"
+)
 DEFAULT_OUTPUT = (
     REPO_ROOT
     / "rust"
@@ -84,12 +91,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
     parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
+    parser.add_argument(
+        "--collision-fixture", type=Path, default=DEFAULT_COLLISION_FIXTURE
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--import-raw-logic", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
     validate_static_hostile_projectile_path()
+    validate_static_collision_gate()
     if args.import_raw_logic is not None:
         import_raw_logic(
             args.import_raw_logic,
@@ -105,6 +116,12 @@ def main() -> None:
         RAW_SAMPLE_START_ELAPSED,
         "the retail Leon pressure encounter",
         allow_split_contractions=True,
+        collision_eligibility=read_collision_eligibility(
+            args.collision_fixture,
+            EXPECTED_PROJECTILE_LIFETIMES,
+            "Leon-pressure",
+        ),
+        emit_action_player_targets=True,
     )
     source = append_test_oracle(source, args.pose_fixture)
     if args.check:
