@@ -26,6 +26,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_DIRECTORY = Path(__file__).with_name("fixtures")
 DEFAULT_LOGIC_FIXTURE = FIXTURE_DIRECTORY / "first_sortie_projectile_logic.trace"
 DEFAULT_POSE_FIXTURE = FIXTURE_DIRECTORY / "first_sortie_projectiles.trace"
+DEFAULT_COLLISION_FIXTURE = (
+    FIXTURE_DIRECTORY / "first_sortie_projectile_collision.trace"
+)
 DEFAULT_OUTPUT = (
     REPO_ROOT
     / "rust"
@@ -40,6 +43,7 @@ sys.path.insert(0, str(DISASM_DIRECTORY))
 
 from extract_map import DEFAULT_ROM  # noqa: E402
 from extract_path import PathAddress, PathExtractor  # noqa: E402
+from dump_runtime_routine import source_offset  # noqa: E402
 from path_semantics import PATH_SEMANTICS  # noqa: E402
 
 
@@ -196,6 +200,65 @@ def validate_static_projectile_path() -> None:
             )
 
 
+def validate_static_collision_gate() -> None:
+    """Require the retail gate and source-level meaning behind eligibility."""
+    rom = Path(DEFAULT_ROM).read_bytes()
+    gate_address = 0x7F32CE
+    expected_gate = bytes.fromhex("B5 21 29 01 00 D0 60")
+    gate_offset = source_offset(gate_address)
+    actual_gate = rom[gate_offset : gate_offset + len(expected_gate)]
+    if actual_gate != expected_gate:
+        raise SystemExit(
+            "opening projectile collision-list gate changed at 7F:32CE: "
+            f"expected {expected_gate.hex()}, found {actual_gate.hex()}"
+        )
+
+    path_source = (
+        REPO_ROOT / "reference" / "ultrastarfox" / "SF" / "PATH" / "PATHS.ASM"
+    ).read_text(encoding="latin-1")
+    strategy_flags = (
+        REPO_ROOT / "reference" / "ultrastarfox" / "SF" / "INC" / "STRATEQU.INC"
+    ).read_text(encoding="latin-1")
+    required_path_source = (
+        ".collisionson SHORTA",
+        "s_clr_alsflag\tx,colldisable",
+        ".collisionsoff SHORTA",
+        "s_set_alsflag\tx,colldisable",
+    )
+    if any(text not in path_source for text in required_path_source):
+        raise SystemExit("reference collision enable/disable path semantics changed")
+    if "make_sflag\tcolldisable" not in strategy_flags:
+        raise SystemExit("reference collision-disable strategy flag changed")
+
+
+def read_collision_eligibility(path: Path) -> list[bool]:
+    """Read one semantic collision decision per chronological projectile."""
+    eligibility = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("track="):
+            continue
+        values = fields(line)
+        expected_track = len(eligibility)
+        if int(values["track"]) != expected_track:
+            raise SystemExit(
+                "opening projectile collision fixture is not sequential: "
+                f"expected track {expected_track}, found {values['track']}"
+            )
+        enabled = values.get("collision_enabled")
+        if enabled not in ("true", "false"):
+            raise SystemExit(
+                f"opening projectile track {expected_track} has invalid "
+                f"collision_enabled={enabled}"
+            )
+        eligibility.append(enabled == "true")
+    if len(eligibility) != EXPECTED_PROJECTILE_LIFETIMES:
+        raise SystemExit(
+            f"expected {EXPECTED_PROJECTILE_LIFETIMES} collision entries, "
+            f"found {len(eligibility)}"
+        )
+    return eligibility
+
+
 def append_test_oracle(source: str, pose_fixture: Path) -> str:
     """Embed retained poses only for exhaustive native-runtime verification."""
     records, lifetimes = read_pose_fixture(
@@ -249,6 +312,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--logic-fixture", type=Path, default=DEFAULT_LOGIC_FIXTURE)
     parser.add_argument("--pose-fixture", type=Path, default=DEFAULT_POSE_FIXTURE)
+    parser.add_argument(
+        "--collision-fixture", type=Path, default=DEFAULT_COLLISION_FIXTURE
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--import-raw-pose", type=Path)
     parser.add_argument("--import-raw-logic", type=Path)
@@ -256,6 +322,7 @@ def main() -> None:
     args = parser.parse_args()
 
     validate_static_projectile_path()
+    validate_static_collision_gate()
     if args.import_raw_pose is not None:
         import_raw_poses(args.import_raw_pose, args.pose_fixture)
     if args.import_raw_logic is not None:
@@ -283,6 +350,7 @@ def main() -> None:
         allow_split_contractions=True,
         firing_actors=FIRING_ACTORS,
         maximum_continuous_position_step=MAXIMUM_CONTINUOUS_POSITION_STEP,
+        collision_eligibility=read_collision_eligibility(args.collision_fixture),
     )
     source = append_test_oracle(source, args.pose_fixture)
     if args.check:

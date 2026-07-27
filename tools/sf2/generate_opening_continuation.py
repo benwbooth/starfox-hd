@@ -440,15 +440,6 @@ def rust_source(
     natural_hit_frames = [
         entry.retail_frame for entry in cadence if entry.damage_bank_impulse != 0
     ]
-    natural_hit_impulses = {
-        entry.damage_bank_impulse
-        for entry in cadence
-        if entry.damage_bank_impulse != 0
-    }
-    if len(natural_hit_impulses) != 1:
-        raise SystemExit("opening player contacts do not share one recovered bank impulse")
-    natural_hit_impulse = natural_hit_impulses.pop()
-
     def frame_array(name: str, frames: list[int]) -> None:
         lines.append(f"const {name}: [u16; {len(frames)}] = [")
         for start in range(0, len(frames), 16):
@@ -465,16 +456,9 @@ def rust_source(
     frame_array("PLAYER_DOUBLE_MOVEMENT_RETAIL_FRAMES", double_movement_frames)
     lines.extend(
         [
+            "#[cfg(test)]",
             f"pub(super) const NATURAL_HIT_RETAIL_FRAMES: [u16; {len(natural_hit_frames)}] = "
             f"[{', '.join(map(str, natural_hit_frames))}];",
-            "const NATURAL_HIT_BANK_IMPULSE: i8 = "
-            f"{natural_hit_impulse};",
-            "",
-            "pub(super) fn player_damage_bank_impulse(retail_frame: u16) -> Option<i8> {",
-            "    NATURAL_HIT_RETAIL_FRAMES",
-            "        .contains(&retail_frame)",
-            "        .then_some(NATURAL_HIT_BANK_IMPULSE)",
-            "}",
             "",
             "pub(super) fn player_flight_cadence(retail_frame: u16) "
             "-> Option<PlayerFlightCadence> {",

@@ -4,7 +4,11 @@
     "bank_recovery": "06:9195",
     "proportional_approach": "7F:27B5",
     "camera_recoil": "07:9AAB",
-    "camera_pitch_composition": "07:968B"
+    "camera_pitch_composition": "07:968B",
+    "collision_list_builder": "STRAT/STRATROU.ASM:generate_collist_l",
+    "compound_collision": "ASM/COLDET.ASM:chkcoll",
+    "collision_box_layout": "INC/SHMACS.INC:colbox",
+    "collision_recovery": "INC/STRATEQU.INC:framesperAP"
   },
   "hostile_projectile_attack_power": 2,
   "player_hit_bank_impulse": 30,
@@ -15,8 +19,51 @@
   "eladard_defender_contact_damage": 4,
   "eladard_defender_first_damage_retail_frame": 40207,
   "eladard_defender_second_damage_retail_frame": 40263,
-  "hostile_projectile_player_offset_min": [-76, -49, -75],
-  "hostile_projectile_player_offset_max": [58, 117, 53],
+  "hostile_projectile_collision_scale": 2,
+  "hostile_projectile_collision_boxes": [
+    {
+      "center_offset": [0, 0, 0],
+      "extents": [40, 40, 40]
+    },
+    {
+      "center_offset": [0, 0, -20],
+      "extents": [40, 40, 40]
+    },
+    {
+      "center_offset": [0, 0, -40],
+      "extents": [40, 40, 40]
+    }
+  ],
+  "fox_falco_flight_collision_scale": 0,
+  "fox_falco_flight_collision_boxes": [
+    {
+      "center_offset": [0, 0, 0],
+      "extents": [10, 10, 10]
+    },
+    {
+      "center_offset": [-25, 10, -15],
+      "extents": [10, 10, 10]
+    },
+    {
+      "center_offset": [25, 10, -15],
+      "extents": [10, 10, 10]
+    }
+  ],
+  "miyu_fay_flight_collision_scale": 0,
+  "miyu_fay_flight_collision_boxes": [
+    {
+      "center_offset": [0, 0, 0],
+      "extents": [15, 10, 15]
+    },
+    {
+      "center_offset": [-20, -5, -10],
+      "extents": [10, 10, 10]
+    },
+    {
+      "center_offset": [20, -5, -10],
+      "extents": [10, 10, 10]
+    }
+  ],
   "shield_before_first_hit": 1,
   "shield_after_first_hit": 0,
   "first_damage_retail_frame": 7477,

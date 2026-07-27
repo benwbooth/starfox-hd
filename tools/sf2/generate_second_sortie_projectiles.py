@@ -525,10 +525,18 @@ def rust_source(
     schedules: list[list[tuple[int, list[ScheduledAction]]]],
     encounter_description: str = "the first retail re-engagement",
     firing_actors: list[str] | None = None,
+    collision_eligibility: list[bool] | None = None,
 ) -> str:
     if firing_actors is not None and len(firing_actors) != len(lifetimes):
         raise SystemExit(
             f"expected {len(lifetimes)} firing actors, found {len(firing_actors)}"
+        )
+    if collision_eligibility is not None and len(collision_eligibility) != len(
+        lifetimes
+    ):
+        raise SystemExit(
+            f"expected {len(lifetimes)} collision eligibility entries, "
+            f"found {len(collision_eligibility)}"
         )
     flattened_actions = []
     tick_ranges = []
@@ -547,6 +555,11 @@ def rust_source(
                 len(schedule),
                 lifetime.samples[0][1],
                 None if firing_actors is None else firing_actors[track_index],
+                (
+                    None
+                    if collision_eligibility is None
+                    else collision_eligibility[track_index]
+                ),
             )
         )
 
@@ -575,6 +588,8 @@ def rust_source(
     ]
     if firing_actors is not None:
         lines.append("    pub firing_actor: MissionEncounterActor,")
+    if collision_eligibility is not None:
+        lines.append("    pub collision_enabled: bool,")
     lines.extend(
         [
         "    tick_offset: u16,",
@@ -590,7 +605,15 @@ def rust_source(
         f"static DESCRIPTORS: [HostileProjectileDescriptor; {len(descriptors)}] = [",
         ]
     )
-    for start, end, tick_offset, tick_count, pose, firing_actor in descriptors:
+    for (
+        start,
+        end,
+        tick_offset,
+        tick_count,
+        pose,
+        firing_actor,
+        collision_enabled,
+    ) in descriptors:
         lines.extend(
             [
                 "    HostileProjectileDescriptor {",
@@ -601,6 +624,8 @@ def rust_source(
         )
         if firing_actor is not None:
             lines.append(f"        firing_actor: MissionEncounterActor::{firing_actor},")
+        if collision_enabled is not None:
+            lines.append(f"        collision_enabled: {str(collision_enabled).lower()},")
         lines.extend(
             [
                 f"        tick_offset: {tick_offset},",
@@ -666,6 +691,7 @@ def generate_dynamics(
     allow_split_contractions: bool = False,
     firing_actors: list[str] | None = None,
     maximum_continuous_position_step: int | None = None,
+    collision_eligibility: list[bool] | None = None,
 ) -> tuple[str, int]:
     records, lifetimes = read_pose_fixture(
         pose_fixture,
@@ -701,6 +727,7 @@ def generate_dynamics(
             typed_schedules,
             encounter_description,
             firing_actors,
+            collision_eligibility,
         ),
         sum(len(lifetime.samples) for lifetime in lifetimes),
     )

@@ -42,6 +42,8 @@ meteor_switch_oracle = {
 player_damage_oracle = {
   force = os.getenv("SF2_ORACLE_FORCE_HOSTILE_PROJECTILE_HIT") == "1",
   trace = os.getenv("SF2_ORACLE_TRACE_PLAYER_DAMAGE") == "1",
+  collision_pairs =
+    os.getenv("SF2_ORACLE_TRACE_PLAYER_COLLISION_PAIRS") == "1",
   probe = os.getenv("SF2_ORACLE_PROBE_PLAYER_DAMAGE") == "1",
   maximum_hits = tonumber(os.getenv("SF2_ORACLE_FORCE_HOSTILE_HITS")) or 1,
   impact_offset_x = tonumber(
@@ -56,6 +58,11 @@ player_damage_oracle = {
   minimum_health = nil,
   hit_elapsed = nil,
   last_snapshot = nil,
+  lines = {},
+}
+projectile_collision_oracle = {
+  enabled =
+    os.getenv("SF2_ORACLE_TRACE_PROJECTILE_COLLISION_ELIGIBILITY") == "1",
   lines = {},
 }
 assert(
@@ -796,6 +803,182 @@ function player_damage_oracle.record_write(address, value)
   return value
 end
 
+function player_damage_oracle.record_contact(stage)
+  if not player_damage_oracle.trace or not armed then return end
+  if work_byte(0x1B68) ~= 1 then return end
+  local state = emu.getState()
+  local player = work_word(0x12C3)
+  local receiving_object = state["cpu.x"] or 0
+  if player == 0 or receiving_object ~= player then return end
+  local collision_record = work_word(0xCF2D)
+  local source_object = collision_record ~= 0
+    and work_word(collision_record + 4) or 0
+  local player_slot = work_word(player + 0x2B)
+  player_damage_oracle.lines[#player_damage_oracle.lines + 1] = string.format(
+    "elapsed=%d event=contact stage=%s player=%04X source_object=%04X " ..
+      "source_shape=%04X source_pose=%d,%d,%d source_path=%04X " ..
+      "source_state=%s player_pose=%d,%d,%d player_state=%s " ..
+      "collision_record=%04X damage=%d eligibility=%02X,%02X,%02X,%02X " ..
+      "parallel=%02X,%02X,%02X,%02X source=%02X:%04X",
+    frame - armed_frame,
+    stage,
+    player,
+    source_object,
+    source_object ~= 0 and work_word(source_object + 4) or 0,
+    source_object ~= 0 and signed_word(source_object + 12) or 0,
+    source_object ~= 0 and signed_word(source_object + 14) or 0,
+    source_object ~= 0 and signed_word(source_object + 16) or 0,
+    source_object ~= 0 and work_word(source_object + 0x2B) or 0,
+    source_object ~= 0
+      and sortie_actor_oracle.bytes_hex(source_object + 0x20, 25) or "-",
+    signed_word(player + 12),
+    signed_word(player + 14),
+    signed_word(player + 16),
+    sortie_actor_oracle.bytes_hex(player + 0x20, 25),
+    collision_record,
+    work_byte(0xCF2F),
+    work_byte((0x6BE3 + player_slot) & 0xFFFF),
+    work_byte((0x6B77 + player_slot) & 0xFFFF),
+    work_byte((0x6A72 + player_slot) & 0xFFFF),
+    work_byte((0x6C02 + player_slot) & 0xFFFF),
+    work_byte((0x6C00 + player_slot) & 0xFFFF),
+    work_byte((0x6B3B + player_slot) & 0xFFFF),
+    work_byte((0x6B3C + player_slot) & 0xFFFF),
+    work_byte((0x6BE4 + player_slot) & 0xFFFF),
+    state["cpu.k"] or 0,
+    state["cpu.pc"] or 0)
+end
+
+function player_damage_oracle.contact_callback(stage)
+  return function() player_damage_oracle.record_contact(stage) end
+end
+
+function player_damage_oracle.record_collision_pair(stage)
+  if not player_damage_oracle.trace or not armed then return end
+  if work_byte(0x1B68) ~= 1 then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 7580 or elapsed > 7700 then return end
+  local player = work_word(0x12C3)
+  local current_object = work_word(0x007D)
+  local current_list = work_word(0x007F)
+  local candidate_list
+  if stage == "candidate" then
+    candidate_list = (emu.getState()["cpu.y"] or 0) & 0xFFFF
+  else
+    candidate_list = work_word(0x18DD)
+  end
+  local candidate_object = work_word(0x2F42 + candidate_list)
+  local current_shape =
+    current_object ~= 0 and work_word(current_object + 4) or 0
+  local candidate_shape =
+    candidate_object ~= 0 and work_word(candidate_object + 4) or 0
+  local player_pair =
+    (current_object == player and candidate_shape == 0xE3A8)
+    or (candidate_object == player and current_shape == 0xE3A8)
+  if not player_pair then return end
+  player_damage_oracle.lines[#player_damage_oracle.lines + 1] = string.format(
+    "elapsed=%d event=collision-pair stage=%s current_list=%04X " ..
+      "current=%04X current_shape=%04X current_pose=%d,%d,%d " ..
+      "current_rotation=%d,%d,%d " ..
+      "current_profile=%04X current_bounds=%d,%d,%d " ..
+      "candidate_list=%04X candidate=%04X candidate_shape=%04X " ..
+      "candidate_pose=%d,%d,%d candidate_rotation=%d,%d,%d " ..
+      "candidate_profile=%04X " ..
+      "candidate_bounds=%d,%d,%d",
+    elapsed,
+    stage,
+    current_list,
+    current_object,
+    current_shape,
+    signed_word(current_object + 12),
+    signed_word(current_object + 14),
+    signed_word(current_object + 16),
+    work_byte(current_object + 18),
+    work_byte(current_object + 20),
+    work_byte(current_object + 22),
+    work_word(0x2F44 + current_list),
+    work_word(0x2F46 + current_list),
+    work_word(0x2F48 + current_list),
+    work_word(0x2F4A + current_list),
+    candidate_list,
+    candidate_object,
+    candidate_shape,
+    signed_word(candidate_object + 12),
+    signed_word(candidate_object + 14),
+    signed_word(candidate_object + 16),
+    work_byte(candidate_object + 18),
+    work_byte(candidate_object + 20),
+    work_byte(candidate_object + 22),
+    work_word(0x2F44 + candidate_list),
+    work_word(0x2F46 + candidate_list),
+      work_word(0x2F48 + candidate_list),
+      work_word(0x2F4A + candidate_list))
+end
+
+function player_damage_oracle.collision_pair_callback(stage)
+  return function() player_damage_oracle.record_collision_pair(stage) end
+end
+
+function player_damage_oracle.record_collision_list_object(stage)
+  if not player_damage_oracle.trace or not armed then return end
+  if work_byte(0x1B68) ~= 1 then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 7650 or elapsed > 7700 then return end
+  local object = (emu.getState()["cpu.x"] or 0) & 0xFFFF
+  local shape = object ~= 0 and work_word(object + 4) or 0
+  if shape ~= 0xC24C and shape ~= 0xE3A8 then return end
+  player_damage_oracle.lines[#player_damage_oracle.lines + 1] = string.format(
+    "elapsed=%d event=collision-list stage=%s object=%04X shape=%04X " ..
+      "pose=%d,%d,%d gate_fields=%04X,%04X,%04X,%04X,%04X",
+    elapsed,
+    stage,
+    object,
+    shape,
+    signed_word(object + 12),
+    signed_word(object + 14),
+    signed_word(object + 16),
+    work_word(object + 0x08),
+    work_word(object + 0x21),
+    work_word(object + 0x25),
+    work_word(object + 0x2D),
+    work_word(object + 0x31))
+end
+
+function player_damage_oracle.collision_list_callback(stage)
+  return function() player_damage_oracle.record_collision_list_object(stage) end
+end
+
+function projectile_collision_oracle.capture()
+  if not projectile_collision_oracle.enabled or not armed then return end
+  local elapsed = frame - armed_frame
+  if elapsed < 6400 or elapsed > 14500 or work_byte(0x1B68) ~= 1 then
+    return
+  end
+  local object = work_word(0x12A8)
+  local seen = {}
+  while object ~= 0 and not seen[object] do
+    seen[object] = true
+    if work_word(object + 4) == 0xE3A8 then
+      projectile_collision_oracle.lines[
+        #projectile_collision_oracle.lines + 1
+      ] = string.format(
+        "elapsed=%d object=%04X pose=%d,%d,%d,%d,%d,%d,%d " ..
+          "collision_enabled=%s",
+        elapsed,
+        object,
+        signed_word(object + 12),
+        signed_word(object + 14),
+        signed_word(object + 16),
+        work_byte(object + 18),
+        work_byte(object + 20),
+        work_byte(object + 22),
+        work_byte(object + 24),
+        tostring(work_byte(object + 0x21) & 1 == 0))
+    end
+    object = work_word(object)
+  end
+end
+
 local function record_walker_dynamics(stage)
   if not trace_walker_dynamics or not armed then return end
   local state = emu.getState()
@@ -1445,6 +1628,14 @@ local function capture_work(elapsed)
     write_file(
       string.format("sf2_post_sortie_%05d_full.wram", elapsed),
       table.concat(full_output))
+    local coprocessor_output = {}
+    for address = 0, 0xFFFF do
+      coprocessor_output[#coprocessor_output + 1] = string.char(
+        emu.read(address, emu.memType.gsuWorkRam, false))
+    end
+    write_file(
+      string.format("sf2_post_sortie_%05d_coprocessor.wram", elapsed),
+      table.concat(coprocessor_output))
   end
 end
 
@@ -3738,6 +3929,7 @@ local function end_frame()
   player_damage_oracle.force_impact()
   player_damage_oracle.observe_probe()
   player_damage_oracle.snapshot("snapshot")
+  projectile_collision_oracle.capture()
   if forced_stage_selection and work_byte(0x1B68) == 7 then
     -- Oracle-only route isolation.  Mobile pressure encounters can otherwise
     -- preempt every command-map path while identifying a newly discovered
@@ -3954,6 +4146,11 @@ local function end_frame()
           tostring(player_damage_oracle.initial_health),
           tostring(player_damage_oracle.minimum_health),
           tostring(player_damage_oracle.hit_elapsed)))
+    end
+    if projectile_collision_oracle.enabled then
+      write_file(
+        "sf2_projectile_collision_eligibility.txt",
+        table.concat(projectile_collision_oracle.lines, "\n") .. "\n")
     end
     if meteor_switch_oracle.enabled then
       write_file(
@@ -4516,13 +4713,54 @@ if trace_walker_writes then
     emu.memType.snesWorkRam)
 end
 if player_damage_oracle.trace then
-  emu.addMemoryCallback(
-    player_damage_oracle.record_write,
-    emu.callbackType.write,
-    0,
-    0xFFFF,
-    emu.cpuType.snes,
-    emu.memType.snesWorkRam)
+  if player_damage_oracle.collision_pairs then
+    for stage, address in pairs({
+      considered = 0x7F32C6,
+      admitted = 0x7F32EA,
+    }) do
+      emu.addMemoryCallback(
+        player_damage_oracle.collision_list_callback(stage),
+        emu.callbackType.exec,
+        address,
+        address,
+        emu.cpuType.snes,
+        emu.memType.snesMemory)
+    end
+    for stage, address in pairs({
+      candidate = 0x7F4432,
+      compound_complete = 0x7F483A,
+      collision = 0x7F4840,
+    }) do
+      emu.addMemoryCallback(
+        player_damage_oracle.collision_pair_callback(stage),
+        emu.callbackType.exec,
+        address,
+        address,
+        emu.cpuType.snes,
+        emu.memType.snesMemory)
+    end
+  else
+    emu.addMemoryCallback(
+      player_damage_oracle.record_write,
+      emu.callbackType.write,
+      0,
+      0xFFFF,
+      emu.cpuType.snes,
+      emu.memType.snesWorkRam)
+  end
+  for stage, address in pairs({
+    collision_dispatch = 0x069707,
+    damaging_contact = 0x0697ED,
+    impact_response = 0x06AAAE,
+  }) do
+    emu.addMemoryCallback(
+      player_damage_oracle.contact_callback(stage),
+      emu.callbackType.exec,
+      address,
+      address,
+      emu.cpuType.snes,
+      emu.memType.snesMemory)
+  end
 end
 if force_projectile_hit then
   emu.addMemoryCallback(

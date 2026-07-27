@@ -4150,6 +4150,14 @@ struct CollisionBounds {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ObjectCollisionPose {
+    position: Vector3,
+    pitch: Angle,
+    yaw: Angle,
+    roll: Angle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MissionCollisionTarget {
     Object(ObjectId),
     CarrierReactorPanel(usize),
@@ -5475,6 +5483,7 @@ pub struct Game {
     mission_entry_flyby: [Option<ObjectId>; MISSION_ENCOUNTER_ACTOR_COUNT],
     previous_mission_player_position: Option<Vector3>,
     two_ticks_ago_mission_player_position: Option<Vector3>,
+    mission_player_collision_pose: Option<ObjectCollisionPose>,
     mission_projectiles: Vec<ActiveMissionProjectile>,
     reengagement_projectiles: Vec<ActiveReengagementProjectile>,
     interception_missiles: [Option<ObjectId>; INTERCEPTION_MISSILE_COUNT],
@@ -5562,6 +5571,7 @@ impl Game {
             mission_entry_flyby: [None; MISSION_ENCOUNTER_ACTOR_COUNT],
             previous_mission_player_position: None,
             two_ticks_ago_mission_player_position: None,
+            mission_player_collision_pose: None,
             mission_projectiles: Vec::with_capacity(opening_projectiles::PROJECTILE_COUNT),
             reengagement_projectiles: Vec::with_capacity(
                 second_sortie_projectiles::PROJECTILE_COUNT,
@@ -7488,6 +7498,12 @@ impl Game {
             .mode_frame
             .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
             .min(u32::from(u16::MAX)) as u16;
+        self.mission_player_collision_pose = self
+            .state
+            .mission
+            .primary_player
+            .and_then(|id| self.state.objects.get(id))
+            .map(object_collision_pose);
         self.state.mission.elapsed_time_tenths = mission_elapsed_time_tenths(retail_frame);
         match self.state.mission.phase {
             MissionPhase::Loading if self.state.mode_frame >= MISSION_STAGE_LOAD_TICKS => {
@@ -13472,6 +13488,7 @@ impl Game {
         self.clear_carrier_scene();
         self.previous_mission_player_position = None;
         self.two_ticks_ago_mission_player_position = None;
+        self.mission_player_collision_pose = None;
         for projectile in self.mission_projectiles.drain(..) {
             self.state.objects.remove(projectile.object);
         }
@@ -15302,6 +15319,7 @@ impl Game {
                 projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
                 projectile.base.collision_class = CollisionClass::EnemyWeapon;
                 projectile.base.flags.casts_shadow = false;
+                projectile.base.flags.collision_disabled = !descriptor.collision_enabled;
                 projectile.base.linked_object = self
                     .mission_entry_flyby
                     .get(descriptor.firing_actor.index())
@@ -18500,16 +18518,6 @@ impl Game {
             self.update_mission_camera(retail_frame);
             return;
         };
-        if let Some(bank_impulse) = opening_continuation::player_damage_bank_impulse(retail_frame) {
-            if self.state.mission.player_damage == PlayerDamageState::Ready {
-                self.apply_player_damage(
-                    primary_id,
-                    player_damage::HOSTILE_PROJECTILE_ATTACK_POWER,
-                    player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
-                );
-                self.state.mission.player_flight.damage_bank_impulse = bank_impulse;
-            }
-        }
         if retail_frame < MISSION_BASE_KEYFRAME_END_RETAIL_FRAME {
             let (start, end) = enclosing_player_keyframes(retail_frame);
             let numerator = retail_frame.saturating_sub(start.retail_frame);
@@ -19178,26 +19186,13 @@ impl Game {
         if self.state.mission.player_damage != PlayerDamageState::Ready {
             return;
         }
-        let retail_frame = self
-            .state
-            .mode_frame
-            .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
-            .min(u32::from(u16::MAX)) as u16;
-        if self.state.mission.visit == MissionVisit::OpeningEngagement
-            && !self.state.mission.departed_certified_neutral_path
-            && (MISSION_BASE_KEYFRAME_END_RETAIL_FRAME
-                ..=opening_continuation::PLAYER_CERTIFIED_END_RETAIL_FRAME)
-                .contains(&retail_frame)
-        {
-            // The opening projectile paths are native, but their cooperative
-            // collision-eligibility scheduler is not yet fully lifted.
-            // Certified neutral-route contacts are dispatched with the
-            // player cadence instead of treating every visible laser pose as
-            // continuously damage-capable.
-            return;
-        }
         let Some(player_id) = self.state.mission.primary_player else {
             return;
+        };
+        let player_collision_pose = if self.state.mission.visit == MissionVisit::OpeningEngagement {
+            self.mission_player_collision_pose
+        } else {
+            None
         };
         let hostile_projectiles: Vec<_> = self
             .state
@@ -19214,18 +19209,66 @@ impl Game {
         let impact = hostile_projectiles.into_iter().find_map(|projectile_id| {
             let player = self.state.objects.get(player_id)?;
             let projectile = self.state.objects.get(projectile_id)?;
-            hostile_projectile_hits_player(projectile, player)
-                .then_some(projectile.base.attack_power)
+            hostile_projectile_hits_player_at_pose(
+                projectile,
+                player,
+                player_collision_pose.unwrap_or_else(|| object_collision_pose(player)),
+            )
+            .then_some((projectile_id, projectile.base.attack_power))
         });
-        let Some(damage) = impact else {
+        let Some((projectile_id, damage)) = impact else {
             return;
         };
 
+        if let Some(projectile) = self.state.objects.get_mut(projectile_id) {
+            projectile.base.flags.collided = true;
+            projectile.base.flags.collision_disabled = true;
+            projectile.base.attack_power = 0;
+        }
         self.apply_player_damage(
             player_id,
             damage,
             player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
         );
+        if self.state.mission.visit == MissionVisit::OpeningEngagement {
+            let retail_frame = self
+                .state
+                .mode_frame
+                .saturating_mul(RETAIL_PRESENTATION_FRAMES_PER_TICK)
+                .min(u32::from(u16::MAX)) as u16;
+            self.reconcile_opening_player_damage_presentation(player_id, retail_frame);
+        }
+    }
+
+    fn reconcile_opening_player_damage_presentation(
+        &mut self,
+        player_id: ObjectId,
+        retail_frame: u16,
+    ) {
+        if !matches!(
+            self.state.mission.player_damage,
+            PlayerDamageState::Recovering { .. }
+        ) {
+            return;
+        }
+        let control_updates = opening_continuation::player_flight_cadence(retail_frame)
+            .map(|cadence| cadence.control_updates)
+            .unwrap_or(0);
+        let flight = &mut self.state.mission.player_flight;
+        let previously_applied = flight.damage_bank_applied_to_roll;
+        flight.damage_bank_impulse = player_damage::PLAYER_HIT_BANK_IMPULSE;
+        flight.damage_bank_impulse_fresh = true;
+        let mut damage_bank_impulse = previously_applied;
+        for _ in 0..control_updates {
+            damage_bank_impulse = advance_player_damage_bank(flight).1;
+        }
+        if let Some(player) = self.state.objects.get_mut(player_id) {
+            player.base.roll = player
+                .base
+                .roll
+                .wrapping_add(previously_applied.wrapping_neg())
+                .wrapping_add(damage_bank_impulse);
+        }
     }
 
     fn resolve_eladard_defender_body_collisions(&mut self) {
@@ -20200,33 +20243,113 @@ fn object_overlaps_volume(
     )
 }
 
+#[cfg(test)]
 fn hostile_projectile_hits_player(projectile: &Object, player: &Object) -> bool {
-    let center = player_damage::HOSTILE_PROJECTILE_PLAYER_OFFSET_CENTER;
-    let extents = player_damage::HOSTILE_PROJECTILE_PLAYER_COLLISION_EXTENTS;
-    offset_axis_overlaps(
-        projectile
-            .base
-            .position
-            .x
-            .wrapping_sub(player.base.position.x),
-        center.x,
-        extents.x,
-    ) && offset_axis_overlaps(
-        projectile
-            .base
-            .position
-            .y
-            .wrapping_sub(player.base.position.y),
-        center.y,
-        extents.y,
-    ) && offset_axis_overlaps(
-        projectile
-            .base
-            .position
-            .z
-            .wrapping_sub(player.base.position.z),
-        center.z,
-        extents.z,
+    hostile_projectile_hits_player_at_pose(projectile, player, object_collision_pose(player))
+}
+
+fn hostile_projectile_hits_player_at_pose(
+    projectile: &Object,
+    player: &Object,
+    player_pose: ObjectCollisionPose,
+) -> bool {
+    if projectile.base.shape != ShapeId::ENEMY_LASER {
+        return objects_overlap(projectile, player);
+    }
+    let projectile_profile = player_damage::HOSTILE_PROJECTILE_COLLISION_PROFILE;
+    let player_profile = player_damage::player_compound_collision_profile(player.base.shape);
+    let player_bounds = object_collision_bounds(player);
+    projectile_profile.volumes.iter().any(|projectile_volume| {
+        let projectile_center = oriented_collision_volume_center(
+            projectile,
+            *projectile_volume,
+            projectile_profile.scale,
+        );
+        if let Some(player_profile) = player_profile {
+            player_profile.volumes.iter().any(|player_volume| {
+                let player_center = oriented_collision_volume_center_at_pose(
+                    player_pose,
+                    *player_volume,
+                    player_profile.scale,
+                );
+                collision_volumes_overlap(
+                    projectile_center,
+                    projectile_volume.extents,
+                    player_center,
+                    player_volume.extents,
+                )
+            })
+        } else {
+            collision_volumes_overlap(
+                projectile_center,
+                projectile_volume.extents,
+                player_pose.position,
+                player_bounds,
+            )
+        }
+    })
+}
+
+fn oriented_collision_volume_center(
+    object: &Object,
+    volume: player_damage::OrientedCollisionVolume,
+    scale: u32,
+) -> Vector3 {
+    oriented_collision_volume_center_at_pose(object_collision_pose(object), volume, scale)
+}
+
+fn object_collision_pose(object: &Object) -> ObjectCollisionPose {
+    ObjectCollisionPose {
+        position: object.base.position,
+        pitch: object.base.pitch,
+        yaw: object.base.yaw,
+        roll: object.base.roll,
+    }
+}
+
+fn oriented_collision_volume_center_at_pose(
+    pose: ObjectCollisionPose,
+    volume: player_damage::OrientedCollisionVolume,
+    scale: u32,
+) -> Vector3 {
+    let offset = volume.center_offset;
+    let (x, y, z) = sf_core::snes_trig::strat_roffs_full_scaled(
+        pose.roll.units(),
+        pose.pitch.units(),
+        pose.yaw.units(),
+        offset.x as i8,
+        offset.y as i8,
+        offset.z as i8,
+        scale,
+    );
+    Vector3 {
+        x: pose.position.x.wrapping_add(x),
+        y: pose.position.y.wrapping_add(y),
+        z: pose.position.z.wrapping_add(z),
+    }
+}
+
+fn collision_volumes_overlap(
+    first_center: Vector3,
+    first_extents: CollisionBounds,
+    second_center: Vector3,
+    second_extents: CollisionBounds,
+) -> bool {
+    axis_overlaps(
+        first_center.x,
+        second_center.x,
+        first_extents.x,
+        second_extents.x,
+    ) && axis_overlaps(
+        first_center.y,
+        second_center.y,
+        first_extents.y,
+        second_extents.y,
+    ) && axis_overlaps(
+        first_center.z,
+        second_center.z,
+        first_extents.z,
+        second_extents.z,
     )
 }
 
@@ -20240,10 +20363,6 @@ fn allocate_hostile_projectile(
         .ok_or(Error::ObjectCapacityReached)?;
     state.audio.queue(SoundEvent::HostileLaser);
     Ok(projectile)
-}
-
-fn offset_axis_overlaps(offset: i16, center: i16, extent: u16) -> bool {
-    i32::from(offset.wrapping_sub(center)).unsigned_abs() < u32::from(extent)
 }
 
 fn axis_overlaps(first: i16, second: i16, first_extent: u16, second_extent: u16) -> bool {
@@ -27337,6 +27456,10 @@ mod tests {
                 );
                 assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
                 let descriptor = opening_projectiles::descriptor(track_index).unwrap();
+                assert_eq!(
+                    !projectile.base.flags.collision_disabled, descriptor.collision_enabled,
+                    "opening projectile collision eligibility for track {track_index}"
+                );
                 assert_eq!(
                     projectile.base.linked_object,
                     game.mission_entry_flyby[descriptor.firing_actor.index()]
@@ -35521,24 +35644,7 @@ mod tests {
 
     #[test]
     fn hostile_projectile_uses_the_retail_player_collision_box() {
-        const ACCEPTED_OFFSETS: [Vector3; 6] = [
-            Vector3 { x: -76, y: 0, z: 0 },
-            Vector3 { x: 58, y: 0, z: 0 },
-            Vector3 { x: 0, y: -49, z: 0 },
-            Vector3 { x: 0, y: 117, z: 0 },
-            Vector3 { x: 0, y: 0, z: -75 },
-            Vector3 { x: 0, y: 0, z: 53 },
-        ];
-        const REJECTED_OFFSETS: [Vector3; 6] = [
-            Vector3 { x: -77, y: 0, z: 0 },
-            Vector3 { x: 59, y: 0, z: 0 },
-            Vector3 { x: 0, y: -50, z: 0 },
-            Vector3 { x: 0, y: 118, z: 0 },
-            Vector3 { x: 0, y: 0, z: -76 },
-            Vector3 { x: 0, y: 0, z: 54 },
-        ];
-
-        let player = Object::new(
+        let mut player = Object::new(
             ObjectKind::Player,
             ShapeId::FOX_FALCO_FLIGHT_CRAFT,
             Behavior::PlayerFlight,
@@ -35548,14 +35654,23 @@ mod tests {
             ShapeId::ENEMY_LASER,
             Behavior::Projectile,
         );
-        for offset in ACCEPTED_OFFSETS {
-            projectile.base.position = offset;
-            assert!(hostile_projectile_hits_player(&projectile, &player));
-        }
-        for offset in REJECTED_OFFSETS {
-            projectile.base.position = offset;
-            assert!(!hostile_projectile_hits_player(&projectile, &player));
-        }
+        player.base.position = Vector3 {
+            x: -4_361,
+            y: -2_881,
+            z: -2_351,
+        };
+        player.base.pitch = Angle::from_units(0);
+        player.base.yaw = Angle::from_units(227);
+        player.base.roll = Angle::from_units(1);
+        projectile.base.position = Vector3 {
+            x: -4_386,
+            y: -2_930,
+            z: -2_354,
+        };
+        projectile.base.pitch = Angle::from_units(249);
+        projectile.base.yaw = Angle::from_units(236);
+        projectile.base.roll = Angle::from_units(0);
+        assert!(hostile_projectile_hits_player(&projectile, &player));
     }
 
     #[test]
@@ -35613,6 +35728,24 @@ mod tests {
                 .flags
                 .remove_after_tick
         );
+        assert!(
+            game.state
+                .objects
+                .get(hostile_id)
+                .unwrap()
+                .base
+                .flags
+                .collision_disabled
+        );
+        assert_eq!(
+            game.state
+                .objects
+                .get(hostile_id)
+                .unwrap()
+                .base
+                .attack_power,
+            0
+        );
 
         for _ in 0..player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES
             / RETAIL_PRESENTATION_FRAMES_PER_TICK as u8
@@ -35620,6 +35753,16 @@ mod tests {
             game.advance_player_damage_timeline();
         }
         assert_eq!(game.state.mission.player_damage, PlayerDamageState::Ready);
+
+        let mut next_hostile = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::ENEMY_LASER,
+            Behavior::Projectile,
+        );
+        next_hostile.base.position = impact_position;
+        next_hostile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+        next_hostile.base.collision_class = CollisionClass::EnemyWeapon;
+        game.state.objects.allocate(next_hostile).unwrap();
 
         game.resolve_mission_collisions();
         assert_eq!(

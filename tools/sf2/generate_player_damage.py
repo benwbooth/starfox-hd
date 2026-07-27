@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -13,6 +14,27 @@ DEFAULT_FIXTURE = Path(__file__).with_name("fixtures") / "player_damage.json"
 DEFAULT_OUTPUT = (
     REPO_ROOT / "rust" / "sf2-game" / "src" / "native" / "player_damage.rs"
 )
+
+
+def format_rust(source: str) -> str:
+    result = subprocess.run(
+        [
+            "rustfmt",
+            "--edition",
+            "2021",
+            "--config",
+            "skip_children=true,reorder_modules=false",
+            "--emit",
+            "stdout",
+        ],
+        input=source,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"rustfmt failed for generated player damage:\n{result.stderr}")
+    return result.stdout
 
 
 def generated_source(fixture: Path) -> str:
@@ -28,8 +50,12 @@ def generated_source(fixture: Path) -> str:
         "eladard_defender_contact_damage",
         "eladard_defender_first_damage_retail_frame",
         "eladard_defender_second_damage_retail_frame",
-        "hostile_projectile_player_offset_min",
-        "hostile_projectile_player_offset_max",
+        "hostile_projectile_collision_scale",
+        "hostile_projectile_collision_boxes",
+        "fox_falco_flight_collision_scale",
+        "fox_falco_flight_collision_boxes",
+        "miyu_fay_flight_collision_scale",
+        "miyu_fay_flight_collision_boxes",
         "shield_before_first_hit",
         "shield_after_first_hit",
         "first_damage_retail_frame",
@@ -53,6 +79,10 @@ def generated_source(fixture: Path) -> str:
         "proportional_approach",
         "camera_recoil",
         "camera_pitch_composition",
+        "collision_list_builder",
+        "compound_collision",
+        "collision_box_layout",
+        "collision_recovery",
     }
     if not isinstance(static_sources, dict):
         raise ValueError("static_sources must be an object")
@@ -76,12 +106,20 @@ def generated_source(fixture: Path) -> str:
     defender_contact_damage = int(values["eladard_defender_contact_damage"])
     defender_first_damage = int(values["eladard_defender_first_damage_retail_frame"])
     defender_second_damage = int(values["eladard_defender_second_damage_retail_frame"])
-    collision_minimum = tuple(
-        int(value) for value in values["hostile_projectile_player_offset_min"]
-    )
-    collision_maximum = tuple(
-        int(value) for value in values["hostile_projectile_player_offset_max"]
-    )
+    collision_profiles = {
+        "hostile projectile": (
+            int(values["hostile_projectile_collision_scale"]),
+            values["hostile_projectile_collision_boxes"],
+        ),
+        "Fox/Falco flight craft": (
+            int(values["fox_falco_flight_collision_scale"]),
+            values["fox_falco_flight_collision_boxes"],
+        ),
+        "Miyu/Fay flight craft": (
+            int(values["miyu_fay_flight_collision_scale"]),
+            values["miyu_fay_flight_collision_boxes"],
+        ),
+    }
     shield_before = int(values["shield_before_first_hit"])
     shield_after = int(values["shield_after_first_hit"])
     first_damage = int(values["first_damage_retail_frame"])
@@ -98,17 +136,43 @@ def generated_source(fixture: Path) -> str:
         raise ValueError("fixture must retain the zero-shield-survives boundary")
     if reserve_before != active_after or reserve_after != 0:
         raise ValueError("fixture must retain the reserve-pilot handoff")
-    if len(collision_minimum) != 3 or len(collision_maximum) != 3:
-        raise ValueError("collision limits must contain x, y, and z")
-
-    collision_centers = []
-    collision_extents = []
-    for minimum, maximum in zip(collision_minimum, collision_maximum, strict=True):
-        if minimum > maximum or (minimum + maximum) % 2 != 0:
-            raise ValueError("collision limits must form an integral centered box")
-        center = (minimum + maximum) // 2
-        collision_centers.append(center)
-        collision_extents.append(maximum - center + 1)
+    parsed_collision_profiles = {}
+    for profile_name, (collision_scale, collision_boxes) in collision_profiles.items():
+        if not 0 <= collision_scale <= 7:
+            raise ValueError(
+                f"{profile_name} collision scale must be between zero and seven"
+            )
+        if not isinstance(collision_boxes, list) or not collision_boxes:
+            raise ValueError(f"{profile_name} collision boxes must be a non-empty list")
+        parsed_collision_boxes = []
+        for index, collision_box in enumerate(collision_boxes):
+            if not isinstance(collision_box, dict):
+                raise ValueError(f"{profile_name} collision box {index} must be an object")
+            if collision_box.keys() != {"center_offset", "extents"}:
+                raise ValueError(
+                    f"{profile_name} collision box {index} must contain "
+                    "center_offset and extents"
+                )
+            center_offset = tuple(int(value) for value in collision_box["center_offset"])
+            extents = tuple(int(value) for value in collision_box["extents"])
+            if len(center_offset) != 3 or len(extents) != 3:
+                raise ValueError(
+                    f"{profile_name} collision box {index} must contain x, y, and z"
+                )
+            if any(not -128 <= value <= 127 for value in center_offset):
+                raise ValueError(
+                    f"{profile_name} collision box {index} center offset "
+                    "must fit signed bytes"
+                )
+            if any(value <= 0 for value in extents):
+                raise ValueError(
+                    f"{profile_name} collision box {index} extents must be positive"
+                )
+            parsed_collision_boxes.append((center_offset, extents))
+        parsed_collision_profiles[profile_name] = (
+            collision_scale,
+            parsed_collision_boxes,
+        )
 
     recovery_frames = recovery_complete - first_damage
     defender_contact_recovery_frames = defender_second_damage - defender_first_damage
@@ -135,18 +199,55 @@ def generated_source(fixture: Path) -> str:
         if value <= 0:
             raise ValueError(f"{name} must be positive")
 
-    return f'''//! Generated semantic timing for hostile contact against the player craft.
+    def collision_box_source(collision_boxes: list[tuple[tuple[int, ...], tuple[int, ...]]]) -> str:
+        return ",\n".join(
+            f"""    OrientedCollisionVolume {{
+        center_offset: Vector3 {{ x: {center_offset[0]}, y: {center_offset[1]}, z: {center_offset[2]} }},
+        extents: CollisionBounds {{
+            x: {extents[0]},
+            y: {extents[1]},
+            z: {extents[2]},
+        }},
+    }}"""
+            for center_offset, extents in collision_boxes
+        )
+
+    hostile_scale, hostile_boxes = parsed_collision_profiles["hostile projectile"]
+    fox_falco_scale, fox_falco_boxes = parsed_collision_profiles[
+        "Fox/Falco flight craft"
+    ]
+    miyu_fay_scale, miyu_fay_boxes = parsed_collision_profiles[
+        "Miyu/Fay flight craft"
+    ]
+
+    return format_rust(f'''//! Generated semantic timing and geometry for hostile contact against the player craft.
 //!
-//! Source: `player_damage.json`, reduced from clean projectile and Eladard-contact traces.
+//! Source: `player_damage.json`, reduced from clean projectile and Eladard-contact traces,
+//! with compound laser geometry recovered statically from
+//! `{static_sources["collision_list_builder"]}`, `{static_sources["compound_collision"]}`,
+//! and `{static_sources["collision_box_layout"]}`.
 //! The hit reaction itself is statically recovered from retail routines
 //! `{static_sources["impact_response"]}` (impact), `{static_sources["bank_recovery"]}`
 //! and `{static_sources["proportional_approach"]}` (bank recovery),
 //! `{static_sources["camera_recoil"]}` (camera recoil), and
 //! `{static_sources["camera_pitch_composition"]}` (camera pitch composition).
+//! Contact recovery uses `{static_sources["collision_recovery"]}`.
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_player_damage.py [--check]`.
 
-use super::{{CollisionBounds, Vector3}};
+use super::{{CollisionBounds, ShapeId, Vector3}};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct OrientedCollisionVolume {{
+    pub center_offset: Vector3,
+    pub extents: CollisionBounds,
+}}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct CompoundCollisionProfile {{
+    pub scale: u32,
+    pub volumes: &'static [OrientedCollisionVolume],
+}}
 
 pub(super) const HOSTILE_PROJECTILE_ATTACK_POWER: u8 = {attack_power};
 pub(super) const PLAYER_HIT_BANK_IMPULSE: i8 = {hit_bank_impulse};
@@ -157,16 +258,36 @@ pub(super) const CAMERA_HIT_PITCH_RECOIL_SCALE: i16 = {camera_hit_pitch_recoil_s
 const HIT_DIRECTION_ALTERNATION_MASK: u64 = 1;
 pub(super) const ELADARD_DEFENDER_CONTACT_DAMAGE: u8 = {defender_contact_damage};
 pub(super) const ELADARD_DEFENDER_CONTACT_RECOVERY_RETAIL_FRAMES: u8 = {defender_contact_recovery_frames};
-pub(super) const HOSTILE_PROJECTILE_PLAYER_OFFSET_CENTER: Vector3 = Vector3 {{
-    x: {collision_centers[0]},
-    y: {collision_centers[1]},
-    z: {collision_centers[2]},
+pub(super) const HOSTILE_PROJECTILE_COLLISION_PROFILE: CompoundCollisionProfile = CompoundCollisionProfile {{
+    scale: {hostile_scale},
+    volumes: &[
+{collision_box_source(hostile_boxes)},
+    ],
 }};
-pub(super) const HOSTILE_PROJECTILE_PLAYER_COLLISION_EXTENTS: CollisionBounds = CollisionBounds {{
-    x: {collision_extents[0]},
-    y: {collision_extents[1]},
-    z: {collision_extents[2]},
+const FOX_FALCO_FLIGHT_COLLISION_PROFILE: CompoundCollisionProfile = CompoundCollisionProfile {{
+    scale: {fox_falco_scale},
+    volumes: &[
+{collision_box_source(fox_falco_boxes)},
+    ],
 }};
+const MIYU_FAY_FLIGHT_COLLISION_PROFILE: CompoundCollisionProfile = CompoundCollisionProfile {{
+    scale: {miyu_fay_scale},
+    volumes: &[
+{collision_box_source(miyu_fay_boxes)},
+    ],
+}};
+
+pub(super) fn player_compound_collision_profile(
+    shape: ShapeId,
+) -> Option<CompoundCollisionProfile> {{
+    if shape == ShapeId::FOX_FALCO_FLIGHT_CRAFT {{
+        Some(FOX_FALCO_FLIGHT_COLLISION_PROFILE)
+    }} else if shape == ShapeId::MIYU_FAY_FLIGHT_CRAFT {{
+        Some(MIYU_FAY_FLIGHT_COLLISION_PROFILE)
+    }} else {{
+        None
+    }}
+}}
 pub(super) const PLAYER_HIT_RECOVERY_RETAIL_FRAMES: u8 = {recovery_frames};
 pub(super) const PLAYER_DESTRUCTION_RETAIL_FRAMES: u16 = {destruction_frames};
 pub(super) const GAME_OVER_PROMPT_RETAIL_FRAMES: u16 = {prompt_frames};
@@ -184,7 +305,7 @@ pub(super) fn player_hit_bank_impulse(source_frame: u64) -> i8 {{
 pub(super) const ORACLE_ZERO_SHIELD_SURVIVES: bool = true;
 #[cfg(test)]
 pub(super) const ORACLE_RESERVE_SHIELD: u8 = {reserve_before};
-'''
+''')
 
 
 def main() -> int:

@@ -1,0 +1,49 @@
+# Semantic collision eligibility for every chronological opening-sortie laser.
+# The retail collision-list gate at 7F:32CE excludes objects whose collision-disable
+# path state is set. PATH/PATHS.ASM collisionson/collisionsoff provides the matching
+# source-level meaning; shipping Rust retains only the boolean gameplay property.
+# Oracle source SHA-256 (elapsed 6400..10000): a0735e75ea52d59d42efcf43d22179a2d1958bce24f8caba20bb8984f3353576
+# Oracle source SHA-256 (elapsed 9990..14500): 6cdfc24219c62fe74a71164a5902f604714ad13790ef96a6498d5b2530ada4ec
+track=0 collision_enabled=true
+track=1 collision_enabled=true
+track=2 collision_enabled=false
+track=3 collision_enabled=true
+track=4 collision_enabled=true
+track=5 collision_enabled=true
+track=6 collision_enabled=false
+track=7 collision_enabled=false
+track=8 collision_enabled=true
+track=9 collision_enabled=false
+track=10 collision_enabled=false
+track=11 collision_enabled=false
+track=12 collision_enabled=false
+track=13 collision_enabled=false
+track=14 collision_enabled=true
+track=15 collision_enabled=true
+track=16 collision_enabled=true
+track=17 collision_enabled=true
+track=18 collision_enabled=true
+track=19 collision_enabled=false
+track=20 collision_enabled=false
+track=21 collision_enabled=false
+track=22 collision_enabled=false
+track=23 collision_enabled=false
+track=24 collision_enabled=true
+track=25 collision_enabled=false
+track=26 collision_enabled=false
+track=27 collision_enabled=true
+track=28 collision_enabled=true
+track=29 collision_enabled=true
+track=30 collision_enabled=true
+track=31 collision_enabled=true
+track=32 collision_enabled=false
+track=33 collision_enabled=false
+track=34 collision_enabled=false
+track=35 collision_enabled=false
+track=36 collision_enabled=false
+track=37 collision_enabled=false
+track=38 collision_enabled=true
+track=39 collision_enabled=true
+track=40 collision_enabled=true
+track=41 collision_enabled=true
+track=42 collision_enabled=true

@@ -3690,14 +3690,8 @@ const PLAYER_DOUBLE_MOVEMENT_RETAIL_FRAMES: [u16; 330] = [
     7936, 7948, 7960, 7972, 7984, 7996, 8008, 8020, 8032, 8044,
 ];
 
+#[cfg(test)]
 pub(super) const NATURAL_HIT_RETAIL_FRAMES: [u16; 4] = [1208, 2508, 6660, 6720];
-const NATURAL_HIT_BANK_IMPULSE: i8 = 30;
-
-pub(super) fn player_damage_bank_impulse(retail_frame: u16) -> Option<i8> {
-    NATURAL_HIT_RETAIL_FRAMES
-        .contains(&retail_frame)
-        .then_some(NATURAL_HIT_BANK_IMPULSE)
-}
 
 pub(super) fn player_flight_cadence(retail_frame: u16) -> Option<PlayerFlightCadence> {
     let offset = retail_frame.checked_sub(PLAYER_LIVE_FIRST_RETAIL_FRAME)?;
