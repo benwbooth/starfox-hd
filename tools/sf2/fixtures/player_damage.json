@@ -1,5 +1,17 @@
 {
+  "static_sources": {
+    "impact_response": "06:AAAE",
+    "bank_recovery": "06:9195",
+    "proportional_approach": "7F:27B5",
+    "camera_recoil": "07:9AAB",
+    "camera_pitch_composition": "07:968B"
+  },
   "hostile_projectile_attack_power": 2,
+  "player_hit_bank_impulse": 30,
+  "player_hit_bank_recovery_divisor": 8,
+  "camera_hit_pitch_recoil": 128,
+  "camera_hit_pitch_recoil_step": 16,
+  "camera_hit_pitch_recoil_scale": 2,
   "eladard_defender_contact_damage": 4,
   "eladard_defender_first_damage_retail_frame": 40207,
   "eladard_defender_second_damage_retail_frame": 40263,

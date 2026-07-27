@@ -430,8 +430,8 @@ def rust_source(
         f"pub(super) const LIVE_FIRST_RETAIL_FRAME: u16 = {LIVE_FIRST_RETAIL_FRAME};",
         f"pub(super) const LIVE_LAST_RETAIL_FRAME: u16 = {LIVE_LAST_RETAIL_FRAME};",
         "#[cfg(test)]",
-        "pub(super) const NEUTRAL_FLIGHT_LAST_RETAIL_FRAME: u16 = "
-        f"{neutral_last_retail_frame};",
+        "pub(super) const FIRST_NATURAL_HIT_RETAIL_FRAME: u16 = "
+        f"{neutral_last_retail_frame + RETAIL_FRAME_STEP};",
         f"const RETAIL_FRAME_STEP: u16 = {RETAIL_FRAME_STEP};",
         "",
         "pub(super) const PLAYER_HANDOFF_POSITION: Vector3 = Vector3 {",

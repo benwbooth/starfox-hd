@@ -46,7 +46,7 @@ use super::state::{
     MissionMessageIrisFrame, MissionMessagePhase, MissionPhase, MissionVisit, Pilot,
     PilotCraftClass, PilotSelectionCursor, PilotSelectionPhase, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
-    PlayerCraftTransformationDirection, PlayerDamageState, RecurringAttacker,
+    PlayerCraftTransformationDirection, PlayerDamageState, PlayerFlightState, RecurringAttacker,
     RecurringAttackersState, ResultsChoice, ResultsPhase, ResultsState, SoundEvent,
     StrategicEncounter, StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance,
     StrategicMapPhase, StrategicMapTutorialPage, StrategicOpeningPage, StrategicOpeningState,
@@ -7188,6 +7188,10 @@ impl Game {
         self.state.mission.player_flight.yaw_accumulator = OPENING_FLIGHT_YAW_ACCUMULATOR;
         self.state.mission.player_flight.pitch_lean = 0;
         self.state.mission.player_flight.ambient_bank_phase = 0;
+        self.state.mission.player_flight.damage_bank_impulse = 0;
+        self.state.mission.player_flight.damage_bank_impulse_fresh = false;
+        self.state.mission.player_flight.damage_bank_applied_to_roll = 0;
+        self.state.mission.player_flight.damage_camera_pitch_recoil = 0;
         self.state.mission.mirage_dragon_camera = MirageDragonCameraState::default();
         self.state.mission.flight_follow_camera = FlightFollowCameraState::default();
         self.state.mission.departed_certified_neutral_path = false;
@@ -16263,6 +16267,8 @@ impl Game {
         }
         flight.ambient_bank_phase =
             pressure_fighters::advance_player_ambient_bank_phase(flight.ambient_bank_phase, 1);
+        let (previously_applied_damage_bank, damage_bank_impulse) =
+            advance_player_damage_bank(flight);
         let movement_pitch = accumulator_angle(flight.pitch_accumulator);
         let yaw = accumulator_angle(flight.yaw_accumulator);
         let visual_pitch = visible_pitch_from_lean(flight.pitch_lean);
@@ -16275,13 +16281,19 @@ impl Game {
             } else {
                 PLAYER_RIGHT_BANK
             };
-            player.base.roll = approach_angle(player.base.roll, bank_target, PLAYER_BANK_RATE);
+            let steering_bank = player
+                .base
+                .roll
+                .wrapping_add(previously_applied_damage_bank.wrapping_neg());
+            player.base.roll = approach_angle(steering_bank, bank_target, PLAYER_BANK_RATE)
+                .wrapping_add(damage_bank_impulse);
         } else {
             flight.bank_recovery =
                 pressure_fighters::decay_player_bank_recovery(flight.bank_recovery);
             player.base.roll = Angle::from_units(
                 pressure_fighters::player_ambient_bank(flight.ambient_bank_phase)
-                    .wrapping_add(flight.bank_recovery) as u8,
+                    .wrapping_add(flight.bank_recovery)
+                    .wrapping_add(damage_bank_impulse) as u8,
             );
         }
         let target_speed = if left != right {
@@ -16319,6 +16331,10 @@ impl Game {
         {
             self.prepare_pressure_fighter_follow_camera_anchor(player_position);
         }
+        let damage_camera_pitch_recoil = {
+            let flight = &mut self.state.mission.player_flight;
+            advance_player_damage_camera_recoil(flight)
+        };
         let camera = &mut self.state.mission.flight_follow_camera;
         if !camera.active {
             return;
@@ -16354,7 +16370,7 @@ impl Game {
         camera.anchor_motion_pending = false;
         self.state.camera.position = camera.previous_output_position;
         self.state.camera.rotation = Rotation {
-            pitch: Angle::from_units(pitch.units().wrapping_neg()),
+            pitch: player_damage_camera_pitch(pitch, damage_camera_pitch_recoil),
             yaw: Angle::from_units(
                 pressure_fighters::PLAYER_HANDOFF_YAW
                     .units()
@@ -17135,6 +17151,14 @@ impl Game {
             cadence.control_updates,
         );
         self.state.mission.player_flight.ambient_bank_phase = ambient_bank_phase;
+        let damage_bank_impulse = {
+            let flight = &mut self.state.mission.player_flight;
+            let mut impulse = flight.damage_bank_applied_to_roll;
+            for _ in 0..cadence.control_updates {
+                impulse = advance_player_damage_bank(flight).1;
+            }
+            impulse
+        };
         for _ in 0..cadence.control_updates {
             self.advance_mirage_dragon_camera_control();
         }
@@ -17158,8 +17182,10 @@ impl Game {
                 player.base.flags.collision_disabled = false;
                 player.base.pitch = Angle::ZERO;
                 player.base.yaw = Angle::from_units(mirage_dragon::PLAYER_NEUTRAL_YAW);
-                player.base.roll =
-                    Angle::from_units(mirage_dragon::player_neutral_bank(ambient_bank_phase) as u8);
+                player.base.roll = Angle::from_units(
+                    mirage_dragon::player_neutral_bank(ambient_bank_phase)
+                        .wrapping_add(damage_bank_impulse) as u8,
+                );
                 let movement =
                     flight_velocity(player.base.pitch, player.base.yaw, player.base.speed, 1);
                 let movement_updates = i16::from(cadence.movement_updates);
@@ -17280,6 +17306,8 @@ impl Game {
         previous_player_position: Vector3,
         tracking_target: Vector3,
     ) {
+        let damage_camera_pitch_recoil =
+            advance_player_damage_camera_recoil(&mut self.state.mission.player_flight);
         let camera = &mut self.state.mission.mirage_dragon_camera;
         if retail_frame >= mirage_dragon::CAMERA_TARGET_TRACKING_FIRST_RETAIL_FRAME
             && camera.phase != MirageDragonCameraPhase::TargetTracking
@@ -17375,7 +17403,10 @@ impl Game {
         camera.anchor_position = base_position;
         apply_mirage_dragon_camera_continuity(camera, base_position, base_orientation);
         self.state.camera.position = camera.previous_output_position;
-        self.state.camera.rotation.pitch = Angle::from_units(camera.orientation.pitch as u8);
+        self.state.camera.rotation.pitch = camera_pitch_with_damage_recoil(
+            Angle::from_units(camera.orientation.pitch as u8),
+            damage_camera_pitch_recoil,
+        );
         self.state.camera.rotation.yaw = Angle::from_units(camera.orientation.yaw as u8);
         self.state.camera.rotation.roll = Angle::from_units(camera.orientation.roll as u8);
     }
@@ -18240,6 +18271,8 @@ impl Game {
                 -PLAYER_YAW_ACCUMULATOR_STEP
             });
         }
+        let (previously_applied_damage_bank, damage_bank_impulse) =
+            advance_player_damage_bank(flight);
         let movement_pitch = accumulator_angle(flight.pitch_accumulator);
         let yaw = accumulator_angle(flight.yaw_accumulator);
         let visual_pitch = visible_pitch_from_lean(flight.pitch_lean);
@@ -18257,7 +18290,12 @@ impl Game {
             } else {
                 Angle::ZERO
             };
-            player.base.roll = approach_angle(player.base.roll, bank_target, PLAYER_BANK_RATE);
+            let steering_bank = player
+                .base
+                .roll
+                .wrapping_add(previously_applied_damage_bank.wrapping_neg());
+            player.base.roll = approach_angle(steering_bank, bank_target, PLAYER_BANK_RATE)
+                .wrapping_add(damage_bank_impulse);
             let target_speed = if left != right {
                 PLAYER_TURN_SPEED
             } else {
@@ -18484,6 +18522,8 @@ impl Game {
         pitch: Angle,
         yaw: Angle,
     ) {
+        let damage_camera_pitch_recoil =
+            advance_player_damage_camera_recoil(&mut self.state.mission.player_flight);
         if retail_frame
             <= MISSION_CAMERA_FOLLOW_KEYFRAMES
                 .last()
@@ -18506,7 +18546,7 @@ impl Game {
         self.state.camera.position =
             add_vectors(player_position, self.state.mission.camera_follow_offset);
         self.state.camera.rotation = Rotation {
-            pitch: Angle::from_units(pitch.units().wrapping_neg()),
+            pitch: player_damage_camera_pitch(pitch, damage_camera_pitch_recoil),
             yaw: Angle::from_units(yaw.units().wrapping_neg()),
             roll: Angle::ZERO,
         };
@@ -19069,6 +19109,7 @@ impl Game {
     }
 
     fn apply_player_damage(&mut self, player_id: ObjectId, damage: u8, recovery_frames: u8) {
+        let source_frame = self.state.frame;
         let mut destroyed = false;
         if let Some(player) = self.state.objects.get_mut(player_id) {
             if player.base.flags.collision_disabled {
@@ -19089,6 +19130,12 @@ impl Game {
                 elapsed_retail_frames: 0,
             };
         } else {
+            let flight = &mut self.state.mission.player_flight;
+            flight.damage_bank_impulse = player_damage::player_hit_bank_impulse(source_frame);
+            flight.damage_bank_impulse_fresh = true;
+            if flight.damage_camera_pitch_recoil == 0 {
+                flight.damage_camera_pitch_recoil = player_damage::CAMERA_HIT_PITCH_RECOIL;
+            }
             self.state.mission.player_damage = PlayerDamageState::Recovering {
                 retail_frames_remaining: recovery_frames,
             };
@@ -20415,6 +20462,40 @@ fn pressure_fighter_follow_camera_position(
             .z
             .wrapping_add(offset_z >> pressure_fighters::CAMERA_FOLLOW_POSITION_SCALE_SHIFT),
     }
+}
+
+fn player_damage_camera_pitch(player_pitch: Angle, recoil: i16) -> Angle {
+    camera_pitch_with_damage_recoil(
+        Angle::from_units(player_pitch.units().wrapping_neg()),
+        recoil,
+    )
+}
+
+fn camera_pitch_with_damage_recoil(base_pitch: Angle, recoil: i16) -> Angle {
+    let recoil_units = recoil.wrapping_mul(player_damage::CAMERA_HIT_PITCH_RECOIL_SCALE) as u8;
+    Angle::from_units(base_pitch.units().wrapping_add(recoil_units))
+}
+
+fn advance_player_damage_bank(flight: &mut PlayerFlightState) -> (i8, i8) {
+    let previously_applied = flight.damage_bank_applied_to_roll;
+    if flight.damage_bank_impulse_fresh {
+        flight.damage_bank_impulse_fresh = false;
+    } else {
+        flight.damage_bank_impulse = approach_proportional_i8(
+            flight.damage_bank_impulse,
+            0,
+            player_damage::PLAYER_HIT_BANK_RECOVERY_DIVISOR,
+        );
+    }
+    flight.damage_bank_applied_to_roll = flight.damage_bank_impulse;
+    (previously_applied, flight.damage_bank_impulse)
+}
+
+fn advance_player_damage_camera_recoil(flight: &mut PlayerFlightState) -> i16 {
+    let reversed = flight.damage_camera_pitch_recoil.wrapping_neg();
+    flight.damage_camera_pitch_recoil =
+        approach_i16(reversed, 0, player_damage::CAMERA_HIT_PITCH_RECOIL_STEP);
+    flight.damage_camera_pitch_recoil
 }
 
 fn mirage_dragon_follow_camera_position(
@@ -32592,7 +32673,7 @@ mod tests {
     }
 
     #[test]
-    fn recurring_attacker_neutral_player_and_camera_match_every_oracle_boundary() {
+    fn recurring_attacker_player_camera_and_natural_hit_match_every_oracle_boundary() {
         let mut game = Game::new();
         game.begin_opening_sortie().unwrap();
         game.begin_pressure_fighter_encounter().unwrap();
@@ -32602,16 +32683,20 @@ mod tests {
             .primary_player
             .expect("the recurring-attacker encounter has a primary player");
 
-        let oracle_frames: Vec<_> = pressure_fighter_neutral_oracle_frames()
-            .take_while(|frame| {
-                frame.retail_frame <= pressure_fighters::NEUTRAL_FLIGHT_LAST_RETAIL_FRAME
-            })
-            .collect();
-        assert_eq!(oracle_frames.len(), 442);
+        let oracle_frames: Vec<_> = pressure_fighter_neutral_oracle_frames().collect();
+        assert_eq!(oracle_frames.len(), 505);
         for expected in oracle_frames {
             if expected.retail_frame <= pressure_fighters::ENTRY_LAST_RETAIL_FRAME {
                 game.update_pressure_fighter_presentation(expected.retail_frame);
             } else {
+                if expected.retail_frame == pressure_fighters::FIRST_NATURAL_HIT_RETAIL_FRAME {
+                    game.state.frame = 1;
+                    game.apply_player_damage(
+                        primary_id,
+                        player_damage::HOSTILE_PROJECTILE_ATTACK_POWER,
+                        player_damage::PLAYER_HIT_RECOVERY_RETAIL_FRAMES,
+                    );
+                }
                 game.update_pressure_fighter_flight(expected.retail_frame, false)
                     .unwrap();
                 game.update_objects();
@@ -32646,6 +32731,34 @@ mod tests {
                 expected.retail_frame
             );
         }
+    }
+
+    #[test]
+    fn player_hit_reaction_matches_static_bank_and_camera_sequences() {
+        const NEGATIVE_BANK_SEQUENCE: [i8; 22] = [
+            -30, -27, -24, -21, -19, -17, -15, -14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3,
+            -2, -1, 0,
+        ];
+        const CAMERA_RECOIL_SEQUENCE: [i16; 8] = [-112, 96, -80, 64, -48, 32, -16, 0];
+
+        assert_eq!(player_damage::player_hit_bank_impulse(0), 30);
+        assert_eq!(player_damage::player_hit_bank_impulse(1), -30);
+
+        let mut flight = PlayerFlightState {
+            damage_bank_impulse: player_damage::player_hit_bank_impulse(1),
+            damage_bank_impulse_fresh: true,
+            damage_camera_pitch_recoil: player_damage::CAMERA_HIT_PITCH_RECOIL,
+            ..PlayerFlightState::default()
+        };
+        for expected in NEGATIVE_BANK_SEQUENCE {
+            assert_eq!(advance_player_damage_bank(&mut flight).1, expected);
+        }
+        assert_eq!(flight.damage_bank_impulse, 0);
+
+        for expected in CAMERA_RECOIL_SEQUENCE {
+            assert_eq!(advance_player_damage_camera_recoil(&mut flight), expected);
+        }
+        assert_eq!(flight.damage_camera_pitch_recoil, 0);
     }
 
     #[test]

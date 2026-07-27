@@ -2451,6 +2451,17 @@ pub struct PlayerFlightState {
     pub bank_trim_recovery: i8,
     /// Current sample in the retail craft's subtle ambient bank wave.
     pub ambient_bank_phase: u8,
+    /// Signed bank impulse installed by a non-lethal hit. The source keeps
+    /// this beside the other craft-bank components and decays it independently.
+    pub damage_bank_impulse: i8,
+    /// The impact occurs after the current bank-recovery slice, so the first
+    /// following control slice presents the full impulse before decay begins.
+    pub damage_bank_impulse_fresh: bool,
+    /// Portion of the last presented craft bank contributed by the damage
+    /// impulse, retained separately so ordinary steering can replace it.
+    pub damage_bank_applied_to_roll: i8,
+    /// Alternating camera-pitch recoil installed by the same hit response.
+    pub damage_camera_pitch_recoil: i16,
     /// Motion prepared by a control slice whose movement slice is scheduled
     /// after the current presentation boundary.
     pub pending_motion_velocity: Vector3,

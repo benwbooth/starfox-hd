@@ -23,7 +23,7 @@ pub(super) const ENTRY_LAST_RETAIL_FRAME: u16 = 312;
 pub(super) const LIVE_FIRST_RETAIL_FRAME: u16 = 316;
 pub(super) const LIVE_LAST_RETAIL_FRAME: u16 = 2016;
 #[cfg(test)]
-pub(super) const NEUTRAL_FLIGHT_LAST_RETAIL_FRAME: u16 = 1764;
+pub(super) const FIRST_NATURAL_HIT_RETAIL_FRAME: u16 = 1768;
 const RETAIL_FRAME_STEP: u16 = 4;
 
 pub(super) const PLAYER_HANDOFF_POSITION: Vector3 = Vector3 {
