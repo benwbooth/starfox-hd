@@ -3,7 +3,7 @@
 use sf_game::game::{Game, Hooks};
 use sf_game::shell::{
     le, GameState, Shell, SoundCmd, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS,
-    TITLE_INPUT_DELAY_TICKS,
+    TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
 };
 use sf_game::vars::{PSF3_ENGINESND, PSF3_NOCOLLISIONS};
 use sf_strat::path_adapter::path_bird_touch;
@@ -68,6 +68,9 @@ fn shell_planets_init_clears_nosetport3() {
         sh.tick(0);
     }
     sh.tick(0);
+    for _ in 1..TITLE_PRESENTATION_INPUT_READY_TICKS {
+        sh.tick(0);
+    }
     sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     let _ = sh.drain_sound();
     sh.tick(sf_core::pad::START);

@@ -6,6 +6,7 @@
 use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::shell::{
     GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+    TITLE_PRESENTATION_INPUT_READY_TICKS,
 };
 use sf_game::vars::PSF_NOCTRL;
 
@@ -43,6 +44,9 @@ fn drive_to_controllable() -> Shell {
         shell.tick(0);
     }
     shell.tick(0);
+    for _ in 1..TITLE_PRESENTATION_INPUT_READY_TICKS {
+        shell.tick(0);
+    }
     shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     shell.tick(pad::START); // Title -> controller screen
     while shell.state() == GameState::Title {

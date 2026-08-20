@@ -49,7 +49,7 @@ use crate::vars::{
     BossEncounter, GameVars, GF_PLAYERDEAD, PFM_SHADOWS, PLAYER_DEATH_FADE_DELAY_TICKS,
     PSF2_PLAYERHP0, PSF3_ENGINESND, PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, STAY_BLACK_INACTIVE,
 };
-use crate::windows::{Windows, BLACK_FADE_MAX};
+use crate::windows::{MapFadeRate, Windows, BLACK_FADE_MAX};
 use crate::world::World;
 use crate::{bgs, draw};
 
@@ -88,14 +88,18 @@ pub const BOOT_TO_ATTRACT_DELAY_TICKS: u16 = 43;
 pub const TITLE_ATTRACT_DURATION_TICKS: u16 = 880;
 /// ENDSEQ ignores START until the title has been active for this many ticks.
 pub const TITLE_INPUT_DELAY_TICKS: u16 = 40;
+/// Fixed-rate native ticks before the retail title presentation is ready to
+/// accept the same START edge. The full-machine oracle reaches ENDSEQ's
+/// authored 40-frame gate 65 sampled 20 Hz ticks after title entry because
+/// the original presentation workload advances its game frame unevenly.
+pub const TITLE_PRESENTATION_INPUT_READY_TICKS: u16 = 65;
 /// ENDSEQ ignores an intro skip until this many strategy ticks have elapsed.
 pub const INTRO_INPUT_DELAY_TICKS: u16 = 30;
-/// ENDSEQ title exit uses a three-level black-fade step.
-pub const TITLE_EXIT_FADE_SPEED: u8 = 3;
-/// ENDSEQ intro exit uses a two-level black-fade step.
-pub const INTRO_EXIT_FADE_SPEED: u8 = 2;
 /// ENDSEQ seeds the intro exit fade at this intensity.
 pub const INTRO_EXIT_FADE_START: u8 = 11;
+/// Retail-observed black presentation between the title fade completing and
+/// the controller screen becoming the active background.
+pub const TITLE_TO_BRIEFING_BLACK_HOLD_TICKS: u16 = 22;
 /// Native sound-catalog identity loaded by both attract-intro entry points.
 pub const MUSIC_ATTRACT_INTRO: u8 = 1;
 /// Driver cue used while leaving the title.
@@ -108,8 +112,6 @@ pub const BRIEFING_INPUT_DELAY_TICKS: u16 = 16;
 pub const BRIEFING_MOVE_SOUND: u8 = 17;
 /// Controller/destination confirmation cue.
 pub const BRIEFING_CONFIRM_SOUND: u8 = 16;
-/// Controller-screen and training exits use the source unit-speed fade.
-pub const BRIEFING_EXIT_FADE_SPEED: u8 = 1;
 /// CONT.ASM lets the training scene run for this many ticks before START exits.
 pub const TRAINING_INPUT_DELAY_TICKS: u16 = 20;
 /// Controller-screen source loadout.
@@ -238,14 +240,18 @@ enum AttractDestination {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AttractSequence {
     level_loaded: bool,
+    phase_ticks: u16,
     fade_destination: Option<AttractDestination>,
+    handoff_ticks_remaining: Option<u16>,
 }
 
 impl Default for AttractSequence {
     fn default() -> Self {
         Self {
             level_loaded: false,
+            phase_ticks: 0,
             fade_destination: None,
+            handoff_ticks_remaining: None,
         }
     }
 }
@@ -1465,6 +1471,11 @@ impl Shell {
             }
         }
 
+        let attract_fade_was_active =
+            matches!(self.game_state, GameState::AttractIntro | GameState::Title)
+                && self.attract.fade_destination.is_some()
+                && self.state.borrow().windows.is_map_fade_active();
+
         // Every tick after the state switch (boot.c:278-284):
         // Bgs_Update, Windows_Update, Strings_Update.
         bgs::update(&mut self.game.vars);
@@ -1485,6 +1496,7 @@ impl Shell {
         // it releases the fade instead of waiting for the next game tick.
         if matches!(self.game_state, GameState::AttractIntro | GameState::Title)
             && self.attract.fade_destination.is_some()
+            && attract_fade_was_active
             && !self.state.borrow().windows.is_map_fade_active()
         {
             self.finish_attract_fade_if_ready();
@@ -2006,6 +2018,7 @@ impl Shell {
             self.game.vars.oncewipe = 1;
             self.attract.level_loaded = true;
         }
+        self.attract.phase_ticks = self.attract.phase_ticks.saturating_add(1);
 
         self.presentation_scene_tick();
 
@@ -2018,6 +2031,7 @@ impl Shell {
 
         let timed_out = self.game.vars.gameframe >= TITLE_ATTRACT_DURATION_TICKS;
         let start_pressed = self.game.vars.gameframe >= TITLE_INPUT_DELAY_TICKS
+            && self.attract.phase_ticks >= TITLE_PRESENTATION_INPUT_READY_TICKS
             && self.game.vars.pad1 & pad::START != 0;
         if !timed_out && !start_pressed {
             return;
@@ -2035,7 +2049,7 @@ impl Shell {
         } else {
             AttractDestination::Intro
         };
-        self.begin_attract_fade(destination, TITLE_EXIT_FADE_SPEED, 0);
+        self.begin_attract_fade(destination, MapFadeRate::Slow, 0);
     }
 
     /// Retail `intro_l` presentation loop.
@@ -2064,7 +2078,7 @@ impl Shell {
         if self.game.vars.strategy.intro_exit_requested || self.game.vars.pad1 != 0 {
             self.begin_attract_fade(
                 AttractDestination::Title,
-                INTRO_EXIT_FADE_SPEED,
+                MapFadeRate::Quick,
                 INTRO_EXIT_FADE_START,
             );
         }
@@ -2138,9 +2152,7 @@ impl Shell {
                         let mut state = self.state.borrow_mut();
                         state.sound.push(SoundCmd::PlaySe(BRIEFING_CONFIRM_SOUND));
                         state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
-                        state
-                            .windows
-                            .fade_to_black_from(BRIEFING_EXIT_FADE_SPEED, 0);
+                        state.windows.fade_to_black_from(MapFadeRate::Normal, 0);
                     }
                     self.briefing.fade_destination = Some(destination);
                 }
@@ -2219,9 +2231,7 @@ impl Shell {
             {
                 let mut state = self.state.borrow_mut();
                 state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
-                state
-                    .windows
-                    .fade_to_black_from(BRIEFING_EXIT_FADE_SPEED, 0);
+                state.windows.fade_to_black_from(MapFadeRate::Normal, 0);
             }
             self.training.returning_to_briefing = true;
         }
@@ -2269,12 +2279,18 @@ impl Shell {
         );
     }
 
-    fn begin_attract_fade(&mut self, destination: AttractDestination, speed: u8, intensity: u8) {
+    fn begin_attract_fade(
+        &mut self,
+        destination: AttractDestination,
+        rate: MapFadeRate,
+        intensity: u8,
+    ) {
         self.state
             .borrow_mut()
             .windows
-            .fade_to_black_from(speed, intensity);
+            .fade_to_black_from(rate, intensity);
         self.attract.fade_destination = Some(destination);
+        self.attract.handoff_ticks_remaining = None;
     }
 
     fn finish_attract_fade_if_ready(&mut self) -> bool {
@@ -2283,6 +2299,20 @@ impl Shell {
         };
         if self.state.borrow().windows.is_map_fade_active() {
             return false;
+        }
+
+        if destination == AttractDestination::Briefing {
+            match self.attract.handoff_ticks_remaining {
+                None => {
+                    self.attract.handoff_ticks_remaining = Some(TITLE_TO_BRIEFING_BLACK_HOLD_TICKS);
+                    return false;
+                }
+                Some(ticks_remaining) if ticks_remaining > 1 => {
+                    self.attract.handoff_ticks_remaining = Some(ticks_remaining - 1);
+                    return false;
+                }
+                Some(_) => {}
+            }
         }
 
         match destination {
@@ -3299,6 +3329,9 @@ mod tests {
         assert_eq!(shell.state(), GameState::Title);
         shell.tick(0);
         assert_eq!(shell.game.world.loaded_map_id, Some(map_id::TITLE));
+        while shell.attract.phase_ticks < TITLE_PRESENTATION_INPUT_READY_TICKS {
+            shell.tick(0);
+        }
         shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     }
 
@@ -3634,6 +3667,9 @@ mod tests {
         }
         sh.tick(0);
         assert_eq!(sh.game.world.loaded_map_id, Some(map_id::TITLE));
+        while sh.attract.phase_ticks < TITLE_PRESENTATION_INPUT_READY_TICKS {
+            sh.tick(0);
+        }
         sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
 
         // START fades down into the controller screen.

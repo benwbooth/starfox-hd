@@ -33,14 +33,14 @@ const KEY_MAP: &[(Scancode, u16)] = &[
 /// Analog stick deadzone (C `DEADZONE`, sf_rtl.c:111).
 const STICK_DEADZONE: i16 = 8000;
 const SF1_FRONT_END_CONFIRM_CADENCE_TICKS: u32 = 60;
-/// Last periodic confirmation after the first-use Training return.
-const SF1_FRONT_END_LAST_CONFIRM_TICK: u32 = 420;
-/// Route selection becomes active after the tick-420 briefing fade.
-const SF1_ROUTE_SELECT_CONFIRM_TICK: u32 = 460;
+/// Last periodic confirmation after Training exits and GAME is selected.
+const SF1_PRESENTATION_LAST_CONFIRM_TICK: u32 = 540;
+/// Route selection becomes active after the tick-540 briefing fade.
+const SF1_ROUTE_SELECT_CONFIRM_TICK: u32 = 600;
 /// B pulses cover the typed General Pepper boundary without pausing gameplay
 /// if the fixed test schedule reaches flight a few ticks early.
-const SF1_PLANET_SEQUENCE_DISMISS_START_TICK: u32 = 540;
-const SF1_PLANET_SEQUENCE_DISMISS_END_TICK: u32 = 600;
+const SF1_PLANET_SEQUENCE_DISMISS_START_TICK: u32 = 610;
+const SF1_PLANET_SEQUENCE_DISMISS_END_TICK: u32 = 800;
 const SF1_PLANET_SEQUENCE_DISMISS_CADENCE_TICKS: u32 = 2;
 const SF1_LASER_FIRE_CADENCE_TICKS: u32 = 8;
 const SF1_LASER_FIRE_HOLD_TICKS: u32 = 4;
@@ -365,7 +365,7 @@ impl Input {
         if t == SF1_ROUTE_SELECT_CONFIRM_TICK {
             return pad::START;
         }
-        if t <= SF1_FRONT_END_LAST_CONFIRM_TICK {
+        if t <= SF1_PRESENTATION_LAST_CONFIRM_TICK {
             return if t % SF1_FRONT_END_CONFIRM_CADENCE_TICKS == 0 {
                 pad::START
             } else {
@@ -426,26 +426,24 @@ mod tests {
                 presses.push(t);
             }
         }
-        let expected_presses = (0..=SF1_FRONT_END_LAST_CONFIRM_TICK)
+        let expected_presses = (0..=SF1_PRESENTATION_LAST_CONFIRM_TICK)
             .step_by(SF1_FRONT_END_CONFIRM_CADENCE_TICKS as usize)
             .chain(std::iter::once(SF1_ROUTE_SELECT_CONFIRM_TICK))
             .collect::<Vec<_>>();
         assert_eq!(presses, expected_presses);
-        input.frame_count = SF1_ROUTE_SELECT_CONFIRM_TICK + SF1_LASER_FIRE_HOLD_TICKS;
-        assert_eq!(input.autoplay_pad(None), pad::Y);
-        input.frame_count = SF1_ROUTE_SELECT_CONFIRM_TICK + SF1_LASER_FIRE_CADENCE_TICKS;
-        assert_eq!(input.autoplay_pad(None), 0);
         input.frame_count = SF1_PLANET_SEQUENCE_DISMISS_START_TICK;
         assert_eq!(input.autoplay_pad(None), pad::B);
         input.frame_count = SF1_PLANET_SEQUENCE_DISMISS_START_TICK + 1;
         assert_eq!(input.autoplay_pad(None), 0);
         input.frame_count = SF1_PLANET_SEQUENCE_DISMISS_END_TICK;
         assert_eq!(input.autoplay_pad(None), pad::Y);
+        input.frame_count = SF1_PLANET_SEQUENCE_DISMISS_END_TICK + SF1_LASER_FIRE_HOLD_TICKS;
+        assert_eq!(input.autoplay_pad(None), 0);
     }
 
     #[test]
     fn sf1_autoplay_schedule_completes_the_front_end() {
-        const SMOKE_TICKS: u32 = 600;
+        const SMOKE_TICKS: u32 = 800;
 
         let mut input = Input {
             pad1: 0,

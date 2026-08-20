@@ -6,6 +6,7 @@
 use sf_core::pad;
 use sf_game::shell::{
     GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+    TITLE_PRESENTATION_INPUT_READY_TICKS,
 };
 
 fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
@@ -20,6 +21,9 @@ fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
             sh.tick(0);
         }
         sh.tick(0);
+        for _ in 1..TITLE_PRESENTATION_INPUT_READY_TICKS {
+            sh.tick(0);
+        }
         sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
         sh.tick(pad::START);
         while sh.state() == GameState::Title {

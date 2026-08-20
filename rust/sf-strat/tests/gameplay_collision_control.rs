@@ -17,6 +17,7 @@ use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_game::shell::{
     GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
+    TITLE_PRESENTATION_INPUT_READY_TICKS,
 };
 use sf_game::vars::{COLLTYPE_ENEMY1, PSF3_NOCOLLISIONS, PSF_NOCTRL};
 use sf_strat::common::StratRam;
@@ -47,6 +48,9 @@ fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
         sh.tick(0);
     }
     sh.tick(0);
+    for _ in 1..TITLE_PRESENTATION_INPUT_READY_TICKS {
+        sh.tick(0);
+    }
     sh.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     sh.tick(pad::START); // Title -> controller screen
     while sh.state() == GameState::Title {

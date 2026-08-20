@@ -112,11 +112,14 @@ subsystem.
 retail game's named straight-motion strategy and the flat native Rust strategy
 for 30 frames, then compares position, velocity, and view motion through this
 shared format. The same test target now boots the complete retail cartridge and
-the native shell under one physical controller trace. The reset/loading interval
-and first attract-to-title handoff match exactly: attract begins at sampled tick
-43 and title begins 86 ticks later. The shipping correction is an ordinary
-typed boot counter, and the fade handoff follows the source transfer ordering;
-neither adds source-machine storage to the port.
+the native shell under one physical controller trace through the controller
+screen. The reset/loading interval and both front-end handoffs match exactly:
+attract begins at sampled tick 43, title begins 86 ticks later, and the
+controller screen begins at relative tick 248. The shipping correction uses
+ordinary typed counters and a semantic fade-rate enum. The original 40-update
+START gate remains explicit, while a 65-tick native presentation-readiness gate
+and 22-tick black handoff reproduce the retail fixed-rate observation without
+adding source-machine storage to the port.
 
 The longer diagnostic remains executable with:
 
@@ -125,14 +128,14 @@ nix develop --command bash -c \
   "cd rust && cargo run -p sf-oracle --example sf1_frontend_diff -- 340"
 ```
 
-It intentionally exits unsuccessfully at the next known frontier. Under the
-current periodic START trace, retail reaches the controller screen at relative
-tick 248 while native reaches it at 146. `sf1_state_timeline` shows why: during
-the retail title load/reveal, source `gameframe` advances irregularly and the
-tick-180 input is below the authored 40-update input gate; the fixed-rate port
-currently accepts that pulse. This is now a deterministic first-divergence
-target, not an inferred or manually observed timing bug. The remaining work
-must extend this adapter through briefing, route selection, gameplay, endings,
+It now exits successfully through the controller-screen boundary under the
+periodic START trace. `sf1_state_timeline` remains the lower-level diagnostic:
+during the retail title load/reveal, source `gameframe` advances irregularly,
+so the tick-180 input remains below the authored 40-update gate and the
+tick-240 pulse is the first accepted one. The native port retains a fixed 20 Hz
+simulation and represents that measured readiness with typed presentation
+state rather than recreating processor workload. The remaining work must extend
+this adapter through controller selection, route selection, gameplay, endings,
 video/audio hashes, and source-edge coverage before any whole-game parity claim.
 
 ## Coverage closure

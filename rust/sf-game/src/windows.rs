@@ -29,6 +29,31 @@ pub const WINDOW_MODE_HALFFADE: u8 = 7;
 /// Full black intensity and the number of unit-speed fade steps.
 pub const BLACK_FADE_MAX: u8 = 30;
 
+/// Authored presentation fade modes. The slow mode is encoded distinctly from
+/// its unit intensity delta; it is not a three-level step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i8)]
+pub(crate) enum MapFadeRate {
+    Normal = 1,
+    Quick = 2,
+    Slow = 3,
+}
+
+impl MapFadeRate {
+    const fn to_black_direction(self) -> i8 {
+        -(self as i8)
+    }
+
+    const fn intensity_step(self) -> u8 {
+        match self {
+            Self::Normal | Self::Slow => 1,
+            Self::Quick => 2,
+        }
+    }
+}
+
+const SLOW_FADE_DIRECTION: i8 = MapFadeRate::Slow.to_black_direction();
+
 /// `stayblack` color tag for [`WINDOW_MODE_HITFLASH`] (not a black-hold timer).
 pub const HITFLASH_TURQ: u8 = 0;
 pub const HITFLASH_TURQ2: u8 = 1;
@@ -139,7 +164,14 @@ impl Windows {
         }
 
         if self.fadedir < 0 {
-            let step = (-(self.fadedir as i16)) as u8;
+            // ENDSEQ's authored slow title fade uses direction -3 as a mode,
+            // not as a three-level intensity delta. Normal and quick fades
+            // retain their one- and two-level deltas.
+            let step = if self.fadedir == SLOW_FADE_DIRECTION {
+                MapFadeRate::Slow.intensity_step()
+            } else {
+                (-(self.fadedir as i16)) as u8
+            };
             let next = self.slots[slot].wm_val as u16 + step as u16;
             self.slots[slot].wm_val = if next >= u16::from(BLACK_FADE_MAX) {
                 BLACK_FADE_MAX
@@ -254,7 +286,7 @@ impl Windows {
     /// the fade counter directly before entering their transfer loops. Map
     /// opcodes continue to use [`Self::fade_to_black`], whose normal/quick
     /// speeds are restricted to one or two intensity steps per tick.
-    pub fn fade_to_black_from(&mut self, speed: u8, intensity: u8) {
+    pub(crate) fn fade_to_black_from(&mut self, rate: MapFadeRate, intensity: u8) {
         let Some(slot) = self.get_or_alloc(WINDOW_MODE_MAPFADE) else {
             self.fadedir = 0;
             return;
@@ -262,7 +294,7 @@ impl Windows {
         self.slots[slot].mode = WINDOW_MODE_MAPFADE;
         self.slots[slot].stayblack = 0;
         self.slots[slot].wm_val = intensity.min(BLACK_FADE_MAX);
-        self.fadedir = -(speed.max(1) as i8);
+        self.fadedir = rate.to_black_direction();
     }
 
     /// C `Windows_FadeFromBlack()` (src/game/windows.c:184).
@@ -513,6 +545,23 @@ mod tests {
         tick(&mut w, &mut ow, &mut ca, 1);
         assert_eq!(w.fadedir, 0);
         assert_eq!(w.windowmode, 0); // deallocated (windows.c:112-115)
+        assert!(!w.is_map_fade_active());
+    }
+
+    /// ENDSEQ direction -3 is the title's slow-fade mode: it advances one
+    /// native intensity level per update rather than treating 3 as a delta.
+    #[test]
+    fn authored_slow_fade_uses_unit_intensity_steps() {
+        let mut w = Windows::new();
+        let (mut ow, mut ca) = (1u8, 0i16);
+        w.fade_to_black_from(MapFadeRate::Slow, 0);
+
+        let penultimate_intensity = BLACK_FADE_MAX - MapFadeRate::Slow.intensity_step();
+        tick(&mut w, &mut ow, &mut ca, usize::from(penultimate_intensity));
+        assert_eq!(w.slots[0].wm_val, penultimate_intensity);
+        assert!(w.is_map_fade_active());
+        tick(&mut w, &mut ow, &mut ca, 1);
+        assert_eq!(w.slots[0].wm_val, BLACK_FADE_MAX);
         assert!(!w.is_map_fade_active());
     }
 

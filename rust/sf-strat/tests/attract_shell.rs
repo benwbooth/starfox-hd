@@ -9,12 +9,12 @@ use sf_game::shell::{
     GameState, Shell, SoundCmd, BOOT_TO_ATTRACT_DELAY_TICKS, BRIEFING_CONFIRM_SOUND,
     BRIEFING_INPUT_DELAY_TICKS, BRIEFING_MOVE_SOUND, INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO,
     MUSIC_CONTROLLER_SCREEN, MUSIC_FADE_OUT, TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS,
-    TRAINING_INPUT_DELAY_TICKS,
+    TITLE_PRESENTATION_INPUT_READY_TICKS, TRAINING_INPUT_DELAY_TICKS,
 };
 use sf_map::catalog::map_id;
 use sf_strat::common::{sv, StratRam};
 
-const TRANSITION_LIMIT_TICKS: usize = 40;
+const TRANSITION_LIMIT_TICKS: usize = 64;
 const NATURAL_INTRO_LIMIT_TICKS: usize = 1000;
 const TEXT_PATH_SPAWN_LIMIT_TICKS: usize = 100;
 const EXPECTED_TEXT_PATHS: usize = 2;
@@ -61,6 +61,9 @@ fn skip_boot_intro(shell: &mut Shell) {
 
 fn enter_briefing(shell: &mut Shell) {
     skip_boot_intro(shell);
+    for _ in 1..TITLE_PRESENTATION_INPUT_READY_TICKS {
+        shell.tick(0);
+    }
     shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     shell.tick(pad::START);
     tick_until_state(shell, GameState::Briefing, TRANSITION_LIMIT_TICKS);
@@ -130,6 +133,16 @@ fn intro_skip_gate_and_title_start_gate_reach_the_controller_screen() {
     assert_eq!(shell.state(), GameState::Title);
     shell.tick(0);
     shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS - 1;
+    shell.tick(pad::START);
+    assert_eq!(shell.state(), GameState::Title);
+    assert!(!shell
+        .drain_sound()
+        .contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
+
+    for _ in 4..TITLE_PRESENTATION_INPUT_READY_TICKS {
+        shell.tick(0);
+    }
+    shell.game.vars.gameframe = TITLE_INPUT_DELAY_TICKS;
     shell.tick(pad::START);
     assert_eq!(shell.state(), GameState::Title);
     let sounds = shell.drain_sound();

@@ -19,11 +19,12 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 130;
+const FRONT_END_TICKS: u32 = 320;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
 const RETAIL_TITLE_BACKGROUND: u16 = 249;
+const RETAIL_BRIEFING_BACKGROUND: u16 = 255;
 const FRONT_END_CONFIRM_CADENCE_TICKS: u32 = 60;
 const FRONT_END_CONFIRM_HOLD_TICKS: u32 = 2;
 
@@ -128,6 +129,7 @@ fn retail_straight_motion_matches_native_semantic_trace() {
 enum FrontEndPhase {
     AttractIntro,
     Title,
+    Briefing,
 }
 
 impl FrontEndPhase {
@@ -135,6 +137,7 @@ impl FrontEndPhase {
         match self {
             Self::AttractIntro => "attract-intro",
             Self::Title => "title",
+            Self::Briefing => "briefing",
         }
     }
 }
@@ -171,7 +174,7 @@ fn record_front_end_transition(
 }
 
 #[test]
-fn retail_boot_and_first_attract_handoff_match_native_semantic_timing() {
+fn retail_front_end_through_briefing_matches_native_semantic_timing() {
     let Some(rom) = load_retail_rom() else {
         eprintln!("retail front-end trace skipped: Star Fox retail ROM not found");
         return;
@@ -200,11 +203,13 @@ fn retail_boot_and_first_attract_handoff_match_native_semantic_timing() {
         let retail_phase = match retail.peek16(WORK_RAM | RETAIL_CURRENTBG) {
             RETAIL_ATTRACT_BACKGROUND => Some(FrontEndPhase::AttractIntro),
             RETAIL_TITLE_BACKGROUND => Some(FrontEndPhase::Title),
+            RETAIL_BRIEFING_BACKGROUND => Some(FrontEndPhase::Briefing),
             _ => None,
         };
         let native_phase = match native.state() {
             GameState::AttractIntro => Some(FrontEndPhase::AttractIntro),
             GameState::Title => Some(FrontEndPhase::Title),
+            GameState::Briefing => Some(FrontEndPhase::Briefing),
             _ => None,
         };
         record_front_end_transition(
@@ -226,7 +231,11 @@ fn retail_boot_and_first_attract_handoff_match_native_semantic_timing() {
     if let Some(divergence) =
         first_divergence(&retail_trace, &native_trace).expect("front-end traces must be valid")
     {
-        panic!("retail boot/attract trace diverged: {divergence}");
+        panic!("retail front-end trace diverged: {divergence}");
     }
-    assert_eq!(retail_trace.len(), 2, "trace must reach the retail title");
+    assert_eq!(
+        retail_trace.len(),
+        3,
+        "trace must reach the retail controller screen"
+    );
 }

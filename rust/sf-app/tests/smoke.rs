@@ -1,5 +1,5 @@
 //! Smoke test: run the built binary headless-ish (hidden window) under
-//! SF_AUTOPLAY for 600 ticks (~30 s of game time), dump the state trace and
+//! SF_AUTOPLAY for 800 ticks (~40 s of game time), dump the state trace and
 //! one frame readback, and assert the ENDSEQ/MAIN state-machine transitions:
 //! BOOT -> ATTRACT_INTRO -> TITLE -> BRIEFING -> TRAINING -> BRIEFING ->
 //! PLANET_SELECT -> PLAYING.
@@ -125,7 +125,7 @@ fn autoplay_reaches_gameplay() {
         .current_dir(&cwd)
         .env("SF_AUTOPLAY", "1")
         .env("SF_HIDDEN", "1")
-        .env("SF_MAX_TICKS", "600") // 30 s of game time at 20 Hz
+        .env("SF_MAX_TICKS", "800") // 40 s of game time at 20 Hz
         .env("SF_STATE_DUMP", &dump_path)
         .env("SF_DUMP_PPM", &ppm_path)
         .status()
@@ -134,7 +134,7 @@ fn autoplay_reaches_gameplay() {
 
     let dump = std::fs::read_to_string(&dump_path).expect("state dump missing");
     let states = parse_states(&dump);
-    assert_eq!(states.len(), 600, "expected 600 dumped ticks");
+    assert_eq!(states.len(), 800, "expected 800 dumped ticks");
 
     let seq = dedup_states(&states);
     eprintln!("smoke: state sequence {seq:?}");
