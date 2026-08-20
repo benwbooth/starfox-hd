@@ -78,6 +78,12 @@ pub const DEATH_RESPAWN_TICKS: i32 =
 /// updates (300 / 65 rounded up).
 pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 5;
 
+/// Retail reset-to-attract handoff measured from the full-machine oracle.
+/// Boot remains active for 43 complete native 20 Hz ticks; the attract state
+/// becomes active on the following tick (video frame 132 in the oracle's
+/// zero-based sampled timeline). Input during this interval is ignored.
+pub const BOOT_TO_ATTRACT_DELAY_TICKS: u16 = 43;
+
 /// ENDSEQ title hold before the unattended attract intro begins.
 pub const TITLE_ATTRACT_DURATION_TICKS: u16 = 880;
 /// ENDSEQ ignores START until the title has been active for this many ticks.
@@ -1208,6 +1214,8 @@ pub struct Shell {
     pub game: Game,
     state: Rc<RefCell<ShellState>>,
     game_state: GameState,
+    /// Typed reset/loading interval before BOOTNMI enters the attract sequence.
+    boot_ticks: u16,
     /// Typed ENDSEQ attract-level load and fade handoff state.
     attract: AttractSequence,
     /// Typed CONT.ASM controller-layout and destination state.
@@ -1273,6 +1281,7 @@ impl Shell {
             game: Game::with_hooks(Box::new(hooks)),
             state,
             game_state: GameState::Boot, // C g_game_state init (boot.c:33)
+            boot_ticks: 0,
             attract: AttractSequence::default(),
             briefing: BriefingSequence::default(),
             training: TrainingSequence::default(),
@@ -1393,7 +1402,13 @@ impl Shell {
 
         // C Game_Tick state switch (boot.c:226-276).
         match self.game_state {
-            GameState::Boot => self.game_init(),
+            GameState::Boot => {
+                if self.boot_ticks < BOOT_TO_ATTRACT_DELAY_TICKS {
+                    self.boot_ticks += 1;
+                } else {
+                    self.game_init();
+                }
+            }
             GameState::AttractIntro => self.attract_intro_tick(),
             GameState::Title => self.title_tick(),
             GameState::Briefing => self.briefing_tick(),
@@ -1463,6 +1478,17 @@ impl Shell {
             st.strings.friends_meter
         };
         self.game.vars.shared.friends_meter = friends_meter;
+
+        // ENDSEQ checks `fadedir` after `transfer_l`; that transfer includes
+        // the video interrupt which can complete the fade. Windows_Update is
+        // the port's equivalent step, so finish the handoff on this tick when
+        // it releases the fade instead of waiting for the next game tick.
+        if matches!(self.game_state, GameState::AttractIntro | GameState::Title)
+            && self.attract.fade_destination.is_some()
+            && !self.state.borrow().windows.is_map_fade_active()
+        {
+            self.finish_attract_fade_if_ready();
+        }
 
         // Direct strategy callbacks use the source-layout `circleanim` field
         // to request the default star wipe. Promote that request into typed
@@ -3215,10 +3241,50 @@ mod tests {
         panic!("screen wipe did not finish within its authored frame budget");
     }
 
+    #[test]
+    fn boot_ignores_input_until_the_retail_attract_handoff() {
+        let mut shell = Shell::new();
+
+        for _ in 0..BOOT_TO_ATTRACT_DELAY_TICKS {
+            shell.tick(pad::START);
+            assert_eq!(shell.state(), GameState::Boot);
+        }
+
+        shell.tick(pad::START);
+        assert_eq!(shell.state(), GameState::AttractIntro);
+        assert_eq!(
+            shell.game.vars.pad1, 0,
+            "boot input must not leak into play"
+        );
+        assert_eq!(shell.attract.fade_destination, None);
+    }
+
+    #[test]
+    fn attract_handoff_observes_fade_completion_after_the_transfer_step() {
+        const RETAIL_FADE_TICKS: usize = 10;
+
+        let mut shell = Shell::new();
+        while shell.state() == GameState::Boot {
+            shell.tick(0);
+        }
+        shell.tick(0);
+        shell.game.vars.gameframe = INTRO_INPUT_DELAY_TICKS;
+
+        shell.tick(pad::A);
+        assert_eq!(shell.state(), GameState::AttractIntro);
+        for _ in 1..RETAIL_FADE_TICKS {
+            shell.tick(0);
+        }
+
+        assert_eq!(shell.state(), GameState::Title);
+    }
+
     fn advance_to_loaded_title(shell: &mut Shell) {
         const MAX_INTRO_TRANSITION_TICKS: usize = 64;
 
-        shell.tick(0);
+        while shell.state() == GameState::Boot {
+            shell.tick(0);
+        }
         assert_eq!(shell.state(), GameState::AttractIntro);
         shell.tick(0);
         while shell.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
@@ -3555,7 +3621,9 @@ mod tests {
         assert_eq!(sh.state().code(), 0); // GAME_STATE_BOOT
 
         // BOOTNMI runs the intro before its first title sequence.
-        sh.tick(0);
+        while sh.state() == GameState::Boot {
+            sh.tick(0);
+        }
         assert_eq!(sh.state().code(), 8);
         assert_eq!(sh.state(), GameState::AttractIntro);
         while sh.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {

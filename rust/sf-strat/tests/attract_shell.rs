@@ -6,9 +6,9 @@ use sf_core::{
 };
 use sf_game::alien::ASF4_TEXTOBJ;
 use sf_game::shell::{
-    GameState, Shell, SoundCmd, BRIEFING_CONFIRM_SOUND, BRIEFING_INPUT_DELAY_TICKS,
-    BRIEFING_MOVE_SOUND, INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO, MUSIC_CONTROLLER_SCREEN,
-    MUSIC_FADE_OUT, TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS,
+    GameState, Shell, SoundCmd, BOOT_TO_ATTRACT_DELAY_TICKS, BRIEFING_CONFIRM_SOUND,
+    BRIEFING_INPUT_DELAY_TICKS, BRIEFING_MOVE_SOUND, INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO,
+    MUSIC_CONTROLLER_SCREEN, MUSIC_FADE_OUT, TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS,
     TRAINING_INPUT_DELAY_TICKS,
 };
 use sf_map::catalog::map_id;
@@ -39,9 +39,16 @@ fn tick_until_state(shell: &mut Shell, expected: GameState, limit: usize) {
     assert_eq!(shell.state(), expected);
 }
 
+fn finish_boot(shell: &mut Shell) {
+    tick_until_state(
+        shell,
+        GameState::AttractIntro,
+        usize::from(BOOT_TO_ATTRACT_DELAY_TICKS) + 1,
+    );
+}
+
 fn skip_boot_intro(shell: &mut Shell) {
-    shell.tick(0);
-    assert_eq!(shell.state(), GameState::AttractIntro);
+    finish_boot(shell);
     shell.tick(0);
     for _ in 1..INTRO_INPUT_DELAY_TICKS {
         shell.tick(pad::START);
@@ -63,7 +70,7 @@ fn enter_briefing(shell: &mut Shell) {
 #[test]
 fn boot_loads_the_retail_intro_map_player_and_music() {
     let mut shell = make_shell();
-    shell.tick(0);
+    finish_boot(&mut shell);
     assert_eq!(shell.state(), GameState::AttractIntro);
 
     shell.tick(0);
@@ -78,7 +85,7 @@ fn boot_loads_the_retail_intro_map_player_and_music() {
 #[test]
 fn nintendo_presents_paths_stay_at_the_authored_view_distance() {
     let mut shell = make_shell();
-    shell.tick(0);
+    finish_boot(&mut shell);
     shell.tick(0);
 
     let mut paths = Vec::new();
@@ -271,7 +278,7 @@ fn unattended_title_fades_back_to_a_fresh_intro() {
 #[test]
 fn lead_fighter_naturally_completes_the_intro_without_input() {
     let mut shell = make_shell();
-    shell.tick(0);
+    finish_boot(&mut shell);
     shell.tick(0);
 
     tick_until_state(&mut shell, GameState::Title, NATURAL_INTRO_LIMIT_TICKS);

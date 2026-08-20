@@ -111,9 +111,29 @@ subsystem.
 `sf-oracle/tests/semantic_trace.rs` is the first live adapter proof. It runs the
 retail game's named straight-motion strategy and the flat native Rust strategy
 for 30 frames, then compares position, velocity, and view motion through this
-shared format. This establishes the mechanism; it does not yet constitute
-whole-game parity. The next increments must adapt complete boot-to-ending
-scenarios and add native frame/audio hashes plus source-edge coverage.
+shared format. The same test target now boots the complete retail cartridge and
+the native shell under one physical controller trace. The reset/loading interval
+and first attract-to-title handoff match exactly: attract begins at sampled tick
+43 and title begins 86 ticks later. The shipping correction is an ordinary
+typed boot counter, and the fade handoff follows the source transfer ordering;
+neither adds source-machine storage to the port.
+
+The longer diagnostic remains executable with:
+
+```text
+nix develop --command bash -c \
+  "cd rust && cargo run -p sf-oracle --example sf1_frontend_diff -- 340"
+```
+
+It intentionally exits unsuccessfully at the next known frontier. Under the
+current periodic START trace, retail reaches the controller screen at relative
+tick 248 while native reaches it at 146. `sf1_state_timeline` shows why: during
+the retail title load/reveal, source `gameframe` advances irregularly and the
+tick-180 input is below the authored 40-update input gate; the fixed-rate port
+currently accepts that pulse. This is now a deterministic first-divergence
+target, not an inferred or manually observed timing bug. The remaining work
+must extend this adapter through briefing, route selection, gameplay, endings,
+video/audio hashes, and source-edge coverage before any whole-game parity claim.
 
 ## Coverage closure
 
