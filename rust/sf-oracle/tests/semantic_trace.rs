@@ -1,12 +1,14 @@
 //! End-to-end proof that a real retail routine and the flat native port can be
 //! compared through the shared, storage-independent semantic trace format.
 
-use sf_core::pad;
+use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase};
 use sf_difftest::{first_divergence, SemanticFrame, SemanticObject};
 use sf_game::shell::{GameState, Shell};
 use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_VX, AL_VY, AL_VZ,
-    RETAIL_CURRENTBG, RETAIL_POOL, RETAIL_PVIEWVELZ, RETAIL_STRAIGHT_STRAT,
+    RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_PLANET_INTERRUPT,
+    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_POOL, RETAIL_PSHIPFLAGS,
+    RETAIL_PVIEWVELZ, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -19,14 +21,23 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 320;
+const FRONT_END_TICKS: u32 = 540;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
 const RETAIL_TITLE_BACKGROUND: u16 = 249;
 const RETAIL_BRIEFING_BACKGROUND: u16 = 255;
+const BRIEFING_CONTROL_DISABLED_MASK: u8 = 0x60;
+const INITIAL_ROUTE: u8 = 1;
+const ROUTE_PREVIEW_STAGE: u8 = 10;
+const HIDDEN_CURRENT_PLANET: i8 = -2;
 const FRONT_END_CONFIRM_CADENCE_TICKS: u32 = 60;
 const FRONT_END_CONFIRM_HOLD_TICKS: u32 = 2;
+const FRONT_END_LAST_CONFIRM_TICK: u32 = 360;
+const GAME_DESTINATION_SELECT_TICK: u32 = 380;
+const GAME_DESTINATION_CONFIRM_TICK: u32 = 420;
+const ROUTE_SELECTION_CONFIRM_TICK: u32 = 500;
+const ROUTE_SELECTION_CONFIRM_HOLD_TICKS: u32 = 12;
 
 fn trace_frame(
     sequence: u64,
@@ -129,7 +140,11 @@ fn retail_straight_motion_matches_native_semantic_trace() {
 enum FrontEndPhase {
     AttractIntro,
     Title,
-    Briefing,
+    BriefingControl,
+    BriefingDestination,
+    PlanetMapSetup,
+    RouteSelection,
+    RouteConfirmed,
 }
 
 impl FrontEndPhase {
@@ -137,17 +152,38 @@ impl FrontEndPhase {
         match self {
             Self::AttractIntro => "attract-intro",
             Self::Title => "title",
-            Self::Briefing => "briefing",
+            Self::BriefingControl => "briefing-control",
+            Self::BriefingDestination => "briefing-destination",
+            Self::PlanetMapSetup => "planet-map-setup",
+            Self::RouteSelection => "route-selection",
+            Self::RouteConfirmed => "route-confirmed",
         }
     }
 }
 
 fn front_end_input(tick: u32) -> u16 {
-    if tick % FRONT_END_CONFIRM_CADENCE_TICKS < FRONT_END_CONFIRM_HOLD_TICKS {
-        pad::START
-    } else {
-        0
+    if (GAME_DESTINATION_SELECT_TICK..GAME_DESTINATION_SELECT_TICK + FRONT_END_CONFIRM_HOLD_TICKS)
+        .contains(&tick)
+    {
+        return pad::DOWN;
     }
+    if (GAME_DESTINATION_CONFIRM_TICK..GAME_DESTINATION_CONFIRM_TICK + FRONT_END_CONFIRM_HOLD_TICKS)
+        .contains(&tick)
+    {
+        return pad::START;
+    }
+    if tick <= FRONT_END_LAST_CONFIRM_TICK
+        && tick % FRONT_END_CONFIRM_CADENCE_TICKS < FRONT_END_CONFIRM_HOLD_TICKS
+    {
+        return pad::START;
+    }
+    if (ROUTE_SELECTION_CONFIRM_TICK
+        ..ROUTE_SELECTION_CONFIRM_TICK + ROUTE_SELECTION_CONFIRM_HOLD_TICKS)
+        .contains(&tick)
+    {
+        return pad::START;
+    }
+    0
 }
 
 fn record_front_end_transition(
@@ -174,7 +210,7 @@ fn record_front_end_transition(
 }
 
 #[test]
-fn retail_front_end_through_briefing_matches_native_semantic_timing() {
+fn retail_front_end_through_route_confirmation_matches_native_semantic_timing() {
     let Some(rom) = load_retail_rom() else {
         eprintln!("retail front-end trace skipped: Star Fox retail ROM not found");
         return;
@@ -192,6 +228,7 @@ fn retail_front_end_through_briefing_matches_native_semantic_timing() {
     let mut previous_native = None;
     let mut retail_origin = None;
     let mut native_origin = None;
+    let mut retail_route_selection_seen = false;
 
     for tick in 0..FRONT_END_TICKS {
         let input = front_end_input(tick);
@@ -203,13 +240,51 @@ fn retail_front_end_through_briefing_matches_native_semantic_timing() {
         let retail_phase = match retail.peek16(WORK_RAM | RETAIL_CURRENTBG) {
             RETAIL_ATTRACT_BACKGROUND => Some(FrontEndPhase::AttractIntro),
             RETAIL_TITLE_BACKGROUND => Some(FrontEndPhase::Title),
-            RETAIL_BRIEFING_BACKGROUND => Some(FrontEndPhase::Briefing),
+            RETAIL_BRIEFING_BACKGROUND => {
+                let game_selected = retail.peek8(RETAIL_BRIEFING_CHOICE) != 0;
+                let planet_interrupt = retail.peek8(WORK_RAM | RETAIL_PLANET_INTERRUPT) != 0;
+                let control_disabled = retail.peek8(WORK_RAM | RETAIL_PSHIPFLAGS)
+                    & BRIEFING_CONTROL_DISABLED_MASK
+                    != 0;
+                if game_selected && !planet_interrupt {
+                    let route_ready = retail.peek8(WORK_RAM | RETAIL_WHICH_ROUTE) == INITIAL_ROUTE
+                        && retail.peek8(WORK_RAM | RETAIL_PLANET_STAGE) == ROUTE_PREVIEW_STAGE
+                        && retail.peek8(WORK_RAM | RETAIL_CURRENT_PLANET) as i8
+                            == HIDDEN_CURRENT_PLANET;
+                    let route_confirmed = retail.peek8(WORK_RAM | RETAIL_PLANET_SHIP_FLASH) != 0
+                        && retail.peek8(WORK_RAM | RETAIL_WHICH_ROUTE) == INITIAL_ROUTE
+                        && retail.peek8(WORK_RAM | RETAIL_PLANET_STAGE) == 0
+                        && retail.peek8(WORK_RAM | RETAIL_CURRENT_PLANET) == 0;
+                    if route_ready {
+                        retail_route_selection_seen = true;
+                    }
+                    Some(if route_confirmed {
+                        FrontEndPhase::RouteConfirmed
+                    } else if retail_route_selection_seen {
+                        FrontEndPhase::RouteSelection
+                    } else {
+                        FrontEndPhase::PlanetMapSetup
+                    })
+                } else if planet_interrupt && control_disabled {
+                    Some(FrontEndPhase::BriefingDestination)
+                } else {
+                    Some(FrontEndPhase::BriefingControl)
+                }
+            }
             _ => None,
         };
         let native_phase = match native.state() {
             GameState::AttractIntro => Some(FrontEndPhase::AttractIntro),
             GameState::Title => Some(FrontEndPhase::Title),
-            GameState::Briefing => Some(FrontEndPhase::Briefing),
+            GameState::Briefing => match native.frame().briefing_phase {
+                BriefingPhase::ControlType => Some(FrontEndPhase::BriefingControl),
+                BriefingPhase::Destination => Some(FrontEndPhase::BriefingDestination),
+            },
+            GameState::PlanetSelect => match native.frame().planet_presentation.phase {
+                PlanetSequencePhase::InitialSetup => Some(FrontEndPhase::PlanetMapSetup),
+                PlanetSequencePhase::RouteSelection => Some(FrontEndPhase::RouteSelection),
+                _ => Some(FrontEndPhase::RouteConfirmed),
+            },
             _ => None,
         };
         record_front_end_transition(
@@ -235,7 +310,7 @@ fn retail_front_end_through_briefing_matches_native_semantic_timing() {
     }
     assert_eq!(
         retail_trace.len(),
-        3,
-        "trace must reach the retail controller screen"
+        7,
+        "trace must reach retail route confirmation"
     );
 }

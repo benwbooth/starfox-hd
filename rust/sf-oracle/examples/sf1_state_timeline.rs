@@ -3,8 +3,11 @@
 
 use sf_core::pad;
 use sf_oracle::{
-    RetailMachine, RETAIL_BGFLAGS, RETAIL_CURRENTBG, RETAIL_FADEDIR, RETAIL_GAMEFRAME, RETAIL_POOL,
-    RETAIL_STAGECNT,
+    RetailMachine, RETAIL_BGFLAGS, RETAIL_BRIEFING_CHOICE, RETAIL_CONTROLLER_TRIGGER_HIGH,
+    RETAIL_CONTROLLER_TRIGGER_LOW, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET,
+    RETAIL_DEFAULT_TRAINING, RETAIL_FADEDIR, RETAIL_GAMEFRAME, RETAIL_PLANET_FADE_COUNT,
+    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_POOL,
+    RETAIL_PSHIPFLAGS, RETAIL_STAGECNT, RETAIL_WHICH_ROUTE,
 };
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -12,19 +15,28 @@ use std::path::Path;
 const DEFAULT_TICKS: u32 = 240;
 const VIDEO_FRAMES_PER_TICK: u32 = 3;
 const WORK_RAM: u32 = 0x7E_0000;
-const CONTROLLER_STATE: u32 = 0x1202;
+const BRIEFING_CONTROL_DISABLED_MASK: u8 = 0x60;
 const FRONT_END_CONFIRM_CADENCE_TICKS: u32 = 60;
 const FRONT_END_CONFIRM_HOLD_TICKS: u32 = 2;
-const FRONT_END_LAST_CONFIRM_TICK: u32 = 400;
-const ROUTE_SELECT_CONFIRM_TICK: u32 = 420;
-const PLANET_DISMISS_START_TICK: u32 = 540;
-const PLANET_DISMISS_END_TICK: u32 = 600;
+const FRONT_END_LAST_CONFIRM_TICK: u32 = 360;
+const GAME_DESTINATION_SELECT_TICK: u32 = 380;
+const GAME_DESTINATION_CONFIRM_TICK: u32 = 420;
+const ROUTE_SELECTION_CONFIRM_TICK: u32 = 500;
+const ROUTE_SELECTION_CONFIRM_HOLD_TICKS: u32 = 12;
+const PLANET_DISMISS_START_TICK: u32 = 840;
+const PLANET_DISMISS_END_TICK: u32 = 900;
 const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
+const LASER_FIRE_START_TICK: u32 = 1_000;
 const LASER_FIRE_CADENCE_TICKS: u32 = 8;
 const LASER_FIRE_HOLD_TICKS: u32 = 4;
 
 fn scripted_input(tick: u32) -> u16 {
-    if (ROUTE_SELECT_CONFIRM_TICK..ROUTE_SELECT_CONFIRM_TICK + FRONT_END_CONFIRM_HOLD_TICKS)
+    if (GAME_DESTINATION_SELECT_TICK..GAME_DESTINATION_SELECT_TICK + FRONT_END_CONFIRM_HOLD_TICKS)
+        .contains(&tick)
+    {
+        return pad::DOWN;
+    }
+    if (GAME_DESTINATION_CONFIRM_TICK..GAME_DESTINATION_CONFIRM_TICK + FRONT_END_CONFIRM_HOLD_TICKS)
         .contains(&tick)
     {
         return pad::START;
@@ -36,12 +48,21 @@ fn scripted_input(tick: u32) -> u16 {
             0
         };
     }
+    if (ROUTE_SELECTION_CONFIRM_TICK
+        ..ROUTE_SELECTION_CONFIRM_TICK + ROUTE_SELECTION_CONFIRM_HOLD_TICKS)
+        .contains(&tick)
+    {
+        return pad::START;
+    }
     if (PLANET_DISMISS_START_TICK..PLANET_DISMISS_END_TICK).contains(&tick) {
         return if (tick - PLANET_DISMISS_START_TICK) % PLANET_DISMISS_CADENCE_TICKS == 0 {
             pad::B
         } else {
             0
         };
+    }
+    if tick < LASER_FIRE_START_TICK {
+        return 0;
     }
     if tick % LASER_FIRE_CADENCE_TICKS < LASER_FIRE_HOLD_TICKS {
         pad::Y
@@ -88,7 +109,7 @@ fn main() {
     let mut previous = None;
 
     println!(
-        "tick video_frame input accepted_input game_frame background background_flags fade_direction stage active_objects nonblack execution"
+        "tick video_frame input trigger game_frame background background_flags fade_direction stage briefing_control_disabled destination default_training planet_interrupt route route_stage planet fade_count ship_flash active_objects nonblack execution"
     );
     for tick in 0..tick_limit {
         let input = scripted_input(tick);
@@ -113,15 +134,27 @@ fn main() {
                 .filter(|pixel| pixel[..3] != [0, 0, 0])
                 .count();
             println!(
-                "{} {} {input:#06X} {:#04X} {} {} {:#04X} {} {} {} {} {:#08X}",
+                "{} {} {input:#06X} {:#06X} {} {} {:#04X} {} {} {} {} {} {} {} {} {} {} {} {} {} {:#08X}",
                 tick,
                 machine.video_frame(),
-                machine.peek8(WORK_RAM | CONTROLLER_STATE),
+                u16::from_le_bytes([
+                    machine.peek8(WORK_RAM | RETAIL_CONTROLLER_TRIGGER_LOW),
+                    machine.peek8(WORK_RAM | RETAIL_CONTROLLER_TRIGGER_HIGH),
+                ]),
                 state.0,
                 state.1,
                 state.2,
                 state.3,
                 state.4,
+                machine.peek8(WORK_RAM | RETAIL_PSHIPFLAGS) & BRIEFING_CONTROL_DISABLED_MASK,
+                machine.peek8(RETAIL_BRIEFING_CHOICE),
+                machine.peek8(WORK_RAM | RETAIL_DEFAULT_TRAINING),
+                machine.peek8(WORK_RAM | RETAIL_PLANET_INTERRUPT),
+                machine.peek8(WORK_RAM | RETAIL_WHICH_ROUTE),
+                machine.peek8(WORK_RAM | RETAIL_PLANET_STAGE),
+                machine.peek8(WORK_RAM | RETAIL_CURRENT_PLANET) as i8,
+                machine.peek16(WORK_RAM | RETAIL_PLANET_FADE_COUNT),
+                machine.peek8(WORK_RAM | RETAIL_PLANET_SHIP_FLASH),
                 state.5,
                 nonblack,
                 machine.pc(),

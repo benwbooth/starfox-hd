@@ -188,6 +188,29 @@ pub const RETAIL_PALCNT: u32 = 0x1EEF;
 /// Retail `pshipflags2` ($14D7) — SETBGM HP0 guard (`and #psf2_playerHP0=$80`).
 /// Built `$1562`. Adjacent to [`RETAIL_PSHIPFLAGS3`].
 pub const RETAIL_PSHIPFLAGS2: u32 = 0x14D7;
+/// Retail controller-screen state recovered from the unique `briefing_l`
+/// instruction skeleton in the cart. `pshipflags` distinguishes its
+/// controller-layout and destination loops; the remaining fields are the
+/// source menu choice, training-return latch, and presentation IRQ latch.
+pub const RETAIL_PSHIPFLAGS: u32 = 0x14D6;
+pub const RETAIL_BRIEFING_CHOICE: u32 = 0x7E_A05A;
+pub const RETAIL_DEFAULT_TRAINING: u32 = 0x1FDF;
+pub const RETAIL_PLANET_INTERRUPT: u32 = 0x1F0D;
+/// Retail edge-triggered controller bytes (`trig0l` / `trig0h`) read by the
+/// controller screen's `testjoypad` macro expansion.
+pub const RETAIL_CONTROLLER_TRIGGER_LOW: u32 = 0x1209;
+pub const RETAIL_CONTROLLER_TRIGGER_HIGH: u32 = 0x120A;
+/// Retail initial route-map globals. The `currentplanet` operand is recovered
+/// from the cart's unique `lda #-1; sta currentplanet; lda #6; sta.l
+/// mspr_pal` skeleton; the adjacent source layout fixes `stage` and
+/// `whichroute`. `fadecount` is the route-line animation countdown.
+pub const RETAIL_PLANET_STAGE: u32 = 0x16D6;
+pub const RETAIL_WHICH_ROUTE: u32 = 0x16D8;
+pub const RETAIL_CURRENT_PLANET: u32 = 0x16D9;
+pub const RETAIL_PLANET_FADE_COUNT: u32 = 0x15C2;
+/// Direct-page route-map ship-flash latch. `planetseq_l` clears it during
+/// setup and stores one only after route confirmation.
+pub const RETAIL_PLANET_SHIP_FLASH: u32 = 0x34;
 /// Retail `bgm_music` / `bgmcnt` (setbgmdo stores). Built `$1A4B`/`$1A4A`.
 pub const RETAIL_BGM_MUSIC: u32 = 0x1F47;
 pub const RETAIL_BGMCNT: u32 = 0x1F46;

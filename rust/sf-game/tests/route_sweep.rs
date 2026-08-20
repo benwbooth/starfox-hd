@@ -3,7 +3,7 @@
 //! the 3 routes -> gameplay, then ticks frames, catching panics per route. The
 //! [state] transition log (Shell::tick) prints which level each route enters.
 
-use sf_core::pad;
+use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::shell::{
     GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
     TITLE_PRESENTATION_INPUT_READY_TICKS,
@@ -39,7 +39,9 @@ fn drive_route(down_presses: u32, ticks: u32) -> std::thread::Result<String> {
         while sh.state() == GameState::Briefing {
             sh.tick(0);
         }
-        sh.tick(0);
+        while sh.frame().planet_presentation.phase == PlanetSequencePhase::InitialSetup {
+            sh.tick(0);
+        }
         // Navigate the map: DOWN advances whichroute (0->1->2).
         for _ in 0..down_presses {
             sh.tick(pad::DOWN);

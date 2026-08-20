@@ -3531,7 +3531,7 @@ impl Ui {
         // First-time route choice intentionally hides the Arwing
         // (`currentplanet = -2`). Confirmation flashes it at Corneria.
         let ship_visible = match presentation.phase {
-            PlanetSequencePhase::RouteSelection => false,
+            PlanetSequencePhase::InitialSetup | PlanetSequencePhase::RouteSelection => false,
             PlanetSequencePhase::ShipFlash => presentation.phase_tick & 3 < 2,
             _ => true,
         };
@@ -3654,6 +3654,10 @@ impl Ui {
         }
 
         let presentation = inputs.planet_presentation;
+        if presentation.phase == PlanetSequencePhase::InitialSetup {
+            self.quad_screen(gpu, [0.0, 0.0, 0.0, 1.0]);
+            return;
+        }
         if presentation.phase == PlanetSequencePhase::Traveling
             && presentation.travel_retail_frame < POST_TALLY_MAP_REVEAL_RETAIL_FRAMES
         {

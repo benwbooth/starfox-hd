@@ -62,7 +62,9 @@ fn drive_to_controllable() -> Shell {
     while shell.state() == GameState::Briefing {
         shell.tick(0);
     }
-    shell.tick(0); // release START so the next press is an edge
+    while shell.frame().planet_presentation.phase == PlanetSequencePhase::InitialSetup {
+        shell.tick(0);
+    }
     shell.tick(pad::START); // confirm route
 
     for _ in 0..512 {

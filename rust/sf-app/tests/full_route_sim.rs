@@ -8,7 +8,7 @@
 
 use std::collections::BTreeSet;
 
-use sf_core::pad;
+use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::alien::{
     StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
     ACF_COLLTYPE6, ASF3_CHILDOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_INVISIBLE,
@@ -127,7 +127,9 @@ fn configured_shell(route: u32) -> Shell {
     while shell.state() == GameState::Briefing {
         shell.tick(0);
     }
-    shell.tick(0);
+    while shell.frame().planet_presentation.phase == PlanetSequencePhase::InitialSetup {
+        shell.tick(0);
+    }
     for _ in 0..route {
         shell.tick(pad::DOWN);
         shell.tick(0);

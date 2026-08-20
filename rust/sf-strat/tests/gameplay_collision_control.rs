@@ -66,7 +66,9 @@ fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
     while sh.state() == GameState::Briefing {
         sh.tick(0);
     }
-    sh.tick(0);
+    while sh.frame().planet_presentation.phase == PlanetSequencePhase::InitialSetup {
+        sh.tick(0);
+    }
     for _ in 0..route_downs {
         sh.tick(pad::DOWN);
         sh.tick(0);

@@ -278,12 +278,16 @@ impl Planets {
     /// converted route value until its final gameplay handoff, matching
     /// `planetseq_l`.
     pub fn begin_route_selection(&mut self) {
+        const ROUTE_PREVIEW_STAGE: u16 = 10;
+        const HIDDEN_CURRENT_PLANET: i16 = -2;
+
         if !self.route_converted {
             self.convertroute();
             self.route_converted = true;
         }
-        self.stage = 0;
+        self.stage = ROUTE_PREVIEW_STAGE;
         let _ = self.drawplanetlines();
+        self.currentplanet = HIDDEN_CURRENT_PLANET;
     }
 
     /// Enter a later-stage map walk and return the source stage-path identity
@@ -545,7 +549,9 @@ mod tests {
         p.init();
         p.begin_route_selection();
         assert_eq!(p.whichroute, 1);
-        assert_eq!(p.newmap, m::M1_1);
+        assert_eq!(p.newmap, 0);
+        assert_eq!(p.stage, 10);
+        assert_eq!(p.currentplanet, -2);
 
         assert_eq!(
             p.route_selection_input(sf_core::pad::START),

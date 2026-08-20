@@ -112,31 +112,34 @@ subsystem.
 retail game's named straight-motion strategy and the flat native Rust strategy
 for 30 frames, then compares position, velocity, and view motion through this
 shared format. The same test target now boots the complete retail cartridge and
-the native shell under one physical controller trace through the controller
-screen. The reset/loading interval and both front-end handoffs match exactly:
-attract begins at sampled tick 43, title begins 86 ticks later, and the
-controller screen begins at relative tick 248. The shipping correction uses
-ordinary typed counters and a semantic fade-rate enum. The original 40-update
-START gate remains explicit, while a 65-tick native presentation-readiness gate
-and 22-tick black handoff reproduce the retail fixed-rate observation without
-adding source-machine storage to the port.
+the native shell under one physical controller trace through initial route
+confirmation. All seven retained boundaries match exactly: attract begins at
+sampled tick 43, then title, controller layout, destination selection, planet
+map setup, interactive route selection, and route confirmation appear at
+relative ticks 86, 248, 318, 393, 416, and 459. The shipping correction uses
+ordinary typed counters, semantic phases, and a semantic fade-rate enum. The
+original 40-update title gate and 16-update controller gate remain explicit,
+while measured fixed-rate presentation handoffs reproduce the retail cadence
+without adding source-machine storage to the port.
 
 The longer diagnostic remains executable with:
 
 ```text
 nix develop --command bash -c \
-  "cd rust && cargo run -p sf-oracle --example sf1_frontend_diff -- 340"
+  "cd rust && cargo run -p sf-oracle --example sf1_frontend_diff -- 540"
 ```
 
-It now exits successfully through the controller-screen boundary under the
-periodic START trace. `sf1_state_timeline` remains the lower-level diagnostic:
-during the retail title load/reveal, source `gameframe` advances irregularly,
-so the tick-180 input remains below the authored 40-update gate and the
-tick-240 pulse is the first accepted one. The native port retains a fixed 20 Hz
-simulation and represents that measured readiness with typed presentation
-state rather than recreating processor workload. The remaining work must extend
-this adapter through controller selection, route selection, gameplay, endings,
-video/audio hashes, and source-edge coverage before any whole-game parity claim.
+It now exits successfully after selecting GAME, completing the controller fade,
+building the initial planet map, and confirming Route 1. `sf1_state_timeline`
+remains the lower-level diagnostic. Cart-derived observables prove that the
+controller layout becomes interactive at global tick 297, destination selection
+at 361, GAME at 380, the controller fade ends at 436, route selection becomes
+interactive at 459, and the held confirmation is consumed at 502. The native
+port retains a fixed 20 Hz simulation and represents those measured boundaries
+with typed presentation state rather than recreating processor workload. The
+remaining work must extend this adapter through the selected-planet and General
+Pepper sequence, gameplay, endings, video/audio hashes, and source-edge coverage
+before any whole-game parity claim.
 
 ## Coverage closure
 

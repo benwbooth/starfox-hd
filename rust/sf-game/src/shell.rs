@@ -31,9 +31,10 @@ use sf_core::{
     sf1_planets::{
         briefing_text, planet_heading, post_tally_travel_retail_frames, PlanetPresentation,
         PlanetSequencePhase, Sf1Planet, BRIEFING_CHARACTER_TICKS, FINAL_PLANET_RADIUS,
-        MAP_FADE_STEPS, MAP_FADE_TICKS, PEPPER_REVEAL_TICKS, PLANET_CENTER_TICKS,
-        PLANET_EXIT_TICKS, PLANET_ISOLATION_TICKS, PLANET_NAME_CHARACTER_TICKS, PLANET_ZOOM_TICKS,
-        RETAIL_VIDEO_FRAMES_PER_GAME_TICK, SHIP_FLASH_TICKS,
+        INITIAL_ROUTE_MAP_SETUP_TICKS, MAP_FADE_STEPS, MAP_FADE_TICKS, PEPPER_REVEAL_TICKS,
+        PLANET_CENTER_TICKS, PLANET_EXIT_TICKS, PLANET_ISOLATION_TICKS,
+        PLANET_NAME_CHARACTER_TICKS, PLANET_ZOOM_TICKS, RETAIL_VIDEO_FRAMES_PER_GAME_TICK,
+        SHIP_FLASH_TICKS,
     },
     DrawListEntry,
 };
@@ -108,6 +109,9 @@ pub const MUSIC_FADE_OUT: u8 = 241;
 pub const MUSIC_CONTROLLER_SCREEN: u8 = 3;
 /// CONT.ASM ignores the first controller-screen START edges until this tick.
 pub const BRIEFING_INPUT_DELAY_TICKS: u16 = 16;
+/// The controller screen's CPU-driven normal fade completes in this many
+/// sampled 20 Hz port ticks while retaining the source normal fade mode.
+pub const BRIEFING_FADE_TICKS: u8 = 16;
 /// Controller/destination selection movement cue.
 pub const BRIEFING_MOVE_SOUND: u8 = 17;
 /// Controller/destination confirmation cue.
@@ -129,6 +133,8 @@ pub const MUSIC_PLANET_ZOOM: u8 = 11;
 pub const MUSIC_PLANET_ZOOM_SHORT: u8 = 13;
 /// Route-map confirmation effect.
 pub const PLANET_CONFIRM_SOUND: u8 = 16;
+const ROUTE_CONFIRM_BUTTONS: u16 = pad::START | pad::A | pad::B;
+const ROUTE_CONFIRMATION_HANDOFF_TICKS: u8 = 2;
 /// General Pepper type-on effect.
 pub const PEPPER_CHARACTER_SOUND: u8 = 137;
 /// General Pepper dismissal effect.
@@ -269,6 +275,7 @@ struct BriefingSequence {
     choice: BriefingChoice,
     control_type: ControlType,
     fade_destination: Option<BriefingFadeDestination>,
+    control_confirmation_pending: bool,
 }
 
 impl Default for BriefingSequence {
@@ -279,6 +286,7 @@ impl Default for BriefingSequence {
             choice: BriefingChoice::Training,
             control_type: ControlType::A,
             fade_destination: None,
+            control_confirmation_pending: false,
         }
     }
 }
@@ -1788,9 +1796,9 @@ impl Shell {
     }
 
     fn begin_initial_planet_sequence(&mut self) {
-        self.planets.begin_route_selection();
         let selected_planet = Sf1Planet::from_index(self.planets.currentplanet.max(0) as u8);
         self.planet_presentation = PlanetPresentation {
+            phase: PlanetSequencePhase::InitialSetup,
             selected_planet,
             briefing_message: self.planets.briefing_message,
             ..PlanetPresentation::default()
@@ -1858,8 +1866,31 @@ impl Shell {
             self.planet_presentation.rotation_tick.wrapping_add(1);
 
         match self.planet_presentation.phase {
+            PlanetSequencePhase::InitialSetup => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= INITIAL_ROUTE_MAP_SETUP_TICKS {
+                    self.planets.begin_route_selection();
+                    self.set_planet_phase(PlanetSequencePhase::RouteSelection);
+                }
+            }
             PlanetSequencePhase::RouteSelection => {
-                match self.planets.route_selection_input(self.pad1_new) {
+                let route_input = if self.planet_presentation.route_confirmation_ticks_remaining > 0
+                {
+                    self.planet_presentation.route_confirmation_ticks_remaining -= 1;
+                    if self.planet_presentation.route_confirmation_ticks_remaining == 0 {
+                        pad::START
+                    } else {
+                        0
+                    }
+                } else if self.pad1_new & ROUTE_CONFIRM_BUTTONS != 0 {
+                    self.planet_presentation.route_confirmation_ticks_remaining =
+                        ROUTE_CONFIRMATION_HANDOFF_TICKS;
+                    0
+                } else {
+                    self.pad1_new
+                };
+                match self.planets.route_selection_input(route_input) {
                     RouteSelectionResult::Idle => {}
                     RouteSelectionResult::Changed => {
                         self.planet_presentation.briefing_message = self.planets.briefing_message;
@@ -2103,6 +2134,12 @@ impl Shell {
             return;
         }
 
+        if self.briefing.control_confirmation_pending {
+            self.briefing.control_confirmation_pending = false;
+            self.briefing.phase = BriefingPhase::Destination;
+            return;
+        }
+
         match self.briefing.phase {
             BriefingPhase::ControlType => {
                 if self.pad1_new & pad::SELECT != 0 {
@@ -2115,7 +2152,7 @@ impl Shell {
                 if self.game.vars.gameframe >= BRIEFING_INPUT_DELAY_TICKS
                     && self.pad1_new & pad::START != 0
                 {
-                    self.briefing.phase = BriefingPhase::Destination;
+                    self.briefing.control_confirmation_pending = true;
                     self.state
                         .borrow_mut()
                         .sound
@@ -2152,7 +2189,11 @@ impl Shell {
                         let mut state = self.state.borrow_mut();
                         state.sound.push(SoundCmd::PlaySe(BRIEFING_CONFIRM_SOUND));
                         state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
-                        state.windows.fade_to_black_from(MapFadeRate::Normal, 0);
+                        state.windows.fade_to_black_over(
+                            MapFadeRate::Normal,
+                            0,
+                            BRIEFING_FADE_TICKS,
+                        );
                     }
                     self.briefing.fade_destination = Some(destination);
                 }
@@ -2190,6 +2231,7 @@ impl Shell {
             self.briefing.choice = BriefingChoice::Training;
         }
         self.briefing.fade_destination = None;
+        self.briefing.control_confirmation_pending = false;
     }
 
     fn begin_training(&mut self) {
@@ -2231,7 +2273,9 @@ impl Shell {
             {
                 let mut state = self.state.borrow_mut();
                 state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
-                state.windows.fade_to_black_from(MapFadeRate::Normal, 0);
+                state
+                    .windows
+                    .fade_to_black_over(MapFadeRate::Normal, 0, BRIEFING_FADE_TICKS);
             }
             self.training.returning_to_briefing = true;
         }
@@ -3378,8 +3422,8 @@ mod tests {
         shell.tick(0);
         shell.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
         shell.tick(pad::START);
-        assert_eq!(shell.briefing.phase, BriefingPhase::Destination);
         shell.tick(0);
+        assert_eq!(shell.briefing.phase, BriefingPhase::Destination);
         shell.tick(pad::START);
         for _ in 0..MAX_PRESENTATION_TRANSITION_TICKS {
             if shell.state() == GameState::Playing {
@@ -3684,8 +3728,8 @@ mod tests {
         // Choose the source GAME destination after the controller-layout gate.
         sh.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
         sh.tick(pad::START);
-        assert_eq!(sh.frame().briefing_phase, BriefingPhase::Destination);
         sh.tick(0);
+        assert_eq!(sh.frame().briefing_phase, BriefingPhase::Destination);
         sh.tick(pad::DOWN);
         assert_eq!(sh.frame().briefing_choice, BriefingChoice::Game);
         sh.tick(0);
@@ -3697,10 +3741,14 @@ mod tests {
         let sounds = sh.drain_sound();
         assert!(sounds.contains(&SoundCmd::PlaySe(0x10)));
 
-        // Route selection enters with route 0 converted to source map route 1.
-        sh.tick(0);
+        // Route selection becomes interactive only after the source map setup,
+        // then route 0 is converted to the displayed source route 1.
+        while sh.frame().planet_presentation.phase == PlanetSequencePhase::InitialSetup {
+            sh.tick(0);
+        }
         assert_eq!(sh.state().code(), 3);
-        assert_eq!(sh.frame().newmap, map_id::M1_1);
+        assert_eq!(sh.frame().whichroute, 1);
+        assert_eq!(sh.frame().stage, 10);
 
         // Confirm, present the authored map close-up and General Pepper
         // briefing, then dismiss it with a fresh START edge.
@@ -3891,6 +3939,18 @@ mod tests {
         const MAX_PLANET_SEQUENCE_TICKS: usize = 512;
 
         shell.tick(0);
+        if shell.frame().planet_presentation.phase == PlanetSequencePhase::InitialSetup {
+            for _ in 0..MAX_PLANET_SEQUENCE_TICKS {
+                if shell.frame().planet_presentation.phase == PlanetSequencePhase::RouteSelection {
+                    break;
+                }
+                shell.tick(0);
+            }
+            assert_eq!(
+                shell.frame().planet_presentation.phase,
+                PlanetSequencePhase::RouteSelection
+            );
+        }
         if shell.frame().planet_presentation.phase == PlanetSequencePhase::Traveling {
             for _ in 0..MAX_PLANET_SEQUENCE_TICKS {
                 if shell.frame().planet_presentation.phase
@@ -3906,6 +3966,8 @@ mod tests {
             );
         }
         shell.tick(pad::START);
+        shell.tick(0);
+        shell.tick(0);
         assert_eq!(
             shell.frame().planet_presentation.phase,
             PlanetSequencePhase::ShipFlash
@@ -3965,8 +4027,17 @@ mod tests {
             "the retired controller-screen fade must not cover planetseq_l"
         );
 
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::InitialSetup,
+            INITIAL_ROUTE_MAP_SETUP_TICKS,
+            PlanetSequencePhase::RouteSelection,
+        );
+
         shell.tick(0);
         shell.tick(pad::START);
+        shell.tick(0);
+        shell.tick(0);
         assert_eq!(shell.frame().whichroute, 1);
         let confirmation_sounds = shell.drain_sound();
         assert!(confirmation_sounds.contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
@@ -4054,7 +4125,9 @@ mod tests {
     fn begin_gameplay_wires_currentlevel_hard_route() {
         let mut sh = Shell::new();
         advance_to_planet_select(&mut sh);
-        sh.tick(0);
+        while sh.frame().planet_presentation.phase == PlanetSequencePhase::InitialSetup {
+            sh.tick(0);
+        }
         sh.tick(pad::RIGHT); // whichroute 1→2 = hard
         launch_from_planet_select(&mut sh);
         assert_eq!(sh.state(), GameState::Playing);

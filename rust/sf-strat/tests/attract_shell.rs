@@ -177,11 +177,12 @@ fn controller_layout_and_game_selection_match_cont_asm() {
     shell.tick(0);
     shell.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
     shell.tick(pad::START);
-    assert_eq!(shell.frame().briefing_phase, BriefingPhase::Destination);
+    assert_eq!(shell.frame().briefing_phase, BriefingPhase::ControlType);
     assert!(shell
         .drain_sound()
         .contains(&SoundCmd::PlaySe(BRIEFING_CONFIRM_SOUND)));
     shell.tick(0);
+    assert_eq!(shell.frame().briefing_phase, BriefingPhase::Destination);
 
     shell.tick(pad::DOWN);
     assert_eq!(shell.frame().briefing_choice, BriefingChoice::Game);
@@ -254,8 +255,9 @@ fn training_selection_launches_and_returns_to_game_selected() {
     enter_briefing(&mut shell);
     shell.game.vars.gameframe = BRIEFING_INPUT_DELAY_TICKS - 1;
     shell.tick(pad::START);
-    assert_eq!(shell.frame().briefing_phase, BriefingPhase::Destination);
+    assert_eq!(shell.frame().briefing_phase, BriefingPhase::ControlType);
     shell.tick(0);
+    assert_eq!(shell.frame().briefing_phase, BriefingPhase::Destination);
     shell.tick(pad::START);
     tick_until_state(&mut shell, GameState::Playing, TRANSITION_LIMIT_TICKS);
     assert_eq!(shell.game.world.loaded_map_id, Some(map_id::TRAINING));

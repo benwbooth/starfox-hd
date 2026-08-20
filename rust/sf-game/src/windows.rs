@@ -54,6 +54,17 @@ impl MapFadeRate {
 
 const SLOW_FADE_DIRECTION: i8 = MapFadeRate::Slow.to_black_direction();
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum MapFadeTiming {
+    #[default]
+    PerSimulationTick,
+    FixedPresentation {
+        elapsed_ticks: u8,
+        total_ticks: u8,
+        start_intensity: u8,
+    },
+}
+
 /// `stayblack` color tag for [`WINDOW_MODE_HITFLASH`] (not a black-hold timer).
 pub const HITFLASH_TURQ: u8 = 0;
 pub const HITFLASH_TURQ2: u8 = 1;
@@ -71,6 +82,7 @@ pub struct Windows {
     pub slots: [WindowSlot; WINDOWARRAY_SIZE],
     /// C `g_fadedir` (int8; 0 = no map fade active).
     pub fadedir: i8,
+    map_fade_timing: MapFadeTiming,
 }
 
 impl Windows {
@@ -164,6 +176,26 @@ impl Windows {
         }
 
         if self.fadedir < 0 {
+            if let MapFadeTiming::FixedPresentation {
+                elapsed_ticks,
+                total_ticks,
+                start_intensity,
+            } = &mut self.map_fade_timing
+            {
+                *elapsed_ticks = elapsed_ticks.saturating_add(1).min(*total_ticks);
+                let intensity_span = BLACK_FADE_MAX.saturating_sub(*start_intensity);
+                let completed_span =
+                    u16::from(intensity_span) * u16::from(*elapsed_ticks) / u16::from(*total_ticks);
+                self.slots[slot].wm_val = start_intensity
+                    .saturating_add(completed_span as u8)
+                    .min(BLACK_FADE_MAX);
+                if *elapsed_ticks >= *total_ticks {
+                    self.fadedir = 0;
+                    self.map_fade_timing = MapFadeTiming::PerSimulationTick;
+                }
+                return;
+            }
+
             // ENDSEQ's authored slow title fade uses direction -3 as a mode,
             // not as a three-level intensity delta. Normal and quick fades
             // retain their one- and two-level deltas.
@@ -201,6 +233,7 @@ impl Windows {
     pub fn init(&mut self) {
         self.windowmode = 0;
         self.fadedir = 0;
+        self.map_fade_timing = MapFadeTiming::PerSimulationTick;
         self.slots = [WindowSlot::default(); WINDOWARRAY_SIZE];
     }
 
@@ -239,6 +272,7 @@ impl Windows {
 
     /// C `Windows_StartMapFade()` (src/game/windows.c:147).
     pub fn start_map_fade(&mut self, mut fadedir: i8) {
+        self.map_fade_timing = MapFadeTiming::PerSimulationTick;
         if fadedir == 0 {
             self.fadedir = 0;
             return;
@@ -295,6 +329,24 @@ impl Windows {
         self.slots[slot].stayblack = 0;
         self.slots[slot].wm_val = intensity.min(BLACK_FADE_MAX);
         self.fadedir = rate.to_black_direction();
+        self.map_fade_timing = MapFadeTiming::PerSimulationTick;
+    }
+
+    /// Begin a source-authored fade whose CPU presentation loop runs at a
+    /// different cadence from the port's fixed simulation tick. The source
+    /// direction remains intact while the visible intensity reaches black on
+    /// the measured whole-machine boundary.
+    pub(crate) fn fade_to_black_over(&mut self, rate: MapFadeRate, intensity: u8, total_ticks: u8) {
+        assert!(
+            total_ticks > 0,
+            "presentation fade duration must be nonzero"
+        );
+        self.fade_to_black_from(rate, intensity);
+        self.map_fade_timing = MapFadeTiming::FixedPresentation {
+            elapsed_ticks: 0,
+            total_ticks,
+            start_intensity: intensity.min(BLACK_FADE_MAX),
+        };
     }
 
     /// C `Windows_FadeFromBlack()` (src/game/windows.c:184).
@@ -559,6 +611,28 @@ mod tests {
         let penultimate_intensity = BLACK_FADE_MAX - MapFadeRate::Slow.intensity_step();
         tick(&mut w, &mut ow, &mut ca, usize::from(penultimate_intensity));
         assert_eq!(w.slots[0].wm_val, penultimate_intensity);
+        assert!(w.is_map_fade_active());
+        tick(&mut w, &mut ow, &mut ca, 1);
+        assert_eq!(w.slots[0].wm_val, BLACK_FADE_MAX);
+        assert!(!w.is_map_fade_active());
+    }
+
+    #[test]
+    fn fixed_presentation_fade_retains_normal_mode_and_measured_duration() {
+        const PRESENTATION_TICKS: u8 = 16;
+
+        let mut w = Windows::new();
+        let (mut ow, mut ca) = (1u8, 0i16);
+        w.fade_to_black_over(MapFadeRate::Normal, 0, PRESENTATION_TICKS);
+
+        assert_eq!(w.fadedir, MapFadeRate::Normal.to_black_direction());
+        tick(
+            &mut w,
+            &mut ow,
+            &mut ca,
+            usize::from(PRESENTATION_TICKS - 1),
+        );
+        assert_eq!(w.slots[0].wm_val, 28);
         assert!(w.is_map_fade_active());
         tick(&mut w, &mut ow, &mut ca, 1);
         assert_eq!(w.slots[0].wm_val, BLACK_FADE_MAX);

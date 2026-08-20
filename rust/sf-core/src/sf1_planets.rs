@@ -8,6 +8,11 @@
 /// at 60 Hz.
 pub const RETAIL_VIDEO_FRAMES_PER_GAME_TICK: u16 = 3;
 
+/// Whole-machine duration from controller-screen ownership handoff until the
+/// first route-choice loop is ready. `planetseq_l` builds both buffers,
+/// transfers palettes and characters, and reveals the initial map here.
+pub const INITIAL_ROUTE_MAP_SETUP_TICKS: u16 = 23;
+
 /// `4*20+3` display waits in `PLANETS.ASM`.
 pub const SHIP_FLASH_RETAIL_FRAMES: u16 = 83;
 /// Native ticks needed to present all authored ship-flash waits.
@@ -576,6 +581,8 @@ pub const fn briefing_text(message: Sf1BriefingMessage) -> &'static str {
 /// Semantic phase of `planetseq_l`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PlanetSequencePhase {
+    /// Initial route-map construction and reveal before input is sampled.
+    InitialSetup,
     /// First-game route choice with blinking route lines.
     #[default]
     RouteSelection,
@@ -631,6 +638,9 @@ pub struct PlanetPresentation {
     pub planet_name_characters: u8,
     /// Number of General Pepper briefing characters currently visible.
     pub briefing_characters: u8,
+    /// Fixed-rate handoff ticks from a sampled route-confirmation edge into
+    /// the source ship-flash sequence.
+    pub route_confirmation_ticks_remaining: u8,
 }
 
 impl Default for PlanetPresentation {
@@ -649,6 +659,7 @@ impl Default for PlanetPresentation {
             planet_radius: INITIAL_PLANET_RADIUS,
             planet_name_characters: 0,
             briefing_characters: 0,
+            route_confirmation_ticks_remaining: 0,
         }
     }
 }
