@@ -112,34 +112,41 @@ subsystem.
 retail game's named straight-motion strategy and the flat native Rust strategy
 for 30 frames, then compares position, velocity, and view motion through this
 shared format. The same test target now boots the complete retail cartridge and
-the native shell under one physical controller trace through initial route
-confirmation. All seven retained boundaries match exactly: attract begins at
-sampled tick 43, then title, controller layout, destination selection, planet
-map setup, interactive route selection, and route confirmation appear at
-relative ticks 86, 248, 318, 393, 416, and 459. The shipping correction uses
-ordinary typed counters, semantic phases, and a semantic fade-rate enum. The
-original 40-update title gate and 16-update controller gate remain explicit,
-while measured fixed-rate presentation handoffs reproduce the retail cadence
-without adding source-machine storage to the port.
+the native shell under one physical controller trace through the first gameplay
+handoff. All 17 retained boundaries match exactly. Attract begins at sampled
+tick 43; title, controller layout, destination selection, planet-map setup,
+interactive route selection, ship flash, map fade, planet isolation, recenter,
+Pepper preparation, planet zoom, heading reveal, briefing, dismissal, exit fade,
+and gameplay then occur at relative ticks 86, 248, 318, 393, 416, 459, 487,
+498, 500, 511, 515, 582, 611, 798, 805, and 816. The same test locks retail
+briefing-cursor values 0, 1, 2, 64, and 103 at global ticks 654, 656, 657, 761,
+and 839.
+
+The shipping correction uses ordinary typed counters, semantic phases, and a
+semantic fade-rate enum. It preserves the source's 40 zoom steps while
+presenting their measured 67-tick workload, the two terminating heading passes,
+the fast and settled Pepper text cadences, the full 0-through-255 source cursor,
+and the dismissal/fade handoffs. Original instruction-entry watches, source
+addresses, and processor state remain confined to the retail oracle.
 
 The longer diagnostic remains executable with:
 
 ```text
 nix develop --command bash -c \
-  "cd rust && cargo run -p sf-oracle --example sf1_frontend_diff -- 540"
+  "cd rust && cargo run -p sf-oracle --example sf1_frontend_diff -- 880"
 ```
 
 It now exits successfully after selecting GAME, completing the controller fade,
-building the initial planet map, and confirming Route 1. `sf1_state_timeline`
+building the initial planet map, confirming Route 1, presenting the selected
+planet and General Pepper briefing, and entering gameplay. `sf1_state_timeline`
 remains the lower-level diagnostic. Cart-derived observables prove that the
 controller layout becomes interactive at global tick 297, destination selection
 at 361, GAME at 380, the controller fade ends at 436, route selection becomes
 interactive at 459, and the held confirmation is consumed at 502. The native
-port retains a fixed 20 Hz simulation and represents those measured boundaries
+port retains a fixed 20 Hz simulation and represents the measured boundaries
 with typed presentation state rather than recreating processor workload. The
-remaining work must extend this adapter through the selected-planet and General
-Pepper sequence, gameplay, endings, video/audio hashes, and source-edge coverage
-before any whole-game parity claim.
+remaining work must extend this adapter through gameplay, endings, video/audio
+hashes, and source-edge coverage before any whole-game parity claim.
 
 ## Coverage closure
 

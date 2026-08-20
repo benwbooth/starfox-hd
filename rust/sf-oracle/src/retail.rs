@@ -211,6 +211,25 @@ pub const RETAIL_PLANET_FADE_COUNT: u32 = 0x15C2;
 /// Direct-page route-map ship-flash latch. `planetseq_l` clears it during
 /// setup and stores one only after route confirmation.
 pub const RETAIL_PLANET_SHIP_FLASH: u32 = 0x34;
+/// Retail `planetseq_l` presentation entry points, recovered by exact opcode
+/// signatures from the Rev 2 cart and cross-checked against `PLANETS.ASM`.
+/// These are oracle-only execution markers; the native port exposes semantic
+/// phases and never depends on cartridge addresses.
+pub const RETAIL_PLANET_SHIP_FLASH_ENTRY: u32 = 0x03_C05E;
+pub const RETAIL_PLANET_MAP_FADE_ENTRY: u32 = 0x03_C087;
+pub const RETAIL_PLANET_ISOLATION_ENTRY: u32 = 0x03_C0A3;
+pub const RETAIL_PLANET_CENTER_ENTRY: u32 = 0x03_C0F5;
+pub const RETAIL_PLANET_BRIEFING_PREP_ENTRY: u32 = 0x03_C12B;
+pub const RETAIL_PLANET_ZOOM_ENTRY: u32 = 0x03_C24E;
+pub const RETAIL_PLANET_NAME_ENTRY: u32 = 0x03_C320;
+pub const RETAIL_PLANET_MESSAGE_ENTRY: u32 = 0x03_C352;
+pub const RETAIL_PLANET_DISMISS_ENTRY: u32 = 0x03_C3C2;
+pub const RETAIL_PLANET_EXIT_FADE_ENTRY: u32 = 0x03_C3FD;
+pub const RETAIL_PLANET_GAME_START_ENTRY: u32 = 0x03_C437;
+/// Long-addressed `pepperchars` type-on cursor used by both text loops.
+pub const RETAIL_PEPPER_CHARACTERS: u32 = 0x7E_F0C7;
+/// Super FX route-presentation radius (`m_radius`).
+pub const RETAIL_PLANET_RADIUS: u32 = 0x70_01F2;
 /// Retail `bgm_music` / `bgmcnt` (setbgmdo stores). Built `$1A4B`/`$1A4A`.
 pub const RETAIL_BGM_MUSIC: u32 = 0x1F47;
 pub const RETAIL_BGMCNT: u32 = 0x1F46;
@@ -2275,6 +2294,8 @@ pub struct RetailMachine {
     bus: RetailBootBus,
     cpu: CPU,
     cycles: u64,
+    cpu_execution_watch: Vec<u32>,
+    cpu_execution_hits: Vec<u32>,
 }
 
 impl RetailMachine {
@@ -2287,7 +2308,25 @@ impl RetailMachine {
             bus,
             cpu: CPU::new(),
             cycles: 0,
+            cpu_execution_watch: Vec::new(),
+            cpu_execution_hits: Vec::new(),
         }
+    }
+
+    /// Install oracle-only instruction-entry markers. Hits accumulate until
+    /// [`Self::take_cpu_execution_watch_hits`] is called.
+    pub fn watch_cpu_execution(&mut self, addresses: &[u32]) {
+        self.cpu_execution_watch.clear();
+        self.cpu_execution_watch.extend_from_slice(addresses);
+        self.cpu_execution_watch.sort_unstable();
+        self.cpu_execution_watch.dedup();
+        self.cpu_execution_hits.clear();
+    }
+
+    /// Drain the watched instruction entries reached since the preceding
+    /// sample, preserving execution order and suppressing repeated bus cycles.
+    pub fn take_cpu_execution_watch_hits(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.cpu_execution_hits)
     }
 
     /// Advance `frames` native video frames while presenting one held joypad
@@ -2303,6 +2342,15 @@ impl RetailMachine {
         while self.bus.dot < target {
             self.bus.set_cpu_irq_masked(self.cpu.p() & 0x04 != 0);
             self.cpu.cycle(&mut self.bus);
+            if !self.cpu_execution_watch.is_empty() && self.cpu.tcu() == 0 {
+                let instruction =
+                    (u32::from(self.cpu.pbr()) << 16) | u32::from(self.cpu.pc().wrapping_sub(1));
+                if self.cpu_execution_watch.binary_search(&instruction).is_ok()
+                    && self.cpu_execution_hits.last().copied() != Some(instruction)
+                {
+                    self.cpu_execution_hits.push(instruction);
+                }
+            }
             self.bus.tick_raster();
             self.cycles = self.cycles.wrapping_add(1);
             if self.cpu.stopped() {

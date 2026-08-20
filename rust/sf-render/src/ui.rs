@@ -24,9 +24,9 @@ use sf_core::{
     sf1_controls::{BriefingChoice, BriefingPhase},
     sf1_planets::{
         briefing_text, planet_heading, post_tally_ship_position, route_path_geometry,
-        PlanetSequencePhase, RoutePathSegment, Sf1Planet, MAP_FADE_STEPS, PEPPER_REVEAL_TICKS,
-        PLANET_CENTER_TICKS, PLANET_EXIT_SOUND_HANDOFF_TICKS, PLANET_EXIT_TICKS,
-        PLANET_MAP_POSITIONS, PLANET_SHIP_START_POSITIONS, POST_TALLY_MAP_REVEAL_RETAIL_FRAMES,
+        PlanetSequencePhase, RoutePathSegment, Sf1Planet, MAP_FADE_STEPS, PLANET_CENTER_TICKS,
+        PLANET_EXIT_TICKS, PLANET_MAP_POSITIONS, PLANET_SHIP_START_POSITIONS, PLANET_ZOOM_STEPS,
+        PLANET_ZOOM_TICKS, POST_TALLY_MAP_REVEAL_RETAIL_FRAMES,
     },
 };
 
@@ -193,9 +193,9 @@ const PEPPER_TEXT_COLUMNS: usize = 24;
 const CENTERED_PLANET_LEFT: i32 = 112;
 const CENTERED_PLANET_TOP: i32 = 88;
 const PLANET_ICON_SIZE: i32 = 32;
-const PORTRAIT_SPHERE_REVEAL_TICK: u16 = 5;
-const PORTRAIT_FLAT_REVEAL_TICK: u16 = 20;
-const PORTRAIT_FADE_TICKS: u16 = 18;
+const PORTRAIT_SPHERE_REVEAL_STEP: u16 = 36;
+const PORTRAIT_FLAT_REVEAL_STEP: u16 = 21;
+const PORTRAIT_FADE_TICKS: u16 = 10;
 const PEPPER_SHADOW_OFFSET: i32 = 2;
 const PLANET_HEADING_COLOR: [f32; 3] = [1.0, 0.85, 0.16];
 const PLANET_HEADING_SHADOW_COLOR: [f32; 3] = [0.85, 0.05, 0.25];
@@ -3721,11 +3721,14 @@ impl Ui {
 
         let portrait_alpha = match presentation.phase {
             PlanetSequencePhase::ZoomingPlanet => {
-                let reveal_tick = if planet.is_sphere() {
-                    PORTRAIT_SPHERE_REVEAL_TICK
+                let reveal_step = if planet.is_sphere() {
+                    PORTRAIT_SPHERE_REVEAL_STEP
                 } else {
-                    PORTRAIT_FLAT_REVEAL_TICK
+                    PORTRAIT_FLAT_REVEAL_STEP
                 };
+                let reveal_tick = reveal_step
+                    .saturating_mul(PLANET_ZOOM_TICKS)
+                    .div_ceil(PLANET_ZOOM_STEPS);
                 f32::from(
                     presentation
                         .phase_tick
@@ -3733,12 +3736,9 @@ impl Ui {
                         .min(PORTRAIT_FADE_TICKS),
                 ) / f32::from(PORTRAIT_FADE_TICKS)
             }
-            PlanetSequencePhase::RevealingPepper => {
-                f32::from(presentation.phase_tick.min(PEPPER_REVEAL_TICKS))
-                    / f32::from(PEPPER_REVEAL_TICKS)
-            }
             PlanetSequencePhase::RevealingPlanetName
             | PlanetSequencePhase::Briefing
+            | PlanetSequencePhase::DismissingBriefing
             | PlanetSequencePhase::FadingOut => 1.0,
             _ => 0.0,
         };
@@ -3758,19 +3758,15 @@ impl Ui {
             presentation.phase,
             PlanetSequencePhase::RevealingPlanetName
                 | PlanetSequencePhase::Briefing
+                | PlanetSequencePhase::DismissingBriefing
                 | PlanetSequencePhase::FadingOut
         ) {
             self.render_pepper_text(gpu, font, inputs);
         }
 
         if presentation.phase == PlanetSequencePhase::FadingOut {
-            let fade_ticks = PLANET_EXIT_TICKS - PLANET_EXIT_SOUND_HANDOFF_TICKS;
-            let fade = f32::from(
-                presentation
-                    .phase_tick
-                    .saturating_sub(PLANET_EXIT_SOUND_HANDOFF_TICKS)
-                    .min(fade_ticks),
-            ) / f32::from(fade_ticks);
+            let fade = f32::from(presentation.phase_tick.min(PLANET_EXIT_TICKS))
+                / f32::from(PLANET_EXIT_TICKS);
             self.quad_screen(gpu, [0.0, 0.0, 0.0, fade]);
         }
     }

@@ -35,6 +35,7 @@ const SH_FLINGBOSS_GRABBER: u16 = 384;
 const SH_BOSS8: u16 = 46;
 const SH_BOSS8_BEAM: u16 = 43;
 const SH_TENKI_MARKER: u16 = 71;
+const SH_MADBIKER: u16 = 79;
 const SH_ANDROSS_FACE: u16 = 431;
 const SH_END_BASE_ESCAPE: u16 = 224;
 const SH_END_FORMATION: u16 = 225;
@@ -195,6 +196,25 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
         | ACF_COLLTYPE4
         | ACF_COLLTYPE5
         | ACF_COLLTYPE6;
+
+    // A body collision makes a Madbiker retain `nohitaffect` until a later
+    // weapon collision clears it. This route soak delivers synthetic fatal
+    // weapon hits rather than allocating laser objects, so reproduce that
+    // clearing edge explicitly before applying the hit. Otherwise a harmless
+    // pilot/bike contact can make the deterministic soak wait forever at the
+    // source map's `find_y #air_1` gate.
+    if let Some(bike) = shell.game.objs.aliens.iter_mut().find(|al| {
+        al.active
+            && al.shape == SH_MADBIKER
+            && al.collflags & enemy_types != 0
+            && al.sflags & (ASF_COLLDISABLE | ASF_INVISIBLE) == 0
+            && al.hp != 0
+            && al.hp != HARD_HP
+    }) {
+        bike.sflags &= !ASF_NOHITAFFECT;
+        bike.hp = 0;
+        return;
+    }
 
     // Great Commander's feet only accept damage through the opened hatch.
     // Directly zeroing the 80 HP while its animation is closed bypasses

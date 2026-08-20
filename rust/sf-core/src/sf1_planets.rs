@@ -28,20 +28,34 @@ pub const PLANET_ISOLATION_TICKS: u16 = 2;
 pub const PLANET_CENTER_RETAIL_FRAMES: u16 = 32;
 pub const PLANET_CENTER_TICKS: u16 =
     PLANET_CENTER_RETAIL_FRAMES.div_ceil(RETAIL_VIDEO_FRAMES_PER_GAME_TICK);
-/// The SuperFX zoom loop performs one transfer-bound step per native tick.
-pub const PLANET_ZOOM_TICKS: u16 = 40;
-/// Portrait/background transfer handoff after the zoom.
-pub const PEPPER_REVEAL_TICKS: u16 = 2;
+/// Source zoom iterations. The first-game sphere path performs all forty, but
+/// the real Super FX drawing workload makes them span 67 sampled 20 Hz ticks.
+pub const PLANET_ZOOM_STEPS: u16 = 40;
+pub const PLANET_ZOOM_TICKS: u16 = 67;
+/// Pepper tile/palette preparation between recentering and the zoom loop.
+pub const BRIEFING_PREPARATION_TICKS: u16 = 4;
 /// `muttering2` advances the planet heading once per transfer-bound loop.
 pub const PLANET_NAME_CHARACTER_TICKS: u16 = 1;
-/// `waitabit = 50` display waits between General Pepper characters.
-pub const BRIEFING_CHARACTER_RETAIL_FRAMES: u16 = 50;
-pub const BRIEFING_CHARACTER_TICKS: u16 =
-    BRIEFING_CHARACTER_RETAIL_FRAMES.div_ceil(RETAIL_VIDEO_FRAMES_PER_GAME_TICK);
-/// Two sound handoff frames followed by the five-bit full-screen fade.
-pub const PLANET_EXIT_SOUND_HANDOFF_TICKS: u16 = 2;
-pub const PLANET_EXIT_TICKS: u16 = PLANET_EXIT_SOUND_HANDOFF_TICKS
-    + (MAP_FADE_STEPS as u16).div_ceil(RETAIL_VIDEO_FRAMES_PER_GAME_TICK);
+/// The text renderer needs two terminating cursor passes after the visible
+/// planet heading has been exhausted.
+pub const PLANET_NAME_TERMINATION_TICKS: u16 = 2;
+/// The mission-text cursor advances three positions per five native ticks
+/// until the 64-character panel workload is saturated, then once every two.
+/// The initial remainder aligns the first advances with the retail samples.
+pub const BRIEFING_FAST_CURSOR_LIMIT: u8 = 64;
+pub const BRIEFING_FAST_CADENCE_NUMERATOR: u8 = 3;
+pub const BRIEFING_FAST_CADENCE_DENOMINATOR: u8 = 5;
+pub const BRIEFING_FAST_CADENCE_INITIAL_PROGRESS: u8 = 1;
+pub const BRIEFING_SETTLED_CADENCE_NUMERATOR: u8 = 1;
+pub const BRIEFING_SETTLED_CADENCE_DENOMINATOR: u8 = 2;
+/// Input sampling and the four source sound-transfer waits observed between a
+/// dismissal edge and the full-screen fade loop.
+pub const BRIEFING_DISMISS_HANDOFF_TICKS: u16 = 7;
+/// The five-bit exit fade samples two raster positions within each display
+/// frame, so all 32 source steps still span 32 retail frames.
+pub const PLANET_EXIT_FADE_RETAIL_FRAMES: u16 = MAP_FADE_STEPS as u16;
+pub const PLANET_EXIT_TICKS: u16 =
+    PLANET_EXIT_FADE_RETAIL_FRAMES.div_ceil(RETAIL_VIDEO_FRAMES_PER_GAME_TICK);
 
 /// Retail map setup/fade before the first post-mission Arwing movement.
 pub const POST_TALLY_MAP_REVEAL_RETAIL_FRAMES: u16 = 57;
@@ -58,7 +72,17 @@ pub const ROUTE_SHIP_TARGET_Y_OFFSET: i16 = 8;
 /// Source map sprite radius before the close-up zoom.
 pub const INITIAL_PLANET_RADIUS: u8 = 15;
 /// Radius reached by the 40-step zoom from the authored initial value.
-pub const FINAL_PLANET_RADIUS: u8 = INITIAL_PLANET_RADIUS + PLANET_ZOOM_TICKS as u8;
+pub const FINAL_PLANET_RADIUS: u8 = INITIAL_PLANET_RADIUS + PLANET_ZOOM_STEPS as u8;
+
+/// Map elapsed native presentation ticks onto the source's forty zoom
+/// iterations. This keeps radius and portrait timing in source-step units
+/// while honoring the measured 67-tick Super FX workload.
+pub fn planet_zoom_step(phase_tick: u16) -> u16 {
+    phase_tick
+        .min(PLANET_ZOOM_TICKS)
+        .saturating_mul(PLANET_ZOOM_STEPS)
+        .div_ceil(PLANET_ZOOM_TICKS)
+}
 
 /// Source `PATH_ID_*` identities shared by route progression and rendering.
 pub mod route_path {
@@ -598,14 +622,16 @@ pub enum PlanetSequencePhase {
     IsolatingPlanet,
     /// Smooth 32-frame move to the authored close-up center.
     CenteringPlanet,
+    /// Transfer Pepper's portrait/background assets before the close-up loop.
+    PreparingBriefing,
     /// Forty-step planet close-up and light rotation.
     ZoomingPlanet,
-    /// General Pepper screen transfer and portrait reveal.
-    RevealingPepper,
     /// Type-on planet heading.
     RevealingPlanetName,
     /// General Pepper mission briefing.
     Briefing,
+    /// Dismissal sound and transfer handoff before the exit fade.
+    DismissingBriefing,
     /// Full-screen fade into gameplay.
     FadingOut,
 }
@@ -638,6 +664,10 @@ pub struct PlanetPresentation {
     pub planet_name_characters: u8,
     /// Number of General Pepper briefing characters currently visible.
     pub briefing_characters: u8,
+    /// Fractional mission-text cursor progress in source presentation units.
+    pub briefing_cadence_progress: u8,
+    /// A sampled dismissal edge awaiting the source's next presentation pass.
+    pub briefing_dismissal_pending: bool,
     /// Fixed-rate handoff ticks from a sampled route-confirmation edge into
     /// the source ship-flash sequence.
     pub route_confirmation_ticks_remaining: u8,
@@ -659,6 +689,8 @@ impl Default for PlanetPresentation {
             planet_radius: INITIAL_PLANET_RADIUS,
             planet_name_characters: 0,
             briefing_characters: 0,
+            briefing_cadence_progress: BRIEFING_FAST_CADENCE_INITIAL_PROGRESS,
+            briefing_dismissal_pending: false,
             route_confirmation_ticks_remaining: 0,
         }
     }
@@ -667,6 +699,21 @@ impl Default for PlanetPresentation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn measured_zoom_ticks_cover_every_source_step() {
+        assert_eq!(planet_zoom_step(0), 0);
+        assert_eq!(planet_zoom_step(PLANET_ZOOM_TICKS), PLANET_ZOOM_STEPS);
+        assert_eq!(planet_zoom_step(PLANET_ZOOM_TICKS + 1), PLANET_ZOOM_STEPS);
+
+        let mut previous_step = 0;
+        for tick in 1..=PLANET_ZOOM_TICKS {
+            let step = planet_zoom_step(tick);
+            assert!(step >= previous_step);
+            assert!(step <= PLANET_ZOOM_STEPS);
+            previous_step = step;
+        }
+    }
 
     #[test]
     fn hard_route_first_travel_matches_retail_oracle() {

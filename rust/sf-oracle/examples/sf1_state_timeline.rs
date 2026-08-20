@@ -5,8 +5,12 @@ use sf_core::pad;
 use sf_oracle::{
     RetailMachine, RETAIL_BGFLAGS, RETAIL_BRIEFING_CHOICE, RETAIL_CONTROLLER_TRIGGER_HIGH,
     RETAIL_CONTROLLER_TRIGGER_LOW, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET,
-    RETAIL_DEFAULT_TRAINING, RETAIL_FADEDIR, RETAIL_GAMEFRAME, RETAIL_PLANET_FADE_COUNT,
-    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_POOL,
+    RETAIL_DEFAULT_TRAINING, RETAIL_FADEDIR, RETAIL_GAMEFRAME, RETAIL_PEPPER_CHARACTERS,
+    RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY,
+    RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_FADE_COUNT, RETAIL_PLANET_GAME_START_ENTRY,
+    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
+    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_RADIUS,
+    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
     RETAIL_PSHIPFLAGS, RETAIL_STAGECNT, RETAIL_WHICH_ROUTE,
 };
 use std::collections::BTreeSet;
@@ -23,6 +27,7 @@ const GAME_DESTINATION_SELECT_TICK: u32 = 380;
 const GAME_DESTINATION_CONFIRM_TICK: u32 = 420;
 const ROUTE_SELECTION_CONFIRM_TICK: u32 = 500;
 const ROUTE_SELECTION_CONFIRM_HOLD_TICKS: u32 = 12;
+const POST_ROUTE_TRACE_START_TICK: u32 = 490;
 const PLANET_DISMISS_START_TICK: u32 = 840;
 const PLANET_DISMISS_END_TICK: u32 = 900;
 const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
@@ -106,16 +111,31 @@ fn main() {
     let rom = std::fs::read(&rom_path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", rom_path.display()));
     let mut machine = RetailMachine::new(rom);
+    machine.watch_cpu_execution(&[
+        RETAIL_PLANET_MAP_FADE_ENTRY,
+        RETAIL_PLANET_ISOLATION_ENTRY,
+        RETAIL_PLANET_CENTER_ENTRY,
+        RETAIL_PLANET_BRIEFING_PREP_ENTRY,
+        RETAIL_PLANET_ZOOM_ENTRY,
+        RETAIL_PLANET_NAME_ENTRY,
+        RETAIL_PLANET_MESSAGE_ENTRY,
+        RETAIL_PLANET_DISMISS_ENTRY,
+        RETAIL_PLANET_EXIT_FADE_ENTRY,
+        RETAIL_PLANET_GAME_START_ENTRY,
+    ]);
     let mut previous = None;
 
     println!(
-        "tick video_frame input trigger game_frame background background_flags fade_direction stage briefing_control_disabled destination default_training planet_interrupt route route_stage planet fade_count ship_flash active_objects nonblack execution"
+        "tick video_frame input trigger game_frame background background_flags fade_direction stage briefing_control_disabled destination default_training planet_interrupt route route_stage planet fade_count ship_flash pepper_characters planet_radius active_objects nonblack execution"
     );
     for tick in 0..tick_limit {
         let input = scripted_input(tick);
         machine
             .tick_video_frames(input, VIDEO_FRAMES_PER_TICK)
             .unwrap_or_else(|error| panic!("retail machine failed: {error}"));
+        for entry in machine.take_cpu_execution_watch_hits() {
+            println!("phase_entry {tick} {entry:#08X}");
+        }
         let state = (
             machine.peek16(WORK_RAM | RETAIL_GAMEFRAME),
             machine.peek16(WORK_RAM | RETAIL_CURRENTBG),
@@ -126,7 +146,7 @@ fn main() {
                 .unwrap_or_else(|error| panic!("invalid retail object state: {error}")),
         );
         let summary = state;
-        if previous != Some(summary) || input != 0 {
+        if previous != Some(summary) || input != 0 || tick >= POST_ROUTE_TRACE_START_TICK {
             let nonblack = machine
                 .ppu_frame()
                 .rgba
@@ -134,7 +154,7 @@ fn main() {
                 .filter(|pixel| pixel[..3] != [0, 0, 0])
                 .count();
             println!(
-                "{} {} {input:#06X} {:#06X} {} {} {:#04X} {} {} {} {} {} {} {} {} {} {} {} {} {} {:#08X}",
+                "{} {} {input:#06X} {:#06X} {} {} {:#04X} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {:#08X}",
                 tick,
                 machine.video_frame(),
                 u16::from_le_bytes([
@@ -155,6 +175,8 @@ fn main() {
                 machine.peek8(WORK_RAM | RETAIL_CURRENT_PLANET) as i8,
                 machine.peek16(WORK_RAM | RETAIL_PLANET_FADE_COUNT),
                 machine.peek8(WORK_RAM | RETAIL_PLANET_SHIP_FLASH),
+                machine.peek8(RETAIL_PEPPER_CHARACTERS),
+                machine.peek16(RETAIL_PLANET_RADIUS),
                 state.5,
                 nonblack,
                 machine.pc(),

@@ -6,13 +6,16 @@ use sf_difftest::{first_divergence, SemanticFrame};
 use sf_game::shell::{GameState, Shell};
 use sf_oracle::{
     RetailMachine, RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET,
-    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PSHIPFLAGS,
-    RETAIL_WHICH_ROUTE,
+    RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY,
+    RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT,
+    RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY,
+    RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE,
+    RETAIL_PLANET_ZOOM_ENTRY, RETAIL_PSHIPFLAGS, RETAIL_WHICH_ROUTE,
 };
 use std::path::Path;
 use std::process::ExitCode;
 
-const DEFAULT_TICKS: u32 = 540;
+const DEFAULT_TICKS: u32 = 880;
 const VIDEO_FRAMES_PER_TICK: u32 = 3;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
@@ -29,6 +32,22 @@ const GAME_DESTINATION_SELECT_TICK: u32 = 380;
 const GAME_DESTINATION_CONFIRM_TICK: u32 = 420;
 const ROUTE_SELECTION_CONFIRM_TICK: u32 = 500;
 const ROUTE_SELECTION_CONFIRM_HOLD_TICKS: u32 = 12;
+const PLANET_DISMISS_START_TICK: u32 = 840;
+const PLANET_DISMISS_END_TICK: u32 = 900;
+const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
+
+const RETAIL_PLANET_PHASE_ENTRIES: [u32; 10] = [
+    RETAIL_PLANET_MAP_FADE_ENTRY,
+    RETAIL_PLANET_ISOLATION_ENTRY,
+    RETAIL_PLANET_CENTER_ENTRY,
+    RETAIL_PLANET_BRIEFING_PREP_ENTRY,
+    RETAIL_PLANET_ZOOM_ENTRY,
+    RETAIL_PLANET_NAME_ENTRY,
+    RETAIL_PLANET_MESSAGE_ENTRY,
+    RETAIL_PLANET_DISMISS_ENTRY,
+    RETAIL_PLANET_EXIT_FADE_ENTRY,
+    RETAIL_PLANET_GAME_START_ENTRY,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FrontEndPhase {
@@ -38,7 +57,17 @@ enum FrontEndPhase {
     BriefingDestination,
     PlanetMapSetup,
     RouteSelection,
-    RouteConfirmed,
+    ShipFlash,
+    FadingMap,
+    IsolatingPlanet,
+    CenteringPlanet,
+    PreparingBriefing,
+    ZoomingPlanet,
+    RevealingPlanetName,
+    Briefing,
+    DismissingBriefing,
+    FadingOut,
+    Gameplay,
 }
 
 impl FrontEndPhase {
@@ -50,7 +79,17 @@ impl FrontEndPhase {
             Self::BriefingDestination => "briefing-destination",
             Self::PlanetMapSetup => "planet-map-setup",
             Self::RouteSelection => "route-selection",
-            Self::RouteConfirmed => "route-confirmed",
+            Self::ShipFlash => "ship-flash",
+            Self::FadingMap => "fading-map",
+            Self::IsolatingPlanet => "isolating-planet",
+            Self::CenteringPlanet => "centering-planet",
+            Self::PreparingBriefing => "preparing-briefing",
+            Self::ZoomingPlanet => "zooming-planet",
+            Self::RevealingPlanetName => "revealing-planet-name",
+            Self::Briefing => "briefing",
+            Self::DismissingBriefing => "dismissing-briefing",
+            Self::FadingOut => "fading-out",
+            Self::Gameplay => "gameplay",
         }
     }
 }
@@ -77,10 +116,46 @@ fn scripted_input(tick: u32) -> u16 {
     {
         return pad::START;
     }
+    if (PLANET_DISMISS_START_TICK..PLANET_DISMISS_END_TICK).contains(&tick) {
+        return if (tick - PLANET_DISMISS_START_TICK) % PLANET_DISMISS_CADENCE_TICKS == 0 {
+            pad::B
+        } else {
+            0
+        };
+    }
     0
 }
 
-fn retail_phase(machine: &RetailMachine, route_selection_seen: &mut bool) -> Option<FrontEndPhase> {
+#[derive(Default)]
+struct RetailPhaseTracker {
+    route_selection_seen: bool,
+    planet_phase: Option<FrontEndPhase>,
+}
+
+fn retail_phase(
+    machine: &RetailMachine,
+    tracker: &mut RetailPhaseTracker,
+    execution_entries: &[u32],
+) -> Option<FrontEndPhase> {
+    for entry in execution_entries {
+        tracker.planet_phase = Some(match *entry {
+            RETAIL_PLANET_MAP_FADE_ENTRY => FrontEndPhase::FadingMap,
+            RETAIL_PLANET_ISOLATION_ENTRY => FrontEndPhase::IsolatingPlanet,
+            RETAIL_PLANET_CENTER_ENTRY => FrontEndPhase::CenteringPlanet,
+            RETAIL_PLANET_BRIEFING_PREP_ENTRY => FrontEndPhase::PreparingBriefing,
+            RETAIL_PLANET_ZOOM_ENTRY => FrontEndPhase::ZoomingPlanet,
+            RETAIL_PLANET_NAME_ENTRY => FrontEndPhase::RevealingPlanetName,
+            RETAIL_PLANET_MESSAGE_ENTRY => FrontEndPhase::Briefing,
+            RETAIL_PLANET_DISMISS_ENTRY => FrontEndPhase::DismissingBriefing,
+            RETAIL_PLANET_EXIT_FADE_ENTRY => FrontEndPhase::FadingOut,
+            RETAIL_PLANET_GAME_START_ENTRY => FrontEndPhase::Gameplay,
+            _ => continue,
+        });
+    }
+    if let Some(phase) = tracker.planet_phase {
+        return Some(phase);
+    }
+
     match machine.peek16(WORK_RAM | RETAIL_CURRENTBG) {
         RETAIL_ATTRACT_BACKGROUND => Some(FrontEndPhase::AttractIntro),
         RETAIL_TITLE_BACKGROUND => Some(FrontEndPhase::Title),
@@ -99,11 +174,12 @@ fn retail_phase(machine: &RetailMachine, route_selection_seen: &mut bool) -> Opt
                     && machine.peek8(WORK_RAM | RETAIL_PLANET_STAGE) == 0
                     && machine.peek8(WORK_RAM | RETAIL_CURRENT_PLANET) == 0;
                 if route_ready {
-                    *route_selection_seen = true;
+                    tracker.route_selection_seen = true;
                 }
                 Some(if route_confirmed {
-                    FrontEndPhase::RouteConfirmed
-                } else if *route_selection_seen {
+                    tracker.planet_phase = Some(FrontEndPhase::ShipFlash);
+                    FrontEndPhase::ShipFlash
+                } else if tracker.route_selection_seen {
                     FrontEndPhase::RouteSelection
                 } else {
                     FrontEndPhase::PlanetMapSetup
@@ -129,8 +205,19 @@ fn native_phase(shell: &Shell) -> Option<FrontEndPhase> {
         GameState::PlanetSelect => match shell.frame().planet_presentation.phase {
             PlanetSequencePhase::InitialSetup => Some(FrontEndPhase::PlanetMapSetup),
             PlanetSequencePhase::RouteSelection => Some(FrontEndPhase::RouteSelection),
-            _ => Some(FrontEndPhase::RouteConfirmed),
+            PlanetSequencePhase::ShipFlash => Some(FrontEndPhase::ShipFlash),
+            PlanetSequencePhase::FadingMap => Some(FrontEndPhase::FadingMap),
+            PlanetSequencePhase::IsolatingPlanet => Some(FrontEndPhase::IsolatingPlanet),
+            PlanetSequencePhase::CenteringPlanet => Some(FrontEndPhase::CenteringPlanet),
+            PlanetSequencePhase::PreparingBriefing => Some(FrontEndPhase::PreparingBriefing),
+            PlanetSequencePhase::ZoomingPlanet => Some(FrontEndPhase::ZoomingPlanet),
+            PlanetSequencePhase::RevealingPlanetName => Some(FrontEndPhase::RevealingPlanetName),
+            PlanetSequencePhase::Briefing => Some(FrontEndPhase::Briefing),
+            PlanetSequencePhase::DismissingBriefing => Some(FrontEndPhase::DismissingBriefing),
+            PlanetSequencePhase::FadingOut => Some(FrontEndPhase::FadingOut),
+            PlanetSequencePhase::Traveling | PlanetSequencePhase::AwaitingConfirmation => None,
         },
+        GameState::Playing => Some(FrontEndPhase::Gameplay),
         _ => None,
     }
 }
@@ -190,6 +277,7 @@ fn main() -> ExitCode {
     let rom = std::fs::read(&rom_path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", rom_path.display()));
     let mut retail = RetailMachine::new(rom);
+    retail.watch_cpu_execution(&RETAIL_PLANET_PHASE_ENTRIES);
     let mut native = configured_shell();
     let mut retail_trace = Vec::new();
     let mut native_trace = Vec::new();
@@ -197,20 +285,25 @@ fn main() -> ExitCode {
     let mut previous_native = None;
     let mut retail_origin = None;
     let mut native_origin = None;
-    let mut retail_route_selection_seen = false;
+    let mut retail_phase_tracker = RetailPhaseTracker::default();
 
     for tick in 0..tick_limit {
         let input = scripted_input(tick);
         retail
             .tick_video_frames(input, VIDEO_FRAMES_PER_TICK)
             .unwrap_or_else(|error| panic!("retail machine failed: {error}"));
+        let retail_execution_entries = retail.take_cpu_execution_watch_hits();
         native.tick(input);
         record_transition(
             &mut retail_trace,
             &mut previous_retail,
             &mut retail_origin,
             tick,
-            retail_phase(&retail, &mut retail_route_selection_seen),
+            retail_phase(
+                &retail,
+                &mut retail_phase_tracker,
+                &retail_execution_entries,
+            ),
         );
         record_transition(
             &mut native_trace,

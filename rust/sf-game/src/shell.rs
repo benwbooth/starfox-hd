@@ -29,12 +29,15 @@ use sf_core::{
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
     sf1_planets::{
-        briefing_text, planet_heading, post_tally_travel_retail_frames, PlanetPresentation,
-        PlanetSequencePhase, Sf1Planet, BRIEFING_CHARACTER_TICKS, FINAL_PLANET_RADIUS,
-        INITIAL_ROUTE_MAP_SETUP_TICKS, MAP_FADE_STEPS, MAP_FADE_TICKS, PEPPER_REVEAL_TICKS,
+        briefing_text, planet_heading, planet_zoom_step, post_tally_travel_retail_frames,
+        PlanetPresentation, PlanetSequencePhase, Sf1Planet, BRIEFING_DISMISS_HANDOFF_TICKS,
+        BRIEFING_FAST_CADENCE_DENOMINATOR, BRIEFING_FAST_CADENCE_INITIAL_PROGRESS,
+        BRIEFING_FAST_CADENCE_NUMERATOR, BRIEFING_FAST_CURSOR_LIMIT, BRIEFING_PREPARATION_TICKS,
+        BRIEFING_SETTLED_CADENCE_DENOMINATOR, BRIEFING_SETTLED_CADENCE_NUMERATOR,
+        FINAL_PLANET_RADIUS, INITIAL_ROUTE_MAP_SETUP_TICKS, MAP_FADE_STEPS, MAP_FADE_TICKS,
         PLANET_CENTER_TICKS, PLANET_EXIT_TICKS, PLANET_ISOLATION_TICKS,
-        PLANET_NAME_CHARACTER_TICKS, PLANET_ZOOM_TICKS, RETAIL_VIDEO_FRAMES_PER_GAME_TICK,
-        SHIP_FLASH_TICKS,
+        PLANET_NAME_CHARACTER_TICKS, PLANET_NAME_TERMINATION_TICKS, PLANET_ZOOM_TICKS,
+        RETAIL_VIDEO_FRAMES_PER_GAME_TICK, SHIP_FLASH_TICKS,
     },
     DrawListEntry,
 };
@@ -1841,6 +1844,11 @@ impl Shell {
     fn set_planet_phase(&mut self, phase: PlanetSequencePhase) {
         self.planet_presentation.phase = phase;
         self.planet_presentation.phase_tick = 0;
+        if phase == PlanetSequencePhase::Briefing {
+            self.planet_presentation.briefing_cadence_progress =
+                BRIEFING_FAST_CADENCE_INITIAL_PROGRESS;
+            self.planet_presentation.briefing_dismissal_pending = false;
+        }
     }
 
     fn emit_pepper_character_sound(&mut self, character: u8) {
@@ -1852,8 +1860,8 @@ impl Shell {
         }
     }
 
-    fn begin_planet_exit(&mut self) {
-        self.set_planet_phase(PlanetSequencePhase::FadingOut);
+    fn begin_planet_dismissal(&mut self) {
+        self.set_planet_phase(PlanetSequencePhase::DismissingBriefing);
         self.state
             .borrow_mut()
             .sound
@@ -1964,6 +1972,13 @@ impl Shell {
                 self.planet_presentation.phase_tick =
                     self.planet_presentation.phase_tick.saturating_add(1);
                 if self.planet_presentation.phase_tick >= PLANET_CENTER_TICKS {
+                    self.set_planet_phase(PlanetSequencePhase::PreparingBriefing);
+                }
+            }
+            PlanetSequencePhase::PreparingBriefing => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= BRIEFING_PREPARATION_TICKS {
                     self.set_planet_phase(PlanetSequencePhase::ZoomingPlanet);
                     let music = if self.planet_presentation.selected_planet.is_sphere() {
                         MUSIC_PLANET_ZOOM
@@ -1979,20 +1994,12 @@ impl Shell {
             PlanetSequencePhase::ZoomingPlanet => {
                 self.planet_presentation.phase_tick =
                     self.planet_presentation.phase_tick.saturating_add(1);
+                let zoom_step = planet_zoom_step(self.planet_presentation.phase_tick);
                 self.planet_presentation.planet_radius =
                     sf_core::sf1_planets::INITIAL_PLANET_RADIUS
-                        .saturating_add(
-                            self.planet_presentation.phase_tick.min(PLANET_ZOOM_TICKS) as u8
-                        )
+                        .saturating_add(zoom_step as u8)
                         .min(FINAL_PLANET_RADIUS);
                 if self.planet_presentation.phase_tick >= PLANET_ZOOM_TICKS {
-                    self.set_planet_phase(PlanetSequencePhase::RevealingPepper);
-                }
-            }
-            PlanetSequencePhase::RevealingPepper => {
-                self.planet_presentation.phase_tick =
-                    self.planet_presentation.phase_tick.saturating_add(1);
-                if self.planet_presentation.phase_tick >= PEPPER_REVEAL_TICKS {
                     self.set_planet_phase(PlanetSequencePhase::RevealingPlanetName);
                 }
             }
@@ -2007,28 +2014,65 @@ impl Shell {
                 if visible > previous {
                     self.emit_pepper_character_sound(heading.as_bytes()[usize::from(visible - 1)]);
                 }
-                if usize::from(visible) >= heading.len() {
+                let heading_ticks = u16::try_from(heading.len())
+                    .expect("planet heading fits the presentation counter")
+                    .saturating_mul(PLANET_NAME_CHARACTER_TICKS)
+                    .saturating_add(PLANET_NAME_TERMINATION_TICKS);
+                if self.planet_presentation.phase_tick >= heading_ticks {
                     self.set_planet_phase(PlanetSequencePhase::Briefing);
                 }
             }
             PlanetSequencePhase::Briefing => {
+                if self.planet_presentation.briefing_dismissal_pending {
+                    self.planet_presentation.briefing_dismissal_pending = false;
+                    self.begin_planet_dismissal();
+                    return;
+                }
                 if self.pad1_new & (pad::START | pad::B | pad::A) != 0 {
-                    self.begin_planet_exit();
+                    self.planet_presentation.briefing_dismissal_pending = true;
                     return;
                 }
 
                 self.planet_presentation.phase_tick =
                     self.planet_presentation.phase_tick.saturating_add(1);
                 let message = briefing_text(self.planet_presentation.briefing_message);
-                let previous = self.planet_presentation.briefing_characters;
-                let visible = (self.planet_presentation.phase_tick / BRIEFING_CHARACTER_TICKS)
-                    .min(message.len() as u16) as u8;
-                self.planet_presentation.briefing_characters = visible;
-                if visible > previous {
-                    self.emit_pepper_character_sound(message.as_bytes()[usize::from(visible - 1)]);
+                let (numerator, denominator) =
+                    if self.planet_presentation.briefing_characters < BRIEFING_FAST_CURSOR_LIMIT {
+                        (
+                            BRIEFING_FAST_CADENCE_NUMERATOR,
+                            BRIEFING_FAST_CADENCE_DENOMINATOR,
+                        )
+                    } else {
+                        (
+                            BRIEFING_SETTLED_CADENCE_NUMERATOR,
+                            BRIEFING_SETTLED_CADENCE_DENOMINATOR,
+                        )
+                    };
+                self.planet_presentation.briefing_cadence_progress = self
+                    .planet_presentation
+                    .briefing_cadence_progress
+                    .saturating_add(numerator);
+                if self.planet_presentation.briefing_cadence_progress >= denominator {
+                    self.planet_presentation.briefing_cadence_progress -= denominator;
+                    if self.planet_presentation.briefing_characters == u8::MAX {
+                        self.begin_planet_dismissal();
+                        return;
+                    }
+                    self.planet_presentation.briefing_characters += 1;
+                    if self.planet_presentation.briefing_characters == BRIEFING_FAST_CURSOR_LIMIT {
+                        self.planet_presentation.briefing_cadence_progress = 0;
+                    }
+                    let visible = usize::from(self.planet_presentation.briefing_characters);
+                    if visible <= message.len() {
+                        self.emit_pepper_character_sound(message.as_bytes()[visible - 1]);
+                    }
                 }
-                if usize::from(visible) >= message.len() {
-                    self.begin_planet_exit();
+            }
+            PlanetSequencePhase::DismissingBriefing => {
+                self.planet_presentation.phase_tick =
+                    self.planet_presentation.phase_tick.saturating_add(1);
+                if self.planet_presentation.phase_tick >= BRIEFING_DISMISS_HANDOFF_TICKS {
+                    self.set_planet_phase(PlanetSequencePhase::FadingOut);
                 }
             }
             PlanetSequencePhase::FadingOut => {
@@ -3988,7 +4032,12 @@ mod tests {
         shell.tick(pad::START);
         assert_eq!(
             shell.frame().planet_presentation.phase,
-            PlanetSequencePhase::FadingOut
+            PlanetSequencePhase::Briefing
+        );
+        shell.tick(0);
+        assert_eq!(
+            shell.frame().planet_presentation.phase,
+            PlanetSequencePhase::DismissingBriefing
         );
         for _ in 0..MAX_PLANET_SEQUENCE_TICKS {
             if shell.state() == GameState::Playing {
@@ -4065,6 +4114,12 @@ mod tests {
             &mut shell,
             PlanetSequencePhase::CenteringPlanet,
             PLANET_CENTER_TICKS,
+            PlanetSequencePhase::PreparingBriefing,
+        );
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::PreparingBriefing,
+            BRIEFING_PREPARATION_TICKS,
             PlanetSequencePhase::ZoomingPlanet,
         );
         assert!(shell
@@ -4074,17 +4129,12 @@ mod tests {
             &mut shell,
             PlanetSequencePhase::ZoomingPlanet,
             PLANET_ZOOM_TICKS,
-            PlanetSequencePhase::RevealingPepper,
-        );
-        assert_planet_phase_duration(
-            &mut shell,
-            PlanetSequencePhase::RevealingPepper,
-            PEPPER_REVEAL_TICKS,
             PlanetSequencePhase::RevealingPlanetName,
         );
         let heading_ticks = u16::try_from(planet_heading(Sf1Planet::Corneria).len())
             .expect("planet heading fits presentation counter")
-            * PLANET_NAME_CHARACTER_TICKS;
+            * PLANET_NAME_CHARACTER_TICKS
+            + PLANET_NAME_TERMINATION_TICKS;
         assert_planet_phase_duration(
             &mut shell,
             PlanetSequencePhase::RevealingPlanetName,
@@ -4097,13 +4147,30 @@ mod tests {
         shell.tick(pad::B);
         assert_eq!(
             shell.frame().planet_presentation.phase,
-            PlanetSequencePhase::FadingOut
+            PlanetSequencePhase::Briefing
+        );
+        shell.tick(0);
+        assert_eq!(
+            shell.frame().planet_presentation.phase,
+            PlanetSequencePhase::DismissingBriefing
         );
         assert!(shell
             .drain_sound()
             .contains(&SoundCmd::PlaySe(PEPPER_DISMISS_SOUND)));
-        for _ in 0..PLANET_EXIT_TICKS {
+        assert_planet_phase_duration(
+            &mut shell,
+            PlanetSequencePhase::DismissingBriefing,
+            BRIEFING_DISMISS_HANDOFF_TICKS,
+            PlanetSequencePhase::FadingOut,
+        );
+        for elapsed in 1..=PLANET_EXIT_TICKS {
             shell.tick(0);
+            if elapsed < PLANET_EXIT_TICKS {
+                assert_eq!(
+                    shell.frame().planet_presentation.phase,
+                    PlanetSequencePhase::FadingOut
+                );
+            }
         }
         assert_eq!(shell.state(), GameState::Playing);
         assert_eq!(shell.frame().whichroute, 0);
