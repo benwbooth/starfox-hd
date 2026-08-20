@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "id": "sf2-us-europe",
+  "title": "Star Fox 2 (USA, Europe)",
+  "sha256": "e134f20f6ee7d422d06faea6b1ae1e4101d1d0a200a0571d715d1cf23d959e8c",
+  "size": 1048576,
+  "bank_size": 32768,
+  "regions": []
+}

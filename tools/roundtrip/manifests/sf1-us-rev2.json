@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "sf1-us-rev2",
+  "title": "Star Fox (USA) (Rev 2)",
+  "sha256": "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548",
+  "size": 1048576,
+  "bank_size": 32768,
+  "regions": [
+    {
+      "name": "runtime_random",
+      "offset": 97368,
+      "size": 24,
+      "source": "../regions/sf1_runtime_random.asm"
+    }
+  ]
+}

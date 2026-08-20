@@ -22,6 +22,7 @@
           wayland           # native Wayland windowing (no Xwayland needed)
           libdecor          # SDL3 client-side window decorations on Wayland
           stdenv.cc.cc.lib  # libstdc++ (SDL3 / GL drivers)
+          zlib              # rustup rustc's dynamically linked LLVM runtime
         ];
       in
       {
@@ -46,6 +47,11 @@
             # Asset extraction / codegen (tools/*.py)
             python3
             python3Packages.pillow
+
+            # Lossless retail-ROM reconstruction. WLA-DX provides independent
+            # 65C816 and Super FX assemblers for the verification toolchain;
+            # neither assembler is linked into the shipping Rust port.
+            wla-dx
 
             # Dev tools
             gdb
