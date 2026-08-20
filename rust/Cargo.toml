@@ -37,6 +37,7 @@ sf2-map = { path = "sf2-map" }
 sf2-path = { path = "sf2-path" }
 sf2-game = { path = "sf2-game", default-features = false }
 sf-oracle = { path = "sf-oracle" }
+sf-difftest = { path = "sf-difftest" }
 
 [profile.release]
 debug = true

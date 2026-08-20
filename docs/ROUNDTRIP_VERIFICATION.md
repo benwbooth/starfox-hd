@@ -77,6 +77,44 @@ minimization. Mesen remains the independent full-system check for scenarios
 whose correctness depends on hardware behavior not completely modeled by the
 in-process oracle.
 
+## Semantic first-divergence traces
+
+`sf-difftest` now has a versioned JSON-lines format shared by retail-oracle and
+native-port adapters. Each line is one deterministic frame containing:
+
+- a monotonically increasing sequence, source frame, and controller input;
+- named scalar game fields;
+- typed objects aligned by stable semantic identity rather than storage slot;
+- ordered gameplay events;
+- optional video and audio item counts and hashes.
+
+Field names describe game concepts such as `view.forward_velocity` and
+`position.z`. The retail adapter may read those values from source storage, but
+the trace contains no source addresses or processor state and the native
+adapter reads ordinary Rust struct fields. Object ordering therefore cannot
+create a false mismatch, while duplicate identities and non-monotonic traces
+are rejected.
+
+Compare two saved traces with:
+
+```text
+nix develop --command bash -c \
+  "cd rust && cargo run -p sf-difftest -- --semantic retail.jsonl native.jsonl"
+```
+
+The comparator aligns frames by sequence and reports the earliest exact path,
+for example `objects["primary-enemy"].fields.position.z`. It compares frame
+metadata, scalar fields, objects, ordered events, video, and audio in a fixed
+order so a failure is reproducible and immediately points to the owning native
+subsystem.
+
+`sf-oracle/tests/semantic_trace.rs` is the first live adapter proof. It runs the
+retail game's named straight-motion strategy and the flat native Rust strategy
+for 30 frames, then compares position, velocity, and view motion through this
+shared format. This establishes the mechanism; it does not yet constitute
+whole-game parity. The next increments must adapt complete boot-to-ending
+scenarios and add native frame/audio hashes plus source-edge coverage.
+
 ## Coverage closure
 
 No finite test suite alone proves every game feature. The project may claim

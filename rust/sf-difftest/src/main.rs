@@ -6,6 +6,7 @@
 //!   `E <shape> <x> <y> <z> <rx> <ry> <rz> <flags>` — one draw entry
 //!
 //! Usage: `sf-difftest <oracle.dump> <candidate.dump> [--max-diffs N]`
+//!        `sf-difftest --semantic <oracle.jsonl> <candidate.jsonl>`
 //! Exit code 0 = identical, 1 = divergence (first divergent tick reported),
 //! 2 = usage/parse error.
 
@@ -98,9 +99,11 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut paths = Vec::new();
     let mut max_diffs = 10usize;
+    let mut semantic = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
+            "--semantic" => semantic = true,
             "--max-diffs" => {
                 i += 1;
                 max_diffs = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(10);
@@ -110,8 +113,12 @@ fn main() -> ExitCode {
         i += 1;
     }
     if paths.len() != 2 {
-        eprintln!("usage: sf-difftest <oracle.dump> <candidate.dump> [--max-diffs N]");
+        eprintln!("usage: sf-difftest [--semantic] <oracle.dump> <candidate.dump> [--max-diffs N]");
         return ExitCode::from(2);
+    }
+
+    if semantic {
+        return compare_semantic(&paths[0], &paths[1]);
     }
 
     let (oracle, cand) = match (parse(&paths[0]), parse(&paths[1])) {
@@ -161,5 +168,36 @@ fn main() -> ExitCode {
     } else {
         println!("{diffs}+ divergent ticks (of {common} compared)");
         ExitCode::from(1)
+    }
+}
+
+fn compare_semantic(reference_path: &str, candidate_path: &str) -> ExitCode {
+    let reference = match sf_difftest::read_jsonl(reference_path) {
+        Ok(trace) => trace,
+        Err(error) => {
+            eprintln!("parse error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let candidate = match sf_difftest::read_jsonl(candidate_path) {
+        Ok(trace) => trace,
+        Err(error) => {
+            eprintln!("parse error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    match sf_difftest::first_divergence(&reference, &candidate) {
+        Ok(None) => {
+            println!("OK: {} semantic frames identical", reference.len());
+            ExitCode::SUCCESS
+        }
+        Ok(Some(divergence)) => {
+            println!("FIRST DIVERGENCE: {divergence}");
+            ExitCode::from(1)
+        }
+        Err(error) => {
+            eprintln!("comparison error: {error}");
+            ExitCode::from(2)
+        }
     }
 }
