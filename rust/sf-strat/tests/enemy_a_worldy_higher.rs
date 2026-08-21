@@ -132,12 +132,16 @@ fn zaco3die_lands_when_worldy_not_higher_than_neg100() {
     g.objs.aliens[houdai as usize].worldz = 100;
     let idx = spawn(&mut g);
     g.objs.aliens[idx as usize].worldz = 100;
+    // Start high: zaco3die_init falls through into the die body on the death
+    // frame (KSTRATS.ASM), so the first dive update (+4 rotx) happens here.
+    g.objs.aliens[idx as usize].worldy = -200;
     strat_zaco3_init(&mut g, idx);
     let exp = g.objs.aliens[idx as usize].expstratptr.expect("exp");
-    g.call_strat(exp, idx); // zaco3die_init
+    g.call_strat(exp, idx); // zaco3die_init + inline first die tick
     let die = g.objs.aliens[idx as usize].stratptr.expect("die");
+    assert_eq!(g.objs.aliens[idx as usize].rotx, 4);
 
-    // Still high: stay in die dive (rotx increases).
+    // Still high: stay in die dive (rotx increases again).
     g.objs.aliens[idx as usize].worldy = -200;
     g.objs.aliens[idx as usize].rotx = 0;
     g.objs.aliens[idx as usize].vel = 0;
