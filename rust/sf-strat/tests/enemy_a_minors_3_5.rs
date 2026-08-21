@@ -207,7 +207,7 @@ fn zaco0_fire_spread_mask_pitch_then_yaw() {
         g.objs.aliens[idx as usize].roty = DEG180.wrapping_add(8);
         g.objs.aliens[idx as usize].worldz = 2000;
         g.vars.rng = seed;
-        g.vars.gameframe = 3; // (gf+idx)&3==0 with idx=1
+        g.vars.gameframe = 4; // (gf+phase(1))&3==0; phase(1)=54+54*1=108
         run(&mut g, idx);
         let shot = g
             .objs
