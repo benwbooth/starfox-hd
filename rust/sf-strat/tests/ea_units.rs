@@ -1,5 +1,5 @@
 //! enemy_a lane unit tests: pure helpers, ground strategies, and a
-//! no-panic smoke run over every ported Istrat (debug-build overflow
+//! no-panic smoke run over every ported object initializer (debug-build overflow
 //! checks make this a real arithmetic-wrap audit).
 
 use sf_game::alien::{ASF_COLLDISABLE, ATGND};
@@ -170,7 +170,7 @@ fn ground_staydist_offsets_from_view_z() {
 }
 
 // ============================================================
-// No-panic smoke run over every ported Istrat.
+// No-panic smoke run over every ported object initializer.
 // ============================================================
 
 fn smoke(f: StrategyFn) {
@@ -209,7 +209,7 @@ fn smoke(f: StrategyFn) {
 }
 
 #[test]
-fn smoke_all_istrats() {
+fn smoke_all_initializers() {
     let fns: &[StrategyFn] = &[
         // ground.rs
         ground::strat_stayrel_init,
@@ -253,7 +253,6 @@ fn smoke_all_istrats() {
         enemy_a::strat_carrier_init,
         enemy_a::strat_base1_init,
         enemy_a::strat_cameleon_init,
-        enemy_a::strat_hit_flash,
         enemy_a::strat_explode,
         enemy_a::strat_szaco2_init,
         enemy_a::strat_zaco1l_init,

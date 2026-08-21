@@ -1,6 +1,6 @@
 //! ROM `hover_Istrat` / `implode_*` / `stopexplode_Istrat` / `weapcollide_Istrat`.
 
-use sf_game::alien::{ACF_WEAPON, AFEXP, ASF_COLLDISABLE};
+use sf_game::alien::{ACF_WEAPON, AFEXP, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -99,4 +99,20 @@ fn weapcollide_zero_ap_forces_one_damage() {
     g.objs.aliens[other as usize].ap = 0;
     weapcollide_istrat(&mut g, w);
     assert_eq!(g.objs.aliens[w as usize].hp, 4);
+}
+
+#[test]
+fn weapcollide_accepts_the_flat_player_slot_zero() {
+    let mut g = Game::new();
+    let player = g.objs.alloc().expect("player");
+    let weapon = g.objs.alloc().expect("weapon");
+    assert_eq!(player, 0);
+    g.coldet.pcbox.player = Some(player);
+    g.objs.aliens[weapon as usize].hp = 1;
+    g.objs.aliens[weapon as usize].collobjptr = player;
+    g.objs.aliens[weapon as usize].sflags |= ASF_COLLIDE;
+
+    weapcollide_istrat(&mut g, weapon);
+
+    assert_eq!(g.objs.aliens[weapon as usize].hp, 0);
 }

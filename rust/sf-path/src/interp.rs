@@ -1142,6 +1142,10 @@ pub fn path_on_collision<H: PathHost>(world: &mut PathWorld, host: &mut H, self_
     }
 
     host.hit_flash(&mut world.aliens[si]);
+    // PATHS.ASM jumps into hitflash_Istrat, whose final operation dispatches
+    // the object's ordinary strategy. Collision therefore replaces, but does
+    // not consume, the path update for this object-strategy pass.
+    strat_path_tick(world, host, self_idx);
 }
 
 /// C `path_particleexplode_strat` ([`StratRef::ParticleExplodeStrat`]).
@@ -2732,12 +2736,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_SMOKEON => {
-                world.aliens[si].sflags2 |= PSFLAG6_SMOKE;
+                world.aliens[si].sflags3 |= PSFLAG6_SMOKE;
                 advance = 1;
             }
 
             P_SMOKEOFF => {
-                world.aliens[si].sflags2 &= !PSFLAG6_SMOKE;
+                world.aliens[si].sflags3 &= !PSFLAG6_SMOKE;
                 advance = 1;
             }
 

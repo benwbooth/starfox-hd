@@ -999,26 +999,19 @@ pub fn strat_hit_flash(g: &mut Game, idx: u16) {
         }
         return;
     }
-    let hp = g.objs.aliens[idx as usize].hp;
-    if hp != HARD_HP {
-        if hp > 0 {
-            g.objs.aliens[idx as usize].hp = hp - 1;
-        }
-        if g.objs.aliens[idx as usize].hp == 0 {
-            match g.objs.aliens[idx as usize].expstratptr {
-                Some(exp) => g.call_strat(exp, idx),
-                None => strat_explode(g, idx),
-            }
-            return;
-        }
+    let partner = g.objs.aliens[idx as usize].collobjptr;
+    if (partner as usize) < g.objs.aliens.len() && g.objs.aliens[partner as usize].active {
+        let attack_power = g.objs.aliens[partner as usize].ap;
+        g.coldet_apply_damage(idx, attack_power, 0);
     }
-    // ROM hitflash_Istrat (GSTRATS.ASM:895-925): every non-fatal hit plays
+    // ROM hitflash_Istrat (GSTRATS.ASM:895-925): every effective hit plays
     // se_damageenemynear/mid/far ($24/$25/$26) by xzdiffs range to the player
     // (<1000 / <2000 / else). The port was silent.
     play_se_by_range(g, idx, 0x24, 0x25, 0x26);
     g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
-    // hitflash_Istrat.Icont also ends in `s_jmpto_strat` after a non-fatal
-    // hit, so movement/state logic still runs during the collision frame.
+    // hitflash_Istrat.Icont ends in `s_jmpto_strat`, so movement/state logic
+    // still runs during the collision frame. A hit that reaches zero health
+    // enters its explosion strategy on the next object-strategy pass.
     if let Some(strat) = g.objs.aliens[idx as usize].stratptr {
         g.call_strat(strat, idx);
     }
@@ -1366,6 +1359,10 @@ fn explode_icont(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     };
+    // `s_make_obj` uses the source list's insert-after-current operation, so
+    // the sprite runs its newly installed explosion strategy later in this
+    // same object pass.
+    g.objs.active_move_after(sprite, idx);
     remove_attached_fire(g, idx);
 
     let explode_tick = sid(g, explode_strat);
@@ -1764,8 +1761,27 @@ pub fn stopexplode_istrat(g: &mut Game, idx: u16) {
 /// ROM `weapcollide_Istrat` (GSTRATS.ASM:769) — weapon hit damage / kill / exp.
 pub fn weapcollide_istrat(g: &mut Game, idx: u16) {
     let partner = g.objs.aliens[idx as usize].collobjptr;
-    let partner_ok =
-        partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active;
+    // A raw zero object link normally means "none", but the flat native pool
+    // deliberately keeps the player in slot zero. While this collide strategy
+    // is being dispatched, a zero link therefore identifies the live player,
+    // not a missing partner. The collide bit supplies the otherwise-lost
+    // validity tag without introducing ROM pointer encoding into port state.
+    let zero_is_live_player = partner == PLAYER_OBJECT_SLOT
+        && g.objs.aliens[idx as usize].sflags & ASF_COLLIDE != 0
+        && g.coldet.pcbox.player == Some(PLAYER_OBJECT_SLOT);
+    let partner_ok = (partner != PLAYER_OBJECT_SLOT || zero_is_live_player)
+        && (partner as usize) < NUMBER_AL
+        && g.objs.aliens[partner as usize].active;
+
+    if zero_is_live_player {
+        // The cartridge's player collision shell carries hard AP and is not a
+        // weapon, so `weapcollide_Istrat` takes its `kill_Istrat` branch. The
+        // flat port keeps those combat values in typed body/wing proxies and
+        // leaves the player object's AP at zero; preserve the authored branch
+        // explicitly instead of mistaking it for the zero-AP damage override.
+        crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
+        return;
+    }
 
     if partner_ok {
         let pap = g.objs.aliens[partner as usize].ap;
@@ -4333,6 +4349,9 @@ const SH_LFDIE_PROXY: u16 = 342;
 pub fn elaser2die_istrat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].ptr = 0;
     if let Some(flash) = make_obj(g, SH_LFDIE_PROXY) {
+        // `s_make_obj` inserts immediately after the current laser. The child
+        // initializer consequently runs later in this same strategy pass.
+        g.objs.active_move_after(flash, idx);
         crate::common::rotsflatstay_istrat(g, flash);
         {
             let src = g.objs.aliens[idx as usize];
@@ -7974,11 +7993,13 @@ pub fn relelaserhome_istrat(g: &mut Game, idx: u16) {
 pub fn relelaserhome_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
-        if al.animframe < 4 {
-            al.animframe += 2;
-            if al.animframe > 4 {
-                al.animframe = 4;
+        let frame = al.animframe & 0x7F;
+        if frame != 4 {
+            let mut next = frame.wrapping_add(2);
+            if next >= 8 {
+                next = next.wrapping_sub(8);
             }
+            al.animframe = 0x80 | next;
         }
     }
     let pl = player(g);

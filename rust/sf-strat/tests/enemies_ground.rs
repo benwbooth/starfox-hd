@@ -13,7 +13,7 @@
 
 use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
-    ObjectVisualKind, AFEXP, ASF_INVISIBLE, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ObjectVisualKind, AFEXP, ASF_COLLIDE, ASF_INVISIBLE, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
@@ -115,6 +115,29 @@ fn place_direct(
 fn tick(g: &mut Game, idx: u16) {
     let s = g.objs.aliens[idx as usize].stratptr.expect("stratptr");
     g.call_strat(s, idx);
+}
+
+fn apply_one_point_collision(g: &mut Game, idx: u16) {
+    let collision = g.objs.aliens[idx as usize]
+        .collstratptr
+        .expect("collstratptr");
+    g.objs.aliens[0].ap = 1;
+    {
+        let object = &mut g.objs.aliens[idx as usize];
+        object.collobjptr = 0;
+        object.collcount = 1;
+        object.sflags |= ASF_COLLIDE;
+    }
+    g.call_strat(collision, idx);
+    g.objs.aliens[0].ap = 0;
+}
+
+fn run_fatal_explosion_pass(g: &mut Game, idx: u16) {
+    assert_eq!(g.objs.aliens[idx as usize].hp, 0, "fatal collision");
+    let explosion = g.objs.aliens[idx as usize]
+        .expstratptr
+        .expect("expstratptr");
+    g.call_strat(explosion, idx);
 }
 
 fn any_hplasma(g: &Game) -> bool {
@@ -226,12 +249,12 @@ fn tank1a_death_explodes() {
     let mut g = setup();
     let tank = place(&mut g, IS_TANK1A, 0, 0, 3000, 168);
     tick(&mut g, tank); // arm (sets hp=2 + collstrat/expstrat)
-    let coll = g.objs.aliens[tank as usize].collstratptr.unwrap();
     g.objs.aldead = 0;
-    g.call_strat(coll, tank); // 2 -> 1 (flash)
+    apply_one_point_collision(&mut g, tank); // 2 -> 1 (flash)
     assert_eq!(g.objs.aliens[tank as usize].hp, 1);
     assert_eq!(g.objs.aldead, 0, "still alive after first hit");
-    g.call_strat(coll, tank); // 1 -> 0 -> explode
+    apply_one_point_collision(&mut g, tank); // 1 -> 0
+    run_fatal_explosion_pass(&mut g, tank);
     assert_generic_explosion_started(&g, tank, "tank1a");
 }
 
@@ -520,13 +543,13 @@ fn wireman_death_explodes() {
     let mut g = setup();
     let wm = place(&mut g, IS_WIREMAN, 6000, -500, 6000, SH_WIRE_MAN);
     tick(&mut g, wm); // init (hp=4)
-    let coll = g.objs.aliens[wm as usize].collstratptr.unwrap();
     g.objs.aldead = 0;
     for _ in 0..3 {
-        g.call_strat(coll, wm);
+        apply_one_point_collision(&mut g, wm);
         assert_eq!(g.objs.aldead, 0, "alive until the 4th hit");
     }
-    g.call_strat(coll, wm); // 1 -> 0 -> explode
+    apply_one_point_collision(&mut g, wm); // 1 -> 0
+    run_fatal_explosion_pass(&mut g, wm);
     assert_generic_explosion_started(&g, wm, "wireman");
 }
 
@@ -578,13 +601,13 @@ fn winglazerman_death_explodes() {
     let mut g = setup();
     let wl = place(&mut g, IS_WINGLAZERMAN, 0, -400, 3000, SH_W_L);
     tick(&mut g, wl);
-    let coll = g.objs.aliens[wl as usize].collstratptr.unwrap();
     g.objs.aldead = 0;
     for _ in 0..7 {
-        g.call_strat(coll, wl);
+        apply_one_point_collision(&mut g, wl);
     }
     assert_eq!(g.objs.aldead, 0, "alive until the 8th hit");
-    g.call_strat(coll, wl);
+    apply_one_point_collision(&mut g, wl);
+    run_fatal_explosion_pass(&mut g, wl);
     assert_generic_explosion_started(&g, wl, "winglazerman");
 }
 
@@ -714,11 +737,11 @@ fn uperm_death_explodes() {
     g.vars.player_posy = 100;
     let up = place(&mut g, IS_UPERM, 1000, 5000, 5000, SH_UPER_M);
     tick(&mut g, up);
-    let coll = g.objs.aliens[up as usize].collstratptr.unwrap();
     g.objs.aldead = 0;
-    g.call_strat(coll, up); // 2 -> 1
+    apply_one_point_collision(&mut g, up); // 2 -> 1
     assert_eq!(g.objs.aldead, 0);
-    g.call_strat(coll, up); // 1 -> 0 -> explode
+    apply_one_point_collision(&mut g, up); // 1 -> 0
+    run_fatal_explosion_pass(&mut g, up);
     assert_generic_explosion_started(&g, up, "uperm");
 }
 
@@ -858,11 +881,11 @@ fn meteo0_death_spawns_meteor_fragment_and_explodes() {
         0,
         "grown meteo0 must shed nohitaffect"
     );
-    let coll = g.objs.aliens[m as usize].collstratptr.unwrap();
     g.objs.aldead = 0;
-    g.call_strat(coll, m); // 2 -> 1 (flash)
+    apply_one_point_collision(&mut g, m); // 2 -> 1 (flash)
     assert_eq!(g.objs.aldead, 0, "survives the first hit");
-    g.call_strat(coll, m); // 1 -> 0 -> meteo0_exp
+    apply_one_point_collision(&mut g, m); // 1 -> 0
+    run_fatal_explosion_pass(&mut g, m);
     assert_generic_explosion_started(&g, m, "meteo0");
     let frag = find_shape(&g, SH_ASTEROID1).expect("asteroid1 fragment spawned");
     assert!(
@@ -901,10 +924,9 @@ fn big_meteor_is_indestructible_and_static() {
         "static no-op tick"
     );
     // Indestructible: hitflash never kills a hardHP object.
-    let coll = a.collstratptr.unwrap();
     g.objs.aldead = 0;
     for _ in 0..5 {
-        g.call_strat(coll, b);
+        apply_one_point_collision(&mut g, b);
     }
     assert_eq!(g.objs.aldead, 0, "hardHP survives repeated hits");
     assert_eq!(g.objs.aliens[b as usize].hp, HARDHP, "hp pinned at hardHP");
@@ -922,10 +944,10 @@ fn break_meteor_is_destructible_and_explodes_without_fragment() {
     let a = g.objs.aliens[b as usize];
     assert_eq!(a.hp, 2, "meteorHP");
     assert_eq!(a.ap, 12, "meteorAP");
-    let coll = a.collstratptr.unwrap();
     g.objs.aldead = 0;
-    g.call_strat(coll, b); // 2 -> 1
-    g.call_strat(coll, b); // 1 -> 0 -> explode
+    apply_one_point_collision(&mut g, b); // 2 -> 1
+    apply_one_point_collision(&mut g, b); // 1 -> 0
+    run_fatal_explosion_pass(&mut g, b);
     assert_generic_explosion_started(&g, b, "break_meteor");
     assert!(
         find_shape(&g, SH_TADPOLE).is_none(),
@@ -1008,10 +1030,10 @@ fn mine0_init_static_destructible_then_explodes() {
         "static no-op tick"
     );
     // Standard explosion (NOT mine2exp): two hits -> explode.
-    let coll = a.collstratptr.unwrap();
     g.objs.aldead = 0;
-    g.call_strat(coll, m); // 2 -> 1
-    g.call_strat(coll, m); // 1 -> 0 -> explode
+    apply_one_point_collision(&mut g, m); // 2 -> 1
+    apply_one_point_collision(&mut g, m); // 1 -> 0
+    run_fatal_explosion_pass(&mut g, m);
     assert_generic_explosion_started(&g, m, "mine0");
 }
 
@@ -1067,11 +1089,11 @@ fn torpedo_death_explodes() {
     let mut g = setup();
     let t = place(&mut g, IS_TORPEDO_H, 0, 0, 5000, 0);
     tick(&mut g, t);
-    let coll = g.objs.aliens[t as usize].collstratptr.unwrap();
     g.objs.aldead = 0;
     for _ in 0..4 {
-        g.call_strat(coll, t); // hp 4 -> 0
+        apply_one_point_collision(&mut g, t); // hp 4 -> 0
     }
+    run_fatal_explosion_pass(&mut g, t);
     assert_generic_explosion_started(&g, t, "torpedo");
 }
 

@@ -29,7 +29,10 @@ use sf_path::interp::{
     PathHost, PathWorld,
 };
 use sf_path::literals;
-use sf_path::opcodes::{P_END, P_HELION, P_SETVEL, P_WAIT1};
+use sf_path::opcodes::{
+    PSFLAG1_RELZ, PSFLAG2_GENVECS, PSFLAG3_HELI, PSFLAG4_SPACE, PSFLAG6_SMOKE, P_END, P_HELION,
+    P_SETVEL, P_WAIT1,
+};
 
 // libm FFI for seed_runtime_tables parity (same libm as the C build).
 extern "C" {
@@ -359,6 +362,35 @@ impl PathHost for RecHost {
         // No external strategies are reachable in these scenarios (the
         // find_strategy_address stub always returns None).
     }
+}
+
+#[test]
+fn path_flags_keep_the_source_struct_byte_layout() {
+    assert_eq!(PSFLAG1_RELZ, 0x10);
+    assert_eq!(PSFLAG2_GENVECS, 0x20);
+    assert_eq!(PSFLAG3_HELI, 0x40);
+    assert_eq!(PSFLAG4_SPACE, 0x80);
+    assert_eq!(PSFLAG6_SMOKE, 0x02);
+}
+
+#[test]
+fn collision_handler_tail_calls_the_normal_path_update() {
+    const INITIAL_DEPTH: i16 = 2_800;
+    const FORWARD_VELOCITY: i16 = 63;
+
+    let mut world = PathWorld::new();
+    let mut host = RecHost::new();
+    world.paths_load_data(vec![P_WAIT1], vec![0]);
+    world.pviewvelz = FORWARD_VELOCITY;
+    world.aliens[0].active = true;
+    world.aliens[0].worldz = INITIAL_DEPTH;
+    world.aliens[0].sflags2 = PSFLAG1_RELZ;
+    world.aliens[0].stratptr = Some(StratRef::PathTick);
+
+    dispatch_strat(&mut world, &mut host, 0, StratRef::PathOnCollision);
+
+    assert_eq!(world.aliens[0].worldz, INITIAL_DEPTH + FORWARD_VELOCITY);
+    assert_ne!(world.aliens[0].sflags & ASF_HITFLASH, 0);
 }
 
 // ============================================================
@@ -734,14 +766,19 @@ fn run_scenario(sc: &Scenario) -> String {
         let pv = world.pviewvelz;
         world.aliens[0].worldz = world.aliens[0].worldz.wrapping_add(pv);
 
+        let mut collision_dispatched = false;
         if tick == sc.hit_tick && world.aliens[2].active {
             if let Some(cs) = world.aliens[2].collstratptr {
                 world.aliens[2].collobjptr = 1;
                 dispatch_strat(&mut world, &mut host, 2, cs);
+                collision_dispatched = true;
             }
         }
 
         for i in 0..NUMBER_AL {
+            if collision_dispatched && i == 2 {
+                continue;
+            }
             if !world.aliens[i].active {
                 continue;
             }

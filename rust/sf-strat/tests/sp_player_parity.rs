@@ -30,6 +30,15 @@
 //!   * the ordinary lower-screen clamp runs when `pml_Bbottom` is clear; when
 //!     set, the detailed body-collision lane owns the floor
 //!     (`PSTRATS.ASM:1912-1922`). The deleted C port inverted that condition.
+//!   * the movement lane predicts a lower-plane crossing from the existing
+//!     vertical velocity before generating the next frame's vectors, clamps
+//!     the player body, and masks the resulting limits through
+//!     `pmovelimitAND` (`PSTRATS.ASM:1835-1885`). The frozen C port omitted
+//!     that collision-control pass.
+//!   * the player host has source `hardhp`/`hardap`; the separately linked
+//!     body and wing collision objects own the authored damage values
+//!     (`PSTRATS.ASM:144-258`, `PSTRATS.ASM:1694-1704`). The C harness put
+//!     `playerB_HP` directly on the host and did not model the proxy layout.
 //!   * `playeropening_Istrat` and `viewopening_Istrat` fall through into their
 //!     per-frame bodies on the creation frame, and the opening Y-float table's
 //!     explicit scale argument doubles each word (`PISTRATS.ASM:46-97`,

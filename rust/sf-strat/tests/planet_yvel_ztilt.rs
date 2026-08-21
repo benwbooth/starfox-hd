@@ -88,6 +88,7 @@ fn dpad_ztilt_skipped_near_floor_and_wing_wall() {
     g.vars.set_sv_u8(sv::PLAYER_ZTILT, 0);
     g.objs.aliens[idx as usize].worldy = -100;
     g.vars.set_sv_u8(sv::PMOVELIMIT, PML_LWLEFT);
+    g.vars.set_sv_u8(sv::PMOVELIMITAND, PML_LWLEFT);
     set_pad(&mut g, 0);
     set_pad(&mut g, pad::LEFT);
     strat_player(&mut g, idx);
@@ -100,6 +101,7 @@ fn dpad_ztilt_skipped_near_floor_and_wing_wall() {
     // RIGHT + pml_rwright similarly.
     g.vars.set_sv_u8(sv::PLAYER_ZTILT, 0);
     g.vars.set_sv_u8(sv::PMOVELIMIT, PML_RWRIGHT);
+    g.vars.set_sv_u8(sv::PMOVELIMITAND, PML_RWRIGHT);
     set_pad(&mut g, 0);
     set_pad(&mut g, pad::RIGHT);
     strat_player(&mut g, idx);

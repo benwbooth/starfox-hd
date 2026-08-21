@@ -6,8 +6,8 @@
 //! These tests exercise the routing through the real collision tick
 //! (`Game::tick` -> coldet_generate + coldet_run -> box collide-strat).
 
-use sf_game::alien::{ACF_COLLTYPE1, ASF_COLLDISABLE, ASF_COLLIDE};
-use sf_game::vars::{GameVars, GF_PLAYERDYING, SPACE_MODE};
+use sf_game::alien::{ACF_COLLTYPE1, ACF_FIRSTFRAME, ASF_COLLDISABLE, ASF_COLLIDE};
+use sf_game::vars::{GameVars, GF_PLAYERDYING, HARD_AP, HARD_HP, SPACE_MODE};
 use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{pcbox_attach, strat_spawn_player};
@@ -15,8 +15,116 @@ use sf_strat::player::{pcbox_attach, strat_spawn_player};
 struct NopHooks;
 impl Hooks for NopHooks {
     fn shape_extents(&self, shape: u16) -> Option<(i16, i16, i16)> {
-        (shape == 511).then_some((1, 1, 1))
+        const SHAPE_ENEMY_SHOT: u16 = 511;
+        const SHAPE_WIDE_COLLIDER: u16 = 512;
+        const SHAPE_DEEP_COLLIDER: u16 = 513;
+        const SHAPE_ARCH: u16 = 228;
+        match shape {
+            SHAPE_ENEMY_SHOT => Some((1, 1, 1)),
+            SHAPE_WIDE_COLLIDER => Some((80, 70, 30)),
+            SHAPE_DEEP_COLLIDER => Some((72, 74, 60)),
+            SHAPE_ARCH => Some((120, 160, 40)),
+            _ => None,
+        }
     }
+}
+
+#[test]
+fn arch_collision_uses_its_three_boxes_instead_of_header_bounds() {
+    const SHAPE_ARCH: u16 = 228;
+
+    let spawn_arch = |game: &mut Game| {
+        let object = game.objs.alloc().expect("arch slot");
+        let arch = &mut game.objs.aliens[object as usize];
+        arch.shape = SHAPE_ARCH;
+        arch.hp = HARD_HP;
+        arch.collflags = ACF_COLLTYPE1;
+        object
+    };
+
+    let (mut clear_opening, player) = spawn_with_boxes();
+    clear_opening.objs.aliens[player as usize].worldx = 35;
+    clear_opening.objs.aliens[player as usize].worldy = -20;
+    clear_opening.objs.aliens[player as usize].worldz = 31;
+    clear_opening.objs.aliens[player as usize].collflags &= !ACF_FIRSTFRAME;
+    spawn_arch(&mut clear_opening);
+    clear_opening.coldet_generate_list();
+    clear_opening.coldet_run();
+    assert_eq!(clear_opening.objs.aliens[player as usize].hitflags, 0);
+
+    let (mut hit_right_post, player) = spawn_with_boxes();
+    hit_right_post.objs.aliens[player as usize].worldx = 100;
+    hit_right_post.objs.aliens[player as usize].worldy = -60;
+    hit_right_post.objs.aliens[player as usize].collflags &= !ACF_FIRSTFRAME;
+    spawn_arch(&mut hit_right_post);
+    hit_right_post.coldet_generate_list();
+    hit_right_post.coldet_run();
+    assert_eq!(hit_right_post.objs.aliens[player as usize].hitflags, 1);
+}
+
+#[test]
+fn nonplayer_objects_also_use_the_arch_box_list() {
+    const SHAPE_ARCH: u16 = 228;
+    const SHAPE_DEEP_COLLIDER: u16 = 513;
+
+    let mut game = new_game();
+    let arch = game.objs.alloc().expect("arch slot");
+    game.objs.aliens[arch as usize].shape = SHAPE_ARCH;
+    game.objs.aliens[arch as usize].hp = 1;
+    game.objs.aliens[arch as usize].collflags = ACF_COLLTYPE1;
+
+    let other = game.objs.alloc().expect("collider slot");
+    let collider = &mut game.objs.aliens[other as usize];
+    collider.shape = SHAPE_DEEP_COLLIDER;
+    collider.worldx = 24;
+    collider.worldy = 15;
+    collider.worldz = -84;
+    collider.hp = 1;
+    collider.collflags = sf_game::alien::ACF_COLLTYPE2;
+
+    game.coldet_generate_list();
+    game.coldet_run();
+
+    assert_eq!(game.objs.aliens[arch as usize].sflags & ASF_COLLIDE, 0);
+    assert_eq!(game.objs.aliens[other as usize].sflags & ASF_COLLIDE, 0);
+}
+
+#[test]
+fn player_box_scan_preserves_source_list_order_asymmetry() {
+    const SHAPE_WIDE_COLLIDER: u16 = 512;
+    const BODY_HIT: u8 = 1;
+    const LEFT_WING_HIT: u8 = 2;
+    const COLLIDER_POSITION: (i16, i16, i16) = (-85, 33, 9);
+
+    let spawn_wide_collider = |game: &mut Game| {
+        let object = game.objs.alloc().expect("wide collider slot");
+        let collider = &mut game.objs.aliens[object as usize];
+        collider.shape = SHAPE_WIDE_COLLIDER;
+        collider.worldx = COLLIDER_POSITION.0;
+        collider.worldy = COLLIDER_POSITION.1;
+        collider.worldz = COLLIDER_POSITION.2;
+        collider.hp = 1;
+        collider.collflags = ACF_COLLTYPE1;
+        object
+    };
+
+    let (mut player_first, player) = spawn_with_boxes();
+    player_first.objs.aliens[player as usize].collflags &= !ACF_FIRSTFRAME;
+    let collider = spawn_wide_collider(&mut player_first);
+    player_first.objs.active_move_after(collider, player);
+    player_first.coldet_generate_list();
+    player_first.coldet_run();
+    assert_eq!(player_first.objs.aliens[player as usize].hitflags, BODY_HIT);
+
+    let (mut collider_first, player) = spawn_with_boxes();
+    collider_first.objs.aliens[player as usize].collflags &= !ACF_FIRSTFRAME;
+    spawn_wide_collider(&mut collider_first);
+    collider_first.coldet_generate_list();
+    collider_first.coldet_run();
+    assert_eq!(
+        collider_first.objs.aliens[player as usize].hitflags,
+        BODY_HIT | LEFT_WING_HIT
+    );
 }
 
 fn new_game() -> Game {
@@ -69,6 +177,8 @@ fn attach_keeps_ship_live_and_builds_three_colldisable_damage_boxes() {
     let (g, p) = spawn_with_boxes();
     // The ship owns playerB_col; only its state proxies are colldisable.
     assert_eq!(g.objs.aliens[p as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[p as usize].hp, HARD_HP);
+    assert_eq!(g.objs.aliens[p as usize].ap, HARD_AP);
     let pc = g.coldet.pcbox;
     assert!(pc.attached());
     assert_eq!(pc.player, Some(p));

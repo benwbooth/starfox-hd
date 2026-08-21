@@ -12,10 +12,13 @@
 //! globals and one `O` line per active alien in active-list order; the Rust
 //! replay must match the C dump byte-for-byte.
 //!
-//! The rader0, worm, and boss1 fixtures retain the source generic-explosion
-//! sprite/polygon lifetimes. Their post-destruction records were corrected as
-//! one boundary because the restored objects, slot reuse, and two explosion
-//! random draws intentionally affect later active-list and motion records.
+//! The worm and boss1 fixtures retain the source generic-explosion
+//! sprite/polygon lifetimes. The explosion child is inserted after its host and
+//! advances once in the same strategy pass. Their post-destruction records were
+//! corrected as one boundary because the restored objects, slot reuse, and two
+//! explosion random draws intentionally affect later active-list and motion
+//! records. The zaco1 fixture also preserves the active bit while advancing the
+//! source homing-laser animation.
 //! The boss1 post-destruction records also retain the retail circle anchor
 //! created by `makebosscircexp_srou`; the retired C translation omitted that
 //! presentation object.
@@ -56,6 +59,10 @@ fn spawn(g: &mut Game, x: i16, y: i16, z: i16, shape: u16) -> u16 {
 fn assign_istrat(g: &mut Game, idx: u16, f: StrategyFn) {
     let sid = g.world.register_strategy(f);
     g.objs.aliens[idx as usize].stratptr = Some(sid);
+}
+
+fn clear_attack_power(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].ap = 0;
 }
 
 fn script_player(g: &mut Game, t: i32) {
@@ -257,6 +264,9 @@ fn parity_gate2() {
 #[test]
 fn parity_rader0() {
     let mut g = base_game();
+    // The radar runs before the player in active-list order. Restore the fake
+    // player's harness value after it has supplied this tick's attack power.
+    assign_istrat(&mut g, 0, clear_attack_power);
     let e1 = spawn(&mut g, 100, 0, 1200, 15);
     assign_istrat(&mut g, e1, enemy_a::strat_rader0_init);
     g.objs.aliens[e1 as usize].sflags4 |= ASF4_SPECIAL;
@@ -265,7 +275,13 @@ fn parity_rader0() {
         g,
         move |g, t| {
             if t % 7 == 3 && g.objs.aliens[e1 as usize].active {
+                // Model a fresh one-point collision with the live player. The
+                // source hit handler reads attack power through collobjptr;
+                // setting only the collide flag was a retired-port shortcut.
                 g.objs.aliens[e1 as usize].sflags |= ASF_COLLIDE;
+                g.objs.aliens[e1 as usize].collobjptr = 0;
+                g.objs.aliens[e1 as usize].collcount = 1;
+                g.objs.aliens[0].ap = 1;
             }
         },
         "ea_rader0.txt",

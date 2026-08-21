@@ -288,6 +288,8 @@ pub const RETAIL_XINIDISP1: u32 = 0x7E_45F4;
 /// Retail per-frame strat globals (WRAM), auto-derived from the embedded
 /// operands of `dostrats` + `do_strat_l`. Built-ROM equivalents in parens.
 pub const RETAIL_GAMEFRAME: u32 = 0x15BB; // built $1640
+/// Elapsed display-frame count consumed by `framescalevecs`.
+pub const RETAIL_FRAMERATE: u32 = 0x14E3;
 pub const RETAIL_ALDEAD: u32 = 0x1248; //    built $12D3
 pub const RETAIL_DUMMYOBJ: u32 = 0x156B; //  built $15F6
 pub const RETAIL_STRATOBJ_POSX: u32 = 0x1513; // built $159E

@@ -73,6 +73,8 @@ pub const BGF_INFO: u8 = 0x08;
 pub const OUTVIEWDIST: i16 = 120;
 pub const CLOSE_VIEW_DISTANCE: i16 = 60;
 pub const FRAMESPERAP: u8 = 10;
+/// Source cadence that makes `framescalevecs` an identity transform.
+pub const DEFAULT_FRAME_RATE: u8 = 4;
 /// Nova bombs granted when a new run starts or a continue is accepted.
 pub const DEFAULT_SPECIAL_WEAPON_COUNT: u16 = 3;
 /// `stay_black` value used during ordinary interactive gameplay.
@@ -101,6 +103,7 @@ pub enum StrategyVariable {
     PlayerMediumSpeed,
     PlayerTurnRotation,
     PlayerDepthShake,
+    PlayerDepthShakeVelocity,
     PlayerDepthTilt,
     PlayerDepthStrategyOffset,
     PlayerRollVelocity,
@@ -193,6 +196,7 @@ impl StrategyVariable {
     pub const PLAYER_MEDSPEED: Self = Self::PlayerMediumSpeed;
     pub const PLAYER_TURNROT: Self = Self::PlayerTurnRotation;
     pub const PLAYER_ZSHAKE: Self = Self::PlayerDepthShake;
+    pub const PLAYER_ZSHAKE_VELOCITY: Self = Self::PlayerDepthShakeVelocity;
     pub const PLAYER_ZTILT: Self = Self::PlayerDepthTilt;
     pub const PLAYER_ZSTRATADD: Self = Self::PlayerDepthStrategyOffset;
     pub const PLAYER_ROLLZVEL: Self = Self::PlayerRollVelocity;
@@ -279,12 +283,16 @@ impl StrategyVariable {
 #[derive(Debug, Clone, Default)]
 pub struct StrategyVariables {
     pub random_seed: u16,
+    /// Source `framerate`: elapsed display frames used by
+    /// `framescalevecs` to compensate player X/Y motion.
+    pub frame_rate: u8,
     pub player_rotation: [i16; 3],
     pub player_speed: i16,
     pub player_target_speed: u8,
     pub player_medium_speed: u8,
     pub player_turn_rotation: i16,
     pub player_depth_shake: i16,
+    pub player_depth_shake_velocity: i16,
     pub player_depth_tilt: i8,
     pub player_depth_strategy_offset: u8,
     pub player_roll_velocity: i8,
@@ -635,7 +643,10 @@ pub struct GameVars {
 impl Default for GameVars {
     fn default() -> Self {
         GameVars {
-            strategy: StrategyVariables::default(),
+            strategy: StrategyVariables {
+                frame_rate: DEFAULT_FRAME_RATE,
+                ..StrategyVariables::default()
+            },
             strategy_bindings: NativeStrategyBindings::default(),
             map: MapVariables::default(),
             shared: SharedGameVariables::default(),

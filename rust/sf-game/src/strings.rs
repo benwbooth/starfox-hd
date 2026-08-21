@@ -13,7 +13,7 @@
 //! are not read by any ported system besides strings, so they live here
 //! with the game_vars.c:461-466 default of 3.
 
-use crate::shell::SoundCmd;
+use crate::{shell::SoundCmd, vars::GameVars};
 
 // C FRIEND_* (src/variables.h:250-256).
 pub const FRIEND_FOX: u8 = 0;
@@ -308,15 +308,13 @@ impl Strings {
         }
     }
 
-    /// C `Strings_Update()` (src/game/strings.c:100) — the
-    /// friends_messages_l subset. `gameflags` = C `g_gameflags`; `rndval`
-    /// = C `g_rndval` (SfRtl_Random state, types.h PRNG_NEXT); SE pushes go
-    /// to the shell sound queue (C Sound_PlaySE).
-    pub fn update(&mut self, gameflags: u8, rndval: &mut u16, sound: &mut Vec<SoundCmd>) {
+    /// Original `friends_messages_l` update. Radio face animation consumes
+    /// the same four-byte runtime random stream as strategy code.
+    pub fn update(&mut self, vars: &mut GameVars, sound: &mut Vec<SoundCmd>) {
         use crate::vars::{GF_PLAYERDEAD, GF_PLAYERDYING};
 
         // friends_messages_l: do nothing while player is dying/dead.
-        if gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
+        if vars.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
             return;
         }
 
@@ -343,8 +341,7 @@ impl Strings {
         // `random&31==0` → absolute face frame 4 (the "anyone" flash), then
         // `.doit` — do NOT add openingframes/whichfriend. Otherwise mouth =
         // rnd&1 (forced 0 when msg_count1<30) + openingframes + whichfriend*2.
-        *rndval = rndval.wrapping_mul(91).wrapping_add(0x61D7);
-        let rnd = (*rndval & 31) as u8;
+        let rnd = vars.advance_random() & 31;
         let face_frame = if rnd == 0 {
             4
         } else {
@@ -446,7 +443,7 @@ mod tests {
     #[test]
     fn send_and_open_close_flow() {
         let mut s = Strings::new();
-        let mut rnd = 0u16;
+        let mut vars = GameVars::default();
         let mut snd = Vec::new();
 
         s.send_message(5); // "ready, fox!" from falcon
@@ -459,7 +456,7 @@ mod tests {
         // Openup: 5 updates, face sound plays on the fifth
         // (strings.c:115-123). falcon (2) << 2 + sound class 2 -> 0x61.
         for i in 0..5 {
-            s.update(0, &mut rnd, &mut snd);
+            s.update(&mut vars, &mut snd);
             assert_eq!(s.msg_count2, i + 1);
         }
         assert_eq!(snd, vec![SoundCmd::PlaySe(0x61)]);
@@ -467,13 +464,13 @@ mod tests {
         // Normal phase counts msg_count1 down; close SFX at 0.
         snd.clear();
         for _ in 0..50 {
-            s.update(0, &mut rnd, &mut snd);
+            s.update(&mut vars, &mut snd);
         }
         assert_eq!(s.msg_count1, 0);
         assert_eq!(snd, vec![SoundCmd::PlaySe(MSG_CLOSE_SFX)]);
 
         // Closedown decrements msg_count2 back toward 0.
-        s.update(0, &mut rnd, &mut snd);
+        s.update(&mut vars, &mut snd);
         assert_eq!(s.msg_count2, 4);
     }
 
@@ -496,28 +493,18 @@ mod tests {
     fn talk_flash_frame_is_absolute_four() {
         let mut s = Strings::new();
         s.send_message(5); // falcon
-        let mut rnd = 0u16;
+        let mut vars = GameVars::default();
         let mut snd = Vec::new();
         // Drain openup (5 frames) so we enter the normal talk phase.
         for _ in 0..5 {
-            s.update(0, &mut rnd, &mut snd);
+            s.update(&mut vars, &mut snd);
         }
         assert!(s.msg_count2 >= OPENING_FRAMES);
         assert!(s.msg_count1 > 0);
 
-        // Force the LCG into a state where the next `*91+0x61D7 & 31 == 0`.
-        // Solve: (rnd*91 + 0x61D7) & 31 == 0  =>  find a seed by brute force.
-        let mut seed = 0u16;
-        loop {
-            let next = seed.wrapping_mul(91).wrapping_add(0x61D7);
-            if next & 31 == 0 {
-                break;
-            }
-            seed = seed.wrapping_add(1);
-            assert!(seed < 64, "LCG should hit &31==0 within 32 steps");
-        }
-        rnd = seed;
-        s.update(0, &mut rnd, &mut snd);
+        const FLASH_RANDOM_STATE: [u8; 4] = [0, 30, 0, 0];
+        vars.rng = FLASH_RANDOM_STATE;
+        s.update(&mut vars, &mut snd);
         assert_eq!(
             s.face_frame, 4,
             "rnd&31==0 must set absolute face frame 4 (CONTINUE.ASM .doit)"

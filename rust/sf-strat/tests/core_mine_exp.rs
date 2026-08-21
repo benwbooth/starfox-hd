@@ -98,13 +98,19 @@ fn mcore1exp_tumbles_then_bursts_past_3000() {
 fn mcore1col_deflects_unless_state5() {
     let mut g = Game::new();
     let idx = g.objs.alloc().expect("m");
+    let attacker = g.objs.alloc().expect("attacker");
     g.objs.aliens[idx as usize].stratstate = 5;
     g.objs.aliens[idx as usize].hp = 10;
+    g.objs.aliens[idx as usize].collobjptr = attacker;
+    g.objs.aliens[idx as usize].collcount = 1;
+    g.objs.aliens[attacker as usize].ap = 1;
     mcore1col_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, 9); // hitflash damage
 
     g.objs.aliens[idx as usize].stratstate = 0;
     g.objs.aliens[idx as usize].hp = 10;
+    g.objs.aliens[idx as usize].collobjptr = 0;
+    g.objs.aliens[attacker as usize].active = false;
     // No laser partner → DefElaserCol just clears collide / resumes.
     mcore1col_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, 10);

@@ -71,7 +71,11 @@ fn launchercol_needs_launch_and_hf2() {
 fn boss7coll_is_hitflash() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
+    let attacker = spawn(&mut g);
     g.objs.aliens[idx as usize].hp = 10;
+    g.objs.aliens[idx as usize].collobjptr = attacker;
+    g.objs.aliens[idx as usize].collcount = 1;
+    g.objs.aliens[attacker as usize].ap = 1;
     boss7coll_istrat(&mut g, idx);
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_HITFLASH, 0);
     assert_eq!(g.objs.aliens[idx as usize].hp, 9);

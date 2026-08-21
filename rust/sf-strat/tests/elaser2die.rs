@@ -16,6 +16,7 @@ fn elaser2die_spawns_flash_and_animates_out() {
     assert_ne!(g.objs.aliens[idx as usize].ptr, 0);
     let flash = g.objs.aliens[idx as usize].ptr - 1;
     assert!(g.objs.aliens[flash as usize].active);
+    assert_eq!(g.objs.aliens[idx as usize].next, Some(flash));
     assert_eq!(g.objs.aliens[flash as usize].sflags3 & ASF3_REALOBJ, 0);
     assert_ne!(g.objs.aliens[flash as usize].sflags & ASF_COLLDISABLE, 0);
     // First strat tick already ran from istrat fall-through: anim += 2

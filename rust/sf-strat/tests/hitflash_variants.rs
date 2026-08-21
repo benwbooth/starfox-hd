@@ -17,7 +17,11 @@ fn mark_normal_strategy(g: &mut Game, idx: u16) {
 fn hitflash_clears_collide_and_sets_flash() {
     let mut g = Game::new();
     let idx = g.objs.alloc().expect("slot");
+    let attacker = g.objs.alloc().expect("attacker");
     g.objs.aliens[idx as usize].hp = 5;
+    g.objs.aliens[idx as usize].collobjptr = attacker;
+    g.objs.aliens[idx as usize].collcount = 1;
+    g.objs.aliens[attacker as usize].ap = 1;
     g.objs.aliens[idx as usize].sflags |= ASF_COLLIDE;
     strat_hit_flash(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLIDE, 0);
@@ -59,6 +63,8 @@ fn hitflash_mexp_spawns_med_at_collobj() {
     let laser = g.objs.alloc().expect("laser");
     g.objs.aliens[victim as usize].hp = 10;
     g.objs.aliens[victim as usize].collobjptr = laser;
+    g.objs.aliens[victim as usize].collcount = 1;
+    g.objs.aliens[laser as usize].ap = 1;
     g.objs.aliens[laser as usize].worldx = 50;
     g.objs.aliens[laser as usize].worldy = -20;
     g.objs.aliens[laser as usize].worldz = 900;

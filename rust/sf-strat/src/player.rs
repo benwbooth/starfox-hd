@@ -44,7 +44,7 @@ use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
 use sf_game::vars::{
     CLOSE_VIEW_DISTANCE, GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, GF_STRATDONE1,
-    GF_STRATDONE2, GF_VIEWROT, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE,
+    GF_STRATDONE2, GF_VIEWROT, HARD_AP, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE,
     PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0, PSF3_ENGINESND, PSF3_INTUNNEL,
     PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE, PSTF_NOVDISTC, SPACE_MODE,
     STAY_BLACK_INACTIVE, WATER_MODE,
@@ -1228,6 +1228,7 @@ pub fn sgen_spark(g: &mut Game, at: u16) {
     let Some(spark) = strat_make_obj(g, SHAPE_LINE_SPARK) else {
         return;
     };
+    g.objs.active_move_after(spark, at);
     let src = g.objs.aliens[at as usize];
     let rotz = (sf_random(&mut g.vars) & 0xFF) as u8;
     let (vx, vy) = gen_flatvecs(rotz, 15);
@@ -1299,6 +1300,7 @@ pub fn sgen_slspark(g: &mut Game, at: u16) {
     let Some(spark) = strat_make_obj(g, SHAPE_LINE_SPARK) else {
         return;
     };
+    g.objs.active_move_after(spark, at);
     let src = g.objs.aliens[at as usize];
     let rotz = (sf_random(&mut g.vars) & 0xFF) as u8;
     let (vx, vy) = gen_flatvecs(rotz, 20);
@@ -1505,6 +1507,7 @@ fn play_wing_hit_se(g: &mut Game, partner: Option<u16>, soft_se: u8) {
 fn spawn_spexplod_fx(g: &mut Game, box_idx: u16) -> Option<u16> {
     const SH_SPEXPLOD: u16 = 367;
     let fx = strat_make_obj(g, SH_SPEXPLOD)?;
+    g.objs.active_move_after(fx, box_idx);
     {
         let al = &mut g.objs.aliens[fx as usize];
         al.type_ &= !ATZREMOVE;
@@ -1547,7 +1550,9 @@ fn pwingcol(g: &mut Game, idx: u16) {
         g.coldet_apply_damage(idx, 1, 0);
     }
 
-    sgen_spark(g, idx);
+    // `s_do_strat x` dispatches the wing's ordinary attachment strategy before
+    // either effect copies its position.
+    pcbox_wing_strat(g, idx);
     // Copy spexplod FX to box pos if sword1 holds one.
     let sword = g.objs.aliens[idx as usize].sword1;
     if sword > 0 {
@@ -1559,7 +1564,7 @@ fn pwingcol(g: &mut Game, idx: u16) {
             fx.worldz = src.worldz;
         }
     }
-    pcbox_wing_strat(g, idx);
+    sgen_spark(g, idx);
 }
 
 /// ROM `brkpwingcol` (PSTRATS.ASM:91) — broken wing: bounce hit onto body box.
@@ -1995,6 +2000,54 @@ fn playermove_srou(g: &mut Game, idx: u16) {
         }
     }
 
+    let mut plrotx = g.vars.sv_i16(sv::PLROTX);
+
+    // The source predicts whether this frame's existing vertical velocity
+    // would carry the body through its lower movement plane. This happens
+    // before new direction vectors are generated. On a normal-speed impact it
+    // parks the body on the plane and levels the pitch; faster impacts rebound
+    // and arm both wing-bottom collision lanes.
+    const FLOOR_CONTROL_LOCK_TICKS: u8 = 4;
+    let max_y = g.vars.sv_i16(sv::MAXPMOVEY);
+    let floor_threshold = max_y.wrapping_sub(g.objs.aliens[i].vy);
+    let mut move_limit = g.vars.sv_u8(sv::PMOVELIMIT);
+    if g.objs.aliens[i].worldy > floor_threshold {
+        move_limit |= PML_BBOTTOM;
+    }
+    move_limit &= g.vars.sv_u8(sv::PMOVELIMITAND);
+    g.vars.set_sv_u8(sv::PMOVELIMIT, move_limit);
+
+    if move_limit & PML_BBOTTOM != 0 && g.objs.aliens[i].vy >= 0 {
+        g.objs.aliens[i].worldy = max_y;
+        let medium_speed = g.vars.sv_u8(sv::PLAYER_MEDSPEED);
+        if g.objs.aliens[i].vel <= medium_speed {
+            if pad1(g) & pad::DOWN == 0 {
+                plrotx = 0;
+            }
+        } else {
+            plrotx = plrotx.wrapping_neg() >> 1;
+            move_limit |= PML_LWBOTTOM | PML_RWBOTTOM;
+            g.vars.set_sv_u8(sv::PMOVELIMIT, move_limit);
+            g.vars
+                .set_sv_u8(sv::PLAYER_NOCTRLCNT, FLOOR_CONTROL_LOCK_TICKS);
+        }
+    }
+
+    // The ordinary top/bottom clamp precedes this frame's velocity update in
+    // the original. Detailed body-bottom collision suppresses the simple
+    // lower clamp, while the upper plane always remains active.
+    let mut arrows = g.vars.sv_u8(sv::ARROWS) & !(SPRAR_UP | SPRAR_DOWN);
+    let move_limit_mask = g.vars.sv_u8(sv::PMOVELIMITAND);
+    if move_limit_mask & PML_BBOTTOM == 0 && g.objs.aliens[i].worldy >= max_y {
+        g.objs.aliens[i].worldy = max_y;
+        arrows |= SPRAR_DOWN;
+    }
+    if g.objs.aliens[i].worldy <= g.vars.minpmove_y {
+        g.objs.aliens[i].worldy = g.vars.minpmove_y;
+        arrows |= SPRAR_UP;
+    }
+    g.vars.set_sv_u8(sv::ARROWS, arrows);
+
     let mut no_ctrl = g.vars.pshipflags & PSF_NOCTRL != 0
         || g.vars.sv_i8(sv::STAYBLACK) != -1
         || g.vars.sv_u8(sv::DOINGWIPE) != 0;
@@ -2005,10 +2058,37 @@ fn playermove_srou(g: &mut Game, idx: u16) {
         no_ctrl = true;
     }
 
-    let mut plrotx = g.vars.sv_i16(sv::PLROTX);
     let mut plroty = g.vars.sv_i16(sv::PLROTY);
     let mut plrotz = g.vars.sv_i16(sv::PLROTZ);
     let mut ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT);
+
+    // Retail `player_collmove` (enabled in STRATEQU.INC) banks the ship away
+    // from a colliding wing before the lateral shove and ordinary roll decay.
+    // Both bits are evaluated in source order: right first, then left.
+    const ANGLE_FRACTION_SCALE: i16 = 256;
+    const COLLISION_ROLL_TARGET: i16 = DEG45 as i16 * ANGLE_FRACTION_SCALE;
+    const COLLISION_TILT_TARGET: i16 = DEG45 as i16 / 2;
+    const COLLISION_DEPTH_SHAKE: i16 = 2 * ANGLE_FRACTION_SCALE;
+    const COLLISION_ROLL_CHASE_SHIFT: u32 = 4;
+    const COLLISION_TILT_CHASE_SHIFT: u32 = 1;
+    for (flag, direction) in [(PSF_RWINGCOLL, 1i16), (PSF_LWINGCOLL, -1i16)] {
+        if g.vars.pshipflags & flag != 0 {
+            g.vars.set_sv_i16(
+                sv::PLAYER_ZSHAKE,
+                direction.wrapping_mul(COLLISION_DEPTH_SHAKE),
+            );
+            plrotz = strat_chase_proportional(
+                plrotz,
+                direction.wrapping_mul(COLLISION_ROLL_TARGET),
+                COLLISION_ROLL_CHASE_SHIFT,
+            );
+            ztilt = strat_chase_proportional(
+                ztilt as i8 as i16,
+                direction.wrapping_mul(COLLISION_TILT_TARGET),
+                COLLISION_TILT_CHASE_SHIFT,
+            ) as u8;
+        }
+    }
 
     // Banking -> lateral worldx shove (PSTRATS.ASM:2278-2317). Each tick the
     // ship's roll directly nudges its X position; this is what makes steering
@@ -2206,6 +2286,20 @@ fn playermove_srou(g: &mut Game, idx: u16) {
         g.vars.set_sv_i16(sv::OUTVZ, ztilt_v.wrapping_add(zshake_v));
     }
 
+    // PSTRATS.ASM's damped collision-roll spring runs only after both wing
+    // collision bits have cleared. The ship rotation above observes the
+    // pre-step displacement; the updated typed displacement is carried into
+    // the next strategy frame.
+    if g.vars.pshipflags & (PSF_LWINGCOLL | PSF_RWINGCOLL) == 0 {
+        let shake = g.vars.strategy.player_depth_shake;
+        let velocity = shake
+            .wrapping_neg()
+            .wrapping_add(g.vars.strategy.player_depth_shake_velocity);
+        let displaced = shake.wrapping_add(velocity);
+        g.vars.strategy.player_depth_shake_velocity = velocity;
+        g.vars.strategy.player_depth_shake = displaced.wrapping_sub(displaced >> 2);
+    }
+
     let hudrot = al.rotz as i8 as i16;
     let vel = al.vel;
     g.vars.set_sv_i16(sv::HUDROT, hudrot);
@@ -2237,21 +2331,6 @@ fn playerlimit_x_srou(g: &mut Game, idx: u16) {
     if g.objs.aliens[i].worldx >= maxx {
         g.objs.aliens[i].worldx = maxx;
         arrows |= SPRAR_RIGHT;
-    }
-
-    // The ROM's ordinary lower-screen clamp is active when the body-bottom
-    // collision lane is clear. When that lane is set, detailed body collision
-    // owns the floor instead (PSTRATS.ASM:1912-1922).
-    let miny = g.vars.minpmove_y;
-    let maxy = g.vars.sv_i16(sv::MAXPMOVEY);
-    let limit_and = g.vars.sv_u8(sv::PMOVELIMITAND);
-    if limit_and & PML_BBOTTOM == 0 && g.objs.aliens[i].worldy >= maxy {
-        g.objs.aliens[i].worldy = maxy;
-        arrows |= SPRAR_DOWN;
-    }
-    if g.objs.aliens[i].worldy <= miny {
-        g.objs.aliens[i].worldy = miny;
-        arrows |= SPRAR_UP;
     }
 
     g.vars.set_sv_u8(sv::ARROWS, arrows);
@@ -2516,8 +2595,27 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
 // do_player_* mode ticks (strat_player.c:608-650)
 // ============================================================
 
-/// C `framescalevecs` — fixed-step runtime no-op.
-fn framescalevecs(_g: &mut Game, _idx: u16) {}
+/// Signed halve toward zero, matching the source `adiv2` macro.
+fn signed_half(value: i16) -> i16 {
+    (i32::from(value) / 2) as i16
+}
+
+/// ROM `framescalevecs` (PSTRATS.ASM:3529): compensate player X/Y velocity
+/// using the typed elapsed-display-frame field. The routine treats each input
+/// as a signed byte shifted into a 16-bit fraction, multiplies by `framerate`,
+/// then halves toward zero three times. Z motion is deliberately untouched.
+fn framescalevecs(g: &mut Game, idx: u16) {
+    let frame_rate = g.vars.strategy.frame_rate;
+    let scale = |value: i16| {
+        let fractional = i16::from(value as i8).wrapping_shl(8);
+        let multiplied = crate::snes_trig::mulslog(i32::from(fractional), i32::from(frame_rate));
+        let multiplied = multiplied as i16;
+        signed_half(signed_half(signed_half(multiplied)))
+    };
+    let object = &mut g.objs.aliens[idx as usize];
+    object.vx = scale(object.vx);
+    object.vy = scale(object.vy);
+}
 
 fn do_player_limit_x(g: &mut Game, idx: u16) {
     playermove_srou(g, idx);
@@ -2748,8 +2846,8 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
         al.worldy = 0;
         al.worldz = 0;
         al.vel = MED_PSPEED as u8;
-        al.hp = PLAYER_BODY_HP;
-        al.ap = 0;
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
         al.type_ = 0;
         al.sflags = ASF_SHADOW;
         al.sflags4 = ASF4_PLAYEROBJ;

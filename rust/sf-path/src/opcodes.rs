@@ -179,12 +179,12 @@ pub const P_SCORE: u8 = 167;
 pub const P_NUM_OPCODES: u8 = 168;
 
 /// `al_sflags2` bit: Z-relative to player (`src/path/paths.h` PSFLAG1_RELZ).
-pub const PSFLAG1_RELZ: u8 = 0x01;
+pub const PSFLAG1_RELZ: u8 = 0x10;
 /// `al_sflags2` bit: always generate velocity vectors (PSFLAG2_GENVECS).
-pub const PSFLAG2_GENVECS: u8 = 0x02;
+pub const PSFLAG2_GENVECS: u8 = 0x20;
 /// `al_sflags2` bit: helicopter mode, rotx = velocity (PSFLAG3_HELI).
-pub const PSFLAG3_HELI: u8 = 0x04;
+pub const PSFLAG3_HELI: u8 = 0x40;
 /// `al_sflags2` bit: space flight, couple roty to rotz (PSFLAG4_SPACE).
-pub const PSFLAG4_SPACE: u8 = 0x08;
-/// `al_sflags2` bit: emit smoke particles (PSFLAG6_SMOKE).
-pub const PSFLAG6_SMOKE: u8 = 0x20;
+pub const PSFLAG4_SPACE: u8 = 0x80;
+/// `al_sflags3` bit: emit smoke particles (PSFLAG6_SMOKE).
+pub const PSFLAG6_SMOKE: u8 = 0x02;

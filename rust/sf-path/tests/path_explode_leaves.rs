@@ -132,7 +132,7 @@ fn pcoinexplode_coin_lifts_and_explodes() {
         strat_path_tick(&mut world, &mut host, i as u16);
     }
     assert_eq!(host.exploded, vec![0]);
-    assert_ne!(world.aliens[i].sflags2 & PSFLAG6_SMOKE, 0);
+    assert_ne!(world.aliens[i].sflags3 & PSFLAG6_SMOKE, 0);
     assert_eq!(world.aliens[i].worldy, -250);
 }
 

@@ -117,9 +117,13 @@ fn hit_flash_plays_damage_se_by_range() {
         let mut g = Game::with_hooks(Box::new(Rec(log.clone())));
         spawn_player(&mut g, 0, 0);
         let idx = spawn(&mut g);
+        let attacker = spawn(&mut g);
         g.objs.aliens[idx as usize].worldx = 0;
         g.objs.aliens[idx as usize].worldz = dz;
         g.objs.aliens[idx as usize].hp = 5;
+        g.objs.aliens[idx as usize].collobjptr = attacker;
+        g.objs.aliens[idx as usize].collcount = 1;
+        g.objs.aliens[attacker as usize].ap = 1;
         g.objs.aliens[idx as usize].sflags |= ASF_COLLIDE;
 
         strat_hit_flash(&mut g, idx);

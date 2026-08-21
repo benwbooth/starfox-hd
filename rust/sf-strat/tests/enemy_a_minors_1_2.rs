@@ -144,3 +144,33 @@ fn relelaserhome_lock_strict_less_than_800() {
         );
     }
 }
+
+#[test]
+fn relelaserhome_animation_reaches_and_holds_frame_four() {
+    const ACTIVE_ANIMATION: u8 = 128;
+    const ANIMATION_STEP: u8 = 2;
+    const HOLD_FRAME: u8 = 4;
+
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    let shot = spawn(&mut g);
+    g.objs.aliens[shot as usize].worldz = 1_000;
+    g.objs.aliens[shot as usize].count = 40;
+    g.objs.aliens[shot as usize].animframe = ACTIVE_ANIMATION;
+
+    relelaserhome_strat(&mut g, shot);
+    assert_eq!(
+        g.objs.aliens[shot as usize].animframe,
+        ACTIVE_ANIMATION | ANIMATION_STEP
+    );
+    relelaserhome_strat(&mut g, shot);
+    assert_eq!(
+        g.objs.aliens[shot as usize].animframe,
+        ACTIVE_ANIMATION | HOLD_FRAME
+    );
+    relelaserhome_strat(&mut g, shot);
+    assert_eq!(
+        g.objs.aliens[shot as usize].animframe,
+        ACTIVE_ANIMATION | HOLD_FRAME
+    );
+}

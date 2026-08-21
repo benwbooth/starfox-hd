@@ -5,7 +5,7 @@
 //! and `do_coll_l` (STRATROU.ASM:2143-2178).
 
 use crate::alien::{
-    StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
+    Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
     ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_SAMESHAPECOLLIDE, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
     ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_LCOLLIDE,
 };
@@ -74,6 +74,92 @@ pub const PCBOX_WING_X: i16 = 33;
 pub const PCBOX_WING_Y: i16 = 13;
 pub const PCBOX_WING_Z: i16 = 0;
 
+/// One flat native collision volume from a source shape's typed box list.
+/// Values are already expressed in gameplay world units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ShapeCollisionBox {
+    offset: (i16, i16, i16),
+    half_extents: (i16, i16, i16),
+}
+
+const SHAPE_ARCH: u16 = 228;
+const ARCH_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
+    ShapeCollisionBox {
+        offset: (-100, -60, 0),
+        half_extents: (20, 60, 20),
+    },
+    ShapeCollisionBox {
+        offset: (100, -60, 0),
+        half_extents: (20, 60, 20),
+    },
+    ShapeCollisionBox {
+        offset: (0, -140, 0),
+        half_extents: (60, 20, 20),
+    },
+];
+
+fn shape_collision_boxes(shape: u16) -> Option<&'static [ShapeCollisionBox]> {
+    match shape {
+        SHAPE_ARCH => Some(&ARCH_COLLISION_BOXES),
+        _ => None,
+    }
+}
+
+fn collision_box_overlap(
+    first: Alien,
+    first_box: ShapeCollisionBox,
+    second: Alien,
+    second_box: ShapeCollisionBox,
+) -> bool {
+    aabb_overlap(
+        first.worldx.wrapping_add(first_box.offset.0),
+        first.worldy.wrapping_add(first_box.offset.1),
+        first.worldz.wrapping_add(first_box.offset.2),
+        first_box.half_extents.0,
+        first_box.half_extents.1,
+        first_box.half_extents.2,
+        second.worldx.wrapping_add(second_box.offset.0),
+        second.worldy.wrapping_add(second_box.offset.1),
+        second.worldz.wrapping_add(second_box.offset.2),
+        second_box.half_extents.0,
+        second_box.half_extents.1,
+        second_box.half_extents.2,
+    )
+}
+
+fn object_collision_overlap(
+    first: Alien,
+    first_entry: ColEntry,
+    second: Alien,
+    second_entry: ColEntry,
+) -> bool {
+    let first_default = ShapeCollisionBox {
+        offset: (0, 0, 0),
+        half_extents: (first_entry.xmax, first_entry.ymax, first_entry.zmax),
+    };
+    let second_default = ShapeCollisionBox {
+        offset: (0, 0, 0),
+        half_extents: (second_entry.xmax, second_entry.ymax, second_entry.zmax),
+    };
+    let first_boxes = shape_collision_boxes(first.shape);
+    let second_boxes = shape_collision_boxes(second.shape);
+
+    match (first_boxes, second_boxes) {
+        (Some(first_boxes), Some(second_boxes)) => first_boxes.iter().any(|first_box| {
+            second_boxes
+                .iter()
+                .any(|second_box| collision_box_overlap(first, *first_box, second, *second_box))
+        }),
+        (Some(first_boxes), None) => first_boxes
+            .iter()
+            .any(|first_box| collision_box_overlap(first, *first_box, second, second_default)),
+        (None, Some(second_boxes)) => second_boxes
+            .iter()
+            .any(|second_box| collision_box_overlap(first, first_default, second, *second_box)),
+        (None, None) => collision_box_overlap(first, first_default, second, second_default),
+    }
+}
+
 /// Body/wing box HP and AP (STRATEQU.INC:324-327).
 pub const PCBOX_BODY_HP: u8 = 40;
 pub const PCBOX_WING_HP: u8 = 5;
@@ -86,6 +172,12 @@ pub enum PcboxKind {
     Body,
     LWing,
     RWing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlayerBoxScan {
+    FirstMatch,
+    AllMatches,
 }
 
 /// Live player damage-proxy slots. Empty = direct model (no boxes).
@@ -198,14 +290,34 @@ pub fn aabb_overlap(
 
 impl Game {
     /// Evaluate the exact `playerB_col` three-box list against one normal
-    /// collision-list entry.  The ROM ORs every overlapping box's flag, so a
-    /// large object can legitimately hit body and wing in the same frame.
-    fn pcbox_hitflags(&self, player: u16, other: ColEntry) -> u8 {
+    /// collision-list entry. The source scan is intentionally asymmetric:
+    /// when the player is the outer object it returns after the first matching
+    /// body/left/right box; when the player is the inner object it visits and
+    /// combines every matching box before returning.
+    fn pcbox_hitflags(&self, player: u16, other: ColEntry, scan: PlayerBoxScan) -> u8 {
         let p = self.objs.aliens[player as usize];
         let o = self.objs.aliens[other.alien as usize];
         let mut flags = 0;
 
         let overlaps = |x: i16, y: i16, z: i16, ext: (i16, i16, i16)| {
+            if let Some(boxes) = shape_collision_boxes(o.shape) {
+                return boxes.iter().any(|target| {
+                    aabb_overlap(
+                        x,
+                        y,
+                        z,
+                        ext.0,
+                        ext.1,
+                        ext.2,
+                        o.worldx.wrapping_add(target.offset.0),
+                        o.worldy.wrapping_add(target.offset.1),
+                        o.worldz.wrapping_add(target.offset.2),
+                        target.half_extents.0,
+                        target.half_extents.1,
+                        target.half_extents.2,
+                    )
+                });
+            }
             aabb_overlap(
                 x, y, z, ext.0, ext.1, ext.2, o.worldx, o.worldy, o.worldz, other.xmax, other.ymax,
                 other.zmax,
@@ -214,6 +326,9 @@ impl Game {
 
         if overlaps(p.worldx, p.worldy, p.worldz, PCBOX_BODY_EXT) {
             flags |= PCBOX_HF_BODY;
+            if scan == PlayerBoxScan::FirstMatch {
+                return flags;
+            }
         }
 
         // `s_add_Roffs2pos ...,0,0,1`: rotate the signed byte offsets around
@@ -232,6 +347,9 @@ impl Game {
             PCBOX_WING_EXT,
         ) {
             flags |= PCBOX_HF_LWING;
+            if scan == PlayerBoxScan::FirstMatch {
+                return flags;
+            }
         }
 
         let (rdx, rdy, _) = sf_core::snes_trig::strat_roffs_roll(
@@ -419,9 +537,17 @@ impl Game {
                 let ea = self.coldet.list[i];
                 let eb = self.coldet.list[j];
                 let player_side = if self.coldet.pcbox.player == Some(ia) {
-                    Some((ia, ib, self.pcbox_hitflags(ia, eb)))
+                    Some((
+                        ia,
+                        ib,
+                        self.pcbox_hitflags(ia, eb, PlayerBoxScan::FirstMatch),
+                    ))
                 } else if self.coldet.pcbox.player == Some(ib) {
-                    Some((ib, ia, self.pcbox_hitflags(ib, ea)))
+                    Some((
+                        ib,
+                        ia,
+                        self.pcbox_hitflags(ib, ea, PlayerBoxScan::AllMatches),
+                    ))
                 } else {
                     None
                 };
@@ -431,10 +557,7 @@ impl Game {
                     }
                     flags
                 } else {
-                    if !aabb_overlap(
-                        a.worldx, a.worldy, a.worldz, ea.xmax, ea.ymax, ea.zmax, b.worldx,
-                        b.worldy, b.worldz, eb.xmax, eb.ymax, eb.zmax,
-                    ) {
+                    if !object_collision_overlap(a, ea, b, eb) {
                         continue;
                     }
                     0
@@ -450,25 +573,10 @@ impl Game {
                     self.objs.aliens[player as usize].hitflags |= hitflags;
                 }
 
-                // Damage: A takes B's AP, B takes A's AP.
-                // A live player collision is routed to the colldisable body /
-                // wing HP objects by `playercoll_Istrat`; never damage the ship
-                // object's placeholder HP here.
-                if b.ap > 0 && a.hp > 0 && self.coldet.pcbox.player != Some(ia) {
-                    self.do_coll(ia, b.ap);
-                }
-                if a.ap > 0 && b.hp > 0 && self.coldet.pcbox.player != Some(ib) {
-                    self.do_coll(ib, a.ap);
-                }
-
-                // NOTE: the collide-strategy is NOT dispatched here. ROM chkcoll
-                // (COLDET.ASM:829-846 / :791-821) only SETS collide/collobjptr/
-                // hitflags; each object's own collide-strategy runs later from
-                // do_strat (game.rs, when ASF_COLLIDE is seen) — the s_docoll
-                // side of that split is folded into do_coll above. The earlier
-                // port dispatched collstratptr inline here AND again from
-                // do_strat on the next frame (ASF_COLLIDE persists), so every
-                // collision fired its collide-strategy twice.
+                // Collision detection only records the pair. The source
+                // `chkcoll` routine never changes health; each object's
+                // collide strategy decides whether and how to apply the other
+                // object's attack power on the following strategy pass.
 
                 break; // each alien collides at most once per frame
             }
@@ -551,13 +659,14 @@ impl Game {
             wing_strat,
         );
 
-        // MAPP.ASM allocates these in player/body/left/right order and ROM
-        // `l_add` inserts after the current map object. Preserve that strategy
-        // order even though the compatibility allocator normally pushes new
-        // objects at the active-list head.
-        self.objs.active_move_after(body, player);
-        self.objs.active_move_after(lwing, body);
-        self.objs.active_move_after(rwing, lwing);
+        // MAPP.ASM emits player/body/left/right as four consecutive map
+        // objects. Each allocation becomes the new list head, so strategy
+        // order is player -> right -> left -> body once the player is restored
+        // as the gameplay head. This ordering is observable when a wing hit
+        // inserts its spark and flash after the current proxy.
+        self.objs.active_move_after(rwing, player);
+        self.objs.active_move_after(lwing, rwing);
+        self.objs.active_move_after(body, lwing);
 
         // GSTRATS marks all four objects playerobj. PSTRATS marks only the
         // three HP proxies colldisable; the ship itself stays live in coldet.

@@ -262,6 +262,10 @@ const LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE: i16 = 63;
 /// Runtime random state left by the retail 3D setup and game-frame-zero
 /// strategy initialization. Gameplay then advances it once per logic frame.
 const LEVEL_INITIALIZATION_RANDOM_STATE: [u8; 4] = [114, 239, 178, 245];
+/// Normal retail gameplay cadence observed at the completed Corneria strategy
+/// boundary. The original uses this elapsed-display-frame count to compensate
+/// player X/Y motion; the native port keeps the same deterministic cadence.
+const GAMEPLAY_PLAYER_FRAME_RATE: u8 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TallyPhase {
@@ -1307,8 +1311,6 @@ pub struct Shell {
     tally: TallyState,
     /// Typed post-campaign staff-roll/final-score state.
     ending: EndingState,
-    /// C `g_rndval` (sf_rtl.c:16) — strings face animation PRNG.
-    rndval: u16,
     /// Warn-once set for unported map ids (C levels.c warn-once END stub).
     warned_maps: Vec<u32>,
 
@@ -1369,7 +1371,6 @@ impl Shell {
             death_ticks: 0,
             tally: TallyState::default(),
             ending: EndingState::default(),
-            rndval: 0,
             warned_maps: Vec::new(),
             paused: false,
             register_strats: None,
@@ -1597,8 +1598,7 @@ impl Shell {
             let st = &mut *st;
             st.windows
                 .update(&mut self.game.vars.oncewipe, &mut self.game.vars.circleanim);
-            st.strings
-                .update(self.game.vars.gameflags, &mut self.rndval, &mut st.sound);
+            st.strings.update(&mut self.game.vars, &mut st.sound);
             st.strings.friends_meter
         };
         self.game.vars.shared.friends_meter = friends_meter;
@@ -1819,8 +1819,6 @@ impl Shell {
         self.planet_presentation = PlanetPresentation::default();
         self.levelclear_ticks = 0;
         self.death_ticks = 0;
-        self.rndval = 0; // sf_rtl.c:52
-
         // BOOTNMI enters `intro_l` before the first `titleseq_l`.
         self.enter_attract_intro();
 
@@ -2658,6 +2656,7 @@ impl Shell {
             };
             self.initialize_player_for_map(self.planets.newmap, player);
             self.game.vars.rng = LEVEL_INITIALIZATION_RANDOM_STATE;
+            self.game.vars.strategy.frame_rate = GAMEPLAY_PLAYER_FRAME_RATE;
             self.game.vars.mapcnt = LEVEL_INITIALIZATION_MAP_COUNTDOWN;
             self.game.world.lastplayz = previous_player_depth;
             self.game.world.lastzchange = LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE;

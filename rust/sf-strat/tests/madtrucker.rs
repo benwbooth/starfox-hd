@@ -16,7 +16,7 @@ use sf_core::screen_fill_circle::{
     ScreenFillCircleCenter, ScreenFillCirclePhase, COLOR_LEVEL_STEP,
     EXPANDING_INITIAL_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
 };
-use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF_INVISIBLE, NUMBER_AL};
+use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF_COLLIDE, ASF_INVISIBLE, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_map::consts::sh;
@@ -82,6 +82,24 @@ fn tick_exp(g: &mut Game, boss: u16) {
         .expstratptr
         .expect("expstratptr");
     g.call_strat(e, boss);
+}
+
+/// Invoke the collision strategy with the same partner metadata that the
+/// strategy loop records before dispatching it. Slot 0 is the player weapon
+/// source for these focused boss tests.
+fn apply_one_point_collision(g: &mut Game, boss: u16) {
+    let collision = g.objs.aliens[boss as usize]
+        .collstratptr
+        .expect("collstratptr");
+    g.objs.aliens[0].ap = 1;
+    {
+        let object = &mut g.objs.aliens[boss as usize];
+        object.collobjptr = 0;
+        object.collcount = 1;
+        object.sflags |= ASF_COLLIDE;
+    }
+    g.call_strat(collision, boss);
+    g.objs.aliens[0].ap = 0;
 }
 
 fn child(g: &Game, boss: u16) -> Option<usize> {
@@ -202,9 +220,8 @@ fn open_weakspot_hit_damages() {
     let c = child(&g, boss).unwrap();
     g.objs.aliens[c].animframe = 0x80 | 5; // armour open
     g.objs.aliens[boss as usize].hitflags |= MT_HF2; // weak spot struck
-    let coll = g.objs.aliens[boss as usize].collstratptr.unwrap();
 
-    g.call_strat(coll, boss);
+    apply_one_point_collision(&mut g, boss);
     assert_eq!(
         g.objs.aliens[boss as usize].hp,
         MADTRUCKER_HP - 1,
@@ -228,9 +245,8 @@ fn closed_armour_is_invulnerable() {
     bosses::madtrucker_init(&mut g, boss);
     // child anim is 0 from .generate.
     g.objs.aliens[boss as usize].hitflags |= MT_HF2;
-    let coll = g.objs.aliens[boss as usize].collstratptr.unwrap();
 
-    g.call_strat(coll, boss);
+    apply_one_point_collision(&mut g, boss);
     assert_eq!(g.objs.aliens[boss as usize].hp, MADTRUCKER_HP, "no damage");
     assert_ne!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0);
 }
@@ -247,9 +263,8 @@ fn body_armour_absorbs_hit() {
     g.objs.aliens[c].animframe = 0x80 | 5; // open
     g.objs.aliens[c].hitflags |= MT_HF1; // armour plate struck
     g.objs.aliens[boss as usize].hitflags |= MT_HF2;
-    let coll = g.objs.aliens[boss as usize].collstratptr.unwrap();
 
-    g.call_strat(coll, boss);
+    apply_one_point_collision(&mut g, boss);
     assert_eq!(g.objs.aliens[boss as usize].hp, MADTRUCKER_HP, "no damage");
     assert_eq!(
         g.objs.aliens[c].hitflags & MT_HF1,
@@ -277,9 +292,9 @@ fn fatal_hit_runs_swerve_skid_death() {
     g.objs.aliens[c].animframe = 0x80 | 5; // open
     g.objs.aliens[boss as usize].hp = 1;
     g.objs.aliens[boss as usize].hitflags |= MT_HF2;
-    let coll = g.objs.aliens[boss as usize].collstratptr.unwrap();
 
-    g.call_strat(coll, boss); // hp 1 -> 0 -> .explode -> one swerve tick
+    apply_one_point_collision(&mut g, boss); // hp 1 -> 0
+    tick_exp(&mut g, boss); // dead-object pass: .explode -> one swerve tick
     assert_eq!(g.objs.aliens[boss as usize].hp, 0, "boss killed");
     assert_ne!(
         g.objs.aliens[c].type_ & ATZREMOVE,

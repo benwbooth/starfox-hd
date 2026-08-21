@@ -270,6 +270,10 @@ fn player_laser_damages_a_seeded_enemy() {
         (a.worldx, a.worldy, a.worldz)
     };
     let enemy = sh.game.objs.alloc().expect("free slot for enemy");
+    let hit_flash = sh
+        .game
+        .world
+        .register_strategy(sf_strat::enemy_a::strat_hit_flash);
     {
         let a = &mut sh.game.objs.aliens[enemy as usize];
         a.worldx = lx;
@@ -283,6 +287,9 @@ fn player_laser_damages_a_seeded_enemy() {
         a.sflags = 0;
         a.immuneptr = 0;
         a.collcount = 1;
+        // Retail collision detection records the pair; the object's authored
+        // collide strategy applies the attacker's power on the next pass.
+        a.collstratptr = Some(hit_flash);
         a.collflags &= !ACF_FIRSTFRAME;
     }
     let enemy_hp_before = sh.game.objs.aliens[enemy as usize].hp;

@@ -630,6 +630,22 @@ fn make_pair(g: &mut Game, ta: u8, tb: u8) -> (u16, u16) {
     (a, b)
 }
 
+fn apply_recorded_collision_damage(g: &mut Game, victim: u16) {
+    g.objs.aliens[victim as usize].sflags &= !ASF_COLLIDE;
+    let attacker = g.objs.aliens[victim as usize].collobjptr;
+    if (attacker as usize) < g.objs.aliens.len() && g.objs.aliens[attacker as usize].active {
+        let attack_power = g.objs.aliens[attacker as usize].ap;
+        g.coldet_apply_damage(victim, attack_power, 0);
+    }
+}
+
+fn install_collision_damage_strategy(g: &mut Game, first: u16, second: u16) -> StratId {
+    let strategy = g.world.register_strategy(apply_recorded_collision_damage);
+    g.objs.aliens[first as usize].collstratptr = Some(strategy);
+    g.objs.aliens[second as usize].collstratptr = Some(strategy);
+    strategy
+}
+
 #[test]
 fn coldet_same_shape_gate_skips_unless_sameshapecollide() {
     use sf_game::alien::ASF3_SAMESHAPECOLLIDE;
@@ -659,58 +675,56 @@ fn coldet_same_shape_gate_skips_unless_sameshapecollide() {
 }
 
 #[test]
-fn coldet_applies_ap_damage_with_cooldown() {
+fn collision_strategy_applies_ap_damage_with_cooldown() {
     let mut g = Game::new();
     let (a, b) = make_pair(&mut g, ACF_COLLTYPE1, ACF_COLLTYPE2);
+    let damage_strategy = install_collision_damage_strategy(&mut g, a, b);
     g.objs.aliens[a as usize].hp = 10;
     g.objs.aliens[a as usize].ap = 4;
     g.objs.aliens[b as usize].ap = 8;
-    // Fresh objects have collcount == 0. On a *first-frame* collision the ROM
-    // seeds collcount via init_strats_ram_l (COLDET.ASM:172-182): any object
-    // not already colliding gets collcount = 1 at the top of coldet_run. do_coll
-    // (do_coll_l, DEC-then-BNE) then DECs 1 -> 0, the BNE falls through, and
-    // damage is applied. (An earlier stale version of this test seeded no
-    // collcount and expected damage at collcount == 0, which the ROM-correct
-    // do_coll never applies.)
+    // Detection records the pair and seeds the collision countdown. It does
+    // not change health; the registered collision strategy consumes the
+    // partner's attack power on the following strategy pass.
     assert_eq!(g.objs.aliens[a as usize].collcount, 0);
     g.coldet_generate_list();
     assert_eq!(g.coldet.list.len(), 2);
     g.coldet_run();
-    // First-frame collision: coldet_run reset collcount 0 -> 1, do_coll DEC'd
-    // 1 -> 0 and applied damage. A took B's AP (10 - 8 = 2), B took A's AP
-    // (20 - 4 = 16); both cooldowns latched to FRAMESPERAP.
-    assert_eq!(g.objs.aliens[a as usize].hp, 2);
-    assert_eq!(g.objs.aliens[b as usize].hp, 16);
-    assert_eq!(g.objs.aliens[a as usize].collcount, 10); // FRAMESPERAP
+    assert_eq!(g.objs.aliens[a as usize].hp, 10);
+    assert_eq!(g.objs.aliens[b as usize].hp, 20);
+    assert_eq!(g.objs.aliens[a as usize].collcount, 1);
     assert_ne!(g.objs.aliens[a as usize].sflags & ASF_COLLIDE, 0);
     assert_eq!(g.objs.aliens[a as usize].collobjptr, b);
     assert_eq!(g.objs.aliens[b as usize].collobjptr, a);
 
-    // Second frame: still overlapping and still colliding, so init_strats_ram_l
-    // does NOT reset collcount; do_coll DECs the latched 10 -> 9 and, being
-    // nonzero, applies no damage (the AP cooldown).
-    g.coldet_generate_list();
-    g.coldet_run();
+    g.run_strategies();
+    assert_eq!(g.objs.aliens[a as usize].hp, 2);
+    assert_eq!(g.objs.aliens[b as usize].hp, 16);
+    assert_eq!(g.objs.aliens[a as usize].collcount, 10); // FRAMESPERAP
+
+    // A sustained collision callback decrements the latched cooldown and does
+    // not apply damage until it reaches zero.
+    g.call_strat(damage_strategy, a);
     assert_eq!(g.objs.aliens[a as usize].hp, 2);
     assert_eq!(g.objs.aliens[a as usize].collcount, 9);
-    // collide got mirrored into Lcollide during step 1 then re-set.
-    assert_ne!(g.objs.aliens[a as usize].sflags & ASF_LCOLLIDE, 0);
 }
 
 #[test]
 fn coldet_tunnel_halves_hard_ap_and_hardhp_is_immune() {
     let mut g = Game::new();
     let (a, b) = make_pair(&mut g, ACF_COLLTYPE1, ACF_COLLTYPE2);
+    install_collision_damage_strategy(&mut g, a, b);
     g.vars.pshipflags3 |= PSF3_INTUNNEL;
     g.objs.aliens[a as usize].hp = 20;
     g.objs.aliens[b as usize].hp = HARD_HP; // indestructible
     g.objs.aliens[b as usize].ap = HARD_AP;
     g.objs.aliens[a as usize].ap = 5;
-    // First-frame collision: coldet_run seeds collcount 0 -> 1 (init_strats_ram_l,
-    // COLDET.ASM:172-182) so the first do_coll (DEC 1 -> 0) applies damage.
+    // Detection seeds the first-hit countdown; the collision strategy then
+    // applies the source's tunnel damage rule.
     assert_eq!(g.objs.aliens[a as usize].collcount, 0);
     g.coldet_generate_list();
     g.coldet_run();
+    assert_eq!(g.objs.aliens[a as usize].hp, 20);
+    g.run_strategies();
     // In-tunnel hardAP is halved before do_coll (do_coll_l: 8 >> 1 = 4), so A
     // takes 20 - 4 = 16.
     assert_eq!(g.objs.aliens[a as usize].hp, 16);

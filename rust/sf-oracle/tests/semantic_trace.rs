@@ -8,13 +8,13 @@ use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_PTR, AL_ROTX,
     AL_ROTY, AL_ROTZ, AL_SBYTE3, AL_SWORD2, AL_VEL, AL_VX, AL_VY, AL_VZ, RETAIL_BRIEFING_CHOICE,
     RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS, RETAIL_DOSTRATS_COMPLETE,
-    RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE, RETAIL_MAPCNT,
+    RETAIL_FRAMERATE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE, RETAIL_MAPCNT,
     RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
     RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
     RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
     RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
     RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS,
-    RETAIL_PVIEWVELZ, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -27,7 +27,7 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 1_320;
+const FRONT_END_TICKS: u32 = 1_500;
 const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
@@ -159,9 +159,19 @@ const RETAIL_DIRECT_SHAPE_MYBASE_0: u16 = 0xDD84;
 const RETAIL_DIRECT_SHAPE_ENEMY_LASER: u16 = 0xB34D;
 const RETAIL_DIRECT_SHAPE_PLAYER_LASER: u16 = 0xB369;
 const RETAIL_DIRECT_SHAPE_LARGE_LASER_FLASH: u16 = 0xB075;
+const RETAIL_DIRECT_SHAPE_SPARK_EXPLOSION: u16 = 0xB289;
+const RETAIL_DIRECT_SHAPE_LASER_DEATH_FLASH: u16 = 0xB2A5;
+const RETAIL_DIRECT_SHAPE_LINE_SPARK: u16 = 0xB2C1;
+const RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_SPRITE: u16 = 0xB11D;
+const RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_POLYGONS: u16 = 0xBE04;
 const NATIVE_SHAPE_ENEMY_LASER: u16 = 478;
 const NATIVE_SHAPE_PLAYER_LASER: u16 = 511;
 const NATIVE_SHAPE_LARGE_LASER_FLASH: u16 = 479;
+const NATIVE_SHAPE_SPARK_EXPLOSION: u16 = 367;
+const NATIVE_SHAPE_LASER_DEATH_FLASH: u16 = 342;
+const NATIVE_SHAPE_LINE_SPARK: u16 = 380;
+const NATIVE_SHAPE_MEDIUM_EXPLOSION_SPRITE: u16 = 462;
+const NATIVE_SHAPE_MEDIUM_EXPLOSION_POLYGONS: u16 = 466;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LevelObjectSnapshot {
@@ -608,6 +618,15 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             RETAIL_DIRECT_SHAPE_ENEMY_LASER => Some(NATIVE_SHAPE_ENEMY_LASER),
             RETAIL_DIRECT_SHAPE_PLAYER_LASER => Some(NATIVE_SHAPE_PLAYER_LASER),
             RETAIL_DIRECT_SHAPE_LARGE_LASER_FLASH => Some(NATIVE_SHAPE_LARGE_LASER_FLASH),
+            RETAIL_DIRECT_SHAPE_SPARK_EXPLOSION => Some(NATIVE_SHAPE_SPARK_EXPLOSION),
+            RETAIL_DIRECT_SHAPE_LASER_DEATH_FLASH => Some(NATIVE_SHAPE_LASER_DEATH_FLASH),
+            RETAIL_DIRECT_SHAPE_LINE_SPARK => Some(NATIVE_SHAPE_LINE_SPARK),
+            RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_SPRITE => {
+                Some(NATIVE_SHAPE_MEDIUM_EXPLOSION_SPRITE)
+            }
+            RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_POLYGONS => {
+                Some(NATIVE_SHAPE_MEDIUM_EXPLOSION_POLYGONS)
+            }
             _ => None,
         };
         if let Some(shape) = direct_shape {
@@ -779,6 +798,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
         let align_completed_level_frame =
             native_level_active && tick >= COMPLETED_FRAME_ALIGNMENT_TICK;
+        let mut native_frame_rate_for_update = None;
         if align_completed_level_frame {
             if !retail_level_boundary_aligned {
                 assert!(
@@ -793,6 +813,11 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 );
                 retail_level_boundary_aligned = true;
             }
+            // The source records the elapsed display-frame count immediately
+            // before the strategy pass consumes it. Capture that typed timing
+            // input at the entry boundary; the value exposed after advancing
+            // to the next boundary belongs to the following update.
+            native_frame_rate_for_update = Some(retail.peek8(WORK_RAM | RETAIL_FRAMERATE));
             let max_video_frames = if tick == CORNERIA_AUDIO_UPLOAD_TICK {
                 MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD
             } else {
@@ -816,6 +841,9 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 .map(|previous| previous != retail_level_frame)
                 .unwrap_or(true);
         if !native_level_active || retail_completed_level_update {
+            if let Some(frame_rate) = native_frame_rate_for_update {
+                native.game.vars.strategy.frame_rate = frame_rate;
+            }
             native.tick(input);
         }
         if native.state() == GameState::Playing
@@ -841,6 +869,16 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
             let mut native_snapshot = native_level_snapshot(&native);
             let retail_snapshot = retail_level_snapshot(&retail);
+            let retail_random_state = [
+                retail.peek8(WORK_RAM | RETAIL_RAND),
+                retail.peek8(WORK_RAM | RETAIL_RAND + 1),
+                retail.peek8(WORK_RAM | RETAIL_RAND + 2),
+                retail.peek8(WORK_RAM | RETAIL_RAND + 3),
+            ];
+            assert_eq!(
+                native.game.vars.rng, retail_random_state,
+                "Corneria runtime random stream diverged at tick {tick}"
+            );
             // Once the shared launch submap returns, retail exposes zero while
             // paused in its original fade wrapper. The typed map VM preserves
             // WORLD.ASM's internal wait sentinel of one. This storage-only

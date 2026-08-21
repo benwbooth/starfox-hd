@@ -681,7 +681,7 @@ impl PathHost for Adapter<'_> {
         // ROM-exact fixed-point (matches sf_strat::common::strat_gen_vecs_2d).
         use crate::snes_trig::{mulslog, COSTAB, SINTAB};
         let angle = al.roty as usize;
-        let vel = al.vel as i32;
+        let vel = i32::from(al.vel as i8);
         al.vx = mulslog(vel, SINTAB[angle] as i32) as i16;
         al.vy = 0;
         al.vz = mulslog(vel, COSTAB[angle] as i32) as i16;
@@ -694,7 +694,7 @@ impl PathHost for Adapter<'_> {
         use crate::snes_trig::{mulslog, COSTAB, SINTAB};
         let yaw = (al.roty as i8).wrapping_neg() as u8 as usize;
         let pitch = al.rotx as usize;
-        let vel = al.vel as i32;
+        let vel = i32::from(al.vel as i8);
         let cosx = COSTAB[pitch] as i32;
         al.vx = mulslog(mulslog(vel, SINTAB[yaw] as i32), cosx) as i16;
         al.vy = mulslog(vel, SINTAB[pitch] as i32) as i16;
@@ -987,9 +987,22 @@ const ACF_FIRSTFRAME_P: u8 = 0x04;
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_g2p, copy_p2g_data, dintro1_chase_x, GAlien, GObjectVisualKind, PObjectVisualKind,
-        PathStratIds, StratId,
+        copy_g2p, copy_p2g_data, dintro1_chase_x, Adapter, GAlien, GObjectVisualKind, Game, PAlien,
+        PObjectVisualKind, PathHost, PathStratIds, StratId,
     };
+    use crate::common::{strat_gen_vecs_2d, strat_gen_vecs_3d};
+
+    fn test_ids() -> PathStratIds {
+        PathStratIds {
+            tick: StratId(0),
+            coll: StratId(1),
+            explode: StratId(2),
+            pei: StratId(3),
+            pes: StratId(4),
+            trail: StratId(5),
+            pollen: StratId(6),
+        }
+    }
 
     #[test]
     fn dintro1_special_achase_matches_signed_65816_edges() {
@@ -1007,15 +1020,7 @@ mod tests {
         const SPRITE_DEPTH_COLOUR: i16 = -2;
         const SPRITE_SIZE: u8 = 12;
 
-        let ids = PathStratIds {
-            tick: StratId(0),
-            coll: StratId(1),
-            explode: StratId(2),
-            pei: StratId(3),
-            pes: StratId(4),
-            trail: StratId(5),
-            pollen: StratId(6),
-        };
+        let ids = test_ids();
         let mut game_object = GAlien::default();
         game_object.visual_kind = GObjectVisualKind::ScaledSprite;
         game_object.depthoffset = SPRITE_DEPTH_COLOUR;
@@ -1031,5 +1036,46 @@ mod tests {
         assert_eq!(round_trip.visual_kind, GObjectVisualKind::ScaledSprite);
         assert_eq!(round_trip.depthoffset, SPRITE_DEPTH_COLOUR);
         assert_eq!(round_trip.tx, SPRITE_SIZE);
+    }
+
+    #[test]
+    fn path_vectors_preserve_signed_source_speed() {
+        const NEGATIVE_SPEED: i8 = -20;
+        const YAW: u8 = 0;
+        const PITCH: u8 = 0;
+
+        let mut game = Game::new();
+        let mut adapter = Adapter {
+            g: &mut game,
+            ids: test_ids(),
+        };
+        let mut path_object = PAlien {
+            vel: NEGATIVE_SPEED as u8,
+            rotx: PITCH,
+            roty: YAW,
+            ..PAlien::default()
+        };
+        let mut game_object = GAlien {
+            vel: NEGATIVE_SPEED as u8,
+            rotx: PITCH,
+            roty: YAW,
+            ..GAlien::default()
+        };
+
+        adapter.genvecs_2d(&mut path_object);
+        strat_gen_vecs_2d(&mut game_object);
+        assert_eq!(
+            (path_object.vx, path_object.vy, path_object.vz),
+            (game_object.vx, game_object.vy, game_object.vz)
+        );
+        assert!(path_object.vz < 0);
+
+        adapter.genvecs_3d(&mut path_object);
+        strat_gen_vecs_3d(&mut game_object);
+        assert_eq!(
+            (path_object.vx, path_object.vy, path_object.vz),
+            (game_object.vx, game_object.vy, game_object.vz)
+        );
+        assert!(path_object.vz < 0);
     }
 }

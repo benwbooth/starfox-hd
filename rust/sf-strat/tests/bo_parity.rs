@@ -14,8 +14,11 @@
 //! ROM-verified trace byte-for-byte.
 //!
 //! The boss2 fixture from tick 22 onward includes the source `explode_Istrat`
-//! sprite/polygon split. Restoring that omitted lifecycle also restores its
-//! object-slot reuse and random draws, so all downstream slot references and
+//! sprite/polygon split. `s_make_obj` inserts the sprite after the exploding
+//! object and the strategy loop reads that link after the current strategy, so
+//! the sprite also runs its first `explode_strat` tick in that same pass.
+//! Restoring that omitted lifecycle and timing also restores its object-slot
+//! reuse and random draws, so all downstream slot references and
 //! random-dependent poses were re-blessed together at that source boundary.
 //!
 //! Regenerate (repo root; harness in the session scratchpad):
