@@ -103,7 +103,7 @@ fn relslowlaserhome_muzzle_z80() {
     spawn_player(&mut g, 0);
     let firer = spawn(&mut g);
     g.objs.aliens[firer as usize].worldz = 200;
-    strat_fire_relslowlaserhome(&mut g, firer, 0, 0);
+    let _ = strat_fire_relslowlaserhome(&mut g, firer, 0, 0);
     let shot = find_shot(&g, firer);
     let expect_z = 200i16.wrapping_add(muzzle_dz(0, 0, 0));
     assert_eq!(g.objs.aliens[shot as usize].worldz, expect_z);

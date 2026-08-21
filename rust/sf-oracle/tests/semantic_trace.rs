@@ -5,15 +5,16 @@ use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase
 use sf_difftest::{first_divergence, SemanticFrame, SemanticObject};
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
-    call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_VX, AL_VY, AL_VZ,
-    RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
-    RETAIL_DOSTRATS_COMPLETE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE,
-    RETAIL_MAPCNT, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
-    RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
-    RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
-    RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
-    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
-    RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_PTR, AL_ROTX,
+    AL_ROTY, AL_ROTZ, AL_SBYTE3, AL_SWORD2, AL_VEL, AL_VX, AL_VY, AL_VZ, RETAIL_BRIEFING_CHOICE,
+    RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS, RETAIL_DOSTRATS_COMPLETE,
+    RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE, RETAIL_MAPCNT,
+    RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
+    RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
+    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
+    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
+    RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS,
+    RETAIL_PVIEWVELZ, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -26,7 +27,7 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 1_200;
+const FRONT_END_TICKS: u32 = 1_320;
 const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
@@ -155,6 +156,12 @@ const RETAIL_DIRECT_SHAPE_OP_2: u16 = 0xBB80;
 const RETAIL_DIRECT_SHAPE_BOOST: u16 = 0xB219;
 const RETAIL_DIRECT_SHAPE_MYSHIP_4: u16 = 0xD304;
 const RETAIL_DIRECT_SHAPE_MYBASE_0: u16 = 0xDD84;
+const RETAIL_DIRECT_SHAPE_ENEMY_LASER: u16 = 0xB34D;
+const RETAIL_DIRECT_SHAPE_PLAYER_LASER: u16 = 0xB369;
+const RETAIL_DIRECT_SHAPE_LARGE_LASER_FLASH: u16 = 0xB075;
+const NATIVE_SHAPE_ENEMY_LASER: u16 = 478;
+const NATIVE_SHAPE_PLAYER_LASER: u16 = 511;
+const NATIVE_SHAPE_LARGE_LASER_FLASH: u16 = 479;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LevelObjectSnapshot {
@@ -163,6 +170,17 @@ struct LevelObjectSnapshot {
     position: Position,
     departure_lifetime: Option<u8>,
     departure_delay: Option<u8>,
+    path_wait: Option<u8>,
+    fighter_motion: Option<FighterMotion>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FighterMotion {
+    rotation: [u8; 3],
+    speed: u8,
+    velocity: Position,
+    lateral_offset: i16,
+    vertical_offset: i16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -587,6 +605,9 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             RETAIL_DIRECT_SHAPE_BOOST => Some(sf_map::consts::sh::BOOST_SHAPE),
             RETAIL_DIRECT_SHAPE_MYSHIP_4 => Some(sf_map::consts::sh::MYSHIP_4),
             RETAIL_DIRECT_SHAPE_MYBASE_0 => Some(sf_map::consts::sh::MYBASE_0),
+            RETAIL_DIRECT_SHAPE_ENEMY_LASER => Some(NATIVE_SHAPE_ENEMY_LASER),
+            RETAIL_DIRECT_SHAPE_PLAYER_LASER => Some(NATIVE_SHAPE_PLAYER_LASER),
+            RETAIL_DIRECT_SHAPE_LARGE_LASER_FLASH => Some(NATIVE_SHAPE_LARGE_LASER_FLASH),
             _ => None,
         };
         if let Some(shape) = direct_shape {
@@ -618,6 +639,8 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
                 let object = objects[slot as usize];
                 let shape = (slot >= STARTUP_ROLE_SLOTS).then(|| flat_shape(object.shape));
                 let departure = shape == Some(sf_map::consts::sh::MYSHIP_4);
+                let path_driven = shape == Some(sf_map::consts::sh::FRIENDSHIP_4);
+                let fighter = shape == Some(sf_map::consts::sh::ZACO_5);
                 let object_base = RETAIL_POOL.base + u32::from(slot) * RETAIL_POOL.stride;
                 LevelObjectSnapshot {
                     slot,
@@ -628,6 +651,23 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
                     }),
                     departure_delay: departure
                         .then(|| retail.peek8(WORK_RAM | object_base + RETAIL_OBJECT_DELAY_OFFSET)),
+                    path_wait: path_driven
+                        .then(|| retail.peek8(WORK_RAM | object_base + AL_SBYTE3)),
+                    fighter_motion: fighter.then(|| FighterMotion {
+                        rotation: [
+                            retail.peek8(WORK_RAM | object_base + AL_ROTX),
+                            retail.peek8(WORK_RAM | object_base + AL_ROTY),
+                            retail.peek8(WORK_RAM | object_base + AL_ROTZ),
+                        ],
+                        speed: retail.peek8(WORK_RAM | object_base + AL_VEL),
+                        velocity: Position(
+                            retail.peek16(WORK_RAM | object_base + AL_VX) as i16,
+                            retail.peek16(WORK_RAM | object_base + AL_VY) as i16,
+                            retail.peek16(WORK_RAM | object_base + AL_VZ) as i16,
+                        ),
+                        lateral_offset: retail.peek16(WORK_RAM | object_base + AL_PTR) as i16,
+                        vertical_offset: retail.peek16(WORK_RAM | object_base + AL_SWORD2) as i16,
+                    }),
                 }
             })
             .collect(),
@@ -650,12 +690,24 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
                 let object = native.game.objs.aliens[slot as usize];
                 let departure =
                     slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::MYSHIP_4;
+                let path_driven =
+                    slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::FRIENDSHIP_4;
+                let fighter =
+                    slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::ZACO_5;
                 LevelObjectSnapshot {
                     slot,
                     shape: (slot >= STARTUP_ROLE_SLOTS).then_some(object.shape),
                     position: Position(object.worldx, object.worldy, object.worldz),
                     departure_lifetime: departure.then_some(object.count),
                     departure_delay: departure.then_some(object.sbyte1),
+                    path_wait: path_driven.then_some(object.sbyte3),
+                    fighter_motion: fighter.then_some(FighterMotion {
+                        rotation: [object.rotx, object.roty, object.rotz],
+                        speed: object.vel,
+                        velocity: Position(object.vx, object.vy, object.vz),
+                        lateral_offset: object.ptr as i16,
+                        vertical_offset: object.sword2,
+                    }),
                 }
             })
             .collect(),

@@ -880,7 +880,12 @@ pub fn bossbspinend_cont(g: &mut Game, idx: u16) {
                 // s_weapon_rndrot 7,7
                 let dp = ((sf_random(&mut g.vars) as u8 & 7) as i16 - 3) as u8;
                 let dy = ((sf_random(&mut g.vars) as u8 & 7) as i16 - 3) as u8;
-                strat_fire_relslowlaserhome(g, idx, pitch.wrapping_add(dp), yaw.wrapping_add(dy));
+                let _ = strat_fire_relslowlaserhome(
+                    g,
+                    idx,
+                    pitch.wrapping_add(dp),
+                    yaw.wrapping_add(dy),
+                );
             }
         }
     } else if notdelay_stag(g, idx, 3) {
@@ -1278,7 +1283,7 @@ pub fn bossbentsplit2_strat(g: &mut Game, idx: u16) {
             let yaw = angle_xz(&m, &p);
             let pitch = strat_pitch_toward(&m, &p);
             // ROM RELSLOWELASERHOME → lasersound_l.
-            strat_fire_relslowlaserhome(g, idx, pitch, yaw);
+            let _ = strat_fire_relslowlaserhome(g, idx, pitch, yaw);
         }
     }
     add_bosshp(g, idx);
@@ -1471,7 +1476,7 @@ pub fn bossbrobfire1_strat(g: &mut Game, idx: u16) {
         if yaw == target && notdelay(g, 4) {
             let pitch = strat_pitch_toward(&me, &p);
             // weapon_rot #0,#0 uses object aim (already negated).
-            strat_fire_relslowlaserhome(g, idx, pitch, yaw);
+            let _ = strat_fire_relslowlaserhome(g, idx, pitch, yaw);
         }
     }
     bossbrobouch_srou(g, idx);
@@ -2129,7 +2134,7 @@ fn bossbrobrndpos_cont(g: &mut Game, idx: u16) {
             let yaw = angle_xz(&m, &p);
             let pitch = strat_pitch_toward(&m, &p);
             // ROM RELSLOWELASERHOME → lasersound_l.
-            strat_fire_relslowlaserhome(g, idx, pitch, yaw);
+            let _ = strat_fire_relslowlaserhome(g, idx, pitch, yaw);
         }
     }
     if let Some(p) = player(g) {

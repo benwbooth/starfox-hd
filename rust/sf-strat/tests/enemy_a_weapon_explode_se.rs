@@ -59,7 +59,7 @@ fn relslowlaser_speed_life_colltypes_match_rom() {
         let before = g.objs.aliens.iter().filter(|a| a.active).count();
         strat_fire_relslowlaser(&mut g, firer, 0, 0);
         let after = g.objs.aliens.iter().filter(|a| a.active).count();
-        assert_eq!(after, before + 1, "level {lvl}");
+        assert_eq!(after, before + 2, "level {lvl}: bolt + muzzle flash");
 
         let shot = g
             .objs

@@ -98,7 +98,7 @@ fn pad_x_boost_tags_boostobj() {
 }
 
 #[test]
-fn wobble_adds_pzrotfloat_to_rotz() {
+fn wobble_halves_the_intact_wing_sample_toward_zero() {
     let mut g = Game::new();
     let idx = ready_player(&mut g);
     g.vars.playerflymode |= PFM_WOBBLE;
@@ -108,9 +108,8 @@ fn wobble_adds_pzrotfloat_to_rotz() {
     let rotz0 = g.objs.aliens[idx as usize].rotz;
     strat_player(&mut g, idx);
     let rotz1 = g.objs.aliens[idx as usize].rotz;
-    // Intact wings: sample negated → rotz changes by -1 (plus other terms may
-    // chase toward 0). Ptr must advance.
+    // Intact wings halve the signed source sample toward zero, so table[1]
+    // contributes zero. The oscillator cursor still advances.
     assert_eq!(g.vars.sv_u8(sv::PLAYER_ZROTFLOATPTR), 2);
-    assert_ne!(rotz1, rotz0.wrapping_add(0).wrapping_add(0)); // smoke: rotz written
-    let _ = (rotz0, rotz1);
+    assert_eq!(rotz1, rotz0);
 }

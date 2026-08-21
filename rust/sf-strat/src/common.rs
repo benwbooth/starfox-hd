@@ -636,8 +636,10 @@ pub fn add_colanim_wrap(al: &mut Alien, amount: u8, maxframes: u8) {
 
 /// ROM `flash_Istrat` (GSTRATS.ASM) — short colour-flash sprite.
 pub fn flash_istrat(g: &mut Game, idx: u16) {
+    let tick = crate::enemy_a::sid(g, flash_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
+        al.stratptr = Some(tick);
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;

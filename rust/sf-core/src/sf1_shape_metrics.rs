@@ -1756,9 +1756,9 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         218,
         Sf1ShapeMetrics {
-            visual_extent: 60,
+            visual_extent: 80,
             coordinate_shift: 0,
-            half_extents: [35, 14, 60],
+            half_extents: [36, 14, 80],
         },
     ), // friendship_4
     (
@@ -3769,6 +3769,38 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
             half_extents: [200, 376, 120],
         },
     ), // walker_l
+    (
+        478,
+        Sf1ShapeMetrics {
+            visual_extent: 396,
+            coordinate_shift: 2,
+            half_extents: [8, 8, 120],
+        },
+    ), // elaser2a
+    (
+        479,
+        Sf1ShapeMetrics {
+            visual_extent: 64,
+            coordinate_shift: 4,
+            half_extents: [64, 64, 64],
+        },
+    ), // lflash_0
+    (
+        480,
+        Sf1ShapeMetrics {
+            visual_extent: 32,
+            coordinate_shift: 3,
+            half_extents: [32, 32, 32],
+        },
+    ), // mflash_0
+    (
+        481,
+        Sf1ShapeMetrics {
+            visual_extent: 16,
+            coordinate_shift: 2,
+            half_extents: [16, 16, 16],
+        },
+    ), // sflash_0
     (
         508,
         Sf1ShapeMetrics {

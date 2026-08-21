@@ -525,11 +525,12 @@ fn path_abs_write16(al: &mut Alien, abs_offset: u16, value: u16) -> bool {
 /// C `path_genvecs`.
 fn path_genvecs<H: PathHost>(host: &mut H, al: &mut Alien) {
     if al.sflags2 & PSFLAG3_HELI != 0 {
-        // Helicopter/3D mode: generate 3D vectors
-        host.genvecs_3d(al);
-    } else {
-        // Normal 2D mode: generate XZ vectors from roty + vel
+        // Helicopter mode repurposes rotx as velocity, so the ROM's .norotx
+        // branch deliberately ignores pitch (PATHS.ASM:416-421).
         host.genvecs_2d(al);
+    } else {
+        // Ordinary path flight retains pitch and generates full 3D vectors.
+        host.genvecs_3d(al);
     }
 }
 

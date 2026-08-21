@@ -313,6 +313,35 @@ const PZROT_FLOAT_TAB: [i8; 28] = [
     0, 1, 2, 3, 4, 4, 5, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -5, -4, -4, -3, -2, -1,
 ];
 
+/// Select the idle-wobble sample used by the player ship. The source table
+/// macro's negative scale means signed division, not numeric negation.
+fn player_wobble_sample(sample: i8, has_broken_wing: bool) -> i8 {
+    if has_broken_wing {
+        sample
+    } else {
+        sample / 2
+    }
+}
+
+#[cfg(test)]
+mod player_wobble_tests {
+    use super::player_wobble_sample;
+
+    #[test]
+    fn intact_ship_uses_signed_half_scale() {
+        assert_eq!(player_wobble_sample(1, false), 0);
+        assert_eq!(player_wobble_sample(2, false), 1);
+        assert_eq!(player_wobble_sample(-1, false), 0);
+        assert_eq!(player_wobble_sample(-3, false), -1);
+    }
+
+    #[test]
+    fn broken_wing_uses_unscaled_sample() {
+        assert_eq!(player_wobble_sample(5, true), 5);
+        assert_eq!(player_wobble_sample(-5, true), -5);
+    }
+}
+
 // --- Ltunnel fly mode constants (STRATEQU.INC) ---
 const LTUNNEL_VIEWCY: i16 = -60;
 const LTUNNEL_MINX: i16 = -120;
@@ -499,6 +528,10 @@ const LEVEL_INITIALIZATION_FORWARD_STEP: i16 = 63;
 
 // --- ExitBase constants (STRATEQU.INC:305,350,581-597) ---
 const PEXITBASE_SPEED: i16 = 50;
+const EXIT_BASE_FOLLOW_DISTANCE: i16 = OUTVIEWDIST + PEXITBASE_SPEED;
+const CATCHUP_WINGMAN_X: i16 = -50;
+const CATCHUP_WINGMAN_Y: i16 = -100;
+const CATCHUP_WINGMAN_Z_OFFSET: i16 = -200;
 const MYBASE_SCALE: i16 = 3;
 const EXITBASE_VIEWCY: i16 = -50;
 const EXITBASE_MINX: i16 = -500;
@@ -2134,8 +2167,8 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     let rollzoff = g.vars.sv_u8(sv::PLAYER_ROLLZOFF) as i8;
 
     // Idle bank wobble (PSTRATS.ASM:2728-2741): under `pfm_wobble`, walk
-    // `pZrotfloattab` into `player_Zrotfloat` and add it to al_rotz. Broken
-    // wing(s) use the table as-is; intact wings negate the sample.
+    // `pZrotfloattab` into `player_Zrotfloat` and add it to the ship roll.
+    // Broken wings use the table as-is; intact wings use signed half-scale.
     let mut zrot_float: i8 = 0;
     if g.vars.playerflymode & PFM_WOBBLE != 0 {
         let mut ptr = g.vars.sv_u8(sv::PLAYER_ZROTFLOATPTR);
@@ -2143,11 +2176,8 @@ fn playermove_srou(g: &mut Game, idx: u16) {
             ptr = 0;
         }
         let sample = PZROT_FLOAT_TAB[ptr as usize];
-        zrot_float = if g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING) != 0 {
-            sample
-        } else {
-            sample.wrapping_neg()
-        };
+        let has_broken_wing = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING) != 0;
+        zrot_float = player_wobble_sample(sample, has_broken_wing);
         g.vars.set_sv_u8(sv::PLAYER_ZROTFLOAT, zrot_float as u8);
         ptr = ptr.wrapping_add(1);
         if ptr >= PZROTFLOATTAB_LEN {
@@ -3026,6 +3056,31 @@ fn player_exitbase_follow_init(g: &mut Game, idx: u16) {
 /// resume normal flight.
 pub fn set_player_on_planet(g: &mut Game, idx: u16) {
     playeronplanet_init(g, idx);
+    // The source initializer is immediately followed by the normal-flight
+    // body. Map callbacks therefore advance the ship once before the regular
+    // object-strategy pass reaches it later in the same level update.
+    strat_player(g, idx);
+}
+
+#[cfg(test)]
+mod player_on_planet_tests {
+    use super::*;
+
+    #[test]
+    fn map_callback_falls_through_to_normal_flight() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+        let initial_depth = game.objs.aliens[player as usize].worldz;
+
+        set_player_on_planet(&mut game, player);
+
+        let normal_flight = sid(&mut game, K_PLAYER);
+        assert_ne!(game.objs.aliens[player as usize].worldz, initial_depth);
+        assert_eq!(
+            game.objs.aliens[player as usize].stratptr,
+            Some(normal_flight)
+        );
+    }
 }
 
 fn playeronplanet_init(g: &mut Game, idx: u16) {
@@ -3073,6 +3128,10 @@ fn playeronplanet_init(g: &mut Game, idx: u16) {
 fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
     let i = idx as usize;
     let view_cy = g.vars.sv_i16(sv::VIEWCY);
+    // `viewpt` is the camera object published by the preceding `getview_l`.
+    // Chasing `viewposz` below prepares the next camera position but does not
+    // retroactively move that object during the current strategy pass.
+    let published_view_z = g.vars.sv_i16(sv::VIEWPOSZ);
 
     // Center the ship: s_achase_alvar W,x,al_worldx,#0,2 / al_worldy,viewcy,2
     {
@@ -3094,11 +3153,13 @@ fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
 
     // s_jmp_Zdistmore x,y(viewpt),#outviewdist+pexitbasespeed,playeronplanet_strat
     {
-        let mut zdist = g.objs.aliens[i].worldz.wrapping_sub(vz);
+        let mut zdist = g.objs.aliens[i].worldz.wrapping_sub(published_view_z);
         if zdist < 0 {
             zdist = zdist.wrapping_neg();
         }
-        if zdist > OUTVIEWDIST + PEXITBASE_SPEED {
+        // The source macro's comparison is inclusive, so equality remains in
+        // the follow phase for one more pass.
+        if zdist >= EXIT_BASE_FOLLOW_DISTANCE {
             strat_player(g, idx);
             return;
         }
@@ -3111,15 +3172,20 @@ fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
 
     // s_make_obj #myship_4 — the 4th wingman catches up from behind
     if let Some(w) = strat_make_obj(g, SHAPE_MYSHIP_4) {
+        // ROM `makeobj_l` uses `l_add`, which inserts the allocation after
+        // the current object. `dostrats` then reads the current object's
+        // next link after this strategy returns, so the new wingman runs in
+        // this same strategy pass.
+        g.objs.active_move_after(w, idx);
         let (self_z, self_roty) = {
             let al = &g.objs.aliens[i];
             (al.worldz, al.roty)
         };
         let wal = &mut g.objs.aliens[w as usize];
         wal.sflags |= ASF_COLLDISABLE;
-        wal.worldx = -50;
-        wal.worldy = -100;
-        wal.worldz = self_z.wrapping_sub(200);
+        wal.worldx = CATCHUP_WINGMAN_X;
+        wal.worldy = CATCHUP_WINGMAN_Y;
+        wal.worldz = self_z.wrapping_add(CATCHUP_WINGMAN_Z_OFFSET);
         wal.roty = self_roty;
         friendstart3_istrat(g, w);
     }
@@ -3133,6 +3199,78 @@ fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
     // s_jmp playeronplanet_Istrat
     playeronplanet_init(g, idx);
     strat_player(g, idx);
+}
+
+#[cfg(test)]
+mod exit_base_follow_tests {
+    use super::*;
+
+    #[test]
+    fn exact_source_distance_stays_in_follow_phase() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+        let follow = sid(&mut game, K_EXITBASE_FOLLOW);
+        {
+            let ship = &mut game.objs.aliens[player as usize];
+            ship.stratptr = Some(follow);
+            ship.worldz = EXIT_BASE_FOLLOW_DISTANCE;
+            ship.vz = 0;
+        }
+        // Make the next camera target differ from the previously published
+        // viewpoint. The source distance test must still use the latter.
+        game.vars.player_posz = EXIT_BASE_FOLLOW_DISTANCE;
+        game.vars.set_sv_i16(sv::VIEWPOSZ, 0);
+        game.vars.gameflags |= GF_NOZREMOVE;
+
+        player_exitbase_follow_strat(&mut game, player);
+
+        assert_eq!(game.objs.aliens[player as usize].stratptr, Some(follow));
+        assert_ne!(game.vars.gameflags & GF_NOZREMOVE, 0);
+        assert_eq!(game.objs.active_indices(), vec![player]);
+    }
+
+    #[test]
+    fn catchup_wingman_is_scheduled_after_player_in_the_spawn_pass() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+        let follow = sid(&mut game, K_EXITBASE_FOLLOW);
+        {
+            let ship = &mut game.objs.aliens[player as usize];
+            ship.stratptr = Some(follow);
+            ship.worldz = EXIT_BASE_FOLLOW_DISTANCE - 1;
+            ship.vz = 0;
+        }
+        game.vars.player_posz = EXIT_BASE_FOLLOW_DISTANCE - 1;
+        game.vars.set_sv_i16(sv::VIEWPOSZ, 0);
+
+        player_exitbase_follow_strat(&mut game, player);
+
+        let active = game.objs.active_indices();
+        assert_eq!(active.len(), 2);
+        assert_eq!(active[0], player);
+        let wingman = active[1];
+        let wingman_go = sid(&mut game, K_FRIENDSTART3GO);
+        assert_eq!(game.objs.aliens[wingman as usize].shape, SHAPE_MYSHIP_4);
+        assert_eq!(
+            game.objs.aliens[wingman as usize].stratptr,
+            Some(wingman_go)
+        );
+    }
+
+    #[test]
+    fn catchup_wingman_is_removed_when_lifetime_decrements_to_zero() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+        let wingman = strat_make_obj(&mut game, SHAPE_MYSHIP_4).expect("wingman");
+        friendstart3_istrat(&mut game, wingman);
+        game.objs.aliens[wingman as usize].count = 1;
+
+        friendstart3go_strat(&mut game, wingman);
+
+        assert!(game.objs.aliens[player as usize].active);
+        assert_eq!(game.objs.aliens[wingman as usize].count, 0);
+        assert_eq!(game.objs.aldead, 1);
+    }
 }
 
 // ============================================================
@@ -3180,9 +3318,8 @@ fn friendstart3go_strat(g: &mut Game, idx: u16) {
     g.objs.aliens[i].worldz = g.objs.aliens[i].worldz.wrapping_add(pviewvelz);
 
     // s_dec_lifecnt x
-    if g.objs.aliens[i].count > 0 {
-        g.objs.aliens[i].count -= 1;
-    } else {
+    g.objs.aliens[i].count = g.objs.aliens[i].count.wrapping_sub(1);
+    if g.objs.aliens[i].count == 0 {
         strat_remove_obj(g);
     }
 }

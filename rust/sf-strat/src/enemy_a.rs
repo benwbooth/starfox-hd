@@ -456,6 +456,43 @@ pub(crate) fn strat_move3d(g: &mut Game, idx: u16, speed: u8, accel: u8) {
 const RELSLOWELASER_MUZZLE_Z: i16 = 80;
 const RELSLOWELASER_Z_BYTE: i8 = 80 >> 2;
 const WEAPON_SCALE: u32 = 2;
+const PLAYER_OBJECT_SLOT: u16 = 0;
+const SHAPE_ENEMY_LASER: u16 = 478;
+const SHAPE_LARGE_LASER_FLASH: u16 = 479;
+const SHAPE_MEDIUM_LASER_FLASH: u16 = 480;
+const SHAPE_SMALL_LASER_FLASH: u16 = 481;
+const SMALL_LASER_FLASH_DISTANCE: i16 = 500;
+const MEDIUM_LASER_FLASH_DISTANCE: i16 = 1_000;
+
+/// ROM `laserflash` (GSTRATS.ASM:2845): add a distance-scaled flash directly
+/// after the newly created bolt. Both objects then initialize later in the
+/// current source-order strategy pass.
+fn make_laser_flash(g: &mut Game, shot: u16) -> Option<u16> {
+    let shape = g.objs.player().map_or(SHAPE_LARGE_LASER_FLASH, |player| {
+        let depth = (g.objs.aliens[shot as usize].worldz as i32 - player.worldz as i32).abs();
+        if depth < i32::from(SMALL_LASER_FLASH_DISTANCE) {
+            SHAPE_SMALL_LASER_FLASH
+        } else if depth < i32::from(MEDIUM_LASER_FLASH_DISTANCE) {
+            SHAPE_MEDIUM_LASER_FLASH
+        } else {
+            SHAPE_LARGE_LASER_FLASH
+        }
+    });
+    let flash = make_obj(g, shape)?;
+    g.objs.active_move_after(flash, shot);
+    let shot_position = {
+        let bolt = g.objs.aliens[shot as usize];
+        (bolt.worldx, bolt.worldy, bolt.worldz)
+    };
+    let init = sid(g, crate::common::flash_istrat);
+    let effect = &mut g.objs.aliens[flash as usize];
+    effect.worldx = shot_position.0;
+    effect.worldy = shot_position.1;
+    effect.worldz = shot_position.2;
+    effect.roty = DEG180;
+    effect.stratptr = Some(init);
+    Some(flash)
+}
 
 /// Exact ROM `fire_relslowElaser` constructor with the caller's current
 /// `s_weapon_pos` scratch bytes. The weapon routine adds its own Z=20 byte,
@@ -472,7 +509,7 @@ pub(crate) fn fire_relslowlaser_weapon_pos(
     offz: i8,
 ) -> Option<u16> {
     let speed = strat_relslowelaser_speed(g);
-    let shot = make_obj(g, SHAPE_ELASER2)?;
+    let shot = make_obj(g, SHAPE_ENEMY_LASER)?;
     let me = g.objs.aliens[idx as usize];
     let (rx, ry, rz) = crate::snes_trig::strat_roffs_full_scaled(
         me.rotz,
@@ -508,9 +545,12 @@ pub(crate) fn fire_relslowlaser_weapon_pos(
         al.expstratptr = Some(exp);
         al.immuneptr = idx;
     }
+    g.objs.active_move_after(shot, idx);
     g.objs.aliens[idx as usize].immuneptr = shot;
-    relelaser_istrat(g, shot);
+    let init = sid(g, relelaser_istrat);
+    g.objs.aliens[shot as usize].stratptr = Some(init);
     make_firer_snd(g, idx, PosSndFamilyId::Laser);
+    let _ = make_laser_flash(g, shot);
     Some(shot)
 }
 
@@ -527,7 +567,7 @@ pub(crate) fn fire_relfastelaser_weapon_pos(
     offy: i8,
     offz: i8,
 ) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_ELASER2)?;
+    let shot = make_obj(g, SHAPE_ENEMY_LASER)?;
     let me = g.objs.aliens[idx as usize];
     let (rx, ry, rz) = crate::snes_trig::strat_roffs_full_scaled(
         me.rotz,
@@ -563,9 +603,12 @@ pub(crate) fn fire_relfastelaser_weapon_pos(
         al.expstratptr = Some(exp);
         al.immuneptr = idx;
     }
+    g.objs.active_move_after(shot, idx);
     g.objs.aliens[idx as usize].immuneptr = shot;
-    relelaser_istrat(g, shot);
+    let init = sid(g, relelaser_istrat);
+    g.objs.aliens[shot as usize].stratptr = Some(init);
     make_firer_snd(g, idx, PosSndFamilyId::Laser);
+    let _ = make_laser_flash(g, shot);
     Some(shot)
 }
 
@@ -596,7 +639,7 @@ pub fn strat_relslowelaser_speed(g: &Game) -> u8 {
 /// C `strat_fire_relslowlaserhome` — ASM `fire_relslowElaserHome`
 /// (GSTRATS.ASM:2563-2576): same colltypes + `#80>>weapon_scale` muzzle as
 /// the non-home helper. (Audit A Minor 1)
-pub fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
+pub fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) -> Option<u16> {
     let speed = strat_relslowelaser_speed(g);
     let Some(shot) = spawn_projectile(
         g,
@@ -611,8 +654,9 @@ pub fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
         RELSLOWELASERHOME_AP,
         ACF_COLLTYPE4 | ACF_COLLTYPE1,
     ) else {
-        return;
+        return None;
     };
+    g.objs.active_move_after(shot, idx);
     let me = g.objs.aliens[idx as usize];
     let z_byte = (RELSLOWELASER_MUZZLE_Z >> WEAPON_SCALE) as i8;
     let (rx, ry, rz) = crate::snes_trig::strat_roffs_full_scaled(
@@ -630,16 +674,50 @@ pub fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
         al.worldy = me.worldy.wrapping_add(ry);
         al.worldz = me.worldz.wrapping_add(rz);
     }
-    let s_home = sid(g, relelaserhome_strat);
-    let al = &mut g.objs.aliens[shot as usize];
-    al.stratptr = Some(s_home);
-    al.rotx = pitch;
-    al.roty = yaw;
-    al.sbyte1 = pitch;
-    al.sbyte2 = yaw;
-    al.animframe = 0;
+    let init = sid(g, relelaserhome_istrat);
+    let coll = sid(g, weapcollide_istrat);
+    let exp = sid(g, elaser2die_istrat);
+    {
+        let al = &mut g.objs.aliens[shot as usize];
+        al.shape = SHAPE_ENEMY_LASER;
+        al.stratptr = Some(init);
+        al.collstratptr = Some(coll);
+        al.expstratptr = Some(exp);
+        al.sflags2 |= ASF2_RELEXPLODE;
+        al.rotx = pitch;
+        al.roty = yaw;
+        al.sbyte1 = pitch;
+        al.sbyte2 = yaw;
+        al.animframe = 0;
+    }
+    g.objs.aliens[idx as usize].immuneptr = shot;
     // ROM `jsl lasersound_l` (GSTRATS.ASM:2574).
     make_firer_snd(g, idx, PosSndFamilyId::Laser);
+    let _ = make_laser_flash(g, shot);
+    Some(shot)
+}
+
+/// Fire the homing enemy bolt using the source routine's object-target mode.
+/// The authored initializer measures from the completed muzzle position, uses
+/// its Manhattan pitch approximation, and stores an absolute target heading.
+fn fire_relslowlaserhome_at_target(
+    g: &mut Game,
+    idx: u16,
+    target: u16,
+    pitch_offset: u8,
+    yaw_offset: u8,
+) -> Option<u16> {
+    let shot = strat_fire_relslowlaserhome(g, idx, pitch_offset, yaw_offset)?;
+    let target = g.objs.aliens[target as usize];
+    let projectile = &mut g.objs.aliens[shot as usize];
+    let dx = target.worldx.wrapping_sub(projectile.worldx);
+    let dy = target.worldy.wrapping_sub(projectile.worldy);
+    let dz = target.worldz.wrapping_sub(projectile.worldz);
+    projectile.rotx = sf_core::aim_angle::xanglexabs(dy, dx, dz).wrapping_add(pitch_offset);
+    projectile.roty = sf_core::aim_angle::yanglexy_nega(dx, dz).wrapping_add(yaw_offset);
+    projectile.sbyte1 = projectile.rotx;
+    projectile.sbyte2 = projectile.roty;
+    Some(shot)
 }
 
 /// Positional one-shot SE from a firer's world XZ (`makesnd` / `*sound_l`).
@@ -4962,7 +5040,7 @@ pub fn elaser_strat(g: &mut Game, idx: u16) {
 
 /// ROM `fire_slowElaser` (GSTRATS.ASM:2593).
 pub fn fire_slow_elaser(g: &mut Game, firer: u16) -> Option<u16> {
-    let shot = make_obj(g, SHAPE_ELASER2)?;
+    let shot = make_obj(g, SHAPE_ENEMY_LASER)?;
     const WEAPON_SCALE: i16 = 2;
     let mz = (80i16 >> WEAPON_SCALE).wrapping_add(80i16 >> WEAPON_SCALE);
     place_weapon_at_firer(g, shot, firer, mz);
@@ -4976,13 +5054,17 @@ pub fn fire_slow_elaser(g: &mut Game, firer: u16) -> Option<u16> {
         al.count = 40;
         al.collflags |= ACF_COLLTYPE4 | ACF_COLLTYPE1;
         al.type_ |= ATLASER;
-        al.shape = SHAPE_ELASER2;
+        al.shape = SHAPE_ENEMY_LASER;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
-    elaser_istrat(g, shot);
+    g.objs.active_move_after(shot, firer);
+    g.objs.aliens[firer as usize].immuneptr = shot;
+    let init = sid(g, elaser_istrat);
+    g.objs.aliens[shot as usize].stratptr = Some(init);
     // ROM `jsl lasersound_l` (GSTRATS.ASM:2603).
     make_firer_snd(g, firer, PosSndFamilyId::Laser);
+    let _ = make_laser_flash(g, shot);
     Some(shot)
 }
 
@@ -7875,6 +7957,19 @@ pub(crate) fn homingflat_strat(g: &mut Game, idx: u16) {
     }
 }
 
+/// ROM `relelaserhome_Istrat` (GSTRATS.ASM:1897-1906). The initializer ends
+/// before the movement label, so a newly inserted bolt does not move on its
+/// allocation frame.
+pub fn relelaserhome_istrat(g: &mut Game, idx: u16) {
+    let tick = sid(g, relelaserhome_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.stratptr = Some(tick);
+    al.rotx = al.sbyte1;
+    al.roty = al.sbyte2;
+    crate::common::strat_gen_vecs_3d_scaled(al, 1);
+    al.animframe = 0x80;
+}
+
 /// C `relelaserhome_strat` (GSTRATS.ASM:1907-1932).
 pub fn relelaserhome_strat(g: &mut Game, idx: u16) {
     {
@@ -7896,7 +7991,7 @@ pub fn relelaserhome_strat(g: &mut Game, idx: u16) {
                 g.objs.aliens[idx as usize].sflags2 |= RELSLOWELASERHOME_LOCK_FLAG;
             }
             strat_aim_3d(g, idx, &pl, 1);
-            gen_vecs_3d(&mut g.objs.aliens[idx as usize]);
+            crate::common::strat_gen_vecs_3d_scaled(&mut g.objs.aliens[idx as usize], 1);
         }
     }
     add_player_z(g, idx);
@@ -10130,7 +10225,7 @@ fn tadpole_strat(g: &mut Game, idx: u16) {
                 // when |dz|>=1500 — fire only when |dz|<1500. (Audit A Minor 3)
                 if ((me.worldz as i32 - pl.worldz as i32).abs() as i16) < TADPOLE_FIRE_ZDIST {
                     let (rx, ry) = (me.rotx, me.roty);
-                    strat_fire_relslowlaserhome(g, idx, rx, ry);
+                    let _ = strat_fire_relslowlaserhome(g, idx, rx, ry);
                     g.objs.aliens[idx as usize].stratstate += 1;
                 }
             }
@@ -11317,7 +11412,7 @@ pub fn evader_strat(g: &mut Game, idx: u16) {
     if aligned && g.vars.gameframe & 7 == 0 {
         // s_jmp_NOTdelay 3 — fire when (gf&7)==0; weapon_rot #0,#0 = object aim.
         let me = g.objs.aliens[idx as usize];
-        strat_fire_relslowlaserhome(g, idx, me.rotx, me.roty);
+        let _ = strat_fire_relslowlaserhome(g, idx, me.rotx, me.roty);
     }
     evader_cont(g, idx);
 }
@@ -14766,7 +14861,9 @@ fn zaco1_phase1(g: &mut Game, idx: u16) {
         let mut roty = al.roty;
         let reached = achase_angle(&mut roty, DEG0, 3);
         al.roty = roty;
-        al.rotx = al.rotx.wrapping_sub(1);
+        if !reached {
+            al.rotx = al.rotx.wrapping_sub(1);
+        }
         reached
     };
     // ASM Achase … zaco1b_init falls into zaco1b_strat same frame. (Audit A #15)
@@ -14782,6 +14879,7 @@ fn zaco1_phase1(g: &mut Game, idx: u16) {
 /// C `zaco1_phase2` (zaco1b_strat, GASTRATS.ASM:1238-1276).
 fn zaco1_phase2(g: &mut Game, idx: u16) {
     let pl = player(g);
+    let mut aim_target = pl;
     let zdist: i32 = match pl {
         Some(p) => (g.objs.aliens[idx as usize].worldz as i32 - p.worldz as i32).abs(),
         None => 0,
@@ -14804,16 +14902,27 @@ fn zaco1_phase2(g: &mut Game, idx: u16) {
         // `.circ` writes them, and leaving `.circ` keeps the last spiral offsets
         // (zaco1_cont keeps adding them). (Audit A #30)
         if g.vars.gameframe & 3 == 0 {
-            if let Some(p) = pl {
-                let me = g.objs.aliens[idx as usize];
-                let fire_yaw = angle_xz(&me, &p);
-                let fire_pitch = strat_pitch_toward(&me, &p);
-                strat_fire_relslowlaserhome(g, idx, fire_pitch, fire_yaw);
+            if pl.is_some() {
+                // `s_fire_weapon` leaves the new bolt selected by the source
+                // routine. The subsequent .nocirc aim in this same frame
+                // therefore follows that bolt, not the player.
+                if let Some(shot) =
+                    fire_relslowlaserhome_at_target(g, idx, PLAYER_OBJECT_SLOT, 0, 0)
+                {
+                    aim_target = Some(g.objs.aliens[shot as usize]);
+                }
             }
         }
     }
-    if zdist >= 700 {
-        if let Some(p) = pl {
+    // The second authored distance gate observes the currently selected
+    // target. On a firing frame that is the newly created bolt, which is
+    // close enough to suppress the remainder of this frame's aim update.
+    let aim_target_depth_distance = match aim_target {
+        Some(target) => (g.objs.aliens[idx as usize].worldz as i32 - target.worldz as i32).abs(),
+        None => 0,
+    };
+    if aim_target_depth_distance >= 700 {
+        if let Some(p) = aim_target {
             let me = g.objs.aliens[idx as usize];
             // ROM `s_obj2obj_3dangle ...,3` negates Yanglexy into al_roty
             // (same as zaco1_phase0 WP chase / szaco2_waypoint_yaw).
@@ -14829,6 +14938,90 @@ fn zaco1_phase2(g: &mut Game, idx: u16) {
         }
     }
     zaco1_cont(g, idx);
+}
+
+#[cfg(test)]
+mod zaco1_transition_tests {
+    use super::*;
+
+    fn game_at_reached_yaw() -> (Game, u16) {
+        let mut game = Game::new();
+        let player = game.objs.alloc().expect("player");
+        let fighter = game.objs.alloc().expect("fighter");
+        game.vars.internal_playpt = player as i16;
+        game.vars.pviewvelz = 63;
+        game.objs.aliens[player as usize].worldz = 9_766;
+        let object = &mut game.objs.aliens[fighter as usize];
+        object.worldx = 573;
+        object.worldy = -399;
+        object.worldz = 9_766;
+        object.rotx = 238;
+        object.roty = 0;
+        object.vel = 60;
+        object.sbyte2 = (-6i8) as u8;
+        (game, fighter)
+    }
+
+    #[test]
+    fn reached_yaw_branches_before_the_phase_one_pitch_step() {
+        let (mut transitioned, fighter) = game_at_reached_yaw();
+        let (mut direct, direct_fighter) = game_at_reached_yaw();
+        let phase_two = sid(&mut direct, zaco1_phase2);
+        direct.objs.aliens[direct_fighter as usize].stratptr = Some(phase_two);
+
+        zaco1_phase1(&mut transitioned, fighter);
+        zaco1_phase2(&mut direct, direct_fighter);
+
+        assert_eq!(
+            transitioned.objs.aliens[fighter as usize],
+            direct.objs.aliens[direct_fighter as usize]
+        );
+    }
+}
+
+#[cfg(test)]
+mod laser_flash_tests {
+    use super::*;
+
+    const FAR_PLAYER_DEPTH: i16 = 0;
+    const FAR_FIRER_DEPTH: i16 = 1_600;
+    const TEST_PITCH: u8 = 8;
+    const TEST_YAW: u8 = 4;
+    const BOLT_SLOT: usize = 2;
+    const FLASH_SLOT: usize = 3;
+
+    #[test]
+    fn homing_enemy_laser_keeps_its_shape_and_spawns_the_authored_flash() {
+        let mut game = Game::new();
+        let player = game.objs.alloc().expect("player");
+        let firer = game.objs.alloc().expect("firer");
+        game.vars.internal_playpt = player as i16;
+        game.objs.aliens[player as usize].worldz = FAR_PLAYER_DEPTH;
+        game.objs.aliens[firer as usize].worldz = FAR_FIRER_DEPTH;
+
+        let _ = strat_fire_relslowlaserhome(&mut game, firer, TEST_PITCH, TEST_YAW);
+
+        assert_eq!(game.objs.aliens[BOLT_SLOT].shape, SHAPE_ENEMY_LASER);
+        assert_eq!(game.objs.aliens[FLASH_SLOT].shape, SHAPE_LARGE_LASER_FLASH);
+        assert_eq!(
+            game.objs.active_indices(),
+            vec![firer, BOLT_SLOT as u16, FLASH_SLOT as u16, player]
+        );
+        assert_eq!(
+            (
+                game.objs.aliens[FLASH_SLOT].worldx,
+                game.objs.aliens[FLASH_SLOT].worldy,
+                game.objs.aliens[FLASH_SLOT].worldz,
+            ),
+            (
+                game.objs.aliens[BOLT_SLOT].worldx,
+                game.objs.aliens[BOLT_SLOT].worldy,
+                game.objs.aliens[BOLT_SLOT].worldz,
+            )
+        );
+        assert_eq!(game.objs.aliens[FLASH_SLOT].roty, DEG180);
+        assert!(game.objs.aliens[FLASH_SLOT].stratptr.is_some());
+    }
 }
 
 // ============================================================

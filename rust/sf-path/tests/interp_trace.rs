@@ -25,9 +25,11 @@ use sf_path::alien::{
 };
 use sf_path::ids::*;
 use sf_path::interp::{
-    dispatch_strat, strat_path_init, strat_pathdha_init, strat_pathtext_init, PathHost, PathWorld,
+    dispatch_strat, strat_path_init, strat_path_tick, strat_pathdha_init, strat_pathtext_init,
+    PathHost, PathWorld,
 };
 use sf_path::literals;
+use sf_path::opcodes::{P_END, P_HELION, P_SETVEL, P_WAIT1};
 
 // libm FFI for seed_runtime_tables parity (same libm as the C build).
 extern "C" {
@@ -59,6 +61,8 @@ struct RecHost {
     rng: u16,
     out: String,
     stage: u16, // C g_stage (checkifend callbacks)
+    vector_2d_calls: usize,
+    vector_3d_calls: usize,
     /// Byte image retained only by this oracle-trace fixture.
     oracle_variables: Vec<u8>,
 }
@@ -69,6 +73,8 @@ impl RecHost {
             rng: 0x1234,
             out: String::new(),
             stage: 0,
+            vector_2d_calls: 0,
+            vector_3d_calls: 0,
             oracle_variables: vec![0; ORACLE_WRAM_SIZE],
         }
     }
@@ -118,13 +124,16 @@ impl PathHost for RecHost {
     }
 
     fn genvecs_2d(&mut self, al: &mut Alien) {
+        self.vector_2d_calls += 1;
         al.vx = (((al.roty as i8) as i32 * al.vel as i32) / 32) as i16;
         al.vy = 0;
         al.vz = al.vel as i16;
     }
 
     fn genvecs_3d(&mut self, al: &mut Alien) {
+        self.vector_3d_calls += 1;
         self.genvecs_2d(al);
+        self.vector_2d_calls -= 1;
         al.vy = (((al.rotx as i8) as i32 * al.vel as i32) / 32) as i16;
     }
 
@@ -803,4 +812,32 @@ fn interp_trace_parity() {
         "trace mismatches:\n{}",
         failures.join("\n")
     );
+}
+
+#[test]
+fn ordinary_flight_uses_pitch_but_helicopter_mode_does_not() {
+    const SPEED: u8 = 30;
+    const PITCH: u8 = 32;
+
+    let run = |path: Vec<u8>| {
+        let mut world = PathWorld::new();
+        world.paths_init();
+        world.paths_load_data(path, vec![0]);
+        world.aliens[0].active = true;
+        world.aliens[0].rotx = PITCH;
+        strat_path_init(&mut world.aliens[0]);
+
+        let mut host = RecHost::new();
+        strat_path_tick(&mut world, &mut host, 0);
+        (world.aliens[0], host.vector_2d_calls, host.vector_3d_calls)
+    };
+
+    let (ordinary, ordinary_2d, ordinary_3d) = run(vec![P_SETVEL, SPEED, P_WAIT1, P_END]);
+    assert_eq!((ordinary_2d, ordinary_3d), (0, 1));
+    assert_ne!(ordinary.vy, 0);
+
+    let (helicopter, helicopter_2d, helicopter_3d) =
+        run(vec![P_HELION, P_SETVEL, SPEED, P_WAIT1, P_END]);
+    assert_eq!((helicopter_2d, helicopter_3d), (2, 0));
+    assert_eq!(helicopter.vy, 0);
 }

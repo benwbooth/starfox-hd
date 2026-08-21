@@ -2,10 +2,9 @@
 //!
 //! C oracle: `src/game/game.c` (GAME.ASM getview_l -> C conversion:
 //! `GameCamera_Init` game.c:29, `GameCamera_Update` game.c:42) plus the
-//! camera-input globals in `src/game/game_vars.c` and the viewfloat bob
-//! table (game_vars.c:334).
+//! camera-input globals in `src/game/game_vars.c`.
 //!
-//! The camera inputs `g_viewpos*` / `g_viewshake*` / `g_viewfloat*` /
+//! The camera inputs `g_viewpos*` / `g_viewshake*` /
 //! `g_viewtype` / `g_viewtoobj` / `g_player_turnrot` / `g_pviewpos*` /
 //! `g_pviewposzoff` are strat-lane variables not yet ported into
 //! [`crate::vars::GameVars`]; they live in [`CameraVars`] with the C
@@ -26,18 +25,6 @@ use crate::vars::{GameVars, OUTVIEWDIST};
 pub const VIEWTYPE_NORM: u8 = 0;
 pub const VIEWTYPE_TOOBJ: u8 = 1;
 pub const VIEWTYPE_FPOS: u8 = 2;
-
-/// C `VIEWFLOATTAB_LEN` / `g_viewfloattab` (src/game/game_vars.c:334-342).
-pub const VIEWFLOATTAB_LEN: usize = 40;
-pub const VIEWFLOATTAB: [i16; VIEWFLOATTAB_LEN] = [
-    0, //
-    1, 2, 3, 4, 4, 5, 5, 6, 6, 6, //
-    5, 5, 4, 4, 3, 2, 1, //
-    0, //
-    -1, -2, -3, -4, -4, -5, -5, -6, -6, -6, //
-    -5, -5, -4, -4, -3, -2, -1, //
-    0, 0, 0, 0, // padding to 40
-];
 
 /// C `FP16_FROM_INT` (src/types.h:44).
 #[inline]
@@ -60,7 +47,6 @@ pub fn fp16_from_float(v: f32) -> i32 {
 /// - `g_pviewposx/y/z`, `g_pviewposzoff` (game_vars.c:67-74)
 /// - `g_viewposx/y/z` (game_vars.c:70-72, VIEWTYPE_FPOS input)
 /// - `g_viewshakeX/Y/Z` (game_vars.c:85-87)
-/// - `g_viewfloatptr/X/Y` (game_vars.c:75-77)
 /// - `g_viewtype` (game_vars.c:232, default VIEWTYPE_NORM)
 /// - `g_viewtoobj` (game_vars.c:82)
 /// - `g_player_turnrot` (game_vars.c:47)
@@ -76,9 +62,6 @@ pub struct CameraVars {
     pub viewshake_x: u8,
     pub viewshake_y: u8,
     pub viewshake_z: u8,
-    pub viewfloatptr: i16,
-    pub viewfloat_x: i16,
-    pub viewfloat_y: i16,
     pub viewtype: u8,
     pub viewtoobj: i16,
     pub player_turnrot: i16,
@@ -149,6 +132,8 @@ impl GameCamera {
         self.vars.viewtype = strategy.view_kind;
         self.vars.viewtoobj = strategy.view_target_object;
         self.vars.player_turnrot = strategy.player_turn_rotation;
+        let view_float_x = strategy.view_float_x;
+        let view_float_y = strategy.view_float_y;
 
         // `noxrot` forces the view pitch to zero before it is latched.
         let mut outvx = strategy.view_pitch;
@@ -202,38 +187,22 @@ impl GameCamera {
                 .vars
                 .pviewposx
                 .wrapping_add(self.vars.viewshake_x as i8 as i16)
-                .wrapping_add(self.vars.viewfloat_x);
+                .wrapping_add(view_float_x);
             let base_y = self
                 .vars
                 .pviewposy
                 .wrapping_add(self.vars.viewshake_y as i8 as i16)
-                .wrapping_add(self.vars.viewfloat_y);
+                .wrapping_add(view_float_y);
             let base_z = self
                 .vars
                 .pviewposz
                 .wrapping_add(self.vars.viewshake_z as i8 as i16)
                 .wrapping_add(self.vars.pviewposzoff);
 
-            // View-float bob. NOTE: the exact ROM gate is unconfirmed — the
-            // `viewfloat` write site is not in the disassembly (GAME.ASM only
-            // *consumes* viewfloatX/Y via `adc`), and there is no `pfm_wobble`
-            // flag in the ROM. Running the bob unconditionally produced a
-            // continuous ~2s vertical sway that the user reported as a bug, so
-            // it is gated to PFM_WOBBLE (off in normal flight) pending a proper
-            // oracle trace of where the ROM advances the float pointer.
-            if vars.playerflymode & crate::vars::PFM_WOBBLE != 0
-                && self.vars.viewfloatptr >= 0
-                && (self.vars.viewfloatptr as usize) < VIEWFLOATTAB_LEN
-            {
-                self.vars.viewfloat_y = VIEWFLOATTAB[self.vars.viewfloatptr as usize];
-                self.vars.viewfloatptr = (self.vars.viewfloatptr + 1) % VIEWFLOATTAB_LEN as i16;
-            }
-
             // --- Step 3-4: pull-back (GAME.ASM:66-113) ---
             // ROM: rotate (0,0,-outdist) by X=nega(viewrotxw) then Y=nega(viewrotyw)
-            // via crotmat16/wmatrotp16, add into viewpos. High bytes of outvx /
-            // (outvy-turnrot) match the viewrot words latched above. Tables via
-            // `rotate_16yz` (auto-nega) + `rotate_16xz` (explicit nega).
+            // via crotmat16/wmatrotp16, add into viewpos. Both authored angles
+            // retain their low-byte precision in the Q15 matrix path.
             //
             // The view strategy chases `view_distance` toward `viewdist` each
             // tick. Fall back to
@@ -247,10 +216,14 @@ impl GameCamera {
             } else {
                 OUTVIEWDIST
             };
-            let pitch8 = (outvx >> 8) as u8;
-            let yaw8 = (outvy.wrapping_sub(self.vars.player_turnrot) >> 8) as u8;
-            let (big_y, big_z_x) = sf_core::snes_trig::rotate_16yz(pitch8, 0, dist.wrapping_neg());
-            let (big_x, big_z) = sf_core::snes_trig::rotate_16xz(yaw8.wrapping_neg(), 0, big_z_x);
+            let pitch_matrix =
+                sf_core::snes_trig::zxy_matrix_q15_fine((outvx as u16).wrapping_neg(), 0, 0);
+            let (pitch_x, pitch_y, pitch_z) =
+                sf_core::snes_trig::matrix_rotate_q15(pitch_matrix, 0, 0, dist.wrapping_neg());
+            let yaw = outvy.wrapping_sub(self.vars.player_turnrot) as u16;
+            let yaw_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(0, yaw.wrapping_neg(), 0);
+            let (big_x, big_y, big_z) =
+                sf_core::snes_trig::matrix_rotate_q15(yaw_matrix, pitch_x, pitch_y, pitch_z);
 
             pos_x = base_x.wrapping_add(big_x);
             pos_y = base_y.wrapping_add(big_y);
@@ -392,8 +365,7 @@ mod tests {
     #[test]
     fn player_normal_path_matches_c() {
         // With all CameraVars at C defaults and a player with rotx=0:
-        // pitch = 0 => offset_y = 0, offset_z = -viewdist. The bob table
-        // starts at 0 so viewfloatY stays 0 for the first tick.
+        // pitch = 0 => offset_y = 0, offset_z = -viewdist.
         let mut vars = GameVars::init();
         let mut objs = Objects::init();
         let idx = objs.alloc().unwrap();
@@ -404,23 +376,17 @@ mod tests {
         let snap = cam.update(&mut vars, &objs);
         assert_eq!(snap.x, 0);
         assert_eq!(snap.y, 0);
-        // ROM mulslog pull-back: X then Y rotate; yaw0 still applies cos=127 → z=-118.
-        assert_eq!(snap.z, fp16_from_int(-118));
+        assert_eq!(snap.z, fp16_from_int(-120));
         assert_eq!((snap.rx, snap.ry, snap.rz), (0, 0, 0));
         assert!(!snap.snap); // viewtype stayed VIEWTYPE_NORM (== static 0)
                              // viewpos published back (game.c:94-98).
         assert_eq!(
             (cam.vars.viewposx, cam.vars.viewposy, cam.vars.viewposz),
-            (0, 0, -118)
+            (0, 0, -120)
         );
-        assert_eq!(vars.strategy.fixed_view_position, [0, 0, -118]);
-        // The view-float bob is gated to PFM_WOBBLE, which is clear in normal
-        // flight, so the float pointer does NOT advance and viewfloat_y stays 0
-        // (no camera bob). See the gate note in `update`.
-        assert_eq!(cam.vars.viewfloatptr, 0);
+        assert_eq!(vars.strategy.fixed_view_position, [0, 0, -120]);
         let snap2 = cam.update(&mut vars, &objs);
         assert_eq!(snap2.y, 0);
-        assert_eq!(cam.vars.viewfloat_y, 0);
         let snap3 = cam.update(&mut vars, &objs);
         assert_eq!(snap3.y, 0);
     }
@@ -507,8 +473,8 @@ mod tests {
     }
 
     #[test]
-    fn pullback_uses_rotate16_sintab_not_float() {
-        // outvx=0x0100 → pitch 1; outdist=120 → ROM rotate_16yz(1,0,-120).
+    fn pullback_uses_fine_q15_matrix_not_float() {
+        // outvx=256 → source negates pitch before rotating (0, 0, -120).
         let mut vars = GameVars::init();
         let mut objs = Objects::init();
         let idx = objs.alloc().unwrap();
@@ -518,20 +484,24 @@ mod tests {
         let mut cam = GameCamera::new();
         cam.init(&mut vars);
         let snap = cam.update(&mut vars, &objs);
-        let (big_y, z_x) = sf_core::snes_trig::rotate_16yz(1, 0, -120);
-        let (big_x, big_z) = sf_core::snes_trig::rotate_16xz(0u8.wrapping_neg(), 0, z_x);
+        let pitch_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(0u16.wrapping_sub(256), 0, 0);
+        let (pitch_x, pitch_y, pitch_z) =
+            sf_core::snes_trig::matrix_rotate_q15(pitch_matrix, 0, 0, -120);
+        let yaw_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(0, 0, 0);
+        let (big_x, big_y, big_z) =
+            sf_core::snes_trig::matrix_rotate_q15(yaw_matrix, pitch_x, pitch_y, pitch_z);
         assert_eq!(big_x, 0);
         assert_eq!(snap.y, fp16_from_int(big_y as i32));
         assert_eq!(snap.z, fp16_from_int(big_z as i32));
         assert_eq!(cam.vars.viewposy, big_y);
         assert_eq!(cam.vars.viewposz, big_z);
-        // Float sin(1*π/128)*120 ≈ 2.94 — mulslog path is the integer −2.
-        assert_eq!(big_y, -2);
-        assert_eq!(big_z, -117);
+        assert_eq!(pitch_y, 2);
+        assert_eq!(big_y, 1);
+        assert_eq!(big_z, -120);
     }
 
     #[test]
-    fn pullback_applies_yaw_rotate16xz() {
+    fn pullback_applies_fine_q15_yaw_matrix() {
         // Level pitch + 90° view yaw: pull-back swings to −X (ROM Y-rotate step).
         let mut vars = GameVars::init();
         let mut objs = Objects::init();
@@ -544,9 +514,8 @@ mod tests {
         let mut cam = GameCamera::new();
         cam.init(&mut vars);
         let snap = cam.update(&mut vars, &objs);
-        let (_, z_after_x) = sf_core::snes_trig::rotate_16yz(0, 0, -120);
-        let (expect_x, expect_z) =
-            sf_core::snes_trig::rotate_16xz((64u8).wrapping_neg(), 0, z_after_x);
+        let matrix = sf_core::snes_trig::zxy_matrix_q15_fine(0, 0u16.wrapping_sub(64 << 8), 0);
+        let (expect_x, _, expect_z) = sf_core::snes_trig::matrix_rotate_q15(matrix, 0, 0, -120);
         assert_eq!(snap.x, fp16_from_int(expect_x as i32));
         assert_eq!(snap.z, fp16_from_int(expect_z as i32));
         assert_eq!(snap.y, 0);

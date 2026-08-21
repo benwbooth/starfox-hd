@@ -50,6 +50,7 @@ SHAPE_ASM_FILES = [
 PREFERRED_HEADER_FILES = {
     "myship_4": "PSHAPES.ASM",
     "bmyship_4": "PSHAPES.ASM",
+    "friendship_4": "PSHAPES.ASM",
 }
 
 OUTPUT_PATH = os.path.join(REPO_ROOT, "src/renderer/shape_data.h")
@@ -370,6 +371,14 @@ EXTENDED_SHAPES = {
     # DSTRATS swaps the walking mech to this distinct left-fall body at
     # runtime; walker_r already occupies the matching extended slot above.
     "walker_l":         477,
+    # Enemy laser and its distance-selected muzzle flashes. These are direct
+    # runtime ShapeHdrs adjacent to the player laser in USHAPES.ASM, not map
+    # catalog entries; retaining each identity preserves its authored color
+    # table and scale.
+    "elaser2a":         478,
+    "lflash_0":         479,
+    "mflash_0":         480,
+    "sflash_0":         481,
 }
 
 

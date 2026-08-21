@@ -12,6 +12,8 @@ use sf_strat::bossb::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
+const SHAPE_ENEMY_LASER: u16 = 478;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SndEvent {
     MakeSnd(PosSndFamilyId, i16, i16),
@@ -118,7 +120,7 @@ fn bossbspinend_home_se_by_range() {
                                              // Force already-at-target by setting to chased coords after one cont...
                                              // Call once to chase, then set exactly to target and fire.
     g.vars.gameframe = 1u16.wrapping_sub(e); // +idx → 1, not fire yet
-    let lasers_before = count_shape(&g, 511);
+    let lasers_before = count_shape(&g, SHAPE_ENEMY_LASER);
     bossbspinend_cont(&mut g, e);
     // Snap to current chased position so next tick range < 300.
     let (x, y) = (
@@ -143,7 +145,7 @@ fn bossbspinend_home_se_by_range() {
         *log.borrow()
     );
     assert_eq!(
-        count_shape(&g, 511),
+        count_shape(&g, SHAPE_ENEMY_LASER),
         lasers_before + 1,
         "close shot must be #elaser2a"
     );
@@ -186,7 +188,11 @@ fn bossbentsplit2_relslowhome_plays_laser_se() {
         *log.borrow()
     );
     assert_eq!(count_family(&log, PosSndFamilyId::Missile), 0);
-    assert_eq!(count_shape(&g, 511), 1, "home laser must use #elaser2a");
+    assert_eq!(
+        count_shape(&g, SHAPE_ENEMY_LASER),
+        1,
+        "home laser must use #elaser2a"
+    );
 }
 
 /// Brob rndpos → RELSLOWELASERHOME Laser; ouch → BOSSHMISSILE1 Missile.

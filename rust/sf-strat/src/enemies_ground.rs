@@ -2056,7 +2056,7 @@ fn meteo0_strat(g: &mut Game, idx: u16) {
             let me = g.objs.aliens[idx as usize];
             let yaw = angle_xz(&me, &pl);
             let pitch = strat_pitch_toward(&me, &pl);
-            strat_fire_relslowlaserhome(g, idx, pitch, yaw);
+            let _ = strat_fire_relslowlaserhome(g, idx, pitch, yaw);
         }
     }
     // .nfire: s_dec_alvar B,x,al_sbyte1
@@ -7496,7 +7496,7 @@ fn warp_state2(g: &mut Game, idx: u16) {
         }
     } else if let Some(_pl) = player(g) {
         let me = g.objs.aliens[idx as usize];
-        strat_fire_relslowlaserhome(g, idx, me.rotx, me.roty);
+        let _ = strat_fire_relslowlaserhome(g, idx, me.rotx, me.roty);
     }
 }
 

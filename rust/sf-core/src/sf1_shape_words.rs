@@ -58,6 +58,12 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0x9880, 416),
     // egg
     (0x98B8, 386),
+    // lflash_0
+    (0x98D4, 479),
+    // mflash_0
+    (0x98F0, 480),
+    // sflash_0
+    (0x990C, 481),
     // helpball
     (0x9928, 226),
     // shelpball
@@ -98,6 +104,8 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0x9B20, 380),
     // laserline
     (0x9B74, 453),
+    // elaser2a
+    (0x9BAC, 478),
     // elaser2
     (0x9BC8, 511),
     // smark
@@ -106,6 +114,8 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0x9C1C, 339),
     // lmark
     (0x9C38, 340),
+    // walker_l
+    (0x9C54, 477),
     // walker_r
     (0x9C70, 414),
     // walker_0
@@ -272,6 +282,12 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xA7CF, 408),
     // shyper
     (0xA7EB, 268),
+    // hyper2
+    (0xA807, 470),
+    // hyper3
+    (0xA823, 471),
+    // hyper4
+    (0xA83F, 472),
     // ship_3
     (0xA877, 21),
     // sship_0_c
@@ -548,6 +564,10 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xB8A7, 214),
     // door_l
     (0xB8C3, 215),
+    // bazz_1p
+    (0xB8DF, 473),
+    // bazz_1q
+    (0xB8FB, 474),
     // face_b
     (0xB917, 223),
     // sface_b
@@ -662,6 +682,10 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xBFDF, 378),
     // myzoom_r
     (0xBFFB, 377),
+    // boss_b_6
+    (0xC017, 468),
+    // boss_b_7
+    (0xC033, 469),
     // boss_f_b
     (0xC04F, 413),
     // r_bu_0
@@ -758,6 +782,10 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xC66F, 129),
     // bazooka
     (0xC68B, 131),
+    // bazooka1
+    (0xC6A7, 475),
+    // bazooka2
+    (0xC6C3, 476),
     // uper_m
     (0xC6DF, 132),
     // warp

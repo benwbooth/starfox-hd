@@ -150,13 +150,13 @@ fn zaco3_beqdec_fires_twice_then_circles() {
     g.vars.gameframe = 0;
     run(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 1);
-    assert_eq!(count_active(&g), before + 1);
+    assert_eq!(count_active(&g), before + 2); // bolt + muzzle flash
     assert_eq!(g.objs.aliens[idx as usize].stratptr, attack);
 
     g.vars.gameframe = 8;
     run(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 0);
-    assert_eq!(count_active(&g), before + 2);
+    assert_eq!(count_active(&g), before + 4); // two bolts + two flashes
     assert_eq!(g.objs.aliens[idx as usize].stratptr, attack);
 
     g.vars.gameframe = 16;

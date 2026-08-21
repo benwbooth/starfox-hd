@@ -31,6 +31,12 @@ use sf_map::levels::{BuiltLevel, NativeCallback};
 
 const FIRST_FLOAT_OSCILLATOR_STEP: u8 = 4;
 const SECOND_FLOAT_OSCILLATOR_STEP: u8 = 8;
+const VIEW_FLOAT_ENTRY_BYTES: u16 = 2;
+const VIEW_FLOAT_TABLE_BYTE_LENGTH: u16 = 72;
+const VIEW_FLOAT_TABLE: [i16; 36] = [
+    0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -6, -6,
+    -6, -5, -5, -4, -4, -3, -2, -1,
+];
 
 /// Strategy function type — replaces C `StrategyFunc`
 /// (`void (*)(Alien *self)`, src/game/obj.h). The alien is passed by slot
@@ -397,6 +403,23 @@ impl Game {
                 self.vars.shared.float_variables[0].wrapping_add(FIRST_FLOAT_OSCILLATOR_STEP);
             self.vars.shared.float_variables[1] =
                 self.vars.shared.float_variables[1].wrapping_add(SECOND_FLOAT_OSCILLATOR_STEP);
+
+            let table_index =
+                usize::from(self.vars.strategy.view_float_cursor / VIEW_FLOAT_ENTRY_BYTES);
+            let sample = VIEW_FLOAT_TABLE[table_index];
+            self.vars.strategy.view_float_y = if self.vars.pshipflags & PSF_STAGE_DAMAGE != 0 {
+                sample
+            } else {
+                sample / 2
+            };
+            self.vars.strategy.view_float_cursor = self
+                .vars
+                .strategy
+                .view_float_cursor
+                .wrapping_add(VIEW_FLOAT_ENTRY_BYTES);
+            if self.vars.strategy.view_float_cursor == VIEW_FLOAT_TABLE_BYTE_LENGTH {
+                self.vars.strategy.view_float_cursor = 0;
+            }
         }
         // GSTRATS.ASM `init_strats_l` advances the runtime stream once after
         // its player/view bookkeeping, before any object strategy executes.
@@ -2086,6 +2109,34 @@ mod tests {
                 SECOND_FLOAT_OSCILLATOR_STEP * 2
             ]
         );
+    }
+
+    #[test]
+    fn intact_wing_view_float_uses_signed_half_scale_and_wraps() {
+        let mut game = game_with_player();
+        game.vars.playerflymode |= PFM_WOBBLE;
+        game.vars.strategy.view_float_cursor = 34 * VIEW_FLOAT_ENTRY_BYTES;
+
+        game.run_strategies();
+        assert_eq!(game.vars.strategy.view_float_y, -1);
+        assert_eq!(game.vars.strategy.view_float_cursor, 70);
+
+        game.run_strategies();
+        assert_eq!(game.vars.strategy.view_float_y, 0);
+        assert_eq!(game.vars.strategy.view_float_cursor, 0);
+    }
+
+    #[test]
+    fn damaged_wing_view_float_is_unscaled() {
+        let mut game = game_with_player();
+        game.vars.playerflymode |= PFM_WOBBLE;
+        game.vars.pshipflags |= PSF_BROKEN_LEFT_WING;
+        game.vars.strategy.view_float_cursor = 8 * VIEW_FLOAT_ENTRY_BYTES;
+
+        game.run_strategies();
+
+        assert_eq!(game.vars.strategy.view_float_y, 6);
+        assert_eq!(game.vars.strategy.view_float_cursor, 18);
     }
 
     #[test]
