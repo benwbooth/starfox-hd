@@ -19,14 +19,53 @@ impl Hooks for NopHooks {
         const SHAPE_WIDE_COLLIDER: u16 = 512;
         const SHAPE_DEEP_COLLIDER: u16 = 513;
         const SHAPE_ARCH: u16 = 228;
+        const SHAPE_BIG_GATE: u16 = 233;
         match shape {
             SHAPE_ENEMY_SHOT => Some((1, 1, 1)),
             SHAPE_WIDE_COLLIDER => Some((80, 70, 30)),
             SHAPE_DEEP_COLLIDER => Some((72, 74, 60)),
             SHAPE_ARCH => Some((120, 160, 40)),
+            SHAPE_BIG_GATE => Some((200, 280, 300)),
             _ => None,
         }
     }
+}
+
+#[test]
+fn big_gate_collision_preserves_the_authored_center_opening() {
+    const SHAPE_BIG_GATE: u16 = 233;
+
+    let spawn_gate = |game: &mut Game| {
+        let object = game.objs.alloc().expect("big gate slot");
+        let gate = &mut game.objs.aliens[object as usize];
+        gate.shape = SHAPE_BIG_GATE;
+        gate.worldz = 233;
+        gate.hp = HARD_HP;
+        gate.collflags = ACF_COLLTYPE1;
+        object
+    };
+
+    // Certified Corneria opening locus: the mesh AABB overlaps, but all three
+    // source colboxes miss at their strict edges.
+    let (mut clear_opening, player) = spawn_with_boxes();
+    let ship = &mut clear_opening.objs.aliens[player as usize];
+    ship.worldx = -24;
+    ship.worldy = -258;
+    ship.collflags &= !ACF_FIRSTFRAME;
+    spawn_gate(&mut clear_opening);
+    clear_opening.coldet_generate_list();
+    clear_opening.coldet_run();
+    assert_eq!(clear_opening.objs.aliens[player as usize].hitflags, 0);
+
+    let (mut hit_right_post, player) = spawn_with_boxes();
+    let ship = &mut hit_right_post.objs.aliens[player as usize];
+    ship.worldx = 180;
+    ship.worldy = -100;
+    ship.collflags &= !ACF_FIRSTFRAME;
+    spawn_gate(&mut hit_right_post);
+    hit_right_post.coldet_generate_list();
+    hit_right_post.coldet_run();
+    assert_eq!(hit_right_post.objs.aliens[player as usize].hitflags, 1);
 }
 
 #[test]

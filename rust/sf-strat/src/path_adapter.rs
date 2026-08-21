@@ -55,11 +55,12 @@ use sf_game::game::Game;
 use sf_game::vars::HARD_HP;
 use sf_game::world::World;
 use sf_path::alien::{
-    Alien as PAlien, ObjectVisualKind as PObjectVisualKind, StratRef, AFEXP, ASF4_NOPOLYEXP,
-    ASF_PARTOBJ,
+    Alien as PAlien, ObjectVisualKind as PObjectVisualKind, StratRef, ACF_FIRSTFRAME, AFEXP,
+    ASF3_REALOBJ, ASF4_NOPOLYEXP, ASF_PARTOBJ, ATZREMOVE,
 };
 use sf_path::interp::{dispatch_strat, PathHost, PathWorld};
 use sf_path::literals::InlineIps;
+use sf_path::opcodes::PathWeapon;
 use sf_path::rom_catalog_data::{ROM_DINTRO1_EXIT_IP, ROM_DINTRO1_LOOP_IP};
 
 use crate::common::{self, sf_random, strat_chase, strat_chase8, sv, StratRam};
@@ -79,6 +80,7 @@ const CB_DINTRO1_ZOOM_TO_CENTRE: u16 = 16;
 const CB_DINTRO1_KEEP_DISTANCE: u16 = 17;
 const PATH_MISSING: u16 = 0xFFFF;
 const DINTRO1_VIEW_DISTANCE: i16 = 4000;
+const AF_INVIEW_PL: u8 = 16;
 
 /// DPATHDAT dintro1's signed half/clamp X chase. Returns (new X, centered).
 fn dintro1_chase_x(x: i16) -> (i16, bool) {
@@ -741,19 +743,19 @@ impl PathHost for Adapter<'_> {
     }
 
     fn init_obj_vars(&mut self, al: &mut PAlien) {
-        // C Strat_InitObjVars (strat_common.c:218) — spawn-time defaults.
-        al.sflags = 0;
-        al.sflags2 = 0;
-        al.hp = 0;
-        al.ap = 0;
-        al.vx = 0;
-        al.vy = 0;
-        al.vz = 0;
-        al.count = 0;
-        al.count1 = 0;
-        al.animframe = 0xFF;
-        al.colframe = 0xFF;
-        al.collflags = ACF_FIRSTFRAME_P;
+        // STRATROU.ASM `init_objvars_l` clears the complete source data
+        // blocks while retaining their list links, then installs the four
+        // spawn defaults below. Path-created objects share these defaults
+        // with map- and strategy-created objects in the original pool.
+        let (next, prev, active) = (al.next, al.prev, al.active);
+        *al = PAlien::default();
+        al.next = next;
+        al.prev = prev;
+        al.active = active;
+        al.flags = AF_INVIEW_PL;
+        al.type_ = ATZREMOVE;
+        al.collflags = ACF_FIRSTFRAME;
+        al.sflags3 = ASF3_REALOBJ;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -771,22 +773,47 @@ impl PathHost for Adapter<'_> {
         ap: u8,
         coll_type_bit: u8,
     ) -> Option<u16> {
-        // Allocate + set up in the canonical Objects pool via the shared
-        // strat routine (correct StratIds/RNG), then mirror into the path
-        // pool so the interpreter can tweak the returned slot.
-        let k = common::strat_spawn_projectile(
-            self.g,
-            Some(owner),
-            off_x,
-            off_y,
-            off_z,
-            rot_x,
-            rot_y,
-            speed,
-            lifetime,
-            ap,
-            coll_type_bit,
-        )?;
+        // P_FIRE selects an authored WEAPONS.INC constructor. The old bridge
+        // collapsed every value to the C-era generic projectile approximation,
+        // losing shape, motion, sound, lifetime, and source list ordering.
+        // The path VM may have changed the firer's position or aim earlier in
+        // this same dispatch. Publish those typed fields before a constructor
+        // reads the canonical object, just as the source's single object pool
+        // exposes every preceding opcode immediately.
+        copy_p2g_data(
+            &world.aliens[owner as usize],
+            &mut self.g.objs.aliens[owner as usize],
+        );
+        let weapon = PathWeapon::from_source_byte(world.aliens[owner as usize].weapontype);
+        let exact = match weapon {
+            Some(PathWeapon::ReboundPlayerLaser) => enemy_a::fire_reb_elaser(self.g, owner),
+            Some(PathWeapon::FriendLaser) => enemy_a::fire_friend_elaser(self.g, owner),
+            Some(PathWeapon::SlowEnemyLaser) => enemy_a::fire_slow_elaser(self.g, owner),
+            Some(PathWeapon::RelativeSlowEnemyLaser) => {
+                enemy_a::strat_fire_relslowlaser(self.g, owner, rot_x, rot_y)
+            }
+            Some(PathWeapon::HomingPlasma) => enemy_a::fire_hplasma(self.g, owner),
+            Some(PathWeapon::RingLaser) => enemy_a::fire_ringlaser(self.g, owner),
+            Some(PathWeapon::RelativeOvalBeam) => enemy_a::fire_relovalbeam(self.g, owner),
+            Some(PathWeapon::RelativeBeamBall) => enemy_a::fire_plasma(self.g, owner),
+            Some(PathWeapon::Current) | None => common::strat_spawn_projectile(
+                self.g,
+                Some(owner),
+                off_x,
+                off_y,
+                off_z,
+                rot_x,
+                rot_y,
+                speed,
+                lifetime,
+                ap,
+                coll_type_bit,
+            ),
+        };
+        let k = exact?;
+        // l_add always seats the new weapon directly after its firer. Some
+        // constructors already do this; reapplying the relation is idempotent.
+        self.g.objs.active_move_after(k, owner);
         world.aliens[k as usize] = copy_g2p(&self.g.objs.aliens[k as usize], self.ids);
         mirror_list(self.g, world);
         Some(k)
@@ -807,6 +834,11 @@ impl PathHost for Adapter<'_> {
         world.aliens[k as usize] = copy_g2p(&self.g.objs.aliens[k as usize], self.ids);
         mirror_list(self.g, world);
         Some(k)
+    }
+
+    fn obj_move_after(&mut self, world: &mut PathWorld, idx: u16, after: u16) {
+        self.g.objs.active_move_after(idx, after);
+        mirror_list(self.g, world);
     }
 
     fn obj_free(&mut self, world: &mut PathWorld, idx: u16) {
@@ -850,6 +882,7 @@ impl PathHost for Adapter<'_> {
                 let Some(pollen) = self.obj_alloc(world).map(|idx| idx as usize) else {
                     return;
                 };
+                self.obj_move_after(world, pollen as u16, self_idx);
                 self.init_obj_vars(&mut world.aliens[pollen]);
                 let particle = &mut world.aliens[pollen];
                 particle.shape = 0;
@@ -980,17 +1013,18 @@ impl PathHost for Adapter<'_> {
     }
 }
 
-/// `sf_path::alien::ACF_FIRSTFRAME` value (0x04) — kept as a local const so
-/// `init_obj_vars` need not import the path-lane collision-flag set.
-const ACF_FIRSTFRAME_P: u8 = 0x04;
-
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_g2p, copy_p2g_data, dintro1_chase_x, Adapter, GAlien, GObjectVisualKind, Game, PAlien,
-        PObjectVisualKind, PathHost, PathStratIds, StratId,
+        copy_g2p, copy_p2g_data, dintro1_chase_x, sync_in, Adapter, GAlien, GObjectVisualKind,
+        Game, PAlien, PObjectVisualKind, PathHost, PathStratIds, PathWeapon, StratId,
     };
     use crate::common::{strat_gen_vecs_2d, strat_gen_vecs_3d};
+    use crate::enemy_a::SH_BOUNCYBALL;
+    use sf_game::alien::{ACF_COLLTYPE1, ACF_COLLTYPE4, ATMISSILE};
+    use sf_game::obj::strat_init_obj_vars;
+    use sf_path::alien::{ACF_FIRSTFRAME, ASF3_REALOBJ, ATZREMOVE};
+    use sf_path::interp::PathWorld;
 
     fn test_ids() -> PathStratIds {
         PathStratIds {
@@ -1077,5 +1111,104 @@ mod tests {
             (game_object.vx, game_object.vy, game_object.vz)
         );
         assert!(path_object.vz < 0);
+    }
+
+    #[test]
+    fn path_spawns_receive_the_complete_source_object_defaults() {
+        const AF_INVIEW_PL: u8 = 16;
+
+        let mut game = Game::new();
+        let mut adapter = Adapter {
+            g: &mut game,
+            ids: test_ids(),
+        };
+        let mut object = PAlien {
+            next: Some(4),
+            prev: Some(2),
+            active: true,
+            animframe: 255,
+            colframe: 255,
+            hp: 99,
+            ..PAlien::default()
+        };
+
+        adapter.init_obj_vars(&mut object);
+
+        assert_eq!(object.next, Some(4));
+        assert_eq!(object.prev, Some(2));
+        assert!(object.active);
+        assert_eq!(object.flags, AF_INVIEW_PL);
+        assert_eq!(object.type_, ATZREMOVE);
+        assert_eq!(object.collflags, ACF_FIRSTFRAME);
+        assert_eq!(object.sflags3, ASF3_REALOBJ);
+        assert_eq!(object.animframe, 0);
+        assert_eq!(object.colframe, 0);
+        assert_eq!(object.hp, 0);
+    }
+
+    #[test]
+    fn authored_relative_beam_ball_uses_the_exact_plasma_constructor() {
+        const OWNER_X: i16 = 200;
+        const OWNER_Y: i16 = -19;
+        const OWNER_Z: i16 = 26_006;
+        const STALE_CANONICAL_YAW: u8 = 122;
+        const AUTHORED_CURRENT_YAW: u8 = 121;
+        const PITCH: u8 = 0;
+        const EXPECTED_ATTACK_POWER: u8 = 10;
+        const EXPECTED_SPEED: u8 = 80;
+        const EXPECTED_LIFETIME: u8 = 100;
+
+        let ids = test_ids();
+        let mut game = Game::new();
+        let owner = game.objs.alloc().expect("path owner slot");
+        strat_init_obj_vars(&mut game.objs.aliens[owner as usize]);
+        {
+            let object = &mut game.objs.aliens[owner as usize];
+            object.worldx = OWNER_X;
+            object.worldy = OWNER_Y;
+            object.worldz = OWNER_Z;
+            object.rotx = PITCH;
+            object.roty = STALE_CANONICAL_YAW;
+            object.weapontype = PathWeapon::RelativeBeamBall as u8;
+        }
+
+        let mut world = PathWorld::new();
+        sync_in(&mut game, &mut world, ids);
+        world.aliens[owner as usize].roty = AUTHORED_CURRENT_YAW;
+        let shot = {
+            let mut adapter = Adapter { g: &mut game, ids };
+            adapter
+                .spawn_projectile(
+                    &mut world,
+                    owner,
+                    0,
+                    0,
+                    0,
+                    PITCH,
+                    AUTHORED_CURRENT_YAW,
+                    EXPECTED_SPEED,
+                    EXPECTED_LIFETIME,
+                    EXPECTED_ATTACK_POWER,
+                    ACF_COLLTYPE4,
+                )
+                .expect("relative beam-ball projectile")
+        };
+
+        let projectile = game.objs.aliens[shot as usize];
+        assert_eq!(projectile.shape, SH_BOUNCYBALL);
+        assert_eq!(projectile.ap, EXPECTED_ATTACK_POWER);
+        assert_eq!(projectile.vel, EXPECTED_SPEED);
+        assert_eq!(projectile.count, EXPECTED_LIFETIME);
+        assert_eq!(projectile.type_, ATMISSILE);
+        assert_eq!(projectile.roty, AUTHORED_CURRENT_YAW);
+        assert_eq!(
+            projectile.collflags & (ACF_COLLTYPE1 | ACF_COLLTYPE4),
+            ACF_COLLTYPE1 | ACF_COLLTYPE4
+        );
+        assert_eq!(game.objs.active_indices(), vec![owner, shot]);
+        assert_eq!(world.aliens[shot as usize].shape, SH_BOUNCYBALL);
+        assert_eq!(world.aliens[shot as usize].worldx, projectile.worldx);
+        assert_eq!(world.aliens[shot as usize].worldy, projectile.worldy);
+        assert_eq!(world.aliens[shot as usize].worldz, projectile.worldz);
     }
 }

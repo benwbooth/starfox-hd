@@ -26,7 +26,6 @@ const ANIMATION_FRAME_MASK: u8 = 0x7F;
 const BOSSH_HP: u8 = 64; // :34 bosshHP
 const BOSSHLEG_PROTECTED_HP: u8 = 74;
 const BOSSHLEG_RAISE_HP: u8 = 63;
-const DEG180: u8 = 128;
 const HITCOUNT_INIT: u8 = 5 * 2 + 5 * 5; // :76 = 35
 const BOSSMAXHP: u16 = HITCOUNT_INIT as u16 + BOSSH_HP as u16; // 99
 const LEG_MODE_WAGGLE: u8 = 6;
@@ -42,8 +41,7 @@ const TOP_CHILD_NUMBER: u8 = 6;
 const LEG_COUNT: usize = 5;
 const CHILD_POSITION_SCALE: u32 = 3;
 const LEG_ONE_LOCAL_POSITION: (i8, i8, i8) = (0, 5, 15);
-const HPLASMA_MUZZLE_POSITION: (i8, i8, i8) = (0, -50, 0);
-const WEAPON_POSITION_SCALE: u32 = 2;
+const HPLASMA_LIFETIME_AFTER_SPAWN_PASS: u8 = 254;
 const FIRST_PHASE_TIMEOUT: usize = 400;
 const FULL_CHOREOGRAPHY_TIMEOUT: usize = 1200;
 const LEG_RAISE_TIMEOUT: usize = 32;
@@ -320,9 +318,6 @@ fn attack_cycle_advances_and_top_fires() {
     let mut advanced = false;
     let mut fired = false;
     for _ in 0..ATTACK_TIMEOUT {
-        let top_before = child(&g, boss, TOP_CHILD_NUMBER)
-            .map(|top| g.objs.aliens[top as usize])
-            .expect("top linked");
         g.run_strategies();
         if g.objs.aliens[boss as usize].stratstate != start_mode {
             advanced = true;
@@ -334,28 +329,13 @@ fn attack_cycle_advances_and_top_fires() {
                     g.objs.aliens[index].active && g.objs.aliens[index].collflags & ACF_WEAPON != 0
                 })
                 .expect("weapon object");
-            let (muzzle_x, muzzle_y, muzzle_z) = sf_strat::snes_trig::strat_roffs_full_scaled(
-                top_before.rotz,
-                top_before.rotx,
-                top_before.roty,
-                HPLASMA_MUZZLE_POSITION.0,
-                HPLASMA_MUZZLE_POSITION.1,
-                HPLASMA_MUZZLE_POSITION.2,
-                WEAPON_POSITION_SCALE,
-            );
             let shot = g.objs.aliens[shot];
+            assert_eq!(shot.ptr, 1, "the top targets the player object");
+            assert_ne!(shot.collflags & ACF_COLLTYPE2, 0);
             assert_eq!(
-                shot.sbyte1,
-                top_before.roty.wrapping_add(DEG180),
-                "weapon yaw retains the top orientation plus the authored turn"
+                shot.count, HPLASMA_LIFETIME_AFTER_SPAWN_PASS,
+                "the source-linked projectile runs once on its spawn pass"
             );
-            assert_eq!(
-                shot.sbyte2, top_before.rotx,
-                "weapon pitch retains the top orientation"
-            );
-            assert_eq!(shot.worldx, top_before.worldx.wrapping_add(muzzle_x));
-            assert_eq!(shot.worldy, top_before.worldy.wrapping_add(muzzle_y));
-            assert_eq!(shot.worldz, top_before.worldz.wrapping_add(muzzle_z));
         }
         if advanced && fired {
             break;

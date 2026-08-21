@@ -6,15 +6,16 @@ use sf_difftest::{first_divergence, SemanticFrame, SemanticObject};
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_PTR, AL_ROTX,
-    AL_ROTY, AL_ROTZ, AL_SBYTE3, AL_SWORD2, AL_VEL, AL_VX, AL_VY, AL_VZ, RETAIL_BRIEFING_CHOICE,
-    RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS, RETAIL_DOSTRATS_COMPLETE,
-    RETAIL_FRAMERATE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE, RETAIL_MAPCNT,
-    RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
-    RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
-    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
-    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
-    RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS,
-    RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE3, AL_SWORD2, AL_VEL, AL_VX, AL_VY, AL_VZ,
+    RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
+    RETAIL_DOSTRATS_COMPLETE, RETAIL_FRAMERATE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ,
+    RETAIL_LASTZCHANGE, RETAIL_MAPCNT, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
+    RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
+    RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
+    RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
+    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
+    RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT,
+    RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -27,7 +28,7 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 1_500;
+const FRONT_END_TICKS: u32 = 1_800;
 const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
@@ -37,6 +38,9 @@ const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_OBJECT_LIFETIME_OFFSET: u32 = 0x0A;
 const RETAIL_OBJECT_DELAY_OFFSET: u32 = 0x22;
+const RETAIL_OBJECT_HIT_FLAGS_OFFSET: u32 = 0x35;
+const RETAIL_SHAPE_COORDINATE_SHIFT_OFFSET: u32 = 7;
+const RETAIL_SHAPE_VISUAL_EXTENT_OFFSET: u32 = 16;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
 const RETAIL_TITLE_BACKGROUND: u16 = 249;
 const RETAIL_BRIEFING_BACKGROUND: u16 = 255;
@@ -164,6 +168,12 @@ const RETAIL_DIRECT_SHAPE_LASER_DEATH_FLASH: u16 = 0xB2A5;
 const RETAIL_DIRECT_SHAPE_LINE_SPARK: u16 = 0xB2C1;
 const RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_SPRITE: u16 = 0xB11D;
 const RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_POLYGONS: u16 = 0xBE04;
+const RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_SPRITE: u16 = 0xB101;
+const RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_POLYGONS: u16 = 0xB587;
+const RETAIL_DIRECT_SHAPE_BOUNCYBALL: u16 = 0xAEED;
+const RETAIL_DIRECT_SHAPE_TOWER_CHILD: u16 = 0xBD78;
+const RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_ENVELOPE: u16 = 0xACF5;
+const RETAIL_DIRECT_SHAPE_SMOKE: u16 = 0xADD5;
 const NATIVE_SHAPE_ENEMY_LASER: u16 = 478;
 const NATIVE_SHAPE_PLAYER_LASER: u16 = 511;
 const NATIVE_SHAPE_LARGE_LASER_FLASH: u16 = 479;
@@ -172,6 +182,16 @@ const NATIVE_SHAPE_LASER_DEATH_FLASH: u16 = 342;
 const NATIVE_SHAPE_LINE_SPARK: u16 = 380;
 const NATIVE_SHAPE_MEDIUM_EXPLOSION_SPRITE: u16 = 462;
 const NATIVE_SHAPE_MEDIUM_EXPLOSION_POLYGONS: u16 = 466;
+const NATIVE_SHAPE_SMALL_EXPLOSION_SPRITE: u16 = 461;
+const NATIVE_SHAPE_SMALL_EXPLOSION_POLYGONS: u16 = 465;
+const NATIVE_SHAPE_BOUNCYBALL: u16 = 405;
+const NATIVE_SHAPE_TOWER_CHILD: u16 = 447;
+const NATIVE_SHAPE_MEDIUM_EXPLOSION_ENVELOPE: u16 = 2;
+const NATIVE_SHAPE_SMOKE: u16 = 357;
+const NATIVE_SHAPE_BOMBER: u16 = 48;
+const NATIVE_SHAPE_ZACO_A: u16 = 217;
+const NATIVE_SHAPE_ZACO_6: u16 = 52;
+const NATIVE_SHAPE_KAMIKAZE: u16 = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LevelObjectSnapshot {
@@ -182,6 +202,14 @@ struct LevelObjectSnapshot {
     departure_delay: Option<u8>,
     path_wait: Option<u8>,
     fighter_motion: Option<FighterMotion>,
+    authored_motion: Option<AuthoredMotion>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AuthoredMotion {
+    rotation: [u8; 3],
+    speed: u8,
+    velocity: Position,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -201,6 +229,10 @@ struct LevelSnapshot {
     forward_velocity: i16,
     previous_player_depth: i16,
     last_depth_change: i16,
+    player_hit_timer: u8,
+    player_hit_flags: u8,
+    active_order: Vec<u16>,
+    free_order: Vec<u16>,
     objects: Vec<LevelObjectSnapshot>,
 }
 const RETAIL_PHASE_ENTRIES: [u32; 12] = [
@@ -604,6 +636,49 @@ fn native_startup_snapshot(native: &Shell) -> StartupSnapshot {
     }
 }
 
+fn retail_object_list(retail: &RetailMachine, head_address: u32) -> Vec<u16> {
+    let mut slots = Vec::new();
+    let mut object = retail.peek16(WORK_RAM | head_address) as u32;
+    while object != 0 {
+        assert!(
+            object >= RETAIL_POOL.base,
+            "retail object-list pointer precedes pool: {object:#06X}"
+        );
+        let offset = object - RETAIL_POOL.base;
+        assert_eq!(
+            offset % RETAIL_POOL.stride,
+            0,
+            "retail object-list pointer is not aligned: {object:#06X}"
+        );
+        let slot = offset / RETAIL_POOL.stride;
+        assert!(
+            slot < RETAIL_POOL.count,
+            "retail object-list pointer exceeds pool: {object:#06X}"
+        );
+        slots.push(slot as u16);
+        assert!(
+            slots.len() <= RETAIL_POOL.count as usize,
+            "retail object list contains a cycle"
+        );
+        object = retail.peek16(WORK_RAM | object + RETAIL_POOL.al_next) as u32;
+    }
+    slots
+}
+
+fn native_free_order(native: &Shell) -> Vec<u16> {
+    let mut slots = Vec::new();
+    let mut current = native.game.objs.free_head;
+    while let Some(slot) = current {
+        slots.push(slot);
+        assert!(
+            slots.len() <= sf_game::alien::NUMBER_AL,
+            "native free list contains a cycle"
+        );
+        current = native.game.objs.aliens[slot as usize].next;
+    }
+    slots
+}
+
 fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
     const SOURCE_SHAPE_CATALOG_ENTRIES: u16 = 256;
 
@@ -627,6 +702,16 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_POLYGONS => {
                 Some(NATIVE_SHAPE_MEDIUM_EXPLOSION_POLYGONS)
             }
+            RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_SPRITE => Some(NATIVE_SHAPE_SMALL_EXPLOSION_SPRITE),
+            RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_POLYGONS => {
+                Some(NATIVE_SHAPE_SMALL_EXPLOSION_POLYGONS)
+            }
+            RETAIL_DIRECT_SHAPE_BOUNCYBALL => Some(NATIVE_SHAPE_BOUNCYBALL),
+            RETAIL_DIRECT_SHAPE_TOWER_CHILD => Some(NATIVE_SHAPE_TOWER_CHILD),
+            RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_ENVELOPE => {
+                Some(NATIVE_SHAPE_MEDIUM_EXPLOSION_ENVELOPE)
+            }
+            RETAIL_DIRECT_SHAPE_SMOKE => Some(NATIVE_SHAPE_SMOKE),
             _ => None,
         };
         if let Some(shape) = direct_shape {
@@ -640,7 +725,9 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             .unwrap_or_else(|| sf_core::shape::resolve_shape_word(source_word))
     };
     let objects = retail.object_snapshot();
-    let mut active = retail.active_object_slots();
+    let active_order = retail_object_list(retail, RETAIL_POOL.active_head);
+    let free_order = retail_object_list(retail, RETAIL_POOL.freelist_head);
+    let mut active = active_order.clone();
     active.sort_unstable();
     LevelSnapshot {
         background: sf_oracle::retail_background_catalog_id(
@@ -652,14 +739,29 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
         forward_velocity: retail.peek16(WORK_RAM | RETAIL_PVIEWVELZ) as i16,
         previous_player_depth: retail.peek16(WORK_RAM | RETAIL_LASTPLAYZ) as i16,
         last_depth_change: retail.peek16(WORK_RAM | RETAIL_LASTZCHANGE) as i16,
+        player_hit_timer: retail.peek8(WORK_RAM | RETAIL_POOL.base + AL_SBYTE1),
+        player_hit_flags: retail
+            .peek8(WORK_RAM | RETAIL_POOL.base + RETAIL_OBJECT_HIT_FLAGS_OFFSET),
+        active_order,
+        free_order,
         objects: active
             .into_iter()
             .map(|slot| {
                 let object = objects[slot as usize];
-                let shape = (slot >= STARTUP_ROLE_SLOTS).then(|| flat_shape(object.shape));
+                let flat_object_shape = flat_shape(object.shape);
+                let shape = (slot >= STARTUP_ROLE_SLOTS).then_some(flat_object_shape);
                 let departure = shape == Some(sf_map::consts::sh::MYSHIP_4);
                 let path_driven = shape == Some(sf_map::consts::sh::FRIENDSHIP_4);
                 let fighter = shape == Some(sf_map::consts::sh::ZACO_5);
+                let authored_motion = matches!(
+                    flat_object_shape,
+                    NATIVE_SHAPE_BOMBER
+                        | NATIVE_SHAPE_BOUNCYBALL
+                        | NATIVE_SHAPE_ENEMY_LASER
+                        | NATIVE_SHAPE_KAMIKAZE
+                        | NATIVE_SHAPE_ZACO_A
+                        | NATIVE_SHAPE_ZACO_6
+                );
                 let object_base = RETAIL_POOL.base + u32::from(slot) * RETAIL_POOL.stride;
                 LevelObjectSnapshot {
                     slot,
@@ -687,6 +789,19 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
                         lateral_offset: retail.peek16(WORK_RAM | object_base + AL_PTR) as i16,
                         vertical_offset: retail.peek16(WORK_RAM | object_base + AL_SWORD2) as i16,
                     }),
+                    authored_motion: authored_motion.then(|| AuthoredMotion {
+                        rotation: [
+                            retail.peek8(WORK_RAM | object_base + AL_ROTX),
+                            retail.peek8(WORK_RAM | object_base + AL_ROTY),
+                            retail.peek8(WORK_RAM | object_base + AL_ROTZ),
+                        ],
+                        speed: retail.peek8(WORK_RAM | object_base + AL_VEL),
+                        velocity: Position(
+                            retail.peek16(WORK_RAM | object_base + AL_VX) as i16,
+                            retail.peek16(WORK_RAM | object_base + AL_VY) as i16,
+                            retail.peek16(WORK_RAM | object_base + AL_VZ) as i16,
+                        ),
+                    }),
                 }
             })
             .collect(),
@@ -694,7 +809,9 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
 }
 
 fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
-    let mut active = native.game.objs.active_indices();
+    let active_order = native.game.objs.active_indices();
+    let free_order = native_free_order(native);
+    let mut active = active_order.clone();
     active.sort_unstable();
     LevelSnapshot {
         background: native.game.vars.currentbg,
@@ -703,6 +820,10 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
         forward_velocity: native.game.vars.pviewvelz,
         previous_player_depth: native.game.world.lastplayz,
         last_depth_change: native.game.world.lastzchange,
+        player_hit_timer: native.game.objs.aliens[0].sbyte1,
+        player_hit_flags: native.game.objs.aliens[0].hitflags,
+        active_order,
+        free_order,
         objects: active
             .into_iter()
             .map(|slot| {
@@ -713,6 +834,15 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
                     slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::FRIENDSHIP_4;
                 let fighter =
                     slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::ZACO_5;
+                let authored_motion = matches!(
+                    object.shape,
+                    NATIVE_SHAPE_BOMBER
+                        | NATIVE_SHAPE_BOUNCYBALL
+                        | NATIVE_SHAPE_ENEMY_LASER
+                        | NATIVE_SHAPE_KAMIKAZE
+                        | NATIVE_SHAPE_ZACO_A
+                        | NATIVE_SHAPE_ZACO_6
+                );
                 LevelObjectSnapshot {
                     slot,
                     shape: (slot >= STARTUP_ROLE_SLOTS).then_some(object.shape),
@@ -726,6 +856,11 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
                         velocity: Position(object.vx, object.vy, object.vz),
                         lateral_offset: object.ptr as i16,
                         vertical_offset: object.sword2,
+                    }),
+                    authored_motion: authored_motion.then_some(AuthoredMotion {
+                        rotation: [object.rotx, object.roty, object.rotz],
+                        speed: object.vel,
+                        velocity: Position(object.vx, object.vy, object.vz),
                     }),
                 }
             })
@@ -761,6 +896,66 @@ fn native_corneria_startup_retains_certified_checkpoints() {
                 "native startup tick {tick}"
             );
         }
+    }
+}
+
+#[test]
+fn native_corneria_initializes_both_authored_kamikazes() {
+    let mut native = configured_native_shell();
+    for tick in 0..FRONT_END_TICKS {
+        native.tick(front_end_input(tick));
+        let kamikazes: Vec<_> = native
+            .game
+            .objs
+            .active_indices()
+            .into_iter()
+            .filter(|&slot| native.game.objs.aliens[slot as usize].shape == NATIVE_SHAPE_KAMIKAZE)
+            .collect();
+        if kamikazes.len() == 2 {
+            for slot in kamikazes {
+                assert_eq!(
+                    native.game.objs.aliens[slot as usize].rotz,
+                    sf_strat::enemy_a::DEG90,
+                    "Corneria kamikaze slot {slot} skipped its source initializer at tick {tick}"
+                );
+            }
+            return;
+        }
+    }
+    panic!("Corneria did not spawn both authored kamikazes");
+}
+
+#[test]
+fn retail_direct_explosion_headers_match_small_native_shapes() {
+    let Some(rom) = load_retail_rom() else {
+        eprintln!("retail explosion-header check skipped: Star Fox retail ROM not found");
+        return;
+    };
+    let retail = RetailMachine::new(rom);
+
+    for (retail_shape, native_shape) in [
+        (
+            RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_SPRITE,
+            NATIVE_SHAPE_SMALL_EXPLOSION_SPRITE,
+        ),
+        (
+            RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_POLYGONS,
+            NATIVE_SHAPE_SMALL_EXPLOSION_POLYGONS,
+        ),
+    ] {
+        let native_metrics = sf_core::sf1_shape_metrics::sf1_shape_metrics(native_shape)
+            .expect("native explosion shape must have generated ShapeHdr metrics");
+        let retail_shape = u32::from(retail_shape);
+        assert_eq!(
+            retail.peek8(retail_shape + RETAIL_SHAPE_COORDINATE_SHIFT_OFFSET),
+            native_metrics.coordinate_shift,
+            "retail explosion coordinate shift changed at {retail_shape:#06X}"
+        );
+        assert_eq!(
+            retail.peek16(retail_shape + RETAIL_SHAPE_VISUAL_EXTENT_OFFSET),
+            native_metrics.visual_extent,
+            "retail explosion visual extent changed at {retail_shape:#06X}"
+        );
     }
 }
 
@@ -875,10 +1070,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 retail.peek8(WORK_RAM | RETAIL_RAND + 2),
                 retail.peek8(WORK_RAM | RETAIL_RAND + 3),
             ];
-            assert_eq!(
-                native.game.vars.rng, retail_random_state,
-                "Corneria runtime random stream diverged at tick {tick}"
-            );
             // Once the shared launch submap returns, retail exposes zero while
             // paused in its original fade wrapper. The typed map VM preserves
             // WORLD.ASM's internal wait sentinel of one. This storage-only
@@ -890,6 +1081,10 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             assert_eq!(
                 native_snapshot, retail_snapshot,
                 "Corneria level state diverged at tick {tick}"
+            );
+            assert_eq!(
+                native.game.vars.rng, retail_random_state,
+                "Corneria runtime random stream diverged at tick {tick}"
             );
         }
 

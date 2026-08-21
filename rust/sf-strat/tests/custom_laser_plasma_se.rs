@@ -1,7 +1,7 @@
 //! Tick 206: custom RELSLOW / HPLASMA / SHORTPLASMA fire paths must play
 //! ROM gen_weapon SE (`lasersound_l` / `enemybattrysound_l`).
 
-use sf_game::alien::{ATLASER, NUMBER_AL};
+use sf_game::alien::{ACF_WEAPON, NUMBER_AL};
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses::chicken_arm_init;
@@ -61,9 +61,9 @@ fn count_family(log: &RefCell<Vec<SndEvent>>, fam: PosSndFamilyId) -> usize {
         .count()
 }
 
-fn count_lasers(g: &Game) -> usize {
+fn count_weapon_objects(g: &Game) -> usize {
     (0..NUMBER_AL)
-        .filter(|&i| g.objs.aliens[i].active && g.objs.aliens[i].type_ & ATLASER != 0)
+        .filter(|&i| g.objs.aliens[i].active && g.objs.aliens[i].collflags & ACF_WEAPON != 0)
         .count()
 }
 
@@ -79,7 +79,7 @@ fn winglazerman_twin_relslow_plays_laser_se() {
     g.vars.gameframe = 0; // notdelay(2): gf&3==0
     winglazerman3_strat(&mut g, e);
 
-    assert!(count_lasers(&g) >= 2, "twin RELSLOWELASER");
+    assert!(count_weapon_objects(&g) >= 2, "twin RELSLOWELASER");
     assert_eq!(
         count_family(&log, PosSndFamilyId::Laser),
         2,
@@ -103,7 +103,7 @@ fn boss1turret_relslow_plays_laser_se() {
     assert_eq!((g.vars.gameframe.wrapping_add(phase)) & 31, 0);
     boss1turretfire_end(&mut g, tur, mother);
 
-    assert!(count_lasers(&g) >= 1);
+    assert!(count_weapon_objects(&g) >= 1);
     assert_eq!(
         count_family(&log, PosSndFamilyId::Laser),
         1,
@@ -127,7 +127,7 @@ fn bossfa_twin_relslow_plays_laser_se() {
     g.vars.gameframe = 0; // &3==0
     bossfa_strat(&mut g, fa);
 
-    assert!(count_lasers(&g) >= 2);
+    assert!(count_weapon_objects(&g) >= 2);
     assert_eq!(
         count_family(&log, PosSndFamilyId::Laser),
         2,
@@ -144,8 +144,9 @@ fn houdai_shortplasma_plays_battry_se() {
     spawn_player(&mut g, 0);
     let e = spawn_obj(&mut g, 0, 0, 2000); // xzdist 2000 >= 800
     strat_houdai_init(&mut g, e);
-    // (gf+idx)&0xF==0 with idx=1 → gf=15
-    g.vars.gameframe = 15;
+    // The retail object-pool phase for slot 1 is 108, so
+    // (gameframe + phase) & 15 == 0 at gameframe 4.
+    g.vars.gameframe = 4;
     houdai_strat(&mut g, e);
 
     assert_eq!(

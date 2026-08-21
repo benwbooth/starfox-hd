@@ -25,13 +25,13 @@ use sf_path::alien::{
 };
 use sf_path::ids::*;
 use sf_path::interp::{
-    dispatch_strat, strat_path_init, strat_path_tick, strat_pathdha_init, strat_pathtext_init,
-    PathHost, PathWorld,
+    dispatch_strat, path_random_goto, strat_path_init, strat_path_tick, strat_pathdha_init,
+    strat_pathtext_init, PathHost, PathWorld,
 };
 use sf_path::literals;
 use sf_path::opcodes::{
     PSFLAG1_RELZ, PSFLAG2_GENVECS, PSFLAG3_HELI, PSFLAG4_SPACE, PSFLAG6_SMOKE, P_END, P_HELION,
-    P_SETVEL, P_WAIT1,
+    P_SETVEL, P_SPAWN, P_WAIT1,
 };
 
 // libm FFI for seed_runtime_tables parity (same libm as the C build).
@@ -310,6 +310,7 @@ impl PathHost for RecHost {
                     Some(p) => p as usize,
                     None => return,
                 };
+                self.obj_move_after(world, p as u16, self_idx);
                 Self::init_obj_vars_impl(&mut world.aliens[p]);
                 let a = &mut world.aliens[p];
                 a.shape = 0; // SH_NULLSHAPE
@@ -374,6 +375,18 @@ fn path_flags_keep_the_source_struct_byte_layout() {
 }
 
 #[test]
+fn random_goto_uses_the_source_probability_threshold() {
+    const LAST_BRANCHING_DRAW: u16 = 126;
+    const FIRST_FALLTHROUGH_DRAW: u16 = 127;
+    const LAST_FALLTHROUGH_DRAW: u16 = 255;
+
+    assert!(path_random_goto(0));
+    assert!(path_random_goto(LAST_BRANCHING_DRAW));
+    assert!(!path_random_goto(FIRST_FALLTHROUGH_DRAW));
+    assert!(!path_random_goto(LAST_FALLTHROUGH_DRAW));
+}
+
+#[test]
 fn collision_handler_tail_calls_the_normal_path_update() {
     const INITIAL_DEPTH: i16 = 2_800;
     const FORWARD_VELOCITY: i16 = 63;
@@ -391,6 +404,53 @@ fn collision_handler_tail_calls_the_normal_path_update() {
 
     assert_eq!(world.aliens[0].worldz, INITIAL_DEPTH + FORWARD_VELOCITY);
     assert_ne!(world.aliens[0].sflags & ASF_HITFLASH, 0);
+}
+
+#[test]
+fn path_spawn_is_inserted_after_the_current_object() {
+    const PARENT: usize = 0;
+    const EXISTING_FOLLOWER: usize = 1;
+    const SPAWNED: usize = 2;
+    const CHILD_PATH_START: u16 = 0;
+    const HIT_POINTS: u8 = 10;
+    const ATTACK_POWER: u8 = 10;
+
+    let mut world = PathWorld::new();
+    let mut host = RecHost::new();
+    world.paths_load_data(
+        vec![
+            P_SPAWN,
+            0,
+            0,
+            CHILD_PATH_START as u8,
+            (CHILD_PATH_START >> 8) as u8,
+            0,
+            0,
+            0,
+            HIT_POINTS,
+            ATTACK_POWER,
+            0,
+            0,
+            0,
+            P_END,
+        ],
+        vec![0],
+    );
+    world.active_list = Some(PARENT as u16);
+    world.aliens[PARENT].active = true;
+    world.aliens[PARENT].next = Some(EXISTING_FOLLOWER as u16);
+    world.aliens[EXISTING_FOLLOWER].active = true;
+    world.aliens[EXISTING_FOLLOWER].prev = Some(PARENT as u16);
+    strat_path_init(&mut world.aliens[PARENT]);
+
+    strat_path_tick(&mut world, &mut host, PARENT as u16);
+
+    assert!(world.aliens[SPAWNED].active);
+    assert_eq!(world.active_list, Some(PARENT as u16));
+    assert_eq!(world.aliens[PARENT].next, Some(SPAWNED as u16));
+    assert_eq!(world.aliens[SPAWNED].prev, Some(PARENT as u16));
+    assert_eq!(world.aliens[SPAWNED].next, Some(EXISTING_FOLLOWER as u16));
+    assert_eq!(world.aliens[EXISTING_FOLLOWER].prev, Some(SPAWNED as u16));
 }
 
 // ============================================================

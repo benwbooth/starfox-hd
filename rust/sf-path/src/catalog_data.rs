@@ -76,15 +76,15 @@ const PATH_TRIGGER_WHENHITBYPLAYER_VALUE: i32 = 9;
 const PATH_TRIGGER_WHENSHAPEDEAD_VALUE: i32 = 11;
 const PATH_TRIGGER_WHENDEAD_VALUE: i32 = 12;
 
-// src/path/path_literals.c WEAPON_* (flat weapon strat ids).
-const WEAPON_REBELASER: i32 = 2;
-const WEAPON_FRIENDELASER: i32 = 6;
-const WEAPON_HPLASMA: i32 = 38;
-const WEAPON_RINGLASER: i32 = 24;
-const WEAPON_RELOVALBEAM: i32 = 50;
-const WEAPON_SLOWELASER: i32 = 8;
-const WEAPON_RELSLOWELASER: i32 = 12;
-const WEAPON_RELBEAMBALL: i32 = 56;
+// WEAPONS.INC byte offsets consumed by P_WEAPON/P_FIRE.
+const WEAPON_REBELASER: i32 = PathWeapon::ReboundPlayerLaser as i32;
+const WEAPON_FRIENDELASER: i32 = PathWeapon::FriendLaser as i32;
+const WEAPON_HPLASMA: i32 = PathWeapon::HomingPlasma as i32;
+const WEAPON_RINGLASER: i32 = PathWeapon::RingLaser as i32;
+const WEAPON_RELOVALBEAM: i32 = PathWeapon::RelativeOvalBeam as i32;
+const WEAPON_SLOWELASER: i32 = PathWeapon::SlowEnemyLaser as i32;
+const WEAPON_RELSLOWELASER: i32 = PathWeapon::RelativeSlowEnemyLaser as i32;
+const WEAPON_RELBEAMBALL: i32 = PathWeapon::RelativeBeamBall as i32;
 
 // PATHDATA.ASM `call_fol` / `folow`.
 const SHARK_ANIMATION: i32 = 15;

@@ -85,6 +85,8 @@ fn pillar3_fall_spawns_bouncyball_at_z_minus_10() {
     assert!(child.stratptr.is_some());
     assert!(child.collstratptr.is_some());
     assert!(child.expstratptr.is_some());
+    assert_eq!(pillar.next, Some(ball));
+    assert_eq!(child.prev, Some(idx));
     assert_ne!(pillar.sflags & ASF_NOHITAFFECT, 0);
     assert_ne!(pillar.sflags & ASF_SHADOW, 0);
     assert_eq!(pillar.sbyte2, 16);
@@ -157,6 +159,28 @@ fn pillar3_stay_plays_se_49() {
         0,
         "stay clears nohitaffect+shadow"
     );
+}
+
+#[test]
+fn pillar3_explosion_children_follow_the_pillar_in_source_order() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0, -40, 0);
+    let pillar = spawn_obj(&mut g, 0, 0, 2_000);
+    strat_pillar3_init(&mut g, pillar);
+
+    let explode = g.objs.aliens[pillar as usize]
+        .expstratptr
+        .expect("pillar explosion strategy");
+    g.call_strat(explode, pillar);
+
+    assert_eq!(
+        g.objs.active_indices(),
+        vec![pillar, 9, 8, 7, 6, 5, 4, 3, 2, 0],
+        "each source s_make_obj inserts after the current pillar"
+    );
+    for (delay, child) in (2u16..=9).enumerate() {
+        assert_eq!(g.objs.aliens[child as usize].count, delay as u8);
+    }
 }
 
 /// pillar3ffall_i: bouncyball at copypos with NO z−10; leftpl roll sign.

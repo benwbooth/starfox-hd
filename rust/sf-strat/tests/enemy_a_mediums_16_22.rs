@@ -3,10 +3,15 @@
 //! initface + stored aim + gravity +3.
 
 use sf_game::alien::ASF3_REALOBJ;
+use sf_game::game::StrategyFn;
 use sf_game::Game;
 use sf_strat::enemy_a::{
     strat_para_init, strat_zaco3_init, strat_zaco4_init, AF_LEFT_PL, ASF2_SMFLAG1, DEG45,
 };
+
+const SHAPE_KAMIKAZE: u16 = 9;
+const SHAPE_PILLAR3: u16 = 27;
+const SHAPE_MEDIUM_EXPLOSION_ENVELOPE: u16 = 2;
 
 fn spawn_player(g: &mut Game, x: i16, y: i16, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -32,6 +37,59 @@ fn spawn(g: &mut Game) -> u16 {
 fn run(g: &mut Game, idx: u16) {
     let s = g.objs.aliens[idx as usize].stratptr.expect("strat");
     g.call_strat(s, idx);
+}
+
+#[test]
+fn zaco34_initializers_retry_until_their_authored_targets_exist() {
+    for (init, target_kind) in [
+        (strat_zaco3_init as StrategyFn, 3),
+        (strat_zaco4_init as StrategyFn, 4),
+    ] {
+        let mut g = Game::new();
+        let idx = spawn(&mut g);
+        let retry = g.world.register_strategy(init);
+        g.objs.aliens[idx as usize].stratptr = Some(retry);
+
+        init(&mut g, idx);
+
+        let object = &g.objs.aliens[idx as usize];
+        assert_eq!(object.stratptr, Some(retry));
+        assert_eq!(object.sbyte3, target_kind);
+    }
+}
+
+#[test]
+fn zaco4_death_uses_the_shared_dive_and_same_frame_medium_flash() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0, -40, 0);
+    let pillar = spawn(&mut g);
+    g.objs.aliens[pillar as usize].shape = SHAPE_PILLAR3;
+    g.objs.aliens[pillar as usize].worldz = 200;
+    let zaco = spawn(&mut g);
+    g.objs.aliens[zaco as usize].shape = SHAPE_KAMIKAZE;
+    g.objs.aliens[zaco as usize].worldy = -200;
+    g.objs.aliens[zaco as usize].worldz = 200;
+    strat_zaco4_init(&mut g, zaco);
+
+    let death = g.objs.aliens[zaco as usize]
+        .expstratptr
+        .expect("zaco4 authored death strategy");
+    g.vars.gameframe = 1;
+    g.call_strat(death, zaco);
+
+    let child = g.objs.aliens[zaco as usize]
+        .next
+        .expect("same-frame medium explosion child");
+    assert_eq!(g.objs.aliens[zaco as usize].shape, SHAPE_KAMIKAZE);
+    assert_eq!(g.objs.aliens[child as usize].prev, Some(zaco));
+    assert_eq!(
+        g.objs.aliens[child as usize].shape,
+        SHAPE_MEDIUM_EXPLOSION_ENVELOPE
+    );
+    assert_eq!(
+        g.objs.aliens[zaco as usize].stratptr, g.objs.aliens[zaco as usize].expstratptr,
+        "death entry must arm and enter the shared dive strategy"
+    );
 }
 
 /// Medium #16: zaco4_attack sbyte1==0 falls into circle same tick (sbyte1→29).
@@ -138,6 +196,7 @@ fn zaco3die_signed_rotx_cap_climbs_from_negative() {
     g.objs.aliens[houdai as usize].shape = 54;
     g.objs.aliens[houdai as usize].worldz = 200;
     let idx = spawn(&mut g);
+    g.objs.aliens[idx as usize].worldy = -200;
     g.objs.aliens[idx as usize].worldz = 200;
     strat_zaco3_init(&mut g, idx);
     let exp = g.objs.aliens[idx as usize].expstratptr.expect("exp");
@@ -176,6 +235,7 @@ fn zaco3go_keeps_stale_vecs_when_close() {
     g.objs.aliens[houdai as usize].shape = 54;
     g.objs.aliens[houdai as usize].worldz = 200;
     let idx = spawn(&mut g);
+    g.objs.aliens[idx as usize].worldy = -200;
     g.objs.aliens[idx as usize].worldz = 200;
     strat_zaco3_init(&mut g, idx);
     let exp = g.objs.aliens[idx as usize].expstratptr.expect("exp");

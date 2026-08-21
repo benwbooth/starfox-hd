@@ -137,10 +137,76 @@ fn zacos_aliases_and_phase2() {
     g.objs.aliens[idx as usize].rotx = 0;
     g.objs.aliens[idx as usize].worldz = 500; // |dz|<2000
     zacos2_init(&mut g, idx);
-    // phase1 saw close → phase2 (rotx -= 4 in transition).
+    // zacos2 falls through phase1 into zacos3_init and zacos3_strat on this
+    // frame, so both source pitch steps have already run.
+    assert_eq!(g.objs.aliens[idx as usize].rotx, 248);
     assert!(g.objs.aliens[idx as usize].stratptr.is_some());
     zacos_strat(&mut g, idx); // still callable
     zacos2_strat(&mut g, idx);
+}
+
+#[test]
+fn zacos_zero_pitch_runs_the_complete_source_fallthrough() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    let idx = spawn_obj(&mut g);
+    g.objs.aliens[idx as usize].worldy = -40;
+    g.objs.aliens[idx as usize].worldz = 500;
+    g.objs.aliens[idx as usize].rotx = 0;
+    g.objs.aliens[idx as usize].roty = DEG180;
+    g.objs.aliens[idx as usize].vel = 40;
+
+    zacos_strat(&mut g, idx);
+
+    assert_eq!(g.objs.aliens[idx as usize].rotx, 248);
+    assert_eq!(g.objs.aliens[idx as usize].vy, -7);
+    assert_eq!(g.objs.aliens[idx as usize].vz, -37);
+}
+
+#[test]
+fn zacos_dive_completion_accelerates_on_the_transition_frame() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    let idx = spawn_obj(&mut g);
+    g.objs.aliens[idx as usize].worldy = -40;
+    g.objs.aliens[idx as usize].worldz = 500;
+    g.objs.aliens[idx as usize].rotx = 0;
+    g.objs.aliens[idx as usize].roty = DEG180;
+    g.objs.aliens[idx as usize].vel = 40;
+    zacos2_init(&mut g, idx);
+
+    g.objs.aliens[idx as usize].rotx = 0;
+    g.vars.gameframe = 1;
+    let dive = g.objs.aliens[idx as usize].stratptr.expect("dive strategy");
+    g.call_strat(dive, idx);
+
+    assert_eq!(g.objs.aliens[idx as usize].rotx, 252);
+    assert_eq!(g.objs.aliens[idx as usize].vel, 41);
+}
+
+#[test]
+fn zacos_bank_phase_uses_the_source_object_stagger() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0);
+    for _ in 0..4 {
+        spawn_obj(&mut g);
+    }
+    let idx = spawn_obj(&mut g);
+    assert_eq!(idx, 5);
+    g.objs.aliens[idx as usize].worldy = -40;
+    g.objs.aliens[idx as usize].worldz = 500;
+    g.objs.aliens[idx as usize].rotx = 0;
+    g.objs.aliens[idx as usize].roty = DEG180;
+    g.objs.aliens[idx as usize].vel = 40;
+    zacos2_init(&mut g, idx);
+
+    g.objs.aliens[idx as usize].rotx = 0;
+    g.vars.gameframe = 15;
+    let dive = g.objs.aliens[idx as usize].stratptr.expect("dive strategy");
+    g.call_strat(dive, idx);
+
+    assert_eq!(g.objs.aliens[idx as usize].rotx, 252);
+    assert_eq!(g.objs.aliens[idx as usize].roty, DEG180);
 }
 
 #[test]

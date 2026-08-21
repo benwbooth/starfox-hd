@@ -373,9 +373,16 @@ pub fn frame_tick_mod(g: &Game, step: u16) -> bool {
 }
 
 /// C `strat_phase_offset` (strat_enemy.c:4574): per-alien phase stagger.
+const OBJECT_UPDATE_PHASE_SEED: u8 = 54;
+const OBJECT_UPDATE_PHASE_STEP: u8 = 54;
+
 pub(crate) fn strat_phase_offset(idx: u16) -> u8 {
     if (idx as usize) < NUMBER_AL {
-        idx as u8
+        // Retail schedules staggered strategy work from the low byte of each
+        // object's source-pool identity. Preserve only the resulting phase in
+        // the flat port: the first object has phase 54 and each following
+        // object advances by the retail record width of 54.
+        OBJECT_UPDATE_PHASE_SEED.wrapping_add((idx as u8).wrapping_mul(OBJECT_UPDATE_PHASE_STEP))
     } else {
         0
     }
@@ -537,7 +544,10 @@ pub(crate) fn fire_relslowlaser_weapon_pos(
         al.ap = ENEMYLASER_AP;
         al.vel = speed;
         al.count = 40;
-        al.type_ |= ATLASER;
+        // `gen_weapon` replaces the default behind-camera-removal class with
+        // the source weapon class. Laser presentation comes from the shape;
+        // this field controls object lifecycle and weapon-family tests.
+        al.type_ = ATMISSILE;
         al.sflags &= !ASF_INVISIBLE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
@@ -595,7 +605,7 @@ pub(crate) fn fire_relfastelaser_weapon_pos(
         al.ap = ENEMYLASER_AP;
         al.vel = 90;
         al.count = 40;
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.sflags &= !ASF_INVISIBLE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
@@ -616,8 +626,8 @@ pub(crate) fn fire_relfastelaser_weapon_pos(
 /// speed via `doelaserspeed` (48 at level 1, else 60, GSTRATS.ASM:2780),
 /// `s_set_lifecnt #40`, `enemylaserAP=2`, colltypes `enemyweap`+`laser`, and
 /// muzzle `elaserfireZoff>>weapon_scale` rotated by firer. (Audit A #1, Minor 1)
-pub fn strat_fire_relslowlaser(g: &mut Game, idx: u16, pitch: u8, yaw: u8) {
-    let _ = fire_relslowlaser_weapon_pos(g, idx, pitch, yaw, 0, 0, 0);
+pub fn strat_fire_relslowlaser(g: &mut Game, idx: u16, pitch: u8, yaw: u8) -> Option<u16> {
+    fire_relslowlaser_weapon_pos(g, idx, pitch, yaw, 0, 0, 0)
 }
 
 /// zacos2/3 fire: `s_weapon_pos #0,#0,#40>>weapon_scale` then RELSLOWELASER
@@ -680,6 +690,7 @@ pub fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) -
     {
         let al = &mut g.objs.aliens[shot as usize];
         al.shape = SHAPE_ENEMY_LASER;
+        al.type_ = ATMISSILE;
         al.stratptr = Some(init);
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -1133,16 +1144,7 @@ pub fn strat_explode(g: &mut Game, idx: u16) {
     // ROM: s_jmpNOT_alsflag special → skip; else spawn gate_2 + gate2_Istrat.
     // (Audit A Minor 14)
     if g.objs.aliens[idx as usize].sflags4 & ASF4_SPECIAL != 0 {
-        if let Some(gate) = make_obj(g, SH_GATE2) {
-            {
-                let src = g.objs.aliens[idx as usize];
-                let al = &mut g.objs.aliens[gate as usize];
-                al.worldx = src.worldx;
-                al.worldy = src.worldy;
-                al.worldz = src.worldz;
-            }
-            strat_gate2_init(g, gate);
-        }
+        let _ = spawn_gate2(g, idx);
     }
     // ROM: s_jmp_alvarNOTZERO W,x,al_debrisshape,explodedebris_Istrat
     if g.objs.aliens[idx as usize].debrisshape != 0 {
@@ -4313,6 +4315,22 @@ pub fn particlepollen_strat(g: &mut Game, idx: u16) {
 /// ROM `#gate_2` shape id (shape_data.rs).
 const SH_GATE2: u16 = 210;
 
+/// `s_make_obj #gate_2` inserts after the exploding object and only installs
+/// `gate2_Istrat`. The ordinary strategy walk reaches that initializer later
+/// in the same pass, preserving both retail list order and first-tick timing.
+fn spawn_gate2(g: &mut Game, source: u16) -> Option<u16> {
+    let gate = make_obj(g, SH_GATE2)?;
+    g.objs.active_move_after(gate, source);
+    let src = g.objs.aliens[source as usize];
+    let initializer = sid(g, strat_gate2_init);
+    let al = &mut g.objs.aliens[gate as usize];
+    al.worldx = src.worldx;
+    al.worldy = src.worldy;
+    al.worldz = src.worldz;
+    al.stratptr = Some(initializer);
+    Some(gate)
+}
+
 /// ROM `explodegate2_Istrat` (EXPSTRAT.ASM:1058) — maybe drop gate_2, then stopexplode.
 pub fn explodegate2_istrat(g: &mut Game, idx: u16) {
     // 20% chance to attempt gate spawn (jmp_random .badobjs,80 skips 80%).
@@ -4327,16 +4345,7 @@ pub fn explodegate2_istrat(g: &mut Game, idx: u16) {
             g.objs.aliens[partner as usize].type_ & ATLASER != 0
         };
         if do_spawn {
-            if let Some(gate) = make_obj(g, SH_GATE2) {
-                {
-                    let src = g.objs.aliens[idx as usize];
-                    let al = &mut g.objs.aliens[gate as usize];
-                    al.worldx = src.worldx;
-                    al.worldy = src.worldy;
-                    al.worldz = src.worldz;
-                }
-                strat_gate2_init(g, gate);
-            }
+            let _ = spawn_gate2(g, idx);
         }
     }
     stopexplode_istrat(g, idx);
@@ -4536,7 +4545,7 @@ pub fn fire_playerbeam(g: &mut Game, firer: u16) -> Option<u16> {
         al.sbyte2 = ry;
         al.sbyte3 = owner_vel;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.sflags &= !ASF_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collstratptr = Some(coll);
@@ -4579,7 +4588,7 @@ pub fn fire_elaser(g: &mut Game, firer: u16) -> Option<u16> {
         al.sbyte2 = ry;
         al.sbyte3 = owner_vel;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5;
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.sflags &= !ASF_INVISIBLE;
         al.shape = SHAPE_ELASER2;
         al.collstratptr = Some(coll);
@@ -4759,7 +4768,7 @@ pub fn fire_friend_elaser(g: &mut Game, firer: u16) -> Option<u16> {
         al.vel = 66; // 55+11
         al.count = 10;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.shape = SHAPE_ELASER2;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -4787,7 +4796,7 @@ pub fn fire_reb_elaser(g: &mut Game, firer: u16) -> Option<u16> {
         al.count = 40;
         // enemyweap + laser + enemy1 + enemy2
         al.collflags |= ACF_COLLTYPE4 | ACF_COLLTYPE1 | ACF_COLLTYPE2 | ACF_COLLTYPE3;
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.shape = SHAPE_ELASER2;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -4801,9 +4810,8 @@ pub fn fire_reb_elaser(g: &mut Game, firer: u16) -> Option<u16> {
 /// ROM `fire_plasma` / `fire_relbeamball` (GSTRATS.ASM:2405) — relflatmiss plasma.
 pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
     let shot = make_obj(g, SH_BOUNCYBALL)?;
-    const WEAPON_SCALE: i16 = 2;
-    let mz = 80i16 >> WEAPON_SCALE;
-    place_weapon_at_firer(g, shot, firer, mz);
+    g.objs.active_move_after(shot, firer);
+    place_weapon_at_firer(g, shot, firer, 0);
     let coll = sid(g, weapcollide_istrat);
     let rem = sid(g, |g, _| {
         g.objs.aldead = 1;
@@ -4816,7 +4824,7 @@ pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.count = 100; // 30+70
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4; // laser + enemyweap
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
@@ -4849,7 +4857,7 @@ pub fn fire_beamball(g: &mut Game, firer: u16) -> Option<u16> {
         al.count = 100;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
@@ -4891,7 +4899,7 @@ fn fire_flat_beam(
         al.count = life;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
@@ -4992,11 +5000,17 @@ pub fn homingflat_istrat(g: &mut Game, idx: u16) {
 /// ROM `fire_Hplasma` (GSTRATS.ASM:2517): bouncyball mesh, AP 10, speed 60,
 /// life 50, homingflat strategy. The caller assigns the target pointer just
 /// after `s_fire_weapon`, exactly as the assembly call sites do.
-pub fn fire_hplasma(g: &mut Game, firer: u16) -> Option<u16> {
+fn fire_hplasma_with_rotation(
+    g: &mut Game,
+    firer: u16,
+    pitch_offset: u8,
+    yaw_offset: u8,
+) -> Option<u16> {
     let shot = make_obj(g, SH_BOUNCYBALL)?;
-    const WEAPON_SCALE: i16 = 2;
-    let mz = 80i16 >> WEAPON_SCALE;
-    place_weapon_at_firer(g, shot, firer, mz);
+    // `s_make_obj` uses `l_add`: the projectile follows its firer and reaches
+    // homingflat's fall-through movement later in this same strategy pass.
+    g.objs.active_move_after(shot, firer);
+    place_weapon_at_firer(g, shot, firer, 0);
     let coll = sid(g, weapcollide_istrat);
     let rem = sid(g, |g, _| {
         g.objs.aldead = 1;
@@ -5009,10 +5023,12 @@ pub fn fire_hplasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.count = 50;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
+        al.rotx = al.rotx.wrapping_add(pitch_offset);
+        al.roty = al.roty.wrapping_add(yaw_offset);
     }
     homingflat_istrat(g, shot);
     let (fx, fz) = {
@@ -5021,6 +5037,10 @@ pub fn fire_hplasma(g: &mut Game, firer: u16) -> Option<u16> {
     };
     g.hooks.make_snd(PosSndFamilyId::EnemyBattry, fx, fz);
     Some(shot)
+}
+
+pub fn fire_hplasma(g: &mut Game, firer: u16) -> Option<u16> {
+    fire_hplasma_with_rotation(g, firer, 0, 0)
 }
 
 /// ROM `elaser_Istrat` (GSTRATS.ASM:1935) — non-relative laser (no mother addgen, no playerZ).
@@ -5072,7 +5092,7 @@ pub fn fire_slow_elaser(g: &mut Game, firer: u16) -> Option<u16> {
         al.vel = 60;
         al.count = 40;
         al.collflags |= ACF_COLLTYPE4 | ACF_COLLTYPE1;
-        al.type_ |= ATLASER;
+        al.type_ = ATMISSILE;
         al.shape = SHAPE_ENEMY_LASER;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -7190,6 +7210,9 @@ fn pillar3_enter_fall(g: &mut Game, idx: u16) {
     }
     // ROM: create bouncyball; copy position; worldz-=10; all strategies explode; kill object.
     if let Some(ball) = make_obj(g, SH_BOUNCYBALL) {
+        // `s_make_obj`/`l_add` seats the impact immediately after the pillar,
+        // so its hp-zero explosion runs later in this same strategy pass.
+        g.objs.active_move_after(ball, idx);
         let (px, py, pz) = {
             let me = &g.objs.aliens[idx as usize];
             (me.worldx, me.worldy, me.worldz.wrapping_sub(10))
@@ -10107,25 +10130,11 @@ fn bomwing_enter_phase2(g: &mut Game, idx: u16) {
 
 /// C `bomwing_fire` (strat_enemy.c:4206).
 fn bomwing_fire(g: &mut Game, idx: u16, player_idx: u16) {
-    let me = g.objs.aliens[idx as usize];
-    let shot = spawn_projectile(
-        g,
-        Some(idx),
-        0,
-        0,
-        0,
-        me.rotx.wrapping_sub(DEG22),
-        me.roty,
-        HPLASMA_SPEED,
-        HPLASMA_LIFE,
-        HPLASMA_AP,
-        ACF_COLLTYPE4,
-    );
+    // GASTRATS.ASM:2547-2550 sets a -22.5-degree pitch offset, then invokes
+    // the dedicated HPLASMA constructor rather than the generic laser lane.
+    let shot = fire_hplasma_with_rotation(g, idx, DEG22.wrapping_neg(), 0);
     if let Some(shot) = shot {
         g.objs.aliens[shot as usize].ptr = strat_obj_index_or_null(player_idx);
-        // ROM `s_fire_weapon x,HPLASMA` → gen_weapon `jsl enemybattrysound_l`.
-        g.hooks
-            .make_snd(PosSndFamilyId::EnemyBattry, me.worldx, me.worldz);
     }
 }
 
@@ -10908,10 +10917,10 @@ fn zacos_phase0(g: &mut Game, idx: u16) {
     // worldy >= player_posy-800 (smaller y = higher). (Audit A #5)
     if g.objs.aliens[idx as usize].worldy >= target_y {
         if g.objs.aliens[idx as usize].rotx == 0 {
-            let me = g.objs.aliens[idx as usize];
-            zacos_fire_relslowlaser(g, idx, me.rotx, me.roty);
-            let s = sid(g, zacos_phase1);
-            g.objs.aliens[idx as usize].stratptr = Some(s);
+            // The zero-pitch branch enters `zacos2_init`; that label fires
+            // and falls through into `zacos2_strat` on this same frame.
+            zacos2_init(g, idx);
+            return;
         } else {
             let al = &mut g.objs.aliens[idx as usize];
             al.rotx = al.rotx.wrapping_sub(2);
@@ -10929,6 +10938,12 @@ fn zacos_phase1(g: &mut Game, idx: u16) {
             let al = &mut g.objs.aliens[idx as usize];
             al.rotx = al.rotx.wrapping_sub(4);
             al.stratptr = Some(s);
+
+            // GASTRATS.ASM branches into `zacos3_init`, whose initial pitch
+            // step falls straight through into `zacos3_strat` for a second
+            // step and the phase-2 movement on this same frame.
+            zacos_phase2(g, idx);
+            return;
         }
     }
     zacos_move(g, idx);
@@ -10964,6 +10979,10 @@ fn zacos_phase2(g: &mut Game, idx: u16) {
         // s_jmp_alvarEQ B,x,al_rotx,#-4,zacos4_init
         let s = sid(g, zacos_phase3);
         g.objs.aliens[idx as usize].stratptr = Some(s);
+        // `zacos4_init` immediately falls through into `zacos4_strat`, so
+        // acceleration, banking, and movement all begin on this frame.
+        zacos_phase3(g, idx);
+        return;
     }
     zacos_move(g, idx);
 }
@@ -12338,8 +12357,10 @@ fn zaco34_target(g: &Game, idx: u16) -> Option<u16> {
 
 /// C `Strat_Zaco3_Init` (strat_enemy.c:5133).
 pub fn strat_zaco3_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte3 = 3;
     let Some(target) = strat_find_near_shape(g, idx, SH_HOUDAI_0, None, 10000, 10000) else {
-        g.objs.aliens[idx as usize].stratptr = None;
+        // `z34exit` returns without replacing the installed initializer. This
+        // is a deliberate retry: the target may be authored later in the map.
         return;
     };
     let s = sid(g, zaco3_attack);
@@ -12355,7 +12376,6 @@ pub fn strat_zaco3_init(g: &mut Game, idx: u16) {
     al.rotz = DEG90;
     al.sbyte1 = 2;
     al.sbyte2 = 140;
-    al.sbyte3 = 3;
     al.collflags |= COLLTYPE_ENEMY1;
     al.snd2 = 1;
 }
@@ -12487,9 +12507,10 @@ fn zaco3die_init(g: &mut Game, idx: u16) {
         al.collstratptr = None;
         al.expstratptr = Some(s);
     }
-    // (F6) ASM zaco3die_istrat -> makeMEDexpobj_srou is empty (s_rtl); no
-    // trigse anywhere in the zaco3die chain. The former play_se(0x10) chime
-    // here was a leftover placeholder. Deleted.
+    // KSTRATS.ASM falls through after the medium flash into zaco3DIE_strat,
+    // so both the effect and the first dive update happen on the death frame.
+    let _ = make_medium_exp_obj(g, idx);
+    zaco3die_strat(g, idx);
 }
 
 /// C `zaco3die_strat` (strat_enemy.c:5271 / KSTRATS.ASM:166-177).
@@ -12560,13 +12581,17 @@ fn zaco3go_strat(g: &mut Game, idx: u16) {
 
 /// C `Strat_Zaco4_Init` (strat_enemy.c:5324).
 pub fn strat_zaco4_init(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sbyte3 = 4;
     let Some(target) = strat_find_near_shape(g, idx, SH_PILLAR3, None, 10000, 10000) else {
-        g.objs.aliens[idx as usize].stratptr = None;
+        // Keep the initializer installed, matching `z34exit`. Corneria's
+        // first kamikaze relies on retrying after its pillars arrive.
         return;
     };
     let s = sid(g, zaco4_attack);
     let s_coll = sid(g, strat_hit_flash);
-    let s_exp = sid(g, strat_explode);
+    // zaco4 shares the source `zaco34_Istrat` tail with zaco3, including its
+    // authored dive death rather than the generic explosion strategy.
+    let s_exp = sid(g, zaco3die_init);
     let al = &mut g.objs.aliens[idx as usize];
     al.ptr = strat_obj_index_or_null(target);
     al.stratptr = Some(s);
@@ -12577,7 +12602,6 @@ pub fn strat_zaco4_init(g: &mut Game, idx: u16) {
     al.rotz = DEG90;
     al.sbyte1 = 2;
     al.sbyte2 = 140;
-    al.sbyte3 = 4;
     al.collflags |= COLLTYPE_ENEMY1;
     al.snd2 = 1;
 }
@@ -16466,6 +16490,10 @@ pub(crate) fn copy_pos(g: &mut Game, dst: u16, src: u16) {
 /// C `make_exp_obj` (strat_enemy.c:6866, makeexpobj_srou).
 pub(crate) fn make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_obj(g, 0)?;
+    // `s_make_obj` links the new object immediately after the current source
+    // object. Explosion helpers make `parent` current before calling the
+    // source subroutine, so preserve that observable same-pass ordering.
+    g.objs.active_move_after(child, parent);
     let s_tick = sid(g, delayexplode_strat);
     let s_exp = sid(g, strat_explode);
     {

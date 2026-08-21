@@ -4,6 +4,42 @@
 //! PATHS.ASM `s_mode_table`) and the `PSFLAG*` bits in `al_sflags2` that
 //! control per-frame path behavior.
 
+/// Source `WEAPON_*` byte stored by `P_WEAPON` and consumed by `P_FIRE`.
+///
+/// Values are byte offsets into `weapons_data` (`WEAPONS.INC`), not native
+/// strategy handles. Keeping this as a semantic enum prevents the flat port
+/// from treating every authored weapon as the same generic projectile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PathWeapon {
+    Current = 0,
+    ReboundPlayerLaser = 2,
+    FriendLaser = 6,
+    SlowEnemyLaser = 8,
+    RelativeSlowEnemyLaser = 12,
+    HomingPlasma = 38,
+    RingLaser = 48,
+    RelativeOvalBeam = 50,
+    RelativeBeamBall = 56,
+}
+
+impl PathWeapon {
+    pub const fn from_source_byte(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::Current),
+            2 => Some(Self::ReboundPlayerLaser),
+            6 => Some(Self::FriendLaser),
+            8 => Some(Self::SlowEnemyLaser),
+            12 => Some(Self::RelativeSlowEnemyLaser),
+            38 => Some(Self::HomingPlasma),
+            48 => Some(Self::RingLaser),
+            50 => Some(Self::RelativeOvalBeam),
+            56 => Some(Self::RelativeBeamBall),
+            _ => None,
+        }
+    }
+}
+
 pub const P_RELTOPLAYERON: u8 = 0;
 pub const P_RELTOPLAYEROFF: u8 = 1;
 pub const P_WAIT: u8 = 2;
