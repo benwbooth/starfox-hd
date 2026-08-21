@@ -683,7 +683,11 @@ pub fn null_strat(_g: &mut Game, _idx: u16) {}
 
 // Stable extended-bank ids generated from the retail ShapeHdr records.
 const SH_FIRE: u16 = 357;
-const SH_SMOKE: u16 = 358;
+// Retail's runtime `#smoke` shape word is $ADD5 (read off live smoke puffs,
+// semantic_trace RETAIL_DIRECT_SHAPE_SMOKE), which the certified direct map
+// resolves to flat id 357 — the same flat id as `fire` ($95A8). Retail
+// distinguishes the two effects by strategy/colanim, not by mesh word.
+const SH_SMOKE: u16 = 357;
 
 /// Source-authored `s_make_smoke` / `s_damagesmoke` cadence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -731,6 +735,9 @@ pub fn makefire_srou(g: &mut Game, parent: u16) -> Option<u16> {
     let period = g.vars.sv_u8(sv::SMVAR_BYTE1);
     let (fire_i, _, _, _) = fire_smoke_strat_ids(g);
     let fire = strat_make_obj(g, SH_FIRE)?;
+    // `s_make_obj` links the newborn immediately after the current source
+    // object (same-pass first tick), as in make_exp_obj.
+    g.objs.active_move_after(fire, parent);
     {
         let al = &mut g.objs.aliens[fire as usize];
         al.sbyte1 = period;
@@ -762,6 +769,9 @@ pub fn makefire_srou(g: &mut Game, parent: u16) -> Option<u16> {
 pub fn makesmoke_srou(g: &mut Game, parent: u16) -> Option<u16> {
     let (_, _, smoke_i, _) = fire_smoke_strat_ids(g);
     let smoke = strat_make_obj(g, SH_SMOKE)?;
+    // `s_make_obj` links the newborn immediately after the current source
+    // object, so the puff runs its first drift tick on the creation pass.
+    g.objs.active_move_after(smoke, parent);
     {
         let al = &mut g.objs.aliens[smoke as usize];
         al.sflags3 &= !ASF3_REALOBJ;
@@ -1059,6 +1069,11 @@ pub fn smoke_p_istrat(g: &mut Game, idx: u16) {
     al.sbyte1 = 20;
     al.sword1 = 6;
     init_colanim(al, 0);
+    // ASM falls through from the initializer label straight into smokeP_strat,
+    // so the creation pass already applies the first drift tick
+    // (worldx-1, worldy-sword1) — retail tick-1733 puffs sit at the drifted
+    // position in their birth-frame snapshot.
+    smoke_p_strat(g, idx);
 }
 
 /// ROM `smokeP_strat` (GSTRATS.ASM:1304) — drift up/left, expire on anim wrap or lift.

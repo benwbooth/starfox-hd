@@ -7275,13 +7275,22 @@ pub(crate) fn pillar3explode_strat(g: &mut Game, idx: u16) {
     // s_set_lifecnt x,#7; s_jmp delayremove_Istrat (decbne — fires at count, not
     // count+1; the old pillar3explode_wait used count_down and lingered a frame).
     let s = sid(g, delayremove_strat);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.sflags |= ASF_COLLDISABLE;
-    al.collflags = 0;
-    al.stratptr = Some(s);
-    al.collstratptr = None;
-    al.expstratptr = None;
-    al.count = 7;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.sflags |= ASF_COLLDISABLE;
+        al.collflags = 0;
+        al.stratptr = Some(s);
+        al.collstratptr = None;
+        al.expstratptr = None;
+        al.count = 7;
+        // ASM delayremove_Istrat opens with `s_clr_alsflag x,relexplode`.
+        al.sflags2 &= !ASF2_RELEXPLODE;
+    }
+    // ASM `s_jmp delayremove_Istrat` is a tail-jump: the initializer falls
+    // through into delayremove_strat, so the explosion frame itself applies
+    // the first countdown decrement (retail shows lifecnt 6 at the end of
+    // the explosion tick and the pillar dying exactly seven frames later).
+    delayremove_strat(g, idx);
 }
 
 /// C `Strat_Pillar3_Init` (strat_enemy.c:530).
@@ -12537,6 +12546,11 @@ fn zaco3die_strat(g: &mut Game, idx: u16) {
         gen_vecs_3d(al);
         al.rotz = al.rotz.wrapping_add(4);
     }
+    // ASM KSTRATS.ASM:175 `s_add_playerZ x` runs inline BEFORE the brl into
+    // zaco3cont, which applies add_playerZ a second time. The die frame
+    // therefore scrolls the corpse twice (retail tick-1733 corpse moved
+    // pviewvelz*2 + vz while a single application lagged one scroll frame).
+    add_player_z(g, idx);
     // zaco3cont: s_add_playerZ + s_add_vecs2pos (once each).
     add_player_z(g, idx);
     apply_velocity(&mut g.objs.aliens[idx as usize]);
@@ -16563,7 +16577,13 @@ pub fn delayexplode_strat(g: &mut Game, idx: u16) {
         count_down(al)
     };
     if expired {
-        g.objs.aldead = 1;
+        // ASM `s_kill_obj x` (STRATMAC.INC:2643) is colldisable + HP:=0 — a
+        // death SIGNAL, not a removal. `s_jmpto_expstrat` then runs the
+        // explosion inline within this same do_strat invocation, and for
+        // objects without nopolyexp the explosion morphs the corpse into its
+        // polygon mesh (which must survive as a live object). Setting the
+        // removal flag here freed the freshly morphed corpse one tick early.
+        crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
         if let Some(exp) = g.objs.aliens[idx as usize].expstratptr {
             g.call_strat(exp, idx);
         }
