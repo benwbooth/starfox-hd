@@ -113,14 +113,27 @@ retail game's named straight-motion strategy and the flat native Rust strategy
 for 30 frames, then compares position, velocity, and view motion through this
 shared format. The same test target now boots the complete retail cartridge and
 the native shell under one physical controller trace through the first gameplay
-handoff. All 17 retained boundaries match exactly. Attract begins at sampled
-tick 43; title, controller layout, destination selection, planet-map setup,
-interactive route selection, ship flash, map fade, planet isolation, recenter,
-Pepper preparation, planet zoom, heading reveal, briefing, dismissal, exit fade,
-and gameplay then occur at relative ticks 86, 248, 318, 393, 416, 459, 487,
-498, 500, 511, 515, 582, 611, 798, 805, and 816. The same test locks retail
+handoff. All 18 retained phase records match exactly: Boot plus 17 transitions.
+Attract begins at sampled tick 43; title, controller layout, destination
+selection, planet-map setup, interactive route selection, ship flash, map fade,
+planet isolation, recenter, Pepper preparation, planet zoom, heading reveal,
+briefing, dismissal, exit fade, and gameplay then occur at relative ticks 86,
+248, 318, 393, 416, 459, 487, 498, 500, 511, 515, 582, 611, 798, 805, and 816.
+The same test locks retail
 briefing-cursor values 0, 1, 2, 64, and 103 at global ticks 654, 656, 657, 761,
 and 839.
+
+The coexecution continues through global tick 1079, after the shared Corneria
+launch submap returns. From the first initialized gameplay frame onward it
+compares the background, game frame, player depth delta, active object slots,
+flat shape identities, and every object position. This exposed and fixed the
+opening camera's pre-chase carry branch, source active-list ordering, the
+player-opening boost fallthrough, and the boost-flame initializer/child
+scheduling. The retail release exposes a zero map countdown in the post-submap
+fade wrapper while the typed VM retains WORLD.ASM's internal wait sentinel of
+one; the semantic adapter normalizes only that storage cursor after the return.
+The post-fade route needs a separate boundary-aware trace because retail stops
+visiting the watched gameplay entry during that transition.
 
 The shipping correction uses ordinary typed counters, semantic phases, and a
 semantic fade-rate enum. It preserves the source's 40 zoom steps while
@@ -145,8 +158,9 @@ at 361, GAME at 380, the controller fade ends at 436, route selection becomes
 interactive at 459, and the held confirmation is consumed at 502. The native
 port retains a fixed 20 Hz simulation and represents the measured boundaries
 with typed presentation state rather than recreating processor workload. The
-remaining work must extend this adapter through gameplay, endings, video/audio
-hashes, and source-edge coverage before any whole-game parity claim.
+remaining work must extend the adapter from the post-launch fade through the
+rest of gameplay, endings, video/audio hashes, and source-edge coverage before
+any whole-game parity claim.
 
 ## Coverage closure
 

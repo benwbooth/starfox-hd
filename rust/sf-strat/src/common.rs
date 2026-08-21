@@ -940,16 +940,22 @@ pub fn updateengine_srou(g: &mut Game, parent: u16) -> bool {
 /// ROM `boost_Istrat` (GSTRATS.ASM:715) — short-lived boost flame sprite.
 pub fn boost_istrat(g: &mut Game, idx: u16) {
     let tick = g.world.register_strategy(boost_strat);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.count = 10; // s_set_lifecnt #10
-    al.sflags |= ASF_COLLDISABLE;
-    al.sflags &= !ASF_INVISIBLE;
-    al.type_ &= !ATZREMOVE; // s_setnoremove_behind
-    al.stratptr = Some(tick);
-    al.visual_kind = ObjectVisualKind::ScaledSprite;
-    al.depthoffset = 0;
-    // s_sprite_obj x,#0,svar_byte1 — sbyte1 is optional size from boost_sprite.
-    al.tx = al.sbyte1;
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.count = 10; // s_set_lifecnt #10
+        al.sflags |= ASF_COLLDISABLE;
+        al.sflags &= !ASF_INVISIBLE;
+        al.type_ &= !ATZREMOVE; // s_setnoremove_behind
+        al.stratptr = Some(tick);
+        al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.depthoffset = 0;
+        // s_sprite_obj x,#0,svar_byte1 — sbyte1 is optional size from boost_sprite.
+        al.tx = al.sbyte1;
+    }
+    // `boost_Istrat` is immediately followed by `boost_strat` in GSTRATS.ASM;
+    // initialize the attachment position and consume the first lifetime tick
+    // on the creation frame.
+    boost_strat(g, idx);
 }
 
 /// ROM `boost_strat` (GSTRATS.ASM:723): park on `boostobj` + (0,0,boostZoff)
@@ -984,16 +990,24 @@ pub fn boost_strat(g: &mut Game, idx: u16) {
 
 /// ROM `boost_sprite` macro (STRATMAC.INC:7725) — spawn `#boostshape` with
 /// `boost_Istrat`. Optional `size` → `al_sbyte1`, then the typed sprite scale.
+/// The source assigns the initializer and links the new object immediately
+/// after the current host; the host finishes its strategy before the child is
+/// dispatched later in the same active-list pass.
 pub fn boost_sprite(g: &mut Game, size: Option<u8>) -> Option<u16> {
     let flame = strat_make_obj(g, SH_BOOSTSHAPE)?;
+    let init = g.world.register_strategy(boost_istrat);
     {
         let al = &mut g.objs.aliens[flame as usize];
+        al.stratptr = Some(init);
         al.sflags |= ASF_INVISIBLE; // cleared in boost_Istrat
         if let Some(s) = size {
             al.sbyte1 = s;
         }
     }
-    boost_istrat(g, flame);
+    let host = g.vars.sv_i16(sv::BOOSTOBJ);
+    if host >= 0 && (host as usize) < NUMBER_AL && g.objs.aliens[host as usize].active {
+        g.objs.active_move_after(flame, host as u16);
+    }
     Some(flame)
 }
 

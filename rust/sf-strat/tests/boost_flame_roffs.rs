@@ -21,22 +21,25 @@ fn count_active(g: &Game) -> usize {
 }
 
 #[test]
-fn boost_istrat_arms_lifecnt_and_clears_invisible() {
+fn boost_istrat_falls_through_to_first_attached_tick() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
+    g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
+    set_boost_zoff(&mut g, -30);
     g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
     g.objs.aliens[idx as usize].sbyte1 = BOOST_SPRITE_SIZE;
     boost_istrat(&mut g, idx);
     let al = &g.objs.aliens[idx as usize];
-    assert_eq!(al.count, 10);
+    assert_eq!(al.count, 9);
     assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
     assert_eq!(al.sflags & ASF_INVISIBLE, 0);
     assert!(al.stratptr.is_some());
     assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
     assert_eq!(al.depthoffset, 0);
     assert_eq!(
-        al.tx, BOOST_SPRITE_SIZE,
-        "source size operand is copied into al_tx"
+        al.tx,
+        BOOST_SPRITE_SIZE - 1,
+        "source size operand is copied into al_tx before the first tick"
     );
 }
 
@@ -53,7 +56,7 @@ fn boost_strat_parks_with_pitch_yaw_zoff() {
     set_boost_zoff(&mut g, -30);
 
     let flame = boost_sprite(&mut g, None).expect("flame");
-    boost_strat(&mut g, flame);
+    g.run_strategies();
 
     let (rx, ry, rz) = strat_roffs_pitch_yaw(0, 0, 0, 0, -30);
     let al = &g.objs.aliens[flame as usize];
@@ -82,8 +85,7 @@ fn boost_strat_expires_after_ten_ticks() {
     set_boost_zoff(&mut g, -30);
     let flame = boost_sprite(&mut g, Some(BOOST_SPRITE_SIZE)).expect("flame");
     assert_eq!(g.objs.aliens[flame as usize].sbyte1, BOOST_SPRITE_SIZE);
-    assert_eq!(g.objs.aliens[flame as usize].tx, BOOST_SPRITE_SIZE);
-    boost_strat(&mut g, flame);
+    g.run_strategies();
     assert_eq!(g.objs.aliens[flame as usize].tx, 9);
     for _ in 1..10 {
         g.objs.aldead = 0;
@@ -123,9 +125,10 @@ fn shipoutoflb3_boost_sets_zoff_neg80() {
         .find(|&i| g.objs.aliens[i].active && i != idx as usize && i != view as usize)
         .expect("flame");
     assert_eq!(g.objs.aliens[flame].sbyte1, BOOST_SPRITE_SIZE);
+    boost_istrat(&mut g, flame as u16);
     assert_eq!(
         g.objs.aliens[flame].visual_kind,
         ObjectVisualKind::ScaledSprite
     );
-    assert_eq!(g.objs.aliens[flame].tx, BOOST_SPRITE_SIZE);
+    assert_eq!(g.objs.aliens[flame].tx, BOOST_SPRITE_SIZE - 1);
 }

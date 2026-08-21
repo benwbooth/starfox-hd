@@ -93,11 +93,10 @@ impl Objects {
     ///
     /// The ROM `l_add` primitive inserts after the caller's current object.
     /// Most compatibility allocations intentionally use the simpler active-
-    /// head model, but the player MAPP order is observable: `playercoll_Istrat`
-    /// must run before its body/wing proxies so routed collide flags dispatch
-    /// in the same strategy pass. `Game::pcbox_attach` uses this helper to
-    /// reproduce the literal player -> body -> left -> right MAPP order.
-    pub(crate) fn active_move_after(&mut self, idx: u16, after: u16) {
+    /// head model, but some source ordering is observable: player collision
+    /// proxies and newly attached effect children must execute after their
+    /// host in the same strategy pass.
+    pub fn active_move_after(&mut self, idx: u16, after: u16) {
         if idx == after || !self.aliens[idx as usize].active || !self.aliens[after as usize].active
         {
             return;

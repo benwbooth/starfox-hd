@@ -6986,8 +6986,13 @@ fn viewopening_strat(g: &mut Game, idx: u16) {
         w3 = w3.wrapping_sub(300);
         let al = &mut g.objs.aliens[i];
         al.worldy = strat_chase_proportional(al.worldy, w2, 4);
+        // The optional branch on `s_achase_alvar` observes the carry returned
+        // by `Achase_var2A`. Carry is set only when X was already at the
+        // target before this frame's chase; reaching the target during this
+        // call still executes the depth chase once before zooming next frame.
+        let x_was_at_target = al.worldx == w1;
         al.worldx = strat_chase_proportional(al.worldx, w1, 3);
-        if al.worldx == w1 {
+        if x_was_at_target {
             // .zoom: s_add_alvar W,x,al_worldz,#10
             al.worldz = al.worldz.wrapping_add(10);
         } else {
@@ -7039,6 +7044,10 @@ fn playeropeningboost_init(g: &mut Game, idx: u16) {
     g.hooks.play_se(0x32);
     // s_and_var B,pshipflags3,#~psf3_enginesnd
     g.vars.pshipflags3 &= !PSF3_ENGINESND;
+
+    // The initializer label is immediately followed by the boost strategy in
+    // PISTRATS.ASM, so the ship accelerates on the transition frame.
+    playeropeningboost_strat(g, idx);
 }
 
 /// C `playerpening_strat` (PISTRATS.ASM:74-97; original ASM typo kept).
@@ -7119,6 +7128,11 @@ pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
 
     // s_make_obj #nullshape / s_set_strat y,viewopening_Istrat / s_copy_pos y,x
     if let Some(cam) = strat_make_obj(g, 0) {
+        // `s_make_obj` links the new object after the current player. Keep the
+        // camera behind the player (and the collision proxies attached below)
+        // so its GF_STRATDONE2 write becomes visible on the following player
+        // tick, matching the source active-list pass.
+        g.objs.active_move_after(cam, idx);
         let src = g.objs.aliens[idx as usize];
         {
             let c = &mut g.objs.aliens[cam as usize];

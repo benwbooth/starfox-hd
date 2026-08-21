@@ -40,6 +40,15 @@
 //!     decrementing the new timer immediately (`GISTRATS.ASM:648-668`). The
 //!     frozen C port returned after changing state. Retail/native semantic
 //!     coexecution certifies the corrected camera positions.
+//!   * `viewopening_strat` takes its zoom branch only when the X chase began
+//!     at its target. The source `s_achase_alvar` carry is decided before the
+//!     chase, while the frozen C/Rust trace switched on the frame X first
+//!     reached the target (`STRATMAC.INC:525-549`, `GISTRATS.ASM:665-671`).
+//!   * `boost_Istrat` falls through into `boost_strat`, so a new flame is
+//!     attached and consumes its first lifetime tick on its creation frame
+//!     (`GSTRATS.ASM:715-731`). The frozen C/Rust trace deferred that work.
+//!     The new flame and opening camera also retain source `s_make_obj` list
+//!     order after their host, preserving same-pass flag and attachment timing.
 //!   * `init_strats_l` advances the four-byte runtime random stream once per
 //!     logic frame before object strategies run (`GSTRATS.ASM:633`). The
 //!     frozen C harness omitted this shared game-loop draw.
