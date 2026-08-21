@@ -3,19 +3,19 @@
 
 use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase};
 use sf_difftest::{first_divergence, SemanticFrame};
-use sf_game::shell::{GameState, Shell};
+use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     RetailMachine, RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET,
-    RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY,
-    RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT,
-    RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY,
-    RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE,
-    RETAIL_PLANET_ZOOM_ENTRY, RETAIL_PSHIPFLAGS, RETAIL_WHICH_ROUTE,
+    RETAIL_DOSTRATS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
+    RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
+    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
+    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
+    RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_PSHIPFLAGS, RETAIL_WHICH_ROUTE,
 };
 use std::path::Path;
 use std::process::ExitCode;
 
-const DEFAULT_TICKS: u32 = 880;
+const DEFAULT_TICKS: u32 = 920;
 const VIDEO_FRAMES_PER_TICK: u32 = 3;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
@@ -36,7 +36,7 @@ const PLANET_DISMISS_START_TICK: u32 = 840;
 const PLANET_DISMISS_END_TICK: u32 = 900;
 const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
 
-const RETAIL_PLANET_PHASE_ENTRIES: [u32; 10] = [
+const RETAIL_PHASE_ENTRIES: [u32; 11] = [
     RETAIL_PLANET_MAP_FADE_ENTRY,
     RETAIL_PLANET_ISOLATION_ENTRY,
     RETAIL_PLANET_CENTER_ENTRY,
@@ -47,6 +47,7 @@ const RETAIL_PLANET_PHASE_ENTRIES: [u32; 10] = [
     RETAIL_PLANET_DISMISS_ENTRY,
     RETAIL_PLANET_EXIT_FADE_ENTRY,
     RETAIL_PLANET_GAME_START_ENTRY,
+    RETAIL_DOSTRATS,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +68,8 @@ enum FrontEndPhase {
     Briefing,
     DismissingBriefing,
     FadingOut,
-    Gameplay,
+    LevelInitialization,
+    CorneriaOpening,
 }
 
 impl FrontEndPhase {
@@ -89,7 +91,8 @@ impl FrontEndPhase {
             Self::Briefing => "briefing",
             Self::DismissingBriefing => "dismissing-briefing",
             Self::FadingOut => "fading-out",
-            Self::Gameplay => "gameplay",
+            Self::LevelInitialization => "level-initialization",
+            Self::CorneriaOpening => "corneria-opening",
         }
     }
 }
@@ -130,6 +133,7 @@ fn scripted_input(tick: u32) -> u16 {
 struct RetailPhaseTracker {
     route_selection_seen: bool,
     planet_phase: Option<FrontEndPhase>,
+    gameplay_update_entries: u8,
 }
 
 fn retail_phase(
@@ -138,6 +142,15 @@ fn retail_phase(
     execution_entries: &[u32],
 ) -> Option<FrontEndPhase> {
     for entry in execution_entries {
+        if *entry == RETAIL_DOSTRATS {
+            if tracker.planet_phase == Some(FrontEndPhase::LevelInitialization) {
+                tracker.gameplay_update_entries = tracker.gameplay_update_entries.saturating_add(1);
+                if tracker.gameplay_update_entries >= 2 {
+                    tracker.planet_phase = Some(FrontEndPhase::CorneriaOpening);
+                }
+            }
+            continue;
+        }
         tracker.planet_phase = Some(match *entry {
             RETAIL_PLANET_MAP_FADE_ENTRY => FrontEndPhase::FadingMap,
             RETAIL_PLANET_ISOLATION_ENTRY => FrontEndPhase::IsolatingPlanet,
@@ -148,7 +161,10 @@ fn retail_phase(
             RETAIL_PLANET_MESSAGE_ENTRY => FrontEndPhase::Briefing,
             RETAIL_PLANET_DISMISS_ENTRY => FrontEndPhase::DismissingBriefing,
             RETAIL_PLANET_EXIT_FADE_ENTRY => FrontEndPhase::FadingOut,
-            RETAIL_PLANET_GAME_START_ENTRY => FrontEndPhase::Gameplay,
+            RETAIL_PLANET_GAME_START_ENTRY => {
+                tracker.gameplay_update_entries = 0;
+                FrontEndPhase::LevelInitialization
+            }
             _ => continue,
         });
     }
@@ -217,7 +233,11 @@ fn native_phase(shell: &Shell) -> Option<FrontEndPhase> {
             PlanetSequencePhase::FadingOut => Some(FrontEndPhase::FadingOut),
             PlanetSequencePhase::Traveling | PlanetSequencePhase::AwaitingConfirmation => None,
         },
-        GameState::Playing => Some(FrontEndPhase::Gameplay),
+        GameState::Playing => Some(match shell.frame().gameplay_entry_phase {
+            GameplayEntryPhase::LevelInitialization => FrontEndPhase::LevelInitialization,
+            GameplayEntryPhase::ActiveLevel => FrontEndPhase::CorneriaOpening,
+            GameplayEntryPhase::Inactive => return None,
+        }),
         _ => None,
     }
 }
@@ -277,7 +297,7 @@ fn main() -> ExitCode {
     let rom = std::fs::read(&rom_path)
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", rom_path.display()));
     let mut retail = RetailMachine::new(rom);
-    retail.watch_cpu_execution(&RETAIL_PLANET_PHASE_ENTRIES);
+    retail.watch_cpu_execution(&RETAIL_PHASE_ENTRIES);
     let mut native = configured_shell();
     let mut retail_trace = Vec::new();
     let mut native_trace = Vec::new();

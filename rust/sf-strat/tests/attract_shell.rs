@@ -6,10 +6,11 @@ use sf_core::{
 };
 use sf_game::alien::ASF4_TEXTOBJ;
 use sf_game::shell::{
-    GameState, Shell, SoundCmd, BOOT_TO_ATTRACT_DELAY_TICKS, BRIEFING_CONFIRM_SOUND,
-    BRIEFING_INPUT_DELAY_TICKS, BRIEFING_MOVE_SOUND, INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO,
-    MUSIC_CONTROLLER_SCREEN, MUSIC_FADE_OUT, TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS,
-    TITLE_PRESENTATION_INPUT_READY_TICKS, TRAINING_INPUT_DELAY_TICKS,
+    GameState, GameplayEntryPhase, Shell, SoundCmd, BOOT_TO_ATTRACT_DELAY_TICKS,
+    BRIEFING_CONFIRM_SOUND, BRIEFING_INPUT_DELAY_TICKS, BRIEFING_MOVE_SOUND,
+    INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO, MUSIC_CONTROLLER_SCREEN, MUSIC_FADE_OUT,
+    TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
+    TRAINING_INPUT_DELAY_TICKS,
 };
 use sf_map::catalog::map_id;
 use sf_strat::common::{sv, StratRam};
@@ -37,6 +38,19 @@ fn tick_until_state(shell: &mut Shell, expected: GameState, limit: usize) {
         shell.tick(0);
     }
     assert_eq!(shell.state(), expected);
+}
+
+fn tick_until_active_level(shell: &mut Shell, limit: usize) {
+    for _ in 0..limit {
+        if shell.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel {
+            return;
+        }
+        shell.tick(0);
+    }
+    assert_eq!(
+        shell.frame().gameplay_entry_phase,
+        GameplayEntryPhase::ActiveLevel
+    );
 }
 
 fn finish_boot(shell: &mut Shell) {
@@ -260,6 +274,7 @@ fn training_selection_launches_and_returns_to_game_selected() {
     assert_eq!(shell.frame().briefing_phase, BriefingPhase::Destination);
     shell.tick(pad::START);
     tick_until_state(&mut shell, GameState::Playing, TRANSITION_LIMIT_TICKS);
+    tick_until_active_level(&mut shell, TRANSITION_LIMIT_TICKS);
     assert_eq!(shell.game.world.loaded_map_id, Some(map_id::TRAINING));
 
     shell.tick(0);

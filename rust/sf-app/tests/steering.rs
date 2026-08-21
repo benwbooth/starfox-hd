@@ -5,8 +5,8 @@
 
 use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::shell::{
-    GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
-    TITLE_PRESENTATION_INPUT_READY_TICKS,
+    GameState, GameplayEntryPhase, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS,
+    TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
 };
 use sf_game::vars::PSF_NOCTRL;
 
@@ -81,7 +81,10 @@ fn drive_to_controllable() -> Shell {
     shell.tick(pad::B); // dismiss General Pepper
 
     for _ in 0..900 {
-        if shell.state() == GameState::Playing && shell.game.vars.pshipflags & PSF_NOCTRL == 0 {
+        if shell.state() == GameState::Playing
+            && shell.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
+            && shell.game.vars.pshipflags & PSF_NOCTRL == 0
+        {
             break;
         }
         shell.tick(0);

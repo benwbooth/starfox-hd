@@ -16,8 +16,8 @@
 use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_game::shell::{
-    GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
-    TITLE_PRESENTATION_INPUT_READY_TICKS,
+    GameState, GameplayEntryPhase, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS,
+    TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
 };
 use sf_game::vars::{COLLTYPE_ENEMY1, PSF3_NOCOLLISIONS, PSF_NOCTRL};
 use sf_strat::common::StratRam;
@@ -89,7 +89,10 @@ fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
     sh.tick(pad::B); // dismiss General Pepper
 
     for _ in 0..max {
-        if sh.state() == GameState::Playing && sh.game.vars.pshipflags & PSF_NOCTRL == 0 {
+        if sh.state() == GameState::Playing
+            && sh.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
+            && sh.game.vars.pshipflags & PSF_NOCTRL == 0
+        {
             break;
         }
         sh.tick(0);

@@ -3,16 +3,16 @@
 
 use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase};
 use sf_difftest::{first_divergence, SemanticFrame, SemanticObject};
-use sf_game::shell::{GameState, Shell};
+use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_VX, AL_VY, AL_VZ,
-    RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_PEPPER_CHARACTERS,
-    RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY,
-    RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT,
-    RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY,
-    RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE,
-    RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ,
-    RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
+    RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
+    RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
+    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
+    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
+    RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS,
+    RETAIL_PVIEWVELZ, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -25,7 +25,7 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 880;
+const FRONT_END_TICKS: u32 = 920;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
@@ -45,10 +45,10 @@ const ROUTE_SELECTION_CONFIRM_HOLD_TICKS: u32 = 12;
 const PLANET_DISMISS_START_TICK: u32 = 840;
 const PLANET_DISMISS_END_TICK: u32 = 900;
 const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
-const FRONT_END_TRANSITIONS: usize = 17;
+const FRONT_END_TRANSITIONS: usize = 18;
 const PEPPER_CURSOR_CHECKPOINTS: [(u32, u8); 5] =
     [(654, 0), (656, 1), (657, 2), (761, 64), (839, 103)];
-const RETAIL_PLANET_PHASE_ENTRIES: [u32; 10] = [
+const RETAIL_PHASE_ENTRIES: [u32; 11] = [
     RETAIL_PLANET_MAP_FADE_ENTRY,
     RETAIL_PLANET_ISOLATION_ENTRY,
     RETAIL_PLANET_CENTER_ENTRY,
@@ -59,6 +59,7 @@ const RETAIL_PLANET_PHASE_ENTRIES: [u32; 10] = [
     RETAIL_PLANET_DISMISS_ENTRY,
     RETAIL_PLANET_EXIT_FADE_ENTRY,
     RETAIL_PLANET_GAME_START_ENTRY,
+    RETAIL_DOSTRATS,
 ];
 const RETAIL_PLANET_PHASE_ENTRY_OPCODES: [(u32, u8); 10] = [
     (RETAIL_PLANET_MAP_FADE_ENTRY, 0xA2),
@@ -188,7 +189,8 @@ enum FrontEndPhase {
     Briefing,
     DismissingBriefing,
     FadingOut,
-    Gameplay,
+    LevelInitialization,
+    CorneriaOpening,
 }
 
 impl FrontEndPhase {
@@ -210,7 +212,8 @@ impl FrontEndPhase {
             Self::Briefing => "briefing",
             Self::DismissingBriefing => "dismissing-briefing",
             Self::FadingOut => "fading-out",
-            Self::Gameplay => "gameplay",
+            Self::LevelInitialization => "level-initialization",
+            Self::CorneriaOpening => "corneria-opening",
         }
     }
 }
@@ -219,6 +222,7 @@ impl FrontEndPhase {
 struct RetailPhaseTracker {
     route_selection_seen: bool,
     planet_phase: Option<FrontEndPhase>,
+    gameplay_update_entries: u8,
 }
 
 fn front_end_input(tick: u32) -> u16 {
@@ -259,6 +263,15 @@ fn retail_front_end_phase(
     execution_entries: &[u32],
 ) -> Option<FrontEndPhase> {
     for entry in execution_entries {
+        if *entry == RETAIL_DOSTRATS {
+            if tracker.planet_phase == Some(FrontEndPhase::LevelInitialization) {
+                tracker.gameplay_update_entries = tracker.gameplay_update_entries.saturating_add(1);
+                if tracker.gameplay_update_entries >= 2 {
+                    tracker.planet_phase = Some(FrontEndPhase::CorneriaOpening);
+                }
+            }
+            continue;
+        }
         tracker.planet_phase = Some(match *entry {
             RETAIL_PLANET_MAP_FADE_ENTRY => FrontEndPhase::FadingMap,
             RETAIL_PLANET_ISOLATION_ENTRY => FrontEndPhase::IsolatingPlanet,
@@ -269,7 +282,10 @@ fn retail_front_end_phase(
             RETAIL_PLANET_MESSAGE_ENTRY => FrontEndPhase::Briefing,
             RETAIL_PLANET_DISMISS_ENTRY => FrontEndPhase::DismissingBriefing,
             RETAIL_PLANET_EXIT_FADE_ENTRY => FrontEndPhase::FadingOut,
-            RETAIL_PLANET_GAME_START_ENTRY => FrontEndPhase::Gameplay,
+            RETAIL_PLANET_GAME_START_ENTRY => {
+                tracker.gameplay_update_entries = 0;
+                FrontEndPhase::LevelInitialization
+            }
             _ => continue,
         });
     }
@@ -338,7 +354,11 @@ fn native_front_end_phase(native: &Shell) -> Option<FrontEndPhase> {
             PlanetSequencePhase::FadingOut => Some(FrontEndPhase::FadingOut),
             PlanetSequencePhase::Traveling | PlanetSequencePhase::AwaitingConfirmation => None,
         },
-        GameState::Playing => Some(FrontEndPhase::Gameplay),
+        GameState::Playing => Some(match native.frame().gameplay_entry_phase {
+            GameplayEntryPhase::LevelInitialization => FrontEndPhase::LevelInitialization,
+            GameplayEntryPhase::ActiveLevel => FrontEndPhase::CorneriaOpening,
+            GameplayEntryPhase::Inactive => return None,
+        }),
         _ => None,
     }
 }
@@ -367,7 +387,7 @@ fn record_front_end_transition(
 }
 
 #[test]
-fn retail_front_end_through_gameplay_handoff_matches_native_semantic_timing() {
+fn retail_front_end_through_corneria_initialization_matches_native_semantic_timing() {
     let Some(rom) = load_retail_rom() else {
         eprintln!("retail front-end trace skipped: Star Fox retail ROM not found");
         return;
@@ -381,7 +401,7 @@ fn retail_front_end_through_gameplay_handoff_matches_native_semantic_timing() {
             "retail planet phase entry moved at {entry:#08X}"
         );
     }
-    retail.watch_cpu_execution(&RETAIL_PLANET_PHASE_ENTRIES);
+    retail.watch_cpu_execution(&RETAIL_PHASE_ENTRIES);
 
     let mut native = Shell::new();
     native.set_register_strats(Box::new(sf_strat::table::register_all));
@@ -450,6 +470,6 @@ fn retail_front_end_through_gameplay_handoff_matches_native_semantic_timing() {
     assert_eq!(
         retail_trace.len(),
         FRONT_END_TRANSITIONS,
-        "trace must reach the retail gameplay handoff"
+        "trace must reach the initialized retail Corneria opening"
     );
 }

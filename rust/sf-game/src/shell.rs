@@ -230,6 +230,21 @@ pub enum GameState {
     Tally,
 }
 
+/// Semantic state of the source level-start handoff inside [`GameState::Playing`].
+/// The retail machine spends several display frames completing its first
+/// transfer before the opening level update becomes presentation-ready.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GameplayEntryPhase {
+    #[default]
+    Inactive,
+    LevelInitialization,
+    ActiveLevel,
+}
+
+/// Measured 20 Hz ticks from the retail `gamestart` entry to the first active
+/// opening-level update boundary.
+pub const LEVEL_INITIALIZATION_TICKS: u8 = 32;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TallyPhase {
     Counting,
@@ -932,6 +947,8 @@ pub struct FrameSnapshot {
     pub stayblack: i8,
     pub gameflags: u8,
     pub gameframe: u16,
+    /// Typed level-start handoff; source execution state remains oracle-only.
+    pub gameplay_entry_phase: GameplayEntryPhase,
     /// Typed CONT.ASM controller-screen interaction phase.
     pub briefing_phase: BriefingPhase,
     /// Typed CONT.ASM TRAINING/GAME selection.
@@ -1242,6 +1259,11 @@ pub struct Shell {
     planets: Planets,
     /// Flat typed route-map and General Pepper presentation fields.
     planet_presentation: PlanetPresentation,
+    /// Source-domain level initialization phase and measured presentation
+    /// duration. This delays publication of the active native level without
+    /// retaining any source-machine execution state.
+    gameplay_entry_phase: GameplayEntryPhase,
+    gameplay_initialization_ticks_remaining: u8,
     camera: GameCamera,
     /// C `s_draw_list` (boot.c:46).
     draw_list: Vec<DrawListEntry>,
@@ -1304,6 +1326,8 @@ impl Shell {
             training: TrainingSequence::default(),
             planets: Planets::new(),
             planet_presentation: PlanetPresentation::default(),
+            gameplay_entry_phase: GameplayEntryPhase::Inactive,
+            gameplay_initialization_ticks_remaining: 0,
             camera: GameCamera::new(),
             draw_list: Vec::new(),
             cam_snapshot: CameraSnapshot::default(),
@@ -1435,7 +1459,9 @@ impl Shell {
                 self.planet_sequence_tick();
             }
             GameState::Playing => {
-                if self.planets.newmap == sf_map::catalog::map_id::TRAINING {
+                if self.gameplay_entry_phase == GameplayEntryPhase::LevelInitialization {
+                    self.gameplay_initialization_tick();
+                } else if self.planets.newmap == sf_map::catalog::map_id::TRAINING {
                     self.nmi_game_tick();
                     self.training_progress_tick();
                 } else {
@@ -1617,6 +1643,11 @@ impl Shell {
             stayblack: v.strategy.stay_black,
             gameflags: v.gameflags,
             gameframe: v.gameframe,
+            gameplay_entry_phase: if self.game_state == GameState::Playing {
+                self.gameplay_entry_phase
+            } else {
+                GameplayEntryPhase::Inactive
+            },
             briefing_phase: self.briefing.phase,
             briefing_choice: self.briefing.choice,
             control_type: self.briefing.control_type,
@@ -2421,8 +2452,41 @@ impl Shell {
         self.attract = AttractSequence::default();
     }
 
-    /// C `Game_BeginGameplayFromPlanetSelect()` (src/game/boot.c:52).
+    /// Enter the retail level-start handoff. The source reaches `gamestart`
+    /// before its transfer-bound initialization reaches the active opening
+    /// update, so publish the gameplay state now and activate the flat native
+    /// level only at the measured completion boundary.
     fn begin_gameplay_from_planet_select(&mut self) {
+        self.game_state = GameState::Playing;
+        self.gameplay_entry_phase = GameplayEntryPhase::LevelInitialization;
+        self.gameplay_initialization_ticks_remaining = LEVEL_INITIALIZATION_TICKS;
+        self.draw_list.clear();
+
+        self.state
+            .borrow_mut()
+            .sound
+            .push(SoundCmd::NoSetPort3(false));
+
+        // Retail publishes the incoming background identity at `gamestart`,
+        // before the expensive level initialization completes.
+        if let Some(background) = sf_map::catalog::opening_background(self.planets.newmap) {
+            self.game.vars.currentbg = background;
+            self.game.vars.set_sound_environment_for_bg(background);
+            self.game.vars.set_scene_style_for_bg(background);
+        }
+    }
+
+    fn gameplay_initialization_tick(&mut self) {
+        if self.gameplay_initialization_ticks_remaining > 1 {
+            self.gameplay_initialization_ticks_remaining -= 1;
+            return;
+        }
+
+        self.gameplay_initialization_ticks_remaining = 0;
+        self.complete_gameplay_initialization();
+    }
+
+    fn complete_gameplay_initialization(&mut self) {
         // Per-run player/game flag reset (boot.c:55-69).
         let v = &mut self.game.vars;
         // Seed the unified lives field from the shell-persistent copy. Death
@@ -2434,11 +2498,6 @@ impl Shell {
         v.shared.difficulty_level = self.planets.currentlevel.wrapping_add(1);
         v.shared.current_level = self.planets.currentlevel;
         v.shared.stage = self.planets.stage as u8;
-        // ROM MAIN.ASM:120 / planetseq: clear nosetport3 at gameplay start.
-        self.state
-            .borrow_mut()
-            .sound
-            .push(SoundCmd::NoSetPort3(false));
         // A newly loaded stage starts with fresh transient gameplay flags.
         // Keeping the previous level's bits leaks cutscene-only state such as
         // ClearShip's GF_NOZREMOVE into the next map, disabling behind-camera
@@ -2503,7 +2562,7 @@ impl Shell {
             }
         }
 
-        self.game_state = GameState::Playing; // boot.c:104
+        self.gameplay_entry_phase = GameplayEntryPhase::ActiveLevel;
     }
 
     /// ROM `dopause` (MAIN.ASM:1386-1426) — START edge toggles pause.
@@ -3478,6 +3537,7 @@ mod tests {
         assert_eq!(shell.state(), GameState::Playing);
         assert_eq!(shell.planets.newmap, map_id::TRAINING);
         assert_eq!(shell.planets.lives, 1);
+        finish_gameplay_initialization(shell);
     }
 
     #[test]
@@ -3655,6 +3715,7 @@ mod tests {
         shell.game.vars.pshipflags2 = DOUBLE_LASER;
         shell.game.vars.pshipflags = BROKEN_LEFT_WING | STALE_CONTROL_LOCKS;
         shell.begin_gameplay_from_planet_select();
+        finish_gameplay_initialization(&mut shell);
 
         assert_eq!(shell.game.vars.strategy.special_weapon_count, 1);
         assert_eq!(shell.game.vars.pshipflags2 & DOUBLE_LASER, DOUBLE_LASER);
@@ -3904,6 +3965,7 @@ mod tests {
         let _ = sh.drain_sound();
         sh.tick(pad::START); // continue: dec credits, refill lives, retry
         assert_eq!(sh.state().code(), 4);
+        finish_gameplay_initialization(&mut sh);
         assert_eq!(sh.frame().lives, DEFAULT_LIVES as i32);
         assert_eq!(sh.frame().credits, 1);
         // Begin-gameplay cleared the dead flag (boot.c:55).
@@ -4041,11 +4103,55 @@ mod tests {
         );
         for _ in 0..MAX_PLANET_SEQUENCE_TICKS {
             if shell.state() == GameState::Playing {
+                finish_gameplay_initialization(shell);
                 return;
             }
             shell.tick(0);
         }
         panic!("planet sequence did not hand off to gameplay");
+    }
+
+    fn finish_gameplay_initialization(shell: &mut Shell) {
+        for _ in 0..LEVEL_INITIALIZATION_TICKS {
+            if shell.gameplay_entry_phase == GameplayEntryPhase::ActiveLevel {
+                return;
+            }
+            shell.tick(0);
+        }
+        assert_eq!(
+            shell.gameplay_entry_phase,
+            GameplayEntryPhase::ActiveLevel,
+            "level initialization did not reach its measured completion boundary"
+        );
+    }
+
+    #[test]
+    fn level_initialization_uses_the_measured_retail_handoff() {
+        let mut shell = Shell::new();
+        shell.planets.newmap = map_id::M1_1;
+        shell.begin_gameplay_from_planet_select();
+
+        assert_eq!(
+            shell.frame().gameplay_entry_phase,
+            GameplayEntryPhase::LevelInitialization
+        );
+        assert_ne!(shell.game.world.loaded_map_id, Some(map_id::M1_1));
+
+        for _ in 1..LEVEL_INITIALIZATION_TICKS {
+            shell.tick(0);
+            assert_eq!(
+                shell.frame().gameplay_entry_phase,
+                GameplayEntryPhase::LevelInitialization
+            );
+        }
+        shell.tick(0);
+
+        assert_eq!(
+            shell.frame().gameplay_entry_phase,
+            GameplayEntryPhase::ActiveLevel
+        );
+        assert_eq!(shell.game.world.loaded_map_id, Some(map_id::M1_1));
+        assert_eq!(shell.frame().gameframe, 0);
     }
 
     fn assert_planet_phase_duration(
