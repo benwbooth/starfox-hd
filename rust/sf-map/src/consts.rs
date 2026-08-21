@@ -53,6 +53,10 @@ pub mod op {
     pub const DIRECTOBJ: u8 = 142;
     /// Rust-authored mother spawn carrying a typed [`DirectStrategy`].
     pub const DIRECTMOTHER: u8 = 144;
+    /// Typed replacement for PLANET.ASM `mapnozremove`. The source embeds a
+    /// small native-code block; the Rust map VM carries the gameplay meaning
+    /// directly without shipping source-machine instructions.
+    pub const PRESERVE_BEHIND_VIEW_OBJECTS: u8 = 146;
 }
 
 // ============================================================

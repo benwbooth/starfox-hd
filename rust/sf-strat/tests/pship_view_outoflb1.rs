@@ -3,7 +3,7 @@
 use sf_core::screen_fill_circle::{
     ScreenFillCircleCenter, ScreenFillCirclePhase, ScreenFillCircleScope, BOSS_RADIUS_SPEED,
 };
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::{ASF_COLLDISABLE, ATZREMOVE};
 use sf_game::vars::GF_STRATDONE1;
 use sf_game::Game;
 use sf_strat::common::StratRam;
@@ -41,6 +41,7 @@ fn pshipoutoflb1_init_climb_and_lineup() {
 
     pshipoutoflb1_istrat(&mut g, idx);
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].type_ & ATZREMOVE, 0);
     assert_eq!(g.objs.aliens[idx as usize].vel, MED_PSPEED as u8);
     assert_eq!(g.objs.aliens[idx as usize].rotx, 0u8.wrapping_sub(DEG90));
     assert_eq!(g.vars.sv_i16(sv::VIEWTOOBJ), idx as i16);
@@ -149,10 +150,10 @@ fn viewoutoflb1_tracks_pship_state() {
 }
 
 #[test]
-fn viewoutoflb1_starts_last_stage_circle_at_the_rising_edge() {
+fn viewoutoflb1_starts_last_stage_circle_below_the_source_height() {
     let mut g = Game::new();
     let ship = spawn(&mut g);
-    g.objs.aliens[ship as usize].worldy = LAST_STAGE_TRIGGER_HEIGHT - 1;
+    g.objs.aliens[ship as usize].worldy = LAST_STAGE_TRIGGER_HEIGHT;
     g.vars.set_sv_i16(sv::VIEWTOOBJ, ship as i16);
 
     let base = spawn(&mut g);
@@ -169,7 +170,7 @@ fn viewoutoflb1_starts_last_stage_circle_at_the_rising_edge() {
     assert_eq!(g.objs.aliens[camera as usize].sflags2 & ASF2_SFLAG1, 0);
     assert!(!g.vars.screen_fill_circle.is_active());
 
-    g.objs.aliens[ship as usize].worldy = LAST_STAGE_TRIGGER_HEIGHT;
+    g.objs.aliens[ship as usize].worldy = LAST_STAGE_TRIGGER_HEIGHT - 1;
     let vertical_velocity = g.objs.aliens[camera as usize].vy;
     viewoutoflb1_strat(&mut g, camera);
 

@@ -433,12 +433,21 @@ impl ShapeStore {
         self.shapes[id].as_ref()
     }
 
-    /// Per-axis collision half-extents for a shape's mesh, matching the C
-    /// `load_collision_extents` (bounding-box half-dimensions sh_maxx/maxy/maxz):
-    /// max(|x|), max(|y|), max(|z|) over the shape's vertices, clamped to i16.
-    /// Resolves raw shape words like [`ShapeStore::get`]. Returns `None` when
-    /// the shape is unregistered or has no vertices.
+    /// Per-axis collision half-extents, matching the source `ShapeHdr`
+    /// `sh_xmax`/`sh_ymax`/`sh_zmax` fields for SF1. Mesh-derived bounds are
+    /// retained only for native/runtime shapes outside that catalog. Resolves
+    /// raw shape words like [`ShapeStore::get`].
     pub fn shape_half_extents(&self, shape_id: u16) -> Option<(i16, i16, i16)> {
+        if !self.sf2_shapes.contains_key(&shape_id) {
+            let flat_shape_id = shapes::resolve_shape_word(shape_id);
+            if let Some(metrics) = sf_core::sf1_shape_metrics::sf1_shape_metrics(flat_shape_id) {
+                return Some((
+                    metrics.half_extents[0],
+                    metrics.half_extents[1],
+                    metrics.half_extents[2],
+                ));
+            }
+        }
         let shape = self.get(shape_id)?;
         if shape.vertices.is_empty() {
             return None;
@@ -474,7 +483,7 @@ impl ShapeStore {
     /// collision system (C `load_collision_extents`); shapes absent from the
     /// table keep the coldet 20/20/20 fallback.
     pub fn all_shape_half_extents(&self) -> std::collections::HashMap<u16, (i16, i16, i16)> {
-        let mut table = std::collections::HashMap::new();
+        let mut table = shapes::sf1_shape_half_extents();
         for (id, slot) in self.shapes.iter().enumerate() {
             if slot.is_some() {
                 if let Some(extents) = self.shape_half_extents(id as u16) {
@@ -961,6 +970,7 @@ mod tests {
         face_is_camera_visible, texture_address, texture_material_fields, ShapeStore, TEXTURE_XY,
     };
     use crate::shape_data::{ShapeFace, ShapeVertex};
+    use crate::shapes;
     use sf_core::shape::sf2_shape_id;
 
     fn visibility_test_shape(selector: Option<[u16; 3]>) -> super::GpuShape {
@@ -1087,6 +1097,28 @@ mod tests {
         );
 
         assert!(store.get(sf2_shape_id(577)).is_none());
+    }
+
+    #[test]
+    fn null_shape_uses_its_source_authored_bounds() {
+        let store = ShapeStore::new();
+        assert_eq!(
+            store.shape_half_extents(shapes::SHAPE_NULL),
+            Some(shapes::SHAPE_NULL_HALF_EXTENTS)
+        );
+        assert_eq!(
+            store
+                .all_shape_half_extents()
+                .get(&shapes::SHAPE_NULL)
+                .copied(),
+            Some(shapes::SHAPE_NULL_HALF_EXTENTS)
+        );
+        assert_eq!(
+            shapes::sf1_shape_half_extents()
+                .get(&shapes::SHAPE_NULL)
+                .copied(),
+            Some(shapes::SHAPE_NULL_HALF_EXTENTS)
+        );
     }
 
     #[test]

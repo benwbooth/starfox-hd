@@ -147,6 +147,11 @@ pub const AL_STRATPTR: u32 = 0x16;
 /// `incw gameframe; phb; ldb #$7e; jsl init_strats_l; jsl update_objects_l;
 /// ldx allst; {stz aldead; jsl do_strat_l; ... ldy _next,x; tyx; bne}; plb; rts`.
 pub const RETAIL_DOSTRATS: u32 = 0x02_DAF2;
+/// Retail `dostrats` completion marker — the final `RTS`, after the active
+/// object walk and the restoring `PLB`. Watching this instruction lets the
+/// oracle sample only fully completed logical frames even when one strategy
+/// pass spans several video frames.
+pub const RETAIL_DOSTRATS_COMPLETE: u32 = RETAIL_DOSTRATS + 52;
 /// Retail `init_strats_l` — per-frame reset (coll/player-move init). $06:81D5
 /// (JSL target embedded in `dostrats`; built lives in bank $02, retail in $06).
 pub const RETAIL_INIT_STRATS_L: u32 = 0x06_81D5;
@@ -2356,29 +2361,58 @@ impl RetailMachine {
             .dot
             .saturating_add(frame_dots.saturating_mul(u64::from(frames)));
         while self.bus.dot < target {
-            self.bus.set_cpu_irq_masked(self.cpu.p() & 0x04 != 0);
-            self.cpu.cycle(&mut self.bus);
-            if !self.cpu_execution_watch.is_empty() && self.cpu.tcu() == 0 {
-                let instruction =
-                    (u32::from(self.cpu.pbr()) << 16) | u32::from(self.cpu.pc().wrapping_sub(1));
-                if self.cpu_execution_watch.binary_search(&instruction).is_ok()
-                    && self.cpu_execution_hits.last().copied() != Some(instruction)
-                {
-                    self.cpu_execution_hits.push(instruction);
-                }
-            }
-            self.bus.tick_raster();
-            self.cycles = self.cycles.wrapping_add(1);
-            if self.cpu.stopped() {
-                return Err(format!(
-                    "retail CPU stopped at {:02X}:{:04X} after {} cycles",
-                    self.cpu.pbr(),
-                    self.cpu.pc(),
-                    self.cycles
-                ));
-            }
+            self.tick_cpu_cycle()?;
         }
         Ok(())
+    }
+
+    /// Advance until `address` is fetched or the supplied video-frame budget
+    /// expires. This is intended for oracle synchronization at semantic
+    /// routine boundaries; the shipping port does not depend on it.
+    pub fn tick_until_cpu_execution(
+        &mut self,
+        pad1: u16,
+        address: u32,
+        max_video_frames: u32,
+    ) -> Result<bool, String> {
+        self.bus.set_pad1(pad1);
+        let frame_dots = DOTS_PER_LINE * LINES_PER_FRAME;
+        let target = self
+            .bus
+            .dot
+            .saturating_add(frame_dots.saturating_mul(u64::from(max_video_frames)));
+        while self.bus.dot < target {
+            if self.tick_cpu_cycle()? == Some(address) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn tick_cpu_cycle(&mut self) -> Result<Option<u32>, String> {
+        self.bus.set_cpu_irq_masked(self.cpu.p() & 0x04 != 0);
+        self.cpu.cycle(&mut self.bus);
+        let instruction = (self.cpu.tcu() == 0)
+            .then(|| (u32::from(self.cpu.pbr()) << 16) | u32::from(self.cpu.pc().wrapping_sub(1)));
+        if let Some(instruction) = instruction {
+            if !self.cpu_execution_watch.is_empty()
+                && self.cpu_execution_watch.binary_search(&instruction).is_ok()
+                && self.cpu_execution_hits.last().copied() != Some(instruction)
+            {
+                self.cpu_execution_hits.push(instruction);
+            }
+        }
+        self.bus.tick_raster();
+        self.cycles = self.cycles.wrapping_add(1);
+        if self.cpu.stopped() {
+            return Err(format!(
+                "retail CPU stopped at {:02X}:{:04X} after {} cycles",
+                self.cpu.pbr(),
+                self.cpu.pc(),
+                self.cycles
+            ));
+        }
+        Ok(instruction)
     }
 
     pub fn video_frame(&self) -> u64 {

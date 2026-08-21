@@ -695,6 +695,7 @@ class ShapeHeader:
     faces_label: str        # label for face data
     shift: int              # coordinate shift
     visual_extent: int      # assembled ShapeHdr sh_size
+    half_extents: Tuple[int, int, int]  # assembled sh_xmax/ymax/zmax
     color_table: str        # color table name
 
 
@@ -714,6 +715,7 @@ class ShapeData:
     color_table: str
     visual_extent: int
     coordinate_shift: int
+    half_extents: Tuple[int, int, int]
 
 
 # ---------------------------------------------------------------------------
@@ -1169,6 +1171,17 @@ def parse_shape_headers(af: AsmFile) -> List[ShapeHeader]:
         unshifted_size = size_val if size_val is not None else 0
         visual_extent = (unshifted_size << shift) & 0xFFFF
 
+        # SHMACS.INC assembles each authored axis bound in the same shifted
+        # coordinate domain as the vertices. These are gameplay metadata,
+        # not necessarily the maxima of the visible mesh (nullshape and the
+        # ending Arwing deliberately prove otherwise).
+        extent_values = []
+        for extent_arg in args[9:12]:
+            extent_val = eval_in_file(af, extent_arg)
+            unshifted_extent = extent_val if extent_val is not None else 0
+            extent_values.append((unshifted_extent << shift) & 0xFFFF)
+        half_extents = tuple(extent_values)
+
         # Color table name (args[13]) -- strip angle brackets if present
         # But first strip any trailing <display_name> from the entire args
         color_table = args[13].strip() if len(args) > 13 else "0"
@@ -1180,6 +1193,7 @@ def parse_shape_headers(af: AsmFile) -> List[ShapeHeader]:
                 faces_label=faces_label,
                 shift=shift,
                 visual_extent=visual_extent,
+                half_extents=half_extents,
                 color_table=color_table,
             ))
 
@@ -1347,16 +1361,19 @@ def emit_rust_metrics(sorted_shapes: List[ShapeData]) -> None:
     out.append("pub struct Sf1ShapeMetrics {")
     out.append("    pub visual_extent: u16,")
     out.append("    pub coordinate_shift: u8,")
+    out.append("    pub half_extents: [i16; 3],")
     out.append("}")
     out.append("")
     out.append("pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[")
-    out.append("    (0, Sf1ShapeMetrics { visual_extent: 0, coordinate_shift: 0 }), // nullshape")
+    out.append("    (0, Sf1ShapeMetrics { visual_extent: 188, coordinate_shift: 2, half_extents: [136, 136, 144] }), // nullshape")
     for shape in sorted_shapes:
         out.append(
             "    ("
             f"{shape.shape_id}, Sf1ShapeMetrics {{ visual_extent: "
             f"{shape.visual_extent}, coordinate_shift: "
-            f"{shape.coordinate_shift} }}), // {shape.name}")
+            f"{shape.coordinate_shift}, half_extents: "
+            f"[{shape.half_extents[0]}, {shape.half_extents[1]}, "
+            f"{shape.half_extents[2]}] }}), // {shape.name}")
     out.append("];")
     out.append("")
     out.append("pub fn sf1_shape_metrics(shape_id: u16) -> Option<Sf1ShapeMetrics> {")
@@ -1498,6 +1515,7 @@ def main() -> int:
             color_table=hdr.color_table,
             visual_extent=hdr.visual_extent,
             coordinate_shift=hdr.shift,
+            half_extents=hdr.half_extents,
         )
         processed_geometry.add(geom_key)
 
@@ -1560,6 +1578,7 @@ def main() -> int:
             color_table=hdr.color_table,
             visual_extent=hdr.visual_extent,
             coordinate_shift=hdr.shift,
+            half_extents=hdr.half_extents,
         )
         ext_compiled[hdr.label] = ext_id
 

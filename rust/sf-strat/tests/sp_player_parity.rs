@@ -35,6 +35,11 @@
 //!     explicit scale argument doubles each word (`PISTRATS.ASM:46-97`,
 //!     `GISTRATS.ASM:617-683`). The frozen C port deferred both bodies and
 //!     omitted the table scale.
+//!   * `viewopening_strat` state zero falls through into state one on its
+//!     transition frame, retaining the already-offset scratch targets and
+//!     decrementing the new timer immediately (`GISTRATS.ASM:648-668`). The
+//!     frozen C port returned after changing state. Retail/native semantic
+//!     coexecution certifies the corrected camera positions.
 //!   * `init_strats_l` advances the four-byte runtime random stream once per
 //!     logic frame before object strategies run (`GSTRATS.ASM:633`). The
 //!     frozen C harness omitted this shared game-loop draw.
@@ -377,9 +382,10 @@ fn player_trace_matches_c_oracle() {
     // intentional, documented divergence from the frozen C oracle (the C port's
     // barrel-roll trigger mask, invisible-laser stub, inert bridge-clear
     // duplicate, missing boost-sprite offset, per-stage bomb refill, omitted
-    // engine-sound flag, and obsolete WRAM-shim alias are bugs the Rust build
-    // fixes). Retail PSTRATS.ASM playermove_init preserves the bomb inventory
-    // and enables psf3_enginesnd; playerstart_init_l owns the new-run refill.
+    // engine-sound flag, obsolete WRAM-shim alias, and deferred opening-camera
+    // state transition are bugs the Rust build fixes). Retail PSTRATS.ASM
+    // playermove_init preserves the bomb inventory and enables
+    // psf3_enginesnd; playerstart_init_l owns the new-run refill.
     if let Ok(path) = std::env::var("SF_BLESS_SP_PLAYER") {
         std::fs::write(&path, generate()).unwrap();
         eprintln!("blessed {path}");

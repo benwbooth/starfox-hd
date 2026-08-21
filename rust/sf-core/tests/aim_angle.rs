@@ -2,7 +2,7 @@
 
 use sf_core::aim_angle::{
     sf2_atan16, sf2_pitch_to_target, sf2_xz_angle_distance, sf2_yaw_to_target, xanglexabs,
-    xanglexy, xzdiffs, xzdiffs_abs_manhattan, yanglexy, yanglexy_nega,
+    xanglexy, xanglexy_negated_fine, xzdiffs, xzdiffs_abs_manhattan, yanglexy, yanglexy_nega,
 };
 
 #[test]
@@ -11,6 +11,22 @@ fn xzdiffs_scaled_vs_manhattan() {
     assert_eq!(xzdiffs_abs_manhattan(300, 400), 700);
     assert_eq!(xzdiffs(300, 400), 506); // ROM scaled-Euclid sample
     assert_ne!(xzdiffs(300, 400), xzdiffs_abs_manhattan(300, 400));
+}
+
+#[test]
+fn fixed_view_pitch_negates_before_discarding_fraction() {
+    const VERTICAL_DELTA: i16 = 730;
+    const HORIZONTAL_DELTA_X: i16 = 397;
+    const HORIZONTAL_DELTA_Z: i16 = 467;
+    const RETAIL_SIGNED_PITCH: i8 = -36;
+
+    let pitch = xanglexy_negated_fine(VERTICAL_DELTA, HORIZONTAL_DELTA_X, HORIZONTAL_DELTA_Z);
+    assert_eq!(pitch as i8, RETAIL_SIGNED_PITCH);
+    assert_ne!(
+        pitch,
+        xanglexy(VERTICAL_DELTA, HORIZONTAL_DELTA_X, HORIZONTAL_DELTA_Z).wrapping_neg(),
+        "negating after truncation loses the retail fractional carry"
+    );
 }
 
 #[test]

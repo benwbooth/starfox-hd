@@ -1,7 +1,7 @@
 //! Compose helpers for ROM ANGLEXY_* / XANGLE* / YANGLE* (STRATROU.ASM).
 //!
-//! These wrap the shared `sf_core::aim_angle` f32 atan2→u8 path. Full GSU
-//! arctan16 bit-exactness is still ±1 LSB off-axis (`gsu_arctan.rs`).
+//! These wrap the shared table-quantized integer angle implementation verified
+//! bit-for-bit against the GSU routine by `sf-oracle`.
 
 use sf_core::aim_angle::{xanglexabs, xanglexy, xzdiffs, xzdiffs_abs_manhattan};
 use sf_game::alien::Alien;

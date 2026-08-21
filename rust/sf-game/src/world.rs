@@ -95,6 +95,7 @@ pub mod op {
     pub const SETPATH: u8 = 140;
     pub const DIRECTOBJ: u8 = 142;
     pub const DIRECTMOTHER: u8 = 144;
+    pub const PRESERVE_BEHIND_VIEW_OBJECTS: u8 = 146;
 }
 
 /// C `MAP_JSR_STACK_SIZE` (src/game/world.h).

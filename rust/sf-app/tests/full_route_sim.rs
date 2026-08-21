@@ -35,11 +35,13 @@ const SH_FLINGBOSS_GRABBER: u16 = 384;
 const SH_BOSS8: u16 = 46;
 const SH_BOSS8_BEAM: u16 = 43;
 const SH_TENKI_MARKER: u16 = 71;
+const SH_BOSS_G_BODY: u16 = 120;
 const SH_MADBIKER: u16 = 79;
 const SH_ANDROSS_FACE: u16 = 431;
 const SH_END_BASE_ESCAPE: u16 = 224;
 const SH_END_FORMATION: u16 = 225;
 const TENKI_TEST_PILOT_RECOVERY_DISTANCE: i32 = 2_000;
+const BOSSG_TEST_PILOT_RECOVERY_DISTANCE: i32 = 1_000;
 
 const EASY_ROUTE_REQUIRED_SHAPES: [(u16, &str); 8] = [
     (237, "Asteroid Belt large meteor"),
@@ -392,11 +394,51 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
 }
 
 fn fly_pad(shell: &mut Shell, tick: usize) -> u16 {
+    // Terrain collision normally keeps the player inside Boss G's water
+    // arena. The soak deliberately disables that lane, so recover only a
+    // synthetic pilot that has escaped far enough to tilt the camera past the
+    // live boss. Otherwise the accurate behind-view cull can remove the boss
+    // during its death countdown and the authored bosswait never completes.
+    let pidx = shell.game.vars.internal_playpt as usize;
+    if pidx < shell.game.objs.aliens.len() && shell.game.objs.aliens[pidx].active {
+        let boss_position = shell
+            .game
+            .objs
+            .aliens
+            .iter()
+            .find(|al| al.active && al.shape == SH_BOSS_G_BODY)
+            .map(|boss| (boss.worldx, boss.worldy));
+        if let Some((boss_x, boss_y)) = boss_position {
+            let player_y = shell.game.objs.aliens[pidx].worldy;
+            if (i32::from(boss_y) - i32::from(player_y)).abs() > BOSSG_TEST_PILOT_RECOVERY_DISTANCE
+            {
+                shell.game.objs.aliens[pidx].worldy = boss_y;
+            }
+            let player = shell.game.objs.aliens[pidx];
+            let dx = boss_x.wrapping_sub(player.worldx);
+            let dy = boss_y.wrapping_sub(player.worldy);
+            let horizontal = if dx > 40 {
+                pad::RIGHT
+            } else if dx < -40 {
+                pad::LEFT
+            } else {
+                0
+            };
+            let vertical = if dy > 40 {
+                pad::DOWN
+            } else if dy < -40 {
+                pad::UP
+            } else {
+                0
+            };
+            return pad::Y | horizontal | vertical;
+        }
+    }
+
     // Titania's `tenki_on` weather marker only raises the fog-exit latch when
     // the player passes within 100 units in X/Y during its short Z window.
     // Track the live marker so this unattended route test exercises the real
     // proximity branch instead of depending on the generic sweep's phase.
-    let pidx = shell.game.vars.internal_playpt as usize;
     if pidx < shell.game.objs.aliens.len() && shell.game.objs.aliens[pidx].active {
         let marker_position = shell
             .game

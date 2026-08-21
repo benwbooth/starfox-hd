@@ -82,6 +82,8 @@ pub struct CameraVars {
     pub viewtype: u8,
     pub viewtoobj: i16,
     pub player_turnrot: i16,
+    /// Full-turn 16-bit view angles consumed by the original view matrix.
+    pub view_rotation: [u16; 3],
 }
 
 /// Camera state (C `g_camera_x/y/z`, `g_camera_rx/ry/rz`, game.c:26-27,
@@ -108,18 +110,6 @@ pub struct GameCamera {
     frac_off_valid: bool,
 }
 
-/// Publish an 8-bit SNES angle as the high byte of a viewrot/outv* word.
-#[inline]
-fn angle8_to_viewword(a: u8) -> u16 {
-    (a as u16) << 8
-}
-
-/// Camera snapshot angles are signed high-bytes of viewrot words (`outvx>>8`).
-#[inline]
-fn angle8_as_cam(a: u8) -> i16 {
-    a as i8 as i16
-}
-
 impl GameCamera {
     pub fn new() -> Self {
         Self::default()
@@ -134,6 +124,7 @@ impl GameCamera {
         self.camera_rx = 0;
         self.camera_ry = 0;
         self.camera_rz = 0;
+        self.vars.view_rotation = [0; 3];
         vars.viewdist = OUTVIEWDIST;
     }
 
@@ -166,6 +157,9 @@ impl GameCamera {
         }
         let outvy = strategy.view_yaw;
         let outvz = strategy.view_roll;
+        if vars.shared.no_pitch_rotation != 0 {
+            vars.strategy.view_pitch = 0;
+        }
 
         let authoritative_player =
             if vars.internal_playpt >= 0 && (vars.internal_playpt as usize) < NUMBER_AL {
@@ -295,15 +289,25 @@ impl GameCamera {
             let dx = target.worldx.wrapping_sub(pos_x);
             let dy = target.worldy.wrapping_sub(pos_y);
             let dz = target.worldz.wrapping_sub(pos_z);
-            let pitch8 = sf_core::aim_angle::xanglexy(dy, dx, dz).wrapping_neg();
-            let yaw8 = sf_core::aim_angle::yanglexy(dx, dz);
-            rot_x = angle8_as_cam(pitch8);
-            rot_y = angle8_as_cam(yaw8);
+            let pitch =
+                sf_core::aim_angle::atan16(dy, sf_core::aim_angle::xzdiffs(dx, dz)).wrapping_neg();
+            let yaw = sf_core::aim_angle::atan16(dx, dz);
+            self.vars.view_rotation = [pitch, yaw, outvz as u16];
+            rot_x = (pitch >> 8) as u8 as i8 as i16;
+            rot_y = (yaw >> 8) as u8 as i8 as i16;
             rot_z = outvz >> 8;
             // ROM writes the look-at words back into outvx/outvy so the next
             // frame's pull-back (non-FPOS) uses last look-at pitch.
-            vars.strategy.view_pitch = angle8_to_viewword(pitch8) as i16;
-            vars.strategy.view_yaw = angle8_to_viewword(yaw8) as i16;
+            vars.strategy.view_pitch = pitch as i16;
+            vars.strategy.view_yaw = yaw as i16;
+        } else if self.vars.viewtype & VIEWTYPE_FPOS != 0 {
+            // Fixed-position mode jumps past the normal view-rotation writes
+            // in `getview_l`. Once target tracking is removed, the original
+            // therefore retains the last look-at rotation while the authored
+            // camera position continues to move.
+            rot_x = self.camera_rx;
+            rot_y = self.camera_ry;
+            rot_z = self.camera_rz;
         } else {
             // --- Step 2: normal view rotation (GAME.ASM:42-47) ---
             // viewrotxw = outvx; viewrotyw = outvy - player_turnrot.
@@ -318,9 +322,14 @@ impl GameCamera {
             // is enabled.
             if vars.shared.do_depth_rotation != 0 {
                 rot_z = outvz.wrapping_sub(vars.strategy.player_rotation[2]) >> 8;
+                self.vars.view_rotation[2] =
+                    outvz.wrapping_sub(vars.strategy.player_rotation[2]) as u16;
             } else {
                 rot_z = 0;
+                self.vars.view_rotation[2] = 0;
             }
+            self.vars.view_rotation[0] = outvx as u16;
+            self.vars.view_rotation[1] = outvy.wrapping_sub(self.vars.player_turnrot) as u16;
         }
 
         // --- Step 5: final camera position ---
@@ -333,17 +342,6 @@ impl GameCamera {
         self.camera_rx = rot_x;
         self.camera_ry = rot_y;
         self.camera_rz = rot_z;
-
-        // DEBUG measurement (SF_DEBUG_CAM): compare camera pitch vs ROM.
-        if std::env::var_os("SF_DEBUG_CAM").is_some() {
-            eprintln!(
-                "CAM vt={} toobj={} campos=({},{},{}) | plr pos=({},{},{}) vel={} hp={} sb1={} sf={:x} psf2={:x} gfl={:x}",
-                self.vars.viewtype, self.vars.viewtoobj,
-                pos_x, pos_y, pos_z,
-                player.worldx, player.worldy, player.worldz, player.vel, player.hp,
-                player.sbyte1, player.sflags, vars.pshipflags2, vars.gameflags,
-            );
-        }
 
         // Camera cut detection (game.c:146-153).
         let mut snap = false;
@@ -626,8 +624,11 @@ mod tests {
         let dx: i16 = 0;
         let dy: i16 = 500;
         let dz: i16 = 1000;
-        let expect_pitch = sf_core::aim_angle::xanglexy(dy, dx, dz).wrapping_neg() as i8 as i16;
-        let expect_yaw = sf_core::aim_angle::yanglexy(dx, dz) as i8 as i16;
+        let expect_pitch_word =
+            sf_core::aim_angle::atan16(dy, sf_core::aim_angle::xzdiffs(dx, dz)).wrapping_neg();
+        let expect_yaw_word = sf_core::aim_angle::atan16(dx, dz);
+        let expect_pitch = (expect_pitch_word >> 8) as u8 as i8 as i16;
+        let expect_yaw = (expect_yaw_word >> 8) as u8 as i8 as i16;
         assert_eq!(snap.rx, expect_pitch);
         assert_eq!(snap.ry, expect_yaw);
         assert_eq!(snap.rz, 24, "toobj keeps the raw view roll");
@@ -641,8 +642,8 @@ mod tests {
 
         let outvx = vars.strategy.view_pitch as u16;
         let outvy = vars.strategy.view_yaw as u16;
-        assert_eq!(outvx, (expect_pitch as u8 as u16) << 8);
-        assert_eq!(outvy, (expect_yaw as u8 as u16) << 8);
+        assert_eq!(outvx, expect_pitch_word);
+        assert_eq!(outvy, expect_yaw_word);
     }
 
     #[test]
@@ -666,5 +667,43 @@ mod tests {
         let snap = cam.update(&mut vars, &objs);
         assert_eq!(snap.ry, 64, "Yanglexy(+x,0) = 90°");
         assert_eq!(snap.rx, 0);
+    }
+
+    #[test]
+    fn fixed_position_without_target_retains_last_lookat_rotation() {
+        let mut vars = GameVars::init();
+        let mut objs = Objects::init();
+        let player_idx = objs.alloc().unwrap();
+        objs.aliens[player_idx as usize].sflags4 |= ASF4_PLAYEROBJ;
+
+        let target_idx = objs.alloc().unwrap();
+        objs.aliens[target_idx as usize].worldx = 200;
+        objs.aliens[target_idx as usize].worldy = 100;
+        objs.aliens[target_idx as usize].worldz = 800;
+
+        vars.strategy.view_kind = VIEWTYPE_FPOS | VIEWTYPE_TOOBJ;
+        vars.strategy.view_target_object = target_idx as i16;
+        vars.strategy.fixed_view_position = [0, 0, 0];
+
+        let mut camera = GameCamera::new();
+        camera.init(&mut vars);
+        let aimed = camera.update(&mut vars, &objs);
+        assert_ne!((aimed.rx, aimed.ry), (0, 0));
+
+        vars.strategy.view_kind = VIEWTYPE_FPOS;
+        vars.strategy.fixed_view_position = [40, -20, 60];
+        vars.strategy.view_pitch = 0;
+        vars.strategy.view_yaw = 0;
+        vars.strategy.view_roll = 0;
+        let retained = camera.update(&mut vars, &objs);
+
+        assert_eq!(
+            (retained.rx, retained.ry, retained.rz),
+            (aimed.rx, aimed.ry, aimed.rz)
+        );
+        assert_eq!(
+            (retained.x, retained.y, retained.z),
+            (fp16_from_int(40), fp16_from_int(-20), fp16_from_int(60))
+        );
     }
 }

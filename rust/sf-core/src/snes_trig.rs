@@ -68,6 +68,25 @@ pub fn cos_q15(angle: u8) -> i16 {
     sin_q15(angle.wrapping_add(0x40))
 }
 
+/// One interpolated Q15 sine sample for the original 16-bit angle format.
+/// The high byte selects adjacent `sintab16` entries and the low byte is the
+/// linear interpolation fraction used by the GSU `mgetsin16` macro.
+#[inline]
+pub fn sin_q15_fine(angle: u16) -> i16 {
+    const INTERPOLATION_SHIFT: u32 = 7;
+    let whole = (angle >> 8) as u8;
+    let fraction = (angle & 255) << INTERPOLATION_SHIFT;
+    let first = sin_q15(whole);
+    let second = sin_q15(whole.wrapping_add(1));
+    let delta = second.wrapping_sub(first);
+    first.wrapping_add(gsu_fmult_q15(delta, fraction as i16))
+}
+
+#[inline]
+pub fn cos_q15_fine(angle: u16) -> i16 {
+    sin_q15_fine(angle.wrapping_add(16_384))
+}
+
 /// GSU `FMULT; ROL`: signed `(a*b)>>15`, truncated to 16 bits.
 #[inline]
 pub fn gsu_fmult_q15(a: i16, b: i16) -> i16 {
@@ -84,6 +103,39 @@ pub fn zxy_matrix_q15(rx: u8, ry: u8, rz: u8) -> [[i16; 3]; 3] {
     let cy = cos_q15(ry);
     let sz = sin_q15(rz);
     let cz = cos_q15(rz);
+
+    let t1 = gsu_fmult_q15(cz, sy);
+    let t2 = gsu_fmult_q15(cz, cy);
+    let t3 = gsu_fmult_q15(sz, sy);
+    let t4 = gsu_fmult_q15(sz, cy);
+    [
+        [
+            gsu_fmult_q15(t3, sx).wrapping_add(t2),
+            gsu_fmult_q15(t1, sx).wrapping_sub(t4),
+            gsu_fmult_q15(cx, sy),
+        ],
+        [
+            gsu_fmult_q15(cx, sz),
+            gsu_fmult_q15(cx, cz),
+            sx.wrapping_neg(),
+        ],
+        [
+            gsu_fmult_q15(t4, sx).wrapping_sub(t1),
+            gsu_fmult_q15(t2, sx).wrapping_add(t3),
+            gsu_fmult_q15(cx, cy),
+        ],
+    ]
+}
+
+/// Retail `mcrotmatzxy16`, including the low-byte interpolation of each
+/// authored 16-bit view angle.
+pub fn zxy_matrix_q15_fine(pitch: u16, yaw: u16, roll: u16) -> [[i16; 3]; 3] {
+    let sx = sin_q15_fine(pitch);
+    let cx = cos_q15_fine(pitch);
+    let sy = sin_q15_fine(yaw);
+    let cy = cos_q15_fine(yaw);
+    let sz = sin_q15_fine(roll);
+    let cz = cos_q15_fine(roll);
 
     let t1 = gsu_fmult_q15(cz, sy);
     let t2 = gsu_fmult_q15(cz, cy);

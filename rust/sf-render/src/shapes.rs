@@ -18,11 +18,20 @@
 
 use crate::light_data::{SHADE_SUBTABLES, SHADE_TABLES, SHADE_TABLE_LEN};
 use sf_core::scene::{DepthColors, DepthThresholds, GamePalette};
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
 // Well-known shape ids (src/renderer/shapes.h)
 // ---------------------------------------------------------------------------
 
+/// `nullshape`, used by invisible strategy and camera-controller objects.
+pub const SHAPE_NULL: u16 = 0;
+/// Authored `ShapeHdr` half-extents for `nullshape`.
+///
+/// `USHAPES.ASM:162` supplies `(34, 34, 36)` with coordinate shift 2;
+/// `SHMACS.INC` stores each bound after applying that shift. The shape has no
+/// vertices, so these source bounds cannot be reconstructed from its mesh.
+pub const SHAPE_NULL_HALF_EXTENTS: (i16, i16, i16) = (136, 136, 144);
 /// def_shape myship_4 (the Arwing).
 pub const SHAPE_MYSHIP_4: u16 = 2;
 pub const SHAPE_ARWING: u16 = SHAPE_MYSHIP_4;
@@ -42,6 +51,25 @@ pub const SHAPE_ALIAS_OP_2: u16 = 510;
 /// Player laser bolt (elaser2). Free runtime slot (< MAX_SHAPES=512); the
 /// ROM's elaser2 has no `def_shape` id so we assign one for the builtin.
 pub const SHAPE_ELASER2: u16 = 511;
+
+/// Build the SF1 source-authored half-extents table without constructing the
+/// GPU shape store. The game shell consumes this typed table for collision and
+/// retail view-plane culling; oracle tests use the same generated metadata.
+pub fn sf1_shape_half_extents() -> HashMap<u16, (i16, i16, i16)> {
+    sf_core::sf1_shape_metrics::SF1_SHAPE_METRICS
+        .iter()
+        .map(|&(shape_id, metrics)| {
+            (
+                shape_id,
+                (
+                    metrics.half_extents[0],
+                    metrics.half_extents[1],
+                    metrics.half_extents[2],
+                ),
+            )
+        })
+        .collect()
+}
 
 const SHAPE_INTERNAL_BOSS7_0_FRAME1: u16 = 480;
 const SHAPE_INTERNAL_BOSS7_3_FRAME1: u16 = 488;

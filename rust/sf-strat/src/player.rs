@@ -5777,12 +5777,21 @@ pub fn pshipoutoflb1_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
         al.sflags |= ASF_COLLDISABLE;
+        // This cinematic owns DM_END's completion signal. Its final turn
+        // briefly places the ship origin just behind the near plane before
+        // the countdown publishes that signal, so retain the object for the
+        // complete authored sequence.
+        al.type_ &= !ATZREMOVE;
         al.vel = MED_PSPEED as u8;
         al.rotx = 0u8.wrapping_sub(DEG90);
         al.stratstate = 0;
     }
     g.vars.set_sv_i16(sv::VIEWTOOBJ, idx as i16);
     g.vars.gameflags &= !GF_STRATDONE1;
+
+    // The initializer label falls directly into pshipOutofLB1_strat in the
+    // source, so creation includes the first movement tick.
+    pshipoutoflb1_strat(g, idx);
 }
 
 /// ROM `pshipOutofLB1_strat` (GCSTRATS.ASM:1254).
@@ -5906,6 +5915,10 @@ pub fn viewoutoflb1_istrat(g: &mut Game, idx: u16) {
         .set_sv_u8(sv::VIEWTYPE, VIEWTYPE_FPOS | VIEWTYPE_TOOBJ);
     let gf2 = g.vars.shared.game_flags2;
     g.vars.shared.game_flags2 = gf2 & !GF2_STRATFLAG1;
+
+    // The source initializer falls through to viewOutofLB1_strat and
+    // publishes/moves the camera on its creation frame.
+    viewoutoflb1_strat(g, idx);
 }
 
 /// ROM `viewOutofLB1_strat` (GCSTRATS.ASM:1394) — follow pship; explode mapvar1.
@@ -5955,12 +5968,12 @@ pub fn viewoutoflb1_strat(g: &mut Game, idx: u16) {
             _ => {}
         }
 
-        // Base explosion starts once the viewed ship rises to the authored
-        // height. Its anchor begins at mapvar1 and follows this camera
+        // Base explosion starts once the viewed ship climbs past the authored
+        // negative height. Its anchor begins at mapvar1 and follows this camera
         // object's vertical velocity on every later tick.
         let move_circle_anchor = if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
             true
-        } else if g.objs.aliens[view as usize].worldy < LAST_STAGE_TRIGGER_HEIGHT {
+        } else if g.objs.aliens[view as usize].worldy >= LAST_STAGE_TRIGGER_HEIGHT {
             false
         } else {
             g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG1;
@@ -6929,58 +6942,57 @@ fn viewopening_strat(g: &mut Game, idx: u16) {
     let mut w2: i16 = -30;
     let mut w3 = g.vars.player_posz;
 
-    match g.objs.aliens[i].stratstate {
-        0 => {
-            w1 = w1.wrapping_add(-400);
-            w2 = w2.wrapping_add(-700);
-            w3 = w3.wrapping_add(-700);
-            {
-                let al = &mut g.objs.aliens[i];
-                al.worldx = strat_chase_proportional(al.worldx, w1, 5);
-                al.worldy = strat_chase_proportional(al.worldy, w2, 5);
-                al.worldz = strat_chase_proportional(al.worldz, w3, 5);
-            }
-            // s_decbne_alvar B,x,al_sbyte1
-            let mut advance = true;
-            if g.objs.aliens[i].sbyte1 > 0 {
-                g.objs.aliens[i].sbyte1 -= 1;
-                if g.objs.aliens[i].sbyte1 != 0 {
-                    advance = false;
-                }
-            }
-            if advance {
-                // s_next_state x
-                g.objs.aliens[i].stratstate = 1;
-                // s_set_alvar B,x,al_sbyte1,#80
-                g.objs.aliens[i].sbyte1 = 80;
-                // s_or_var B,gameflags,#gf_stratdone2
-                g.vars.gameflags |= GF_STRATDONE2;
-                // s_or_var B,pshipflags3,#psf3_enginesnd
-                g.vars.pshipflags3 |= PSF3_ENGINESND;
+    let mut run_state_one = g.objs.aliens[i].stratstate != 0;
+    if !run_state_one {
+        w1 = w1.wrapping_add(-400);
+        w2 = w2.wrapping_add(-700);
+        w3 = w3.wrapping_add(-700);
+        {
+            let al = &mut g.objs.aliens[i];
+            al.worldx = strat_chase_proportional(al.worldx, w1, 5);
+            al.worldy = strat_chase_proportional(al.worldy, w2, 5);
+            al.worldz = strat_chase_proportional(al.worldz, w3, 5);
+        }
+        // s_decbne_alvar B,x,al_sbyte1
+        let mut advance = true;
+        if g.objs.aliens[i].sbyte1 > 0 {
+            g.objs.aliens[i].sbyte1 -= 1;
+            if g.objs.aliens[i].sbyte1 != 0 {
+                advance = false;
             }
         }
-        _ => {
-            // State 1 (GISTRATS.ASM:652-668)
-            g.objs.aliens[i].sbyte1 = g.objs.aliens[i].sbyte1.wrapping_sub(1);
-            if g.objs.aliens[i].sbyte1 == 0 {
-                // Signals MAP1_1A's `mapif chkstratdone1,.fin` loop.
-                g.vars.gameflags |= GF_STRATDONE1;
-            }
-            // .ndone: s_AND_var B,gameflags,#~gf_nozremove
-            g.vars.gameflags &= !GF_NOZREMOVE;
-            // s_add_var W,svar_word2,#20 / svar_word3,#-300
-            w2 = w2.wrapping_add(20);
-            w3 = w3.wrapping_sub(300);
-            let al = &mut g.objs.aliens[i];
-            al.worldy = strat_chase_proportional(al.worldy, w2, 4);
-            al.worldx = strat_chase_proportional(al.worldx, w1, 3);
-            if al.worldx == w1 {
-                // .zoom: s_add_alvar W,x,al_worldz,#10
-                al.worldz = al.worldz.wrapping_add(10);
-            } else {
-                // .nfrick: s_achase_alvar W,x,al_worldz,svar_word3,4
-                al.worldz = strat_chase_proportional(al.worldz, w3, 4);
-            }
+        if advance {
+            // The source's state-zero block falls through to the state-one
+            // block after changing state; its three scratch targets retain
+            // the offsets already applied above for this transition frame.
+            g.objs.aliens[i].stratstate = 1;
+            g.objs.aliens[i].sbyte1 = 80;
+            g.vars.gameflags |= GF_STRATDONE2;
+            g.vars.pshipflags3 |= PSF3_ENGINESND;
+            run_state_one = true;
+        }
+    }
+    if run_state_one {
+        // State 1 (GISTRATS.ASM:652-668)
+        g.objs.aliens[i].sbyte1 = g.objs.aliens[i].sbyte1.wrapping_sub(1);
+        if g.objs.aliens[i].sbyte1 == 0 {
+            // Signals MAP1_1A's `mapif chkstratdone1,.fin` loop.
+            g.vars.gameflags |= GF_STRATDONE1;
+        }
+        // .ndone: s_AND_var B,gameflags,#~gf_nozremove
+        g.vars.gameflags &= !GF_NOZREMOVE;
+        // s_add_var W,svar_word2,#20 / svar_word3,#-300
+        w2 = w2.wrapping_add(20);
+        w3 = w3.wrapping_sub(300);
+        let al = &mut g.objs.aliens[i];
+        al.worldy = strat_chase_proportional(al.worldy, w2, 4);
+        al.worldx = strat_chase_proportional(al.worldx, w1, 3);
+        if al.worldx == w1 {
+            // .zoom: s_add_alvar W,x,al_worldz,#10
+            al.worldz = al.worldz.wrapping_add(10);
+        } else {
+            // .nfrick: s_achase_alvar W,x,al_worldz,svar_word3,4
+            al.worldz = strat_chase_proportional(al.worldz, w3, 4);
         }
     }
 

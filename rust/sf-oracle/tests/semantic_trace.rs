@@ -7,13 +7,13 @@ use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_VX, AL_VY, AL_VZ,
     RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
-    RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE, RETAIL_MAPCNT,
-    RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
-    RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
-    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
-    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
-    RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS,
-    RETAIL_PVIEWVELZ, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    RETAIL_DOSTRATS_COMPLETE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE,
+    RETAIL_MAPCNT, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
+    RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
+    RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
+    RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
+    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
+    RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -26,9 +26,11 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 920;
+const FRONT_END_TICKS: u32 = 1_000;
 const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
+const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
+const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
 const RETAIL_TITLE_BACKGROUND: u16 = 249;
@@ -161,7 +163,7 @@ struct LevelSnapshot {
     last_depth_change: i16,
     objects: Vec<LevelObjectSnapshot>,
 }
-const RETAIL_PHASE_ENTRIES: [u32; 11] = [
+const RETAIL_PHASE_ENTRIES: [u32; 12] = [
     RETAIL_PLANET_MAP_FADE_ENTRY,
     RETAIL_PLANET_ISOLATION_ENTRY,
     RETAIL_PLANET_CENTER_ENTRY,
@@ -173,6 +175,7 @@ const RETAIL_PHASE_ENTRIES: [u32; 11] = [
     RETAIL_PLANET_EXIT_FADE_ENTRY,
     RETAIL_PLANET_GAME_START_ENTRY,
     RETAIL_DOSTRATS,
+    RETAIL_DOSTRATS_COMPLETE,
 ];
 const RETAIL_PLANET_PHASE_ENTRY_OPCODES: [(u32, u8); 10] = [
     (RETAIL_PLANET_MAP_FADE_ENTRY, 0xA2),
@@ -638,6 +641,7 @@ fn configured_native_shell() -> Shell {
         sf_strat::player::advance_player_during_level_initialization,
     ));
     native.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
+    native.set_shape_extents(sf_render::shapes::sf1_shape_half_extents());
     native
 }
 
@@ -686,19 +690,49 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     let mut native_origin = None;
     let mut retail_phase_tracker = RetailPhaseTracker::default();
     let mut previous_retail_level_frame = None;
+    let mut retail_level_boundary_aligned = false;
 
     for tick in 0..FRONT_END_TICKS {
         let input = front_end_input(tick);
-        retail
-            .tick_video_frames(input, VIDEO_FRAMES_PER_NATIVE_TICK)
-            .expect("retail front-end trace");
-        let retail_execution_entries = retail.take_cpu_execution_watch_hits();
-        let retail_level_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
         let native_level_active = native.state() == GameState::Playing
             && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
-        let retail_completed_level_update = previous_retail_level_frame
-            .map(|previous| previous != retail_level_frame)
-            .unwrap_or(true);
+        let align_completed_level_frame =
+            native_level_active && tick >= COMPLETED_FRAME_ALIGNMENT_TICK;
+        if align_completed_level_frame {
+            if !retail_level_boundary_aligned {
+                assert!(
+                    retail
+                        .tick_until_cpu_execution(
+                            input,
+                            RETAIL_DOSTRATS,
+                            MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
+                        )
+                        .expect("retail initial level boundary"),
+                    "retail did not reach the initial level boundary at tick {tick}"
+                );
+                retail_level_boundary_aligned = true;
+            }
+            assert!(
+                retail
+                    .tick_until_cpu_execution(
+                        input,
+                        RETAIL_DOSTRATS,
+                        MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
+                    )
+                    .expect("retail complete level boundary"),
+                "retail level frame did not reach its next entry boundary at tick {tick}"
+            );
+        } else {
+            retail
+                .tick_video_frames(input, VIDEO_FRAMES_PER_NATIVE_TICK)
+                .expect("retail front-end trace");
+        }
+        let retail_execution_entries = retail.take_cpu_execution_watch_hits();
+        let retail_level_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
+        let retail_completed_level_update = align_completed_level_frame
+            || previous_retail_level_frame
+                .map(|previous| previous != retail_level_frame)
+                .unwrap_or(true);
         if !native_level_active || retail_completed_level_update {
             native.tick(input);
         }

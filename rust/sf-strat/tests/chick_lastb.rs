@@ -50,13 +50,7 @@ fn chick_aims_and_flies() {
     assert_eq!(g.objs.aliens[idx as usize].vel, 80);
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_SHADOW, 0);
     // dobj2obj3dangle_xy stores nega(Yanglexy) (player at 0,0 from chick 200,500).
-    let dx = (0i32 - 200) as f32;
-    let dz = (0i32 - 500) as f32;
-    let mut a = dx.atan2(dz);
-    if a < 0.0 {
-        a += 2.0 * 3.141_592_65_f32;
-    }
-    let raw = ((a * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8;
+    let raw = sf_core::aim_angle::yanglexy(-200, -500);
     assert_eq!(g.objs.aliens[idx as usize].roty, raw.wrapping_neg());
     // Aimed toward player (not still at default 0/0 unless already aligned).
     assert!(g.objs.aliens[idx as usize].vx != 0 || g.objs.aliens[idx as usize].vz != 0);

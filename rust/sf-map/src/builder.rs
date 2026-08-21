@@ -293,6 +293,12 @@ impl MapBuilder {
         self.mapcodejsl_builtin(cb::PLAYER_CANT_DIE);
     }
 
+    /// PLANET.ASM `mapnozremove`: retain authored objects after they pass the
+    /// camera until a later strategy or stage transition restores culling.
+    pub fn preserve_behind_view_objects(&mut self) {
+        self.emit8(op::PRESERVE_BEHIND_VIEW_OBJECTS);
+    }
+
     pub fn setbg(&mut self, bg_id: i32) {
         self.emit8(op::SETBG);
         self.emit16(bg_id as u16);

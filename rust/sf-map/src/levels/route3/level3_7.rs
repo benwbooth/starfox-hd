@@ -44,6 +44,7 @@ pub(crate) fn build() -> Route3Level {
     // Line 8: map3_7a label
     // Line 10: incmap planet — inline planet scenery objects
     // PLANET.ASM: mapnozremove + scenery objects
+    b.preserve_behind_view_objects();
     b.mapobj(0, 0x0220, -1000, -200, SH_R_BU_4, IS_HARD);
     b.mapobj(0, 0x0220, -500, -200, SH_R_BU_4, IS_HARD);
     b.mapobj(0, 0x0220, -10, -200, SH_R_BU_4, IS_HARD);

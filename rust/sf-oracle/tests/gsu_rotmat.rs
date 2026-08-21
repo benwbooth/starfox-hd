@@ -5,6 +5,7 @@
 //! ABI (from crotmat16_l $03AE9C): angles -> GSU RAM $20/$22/$24, matrix read
 //! back from $D2; entry MCROTMATZXY16 $01:829F (dispatch stub $8295).
 
+use sf_core::snes_trig::zxy_matrix_q15_fine;
 use sf_oracle::gsu::Gsu;
 use sf_oracle::load_built_rom;
 
@@ -169,4 +170,31 @@ fn rotmat_identity_and_axis_rotations_match_rom() {
         worst < 0.02,
         "ZXY = Ry*Rx*Rz should reproduce the ROM matrix"
     );
+}
+
+#[test]
+fn fractional_angle_matrix_matches_the_gsu_bit_for_bit() {
+    let Some(rom) = load_built_rom() else {
+        eprintln!("skip: no ROM");
+        return;
+    };
+    const ESCAPE_PITCH: i16 = -420;
+    const ESCAPE_YAW: i16 = -1_365;
+    for (pitch, yaw, roll) in [
+        (1, 2, 3),
+        (ESCAPE_PITCH, ESCAPE_YAW, 0),
+        (5_123, -12_345, 8_765),
+        (16_383, 16_385, -32_767),
+    ] {
+        let oracle = gsu_rotmat(&rom, MCROTMATZXY16, pitch, yaw, roll);
+        let port = zxy_matrix_q15_fine(pitch as u16, yaw as u16, roll as u16);
+        let flattened = [
+            port[0][0], port[0][1], port[0][2], port[1][0], port[1][1], port[1][2], port[2][0],
+            port[2][1], port[2][2],
+        ];
+        assert_eq!(
+            flattened, oracle,
+            "matrix mismatch at ({pitch},{yaw},{roll})"
+        );
+    }
 }

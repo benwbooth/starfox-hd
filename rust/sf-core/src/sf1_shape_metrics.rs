@@ -5,14 +5,16 @@
 pub struct Sf1ShapeMetrics {
     pub visual_extent: u16,
     pub coordinate_shift: u8,
+    pub half_extents: [i16; 3],
 }
 
 pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         0,
         Sf1ShapeMetrics {
-            visual_extent: 0,
-            coordinate_shift: 0,
+            visual_extent: 188,
+            coordinate_shift: 2,
+            half_extents: [136, 136, 144],
         },
     ), // nullshape
     (
@@ -20,6 +22,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // exitlight
     (
@@ -27,6 +30,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [36, 14, 80],
         },
     ), // myship_4
     (
@@ -34,6 +38,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 114,
             coordinate_shift: 0,
+            half_extents: [90, 60, 50],
         },
     ), // iris
     (
@@ -41,6 +46,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 81,
             coordinate_shift: 0,
+            half_extents: [20, 60, 60],
         },
     ), // truck
     (
@@ -48,6 +54,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 44,
             coordinate_shift: 2,
+            half_extents: [40, 20, 40],
         },
     ), // rail_4
     (
@@ -55,6 +62,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 87,
             coordinate_shift: 0,
+            half_extents: [40, 65, 55],
         },
     ), // m_tank
     (
@@ -62,6 +70,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 120,
             coordinate_shift: 2,
+            half_extents: [104, 120, 20],
         },
     ), // gate_0
     (
@@ -69,6 +78,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 116,
             coordinate_shift: 1,
+            half_extents: [20, 22, 116],
         },
     ), // miss_1_2
     (
@@ -76,6 +86,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 57,
             coordinate_shift: 0,
+            half_extents: [10, 40, 50],
         },
     ), // kamikaze
     (
@@ -83,6 +94,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 4,
+            half_extents: [64, 64, 64],
         },
     ), // largeplasma
     (
@@ -90,6 +102,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 276,
             coordinate_shift: 2,
+            half_extents: [216, 104, 160],
         },
     ), // flingboss
     (
@@ -97,6 +110,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 196,
             coordinate_shift: 1,
+            half_extents: [120, 80, 180],
         },
     ), // shark
     (
@@ -104,6 +118,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 98,
             coordinate_shift: 1,
+            half_extents: [40, 40, 80],
         },
     ), // d_head_0
     (
@@ -111,6 +126,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 72,
             coordinate_shift: 1,
+            half_extents: [60, 40, 30],
         },
     ), // d_body_0
     (
@@ -118,6 +134,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [80, 40, 20],
         },
     ), // cameleon
     (
@@ -125,6 +142,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 76,
             coordinate_shift: 0,
+            half_extents: [30, 48, 59],
         },
     ), // beeanim
     (
@@ -132,6 +150,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 304,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // round_0
     (
@@ -139,6 +158,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 90,
             coordinate_shift: 1,
+            half_extents: [40, 60, 44],
         },
     ), // big_m
     (
@@ -146,6 +166,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 260,
             coordinate_shift: 2,
+            half_extents: [40, 40, 80],
         },
     ), // boss_1_2
     (
@@ -153,6 +174,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1000,
             coordinate_shift: 3,
+            half_extents: [240, 160, 1000],
         },
     ), // ship_1
     (
@@ -160,6 +182,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 456,
             coordinate_shift: 2,
+            half_extents: [152, 240, 400],
         },
     ), // ship_3
     (
@@ -167,6 +190,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 2416,
             coordinate_shift: 4,
+            half_extents: [1600, 1072, 0],
         },
     ), // ship_0_c
     (
@@ -174,6 +198,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 604,
             coordinate_shift: 2,
+            half_extents: [400, 268, 480],
         },
     ), // sship_0_c
     (
@@ -181,6 +206,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 952,
             coordinate_shift: 3,
+            half_extents: [88, 320, 880],
         },
     ), // wall1
     (
@@ -188,6 +214,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 952,
             coordinate_shift: 3,
+            half_extents: [88, 320, 880],
         },
     ), // wall2
     (
@@ -195,6 +222,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 2,
+            half_extents: [128, 392, 136],
         },
     ), // walker_0
     (
@@ -202,6 +230,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 480,
             coordinate_shift: 2,
+            half_extents: [480, 480, 48],
         },
     ), // pillar3
     (
@@ -209,6 +238,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // mwireexit
     (
@@ -216,6 +246,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // lwireexit
     (
@@ -223,6 +254,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // bltunnelface
     (
@@ -230,6 +262,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [10, 12, 5],
         },
     ), // sea_0_0
     (
@@ -237,6 +270,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 170,
             coordinate_shift: 0,
+            half_extents: [120, 120, 10],
         },
     ), // exit_1
     (
@@ -244,6 +278,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [0, 0, 300],
         },
     ), // lblackface
     (
@@ -251,6 +286,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 69,
             coordinate_shift: 0,
+            half_extents: [5, 60, 5],
         },
     ), // lcube
     (
@@ -258,6 +294,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 200,
             coordinate_shift: 2,
+            half_extents: [200, 20, 40],
         },
     ), // rail_0
     (
@@ -265,6 +302,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 44,
             coordinate_shift: 1,
+            half_extents: [40, 20, 40],
         },
     ), // miss_1_1
     (
@@ -272,6 +310,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 318,
             coordinate_shift: 1,
+            half_extents: [200, 70, 20],
         },
     ), // exitface
     (
@@ -279,6 +318,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [70, 65, 10],
         },
     ), // mexitface
     (
@@ -286,6 +326,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 636,
             coordinate_shift: 2,
+            half_extents: [360, 160, 40],
         },
     ), // bshipexitface
     (
@@ -293,6 +334,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 318,
             coordinate_shift: 1,
+            half_extents: [40, 30, 20],
         },
     ), // ship3exitface
     (
@@ -300,6 +342,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 332,
             coordinate_shift: 2,
+            half_extents: [32, 316, 40],
         },
     ), // pillar2
     (
@@ -307,6 +350,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 83,
             coordinate_shift: 0,
+            half_extents: [8, 79, 10],
         },
     ), // spillar2
     (
@@ -314,6 +358,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 320,
             coordinate_shift: 2,
+            half_extents: [240, 240, 120],
         },
     ), // boss_8_5
     (
@@ -321,6 +366,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 120,
             coordinate_shift: 3,
+            half_extents: [160, 240, 192],
         },
     ), // hou_4
     (
@@ -328,6 +374,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 808,
             coordinate_shift: 3,
+            half_extents: [80, 800, 40],
         },
     ), // boss_8_4
     (
@@ -335,6 +382,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 240,
             coordinate_shift: 3,
+            half_extents: [240, 80, 88],
         },
     ), // boss_8_0
     (
@@ -342,6 +390,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 76,
             coordinate_shift: 1,
+            half_extents: [40, 70, 40],
         },
     ), // wire_man
     (
@@ -349,6 +398,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 71,
             coordinate_shift: 0,
+            half_extents: [40, 40, 50],
         },
     ), // bom_wing
     (
@@ -356,6 +406,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 0,
+            half_extents: [35, 60, 40],
         },
     ), // w_l
     (
@@ -363,6 +414,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 92,
             coordinate_shift: 2,
+            half_extents: [80, 80, 76],
         },
     ), // rader_0
     (
@@ -370,6 +422,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 124,
             coordinate_shift: 2,
+            half_extents: [100, 124, 100],
         },
     ), // rader_1
     (
@@ -377,6 +430,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 1,
+            half_extents: [66, 20, 78],
         },
     ), // zaco_6
     (
@@ -384,6 +438,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 110,
             coordinate_shift: 0,
+            half_extents: [80, 70, 30],
         },
     ), // zaco_5
     (
@@ -391,6 +446,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 156,
             coordinate_shift: 1,
+            half_extents: [30, 134, 80],
         },
     ), // houdai_0
     (
@@ -398,6 +454,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 472,
             coordinate_shift: 3,
+            half_extents: [160, 240, 440],
         },
     ), // boss_7_1
     (
@@ -405,6 +462,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 84,
             coordinate_shift: 2,
+            half_extents: [60, 80, 60],
         },
     ), // boss_a_1
     (
@@ -412,6 +470,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 552,
             coordinate_shift: 3,
+            half_extents: [480, 160, 160],
         },
     ), // boss_a_2
     (
@@ -419,6 +478,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 480,
             coordinate_shift: 2,
+            half_extents: [80, 480, 160],
         },
     ), // tower_2
     (
@@ -426,6 +486,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 86,
             coordinate_shift: 0,
+            half_extents: [20, 76, 20],
         },
     ), // para_0
     (
@@ -433,6 +494,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 392,
             coordinate_shift: 3,
+            half_extents: [160, 320, 160],
         },
     ), // bu_0
     (
@@ -440,6 +502,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 416,
             coordinate_shift: 2,
+            half_extents: [80, 400, 80],
         },
     ), // bu_1
     (
@@ -447,6 +510,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 584,
             coordinate_shift: 3,
+            half_extents: [80, 560, 160],
         },
     ), // bu_2
     (
@@ -454,6 +518,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 460,
             coordinate_shift: 2,
+            half_extents: [80, 320, 320],
         },
     ), // bu_3
     (
@@ -461,6 +526,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 488,
             coordinate_shift: 2,
+            half_extents: [200, 400, 200],
         },
     ), // bu_4
     (
@@ -468,6 +534,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 488,
             coordinate_shift: 2,
+            half_extents: [200, 400, 200],
         },
     ), // bu_5
     (
@@ -475,6 +542,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 488,
             coordinate_shift: 2,
+            half_extents: [200, 400, 200],
         },
     ), // bu_6
     (
@@ -482,6 +550,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 384,
             coordinate_shift: 2,
+            half_extents: [80, 340, 160],
         },
     ), // bu_7
     (
@@ -489,6 +558,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 196,
             coordinate_shift: 2,
+            half_extents: [80, 160, 80],
         },
     ), // bu_8
     (
@@ -496,6 +566,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 232,
             coordinate_shift: 3,
+            half_extents: [216, 240, 216],
         },
     ), // boss_2_2
     (
@@ -503,6 +574,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 180,
             coordinate_shift: 1,
+            half_extents: [90, 120, 100],
         },
     ), // core_1_0
     (
@@ -510,6 +582,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 86,
             coordinate_shift: 1,
+            half_extents: [26, 86, 26],
         },
     ), // core_1_1
     (
@@ -517,6 +590,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 150,
             coordinate_shift: 1,
+            half_extents: [90, 120, 40],
         },
     ), // exit_2
     (
@@ -524,6 +598,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // bmtunnelface
     (
@@ -531,6 +606,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 159,
             coordinate_shift: 0,
+            half_extents: [0, 0, 300],
         },
     ), // mblackface
     (
@@ -538,6 +614,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 432,
             coordinate_shift: 2,
+            half_extents: [384, 316, 272],
         },
     ), // boss_b_0
     (
@@ -545,6 +622,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 252,
             coordinate_shift: 2,
+            half_extents: [180, 140, 240],
         },
     ), // boss_b_1
     (
@@ -552,6 +630,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 148,
             coordinate_shift: 2,
+            half_extents: [80, 296, 152],
         },
     ), // boss_d_1
     (
@@ -559,6 +638,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 186,
             coordinate_shift: 1,
+            half_extents: [78, 72, 178],
         },
     ), // boss_9_5
     (
@@ -566,6 +646,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 50,
             coordinate_shift: 0,
+            half_extents: [15, 42, 110],
         },
     ), // air_1
     (
@@ -573,6 +654,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 100,
             coordinate_shift: 0,
+            half_extents: [54, 0, 89],
         },
     ), // line_2
     (
@@ -580,6 +662,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 496,
             coordinate_shift: 3,
+            half_extents: [400, 120, 488],
         },
     ), // boss_f_3
     (
@@ -587,6 +670,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 130,
             coordinate_shift: 1,
+            half_extents: [50, 120, 10],
         },
     ), // tunnel_8
     (
@@ -594,6 +678,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 57,
             coordinate_shift: 0,
+            half_extents: [25, 33, 52],
         },
     ), // tunnel_6
     (
@@ -601,6 +686,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 172,
             coordinate_shift: 2,
+            half_extents: [136, 160, 68],
         },
     ), // boss_0_1
     (
@@ -608,6 +694,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 140,
             coordinate_shift: 1,
+            half_extents: [120, 60, 40],
         },
     ), // door_1
     (
@@ -615,6 +702,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 100,
             coordinate_shift: 1,
+            half_extents: [90, 20, 40],
         },
     ), // wall_0
     (
@@ -622,6 +710,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 122,
             coordinate_shift: 1,
+            half_extents: [90, 40, 20],
         },
     ), // wall_1
     (
@@ -629,6 +718,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 124,
             coordinate_shift: 1,
+            half_extents: [30, 60, 20],
         },
     ), // wall_2
     (
@@ -636,6 +726,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 130,
             coordinate_shift: 1,
+            half_extents: [50, 60, 20],
         },
     ), // wall_3
     (
@@ -643,6 +734,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 122,
             coordinate_shift: 1,
+            half_extents: [10, 60, 20],
         },
     ), // wall_4
     (
@@ -650,6 +742,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 94,
             coordinate_shift: 1,
+            half_extents: [90, 10, 20],
         },
     ), // wall_5
     (
@@ -657,6 +750,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 68,
             coordinate_shift: 1,
+            half_extents: [30, 30, 20],
         },
     ), // wall_6
     (
@@ -664,6 +758,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 82,
             coordinate_shift: 1,
+            half_extents: [10, 40, 20],
         },
     ), // wall_7
     (
@@ -671,6 +766,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 528,
             coordinate_shift: 3,
+            half_extents: [488, 88, 480],
         },
     ), // boss_f_4
     (
@@ -678,6 +774,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 214,
             coordinate_shift: 1,
+            half_extents: [126, 120, 180],
         },
     ), // r_bu_0
     (
@@ -685,6 +782,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 81,
             coordinate_shift: 0,
+            half_extents: [55, 50, 55],
         },
     ), // r_bu_1
     (
@@ -692,6 +790,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 156,
             coordinate_shift: 0,
+            half_extents: [115, 10, 105],
         },
     ), // r_bu_2
     (
@@ -699,6 +798,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 68,
             coordinate_shift: 0,
+            half_extents: [30, 60, 30],
         },
     ), // r_bu_3
     (
@@ -706,6 +806,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 113,
             coordinate_shift: 0,
+            half_extents: [80, 25, 80],
         },
     ), // r_bu_4
     (
@@ -713,6 +814,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 226,
             coordinate_shift: 1,
+            half_extents: [40, 80, 210],
         },
     ), // r_bu_5
     (
@@ -720,6 +822,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 154,
             coordinate_shift: 1,
+            half_extents: [30, 30, 150],
         },
     ), // r_bu_6
     (
@@ -727,6 +830,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 128,
             coordinate_shift: 0,
+            half_extents: [25, 125, 25],
         },
     ), // r_bu_7
     (
@@ -734,6 +838,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 3,
+            half_extents: [80, 80, 80],
         },
     ), // amoeba2
     (
@@ -741,6 +846,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 84,
             coordinate_shift: 1,
+            half_extents: [66, 60, 60],
         },
     ), // zaco_8
     (
@@ -748,6 +854,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 158,
             coordinate_shift: 1,
+            half_extents: [140, 40, 120],
         },
     ), // zaco_4
     (
@@ -755,6 +862,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1200,
             coordinate_shift: 4,
+            half_extents: [320, 320, 320],
         },
     ), // ship_5
     (
@@ -762,6 +870,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 600,
             coordinate_shift: 3,
+            half_extents: [160, 160, 160],
         },
     ), // ship_5l
     (
@@ -769,6 +878,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 300,
             coordinate_shift: 2,
+            half_extents: [80, 80, 80],
         },
     ), // ship_5m
     (
@@ -776,6 +886,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 122,
             coordinate_shift: 0,
+            half_extents: [30, 50, 120],
         },
     ), // ship_5s
     (
@@ -783,6 +894,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 424,
             coordinate_shift: 3,
+            half_extents: [344, 376, 128],
         },
     ), // ships
     (
@@ -790,6 +902,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 110,
             coordinate_shift: 1,
+            half_extents: [92, 60, 10],
         },
     ), // s_door_1
     (
@@ -797,6 +910,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 110,
             coordinate_shift: 1,
+            half_extents: [92, 60, 10],
         },
     ), // s_door_2
     (
@@ -804,6 +918,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 150,
             coordinate_shift: 1,
+            half_extents: [90, 110, 60],
         },
     ), // leng_0
     (
@@ -811,6 +926,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 344,
             coordinate_shift: 2,
+            half_extents: [328, 160, 292],
         },
     ), // carrier
     (
@@ -818,6 +934,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 296,
             coordinate_shift: 3,
+            half_extents: [240, 320, 400],
         },
     ), // base_0
     (
@@ -825,6 +942,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 4,
             coordinate_shift: 0,
+            half_extents: [4, 4, 4],
         },
     ), // kellogs
     (
@@ -832,6 +950,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 144,
             coordinate_shift: 1,
+            half_extents: [64, 128, 10],
         },
     ), // k_door
     (
@@ -839,6 +958,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 256,
             coordinate_shift: 3,
+            half_extents: [64, 144, 200],
         },
     ), // kichi_3
     (
@@ -846,6 +966,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 3072,
             coordinate_shift: 6,
+            half_extents: [2560, 2560, 1600],
         },
     ), // kichi_0
     (
@@ -853,6 +974,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 106,
             coordinate_shift: 0,
+            half_extents: [50, 60, 90],
         },
     ), // boss_g_0
     (
@@ -860,6 +982,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 36,
             coordinate_shift: 0,
+            half_extents: [20, 20, 30],
         },
     ), // tunnel_0
     (
@@ -867,6 +990,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 124,
             coordinate_shift: 1,
+            half_extents: [28, 120, 20],
         },
     ), // tunnel_4
     (
@@ -874,6 +998,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 21,
             coordinate_shift: 0,
+            half_extents: [15, 5, 15],
         },
     ), // tunnel_7
     (
@@ -881,6 +1006,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 664,
             coordinate_shift: 3,
+            half_extents: [344, 352, 440],
         },
     ), // mybase_1
     (
@@ -888,6 +1014,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 360,
             coordinate_shift: 3,
+            half_extents: [336, 160, 24],
         },
     ), // ship_s_0
     (
@@ -895,6 +1022,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 360,
             coordinate_shift: 3,
+            half_extents: [360, 144, 40],
         },
     ), // ship_s_1
     (
@@ -902,6 +1030,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 128,
             coordinate_shift: 1,
+            half_extents: [80, 80, 120],
         },
     ), // ship_4
     (
@@ -909,6 +1038,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 59,
             coordinate_shift: 0,
+            half_extents: [58, 37, 28],
         },
     ), // zaco_7
     (
@@ -916,6 +1046,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 44,
             coordinate_shift: 0,
+            half_extents: [32, 42, 25],
         },
     ), // warker_3
     (
@@ -923,6 +1054,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 65,
             coordinate_shift: 0,
+            half_extents: [60, 25, 60],
         },
     ), // heli
     (
@@ -930,6 +1062,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 204,
             coordinate_shift: 2,
+            half_extents: [160, 100, 124],
         },
     ), // bazooka
     (
@@ -937,6 +1070,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 92,
             coordinate_shift: 1,
+            half_extents: [52, 64, 90],
         },
     ), // uper_m
     (
@@ -944,6 +1078,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 108,
             coordinate_shift: 1,
+            half_extents: [60, 34, 90],
         },
     ), // warp
     (
@@ -951,6 +1086,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 180,
             coordinate_shift: 1,
+            half_extents: [130, 100, 150],
         },
     ), // tank_2
     (
@@ -958,6 +1094,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 340,
             coordinate_shift: 2,
+            half_extents: [272, 100, 216],
         },
     ), // f_dragon
     (
@@ -965,6 +1102,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // xwirespacebar
     (
@@ -972,6 +1110,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // xpwirespacebar
     (
@@ -979,6 +1118,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // sxpwirespacebar
     (
@@ -986,6 +1126,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // ywirespacebar
     (
@@ -993,6 +1134,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // zwirespacebar
     (
@@ -1000,6 +1142,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // sxwirespacebar
     (
@@ -1007,6 +1150,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // sywirespacebar
     (
@@ -1014,6 +1158,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // szwirespacebar
     (
@@ -1021,6 +1166,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // xsolidspacebar
     (
@@ -1028,6 +1174,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // xpsolidspacebar
     (
@@ -1035,6 +1182,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // sxpsolidspacebar
     (
@@ -1042,6 +1190,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // ysolidspacebar
     (
@@ -1049,6 +1198,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // zsolidspacebar
     (
@@ -1056,6 +1206,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // sxsolidspacebar
     (
@@ -1063,6 +1214,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // sysolidspacebar
     (
@@ -1070,6 +1222,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // szsolidspacebar
     (
@@ -1077,6 +1230,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 568,
             coordinate_shift: 3,
+            half_extents: [400, 488, 280],
         },
     ), // colony_0
     (
@@ -1084,6 +1238,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 528,
             coordinate_shift: 3,
+            half_extents: [440, 136, 280],
         },
     ), // colony_1
     (
@@ -1091,6 +1246,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 110,
             coordinate_shift: 1,
+            half_extents: [92, 60, 40],
         },
     ), // colony_2
     (
@@ -1098,6 +1254,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 992,
             coordinate_shift: 4,
+            half_extents: [80, 400, 160],
         },
     ), // colony3l
     (
@@ -1105,6 +1262,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 992,
             coordinate_shift: 4,
+            half_extents: [672, 672, 800],
         },
     ), // colony3r
     (
@@ -1112,6 +1270,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 88,
             coordinate_shift: 1,
+            half_extents: [64, 84, 50],
         },
     ), // bwarker_3
     (
@@ -1119,6 +1278,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 46,
             coordinate_shift: 1,
+            half_extents: [42, 40, 40],
         },
     ), // item_5
     (
@@ -1126,6 +1286,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 48,
             coordinate_shift: 1,
+            half_extents: [48, 40, 48],
         },
     ), // item_6
     (
@@ -1133,6 +1294,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 44,
             coordinate_shift: 1,
+            half_extents: [40, 40, 34],
         },
     ), // item_7
     (
@@ -1140,6 +1302,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 1,
+            half_extents: [48, 58, 50],
         },
     ), // r_hou_0
     (
@@ -1147,6 +1310,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 1,
+            half_extents: [48, 58, 50],
         },
     ), // s_hou_0
     (
@@ -1154,6 +1318,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 1,
+            half_extents: [48, 58, 50],
         },
     ), // b_hou_0
     (
@@ -1161,6 +1326,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 88,
             coordinate_shift: 0,
+            half_extents: [30, 87, 47],
         },
     ), // walker_2
     (
@@ -1168,6 +1334,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1192,
             coordinate_shift: 3,
+            half_extents: [480, 640, 960],
         },
     ), // base_0_0
     (
@@ -1175,6 +1342,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1192,
             coordinate_shift: 3,
+            half_extents: [480, 640, 960],
         },
     ), // base_0_1
     (
@@ -1182,6 +1350,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 156,
             coordinate_shift: 1,
+            half_extents: [60, 120, 100],
         },
     ), // tank_1
     (
@@ -1189,6 +1358,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 240,
             coordinate_shift: 2,
+            half_extents: [72, 236, 80],
         },
     ), // hou_5
     (
@@ -1196,6 +1366,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 672,
             coordinate_shift: 3,
+            half_extents: [96, 640, 440],
         },
     ), // ro_0
     (
@@ -1203,6 +1374,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 672,
             coordinate_shift: 3,
+            half_extents: [96, 640, 440],
         },
     ), // ro_1
     (
@@ -1210,6 +1382,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 680,
             coordinate_shift: 3,
+            half_extents: [136, 640, 440],
         },
     ), // ro_2
     (
@@ -1217,6 +1390,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 680,
             coordinate_shift: 3,
+            half_extents: [136, 640, 440],
         },
     ), // ro_3
     (
@@ -1224,6 +1398,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 696,
             coordinate_shift: 3,
+            half_extents: [208, 640, 440],
         },
     ), // ro_4
     (
@@ -1231,6 +1406,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 696,
             coordinate_shift: 3,
+            half_extents: [208, 640, 440],
         },
     ), // ro_5
     (
@@ -1238,6 +1414,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 432,
             coordinate_shift: 3,
+            half_extents: [184, 400, 160],
         },
     ), // ro_6
     (
@@ -1245,6 +1422,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 672,
             coordinate_shift: 3,
+            half_extents: [96, 640, 440],
         },
     ), // bro_0
     (
@@ -1252,6 +1430,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 672,
             coordinate_shift: 3,
+            half_extents: [96, 640, 440],
         },
     ), // bro_1
     (
@@ -1259,6 +1438,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 680,
             coordinate_shift: 3,
+            half_extents: [136, 640, 440],
         },
     ), // bro_2
     (
@@ -1266,6 +1446,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 680,
             coordinate_shift: 3,
+            half_extents: [136, 640, 440],
         },
     ), // bro_3
     (
@@ -1273,6 +1454,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 696,
             coordinate_shift: 3,
+            half_extents: [208, 640, 440],
         },
     ), // bro_4
     (
@@ -1280,6 +1462,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 696,
             coordinate_shift: 3,
+            half_extents: [208, 640, 440],
         },
     ), // bro_5
     (
@@ -1287,6 +1470,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 432,
             coordinate_shift: 3,
+            half_extents: [184, 400, 160],
         },
     ), // bro_6
     (
@@ -1294,6 +1478,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 672,
             coordinate_shift: 3,
+            half_extents: [96, 640, 440],
         },
     ), // gro_0
     (
@@ -1301,6 +1486,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 672,
             coordinate_shift: 3,
+            half_extents: [96, 640, 440],
         },
     ), // gro_1
     (
@@ -1308,6 +1494,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 680,
             coordinate_shift: 3,
+            half_extents: [136, 640, 440],
         },
     ), // gro_2
     (
@@ -1315,6 +1502,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 680,
             coordinate_shift: 3,
+            half_extents: [136, 640, 440],
         },
     ), // gro_3
     (
@@ -1322,6 +1510,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 696,
             coordinate_shift: 3,
+            half_extents: [208, 640, 440],
         },
     ), // gro_4
     (
@@ -1329,6 +1518,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 696,
             coordinate_shift: 3,
+            half_extents: [208, 640, 440],
         },
     ), // gro_5
     (
@@ -1336,6 +1526,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 432,
             coordinate_shift: 3,
+            half_extents: [184, 400, 160],
         },
     ), // gro_6
     (
@@ -1343,6 +1534,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 224,
             coordinate_shift: 2,
+            half_extents: [120, 200, 200],
         },
     ), // volcano
     (
@@ -1350,6 +1542,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 112,
             coordinate_shift: 1,
+            half_extents: [60, 100, 100],
         },
     ), // svolcano
     (
@@ -1357,6 +1550,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 192,
             coordinate_shift: 1,
+            half_extents: [182, 64, 188],
         },
     ), // meteo_0
     (
@@ -1364,6 +1558,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 4,
+            half_extents: [64, 64, 64],
         },
     ), // blackhole
     (
@@ -1371,6 +1566,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 4,
+            half_extents: [64, 64, 64],
         },
     ), // asteroid2
     (
@@ -1378,6 +1574,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 3,
+            half_extents: [160, 160, 0],
         },
     ), // b_holl
     (
@@ -1385,6 +1582,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 116,
             coordinate_shift: 1,
+            half_extents: [60, 24, 100],
         },
     ), // car_0
     (
@@ -1392,6 +1590,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 78,
             coordinate_shift: 0,
+            half_extents: [30, 75, 30],
         },
     ), // clisla_m
     (
@@ -1399,6 +1598,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 0,
+            half_extents: [25, 40, 20],
         },
     ), // clisla_s
     (
@@ -1406,6 +1606,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 284,
             coordinate_shift: 2,
+            half_extents: [188, 204, 60],
         },
     ), // clisla_l
     (
@@ -1413,6 +1614,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 50,
             coordinate_shift: 0,
+            half_extents: [15, 50, 15],
         },
     ), // snake_1
     (
@@ -1420,6 +1622,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 86,
             coordinate_shift: 0,
+            half_extents: [70, 53, 49],
         },
     ), // zaco_b
     (
@@ -1427,6 +1630,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [15, 40, 15],
         },
     ), // shieldr
     (
@@ -1434,6 +1638,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 120,
             coordinate_shift: 0,
+            half_extents: [50, 25, 120],
         },
     ), // ray_0
     (
@@ -1441,6 +1646,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 111,
             coordinate_shift: 0,
+            half_extents: [110, 23, 102],
         },
     ), // ray_1
     (
@@ -1448,6 +1654,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 36,
             coordinate_shift: 1,
+            half_extents: [34, 20, 20],
         },
     ), // boss_e_4
     (
@@ -1455,6 +1662,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 130,
             coordinate_shift: 1,
+            half_extents: [52, 130, 42],
         },
     ), // flower_1
     (
@@ -1462,6 +1670,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 170,
             coordinate_shift: 1,
+            half_extents: [52, 170, 42],
         },
     ), // flower_2
     (
@@ -1469,6 +1678,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 50,
             coordinate_shift: 0,
+            half_extents: [20, 50, 20],
         },
     ), // stalk
     (
@@ -1476,6 +1686,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 1,
+            half_extents: [60, 80, 60],
         },
     ), // mine_2
     (
@@ -1483,6 +1694,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 60,
             coordinate_shift: 1,
+            half_extents: [52, 60, 14],
         },
     ), // gate_2
     (
@@ -1490,6 +1702,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 45,
             coordinate_shift: 0,
+            half_extents: [10, 15, 41],
         },
     ), // s_fish
     (
@@ -1497,6 +1710,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 2144,
             coordinate_shift: 5,
+            half_extents: [1248, 1920, 1504],
         },
     ), // last_b_0
     (
@@ -1504,6 +1718,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1600,
             coordinate_shift: 4,
+            half_extents: [112, 1600, 1600],
         },
     ), // last_b_2
     (
@@ -1511,6 +1726,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 108,
             coordinate_shift: 2,
+            half_extents: [96, 0, 96],
         },
     ), // last_b_3
     (
@@ -1518,6 +1734,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 168,
             coordinate_shift: 1,
+            half_extents: [112, 126, 20],
         },
     ), // door_l
     (
@@ -1525,6 +1742,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 114,
             coordinate_shift: 1,
+            half_extents: [60, 50, 100],
         },
     ), // car_1
     (
@@ -1532,6 +1750,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 116,
             coordinate_shift: 1,
+            half_extents: [72, 74, 60],
         },
     ), // zaco_a
     (
@@ -1539,6 +1758,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 60,
             coordinate_shift: 0,
+            half_extents: [35, 14, 60],
         },
     ), // friendship_4
     (
@@ -1546,6 +1766,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 116,
             coordinate_shift: 1,
+            half_extents: [50, 104, 48],
         },
     ), // s_wark_0
     (
@@ -1553,6 +1774,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 100,
             coordinate_shift: 0,
+            half_extents: [46, 61, 100],
         },
     ), // ika
     (
@@ -1560,6 +1782,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 79,
             coordinate_shift: 0,
+            half_extents: [60, 60, 50],
         },
     ), // s_zaco_0
     (
@@ -1567,6 +1790,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 192,
             coordinate_shift: 2,
+            half_extents: [152, 100, 164],
         },
     ), // bazz_1
     (
@@ -1574,6 +1798,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 944,
             coordinate_shift: 4,
+            half_extents: [480, 800, 80],
         },
     ), // face_b
     (
@@ -1581,6 +1806,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 125,
             coordinate_shift: 0,
+            half_extents: [70, 28, 100],
         },
     ), // my_demos
     (
@@ -1588,6 +1814,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 250,
             coordinate_shift: 1,
+            half_extents: [140, 56, 200],
         },
     ), // my_demo
     (
@@ -1595,6 +1822,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // helpball
     (
@@ -1602,6 +1830,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 252,
             coordinate_shift: 2,
+            half_extents: [60, 80, 240],
         },
     ), // tadpole
     (
@@ -1609,6 +1838,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 172,
             coordinate_shift: 2,
+            half_extents: [120, 160, 40],
         },
     ), // arch_0
     (
@@ -1616,6 +1846,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 1,
+            half_extents: [74, 54, 220],
         },
     ), // s_tank_0
     (
@@ -1623,6 +1854,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 45,
             coordinate_shift: 0,
+            half_extents: [45, 40, 40],
         },
     ), // zaco_1
     (
@@ -1630,6 +1862,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 84,
             coordinate_shift: 1,
+            half_extents: [66, 60, 60],
         },
     ), // bzaco_8
     (
@@ -1637,6 +1870,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 736,
             coordinate_shift: 3,
+            half_extents: [320, 640, 360],
         },
     ), // base_1
     (
@@ -1644,6 +1878,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 408,
             coordinate_shift: 2,
+            half_extents: [200, 280, 300],
         },
     ), // big_gate
     (
@@ -1651,6 +1886,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 1,
+            half_extents: [48, 58, 50],
         },
     ), // r_hou
     (
@@ -1658,6 +1894,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 78,
             coordinate_shift: 0,
+            half_extents: [45, 60, 20],
         },
     ), // open_l
     (
@@ -1665,6 +1902,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 110,
             coordinate_shift: 1,
+            half_extents: [90, 60, 20],
         },
     ), // up_door
     (
@@ -1672,6 +1910,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 256,
             coordinate_shift: 6,
+            half_extents: [256, 256, 256],
         },
     ), // big_meteor
     (
@@ -1679,6 +1918,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 60,
             coordinate_shift: 1,
+            half_extents: [56, 20, 36],
         },
     ), // boss_d_4
     (
@@ -1686,6 +1926,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 156,
             coordinate_shift: 1,
+            half_extents: [60, 120, 100],
         },
     ), // btank_1
     (
@@ -1693,6 +1934,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_t
     (
@@ -1700,6 +1942,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_h
     (
@@ -1707,6 +1950,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_e
     (
@@ -1714,6 +1958,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_n
     (
@@ -1721,6 +1966,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 10, 60],
         },
     ), // font_d
     (
@@ -1728,6 +1974,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 3,
+            half_extents: [80, 80, 80],
         },
     ), // gamesh
     (
@@ -1735,6 +1982,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 3,
+            half_extents: [80, 80, 80],
         },
     ), // oversh
     (
@@ -1742,6 +1990,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 164,
             coordinate_shift: 1,
+            half_extents: [28, 160, 28],
         },
     ), // tow_0
     (
@@ -1749,6 +1998,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 94,
             coordinate_shift: 0,
+            half_extents: [90, 20, 20],
         },
     ), // bou_0
     (
@@ -1756,6 +2006,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1200,
             coordinate_shift: 4,
+            half_extents: [800, 672, 752],
         },
     ), // mybase_0
     (
@@ -1763,6 +2014,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 56,
             coordinate_shift: 0,
+            half_extents: [35, 47, 30],
         },
     ), // sea_0
     (
@@ -1770,6 +2022,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 49,
             coordinate_shift: 0,
+            half_extents: [10, 20, 7],
         },
     ), // sea_0_1
     (
@@ -1777,6 +2030,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 320,
             coordinate_shift: 3,
+            half_extents: [320, 320, 320],
         },
     ), // boss_2_0
     (
@@ -1784,6 +2038,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 320,
             coordinate_shift: 3,
+            half_extents: [160, 560, 160],
         },
     ), // boss_2_1
     (
@@ -1791,6 +2046,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 528,
             coordinate_shift: 3,
+            half_extents: [368, 248, 520],
         },
     ), // boss_2_3
     (
@@ -1798,6 +2054,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 440,
             coordinate_shift: 3,
+            half_extents: [264, 528, 288],
         },
     ), // boss_2_4
     (
@@ -1805,6 +2062,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 320,
             coordinate_shift: 3,
+            half_extents: [216, 480, 216],
         },
     ), // boss_2_5
     (
@@ -1812,6 +2070,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 840,
             coordinate_shift: 3,
+            half_extents: [320, 800, 320],
         },
     ), // boss_8_1
     (
@@ -1819,6 +2078,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 840,
             coordinate_shift: 3,
+            half_extents: [320, 800, 320],
         },
     ), // boss_8_1c
     (
@@ -1826,6 +2086,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 800,
             coordinate_shift: 3,
+            half_extents: [56, 112, 800],
         },
     ), // sparklas
     (
@@ -1833,6 +2094,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 95,
             coordinate_shift: 0,
+            half_extents: [60, 70, 70],
         },
     ), // shrap1
     (
@@ -1840,6 +2102,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 22,
             coordinate_shift: 0,
+            half_extents: [20, 20, 0],
         },
     ), // shyper
     (
@@ -1847,6 +2110,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 74,
             coordinate_shift: 1,
+            half_extents: [50, 40, 60],
         },
     ), // zaco_9
     (
@@ -1854,6 +2118,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 85,
             coordinate_shift: 0,
+            half_extents: [50, 60, 60],
         },
     ), // boss_g_s
     (
@@ -1861,6 +2126,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 63,
             coordinate_shift: 0,
+            half_extents: [55, 40, 60],
         },
     ), // f_fish
     (
@@ -1868,6 +2134,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 32,
             coordinate_shift: 3,
+            half_extents: [32, 32, 32],
         },
     ), // rockbeam
     (
@@ -1875,6 +2142,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 4,
+            half_extents: [160, 160, 160],
         },
     ), // l2smoke
     (
@@ -1882,6 +2150,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // explosion5
     (
@@ -1889,6 +2158,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 4,
+            half_extents: [64, 64, 64],
         },
     ), // asteroid1
     (
@@ -1896,6 +2166,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // asteroid3
     (
@@ -1903,6 +2174,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // asteroid4
     (
@@ -1910,6 +2182,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 256,
             coordinate_shift: 6,
+            half_extents: [256, 256, 256],
         },
     ), // big_meteor
     (
@@ -1917,6 +2190,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // clasteroid
     (
@@ -1924,6 +2198,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 776,
             coordinate_shift: 3,
+            half_extents: [160, 160, 400],
         },
     ), // whale
     (
@@ -1931,6 +2206,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 172,
             coordinate_shift: 1,
+            half_extents: [170, 134, 128],
         },
     ), // my_bird
     (
@@ -1938,6 +2214,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 1,
+            half_extents: [24, 18, 30],
         },
     ), // zaco_8p
     (
@@ -1945,6 +2222,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 66,
             coordinate_shift: 0,
+            half_extents: [20, 60, 20],
         },
     ), // bou_1
     (
@@ -1952,6 +2230,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 2304,
             coordinate_shift: 3,
+            half_extents: [1040, 480, 2000],
         },
     ), // pipe_8_0
     (
@@ -1959,6 +2238,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 640,
             coordinate_shift: 3,
+            half_extents: [128, 120, 608],
         },
     ), // pipe_8
     (
@@ -1966,6 +2246,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 66,
             coordinate_shift: 0,
+            half_extents: [20, 60, 20],
         },
     ), // bou_1b
     (
@@ -1973,6 +2254,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 114,
             coordinate_shift: 1,
+            half_extents: [80, 78, 80],
         },
     ), // paper_1
     (
@@ -1980,6 +2262,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 228,
             coordinate_shift: 2,
+            half_extents: [160, 224, 160],
         },
     ), // paper_3
     (
@@ -1987,6 +2270,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 220,
             coordinate_shift: 2,
+            half_extents: [220, 220, 220],
         },
     ), // pole_0
     (
@@ -1994,6 +2278,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 432,
             coordinate_shift: 2,
+            half_extents: [180, 400, 140],
         },
     ), // slot_0
     (
@@ -2001,6 +2286,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_t2
     (
@@ -2008,6 +2294,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_h2
     (
@@ -2015,6 +2302,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_e2
     (
@@ -2022,6 +2310,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_e3
     (
@@ -2029,6 +2318,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 30, 60],
         },
     ), // font_n2
     (
@@ -2036,6 +2326,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 34,
             coordinate_shift: 0,
+            half_extents: [8, 10, 60],
         },
     ), // font_d2
     (
@@ -2043,6 +2334,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 60,
             coordinate_shift: 1,
+            half_extents: [40, 60, 40],
         },
     ), // pilon
     (
@@ -2050,6 +2342,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 30,
             coordinate_shift: 1,
+            half_extents: [20, 30, 18],
         },
     ), // mine_0
     (
@@ -2057,6 +2350,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 204,
             coordinate_shift: 2,
+            half_extents: [192, 80, 192],
         },
     ), // boss_h_0
     (
@@ -2064,6 +2358,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 768,
             coordinate_shift: 3,
+            half_extents: [160, 760, 768],
         },
     ), // boss_h_1
     (
@@ -2071,6 +2366,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 768,
             coordinate_shift: 3,
+            half_extents: [560, 128, 760],
         },
     ), // boss_h_1a
     (
@@ -2078,6 +2374,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 256,
             coordinate_shift: 2,
+            half_extents: [120, 240, 40],
         },
     ), // boss_h_2
     (
@@ -2085,6 +2382,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 400,
             coordinate_shift: 2,
+            half_extents: [32, 400, 0],
         },
     ), // boss_h_3
     (
@@ -2092,6 +2390,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 304,
             coordinate_shift: 3,
+            half_extents: [240, 216, 200],
         },
     ), // boss_f_1
     (
@@ -2099,6 +2398,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 688,
             coordinate_shift: 3,
+            half_extents: [488, 600, 640],
         },
     ), // boss_f_2
     (
@@ -2106,6 +2406,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 264,
             coordinate_shift: 3,
+            half_extents: [232, 200, 160],
         },
     ), // boss_f_5
     (
@@ -2113,6 +2414,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 568,
             coordinate_shift: 3,
+            half_extents: [48, 168, 560],
         },
     ), // boss_f_6
     (
@@ -2120,6 +2422,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 568,
             coordinate_shift: 3,
+            half_extents: [48, 168, 560],
         },
     ), // boss_f_7
     (
@@ -2127,6 +2430,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 2176,
             coordinate_shift: 3,
+            half_extents: [720, 480, 2000],
         },
     ), // pipe_9_0
     (
@@ -2134,6 +2438,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 640,
             coordinate_shift: 3,
+            half_extents: [128, 120, 608],
         },
     ), // pipe_9
     (
@@ -2141,6 +2446,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1920,
             coordinate_shift: 4,
+            half_extents: [400, 640, 1920],
         },
     ), // deboss_1
     (
@@ -2148,6 +2454,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 464,
             coordinate_shift: 4,
+            half_extents: [208, 96, 416],
         },
     ), // pipe_0
     (
@@ -2155,6 +2462,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 464,
             coordinate_shift: 4,
+            half_extents: [208, 96, 416],
         },
     ), // pipe_1
     (
@@ -2162,6 +2470,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 464,
             coordinate_shift: 4,
+            half_extents: [208, 96, 416],
         },
     ), // pipe_2
     (
@@ -2169,6 +2478,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 464,
             coordinate_shift: 4,
+            half_extents: [208, 96, 416],
         },
     ), // pipe_3
     (
@@ -2176,6 +2486,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 400,
             coordinate_shift: 4,
+            half_extents: [208, 96, 320],
         },
     ), // pipe_4
     (
@@ -2183,6 +2494,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 400,
             coordinate_shift: 4,
+            half_extents: [208, 96, 320],
         },
     ), // pipe_5
     (
@@ -2190,6 +2502,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 832,
             coordinate_shift: 4,
+            half_extents: [224, 160, 800],
         },
     ), // pipe_6
     (
@@ -2197,6 +2510,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 66,
             coordinate_shift: 0,
+            half_extents: [60, 20, 20],
         },
     ), // d_pilar
     (
@@ -2204,6 +2518,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 88,
             coordinate_shift: 1,
+            half_extents: [60, 60, 20],
         },
     ), // half_d
     (
@@ -2211,6 +2526,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 130,
             coordinate_shift: 0,
+            half_extents: [70, 96, 52],
         },
     ), // cockpit
     (
@@ -2218,6 +2534,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 188,
             coordinate_shift: 2,
+            half_extents: [140, 68, 132],
         },
     ), // old_type
     (
@@ -2225,6 +2542,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [36, 14, 80],
         },
     ), // item_0
     (
@@ -2232,6 +2550,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 156,
             coordinate_shift: 0,
+            half_extents: [115, 110, 105],
         },
     ), // r_but_2
     (
@@ -2239,6 +2558,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 204,
             coordinate_shift: 2,
+            half_extents: [120, 80, 200],
         },
     ), // walk_4_0
     (
@@ -2246,6 +2566,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 50,
             coordinate_shift: 1,
+            half_extents: [160, 160, 160],
         },
     ), // arm
     (
@@ -2253,6 +2574,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 1,
+            half_extents: [40, 40, 160],
         },
     ), // bulge
     (
@@ -2260,6 +2582,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 240,
             coordinate_shift: 2,
+            half_extents: [200, 200, 220],
         },
     ), // boss_e_0
     (
@@ -2267,6 +2590,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 240,
             coordinate_shift: 2,
+            half_extents: [200, 200, 220],
         },
     ), // boss_e_1
     (
@@ -2274,6 +2598,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 240,
             coordinate_shift: 2,
+            half_extents: [200, 200, 220],
         },
     ), // boss_e_1a
     (
@@ -2281,6 +2606,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 93,
             coordinate_shift: 0,
+            half_extents: [40, 36, 88],
         },
     ), // boss_e_3
     (
@@ -2288,6 +2614,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 36,
             coordinate_shift: 1,
+            half_extents: [34, 20, 20],
         },
     ), // boss_e_4
     (
@@ -2295,6 +2622,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 2,
+            half_extents: [40, 40, 120],
         },
     ), // ringlaser
     (
@@ -2302,6 +2630,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 96,
             coordinate_shift: 1,
+            half_extents: [76, 70, 80],
         },
     ), // snake_0
     (
@@ -2309,6 +2638,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 120,
             coordinate_shift: 0,
+            half_extents: [15, 120, 23],
         },
     ), // snake_3
     (
@@ -2316,6 +2646,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 50,
             coordinate_shift: 0,
+            half_extents: [15, 50, 15],
         },
     ), // snake_4
     (
@@ -2323,6 +2654,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 4,
             coordinate_shift: 0,
+            half_extents: [4, 4, 4],
         },
     ), // smark
     (
@@ -2330,6 +2662,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 8,
             coordinate_shift: 1,
+            half_extents: [8, 8, 8],
         },
     ), // mmark
     (
@@ -2337,6 +2670,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // lmark
     (
@@ -2344,6 +2678,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 32,
             coordinate_shift: 3,
+            half_extents: [32, 32, 32],
         },
     ), // escapee
     (
@@ -2351,6 +2686,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // lfdie
     (
@@ -2358,6 +2694,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 200,
             coordinate_shift: 1,
+            half_extents: [200, 200, 200],
         },
     ), // andross
     (
@@ -2365,6 +2702,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 0,
+            half_extents: [0, 0, 0],
         },
     ), // androsscube
     (
@@ -2372,6 +2710,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1184,
             coordinate_shift: 4,
+            half_extents: [448, 960, 976],
         },
     ), // face_0_1
     (
@@ -2379,6 +2718,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1120,
             coordinate_shift: 4,
+            half_extents: [480, 960, 400],
         },
     ), // face_1
     (
@@ -2386,6 +2726,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 400,
             coordinate_shift: 3,
+            half_extents: [160, 400, 160],
         },
     ), // face_box
     (
@@ -2393,6 +2734,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 236,
             coordinate_shift: 2,
+            half_extents: [120, 200, 20],
         },
     ), // sface_b
     (
@@ -2400,6 +2742,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 236,
             coordinate_shift: 2,
+            half_extents: [120, 200, 20],
         },
     ), // sface2_b
     (
@@ -2407,6 +2750,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 30,
             coordinate_shift: 0,
+            half_extents: [20, 30, 20],
         },
     ), // para_1
     (
@@ -2414,6 +2758,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [34, 14, 80],
         },
     ), // my_w
     (
@@ -2421,6 +2766,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [33, 16, 80],
         },
     ), // my_r_w
     (
@@ -2428,6 +2774,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [33, 16, 80],
         },
     ), // my_l_w
     (
@@ -2435,6 +2782,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [25, 13, 80],
         },
     ), // my_b_w
     (
@@ -2442,6 +2790,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 30,
             coordinate_shift: 1,
+            half_extents: [20, 30, 18],
         },
     ), // up1_man
     (
@@ -2449,6 +2798,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 46,
             coordinate_shift: 0,
+            half_extents: [36, 23, 35],
         },
     ), // f_dra_1
     (
@@ -2456,6 +2806,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 188,
             coordinate_shift: 2,
+            half_extents: [136, 136, 144],
         },
     ), // fire
     (
@@ -2463,6 +2814,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // smoke
     (
@@ -2470,6 +2822,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // ssplash
     (
@@ -2477,6 +2830,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 32,
             coordinate_shift: 3,
+            half_extents: [32, 32, 32],
         },
     ), // splash
     (
@@ -2484,6 +2838,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 8,
             coordinate_shift: 1,
+            half_extents: [8, 8, 8],
         },
     ), // pexplod
     (
@@ -2491,6 +2846,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 20,
             coordinate_shift: 1,
+            half_extents: [20, 20, 20],
         },
     ), // boostshape
     (
@@ -2498,6 +2854,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // firebreath
     (
@@ -2505,6 +2862,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 3,
+            half_extents: [80, 80, 80],
         },
     ), // lsmoke
     (
@@ -2512,6 +2870,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 320,
             coordinate_shift: 5,
+            half_extents: [320, 320, 320],
         },
     ), // folsmoke
     (
@@ -2519,6 +2878,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 400,
             coordinate_shift: 2,
+            half_extents: [400, 400, 400],
         },
     ), // androsshole
     (
@@ -2526,6 +2886,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [16, 16, 16],
         },
     ), // spexplod
     (
@@ -2533,6 +2894,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [36, 14, 80],
         },
     ), // myship_r
     (
@@ -2540,6 +2902,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [36, 14, 80],
         },
     ), // myship_l
     (
@@ -2547,6 +2910,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [20, 14, 80],
         },
     ), // myship_b
     (
@@ -2554,6 +2918,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 0,
             coordinate_shift: 5,
+            half_extents: [0, 0, 3200],
         },
     ), // my_up
     (
@@ -2561,6 +2926,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [36, 14, 80],
         },
     ), // bmyship_4
     (
@@ -2568,6 +2934,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [36, 14, 80],
         },
     ), // bmyship_r
     (
@@ -2575,6 +2942,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [36, 14, 80],
         },
     ), // bmyship_l
     (
@@ -2582,6 +2950,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 0,
+            half_extents: [20, 14, 80],
         },
     ), // bmyship_b
     (
@@ -2589,6 +2958,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1280,
             coordinate_shift: 4,
+            half_extents: [576, 224, 1280],
         },
     ), // myzoom_4
     (
@@ -2596,6 +2966,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1280,
             coordinate_shift: 4,
+            half_extents: [576, 224, 1280],
         },
     ), // myzoom_r
     (
@@ -2603,6 +2974,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1280,
             coordinate_shift: 4,
+            half_extents: [576, 224, 1280],
         },
     ), // myzoom_l
     (
@@ -2610,6 +2982,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1280,
             coordinate_shift: 4,
+            half_extents: [320, 224, 1280],
         },
     ), // myzoom_b
     (
@@ -2617,6 +2990,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 22,
             coordinate_shift: 0,
+            half_extents: [20, 20, 0],
         },
     ), // line
     (
@@ -2624,6 +2998,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 128,
             coordinate_shift: 1,
+            half_extents: [88, 86, 96],
         },
     ), // boss_d_0
     (
@@ -2631,6 +3006,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 82,
             coordinate_shift: 1,
+            half_extents: [40, 40, 60],
         },
     ), // boss_d_2
     (
@@ -2638,6 +3014,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 50,
             coordinate_shift: 1,
+            half_extents: [160, 160, 160],
         },
     ), // neck
     (
@@ -2645,6 +3022,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 70,
             coordinate_shift: 1,
+            half_extents: [60, 70, 52],
         },
     ), // grabber
     (
@@ -2652,6 +3030,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 112,
             coordinate_shift: 4,
+            half_extents: [112, 112, 112],
         },
     ), // grabber2
     (
@@ -2659,6 +3038,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 48,
             coordinate_shift: 3,
+            half_extents: [48, 48, 48],
         },
     ), // egg
     (
@@ -2666,6 +3046,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 372,
             coordinate_shift: 2,
+            half_extents: [284, 284, 192],
         },
     ), // boss_d_8
     (
@@ -2673,6 +3054,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 372,
             coordinate_shift: 2,
+            half_extents: [284, 284, 192],
         },
     ), // boss_d_9
     (
@@ -2680,6 +3062,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 1,
+            half_extents: [30, 40, 30],
         },
     ), // boss_d_6
     (
@@ -2687,6 +3070,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 42,
             coordinate_shift: 1,
+            half_extents: [30, 40, 30],
         },
     ), // boss_d_7
     (
@@ -2694,6 +3078,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 108,
             coordinate_shift: 1,
+            half_extents: [42, 36, 94],
         },
     ), // boss_9_0
     (
@@ -2701,6 +3086,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 128,
             coordinate_shift: 0,
+            half_extents: [38, 117, 36],
         },
     ), // barrier
     (
@@ -2708,6 +3094,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 59,
             coordinate_shift: 0,
+            half_extents: [30, 50, 5],
         },
     ), // fireface_b
     (
@@ -2715,6 +3102,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 336,
             coordinate_shift: 2,
+            half_extents: [200, 180, 200],
         },
     ), // boss_a_3
     (
@@ -2722,6 +3110,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 552,
             coordinate_shift: 3,
+            half_extents: [480, 176, 200],
         },
     ), // boss_a_4
     (
@@ -2729,6 +3118,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 552,
             coordinate_shift: 3,
+            half_extents: [480, 176, 200],
         },
     ), // boss_a_5
     (
@@ -2736,6 +3126,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 204,
             coordinate_shift: 2,
+            half_extents: [88, 176, 120],
         },
     ), // boss_b_l
     (
@@ -2743,6 +3134,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 204,
             coordinate_shift: 2,
+            half_extents: [88, 176, 120],
         },
     ), // boss_b_r
     (
@@ -2750,6 +3142,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 268,
             coordinate_shift: 2,
+            half_extents: [180, 136, 144],
         },
     ), // boss_b_h
     (
@@ -2757,6 +3150,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 236,
             coordinate_shift: 2,
+            half_extents: [40, 120, 220],
         },
     ), // round0p
     (
@@ -2764,6 +3158,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 56,
             coordinate_shift: 0,
+            half_extents: [36, 14, 40],
         },
     ), // ripair_w
     (
@@ -2771,6 +3166,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // fireball
     (
@@ -2778,6 +3174,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 72,
             coordinate_shift: 1,
+            half_extents: [24, 30, 60],
         },
     ), // missile
     (
@@ -2785,6 +3182,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 80,
             coordinate_shift: 3,
+            half_extents: [80, 80, 240],
         },
     ), // ironball
     (
@@ -2792,6 +3190,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 32,
             coordinate_shift: 3,
+            half_extents: [32, 32, 32],
         },
     ), // bouncyball
     (
@@ -2799,6 +3198,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // shelpball
     (
@@ -2806,6 +3206,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 32,
             coordinate_shift: 3,
+            half_extents: [32, 32, 32],
         },
     ), // nuke
     (
@@ -2813,6 +3214,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 176,
             coordinate_shift: 3,
+            half_extents: [160, 160, 0],
         },
     ), // hyper
     (
@@ -2820,6 +3222,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 116,
             coordinate_shift: 2,
+            half_extents: [80, 80, 20],
         },
     ), // hou_3
     (
@@ -2827,6 +3230,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 125,
             coordinate_shift: 0,
+            half_extents: [70, 28, 100],
         },
     ), // my_demobs
     (
@@ -2834,6 +3238,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 125,
             coordinate_shift: 0,
+            half_extents: [70, 28, 100],
         },
     ), // my_demos
     (
@@ -2841,6 +3246,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 90,
             coordinate_shift: 1,
+            half_extents: [40, 60, 44],
         },
     ), // big_m
     (
@@ -2848,6 +3254,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 82,
             coordinate_shift: 1,
+            half_extents: [60, 40, 80],
         },
     ), // boss_f_b
     (
@@ -2855,6 +3262,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 452,
             coordinate_shift: 2,
+            half_extents: [200, 376, 132],
         },
     ), // walker_r
     (
@@ -2862,6 +3270,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 16,
             coordinate_shift: 2,
+            half_extents: [64, 40, 120],
         },
     ), // playerbeam
     (
@@ -2869,6 +3278,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 32,
             coordinate_shift: 3,
+            half_extents: [32, 32, 32],
         },
     ), // ovalbeam
     (
@@ -2876,6 +3286,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 120,
             coordinate_shift: 1,
+            half_extents: [86, 100, 110],
         },
     ), // c_miss
     (
@@ -2883,6 +3294,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 25,
             coordinate_shift: 0,
+            half_extents: [20, 25, 20],
         },
     ), // zaco_0
     (
@@ -2890,6 +3302,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 29,
             coordinate_shift: 0,
+            half_extents: [25, 11, 15],
         },
     ), // zaco_7p
     (
@@ -2897,6 +3310,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 348,
             coordinate_shift: 2,
+            half_extents: [80, 348, 80],
         },
     ), // robot_0
     (
@@ -2904,6 +3318,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 416,
             coordinate_shift: 3,
+            half_extents: [240, 160, 360],
         },
     ), // boss_7_0
     (
@@ -2911,6 +3326,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 472,
             coordinate_shift: 3,
+            half_extents: [160, 240, 440],
         },
     ), // boss_7_1o
     (
@@ -2918,6 +3334,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 360,
             coordinate_shift: 3,
+            half_extents: [80, 160, 320],
         },
     ), // boss_7_2
     (
@@ -2925,6 +3342,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 416,
             coordinate_shift: 3,
+            half_extents: [280, 280, 360],
         },
     ), // boss_7_3
     (
@@ -2932,6 +3350,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 440,
             coordinate_shift: 3,
+            half_extents: [280, 328, 360],
         },
     ), // boss_7_4
     (
@@ -2939,6 +3358,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 280,
             coordinate_shift: 2,
+            half_extents: [228, 264, 100],
         },
     ), // boss_a_6
     (
@@ -2946,6 +3366,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 36,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // boss_f_8
     (
@@ -2953,6 +3374,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 36,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // boss_f_9
     (
@@ -2960,6 +3382,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 28,
             coordinate_shift: 2,
+            half_extents: [16, 8, 20],
         },
     ), // boss_f_8a
     (
@@ -2967,6 +3390,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 28,
             coordinate_shift: 2,
+            half_extents: [16, 8, 20],
         },
     ), // boss_f_9a
     (
@@ -2974,6 +3398,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 1120,
             coordinate_shift: 4,
+            half_extents: [480, 960, 400],
         },
     ), // face_0
     (
@@ -2981,6 +3406,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 400,
             coordinate_shift: 2,
+            half_extents: [344, 396, 336],
         },
     ), // boss_0_0
     (
@@ -2988,6 +3414,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 400,
             coordinate_shift: 2,
+            half_extents: [396, 396, 336],
         },
     ), // boss_0_0a
     (
@@ -2995,6 +3422,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 120,
             coordinate_shift: 2,
+            half_extents: [120, 120, 120],
         },
     ), // boss_0_2
     (
@@ -3002,6 +3430,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 132,
             coordinate_shift: 1,
+            half_extents: [118, 130, 40],
         },
     ), // boss_0_3
     (
@@ -3009,6 +3438,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 420,
             coordinate_shift: 2,
+            half_extents: [140, 160, 80],
         },
     ), // boss_1_0
     (
@@ -3016,6 +3446,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 84,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // boss_1_1
     (
@@ -3023,6 +3454,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 40,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // amoeba1
     (
@@ -3030,6 +3462,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 480,
             coordinate_shift: 2,
+            half_extents: [480, 480, 48],
         },
     ), // rpillar3
     (
@@ -3037,6 +3470,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 2144,
             coordinate_shift: 5,
+            half_extents: [1184, 352, 1888],
         },
     ), // deboss_0
     (
@@ -3044,6 +3478,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 2240,
             coordinate_shift: 5,
+            half_extents: [1344, 704, 1920],
         },
     ), // deboss_2
     (
@@ -3051,6 +3486,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 212,
             coordinate_shift: 2,
+            half_extents: [72, 100, 72],
         },
     ), // flower
     (
@@ -3058,6 +3494,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 176,
             coordinate_shift: 1,
+            half_extents: [36, 58, 172],
         },
     ), // big_bird
     (
@@ -3065,6 +3502,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 85,
             coordinate_shift: 0,
+            half_extents: [60, 60, 20],
         },
     ), // leaf
     (
@@ -3072,6 +3510,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 2,
+            half_extents: [284, 196, 100],
         },
     ), // walk_4_l
     (
@@ -3079,6 +3518,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 2,
+            half_extents: [284, 196, 100],
         },
     ), // walk_4_r
     (
@@ -3086,6 +3526,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 72,
             coordinate_shift: 1,
+            half_extents: [64, 50, 64],
         },
     ), // tow_1
     (
@@ -3093,6 +3534,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 240,
             coordinate_shift: 2,
+            half_extents: [100, 228, 32],
         },
     ), // slot_1
     (
@@ -3100,6 +3542,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 56,
             coordinate_shift: 2,
+            half_extents: [40, 40, 40],
         },
     ), // slot_2
     (
@@ -3107,6 +3550,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 22,
             coordinate_shift: 1,
+            half_extents: [20, 20, 0],
         },
     ), // slot_3
     (
@@ -3114,6 +3558,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 56,
             coordinate_shift: 2,
+            half_extents: [40, 40, 0],
         },
     ), // slot_4
     (
@@ -3121,6 +3566,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 480,
             coordinate_shift: 2,
+            half_extents: [480, 48, 48],
         },
     ), // pillar3_ns
     (
@@ -3128,6 +3574,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 44,
             coordinate_shift: 1,
+            half_extents: [40, 40, 40],
         },
     ), // laserline
     (
@@ -3135,6 +3582,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 108,
             coordinate_shift: 1,
+            half_extents: [60, 34, 90],
         },
     ), // warp_1
     (
@@ -3142,6 +3590,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 108,
             coordinate_shift: 1,
+            half_extents: [60, 34, 90],
         },
     ), // warp_2
     (
@@ -3149,6 +3598,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 108,
             coordinate_shift: 1,
+            half_extents: [60, 34, 90],
         },
     ), // warp_3
     (
@@ -3156,6 +3606,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 952,
             coordinate_shift: 3,
+            half_extents: [880, 320, 88],
         },
     ), // wall_l
     (
@@ -3163,6 +3614,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 952,
             coordinate_shift: 3,
+            half_extents: [880, 320, 88],
         },
     ), // wall_r
     (
@@ -3170,6 +3622,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 116,
             coordinate_shift: 0,
+            half_extents: [50, 50, 100],
         },
     ), // iris_1
     (
@@ -3177,6 +3630,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 46,
             coordinate_shift: 0,
+            half_extents: [20, 40, 20],
         },
     ), // stalk_1
     (
@@ -3184,6 +3638,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 32,
             coordinate_shift: 3,
+            half_extents: [32, 32, 32],
         },
     ), // explosion
     (
@@ -3191,6 +3646,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 64,
             coordinate_shift: 4,
+            half_extents: [64, 64, 64],
         },
     ), // explosion2
     (
@@ -3198,6 +3654,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 128,
             coordinate_shift: 5,
+            half_extents: [128, 128, 128],
         },
     ), // explosion3
     (
@@ -3205,6 +3662,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 256,
             coordinate_shift: 6,
+            half_extents: [256, 256, 256],
         },
     ), // explosion4
     (
@@ -3212,6 +3670,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 45,
             coordinate_shift: 0,
+            half_extents: [27, 20, 35],
         },
     ), // expl_4
     (
@@ -3219,6 +3678,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 30,
             coordinate_shift: 0,
+            half_extents: [19, 20, 29],
         },
     ), // expl_6
     (
@@ -3226,6 +3686,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 35,
             coordinate_shift: 0,
+            half_extents: [17, 20, 32],
         },
     ), // expl_8
     (
@@ -3233,6 +3694,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 432,
             coordinate_shift: 2,
+            half_extents: [384, 316, 272],
         },
     ), // boss_b_6
     (
@@ -3240,6 +3702,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 520,
             coordinate_shift: 2,
+            half_extents: [80, 40, 80],
         },
     ), // boss_b_7
     (
@@ -3247,6 +3710,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 176,
             coordinate_shift: 3,
+            half_extents: [160, 160, 0],
         },
     ), // hyper2
     (
@@ -3254,6 +3718,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 176,
             coordinate_shift: 3,
+            half_extents: [160, 160, 0],
         },
     ), // hyper3
     (
@@ -3261,6 +3726,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 176,
             coordinate_shift: 3,
+            half_extents: [160, 160, 0],
         },
     ), // hyper4
     (
@@ -3268,6 +3734,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 160,
             coordinate_shift: 2,
+            half_extents: [64, 20, 148],
         },
     ), // bazz_1p
     (
@@ -3275,6 +3742,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 148,
             coordinate_shift: 2,
+            half_extents: [28, 100, 112],
         },
     ), // bazz_1q
     (
@@ -3282,6 +3750,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 140,
             coordinate_shift: 2,
+            half_extents: [40, 100, 124],
         },
     ), // bazooka1
     (
@@ -3289,6 +3758,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 112,
             coordinate_shift: 2,
+            half_extents: [104, 60, 40],
         },
     ), // bazooka2
     (
@@ -3296,6 +3766,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 372,
             coordinate_shift: 2,
+            half_extents: [200, 376, 120],
         },
     ), // walker_l
     (
@@ -3303,6 +3774,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 512,
             coordinate_shift: 3,
+            half_extents: [120, 120, 480],
         },
     ), // op_0
     (
@@ -3310,6 +3782,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 688,
             coordinate_shift: 3,
+            half_extents: [344, 504, 480],
         },
     ), // op_1
     (
@@ -3317,6 +3790,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 512,
             coordinate_shift: 3,
+            half_extents: [120, 120, 480],
         },
     ), // op_2
     (
@@ -3324,6 +3798,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         Sf1ShapeMetrics {
             visual_extent: 396,
             coordinate_shift: 2,
+            half_extents: [32, 20, 120],
         },
     ), // elaser2
 ];

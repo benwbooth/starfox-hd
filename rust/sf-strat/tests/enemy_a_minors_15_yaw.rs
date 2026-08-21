@@ -33,13 +33,7 @@ fn run(g: &mut Game, idx: u16) {
 }
 
 fn yanglexy(src_x: i16, src_z: i16, dst_x: i16, dst_z: i16) -> u8 {
-    let dx = (dst_x as i32 - src_x as i32) as f32;
-    let dz = (dst_z as i32 - src_z as i32) as f32;
-    let mut a = dx.atan2(dz);
-    if a < 0.0 {
-        a += 2.0 * 3.141_592_65_f32;
-    }
-    ((a * (256.0 / (2.0 * 3.141_592_65_f32))) as i32) as u8
+    sf_core::aim_angle::yanglexy(dst_x.wrapping_sub(src_x), dst_z.wrapping_sub(src_z))
 }
 
 /// One Achase(shift=3) step from `cur` toward `target` (enemy_a::achase_angle).

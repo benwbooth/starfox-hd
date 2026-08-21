@@ -15,8 +15,7 @@ pub fn build() -> BuiltLevel {
     let mut b = MapBuilder::new();
 
     // PLANET.ASM — planet selection screen background objects.
-    // Note: mapnozremove is a runtime flag that prevents Z-removal of
-    // objects; handled by the renderer in the HD engine (no opcode).
+    b.preserve_behind_view_objects();
 
     // Lines 7-9: r_bu_4 row (right side)
     b.mapobj(0, 0x0220, -1000, -200, sh::R_BU_4, is::HARD);

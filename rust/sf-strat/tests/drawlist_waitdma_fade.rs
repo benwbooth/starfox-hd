@@ -2,7 +2,7 @@
 
 use sf_game::bgs::{calc_bg2_voffsets, Bg2VofsResult};
 use sf_game::clip::WaitDma;
-use sf_game::draw::build_list;
+use sf_game::draw::{build_list, CullView};
 use sf_game::obj::Objects;
 use sf_game::vars::{GameVars, GF_NOZREMOVE};
 use sf_game::windows::{Windows, WINDOW_MODE_HALFFADE};
@@ -17,7 +17,15 @@ fn build_drawlist_emits_shaped_aliens() {
     objs.aliens[idx as usize].worldy = 20;
     objs.aliens[idx as usize].worldz = 100;
     let mut out = Vec::new();
-    build_list(&mut objs, 0, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
+    build_list(
+        &mut objs,
+        0,
+        0,
+        CullView::default(),
+        GF_NOZREMOVE,
+        &|_| None,
+        &mut out,
+    );
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].shape_id, 1);
 }

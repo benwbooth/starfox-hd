@@ -828,6 +828,7 @@ dependencies = [
  "sf-game",
  "sf-map",
  "sf-path",
+ "sf-render",
  "sf-spc",
  "sf-strat",
  "sf2-data",

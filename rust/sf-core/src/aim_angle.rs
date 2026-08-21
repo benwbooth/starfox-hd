@@ -1,23 +1,22 @@
 //! ROM aim-angle + XZ distance leaves (`Yanglexy` / `Xanglexy` / `xzdiffs*`).
 //!
-//! Angles still use the C-port f32 `atan2`→u8 path (GSU `arctan16` is ±1 LSB
-//! on off-axis; see `sf-oracle` `gsu_arctan` / `fuzz_pure_fns2`). Distance
-//! metrics match the ROM exactly:
+//! Angles use the ROM's table-quantized integer `arctan16` routine. Distance
+//! metrics also match the ROM exactly:
 //! - [`xzdiffs`] — scaled Euclidean (`xzdiffs_l` / `xzdiffs_diffabs_l`)
 //! - [`xzdiffs_abs_manhattan`] — `|dx|+|dz|` (`xzdiffs_abs_l` rangexz)
 
-const SF2_QUARTER_TURN_FINE: u16 = 16_384;
-const SF2_HALF_TURN_FINE: u16 = 32_768;
-const SF2_DIAGONAL_FINE: u16 = 8_192;
-const SF2_RATIO_FRACTION_BITS: u32 = 14;
-const SF2_RATIO_TABLE_SHIFT: u32 = 5;
-const SF2_RATIO_TABLE_BYTE_MASK: u16 = 0xFFFE;
-const SF2_RATIO_MAXIMUM: u16 = 0x7FFF;
+const QUARTER_TURN_FINE: u16 = 16_384;
+const HALF_TURN_FINE: u16 = 32_768;
+const DIAGONAL_FINE: u16 = 8_192;
+const RATIO_FRACTION_BITS: u32 = 14;
+const RATIO_TABLE_SHIFT: u32 = 5;
+const RATIO_TABLE_BYTE_MASK: u16 = 0xFFFE;
+const RATIO_MAXIMUM: u16 = 0x7FFF;
 
-/// Quantized first-octant arctangent curve used by Star Fox 2. Values are
-/// fine angles where 65,536 units make a full turn. Keeping the authored
-/// integer curve avoids the one-unit drift of a floating-point approximation.
-static SF2_ARCTANGENT_CURVE: [u16; 256] = [
+/// Quantized first-octant arctangent curve shared by the retail Star Fox and
+/// Star Fox 2 math libraries. Values are fine angles where 65,536 units make a
+/// full turn.
+static ARCTANGENT_CURVE: [u16; 256] = [
     0, 32, 80, 112, 160, 192, 240, 272, 320, 352, 400, 432, 480, 528, 560, 608, 640, 688, 720, 768,
     800, 848, 880, 928, 960, 1_008, 1_040, 1_088, 1_136, 1_168, 1_216, 1_248, 1_296, 1_328, 1_376,
     1_408, 1_456, 1_488, 1_536, 1_568, 1_616, 1_648, 1_696, 1_728, 1_760, 1_808, 1_840, 1_888,
@@ -40,7 +39,7 @@ static SF2_ARCTANGENT_CURVE: [u16; 256] = [
 ];
 
 #[inline]
-fn sf2_abs_word(value: u16) -> u16 {
+fn abs_word(value: u16) -> u16 {
     if value as i16 >= 0 {
         value
     } else {
@@ -48,33 +47,32 @@ fn sf2_abs_word(value: u16) -> u16 {
     }
 }
 
-/// Star Fox 2's table-quantized signed arctangent. Inputs are ordinary signed
+/// The games' table-quantized signed arctangent. Inputs are ordinary signed
 /// world-space deltas; the result is a fine angle with 65,536 units per turn.
-pub fn sf2_atan16(x: i16, y: i16) -> u16 {
+pub fn atan16(x: i16, y: i16) -> u16 {
     let original_x = x as u16;
     let original_y = y as u16;
     let mut angle = if original_y == 0 {
-        SF2_QUARTER_TURN_FINE
+        QUARTER_TURN_FINE
     } else {
-        let mut numerator = sf2_abs_word(original_x);
-        let mut denominator = sf2_abs_word(original_y);
+        let mut numerator = abs_word(original_x);
+        let mut denominator = abs_word(original_y);
         if numerator == denominator {
-            SF2_DIAGONAL_FINE
+            DIAGONAL_FINE
         } else {
             let swapped = numerator.wrapping_sub(denominator) as i16 >= 0;
             if swapped {
                 std::mem::swap(&mut numerator, &mut denominator);
             }
             let ratio = if denominator == 0 {
-                SF2_RATIO_MAXIMUM
+                RATIO_MAXIMUM
             } else {
-                (((u32::from(numerator)) << SF2_RATIO_FRACTION_BITS) / u32::from(denominator))
-                    as u16
+                (((u32::from(numerator)) << RATIO_FRACTION_BITS) / u32::from(denominator)) as u16
             };
-            let byte_index = (ratio >> SF2_RATIO_TABLE_SHIFT) & SF2_RATIO_TABLE_BYTE_MASK;
-            let sample = SF2_ARCTANGENT_CURVE[usize::from(byte_index / 2)];
+            let byte_index = (ratio >> RATIO_TABLE_SHIFT) & RATIO_TABLE_BYTE_MASK;
+            let sample = ARCTANGENT_CURVE[usize::from(byte_index / 2)];
             if swapped {
-                SF2_QUARTER_TURN_FINE.wrapping_sub(sample)
+                QUARTER_TURN_FINE.wrapping_sub(sample)
             } else {
                 sample
             }
@@ -84,9 +82,15 @@ pub fn sf2_atan16(x: i16, y: i16) -> u16 {
         angle = angle.wrapping_neg();
     }
     if (original_y as i16) < 0 {
-        angle = angle.wrapping_add(SF2_HALF_TURN_FINE);
+        angle = angle.wrapping_add(HALF_TURN_FINE);
     }
     angle
+}
+
+/// Compatibility name for native Star Fox 2 call sites.
+#[inline]
+pub fn sf2_atan16(x: i16, y: i16) -> u16 {
+    atan16(x, y)
 }
 
 /// Exact Star Fox 2 byte yaw toward a world-space X/Z delta.
@@ -148,7 +152,7 @@ pub fn atan2_to_u8(opp: f32, adj: f32) -> u8 {
 /// ROM `Yanglexy_l` / `anglexy_l` / `anglexy_abs_l`: yaw = atan2(dx, dz).
 #[inline]
 pub fn yanglexy(dx: i16, dz: i16) -> u8 {
-    atan2_to_u8(dx as f32, dz as f32)
+    (atan16(dx, dz) >> 8) as u8
 }
 
 /// ROM `s_obj2WP_angle` / `s_obj2obj_angle` yaw store: `nega(Yanglexy)`.
@@ -160,13 +164,21 @@ pub fn yanglexy_nega(dx: i16, dz: i16) -> u8 {
 /// ROM `Xanglexy_l`: elevation = atan2(dy, `xzdiffs_l`).
 #[inline]
 pub fn xanglexy(dy: i16, dx: i16, dz: i16) -> u8 {
-    atan2_to_u8(dy as f32, xzdiffs(dx, dz) as f32)
+    (atan16(dy, xzdiffs(dx, dz)) >> 8) as u8
+}
+
+/// ROM fixed-view camera pitch: negate the complete fine angle before taking
+/// its high byte. This intentionally differs from negating [`xanglexy`]
+/// whenever the authored curve produces a non-zero fractional byte.
+#[inline]
+pub fn xanglexy_negated_fine(dy: i16, dx: i16, dz: i16) -> u8 {
+    (atan16(dy, xzdiffs(dx, dz)).wrapping_neg() >> 8) as u8
 }
 
 /// ROM `Xanglexabs_l`: elevation = atan2(dy, Manhattan from `xzdiffs_abs_l`).
 #[inline]
 pub fn xanglexabs(dy: i16, dx: i16, dz: i16) -> u8 {
-    atan2_to_u8(dy as f32, xzdiffs_abs_manhattan(dx, dz) as f32)
+    (atan16(dy, xzdiffs_abs_manhattan(dx, dz)) >> 8) as u8
 }
 
 /// SF2's fixed-point X/Z length approximation used before calculating a

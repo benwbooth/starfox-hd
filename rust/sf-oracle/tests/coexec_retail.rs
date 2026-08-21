@@ -12,10 +12,11 @@ use sf_oracle::{
     boot_retail, call, call_near, init_object_pool, inject_runmario_trampoline, load_built_rom,
     load_retail_rom, snapshot_objects, walk_freelist, Entry, SnesBus, AL_STRATPTR, AL_VX, AL_VY,
     AL_VZ, BUILT_POOL, BUILT_RUNMARIO_L_ROM, BUILT_RUNMARIO_RAM, RETAIL_ADDALVECS_L, RETAIL_ALDEAD,
-    RETAIL_DOSTRATS, RETAIL_DO_STRAT_L, RETAIL_GAMEFRAME, RETAIL_INIT_STRATS_L, RETAIL_ISTRATS,
-    RETAIL_LASTMAPOBJ, RETAIL_MAPBANK, RETAIL_MAPCNT, RETAIL_MAPOBJDO, RETAIL_MAPPTR,
-    RETAIL_NEWOBJEX, RETAIL_NEWOBJS_L, RETAIL_POOL, RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM,
-    RETAIL_SHAPES, RETAIL_STRATOBJ_POSX, RETAIL_UPDATE_OBJECTS_L,
+    RETAIL_DOSTRATS, RETAIL_DOSTRATS_COMPLETE, RETAIL_DO_STRAT_L, RETAIL_GAMEFRAME,
+    RETAIL_INIT_STRATS_L, RETAIL_ISTRATS, RETAIL_LASTMAPOBJ, RETAIL_MAPBANK, RETAIL_MAPCNT,
+    RETAIL_MAPOBJDO, RETAIL_MAPPTR, RETAIL_NEWOBJEX, RETAIL_NEWOBJS_L, RETAIL_POOL,
+    RETAIL_RUNMARIO_L_ROM, RETAIL_RUNMARIO_RAM, RETAIL_SHAPES, RETAIL_STRATOBJ_POSX,
+    RETAIL_UPDATE_OBJECTS_L,
 };
 
 const STRATOBJ_POSX: u32 = RETAIL_STRATOBJ_POSX;
@@ -326,6 +327,11 @@ fn retail_strat_pipeline_addresses() {
     assert_eq!(init, RETAIL_INIT_STRATS_L, "derived init_strats_l");
     assert_eq!(upd, RETAIL_UPDATE_OBJECTS_L, "derived update_objects_l");
     assert_eq!(dostrat, RETAIL_DO_STRAT_L, "derived do_strat_l");
+    assert_eq!(
+        rd(RETAIL_DOSTRATS_COMPLETE - 1, 2),
+        [0xAB, 0x60],
+        "dostrats completion marker must remain `plb; rts`"
+    );
 
     // do_strat_l landing site has the do_strat_l opcode skeleton.
     let s = rd(RETAIL_DO_STRAT_L, 18);

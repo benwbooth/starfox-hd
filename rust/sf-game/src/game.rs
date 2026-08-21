@@ -1986,6 +1986,13 @@ impl Game {
                     }
                     self.vars.mapptr = p.wrapping_add(3);
                 }
+                // Typed PLANET.ASM `mapnozremove`. The original map embeds a
+                // native-code OR; the flat Rust map carries that state change
+                // directly so unrelated game flags remain intact.
+                op::PRESERVE_BEHIND_VIEW_OBJECTS => {
+                    self.vars.gameflags |= GF_NOZREMOVE;
+                    self.vars.mapptr = p.wrapping_add(1);
+                }
                 // Unknown opcode: advance one byte and stop (C default).
                 _ => {
                     self.vars.mapptr = p.wrapping_add(1);
@@ -2075,5 +2082,16 @@ mod tests {
             &mut pointer,
         );
         assert_eq!(pointer, CARRY_ON_POINTER);
+    }
+
+    #[test]
+    fn planet_map_preserves_objects_behind_the_view_without_clearing_other_flags() {
+        let mut game = game_with_player();
+        game.vars.gameflags = GF_VIEWROT;
+        game.load_level(&sf_map::levels::planet::build());
+
+        game.map_exec();
+
+        assert_eq!(game.vars.gameflags, GF_VIEWROT | GF_NOZREMOVE);
     }
 }

@@ -27,6 +27,30 @@ pub const AF_INVIEW_PL: u8 = 16;
 /// C `ASF4_NOPOLYEXP` (src/game/obj.h:117).
 pub const ASF4_NOPOLYEXP: u8 = 0x04;
 
+/// Camera values consumed by the retail view-space placement pass.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CullView {
+    pub x: i16,
+    pub y: i16,
+    pub z: i16,
+    pub pitch: u16,
+    pub yaw: u16,
+    pub roll: u16,
+}
+
+impl CullView {
+    pub const fn new(position: [i16; 3], rotation: [u16; 3]) -> Self {
+        Self {
+            x: position[0],
+            y: position[1],
+            z: position[2],
+            pitch: rotation[0],
+            yaw: rotation[1],
+            roll: rotation[2],
+        }
+    }
+}
+
 /// C `FP16_FROM_INT` (src/types.h:44).
 #[inline]
 fn fp16_from_int(i: i32) -> i32 {
@@ -44,8 +68,8 @@ fn fp16_from_int(i: i32) -> i32 {
 ///
 /// * `playerflymode` — C `g_playerflymode` (shadow gate, draw.c:145).
 /// * `gameframe` — C `g_gameframe` (anim/col frame source, draw.c:119/126).
-/// * `viewposx`/`viewposz` — the CAMERA position published by getview
-///   (ROM `viewposx/z`, game.c:94-98) — NOT pviewpos (the player). The
+/// * `view` — the camera position and rotation published by getview
+///   (ROM `viewpos*`/`viewrot*`, game.c:94-98) — NOT pviewpos (the player). The
 ///   camera sits behind the player by viewdist, so anchoring the cull on
 ///   pviewposz popped objects that were still on screen.
 /// * `shape_extents` — per-shape AABB half-extents provider (same source
@@ -56,20 +80,18 @@ pub fn build_list(
     objs: &mut Objects,
     playerflymode: u8,
     gameframe: u16,
-    viewposx: i16,
-    viewposz: i16,
-    cam_yaw: u8,
+    view: CullView,
     gameflags: u8,
     shape_extents: &dyn Fn(u16) -> Option<(i16, i16, i16)>,
     out: &mut Vec<DrawListEntry>,
 ) {
     // Camera-space rotation for the behind test / leftpl (alienflags_l runs on
-    // the GSU-ROTATED dl_x/dl_z, MAIN.ASM:2024+). yaw 0 = +z forward; forward
-    // vector = (sin, cos) in (x, z) via ROM `rotate_16xz` (mulslog SINTAB/
-    // COSTAB — same formula as float sin/cos, cos=127 attenuation).
-    // Without this, the opening cinematic (camera ahead of the ships looking
-    // BACK, yaw ~128) culled the whole arwing formation as "behind" -> a solid
-    // green screen for the first seconds of Corneria.
+    // the GSU-ROTATED dl_x/dl_z, MAIN.ASM:2024+). The retail `wmat` applies the
+    // full pitch/yaw/roll matrix. A yaw-only approximation incorrectly frees
+    // mid-distance corridor objects during the pitched opening-camera handoff.
+    // The temporary inverse matrix positions the camera itself; `getviewrts`
+    // then rebuilds the published world-to-view matrix from these angles.
+    let view_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(view.pitch, view.yaw, view.roll);
     let mut cur = objs.active_head;
     while let Some(i) = cur {
         let idx = i as usize;
@@ -97,11 +119,9 @@ pub fn build_list(
         // --- Behind-camera cull (alienflags_l, MAIN.ASM:2024-2062) ---
         // ROM: behind iff sh_zmax(shape) + dl_z < 0, where dl_z is the
         // ROTATED camera-space z (world - viewpos through the view matrix).
-        // Yaw-only: `rotate_16xz` → (dl_x, dl_z) = (dx·cos−dz·sin, dx·sin+dz·cos)
-        // (pitch is negligible for the near-plane test; ROM GSU rotates fully,
-        // yaw is what flips during look-back cinematics). Shape z half-extent
-        // is the margin so an object stays drawable until its far edge passes
-        // the camera plane instead of popping at its origin.
+        // Shape z half-extent is the margin so an object stays drawable until
+        // its far edge passes the camera plane instead of popping at its
+        // origin.
         //
         // Behind objects first lose affrontpl (MAIN.ASM:2039-2041), then are
         // freed iff !gf_nozremove && !acf_firstframe && atzremove
@@ -109,11 +129,12 @@ pub fn build_list(
         // free keeps the 70-slot pool from filling with passed scenery).
         // Behind survivors fall through: ROM's .dontkill still gives them
         // afinviewpl/afleftpl and their marioshowview drawlist slot.
-        let (rel_x, rel_z) = {
+        let (rel_x, _, rel_z) = {
             let al = &objs.aliens[idx];
-            let dx = al.worldx.wrapping_sub(viewposx);
-            let dz = al.worldz.wrapping_sub(viewposz);
-            crate::trig8::rotate_16xz(cam_yaw, dx, dz)
+            let dx = al.worldx.wrapping_sub(view.x);
+            let dy = al.worldy.wrapping_sub(view.y);
+            let dz = al.worldz.wrapping_sub(view.z);
+            sf_core::snes_trig::matrix_rotate_q15(view_matrix, dx, dy, dz)
         };
         {
             let al = &objs.aliens[idx];
@@ -282,9 +303,7 @@ mod tests {
             &mut objs,
             PFM_SHADOWS,
             130,
-            0,
-            0,
-            0,
+            CullView::default(),
             GF_NOZREMOVE,
             &|_| None,
             &mut out,
@@ -343,7 +362,15 @@ mod tests {
         objs.aliens[a as usize].shape = 0; // skipped: no shape
 
         let mut out = Vec::new();
-        build_list(&mut objs, 0, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
+        build_list(
+            &mut objs,
+            0,
+            0,
+            CullView::default(),
+            GF_NOZREMOVE,
+            &|_| None,
+            &mut out,
+        );
         // Active list is newest-first: only slot 1 emitted.
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].explosion_cnt, 12);
@@ -357,13 +384,21 @@ mod tests {
         objs.aliens[b as usize].sflags4 = ASF4_NOPOLYEXP;
         objs.aliens[b as usize].flags = AFEXP; // rebuild cleared placement bits
         out.clear();
-        build_list(&mut objs, 0, 0, 0, 0, 0, GF_NOZREMOVE, &|_| None, &mut out);
+        build_list(
+            &mut objs,
+            0,
+            0,
+            CullView::default(),
+            GF_NOZREMOVE,
+            &|_| None,
+            &mut out,
+        );
         assert_eq!(out[0].explosion_cnt, 0);
     }
 
-    /// Yaw-only cull uses `rotate_16xz` (mulslog), not float sin/cos.
+    /// The full retail matrix supplies view-space left/front placement.
     #[test]
-    fn yaw_cull_uses_rotate16xz_leftpl_and_behind() {
+    fn view_matrix_sets_left_and_behind_flags() {
         // yaw=0x40 (90°): world +Z maps to camera −X → LEFT; dl_z≈0 → FRONT.
         let mut objs = Objects::init();
         let idx = objs.alloc().unwrap();
@@ -378,9 +413,7 @@ mod tests {
             &mut objs,
             0,
             0,
-            0,
-            0,
-            0x40,
+            CullView::new([0, 0, 0], [0, 16_384, 0]),
             GF_NOZREMOVE,
             &|_| None,
             &mut out,
@@ -403,9 +436,7 @@ mod tests {
             &mut objs,
             0,
             0,
-            0,
-            0,
-            0x80,
+            CullView::new([0, 0, 0], [0, 32_768, 0]),
             GF_NOZREMOVE,
             &|_| None,
             &mut out,
@@ -416,6 +447,40 @@ mod tests {
         assert!(expect_z < 0);
         assert_eq!(al.flags & AF_FRONT_PL, 0, "behind clears affrontpl");
         assert_eq!(al.flags & AF_INVIEW_PL, AF_INVIEW_PL);
+    }
+
+    #[test]
+    fn pitched_view_uses_vertical_position_for_behind_cull() {
+        const QUARTER_TURN: u16 = 16_384;
+        const VERTICAL_OFFSET: i16 = 100;
+
+        let mut objs = Objects::init();
+        let idx = objs.alloc().unwrap();
+        {
+            let object = &mut objs.aliens[idx as usize];
+            object.shape = 1;
+            object.worldy = VERTICAL_OFFSET;
+        }
+
+        let mut out = Vec::new();
+        build_list(
+            &mut objs,
+            0,
+            0,
+            CullView::new([0, 0, 0], [QUARTER_TURN, 0, 0]),
+            GF_NOZREMOVE,
+            &|_| None,
+            &mut out,
+        );
+
+        assert_eq!(out.len(), 1, "no-depth-removal keeps the object allocated");
+        let object = &objs.aliens[idx as usize];
+        assert_eq!(
+            object.flags & AF_FRONT_PL,
+            0,
+            "quarter-turn pitch rotates positive world Y behind the camera"
+        );
+        assert_eq!(object.flags & AF_INVIEW_PL, AF_INVIEW_PL);
     }
 
     /// Without GF_NOZREMOVE, behind + ATZREMOVE frees the alien (no draw slot).
@@ -432,7 +497,7 @@ mod tests {
             al.worldz = -200; // yaw0 → dl_z negative
         }
         let mut out = Vec::new();
-        build_list(&mut objs, 0, 0, 0, 0, 0, 0, &|_| None, &mut out);
+        build_list(&mut objs, 0, 0, CullView::default(), 0, &|_| None, &mut out);
         assert!(out.is_empty());
         assert!(objs.active_head.is_none());
     }

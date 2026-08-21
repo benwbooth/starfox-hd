@@ -158,9 +158,9 @@ fn append_map1_6a_content(
     // Line 6: map1_6a — the mapjsr entry point.
     b.label(&format!("{prefix}.map1_6a"));
 
-    // Line 7: `incmap planet` — inlines PLANET.ASM (mapnozremove is a renderer
-    // flag, no opcode; see planet.rs). Replicated verbatim from planet.rs so
-    // both PLANET.ASM transcriptions stay byte-identical.
+    // Line 7: `incmap planet` — retain PLANET.ASM's mapnozremove state and
+    // inline its scenery. This flag remains set through FINALMAP and DM_END.
+    b.preserve_behind_view_objects();
     b.mapobj(0, 0x0220, -1000, -200, sh::R_BU_4, is::HARD);
     b.mapobj(0, 0x0220, -500, -200, sh::R_BU_4, is::HARD);
     b.mapobj(0, 0x0220, -10, -200, sh::R_BU_4, is::HARD);
