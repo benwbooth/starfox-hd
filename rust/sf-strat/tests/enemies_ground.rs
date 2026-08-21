@@ -859,9 +859,9 @@ fn meteo0_fires_homing_laser_on_notdelay_gate() {
     g.objs.aliens[m as usize].sbyte1 = 20;
     g.objs.aliens[m as usize].worldz = 500;
     g.vars.gameframe = 7; // (7 + 1) & 7 == 0
-    assert!(!any_hplasma(&g), "no shot before the gate tick");
+    assert!(!any_fired_weapon(&g), "no shot before the gate tick");
     tick(&mut g, m);
-    assert!(any_hplasma(&g), "homing laser fired on the notdelay gate");
+    assert!(any_fired_weapon(&g), "homing laser fired on the notdelay gate");
     assert_eq!(g.objs.aliens[m as usize].sbyte1, 19, "budget consumed");
 }
 
@@ -1761,6 +1761,17 @@ fn any_laser(g: &Game) -> bool {
         .any(|(i, a)| i != 0 && a.active && a.type_ & ATLASER != 0)
 }
 
+/// Weapons fired through `gen_weapon` carry `al_type = atmissile`
+/// (GSTRATS.ASM gen_weapon / VARS.INC:143) — homing lasers and
+/// RELSLOWELASER volleys included.
+fn any_fired_weapon(g: &Game) -> bool {
+    g.objs
+        .aliens
+        .iter()
+        .enumerate()
+        .any(|(i, a)| i != 0 && a.active && a.type_ & ATMISSILE != 0)
+}
+
 // ---------------- misspod (IS 68) ----------------
 
 #[test]
@@ -1906,7 +1917,7 @@ fn szaco0_fires_at_the_fire_waypoint() {
     g.objs.aliens[z as usize].stratstate = 1; // waypoint 1 (wp_fire)
     g.vars.gameframe = 0; // notdelay(2) passes
     tick(&mut g, z);
-    assert!(any_laser(&g), "wp_fire spawns a RELSLOWELASER");
+    assert!(any_fired_weapon(&g), "wp_fire spawns a RELSLOWELASER");
 }
 
 // ---------------- szaco5 (IS 156) ----------------
@@ -1933,7 +1944,7 @@ fn szaco5_fires_and_advances_when_in_range() {
     let mut g = setup();
     let z = place(&mut g, IS_SZACO5, 0, 0, 1000, 129);
     tick(&mut g, z); // init falls through into state 0
-    assert!(any_laser(&g), "state 0 fires RELSLOWELASER within 1500 z");
+    assert!(any_fired_weapon(&g), "state 0 fires RELSLOWELASER within 1500 z");
     assert!(
         g.objs.aliens[z as usize].stratstate >= 1,
         "s_next_state advanced"
@@ -1955,7 +1966,7 @@ fn houdai5f_init_sets_flags() {
     assert_eq!(a.ap, HOUDAI5_AP, "houdai5AP");
     assert_eq!(a.animframe & 0x80, 0x80, "s_init_anim active flag");
     assert!(a.expstratptr.is_some(), "explode wired");
-    assert!(!any_laser(&g), "gate closed -> no shot");
+    assert!(!any_fired_weapon(&g), "gate closed -> no shot");
 }
 
 #[test]
@@ -1966,6 +1977,8 @@ fn houdai5f_fires_homing_hplasma_when_far() {
     g.vars.gameframe = 0; // gate open
     let h = place(&mut g, IS_HOUDAI5F, 0, 0, 3000, 44); // |dz|=3000 >= 400
     tick(&mut g, h);
+    // houdai5f's bouncyball spawns directly (strat_spawn_projectile sets
+    // al_type = ATLASER|ATZREMOVE); it does not pass through gen_weapon.
     assert!(any_laser(&g), "fires a homing Hplasma when far");
     let shot = g
         .objs
