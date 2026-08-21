@@ -8,8 +8,7 @@ use super::{Angle, Vector3};
 
 #[cfg(test)]
 use super::{
-    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
-    MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
 
 #[cfg(test)]

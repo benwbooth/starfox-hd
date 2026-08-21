@@ -688,10 +688,7 @@ mod tests {
 
         let player = NativePlayer::with_asset_root(&asset_root);
         player
-            .validate_named_ambience(&[
-                "open_space/fox/building.wav",
-                "open_space/fox/ready.wav",
-            ])
+            .validate_named_ambience(&["open_space/fox/building.wav", "open_space/fox/ready.wav"])
             .unwrap();
 
         player

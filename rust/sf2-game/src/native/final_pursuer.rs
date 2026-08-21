@@ -5,14 +5,13 @@
 //! tools/sf2/generate_final_rivals.py [--check]`.
 
 use super::{
-    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
-    MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
 
 #[cfg(test)]
 use super::{
-    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,
-    mission_actor_keyframe, MissionActorKeyframe,
+    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,
+    MissionActorKeyframe,
 };
 
 #[cfg(test)]

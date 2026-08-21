@@ -8,8 +8,16 @@ use super::{ShapeId, Vector3};
 
 pub(super) const PARENT_SHAPE: ShapeId = ShapeId::from_catalog_index(427);
 pub(super) const CORE_SHAPE: ShapeId = ShapeId::from_catalog_index(428);
-pub(super) const PARENT_POSITION: Vector3 = Vector3 { x: 1_536, y: 0, z: 7_936 };
-pub(super) const CORE_POSITION: Vector3 = Vector3 { x: 1_536, y: -152, z: 7_936 };
+pub(super) const PARENT_POSITION: Vector3 = Vector3 {
+    x: 1_536,
+    y: 0,
+    z: 7_936,
+};
+pub(super) const CORE_POSITION: Vector3 = Vector3 {
+    x: 1_536,
+    y: -152,
+    z: 7_936,
+};
 pub(super) const MAXIMUM_DURABILITY: u8 = 125;
 pub(super) const TRIGGER_PARTIAL_RETAIL_FRAME: u16 = 167;
 pub(super) const TRIGGER_ARMED_RETAIL_FRAME: u16 = 475;

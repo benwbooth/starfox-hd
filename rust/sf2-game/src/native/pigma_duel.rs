@@ -5,8 +5,7 @@
 //! tools/sf2/generate_pigma_duel.py [--check]`.
 
 use super::{
-    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
-    MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
 
 #[cfg(test)]

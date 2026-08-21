@@ -65,14 +65,14 @@ mod astropolis_entry;
 mod capital_continuation;
 #[path = "fighter_continuation.rs"]
 mod fighter_continuation;
-#[path = "fighter_mission_continuation.rs"]
-mod fighter_mission_continuation;
 #[path = "fighter_intercept.rs"]
 mod fighter_intercept;
 #[path = "fighter_intercept_fighters.rs"]
 mod fighter_intercept_fighters;
 #[path = "fighter_intercept_projectiles.rs"]
 mod fighter_intercept_projectiles;
+#[path = "fighter_mission_continuation.rs"]
+mod fighter_mission_continuation;
 #[path = "final_pursuer.rs"]
 mod final_pursuer;
 #[path = "final_pursuer_projectiles.rs"]
@@ -99,12 +99,12 @@ mod meteor_installation_core;
 mod meteor_queen_dragoon;
 #[path = "mirage_dragon.rs"]
 mod mirage_dragon;
-#[path = "mirage_dragon_head.rs"]
-mod mirage_dragon_head;
 #[path = "mirage_dragon_body.rs"]
 mod mirage_dragon_body;
 #[path = "mirage_dragon_body_actions.rs"]
 mod mirage_dragon_body_actions;
+#[path = "mirage_dragon_head.rs"]
+mod mirage_dragon_head;
 #[path = "missile_interception.rs"]
 mod missile_interception;
 #[path = "missile_interception_targets.rs"]
@@ -121,20 +121,20 @@ mod pigma_duel_projectiles;
 mod pigma_duel_rival;
 #[path = "player_damage.rs"]
 mod player_damage;
-#[path = "pressure_fighters.rs"]
-mod pressure_fighters;
 #[path = "pressure_fighter_flight.rs"]
 mod pressure_fighter_flight;
-#[path = "pressure_fighter_live_projectiles.rs"]
-mod pressure_fighter_live_projectiles;
 #[cfg(test)]
 #[path = "pressure_fighter_live_projectile_oracle.rs"]
 mod pressure_fighter_live_projectile_oracle;
+#[path = "pressure_fighter_live_projectiles.rs"]
+mod pressure_fighter_live_projectiles;
 #[path = "pressure_fighter_projectiles.rs"]
 mod pressure_fighter_projectiles;
 #[cfg(test)]
 #[path = "pressure_fighter_survival.rs"]
 mod pressure_fighter_survival;
+#[path = "pressure_fighters.rs"]
+mod pressure_fighters;
 #[path = "second_sortie.rs"]
 mod second_sortie;
 #[path = "second_sortie_capital.rs"]

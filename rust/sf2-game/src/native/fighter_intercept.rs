@@ -4,15 +4,13 @@
 //! Regenerate or verify with `uv run python
 //! tools/sf2/generate_fighter_intercept.py [--check]`.
 
-use super::{
-    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
-    MissionPlayerKeyframe,
-};
 #[cfg(test)]
 use super::{
-    mission_actor_departure_keyframe, mission_actor_inactive_keyframe,
-    mission_actor_keyframe, mission_projectile_keyframe, MissionActorKeyframe,
-    MissionProjectileKeyframe,
+    mission_actor_departure_keyframe, mission_actor_inactive_keyframe, mission_actor_keyframe,
+    mission_projectile_keyframe, MissionActorKeyframe, MissionProjectileKeyframe,
+};
+use super::{
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
 };
 
 pub(super) const RETURN_RETAIL_FRAME: u16 = 3328;

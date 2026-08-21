@@ -11,1308 +11,457 @@ pub(super) const LOWER_DEPARTURE_RETAIL_FRAME: u16 = 2_452;
 pub(super) const UPPER_DEPARTURE_RETAIL_FRAME: u16 = 3_656;
 
 pub(super) const DISPATCH: [FighterLogicDispatchPair; 302] = [
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::ThreeQuarterWave,
         FighterLogicDispatch::Wait,
     ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::ApplyWave,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Wait,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::ApplyWave, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Wait, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Wait,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Wait,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::Complete),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Wait, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Wait, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::PrepareWave,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::ApplyWave,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::QuarterWave,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::ApplyWave,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::SplitWave,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::ApplyWave,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::PrepareWave),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::ApplyWave, FighterLogicDispatch::Wait)
+        .with_upper_next_slice(FighterLogicDispatch::QuarterWave),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::ApplyWave, FighterLogicDispatch::Wait)
+        .with_upper_next_slice(FighterLogicDispatch::Complete),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::SplitWave,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::ApplyWave, FighterLogicDispatch::Wait)
+        .with_upper_next_slice(FighterLogicDispatch::Complete),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
+    )
+    .with_upper_next_slices(
         FighterLogicDispatch::PitchContinuation,
         FighterLogicDispatch::CompleteAfterEarlyAltitude,
     ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::Complete),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareWave,
         FighterLogicDispatch::Wait,
     ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::ApplyWave,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::TurnOnly,
-    ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::ApplyWave, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::TurnOnly,
+        ),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
     ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Wait,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Wait, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::Complete),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::AltitudeAndTurnOnly,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::CompleteAfterEarlyAltitude,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slice(FighterLogicDispatch::CompleteAfterEarlyAltitude),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::CompleteAfterEarlyAltitude,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::PrepareWave,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::ApplyWave,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ).with_upper_next_slices(
-        FighterLogicDispatch::AdvanceCurrentMovement,
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::CompleteAfterEarlyAltitude),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::PrepareWave,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::ApplyWave, FighterLogicDispatch::Wait)
+        .with_upper_next_slice(FighterLogicDispatch::Complete),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait)
+        .with_upper_next_slices(
+            FighterLogicDispatch::AdvanceCurrentMovement,
+            FighterLogicDispatch::Complete,
+        ),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::PrepareMovement,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::FinishPreparedAndBeginMovement,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::FinishPreparedAndBeginMovement),
     FighterLogicDispatchPair::new(
         FighterLogicDispatch::MovementContinuation,
         FighterLogicDispatch::Wait,
-    ).with_upper_next_slice(
-        FighterLogicDispatch::Complete,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Complete,
-        FighterLogicDispatch::Wait,
-    ),
-    FighterLogicDispatchPair::new(
-        FighterLogicDispatch::Wait,
-        FighterLogicDispatch::Wait,
-    ),
+    )
+    .with_upper_next_slice(FighterLogicDispatch::Complete),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Complete, FighterLogicDispatch::Wait),
+    FighterLogicDispatchPair::new(FighterLogicDispatch::Wait, FighterLogicDispatch::Wait),
 ];
 
 pub(super) const RANDOM_CADENCE: [FighterRandomCadence; 302] = [

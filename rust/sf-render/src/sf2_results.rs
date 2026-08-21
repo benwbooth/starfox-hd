@@ -149,7 +149,9 @@ impl Presentation {
             return;
         }
         if self.current_track == Some(track)
-            && self.current_frame.is_some_and(|current| current + 1 == frame_index)
+            && self
+                .current_frame
+                .is_some_and(|current| current + 1 == frame_index)
         {
             self.apply_frame(track, frame_index);
             return;
@@ -186,16 +188,13 @@ impl Presentation {
 }
 
 pub fn reveal_frame_at_retail_frame(elapsed_retail_frames: u32) -> usize {
-    let frame = usize::try_from(
-        elapsed_retail_frames / RETAIL_FRAMES_PER_PRESENTATION_FRAME,
-    )
-    .unwrap_or(usize::MAX);
+    let frame = usize::try_from(elapsed_retail_frames / RETAIL_FRAMES_PER_PRESENTATION_FRAME)
+        .unwrap_or(usize::MAX);
     if frame < REVEAL_FRAME_COUNT {
         frame
     } else {
         REVEAL_LOOP_FIRST_FRAME
-            + (frame - REVEAL_LOOP_FIRST_FRAME)
-                % (REVEAL_FRAME_COUNT - REVEAL_LOOP_FIRST_FRAME)
+            + (frame - REVEAL_LOOP_FIRST_FRAME) % (REVEAL_FRAME_COUNT - REVEAL_LOOP_FIRST_FRAME)
     }
 }
 
@@ -306,23 +305,14 @@ mod tests {
     #[test]
     fn leaving_brightness_matches_each_retail_destination() {
         let mut presentation = Presentation::decode();
-        let retry_thirteen = presentation.frame_rgba(
-            Track::RetryLeaving,
-            1,
-            Brightness::ThirteenFifteenths,
-        );
+        let retry_thirteen =
+            presentation.frame_rgba(Track::RetryLeaving, 1, Brightness::ThirteenFifteenths);
         assert_eq!(fnv1a(retry_thirteen), 0x5CFFFE51);
-        let retry_seven = presentation.frame_rgba(
-            Track::RetryLeaving,
-            1,
-            Brightness::SevenFifteenths,
-        );
+        let retry_seven =
+            presentation.frame_rgba(Track::RetryLeaving, 1, Brightness::SevenFifteenths);
         assert_eq!(fnv1a(retry_seven), 0x5EA7D298);
-        let title_nine = presentation.frame_rgba(
-            Track::TitleLeaving,
-            1,
-            Brightness::NineFifteenths,
-        );
+        let title_nine =
+            presentation.frame_rgba(Track::TitleLeaving, 1, Brightness::NineFifteenths);
         assert_eq!(fnv1a(title_nine), 0x136E6D99);
     }
 }
