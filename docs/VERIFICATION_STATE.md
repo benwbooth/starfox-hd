@@ -57,3 +57,23 @@ and the carried pillar sits far off in native.
 - ea_parity fixtures are pacing-sensitive through level boot; re-bless
   (SF_BLESS_FIXTURES=1) whenever map timing or early strat behavior
   changes, then eyeball the fixture diff for sanity.
+
+## Known-failing hand-written asserts (pre-existing, bisected)
+
+Three `sf-strat/tests/enemies_ground.rs` firing tests fail since the
+same-frame spawn-scheduling commit b2e0a6f (codex WIP), NOT since any
+of this arc's commits — bisected via worktrees at 8230b8c (green) vs
+b2e0a6f (red):
+
+- meteo0_fires_homing_laser_on_notdelay_gate
+- szaco0_fires_at_the_fire_waypoint
+- szaco5_fires_and_advances_when_in_range
+
+These drive one strategy tick through `Game::call_strat` directly (no
+run_strategies loop) and assert a just-fired weapon exists afterwards.
+Under same-frame scheduling the fired laser's own init/first-tick now
+runs inside the fire call; whether the laser is then legitimately
+elsewhere/dead or genuinely broken needs a per-case ASM check
+(GASTRATS laser inits + remove_offscn/lifecnt semantics) before either
+fixing code or updating the asserts. Do NOT bless these blindly — they
+are behavioral assertions, not captured traces.
