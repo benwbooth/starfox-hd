@@ -1,6 +1,6 @@
 //! Tick 195: AUDIT_ENEMY_B Minors verify (already ported).
 
-use sf_game::alien::ATLASER;
+use sf_game::alien::{ATLASER, ATMISSILE};
 use sf_game::game::{Game, Hooks};
 use sf_strat::enemy_a::boss_attach_child_to_mother;
 use sf_strat::enemy_b::{
@@ -45,7 +45,12 @@ fn shots(g: &Game, firer: u16) -> Vec<(i16, i16, i16)> {
         .aliens
         .iter()
         .enumerate()
-        .filter(|(i, a)| a.active && *i as u16 != firer && *i != 0 && a.type_ & ATLASER != 0)
+        .filter(|(i, a)| {
+            a.active
+                && *i as u16 != firer
+                && *i != 0
+                && a.type_ & (ATLASER | ATMISSILE) != 0
+        })
         .map(|(_, a)| (a.worldx, a.worldy, a.worldz))
         .collect()
 }
