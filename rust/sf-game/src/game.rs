@@ -389,6 +389,9 @@ impl Game {
             self.vars.shared.float_variables[1] =
                 self.vars.shared.float_variables[1].wrapping_add(SECOND_FLOAT_OSCILLATOR_STEP);
         }
+        // GSTRATS.ASM `init_strats_l` advances the runtime stream once after
+        // its player/view bookkeeping, before any object strategy executes.
+        let _ = self.vars.advance_random();
     }
 
     /// C `do_strat_l` (src/game/obj.c:172, STRATROU.ASM:2189+).

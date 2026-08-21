@@ -251,32 +251,9 @@ impl StratRam for GameVars {
     }
 }
 
-/// C `SfRtl_Random()` (src/sf_rtl.c:192) with `PRNG_NEXT`
-/// (src/types.h:57): `rnd * 91 + 0x61D7`, 16-bit. State lives at
-/// [`sv::RNDVAL`] (boot value 0, like the C global).
+/// Source runtime random draw over the typed four-byte stream.
 pub fn sf_random(vars: &mut GameVars) -> u16 {
-    // ROM RANDOM ($2F7BF) — the RUNTIME RNG (called 32x in strat code): a 4-byte
-    // subtract-with-borrow chain over `rand` ($DE-$E1):
-    //   A=DE; CLC; A=A-DF-!C -> DF; -E0 -> E0; -E1 -> E1; -DE(orig) -> DE; ret A
-    // (The ×91+$61D7 LCG the port used before is a BUILD-TIME assembler macro,
-    // MACROS.INC `rndval=`, for baking static data — not the runtime RNG.)
-    // Proven bit-exact in sf-oracle tests/random.rs. Returns the new low byte;
-    // callers mask low bits so widening u8->u16 is fine. NOTE: boss parity
-    // fixtures were captured against the old LCG and are now stale (ROM fidelity
-    // chosen; C oracle removed so they can't be regenerated).
-    let s = &mut vars.rng;
-    let de0 = s[0];
-    let subs = [s[1], s[2], s[3], de0];
-    let idxs = [1usize, 2, 3, 0];
-    let mut a = de0 as i32;
-    let mut carry = 0i32; // CLC
-    for k in 0..4 {
-        let raw = a - subs[k] as i32 - (1 - carry);
-        carry = (raw >= 0) as i32;
-        a = raw & 0xFF;
-        s[idxs[k]] = a as u8;
-    }
-    s[0] as u16
+    u16::from(vars.advance_random())
 }
 
 // ============================================================

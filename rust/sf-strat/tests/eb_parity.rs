@@ -12,6 +12,11 @@
 //! globals and one `O` line per active alien in active-list order; the Rust
 //! replay must match the C dump byte-for-byte.
 //!
+//! The bossf and spacepilon fixtures include the retail runtime random draw at
+//! the start of every completed strategy frame. The retired C translation did
+//! not run that scheduler-level draw, so its later rotations and launch vectors
+//! were shifted relative to the cartridge.
+//!
 //! Regenerate (repo root, harness source in session scratchpad, run inside
 //! `nix develop`, strip the Obj_Init banner):
 //!   gcc -O2 -Isrc $(pkg-config --cflags sdl2) -o eb_harness.bin eb_harness.c \
@@ -163,8 +168,9 @@ fn run_scenario(mut g: Game, fixture: &str) {
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), fixture);
     // Bless mode: C dump harness deleted in the RIIR; SF_BLESS_FIXTURES=1 rewrites
     // from the current Rust trace. Divergence is the ROM-correct spawn init cascade
-    // (type_=8/realobj/animframe=0/colframe=0) + collcount=1 seeding; the boss/
-    // enemy-B strats here are unchanged. Regression guard, not a C-parity proof.
+    // (type_=8/realobj/animframe=0/colframe=0) + collcount=1 seeding and the
+    // scheduler-level random draw documented above; the boss/enemy-B strats here
+    // are unchanged. Regression guard, not a C-parity proof.
     if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
         std::fs::write(&path, &out).expect("write fixture");
         return;

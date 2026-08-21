@@ -7,12 +7,13 @@ use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_VX, AL_VY, AL_VZ,
     RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
-    RETAIL_GAMEFRAME, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
-    RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
-    RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
-    RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
-    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
-    RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE, RETAIL_MAPCNT,
+    RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
+    RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
+    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
+    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
+    RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS,
+    RETAIL_PVIEWVELZ, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -26,6 +27,7 @@ const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
 const FRONT_END_TICKS: u32 = 920;
+const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const WORK_RAM: u32 = 0x7E_0000;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
@@ -137,6 +139,28 @@ const STARTUP_CHECKPOINTS: [(u32, StartupSnapshot); 5] = [
         },
     ),
 ];
+const FIRST_LEVEL_STATE_COMPARISON_TICK: u32 = 892;
+const STARTUP_ROLE_SLOTS: u16 = 6;
+const RETAIL_DIRECT_SHAPE_OP_0: u16 = 0xBB48;
+const RETAIL_DIRECT_SHAPE_OP_1: u16 = 0xBB64;
+const RETAIL_DIRECT_SHAPE_MYSHIP_4: u16 = 0xD304;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LevelObjectSnapshot {
+    slot: u16,
+    shape: Option<u16>,
+    position: Position,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct LevelSnapshot {
+    background: u16,
+    game_frame: u16,
+    map_countdown: u16,
+    previous_player_depth: i16,
+    last_depth_change: i16,
+    objects: Vec<LevelObjectSnapshot>,
+}
 const RETAIL_PHASE_ENTRIES: [u32; 11] = [
     RETAIL_PLANET_MAP_FADE_ENTRY,
     RETAIL_PLANET_ISOLATION_ENTRY,
@@ -537,6 +561,75 @@ fn native_startup_snapshot(native: &Shell) -> StartupSnapshot {
     }
 }
 
+fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
+    const SOURCE_SHAPE_CATALOG_ENTRIES: u16 = 256;
+
+    let flat_shape = |source_word| {
+        let direct_shape = match source_word {
+            RETAIL_DIRECT_SHAPE_OP_0 => Some(sf_map::consts::sh::OP_0),
+            RETAIL_DIRECT_SHAPE_OP_1 => Some(sf_map::consts::sh::OP_1),
+            RETAIL_DIRECT_SHAPE_MYSHIP_4 => Some(sf_map::consts::sh::MYSHIP_4),
+            _ => None,
+        };
+        if let Some(shape) = direct_shape {
+            return sf_core::shape::resolve_shape_word(shape);
+        }
+        (0..SOURCE_SHAPE_CATALOG_ENTRIES)
+            .find(|catalog_id| {
+                retail.peek16(RETAIL_SHAPES + u32::from(*catalog_id) * 2) == source_word
+            })
+            .map(sf_core::shape::resolve_shape_word)
+            .unwrap_or_else(|| sf_core::shape::resolve_shape_word(source_word))
+    };
+    let objects = retail.object_snapshot();
+    let mut active = retail.active_object_slots();
+    active.sort_unstable();
+    LevelSnapshot {
+        background: sf_oracle::retail_background_catalog_id(
+            retail.peek16(WORK_RAM | RETAIL_CURRENTBG),
+        )
+        .expect("retail background offset must identify a catalog record"),
+        game_frame: retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
+        map_countdown: retail.peek16(WORK_RAM | RETAIL_MAPCNT),
+        previous_player_depth: retail.peek16(WORK_RAM | RETAIL_LASTPLAYZ) as i16,
+        last_depth_change: retail.peek16(WORK_RAM | RETAIL_LASTZCHANGE) as i16,
+        objects: active
+            .into_iter()
+            .map(|slot| {
+                let object = objects[slot as usize];
+                LevelObjectSnapshot {
+                    slot,
+                    shape: (slot >= STARTUP_ROLE_SLOTS).then(|| flat_shape(object.shape)),
+                    position: object_position(object),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
+    let mut active = native.game.objs.active_indices();
+    active.sort_unstable();
+    LevelSnapshot {
+        background: native.game.vars.currentbg,
+        game_frame: native.game.vars.gameframe,
+        map_countdown: native.game.vars.mapcnt,
+        previous_player_depth: native.game.world.lastplayz,
+        last_depth_change: native.game.world.lastzchange,
+        objects: active
+            .into_iter()
+            .map(|slot| {
+                let object = native.game.objs.aliens[slot as usize];
+                LevelObjectSnapshot {
+                    slot,
+                    shape: (slot >= STARTUP_ROLE_SLOTS).then_some(object.shape),
+                    position: Position(object.worldx, object.worldy, object.worldz),
+                }
+            })
+            .collect(),
+    }
+}
+
 fn configured_native_shell() -> Shell {
     let mut native = Shell::new();
     native.set_register_strats(Box::new(sf_strat::table::register_all));
@@ -568,7 +661,7 @@ fn native_corneria_startup_retains_certified_checkpoints() {
 }
 
 #[test]
-fn retail_front_end_through_corneria_initialization_matches_native_semantic_timing() {
+fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     let Some(rom) = load_retail_rom() else {
         eprintln!("retail front-end trace skipped: Star Fox retail ROM not found");
         return;
@@ -592,6 +685,7 @@ fn retail_front_end_through_corneria_initialization_matches_native_semantic_timi
     let mut retail_origin = None;
     let mut native_origin = None;
     let mut retail_phase_tracker = RetailPhaseTracker::default();
+    let mut previous_retail_level_frame = None;
 
     for tick in 0..FRONT_END_TICKS {
         let input = front_end_input(tick);
@@ -599,7 +693,20 @@ fn retail_front_end_through_corneria_initialization_matches_native_semantic_timi
             .tick_video_frames(input, VIDEO_FRAMES_PER_NATIVE_TICK)
             .expect("retail front-end trace");
         let retail_execution_entries = retail.take_cpu_execution_watch_hits();
-        native.tick(input);
+        let retail_level_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
+        let native_level_active = native.state() == GameState::Playing
+            && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
+        let retail_completed_level_update = previous_retail_level_frame
+            .map(|previous| previous != retail_level_frame)
+            .unwrap_or(true);
+        if !native_level_active || retail_completed_level_update {
+            native.tick(input);
+        }
+        if native.state() == GameState::Playing
+            && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
+        {
+            previous_retail_level_frame = Some(retail_level_frame);
+        }
 
         if let Some((_, expected)) = STARTUP_CHECKPOINTS
             .iter()
@@ -612,6 +719,14 @@ fn retail_front_end_through_corneria_initialization_matches_native_semantic_timi
             assert_eq!(
                 native_snapshot, retail_snapshot,
                 "startup parity tick {tick}"
+            );
+        }
+
+        if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
+            assert_eq!(
+                native_level_snapshot(&native),
+                retail_level_snapshot(&retail),
+                "Corneria level state diverged at tick {tick}"
             );
         }
 
@@ -662,5 +777,9 @@ fn retail_front_end_through_corneria_initialization_matches_native_semantic_timi
         retail_trace.len(),
         FRONT_END_TRANSITIONS,
         "trace must reach the initialized retail Corneria opening"
+    );
+    assert!(
+        previous_retail_level_frame >= Some(FIRST_CORRIDOR_LEVEL_FRAME),
+        "trace must compare the first Corneria corridor and wingman objects"
     );
 }

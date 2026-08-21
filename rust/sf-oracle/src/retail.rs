@@ -173,6 +173,8 @@ pub const RETAIL_NEWOBJS_L: u32 = 0x03_EDA1;
 /// in `audit_mapvm2.rs` are `$1780`/`$1782`/`$177C`/`$1AF8`.
 pub const RETAIL_MAPCNT: u32 = 0x16FB; // `sta mapcnt` in mapobjdo
 pub const RETAIL_MAPPTR: u32 = 0x16FD; // `stx mapptr` on mapcnt≠0 exit
+pub const RETAIL_LASTPLAYZ: u32 = 0x16FF;
+pub const RETAIL_LASTZCHANGE: u32 = 0x1701;
 pub const RETAIL_LASTMAPOBJ: u32 = 0x16F7; // `sty lastmapobj` after spawn
 pub const RETAIL_MAPBANK: u32 = 0x1FF4; // `lda mapbank` / `pha; plb` in newobjex
 /// Retail `shapes[]` long table (mapobjdo `lda.l shapes,x`).

@@ -19,6 +19,10 @@
 //! The boss1 post-destruction records also retain the retail circle anchor
 //! created by `makebosscircexp_srou`; the retired C translation omitted that
 //! presentation object.
+//! The three corrected fixtures also include the retail runtime random draw at
+//! the start of every completed strategy frame. The retired C translation did
+//! not run that scheduler-level draw, so its later generated positions and
+//! facing values were shifted relative to the cartridge.
 //!
 //! Regenerate (from the repo root, harness source in the session
 //! scratchpad; strip the Obj_Init banner line):

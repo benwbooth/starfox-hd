@@ -250,6 +250,14 @@ pub const LEVEL_INITIALIZATION_TICKS: u8 = 32;
 const SECOND_STARTUP_PLAYER_UPDATE_TICK: u8 = 5;
 /// Game-frame value immediately before the first source startup player update.
 const LEVEL_INITIALIZATION_INITIAL_GAME_FRAME: u16 = 140;
+/// Map-distance countdown retained when the retail transfer-bound setup hands
+/// control to the first active Corneria frame.
+const LEVEL_INITIALIZATION_MAP_COUNTDOWN: u16 = 162;
+/// Depth travelled by each transfer-bound base-player update.
+const LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE: i16 = 63;
+/// Runtime random state left by the retail 3D setup and game-frame-zero
+/// strategy initialization. Gameplay then advances it once per logic frame.
+const LEVEL_INITIALIZATION_RANDOM_STATE: [u8; 4] = [114, 239, 178, 245];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TallyPhase {
@@ -2621,8 +2629,20 @@ impl Shell {
 
     fn complete_gameplay_initialization(&mut self) {
         if let Some(player) = self.game.sync_player_snapshot() {
+            let follower = self.game.vars.dummyobj;
+            let previous_player_depth = if follower > 0
+                && (follower as usize) < self.game.objs.aliens.len()
+                && self.game.objs.aliens[follower as usize].active
+            {
+                self.game.objs.aliens[follower as usize].worldz
+            } else {
+                self.game.objs.aliens[player as usize].worldz
+            };
             self.initialize_player_for_map(self.planets.newmap, player);
-            self.game.world.lastplayz = self.game.objs.aliens[player as usize].worldz;
+            self.game.vars.rng = LEVEL_INITIALIZATION_RANDOM_STATE;
+            self.game.vars.mapcnt = LEVEL_INITIALIZATION_MAP_COUNTDOWN;
+            self.game.world.lastplayz = previous_player_depth;
+            self.game.world.lastzchange = LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE;
         }
         self.gameplay_entry_phase = GameplayEntryPhase::ActiveLevel;
     }

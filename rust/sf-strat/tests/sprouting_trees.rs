@@ -31,6 +31,10 @@ const TREE2_PLAYER_ALIGNED_YAW: u8 = 224;
 const TREE1_SETTLE_TICKS: usize = 80;
 const TREE2_SETTLE_TICKS: usize = 100;
 const TREE3_SETTLE_TICKS: usize = 120;
+// The bloom head itself becomes the first crown body before the source's
+// second `[1, 2]` height counter is applied to subsequent children.
+const TREE2_MINIMUM_CROWN_BODIES: usize = 2;
+const TREE2_MAXIMUM_CROWN_BODIES: usize = 3;
 const TREE_DEPTH: i16 = 1000;
 const ANIMATION_FRAME_MASK: u8 = 0x7f;
 const TREE3_POST_ROOT_GENERATIONS: u8 = 254;
@@ -145,7 +149,12 @@ fn tree2_adds_bent_crown_without_leaves_then_blooms() {
     }
 
     let body_count = count_shape(&game, SH_STALK_BODY);
-    assert!((first_stalk_count + 1..=first_stalk_count + 2).contains(&body_count));
+    assert!(
+        (first_stalk_count + TREE2_MINIMUM_CROWN_BODIES
+            ..=first_stalk_count + TREE2_MAXIMUM_CROWN_BODIES)
+            .contains(&body_count),
+        "first stalk count {first_stalk_count}, mature body count {body_count}"
+    );
     assert_eq!(count_shape(&game, SH_LEAF), 0);
     assert_eq!(count_shape(&game, SH_FLOWER), 1);
     assert!((0..NUMBER_AL).any(|idx| {

@@ -723,7 +723,9 @@ fn shipintro_float(g: &mut Game, idx: u16) {
     if al.sbyte4 >= SHIPINTRO_VIEW_FLOAT.len() as u8 {
         al.sbyte4 = 0;
     }
-    al.worldy = SHIPINTRO_VIEW_FLOAT[al.sbyte4 as usize];
+    // `floatCLship_l` reads the word table with an explicit source scale of
+    // one, doubling the authored float before the ship-specific offset.
+    al.worldy = SHIPINTRO_VIEW_FLOAT[al.sbyte4 as usize].wrapping_mul(2);
 }
 
 /// C `shipintro_strat` (strat_player.c:114).

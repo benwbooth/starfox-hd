@@ -39,6 +39,7 @@ const SH_MADBIKER: u16 = 79;
 const SH_ANDROSS_FACE: u16 = 431;
 const SH_END_BASE_ESCAPE: u16 = 224;
 const SH_END_FORMATION: u16 = 225;
+const TENKI_TEST_PILOT_RECOVERY_DISTANCE: i32 = 2_000;
 
 const EASY_ROUTE_REQUIRED_SHAPES: [(u16, &str); 8] = [
     (237, "Asteroid Belt large meteor"),
@@ -390,24 +391,35 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
     }
 }
 
-fn fly_pad(shell: &Shell, tick: usize) -> u16 {
+fn fly_pad(shell: &mut Shell, tick: usize) -> u16 {
     // Titania's `tenki_on` weather marker only raises the fog-exit latch when
     // the player passes within 100 units in X/Y during its short Z window.
     // Track the live marker so this unattended route test exercises the real
     // proximity branch instead of depending on the generic sweep's phase.
     let pidx = shell.game.vars.internal_playpt as usize;
     if pidx < shell.game.objs.aliens.len() && shell.game.objs.aliens[pidx].active {
-        let px = shell.game.objs.aliens[pidx].worldx;
-        if let Some(marker) = shell
+        let marker_position = shell
             .game
             .objs
             .aliens
             .iter()
             .find(|al| al.active && al.shape == SH_TENKI_MARKER && al.hp == 10 && al.ap == 10)
-        {
-            let dx = marker.worldx.wrapping_sub(px);
-            let py = shell.game.objs.aliens[pidx].worldy;
-            let dy = marker.worldy.wrapping_sub(py);
+            .map(|marker| (marker.worldx, marker.worldy));
+        if let Some((marker_x, marker_y)) = marker_position {
+            let player_y = shell.game.objs.aliens[pidx].worldy;
+            if (i32::from(marker_y) - i32::from(player_y)).abs()
+                > TENKI_TEST_PILOT_RECOVERY_DISTANCE
+            {
+                // The soak disables terrain collision so incidental deaths
+                // cannot hide route blockers. Titania delegates its ordinary
+                // lower boundary to that collision lane, so recover only the
+                // synthetic pilot when it has wrapped far outside the live
+                // weather-marker corridor.
+                shell.game.objs.aliens[pidx].worldy = marker_y;
+            }
+            let player = shell.game.objs.aliens[pidx];
+            let dx = marker_x.wrapping_sub(player.worldx);
+            let dy = marker_y.wrapping_sub(player.worldy);
             let horizontal = if dx > 40 {
                 pad::RIGHT
             } else if dx < -40 {
@@ -713,7 +725,7 @@ fn all_three_routes_reach_the_ending_unattended() {
                 GameState::Playing => {
                     arm_test_pilot(&mut shell);
                     defeat_vulnerable_hostiles(&mut shell);
-                    let input = fly_pad(&shell, tick);
+                    let input = fly_pad(&mut shell, tick);
                     shell.tick(input);
                 }
                 GameState::Tally => shell.tick(0),

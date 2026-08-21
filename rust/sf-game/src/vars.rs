@@ -702,6 +702,27 @@ impl Default for GameVars {
 }
 
 impl GameVars {
+    /// Advance the source game's four-byte runtime random stream once.
+    ///
+    /// The state is ordinary flat game data. Each byte is replaced in the
+    /// source-defined subtract-with-borrow chain, and the new first byte is
+    /// the generated value.
+    pub fn advance_random(&mut self) -> u8 {
+        let original_first = self.rng[0];
+        let sources = [self.rng[1], self.rng[2], self.rng[3], original_first];
+        let destinations = [1usize, 2, 3, 0];
+        let mut value = original_first;
+        let mut borrow = true;
+        for (source, destination) in sources.into_iter().zip(destinations) {
+            let (difference, source_borrow) = value.overflowing_sub(source);
+            let (difference, carried_borrow) = difference.overflowing_sub(u8::from(borrow));
+            borrow = source_borrow || carried_borrow;
+            value = difference;
+            self.rng[destination] = value;
+        }
+        self.rng[0]
+    }
+
     /// Append an ending replay mark, suppressing a duplicate consecutive
     /// marker exactly like the source sequence recorder.
     pub fn mark_boss_encounter(&mut self, encounter: BossEncounter) {

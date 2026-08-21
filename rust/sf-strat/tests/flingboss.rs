@@ -20,12 +20,14 @@ const WM_BOSSFLAGS: u16 = 0x1F02;
 
 // Local mirrors of the private bosses.rs constants (cited to the port).
 const SH_FLINGARM_PROXY: u16 = 327;
+const SH_GRABBER: u16 = 384;
 const FB_SFLAG5_SFLAGS3: u8 = 0x01; // sflags3 mother damage latch
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
 const ATMISSILE: u8 = 2; // alien.rs al_type
 const BF_DYING: u8 = 16; // bossflags (bosses.rs)
 const HARD_HP: u8 = 0xFF;
 const FLINGBOSS_MAXHP: u16 = 104; // flingboss1HP(24) + flingboss2HP(80)
+const FULL_GRABBER_CHAIN_OBJECTS: usize = 6;
 
 fn spawn(g: &mut Game, x: i16, y: i16, z: i16, shape: u16) -> u16 {
     let idx = g.objs.alloc().expect("alien pool");
@@ -75,6 +77,18 @@ fn count_missiles(g: &Game) -> usize {
         .count()
 }
 
+fn linked_chain_shapes(g: &Game, mut encoded_object: u16) -> Vec<u16> {
+    let mut shapes = Vec::new();
+    while encoded_object != 0 && shapes.len() < NUMBER_AL {
+        let object = encoded_object - 1;
+        let alien = &g.objs.aliens[object as usize];
+        assert!(alien.active, "chain contains an inactive object");
+        shapes.push(alien.shape);
+        encoded_object = alien.ptr;
+    }
+    shapes
+}
+
 /// Set the boss's stratptr to the registered IS_FLINGBOSS init so
 /// `run_strategies` drives the whole object graph.
 fn arm_boss(g: &mut Game, boss: u16) {
@@ -111,13 +125,31 @@ fn shared_arms_grow_full_grabber_chains() {
 
     for _ in 0..180 {
         g.run_strategies();
-        if count_shape(&g, 384) == 2 {
+        if count_shape(&g, SH_GRABBER) == 2 {
             break;
         }
     }
 
-    assert_eq!(count_shape(&g, 384), 2, "each arm terminates in a grabber");
-    assert!(count_shape(&g, 327) >= 8, "both recursive arm chains grew");
+    assert_eq!(
+        count_shape(&g, SH_GRABBER),
+        2,
+        "each arm terminates in a grabber"
+    );
+    let mother = g.objs.aliens[boss as usize];
+    let left_chain = linked_chain_shapes(&g, mother.ptr);
+    let right_chain = linked_chain_shapes(&g, mother.sword1 as u16);
+    for chain in [&left_chain, &right_chain] {
+        assert_eq!(
+            chain.len(),
+            FULL_GRABBER_CHAIN_OBJECTS,
+            "each recursive arm chain reached its authored length"
+        );
+        assert_eq!(
+            chain.last(),
+            Some(&SH_GRABBER),
+            "each chain ends in a grabber"
+        );
+    }
 }
 
 // ------------------------------------------------------------
