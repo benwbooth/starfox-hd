@@ -2,7 +2,7 @@
 //! delayexplode s_decbpl (count_down); pillar3explode 8-child chain + silent;
 //! init→strat same-frame fall-through.
 
-use sf_game::alien::ASF3_REALOBJ;
+use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE};
 use sf_game::game::{Game, Hooks};
 use sf_strat::enemy_a::{
     delayexplode_strat, strat_hard180yr_init, strat_hard90yr_init, strat_houdai_init,
@@ -76,8 +76,17 @@ fn delayexplode_count_one_survives_first_tick() {
     delayexplode_strat(&mut g, idx);
     assert_eq!(g.objs.aldead, 0, "entry count 1 must survive");
     assert_eq!(g.objs.aliens[idx as usize].count, 0);
+    // Second expiry applies ASM s_kill_obj (STRATMAC.INC:2643): colldisable +
+    // HP:=0 as a death SIGNAL (the inline expstrat morphs nopolyexp-free
+    // corpses into live polygon meshes) — not the removal flag.
     delayexplode_strat(&mut g, idx);
-    assert_eq!(g.objs.aldead, 1, "entry count 0 → die");
+    assert_eq!(g.objs.aldead, 0, "expiry signals death, does not remove");
+    assert_eq!(g.objs.aliens[idx as usize].hp, 0);
+    assert_ne!(
+        g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE,
+        0,
+        "colldisable set"
+    );
 }
 
 /// Medium #36: pillar3explode spawns 8 nopolyexp med children, no $10 SE, lifecnt 7.
@@ -119,7 +128,10 @@ fn pillar3explode_spawns_eight_silent_children() {
         assert_ne!(al.sflags4 & ASF4_NOPOLYEXP, 0, "child {i} nopolyexp");
         assert_eq!(al.count, i as u8, "staggered lifecnt 0..7");
     }
-    assert_eq!(g.objs.aliens[idx as usize].count, 7, "pillar lifecnt=7");
+    assert_eq!(
+        g.objs.aliens[idx as usize].count, 6,
+        "pillar lifecnt 7 minus the inline first delayremove decrement"
+    );
     assert!(g.objs.aliens[idx as usize].stratptr.is_some()); // delayremove
 }
 
@@ -164,11 +176,18 @@ fn houdai_init_runs_strat_same_frame() {
     g.objs.aliens[idx as usize].worldx = 0;
     g.objs.aliens[idx as usize].worldy = 0;
     g.objs.aliens[idx as usize].worldz = 2000; // dist_xz >= 800 → may fire
-                                               // (gameframe+idx)&0x0F==0 so cadence allows fire on this tick.
-    g.vars.gameframe = 15; // 15+1=16 → &0xF==0
+                                               // (gameframe+phase(idx))&0x0F==0 so cadence allows
+                                               // fire on this tick; phase(1)=seed54+step54=108.
+    g.vars.gameframe = 4; // (4+108)&0x0F == 0
     let before = g.objs.aliens.iter().filter(|a| a.active).count();
     strat_houdai_init(&mut g, idx);
     let after = g.objs.aliens.iter().filter(|a| a.active).count();
+    for (i, a) in g.objs.aliens.iter().enumerate() {
+        if a.active {
+            eprintln!("[dbgh] slot={} sh={} ty={:02X} p=({},{},{})", i, a.shape, a.type_, a.worldx, a.worldy, a.worldz);
+        }
+    }
+    eprintln!("[dbgh] before={} after={}", before, after);
     assert!(
         after > before,
         "houdai_strat body must fire plasma on spawn frame"
