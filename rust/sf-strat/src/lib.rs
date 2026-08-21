@@ -28,7 +28,6 @@ pub mod enemy_b;
 pub mod gameover;
 pub mod ground;
 pub mod intro;
-mod istrat_shapes;
 pub mod mother;
 pub mod path_adapter;
 pub mod player;

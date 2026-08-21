@@ -31,12 +31,14 @@ pub fn build() -> BuiltLevel {
     b.mapwait(1);
     b.setbg(BG_1_1C);
     b.initbg();
+    // `wipein mscramwipe_circle`: the typed shell owns the aperture itself,
+    // while this literal marker and authored distance preserve map timing.
+    b.mapcodejsl_builtin(cb::INITBLACK_L);
+    b.mapwait(SCRAMBLE_WIPE_DISTANCE);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
     let keep_player_strat_ptr = b.mapcode65816_inline();
-    b.mapif_builtin(cb::IS_PLAYER_DEAD, "level1_1.after_exitbase_setup");
     b.mapcodejsl_builtin(cb::SET_PLAYER_EXITBASE_L);
-    b.label("level1_1.after_exitbase_setup");
 
     b.mapobj(0, 0, 0, 0, sh::MYBASE_1, is::NOCOLL);
     b.mapobj(0, 0, 0, 0, sh::MYBASE_0, is::NOCOLL);

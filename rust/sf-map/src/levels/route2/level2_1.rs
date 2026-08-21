@@ -9,7 +9,7 @@ use super::rc::*;
 use super::submaps;
 use super::Route2Level;
 use crate::builder::MapBuilder;
-use crate::consts::op;
+use crate::consts::{op, SCRAMBLE_WIPE_DISTANCE};
 
 /// C `build_level2_1_wrapper_slice()`.
 pub fn build() -> Route2Level {
@@ -23,12 +23,12 @@ pub fn build() -> Route2Level {
     b.mapwait(1);
     b.setbg(BG_1_1C);
     b.initbg();
+    b.mapcodejsl_builtin(MAP_CB_INITBLACK_L);
+    b.mapwait(SCRAMBLE_WIPE_DISTANCE);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
     let level2_1_keep_player_strat_ptr = b.mapcode65816_inline();
-    b.mapif_builtin(MAP_CB_IS_PLAYER_DEAD, "level2_1.after_exitbase_setup");
     b.mapcodejsl_builtin(MAP_CB_SET_PLAYER_EXITBASE_L);
-    b.label("level2_1.after_exitbase_setup");
 
     b.mapobj(0, 0, 0, 0, SH_MYBASE_1, IS_NOCOLL);
     b.mapobj(0, 0, 0, 0, SH_MYBASE_0, IS_NOCOLL);

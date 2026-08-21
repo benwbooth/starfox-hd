@@ -102,6 +102,7 @@ fn retail_level_catalog_matches_asm_wipe_operands() {
             OpeningWipePlan {
                 initial: semantic_kind(initializer),
                 on_init_black: semantic_kind(later_wipe),
+                init_black_calls_before_reveal: u8::from(later_wipe.is_some()),
             },
             "catalog drift for {file}"
         );
@@ -121,6 +122,7 @@ fn training_uses_the_source_star_reveal() {
         OpeningWipePlan {
             initial: Some(StarReveal),
             on_init_black: None,
+            init_black_calls_before_reveal: 0,
         }
     );
 }

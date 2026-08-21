@@ -329,6 +329,15 @@ impl Game {
         dummy.sflags3 &= !ASF3_REALOBJ;
         dummy.sflags4 |= ASF4_PLAYEROBJ;
         self.vars.dummyobj = idx as i16;
+        let player = self.vars.internal_playpt;
+        if player >= 0
+            && (player as usize) < self.objs.aliens.len()
+            && self.objs.aliens[player as usize].active
+        {
+            // initgame_strats_l creates the follower with the player as the
+            // current object, so `l_add` keeps the player at the list head.
+            self.objs.active_move_after(idx, player as u16);
+        }
         Some(idx)
     }
 
@@ -507,6 +516,11 @@ impl Game {
     /// C `spawn_object` (src/game/world.c:933) — alloc + init vars + place
     /// relative to the player's Z.
     fn spawn_object(&mut self, x: i16, y: i16, z_offset: i16) -> Option<u16> {
+        // Every WORLD.ASM map spawn loads the current active-list head before
+        // `l_add`, whose contract inserts the allocation immediately after
+        // that object. Keep the player/head first so its global view-speed
+        // update is visible to path objects later in the same strategy pass.
+        let insertion_anchor = self.objs.active_head;
         let Some(idx) = self.objs.alloc() else {
             self.world.last_obj = None;
             self.world.lastmapobj = 0;
@@ -527,6 +541,9 @@ impl Game {
             Some(pz) => pz.wrapping_add(z_offset),
             None => z_offset,
         };
+        if let Some(anchor) = insertion_anchor {
+            self.objs.active_move_after(idx, anchor);
+        }
         self.world.last_obj = Some(idx);
         self.world.lastmapobj = idx + 1; // 0 = invalid encoding
         Some(idx)
@@ -2020,6 +2037,23 @@ mod tests {
         strat_init_obj_vars(&mut game.objs.aliens[player as usize]);
         game.vars.internal_playpt = player as i16;
         game
+    }
+
+    #[test]
+    fn map_spawns_remain_after_the_active_list_head() {
+        let mut game = game_with_player();
+        let first = game.spawn_object(0, 0, 0).expect("first map object");
+        let second = game.spawn_object(0, 0, 0).expect("second map object");
+
+        assert_eq!(game.objs.active_indices(), vec![0, second, first]);
+    }
+
+    #[test]
+    fn player_follower_does_not_displace_the_player_list_head() {
+        let mut game = game_with_player();
+        let follower = game.create_player_dummy().expect("player follower");
+
+        assert_eq!(game.objs.active_indices(), vec![0, follower]);
     }
 
     #[test]

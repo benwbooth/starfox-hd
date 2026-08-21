@@ -8,6 +8,7 @@ use super::common::*;
 use super::finish_level;
 use super::Route3Level;
 use crate::builder::MapBuilder;
+use crate::consts::SCRAMBLE_WIPE_DISTANCE;
 
 pub(crate) fn build() -> Route3Level {
     let mut b = MapBuilder::new();
@@ -21,12 +22,12 @@ pub(crate) fn build() -> Route3Level {
     b.mapwait(1);
     b.setbg(BG_3_1C);
     b.initbg();
+    b.mapcodejsl_builtin(MAP_CB_INITBLACK_L);
+    b.mapwait(SCRAMBLE_WIPE_DISTANCE);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
     let keep_player_strat_ptr = b.mapcode65816_inline();
-    b.mapif_builtin(MAP_CB_IS_PLAYER_DEAD, "level3_1.after_exitbase_setup");
     b.mapcodejsl_builtin(MAP_CB_SET_PLAYER_EXITBASE_L);
-    b.label("level3_1.after_exitbase_setup");
 
     b.mapobj(0, 0, 0, 0, SH_MYBASE_1, IS_NOCOLL);
     b.mapobj(0, 0, 0, 0, SH_MYBASE_0, IS_NOCOLL);

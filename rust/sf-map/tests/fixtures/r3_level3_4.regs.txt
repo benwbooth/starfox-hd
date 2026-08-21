@@ -1,4 +1,4 @@
-length 7098
-inline 721
-inline 2969
-inline 5739
+length 5658
+inline 584
+inline 2342
+inline 4629

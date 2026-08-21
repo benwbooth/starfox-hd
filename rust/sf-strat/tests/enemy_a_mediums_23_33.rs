@@ -181,16 +181,17 @@ fn friendexitbase_beqdec_snd_channels() {
     spawn_player(&mut g, 0, -40, 0);
     let idx = spawn(&mut g);
     strat_friendexitbase_init(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sbyte2, 11);
+    // The source initializer falls through into the first strategy pass.
+    assert_eq!(g.objs.aliens[idx as usize].sbyte2, 10);
     // Clear sbyte1 gate so body runs.
     g.objs.aliens[idx as usize].sbyte1 = 0;
 
-    run(&mut g, idx); // 11→10, RIGHT
+    run(&mut g, idx); // 10→9, RIGHT
     assert_eq!(g.objs.aliens[idx as usize].snd1, 0xB1);
-    assert_eq!(g.objs.aliens[idx as usize].sbyte2, 10);
+    assert_eq!(g.objs.aliens[idx as usize].sbyte2, 9);
 
-    // Drain to 0 (10 more RIGHT ticks: 10→9…→0).
-    for _ in 0..10 {
+    // Drain to 0 (9 more RIGHT ticks: 9→8…→0).
+    for _ in 0..9 {
         g.objs.aliens[idx as usize].sbyte1 = 0;
         run(&mut g, idx);
     }

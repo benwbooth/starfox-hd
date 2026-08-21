@@ -1,9 +1,8 @@
-//! Byte-equality of the ported level builders against the C oracle.
+//! Deterministic byte fixtures for the ported level builders.
 //!
-//! Fixtures were dumped from the C MapBuilder (`src/map/levels.c`) by a
-//! standalone harness: `<name>.bin` is the emitted bytecode blob, and
-//! `<name>.regs.txt` records `length`, the `native` MAP_CB_* addr24s and
-//! the `inline` CODE65816 script ptrs in C registration-call order.
+//! The first fixture generation used the removed C MapBuilder. They are now
+//! reblessed only for corrections proven against `MAPMACS.INC` and
+//! `WORLD.ASM`; `<name>.regs.txt` also locks callback registration order.
 
 use sf_map::builder::MapBuilder;
 use sf_map::catalog::{self, map_id};
@@ -99,27 +98,27 @@ fn assert_level_matches(name: &str, id: u32) {
 }
 
 #[test]
-fn none_matches_c() {
+fn none_matches_source_fixture() {
     assert_level_matches("none", map_id::NONE);
 }
 
 #[test]
-fn level1_1_matches_c() {
+fn level1_1_matches_source_fixture() {
     assert_level_matches("level1_1", map_id::M1_1);
 }
 
 #[test]
-fn title_matches_c() {
+fn title_matches_source_fixture() {
     assert_level_matches("title", map_id::TITLE);
 }
 
 #[test]
-fn continue_matches_c() {
+fn continue_matches_source_fixture() {
     assert_level_matches("continue", map_id::CONTINUE);
 }
 
 #[test]
-fn wait_matches_c() {
+fn wait_matches_source_fixture() {
     // MAP_ID_WAIT shares the title blob. The C build registers NO callbacks
     // for it, while the Rust BuiltLevel carries the title's registration
     // lists (documented in catalog.rs: the wait entry point never reaches
@@ -136,7 +135,7 @@ fn wait_matches_c() {
 }
 
 #[test]
-fn planet_matches_c() {
+fn planet_matches_source_fixture() {
     assert_level_matches("planet", map_id::PLANET);
 }
 

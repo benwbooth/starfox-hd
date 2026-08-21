@@ -40,6 +40,9 @@ pub mod op {
     pub const ADDALVARPW: u8 = 106;
     pub const FADETOSEA: u8 = 108;
     pub const FADETOGROUND: u8 = 110;
+    pub const QOBJ: u8 = 112;
+    pub const DOBJ: u8 = 116;
+    pub const QOBJ2: u8 = 118;
     pub const CODE65816: u8 = 120;
     pub const CODEJSL: u8 = 122;
     pub const SENDMSG: u8 = 130;
@@ -153,6 +156,8 @@ pub const DEG0: i32 = 0;
 // LEVEL1_1.ASM constants from STRATEQU.INC / map sources (levels.c)
 // ============================================================
 pub const MEDPSPEED: i32 = 65;
+/// `wipein mscramwipe_circle` black-screen travel distance in LEVEL{1,2,3}_1.
+pub const SCRAMBLE_WIPE_DISTANCE: i32 = 300;
 pub const PEXITBASE_SPEED: i32 = 50;
 pub const MYBASE_SCALE: i32 = 3;
 pub const BOSS7_SCALE: i32 = 3;

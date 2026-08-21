@@ -1,12 +1,8 @@
-//! Byte-equality of the route1 (wave-2) level builders against the C oracle.
+//! Deterministic source-correct fixtures for the Route 1 level builders.
 //!
-//! Fixtures were dumped from the C MapBuilder (`src/map/levels.c`) by a
-//! standalone harness that compiles levels.c with recording stubs for
-//! `World_RegisterNativeCallback` / `World_RegisterInlineMapCode`, calls
-//! `Levels_GetMapData(id)` once per map and writes `<name>.bin` (the blob)
-//! plus `<name>.regs.txt` (`length`, `native 0x......` addr24s and
-//! `inline <ptr>` script ptrs in C registration-call order) — the same
-//! format as the phase-1 fixtures in `tests/fixture_parity.rs`.
+//! These began as removed-C-port dumps. Reblessing is restricted to encoding
+//! corrections established from `MAPMACS.INC` and `WORLD.ASM`; the blobs and
+//! registration records then protect the corrected Rust builders from drift.
 
 use sf_map::builder::MapBuilder;
 use sf_map::catalog::{self, map_id};
@@ -114,12 +110,12 @@ fn assert_level_matches(name: &str, id: u32) {
 }
 
 #[test]
-fn level1_2_matches_c() {
+fn level1_2_matches_source_fixture() {
     assert_level_matches("r1_level1_2", map_id::M1_2);
 }
 
 #[test]
-fn level1_3_matches_c() {
+fn level1_3_matches_source_fixture() {
     assert_level_matches("r1_level1_3", map_id::M1_3);
 }
 
@@ -145,27 +141,27 @@ fn level1_3_warpout_uses_warpout_player_mode() {
 }
 
 #[test]
-fn level1_4_matches_c() {
+fn level1_4_matches_source_fixture() {
     assert_level_matches("r1_level1_4", map_id::M1_4);
 }
 
 #[test]
-fn level1_5_matches_c() {
+fn level1_5_matches_source_fixture() {
     assert_level_matches("r1_level1_5", map_id::M1_5);
 }
 
 #[test]
-fn level1_6_matches_c() {
+fn level1_6_matches_source_fixture() {
     assert_level_matches("r1_level1_6", map_id::M1_6);
 }
 
 #[test]
-fn blackhole_matches_c() {
+fn blackhole_matches_source_fixture() {
     assert_level_matches("r1_blackhole", map_id::BLACKHOLE);
 }
 
 #[test]
-fn intro_matches_c() {
+fn intro_matches_source_fixture() {
     assert_level_matches("r1_intro", map_id::INTRO);
 }
 

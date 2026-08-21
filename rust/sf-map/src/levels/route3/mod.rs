@@ -1,8 +1,8 @@
 //! route3 level builders (lane-owned; see the route porting lane).
 //!
-//! C oracle: `src/map/levels.c` `build_level3_*` / `build_final_slice()` per
-//! the `Levels_GetMapData` switch. Byte-equality is enforced by
-//! `tests/route3_parity.rs` against fixtures dumped from the C builders.
+//! The original C transcription remains historical scaffolding. Byte stability
+//! is enforced by `tests/route3_parity.rs`; encoding decisions follow the
+//! source macros and retail decoder.
 //!
 //! Callback registrations: the shared `levels::NativeCallback` /
 //! `levels::InlineCallback` enums are off-limits to this lane, so the

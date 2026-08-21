@@ -1354,6 +1354,11 @@ pub fn advance_player_during_level_initialization(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
         .worldz
         .wrapping_add(LEVEL_INITIALIZATION_FORWARD_STEP);
+    // The source player-credit strategy generates the same 63-depth forward
+    // vector and then runs viewmove_srou on each of these two transfer-bound
+    // updates. Its rate-one chase therefore takes pviewvelz 65 -> 64 -> 63
+    // before the map-specific opening begins.
+    g.vars.pviewvelz = strat_chase(g.vars.pviewvelz, LEVEL_INITIALIZATION_FORWARD_STEP, 1);
     if g.vars.dummyobj > 0 {
         refresh_player_collision_proxies(g);
     }

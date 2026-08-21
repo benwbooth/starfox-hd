@@ -14856,9 +14856,8 @@ fn friendexitbase_strat(g: &mut Game, idx: u16) {
         }
         al.worldz = al.worldz.wrapping_add(PEXITBASE_SPEED);
         al.sflags &= !ASF_INVISIBLE;
-        if al.count > 0 {
-            al.count -= 1;
-        } else {
+        al.count = al.count.wrapping_sub(1);
+        if al.count == 0 {
             g.objs.aldead = 1;
         }
     }
@@ -14874,6 +14873,43 @@ pub fn strat_friendexitbase_init(g: &mut Game, idx: u16) {
     al.sflags |= ASF_SHADOW;
     al.sflags |= ASF_INVISIBLE;
     al.sbyte2 = 11;
+    // The initializer is immediately followed by friendexitbase_strat in the
+    // source and therefore performs its first countdown/movement pass now.
+    friendexitbase_strat(g, idx);
+}
+
+#[cfg(test)]
+mod friend_exit_base_tests {
+    use super::*;
+
+    #[test]
+    fn initializer_falls_through_to_first_movement_pass() {
+        let mut game = Game::new();
+        let object = game.objs.alloc().expect("friend object");
+        game.objs.aliens[object as usize].sbyte1 = 1;
+        game.objs.aliens[object as usize].worldz = -400;
+
+        strat_friendexitbase_init(&mut game, object);
+
+        let friend = game.objs.aliens[object as usize];
+        assert_eq!(friend.sbyte1, 1);
+        assert_eq!(friend.worldz, -350);
+        assert_eq!(friend.count, 29);
+    }
+
+    #[test]
+    fn final_movement_pass_marks_the_friend_for_removal() {
+        let mut game = Game::new();
+        let object = game.objs.alloc().expect("friend object");
+        let friend = &mut game.objs.aliens[object as usize];
+        friend.sbyte1 = 1;
+        friend.count = 1;
+
+        friendexitbase_strat(&mut game, object);
+
+        assert_eq!(game.objs.aliens[object as usize].count, 0);
+        assert_eq!(game.objs.aldead, 1);
+    }
 }
 
 // ============================================================

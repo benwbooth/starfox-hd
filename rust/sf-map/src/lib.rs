@@ -1,12 +1,12 @@
 //! Map bytecode builders (MapBuilder) and the map VM.
 //!
-//! Ports (C oracle): `src/map/levels.c` (all level slices + MapBuilder),
-//! `src/map/map_exec.c`, `src/map/map_catalog.c`, `src/map/level*_data.h`.
-//! Level bytecode must be byte-identical to what the C MapBuilder emits so
-//! map-VM differential traces line up tick-for-tick.
+//! The original Rust transcription used the removed C port as a scaffold.
+//! The authoritative encoding is now `reference/ultrastarfox/SF/INC/MAPMACS.INC`
+//! plus the retail map VM in `WORLD.ASM`; fixture blobs are source-correct
+//! regression snapshots of the typed builders.
 //!
-//! C source mapping:
-//! - `src/map/levels.c` MapBuilder/`mb_*` -> [`builder`]
+//! Port mapping:
+//! - `MAPMACS.INC` map macros             -> [`builder`]
 //! - map opcode / shape / strat constants -> [`consts`]
 //! - `build_*_slice()` per level          -> [`levels`]
 //! - `Levels_GetMapData` / map ids        -> [`catalog`]
@@ -14,5 +14,6 @@
 pub mod builder;
 pub mod catalog;
 pub mod consts;
+pub mod istrat_shapes;
 pub mod levels;
 pub mod mothers;

@@ -1,9 +1,8 @@
-//! Byte-equality of the route-3 level builders against the C oracle.
+//! Deterministic source-correct fixtures for the Route 3 level builders.
 //!
-//! Fixtures (`r3_*.bin` / `r3_*.regs.txt`) were dumped by a standalone C
-//! harness that includes `src/map/levels.c`, calls `Levels_GetMapData(id)`
-//! and records the `World_Register*` calls made while the map is selected
-//! (same format as `level1_1.regs.txt`).
+//! These began as removed-C-port dumps. Reblessing is restricted to encoding
+//! corrections established from `MAPMACS.INC` and `WORLD.ASM`; the blobs and
+//! registration records then protect the corrected Rust builders from drift.
 //!
 //! Registration parity is checked against `Route3Level::{inline,native}_regs`
 //! (raw ptr/name pairs) because the shared callback enums are off-limits to
@@ -113,27 +112,27 @@ fn assert_level_matches(name: &str, id: u32) {
 }
 
 #[test]
-fn level3_1_matches_c() {
+fn level3_1_matches_source_fixture() {
     assert_level_matches("r3_level3_1", map_id::M3_1);
 }
 
 #[test]
-fn level3_2_matches_c() {
+fn level3_2_matches_source_fixture() {
     assert_level_matches("r3_level3_2", map_id::M3_2);
 }
 
 #[test]
-fn level3_3_matches_c() {
+fn level3_3_matches_source_fixture() {
     assert_level_matches("r3_level3_3", map_id::M3_3);
 }
 
 #[test]
-fn level3_4_matches_c() {
+fn level3_4_matches_source_fixture() {
     assert_level_matches("r3_level3_4", map_id::M3_4);
 }
 
 #[test]
-fn level3_5_matches_c() {
+fn level3_5_matches_source_fixture() {
     assert_level_matches("r3_level3_5", map_id::M3_5);
 }
 
@@ -163,16 +162,16 @@ fn level3_5_uses_the_retail_boss_music_transition() {
 }
 
 #[test]
-fn level3_6_matches_c() {
+fn level3_6_matches_source_fixture() {
     assert_level_matches("r3_level3_6", map_id::M3_6);
 }
 
 #[test]
-fn level3_7_matches_c() {
+fn level3_7_matches_source_fixture() {
     assert_level_matches("r3_level3_7", map_id::M3_7);
 }
 
 #[test]
-fn final_matches_c() {
+fn final_matches_source_fixture() {
     assert_level_matches("r3_final", map_id::FINAL);
 }

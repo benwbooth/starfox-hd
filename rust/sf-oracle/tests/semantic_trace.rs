@@ -26,12 +26,16 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-const FRONT_END_TICKS: u32 = 1_080;
+const FRONT_END_TICKS: u32 = 1_200;
 const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
 const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
+const CORNERIA_AUDIO_UPLOAD_TICK: u32 = 1_080;
+const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
 const WORK_RAM: u32 = 0x7E_0000;
+const RETAIL_OBJECT_LIFETIME_OFFSET: u32 = 0x0A;
+const RETAIL_OBJECT_DELAY_OFFSET: u32 = 0x22;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
 const RETAIL_TITLE_BACKGROUND: u16 = 249;
 const RETAIL_BRIEFING_BACKGROUND: u16 = 255;
@@ -143,18 +147,22 @@ const STARTUP_CHECKPOINTS: [(u32, StartupSnapshot); 5] = [
 ];
 const FIRST_LEVEL_STATE_COMPARISON_TICK: u32 = 892;
 const LAUNCH_SUBMAP_EXIT_TICK: u32 = 1_064;
+const LAUNCH_FADE_STORAGE_END_TICK: u32 = 1_078;
 const STARTUP_ROLE_SLOTS: u16 = 6;
 const RETAIL_DIRECT_SHAPE_OP_0: u16 = 0xBB48;
 const RETAIL_DIRECT_SHAPE_OP_1: u16 = 0xBB64;
 const RETAIL_DIRECT_SHAPE_OP_2: u16 = 0xBB80;
 const RETAIL_DIRECT_SHAPE_BOOST: u16 = 0xB219;
 const RETAIL_DIRECT_SHAPE_MYSHIP_4: u16 = 0xD304;
+const RETAIL_DIRECT_SHAPE_MYBASE_0: u16 = 0xDD84;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LevelObjectSnapshot {
     slot: u16,
     shape: Option<u16>,
     position: Position,
+    departure_lifetime: Option<u8>,
+    departure_delay: Option<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -162,6 +170,7 @@ struct LevelSnapshot {
     background: u16,
     game_frame: u16,
     map_countdown: u16,
+    forward_velocity: i16,
     previous_player_depth: i16,
     last_depth_change: i16,
     objects: Vec<LevelObjectSnapshot>,
@@ -577,6 +586,7 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             RETAIL_DIRECT_SHAPE_OP_2 => Some(sf_map::consts::sh::OP_2),
             RETAIL_DIRECT_SHAPE_BOOST => Some(sf_map::consts::sh::BOOST_SHAPE),
             RETAIL_DIRECT_SHAPE_MYSHIP_4 => Some(sf_map::consts::sh::MYSHIP_4),
+            RETAIL_DIRECT_SHAPE_MYBASE_0 => Some(sf_map::consts::sh::MYBASE_0),
             _ => None,
         };
         if let Some(shape) = direct_shape {
@@ -599,16 +609,25 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
         .expect("retail background offset must identify a catalog record"),
         game_frame: retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
         map_countdown: retail.peek16(WORK_RAM | RETAIL_MAPCNT),
+        forward_velocity: retail.peek16(WORK_RAM | RETAIL_PVIEWVELZ) as i16,
         previous_player_depth: retail.peek16(WORK_RAM | RETAIL_LASTPLAYZ) as i16,
         last_depth_change: retail.peek16(WORK_RAM | RETAIL_LASTZCHANGE) as i16,
         objects: active
             .into_iter()
             .map(|slot| {
                 let object = objects[slot as usize];
+                let shape = (slot >= STARTUP_ROLE_SLOTS).then(|| flat_shape(object.shape));
+                let departure = shape == Some(sf_map::consts::sh::MYSHIP_4);
+                let object_base = RETAIL_POOL.base + u32::from(slot) * RETAIL_POOL.stride;
                 LevelObjectSnapshot {
                     slot,
-                    shape: (slot >= STARTUP_ROLE_SLOTS).then(|| flat_shape(object.shape)),
+                    shape,
                     position: object_position(object),
+                    departure_lifetime: departure.then(|| {
+                        retail.peek8(WORK_RAM | object_base + RETAIL_OBJECT_LIFETIME_OFFSET)
+                    }),
+                    departure_delay: departure
+                        .then(|| retail.peek8(WORK_RAM | object_base + RETAIL_OBJECT_DELAY_OFFSET)),
                 }
             })
             .collect(),
@@ -622,16 +641,21 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
         background: native.game.vars.currentbg,
         game_frame: native.game.vars.gameframe,
         map_countdown: native.game.vars.mapcnt,
+        forward_velocity: native.game.vars.pviewvelz,
         previous_player_depth: native.game.world.lastplayz,
         last_depth_change: native.game.world.lastzchange,
         objects: active
             .into_iter()
             .map(|slot| {
                 let object = native.game.objs.aliens[slot as usize];
+                let departure =
+                    slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::MYSHIP_4;
                 LevelObjectSnapshot {
                     slot,
                     shape: (slot >= STARTUP_ROLE_SLOTS).then_some(object.shape),
                     position: Position(object.worldx, object.worldy, object.worldz),
+                    departure_lifetime: departure.then_some(object.count),
+                    departure_delay: departure.then_some(object.sbyte1),
                 }
             })
             .collect(),
@@ -717,13 +741,14 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 );
                 retail_level_boundary_aligned = true;
             }
+            let max_video_frames = if tick == CORNERIA_AUDIO_UPLOAD_TICK {
+                MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD
+            } else {
+                MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE
+            };
             assert!(
                 retail
-                    .tick_until_cpu_execution(
-                        input,
-                        RETAIL_DOSTRATS,
-                        MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
-                    )
+                    .tick_until_cpu_execution(input, RETAIL_DOSTRATS, max_video_frames,)
                     .expect("retail complete level boundary"),
                 "retail level frame did not reach its next entry boundary at tick {tick}"
             );
@@ -769,7 +794,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             // WORLD.ASM's internal wait sentinel of one. This storage-only
             // cursor detail is not semantic; object/background/frame timing
             // remains compared strictly through the certified trace.
-            if tick >= LAUNCH_SUBMAP_EXIT_TICK {
+            if (LAUNCH_SUBMAP_EXIT_TICK..=LAUNCH_FADE_STORAGE_END_TICK).contains(&tick) {
                 native_snapshot.map_countdown = retail_snapshot.map_countdown;
             }
             assert_eq!(

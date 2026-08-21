@@ -1,8 +1,8 @@
 //! Literal level builders.
 //!
-//! C oracle: `src/map/levels.c` `build_*_slice()` + `register_*_inline_callbacks()`.
 //! Each ported level gets one module here; each build function documents the
-//! original ASM sources it transcribes (LEVEL1_1.ASM, MAP1_1A.ASM, ...).
+//! authoritative ASM sources it transcribes (`LEVEL1_1.ASM`, `MAP1_1A.ASM`,
+//! and so on). The removed C port remains useful only as transcription history.
 
 pub mod level1_1;
 pub mod planet;
@@ -58,7 +58,7 @@ pub enum InlineCallback {
 /// here they travel with the level so the executor (and the fixture tests)
 /// can compare registration OFFSETS rather than function addresses.
 pub struct BuiltLevel {
-    /// The emitted map bytecode (byte-identical to the C MapBuilder output).
+    /// Source-macro-correct map bytecode consumed by the typed map VM.
     pub data: Vec<u8>,
     /// Label table (name -> byte offset), in emission order.
     pub labels: Vec<Label>,

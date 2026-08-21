@@ -222,10 +222,10 @@ const STRAT_ADDR_SYNTH_BASE: u32 = 0x020000;
 /// generated shape defaults here, but does not clear callbacks because
 /// `World::init` has already installed the builtin space-bar rows (166-169).
 pub fn register_all(g: &mut Game) {
-    debug_assert!(crate::istrat_shapes::ISTRAT_DEFAULT_COUNT <= ISTRAT_CAPACITY);
+    debug_assert!(sf_map::istrat_shapes::ISTRAT_DEFAULT_COUNT <= ISTRAT_CAPACITY);
     g.world
         .istrat_shapes
-        .copy_from_slice(&crate::istrat_shapes::ISTRAT_SHAPE_DEFAULTS);
+        .copy_from_slice(&sf_map::istrat_shapes::ISTRAT_SHAPE_DEFAULTS);
     // ---- Lanes that hand back handles (player / ground / enemy_a) ----
     let p = player::install(g);
     // Publish the player collision-proxy box strat handles so the game-core
@@ -666,7 +666,7 @@ mod tests {
         );
         assert!(g.world.istrats[83].is_some(), "bosses boss8 (IS_BOSS8=83)");
 
-        let missing: Vec<usize> = g.world.istrats[..crate::istrat_shapes::ISTRAT_DEFAULT_COUNT]
+        let missing: Vec<usize> = g.world.istrats[..sf_map::istrat_shapes::ISTRAT_DEFAULT_COUNT]
             .iter()
             .enumerate()
             .filter_map(|(row, strategy)| strategy.is_none().then_some(row))

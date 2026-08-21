@@ -11,6 +11,8 @@ use sf_strat::table;
 
 const TEST_RANDOM_STATE: [u8; 4] = [31, 73, 149, 211];
 const SHAPE_CHOICE_INDEX_MASK: u16 = 62;
+/// RELTOPLAYER off, ALWAYSGENVECS off, trigger registration, HP, and AP.
+const INITIAL_PATH_SETUP_BYTES: u16 = 12;
 
 #[test]
 fn registered_strategy_selects_exact_catalog_entry_and_joins_path_lane() {
@@ -36,20 +38,25 @@ fn registered_strategy_selects_exact_catalog_entry_and_joins_path_lane() {
     let initialized = game.objs.aliens[object as usize];
     assert_eq!(initialized.shape, DAMYSCR_SHAPES[choice] as u16);
     assert_eq!(game.vars.rng, expected_random.vars.rng);
-    assert_eq!(initialized.sword2 as u16, path_start);
+    assert_eq!(
+        initialized.sword2 as u16,
+        path_start + INITIAL_PATH_SETUP_BYTES
+    );
     assert!(initialized.stratptr.is_some());
     assert!(initialized.collstratptr.is_some());
     assert!(initialized.expstratptr.is_some());
     assert_ne!(initialized.collflags & ACF_COLLTYPE2, 0);
     assert_ne!(initialized.sflags & ASF_SHADOW, 0);
+    assert_eq!((initialized.hp, initialized.ap), (2, 6));
+    assert_eq!((initialized.rotx, initialized.roty), (8, 248));
 
     let path_tick = initialized.stratptr.expect("path tick");
     game.call_strat(path_tick, object);
 
     let advanced = game.objs.aliens[object as usize];
     assert_eq!((advanced.hp, advanced.ap), (2, 6));
-    assert_eq!(advanced.rotx, 8);
-    assert_eq!(advanced.roty, 248);
+    assert_eq!(advanced.rotx, 16);
+    assert_eq!(advanced.roty, 240);
 }
 
 #[test]

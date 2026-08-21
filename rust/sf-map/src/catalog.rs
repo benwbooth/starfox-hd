@@ -331,6 +331,10 @@ pub struct OpeningWipePlan {
     pub initial: Option<ScreenWipeKind>,
     /// Reveal requested by a later explicit `wipein` in the map body.
     pub on_init_black: Option<ScreenWipeKind>,
+    /// Ordinary `initblack_l` calls before the `wipein` marker. The Corneria
+    /// wrappers black out once after the launch fade, then call `initblack_l`
+    /// again inside `wipein mscramwipe_circle`.
+    pub init_black_calls_before_reveal: u8,
 }
 
 /// Exact `initlevel` / opening `wipein` assignment from `MAPS/*.ASM`.
@@ -345,6 +349,7 @@ pub fn opening_wipe_plan(id: u32) -> OpeningWipePlan {
         map_id::M1_1 | map_id::M2_1 | map_id::M3_1 => OpeningWipePlan {
             initial: Some(StarReveal),
             on_init_black: Some(HorizontalReveal),
+            init_black_calls_before_reveal: 1,
         },
         map_id::M1_2
         | map_id::M1_5
@@ -357,10 +362,12 @@ pub fn opening_wipe_plan(id: u32) -> OpeningWipePlan {
         | map_id::TRAINING => OpeningWipePlan {
             initial: Some(StarReveal),
             on_init_black: None,
+            init_black_calls_before_reveal: 0,
         },
         map_id::M1_4 | map_id::M2_3 | map_id::M3_3 | map_id::M3_5 => OpeningWipePlan {
             initial: Some(HorizontalReveal),
             on_init_black: None,
+            init_black_calls_before_reveal: 0,
         },
         _ => OpeningWipePlan::default(),
     }

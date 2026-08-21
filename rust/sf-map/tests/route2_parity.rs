@@ -1,10 +1,8 @@
-//! Byte-equality of the route2 level builders against the C oracle.
+//! Deterministic source-correct fixtures for the Route 2 level builders.
 //!
-//! Fixtures (`r2_<name>.bin` / `r2_<name>.regs.txt`) were dumped from the C
-//! MapBuilder (`src/map/levels.c`) by the route2 lane's standalone harness
-//! (`r2_dump.c`): the `.bin` is the emitted bytecode blob and `.regs.txt`
-//! records `length`, the `native` MAP_CB_* addr24s and the `inline`
-//! CODE65816 script ptrs in C registration-call order.
+//! These began as removed-C-port dumps. Reblessing is restricted to encoding
+//! corrections established from `MAPMACS.INC` and `WORLD.ASM`; the blobs and
+//! registration records then protect the corrected Rust builders from drift.
 
 use sf_map::catalog::{self, map_id};
 use sf_map::levels::route2;
@@ -109,37 +107,37 @@ fn assert_level_matches(name: &str, id: u32) {
 }
 
 #[test]
-fn level2_1_matches_c() {
+fn level2_1_matches_source_fixture() {
     assert_level_matches("r2_level2_1", map_id::M2_1);
 }
 
 #[test]
-fn level2_2_matches_c() {
+fn level2_2_matches_source_fixture() {
     assert_level_matches("r2_level2_2", map_id::M2_2);
 }
 
 #[test]
-fn level2_3_matches_c() {
+fn level2_3_matches_source_fixture() {
     assert_level_matches("r2_level2_3", map_id::M2_3);
 }
 
 #[test]
-fn level2_4_matches_c() {
+fn level2_4_matches_source_fixture() {
     assert_level_matches("r2_level2_4", map_id::M2_4);
 }
 
 #[test]
-fn level2_5_matches_c() {
+fn level2_5_matches_source_fixture() {
     assert_level_matches("r2_level2_5", map_id::M2_5);
 }
 
 #[test]
-fn level2_6_matches_c() {
+fn level2_6_matches_source_fixture() {
     assert_level_matches("r2_level2_6", map_id::M2_6);
 }
 
 #[test]
-fn special_matches_c() {
+fn special_matches_source_fixture() {
     assert_level_matches("r2_special", map_id::SPECIAL);
 }
 
@@ -199,7 +197,7 @@ fn special_preserves_wrapper_scroll_boss_and_restart_state() {
 }
 
 #[test]
-fn credits_matches_c() {
+fn credits_matches_source_fixture() {
     assert_level_matches("r2_credits", map_id::CREDITS);
 }
 
@@ -262,6 +260,6 @@ fn credits_preserves_the_retail_asm_state_transitions() {
 }
 
 #[test]
-fn training_matches_c() {
+fn training_matches_source_fixture() {
     assert_level_matches("r2_training", map_id::TRAINING);
 }

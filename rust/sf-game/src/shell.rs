@@ -81,6 +81,10 @@ pub const DEATH_RESPAWN_TICKS: i32 =
 /// 65 source distance units per 20 Hz update, so the reveal starts after five
 /// updates (300 / 65 rounded up).
 pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 5;
+/// The launch player's 115-unit depth step crosses `mapwait 300` in three
+/// updates. `do_circle_explosion` observes the authored wipe on the following
+/// update, so the typed aperture keeps frame zero for the same three ticks.
+const SCRAMBLE_WIPE_BLACK_HOLD_TICKS: u8 = 3;
 
 /// Retail reset-to-attract handoff measured from the full-machine oracle.
 /// Boot remains active for 43 complete native 20 Hz ticks; the attract state
@@ -1039,6 +1043,8 @@ struct ShellState {
     /// The Corneria launch maps request a second reveal at their explicit
     /// `initblack_l` handoff after the scramble corridor.
     pending_init_black_wipe: Option<ScreenWipeKind>,
+    /// Number of earlier black-screen markers before the authored `wipein`.
+    pending_init_black_calls: u8,
     /// A catalog-managed opening owns the first common-wrapper `initblack_l`;
     /// suppress that duplicate black window if the builder retained it.
     suppress_next_init_black: bool,
@@ -1063,6 +1069,7 @@ impl ShellState {
             screen_wipe: ScreenWipeState::inactive(),
             screen_wipe_hold: 0,
             pending_init_black_wipe: None,
+            pending_init_black_calls: 0,
             suppress_next_init_black: false,
             strings: Strings::new(),
             sound: Vec::new(),
@@ -1081,6 +1088,7 @@ impl ShellState {
         self.screen_wipe = ScreenWipeState::inactive();
         self.screen_wipe_hold = 0;
         self.pending_init_black_wipe = plan.on_init_black;
+        self.pending_init_black_calls = plan.init_black_calls_before_reveal;
         self.suppress_next_init_black = false;
 
         if let Some(kind) = plan.initial {
@@ -1183,8 +1191,13 @@ impl Hooks for ShellHooks {
 
     fn init_black(&mut self) {
         let mut state = self.state.borrow_mut();
-        if let Some(kind) = state.pending_init_black_wipe.take() {
-            state.begin_screen_wipe(kind, OPENING_WIPE_BLACK_HOLD_TICKS);
+        if let Some(kind) = state.pending_init_black_wipe {
+            if state.pending_init_black_calls > 0 {
+                state.pending_init_black_calls -= 1;
+                return;
+            }
+            state.pending_init_black_wipe = None;
+            state.begin_screen_wipe(kind, SCRAMBLE_WIPE_BLACK_HOLD_TICKS);
             return;
         }
         if state.suppress_next_init_black {
@@ -3689,11 +3702,24 @@ mod tests {
         shell.load_map(map_id::M1_1);
         assert_eq!(shell.frame().screen_wipe.kind, StarReveal);
 
+        // LEVEL1_1's first marker is the post-fade blackout. The following
+        // `wipein mscramwipe_circle` marker owns the typed reveal.
+        shell.game.hooks.init_black();
+        assert_eq!(shell.frame().screen_wipe.kind, StarReveal);
+        assert_eq!(shell.state.borrow().windows.windowmode, 0);
+
         shell.game.hooks.init_black();
         let frame = shell.frame();
         assert_eq!(frame.screen_wipe.kind, HorizontalReveal);
         assert_eq!(frame.screen_wipe.frame, 0);
         assert_eq!(shell.state.borrow().windows.windowmode, 0);
+
+        for _ in 0..SCRAMBLE_WIPE_BLACK_HOLD_TICKS {
+            assert!(shell.state.borrow_mut().step_screen_wipe());
+            assert_eq!(shell.frame().screen_wipe.frame, 0);
+        }
+        assert!(shell.state.borrow_mut().step_screen_wipe());
+        assert_eq!(shell.frame().screen_wipe.frame, 1);
     }
 
     #[test]

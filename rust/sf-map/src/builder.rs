@@ -1,8 +1,8 @@
 //! MapBuilder — the map bytecode assembler.
 //!
-//! C oracle: `src/map/levels.c` `mb_*` functions. Every method here must
-//! emit exactly the same bytes as its C counterpart; the fixture tests in
-//! `tests/bytecode_equality.rs` hold this to byte-for-byte equality.
+//! Encoding oracle: `reference/ultrastarfox/SF/INC/MAPMACS.INC`, checked
+//! against the decoder in `WORLD.ASM`. The fixture tests retain deterministic
+//! source-correct blobs for every ported level.
 //!
 //! Numeric parameters are `i32` and are truncated internally with `as`
 //! casts, reproducing the implicit `int -> int16/uint16/uint8` conversions
@@ -11,6 +11,11 @@
 //! or compatibility encodings from typed native Rust strategies.
 
 use crate::consts::*;
+
+const QUANTIZED_COORDINATE_LIMIT: i32 = 512;
+const QUANTIZED_DISTANCE_LIMIT: i32 = 256;
+const QUANTIZED_POSITION_SHIFT: u32 = 2;
+const QUANTIZED_DEPTH_SHIFT: u32 = 4;
 
 /// A resolved label: name -> byte offset in the emitted blob.
 pub type Label = (String, u16);
@@ -181,8 +186,9 @@ impl MapBuilder {
         }
     }
 
-    /// mb_mapobj: compact MAPOBJ when shape and strat both fit a byte,
-    /// otherwise falls back to mapnobj.
+    /// Source `mapobj`: prefer the compact `mapqobj` representation when
+    /// its symbol and coordinate constraints hold, then use compact MAPOBJ or
+    /// fall back to the full-width native representation.
     pub fn mapobj<S: Into<StrategyRef>>(
         &mut self,
         frame: i32,
@@ -195,12 +201,50 @@ impl MapBuilder {
         let strategy = strategy.into();
         if let StrategyRef::Encoded(value) = strategy {
             if shape <= u8::MAX as u16 && value <= u8::MAX as u32 {
-                self.emit8(op::MAPOBJ);
+                let compact_frame = frame >> QUANTIZED_DEPTH_SHIFT;
+                let compact_depth = z >> QUANTIZED_DEPTH_SHIFT;
+                let default_shape = crate::istrat_shapes::ISTRAT_SHAPE_DEFAULTS[value as usize];
+                // ArgSFX's assembly-time right shift keeps negative source
+                // distances outside the unsigned-byte test. Preserve that
+                // effective lower bound explicitly in typed Rust.
+                if compact_frame >= 0
+                    && compact_frame < QUANTIZED_DISTANCE_LIMIT
+                    && x > -QUANTIZED_COORDINATE_LIMIT
+                    && x < QUANTIZED_COORDINATE_LIMIT
+                    && y > -QUANTIZED_COORDINATE_LIMIT
+                    && y < QUANTIZED_COORDINATE_LIMIT
+                    && compact_depth >= 0
+                    && compact_depth < QUANTIZED_DISTANCE_LIMIT
+                {
+                    let shape_is_implied = default_shape == shape;
+                    self.emit8(if shape_is_implied {
+                        op::QOBJ2
+                    } else {
+                        op::QOBJ
+                    });
+                    self.emit8(compact_frame as u8);
+                    self.emit8((x >> QUANTIZED_POSITION_SHIFT) as u8);
+                    self.emit8((y >> QUANTIZED_POSITION_SHIFT) as u8);
+                    self.emit8(compact_depth as u8);
+                    if !shape_is_implied {
+                        self.emit8(shape as u8);
+                    }
+                    self.emit8(value as u8);
+                    return;
+                }
+                let shape_is_implied = default_shape == shape;
+                self.emit8(if shape_is_implied {
+                    op::DOBJ
+                } else {
+                    op::MAPOBJ
+                });
                 self.emit16(frame as u16);
                 self.emit16s(x as i16);
                 self.emit16s(y as i16);
                 self.emit16s(z as i16);
-                self.emit8(shape as u8);
+                if !shape_is_implied {
+                    self.emit8(shape as u8);
+                }
                 self.emit8(value as u8);
                 return;
             }

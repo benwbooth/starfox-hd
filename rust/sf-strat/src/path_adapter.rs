@@ -250,6 +250,8 @@ pub fn register(g: &mut Game) -> PathInitIds {
 #[cfg(test)]
 mod registration_tests {
     use super::*;
+    use sf_game::obj::strat_init_obj_vars;
+    use sf_path::ids::PATH_ID_MATEMSG;
 
     #[test]
     fn every_certified_inline_path_action_is_registered() {
@@ -284,14 +286,32 @@ mod registration_tests {
             );
         }
     }
+
+    #[test]
+    fn path_initializer_falls_through_to_the_spawn_pass_movement() {
+        const INITIAL_DEPTH: i16 = 2_800;
+        const FORWARD_VELOCITY: i16 = 65;
+        const FIRST_DEPTH: i16 = INITIAL_DEPTH + FORWARD_VELOCITY;
+
+        let mut game = Game::new();
+        let init = register(&mut game).pathdha_init;
+        let object = game.objs.alloc().expect("path object slot");
+        strat_init_obj_vars(&mut game.objs.aliens[object as usize]);
+        game.objs.aliens[object as usize].worldz = INITIAL_DEPTH;
+        game.vars.pviewvelz = FORWARD_VELOCITY;
+        set_object_path(&mut game, object, PATH_ID_MATEMSG);
+
+        game.call_strat(init, object);
+
+        assert_eq!(game.objs.aliens[object as usize].worldz, FIRST_DEPTH);
+        assert_ne!(game.objs.aliens[object as usize].stratptr, Some(init));
+    }
 }
 
 // ============================================================
-// Init strategies (C path_init_common + the three istrat entries).
-// These operate purely on the game alien: set the shadow/collide flags and
-// point the strategy slots at the path tick/collision/explode handles. Like
-// C, they run once (the map VM assigned IS_PATH's init as stratptr) and do
-// NOT move the object this frame; movement begins next frame via pw_tick.
+// Init strategies (C path_init_common + the three istrat entries). PATHS.ASM
+// places `.strat` immediately after `path_istrat`, so every initializer falls
+// through into the first path dispatch and movement phase on its spawn pass.
 // ============================================================
 
 /// C `path_init_common` (src/path/paths.c:932).
@@ -309,6 +329,7 @@ fn path_init_common(g: &mut Game, idx: u16, ids: PathStratIds) {
 fn pw_path_init(g: &mut Game, idx: u16) {
     let Some(ids) = load_ids(g) else { return };
     path_init_common(g, idx, ids);
+    run_path(g, idx, StratRef::PathTick);
 }
 
 /// Assign one native path program to an object. Direct initialization
@@ -337,6 +358,7 @@ fn pw_pathdha_init(g: &mut Game, idx: u16) {
         al.ap = 10;
     }
     path_init_common(g, idx, ids);
+    run_path(g, idx, StratRef::PathTick);
 }
 
 /// C `Strat_PathText_Init` (patht_istrat: colldisable + textobj + HP/AP).
@@ -351,6 +373,7 @@ fn pw_pathtext_init(g: &mut Game, idx: u16) {
         al.ap = 8; // hardAP
     }
     path_init_common(g, idx, ids);
+    run_path(g, idx, StratRef::PathTick);
 }
 
 // ============================================================
