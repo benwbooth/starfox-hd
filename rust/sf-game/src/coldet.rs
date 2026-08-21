@@ -75,33 +75,156 @@ pub const PCBOX_WING_Y: i16 = 13;
 pub const PCBOX_WING_Z: i16 = 0;
 
 /// One flat native collision volume from a source shape's typed box list.
-/// Values are already expressed in gameplay world units.
+/// Values retain the source coordinate shift so rotated authored offsets are
+/// transformed before being expanded into gameplay world units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ShapeCollisionBox {
     offset: (i16, i16, i16),
     half_extents: (i16, i16, i16),
+    rotation: CollisionBoxRotation,
+    coordinate_shift: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CollisionBoxRotation {
+    None,
+    Roll,
 }
 
 const SHAPE_ARCH: u16 = 228;
+const SHAPE_BIG_GATE: u16 = 233;
+const SHAPE_PILLAR3: u16 = 27;
 const ARCH_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
     ShapeCollisionBox {
         offset: (-100, -60, 0),
         half_extents: (20, 60, 20),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
     },
     ShapeCollisionBox {
         offset: (100, -60, 0),
         half_extents: (20, 60, 20),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
     },
     ShapeCollisionBox {
         offset: (0, -140, 0),
         half_extents: (60, 20, 20),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
+    },
+];
+// COLBOXES.ASM:783-787 `big_gate_col1..3`, each authored with scale 2.
+// The two posts and overhead beam leave the center flight path open; using
+// the mesh/header bounds as one solid box makes the player hit empty space.
+const BIG_GATE_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
+    ShapeCollisionBox {
+        offset: (-180, -100, 0),
+        half_extents: (20, 100, 220),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
+    },
+    ShapeCollisionBox {
+        offset: (180, -100, 0),
+        half_extents: (20, 100, 220),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
+    },
+    ShapeCollisionBox {
+        offset: (0, -220, 0),
+        half_extents: (200, 20, 220),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
+    },
+];
+
+// COLBOXES.ASM:150-157 `pillar3_col1..8`. The broad ShapeHdr bounds are
+// only an outer rejection volume; the actual solid target is this narrow
+// stack of eight boxes. Entries two through eight follow the pillar's roll.
+const PILLAR3_COLLISION_BOXES: [ShapeCollisionBox; 8] = [
+    ShapeCollisionBox {
+        offset: (0, -10, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 2,
+    },
+    ShapeCollisionBox {
+        offset: (0, -20, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::Roll,
+        coordinate_shift: 2,
+    },
+    ShapeCollisionBox {
+        offset: (0, -30, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::Roll,
+        coordinate_shift: 2,
+    },
+    ShapeCollisionBox {
+        offset: (0, -40, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::Roll,
+        coordinate_shift: 2,
+    },
+    ShapeCollisionBox {
+        offset: (0, -50, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::Roll,
+        coordinate_shift: 2,
+    },
+    ShapeCollisionBox {
+        offset: (0, -60, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::Roll,
+        coordinate_shift: 2,
+    },
+    ShapeCollisionBox {
+        offset: (0, -70, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::Roll,
+        coordinate_shift: 2,
+    },
+    ShapeCollisionBox {
+        offset: (0, -80, 0),
+        half_extents: (6, 5, 6),
+        rotation: CollisionBoxRotation::Roll,
+        coordinate_shift: 2,
     },
 ];
 
 fn shape_collision_boxes(shape: u16) -> Option<&'static [ShapeCollisionBox]> {
     match shape {
         SHAPE_ARCH => Some(&ARCH_COLLISION_BOXES),
+        SHAPE_BIG_GATE => Some(&BIG_GATE_COLLISION_BOXES),
+        SHAPE_PILLAR3 => Some(&PILLAR3_COLLISION_BOXES),
         _ => None,
+    }
+}
+
+fn resolve_collision_box(object: Alien, collision_box: ShapeCollisionBox) -> ShapeCollisionBox {
+    let offset = match collision_box.rotation {
+        CollisionBoxRotation::None => collision_box.offset,
+        CollisionBoxRotation::Roll => sf_core::snes_trig::strat_roffs_roll(
+            object.rotz,
+            collision_box.offset.0 as i8,
+            collision_box.offset.1 as i8,
+            collision_box.offset.2 as i8,
+        ),
+    };
+    let shift = u32::from(collision_box.coordinate_shift);
+    ShapeCollisionBox {
+        offset: (
+            offset.0.wrapping_shl(shift),
+            offset.1.wrapping_shl(shift),
+            offset.2.wrapping_shl(shift),
+        ),
+        half_extents: (
+            collision_box.half_extents.0.wrapping_shl(shift),
+            collision_box.half_extents.1.wrapping_shl(shift),
+            collision_box.half_extents.2.wrapping_shl(shift),
+        ),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
     }
 }
 
@@ -111,6 +234,8 @@ fn collision_box_overlap(
     second: Alien,
     second_box: ShapeCollisionBox,
 ) -> bool {
+    let first_box = resolve_collision_box(first, first_box);
+    let second_box = resolve_collision_box(second, second_box);
     aabb_overlap(
         first.worldx.wrapping_add(first_box.offset.0),
         first.worldy.wrapping_add(first_box.offset.1),
@@ -136,10 +261,14 @@ fn object_collision_overlap(
     let first_default = ShapeCollisionBox {
         offset: (0, 0, 0),
         half_extents: (first_entry.xmax, first_entry.ymax, first_entry.zmax),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
     };
     let second_default = ShapeCollisionBox {
         offset: (0, 0, 0),
         half_extents: (second_entry.xmax, second_entry.ymax, second_entry.zmax),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 0,
     };
     let first_boxes = shape_collision_boxes(first.shape);
     let second_boxes = shape_collision_boxes(second.shape);
@@ -726,5 +855,64 @@ impl Game {
             al.expstratptr = None;
         }
         self.coldet.pcbox = PcboxState::default();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{object_collision_overlap, ColEntry, SHAPE_PILLAR3};
+    use crate::alien::Alien;
+
+    const SHAPE_ENEMY_LASER: u16 = 478;
+    const PILLAR_POSITION: (i16, i16, i16) = (400, 0, -28_533);
+    const CORNERIA_LASER_POSITION: (i16, i16, i16) = (752, -192, -28_644);
+    const LASER_EXTENTS: (i16, i16, i16) = (8, 8, 120);
+    const PILLAR_HEADER_EXTENTS: (i16, i16, i16) = (480, 480, 48);
+
+    fn entry(alien: u16, extents: (i16, i16, i16)) -> ColEntry {
+        ColEntry {
+            alien,
+            xmax: extents.0,
+            ymax: extents.1,
+            zmax: extents.2,
+        }
+    }
+
+    #[test]
+    fn pillar_uses_its_narrow_authored_box_stack() {
+        let laser = Alien {
+            shape: SHAPE_ENEMY_LASER,
+            worldx: CORNERIA_LASER_POSITION.0,
+            worldy: CORNERIA_LASER_POSITION.1,
+            worldz: CORNERIA_LASER_POSITION.2,
+            ..Alien::default()
+        };
+        let pillar = Alien {
+            shape: SHAPE_PILLAR3,
+            worldx: PILLAR_POSITION.0,
+            worldy: PILLAR_POSITION.1,
+            worldz: PILLAR_POSITION.2,
+            ..Alien::default()
+        };
+
+        assert!(!object_collision_overlap(
+            laser,
+            entry(0, LASER_EXTENTS),
+            pillar,
+            entry(1, PILLAR_HEADER_EXTENTS),
+        ));
+
+        let centered_laser = Alien {
+            worldx: PILLAR_POSITION.0,
+            worldy: PILLAR_POSITION.1 - 40,
+            worldz: PILLAR_POSITION.2,
+            ..laser
+        };
+        assert!(object_collision_overlap(
+            centered_laser,
+            entry(0, LASER_EXTENTS),
+            pillar,
+            entry(1, PILLAR_HEADER_EXTENTS),
+        ));
     }
 }
