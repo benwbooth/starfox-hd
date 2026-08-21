@@ -181,8 +181,8 @@ impl PathHost for RecHost {
         al.worldz = al.worldz.wrapping_add(al.vz);
     }
 
-    fn hit_flash(&mut self, al: &mut Alien) {
-        al.sflags |= ASF_HITFLASH;
+    fn hit_flash(&mut self, world: &mut PathWorld, idx: u16) {
+        world.aliens[idx as usize].sflags |= ASF_HITFLASH;
     }
 
     fn init_obj_vars(&mut self, al: &mut Alien) {

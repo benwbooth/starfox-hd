@@ -49,10 +49,10 @@
 
 use sf_game::alien::{
     Alien as GAlien, ObjectVisualKind as GObjectVisualKind, StratId, ACF_COLLTYPE2, ASF4_TEXTOBJ,
-    ASF_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW, NUMBER_AL,
+    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ASF_SHADOW, NUMBER_AL,
 };
 use sf_game::game::Game;
-use sf_game::vars::HARD_HP;
+use sf_game::vars::{HARD_HP, FRAMESPERAP};
 use sf_game::world::World;
 use sf_path::alien::{
     Alien as PAlien, ObjectVisualKind as PObjectVisualKind, StratRef, ACF_FIRSTFRAME, AFEXP,
@@ -725,19 +725,39 @@ impl PathHost for Adapter<'_> {
         al.worldz = al.worldz.wrapping_add(al.vz);
     }
 
-    fn hit_flash(&mut self, al: &mut PAlien) {
-        // C Strat_HitFlash (strat_enemy.c:5895), reduced: the trait only sees
-        // the single alien, so on death we leave hp==0 for the object's
-        // expstratptr to explode it via the game dostrats loop next frame
-        // (1-frame-late vs C's same-frame expstrat call; not hit by SF1 path
-        // objects in the parity window).
-        if al.hp != HARD_HP {
-            if al.hp > 0 {
-                al.hp -= 1;
+    fn hit_flash(&mut self, world: &mut PathWorld, idx: u16) {
+        // ROM pathhit_istrat (PATHS.ASM:2905) tail-jumps into hitflash_Istrat
+        // (GSTRATS.ASM:895): clear the collide flag, honor nohitaffect, then
+        // `s_docoll x,#framesperAP` — damage SELF by the attack power of the
+        // object recorded in al_collobjptr under the FRAMESPERAP cooldown —
+        // and set hitflash. The previous reduced version subtracted a flat 1
+        // and ignored the attacker, so path scenery survived ship rams that
+        // kill it in retail (Corneria tick 1741 tower).
+        let (collobjptr, collcount, hp, sflags) = {
+            let al = &mut world.aliens[idx as usize];
+            al.sflags &= !ASF_COLLIDE;
+            (al.collobjptr, al.collcount, al.hp, al.sflags)
+        };
+        if sflags & ASF_NOHITAFFECT != 0 {
+            // ROM `.nocol` falls straight to `s_jmpto_strat`; the caller
+            // already dispatches the ordinary strategy after this hook.
+            return;
+        }
+        let attacker_ap = world
+            .aliens
+            .get(usize::from(collobjptr))
+            .filter(|partner| partner.active)
+            .map(|partner| partner.ap)
+            .unwrap_or(0);
+        // do_coll_l ($1F:D252): DEC collcount / BNE exit, then saturating
+        // damage guarded by the hp sign bit, then reload the cooldown.
+        let al = &mut world.aliens[idx as usize];
+        al.collcount = collcount.wrapping_sub(1);
+        if al.collcount == 0 {
+            if (hp as i8) >= 0 {
+                al.hp = hp.saturating_sub(attacker_ap);
             }
-            if al.hp == 0 {
-                return;
-            }
+            al.collcount = FRAMESPERAP;
         }
         al.sflags |= ASF_HITFLASH;
     }

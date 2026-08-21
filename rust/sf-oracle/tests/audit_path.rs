@@ -167,7 +167,7 @@ impl PathHost for MiniHost {
         0
     }
     fn apply_velocity(&mut self, _al: &mut sf_path::alien::Alien) {}
-    fn hit_flash(&mut self, _al: &mut sf_path::alien::Alien) {}
+    fn hit_flash(&mut self, _world: &mut sf_path::interp::PathWorld, _idx: u16) {}
     fn init_obj_vars(&mut self, _al: &mut sf_path::alien::Alien) {}
     #[allow(clippy::too_many_arguments)]
     fn spawn_projectile(

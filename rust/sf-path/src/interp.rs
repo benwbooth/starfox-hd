@@ -158,8 +158,10 @@ pub trait PathHost {
     fn angle_xz(&mut self, src: &Alien, dst: &Alien) -> u8;
     /// `Strat_ApplyVelocity` (src/strat/strat_common.h).
     fn apply_velocity(&mut self, al: &mut Alien);
-    /// `Strat_HitFlash` (src/strat/strat_enemy.h).
-    fn hit_flash(&mut self, al: &mut Alien);
+    /// `Strat_HitFlash` (src/strat/strat_enemy.h). Receives the pool and the
+    /// object index because the ROM routine resolves the attacker's attack
+    /// power through `al_collobjptr` (`hitflash_Istrat` → `s_docoll`).
+    fn hit_flash(&mut self, world: &mut PathWorld, idx: u16);
     /// `Strat_InitObjVars` (src/strat/strat_common.h).
     fn init_obj_vars(&mut self, al: &mut Alien);
     /// `Strat_SpawnProjectile` (src/strat/strat_common.h). Returns the index
@@ -1183,7 +1185,7 @@ pub fn path_on_collision<H: PathHost>(world: &mut PathWorld, host: &mut H, self_
         }
     }
 
-    host.hit_flash(&mut world.aliens[si]);
+    host.hit_flash(world, si.try_into().unwrap());
     // PATHS.ASM jumps into hitflash_Istrat, whose final operation dispatches
     // the object's ordinary strategy. Collision therefore replaces, but does
     // not consume, the path update for this object-strategy pass.

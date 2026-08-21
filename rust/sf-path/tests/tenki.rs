@@ -34,7 +34,7 @@ impl PathHost for Host {
         0
     }
     fn apply_velocity(&mut self, _: &mut Alien) {}
-    fn hit_flash(&mut self, _: &mut Alien) {}
+    fn hit_flash(&mut self, _: &mut PathWorld, _: u16) {}
     fn init_obj_vars(&mut self, _: &mut Alien) {}
     fn spawn_projectile(
         &mut self,
