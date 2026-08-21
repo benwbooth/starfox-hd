@@ -8939,13 +8939,6 @@ pub fn boss1makechild(g: &mut Game, idx: u16) {
 // TOW_0 EXPLODE (C strat_enemy.c:3543-3575)
 // ============================================================
 
-/// C `tow0explode_wait` (strat_enemy.c:3543).
-fn tow0explode_wait(g: &mut Game, idx: u16) {
-    if count_down(&mut g.objs.aliens[idx as usize]) {
-        g.objs.aldead = 1;
-    }
-}
-
 /// C `Strat_Tow0Explode` (strat_enemy.c:3552).
 pub fn strat_tow0_explode(g: &mut Game, idx: u16) {
     // tow_0 flags its linked tow_1 child via `ptr` (C comment: mirrors the
@@ -8956,15 +8949,13 @@ pub fn strat_tow0_explode(g: &mut Game, idx: u16) {
     }
     // (F5) ASM tow0explode_Istrat -> pillarexplode plays NO direct sound; the
     // former play_se(0x10) here was a leftover placeholder chime. Deleted.
-    let s = sid(g, tow0explode_wait);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.flags |= AFEXP;
-    al.sflags |= ASF_COLLDISABLE;
-    al.collflags = 0;
-    al.stratptr = Some(s);
-    al.collstratptr = None;
-    al.expstratptr = None;
-    al.count = 7;
+    // ASM tow0explode_Istrat (EXPSTRAT.ASM:1070): `s_set_alvar W,x,al_sword2,
+    // #160` then `s_brl pillarexplode_istrat` — the tower explodes RIGHT NOW
+    // into the same staggered eight-child chain as pillar3, with child worldy
+    // shifted by sword2=160, and its tail hands the corpse to delayremove.
+    // The old C-lineage port deferred everything behind a 7-frame wait.
+    g.objs.aliens[idx as usize].sword2 = 160;
+    pillar3explode_strat(g, idx);
 }
 
 // ============================================================

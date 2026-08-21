@@ -174,6 +174,8 @@ const RETAIL_DIRECT_SHAPE_BOUNCYBALL: u16 = 0xAEED;
 const RETAIL_DIRECT_SHAPE_TOWER_CHILD: u16 = 0xBD78;
 const RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_ENVELOPE: u16 = 0xACF5;
 const RETAIL_DIRECT_SHAPE_SMOKE: u16 = 0xADD5;
+const RETAIL_DIRECT_SHAPE_ROBOT_0: u16 = 0xBB9C;
+const RETAIL_DIRECT_SHAPE_PILLAR3_NS: u16 = 0xB882;
 const NATIVE_SHAPE_ENEMY_LASER: u16 = 478;
 const NATIVE_SHAPE_PLAYER_LASER: u16 = 511;
 const NATIVE_SHAPE_LARGE_LASER_FLASH: u16 = 479;
@@ -192,6 +194,8 @@ const NATIVE_SHAPE_BOMBER: u16 = 48;
 const NATIVE_SHAPE_ZACO_A: u16 = 217;
 const NATIVE_SHAPE_ZACO_6: u16 = 52;
 const NATIVE_SHAPE_KAMIKAZE: u16 = 9;
+const NATIVE_SHAPE_ROBOT_0: u16 = 420;
+const NATIVE_SHAPE_PILLAR3_NS: u16 = 452;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LevelObjectSnapshot {
@@ -680,7 +684,7 @@ fn native_free_order(native: &Shell) -> Vec<u16> {
 }
 
 fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
-    const SOURCE_SHAPE_CATALOG_ENTRIES: u16 = 256;
+    const SOURCE_SHAPE_CATALOG_ENTRIES: u16 = 512;
 
     let flat_shape = |source_word| {
         let direct_shape = match source_word {
@@ -712,6 +716,8 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
                 Some(NATIVE_SHAPE_MEDIUM_EXPLOSION_ENVELOPE)
             }
             RETAIL_DIRECT_SHAPE_SMOKE => Some(NATIVE_SHAPE_SMOKE),
+            RETAIL_DIRECT_SHAPE_ROBOT_0 => Some(NATIVE_SHAPE_ROBOT_0),
+            RETAIL_DIRECT_SHAPE_PILLAR3_NS => Some(NATIVE_SHAPE_PILLAR3_NS),
             _ => None,
         };
         if let Some(shape) = direct_shape {

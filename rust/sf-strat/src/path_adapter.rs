@@ -52,7 +52,7 @@ use sf_game::alien::{
     ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ASF_SHADOW, NUMBER_AL,
 };
 use sf_game::game::Game;
-use sf_game::vars::{HARD_HP, FRAMESPERAP};
+use sf_game::vars::FRAMESPERAP;
 use sf_game::world::World;
 use sf_path::alien::{
     Alien as PAlien, ObjectVisualKind as PObjectVisualKind, StratRef, ACF_FIRSTFRAME, AFEXP,

@@ -222,7 +222,7 @@ pub fn build() -> BuiltLevel {
     b.mapobj(3500, -400, 0, 4000, sh::PILLAR3, is::PILLAR3);
     b.pathobj(0, 1200, 0, 3500, sh::NULLSHAPE, path::ROBOTSWITHLOG, 6, 4);
     b.setalvarb(al::ROTY, 64);
-    b.mapwait(0x0800);
+    b.mapwait(800);
 
     b.mapobj(0, 200, 0, 5000, sh::BU_8, is::HARD180YR);
     b.mapobj(2400, -200, 0, 5000, sh::BU_8, is::HARD180YR);
@@ -244,7 +244,7 @@ pub fn build() -> BuiltLevel {
     b.mapobj(1000, -200, -50, 5000, sh::R_BU_1, is::HARD180YR);
     b.mapobj(0, 800, 0, 5000, sh::BU_5, is::HARD);
     b.setalvarb(al::ROTY, DEG90);
-    b.mapwait(0x2000);
+    b.mapwait(2000);
 
     b.mapexploderobot();
     b.mapobj(0, 820, 0, 4500, sh::BU_1, is::HARD180YR);
