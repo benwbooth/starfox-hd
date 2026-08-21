@@ -493,6 +493,9 @@ const PLAYER_DEATH_PITCH_TARGET: i16 = 5000;
 const PLAYER_DEATH_GROUND_PITCH: i16 = -2000;
 const SHIPINTRO_LIFE: u8 = 40;
 const SHIPINTRO_BOOST_Z: i16 = 50;
+/// Effective straight-ahead distance produced by the retail fixed-point
+/// vector path during the two transfer-bound base-player updates.
+const LEVEL_INITIALIZATION_FORWARD_STEP: i16 = 63;
 
 // --- ExitBase constants (STRATEQU.INC:305,350,581-597) ---
 const PEXITBASE_SPEED: i16 = 50;
@@ -1324,6 +1327,34 @@ fn pcbox_wing_strat(g: &mut Game, idx: u16) {
     al.rotx = p.rotx;
     al.roty = p.roty;
     al.rotz = p.rotz;
+}
+
+/// Refresh all attached player damage proxies from the ship's current typed
+/// transform. The source performs these follower updates after player motion
+/// on each startup strategy pass.
+pub fn refresh_player_collision_proxies(g: &mut Game) {
+    if let Some(body) = g.coldet.pcbox.body {
+        pcbox_body_strat(g, body);
+    }
+    if let Some(left_wing) = g.coldet.pcbox.lwing {
+        pcbox_wing_strat(g, left_wing);
+    }
+    if let Some(right_wing) = g.coldet.pcbox.rwing {
+        pcbox_wing_strat(g, right_wing);
+    }
+}
+
+/// Advance the base player during the transfer-bound level startup without
+/// running the active map or interactive flight systems.
+pub fn advance_player_during_level_initialization(g: &mut Game, idx: u16) {
+    g.vars.gameframe = g.vars.gameframe.wrapping_add(1);
+    let _ = g.sync_player_snapshot();
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+        .worldz
+        .wrapping_add(LEVEL_INITIALIZATION_FORWARD_STEP);
+    if g.vars.dummyobj > 0 {
+        refresh_player_collision_proxies(g);
+    }
 }
 
 /// Body-hit impact SE (ROM `pcolB_Istrat` PSTRATS.ASM:178-191).
@@ -2772,11 +2803,13 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     Some(idx)
 }
 
-/// Spawn and select the source-defined initial player strategy for a loaded
-/// map. This is the application-facing equivalent of `initgame` consuming the
-/// background's player-strategy declaration.
-pub fn strat_spawn_player_for_map(g: &mut Game, map_id: u32) -> Option<u16> {
-    let idx = strat_spawn_player(g)?;
+/// Select the source-defined initial strategy for an already spawned player.
+///
+/// Keeping this separate from [`strat_spawn_player`] lets the native shell
+/// reproduce `initgame_l`: the background creates the base player first, then
+/// the map's opening declaration changes its behavior after the transfer-bound
+/// level setup has completed.
+pub fn initialize_player_for_map(g: &mut Game, map_id: u32, idx: u16) {
     if let Some(view) = sf_map::catalog::opening_player_view(map_id) {
         g.vars.player_view_mode = view.mode;
         g.vars.player_view_options = view.options;
@@ -2798,6 +2831,14 @@ pub fn strat_spawn_player_for_map(g: &mut Game, map_id: u32) -> Option<u16> {
         Some(Strategy::PassivePresentation) => player_cred_istrat(g, idx),
         None => {}
     }
+}
+
+/// Spawn and select the source-defined initial player strategy for a loaded
+/// map. Presentation paths use this convenience entry point; gameplay startup
+/// calls the two typed stages separately through the shell.
+pub fn strat_spawn_player_for_map(g: &mut Game, map_id: u32) -> Option<u16> {
+    let idx = strat_spawn_player(g)?;
+    initialize_player_for_map(g, map_id, idx);
     Some(idx)
 }
 
@@ -6870,6 +6911,10 @@ fn viewopening_istrat(g: &mut Game, idx: u16) {
     g.vars.gameflags &= !GF_STRATDONE1;
     // s_and_var B,pshipflags3,#~psf3_enginesnd
     g.vars.pshipflags3 &= !PSF3_ENGINESND;
+
+    // The source initializer label falls through directly into the per-frame
+    // strategy body, so the camera performs its first chase on creation.
+    viewopening_strat(g, idx);
 }
 
 /// C `viewopening_strat` (GISTRATS.ASM:629-683): multi-state camera that
@@ -7000,8 +7045,9 @@ fn playerpening_strat(g: &mut Game, idx: u16) {
         b2 = 0;
     }
     g.vars.set_sv_u8(sv::PSVAR_BYTE2, b2);
-    // Byte index / 2 = word index into viewfloattab
-    g.objs.aliens[i].worldy = SHIPINTRO_VIEW_FLOAT[(b2 / 2) as usize];
+    // The source table macro uses the byte offset to select a word and then
+    // applies its explicit scale of one (multiply by two).
+    g.objs.aliens[i].worldy = SHIPINTRO_VIEW_FLOAT[(b2 / 2) as usize].wrapping_mul(2);
 
     // s_add_alvar W,x,al_worldy,#-30
     g.objs.aliens[i].worldy = g.objs.aliens[i].worldy.wrapping_add(-30);
@@ -7087,6 +7133,11 @@ pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
     // s_set_var B,psvar_byte1,#0 / psvar_byte2,#0
     g.vars.set_sv_u8(sv::PSVAR_BYTE1, 0);
     g.vars.set_sv_u8(sv::PSVAR_BYTE2, 0);
+
+    // `playeropening_Istrat` falls through into `playerpening_strat` in the
+    // original source, advancing the ship on the initializer frame.
+    playerpening_strat(g, idx);
+    refresh_player_collision_proxies(g);
 }
 
 // Re-export the sv module for tests and other-lane wiring convenience.

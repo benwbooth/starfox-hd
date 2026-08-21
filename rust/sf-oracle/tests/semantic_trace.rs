@@ -7,12 +7,12 @@ use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_VX, AL_VY, AL_VZ,
     RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
-    RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY, RETAIL_PLANET_CENTER_ENTRY,
-    RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY, RETAIL_PLANET_GAME_START_ENTRY,
-    RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY, RETAIL_PLANET_MAP_FADE_ENTRY,
-    RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY, RETAIL_PLANET_SHIP_FLASH,
-    RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL, RETAIL_PSHIPFLAGS,
-    RETAIL_PVIEWVELZ, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    RETAIL_GAMEFRAME, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
+    RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
+    RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
+    RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
+    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
+    RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -48,6 +48,95 @@ const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
 const FRONT_END_TRANSITIONS: usize = 18;
 const PEPPER_CURSOR_CHECKPOINTS: [(u32, u8); 5] =
     [(654, 0), (656, 1), (657, 2), (761, 64), (839, 103)];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Position(i16, i16, i16);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StartupSnapshot {
+    background: u16,
+    game_frame: u16,
+    player: Position,
+    body: Position,
+    left_wing: Position,
+    right_wing: Position,
+    follower: Position,
+    camera: Option<Position>,
+    active_objects: usize,
+}
+
+const STARTUP_CHECKPOINTS: [(u32, StartupSnapshot); 5] = [
+    (
+        859,
+        StartupSnapshot {
+            background: 0,
+            game_frame: 141,
+            player: Position(0, 0, 63),
+            body: Position(0, 0, 0),
+            left_wing: Position(0, 0, 0),
+            right_wing: Position(0, 0, 0),
+            follower: Position(0, 0, 0),
+            camera: None,
+            active_objects: 5,
+        },
+    ),
+    (
+        864,
+        StartupSnapshot {
+            background: 0,
+            game_frame: 142,
+            player: Position(0, 0, 126),
+            body: Position(0, 0, 126),
+            left_wing: Position(-32, 12, 126),
+            right_wing: Position(32, 12, 126),
+            follower: Position(0, 0, 63),
+            camera: None,
+            active_objects: 5,
+        },
+    ),
+    (
+        890,
+        StartupSnapshot {
+            background: 0,
+            game_frame: 142,
+            player: Position(0, 0, 126),
+            body: Position(0, 0, 126),
+            left_wing: Position(-32, 12, 126),
+            right_wing: Position(32, 12, 126),
+            follower: Position(0, 0, 63),
+            camera: None,
+            active_objects: 5,
+        },
+    ),
+    (
+        891,
+        StartupSnapshot {
+            background: 0,
+            game_frame: 0,
+            player: Position(0, -28, 191),
+            body: Position(0, -28, 191),
+            left_wing: Position(-32, -16, 191),
+            right_wing: Position(32, -16, 191),
+            follower: Position(0, 0, 126),
+            camera: Some(Position(-1175, -1961, 3560)),
+            active_objects: 6,
+        },
+    ),
+    (
+        892,
+        StartupSnapshot {
+            background: 0,
+            game_frame: 1,
+            player: Position(0, -26, 256),
+            body: Position(0, -26, 256),
+            left_wing: Position(-32, -13, 256),
+            right_wing: Position(32, -15, 256),
+            follower: Position(0, -28, 191),
+            camera: Some(Position(-1151, -1923, 3498)),
+            active_objects: 6,
+        },
+    ),
+];
 const RETAIL_PHASE_ENTRIES: [u32; 11] = [
     RETAIL_PLANET_MAP_FADE_ENTRY,
     RETAIL_PLANET_ISOLATION_ENTRY,
@@ -386,6 +475,98 @@ fn record_front_end_transition(
     *previous = Some(phase);
 }
 
+fn object_position(object: sf_oracle::ObjState) -> Position {
+    Position(object.worldx, object.worldy, object.worldz)
+}
+
+fn retail_startup_snapshot(retail: &RetailMachine) -> StartupSnapshot {
+    let objects = retail.object_snapshot();
+    let active = retail.active_object_slots();
+    let camera = active.contains(&5).then(|| object_position(objects[5]));
+    StartupSnapshot {
+        background: sf_oracle::retail_background_catalog_id(
+            retail.peek16(WORK_RAM | RETAIL_CURRENTBG),
+        )
+        .expect("retail background offset must identify a catalog record"),
+        game_frame: retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
+        player: object_position(objects[0]),
+        body: object_position(objects[1]),
+        left_wing: object_position(objects[2]),
+        right_wing: object_position(objects[3]),
+        follower: object_position(objects[4]),
+        camera,
+        active_objects: active.len(),
+    }
+}
+
+fn native_position(native: &Shell, slot: u16) -> Position {
+    let object = native.game.objs.aliens[slot as usize];
+    Position(object.worldx, object.worldy, object.worldz)
+}
+
+fn native_startup_snapshot(native: &Shell) -> StartupSnapshot {
+    let boxes = native.game.coldet.pcbox;
+    let player = boxes.player.expect("startup player");
+    let body = boxes.body.expect("startup body proxy");
+    let left_wing = boxes.lwing.expect("startup left-wing proxy");
+    let right_wing = boxes.rwing.expect("startup right-wing proxy");
+    let follower = u16::try_from(native.game.vars.dummyobj).expect("startup follower");
+    let role_slots = [player, body, left_wing, right_wing, follower];
+    let active = native.game.objs.active_indices();
+    let extra: Vec<_> = active
+        .iter()
+        .copied()
+        .filter(|slot| !role_slots.contains(slot))
+        .collect();
+    let camera = match extra.as_slice() {
+        [] => None,
+        [slot] => Some(native_position(native, *slot)),
+        _ => panic!("unexpected startup objects outside semantic roles: {extra:?}"),
+    };
+
+    StartupSnapshot {
+        background: native.game.vars.currentbg,
+        game_frame: native.game.vars.gameframe,
+        player: native_position(native, player),
+        body: native_position(native, body),
+        left_wing: native_position(native, left_wing),
+        right_wing: native_position(native, right_wing),
+        follower: native_position(native, follower),
+        camera,
+        active_objects: active.len(),
+    }
+}
+
+fn configured_native_shell() -> Shell {
+    let mut native = Shell::new();
+    native.set_register_strats(Box::new(sf_strat::table::register_all));
+    native.set_spawn_player(Box::new(sf_strat::player::strat_spawn_player));
+    native.set_advance_startup_player(Box::new(
+        sf_strat::player::advance_player_during_level_initialization,
+    ));
+    native.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
+    native
+}
+
+#[test]
+fn native_corneria_startup_retains_certified_checkpoints() {
+    let mut native = configured_native_shell();
+    let final_tick = STARTUP_CHECKPOINTS.last().expect("startup checkpoints").0;
+    for tick in 0..=final_tick {
+        native.tick(front_end_input(tick));
+        if let Some((_, expected)) = STARTUP_CHECKPOINTS
+            .iter()
+            .find(|(checkpoint, _)| *checkpoint == tick)
+        {
+            assert_eq!(
+                native_startup_snapshot(&native),
+                *expected,
+                "native startup tick {tick}"
+            );
+        }
+    }
+}
+
 #[test]
 fn retail_front_end_through_corneria_initialization_matches_native_semantic_timing() {
     let Some(rom) = load_retail_rom() else {
@@ -403,11 +584,7 @@ fn retail_front_end_through_corneria_initialization_matches_native_semantic_timi
     }
     retail.watch_cpu_execution(&RETAIL_PHASE_ENTRIES);
 
-    let mut native = Shell::new();
-    native.set_register_strats(Box::new(sf_strat::table::register_all));
-    native.set_spawn_player(Box::new(|game, map| {
-        let _ = sf_strat::player::strat_spawn_player_for_map(game, map);
-    }));
+    let mut native = configured_native_shell();
     let mut retail_trace = Vec::new();
     let mut native_trace = Vec::new();
     let mut previous_retail = None;
@@ -423,6 +600,20 @@ fn retail_front_end_through_corneria_initialization_matches_native_semantic_timi
             .expect("retail front-end trace");
         let retail_execution_entries = retail.take_cpu_execution_watch_hits();
         native.tick(input);
+
+        if let Some((_, expected)) = STARTUP_CHECKPOINTS
+            .iter()
+            .find(|(checkpoint, _)| *checkpoint == tick)
+        {
+            let retail_snapshot = retail_startup_snapshot(&retail);
+            let native_snapshot = native_startup_snapshot(&native);
+            assert_eq!(retail_snapshot, *expected, "retail startup tick {tick}");
+            assert_eq!(native_snapshot, *expected, "native startup tick {tick}");
+            assert_eq!(
+                native_snapshot, retail_snapshot,
+                "startup parity tick {tick}"
+            );
+        }
 
         let retail_phase = retail_front_end_phase(
             &retail,

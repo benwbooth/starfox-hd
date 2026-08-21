@@ -49,6 +49,8 @@ pub mod map_id {
 
 /// Flat background catalog identities from BGS.ASM / the map bytecode.
 pub mod background_id {
+    /// `bg_1_1i`, the common Corneria hangar/interior opening.
+    pub const ONE_ONE_INTERIOR: u16 = 0;
     pub const THREE_ONE_OUTDOOR: u16 = 3;
     pub const ONE_ONE_OUTDOOR: u16 = 4;
     pub const ONE_TWO: u16 = 5;
@@ -156,7 +158,7 @@ pub fn opening_background(id: u32) -> Option<u16> {
     use background_id as bg;
 
     match id {
-        map_id::M1_1 | map_id::M2_1 => Some(bg::ONE_ONE_OUTDOOR),
+        map_id::M1_1 | map_id::M2_1 | map_id::M3_1 => Some(bg::ONE_ONE_INTERIOR),
         map_id::M1_2 => Some(bg::ONE_TWO),
         map_id::M1_3 => Some(bg::ONE_THREE_WARP),
         map_id::M1_4 => Some(bg::ONE_FOUR),
@@ -166,7 +168,6 @@ pub fn opening_background(id: u32) -> Option<u16> {
         map_id::M2_3 => Some(bg::TWO_THREE_PLANET),
         map_id::M2_4 => Some(bg::TWO_FOUR),
         map_id::M2_6 => Some(bg::TWO_SIX_COLONY),
-        map_id::M3_1 => Some(bg::THREE_ONE_OUTDOOR),
         map_id::M3_2 => Some(bg::THREE_TWO),
         map_id::M3_3 => Some(bg::THREE_THREE),
         map_id::M3_4 => Some(bg::THREE_FOUR_SPACE),

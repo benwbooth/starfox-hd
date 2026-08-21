@@ -254,6 +254,20 @@ pub const RETAIL_STAGECNT: u32 = 0x15B9;
 pub const RETAIL_CURRENTBG: u32 = 0x1741;
 pub const RETAIL_BGFLAGS: u32 = 0x1F13;
 pub const RETAIL_SPECIALOBJTOTAL: u32 = 0x173C;
+
+/// Translate a source BGS table byte offset into the flat native background
+/// catalog identity. The retail table starts after one three-byte header and
+/// every background record occupies six bytes.
+pub fn retail_background_catalog_id(source_offset: u16) -> Option<u16> {
+    const FIRST_BACKGROUND_OFFSET: u16 = 3;
+    const BACKGROUND_RECORD_BYTES: u16 = 6;
+
+    let relative = source_offset.checked_sub(FIRST_BACKGROUND_OFFSET)?;
+    if relative % BACKGROUND_RECORD_BYTES != 0 {
+        return None;
+    }
+    Some(relative / BACKGROUND_RECORD_BYTES)
+}
 /// Retail VOFS/HOFS/fade WRAM (vofsonplease / sethofson / setfade*do).
 /// Built: bg2scroll `$1F32`, dovofs/dohofs in `$19xx`, fadedir/fade `$18xx`.
 pub const RETAIL_BG2SCROLL: u32 = 0x194D;
@@ -2387,6 +2401,36 @@ impl RetailMachine {
 
     pub fn peek16(&self, address: u32) -> u16 {
         u16::from_le_bytes([self.peek8(address), self.peek8(address.wrapping_add(1))])
+    }
+
+    /// Snapshot every retail object slot for semantic oracle adapters.
+    pub fn object_snapshot(&self) -> Vec<ObjState> {
+        snapshot_objects(&self.bus.inner, &RETAIL_POOL)
+    }
+
+    /// Walk the retail active-object list and return stable pool-slot indices.
+    pub fn active_object_slots(&self) -> Vec<u16> {
+        const WORK_RAM: u32 = 0x7E_0000;
+
+        let objects = self.object_snapshot();
+        let mut current = self.peek16(WORK_RAM | RETAIL_POOL.active_head);
+        let mut active = Vec::new();
+        while current != 0 && active.len() < RETAIL_POOL.count as usize {
+            let address = u32::from(current);
+            let Some(relative) = address.checked_sub(RETAIL_POOL.base) else {
+                break;
+            };
+            if relative % RETAIL_POOL.stride != 0 {
+                break;
+            }
+            let slot = relative / RETAIL_POOL.stride;
+            let Some(object) = objects.get(slot as usize) else {
+                break;
+            };
+            active.push(slot as u16);
+            current = object.next;
+        }
+        active
     }
 
     pub fn ppu_frame(&self) -> PpuFrame {

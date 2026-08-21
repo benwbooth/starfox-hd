@@ -315,6 +315,54 @@ impl Game {
         }
     }
 
+    /// Create the source game's inert player-position follower.
+    ///
+    /// This is ordinary typed object state in the flat native pool. The object
+    /// is skipped by strategy dispatch, cannot be removed behind the camera,
+    /// and is refreshed from the active player at each strategy boundary.
+    pub fn create_player_dummy(&mut self) -> Option<u16> {
+        let idx = self.objs.alloc()?;
+        let dummy = &mut self.objs.aliens[idx as usize];
+        strat_init_obj_vars(dummy);
+        dummy.shape = 0;
+        dummy.type_ &= !ATZREMOVE;
+        dummy.sflags3 &= !ASF3_REALOBJ;
+        dummy.sflags4 |= ASF4_PLAYEROBJ;
+        self.vars.dummyobj = idx as i16;
+        Some(idx)
+    }
+
+    /// Refresh the typed player snapshot and the inert follower used by
+    /// strategy code. Returns the active player slot when one exists.
+    pub fn sync_player_snapshot(&mut self) -> Option<u16> {
+        let playpt = self.vars.internal_playpt;
+        let player = if playpt >= 0
+            && (playpt as usize) < NUMBER_AL
+            && self.objs.aliens[playpt as usize].active
+        {
+            playpt as usize
+        } else if self.objs.aliens[0].active {
+            0
+        } else {
+            return None;
+        };
+
+        let player_object = self.objs.aliens[player];
+        let dummy = self.vars.dummyobj;
+        if dummy > 0 && (dummy as usize) < NUMBER_AL && self.objs.aliens[dummy as usize].active {
+            let follower = &mut self.objs.aliens[dummy as usize];
+            follower.worldx = player_object.worldx;
+            follower.worldy = player_object.worldy;
+            follower.worldz = player_object.worldz;
+        }
+
+        self.vars.player_posx = player_object.worldx;
+        self.vars.player_posy = player_object.worldy;
+        self.vars.player_posz = player_object.worldz;
+        self.vars.playervel_z = player_object.vz;
+        Some(player as u16)
+    }
+
     /// C `init_strats_l` (src/game/obj.c:134, GSTRATS.ASM:423-434).
     fn init_strats(&mut self) {
         // m_bossHP (MVARS.MC:251) is a per-frame accumulator: ROM zeroes it
@@ -329,23 +377,10 @@ impl Game {
         {
             self.vars.player_death_fade_delay -= 1;
         }
-        let playpt = self.vars.internal_playpt;
-        let mut player: Option<usize> = None;
-        if playpt >= 0 && (playpt as usize) < NUMBER_AL {
-            if self.objs.aliens[playpt as usize].active {
-                player = Some(playpt as usize);
-            }
-        }
-        if player.is_none() && self.objs.aliens[0].active {
-            player = Some(0); // Obj_GetPlayer fallback
-        }
-        let Some(p) = player else { return };
-        self.try_change_player_view(p as u16);
-        let al = self.objs.aliens[p];
-        self.vars.player_posx = al.worldx;
-        self.vars.player_posy = al.worldy;
-        self.vars.player_posz = al.worldz;
-        self.vars.playervel_z = al.vz;
+        let Some(player) = self.sync_player_snapshot() else {
+            return;
+        };
+        self.try_change_player_view(player);
         // GSTRATS.ASM init_strats float block: the two shared oscillators
         // advance only while the active player view enables wobble.
         if self.vars.playerflymode & PFM_WOBBLE != 0 {

@@ -244,6 +244,12 @@ pub enum GameplayEntryPhase {
 /// Measured 20 Hz ticks from the retail `gamestart` entry to the first active
 /// opening-level update boundary.
 pub const LEVEL_INITIALIZATION_TICKS: u8 = 32;
+/// The source runs its second base-player update five native-rate ticks after
+/// publishing `gamestart`; the transfer then continues until the opening
+/// strategy is installed at [`LEVEL_INITIALIZATION_TICKS`].
+const SECOND_STARTUP_PLAYER_UPDATE_TICK: u8 = 5;
+/// Game-frame value immediately before the first source startup player update.
+const LEVEL_INITIALIZATION_INITIAL_GAME_FRAME: u16 = 140;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TallyPhase {
@@ -1295,11 +1301,16 @@ pub struct Shell {
     /// start), mirroring how C re-runs Strat_RegisterAll on each level load.
     register_strats: Option<Box<dyn Fn(&mut Game)>>,
 
-    /// Player-spawn hook (C `Strat_SpawnPlayer` + `Strat_PlayerOpening_Init`,
-    /// boot.c:89-102). Injected by the app layer (same circular-dep reason as
-    /// `register_strats`). Called with the newmap id at gameplay start so it
-    /// can run the opening strategy for LEVEL1_1/2_1/3_1.
-    spawn_player: Option<Box<dyn Fn(&mut Game, u32)>>,
+    /// Base-player producer injected by the strategy lane. It creates only the
+    /// typed ship object; map-specific behavior is installed separately after
+    /// the transfer-bound level initialization.
+    spawn_player: Option<Box<dyn Fn(&mut Game) -> Option<u16>>>,
+
+    /// Transfer-bound base-player update supplied by the strategy lane.
+    advance_startup_player: Option<Box<dyn Fn(&mut Game, u16)>>,
+
+    /// Map-specific player initializer injected by the strategy lane.
+    initialize_player: Option<Box<dyn Fn(&mut Game, u32, u16)>>,
 
     /// Final-score object-spawn hook, injected by sf-app because the concrete
     /// path-text strategy lives in sf-strat.
@@ -1342,6 +1353,8 @@ impl Shell {
             paused: false,
             register_strats: None,
             spawn_player: None,
+            advance_startup_player: None,
+            initialize_player: None,
             ending_score_part: None,
             ending_boss_replay: None,
         }
@@ -1363,11 +1376,19 @@ impl Shell {
         self.state.borrow_mut().shape_extents = table;
     }
 
-    /// Install the player-spawn hook (app layer passes a closure that calls
-    /// `sf_strat::player::strat_spawn_player` + `strat_player_opening_init`).
-    /// Called at gameplay start with the newmap id.
-    pub fn set_spawn_player(&mut self, hook: Box<dyn Fn(&mut Game, u32)>) {
+    /// Install the base-player producer.
+    pub fn set_spawn_player(&mut self, hook: Box<dyn Fn(&mut Game) -> Option<u16>>) {
         self.spawn_player = Some(hook);
+    }
+
+    /// Install the transfer-bound base-player update.
+    pub fn set_advance_startup_player(&mut self, hook: Box<dyn Fn(&mut Game, u16)>) {
+        self.advance_startup_player = Some(hook);
+    }
+
+    /// Install the map-specific player initializer.
+    pub fn set_initialize_player(&mut self, hook: Box<dyn Fn(&mut Game, u32, u16)>) {
+        self.initialize_player = Some(hook);
     }
 
     /// Install the source 3D final-score object producer.
@@ -1395,6 +1416,33 @@ impl Shell {
         }
     }
 
+    fn spawn_base_player(&mut self) -> Option<u16> {
+        let hook = self.spawn_player.take()?;
+        let player = hook(&mut self.game);
+        self.spawn_player = Some(hook);
+        player
+    }
+
+    fn initialize_player_for_map(&mut self, map_id: u32, player: u16) {
+        if let Some(hook) = self.initialize_player.take() {
+            hook(&mut self.game, map_id, player);
+            self.initialize_player = Some(hook);
+        }
+    }
+
+    fn advance_startup_player(&mut self, player: u16) {
+        if let Some(hook) = self.advance_startup_player.take() {
+            hook(&mut self.game, player);
+            self.advance_startup_player = Some(hook);
+        }
+    }
+
+    fn spawn_initialized_player(&mut self, map_id: u32) -> Option<u16> {
+        let player = self.spawn_base_player()?;
+        self.initialize_player_for_map(map_id, player);
+        Some(player)
+    }
+
     /// One full C `Game_Tick` (boot.c:222) at 20 Hz. Caller passes the
     /// latched pad; pad1_new is computed from the previous tick's pad
     /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
@@ -1409,10 +1457,17 @@ impl Shell {
         // The frame assembled after this update presents the newly selected
         // record. Advancing before simulation lets a wipe started by this
         // tick's map code retain its authored frame zero for one full frame.
+        let hold_level_opening_wipe = self.game_state == GameState::Playing
+            && self.gameplay_entry_phase == GameplayEntryPhase::LevelInitialization;
         let (wipe_was_active, wipe_active) = {
             let mut state = self.state.borrow_mut();
             let was_active = state.screen_wipe.active;
-            (was_active, state.step_screen_wipe())
+            let active = if hold_level_opening_wipe {
+                was_active
+            } else {
+                state.step_screen_wipe()
+            };
+            (was_active, active)
         };
         self.game.vars.strategy.wipe_active = u8::from(wipe_active);
         if wipe_was_active && !wipe_active && self.game.vars.circleanim == 1 {
@@ -2369,10 +2424,7 @@ impl Shell {
         }
         self.load_map(map_id);
         if spawn_player {
-            if let Some(hook) = self.spawn_player.take() {
-                hook(&mut self.game, map_id);
-                self.spawn_player = Some(hook);
-            }
+            let _ = self.spawn_initialized_player(map_id);
         }
         self.game.vars.meters = 0;
         self.game.vars.gameframe = 0;
@@ -2467,16 +2519,20 @@ impl Shell {
             .sound
             .push(SoundCmd::NoSetPort3(false));
 
-        // Retail publishes the incoming background identity at `gamestart`,
-        // before the expensive level initialization completes.
-        if let Some(background) = sf_map::catalog::opening_background(self.planets.newmap) {
-            self.game.vars.currentbg = background;
-            self.game.vars.set_sound_environment_for_bg(background);
-            self.game.vars.set_scene_style_for_bg(background);
-        }
+        self.prepare_gameplay_initialization();
     }
 
     fn gameplay_initialization_tick(&mut self) {
+        let elapsed = LEVEL_INITIALIZATION_TICKS
+            .saturating_sub(self.gameplay_initialization_ticks_remaining)
+            .saturating_add(1);
+        if elapsed == SECOND_STARTUP_PLAYER_UPDATE_TICK && self.game.vars.dummyobj > 0 {
+            let player = self.game.vars.internal_playpt;
+            if player >= 0 {
+                self.advance_startup_player(player as u16);
+            }
+        }
+
         if self.gameplay_initialization_ticks_remaining > 1 {
             self.gameplay_initialization_ticks_remaining -= 1;
             return;
@@ -2486,7 +2542,7 @@ impl Shell {
         self.complete_gameplay_initialization();
     }
 
-    fn complete_gameplay_initialization(&mut self) {
+    fn prepare_gameplay_initialization(&mut self) {
         // Per-run player/game flag reset (boot.c:55-69).
         let v = &mut self.game.vars;
         // Seed the unified lives field from the shell-persistent copy. Death
@@ -2513,6 +2569,7 @@ impl Shell {
         v.player_view_mode = PlayerViewMode::Exterior;
         v.player_view_options = PlayerViewOptions::Unconfigured;
         v.freezestrats = 0;
+        v.dummyobj = 0;
         v.bossmaxhp = 0;
         v.meters = 0;
         self.paused = false;
@@ -2538,15 +2595,11 @@ impl Shell {
         // MapExec_Init (boot.c:84): covered by World::init + load_map.
         self.load_map(self.planets.newmap);
 
-        // Spawn the player alien (C Strat_SpawnPlayer, boot.c:89-102). The
-        // spawn hook is injected from the app layer alongside register_strats
-        // (sf-strat depends on sf-game; a direct call would be circular).
-        // LEVEL1_1/2_1/3_1 open with `pstrat playeropening`, so pass the
-        // newmap so the hook can run Strat_PlayerOpening_Init for those.
-        if let Some(hook) = self.spawn_player.take() {
-            hook(&mut self.game, self.planets.newmap);
-            self.spawn_player = Some(hook);
-
+        // The source background first creates the base player, its three
+        // collision proxies, and the inert position follower. Map-specific
+        // opening behavior is installed only at the completion boundary.
+        if let Some(player) = self.spawn_base_player() {
+            self.game.vars.gameframe = LEVEL_INITIALIZATION_INITIAL_GAME_FRAME;
             // Per-level player-collision setup (ROM GSTRATS.ASM:100-125, the
             // `mapplayermode` player setup): build the three pcbox proxy boxes
             // that route enemy hits onto the ship. The ROM does this in the
@@ -2556,12 +2609,21 @@ impl Shell {
             // attached and every enemy shot/contact passed through the ship.
             // No-op in sf-game-only harnesses that never register the strat lane
             // (pcbox_strats is None). Player is slot playpt (Strat_SpawnPlayer).
-            let player = self.game.vars.internal_playpt;
-            if player >= 0 && self.game.objs.aliens[player as usize].active {
-                self.game.pcbox_attach_player(player as u16);
-            }
-        }
+            self.game.pcbox_attach_player(player);
 
+            // The background's base player initializer falls through into its
+            // first forward update before the inert follower is made. Damage
+            // proxies retain their creation positions until the second pass.
+            self.advance_startup_player(player);
+            let _ = self.game.create_player_dummy();
+        }
+    }
+
+    fn complete_gameplay_initialization(&mut self) {
+        if let Some(player) = self.game.sync_player_snapshot() {
+            self.initialize_player_for_map(self.planets.newmap, player);
+            self.game.world.lastplayz = self.game.objs.aliens[player as usize].worldz;
+        }
         self.gameplay_entry_phase = GameplayEntryPhase::ActiveLevel;
     }
 
@@ -3119,10 +3181,7 @@ impl Shell {
 
         // The source creates its invisible credits player before the replay
         // boss so slot zero remains the canonical player/view anchor.
-        if let Some(hook) = self.spawn_player.take() {
-            hook(&mut self.game, sf_map::catalog::map_id::CREDITS);
-            self.spawn_player = Some(hook);
-        }
+        let _ = self.spawn_initialized_player(sf_map::catalog::map_id::CREDITS);
 
         let anchor = if let Some(hook) = self.ending_boss_replay.take() {
             let anchor = hook(&mut self.game, encounter);
@@ -3259,10 +3318,7 @@ impl Shell {
         self.state.borrow_mut().windows.init();
         self.load_map(sf_map::catalog::map_id::CREDITS);
 
-        if let Some(hook) = self.spawn_player.take() {
-            hook(&mut self.game, sf_map::catalog::map_id::CREDITS);
-            self.spawn_player = Some(hook);
-        }
+        let _ = self.spawn_initialized_player(sf_map::catalog::map_id::CREDITS);
 
         self.state
             .borrow_mut()
@@ -4135,7 +4191,11 @@ mod tests {
             shell.frame().gameplay_entry_phase,
             GameplayEntryPhase::LevelInitialization
         );
-        assert_ne!(shell.game.world.loaded_map_id, Some(map_id::M1_1));
+        assert_eq!(shell.game.world.loaded_map_id, Some(map_id::M1_1));
+        assert_eq!(
+            shell.game.vars.currentbg,
+            sf_map::catalog::background_id::ONE_ONE_INTERIOR
+        );
 
         for _ in 1..LEVEL_INITIALIZATION_TICKS {
             shell.tick(0);

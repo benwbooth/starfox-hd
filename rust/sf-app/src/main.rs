@@ -919,11 +919,13 @@ fn main() {
     // every World::init() reset in the shell (C re-runs Strat_RegisterAll on
     // each level load; a startup-only call gets wiped by the first reset).
     shell.set_register_strats(Box::new(sf_strat::table::register_all));
-    // Player spawn at gameplay start (C Strat_SpawnPlayer +
-    // Strat_PlayerOpening_Init for the scramble levels, boot.c:89-102).
-    shell.set_spawn_player(Box::new(|game, newmap| {
-        let _ = sf_strat::player::strat_spawn_player_for_map(game, newmap);
-    }));
+    // The source creates the base ship before its transfer-bound level setup,
+    // then installs the map-specific opening strategy at the handoff boundary.
+    shell.set_spawn_player(Box::new(sf_strat::player::strat_spawn_player));
+    shell.set_advance_startup_player(Box::new(
+        sf_strat::player::advance_player_during_level_initialization,
+    ));
+    shell.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
     shell.set_ending_score_part(Box::new(sf_strat::endscore::spawn_final_score_part));
     shell.set_ending_boss_replay(Box::new(sf_strat::endseq::spawn_replay_boss));
     // Wire real per-shape collision half-extents (C load_collision_extents)

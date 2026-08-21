@@ -23,9 +23,11 @@ const TITLE_SHIP_SHAPE: u16 = 225;
 fn make_shell() -> Shell {
     let mut shell = Shell::new();
     shell.set_register_strats(Box::new(sf_strat::table::register_all));
-    shell.set_spawn_player(Box::new(|game, newmap| {
-        let _ = sf_strat::player::strat_spawn_player_for_map(game, newmap);
-    }));
+    shell.set_spawn_player(Box::new(sf_strat::player::strat_spawn_player));
+    shell.set_advance_startup_player(Box::new(
+        sf_strat::player::advance_player_during_level_initialization,
+    ));
+    shell.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
     shell
 }
 
