@@ -113,8 +113,11 @@ fn fastfighter1_aims_at_ptr_when_close() {
     g.objs.aliens[idx as usize].worldz = 1000; // |dz|=500 < 1500; tgt behind (z smaller)
     g.objs.aliens[idx as usize].ptr = tgt;
     g.objs.aliens[idx as usize].sbyte1 = 3;
-    let phase = idx as u8;
-    g.vars.gameframe = (0u8.wrapping_sub(phase) as u16) & 0xff; // &3==0
+    // Fire gate: (gameframe + strat_phase_offset(idx)) & 3 == 0, where the
+    // retail pool-phase stagger is seed 54 + step 54 per slot.
+    // strat_phase_offset: seed 54 + step 54 per slot (u8 wrap).
+    let phase = 54u8.wrapping_add(54u8.wrapping_mul(idx as u8));
+    g.vars.gameframe = (0u16.wrapping_sub(u16::from(phase))) & 3;
     fastfighter1_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 2);
 }
