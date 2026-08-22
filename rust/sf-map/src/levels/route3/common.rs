@@ -364,7 +364,7 @@ pub const STRAT_ADDR_MONOLITH: u32 = 215;
 /// `dpilar_Istrat` and `halfd_Istrat` are the same ROM entry point.
 pub const STRATEGY_HALFDPILAR: crate::consts::DirectStrategy =
     crate::consts::DirectStrategy::HalfDPillar;
-// (The old 131072/131073 = 0x020000/0x020001 values collided with synth
+// (The old 131072/131073 = 131072/131073 values collided with synth
 // istrats 0/1 — mothers ran the player strategy.)
 pub const STRATEGY_MOTHER1: crate::consts::DirectStrategy = crate::consts::STRATEGY_MOTHER1;
 pub const STRATEGY_MOTHER2: crate::consts::DirectStrategy = crate::consts::STRATEGY_MOTHER2;
@@ -374,7 +374,7 @@ pub const STRAT_ADDR_OPENLR: u32 = 231;
 pub const STRATEGY_POLE0: crate::consts::DirectStrategy = crate::consts::DirectStrategy::Pole0;
 pub const STRAT_ADDR_SHIP0CDOWN: u32 = crate::consts::is::SHIP0CDOWN;
 // Keep this wired to the shared non-istrat address.  The historical literal
-// 196611 (0x030003) is now STRAT_ADDR_PLAYER_EXITBASE; using it here made
+// 196611 (196611) is now STRAT_ADDR_PLAYER_EXITBASE; using it here made
 // asteroid1 objects run the player exit-base/death strategy and killed the
 // real player when the asteroids were culled behind the camera.
 pub const STRATEGY_SLOWMETEOR: crate::consts::DirectStrategy = crate::consts::STRATEGY_SLOWMETEOR;
@@ -949,15 +949,15 @@ pub(crate) fn append_finalmap_content(
     // .finalt: tunnel sections (4 iterations)
     let label = format!("{prefix}.finalt");
     b.label(&label);
-    b.mapnobj(0, 0x0120, -120, 4000, SH_TUNNEL_0, STRAT_ADDR_TOPRIGHT1);
-    b.mapnobj(0, -0x0120, -120, 4000, SH_TUNNEL_0, STRAT_ADDR_TOPLEFT1);
-    b.mapnobj(0, 0x0120, 0, 4000, SH_TUNNEL_0, STRAT_ADDR_BOTRIGHT1);
-    b.mapnobj(0x0600, -0x0120, 0, 4000, SH_TUNNEL_0, STRAT_ADDR_BOTLEFT1);
+    b.mapnobj(0, 288, -120, 4000, SH_TUNNEL_0, STRAT_ADDR_TOPRIGHT1);
+    b.mapnobj(0, -288, -120, 4000, SH_TUNNEL_0, STRAT_ADDR_TOPLEFT1);
+    b.mapnobj(0, 288, 0, 4000, SH_TUNNEL_0, STRAT_ADDR_BOTRIGHT1);
+    b.mapnobj(1536, -288, 0, 4000, SH_TUNNEL_0, STRAT_ADDR_BOTLEFT1);
     b.maploop(&label, 4);
 
     // wall/gate obstacles
-    b.mapobj(0, -0x0090, -60, 4000, SH_WALL_2, IS_HARD180YR);
-    b.mapobj(0x0500, 0x0090, -60, 4000, SH_WALL_2, IS_HARD180YR);
+    b.mapobj(0, -144, -60, 4000, SH_WALL_2, IS_HARD180YR);
+    b.mapobj(1280, 144, -60, 4000, SH_WALL_2, IS_HARD180YR);
     b.mapnobj(0, 0, -60, 4000, SH_GATE_0, STRAT_ADDR_GATE3);
     b.setalvarb(AL_SBYTE1, 1);
     b.mapwait(1000);
@@ -971,8 +971,8 @@ pub(crate) fn append_finalmap_content(
     // item_5 + walls + pillars
     b.mapnobj(0, 0, -60, 4000, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
-    b.mapobj(0, -0x0090, -60, 4000, SH_WALL_2, IS_HARD180YR);
-    b.mapobj(0x1000, 0x0090, -60, 4000, SH_WALL_2, IS_HARD180YR);
+    b.mapobj(0, -144, -60, 4000, SH_WALL_2, IS_HARD180YR);
+    b.mapobj(4096, 144, -60, 4000, SH_WALL_2, IS_HARD180YR);
     final_dpilar_l(b, 0, -100, 4000);
     final_dpilar_r(b, 800, -100, 4000);
     final_dpilar_l(b, 0, -20, 4000);
@@ -1039,7 +1039,7 @@ pub(crate) fn append_finalmap_content(
     }
 
     // final corridor: item_7 + wall_4 + halfdL/R
-    b.mapnobj(0, 0x0060, -60, 4000, SH_ITEM_7, IS_ITEM7);
+    b.mapnobj(0, 96, -60, 4000, SH_ITEM_7, IS_ITEM7);
     b.setalvarb(AL_SBYTE1, 1);
     b.mapobj(0, 110, -60, 4000, SH_WALL_4_PROXY, IS_HARD180YR);
     final_halfd_l(b, 2000, 4000);
@@ -1068,7 +1068,7 @@ pub(crate) fn append_finalmap_content(
 
     // face_b monolith boss
     b.mapnobj(
-        0x1000,
+        4096,
         0,
         SPACE_VIEWCY,
         -200,

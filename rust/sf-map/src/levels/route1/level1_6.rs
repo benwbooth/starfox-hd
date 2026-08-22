@@ -50,7 +50,7 @@ mod lc {
     pub const IS_FLYPILLARS: u32 = 73;
     /// bossBrob robot = def_Istrat 118 (ISTRATS.ASM:542); sf-strat bossb.rs
     /// registers world.istrats[118] = bossbrob_init, and the address-map loop
-    /// mints flat-id 0x000076 — so the compact MAPOBJ strat byte 118 resolves.
+    /// mints flat-id 118 — so the compact MAPOBJ strat byte 118 resolves.
     pub const IS_BOSSBROB: u32 = 117;
 
     // Path ids (sf-path ids.rs PATH_ID_*).
@@ -134,7 +134,7 @@ pub fn build() -> Route1Level {
 /// leading zeros as column-alignment padding (`0200`=200, `-0125`=-125,
 /// `0400`=400). This is what planet.bin proves the C oracle did for PLANET.ASM
 /// (`-1000`,`0400`→400, etc.), and it matches the `mapwait` magnitudes
-/// (`mapwait 0100`=100, not 0x100). The one `incmap planet` block below is
+/// (`mapwait 0100`=100, not 256). The one `incmap planet` block below is
 /// replicated byte-for-byte from `planet.rs` (shared source → shared bytes).
 ///
 /// The three `&mut` ptr outs receive the `mapwaitboss` (with-sound) inline
@@ -161,9 +161,9 @@ fn append_map1_6a_content(
     // Line 7: `incmap planet` — retain PLANET.ASM's mapnozremove state and
     // inline its scenery. This flag remains set through FINALMAP and DM_END.
     b.preserve_behind_view_objects();
-    b.mapobj(0, 0x0220, -1000, -200, sh::R_BU_4, is::HARD);
-    b.mapobj(0, 0x0220, -500, -200, sh::R_BU_4, is::HARD);
-    b.mapobj(0, 0x0220, -10, -200, sh::R_BU_4, is::HARD);
+    b.mapobj(0, 544, -1000, -200, sh::R_BU_4, is::HARD);
+    b.mapobj(0, 544, -500, -200, sh::R_BU_4, is::HARD);
+    b.mapobj(0, 544, -10, -200, sh::R_BU_4, is::HARD);
     b.mapobj(0, -500, 0, 400, sh::BU_6, is::HARD);
     b.setalvarb(al::ROTY, -64);
     b.mapobj(0, 500, 0, 400, sh::BU_6, is::HARD);
@@ -172,17 +172,17 @@ fn append_map1_6a_content(
     b.mapobj(0, -800, 0, -300, sh::BU_0, is::HARD);
     b.mapobj(0, -300, 0, -800, sh::BU_2, is::HARD);
     b.mapobj(0, 300, 0, -800, sh::BU_2, is::HARD);
-    b.mapobj(0, -0x0220, -1000, -200, sh::R_BU_4, is::HARD);
-    b.mapobj(0, -0x0220, -500, -200, sh::R_BU_4, is::HARD);
-    b.mapobj(0x0200, -0x0220, -10, -200, sh::R_BU_4, is::HARD);
+    b.mapobj(0, -544, -1000, -200, sh::R_BU_4, is::HARD);
+    b.mapobj(0, -544, -500, -200, sh::R_BU_4, is::HARD);
+    b.mapobj(512, -544, -10, -200, sh::R_BU_4, is::HARD);
     b.mapobj(0, -200, -300, 600, sh::R_BU_7, is::HARD180YR);
-    b.mapobj(0x0200, 200, -300, 600, sh::R_BU_7, is::HARD180YR);
+    b.mapobj(512, 200, -300, 600, sh::R_BU_7, is::HARD180YR);
     b.mapobj(0, 200, -300, 800, sh::R_BU_7, is::HARD180YR);
-    b.mapobj(0x0200, -200, -300, 800, sh::R_BU_7, is::HARD180YR);
+    b.mapobj(512, -200, -300, 800, sh::R_BU_7, is::HARD180YR);
     b.mapobj(0, 180, -250, 1000, sh::R_BU_7, is::HARD180YR);
-    b.mapobj(0x0400, -180, -250, 1000, sh::R_BU_7, is::HARD180YR);
+    b.mapobj(1024, -180, -250, 1000, sh::R_BU_7, is::HARD180YR);
     b.mapobj(0, 150, -200, 1000, sh::R_BU_7, is::HARD180YR);
-    b.mapobj(0x0300, -150, -200, 1000, sh::R_BU_7, is::HARD180YR);
+    b.mapobj(768, -150, -200, 1000, sh::R_BU_7, is::HARD180YR);
 
     // Lines 9-16: r_bu_7 intro obstacle course (8 alternating buildings).
     for _ in 0..4 {

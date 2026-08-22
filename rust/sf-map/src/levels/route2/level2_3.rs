@@ -28,15 +28,15 @@ pub fn build() -> Route2Level {
     b.setvarb(WM_INFOG, 1);
     b.mapwait(2000);
     // -----------------------------------------------------------------------
-    b.pathobj(0, 0x0400, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
-    b.pathobj(0, -0x0400, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(0, 1024, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(0, -1024, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(2000, 0, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
-    b.mapobj(0, -0x0600, 0, 2000, SH_BRO_4, IS_ROCKHARD);
-    b.mapobj(0x0500, 0x0600, 0, 2000, SH_BRO_5, IS_ROCKHARD);
+    b.mapobj(0, -1536, 0, 2000, SH_BRO_4, IS_ROCKHARD);
+    b.mapobj(1280, 1536, 0, 2000, SH_BRO_5, IS_ROCKHARD);
     b.maphardrot(0, -150, -75, 2000, SH_CLISLA_M, 0, 8, 0);
     b.pathobj(
-        0x0500,
-        0x0050,
+        1280,
+        80,
         -75,
         2000,
         SH_CLISLA_S,
@@ -44,15 +44,15 @@ pub fn build() -> Route2Level {
         10,
         10,
     );
-    b.mapobj(0, -0x0550, 0, 2000, SH_BRO_0, IS_ROCKHARD);
-    b.mapobj(0x1000, 0x0350, 0, 2000, SH_BRO_5, IS_ROCKHARD);
-    b.mapobj(0x0500, -200, 0, 2000, SH_HOU_5, IS_HOUDAI5F);
+    b.mapobj(0, -1360, 0, 2000, SH_BRO_0, IS_ROCKHARD);
+    b.mapobj(4096, 848, 0, 2000, SH_BRO_5, IS_ROCKHARD);
+    b.mapobj(1280, -200, 0, 2000, SH_HOU_5, IS_HOUDAI5F);
 
-    b.mapobj(0, -0x0700, 0, 2000, SH_BRO_0, IS_ROCKHARD);
-    b.mapobj(0, 0x0150, 0, 2000, SH_BRO_5, IS_ROCKHARD);
+    b.mapobj(0, -1792, 0, 2000, SH_BRO_0, IS_ROCKHARD);
+    b.mapobj(0, 336, 0, 2000, SH_BRO_5, IS_ROCKHARD);
     b.pathcspecial(
-        0x1000,
-        0x0150,
+        4096,
+        336,
         0,
         2600,
         SH_WALKER_0,
@@ -60,36 +60,36 @@ pub fn build() -> Route2Level {
         10,
         10,
     );
-    b.mapobj(0, -0x0600, 0, 2000, SH_BRO_2, IS_ROCKHARD);
-    b.mapobj(0x1000, 0x0500, 0, 2000, SH_BRO_1, IS_ROCKHARD);
-    b.mapobj(0, -0x0400, 0, 2000, SH_BRO_4, IS_ROCKHARD);
-    b.mapobj(0x1000, 0x0550, 0, 2000, SH_BRO_1, IS_ROCKHARD);
+    b.mapobj(0, -1536, 0, 2000, SH_BRO_2, IS_ROCKHARD);
+    b.mapobj(4096, 1280, 0, 2000, SH_BRO_1, IS_ROCKHARD);
+    b.mapobj(0, -1024, 0, 2000, SH_BRO_4, IS_ROCKHARD);
+    b.mapobj(4096, 1360, 0, 2000, SH_BRO_1, IS_ROCKHARD);
 
-    b.mapobj(0, -0x0650, 0, 2000, SH_BRO_0, IS_ROCKHARD);
-    b.mapobj(0, 0x0650, 0, 2000, SH_BRO_1, IS_ROCKHARD);
+    b.mapobj(0, -1616, 0, 2000, SH_BRO_0, IS_ROCKHARD);
+    b.mapobj(0, 1616, 0, 2000, SH_BRO_1, IS_ROCKHARD);
     b.mapobj(0, 0, 0, 2000, SH_BRO_6, IS_ROCKHARD);
     b.mapobj(0, -160, -190, 2500, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
     b.mapwait(200);
-    b.pathspecial(0x1000, 0, 0, 2350, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
+    b.pathspecial(4096, 0, 0, 2350, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
     b.maphardrot(0, 0, -75, 2000, SH_CLISLA_M, 0, -8, 0);
     b.pathobj(0, -200, -75, 2000, SH_CLISLA_S, PATH_ID_R_CLISLA, 10, 10);
-    b.mapobj(0, -0x0500, 0, 2000, SH_BRO_2, IS_ROCKHARD);
-    b.mapobj(0x1000, 0x0500, 0, 2000, SH_BRO_3, IS_ROCKHARD);
-    b.mapobj(0, -0x0500, 0, 2000, SH_BRO_4, IS_ROCKHARD);
-    b.mapobj(0, 0x0500, 0, 2000, SH_BRO_5, IS_ROCKHARD);
-    b.mapobj(0x1000, 0, 0, 2000, SH_HOU_5, IS_HOUDAI5F);
+    b.mapobj(0, -1280, 0, 2000, SH_BRO_2, IS_ROCKHARD);
+    b.mapobj(4096, 1280, 0, 2000, SH_BRO_3, IS_ROCKHARD);
+    b.mapobj(0, -1280, 0, 2000, SH_BRO_4, IS_ROCKHARD);
+    b.mapobj(0, 1280, 0, 2000, SH_BRO_5, IS_ROCKHARD);
+    b.mapobj(4096, 0, 0, 2000, SH_HOU_5, IS_HOUDAI5F);
     b.mapobj(0, 250, 0, 2000, SH_BRO_6, IS_HARD180YR);
-    b.mapobj(0x0500, -250, 0, 2000, SH_BRO_6, IS_HARD180YR);
-    b.pathobj(0x1500, 0, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.mapobj(1280, -250, 0, 2000, SH_BRO_6, IS_HARD180YR);
+    b.pathobj(5376, 0, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
 
     // 2-3-2
     b.mapobj(0, -300, 0, 2000, SH_BRO_6, IS_HARD180YR);
-    b.pathspecial(0x1000, -300, 0, 2500, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
-    b.mapobj(0, 0x0600, 0, 2000, SH_BRO_6, IS_HARD180YR);
+    b.pathspecial(4096, -300, 0, 2500, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
+    b.mapobj(0, 1536, 0, 2000, SH_BRO_6, IS_HARD180YR);
     b.pathspecial(
-        0x1000,
-        0x0600,
+        4096,
+        1536,
         0,
         2500,
         SH_WALKER_0,
@@ -107,7 +107,7 @@ pub fn build() -> Route2Level {
     b.addalvarptrw(AL_WORLDX, WM_PLAYERPOSX);
 
     b.pathobj(
-        0x0700,
+        1792,
         300,
         -200,
         2000,
@@ -117,7 +117,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         -200,
         -45,
         2000,
@@ -127,8 +127,8 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
-        0x0100,
+        1792,
+        256,
         -30,
         2000,
         SH_CLISLA_S,
@@ -138,7 +138,7 @@ pub fn build() -> Route2Level {
     );
     b.pathobj(0, 250, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(
-        0x0700,
+        1792,
         -400,
         -100,
         2000,
@@ -153,7 +153,7 @@ pub fn build() -> Route2Level {
     b.addalvarptrw(AL_WORLDX, WM_PLAYERPOSX);
 
     b.pathobj(
-        0x0700,
+        1792,
         -300,
         -200,
         2000,
@@ -163,7 +163,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         400,
         -100,
         2000,
@@ -173,7 +173,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         -100,
         -30,
         2000,
@@ -183,7 +183,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         200,
         -45,
         2000,
@@ -197,12 +197,12 @@ pub fn build() -> Route2Level {
     b.setalvarb(AL_ROTY, -64); // -deg90
     b.addalvarptrw(AL_WORLDX, WM_PLAYERPOSX);
 
-    b.pathobj(0, 0x0100, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(0, 256, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
 
     // .fogagain
     b.label("level2_3.fogagain");
     b.pathobj(
-        0x0700,
+        1792,
         -300,
         -200,
         2000,
@@ -212,7 +212,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         400,
         -100,
         2000,
@@ -222,7 +222,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         -100,
         -30,
         2000,
@@ -232,10 +232,10 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(3000, 200, -45, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
-    b.pathobj(0x1000, 0, -170, 3000, SH_WALK_4_0, PATH_ID_E_KANI_0, 10, 10);
+    b.pathobj(4096, 0, -170, 3000, SH_WALK_4_0, PATH_ID_E_KANI_0, 10, 10);
 
     b.pathobj(
-        0x0700,
+        1792,
         -300,
         -200,
         3000,
@@ -245,7 +245,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         400,
         -100,
         3000,
@@ -255,7 +255,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0700,
+        1792,
         -100,
         -30,
         3000,
@@ -265,7 +265,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x1000,
+        4096,
         200,
         -45,
         3000,
@@ -276,22 +276,22 @@ pub fn build() -> Route2Level {
     );
 
     // base
-    b.mapobj(0, 0x0350, 0, 3000, SH_HOU_5, IS_HOUDAI5F);
-    b.mapobj(0x1400, -350, 0, 3000, SH_HOU_5, IS_HOUDAI5F);
+    b.mapobj(0, 848, 0, 3000, SH_HOU_5, IS_HOUDAI5F);
+    b.mapobj(5120, -350, 0, 3000, SH_HOU_5, IS_HOUDAI5F);
     b.mapobj(0, 0, -50, 4200, SH_ITEM_7, IS_ITEM7);
     b.setalvarb(AL_SBYTE1, 1);
-    b.mapobj(0x0500, 0, 0, 4000, SH_BASE_0, IS_BASE1);
+    b.mapobj(1280, 0, 0, 4000, SH_BASE_0, IS_BASE1);
 
-    b.pathspecial(0, 0x0500, 0, 4400, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
-    b.mapobj(0, 0x0500, 0, 4000, SH_BASE_0, IS_BASE1);
+    b.pathspecial(0, 1280, 0, 4400, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
+    b.mapobj(0, 1280, 0, 4000, SH_BASE_0, IS_BASE1);
     // skillfly_init / skillfly_set are commented out in the ASM
     // ASM bare numerals are decimal: `0500`, not hexadecimal `$0500`.
     b.pathobj(0, 500, -100, 4030, SH_CORE_1_1, PATH_ID_TENKI_ON, 10, 10);
     b.pathobj(500, 500, 0, 4030, SH_RADER_1, PATH_ID_TENKI_DM, 10, 10);
 
-    b.pathspecial(0, -0x0500, 0, 4400, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
+    b.pathspecial(0, -1280, 0, 4400, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
     b.pathobj(0, 0, -120, 4000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
-    b.mapobj(3500, -0x0500, 0, 4000, SH_BASE_0, IS_BASE1);
+    b.mapobj(3500, -1280, 0, 4000, SH_BASE_0, IS_BASE1);
 
     // eguchi2fly_goto .fogout
     let level2_3_fog_guard_ptr = b.mapcode65816_inline();
@@ -320,11 +320,11 @@ pub fn build() -> Route2Level {
     b.pathcspecial(4200, 150, 0, 5800, SH_HELI, PATH_ID_E_HELI, 10, 10);
 
     b.pathobj(0, 0, -400, -150, SH_FRIENDSHIP_4, PATH_ID_CHASE7_1, 10, 10);
-    b.pathcspecial(0x1600, 0, -400, -150, SH_ZACO_A, PATH_ID_CHASE7_2, 10, 10);
+    b.pathcspecial(5632, 0, -400, -150, SH_ZACO_A, PATH_ID_CHASE7_2, 10, 10);
     b.pathobj(0, 260, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(3400, -260, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(
-        0x0500,
+        1280,
         200,
         -120,
         3000,
@@ -340,7 +340,7 @@ pub fn build() -> Route2Level {
     b.maphardrot(0, 300, -75, 4000, SH_CLISLA_M, 0, -8, 0);
     b.pathobj(
         3000,
-        0x0500,
+        1280,
         -75,
         4000,
         SH_CLISLA_S,
@@ -349,7 +349,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x1500,
+        5376,
         200,
         -170,
         4500,
@@ -361,7 +361,7 @@ pub fn build() -> Route2Level {
     b.maphardrot(0, -300, -75, 4000, SH_CLISLA_M, 0, -8, 0);
     b.pathobj(
         4000,
-        -0x0500,
+        -1280,
         -75,
         4000,
         SH_CLISLA_S,
@@ -370,7 +370,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x1000,
+        4096,
         -200,
         -170,
         4500,
@@ -380,7 +380,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0400,
+        1024,
         -300,
         -200,
         2000,
@@ -390,7 +390,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0400,
+        1024,
         400,
         -100,
         2000,
@@ -401,7 +401,7 @@ pub fn build() -> Route2Level {
     );
 
     b.pathobj(
-        0x0400,
+        1024,
         -100,
         -30,
         2000,
@@ -411,7 +411,7 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x0400,
+        1024,
         200,
         -45,
         2000,
@@ -421,14 +421,14 @@ pub fn build() -> Route2Level {
         10,
     );
 
-    b.mapobj(0x1000, -600, 0, 5000, SH_CLISLA_L, IS_HARD180YR);
+    b.mapobj(4096, -600, 0, 5000, SH_CLISLA_L, IS_HARD180YR);
 
     // skillfly_init + skillfly_set
     b.skillfly_init();
     b.skillfly_set_default(0, -150, 3000);
-    b.pathobj(0x1000, 0, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
+    b.pathobj(4096, 0, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
     b.pathobj(
-        0x1000,
+        4096,
         260,
         -120,
         3000,
@@ -439,7 +439,7 @@ pub fn build() -> Route2Level {
     );
     b.skillfly_set_default(-300, -120, 3000);
     b.pathobj(
-        0x1500,
+        5376,
         -300,
         -120,
         3000,
@@ -449,8 +449,8 @@ pub fn build() -> Route2Level {
         10,
     );
     b.pathobj(
-        0x1500,
-        0x0100,
+        5376,
+        256,
         -120,
         3000,
         SH_R_BUT_2,
@@ -461,7 +461,7 @@ pub fn build() -> Route2Level {
 
     // skillfly_bonus
     let level2_3_skillfly_bonus_guard_ptr = b.mapcode65816_inline();
-    b.mapobj(0, 0x0100, -120, 1700, SH_GATE_0, IS_GATE);
+    b.mapobj(0, 256, -120, 1700, SH_GATE_0, IS_GATE);
     b.label("level2_3.skillfly_bonus_0_skip");
 
     // misstank pair
@@ -474,12 +474,12 @@ pub fn build() -> Route2Level {
 
     b.mapwait(2500);
 
-    b.special(0x0400, 0x0550, 0, 4000, SH_S_TANK_0, IS_TANK3);
-    b.pathcspecial(0x0400, 0, 0, 4000, SH_TANK_1, PATH_ID_E_TANK, 10, 10);
-    b.special(6000, -0x0550, 0, 4000, SH_S_TANK_0, IS_TANK3);
+    b.special(1024, 1360, 0, 4000, SH_S_TANK_0, IS_TANK3);
+    b.pathcspecial(1024, 0, 0, 4000, SH_TANK_1, PATH_ID_E_TANK, 10, 10);
+    b.special(6000, -1360, 0, 4000, SH_S_TANK_0, IS_TANK3);
     b.pathobj(0, -750, -400, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE6_1, 10, 10);
     b.pathcspecial(4000, -720, -400, 0, SH_ZACO_A, PATH_ID_CHASE6_2, 10, 10);
-    b.cspecial(0x0500, 300, 0, 4000, SH_HOU_5, IS_HOUDAI5F);
+    b.cspecial(1280, 300, 0, 4000, SH_HOU_5, IS_HOUDAI5F);
     b.cspecial(4500, -300, 0, 4000, SH_HOU_5, IS_HOUDAI5F);
 
     b.pathobj(18000, 0, -170, 5000, SH_NULLSHAPE, PATH_ID_KANIHAHA, 10, 10);
@@ -520,7 +520,7 @@ pub fn build() -> Route2Level {
     // setrestart (MAP2_3C's own restart checkpoint)
     b.mapcodejsl_builtin(MAP_CB_SETRESTART_L);
     // mapobj 0000,0000,-060,3000,boss_g_0,bossg_istrat
-    b.mapobj(0, 0, -0x60, 3000, SH_BOSS_G_0, IS_BOSSG);
+    b.mapobj(0, 0, -96, 3000, SH_BOSS_G_0, IS_BOSSG);
     // start_65816 / trigse $0b / end_65816
     let level2_3c_trigse_ptr = b.mapcode65816_inline();
     // mapwait 1
@@ -585,13 +585,13 @@ pub fn build() -> Route2Level {
     b.mapobj(500, -200, 0, 3300, SH_SEA_0_0, STRATEGY_BOSS_SEAMON);
     b.mapobj(500, 0, 0, 3000, SH_SEA_0_0, STRATEGY_BOSS_SEAMON);
     b.mapobj(500, 200, 0, 3300, SH_SEA_0_0, STRATEGY_BOSS_SEAMON);
-    b.mapobj(500, 0x0400, 0, 3500, SH_SEA_0_0, STRATEGY_BOSS_SEAMON);
-    b.mapobj(500, 0x0400, 0, 3500, SH_SEA_0_0, STRATEGY_BOSS_SEAMON);
+    b.mapobj(500, 1024, 0, 3500, SH_SEA_0_0, STRATEGY_BOSS_SEAMON);
+    b.mapobj(500, 1024, 0, 3500, SH_SEA_0_0, STRATEGY_BOSS_SEAMON);
     // 4 torpedo spawners
-    b.mapobj(500, -0x0600, 0, 1200, SH_NULLSHAPE, IS_TORPEDO);
-    b.mapobj(500, 0x0600, 0, 1200, SH_NULLSHAPE, IS_TORPEDO);
-    b.mapobj(500, -0x0400, 0, 1000, SH_NULLSHAPE, IS_TORPEDO);
-    b.mapobj(500, 0x0400, 0, 1000, SH_NULLSHAPE, IS_TORPEDO);
+    b.mapobj(500, -1536, 0, 1200, SH_NULLSHAPE, IS_TORPEDO);
+    b.mapobj(500, 1536, 0, 1200, SH_NULLSHAPE, IS_TORPEDO);
+    b.mapobj(500, -1024, 0, 1000, SH_NULLSHAPE, IS_TORPEDO);
+    b.mapobj(500, 1024, 0, 1000, SH_NULLSHAPE, IS_TORPEDO);
 
     // .seatest — wait for all seamons destroyed (gsvar_byte1 == 0)
     b.label("level2_3b.seatest");

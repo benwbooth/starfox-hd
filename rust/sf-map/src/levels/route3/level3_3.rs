@@ -39,13 +39,13 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(1000, 0, 0, 2500, SH_STALK, IS_TREE1);
 
     // Lines 14-16: flower mapobjs
-    b.mapobj(0x0400, -300, 0, 4000, SH_FLOWER_2, IS_HARD180YR);
-    b.mapobj(0x0900, 100, 0, 4000, SH_FLOWER_1, IS_HARD180YR);
+    b.mapobj(1024, -300, 0, 4000, SH_FLOWER_2, IS_HARD180YR);
+    b.mapobj(2304, 100, 0, 4000, SH_FLOWER_1, IS_HARD180YR);
     b.mapobj(1000, -800, 0, 4000, SH_FLOWER_1, IS_HARD180YR);
 
     // Lines 17-18: bee pathcspecials
-    b.pathcspecial(0x0800, 300, -150, 2000, SH_BEEANIM, PATH_ID_E_BEE, 10, 10);
-    b.pathcspecial(0x0400, -400, -170, 2000, SH_BEEANIM, PATH_ID_E_BEE, 10, 10);
+    b.pathcspecial(2048, 300, -150, 2000, SH_BEEANIM, PATH_ID_E_BEE, 10, 10);
+    b.pathcspecial(1024, -400, -170, 2000, SH_BEEANIM, PATH_ID_E_BEE, 10, 10);
 
     // Lines 19-20: more flowers
     b.mapobj(1400, -1000, 0, 4000, SH_FLOWER_1, IS_HARD180YR);
@@ -59,7 +59,7 @@ pub(crate) fn build() -> Route3Level {
     b.pathobj(3000, 400, -40, 4000, SH_STALK, PATH_ID_TOMSET, 10, 10);
     b.mapobj(2000, 100, 0, 4000, SH_FLOWER_2, IS_HARD180YR);
     b.pathobj(2000, -300, -40, 4000, SH_STALK, PATH_ID_TOMSET, 10, 10);
-    b.pathcspecial(0x0600, 100, -120, 2000, SH_BEEANIM, PATH_ID_E_BEE, 10, 10);
+    b.pathcspecial(1536, 100, -120, 2000, SH_BEEANIM, PATH_ID_E_BEE, 10, 10);
     b.pathcspecial(1400, -100, -120, 2000, SH_BEEANIM, PATH_ID_E_BEE, 10, 10);
 
     // Lines 28-31: more flowers
@@ -266,7 +266,7 @@ pub(crate) fn build() -> Route3Level {
     b.skillfly_set_default(-300, -50, 2300);
 
     // Line 130: roottree 0800,-300,0000,2400,-deg45,30
-    b.roottree(0x0800, -300, 0, 2400, -32, 30);
+    b.roottree(2048, -300, 0, 2400, -32, 30);
 
     // Lines 131-132: tree2 objects
     b.mapobj(500, 100, 0, 2500, SH_STALK, IS_TREE2);
