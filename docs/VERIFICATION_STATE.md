@@ -262,3 +262,21 @@ Fix: suppress corridor scroll on the child's birth frame. Options:
 Option (a)/(b) preferred — least invasive. The scroll application in
 the path lane is likely in strat_path_tick's movement section or in
 the host's obj movement callback.
+
+## Tick-1744/1746 investigation summary
+
+Multiple approaches tried empirically:
+- shift=3 on birth+follow: advances frontier to 1746 ✓ (current best)
+- shift=0 on birth: robots at ±20 instead of ±160
+- shift=3 birth + follow disabled: same as no-follow case
+- move_after removed: breaks shape import timing for carried objects
+
+The ×8 net displacement is CONFIRMED by exact 8× ratio on all position
+components between port (×1) and retail births. The ASL #2 args in
+s_add_Roffs2pos combined with mulslog_mac8's doubled sintab factor
+(fr = |a| << 1) produce the x8 net scaling.
+
+At tick 1746, all object POSITIONS match but a non-position field
+diverges (likely departure_lifetime, path_wait, or fighter_motion on
+one of the path-lane objects). Next step: capture the full assertion
+output to a file (not just terminal) and diff field-by-field.
