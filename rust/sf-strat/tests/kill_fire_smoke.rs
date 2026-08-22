@@ -83,7 +83,11 @@ fn smoke_p_drifts_and_expires_on_lift() {
     g.objs.aliens[idx as usize].worldx = 0;
     g.objs.aliens[idx as usize].worldy = 0;
     smoke_p_istrat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sbyte1, 20);
+    // smokeP_Istrat falls through into smokeP_strat (GSTRATS.ASM), so the
+    // initializer already applied the first drift tick.
+    assert_eq!(g.objs.aliens[idx as usize].worldx, -1);
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -6);
+    assert_eq!(g.objs.aliens[idx as usize].sbyte1, 19);
     assert_eq!(g.objs.aliens[idx as usize].sword1, 6);
     assert_eq!(
         g.objs.aliens[idx as usize].visual_kind,
@@ -91,11 +95,12 @@ fn smoke_p_drifts_and_expires_on_lift() {
     );
     assert_eq!(g.objs.aliens[idx as usize].depthoffset, 0);
     assert_eq!(g.objs.aliens[idx as usize].tx, 0);
+    assert_eq!(g.objs.aldead, 0);
 
     smoke_p_strat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].worldx, -1);
-    assert_eq!(g.objs.aliens[idx as usize].worldy, -6);
-    assert_eq!(g.objs.aliens[idx as usize].sbyte1, 19);
+    assert_eq!(g.objs.aliens[idx as usize].worldx, -2);
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -12);
+    assert_eq!(g.objs.aliens[idx as usize].sbyte1, 18);
     assert_eq!(g.objs.aldead, 0);
 
     // Exhaust lift: 20 ticks per sword1 step, 6 steps → sword1 hits 0.
