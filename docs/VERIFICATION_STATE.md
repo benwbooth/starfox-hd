@@ -134,3 +134,44 @@ are behavioral assertions, not captured traces.
   source (paper_1b or dummy), then decode robotwithlog2@retail, diff
   vs port PATH_ID_ROBOTWITHLOG2 (catalog_data.rs:1315), implement the
   birth-movement opcodes, retire P_SPAWNCHILD.
+
+## dpaths blob located (tick-1744 tranche prerequisite)
+
+Blob base B ≈ 0x22406 in linear file terms (sword2 targets are
+blob-relative): robotwithlog's two p_spawnlink records land at
+file 0x26766/0x26778 and robotswithlog's at 0x26787/0x26795, matching
+fork DPATHDAT.ASM:1294-1318 emit order; child sword2 $43C2 resolves to
+file 0x267C8, which sits immediately after the carrier's
+`.waitabit / P_BEHINDPLAYER / P_GOTO` loop tail — exactly where
+robotwithlog2 should follow in source order. Retail child resume PCs
+seen in WRAM (word@0x2A: $43CC/$438A/$43FB → file 0x267D2/0x26790-ish/
+0x26801) fall inside plausible instruction boundaries of these blocks.
+
+Raw dump (file 0x26760..0x26820):
+```
+54 77 d8 e4 4c 43 0a 0a 54 60 d5 e8 0a 42 7d b4 bf f0   <- houdai-ish? + p_spawnlink pair region start 0x26766
+40 9c bb c2 43 00 00 00 04 0a 00 00 00 02               <- robotwithlog: spawn robot_0 path $43C2 hp4 ap10 link2
+40 a1 ac 74 43 00 00 00 04 0a 00 00 00 03               <- spawn dummy($ACA1) path $4374 link3
+21 94 43                                                <- igoto $4394
+6f                                                      <- collisionsoff (.in)
+5a ...                                                  <- ifbetweenb roty,0,127
+40 9c bb c2 43 00 00 00 0a 0a 00 00 ea 02               <- spawn robot_0 z=-90 link2 (offs 00,00,$EA)
+40 9c bb c2 43 00 00 00 0a 0a 00 00 16 03               <- spawn robot_0 z=+90 link3 (offs 00,00,$16)
+6f 39 13 00 7f ac 43                                    <- collisionsoff + ifbetweenb + carriedlog spawn
+40 a1 ac d9 43 00 00 0a 0a fb e5 e7 01                  <- (carriedlog p_spawnlink, link1)
+05 1e                                                   <- setvel 30
+79 c0 45                                                <- behindplayer premove(dw)
+20 bc 43                                                <- goto $43bc (loop)
+74 76 0d 42 25 00 5c c0 44 00 50 d2 43 20 cc 43         <- robotwithlog2 region @~$43C2: shadowoff sound2 $0d zremoveoff initanim 00 trigger-always dw $43cc? goto $43cc...
+5d c0 44 41 21 7a 44 25 00 42 3b 7b 04 bf f0 97 04      <- ... chkflag/ifflag exit, igoto robforce family
+e9 43 11 82 b8 04 38 04 48 c2 f6 43 71 38 04 b8 c2 fb 43 07 a5 ...
+```
+NOTE: opcode values here are RETAIL numbering == port opcodes.rs
+(spawnlink=$40, collisions off=$6F, igoto=$21, setvel=$05,
+behindplayer≈$79/$7A, shadowoff=$75, sound2=$77). The block starting
+near file 0x267C8 (= sword2 $43C2 + base 0x22406) decodes as:
+shadowoff, sound2 $0D, zremoveoff, initanim 0, trigger always→dw,
+then an ifflag/goto chkflag loop — matching fork robotwithlog2 EXCEPT
+retail carries extra positioning opcodes right after (the `$43CC`
+resume target the live child showed sits inside this prologue), which
+is where the birth x-spread (±160) is authored.
