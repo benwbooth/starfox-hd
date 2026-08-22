@@ -342,10 +342,31 @@ rot [243,134,208] speed 60 vel (6,-16,-48)):
   active-chain predecessor still points at it (stale link), OR retail's
   kill path defers active-unlink by one frame.
 
+### CORRECTION (same day)
+
+Retail `l_rem` (MACROS.INC:3684) unlinks bidirectionally and correctly —
+no stale-link quirk. Reinterpreting the diff: my diagnostic skip cloned
+retail OBJECTS over native during 1744-1790, masking true native state.
+Truth: **native FREED slot 12; retail still has it ALIVE and active**
+(retail active=15 incl. slot 12; native active=14).
+
+Slot 12 identity: shape 9 = KAMIKAZE, spawned by
+`cspecial(0,-800,-300,3000,KAMIKAZE,ZACO4)` (level1_1.rs:216) — runs
+zaco34/zaco4 chain (KSTRATS.ASM:100-160). Death path: `.flyaway`
+decrements al_sbyte2 (init #140) via `s_decbeq_alvar ...,.kill` →
+`s_remove_obj` inline. Port zaco4_flyaway mirrors this with sbyte2-- →
+aldead=1.
+
+Snapshot compares NONE of sbyte1/sbyte2/sbyte3/hp/ap — an invisible
+counter skew (phase-entry tick drift, or extra/missing decrement) can
+move the death tick without failing any earlier assert. Positions
+matched through 1783, so phase transitions themselves looked aligned.
+
 ### Next action
 
-Trace which strategy kills slot 12 between ticks 1744-1783 and compare
-the fork/retail unlink sequencing (s_kill_obj → addfree vs delayed
-active-chain repair). Likely fix: preserve retail's one-frame-stale
-active-link behavior after kill, or find the missing predecessor-repair
-on the port's free path.
+Unmask comparisons; per-tick trace slot 12 only: native
+(sbyte1,sbyte2,sbyte3,stratptr,hp) vs retail WRAM bytes at
+POOL_BASE+12*54 (+0x28 sword2 area / sbyte offsets per RETAIL_POOL
+layout) across ticks 1600-1790. Find first differing field, then diff
+the responsible opcode handler (likely zaco4_circle sbyte1 countdown,
+or flyaway entry tick).
