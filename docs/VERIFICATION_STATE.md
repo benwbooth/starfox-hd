@@ -362,11 +362,34 @@ counter skew (phase-entry tick drift, or extra/missing decrement) can
 move the death tick without failing any earlier assert. Positions
 matched through 1783, so phase transitions themselves looked aligned.
 
+### RESOLVED root chain (2026-08-22, raw-field trace)
+
+Slot 12 = second authored KAMIKAZE (`cspecial(0,800,-250,3000,KAMIKAZE,
+ZACO4)`, level1_1.rs:220), spawned into slot 12 on BOTH sides at t=1678
+with byte-identical counters (sb1=2 sb2=140 sb3=4). Positions identical
+every tick 1678→1783 (weave −784→+56 x, dive −30031→−26671 z). Death:
+native freezes at t=1783 @ (56,−339,−26671); retail flies 3 more frames
+(+6,−16,+15/frame) then freezes ~t=1787.
+
+Mechanism: neither side ever entered `.flyaway` (sb2 stayed 140); the
+object is freed by the DRAW-LIST BUILD pass — `ATZREMOVE` (typ=8, both
+sides) + behind-camera + !GF_NOZREMOVE + !firstframe ⇒ `objs.free(i)`
+(draw.rs:145-152, ROM MAIN.ASM:2019-2021). Native's cull declares it
+invisible at t=1783; retail's cull grants 3 more frames. Same world
+position both sides ⇒ the disagreement is in VIEW-SPACE projection /
+cull-margin arithmetic at a boundary case (object far below screen
+center, y≈−339, exiting view bottom-left).
+
+Secondary observation: native sflags3=8 vs retail=0 on this object for
+its whole life (port sets an ASF3 bit retail does not on cspecial
+kamikaze spawn — benign for this path but worth auditing).
+
 ### Next action
 
-Unmask comparisons; per-tick trace slot 12 only: native
-(sbyte1,sbyte2,sbyte3,stratptr,hp) vs retail WRAM bytes at
-POOL_BASE+12*54 (+0x28 sword2 area / sbyte offsets per RETAIL_POOL
-layout) across ticks 1600-1790. Find first differing field, then diff
-the responsible opcode handler (likely zaco4_circle sbyte1 countdown,
-or flyaway entry tick).
+Diff the port `build_list` behind-camera test against ROM MAIN.ASM
+2019-2021 semantics: exact view matrix application, dl_z sign/threshold,
+and whether the ROM checks `acf_firstframe`/`gf_nozremove` identically.
+Reproduce with a unit test: place an alien at the t=1783 kamikaze state
+(pos/type/flags + player/camera state from replay dump) and assert
+free-vs-keep matches retail. Then unmask 1744 window and continue the
+verification loop past tick 1790.
