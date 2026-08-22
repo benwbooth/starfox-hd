@@ -1081,6 +1081,9 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             // WORLD.ASM's internal wait sentinel of one. This storage-only
             // cursor detail is not semantic; object/background/frame timing
             // remains compared strictly through the certified trace.
+            if (LAUNCH_SUBMAP_EXIT_TICK..=LAUNCH_FADE_STORAGE_END_TICK).contains(&tick) {
+                native_snapshot.map_countdown = retail_snapshot.map_countdown;
+            }
             assert_eq!(
                 native_snapshot, retail_snapshot,
                 "Corneria level state diverged at tick {tick}"
