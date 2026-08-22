@@ -44,8 +44,9 @@ path-child spawns (builder.rs emit_spawn_child always encodes it).
 Its placement is an approximation: child at MOTHER position + rotated
 offset with scale_shift=0 (no x4), stored into childx/y/z ONCE.
 
-Retail instead uses p_spawnN (PATHMACS.ASM:1152, opcodes differ) whose
-payload stores coords PRE-divided by 4; PATHS.ASM:1790 applies
+Retail instead uses p_spawnN (PATHMACS.ASM:1152 — SAME opcode numbers
+as the port, verified via s_mode_table) whose payload stores coords
+PRE-divided by 4; PATHS.ASM:1790 applies
 s_add_Roffs2pos with ASL x4 after rotation, AND linked children keep
 childx/y/z + childrots which are re-resolved against the mother every
 frame (probot-style follow). That is why the two robots ride at
@@ -113,3 +114,23 @@ elsewhere/dead or genuinely broken needs a per-case ASM check
 (GASTRATS laser inits + remove_offscn/lifecnt semantics) before either
 fixing code or updating the asserts. Do NOT bless these blindly — they
 are behavioral assertions, not captured traces.
+
+## Path-program decode notes (verified, for the $43C2 tranche)
+
+- Retail path-opcode numbering == port `opcodes.rs` exactly
+  (`s_mode_table` order: setvel=5 goto=32 igoto=33 initanim=37
+  zremoveoff=67 spawnlink=$40 spawnchild=$41 ifflag=$51
+  shadowoff=$75 sound2=$77 ... becomeshape=144).
+- P_SPAWNLINK records located in ROM (file 0x2678B / 0x26799): opcode
+  $40, dw shape $BB9C(robot_0), dw path $43C2, rots 00/00/00, hp ap
+  0A 0A, offs x/4,y/4,z/4 = 00,00,$EA(-22) | 00,00,$16(+22), link
+  byte 02|03. Matches fork DPATHDAT -90/+90 after the /4 store.
+- `getparam N` reads ONE byte at `paths_blob + al_sword2 + N`;
+  makeit sets child sword2 := word@spawn+3 ($43C2), so children read
+  their program relative to their own spawn-record pointer.
+- Sole remaining blocker: the linear ROM base of the paths/dpaths
+  blobs so $43C2 resolves to file bytes. Find it by dumping candidate
+  bases and matching a neighboring program with distinctive short fork
+  source (paper_1b or dummy), then decode robotwithlog2@retail, diff
+  vs port PATH_ID_ROBOTWITHLOG2 (catalog_data.rs:1315), implement the
+  birth-movement opcodes, retire P_SPAWNCHILD.
