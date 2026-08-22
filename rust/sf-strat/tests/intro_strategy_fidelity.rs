@@ -1,6 +1,8 @@
 //! Reachability and source-timing regressions for the retail attract intro.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ASF_HITFLASH, ATLASER, ATZREMOVE};
+use sf_game::alien::{
+    ASF3_REALOBJ, ASF_COLLDISABLE, ASF_HITFLASH, ATMISSILE, ATZREMOVE,
+};
 use sf_game::Game;
 use sf_map::catalog::map_id;
 use sf_map::consts::intro_strategy_address;
@@ -10,7 +12,8 @@ use sf_strat::intro::{
     zaco_leader_intro_init, zaco_leader_intro_tick,
 };
 
-const SMOKE_SHAPE: u16 = 358;
+// Retail's runtime #smoke word ($ADD5) resolves to flat id 357.
+const SMOKE_SHAPE: u16 = 357;
 const OLD_TYPE_SHAPE: u16 = 323;
 const NULL_SHAPE: u16 = 0;
 const CENTER_CRAFT_DAMAGED_PHASE: u8 = 2;
@@ -187,7 +190,7 @@ fn paired_laser_controller_emits_two_persistent_offset_shots() {
 
     player_fire_intro_init(&mut game, controller);
 
-    let lasers = objects_with_type(&game, ATLASER);
+    let lasers = objects_with_type(&game, ATMISSILE);
     assert_eq!(lasers.len(), EXPECTED_PAIRED_LASERS);
     let mut x_positions: Vec<i16> = lasers
         .iter()
@@ -245,7 +248,7 @@ fn lead_fighter_attacks_then_requests_the_intro_exit_after_passing_player() {
     }
     game.vars.gameframe = 0;
     zaco_leader_intro_tick(&mut game, leader);
-    assert_eq!(objects_with_type(&game, ATLASER).len(), 1);
+    assert_eq!(objects_with_type(&game, ATMISSILE).len(), 1);
     assert!(!game.vars.strategy.intro_exit_requested);
 
     {
