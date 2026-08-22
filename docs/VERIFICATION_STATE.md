@@ -22,6 +22,26 @@ lands with different x/y on the port:
 Carrier matches; children spread ±160 x in retail vs ±20 native (8×),
 and the carried pillar sits far off in native.
 
+## Tick-1744 addendum (robot wave)
+
+Retail ROM facts gathered:
+- The cartridge P_SPAWN records for both robot_0 children carry ZERO
+  offsets (`00 00 00`), unlike the fork source's `-90/+90`
+  (retail records at file 0x2678B/0x26799: opcode 0x40, shape $BB9C,
+  path $43C2, rots/hp/ap 0A0A, offs 000).
+- Children therefore spawn AT the carrier on both sides; the ±160 x
+  spread in retail appears between spawn and end-of-frame, i.e. the
+  child path ($04:$43C2) or its first tick moves them apart.
+- Retail path blob at $04:$43C2 begins `14 20 ac 1f 00 4a 0c 41 10 02
+  2a 10 08 2b 10 80 13 10 c0 12 05 1e 54 89 07 09 68 0c b2 ...`.
+  Decoding requires the RETAIL path-opcode numbering (the sf-path port
+  renumbered opcodes; e.g. port P_GOTO=32/P_IFFLAG=81 do not line up).
+
+Resume plan: extract the retail path-dispatch jump table from ROM
+(PATHS.ASM mapjmp equivalent), decode $43C2, diff against the port's
+PATH_ID_ROBOTWITHLOG2 program (sf-path/src/catalog_data.rs:1315), and
+port any missing movement opcodes.
+
 ## Resume checklist
 
 1. `P_SPAWN` macro = `[x,y,z,xrot,yrot,zrot,shape,path,hp,ap,link]`
