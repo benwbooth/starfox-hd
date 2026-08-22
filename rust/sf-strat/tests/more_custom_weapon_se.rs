@@ -91,8 +91,8 @@ fn spacebarwalker_relslow_plays_laser_se() {
     let mut g = Game::with_hooks(Box::new(Rec(log.clone())));
     spawn_player(&mut g, 0); // behind walker at z=2000
     let e = spawn_obj(&mut g, 0, -40, 2000);
-    // (gf+idx)&0xF==0 with idx=1 → gf=15
-    g.vars.gameframe = 15;
+    // (gf+phase(idx))&0xF==0; phase(1)=108 → gf=4
+    g.vars.gameframe = 4;
     strat_spacebarwalker_init(&mut g, e);
     assert_eq!(
         count_family(&log, PosSndFamilyId::Laser),
