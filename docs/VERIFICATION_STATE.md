@@ -311,3 +311,41 @@ retail=574 (**difference 31**).
 Decode retail LEVEL1_1 map bytes for the section spanning countdown
 574→605 and compare record-by-record against the port's compiled blob
 (`rust/sf-map/src/levels/level1_1.rs` build output).
+
+## Tick-1786 RESOLVED to tick-1783 active-order divergence (2026-08-22)
+
+Per-tick map VM trajectory logging (mapcnt/mapptr sampled every comparison
+tick 892→1783) proves:
+
+- Countdown values match EVERY tick through 1783 (02fa both sides).
+- mapptr deltas match at every record boundary EXCEPT cosmetic absolute-
+  base differences and one structural delta at **tick 1494**: native burst
+  consumed +32 bytes, retail +46 (same distance +435 loaded). After 1494
+  all deltas match again — encodings differ, record sequence identical.
+- The tick-1786 map_countdown 605/574 report was an artifact of comparing
+  AFTER retail had already diverged elsewhere; countdown itself never
+  drifts before 1783.
+
+### Actual first failure at 1783
+
+`active_order` differs:
+- Retail (15): [..., 31?, 12, 7, 9, 4, 3, 2, 1]
+- Native (14): [..., 7, 9, 4, 3, 2, 1]
+
+Slot 12 (shape 9, ground building @ (56,-339,-26671), authored motion
+rot [243,134,208] speed 60 vel (6,-16,-48)):
+
+- Object STATE byte-identical on both sides.
+- Native: present in free_order head only (removed from active).
+- Retail: STILL LINKED IN ACTIVE ORDER while SIMULTANEOUSLY listed as
+  free_order head — i.e., retail killed/unlinked it into free but its
+  active-chain predecessor still points at it (stale link), OR retail's
+  kill path defers active-unlink by one frame.
+
+### Next action
+
+Trace which strategy kills slot 12 between ticks 1744-1783 and compare
+the fork/retail unlink sequencing (s_kill_obj → addfree vs delayed
+active-chain repair). Likely fix: preserve retail's one-frame-stale
+active-link behavior after kill, or find the missing predecessor-repair
+on the port's free path.
