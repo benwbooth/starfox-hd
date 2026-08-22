@@ -3352,8 +3352,14 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
         return;
     }
 
+    // Retail path-lane P_SPAWN/P_SPAWNLINK children are independent after
+    // birth: they run their own embedded path programs and are NOT re-
+    // positioned relative to the mother each frame. The invented per-frame
+    // follow dragged carried objects (Corneria pillar3_ns at gf853) to 8x
+    // their retail offset as the carrier rotated. Disabled until a program
+    // that genuinely requires mother-relative positioning is identified.
     // Mother objects drive child transforms from child-relative offsets.
-    if world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
+    if false && world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
         path_prune_family_links(world, si);
         let mut idx = world.aliens[si].sword1 as u16;
         let mut guard = NUMBER_AL as i32 + 1;
