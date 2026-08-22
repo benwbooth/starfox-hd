@@ -193,3 +193,24 @@ its getparam calls (mechanical audit of ~145 handlers), re-decode the
 then retire P_SPAWNCHILD. Native currently places children at mother
 with raw offset x1 (hence ±20 ≈ payload −22/+22 unrotated-ish) — the
 fix must reproduce rotate+ASL4 and whatever the c0-op does.
+
+## Tick-1744 next-tranche spec (p_spawnN birth placement)
+
+Established empirically:
+- Port robots (slots 30/23) do NOT pass through the interp P_SPAWN
+  arm — builder.rs emit_spawn_child always encodes the INVENTED
+  P_SPAWNCHILD ($41), whose placement is mother-pos + rotated offset
+  x1 (hence native spread ~= raw payload +-22 -> observed +-20).
+- Retail cartridge records are p_spawnlink ($40, hp/ap 0A 0A, offs
+  00/00/EA(-22) and 00/00/16(+22)) -> .makeit places child =
+  parent_pos + s_add_Roffs2pos(parent_rots, offs) with ASL x4.
+- Open question: naive math gives +-88, retail shows +-160 — so either
+  the rotate_8 helpers or the ASL convention net more than x4, or
+  children receive additional same-frame movement. Resolve with a
+  Mesen Lua watch on the retail write to al_worldx of a newborn
+  robot_0 during gf851 (pattern: tools/sf1/mesen_briefing_oracle.lua),
+  reading the delta between s_make_obj completion and end-of-frame.
+- Implementation target: make emit_spawn_child encode p_spawnlink
+  ($40) faithfully and extend the interp P_SPAWN|P_SPAWNLINK arm to
+  full parity (it currently handles placement but the builder never
+  emits it); keep P_SPAWNCHILD only if some fixture depends on it.
