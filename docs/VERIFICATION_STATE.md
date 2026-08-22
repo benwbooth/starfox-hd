@@ -280,3 +280,34 @@ At tick 1746, all object POSITIONS match but a non-position field
 diverges (likely departure_lifetime, path_wait, or fighter_motion on
 one of the path-lane objects). Next step: capture the full assertion
 output to a file (not just terminal) and diff field-by-field.
+
+## Tick-1786 map_countdown divergence (found 2026-08-22)
+
+With the tick-1744 robot-wave comparison temporarily skipped, the replay
+advances to **tick 1786** where `map_countdown` diverges: native=605 vs
+retail=574 (**difference 31**).
+
+### Verified NOT the cause
+
+- All LEVEL1_1 `mapwait` values match fork source exactly (2000/1400/800/
+  500/1000/2000/3000/4000 all present at correct positions).
+- MAPOBJ encoding = 11 bytes on both sides (confirmed against retail blob
+  probe: `34 | frame:2 | x:2 | y:2 | z:2 | shape:1 | istrat:1`).
+- Countdown subtraction logic identical: retail WORLD.ASM runs under
+  `ai16` (16-bit A), `sec/sbc/bmi` == port's signed `< 0` check.
+- Neither side stores the negative result when firing newobjs.
+
+### Remaining suspects
+
+1. A record between ticks 1744-1786 whose **frame value** differs between
+   port and retail (not visible in fork-source comparison — needs ROM
+   byte decode of that section).
+2. Submap/callback boundary consuming different distance.
+3. Robot-wave spawn records themselves loading at different mapptr due
+   to an earlier encoding-size mismatch upstream in the blob.
+
+### Next action
+
+Decode retail LEVEL1_1 map bytes for the section spanning countdown
+574→605 and compare record-by-record against the port's compiled blob
+(`rust/sf-map/src/levels/level1_1.rs` build output).
