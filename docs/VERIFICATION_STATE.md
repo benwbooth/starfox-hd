@@ -384,12 +384,27 @@ Secondary observation: native sflags3=8 vs retail=0 on this object for
 its whole life (port sets an ASF3 bit retail does not on cspecial
 kamikaze spawn — benign for this path but worth auditing).
 
-### Next action
+### Cull-parity leads (2026-08-22, verified)
 
-Diff the port `build_list` behind-camera test against ROM MAIN.ASM
-2019-2021 semantics: exact view matrix application, dl_z sign/threshold,
-and whether the ROM checks `acf_firstframe`/`gf_nozremove` identically.
-Reproduce with a unit test: place an alien at the t=1783 kamikaze state
-(pos/type/flags + player/camera state from replay dump) and assert
-free-vs-keep matches retail. Then unmask 1744 window and continue the
-verification loop past tick 1790.
+Rotation math is NOT the suspect: `gsu_rotmat.rs` oracle-verifies
+`zxy_matrix_q15_fine` vs ROM `mcrotmatzxy16`; `fuzz_wmatrotp16.rs`
+verifies point rotation vs GSU MWMATROTP16 ((a*b)>>15 per term, 16-bit
+wrap sums == mdotprod16mq MMACS.MC:787).
+
+Two open numeric inputs:
+
+1. **zmax source**: ROM culls with dedicated table `sh_zmax`
+   (MAIN.ASM:2030 `lda.l sh_zmax,x`). Port substitutes renderer collision
+   AABB half-extents (`all_shape_half_extents` -> sf1_shape_metrics;
+   zaco_9 -> [50,40,60] so zmax=60). Verify retail sh_zmax[9]==60; if
+   retail uses a different value the cull date shifts by
+   delta/(~15-20 units per frame) — exactly our 3-frame gap scale.
+2. **Camera state**: attempted reads of retail pviewpos ($1581/83/85)
+   and wmat ($16A1+) returned zeros — those are BUILT-ROM symbol
+   addresses, not retail cart addresses. Locate retail equivalents
+   (search retail ROM for the wmat store code / m_viewrot GSU mirror)
+   and dump live camera during ticks 1778-1788 to compute both dl_z.
+
+Also noted: MAIN.ASM:2032 uses `adc.l dl_z,x` WITHOUT clc — stale carry
+from prior iteration shifts threshold by ±1 (minor, but replicate for
+exactness once main delta found).
