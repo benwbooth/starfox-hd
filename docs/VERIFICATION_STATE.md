@@ -37,10 +37,26 @@ Retail ROM facts gathered:
   Decoding requires the RETAIL path-opcode numbering (the sf-path port
   renumbered opcodes; e.g. port P_GOTO=32/P_IFFLAG=81 do not line up).
 
-Resume plan: extract the retail path-dispatch jump table from ROM
-(PATHS.ASM mapjmp equivalent), decode $43C2, diff against the port's
-PATH_ID_ROBOTWITHLOG2 program (sf-path/src/catalog_data.rs:1315), and
-port any missing movement opcodes.
+Resume plan — ROOT CAUSE FOUND:
+
+The port INVENTED opcode P_SPAWNCHILD (interp.rs:2010) for all
+path-child spawns (builder.rs emit_spawn_child always encodes it).
+Its placement is an approximation: child at MOTHER position + rotated
+offset with scale_shift=0 (no x4), stored into childx/y/z ONCE.
+
+Retail instead uses p_spawnN (PATHMACS.ASM:1152, opcodes differ) whose
+payload stores coords PRE-divided by 4; PATHS.ASM:1790 applies
+s_add_Roffs2pos with ASL x4 after rotation, AND linked children keep
+childx/y/z + childrots which are re-resolved against the mother every
+frame (probot-style follow). That is why the two robots ride at
+carrier-x +-160 and the pillar hangs at -200 y on retail, while the
+port drops everything at roughly the mother spot.
+
+Fix tranche: implement p_spawnN faithfully — payload /4, rotated
+ASL x4 placement at birth, persistent mother-link follow (per-frame
+rotated childx/y/z), link-id bookkeeping (path_find_child_obj /
+P_CHILDDEAD already reference child_num) — then retire P_SPAWNCHILD
+or restrict it to whatever the C-era fixtures required.
 
 ## Resume checklist
 

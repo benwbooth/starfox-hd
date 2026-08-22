@@ -1977,6 +1977,14 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].worldx = wx;
                     world.aliens[na].worldy = wy;
                     world.aliens[na].worldz = wz;
+                    eprintln!(
+                        "[spawn] parent={} psh={} p=({},{},{}) rots=({},{},{}) off=({},{},{}) child_shape={}",
+                        si,
+                        world.aliens[si].shape,
+                        world.aliens[si].worldx, world.aliens[si].worldy, world.aliens[si].worldz,
+                        world.aliens[si].rotx, world.aliens[si].roty, world.aliens[si].rotz,
+                        off_x, off_y, off_z, shape
+                    );
                     // ROM stores coord/4 in the P_SPAWN payload (PATHMACS.ASM:1167)
                     // and scales x4 after rotation (PATHS.ASM:1790).
                     path_add_rotated_offset(world, na, si, off_x, off_y, off_z, 2);
