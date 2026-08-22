@@ -214,3 +214,26 @@ Established empirically:
   ($40) faithfully and extend the interp P_SPAWN|P_SPAWNLINK arm to
   full parity (it currently handles placement but the builder never
   emits it); keep P_SPAWNCHILD only if some fixture depends on it.
+
+## Tick-1744 refined understanding (blocks the naive x8 fix)
+
+Retail dpaths contains FOUR p_spawnlink robot_0 records in two groups:
+- robotwithlog group @file 0x26768/0x26777: hp=04, offsets (0,0,0),
+  links 02/03, shapes robot_0($BB9C)+paper_3($ACA1 = retail "dummy").
+- robotswithlog group @file 0x26787/0x26795: hp=0A ap=0A, z-offsets
+  stored as $EA(-22)/$16(+22) (= fork -90/+90 after /4), links 02/03.
+
+An x8 placement scale was tried and REVERTED: it fixed the robot wave
+but broke tower-top spawns at tick 1064 (bulb P_SPAWNLINK children,
+offsets (0,-50,1)) which require net x1. Retail nets the LITERAL value
+for bulb tops (store /4 then ASL x4 cancel) — so robots' observed
++-160 CANNOT come from their +-22 payload under the same rule; either
+the two robot groups spawn from DIFFERENT carriers/sections on retail
+(the port may be running the wrong carrier program), or an additional
+positioning opcode fires between birth and frame end.
+
+Next-cycle scope: decode RETAIL's own LEVEL1_1 map bytecode section
+around mapptr $0B24 (blob at snes $58000 -> file 0x28000) using the
+mapjmp opcode table, identify which pathobj/carrier entries exist and
+their sword2 targets, THEN reconcile with dpaths programs $43C2 /
+$4374 / $4394. The existing audit_mapvm tooling is the starting point.
