@@ -35,7 +35,13 @@ fn makeexpobj_default_count_zero_explodes_first_tick() {
 
     g.objs.aldead = 0;
     delayexplode_strat(&mut g, med);
-    assert_eq!(g.objs.aldead, 1, "count=0 → die on first tick (s_decbpl)");
+    // Expiry applies s_kill_obj (STRATMAC.INC:2643) then runs the explosion
+    // inline. Without nopolyexp the corpse MORPHS into its polygon mesh and
+    // survives as a live object — removal would cut that mesh off one tick
+    // early (Corneria replay tick 1733).
+    assert_eq!(g.objs.aldead, 0, "expiry is a death signal, not removal");
+    assert_eq!(g.objs.aliens[med as usize].hp, 0, "kill_obj zeroed HP");
+    assert_eq!(g.objs.aliens[med as usize].shape, 466, "polygon mesh");
 }
 
 /// boss8 makeexpobj same default (boss8die per-tick barrage).
