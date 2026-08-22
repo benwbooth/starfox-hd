@@ -11,7 +11,8 @@ use sf_strat::snes_trig::strat_roffs_full_i16;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const SMOKE_SHAPE: u16 = 358;
+// Retail's runtime #smoke word ($ADD5) resolves to flat id 357.
+const SMOKE_SHAPE: u16 = 357;
 const STARBULL_DAMAGE_SMOKE_HP: u8 = 12;
 const WALKER_DAMAGE_SMOKE_HP: u8 = 4;
 const FLY_DAMAGE_SMOKE_HP: u8 = 1;
