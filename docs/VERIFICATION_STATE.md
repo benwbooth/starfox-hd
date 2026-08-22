@@ -237,3 +237,28 @@ around mapptr $0B24 (blob at snes $58000 -> file 0x28000) using the
 mapjmp opcode table, identify which pathobj/carrier entries exist and
 their sword2 targets, THEN reconcile with dpaths programs $43C2 /
 $4374 / $4394. The existing audit_mapvm tooling is the starting point.
+
+## Tick-1744 root cause RESOLVED (implementation pending)
+
+With ASL << 3 (x8) on P_SPAWNCHILD birth placement:
+- Native robots land at carrier_x + (-132, +188)
+- Retail robots at carrier_x + (-160, +160)
+- Delta: native is +28 ahead on each robot = exactly ONE FRAME of
+  corridor scroll (forward_velocity = 28 at this point)
+
+The child is born during the mother's strategy pass (move_after), then
+runs its own first path tick SAME-FRAME. That first path tick applies
+corridor scroll (add_player_z / worldz advance) to the freshly-placed
+child — adding one extra scroll step on top of the birth placement.
+Retail spawns the child AFTER the scroll portion of the frame, so no
+double-scroll occurs.
+
+Fix: suppress corridor scroll on the child's birth frame. Options:
+(a) Check ACF_FIRSTFRAME in the path VM's scroll application
+(b) Set a "skip scroll" latch cleared on second tick
+(c) Defer birth placement until the child's SECOND path tick
+(d) Place the child AFTER the scroll portion of the strategy pass
+
+Option (a)/(b) preferred — least invasive. The scroll application in
+the path lane is likely in strat_path_tick's movement section or in
+the host's obj movement callback.
