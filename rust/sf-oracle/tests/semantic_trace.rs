@@ -1081,34 +1081,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             // WORLD.ASM's internal wait sentinel of one. This storage-only
             // cursor detail is not semantic; object/background/frame timing
             // remains compared strictly through the certified trace.
-            if (1743..=1756).contains(&tick) {
-                eprintln!("=== tick {tick} ===");
-                for slot in &retail_snapshot.active_order {
-                    if let Some(o) = retail_snapshot.objects.iter().find(|o| o.slot == *slot) {
-                        if [5u16,14,23,30,31].contains(&o.slot) || matches!(o.shape, Some(420)|Some(452)) {
-                            eprintln!("R {:>2} sh={:?} p=({},{},{})", o.slot, o.shape, o.position.0, o.position.1, o.position.2);
-                        }
-                    }
-                }
-                for &slot in &[5usize,14,23,30,31] {
-                    let a = native.game.objs.aliens[slot];
-                    if a.active {
-                        eprintln!("N {:>2} sh={} p=({},{},{}) st={:?}", slot, a.shape, a.worldx, a.worldy, a.worldz, a.stratptr.map(|x|x.0));
-                    }
-                }
-            }
-            if tick == 1744 {
-                for slot in [30u32, 23, 31] {
-                    let base = WORK_RAM | RETAIL_POOL.base + slot * RETAIL_POOL.stride;
-                    let row: Vec<String> = (0..RETAIL_POOL.stride)
-                        .map(|i| format!("{:02X}", retail.peek8(base + i)))
-                        .collect();
-                    eprintln!("RT{slot} t1745 {}", row.join(" "));
-                }
-            }
-            if (LAUNCH_SUBMAP_EXIT_TICK..=LAUNCH_FADE_STORAGE_END_TICK).contains(&tick) {
-                native_snapshot.map_countdown = retail_snapshot.map_countdown;
-            }
             assert_eq!(
                 native_snapshot, retail_snapshot,
                 "Corneria level state diverged at tick {tick}"
