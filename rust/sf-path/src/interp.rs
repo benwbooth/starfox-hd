@@ -2039,7 +2039,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].worldx = mwx;
                     world.aliens[na].worldy = mwy;
                     world.aliens[na].worldz = mwz;
-                    path_add_rotated_offset(world, na, mother, off_x, off_y, off_z, 0);
+                    path_add_rotated_offset(world, na, mother, off_x, off_y, off_z, 3);
                     world.aliens[na].rotx = mrotx.wrapping_add(rotx);
                     world.aliens[na].roty = mroty.wrapping_add(roty);
                     world.aliens[na].rotz = mrotz.wrapping_add(rotz);
