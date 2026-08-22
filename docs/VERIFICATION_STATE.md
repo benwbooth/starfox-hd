@@ -175,3 +175,21 @@ then an ifflag/goto chkflag loop — matching fork robotwithlog2 EXCEPT
 retail carries extra positioning opcodes right after (the `$43CC`
 resume target the live child showed sits inside this prologue), which
 is where the birth x-spread (±160) is authored.
+
+## Tick-1744 decisive finding
+
+Both retail children show sword2 advanced exactly $43C2 -> $43CC (+10)
+in WRAM word@0x2A — identical prologue, paused at the chkflag loop,
+NOT walked apart. Yet their birth-frame positions are carrier±160.
+Therefore the spread comes from inside the 10-byte prologue at
+$43C2: `74 76 0d 42 25 00 5c c0 44 00`
+(shadow?, sound2 $0D, zremove*, initanim 0, invisibleoff?, then
+`c0 44 00` — an unidentified store whose dw-ish payload $44C0/$0044
+likely encodes the ±160 follow offset /4 => ±40*4).
+
+Next step: derive exact operand sizes for every PATHS.ASM handler from
+its getparam calls (mechanical audit of ~145 handlers), re-decode the
+10-byte prologue, implement the missing positioning opcode in sf-path,
+then retire P_SPAWNCHILD. Native currently places children at mother
+with raw offset x1 (hence ±20 ≈ payload −22/+22 unrotated-ish) — the
+fix must reproduce rotate+ASL4 and whatever the c0-op does.
