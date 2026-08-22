@@ -1,5 +1,7 @@
 //! Tick 147: AUDIT_ENEMY_A High #3/#4 — `s_jmp_notdelay N,...,al1pt`
-//! cadence = `(gameframe+idx) & ((1<<N)-1) == 0`.
+//! cadence = `(gameframe + strat_phase_offset(idx)) & ((1<<N)-1) == 0`,
+//! where the phase stagger is seed 54 + step 54 per pool slot
+//! (phase(1) = 108).
 
 use sf_game::alien::{ASF3_REALOBJ, NUMBER_AL};
 use sf_game::Game;
@@ -48,13 +50,13 @@ fn houdai_fires_every_16_frames_staggered() {
     // idx=1: (0+1)&15=1 ≠ 0 → no fire
     assert_eq!(active_count(&g), before, "gate closed at gf=0 idx=1");
 
-    // Open gate: need (gf+1)&15==0 → gf=15
-    g.vars.gameframe = 15;
+    // Open gate: need (gf+phase(1))&15==0 → gf ≡ 4 (mod 16).
+    g.vars.gameframe = 4;
     let before = active_count(&g);
     houdai_strat(&mut g, idx);
-    assert!(active_count(&g) > before, "SHORTPLASMA when (15+1)&15==0");
+    assert!(active_count(&g) > before, "SHORTPLASMA when (4+108)&15==0");
 
-    // Old bug was mask 3 (every 4): gf=3 would fire with &3. Must NOT fire.
+    // Old bug was mask 3 (every 4): must NOT fire on a /16-closed frame.
     g.vars.gameframe = 3;
     let before = active_count(&g);
     houdai_strat(&mut g, idx);
@@ -73,7 +75,7 @@ fn houdai_holds_fire_when_player_xz_close() {
     let idx = spawn(&mut g);
     g.objs.aliens[idx as usize].worldz = 400; // dist_xz=400 < 800
     strat_houdai_init(&mut g, idx);
-    g.vars.gameframe = 15; // open for idx=1
+    g.vars.gameframe = 4; // open for idx=1 ((4+108)&15==0)
     let before = active_count(&g);
     houdai_strat(&mut g, idx);
     assert_eq!(active_count(&g), before);
@@ -97,7 +99,7 @@ fn zaco0c_fire_gate_mask3_with_al1pt() {
     g.call_strat(strat, idx);
     assert_eq!(active_count(&g), before, "closed at gf=1");
 
-    g.vars.gameframe = 3; // (3+1)&3=0 → open
+    g.vars.gameframe = 4; // (4+108)&3=0 → open
     let before = active_count(&g);
     g.call_strat(strat, idx);
     assert!(
