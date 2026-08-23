@@ -273,16 +273,6 @@ pub trait PathHost {
 }
 
 /// State owned by the path translation unit + the globals it touches.
-/// A P_SPAWNCHILD birth awaiting post-movement anchoring (see
-/// `pending_child_anchors`).
-pub struct PendingChildAnchor {
-    pub child: u16,
-    pub mother: u16,
-    pub off_x: i8,
-    pub off_y: i8,
-    pub off_z: i8,
-}
-
 pub struct PathWorld {
     /// `g_aliens[NUMBER_AL]` (src/game/obj.c).
     pub aliens: Vec<Alien>,
@@ -300,12 +290,6 @@ pub struct PathWorld {
     vm: Vec<PathVmState>,
     /// `g_path_link_obj`.
     link_obj: u16,
-    /// Children spawned via P_SPAWNCHILD whose world anchor is deferred to
-    /// the mother's post-movement position (retail `.makeit` ordering).
-    pending_child_anchors: Vec<PendingChildAnchor>,
-    /// Children whose own velocity integration is suppressed on their birth
-    /// frame (they already carry the mother's post-move anchor + velocity).
-    birth_motion_skip: Vec<u16>,
     /// `g_path_become_obj`.
     become_obj: u16,
     /// `g_path_become_last_obj`.
@@ -376,8 +360,6 @@ impl PathWorld {
             missing_path_warned: vec![false; 512],
             vm: vec![PathVmState::default(); NUMBER_AL],
             link_obj: PATH_NULL_OBJ,
-            pending_child_anchors: Vec::new(),
-            birth_motion_skip: Vec::new(),
             become_obj: PATH_NULL_OBJ,
             become_last_obj: PATH_NULL_OBJ,
             become_path: 0,

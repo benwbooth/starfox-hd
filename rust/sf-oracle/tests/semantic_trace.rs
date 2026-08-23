@@ -1084,12 +1084,14 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             if (LAUNCH_SUBMAP_EXIT_TICK..=LAUNCH_FADE_STORAGE_END_TICK).contains(&tick) {
                 native_snapshot.map_countdown = retail_snapshot.map_countdown;
             }
-            // KNOWN-DIVERGENCE WINDOW (tick-1783): the authored kamikaze
-            // (slot 12) is draw-culled ~3 frames earlier on native because
-            // the port performs the launch->planet camera handoff earlier
-            // (see VERIFICATION_STATE.md). Everything else matches. Mask
-            // list-membership + object states through the affected window
-            // so downstream divergences can surface.
+
+            // KNOWN-DIVERGENCE WINDOW (ticks ~1744-1800, corridor curve):
+            // retail applies a one-shot ship velocity kick (+~31 z, +2 y)
+            // at curve entry that the port still misses, and it feeds
+            // countdown/depth through lastzchange, so object/list/countdown/
+            // depth are cloned across the window. The RNG stream re-locks
+            // from retail for the same reason. Everything before 1744 and
+            // after 1800 verifies strictly.
             if (1744..=1800).contains(&tick) {
                 native_snapshot.objects = retail_snapshot.objects.clone();
                 native_snapshot.active_order = retail_snapshot.active_order.clone();
@@ -1098,8 +1100,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 native_snapshot.previous_player_depth =
                     retail_snapshot.previous_player_depth;
                 native_snapshot.last_depth_change = retail_snapshot.last_depth_change;
-                // The extra kamikaze lifetime also consumes retail-side RNG
-                // draws; re-lock the native stream through the window.
                 native.game.vars.rng = [
                     retail.peek8(WORK_RAM | RETAIL_RAND),
                     retail.peek8(WORK_RAM | RETAIL_RAND + 1),

@@ -421,6 +421,17 @@ impl Game {
                 self.vars.strategy.view_float_cursor = 0;
             }
         }
+        // GSTRATS.ASM init_strats_l player-camera block (bank-$06 copy):
+        // entered only while GF_PLAYERDYING is set; unless GF_PLAYERDEAD is
+        // also set (fade-countdown path), OUTDIST proportionally chases 500
+        // at rate 4 — the deepening pull-back through the corridor curve.
+        if self.vars.gameflags & GF_PLAYERDYING != 0
+            && self.vars.gameflags & GF_PLAYERDEAD == 0
+        {
+            let od = self.vars.strategy.view_distance;
+            let delta = (500 - od as i32) >> 4;
+            self.vars.strategy.view_distance = (od as i32 + delta) as i16;
+        }
         // GSTRATS.ASM `init_strats_l` advances the runtime stream once after
         // its player/view bookkeeping, before any object strategy executes.
         let _ = self.vars.advance_random();
