@@ -11,6 +11,11 @@ use super::{BuiltLevel, InlineCallback};
 use crate::builder::MapBuilder;
 use crate::consts::*;
 
+/// Authored title blackout hold written after `initblack_l`.
+pub const TITLE_BLACK_HOLD_STEPS: i32 = 10;
+/// Authored continue-screen blackout hold written after `initblack_l`.
+pub const CONTINUE_BLACK_HOLD_STEPS: i32 = 3;
+
 /// C `build_title_slice()` + `register_title_inline_callbacks()`.
 ///
 /// The continue and wait maps are alternate entry points into this same
@@ -31,7 +36,7 @@ pub fn build() -> BuiltLevel {
 
     // Lines 8-16: timeovercont — start_65816 block: clear pos
     b.mapcodejsl_builtin(cb::INITBLACK_L);
-    b.setvarb(wm::STAYBLACK, 10);
+    b.setvarb(wm::STAYBLACK, TITLE_BLACK_HOLD_STEPS);
 
     // Line 22: mapwait 800
     b.mapwait(800);
@@ -65,7 +70,7 @@ pub fn build() -> BuiltLevel {
 
     // Lines 62-63: initblack + stayblack
     b.mapcodejsl_builtin(cb::INITBLACK_L);
-    b.setvarb(wm::STAYBLACK, 3);
+    b.setvarb(wm::STAYBLACK, CONTINUE_BLACK_HOLD_STEPS);
 
     // Line 64: setfadeup quick
     b.qfadeup();

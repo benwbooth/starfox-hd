@@ -17,6 +17,7 @@
 
 use sf_core::pad;
 use sf_game::shell::{GameState, Shell, INTRO_INPUT_DELAY_TICKS, TITLE_ATTRACT_DURATION_TICKS};
+use sf_strat::enemy_b::{TITLE_DEMO_PITCH, TITLE_DEMO_ROLL_STEP, TITLE_DEMO_YAW};
 
 const TITLE_SHIP_SHAPE: u16 = 225;
 
@@ -78,17 +79,10 @@ fn title_ship_rolls_rom_faithfully_for_the_authored_hold() {
     );
     let (_, rotx0, roty0, rotz0) = start[0];
 
-    // tit_istrat display pose. The ROM bytes (ENDSEQ.ASM:1800-1802) are
-    // rotx=-17 (0xEF), roty=96, but they are calibrated for the ROM's title
-    // view. The source passive player advances camera depth while keeping
-    // outvx/outvy at zero, so the port's title camera orientation is fixed.
-    // Under that orientation the certified ZXY model matrix renders the ship
-    // broadside, and the ROM roll (rotz) collapses it edge-on to a vertical
-    // spike. strat_title_init rotates the display pose so the roll axis points
-    // toward the camera and remains a solid 3/4 barrel roll. rotz still
-    // advances 2 per tick, verbatim from the ROM tit_strat.
-    assert_eq!(rotx0, 48, "display pitch (nose toward fixed title camera)");
-    assert_eq!(roty0, 32, "diagonal 3/4 display yaw");
+    // tit_istrat source pose (ENDSEQ.ASM:1800-1802). Presentation conversion
+    // is deliberately not baked into these game-state fields.
+    assert_eq!(rotx0, TITLE_DEMO_PITCH, "source title pitch");
+    assert_eq!(roty0, TITLE_DEMO_YAW, "source title yaw");
 
     // The ship must neither vanish (old behind-cull free at ~tick 99) nor
     // change its per-tick roll rate before ENDSEQ's title timeout.
@@ -101,11 +95,11 @@ fn title_ship_rolls_rom_faithfully_for_the_authored_hold() {
         let objs = active_objs(&shell);
         assert_eq!(objs.len(), 1, "demo ship vanished at +{t} ticks");
         let (_, rotx, roty, rotz) = objs[0];
-        assert_eq!(rotx, 48, "pitch must stay fixed");
-        assert_eq!(roty, 32, "yaw must stay fixed (ROM rolls Z, not Y)");
+        assert_eq!(rotx, TITLE_DEMO_PITCH, "pitch must stay fixed");
+        assert_eq!(roty, TITLE_DEMO_YAW, "yaw must stay fixed");
         assert_eq!(
             rotz.wrapping_sub(prev_rotz),
-            2,
+            TITLE_DEMO_ROLL_STEP,
             "tit_strat rolls exactly +2/tick (ENDSEQ.ASM:1807), no faster"
         );
         prev_rotz = rotz;

@@ -56,11 +56,8 @@ fn register_populates_istrats_and_address_map() {
 fn title_init_and_spin_are_exact() {
     // ROM tit_istrat (ENDSEQ.ASM:1799-1804) sets rotx=-17 (0xEF), roty=96,
     // rotz=0, then falls through into tit_strat (ENDSEQ.ASM:1805-1809), which
-    // rolls al_rotz += 2 per frame (Z-axis roll, NOT the yaw spin an earlier
-    // port used). The port uses a display pose rotated ~90 deg from those raw
-    // bytes (rotx=48, roty=32) because its title camera is pinned static at
-    // (0,0,0): under that camera the raw ROM pose renders broadside and the
-    // roll would collapse edge-on to a vertical spike. See strat_title_init.
+    // rolls al_rotz += 2 per update. Object state retains those authored
+    // values without presentation-layer compensation.
     let mut g = Game::new();
     let e = spawn(&mut g, 2);
     let sid = g.world.register_strategy(enemy_b::strat_title_init);
@@ -73,18 +70,23 @@ fn title_init_and_spin_are_exact() {
     assert_eq!(al.hp, 255);
     assert_eq!(al.ap, 0);
     assert_eq!(al.collflags, 0);
+    assert_eq!(al.rotx, enemy_b::TITLE_DEMO_PITCH);
+    assert_eq!(al.roty, enemy_b::TITLE_DEMO_YAW);
     assert_eq!(
-        al.rotx, 48,
-        "display pitch pose (static-camera compensation)"
+        al.rotz,
+        enemy_b::TITLE_DEMO_ROLL_STEP,
+        "install frame falls through into tit_strat"
     );
-    assert_eq!(al.roty, 32, "display yaw pose");
-    assert_eq!(al.rotz, 2, "install frame falls through into tit_strat");
 
     for i in 2u8..=30 {
         g.run_strategies();
         let al = g.objs.aliens[e as usize];
-        assert_eq!(al.rotz, i.wrapping_mul(2), "constant +2/frame roll");
-        assert_eq!(al.roty, 32, "yaw never moves");
-        assert_eq!(al.rotx, 48, "pitch never moves");
+        assert_eq!(
+            al.rotz,
+            i.wrapping_mul(enemy_b::TITLE_DEMO_ROLL_STEP),
+            "constant source roll"
+        );
+        assert_eq!(al.roty, enemy_b::TITLE_DEMO_YAW, "yaw never moves");
+        assert_eq!(al.rotx, enemy_b::TITLE_DEMO_PITCH, "pitch never moves");
     }
 }

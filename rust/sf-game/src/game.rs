@@ -21,6 +21,7 @@ use crate::alien_compat as compat;
 use crate::coldet::Coldet;
 use crate::obj::{strat_init_obj_vars, Objects};
 use crate::vars::*;
+use crate::windows::INITIAL_BLACK_HOLD_AFTER_FIRST_STEP;
 use crate::world::{op, resolve_shape_word, InlineCb, NativeCb, World};
 use sf_core::pad;
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
@@ -787,6 +788,10 @@ impl Game {
             _ if id == cb::THEENDDEAD => self.vars.numendok == 0xFF,
             // world_cb_initblack_l (world.c:462).
             _ if id == cb::INITBLACK_L => {
+                // `initblack_l` writes 40 then immediately runs one black
+                // presentation step. The map may overwrite this same global
+                // (TITLE.ASM writes 10) before the next presentation update.
+                self.vars.strategy.stay_black = INITIAL_BLACK_HOLD_AFTER_FIRST_STEP;
                 self.hooks.init_black();
                 true
             }

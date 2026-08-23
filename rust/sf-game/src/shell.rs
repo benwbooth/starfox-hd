@@ -1596,8 +1596,12 @@ impl Shell {
         let friends_meter = {
             let mut st = self.state.borrow_mut();
             let st = &mut *st;
-            st.windows
-                .update(&mut self.game.vars.oncewipe, &mut self.game.vars.circleanim);
+            let vars = &mut self.game.vars;
+            st.windows.update(
+                &mut vars.strategy.stay_black,
+                &mut vars.oncewipe,
+                &mut vars.circleanim,
+            );
             st.strings.update(&mut self.game.vars, &mut st.sound);
             st.strings.friends_meter
         };
@@ -2437,13 +2441,30 @@ impl Shell {
         self.reregister_strats();
         {
             let mut state = self.state.borrow_mut();
-            state.windows.init();
+            state.windows.init_for_forced_black_map_load();
             state.strings.init();
             state.charmap.set_fox();
         }
         self.load_map(map_id);
         if spawn_player {
             let _ = self.spawn_initialized_player(map_id);
+        }
+        // `initgame_l` starts the map immediately after creating the base
+        // player. Presentation loops begin only after this opening script has
+        // reached its first authored wait; deferring it to `run_strategies`
+        // makes every title/intro object one simulation update late.
+        self.game.map_exec();
+        {
+            // The presentation loop performs its first black-window step
+            // before entering the first strategy update. Subsequent steps run
+            // once at each completed native presentation tick below.
+            let mut state = self.state.borrow_mut();
+            let vars = &mut self.game.vars;
+            state.windows.set_black(
+                &mut vars.strategy.stay_black,
+                &mut vars.oncewipe,
+                &mut vars.circleanim,
+            );
         }
         self.game.vars.meters = 0;
         self.game.vars.gameframe = 0;
@@ -3554,7 +3575,7 @@ mod tests {
         assert_eq!(shell.state(), GameState::Title);
     }
 
-    fn advance_to_loaded_title(shell: &mut Shell) {
+    fn advance_to_title_entry(shell: &mut Shell) {
         const MAX_INTRO_TRANSITION_TICKS: usize = 64;
 
         while shell.state() == GameState::Boot {
@@ -3572,6 +3593,10 @@ mod tests {
             shell.tick(0);
         }
         assert_eq!(shell.state(), GameState::Title);
+    }
+
+    fn advance_to_loaded_title(shell: &mut Shell) {
+        advance_to_title_entry(shell);
         shell.tick(0);
         assert_eq!(shell.game.world.loaded_map_id, Some(map_id::TITLE));
         while shell.attract.phase_ticks < TITLE_PRESENTATION_INPUT_READY_TICKS {
@@ -3800,18 +3825,17 @@ mod tests {
     }
 
     #[test]
-    fn title_map_writes_the_typed_screen_black_counter() {
-        let mut shell = Shell::new();
-        advance_to_loaded_title(&mut shell);
-        for _ in 0..40 {
-            shell.tick(0);
-            if shell.game.vars.strategy.stay_black == 10 {
-                break;
-            }
-        }
+    fn title_map_black_hold_drives_the_shared_window_counter() {
+        const PRESENTATION_STEPS_THROUGH_FIRST_UPDATE: i8 = 2;
+        const EXPECTED_REMAINING: i8 = sf_map::levels::title::TITLE_BLACK_HOLD_STEPS as i8
+            - PRESENTATION_STEPS_THROUGH_FIRST_UPDATE;
 
-        assert_eq!(shell.game.vars.strategy.stay_black, 10);
-        assert_eq!(shell.frame().stayblack, 10);
+        let mut shell = Shell::new();
+        advance_to_title_entry(&mut shell);
+        shell.tick(0);
+
+        assert_eq!(shell.game.vars.strategy.stay_black, EXPECTED_REMAINING);
+        assert_eq!(shell.frame().stayblack, EXPECTED_REMAINING);
         assert_eq!(shell.game.vars.map.global_strategy_byte, 0);
     }
 

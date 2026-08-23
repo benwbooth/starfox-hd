@@ -4275,15 +4275,19 @@ pub fn bossfb_strat(g: &mut Game, idx: u16) {
 
 // --- Title screen spinning Arwing (TITLE.ASM tit_istrat) ---
 
-/// ROM `tit_strat` (ENDSEQ.ASM:1805-1809):
-/// `s_add_alvar B,x,al_rotz,#2` + `s_add_playerz x` — a constant-rate
-/// Z-axis ROLL. (An earlier port spun al_roty instead, from a zero pose;
-/// with the slot-0 player fallback the camera then yawed along with the
-/// ship until the behind-cull freed it.)
+/// Source-authored title-demo pitch (`-17` in signed angle units).
+pub const TITLE_DEMO_PITCH: u8 = (-17i8) as u8;
+/// Source-authored title-demo yaw (`deg45 + deg90`).
+pub const TITLE_DEMO_YAW: u8 = 96;
+/// Source-authored title-demo roll advance per strategy update.
+pub const TITLE_DEMO_ROLL_STEP: u8 = 2;
+
+/// ROM `tit_strat` (ENDSEQ.ASM:1805-1809): a constant-rate Z-axis roll plus
+/// the shared player-depth advance. An earlier port incorrectly changed yaw.
 fn strat_title_tick(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.rotz = al.rotz.wrapping_add(2);
+        al.rotz = al.rotz.wrapping_add(TITLE_DEMO_ROLL_STEP);
     }
     add_player_z(g, idx);
 }
@@ -4291,28 +4295,9 @@ fn strat_title_tick(g: &mut Game, idx: u16) {
 /// ROM `tit_istrat` (ENDSEQ.ASM:1799-1804) sets a tilted display pose
 /// (rotx = -deg45+deg11+deg11+3-deg5 = -17, roty = deg45+deg90 = 96,
 /// rotz = 0; deg45=32/deg90=64/deg11=8/deg5=4, VARS.INC:13-17) and then
-/// `s_set_strat x,tit_strat` falls through into the first tick.
-///
-/// PORT DEVIATION — display pose is rotated ~90 deg vs those raw ROM bytes.
-/// The ROM's values are calibrated for the ROM's title view; the port's
-/// title camera has the source passive presentation player, whose view depth
-/// advances while its outvx/outvy orientation stays zero (see camera.rs and
-/// tests/title_demo_ship.rs). Under that fixed orientation the certified
-/// ZXY model matrix (transform.rs, Δ=0 vs ROM gsu_rotmat) renders the
-/// Arwing BROADSIDE — its nose/tail axis lies across the screen. The ROM
-/// `tit_strat` then rolls that axis (`al_rotz += 2`), so twice per
-/// revolution the ship turns edge-on and collapses to a razor-thin
-/// vertical spike (the reported "completely vertical / standing on its
-/// tail" bug). Swapping in the true `my_demo` mesh (shape 226) does not
-/// help: it shares the same nose=-Z / tail=+Z default orientation.
-///
-/// To reproduce the SNES look (a solid 3/4 Arwing that rolls) with the fixed
-/// camera orientation we point the nose/tail (roll) axis toward the camera, so
-/// the roll becomes a stable barrel roll that keeps the hull's volume at
-/// every phase instead of sweeping edge-on. rotx=48 pitches the nose up
-/// toward the viewer (the ROM's -17 pitch + ~deg90 of camera-gap
-/// compensation); roty=32 yaws it to the diagonal display angle. Values
-/// picked visually (SF_DUMP_PPM title frames across a full roll).
+/// `s_set_strat x,tit_strat` falls through into the first tick. These authored
+/// object angles remain game state; camera and renderer conversion errors must
+/// be corrected in their own layers rather than compensated here.
 pub fn strat_title_init(g: &mut Game, idx: u16) {
     let s = sid(g, strat_title_tick);
     {
@@ -4320,8 +4305,8 @@ pub fn strat_title_init(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = 0;
         al.collflags = 0;
-        al.rotx = 48; // nose-up display pitch (ROM -17 + camera-gap comp)
-        al.roty = 32; // diagonal 3/4 display yaw
+        al.rotx = TITLE_DEMO_PITCH;
+        al.roty = TITLE_DEMO_YAW;
         al.rotz = 0;
         al.stratptr = Some(s);
     }

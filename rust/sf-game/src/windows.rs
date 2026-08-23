@@ -28,6 +28,10 @@ pub const WINDOW_MODE_HALFFADE: u8 = 7;
 
 /// Full black intensity and the number of unit-speed fade steps.
 pub const BLACK_FADE_MAX: u8 = 30;
+/// `initblack_l` hold value before its immediate first presentation step.
+pub(crate) const INITIAL_BLACK_HOLD_STEPS: i8 = 40;
+/// Remaining hold value after `initblack_l` performs that first step.
+pub(crate) const INITIAL_BLACK_HOLD_AFTER_FIRST_STEP: i8 = INITIAL_BLACK_HOLD_STEPS - 1;
 
 /// Authored presentation fade modes. The slow mode is encoded distinctly from
 /// its unit intensity delta; it is not a three-level step.
@@ -124,22 +128,28 @@ impl Windows {
     }
 
     /// C `update_setblack_slot` (src/game/windows.c:43).
-    fn update_setblack_slot(&mut self, slot: usize, oncewipe: &mut u8, circleanim: &mut i16) {
-        let test = self.slots[slot].stayblack.wrapping_add(1);
+    fn update_setblack_slot(
+        &mut self,
+        slot: usize,
+        stay_black: &mut i8,
+        oncewipe: &mut u8,
+        circleanim: &mut i16,
+    ) {
+        let test = stay_black.wrapping_add(1);
         if test == 0 {
             self.dealloc(slot);
             return;
         }
 
-        if self.slots[slot].stayblack != 0 {
-            self.slots[slot].stayblack = self.slots[slot].stayblack.wrapping_sub(1);
+        if *stay_black != 0 {
+            *stay_black = stay_black.wrapping_sub(1);
             return;
         }
 
         if *oncewipe == 0 {
             *oncewipe = 1;
             *circleanim = MSTARWIPE_CIRCLE;
-            self.slots[slot].stayblack = self.slots[slot].stayblack.wrapping_sub(1);
+            *stay_black = stay_black.wrapping_sub(1);
             return;
         }
 
@@ -149,7 +159,7 @@ impl Windows {
             return;
         }
 
-        self.slots[slot].stayblack = self.slots[slot].stayblack.wrapping_sub(1);
+        *stay_black = stay_black.wrapping_sub(1);
     }
 
     /// C `update_fadewhite_slot` (src/game/windows.c:71).
@@ -237,16 +247,28 @@ impl Windows {
         self.slots = [WindowSlot::default(); WINDOWARRAY_SIZE];
     }
 
+    /// Reset the window lane for a map loaded while presentation is already
+    /// fully black. The source map loader blanks presentation before it runs
+    /// the map's opening opcodes, so an opening fade-to-black is already at
+    /// its destination and its following wait can complete immediately.
+    pub(crate) fn init_for_forced_black_map_load(&mut self) {
+        self.init();
+        let slot = self
+            .alloc(WINDOW_MODE_MAPFADE)
+            .expect("fresh window state must have a map-fade slot");
+        self.slots[slot].wm_val = BLACK_FADE_MAX;
+    }
+
     /// C `Windows_Update()` (src/game/windows.c:124). `oncewipe` /
     /// `circleanim` are `GameVars::oncewipe` / `GameVars::circleanim`
     /// (C `g_oncewipe` / `g_circleanim`).
-    pub fn update(&mut self, oncewipe: &mut u8, circleanim: &mut i16) {
+    pub fn update(&mut self, stay_black: &mut i8, oncewipe: &mut u8, circleanim: &mut i16) {
         for i in 0..WINDOWARRAY_SIZE {
             if self.windowmode & (1 << i) == 0 {
                 continue;
             }
             match self.slots[i].mode {
-                WINDOW_MODE_BLACK => self.update_setblack_slot(i, oncewipe, circleanim),
+                WINDOW_MODE_BLACK => self.update_setblack_slot(i, stay_black, oncewipe, circleanim),
                 WINDOW_MODE_WHITEFADE => self.update_fadewhite_slot(i),
                 WINDOW_MODE_WHITE2NORM => self.update_fadewhite2norm_slot(i),
                 WINDOW_MODE_MAPFADE => self.update_mapfade_slot(i),
@@ -295,6 +317,10 @@ impl Windows {
         if fadedir < 0 {
             if self.slots[slot].wm_val > BLACK_FADE_MAX {
                 self.slots[slot].wm_val = BLACK_FADE_MAX;
+            }
+            if self.slots[slot].wm_val == BLACK_FADE_MAX {
+                self.fadedir = 0;
+                return;
             }
         } else if self.slots[slot].wm_val == 0 {
             self.slots[slot].wm_val = BLACK_FADE_MAX;
@@ -366,27 +392,20 @@ impl Windows {
 
     /// C `initblack_l()` (src/game/windows.c:199).
     ///
-    /// C calls `setblack_l()` immediately after setting `stayblack = 40`;
-    /// with stayblack just forced to 40, `update_setblack_slot`
-    /// (windows.c:43-69) unconditionally takes the `stayblack--` branch and
-    /// never reads `g_oncewipe`/`g_circleanim`, so that first step is
-    /// inlined here (this keeps the map-VM hook path free of GameVars
-    /// borrows; see game.rs `INITBLACK_L`).
+    /// The source-global `stayblack` countdown remains in `GameVars`; this
+    /// method owns only the allocated color-window state.
     pub fn init_black(&mut self) {
         let Some(slot) = self.get_or_alloc(WINDOW_MODE_BLACK) else {
             return;
         };
         self.slots[slot].mode = WINDOW_MODE_BLACK;
-        self.slots[slot].stayblack = 40;
         self.slots[slot].wm_val = BLACK_FADE_MAX;
-        // setblack_l() first step: stayblack 40 -> 39 (windows.c:51-54).
-        self.slots[slot].stayblack -= 1;
     }
 
     /// C `setblack_l()` (src/game/windows.c:209).
-    pub fn set_black(&mut self, oncewipe: &mut u8, circleanim: &mut i16) {
+    pub fn set_black(&mut self, stay_black: &mut i8, oncewipe: &mut u8, circleanim: &mut i16) {
         if let Some(slot) = self.find_mode(WINDOW_MODE_BLACK) {
-            self.update_setblack_slot(slot, oncewipe, circleanim);
+            self.update_setblack_slot(slot, stay_black, oncewipe, circleanim);
         }
     }
 
@@ -549,8 +568,9 @@ mod tests {
     use super::*;
 
     fn tick(w: &mut Windows, oncewipe: &mut u8, circleanim: &mut i16, n: usize) {
+        let mut stay_black = -1;
         for _ in 0..n {
-            w.update(oncewipe, circleanim);
+            w.update(&mut stay_black, oncewipe, circleanim);
         }
     }
 
@@ -577,6 +597,21 @@ mod tests {
         assert_eq!(w.slots[0].wm_val, 30);
         assert_eq!(w.fadedir, 0);
         assert_eq!(w.windowmode, 1);
+    }
+
+    #[test]
+    fn forced_black_map_load_satisfies_redundant_fade_to_black() {
+        let mut w = Windows::new();
+        w.init_for_forced_black_map_load();
+
+        assert_eq!(w.slots[0].mode, WINDOW_MODE_MAPFADE);
+        assert_eq!(w.slots[0].wm_val, BLACK_FADE_MAX);
+        assert!(!w.is_map_fade_active());
+
+        w.fade_to_black(2);
+
+        assert_eq!(w.slots[0].wm_val, BLACK_FADE_MAX);
+        assert!(!w.is_map_fade_active());
     }
 
     /// Hand-computed: FadeFromBlack(2) from wm_val=30 needs 15 updates
@@ -646,24 +681,27 @@ mod tests {
     #[test]
     fn initblack_wipe_handoff() {
         let mut w = Windows::new();
+        let mut stay_black = 39i8;
         let (mut ow, mut ca) = (0u8, 0i16);
         w.init_black();
         assert_eq!(w.slots[0].mode, WINDOW_MODE_BLACK);
-        assert_eq!(w.slots[0].stayblack, 39);
+        assert_eq!(stay_black, 39);
         assert_eq!(w.slots[0].wm_val, 30);
 
-        tick(&mut w, &mut ow, &mut ca, 39);
-        assert_eq!(w.slots[0].stayblack, 0);
+        for _ in 0..39 {
+            w.update(&mut stay_black, &mut ow, &mut ca);
+        }
+        assert_eq!(stay_black, 0);
         assert_eq!(ow, 0);
 
-        tick(&mut w, &mut ow, &mut ca, 1);
+        w.update(&mut stay_black, &mut ow, &mut ca);
         // oncewipe==0 branch: oncewipe=1, circleanim=MSTARWIPE_CIRCLE,
         // stayblack wraps 0 -> 0xFF.
         assert_eq!(ow, 1);
         assert_eq!(ca, 1);
-        assert_eq!(w.slots[0].stayblack, 0xFF);
+        assert_eq!(stay_black, -1);
 
-        tick(&mut w, &mut ow, &mut ca, 1);
+        w.update(&mut stay_black, &mut ow, &mut ca);
         // test = stayblack + 1 == 0 -> dealloc.
         assert_eq!(w.windowmode, 0);
     }
