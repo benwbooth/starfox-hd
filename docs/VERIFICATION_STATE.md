@@ -504,10 +504,29 @@ operand-mining from the retail ROM code that writes them (find
 `s_set_var B,viewtype,#viewtype_norm` equivalent store bytes), or a
 Mesen watch.
 
-Concrete next probe: instrument BOTH sides' player-strat identity each
-tick (native stratptr id; retail al_stratptr word @pool+0x16 for the
-PLAYER slot) across t=1000..1790 — find the exact tick port leaves
-ExitBaseFollow / retail doesn't, then compare the zdist thresholds.
+### Probe result (2026-08-22 night): strats are TICK-IDENTICAL
+
+Per-tick player-strat identity (retail slot located via sflags4 bit0 =
+playerobj @pool+0x20; slot 0 confirmed):
+
+    t=1056/1088/1140/1200/1216/1784 — ALL SIX strat transitions align
+    exactly (CLSHIPTURNA->B->GNDB->GNDC->WARPA->handoff->EXITOPEN).
+
+=> Handoff timing hypothesis is DEAD. Player strategies never diverge.
+The remaining suspect list narrows to a VALUE difference inside the
+camera layer, not strategy flow:
+  a) retail VIEWTYPE byte may retain FPOS|TOOBJ while port reads NORM
+     (both strats set it, but maybe different objects write it last);
+  b) retail OUTDIST may genuinely be 0 (single unvalidated read said 0);
+  c) retail's `$14FA` identity is ambiguous — it advances at player-rate
+     so it matches BOTH player_posz and pviewposz histories; its true
+     name (pviewposz vs viewposz vs player_posz mirror) is unproven.
+
+Next-session sharpest tool: locate retail's real VIEWTYPE/OUTDIST/
+VIEWPOSZ by mining store-instruction operands from the retail ROM code
+(the way RETAIL_PVIEWVELZ=$14F4 was originally found: find the
+`getview` clone in retail bytes via its `and #viewtype_fpos` /
+`lda outdist` signatures, then read the absolute operands).
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
