@@ -459,14 +459,31 @@ identity and rotated matrices (required decoding the TRUE GSU drawlist
 layout from STRUCTS.INC: y@16 x@18 z@20 sflags@7 shape@8 - NOT the
 SG.ASM-style order first assumed).
 
-### Next action
+### Next action (refined after var-level probes)
 
-Diff port `camera.rs` pull-back against ROM `getview` (GAME.ASM:66-113)
-conditions for THIS gameplay view type: which flag selects no-pull-back,
-and where retail's outdist actually lives during Corneria opening
-(prior probe of guessed address $18BF read 0; locate real one via the
--$8B block rule from a known-good anchor like PLAYER_POSZ $159C->$1511).
-Then re-run replay past 1783.
+Native at t=1782: viewtype=NORM, OUTDIST=VIEWDIST=120, applies full
+-120 pull-back (finz=pvpz-120). Retail's final camera advances at exactly
+pviewposz rate (+63/frame) with NO -120 step => best-fit model:
+
+**Port performed the launch-handoff (GCSTRATS.ASM:1062-1074 /
+PISTRATS playerExitBaseFollow -> viewtype_norm + OUTDIST=120) EARLIER
+than retail.** While retail is still in playerExitBaseFollow_strat,
+its viewposz is driven directly (Achase toward player_posz rate 3 +
+al_vz add, PISTRATS.ASM:701-708) => no pull-back term => +120 offset.
+
+Address archaeology dead-end reached: the built-minus-$8B rule does NOT
+generalize past the PVIEW block ($14F4/$14FA validated only).
+Validated retail reads: $14FA == native pvpz tick-exact; $15C4/$18BF/
+$1597/$14FE/$00B6/$00B8/$16BF/$18B9 all wrong or non-informative.
+Locating retail's live VIEWTYPE/OUTDIST needs either SPC700-style
+operand-mining from the retail ROM code that writes them (find
+`s_set_var B,viewtype,#viewtype_norm` equivalent store bytes), or a
+Mesen watch.
+
+Concrete next probe: instrument BOTH sides' player-strat identity each
+tick (native stratptr id; retail al_stratptr word @pool+0x16 for the
+PLAYER slot) across t=1000..1790 — find the exact tick port leaves
+ExitBaseFollow / retail doesn't, then compare the zdist thresholds.
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
