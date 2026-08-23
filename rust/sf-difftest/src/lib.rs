@@ -12,6 +12,15 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
+mod scenario;
+
+pub use scenario::{
+    compare_scenario, read_scenario_evidence, read_scenario_manifest, write_scenario_evidence,
+    write_scenario_manifest, CaptureChannel, ConformanceReport, EvidenceProducer,
+    NonStrictEvidence, ScenarioEvidence, ScenarioInputRun, ScenarioManifest,
+    EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
+};
+
 pub const TRACE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -122,6 +131,10 @@ pub struct SemanticFrame {
     pub objects: Vec<SemanticObject>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<SemanticEvent>,
+    /// Ordered renderer-boundary commands. Unlike `objects`, command order is
+    /// observable and therefore must not be normalized by identity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub draw_commands: Vec<SemanticEvent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<HashObservation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -138,6 +151,7 @@ impl SemanticFrame {
             fields: BTreeMap::new(),
             objects: Vec::new(),
             events: Vec::new(),
+            draw_commands: Vec::new(),
             video: None,
             audio: None,
         }
@@ -157,9 +171,14 @@ impl SemanticFrame {
         self.events.push(event);
         self
     }
+
+    pub fn with_draw_command(mut self, command: SemanticEvent) -> Self {
+        self.draw_commands.push(command);
+        self
+    }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct Divergence {
     pub sequence: u64,
     pub path: String,
@@ -273,7 +292,10 @@ pub fn first_divergence(
     Ok(None)
 }
 
-fn validate_trace(frames: &[SemanticFrame], source_name: &str) -> Result<(), TraceError> {
+pub(crate) fn validate_trace(
+    frames: &[SemanticFrame],
+    source_name: &str,
+) -> Result<(), TraceError> {
     let mut previous_sequence = None;
     for frame in frames {
         if frame.schema_version != TRACE_SCHEMA_VERSION {
@@ -332,6 +354,14 @@ fn compare_frame(reference: &SemanticFrame, candidate: &SemanticFrame) -> Option
     .or_else(|| compare_fields(sequence, "fields", &reference.fields, &candidate.fields))
     .or_else(|| compare_objects(sequence, &reference.objects, &candidate.objects))
     .or_else(|| compare_events(sequence, &reference.events, &candidate.events))
+    .or_else(|| {
+        compare_ordered_commands(
+            sequence,
+            "draw_commands",
+            &reference.draw_commands,
+            &candidate.draw_commands,
+        )
+    })
     .or_else(|| compare_hash(sequence, "video", &reference.video, &candidate.video))
     .or_else(|| compare_hash(sequence, "audio", &reference.audio, &candidate.audio))
 }
@@ -450,6 +480,40 @@ fn compare_events(
         }
     }
     scalar_divergence(sequence, "events.length", reference.len(), candidate.len())
+}
+
+fn compare_ordered_commands(
+    sequence: u64,
+    name: &str,
+    reference: &[SemanticEvent],
+    candidate: &[SemanticEvent],
+) -> Option<Divergence> {
+    let common = reference.len().min(candidate.len());
+    for index in 0..common {
+        let prefix = format!("{name}[{index}]");
+        if let Some(divergence) = scalar_divergence(
+            sequence,
+            &format!("{prefix}.kind"),
+            &reference[index].kind,
+            &candidate[index].kind,
+        ) {
+            return Some(divergence);
+        }
+        if let Some(divergence) = compare_fields(
+            sequence,
+            &format!("{prefix}.fields"),
+            &reference[index].fields,
+            &candidate[index].fields,
+        ) {
+            return Some(divergence);
+        }
+    }
+    scalar_divergence(
+        sequence,
+        &format!("{name}.length"),
+        reference.len(),
+        candidate.len(),
+    )
 }
 
 fn compare_hash(

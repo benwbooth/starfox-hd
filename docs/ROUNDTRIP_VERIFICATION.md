@@ -123,19 +123,20 @@ The same test locks retail
 briefing-cursor values 0, 1, 2, 64, and 103 at global ticks 654, 656, 657, 761,
 and 839.
 
-The coexecution continues through global tick 1199, into the early outdoor
-Corneria flight. From the first initialized gameplay frame onward it compares
+The strict coexecution currently continues through global tick 1063, the last
+frame before the first unresolved post-launch map-state divergence. From the
+first initialized gameplay frame onward it compares
 the background, game frame, player forward velocity and depth delta, active
 object slots, flat shape identities, every object position, and the launch
 wingmates' departure counters. First-divergence work corrected the opening
 camera's pre-chase carry branch, source active-list ordering, player and path
 initializer fallthrough, the launch player's view-speed chase, boost-flame
 scheduling, the exact wingmate removal boundary, the two-stage scramble wipe,
-and the one-time retail sound upload pause. The retail release exposes a zero
-map countdown while the typed VM retains WORLD.ASM's internal wait sentinel of
-one only during ticks 1064 through 1078; the semantic adapter normalizes that
-storage cursor solely inside that bounded fade window. All later state is
-strict again.
+and the exact wingmate-removal boundary. Later ticks are intentionally not
+certified: the former adapter copied retail state and resynchronized randomness
+across known divergence windows, which could make an inaccurate port pass.
+Strict scenarios now fail instead of substituting, normalizing, quarantining,
+or resynchronizing native state.
 
 The shipping correction uses ordinary typed counters, semantic phases, and a
 semantic fade-rate enum. It preserves the source's 40 zoom steps while

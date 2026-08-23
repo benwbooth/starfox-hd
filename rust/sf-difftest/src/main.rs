@@ -7,6 +7,7 @@
 //!
 //! Usage: `sf-difftest <oracle.dump> <candidate.dump> [--max-diffs N]`
 //!        `sf-difftest --semantic <oracle.jsonl> <candidate.jsonl>`
+//!        `sf-difftest --scenario <manifest.json> <retail.json> <native.json>`
 //! Exit code 0 = identical, 1 = divergence (first divergent tick reported),
 //! 2 = usage/parse error.
 
@@ -100,10 +101,12 @@ fn main() -> ExitCode {
     let mut paths = Vec::new();
     let mut max_diffs = 10usize;
     let mut semantic = false;
+    let mut scenario = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--semantic" => semantic = true,
+            "--scenario" => scenario = true,
             "--max-diffs" => {
                 i += 1;
                 max_diffs = args.get(i).and_then(|v| v.parse().ok()).unwrap_or(10);
@@ -111,6 +114,13 @@ fn main() -> ExitCode {
             p => paths.push(p.to_string()),
         }
         i += 1;
+    }
+    if scenario {
+        if semantic || paths.len() != 3 {
+            eprintln!("usage: sf-difftest --scenario <manifest.json> <retail.json> <native.json>");
+            return ExitCode::from(2);
+        }
+        return compare_scenario_files(&paths[0], &paths[1], &paths[2]);
     }
     if paths.len() != 2 {
         eprintln!("usage: sf-difftest [--semantic] <oracle.dump> <candidate.dump> [--max-diffs N]");
@@ -168,6 +178,50 @@ fn main() -> ExitCode {
     } else {
         println!("{diffs}+ divergent ticks (of {common} compared)");
         ExitCode::from(1)
+    }
+}
+
+fn compare_scenario_files(manifest_path: &str, retail_path: &str, native_path: &str) -> ExitCode {
+    let manifest = match sf_difftest::read_scenario_manifest(manifest_path) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            eprintln!("scenario error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let retail = match sf_difftest::read_scenario_evidence(retail_path) {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            eprintln!("retail evidence error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let native = match sf_difftest::read_scenario_evidence(native_path) {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            eprintln!("native evidence error: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    match sf_difftest::compare_scenario(&manifest, &retail, &native) {
+        Ok(report) => {
+            match serde_json::to_string_pretty(&report) {
+                Ok(json) => println!("{json}"),
+                Err(error) => {
+                    eprintln!("report serialization error: {error}");
+                    return ExitCode::from(2);
+                }
+            }
+            if report.strict_pass {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(error) => {
+            eprintln!("comparison error: {error}");
+            ExitCode::from(2)
+        }
     }
 }
 
