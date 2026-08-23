@@ -184,7 +184,10 @@ fn houdai_init_runs_strat_same_frame() {
     let after = g.objs.aliens.iter().filter(|a| a.active).count();
     for (i, a) in g.objs.aliens.iter().enumerate() {
         if a.active {
-            eprintln!("[dbgh] slot={} sh={} ty={:02X} p=({},{},{})", i, a.shape, a.type_, a.worldx, a.worldy, a.worldz);
+            eprintln!(
+                "[dbgh] slot={} sh={} ty={:02X} p=({},{},{})",
+                i, a.shape, a.type_, a.worldx, a.worldy, a.worldz
+            );
         }
     }
     eprintln!("[dbgh] before={} after={}", before, after);

@@ -861,7 +861,10 @@ fn meteo0_fires_homing_laser_on_notdelay_gate() {
     g.vars.gameframe = 7; // (7 + 1) & 7 == 0
     assert!(!any_fired_weapon(&g), "no shot before the gate tick");
     tick(&mut g, m);
-    assert!(any_fired_weapon(&g), "homing laser fired on the notdelay gate");
+    assert!(
+        any_fired_weapon(&g),
+        "homing laser fired on the notdelay gate"
+    );
     assert_eq!(g.objs.aliens[m as usize].sbyte1, 19, "budget consumed");
 }
 
@@ -1944,7 +1947,10 @@ fn szaco5_fires_and_advances_when_in_range() {
     let mut g = setup();
     let z = place(&mut g, IS_SZACO5, 0, 0, 1000, 129);
     tick(&mut g, z); // init falls through into state 0
-    assert!(any_fired_weapon(&g), "state 0 fires RELSLOWELASER within 1500 z");
+    assert!(
+        any_fired_weapon(&g),
+        "state 0 fires RELSLOWELASER within 1500 z"
+    );
     assert!(
         g.objs.aliens[z as usize].stratstate >= 1,
         "s_next_state advanced"

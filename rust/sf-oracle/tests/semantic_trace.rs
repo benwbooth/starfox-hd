@@ -17,6 +17,7 @@ use sf_oracle::{
     RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT,
     RETAIL_WHICH_ROUTE,
 };
+use sf_strat::common::StratRam;
 
 const FRAME_COUNT: u64 = 30;
 const INITIAL_POSITION_X: i16 = 1_000;
@@ -1068,6 +1069,33 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         }
 
         if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
+            // TEMP: ship banking comparison through the corridor curve.
+            if (1770..=1795).contains(&tick) {
+                let base = sf_oracle::RETAIL_POOL.base;
+                let stride = sf_oracle::RETAIL_POOL.stride as u32;
+                let nsl = native.game.vars.internal_playpt.max(0) as usize;
+                let na_ = &native.game.objs.aliens[nsl];
+                let rslot = nsl as u32;
+                let rget = |o: u32| retail.peek8(0x7E_0000 | (base + rslot * stride + o));
+                eprintln!(
+                    "BANK t={} N rot=({:02x},{:02x},{:02x}) vel={} tospd={} med={} psf2={:02x} pos=({},{},{}) | R rot=({:02x},{:02x},{:02x}) vel={}",
+                    tick,
+                    na_.rotx,
+                    na_.roty,
+                    na_.rotz,
+                    na_.vel,
+                    native.game.vars.sv_u8(sf_strat::common::sv::PLAYER_TOSPEED),
+                    native.game.vars.sv_u8(sf_strat::common::sv::PLAYER_MEDSPEED),
+                    native.game.vars.pshipflags2,
+                    na_.worldx,
+                    na_.worldy,
+                    na_.worldz,
+                    rget(0x12),
+                    rget(0x13),
+                    rget(0x14),
+                    rget(0x21)
+                );
+            }
             let mut native_snapshot = native_level_snapshot(&native);
             let retail_snapshot = retail_level_snapshot(&retail);
             let retail_random_state = [
@@ -1085,28 +1113,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 native_snapshot.map_countdown = retail_snapshot.map_countdown;
             }
 
-            // KNOWN-DIVERGENCE WINDOW (ticks ~1744-1800, corridor curve):
-            // retail applies a one-shot ship velocity kick (+~31 z, +2 y)
-            // at curve entry that the port still misses, and it feeds
-            // countdown/depth through lastzchange, so object/list/countdown/
-            // depth are cloned across the window. The RNG stream re-locks
-            // from retail for the same reason. Everything before 1744 and
-            // after 1800 verifies strictly.
-            if (1744..=1800).contains(&tick) {
-                native_snapshot.objects = retail_snapshot.objects.clone();
-                native_snapshot.active_order = retail_snapshot.active_order.clone();
-                native_snapshot.free_order = retail_snapshot.free_order.clone();
-                native_snapshot.map_countdown = retail_snapshot.map_countdown;
-                native_snapshot.previous_player_depth =
-                    retail_snapshot.previous_player_depth;
-                native_snapshot.last_depth_change = retail_snapshot.last_depth_change;
-                native.game.vars.rng = [
-                    retail.peek8(WORK_RAM | RETAIL_RAND),
-                    retail.peek8(WORK_RAM | RETAIL_RAND + 1),
-                    retail.peek8(WORK_RAM | RETAIL_RAND + 2),
-                    retail.peek8(WORK_RAM | RETAIL_RAND + 3),
-                ];
-            }
             assert_eq!(
                 native_snapshot, retail_snapshot,
                 "Corneria level state diverged at tick {tick}"

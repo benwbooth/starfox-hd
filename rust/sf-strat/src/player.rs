@@ -2798,13 +2798,10 @@ pub fn strat_player(g: &mut Game, idx: u16) {
         return;
     }
 
-    if g.vars.gameflags & GF_PLAYERDYING != 0 || g.vars.gameflags & GF_PLAYERDEAD != 0 {
-        let dead_id = sid(g, K_PLAYERDEAD_STRAT);
-        if g.objs.aliens[idx as usize].stratptr == Some(dead_id) {
-            playerdead_strat(g, idx);
-        }
-        return;
-    }
+    // NOTE: ROM strat_player never branches on GF_PLAYERDYING/GF_PLAYERDEAD
+    // here — those bits only drive the init_strats camera block (and the
+    // corridor-curve camera mode sets DYING while flight continues at full
+    // speed). Death routing happens solely through the hp == 0 path above.
 
     boost_brake_update(g, idx);
 

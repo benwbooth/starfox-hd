@@ -83,30 +83,9 @@ pub fn build() -> Route1Level {
     // LEVEL1_4.ASM:7-9 — three gro_6 ground objects flanking the exit path.
     // NOTE: C passes 65536u / 73728u to an int16 z parameter — the
     // builder's internal `as i16` truncation reproduces 0 / 8192.
-    b.mapobj(
-        0,
-        -2048,
-        0,
-        32768,
-        lc::SH_GRO_6_PROXY,
-        is::HARD180YR,
-    );
-    b.mapobj(
-        0,
-        4096,
-        0,
-        65536,
-        lc::SH_GRO_6_PROXY,
-        is::HARD180YR,
-    );
-    b.mapobj(
-        0,
-        -4608,
-        0,
-        73728,
-        lc::SH_GRO_6_PROXY,
-        is::HARD180YR,
-    );
+    b.mapobj(0, -2048, 0, 32768, lc::SH_GRO_6_PROXY, is::HARD180YR);
+    b.mapobj(0, 4096, 0, 65536, lc::SH_GRO_6_PROXY, is::HARD180YR);
+    b.mapobj(0, -4608, 0, 73728, lc::SH_GRO_6_PROXY, is::HARD180YR);
 
     // LEVEL1_4.ASM:10 — mapjsr cl_ground
     b.mapjsr("cl_ground");
@@ -153,16 +132,7 @@ pub fn build() -> Route1Level {
     );
 
     // MAP1_4.ASM:24-25 — friend chase6
-    b.pathobj(
-        0,
-        -1872,
-        -400,
-        0,
-        sh::FRIENDSHIP_4,
-        path::CHASE6_1,
-        10,
-        10,
-    );
+    b.pathobj(0, -1872, -400, 0, sh::FRIENDSHIP_4, path::CHASE6_1, 10, 10);
     b.pathcspecial(9472, -1824, -400, 0, sh::ZACO_A, path::CHASE6_2, 10, 10);
 
     // MAP1_4.ASM:27-29 — more tanks
@@ -176,16 +146,7 @@ pub fn build() -> Route1Level {
         10,
         10,
     );
-    b.pathcspecial(
-        0,
-        -1104,
-        0,
-        3000,
-        lc::SH_TANK_1,
-        lc::PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathcspecial(0, -1104, 0, 3000, lc::SH_TANK_1, lc::PATH_ID_E_TANK, 10, 10);
     b.pathcspecial(
         32768,
         1104,
@@ -239,14 +200,7 @@ pub fn build() -> Route1Level {
     b.mapobj(8192, -768, -120, 1250, sh::R_BU_7, is::HARD180YR);
 
     // MAP1_4.ASM:70-86 — rock section (gro shapes with fog)
-    b.mapobj(
-        256,
-        80,
-        0,
-        1500,
-        lc::SH_GRO_6_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
+    b.mapobj(256, 80, 0, 1500, lc::SH_GRO_6_PROXY, lc::IS_HARD180YRFOG);
     b.pathcspecial(
         4096,
         -80,
@@ -258,38 +212,10 @@ pub fn build() -> Route1Level {
         10,
     );
 
-    b.mapobj(
-        0,
-        -2048,
-        0,
-        2000,
-        lc::SH_GRO_4_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
-    b.mapobj(
-        4096,
-        1536,
-        0,
-        2000,
-        lc::SH_GRO_5_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
-    b.mapobj(
-        0,
-        -1536,
-        0,
-        2000,
-        lc::SH_GRO_4_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
-    b.mapobj(
-        0,
-        1024,
-        0,
-        2000,
-        lc::SH_GRO_5_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
+    b.mapobj(0, -2048, 0, 2000, lc::SH_GRO_4_PROXY, lc::IS_HARD180YRFOG);
+    b.mapobj(4096, 1536, 0, 2000, lc::SH_GRO_5_PROXY, lc::IS_HARD180YRFOG);
+    b.mapobj(0, -1536, 0, 2000, lc::SH_GRO_4_PROXY, lc::IS_HARD180YRFOG);
+    b.mapobj(0, 1024, 0, 2000, lc::SH_GRO_5_PROXY, lc::IS_HARD180YRFOG);
     b.pathcspecial(
         4096,
         848,
@@ -301,56 +227,12 @@ pub fn build() -> Route1Level {
         10,
     );
 
-    b.mapobj(
-        0,
-        -768,
-        0,
-        2000,
-        lc::SH_GRO_4_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
-    b.mapobj(
-        4096,
-        1024,
-        0,
-        2000,
-        lc::SH_GRO_5_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
-    b.pathcspecial(
-        0,
-        0,
-        0,
-        3000,
-        lc::SH_TANK_1,
-        lc::PATH_ID_E_TANK,
-        10,
-        10,
-    );
-    b.mapobj(
-        0,
-        -640,
-        0,
-        2000,
-        lc::SH_GRO_0_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
-    b.mapobj(
-        4096,
-        640,
-        0,
-        2000,
-        lc::SH_GRO_1_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
-    b.mapobj(
-        0,
-        -592,
-        0,
-        2000,
-        lc::SH_GRO_0_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
+    b.mapobj(0, -768, 0, 2000, lc::SH_GRO_4_PROXY, lc::IS_HARD180YRFOG);
+    b.mapobj(4096, 1024, 0, 2000, lc::SH_GRO_5_PROXY, lc::IS_HARD180YRFOG);
+    b.pathcspecial(0, 0, 0, 3000, lc::SH_TANK_1, lc::PATH_ID_E_TANK, 10, 10);
+    b.mapobj(0, -640, 0, 2000, lc::SH_GRO_0_PROXY, lc::IS_HARD180YRFOG);
+    b.mapobj(4096, 640, 0, 2000, lc::SH_GRO_1_PROXY, lc::IS_HARD180YRFOG);
+    b.mapobj(0, -592, 0, 2000, lc::SH_GRO_0_PROXY, lc::IS_HARD180YRFOG);
     b.pathspecial(
         0,
         -768,
@@ -361,14 +243,7 @@ pub fn build() -> Route1Level {
         10,
         10,
     );
-    b.mapobj(
-        4096,
-        592,
-        0,
-        2000,
-        lc::SH_GRO_1_PROXY,
-        lc::IS_HARD180YRFOG,
-    );
+    b.mapobj(4096, 592, 0, 2000, lc::SH_GRO_1_PROXY, lc::IS_HARD180YRFOG);
 
     // MAP1_4.ASM:88-89 — walkers
     b.cspecial(512, 1792, 0, 0, lc::SH_WALKER_0, lc::IS_WALKING);
@@ -477,16 +352,7 @@ pub fn build() -> Route1Level {
         10,
     );
     b.mapobj(4096, 2304, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
-    b.pathcspecial(
-        0,
-        2048,
-        -170,
-        -100,
-        lc::SH_HELI,
-        lc::PATH_ID_KAMOME,
-        10,
-        10,
-    );
+    b.pathcspecial(0, 2048, -170, -100, lc::SH_HELI, lc::PATH_ID_KAMOME, 10, 10);
     b.mapobj(4096, -2304, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.pathcspecial(
         0,
@@ -521,42 +387,14 @@ pub fn build() -> Route1Level {
     // MAP1_4.ASM:142-152 — base & tank section
     b.mapobj(4096, 1792, 0, 7000, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.mapobj(4096, -1536, 0, 7000, lc::SH_GRO_6_PROXY, is::HARD180YR);
-    b.mapobj(
-        0,
-        -5376,
-        0,
-        8000,
-        lc::SH_BASE_0_0_PROXY,
-        lc::IS_BASE0,
-    );
+    b.mapobj(0, -5376, 0, 8000, lc::SH_BASE_0_0_PROXY, lc::IS_BASE0);
     b.special(0, -5376, 0, 8004, lc::SH_S_TANK_0, lc::IS_TANK1A);
     b.setalvarb(al::SBYTE1, 50);
-    b.cspecial(
-        0,
-        -4608,
-        0,
-        8004,
-        lc::SH_BTANK_1_PROXY,
-        lc::IS_TANK1A,
-    );
+    b.cspecial(0, -4608, 0, 8004, lc::SH_BTANK_1_PROXY, lc::IS_TANK1A);
     b.setalvarb(al::SBYTE1, 55);
-    b.cspecial(
-        0,
-        -2304,
-        0,
-        8004,
-        lc::SH_BTANK_1_PROXY,
-        lc::IS_TANK1A,
-    );
+    b.cspecial(0, -2304, 0, 8004, lc::SH_BTANK_1_PROXY, lc::IS_TANK1A);
     b.setalvarb(al::SBYTE1, 60);
-    b.mapobj(
-        12288,
-        -5376,
-        0,
-        8005,
-        lc::SH_BASE_0_1_PROXY,
-        lc::IS_BASE0,
-    );
+    b.mapobj(12288, -5376, 0, 8005, lc::SH_BASE_0_1_PROXY, lc::IS_BASE0);
     b.mapobj(29952, 5376, 0, 7000, lc::SH_GRO_6_PROXY, is::HARD180YR);
 
     // MAP1_4.ASM:154-156 — houdai + base
@@ -565,40 +403,13 @@ pub fn build() -> Route1Level {
     b.mapobj(0, 512, 0, 5000, lc::SH_BASE_0_0_PROXY, lc::IS_BASE1);
 
     // MAP1_4.ASM:158-160 — friend chase8
-    b.pathobj(
-        0,
-        1872,
-        -100,
-        0,
-        sh::FRIENDSHIP_4,
-        path::CHASE8_1,
-        10,
-        10,
-    );
-    b.pathcspecial(
-        0,
-        14336,
-        -3600,
-        4260,
-        sh::ZACO_A,
-        path::CHASE8_2,
-        10,
-        10,
-    );
+    b.pathobj(0, 1872, -100, 0, sh::FRIENDSHIP_4, path::CHASE8_1, 10, 10);
+    b.pathcspecial(0, 14336, -3600, 4260, sh::ZACO_A, path::CHASE8_2, 10, 10);
     b.pathcspecial(0, 1872, -100, 0, sh::ZACO_A, path::CHASE8_3, 10, 10);
 
     // MAP1_4.ASM:162-163 — gate
     b.mapobj(0, 512, -100, 5500, sh::GATE_0, is::GATE);
-    b.pathobj(
-        4096,
-        3000,
-        3000,
-        3000,
-        sh::NULLSHAPE,
-        path::E_GATE,
-        10,
-        10,
-    );
+    b.pathobj(4096, 3000, 3000, 3000, sh::NULLSHAPE, path::E_GATE, 10, 10);
 
     b.mapwait(3000);
 
@@ -616,26 +427,8 @@ pub fn build() -> Route1Level {
     // MAP1_4.ASM:178-208 — tank2 + heli section + bases + gro_6 corridors
     b.mapobj(4096, -4096, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.cspecial(4096, 768, 0, 4000, lc::SH_TANK_2_PROXY, lc::IS_TANK2);
-    b.pathobj(
-        0,
-        768,
-        -600,
-        3000,
-        lc::SH_HELI,
-        lc::PATH_ID_KAMOME,
-        10,
-        10,
-    );
-    b.pathobj(
-        0,
-        -768,
-        -600,
-        3000,
-        lc::SH_HELI,
-        lc::PATH_ID_KAMOME,
-        10,
-        10,
-    );
+    b.pathobj(0, 768, -600, 3000, lc::SH_HELI, lc::PATH_ID_KAMOME, 10, 10);
+    b.pathobj(0, -768, -600, 3000, lc::SH_HELI, lc::PATH_ID_KAMOME, 10, 10);
     b.mapobj(4096, 4352, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.mapobj(4096, -4352, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.mapobj(4096, 4352, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
@@ -645,14 +438,7 @@ pub fn build() -> Route1Level {
     b.mapobj(8192, -5712, 0, 4500, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.mapobj(12288, 4432, 0, 5000, lc::SH_GRO_6_PROXY, is::HARD180YR);
 
-    b.mapobj(
-        0,
-        -768,
-        0,
-        5000,
-        lc::SH_BASE_0_0_PROXY,
-        lc::IS_BASE1,
-    );
+    b.mapobj(0, -768, 0, 5000, lc::SH_BASE_0_0_PROXY, lc::IS_BASE1);
     b.mapobj(0, 768, 0, 5000, lc::SH_BASE_0_0_PROXY, lc::IS_BASE1);
     b.mapobj(0, -768, -50, 5300, sh::ITEM_5, is::ITEM5);
     b.setalvarb(al::SBYTE1, 1);
@@ -681,36 +467,9 @@ pub fn build() -> Route1Level {
         10,
     );
     b.cspecial(0, -256, 0, 4000, lc::SH_TANK_2_PROXY, lc::IS_TANK2);
-    b.pathobj(
-        0,
-        768,
-        -600,
-        3000,
-        lc::SH_HELI,
-        lc::PATH_ID_KAMOME,
-        10,
-        10,
-    );
-    b.pathobj(
-        0,
-        -768,
-        -600,
-        2500,
-        lc::SH_HELI,
-        lc::PATH_ID_KAMOME,
-        10,
-        10,
-    );
-    b.pathobj(
-        4096,
-        0,
-        -600,
-        2000,
-        lc::SH_HELI,
-        lc::PATH_ID_KAMOME,
-        10,
-        10,
-    );
+    b.pathobj(0, 768, -600, 3000, lc::SH_HELI, lc::PATH_ID_KAMOME, 10, 10);
+    b.pathobj(0, -768, -600, 2500, lc::SH_HELI, lc::PATH_ID_KAMOME, 10, 10);
+    b.pathobj(4096, 0, -600, 2000, lc::SH_HELI, lc::PATH_ID_KAMOME, 10, 10);
     b.mapobj(4096, 2304, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.mapobj(4096, -2304, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);
     b.mapobj(4096, 2304, 0, 4000, lc::SH_GRO_6_PROXY, is::HARD180YR);

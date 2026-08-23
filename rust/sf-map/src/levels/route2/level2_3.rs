@@ -34,32 +34,14 @@ pub fn build() -> Route2Level {
     b.mapobj(0, -1536, 0, 2000, SH_BRO_4, IS_ROCKHARD);
     b.mapobj(1280, 1536, 0, 2000, SH_BRO_5, IS_ROCKHARD);
     b.maphardrot(0, -150, -75, 2000, SH_CLISLA_M, 0, 8, 0);
-    b.pathobj(
-        1280,
-        80,
-        -75,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_L_CLISLA,
-        10,
-        10,
-    );
+    b.pathobj(1280, 80, -75, 2000, SH_CLISLA_S, PATH_ID_L_CLISLA, 10, 10);
     b.mapobj(0, -1360, 0, 2000, SH_BRO_0, IS_ROCKHARD);
     b.mapobj(4096, 848, 0, 2000, SH_BRO_5, IS_ROCKHARD);
     b.mapobj(1280, -200, 0, 2000, SH_HOU_5, IS_HOUDAI5F);
 
     b.mapobj(0, -1792, 0, 2000, SH_BRO_0, IS_ROCKHARD);
     b.mapobj(0, 336, 0, 2000, SH_BRO_5, IS_ROCKHARD);
-    b.pathcspecial(
-        4096,
-        336,
-        0,
-        2600,
-        SH_WALKER_0,
-        PATH_ID_E_WALK_1,
-        10,
-        10,
-    );
+    b.pathcspecial(4096, 336, 0, 2600, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
     b.mapobj(0, -1536, 0, 2000, SH_BRO_2, IS_ROCKHARD);
     b.mapobj(4096, 1280, 0, 2000, SH_BRO_1, IS_ROCKHARD);
     b.mapobj(0, -1024, 0, 2000, SH_BRO_4, IS_ROCKHARD);
@@ -87,16 +69,7 @@ pub fn build() -> Route2Level {
     b.mapobj(0, -300, 0, 2000, SH_BRO_6, IS_HARD180YR);
     b.pathspecial(4096, -300, 0, 2500, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
     b.mapobj(0, 1536, 0, 2000, SH_BRO_6, IS_HARD180YR);
-    b.pathspecial(
-        4096,
-        1536,
-        0,
-        2500,
-        SH_WALKER_0,
-        PATH_ID_E_WALK_1,
-        10,
-        10,
-    );
+    b.pathspecial(4096, 1536, 0, 2500, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
 
     b.pathobj(0, -750, -400, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE6_1, 10, 10);
     b.pathcspecial(0, -720, -400, 0, SH_ZACO_A, PATH_ID_CHASE6_2, 10, 10);
@@ -106,36 +79,9 @@ pub fn build() -> Route2Level {
     b.setalvarb(AL_ROTY, -64); // -deg90
     b.addalvarptrw(AL_WORLDX, WM_PLAYERPOSX);
 
-    b.pathobj(
-        1792,
-        300,
-        -200,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        1792,
-        -200,
-        -45,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        1792,
-        256,
-        -30,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
+    b.pathobj(1792, 300, -200, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(1792, -200, -45, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(1792, 256, -30, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
     b.pathobj(0, 250, -120, 2500, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(
         1792,
@@ -162,36 +108,9 @@ pub fn build() -> Route2Level {
         10,
         10,
     );
-    b.pathobj(
-        1792,
-        400,
-        -100,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        1792,
-        -100,
-        -30,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        1792,
-        200,
-        -45,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
+    b.pathobj(1792, 400, -100, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(1792, -100, -30, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(1792, 200, -45, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
 
     b.cspecial(0, -1000, 0, 3000, SH_M_TANK, IS_MISSTANK);
     b.setalvarb(AL_ROTY, -64); // -deg90
@@ -211,26 +130,8 @@ pub fn build() -> Route2Level {
         10,
         10,
     );
-    b.pathobj(
-        1792,
-        400,
-        -100,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        1792,
-        -100,
-        -30,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
+    b.pathobj(1792, 400, -100, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(1792, -100, -30, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
     b.pathobj(3000, 200, -45, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
     b.pathobj(4096, 0, -170, 3000, SH_WALK_4_0, PATH_ID_E_KANI_0, 10, 10);
 
@@ -244,36 +145,9 @@ pub fn build() -> Route2Level {
         10,
         10,
     );
-    b.pathobj(
-        1792,
-        400,
-        -100,
-        3000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        1792,
-        -100,
-        -30,
-        3000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        4096,
-        200,
-        -45,
-        3000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
+    b.pathobj(1792, 400, -100, 3000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(1792, -100, -30, 3000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(4096, 200, -45, 3000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
 
     // base
     b.mapobj(0, 848, 0, 3000, SH_HOU_5, IS_HOUDAI5F);
@@ -323,41 +197,14 @@ pub fn build() -> Route2Level {
     b.pathcspecial(5632, 0, -400, -150, SH_ZACO_A, PATH_ID_CHASE7_2, 10, 10);
     b.pathobj(0, 260, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.pathobj(3400, -260, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
-    b.pathobj(
-        1280,
-        200,
-        -120,
-        3000,
-        SH_R_BUT_2,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
+    b.pathobj(1280, 200, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.mapobj(0, -200, -150, 3200, SH_ITEM_5, IS_ITEM5);
     b.setalvarb(AL_SBYTE1, 1);
     b.pathobj(2100, -200, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
 
     b.maphardrot(0, 300, -75, 4000, SH_CLISLA_M, 0, -8, 0);
-    b.pathobj(
-        3000,
-        1280,
-        -75,
-        4000,
-        SH_CLISLA_S,
-        PATH_ID_L_CLISLA,
-        10,
-        10,
-    );
-    b.pathobj(
-        5376,
-        200,
-        -170,
-        4500,
-        SH_WALK_4_0,
-        PATH_ID_E_KANI_0,
-        10,
-        10,
-    );
+    b.pathobj(3000, 1280, -75, 4000, SH_CLISLA_S, PATH_ID_L_CLISLA, 10, 10);
+    b.pathobj(5376, 200, -170, 4500, SH_WALK_4_0, PATH_ID_E_KANI_0, 10, 10);
     b.maphardrot(0, -300, -75, 4000, SH_CLISLA_M, 0, -8, 0);
     b.pathobj(
         4000,
@@ -389,37 +236,10 @@ pub fn build() -> Route2Level {
         10,
         10,
     );
-    b.pathobj(
-        1024,
-        400,
-        -100,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
+    b.pathobj(1024, 400, -100, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
 
-    b.pathobj(
-        1024,
-        -100,
-        -30,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
-    b.pathobj(
-        1024,
-        200,
-        -45,
-        2000,
-        SH_CLISLA_S,
-        PATH_ID_MINI_CLI,
-        10,
-        10,
-    );
+    b.pathobj(1024, -100, -30, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
+    b.pathobj(1024, 200, -45, 2000, SH_CLISLA_S, PATH_ID_MINI_CLI, 10, 10);
 
     b.mapobj(4096, -600, 0, 5000, SH_CLISLA_L, IS_HARD180YR);
 
@@ -427,37 +247,10 @@ pub fn build() -> Route2Level {
     b.skillfly_init();
     b.skillfly_set_default(0, -150, 3000);
     b.pathobj(4096, 0, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
-    b.pathobj(
-        4096,
-        260,
-        -120,
-        3000,
-        SH_R_BUT_2,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
+    b.pathobj(4096, 260, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
     b.skillfly_set_default(-300, -120, 3000);
-    b.pathobj(
-        5376,
-        -300,
-        -120,
-        3000,
-        SH_R_BUT_2,
-        PATH_ID_PINITA_B,
-        10,
-        10,
-    );
-    b.pathobj(
-        5376,
-        256,
-        -120,
-        3000,
-        SH_R_BUT_2,
-        PATH_ID_PINITA_A,
-        10,
-        10,
-    );
+    b.pathobj(5376, -300, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_B, 10, 10);
+    b.pathobj(5376, 256, -120, 3000, SH_R_BUT_2, PATH_ID_PINITA_A, 10, 10);
 
     // skillfly_bonus
     let level2_3_skillfly_bonus_guard_ptr = b.mapcode65816_inline();

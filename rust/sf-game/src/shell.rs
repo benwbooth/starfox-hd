@@ -1295,7 +1295,7 @@ pub struct Shell {
     /// retaining any source-machine execution state.
     gameplay_entry_phase: GameplayEntryPhase,
     gameplay_initialization_ticks_remaining: u8,
-    camera: GameCamera,
+    pub camera: GameCamera,
     /// C `s_draw_list` (boot.c:46).
     draw_list: Vec<DrawListEntry>,
     cam_snapshot: CameraSnapshot,

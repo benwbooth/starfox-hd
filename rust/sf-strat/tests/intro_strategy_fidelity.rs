@@ -1,8 +1,6 @@
 //! Reachability and source-timing regressions for the retail attract intro.
 
-use sf_game::alien::{
-    ASF3_REALOBJ, ASF_COLLDISABLE, ASF_HITFLASH, ATMISSILE, ATZREMOVE,
-};
+use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ASF_HITFLASH, ATMISSILE, ATZREMOVE};
 use sf_game::Game;
 use sf_map::catalog::map_id;
 use sf_map::consts::intro_strategy_address;

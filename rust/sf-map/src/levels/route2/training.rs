@@ -40,16 +40,7 @@ pub fn build() -> Route2Level {
     b.mapobj(0, 4608, 0, 5000, SH_BU_8, IS_HARD180YR);
     b.mapobj(8192, -4608, 0, 5000, SH_BU_1, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        512,
-        -150,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING2,
-        10,
-        10,
-    );
+    b.pathobj(0, 512, -150, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING2, 10, 10);
     b.mapobj(0, 4608, 0, 5000, SH_BU_0, IS_HARD180YR);
     b.mapobj(8192, -4608, 0, 5000, SH_BU_2, IS_HARD180YR);
 
@@ -57,16 +48,7 @@ pub fn build() -> Route2Level {
     b.mapobj(0, 4608, 0, 5000, SH_BU_1, IS_HARD180YR);
     b.mapobj(8192, -4608, 0, 5000, SH_BU_1, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        -512,
-        -150,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING2,
-        10,
-        10,
-    );
+    b.pathobj(0, -512, -150, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING2, 10, 10);
     b.mapobj(0, 4096, 0, 5000, SH_TOWER_2, IS_TOWER0);
     b.mapobj(8192, -4096, 0, 5000, SH_TOWER_2, IS_TOWER0);
 
@@ -75,29 +57,11 @@ pub fn build() -> Route2Level {
     b.mapobj(0, 4608, 0, 5000, SH_PILLAR3, IS_HARD180YR);
     b.mapobj(8192, -4608, 0, 5000, SH_PILLAR3, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        512,
-        -200,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING2,
-        10,
-        10,
-    );
+    b.pathobj(0, 512, -200, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING2, 10, 10);
     b.mapobj(0, 4608, 0, 5000, SH_ROBOT_0, IS_HARD180YR);
     b.mapobj(4608, -4608, 0, 5000, SH_ROBOT_0, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        -816,
-        -100,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING,
-        10,
-        10,
-    );
+    b.pathobj(0, -816, -100, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING, 10, 10);
     b.mapobj(0, 4608, 0, 5000, SH_BU_7, IS_HARD180YR);
     b.mapobj(8192, -4608, 0, 5000, SH_BU_7, IS_HARD180YR);
 

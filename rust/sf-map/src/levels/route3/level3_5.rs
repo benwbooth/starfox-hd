@@ -67,32 +67,14 @@ pub(crate) fn build() -> Route3Level {
     // MAP3_5.ASM:26-37 — more rocks + walker + houdai
     b.mapobj(0, -4096, 0, 14336, SH_RO_0_PROXY, IS_ROCKHARD);
     b.mapobj(4096, -256, 0, 14336, SH_RO_5_PROXY, IS_ROCKHARD);
-    b.pathcspecial(
-        0,
-        -256,
-        0,
-        3350,
-        SH_WALKER_0,
-        PATH_ID_E_WALK_1,
-        10,
-        10,
-    );
+    b.pathcspecial(0, -256, 0, 3350, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
     b.mapobj(0, -2048, 0, 14336, SH_RO_4_PROXY, IS_ROCKHARD);
     b.mapobj(8192, -1280, 0, 18432, SH_RO_4_PROXY, IS_ROCKHARD);
     b.mapobj(0, 1280, 0, 10240, SH_RO_1_PROXY, IS_ROCKHARD);
     b.mapobj(0, -512, 0, 14336, SH_RO_4_PROXY, IS_ROCKHARD);
     b.cspecial(0, 512, 0, 3300, SH_HOU_5, IS_HOUDAI5F);
     b.mapobj(4096, 1536, 0, 14336, SH_RO_1_PROXY, IS_ROCKHARD);
-    b.pathobj(
-        1280,
-        1536,
-        0,
-        3350,
-        SH_WALKER_0,
-        PATH_ID_E_WALK_1,
-        10,
-        10,
-    );
+    b.pathobj(1280, 1536, 0, 3350, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
     // ceiling column (RO_6 with deg180 z-rot)
     b.mapobj(0, 1104, -600, 4000, SH_RO_6_PROXY, IS_HARD180YR);
     b.setalvarb(AL_ROTZ, DEG180);
@@ -102,16 +84,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0, 0, 0, 10240, SH_RO_4_PROXY, IS_ROCKHARD);
     b.mapobj(4096, 2048, 0, 10240, SH_RO_1_PROXY, IS_ROCKHARD);
     b.mapobj(0, 256, 0, 10240, SH_RO_0_PROXY, IS_ROCKHARD);
-    b.pathcspecial(
-        0,
-        256,
-        0,
-        3350,
-        SH_WALKER_0,
-        PATH_ID_E_WALK_1,
-        10,
-        10,
-    );
+    b.pathcspecial(0, 256, 0, 3350, SH_WALKER_0, PATH_ID_E_WALK_1, 10, 10);
     b.mapobj(0, 4096, 0, 10240, SH_RO_5_PROXY, IS_ROCKHARD);
     b.mapobj(0, 2048, 0, 14336, SH_RO_5_PROXY, IS_ROCKHARD);
     b.mapobj(9472, 1280, 0, 18432, SH_RO_5_PROXY, IS_ROCKHARD);
@@ -131,40 +104,13 @@ pub(crate) fn build() -> Route3Level {
     b.pathspecial(0, 250, 0, 3000, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
     b.mapobj(0, -4608, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.mapobj(4096, 4608, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
-    b.pathspecial(
-        0,
-        -256,
-        0,
-        3000,
-        SH_S_TANK_0,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathspecial(0, -256, 0, 3000, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
     b.mapobj(0, -4608, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.mapobj(0, 5376, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
 
     // MAP3_5.ASM:65-68 — friend chase6
-    b.pathobj(
-        0,
-        -1872,
-        -400,
-        0,
-        SH_FRIENDSHIP_4,
-        PATH_ID_CHASE6_1,
-        10,
-        10,
-    );
-    b.pathobj(
-        5376,
-        -1872,
-        -400,
-        0,
-        SH_ZACO_A,
-        PATH_ID_CHASE6_2,
-        10,
-        10,
-    );
+    b.pathobj(0, -1872, -400, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE6_1, 10, 10);
+    b.pathobj(5376, -1872, -400, 0, SH_ZACO_A, PATH_ID_CHASE6_2, 10, 10);
     // skillfly_bonus item_5
     let skillfly_bonus_guard_ptr = b.mapcode65816_inline();
     b.mapobj(0, 0, -120, 1300, SH_ITEM_5, IS_ITEM5);
@@ -185,16 +131,7 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(4096, -1024, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.mapobj(0, -1792, -600, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.setalvarb(AL_ROTZ, DEG180);
-    b.pathobj(
-        0,
-        -1024,
-        0,
-        4500,
-        SH_WALKER_0,
-        PATH_ID_E_WALK_1,
-        6,
-        4,
-    );
+    b.pathobj(0, -1024, 0, 4500, SH_WALKER_0, PATH_ID_E_WALK_1, 6, 4);
     b.mapobj(8192, 2304, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
 
     // MAP3_5.ASM:85-90 — ceiling_town: houdai pair + inverted houdai
@@ -292,16 +229,7 @@ pub(crate) fn build() -> Route3Level {
     b.setalvarb(AL_ROTX, DEG90);
 
     // MAP3_5.ASM:124-132 — tanks + bu_0 ceiling + bu_3 ground
-    b.pathspecial(
-        0,
-        -336,
-        0,
-        3000,
-        SH_S_TANK_0,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathspecial(0, -336, 0, 3000, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
     b.pathspecial(8192, 336, 0, 3000, SH_S_TANK_0, PATH_ID_E_TANK, 10, 10);
     b.mapobj(0, -1024, -600, 4000, SH_BU_0, IS_HARD180YR);
     b.setalvarb(AL_ROTZ, DEG180);
@@ -364,23 +292,9 @@ pub(crate) fn build() -> Route3Level {
 
     // MAP3_5.ASM:177-184 — .volcs0 loop (small volcanoes, 2 iterations)
     b.label("level3_5.volcs0");
-    b.mapobj(
-        1280,
-        -768,
-        -600,
-        3000,
-        SH_SVOLCANO_PROXY,
-        IS_FIREPILLAR,
-    );
+    b.mapobj(1280, -768, -600, 3000, SH_SVOLCANO_PROXY, IS_FIREPILLAR);
     b.pathobj(1280, 0, -50, 3200, SH_BOM_WING, PATH_ID_PONPON, 2, 8);
-    b.mapobj(
-        1280,
-        -512,
-        -600,
-        3000,
-        SH_SVOLCANO_PROXY,
-        IS_FIREPILLAR,
-    );
+    b.mapobj(1280, -512, -600, 3000, SH_SVOLCANO_PROXY, IS_FIREPILLAR);
     b.mapobj(1280, 512, -600, 3000, SH_SVOLCANO_PROXY, IS_FIREPILLAR);
     b.maploop("level3_5.volcs0", 2);
     b.mapobj(8192, 2048, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
@@ -405,39 +319,16 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(0, 0, -20, 3000, SH_MISS_1_2, IS_WOODS);
     b.setalvarptrw(AL_PTR, WM_MAPVAR1);
     b.setalvarb(AL_ROTX, -(DEG90));
-    b.pathcspecial(
-        8192,
-        -768,
-        -600,
-        3300,
-        SH_HOU_5,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathcspecial(8192, -768, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
     b.mapobj(4096, 1792, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
 
     // MAP3_5.ASM:206-216 — .volcs2 loop (volcanoes + rocks, 2 iterations)
     b.label("level3_5.volcs2");
-    b.mapobj(
-        1280,
-        -1024,
-        -600,
-        3000,
-        SH_SVOLCANO_PROXY,
-        IS_FIREPILLAR,
-    );
+    b.mapobj(1280, -1024, -600, 3000, SH_SVOLCANO_PROXY, IS_FIREPILLAR);
     b.pathobj(512, 512, -50, 3200, SH_BOM_WING, PATH_ID_PONPON, 2, 8);
     b.mapobj(512, 0, -600, 3000, SH_SVOLCANO_PROXY, IS_FIREPILLAR);
     b.mapobj(1024, 4608, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
-    b.mapobj(
-        1280,
-        -512,
-        -600,
-        3000,
-        SH_SVOLCANO_PROXY,
-        IS_FIREPILLAR,
-    );
+    b.mapobj(1280, -512, -600, 3000, SH_SVOLCANO_PROXY, IS_FIREPILLAR);
     b.mapobj(512, -4096, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.mapobj(1280, 1024, -600, 3000, SH_SVOLCANO_PROXY, IS_FIREPILLAR);
     b.maploop("level3_5.volcs2", 2);
@@ -476,47 +367,11 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(4096, 1792, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
 
     // MAP3_5.ASM:244-256 — friend chase6 + tanks + houdai
-    b.pathobj(
-        0,
-        -1872,
-        -400,
-        0,
-        SH_FRIENDSHIP_4,
-        PATH_ID_CHASE6_1,
-        10,
-        10,
-    );
-    b.pathobj(
-        1024,
-        -1872,
-        -400,
-        0,
-        SH_ZACO_A,
-        PATH_ID_CHASE6_2,
-        10,
-        10,
-    );
-    b.pathcspecial(
-        0,
-        336,
-        -600,
-        3000,
-        SH_TANK_1,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathobj(0, -1872, -400, 0, SH_FRIENDSHIP_4, PATH_ID_CHASE6_1, 10, 10);
+    b.pathobj(1024, -1872, -400, 0, SH_ZACO_A, PATH_ID_CHASE6_2, 10, 10);
+    b.pathcspecial(0, 336, -600, 3000, SH_TANK_1, PATH_ID_E_TANK, 10, 10);
     b.setalvarb(AL_ROTZ, DEG180);
-    b.pathcspecial(
-        0,
-        -336,
-        -600,
-        3000,
-        SH_TANK_1,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathcspecial(0, -336, -600, 3000, SH_TANK_1, PATH_ID_E_TANK, 10, 10);
     b.setalvarb(AL_ROTZ, DEG180);
     b.mapobj(4096, -2048, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.mapobj(8192, 0, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
@@ -528,42 +383,15 @@ pub(crate) fn build() -> Route3Level {
 
     // MAP3_5.ASM:259-291 — fire_balls: houdai gauntlet + inverted cannons
     b.mapobj(8192, 2048, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
-    b.pathcspecial(
-        4096,
-        -768,
-        -600,
-        3300,
-        SH_HOU_5,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
-    b.pathcspecial(
-        4096,
-        -256,
-        -600,
-        3300,
-        SH_HOU_5,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathcspecial(4096, -768, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
+    b.pathcspecial(4096, -256, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
     b.mapobj(0, -2048, -600, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.setalvarb(AL_ROTZ, DEG180);
     b.mapobj(0, 1792, 0, 5000, SH_RO_6_PROXY, IS_HARD180YR);
     b.cspecial(4096, 0, 0, 3300, SH_HOU_5, IS_HOUDAI5F);
     b.cspecial(4096, -512, 0, 3300, SH_HOU_5, IS_HOUDAI5F);
     b.cspecial(4096, 512, 0, 3300, SH_HOU_5, IS_HOUDAI5F);
-    b.pathcspecial(
-        4096,
-        -768,
-        -600,
-        3300,
-        SH_HOU_5,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathcspecial(4096, -768, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
     b.pathcspecial(4096, 768, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
     b.cspecial(4096, -1024, 0, 3300, SH_HOU_5, IS_HOUDAI5F);
     b.cspecial(4096, 1024, 0, 3300, SH_HOU_5, IS_HOUDAI5F);
@@ -573,27 +401,9 @@ pub(crate) fn build() -> Route3Level {
     b.mapobj(8192, 0, 0, 4000, SH_VOLCANO_PROXY, IS_VOLCANO);
 
     b.pathcspecial(4096, 0, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
-    b.pathcspecial(
-        0,
-        -1024,
-        -600,
-        3300,
-        SH_HOU_5,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathcspecial(0, -1024, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
     b.pathcspecial(4096, 1024, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
-    b.pathcspecial(
-        0,
-        -512,
-        -600,
-        3300,
-        SH_HOU_5,
-        PATH_ID_E_TANK,
-        10,
-        10,
-    );
+    b.pathcspecial(0, -512, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
     b.pathcspecial(0, 512, -600, 3300, SH_HOU_5, PATH_ID_E_TANK, 10, 10);
     b.pathcspecial(0, 0, -600, 3000, SH_TANK_1, PATH_ID_E_TANK, 10, 10);
     b.setalvarb(AL_ROTZ, DEG180);

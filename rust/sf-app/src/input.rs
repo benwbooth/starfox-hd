@@ -132,6 +132,15 @@ impl Input {
         }
     }
 
+    /// Steam Input can synthesize an Escape key press for the same physical
+    /// menu button that SDL reports as Start. Keep that duplicate keyboard
+    /// event from closing the game while the controller button is held.
+    pub fn gamepad_start_pressed(&self) -> bool {
+        self.gamepads
+            .iter()
+            .any(|gamepad| gamepad.button(Button::Start) || gamepad.button(Button::Guide))
+    }
+
     /// C `ReadKeyboard` (sf_rtl.c:80).
     fn read_keyboard(keys: &KeyboardState) -> u16 {
         let mut pad = 0u16;

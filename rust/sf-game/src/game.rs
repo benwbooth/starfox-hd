@@ -425,9 +425,7 @@ impl Game {
         // entered only while GF_PLAYERDYING is set; unless GF_PLAYERDEAD is
         // also set (fade-countdown path), OUTDIST proportionally chases 500
         // at rate 4 — the deepening pull-back through the corridor curve.
-        if self.vars.gameflags & GF_PLAYERDYING != 0
-            && self.vars.gameflags & GF_PLAYERDEAD == 0
-        {
+        if self.vars.gameflags & GF_PLAYERDYING != 0 && self.vars.gameflags & GF_PLAYERDEAD == 0 {
             let od = self.vars.strategy.view_distance;
             let delta = (500 - od as i32) >> 4;
             self.vars.strategy.view_distance = (od as i32 + delta) as i16;

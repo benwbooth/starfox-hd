@@ -46,10 +46,7 @@ fn shots(g: &Game, firer: u16) -> Vec<(i16, i16, i16)> {
         .iter()
         .enumerate()
         .filter(|(i, a)| {
-            a.active
-                && *i as u16 != firer
-                && *i != 0
-                && a.type_ & (ATLASER | ATMISSILE) != 0
+            a.active && *i as u16 != firer && *i != 0 && a.type_ & (ATLASER | ATMISSILE) != 0
         })
         .map(|(_, a)| (a.worldx, a.worldy, a.worldz))
         .collect()

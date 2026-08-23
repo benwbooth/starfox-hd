@@ -1695,7 +1695,6 @@ impl RetailBootBus {
         self.inner.read8(addr)
     }
 
-
     /// Snapshot the CPU-visible video state and composite a native SNES frame.
     pub fn ppu_frame(&self) -> PpuFrame {
         self.ppu.frame()
@@ -2396,7 +2395,6 @@ impl RetailMachine {
         Ok(false)
     }
 
-
     /// Arm a write-watch on a WRAM address (`$7E:xxxx`). While armed, every
     /// value change records `(pc-after-instruction, value)`.
     pub fn arm_wram_write_watch(&mut self, addr: u32) {
@@ -2431,8 +2429,7 @@ impl RetailMachine {
                 u16::from(self.bus.inner.read8(a)) | (u16::from(self.bus.inner.read8(a + 1)) << 8);
             if cur != *last {
                 hits.push((
-                    (u32::from(self.cpu.pbr()) << 16)
-                        | u32::from(self.cpu.pc().wrapping_sub(1)),
+                    (u32::from(self.cpu.pbr()) << 16) | u32::from(self.cpu.pc().wrapping_sub(1)),
                     cur,
                 ));
                 *last = cur;
@@ -2484,7 +2481,6 @@ impl RetailMachine {
             _ => 0,
         }
     }
-
 
     /// Snapshot every retail object slot for semantic oracle adapters.
     pub fn object_snapshot(&self) -> Vec<ObjState> {

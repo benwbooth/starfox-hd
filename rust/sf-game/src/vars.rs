@@ -1004,12 +1004,8 @@ impl GameVars {
             // Imported-path literal sintabs (`PATH_EXT_SINTAB` from the
             // native builder, and the retail blob's copy at $8B62 in the
             // path bank); same 127-amplitude Q8 table as STRATROU `sintab`.
-            0x2200..=0x22FF => {
-                sf_core::snes_trig::SINTAB[(encoded & 0x00FF) as usize] as u8
-            }
-            0x8B62..=0x8C61 => {
-                sf_core::snes_trig::SINTAB[(encoded - 0x8B62) as usize] as u8
-            }
+            0x2200..=0x22FF => sf_core::snes_trig::SINTAB[(encoded & 0x00FF) as usize] as u8,
+            0x8B62..=0x8C61 => sf_core::snes_trig::SINTAB[(encoded - 0x8B62) as usize] as u8,
             _ => panic!("untranslated imported 8-bit variable operand {encoded:#06x}"),
         }
     }

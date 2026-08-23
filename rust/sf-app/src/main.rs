@@ -1009,8 +1009,12 @@ fn main() {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => {
-                    eprintln!("[exit] Escape key -> quitting");
-                    running = false;
+                    if input.gamepad_start_pressed() {
+                        eprintln!("[input] ignored Steam Input Escape duplicate for Start");
+                    } else {
+                        eprintln!("[exit] Escape key -> quitting");
+                        running = false;
+                    }
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::F11),

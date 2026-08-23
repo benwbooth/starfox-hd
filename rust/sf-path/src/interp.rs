@@ -3165,7 +3165,6 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let index_abs = world.pread16(ip, 4);
                 let dest_abs = world.pread16(ip, 6);
 
-
                 if world.gameframe >= 851 && world.gameframe <= 853 && si == 31 {
                     eprintln!(
                         "[idxb] gf={} si={} tbl={:04x} idx_abs={:04x} dst={:04x}",
