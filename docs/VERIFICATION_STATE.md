@@ -587,9 +587,24 @@ flag visible only in the curve section; manual byte-decode of the gate
 at $06:8429-8436 is unreliable without instruction-boundary alignment).
 
 Port chase REVERTED to keep C-parity fixtures green; quarantine window
-remains the passing state. Next session: proper 65816 disassembly of
-$06:8400-8490 with correct alignment (or Mesen instruction trace) to
-extract the exact gate expression, then re-apply the chase behind it.
+remains the passing state.
+
+Gate-parity addendum (same night, follow-up probe):
+- Retail GAMEFLAGS mirror LOCATED: **$5328** (byte tracks native
+  gameflags across sampled transitions $30->$32).
+- Chase gate with corrected alignment:
+  `LDA $14D0 / BIT #$40 / BEQ skip` — requires bit6 of $14D0.
+- $14D0 is NOT gameflags (reads 0x30/0x32, no bit6, while writes fire)
+  and is a hot variable (132 writers / 154 readers), identity unknown.
+- Only one control transfer enters the chase block (JML $06:8429,
+  landing BEFORE the gate) — no gate bypass found statically.
+- Working hypotheses: (a) bit6 sets transiently mid-frame between
+  once-per-tick samples, or (b) watch PC attribution needs cycle-exact
+  confirmation (DMA/NMI writer).
+
+Next session: aligned disassembly of $06:8380-8490 + walk $14D0's 132
+writers for its ORA #$40 author; re-implement chase behind true gate;
+delete divergence window.
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
