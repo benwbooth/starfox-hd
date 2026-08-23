@@ -433,24 +433,40 @@ impl Transform {
         rz: f32,
     ) {
         let y = -y;
-        let (sx, cx_) = self.sincos_frac(rx);
-        let (sy, cy_) = self.sincos_frac(ry);
-        let (sz, cz_) = self.sincos_frac(rz);
+        // MOBJ.MC converts each byte angle to a negated 16-bit angle before
+        // calling `mcrotmatzxy16`, transposes that matrix, and finally lets
+        // the point path consume its columns. The two transposes cancel:
+        // object points are transformed by the direct Z-X-Y matrix of the
+        // negated angles. The generated meshes already negate source Y, so
+        // conjugate the source matrix by that Y reflection before storing it
+        // in the column-major GPU matrix.
+        let (sx, cx_) = self.sincos_frac(-rx);
+        let (sy, cy_) = self.sincos_frac(-ry);
+        let (sz, cz_) = self.sincos_frac(-rz);
 
         identity(out);
 
-        // ROM `mcrotmatzxy16` (MWCROT.MC) — objects use the same GSU matrix as
-        // the camera. ZXY order = Ry·Rx·Rz; reproduces the ROM matrix exactly
-        // (Δ=0, sf-oracle tests/gsu_rotmat.rs). Was ZYX + flipped yaw.
-        out[0] = cy_ * cz_ + sy * sx * sz;
-        out[1] = -cy_ * sz + sy * sx * cz_;
-        out[2] = sy * cx_;
-        out[4] = cx_ * sz;
-        out[5] = cx_ * cz_;
-        out[6] = -sx;
-        out[8] = -sy * cz_ + cy_ * sx * sz;
-        out[9] = sy * sz + cy_ * sx * cz_;
-        out[10] = cy_ * cx_;
+        // ROM `mcrotmatzxy16` (MWCROT.MC): source row-major Z-X-Y matrix.
+        let source = [
+            [
+                cy_ * cz_ + sy * sx * sz,
+                -cy_ * sz + sy * sx * cz_,
+                sy * cx_,
+            ],
+            [cx_ * sz, cx_ * cz_, -sx],
+            [
+                -sy * cz_ + cy_ * sx * sz,
+                sy * sz + cy_ * sx * cz_,
+                cy_ * cx_,
+            ],
+        ];
+        const SOURCE_TO_RENDER_Y: [f32; 3] = [1.0, -1.0, 1.0];
+        for row in 0..3 {
+            for col in 0..3 {
+                out[col * 4 + row] =
+                    SOURCE_TO_RENDER_Y[row] * source[row][col] * SOURCE_TO_RENDER_Y[col];
+            }
+        }
 
         // Translation
         out[12] = fp16_to_float(x);
@@ -465,6 +481,63 @@ mod tests {
 
     const SOURCE_WIDTH: f32 = 256.0;
     const SOURCE_HEIGHT: f32 = 224.0;
+
+    fn transform_direction(matrix: &[f32; 16], direction: [f32; 3]) -> [f32; 3] {
+        [
+            matrix[0] * direction[0] + matrix[4] * direction[1] + matrix[8] * direction[2],
+            matrix[1] * direction[0] + matrix[5] * direction[1] + matrix[9] * direction[2],
+            matrix[2] * direction[0] + matrix[6] * direction[1] + matrix[10] * direction[2],
+        ]
+    }
+
+    #[test]
+    fn combined_object_angles_follow_the_source_point_pipeline() {
+        use sf_core::snes_trig::zxy_matrix_q15;
+
+        const PITCH: u8 = 239;
+        const YAW: u8 = 96;
+        const ROLL: u8 = 54;
+        const SOURCE_POINT: [i16; 3] = [70, 28, -100];
+
+        let source_matrix = zxy_matrix_q15(
+            PITCH.wrapping_neg(),
+            YAW.wrapping_neg(),
+            ROLL.wrapping_neg(),
+        );
+        let source_output = std::array::from_fn::<_, 3, _>(|row| {
+            (i32::from(source_matrix[row][0]) * i32::from(SOURCE_POINT[0])
+                + i32::from(source_matrix[row][1]) * i32::from(SOURCE_POINT[1])
+                + i32::from(source_matrix[row][2]) * i32::from(SOURCE_POINT[2])) as f32
+                / 32_768.0
+        });
+
+        let transform = Transform::new();
+        let mut model = [0.0; 16];
+        transform.build_model_matrix(
+            &mut model,
+            0,
+            0,
+            0,
+            i16::from(PITCH),
+            i16::from(YAW),
+            i16::from(ROLL),
+        );
+        let render_input = [
+            f32::from(SOURCE_POINT[0]),
+            -f32::from(SOURCE_POINT[1]),
+            f32::from(SOURCE_POINT[2]),
+        ];
+        let render_output = transform_direction(&model, render_input);
+        let expected = [source_output[0], -source_output[1], source_output[2]];
+        for axis in 0..3 {
+            assert!(
+                (render_output[axis] - expected[axis]).abs() < 0.02,
+                "axis {axis}: render={} source={}",
+                render_output[axis],
+                expected[axis]
+            );
+        }
+    }
 
     // Regression: a 1-SNES-unit-per-tick camera yaw (the common steady-turn
     // rate) must interpolate at fractional precision across a render frame.

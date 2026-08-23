@@ -25,6 +25,7 @@ const SETUP_CONFIRM_HOLD_TICKS: u32 = 2;
 const MAX_SETUP_TICKS: u32 = 240;
 const TITLE_TRACE_TICKS: u32 = 96;
 const MAX_VIDEO_FRAMES_PER_TITLE_UPDATE: u32 = 120;
+const VIDEO_FRAMES_TO_PRESENT_UPDATE: u32 = 1;
 
 /// Retail Rev 2 GSU-RAM title draw-list base, located independently by the
 /// title shape pointer and verified across every captured roll update.
@@ -122,14 +123,31 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     })
 }
 
-fn retail_video_hash(machine: &RetailMachine) -> u64 {
+fn nonblack_pixels(rgb: &[u8]) -> usize {
+    rgb.chunks_exact(3)
+        .filter(|pixel| pixel.iter().any(|component| *component != 0))
+        .count()
+}
+
+fn write_ppm(path: &str, rgb: &[u8]) {
+    let mut ppm = format!("P6\n256 224\n255\n").into_bytes();
+    ppm.extend_from_slice(rgb);
+    std::fs::write(path, ppm).expect("write title trace image");
+}
+
+fn retail_video(machine: &RetailMachine) -> (u64, usize, [u8; 0x40], Vec<u8>) {
     let frame = machine.ppu_frame();
     let rgb: Vec<_> = frame
         .rgba
         .chunks_exact(4)
         .flat_map(|pixel| pixel[..3].iter().copied())
         .collect();
-    hash_bytes(&rgb)
+    (
+        hash_bytes(&rgb),
+        nonblack_pixels(&rgb),
+        frame.registers,
+        rgb,
+    )
 }
 
 fn to_render_entry(entry: &sf_core::DrawListEntry) -> RenderDrawListEntry {
@@ -162,7 +180,8 @@ fn native_video_hash(
     shell: &Shell,
     previous_draw_list: &[RenderDrawListEntry],
     renderer: &mut Renderer,
-) -> (u64, Vec<RenderDrawListEntry>) {
+    include_scene_objects: bool,
+) -> (u64, usize, Vec<RenderDrawListEntry>, Vec<u8>) {
     let frame = shell.frame();
     let mut windows = [WindowState::default(); WINDOWARRAY_SIZE];
     for (destination, source) in windows.iter_mut().zip(frame.windows) {
@@ -201,9 +220,15 @@ fn native_video_hash(
     // sf-app renders immediately after a fixed update with alpha zero, so the
     // just-completed list is the interpolation destination and the preceding
     // presented list remains visible at this exact boundary.
-    renderer.submit(previous_draw_list, &draw_list, 0.0, &inputs);
+    let (rendered_previous, rendered_current) = if include_scene_objects {
+        (previous_draw_list, draw_list.as_slice())
+    } else {
+        (&[][..], &[][..])
+    };
+    renderer.submit(rendered_previous, rendered_current, 0.0, &inputs);
     renderer.end_frame();
-    (hash_bytes(&renderer.read_pixels_rgb()), draw_list)
+    let rgb = renderer.read_pixels_rgb();
+    (hash_bytes(&rgb), nonblack_pixels(&rgb), draw_list, rgb)
 }
 
 fn advance_retail_to_title(retail: &mut RetailMachine) -> u32 {
@@ -252,6 +277,10 @@ fn main() {
     );
     let mut first_video_divergence = None;
     let mut previous_native_draw_list = Vec::new();
+    let debug_video = std::env::var_os("SF_TITLE_TRACE_DEBUG").is_some();
+    let debug_dump_tick = std::env::var("SF_TITLE_TRACE_DUMP_TICK")
+        .ok()
+        .map(|value| value.parse::<u32>().expect("decimal title dump tick"));
 
     println!("setup retail_ticks={retail_setup_ticks} native_ticks={native_setup_ticks}");
     for tick in 0..TITLE_TRACE_TICKS {
@@ -300,10 +329,37 @@ fn main() {
             "ordered title draw at trace {tick}"
         );
 
-        let retail_video = retail_video_hash(&retail);
-        let (native_video, current_native_draw_list) =
-            native_video_hash(&native, &previous_native_draw_list, &mut renderer);
+        retail
+            .tick_video_frames(input, VIDEO_FRAMES_TO_PRESENT_UPDATE)
+            .expect("retail title presentation");
+
+        let (retail_video, retail_nonblack, retail_registers, retail_rgb) = retail_video(&retail);
+        let (native_video, native_nonblack, current_native_draw_list, native_rgb) =
+            native_video_hash(&native, &previous_native_draw_list, &mut renderer, true);
         previous_native_draw_list = current_native_draw_list;
+        if debug_dump_tick == Some(tick) {
+            write_ppm("/tmp/starfox-title-retail.ppm", &retail_rgb);
+            write_ppm("/tmp/starfox-title-native.ppm", &native_rgb);
+            let (_, _, _, native_background_rgb) =
+                native_video_hash(&native, &[], &mut renderer, false);
+            write_ppm(
+                "/tmp/starfox-title-native-background.ppm",
+                &native_background_rgb,
+            );
+        }
+        if debug_video && tick < 24 {
+            let frame = native.frame();
+            println!(
+                "video tick={tick} retail_frame={} retail_nonblack={retail_nonblack} \
+                 inidisp={} main_screen={} native_nonblack={native_nonblack} \
+                 windowmode={} windows={:?}",
+                retail.video_frame(),
+                retail_registers[0],
+                retail_registers[0x2C],
+                frame.windowmode,
+                frame.windows,
+            );
+        }
         if retail_video != native_video && first_video_divergence.is_none() {
             first_video_divergence = Some((tick, retail.video_frame(), retail_video, native_video));
         }
