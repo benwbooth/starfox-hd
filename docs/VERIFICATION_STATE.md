@@ -522,11 +522,13 @@ camera layer, not strategy flow:
      so it matches BOTH player_posz and pviewposz histories; its true
      name (pviewposz vs viewposz vs player_posz mirror) is unproven.
 
-Next-session sharpest tool: locate retail's real VIEWTYPE/OUTDIST/
-VIEWPOSZ by mining store-instruction operands from the retail ROM code
-(the way RETAIL_PVIEWVELZ=$14F4 was originally found: find the
-`getview` clone in retail bytes via its `and #viewtype_fpos` /
-`lda outdist` signatures, then read the absolute operands).
+Operand-mining status: blind byte-pattern mining FAILED because retail
+uses direct-page addressing with an unknown D base (mined `AD ?? ??`
+targets like $14DB/$15CA/$153E read 00 even at launch when VIEWTYPE=03
+is certain). Proper tooling required: Mesen debugger watch on the
+viewtype byte, or a 65816 disassembler pass tracking the TDC/TCD
+transfer that sets D before getview. Until then the documented
+divergence window in semantic_trace.rs stays as the quarantine.
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
