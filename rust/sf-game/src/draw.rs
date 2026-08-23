@@ -92,6 +92,9 @@ pub fn build_list(
     // The temporary inverse matrix positions the camera itself; `getviewrts`
     // then rebuilds the published world-to-view matrix from these angles.
     let view_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(view.pitch, view.yaw, view.roll);
+    // Carry into the first `adc.l dl_z,x` of the frame. The preceding setup
+    // leaves carry clear on every observed entry path.
+    let mut cull_carry: u8 = 0;
     let mut cur = objs.active_head;
     while let Some(i) = cur {
         let idx = i as usize;
@@ -139,7 +142,18 @@ pub fn build_list(
         {
             let al = &objs.aliens[idx];
             let zmax = shape_extents(al.shape).map_or(0, |(_, _, z)| z);
-            if (zmax as i32).saturating_add(rel_z as i32) < 0 {
+            // ROM MAIN.ASM:2030-2032 evaluates the behind test with
+            // `lda.l sh_zmax,x; adc.l dl_z,x; bpl` — an ADC WITHOUT a prior
+            // CLC, so the carry from the previous drawlist iteration's ADC
+            // participates. Emulate the 16-bit ADC chain bit-exactly: the
+            // branch tests bit 15 of the wrapped sum, and carry-out feeds
+            // the next iteration.
+            let sum = (zmax as u16 as u32)
+                .wrapping_add(rel_z as u16 as u32)
+                .wrapping_add(cull_carry as u32);
+            let behind = (sum & 0x8000) != 0;
+            cull_carry = (sum >> 16) as u8;
+            if behind {
                 objs.aliens[idx].flags &= !AF_FRONT_PL;
                 let al = &objs.aliens[idx];
                 if gameflags & GF_NOZREMOVE == 0
@@ -150,6 +164,9 @@ pub fn build_list(
                     // we skip the entry instead (behind the near plane, the
                     // renderer would clip it anyway).
                     objs.free(i);
+                    // ROM kill path runs CLC;ADC #dl_sizeof for its pointer
+                    // bump — carry-out is always 0 here.
+                    cull_carry = 0;
                     continue;
                 }
             }

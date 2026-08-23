@@ -99,6 +99,13 @@ struct PathTriggerEntry {
 /// alien slot reuse, matching the C oracle).
 #[derive(Clone)]
 struct PathVmState {
+    /// Position at the start of this tick — used to translate linked
+    /// children rigidly by the mother's per-frame delta (retail behavior:
+    /// robot/log children drift with the carrier, vx=-28/frame observed).
+    prev_x: i16,
+    prev_y: i16,
+    prev_z: i16,
+    delta_valid: bool,
     data: [u16; PATH_VM_STACK_DEPTH],
     sp: u8,
     triggers: [PathTriggerEntry; PATH_VM_TRIGGER_CAPACITY],
@@ -112,6 +119,10 @@ struct PathVmState {
 impl Default for PathVmState {
     fn default() -> Self {
         PathVmState {
+            prev_x: 0,
+            prev_y: 0,
+            prev_z: 0,
+            delta_valid: false,
             data: [0; PATH_VM_STACK_DEPTH],
             sp: 0,
             triggers: [PathTriggerEntry::default(); PATH_VM_TRIGGER_CAPACITY],
@@ -262,6 +273,16 @@ pub trait PathHost {
 }
 
 /// State owned by the path translation unit + the globals it touches.
+/// A P_SPAWNCHILD birth awaiting post-movement anchoring (see
+/// `pending_child_anchors`).
+pub struct PendingChildAnchor {
+    pub child: u16,
+    pub mother: u16,
+    pub off_x: i8,
+    pub off_y: i8,
+    pub off_z: i8,
+}
+
 pub struct PathWorld {
     /// `g_aliens[NUMBER_AL]` (src/game/obj.c).
     pub aliens: Vec<Alien>,
@@ -279,6 +300,12 @@ pub struct PathWorld {
     vm: Vec<PathVmState>,
     /// `g_path_link_obj`.
     link_obj: u16,
+    /// Children spawned via P_SPAWNCHILD whose world anchor is deferred to
+    /// the mother's post-movement position (retail `.makeit` ordering).
+    pending_child_anchors: Vec<PendingChildAnchor>,
+    /// Children whose own velocity integration is suppressed on their birth
+    /// frame (they already carry the mother's post-move anchor + velocity).
+    birth_motion_skip: Vec<u16>,
     /// `g_path_become_obj`.
     become_obj: u16,
     /// `g_path_become_last_obj`.
@@ -349,6 +376,8 @@ impl PathWorld {
             missing_path_warned: vec![false; 512],
             vm: vec![PathVmState::default(); NUMBER_AL],
             link_obj: PATH_NULL_OBJ,
+            pending_child_anchors: Vec::new(),
+            birth_motion_skip: Vec::new(),
             become_obj: PATH_NULL_OBJ,
             become_last_obj: PATH_NULL_OBJ,
             become_path: 0,
@@ -521,8 +550,22 @@ impl PathWorld {
 // Small helpers (C statics)
 // ============================================================
 
+/// Imported retail blobs address the alien scratch block with SNES-style
+/// `$7E:1Cxx` absolutes (`ALX_START=$7E:1CC8`). Normalize them to the port's
+/// `0x100 + typed-offset` form before the alien_compat layer sees them.
+fn normalize_alx_abs(addr: u16) -> u16 {
+    const ALX_START_SNES: u16 = 0x1CC8;
+    const ALX_END_SNES: u16 = ALX_START_SNES + 0x40;
+    if (ALX_START_SNES..ALX_END_SNES).contains(&addr) {
+        0x100 + (addr - ALX_START_SNES)
+    } else {
+        addr
+    }
+}
+
 /// C `path_abs_read8` (absolute alien offset: alx block starts at 0x100).
 fn path_abs_read8(al: &Alien, abs_offset: u16) -> Option<u8> {
+    let abs_offset = normalize_alx_abs(abs_offset);
     if abs_offset < ALIEN_ABS_ALX_START {
         alien_compat::read8(al, abs_offset, false)
     } else {
@@ -532,6 +575,7 @@ fn path_abs_read8(al: &Alien, abs_offset: u16) -> Option<u8> {
 
 /// C `path_abs_read16`.
 fn path_abs_read16(al: &Alien, abs_offset: u16) -> Option<u16> {
+    let abs_offset = normalize_alx_abs(abs_offset);
     if abs_offset < ALIEN_ABS_ALX_START {
         alien_compat::read16(al, abs_offset, false)
     } else {
@@ -541,6 +585,7 @@ fn path_abs_read16(al: &Alien, abs_offset: u16) -> Option<u16> {
 
 /// C `path_abs_write8`.
 fn path_abs_write8(al: &mut Alien, abs_offset: u16, value: u8) -> bool {
+    let abs_offset = normalize_alx_abs(abs_offset);
     if abs_offset < ALIEN_ABS_ALX_START {
         alien_compat::write8(al, abs_offset, false, value)
     } else {
@@ -550,6 +595,7 @@ fn path_abs_write8(al: &mut Alien, abs_offset: u16, value: u8) -> bool {
 
 /// C `path_abs_write16`.
 fn path_abs_write16(al: &mut Alien, abs_offset: u16, value: u16) -> bool {
+    let abs_offset = normalize_alx_abs(abs_offset);
     if abs_offset < ALIEN_ABS_ALX_START {
         alien_compat::write16(al, abs_offset, false, value)
     } else {
@@ -1423,6 +1469,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
     if world.path_data.is_empty() {
         return;
     }
+    let (tick_x0, tick_y0, tick_z0) = {
+        let a = &world.aliens[si];
+        (a.worldx, a.worldy, a.worldz)
+    };
 
     path_prune_family_links(world, si);
 
@@ -2032,17 +2082,9 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     world.aliens[na].childroty = roty;
                     world.aliens[na].childrotz = rotz;
 
-                    let (mwx, mwy, mwz, mrotx, mroty, mrotz) = {
-                        let m = &world.aliens[mother];
-                        (m.worldx, m.worldy, m.worldz, m.rotx, m.roty, m.rotz)
-                    };
-                    world.aliens[na].worldx = mwx;
-                    world.aliens[na].worldy = mwy;
-                    world.aliens[na].worldz = mwz;
-                    path_add_rotated_offset(world, na, mother, off_x, off_y, off_z, 3);
-                    world.aliens[na].rotx = mrotx.wrapping_add(rotx);
-                    world.aliens[na].roty = mroty.wrapping_add(roty);
-                    world.aliens[na].rotz = mrotz.wrapping_add(rotz);
+                    // Positioning (and rots) are handled by the mother's
+                    // per-frame child-follow below — it runs post-movement
+                    // this same tick, matching retail `.makeit` ordering.
                     world.aliens[na].hp = hp;
                     world.aliens[na].ap = ap;
                     world.become_last_obj = path_obj_index_or_null(na);
@@ -3141,8 +3183,19 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let index_abs = world.pread16(ip, 4);
                 let dest_abs = world.pread16(ip, 6);
 
+
+                if world.gameframe >= 851 && world.gameframe <= 853 && si == 31 {
+                    eprintln!(
+                        "[idxb] gf={} si={} tbl={:04x} idx_abs={:04x} dst={:04x}",
+                        world.gameframe, si, table_addr, index_abs, dest_abs
+                    );
+                }
                 if let Some(index_src) = path_abs_read16(&world.aliens[si], index_abs) {
                     let idx = index_src & 0x00FF;
+                    if world.gameframe >= 851 && world.gameframe <= 853 && si == 31 {
+                        let v = host.path_read_ext8(world, table_addr.wrapping_add(idx));
+                        eprintln!("[idxb]   raw={:04x} idx={} sintab={}", index_src, idx, v);
+                    }
                     if opcode == P_INDEXW {
                         let value = host.path_read_ext16(world, table_addr.wrapping_add(idx << 1));
                         path_abs_write16(&mut world.aliens[si], dest_abs, value);
@@ -3343,23 +3396,11 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
     // 6. Apply velocity to position
     host.apply_velocity(&mut world.aliens[si]);
 
-    // Text objects can emit short-lived trail sprites.
-    path_spawn_text_trail(world, host, si);
-
-    // Trigger routines run after movement and may execute immediate path code.
-    path_run_triggers(world, host, si);
-    if world.aldead != 0 {
-        return;
-    }
-
-    // Retail path-lane P_SPAWN/P_SPAWNLINK children are independent after
-    // birth: they run their own embedded path programs and are NOT re-
-    // positioned relative to the mother each frame. The invented per-frame
-    // follow dragged carried objects (Corneria pillar3_ns at gf853) to 8x
-    // their retail offset as the carrier rotated. Disabled until a program
-    // that genuinely requires mother-relative positioning is identified.
-    // Mother objects drive child transforms from child-relative offsets.
-    if false && world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
+    // Per-frame child follow: retail re-anchors every linked child to its
+    // mother's POST-movement position and reapplies the rotated offset at
+    // ASL x3 each frame (carriedlog mutates CHILDY per frame via a sintab
+    // weave; X drift emerges from the moving mother itself).
+    if world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
         path_prune_family_links(world, si);
         let mut idx = world.aliens[si].sword1 as u16;
         let mut guard = NUMBER_AL as i32 + 1;
@@ -3370,31 +3411,84 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 None => break,
             };
             let next_idx = world.aliens[child].sword1 as u16;
-
             if world.aliens[child].active
                 && world.aliens[child].sflags3 & ASF3_CHILDOBJ != 0
                 && world.aliens[child].ptr == path_obj_index_or_null(si)
             {
-                let (wx, wy, wz, rx, ry, rz) = {
-                    let s = &world.aliens[si];
-                    (s.worldx, s.worldy, s.worldz, s.rotx, s.roty, s.rotz)
-                };
-                world.aliens[child].worldx = wx;
-                world.aliens[child].worldy = wy;
-                world.aliens[child].worldz = wz;
+                {
+                    let (mwx, mwy, mwz, mrx, mry, mrz) = {
+                        let m = &world.aliens[si];
+                        (m.worldx, m.worldy, m.worldz, m.rotx, m.roty, m.rotz)
+                    };
+                    let c = &mut world.aliens[child];
+                    c.worldx = mwx;
+                    c.worldy = mwy;
+                    c.worldz = mwz;
+                    c.rotx = mrx.wrapping_add(c.childrotx);
+                    c.roty = mry.wrapping_add(c.childroty);
+                    c.rotz = mrz.wrapping_add(c.childrotz);
+                }
                 let (cx, cy, cz) = {
                     let c = &world.aliens[child];
                     (c.childx as i8, c.childy as i8, c.childz as i8)
                 };
                 path_add_rotated_offset(world, child, si, cx, cy, cz, 3);
-                let c = &mut world.aliens[child];
-                c.rotx = rx.wrapping_add(c.childrotx);
-                c.roty = ry.wrapping_add(c.childroty);
-                c.rotz = rz.wrapping_add(c.childrotz);
             }
-
             idx = next_idx;
         }
+    }
+
+    // Text objects can emit short-lived trail sprites.
+    path_spawn_text_trail(world, host, si);
+
+    // Trigger routines run after movement and may execute immediate path code.
+    path_run_triggers(world, host, si);
+    if world.aldead != 0 {
+        return;
+    }
+
+    // Rigid child translation DISABLED: retail children move under their own
+    // inherited velocity (pillar weaves Y independently), not a mother-delta.
+    if false && world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
+        let vm = &world.vm[si];
+        if vm.delta_valid {
+            let dx = world.aliens[si].worldx.wrapping_sub(vm.prev_x);
+            let dy = world.aliens[si].worldy.wrapping_sub(vm.prev_y);
+            let dz = world.aliens[si].worldz.wrapping_sub(vm.prev_z);
+            if dx != 0 || dy != 0 || dz != 0 {
+                path_prune_family_links(world, si);
+                let mut idx = world.aliens[si].sword1 as u16;
+                let mut guard = NUMBER_AL as i32 + 1;
+                while idx != PATH_NULL_OBJ && guard > 0 {
+                    guard -= 1;
+                    let child = match path_obj_from_index_raw(idx) {
+                        Some(c) => c,
+                        None => break,
+                    };
+                    let next_idx = world.aliens[child].sword1 as u16;
+                    if world.aliens[child].active
+                        && world.aliens[child].sflags3 & ASF3_CHILDOBJ != 0
+                    {
+                        let c = &mut world.aliens[child];
+                        c.worldx = c.worldx.wrapping_add(dx);
+                        c.worldy = c.worldy.wrapping_add(dy);
+                        c.worldz = c.worldz.wrapping_add(dz);
+                    }
+                    idx = next_idx;
+                }
+            }
+        }
+    }
+    let vm = &mut world.vm[si];
+    if !vm.delta_valid {
+        vm.prev_x = tick_x0;
+        vm.prev_y = tick_y0;
+        vm.prev_z = tick_z0;
+        vm.delta_valid = true;
+    } else {
+        vm.prev_x = world.aliens[si].worldx;
+        vm.prev_y = world.aliens[si].worldy;
+        vm.prev_z = world.aliens[si].worldz;
     }
 
     // Path collision trigger flags are one-frame latches.

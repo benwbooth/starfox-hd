@@ -1333,7 +1333,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_spawn_child(
         0,
         0,
-        -90,
+        -22,
         0,
         0,
         0,
@@ -1346,7 +1346,7 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_spawn_child(
         0,
         0,
-        90,
+        22,
         0,
         0,
         0,
@@ -1360,9 +1360,9 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit8(P_COLLISIONSOFF);
     b.emit_ifbetweenb(PAL_ROTY, 0, 127, "robotswithlog.logoneside");
     b.emit_spawn_child(
-        -20,
-        -110,
-        -100,
+        -5,
+        -27,
+        -25,
         DEG90,
         0,
         0,
@@ -1375,9 +1375,9 @@ pub(crate) fn emit_all(b: &mut PathLiteralBuilder, ips: &mut InlineIps) {
     b.emit_goto(P_IGOTO, "robotswithlog.logcreated");
     b.label("robotswithlog.logoneside");
     b.emit_spawn_child(
-        20,
-        -110,
-        -100,
+        5,
+        -27,
+        -25,
         DEG90,
         0,
         0,

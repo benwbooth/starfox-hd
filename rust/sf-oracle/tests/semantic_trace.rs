@@ -1068,7 +1068,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         }
 
         if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
-            let mut native_snapshot = native_level_snapshot(&native);
+let mut native_snapshot = native_level_snapshot(&native);
             let retail_snapshot = retail_level_snapshot(&retail);
             let retail_random_state = [
                 retail.peek8(WORK_RAM | RETAIL_RAND),
