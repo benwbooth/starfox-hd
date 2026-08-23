@@ -602,9 +602,31 @@ Gate-parity addendum (same night, follow-up probe):
   once-per-tick samples, or (b) watch PC attribution needs cycle-exact
   confirmation (DMA/NMI writer).
 
-Next session: aligned disassembly of $06:8380-8490 + walk $14D0's 132
-writers for its ORA #$40 author; re-implement chase behind true gate;
-delete divergence window.
+### Chase gate FULLY decoded + fixture conflict isolated (2026-08-22 end)
+
+Routine head found at $06:837C:
+
+    LDA GAMEFLAGS($14D0); BIT #GF_PLAYERDYING($02); BNE body
+    body: outvx->0 chase, plrotz->0 chase, [dieYrot->outvy dec],
+          test GF_PLAYERDEAD -> dead:fade / alive: OUTDIST chase 500
+
+So activation == exactly "GF_PLAYERDYING set" (clear exits routine),
+matching live retail (flag sets t=1782, chase starts same tick).
+
+Port re-implementation attempted with (DYING && !DEAD) gate -> replay
+fix works BUT breaks sp_player_parity fixture: at T166+ the C oracle
+has gameflags=$65 (bit1/DYING *CLEAR*!) yet ROM OUTDIST stays 0 there,
+while Rust chases — i.e., the fixture drives a state where DYING is
+clear so the routine should be dormant, yet our Rust saw it active.
+That implies a second-order difference: either (a) the fixture's
+Rust-side gameflags momentarily had bit1 set where C did not (a flag-
+propagation order bug elsewhere), or (b) an additional outer gate
+exists above $06:837C (routine entry condition) absent in fixture.
+
+Next session (single focus): instrument fixture at T160-T170 dumping
+native gameflags per tick; find why bit1 differs vs C expectation;
+fix that propagation; then the gated chase lands cleanly, replay
+window is deleted, and both fixtures stay green.
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
