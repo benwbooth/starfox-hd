@@ -409,6 +409,44 @@ Also noted: MAIN.ASM:2032 uses `adc.l dl_z,x` WITHOUT clc — stale carry
 from prior iteration shifts threshold by ±1 (minor, but replicate for
 exactness once main delta found).
 
+## FIXED: tick-1744 robot-wave placement (commit e3b836a, 2026-08-22)
+
+Root-caused and fixed. Three coordinated defects:
+
+1. **Wrong spawn payloads** — catalog_data emitted invented values
+   (-90/+90 robots; -20/-110/-100 log). Retail ROM records decode as:
+   robots offs=(0,0,-/+22) rots=000 hp=$0A; carriedlog offs=(-/+5,-27,-25)
+   rotx=$40(64) hp=$0A. Corrected.
+2. **Birth anchoring order** — port anchored children to the mother's
+   PRE-move position (+28 error on Corneria where the carrier drifts
+   -28 X/frame). Fix: delegate positioning entirely to the mother's
+   per-frame follow, which runs post-movement in the same tick.
+3. **Per-frame follow semantics** — retail re-anchors linked children to
+   the post-move mother EVERY frame and reapplies rotated offset at
+   ASL x3 (carriedlog mutates CHILDY each frame via sintab[pbyte2]>>6-28
+   weave; X drift emerges from the moving mother). Follow restored at x3.
+
+Supporting infrastructure fixes discovered en route:
+- path_abs_* accessors now normalize imported-retail $7E:1Cxx alx
+  absolutes (ALX_START=$7E:1CC8) -> 0x100+typed-offset form; without it
+  INDEXB/DIV2/ADD/SETV silently no-op'd on imported blobs.
+- GameVars::read_ext8 serves the imported literal sintab (native $2200,
+  retail blob copy $8B62..$8C61) from STRATROU's Q8 SINTAB.
+- build_list behind-test now emulates MAIN.ASM's adc-without-clc carry
+  chain bit-exactly.
+
+Result: slots 30/23/31 byte-exact vs live retail WRAM from birth onward;
+replay frontier **1744 -> 1783**. Gate 1912/0; coexec_retail 107/0.
+
+## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
+
+Pure remaining case: positions/counters identical 105 ticks; native's
+draw-cull frees the kamikaze at t=1783, retail ~3 frames later. Carry
+emulation alone did not close it. Candidates: initial carry into first
+iteration (try C=1), GSU dl_z hi-word truncation nuance in mallrotzsort
+(mdotprod16mq keeps rsumhi AFTER rol — verify port rotation matches that
+exact width), or GF_NOZREMOVE/firstframe flag divergence. Fast probe:
+dump native rel_z/zmax margin t=1778-1790 alongside retail keep/kill.
 ## BREAKTHROUGH: single root cause behind ticks 1744-1795 (2026-08-22)
 
 Full-chain instrumentation (retail WRAM camera block at $14F4-$14FA,
