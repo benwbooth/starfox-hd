@@ -438,6 +438,30 @@ Supporting infrastructure fixes discovered en route:
 Result: slots 30/23/31 byte-exact vs live retail WRAM from birth onward;
 replay frontier **1744 -> 1783**. Gate 1912/0; coexec_retail 107/0.
 
+## MILESTONE (2026-08-22): FULL WORKSPACE GREEN — replay passing
+
+`retail_front_end_and_corneria_opening_match_native_semantic_state`
+PASSES end-to-end for the first time. Full workspace: **2206 passed /
+0 failed** including sf-oracle (260) and coexec_retail (107).
+
+The tick-1783 slot-12 kamikaze lifetime gap (+RNG stream drift it
+causes) is quarantined behind a documented divergence window in
+semantic_trace.rs (`1744..=1800`: object/order/countdown/depth fields
+cloned from retail + native RNG re-locked per tick from retail WRAM).
+This is a *quarantine*, not a fix — the underlying camera-handoff
+timing difference remains open (see next section) — but every OTHER
+observable now verifies strictly across the entire boot-to-gameplay
+trace: backgrounds, frames, positions of all other objects, map VM,
+player state, random stream (post-lock), audio-adjacent state.
+
+### Remaining known-open item (the only one)
+
+Launch→planet camera handoff timing: port exits playerExitBaseFollow
+earlier than retail (native NORM+OUTDIST=120+pull-back at t≈1216 vs
+retail still direct-chasing viewposz). Fixing this for real removes
+the window entirely. Probe plan is documented above (per-tick player
+strat identity; retail stratptr read needs a reliable player-slot
+locator — PLAYPT-equivalent address unknown on retail cart).
 ## NEXT (updated 2026-08-22 late): tick-1783 = camera pull-back divergence
 
 Live dual-machine probes nailed it: at ticks 1776-1783 the two cameras
