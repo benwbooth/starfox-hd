@@ -522,13 +522,41 @@ camera layer, not strategy flow:
      so it matches BOTH player_posz and pviewposz histories; its true
      name (pviewposz vs viewposz vs player_posz mirror) is unproven.
 
-Operand-mining status: blind byte-pattern mining FAILED because retail
-uses direct-page addressing with an unknown D base (mined `AD ?? ??`
-targets like $14DB/$15CA/$153E read 00 even at launch when VIEWTYPE=03
-is certain). Proper tooling required: Mesen debugger watch on the
-viewtype byte, or a 65816 disassembler pass tracking the TDC/TCD
-transfer that sets D before getview. Until then the documented
-divergence window in semantic_trace.rs stays as the quarantine.
+### SOLVED ADDRESSES + FINAL DIVERGENCE MECHANISM (2026-08-22 night)
+
+Retail getview located at **$02:F936** via structural fingerprint
+(`AD noxrot / BEQ / STZ outvx×2 / LDA viewtype / AND#02`). Recovered
+addresses:
+
+    RETAIL VIEWTYPE = $18C6     (built $164F)
+    RETAIL OUTDIST  = $18CB
+    RETAIL NOXROT   = $1FC6     OUTVX = $18C5
+    pviewposx/y/z   = $14E6/$14F8/$14FA (validated)
+    viewshakeX/Y/Z  = $1595/$1596/$1597
+    viewrotxw/w     = $1633/$1635
+
+Live reads during ticks 1770-1795 settle EVERYTHING:
+
+- Both machines: VIEWTYPE=$00(NORM), OUTDIST starts at 120 — identical.
+- t=1783 onward RETAIL'S OUTDIST RISES: 143/165/185/…/331 (+~20/frame)
+  while native stays frozen at 120.
+- Larger pull-back pushes retail's camera backward => marginal objects
+  stay "in front" longer => slot-12 survives 3 extra frames. Native
+  culls at margin −16; retail keeps it one frame, frees at t=1784
+  (Rflags 18→00 observed).
+- Retail viewrotyw ($1635) begins rotating at t=1783 (−128/−256/−384):
+  the corridor CURVE section starts here; something raises retail's
+  effective viewdist (~500 target implied by the approach curve) that
+  the port never applies (native vd stays 120).
+
+### THE remaining fix
+
+Find who raises retail OUTDIST/viewdist starting gf≈851. Candidates:
+a level-script opcode in the curve section (port's LEVEL1_1 may be
+missing it), or a strat reacting to the turn. With $18CB known, a
+Mesen WRITE-WATCH on $7E:$18CB will name the writer routine on the
+first frame it fires. Then mirror the same viewdist change in the port
+and DELETE the divergence window.
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
