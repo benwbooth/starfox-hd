@@ -409,25 +409,36 @@ Also noted: MAIN.ASM:2032 uses `adc.l dl_z,x` WITHOUT clc — stale carry
 from prior iteration shifts threshold by ±1 (minor, but replicate for
 exactness once main delta found).
 
-### sh_zmax table LOCATED (2026-08-22)
+## BREAKTHROUGH: single root cause behind ticks 1744-1795 (2026-08-22)
 
-Retail long base for `lda.l sh_zmax,x` = **$017AF** — unique hit satisfying
-six simultaneous word->zmax constraints (kamikaze 50, robot 80, gate 480,
-etc.). Header tail layout confirmed in ROM: `[xmax u16][ymax][ZMAX][size]
-[13 82][selfword x4]`. Port metrics VALIDATED against real headers for
-flat ids 9 (10,40,50) and 420 (80,348,80).
+Full-chain instrumentation (retail WRAM camera block at $14F4-$14FA,
+live native GameCamera vars, per-tick player-object dump) proves the
+tick-1744 robot-wave placement error is the ONLY real divergence:
 
-OPEN PUZZLE: retail slot-12 kamikaze carries al_shape=$B70C from spawn
-(t=1678) through flight, but base+$B70C reads 42190 — not a sane zmax.
-Nearby probes show a consistent +$17A0..$17AA skew: probing word W≈$B8xx-
-$BBxx lands mid-header of a shape whose SELF-word is ≈W+$17Ax (e.g.
-$BB9C probe -> self $D33C header, whose real fields give zmax=80 ==
-port flat420 ✓). Hypotheses: (a) words >=$B000 index a second table
-copy/segment with shifted base; (b) retail rewrites al_shape per frame
-and cull sees yet another word; (c) fork changed kamikaze spawn word.
+1. Wrong native robot/pillar birth positions (t=1744) -> their lasers/
+   collisions damage the player asymmetrically through the masked window.
+2. **t=1782: native pshipflags2 gains $80 == PSF2_PLAYERHP0 -- the native
+   PLAYER DIES** (hp->0). Retail survives.
+3. Player-death handler sets PSTF_INSEQ ($08), spawns crash smoke
+   (slot 7 shape 357 trailing the ship), halves vel 65->33 / vz 63->31
+   (t=1785), locks controls.
+4. Camera follows player_posz -> native viewposz falls behind retail by
+   +31/frame ("x2 camera" was player-speed halving).
+5. last_depth_change 31-vs-62 is the first UNMASKED observable (t=1786);
+   map_countdown would drift next; every later mismatch inherits this.
 
-NEXT: log retail slot-12 al_shape every tick 1678-1790 (catch any swap);
-sweep candidate bases (search ROM for additional copies of the table
-pattern / `lda.l` operands referencing $CE..-$E?.. region); confirm the
-effective zmax retail applies at t=1783-1787 and port-side rel_z margin
-(zmax=50) vs retail's to close the 3-frame gap.
+ELIMINATED as causes this round: sh_zmax table values (retail base
+$017AF located; word $B70C resolves EXACTLY to zmax=50 == port flat-9
+metrics [10,40,50]; earlier 42190 readings were a bank-mapping bug in
+my probe scripts); view rotation math (already oracle-verified);
+kamikaze slot-12 cull (byte-identical 105 ticks; its 3-frame lifetime
+gap was downstream of the same player-state split).
+
+ALSO VALIDATED: retail pviewvelz=$14F4 / pviewposz=$14FA read sane and
+matched native pviewposz tick-for-tick until the death frame; retail
+block addresses = built-ROM symbol minus $8B.
+
+=> Fixing the robot-wave birth placement to retail-exact resolves the
+entire 1744+ cascade in one stroke. Resume the ASL-scale investigation
+(docs section above) with the added fast feedback loop: any candidate
+fix can be validated by whether the player survives past gf~850.
