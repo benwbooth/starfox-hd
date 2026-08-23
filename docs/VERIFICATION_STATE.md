@@ -408,3 +408,26 @@ Two open numeric inputs:
 Also noted: MAIN.ASM:2032 uses `adc.l dl_z,x` WITHOUT clc — stale carry
 from prior iteration shifts threshold by ±1 (minor, but replicate for
 exactness once main delta found).
+
+### sh_zmax table LOCATED (2026-08-22)
+
+Retail long base for `lda.l sh_zmax,x` = **$017AF** — unique hit satisfying
+six simultaneous word->zmax constraints (kamikaze 50, robot 80, gate 480,
+etc.). Header tail layout confirmed in ROM: `[xmax u16][ymax][ZMAX][size]
+[13 82][selfword x4]`. Port metrics VALIDATED against real headers for
+flat ids 9 (10,40,50) and 420 (80,348,80).
+
+OPEN PUZZLE: retail slot-12 kamikaze carries al_shape=$B70C from spawn
+(t=1678) through flight, but base+$B70C reads 42190 — not a sane zmax.
+Nearby probes show a consistent +$17A0..$17AA skew: probing word W≈$B8xx-
+$BBxx lands mid-header of a shape whose SELF-word is ≈W+$17Ax (e.g.
+$BB9C probe -> self $D33C header, whose real fields give zmax=80 ==
+port flat420 ✓). Hypotheses: (a) words >=$B000 index a second table
+copy/segment with shifted base; (b) retail rewrites al_shape per frame
+and cull sees yet another word; (c) fork changed kamikaze spawn word.
+
+NEXT: log retail slot-12 al_shape every tick 1678-1790 (catch any swap);
+sweep candidate bases (search ROM for additional copies of the table
+pattern / `lda.l` operands referencing $CE..-$E?.. region); confirm the
+effective zmax retail applies at t=1783-1787 and port-side rel_z margin
+(zmax=50) vs retail's to close the 3-frame gap.
