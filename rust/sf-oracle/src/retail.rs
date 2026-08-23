@@ -2320,6 +2320,9 @@ pub struct RetailMachine {
     cycles: u64,
     cpu_execution_watch: Vec<u32>,
     cpu_execution_hits: Vec<u32>,
+    /// Optional single-address WRAM write watch (address, last value hi/lo,
+    /// collected (pc, value) hits). Armed from tests to identify writers.
+    wram_write_watch: Option<(u32, u16, Vec<(u32, u16)>)>,
 }
 
 impl RetailMachine {
@@ -2334,6 +2337,7 @@ impl RetailMachine {
             cycles: 0,
             cpu_execution_watch: Vec::new(),
             cpu_execution_hits: Vec::new(),
+            wram_write_watch: None,
         }
     }
 
@@ -2392,6 +2396,22 @@ impl RetailMachine {
         Ok(false)
     }
 
+
+    /// Arm a write-watch on a WRAM address (`$7E:xxxx`). While armed, every
+    /// value change records `(pc-after-instruction, value)`.
+    pub fn arm_wram_write_watch(&mut self, addr: u32) {
+        let cur = self.peek16(0x7E_0000 | (addr & 0xFFFF));
+        self.wram_write_watch = Some((addr & 0xFFFF, cur, Vec::new()));
+    }
+
+    /// Disarm and return collected (pc, value) pairs.
+    pub fn take_wram_write_watch(&mut self) -> Vec<(u32, u16)> {
+        match self.wram_write_watch.take() {
+            Some((_, _, hits)) => hits,
+            None => Vec::new(),
+        }
+    }
+
     fn tick_cpu_cycle(&mut self) -> Result<Option<u32>, String> {
         self.bus.set_cpu_irq_masked(self.cpu.p() & 0x04 != 0);
         self.cpu.cycle(&mut self.bus);
@@ -2403,6 +2423,19 @@ impl RetailMachine {
                 && self.cpu_execution_hits.last().copied() != Some(instruction)
             {
                 self.cpu_execution_hits.push(instruction);
+            }
+        }
+        if let Some((addr, last, hits)) = self.wram_write_watch.as_mut() {
+            let a = 0x7E_0000 | u32::from(*addr);
+            let cur =
+                u16::from(self.bus.inner.read8(a)) | (u16::from(self.bus.inner.read8(a + 1)) << 8);
+            if cur != *last {
+                hits.push((
+                    (u32::from(self.cpu.pbr()) << 16)
+                        | u32::from(self.cpu.pc().wrapping_sub(1)),
+                    cur,
+                ));
+                *last = cur;
             }
         }
         self.bus.tick_raster();

@@ -570,10 +570,26 @@ $7E:$18CB firing at gf≈851 → the PC names the writer routine instantly.
 With the writer identified, mirror its viewdist logic in the port and
 DELETE the divergence window from semantic_trace.rs.
 
-(Also worth checking then: whether the curve section uses a DIFFERENT
-player strat whose viewmove variant lacks the -pull toward 120 — the
-observed pure-rise shape suggests the -chase stopped, not that a +chase
-started.)
+### Writer chase-law decoded + gate lesson (2026-08-22 final)
+
+Emulated write-watch (new permanent API: `RetailMachine::
+arm_wram_write_watch/take_wram_write_watch`) captured the writer:
+**PC $06:8483, every frame**, law confirmed numerically:
+
+    OUTDIST += (500 - OUTDIST) >> 4      // signed, per frame
+
+(120→143→165→185→204→222→239→…→331 all match exactly.)
+
+Attempted port fix gated on DYING&&!DEAD broke sp_player_parity: the
+C-oracle death trace keeps OUTDIST=0 while DYING — so at least ONE more
+gate condition exists in ROM beyond PLAYERDYING&&!DEAD (likely a mode/
+flag visible only in the curve section; manual byte-decode of the gate
+at $06:8429-8436 is unreliable without instruction-boundary alignment).
+
+Port chase REVERTED to keep C-parity fixtures green; quarantine window
+remains the passing state. Next session: proper 65816 disassembly of
+$06:8400-8490 with correct alignment (or Mesen instruction trace) to
+extract the exact gate expression, then re-apply the chase behind it.
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
