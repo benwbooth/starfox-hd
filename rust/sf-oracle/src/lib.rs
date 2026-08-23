@@ -489,6 +489,11 @@ impl SnesBus {
         None
     }
 
+    /// Read-only access to the attached GSU (drawlist archaeology probes).
+    pub fn gsu_ref(&self) -> Option<&gsu::Gsu> {
+        self.gsu.as_deref()
+    }
+
     pub fn read8(&self, addr: u32) -> u8 {
         if Self::is_math_reg(addr) {
             return match addr & 0xFFFF {

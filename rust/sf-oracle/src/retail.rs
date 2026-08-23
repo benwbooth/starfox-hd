@@ -1695,6 +1695,7 @@ impl RetailBootBus {
         self.inner.read8(addr)
     }
 
+
     /// Snapshot the CPU-visible video state and composite a native SNES frame.
     pub fn ppu_frame(&self) -> PpuFrame {
         self.ppu.frame()
@@ -2440,6 +2441,17 @@ impl RetailMachine {
     pub fn peek16(&self, address: u32) -> u16 {
         u16::from_le_bytes([self.peek8(address), self.peek8(address.wrapping_add(1))])
     }
+
+    /// Read a byte of the attached GSU's work RAM (`M_DRAWLIST` lives at
+    /// `$70:1960` in GSU space during SF1 gameplay). Returns 0 when no GSU
+    /// is installed.
+    pub fn peek_gsu_ram(&self, addr: usize) -> u8 {
+        match self.bus.inner.gsu_ref() {
+            Some(gsu) if addr < gsu.ram.len() => gsu.ram[addr],
+            _ => 0,
+        }
+    }
+
 
     /// Snapshot every retail object slot for semantic oracle adapters.
     pub fn object_snapshot(&self) -> Vec<ObjState> {

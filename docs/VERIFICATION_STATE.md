@@ -438,6 +438,35 @@ Supporting infrastructure fixes discovered en route:
 Result: slots 30/23/31 byte-exact vs live retail WRAM from birth onward;
 replay frontier **1744 -> 1783**. Gate 1912/0; coexec_retail 107/0.
 
+## NEXT (updated 2026-08-22 late): tick-1783 = camera pull-back divergence
+
+Live dual-machine probes nailed it: at ticks 1776-1783 the two cameras
+differ by EXACTLY +120 in viewposz (retail less negative), y off by 2-3,
+x equal:
+
+    CULL t=1782 Nview=(-21,-214,-26668) Rview=(-21,-211,-26548)
+    CULL t=1783 Nview=(-21,-219,-26605) Rview=(-21,-216,-26485)
+
+120 == the port's OUTDIST pull-back distance. Retail's live game applies
+NO pull-back for this view state (or a different outdist source), so its
+dl_z runs ~+120 higher and the kamikaze's behind-margin stays positive
+~3 frames longer -> slot12 survives past tick 1783 on retail only.
+
+Rotation math EXONERATED with a new permanent oracle test
+(`audit_mallrotzsort.rs`): built-ROM GSU `mallrotzsort` over synthetic
+drawlists matches `matrix_rotate_q15` bit-exact on all 24 cases across
+identity and rotated matrices (required decoding the TRUE GSU drawlist
+layout from STRUCTS.INC: y@16 x@18 z@20 sflags@7 shape@8 - NOT the
+SG.ASM-style order first assumed).
+
+### Next action
+
+Diff port `camera.rs` pull-back against ROM `getview` (GAME.ASM:66-113)
+conditions for THIS gameplay view type: which flag selects no-pull-back,
+and where retail's outdist actually lives during Corneria opening
+(prior probe of guessed address $18BF read 0; locate real one via the
+-$8B block rule from a known-good anchor like PLAYER_POSZ $159C->$1511).
+Then re-run replay past 1783.
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
