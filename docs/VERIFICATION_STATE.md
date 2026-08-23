@@ -549,14 +549,31 @@ Live reads during ticks 1770-1795 settle EVERYTHING:
   effective viewdist (~500 target implied by the approach curve) that
   the port never applies (native vd stays 120).
 
-### THE remaining fix
+### THE remaining fix — writer analysis done, one step left
 
-Find who raises retail OUTDIST/viewdist starting gf≈851. Candidates:
-a level-script opcode in the curve section (port's LEVEL1_1 may be
-missing it), or a strat reacting to the turn. With $18CB known, a
-Mesen WRITE-WATCH on $7E:$18CB will name the writer routine on the
-first frame it fires. Then mirror the same viewdist change in the port
-and DELETE the divergence window.
+Mined ALL retail writers of OUTDIST ($8D CB 18 / $9C CB 18): 55 sites.
+Incremental adders (`CLC;ADC $18CB;STA`) live at $06:8481/$E269/$E71D,
+$0B:C96D/CA34/D10C, $1F:E2C7/E42A/E70B/E8BF. Constant stores include
+120($78)/200/280/400/500($01F4!)/1000/1500/2000/2500 across banks
+$06/$0B/$1F.
+
+Fork-source candidates for a mid-Corneria rise: GSTRATS init_strats_l
+`Achase outdist,#500,4` — but it is GATED on GF_PLAYERDYING&&!DEAD
+(death-cam), which should NOT fire here; and GCSTRATS viewoutofLB3_strat
+state-machine (outdist 280,±2 steps,chase100) — but that is the launch-
+bay cinematic, long finished by gf851. Neither cleanly explains a
++20/frame proportional climb starting exactly at the corridor-curve
+entry (viewrotyw begins rotating the same tick).
+
+DECISIVE NEXT STEP (one action): Mesen breakpoint/WRITE-WATCH on
+$7E:$18CB firing at gf≈851 → the PC names the writer routine instantly.
+With the writer identified, mirror its viewdist logic in the port and
+DELETE the divergence window from semantic_trace.rs.
+
+(Also worth checking then: whether the curve section uses a DIFFERENT
+player strat whose viewmove variant lacks the -pull toward 120 — the
+observed pure-rise shape suggests the -chase stopped, not that a +chase
+started.)
 ## NEXT: tick-1783 kamikaze slot-12 ATZREMOVE cull timing
 
 Pure remaining case: positions/counters identical 105 ticks; native's
