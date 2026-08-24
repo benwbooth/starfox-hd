@@ -263,9 +263,10 @@ fn project_visibility_point(vertex: &ShapeVertex, pvm: &[f32; 16]) -> Option<[f3
 }
 
 /// Source `msh_vizis` records one independently selected triangle per face.
-/// A negative source projected winding is visible. The retail billboard
-/// selector `2,3,0` remains negative after the complete source-to-GL camera
-/// conversion, so the equivalent NDC test is also strictly negative.
+/// The source visibility result includes the front-of-camera bit, so an
+/// in-front source polygon is visible when its screen-down winding is
+/// positive. Reflecting screen Y into normalized-device coordinates makes
+/// the equivalent renderer winding strictly negative.
 fn face_is_camera_visible(shape: &GpuShape, face: &ShapeFace, pvm: &[f32; 16]) -> bool {
     let Some(indices) = face.visibility_vertices else {
         return true;
@@ -894,7 +895,7 @@ impl ShapeStore {
                 *model_matrix
             };
 
-            let shade_index = shapes::compute_shade_index(shape.face_normals[i], light_obj);
+            let shade_index = shapes::compute_shade_index(face.normal, light_obj);
 
             let material =
                 resolve_registered_face_material(shape, face.color_index, col_frame, color_table);

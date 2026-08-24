@@ -10,7 +10,9 @@
 
 use std::path::PathBuf;
 
-use sf_render::bg2d::{compose_bg, compose_title, BG2D_H, BG2D_W};
+use sf_render::bg2d::{
+    compose_bg, compose_title, compose_title_layers, title_polygon_palette, BG2D_H, BG2D_W,
+};
 
 mod common;
 use common::{grid_8x8, C_TITLE_GOLDEN_8X8};
@@ -80,4 +82,40 @@ fn title_compose_matches_c_golden_grid() {
             );
         }
     }
+}
+
+#[test]
+fn title_priority_planes_reconstruct_the_static_composite() {
+    let ti_cgx = read("data/title/TI-3-US.CGX");
+    let ti_scr = read("data/title/TI-3-US.SCR");
+    let cp_cgx = read("data/title/CP.CGX");
+    let cp_scr = read("data/title/CP.SCR");
+    let col = read("data/title/CP-US.COL");
+
+    let (background, foreground) = compose_title_layers(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col)
+        .expect("compose title priority planes");
+    let composite =
+        compose_title(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col).expect("compose complete title");
+    assert_eq!(background.len(), BG2D_W * BG2D_H * 4);
+    assert_eq!(foreground.len(), background.len());
+    assert!(foreground.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    assert!(foreground.chunks_exact(4).any(|pixel| pixel[3] == 0));
+
+    let reconstructed: Vec<_> = background
+        .chunks_exact(4)
+        .zip(foreground.chunks_exact(4))
+        .flat_map(|(low, high)| if high[3] == 0 { low } else { high })
+        .copied()
+        .collect();
+    assert_eq!(reconstructed, composite);
+}
+
+#[test]
+fn title_polygon_palette_comes_from_cp_us_row_six() {
+    const SOURCE_TITLE_POLYGON_PALETTE: [u16; 16] = [
+        0x4E31, 0x0000, 0x7FDF, 0x325F, 0x00F8, 0x03EF, 0x53DF, 0x477C, 0x3B19, 0x2EB6, 0x2253,
+        0x15F0, 0x098D, 0x012A, 0x00C7, 0x0000,
+    ];
+    let col = read("data/title/CP-US.COL");
+    assert_eq!(title_polygon_palette(&col), SOURCE_TITLE_POLYGON_PALETTE);
 }

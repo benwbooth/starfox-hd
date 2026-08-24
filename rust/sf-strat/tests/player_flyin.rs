@@ -1,7 +1,7 @@
 //! Tick 99: player fly-in / straight / speed / on-cont / cred / divegnd.
 
 use sf_core::player_view::PlayerViewMode;
-use sf_game::alien::{ASF_COLLDISABLE, ASF_INVISIBLE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF4_INVISIBLE};
 use sf_game::vars::{PSF3_ENGINESND, PSF_NOCTRL, PSF_NOFIRE, PSTF_NOVDISTC};
 use sf_game::Game;
 use sf_strat::common::StratRam;
@@ -136,11 +136,11 @@ fn on_cont_and_cred() {
     assert_eq!(g.vars.pshipflags3 & PSF3_ENGINESND, 0);
 
     set_player_cred(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_ne!(g.vars.pshipflags & (PSF_NOCTRL | PSF_NOFIRE), 0);
     player_cred_istrat(&mut g, idx);
     player_cred_strat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]

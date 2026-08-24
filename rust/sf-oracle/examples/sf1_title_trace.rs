@@ -6,16 +6,21 @@
 use sf_core::pad;
 use sf_game::shell::{GameState, Shell};
 use sf_oracle::{
-    load_retail_rom, RetailMachine, AL_ROTX, AL_ROTY, AL_ROTZ, RETAIL_CURRENTBG, RETAIL_DOSTRATS,
-    RETAIL_GAMEFRAME, RETAIL_MAPCNT, RETAIL_POOL, RETAIL_SHAPES, RETAIL_STAYBLACK,
+    load_retail_rom, RetailMachine, AL_ROTX, AL_ROTY, AL_ROTZ, AL_SFLAGS, AL_SFLAGS2, AL_SFLAGS3,
+    AL_STRATPTR, AL_VX, AL_VY, AL_VZ, RETAIL_CURRENTBG, RETAIL_DOSTRATS, RETAIL_GAMEFRAME,
+    RETAIL_MAPBANK, RETAIL_MAPCNT, RETAIL_MAPPTR, RETAIL_PLAYPT, RETAIL_POOL, RETAIL_PVIEWPOSZ,
+    RETAIL_PVIEWVELZ, RETAIL_SHAPES, RETAIL_STAYBLACK, RETAIL_VIEW_POSITION_X,
+    RETAIL_VIEW_POSITION_Y, RETAIL_VIEW_POSITION_Z,
 };
 use sf_render::draw_list::DrawListEntry as RenderDrawListEntry;
 use sf_render::renderer::{
     config_from_repo_root, FrameInputs, GameState as RenderGameState, Renderer, WindowState,
     WINDOWARRAY_SIZE,
 };
+use sf_strat::common::{sv, StratRam};
 
 const WORK_RAM: u32 = 0x7E_0000;
+const ROM_WINDOW: u16 = 0x8000;
 const RETAIL_TITLE_BACKGROUND: u16 = 249;
 const TITLE_DEMO_SHAPE: u16 = 225;
 const SOURCE_SHAPE_COUNT: u16 = 512;
@@ -26,14 +31,46 @@ const MAX_SETUP_TICKS: u32 = 240;
 const TITLE_TRACE_TICKS: u32 = 96;
 const MAX_VIDEO_FRAMES_PER_TITLE_UPDATE: u32 = 120;
 const VIDEO_FRAMES_TO_PRESENT_UPDATE: u32 = 1;
+const DEBUG_STATE_TICKS: u32 = 48;
 
-/// Retail Rev 2 GSU-RAM title draw-list base, located independently by the
-/// title shape pointer and verified across every captured roll update.
-const RETAIL_TITLE_DRAW_LIST: usize = 0x0EF2;
+const RETAIL_DRAW_COUNT: usize = 0x01B6;
+const RETAIL_DRAW_LIST: usize = 0x0EF2;
+const DRAW_ENTRY_BYTES: usize = 30;
+const DRAW_SORT_DEPTH: usize = 2;
 const DRAW_ROTATION_X: usize = 4;
 const DRAW_ROTATION_Y: usize = 5;
 const DRAW_ROTATION_Z: usize = 6;
+const DRAW_STRATEGY_FLAGS: usize = 7;
 const DRAW_SHAPE: usize = 8;
+const DRAW_POSITION_Y: usize = 16;
+const DRAW_POSITION_X: usize = 18;
+const DRAW_POSITION_Z: usize = 20;
+const DRAW_COLOR_TABLE: usize = 22;
+const DRAW_EXPLOSION_COUNT: usize = 24;
+const DRAW_ANIMATION: usize = 25;
+const DRAW_COLOR_FRAME: usize = 26;
+const DRAW_DEPTH_OFFSET: usize = 27;
+const DRAW_TEXTURE_SCROLL_X: usize = 28;
+const DRAW_TEXTURE_SCROLL_Y: usize = 29;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Position(i16, i16, i16);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TitleDraw {
+    list_order: usize,
+    position: Position,
+    rotation: [u8; 3],
+    shape: u16,
+    sort_depth: i16,
+    strategy_flags: u8,
+    color_table: u16,
+    explosion_count: u8,
+    animation: u8,
+    color_frame: u8,
+    depth_offset: u8,
+    texture_scroll: [u8; 2],
+}
 
 fn configured_shell() -> Shell {
     let mut shell = Shell::new();
@@ -43,6 +80,7 @@ fn configured_shell() -> Shell {
         sf_strat::player::advance_player_during_level_initialization,
     ));
     shell.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
+    shell.set_prepare_presentation_player(Box::new(sf_strat::player::prepare_presentation_player));
     shell.set_shape_extents(sf_render::shapes::sf1_shape_half_extents());
     shell
 }
@@ -77,22 +115,68 @@ fn retail_title_object(machine: &RetailMachine) -> Option<(u16, [u8; 3])> {
     })
 }
 
-fn retail_title_draw(machine: &RetailMachine) -> Option<(usize, [u8; 3])> {
-    let title_shape = machine.peek16(RETAIL_SHAPES + u32::from(TITLE_DEMO_SHAPE) * 2);
-    let source_shape = u16::from_le_bytes([
-        machine.peek_gsu_ram(RETAIL_TITLE_DRAW_LIST + DRAW_SHAPE),
-        machine.peek_gsu_ram(RETAIL_TITLE_DRAW_LIST + DRAW_SHAPE + 1),
-    ]);
-    (source_shape == title_shape).then(|| {
-        (
-            0,
-            [
-                machine.peek_gsu_ram(RETAIL_TITLE_DRAW_LIST + DRAW_ROTATION_X),
-                machine.peek_gsu_ram(RETAIL_TITLE_DRAW_LIST + DRAW_ROTATION_Y),
-                machine.peek_gsu_ram(RETAIL_TITLE_DRAW_LIST + DRAW_ROTATION_Z),
-            ],
-        )
-    })
+fn retail_player_state(machine: &RetailMachine) -> (u32, [u8; 4], i16, i16) {
+    let base = u32::from(machine.peek16(WORK_RAM | RETAIL_PLAYPT));
+    let strategy = u32::from(machine.peek16(WORK_RAM | base + AL_STRATPTR))
+        | (u32::from(machine.peek8(WORK_RAM | base + AL_STRATPTR + 2)) << 16);
+    (
+        strategy,
+        [
+            machine.peek8(WORK_RAM | base + AL_SFLAGS),
+            machine.peek8(WORK_RAM | base + AL_SFLAGS2),
+            machine.peek8(WORK_RAM | base + AL_SFLAGS3),
+            machine.peek8(WORK_RAM | base + AL_SFLAGS3 + 1),
+        ],
+        machine.peek16(WORK_RAM | base + RETAIL_POOL.al_worldz) as i16,
+        machine.peek16(WORK_RAM | base + AL_VZ) as i16,
+    )
+}
+
+fn gsu_word(machine: &RetailMachine, address: usize) -> u16 {
+    u16::from_le_bytes([
+        machine.peek_gsu_ram(address),
+        machine.peek_gsu_ram(address + 1),
+    ])
+}
+
+fn retail_flat_shape(machine: &RetailMachine, source_shape: u16) -> u16 {
+    retail_shape_id(machine, source_shape)
+        .map(sf_core::shape::resolve_shape_word)
+        .unwrap_or_else(|| sf_core::shape::resolve_shape_word(source_shape))
+}
+
+fn retail_draws(machine: &RetailMachine) -> Vec<TitleDraw> {
+    let count = usize::from(gsu_word(machine, RETAIL_DRAW_COUNT));
+    (0..count)
+        .map(|list_order| {
+            let base = RETAIL_DRAW_LIST + list_order * DRAW_ENTRY_BYTES;
+            TitleDraw {
+                list_order,
+                position: Position(
+                    gsu_word(machine, base + DRAW_POSITION_X) as i16,
+                    gsu_word(machine, base + DRAW_POSITION_Y) as i16,
+                    gsu_word(machine, base + DRAW_POSITION_Z) as i16,
+                ),
+                rotation: [
+                    machine.peek_gsu_ram(base + DRAW_ROTATION_X),
+                    machine.peek_gsu_ram(base + DRAW_ROTATION_Y),
+                    machine.peek_gsu_ram(base + DRAW_ROTATION_Z),
+                ],
+                shape: retail_flat_shape(machine, gsu_word(machine, base + DRAW_SHAPE)),
+                sort_depth: gsu_word(machine, base + DRAW_SORT_DEPTH) as i16,
+                strategy_flags: machine.peek_gsu_ram(base + DRAW_STRATEGY_FLAGS),
+                color_table: gsu_word(machine, base + DRAW_COLOR_TABLE),
+                explosion_count: machine.peek_gsu_ram(base + DRAW_EXPLOSION_COUNT),
+                animation: machine.peek_gsu_ram(base + DRAW_ANIMATION),
+                color_frame: machine.peek_gsu_ram(base + DRAW_COLOR_FRAME),
+                depth_offset: machine.peek_gsu_ram(base + DRAW_DEPTH_OFFSET),
+                texture_scroll: [
+                    machine.peek_gsu_ram(base + DRAW_TEXTURE_SCROLL_X),
+                    machine.peek_gsu_ram(base + DRAW_TEXTURE_SCROLL_Y),
+                ],
+            }
+        })
+        .collect()
 }
 
 fn native_title_object(shell: &Shell) -> Option<(u16, [u8; 3])> {
@@ -108,13 +192,56 @@ fn native_title_object(shell: &Shell) -> Option<(u16, [u8; 3])> {
         })
 }
 
-fn native_title_draw(shell: &Shell) -> Option<(usize, [i16; 3])> {
+fn native_draws(shell: &Shell) -> Vec<TitleDraw> {
+    let camera = shell.frame().camera;
+    let camera_position = Position(
+        (camera.x >> 16) as i16,
+        (camera.y >> 16) as i16,
+        (camera.z >> 16) as i16,
+    );
+    let matrix = sf_core::snes_trig::zxy_matrix_q15_fine(
+        camera.rotation[0],
+        camera.rotation[1],
+        camera.rotation[2],
+    );
     shell
         .draw_list()
         .iter()
         .enumerate()
-        .find(|(_, entry)| entry.shape_id == TITLE_DEMO_SHAPE)
-        .map(|(entry, draw)| (entry, [draw.rx, draw.ry, draw.rz]))
+        .map(|(list_order, draw)| {
+            let world = Position(
+                (draw.x >> 16) as i16,
+                (draw.y >> 16) as i16,
+                (draw.z >> 16) as i16,
+            );
+            let relative = Position(
+                world.0.wrapping_sub(camera_position.0),
+                world.1.wrapping_sub(camera_position.1),
+                world.2.wrapping_sub(camera_position.2),
+            );
+            let position =
+                sf_core::snes_trig::matrix_rotate_q15(matrix, relative.0, relative.1, relative.2);
+            let shape_sort_depth = sf_core::sf1_shape_metrics::sf1_shape_metrics(draw.shape_id)
+                .map_or(0, |metrics| metrics.sort_depth);
+            TitleDraw {
+                list_order,
+                position: Position(position.0, position.1, position.2),
+                rotation: [draw.rx as u8, draw.ry as u8, draw.rz as u8],
+                shape: draw.shape_id,
+                sort_depth: draw
+                    .sort_z
+                    .wrapping_add(position.2)
+                    .wrapping_add(shape_sort_depth),
+                strategy_flags: draw.sflags,
+                color_table: draw.color_table,
+                explosion_count: draw.explosion_cnt,
+                animation: draw.anim_frame,
+                color_frame: draw.col_frame,
+                depth_offset: draw.depth_offset,
+                texture_scroll: [draw.tscroll_x, draw.tscroll_y],
+            }
+        })
+        .collect()
 }
 
 fn hash_bytes(bytes: &[u8]) -> u64 {
@@ -316,18 +443,125 @@ fn main() {
             native.frame().stayblack,
             "black hold at trace {tick}"
         );
+        let native_player_view_depth = native.game.vars.sv_i16(sv::PVIEWPOSZ);
+        let retail_player_view_depth = retail.peek16(WORK_RAM | RETAIL_PVIEWPOSZ) as i16;
+        let native_camera = native.frame().camera;
+        let native_camera_position = Position(
+            (native_camera.x >> 16) as i16,
+            (native_camera.y >> 16) as i16,
+            (native_camera.z >> 16) as i16,
+        );
+        let retail_camera_position = Position(
+            retail.peek16(WORK_RAM | RETAIL_VIEW_POSITION_X) as i16,
+            retail.peek16(WORK_RAM | RETAIL_VIEW_POSITION_Y) as i16,
+            retail.peek16(WORK_RAM | RETAIL_VIEW_POSITION_Z) as i16,
+        );
+        let retail_pullback = retail_player_view_depth.wrapping_sub(retail_camera_position.2);
+        if debug_video {
+            if tick < DEBUG_STATE_TICKS {
+                let (retail_strategy, retail_flags, retail_world_z, retail_velocity_z) =
+                    retail_player_state(&retail);
+                let native_player = native
+                    .game
+                    .objs
+                    .player()
+                    .expect("native title player exists");
+                println!(
+                    "player tick={tick} strategy={:?}/{retail_strategy:06X} flags={:?}/{retail_flags:?} \
+                     world_z={}/{} object_velocity_z={}/{}",
+                    native_player.stratptr,
+                    [
+                        native_player.sflags,
+                        native_player.sflags2,
+                        native_player.sflags3,
+                        native_player.sflags4,
+                    ],
+                    native_player.worldz,
+                    retail_world_z,
+                    native_player.vz,
+                    retail_velocity_z,
+                );
+            }
+        } else {
+            assert_eq!(
+                native_player_view_depth,
+                retail_player_view_depth,
+                "title player-view depth at trace {tick}; native velocity={}, retail velocity={}",
+                native.game.vars.pviewvelz,
+                retail.peek16(WORK_RAM | RETAIL_PVIEWVELZ) as i16,
+            );
+            assert_eq!(
+                native_camera_position,
+                retail_camera_position,
+                "title camera position at trace {tick}; native pullback={}, retail inferred pullback={retail_pullback}",
+                native.game.vars.strategy.view_distance,
+            );
+        }
+        if debug_video && tick < DEBUG_STATE_TICKS {
+            println!(
+                "camera tick={tick} player_view_z={native_player_view_depth}/{retail_player_view_depth} \
+                 velocity={}/{} pullback={}/{} camera={native_camera_position:?}/{retail_camera_position:?}",
+                native.game.vars.pviewvelz,
+                retail.peek16(WORK_RAM | RETAIL_PVIEWVELZ) as i16,
+                native.game.vars.strategy.view_distance,
+                retail_pullback,
+            );
+        }
 
         let retail_object = retail_title_object(&retail).map(|(_, rotation)| rotation);
         let native_object = native_title_object(&native).map(|(_, rotation)| rotation);
         assert_eq!(retail_object, native_object, "title object at trace {tick}");
 
-        let retail_draw =
-            retail_title_draw(&retail).map(|(order, rotation)| (order, rotation.map(i16::from)));
-        assert_eq!(
-            retail_draw,
-            native_title_draw(&native),
-            "ordered title draw at trace {tick}"
-        );
+        if debug_video && tick < 20 {
+            if (10..=13).contains(&tick) {
+                let retail_map_pointer = retail.peek16(WORK_RAM | RETAIL_MAPPTR);
+                let retail_map_bank = retail.peek8(WORK_RAM | RETAIL_MAPBANK);
+                let retail_map_address =
+                    (u32::from(retail_map_bank) << 16) | u32::from(retail_map_pointer | ROM_WINDOW);
+                let retail_map_bytes: Vec<_> = (0..14)
+                    .map(|offset| retail.peek8(retail_map_address + offset))
+                    .collect();
+                println!(
+                    "map tick={tick} pointer={retail_map_bank:02X}:{retail_map_pointer:04X} \
+                     bytes={retail_map_bytes:02X?} native_pointer={}",
+                    native.game.vars.mapptr,
+                );
+            }
+            if let (Some((retail_slot, _)), Some((native_slot, _))) =
+                (retail_title_object(&retail), native_title_object(&native))
+            {
+                let retail_base = RETAIL_POOL.base + u32::from(retail_slot) * RETAIL_POOL.stride;
+                let native_title = native.game.objs.aliens[usize::from(native_slot)];
+                println!(
+                    "title_object tick={tick} slot={native_slot}/{retail_slot} position={:?}/{:?} \
+                     velocity={:?}/{:?}",
+                    Position(
+                        native_title.worldx,
+                        native_title.worldy,
+                        native_title.worldz,
+                    ),
+                    Position(
+                        retail.peek16(WORK_RAM | retail_base + RETAIL_POOL.al_worldx) as i16,
+                        retail.peek16(WORK_RAM | retail_base + RETAIL_POOL.al_worldy) as i16,
+                        retail.peek16(WORK_RAM | retail_base + RETAIL_POOL.al_worldz) as i16,
+                    ),
+                    Position(native_title.vx, native_title.vy, native_title.vz),
+                    Position(
+                        retail.peek16(WORK_RAM | retail_base + AL_VX) as i16,
+                        retail.peek16(WORK_RAM | retail_base + AL_VY) as i16,
+                        retail.peek16(WORK_RAM | retail_base + AL_VZ) as i16,
+                    ),
+                );
+            }
+        }
+
+        if !debug_video {
+            assert_eq!(
+                native_draws(&native),
+                retail_draws(&retail),
+                "complete ordered title draw commands at trace {tick}"
+            );
+        }
 
         retail
             .tick_video_frames(input, VIDEO_FRAMES_TO_PRESENT_UPDATE)
@@ -347,7 +581,7 @@ fn main() {
                 &native_background_rgb,
             );
         }
-        if debug_video && tick < 24 {
+        if debug_video && tick < DEBUG_STATE_TICKS {
             let frame = native.frame();
             println!(
                 "video tick={tick} retail_frame={} retail_nonblack={retail_nonblack} \

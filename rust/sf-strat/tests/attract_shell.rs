@@ -4,7 +4,7 @@ use sf_core::{
     pad,
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
 };
-use sf_game::alien::ASF4_TEXTOBJ;
+use sf_game::alien::ASF_TEXTOBJ;
 use sf_game::shell::{
     GameState, GameplayEntryPhase, Shell, SoundCmd, BOOT_TO_ATTRACT_DELAY_TICKS,
     BRIEFING_CONFIRM_SOUND, BRIEFING_INPUT_DELAY_TICKS, BRIEFING_MOVE_SOUND,
@@ -29,6 +29,7 @@ fn make_shell() -> Shell {
         sf_strat::player::advance_player_during_level_initialization,
     ));
     shell.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
+    shell.set_prepare_presentation_player(Box::new(sf_strat::player::prepare_presentation_player));
     shell
 }
 
@@ -114,7 +115,7 @@ fn nintendo_presents_paths_stay_at_the_authored_view_distance() {
             .objs
             .active_indices()
             .into_iter()
-            .filter(|&object| shell.game.objs.aliens[object as usize].sflags4 & ASF4_TEXTOBJ != 0)
+            .filter(|&object| shell.game.objs.aliens[object as usize].sflags & ASF_TEXTOBJ != 0)
             .collect();
         if paths.len() == EXPECTED_TEXT_PATHS {
             break;
@@ -234,6 +235,7 @@ fn controller_demo_player_camera_matches_the_retail_frame() {
         shell
             .draw_list()
             .iter()
+            .filter(|entry| entry.shape_id != sf_map::consts::sh::NULLSHAPE)
             .map(|entry| entry.shape_id)
             .collect::<Vec<_>>(),
         vec![SOURCE_CONTROLLER_DEMO_SHAPE],

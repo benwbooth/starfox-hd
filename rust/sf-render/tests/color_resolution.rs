@@ -11,8 +11,8 @@ use sf_render::shapes::{
     material_collite, material_colnorm, material_coltext, resolve_face_color,
     resolve_face_material, resolve_material_color, resolve_material_palette_pair_for_scene,
     resolve_sf2_material_palette_pair, select_depth_bank, PalettePair, DEBUG_MATERIAL_COLOR,
-    DEPTHZ_MIST, DEPTHZ_NORMAL, DEPTHZ_STAGE1, DEPTHZ_TUNNEL, NIGHT_PALETTE, SHAPE_ANIM_CA_2,
-    SHAPE_BOSS7_1, SHAPE_ELASER2,
+    DEPTHZ_MIST, DEPTHZ_NORMAL, DEPTHZ_STAGE1, DEPTHZ_TUNNEL, LIGHT_DIR, NIGHT_PALETTE,
+    SHAPE_ANIM_CA_2, SHAPE_BOSS7_1, SHAPE_ELASER2,
 };
 
 /// Independent BGR555 + nibble-pair-average reference (mirrors the SNES
@@ -36,6 +36,14 @@ fn expected_pair(pair: u8) -> [f32; 4] {
 }
 
 const ARWING_SHAPE: u16 = 3; // non-boss7 shape, color_table 0 -> id_0_c
+
+#[test]
+fn source_light_uses_renderer_coordinate_basis() {
+    const SOURCE_LIGHT_COMPONENT: f32 = 18_917.0 / 32_768.0;
+    assert_eq!(LIGHT_DIR[0], SOURCE_LIGHT_COMPONENT);
+    assert_eq!(LIGHT_DIR[1], -SOURCE_LIGHT_COMPONENT);
+    assert_eq!(LIGHT_DIR[2], SOURCE_LIGHT_COMPONENT);
+}
 
 /// Resolve an id_0_c FX slot the way the renderer does for Arwing faces.
 fn resolve_fx(fx: u8, col_frame: u8, shade_index: i32, depth_bank: u8) -> [f32; 4] {
@@ -298,18 +306,18 @@ fn palette_pair_preserves_retail_checkerboard_selection() {
 
 #[test]
 fn shade_curve_edge_cases() {
-    // GSU intensity curve: clamp(floor(dot * 15.75), 6, 15) - 6.
-    let n = [1.0, 0.0, 0.0];
-    // dot = 1 -> floor(15.75) = 15 -> 9.
+    // GSU intensity curve: signed-byte dot, arithmetic shift 10, clamp 6..15.
+    let n = [127, 0, 0];
+    // Light 1.0 quantizes to 127; 127*127 >> 10 = 15 -> shade 9.
     assert_eq!(compute_shade_index(n, [1.0, 0.0, 0.0]), 9);
-    // dot = 0.38 -> floor(5.985) = 5 -> clamped to 6 -> 0.
+    // Light 0.38 quantizes to 48; 127*48 >> 10 = 5 -> clamped to 6.
     assert_eq!(compute_shade_index(n, [0.38, 0.0, 0.0]), 0);
-    // dot < 0 -> 0.
+    // Negative dot products clamp to shade 0.
     assert_eq!(compute_shade_index(n, [-0.7, 0.0, 0.0]), 0);
-    // Just past the knee: dot = 0.45 -> floor(7.0875) = 7 -> 1.
+    // Light 0.45 quantizes to 57; 127*57 >> 10 = 7 -> shade 1.
     assert_eq!(compute_shade_index(n, [0.45, 0.0, 0.0]), 1);
-    // Degenerate zero normal -> fully lit (viewer behavior).
-    assert_eq!(compute_shade_index([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]), 9);
+    // A zero authored normal follows the same source arithmetic.
+    assert_eq!(compute_shade_index([0, 0, 0], [1.0, 0.0, 0.0]), 0);
 }
 
 #[test]

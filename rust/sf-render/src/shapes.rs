@@ -143,10 +143,16 @@ pub const SHAPE_ANIM_BULLET: u16 = crate::color_data::ANIM_PTR_BULLET_A1;
 // ---------------------------------------------------------------------------
 
 /// World-space unit light direction. MOBJ.MC `initlight` (:810-817) compiles
-/// the constant 18917/32767 = 0.5773 into all three components; per object
-/// the GSU rotates it into object space (m_rotlightx/y/z, MOBJ.MC:905-922)
-/// before the per-face normal dot product.
-pub const LIGHT_DIR: [f32; 3] = [0.577_350_26, 0.577_350_26, 0.577_350_26];
+/// the Q15 constant 18917/32768 into all three source-space components.
+/// Generated vertices, normals, and matrices reflect source Y into the
+/// renderer's Y-up coordinates, so the light vector must use that same basis.
+/// Per object the GSU rotates it into object space (MOBJ.MC:905-922) before
+/// the per-face normal dot product.
+pub const LIGHT_DIR: [f32; 3] = [
+    18_917.0 / 32_768.0,
+    -18_917.0 / 32_768.0,
+    18_917.0 / 32_768.0,
+];
 
 // ---------------------------------------------------------------------------
 // COLDEPTH banks night1..night4 (ASM/COLTAB.ASM)
@@ -778,23 +784,28 @@ pub fn resolve_face_color(
     )
 }
 
-/// Face-normal . rotated-light mapped onto the 10 shade levels with the GSU's
-/// asymmetric intensity curve (MOBJ.MC:4092-4128): the fixed-point dot works
-/// out to ~dot*15.75, clamped to [6,15], minus 6. Faces angled more than
-/// ~67 degrees from the light all land on shade 0. Pure mirror of
-/// `Shapes_ComputeShadeIndex`.
-pub fn compute_shade_index(normal: [f32; 3], light_obj: [f32; 3]) -> i32 {
-    let len_sq = normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2];
+/// Authored signed-byte face normal dotted with the source-quantized rotated
+/// light and mapped onto the ten shade levels (MOBJ.MC:4092-4128). Retail
+/// keeps the normal's authored magnitude, converts each Q15 light component
+/// to a signed byte, sums three signed 8x8 products, shifts by ten, clamps to
+/// 6..15, then subtracts 6.
+pub fn compute_shade_index(normal: [i16; 3], light_obj: [f32; 3]) -> i32 {
+    const LIGHT_COMPONENT_SCALE: f32 = 128.0;
+    const LIGHT_COMPONENT_MIN: f32 = -128.0;
+    const LIGHT_COMPONENT_MAX: f32 = 127.0;
+    const SHADE_SHIFT: u32 = 10;
+    const SHADE_MIN: i32 = 6;
+    const SHADE_MAX: i32 = 15;
 
-    // Degenerate faces carry a zero normal; treat them as fully lit like the
-    // viewer does for zero-length normals.
-    if len_sq <= 0.0001 {
-        return SHADE_TABLE_LEN as i32 - 1;
-    }
-
-    let dot = normal[0] * light_obj[0] + normal[1] * light_obj[1] + normal[2] * light_obj[2];
-    let shade = (dot * 15.75).floor() as i32;
-    shade.clamp(6, 15) - 6
+    let light = light_obj.map(|component| {
+        (component * LIGHT_COMPONENT_SCALE)
+            .floor()
+            .clamp(LIGHT_COMPONENT_MIN, LIGHT_COMPONENT_MAX) as i32
+    });
+    let dot = i32::from(normal[0]) * light[0]
+        + i32::from(normal[1]) * light[1]
+        + i32::from(normal[2]) * light[2];
+    (dot >> SHADE_SHIFT).clamp(SHADE_MIN, SHADE_MAX) - SHADE_MIN
 }
 
 /// Pick the COLDEPTH bank (night1..night4) from the object's view-space

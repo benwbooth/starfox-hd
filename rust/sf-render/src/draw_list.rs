@@ -252,7 +252,13 @@ impl DrawListRenderer {
         shape_palette: &crate::shapes::ShapePaletteRgb,
         font: &mut Font,
     ) {
-        if curr.is_empty() {
+        // At the exact fixed-update boundary the source still presents the
+        // preceding complete draw snapshot. Iterating `curr` here made newly
+        // born objects pop in one presentation frame early and removed
+        // objects disappear early, even though matched objects correctly
+        // interpolated from `prev` at alpha zero.
+        let presented = if alpha <= 0.0 { prev } else { curr };
+        if presented.is_empty() {
             return;
         }
 
@@ -279,7 +285,7 @@ impl DrawListRenderer {
             }
         }
 
-        for entry in curr {
+        for entry in presented {
             if entry.flags & DL_FLAG_VISIBLE == 0 {
                 continue;
             }

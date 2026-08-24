@@ -103,6 +103,7 @@ fn configured_shell(route: u32) -> Shell {
         sf_strat::player::advance_player_during_level_initialization,
     ));
     shell.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
+    shell.set_prepare_presentation_player(Box::new(sf_strat::player::prepare_presentation_player));
     shell.set_ending_score_part(Box::new(sf_strat::endscore::spawn_final_score_part));
     shell.set_ending_boss_replay(Box::new(sf_strat::endseq::spawn_replay_boss));
 

@@ -1391,6 +1391,11 @@ pub struct Shell {
 
     /// Map-specific player initializer injected by the strategy lane.
     initialize_player: Option<Box<dyn Fn(&mut Game, u32, u16)>>,
+    prepare_presentation_player: Option<Box<dyn Fn(&mut Game, u16)>>,
+    /// Presentation-map background declaration waiting for its post-strategy
+    /// handoff. This is the typed equivalent of the source background program
+    /// publishing `newplayerstrat` after the first scene update.
+    pending_presentation_player: Option<(u32, u16)>,
 
     /// Final-score object-spawn hook, injected by sf-app because the concrete
     /// path-text strategy lives in sf-strat.
@@ -1434,6 +1439,8 @@ impl Shell {
             spawn_player: None,
             advance_startup_player: None,
             initialize_player: None,
+            prepare_presentation_player: None,
+            pending_presentation_player: None,
             ending_score_part: None,
             ending_boss_replay: None,
         }
@@ -1468,6 +1475,10 @@ impl Shell {
     /// Install the map-specific player initializer.
     pub fn set_initialize_player(&mut self, hook: Box<dyn Fn(&mut Game, u32, u16)>) {
         self.initialize_player = Some(hook);
+    }
+
+    pub fn set_prepare_presentation_player(&mut self, hook: Box<dyn Fn(&mut Game, u16)>) {
+        self.prepare_presentation_player = Some(hook);
     }
 
     /// Install the source 3D final-score object producer.
@@ -1506,6 +1517,13 @@ impl Shell {
         if let Some(hook) = self.initialize_player.take() {
             hook(&mut self.game, map_id, player);
             self.initialize_player = Some(hook);
+        }
+    }
+
+    fn prepare_presentation_player(&mut self, player: u16) {
+        if let Some(hook) = self.prepare_presentation_player.take() {
+            hook(&mut self.game, player);
+            self.prepare_presentation_player = Some(hook);
         }
     }
 
@@ -2503,8 +2521,20 @@ impl Shell {
             state.charmap.set_fox();
         }
         self.load_map(map_id);
+        self.pending_presentation_player = None;
         if spawn_player {
-            let _ = self.spawn_initialized_player(map_id);
+            if let Some(player) = self.spawn_base_player() {
+                self.prepare_presentation_player(player);
+                // `initgame_l` always builds the shared MAPP player, body,
+                // left-wing, and right-wing objects before entering a
+                // presentation map, then `initgame_strats_l` appends the inert
+                // player-position follower. These typed roles are observable
+                // in the retail title draw list even though four use
+                // `nullshape`.
+                self.game.pcbox_attach_player(player);
+                let _ = self.game.create_player_dummy();
+                self.pending_presentation_player = Some((map_id, player));
+            }
         }
         // `initgame_l` starts the map immediately after creating the base
         // player. Presentation loops begin only after this opening script has
@@ -2550,6 +2580,12 @@ impl Shell {
             &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
         );
+        // BGS `pstrat` runs after the first scene's strategy pass. It changes
+        // the player's typed view declaration and queues the map initializer;
+        // that initializer is first executed by the following strategy pass.
+        if let Some((map_id, player)) = self.pending_presentation_player.take() {
+            self.initialize_player_for_map(map_id, player);
+        }
     }
 
     fn begin_attract_fade(

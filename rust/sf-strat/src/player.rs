@@ -36,9 +36,9 @@ use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME,
-    ACF_WEAPON, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE,
-    NUMBER_AL,
+    ACF_WEAPON, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_INVISIBLE, ASF4_PLAYEROBJ,
+    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_SHADOW, ATGND, ATLASER,
+    ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
@@ -3103,6 +3103,23 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     Some(idx)
 }
 
+/// Select the source `player_Istrat` used by the shared presentation-map
+/// player before the background program publishes its own initializer.
+pub fn prepare_presentation_player(g: &mut Game, idx: u16) {
+    let initializer = ea_sid(g, presentation_player_istrat);
+    g.objs.aliens[idx as usize].stratptr = Some(initializer);
+}
+
+/// Source `player_Istrat`: establish the ordinary camera/player state, run
+/// the credits movement initializer and its fall-through body once, then make
+/// the shared player visible. The retail Rev 2 title keeps collision disabled
+/// across this handoff, as observed directly in its complete object record.
+fn presentation_player_istrat(g: &mut Game, idx: u16) {
+    player_move_init(g, idx);
+    player_cred_istrat(g, idx);
+    g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
+}
+
 /// Select the source-defined initial strategy for an already spawned player.
 ///
 /// Keeping this separate from [`strat_spawn_player`] lets the native shell
@@ -3141,7 +3158,7 @@ pub fn initialize_player_for_map(g: &mut Game, map_id: u32, idx: u16) {
         Some(Strategy::UndergroundFlight) => set_player_undergnd(g, idx),
         Some(Strategy::LongTunnelExit) => set_player_in_ltexit(g, idx),
         Some(Strategy::ContinuePresentation) => queue_player_on_cont_istrat(g, idx),
-        Some(Strategy::PassivePresentation) => player_cred_istrat(g, idx),
+        Some(Strategy::PassivePresentation) => queue_player_cred_istrat(g, idx),
         None => {}
     }
 }
@@ -6882,6 +6899,14 @@ pub fn set_player_cred(g: &mut Game, idx: u16) {
     player_cred_istrat(g, idx);
 }
 
+/// Queue the credits/title initializer published by a background `pstrat`.
+/// The background program changes the strategy identity after the current
+/// object pass; execution begins at the following pass.
+pub fn queue_player_cred_istrat(g: &mut Game, idx: u16) {
+    let initializer = ea_sid(g, player_cred_istrat);
+    g.objs.aliens[idx as usize].stratptr = Some(initializer);
+}
+
 /// ROM `playercred_Istrat`.
 pub fn player_cred_istrat(g: &mut Game, idx: u16) {
     g.world.lastplayz = 0;
@@ -6893,7 +6918,7 @@ pub fn player_cred_istrat(g: &mut Game, idx: u16) {
         al.worldx = 0;
         al.worldy = 0;
         al.worldz = 0;
-        al.sflags |= ASF_INVISIBLE;
+        al.sflags4 |= ASF4_INVISIBLE;
         al.vel = MED_PSPEED as u8;
     }
     g.vars.set_sv_i16(sv::OUTVX, 0);
@@ -6915,13 +6940,16 @@ pub fn player_cred_istrat(g: &mut Game, idx: u16) {
     g.vars.set_sv_i16(sv::PLROTZ, 0);
     let s = ea_sid(g, player_cred_strat);
     g.objs.aliens[idx as usize].stratptr = Some(s);
+    // The source initializer has no end-strategy branch here: it falls
+    // straight through the following label on its first execution.
+    player_cred_strat(g, idx);
 }
 
 /// ROM `playercred_strat`.
 pub fn player_cred_strat(g: &mut Game, idx: u16) {
     do_player_limit_x(g, idx);
     viewmove_srou(g, idx);
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     g.vars.set_sv_i16(sv::OUTVZ, 0);
     g.vars.set_sv_i16(sv::PLROTZ, 0);
 }

@@ -49,6 +49,7 @@ pub const BG2D_W: usize = 256;
 pub const BG2D_H: usize = 224;
 const COLORS_PER_PALETTE: usize = 16;
 const BACKGROUND_FADE_PALETTE: usize = 4;
+const TITLE_POLYGON_PALETTE: usize = 6;
 const STATIC_PALETTE_PIXEL: u8 = u8::MAX;
 
 /// MHOFS.MC `bholetab` (70 signed bytes). The source deliberately places
@@ -586,6 +587,12 @@ fn cgram_palette(col: &[u8], palette: usize) -> [u16; COLORS_PER_PALETTE] {
     std::array::from_fn(|index| cgram_word(col, palette * COLORS_PER_PALETTE + index))
 }
 
+/// The title's BG1 SuperFX framebuffer uses `pal3d = 6` from CP-US.COL.
+/// Return that source palette as typed BGR555 entries for polygon rendering.
+pub fn title_polygon_palette(col: &[u8]) -> [u16; COLORS_PER_PALETTE] {
+    cgram_palette(col, TITLE_POLYGON_PALETTE)
+}
+
 /// Tilemap entry for map pixel (mx, my). 8 KB .SCR = 64x64 tiles stored as
 /// four 32x32 screens (TL, TR, BL, BR); 2 KB = one 32x32 screen.
 pub fn scr_entry(scr: &[u8], mx: usize, my: usize) -> u16 {
@@ -764,15 +771,19 @@ pub fn compose_bg(
     Some((composed.rgba, composed.width, composed.height))
 }
 
-/// CPU half of `build_title_texture`: compose the title screen (BG2 CP
-/// backdrop + BG3 TI-3 logo) into a bottom-up 256x224 RGBA image.
-pub fn compose_title(
+const TILE_PRIORITY: u16 = 1 << 13;
+
+/// Compose the title's Mode-1 priority planes around the low-priority BG1
+/// SuperFX framebuffer. BG2 CP and BG3 TI-3 low tiles sit behind 3D; their
+/// high tiles sit in front. With BGMODE bit 3 set, BG3-high is above BG2-high,
+/// while BG2-low is above BG3-low.
+pub fn compose_title_layers(
     ti_cgx: &[u8],
     ti_scr: &[u8],
     cp_cgx: &[u8],
     cp_scr: &[u8],
     col: &[u8],
-) -> Option<Vec<u8>> {
+) -> Option<(Vec<u8>, Vec<u8>)> {
     if ti_scr.len() < 2048 || cp_scr.len() < 2048 || col.len() < 512 {
         return None;
     }
@@ -792,7 +803,8 @@ pub fn compose_title(
         cp_px[t * 64..t * 64 + 64].copy_from_slice(&tile);
     }
 
-    let mut rgba = vec![0u8; BG2D_W * BG2D_H * 4];
+    let mut background = vec![0u8; BG2D_W * BG2D_H * 4];
+    let mut foreground = vec![0u8; BG2D_W * BG2D_H * 4];
 
     for y in 0..BG2D_H {
         // Flip vertically so GL row 0 = picture bottom (standard UVs)
@@ -802,7 +814,8 @@ pub fn compose_title(
         let by3 = (y + 9) % 256; // BG3: setbg3vofs 9
 
         for x in 0..BG2D_W {
-            let mut rgb = [0u8; 3]; // pal0palette forced to black
+            let mut cp_pixel = None;
+            let mut ti_pixel = None;
 
             // --- BG2 (CP backdrop, 4bpp) ---
             {
@@ -821,7 +834,10 @@ pub fn compose_title(
                 if tile < n_cp {
                     let v = cp_px[tile * 64 + r * 8 + c];
                     if v != 0 {
-                        rgb = cgram_color(col, pal * 16 + v as usize);
+                        cp_pixel = Some((
+                            cgram_color(col, pal * 16 + v as usize),
+                            e & TILE_PRIORITY != 0,
+                        ));
                     }
                 }
             }
@@ -843,20 +859,64 @@ pub fn compose_title(
                 if tile < n_ti {
                     let v = ti_px[tile * 64 + r * 8 + c];
                     if v != 0 {
-                        rgb = cgram_color(col, pal * 4 + v as usize);
+                        ti_pixel = Some((
+                            cgram_color(col, pal * 4 + v as usize),
+                            e & TILE_PRIORITY != 0,
+                        ));
                     }
                 }
             }
 
-            let px = &mut rgba[row_off + x * 4..row_off + x * 4 + 4];
-            px[0] = rgb[0];
-            px[1] = rgb[1];
-            px[2] = rgb[2];
-            px[3] = 255;
+            // Low-priority order is BG2 over BG3 over the black backdrop.
+            let mut background_rgb = [0u8; 3];
+            if let Some((rgb, false)) = ti_pixel {
+                background_rgb = rgb;
+            }
+            if let Some((rgb, false)) = cp_pixel {
+                background_rgb = rgb;
+            }
+            let background_pixel = &mut background[row_off + x * 4..row_off + x * 4 + 4];
+            background_pixel[..3].copy_from_slice(&background_rgb);
+            background_pixel[3] = 255;
+
+            // High-priority order is BG3 over BG2 over the live BG1 image.
+            let mut foreground_rgb = None;
+            if let Some((rgb, true)) = cp_pixel {
+                foreground_rgb = Some(rgb);
+            }
+            if let Some((rgb, true)) = ti_pixel {
+                foreground_rgb = Some(rgb);
+            }
+            if let Some(rgb) = foreground_rgb {
+                let foreground_pixel = &mut foreground[row_off + x * 4..row_off + x * 4 + 4];
+                foreground_pixel[..3].copy_from_slice(&rgb);
+                foreground_pixel[3] = 255;
+            }
         }
     }
 
-    Some(rgba)
+    Some((background, foreground))
+}
+
+/// CPU half of `build_title_texture`: compose the complete static title
+/// image with the same tile-priority order used by [`compose_title_layers`].
+pub fn compose_title(
+    ti_cgx: &[u8],
+    ti_scr: &[u8],
+    cp_cgx: &[u8],
+    cp_scr: &[u8],
+    col: &[u8],
+) -> Option<Vec<u8>> {
+    let (mut background, foreground) = compose_title_layers(ti_cgx, ti_scr, cp_cgx, cp_scr, col)?;
+    for (background_pixel, foreground_pixel) in background
+        .chunks_exact_mut(4)
+        .zip(foreground.chunks_exact(4))
+    {
+        if foreground_pixel[3] != 0 {
+            background_pixel.copy_from_slice(foreground_pixel);
+        }
+    }
+    Some(background)
 }
 
 // ---------------------------------------------------------------------------
@@ -922,6 +982,8 @@ fn recolor_palette_four(
 pub struct Bg2d {
     base_dir: PathBuf,
     title_tex: Option<TextureId>,
+    title_foreground_tex: Option<TextureId>,
+    title_polygon_palette: [u16; COLORS_PER_PALETTE],
     def_tex: Vec<Option<TextureId>>,
     def_tried: Vec<bool>,
     /// Original composite plus the final per-pixel color index for pixels
@@ -956,6 +1018,8 @@ impl Bg2d {
         let mut bg = Bg2d {
             base_dir: base_dir.to_path_buf(),
             title_tex: None,
+            title_foreground_tex: None,
+            title_polygon_palette: crate::shapes::NIGHT_PALETTE,
             def_tex: vec![None; n],
             def_tried: vec![false; n],
             def_base_rgba: vec![None; n],
@@ -981,6 +1045,10 @@ impl Bg2d {
         self.title_tex.is_some()
     }
 
+    pub fn title_polygon_palette(&self) -> &[u16; COLORS_PER_PALETTE] {
+        &self.title_polygon_palette
+    }
+
     fn build_title_texture(&mut self, gpu: &mut Gpu) {
         let ti_cgx = load_file(&self.base_dir, "data/title/TI-3-US.CGX");
         let ti_scr = load_file(&self.base_dir, "data/title/TI-3-US.SCR");
@@ -993,9 +1061,11 @@ impl Bg2d {
             eprintln!("Bg2d: title assets missing/short, using fallback backdrop");
             return;
         };
-        match compose_title(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col) {
-            Some(rgba) => {
-                self.title_tex = upload_rgba(gpu, &rgba, BG2D_W, BG2D_H);
+        match compose_title_layers(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col) {
+            Some((background, foreground)) => {
+                self.title_tex = upload_rgba(gpu, &background, BG2D_W, BG2D_H);
+                self.title_foreground_tex = upload_rgba(gpu, &foreground, BG2D_W, BG2D_H);
+                self.title_polygon_palette = title_polygon_palette(&col);
             }
             None => eprintln!("Bg2d: title assets missing/short, using fallback backdrop"),
         }
@@ -1229,6 +1299,31 @@ impl Bg2d {
             [1.0, 1.0, 1.0, 1.0],
             1,
             tex,
+        );
+    }
+
+    /// Draw the title tilemap priorities that sit above the low-priority BG1
+    /// SuperFX framebuffer. The ordinary title background pass already drew
+    /// the complementary low-priority plane.
+    pub fn render_title_foreground(&self, gpu: &mut Gpu, screen_width: i32, screen_height: i32) {
+        let Some(texture) = self.title_foreground_tex else {
+            return;
+        };
+        let projection = ortho(screen_width as f32, screen_height as f32);
+        self.push_quad(
+            gpu,
+            &projection,
+            0.0,
+            0.0,
+            screen_width as f32,
+            screen_height as f32,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            [1.0, 1.0, 1.0, 1.0],
+            1,
+            texture,
         );
     }
 

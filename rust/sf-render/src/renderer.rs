@@ -696,6 +696,8 @@ impl Renderer {
         let shape_palette = if let Some(sf2) = inputs.sf2.filter(|sf2| sf2.mode == Sf2Mode::Mission)
         {
             crate::shapes::sf2_polygon_shape_palette(sf2.polygon_palette)
+        } else if inputs.game_state == GameState::Title {
+            crate::shapes::decode_shape_palette(self.bg2d.title_polygon_palette())
         } else {
             crate::shapes::decode_shape_palette(crate::shapes::game_palette_bgr(
                 inputs.scene_style.game_palette,
@@ -732,6 +734,10 @@ impl Renderer {
             &mut self.font,
         );
         self.particles.render(&mut self.gpu, &self.transform);
+        if inputs.game_state == GameState::Title {
+            self.bg2d
+                .render_title_foreground(&mut self.gpu, self.width, self.height);
+        }
         if inputs.screen_fill_circle.scope == ScreenFillCircleScope::Scene {
             self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
         }

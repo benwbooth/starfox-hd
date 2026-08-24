@@ -15,6 +15,10 @@ use crate::consts::*;
 pub const TITLE_BLACK_HOLD_STEPS: i32 = 10;
 /// Authored continue-screen blackout hold written after `initblack_l`.
 pub const CONTINUE_BLACK_HOLD_STEPS: i32 = 3;
+/// `mapobj ... 70` selects the source `mapqobj` record. Its depth operand is
+/// stored in 16-unit steps, so the retail object is born at 64 rather than at
+/// the unquantized authored value.
+const TITLE_DEMO_DEPTH: i32 = 64;
 
 /// C `build_title_slice()` + `register_title_inline_callbacks()`.
 ///
@@ -42,7 +46,14 @@ pub fn build() -> BuiltLevel {
     b.mapwait(800);
 
     // Line 23: mapobj my_demo tit_istrat
-    b.mapnobj(0, 20, 20, 70, sh::MY_DEMO_PROXY, STRAT_ADDR_TIT);
+    b.mapnobj(
+        0,
+        20,
+        20,
+        TITLE_DEMO_DEPTH,
+        sh::MY_DEMO_PROXY,
+        STRAT_ADDR_TIT,
+    );
 
     // Line 25: setfadeup quick
     b.qfadeup();
