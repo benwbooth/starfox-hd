@@ -258,6 +258,44 @@ pub fn sf_random(vars: &mut GameVars) -> u16 {
     u16::from(vars.advance_random())
 }
 
+const HALF_TURN_ANGLE: u8 = 128;
+
+/// Camera-facing object pitch and yaw used by source `s_rots_flat` effects.
+///
+/// This is a semantic view transform over the port's typed strategy state;
+/// it does not expose source-machine storage. The returned pair is
+/// `[pitch, yaw]` in the game's one-byte turn representation.
+pub fn flat_billboard_rotation(vars: &GameVars) -> [u8; 2] {
+    let pitch = (vars.strategy.view_pitch >> 8) as u8;
+    let view_yaw = (vars.strategy.view_yaw >> 8) as u8;
+    let player_turn = (vars.strategy.player_turn_rotation >> 8) as u8;
+    let yaw = view_yaw
+        .wrapping_neg()
+        .wrapping_add(HALF_TURN_ANGLE)
+        .wrapping_add(player_turn);
+    [pitch, yaw]
+}
+
+#[cfg(test)]
+mod billboard_rotation_tests {
+    use super::*;
+
+    #[test]
+    fn flat_billboard_faces_the_neutral_training_camera() {
+        let vars = GameVars::default();
+        assert_eq!(flat_billboard_rotation(&vars), [0, HALF_TURN_ANGLE]);
+    }
+
+    #[test]
+    fn flat_billboard_uses_view_and_player_turn_high_bytes() {
+        let mut vars = GameVars::default();
+        vars.strategy.view_pitch = 3 << 8;
+        vars.strategy.view_yaw = -5 << 8;
+        vars.strategy.player_turn_rotation = 7 << 8;
+        assert_eq!(flat_billboard_rotation(&vars), [3, 140]);
+    }
+}
+
 // ============================================================
 // Chase / Transition (C strat_common.c:36-80)
 // ============================================================

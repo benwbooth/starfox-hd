@@ -92,8 +92,10 @@ enum CollisionBoxRotation {
 }
 
 const SHAPE_ARCH: u16 = 228;
+const SHAPE_BASE_1: u16 = 232;
 const SHAPE_BIG_GATE: u16 = 233;
 const SHAPE_PILLAR3: u16 = 27;
+const BASE_1_ANIMATION_FRAME_MASK: u8 = 7;
 const ARCH_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
     ShapeCollisionBox {
         offset: (-100, -60, 0),
@@ -137,6 +139,96 @@ const BIG_GATE_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
         coordinate_shift: 0,
     },
 ];
+
+// COLBOXES.ASM `base_1_col1..3`. The animated center door follows these
+// permanent posts and lintel in the source table.
+const BASE_1_FIXED_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
+    ShapeCollisionBox {
+        offset: (-32, -20, 5),
+        half_extents: (7, 20, 30),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (32, -20, 5),
+        half_extents: (7, 20, 30),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -47, 5),
+        half_extents: (40, 7, 30),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+];
+
+// COLBOXES.ASM `base_1_col4`: eight animation-selected center-door boxes.
+// The source starts with an empty opening and grows the door downward. Its
+// `colframes 8` selector uses the low three bits of a manually controlled
+// animation frame (`animframe` has its high bit set for this strategy).
+const BASE_1_ANIMATED_COLLISION_BOXES: [ShapeCollisionBox; 8] = [
+    ShapeCollisionBox {
+        offset: (0, -35, -30),
+        half_extents: (25, 0, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -33, -30),
+        half_extents: (25, 2, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -30, -30),
+        half_extents: (25, 5, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -28, -30),
+        half_extents: (25, 7, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -25, -30),
+        half_extents: (25, 10, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -23, -30),
+        half_extents: (25, 12, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -20, -30),
+        half_extents: (25, 15, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+    ShapeCollisionBox {
+        offset: (0, -18, -30),
+        half_extents: (25, 17, 5),
+        rotation: CollisionBoxRotation::None,
+        coordinate_shift: 3,
+    },
+];
+
+#[derive(Debug, Clone, Copy)]
+struct ShapeCollisionBoxes {
+    fixed: &'static [ShapeCollisionBox],
+    animated: Option<ShapeCollisionBox>,
+}
+
+impl ShapeCollisionBoxes {
+    fn iter(self) -> impl Iterator<Item = ShapeCollisionBox> {
+        self.fixed.iter().copied().chain(self.animated)
+    }
+}
 
 // COLBOXES.ASM:150-157 `pillar3_col1..8`. The broad ShapeHdr bounds are
 // only an outer rejection volume; the actual solid target is this narrow
@@ -192,13 +284,26 @@ const PILLAR3_COLLISION_BOXES: [ShapeCollisionBox; 8] = [
     },
 ];
 
-fn shape_collision_boxes(shape: u16) -> Option<&'static [ShapeCollisionBox]> {
-    match shape {
-        SHAPE_ARCH => Some(&ARCH_COLLISION_BOXES),
-        SHAPE_BIG_GATE => Some(&BIG_GATE_COLLISION_BOXES),
-        SHAPE_PILLAR3 => Some(&PILLAR3_COLLISION_BOXES),
-        _ => None,
-    }
+fn shape_collision_boxes(object: Alien) -> Option<ShapeCollisionBoxes> {
+    let fixed = match object.shape {
+        SHAPE_ARCH => &ARCH_COLLISION_BOXES[..],
+        SHAPE_BASE_1 => {
+            return Some(ShapeCollisionBoxes {
+                fixed: &BASE_1_FIXED_COLLISION_BOXES,
+                animated: Some(
+                    BASE_1_ANIMATED_COLLISION_BOXES
+                        [usize::from(object.animframe & BASE_1_ANIMATION_FRAME_MASK)],
+                ),
+            });
+        }
+        SHAPE_BIG_GATE => &BIG_GATE_COLLISION_BOXES[..],
+        SHAPE_PILLAR3 => &PILLAR3_COLLISION_BOXES[..],
+        _ => return None,
+    };
+    Some(ShapeCollisionBoxes {
+        fixed,
+        animated: None,
+    })
 }
 
 fn resolve_collision_box(object: Alien, collision_box: ShapeCollisionBox) -> ShapeCollisionBox {
@@ -270,21 +375,21 @@ fn object_collision_overlap(
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     };
-    let first_boxes = shape_collision_boxes(first.shape);
-    let second_boxes = shape_collision_boxes(second.shape);
+    let first_boxes = shape_collision_boxes(first);
+    let second_boxes = shape_collision_boxes(second);
 
     match (first_boxes, second_boxes) {
         (Some(first_boxes), Some(second_boxes)) => first_boxes.iter().any(|first_box| {
             second_boxes
                 .iter()
-                .any(|second_box| collision_box_overlap(first, *first_box, second, *second_box))
+                .any(|second_box| collision_box_overlap(first, first_box, second, second_box))
         }),
         (Some(first_boxes), None) => first_boxes
             .iter()
-            .any(|first_box| collision_box_overlap(first, *first_box, second, second_default)),
+            .any(|first_box| collision_box_overlap(first, first_box, second, second_default)),
         (None, Some(second_boxes)) => second_boxes
             .iter()
-            .any(|second_box| collision_box_overlap(first, first_default, second, *second_box)),
+            .any(|second_box| collision_box_overlap(first, first_default, second, second_box)),
         (None, None) => collision_box_overlap(first, first_default, second, second_default),
     }
 }
@@ -429,8 +534,9 @@ impl Game {
         let mut flags = 0;
 
         let overlaps = |x: i16, y: i16, z: i16, ext: (i16, i16, i16)| {
-            if let Some(boxes) = shape_collision_boxes(o.shape) {
+            if let Some(boxes) = shape_collision_boxes(o) {
                 return boxes.iter().any(|target| {
+                    let target = resolve_collision_box(o, target);
                     aabb_overlap(
                         x,
                         y,

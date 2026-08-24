@@ -81,6 +81,23 @@ pub const DEFAULT_SPECIAL_WEAPON_COUNT: u16 = 3;
 pub const STAY_BLACK_INACTIVE: i8 = -1;
 pub use sf_map::catalog::BossEncounter;
 
+/// Retail path operand for the typed player barrel-roll velocity field.
+/// Hex is retained here because this value identifies an encoded source-data
+/// boundary, not a gameplay quantity.
+const RETAIL_PLAYER_ROLL_VELOCITY_OPERAND: u16 = 0x158C;
+
+/// Typed Training-only handoff from the short level transfer into ordinary
+/// planet flight. The source installs the complete player mode from inside
+/// the live strategy walk, so per-frame view bookkeeping observes the wobble
+/// bit only after these two startup phases.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TrainingPlayerStartupPhase {
+    #[default]
+    Inactive,
+    InitialMovement,
+    ActivatePlanetMode,
+}
+
 // Enemy strategy constants (C `src/strat/strat_enemy.h`)
 pub const HARD_HP: u8 = 0xFF;
 pub const HARD_AP: u8 = 8;
@@ -533,6 +550,8 @@ pub struct GameVars {
     pub internal_playpt: i16,
     /// Source `timeuntilfade` as a named countdown rather than a memory slot.
     pub player_death_fade_delay: u8,
+    /// Source-ordered Training player-mode handoff.
+    pub training_player_startup: TrainingPlayerStartupPhase,
     /// C `g_dummyobj` — do_strat_l skip index (STRATROU.ASM dummyobj).
     pub dummyobj: i16,
 
@@ -674,6 +693,7 @@ impl Default for GameVars {
             freezestrats: 0,
             internal_playpt: 0,
             player_death_fade_delay: 0,
+            training_player_startup: TrainingPlayerStartupPhase::Inactive,
             dummyobj: 0,
             psvar_word1: 0,
             psvar_word2: 0,
@@ -911,6 +931,7 @@ impl GameVars {
             0x155C => self.shared.game_flags2,
             0x1569 => self.shared.float_variables[0],
             0x156A => self.shared.float_variables[1],
+            RETAIL_PLAYER_ROLL_VELOCITY_OPERAND => self.strategy.player_roll_velocity as u8,
             0x162B => self.shared.slime_count,
             0x1721 => low(self.map.background_y as u16),
             0x1722 => high(self.map.background_y as u16),
@@ -1008,12 +1029,8 @@ impl GameVars {
             // Imported-path literal sintabs (`PATH_EXT_SINTAB` from the
             // native builder, and the retail blob's copy at $8B62 in the
             // path bank); same 127-amplitude Q8 table as STRATROU `sintab`.
-            0x2200..=0x22FF => {
-                sf_core::snes_trig::SINTAB[(encoded & 0x00FF) as usize] as u8
-            }
-            0x8B62..=0x8C61 => {
-                sf_core::snes_trig::SINTAB[(encoded - 0x8B62) as usize] as u8
-            }
+            0x2200..=0x22FF => sf_core::snes_trig::SINTAB[(encoded & 0x00FF) as usize] as u8,
+            0x8B62..=0x8C61 => sf_core::snes_trig::SINTAB[(encoded - 0x8B62) as usize] as u8,
             _ => panic!("untranslated imported 8-bit variable operand {encoded:#06x}"),
         }
     }
@@ -1107,6 +1124,7 @@ impl GameVars {
             0x155C => self.shared.game_flags2 = value,
             0x1569 => self.shared.float_variables[0] = value,
             0x156A => self.shared.float_variables[1] = value,
+            RETAIL_PLAYER_ROLL_VELOCITY_OPERAND => self.strategy.player_roll_velocity = value as i8,
             0x162B => self.shared.slime_count = value,
             0x1727 => self.map.space_scroll_enabled = value,
             0x175B => self.shared.stage = value,

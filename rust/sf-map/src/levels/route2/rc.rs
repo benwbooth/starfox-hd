@@ -10,6 +10,8 @@
 
 // ---- shape ids (levels.c SH_*; "MACRO-counted" def_shape order) ----
 pub const SH_NULLSHAPE: u16 = 0;
+/// Direct `training` ShapeHdr, assigned a stable native extended-shape slot.
+pub const SH_TRAINING: u16 = 482;
 pub const SH_MYSHIP_4: u16 = 2;
 pub const SH_TRUCK: u16 = 4;
 pub const SH_M_TANK: u16 = 6;

@@ -318,6 +318,9 @@ mod registration_tests {
 
 /// C `path_init_common` (src/path/paths.c:932).
 fn path_init_common(g: &mut Game, idx: u16, ids: PathStratIds) {
+    if let Some(paths) = g.path.as_mut() {
+        paths.reset_object_state(idx);
+    }
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(ids.tick);
     al.collstratptr = Some(ids.coll);

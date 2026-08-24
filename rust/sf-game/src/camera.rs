@@ -4,13 +4,14 @@
 //! `GameCamera_Init` game.c:29, `GameCamera_Update` game.c:42) plus the
 //! camera-input globals in `src/game/game_vars.c`.
 //!
-//! The camera inputs `g_viewpos*` / `g_viewshake*` /
+//! The camera inputs `g_viewpos*` /
 //! `g_viewtype` / `g_viewtoobj` / `g_player_turnrot` / `g_pviewpos*` /
 //! `g_pviewposzoff` are strat-lane variables not yet ported into
 //! [`crate::vars::GameVars`]; they live in [`CameraVars`] with the C
 //! `GameVars_Init` defaults (all zero, game_vars.c:372-413) until sf-strat
-//! lands. `g_viewdist` IS in GameVars (the map VM's set_player_* callbacks
-//! write it), so it is read from there.
+//! lands. The three typed `StrategyVariables::view_shake` bytes are already
+//! shared with the player strategy. `g_viewdist` IS in GameVars (the map VM's
+//! set_player_* callbacks write it), so it is read from there.
 //!
 //! Instead of the C `Transform_SetCamera`/`Transform_SnapCamera` renderer
 //! calls (game.c:141-152), each update returns a
@@ -46,7 +47,6 @@ pub fn fp16_from_float(v: f32) -> i32 {
 /// by viewopening / playerfly / shake strategies:
 /// - `g_pviewposx/y/z`, `g_pviewposzoff` (game_vars.c:67-74)
 /// - `g_viewposx/y/z` (game_vars.c:70-72, VIEWTYPE_FPOS input)
-/// - `g_viewshakeX/Y/Z` (game_vars.c:85-87)
 /// - `g_viewtype` (game_vars.c:232, default VIEWTYPE_NORM)
 /// - `g_viewtoobj` (game_vars.c:82)
 /// - `g_player_turnrot` (game_vars.c:47)
@@ -132,6 +132,9 @@ impl GameCamera {
         self.vars.viewtype = strategy.view_kind;
         self.vars.viewtoobj = strategy.view_target_object;
         self.vars.player_turnrot = strategy.player_turn_rotation;
+        self.vars.viewshake_x = strategy.view_shake[0];
+        self.vars.viewshake_y = strategy.view_shake[1];
+        self.vars.viewshake_z = strategy.view_shake[2];
         let view_float_x = strategy.view_float_x;
         let view_float_y = strategy.view_float_y;
 
@@ -205,18 +208,11 @@ impl GameCamera {
             // via crotmat16/wmatrotp16, add into viewpos. Both authored angles
             // retain their low-byte precision in the Q15 matrix path.
             //
-            // The view strategy chases `view_distance` toward `viewdist` each
-            // tick. Fall back to
-            // viewdist/OUTVIEWDIST only when outdist is still 0 (pre-strat /
-            // unit tests) so the camera is not glued to the ship at boot.
-            let outdist = vars.strategy.view_distance;
-            let dist = if outdist != 0 {
-                outdist
-            } else if vars.viewdist > 0 {
-                vars.viewdist
-            } else {
-                OUTVIEWDIST
-            };
+            // `outdist` is the authored live pull-back. `viewdist` is only a
+            // strategy target; zero is meaningful during startup and must not
+            // be substituted with OUTVIEWDIST (GAME.ASM reads outdist
+            // directly before the two matrix rotations).
+            let dist = vars.strategy.view_distance;
             let pitch_matrix =
                 sf_core::snes_trig::zxy_matrix_q15_fine((outvx as u16).wrapping_neg(), 0, 0);
             let (pitch_x, pitch_y, pitch_z) =
@@ -366,8 +362,8 @@ mod tests {
 
     #[test]
     fn player_normal_path_matches_c() {
-        // With all CameraVars at C defaults and a player with rotx=0:
-        // pitch = 0 => offset_y = 0, offset_z = -viewdist.
+        // With all source camera inputs at their defaults, authored outdist is
+        // zero. `viewdist` is a strategy target and does not pull the camera.
         let mut vars = GameVars::init();
         let mut objs = Objects::init();
         let idx = objs.alloc().unwrap();
@@ -378,19 +374,49 @@ mod tests {
         let snap = cam.update(&mut vars, &objs);
         assert_eq!(snap.x, 0);
         assert_eq!(snap.y, 0);
-        assert_eq!(snap.z, fp16_from_int(-120));
+        assert_eq!(snap.z, 0);
         assert_eq!((snap.rx, snap.ry, snap.rz), (0, 0, 0));
         assert!(!snap.snap); // viewtype stayed VIEWTYPE_NORM (== static 0)
                              // viewpos published back (game.c:94-98).
         assert_eq!(
             (cam.vars.viewposx, cam.vars.viewposy, cam.vars.viewposz),
-            (0, 0, -120)
+            (0, 0, 0)
         );
-        assert_eq!(vars.strategy.fixed_view_position, [0, 0, -120]);
+        assert_eq!(vars.strategy.fixed_view_position, [0, 0, 0]);
         let snap2 = cam.update(&mut vars, &objs);
         assert_eq!(snap2.y, 0);
         let snap3 = cam.update(&mut vars, &objs);
         assert_eq!(snap3.y, 0);
+    }
+
+    #[test]
+    fn normal_camera_consumes_typed_signed_view_shake() {
+        const PLAYER_VIEW: [i16; 3] = [100, -50, 500];
+        const VIEW_DISTANCE: i16 = 120;
+        const VIEW_SHAKE: [i8; 3] = [4, -4, -7];
+
+        let mut vars = GameVars::init();
+        let mut objs = Objects::init();
+        let player = objs.alloc().unwrap();
+        objs.aliens[player as usize].sflags4 |= ASF4_PLAYEROBJ;
+        vars.strategy.player_view_position = PLAYER_VIEW;
+        vars.strategy.view_distance = VIEW_DISTANCE;
+        vars.strategy.view_shake = VIEW_SHAKE.map(|value| value as u8);
+
+        let mut camera = GameCamera::new();
+        camera.init(&mut vars);
+        let snapshot = camera.update(&mut vars, &objs);
+
+        assert_eq!(
+            [snapshot.x, snapshot.y, snapshot.z],
+            [
+                fp16_from_int(i32::from(PLAYER_VIEW[0] + i16::from(VIEW_SHAKE[0]))),
+                fp16_from_int(i32::from(PLAYER_VIEW[1] + i16::from(VIEW_SHAKE[1]))),
+                fp16_from_int(i32::from(
+                    PLAYER_VIEW[2] + i16::from(VIEW_SHAKE[2]) - VIEW_DISTANCE,
+                )),
+            ]
+        );
     }
 
     #[test]

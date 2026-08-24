@@ -1,2 +1,2 @@
-length 691
-inline 504
+length 755
+inline 568

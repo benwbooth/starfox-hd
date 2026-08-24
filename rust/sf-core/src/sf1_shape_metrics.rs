@@ -3802,6 +3802,14 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         },
     ), // sflash_0
     (
+        482,
+        Sf1ShapeMetrics {
+            visual_extent: 86,
+            coordinate_shift: 1,
+            half_extents: [80, 80, 10],
+        },
+    ), // training
+    (
         508,
         Sf1ShapeMetrics {
             visual_extent: 512,

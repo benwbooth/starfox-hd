@@ -269,6 +269,45 @@ const LEVEL_INITIALIZATION_RANDOM_STATE: [u8; 4] = [114, 239, 178, 245];
 /// player X/Y motion; the native port keeps the same deterministic cadence.
 const GAMEPLAY_PLAYER_FRAME_RATE: u8 = 6;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InitialPlayerDepth {
+    Zero,
+    Follower,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GameplayInitializationProfile {
+    transfer_ticks: u8,
+    second_player_update_tick: Option<u8>,
+    map_countdown: u16,
+    last_depth_change: i16,
+    random_state: [u8; 4],
+    previous_player_depth: InitialPlayerDepth,
+}
+
+const STANDARD_GAMEPLAY_INITIALIZATION: GameplayInitializationProfile =
+    GameplayInitializationProfile {
+        transfer_ticks: LEVEL_INITIALIZATION_TICKS,
+        second_player_update_tick: Some(SECOND_STARTUP_PLAYER_UPDATE_TICK),
+        map_countdown: LEVEL_INITIALIZATION_MAP_COUNTDOWN,
+        last_depth_change: LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE,
+        random_state: LEVEL_INITIALIZATION_RANDOM_STATE,
+        previous_player_depth: InitialPlayerDepth::Follower,
+    };
+
+/// Retail Training bypasses the planet-map transfer and reaches its first
+/// gameplay update after six native-rate ticks. Its background setup leaves
+/// the map and deterministic random stream in this independently traced state.
+const TRAINING_GAMEPLAY_INITIALIZATION: GameplayInitializationProfile =
+    GameplayInitializationProfile {
+        transfer_ticks: 6,
+        second_player_update_tick: None,
+        map_countdown: 288,
+        last_depth_change: 0,
+        random_state: [58, 167, 85, 127],
+        previous_player_depth: InitialPlayerDepth::Zero,
+    };
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TallyPhase {
     Counting,
@@ -2567,7 +2606,8 @@ impl Shell {
     fn begin_gameplay_from_planet_select(&mut self) {
         self.game_state = GameState::Playing;
         self.gameplay_entry_phase = GameplayEntryPhase::LevelInitialization;
-        self.gameplay_initialization_ticks_remaining = LEVEL_INITIALIZATION_TICKS;
+        self.gameplay_initialization_ticks_remaining =
+            self.gameplay_initialization_profile().transfer_ticks;
         self.draw_list.clear();
 
         self.state
@@ -2579,10 +2619,12 @@ impl Shell {
     }
 
     fn gameplay_initialization_tick(&mut self) {
-        let elapsed = LEVEL_INITIALIZATION_TICKS
+        let profile = self.gameplay_initialization_profile();
+        let elapsed = profile
+            .transfer_ticks
             .saturating_sub(self.gameplay_initialization_ticks_remaining)
             .saturating_add(1);
-        if elapsed == SECOND_STARTUP_PLAYER_UPDATE_TICK && self.game.vars.dummyobj > 0 {
+        if profile.second_player_update_tick == Some(elapsed) && self.game.vars.dummyobj > 0 {
             let player = self.game.vars.internal_playpt;
             if player >= 0 {
                 self.advance_startup_player(player as u16);
@@ -2633,6 +2675,7 @@ impl Shell {
         // g_screenflashcnt remains renderer-lane state.
         v.circleanim = 0;
         v.player_death_fade_delay = 0;
+        v.training_player_startup = crate::vars::TrainingPlayerStartupPhase::Inactive;
         v.screen_fill_circle.clear();
         v.oncewipe = 0;
         v.strategy.wipe_active = 0;
@@ -2676,24 +2719,40 @@ impl Shell {
     }
 
     fn complete_gameplay_initialization(&mut self) {
+        let profile = self.gameplay_initialization_profile();
         if let Some(player) = self.game.sync_player_snapshot() {
             let follower = self.game.vars.dummyobj;
-            let previous_player_depth = if follower > 0
-                && (follower as usize) < self.game.objs.aliens.len()
-                && self.game.objs.aliens[follower as usize].active
-            {
-                self.game.objs.aliens[follower as usize].worldz
-            } else {
-                self.game.objs.aliens[player as usize].worldz
+            let previous_player_depth = match profile.previous_player_depth {
+                InitialPlayerDepth::Zero => 0,
+                InitialPlayerDepth::Follower
+                    if follower > 0
+                        && (follower as usize) < self.game.objs.aliens.len()
+                        && self.game.objs.aliens[follower as usize].active =>
+                {
+                    self.game.objs.aliens[follower as usize].worldz
+                }
+                InitialPlayerDepth::Follower => self.game.objs.aliens[player as usize].worldz,
             };
+            // `initgame_l` publishes the first gameplay update as frame zero
+            // for every level. Corneria's opening strategy also clears the
+            // counter, but ordinary openings such as Training do not.
+            self.game.vars.gameframe = 0;
             self.initialize_player_for_map(self.planets.newmap, player);
-            self.game.vars.rng = LEVEL_INITIALIZATION_RANDOM_STATE;
+            self.game.vars.rng = profile.random_state;
             self.game.vars.strategy.frame_rate = GAMEPLAY_PLAYER_FRAME_RATE;
-            self.game.vars.mapcnt = LEVEL_INITIALIZATION_MAP_COUNTDOWN;
+            self.game.vars.mapcnt = profile.map_countdown;
             self.game.world.lastplayz = previous_player_depth;
-            self.game.world.lastzchange = LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE;
+            self.game.world.lastzchange = profile.last_depth_change;
         }
         self.gameplay_entry_phase = GameplayEntryPhase::ActiveLevel;
+    }
+
+    fn gameplay_initialization_profile(&self) -> GameplayInitializationProfile {
+        if self.planets.newmap == sf_map::catalog::map_id::TRAINING {
+            TRAINING_GAMEPLAY_INITIALIZATION
+        } else {
+            STANDARD_GAMEPLAY_INITIALIZATION
+        }
     }
 
     /// ROM `dopause` (MAIN.ASM:1386-1426) — START edge toggles pause.

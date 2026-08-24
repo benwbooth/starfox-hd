@@ -1369,6 +1369,7 @@ fn explode_icont(g: &mut Game, idx: u16) {
 
     let explode_tick = sid(g, explode_strat);
     let large_explode_tick = sid(g, lexplode_strat);
+    let sprite_rotation = crate::common::flat_billboard_rotation(&g.vars);
     {
         let object = &mut g.objs.aliens[idx as usize];
         object.flags |= AFEXP;
@@ -1402,6 +1403,8 @@ fn explode_icont(g: &mut Game, idx: u16) {
         object.vx = source.vx;
         object.vy = source.vy;
         object.vz = source.vz;
+        object.rotx = sprite_rotation[0];
+        object.roty = sprite_rotation[1];
         object.stratptr = Some(explode_tick);
         object.collstratptr = None;
         object.expstratptr = None;
@@ -11139,6 +11142,38 @@ const GROUNDPILON_HP: u8 = 16;
 const GROUNDPILON_AP: u8 = 1;
 const GROUNDPILON_LAND_Y: i16 = -35;
 const GROUNDPILON_STACK_GAP: i16 = 70;
+const GROUNDPILON_KNOCKBACK_RANDOM_MASK: u16 = 15;
+const GROUNDPILON_KNOCKBACK_RANDOM_CENTER: i16 = 7;
+
+fn groundpilon_can_stack_on(me: &Alien, candidate: &Alien) -> bool {
+    candidate.worldy >= me.worldy
+        && dist_xz(me, candidate) < GROUNDPILON_STACK_GAP
+        && candidate.worldy.wrapping_sub(me.worldy).wrapping_abs() < GROUNDPILON_STACK_GAP
+}
+
+#[cfg(test)]
+mod groundpilon_support_tests {
+    use super::*;
+
+    #[test]
+    fn source_xz_metric_accepts_training_stack_edge() {
+        let falling = Alien {
+            worldx: 0,
+            worldy: -140,
+            worldz: 20_797,
+            ..Alien::default()
+        };
+        let support = Alien {
+            worldx: 4,
+            worldy: -130,
+            worldz: 20_877,
+            ..Alien::default()
+        };
+
+        assert_eq!(dist_xz(&falling, &support), 69);
+        assert!(groundpilon_can_stack_on(&falling, &support));
+    }
+}
 
 pub fn groundpilon_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, groundpilon_strat);
@@ -11157,7 +11192,12 @@ pub fn groundpilon_istrat(g: &mut Game, idx: u16) {
 pub fn groundpilon_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].hp != g.objs.aliens[idx as usize].sbyte1 {
         let hp = g.objs.aliens[idx as usize].hp;
-        let random_x = (sf_random(&mut g.vars) & 15) as i16 - 7;
+        let random_x = (sf_random(&mut g.vars) & GROUNDPILON_KNOCKBACK_RANDOM_MASK) as i16
+            - GROUNDPILON_KNOCKBACK_RANDOM_CENTER;
+        // The source builds a 16-bit temporary with a second random draw for
+        // its high byte, then masks that byte to zero. The value is discarded,
+        // but advancing the shared stream remains observable by later logic.
+        let _masked_high_byte = sf_random(&mut g.vars) & 0;
         let al = &mut g.objs.aliens[idx as usize];
         al.sbyte1 = hp;
         al.vx = random_x;
@@ -11191,12 +11231,7 @@ pub fn groundpilon_strat(g: &mut Game, idx: u16) {
                 return false;
             }
             let candidate = g.objs.aliens[other as usize];
-            candidate.shape == sh::PILON
-                && candidate.worldy >= me.worldy
-                && (candidate.worldx as i32 - me.worldx as i32).abs()
-                    + (candidate.worldz as i32 - me.worldz as i32).abs()
-                    < GROUNDPILON_STACK_GAP as i32
-                && (candidate.worldy as i32 - me.worldy as i32).abs() < GROUNDPILON_STACK_GAP as i32
+            candidate.shape == sh::PILON && groundpilon_can_stack_on(&me, &candidate)
         });
         if let Some(support) = support {
             let support_y = g.objs.aliens[support as usize].worldy;

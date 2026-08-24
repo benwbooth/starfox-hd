@@ -93,10 +93,12 @@ struct PathTriggerEntry {
     trigger: u8,
 }
 
-/// C `PathVmState` (minus `owner`: the C owner pointer is constant per slot,
-/// so the "reset when owner changes" branch only fires on first use — which
-/// zero-initialization already covers; VM state deliberately persists across
-/// alien slot reuse, matching the C oracle).
+/// Per-live-object path execution state.
+///
+/// The source stores trigger lists in heap memory referenced by the object's
+/// `stratmem` field. Normal object initialization clears that field, so a
+/// recycled pool slot starts with no path stack or triggers. This sidecar must
+/// therefore be reset on every path-object allocation generation.
 #[derive(Clone)]
 struct PathVmState {
     /// Position at the start of this tick — used to translate linked
@@ -406,6 +408,14 @@ impl PathWorld {
         self.path_operands_are_offsets = data.len() == rom_catalog_data::ROM_PATH_CATALOG_SIZE;
         self.path_data = data;
         self.path_offsets = offsets;
+    }
+
+    /// Begin a new path-object lifetime in an existing object-pool slot.
+    pub fn reset_object_state(&mut self, object: u16) {
+        let index = usize::from(object);
+        if index < self.vm.len() {
+            self.vm[index] = PathVmState::default();
+        }
     }
 
     /// Resolve a path reference embedded inside bytecode. The original ROM
@@ -723,6 +733,35 @@ fn path_get_player<H: PathHost>(world: &PathWorld, host: &mut H) -> Option<usize
         return None;
     }
     Some(p)
+}
+
+/// Source-axis distance in its wrapping 16-bit coordinate domain.
+fn path_axis_distance(first: i16, second: i16) -> i16 {
+    let difference = first.wrapping_sub(second);
+    if difference < 0 {
+        difference.wrapping_neg()
+    } else {
+        difference
+    }
+}
+
+/// Source distance predicates branch on the sign of the wrapped subtraction,
+/// including at the signed-coordinate boundary.
+fn path_axis_distance_is_less(first: i16, second: i16, limit: i16) -> bool {
+    path_axis_distance(first, second).wrapping_sub(limit) < 0
+}
+
+/// Source `xydiffs_l` Manhattan distance in the wrapping coordinate domain.
+fn path_xy_distance(first: &Alien, second: &Alien) -> i16 {
+    path_axis_distance(first.worldx, second.worldx)
+        .wrapping_add(path_axis_distance(first.worldy, second.worldy))
+}
+
+/// Source `s_jmp_outXYdistrng ...,#0,#radius`: a negative wrapped distance is
+/// outside the lower bound and equality with the upper bound is outside.
+fn path_xy_distance_is_within(first: &Alien, second: &Alien, radius: i16) -> bool {
+    let distance = path_xy_distance(first, second);
+    distance >= 0 && distance.wrapping_sub(radius) < 0
 }
 
 /// C `path_resolve_strategy`.
@@ -1994,6 +2033,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 if let Some(na) = host.obj_alloc(world).map(|a| a as usize) {
                     host.obj_move_after(world, na as u16, si as u16);
                     host.init_obj_vars(&mut world.aliens[na]);
+                    world.reset_object_state(na as u16);
                     world.aliens[na].shape = if shape < 256 {
                         world.shapes_table[(shape as u8) as usize]
                     } else {
@@ -2047,6 +2087,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 if let Some(na) = host.obj_alloc(world).map(|a| a as usize) {
                     host.obj_move_after(world, na as u16, si as u16);
                     host.init_obj_vars(&mut world.aliens[na]);
+                    world.reset_object_state(na as u16);
                     world.aliens[na].shape = if shape < 256 {
                         world.shapes_table[(shape as u8) as usize]
                     } else {
@@ -2409,9 +2450,11 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread16(ip, 3);
                 let mut take = false;
                 if let Some(pi) = path_get_player(world, host) {
-                    let zdist = (world.aliens[si].worldz as i32 - world.aliens[pi].worldz as i32)
-                        .abs() as i16;
-                    take = zdist < dist;
+                    take = path_axis_distance_is_less(
+                        world.aliens[pi].worldz,
+                        world.aliens[si].worldz,
+                        dist,
+                    );
                 }
                 if invert_next_cond {
                     take = !take;
@@ -2430,9 +2473,11 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let target = world.pread16(ip, 3);
                 let mut take = false;
                 if let Some(obj) = path_get_obj_by_ptr(world, world.aliens[si].ptr) {
-                    let zdist = (world.aliens[si].worldz as i32 - world.aliens[obj].worldz as i32)
-                        .abs() as i16;
-                    take = zdist < dist;
+                    take = path_axis_distance_is_less(
+                        world.aliens[obj].worldz,
+                        world.aliens[si].worldz,
+                        dist,
+                    );
                 }
                 if invert_next_cond {
                     take = !take;
@@ -2533,12 +2578,15 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 if let Some(pi) = path_get_player(world, host) {
                     let p = &world.aliens[pi];
                     let s = &world.aliens[si];
+                    // These source predicates inspect the sign of the wrapped
+                    // 16-bit difference. A direct signed comparison diverges
+                    // when the course crosses the world-coordinate boundary.
                     take = match opcode {
-                        P_LEFTOFPLAYER => p.worldx >= s.worldx,
-                        P_RIGHTOFPLAYER => p.worldx < s.worldx,
-                        P_ABOVEPLAYER => p.worldy >= s.worldy,
-                        P_BELOWPLAYER => p.worldy < s.worldy,
-                        P_BEHINDPLAYER => p.worldz >= s.worldz,
+                        P_LEFTOFPLAYER => p.worldx.wrapping_sub(s.worldx) >= 0,
+                        P_RIGHTOFPLAYER => p.worldx.wrapping_sub(s.worldx) < 0,
+                        P_ABOVEPLAYER => p.worldy.wrapping_sub(s.worldy) >= 0,
+                        P_BELOWPLAYER => p.worldy.wrapping_sub(s.worldy) < 0,
+                        P_BEHINDPLAYER => p.worldz.wrapping_sub(s.worldz) >= 0,
                         _ => false,
                     };
                 }
@@ -3071,6 +3119,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 if let Some(na) = host.obj_alloc(world).map(|a| a as usize) {
                     host.obj_move_after(world, na as u16, si as u16);
                     host.init_obj_vars(&mut world.aliens[na]);
+                    world.reset_object_state(na as u16);
                     world.aliens[na].shape = if shape < 256 {
                         world.shapes_table[(shape as u8) as usize]
                     } else {
@@ -3202,11 +3251,9 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 if let Some(o) = obj {
                     let s = &world.aliens[si];
                     let ob = &world.aliens[o];
-                    let dz = (s.worldz as i32 - ob.worldz as i32).abs() as i16;
-                    if dz <= 200 {
-                        let dx = (s.worldx as i32 - ob.worldx as i32).abs() as i16;
-                        let dy = (s.worldy as i32 - ob.worldy as i32).abs() as i16;
-                        take = dx <= radius && dy <= radius;
+                    const WITHIN_RANGE_DEPTH: i16 = 200;
+                    if path_axis_distance_is_less(s.worldz, ob.worldz, WITHIN_RANGE_DEPTH) {
+                        take = path_xy_distance_is_within(s, ob, radius);
                     }
                 }
 
@@ -3475,4 +3522,65 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
 
     // Path collision trigger flags are one-frame latches.
     world.aliens[si].sflags3 &= !(ASF3_SFLAG5 | ASF3_SFLAG7);
+}
+
+#[cfg(test)]
+mod vm_lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn recycled_path_object_discards_stack_triggers_and_motion_history() {
+        const OBJECT: u16 = 8;
+        let mut world = PathWorld::new();
+        let vm = &mut world.vm[usize::from(OBJECT)];
+        vm.prev_x = 123;
+        vm.delta_valid = true;
+        vm.data[0] = 456;
+        vm.sp = 1;
+        vm.triggers[0] = PathTriggerEntry {
+            addr: 789,
+            trigger: PATH_TRIGGER_ALWAYS,
+        };
+        vm.trigger_count = 1;
+        vm.ifnot_pending = true;
+
+        world.reset_object_state(OBJECT);
+
+        let vm = &world.vm[usize::from(OBJECT)];
+        assert_eq!(vm.prev_x, 0);
+        assert!(!vm.delta_valid);
+        assert_eq!(vm.sp, 0);
+        assert_eq!(vm.trigger_count, 0);
+        assert!(!vm.ifnot_pending);
+    }
+}
+
+#[cfg(test)]
+mod distance_tests {
+    use super::*;
+
+    fn alien_at(x: i16, y: i16) -> Alien {
+        Alien {
+            worldx: x,
+            worldy: y,
+            ..Alien::default()
+        }
+    }
+
+    #[test]
+    fn within_radius_uses_strict_manhattan_distance() {
+        let origin = alien_at(0, 0);
+        assert!(!path_xy_distance_is_within(&origin, &alien_at(80, 60), 130));
+        assert!(!path_xy_distance_is_within(&origin, &alien_at(80, 50), 130));
+        assert!(path_xy_distance_is_within(&origin, &alien_at(79, 50), 130));
+    }
+
+    #[test]
+    fn within_radius_preserves_wrapped_source_coordinates() {
+        let first = alien_at(i16::MAX - 7, 0);
+        let second = alien_at(i16::MIN + 8, 0);
+        assert_eq!(path_xy_distance(&first, &second), 16);
+        assert!(path_xy_distance_is_within(&first, &second, 17));
+        assert!(!path_xy_distance_is_within(&first, &second, 16));
+    }
 }

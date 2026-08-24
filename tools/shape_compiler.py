@@ -379,6 +379,9 @@ EXTENDED_SHAPES = {
     "lflash_0":         479,
     "mflash_0":         480,
     "sflash_0":         481,
+    # Training's visible octagonal course ring. TRAINING.ASM references the
+    # ShapeHdr directly, so it has no def_shape catalog slot.
+    "training":         482,
 }
 
 

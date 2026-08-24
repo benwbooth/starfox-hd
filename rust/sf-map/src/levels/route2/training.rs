@@ -11,6 +11,11 @@ use crate::builder::MapBuilder;
 pub fn build() -> Route2Level {
     let mut b = MapBuilder::new();
 
+    // The source `initlevel` macro ends with two `mapwait 1` barriers.  Normal
+    // stages consume them inside the longer planet-transfer handoff, whereas
+    // Training's short direct handoff exposes both as live level updates.
+    b.mapwait(1);
+    b.mapwait(1);
     b.mapwait(2000);
 
     // ELSEIF block (actual training content):
@@ -18,132 +23,87 @@ pub fn build() -> Route2Level {
     b.pathobj(0, 0, 0, 3000, SH_ZACO_5, PATH_ID_TRN_CK, 10, 10);
 
     // Lines 35-36: mapobj BU_8 and BU_1
-    b.mapobj(0, 4608, 0, 5000, SH_BU_8, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_BU_1, IS_HARD180YR);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_8, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_BU_1, IS_HARD180YR);
 
     // Line 38: pilon ground obstacle
-    b.mapobj(0, 0, 1280, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(0, 0, 500, 5000, SH_PILON, STRATEGY_GROUNDPILON);
 
     // Lines 40-45: more building objects
-    b.mapobj(0, 4608, 0, 5000, SH_BU_0, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_BU_2, IS_HARD180YR);
-    b.mapobj(0, 4608, 0, 5000, SH_BU_1, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_BU_1, IS_HARD180YR);
-    b.mapobj(0, 4096, 0, 5000, SH_TOWER_2, IS_TOWER0);
-    b.mapobj(8192, -4096, 0, 5000, SH_TOWER_2, IS_TOWER0);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_0, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_BU_2, IS_HARD180YR);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_1, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_BU_1, IS_HARD180YR);
+    b.mapobj(0, 1000, 0, 5000, SH_TOWER_2, IS_TOWER0);
+    b.mapobj(2000, -1000, 0, 5000, SH_TOWER_2, IS_TOWER0);
 
     // Line 46 = .et label (eguchifly_goto loop target)
     b.label("training.et");
 
     // Lines 49-55: training rings and buildings
-    b.pathobj(0, 0, -100, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING, 10, 10);
-    b.mapobj(0, 4608, 0, 5000, SH_BU_8, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_BU_1, IS_HARD180YR);
+    b.pathobj(0, 0, -100, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_8, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_BU_1, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        512,
-        -150,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING2,
-        10,
-        10,
-    );
-    b.mapobj(0, 4608, 0, 5000, SH_BU_0, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_BU_2, IS_HARD180YR);
+    b.pathobj(0, 200, -150, 5000, SH_TRAINING, PATH_ID_TRN_RING2, 10, 10);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_0, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_BU_2, IS_HARD180YR);
 
-    b.pathobj(0, 0, -200, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING, 10, 10);
-    b.mapobj(0, 4608, 0, 5000, SH_BU_1, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_BU_1, IS_HARD180YR);
+    b.pathobj(0, 0, -200, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_1, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_BU_1, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        -512,
-        -150,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING2,
-        10,
-        10,
-    );
-    b.mapobj(0, 4096, 0, 5000, SH_TOWER_2, IS_TOWER0);
-    b.mapobj(8192, -4096, 0, 5000, SH_TOWER_2, IS_TOWER0);
+    b.pathobj(0, -200, -150, 5000, SH_TRAINING, PATH_ID_TRN_RING2, 10, 10);
+    b.mapobj(0, 1000, 0, 5000, SH_TOWER_2, IS_TOWER0);
+    b.mapobj(2000, -1000, 0, 5000, SH_TOWER_2, IS_TOWER0);
 
     // Lines 66-76: more rings and buildings
-    b.pathobj(0, 0, -100, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING, 10, 10);
-    b.mapobj(0, 4608, 0, 5000, SH_PILLAR3, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_PILLAR3, IS_HARD180YR);
+    b.pathobj(0, 0, -100, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
+    b.mapobj(0, 1200, 0, 5000, SH_PILLAR3, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_PILLAR3, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        512,
-        -200,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING2,
-        10,
-        10,
-    );
-    b.mapobj(0, 4608, 0, 5000, SH_ROBOT_0, IS_HARD180YR);
-    b.mapobj(4608, -4608, 0, 5000, SH_ROBOT_0, IS_HARD180YR);
+    b.pathobj(0, 200, -200, 5000, SH_TRAINING, PATH_ID_TRN_RING2, 10, 10);
+    b.mapobj(0, 1200, 0, 5000, SH_ROBOT_0, IS_HARD180YR);
+    b.mapobj(1200, -1200, 0, 5000, SH_ROBOT_0, IS_HARD180YR);
 
-    b.pathobj(
-        0,
-        -816,
-        -100,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING,
-        10,
-        10,
-    );
-    b.mapobj(0, 4608, 0, 5000, SH_BU_7, IS_HARD180YR);
-    b.mapobj(8192, -4608, 0, 5000, SH_BU_7, IS_HARD180YR);
+    b.pathobj(0, -330, -100, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_7, IS_HARD180YR);
+    b.mapobj(2000, -1200, 0, 5000, SH_BU_7, IS_HARD180YR);
 
     // Lines 78-87: solo rings
-    b.pathobj(1000, 0, -100, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING2, 10, 10);
-    b.mapobj(2048, 0, 0, 5000, SH_BU_7, IS_HARD180YR);
+    b.pathobj(1000, 0, -100, 5000, SH_TRAINING, PATH_ID_TRN_RING2, 10, 10);
+    b.mapobj(800, 0, 0, 5000, SH_BU_7, IS_HARD180YR);
 
-    b.pathobj(1000, 0, -100, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING, 10, 10);
+    b.pathobj(1000, 0, -100, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
     b.pathobj(
         1000,
-        256,
+        100,
         -100,
         5000,
-        SH_NULLSHAPE,
+        SH_TRAINING,
         PATH_ID_TRN_RING2,
         10,
         10,
     );
+    b.pathobj(800, -200, -300, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
     b.pathobj(
         800,
-        -512,
-        -300,
-        5000,
-        SH_NULLSHAPE,
-        PATH_ID_TRN_RING,
-        10,
-        10,
-    );
-    b.pathobj(
-        800,
-        -256,
+        -100,
         -100,
         5000,
-        SH_NULLSHAPE,
+        SH_TRAINING,
         PATH_ID_TRN_RING2,
         10,
         10,
     );
-    b.pathobj(800, 0, -300, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING, 10, 10);
-    b.pathobj(2000, 0, -100, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING2, 10, 10);
+    b.pathobj(800, 0, -300, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
+    b.pathobj(2000, 0, -100, 5000, SH_TRAINING, PATH_ID_TRN_RING2, 10, 10);
 
     // Line 92: base_1 object
-    b.mapobj(768, 0, 0, 5000, SH_BASE_1, IS_BASE_1);
+    b.mapobj(300, 0, 0, 5000, SH_BASE_1, IS_BASE_1);
 
     // Line 94: long ring stretch
-    b.pathobj(8000, 0, -100, 5000, SH_NULLSHAPE, PATH_ID_TRN_RING, 10, 10);
+    b.pathobj(8000, 0, -100, 5000, SH_TRAINING, PATH_ID_TRN_RING, 10, 10);
 
     // Line 95: eguchifly_goto .et.  The inline 65816 block reads the shared
     // 16-bit `eword1` ring counter: values below 15 skip the following GOTO,
@@ -189,19 +149,19 @@ pub fn build() -> Route2Level {
 
     // Lines 102-108: .etlop — building loop
     b.label("training.etlop");
-    b.mapobj(0, 4608, 0, 5000, SH_BU_8, IS_HARD180YR);
-    b.mapobj(16896, -4608, 0, 5000, SH_BU_1, IS_HARD180YR);
-    b.mapobj(0, 4608, 0, 5000, SH_BU_7, IS_HARD180YR);
-    b.mapobj(16896, -4608, 0, 5000, SH_BU_7, IS_HARD180YR);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_8, IS_HARD180YR);
+    b.mapobj(4200, -1200, 0, 5000, SH_BU_1, IS_HARD180YR);
+    b.mapobj(0, 1200, 0, 5000, SH_BU_7, IS_HARD180YR);
+    b.mapobj(4200, -1200, 0, 5000, SH_BU_7, IS_HARD180YR);
     b.maploop("training.etlop", 4);
 
     // Lines 109-114: pilon obstacles
-    b.mapobj(0, -512, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(0, -200, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
     b.mapobj(0, 0, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
-    b.mapobj(24576, 512, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(6000, 200, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
     b.mapobj(0, 0, -70, 5000, SH_PILON, STRATEGY_GROUNDPILON);
     b.mapobj(0, 0, -140, 5000, SH_PILON, STRATEGY_GROUNDPILON);
-    b.mapobj(32768, 0, -210, 5000, SH_PILON, STRATEGY_GROUNDPILON);
+    b.mapobj(8000, 0, -210, 5000, SH_PILON, STRATEGY_GROUNDPILON);
 
     // Line 116: mapgoto .et — loop back to main section
     b.mapgoto("training.et");

@@ -2587,8 +2587,7 @@ mod player_projectile_tests {
         assert_eq!(game.vars.sv_u8(sv::FIREDELAY), PLAYER_FIRESPEED);
         assert_eq!(game.vars.sv_u8(sv::NUMPLASERS), 1);
         assert_eq!(
-            game
-                .objs
+            game.objs
                 .active_indices()
                 .into_iter()
                 .filter(|slot| game.objs.aliens[usize::from(*slot)].shape == SHAPE_PLAYER_LASER)
@@ -2937,6 +2936,26 @@ pub fn strat_player(g: &mut Game, idx: u16) {
         return;
     }
 
+    match g.vars.training_player_startup {
+        sf_game::vars::TrainingPlayerStartupPhase::InitialMovement => {
+            g.vars.training_player_startup =
+                sf_game::vars::TrainingPlayerStartupPhase::ActivatePlanetMode;
+            g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+                .worldz
+                .wrapping_add(LEVEL_INITIALIZATION_FORWARD_STEP);
+            // The short transfer already installed playermove state. Its first
+            // live body advances only the source depth lane before the full
+            // planet-mode X/Y controls become active on the following update.
+            viewmove_srou(g, idx);
+            return;
+        }
+        sf_game::vars::TrainingPlayerStartupPhase::ActivatePlanetMode => {
+            g.vars.training_player_startup = sf_game::vars::TrainingPlayerStartupPhase::Inactive;
+            g.vars.playerflymode |= PFM_WOBBLE;
+        }
+        sf_game::vars::TrainingPlayerStartupPhase::Inactive => {}
+    }
+
     boost_brake_update(g, idx);
 
     // The ROM picks the do_player_* velocity handler by the active player STRAT
@@ -3088,6 +3107,19 @@ pub fn initialize_player_for_map(g: &mut Game, map_id: u32, idx: u16) {
         Some(Strategy::HyperspaceExit) => player_warp_out_istrat(g, idx),
         Some(Strategy::PlanetFlyIn) => player_planet_flyin_istrat(g, idx),
         Some(Strategy::GroundDive) => player_divegnd_istrat(g, idx),
+        Some(Strategy::PlanetFlight) if map_id == sf_map::catalog::map_id::TRAINING => {
+            // Training installs normal planet flight during its short
+            // transfer, then executes the first movement body at the first
+            // gameplay update. Other planet-map callbacks enter through the
+            // source routine that falls through immediately.
+            playeronplanet_init(g, idx);
+            player_move_init(g, idx);
+            g.vars
+                .set_sv_i16(sv::PVIEWPOSZ, g.objs.aliens[idx as usize].worldz);
+            g.vars.playerflymode &= !PFM_WOBBLE;
+            g.vars.training_player_startup =
+                sf_game::vars::TrainingPlayerStartupPhase::InitialMovement;
+        }
         Some(Strategy::PlanetFlight) => set_player_on_planet(g, idx),
         Some(Strategy::SpaceFlyIn) => player_space_flyin_istrat(g, idx),
         Some(Strategy::ColonyFlyIn) => player_colony_flyin_istrat(g, idx),
