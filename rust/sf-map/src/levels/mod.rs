@@ -35,6 +35,8 @@ pub enum NativeCallback {
 /// The variant names mirror the C inline functions in levels.c.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineCallback {
+    /// Source `waitfadefin` loop at the Corneria scramble handoff.
+    Level1_1WaitFade,
     /// C `level_scramble_keep_player_strat`
     LevelScrambleKeepPlayerStrat,
     /// C `level1_1_skillfly_bonus_guard`

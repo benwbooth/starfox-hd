@@ -132,6 +132,10 @@ pub fn update(vars: &mut GameVars) {
     if vars.bgflags & BGF_BG != 0 {
         do_bg_req(vars);
     }
+    if vars.bgflags & BGF_INFO != 0 {
+        vars.preserve_player_strategy = false;
+        vars.bgflags &= !BGF_INFO;
+    }
 }
 
 #[cfg(test)]
@@ -176,6 +180,18 @@ mod tests {
         vars.bgflags = BGF_BG | BGF_INFO;
         do_bg_req(&mut vars);
         assert_eq!(vars.bgflags, BGF_INFO);
+    }
+
+    #[test]
+    fn background_info_consumes_player_strategy_preservation() {
+        let mut vars = GameVars::init();
+        vars.preserve_player_strategy = true;
+        vars.bgflags = BGF_INFO;
+
+        update(&mut vars);
+
+        assert!(!vars.preserve_player_strategy);
+        assert_eq!(vars.bgflags, 0);
     }
 
     #[test]

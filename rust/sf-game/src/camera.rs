@@ -166,6 +166,7 @@ impl GameCamera {
                     rx: self.camera_rx,
                     ry: self.camera_ry,
                     rz: self.camera_rz,
+                    rotation: self.vars.view_rotation,
                     snap: false,
                 };
             }
@@ -337,6 +338,7 @@ impl GameCamera {
             rx: rot_x,
             ry: rot_y,
             rz: rot_z,
+            rotation: self.vars.view_rotation,
             snap,
         }
     }

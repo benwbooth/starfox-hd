@@ -1117,7 +1117,7 @@ fn main() {
                 let cam = frame.camera;
                 renderer
                     .transform
-                    .set_camera(cam.x, cam.y, cam.z, cam.rx, cam.ry, cam.rz);
+                    .set_camera_fine(cam.x, cam.y, cam.z, cam.rotation);
                 if cam.snap {
                     renderer.transform.snap_camera();
                 }

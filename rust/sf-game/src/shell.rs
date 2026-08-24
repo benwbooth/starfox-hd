@@ -119,6 +119,8 @@ pub const BRIEFING_INPUT_DELAY_TICKS: u16 = 16;
 /// The controller screen's CPU-driven normal fade completes in this many
 /// sampled 20 Hz port ticks while retaining the source normal fade mode.
 pub const BRIEFING_FADE_TICKS: u8 = 16;
+/// Measured whole-machine duration of a normal-speed gameplay map fade.
+const NORMAL_MAP_FADE_TICKS: u8 = 15;
 /// Controller/destination selection movement cue.
 pub const BRIEFING_MOVE_SOUND: u8 = 17;
 /// Controller/destination confirmation cue.
@@ -940,6 +942,8 @@ pub struct CameraSnapshot {
     pub rx: i16,
     pub ry: i16,
     pub rz: i16,
+    /// Complete source turn fractions used by the view transform.
+    pub rotation: [u16; 3],
     pub snap: bool,
 }
 
@@ -1182,7 +1186,14 @@ impl Hooks for ShellHooks {
     }
 
     fn fade_to_black(&mut self, speed: i32) {
-        self.state.borrow_mut().windows.fade_to_black(speed);
+        let mut state = self.state.borrow_mut();
+        if speed >= 2 {
+            state.windows.fade_to_black(speed);
+        } else {
+            state
+                .windows
+                .fade_to_black_over_current(MapFadeRate::Normal, NORMAL_MAP_FADE_TICKS);
+        }
     }
 
     fn fade_from_black(&mut self, speed: i32) {

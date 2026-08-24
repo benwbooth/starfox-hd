@@ -1266,6 +1266,11 @@ pub fn strat_spawn_projectile(
     let (tick_id, coll_id) = projectile_strat_ids(g);
     let idx = g.objs.alloc()?;
     strat_init_obj_vars(&mut g.objs.aliens[idx as usize]);
+    if let Some(anchor) = owner {
+        // Weapon construction occurs with the firer as the current object,
+        // so the new projectile must execute immediately after its owner.
+        g.objs.active_move_after(idx, anchor);
+    }
 
     let owner_al = owner
         .filter(|&o| (o as usize) < NUMBER_AL)

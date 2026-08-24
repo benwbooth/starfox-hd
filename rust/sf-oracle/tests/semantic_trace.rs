@@ -14,8 +14,8 @@ use sf_oracle::{
     RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
     RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
     RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
-    RETAIL_PSHIPFLAGS, RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT,
-    RETAIL_WHICH_ROUTE,
+    RETAIL_PSHIPFLAGS, RETAIL_PSHIPFLAGS2, RETAIL_PSHIPFLAGS3, RETAIL_PSTRATFLAGS,
+    RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
 
 const FRAME_COUNT: u64 = 30;
@@ -28,10 +28,8 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
-/// Exclusive strict boundary. Tick 1,064 is the first unresolved native/retail
-/// state divergence; it must remain a failure until the shipping behavior is
-/// fixed rather than being normalized inside the oracle adapter.
-const FRONT_END_TICKS: u32 = 1_064;
+/// Exclusive strict boundary for the currently certified Corneria opening.
+const FRONT_END_TICKS: u32 = 1_220;
 const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
@@ -230,6 +228,9 @@ struct FighterMotion {
 struct LevelSnapshot {
     background: u16,
     game_frame: u16,
+    game_flags: u8,
+    player_ship_flags: [u8; 3],
+    player_strategy_flags: u8,
     map_countdown: u16,
     forward_velocity: i16,
     previous_player_depth: i16,
@@ -742,6 +743,13 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
         )
         .expect("retail background offset must identify a catalog record"),
         game_frame: retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
+        game_flags: retail.peek8(WORK_RAM | sf_oracle::RETAIL_GAMEFLAGS),
+        player_ship_flags: [
+            retail.peek8(WORK_RAM | RETAIL_PSHIPFLAGS),
+            retail.peek8(WORK_RAM | RETAIL_PSHIPFLAGS2),
+            retail.peek8(WORK_RAM | RETAIL_PSHIPFLAGS3),
+        ],
+        player_strategy_flags: retail.peek8(WORK_RAM | RETAIL_PSTRATFLAGS),
         map_countdown: retail.peek16(WORK_RAM | RETAIL_MAPCNT),
         forward_velocity: retail.peek16(WORK_RAM | RETAIL_PVIEWVELZ) as i16,
         previous_player_depth: retail.peek16(WORK_RAM | RETAIL_LASTPLAYZ) as i16,
@@ -823,6 +831,13 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
     LevelSnapshot {
         background: native.game.vars.currentbg,
         game_frame: native.game.vars.gameframe,
+        game_flags: native.game.vars.gameflags,
+        player_ship_flags: [
+            native.game.vars.pshipflags,
+            native.game.vars.pshipflags2,
+            native.game.vars.pshipflags3,
+        ],
+        player_strategy_flags: native.game.vars.pstratflags,
         map_countdown: native.game.vars.mapcnt,
         forward_velocity: native.game.vars.pviewvelz,
         previous_player_depth: native.game.world.lastplayz,

@@ -375,6 +375,15 @@ impl Windows {
         };
     }
 
+    /// Begin a fixed-duration fade from the currently presented intensity.
+    pub(crate) fn fade_to_black_over_current(&mut self, rate: MapFadeRate, total_ticks: u8) {
+        let intensity = self
+            .find_mode(WINDOW_MODE_MAPFADE)
+            .map(|slot| self.slots[slot].wm_val)
+            .unwrap_or(0);
+        self.fade_to_black_over(rate, intensity, total_ticks);
+    }
+
     /// C `Windows_FadeFromBlack()` (src/game/windows.c:184).
     pub fn fade_from_black(&mut self, speed: i32) {
         let step: i8 = if speed >= 2 { 2 } else { 1 };

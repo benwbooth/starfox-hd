@@ -1117,10 +1117,15 @@ impl Game {
                 self.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
                 *mapptr = mapptr.wrapping_add(1);
             }
+            InlineCb::Level1_1WaitFade => {
+                if self.hooks.is_map_fade_active() {
+                    return true;
+                }
+                *mapptr = mapptr.wrapping_add(1);
+            }
             InlineCb::LevelScrambleKeepPlayerStrat => {
                 // levels.c:1690.
                 self.vars.pshipflags3 |= PSF3_KEEPPSTRAT;
-                self.vars.meters = 1;
                 *mapptr = mapptr.wrapping_add(1);
             }
             InlineCb::SkillflyGuard { skip_ptr } => {

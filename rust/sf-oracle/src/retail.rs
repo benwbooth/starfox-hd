@@ -152,12 +152,27 @@ pub const RETAIL_DOSTRATS: u32 = 0x02_DAF2;
 /// oracle sample only fully completed logical frames even when one strategy
 /// pass spans several video frames.
 pub const RETAIL_DOSTRATS_COMPLETE: u32 = RETAIL_DOSTRATS + 52;
+/// Retail `build_drawlist_l` entry. At this boundary `showview_l` has filled
+/// and rotated the semantic object draw list, while the downstream display
+/// builder has not yet consumed its count.
+pub const RETAIL_BUILD_DRAWLIST_L: u32 = 0x02_F6D5;
 /// Retail `init_strats_l` — per-frame reset (coll/player-move init). $06:81D5
 /// (JSL target embedded in `dostrats`; built lives in bank $02, retail in $06).
 pub const RETAIL_INIT_STRATS_L: u32 = 0x06_81D5;
 /// Retail `update_objects_l` — per-frame scroll/delta update. $03:ED7E
 /// (JSL target embedded in `dostrats`).
 pub const RETAIL_UPDATE_OBJECTS_L: u32 = 0x03_ED7E;
+/// Retail camera position copied by `marioshowview` before each draw-list
+/// transform. These direct-page fields are recovered from the three
+/// consecutive `sbc` operands in the retail routine.
+pub const RETAIL_VIEW_POSITION_X: u32 = 0x00C1;
+pub const RETAIL_VIEW_POSITION_Y: u32 = 0x00C3;
+pub const RETAIL_VIEW_POSITION_Z: u32 = 0x00C5;
+/// Retail logical sound-effect ring populated by `setport3_l`. The writer and
+/// its 16-byte event array are recovered from the unique enqueue routine in
+/// the Rev 2 cart.
+pub const RETAIL_SOUND_EFFECT_WRITE_CURSOR: u32 = 0x1F4D;
+pub const RETAIL_SOUND_EFFECT_EVENTS: u32 = 0x1F53;
 /// Retail `do_strat_l` — single-object strat dispatch (`JSL`/`RTL`). $1F:D26B
 /// (JSL target embedded in `dostrats`; opcode skeleton matches built $1F:D283).
 /// Copies `al_worldx/y/z,x -> stratobj_posx/y/z`, sets `al1pt=x`, then computes
@@ -288,6 +303,10 @@ pub const RETAIL_XINIDISP1: u32 = 0x7E_45F4;
 /// Retail per-frame strat globals (WRAM), auto-derived from the embedded
 /// operands of `dostrats` + `do_strat_l`. Built-ROM equivalents in parens.
 pub const RETAIL_GAMEFRAME: u32 = 0x15BB; // built $1640
+/// Retail `gameflags` ($14D0). The built-ROM symbol is `$155B`; the retail
+/// gameplay-global block has the same independently verified -$8B shift as
+/// `pshipflags`, `gameframe`, and the player-position mirrors.
+pub const RETAIL_GAMEFLAGS: u32 = 0x14D0;
 /// Elapsed display-frame count consumed by `framescalevecs`.
 pub const RETAIL_FRAMERATE: u32 = 0x14E3;
 pub const RETAIL_ALDEAD: u32 = 0x1248; //    built $12D3

@@ -26,6 +26,8 @@ pub struct Transform {
     cos_table: [f32; 256],
     cam_prev: CameraState,
     cam_curr: CameraState,
+    cam_rotation_prev: [u16; 3],
+    cam_rotation_curr: [u16; 3],
     cam_valid: bool,
     /// Camera state actually used for the most recent view-matrix build
     /// (render-frame interpolated values, SNES conventions). Read-only
@@ -73,36 +75,28 @@ fn fp16_to_float(val: i32) -> f32 {
     val as f32 / 65536.0
 }
 
-// Shortest-path interpolation in the SNES 0-255 angle system, at
-// FRACTIONAL precision. The original returned an int16 (`a8 + (int)(diff*t)`,
-// transform.c:197), so for the common small per-tick delta (|diff| <= 1 unit
-// = 1.4 deg during steady banking/turning) the integer truncation collapsed
-// every intra-tick sample back to `a8`: the camera rotation snapped once per
-// 20 Hz tick while position glided at the render rate — the residual flight
-// "stutter". Returning the un-truncated fractional angle (fed to a
-// table-interpolated sin/cos in `sincos_frac`) lets rotation glide too.
-// Returns the wrapped angle in [0, 256).
-fn lerp_cam_angle_f(from: i16, to: i16, t: f32, big_jump: &mut bool) -> f32 {
-    let a8 = (from & 0xFF) as i32;
-    let b8 = (to & 0xFF) as i32;
-    let mut diff = b8 - a8;
-    if diff > 127 {
-        diff -= 256;
+const FULL_TURN_FINE: i32 = 65_536;
+const HALF_TURN_FINE: i32 = 32_768;
+const CAMERA_CUT_FINE: i32 = 30_720;
+const FINE_ANGLE_SCALE: f32 = 256.0;
+const FINE_ANGLE_SHIFT: u32 = 8;
+
+/// Shortest-path interpolation that preserves the source's complete turn
+/// fraction. The result remains in the renderer's 0-to-256 angle system.
+fn lerp_fine_camera_angle(from: u16, to: u16, t: f32, big_jump: &mut bool) -> f32 {
+    let mut difference = i32::from(to) - i32::from(from);
+    if difference >= HALF_TURN_FINE {
+        difference -= FULL_TURN_FINE;
     }
-    if diff < -128 {
-        diff += 256;
+    if difference < -HALF_TURN_FINE {
+        difference += FULL_TURN_FINE;
     }
-    // Genuine camera cuts are detected ROM-faithfully upstream (viewtype change
-    // -> CameraSnapshot.snap -> snap_camera); this heuristic is only a fallback
-    // for a within-viewtype discontinuity. At 48 (~67 deg/tick) it misfired on
-    // fast CONTINUOUS rotation (the intro tunnel 360-degree follow), snapping
-    // every tick -> the camera "wobbled" at 20 Hz. Only trip near the 180-degree
-    // shortest-path ambiguity, where interpolation direction is genuinely
-    // undefined; everything below that interpolates smoothly.
-    if diff > 120 || diff < -120 {
-        *big_jump = true; // ~169 deg in one tick: treat as a flip/cut
+    if !(-CAMERA_CUT_FINE..=CAMERA_CUT_FINE).contains(&difference) {
+        *big_jump = true;
     }
-    (a8 as f32 + diff as f32 * t).rem_euclid(256.0)
+    (f32::from(from) + difference as f32 * t)
+        .rem_euclid(FULL_TURN_FINE as f32)
+        / FINE_ANGLE_SCALE
 }
 
 // SNES 0-255 angle -> signed [-128, 128) in the same units (float-safe).
@@ -145,6 +139,8 @@ impl Transform {
             cos_table,
             cam_prev: CameraState::default(),
             cam_curr: CameraState::default(),
+            cam_rotation_prev: [0; 3],
+            cam_rotation_curr: [0; 3],
             cam_valid: false,
             cam_render: CameraState::default(),
             cam_render_pitch_f: 0.0,
@@ -233,12 +229,6 @@ impl Transform {
         &self.view
     }
 
-    fn build_view_matrix(&mut self, cx: i32, cy: i32, cz: i32, crx: i16, cry: i16, crz: i16) {
-        // Whole-unit angles resolve to exact table entries in the fractional
-        // path, so this stays bit-identical to the pre-fractional build.
-        self.build_view_matrix_f(cx, cy, cz, crx as f32, cry as f32, crz as f32);
-    }
-
     /// Fractional-angle view build (see `sincos_frac`). `crx/cry/crz` are the
     /// raw SNES camera angles (any range; wrapped internally), pre-negation.
     fn build_view_matrix_f(&mut self, cx: i32, cy: i32, cz: i32, crx: f32, cry: f32, crz: f32) {
@@ -313,27 +303,54 @@ impl Transform {
     /// Mirror of `Transform_SetCamera`: advance the interpolation history
     /// (called exactly once per game tick).
     pub fn set_camera(&mut self, cx: i32, cy: i32, cz: i32, crx: i16, cry: i16, crz: i16) {
+        self.set_camera_fine(
+            cx,
+            cy,
+            cz,
+            [
+                (crx as u16) << FINE_ANGLE_SHIFT,
+                (cry as u16) << FINE_ANGLE_SHIFT,
+                (crz as u16) << FINE_ANGLE_SHIFT,
+            ],
+        );
+    }
+
+    /// Set the camera with the source's complete 16-bit turn fractions.
+    /// Whole angle units remain available through [`CameraState`], while the
+    /// view matrix and interpolation retain the authored low-byte precision.
+    pub fn set_camera_fine(&mut self, cx: i32, cy: i32, cz: i32, rotation: [u16; 3]) {
         if self.cam_valid {
             self.cam_prev = self.cam_curr;
+            self.cam_rotation_prev = self.cam_rotation_curr;
         }
         self.cam_curr = CameraState {
             x: cx,
             y: cy,
             z: cz,
-            rx: crx,
-            ry: cry,
-            rz: crz,
+            rx: (rotation[0] >> FINE_ANGLE_SHIFT) as u8 as i8 as i16,
+            ry: (rotation[1] >> FINE_ANGLE_SHIFT) as u8 as i8 as i16,
+            rz: (rotation[2] >> FINE_ANGLE_SHIFT) as u8 as i8 as i16,
         };
+        self.cam_rotation_curr = rotation;
         if !self.cam_valid {
             self.cam_prev = self.cam_curr;
+            self.cam_rotation_prev = self.cam_rotation_curr;
             self.cam_valid = true;
         }
-        self.build_view_matrix(cx, cy, cz, crx, cry, crz);
+        self.build_view_matrix_f(
+            cx,
+            cy,
+            cz,
+            f32::from(rotation[0]) / FINE_ANGLE_SCALE,
+            f32::from(rotation[1]) / FINE_ANGLE_SCALE,
+            f32::from(rotation[2]) / FINE_ANGLE_SCALE,
+        );
     }
 
     /// Camera cut (viewtype change, fixed-position jump, level load).
     pub fn snap_camera(&mut self) {
         self.cam_prev = self.cam_curr;
+        self.cam_rotation_prev = self.cam_rotation_curr;
     }
 
     /// Mirror of `Transform_SetViewLerp`: rebuild the view matrix from
@@ -345,9 +362,24 @@ impl Transform {
         let alpha = alpha.clamp(0.0, 1.0);
 
         let mut big_jump = false;
-        let rx = lerp_cam_angle_f(self.cam_prev.rx, self.cam_curr.rx, alpha, &mut big_jump);
-        let ry = lerp_cam_angle_f(self.cam_prev.ry, self.cam_curr.ry, alpha, &mut big_jump);
-        let rz = lerp_cam_angle_f(self.cam_prev.rz, self.cam_curr.rz, alpha, &mut big_jump);
+        let rx = lerp_fine_camera_angle(
+            self.cam_rotation_prev[0],
+            self.cam_rotation_curr[0],
+            alpha,
+            &mut big_jump,
+        );
+        let ry = lerp_fine_camera_angle(
+            self.cam_rotation_prev[1],
+            self.cam_rotation_curr[1],
+            alpha,
+            &mut big_jump,
+        );
+        let rz = lerp_fine_camera_angle(
+            self.cam_rotation_prev[2],
+            self.cam_rotation_curr[2],
+            alpha,
+            &mut big_jump,
+        );
 
         let dx = fp16_to_float(self.cam_curr.x.wrapping_sub(self.cam_prev.x));
         let dy = fp16_to_float(self.cam_curr.y.wrapping_sub(self.cam_prev.y));
@@ -363,8 +395,16 @@ impl Transform {
 
         if big_jump {
             self.cam_prev = self.cam_curr;
+            self.cam_rotation_prev = self.cam_rotation_curr;
             let c = self.cam_curr;
-            self.build_view_matrix(c.x, c.y, c.z, c.rx, c.ry, c.rz);
+            self.build_view_matrix_f(
+                c.x,
+                c.y,
+                c.z,
+                f32::from(self.cam_rotation_curr[0]) / FINE_ANGLE_SCALE,
+                f32::from(self.cam_rotation_curr[1]) / FINE_ANGLE_SCALE,
+                f32::from(self.cam_rotation_curr[2]) / FINE_ANGLE_SCALE,
+            );
             return;
         }
 
@@ -575,6 +615,20 @@ mod tests {
             .map(|(m, s)| (m - s).abs())
             .sum();
         assert!(drift > 1e-4, "mid view identical to tick start -> stepping");
+    }
+
+    #[test]
+    fn fine_camera_rotation_preserves_the_authored_low_byte() {
+        const HALF_ANGLE_UNIT: u16 = 128;
+
+        let mut transform = Transform::new();
+        let identity_view = *transform.view();
+        transform.set_camera_fine(0, 0, 0, [0, HALF_ANGLE_UNIT, 0]);
+
+        let (_, yaw) = transform.render_camera_angles_f();
+        assert!((yaw - 0.5).abs() < 1e-6);
+        assert_ne!(*transform.view(), identity_view);
+        assert_eq!(transform.render_camera().ry, 1);
     }
 
     #[test]

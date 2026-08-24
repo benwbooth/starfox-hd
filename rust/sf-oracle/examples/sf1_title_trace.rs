@@ -210,9 +210,9 @@ fn native_video_hash(
     };
     let draw_list: Vec<_> = shell.draw_list().iter().map(to_render_entry).collect();
     let camera = frame.camera;
-    renderer.transform.set_camera(
-        camera.x, camera.y, camera.z, camera.rx, camera.ry, camera.rz,
-    );
+    renderer
+        .transform
+        .set_camera_fine(camera.x, camera.y, camera.z, camera.rotation);
     if camera.snap {
         renderer.transform.snap_camera();
     }

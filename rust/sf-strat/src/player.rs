@@ -21,8 +21,7 @@
 use crate::common::{
     boost_sprite, kill_obj, set_boost_zoff, sf_random, strat_apply_velocity, strat_chase,
     strat_chase_proportional, strat_gen_vecs_3d, strat_make_obj, strat_perc62, strat_perc75,
-    strat_perc87, strat_perc93, strat_remove_obj, strat_spawn_projectile, strat_speed_to, sv,
-    StratRam,
+    strat_perc87, strat_perc93, strat_remove_obj, strat_speed_to, sv, StratRam,
 };
 use crate::enemy_a::{
     add_player_z, addrnd2pos_xy, bigparticleexplode_istrat, copy_pos, fire_nuke,
@@ -36,9 +35,9 @@ use sf_core::pad;
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
-    StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
-    ATZREMOVE, NUMBER_AL,
+    ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME,
+    ACF_WEAPON, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
@@ -505,9 +504,17 @@ fn apply_tunnel_fly_mode(g: &mut Game, idx: u16, mode: TunnelFlyMode) {
 // --- Weapon offsets/constants (STRATEQU.INC) ---
 const PLAYER_W_X: i16 = 33;
 const PLAYER_W_Y: i16 = 13;
-const PLAYER_W_X_SCALED: i16 = PLAYER_W_X >> 2;
-const PLAYER_W_Y_SCALED: i16 = PLAYER_W_Y >> 2;
+const WEAPON_OFFSET_SCALE_SHIFT: u32 = 2;
+const PLAYER_W_X_SCALED: i8 = (PLAYER_W_X >> WEAPON_OFFSET_SCALE_SHIFT) as i8;
+const PLAYER_W_Y_SCALED: i8 = (PLAYER_W_Y >> WEAPON_OFFSET_SCALE_SHIFT) as i8;
+const PLAYER_LASER_FORWARD_OFFSET: i8 = 80;
+const PLAYER_BEAM_FORWARD_OFFSET: i8 = 10;
 const INVIEW_LASER_Y_OFF: i16 = 50;
+const INVIEW_BEAM_Z_OFF: i16 = 200;
+const PLAYER_PROJECTILE_SPEED: u8 = 66;
+const PLAYER_PROJECTILE_LIFETIME: u8 = 10;
+const PLAYER_LASER_ATTACK_POWER: u8 = 2;
+const PLAYER_BEAM_ATTACK_POWER: u8 = 3;
 const PLAYER_BODY_HP: u8 = 40;
 const PLAYER_HITFLASH_FRMS: u8 = 7;
 const SCREENFLASH_BODY_FRMS: u8 = 4;
@@ -2364,101 +2371,231 @@ fn checkarrows_srou(g: &mut Game) {
 // playerfire (strat_player.c:468-606)
 // ============================================================
 
-/// C `spawn_player_projectile` (strat_player.c:468).
-#[allow(clippy::too_many_arguments)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlayerProjectileKind {
+    Laser,
+    Beam,
+}
+
+/// Create one typed player weapon at an Arwing-local muzzle position.
 fn spawn_player_projectile(
     g: &mut Game,
     idx: u16,
-    off_x: i16,
-    off_y: i16,
-    off_z: i16,
-    speed: u8,
-    lifetime: u8,
-    ap: u8,
-    track_in_numplasers: bool,
-    inside_beam_extra_z: bool,
+    off_x: i8,
+    off_y: i8,
+    off_z: i8,
+    kind: PlayerProjectileKind,
 ) -> Option<u16> {
-    let i = idx as usize;
-    let mut dx = off_x;
-    let mut dy = off_y;
-    let mut dz = off_z;
-
+    let owner = g.objs.aliens[idx as usize];
+    let (mut base_x, mut base_y, mut base_z) = (owner.worldx, owner.worldy, owner.worldz);
     if g.vars.player_view_mode == PlayerViewMode::Cockpit {
-        let al = &g.objs.aliens[i];
-        dx = dx.wrapping_add(g.vars.sv_i16(sv::PVIEWPOSX).wrapping_sub(al.worldx));
-        dy = dy.wrapping_add(
-            g.vars
-                .sv_i16(sv::PVIEWPOSY)
-                .wrapping_add(INVIEW_LASER_Y_OFF)
-                .wrapping_sub(al.worldy),
-        );
-        dz = dz.wrapping_add(g.vars.sv_i16(sv::PVIEWPOSZ).wrapping_sub(al.worldz));
-        if inside_beam_extra_z {
-            dz = dz.wrapping_add(200);
+        base_x = g.vars.sv_i16(sv::PVIEWPOSX);
+        base_y = g
+            .vars
+            .sv_i16(sv::PVIEWPOSY)
+            .wrapping_add(INVIEW_LASER_Y_OFF);
+        base_z = g.vars.sv_i16(sv::PVIEWPOSZ);
+        if kind == PlayerProjectileKind::Beam {
+            base_z = base_z.wrapping_add(INVIEW_BEAM_Z_OFF);
         }
     }
 
-    let (rot_x, rot_y) = {
-        let al = &g.objs.aliens[i];
-        (al.rotx, al.roty)
+    // Muzzle coordinates are local to the Arwing. Rotate roll, pitch, and
+    // yaw before restoring the weapon coordinate scale.
+    let (muzzle_x, muzzle_y, muzzle_z) = crate::snes_trig::strat_roffs_full_scaled(
+        owner.rotz,
+        owner.rotx,
+        owner.roty,
+        off_x,
+        off_y,
+        off_z,
+        WEAPON_OFFSET_SCALE_SHIFT,
+    );
+    let (shape, attack_power, initializer, explosion, visual_kind) = match kind {
+        PlayerProjectileKind::Laser => (
+            SHAPE_PLAYER_LASER,
+            PLAYER_LASER_ATTACK_POWER,
+            crate::enemy_a::pelaser_istrat as StrategyFn,
+            crate::enemy_a::pelaser2die_istrat as StrategyFn,
+            ObjectVisualKind::Mesh,
+        ),
+        PlayerProjectileKind::Beam => (
+            crate::enemy_a::SH_PLAYER_BEAM,
+            PLAYER_BEAM_ATTACK_POWER,
+            crate::enemy_a::pbeam_istrat as StrategyFn,
+            crate::enemy_a::playerbeamdie_istrat as StrategyFn,
+            ObjectVisualKind::ScaledSprite,
+        ),
     };
+    let initializer = ea_sid(g, initializer);
+    let collision = ea_sid(g, crate::enemy_a::pelasercollide_istrat);
+    let explosion = ea_sid(g, explosion);
+    let shot = strat_make_obj(g, shape)?;
+    g.objs.active_move_after(shot, idx);
 
-    let shot = strat_spawn_projectile(
-        g,
-        Some(idx),
-        dx,
-        dy,
-        dz,
-        rot_x,
-        rot_y,
-        speed,
-        lifetime,
-        ap,
-        ACF_COLLTYPE1,
-    )?;
+    let projectile = &mut g.objs.aliens[shot as usize];
+    projectile.visual_kind = visual_kind;
+    projectile.type_ = ATMISSILE;
+    projectile.worldx = base_x.wrapping_add(muzzle_x);
+    projectile.worldy = base_y.wrapping_add(muzzle_y);
+    projectile.worldz = base_z.wrapping_add(muzzle_z);
+    projectile.rotx = owner.rotx;
+    projectile.roty = owner.roty;
+    projectile.rotz = 0;
+    projectile.vel = PLAYER_PROJECTILE_SPEED;
+    projectile.count = PLAYER_PROJECTILE_LIFETIME;
+    projectile.hp = 1;
+    projectile.ap = attack_power;
+    projectile.stratptr = Some(initializer);
+    projectile.collstratptr = Some(collision);
+    projectile.expstratptr = Some(explosion);
+    projectile.collflags = ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE1 | ACF_COLLTYPE5;
+    projectile.immuneptr = idx;
+    projectile.sbyte1 = owner.rotx;
+    projectile.sbyte2 = owner.roty;
+    projectile.sbyte3 = owner.vel;
 
-    if track_in_numplasers {
-        // The beam and ordinary laser use distinct retail shapes.
-        let owner_vel = g.objs.aliens[i].vel;
-        let laser = &mut g.objs.aliens[shot as usize];
-        laser.shape = if inside_beam_extra_z {
-            415 // playerbeam
-        } else {
-            SHAPE_PLAYER_LASER
-        };
-        if !inside_beam_extra_z {
-            // Pelaser_Istrat: s_init_anim x,#4. Bit 7 keeps the authored
-            // elaser2_P frame instead of following gameframe.
-            laser.animframe = 0x80 | 4;
-        }
-        laser.sflags &= !ASF_INVISIBLE;
-        laser.sbyte6 |= 1;
-        // ROM `Pelaser_Istrat` (GSTRATS.ASM:2023) builds the bolt velocity from
-        // two stacked vectors: `gen_3dvecs scale 2` (x4) at the bolt's al_vel
-        // PLUS `addgen_3dvecs` at the OWNER's speed (al_sbyte3 = player al_vel).
-        // strat_spawn_projectile only gives it one x1 vector (~ship speed), so
-        // the bolt crept along with the ship and hung at the muzzle as an
-        // end-on dot — "can barely see the lasers". Rebuild it faithfully.
-        laser.vel = 66; // ROM Pelaser al_vel (GSTRATS.ASM:2350)
-        strat_gen_vecs_3d(laser);
-        let (bx, by, bz) = (
-            laser.vx.wrapping_mul(4),
-            laser.vy.wrapping_mul(4),
-            laser.vz.wrapping_mul(4),
-        );
-        laser.vel = owner_vel;
-        strat_gen_vecs_3d(laser);
-        laser.vx = laser.vx.wrapping_add(bx);
-        laser.vy = laser.vy.wrapping_add(by);
-        laser.vz = laser.vz.wrapping_add(bz);
-        laser.vel = 66;
-        let n = g.vars.sv_u8(sv::NUMPLASERS);
-        if n < 0xFF {
-            g.vars.set_sv_u8(sv::NUMPLASERS, n + 1);
-        }
+    let active_lasers = g.vars.sv_u8(sv::NUMPLASERS);
+    if active_lasers < u8::MAX {
+        g.vars.set_sv_u8(sv::NUMPLASERS, active_lasers + 1);
     }
 
     Some(shot)
+}
+
+#[cfg(test)]
+mod player_projectile_tests {
+    use super::*;
+
+    const OWNER_X: i16 = 120;
+    const OWNER_Y: i16 = -45;
+    const OWNER_Z: i16 = 1_000;
+    const UNROTATED_LASER_DISTANCE: i16 = 312;
+    const TEST_ROLL: u8 = 27;
+    const TEST_PITCH: u8 = 19;
+    const TEST_YAW: u8 = 211;
+    const COCKPIT_X: i16 = -300;
+    const COCKPIT_Y: i16 = 75;
+    const COCKPIT_Z: i16 = 2_000;
+    const UNROTATED_BEAM_DISTANCE: i16 = 32;
+
+    fn seeded_player(game: &mut Game, roll: u8, pitch: u8, yaw: u8) -> u16 {
+        let player = strat_spawn_player(game).expect("player object");
+        let ship = &mut game.objs.aliens[player as usize];
+        ship.worldx = OWNER_X;
+        ship.worldy = OWNER_Y;
+        ship.worldz = OWNER_Z;
+        ship.rotz = roll;
+        ship.rotx = pitch;
+        ship.roty = yaw;
+        player
+    }
+
+    #[test]
+    fn straight_laser_uses_the_full_forward_muzzle_distance() {
+        let mut game = Game::new();
+        let player = seeded_player(&mut game, 0, 0, 0);
+
+        let shot = spawn_player_projectile(
+            &mut game,
+            player,
+            0,
+            0,
+            PLAYER_LASER_FORWARD_OFFSET,
+            PlayerProjectileKind::Laser,
+        )
+        .expect("laser object");
+        let laser = game.objs.aliens[shot as usize];
+
+        assert_eq!(laser.worldx, OWNER_X);
+        assert_eq!(laser.worldy, OWNER_Y);
+        assert_eq!(laser.worldz, OWNER_Z + UNROTATED_LASER_DISTANCE);
+        assert_eq!(game.objs.active_indices(), vec![player, shot]);
+    }
+
+    #[test]
+    fn muzzle_offset_follows_all_three_ship_angles() {
+        let mut game = Game::new();
+        let player = seeded_player(&mut game, TEST_ROLL, TEST_PITCH, TEST_YAW);
+        let expected = crate::snes_trig::strat_roffs_full_scaled(
+            TEST_ROLL,
+            TEST_PITCH,
+            TEST_YAW,
+            0,
+            0,
+            PLAYER_LASER_FORWARD_OFFSET,
+            WEAPON_OFFSET_SCALE_SHIFT,
+        );
+
+        let shot = spawn_player_projectile(
+            &mut game,
+            player,
+            0,
+            0,
+            PLAYER_LASER_FORWARD_OFFSET,
+            PlayerProjectileKind::Laser,
+        )
+        .expect("laser object");
+        let laser = game.objs.aliens[shot as usize];
+
+        assert_eq!(laser.worldx, OWNER_X.wrapping_add(expected.0));
+        assert_eq!(laser.worldy, OWNER_Y.wrapping_add(expected.1));
+        assert_eq!(laser.worldz, OWNER_Z.wrapping_add(expected.2));
+    }
+
+    #[test]
+    fn cockpit_origin_is_translated_without_rotating_it() {
+        let mut game = Game::new();
+        let player = seeded_player(&mut game, 0, 0, 0);
+        game.vars.player_view_mode = PlayerViewMode::Cockpit;
+        game.vars.set_sv_i16(sv::PVIEWPOSX, COCKPIT_X);
+        game.vars.set_sv_i16(sv::PVIEWPOSY, COCKPIT_Y);
+        game.vars.set_sv_i16(sv::PVIEWPOSZ, COCKPIT_Z);
+
+        let shot = spawn_player_projectile(
+            &mut game,
+            player,
+            0,
+            0,
+            PLAYER_BEAM_FORWARD_OFFSET,
+            PlayerProjectileKind::Beam,
+        )
+        .expect("beam object");
+        let beam = game.objs.aliens[shot as usize];
+
+        assert_eq!(beam.worldx, COCKPIT_X);
+        assert_eq!(beam.worldy, COCKPIT_Y + INVIEW_LASER_Y_OFF);
+        assert_eq!(
+            beam.worldz,
+            COCKPIT_Z + INVIEW_BEAM_Z_OFF + UNROTATED_BEAM_DISTANCE
+        );
+    }
+
+    #[test]
+    fn fire_delay_zero_crossing_fires_on_the_same_update() {
+        let mut game = Game::new();
+        let player = seeded_player(&mut game, 0, 0, 0);
+        game.vars.pad1 = pad::Y;
+        game.vars.set_sv_i8(sv::STAYBLACK, -1);
+        game.vars.set_sv_u8(sv::DOINGWIPE, 0);
+        game.vars.set_sv_u8(sv::FIRECNT, 3);
+        game.vars.set_sv_u8(sv::FIREDELAY, 1);
+
+        super::playerfire_srou(&mut game, player);
+
+        assert_eq!(game.vars.sv_u8(sv::FIRECNT), 2);
+        assert_eq!(game.vars.sv_u8(sv::FIREDELAY), PLAYER_FIRESPEED);
+        assert_eq!(game.vars.sv_u8(sv::NUMPLASERS), 1);
+        assert_eq!(
+            game
+                .objs
+                .active_indices()
+                .into_iter()
+                .filter(|slot| game.objs.aliens[usize::from(*slot)].shape == SHAPE_PLAYER_LASER)
+                .count(),
+            1
+        );
+    }
 }
 
 /// C `playerfire_srou` (strat_player.c:507).
@@ -2506,8 +2643,11 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
 
     let firedelay = g.vars.sv_u8(sv::FIREDELAY);
     if firedelay > 0 {
-        g.vars.set_sv_u8(sv::FIREDELAY, firedelay - 1);
-        return;
+        let next_delay = firedelay - 1;
+        g.vars.set_sv_u8(sv::FIREDELAY, next_delay);
+        if next_delay != 0 {
+            return;
+        }
     }
     g.vars.set_sv_u8(sv::FIREDELAY, PLAYER_FIRESPEED);
 
@@ -2530,24 +2670,16 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
             idx,
             -PLAYER_W_X_SCALED,
             PLAYER_W_Y_SCALED,
-            10,
-            64,
-            55,
-            4,
-            true,
-            true,
+            PLAYER_BEAM_FORWARD_OFFSET,
+            PlayerProjectileKind::Beam,
         );
         spawn_player_projectile(
             g,
             idx,
             PLAYER_W_X_SCALED,
             PLAYER_W_Y_SCALED,
-            10,
-            64,
-            55,
-            4,
-            true,
-            true,
+            PLAYER_BEAM_FORWARD_OFFSET,
+            PlayerProjectileKind::Beam,
         );
         g.hooks.play_se(0x36);
         return;
@@ -2559,24 +2691,16 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
             idx,
             -PLAYER_W_X_SCALED,
             PLAYER_W_Y_SCALED,
-            80,
-            66,
-            10,
-            2,
-            true,
-            false,
+            PLAYER_LASER_FORWARD_OFFSET,
+            PlayerProjectileKind::Laser,
         );
         spawn_player_projectile(
             g,
             idx,
             PLAYER_W_X_SCALED,
             PLAYER_W_Y_SCALED,
-            80,
-            66,
-            10,
-            2,
-            true,
-            false,
+            PLAYER_LASER_FORWARD_OFFSET,
+            PlayerProjectileKind::Laser,
         );
         g.hooks.play_se(0x34);
         return;
@@ -2584,7 +2708,14 @@ fn playerfire_srou(g: &mut Game, idx: u16) {
 
     // Lifetime 10 = ROM Pelaser `s_set_lifecnt #10` (GSTRATS.ASM:2351). Was
     // 45, so bolts lingered ~2.25s and the 3-shot cap blocked re-firing.
-    spawn_player_projectile(g, idx, 0, 0, 80, 66, 10, 2, true, false);
+    spawn_player_projectile(
+        g,
+        idx,
+        0,
+        0,
+        PLAYER_LASER_FORWARD_OFFSET,
+        PlayerProjectileKind::Laser,
+    );
     // ROM single-fire: `trigse se_laser` (= $35). Port had $60 (wrong SFX =
     // the "wrong noise"). PSTRATS.ASM playerfire_srou. Double=$34, beam=$36,
     // nova=$31 already correct.

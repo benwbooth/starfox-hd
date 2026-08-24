@@ -642,6 +642,10 @@ pub mod wm {
     pub const MAPTRIGGER: u16 = 0x0311;
     pub const NUMENDOK: u16 = 0x0312;
     pub const NUMPLASERS: u16 = 0x0313;
+    /// Typed map operand for the circular-wipe request.
+    pub const CIRCULAR_WIPE: u16 = 0x0317;
+    /// Retail Rev 2 background-swap player-strategy preservation latch.
+    pub const PRESERVE_PLAYER_STRATEGY: u16 = 0x1F05;
     pub const HPOSJMP: u16 = 0x1AE6; // 2 bytes, SYMBOLS.TXT
     pub const BOSSMAXHP: u16 = 0x0316; // 2 bytes
 }

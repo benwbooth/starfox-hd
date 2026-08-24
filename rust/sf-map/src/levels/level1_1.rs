@@ -17,6 +17,10 @@ use crate::consts::*;
 
 /// C `build_level1_1_opening_slice()` + `register_level1_1_inline_callbacks()`.
 pub fn build() -> BuiltLevel {
+    const SCRAMBLE_BLACK_HOLD: i32 = 30;
+    const SCRAMBLE_CIRCULAR_WIPE: i32 = 1;
+    const RELEASE_BLACK_HOLD: i32 = -1;
+
     let mut b = MapBuilder::new();
 
     // Literal LEVEL1_1.ASM slice through MAP1_1B.ASM, including the first
@@ -25,19 +29,23 @@ pub fn build() -> BuiltLevel {
     // then the wrapper jsrs into the shared MAP1_1A submap (appended below).
     b.mapwait(100);
     b.mapjsr("map1_1a");
-    b.qfadedown();
-    b.waitfade();
+    b.fadedown();
+    let fade_wait_ptr = b.mapcode65816_inline();
     b.mapcodejsl_builtin(cb::INITBLACK_L);
     b.mapwait(1);
+    b.setvarb24(wm::M_METERS, 1);
+    b.mapcodejsl_builtin(cb::SETCHARMAPFROMMAP_L);
+    b.setvarb(wm::PRESERVE_PLAYER_STRATEGY, 1);
     b.setbg(BG_1_1C);
     b.initbg();
-    // `wipein mscramwipe_circle`: the typed shell owns the aperture itself,
-    // while this literal marker and authored distance preserve map timing.
+    // `wipein mscramwipe_circle` in literal source order.
     b.mapcodejsl_builtin(cb::INITBLACK_L);
+    b.setvarb(wm::STAYBLACK, SCRAMBLE_BLACK_HOLD);
     b.mapwait(SCRAMBLE_WIPE_DISTANCE);
+    b.setvarw(wm::CIRCULAR_WIPE, SCRAMBLE_CIRCULAR_WIPE);
+    b.setvarb(wm::STAYBLACK, RELEASE_BLACK_HOLD);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
-    let keep_player_strat_ptr = b.mapcode65816_inline();
     b.mapcodejsl_builtin(cb::SET_PLAYER_EXITBASE_L);
 
     b.mapobj(0, 0, 0, 0, sh::MYBASE_1, is::NOCOLL);
@@ -399,10 +407,7 @@ pub fn build() -> BuiltLevel {
     // C `register_level1_1_inline_callbacks()` — registration-call order.
     let mut inline_callbacks = Vec::new();
     for (ptr, cbid) in [
-        (
-            keep_player_strat_ptr,
-            InlineCallback::LevelScrambleKeepPlayerStrat,
-        ),
+        (fade_wait_ptr, InlineCallback::Level1_1WaitFade),
         (
             skillfly_bonus_guard_ptr,
             InlineCallback::Level1_1SkillflyBonusGuard,

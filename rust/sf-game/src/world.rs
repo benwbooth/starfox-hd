@@ -142,6 +142,9 @@ pub enum InlineCb {
     ResetViewPlayerZ,
     /// INTRO/CREDITS post-fade block: disable wobble and player input/fire.
     DisableWobbleAndControl,
+    /// LEVEL1_1 scramble handoff: remain on the inline instruction until the
+    /// typed presentation fade completes, without changing map distance.
+    Level1_1WaitFade,
     /// C `level_scramble_keep_player_strat` (src/map/levels.c:1690).
     LevelScrambleKeepPlayerStrat,
     /// C `level1_1_skillfly_bonus_guard` (src/map/levels.c:1671).
@@ -640,6 +643,7 @@ impl World {
     /// enum (C: the fn pointers passed by `register_*_inline_callbacks`).
     fn inline_from_level(level: &BuiltLevel, id: InlineCallback) -> InlineCb {
         match id {
+            InlineCallback::Level1_1WaitFade => InlineCb::Level1_1WaitFade,
             InlineCallback::LevelScrambleKeepPlayerStrat => InlineCb::LevelScrambleKeepPlayerStrat,
             InlineCallback::Level1_1SkillflyBonusGuard => InlineCb::SkillflyGuard {
                 // C `s_level1_1_skillfly_bonus_skip_ptr` = label lookup at

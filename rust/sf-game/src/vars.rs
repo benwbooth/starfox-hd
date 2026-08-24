@@ -492,6 +492,9 @@ pub struct GameVars {
     pub pshipflags3: u8,
     /// C `g_pstratflags` (PSTF_*).
     pub pstratflags: u8,
+    /// Retail Rev 2 `keeppstrat`: preserve the current player strategy across
+    /// the next background-information request.
+    pub preserve_player_strategy: bool,
     /// C `g_playerflymode` (PFM_*).
     pub playerflymode: u8,
     /// ROM `splayerflymode`, represented as typed player-camera state.
@@ -656,6 +659,7 @@ impl Default for GameVars {
             pshipflags2: 0,
             pshipflags3: 0,
             pstratflags: 0,
+            preserve_player_strategy: false,
             playerflymode: 0,
             player_view_mode: PlayerViewMode::Exterior,
             player_view_options: PlayerViewOptions::Unconfigured,
@@ -933,7 +937,7 @@ impl GameVars {
             0x1F02 => self.shared.boss_flags,
             0x1F03 => self.shared.difficulty_level,
             0x1F04 => self.shared.gas_flags,
-            0x1F05 => self.shared.strategy_flags,
+            0x1F05 => u8::from(self.preserve_player_strategy),
             0x1F06 => low(self.shared.player_score),
             0x1F07 => high(self.shared.player_score),
             0x1F08 => low(self.strategy.special_weapon_count),
@@ -1089,6 +1093,7 @@ impl GameVars {
             0x0311 => self.map.trigger = value,
             0x0312 => self.numendok = value,
             0x0313 => self.strategy.player_laser_count = value,
+            0x0317 => self.circleanim = i16::from(value),
             0x0320 => self.map.variable1 = (self.map.variable1 & 0xFFFF_FF00) | u32::from(value),
             0x0321 => {
                 self.map.variable1 = (self.map.variable1 & 0xFFFF_00FF) | (u32::from(value) << 8)
@@ -1116,7 +1121,7 @@ impl GameVars {
             0x1F03 => self.shared.difficulty_level = value,
             0x1F02 => self.shared.boss_flags = value,
             0x1F04 => self.shared.gas_flags = value,
-            0x1F05 => self.shared.strategy_flags = value,
+            0x1F05 => self.preserve_player_strategy = value != 0,
             0x1F0B => self.shared.specials_dead = value,
             0x1F18 | 0x2302 | 0xF168 => self.shared.enemy_path.roll1 = value,
             0x1F28 => self.shared.special_flash = value,
@@ -1164,6 +1169,7 @@ impl GameVars {
         match encoded {
             0x030E => self.map.player_position_x = value as i16,
             0x0316 => self.bossmaxhp = value,
+            0x0317 => self.circleanim = value as i16,
             0x0320 => self.map.variable1 = (self.map.variable1 & 0xFFFF_0000) | u32::from(value),
             0x0510 => self.strategy.player_turn_rotation = value as i16,
             0x0524 => self.strategy.view_center_y = value as i16,
